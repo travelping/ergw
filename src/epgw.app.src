@@ -1,0 +1,8 @@
+%% -*- erlang -*-
+{application, epgw, [
+    {vsn,"0.1.0"},
+    {description, "3GPP GGSN/PGW"},
+    {applications, [kernel, stdlib, lager, crypto, gtplib]},
+    {mod, {epgw_app, []}},
+    {registered, []}
+]}.
