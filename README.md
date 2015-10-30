@@ -1,5 +1,6 @@
 ePGW - 3GPP GGSN/PGW in Erlang
 ==============================
+[![Build Status](https://travis-ci.org/travelping/epgw.svg?branch=master)](https://travis-ci.org/travelping/epgw)
 
 This is a 3GPP GGSN and PGW implemented in Erlang.
 
