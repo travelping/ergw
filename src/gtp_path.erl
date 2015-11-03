@@ -47,13 +47,7 @@ handle_message(Path, Port, Msg) ->
 %%% Protocol Module API
 %%%===================================================================
 
-send_request(Port, #gtp{version = v1} = Msg, Fun,
-	     #{t3 := T3, n3 := N3, seq_no := SeqNo} = State)
-  when is_function(Fun, 2) ->
-    send_message_timeout(SeqNo, T3, N3, Port,
-			 Msg#gtp{seq_no = SeqNo}, Fun, State#{seq_no := SeqNo + 1});
-
-send_request(Port, #gtp{version = v2} = Msg, Fun,
+send_request(Port, #gtp{} = Msg, Fun,
 	     #{t3 := T3, n3 := N3, seq_no := SeqNo} = State)
   when is_function(Fun, 2) ->
     send_message_timeout(SeqNo, T3, N3, Port,
@@ -162,9 +156,7 @@ fmt_ies(IEs) ->
 		      lager:pr(X, ?MODULE)
 	      end, IEs).
 
-fmt_gtp(#gtp{version = v1, ie = IEs} = Msg) ->
-    lager:pr(Msg#gtp{ie = fmt_ies(IEs)}, ?MODULE);
-fmt_gtp(#gtp{version = v2, ie = IEs} = Msg) ->
+fmt_gtp(#gtp{ie = IEs} = Msg) ->
     lager:pr(Msg#gtp{ie = fmt_ies(IEs)}, ?MODULE).
 
 gtp_v1_msg_type(echo_request)					-> request;
@@ -371,17 +363,8 @@ handle_request(M, Port, Msg = #gtp{version = v2, type = Type, tei = TEI, seq_no 
 	    State0
     end.
 
-handle_response(Msg = #gtp{version = v1, seq_no = SeqNo},
-		#{pending := Pending0} = State) ->
-    case gb_trees:lookup(SeqNo, Pending0) of
-	none -> %% duplicate, drop silently
-	    State;
-	{value, {_T3, _N3, _Port, _ReqMsg, Fun, TRef}} ->
-	    cancel_timer(TRef),
-	    Pending1 = gb_trees:delete(SeqNo, Pending0),
-	    Fun(Msg, State#{pending := Pending1})
-    end;
-handle_response(Msg = #gtp{version = v2, seq_no = SeqNo},
+%% TODO: handle error responses
+handle_response(Msg = #gtp{seq_no = SeqNo},
 		#{pending := Pending0} = State) ->
     case gb_trees:lookup(SeqNo, Pending0) of
 	none -> %% duplicate, drop silently
