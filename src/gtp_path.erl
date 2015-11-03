@@ -47,21 +47,19 @@ handle_message(Path, Port, Msg) ->
 %%% Protocol Module API
 %%%===================================================================
 
-send_request(Port, #gtp_v1{} = Msg, Fun,
+send_request(Port, #gtp{version = v1} = Msg, Fun,
 	     #{t3 := T3, n3 := N3, seq_no := SeqNo} = State)
   when is_function(Fun, 2) ->
     send_message_timeout(SeqNo, T3, N3, Port,
-			 Msg#gtp_v1{seq_no = SeqNo}, Fun, State#{seq_no := SeqNo + 1});
+			 Msg#gtp{seq_no = SeqNo}, Fun, State#{seq_no := SeqNo + 1});
 
-send_request(Port, #gtp_v2{} = Msg, Fun,
+send_request(Port, #gtp{version = v2} = Msg, Fun,
 	     #{t3 := T3, n3 := N3, seq_no := SeqNo} = State)
   when is_function(Fun, 2) ->
     send_message_timeout(SeqNo, T3, N3, Port,
-			 Msg#gtp_v2{seq_no = SeqNo}, Fun, State#{seq_no := SeqNo + 1}).
+			 Msg#gtp{seq_no = SeqNo}, Fun, State#{seq_no := SeqNo + 1}).
 
-send_message(Port, Msg, State)
-  when is_record(Msg, gtp_v1);
-       is_record(Msg, gtp_v2) ->
+send_message(Port, #gtp{} = Msg, State) ->
     final_send_message(Port, Msg, State).
 
 %%%===================================================================
@@ -88,24 +86,24 @@ handle_call(Request, _From, State) ->
     {reply, ok, State}.
 
 handle_cast({Port,
-	     #gtp_v1{type = echo_request, tei = TEI, seq_no = SeqNo, ie = IEs}},
+	     #gtp{version = v1, type = echo_request, tei = TEI, seq_no = SeqNo, ie = IEs}},
 	    State) ->
     %% TODO: handle restart counter
     ResponseIEs = [],
-    Response = #gtp_v1{type = echo_response, tei = TEI, seq_no = SeqNo, ie = ResponseIEs},
+    Response = #gtp{version = v1, type = echo_response, tei = TEI, seq_no = SeqNo, ie = ResponseIEs},
     send_message(Port, Response, State),
     {noreply, State};
 
 handle_cast({Port,
-	     #gtp_v2{type = echo_request, tei = TEI, seq_no = SeqNo, ie = IEs}},
+	     #gtp{version = v2, type = echo_request, tei = TEI, seq_no = SeqNo, ie = IEs}},
 	    State) ->
     %% TODO: handle restart counter
     ResponseIEs = [],
-    Response = #gtp_v2{type = echo_response, tei = TEI, seq_no = SeqNo, ie = ResponseIEs},
+    Response = #gtp{version = v2, type = echo_response, tei = TEI, seq_no = SeqNo, ie = ResponseIEs},
     send_message(Port, Response, State),
     {noreply, State};
 
-handle_cast({Port, #gtp_v1{type = Type} = Msg},
+handle_cast({Port, #gtp{version = v1, type = Type} = Msg},
 	    State0) ->
     State =
 	case gtp_v1_msg_type(Type) of
@@ -114,7 +112,7 @@ handle_cast({Port, #gtp_v1{type = Type} = Msg},
 	end,
     {noreply, State};
 
-handle_cast({Port, #gtp_v2{type = Type} = Msg}, State0) ->
+handle_cast({Port, #gtp{version = v2, type = Type} = Msg}, State0) ->
     lager:debug("~w: handle gtp_v2: ~w, ~p",
 		[?MODULE, Port, fmt_gtp(Msg)]),
     State =
@@ -164,10 +162,10 @@ fmt_ies(IEs) ->
 		      lager:pr(X, ?MODULE)
 	      end, IEs).
 
-fmt_gtp(#gtp_v1{ie = IEs} = Msg) ->
-    lager:pr(Msg#gtp_v1{ie = fmt_ies(IEs)}, ?MODULE);
-fmt_gtp(#gtp_v2{ie = IEs} = Msg) ->
-    lager:pr(Msg#gtp_v2{ie = fmt_ies(IEs)}, ?MODULE).
+fmt_gtp(#gtp{version = v1, ie = IEs} = Msg) ->
+    lager:pr(Msg#gtp{ie = fmt_ies(IEs)}, ?MODULE);
+fmt_gtp(#gtp{version = v2, ie = IEs} = Msg) ->
+    lager:pr(Msg#gtp{ie = fmt_ies(IEs)}, ?MODULE).
 
 gtp_v1_msg_type(echo_request)					-> request;
 gtp_v1_msg_type(echo_response)					-> response;
@@ -315,24 +313,24 @@ gtp_v2_msg_type(mbms_session_stop_request)			-> request;
 gtp_v2_msg_type(mbms_session_stop_response)			-> response;
 gtp_v2_msg_type(_)						-> other.
 
-handle_request(Port, Msg = #gtp_v1{}, #{type := 'gtp-u'} = State) ->
+handle_request(Port, Msg = #gtp{version = v1}, #{type := 'gtp-u'} = State) ->
     handle_request(gtp_v1_u, Port, Msg, State);
-handle_request(Port, Msg = #gtp_v1{}, #{type := 'gtp-c'} = State) ->
+handle_request(Port, Msg = #gtp{version = v1}, #{type := 'gtp-c'} = State) ->
     handle_request(gtp_v1_c, Port, Msg, State);
-handle_request(Port, Msg = #gtp_v2{}, #{type := 'gtp-c'} = State) ->
+handle_request(Port, Msg = #gtp{version = v2}, #{type := 'gtp-c'} = State) ->
     handle_request(gtp_v2_c, Port, Msg, State);
 handle_request(_Port, Msg, #{type := Type} = State) ->
     lager:error("unsupported protocol version ~p:~p", [element(1, Msg), Type]),
     State.
 
-handle_request(M, Port, Msg = #gtp_v1{type = Type, tei = TEI, seq_no = SeqNo, ie = IEs},
+handle_request(M, Port, Msg = #gtp{version = v1, type = Type, tei = TEI, seq_no = SeqNo, ie = IEs},
 	       #{ip := IP} = State0) ->
     lager:debug("GTPv1 ~s(~s:~w): ~p",
 		[gtp_packet:msg_description(Type), inet:ntoa(IP), Port, fmt_gtp(Msg)]),
 
     try M:handle_request(Type, TEI, IEs, State0) of
 	{reply, {RType, RTEI, RIEs}, State1} ->
-	    Response = #gtp_v1{type = RType, tei = RTEI, seq_no = SeqNo, ie = RIEs},
+	    Response = #gtp{version = v1, type = RType, tei = RTEI, seq_no = SeqNo, ie = RIEs},
 	    lager:debug("gtp_v1 response: ~p", [fmt_gtp(Response)]),
 	    send_message(Port, Response, State1);
 
@@ -349,14 +347,14 @@ handle_request(M, Port, Msg = #gtp_v1{type = Type, tei = TEI, seq_no = SeqNo, ie
 	    State0
     end;
 
-handle_request(M, Port, Msg = #gtp_v2{type = Type, tei = TEI, seq_no = SeqNo, ie = IEs},
+handle_request(M, Port, Msg = #gtp{version = v2, type = Type, tei = TEI, seq_no = SeqNo, ie = IEs},
 	       #{ip := IP} = State0) ->
     lager:debug("GTPv2 ~s(~s:~w): ~p",
 		[gtp_packet:msg_description_v2(Type), inet:ntoa(IP), Port, fmt_gtp(Msg)]),
 
     try M:handle_request(Type, TEI, IEs, State0) of
 	{reply, {RType, RTEI, RIEs}, State1} ->
-	    Response = #gtp_v2{type = RType, tei = RTEI, seq_no = SeqNo, ie = RIEs},
+	    Response = #gtp{version = v2, type = RType, tei = RTEI, seq_no = SeqNo, ie = RIEs},
 	    lager:debug("gtp_v2 response: ~p", [fmt_gtp(Response)]),
 	    send_message(Port, Response, State1);
 
@@ -373,7 +371,7 @@ handle_request(M, Port, Msg = #gtp_v2{type = Type, tei = TEI, seq_no = SeqNo, ie
 	    State0
     end.
 
-handle_response(Msg = #gtp_v1{seq_no = SeqNo},
+handle_response(Msg = #gtp{version = v1, seq_no = SeqNo},
 		#{pending := Pending0} = State) ->
     case gb_trees:lookup(SeqNo, Pending0) of
 	none -> %% duplicate, drop silently
@@ -383,7 +381,7 @@ handle_response(Msg = #gtp_v1{seq_no = SeqNo},
 	    Pending1 = gb_trees:delete(SeqNo, Pending0),
 	    Fun(Msg, State#{pending := Pending1})
     end;
-handle_response(Msg = #gtp_v2{seq_no = SeqNo},
+handle_response(Msg = #gtp{version = v2, seq_no = SeqNo},
 		#{pending := Pending0} = State) ->
     case gb_trees:lookup(SeqNo, Pending0) of
 	none -> %% duplicate, drop silently
