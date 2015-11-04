@@ -8,7 +8,8 @@
 -module(gtp_c_lib).
 
 -export([ip2bin/1, bin2ip/1]).
--export([alloc_tei/0, enter_tei/3, lookup_tei/2, remove_tei/2]).
+-export([alloc_tei/0]).
+-export([fmt_gtp/1]).
 
 -include_lib("gtplib/include/gtp_packet.hrl").
 
@@ -41,30 +42,23 @@ alloc_tei(0) ->
     {error, no_tei};
 alloc_tei(Cnt) ->
     TEI = erlang:unique_integer([positive]) rem 4294967296,    %% 32bit maxint + 1
-    case gtp_path_reg:register_tei(TEI) of
+    case gtp_context_reg:register(TEI) of
 	ok ->
 	    {ok, TEI};
 	_Other ->
 	    alloc_tei(Cnt - 1)
     end.
 
-enter_tei(TEI, TEInfo, #{tunnel_endpoints := TEReg0} = State) ->
-    TEReg1 = gb_trees:enter(TEI, TEInfo, TEReg0),
-    State#{tunnel_endpoints := TEReg1}.
+%%%===================================================================
+%%% Helper functions
+%%%===================================================================
 
-lookup_tei(TEI, #{tunnel_endpoints := TEReg} = _State) ->
-    case gb_trees:lookup(TEI, TEReg) of
-	{value, Value} ->
-	    {ok, Value};
-	_ ->
-	    {error, not_found}
-    end;
-lookup_tei(_TEI, _State) ->
-    {error, not_found}.
+fmt_ies(IEs) ->
+    lists:map(fun(#v2_bearer_context{group = Group}) ->
+		      lager:pr(#v2_bearer_context{group = fmt_ies(Group)}, ?MODULE);
+		 (X) ->
+		      lager:pr(X, ?MODULE)
+	      end, IEs).
 
-remove_tei(TEI, #{tunnel_endpoints := TEReg0} = State) ->
-    TEReg1 = gb_trees:delete_any(TEI, TEReg0),
-    gtp_path_reg:unregister_tei(TEI),
-    {ok, State#{tunnel_endpoints := TEReg1}};
-remove_tei(_TEI, State) ->
-    {ok, State}.
+fmt_gtp(#gtp{ie = IEs} = Msg) ->
+    lager:pr(Msg#gtp{ie = fmt_ies(IEs)}, ?MODULE).

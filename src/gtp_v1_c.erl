@@ -7,94 +7,16 @@
 
 -module(gtp_v1_c).
 
--compile({parse_transform, do}).
+-behaviour(gtp_protocol).
 
--export([handle_request/4]).
+%% API
+-export([gtp_msg_type/1, build_response/1]).
 
 -include_lib("gtplib/include/gtp_packet.hrl").
 
 %%====================================================================
 %% API
 %%====================================================================
-
-handle_request(create_pdp_context_request, _, IEs,
-	       #{local_ip := LocalIP, handler := Handler} = State0) ->
-    [SGSNCntlIP_IE,SGSNDataIP_IE | _] = collect_ies(gsn_address, IEs),
-    SGSNCntlIP = gtp_c_lib:bin2ip(SGSNCntlIP_IE#gsn_address.address),
-    SGSNDataIP = gtp_c_lib:bin2ip(SGSNDataIP_IE#gsn_address.address),
-
-    #tunnel_endpoint_identifier_data_i{tei = SGSNDataTEI} =
-	lists:keyfind(tunnel_endpoint_identifier_data_i, 1, IEs),
-    #tunnel_endpoint_identifier_control_plane{tei = SGSNCntlTEI} =
-	lists:keyfind(tunnel_endpoint_identifier_control_plane, 1, IEs),
-
-    EUA = lists:keyfind(end_user_address, 1, IEs),
-    {ReqMSv4, ReqMSv6} = pdp_alloc(EUA),
-
-    {ok, LocalTEI} = gtp_c_lib:alloc_tei(),
-    {ok, MSv4, MSv6} = pdp_alloc_ip(LocalTEI, ReqMSv4, ReqMSv6, State0),
-    Context = #{sgsn_control_ip  => SGSNCntlIP,
-		sgsn_control_tei => SGSNCntlTEI,
-		sgsn_data_ip     => SGSNDataIP,
-		sgsn_data_tei    => SGSNDataTEI,
-		ms_v4            => MSv4,
-		ms_v6            => MSv6},
-    State1 = gtp_c_lib:enter_tei(LocalTEI, Context, State0),
-
-    ok = gtp:create_pdp_context(Handler, 1, SGSNDataIP, MSv4, LocalTEI, SGSNDataTEI),
-
-    RecoveryIE = handle_sgsn(IEs, State1),
-    ResponseIEs = [#cause{value = request_accepted},
-		   #reordering_required{required = no},
-		   #tunnel_endpoint_identifier_data_i{tei = LocalTEI},
-		   #tunnel_endpoint_identifier_control_plane{tei = LocalTEI},
-		   #charging_id{id = <<0,0,0,1>>},
-		   encode_eua(MSv4, MSv6),
-		   #protocol_configuration_options{config = {0,
-							     [{ipcp,'CP-Configure-Ack',0,
-                                                               [{ms_dns1,<<8,8,8,8>>},{ms_dns2,<<0,0,0,0>>}]}]}},
-		   #gsn_address{address = gtp_c_lib:ip2bin(LocalIP)},   %% for Control Plane
-		   #gsn_address{address = gtp_c_lib:ip2bin(LocalIP)},   %% for User Traffic
-		   #quality_of_service_profile{priority = 0,
-					       data = <<11,146,31>>}
-		   | RecoveryIE],
-    Response = {create_pdp_context_response, SGSNCntlTEI, ResponseIEs},
-    {reply, Response, State1};
-
-handle_request(delete_pdp_context_request, TEI, _IEs,
-	       #{handler := Handler} = State0) ->
-    Result =
-	do([error_m ||
-	       #{sgsn_data_ip  := SGSNDataIP,
-		 sgsn_data_tei := SGSNDataTEI,
-		 ms_v4         := MSv4}
-		   <- gtp_c_lib:lookup_tei(TEI, State0),
-	       gtp:delete_pdp_context(Handler, 1, SGSNDataIP, MSv4, TEI, SGSNDataTEI),
-	       State1 <- gtp_c_lib:remove_tei(TEI, State0),
-	       return({TEI, request_accepted, State1})
-	   ]),
-
-    case Result of
-	{ok, {ReplyTEI, ReplyIEs, State}} ->
-	    Response = {delete_pdp_context_response, ReplyTEI, map_reply_ies(ReplyIEs)},
-	    {reply, Response, State};
-
-	{error, {ReplyTEI, ReplyIEs}} ->
-	    Response = {delete_pdp_context_response, ReplyTEI, map_reply_ies(ReplyIEs)},
-	    {reply, Response, State0};
-
-	{error, ReplyIEs} ->
-	    Response = {delete_pdp_context_response, 0, map_reply_ies(ReplyIEs)},
-	    {reply, Response, State0}
-    end;
-
-handle_request(_Type, _TEI, _IEs, State) ->
-    {noreply, State}.
-
-%%%===================================================================
-%%% Internal functions
-%%%===================================================================
-
 handle_sgsn(IEs, _State) ->
     case lists:keyfind(recovery, 1, IEs) of
         #recovery{restart_counter = _RCnt} ->
@@ -104,58 +26,81 @@ handle_sgsn(IEs, _State) ->
             []
     end.
 
-pdp_alloc(#end_user_address{pdp_type_organization = 1,
-			    pdp_type_number = 16#21,
-			    pdp_address = Address}) ->
-    IP4 = case Address of
-	      << >> ->
-		  {0,0,0,0};
-	      <<_:4/bytes>> ->
-		  gtp_c_lib:bin2ip(Address)
-	  end,
-    {IP4, undefined};
+build_response({Type, TEI, IEs}) ->
+    #gtp{version = v1, type = Type, tei = TEI, ie = map_reply_ies(IEs)};
+build_response({Type, IEs}) ->
+    #gtp{version = v1, type = Type, tei = 0, ie = map_reply_ies(IEs)}.
 
-pdp_alloc(#end_user_address{pdp_type_organization = 1,
-			    pdp_type_number = 16#57,
-			    pdp_address = Address}) ->
-    IP6 = case Address of
-	      << >> ->
-		  {{0,0,0,0,0,0,0,0},0};
-	      <<_:16/bytes>> ->
-		  {gtp_c_lib:bin2ip(Address),128}
-	  end,
-    {undefined, IP6};
-pdp_alloc(#end_user_address{pdp_type_organization = 1,
-			    pdp_type_number = 16#8D,
-			    pdp_address = Address}) ->
-    case Address of
-	<< IP4:4/bytes, IP6:16/bytes >> ->
-	    {gtp_c_lib:bin2ip(IP4), {gtp_c_lib:bin2ip(IP6), 128}};
-	<< IP6:16/bytes >> ->
-	    {{0,0,0,0}, {gtp_c_lib:bin2ip(IP6), 128}};
-	<< IP4:4/bytes >> ->
-	    {gtp_c_lib:bin2ip(IP4), {{0,0,0,0,0,0,0,0},0}};
- 	<<  >> ->
-	    {{0,0,0,0}, {{0,0,0,0,0,0,0,0},0}}
-   end;
+gtp_msg_type(echo_request)					-> request;
+gtp_msg_type(echo_response)					-> response;
+gtp_msg_type(version_not_supported)				-> other;
+gtp_msg_type(node_alive_request)				-> request;
+gtp_msg_type(node_alive_response)				-> response;
+gtp_msg_type(redirection_request)				-> request;
+gtp_msg_type(redirection_response)				-> response;
+gtp_msg_type(create_pdp_context_request)			-> request;
+gtp_msg_type(create_pdp_context_response)			-> response;
+gtp_msg_type(update_pdp_context_request)			-> request;
+gtp_msg_type(update_pdp_context_response)			-> response;
+gtp_msg_type(delete_pdp_context_request)			-> request;
+gtp_msg_type(delete_pdp_context_response)			-> response;
+gtp_msg_type(initiate_pdp_context_activation_request)		-> request;
+gtp_msg_type(initiate_pdp_context_activation_response)		-> response;
+gtp_msg_type(error_indication)					-> other;
+gtp_msg_type(pdu_notification_request)				-> request;
+gtp_msg_type(pdu_notification_response)				-> response;
+gtp_msg_type(pdu_notification_reject_request)			-> request;
+gtp_msg_type(pdu_notification_reject_response)			-> response;
+gtp_msg_type(supported_extension_headers_notification)		-> other;
+gtp_msg_type(send_routeing_information_for_gprs_request)	-> request;
+gtp_msg_type(send_routeing_information_for_gprs_response)	-> response;
+gtp_msg_type(failure_report_request)				-> request;
+gtp_msg_type(failure_report_response)				-> response;
+gtp_msg_type(note_ms_gprs_present_request)			-> request;
+gtp_msg_type(note_ms_gprs_present_response)			-> response;
+gtp_msg_type(identification_request)				-> request;
+gtp_msg_type(identification_response)				-> response;
+gtp_msg_type(sgsn_context_request)				-> request;
+gtp_msg_type(sgsn_context_response)				-> response;
+gtp_msg_type(sgsn_context_acknowledge)				-> other;
+gtp_msg_type(forward_relocation_request)			-> request;
+gtp_msg_type(forward_relocation_response)			-> response;
+gtp_msg_type(forward_relocation_complete)			-> other;
+gtp_msg_type(relocation_cancel_request)				-> request;
+gtp_msg_type(relocation_cancel_response)			-> response;
+gtp_msg_type(forward_srns_context)				-> other;
+gtp_msg_type(forward_relocation_complete_acknowledge)		-> other;
+gtp_msg_type(forward_srns_context_acknowledge)			-> other;
+gtp_msg_type(ran_information_relay)				-> other;
+gtp_msg_type(mbms_notification_request)				-> request;
+gtp_msg_type(mbms_notification_response)			-> response;
+gtp_msg_type(mbms_notification_reject_request)			-> request;
+gtp_msg_type(mbms_notification_reject_response)			-> response;
+gtp_msg_type(create_mbms_context_request)			-> request;
+gtp_msg_type(create_mbms_context_response)			-> response;
+gtp_msg_type(update_mbms_context_request)			-> request;
+gtp_msg_type(update_mbms_context_response)			-> response;
+gtp_msg_type(delete_mbms_context_request)			-> request;
+gtp_msg_type(delete_mbms_context_response)			-> response;
+gtp_msg_type(mbms_registration_request)				-> request;
+gtp_msg_type(mbms_registration_response)			-> response;
+gtp_msg_type(mbms_de_registration_request)			-> request;
+gtp_msg_type(mbms_de_registration_response)			-> response;
+gtp_msg_type(mbms_session_start_request)			-> request;
+gtp_msg_type(mbms_session_start_response)			-> response;
+gtp_msg_type(mbms_session_stop_request)				-> request;
+gtp_msg_type(mbms_session_stop_response)			-> response;
+gtp_msg_type(mbms_session_update_request)			-> request;
+gtp_msg_type(mbms_session_update_response)			-> response;
+gtp_msg_type(ms_info_change_notification_request)		-> request;
+gtp_msg_type(ms_info_change_notification_response)		-> response;
+gtp_msg_type(data_record_transfer_request)			-> request;
+gtp_msg_type(data_record_transfer_response)			-> response;
+gtp_msg_type(_)							-> other.
 
-pdp_alloc(_) ->
-    {undefined, undefined}.
-
-encode_eua(IPv4, undefined) ->
-    encode_eua(1, 16#21, gtp_c_lib:ip2bin(IPv4), <<>>);
-encode_eua(undefined, {IPv6,_}) ->
-    encode_eua(1, 16#57, <<>>, gtp_c_lib:ip2bin(IPv6));
-encode_eua(IPv4, {IPv6,_}) ->
-    encode_eua(1, 16#8D, gtp_c_lib:ip2bin(IPv4), gtp_c_lib:ip2bin(IPv6)).
-
-encode_eua(Org, Number, IPv4, IPv6) ->
-    #end_user_address{pdp_type_organization = Org,
-		      pdp_type_number = Number,
-		      pdp_address = <<IPv4/binary, IPv6/binary >>}.
-
-pdp_alloc_ip(TEI, IPv4, IPv6, #{handler := Handler}) ->
-    gtp:allocate_pdp_ip(Handler, TEI, IPv4, IPv6).
+%%%===================================================================
+%%% Internal functions
+%%%===================================================================
 
 map_reply_ies(IEs) when is_list(IEs) ->
     [map_reply_ie(IE) || IE <- IEs];
@@ -169,6 +114,3 @@ map_reply_ie(not_found) ->
 map_reply_ie(IE)
   when is_tuple(IE) ->
     IE.
-
-collect_ies(Type, IEs) ->
-    lists:filter(fun(X) -> element(1, X) == Type end, IEs).

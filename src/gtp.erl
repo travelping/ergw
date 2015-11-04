@@ -146,9 +146,45 @@ code_change(_OldVsn, State, _Extra) ->
 
 handle_message(Type, IP, Port, Data, #state{ip = LocalIP} = State) ->
     Msg = gtp_packet:decode(Data),
-    Peer = gtp_path:get(Type, IP, self(), LocalIP),
-    gtp_path:handle_message(Peer, Port, Msg),
+    handle_message_1(Type, IP, Port, LocalIP, Msg),
     {noreply, State}.
+
+handle_message_1(Type, IP, Port, _LocalIP,
+	       #gtp{type = echo_request} = Msg) ->
+    handle_echo_request(Type, IP, Port, self(), Msg);
+
+handle_message_1(Type, IP, Port, LocalIP,
+	       #gtp{version = Version, type = MsgType, tei = 0} = Msg)
+  when (Version == v1 andalso MsgType == create_pdp_context_request) orelse
+       (Version == v1 andalso MsgType == create_session_request) ->
+    gtp_context:new(Type, IP, Port, self(), LocalIP, Msg);
+
+handle_message_1(_Type, IP, Port, _LocalIP,
+	       #gtp{tei = TEI} = Msg) ->
+    case gtp_context:lookup(TEI) of
+	Context when is_pid(Context) ->
+	    gtp_context:handle_message(Context, IP, Port, Msg);
+	_ ->
+	    ok
+    end.
+
+handle_echo_request(Type, IP, Port, Handler,
+		    #gtp{version = Version, type = echo_request, tei = TEI, seq_no = SeqNo} = Msg) ->
+    %% TODO: handle restart counter
+    ResponseIEs = [],
+    Response = #gtp{version = Version, type = echo_response, tei = TEI, seq_no = SeqNo, ie = ResponseIEs},
+
+    Data = gtp_packet:encode(Msg),
+    lager:debug("gtp send ~s to ~w:~w: ~p, ~p", [Type, IP, Port, Response, Data]),
+    send(Handler, Type, IP, Port, Data),
+
+    case gtp_path:get(Type, IP) of
+	Path when is_pid(Path) ->
+	    gen_server:cast(Path, echo_request);
+	_ ->
+	    ok
+    end,
+    ok.
 
 alloc_ipv4(_TEI, undefined, _State) ->
     undefined;

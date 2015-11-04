@@ -5,7 +5,7 @@
 %% as published by the Free Software Foundation; either version
 %% 2 of the License, or (at your option) any later version.
 
--module(gtp_path_reg).
+-module(gtp_context_reg).
 
 -behaviour(regine_server).
 
@@ -56,9 +56,11 @@ init([]) ->
     ets:new(?SERVER, [ordered_set, named_table, public, {keypos, 1}]),
     {ok, #state{}}.
 
-handle_register(Pid, Key, _Value, State) ->
-    ets:insert(?SERVER, {Key, Pid}),
-    {ok, [Key], State}.
+handle_register(Pid, TEI, _Value, State) ->
+    case ets:insert_new(?SERVER, {TEI, Pid}) of
+	true ->  {ok, [TEI], State};
+	false -> {error, duplicate}
+    end.
 
 handle_unregister(Key, _Value, State) ->
     unregister(Key, State).
