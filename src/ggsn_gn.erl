@@ -12,13 +12,14 @@
 -export([handle_request/2]).
 
 -include_lib("gtplib/include/gtp_packet.hrl").
+-include("include/epgw.hrl").
 
 %%====================================================================
 %% API
 %%====================================================================
 
 handle_request(#gtp{type = create_pdp_context_request, ie = IEs},
-	       #{tei := LocalTEI, local_ip := LocalIP, handler := Handler} = State0) ->
+	       #{tei := LocalTEI, gtp_port := GtpPort} = State0) ->
     [RemoteCntlIP_IE,RemoteDataIP_IE | _] = collect_ies(gsn_address, IEs),
     RemoteCntlIP = gtp_c_lib:bin2ip(RemoteCntlIP_IE#gsn_address.address),
     RemoteDataIP = gtp_c_lib:bin2ip(RemoteDataIP_IE#gsn_address.address),
@@ -34,13 +35,18 @@ handle_request(#gtp{type = create_pdp_context_request, ie = IEs},
     {ok, MSv4, MSv6} = pdp_alloc_ip(LocalTEI, ReqMSv4, ReqMSv6, State0),
     Context = #{control_ip  => RemoteCntlIP,
 		control_tei => RemoteCntlTEI,
+		data_tunnel => gtp_v1_u,
 		data_ip     => RemoteDataIP,
 		data_tei    => RemoteDataTEI,
 		ms_v4       => MSv4,
 		ms_v6       => MSv6},
     State1 = State0#{context => Context},
 
-    ok = gtp:create_pdp_context(Handler, 1, RemoteDataIP, MSv4, LocalTEI, RemoteDataTEI),
+    {ok, NewGTPcPeer, _NewGTPuPeer} = gtp_v1_c:handle_sgsn(IEs, Context, State1),
+    lager:debug("New: ~p, ~p", [NewGTPcPeer, _NewGTPuPeer]),
+    gtp_context:setup(Context, State1),
+
+    #gtp_port{ip = LocalIP} = GtpPort,
 
     ResponseIEs = [#cause{value = request_accepted},
 		   #reordering_required{required = no},
@@ -54,18 +60,17 @@ handle_request(#gtp{type = create_pdp_context_request, ie = IEs},
 		   #gsn_address{address = gtp_c_lib:ip2bin(LocalIP)},   %% for Control Plane
 		   #gsn_address{address = gtp_c_lib:ip2bin(LocalIP)},   %% for User Traffic
 		   #quality_of_service_profile{priority = 0,
-					       data = <<11,146,31>>}],
+					       data = <<11,146,31>>}
+		  | gtp_v1_c:build_recovery(GtpPort, NewGTPcPeer)],
     Reply = {create_pdp_context_response, RemoteCntlTEI, ResponseIEs},
     {reply, Reply, State1};
 
-handle_request(#gtp{type = delete_pdp_context_request, tei = LocalTEI, ie = _IEs},
-	       #{handler := Handler, context := Context} = State) ->
-    #{control_tei := RemoteCntlTEI,
-      data_ip     := RemoteDataIP,
-      data_tei    := RemoteDataTEI,
-      ms_v4       := MSv4} = Context,
+handle_request(#gtp{type = delete_pdp_context_request, ie = _IEs},
+	       #{context := Context} = State) ->
+    #{control_tei := RemoteCntlTEI} = Context,
 
-    ok = gtp:delete_pdp_context(Handler, 1, RemoteDataIP, MSv4, LocalTEI, RemoteDataTEI),
+    gtp_context:teardown(Context, State),
+
     pdp_release_ip(Context, State),
     Reply = {delete_pdp_context_response, RemoteCntlTEI, request_accepted},
     {stop, Reply, State};
@@ -127,11 +132,11 @@ encode_eua(Org, Number, IPv4, IPv6) ->
 		      pdp_type_number = Number,
 		      pdp_address = <<IPv4/binary, IPv6/binary >>}.
 
-pdp_alloc_ip(TEI, IPv4, IPv6, #{handler := Handler}) ->
-    gtp:allocate_pdp_ip(Handler, TEI, IPv4, IPv6).
+pdp_alloc_ip(TEI, IPv4, IPv6, #{gtp_port := GtpPort}) ->
+    gtp:allocate_pdp_ip(GtpPort, TEI, IPv4, IPv6).
 
-pdp_release_ip(#{ms_v4 := MSv4, ms_v6 := MSv6}, #{handler := Handler}) ->
-    gtp:release_pdp_ip(Handler, MSv4, MSv6).
+pdp_release_ip(#{ms_v4 := MSv4, ms_v6 := MSv6}, #{gtp_port := GtpPort}) ->
+    gtp:release_pdp_ip(GtpPort, MSv4, MSv6).
 
 collect_ies(Type, IEs) ->
     lists:filter(fun(X) -> element(1, X) == Type end, IEs).

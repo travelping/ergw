@@ -10,7 +10,7 @@
 -behaviour(supervisor).
 
 %% API
--export([start_link/0, new/5, new/6]).
+-export([start_link/0, new/3, new/4]).
 
 %% Supervisor callbacks
 -export([init/1]).
@@ -24,11 +24,11 @@
 start_link() ->
     supervisor:start_link({local, ?SERVER}, ?MODULE, []).
 
-new(Type, Handler, LocalIP, Protocol, Interface) ->
-    new(Type, Handler, LocalIP, Protocol, Interface, []).
+new(GtpPort, Protocol, Interface) ->
+    new(GtpPort, Protocol, Interface, []).
 
-new(Type, Handler, LocalIP, Protocol, Interface, Opts) ->
-    supervisor:start_child(?SERVER, [Type, Handler, LocalIP, Protocol, Interface, Opts]).
+new(GtpPort, Protocol, Interface, Opts) ->
+    supervisor:start_child(?SERVER, [GtpPort, Protocol, Interface, Opts]).
 
 %% ===================================================================
 %% Supervisor callbacks

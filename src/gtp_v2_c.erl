@@ -10,21 +10,40 @@
 -behaviour(gtp_protocol).
 
 %% API
--export([gtp_msg_type/1, build_response/1]).
+-export([gtp_msg_type/1,
+	 build_response/1,
+	 build_echo_request/0,
+	 type/0, port/0]).
+
+%% support functions
+-export([handle_sgsn/3, build_recovery/2]).
 
 -include_lib("gtplib/include/gtp_packet.hrl").
+-include("include/epgw.hrl").
 
 %%====================================================================
 %% API
 %%====================================================================
-handle_sgsn(IEs, _State) ->
-    case lists:keyfind(recovery, 1, IEs) of
-        #recovery{restart_counter = _RCnt} ->
-            %% TODO: register SGSN with restart_counter and handle SGSN restart
-            [];
-        _ ->
-            []
-    end.
+handle_sgsn(IEs, Context, State) ->
+    RecoveryCount =
+	case lists:keyfind(v2_recovery, 1, IEs) of
+	    #v2_recovery{restart_counter = RCnt} ->
+		RCnt;
+	    _ ->
+		undefined
+	end,
+    gtp_context:handle_recovery(RecoveryCount, Context, State).
+
+build_recovery(#gtp_port{restart_counter = RCnt}, true) ->
+    [#v2_recovery{restart_counter = RCnt}];
+build_recovery(_, _) ->
+    [].
+
+type() -> 'gtp-c'.
+port() -> ?GTP2c_PORT.
+
+build_echo_request() ->
+    #gtp{version = v2, type = echo_request, tei = 0, ie = []}.
 
 build_response({Type, TEI, IEs}) ->
     #gtp{version = v2, type = Type, tei = TEI, ie = map_reply_ies(IEs)};

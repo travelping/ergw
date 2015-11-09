@@ -7,16 +7,31 @@
 
 -module(gtp_v1_u).
 
--export([handle_request/4]).
+-behaviour(gtp_protocol).
 
--include_lib("gtplib/include/gtp_packet.hrl").
+%% API
+-export([gtp_msg_type/1,
+	 build_response/1,
+	 build_echo_request/0,
+	 type/0, port/0]).
+
+-include("include/epgw.hrl").
 
 %%====================================================================
 %% API
 %%====================================================================
 
-handle_request(_Type, _TEI, _IEs, State) ->
-    {noreply, State}.
+type() -> 'gtp-u'.
+port() -> ?GTP1u_PORT.
+
+build_echo_request() ->
+    gtp_v1_c:build_echo_request().
+
+build_response(Response) ->
+    gtp_v1_c:build_response(Response).
+
+gtp_msg_type(Type) ->
+    gtp_v1_c:gtp_msg_type(Type).
 
 %%%===================================================================
 %%% Internal functions

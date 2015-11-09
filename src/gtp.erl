@@ -11,6 +11,7 @@
 
 %% API
 -export([new/2, send/5,
+	 get_restart_counter/1,
 	 create_pdp_context/6,
 	 delete_pdp_context/6,
 	 allocate_pdp_ip/4,
@@ -22,12 +23,9 @@
 	 terminate/2, code_change/3]).
 
 -include_lib("gtplib/include/gtp_packet.hrl").
+-include("include/epgw.hrl").
 
--define(GTP0_PORT,	3386).
--define(GTP1c_PORT,	2123).
--define(GTP1u_PORT,	2152).
-
--record(state, {ip, gtp0, gtp1c, gtp1u, gtp_dev, restart_counter, ip4_pools, ip6_pools}).
+-record(state, {gtp_port, ip, gtp0, gtp1c, gtp1u, gtp_dev, restart_counter, ip4_pools, ip6_pools}).
 
 %%====================================================================
 %% API
@@ -47,20 +45,33 @@ test() ->
 new(IP, Opts) ->
     gen_server:start_link(?MODULE, [IP, Opts], []).
 
-send(Handler, Type, IP, Port, Data) ->
-    gen_server:cast(Handler, {send, Type, IP, Port, Data}).
+send(GtpPort, Type, IP, Port, Data) ->
+    cast(GtpPort, {send, Type, IP, Port, Data}).
 
-create_pdp_context(Handler, Version, IP, MS, LocalTEI, RemoteTEI) ->
-    gen_server:call(Handler, {create_pdp_context, Version, IP, MS, LocalTEI, RemoteTEI}).
+get_restart_counter(GtpPort) ->
+    call(GtpPort, get_restart_counter).
 
-delete_pdp_context(Handler, Version, IP, MS, LocalTEI, RemoteTEI) ->
-    gen_server:call(Handler, {delete_pdp_context, Version, IP, MS, LocalTEI, RemoteTEI}).
+create_pdp_context(GtpPort, Version, IP, MS, LocalTEI, RemoteTEI) ->
+    call(GtpPort, {create_pdp_context, Version, IP, MS, LocalTEI, RemoteTEI}).
 
-allocate_pdp_ip(Handler, TEI, IPv4, IPv6) ->
-    gen_server:call(Handler, {allocate_pdp_ip, TEI, IPv4, IPv6}).
+delete_pdp_context(GtpPort, Version, IP, MS, LocalTEI, RemoteTEI) ->
+    call(GtpPort, {delete_pdp_context, Version, IP, MS, LocalTEI, RemoteTEI}).
 
-release_pdp_ip(Handler, IPv4, IPv6) ->
-    gen_server:call(Handler, {release_pdp_ip, IPv4, IPv6}).
+allocate_pdp_ip(GtpPort, TEI, IPv4, IPv6) ->
+    call(GtpPort, {allocate_pdp_ip, TEI, IPv4, IPv6}).
+
+release_pdp_ip(GtpPort, IPv4, IPv6) ->
+    call(GtpPort, {release_pdp_ip, IPv4, IPv6}).
+
+%%%===================================================================
+%%% call/cast wrapper for gtp_port
+%%%===================================================================
+
+cast(#gtp_port{pid = Handler}, Request) ->
+    gen_server:cast(Handler, Request).
+
+call(#gtp_port{pid = Handler}, Request) ->
+    gen_server:call(Handler, Request).
 
 %%%===================================================================
 %%% gen_server callbacks
@@ -84,9 +95,13 @@ init([IP, Opts]) ->
     {ok, GTPDev} = gtp_kernel:dev_create("gtp0", FD0, FD1u, Opts),
     RCnt = gtp_config:inc_restart_counter(),
 
-    {ok, #state{ip = IP, gtp0 = GTP0, gtp1c = GTP1c, gtp1u = GTP1u,
+    {ok, #state{gtp_port = #gtp_port{pid = self(), ip = IP, restart_counter = RCnt},
+		ip = IP, gtp0 = GTP0, gtp1c = GTP1c, gtp1u = GTP1u,
 		gtp_dev = GTPDev, restart_counter = RCnt,
 		ip4_pools = IPv4pools, ip6_pools = IPv6pools}}.
+
+handle_call(get_restart_counter, _From, #state{restart_counter = RCnt} = State) ->
+    {reply, RCnt, State};
 
 handle_call({create_pdp_context, Version, IP, MS, LocalTEI, RemoteTEI}, _From,
 	    #state{gtp_dev = GTPDev} = State) ->
@@ -111,7 +126,7 @@ handle_call({release_pdp_ip, IPv4, IPv6} = Request, _From, State) ->
     {reply, ok, State};
 
 handle_call(Request, _From, State) ->
-    lager:warning("handle_call: ~p", [lager:pr(Request, ?MODULE)]),
+    lager:error("handle_call: unknown ~p", [lager:pr(Request, ?MODULE)]),
     {reply, ok, State}.
 
 handle_cast({send, 'gtp-c', IP, Port, Data}, #state{gtp1c = GTP1c} = State) ->
@@ -123,15 +138,17 @@ handle_cast({send, 'gtp-u', IP, Port, Data}, #state{gtp1u = GTP1u} = State) ->
     {noreply, State};
 
 handle_cast(Msg, State) ->
-    lager:debug("handle_cast: ~p", [lager:pr(Msg, ?MODULE)]),
+    lager:error("handle_cast: unknown ~p", [lager:pr(Msg, ?MODULE)]),
     {noreply, State}.
 
 handle_info({udp, GTP1c, IP, Port, Data}, #state{gtp1c = GTP1c} = State) ->
+    lager:debug("handle GTP1c: ~p", [lager:pr(Data, ?MODULE)]),
     handle_message('gtp-c', IP, Port, Data, State);
 handle_info({udp, GTP1u, IP, Port, Data}, #state{gtp1u = GTP1u} = State) ->
+    lager:debug("handle GTP1u: ~p", [lager:pr(Data, ?MODULE)]),
     handle_message('gtp-u', IP, Port, Data, State);
 handle_info(Info, State) ->
-    lager:debug("handle_info: ~p", [lager:pr(Info, ?MODULE)]),
+    lager:error("handle_info: unknown ~p", [lager:pr(Info, ?MODULE)]),
     {noreply, State}.
 
 terminate(_Reason, _State) ->
@@ -144,22 +161,27 @@ code_change(_OldVsn, State, _Extra) ->
 %%% Internal functions
 %%%===================================================================
 
-handle_message(Type, IP, Port, Data, #state{ip = LocalIP} = State) ->
+handle_message(Type, IP, Port, Data, #state{gtp_port = GtpPort} = State) ->
     Msg = gtp_packet:decode(Data),
-    handle_message_1(Type, IP, Port, LocalIP, Msg),
+    lager:debug("handle message: ~p", [{Type, IP, Port, GtpPort, Msg}]),
+    handle_message_1(Type, IP, Port, GtpPort, Msg),
     {noreply, State}.
 
-handle_message_1(Type, IP, Port, _LocalIP,
+handle_message_1(Type, IP, Port, GtpPort,
 	       #gtp{type = echo_request} = Msg) ->
-    handle_echo_request(Type, IP, Port, self(), Msg);
+    handle_echo_request(Type, IP, Port, GtpPort, Msg);
 
-handle_message_1(Type, IP, Port, LocalIP,
+handle_message_1(Type, IP, _Port, _GtpPort,
+	       #gtp{type = echo_response} = Msg) ->
+    handle_echo_response(Type, IP, Msg);
+
+handle_message_1(Type, IP, Port, GtpPort,
 	       #gtp{version = Version, type = MsgType, tei = 0} = Msg)
   when (Version == v1 andalso MsgType == create_pdp_context_request) orelse
-       (Version == v1 andalso MsgType == create_session_request) ->
-    gtp_context:new(Type, IP, Port, self(), LocalIP, Msg);
+       (Version == v2 andalso MsgType == create_session_request) ->
+    gtp_context:new(Type, IP, Port, GtpPort, Msg);
 
-handle_message_1(_Type, IP, Port, _LocalIP,
+handle_message_1(_Type, IP, Port, _GtpPort,
 	       #gtp{tei = TEI} = Msg) ->
     case gtp_context:lookup(TEI) of
 	Context when is_pid(Context) ->
@@ -168,19 +190,33 @@ handle_message_1(_Type, IP, Port, _LocalIP,
 	    ok
     end.
 
-handle_echo_request(Type, IP, Port, Handler,
+handle_echo_request(Type, IP, Port, GtpPort,
 		    #gtp{version = Version, type = echo_request, tei = TEI, seq_no = SeqNo} = Msg) ->
-    %% TODO: handle restart counter
-    ResponseIEs = [],
+    ResponseIEs =
+	case Version of
+	    v1 -> gtp_v1_c:build_recovery(GtpPort, true);
+	    v2 -> gtp_v2_c:build_recovery(GtpPort, true)
+	end,
     Response = #gtp{version = Version, type = echo_response, tei = TEI, seq_no = SeqNo, ie = ResponseIEs},
 
-    Data = gtp_packet:encode(Msg),
+    Data = gtp_packet:encode(Response),
     lager:debug("gtp send ~s to ~w:~w: ~p, ~p", [Type, IP, Port, Response, Data]),
-    send(Handler, Type, IP, Port, Data),
+    send(GtpPort, Type, IP, Port, Data),
 
     case gtp_path:get(Type, IP) of
 	Path when is_pid(Path) ->
-	    gen_server:cast(Path, echo_request);
+	    %% for the reuqest to the path so that it can handle the restart counter
+	    gtp_path:handle_request(Path, Msg);
+	_ ->
+	    ok
+    end,
+    ok.
+
+handle_echo_response(Type, IP, Msg) ->
+    lager:debug("handle_echo_response: ~p -> ~p", [{Type, IP}, gtp_path:get(Type, IP)]),
+    case gtp_path:get(Type, IP) of
+	Path when is_pid(Path) ->
+	    gtp_path:handle_response(Path, Msg);
 	_ ->
 	    ok
     end,

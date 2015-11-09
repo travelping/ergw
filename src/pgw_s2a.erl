@@ -14,13 +14,14 @@
 -export([handle_request/2]).
 
 -include_lib("gtplib/include/gtp_packet.hrl").
+-include("include/epgw.hrl").
 
 %%====================================================================
 %% API
 %%====================================================================
 
 handle_request(#gtp{type = create_session_request, ie = IEs},
-	       #{tei := LocalTEI, local_ip := LocalIP, handle := Handler} = State0) ->
+	       #{tei := LocalTEI, gtp_port := #gtp_port{ip = LocalIP}} = State0) ->
 
     #v2_fully_qualified_tunnel_endpoint_identifier{instance = 0,
 						   key  = RemoteCntlTEI,
@@ -40,13 +41,14 @@ handle_request(#gtp{type = create_session_request, ie = IEs},
     {ok, MSv4, MSv6} = pdn_alloc_ip(LocalTEI, ReqMSv4, ReqMSv6, State0),
     Context = #{control_ip  => gtp_c_lib:bin2ip(RemoteCntlIP),
 		control_tei => RemoteCntlTEI,
+		data_tunnel => gtp_v1_u,
 		data_ip     => gtp_c_lib:bin2ip(RemoteDataIP),
 		data_tei    => RemoteDataTEI,
 		ms_v4       => MSv4,
 		ms_v6       => MSv6},
     State1 = State0#{context => Context},
 
-    ok = gtp:create_pdp_context(Handler, 1, RemoteDataIP, MSv4, LocalTEI, RemoteDataTEI),
+    ok = gtp_context:setup(Context, State1),
 
     ResponseIEs = [#v2_cause{v2_cause = request_accepted},
 		   #v2_fully_qualified_tunnel_endpoint_identifier{
@@ -77,13 +79,13 @@ handle_request(#gtp{type = create_session_request, ie = IEs},
     {ok, Response, State1};
 
 handle_request(#gtp{type = delete_session_request, tei = LocalTEI, ie = IEs},
-	       #{handler := Handler, context := Context} = State0) ->
+	       #{gtp_port := GtpPort, context := Context} = State0) ->
     Result =
 	do([error_m ||
 	       FqTEI <- lookup_ie(v2_fully_qualified_tunnel_endpoint_identifier, IEs),
 	       {RemoteCntlTEI, MS, RemoteDataIP, RemoteDataTEI} <- match_context(35, Context, FqTEI),
 	       pdn_release_ip(Context, State0),
-	       gtp:delete_pdp_context(Handler, 1, RemoteDataIP, MS, LocalTEI, RemoteDataTEI),
+	       gtp:delete_pdp_context(GtpPort, 1, RemoteDataIP, MS, LocalTEI, RemoteDataTEI),
 	       return({RemoteCntlTEI, request_accepted, State0})
 	   ]),
 
@@ -153,9 +155,9 @@ encode_paa(IPv4, IPv6) ->
 encode_paa(Type, IPv4, IPv6) ->
     #v2_pdn_address_allocation{type = Type, address = <<IPv6/binary, IPv4/binary>>}.
 
-pdn_alloc_ip(TEI, IPv4, IPv6, #{handler := Handler}) ->
-    gtp:allocate_pdp_ip(Handler, TEI, IPv4, IPv6).
+pdn_alloc_ip(TEI, IPv4, IPv6, #{gtp_port := GtpPort}) ->
+    gtp:allocate_pdp_ip(GtpPort, TEI, IPv4, IPv6).
 
-pdn_release_ip(#{ms_v4 := MSv4, ms_v6 := MSv6}, #{handler := Handler}) ->
-    gtp:release_pdp_ip(Handler, MSv4, MSv6).
+pdn_release_ip(#{ms_v4 := MSv4, ms_v6 := MSv6}, #{gtp_port := GtpPort}) ->
+    gtp:release_pdp_ip(GtpPort, MSv4, MSv6).
 

@@ -1,14 +1,23 @@
+%% Copyright 2015, Travelping GmbH <info@travelping.com>
+
+%% This program is free software; you can redistribute it and/or
+%% modify it under the terms of the GNU General Public License
+%% as published by the Free Software Foundation; either version
+%% 2 of the License, or (at your option) any later version.
+
 -module(gtp_context).
 
 -compile({parse_transform, do}).
 
--export([lookup/1, new/6, handle_message/4, start_link/6]).
+-export([lookup/1, new/5, handle_message/4, start_link/4,
+	 setup/2, teardown/2, handle_recovery/3]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
 -include_lib("gtplib/include/gtp_packet.hrl").
+-include("include/epgw.hrl").
 
 %%====================================================================
 %% API
@@ -17,35 +26,33 @@
 lookup(TEI) ->
     gtp_context_reg:lookup(TEI).
 
-new(Type, IP, Port, Handler, LocalIP,
+new(Type, IP, Port, GtpPort,
     #gtp{version = Version, ie = IEs} = Msg) ->
     Protocol = get_protocol(Type, Version),
     do([error_m ||
 	   Interface <- get_interface_type(Version, IEs),
-	   Context <- gtp_context_sup:new(Type, Handler, LocalIP, Protocol, Interface, []),
+	   Context <- gtp_context_sup:new(GtpPort, Protocol, Interface),
 	   handle_message(Context, IP, Port, Msg)
        ]).
 
 handle_message(Context, IP, Port, Msg) ->
     gen_server:cast(Context, {handle_message, IP, Port, Msg}).
 
-start_link(Type, Handler, LocalIP, Protocol, Interface, Opts) ->
-    gen_server:start_link(?MODULE, [Type, Handler, LocalIP, Protocol, Interface], Opts).
+start_link(GtpPort, Protocol, Interface, Opts) ->
+    gen_server:start_link(?MODULE, [GtpPort, Protocol, Interface], Opts).
 
 %%====================================================================
 %% gen_server API
 %%====================================================================
 
-init([Type, Handler, LocalIP, Protocol, Interface]) ->
+init([GtpPort, Protocol, Interface]) ->
     {ok, TEI} = gtp_c_lib:alloc_tei(),
 
     State = #{
-      type      => Type,
-      handler   => Handler,
+      gtp_port  => GtpPort,
       protocol  => Protocol,
       interface => Interface,
-      tei       => TEI,
-      local_ip  => LocalIP},
+      tei       => TEI},
     {ok, State}.
 
 handle_call(Request, _From, State) ->
@@ -115,17 +122,57 @@ handle_response(Msg, #{path := Path} = State) ->
     gtp_path:handle_response(Path, Msg),
     {noreply, State}.
 
-send_message(IP, Port, Msg, #{type := Type, handler := Handler} = State) ->
+send_message(IP, Port, Msg, #{gtp_port := GtpPort, protocol := Protocol} = State) ->
     %% TODO: handle encode errors
     try
         Data = gtp_packet:encode(Msg),
-	lager:debug("gtp_path send ~s to ~w:~w: ~p, ~p", [Type, IP, Port, Msg, Data]),
-	gtp:send(Handler, Type, IP, Port, Data)
+	lager:debug("gtp_context send ~s to ~w:~w: ~p, ~p", [Protocol:type(), IP, Port, Msg, Data]),
+	gtp:send(GtpPort, Protocol:type(), IP, Port, Data)
     catch
 	Class:Error ->
-	    lager:error("gtp_path send failed with ~p:~p", [Class, Error])
+	    lager:error("gtp send failed with ~p:~p", [Class, Error])
     end,
     State.
+
+%%%===================================================================
+%%% API Module Helper
+%%%===================================================================
+
+setup(#{control_ip  := RemoteCntlIP,
+	data_tunnel := gtp_v1_u,
+	data_ip     := RemoteDataIP,
+	data_tei    := RemoteDataTEI,
+	ms_v4       := MSv4},
+      #{gtp_port  := GtpPort,
+	protocol  := CntlProtocol,
+	interface := Interface,
+	tei       := LocalTEI}) ->
+
+    ok = gtp:create_pdp_context(GtpPort, 1, RemoteDataIP, MSv4, LocalTEI, RemoteDataTEI),
+    gtp_path:register(GtpPort, Interface, CntlProtocol, RemoteCntlIP, gtp_v1_u, RemoteDataIP),
+    ok.
+
+teardown(#{control_ip  := RemoteCntlIP,
+	   data_tunnel := gtp_v1_u,
+	   data_ip     := RemoteDataIP,
+	   data_tei    := RemoteDataTEI,
+	   ms_v4       := MSv4},
+	 #{gtp_port  := GtpPort,
+	   protocol  := CntlProtocol,
+	   interface := Interface,
+	   tei       := LocalTEI}) ->
+
+    gtp_path:unregister(Interface, CntlProtocol, RemoteCntlIP, gtp_v1_u, RemoteDataIP),
+    ok = gtp:delete_pdp_context(GtpPort, 1, RemoteDataIP, MSv4, LocalTEI, RemoteDataTEI).
+
+handle_recovery(RecoveryCounter,
+		#{control_ip  := RemoteCntlIP,
+		  data_tunnel := gtp_v1_u,
+		  data_ip     := RemoteDataIP},
+		#{gtp_port  := GtpPort,
+		  protocol  := CntlProtocol,
+		  interface := Interface}) ->
+    gtp_path:handle_recovery(RecoveryCounter, GtpPort, Interface, CntlProtocol, RemoteCntlIP, gtp_v1_u, RemoteDataIP).
 
 %%%===================================================================
 %%% Internal functions
