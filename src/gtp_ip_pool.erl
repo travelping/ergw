@@ -112,8 +112,16 @@ code_change(_OldVsn, State, _Extra) ->
 %%% Internal functions
 %%%===================================================================
 
+int2list(I) ->
+    int2list(I, []).
+
+int2list(0, L) ->
+    lists:reverse(L);
+int2list(I, L) ->
+    int2list(I div 256, [I rem 256|L]).
+
 hash(Id, Size) ->
-    <<Hash:160>> = crypto:hash(sha, [Id]),
+    <<Hash:160>> = crypto:hash(sha, int2list(Id)),
     Hash rem Size.
 
 ip2int({A, B, C, D}) ->
