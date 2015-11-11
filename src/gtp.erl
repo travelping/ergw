@@ -22,6 +22,7 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
 	 terminate/2, code_change/3]).
 
+-include_lib("gen_socket/include/gen_socket.hrl").
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include("include/epgw.hrl").
 
@@ -85,13 +86,12 @@ init([IP, Opts]) ->
     lager:debug("IPv4Pools ~p", [IPv4pools]),
     lager:debug("IPv6Pools ~p", [IPv6pools]),
 
-    SocketOpts = [binary, {ip, IP}, {active, true}],
-    {ok, GTP0} = gen_udp:open(?GTP0_PORT, SocketOpts),
-    {ok, GTP1c} = gen_udp:open(?GTP1c_PORT, SocketOpts),
-    {ok, GTP1u} = gen_udp:open(?GTP1u_PORT, SocketOpts),
+    {ok, GTP0} = make_gtp_socket(IP, ?GTP0_PORT),
+    {ok, GTP1c} = make_gtp_socket(IP, ?GTP1c_PORT),
+    {ok, GTP1u} = make_gtp_socket(IP, ?GTP1u_PORT),
 
-    {ok, FD0} = inet:getfd(GTP0),
-    {ok, FD1u} = inet:getfd(GTP1u),
+    FD0 = gen_socket:getfd(GTP0),
+    FD1u = gen_socket:getfd(GTP1u),
     {ok, GTPDev} = gtp_kernel:dev_create("gtp0", FD0, FD1u, Opts),
     RCnt = gtp_config:inc_restart_counter(),
 
@@ -130,25 +130,25 @@ handle_call(Request, _From, State) ->
     {reply, ok, State}.
 
 handle_cast({send, 'gtp-c', IP, Port, Data}, #state{gtp1c = GTP1c} = State) ->
-    gen_udp:send(GTP1c, IP, Port, Data),
+    gen_socket:sendto(GTP1c, {inet4, IP, Port}, Data),
     {noreply, State};
 
 handle_cast({send, 'gtp-u', IP, Port, Data}, #state{gtp1u = GTP1u} = State) ->
-    gen_udp:send(GTP1u, IP, Port, Data),
+    gen_socket:sendto(GTP1u, {inet4, IP, Port}, Data),
     {noreply, State};
 
 handle_cast(Msg, State) ->
     lager:error("handle_cast: unknown ~p", [lager:pr(Msg, ?MODULE)]),
     {noreply, State}.
 
-handle_info({udp, GTP1c, IP, Port, Data}, #state{gtp1c = GTP1c} = State) ->
-    lager:debug("handle GTP1c: ~p", [lager:pr(Data, ?MODULE)]),
-    handle_message('gtp-c', IP, Port, Data, State);
-handle_info({udp, GTP1u, IP, Port, Data}, #state{gtp1u = GTP1u} = State) ->
-    lager:debug("handle GTP1u: ~p", [lager:pr(Data, ?MODULE)]),
-    handle_message('gtp-u', IP, Port, Data, State);
+
+handle_info({GTP1c, input_ready}, #state{gtp1c = GTP1c} = State) ->
+    handle_input('gtp-c', GTP1c, State);
+handle_info({GTP1u, input_ready}, #state{gtp1u = GTP1u} = State) ->
+    handle_input('gtp-u', GTP1u, State);
+
 handle_info(Info, State) ->
-    lager:error("handle_info: unknown ~p", [lager:pr(Info, ?MODULE)]),
+    lager:error("handle_info: unknown ~p, ~p", [lager:pr(Info, ?MODULE), lager:pr(State, ?MODULE)]),
     {noreply, State}.
 
 terminate(_Reason, _State) ->
@@ -160,6 +160,36 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
+
+make_gtp_socket({_,_,_,_} = IP, Port) ->
+    {ok, Socket} = gen_socket:socket(inet, dgram, udp),
+    ok = gen_socket:bind(Socket, {inet4, IP, Port}),
+    ok = gen_socket:setsockopt(Socket, sol_ip, recverr, true),
+    ok = gen_socket:input_event(Socket, true),
+    {ok, Socket}.
+
+handle_input(Type, Socket, State) ->
+    case gen_socket:recvfrom(Socket) of
+	{error, _} ->
+	    handle_err_input(Type, Socket, State);
+
+	{ok, {inet4, IP, Port}, Data} ->
+	    ok = gen_socket:input_event(Socket, true),
+	    handle_message(Type, IP, Port, Data, State);
+
+	Other ->
+	    lager:error("got unhandled input: ~p", [Other]),
+	    ok = gen_socket:input_event(Socket, true),
+	    {noreply, State}
+    end.
+
+handle_err_input(_Type, Socket, State) ->
+    case gen_socket:recvmsg(Socket, ?MSG_DONTWAIT bor ?MSG_ERRQUEUE) of
+	Other ->
+	    lager:error("got unhandled error input: ~p", [Other]),
+	    ok = gen_socket:input_event(Socket, true),
+	    {noreply, State}
+    end.
 
 handle_message(Type, IP, Port, Data, #state{gtp_port = GtpPort} = State) ->
     Msg = gtp_packet:decode(Data),
