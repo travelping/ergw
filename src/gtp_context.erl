@@ -138,11 +138,12 @@ send_message(IP, Port, Msg, #{gtp_port := GtpPort, protocol := Protocol} = State
 %%% API Module Helper
 %%%===================================================================
 
-setup(#{control_ip  := RemoteCntlIP,
-	data_tunnel := gtp_v1_u,
-	data_ip     := RemoteDataIP,
-	data_tei    := RemoteDataTEI,
-	ms_v4       := MSv4},
+setup(#context{
+	 control_ip  = RemoteCntlIP,
+	 data_tunnel = gtp_v1_u,
+	 data_ip     = RemoteDataIP,
+	 data_tei    = RemoteDataTEI,
+	 ms_v4       = MSv4},
       #{gtp_port  := GtpPort,
 	protocol  := CntlProtocol,
 	interface := Interface,
@@ -152,11 +153,12 @@ setup(#{control_ip  := RemoteCntlIP,
     gtp_path:register(GtpPort, Interface, CntlProtocol, RemoteCntlIP, gtp_v1_u, RemoteDataIP),
     ok.
 
-teardown(#{control_ip  := RemoteCntlIP,
-	   data_tunnel := gtp_v1_u,
-	   data_ip     := RemoteDataIP,
-	   data_tei    := RemoteDataTEI,
-	   ms_v4       := MSv4},
+teardown(#context{
+	    control_ip  = RemoteCntlIP,
+	    data_tunnel = gtp_v1_u,
+	    data_ip     = RemoteDataIP,
+	    data_tei    = RemoteDataTEI,
+	    ms_v4       = MSv4},
 	 #{gtp_port  := GtpPort,
 	   protocol  := CntlProtocol,
 	   interface := Interface,
@@ -166,9 +168,10 @@ teardown(#{control_ip  := RemoteCntlIP,
     ok = gtp:delete_pdp_context(GtpPort, 1, RemoteDataIP, MSv4, LocalTEI, RemoteDataTEI).
 
 handle_recovery(RecoveryCounter,
-		#{control_ip  := RemoteCntlIP,
-		  data_tunnel := gtp_v1_u,
-		  data_ip     := RemoteDataIP},
+		#context{
+		   control_ip  = RemoteCntlIP,
+		   data_tunnel = gtp_v1_u,
+		   data_ip     = RemoteDataIP},
 		#{gtp_port  := GtpPort,
 		  protocol  := CntlProtocol,
 		  interface := Interface}) ->

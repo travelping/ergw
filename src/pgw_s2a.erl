@@ -39,13 +39,16 @@ handle_request(#gtp{type = create_session_request, ie = IEs},
     {ReqMSv4, ReqMSv6} = pdn_alloc(PAA),
 
     {ok, MSv4, MSv6} = pdn_alloc_ip(LocalTEI, ReqMSv4, ReqMSv6, State0),
-    Context = #{control_ip  => gtp_c_lib:bin2ip(RemoteCntlIP),
-		control_tei => RemoteCntlTEI,
-		data_tunnel => gtp_v1_u,
-		data_ip     => gtp_c_lib:bin2ip(RemoteDataIP),
-		data_tei    => RemoteDataTEI,
-		ms_v4       => MSv4,
-		ms_v6       => MSv6},
+    Context = #context{
+		 control_interface = ?MODULE,
+		 control_tunnel    = gtp_v1_c,
+		 control_ip        = gtp_c_lib:bin2ip(RemoteCntlIP),
+		 control_tei       = RemoteCntlTEI,
+		 data_tunnel       = gtp_v1_u,
+		 data_ip           = gtp_c_lib:bin2ip(RemoteDataIP),
+		 data_tei          = RemoteDataTEI,
+		 ms_v4             = MSv4,
+		 ms_v6             = MSv6},
     State1 = State0#{context => Context},
 
     {ok, NewGTPcPeer, _NewGTPuPeer} = gtp_v2_c:handle_sgsn(IEs, Context, State1),
@@ -125,11 +128,12 @@ lookup_ie(Key, IEs) ->
     end.
 
 match_context(Type,
-	      #{control_ip  := RemoteCntlIP,
-		control_tei := RemoteCntlTEI,
-		data_ip     := RemoteDataIP,
-		data_tei    := RemoteDataTEI,
-		ms_v4       := MS},
+	      #context{
+		 control_ip  = RemoteCntlIP,
+		 control_tei = RemoteCntlTEI,
+		 data_ip     = RemoteDataIP,
+		 data_tei    = RemoteDataTEI,
+		 ms_v4       = MS},
 	      #v2_fully_qualified_tunnel_endpoint_identifier{instance       = 0,
 							     interface_type = Type,
 							     key            = RemoteCntlTEI,
@@ -162,6 +166,6 @@ encode_paa(Type, IPv4, IPv6) ->
 pdn_alloc_ip(TEI, IPv4, IPv6, #{gtp_port := GtpPort}) ->
     gtp:allocate_pdp_ip(GtpPort, TEI, IPv4, IPv6).
 
-pdn_release_ip(#{ms_v4 := MSv4, ms_v6 := MSv6}, #{gtp_port := GtpPort}) ->
+pdn_release_ip(#context{ms_v4 = MSv4, ms_v6 = MSv6}, #{gtp_port := GtpPort}) ->
     gtp:release_pdp_ip(GtpPort, MSv4, MSv6).
 

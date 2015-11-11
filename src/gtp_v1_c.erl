@@ -46,9 +46,9 @@ build_echo_request() ->
     #gtp{version = v1, type = echo_request, tei = 0, ie = []}.
 
 build_response({Type, TEI, IEs}) ->
-    #gtp{version = v1, type = Type, tei = TEI, ie = map_reply_ies(IEs)};
+    #gtp{version = v1, type = gtp_msg_response(Type), tei = TEI, ie = map_reply_ies(IEs)};
 build_response({Type, IEs}) ->
-    #gtp{version = v1, type = Type, tei = 0, ie = map_reply_ies(IEs)}.
+    #gtp{version = v1, type = gtp_msg_response(Type), tei = 0, ie = map_reply_ies(IEs)}.
 
 gtp_msg_type(echo_request)					-> request;
 gtp_msg_type(echo_response)					-> response;

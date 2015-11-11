@@ -20,6 +20,7 @@
 
 handle_request(#gtp{type = create_pdp_context_request, ie = IEs},
 	       #{tei := LocalTEI, gtp_port := GtpPort} = State0) ->
+
     [RemoteCntlIP_IE,RemoteDataIP_IE | _] = collect_ies(gsn_address, IEs),
     RemoteCntlIP = gtp_c_lib:bin2ip(RemoteCntlIP_IE#gsn_address.address),
     RemoteDataIP = gtp_c_lib:bin2ip(RemoteDataIP_IE#gsn_address.address),
@@ -33,13 +34,16 @@ handle_request(#gtp{type = create_pdp_context_request, ie = IEs},
     {ReqMSv4, ReqMSv6} = pdp_alloc(EUA),
 
     {ok, MSv4, MSv6} = pdp_alloc_ip(LocalTEI, ReqMSv4, ReqMSv6, State0),
-    Context = #{control_ip  => RemoteCntlIP,
-		control_tei => RemoteCntlTEI,
-		data_tunnel => gtp_v1_u,
-		data_ip     => RemoteDataIP,
-		data_tei    => RemoteDataTEI,
-		ms_v4       => MSv4,
-		ms_v6       => MSv6},
+    Context = #context{
+		 control_interface = ?MODULE,
+		 control_tunnel    = gtp_v1_c,
+		 control_ip        = RemoteCntlIP,
+		 control_tei       = RemoteCntlTEI,
+		 data_tunnel       = gtp_v1_u,
+		 data_ip           = RemoteDataIP,
+		 data_tei          = RemoteDataTEI,
+		 ms_v4             = MSv4,
+		 ms_v6             = MSv6},
     State1 = State0#{context => Context},
 
     {ok, NewGTPcPeer, _NewGTPuPeer} = gtp_v1_c:handle_sgsn(IEs, Context, State1),
@@ -67,7 +71,7 @@ handle_request(#gtp{type = create_pdp_context_request, ie = IEs},
 
 handle_request(#gtp{type = delete_pdp_context_request, ie = _IEs},
 	       #{context := Context} = State) ->
-    #{control_tei := RemoteCntlTEI} = Context,
+    #context{control_tei = RemoteCntlTEI} = Context,
 
     gtp_context:teardown(Context, State),
 
@@ -135,7 +139,7 @@ encode_eua(Org, Number, IPv4, IPv6) ->
 pdp_alloc_ip(TEI, IPv4, IPv6, #{gtp_port := GtpPort}) ->
     gtp:allocate_pdp_ip(GtpPort, TEI, IPv4, IPv6).
 
-pdp_release_ip(#{ms_v4 := MSv4, ms_v6 := MSv6}, #{gtp_port := GtpPort}) ->
+pdp_release_ip(#context{ms_v4 = MSv4, ms_v6 = MSv6}, #{gtp_port := GtpPort}) ->
     gtp:release_pdp_ip(GtpPort, MSv4, MSv6).
 
 collect_ies(Type, IEs) ->
