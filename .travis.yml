@@ -4,3 +4,8 @@ language: erlang
 
 otp_release:
     - 18.1
+
+script:
+  - rebar get-deps
+  - rebar compile
+  - rebar -v skip_deps=true xref
