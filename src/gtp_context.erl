@@ -17,7 +17,7 @@
          terminate/2, code_change/3]).
 
 -include_lib("gtplib/include/gtp_packet.hrl").
--include("include/epgw.hrl").
+-include("include/ergw.hrl").
 
 %%====================================================================
 %% API

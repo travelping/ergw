@@ -12,14 +12,14 @@
 
 
 -define(DefaultState, [{restart_count, 0}]).             %% keep this sorted by key
--define(App, scg_gtp).
+-define(App, ergw).
 
 %%====================================================================
 %% API
 %%====================================================================
 
 init() ->
-    StateFile = application:get_env(?App, state_file, "/var/lib/gtp/gtp.state"),
+    StateFile = application:get_env(?App, state_file, "/var/lib/ergw/ergw.state"),
     application:set_env(?App, state_file, StateFile, [{persistent, true}]),
 
     State0 = read_term(StateFile),

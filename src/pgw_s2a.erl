@@ -14,7 +14,7 @@
 -export([handle_request/2]).
 
 -include_lib("gtplib/include/gtp_packet.hrl").
--include("include/epgw.hrl").
+-include("include/ergw.hrl").
 
 %%====================================================================
 %% API

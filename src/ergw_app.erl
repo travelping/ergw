@@ -5,7 +5,7 @@
 %% as published by the Free Software Foundation; either version
 %% 2 of the License, or (at your option) any later version.
 
--module(epgw_app).
+-module(ergw_app).
 
 -compile({parse_transform, cut}).
 -compile({parse_transform, do}).
@@ -22,7 +22,7 @@
 start(_StartType, _StartArgs) ->
     do([error_m ||
 	   gtp_config:init(),
-	   Pid <- epgw_sup:start_link(),
+	   Pid <- ergw_sup:start_link(),
            return(Pid)
        ]).
 

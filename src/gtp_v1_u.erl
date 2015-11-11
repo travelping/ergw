@@ -15,7 +15,7 @@
 	 build_echo_request/0,
 	 type/0, port/0]).
 
--include("include/epgw.hrl").
+-include("include/ergw.hrl").
 
 %%====================================================================
 %% API

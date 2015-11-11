@@ -24,7 +24,7 @@
 
 -include_lib("gen_socket/include/gen_socket.hrl").
 -include_lib("gtplib/include/gtp_packet.hrl").
--include("include/epgw.hrl").
+-include("include/ergw.hrl").
 
 -record(state, {gtp_port, ip, gtp0, gtp1c, gtp1u, gtp_dev, restart_counter, ip4_pools, ip6_pools}).
 
