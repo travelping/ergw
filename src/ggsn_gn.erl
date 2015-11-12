@@ -34,6 +34,8 @@
 	  pco,
 	  sgsn_address_for_signalling,
 	  sgsn_address_for_user_traffic,
+	  alternative_sgsn_address_for_signalling,
+	  alternative_sgsn_address_for_user_traffic,
 	  msisdn,
 	  quality_of_service_profile,
 	  traffic_flow_template,
@@ -48,6 +50,38 @@
 	  camel_charging_information_container,
 	  additional_trace_info,
 	  correlation_id,
+	  evolved_allocation_retention_priority_i,
+	  extended_common_flags,
+	  user_csg_information,
+	  ambr,
+	  signalling_priority_indication,
+	  cn_operator_selection_entity,
+	  private_extension,
+	  additional_ies
+	 }).
+
+-record(update_pdp_context_request, {
+	  imsi,
+	  routeing_area_identity,
+	  tunnel_endpoint_identifier_data_i,
+	  tunnel_endpoint_identifier_control_plane,
+	  nsapi,
+	  trace_reference,
+	  trace_type,
+	  pco,
+	  sgsn_address_for_signalling,
+	  sgsn_address_for_user_traffic,
+	  alternative_sgsn_address_for_signalling,
+	  alternative_sgsn_address_for_user_traffic,
+	  quality_of_service_profile,
+	  traffic_flow_template,
+	  trigger_id,
+	  omc_identity,
+	  common_flags,
+	  rat_type,
+	  user_location_information,
+	  ms_time_zone,
+	  direct_tunnel_flags,
 	  evolved_allocation_retention_priority_i,
 	  extended_common_flags,
 	  user_csg_information,
@@ -74,6 +108,8 @@ request_spec(create_pdp_context_request) ->
      {{protocol_configuration_options, 0},		optional},
      {{gsn_address, 0},					mandatory},
      {{gsn_address, 1},					mandatory},
+     {{gsn_address, 2},					conditional},
+     {{gsn_address, 3},					conditional},
      {{ms_international_pstn_isdn_number, 0},		conditional},
      {{quality_of_service_profile, 0},			mandatory},
      {{traffic_flow_template, 0},			conditional},
@@ -95,6 +131,38 @@ request_spec(create_pdp_context_request) ->
      {{signalling_priority_indication, 0},		optional},
      {{cn_operator_selection_entity, 0},		optional},
      {{private_extension, 0},				optional}];
+
+request_spec(update_pdp_context_request) ->
+    [{{international_mobile_subscriber_identity, 0},	optional},
+     {{routeing_area_identity, 0},			optional},
+     {{tunnel_endpoint_identifier_data_i, 0},		mandatory},
+     {{tunnel_endpoint_identifier_control_plane, 0},	conditional},
+     {{nsapi, 0},					mandatory},
+     {{trace_reference, 0},				optional},
+     {{trace_type, 0},					optional},
+     {{protocol_configuration_options, 0},		optional},
+     {{gsn_address, 0},					mandatory},
+     {{gsn_address, 1},					mandatory},
+     {{gsn_address, 2},					conditional},
+     {{gsn_address, 3},					conditional},
+     {{quality_of_service_profile, 0},			mandatory},
+     {{traffic_flow_template, 0},			conditional},
+     {{trigger_id, 0},					optional},
+     {{omc_identity, 0},				optional},
+     {{common_flags, 0},				optional},
+     {{rat_type, 0},					optional},
+     {{user_location_information, 0},			optional},
+     {{ms_time_zone, 0},				optional},
+     {{additional_trace_info, 0},			optional},
+     {{direct_tunnel_flags, 0},				optional},
+     {{evolved_allocation_retention_priority_i, 0},	optional},
+     {{extended_common_flags, 0},			optional},
+     {{user_csg_information, 0},			optional},
+     {{ambr, 0},					optional},
+     {{signalling_priority_indication, 0},		optional},
+     {{cn_operator_selection_entity, 0},		optional},
+     {{private_extension, 0},				optional}];
+
 request_spec(_) ->
     [].
 
@@ -145,12 +213,58 @@ handle_request(#gtp{type = create_pdp_context_request, ie = IEs}, Req,
 		   #protocol_configuration_options{config = {0,
 							     [{ipcp,'CP-Configure-Ack',0,
                                                                [{ms_dns1,<<8,8,8,8>>},{ms_dns2,<<0,0,0,0>>}]}]}},
-		   #gsn_address{address = gtp_c_lib:ip2bin(LocalIP)},   %% for Control Plane
-		   #gsn_address{address = gtp_c_lib:ip2bin(LocalIP)},   %% for User Traffic
+		   #gsn_address{instance = 0, address = gtp_c_lib:ip2bin(LocalIP)},   %% for Control Plane
+		   #gsn_address{instance = 1, address = gtp_c_lib:ip2bin(LocalIP)},   %% for User Traffic
 		   #quality_of_service_profile{priority = 0,
 					       data = <<11,146,31>>}
 		  | gtp_v1_c:build_recovery(GtpPort, NewGTPcPeer)],
     Reply = {create_pdp_context_response, RemoteCntlTEI, ResponseIEs},
+    {reply, Reply, State1};
+
+handle_request(#gtp{type = update_pdp_context_request, ie = IEs}, Req,
+	       #{tei := LocalTEI, gtp_port := GtpPort, context := Context} = State0) ->
+
+    #update_pdp_context_request{
+       sgsn_address_for_signalling =
+	   #gsn_address{address = RemoteCntlIPBin},
+       sgsn_address_for_user_traffic =
+	   #gsn_address{address = RemoteDataIPBin},
+       tunnel_endpoint_identifier_data_i =
+	   #tunnel_endpoint_identifier_data_i{tei = RemoteDataTEI},
+       tunnel_endpoint_identifier_control_plane =
+	   #tunnel_endpoint_identifier_control_plane{tei = RemoteCntlTEI}
+      } = Req,
+
+    RemoteCntlIP = gtp_c_lib:bin2ip(RemoteCntlIPBin),
+    RemoteDataIP = gtp_c_lib:bin2ip(RemoteDataIPBin),
+
+    ContextNew = Context#context{
+		   control_ip        = RemoteCntlIP,
+		   control_tei       = RemoteCntlTEI,
+		   data_ip           = RemoteDataIP,
+		   data_tei          = RemoteDataTEI},
+
+    State1 = if ContextNew /= Context ->
+		     apply_context_change(ContextNew, State0);
+		true ->
+		     State0
+	     end,
+
+    {ok, NewGTPcPeer, _NewGTPuPeer} = gtp_v1_c:handle_sgsn(IEs, Context, State1),
+    lager:debug("New: ~p, ~p", [NewGTPcPeer, _NewGTPuPeer]),
+    gtp_context:setup(Context, State1),
+
+    #gtp_port{ip = LocalIP} = GtpPort,
+
+    ResponseIEs = [#cause{value = request_accepted},
+		   #tunnel_endpoint_identifier_data_i{tei = LocalTEI},
+		   #charging_id{id = <<0,0,0,1>>},
+		   #gsn_address{instance = 0, address = gtp_c_lib:ip2bin(LocalIP)},   %% for Control Plane
+		   #gsn_address{instance = 1, address = gtp_c_lib:ip2bin(LocalIP)},   %% for User Traffic
+		   #quality_of_service_profile{priority = 0,
+					       data = <<11,146,31>>}
+		  | gtp_v1_c:build_recovery(GtpPort, NewGTPcPeer)],
+    Reply = {update_pdp_context_response, RemoteCntlTEI, ResponseIEs},
     {reply, Reply, State1};
 
 handle_request(#gtp{type = delete_pdp_context_request, ie = _IEs}, _Req,
@@ -225,3 +339,7 @@ pdp_alloc_ip(TEI, IPv4, IPv6, #{gtp_port := GtpPort}) ->
 
 pdp_release_ip(#context{ms_v4 = MSv4, ms_v6 = MSv6}, #{gtp_port := GtpPort}) ->
     gtp:release_pdp_ip(GtpPort, MSv4, MSv6).
+
+apply_context_change(ContextNew, State) ->
+    %% TODO apply SGSN changed IP's and TEI's
+    State#{context => ContextNew}.
