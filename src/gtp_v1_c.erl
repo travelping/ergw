@@ -117,6 +117,36 @@ gtp_msg_type(data_record_transfer_request)			-> request;
 gtp_msg_type(data_record_transfer_response)			-> response;
 gtp_msg_type(_)							-> other.
 
+gtp_msg_response(echo_request)					-> echo_response;
+gtp_msg_response(node_alive_request)				-> node_alive_response;
+gtp_msg_response(redirection_request)				-> redirection_response;
+gtp_msg_response(create_pdp_context_request)			-> create_pdp_context_response;
+gtp_msg_response(update_pdp_context_request)			-> update_pdp_context_response;
+gtp_msg_response(delete_pdp_context_request)			-> delete_pdp_context_response;
+gtp_msg_response(initiate_pdp_context_activation_request)	-> initiate_pdp_context_activation_response;
+gtp_msg_response(pdu_notification_request)			-> pdu_notification_response;
+gtp_msg_response(pdu_notification_reject_request)		-> pdu_notification_reject_response;
+gtp_msg_response(send_routeing_information_for_gprs_request)	-> send_routeing_information_for_gprs_response;
+gtp_msg_response(failure_report_request)			-> failure_report_response;
+gtp_msg_response(note_ms_gprs_present_request)			-> note_ms_gprs_present_response;
+gtp_msg_response(identification_request)			-> identification_response;
+gtp_msg_response(sgsn_context_request)				-> sgsn_context_response;
+gtp_msg_response(forward_relocation_request)			-> forward_relocation_response;
+gtp_msg_response(relocation_cancel_request)			-> relocation_cancel_response;
+gtp_msg_response(mbms_notification_request)			-> mbms_notification_response;
+gtp_msg_response(mbms_notification_reject_request)		-> mbms_notification_reject_response;
+gtp_msg_response(create_mbms_context_request)			-> create_mbms_context_response;
+gtp_msg_response(update_mbms_context_request)			-> update_mbms_context_response;
+gtp_msg_response(delete_mbms_context_request)			-> delete_mbms_context_response;
+gtp_msg_response(mbms_registration_request)			-> mbms_registration_response;
+gtp_msg_response(mbms_de_registration_request)			-> mbms_de_registration_response;
+gtp_msg_response(mbms_session_start_request)			-> mbms_session_start_response;
+gtp_msg_response(mbms_session_stop_request)			-> mbms_session_stop_response;
+gtp_msg_response(mbms_session_update_request)			-> mbms_session_update_response;
+gtp_msg_response(ms_info_change_notification_request)		-> ms_info_change_notification_response;
+gtp_msg_response(data_record_transfer_request)			-> data_record_transfer_response;
+gtp_msg_response(Response)					-> Response.
+
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
@@ -130,6 +160,8 @@ map_reply_ie(request_accepted) ->
     #cause{value = request_accepted};
 map_reply_ie(not_found) ->
     #cause{value = unknown_pdp_address_or_pdp_type};
+map_reply_ie({mandatory_ie_missing, _}) ->
+    #cause{value = mandatory_ie_missing};
 map_reply_ie(IE)
   when is_tuple(IE) ->
     IE.

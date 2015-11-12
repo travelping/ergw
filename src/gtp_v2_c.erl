@@ -46,9 +46,9 @@ build_echo_request() ->
     #gtp{version = v2, type = echo_request, tei = 0, ie = []}.
 
 build_response({Type, TEI, IEs}) ->
-    #gtp{version = v2, type = Type, tei = TEI, ie = map_reply_ies(IEs)};
+    #gtp{version = v2, type = gtp_msg_response(Type), tei = TEI, ie = map_reply_ies(IEs)};
 build_response({Type, IEs}) ->
-    #gtp{version = v2, type = Type, tei = 0, ie = map_reply_ies(IEs)}.
+    #gtp{version = v2, type = gtp_msg_response(Type), tei = 0, ie = map_reply_ies(IEs)}.
 
 gtp_msg_type(echo_request)					-> request;
 gtp_msg_type(echo_response)					-> response;
@@ -122,12 +122,36 @@ gtp_msg_type(pgw_restart_notification)				-> other;
 gtp_msg_type(pgw_restart_notification_acknowledge)		-> other;
 gtp_msg_type(update_pdn_connection_set_request)			-> request;
 gtp_msg_type(update_pdn_connection_set_response)		-> response;
+gtp_msg_type(mbms_session_start_request)			-> request;
 gtp_msg_type(mbms_session_start_response)			-> response;
 gtp_msg_type(mbms_session_update_request)			-> request;
 gtp_msg_type(mbms_session_update_response)			-> response;
 gtp_msg_type(mbms_session_stop_request)				-> request;
 gtp_msg_type(mbms_session_stop_response)			-> response;
 gtp_msg_type(_)							-> other.
+
+gtp_msg_response(echo_request)						-> echo_response;
+gtp_msg_response(create_session_request)				-> create_session_response;
+gtp_msg_response(delete_session_request)				-> delete_session_response;
+gtp_msg_response(modify_bearer_request)					-> modify_bearer_response;
+gtp_msg_response(change_notification_request)				-> change_notification_response;
+gtp_msg_response(create_bearer_request)					-> create_bearer_response;
+gtp_msg_response(update_bearer_request)					-> update_bearer_response;
+gtp_msg_response(delete_bearer_request)					-> delete_bearer_response;
+gtp_msg_response(delete_pdn_connection_set_request)			-> delete_pdn_connection_set_response;
+gtp_msg_response(identification_request)				-> identification_response;
+gtp_msg_response(context_request)					-> context_response;
+gtp_msg_response(forward_relocation_request)				-> forward_relocation_response;
+gtp_msg_response(relocation_cancel_request)				-> relocation_cancel_response;
+gtp_msg_response(create_forwarding_tunnel_request)			-> create_forwarding_tunnel_response;
+gtp_msg_response(create_indirect_data_forwarding_tunnel_request)	-> create_indirect_data_forwarding_tunnel_response;
+gtp_msg_response(delete_indirect_data_forwarding_tunnel_request)	-> delete_indirect_data_forwarding_tunnel_response;
+gtp_msg_response(release_access_bearers_request)			-> release_access_bearers_response;
+gtp_msg_response(update_pdn_connection_set_request)			-> update_pdn_connection_set_response;
+gtp_msg_response(mbms_session_start_request)				-> mbms_session_start_response;
+gtp_msg_response(mbms_session_update_request)				-> mbms_session_update_response;
+gtp_msg_response(mbms_session_stop_request)				-> mbms_session_stop_response;
+gtp_msg_response(Response)						-> Response.
 
 %%%===================================================================
 %%% Internal functions
@@ -142,6 +166,8 @@ map_reply_ie(request_accepted) ->
     #v2_cause{v2_cause = request_accepted};
 map_reply_ie(not_found) ->
     #v2_cause{v2_cause = context_not_found};
+map_reply_ie({mandatory_ie_missing, {_IE, _Instance}}) ->
+    #v2_cause{v2_cause = mandatory_ie_missing};
 map_reply_ie(IE)
   when is_tuple(IE) ->
     IE.

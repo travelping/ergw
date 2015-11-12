@@ -11,7 +11,7 @@
 
 -compile({parse_transform, do}).
 
--export([handle_request/2]).
+-export([request_spec/1, handle_request/3]).
 
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include("include/ergw.hrl").
@@ -20,22 +20,92 @@
 %% API
 %%====================================================================
 
-handle_request(#gtp{type = create_session_request, ie = IEs},
+%% TODO: the records and matching request spec's should be
+%%       generated from a common source.....
+-record(create_session_request, {
+	  imsi,
+	  msisdn,
+	  serving_network,
+	  rat_type,
+	  indication,
+	  sender_f_teid_for_control_plane,
+	  apn,
+	  selection_mode,
+	  paa,
+	  apn_ambr,
+	  trusted_wlan_mode_indication,
+	  pco,
+	  bearer_context_to_be_created,
+	  bearer_context_to_be_removed,
+	  trace_information,
+	  twan_fq_csid,
+	  ue_time_zone,
+	  charging_characteristics,
+	  twan_ldn,
+	  apco,
+	  twan_identifier,
+	  additional_ies
+	 }).
+
+-record(delete_session_request, {
+	  linked_eps_bearer_id,
+	  pco,
+	  sender_f_teid_for_control_plane,
+	  ue_time_zone,
+	  twan_identifier,
+	  twan_identifier_timestamp
+	 }).
+
+request_spec(create_session_request) ->
+    [{{v2_international_mobile_subscriber_identity, 0},		mandatory},
+     {{v2_msisdn, 0},						conditional},
+     {{v2_serving_network, 0},					optional},
+     {{v2_rat_type, 0},						mandatory},
+     {{v2_indication, 0},					optional},
+     {{v2_fully_qualified_tunnel_endpoint_identifier, 0},	mandatory},
+     {{v2_access_point_name, 0},				mandatory},
+     {{v2_selection_mode, 0},					conditional},
+     {{v2_pdn_address_allocation, 0},				conditional},
+     {{v2_aggregate_maximum_bit_rate, 0},			conditional},
+     {{v2_trusted_wlan_mode_indication, 0},			optional},
+     {{v2_protocol_configuration_options, 0},			optional},
+     {{v2_bearer_context, 0},					mandatory},
+     {{v2_bearer_context, 1},					conditional},
+     {{v2_trace_information, 0},				conditional},
+     {{v2_fully_qualified_pdn_connection_set_identifier, 3},	mandatory},
+     {{v2_ue_time_zone, 0},					mandatory},
+     {{v2_charging_characteristics, 0},				conditional},
+     {{v2_local_distinguished_name, 3},				optional},
+     {{v2_additional_protocol_configuration_options, 0},	optional},
+     {{v2_twan_identifier, 0},					optional}];
+request_spec(delete_session_request) ->
+    [{{v2_eps_bearer_id, 0},					conditional},
+     {{v2_protocol_configuration_options, 0},			optional},
+     {{v2_fully_qualified_tunnel_endpoint_identifier, 0},	optional},
+     {{v2_ue_time_zone, 0},					conditional},
+     {{v2_twan_identifier, 0},					optional},
+     {{v2_twan_identifier_timestamp, 0},			optional}];
+request_spec(_) ->
+    [].
+
+handle_request(#gtp{type = create_session_request, ie = IEs}, Req,
 	       #{tei := LocalTEI, gtp_port := GtpPort} = State0) ->
 
-    #v2_fully_qualified_tunnel_endpoint_identifier{instance = 0,
-						   key  = RemoteCntlTEI,
-						   ipv4 = RemoteCntlIP} =
-	lists:keyfind(v2_fully_qualified_tunnel_endpoint_identifier, 1, IEs),
+    #create_session_request{
+       sender_f_teid_for_control_plane =
+	   #v2_fully_qualified_tunnel_endpoint_identifier{
+	      key  = RemoteCntlTEI,
+	      ipv4 = RemoteCntlIP},
+       paa = PAA,
+       bearer_context_to_be_created =
+	   #v2_bearer_context{group = BearerCreate}
+      } = Req,
 
-    #v2_bearer_context{group = GroupIEs} =
-	lists:keyfind(v2_bearer_context, 1, IEs),
     #v2_fully_qualified_tunnel_endpoint_identifier{instance = 6,                  %% S2a TEI Instance
 						   key = RemoteDataTEI,
 						   ipv4 = RemoteDataIP} =
-	lists:keyfind(v2_fully_qualified_tunnel_endpoint_identifier, 1, GroupIEs),
+	lists:keyfind(v2_fully_qualified_tunnel_endpoint_identifier, 1, BearerCreate),
 
-    PAA = lists:keyfind(v2_pdn_address_allocation, 1, IEs),
     {ReqMSv4, ReqMSv6} = pdn_alloc(PAA),
 
     {ok, MSv4, MSv6} = pdn_alloc_ip(LocalTEI, ReqMSv4, ReqMSv6, State0),
@@ -85,11 +155,18 @@ handle_request(#gtp{type = create_session_request, ie = IEs},
     Response = {create_session_response, RemoteCntlTEI, ResponseIEs},
     {ok, Response, State1};
 
-handle_request(#gtp{type = delete_session_request, tei = LocalTEI, ie = IEs},
+handle_request(#gtp{type = delete_session_request, tei = LocalTEI}, Req,
 	       #{gtp_port := GtpPort, context := Context} = State0) ->
+
+    #delete_session_request{
+       %% according to 3GPP TS 29.274, the F-TEID is not part of the Delete Session Request
+       %% on S2a. However, Cisco iWAG on CSR 1000v does include it. Since we get it, lets
+       %% validate it for now.
+       sender_f_teid_for_control_plane = FqTEI
+      } = Req,
+
     Result =
 	do([error_m ||
-	       FqTEI <- lookup_ie(v2_fully_qualified_tunnel_endpoint_identifier, IEs),
 	       {RemoteCntlTEI, MS, RemoteDataIP, RemoteDataTEI} <- match_context(35, Context, FqTEI),
 	       pdn_release_ip(Context, State0),
 	       gtp:delete_pdp_context(GtpPort, 1, RemoteDataIP, MS, LocalTEI, RemoteDataTEI),
@@ -110,7 +187,7 @@ handle_request(#gtp{type = delete_session_request, tei = LocalTEI, ie = IEs},
 	    {reply, Response, State0}
     end;
 
-handle_request(_Msg, State) ->
+handle_request(_Msg, _Req, State) ->
     {noreply, State}.
 
 %%%===================================================================
@@ -119,14 +196,14 @@ handle_request(_Msg, State) ->
 ip2prefix({IP, Prefix}) ->
     <<Prefix:8, (gtp_c_lib:ip2bin(IP))/binary>>.
 
-lookup_ie(Key, IEs) ->
-    case lists:keyfind(Key, 1, IEs) of
-	false ->
-	    error_m:fail([#v2_cause{v2_cause = mandatory_ie_missing}]);
-	IE ->
-	    error_m:return(IE)
-    end.
-
+match_context(_Type,
+	      #context{
+		 control_tei = RemoteCntlTEI,
+		 data_ip     = RemoteDataIP,
+		 data_tei    = RemoteDataTEI,
+		 ms_v4       = MS},
+	      undefined) ->
+    error_m:return({RemoteCntlTEI, MS, RemoteDataIP, RemoteDataTEI});
 match_context(Type,
 	      #context{
 		 control_ip  = RemoteCntlIP,

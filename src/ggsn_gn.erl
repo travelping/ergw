@@ -9,7 +9,7 @@
 
 -behaviour(gtp_api).
 
--export([handle_request/2]).
+-export([request_spec/1, handle_request/3]).
 
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include("include/ergw.hrl").
@@ -18,19 +18,103 @@
 %% API
 %%====================================================================
 
-handle_request(#gtp{type = create_pdp_context_request, ie = IEs},
+-record(create_pdp_context_request, {
+	  imsi,
+	  routeing_area_identity,
+	  selection_mode,
+	  tunnel_endpoint_identifier_data_i,
+	  tunnel_endpoint_identifier_control_plane,
+	  nsapi,
+	  linked_nsapi,
+	  charging_characteristics,
+	  trace_reference,
+	  trace_type,
+	  end_user_address,
+	  apn,
+	  pco,
+	  sgsn_address_for_signalling,
+	  sgsn_address_for_user_traffic,
+	  msisdn,
+	  quality_of_service_profile,
+	  traffic_flow_template,
+	  trigger_id,
+	  omc_identity,
+	  common_flags,
+	  apn_restriction,
+	  rat_type,
+	  user_location_information,
+	  ms_time_zone,
+	  imei,
+	  camel_charging_information_container,
+	  additional_trace_info,
+	  correlation_id,
+	  evolved_allocation_retention_priority_i,
+	  extended_common_flags,
+	  user_csg_information,
+	  ambr,
+	  signalling_priority_indication,
+	  cn_operator_selection_entity,
+	  private_extension,
+	  additional_ies
+	 }).
+
+request_spec(create_pdp_context_request) ->
+    [{{international_mobile_subscriber_identity, 0},	conditional},
+     {{routeing_area_identity, 0},			optional},
+     {{selection_mode, 0},				conditional},
+     {{tunnel_endpoint_identifier_data_i, 0},		mandatory},
+     {{tunnel_endpoint_identifier_control_plane, 0},	conditional},
+     {{nsapi, 0},					mandatory},
+     {{nsapi, 1},					conditional},
+     {{charging_characteristics, 0},			conditional},
+     {{trace_reference, 0},				optional},
+     {{trace_type, 0},					optional},
+     {{end_user_address, 0},				conditional},
+     {{access_point_name, 0},				conditional},
+     {{protocol_configuration_options, 0},		optional},
+     {{gsn_address, 0},					mandatory},
+     {{gsn_address, 1},					mandatory},
+     {{ms_international_pstn_isdn_number, 0},		conditional},
+     {{quality_of_service_profile, 0},			mandatory},
+     {{traffic_flow_template, 0},			conditional},
+     {{trigger_id, 0},					optional},
+     {{omc_identity, 0},				optional},
+     {{common_flags, 0},				optional},
+     {{apn_restriction, 0},				optional},
+     {{rat_type, 0},					optional},
+     {{user_location_information, 0},			optional},
+     {{ms_time_zone, 0},				optional},
+     {{imei, 0},					conditional},
+     {{camel_charging_information_container, 0},	optional},
+     {{additional_trace_info, 0},			optional},
+     {{correlation_id, 0},				optional},
+     {{evolved_allocation_retention_priority_i, 0},	optional},
+     {{extended_common_flags, 0},			optional},
+     {{user_csg_information, 0},			optional},
+     {{ambr, 0},					optional},
+     {{signalling_priority_indication, 0},		optional},
+     {{cn_operator_selection_entity, 0},		optional},
+     {{private_extension, 0},				optional}];
+request_spec(_) ->
+    [].
+
+handle_request(#gtp{type = create_pdp_context_request, ie = IEs}, Req,
 	       #{tei := LocalTEI, gtp_port := GtpPort} = State0) ->
 
-    [RemoteCntlIP_IE,RemoteDataIP_IE | _] = collect_ies(gsn_address, IEs),
-    RemoteCntlIP = gtp_c_lib:bin2ip(RemoteCntlIP_IE#gsn_address.address),
-    RemoteDataIP = gtp_c_lib:bin2ip(RemoteDataIP_IE#gsn_address.address),
+    #create_pdp_context_request{
+       sgsn_address_for_signalling =
+	   #gsn_address{address = RemoteCntlIPBin},
+       sgsn_address_for_user_traffic =
+	   #gsn_address{address = RemoteDataIPBin},
+       tunnel_endpoint_identifier_data_i =
+	   #tunnel_endpoint_identifier_data_i{tei = RemoteDataTEI},
+       tunnel_endpoint_identifier_control_plane =
+	   #tunnel_endpoint_identifier_control_plane{tei = RemoteCntlTEI},
+       end_user_address = EUA
+      } = Req,
 
-    #tunnel_endpoint_identifier_data_i{tei = RemoteDataTEI} =
-	lists:keyfind(tunnel_endpoint_identifier_data_i, 1, IEs),
-    #tunnel_endpoint_identifier_control_plane{tei = RemoteCntlTEI} =
-	lists:keyfind(tunnel_endpoint_identifier_control_plane, 1, IEs),
-
-    EUA = lists:keyfind(end_user_address, 1, IEs),
+    RemoteCntlIP = gtp_c_lib:bin2ip(RemoteCntlIPBin),
+    RemoteDataIP = gtp_c_lib:bin2ip(RemoteDataIPBin),
     {ReqMSv4, ReqMSv6} = pdp_alloc(EUA),
 
     {ok, MSv4, MSv6} = pdp_alloc_ip(LocalTEI, ReqMSv4, ReqMSv6, State0),
@@ -69,7 +153,7 @@ handle_request(#gtp{type = create_pdp_context_request, ie = IEs},
     Reply = {create_pdp_context_response, RemoteCntlTEI, ResponseIEs},
     {reply, Reply, State1};
 
-handle_request(#gtp{type = delete_pdp_context_request, ie = _IEs},
+handle_request(#gtp{type = delete_pdp_context_request, ie = _IEs}, _Req,
 	       #{context := Context} = State) ->
     #context{control_tei = RemoteCntlTEI} = Context,
 
@@ -79,7 +163,7 @@ handle_request(#gtp{type = delete_pdp_context_request, ie = _IEs},
     Reply = {delete_pdp_context_response, RemoteCntlTEI, request_accepted},
     {stop, Reply, State};
 
-handle_request(_Msg, State) ->
+handle_request(_Msg, _Req, State) ->
     {noreply, State}.
 
 %%%===================================================================
@@ -141,6 +225,3 @@ pdp_alloc_ip(TEI, IPv4, IPv6, #{gtp_port := GtpPort}) ->
 
 pdp_release_ip(#context{ms_v4 = MSv4, ms_v6 = MSv6}, #{gtp_port := GtpPort}) ->
     gtp:release_pdp_ip(GtpPort, MSv4, MSv6).
-
-collect_ies(Type, IEs) ->
-    lists:filter(fun(X) -> element(1, X) == Type end, IEs).

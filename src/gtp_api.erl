@@ -2,7 +2,9 @@
 
 -include_lib("gtplib/include/gtp_packet.hrl").
 
--callback handle_request(Msg :: #gtp{}, State :: map()) ->
+-callback handle_request(Msg :: #gtp{},
+			 RequestRecord :: term(),
+			 State :: map()) ->
     Return :: {reply, Reply :: term(), State ::map()} |
 	      {stop, Reply :: term(), State ::map()} |
 	      {error, Reply :: term()} |

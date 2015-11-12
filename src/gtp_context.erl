@@ -59,12 +59,28 @@ handle_call(Request, _From, State) ->
     lager:warning("handle_call: ~p", [lager:pr(Request, ?MODULE)]),
     {reply, ok, State}.
 
-handle_cast({handle_message, IP, Port, #gtp{type = Type} = Msg}, State) ->
+handle_cast({handle_message, IP, Port, #gtp{type = Type, ie = IEs} = Msg}, State) ->
     lager:debug("~w: handle gtp: ~w, ~p",
 		[?MODULE, Port, gtp_c_lib:fmt_gtp(Msg)]),
+
+    Spec = request_spec(Type, State),
+    {Req, Missing} = gtp_c_lib:build_req_record(Type, Spec, IEs),
+    lager:debug("Mis: ~p", [Missing]),
+
     case gtp_msg_type(Type, State) of
-	response -> handle_response(Msg, State);
-	_        -> handle_request(IP, Port, Msg, State)
+	response when Missing /= [] ->
+	    %% ignore reply with missing mandarory arguments
+	    {noreply, State};
+
+	response ->
+	    handle_response(Msg, State);
+
+	_ when Missing /= [] ->
+	    handle_error(IP, Port, Msg, {mandatory_ie_missing, hd(Missing)}, State);
+
+	_ ->
+
+	    handle_request(IP, Port, Msg, Req, State)
     end;
 
 handle_cast(Msg, State) ->
@@ -85,11 +101,16 @@ code_change(_OldVsn, State, _Extra) ->
 %%% Message Handling functions
 %%%===================================================================
 
-handle_request(IP, Port, #gtp{version = Version, seq_no = SeqNo} = Msg, State0) ->
+handle_error(IP, Port, #gtp{type = Type, seq_no = SeqNo}, Reply, State) ->
+    Response = build_response({Type, Reply}, State),
+    send_message(IP, Port, Response#gtp{seq_no = SeqNo}, State),
+    {noreply, State}.
+
+handle_request(IP, Port, #gtp{version = Version, seq_no = SeqNo} = Msg, Req, State0) ->
     lager:debug("GTP~s ~s:~w: ~p",
 		[Version, inet:ntoa(IP), Port, gtp_c_lib:fmt_gtp(Msg)]),
 
-    try interface_handle_request(Msg, State0) of
+    try interface_handle_request(Msg, Req, State0) of
 	{reply, Reply, State1} ->
 	    Response = build_response(Reply, State1),
 	    send_message(IP, Port, Response#gtp{seq_no = SeqNo}, State1),
@@ -202,8 +223,11 @@ apply_mod(Key, F, A, State) ->
 gtp_msg_type(Type, State) ->
     apply_mod(protocol, gtp_msg_type, [Type], State).
 
-interface_handle_request(Msg, State) ->
-    apply_mod(interface, handle_request, [Msg, State], State).
+request_spec(Type, State) ->
+    apply_mod(interface, request_spec, [Type], State).
+
+interface_handle_request(Msg, Req, State) ->
+    apply_mod(interface, handle_request, [Msg, Req, State], State).
 
 build_response(Reply, State) ->
     apply_mod(protocol, build_response, [Reply], State).
