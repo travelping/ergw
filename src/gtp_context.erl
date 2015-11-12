@@ -9,7 +9,7 @@
 
 -compile({parse_transform, do}).
 
--export([lookup/1, new/5, handle_message/4, start_link/4,
+-export([lookup/1, new/5, handle_message/5, start_link/4,
 	 setup/2, teardown/2, handle_recovery/3]).
 
 %% gen_server callbacks
@@ -32,11 +32,20 @@ new(Type, IP, Port, GtpPort,
     do([error_m ||
 	   Interface <- get_interface_type(Version, IEs),
 	   Context <- gtp_context_sup:new(GtpPort, Protocol, Interface),
-	   handle_message(Context, IP, Port, Msg)
+	   gen_server:cast(Context, {handle_message, IP, Port, Msg})
        ]).
 
-handle_message(Context, IP, Port, Msg) ->
-    gen_server:cast(Context, {handle_message, IP, Port, Msg}).
+handle_message(Type, IP, Port, GtpPort, #gtp{version = Version, tei = TEI} = Msg) ->
+    case lookup(TEI) of
+	Context when is_pid(Context) ->
+	    gen_server:cast(Context, {handle_message, IP, Port, Msg});
+	_ ->
+	    Protocol = get_protocol(Type, Version),
+	    Reply = Protocol:build_response({Msg#gtp.type, not_found}),
+	    Data = gtp_packet:encode(Reply#gtp{seq_no = Msg#gtp.seq_no}),
+	    lager:debug("gtp_context send ~s error to ~w:~w: ~p, ~p", [Protocol:type(), IP, Port, Reply, Data]),
+	    gtp:send(GtpPort, Protocol:type(), IP, Port, Data)
+    end.
 
 start_link(GtpPort, Protocol, Interface, Opts) ->
     gen_server:start_link(?MODULE, [GtpPort, Protocol, Interface], Opts).

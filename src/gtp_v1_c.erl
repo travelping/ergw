@@ -159,7 +159,7 @@ map_reply_ies(IE) ->
 map_reply_ie(request_accepted) ->
     #cause{value = request_accepted};
 map_reply_ie(not_found) ->
-    #cause{value = unknown_pdp_address_or_pdp_type};
+    #cause{value = non_existent};
 map_reply_ie({mandatory_ie_missing, _}) ->
     #cause{value = mandatory_ie_missing};
 map_reply_ie(IE)

@@ -211,14 +211,8 @@ handle_message_1(Type, IP, Port, GtpPort,
        (Version == v2 andalso MsgType == create_session_request) ->
     gtp_context:new(Type, IP, Port, GtpPort, Msg);
 
-handle_message_1(_Type, IP, Port, _GtpPort,
-	       #gtp{tei = TEI} = Msg) ->
-    case gtp_context:lookup(TEI) of
-	Context when is_pid(Context) ->
-	    gtp_context:handle_message(Context, IP, Port, Msg);
-	_ ->
-	    ok
-    end.
+handle_message_1(Type, IP, Port, GtpPort, Msg) ->
+    gtp_context:handle_message(Type, IP, Port, GtpPort, Msg).
 
 handle_echo_request(Type, IP, Port, GtpPort,
 		    #gtp{version = Version, type = echo_request, tei = TEI, seq_no = SeqNo} = Msg) ->
