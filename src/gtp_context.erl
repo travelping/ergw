@@ -220,10 +220,22 @@ get_protocol('gtp-c', v2) ->
 
 get_interface_type(v1, _) ->
     {ok, ggsn_gn};
-get_interface_type(v2, _IEs) ->
-    {ok, pgw_s2a};
-get_interface_type(v2, _IEs) ->
-    {ok, pgw_s5s8}.
+get_interface_type(v2, IEs) ->
+    case find_ie(v2_fully_qualified_tunnel_endpoint_identifier, 0, IEs) of
+	#v2_fully_qualified_tunnel_endpoint_identifier{interface_type = IfType} ->
+	     map_v2_iftype(IfType);
+	_ ->
+	    {error, {mandatory_ie_missing, {v2_fully_qualified_tunnel_endpoint_identifier, 0}}}
+    end.
+
+find_ie(_, _, []) ->
+    undefined;
+find_ie(Type, Instance, [IE|_])
+  when element(1, IE) == Type,
+       element(2, IE) == Instance ->
+    IE;
+find_ie(Type, Instance, [_|Next]) ->
+    find_ie(Type, Instance, Next).
 
 apply_mod(Key, F, A, State) ->
     M = maps:get(Key, State),
@@ -240,3 +252,7 @@ interface_handle_request(Msg, Req, State) ->
 
 build_response(Reply, State) ->
     apply_mod(protocol, build_response, [Reply], State).
+
+map_v2_iftype(6)  -> {ok, pgw_s5s8};
+map_v2_iftype(34) -> {ok, pgw_s2a};
+map_v2_iftype(_)  -> {error, unsupported}.
