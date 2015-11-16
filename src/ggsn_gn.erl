@@ -222,7 +222,7 @@ handle_request(#gtp{type = create_pdp_context_request, ie = IEs}, Req,
     {reply, Reply, State1};
 
 handle_request(#gtp{type = update_pdp_context_request, ie = IEs}, Req,
-	       #{tei := LocalTEI, gtp_port := GtpPort, context := Context} = State0) ->
+	       #{tei := LocalTEI, gtp_port := GtpPort, context := OldContext} = State0) ->
 
     #update_pdp_context_request{
        sgsn_address_for_signalling =
@@ -238,21 +238,20 @@ handle_request(#gtp{type = update_pdp_context_request, ie = IEs}, Req,
     RemoteCntlIP = gtp_c_lib:bin2ip(RemoteCntlIPBin),
     RemoteDataIP = gtp_c_lib:bin2ip(RemoteDataIPBin),
 
-    ContextNew = Context#context{
-		   control_ip        = RemoteCntlIP,
-		   control_tei       = RemoteCntlTEI,
-		   data_ip           = RemoteDataIP,
-		   data_tei          = RemoteDataTEI},
+    Context = OldContext#context{
+		control_ip        = RemoteCntlIP,
+		control_tei       = RemoteCntlTEI,
+		data_ip           = RemoteDataIP,
+		data_tei          = RemoteDataTEI},
 
-    State1 = if ContextNew /= Context ->
-		     apply_context_change(ContextNew, State0);
+    State1 = if Context /= OldContext ->
+		     apply_context_change(Context, OldContext, State0);
 		true ->
 		     State0
 	     end,
 
     {ok, NewGTPcPeer, _NewGTPuPeer} = gtp_v1_c:handle_sgsn(IEs, Context, State1),
     lager:debug("New: ~p, ~p", [NewGTPcPeer, _NewGTPuPeer]),
-    gtp_context:setup(Context, State1),
 
     #gtp_port{ip = LocalIP} = GtpPort,
 
@@ -340,6 +339,8 @@ pdp_alloc_ip(TEI, IPv4, IPv6, #{gtp_port := GtpPort}) ->
 pdp_release_ip(#context{ms_v4 = MSv4, ms_v6 = MSv6}, #{gtp_port := GtpPort}) ->
     gtp:release_pdp_ip(GtpPort, MSv4, MSv6).
 
-apply_context_change(ContextNew, State) ->
+apply_context_change(NewContext, OldContext, State) ->
+    ok = gtp_context:update(NewContext, OldContext, State),
+
     %% TODO apply SGSN changed IP's and TEI's
-    State#{context => ContextNew}.
+    State#{context => NewContext}.

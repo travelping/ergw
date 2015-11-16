@@ -10,7 +10,7 @@
 -compile({parse_transform, do}).
 
 -export([lookup/1, new/5, handle_message/5, start_link/4,
-	 setup/2, teardown/2, handle_recovery/3]).
+	 setup/2, update/3, teardown/2, handle_recovery/3]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -181,6 +181,27 @@ setup(#context{
 
     ok = gtp:create_pdp_context(GtpPort, 1, RemoteDataIP, MSv4, LocalTEI, RemoteDataTEI),
     gtp_path:register(GtpPort, Interface, CntlProtocol, RemoteCntlIP, gtp_v1_u, RemoteDataIP),
+    ok.
+
+update(#context{
+	  control_ip  = RemoteCntlIPNew,
+	  data_tunnel = gtp_v1_u,
+	  data_ip     = RemoteDataIPNew,
+	  data_tei    = RemoteDataTEINew,
+	  ms_v4       = MSv4},
+        #context{
+	    control_ip  = RemoteCntlIPOld,
+	    data_tunnel = gtp_v1_u,
+	    data_ip     = RemoteDataIPOld,
+	    ms_v4       = MSv4},
+	 #{gtp_port  := GtpPort,
+	   protocol  := CntlProtocol,
+	   interface := Interface,
+	   tei       := LocalTEI}) ->
+
+    gtp_path:unregister(Interface, CntlProtocol, RemoteCntlIPOld, gtp_v1_u, RemoteDataIPOld),
+    ok = gtp:update_pdp_context(GtpPort, 1, RemoteDataIPNew, MSv4, LocalTEI, RemoteDataTEINew),
+    gtp_path:register(GtpPort, Interface, CntlProtocol, RemoteCntlIPNew, gtp_v1_u, RemoteDataIPNew),
     ok.
 
 teardown(#context{

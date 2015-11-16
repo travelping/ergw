@@ -13,6 +13,7 @@
 -export([new/2, send/5,
 	 get_restart_counter/1,
 	 create_pdp_context/6,
+	 update_pdp_context/6,
 	 delete_pdp_context/6,
 	 allocate_pdp_ip/4,
 	 release_pdp_ip/3]).
@@ -54,6 +55,9 @@ get_restart_counter(GtpPort) ->
 
 create_pdp_context(GtpPort, Version, IP, MS, LocalTEI, RemoteTEI) ->
     call(GtpPort, {create_pdp_context, Version, IP, MS, LocalTEI, RemoteTEI}).
+
+update_pdp_context(GtpPort, Version, IP, MS, LocalTEI, RemoteTEI) ->
+    call(GtpPort, {update_pdp_context, Version, IP, MS, LocalTEI, RemoteTEI}).
 
 delete_pdp_context(GtpPort, Version, IP, MS, LocalTEI, RemoteTEI) ->
     call(GtpPort, {delete_pdp_context, Version, IP, MS, LocalTEI, RemoteTEI}).
@@ -106,6 +110,11 @@ handle_call(get_restart_counter, _From, #state{restart_counter = RCnt} = State) 
 handle_call({create_pdp_context, Version, IP, MS, LocalTEI, RemoteTEI}, _From,
 	    #state{gtp_dev = GTPDev} = State) ->
     Reply = gtp_kernel:create_pdp_context(GTPDev, Version, IP, MS, LocalTEI, RemoteTEI),
+    {reply, Reply, State};
+
+handle_call({update_pdp_context, Version, IP, MS, LocalTEI, RemoteTEI}, _From,
+	    #state{gtp_dev = GTPDev} = State) ->
+    Reply = gtp_kernel:update_pdp_context(GTPDev, Version, IP, MS, LocalTEI, RemoteTEI),
     {reply, Reply, State};
 
 handle_call({delete_pdp_context, Version, IP, MS, LocalTEI, RemoteTEI}, _From,
