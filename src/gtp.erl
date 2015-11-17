@@ -10,14 +10,15 @@
 -behavior(gen_server).
 
 %% API
--export([new/2, send/5,
+-export([start_link/0,
+	 start_link/2,
+	 send/5,
 	 get_restart_counter/1,
 	 create_pdp_context/6,
 	 update_pdp_context/6,
 	 delete_pdp_context/6,
 	 allocate_pdp_ip/4,
 	 release_pdp_ip/3]).
--export([test/0]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -33,18 +34,15 @@
 %% API
 %%====================================================================
 
-test() ->
-    Opts = [{netns, "/var/run/netns/upstream"},
-	    {routes, [{{10, 180, 0, 0}, 16}]},
-	    {pools,  [{{10, 180, 0, 0}, 16},
-		      {{16#8001, 0, 0, 0, 0, 0, 0, 0}, 48}]}
-	   ],
-    new({172,20,16,168}, Opts).
+start_link() ->
+    {ok, IP}   = application:get_env(ip),
+    {ok, Opts} = application:get_env(apn),
+    start_link(IP, Opts).
 
--spec new(IP     :: inet:ip_address(),
-	  Opts   :: [term()]) -> ok | {error, _}.
+-spec start_link(IP     :: inet:ip_address(),
+		 Opts   :: [term()]) -> ok | {error, _}.
 
-new(IP, Opts) ->
+start_link(IP, Opts) ->
     gen_server:start_link(?MODULE, [IP, Opts], []).
 
 send(GtpPort, Type, IP, Port, Data) ->
