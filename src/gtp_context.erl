@@ -160,7 +160,8 @@ send_message(IP, Port, Msg, #{gtp_port := GtpPort, protocol := Protocol} = State
 	gtp:send(GtpPort, Protocol:type(), IP, Port, Data)
     catch
 	Class:Error ->
-	    lager:error("gtp send failed with ~p:~p", [Class, Error])
+	    Stack  = erlang:get_stacktrace(),
+	    lager:error("gtp send failed with ~p:~p (~p)", [Class, Error, Stack])
     end,
     State.
 
