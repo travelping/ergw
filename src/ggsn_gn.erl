@@ -198,11 +198,17 @@ handle_request(#gtp{type = create_pdp_context_request, ie = IEs}, Req,
 		 ms_v6             = MSv6},
     State1 = State0#{context => Context},
 
+    #gtp_port{ip = LocalIP} = GtpPort,
+
+    Session0 = #{'IP'           => gtp_c_lib:ip2bin(MSv4),
+		 'GGSN-Address' => gtp_c_lib:ip2bin(LocalIP)},
+    Session1 = init_session(IEs, Session0),
+    lager:debug("Invoking CONTROL: ~p", [Session1]),
+    ergw_control:authenticate(Session1),
+
     {ok, NewGTPcPeer, _NewGTPuPeer} = gtp_v1_c:handle_sgsn(IEs, Context, State1),
     lager:debug("New: ~p, ~p", [NewGTPcPeer, _NewGTPuPeer]),
     gtp_context:setup(Context, State1),
-
-    #gtp_port{ip = LocalIP} = GtpPort,
 
     ResponseIEs = [#cause{value = request_accepted},
 		   #reordering_required{required = no},
@@ -239,10 +245,10 @@ handle_request(#gtp{type = update_pdp_context_request, ie = IEs}, Req,
     RemoteDataIP = gtp_c_lib:bin2ip(RemoteDataIPBin),
 
     Context = OldContext#context{
-		control_ip        = RemoteCntlIP,
-		control_tei       = RemoteCntlTEI,
-		data_ip           = RemoteDataIP,
-		data_tei          = RemoteDataTEI},
+		control_ip  = RemoteCntlIP,
+		control_tei = RemoteCntlTEI,
+		data_ip     = RemoteDataIP,
+		data_tei    = RemoteDataTEI},
 
     State1 = if Context /= OldContext ->
 		     apply_context_change(Context, OldContext, State0);
@@ -341,6 +347,27 @@ pdp_release_ip(#context{ms_v4 = MSv4, ms_v6 = MSv6}, #{gtp_port := GtpPort}) ->
 
 apply_context_change(NewContext, OldContext, State) ->
     ok = gtp_context:update(NewContext, OldContext, State),
-
-    %% TODO apply SGSN changed IP's and TEI's
     State#{context => NewContext}.
+
+
+init_session(IEs, Session) ->
+    lists:foldr(fun copy_to_session/2, Session, IEs).
+
+%% copy_to_session(#international_mobile_subscriber_identity{imsi = IMSI}, Session) ->
+%%     Id = [{'Subscription-Id-Type' , 1}, {'Subscription-Id-Data', IMSI}],
+%%     Session#{'Subscription-Id' => Id};
+
+copy_to_session(#international_mobile_subscriber_identity{imsi = IMSI}, Session) ->
+    Session#{'IMSI' => IMSI};
+copy_to_session(#ms_international_pstn_isdn_number{
+		   msisdn = {isdn_address, _, _, 1, MSISDN}}, Session) ->
+    Session#{'MSISDN' => MSISDN};
+copy_to_session(#gsn_address{instance = 0, address = IP}, Session) ->
+    Session#{'SGSN-Address' => gtp_c_lib:ip2bin(IP)};
+copy_to_session(#rat_type{rat_type = Type}, Session) ->
+    Session#{'RAT-Type' => Type};
+copy_to_session(#selection_mode{mode = Mode}, Session) ->
+    Session#{'Selection-Mode' => Mode};
+
+copy_to_session(_, Session) ->
+    Session.
