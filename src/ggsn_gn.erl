@@ -178,7 +178,8 @@ handle_request(#gtp{type = create_pdp_context_request, ie = IEs}, Req,
 	   #tunnel_endpoint_identifier_data_i{tei = RemoteDataTEI},
        tunnel_endpoint_identifier_control_plane =
 	   #tunnel_endpoint_identifier_control_plane{tei = RemoteCntlTEI},
-       end_user_address = EUA
+       end_user_address = EUA,
+       quality_of_service_profile = QoSProfile
       } = Req,
 
     RemoteCntlIP = gtp_c_lib:bin2ip(RemoteCntlIPBin),
@@ -221,8 +222,7 @@ handle_request(#gtp{type = create_pdp_context_request, ie = IEs}, Req,
                                                                [{ms_dns1,<<8,8,8,8>>},{ms_dns2,<<0,0,0,0>>}]}]}},
 		   #gsn_address{instance = 0, address = gtp_c_lib:ip2bin(LocalIP)},   %% for Control Plane
 		   #gsn_address{instance = 1, address = gtp_c_lib:ip2bin(LocalIP)},   %% for User Traffic
-		   #quality_of_service_profile{priority = 0,
-					       data = <<11,146,31>>}
+		   QoSProfile
 		  | gtp_v1_c:build_recovery(GtpPort, NewGTPcPeer)],
     Reply = {create_pdp_context_response, RemoteCntlTEI, ResponseIEs},
     {reply, Reply, State1};
@@ -238,7 +238,8 @@ handle_request(#gtp{type = update_pdp_context_request, ie = IEs}, Req,
        tunnel_endpoint_identifier_data_i =
 	   #tunnel_endpoint_identifier_data_i{tei = RemoteDataTEI},
        tunnel_endpoint_identifier_control_plane =
-	   #tunnel_endpoint_identifier_control_plane{tei = RemoteCntlTEI}
+	   #tunnel_endpoint_identifier_control_plane{tei = RemoteCntlTEI},
+       quality_of_service_profile = QoSProfile
       } = Req,
 
     RemoteCntlIP = gtp_c_lib:bin2ip(RemoteCntlIPBin),
@@ -266,8 +267,7 @@ handle_request(#gtp{type = update_pdp_context_request, ie = IEs}, Req,
 		   #charging_id{id = <<0,0,0,1>>},
 		   #gsn_address{instance = 0, address = gtp_c_lib:ip2bin(LocalIP)},   %% for Control Plane
 		   #gsn_address{instance = 1, address = gtp_c_lib:ip2bin(LocalIP)},   %% for User Traffic
-		   #quality_of_service_profile{priority = 0,
-					       data = <<11,146,31>>}
+		   QoSProfile
 		  | gtp_v1_c:build_recovery(GtpPort, NewGTPcPeer)],
     Reply = {update_pdp_context_response, RemoteCntlTEI, ResponseIEs},
     {reply, Reply, State1};
