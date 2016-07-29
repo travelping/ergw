@@ -237,10 +237,16 @@ handle_request(#gtp{type = update_pdp_context_request, ie = IEs}, Req,
 	   #gsn_address{address = RemoteDataIPBin},
        tunnel_endpoint_identifier_data_i =
 	   #tunnel_endpoint_identifier_data_i{tei = RemoteDataTEI},
-       tunnel_endpoint_identifier_control_plane =
-	   #tunnel_endpoint_identifier_control_plane{tei = RemoteCntlTEI},
        quality_of_service_profile = QoSProfile
       } = Req,
+
+    RemoteCntlTEI =
+	case Req#update_pdp_context_request.tunnel_endpoint_identifier_control_plane of
+	    #tunnel_endpoint_identifier_control_plane{tei = ReqCntlTEI} ->
+		ReqCntlTEI;
+	    _ ->
+		OldContext#context.control_tei
+	end,
 
     RemoteCntlIP = gtp_c_lib:bin2ip(RemoteCntlIPBin),
     RemoteDataIP = gtp_c_lib:bin2ip(RemoteDataIPBin),
