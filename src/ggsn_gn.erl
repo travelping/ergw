@@ -81,6 +81,7 @@
 	  rat_type,
 	  user_location_information,
 	  ms_time_zone,
+	  additional_trace_info,
 	  direct_tunnel_flags,
 	  evolved_allocation_retention_priority_i,
 	  extended_common_flags,
