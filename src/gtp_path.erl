@@ -10,10 +10,10 @@
 -behaviour(regine_server).
 
 %% API
--export([start_link/5, get/2, all/1,
-	 register/6, unregister/5,
+-export([start_link/4, get/2, all/1,
+	 register/4, unregister/4,
 	 handle_request/2, handle_response/2,
-	 handle_recovery/7]).
+	 handle_recovery/5, get_handler/2]).
 
 %% regine_server callbacks
 -export([init/1, handle_register/4, handle_unregister/3, handle_pid_remove/3,
@@ -28,20 +28,20 @@
 %%% API
 %%%===================================================================
 
-start_link(GtpPort, Interface, Protocol, RemoteIP, Args) ->
-    regine_server:start_link(?MODULE, {GtpPort, Interface, Protocol, RemoteIP, Args}).
+start_link(GtpPort, Version, RemoteIP, Args) ->
+    regine_server:start_link(?MODULE, {GtpPort, Version, RemoteIP, Args}).
 
-register(GtpPort, Interface, CntlProtocol, RemoteCntlIP, DataProtocol, RemoteDataIP) ->
-    register(GtpPort, Interface, CntlProtocol, RemoteCntlIP),
-    register(GtpPort, Interface, DataProtocol, RemoteDataIP).
+register(GtpPort, Version, RemoteCntlIP, RemoteDataIP) ->
+    register(GtpPort, Version, RemoteCntlIP),
+    register(GtpPort, Version, RemoteDataIP).
 
-unregister(Interface, CntlProtocol, RemoteCntlIP, DataProtocol, RemoteDataIP) ->
-    unregister(Interface, CntlProtocol, RemoteCntlIP),
-    unregister(Interface, DataProtocol, RemoteDataIP).
+unregister(GtpPort, Version, RemoteCntlIP, RemoteDataIP) ->
+    unregister(GtpPort, Version, RemoteCntlIP),
+    unregister(GtpPort, Version, RemoteDataIP).
 
-handle_recovery(RecoveryCounter, GtpPort, Interface, CntlProtocol, RemoteCntlIP, DataProtocol, RemoteDataIP) ->
-    NewGTPcPeer = handle_recovery(RecoveryCounter, GtpPort, Interface, CntlProtocol, RemoteCntlIP),
-    NewGTPuPeer = handle_recovery(RecoveryCounter, GtpPort, Interface, DataProtocol, RemoteDataIP),
+handle_recovery(RecoveryCounter, GtpPort, Version, RemoteCntlIP, RemoteDataIP) ->
+    NewGTPcPeer = do_handle_recovery(RecoveryCounter, GtpPort, Version, RemoteCntlIP),
+    NewGTPuPeer = do_handle_recovery(RecoveryCounter, GtpPort, Version, RemoteDataIP),
     {ok, NewGTPcPeer, NewGTPuPeer}.
 
 handle_request(Path, Msg) ->
@@ -50,11 +50,18 @@ handle_request(Path, Msg) ->
 handle_response(Path, Msg) ->
     regine_server:cast(Path, {response, Msg}).
 
-get(Type, IP) ->
-    gtp_path_reg:lookup({Type, IP}).
+get(#gtp_port{name = PortName}, IP) ->
+    gtp_path_reg:lookup({PortName, IP}).
 
 all(Path) ->
     regine_server:call(Path, all).
+
+get_handler(#gtp_port{type = 'gtp-u'}, _) ->
+    gtp_v1_u;
+get_handler(#gtp_port{type = 'gtp-c'}, v1) ->
+    gtp_v1_c;
+get_handler(#gtp_port{type = 'gtp-c'}, v2) ->
+    gtp_v2_c.
 
 %%%===================================================================
 %%% Protocol Module API
@@ -63,25 +70,22 @@ all(Path) ->
 %%%===================================================================
 %%% regine callbacks
 %%%===================================================================
-init({GtpPort, Interface, Protocol, RemoteIP, Args}) ->
-    gtp_path_reg:register({Interface, RemoteIP}),
-    gtp_path_reg:register({Protocol, RemoteIP}),
-    gtp_path_reg:register({Protocol:type(), RemoteIP}),
+init({#gtp_port{name = PortName} = GtpPort, Version, RemoteIP, Args}) ->
+    gtp_path_reg:register({PortName, RemoteIP}),
 
     TID = ets:new(?MODULE, [duplicate_bag, private, {keypos, 1}]),
 
     State = #{table    => TID,
 	      path_counter => 0,
 	      gtp_port => GtpPort,
-	      interface => Interface,
-	      protocol => Protocol,
+	      version  => Version,
+	      handler  => get_handler(GtpPort, Version),
 	      ip       => RemoteIP,
 	      t3       => proplists:get_value(t3, Args, 10 * 1000), %% 10sec
 	      n3       => proplists:get_value(n3, Args, 5),
 	      seq_no   => 0,
 	      recovery => undefined,
 	      echo     => proplists:get_value(ping, Args, 60 * 1000), %% 60sec
-	      port     => Protocol:port(),
 	      pending  => gb_trees:empty(),
 	      echo_timer => stopped,
 	      tunnel_endpoints => gb_trees:empty(),
@@ -194,24 +198,30 @@ code_change(_OldVsn, State, _Extra) ->
 %%% Internal functions
 %%%===================================================================
 
-final_send_message(GtpPort, Protocol, IP, Port, Msg) ->
+final_send_message(GtpPort, IP, Port, Msg) ->
     %% TODO: handle encode errors
     try
         Data = gtp_packet:encode(Msg),
-	lager:debug("gtp_path send ~s to ~w:~w: ~p, ~p", [Protocol:type(), IP, Port, gtp_c_lib:fmt_gtp(Msg), Data]),
-	gtp:send(GtpPort, Protocol:type(), IP, Port, Data)
+	lager:debug("gtp_path send ~s to ~w:~w: ~p, ~p",
+		    [GtpPort#gtp_port.type, IP, Port,
+		     gtp_c_lib:fmt_gtp(Msg), Data]),
+	gtp_socket:send(GtpPort, IP, Port, Data)
     catch
 	Class:Error ->
-	    lager:error("gtp send failed with ~p:~p", [Class, Error])
+	    lager:error("gtp send (~p) failed with ~p:~p",
+			[[lager:pr(GtpPort, ?MODULE), IP, Port,
+			  lager:pr(Msg, ?MODULE)], Class, Error])
     end.
 
-final_send_message(Port, Msg, #{gtp_port := GtpPort, protocol := Protocol, ip := IP} = State) ->
-    final_send_message(GtpPort, Protocol, IP, Port, Msg),
+final_send_message(Port, Msg, #{gtp_port := GtpPort, ip := IP} = State) ->
+    final_send_message(GtpPort, IP, Port, Msg),
     State.
 
-send_request(#gtp{} = Msg, Fun,
-	     #{t3 := T3, n3 := N3, seq_no := SeqNo, port := Port} = State)
+do_send_request(#gtp{} = Msg, Fun,
+		#{t3 := T3, n3 := N3, seq_no := SeqNo,
+		  handler := Handler} = State)
   when is_function(Fun, 2) ->
+    Port = Handler:port(),
     send_message_timeout(SeqNo, T3, N3, Port,
 			 Msg#gtp{seq_no = SeqNo}, Fun, State#{seq_no := SeqNo + 1}).
 
@@ -230,22 +240,22 @@ cancel_timer(Ref) ->
             RemainingTime
     end.
 
-register(GtpPort, Interface, Protocol, RemoteIP) ->
-    lager:debug("~s: register(~p)", [?MODULE, [GtpPort, Interface, Protocol, RemoteIP]]),
-    case get(Protocol, RemoteIP) of
+register(GtpPort, Version, RemoteIP) ->
+    lager:debug("~s: register(~p)", [?MODULE, [GtpPort, Version, RemoteIP]]),
+    case get(GtpPort, RemoteIP) of
 	Path when is_pid(Path) ->
 	    Path;
 	_ ->
-	    {ok, Path} = gtp_path_sup:new_path(GtpPort, Interface, Protocol, RemoteIP, [])
+	    {ok, Path} = gtp_path_sup:new_path(GtpPort, Version, RemoteIP, [])
     end,
-    ok = regine_server:register(Path, self(), {self(), Interface}, undefined),
+    ok = regine_server:register(Path, self(), {self(), Version}, undefined),
     regine_server:call(Path, get_restart_counter).
 
 
-unregister(Interface, Protocol, RemoteIP) ->
-    case get(Protocol, RemoteIP) of
+unregister(GtpPort, Version, RemoteIP) ->
+    case get(GtpPort, RemoteIP) of
 	Path when is_pid(Path) ->
-	    regine_server:unregister(Path, {self(), Interface}, undefined);
+	    regine_server:unregister(Path, {self(), Version}, undefined);
 	_ ->
 	    ok
     end.
@@ -282,35 +292,36 @@ stop_echo_request(#{echo_timer := EchoTRef} = State) ->
     end,
     State#{echo_timer => stopped}.
 
-send_echo_request(#{protocol := Protocol} = State) ->
-    Msg = Protocol:build_echo_request(),
-    send_request(Msg, fun echo_response/2, State#{echo_timer => awaiting_response}).
+send_echo_request(#{gtp_port := #gtp_port{type = Type}} = State) ->
+    Msg = Type:build_echo_request(),
+    do_send_request(Msg, fun echo_response/2, State#{echo_timer => awaiting_response}).
 
 echo_response(Msg, #{echo := EchoInterval, echo_timer := awaiting_response} = State0) ->
     lager:debug("echo_response: ~p", [Msg]),
     State = update_path_state(Msg, State0),
     TRef = erlang:start_timer(EchoInterval, self(), echo),
-    State#{echo_timer => TRef};
-echo_response(Msg, State) ->
+    {ok, State#{echo_timer => TRef}};
+echo_response(Msg, State0) ->
     lager:debug("echo_response: ~p", [Msg]),
-    update_path_state(Msg, State).
+    State = update_path_state(Msg, State0),
+    {ok, State}.
 
 update_path_state(#gtp{}, State) ->
     State#{state => 'UP'};
 update_path_state(_, State) ->
     State#{state => 'DOWN'}.
 
-handle_recovery(RecoveryCounter, GtpPort, Interface, Protocol, RemoteIP) ->
-    lager:debug("~s: handle_recovery(~p)", [?MODULE, [RecoveryCounter, GtpPort, Protocol, RemoteIP]]),
-    case get(Protocol, RemoteIP) of
+do_handle_recovery(RecoveryCounter, GtpPort, Version, RemoteIP) ->
+    lager:debug("~s: handle_recovery(~p)", [?MODULE, [RecoveryCounter, GtpPort, Version, RemoteIP]]),
+    case get(GtpPort, RemoteIP) of
 	Path when is_pid(Path) ->
-	    handle_recovery(Path, RecoveryCounter, false);
+	    do_handle_recovery_1(Path, RecoveryCounter, false);
 	_ ->
-	    {ok, Path} = gtp_path_sup:new_path(GtpPort, Interface, Protocol, RemoteIP, []),
-	    handle_recovery(Path, RecoveryCounter, true)
+	    {ok, Path} = gtp_path_sup:new_path(GtpPort, Version, RemoteIP, []),
+	    do_handle_recovery_1(Path, RecoveryCounter, true)
     end.
 
-handle_recovery(_Path, undefined, IsNew) ->
+do_handle_recovery_1(_Path, undefined, IsNew) ->
     IsNew;
-handle_recovery(Path, RecoveryCounter, _IsNew) ->
+do_handle_recovery_1(Path, RecoveryCounter, _IsNew) ->
     regine_server:call(Path, {set_restart_counter, RecoveryCounter}).

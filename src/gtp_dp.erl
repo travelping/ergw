@@ -10,7 +10,7 @@
 -behavior(gen_server).
 
 %% API
--export([start_link/0,
+-export([start_link/1,
 	 create_pdp_context/6,
 	 update_pdp_context/6,
 	 delete_pdp_context/6]).
@@ -29,13 +29,11 @@
 %% API
 %%====================================================================
 
-start_link() ->
-    {ok, IP}   = application:get_env(ip),
-    {ok, Opts} = application:get_env(apn),
-    gen_server:start_link(?MODULE, [IP, Opts], []).
+start_link(Socket) ->
+    gen_server:start_link(?MODULE, [Socket], []).
 
-send(GtpPort, Type, IP, Port, Data) ->
-    cast(GtpPort, {send, Type, IP, Port, Data}).
+send(GtpPort, IP, Port, Data) ->
+    cast(GtpPort, {send, IP, Port, Data}).
 
 create_pdp_context(GtpPort, Version, IP, MS, LocalTEI, RemoteTEI) ->
     call(GtpPort, {create_pdp_context, Version, IP, MS, LocalTEI, RemoteTEI}).
@@ -60,15 +58,34 @@ call(#gtp_port{pid = Handler}, Request) ->
 %%% gen_server callbacks
 %%%===================================================================
 
-init([IP, Opts]) ->
-    {ok, GTP0} = make_gtp_socket(IP, ?GTP0_PORT),
-    {ok, GTP1u} = make_gtp_socket(IP, ?GTP1u_PORT),
+init([Socket]) ->
+    %% TODO: better config validation and handling
+    Name  = proplists:get_value(name, Socket),
+    IP    = proplists:get_value(ip, Socket),
+    NetNs = proplists:get_value(netns, Socket),
+    Type  = proplists:get_value(type, Socket, 'gtp-u'),
+
+    {ok, GTP0} = make_gtp_socket(NetNs, IP, ?GTP0_PORT),
+    {ok, GTP1u} = make_gtp_socket(NetNs, IP, ?GTP1u_PORT),
 
     FD0 = gen_socket:getfd(GTP0),
     FD1u = gen_socket:getfd(GTP1u),
+    Opts =
+	if is_list(NetNs) ->
+		[{netns, NetNs}];
+	   true ->
+		[]
+	end,
     {ok, GTPDev} = gtp_kernel:dev_create("gtp0", FD0, FD1u, Opts),
 
-    GtpPort = #gtp_port{pid = self(), ip = IP},
+    %% FIXME: this is wrong and must go into the global startup
+    RCnt = gtp_config:inc_restart_counter(),
+
+    GtpPort = #gtp_port{name = Name, type = Type, pid = self(),
+			ip = IP, restart_counter = RCnt},
+
+    gtp_socket_reg:register(Name, GtpPort),
+
     {ok, #state{gtp_port = GtpPort, ip = IP,
 		gtp0 = GTP0, gtp1u = GTP1u, gtp_dev = GTPDev}}.
 
@@ -100,7 +117,7 @@ handle_cast(Msg, State) ->
     {noreply, State}.
 
 handle_info({GTP1u, input_ready}, #state{gtp1u = GTP1u} = State) ->
-    handle_input('gtp-u', GTP1u, State);
+    handle_input(GTP1u, State);
 
 handle_info(Info, State) ->
     lager:error("handle_info: unknown ~p, ~p", [lager:pr(Info, ?MODULE), lager:pr(State, ?MODULE)]),
@@ -116,21 +133,27 @@ code_change(_OldVsn, State, _Extra) ->
 %%% Internal functions
 %%%===================================================================
 
-make_gtp_socket({_,_,_,_} = IP, Port) ->
+make_gtp_socket(NetNs, {_,_,_,_} = IP, Port) when is_list(NetNs) ->
+    {ok, Socket} = gen_socket:socketat(NetNs, inet, dgram, udp),
+    bind_gtp_socket(Socket, IP, Port);
+make_gtp_socket(_NetNs, {_,_,_,_} = IP, Port) ->
     {ok, Socket} = gen_socket:socket(inet, dgram, udp),
+    bind_gtp_socket(Socket, IP, Port).
+
+bind_gtp_socket(Socket, {_,_,_,_} = IP, Port) ->
     ok = gen_socket:bind(Socket, {inet4, IP, Port}),
     ok = gen_socket:setsockopt(Socket, sol_ip, recverr, true),
     ok = gen_socket:input_event(Socket, true),
     {ok, Socket}.
 
-handle_input(Type, Socket, State) ->
+handle_input(Socket, State) ->
     case gen_socket:recvfrom(Socket) of
 	{error, _} ->
-	    handle_err_input(Type, Socket, State);
+	    handle_err_input(Socket, State);
 
 	{ok, {inet4, IP, Port}, Data} ->
 	    ok = gen_socket:input_event(Socket, true),
-	    handle_message(Type, IP, Port, Data, State);
+	    handle_message(IP, Port, Data, State);
 
 	Other ->
 	    lager:error("got unhandled input: ~p", [Other]),
@@ -138,7 +161,7 @@ handle_input(Type, Socket, State) ->
 	    {noreply, State}
     end.
 
-handle_err_input(_Type, Socket, State) ->
+handle_err_input(Socket, State) ->
     case gen_socket:recvmsg(Socket, ?MSG_DONTWAIT bor ?MSG_ERRQUEUE) of
 	Other ->
 	    lager:error("got unhandled error input: ~p", [Other]),
@@ -146,24 +169,24 @@ handle_err_input(_Type, Socket, State) ->
 	    {noreply, State}
     end.
 
-handle_message(Type, IP, Port, Data, #state{gtp_port = GtpPort} = State) ->
+handle_message(IP, Port, Data, #state{gtp_port = GtpPort} = State) ->
     Msg = gtp_packet:decode(Data),
-    lager:debug("handle message: ~p", [{Type, IP, Port, GtpPort, Msg}]),
-    handle_message_1(Type, IP, Port, GtpPort, Msg),
+    lager:debug("handle message: ~p", [{IP, Port, GtpPort, Msg}]),
+    handle_message_1(IP, Port, GtpPort, Msg),
     {noreply, State}.
 
-handle_message_1(Type, IP, Port, GtpPort,
+handle_message_1(IP, Port, GtpPort,
 	       #gtp{type = echo_request} = Msg) ->
-    handle_echo_request(Type, IP, Port, GtpPort, Msg);
+    handle_echo_request(IP, Port, GtpPort, Msg);
 
-handle_message_1(Type, IP, _Port, _GtpPort,
+handle_message_1(IP, _Port, GtpPort,
 	       #gtp{type = echo_response} = Msg) ->
-    handle_echo_response(Type, IP, Msg);
+    handle_echo_response(IP, GtpPort, Msg);
 
-handle_message_1(Type, IP, Port, GtpPort, Msg) ->
-    gtp_context:handle_message(Type, IP, Port, GtpPort, Msg).
+handle_message_1(IP, Port, GtpPort, Msg) ->
+    gtp_context:handle_message(IP, Port, GtpPort, Msg).
 
-handle_echo_request(Type, IP, Port, GtpPort,
+handle_echo_request(IP, Port, GtpPort,
 		    #gtp{version = Version, type = echo_request, tei = TEI, seq_no = SeqNo} = Msg) ->
     ResponseIEs =
 	case Version of
@@ -173,10 +196,10 @@ handle_echo_request(Type, IP, Port, GtpPort,
     Response = #gtp{version = Version, type = echo_response, tei = TEI, seq_no = SeqNo, ie = ResponseIEs},
 
     Data = gtp_packet:encode(Response),
-    lager:debug("gtp send ~s to ~w:~w: ~p, ~p", [Type, IP, Port, Response, Data]),
-    send(GtpPort, Type, IP, Port, Data),
+    lager:debug("gtp send ~s to ~w:~w: ~p, ~p", [GtpPort#gtp_port.type, IP, Port, Response, Data]),
+    send(GtpPort, IP, Port, Data),
 
-    case gtp_path:get(Type, IP) of
+    case gtp_path:get(GtpPort, IP) of
 	Path when is_pid(Path) ->
 	    %% for the reuqest to the path so that it can handle the restart counter
 	    gtp_path:handle_request(Path, Msg);
@@ -185,9 +208,9 @@ handle_echo_request(Type, IP, Port, GtpPort,
     end,
     ok.
 
-handle_echo_response(Type, IP, Msg) ->
-    lager:debug("handle_echo_response: ~p -> ~p", [{Type, IP}, gtp_path:get(Type, IP)]),
-    case gtp_path:get(Type, IP) of
+handle_echo_response(IP, GtpPort, Msg) ->
+    lager:debug("handle_echo_response: ~p -> ~p", [IP, gtp_path:get(GtpPort, IP)]),
+    case gtp_path:get(GtpPort, IP) of
 	Path when is_pid(Path) ->
 	    gtp_path:handle_response(Path, Msg);
 	_ ->

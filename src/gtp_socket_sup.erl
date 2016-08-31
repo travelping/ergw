@@ -5,37 +5,32 @@
 %% as published by the Free Software Foundation; either version
 %% 2 of the License, or (at your option) any later version.
 
--module(ergw_sup).
+-module(gtp_socket_sup).
 
 -behaviour(supervisor).
 
 %% API
--export([start_link/0]).
+-export([start_link/0, new/1]).
 
 %% Supervisor callbacks
 -export([init/1]).
 
-%% Helper macro for declaring children of supervisor
--define(CHILD(I, Type, Args), {I, {I, start_link, Args}, permanent, 5000, Type, [I]}).
+-define(SERVER, ?MODULE).
 
 %% ===================================================================
 %% API functions
 %% ===================================================================
 
 start_link() ->
-    supervisor:start_link({local, ?MODULE}, ?MODULE, []).
+    supervisor:start_link({local, ?SERVER}, ?MODULE, []).
+
+new(Socket)->
+    supervisor:start_child(?SERVER, [Socket]).
 
 %% ===================================================================
 %% Supervisor callbacks
 %% ===================================================================
 
 init([]) ->
-    {ok, {{one_for_one, 5, 10}, [?CHILD(gtp_path_reg, worker, []),
-				 ?CHILD(gtp_path_sup, supervisor, []),
-				 ?CHILD(gtp_context_reg, worker, []),
-				 ?CHILD(gtp_context_sup, supervisor, []),
-				 ?CHILD(gtp_socket_reg, worker, []),
-				 ?CHILD(gtp_socket_sup, supervisor, []),
-				 ?CHILD(gtp_dp, worker, []),
-				 ?CHILD(apn, worker, [])
-				]} }.
+    {ok, {{simple_one_for_one, 5, 10},
+	  [{gtp_socket, {gtp_socket, start_link, []}, temporary, 1000, worker, [gtp_socket]}]}}.

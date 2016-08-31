@@ -24,11 +24,12 @@
 start_link() ->
     supervisor:start_link({local, ?SERVER}, ?MODULE, []).
 
-new(GtpPort, Protocol, Interface) ->
-    new(GtpPort, Protocol, Interface, []).
+new(GtpPort, Version, Interface) ->
+    new(GtpPort, Version, Interface, []).
 
-new(GtpPort, Protocol, Interface, Opts) ->
-    supervisor:start_child(?SERVER, [GtpPort, Protocol, Interface, Opts]).
+new(GtpPort, Version, Interface, Opts) ->
+    lager:debug("new(~p)", [[GtpPort, Version, Interface, Opts]]),
+    supervisor:start_child(?SERVER, [GtpPort, Version, Interface, Opts]).
 
 %% ===================================================================
 %% Supervisor callbacks

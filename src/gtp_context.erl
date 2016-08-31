@@ -9,7 +9,7 @@
 
 -compile({parse_transform, do}).
 
--export([lookup/1, new/5, handle_message/5, start_link/4,
+-export([lookup/2, new/4, handle_message/4, start_link/4,
 	 setup/2, update/3, teardown/2, handle_recovery/3]).
 
 %% gen_server callbacks
@@ -23,43 +23,45 @@
 %% API
 %%====================================================================
 
-lookup(TEI) ->
-    gtp_context_reg:lookup(TEI).
+lookup(GtpPort, TEI) ->
+    gtp_context_reg:lookup(GtpPort, TEI).
 
-new(Type, IP, Port, GtpPort,
+new(IP, Port, GtpPort,
     #gtp{version = Version, ie = IEs} = Msg) ->
-    Protocol = get_protocol(Type, Version),
     do([error_m ||
 	   Interface <- get_interface_type(Version, IEs),
-	   Context <- gtp_context_sup:new(GtpPort, Protocol, Interface),
-	   gen_server:cast(Context, {handle_message, IP, Port, Msg})
+	   Context <- gtp_context_sup:new(GtpPort, Version, Interface),
+	   gen_server:cast(Context, {handle_message, GtpPort, IP, Port, Msg})
        ]).
 
-handle_message(Type, IP, Port, GtpPort, #gtp{version = Version, tei = TEI} = Msg) ->
-    case lookup(TEI) of
+handle_message(IP, Port, GtpPort,
+	       #gtp{version = Version, tei = TEI} = Msg) ->
+    case lookup(GtpPort, TEI) of
 	Context when is_pid(Context) ->
-	    gen_server:cast(Context, {handle_message, IP, Port, Msg});
+	    gen_server:cast(Context, {handle_message, GtpPort, IP, Port, Msg});
 	_ ->
-	    Protocol = get_protocol(Type, Version),
-	    Reply = Protocol:build_response({Msg#gtp.type, not_found}),
+	    Handler = gtp_path:get_handler(GtpPort, Version),
+	    Reply = Handler:build_response({Msg#gtp.type, not_found}),
 	    Data = gtp_packet:encode(Reply#gtp{seq_no = Msg#gtp.seq_no}),
-	    lager:debug("gtp_context send ~s error to ~w:~w: ~p, ~p", [Protocol:type(), IP, Port, Reply, Data]),
-	    gtp:send(GtpPort, Protocol:type(), IP, Port, Data)
+	    lager:debug("gtp_context send ~s error to ~w:~w: ~p, ~p",
+			[GtpPort#gtp_port.type, IP, Port, Reply, Data]),
+	    gtp_socket:send(GtpPort, IP, Port, Data)
     end.
 
-start_link(GtpPort, Protocol, Interface, Opts) ->
-    gen_server:start_link(?MODULE, [GtpPort, Protocol, Interface], Opts).
+start_link(GtpPort, Version, Interface, Opts) ->
+    gen_server:start_link(?MODULE, [GtpPort, Version, Interface], Opts).
 
 %%====================================================================
 %% gen_server API
 %%====================================================================
 
-init([GtpPort, Protocol, Interface]) ->
-    {ok, TEI} = gtp_c_lib:alloc_tei(),
+init([GtpPort, Version, Interface]) ->
+    lager:debug("init(~p)", [[GtpPort, Interface]]),
+    {ok, TEI} = gtp_c_lib:alloc_tei(GtpPort),
 
     State = #{
       gtp_port  => GtpPort,
-      protocol  => Protocol,
+      version   => Version,
       interface => Interface,
       tei       => TEI},
     {ok, State}.
@@ -68,15 +70,15 @@ handle_call(Request, _From, State) ->
     lager:warning("handle_call: ~p", [lager:pr(Request, ?MODULE)]),
     {reply, ok, State}.
 
-handle_cast({handle_message, IP, Port, #gtp{type = Type, ie = IEs} = Msg}, State) ->
+handle_cast({handle_message, GtpPort, IP, Port, #gtp{type = MsgType, ie = IEs} = Msg}, State) ->
     lager:debug("~w: handle gtp: ~w, ~p",
 		[?MODULE, Port, gtp_c_lib:fmt_gtp(Msg)]),
 
-    Spec = request_spec(Type, State),
-    {Req, Missing} = gtp_c_lib:build_req_record(Type, Spec, IEs),
+    Spec = request_spec(MsgType, State),
+    {Req, Missing} = gtp_c_lib:build_req_record(MsgType, Spec, IEs),
     lager:debug("Mis: ~p", [Missing]),
 
-    case gtp_msg_type(Type, State) of
+    case gtp_msg_type(MsgType, State) of
 	response when Missing /= [] ->
 	    %% ignore reply with missing mandarory arguments
 	    {noreply, State};
@@ -89,7 +91,7 @@ handle_cast({handle_message, IP, Port, #gtp{type = Type, ie = IEs} = Msg}, State
 
 	_ ->
 
-	    handle_request(IP, Port, Msg, Req, State)
+	    handle_request(GtpPort, IP, Port, Msg, Req, State)
     end;
 
 handle_cast(Msg, State) ->
@@ -110,16 +112,16 @@ code_change(_OldVsn, State, _Extra) ->
 %%% Message Handling functions
 %%%===================================================================
 
-handle_error(IP, Port, #gtp{type = Type, seq_no = SeqNo}, Reply, State) ->
-    Response = build_response({Type, Reply}, State),
+handle_error(IP, Port, #gtp{type = MsgType, seq_no = SeqNo}, Reply, State) ->
+    Response = build_response({MsgType, Reply}, State),
     send_message(IP, Port, Response#gtp{seq_no = SeqNo}, State),
     {noreply, State}.
 
-handle_request(IP, Port, #gtp{version = Version, seq_no = SeqNo} = Msg, Req, State0) ->
+handle_request(GtpPort, IP, Port, #gtp{version = Version, seq_no = SeqNo} = Msg, Req, State0) ->
     lager:debug("GTP~s ~s:~w: ~p",
 		[Version, inet:ntoa(IP), Port, gtp_c_lib:fmt_gtp(Msg)]),
 
-    try interface_handle_request(Msg, Req, State0) of
+    try interface_handle_request(GtpPort, Msg, Req, State0) of
 	{reply, Reply, State1} ->
 	    Response = build_response(Reply, State1),
 	    send_message(IP, Port, Response#gtp{seq_no = SeqNo}, State1),
@@ -152,12 +154,12 @@ handle_response(Msg, #{path := Path} = State) ->
     gtp_path:handle_response(Path, Msg),
     {noreply, State}.
 
-send_message(IP, Port, Msg, #{gtp_port := GtpPort, protocol := Protocol} = State) ->
+send_message(IP, Port, Msg, #{gtp_port := GtpPort} = State) ->
     %% TODO: handle encode errors
     try
         Data = gtp_packet:encode(Msg),
-	lager:debug("gtp_context send ~s to ~w:~w: ~p, ~p", [Protocol:type(), IP, Port, Msg, Data]),
-	gtp:send(GtpPort, Protocol:type(), IP, Port, Data)
+	lager:debug("gtp_context send ~s to ~w:~w: ~p, ~p", [GtpPort#gtp_port.type, IP, Port, Msg, Data]),
+	gtp_socket:send(GtpPort, IP, Port, Data)
     catch
 	Class:Error ->
 	    Stack  = erlang:get_stacktrace(),
@@ -176,12 +178,11 @@ setup(#context{
 	 data_tei    = RemoteDataTEI,
 	 ms_v4       = MSv4},
       #{gtp_port  := GtpPort,
-	protocol  := CntlProtocol,
-	interface := Interface,
+	version   := Version,
 	tei       := LocalTEI}) ->
 
     ok = gtp_dp:create_pdp_context(GtpPort, 1, RemoteDataIP, MSv4, LocalTEI, RemoteDataTEI),
-    gtp_path:register(GtpPort, Interface, CntlProtocol, RemoteCntlIP, gtp_v1_u, RemoteDataIP),
+    gtp_path:register(GtpPort, Version, RemoteCntlIP, RemoteDataIP),
     ok.
 
 update(#context{
@@ -196,13 +197,12 @@ update(#context{
 	    data_ip     = RemoteDataIPOld,
 	    ms_v4       = MSv4},
 	 #{gtp_port  := GtpPort,
-	   protocol  := CntlProtocol,
-	   interface := Interface,
+	   version   := Version,
 	   tei       := LocalTEI}) ->
 
-    gtp_path:unregister(Interface, CntlProtocol, RemoteCntlIPOld, gtp_v1_u, RemoteDataIPOld),
+    gtp_path:unregister(GtpPort, Version, RemoteCntlIPOld, RemoteDataIPOld),
     ok = gtp_dp:update_pdp_context(GtpPort, 1, RemoteDataIPNew, MSv4, LocalTEI, RemoteDataTEINew),
-    gtp_path:register(GtpPort, Interface, CntlProtocol, RemoteCntlIPNew, gtp_v1_u, RemoteDataIPNew),
+    gtp_path:register(GtpPort, Version, RemoteCntlIPNew, RemoteDataIPNew),
     ok.
 
 teardown(#context{
@@ -212,11 +212,10 @@ teardown(#context{
 	    data_tei    = RemoteDataTEI,
 	    ms_v4       = MSv4},
 	 #{gtp_port  := GtpPort,
-	   protocol  := CntlProtocol,
-	   interface := Interface,
+	   version   := Version,
 	   tei       := LocalTEI}) ->
 
-    gtp_path:unregister(Interface, CntlProtocol, RemoteCntlIP, gtp_v1_u, RemoteDataIP),
+    gtp_path:unregister(GtpPort, Version, RemoteCntlIP, RemoteDataIP),
     ok = gtp_dp:delete_pdp_context(GtpPort, 1, RemoteDataIP, MSv4, LocalTEI, RemoteDataTEI).
 
 handle_recovery(RecoveryCounter,
@@ -225,20 +224,12 @@ handle_recovery(RecoveryCounter,
 		   data_tunnel = gtp_v1_u,
 		   data_ip     = RemoteDataIP},
 		#{gtp_port  := GtpPort,
-		  protocol  := CntlProtocol,
-		  interface := Interface}) ->
-    gtp_path:handle_recovery(RecoveryCounter, GtpPort, Interface, CntlProtocol, RemoteCntlIP, gtp_v1_u, RemoteDataIP).
+		  version   := Version}) ->
+    gtp_path:handle_recovery(RecoveryCounter, GtpPort, Version, RemoteCntlIP, RemoteDataIP).
 
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
-
-get_protocol('gtp-u', v1) ->
-    gtp_v1_u;
-get_protocol('gtp-c', v1) ->
-    gtp_v1_c;
-get_protocol('gtp-c', v2) ->
-    gtp_v2_c.
 
 get_interface_type(v1, _) ->
     {ok, ggsn_gn};
@@ -264,16 +255,16 @@ apply_mod(Key, F, A, State) ->
     apply(M, F, A).
 
 gtp_msg_type(Type, State) ->
-    apply_mod(protocol, gtp_msg_type, [Type], State).
+    apply_mod(type, gtp_msg_type, [Type], State).
 
 request_spec(Type, State) ->
     apply_mod(interface, request_spec, [Type], State).
 
-interface_handle_request(Msg, Req, State) ->
-    apply_mod(interface, handle_request, [Msg, Req, State], State).
+interface_handle_request(GtpPort, Msg, Req, State) ->
+    apply_mod(interface, handle_request, [GtpPort, Msg, Req, State], State).
 
 build_response(Reply, State) ->
-    apply_mod(protocol, build_response, [Reply], State).
+    apply_mod(type, build_response, [Reply], State).
 
 map_v2_iftype(6)  -> {ok, pgw_s5s8};
 map_v2_iftype(34) -> {ok, pgw_s2a};

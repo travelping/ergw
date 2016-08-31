@@ -11,6 +11,8 @@
 -define(GTP2c_PORT,	2123).
 
 -record(gtp_port, {
+	  name            :: term(),
+	  type            :: 'gtp-c' | 'gtp-u',
 	  pid             :: pid(),
 	  restart_counter :: integer(),
 	  ip              :: inet:ip_address()

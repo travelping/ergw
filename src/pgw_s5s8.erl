@@ -11,7 +11,7 @@
 
 -compile({parse_transform, do}).
 
--export([request_spec/1, handle_request/3]).
+-export([request_spec/1, handle_request/4]).
 
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include("include/ergw.hrl").
@@ -156,7 +156,8 @@ request_spec(_) ->
 %%   Change Notification Request/Response
 %%   Resume Notification/Acknowledge
 
-handle_request(#gtp{type = create_session_request, ie = IEs}, Req,
+handle_request(_SrcGtpPort,
+	       #gtp{type = create_session_request, ie = IEs}, Req,
 	       #{tei := LocalTEI, gtp_port := GtpPort} = State0) ->
 
     #create_session_request{
@@ -226,7 +227,8 @@ handle_request(#gtp{type = create_session_request, ie = IEs}, Req,
     Response = {create_session_response, RemoteCntlTEI, ResponseIEs},
     {ok, Response, State1};
 
-handle_request(#gtp{type = modify_bearer_request, tei = LocalTEI, ie = IEs}, Req,
+handle_request(_SrcGtpPort,
+	       #gtp{type = modify_bearer_request, tei = LocalTEI, ie = IEs}, Req,
 	       #{gtp_port := GtpPort, context := OldContext} = State0) ->
 
     #modify_bearer_request{
@@ -273,7 +275,8 @@ handle_request(#gtp{type = modify_bearer_request, tei = LocalTEI, ie = IEs}, Req
     Response = {modify_bearer_response, RemoteCntlTEI, ResponseIEs},
     {ok, Response, State1};
 
-handle_request(#gtp{type = delete_session_request, tei = LocalTEI}, Req,
+handle_request(_SrcGtpPort,
+	       #gtp{type = delete_session_request, tei = LocalTEI}, Req,
 	       #{gtp_port := GtpPort, context := Context} = State0) ->
 
     #delete_session_request{
@@ -305,7 +308,7 @@ handle_request(#gtp{type = delete_session_request, tei = LocalTEI}, Req,
 	    {reply, Response, State0}
     end;
 
-handle_request(_Msg, _Req, State) ->
+handle_request(_SrcGtpPort, _Msg, _Req, State) ->
     {noreply, State}.
 
 %%%===================================================================
