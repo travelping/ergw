@@ -42,8 +42,10 @@ start_link(Socket) ->
 	    gtp_dp:start_link(Socket)
     end.
 
-send(GtpPort, IP, Port, Data) ->
-    cast(GtpPort, {send, IP, Port, Data}).
+send(#gtp_port{type = 'gtp-c'} = GtpPort, IP, Port, Data) ->
+    cast(GtpPort, {send, IP, Port, Data});
+send(#gtp_port{type = 'gtp-u'} = GtpPort, IP, Port, Data) ->
+    gtp_dp:send(GtpPort, IP, Port, Data).
 
 get_restart_counter(GtpPort) ->
     call(GtpPort, get_restart_counter).
@@ -154,55 +156,7 @@ handle_message(IP, Port, Data, #state{gtp_port = GtpPort} = State) ->
     Msg = gtp_packet:decode(Data),
     lager:debug("handle message: ~p", [{IP, Port,
 					lager:pr(GtpPort, ?MODULE),
-					gtp_c_lib:fmt_gtp(Msg)}]),
-    handle_message_1(IP, Port, GtpPort, Msg),
+					lager:pr(Msg, ?MODULE)}]),
+    gtp_path:handle_message(IP, Port, GtpPort, Msg),
     {noreply, State}.
 
-handle_message_1(IP, Port, GtpPort,
-	       #gtp{type = echo_request} = Msg) ->
-    handle_echo_request(IP, Port, GtpPort, Msg);
-
-handle_message_1(IP, _Port, GtpPort,
-	       #gtp{type = echo_response} = Msg) ->
-    handle_echo_response(IP, GtpPort, Msg);
-
-handle_message_1(IP, Port, GtpPort,
-	       #gtp{version = Version, type = MsgType, tei = 0} = Msg)
-  when (Version == v1 andalso MsgType == create_pdp_context_request) orelse
-       (Version == v2 andalso MsgType == create_session_request) ->
-    gtp_context:new(IP, Port, GtpPort, Msg);
-
-handle_message_1(IP, Port, GtpPort, Msg) ->
-    gtp_context:handle_message(IP, Port, GtpPort, Msg).
-
-handle_echo_request(IP, Port, GtpPort,
-		    #gtp{version = Version, type = echo_request, tei = TEI, seq_no = SeqNo} = Msg) ->
-    ResponseIEs =
-	case Version of
-	    v1 -> gtp_v1_c:build_recovery(GtpPort, true);
-	    v2 -> gtp_v2_c:build_recovery(GtpPort, true)
-	end,
-    Response = #gtp{version = Version, type = echo_response, tei = TEI, seq_no = SeqNo, ie = ResponseIEs},
-
-    Data = gtp_packet:encode(Response),
-    lager:debug("gtp ~w send to ~w:~w: ~p, ~p", [GtpPort#gtp_port.type, IP, Port, Response, Data]),
-    send(GtpPort, IP, Port, Data),
-
-    case gtp_path:get(GtpPort, IP) of
-	Path when is_pid(Path) ->
-	    %% for the reuqest to the path so that it can handle the restart counter
-	    gtp_path:handle_request(Path, Msg);
-	_ ->
-	    ok
-    end,
-    ok.
-
-handle_echo_response(IP, GtpPort, Msg) ->
-    lager:debug("handle_echo_response: ~p -> ~p", [IP, gtp_path:get(GtpPort, IP)]),
-    case gtp_path:get(GtpPort, IP) of
-	Path when is_pid(Path) ->
-	    gtp_path:handle_response(Path, Msg);
-	_ ->
-	    ok
-    end,
-    ok.

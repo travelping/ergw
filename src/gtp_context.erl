@@ -86,7 +86,7 @@ handle_cast({handle_message, GtpPort, IP, Port, #gtp{type = MsgType, ie = IEs} =
 	    {noreply, State};
 
 	response ->
-	    handle_response(Msg, State);
+	    handle_response(GtpPort, IP, Msg, Req, State);
 
 	_ when Missing /= [] ->
 	    handle_error(IP, Port, Msg, {mandatory_ie_missing, hd(Missing)}, State);
@@ -154,9 +154,40 @@ handle_request(GtpPort, IP, Port, #gtp{version = Version, seq_no = SeqNo} = Msg,
 	    {noreply, State0}
     end.
 
-handle_response(Msg, #{path := Path} = State) ->
-    gtp_path:handle_response(Path, Msg),
-    {noreply, State}.
+handle_response(GtpPort, IP, Msg, Req, State) ->
+    lager:debug("GTP Path Lookup: ~p", [GtpPort]),
+    case gtp_path:get(GtpPort, IP) of
+	Path when is_pid(Path) ->
+	    lager:debug("GTP Path Lookup got: ~p", [Path]),
+	    case gtp_path:handle_response(Path, Msg) of
+		{ok, ReqId, Response} ->
+		    handle_response(ReqId, Response, Req, State);
+		_ ->
+		    {noreply, State}
+	    end;
+	_Other ->
+	    lager:debug("GTP Path Lookup got: ~p", [_Other]),
+	    {noreply, State}
+    end.
+
+handle_response(ReqId, Msg, Req,
+		#{interface := Interface} = State0) ->
+    try Interface:handle_response(ReqId, Msg, Req, State0) of
+	{stop, State1} ->
+	    {stop, normal, State1};
+
+	{noreply, State1} ->
+	    {noreply, State1};
+
+	Other ->
+	    lager:error("handle_request failed with: ~p", [Other]),
+	    {noreply, State0}
+    catch
+	Class:Error ->
+	    Stack  = erlang:get_stacktrace(),
+	    lager:error("GTP response failed with: ~p:~p (~p)", [Class, Error, Stack]),
+	    {noreply, State0}
+    end.
 
 send_message(IP, Port, Msg, #{gtp_port := GtpPort} = State) ->
     %% TODO: handle encode errors

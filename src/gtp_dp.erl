@@ -10,7 +10,7 @@
 -behavior(gen_server).
 
 %% API
--export([start_link/1,
+-export([start_link/1, send/4,
 	 create_pdp_context/6,
 	 update_pdp_context/6,
 	 delete_pdp_context/6]).
@@ -48,11 +48,20 @@ delete_pdp_context(GtpPort, Version, IP, MS, LocalTEI, RemoteTEI) ->
 %%% call/cast wrapper for gtp_port
 %%%===================================================================
 
-cast(#gtp_port{pid = Handler}, Request) ->
-    gen_server:cast(Handler, Request).
+%% TODO: GTP data path handler is currently not working!!
+cast(#gtp_port{pid = Handler}, Request)
+  when is_pid(Handler) ->
+    gen_server:cast(Handler, Request);
+cast(GtpPort, Request) ->
+    lager:warning("GTP DP Port ~p, CAST Request ~p not implemented yet",
+		  [lager:pr(GtpPort, ?MODULE), Request]).
 
-call(#gtp_port{pid = Handler}, Request) ->
-    gen_server:call(Handler, Request).
+call(#gtp_port{pid = Handler}, Request)
+  when is_pid(Handler) ->
+    gen_server:call(Handler, Request);
+call(GtpPort, Request) ->
+    lager:warning("GTP DP Port ~p, CAST Request ~p not implemented yet",
+		  [lager:pr(GtpPort, ?MODULE), Request]).
 
 %%%===================================================================
 %%% gen_server callbacks
@@ -171,49 +180,9 @@ handle_err_input(Socket, State) ->
 
 handle_message(IP, Port, Data, #state{gtp_port = GtpPort} = State) ->
     Msg = gtp_packet:decode(Data),
-    lager:debug("handle message: ~p", [{IP, Port, GtpPort, Msg}]),
-    handle_message_1(IP, Port, GtpPort, Msg),
+    lager:debug("handle message: ~p", [{IP, Port,
+					lager:pr(GtpPort, ?MODULE),
+					lager:pr(Msg, ?MODULE)}]),
+    gtp_path:handle_message(IP, Port, GtpPort, Msg),
     {noreply, State}.
 
-handle_message_1(IP, Port, GtpPort,
-	       #gtp{type = echo_request} = Msg) ->
-    handle_echo_request(IP, Port, GtpPort, Msg);
-
-handle_message_1(IP, _Port, GtpPort,
-	       #gtp{type = echo_response} = Msg) ->
-    handle_echo_response(IP, GtpPort, Msg);
-
-handle_message_1(IP, Port, GtpPort, Msg) ->
-    gtp_context:handle_message(IP, Port, GtpPort, Msg).
-
-handle_echo_request(IP, Port, GtpPort,
-		    #gtp{version = Version, type = echo_request, tei = TEI, seq_no = SeqNo} = Msg) ->
-    ResponseIEs =
-	case Version of
-	    v1 -> gtp_v1_c:build_recovery(GtpPort, true);
-	    v2 -> gtp_v2_c:build_recovery(GtpPort, true)
-	end,
-    Response = #gtp{version = Version, type = echo_response, tei = TEI, seq_no = SeqNo, ie = ResponseIEs},
-
-    Data = gtp_packet:encode(Response),
-    lager:debug("gtp send ~s to ~w:~w: ~p, ~p", [GtpPort#gtp_port.type, IP, Port, Response, Data]),
-    send(GtpPort, IP, Port, Data),
-
-    case gtp_path:get(GtpPort, IP) of
-	Path when is_pid(Path) ->
-	    %% for the reuqest to the path so that it can handle the restart counter
-	    gtp_path:handle_request(Path, Msg);
-	_ ->
-	    ok
-    end,
-    ok.
-
-handle_echo_response(IP, GtpPort, Msg) ->
-    lager:debug("handle_echo_response: ~p -> ~p", [IP, gtp_path:get(GtpPort, IP)]),
-    case gtp_path:get(GtpPort, IP) of
-	Path when is_pid(Path) ->
-	    gtp_path:handle_response(Path, Msg);
-	_ ->
-	    ok
-    end,
-    ok.
