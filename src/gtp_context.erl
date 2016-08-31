@@ -62,6 +62,7 @@ init([GtpPort, Version, Interface]) ->
     State = #{
       gtp_port  => GtpPort,
       version   => Version,
+      handler   => gtp_path:get_handler(GtpPort, Version),
       interface => Interface,
       tei       => TEI},
     {ok, State}.
@@ -70,15 +71,16 @@ handle_call(Request, _From, State) ->
     lager:warning("handle_call: ~p", [lager:pr(Request, ?MODULE)]),
     {reply, ok, State}.
 
-handle_cast({handle_message, GtpPort, IP, Port, #gtp{type = MsgType, ie = IEs} = Msg}, State) ->
+handle_cast({handle_message, GtpPort, IP, Port, #gtp{type = MsgType, ie = IEs} = Msg},
+	    #{handler := Handler, interface := Interface} = State) ->
     lager:debug("~w: handle gtp: ~w, ~p",
 		[?MODULE, Port, gtp_c_lib:fmt_gtp(Msg)]),
 
-    Spec = request_spec(MsgType, State),
+    Spec = Interface:request_spec(MsgType),
     {Req, Missing} = gtp_c_lib:build_req_record(MsgType, Spec, IEs),
     lager:debug("Mis: ~p", [Missing]),
 
-    case gtp_msg_type(MsgType, State) of
+    case Handler:gtp_msg_type(MsgType) of
 	response when Missing /= [] ->
 	    %% ignore reply with missing mandarory arguments
 	    {noreply, State};
@@ -112,28 +114,30 @@ code_change(_OldVsn, State, _Extra) ->
 %%% Message Handling functions
 %%%===================================================================
 
-handle_error(IP, Port, #gtp{type = MsgType, seq_no = SeqNo}, Reply, State) ->
-    Response = build_response({MsgType, Reply}, State),
+handle_error(IP, Port, #gtp{type = MsgType, seq_no = SeqNo}, Reply,
+	     #{handler := Handler} = State) ->
+    Response = Handler:build_response({MsgType, Reply}),
     send_message(IP, Port, Response#gtp{seq_no = SeqNo}, State),
     {noreply, State}.
 
-handle_request(GtpPort, IP, Port, #gtp{version = Version, seq_no = SeqNo} = Msg, Req, State0) ->
+handle_request(GtpPort, IP, Port, #gtp{version = Version, seq_no = SeqNo} = Msg, Req,
+	        #{handler := Handler, interface := Interface} = State0) ->
     lager:debug("GTP~s ~s:~w: ~p",
 		[Version, inet:ntoa(IP), Port, gtp_c_lib:fmt_gtp(Msg)]),
 
-    try interface_handle_request(GtpPort, Msg, Req, State0) of
+    try Interface:handle_request(GtpPort, Msg, Req, State0) of
 	{reply, Reply, State1} ->
-	    Response = build_response(Reply, State1),
+	    Response = Handler:build_response(Reply),
 	    send_message(IP, Port, Response#gtp{seq_no = SeqNo}, State1),
 	    {noreply, State1};
 
 	{stop, Reply, State1} ->
-	    Response = build_response(Reply, State1),
+	    Response = Handler:build_response(Reply),
 	    send_message(IP, Port, Response#gtp{seq_no = SeqNo}, State1),
 	    {stop, normal, State1};
 
 	{error, Reply} ->
-	    Response = build_response(Reply, State0),
+	    Response = Handler:build_response(Reply),
 	    send_message(IP, Port, Response#gtp{seq_no = SeqNo}, State0),
 	    {noreply, State0};
 
@@ -249,22 +253,6 @@ find_ie(Type, Instance, [IE|_])
     IE;
 find_ie(Type, Instance, [_|Next]) ->
     find_ie(Type, Instance, Next).
-
-apply_mod(Key, F, A, State) ->
-    M = maps:get(Key, State),
-    apply(M, F, A).
-
-gtp_msg_type(Type, State) ->
-    apply_mod(type, gtp_msg_type, [Type], State).
-
-request_spec(Type, State) ->
-    apply_mod(interface, request_spec, [Type], State).
-
-interface_handle_request(GtpPort, Msg, Req, State) ->
-    apply_mod(interface, handle_request, [GtpPort, Msg, Req, State], State).
-
-build_response(Reply, State) ->
-    apply_mod(type, build_response, [Reply], State).
 
 map_v2_iftype(6)  -> {ok, pgw_s5s8};
 map_v2_iftype(34) -> {ok, pgw_s2a};
