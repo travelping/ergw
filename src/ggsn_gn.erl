@@ -382,10 +382,10 @@ encode_eua(Org, Number, IPv4, IPv6) ->
 		      pdp_address = <<IPv4/binary, IPv6/binary >>}.
 
 pdp_alloc_ip(TEI, IPv4, IPv6, #{gtp_port := GtpPort}) ->
-    gtp:allocate_pdp_ip(GtpPort, TEI, IPv4, IPv6).
+    apn:allocate_pdp_ip(GtpPort, TEI, IPv4, IPv6).
 
 pdp_release_ip(#context{ms_v4 = MSv4, ms_v6 = MSv6}, #{gtp_port := GtpPort}) ->
-    gtp:release_pdp_ip(GtpPort, MSv4, MSv6).
+    apn:release_pdp_ip(GtpPort, MSv4, MSv6).
 
 apply_context_change(NewContext, OldContext, State) ->
     ok = gtp_context:update(NewContext, OldContext, State),

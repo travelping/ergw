@@ -169,7 +169,7 @@ handle_request(#gtp{type = delete_session_request, tei = LocalTEI}, Req,
 	do([error_m ||
 	       {RemoteCntlTEI, MS, RemoteDataIP, RemoteDataTEI} <- match_context(35, Context, FqTEI),
 	       pdn_release_ip(Context, State0),
-	       gtp:delete_pdp_context(GtpPort, 1, RemoteDataIP, MS, LocalTEI, RemoteDataTEI),
+	       gtp_dp:delete_pdp_context(GtpPort, 1, RemoteDataIP, MS, LocalTEI, RemoteDataTEI),
 	       return({RemoteCntlTEI, request_accepted, State0})
 	   ]),
 
@@ -241,8 +241,8 @@ encode_paa(Type, IPv4, IPv6) ->
     #v2_pdn_address_allocation{type = Type, address = <<IPv6/binary, IPv4/binary>>}.
 
 pdn_alloc_ip(TEI, IPv4, IPv6, #{gtp_port := GtpPort}) ->
-    gtp:allocate_pdp_ip(GtpPort, TEI, IPv4, IPv6).
+    apn:allocate_pdp_ip(GtpPort, TEI, IPv4, IPv6).
 
 pdn_release_ip(#context{ms_v4 = MSv4, ms_v6 = MSv6}, #{gtp_port := GtpPort}) ->
-    gtp:release_pdp_ip(GtpPort, MSv4, MSv6).
+    apn:release_pdp_ip(GtpPort, MSv4, MSv6).
 

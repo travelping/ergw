@@ -180,7 +180,7 @@ setup(#context{
 	interface := Interface,
 	tei       := LocalTEI}) ->
 
-    ok = gtp:create_pdp_context(GtpPort, 1, RemoteDataIP, MSv4, LocalTEI, RemoteDataTEI),
+    ok = gtp_dp:create_pdp_context(GtpPort, 1, RemoteDataIP, MSv4, LocalTEI, RemoteDataTEI),
     gtp_path:register(GtpPort, Interface, CntlProtocol, RemoteCntlIP, gtp_v1_u, RemoteDataIP),
     ok.
 
@@ -201,7 +201,7 @@ update(#context{
 	   tei       := LocalTEI}) ->
 
     gtp_path:unregister(Interface, CntlProtocol, RemoteCntlIPOld, gtp_v1_u, RemoteDataIPOld),
-    ok = gtp:update_pdp_context(GtpPort, 1, RemoteDataIPNew, MSv4, LocalTEI, RemoteDataTEINew),
+    ok = gtp_dp:update_pdp_context(GtpPort, 1, RemoteDataIPNew, MSv4, LocalTEI, RemoteDataTEINew),
     gtp_path:register(GtpPort, Interface, CntlProtocol, RemoteCntlIPNew, gtp_v1_u, RemoteDataIPNew),
     ok.
 
@@ -217,7 +217,7 @@ teardown(#context{
 	   tei       := LocalTEI}) ->
 
     gtp_path:unregister(Interface, CntlProtocol, RemoteCntlIP, gtp_v1_u, RemoteDataIP),
-    ok = gtp:delete_pdp_context(GtpPort, 1, RemoteDataIP, MSv4, LocalTEI, RemoteDataTEI).
+    ok = gtp_dp:delete_pdp_context(GtpPort, 1, RemoteDataIP, MSv4, LocalTEI, RemoteDataTEI).
 
 handle_recovery(RecoveryCounter,
 		#context{
