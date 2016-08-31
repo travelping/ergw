@@ -210,8 +210,8 @@ handle_request(_SrcGtpPort,
     lager:debug("Invoking CONTROL: ~p", [Session1]),
     ergw_control:authenticate(Session1),
 
-    {ok, NewGTPcPeer, _NewGTPuPeer} = gtp_v1_c:handle_sgsn(IEs, Context, State1),
-    lager:debug("New: ~p, ~p", [NewGTPcPeer, _NewGTPuPeer]),
+    {ok, NewPeer} = gtp_v1_c:handle_sgsn(IEs, Context, State1),
+    lager:debug("New: ~p", [NewPeer]),
     gtp_context:setup(Context, State1),
 
     %% TODO: the QoS profile is too simplistic
@@ -260,7 +260,7 @@ handle_request(_SrcGtpPort,
 		   #gsn_address{instance = 0, address = gtp_c_lib:ip2bin(LocalIP)},   %% for Control Plane
 		   #gsn_address{instance = 1, address = gtp_c_lib:ip2bin(LocalIP)},   %% for User Traffic
 		   QoSProfile
-		  | gtp_v1_c:build_recovery(GtpPort, NewGTPcPeer)],
+		  | gtp_v1_c:build_recovery(GtpPort, NewPeer)],
     Reply = {create_pdp_context_response, RemoteCntlTEI, ResponseIEs},
     {reply, Reply, State1};
 
@@ -301,8 +301,8 @@ handle_request(_SrcGtpPort,
 		     State0
 	     end,
 
-    {ok, NewGTPcPeer, _NewGTPuPeer} = gtp_v1_c:handle_sgsn(IEs, Context, State1),
-    lager:debug("New: ~p, ~p", [NewGTPcPeer, _NewGTPuPeer]),
+    {ok, NewPeer} = gtp_v1_c:handle_sgsn(IEs, Context, State1),
+    lager:debug("New: ~p", [NewPeer]),
 
     #gtp_port{ip = LocalIP} = GtpPort,
 
@@ -312,7 +312,7 @@ handle_request(_SrcGtpPort,
 		   #gsn_address{instance = 0, address = gtp_c_lib:ip2bin(LocalIP)},   %% for Control Plane
 		   #gsn_address{instance = 1, address = gtp_c_lib:ip2bin(LocalIP)},   %% for User Traffic
 		   QoSProfile
-		  | gtp_v1_c:build_recovery(GtpPort, NewGTPcPeer)],
+		  | gtp_v1_c:build_recovery(GtpPort, NewPeer)],
     Reply = {update_pdp_context_response, RemoteCntlTEI, ResponseIEs},
     {reply, Reply, State1};
 

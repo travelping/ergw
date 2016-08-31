@@ -122,8 +122,8 @@ handle_request(_SrcGtpPort,
 		 ms_v6             = MSv6},
     State1 = State0#{context => Context},
 
-    {ok, NewGTPcPeer, _NewGTPuPeer} = gtp_v2_c:handle_sgsn(IEs, Context, State1),
-    lager:debug("New: ~p, ~p", [NewGTPcPeer, _NewGTPuPeer]),
+    {ok, NewPeer} = gtp_v2_c:handle_sgsn(IEs, Context, State1),
+    lager:debug("New: ~p, ~p", [NewPeer]),
     ok = gtp_context:setup(Context, State1),
 
     #gtp_port{ip = LocalIP} = GtpPort,
@@ -152,7 +152,7 @@ handle_request(_SrcGtpPort,
 											    interface_type = 37,           %% S2a PGW GTP-U
 											    key = LocalTEI,
 											    ipv4 = gtp_c_lib:ip2bin(LocalIP)}]}
-		   | gtp_v2_c:build_recovery(GtpPort, NewGTPcPeer)],
+		   | gtp_v2_c:build_recovery(GtpPort, NewPeer)],
     Response = {create_session_response, RemoteCntlTEI, ResponseIEs},
     {ok, Response, State1};
 

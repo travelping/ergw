@@ -31,21 +31,34 @@
 start_link(GtpPort, Version, RemoteIP, Args) ->
     regine_server:start_link(?MODULE, {GtpPort, Version, RemoteIP, Args}).
 
-register(GtpPort, Version, RemoteCntlIP, RemoteDataIP) ->
-    register(GtpPort, Version, RemoteCntlIP),
-    register(GtpPort, Version, RemoteDataIP).
+register(GtpPort, Version, RemoteIP) ->
+    lager:debug("~s: register(~p)", [?MODULE, [GtpPort, Version, RemoteIP]]),
+    case get(GtpPort, RemoteIP) of
+	Path when is_pid(Path) ->
+	    Path;
+	_ ->
+	    {ok, Path} = gtp_path_sup:new_path(GtpPort, Version, RemoteIP, [])
+    end,
+    ok = regine_server:register(Path, self(), {self(), Version}, undefined),
+    regine_server:call(Path, get_restart_counter).
 
-unregister(GtpPort, Version, RemoteCntlIP, RemoteDataIP) ->
-    unregister(GtpPort, Version, RemoteCntlIP),
-    unregister(GtpPort, Version, RemoteDataIP).
 
-handle_recovery(RecoveryCounter, GtpPort, Version, RemoteCntlIP, RemoteDataIP) ->
-    NewGTPcPeer = do_handle_recovery(RecoveryCounter, GtpPort, Version, RemoteCntlIP),
-    NewGTPuPeer = do_handle_recovery(RecoveryCounter, GtpPort, Version, RemoteDataIP),
-    {ok, NewGTPcPeer, NewGTPuPeer}.
+unregister(GtpPort, Version, RemoteIP) ->
+    case get(GtpPort, RemoteIP) of
+	Path when is_pid(Path) ->
+	    regine_server:unregister(Path, {self(), Version}, undefined);
+	_ ->
+	    ok
+    end.
+
+
 
 handle_request(Path, Msg) ->
     regine_server:cast(Path, {request, Msg}).
+
+handle_recovery(RecoveryCounter, GtpPort, Version, RemoteIP) ->
+    NewPeer = do_handle_recovery(RecoveryCounter, GtpPort, Version, RemoteIP),
+    {ok, NewPeer}.
 
 handle_response(Path, Msg) ->
     regine_server:cast(Path, {response, Msg}).
@@ -238,26 +251,6 @@ cancel_timer(Ref) ->
             end;
         RemainingTime ->
             RemainingTime
-    end.
-
-register(GtpPort, Version, RemoteIP) ->
-    lager:debug("~s: register(~p)", [?MODULE, [GtpPort, Version, RemoteIP]]),
-    case get(GtpPort, RemoteIP) of
-	Path when is_pid(Path) ->
-	    Path;
-	_ ->
-	    {ok, Path} = gtp_path_sup:new_path(GtpPort, Version, RemoteIP, [])
-    end,
-    ok = regine_server:register(Path, self(), {self(), Version}, undefined),
-    regine_server:call(Path, get_restart_counter).
-
-
-unregister(GtpPort, Version, RemoteIP) ->
-    case get(GtpPort, RemoteIP) of
-	Path when is_pid(Path) ->
-	    regine_server:unregister(Path, {self(), Version}, undefined);
-	_ ->
-	    ok
     end.
 
 inc_path_counter(#{path_counter := OldPathCounter} = State0) ->

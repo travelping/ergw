@@ -181,8 +181,8 @@ setup(#context{
 	version   := Version,
 	tei       := LocalTEI}) ->
 
-    ok = gtp_dp:create_pdp_context(GtpPort, 1, RemoteDataIP, MSv4, LocalTEI, RemoteDataTEI),
-    gtp_path:register(GtpPort, Version, RemoteCntlIP, RemoteDataIP),
+    ok = gtp_dp:create_pdp_context(GtpPort, Version, RemoteDataIP, MSv4, LocalTEI, RemoteDataTEI),
+    gtp_path:register(GtpPort, Version, RemoteCntlIP),
     ok.
 
 update(#context{
@@ -194,15 +194,15 @@ update(#context{
         #context{
 	    control_ip  = RemoteCntlIPOld,
 	    data_tunnel = gtp_v1_u,
-	    data_ip     = RemoteDataIPOld,
+	    data_ip     = _RemoteDataIPOld,
 	    ms_v4       = MSv4},
 	 #{gtp_port  := GtpPort,
 	   version   := Version,
 	   tei       := LocalTEI}) ->
 
-    gtp_path:unregister(GtpPort, Version, RemoteCntlIPOld, RemoteDataIPOld),
-    ok = gtp_dp:update_pdp_context(GtpPort, 1, RemoteDataIPNew, MSv4, LocalTEI, RemoteDataTEINew),
-    gtp_path:register(GtpPort, Version, RemoteCntlIPNew, RemoteDataIPNew),
+    gtp_path:unregister(GtpPort, Version, RemoteCntlIPOld),
+    ok = gtp_dp:update_pdp_context(GtpPort, Version, RemoteDataIPNew, MSv4, LocalTEI, RemoteDataTEINew),
+    gtp_path:register(GtpPort, Version, RemoteCntlIPNew),
     ok.
 
 teardown(#context{
@@ -215,17 +215,17 @@ teardown(#context{
 	   version   := Version,
 	   tei       := LocalTEI}) ->
 
-    gtp_path:unregister(GtpPort, Version, RemoteCntlIP, RemoteDataIP),
-    ok = gtp_dp:delete_pdp_context(GtpPort, 1, RemoteDataIP, MSv4, LocalTEI, RemoteDataTEI).
+    gtp_path:unregister(GtpPort, Version, RemoteCntlIP),
+    ok = gtp_dp:delete_pdp_context(GtpPort, Version, RemoteDataIP, MSv4, LocalTEI, RemoteDataTEI).
 
 handle_recovery(RecoveryCounter,
 		#context{
 		   control_ip  = RemoteCntlIP,
 		   data_tunnel = gtp_v1_u,
-		   data_ip     = RemoteDataIP},
+		   data_ip     = _RemoteDataIP},
 		#{gtp_port  := GtpPort,
 		  version   := Version}) ->
-    gtp_path:handle_recovery(RecoveryCounter, GtpPort, Version, RemoteCntlIP, RemoteDataIP).
+    gtp_path:handle_recovery(RecoveryCounter, GtpPort, Version, RemoteCntlIP).
 
 %%%===================================================================
 %%% Internal functions
