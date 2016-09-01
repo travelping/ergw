@@ -25,6 +25,19 @@
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include("include/ergw.hrl").
 
+-record(state, {table		:: ets:tid(),
+		path_counter	:: non_neg_integer(),
+		gtp_port	:: #gtp_port{},
+		version		:: 'v1' | 'v2',
+		handler		:: atom(),
+		ip		:: inet:ip_address(),
+		t3		:: non_neg_integer(),
+		n3		:: non_neg_integer(),
+		recovery	:: 'undefined' | non_neg_integer(),
+		echo		:: non_neg_integer(),
+		echo_timer	:: 'stopped' | 'awaiting_response' | reference(),
+		state		:: 'UP' | 'DOWN' }).
+
 %%%===================================================================
 %%% API
 %%%===================================================================
@@ -89,34 +102,34 @@ init({#gtp_port{name = PortName} = GtpPort, Version, RemoteIP, Args}) ->
 
     TID = ets:new(?MODULE, [duplicate_bag, private, {keypos, 1}]),
 
-    State = #{table    => TID,
-	      path_counter => 0,
-	      gtp_port => GtpPort,
-	      version  => Version,
-	      handler  => get_handler(GtpPort, Version),
-	      ip       => RemoteIP,
-	      t3       => proplists:get_value(t3, Args, 10 * 1000), %% 10sec
-	      n3       => proplists:get_value(n3, Args, 5),
-	      recovery => undefined,
-	      echo     => proplists:get_value(ping, Args, 60 * 1000), %% 60sec
-	      echo_timer => stopped,
-	      state    => 'UP'},
+    State = #state{table        = TID,
+		   path_counter = 0,
+		   gtp_port     = GtpPort,
+		   version      = Version,
+		   handler      = get_handler(GtpPort, Version),
+		   ip           = RemoteIP,
+		   t3           = proplists:get_value(t3, Args, 10 * 1000), %% 10sec
+		   n3           = proplists:get_value(n3, Args, 5),
+		   recovery     = undefined,
+		   echo         = proplists:get_value(ping, Args, 60 * 1000), %% 60sec
+		   echo_timer   = stopped,
+		   state        = 'UP'},
 
     lager:debug("State: ~p", [State]),
     {ok, State}.
 
-handle_register(_Pid, Key, _Value, #{table := TID} = State0) ->
+handle_register(_Pid, Key, _Value, #state{table = TID} = State0) ->
     lager:debug("~s: register(~p)", [?MODULE, Key]),
     ets:insert(TID, Key),
     State = inc_path_counter(State0),
     {ok, [Key], State}.
 
-handle_unregister(Key = {Pid, _}, _Value, #{table := TID} = State0) ->
+handle_unregister(Key = {Pid, _}, _Value, #state{table = TID} = State0) ->
     ets:delete(TID, Key),
     State = dec_path_counter(State0),
     {[Pid], State}.
 
-handle_pid_remove(_Pid, Keys, #{table := TID} = State0) ->
+handle_pid_remove(_Pid, Keys, #state{table = TID} = State0) ->
     lists:foreach(fun(Key) -> ets:delete(TID, Key) end, Keys),
     State = dec_path_counter(State0),
     State.
@@ -124,11 +137,12 @@ handle_pid_remove(_Pid, Keys, #{table := TID} = State0) ->
 handle_death(_Pid, _Reason, State) ->
     State.
 
-handle_call(all, _From, #{table := TID} = State) ->
+handle_call(all, _From, #state{table = TID} = State) ->
     Reply = ets:tab2list(TID),
     {reply, Reply, State};
 
-handle_call({set_restart_counter, NewRecovery}, _From, #{recovery := OldRecovery} = State) ->
+handle_call({set_restart_counter, NewRecovery}, _From,
+	    #state{recovery = OldRecovery} = State) ->
     if OldRecovery =/= undefined andalso
        OldRecovery =/= NewRecovery  ->
 	    %% TODO: handle Path restart ....
@@ -137,8 +151,8 @@ handle_call({set_restart_counter, NewRecovery}, _From, #{recovery := OldRecovery
 	    ok
     end,
     IsNew = OldRecovery =:= undefined orelse OldRecovery =/= NewRecovery,
-    {reply, IsNew, State#{recovery => NewRecovery}};
-handle_call(get_restart_counter, _From, #{recovery := Recovery} = State) ->
+    {reply, IsNew, State#state{recovery = NewRecovery}};
+handle_call(get_restart_counter, _From, #state{recovery = Recovery} = State) ->
     {reply, Recovery, State};
 
 handle_call(Request, _From, State) ->
@@ -153,7 +167,7 @@ handle_cast(Msg, State) ->
     lager:error("~p: ~w: handle_cast: ~p", [self(), ?MODULE, lager:pr(Msg, ?MODULE)]),
     {noreply, State}.
 
-handle_info(Info = {timeout, TRef, echo}, #{echo_timer := TRef} = State0) ->
+handle_info(Info = {timeout, TRef, echo}, #state{echo_timer = TRef} = State0) ->
     lager:debug("handle_info: ~p", [lager:pr(Info, ?MODULE)]),
     State1 = send_echo_request(State0),
     {noreply, State1};
@@ -190,55 +204,55 @@ cancel_timer(Ref) ->
             RemainingTime
     end.
 
-inc_path_counter(#{path_counter := OldPathCounter} = State0) ->
-    State = State0#{path_counter := OldPathCounter + 1},
+inc_path_counter(#state{path_counter = OldPathCounter} = State0) ->
+    State = State0#state{path_counter = OldPathCounter + 1},
     if OldPathCounter == 0 ->
 	    start_echo_request(State);
        true ->
 	    State
     end.
 
-dec_path_counter(#{path_counter := 0} = State) ->
+dec_path_counter(#state{path_counter = 0} = State) ->
     lager:error("attempting to release path when count == 0"),
     State;
-dec_path_counter(#{path_counter := OldPathCounter} = State0) ->
-    State = State0#{path_counter := OldPathCounter - 1},
+dec_path_counter(#state{path_counter = OldPathCounter} = State0) ->
+    State = State0#state{path_counter = OldPathCounter - 1},
     if OldPathCounter == 0 ->
 	    stop_echo_request(State);
        true ->
 	    State
     end.
 
-start_echo_request(#{echo_timer := stopped} = State) ->
+start_echo_request(#state{echo_timer = stopped} = State) ->
     send_echo_request(State);
 start_echo_request(State) ->
     State.
 
-stop_echo_request(#{echo_timer := EchoTRef} = State) ->
+stop_echo_request(#state{echo_timer = EchoTRef} = State) ->
     if is_reference(EchoTRef) ->
 	    cancel_timer(EchoTRef);
        true ->
 	    ok
     end,
-    State#{echo_timer => stopped}.
+    State#state{echo_timer = stopped}.
 
-send_echo_request(#{gtp_port := GtpPort, handler := Handler, ip := RemoteIP,
-		    t3 := T3, n3 := N3} = State) ->
+send_echo_request(#state{gtp_port = GtpPort, handler = Handler, ip = RemoteIP,
+			 t3 = T3, n3 = N3} = State) ->
     Msg = Handler:build_echo_request(),
     gtp_socket:send_request(GtpPort, self(), RemoteIP, T3, N3, Msg, echo_request),
-    State#{echo_timer => awaiting_response} .
+    State#state{echo_timer = awaiting_response} .
 
-echo_response(Msg, #{echo := EchoInterval, echo_timer := awaiting_response} = State0) ->
+echo_response(Msg, #state{echo = EchoInterval, echo_timer = awaiting_response} = State0) ->
     State = update_path_state(Msg, State0),
     TRef = erlang:start_timer(EchoInterval, self(), echo),
-    State#{echo_timer => TRef} ;
+    State#state{echo_timer = TRef} ;
 echo_response(Msg, State0) ->
     update_path_state(Msg, State0).
 
 update_path_state(#gtp{}, State) ->
-    State#{state => 'UP'};
+    State#state{state = 'UP'};
 update_path_state(_, State) ->
-    State#{state => 'DOWN'}.
+    State#state{state = 'DOWN'}.
 
 do_handle_recovery(RecoveryCounter, GtpPort, Version, RemoteIP) ->
     lager:debug("~s: handle_recovery(~p)", [?MODULE, [RecoveryCounter, GtpPort, Version, RemoteIP]]),
@@ -255,7 +269,7 @@ do_handle_recovery_1(_Path, undefined, IsNew) ->
 do_handle_recovery_1(Path, RecoveryCounter, _IsNew) ->
     regine_server:call(Path, {set_restart_counter, RecoveryCounter}).
 
-send_message(Port, Msg, #{gtp_port := GtpPort, ip := IP} = State) ->
+send_message(Port, Msg, #state{gtp_port = GtpPort, ip = IP} = State) ->
     %% TODO: handle encode errors
     try
         Data = gtp_packet:encode(Msg),
@@ -269,7 +283,7 @@ send_message(Port, Msg, #{gtp_port := GtpPort, ip := IP} = State) ->
     State.
 
 handle_request(RemotePort, #gtp{type = echo_request} = Req,
-	       #{gtp_port := GtpPort, handler := Handler} = State) ->
+	       #state{gtp_port = GtpPort, handler = Handler} = State) ->
     lager:debug("echo_request: ~p", [Req]),
 
     ResponseIEs = Handler:build_recovery(GtpPort, true),
