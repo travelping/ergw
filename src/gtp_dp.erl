@@ -29,8 +29,8 @@
 %% API
 %%====================================================================
 
-start_link(Socket) ->
-    gen_server:start_link(?MODULE, [Socket], []).
+start_link({Name, SocketOpts}) ->
+    gen_server:start_link(?MODULE, [Name, SocketOpts], []).
 
 send(GtpPort, IP, Port, Data) ->
     cast(GtpPort, {send, IP, Port, Data}).
@@ -67,12 +67,11 @@ call(GtpPort, Request) ->
 %%% gen_server callbacks
 %%%===================================================================
 
-init([Socket]) ->
+init([Name, SocketOpts]) ->
     %% TODO: better config validation and handling
-    Name  = proplists:get_value(name, Socket),
-    IP    = proplists:get_value(ip, Socket),
-    NetNs = proplists:get_value(netns, Socket),
-    Type  = proplists:get_value(type, Socket, 'gtp-u'),
+    IP    = proplists:get_value(ip, SocketOpts),
+    NetNs = proplists:get_value(netns, SocketOpts),
+    Type  = proplists:get_value(type, SocketOpts, 'gtp-u'),
 
     {ok, GTP0} = make_gtp_socket(NetNs, IP, ?GTP0_PORT),
     {ok, GTP1u} = make_gtp_socket(NetNs, IP, ?GTP1u_PORT),

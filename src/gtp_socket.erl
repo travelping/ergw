@@ -49,10 +49,10 @@ start_sockets() ->
 		  end, Sockets),
     ok.
 
-start_link(Socket) ->
-    case proplists:get_value(type, Socket, 'gtp-c') of
+start_link(Socket = {Name, SocketOpts}) ->
+    case proplists:get_value(type, SocketOpts, 'gtp-c') of
 	'gtp-c' ->
-	    gen_server:start_link(?MODULE, [Socket], []);
+	    gen_server:start_link(?MODULE, [Name, SocketOpts], []);
 	'gtp-u' ->
 	    gtp_dp:start_link(Socket)
     end.
@@ -91,12 +91,11 @@ call(#gtp_port{pid = Handler}, Request) ->
 %%% gen_server callbacks
 %%%===================================================================
 
-init([Socket]) ->
+init([Name, SocketOpts]) ->
     %% TODO: better config validation and handling
-    Name  = proplists:get_value(name, Socket),
-    IP    = proplists:get_value(ip, Socket),
-    NetNs = proplists:get_value(netns, Socket),
-    Type  = proplists:get_value(type, Socket, 'gtp-c'),
+    IP    = proplists:get_value(ip, SocketOpts),
+    NetNs = proplists:get_value(netns, SocketOpts),
+    Type  = proplists:get_value(type, SocketOpts, 'gtp-c'),
 
     {ok, S} = make_gtp_socket(NetNs, IP, ?GTP1c_PORT),
 
