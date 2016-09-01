@@ -11,10 +11,8 @@
 
 %% API
 -export([start_link/4, get/2, all/1,
+	 maybe_new_path/3, handle_request/4,
 	 register/3, unregister/3,
-	 send_request/3, send_request/4,
-	 handle_message/4,
-	 handle_response/2,
 	 handle_recovery/4,
 	 get_handler/2]).
 
@@ -36,12 +34,7 @@ start_link(GtpPort, Version, RemoteIP, Args) ->
 
 register(GtpPort, Version, RemoteIP) ->
     lager:debug("~s: register(~p)", [?MODULE, [GtpPort, Version, RemoteIP]]),
-    case get(GtpPort, RemoteIP) of
-	Path when is_pid(Path) ->
-	    Path;
-	_ ->
-	    {ok, Path} = gtp_path_sup:new_path(GtpPort, Version, RemoteIP, [])
-    end,
+    Path = maybe_new_path(GtpPort, Version, RemoteIP),
     ok = regine_server:register(Path, self(), {self(), Version}, undefined),
     regine_server:call(Path, get_restart_counter).
 
@@ -54,36 +47,22 @@ unregister(GtpPort, Version, RemoteIP) ->
 	    ok
     end.
 
-handle_message(IP, Port, GtpPort,
-	       #gtp{version = Version, type = MsgType, tei = 0} = Msg)
-  when (Version == v1 andalso MsgType == create_pdp_context_request) orelse
-       (Version == v2 andalso MsgType == create_session_request) ->
-    gtp_context:new(IP, Port, GtpPort, Msg);
-
-handle_message(IP, Port, GtpPort, #gtp{tei = TEI} = Msg)
-  when TEI /= 0 ->
-    gtp_context:handle_message(IP, Port, GtpPort, Msg);
-
-handle_message(IP, _Port, GtpPort,
-	       #gtp{type = echo_response} = Msg) ->
-    lager:debug("handle_echo_response: ~p -> ~p", [IP, gtp_path:get(GtpPort, IP)]),
-    case gtp_path:get(GtpPort, IP) of
+maybe_new_path(GtpPort, Version, RemoteIP) ->
+    case get(GtpPort, RemoteIP) of
 	Path when is_pid(Path) ->
-	    handle_response(Path, Msg);
+	    Path;
 	_ ->
-	    ok
-    end;
+	    {ok, Path} = gtp_path_sup:new_path(GtpPort, Version, RemoteIP, []),
+	    Path
+    end.
 
-handle_message(IP, Port, GtpPort, Msg) ->
-    lager:error("GTP Path Handle Message: ~p", [[IP, Port, GtpPort, Msg]]),
-    ok.
+handle_request(RemoteIP, RemotePort, GtpPort, #gtp{version = Version} = Msg) ->
+    Path = maybe_new_path(GtpPort, Version, RemoteIP),
+    regine_server:cast(Path, {handle_request, RemotePort, Msg}).
 
 handle_recovery(RecoveryCounter, GtpPort, Version, RemoteIP) ->
     NewPeer = do_handle_recovery(RecoveryCounter, GtpPort, Version, RemoteIP),
     {ok, NewPeer}.
-
-handle_response(Path, Msg) ->
-    regine_server:call(Path, {response, Msg}).
 
 get(#gtp_port{name = PortName}, IP) ->
     gtp_path_reg:lookup({PortName, IP}).
@@ -97,19 +76,6 @@ get_handler(#gtp_port{type = 'gtp-c'}, v1) ->
     gtp_v1_c;
 get_handler(#gtp_port{type = 'gtp-c'}, v2) ->
     gtp_v2_c.
-
-send_request(GtpPort, RemoteIP, Msg = #gtp{version = Version}, ReqId) ->
-    case get(GtpPort, RemoteIP) of
-	Path when is_pid(Path) ->
-	    send_request(Path, Msg, ReqId);
-	_ ->
-	    {ok, Path} = gtp_path_sup:new_path(GtpPort, Version, RemoteIP, []),
-	    send_request(Path, Msg, ReqId)
-    end.
-
-send_request(Path, Msg, ReqId)
-  when is_pid(Path) ->
-    regine_server:cast(Path, {send_request, Msg, ReqId}).
 
 %%%===================================================================
 %%% Protocol Module API
@@ -131,12 +97,9 @@ init({#gtp_port{name = PortName} = GtpPort, Version, RemoteIP, Args}) ->
 	      ip       => RemoteIP,
 	      t3       => proplists:get_value(t3, Args, 10 * 1000), %% 10sec
 	      n3       => proplists:get_value(n3, Args, 5),
-	      seq_no   => 0,
 	      recovery => undefined,
 	      echo     => proplists:get_value(ping, Args, 60 * 1000), %% 60sec
-	      pending  => gb_trees:empty(),
 	      echo_timer => stopped,
-	      tunnel_endpoints => gb_trees:empty(),
 	      state    => 'UP'},
 
     lager:debug("State: ~p", [State]),
@@ -178,52 +141,17 @@ handle_call({set_restart_counter, NewRecovery}, _From, #{recovery := OldRecovery
 handle_call(get_restart_counter, _From, #{recovery := Recovery} = State) ->
     {reply, Recovery, State};
 
-%% TODO: handle generic error responses
-handle_call({response, #gtp{seq_no = SeqNo} = Msg}, _From,
-	    #{pending := Pending0} = State0) ->
-    lager:debug("~p: ~w: response: ~p", [self(), ?MODULE, gtp_c_lib:fmt_gtp(Msg)]),
-    case gb_trees:lookup(SeqNo, Pending0) of
-	none -> %% duplicate, drop silently
-	    lager:error("~p: invalid response: ~p, ~p", [self(), SeqNo, Pending0]),
-	    {reply, duplicate, State0};
-	{value, {_T3, _N3, _Port, _ReqMsg, Fun, TRef}} ->
-	    cancel_timer(TRef),
-	    lager:info("~p: found response: ~p", [self(), SeqNo]),
-	    Pending1 = gb_trees:delete(SeqNo, Pending0),
-	    {Reply, State} = Fun(Msg, State0#{pending := Pending1}),
-	    {reply, Reply, State}
-    end;
-
 handle_call(Request, _From, State) ->
     lager:warning("handle_call: ~p", [lager:pr(Request, ?MODULE)]),
     {reply, ok, State}.
 
-handle_cast({send_request, Msg, ReqId}, State0) ->
-    lager:debug("~p: gtp_path send_request: ~p", [self(), Msg]),
-    ResponseFun = fun(Response, PathState) -> {{ok, ReqId, Response}, PathState} end,
-    State = do_send_request(Msg, ResponseFun, State0),
+handle_cast({handle_request, RemotePort, Msg}, State0) ->
+    State = handle_request(RemotePort, Msg, State0),
     {noreply, State};
 
 handle_cast(Msg, State) ->
     lager:error("~p: ~w: handle_cast: ~p", [self(), ?MODULE, lager:pr(Msg, ?MODULE)]),
     {noreply, State}.
-
-handle_info(Info = {timeout, TRef, {send, SeqNo}}, #{pending := Pending0} = State) ->
-    lager:debug("handle_info: ~p", [lager:pr(Info, ?MODULE)]),
-    NewState =
-	case gb_trees:lookup(SeqNo, Pending0) of
-	    {value, {_T3, _N3 = 0, _Port, Msg, Fun, TRef}} ->
-		%% TODO: handle path failure....
-		lager:error("~p: gtp_path: message resent expired: ~p", [self(), Msg]),
-		Pending1 = gb_trees:delete(SeqNo, Pending0),
-		Fun(timeout, State#{pending := Pending1});
-
-	    {value, {T3, N3, Port, Msg, Fun, TRef}} ->
-		%% resent....
-		Pending1 = gb_trees:delete(SeqNo, Pending0),
-		send_message_timeout(SeqNo, T3, N3 - 1, Port, Msg, Fun, State#{pending => Pending1})
-	end,
-    {noreply, NewState};
 
 handle_info(Info = {timeout, TRef, echo}, #{echo_timer := TRef} = State0) ->
     lager:debug("handle_info: ~p", [lager:pr(Info, ?MODULE)]),
@@ -231,6 +159,11 @@ handle_info(Info = {timeout, TRef, echo}, #{echo_timer := TRef} = State0) ->
     {noreply, State1};
 handle_info(Info = {timeout, _TRef, echo}, State) ->
     lager:debug("handle_info: ~p", [lager:pr(Info, ?MODULE)]),
+    {noreply, State};
+
+handle_info({echo_respone, _, Msg}, State0)->
+    lager:debug("echo_response: ~p", [Msg]),
+    State = echo_response(Msg, State0),
     {noreply, State};
 
 handle_info(Info, State) ->
@@ -246,38 +179,6 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
-
-final_send_message(GtpPort, IP, Port, Msg) ->
-    %% TODO: handle encode errors
-    try
-        Data = gtp_packet:encode(Msg),
-	lager:debug("gtp_path send ~s to ~w:~w: ~p, ~p",
-		    [GtpPort#gtp_port.type, IP, Port,
-		     gtp_c_lib:fmt_gtp(Msg), Data]),
-	gtp_socket:send(GtpPort, IP, Port, Data)
-    catch
-	Class:Error ->
-	    lager:error("gtp send (~p) failed with ~p:~p",
-			[[lager:pr(GtpPort, ?MODULE), IP, Port,
-			  lager:pr(Msg, ?MODULE)], Class, Error])
-    end.
-
-final_send_message(Port, Msg, #{gtp_port := GtpPort, ip := IP} = State) ->
-    final_send_message(GtpPort, IP, Port, Msg),
-    State.
-
-do_send_request(#gtp{} = Msg, Fun,
-		#{t3 := T3, n3 := N3, seq_no := SeqNo,
-		  handler := Handler} = State)
-  when is_function(Fun, 2) ->
-    Port = Handler:port(),
-    send_message_timeout(SeqNo, T3, N3, Port,
-			 Msg#gtp{seq_no = SeqNo}, Fun, State#{seq_no := SeqNo + 1}).
-
-send_message_timeout(SeqNo, T3, N3, Port, Msg, Fun, #{pending := Pending0} = State) ->
-    TRef = erlang:start_timer(T3, self(), {send, SeqNo}),
-    Pending1 = gb_trees:insert(SeqNo, {T3, N3, Port, Msg, Fun, TRef}, Pending0),
-    final_send_message(Port, Msg, State#{pending := Pending1}).
 
 cancel_timer(Ref) ->
     case erlang:cancel_timer(Ref) of
@@ -321,19 +222,18 @@ stop_echo_request(#{echo_timer := EchoTRef} = State) ->
     end,
     State#{echo_timer => stopped}.
 
-send_echo_request(#{handler := Handler} = State) ->
+send_echo_request(#{gtp_port := GtpPort, handler := Handler, ip := RemoteIP,
+		    t3 := T3, n3 := N3} = State) ->
     Msg = Handler:build_echo_request(),
-    do_send_request(Msg, fun echo_response/2, State#{echo_timer => awaiting_response}).
+    gtp_socket:send_request(GtpPort, self(), RemoteIP, T3, N3, Msg, echo_request),
+    State#{echo_timer => awaiting_response} .
 
 echo_response(Msg, #{echo := EchoInterval, echo_timer := awaiting_response} = State0) ->
-    lager:debug("echo_response: ~p", [Msg]),
     State = update_path_state(Msg, State0),
     TRef = erlang:start_timer(EchoInterval, self(), echo),
-    {ok, State#{echo_timer => TRef}};
+    State#{echo_timer => TRef} ;
 echo_response(Msg, State0) ->
-    lager:debug("echo_response: ~p", [Msg]),
-    State = update_path_state(Msg, State0),
-    {ok, State}.
+    update_path_state(Msg, State0).
 
 update_path_state(#gtp{}, State) ->
     State#{state => 'UP'};
@@ -354,3 +254,24 @@ do_handle_recovery_1(_Path, undefined, IsNew) ->
     IsNew;
 do_handle_recovery_1(Path, RecoveryCounter, _IsNew) ->
     regine_server:call(Path, {set_restart_counter, RecoveryCounter}).
+
+send_message(Port, Msg, #{gtp_port := GtpPort, ip := IP} = State) ->
+    %% TODO: handle encode errors
+    try
+        Data = gtp_packet:encode(Msg),
+	lager:debug("gtp_context send ~s to ~w:~w: ~p, ~p", [GtpPort#gtp_port.type, IP, Port, Msg, Data]),
+	gtp_socket:send(GtpPort, IP, Port, Data)
+    catch
+	Class:Error ->
+	    Stack  = erlang:get_stacktrace(),
+	    lager:error("gtp send failed with ~p:~p (~p)", [Class, Error, Stack])
+    end,
+    State.
+
+handle_request(RemotePort, #gtp{type = echo_request} = Req,
+	       #{gtp_port := GtpPort, handler := Handler} = State) ->
+    lager:debug("echo_request: ~p", [Req]),
+
+    ResponseIEs = Handler:build_recovery(GtpPort, true),
+    Response = Req#gtp{type = echo_response, ie = ResponseIEs},
+    send_message(RemotePort, Response, State).

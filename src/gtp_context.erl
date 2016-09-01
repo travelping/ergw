@@ -9,7 +9,8 @@
 
 -compile({parse_transform, do}).
 
--export([lookup/2, new/4, handle_message/4, start_link/4,
+-export([lookup/2, handle_message/4, start_link/4,
+	 send_request/4, send_request/6,
 	 setup/2, update/3, teardown/2, handle_recovery/3]).
 
 %% gen_server callbacks
@@ -26,13 +27,16 @@
 lookup(GtpPort, TEI) ->
     gtp_context_reg:lookup(GtpPort, TEI).
 
-new(IP, Port, GtpPort,
-    #gtp{version = Version, ie = IEs} = Msg) ->
+handle_message(IP, Port, GtpPort,
+	       #gtp{version = Version, type = MsgType, tei = 0, ie = IEs} = Msg)
+  when (Version == v1 andalso MsgType == create_pdp_context_request) orelse
+       (Version == v2 andalso MsgType == create_session_request) ->
+
     do([error_m ||
 	   Interface <- get_interface_type(Version, IEs),
 	   Context <- gtp_context_sup:new(GtpPort, Version, Interface),
 	   gen_server:cast(Context, {handle_message, GtpPort, IP, Port, Msg})
-       ]).
+       ]);
 
 handle_message(IP, Port, GtpPort,
 	       #gtp{version = Version, tei = TEI} = Msg) ->
@@ -47,6 +51,12 @@ handle_message(IP, Port, GtpPort,
 			[GtpPort#gtp_port.type, IP, Port, Reply, Data]),
 	    gtp_socket:send(GtpPort, IP, Port, Data)
     end.
+
+send_request(GtpPort, RemoteIP, Msg, ReqId) ->
+    gtp_socket:send_request(GtpPort, self(), RemoteIP, Msg, ReqId).
+
+send_request(GtpPort, RemoteIP, T3, N3, Msg, ReqId) ->
+    gtp_socket:send_request(GtpPort, self(), RemoteIP, T3, N3, Msg, ReqId).
 
 start_link(GtpPort, Version, Interface, Opts) ->
     gen_server:start_link(?MODULE, [GtpPort, Version, Interface], Opts).
@@ -72,7 +82,7 @@ handle_call(Request, _From, State) ->
     {reply, ok, State}.
 
 handle_cast({handle_message, GtpPort, IP, Port, #gtp{type = MsgType, ie = IEs} = Msg},
-	    #{handler := Handler, interface := Interface} = State) ->
+	    #{interface := Interface} = State) ->
     lager:debug("~w: handle gtp: ~w, ~p",
 		[?MODULE, Port, gtp_c_lib:fmt_gtp(Msg)]),
 
@@ -80,25 +90,29 @@ handle_cast({handle_message, GtpPort, IP, Port, #gtp{type = MsgType, ie = IEs} =
     {Req, Missing} = gtp_c_lib:build_req_record(MsgType, Spec, IEs),
     lager:debug("Mis: ~p", [Missing]),
 
-    case Handler:gtp_msg_type(MsgType) of
-	response when Missing /= [] ->
-	    %% ignore reply with missing mandarory arguments
-	    {noreply, State};
-
-	response ->
-	    handle_response(GtpPort, IP, Msg, Req, State);
-
-	_ when Missing /= [] ->
+    if Missing /= [] ->
 	    handle_error(IP, Port, Msg, {mandatory_ie_missing, hd(Missing)}, State);
-
-	_ ->
-
+       true ->
 	    handle_request(GtpPort, IP, Port, Msg, Req, State)
     end;
 
 handle_cast(Msg, State) ->
     lager:error("~w: handle_cast: ~p", [?MODULE, lager:pr(Msg, ?MODULE)]),
     {noreply, State}.
+
+handle_info({ReqId, Request, Response = #gtp{type = MsgType, ie = IEs}},
+	    #{interface := Interface} = State) ->
+    Spec = Interface:request_spec(MsgType),
+    {RespRec, Missing} = gtp_c_lib:build_req_record(MsgType, Spec, IEs),
+    lager:debug("Mis: ~p", [Missing]),
+
+    if Missing /= [] ->
+	    %% TODO: handle error
+	    %% handle_error(IP, Port, Msg, {mandatory_ie_missing, hd(Missing)}, State);
+	    ok;
+       true ->
+	    handle_response(ReqId, Request, Response, RespRec, State)
+    end;
 
 handle_info(Info, State) ->
     lager:debug("handle_info: ~p", [lager:pr(Info, ?MODULE)]),
@@ -154,25 +168,8 @@ handle_request(GtpPort, IP, Port, #gtp{version = Version, seq_no = SeqNo} = Msg,
 	    {noreply, State0}
     end.
 
-handle_response(GtpPort, IP, Msg, Req, State) ->
-    lager:debug("GTP Path Lookup: ~p", [GtpPort]),
-    case gtp_path:get(GtpPort, IP) of
-	Path when is_pid(Path) ->
-	    lager:debug("GTP Path Lookup got: ~p", [Path]),
-	    case gtp_path:handle_response(Path, Msg) of
-		{ok, ReqId, Response} ->
-		    handle_response(ReqId, Response, Req, State);
-		_ ->
-		    {noreply, State}
-	    end;
-	_Other ->
-	    lager:debug("GTP Path Lookup got: ~p", [_Other]),
-	    {noreply, State}
-    end.
-
-handle_response(ReqId, Msg, Req,
-		#{interface := Interface} = State0) ->
-    try Interface:handle_response(ReqId, Msg, Req, State0) of
+handle_response(ReqId, Request, Response, RespRec, #{interface := Interface} = State0) ->
+    try Interface:handle_response(ReqId, Response, RespRec, Request, State0) of
 	{stop, State1} ->
 	    {stop, normal, State1};
 

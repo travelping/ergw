@@ -178,11 +178,20 @@ handle_err_input(Socket, State) ->
 	    {noreply, State}
     end.
 
-handle_message(IP, Port, Data, #state{gtp_port = GtpPort} = State) ->
+handle_message(IP, Port, Data, #state{gtp_port = GtpPort} = State0) ->
     Msg = gtp_packet:decode(Data),
     lager:debug("handle message: ~p", [{IP, Port,
 					lager:pr(GtpPort, ?MODULE),
 					lager:pr(Msg, ?MODULE)}]),
-    gtp_path:handle_message(IP, Port, GtpPort, Msg),
+    State = handle_message_1(IP, Port, Msg, State0),
     {noreply, State}.
 
+handle_message_1(IP, Port,
+		 #gtp{type = echo_request} = Msg,
+		 #state{gtp_port = GtpPort} = State) ->
+    gtp_path:handle_request(IP, Port, GtpPort, Msg),
+    State;
+
+handle_message_1(_IP, _Port, Msg, State) ->
+    lager:warning("DP Message unhandled: ~p", [lager:pr(Msg, ?MODULE)]),
+    State.
