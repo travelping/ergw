@@ -11,6 +11,7 @@
 
 %% API
 -export([gtp_msg_type/1,
+	 get_handler/2,
 	 build_response/1,
 	 build_echo_request/0,
 	 type/0, port/0]).
@@ -153,9 +154,43 @@ gtp_msg_response(mbms_session_update_request)				-> mbms_session_update_response
 gtp_msg_response(mbms_session_stop_request)				-> mbms_session_stop_response;
 gtp_msg_response(Response)						-> Response.
 
+get_handler(#gtp_port{name = PortName}, #gtp{ie = IEs} ) ->
+    case find_ie(access_point_name, 0, IEs) of
+	#access_point_name{apn = APN} ->
+	    case find_ie(v2_fully_qualified_tunnel_endpoint_identifier, 0, IEs) of
+		#v2_fully_qualified_tunnel_endpoint_identifier{interface_type = IfType} ->
+		    case map_v2_iftype(IfType) of
+			{ok, Protocol} ->
+			    case ergw_apns:handler(PortName, Protocol, APN) of
+				[{_, Handler, Opts}] ->
+				    {ok, Handler, Opts};
+				_ ->
+				    %% TODO: correct error message
+				    {error, not_found}
+			    end;
+			_ ->
+			    %% TODO: correct error message
+			    {error, not_found}
+		    end;
+		_ ->
+		    {error, {mandatory_ie_missing, {v2_fully_qualified_tunnel_endpoint_identifier, 0}}}
+	    end;
+	_ ->
+	    {error, {mandatory_ie_missing, {access_point_name, 0}}}
+    end.
+
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
+
+find_ie(_, _, []) ->
+    undefined;
+find_ie(Type, Instance, [IE|_])
+  when element(1, IE) == Type,
+       element(2, IE) == Instance ->
+    IE;
+find_ie(Type, Instance, [_|Next]) ->
+    find_ie(Type, Instance, Next).
 
 map_reply_ies(IEs) when is_list(IEs) ->
     [map_reply_ie(IE) || IE <- IEs];
@@ -172,3 +207,6 @@ map_reply_ie(IE)
   when is_tuple(IE) ->
     IE.
 
+map_v2_iftype(6)  -> {ok, s5s8};
+map_v2_iftype(34) -> {ok, s2a};
+map_v2_iftype(_)  -> {error, unsupported}.

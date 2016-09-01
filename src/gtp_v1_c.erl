@@ -11,6 +11,7 @@
 
 %% API
 -export([gtp_msg_type/1,
+	 get_handler/2,
 	 build_response/1,
 	 build_echo_request/0,
 	 type/0, port/0]).
@@ -147,9 +148,33 @@ gtp_msg_response(ms_info_change_notification_request)		-> ms_info_change_notific
 gtp_msg_response(data_record_transfer_request)			-> data_record_transfer_response;
 gtp_msg_response(Response)					-> Response.
 
+get_handler(#gtp_port{name = PortName}, #gtp{ie = IEs} ) ->
+    case find_ie(access_point_name, 0, IEs) of
+	#access_point_name{apn = APN} ->
+	    case ergw_apns:handler(PortName, gn, APN) of
+		[{_, Handler, Opts}] ->
+		    lager:info("APN lookup: ~p, ~p", [Handler, Opts]),
+		    {ok, Handler, Opts};
+		_ ->
+		    %% TODO: correct error message
+		    {error, not_found}
+	    end;
+	_ ->
+	    {error, {mandatory_ie_missing, {access_point_name, 0}}}
+    end.
+
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
+
+find_ie(_, _, []) ->
+    undefined;
+find_ie(Type, Instance, [IE|_])
+  when element(1, IE) == Type,
+       element(2, IE) == Instance ->
+    IE;
+find_ie(Type, Instance, [_|Next]) ->
+    find_ie(Type, Instance, Next).
 
 map_reply_ies(IEs) when is_list(IEs) ->
     [map_reply_ie(IE) || IE <- IEs];

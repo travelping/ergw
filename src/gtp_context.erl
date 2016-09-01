@@ -27,29 +27,27 @@
 lookup(GtpPort, TEI) ->
     gtp_context_reg:lookup(GtpPort, TEI).
 
-handle_message(IP, Port, GtpPort,
-	       #gtp{version = Version, type = MsgType, tei = 0, ie = IEs} = Msg)
-  when (Version == v1 andalso MsgType == create_pdp_context_request) orelse
-       (Version == v2 andalso MsgType == create_session_request) ->
+handle_message(IP, Port, GtpPort, #gtp{version = Version, tei = 0} = Msg) ->
+    case get_handler(GtpPort, Msg) of
+	{ok, Interface, _InterfaceOpts} ->
+	    do([error_m ||
+		   Context <- gtp_context_sup:new(GtpPort, Version, Interface),
+		   gen_server:cast(Context, {handle_message, GtpPort, IP, Port, Msg})
+	       ]);
 
-    do([error_m ||
-	   Interface <- get_interface_type(Version, IEs),
-	   Context <- gtp_context_sup:new(GtpPort, Version, Interface),
-	   gen_server:cast(Context, {handle_message, GtpPort, IP, Port, Msg})
-       ]);
+	{error, Error} ->
+	    generic_error(IP, Port, GtpPort, Msg, Error);
+	_ ->
+	    %% TODO: correct error message
+	    generic_error(IP, Port, GtpPort, Msg, not_found)
+    end;
 
-handle_message(IP, Port, GtpPort,
-	       #gtp{version = Version, tei = TEI} = Msg) ->
+handle_message(IP, Port, GtpPort, #gtp{tei = TEI} = Msg) ->
     case lookup(GtpPort, TEI) of
 	Context when is_pid(Context) ->
 	    gen_server:cast(Context, {handle_message, GtpPort, IP, Port, Msg});
 	_ ->
-	    Handler = gtp_path:get_handler(GtpPort, Version),
-	    Reply = Handler:build_response({Msg#gtp.type, not_found}),
-	    Data = gtp_packet:encode(Reply#gtp{seq_no = Msg#gtp.seq_no}),
-	    lager:debug("gtp_context send ~s error to ~w:~w: ~p, ~p",
-			[GtpPort#gtp_port.type, IP, Port, Reply, Data]),
-	    gtp_socket:send(GtpPort, IP, Port, Data)
+	    generic_error(IP, Port, GtpPort, Msg, not_found)
     end.
 
 send_request(GtpPort, RemoteIP, Msg, ReqId) ->
@@ -263,25 +261,16 @@ handle_recovery(RecoveryCounter,
 %%% Internal functions
 %%%===================================================================
 
-get_interface_type(v1, _) ->
-    {ok, ggsn_gn};
-get_interface_type(v2, IEs) ->
-    case find_ie(v2_fully_qualified_tunnel_endpoint_identifier, 0, IEs) of
-	#v2_fully_qualified_tunnel_endpoint_identifier{interface_type = IfType} ->
-	     map_v2_iftype(IfType);
-	_ ->
-	    {error, {mandatory_ie_missing, {v2_fully_qualified_tunnel_endpoint_identifier, 0}}}
-    end.
+get_handler(GtpPort, #gtp{version = v1} = Msg) ->
+    gtp_v1_c:get_handler(GtpPort, Msg);
+get_handler(GtpPort, #gtp{version = v2} = Msg) ->
+    gtp_v2_c:get_handler(GtpPort, Msg).
 
-find_ie(_, _, []) ->
-    undefined;
-find_ie(Type, Instance, [IE|_])
-  when element(1, IE) == Type,
-       element(2, IE) == Instance ->
-    IE;
-find_ie(Type, Instance, [_|Next]) ->
-    find_ie(Type, Instance, Next).
-
-map_v2_iftype(6)  -> {ok, pgw_s5s8};
-map_v2_iftype(34) -> {ok, pgw_s2a};
-map_v2_iftype(_)  -> {error, unsupported}.
+generic_error(IP, Port, GtpPort,
+	      #gtp{version = Version, type = MsgType, seq_no = SeqNo}, Error) ->
+    Handler = gtp_path:get_handler(GtpPort, Version),
+    Reply = Handler:build_response({MsgType, Error}),
+    Data = gtp_packet:encode(Reply#gtp{seq_no = SeqNo}),
+    lager:debug("gtp_context send ~s error to ~w:~w: ~p, ~p",
+		[GtpPort#gtp_port.type, IP, Port, Reply, Data]),
+    gtp_socket:send(GtpPort, IP, Port, Data).
