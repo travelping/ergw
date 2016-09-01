@@ -28,7 +28,7 @@
 
 start_link() ->
     {ok, Opts} = application:get_env(apn),
-    gen_server:start_link(?SERVER, ?MODULE, [Opts], []).
+    gen_server:start_link({local, ?SERVER}, ?MODULE, [Opts], []).
 
 allocate_pdp_ip(_APN, TEI, IPv4, IPv6) ->
     gen_server:call(?SERVER, {allocate_pdp_ip, TEI, IPv4, IPv6}).
