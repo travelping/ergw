@@ -9,7 +9,7 @@
 
 -behaviour(gtp_api).
 
--export([request_spec/1, handle_request/4]).
+-export([init/2, request_spec/1, handle_request/4]).
 
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include("include/ergw.hrl").
@@ -167,6 +167,9 @@ request_spec(update_pdp_context_request) ->
 
 request_spec(_) ->
     [].
+
+init(_Opts, State) ->
+    {ok, State}.
 
 handle_request(_SrcGtpPort,
 	       #gtp{type = create_pdp_context_request, ie = IEs}, Req,

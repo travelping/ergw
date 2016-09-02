@@ -2,6 +2,11 @@
 
 -include_lib("gtplib/include/gtp_packet.hrl").
 
+-callback init(Opts :: term(),
+	       State :: map()) ->
+    Return :: {ok, State ::map()} |
+	      {stop, Reason :: term()}.
+
 -callback handle_request(GtpPort :: term(),
 			 Msg :: #gtp{},
 			 RequestRecord :: term(),

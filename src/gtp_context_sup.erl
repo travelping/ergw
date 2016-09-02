@@ -10,7 +10,7 @@
 -behaviour(supervisor).
 
 %% API
--export([start_link/0, new/3, new/4]).
+-export([start_link/0, new/4, new/5]).
 
 %% Supervisor callbacks
 -export([init/1]).
@@ -24,12 +24,12 @@
 start_link() ->
     supervisor:start_link({local, ?SERVER}, ?MODULE, []).
 
-new(GtpPort, Version, Interface) ->
-    new(GtpPort, Version, Interface, []).
+new(GtpPort, Version, Interface, IfOpts) ->
+    new(GtpPort, Version, Interface, IfOpts, []).
 
-new(GtpPort, Version, Interface, Opts) ->
-    lager:debug("new(~p)", [[GtpPort, Version, Interface, Opts]]),
-    supervisor:start_child(?SERVER, [GtpPort, Version, Interface, Opts]).
+new(GtpPort, Version, Interface, IfOpts, Opts) ->
+    lager:debug("new(~p)", [[GtpPort, Version, Interface, IfOpts, Opts]]),
+    supervisor:start_child(?SERVER, [GtpPort, Version, Interface, IfOpts, Opts]).
 
 %% ===================================================================
 %% Supervisor callbacks

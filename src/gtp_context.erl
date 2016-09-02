@@ -9,7 +9,7 @@
 
 -compile({parse_transform, do}).
 
--export([lookup/2, handle_message/4, start_link/4,
+-export([lookup/2, handle_message/4, start_link/5,
 	 send_request/4, send_request/6,
 	 setup/2, update/3, teardown/2, handle_recovery/3]).
 
@@ -29,9 +29,9 @@ lookup(GtpPort, TEI) ->
 
 handle_message(IP, Port, GtpPort, #gtp{version = Version, tei = 0} = Msg) ->
     case get_handler(GtpPort, Msg) of
-	{ok, Interface, _InterfaceOpts} ->
+	{ok, Interface, InterfaceOpts} ->
 	    do([error_m ||
-		   Context <- gtp_context_sup:new(GtpPort, Version, Interface),
+		   Context <- gtp_context_sup:new(GtpPort, Version, Interface, InterfaceOpts),
 		   gen_server:cast(Context, {handle_message, GtpPort, IP, Port, Msg})
 	       ]);
 
@@ -56,14 +56,14 @@ send_request(GtpPort, RemoteIP, Msg, ReqId) ->
 send_request(GtpPort, RemoteIP, T3, N3, Msg, ReqId) ->
     gtp_socket:send_request(GtpPort, self(), RemoteIP, T3, N3, Msg, ReqId).
 
-start_link(GtpPort, Version, Interface, Opts) ->
-    gen_server:start_link(?MODULE, [GtpPort, Version, Interface], Opts).
+start_link(GtpPort, Version, Interface, IfOpts, Opts) ->
+    gen_server:start_link(?MODULE, [GtpPort, Version, Interface, IfOpts], Opts).
 
 %%====================================================================
 %% gen_server API
 %%====================================================================
 
-init([GtpPort, Version, Interface]) ->
+init([GtpPort, Version, Interface, Opts]) ->
     lager:debug("init(~p)", [[GtpPort, Interface]]),
     {ok, TEI} = gtp_c_lib:alloc_tei(GtpPort),
 
@@ -73,7 +73,8 @@ init([GtpPort, Version, Interface]) ->
       handler   => gtp_path:get_handler(GtpPort, Version),
       interface => Interface,
       tei       => TEI},
-    {ok, State}.
+
+    Interface:init(Opts, State).
 
 handle_call(Request, _From, State) ->
     lager:warning("handle_call: ~p", [lager:pr(Request, ?MODULE)]),

@@ -11,7 +11,7 @@
 
 -compile({parse_transform, do}).
 
--export([request_spec/1, handle_request/4]).
+-export([init/2, request_spec/1, handle_request/4]).
 
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include("include/ergw.hrl").
@@ -139,6 +139,9 @@ request_spec(modify_bearer_request) ->
      {{v2_presence_reporting_area_information, 0},		conditional}];
 request_spec(_) ->
     [].
+
+init(_Opts, State) ->
+    {ok, State}.
 
 %% API Message Matrix:
 %%
