@@ -194,15 +194,18 @@ handle_request(_SrcGtpPort,
 
     {ok, MSv4, MSv6} = pdp_alloc_ip(LocalTEI, ReqMSv4, ReqMSv6, State0),
     Context = #context{
-		 control_interface = ?MODULE,
-		 control_tunnel    = gtp_v1_c,
-		 control_ip        = RemoteCntlIP,
-		 control_tei       = RemoteCntlTEI,
-		 data_tunnel       = gtp_v1_u,
-		 data_ip           = RemoteDataIP,
-		 data_tei          = RemoteDataTEI,
-		 ms_v4             = MSv4,
-		 ms_v6             = MSv6},
+		 version            = v1,
+		 control_interface  = ?MODULE,
+		 control_port       = GtpPort,
+		 local_control_tei  = LocalTEI,
+		 remote_control_ip  = RemoteCntlIP,
+		 remote_control_tei = RemoteCntlTEI,
+		 data_port          = GtpPort,
+		 local_data_tei     = LocalTEI,
+		 remote_data_ip     = RemoteDataIP,
+		 remote_data_tei    = RemoteDataTEI,
+		 ms_v4              = MSv4,
+		 ms_v6              = MSv6},
     State1 = State0#{context => Context},
 
     #gtp_port{ip = LocalIP} = GtpPort,
@@ -213,9 +216,9 @@ handle_request(_SrcGtpPort,
     lager:debug("Invoking CONTROL: ~p", [Session1]),
     ergw_control:authenticate(Session1),
 
-    {ok, NewPeer} = gtp_v1_c:handle_sgsn(IEs, Context, State1),
+    {ok, NewPeer} = gtp_v1_c:handle_sgsn(IEs, Context),
     lager:debug("New: ~p", [NewPeer]),
-    gtp_context:setup(Context, State1),
+    gtp_context:setup(Context),
 
     %% TODO: the QoS profile is too simplistic
     #quality_of_service_profile{data = ReqQoSProfileData} = ReqQoSProfile,
@@ -286,17 +289,17 @@ handle_request(_SrcGtpPort,
 	    #tunnel_endpoint_identifier_control_plane{tei = ReqCntlTEI} ->
 		ReqCntlTEI;
 	    _ ->
-		OldContext#context.control_tei
+		OldContext#context.remote_control_tei
 	end,
 
     RemoteCntlIP = gtp_c_lib:bin2ip(RemoteCntlIPBin),
     RemoteDataIP = gtp_c_lib:bin2ip(RemoteDataIPBin),
 
     Context = OldContext#context{
-		control_ip  = RemoteCntlIP,
-		control_tei = RemoteCntlTEI,
-		data_ip     = RemoteDataIP,
-		data_tei    = RemoteDataTEI},
+		remote_control_ip  = RemoteCntlIP,
+		remote_control_tei = RemoteCntlTEI,
+		remote_data_ip     = RemoteDataIP,
+		remote_data_tei    = RemoteDataTEI},
 
     State1 = if Context /= OldContext ->
 		     apply_context_change(Context, OldContext, State0);
@@ -304,7 +307,7 @@ handle_request(_SrcGtpPort,
 		     State0
 	     end,
 
-    {ok, NewPeer} = gtp_v1_c:handle_sgsn(IEs, Context, State1),
+    {ok, NewPeer} = gtp_v1_c:handle_sgsn(IEs, Context),
     lager:debug("New: ~p", [NewPeer]),
 
     #gtp_port{ip = LocalIP} = GtpPort,
@@ -322,9 +325,9 @@ handle_request(_SrcGtpPort,
 handle_request(_SrcGtpPort,
 	       #gtp{type = delete_pdp_context_request, ie = _IEs}, _Req,
 	       #{context := Context} = State) ->
-    #context{control_tei = RemoteCntlTEI} = Context,
+    #context{remote_control_tei = RemoteCntlTEI} = Context,
 
-    gtp_context:teardown(Context, State),
+    gtp_context:teardown(Context),
 
     pdp_release_ip(Context, State),
     Reply = {delete_pdp_context_response, RemoteCntlTEI, request_accepted},
@@ -394,7 +397,7 @@ pdp_release_ip(#context{ms_v4 = MSv4, ms_v6 = MSv6}, #{gtp_port := GtpPort}) ->
     apn:release_pdp_ip(GtpPort, MSv4, MSv6).
 
 apply_context_change(NewContext, OldContext, State) ->
-    ok = gtp_context:update(NewContext, OldContext, State),
+    ok = gtp_context:update(NewContext, OldContext),
     State#{context => NewContext}.
 
 

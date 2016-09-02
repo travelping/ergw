@@ -11,7 +11,7 @@
 
 -export([lookup/2, handle_message/4, start_link/5,
 	 send_request/4, send_request/6,
-	 setup/2, update/3, teardown/2, handle_recovery/3]).
+	 setup/1, update/2, teardown/1, handle_recovery/2]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -203,60 +203,56 @@ send_message(IP, Port, Msg, #{gtp_port := GtpPort} = State) ->
 %%%===================================================================
 
 setup(#context{
-	 control_ip  = RemoteCntlIP,
-	 data_tunnel = gtp_v1_u,
-	 data_ip     = RemoteDataIP,
-	 data_tei    = RemoteDataTEI,
-	 ms_v4       = MSv4},
-      #{gtp_port  := GtpPort,
-	version   := Version,
-	tei       := LocalTEI}) ->
-
-    ok = gtp_dp:create_pdp_context(GtpPort, Version, RemoteDataIP, MSv4, LocalTEI, RemoteDataTEI),
-    gtp_path:register(GtpPort, Version, RemoteCntlIP),
+	 version           = Version,
+	 control_port      = CntlGtpPort,
+	 remote_control_ip = RemoteCntlIP,
+	 data_port         = DataGtpPort,
+	 local_data_tei    = LocalDataTEI,
+	 remote_data_ip    = RemoteDataIP,
+	 remote_data_tei   = RemoteDataTEI,
+	 ms_v4             = MSv4}) ->
+    ok = gtp_dp:create_pdp_context(DataGtpPort, Version, RemoteDataIP, MSv4, LocalDataTEI, RemoteDataTEI),
+    gtp_path:register(CntlGtpPort, Version, RemoteCntlIP),
     ok.
 
 update(#context{
-	  control_ip  = RemoteCntlIPNew,
-	  data_tunnel = gtp_v1_u,
-	  data_ip     = RemoteDataIPNew,
-	  data_tei    = RemoteDataTEINew,
-	  ms_v4       = MSv4},
+	  version           = Version,
+	  control_port      = CntlGtpPortNew,
+	  remote_control_ip = RemoteCntlIPNew,
+	  remote_data_ip    = RemoteDataIPNew,
+	  remote_data_tei   = RemoteDataTEINew,
+	  ms_v4             = MSv4},
         #context{
-	    control_ip  = RemoteCntlIPOld,
-	    data_tunnel = gtp_v1_u,
-	    data_ip     = _RemoteDataIPOld,
-	    ms_v4       = MSv4},
-	 #{gtp_port  := GtpPort,
-	   version   := Version,
-	   tei       := LocalTEI}) ->
+	   control_port      = CntlGtpPortOld,
+	   remote_control_ip = RemoteCntlIPOld,
+	   data_port         = DataGtpPortOld,
+	   local_data_tei    = LocalDataTEIOld,
+	   ms_v4             = MSv4}) ->
 
-    gtp_path:unregister(GtpPort, Version, RemoteCntlIPOld),
-    ok = gtp_dp:update_pdp_context(GtpPort, Version, RemoteDataIPNew, MSv4, LocalTEI, RemoteDataTEINew),
-    gtp_path:register(GtpPort, Version, RemoteCntlIPNew),
+    gtp_path:unregister(CntlGtpPortOld, Version, RemoteCntlIPOld),
+    ok = gtp_dp:update_pdp_context(DataGtpPortOld, Version, RemoteDataIPNew, MSv4,
+				   LocalDataTEIOld, RemoteDataTEINew),
+    gtp_path:register(CntlGtpPortNew, Version, RemoteCntlIPNew),
     ok.
 
 teardown(#context{
-	    control_ip  = RemoteCntlIP,
-	    data_tunnel = gtp_v1_u,
-	    data_ip     = RemoteDataIP,
-	    data_tei    = RemoteDataTEI,
-	    ms_v4       = MSv4},
-	 #{gtp_port  := GtpPort,
-	   version   := Version,
-	   tei       := LocalTEI}) ->
-
-    gtp_path:unregister(GtpPort, Version, RemoteCntlIP),
-    ok = gtp_dp:delete_pdp_context(GtpPort, Version, RemoteDataIP, MSv4, LocalTEI, RemoteDataTEI).
+	    version           = Version,
+	    control_port      = CntlGtpPort,
+	    remote_control_ip = RemoteCntlIP,
+	    data_port         = DataGtpPort,
+	    local_data_tei    = LocalDataTEI,
+	    remote_data_ip    = RemoteDataIP,
+	    remote_data_tei   = RemoteDataTEI,
+	    ms_v4             = MSv4}) ->
+    gtp_path:unregister(CntlGtpPort, Version, RemoteCntlIP),
+    ok = gtp_dp:delete_pdp_context(DataGtpPort, Version, RemoteDataIP, MSv4, LocalDataTEI, RemoteDataTEI).
 
 handle_recovery(RecoveryCounter,
 		#context{
-		   control_ip  = RemoteCntlIP,
-		   data_tunnel = gtp_v1_u,
-		   data_ip     = _RemoteDataIP},
-		#{gtp_port  := GtpPort,
-		  version   := Version}) ->
-    gtp_path:handle_recovery(RecoveryCounter, GtpPort, Version, RemoteCntlIP).
+		   version           = Version,
+		   control_port      = CntlGtpPort,
+		   remote_control_ip = RemoteCntlIP}) ->
+    gtp_path:handle_recovery(RecoveryCounter, CntlGtpPort, Version, RemoteCntlIP).
 
 %%%===================================================================
 %%% Internal functions

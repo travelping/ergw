@@ -19,13 +19,16 @@
 	 }).
 
 -record(context, {
-	  control_interface :: atom(),
-	  control_tunnel    :: 'gtp_v1_c' | 'gtp_v2_c',
-	  control_ip        :: inet:ip_address(),
-	  control_tei       :: non_neg_integer(),
-	  data_tunnel       :: 'gtp_v1_u',
-	  data_ip           :: inet:ip_address(),
-	  data_tei          :: non_neg_integer(),
-	  ms_v4             :: inet:ip4_address(),
-	  ms_v6             :: inet:ip6_address()
+	  version            :: 'v1' | 'v2',
+	  control_interface  :: atom(),
+	  control_port       :: #gtp_port{},
+	  local_control_tei  :: non_neg_integer(),
+	  remote_control_ip  :: inet:ip_address(),
+	  remote_control_tei :: non_neg_integer(),
+	  data_port          :: #gtp_port{},
+	  local_data_tei     :: non_neg_integer(),
+	  remote_data_ip     :: inet:ip_address(),
+	  remote_data_tei    :: non_neg_integer(),
+	  ms_v4              :: inet:ip4_address(),
+	  ms_v6              :: inet:ip6_address()
 	  }).

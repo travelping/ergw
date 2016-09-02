@@ -17,7 +17,7 @@
 	 type/0, port/0]).
 
 %% support functions
--export([handle_sgsn/3, build_recovery/2]).
+-export([handle_sgsn/2, build_recovery/2]).
 
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include("include/ergw.hrl").
@@ -25,7 +25,7 @@
 %%====================================================================
 %% API
 %%====================================================================
-handle_sgsn(IEs, Context, State) ->
+handle_sgsn(IEs, Context) ->
     RecoveryCount =
 	case lists:keyfind(recovery, 1, IEs) of
 	    #recovery{restart_counter = RCnt} ->
@@ -33,7 +33,7 @@ handle_sgsn(IEs, Context, State) ->
         _ ->
 		undefined
     end,
-    gtp_context:handle_recovery(RecoveryCount, Context, State).
+    gtp_context:handle_recovery(RecoveryCount, Context).
 
 build_recovery(#gtp_port{restart_counter = RCnt}, true) ->
     [#recovery{restart_counter = RCnt}];

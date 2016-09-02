@@ -114,20 +114,23 @@ handle_request(_SrcGtpPort,
 
     {ok, MSv4, MSv6} = pdn_alloc_ip(LocalTEI, ReqMSv4, ReqMSv6, State0),
     Context = #context{
-		 control_interface = ?MODULE,
-		 control_tunnel    = gtp_v1_c,
-		 control_ip        = gtp_c_lib:bin2ip(RemoteCntlIP),
-		 control_tei       = RemoteCntlTEI,
-		 data_tunnel       = gtp_v1_u,
-		 data_ip           = gtp_c_lib:bin2ip(RemoteDataIP),
-		 data_tei          = RemoteDataTEI,
-		 ms_v4             = MSv4,
-		 ms_v6             = MSv6},
+		 version            = v2,
+		 control_interface  = ?MODULE,
+		 control_port       = GtpPort,
+		 local_control_tei  = LocalTEI,
+		 remote_control_ip  = gtp_c_lib:bin2ip(RemoteCntlIP),
+		 remote_control_tei = RemoteCntlTEI,
+		 data_port          = GtpPort,
+		 local_data_tei     = LocalTEI,
+		 remote_data_ip     = gtp_c_lib:bin2ip(RemoteDataIP),
+		 remote_data_tei    = RemoteDataTEI,
+		 ms_v4              = MSv4,
+		 ms_v6              = MSv6},
     State1 = State0#{context => Context},
 
-    {ok, NewPeer} = gtp_v2_c:handle_sgsn(IEs, Context, State1),
+    {ok, NewPeer} = gtp_v2_c:handle_sgsn(IEs, Context),
     lager:debug("New: ~p, ~p", [NewPeer]),
-    ok = gtp_context:setup(Context, State1),
+    ok = gtp_context:setup(Context),
 
     #gtp_port{ip = LocalIP} = GtpPort,
 
@@ -160,8 +163,8 @@ handle_request(_SrcGtpPort,
     {ok, Response, State1};
 
 handle_request(_SrcGtpPort,
-	       #gtp{type = delete_session_request, tei = LocalTEI}, Req,
-	       #{gtp_port := GtpPort, context := Context} = State0) ->
+	       #gtp{type = delete_session_request}, Req,
+	       #{context := Context} = State0) ->
 
     #delete_session_request{
        %% according to 3GPP TS 29.274, the F-TEID is not part of the Delete Session Request
@@ -170,11 +173,13 @@ handle_request(_SrcGtpPort,
        sender_f_teid_for_control_plane = FqTEI
       } = Req,
 
+    #context{remote_control_tei = RemoteCntlTEI} = Context,
+
     Result =
 	do([error_m ||
-	       {RemoteCntlTEI, MS, RemoteDataIP, RemoteDataTEI} <- match_context(35, Context, FqTEI),
+	       match_context(35, Context, FqTEI),
 	       pdn_release_ip(Context, State0),
-	       gtp_dp:delete_pdp_context(GtpPort, 1, RemoteDataIP, MS, LocalTEI, RemoteDataTEI),
+	       gtp_context:teardown(Context),
 	       return({RemoteCntlTEI, request_accepted, State0})
 	   ]),
 
@@ -201,26 +206,17 @@ handle_request(_SrcGtpPort, _Msg, _Req, State) ->
 ip2prefix({IP, Prefix}) ->
     <<Prefix:8, (gtp_c_lib:ip2bin(IP))/binary>>.
 
-match_context(_Type,
-	      #context{
-		 control_tei = RemoteCntlTEI,
-		 data_ip     = RemoteDataIP,
-		 data_tei    = RemoteDataTEI,
-		 ms_v4       = MS},
-	      undefined) ->
-    error_m:return({RemoteCntlTEI, MS, RemoteDataIP, RemoteDataTEI});
+match_context(_Type, _Context, undefined) ->
+    error_m:return(ok);
 match_context(Type,
 	      #context{
-		 control_ip  = RemoteCntlIP,
-		 control_tei = RemoteCntlTEI,
-		 data_ip     = RemoteDataIP,
-		 data_tei    = RemoteDataTEI,
-		 ms_v4       = MS},
+		 remote_control_ip  = RemoteCntlIP,
+		 remote_control_tei = RemoteCntlTEI},
 	      #v2_fully_qualified_tunnel_endpoint_identifier{instance       = 0,
 							     interface_type = Type,
 							     key            = RemoteCntlTEI,
 							     ipv4           = RemoteCntlIP}) ->
-    error_m:return({RemoteCntlTEI, MS, RemoteDataIP, RemoteDataTEI});
+    error_m:return(ok);
 match_context(Type, Context, IE) ->
     lager:error("match_context: context not found, ~p, ~p, ~p", [Type, Context, lager:pr(IE, ?MODULE)]),
     error_m:fail([#v2_cause{v2_cause = context_not_found}]).
