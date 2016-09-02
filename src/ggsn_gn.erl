@@ -171,7 +171,7 @@ request_spec(_) ->
 init(_Opts, State) ->
     {ok, State}.
 
-handle_request(_SrcGtpPort,
+handle_request(_From,
 	       #gtp{type = create_pdp_context_request, ie = IEs}, Req,
 	       #{tei := LocalTEI, gtp_port := GtpPort} = State0) ->
 
@@ -270,7 +270,7 @@ handle_request(_SrcGtpPort,
     Reply = {create_pdp_context_response, RemoteCntlTEI, ResponseIEs},
     {reply, Reply, State1};
 
-handle_request(_SrcGtpPort,
+handle_request(_From,
 	       #gtp{type = update_pdp_context_request, ie = IEs}, Req,
 	       #{tei := LocalTEI, gtp_port := GtpPort, context := OldContext} = State0) ->
 
@@ -322,7 +322,7 @@ handle_request(_SrcGtpPort,
     Reply = {update_pdp_context_response, RemoteCntlTEI, ResponseIEs},
     {reply, Reply, State1};
 
-handle_request(_SrcGtpPort,
+handle_request(_From,
 	       #gtp{type = delete_pdp_context_request, ie = _IEs}, _Req,
 	       #{context := Context} = State) ->
     #context{remote_control_tei = RemoteCntlTEI} = Context,
@@ -333,7 +333,7 @@ handle_request(_SrcGtpPort,
     Reply = {delete_pdp_context_response, RemoteCntlTEI, request_accepted},
     {stop, Reply, State};
 
-handle_request(_SrcGtpPort, _Msg, _Req, State) ->
+handle_request(_From, _Msg, _Req, State) ->
     {noreply, State}.
 
 %%%===================================================================

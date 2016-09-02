@@ -159,7 +159,7 @@ init(_Opts, State) ->
 %%   Change Notification Request/Response
 %%   Resume Notification/Acknowledge
 
-handle_request(_SrcGtpPort,
+handle_request(_From,
 	       #gtp{type = create_session_request, ie = IEs}, Req,
 	       #{tei := LocalTEI, gtp_port := GtpPort} = State0) ->
 
@@ -233,7 +233,7 @@ handle_request(_SrcGtpPort,
     Response = {create_session_response, RemoteCntlTEI, ResponseIEs},
     {ok, Response, State1};
 
-handle_request(_SrcGtpPort,
+handle_request(_From,
 	       #gtp{type = modify_bearer_request, tei = LocalTEI, ie = IEs}, Req,
 	       #{gtp_port := GtpPort, context := OldContext} = State0) ->
 
@@ -281,7 +281,7 @@ handle_request(_SrcGtpPort,
     Response = {modify_bearer_response, RemoteCntlTEI, ResponseIEs},
     {ok, Response, State1};
 
-handle_request(_SrcGtpPort,
+handle_request(_From,
 	       #gtp{type = delete_session_request}, Req,
 	       #{context := Context} = State0) ->
 
@@ -316,7 +316,7 @@ handle_request(_SrcGtpPort,
 	    {reply, Response, State0}
     end;
 
-handle_request(_SrcGtpPort, _Msg, _Req, State) ->
+handle_request(_From, _Msg, _Req, State) ->
     {noreply, State}.
 
 %%%===================================================================

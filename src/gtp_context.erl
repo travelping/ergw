@@ -10,7 +10,7 @@
 -compile({parse_transform, do}).
 
 -export([lookup/2, handle_message/4, start_link/5,
-	 send_request/4, send_request/6,
+	 send_request/4, send_request/6, send_response/2,
 	 setup/1, update/2, teardown/1, handle_recovery/2]).
 
 %% gen_server callbacks
@@ -85,14 +85,15 @@ handle_cast({handle_message, GtpPort, IP, Port, #gtp{type = MsgType, ie = IEs} =
     lager:debug("~w: handle gtp: ~w, ~p",
 		[?MODULE, Port, gtp_c_lib:fmt_gtp(Msg)]),
 
+    From = {GtpPort, IP, Port},
     Spec = Interface:request_spec(MsgType),
     {Req, Missing} = gtp_c_lib:build_req_record(MsgType, Spec, IEs),
     lager:debug("Mis: ~p", [Missing]),
 
     if Missing /= [] ->
-	    handle_error(IP, Port, Msg, {mandatory_ie_missing, hd(Missing)}, State);
+	    handle_error(From, Msg, {mandatory_ie_missing, hd(Missing)}, State);
        true ->
-	    handle_request(GtpPort, IP, Port, Msg, Req, State)
+	    handle_request(From, Msg, Req, State)
     end;
 
 handle_cast(Msg, State) ->
@@ -107,7 +108,7 @@ handle_info({ReqId, Request, Response = #gtp{type = MsgType, ie = IEs}},
 
     if Missing /= [] ->
 	    %% TODO: handle error
-	    %% handle_error(IP, Port, Msg, {mandatory_ie_missing, hd(Missing)}, State);
+	    %% handle_error({GtpPort, IP, Port}, Msg, {mandatory_ie_missing, hd(Missing)}, State);
 	    ok;
        true ->
 	    handle_response(ReqId, Request, Response, RespRec, State)
@@ -127,31 +128,31 @@ code_change(_OldVsn, State, _Extra) ->
 %%% Message Handling functions
 %%%===================================================================
 
-handle_error(IP, Port, #gtp{type = MsgType, seq_no = SeqNo}, Reply,
+handle_error(From, #gtp{type = MsgType, seq_no = SeqNo}, Reply,
 	     #{handler := Handler} = State) ->
     Response = Handler:build_response({MsgType, Reply}),
-    send_message(IP, Port, Response#gtp{seq_no = SeqNo}, State),
+    send_response(From, Response#gtp{seq_no = SeqNo}),
     {noreply, State}.
 
-handle_request(GtpPort, IP, Port, #gtp{version = Version, seq_no = SeqNo} = Msg, Req,
+handle_request(From = {_GtpPort, IP, Port}, #gtp{version = Version, seq_no = SeqNo} = Msg, Req,
 	        #{handler := Handler, interface := Interface} = State0) ->
     lager:debug("GTP~s ~s:~w: ~p",
 		[Version, inet:ntoa(IP), Port, gtp_c_lib:fmt_gtp(Msg)]),
 
-    try Interface:handle_request(GtpPort, Msg, Req, State0) of
+    try Interface:handle_request(From, Msg, Req, State0) of
 	{reply, Reply, State1} ->
 	    Response = Handler:build_response(Reply),
-	    send_message(IP, Port, Response#gtp{seq_no = SeqNo}, State1),
+	    send_response(From, Response#gtp{seq_no = SeqNo}),
 	    {noreply, State1};
 
 	{stop, Reply, State1} ->
 	    Response = Handler:build_response(Reply),
-	    send_message(IP, Port, Response#gtp{seq_no = SeqNo}, State1),
+	    send_response(From, Response#gtp{seq_no = SeqNo}),
 	    {stop, normal, State1};
 
 	{error, Reply} ->
 	    Response = Handler:build_response(Reply),
-	    send_message(IP, Port, Response#gtp{seq_no = SeqNo}, State0),
+	    send_response(From, Response#gtp{seq_no = SeqNo}),
 	    {noreply, State0};
 
 	{noreply, State1} ->
@@ -185,7 +186,7 @@ handle_response(ReqId, Request, Response, RespRec, #{interface := Interface} = S
 	    {noreply, State0}
     end.
 
-send_message(IP, Port, Msg, #{gtp_port := GtpPort} = State) ->
+send_response({GtpPort, IP, Port}, Msg) ->
     %% TODO: handle encode errors
     try
         Data = gtp_packet:encode(Msg),
@@ -195,8 +196,7 @@ send_message(IP, Port, Msg, #{gtp_port := GtpPort} = State) ->
 	Class:Error ->
 	    Stack  = erlang:get_stacktrace(),
 	    lager:error("gtp send failed with ~p:~p (~p)", [Class, Error, Stack])
-    end,
-    State.
+    end.
 
 %%%===================================================================
 %%% API Module Helper
