@@ -204,47 +204,39 @@ send_message(IP, Port, Msg, #{gtp_port := GtpPort} = State) ->
 
 setup(#context{
 	 version           = Version,
-	 control_port      = CntlGtpPort,
-	 remote_control_ip = RemoteCntlIP,
 	 data_port         = DataGtpPort,
 	 local_data_tei    = LocalDataTEI,
 	 remote_data_ip    = RemoteDataIP,
 	 remote_data_tei   = RemoteDataTEI,
-	 ms_v4             = MSv4}) ->
+	 ms_v4             = MSv4} = Context) ->
     ok = gtp_dp:create_pdp_context(DataGtpPort, Version, RemoteDataIP, MSv4, LocalDataTEI, RemoteDataTEI),
-    gtp_path:register(CntlGtpPort, Version, RemoteCntlIP),
+    gtp_path:register(Context),
     ok.
 
 update(#context{
 	  version           = Version,
-	  control_port      = CntlGtpPortNew,
-	  remote_control_ip = RemoteCntlIPNew,
 	  remote_data_ip    = RemoteDataIPNew,
 	  remote_data_tei   = RemoteDataTEINew,
-	  ms_v4             = MSv4},
+	  ms_v4             = MSv4} = ContextNew,
         #context{
-	   control_port      = CntlGtpPortOld,
-	   remote_control_ip = RemoteCntlIPOld,
 	   data_port         = DataGtpPortOld,
 	   local_data_tei    = LocalDataTEIOld,
-	   ms_v4             = MSv4}) ->
+	   ms_v4             = MSv4} = ContextOld) ->
 
-    gtp_path:unregister(CntlGtpPortOld, Version, RemoteCntlIPOld),
+    gtp_path:unregister(ContextOld),
     ok = gtp_dp:update_pdp_context(DataGtpPortOld, Version, RemoteDataIPNew, MSv4,
 				   LocalDataTEIOld, RemoteDataTEINew),
-    gtp_path:register(CntlGtpPortNew, Version, RemoteCntlIPNew),
+    gtp_path:register(ContextNew),
     ok.
 
 teardown(#context{
 	    version           = Version,
-	    control_port      = CntlGtpPort,
-	    remote_control_ip = RemoteCntlIP,
 	    data_port         = DataGtpPort,
 	    local_data_tei    = LocalDataTEI,
 	    remote_data_ip    = RemoteDataIP,
 	    remote_data_tei   = RemoteDataTEI,
-	    ms_v4             = MSv4}) ->
-    gtp_path:unregister(CntlGtpPort, Version, RemoteCntlIP),
+	    ms_v4             = MSv4} = Context) ->
+    gtp_path:unregister(Context),
     ok = gtp_dp:delete_pdp_context(DataGtpPort, Version, RemoteDataIP, MSv4, LocalDataTEI, RemoteDataTEI).
 
 handle_recovery(RecoveryCounter,

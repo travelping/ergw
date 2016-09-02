@@ -12,7 +12,7 @@
 %% API
 -export([start_link/4, get/2, all/1,
 	 maybe_new_path/3, handle_request/4,
-	 register/3, unregister/3,
+	 register/1, unregister/1,
 	 handle_recovery/4,
 	 get_handler/2]).
 
@@ -45,14 +45,13 @@
 start_link(GtpPort, Version, RemoteIP, Args) ->
     regine_server:start_link(?MODULE, {GtpPort, Version, RemoteIP, Args}).
 
-register(GtpPort, Version, RemoteIP) ->
+register(#context{version = Version, control_port = GtpPort, remote_control_ip = RemoteIP}) ->
     lager:debug("~s: register(~p)", [?MODULE, [GtpPort, Version, RemoteIP]]),
     Path = maybe_new_path(GtpPort, Version, RemoteIP),
     ok = regine_server:register(Path, self(), {self(), Version}, undefined),
     regine_server:call(Path, get_restart_counter).
 
-
-unregister(GtpPort, Version, RemoteIP) ->
+unregister(#context{version = Version, control_port = GtpPort, remote_control_ip = RemoteIP}) ->
     case get(GtpPort, RemoteIP) of
 	Path when is_pid(Path) ->
 	    regine_server:unregister(Path, {self(), Version}, undefined);
