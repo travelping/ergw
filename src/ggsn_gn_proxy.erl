@@ -316,27 +316,29 @@ request_spec(_) ->
 
 init(Opts, State) ->
     ProxyPorts = proplists:get_value(proxy_sockets, Opts),
+    ProxyDPs = proplists:get_value(proxy_data_paths, Opts),
     GGSN = proplists:get_value(ggns, Opts),
-    {ok, State#{proxy_ports => ProxyPorts, ggsn => GGSN}}.
+    {ok, State#{proxy_ports => ProxyPorts, proxy_dps => ProxyDPs, ggsn => GGSN}}.
 
 handle_request(From,
 	       #gtp{type = create_pdp_context_request, seq_no = SeqNo, ie = IEs}, Req,
-	       #{tei := LocalTEI, gtp_port := GtpPort, proxy_ports := ProxyPorts, ggsn := GGSN} = State0) ->
+	       #{tei := LocalTEI, gtp_port := GtpPort, gtp_dp_port := GtpDP,
+		 proxy_ports := ProxyPorts, proxy_dps := ProxyDPs, ggsn := GGSN} = State0) ->
 
     Context0 = #context{
 		  version           = v1,
 		  control_interface = ?MODULE,
 		  control_port      = GtpPort,
 		  local_control_tei = LocalTEI,
-		  data_port         = GtpPort,
+		  data_port         = GtpDP,
 		  local_data_tei    = LocalTEI
 		 },
     Context = update_context_from_gtp_req(Req, Context0),
     State1 = State0#{context => Context},
 
-    #gtp_port{ip = LocalIP} = GtpPort,
+    #gtp_port{ip = LocalCntlIP} = GtpPort,
 
-    Session0 = #{'GGSN-Address' => gtp_c_lib:ip2bin(LocalIP)},
+    Session0 = #{'GGSN-Address' => gtp_c_lib:ip2bin(LocalCntlIP)},
     Session1 = init_session(IEs, Session0),
     lager:debug("Invoking CONTROL: ~p", [Session1]),
     %% ergw_control:authenticate(Session1),
@@ -346,6 +348,7 @@ handle_request(From,
     gtp_context:setup(Context),
 
     ProxyGtpPort = gtp_socket_reg:lookup(hd(ProxyPorts)),
+    ProxyGtpDP = gtp_socket_reg:lookup(hd(ProxyDPs)),
     {ok, ProxyLocalTEI} = gtp_c_lib:alloc_tei(ProxyGtpPort),
 
     lager:debug("ProxyGtpPort: ~p", [lager:pr(ProxyGtpPort, ?MODULE)]),
@@ -355,7 +358,7 @@ handle_request(From,
 		      control_port      = ProxyGtpPort,
 		      local_control_tei = ProxyLocalTEI,
 		      remote_control_ip = GGSN,
-		      data_port         = ProxyGtpPort,
+		      data_port         = ProxyGtpDP,
 		      local_data_tei    = ProxyLocalTEI,
 		      remote_data_ip    = GGSN
 		     },
@@ -411,6 +414,9 @@ handle_response(#request_info{from = From, seq_no = SeqNo},
     GtpResp = build_context_request(Context, RespRec),
     gtp_context:send_response(From, GtpResp#gtp{seq_no = SeqNo}),
 
+    dp_create_pdp_context(Context, ProxyContext),
+    lager:info("Create PDP Context ~p", [Context]),
+
     {noreply, State#{proxy_context => ProxyContext}};
 
 handle_response(#request_info{from = From, seq_no = SeqNo},
@@ -426,6 +432,8 @@ handle_response(#request_info{from = From, seq_no = SeqNo},
     GtpResp = build_context_request(Context, RespRec),
     gtp_context:send_response(From, GtpResp#gtp{seq_no = SeqNo}),
 
+    dp_update_pdp_context(Context, ProxyContext),
+
     {noreply, State};
 
 handle_response(#request_info{from = From, seq_no = SeqNo},
@@ -438,6 +446,7 @@ handle_response(#request_info{from = From, seq_no = SeqNo},
     GtpResp = build_context_request(Context, RespRec),
     gtp_context:send_response(From, GtpResp#gtp{seq_no = SeqNo}),
 
+    dp_delete_pdp_context(Context, ProxyContext),
     gtp_context:teardown(Context),
     gtp_context:teardown(ProxyContext),
     {stop, State};
@@ -622,3 +631,21 @@ forward_request(#context{control_port = GtpPort, remote_control_ip = RemoteCntlI
     ReqInfo = #request_info{from = From, seq_no = SeqNo},
     lager:debug("Invoking Context Send Request: ~p", [Request]),
     gtp_context:send_request(GtpPort, RemoteCntlIP, Request, ReqInfo).
+
+proxy_dp_args(#context{data_port = #gtp_port{name = Name},
+		       local_data_tei = LocalTEI,
+		       remote_data_tei = RemoteTEI,
+		       remote_data_ip = RemoteIP}) ->
+    {forward, [Name, RemoteIP, LocalTEI, RemoteTEI]}.
+
+dp_create_pdp_context(GrxContext, FwdContext) ->
+    Args = proxy_dp_args(FwdContext),
+    gtp_dp:create_pdp_context(GrxContext, Args).
+
+dp_update_pdp_context(GrxContext, FwdContext) ->
+    Args = proxy_dp_args(FwdContext),
+    gtp_dp:update_pdp_context(GrxContext, Args).
+
+dp_delete_pdp_context(GrxContext, FwdContext) ->
+    Args = proxy_dp_args(FwdContext),
+    gtp_dp:delete_pdp_context(GrxContext, Args).

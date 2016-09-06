@@ -65,10 +65,15 @@ start_link(GtpPort, Version, Interface, IfOpts, Opts) ->
 
 init([GtpPort, Version, Interface, Opts]) ->
     lager:debug("init(~p)", [[GtpPort, Interface]]),
+
+    DP = hd(proplists:get_value(data_paths, Opts, [])),
+    GtpDP = gtp_socket_reg:lookup(DP),
+
     {ok, TEI} = gtp_c_lib:alloc_tei(GtpPort),
 
     State = #{
       gtp_port  => GtpPort,
+      gtp_dp_port => GtpDP,
       version   => Version,
       handler   => gtp_path:get_handler(GtpPort, Version),
       interface => Interface,
@@ -203,41 +208,42 @@ send_response({GtpPort, IP, Port}, Msg) ->
 %%%===================================================================
 
 setup(#context{
-	 version           = Version,
-	 data_port         = DataGtpPort,
-	 local_data_tei    = LocalDataTEI,
-	 remote_data_ip    = RemoteDataIP,
-	 remote_data_tei   = RemoteDataTEI,
-	 ms_v4             = MSv4} = Context) ->
-    ok = gtp_dp:create_pdp_context(DataGtpPort, Version, RemoteDataIP, MSv4, LocalDataTEI, RemoteDataTEI),
+	 version           = _Version,
+	 data_port         = _DataGtpPort,
+	 local_data_tei    = _LocalDataTEI,
+	 remote_data_ip    = _RemoteDataIP,
+	 remote_data_tei   = _RemoteDataTEI,
+	 ms_v4             = _MSv4} = Context) ->
+    %% ok = gtp_dp:create_pdp_context(DataGtpPort, Version, RemoteDataIP, MSv4, LocalDataTEI, RemoteDataTEI),
     gtp_path:register(Context),
     ok.
 
 update(#context{
-	  version           = Version,
-	  remote_data_ip    = RemoteDataIPNew,
-	  remote_data_tei   = RemoteDataTEINew,
-	  ms_v4             = MSv4} = ContextNew,
+	  version           = _Version,
+	  remote_data_ip    = _RemoteDataIPNew,
+	  remote_data_tei   = _RemoteDataTEINew,
+	  ms_v4             = _MSv4} = ContextNew,
         #context{
-	   data_port         = DataGtpPortOld,
-	   local_data_tei    = LocalDataTEIOld,
-	   ms_v4             = MSv4} = ContextOld) ->
+	   data_port         = _DataGtpPortOld,
+	   local_data_tei    = _LocalDataTEIOld,
+	   ms_v4             = _MSv4} = ContextOld) ->
 
     gtp_path:unregister(ContextOld),
-    ok = gtp_dp:update_pdp_context(DataGtpPortOld, Version, RemoteDataIPNew, MSv4,
-				   LocalDataTEIOld, RemoteDataTEINew),
+    %% ok = gtp_dp:update_pdp_context(DataGtpPortOld, Version, RemoteDataIPNew, MSv4,
+    %% 				   LocalDataTEIOld, RemoteDataTEINew),
     gtp_path:register(ContextNew),
     ok.
 
 teardown(#context{
-	    version           = Version,
-	    data_port         = DataGtpPort,
-	    local_data_tei    = LocalDataTEI,
-	    remote_data_ip    = RemoteDataIP,
-	    remote_data_tei   = RemoteDataTEI,
-	    ms_v4             = MSv4} = Context) ->
+	    version           = _Version,
+	    data_port         = _DataGtpPort,
+	    local_data_tei    = _LocalDataTEI,
+	    remote_data_ip    = _RemoteDataIP,
+	    remote_data_tei   = _RemoteDataTEI,
+	    ms_v4             = _MSv4} = Context) ->
     gtp_path:unregister(Context),
-    ok = gtp_dp:delete_pdp_context(DataGtpPort, Version, RemoteDataIP, MSv4, LocalDataTEI, RemoteDataTEI).
+    %% ok = gtp_dp:delete_pdp_context(DataGtpPort, Version, RemoteDataIP, MSv4, LocalDataTEI, RemoteDataTEI).
+    ok.
 
 handle_recovery(RecoveryCounter,
 		#context{

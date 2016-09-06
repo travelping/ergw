@@ -10,10 +10,10 @@
 -behavior(gen_server).
 
 %% API
--export([start_link/1, send/4,
-	 create_pdp_context/6,
-	 update_pdp_context/6,
-	 delete_pdp_context/6]).
+-export([start_link/1, send/4, get_id/1,
+	 create_pdp_context/2,
+	 update_pdp_context/2,
+	 delete_pdp_context/2]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -23,7 +23,7 @@
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include("include/ergw.hrl").
 
--record(state, {gtp_port, ip, gtp0, gtp1u, gtp_dev}).
+-record(state, {gtp_port, node, ip, pid}).
 
 %%====================================================================
 %% API
@@ -35,14 +35,20 @@ start_link({Name, SocketOpts}) ->
 send(GtpPort, IP, Port, Data) ->
     cast(GtpPort, {send, IP, Port, Data}).
 
-create_pdp_context(GtpPort, Version, IP, MS, LocalTEI, RemoteTEI) ->
-    call(GtpPort, {create_pdp_context, Version, IP, MS, LocalTEI, RemoteTEI}).
+get_id(GtpPort) ->
+    call(GtpPort, get_id).
 
-update_pdp_context(GtpPort, Version, IP, MS, LocalTEI, RemoteTEI) ->
-    call(GtpPort, {update_pdp_context, Version, IP, MS, LocalTEI, RemoteTEI}).
+create_pdp_context(#context{data_port = GtpPort, remote_data_ip = PeerIP,
+			    local_data_tei = LocalTEI, remote_data_tei = RemoteTEI}, Args) ->
+    dp_call(GtpPort, {create_pdp_context, PeerIP, LocalTEI, RemoteTEI, Args}).
 
-delete_pdp_context(GtpPort, Version, IP, MS, LocalTEI, RemoteTEI) ->
-    call(GtpPort, {delete_pdp_context, Version, IP, MS, LocalTEI, RemoteTEI}).
+update_pdp_context(#context{data_port = GtpPort, remote_data_ip = PeerIP,
+			    local_data_tei = LocalTEI, remote_data_tei = RemoteTEI}, Args) ->
+    dp_call(GtpPort, {update_pdp_context, PeerIP, LocalTEI, RemoteTEI, Args}).
+
+delete_pdp_context(#context{data_port = GtpPort, remote_data_ip = PeerIP,
+			    local_data_tei = LocalTEI, remote_data_tei = RemoteTEI}, Args) ->
+    dp_call(GtpPort, {delete_pdp_context, PeerIP, LocalTEI, RemoteTEI, Args}).
 
 %%%===================================================================
 %%% call/cast wrapper for gtp_port
@@ -63,69 +69,47 @@ call(GtpPort, Request) ->
     lager:warning("GTP DP Port ~p, CAST Request ~p not implemented yet",
 		  [lager:pr(GtpPort, ?MODULE), Request]).
 
+dp_call(GtpPort, Request) ->
+    lager:info("DP Call ~p: ~p", [lager:pr(GtpPort, ?MODULE), Request]),
+    call(GtpPort, {dp, Request}).
+
 %%%===================================================================
 %%% gen_server callbacks
 %%%===================================================================
 
 init([Name, SocketOpts]) ->
     %% TODO: better config validation and handling
-    IP    = proplists:get_value(ip, SocketOpts),
-    NetNs = proplists:get_value(netns, SocketOpts),
-    Type  = proplists:get_value(type, SocketOpts, 'gtp-u'),
+    Node  = proplists:get_value(node, SocketOpts),
+    RemoteName = proplists:get_value(name, SocketOpts),
 
-    {ok, GTP0} = make_gtp_socket(NetNs, IP, ?GTP0_PORT),
-    {ok, GTP1u} = make_gtp_socket(NetNs, IP, ?GTP1u_PORT),
-
-    FD0 = gen_socket:getfd(GTP0),
-    FD1u = gen_socket:getfd(GTP1u),
-    Opts =
-	if is_list(NetNs) ->
-		[{netns, NetNs}];
-	   true ->
-		[]
-	end,
-    {ok, GTPDev} = gtp_kernel:dev_create("gtp0", FD0, FD1u, Opts),
+    {ok, Pid, IP} = bind(Node, RemoteName),
 
     %% FIXME: this is wrong and must go into the global startup
     RCnt = gtp_config:inc_restart_counter(),
 
-    GtpPort = #gtp_port{name = Name, type = Type, pid = self(),
+    GtpPort = #gtp_port{name = Name, type = 'gtp-u', pid = self(),
 			ip = IP, restart_counter = RCnt},
 
     gtp_socket_reg:register(Name, GtpPort),
 
-    {ok, #state{gtp_port = GtpPort, ip = IP,
-		gtp0 = GTP0, gtp1u = GTP1u, gtp_dev = GTPDev}}.
+    {ok, #state{gtp_port = GtpPort, node = Node, ip = IP, pid = Pid}}.
 
-handle_call({create_pdp_context, Version, IP, MS, LocalTEI, RemoteTEI}, _From,
-	    #state{gtp_dev = GTPDev} = State) ->
-    Reply = gtp_kernel:create_pdp_context(GTPDev, Version, IP, MS, LocalTEI, RemoteTEI),
+handle_call({dp, Request}, _From, #state{pid = Pid} = State) ->
+    lager:info("DP Call ~p: ~p", [Pid, Request]),
+    Reply = gen_server:call(Pid, Request),
+    lager:info("DP Call Reply: ~p", [Reply]),
     {reply, Reply, State};
 
-handle_call({update_pdp_context, Version, IP, MS, LocalTEI, RemoteTEI}, _From,
-	    #state{gtp_dev = GTPDev} = State) ->
-    Reply = gtp_kernel:update_pdp_context(GTPDev, Version, IP, MS, LocalTEI, RemoteTEI),
-    {reply, Reply, State};
-
-handle_call({delete_pdp_context, Version, IP, MS, LocalTEI, RemoteTEI}, _From,
-	    #state{gtp_dev = GTPDev} = State) ->
-    Reply = gtp_kernel:delete_pdp_context(GTPDev, Version, IP, MS, LocalTEI, RemoteTEI),
-    {reply, Reply, State};
+handle_call(get_id, _From, #state{pid = Pid} = State) ->
+    {reply, {ok, Pid}, State};
 
 handle_call(Request, _From, State) ->
     lager:error("handle_call: unknown ~p", [lager:pr(Request, ?MODULE)]),
     {reply, ok, State}.
 
-handle_cast({send, 'gtp-u', IP, Port, Data}, #state{gtp1u = GTP1u} = State) ->
-    gen_socket:sendto(GTP1u, {inet4, IP, Port}, Data),
-    {noreply, State};
-
 handle_cast(Msg, State) ->
     lager:error("handle_cast: unknown ~p", [lager:pr(Msg, ?MODULE)]),
     {noreply, State}.
-
-handle_info({GTP1u, input_ready}, #state{gtp1u = GTP1u} = State) ->
-    handle_input(GTP1u, State);
 
 handle_info(Info, State) ->
     lager:error("handle_info: unknown ~p, ~p", [lager:pr(Info, ?MODULE), lager:pr(State, ?MODULE)]),
@@ -141,56 +125,9 @@ code_change(_OldVsn, State, _Extra) ->
 %%% Internal functions
 %%%===================================================================
 
-make_gtp_socket(NetNs, {_,_,_,_} = IP, Port) when is_list(NetNs) ->
-    {ok, Socket} = gen_socket:socketat(NetNs, inet, dgram, udp),
-    bind_gtp_socket(Socket, IP, Port);
-make_gtp_socket(_NetNs, {_,_,_,_} = IP, Port) ->
-    {ok, Socket} = gen_socket:socket(inet, dgram, udp),
-    bind_gtp_socket(Socket, IP, Port).
+%%%===================================================================
+%%% Data Path Remote API
+%%%===================================================================
 
-bind_gtp_socket(Socket, {_,_,_,_} = IP, Port) ->
-    ok = gen_socket:bind(Socket, {inet4, IP, Port}),
-    ok = gen_socket:setsockopt(Socket, sol_ip, recverr, true),
-    ok = gen_socket:input_event(Socket, true),
-    {ok, Socket}.
-
-handle_input(Socket, State) ->
-    case gen_socket:recvfrom(Socket) of
-	{error, _} ->
-	    handle_err_input(Socket, State);
-
-	{ok, {inet4, IP, Port}, Data} ->
-	    ok = gen_socket:input_event(Socket, true),
-	    handle_message(IP, Port, Data, State);
-
-	Other ->
-	    lager:error("got unhandled input: ~p", [Other]),
-	    ok = gen_socket:input_event(Socket, true),
-	    {noreply, State}
-    end.
-
-handle_err_input(Socket, State) ->
-    case gen_socket:recvmsg(Socket, ?MSG_DONTWAIT bor ?MSG_ERRQUEUE) of
-	Other ->
-	    lager:error("got unhandled error input: ~p", [Other]),
-	    ok = gen_socket:input_event(Socket, true),
-	    {noreply, State}
-    end.
-
-handle_message(IP, Port, Data, #state{gtp_port = GtpPort} = State0) ->
-    Msg = gtp_packet:decode(Data),
-    lager:debug("handle message: ~p", [{IP, Port,
-					lager:pr(GtpPort, ?MODULE),
-					lager:pr(Msg, ?MODULE)}]),
-    State = handle_message_1(IP, Port, Msg, State0),
-    {noreply, State}.
-
-handle_message_1(IP, Port,
-		 #gtp{type = echo_request} = Msg,
-		 #state{gtp_port = GtpPort} = State) ->
-    gtp_path:handle_request(IP, Port, GtpPort, Msg),
-    State;
-
-handle_message_1(_IP, _Port, Msg, State) ->
-    lager:warning("DP Message unhandled: ~p", [lager:pr(Msg, ?MODULE)]),
-    State.
+bind(Node, Port) ->
+    gen_server:call({'gtp-u', Node}, {bind, Port}).
