@@ -13,6 +13,7 @@
 
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include("include/ergw.hrl").
+-include("include/3gpp.hrl").
 
 %%====================================================================
 %% API
@@ -180,7 +181,7 @@ handle_request(#gtp{type = create_pdp_context_request, ie = IEs}, Req,
        tunnel_endpoint_identifier_control_plane =
 	   #tunnel_endpoint_identifier_control_plane{tei = RemoteCntlTEI},
        end_user_address = EUA,
-       quality_of_service_profile = QoSProfile
+       quality_of_service_profile = ReqQoSProfile
       } = Req,
 
     RemoteCntlIP = gtp_c_lib:bin2ip(RemoteCntlIPBin),
@@ -211,6 +212,40 @@ handle_request(#gtp{type = create_pdp_context_request, ie = IEs}, Req,
     {ok, NewGTPcPeer, _NewGTPuPeer} = gtp_v1_c:handle_sgsn(IEs, Context, State1),
     lager:debug("New: ~p, ~p", [NewGTPcPeer, _NewGTPuPeer]),
     gtp_context:setup(Context, State1),
+
+    %% TODO: the QoS profile is too simplistic
+    #quality_of_service_profile{data = ReqQoSProfileData} = ReqQoSProfile,
+    QoSProfile =
+	case '3gpp_qos':decode(ReqQoSProfileData) of
+	    Profile when is_binary(Profile) ->
+		ReqQoSProfile;
+	    #qos{traffic_class = 0} ->			%% MS to Network: Traffic Class: Subscribed
+		%% 3GPP TS 24.008, Sect. 10.5.6.5,
+		QoS = #qos{
+			 delay_class			= 4,		%% best effort
+			 reliability_class		= 3,		%% Unacknowledged GTP/LLC,
+									%% Ack RLC, Protected data
+			 peak_throughput		= 2,		%% 2000 oct/s (2 kBps)
+			 precedence_class		= 3,		%% Low priority
+			 mean_throughput		= 31,		%% Best effort
+			 traffic_class			= 4,		%% Background class
+			 delivery_order			= 2,		%% Without delivery order
+			 delivery_of_erroneorous_sdu	= 3,		%% Erroneous SDUs are not delivered
+			 max_sdu_size			= 1500,		%% 1500 octets
+			 max_bit_rate_uplink		= 16,		%% 16 kbps
+			 max_bit_rate_downlink		= 16,		%% 16 kbps
+			 residual_ber			= 7,		%% 10^-5
+			 sdu_error_ratio		= 4,		%% 10^-4
+			 transfer_delay			= 300,		%% 300ms
+			 traffic_handling_priority	= 3,		%% Priority level 3
+			 guaranteed_bit_rate_uplink	= 0,		%% 0 kbps
+			 guaranteed_bit_rate_downlink	= 0,		%% 0 kbps
+			 signaling_indication		= 0,		%% unknown
+			 source_statistics_descriptor	= 0},		%% Not optimised for signalling traffic
+		ReqQoSProfile#quality_of_service_profile{data = '3gpp_qos':encode(QoS)};
+	    _ ->
+		ReqQoSProfile
+	end,
 
     ResponseIEs = [#cause{value = request_accepted},
 		   #reordering_required{required = no},
