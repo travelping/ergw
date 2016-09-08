@@ -101,9 +101,7 @@ init([Name, SocketOpts]) ->
 
     {ok, S} = make_gtp_socket(NetNs, IP, ?GTP1c_PORT, SocketOpts),
 
-    %% FIXME: this is wrong and must go into the global startup
-    RCnt = gtp_config:inc_restart_counter(),
-
+    {ok, RCnt} = gtp_config:get_restart_counter(),
     GtpPort = #gtp_port{name = Name, type = Type, pid = self(),
 			ip = IP, restart_counter = RCnt},
 

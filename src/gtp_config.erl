@@ -8,10 +8,8 @@
 -module(gtp_config).
 
 %% API
--export([init/0, inc_restart_counter/0]).
+-export([init/0, get_restart_counter/0]).
 
-
--define(DefaultState, [{restart_count, 0}]).             %% keep this sorted by key
 -define(App, ergw).
 
 %%====================================================================
@@ -23,28 +21,18 @@ init() ->
     application:set_env(?App, state_file, StateFile, [{persistent, true}]),
 
     State0 = read_term(StateFile),
-    lager:debug("State0: ~p", [State0]),
-    State1 = lists:ukeymerge(1, lists:ukeysort(1, State0), ?DefaultState),
-    lager:debug("State1: ~p", [State1]),
+    Count = proplists:get_value(restart_count, State0, 0),
+    State1 = lists:keystore(restart_count, 1, State0, {restart_count, (Count + 1) rem 256}),
+
     lists:foreach(fun({K, V}) ->
 			  application:set_env(?App, K, V, [{persistent, true}])
 		  end, State1),
+
     write_terms(StateFile, State1),
     ok.
 
-inc_restart_counter() ->
-    {ok, StateFile} = application:get_env(?App, state_file),
-
-    {ok, Count} = application:get_env(?App, restart_count),
-    application:set_env(?App, restart_count, (Count + 1) rem 256, [{persistent, true}]),
-
-    State1 = lists:filter(fun(T) -> lists:keymember(element(1, T), 1, ?DefaultState) end,
-			  application:get_all_env(?App)),
-    lager:debug("inc State1: ~p", [State1]),
-    write_terms(StateFile, State1),
-
-
-    Count.
+get_restart_counter() ->
+    application:get_env(?App, restart_count).
 
 %%%===================================================================
 %%% Internal functions
