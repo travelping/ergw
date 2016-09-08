@@ -9,6 +9,8 @@
 
 -behavior(gen_server).
 
+-compile({parse_transform, cut}).
+
 %% API
 -export([start_sockets/0, start_link/1,
 	 send/4, send_response/4,
@@ -97,7 +99,7 @@ init([Name, SocketOpts]) ->
     NetNs = proplists:get_value(netns, SocketOpts),
     Type  = proplists:get_value(type, SocketOpts, 'gtp-c'),
 
-    {ok, S} = make_gtp_socket(NetNs, IP, ?GTP1c_PORT),
+    {ok, S} = make_gtp_socket(NetNs, IP, ?GTP1c_PORT, SocketOpts),
 
     %% FIXME: this is wrong and must go into the global startup
     RCnt = gtp_config:inc_restart_counter(),
@@ -177,18 +179,32 @@ cancel_timer(Ref) ->
             RemainingTime
     end.
 
-make_gtp_socket(NetNs, {_,_,_,_} = IP, Port) when is_list(NetNs) ->
+make_gtp_socket(NetNs, {_,_,_,_} = IP, Port, Opts) when is_list(NetNs) ->
     {ok, Socket} = gen_socket:socketat(NetNs, inet, dgram, udp),
-    bind_gtp_socket(Socket, IP, Port);
-make_gtp_socket(_NetNs, {_,_,_,_} = IP, Port) ->
+    bind_gtp_socket(Socket, IP, Port, Opts);
+make_gtp_socket(_NetNs, {_,_,_,_} = IP, Port, Opts) ->
     {ok, Socket} = gen_socket:socket(inet, dgram, udp),
-    bind_gtp_socket(Socket, IP, Port).
+    bind_gtp_socket(Socket, IP, Port, Opts).
 
-bind_gtp_socket(Socket, {_,_,_,_} = IP, Port) ->
+bind_gtp_socket(Socket, {_,_,_,_} = IP, Port, Opts) ->
+    case proplists:get_bool(freebind, Opts) of
+	true ->
+	    ok = gen_socket:setsockopt(Socket, sol_ip, freebind, true);
+	_ ->
+	    ok
+    end,
     ok = gen_socket:bind(Socket, {inet4, IP, Port}),
     ok = gen_socket:setsockopt(Socket, sol_ip, recverr, true),
     ok = gen_socket:input_event(Socket, true),
+    lists:foreach(socket_setopts(Socket, _), Opts),
     {ok, Socket}.
+
+socket_setopts(Socket, {netdev, Device})
+  when is_list(Device); is_binary(Device) ->
+    BinDev = iolist_to_binary([Device, 0]),
+    ok = gen_socket:setsockopt(Socket, sol_socket, bindtodevice, BinDev);
+socket_setopts(_Socket, _) ->
+    ok.
 
 handle_input(Socket, State) ->
     case gen_socket:recvfrom(Socket) of
