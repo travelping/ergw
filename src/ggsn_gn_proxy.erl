@@ -9,10 +9,14 @@
 
 -behaviour(gtp_api).
 
+-compile({parse_transform, cut}).
+
 -export([init/2, request_spec/1, handle_request/4, handle_response/5]).
 
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include("include/ergw.hrl").
+
+-compile([nowarn_unused_record]).
 
 %%====================================================================
 %% API
@@ -321,7 +325,7 @@ init(Opts, State) ->
     {ok, State#{proxy_ports => ProxyPorts, proxy_dps => ProxyDPs, ggsn => GGSN}}.
 
 handle_request(From,
-	       #gtp{type = create_pdp_context_request, seq_no = SeqNo, ie = IEs}, Req,
+	       #gtp{type = create_pdp_context_request, seq_no = SeqNo, ie = IEs} = Request, _ReqRec,
 	       #{tei := LocalTEI, gtp_port := GtpPort, gtp_dp_port := GtpDP,
 		 proxy_ports := ProxyPorts, proxy_dps := ProxyDPs, ggsn := GGSN} = State0) ->
 
@@ -333,7 +337,7 @@ handle_request(From,
 		  data_port         = GtpDP,
 		  local_data_tei    = LocalTEI
 		 },
-    Context = update_context_from_gtp_req(Req, Context0),
+    Context = update_context_from_gtp_req(Request, Context0),
     State1 = State0#{context => Context},
 
     #gtp_port{ip = LocalCntlIP} = GtpPort,
@@ -365,53 +369,52 @@ handle_request(From,
     State = State1#{proxy_context => ProxyContext},
     gtp_path:register(ProxyContext),
 
-    ProxyReq = build_context_request(ProxyContext, Req),
+    ProxyReq = build_context_request(ProxyContext, Request),
     forward_request(ProxyContext, ProxyReq, From, SeqNo),
 
     {noreply, State};
 
 handle_request(From,
-	       #gtp{type = update_pdp_context_request, seq_no = SeqNo, ie = IEs}, Req,
+	       #gtp{type = update_pdp_context_request, seq_no = SeqNo, ie = IEs} = Request, _ReqRec,
 	       #{context := OldContext, proxy_context := ProxyContext} = State0) ->
 
-    Context = update_context_from_gtp_req(Req, OldContext),
+    Context = update_context_from_gtp_req(Request, OldContext),
     State = apply_context_change(Context, OldContext, State0),
 
     {ok, NewPeer} = gtp_v1_c:handle_sgsn(IEs, Context),
     lager:debug("New: ~p", [NewPeer]),
 
-    ProxyReq = build_context_request(ProxyContext, Req),
+    ProxyReq = build_context_request(ProxyContext, Request),
     forward_request(ProxyContext, ProxyReq, From, SeqNo),
 
     {noreply, State};
 
 handle_request(From,
-	       #gtp{type = delete_pdp_context_request, seq_no = SeqNo, ie = IEs}, Req,
+	       #gtp{type = delete_pdp_context_request, seq_no = SeqNo, ie = IEs} = Request, _ReqRec,
 	       #{context := Context, proxy_context := ProxyContext} = State) ->
 
     {ok, NewPeer} = gtp_v1_c:handle_sgsn(IEs, Context),
     lager:debug("New: ~p", [NewPeer]),
 
-    ProxyReq = build_context_request(ProxyContext, Req),
+    ProxyReq = build_context_request(ProxyContext, Request),
     forward_request(ProxyContext, ProxyReq, From, SeqNo),
 
     {noreply, State};
 
-handle_request({GtpPort, _IP, _Port}, Msg, _Req, State) ->
+handle_request({GtpPort, _IP, _Port}, Msg, _ReqRec, State) ->
     lager:warning("Unknown Proxy Message on ~p: ~p", [GtpPort, lager:pr(Msg, ?MODULE)]),
     {noreply, State}.
 
 handle_response(#request_info{from = From, seq_no = SeqNo},
-		#gtp{type = create_pdp_context_response} = Response, RespRec, _Request,
+		#gtp{type = create_pdp_context_response} = Response, _RespRec, _Request,
 		#{context := Context,
 		  proxy_context := ProxyContext0} = State) ->
     lager:warning("OK Proxy Response ~p", [lager:pr(Response, ?MODULE)]),
-    lager:warning("OK Proxy Response ~p", [lager:pr(RespRec, ?MODULE)]),
 
-    ProxyContext = update_context_from_gtp_req(RespRec, ProxyContext0),
+    ProxyContext = update_context_from_gtp_req(Response, ProxyContext0),
     gtp_context:setup(ProxyContext),
 
-    GtpResp = build_context_request(Context, RespRec),
+    GtpResp = build_context_request(Context, Response),
     gtp_context:send_response(From, GtpResp#gtp{seq_no = SeqNo}),
 
     dp_create_pdp_context(Context, ProxyContext),
@@ -420,16 +423,15 @@ handle_response(#request_info{from = From, seq_no = SeqNo},
     {noreply, State#{proxy_context => ProxyContext}};
 
 handle_response(#request_info{from = From, seq_no = SeqNo},
-		#gtp{type = update_pdp_context_response} = Response, RespRec, _Request,
+		#gtp{type = update_pdp_context_response} = Response, _RespRec, _Request,
 		#{context := Context,
 		  proxy_context := OldProxyContext} = State0) ->
     lager:warning("OK Proxy Response ~p", [lager:pr(Response, ?MODULE)]),
-    lager:warning("OK Proxy Response ~p", [lager:pr(RespRec, ?MODULE)]),
 
-    ProxyContext = update_context_from_gtp_req(RespRec, OldProxyContext),
+    ProxyContext = update_context_from_gtp_req(Response, OldProxyContext),
     State = apply_proxy_context_change(ProxyContext, OldProxyContext, State0),
 
-    GtpResp = build_context_request(Context, RespRec),
+    GtpResp = build_context_request(Context, Response),
     gtp_context:send_response(From, GtpResp#gtp{seq_no = SeqNo}),
 
     dp_update_pdp_context(Context, ProxyContext),
@@ -437,13 +439,12 @@ handle_response(#request_info{from = From, seq_no = SeqNo},
     {noreply, State};
 
 handle_response(#request_info{from = From, seq_no = SeqNo},
-		#gtp{type = delete_pdp_context_response} = Response, RespRec, _Request,
+		#gtp{type = delete_pdp_context_response} = Response, _RespRec, _Request,
 		#{context := Context,
 		  proxy_context := ProxyContext} = State) ->
     lager:warning("OK Proxy Response ~p", [lager:pr(Response, ?MODULE)]),
-    lager:warning("OK Proxy Response ~p", [lager:pr(RespRec, ?MODULE)]),
 
-    GtpResp = build_context_request(Context, RespRec),
+    GtpResp = build_context_request(Context, Response),
     gtp_context:send_response(From, GtpResp#gtp{seq_no = SeqNo}),
 
     dp_delete_pdp_context(Context, ProxyContext),
@@ -495,136 +496,36 @@ copy_to_session(#selection_mode{mode = Mode}, Session) ->
 copy_to_session(_, Session) ->
     Session.
 
-build_context_request(#context{remote_control_tei = TEI} = Context, Record0) ->
-    Record = update_gtp_req_from_context(Context, Record0),
-    build_request(Record, TEI).
+update_tunnel_ids(#gsn_address{instance = 0, address = CntlIP}, Context) ->
+    Context#context{remote_control_ip = gtp_c_lib:bin2ip(CntlIP)};
+update_tunnel_ids(#gsn_address{instance = 1, address = DataIP}, Context) ->
+    Context#context{remote_data_ip = gtp_c_lib:bin2ip(DataIP)};
+update_tunnel_ids(#tunnel_endpoint_identifier_data_i{instance = 0, tei = DataTEI}, Context) ->
+    Context#context{remote_data_tei = DataTEI};
+update_tunnel_ids(#tunnel_endpoint_identifier_control_plane{instance = 0, tei = CntlTEI}, Context) ->
+    Context#context{remote_control_tei = CntlTEI};
+update_tunnel_ids(_, Context) ->
+    Context.
 
-build_request(Record, TEI) ->
-    [Request | RList] = tuple_to_list(Record),
-    Spec = request_spec(Request),
-    lager:debug("Spec: ~p", [Spec]),
-    lager:debug("RList: ~p", [RList]),
-    IEs = build_request(Spec, RList, []),
-    #gtp{version = v1, type = Request, tei = TEI, ie = IEs}.
+update_context_from_gtp_req(#gtp{ie = IEs}, Context) ->
+    lists:foldl(fun update_tunnel_ids/2, Context, IEs).
 
-build_request([], [Rest], Acc)
-  when is_list(Rest) ->
-   lists:reverse(Acc) ++ Rest;
-build_request([], _, Acc) ->
-   lists:reverse(Acc);
-build_request([{_, Condition} | Spec], [undefined | RList], Acc)
-  when Condition /= mandatory ->
-    build_request(Spec, RList, Acc);
-build_request([{{Type, Instance},_} | Spec], [IE0 | RList], Acc)
-  when element(1, IE0) == Type ->
-    IE = setelement(2, IE0, Instance),
-    build_request(Spec, RList, [IE | Acc]);
-build_request([S = {{_Type, _Instance},_} | Spec], [IE0 | RList], Acc) ->
-    lager:error("~p != ~p", [S, IE0]),
-    build_request(Spec, RList, Acc).
+set_tunnel_ids(#context{control_port = #gtp_port{ip = CntlIP}}, #gsn_address{instance = 0} = IE) ->
+    IE#gsn_address{address = gtp_c_lib:ip2bin(CntlIP)};
+set_tunnel_ids(#context{data_port = #gtp_port{ip = DataIP}}, #gsn_address{instance = 1} = IE) ->
+    IE#gsn_address{address = gtp_c_lib:ip2bin(DataIP)};
+set_tunnel_ids(#context{local_data_tei = DataTEI}, #tunnel_endpoint_identifier_data_i{instance = 0} = IE) ->
+    IE#tunnel_endpoint_identifier_data_i{tei = DataTEI};
+set_tunnel_ids(#context{local_control_tei = CntlTEI}, #tunnel_endpoint_identifier_control_plane{instance = 0} = IE) ->
+    IE#tunnel_endpoint_identifier_control_plane{tei = CntlTEI};
+set_tunnel_ids(_, IE) ->
+    IE.
 
-get_tunnel_ids(#create_pdp_context_request{
-		  sgsn_address_for_signalling =
-		      #gsn_address{address = CntlIPBin},
-		  sgsn_address_for_user_traffic =
-		      #gsn_address{address = DataIPBin},
-		  tunnel_endpoint_identifier_data_i =
-		      #tunnel_endpoint_identifier_data_i{tei = DataTEI},
-		  tunnel_endpoint_identifier_control_plane =
-		      #tunnel_endpoint_identifier_control_plane{tei = CntlTEI}
-		 }) ->
-    {gtp_c_lib:bin2ip(CntlIPBin), CntlTEI, gtp_c_lib:bin2ip(DataIPBin), DataTEI};
-get_tunnel_ids(#update_pdp_context_request{
-		  sgsn_address_for_signalling =
-		      #gsn_address{address = CntlIPBin},
-		  sgsn_address_for_user_traffic =
-		      #gsn_address{address = DataIPBin},
-		  tunnel_endpoint_identifier_data_i =
-		      #tunnel_endpoint_identifier_data_i{tei = DataTEI},
-		  tunnel_endpoint_identifier_control_plane =
-		      #tunnel_endpoint_identifier_control_plane{tei = CntlTEI}
-		 }) ->
-    {gtp_c_lib:bin2ip(CntlIPBin), CntlTEI, gtp_c_lib:bin2ip(DataIPBin), DataTEI};
-get_tunnel_ids(#create_pdp_context_response{
-		  ggsn_address_for_control_plane =
-		      #gsn_address{address = CntlIPBin},
-		  ggsn_address_for_user_traffic =
-		      #gsn_address{address = DataIPBin},
-		  tunnel_endpoint_identifier_data_i =
-		      #tunnel_endpoint_identifier_data_i{tei = DataTEI},
-		  tunnel_endpoint_identifier_control_plane =
-		      #tunnel_endpoint_identifier_control_plane{tei = CntlTEI}
-		 }) ->
-    {gtp_c_lib:bin2ip(CntlIPBin), CntlTEI, gtp_c_lib:bin2ip(DataIPBin), DataTEI}.
+update_gtp_req_from_context(Context, GtpReqIEs) ->
+    lists:map(set_tunnel_ids(Context, _), GtpReqIEs).
 
-update_context_from_gtp_req(GtpReq, Context) ->
-     {CntlIP, CntlTEI, DataIP, DataTEI} = get_tunnel_ids(GtpReq),
-    Context#context{
-       remote_control_ip  = CntlIP,
-       remote_control_tei = CntlTEI,
-       remote_data_ip     = DataIP,
-       remote_data_tei    = DataTEI
-      }.
-
-set_tunnel_ids(CntlIP, CntlTEI, DataIP, DataTEI, Req = #create_pdp_context_request{}) ->
-    Req#create_pdp_context_request{
-      sgsn_address_for_signalling =
-	  #gsn_address{address = gtp_c_lib:ip2bin(CntlIP)},
-      sgsn_address_for_user_traffic =
-	  #gsn_address{address = gtp_c_lib:ip2bin(DataIP)},
-      tunnel_endpoint_identifier_data_i =
-	  #tunnel_endpoint_identifier_data_i{tei = DataTEI},
-      tunnel_endpoint_identifier_control_plane =
-	  #tunnel_endpoint_identifier_control_plane{tei = CntlTEI}
-     };
-
-set_tunnel_ids(CntlIP, CntlTEI, DataIP, DataTEI, Req = #create_pdp_context_response{}) ->
-    Req#create_pdp_context_response{
-      ggsn_address_for_control_plane =
-	  #gsn_address{address = gtp_c_lib:ip2bin(CntlIP)},
-      ggsn_address_for_user_traffic =
-	  #gsn_address{address = gtp_c_lib:ip2bin(DataIP)},
-      tunnel_endpoint_identifier_data_i =
-	  #tunnel_endpoint_identifier_data_i{tei = DataTEI},
-      tunnel_endpoint_identifier_control_plane =
-	  #tunnel_endpoint_identifier_control_plane{tei = CntlTEI}
-     };
-
-set_tunnel_ids(CntlIP, CntlTEI, DataIP, DataTEI, Req = #update_pdp_context_request{}) ->
-    Req#update_pdp_context_request{
-      sgsn_address_for_signalling =
-	  #gsn_address{address = gtp_c_lib:ip2bin(CntlIP)},
-      sgsn_address_for_user_traffic =
-	  #gsn_address{address = gtp_c_lib:ip2bin(DataIP)},
-      tunnel_endpoint_identifier_data_i =
-	  #tunnel_endpoint_identifier_data_i{tei = DataTEI},
-      tunnel_endpoint_identifier_control_plane =
-	  #tunnel_endpoint_identifier_control_plane{tei = CntlTEI}
-     };
-
-set_tunnel_ids(CntlIP, CntlTEI, DataIP, DataTEI, Req = #update_pdp_context_response{}) ->
-    Req#update_pdp_context_response{
-      ggsn_address_for_control_plane =
-	  #gsn_address{address = gtp_c_lib:ip2bin(CntlIP)},
-      ggsn_address_for_user_traffic =
-	  #gsn_address{address = gtp_c_lib:ip2bin(DataIP)},
-      tunnel_endpoint_identifier_data_i =
-	  #tunnel_endpoint_identifier_data_i{tei = DataTEI},
-      tunnel_endpoint_identifier_control_plane =
-	  #tunnel_endpoint_identifier_control_plane{tei = CntlTEI}
-     };
-
-set_tunnel_ids(_CntlIP, _CntlTEI, _DataIP, _DataTEI, Req)
-  when is_record(Req, delete_pdp_context_request);
-       is_record(Req, delete_pdp_context_response) ->
-    Req.
-
-update_gtp_req_from_context(#context{control_port      = #gtp_port{ip = CntlIP},
-				     local_control_tei = CntlTEI,
-				     data_port         = #gtp_port{ip = DataIP},
-				     local_data_tei    = DataTEI}, GtpReq) ->
-    set_tunnel_ids(CntlIP, CntlTEI, DataIP, DataTEI, GtpReq).
-
+build_context_request(#context{remote_control_tei = TEI} = Context, #gtp{ie = IEs} = Request) ->
+    Request#gtp{tei = TEI, ie = update_gtp_req_from_context(Context, IEs)}.
 
 forward_request(#context{control_port = GtpPort, remote_control_ip = RemoteCntlIP},
 	       Request, From, SeqNo) ->
