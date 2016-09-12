@@ -318,6 +318,10 @@ request_spec(_) ->
 
 -record(request_info, {from, seq_no}).
 
+-define(CAUSE_OK(Cause), (Cause =:= request_accepted orelse
+			  Cause =:= new_pdp_type_due_to_network_preference orelse
+			  Cause =:= new_pdp_type_due_to_single_address_bearer_only)).
+
 init(Opts, State) ->
     ProxyPorts = proplists:get_value(proxy_sockets, Opts),
     ProxyDPs = proplists:get_value(proxy_data_paths, Opts),
@@ -406,7 +410,8 @@ handle_request({GtpPort, _IP, _Port}, Msg, _ReqRec, State) ->
     {noreply, State}.
 
 handle_response(#request_info{from = From, seq_no = SeqNo},
-		#gtp{type = create_pdp_context_response} = Response, _RespRec, _Request,
+		#gtp{type = create_pdp_context_response} = Response,
+		#create_pdp_context_response{cause = #cause{value = Cause}} = _RespRec, _Request,
 		#{context := Context,
 		  proxy_context := ProxyContext0} = State) ->
     lager:warning("OK Proxy Response ~p", [lager:pr(Response, ?MODULE)]),
@@ -417,10 +422,15 @@ handle_response(#request_info{from = From, seq_no = SeqNo},
     GtpResp = build_context_request(Context, Response),
     gtp_context:send_response(From, GtpResp#gtp{seq_no = SeqNo}),
 
-    dp_create_pdp_context(Context, ProxyContext),
-    lager:info("Create PDP Context ~p", [Context]),
+    if ?CAUSE_OK(Cause) ->
+	    dp_create_pdp_context(Context, ProxyContext),
+	    lager:info("Create PDP Context ~p", [Context]),
 
-    {noreply, State#{proxy_context => ProxyContext}};
+	    {noreply, State#{proxy_context => ProxyContext}};
+
+       true ->
+	    {stop, State}
+    end;
 
 handle_response(#request_info{from = From, seq_no = SeqNo},
 		#gtp{type = update_pdp_context_response} = Response, _RespRec, _Request,
