@@ -15,6 +15,7 @@
 
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include("include/ergw.hrl").
+-include("gtp_proxy_ds.hrl").
 
 -compile([nowarn_unused_record]).
 
@@ -329,11 +330,15 @@ init(Opts, State) ->
     {ok, State#{proxy_ports => ProxyPorts, proxy_dps => ProxyDPs, ggsn => GGSN}}.
 
 handle_request(From,
-	       #gtp{type = create_pdp_context_request, seq_no = SeqNo, ie = IEs} = Request, _ReqRec,
+	       #gtp{type = create_pdp_context_request, seq_no = SeqNo, ie = IEs} = Request,
+	       #create_pdp_context_request{imsi = IMSIie, apn = APNie} = _ReqRec,
 	       #{tei := LocalTEI, gtp_port := GtpPort, gtp_dp_port := GtpDP,
 		 proxy_ports := ProxyPorts, proxy_dps := ProxyDPs, ggsn := GGSN} = State0) ->
 
+    APN = optional_apn_value(APNie, undefined),
+
     Context0 = #context{
+		  apn               = APN,
 		  version           = v1,
 		  control_interface = ?MODULE,
 		  control_port      = GtpPort,
@@ -361,6 +366,7 @@ handle_request(From,
 
     lager:debug("ProxyGtpPort: ~p", [lager:pr(ProxyGtpPort, ?MODULE)]),
     ProxyContext = #context{
+		      apn               = APN,
 		      version           = v1,
 		      control_interface = ?MODULE,
 		      control_port      = ProxyGtpPort,
@@ -373,13 +379,16 @@ handle_request(From,
     State = State1#{proxy_context => ProxyContext},
     gtp_path:register(ProxyContext),
 
-    ProxyReq = build_context_request(ProxyContext, Request),
+    IMSI = optional_imsi_value(IMSIie, undefined),
+    {ok, ProxyInfo} = gtp_proxy_ds:map(APN, IMSI),
+    ProxyReq = build_context_request(ProxyContext, ProxyInfo, Request),
     forward_request(ProxyContext, ProxyReq, From, SeqNo),
 
     {noreply, State};
 
 handle_request(From,
-	       #gtp{type = update_pdp_context_request, seq_no = SeqNo, ie = IEs} = Request, _ReqRec,
+	       #gtp{type = update_pdp_context_request, seq_no = SeqNo, ie = IEs} = Request,
+	       #update_pdp_context_request{imsi = IMSIie} = _ReqRec,
 	       #{context := OldContext, proxy_context := ProxyContext} = State0) ->
 
     Context = update_context_from_gtp_req(Request, OldContext),
@@ -388,7 +397,10 @@ handle_request(From,
     {ok, NewPeer} = gtp_v1_c:handle_sgsn(IEs, Context),
     lager:debug("New: ~p", [NewPeer]),
 
-    ProxyReq = build_context_request(ProxyContext, Request),
+    #context{apn = APN} = ProxyContext,
+    IMSI = optional_imsi_value(IMSIie, undefined),
+    {ok, ProxyInfo} = gtp_proxy_ds:map(APN, IMSI),
+    ProxyReq = build_context_request(ProxyContext, ProxyInfo, Request),
     forward_request(ProxyContext, ProxyReq, From, SeqNo),
 
     {noreply, State};
@@ -400,7 +412,7 @@ handle_request(From,
     {ok, NewPeer} = gtp_v1_c:handle_sgsn(IEs, Context),
     lager:debug("New: ~p", [NewPeer]),
 
-    ProxyReq = build_context_request(ProxyContext, Request),
+    ProxyReq = build_context_request(ProxyContext, undefined, Request),
     forward_request(ProxyContext, ProxyReq, From, SeqNo),
 
     {noreply, State};
@@ -419,7 +431,7 @@ handle_response(#request_info{from = From, seq_no = SeqNo},
     ProxyContext = update_context_from_gtp_req(Response, ProxyContext0),
     gtp_context:setup(ProxyContext),
 
-    GtpResp = build_context_request(Context, Response),
+    GtpResp = build_context_request(Context, undefined, Response),
     gtp_context:send_response(From, GtpResp#gtp{seq_no = SeqNo}),
 
     if ?CAUSE_OK(Cause) ->
@@ -441,7 +453,7 @@ handle_response(#request_info{from = From, seq_no = SeqNo},
     ProxyContext = update_context_from_gtp_req(Response, OldProxyContext),
     State = apply_proxy_context_change(ProxyContext, OldProxyContext, State0),
 
-    GtpResp = build_context_request(Context, Response),
+    GtpResp = build_context_request(Context, undefined, Response),
     gtp_context:send_response(From, GtpResp#gtp{seq_no = SeqNo}),
 
     dp_update_pdp_context(Context, ProxyContext),
@@ -454,7 +466,7 @@ handle_response(#request_info{from = From, seq_no = SeqNo},
 		  proxy_context := ProxyContext} = State) ->
     lager:warning("OK Proxy Response ~p", [lager:pr(Response, ?MODULE)]),
 
-    GtpResp = build_context_request(Context, Response),
+    GtpResp = build_context_request(Context, undefined, Response),
     gtp_context:send_response(From, GtpResp#gtp{seq_no = SeqNo}),
 
     dp_delete_pdp_context(Context, ProxyContext),
@@ -534,8 +546,32 @@ set_tunnel_ids(_, IE) ->
 update_gtp_req_from_context(Context, GtpReqIEs) ->
     lists:map(set_tunnel_ids(Context, _), GtpReqIEs).
 
-build_context_request(#context{remote_control_tei = TEI} = Context, #gtp{ie = IEs} = Request) ->
-    Request#gtp{tei = TEI, ie = update_gtp_req_from_context(Context, IEs)}.
+proxy_request_nat(#proxy_info{apn = APN},
+		  #access_point_name{instance = 0} = IE)
+  when is_list(APN) ->
+    IE#access_point_name{apn = APN};
+
+proxy_request_nat(#proxy_info{imsi = IMSI},
+		  #international_mobile_subscriber_identity{instance = 0} = IE)
+  when is_binary(IMSI) ->
+    IE#international_mobile_subscriber_identity{imsi = IMSI};
+
+proxy_request_nat(#proxy_info{msisdn = MSISDN},
+		  #ms_international_pstn_isdn_number{instance = 0} = IE)
+  when is_binary(MSISDN) ->
+    IE#ms_international_pstn_isdn_number{msisdn = {isdn_address, 1, 1, 1, MSISDN}};
+
+proxy_request_nat(_ProxyInfo, IE) ->
+    IE.
+
+apply_proxy_request_nat(ProxyInfo, GtpReqIEs) ->
+    lists:map(proxy_request_nat(ProxyInfo, _), GtpReqIEs).
+
+build_context_request(#context{remote_control_tei = TEI} = Context,
+		      ProxyInfo, #gtp{ie = RequestIEs} = Request) ->
+    ProxyIEs0 = apply_proxy_request_nat(ProxyInfo, RequestIEs),
+    ProxyIEs = update_gtp_req_from_context(Context, ProxyIEs0),
+    Request#gtp{tei = TEI, ie = ProxyIEs}.
 
 forward_request(#context{control_port = GtpPort, remote_control_ip = RemoteCntlIP},
 	       Request, From, SeqNo) ->
@@ -560,3 +596,13 @@ dp_update_pdp_context(GrxContext, FwdContext) ->
 dp_delete_pdp_context(GrxContext, FwdContext) ->
     Args = proxy_dp_args(FwdContext),
     gtp_dp:delete_pdp_context(GrxContext, Args).
+
+optional_apn_value(#access_point_name{apn = APN}, _) ->
+    APN;
+optional_apn_value(_, Default) ->
+    Default.
+
+optional_imsi_value(#international_mobile_subscriber_identity{imsi = IMSI}, _) ->
+    IMSI;
+optional_imsi_value(_, Default) ->
+    Default.

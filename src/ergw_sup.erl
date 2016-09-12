@@ -36,6 +36,7 @@ init([]) ->
 				 ?CHILD(gtp_context_sup, supervisor, []),
 				 ?CHILD(gtp_socket_reg, worker, []),
 				 ?CHILD(gtp_socket_sup, supervisor, []),
+				 ?CHILD(gtp_proxy_ds, worker, []),
 				 ?CHILD(apn_reg, worker, []),
 				 ?CHILD(apn_sup, supervisor, []),
 				 ?CHILD(ergw_apns, worker, [])
