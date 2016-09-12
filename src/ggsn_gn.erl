@@ -173,9 +173,10 @@ init(_Opts, State) ->
 
 handle_request(_From,
 	       #gtp{type = create_pdp_context_request, ie = IEs}, Req,
-	       #{tei := LocalTEI, gtp_port := GtpPort} = State0) ->
+	       #{tei := LocalTEI, gtp_port := GtpPort, gtp_dp_port := GtpDP} = State0) ->
 
     #create_pdp_context_request{
+       apn = #access_point_name{apn = APN},
        sgsn_address_for_signalling =
 	   #gsn_address{address = RemoteCntlIPBin},
        sgsn_address_for_user_traffic =
@@ -192,15 +193,16 @@ handle_request(_From,
     RemoteDataIP = gtp_c_lib:bin2ip(RemoteDataIPBin),
     {ReqMSv4, ReqMSv6} = pdp_alloc(EUA),
 
-    {ok, MSv4, MSv6} = pdp_alloc_ip(LocalTEI, ReqMSv4, ReqMSv6, State0),
+    {ok, MSv4, MSv6} = apn:allocate_pdp_ip(APN, LocalTEI, ReqMSv4, ReqMSv6),
     Context = #context{
+		 apn                = APN,
 		 version            = v1,
 		 control_interface  = ?MODULE,
 		 control_port       = GtpPort,
 		 local_control_tei  = LocalTEI,
 		 remote_control_ip  = RemoteCntlIP,
 		 remote_control_tei = RemoteCntlTEI,
-		 data_port          = GtpPort,
+		 data_port          = GtpDP,
 		 local_data_tei     = LocalTEI,
 		 remote_data_ip     = RemoteDataIP,
 		 remote_data_tei    = RemoteDataTEI,
@@ -219,6 +221,7 @@ handle_request(_From,
     {ok, NewPeer} = gtp_v1_c:handle_sgsn(IEs, Context),
     lager:debug("New: ~p", [NewPeer]),
     gtp_context:setup(Context),
+    dp_create_pdp_context(Context),
 
     %% TODO: the QoS profile is too simplistic
     #quality_of_service_profile{data = ReqQoSProfileData} = ReqQoSProfile,
@@ -327,9 +330,10 @@ handle_request(_From,
 	       #{context := Context} = State) ->
     #context{remote_control_tei = RemoteCntlTEI} = Context,
 
+    dp_delete_pdp_context(Context),
     gtp_context:teardown(Context),
+    pdp_release_ip(Context),
 
-    pdp_release_ip(Context, State),
     Reply = {delete_pdp_context_response, RemoteCntlTEI, request_accepted},
     {stop, Reply, State};
 
@@ -390,14 +394,13 @@ encode_eua(Org, Number, IPv4, IPv6) ->
 		      pdp_type_number = Number,
 		      pdp_address = <<IPv4/binary, IPv6/binary >>}.
 
-pdp_alloc_ip(TEI, IPv4, IPv6, #{gtp_port := GtpPort}) ->
-    apn:allocate_pdp_ip(GtpPort, TEI, IPv4, IPv6).
-
-pdp_release_ip(#context{ms_v4 = MSv4, ms_v6 = MSv6}, #{gtp_port := GtpPort}) ->
-    apn:release_pdp_ip(GtpPort, MSv4, MSv6).
+pdp_release_ip(#context{apn = APN, ms_v4 = MSv4, ms_v6 = MSv6}) ->
+    apn:release_pdp_ip(APN, MSv4, MSv6).
 
 apply_context_change(NewContext, OldContext, State) ->
+    dp_create_pdp_context(OldContext),
     ok = gtp_context:update(NewContext, OldContext),
+    dp_create_pdp_context(NewContext),
     State#{context => NewContext}.
 
 
@@ -422,3 +425,14 @@ copy_to_session(#selection_mode{mode = Mode}, Session) ->
 
 copy_to_session(_, Session) ->
     Session.
+
+dp_args(#context{ms_v4 = MSv4}) ->
+    MSv4.
+
+dp_create_pdp_context(Context) ->
+    Args = dp_args(Context),
+    gtp_dp:create_pdp_context(Context, Args).
+
+dp_delete_pdp_context(Context) ->
+    Args = dp_args(Context),
+    gtp_dp:delete_pdp_context(Context, Args).

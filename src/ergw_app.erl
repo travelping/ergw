@@ -23,6 +23,7 @@ start(_StartType, _StartArgs) ->
     do([error_m ||
 	   gtp_config:init(),
 	   Pid <- ergw_sup:start_link(),
+	   ergw_apns:start_local_apns(),
 	   gtp_socket:start_sockets(),
            return(Pid)
        ]).

@@ -9,8 +9,10 @@
 
 -behavior(gen_server).
 
+-compile({parse_transform, cut}).
+
 %% API
--export([start_link/0, allocate_pdp_ip/4, release_pdp_ip/3]).
+-export([start_link/2, allocate_pdp_ip/4, release_pdp_ip/3]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -20,26 +22,33 @@
 
 -record(state, {ip4_pools, ip6_pools}).
 
--define(SERVER, ?MODULE).
-
 %%====================================================================
 %% API
 %%====================================================================
 
-start_link() ->
-    {ok, Opts} = application:get_env(apn),
-    gen_server:start_link({local, ?SERVER}, ?MODULE, [Opts], []).
+start_link(APN, Opts) ->
+   gen_server:start_link(?MODULE, [APN, Opts], []).
 
-allocate_pdp_ip(_APN, TEI, IPv4, IPv6) ->
-    gen_server:call(?SERVER, {allocate_pdp_ip, TEI, IPv4, IPv6}).
-release_pdp_ip(_APN, IPv4, IPv6) ->
-    gen_server:call(?SERVER, {release_pdp_ip, IPv4, IPv6}).
+allocate_pdp_ip(APN, TEI, IPv4, IPv6) ->
+    with_apn(APN, gen_server:call(_, {allocate_pdp_ip, TEI, IPv4, IPv6})).
+release_pdp_ip(APN, IPv4, IPv6) ->
+    with_apn(APN, gen_server:call(_, {release_pdp_ip, IPv4, IPv6})).
+
+with_apn(APN, Fun) when is_function(Fun, 1) ->
+    case apn_reg:lookup(APN) of
+	Pid when is_pid(Pid) ->
+	    Fun(Pid);
+	_ ->
+	    {error, not_found}
+    end.
 
 %%%===================================================================
 %%% gen_server callbacks
 %%%===================================================================
 
-init([Opts]) ->
+init([APN, Opts]) ->
+    apn_reg:register(APN),
+
     Pools = proplists:get_value(pools, Opts, []),
     IPv4pools = [init_pool(X) || {Prefix, _Len} = X <- Pools, size(Prefix) == 4],
     IPv6pools = [init_pool(X) || {Prefix, _Len} = X <- Pools, size(Prefix) == 8],

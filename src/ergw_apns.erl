@@ -11,8 +11,10 @@
 
 -compile({parse_transform, cut}).
 
+-include_lib("stdlib/include/ms_transform.hrl").
+
 %% API
--export([start_link/0, all/0, apn/1, handler/3]).
+-export([start_link/0, start_local_apns/0, all/0, apn/1, handler/3]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -38,6 +40,10 @@ apn(APN) ->
 handler(Socket, Proto, APN) ->
     Key = {spa, Socket, Proto, APN},
     ets:lookup(?SERVER, Key).
+
+start_local_apns() ->
+    Match = ets:fun2ms(fun({{apn, APN}, Opts}) -> {APN, Opts} end),
+    start_local_apns(ets:select(?SERVER, Match, 1)).
 
 %%%===================================================================
 %%% gen_server callbacks
@@ -107,3 +113,9 @@ load_protocol(_TIP, APN, _Protocol, _APNOpts) ->
 load_sockets(TID, APN, Proto, Handler, Socket, HandlerOpts) ->
     Key = {spa, Socket, Proto, APN},
     ets:insert(TID, {Key, Handler, HandlerOpts}).
+
+start_local_apns('$end_of_table') ->
+    ok;
+start_local_apns({[{APN, Opts}], Continuation}) ->
+    apn_sup:start_apn(APN, Opts),
+    start_local_apns(ets:select(Continuation)).
