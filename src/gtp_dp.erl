@@ -23,7 +23,7 @@
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include("include/ergw.hrl").
 
--record(state, {gtp_port, node, ip, pid}).
+-record(state, {state, tref, timeout, name, node, remote_name, ip, pid}).
 
 %%====================================================================
 %% API
@@ -82,14 +82,14 @@ init([Name, SocketOpts]) ->
     Node  = proplists:get_value(node, SocketOpts),
     RemoteName = proplists:get_value(name, SocketOpts),
 
-    {ok, Pid, IP} = bind(Node, RemoteName),
-    {ok, RCnt} = gtp_config:get_restart_counter(),
-    GtpPort = #gtp_port{name = Name, type = 'gtp-u', pid = self(),
-			ip = IP, restart_counter = RCnt},
-
-    gtp_socket_reg:register(Name, GtpPort),
-
-    {ok, #state{gtp_port = GtpPort, node = Node, ip = IP, pid = Pid}}.
+    State0 = #state{state = disconnected,
+		    tref = undefined,
+		    timeout = 10,
+		    name = Name,
+		    node = Node,
+		    remote_name = RemoteName},
+    State = connect(State0),
+    {ok, State}.
 
 handle_call({dp, Request}, _From, #state{pid = Pid} = State) ->
     lager:info("DP Call ~p: ~p", [Pid, Request]),
@@ -108,6 +108,18 @@ handle_cast(Msg, State) ->
     lager:error("handle_cast: unknown ~p", [lager:pr(Msg, ?MODULE)]),
     {noreply, State}.
 
+handle_info({nodedown, Node}, State0) ->
+    lager:warning("node down: ~p", [Node]),
+
+    State1 = handle_nodedown(State0),
+    State = start_nodedown_timeout(State1),
+    {noreply, State};
+
+handle_info(reconnect, State0) ->
+    lager:warning("trying to reconnect"),
+    State = connect(State0#state{tref = undefined}),
+    {noreply, State};
+
 handle_info(Info, State) ->
     lager:error("handle_info: unknown ~p, ~p", [lager:pr(Info, ?MODULE), lager:pr(State, ?MODULE)]),
     {noreply, State}.
@@ -121,10 +133,45 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
+start_nodedown_timeout(State = #state{tref = undefined, timeout = Timeout}) ->
+    NewTimeout = if Timeout < 3000 -> Timeout * 2;
+		    true           -> Timeout
+		 end,
+    TRef = erlang:send_after(Timeout, self(), reconnect),
+    State#state{tref = TRef, timeout = NewTimeout};
+
+start_nodedown_timeout(State) ->
+    State.
+
+connect(#state{name = Name, node = Node, remote_name = RemoteName} = State) ->
+    case net_adm:ping(Node) of
+	pong ->
+	    lager:warning("Node ~p is up", [Node]),
+	    erlang:monitor_node(Node, true),
+
+	    {ok, Pid, IP} = bind(Node, RemoteName),
+	    ok = clear(Pid),
+	    {ok, RCnt} = gtp_config:get_restart_counter(),
+	    GtpPort = #gtp_port{name = Name, type = 'gtp-u', pid = self(),
+				ip = IP, restart_counter = RCnt},
+	    gtp_socket_reg:register(Name, GtpPort),
+
+	    State#state{state = connected, timeout = 10, ip = IP, pid = Pid};
+	pang ->
+	    lager:warning("Node ~p is down", [Node]),
+	    start_nodedown_timeout(State)
+    end.
+
+handle_nodedown(#state{name = Name} = State) ->
+    gtp_socket_reg:unregister(Name),
+    State#state{state = disconnected}.
 
 %%%===================================================================
 %%% Data Path Remote API
 %%%===================================================================
+
+clear(Pid) ->
+    gen_server:call(Pid, clear).
 
 bind(Node, Port) ->
     gen_server:call({'gtp-u', Node}, {bind, Port}).
