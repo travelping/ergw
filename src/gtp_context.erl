@@ -199,9 +199,8 @@ send_response({GtpPort, IP, Port}, #gtp{seq_no = SeqNo} = Msg) ->
     %% TODO: handle encode errors
     try
 	gtp_context_reg:unregister(GtpPort, {seq, IP, SeqNo}),
-        Data = gtp_packet:encode(Msg),
-	lager:debug("gtp_context send ~s to ~w:~w: ~p, ~p", [GtpPort#gtp_port.type, IP, Port, Msg, Data]),
-	gtp_socket:send(GtpPort, IP, Port, Data)
+	lager:debug("gtp_context send ~s to ~w:~w: ~p", [GtpPort#gtp_port.type, IP, Port, Msg]),
+	gtp_socket:send_response(GtpPort, IP, Port, Msg)
     catch
 	Class:Error ->
 	    Stack  = erlang:get_stacktrace(),
@@ -282,7 +281,4 @@ generic_error(IP, Port, GtpPort,
 	      #gtp{version = Version, type = MsgType, seq_no = SeqNo}, Error) ->
     Handler = gtp_path:get_handler(GtpPort, Version),
     Reply = Handler:build_response({MsgType, Error}),
-    Data = gtp_packet:encode(Reply#gtp{seq_no = SeqNo}),
-    lager:debug("gtp_context send ~s error to ~w:~w: ~p, ~p",
-		[GtpPort#gtp_port.type, IP, Port, Reply, Data]),
-    gtp_socket:send(GtpPort, IP, Port, Data).
+    gtp_socket:send_response(GtpPort, IP, Port, Reply#gtp{seq_no = SeqNo}).
