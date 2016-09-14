@@ -11,7 +11,7 @@
 
 -compile({parse_transform, do}).
 
--export([init/2, request_spec/1, handle_request/4]).
+-export([init/2, request_spec/1, handle_request/5]).
 
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include("include/ergw.hrl").
@@ -91,8 +91,12 @@ request_spec(_) ->
 init(_Opts, State) ->
     {ok, State}.
 
+handle_request(_From, _Msg, _Req, true, State) ->
+%% resent request
+    {noreply, State};
+
 handle_request(_From,
-	       #gtp{type = create_session_request, ie = IEs}, Req,
+	       #gtp{type = create_session_request, ie = IEs}, Req, _Resent,
 	       #{tei := LocalTEI, gtp_port := GtpPort} = State0) ->
 
     #create_session_request{
@@ -163,7 +167,7 @@ handle_request(_From,
     {ok, Response, State1};
 
 handle_request(_From,
-	       #gtp{type = delete_session_request}, Req,
+	       #gtp{type = delete_session_request}, Req, _Resent,
 	       #{context := Context} = State0) ->
 
     #delete_session_request{
@@ -197,7 +201,7 @@ handle_request(_From,
 	    {reply, Response, State0}
     end;
 
-handle_request(_From, _Msg, _Req, State) ->
+handle_request(_From, _Msg, _Req, _Resent, State) ->
     {noreply, State}.
 
 %%%===================================================================

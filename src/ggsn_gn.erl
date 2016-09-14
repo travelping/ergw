@@ -9,7 +9,7 @@
 
 -behaviour(gtp_api).
 
--export([init/2, request_spec/1, handle_request/4]).
+-export([init/2, request_spec/1, handle_request/5]).
 
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include("include/ergw.hrl").
@@ -171,8 +171,13 @@ request_spec(_) ->
 init(_Opts, State) ->
     {ok, State}.
 
+%% resent request
+handle_request(_From, _Msg, _Req, true, State) ->
+%% resent request
+    {noreply, State};
+
 handle_request(_From,
-	       #gtp{type = create_pdp_context_request, ie = IEs}, Req,
+	       #gtp{type = create_pdp_context_request, ie = IEs}, Req, _Resent,
 	       #{tei := LocalTEI, gtp_port := GtpPort, gtp_dp_port := GtpDP} = State0) ->
 
     #create_pdp_context_request{
@@ -274,7 +279,7 @@ handle_request(_From,
     {reply, Reply, State1};
 
 handle_request(_From,
-	       #gtp{type = update_pdp_context_request, ie = IEs}, Req,
+	       #gtp{type = update_pdp_context_request, ie = IEs}, Req, _Resent,
 	       #{tei := LocalTEI, gtp_port := GtpPort, context := OldContext} = State0) ->
 
     #update_pdp_context_request{
@@ -326,7 +331,7 @@ handle_request(_From,
     {reply, Reply, State1};
 
 handle_request(_From,
-	       #gtp{type = delete_pdp_context_request, ie = _IEs}, _Req,
+	       #gtp{type = delete_pdp_context_request, ie = _IEs}, _Req, _Resent,
 	       #{context := Context} = State) ->
     #context{remote_control_tei = RemoteCntlTEI} = Context,
 
@@ -337,7 +342,7 @@ handle_request(_From,
     Reply = {delete_pdp_context_response, RemoteCntlTEI, request_accepted},
     {stop, Reply, State};
 
-handle_request(_From, _Msg, _Req, State) ->
+handle_request(_From, _Msg, _Req,  _Resent, State) ->
     {noreply, State}.
 
 %%%===================================================================

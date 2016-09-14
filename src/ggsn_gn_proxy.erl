@@ -11,7 +11,7 @@
 
 -compile({parse_transform, cut}).
 
--export([init/2, request_spec/1, handle_request/4, handle_response/5]).
+-export([init/2, request_spec/1, handle_request/5, handle_response/5]).
 
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include("include/ergw.hrl").
@@ -329,9 +329,13 @@ init(Opts, State) ->
     GGSN = proplists:get_value(ggns, Opts),
     {ok, State#{proxy_ports => ProxyPorts, proxy_dps => ProxyDPs, ggsn => GGSN}}.
 
+handle_request(_From, _Msg, _Req, true, State) ->
+%% resent request
+    {noreply, State};
+
 handle_request(From,
 	       #gtp{type = create_pdp_context_request, seq_no = SeqNo, ie = IEs} = Request,
-	       #create_pdp_context_request{imsi = IMSIie, apn = APNie} = _ReqRec,
+	       #create_pdp_context_request{imsi = IMSIie, apn = APNie} = _ReqRec, _Resent,
 	       #{tei := LocalTEI, gtp_port := GtpPort, gtp_dp_port := GtpDP,
 		 proxy_ports := ProxyPorts, proxy_dps := ProxyDPs, ggsn := GGSN} = State0) ->
 
@@ -388,7 +392,7 @@ handle_request(From,
 
 handle_request(From,
 	       #gtp{type = update_pdp_context_request, seq_no = SeqNo, ie = IEs} = Request,
-	       #update_pdp_context_request{imsi = IMSIie} = _ReqRec,
+	       #update_pdp_context_request{imsi = IMSIie} = _ReqRec, _Resent,
 	       #{context := OldContext, proxy_context := ProxyContext} = State0) ->
 
     Context = update_context_from_gtp_req(Request, OldContext),
@@ -406,7 +410,7 @@ handle_request(From,
     {noreply, State};
 
 handle_request(From,
-	       #gtp{type = delete_pdp_context_request, seq_no = SeqNo, ie = IEs} = Request, _ReqRec,
+	       #gtp{type = delete_pdp_context_request, seq_no = SeqNo, ie = IEs} = Request, _ReqRec, _Resent,
 	       #{context := Context, proxy_context := ProxyContext} = State) ->
 
     {ok, NewPeer} = gtp_v1_c:handle_sgsn(IEs, Context),
@@ -417,7 +421,7 @@ handle_request(From,
 
     {noreply, State};
 
-handle_request({GtpPort, _IP, _Port}, Msg, _ReqRec, State) ->
+handle_request({GtpPort, _IP, _Port}, Msg, _ReqRec, _Resent, State) ->
     lager:warning("Unknown Proxy Message on ~p: ~p", [GtpPort, lager:pr(Msg, ?MODULE)]),
     {noreply, State}.
 

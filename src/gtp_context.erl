@@ -89,7 +89,7 @@ handle_call(Request, _From, State) ->
     lager:warning("handle_call: ~p", [lager:pr(Request, ?MODULE)]),
     {reply, ok, State}.
 
-handle_cast({handle_message, GtpPort, IP, Port, #gtp{type = MsgType, ie = IEs} = Msg, _Resent},
+handle_cast({handle_message, GtpPort, IP, Port, #gtp{type = MsgType, ie = IEs} = Msg, Resent},
 	    #{interface := Interface} = State) ->
     lager:debug("~w: handle gtp: ~w, ~p",
 		[?MODULE, Port, gtp_c_lib:fmt_gtp(Msg)]),
@@ -102,7 +102,7 @@ handle_cast({handle_message, GtpPort, IP, Port, #gtp{type = MsgType, ie = IEs} =
     if Missing /= [] ->
 	    handle_error(From, Msg, {mandatory_ie_missing, hd(Missing)}, State);
        true ->
-	    handle_request(From, Msg, Req, State)
+	    handle_request(From, Msg, Req, Resent, State)
     end;
 
 handle_cast(Msg, State) ->
@@ -143,12 +143,12 @@ handle_error(From, #gtp{type = MsgType, seq_no = SeqNo}, Reply,
     send_response(From, Response#gtp{seq_no = SeqNo}),
     {noreply, State}.
 
-handle_request(From = {_GtpPort, IP, Port}, #gtp{version = Version, seq_no = SeqNo} = Msg, Req,
+handle_request(From = {_GtpPort, IP, Port}, #gtp{version = Version, seq_no = SeqNo} = Msg, Req, Resent,
 	        #{handler := Handler, interface := Interface} = State0) ->
     lager:debug("GTP~s ~s:~w: ~p",
 		[Version, inet:ntoa(IP), Port, gtp_c_lib:fmt_gtp(Msg)]),
 
-    try Interface:handle_request(From, Msg, Req, State0) of
+    try Interface:handle_request(From, Msg, Req, Resent, State0) of
 	{reply, Reply, State1} ->
 	    Response = Handler:build_response(Reply),
 	    send_response(From, Response#gtp{seq_no = SeqNo}),
