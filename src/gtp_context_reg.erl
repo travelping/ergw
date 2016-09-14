@@ -11,7 +11,7 @@
 
 %% API
 -export([start_link/0]).
--export([register/2, unregister/2, lookup/2]).
+-export([register/2, register/3, unregister/2, lookup/2]).
 -export([all/0]).
 
 %% regine_server callbacks
@@ -33,15 +33,19 @@
 start_link() ->
     regine_server:start_link({local, ?SERVER}, ?MODULE, []).
 
-register(#gtp_port{name = PortName}, TEI) ->
-    Key = {PortName, TEI},
-    regine_server:register(?SERVER, self(), Key, undefined).
-unregister(#gtp_port{name = PortName}, TEI) ->
-    Key = {PortName, TEI},
+register(GtpPort, Ident) ->
+    register(GtpPort, Ident, self()).
+
+register(#gtp_port{name = PortName}, Ident, Pid) ->
+    Key = {PortName, Ident},
+    regine_server:register(?SERVER, Pid, Key, undefined).
+
+unregister(#gtp_port{name = PortName}, Ident) ->
+    Key = {PortName, Ident},
     regine_server:unregister(?SERVER, Key, undefined).
 
-lookup(#gtp_port{name = PortName}, TEI) ->
-    Key = {PortName, TEI},
+lookup(#gtp_port{name = PortName}, Ident) ->
+    Key = {PortName, Ident},
     case ets:lookup(?SERVER, Key) of
 	[{Key, Pid}] ->
 	    Pid;

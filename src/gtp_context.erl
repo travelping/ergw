@@ -28,11 +28,14 @@ lookup(GtpPort, TEI) ->
     gtp_context_reg:lookup(GtpPort, TEI).
 
 handle_message(IP, Port, GtpPort, #gtp{version = Version, tei = 0} = Msg) ->
-    case get_handler(GtpPort, Msg) of
+    case get_handler(IP, GtpPort, Msg) of
+	{ok, Context} when is_pid(Context) ->
+	    gen_server:cast(Context, {handle_message, GtpPort, IP, Port, Msg, true});
+
 	{ok, Interface, InterfaceOpts} ->
 	    do([error_m ||
 		   Context <- gtp_context_sup:new(GtpPort, Version, Interface, InterfaceOpts),
-		   gen_server:cast(Context, {handle_message, GtpPort, IP, Port, Msg})
+		   do_handle_message(Context, GtpPort, IP, Port, Msg)
 	       ]);
 
 	{error, Error} ->
@@ -45,7 +48,8 @@ handle_message(IP, Port, GtpPort, #gtp{version = Version, tei = 0} = Msg) ->
 handle_message(IP, Port, GtpPort, #gtp{tei = TEI} = Msg) ->
     case lookup(GtpPort, TEI) of
 	Context when is_pid(Context) ->
-	    gen_server:cast(Context, {handle_message, GtpPort, IP, Port, Msg});
+	    do_handle_message(Context, GtpPort, IP, Port, Msg);
+
 	_ ->
 	    generic_error(IP, Port, GtpPort, Msg, not_found)
     end.
@@ -85,7 +89,7 @@ handle_call(Request, _From, State) ->
     lager:warning("handle_call: ~p", [lager:pr(Request, ?MODULE)]),
     {reply, ok, State}.
 
-handle_cast({handle_message, GtpPort, IP, Port, #gtp{type = MsgType, ie = IEs} = Msg},
+handle_cast({handle_message, GtpPort, IP, Port, #gtp{type = MsgType, ie = IEs} = Msg, _Resent},
 	    #{interface := Interface} = State) ->
     lager:debug("~w: handle gtp: ~w, ~p",
 		[?MODULE, Port, gtp_c_lib:fmt_gtp(Msg)]),
@@ -191,9 +195,10 @@ handle_response(ReqId, Request, Response, RespRec, #{interface := Interface} = S
 	    {noreply, State0}
     end.
 
-send_response({GtpPort, IP, Port}, Msg) ->
+send_response({GtpPort, IP, Port}, #gtp{seq_no = SeqNo} = Msg) ->
     %% TODO: handle encode errors
     try
+	gtp_context_reg:unregister(GtpPort, {seq, IP, SeqNo}),
         Data = gtp_packet:encode(Msg),
 	lager:debug("gtp_context send ~s to ~w:~w: ~p, ~p", [GtpPort#gtp_port.type, IP, Port, Msg, Data]),
 	gtp_socket:send(GtpPort, IP, Port, Data)
@@ -256,10 +261,22 @@ handle_recovery(RecoveryCounter,
 %%% Internal functions
 %%%===================================================================
 
-get_handler(GtpPort, #gtp{version = v1} = Msg) ->
+get_handler_if(GtpPort, #gtp{version = v1} = Msg) ->
     gtp_v1_c:get_handler(GtpPort, Msg);
-get_handler(GtpPort, #gtp{version = v2} = Msg) ->
+get_handler_if(GtpPort, #gtp{version = v2} = Msg) ->
     gtp_v2_c:get_handler(GtpPort, Msg).
+
+get_handler(IP, GtpPort, #gtp{seq_no = SeqNo} = Msg) ->
+    case lookup(GtpPort, {IP, SeqNo}) of
+	Context when is_pid(Context) ->
+	    {ok, Context};
+	_ ->
+	    get_handler_if(GtpPort, Msg)
+    end.
+
+do_handle_message(Context, GtpPort, IP, Port, #gtp{seq_no = SeqNo} = Msg) ->
+    gtp_context_reg:register(GtpPort, {seq, IP, SeqNo}, Context),
+    gen_server:cast(Context, {handle_message, GtpPort, IP, Port, Msg, false}).
 
 generic_error(IP, Port, GtpPort,
 	      #gtp{version = Version, type = MsgType, seq_no = SeqNo}, Error) ->
