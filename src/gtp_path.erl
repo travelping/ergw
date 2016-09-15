@@ -1,4 +1,4 @@
-%% Copyright 2015, Travelping GmbH <info@travelping.com>
+%% Copyright 2015, 2016, Travelping GmbH <info@travelping.com>
 
 %% This program is free software; you can redistribute it and/or
 %% modify it under the terms of the GNU General Public License
@@ -7,20 +7,17 @@
 
 -module(gtp_path).
 
--behaviour(regine_server).
+-behaviour(gen_server).
+-compile({no_auto_import,[register/2]}).
 
 %% API
 -export([start_link/4, get/2, all/1,
 	 maybe_new_path/3, handle_request/4,
-	 register/1, unregister/1,
-	 set_restart_counter/2, get_restart_counter/1,
-	 get_handler/2]).
+	 bind/1, bind/2, unbind/1, get_handler/2]).
 
-%% regine_server callbacks
--export([init/1, handle_register/4, handle_unregister/3, handle_pid_remove/3,
-	 handle_death/3, terminate/2]).
--export([handle_call/3, handle_cast/2, handle_info/2,
-	 code_change/3]).
+%% gen_server callbacks
+-export([init/1, handle_call/3, handle_cast/2, handle_info/2,
+	 code_change/3, terminate/2]).
 
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include("include/ergw.hrl").
@@ -43,19 +40,7 @@
 %%%===================================================================
 
 start_link(GtpPort, Version, RemoteIP, Args) ->
-    regine_server:start_link(?MODULE, {GtpPort, Version, RemoteIP, Args}).
-
-register(#context{version = Version} = Context) ->
-    Path = maybe_new_path(Context),
-    ok = regine_server:register(Path, self(), {self(), Version}, undefined).
-
-unregister(#context{version = Version, control_port = GtpPort, remote_control_ip = RemoteIP}) ->
-    case get(GtpPort, RemoteIP) of
-	Path when is_pid(Path) ->
-	    regine_server:unregister(Path, {self(), Version}, undefined);
-	_ ->
-	    ok
-    end.
+    gen_server:start_link(?MODULE, [GtpPort, Version, RemoteIP, Args], []).
 
 maybe_new_path(GtpPort, Version, RemoteIP) ->
     case get(GtpPort, RemoteIP) of
@@ -68,21 +53,39 @@ maybe_new_path(GtpPort, Version, RemoteIP) ->
 
 handle_request(RemoteIP, RemotePort, GtpPort, #gtp{version = Version} = Msg) ->
     Path = maybe_new_path(GtpPort, Version, RemoteIP),
-    regine_server:cast(Path, {handle_request, RemotePort, Msg}).
+    gen_server:cast(Path, {handle_request, RemotePort, Msg}).
 
-set_restart_counter(Context, RestartCounter) ->
+bind(#context{remote_restart_counter = RestartCounter} = Context) ->
+    bind(RestartCounter, Context).
+
+bind(Recovery, #context{version = Version} = Context) ->
+    RestartCounter =
+	case Version of
+	    v1 -> gtp_v1_c:restart_counter(Recovery);
+	    v2 -> gtp_v2_c:restart_counter(Recovery)
+	end,
     Path = maybe_new_path(Context),
-    regine_server:call(Path, {set_restart_counter, RestartCounter}).
+    if is_integer(RestartCounter) ->
+	    ok = gen_server:call(Path, {bind, self(), RestartCounter}),
+	    Context#context{remote_restart_counter = RestartCounter};
+       true ->
+	    {ok, PathRestartCounter} = gen_server:call(Path, {bind, self()}),
+	    Context#context{remote_restart_counter = PathRestartCounter}
+    end.
 
-get_restart_counter(Context) ->
-    Path = maybe_new_path(CntlGtpPort, Version, RemoteCntlIP),
-    regine_server:call(Path, get_restart_counter).
+unbind(#context{control_port = GtpPort, remote_control_ip = RemoteIP}) ->
+    case get(GtpPort, RemoteIP) of
+	Path when is_pid(Path) ->
+	    gen_server:call(Path, {unbind, self()});
+       _ ->
+           ok
+    end.
 
 get(#gtp_port{name = PortName}, IP) ->
     gtp_path_reg:lookup({PortName, IP}).
 
 all(Path) ->
-    regine_server:call(Path, all).
+    gen_server:call(Path, all).
 
 get_handler(#gtp_port{type = 'gtp-u'}, _) ->
     gtp_v1_u;
@@ -96,12 +99,12 @@ get_handler(#gtp_port{type = 'gtp-c'}, v2) ->
 %%%===================================================================
 
 %%%===================================================================
-%%% regine callbacks
+%%% gen_server callbacks
 %%%===================================================================
-init({#gtp_port{name = PortName} = GtpPort, Version, RemoteIP, Args}) ->
+init([#gtp_port{name = PortName} = GtpPort, Version, RemoteIP, Args]) ->
     gtp_path_reg:register({PortName, RemoteIP}),
 
-    TID = ets:new(?MODULE, [duplicate_bag, private, {keypos, 1}]),
+    TID = ets:new(?MODULE, [ordered_set, private, {keypos, 1}]),
 
     State = #state{table        = TID,
 		   path_counter = 0,
@@ -119,47 +122,22 @@ init({#gtp_port{name = PortName} = GtpPort, Version, RemoteIP, Args}) ->
     lager:debug("State: ~p", [State]),
     {ok, State}.
 
-handle_register(_Pid, Key, _Value, #state{table = TID} = State0) ->
-    lager:debug("~s: register(~p)", [?MODULE, Key]),
-    ets:insert(TID, Key),
-    State = inc_path_counter(State0),
-    {ok, [Key], State}.
-
-handle_unregister(Key = {Pid, _}, _Value, #state{table = TID} = State0) ->
-    ets:delete(TID, Key),
-    State = dec_path_counter(State0),
-    {[Pid], State}.
-
-handle_pid_remove(_Pid, Keys, #state{table = TID} = State0) ->
-    lists:foreach(fun(Key) -> ets:delete(TID, Key) end, Keys),
-    State = dec_path_counter(State0),
-    State.
-
-handle_death(_Pid, _Reason, State) ->
-    State.
-
 handle_call(all, _From, #state{table = TID} = State) ->
     Reply = ets:tab2list(TID),
     {reply, Reply, State};
 
-handle_call(get_restart_counter, _From,
-	    #state{recovery = RestartCounter} = State) ->
+handle_call({bind, Pid}, _From, #state{recovery = RestartCounter} = State0) ->
+    State = register(Pid, State0),
     {reply, {ok, RestartCounter}, State};
 
-handle_call({set_restart_counter, RestartCounter}, _From,
-	    #state{recovery = undefined} = State) ->
-    {reply, ok, State#state{recovery = RestartCounter}};
+handle_call({bind, Pid, RestartCounter}, _From, State0) ->
+    State1 = register(Pid, State0),
+    State = update_restart_counter(RestartCounter, State1),
+    {reply, ok, State};
 
-handle_call({set_restart_counter, RestartCounter}, _From,
-	    #state{recovery = RestartCounter} = State) ->
-    {reply, ok , State};
-
-handle_call({set_restart_counter, NewRestartCounter}, _From,
-	    #state{ip = IP, recovery = OldRestartCounter} = State)
-  when OldRestartCounter =/= NewRestartCounter ->
-    lager:warning("GSN ~s restarted (~w != ~w)",
-		  [inet:ntoa(IP), OldRestartCounter, NewRestartCounter]),
-    {reply, ok, State#state{recovery = NewRestartCounter}};
+handle_call({unbind, Pid}, _From, State0) ->
+    State = unregister(Pid, State0),
+    {reply, ok, State};
 
 handle_call(Request, _From, State) ->
     lager:warning("handle_call: ~p", [lager:pr(Request, ?MODULE)]),
@@ -173,10 +151,15 @@ handle_cast(Msg, State) ->
     lager:error("~p: ~w: handle_cast: ~p", [self(), ?MODULE, lager:pr(Msg, ?MODULE)]),
     {noreply, State}.
 
+handle_info({'DOWN', _MonitorRef, process, Pid, _Info}, State0) ->
+    State = unregister(Pid, State0),
+    {noreply, State};
+
 handle_info(Info = {timeout, TRef, echo}, #state{echo_timer = TRef} = State0) ->
     lager:debug("handle_info: ~p", [lager:pr(Info, ?MODULE)]),
     State1 = send_echo_request(State0),
     {noreply, State1};
+
 handle_info(Info = {timeout, _TRef, echo}, State) ->
     lager:debug("handle_info: ~p", [lager:pr(Info, ?MODULE)]),
     {noreply, State};
@@ -200,6 +183,29 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
+update_restart_counter(RestartCounter, #state{recovery = undefined} = State) ->
+    State#state{recovery = RestartCounter};
+update_restart_counter(RestartCounter, #state{recovery = RestartCounter} = State) ->
+    State;
+update_restart_counter(NewRestartCounter, #state{table = TID, ip = IP, recovery = OldRestartCounter} = State)
+  when OldRestartCounter =/= NewRestartCounter ->
+    lager:warning("GSN ~s restarted (~w != ~w)",
+		  [inet:ntoa(IP), OldRestartCounter, NewRestartCounter]),
+    proc_lib:spawn(fun() -> async_change_notify(TID) end),
+    State#state{recovery = NewRestartCounter}.
+
+async_change_notify(_TID) ->
+    ok.
+
+register(Pid, #state{table = TID} = State0) ->
+    lager:debug("~s: register(~p)", [?MODULE, Pid]),
+    erlang:monitor(process, Pid),
+    ets:insert(TID, {Pid}),
+    inc_path_counter(State0).
+
+unregister(Pid, #state{table = TID} = State0) ->
+    ets:delete(TID, Pid),
+    dec_path_counter(State0).
 
 maybe_new_path(#context{version = Version, control_port = CntlGtpPort,
 			remote_control_ip = RemoteCntlIP}) ->

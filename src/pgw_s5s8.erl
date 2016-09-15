@@ -205,10 +205,8 @@ handle_request(_From,
 		 remote_data_tei    = RemoteDataTEI,
 		 ms_v4              = MSv4,
 		 ms_v6              = MSv6},
-    Context = gtp_v2_c:handle_recovery(Recovery, Context0),
+    Context = gtp_path:bind(Recovery, Context0),
     State1 = State0#{context => Context},
-
-    ok = gtp_context:setup(Context),
 
     #gtp_port{ip = LocalIP} = GtpPort,
 
@@ -270,7 +268,7 @@ handle_request(_From,
 		   remote_control_tei = RemoteCntlTEI,
 		   remote_data_ip     = gtp_c_lib:bin2ip(RemoteDataIP),
 		   remote_data_tei    = RemoteDataTEI},
-    Context = gtp_v2_c:handle_recovery(Recovery, Context0),
+    Context = gtp_path:bind(Recovery, Context0),
 
     State1 = if Context /= OldContext ->
 		     apply_context_change(Context, OldContext, State0);
@@ -310,7 +308,6 @@ handle_request(_From,
 	do([error_m ||
 	       match_context(35, Context, FqTEI),
 	       pdn_release_ip(Context, State0),
-	       gtp_context:teardown(Context),
 	       return({RemoteCntlTEI, request_accepted, State0})
 	   ]),
 
@@ -378,6 +375,7 @@ pdn_alloc_ip(TEI, IPv4, IPv6, #{gtp_port := GtpPort}) ->
 pdn_release_ip(#context{ms_v4 = MSv4, ms_v6 = MSv6}, #{gtp_port := GtpPort}) ->
     apn:release_pdp_ip(GtpPort, MSv4, MSv6).
 
-apply_context_change(NewContext, OldContext, State) ->
-    ok = gtp_context:update(NewContext, OldContext),
+apply_context_change(NewContext0, OldContext, State) ->
+    NewContext = gtp_path:bind(NewContext0),
+    gtp_path:unbind(OldContext),
     State#{context => NewContext}.

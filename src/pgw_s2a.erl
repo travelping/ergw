@@ -133,10 +133,8 @@ handle_request(_From,
 		 remote_data_tei    = RemoteDataTEI,
 		 ms_v4              = MSv4,
 		 ms_v6              = MSv6},
-    Context = gtp_v2_c:handle_recovery(Recovery, Context0),
+    Context = gtp_path:bind(Recovery, Context0),
     State1 = State0#{context => Context},
-
-    ok = gtp_context:setup(Context),
 
     #gtp_port{ip = LocalIP} = GtpPort,
 
@@ -185,7 +183,6 @@ handle_request(_From,
 	do([error_m ||
 	       match_context(35, Context, FqTEI),
 	       pdn_release_ip(Context, State0),
-	       gtp_context:teardown(Context),
 	       return({RemoteCntlTEI, request_accepted, State0})
 	   ]),
 

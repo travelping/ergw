@@ -356,7 +356,7 @@ handle_request(From,
 		  local_data_tei    = LocalTEI
 		 },
     Context1 = update_context_from_gtp_req(Request, Context0),
-    Context = gtp_v1_c:handle_recovery(Recovery, Context1),
+    Context = gtp_path:bind(Recovery, Context1),
     State1 = State0#{context => Context},
 
     #gtp_port{ip = LocalCntlIP} = GtpPort,
@@ -364,8 +364,6 @@ handle_request(From,
     Session1 = init_session(IEs, Session0),
     lager:debug("Invoking CONTROL: ~p", [Session1]),
     %% ergw_control:authenticate(Session1),
-
-    gtp_context:setup(Context),
 
     ProxyGtpPort = gtp_socket_reg:lookup(hd(ProxyPorts)),
     ProxyGtpDP = gtp_socket_reg:lookup(hd(ProxyDPs)),
@@ -383,7 +381,7 @@ handle_request(From,
 		      local_data_tei    = ProxyLocalTEI,
 		      remote_data_ip    = GGSN
 		     },
-    ProxyContext = gtp_v1_c:handle_recovery(undefined, ProxyContext0),
+    ProxyContext = gtp_path:bind(undefined, ProxyContext0),
     State = State1#{proxy_context => ProxyContext},
 
     IMSI = optional_imsi_value(IMSIie, undefined),
@@ -401,10 +399,10 @@ handle_request(From,
 	       #{context := OldContext, proxy_context := ProxyContext0} = State0) ->
 
     Context0 = update_context_from_gtp_req(Recovery, OldContext),
-    Context = gtp_v1_c:handle_recovery(Recovery, Context0),
+    Context = gtp_path:bind(Recovery, Context0),
     State = apply_context_change(Context, OldContext, State0),
 
-    ProxyContext = gtp_v1_c:handle_recovery(undefined, ProxyContext0),
+    ProxyContext = gtp_path:bind(undefined, ProxyContext0),
 
     #context{apn = APN} = ProxyContext,
     IMSI = optional_imsi_value(IMSIie, undefined),
@@ -435,9 +433,7 @@ handle_response(#request_info{from = From, seq_no = SeqNo, new_peer = NewPeer}, 
     lager:warning("OK Proxy Response ~p", [lager:pr(Response, ?MODULE)]),
 
     ProxyContext1 = update_context_from_gtp_req(Response, ProxyContext0),
-    ProxyContext = gtp_v1_c:handle_recovery(Recovery, ProxyContext1),
-
-    gtp_context:setup(ProxyContext),
+    ProxyContext = gtp_path:bind(Recovery, ProxyContext1),
 
     GtpResp0 = build_context_request(Context, undefined, Response),
     GtpResp = build_recovery(Context, NewPeer, GtpResp0),
@@ -480,8 +476,6 @@ handle_response(#request_info{from = From, seq_no = SeqNo},
     gtp_context:send_response(From, GtpResp#gtp{seq_no = SeqNo}),
 
     dp_delete_pdp_context(Context, ProxyContext),
-    gtp_context:teardown(Context),
-    gtp_context:teardown(ProxyContext),
     {stop, State};
 
 handle_response(_ReqInfo, Response, _RespRec, _Req, State) ->
@@ -492,16 +486,18 @@ handle_response(_ReqInfo, Response, _RespRec, _Req, State) ->
 %%% Internal functions
 %%%===================================================================
 
-apply_context_change(NewContext, OldContext, State)
-  when NewContext /= OldContext ->
-    ok = gtp_context:update(NewContext, OldContext),
+apply_context_change(NewContext0, OldContext, State)
+  when NewContext0 /= OldContext ->
+    NewContext = gtp_path:bind(NewContext0),
+    gtp_path:unbind(OldContext),
     State#{context => NewContext};
 apply_context_change(_NewContext, _OldContext, State) ->
     State.
 
-apply_proxy_context_change(NewContext, OldContext, State)
-  when NewContext /= OldContext ->
-    ok = gtp_context:update(NewContext, OldContext),
+apply_proxy_context_change(NewContext0, OldContext, State)
+  when NewContext0 /= OldContext ->
+    NewContext = gtp_path:bind(NewContext0),
+    gtp_path:unbind(OldContext),
     State#{proxy_context => NewContext};
 apply_proxy_context_change(_NewContext, _OldContext, State) ->
     State.

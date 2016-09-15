@@ -218,7 +218,7 @@ handle_request(_From,
 		 remote_data_tei    = RemoteDataTEI,
 		 ms_v4              = MSv4,
 		 ms_v6              = MSv6},
-    Context = gtp_v1_c:handle_recovery(Recovery, Context0),
+    Context = gtp_path:bind(Recovery, Context0),
     State1 = State0#{context => Context},
 
     #gtp_port{ip = LocalIP} = GtpPort,
@@ -229,7 +229,6 @@ handle_request(_From,
     lager:debug("Invoking CONTROL: ~p", [Session1]),
     ergw_control:authenticate(Session1),
 
-    gtp_context:setup(Context),
     dp_create_pdp_context(Context),
 
     %% TODO: the QoS profile is too simplistic
@@ -314,7 +313,7 @@ handle_request(_From,
 		remote_control_tei = RemoteCntlTEI,
 		remote_data_ip     = RemoteDataIP,
 		remote_data_tei    = RemoteDataTEI},
-    Context = gtp_v1_c:handle_recovery(Recovery, Context0),
+    Context = gtp_path:bind(Recovery, Context0),
 
     State1 = if Context /= OldContext ->
 		     apply_context_change(Context, OldContext, State0);
@@ -340,7 +339,6 @@ handle_request(_From,
     #context{remote_control_tei = RemoteCntlTEI} = Context,
 
     dp_delete_pdp_context(Context),
-    gtp_context:teardown(Context),
     pdp_release_ip(Context),
 
     Reply = {delete_pdp_context_response, RemoteCntlTEI, request_accepted},
@@ -406,12 +404,11 @@ encode_eua(Org, Number, IPv4, IPv6) ->
 pdp_release_ip(#context{apn = APN, ms_v4 = MSv4, ms_v6 = MSv6}) ->
     apn:release_pdp_ip(APN, MSv4, MSv6).
 
-apply_context_change(NewContext, OldContext, State) ->
-    dp_create_pdp_context(OldContext),
-    ok = gtp_context:update(NewContext, OldContext),
-    dp_create_pdp_context(NewContext),
+apply_context_change(NewContext0, OldContext, State) ->
+    NewContext = gtp_path:bind(NewContext0),
+    dp_update_pdp_context(NewContext, OldContext),
+    gtp_path:unbind(OldContext),
     State#{context => NewContext}.
-
 
 init_session(IEs, Session) ->
     lists:foldr(fun copy_to_session/2, Session, IEs).
@@ -441,6 +438,11 @@ dp_args(#context{ms_v4 = MSv4}) ->
 dp_create_pdp_context(Context) ->
     Args = dp_args(Context),
     gtp_dp:create_pdp_context(Context, Args).
+
+dp_update_pdp_context(NewContext, OldContext) ->
+    %% TODO: only do that if New /= Old
+    dp_delete_pdp_context(OldContext),
+    dp_create_pdp_context(NewContext).
 
 dp_delete_pdp_context(Context) ->
     Args = dp_args(Context),

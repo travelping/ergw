@@ -17,7 +17,7 @@
 	 type/0, port/0]).
 
 %% support functions
--export([handle_recovery/2, build_recovery/3]).
+-export([restart_counter/1, build_recovery/3]).
 
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include("include/ergw.hrl").
@@ -25,13 +25,10 @@
 %%====================================================================
 %% API
 %%====================================================================
-handle_recovery(#recovery{restart_counter = RestartCounter}, Context) ->
-    gtp_path:set_restart_counter(Context, RestartCounter),
-    Context#context{remote_restart_counter = RestartCounter};
-
-handle_recovery(_, Context) ->
-    {ok, RestartCounter} = gtp_path:get_restart_counter(Context),
-    Context#context{remote_restart_counter = RestartCounter}.
+restart_counter(#recovery{restart_counter = RestartCounter}) ->
+    RestartCounter;
+restart_counter(_) ->
+    undefined.
 
 build_recovery(#context{
 		  remote_restart_counter = RemoteRestartCounter,

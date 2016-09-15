@@ -10,8 +10,7 @@
 -compile({parse_transform, do}).
 
 -export([lookup/2, handle_message/4, start_link/5,
-	 send_request/4, send_request/6, send_response/2,
-	 setup/1, update/2, teardown/1]).
+	 send_request/4, send_request/6, send_response/2]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -206,48 +205,6 @@ send_response({GtpPort, IP, Port}, #gtp{seq_no = SeqNo} = Msg) ->
 	    Stack  = erlang:get_stacktrace(),
 	    lager:error("gtp send failed with ~p:~p (~p)", [Class, Error, Stack])
     end.
-
-%%%===================================================================
-%%% API Module Helper
-%%%===================================================================
-
-setup(#context{
-	 version           = _Version,
-	 data_port         = _DataGtpPort,
-	 local_data_tei    = _LocalDataTEI,
-	 remote_data_ip    = _RemoteDataIP,
-	 remote_data_tei   = _RemoteDataTEI,
-	 ms_v4             = _MSv4} = Context) ->
-    %% ok = gtp_dp:create_pdp_context(DataGtpPort, Version, RemoteDataIP, MSv4, LocalDataTEI, RemoteDataTEI),
-    gtp_path:register(Context),
-    ok.
-
-update(#context{
-	  version           = _Version,
-	  remote_data_ip    = _RemoteDataIPNew,
-	  remote_data_tei   = _RemoteDataTEINew,
-	  ms_v4             = _MSv4} = ContextNew,
-        #context{
-	   data_port         = _DataGtpPortOld,
-	   local_data_tei    = _LocalDataTEIOld,
-	   ms_v4             = _MSv4} = ContextOld) ->
-
-    gtp_path:unregister(ContextOld),
-    %% ok = gtp_dp:update_pdp_context(DataGtpPortOld, Version, RemoteDataIPNew, MSv4,
-    %% 				   LocalDataTEIOld, RemoteDataTEINew),
-    gtp_path:register(ContextNew),
-    ok.
-
-teardown(#context{
-	    version           = _Version,
-	    data_port         = _DataGtpPort,
-	    local_data_tei    = _LocalDataTEI,
-	    remote_data_ip    = _RemoteDataIP,
-	    remote_data_tei   = _RemoteDataTEI,
-	    ms_v4             = _MSv4} = Context) ->
-    gtp_path:unregister(Context),
-    %% ok = gtp_dp:delete_pdp_context(DataGtpPort, Version, RemoteDataIP, MSv4, LocalDataTEI, RemoteDataTEI).
-    ok.
 
 %%%===================================================================
 %%% Internal functions
