@@ -45,9 +45,8 @@
 start_link(GtpPort, Version, RemoteIP, Args) ->
     regine_server:start_link(?MODULE, {GtpPort, Version, RemoteIP, Args}).
 
-register(#context{version = Version, control_port = GtpPort, remote_control_ip = RemoteIP}) ->
-    lager:debug("~s: register(~p)", [?MODULE, [GtpPort, Version, RemoteIP]]),
-    Path = maybe_new_path(GtpPort, Version, RemoteIP),
+register(#context{version = Version} = Context) ->
+    Path = maybe_new_path(Context),
     ok = regine_server:register(Path, self(), {self(), Version}, undefined).
 
 unregister(#context{version = Version, control_port = GtpPort, remote_control_ip = RemoteIP}) ->
@@ -71,18 +70,11 @@ handle_request(RemoteIP, RemotePort, GtpPort, #gtp{version = Version} = Msg) ->
     Path = maybe_new_path(GtpPort, Version, RemoteIP),
     regine_server:cast(Path, {handle_request, RemotePort, Msg}).
 
-set_restart_counter(#context{
-		       version           = Version,
-		       control_port      = CntlGtpPort,
-		       remote_control_ip = RemoteCntlIP},
-		    RestartCounter) ->
-    Path = maybe_new_path(CntlGtpPort, Version, RemoteCntlIP),
+set_restart_counter(Context, RestartCounter) ->
+    Path = maybe_new_path(Context),
     regine_server:call(Path, {set_restart_counter, RestartCounter}).
 
-get_restart_counter(#context{
-		       version           = Version,
-		       control_port      = CntlGtpPort,
-		       remote_control_ip = RemoteCntlIP}) ->
+get_restart_counter(Context) ->
     Path = maybe_new_path(CntlGtpPort, Version, RemoteCntlIP),
     regine_server:call(Path, get_restart_counter).
 
@@ -208,6 +200,10 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
+
+maybe_new_path(#context{version = Version, control_port = CntlGtpPort,
+			remote_control_ip = RemoteCntlIP}) ->
+    maybe_new_path(CntlGtpPort, Version, RemoteCntlIP).
 
 cancel_timer(Ref) ->
     case erlang:cancel_timer(Ref) of
