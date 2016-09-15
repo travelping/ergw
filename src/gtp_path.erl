@@ -13,7 +13,7 @@
 -export([start_link/4, get/2, all/1,
 	 maybe_new_path/3, handle_request/4,
 	 register/1, unregister/1,
-	 handle_recovery/4,
+	 set_restart_counter/2, get_restart_counter/1,
 	 get_handler/2]).
 
 %% regine_server callbacks
@@ -48,8 +48,7 @@ start_link(GtpPort, Version, RemoteIP, Args) ->
 register(#context{version = Version, control_port = GtpPort, remote_control_ip = RemoteIP}) ->
     lager:debug("~s: register(~p)", [?MODULE, [GtpPort, Version, RemoteIP]]),
     Path = maybe_new_path(GtpPort, Version, RemoteIP),
-    ok = regine_server:register(Path, self(), {self(), Version}, undefined),
-    regine_server:call(Path, get_restart_counter).
+    ok = regine_server:register(Path, self(), {self(), Version}, undefined).
 
 unregister(#context{version = Version, control_port = GtpPort, remote_control_ip = RemoteIP}) ->
     case get(GtpPort, RemoteIP) of
@@ -72,9 +71,20 @@ handle_request(RemoteIP, RemotePort, GtpPort, #gtp{version = Version} = Msg) ->
     Path = maybe_new_path(GtpPort, Version, RemoteIP),
     regine_server:cast(Path, {handle_request, RemotePort, Msg}).
 
-handle_recovery(RecoveryCounter, GtpPort, Version, RemoteIP) ->
-    NewPeer = do_handle_recovery(RecoveryCounter, GtpPort, Version, RemoteIP),
-    {ok, NewPeer}.
+set_restart_counter(#context{
+		       version           = Version,
+		       control_port      = CntlGtpPort,
+		       remote_control_ip = RemoteCntlIP},
+		    RestartCounter) ->
+    Path = maybe_new_path(CntlGtpPort, Version, RemoteCntlIP),
+    regine_server:call(Path, {set_restart_counter, RestartCounter}).
+
+get_restart_counter(#context{
+		       version           = Version,
+		       control_port      = CntlGtpPort,
+		       remote_control_ip = RemoteCntlIP}) ->
+    Path = maybe_new_path(CntlGtpPort, Version, RemoteCntlIP),
+    regine_server:call(Path, get_restart_counter).
 
 get(#gtp_port{name = PortName}, IP) ->
     gtp_path_reg:lookup({PortName, IP}).
@@ -140,19 +150,24 @@ handle_call(all, _From, #state{table = TID} = State) ->
     Reply = ets:tab2list(TID),
     {reply, Reply, State};
 
-handle_call({set_restart_counter, NewRecovery}, _From,
-	    #state{recovery = OldRecovery} = State) ->
-    if OldRecovery =/= undefined andalso
-       OldRecovery =/= NewRecovery  ->
-	    %% TODO: handle Path restart ....
-	    ok;
-       true ->
-	    ok
-    end,
-    IsNew = OldRecovery =:= undefined orelse OldRecovery =/= NewRecovery,
-    {reply, IsNew, State#state{recovery = NewRecovery}};
-handle_call(get_restart_counter, _From, #state{recovery = Recovery} = State) ->
-    {reply, Recovery, State};
+handle_call(get_restart_counter, _From,
+	    #state{recovery = RestartCounter} = State) ->
+    {reply, {ok, RestartCounter}, State};
+
+handle_call({set_restart_counter, RestartCounter}, _From,
+	    #state{recovery = undefined} = State) ->
+    {reply, ok, State#state{recovery = RestartCounter}};
+
+handle_call({set_restart_counter, RestartCounter}, _From,
+	    #state{recovery = RestartCounter} = State) ->
+    {reply, ok , State};
+
+handle_call({set_restart_counter, NewRestartCounter}, _From,
+	    #state{ip = IP, recovery = OldRestartCounter} = State)
+  when OldRestartCounter =/= NewRestartCounter ->
+    lager:warning("GSN ~s restarted (~w != ~w)",
+		  [inet:ntoa(IP), OldRestartCounter, NewRestartCounter]),
+    {reply, ok, State#state{recovery = NewRestartCounter}};
 
 handle_call(Request, _From, State) ->
     lager:warning("handle_call: ~p", [lager:pr(Request, ?MODULE)]),
@@ -184,6 +199,7 @@ handle_info(Info, State) ->
     {noreply, State}.
 
 terminate(_Reason, _State) ->
+    %% TODO: kill all PDP Context on this path
     ok.
 
 code_change(_OldVsn, State, _Extra) ->
@@ -252,21 +268,6 @@ update_path_state(#gtp{}, State) ->
     State#state{state = 'UP'};
 update_path_state(_, State) ->
     State#state{state = 'DOWN'}.
-
-do_handle_recovery(RecoveryCounter, GtpPort, Version, RemoteIP) ->
-    lager:debug("~s: handle_recovery(~p)", [?MODULE, [RecoveryCounter, GtpPort, Version, RemoteIP]]),
-    case get(GtpPort, RemoteIP) of
-	Path when is_pid(Path) ->
-	    do_handle_recovery_1(Path, RecoveryCounter, false);
-	_ ->
-	    {ok, Path} = gtp_path_sup:new_path(GtpPort, Version, RemoteIP, []),
-	    do_handle_recovery_1(Path, RecoveryCounter, true)
-    end.
-
-do_handle_recovery_1(_Path, undefined, IsNew) ->
-    IsNew;
-do_handle_recovery_1(Path, RecoveryCounter, _IsNew) ->
-    regine_server:call(Path, {set_restart_counter, RecoveryCounter}).
 
 send_message(Port, Msg, #state{gtp_port = GtpPort, ip = IP} = State) ->
     %% TODO: handle encode errors

@@ -26,6 +26,7 @@
 	  local_control_tei      :: non_neg_integer(),
 	  remote_control_ip      :: inet:ip_address(),
 	  remote_control_tei = 0 :: non_neg_integer(),
+	  remote_restart_counter :: 0 .. 255,
 	  data_port              :: #gtp_port{},
 	  local_data_tei         :: non_neg_integer(),
 	  remote_data_ip         :: inet:ip_address(),

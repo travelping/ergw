@@ -17,7 +17,7 @@
 	 type/0, port/0]).
 
 %% support functions
--export([handle_sgsn/2, build_recovery/2]).
+-export([handle_recovery/2, build_recovery/3]).
 
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include("include/ergw.hrl").
@@ -25,20 +25,24 @@
 %%====================================================================
 %% API
 %%====================================================================
-handle_sgsn(IEs, Context) ->
-    RecoveryCount =
-	case lists:keyfind(v2_recovery, 1, IEs) of
-	    #v2_recovery{restart_counter = RCnt} ->
-		RCnt;
-	    _ ->
-		undefined
-	end,
-    gtp_context:handle_recovery(RecoveryCount, Context).
+handle_recovery(#v2_recovery{restart_counter = RestartCounter}, Context) ->
+    gtp_path:set_restart_counter(Context, RestartCounter),
+    Context#context{remote_restart_counter = RestartCounter};
 
-build_recovery(#gtp_port{restart_counter = RCnt}, true) ->
-    [#v2_recovery{restart_counter = RCnt}];
-build_recovery(_, _) ->
-    [].
+handle_recovery(_, Context) ->
+    {ok, RestartCounter} = gtp_path:get_restart_counter(Context),
+    Context#context{remote_restart_counter = RestartCounter}.
+
+build_recovery(#context{
+		  remote_restart_counter = RemoteRestartCounter,
+		  control_port =
+		      #gtp_port{restart_counter = RCnt}},
+	       NewPeer, IEs)
+  when NewPeer == true orelse
+       RemoteRestartCounter == undefined ->
+    [#v2_recovery{restart_counter = RCnt} | IEs];
+build_recovery(_, _, IEs) ->
+    IEs.
 
 type() -> 'gtp-c'.
 port() -> ?GTP2c_PORT.

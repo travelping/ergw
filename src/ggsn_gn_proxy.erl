@@ -26,6 +26,7 @@
 -record(create_pdp_context_request, {
 	  imsi,
 	  routeing_area_identity,
+	  recovery,
 	  selection_mode,
 	  tunnel_endpoint_identifier_data_i,
 	  tunnel_endpoint_identifier_control_plane,
@@ -97,6 +98,7 @@
 -record(update_pdp_context_request, {
 	  imsi,
 	  routeing_area_identity,
+	  recovery,
 	  tunnel_endpoint_identifier_data_i,
 	  tunnel_endpoint_identifier_control_plane,
 	  nsapi,
@@ -178,6 +180,7 @@
 request_spec(create_pdp_context_request) ->
     [{{international_mobile_subscriber_identity, 0},	conditional},
      {{routeing_area_identity, 0},			optional},
+     {{recovery, 0},					optional},
      {{selection_mode, 0},				conditional},
      {{tunnel_endpoint_identifier_data_i, 0},		mandatory},
      {{tunnel_endpoint_identifier_control_plane, 0},	conditional},
@@ -245,6 +248,7 @@ request_spec(create_pdp_context_response) ->
 request_spec(update_pdp_context_request) ->
     [{{international_mobile_subscriber_identity, 0},	optional},
      {{routeing_area_identity, 0},			optional},
+     {{recovery, 0},					optional},
      {{tunnel_endpoint_identifier_data_i, 0},		mandatory},
      {{tunnel_endpoint_identifier_control_plane, 0},	conditional},
      {{nsapi, 0},					mandatory},
@@ -317,7 +321,7 @@ request_spec(delete_pdp_context_response) ->
 request_spec(_) ->
     [].
 
--record(request_info, {from, seq_no}).
+-record(request_info, {from, seq_no, new_peer}).
 
 -define(CAUSE_OK(Cause), (Cause =:= request_accepted orelse
 			  Cause =:= new_pdp_type_due_to_network_preference orelse
@@ -334,8 +338,9 @@ handle_request(_From, _Msg, _Req, true, State) ->
     {noreply, State};
 
 handle_request(From,
-	       #gtp{type = create_pdp_context_request, seq_no = SeqNo, ie = IEs} = Request,
-	       #create_pdp_context_request{imsi = IMSIie, apn = APNie} = _ReqRec, _Resent,
+	       #gtp{seq_no = SeqNo, ie = IEs} = Request,
+	       #create_pdp_context_request{imsi = IMSIie, recovery = Recovery,
+					   apn = APNie}, _Resent,
 	       #{tei := LocalTEI, gtp_port := GtpPort, gtp_dp_port := GtpDP,
 		 proxy_ports := ProxyPorts, proxy_dps := ProxyDPs, ggsn := GGSN} = State0) ->
 
@@ -350,18 +355,16 @@ handle_request(From,
 		  data_port         = GtpDP,
 		  local_data_tei    = LocalTEI
 		 },
-    Context = update_context_from_gtp_req(Request, Context0),
+    Context1 = update_context_from_gtp_req(Request, Context0),
+    Context = gtp_v1_c:handle_recovery(Recovery, Context1),
     State1 = State0#{context => Context},
 
     #gtp_port{ip = LocalCntlIP} = GtpPort,
-
     Session0 = #{'GGSN-Address' => gtp_c_lib:ip2bin(LocalCntlIP)},
     Session1 = init_session(IEs, Session0),
     lager:debug("Invoking CONTROL: ~p", [Session1]),
     %% ergw_control:authenticate(Session1),
 
-    {ok, NewPeer} = gtp_v1_c:handle_sgsn(IEs, Context),
-    lager:debug("New: ~p", [NewPeer]),
     gtp_context:setup(Context),
 
     ProxyGtpPort = gtp_socket_reg:lookup(hd(ProxyPorts)),
@@ -369,7 +372,7 @@ handle_request(From,
     {ok, ProxyLocalTEI} = gtp_c_lib:alloc_tei(ProxyGtpPort),
 
     lager:debug("ProxyGtpPort: ~p", [lager:pr(ProxyGtpPort, ?MODULE)]),
-    ProxyContext = #context{
+    ProxyContext0 = #context{
 		      apn               = APN,
 		      version           = v1,
 		      control_interface = ?MODULE,
@@ -380,44 +383,43 @@ handle_request(From,
 		      local_data_tei    = ProxyLocalTEI,
 		      remote_data_ip    = GGSN
 		     },
+    ProxyContext = gtp_v1_c:handle_recovery(undefined, ProxyContext0),
     State = State1#{proxy_context => ProxyContext},
-    gtp_path:register(ProxyContext),
 
     IMSI = optional_imsi_value(IMSIie, undefined),
     {ok, ProxyInfo} = gtp_proxy_ds:map(APN, IMSI),
-    ProxyReq = build_context_request(ProxyContext, ProxyInfo, Request),
-    forward_request(ProxyContext, ProxyReq, From, SeqNo),
+    ProxyReq0 = build_context_request(ProxyContext, ProxyInfo, Request),
+    ProxyReq = build_recovery(ProxyContext, false, ProxyReq0),
+    forward_request(ProxyContext, ProxyReq, From, SeqNo, Recovery /= undefined),
 
     {noreply, State};
 
 handle_request(From,
-	       #gtp{type = update_pdp_context_request, seq_no = SeqNo, ie = IEs} = Request,
-	       #update_pdp_context_request{imsi = IMSIie} = _ReqRec, _Resent,
-	       #{context := OldContext, proxy_context := ProxyContext} = State0) ->
+	       #gtp{seq_no = SeqNo} = Request,
+	       #update_pdp_context_request{imsi = IMSIie,
+					   recovery = Recovery}, _Resent,
+	       #{context := OldContext, proxy_context := ProxyContext0} = State0) ->
 
-    Context = update_context_from_gtp_req(Request, OldContext),
+    Context0 = update_context_from_gtp_req(Recovery, OldContext),
+    Context = gtp_v1_c:handle_recovery(Recovery, Context0),
     State = apply_context_change(Context, OldContext, State0),
 
-    {ok, NewPeer} = gtp_v1_c:handle_sgsn(IEs, Context),
-    lager:debug("New: ~p", [NewPeer]),
+    ProxyContext = gtp_v1_c:handle_recovery(undefined, ProxyContext0),
 
     #context{apn = APN} = ProxyContext,
     IMSI = optional_imsi_value(IMSIie, undefined),
     {ok, ProxyInfo} = gtp_proxy_ds:map(APN, IMSI),
-    ProxyReq = build_context_request(ProxyContext, ProxyInfo, Request),
-    forward_request(ProxyContext, ProxyReq, From, SeqNo),
+    ProxyReq0 = build_context_request(ProxyContext, ProxyInfo, Request),
+    ProxyReq = build_recovery(ProxyContext, false, ProxyReq0),
+    forward_request(ProxyContext, ProxyReq, From, SeqNo, Recovery /= undefined),
 
-    {noreply, State};
+    {noreply, State#{context := Context, proxy_context := ProxyContext}};
 
 handle_request(From,
-	       #gtp{type = delete_pdp_context_request, seq_no = SeqNo, ie = IEs} = Request, _ReqRec, _Resent,
-	       #{context := Context, proxy_context := ProxyContext} = State) ->
-
-    {ok, NewPeer} = gtp_v1_c:handle_sgsn(IEs, Context),
-    lager:debug("New: ~p", [NewPeer]),
-
+	       #gtp{type = delete_pdp_context_request, seq_no = SeqNo} = Request, _ReqRec, _Resent,
+	       #{proxy_context := ProxyContext} = State) ->
     ProxyReq = build_context_request(ProxyContext, undefined, Request),
-    forward_request(ProxyContext, ProxyReq, From, SeqNo),
+    forward_request(ProxyContext, ProxyReq, From, SeqNo, false),
 
     {noreply, State};
 
@@ -425,17 +427,20 @@ handle_request({GtpPort, _IP, _Port}, Msg, _ReqRec, _Resent, State) ->
     lager:warning("Unknown Proxy Message on ~p: ~p", [GtpPort, lager:pr(Msg, ?MODULE)]),
     {noreply, State}.
 
-handle_response(#request_info{from = From, seq_no = SeqNo},
-		#gtp{type = create_pdp_context_response} = Response,
-		#create_pdp_context_response{cause = #cause{value = Cause}} = _RespRec, _Request,
+handle_response(#request_info{from = From, seq_no = SeqNo, new_peer = NewPeer}, Response,
+		#create_pdp_context_response{cause = #cause{value = Cause},
+					     recovery = Recovery}, _Request,
 		#{context := Context,
 		  proxy_context := ProxyContext0} = State) ->
     lager:warning("OK Proxy Response ~p", [lager:pr(Response, ?MODULE)]),
 
-    ProxyContext = update_context_from_gtp_req(Response, ProxyContext0),
+    ProxyContext1 = update_context_from_gtp_req(Response, ProxyContext0),
+    ProxyContext = gtp_v1_c:handle_recovery(Recovery, ProxyContext1),
+
     gtp_context:setup(ProxyContext),
 
-    GtpResp = build_context_request(Context, undefined, Response),
+    GtpResp0 = build_context_request(Context, undefined, Response),
+    GtpResp = build_recovery(Context, NewPeer, GtpResp0),
     gtp_context:send_response(From, GtpResp#gtp{seq_no = SeqNo}),
 
     if ?CAUSE_OK(Cause) ->
@@ -448,7 +453,7 @@ handle_response(#request_info{from = From, seq_no = SeqNo},
 	    {stop, State}
     end;
 
-handle_response(#request_info{from = From, seq_no = SeqNo},
+handle_response(#request_info{from = From, seq_no = SeqNo, new_peer = NewPeer},
 		#gtp{type = update_pdp_context_response} = Response, _RespRec, _Request,
 		#{context := Context,
 		  proxy_context := OldProxyContext} = State0) ->
@@ -457,7 +462,8 @@ handle_response(#request_info{from = From, seq_no = SeqNo},
     ProxyContext = update_context_from_gtp_req(Response, OldProxyContext),
     State = apply_proxy_context_change(ProxyContext, OldProxyContext, State0),
 
-    GtpResp = build_context_request(Context, undefined, Response),
+    GtpResp0 = build_context_request(Context, undefined, Response),
+    GtpResp = build_recovery(Context, NewPeer, GtpResp0),
     gtp_context:send_response(From, GtpResp#gtp{seq_no = SeqNo}),
 
     dp_update_pdp_context(Context, ProxyContext),
@@ -573,13 +579,14 @@ apply_proxy_request_nat(ProxyInfo, GtpReqIEs) ->
 
 build_context_request(#context{remote_control_tei = TEI} = Context,
 		      ProxyInfo, #gtp{ie = RequestIEs} = Request) ->
-    ProxyIEs0 = apply_proxy_request_nat(ProxyInfo, RequestIEs),
-    ProxyIEs = update_gtp_req_from_context(Context, ProxyIEs0),
+    ProxyIEs0 = lists:keydelete(recovery, 1, RequestIEs),
+    ProxyIEs1 = apply_proxy_request_nat(ProxyInfo, ProxyIEs0),
+    ProxyIEs = update_gtp_req_from_context(Context, ProxyIEs1),
     Request#gtp{tei = TEI, ie = ProxyIEs}.
 
 forward_request(#context{control_port = GtpPort, remote_control_ip = RemoteCntlIP},
-	       Request, From, SeqNo) ->
-    ReqInfo = #request_info{from = From, seq_no = SeqNo},
+	       Request, From, SeqNo, NewPeer) ->
+    ReqInfo = #request_info{from = From, seq_no = SeqNo, new_peer = NewPeer},
     lager:debug("Invoking Context Send Request: ~p", [Request]),
     gtp_context:send_request(GtpPort, RemoteCntlIP, Request, ReqInfo).
 
@@ -610,3 +617,6 @@ optional_imsi_value(#international_mobile_subscriber_identity{imsi = IMSI}, _) -
     IMSI;
 optional_imsi_value(_, Default) ->
     Default.
+
+build_recovery(Context, NewPeer, #gtp{ie = IEs} = Request) ->
+    Request#gtp{ie = gtp_v1_c:build_recovery(Context, NewPeer, IEs)}.

@@ -24,6 +24,7 @@
 %%       generated from a common source.....
 -record(create_session_request, {
 	  imsi,
+	  recovery,
 	  msisdn,
 	  serving_network,
 	  rat_type,
@@ -58,6 +59,7 @@
 
 request_spec(create_session_request) ->
     [{{v2_international_mobile_subscriber_identity, 0},		mandatory},
+     {{v2_recovery, 0},						conditional},
      {{v2_msisdn, 0},						conditional},
      {{v2_serving_network, 0},					optional},
      {{v2_rat_type, 0},						mandatory},
@@ -96,10 +98,11 @@ handle_request(_From, _Msg, _Req, true, State) ->
     {noreply, State};
 
 handle_request(_From,
-	       #gtp{type = create_session_request, ie = IEs}, Req, _Resent,
+	       #gtp{type = create_session_request}, Req, _Resent,
 	       #{tei := LocalTEI, gtp_port := GtpPort} = State0) ->
 
     #create_session_request{
+       recovery = Recovery,
        sender_f_teid_for_control_plane =
 	   #v2_fully_qualified_tunnel_endpoint_identifier{
 	      key  = RemoteCntlTEI,
@@ -117,7 +120,7 @@ handle_request(_From,
     {ReqMSv4, ReqMSv6} = pdn_alloc(PAA),
 
     {ok, MSv4, MSv6} = pdn_alloc_ip(LocalTEI, ReqMSv4, ReqMSv6, State0),
-    Context = #context{
+    Context0 = #context{
 		 version            = v2,
 		 control_interface  = ?MODULE,
 		 control_port       = GtpPort,
@@ -130,39 +133,38 @@ handle_request(_From,
 		 remote_data_tei    = RemoteDataTEI,
 		 ms_v4              = MSv4,
 		 ms_v6              = MSv6},
+    Context = gtp_v2_c:handle_recovery(Recovery, Context0),
     State1 = State0#{context => Context},
 
-    {ok, NewPeer} = gtp_v2_c:handle_sgsn(IEs, Context),
-    lager:debug("New: ~p, ~p", [NewPeer]),
     ok = gtp_context:setup(Context),
 
     #gtp_port{ip = LocalIP} = GtpPort,
 
-    ResponseIEs = [#v2_cause{v2_cause = request_accepted},
-		   #v2_fully_qualified_tunnel_endpoint_identifier{
-		      instance = 1,
-		      interface_type = 36,          %% S2a PGW GTP-C
-		      key = LocalTEI,
-		      ipv4 = gtp_c_lib:ip2bin(LocalIP)
-		     },
-		   encode_paa(MSv4, MSv6),
-		   %% #v2_protocol_configuration_options{config = {0,
-		   %% 						[{ipcp,'CP-Configure-Ack',0,
-		   %% 						  [{ms_dns1,<<8,8,8,8>>},{ms_dns2,<<0,0,0,0>>}]}]}},
-		   #v2_bearer_context{group=[#v2_cause{v2_cause = request_accepted},
-					     #v2_eps_bearer_id{eps_bearer_id=15,data = <<>>},
-					     #v2_bearer_level_quality_of_service{pl=15,
-										 pvi=0,
-										 label=9,maximum_bit_rate_for_uplink=0,
-										 maximum_bit_rate_for_downlink=0,
-										 guaranteed_bit_rate_for_uplink=0,
-										 guaranteed_bit_rate_for_downlink=0,
-										 data = <<0,0,0,0>>},
-					     #v2_fully_qualified_tunnel_endpoint_identifier{instance = 5,                  %% S2a TEI Instance
-											    interface_type = 37,           %% S2a PGW GTP-U
-											    key = LocalTEI,
-											    ipv4 = gtp_c_lib:ip2bin(LocalIP)}]}
-		   | gtp_v2_c:build_recovery(GtpPort, NewPeer)],
+    ResponseIEs0 = [#v2_cause{v2_cause = request_accepted},
+		    #v2_fully_qualified_tunnel_endpoint_identifier{
+		       instance = 1,
+		       interface_type = 36,          %% S2a PGW GTP-C
+		       key = LocalTEI,
+		       ipv4 = gtp_c_lib:ip2bin(LocalIP)
+		      },
+		    encode_paa(MSv4, MSv6),
+		    %% #v2_protocol_configuration_options{config = {0,
+		    %% 						[{ipcp,'CP-Configure-Ack',0,
+		    %% 						  [{ms_dns1,<<8,8,8,8>>},{ms_dns2,<<0,0,0,0>>}]}]}},
+		    #v2_bearer_context{group=[#v2_cause{v2_cause = request_accepted},
+					      #v2_eps_bearer_id{eps_bearer_id=15,data = <<>>},
+					      #v2_bearer_level_quality_of_service{pl=15,
+										  pvi=0,
+										  label=9,maximum_bit_rate_for_uplink=0,
+										  maximum_bit_rate_for_downlink=0,
+										  guaranteed_bit_rate_for_uplink=0,
+										  guaranteed_bit_rate_for_downlink=0,
+										  data = <<0,0,0,0>>},
+					      #v2_fully_qualified_tunnel_endpoint_identifier{instance = 5,                  %% S2a TEI Instance
+											     interface_type = 37,           %% S2a PGW GTP-U
+											     key = LocalTEI,
+											     ipv4 = gtp_c_lib:ip2bin(LocalIP)}]}],
+    ResponseIEs = gtp_v2_c:build_recovery(Context, Recovery /= undefined, ResponseIEs0),
     Response = {create_session_response, RemoteCntlTEI, ResponseIEs},
     {ok, Response, State1};
 

@@ -24,6 +24,7 @@
 %%       generated from a common source.....
 -record(create_session_request, {
 	  imsi,
+	  recovery,
 	  msisdn,
 	  user_location_information,
 	  serving_network,
@@ -64,6 +65,7 @@
 	 }).
 
 -record(modify_bearer_request, {
+	  recovery,
 	  mei,
 	  user_location_information,
 	  serving_network,
@@ -85,6 +87,7 @@
 
 request_spec(create_session_request) ->
     [{{v2_international_mobile_subscriber_identity, 0},		conditional},
+     {{v2_recovery, 0},						conditional},
      {{v2_msisdn, 0},						conditional},
      {{v2_mobile_equipment_identity, 0},			conditional},
      {{v2_user_location_information, 0},			conditional},
@@ -120,7 +123,8 @@ request_spec(delete_session_request) ->
      {{v2_ue_time_zone, 0},					conditional},
      {{v2_uli_timestamp, 0},					conditional}];
 request_spec(modify_bearer_request) ->
-    [{{v2_mobile_equipment_identity, 0},			conditional},
+    [{{v2_recovery, 0},						conditional},
+     {{v2_mobile_equipment_identity, 0},			conditional},
      {{v2_user_location_information, 0},			conditional},
      {{v2_serving_network, 0},					optional},
      {{v2_rat_type, 0},						mandatory},
@@ -164,10 +168,11 @@ handle_request(_From, _Msg, _Req, true, State) ->
     {noreply, State};
 
 handle_request(_From,
-	       #gtp{type = create_session_request, ie = IEs}, Req, _Resent,
+	       #gtp{type = create_session_request}, Req, _Resent,
 	       #{tei := LocalTEI, gtp_port := GtpPort} = State0) ->
 
     #create_session_request{
+       recovery = Recovery,
        sender_f_teid_for_control_plane =
 	   #v2_fully_qualified_tunnel_endpoint_identifier{
 	      key  = RemoteCntlTEI,
@@ -187,7 +192,7 @@ handle_request(_From,
     {ReqMSv4, ReqMSv6} = pdn_alloc(PAA),
 
     {ok, MSv4, MSv6} = pdn_alloc_ip(LocalTEI, ReqMSv4, ReqMSv6, State0),
-    Context = #context{
+    Context0 = #context{
 		 version            = v2,
 		 control_interface  = ?MODULE,
 		 control_port       = GtpPort,
@@ -200,48 +205,51 @@ handle_request(_From,
 		 remote_data_tei    = RemoteDataTEI,
 		 ms_v4              = MSv4,
 		 ms_v6              = MSv6},
+    Context = gtp_v2_c:handle_recovery(Recovery, Context0),
     State1 = State0#{context => Context},
 
-    {ok, NewPeer} = gtp_v2_c:handle_sgsn(IEs, Context),
-    lager:debug("New: ~p", [NewPeer]),
     ok = gtp_context:setup(Context),
 
     #gtp_port{ip = LocalIP} = GtpPort,
 
-    ResponseIEs = [#v2_cause{v2_cause = request_accepted},
-		   #v2_fully_qualified_tunnel_endpoint_identifier{
-		      instance = 1,
-		      interface_type = 7,          %% S5/S8 PGW GTP-C Interface
-		      key = LocalTEI,
-		      ipv4 = gtp_c_lib:ip2bin(LocalIP)
-		     },
-		   encode_paa(MSv4, MSv6),
-		   %% #v2_protocol_configuration_options{config = {0,
-		   %% 						[{ipcp,'CP-Configure-Ack',0,
-		   %% 						  [{ms_dns1,<<8,8,8,8>>},{ms_dns2,<<0,0,0,0>>}]}]}},
-		   #v2_bearer_context{group=[#v2_cause{v2_cause = request_accepted},
-					     EBI,
-					     #v2_apn_restriction{restriction_type_value = 0},
-					     #v2_bearer_level_quality_of_service{pl=15,
-										 pvi=0,
-										 label=9,maximum_bit_rate_for_uplink=0,
-										 maximum_bit_rate_for_downlink=0,
-										 guaranteed_bit_rate_for_uplink=0,
-										 guaranteed_bit_rate_for_downlink=0,
-										 data = <<0,0,0,0>>},
-					     #v2_fully_qualified_tunnel_endpoint_identifier{instance = 5,                  %% S5/S8 F-TEI Instance
-											    interface_type = 5,            %% S5/S8 PGW GTP-U Interface
-											    key = LocalTEI,
-											    ipv4 = gtp_c_lib:ip2bin(LocalIP)}]}
-		   | gtp_v2_c:build_recovery(GtpPort, NewPeer)],
+    ResponseIEs0 = [#v2_cause{v2_cause = request_accepted},
+		    #v2_fully_qualified_tunnel_endpoint_identifier{
+		       instance = 1,
+		       interface_type = 7,          %% S5/S8 PGW GTP-C Interface
+		       key = LocalTEI,
+		       ipv4 = gtp_c_lib:ip2bin(LocalIP)},
+		    encode_paa(MSv4, MSv6),
+		    %% #v2_protocol_configuration_options{config = {0,
+		    %% 						[{ipcp,'CP-Configure-Ack',0,
+		    %% 						  [{ms_dns1,<<8,8,8,8>>},
+		    %% 						   {ms_dns2,<<0,0,0,0>>}]}]}},
+		    #v2_bearer_context{
+		       group=[#v2_cause{v2_cause = request_accepted},
+			      EBI,
+			      #v2_apn_restriction{restriction_type_value = 0},
+			      #v2_bearer_level_quality_of_service{
+				 pl=15,
+				 pvi=0,
+				 label=9,maximum_bit_rate_for_uplink=0,
+				 maximum_bit_rate_for_downlink=0,
+				 guaranteed_bit_rate_for_uplink=0,
+				 guaranteed_bit_rate_for_downlink=0,
+				 data = <<0,0,0,0>>},
+			      #v2_fully_qualified_tunnel_endpoint_identifier{
+				 instance = 5,                  %% S5/S8 F-TEI Instance
+				 interface_type = 5,            %% S5/S8 PGW GTP-U Interface
+				 key = LocalTEI,
+				 ipv4 = gtp_c_lib:ip2bin(LocalIP)}]}],
+    ResponseIEs = gtp_v2_c:build_recovery(Context, Recovery /= undefined, ResponseIEs0),
     Response = {create_session_response, RemoteCntlTEI, ResponseIEs},
     {ok, Response, State1};
 
 handle_request(_From,
-	       #gtp{type = modify_bearer_request, tei = LocalTEI, ie = IEs}, Req, _Resent,
+	       #gtp{type = modify_bearer_request, tei = LocalTEI}, Req, _Resent,
 	       #{gtp_port := GtpPort, context := OldContext} = State0) ->
 
     #modify_bearer_request{
+       recovery = Recovery,
        sender_f_teid_for_control_plane =
 	   #v2_fully_qualified_tunnel_endpoint_identifier{
 	      key  = RemoteCntlTEI,
@@ -257,11 +265,12 @@ handle_request(_From,
 	lists:keyfind(v2_fully_qualified_tunnel_endpoint_identifier, 1, BearerCreate),
     EBI = lists:keyfind(v2_eps_bearer_id, 1, BearerCreate),
 
-    Context = OldContext#context{
+    Context0 = OldContext#context{
 		   remote_control_ip  = gtp_c_lib:bin2ip(RemoteCntlIP),
 		   remote_control_tei = RemoteCntlTEI,
 		   remote_data_ip     = gtp_c_lib:bin2ip(RemoteDataIP),
 		   remote_data_tei    = RemoteDataTEI},
+    Context = gtp_v2_c:handle_recovery(Recovery, Context0),
 
     State1 = if Context /= OldContext ->
 		     apply_context_change(Context, OldContext, State0);
@@ -269,19 +278,18 @@ handle_request(_From,
 		     State0
 	     end,
 
-    {ok, NewPeer} = gtp_v2_c:handle_sgsn(IEs, Context),
-    lager:debug("New: ~p, ~p", [NewPeer]),
-
     #gtp_port{ip = LocalIP} = GtpPort,
 
-    ResponseIEs = [#v2_cause{v2_cause = request_accepted},
-		   #v2_bearer_context{group=[#v2_cause{v2_cause = request_accepted},
-					     EBI,
-					     #v2_fully_qualified_tunnel_endpoint_identifier{instance = 5,                  %% S5/S8 F-TEI Instance
-											    interface_type = 5,            %% S5/S8 PGW GTP-U Interface
-											    key = LocalTEI,
-											    ipv4 = gtp_c_lib:ip2bin(LocalIP)}]}
-		   | gtp_v2_c:build_recovery(GtpPort, NewPeer)],
+    ResponseIEs0 = [#v2_cause{v2_cause = request_accepted},
+		    #v2_bearer_context{
+		       group=[#v2_cause{v2_cause = request_accepted},
+			      EBI,
+			      #v2_fully_qualified_tunnel_endpoint_identifier{
+				 instance = 5,                  %% S5/S8 F-TEI Instance
+				 interface_type = 5,            %% S5/S8 PGW GTP-U Interface
+				 key = LocalTEI,
+				 ipv4 = gtp_c_lib:ip2bin(LocalIP)}]}],
+    ResponseIEs = gtp_v2_c:build_recovery(Context, Recovery /= undefined, ResponseIEs0),
     Response = {modify_bearer_response, RemoteCntlTEI, ResponseIEs},
     {ok, Response, State1};
 

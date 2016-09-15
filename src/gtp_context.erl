@@ -11,7 +11,7 @@
 
 -export([lookup/2, handle_message/4, start_link/5,
 	 send_request/4, send_request/6, send_response/2,
-	 setup/1, update/2, teardown/1, handle_recovery/2]).
+	 setup/1, update/2, teardown/1]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -248,13 +248,6 @@ teardown(#context{
     gtp_path:unregister(Context),
     %% ok = gtp_dp:delete_pdp_context(DataGtpPort, Version, RemoteDataIP, MSv4, LocalDataTEI, RemoteDataTEI).
     ok.
-
-handle_recovery(RecoveryCounter,
-		#context{
-		   version           = Version,
-		   control_port      = CntlGtpPort,
-		   remote_control_ip = RemoteCntlIP}) ->
-    gtp_path:handle_recovery(RecoveryCounter, CntlGtpPort, Version, RemoteCntlIP).
 
 %%%===================================================================
 %%% Internal functions

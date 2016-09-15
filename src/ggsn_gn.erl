@@ -22,6 +22,7 @@
 -record(create_pdp_context_request, {
 	  imsi,
 	  routeing_area_identity,
+	  recovery,
 	  selection_mode,
 	  tunnel_endpoint_identifier_data_i,
 	  tunnel_endpoint_identifier_control_plane,
@@ -64,6 +65,7 @@
 -record(update_pdp_context_request, {
 	  imsi,
 	  routeing_area_identity,
+	  recovery,
 	  tunnel_endpoint_identifier_data_i,
 	  tunnel_endpoint_identifier_control_plane,
 	  nsapi,
@@ -97,6 +99,7 @@
 request_spec(create_pdp_context_request) ->
     [{{international_mobile_subscriber_identity, 0},	conditional},
      {{routeing_area_identity, 0},			optional},
+     {{recovery, 0},					optional},
      {{selection_mode, 0},				conditional},
      {{tunnel_endpoint_identifier_data_i, 0},		mandatory},
      {{tunnel_endpoint_identifier_control_plane, 0},	conditional},
@@ -137,6 +140,7 @@ request_spec(create_pdp_context_request) ->
 request_spec(update_pdp_context_request) ->
     [{{international_mobile_subscriber_identity, 0},	optional},
      {{routeing_area_identity, 0},			optional},
+     {{recovery, 0},					optional},
      {{tunnel_endpoint_identifier_data_i, 0},		mandatory},
      {{tunnel_endpoint_identifier_control_plane, 0},	conditional},
      {{nsapi, 0},					mandatory},
@@ -181,6 +185,7 @@ handle_request(_From,
 	       #{tei := LocalTEI, gtp_port := GtpPort, gtp_dp_port := GtpDP} = State0) ->
 
     #create_pdp_context_request{
+       recovery = Recovery,
        apn = #access_point_name{apn = APN},
        sgsn_address_for_signalling =
 	   #gsn_address{address = RemoteCntlIPBin},
@@ -199,7 +204,7 @@ handle_request(_From,
     {ReqMSv4, ReqMSv6} = pdp_alloc(EUA),
 
     {ok, MSv4, MSv6} = apn:allocate_pdp_ip(APN, LocalTEI, ReqMSv4, ReqMSv6),
-    Context = #context{
+    Context0 = #context{
 		 apn                = APN,
 		 version            = v1,
 		 control_interface  = ?MODULE,
@@ -213,6 +218,7 @@ handle_request(_From,
 		 remote_data_tei    = RemoteDataTEI,
 		 ms_v4              = MSv4,
 		 ms_v6              = MSv6},
+    Context = gtp_v1_c:handle_recovery(Recovery, Context0),
     State1 = State0#{context => Context},
 
     #gtp_port{ip = LocalIP} = GtpPort,
@@ -223,8 +229,6 @@ handle_request(_From,
     lager:debug("Invoking CONTROL: ~p", [Session1]),
     ergw_control:authenticate(Session1),
 
-    {ok, NewPeer} = gtp_v1_c:handle_sgsn(IEs, Context),
-    lager:debug("New: ~p", [NewPeer]),
     gtp_context:setup(Context),
     dp_create_pdp_context(Context),
 
@@ -262,27 +266,29 @@ handle_request(_From,
 		ReqQoSProfile
 	end,
 
-    ResponseIEs = [#cause{value = request_accepted},
-		   #reordering_required{required = no},
-		   #tunnel_endpoint_identifier_data_i{tei = LocalTEI},
-		   #tunnel_endpoint_identifier_control_plane{tei = LocalTEI},
-		   #charging_id{id = <<0,0,0,1>>},
-		   encode_eua(MSv4, MSv6),
-		   #protocol_configuration_options{config = {0,
-							     [{ipcp,'CP-Configure-Ack',0,
-                                                               [{ms_dns1,<<8,8,8,8>>},{ms_dns2,<<0,0,0,0>>}]}]}},
-		   #gsn_address{instance = 0, address = gtp_c_lib:ip2bin(LocalIP)},   %% for Control Plane
-		   #gsn_address{instance = 1, address = gtp_c_lib:ip2bin(LocalIP)},   %% for User Traffic
-		   QoSProfile
-		  | gtp_v1_c:build_recovery(GtpPort, NewPeer)],
+    ResponseIEs0 = [#cause{value = request_accepted},
+		    #reordering_required{required = no},
+		    #tunnel_endpoint_identifier_data_i{tei = LocalTEI},
+		    #tunnel_endpoint_identifier_control_plane{tei = LocalTEI},
+		    #charging_id{id = <<0,0,0,1>>},
+		    encode_eua(MSv4, MSv6),
+		    #protocol_configuration_options{config = {0,
+							      [{ipcp,'CP-Configure-Ack',0,
+								[{ms_dns1,<<8,8,8,8>>},
+								 {ms_dns2,<<0,0,0,0>>}]}]}},
+		    #gsn_address{instance = 0, address = gtp_c_lib:ip2bin(LocalIP)},   %% for Control Plane
+		    #gsn_address{instance = 1, address = gtp_c_lib:ip2bin(LocalIP)},   %% for User Traffic
+		    QoSProfile],
+    ResponseIEs = gtp_v1_c:build_recovery(Context, Recovery /= undefined, ResponseIEs0),
     Reply = {create_pdp_context_response, RemoteCntlTEI, ResponseIEs},
     {reply, Reply, State1};
 
 handle_request(_From,
-	       #gtp{type = update_pdp_context_request, ie = IEs}, Req, _Resent,
+	       #gtp{type = update_pdp_context_request}, Req, _Resent,
 	       #{tei := LocalTEI, gtp_port := GtpPort, context := OldContext} = State0) ->
 
     #update_pdp_context_request{
+       recovery = Recovery,
        sgsn_address_for_signalling =
 	   #gsn_address{address = RemoteCntlIPBin},
        sgsn_address_for_user_traffic =
@@ -303,11 +309,12 @@ handle_request(_From,
     RemoteCntlIP = gtp_c_lib:bin2ip(RemoteCntlIPBin),
     RemoteDataIP = gtp_c_lib:bin2ip(RemoteDataIPBin),
 
-    Context = OldContext#context{
+    Context0 = OldContext#context{
 		remote_control_ip  = RemoteCntlIP,
 		remote_control_tei = RemoteCntlTEI,
 		remote_data_ip     = RemoteDataIP,
 		remote_data_tei    = RemoteDataTEI},
+    Context = gtp_v1_c:handle_recovery(Recovery, Context0),
 
     State1 = if Context /= OldContext ->
 		     apply_context_change(Context, OldContext, State0);
@@ -315,18 +322,15 @@ handle_request(_From,
 		     State0
 	     end,
 
-    {ok, NewPeer} = gtp_v1_c:handle_sgsn(IEs, Context),
-    lager:debug("New: ~p", [NewPeer]),
-
     #gtp_port{ip = LocalIP} = GtpPort,
 
-    ResponseIEs = [#cause{value = request_accepted},
-		   #tunnel_endpoint_identifier_data_i{tei = LocalTEI},
-		   #charging_id{id = <<0,0,0,1>>},
-		   #gsn_address{instance = 0, address = gtp_c_lib:ip2bin(LocalIP)},   %% for Control Plane
-		   #gsn_address{instance = 1, address = gtp_c_lib:ip2bin(LocalIP)},   %% for User Traffic
-		   QoSProfile
-		  | gtp_v1_c:build_recovery(GtpPort, NewPeer)],
+    ResponseIEs0 = [#cause{value = request_accepted},
+		    #tunnel_endpoint_identifier_data_i{tei = LocalTEI},
+		    #charging_id{id = <<0,0,0,1>>},
+		    #gsn_address{instance = 0, address = gtp_c_lib:ip2bin(LocalIP)},   %% for Control Plane
+		    #gsn_address{instance = 1, address = gtp_c_lib:ip2bin(LocalIP)},   %% for User Traffic
+		    QoSProfile],
+    ResponseIEs = gtp_v1_c:build_recovery(Context, Recovery /= undefined, ResponseIEs0),
     Reply = {update_pdp_context_response, RemoteCntlTEI, ResponseIEs},
     {reply, Reply, State1};
 
