@@ -10,7 +10,8 @@
 -compile({parse_transform, do}).
 
 -export([lookup/2, handle_message/4, start_link/5,
-	 send_request/4, send_request/6, send_response/2]).
+	 send_request/4, send_request/6, send_response/2,
+	 path_restart/2]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -62,6 +63,9 @@ send_request(GtpPort, RemoteIP, T3, N3, Msg, ReqId) ->
 start_link(GtpPort, Version, Interface, IfOpts, Opts) ->
     gen_server:start_link(?MODULE, [GtpPort, Version, Interface, IfOpts], Opts).
 
+path_restart(Context, Path) ->
+    gen_server:cast(Context, {path_restart, Path}).
+
 %%====================================================================
 %% gen_server API
 %%====================================================================
@@ -104,9 +108,9 @@ handle_cast({handle_message, GtpPort, IP, Port, #gtp{type = MsgType, ie = IEs} =
 	    handle_request(From, Msg, Req, Resent, State)
     end;
 
-handle_cast(Msg, State) ->
-    lager:error("~w: handle_cast: ~p", [?MODULE, lager:pr(Msg, ?MODULE)]),
-    {noreply, State}.
+handle_cast(Msg, #{interface := Interface} = State) ->
+    lager:debug("~w: handle_cast: ~p", [?MODULE, lager:pr(Msg, ?MODULE)]),
+    Interface:handle_cast(Msg, State).
 
 handle_info({ReqId, Request, Response = #gtp{type = MsgType, ie = IEs}},
 	    #{interface := Interface} = State) ->

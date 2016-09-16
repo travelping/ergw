@@ -11,7 +11,7 @@
 
 -compile({parse_transform, do}).
 
--export([init/2, request_spec/1, handle_request/5]).
+-export([init/2, request_spec/1, handle_request/5, handle_cast/2]).
 
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include("include/ergw.hrl").
@@ -146,6 +146,13 @@ request_spec(_) ->
 
 init(_Opts, State) ->
     {ok, State}.
+
+handle_cast({path_restart, Path}, #{context := #context{path = Path} = Context} = State) ->
+    %% dp_delete_pdp_context(Context),
+    pdn_release_ip(Context, State),
+    {stop, normal, State};
+handle_cast({path_restart, _Path}, State) ->
+    {noreply, State}.
 
 %% API Message Matrix:
 %%

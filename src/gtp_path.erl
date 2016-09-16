@@ -8,6 +8,8 @@
 -module(gtp_path).
 
 -behaviour(gen_server).
+
+-compile({parse_transform, cut}).
 -compile({no_auto_import,[register/2]}).
 
 %% API
@@ -67,10 +69,10 @@ bind(Recovery, #context{version = Version} = Context) ->
     Path = maybe_new_path(Context),
     if is_integer(RestartCounter) ->
 	    ok = gen_server:call(Path, {bind, self(), RestartCounter}),
-	    Context#context{remote_restart_counter = RestartCounter};
+	    Context#context{path = Path, remote_restart_counter = RestartCounter};
        true ->
 	    {ok, PathRestartCounter} = gen_server:call(Path, {bind, self()}),
-	    Context#context{remote_restart_counter = PathRestartCounter}
+	    Context#context{path = Path, remote_restart_counter = PathRestartCounter}
     end.
 
 unbind(#context{control_port = GtpPort, remote_control_ip = RemoteIP}) ->
@@ -104,7 +106,7 @@ get_handler(#gtp_port{type = 'gtp-c'}, v2) ->
 init([#gtp_port{name = PortName} = GtpPort, Version, RemoteIP, Args]) ->
     gtp_path_reg:register({PortName, RemoteIP}),
 
-    TID = ets:new(?MODULE, [ordered_set, private, {keypos, 1}]),
+    TID = ets:new(?MODULE, [ordered_set, public, {keypos, 1}]),
 
     State = #state{table        = TID,
 		   path_counter = 0,
@@ -187,15 +189,23 @@ update_restart_counter(RestartCounter, #state{recovery = undefined} = State) ->
     State#state{recovery = RestartCounter};
 update_restart_counter(RestartCounter, #state{recovery = RestartCounter} = State) ->
     State;
-update_restart_counter(NewRestartCounter, #state{table = TID, ip = IP, recovery = OldRestartCounter} = State)
+update_restart_counter(NewRestartCounter, #state{table = TID, ip = IP,
+						 recovery = OldRestartCounter} = State)
   when OldRestartCounter =/= NewRestartCounter ->
     lager:warning("GSN ~s restarted (~w != ~w)",
 		  [inet:ntoa(IP), OldRestartCounter, NewRestartCounter]),
-    proc_lib:spawn(fun() -> async_change_notify(TID) end),
+    proc_lib:spawn(fun() -> ets_foreach(TID, gtp_context:path_restart(_, self())) end),
     State#state{recovery = NewRestartCounter}.
 
-async_change_notify(_TID) ->
-    ok.
+ets_foreach(TID, Fun) ->
+    ets_foreach(TID, Fun, ets:first(TID)).
+
+ets_foreach(_TID, _Fun, '$end_of_table') ->
+    ok;
+ets_foreach(TID, Fun, Pid) ->
+    ets:delete(TID, Pid),
+    Fun(Pid),
+    ets_foreach(TID, Fun, ets:next(TID, Pid)).
 
 register(Pid, #state{table = TID} = State0) ->
     lager:debug("~s: register(~p)", [?MODULE, Pid]),

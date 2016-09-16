@@ -11,13 +11,16 @@
 
 -compile({parse_transform, cut}).
 
--export([init/2, request_spec/1, handle_request/5, handle_response/5]).
+-export([init/2, request_spec/1, handle_request/5, handle_response/5, handle_cast/2]).
 
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include("include/ergw.hrl").
 -include("gtp_proxy_ds.hrl").
 
 -compile([nowarn_unused_record]).
+
+-define(T3, 10 * 1000).
+-define(N3, 5).
 
 %%====================================================================
 %% API
@@ -322,6 +325,7 @@ request_spec(_) ->
     [].
 
 -record(request_info, {from, seq_no, new_peer}).
+-record(context_state, {nsapi}).
 
 -define(CAUSE_OK(Cause), (Cause =:= request_accepted orelse
 			  Cause =:= new_pdp_type_due_to_network_preference orelse
@@ -332,6 +336,39 @@ init(Opts, State) ->
     ProxyDPs = proplists:get_value(proxy_data_paths, Opts),
     GGSN = proplists:get_value(ggns, Opts),
     {ok, State#{proxy_ports => ProxyPorts, proxy_dps => ProxyDPs, ggsn => GGSN}}.
+
+handle_cast({path_restart, Path},
+	    #{context := #context{path = Path} = Context,
+	      proxy_context := ProxyContext
+	     } = State) ->
+
+    RequestIEs0 = [#cause{value = request_accepted},
+		   #teardown_ind{value = 1},
+		   #nsapi{nsapi = Context#context.state#context_state.nsapi}],
+    RequestIEs = gtp_v1_c:build_recovery(ProxyContext, false, RequestIEs0),
+    send_request(ProxyContext, ?T3, ?N3, RequestIEs),
+
+    dp_delete_pdp_context(Context, ProxyContext),
+
+    {stop, normal, State};
+
+handle_cast({path_restart, Path},
+	    #{context := Context,
+	      proxy_context := #context{path = Path} = ProxyContext
+	     } = State) ->
+
+    RequestIEs0 = [#cause{value = request_accepted},
+		   #teardown_ind{value = 1},
+		   #nsapi{nsapi = Context#context.state#context_state.nsapi}],
+    RequestIEs = gtp_v1_c:build_recovery(Context, false, RequestIEs0),
+    send_request(Context, ?T3, ?N3, RequestIEs),
+
+    dp_delete_pdp_context(Context, ProxyContext),
+
+    {stop, normal, State};
+
+handle_cast({path_restart, _Path}, State) ->
+    {noreply, State}.
 
 handle_request(_From, _Msg, _Req, true, State) ->
 %% resent request
@@ -346,15 +383,7 @@ handle_request(From,
 
     APN = optional_apn_value(APNie, undefined),
 
-    Context0 = #context{
-		  apn               = APN,
-		  version           = v1,
-		  control_interface = ?MODULE,
-		  control_port      = GtpPort,
-		  local_control_tei = LocalTEI,
-		  data_port         = GtpDP,
-		  local_data_tei    = LocalTEI
-		 },
+    Context0 = init_context(APN, GtpPort, LocalTEI, GtpDP, LocalTEI),
     Context1 = update_context_from_gtp_req(Request, Context0),
     Context = gtp_path:bind(Recovery, Context1),
     State1 = State0#{context => Context},
@@ -370,18 +399,13 @@ handle_request(From,
     {ok, ProxyLocalTEI} = gtp_c_lib:alloc_tei(ProxyGtpPort),
 
     lager:debug("ProxyGtpPort: ~p", [lager:pr(ProxyGtpPort, ?MODULE)]),
-    ProxyContext0 = #context{
-		      apn               = APN,
-		      version           = v1,
-		      control_interface = ?MODULE,
-		      control_port      = ProxyGtpPort,
-		      local_control_tei = ProxyLocalTEI,
+    ProxyContext0 = init_context(APN, ProxyGtpPort, ProxyLocalTEI, ProxyGtpDP, ProxyLocalTEI),
+    ProxyContext1 = ProxyContext0#context{
 		      remote_control_ip = GGSN,
-		      data_port         = ProxyGtpDP,
-		      local_data_tei    = ProxyLocalTEI,
-		      remote_data_ip    = GGSN
+		      remote_data_ip    = GGSN,
+		      state             = Context#context.state
 		     },
-    ProxyContext = gtp_path:bind(undefined, ProxyContext0),
+    ProxyContext = gtp_path:bind(undefined, ProxyContext1),
     State = State1#{proxy_context => ProxyContext},
 
     IMSI = optional_imsi_value(IMSIie, undefined),
@@ -524,6 +548,18 @@ copy_to_session(#selection_mode{mode = Mode}, Session) ->
 copy_to_session(_, Session) ->
     Session.
 
+init_context(APN, CntlPort, CntlTEI, DataPort, DataTEI) ->
+    #context{
+       apn               = APN,
+       version           = v1,
+       control_interface = ?MODULE,
+       control_port      = CntlPort,
+       local_control_tei = CntlTEI,
+       data_port         = DataPort,
+       local_data_tei    = DataTEI,
+       state             = #context_state{}
+      }.
+
 update_tunnel_ids(#gsn_address{instance = 0, address = CntlIP}, Context) ->
     Context#context{remote_control_ip = gtp_c_lib:bin2ip(CntlIP)};
 update_tunnel_ids(#gsn_address{instance = 1, address = DataIP}, Context) ->
@@ -532,6 +568,8 @@ update_tunnel_ids(#tunnel_endpoint_identifier_data_i{instance = 0, tei = DataTEI
     Context#context{remote_data_tei = DataTEI};
 update_tunnel_ids(#tunnel_endpoint_identifier_control_plane{instance = 0, tei = CntlTEI}, Context) ->
     Context#context{remote_control_tei = CntlTEI};
+update_tunnel_ids(#nsapi{instance = 0, nsapi = NSAPI}, #context{state = State} = Context) ->
+    Context#context{state = State#context_state{nsapi = NSAPI}};
 update_tunnel_ids(_, Context) ->
     Context.
 
@@ -579,6 +617,13 @@ build_context_request(#context{remote_control_tei = TEI} = Context,
     ProxyIEs1 = apply_proxy_request_nat(ProxyInfo, ProxyIEs0),
     ProxyIEs = update_gtp_req_from_context(Context, ProxyIEs1),
     Request#gtp{tei = TEI, ie = ProxyIEs}.
+
+send_request(#context{control_port = GtpPort,
+		      remote_control_tei = RemoteCntlTEI,
+		      remote_control_ip = RemoteCntlIP},
+	     T3, N3, RequestIEs) ->
+    Msg = #gtp{version = v1, tei = RemoteCntlTEI, ie = RequestIEs},
+    gtp_context:send_request(GtpPort, RemoteCntlIP, T3, N3, Msg, undefined).
 
 forward_request(#context{control_port = GtpPort, remote_control_ip = RemoteCntlIP},
 	       Request, From, SeqNo, NewPeer) ->
