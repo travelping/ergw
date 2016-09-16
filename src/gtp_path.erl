@@ -185,17 +185,48 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
+
+%% 3GPP TS 23.007, Sect. 18 GTP-C-based restart procedures:
+%%
+%% The GTP-C entity that receives a Recovery Information Element in an Echo Response
+%% or in another GTP-C message from a peer, shall compare the received remote Restart
+%% counter value with the previous Restart counter value stored for that peer entity.
+%%
+%%   - If no previous value was stored the Restart counter value received in the Echo
+%%     Response or in the GTP-C message shall be stored for the peer.
+%%
+%%   - If the value of a Restart counter previously stored for a peer is smaller than
+%%     the Restart counter value received in the Echo Response message or the GTP-C
+%%     message, taking the integer roll-over into account, this indicates that the
+%%     entity that sent the Echo Response or the GTP-C message has restarted. The
+%%     received, new Restart counter value shall be stored by the receiving entity,
+%%     replacing the value previously stored for the peer.
+%%
+%%   - If the value of a Restart counter previously stored for a peer is larger than
+%%     the Restart counter value received in the Echo Response message or the GTP-C message,
+%%     taking the integer roll-over into account, this indicates a possible race condition
+%%     (newer message arriving before the older one). The received new Restart counter value
+%%     shall be discarded and an error may be logged
+
+-define(SMALLER(S1, S2), ((S1 < S2 andalso (S2 - S1) < 128) orelse (S1 > S2 andalso (S1 - S2) > 128))).
+
 update_restart_counter(RestartCounter, #state{recovery = undefined} = State) ->
     State#state{recovery = RestartCounter};
 update_restart_counter(RestartCounter, #state{recovery = RestartCounter} = State) ->
     State;
 update_restart_counter(NewRestartCounter, #state{table = TID, ip = IP,
 						 recovery = OldRestartCounter} = State)
-  when OldRestartCounter =/= NewRestartCounter ->
+  when ?SMALLER(OldRestartCounter, NewRestartCounter) ->
     lager:warning("GSN ~s restarted (~w != ~w)",
 		  [inet:ntoa(IP), OldRestartCounter, NewRestartCounter]),
     proc_lib:spawn(fun() -> ets_foreach(TID, gtp_context:path_restart(_, self())) end),
-    State#state{recovery = NewRestartCounter}.
+    State#state{recovery = NewRestartCounter};
+
+update_restart_counter(NewRestartCounter, #state{ip = IP, recovery = OldRestartCounter} = State)
+  when not ?SMALLER(OldRestartCounter, NewRestartCounter) ->
+    lager:warning("possible race on message with restart counter for GSN ~s (old: ~w, new: ~w)",
+		  [inet:ntoa(IP), OldRestartCounter, NewRestartCounter]),
+    State.
 
 ets_foreach(TID, Fun) ->
     ets_foreach(TID, Fun, ets:first(TID)).
