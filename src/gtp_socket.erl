@@ -233,8 +233,31 @@ handle_input(Socket, State) ->
 	    {noreply, State}
     end.
 
+-define(SO_EE_ORIGIN_LOCAL,      1).
+-define(SO_EE_ORIGIN_ICMP,       2).
+-define(SO_EE_ORIGIN_ICMP6,      3).
+-define(SO_EE_ORIGIN_TXSTATUS,   4).
+-define(ICMP_DEST_UNREACH,       3).       %% Destination Unreachable
+-define(ICMP_HOST_UNREACH,       1).       %% Host Unreachable
+-define(ICMP_PROT_UNREACH,       2).       %% Protocol Unreachable
+-define(ICMP_PORT_UNREACH,       3).       %% Port Unreachable
+
+handle_socket_error({?SOL_IP, ?IP_RECVERR, {sock_err, _ErrNo, ?SO_EE_ORIGIN_ICMP, ?ICMP_DEST_UNREACH, Code, _Info, _Data}},
+		    IP, _Port, #state{gtp_port = GtpPort})
+  when Code == ?ICMP_HOST_UNREACH; Code == ?ICMP_PORT_UNREACH ->
+    gtp_path:down(GtpPort, IP);
+
+handle_socket_error(Error, IP, _Port, _State) ->
+    lager:debug("got unhandled error info for ~s: ~p", [inet:ntoa(IP), Error]),
+    ok.
+
 handle_err_input(Socket, State) ->
     case gen_socket:recvmsg(Socket, ?MSG_DONTWAIT bor ?MSG_ERRQUEUE) of
+	{ok, {inet4, IP, Port}, Error, _Data} ->
+	    lists:foreach(handle_socket_error(_, IP, Port, State), Error),
+	    ok = gen_socket:input_event(Socket, true),
+	    {noreply, State};
+
 	Other ->
 	    lager:error("got unhandled error input: ~p", [Other]),
 	    ok = gen_socket:input_event(Socket, true),

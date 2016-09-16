@@ -15,7 +15,7 @@
 %% API
 -export([start_link/4, get/2, all/1,
 	 maybe_new_path/3, handle_request/4,
-	 bind/1, bind/2, unbind/1, get_handler/2]).
+	 bind/1, bind/2, unbind/1, down/2, get_handler/2]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -83,6 +83,14 @@ unbind(#context{control_port = GtpPort, remote_control_ip = RemoteIP}) ->
            ok
     end.
 
+down(GtpPort, IP) ->
+    case get(GtpPort, IP) of
+	Path when is_pid(Path) ->
+	    gen_server:cast(Path, down);
+	_ ->
+	    ok
+    end.
+
 get(#gtp_port{name = PortName}, IP) ->
     gtp_path_reg:lookup({PortName, IP}).
 
@@ -148,6 +156,10 @@ handle_call(Request, _From, State) ->
 handle_cast({handle_request, RemotePort, Msg}, State0) ->
     State = handle_request(RemotePort, Msg, State0),
     {noreply, State};
+
+handle_cast(down, #state{table = TID} = State) ->
+    proc_lib:spawn(fun() -> ets_foreach(TID, gtp_context:path_restart(_, self())) end),
+    {noreply, State#state{recovery = undefined}};
 
 handle_cast(Msg, State) ->
     lager:error("~p: ~w: handle_cast: ~p", [self(), ?MODULE, lager:pr(Msg, ?MODULE)]),
