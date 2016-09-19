@@ -148,19 +148,22 @@ handle_request(_From,
 		    %% #v2_protocol_configuration_options{config = {0,
 		    %% 						[{ipcp,'CP-Configure-Ack',0,
 		    %% 						  [{ms_dns1,<<8,8,8,8>>},{ms_dns2,<<0,0,0,0>>}]}]}},
-		    #v2_bearer_context{group=[#v2_cause{v2_cause = request_accepted},
-					      #v2_eps_bearer_id{eps_bearer_id=15,data = <<>>},
-					      #v2_bearer_level_quality_of_service{pl=15,
-										  pvi=0,
-										  label=9,maximum_bit_rate_for_uplink=0,
-										  maximum_bit_rate_for_downlink=0,
-										  guaranteed_bit_rate_for_uplink=0,
-										  guaranteed_bit_rate_for_downlink=0,
-										  data = <<0,0,0,0>>},
-					      #v2_fully_qualified_tunnel_endpoint_identifier{instance = 5,                  %% S2a TEI Instance
-											     interface_type = 37,           %% S2a PGW GTP-U
-											     key = LocalTEI,
-											     ipv4 = gtp_c_lib:ip2bin(LocalIP)}]}],
+		    #v2_bearer_context{
+		       group=[#v2_cause{v2_cause = request_accepted},
+			      #v2_eps_bearer_id{eps_bearer_id=15,data = <<>>},
+			      #v2_bearer_level_quality_of_service{
+				 pl=15,
+				 pvi=0,
+				 label=9,maximum_bit_rate_for_uplink=0,
+				 maximum_bit_rate_for_downlink=0,
+				 guaranteed_bit_rate_for_uplink=0,
+				 guaranteed_bit_rate_for_downlink=0,
+				 data = <<0,0,0,0>>},
+			      #v2_fully_qualified_tunnel_endpoint_identifier{
+				 instance = 5,                  %% S2a TEI Instance
+				 interface_type = 37,           %% S2a PGW GTP-U
+				 key = LocalTEI,
+				 ipv4 = gtp_c_lib:ip2bin(LocalIP)}]}],
     ResponseIEs = gtp_v2_c:build_recovery(Context, Recovery /= undefined, ResponseIEs0),
     Response = {create_session_response, Context#context.remote_control_tei, ResponseIEs},
     {ok, Response, State1};
