@@ -182,20 +182,17 @@ handle_request(_From,
 
     #create_session_request{
        recovery = Recovery,
-       sender_f_teid_for_control_plane =
-	   #v2_fully_qualified_tunnel_endpoint_identifier{
-	      key  = RemoteCntlTEI,
-	      ipv4 = RemoteCntlIP},
+       sender_f_teid_for_control_plane = FqCntlTEID,
        apn = #v2_access_point_name{apn = APN},
        paa = PAA,
        bearer_context_to_be_created =
 	   #v2_bearer_context{group = BearerCreate}
       } = Req,
 
-    #v2_fully_qualified_tunnel_endpoint_identifier{instance = 2,
-						   interface_type = 4,                  %% S5/S8 SGW GTP-U Interface
-						   key = RemoteDataTEI,
-						   ipv4 = RemoteDataIP} =
+    #v2_fully_qualified_tunnel_endpoint_identifier{
+       instance = 2,
+       interface_type = 4                  %% S5/S8 SGW GTP-U Interface
+      } = FqDataTEID =
 	lists:keyfind(v2_fully_qualified_tunnel_endpoint_identifier, 1, BearerCreate),
     EBI = lists:keyfind(v2_eps_bearer_id, 1, BearerCreate),
 
@@ -203,14 +200,11 @@ handle_request(_From,
 
     {ok, MSv4, MSv6} = pdn_alloc_ip(LocalTEI, ReqMSv4, ReqMSv6, State0),
     Context0 = init_context(APN, GtpPort, LocalTEI, GtpDP, LocalTEI),
-    Context1 = Context0#context{
-		 remote_control_ip  = gtp_c_lib:bin2ip(RemoteCntlIP),
-		 remote_control_tei = RemoteCntlTEI,
-		 remote_data_ip     = gtp_c_lib:bin2ip(RemoteDataIP),
-		 remote_data_tei    = RemoteDataTEI,
+    Context1 = update_context_tunnel_ids(FqCntlTEID, FqDataTEID, Context0),
+    Context2 = Context1#context{
 		 ms_v4              = MSv4,
 		 ms_v6              = MSv6},
-    Context = gtp_path:bind(Recovery, Context1),
+    Context = gtp_path:bind(Recovery, Context2),
     State1 = State0#{context => Context},
 
     #gtp_port{ip = LocalIP} = GtpPort,
@@ -244,7 +238,7 @@ handle_request(_From,
 				 key = LocalTEI,
 				 ipv4 = gtp_c_lib:ip2bin(LocalIP)}]}],
     ResponseIEs = gtp_v2_c:build_recovery(Context, Recovery /= undefined, ResponseIEs0),
-    Response = {create_session_response, RemoteCntlTEI, ResponseIEs},
+    Response = {create_session_response, Context#context.remote_control_tei, ResponseIEs},
     {ok, Response, State1};
 
 handle_request(_From,
@@ -253,26 +247,19 @@ handle_request(_From,
 
     #modify_bearer_request{
        recovery = Recovery,
-       sender_f_teid_for_control_plane =
-	   #v2_fully_qualified_tunnel_endpoint_identifier{
-	      key  = RemoteCntlTEI,
-	      ipv4 = RemoteCntlIP},
+       sender_f_teid_for_control_plane = FqCntlTEID,
        bearer_context_to_be_modified =
 	   #v2_bearer_context{group = BearerCreate}
       } = Req,
 
-    #v2_fully_qualified_tunnel_endpoint_identifier{instance = 2,
-						   interface_type = 4,                  %% S5/S8 SGW GTP-U Interface
-						   key = RemoteDataTEI,
-						   ipv4 = RemoteDataIP} =
+    #v2_fully_qualified_tunnel_endpoint_identifier{
+       instance = 2,
+       interface_type = 4                  %% S5/S8 SGW GTP-U Interface
+      } = FqDataTEID =
 	lists:keyfind(v2_fully_qualified_tunnel_endpoint_identifier, 1, BearerCreate),
     EBI = lists:keyfind(v2_eps_bearer_id, 1, BearerCreate),
 
-    Context0 = OldContext#context{
-		   remote_control_ip  = gtp_c_lib:bin2ip(RemoteCntlIP),
-		   remote_control_tei = RemoteCntlTEI,
-		   remote_data_ip     = gtp_c_lib:bin2ip(RemoteDataIP),
-		   remote_data_tei    = RemoteDataTEI},
+    Context0 = update_context_tunnel_ids(FqCntlTEID, FqDataTEID, OldContext),
     Context = gtp_path:bind(Recovery, Context0),
 
     State1 = if Context /= OldContext ->
@@ -293,7 +280,7 @@ handle_request(_From,
 				 key = LocalTEI,
 				 ipv4 = gtp_c_lib:ip2bin(LocalIP)}]}],
     ResponseIEs = gtp_v2_c:build_recovery(Context, Recovery /= undefined, ResponseIEs0),
-    Response = {modify_bearer_response, RemoteCntlTEI, ResponseIEs},
+    Response = {modify_bearer_response, Context#context.remote_control_tei, ResponseIEs},
     {ok, Response, State1};
 
 handle_request(_From,
@@ -396,3 +383,17 @@ init_context(APN, CntlPort, CntlTEI, DataPort, DataTEI) ->
        local_data_tei    = DataTEI,
        state             = #context_state{}
       }.
+
+update_context_tunnel_ids(#v2_fully_qualified_tunnel_endpoint_identifier{
+			     key  = RemoteCntlTEI,
+			     ipv4 = RemoteCntlIP},
+			  #v2_fully_qualified_tunnel_endpoint_identifier{
+			     key  = RemoteDataTEI,
+			     ipv4 = RemoteDataIP
+			    }, Context) ->
+    Context#context{
+      remote_control_ip  = gtp_c_lib:bin2ip(RemoteCntlIP),
+      remote_control_tei = RemoteCntlTEI,
+      remote_data_ip     = gtp_c_lib:bin2ip(RemoteDataIP),
+      remote_data_tei    = RemoteDataTEI
+     }.

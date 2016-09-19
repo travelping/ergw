@@ -560,35 +560,39 @@ init_context(APN, CntlPort, CntlTEI, DataPort, DataTEI) ->
        state             = #context_state{}
       }.
 
-update_tunnel_ids(#gsn_address{instance = 0, address = CntlIP}, Context) ->
+get_context_from_req(#gsn_address{instance = 0, address = CntlIP}, Context) ->
     Context#context{remote_control_ip = gtp_c_lib:bin2ip(CntlIP)};
-update_tunnel_ids(#gsn_address{instance = 1, address = DataIP}, Context) ->
+get_context_from_req(#gsn_address{instance = 1, address = DataIP}, Context) ->
     Context#context{remote_data_ip = gtp_c_lib:bin2ip(DataIP)};
-update_tunnel_ids(#tunnel_endpoint_identifier_data_i{instance = 0, tei = DataTEI}, Context) ->
+get_context_from_req(#tunnel_endpoint_identifier_data_i{instance = 0, tei = DataTEI}, Context) ->
     Context#context{remote_data_tei = DataTEI};
-update_tunnel_ids(#tunnel_endpoint_identifier_control_plane{instance = 0, tei = CntlTEI}, Context) ->
+get_context_from_req(#tunnel_endpoint_identifier_control_plane{instance = 0, tei = CntlTEI}, Context) ->
     Context#context{remote_control_tei = CntlTEI};
-update_tunnel_ids(#nsapi{instance = 0, nsapi = NSAPI}, #context{state = State} = Context) ->
+get_context_from_req(#nsapi{instance = 0, nsapi = NSAPI}, #context{state = State} = Context) ->
     Context#context{state = State#context_state{nsapi = NSAPI}};
-update_tunnel_ids(_, Context) ->
+get_context_from_req(_, Context) ->
     Context.
 
 update_context_from_gtp_req(#gtp{ie = IEs}, Context) ->
-    lists:foldl(fun update_tunnel_ids/2, Context, IEs).
+    lists:foldl(fun get_context_from_req/2, Context, IEs).
 
-set_tunnel_ids(#context{control_port = #gtp_port{ip = CntlIP}}, #gsn_address{instance = 0} = IE) ->
+set_context_from_req(#context{control_port = #gtp_port{ip = CntlIP}},
+		     #gsn_address{instance = 0} = IE) ->
     IE#gsn_address{address = gtp_c_lib:ip2bin(CntlIP)};
-set_tunnel_ids(#context{data_port = #gtp_port{ip = DataIP}}, #gsn_address{instance = 1} = IE) ->
+set_context_from_req(#context{data_port = #gtp_port{ip = DataIP}},
+		     #gsn_address{instance = 1} = IE) ->
     IE#gsn_address{address = gtp_c_lib:ip2bin(DataIP)};
-set_tunnel_ids(#context{local_data_tei = DataTEI}, #tunnel_endpoint_identifier_data_i{instance = 0} = IE) ->
+set_context_from_req(#context{local_data_tei = DataTEI},
+		     #tunnel_endpoint_identifier_data_i{instance = 0} = IE) ->
     IE#tunnel_endpoint_identifier_data_i{tei = DataTEI};
-set_tunnel_ids(#context{local_control_tei = CntlTEI}, #tunnel_endpoint_identifier_control_plane{instance = 0} = IE) ->
+set_context_from_req(#context{local_control_tei = CntlTEI},
+		     #tunnel_endpoint_identifier_control_plane{instance = 0} = IE) ->
     IE#tunnel_endpoint_identifier_control_plane{tei = CntlTEI};
-set_tunnel_ids(_, IE) ->
+set_context_from_req(_, IE) ->
     IE.
 
 update_gtp_req_from_context(Context, GtpReqIEs) ->
-    lists:map(set_tunnel_ids(Context, _), GtpReqIEs).
+    lists:map(set_context_from_req(Context, _), GtpReqIEs).
 
 proxy_request_nat(#proxy_info{apn = APN},
 		  #access_point_name{instance = 0} = IE)

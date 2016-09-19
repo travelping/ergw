@@ -190,39 +190,25 @@ handle_request(_From, _Msg, _Req, true, State) ->
     {noreply, State};
 
 handle_request(_From,
-	       #gtp{type = create_pdp_context_request, ie = IEs}, Req, _Resent,
+	       #gtp{type = create_pdp_context_request, ie = IEs} = Request, Req, _Resent,
 	       #{tei := LocalTEI, gtp_port := GtpPort, gtp_dp_port := GtpDP} = State0) ->
 
     #create_pdp_context_request{
        recovery = Recovery,
        apn = #access_point_name{apn = APN},
-       sgsn_address_for_signalling =
-	   #gsn_address{address = RemoteCntlIPBin},
-       sgsn_address_for_user_traffic =
-	   #gsn_address{address = RemoteDataIPBin},
-       tunnel_endpoint_identifier_data_i =
-	   #tunnel_endpoint_identifier_data_i{tei = RemoteDataTEI},
-       tunnel_endpoint_identifier_control_plane =
-	   #tunnel_endpoint_identifier_control_plane{tei = RemoteCntlTEI},
        end_user_address = EUA,
        quality_of_service_profile = ReqQoSProfile
       } = Req,
 
-    RemoteCntlIP = gtp_c_lib:bin2ip(RemoteCntlIPBin),
-    RemoteDataIP = gtp_c_lib:bin2ip(RemoteDataIPBin),
     {ReqMSv4, ReqMSv6} = pdp_alloc(EUA),
-
     {ok, MSv4, MSv6} = apn:allocate_pdp_ip(APN, LocalTEI, ReqMSv4, ReqMSv6),
 
     Context0 = init_context(APN, GtpPort, LocalTEI, GtpDP, LocalTEI),
-    Context1 = Context0#context{
-		 remote_control_ip  = RemoteCntlIP,
-		 remote_control_tei = RemoteCntlTEI,
-		 remote_data_ip     = RemoteDataIP,
-		 remote_data_tei    = RemoteDataTEI,
+    Context1 = update_context_from_gtp_req(Request, Context0),
+    Context2 = Context1#context{
 		 ms_v4              = MSv4,
 		 ms_v6              = MSv6},
-    Context = gtp_path:bind(Recovery, Context1),
+    Context = gtp_path:bind(Recovery, Context2),
     State1 = State0#{context => Context},
 
     #gtp_port{ip = LocalIP} = GtpPort,
@@ -283,21 +269,15 @@ handle_request(_From,
 		    #gsn_address{instance = 1, address = gtp_c_lib:ip2bin(LocalIP)},   %% for User Traffic
 		    QoSProfile],
     ResponseIEs = gtp_v1_c:build_recovery(Context, Recovery /= undefined, ResponseIEs0),
-    Reply = {create_pdp_context_response, RemoteCntlTEI, ResponseIEs},
+    Reply = {create_pdp_context_response, Context#context.remote_control_tei, ResponseIEs},
     {reply, Reply, State1};
 
 handle_request(_From,
-	       #gtp{type = update_pdp_context_request}, Req, _Resent,
+	       #gtp{type = update_pdp_context_request} = Request, Req, _Resent,
 	       #{tei := LocalTEI, gtp_port := GtpPort, context := OldContext} = State0) ->
 
     #update_pdp_context_request{
        recovery = Recovery,
-       sgsn_address_for_signalling =
-	   #gsn_address{address = RemoteCntlIPBin},
-       sgsn_address_for_user_traffic =
-	   #gsn_address{address = RemoteDataIPBin},
-       tunnel_endpoint_identifier_data_i =
-	   #tunnel_endpoint_identifier_data_i{tei = RemoteDataTEI},
        quality_of_service_profile = QoSProfile
       } = Req,
 
@@ -309,14 +289,7 @@ handle_request(_From,
 		OldContext#context.remote_control_tei
 	end,
 
-    RemoteCntlIP = gtp_c_lib:bin2ip(RemoteCntlIPBin),
-    RemoteDataIP = gtp_c_lib:bin2ip(RemoteDataIPBin),
-
-    Context0 = OldContext#context{
-		remote_control_ip  = RemoteCntlIP,
-		remote_control_tei = RemoteCntlTEI,
-		remote_data_ip     = RemoteDataIP,
-		remote_data_tei    = RemoteDataTEI},
+    Context0 = update_context_from_gtp_req(Request, OldContext),
     Context = gtp_path:bind(Recovery, Context0),
 
     State1 = if Context /= OldContext ->
@@ -447,6 +420,22 @@ init_context(APN, CntlPort, CntlTEI, DataPort, DataTEI) ->
        local_data_tei    = DataTEI,
        state             = #context_state{}
       }.
+
+get_context_from_req(#gsn_address{instance = 0, address = CntlIP}, Context) ->
+    Context#context{remote_control_ip = gtp_c_lib:bin2ip(CntlIP)};
+get_context_from_req(#gsn_address{instance = 1, address = DataIP}, Context) ->
+    Context#context{remote_data_ip = gtp_c_lib:bin2ip(DataIP)};
+get_context_from_req(#tunnel_endpoint_identifier_data_i{instance = 0, tei = DataTEI}, Context) ->
+    Context#context{remote_data_tei = DataTEI};
+get_context_from_req(#tunnel_endpoint_identifier_control_plane{instance = 0, tei = CntlTEI}, Context) ->
+    Context#context{remote_control_tei = CntlTEI};
+%% get_context_from_req(#nsapi{instance = 0, nsapi = NSAPI}, #context{state = State} = Context) ->
+%%     Context#context{state = State#context_state{nsapi = NSAPI}};
+get_context_from_req(_, Context) ->
+    Context.
+
+update_context_from_gtp_req(#gtp{ie = IEs}, Context) ->
+    lists:foldl(fun get_context_from_req/2, Context, IEs).
 
 dp_args(#context{ms_v4 = MSv4}) ->
     MSv4.
