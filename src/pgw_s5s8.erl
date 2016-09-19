@@ -144,6 +144,8 @@ request_spec(modify_bearer_request) ->
 request_spec(_) ->
     [].
 
+-record(context_state, {}).
+
 init(_Opts, State) ->
     {ok, State}.
 
@@ -176,7 +178,7 @@ handle_request(_From, _Msg, _Req, true, State) ->
 
 handle_request(_From,
 	       #gtp{type = create_session_request}, Req, _Resent,
-	       #{tei := LocalTEI, gtp_port := GtpPort} = State0) ->
+	       #{tei := LocalTEI, gtp_port := GtpPort, gtp_dp_port := GtpDP} = State0) ->
 
     #create_session_request{
        recovery = Recovery,
@@ -184,6 +186,7 @@ handle_request(_From,
 	   #v2_fully_qualified_tunnel_endpoint_identifier{
 	      key  = RemoteCntlTEI,
 	      ipv4 = RemoteCntlIP},
+       apn = #v2_access_point_name{apn = APN},
        paa = PAA,
        bearer_context_to_be_created =
 	   #v2_bearer_context{group = BearerCreate}
@@ -199,20 +202,15 @@ handle_request(_From,
     {ReqMSv4, ReqMSv6} = pdn_alloc(PAA),
 
     {ok, MSv4, MSv6} = pdn_alloc_ip(LocalTEI, ReqMSv4, ReqMSv6, State0),
-    Context0 = #context{
-		 version            = v2,
-		 control_interface  = ?MODULE,
-		 control_port       = GtpPort,
-		 local_control_tei  = LocalTEI,
+    Context0 = init_context(APN, GtpPort, LocalTEI, GtpDP, LocalTEI),
+    Context1 = Context0#context{
 		 remote_control_ip  = gtp_c_lib:bin2ip(RemoteCntlIP),
 		 remote_control_tei = RemoteCntlTEI,
-		 data_port          = GtpPort,
-		 local_data_tei     = LocalTEI,
 		 remote_data_ip     = gtp_c_lib:bin2ip(RemoteDataIP),
 		 remote_data_tei    = RemoteDataTEI,
 		 ms_v4              = MSv4,
 		 ms_v6              = MSv6},
-    Context = gtp_path:bind(Recovery, Context0),
+    Context = gtp_path:bind(Recovery, Context1),
     State1 = State0#{context => Context},
 
     #gtp_port{ip = LocalIP} = GtpPort,
@@ -386,3 +384,15 @@ apply_context_change(NewContext0, OldContext, State) ->
     NewContext = gtp_path:bind(NewContext0),
     gtp_path:unbind(OldContext),
     State#{context => NewContext}.
+
+init_context(APN, CntlPort, CntlTEI, DataPort, DataTEI) ->
+    #context{
+       apn               = APN,
+       version           = v2,
+       control_interface = ?MODULE,
+       control_port      = CntlPort,
+       local_control_tei = CntlTEI,
+       data_port         = DataPort,
+       local_data_tei    = DataTEI,
+       state             = #context_state{}
+      }.
