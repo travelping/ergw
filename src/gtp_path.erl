@@ -341,6 +341,6 @@ handle_request(RemotePort, #gtp{type = echo_request} = Req,
 	       #state{gtp_port = GtpPort, handler = Handler} = State) ->
     lager:debug("echo_request: ~p", [Req]),
 
-    ResponseIEs = Handler:build_recovery(GtpPort, true),
+    ResponseIEs = Handler:build_recovery(GtpPort, true, []),
     Response = Req#gtp{type = echo_response, ie = ResponseIEs},
     send_message(RemotePort, Response, State).

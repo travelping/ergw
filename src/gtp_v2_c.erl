@@ -30,6 +30,9 @@ restart_counter(#v2_recovery{restart_counter = RestartCounter}) ->
 restart_counter(_) ->
     undefined.
 
+build_recovery(#gtp_port{restart_counter = RCnt}, NewPeer, IEs)
+  when NewPeer == true ->
+    [#v2_recovery{restart_counter = RCnt} | IEs];
 build_recovery(#context{
 		  remote_restart_counter = RemoteRestartCounter,
 		  control_port =
