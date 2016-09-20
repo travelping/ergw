@@ -422,7 +422,7 @@ handle_request(From,
 					   recovery = Recovery}, _Resent,
 	       #{context := OldContext, proxy_context := ProxyContext0} = State0) ->
 
-    Context0 = update_context_from_gtp_req(Recovery, OldContext),
+    Context0 = update_context_from_gtp_req(Request, OldContext),
     Context = gtp_path:bind(Recovery, Context0),
     State = apply_context_change(Context, OldContext, State0),
 
