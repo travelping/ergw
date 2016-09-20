@@ -220,7 +220,7 @@ get_handler_if(GtpPort, #gtp{version = v2} = Msg) ->
     gtp_v2_c:get_handler(GtpPort, Msg).
 
 get_handler(IP, GtpPort, #gtp{seq_no = SeqNo} = Msg) ->
-    case lookup(GtpPort, {IP, SeqNo}) of
+    case gtp_context_reg:lookup(GtpPort, {seq, IP, SeqNo}) of
 	Context when is_pid(Context) ->
 	    {ok, Context};
 	_ ->
