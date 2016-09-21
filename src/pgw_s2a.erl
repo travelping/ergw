@@ -108,7 +108,7 @@ handle_request(_From, _Msg, _Req, true, State) ->
 
 handle_request(_From,
 	       #gtp{type = create_session_request}, Req, _Resent,
-	       #{tei := LocalTEI, gtp_port := GtpPort, gtp_dp_port := GtpDP} = State0) ->
+	       #{tei := LocalTEI, gtp_port := GtpPort, gtp_dp_port := GtpDP} = State) ->
 
     #create_session_request{
        recovery = Recovery,
@@ -124,49 +124,17 @@ handle_request(_From,
       } = FqDataTEID =
 	lists:keyfind(v2_fully_qualified_tunnel_endpoint_identifier, 1, BearerCreate),
 
-    {ReqMSv4, ReqMSv6} = pdn_alloc(PAA),
-
-    {ok, MSv4, MSv6} = pdn_alloc_ip(LocalTEI, ReqMSv4, ReqMSv6, State0),
     Context0 = init_context(APN, GtpPort, LocalTEI, GtpDP, LocalTEI),
     Context1 = update_context_tunnel_ids(FqCntlTEID, FqDataTEID, Context0),
-    Context2 = Context1#context{
-		 ms_v4              = MSv4,
-		 ms_v6              = MSv6},
-    Context = gtp_path:bind(Recovery, Context2),
-    State1 = State0#{context => Context},
+    Context2 = gtp_path:bind(Recovery, Context1),
 
-    #gtp_port{ip = LocalIP} = GtpPort,
+    Context = assign_ips(PAA, Context2),
+    dp_create_pdp_context(Context),
 
-    ResponseIEs0 = [#v2_cause{v2_cause = request_accepted},
-		    #v2_fully_qualified_tunnel_endpoint_identifier{
-		       instance = 1,
-		       interface_type = 36,          %% S2a PGW GTP-C
-		       key = LocalTEI,
-		       ipv4 = gtp_c_lib:ip2bin(LocalIP)
-		      },
-		    encode_paa(MSv4, MSv6),
-		    %% #v2_protocol_configuration_options{config = {0,
-		    %% 						[{ipcp,'CP-Configure-Ack',0,
-		    %% 						  [{ms_dns1,<<8,8,8,8>>},{ms_dns2,<<0,0,0,0>>}]}]}},
-		    #v2_bearer_context{
-		       group=[#v2_cause{v2_cause = request_accepted},
-			      #v2_eps_bearer_id{eps_bearer_id=15,data = <<>>},
-			      #v2_bearer_level_quality_of_service{
-				 pl=15,
-				 pvi=0,
-				 label=9,maximum_bit_rate_for_uplink=0,
-				 maximum_bit_rate_for_downlink=0,
-				 guaranteed_bit_rate_for_uplink=0,
-				 guaranteed_bit_rate_for_downlink=0,
-				 data = <<0,0,0,0>>},
-			      #v2_fully_qualified_tunnel_endpoint_identifier{
-				 instance = 5,                  %% S2a TEI Instance
-				 interface_type = 37,           %% S2a PGW GTP-U
-				 key = LocalTEI,
-				 ipv4 = gtp_c_lib:ip2bin(LocalIP)}]}],
+    ResponseIEs0 = create_session_response(Context),
     ResponseIEs = gtp_v2_c:build_recovery(Context, Recovery /= undefined, ResponseIEs0),
     Response = {create_session_response, Context#context.remote_control_tei, ResponseIEs},
-    {ok, Response, State1};
+    {ok, Response, State#{context => Context}};
 
 handle_request(_From,
 	       #gtp{type = delete_session_request}, Req, _Resent,
@@ -184,12 +152,13 @@ handle_request(_From,
     Result =
 	do([error_m ||
 	       match_context(35, Context, FqTEI),
-	       pdn_release_ip(Context, State0),
 	       return({RemoteCntlTEI, request_accepted, State0})
 	   ]),
 
     case Result of
 	{ok, {ReplyTEI, ReplyIEs, State}} ->
+	    dp_delete_pdp_context(Context),
+	    pdn_release_ip(Context, State),
 	    Reply = {delete_session_response, ReplyTEI, ReplyIEs},
 	    {stop, Reply, State};
 
@@ -246,9 +215,6 @@ encode_paa(IPv4, IPv6) ->
 encode_paa(Type, IPv4, IPv6) ->
     #v2_pdn_address_allocation{type = Type, address = <<IPv6/binary, IPv4/binary>>}.
 
-pdn_alloc_ip(TEI, IPv4, IPv6, #{gtp_port := GtpPort}) ->
-    apn:allocate_pdp_ip(GtpPort, TEI, IPv4, IPv6).
-
 pdn_release_ip(#context{ms_v4 = MSv4, ms_v6 = MSv6}, #{gtp_port := GtpPort}) ->
     apn:release_pdp_ip(GtpPort, MSv4, MSv6).
 
@@ -277,3 +243,55 @@ update_context_tunnel_ids(#v2_fully_qualified_tunnel_endpoint_identifier{
       remote_data_ip     = gtp_c_lib:bin2ip(RemoteDataIP),
       remote_data_tei    = RemoteDataTEI
      }.
+
+dp_args(#context{ms_v4 = MSv4}) ->
+    MSv4.
+
+dp_create_pdp_context(Context) ->
+    Args = dp_args(Context),
+    gtp_dp:create_pdp_context(Context, Args).
+
+%% dp_update_pdp_context(NewContext, OldContext) ->
+%%     %% TODO: only do that if New /= Old
+%%     dp_delete_pdp_context(OldContext),
+%%     dp_create_pdp_context(NewContext).
+
+dp_delete_pdp_context(Context) ->
+    Args = dp_args(Context),
+    gtp_dp:delete_pdp_context(Context, Args).
+
+assign_ips(PAA, #context{apn = APN, local_control_tei = LocalTEI} = Context) ->
+    {ReqMSv4, ReqMSv6} = pdn_alloc(PAA),
+    {ok, MSv4, MSv6} = apn:allocate_pdp_ip(APN, LocalTEI, ReqMSv4, ReqMSv6),
+    Context#context{ms_v4 = MSv4, ms_v6 = MSv6}.
+
+create_session_response(#context{control_port = #gtp_port{ip = LocalIP},
+				 local_control_tei = LocalTEI,
+				 ms_v4 = MSv4, ms_v6 = MSv6}) ->
+    [#v2_cause{v2_cause = request_accepted},
+     #v2_fully_qualified_tunnel_endpoint_identifier{
+	instance = 1,
+	interface_type = 36,          %% S2a PGW GTP-C
+	key = LocalTEI,
+	ipv4 = gtp_c_lib:ip2bin(LocalIP)
+       },
+     encode_paa(MSv4, MSv6),
+     %% #v2_protocol_configuration_options{config = {0,
+     %% 						[{ipcp,'CP-Configure-Ack',0,
+     %% 						  [{ms_dns1,<<8,8,8,8>>},{ms_dns2,<<0,0,0,0>>}]}]}},
+     #v2_bearer_context{
+	group=[#v2_cause{v2_cause = request_accepted},
+	       #v2_eps_bearer_id{eps_bearer_id=15,data = <<>>},
+	       #v2_bearer_level_quality_of_service{
+		  pl=15,
+		  pvi=0,
+		  label=9,maximum_bit_rate_for_uplink=0,
+		  maximum_bit_rate_for_downlink=0,
+		  guaranteed_bit_rate_for_uplink=0,
+		  guaranteed_bit_rate_for_downlink=0,
+		  data = <<0,0,0,0>>},
+	       #v2_fully_qualified_tunnel_endpoint_identifier{
+		  instance = 5,                  %% S2a TEI Instance
+		  interface_type = 37,           %% S2a PGW GTP-U
+		  key = LocalTEI,
+		  ipv4 = gtp_c_lib:ip2bin(LocalIP)}]}].

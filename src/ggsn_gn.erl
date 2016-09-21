@@ -190,87 +190,32 @@ handle_request(_From, _Msg, _Req, true, State) ->
     {noreply, State};
 
 handle_request(_From,
-	       #gtp{type = create_pdp_context_request, ie = IEs} = Request, Req, _Resent,
-	       #{tei := LocalTEI, gtp_port := GtpPort, gtp_dp_port := GtpDP} = State0) ->
+	       #gtp{type = create_pdp_context_request} = Request, Req, _Resent,
+	       #{tei := LocalTEI, gtp_port := GtpPort, gtp_dp_port := GtpDP} = State) ->
 
     #create_pdp_context_request{
        recovery = Recovery,
        apn = #access_point_name{apn = APN},
-       end_user_address = EUA,
-       quality_of_service_profile = ReqQoSProfile
+       end_user_address = EUA
       } = Req,
-
-    {ReqMSv4, ReqMSv6} = pdp_alloc(EUA),
-    {ok, MSv4, MSv6} = apn:allocate_pdp_ip(APN, LocalTEI, ReqMSv4, ReqMSv6),
 
     Context0 = init_context(APN, GtpPort, LocalTEI, GtpDP, LocalTEI),
     Context1 = update_context_from_gtp_req(Request, Context0),
-    Context2 = Context1#context{
-		 ms_v4              = MSv4,
-		 ms_v6              = MSv6},
-    Context = gtp_path:bind(Recovery, Context2),
-    State1 = State0#{context => Context},
+    Context2 = gtp_path:bind(Recovery, Context1),
 
-    #gtp_port{ip = LocalIP} = GtpPort,
+    Session0 = init_session(Context2),
+    Session1 = init_session_from_gtp_req(Request, Session0),
 
-    Session0 = #{'IP'           => gtp_c_lib:ip2bin(MSv4),
-		 'GGSN-Address' => gtp_c_lib:ip2bin(LocalIP)},
-    Session1 = init_session(IEs, Session0),
     lager:debug("Invoking CONTROL: ~p", [Session1]),
     ergw_control:authenticate(Session1),
 
+    Context = assign_ips(EUA, Context2),
     dp_create_pdp_context(Context),
 
-    %% TODO: the QoS profile is too simplistic
-    #quality_of_service_profile{data = ReqQoSProfileData} = ReqQoSProfile,
-    QoSProfile =
-	case '3gpp_qos':decode(ReqQoSProfileData) of
-	    Profile when is_binary(Profile) ->
-		ReqQoSProfile;
-	    #qos{traffic_class = 0} ->			%% MS to Network: Traffic Class: Subscribed
-		%% 3GPP TS 24.008, Sect. 10.5.6.5,
-		QoS = #qos{
-			 delay_class			= 4,		%% best effort
-			 reliability_class		= 3,		%% Unacknowledged GTP/LLC,
-									%% Ack RLC, Protected data
-			 peak_throughput		= 2,		%% 2000 oct/s (2 kBps)
-			 precedence_class		= 3,		%% Low priority
-			 mean_throughput		= 31,		%% Best effort
-			 traffic_class			= 4,		%% Background class
-			 delivery_order			= 2,		%% Without delivery order
-			 delivery_of_erroneorous_sdu	= 3,		%% Erroneous SDUs are not delivered
-			 max_sdu_size			= 1500,		%% 1500 octets
-			 max_bit_rate_uplink		= 16,		%% 16 kbps
-			 max_bit_rate_downlink		= 16,		%% 16 kbps
-			 residual_ber			= 7,		%% 10^-5
-			 sdu_error_ratio		= 4,		%% 10^-4
-			 transfer_delay			= 300,		%% 300ms
-			 traffic_handling_priority	= 3,		%% Priority level 3
-			 guaranteed_bit_rate_uplink	= 0,		%% 0 kbps
-			 guaranteed_bit_rate_downlink	= 0,		%% 0 kbps
-			 signaling_indication		= 0,		%% unknown
-			 source_statistics_descriptor	= 0},		%% Not optimised for signalling traffic
-		ReqQoSProfile#quality_of_service_profile{data = '3gpp_qos':encode(QoS)};
-	    _ ->
-		ReqQoSProfile
-	end,
-
-    ResponseIEs0 = [#cause{value = request_accepted},
-		    #reordering_required{required = no},
-		    #tunnel_endpoint_identifier_data_i{tei = LocalTEI},
-		    #tunnel_endpoint_identifier_control_plane{tei = LocalTEI},
-		    #charging_id{id = <<0,0,0,1>>},
-		    encode_eua(MSv4, MSv6),
-		    #protocol_configuration_options{config = {0,
-							      [{ipcp,'CP-Configure-Ack',0,
-								[{ms_dns1,<<8,8,8,8>>},
-								 {ms_dns2,<<0,0,0,0>>}]}]}},
-		    #gsn_address{instance = 0, address = gtp_c_lib:ip2bin(LocalIP)},   %% for Control Plane
-		    #gsn_address{instance = 1, address = gtp_c_lib:ip2bin(LocalIP)},   %% for User Traffic
-		    QoSProfile],
+    ResponseIEs0 = create_pdp_context_response(Req, Context),
     ResponseIEs = gtp_v1_c:build_recovery(Context, Recovery /= undefined, ResponseIEs0),
     Reply = {create_pdp_context_response, Context#context.remote_control_tei, ResponseIEs},
-    {reply, Reply, State1};
+    {reply, Reply, State#{context => Context}};
 
 handle_request(_From,
 	       #gtp{type = update_pdp_context_request} = Request, Req, _Resent,
@@ -387,8 +332,9 @@ apply_context_change(NewContext0, OldContext, State) ->
     gtp_path:unbind(OldContext),
     State#{context => NewContext}.
 
-init_session(IEs, Session) ->
-    lists:foldr(fun copy_to_session/2, Session, IEs).
+init_session(#context{control_port = #gtp_port{
+					ip = LocalIP}}) ->
+    #{'3GPP-GGSN-Address' => LocalIP}.
 
 %% copy_to_session(#international_mobile_subscriber_identity{imsi = IMSI}, Session) ->
 %%     Id = [{'Subscription-Id-Type' , 1}, {'Subscription-Id-Data', IMSI}],
@@ -408,6 +354,9 @@ copy_to_session(#selection_mode{mode = Mode}, Session) ->
 
 copy_to_session(_, Session) ->
     Session.
+
+init_session_from_gtp_req(#gtp{ie = IEs}, Session) ->
+    lists:foldr(fun copy_to_session/2, Session, IEs).
 
 init_context(APN, CntlPort, CntlTEI, DataPort, DataTEI) ->
     #context{
@@ -452,3 +401,62 @@ dp_update_pdp_context(NewContext, OldContext) ->
 dp_delete_pdp_context(Context) ->
     Args = dp_args(Context),
     gtp_dp:delete_pdp_context(Context, Args).
+
+assign_ips(EUA, #context{apn = APN, local_control_tei = LocalTEI} = Context) ->
+    {ReqMSv4, ReqMSv6} = pdp_alloc(EUA),
+    {ok, MSv4, MSv6} = apn:allocate_pdp_ip(APN, LocalTEI, ReqMSv4, ReqMSv6),
+    Context#context{ms_v4 = MSv4, ms_v6 = MSv6}.
+
+create_pdp_context_response(#create_pdp_context_request{
+			       quality_of_service_profile = ReqQoSProfile
+			      },
+			    #context{control_port = #gtp_port{ip = LocalIP},
+				     local_control_tei = LocalTEI,
+				     ms_v4 = MSv4, ms_v6 = MSv6}) ->
+    %% TODO: the QoS profile is too simplistic
+    #quality_of_service_profile{data = ReqQoSProfileData} = ReqQoSProfile,
+    QoSProfile =
+	case '3gpp_qos':decode(ReqQoSProfileData) of
+	    Profile when is_binary(Profile) ->
+		ReqQoSProfile;
+	    #qos{traffic_class = 0} ->			%% MS to Network: Traffic Class: Subscribed
+		%% 3GPP TS 24.008, Sect. 10.5.6.5,
+		QoS = #qos{
+			 delay_class			= 4,		%% best effort
+			 reliability_class		= 3,		%% Unacknowledged GTP/LLC,
+									%% Ack RLC, Protected data
+			 peak_throughput		= 2,		%% 2000 oct/s (2 kBps)
+			 precedence_class		= 3,		%% Low priority
+			 mean_throughput		= 31,		%% Best effort
+			 traffic_class			= 4,		%% Background class
+			 delivery_order			= 2,		%% Without delivery order
+			 delivery_of_erroneorous_sdu	= 3,		%% Erroneous SDUs are not delivered
+			 max_sdu_size			= 1500,		%% 1500 octets
+			 max_bit_rate_uplink		= 16,		%% 16 kbps
+			 max_bit_rate_downlink		= 16,		%% 16 kbps
+			 residual_ber			= 7,		%% 10^-5
+			 sdu_error_ratio		= 4,		%% 10^-4
+			 transfer_delay			= 300,		%% 300ms
+			 traffic_handling_priority	= 3,		%% Priority level 3
+			 guaranteed_bit_rate_uplink	= 0,		%% 0 kbps
+			 guaranteed_bit_rate_downlink	= 0,		%% 0 kbps
+			 signaling_indication		= 0,		%% unknown
+			 source_statistics_descriptor	= 0},		%% Not optimised for signalling traffic
+		ReqQoSProfile#quality_of_service_profile{data = '3gpp_qos':encode(QoS)};
+	    _ ->
+		ReqQoSProfile
+	end,
+
+    [#cause{value = request_accepted},
+     #reordering_required{required = no},
+     #tunnel_endpoint_identifier_data_i{tei = LocalTEI},
+     #tunnel_endpoint_identifier_control_plane{tei = LocalTEI},
+     #charging_id{id = <<0,0,0,1>>},
+     encode_eua(MSv4, MSv6),
+     #protocol_configuration_options{config = {0,
+					       [{ipcp,'CP-Configure-Ack',0,
+						 [{ms_dns1,<<8,8,8,8>>},
+						  {ms_dns2,<<0,0,0,0>>}]}]}},
+     #gsn_address{instance = 0, address = gtp_c_lib:ip2bin(LocalIP)},   %% for Control Plane
+     #gsn_address{instance = 1, address = gtp_c_lib:ip2bin(LocalIP)},   %% for User Traffic
+     QoSProfile].
