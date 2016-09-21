@@ -9,6 +9,8 @@
 
 -behaviour(gtp_api).
 
+-compile({parse_transform, cut}).
+
 -export([init/2, request_spec/1, handle_request/5, handle_cast/2]).
 
 -include_lib("gtplib/include/gtp_packet.hrl").
@@ -175,7 +177,8 @@ request_spec(_) ->
 -record(context_state, {}).
 
 init(_Opts, State) ->
-    {ok, State}.
+    {ok, Session} = ergw_aaa_session_sup:new_session(self(), #{}),
+    {ok, State#{'Session' => Session}}.
 
 handle_cast({path_restart, Path}, #{context := #context{path = Path} = Context} = State) ->
     dp_delete_pdp_context(Context),
@@ -190,8 +193,12 @@ handle_request(_From, _Msg, _Req, true, State) ->
     {noreply, State};
 
 handle_request(_From,
-	       #gtp{type = create_pdp_context_request} = Request, Req, _Resent,
-	       #{tei := LocalTEI, gtp_port := GtpPort, gtp_dp_port := GtpDP} = State) ->
+	       #gtp{type = create_pdp_context_request} = Request,
+	       #create_pdp_context_request{
+		  quality_of_service_profile = ReqQoSProfile
+		 } = Req, _Resent,
+	       #{tei := LocalTEI, gtp_port := GtpPort, gtp_dp_port := GtpDP,
+		 'Session' := Session} = State) ->
 
     #create_pdp_context_request{
        recovery = Recovery,
@@ -203,19 +210,31 @@ handle_request(_From,
     Context1 = update_context_from_gtp_req(Request, Context0),
     Context2 = gtp_path:bind(Recovery, Context1),
 
-    Session0 = init_session(Context2),
-    Session1 = init_session_from_gtp_req(Request, Session0),
+    SessionOpts0 = init_session(Context2),
+    SessionOpts1 = init_session_from_gtp_req(Request, SessionOpts0),
+    SessionOpts = init_session_qos(ReqQoSProfile, SessionOpts1),
 
-    lager:debug("Invoking CONTROL: ~p", [Session1]),
-    ergw_control:authenticate(Session1),
+    lager:info("SessionOpts: ~p", [SessionOpts]),
+    case ergw_aaa_session:authenticate(Session, SessionOpts) of
+	success ->
+	    lager:info("AuthResult: success"),
 
-    Context = assign_ips(EUA, Context2),
-    dp_create_pdp_context(Context),
+	    ActiveSessionOpts = ergw_aaa_session:get(Session),
+	    Context = assign_ips(ActiveSessionOpts, EUA, Context2),
 
-    ResponseIEs0 = create_pdp_context_response(Req, Context),
-    ResponseIEs = gtp_v1_c:build_recovery(Context, Recovery /= undefined, ResponseIEs0),
-    Reply = {create_pdp_context_response, Context#context.remote_control_tei, ResponseIEs},
-    {reply, Reply, State#{context => Context}};
+	    ResponseIEs0 = create_pdp_context_response(ActiveSessionOpts, Req, Context),
+	    ResponseIEs = gtp_v1_c:build_recovery(Context, Recovery /= undefined, ResponseIEs0),
+	    Reply = {create_pdp_context_response, Context#context.remote_control_tei, ResponseIEs},
+	    {reply, Reply, State#{context => Context}};
+
+	Other ->
+	    lager:info("AuthResult: ~p", [Other]),
+
+	    ResponseIEs0 = [#cause{value = user_authentication_failed}],
+	    ResponseIEs = gtp_v1_c:build_recovery(Context2, Recovery /= undefined, ResponseIEs0),
+	    Reply = {create_pdp_context_response, Context2#context.remote_control_tei, ResponseIEs},
+	    {stop, Reply, State#{context => Context2}}
+    end;
 
 handle_request(_From,
 	       #gtp{type = update_pdp_context_request} = Request, Req, _Resent,
@@ -334,29 +353,134 @@ apply_context_change(NewContext0, OldContext, State) ->
 
 init_session(#context{control_port = #gtp_port{
 					ip = LocalIP}}) ->
-    #{'3GPP-GGSN-Address' => LocalIP}.
+    #{'Username'		=> <<"ergw">>,
+      'Password'		=> <<"ergw">>,
+      'Service-Type'		=> 'Framed-User',
+      'Framed-Protocol'		=> 'GPRS-PDP-Context',
+      '3GPP-GGSN-Address'	=> LocalIP
+      %%TODO: '3GPP-GGSN-MCC-MNC'
+     }.
 
-%% copy_to_session(#international_mobile_subscriber_identity{imsi = IMSI}, Session) ->
-%%     Id = [{'Subscription-Id-Type' , 1}, {'Subscription-Id-Data', IMSI}],
-%%     Session#{'Subscription-Id' => Id};
+copy_ppp_to_session({pap, 'PAP-Authentication-Request', _Id, Username, Password}, Session) ->
+    Session#{'Username' => Username, 'Password' => Password};
+copy_ppp_to_session({chap, 'CHAP-Challenge', _Id, Value, _Name}, Session) ->
+    Session#{'CHAP_Challenge' => Value};
+copy_ppp_to_session({chap, 'CHAP-Response', _Id, Value, Name}, Session) ->
+    Session#{'CHAP_Password' => Value, 'Username' => Name};
+copy_ppp_to_session(_, Session) ->
+    Session.
 
-copy_to_session(#international_mobile_subscriber_identity{imsi = IMSI}, Session) ->
-    Session#{'IMSI' => IMSI};
+copy_to_session(#protocol_configuration_options{config = {0, Options}}, Session) ->
+    lists:foldr(fun copy_ppp_to_session/2, Session, Options);
+copy_to_session(#access_point_name{apn = APN}, Session) ->
+    Session#{'Called-Station-Id' => unicode:characters_to_binary(lists:join($., APN))};
 copy_to_session(#ms_international_pstn_isdn_number{
 		   msisdn = {isdn_address, _, _, 1, MSISDN}}, Session) ->
-    Session#{'MSISDN' => MSISDN};
-copy_to_session(#gsn_address{instance = 0, address = IP}, Session) ->
-    Session#{'SGSN-Address' => gtp_c_lib:ip2bin(IP)};
-copy_to_session(#rat_type{rat_type = Type}, Session) ->
-    Session#{'RAT-Type' => Type};
-copy_to_session(#selection_mode{mode = Mode}, Session) ->
-    Session#{'Selection-Mode' => Mode};
+    Session#{'Calling-Station-Id' => MSISDN};
+copy_to_session(#international_mobile_subscriber_identity{imsi = IMSI}, Session) ->
+    case itu_e212:split_imsi(IMSI) of
+	{MCC, MNC, _} ->
+	    Session#{'3GPP-IMSI' => IMSI,
+		     '3GPP-IMSI-MCC-MNC' => <<MCC/binary, MNC/binary>>};
+	_ ->
+	    Session#{'3GPP-IMSI' => IMSI}
+    end;
+copy_to_session(#end_user_address{pdp_type_organization = 0,
+				  pdp_type_number = 1}, Session) ->
+    Session#{'3GPP-PDP-Type' => 'PPP'};
+copy_to_session(#end_user_address{pdp_type_organization = 1,
+				  pdp_type_number = 16#57,
+				  pdp_address = Address}, Session0) ->
+    Session = Session0#{'3GPP-PDP-Type' => 'IPv4'},
+    case Address of
+	<<_:4/bytes>> -> Session#{'Framed-IP-Address' => gtp_c_lib:bin2ip(Address)};
+	_             -> Session
+    end;
+copy_to_session(#end_user_address{pdp_type_organization = 1,
+				  pdp_type_number = 16#21,
+				  pdp_address = Address}, Session0) ->
+    Session = Session0#{'3GPP-PDP-Type' => 'IPv6'},
+    case Address of
+	<<_:16/bytes>> -> Session#{'Framed-IPv6-Prefix' => {gtp_c_lib:bin2ip(Address), 128}};
+	_              -> Session
+    end;
+copy_to_session(#end_user_address{pdp_type_organization = 1,
+				  pdp_type_number = 16#8D,
+				  pdp_address = Address}, Session0) ->
+    Session = Session0#{'3GPP-PDP-Type' => 'IPv4v6'},
+    case Address of
+	<< IP4:4/bytes >> ->
+	    Session#{'Framed-IP-Address'  => gtp_c_lib:bin2ip(IP4)};
+	<< IP6:16/bytes >> ->
+	    Session#{'Framed-IPv6-Prefix' => {gtp_c_lib:bin2ip(IP6), 128}};
+	<< IP4:4/bytes, IP6:16/bytes >> ->
+	    Session#{'Framed-IP-Address'  => gtp_c_lib:bin2ip(IP4),
+		     'Framed-IPv6-Prefix' => {gtp_c_lib:bin2ip(IP6), 128}};
+	_ ->
+	    Session
+   end;
 
+copy_to_session(#gsn_address{instance = 0, address = IP}, Session) ->
+    Session#{'3GPP-SGSN-Address' => IP};
+copy_to_session(#nsapi{instance = 0, nsapi = NSAPI}, Session) ->
+    Session#{'3GPP-NSAPI' => NSAPI};
+copy_to_session(#selection_mode{mode = Mode}, Session) ->
+    Session#{'3GPP-Selection-Mode' => Mode};
+copy_to_session(#charging_characteristics{value = Value}, Session) ->
+    Session#{'3GPP-Charging-Characteristics' => Value};
+copy_to_session(#routeing_area_identity{mcc = MCC, mnc = MNC}, Session) ->
+    Session#{'3GPP-SGSN-MCC-MNC' => <<MCC/binary, MNC/binary>>};
+copy_to_session(#imei{imei = IMEI}, Session) ->
+    Session#{'3GPP-IMEISV' => IMEI};
+copy_to_session(#rat_type{rat_type = Type}, Session) ->
+    Session#{'3GPP-RAT-Type' => Type};
+copy_to_session(#user_location_information{} = IE, Session) ->
+    Value = gtp_packet:encode_v1_uli(IE),
+    Session#{'3GPP-User-Location-Info' => Value};
+copy_to_session(#ms_time_zone{timezone = TZ, dst = DST}, Session) ->
+    Session#{'3GPP-MS-TimeZone' => {TZ, DST}};
 copy_to_session(_, Session) ->
     Session.
 
 init_session_from_gtp_req(#gtp{ie = IEs}, Session) ->
     lists:foldr(fun copy_to_session/2, Session, IEs).
+
+init_session_qos(#quality_of_service_profile{data = RequestedQoS}, Session) ->
+    %% TODO: use config setting to init default class....
+    NegotiatedQoS = negotiate_qos(RequestedQoS),
+    Session#{'3GPP-GPRS-Negotiated-QoS-Profile' => NegotiatedQoS}.
+
+negotiate_qos(ReqQoSProfileData) ->
+    case '3gpp_qos':decode(ReqQoSProfileData) of
+	Profile when is_binary(Profile) ->
+	    ReqQoSProfileData;
+	#qos{traffic_class = 0} ->			%% MS to Network: Traffic Class: Subscribed
+	    %% 3GPP TS 24.008, Sect. 10.5.6.5,
+	    QoS = #qos{
+		     delay_class			= 4,		%% best effort
+		     reliability_class			= 3,		%% Unacknowledged GTP/LLC,
+		     %% Ack RLC, Protected data
+		     peak_throughput			= 2,		%% 2000 oct/s (2 kBps)
+		     precedence_class			= 3,		%% Low priority
+		     mean_throughput			= 31,		%% Best effort
+		     traffic_class			= 4,		%% Background class
+		     delivery_order			= 2,		%% Without delivery order
+		     delivery_of_erroneorous_sdu	= 3,		%% Erroneous SDUs are not delivered
+		     max_sdu_size			= 1500,		%% 1500 octets
+		     max_bit_rate_uplink		= 16,		%% 16 kbps
+		     max_bit_rate_downlink		= 16,		%% 16 kbps
+		     residual_ber			= 7,		%% 10^-5
+		     sdu_error_ratio			= 4,		%% 10^-4
+		     transfer_delay			= 300,		%% 300ms
+		     traffic_handling_priority		= 3,		%% Priority level 3
+		     guaranteed_bit_rate_uplink		= 0,		%% 0 kbps
+		     guaranteed_bit_rate_downlink	= 0,		%% 0 kbps
+		     signaling_indication		= 0,		%% unknown
+		     source_statistics_descriptor	= 0},		%% Not optimised for signalling traffic
+	    '3gpp_qos':encode(QoS);
+	_ ->
+	    ReqQoSProfileData
+    end.
 
 init_context(APN, CntlPort, CntlTEI, DataPort, DataTEI) ->
     #context{
@@ -402,61 +526,98 @@ dp_delete_pdp_context(Context) ->
     Args = dp_args(Context),
     gtp_dp:delete_pdp_context(Context, Args).
 
-assign_ips(EUA, #context{apn = APN, local_control_tei = LocalTEI} = Context) ->
-    {ReqMSv4, ReqMSv6} = pdp_alloc(EUA),
+session_ipv4_alloc(#{'Framed-IP-Address' := {255,255,255,255}}, ReqMSv4) ->
+    ReqMSv4;
+session_ipv4_alloc(#{'Framed-IP-Address' := {255,255,255,254}}, _ReqMSv4) ->
+    {0,0,0,0};
+session_ipv4_alloc(#{'Framed-IP-Address' := {_,_,_,_} = IPv4}, _ReqMSv4) ->
+    IPv4;
+session_ipv4_alloc(_SessionOpts, ReqMSv4) ->
+    ReqMSv4.
+
+session_ipv6_alloc(#{'Framed-IPv6-Prefix' := {{_,_,_,_,_,_,_,_}, _} = IPv6}, _ReqMSv6) ->
+    IPv6;
+session_ipv6_alloc(_SessionOpts, ReqMSv6) ->
+    ReqMSv6.
+
+session_ip_alloc(SessionOpts, {ReqMSv4, ReqMSv6}) ->
+    MSv4 = session_ipv4_alloc(SessionOpts, ReqMSv4),
+    MSv6 = session_ipv6_alloc(SessionOpts, ReqMSv6),
+    {MSv4, MSv6}.
+
+assign_ips(SessionOps, EUA, #context{apn = APN, local_control_tei = LocalTEI} = Context) ->
+    {ReqMSv4, ReqMSv6} = session_ip_alloc(SessionOps, pdp_alloc(EUA)),
     {ok, MSv4, MSv6} = apn:allocate_pdp_ip(APN, LocalTEI, ReqMSv4, ReqMSv6),
     Context#context{ms_v4 = MSv4, ms_v6 = MSv6}.
 
-create_pdp_context_response(#create_pdp_context_request{
-			       quality_of_service_profile = ReqQoSProfile
+ppp_ipcp_conf_resp(Verdict, Opt, IPCP) ->
+    maps:update_with(Verdict, fun(O) -> [Opt|O] end, [Opt], IPCP).
+
+ppp_ipcp_conf(#{'MS-Primary-DNS-Server' := DNS}, {ms_dns1, <<0,0,0,0>>}, IPCP) ->
+    ppp_ipcp_conf_resp('CP-Configure-Nak', {ms_dns1, gtp_c_lib:ip2bin(DNS)}, IPCP);
+ppp_ipcp_conf(#{'MS-Secondary-DNS-Server' := DNS}, {ms_dns2, <<0,0,0,0>>}, IPCP) ->
+    ppp_ipcp_conf_resp('CP-Configure-Nak', {ms_dns2, gtp_c_lib:ip2bin(DNS)}, IPCP);
+ppp_ipcp_conf(#{'MS-Primary-NBNS-Server' := DNS}, {ms_wins1, <<0,0,0,0>>}, IPCP) ->
+    ppp_ipcp_conf_resp('CP-Configure-Nak', {ms_wins1, gtp_c_lib:ip2bin(DNS)}, IPCP);
+ppp_ipcp_conf(#{'MS-Secondary-NBNS-Server' := DNS}, {ms_wins2, <<0,0,0,0>>}, IPCP) ->
+    ppp_ipcp_conf_resp('CP-Configure-Nak', {ms_wins2, gtp_c_lib:ip2bin(DNS)}, IPCP);
+
+ppp_ipcp_conf(_SessionOpts, Opt, IPCP) ->
+    ppp_ipcp_conf_resp('CP-Configure-Reject', Opt, IPCP).
+
+pdp_ppp_pco(SessionOpts, {pap, 'PAP-Authentication-Request', Id, _Username, _Password}, Opts) ->
+    [{pap, 'PAP-Authenticate-Ack', Id, maps:get('Reply-Message', SessionOpts, <<>>)}|Opts];
+pdp_ppp_pco(SessionOpts, {chap, 'CHAP-Response', Id, _Value, _Name}, Opts) ->
+    [{chap, 'CHAP-Success', Id, maps:get('Reply-Message', SessionOpts, <<>>)}|Opts];
+pdp_ppp_pco(SessionOpts, {ipcp,'CP-Configure-Request', Id, CpReqOpts}, Opts) ->
+    CpRespOpts = lists:foldr(ppp_ipcp_conf(SessionOpts, _, _), #{}, CpReqOpts),
+    maps:fold(fun(K, V, O) -> [{ipcp, K, Id, V} | O] end, Opts, CpRespOpts);
+
+pdp_ppp_pco(#{'3GPP-IPv6-DNS-Servers' := DNS}, {?'PCO-DNS-Server-IPv6-Address', <<>>}, Opts) ->
+    lager:info("Apply IPv6 DNS Servers PCO Opt: ~p", [DNS]),
+    Opts;
+pdp_ppp_pco(SessionOpts, {?'PCO-DNS-Server-IPv4-Address', <<>>}, Opts) ->
+    lists:foldr(fun(Key, O) ->
+			case maps:find(Key, SessionOpts) of
+			    {ok, DNS} ->
+				[{?'PCO-DNS-Server-IPv4-Address', gtp_c_lib:ip2bin(DNS)} | O];
+			    _ ->
+				O
+			end
+		end, Opts, ['MS-Secondary-DNS-Server', 'MS-Primary-DNS-Server']);
+pdp_ppp_pco(_SessionOpts, PPPReqOpt, Opts) ->
+    lager:info("Apply PPP Opt: ~p", [PPPReqOpt]),
+    Opts.
+
+pdp_pco(SessionOpts, #protocol_configuration_options{config = {0, PPPReqOpts}}, IE) ->
+    case lists:foldr(pdp_ppp_pco(SessionOpts, _, _), [], PPPReqOpts) of
+	[]   -> IE;
+	Opts -> [#protocol_configuration_options{config = {0, Opts}} | IE]
+    end;
+pdp_pco(_SessionOpts, _PCO, IE) ->
+    IE.
+
+pdp_qos_profile(#{'3GPP-GPRS-Negotiated-QoS-Profile' := NegotiatedQoS}, IE) ->
+    [#quality_of_service_profile{data = NegotiatedQoS} | IE];
+pdp_qos_profile(_SessionOpts, IE) ->
+    IE.
+
+create_pdp_context_response(SessionOpts,
+			    #create_pdp_context_request{
+			       pco = ReqProtocolConfigOpts
 			      },
 			    #context{control_port = #gtp_port{ip = LocalIP},
 				     local_control_tei = LocalTEI,
-				     ms_v4 = MSv4, ms_v6 = MSv6}) ->
-    %% TODO: the QoS profile is too simplistic
-    #quality_of_service_profile{data = ReqQoSProfileData} = ReqQoSProfile,
-    QoSProfile =
-	case '3gpp_qos':decode(ReqQoSProfileData) of
-	    Profile when is_binary(Profile) ->
-		ReqQoSProfile;
-	    #qos{traffic_class = 0} ->			%% MS to Network: Traffic Class: Subscribed
-		%% 3GPP TS 24.008, Sect. 10.5.6.5,
-		QoS = #qos{
-			 delay_class			= 4,		%% best effort
-			 reliability_class		= 3,		%% Unacknowledged GTP/LLC,
-									%% Ack RLC, Protected data
-			 peak_throughput		= 2,		%% 2000 oct/s (2 kBps)
-			 precedence_class		= 3,		%% Low priority
-			 mean_throughput		= 31,		%% Best effort
-			 traffic_class			= 4,		%% Background class
-			 delivery_order			= 2,		%% Without delivery order
-			 delivery_of_erroneorous_sdu	= 3,		%% Erroneous SDUs are not delivered
-			 max_sdu_size			= 1500,		%% 1500 octets
-			 max_bit_rate_uplink		= 16,		%% 16 kbps
-			 max_bit_rate_downlink		= 16,		%% 16 kbps
-			 residual_ber			= 7,		%% 10^-5
-			 sdu_error_ratio		= 4,		%% 10^-4
-			 transfer_delay			= 300,		%% 300ms
-			 traffic_handling_priority	= 3,		%% Priority level 3
-			 guaranteed_bit_rate_uplink	= 0,		%% 0 kbps
-			 guaranteed_bit_rate_downlink	= 0,		%% 0 kbps
-			 signaling_indication		= 0,		%% unknown
-			 source_statistics_descriptor	= 0},		%% Not optimised for signalling traffic
-		ReqQoSProfile#quality_of_service_profile{data = '3gpp_qos':encode(QoS)};
-	    _ ->
-		ReqQoSProfile
-	end,
+				     ms_v4 = MSv4, ms_v6 = MSv6} = Context) ->
+    dp_create_pdp_context(Context),
 
-    [#cause{value = request_accepted},
-     #reordering_required{required = no},
-     #tunnel_endpoint_identifier_data_i{tei = LocalTEI},
-     #tunnel_endpoint_identifier_control_plane{tei = LocalTEI},
-     #charging_id{id = <<0,0,0,1>>},
-     encode_eua(MSv4, MSv6),
-     #protocol_configuration_options{config = {0,
-					       [{ipcp,'CP-Configure-Ack',0,
-						 [{ms_dns1,<<8,8,8,8>>},
-						  {ms_dns2,<<0,0,0,0>>}]}]}},
-     #gsn_address{instance = 0, address = gtp_c_lib:ip2bin(LocalIP)},   %% for Control Plane
-     #gsn_address{instance = 1, address = gtp_c_lib:ip2bin(LocalIP)},   %% for User Traffic
-     QoSProfile].
+    IE0 = [#cause{value = request_accepted},
+	  #reordering_required{required = no},
+	  #tunnel_endpoint_identifier_data_i{tei = LocalTEI},
+	  #tunnel_endpoint_identifier_control_plane{tei = LocalTEI},
+	  #charging_id{id = <<0,0,0,1>>},
+	  encode_eua(MSv4, MSv6),
+	  #gsn_address{instance = 0, address = gtp_c_lib:ip2bin(LocalIP)},   %% for Control Plane
+	  #gsn_address{instance = 1, address = gtp_c_lib:ip2bin(LocalIP)}],  %% for User Traffic
+    IE = pdp_qos_profile(SessionOpts, IE0),
+    pdp_pco(SessionOpts, ReqProtocolConfigOpts, IE).
