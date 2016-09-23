@@ -1,7 +1,7 @@
 sudo: false
 language: erlang
 otp_release:
-- 18.1
+- 19.1
 script:
 - rebar get-deps
 - rebar compile

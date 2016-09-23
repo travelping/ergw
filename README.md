@@ -38,6 +38,8 @@ Other shortcomings:
 BUILDING
 --------
 
+*The minimum supported Erlang version is 19.0.*
+
 Using tetrapak:
 
     # tetrapak build check
