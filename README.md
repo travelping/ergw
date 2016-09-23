@@ -18,6 +18,16 @@ From the above the following procedures as defined by 3GPP T 23.060 should work:
  * PDP Context Activation/Deactivation Procedure
  * PDP Context Activation/Deactivation Procedure using S4
 
+RADIUS over Gi/SGi
+------------------
+
+The GGSN Gn interface supports RADIUS over the Gi interface as specified by 3GPP TS 29.061 Section 16.
+At the moment, only the Authentication and Authorization is supported, Accounting is not supported.
+
+See RADIUS.md for a list of supported Attrbiutes.
+
+Many thanks to [On Waves](https://www.on-waves.com/) for sponsoring the RADIUS Authentication implementation.
+
 MISSING FEATURES
 ----------------
 
