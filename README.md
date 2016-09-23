@@ -4,8 +4,6 @@ erGW - 3GPP GGSN/P-GW in Erlang
 
 This is a 3GPP GGSN and PGW implemented in Erlang.
 
-2015-10-30 - this is code very much WiP !!!!
-
 IMPLEMENTED FEATURES
 --------------------
 
@@ -52,18 +50,68 @@ Using rebar:
 RUNNING
 -------
 
-Very experimental:
+A erGW installation needs a data path provider to handle the GTP-U path. This instance can be installed on the same host or a different host.
 
-- edit the APN parameted in gtp:test/0
-- run with:
+* for a data path suitable for GGSN/PGW see: [GTP-u-KMod](https://github.com/travelping/gtp_u_kmod)
+* for a data path suitable for GTPhub see: [GTP-u-EDP](https://github.com/travelping/gtp_u_edp)
+
+erGW can be started with the normal Erlang command line tools, e.g.:
 
 ```
-# tetrapak shell
-Erlang/OTP 18 [erts-7.0.3] [source] [64-bit] [smp:8:8] [async-threads:10] [kernel-poll:false]
+erl -setcookie secret -sname ergw -config ergw.config
+Erlang/OTP 19 [erts-8.0.3] [source] [64-bit] [async-threads:10] [kernel-poll:false]
 
-Eshell V7.0.3  (abort with ^G)
-1> start().
-2> gtp:test().
+Eshell V8.0.3  (abort with ^G)
+(ergw@localhost)1> application:ensure_all_started(ergw).
 ```
 
-- connect with SGSN or S-GW
+This requires a suitable ergw.config, e.g.:
+
+```
+[
+{ergw, [{apns,
+	 [{[<<"example">>, <<"com">>], [{protocols, [{gn,   [{handler, ggsn_gn},
+							     {sockets, [irx]},
+							     {data_paths, [grx]}
+							    ]},
+						     {s5s8, [{handler, pgw_s5s8},
+							     {sockets, [irx]},
+							     {data_paths, [grx]}
+							    ]},
+						     {s2a,  [{handler, pgw_s2a},
+							     {sockets, [irx]},
+							     {data_paths, [grx]}
+							    ]}
+						    ]},
+					{routes, [{{10, 180, 0, 0}, 16}]},
+					{pools,  [{{10, 180, 0, 0}, 16},
+						  {{16#8001, 0, 0, 0, 0, 0, 0, 0}, 48}]}
+				       ]}
+	 ]},
+
+	{sockets,
+	 [{irx, [{type, 'gtp-c'},
+		 {ip,  {192,0,2,16}},
+		 {netdev, "grx"},
+		 freebind
+		]},
+	  {grx, [{type, 'gtp-u'},
+		 {node, 'gtp-u-node@localhost'},
+		 {name, 'grx'}]}
+	 ]},
+
+{ergw_aaa, [
+	    %% {ergw_aaa_provider, {ergw_aaa_mock, [{secret, <<"MySecret">>}]}}
+	    {ergw_aaa_provider,
+	     {ergw_aaa_radius,
+	      [{nas_identifier,<<"nas01.example.com">>},
+	       {radius_auth_server,{{192,0,2,32},1812,<<"secret">>}},
+	       {radius_acct_server,{{192,0,2,32},1813,<<"secret">>}}
+	      ]}
+	    }
+	   ]}
+].
+```
+
+This process can be simplified by using [enit](https://github.com/travelping/enit). A sample config that only requires minimal adjustment for IP's, hostnames and interfaces can be found in priv/enit/ggsn.
+Install those files to / (root) and start with ```enit startfg ergw```.

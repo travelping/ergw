@@ -1,0 +1,15 @@
+{release, 'ergw',
+ [{vsn, "0.1"},
+  {applications,
+   [kernel,
+    stdlib,
+    sasl,
+    regine,
+    lager,
+    gen_socket,
+    gen_netlink,
+    gtplib,
+    ergw_aaa,
+    ergw
+   ]}
+ ]}.
