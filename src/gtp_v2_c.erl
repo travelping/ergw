@@ -11,12 +11,13 @@
 
 %% API
 -export([gtp_msg_type/1,
+	 get_handler/2,
 	 build_response/1,
 	 build_echo_request/0,
 	 type/0, port/0]).
 
 %% support functions
--export([handle_sgsn/3, build_recovery/2]).
+-export([restart_counter/1, build_recovery/3]).
 
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include("include/ergw.hrl").
@@ -24,20 +25,24 @@
 %%====================================================================
 %% API
 %%====================================================================
-handle_sgsn(IEs, Context, State) ->
-    RecoveryCount =
-	case lists:keyfind(v2_recovery, 1, IEs) of
-	    #v2_recovery{restart_counter = RCnt} ->
-		RCnt;
-	    _ ->
-		undefined
-	end,
-    gtp_context:handle_recovery(RecoveryCount, Context, State).
+restart_counter(#v2_recovery{restart_counter = RestartCounter}) ->
+    RestartCounter;
+restart_counter(_) ->
+    undefined.
 
-build_recovery(#gtp_port{restart_counter = RCnt}, true) ->
-    [#v2_recovery{restart_counter = RCnt}];
-build_recovery(_, _) ->
-    [].
+build_recovery(#gtp_port{restart_counter = RCnt}, NewPeer, IEs)
+  when NewPeer == true ->
+    [#v2_recovery{restart_counter = RCnt} | IEs];
+build_recovery(#context{
+		  remote_restart_counter = RemoteRestartCounter,
+		  control_port =
+		      #gtp_port{restart_counter = RCnt}},
+	       NewPeer, IEs)
+  when NewPeer == true orelse
+       RemoteRestartCounter == undefined ->
+    [#v2_recovery{restart_counter = RCnt} | IEs];
+build_recovery(_, _, IEs) ->
+    IEs.
 
 type() -> 'gtp-c'.
 port() -> ?GTP2c_PORT.
@@ -153,9 +158,43 @@ gtp_msg_response(mbms_session_update_request)				-> mbms_session_update_response
 gtp_msg_response(mbms_session_stop_request)				-> mbms_session_stop_response;
 gtp_msg_response(Response)						-> Response.
 
+get_handler(#gtp_port{name = PortName}, #gtp{ie = IEs} ) ->
+    case find_ie(access_point_name, 0, IEs) of
+	#access_point_name{apn = APN} ->
+	    case find_ie(v2_fully_qualified_tunnel_endpoint_identifier, 0, IEs) of
+		#v2_fully_qualified_tunnel_endpoint_identifier{interface_type = IfType} ->
+		    case map_v2_iftype(IfType) of
+			{ok, Protocol} ->
+			    case ergw_apns:handler(PortName, Protocol, APN) of
+				[{_, Handler, Opts}] ->
+				    {ok, Handler, Opts};
+				_ ->
+				    %% TODO: correct error message
+				    {error, not_found}
+			    end;
+			_ ->
+			    %% TODO: correct error message
+			    {error, not_found}
+		    end;
+		_ ->
+		    {error, {mandatory_ie_missing, {v2_fully_qualified_tunnel_endpoint_identifier, 0}}}
+	    end;
+	_ ->
+	    {error, {mandatory_ie_missing, {access_point_name, 0}}}
+    end.
+
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
+
+find_ie(_, _, []) ->
+    undefined;
+find_ie(Type, Instance, [IE|_])
+  when element(1, IE) == Type,
+       element(2, IE) == Instance ->
+    IE;
+find_ie(Type, Instance, [_|Next]) ->
+    find_ie(Type, Instance, Next).
 
 map_reply_ies(IEs) when is_list(IEs) ->
     [map_reply_ie(IE) || IE <- IEs];
@@ -172,3 +211,6 @@ map_reply_ie(IE)
   when is_tuple(IE) ->
     IE.
 
+map_v2_iftype(6)  -> {ok, s5s8};
+map_v2_iftype(34) -> {ok, s2a};
+map_v2_iftype(_)  -> {error, unsupported}.

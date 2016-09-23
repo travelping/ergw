@@ -170,4 +170,8 @@ do_release(IP, #state{type = Type, base = Base, shift = Shift,
 	_ ->
 	    lager:warning("release of unallocated IP: ~p, Offs: ~p, ETS: ~p", [int2ip(Type, IP), Offs, ets:tab2list(Tid)]),
 	    State
-    end.
+    end;
+do_release(IP, #state{type = Type, base = Base, shift = Shift, size = Size} = State) ->
+    lager:warning("release of out-of-pool IP: ~p, ~w < ~w < ~w",
+		  [int2ip(Type, IP), Base, IP, Base + (Size bsl Shift)]),
+    State.

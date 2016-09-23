@@ -1,17 +1,17 @@
-%% Copyright 2015, Travelping GmbH <info@travelping.com>
+%% Copyright 2016, Travelping GmbH <info@travelping.com>
 
 %% This program is free software; you can redistribute it and/or
 %% modify it under the terms of the GNU General Public License
 %% as published by the Free Software Foundation; either version
 %% 2 of the License, or (at your option) any later version.
 
--module(gtp_context_reg).
+-module(apn_reg).
 
 -behaviour(regine_server).
 
 %% API
 -export([start_link/0]).
--export([register/2, register/3, unregister/2, lookup/2]).
+-export([register/1, lookup/1]).
 -export([all/0]).
 
 %% regine_server callbacks
@@ -33,21 +33,12 @@
 start_link() ->
     regine_server:start_link({local, ?SERVER}, ?MODULE, []).
 
-register(GtpPort, Ident) ->
-    register(GtpPort, Ident, self()).
+register(APN) ->
+    regine_server:register(?SERVER, self(), APN, undefined).
 
-register(#gtp_port{name = PortName}, Ident, Pid) ->
-    Key = {PortName, Ident},
-    regine_server:register(?SERVER, Pid, Key, undefined).
-
-unregister(#gtp_port{name = PortName}, Ident) ->
-    Key = {PortName, Ident},
-    regine_server:unregister(?SERVER, Key, undefined).
-
-lookup(#gtp_port{name = PortName}, Ident) ->
-    Key = {PortName, Ident},
-    case ets:lookup(?SERVER, Key) of
-	[{Key, Pid}] ->
+lookup(APN) ->
+    case ets:lookup(?SERVER, APN) of
+	[{_, Pid}] ->
 	    Pid;
 	_ ->
 	    undefined
@@ -64,17 +55,17 @@ init([]) ->
     ets:new(?SERVER, [ordered_set, named_table, public, {keypos, 1}]),
     {ok, #state{}}.
 
-handle_register(Pid, Key, _Value, State) ->
-    case ets:insert_new(?SERVER, {Key, Pid}) of
-	true ->  {ok, [Key], State};
+handle_register(Pid, APN, _Value, State) ->
+    case ets:insert_new(?SERVER, {APN, Pid}) of
+	true ->  {ok, [APN], State};
 	false -> {error, duplicate}
     end.
 
-handle_unregister(Key, _Value, State) ->
-    do_unregister(Key, State).
+handle_unregister(APN, _Value, State) ->
+    do_unregister(APN, State).
 
-handle_pid_remove(_Pid, Keys, State) ->
-    lists:foreach(fun(Key) -> ets:delete(?SERVER, Key) end, Keys),
+handle_pid_remove(_Pid, APNs, State) ->
+    lists:foreach(fun(APN) -> ets:delete(?SERVER, APN) end, APNs),
     State.
 
 handle_death(_Pid, _Reason, State) ->
@@ -87,10 +78,10 @@ terminate(_Reason, _State) ->
 %%% Internal functions
 %%%===================================================================
 
-do_unregister(Key, State) ->
-    Pids = case ets:lookup(?SERVER, Key) of
-	       [{Key, Pid}] ->
-		   ets:delete(?SERVER, Key),
+do_unregister(APN, State) ->
+    Pids = case ets:lookup(?SERVER, APN) of
+	       [{APN, Pid}] ->
+		   ets:delete(?SERVER, APN),
 		   [Pid];
 	       _ -> []
 	   end,

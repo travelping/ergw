@@ -11,12 +11,13 @@
 
 %% API
 -export([gtp_msg_type/1,
+	 get_handler/2,
 	 build_response/1,
 	 build_echo_request/0,
 	 type/0, port/0]).
 
 %% support functions
--export([handle_sgsn/3, build_recovery/2]).
+-export([restart_counter/1, build_recovery/3]).
 
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include("include/ergw.hrl").
@@ -24,20 +25,24 @@
 %%====================================================================
 %% API
 %%====================================================================
-handle_sgsn(IEs, Context, State) ->
-    RecoveryCount =
-	case lists:keyfind(recovery, 1, IEs) of
-	    #recovery{restart_counter = RCnt} ->
-		RCnt;
-        _ ->
-		undefined
-    end,
-    gtp_context:handle_recovery(RecoveryCount, Context, State).
+restart_counter(#recovery{restart_counter = RestartCounter}) ->
+    RestartCounter;
+restart_counter(_) ->
+    undefined.
 
-build_recovery(#gtp_port{restart_counter = RCnt}, true) ->
-    [#recovery{restart_counter = RCnt}];
-build_recovery(_, _) ->
-    [].
+build_recovery(#gtp_port{restart_counter = RCnt}, NewPeer, IEs)
+  when NewPeer == true ->
+    [#recovery{restart_counter = RCnt} | IEs];
+build_recovery(#context{
+		  remote_restart_counter = RemoteRestartCounter,
+		  control_port =
+		      #gtp_port{restart_counter = RCnt}},
+	       NewPeer, IEs)
+  when NewPeer == true orelse
+       RemoteRestartCounter == undefined ->
+    [#recovery{restart_counter = RCnt} | IEs];
+build_recovery(_, _, IEs) ->
+    IEs.
 
 type() -> 'gtp-c'.
 port() -> ?GTP1c_PORT.
@@ -147,9 +152,33 @@ gtp_msg_response(ms_info_change_notification_request)		-> ms_info_change_notific
 gtp_msg_response(data_record_transfer_request)			-> data_record_transfer_response;
 gtp_msg_response(Response)					-> Response.
 
+get_handler(#gtp_port{name = PortName}, #gtp{ie = IEs} ) ->
+    case find_ie(access_point_name, 0, IEs) of
+	#access_point_name{apn = APN} ->
+	    case ergw_apns:handler(PortName, gn, APN) of
+		[{_, Handler, Opts}] ->
+		    lager:info("APN lookup: ~p, ~p", [Handler, Opts]),
+		    {ok, Handler, Opts};
+		_ ->
+		    %% TODO: correct error message
+		    {error, not_found}
+	    end;
+	_ ->
+	    {error, {mandatory_ie_missing, {access_point_name, 0}}}
+    end.
+
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
+
+find_ie(_, _, []) ->
+    undefined;
+find_ie(Type, Instance, [IE|_])
+  when element(1, IE) == Type,
+       element(2, IE) == Instance ->
+    IE;
+find_ie(Type, Instance, [_|Next]) ->
+    find_ie(Type, Instance, Next).
 
 map_reply_ies(IEs) when is_list(IEs) ->
     [map_reply_ie(IE) || IE <- IEs];

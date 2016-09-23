@@ -9,7 +9,7 @@
 
 -export([build_req_record/3]).
 -export([ip2bin/1, bin2ip/1]).
--export([alloc_tei/0]).
+-export([alloc_tei/1]).
 -export([fmt_gtp/1]).
 
 -include_lib("gtplib/include/gtp_packet.hrl").
@@ -64,18 +64,18 @@ bin2ip(<<A:16, B:16, C:16, D:16, E:16, F:16, G:16, H:16>>) ->
 
 -define(MAX_TRIES, 32).
 
-alloc_tei() ->
-    alloc_tei(?MAX_TRIES).
+alloc_tei(GtpPort) ->
+    alloc_tei(GtpPort, ?MAX_TRIES).
 
-alloc_tei(0) ->
+alloc_tei(_GtpPort, 0) ->
     {error, no_tei};
-alloc_tei(Cnt) ->
+alloc_tei(GtpPort, Cnt) ->
     TEI = erlang:unique_integer([positive]) rem 4294967296,    %% 32bit maxint + 1
-    case gtp_context_reg:register(TEI) of
+    case gtp_context_reg:register(GtpPort, TEI) of
 	ok ->
 	    {ok, TEI};
 	_Other ->
-	    alloc_tei(Cnt - 1)
+	    alloc_tei(GtpPort, Cnt - 1)
     end.
 
 %%%===================================================================

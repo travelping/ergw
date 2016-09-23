@@ -11,7 +11,7 @@
 
 -compile({parse_transform, do}).
 
--export([request_spec/1, handle_request/3]).
+-export([init/2, request_spec/1, handle_request/5, handle_cast/2]).
 
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include("include/ergw.hrl").
@@ -24,6 +24,7 @@
 %%       generated from a common source.....
 -record(create_session_request, {
 	  imsi,
+	  recovery,
 	  msisdn,
 	  user_location_information,
 	  serving_network,
@@ -64,6 +65,7 @@
 	 }).
 
 -record(modify_bearer_request, {
+	  recovery,
 	  mei,
 	  user_location_information,
 	  serving_network,
@@ -85,6 +87,7 @@
 
 request_spec(create_session_request) ->
     [{{v2_international_mobile_subscriber_identity, 0},		conditional},
+     {{v2_recovery, 0},						conditional},
      {{v2_msisdn, 0},						conditional},
      {{v2_mobile_equipment_identity, 0},			conditional},
      {{v2_user_location_information, 0},			conditional},
@@ -120,7 +123,8 @@ request_spec(delete_session_request) ->
      {{v2_ue_time_zone, 0},					conditional},
      {{v2_uli_timestamp, 0},					conditional}];
 request_spec(modify_bearer_request) ->
-    [{{v2_mobile_equipment_identity, 0},			conditional},
+    [{{v2_recovery, 0},						conditional},
+     {{v2_mobile_equipment_identity, 0},			conditional},
      {{v2_user_location_information, 0},			conditional},
      {{v2_serving_network, 0},					optional},
      {{v2_rat_type, 0},						mandatory},
@@ -140,6 +144,18 @@ request_spec(modify_bearer_request) ->
 request_spec(_) ->
     [].
 
+-record(context_state, {}).
+
+init(_Opts, State) ->
+    {ok, State}.
+
+handle_cast({path_restart, Path}, #{context := #context{path = Path} = Context} = State) ->
+    dp_delete_pdp_context(Context),
+    pdn_release_ip(Context, State),
+    {stop, normal, State};
+handle_cast({path_restart, _Path}, State) ->
+    {noreply, State}.
+
 %% API Message Matrix:
 %%
 %% SGSN/MME/ TWAN/ePDG to PGW (S4/S11, S5/S8, S2a, S2b)
@@ -156,100 +172,62 @@ request_spec(_) ->
 %%   Change Notification Request/Response
 %%   Resume Notification/Acknowledge
 
-handle_request(#gtp{type = create_session_request, ie = IEs}, Req,
-	       #{tei := LocalTEI, gtp_port := GtpPort} = State0) ->
+handle_request(_From, _Msg, _Req, true, State) ->
+%% resent request
+    {noreply, State};
+
+handle_request(_From,
+	       #gtp{type = create_session_request}, Req, _Resent,
+	       #{tei := LocalTEI, gtp_port := GtpPort, gtp_dp_port := GtpDP} = State) ->
 
     #create_session_request{
-       sender_f_teid_for_control_plane =
-	   #v2_fully_qualified_tunnel_endpoint_identifier{
-	      key  = RemoteCntlTEI,
-	      ipv4 = RemoteCntlIP},
+       recovery = Recovery,
+       sender_f_teid_for_control_plane = FqCntlTEID,
+       apn = #v2_access_point_name{apn = APN},
        paa = PAA,
        bearer_context_to_be_created =
 	   #v2_bearer_context{group = BearerCreate}
       } = Req,
 
-    #v2_fully_qualified_tunnel_endpoint_identifier{instance = 2,
-						   interface_type = 4,                  %% S5/S8 SGW GTP-U Interface
-						   key = RemoteDataTEI,
-						   ipv4 = RemoteDataIP} =
+    #v2_fully_qualified_tunnel_endpoint_identifier{
+       instance = 2,
+       interface_type = 4                  %% S5/S8 SGW GTP-U Interface
+      } = FqDataTEID =
 	lists:keyfind(v2_fully_qualified_tunnel_endpoint_identifier, 1, BearerCreate),
     EBI = lists:keyfind(v2_eps_bearer_id, 1, BearerCreate),
 
-    {ReqMSv4, ReqMSv6} = pdn_alloc(PAA),
+    Context0 = init_context(APN, GtpPort, LocalTEI, GtpDP, LocalTEI),
+    Context1 = update_context_tunnel_ids(FqCntlTEID, FqDataTEID, Context0),
+    Context2 = gtp_path:bind(Recovery, Context1),
 
-    {ok, MSv4, MSv6} = pdn_alloc_ip(LocalTEI, ReqMSv4, ReqMSv6, State0),
-    Context = #context{
-		 control_interface = ?MODULE,
-		 control_tunnel    = gtp_v1_c,
-		 control_ip        = gtp_c_lib:bin2ip(RemoteCntlIP),
-		 control_tei       = RemoteCntlTEI,
-		 data_tunnel       = gtp_v1_u,
-		 data_ip           = gtp_c_lib:bin2ip(RemoteDataIP),
-		 data_tei          = RemoteDataTEI,
-		 ms_v4             = MSv4,
-		 ms_v6             = MSv6},
-    State1 = State0#{context => Context},
+    Context = assign_ips(PAA, Context2),
+    dp_create_pdp_context(Context),
 
-    {ok, NewGTPcPeer, _NewGTPuPeer} = gtp_v2_c:handle_sgsn(IEs, Context, State1),
-    lager:debug("New: ~p, ~p", [NewGTPcPeer, _NewGTPuPeer]),
-    ok = gtp_context:setup(Context, State1),
+    ResponseIEs0 = create_session_response(EBI, Context),
+    ResponseIEs = gtp_v2_c:build_recovery(Context, Recovery /= undefined, ResponseIEs0),
+    Response = {create_session_response, Context#context.remote_control_tei, ResponseIEs},
+    {ok, Response, State#{context => Context}};
 
-    #gtp_port{ip = LocalIP} = GtpPort,
-
-    ResponseIEs = [#v2_cause{v2_cause = request_accepted},
-		   #v2_fully_qualified_tunnel_endpoint_identifier{
-		      instance = 1,
-		      interface_type = 7,          %% S5/S8 PGW GTP-C Interface
-		      key = LocalTEI,
-		      ipv4 = gtp_c_lib:ip2bin(LocalIP)
-		     },
-		   encode_paa(MSv4, MSv6),
-		   %% #v2_protocol_configuration_options{config = {0,
-		   %% 						[{ipcp,'CP-Configure-Ack',0,
-		   %% 						  [{ms_dns1,<<8,8,8,8>>},{ms_dns2,<<0,0,0,0>>}]}]}},
-		   #v2_bearer_context{group=[#v2_cause{v2_cause = request_accepted},
-					     EBI,
-					     #v2_apn_restriction{restriction_type_value = 0},
-					     #v2_bearer_level_quality_of_service{pl=15,
-										 pvi=0,
-										 label=9,maximum_bit_rate_for_uplink=0,
-										 maximum_bit_rate_for_downlink=0,
-										 guaranteed_bit_rate_for_uplink=0,
-										 guaranteed_bit_rate_for_downlink=0,
-										 data = <<0,0,0,0>>},
-					     #v2_fully_qualified_tunnel_endpoint_identifier{instance = 5,                  %% S5/S8 F-TEI Instance
-											    interface_type = 5,            %% S5/S8 PGW GTP-U Interface
-											    key = LocalTEI,
-											    ipv4 = gtp_c_lib:ip2bin(LocalIP)}]}
-		   | gtp_v2_c:build_recovery(GtpPort, NewGTPcPeer)],
-    Response = {create_session_response, RemoteCntlTEI, ResponseIEs},
-    {ok, Response, State1};
-
-handle_request(#gtp{type = modify_bearer_request, tei = LocalTEI, ie = IEs}, Req,
+handle_request(_From,
+	       #gtp{type = modify_bearer_request, tei = LocalTEI}, Req, _Resent,
 	       #{gtp_port := GtpPort, context := OldContext} = State0) ->
 
     #modify_bearer_request{
-       sender_f_teid_for_control_plane =
-	   #v2_fully_qualified_tunnel_endpoint_identifier{
-	      key  = RemoteCntlTEI,
-	      ipv4 = RemoteCntlIP},
+       recovery = Recovery,
+       sender_f_teid_for_control_plane = FqCntlTEID,
        bearer_context_to_be_modified =
 	   #v2_bearer_context{group = BearerCreate}
       } = Req,
 
-    #v2_fully_qualified_tunnel_endpoint_identifier{instance = 2,
-						   interface_type = 4,                  %% S5/S8 SGW GTP-U Interface
-						   key = RemoteDataTEI,
-						   ipv4 = RemoteDataIP} =
+    #v2_fully_qualified_tunnel_endpoint_identifier{
+       instance = 2,
+       interface_type = 4                  %% S5/S8 SGW GTP-U Interface
+      } = FqDataTEID =
 	lists:keyfind(v2_fully_qualified_tunnel_endpoint_identifier, 1, BearerCreate),
     EBI = lists:keyfind(v2_eps_bearer_id, 1, BearerCreate),
 
-    Context = OldContext#context{
-		   control_ip  = gtp_c_lib:bin2ip(RemoteCntlIP),
-		   control_tei = RemoteCntlTEI,
-		   data_ip     = gtp_c_lib:bin2ip(RemoteDataIP),
-		   data_tei    = RemoteDataTEI},
+    Context0 = update_context_tunnel_ids(FqCntlTEID, FqDataTEID, OldContext),
+    Context = gtp_path:bind(Recovery, Context0),
 
     State1 = if Context /= OldContext ->
 		     apply_context_change(Context, OldContext, State0);
@@ -257,24 +235,24 @@ handle_request(#gtp{type = modify_bearer_request, tei = LocalTEI, ie = IEs}, Req
 		     State0
 	     end,
 
-    {ok, NewGTPcPeer, _NewGTPuPeer} = gtp_v2_c:handle_sgsn(IEs, Context, State1),
-    lager:debug("New: ~p, ~p", [NewGTPcPeer, _NewGTPuPeer]),
-
     #gtp_port{ip = LocalIP} = GtpPort,
 
-    ResponseIEs = [#v2_cause{v2_cause = request_accepted},
-		   #v2_bearer_context{group=[#v2_cause{v2_cause = request_accepted},
-					     EBI,
-					     #v2_fully_qualified_tunnel_endpoint_identifier{instance = 5,                  %% S5/S8 F-TEI Instance
-											    interface_type = 5,            %% S5/S8 PGW GTP-U Interface
-											    key = LocalTEI,
-											    ipv4 = gtp_c_lib:ip2bin(LocalIP)}]}
-		   | gtp_v2_c:build_recovery(GtpPort, NewGTPcPeer)],
-    Response = {modify_bearer_response, RemoteCntlTEI, ResponseIEs},
+    ResponseIEs0 = [#v2_cause{v2_cause = request_accepted},
+		    #v2_bearer_context{
+		       group=[#v2_cause{v2_cause = request_accepted},
+			      EBI,
+			      #v2_fully_qualified_tunnel_endpoint_identifier{
+				 instance = 5,                  %% S5/S8 F-TEI Instance
+				 interface_type = 5,            %% S5/S8 PGW GTP-U Interface
+				 key = LocalTEI,
+				 ipv4 = gtp_c_lib:ip2bin(LocalIP)}]}],
+    ResponseIEs = gtp_v2_c:build_recovery(Context, Recovery /= undefined, ResponseIEs0),
+    Response = {modify_bearer_response, Context#context.remote_control_tei, ResponseIEs},
     {ok, Response, State1};
 
-handle_request(#gtp{type = delete_session_request, tei = LocalTEI}, Req,
-	       #{gtp_port := GtpPort, context := Context} = State0) ->
+handle_request(_From,
+	       #gtp{type = delete_session_request}, Req, _Resent,
+	       #{context := Context} = State0) ->
 
     #delete_session_request{
        %% according to 3GPP TS 29.274, the F-TEID is not part of the Delete Session Request
@@ -283,16 +261,18 @@ handle_request(#gtp{type = delete_session_request, tei = LocalTEI}, Req,
        sender_f_teid_for_control_plane = FqTEI
       } = Req,
 
+    #context{remote_control_tei = RemoteCntlTEI} = Context,
+
     Result =
 	do([error_m ||
-	       {RemoteCntlTEI, MS, RemoteDataIP, RemoteDataTEI} <- match_context(35, Context, FqTEI),
-	       pdn_release_ip(Context, State0),
-	       gtp:delete_pdp_context(GtpPort, 1, RemoteDataIP, MS, LocalTEI, RemoteDataTEI),
+	       match_context(35, Context, FqTEI),
 	       return({RemoteCntlTEI, request_accepted, State0})
 	   ]),
 
     case Result of
 	{ok, {ReplyTEI, ReplyIEs, State}} ->
+	    dp_delete_pdp_context(Context),
+	    pdn_release_ip(Context, State),
 	    Reply = {delete_session_response, ReplyTEI, ReplyIEs},
 	    {stop, Reply, State};
 
@@ -305,7 +285,7 @@ handle_request(#gtp{type = delete_session_request, tei = LocalTEI}, Req,
 	    {reply, Response, State0}
     end;
 
-handle_request(_Msg, _Req, State) ->
+handle_request(_From, _Msg, _Req, _Resent, State) ->
     {noreply, State}.
 
 %%%===================================================================
@@ -314,26 +294,17 @@ handle_request(_Msg, _Req, State) ->
 ip2prefix({IP, Prefix}) ->
     <<Prefix:8, (gtp_c_lib:ip2bin(IP))/binary>>.
 
-match_context(_Type,
-	      #context{
-		 control_tei = RemoteCntlTEI,
-		 data_ip     = RemoteDataIP,
-		 data_tei    = RemoteDataTEI,
-		 ms_v4       = MS},
-	      undefined) ->
-    error_m:return({RemoteCntlTEI, MS, RemoteDataIP, RemoteDataTEI});
+match_context(_Type, _Context, undefined) ->
+    error_m:return(ok);
 match_context(Type,
 	      #context{
-		 control_ip  = RemoteCntlIP,
-		 control_tei = RemoteCntlTEI,
-		 data_ip     = RemoteDataIP,
-		 data_tei    = RemoteDataTEI,
-		 ms_v4       = MS},
+		 remote_control_ip  = RemoteCntlIP,
+		 remote_control_tei = RemoteCntlTEI},
 	      #v2_fully_qualified_tunnel_endpoint_identifier{instance       = 0,
 							     interface_type = Type,
 							     key            = RemoteCntlTEI,
 							     ipv4           = RemoteCntlIP}) ->
-    error_m:return({RemoteCntlTEI, MS, RemoteDataIP, RemoteDataTEI});
+    error_m:return(ok);
 match_context(Type, Context, IE) ->
     lager:error("match_context: context not found, ~p, ~p, ~p", [Type, Context, lager:pr(IE, ?MODULE)]),
     error_m:fail([#v2_cause{v2_cause = context_not_found}]).
@@ -358,12 +329,91 @@ encode_paa(IPv4, IPv6) ->
 encode_paa(Type, IPv4, IPv6) ->
     #v2_pdn_address_allocation{type = Type, address = <<IPv6/binary, IPv4/binary>>}.
 
-pdn_alloc_ip(TEI, IPv4, IPv6, #{gtp_port := GtpPort}) ->
-    gtp:allocate_pdp_ip(GtpPort, TEI, IPv4, IPv6).
-
 pdn_release_ip(#context{ms_v4 = MSv4, ms_v6 = MSv6}, #{gtp_port := GtpPort}) ->
-    gtp:release_pdp_ip(GtpPort, MSv4, MSv6).
+    apn:release_pdp_ip(GtpPort, MSv4, MSv6).
 
-apply_context_change(NewContext, OldContext, State) ->
-    ok = gtp_context:update(NewContext, OldContext, State),
+apply_context_change(NewContext0, OldContext, State) ->
+    NewContext = gtp_path:bind(NewContext0),
+    dp_update_pdp_context(NewContext, OldContext),
+    gtp_path:unbind(OldContext),
     State#{context => NewContext}.
+
+init_context(APN, CntlPort, CntlTEI, DataPort, DataTEI) ->
+    #context{
+       apn               = APN,
+       version           = v2,
+       control_interface = ?MODULE,
+       control_port      = CntlPort,
+       local_control_tei = CntlTEI,
+       data_port         = DataPort,
+       local_data_tei    = DataTEI,
+       state             = #context_state{}
+      }.
+
+update_context_tunnel_ids(#v2_fully_qualified_tunnel_endpoint_identifier{
+			     key  = RemoteCntlTEI,
+			     ipv4 = RemoteCntlIP},
+			  #v2_fully_qualified_tunnel_endpoint_identifier{
+			     key  = RemoteDataTEI,
+			     ipv4 = RemoteDataIP
+			    }, Context) ->
+    Context#context{
+      remote_control_ip  = gtp_c_lib:bin2ip(RemoteCntlIP),
+      remote_control_tei = RemoteCntlTEI,
+      remote_data_ip     = gtp_c_lib:bin2ip(RemoteDataIP),
+      remote_data_tei    = RemoteDataTEI
+     }.
+
+dp_args(#context{ms_v4 = MSv4}) ->
+    MSv4.
+
+dp_create_pdp_context(Context) ->
+    Args = dp_args(Context),
+    gtp_dp:create_pdp_context(Context, Args).
+
+dp_update_pdp_context(NewContext, OldContext) ->
+    %% TODO: only do that if New /= Old
+    dp_delete_pdp_context(OldContext),
+    dp_create_pdp_context(NewContext).
+
+dp_delete_pdp_context(Context) ->
+    Args = dp_args(Context),
+    gtp_dp:delete_pdp_context(Context, Args).
+
+assign_ips(PAA, #context{apn = APN, local_control_tei = LocalTEI} = Context) ->
+    {ReqMSv4, ReqMSv6} = pdn_alloc(PAA),
+    {ok, MSv4, MSv6} = apn:allocate_pdp_ip(APN, LocalTEI, ReqMSv4, ReqMSv6),
+    Context#context{ms_v4 = MSv4, ms_v6 = MSv6}.
+
+create_session_response(EBI,
+			#context{control_port = #gtp_port{ip = LocalIP},
+				 local_control_tei = LocalTEI,
+				 ms_v4 = MSv4, ms_v6 = MSv6}) ->
+    [#v2_cause{v2_cause = request_accepted},
+     #v2_fully_qualified_tunnel_endpoint_identifier{
+	instance = 1,
+	interface_type = 7,          %% S5/S8 PGW GTP-C Interface
+	key = LocalTEI,
+	ipv4 = gtp_c_lib:ip2bin(LocalIP)},
+     encode_paa(MSv4, MSv6),
+     %% #v2_protocol_configuration_options{config = {0,
+     %% 						[{ipcp,'CP-Configure-Ack',0,
+     %% 						  [{ms_dns1,<<8,8,8,8>>},
+     %% 						   {ms_dns2,<<0,0,0,0>>}]}]}},
+     #v2_bearer_context{
+	group=[#v2_cause{v2_cause = request_accepted},
+	       EBI,
+	       #v2_apn_restriction{restriction_type_value = 0},
+	       #v2_bearer_level_quality_of_service{
+		  pl=15,
+		  pvi=0,
+		  label=9,maximum_bit_rate_for_uplink=0,
+		  maximum_bit_rate_for_downlink=0,
+		  guaranteed_bit_rate_for_uplink=0,
+		  guaranteed_bit_rate_for_downlink=0,
+		  data = <<0,0,0,0>>},
+	       #v2_fully_qualified_tunnel_endpoint_identifier{
+		  instance = 5,                  %% S5/S8 F-TEI Instance
+		  interface_type = 5,            %% S5/S8 PGW GTP-U Interface
+		  key = LocalTEI,
+		  ipv4 = gtp_c_lib:ip2bin(LocalIP)}]}].
