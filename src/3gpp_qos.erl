@@ -163,9 +163,16 @@ decode(IE, octet17, <<MaxBitRateUpLinkExt:8, GuaranteedBitRateUpLinkExt:8, Optio
 	   },
     decode(IE, octet19, Optional, QoS);
 
-decode(IE, _Octet, _Rest, _QoS) ->
-    %% decoding failed, return original binary IE
-    IE.
+decode(_IE, _Octet, _Rest, QoS) ->
+    %% decoding of optional fields failed, but
+    %% TS 29.060, Sect. 11.1.6 Invalid IE Length says:
+    %%
+    %%     if the Length field value is less than the number of fixed octets
+    %%     defined for that IE, preceding the extended field(s), the receiver
+    %%     shall try to continue the procedure, if possible.
+    %%
+    %% so, lets continue what we have so far
+    QoS.
 
 encode(octet14, IE0, #qos{signaling_indication         = SignalingIndication,
 			  source_statistics_descriptor = SourceStatisticsDescriptor} = QoS)
