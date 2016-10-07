@@ -132,5 +132,9 @@ alloc_ip(_TEI, _) ->
     lager:error("no pool"),
     undefined.
 
+release_ip(undefined, _) ->
+    ok;
+release_ip(_IP, []) ->
+    ok;
 release_ip(IP, [Pool|_]) ->
     gtp_ip_pool:release(Pool, IP).
