@@ -48,6 +48,7 @@ with_apn(APN, Fun) when is_function(Fun, 1) ->
 
 init([APN, Opts]) ->
     apn_reg:register(APN),
+    lists:foreach(fun(Alias) -> apn_reg:register(Alias) end, proplists:get_value(alias, Opts, [])),
 
     Pools = proplists:get_value(pools, Opts, []),
     IPv4pools = [init_pool(X) || {Prefix, _Len} = X <- Pools, size(Prefix) == 4],
