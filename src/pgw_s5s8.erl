@@ -26,6 +26,7 @@
 	  imsi,
 	  recovery,
 	  msisdn,
+	  mobile_equipment_identity,
 	  user_location_information,
 	  serving_network,
 	  rat_type,
