@@ -410,8 +410,7 @@ create_session_response(EBI,
 		  label=9,maximum_bit_rate_for_uplink=0,
 		  maximum_bit_rate_for_downlink=0,
 		  guaranteed_bit_rate_for_uplink=0,
-		  guaranteed_bit_rate_for_downlink=0,
-		  data = <<0,0,0,0>>},
+		  guaranteed_bit_rate_for_downlink=0},
 	       #v2_fully_qualified_tunnel_endpoint_identifier{
 		  instance = 5,                  %% S5/S8 F-TEI Instance
 		  interface_type = 5,            %% S5/S8 PGW GTP-U Interface
