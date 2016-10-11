@@ -215,6 +215,11 @@ socket_setopts(Socket, {netdev, Device})
   when is_list(Device); is_binary(Device) ->
     BinDev = iolist_to_binary([Device, 0]),
     ok = gen_socket:setsockopt(Socket, sol_socket, bindtodevice, BinDev);
+socket_setopts(Socket, {rcvbuf, Size}) when is_integer(Size) ->
+    case gen_socket:setsockopt(Socket, sol_socket, rcvbufforce, Size) of
+	ok -> ok;
+	_ -> gen_socket:setsockopt(Socket, sol_socket, rcvbuf, Size)
+    end;
 socket_setopts(_Socket, _) ->
     ok.
 
