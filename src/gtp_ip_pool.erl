@@ -43,7 +43,7 @@ release(Server, IP) ->
 %%%===================================================================
 
 init({Prefix, PrefixLen}) ->
-    Tid = ets:new(pool, [set, {keypos, #lease.ip}]),
+    Tid = ets:new(pool, [ordered_set, {keypos, #lease.ip}]),
     {Type, PrefixLen1, Shift} = case size(Prefix) of
 				    4 -> {ipv4,  32 - PrefixLen,  0};
 				    8 -> {ipv6, 128 - PrefixLen, 64}
@@ -138,7 +138,7 @@ int2ip(ipv6, IP) ->
     {{A, B, C, D, E, F, G, H}, 64}.
 
 try_alloc(Init, Size, Tid) ->
-    MS = ets:fun2ms(fun(#lease{ip = IP} = Lease) when IP > Init -> Lease end),
+    MS = ets:fun2ms(fun(#lease{ip = IP} = Lease) when IP >= Init -> Lease end),
     Next = ets:select(Tid, MS, 1),
     lager:debug("try_alloc: got ~p", [Next]),
     try_alloc(Init, Size, Next, Tid).
