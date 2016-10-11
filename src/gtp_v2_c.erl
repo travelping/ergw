@@ -159,8 +159,8 @@ gtp_msg_response(mbms_session_stop_request)				-> mbms_session_stop_response;
 gtp_msg_response(Response)						-> Response.
 
 get_handler(#gtp_port{name = PortName}, #gtp{ie = IEs} ) ->
-    case find_ie(access_point_name, 0, IEs) of
-	#access_point_name{apn = APN} ->
+    case find_ie(v2_access_point_name, 0, IEs) of
+	#v2_access_point_name{apn = APN} ->
 	    case find_ie(v2_fully_qualified_tunnel_endpoint_identifier, 0, IEs) of
 		#v2_fully_qualified_tunnel_endpoint_identifier{interface_type = IfType} ->
 		    case map_v2_iftype(IfType) of
