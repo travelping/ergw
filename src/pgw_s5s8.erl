@@ -207,7 +207,7 @@ handle_request(_From,
     ResponseIEs0 = create_session_response(EBI, Context),
     ResponseIEs = gtp_v2_c:build_recovery(Context, Recovery /= undefined, ResponseIEs0),
     Response = {create_session_response, Context#context.remote_control_tei, ResponseIEs},
-    {ok, Response, State#{context => Context}};
+    {reply, Response, State#{context => Context}};
 
 handle_request(_From,
 	       #gtp{type = modify_bearer_request, tei = LocalTEI}, Req, _Resent,
@@ -249,7 +249,7 @@ handle_request(_From,
 				 ipv4 = gtp_c_lib:ip2bin(LocalIP)}]}],
     ResponseIEs = gtp_v2_c:build_recovery(Context, Recovery /= undefined, ResponseIEs0),
     Response = {modify_bearer_response, Context#context.remote_control_tei, ResponseIEs},
-    {ok, Response, State1};
+    {reply, Response, State1};
 
 handle_request(_From,
 	       #gtp{type = delete_session_request}, Req, _Resent,
