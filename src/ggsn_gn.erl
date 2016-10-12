@@ -210,7 +210,7 @@ handle_request(_From,
     Context1 = update_context_from_gtp_req(Request, Context0),
     Context2 = gtp_path:bind(Recovery, Context1),
 
-    SessionOpts0 = init_session(Context2, AAAopts),
+    SessionOpts0 = init_session(Req, Context2, AAAopts),
     SessionOpts1 = init_session_from_gtp_req(Request, AAAopts, SessionOpts0),
     SessionOpts = init_session_qos(ReqQoSProfile, SessionOpts1),
 
@@ -351,11 +351,38 @@ apply_context_change(NewContext0, OldContext, State) ->
     gtp_path:unbind(OldContext),
     State#{context => NewContext}.
 
-init_session(#context{control_port = #gtp_port{ip = LocalIP}},
-	    #{'Username' := #{default := Username},
-	      'Password' := #{default := Password}} = AAAopts) ->
+map_attr('APN', #create_pdp_context_request{apn = #access_point_name{apn = APN}}) ->
+    unicode:characters_to_binary(lists:join($., APN));
+map_attr('IMSI', #create_pdp_context_request{imsi = #international_mobile_subscriber_identity{imsi = IMSI}}) ->
+    IMSI;
+map_attr('IMEI', #create_pdp_context_request{imei = #imei{imei = IMEI}}) ->
+    IMEI;
+map_attr('MSISDN',  #create_pdp_context_request{
+		       msisdn = #ms_international_pstn_isdn_number{
+				   msisdn = {isdn_address, _, _, 1, MSISDN}}}) ->
+    MSISDN;
+map_attr(Value, _) when is_binary(Value); is_list(Value) ->
+    Value;
+map_attr(Value, _) when is_atom(Value) ->
+    atom_to_binary(Value, utf8);
+map_attr(Value, _) ->
+    io_lib:format("~w", [Value]).
+
+map_username(_Req, Username, _) when is_binary(Username) ->
+    Username;
+map_username(_Req, [], Acc) ->
+    iolist_to_binary(lists:reverse(Acc));
+map_username(Req, [H | Rest], Acc) ->
+    Part = map_attr(H, Req),
+    map_username(Req, Rest, [Part | Acc]).
+
+init_session(Req,
+	     #context{control_port = #gtp_port{ip = LocalIP}},
+	     #{'Username' := #{default := Username},
+	       'Password' := #{default := Password}} = AAAopts) ->
+    MappedUsername = map_username(Req, Username, []),
     Session = #{
-      'Username'		=> Username,
+      'Username'		=> MappedUsername,
       'Password'		=> Password,
       'Service-Type'		=> 'Framed-User',
       'Framed-Protocol'		=> 'GPRS-PDP-Context',
