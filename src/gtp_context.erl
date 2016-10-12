@@ -245,7 +245,8 @@ generic_error(IP, Port, GtpPort,
 aaa_config(Opts) ->
     Default = #{
       'AAA-Application-Id' => ergw_aaa_provider,
-      'Username' => #{default => <<"ergw">>},
+      'Username' => #{default => <<"ergw">>,
+		      from_protocol_opts => true},
       'Password' => #{default => <<"ergw">>}
      },
     lists:foldl(aaa_config(_, _), Default, Opts).
@@ -267,6 +268,9 @@ aaa_config(Other, AAA) ->
 
 aaa_attr_config('Username', {default, Default}, Attr) ->
     Attr#{default => Default};
+aaa_attr_config('Username', {from_protocol_opts, Bool}, Attr)
+  when Bool == true; Bool == false ->
+    Attr#{from_protocol_opts => Bool};
 aaa_attr_config('Password', {default, Default}, Attr) ->
     Attr#{default => Default};
 aaa_attr_config(Key, Value, Attr) ->

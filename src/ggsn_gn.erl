@@ -211,7 +211,7 @@ handle_request(_From,
     Context2 = gtp_path:bind(Recovery, Context1),
 
     SessionOpts0 = init_session(Context2, AAAopts),
-    SessionOpts1 = init_session_from_gtp_req(Request, SessionOpts0),
+    SessionOpts1 = init_session_from_gtp_req(Request, AAAopts, SessionOpts0),
     SessionOpts = init_session_qos(ReqQoSProfile, SessionOpts1),
 
     lager:info("SessionOpts: ~p", [SessionOpts]),
@@ -368,23 +368,26 @@ init_session(#context{control_port = #gtp_port{ip = LocalIP}},
 	    Session
     end.
 
-copy_ppp_to_session({pap, 'PAP-Authentication-Request', _Id, Username, Password}, Session) ->
-    Session#{'Username' => Username, 'Password' => Password};
+copy_ppp_to_session({pap, 'PAP-Authentication-Request', _Id, Username, Password}, Session0) ->
+    Session = Session0#{'Username' => Username, 'Password' => Password},
+    maps:without(['CHAP-Challenge', 'CHAP_Password'], Session);
 copy_ppp_to_session({chap, 'CHAP-Challenge', _Id, Value, _Name}, Session) ->
     Session#{'CHAP_Challenge' => Value};
-copy_ppp_to_session({chap, 'CHAP-Response', _Id, Value, Name}, Session) ->
-    Session#{'CHAP_Password' => Value, 'Username' => Name};
+copy_ppp_to_session({chap, 'CHAP-Response', _Id, Value, Name}, Session0) ->
+    Session = Session0#{'CHAP_Password' => Value, 'Username' => Name},
+    maps:without(['Password'], Session);
 copy_ppp_to_session(_, Session) ->
     Session.
 
-copy_to_session(#protocol_configuration_options{config = {0, Options}}, Session) ->
+copy_to_session(#protocol_configuration_options{config = {0, Options}},
+		#{'Username' := #{from_protocol_opts := true}}, Session) ->
     lists:foldr(fun copy_ppp_to_session/2, Session, Options);
-copy_to_session(#access_point_name{apn = APN}, Session) ->
+copy_to_session(#access_point_name{apn = APN}, _AAAopts, Session) ->
     Session#{'Called-Station-Id' => unicode:characters_to_binary(lists:join($., APN))};
 copy_to_session(#ms_international_pstn_isdn_number{
-		   msisdn = {isdn_address, _, _, 1, MSISDN}}, Session) ->
+		   msisdn = {isdn_address, _, _, 1, MSISDN}}, _AAAopts, Session) ->
     Session#{'Calling-Station-Id' => MSISDN};
-copy_to_session(#international_mobile_subscriber_identity{imsi = IMSI}, Session) ->
+copy_to_session(#international_mobile_subscriber_identity{imsi = IMSI}, _AAAopts, Session) ->
     case itu_e212:split_imsi(IMSI) of
 	{MCC, MNC, _} ->
 	    Session#{'3GPP-IMSI' => IMSI,
@@ -393,11 +396,11 @@ copy_to_session(#international_mobile_subscriber_identity{imsi = IMSI}, Session)
 	    Session#{'3GPP-IMSI' => IMSI}
     end;
 copy_to_session(#end_user_address{pdp_type_organization = 0,
-				  pdp_type_number = 1}, Session) ->
+				  pdp_type_number = 1}, _AAAopts, Session) ->
     Session#{'3GPP-PDP-Type' => 'PPP'};
 copy_to_session(#end_user_address{pdp_type_organization = 1,
 				  pdp_type_number = 16#57,
-				  pdp_address = Address}, Session0) ->
+				  pdp_address = Address}, _AAAopts, Session0) ->
     Session = Session0#{'3GPP-PDP-Type' => 'IPv4'},
     case Address of
 	<<_:4/bytes>> -> Session#{'Framed-IP-Address' => gtp_c_lib:bin2ip(Address)};
@@ -405,7 +408,7 @@ copy_to_session(#end_user_address{pdp_type_organization = 1,
     end;
 copy_to_session(#end_user_address{pdp_type_organization = 1,
 				  pdp_type_number = 16#21,
-				  pdp_address = Address}, Session0) ->
+				  pdp_address = Address}, _AAAopts, Session0) ->
     Session = Session0#{'3GPP-PDP-Type' => 'IPv6'},
     case Address of
 	<<_:16/bytes>> -> Session#{'Framed-IPv6-Prefix' => {gtp_c_lib:bin2ip(Address), 128}};
@@ -413,7 +416,7 @@ copy_to_session(#end_user_address{pdp_type_organization = 1,
     end;
 copy_to_session(#end_user_address{pdp_type_organization = 1,
 				  pdp_type_number = 16#8D,
-				  pdp_address = Address}, Session0) ->
+				  pdp_address = Address}, _AAAopts, Session0) ->
     Session = Session0#{'3GPP-PDP-Type' => 'IPv4v6'},
     case Address of
 	<< IP4:4/bytes >> ->
@@ -427,30 +430,30 @@ copy_to_session(#end_user_address{pdp_type_organization = 1,
 	    Session
    end;
 
-copy_to_session(#gsn_address{instance = 0, address = IP}, Session) ->
+copy_to_session(#gsn_address{instance = 0, address = IP}, _AAAopts, Session) ->
     Session#{'3GPP-SGSN-Address' => IP};
-copy_to_session(#nsapi{instance = 0, nsapi = NSAPI}, Session) ->
+copy_to_session(#nsapi{instance = 0, nsapi = NSAPI}, _AAAopts, Session) ->
     Session#{'3GPP-NSAPI' => NSAPI};
-copy_to_session(#selection_mode{mode = Mode}, Session) ->
+copy_to_session(#selection_mode{mode = Mode}, _AAAopts, Session) ->
     Session#{'3GPP-Selection-Mode' => Mode};
-copy_to_session(#charging_characteristics{value = Value}, Session) ->
+copy_to_session(#charging_characteristics{value = Value}, _AAAopts, Session) ->
     Session#{'3GPP-Charging-Characteristics' => Value};
-copy_to_session(#routeing_area_identity{mcc = MCC, mnc = MNC}, Session) ->
+copy_to_session(#routeing_area_identity{mcc = MCC, mnc = MNC}, _AAAopts, Session) ->
     Session#{'3GPP-SGSN-MCC-MNC' => <<MCC/binary, MNC/binary>>};
-copy_to_session(#imei{imei = IMEI}, Session) ->
+copy_to_session(#imei{imei = IMEI}, _AAAopts, Session) ->
     Session#{'3GPP-IMEISV' => IMEI};
-copy_to_session(#rat_type{rat_type = Type}, Session) ->
+copy_to_session(#rat_type{rat_type = Type}, _AAAopts, Session) ->
     Session#{'3GPP-RAT-Type' => Type};
-copy_to_session(#user_location_information{} = IE, Session) ->
+copy_to_session(#user_location_information{} = IE, _AAAopts, Session) ->
     Value = gtp_packet:encode_v1_uli(IE),
     Session#{'3GPP-User-Location-Info' => Value};
-copy_to_session(#ms_time_zone{timezone = TZ, dst = DST}, Session) ->
+copy_to_session(#ms_time_zone{timezone = TZ, dst = DST}, _AAAopts, Session) ->
     Session#{'3GPP-MS-TimeZone' => {TZ, DST}};
-copy_to_session(_, Session) ->
+copy_to_session(_, _AAAopts, Session) ->
     Session.
 
-init_session_from_gtp_req(#gtp{ie = IEs}, Session) ->
-    lists:foldr(fun copy_to_session/2, Session, IEs).
+init_session_from_gtp_req(#gtp{ie = IEs}, AAAopts, Session) ->
+    lists:foldr(copy_to_session(_, AAAopts, _), Session, IEs).
 
 init_session_qos(#quality_of_service_profile{data = RequestedQoS}, Session) ->
     %% TODO: use config setting to init default class....
