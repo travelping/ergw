@@ -7,6 +7,7 @@
 
 -module(gtp_context).
 
+-compile({parse_transform, cut}).
 -compile({parse_transform, do}).
 
 -export([lookup/2, handle_message/4, start_link/5,
@@ -78,13 +79,17 @@ init([GtpPort, Version, Interface, Opts]) ->
 
     {ok, TEI} = gtp_c_lib:alloc_tei(GtpPort),
 
+    AAAopts = aaa_config(proplists:get_value(aaa, Opts, [])),
+    lager:debug("AAA Config Opts: ~p", [AAAopts]),
+
     State = #{
       gtp_port  => GtpPort,
       gtp_dp_port => GtpDP,
       version   => Version,
       handler   => gtp_path:get_handler(GtpPort, Version),
       interface => Interface,
-      tei       => TEI},
+      tei       => TEI,
+      aaa_opts  => AAAopts},
 
     Interface:init(Opts, State).
 
@@ -236,3 +241,34 @@ generic_error(IP, Port, GtpPort,
     Handler = gtp_path:get_handler(GtpPort, Version),
     Reply = Handler:build_response({MsgType, Error}),
     gtp_socket:send_response(GtpPort, IP, Port, Reply#gtp{seq_no = SeqNo}).
+
+aaa_config(Opts) ->
+    Default = #{
+      'AAA-Application-Id' => ergw_aaa_provider,
+      'Username' => #{default => <<"ergw">>},
+      'Password' => #{default => <<"ergw">>}
+     },
+    lists:foldl(aaa_config(_, _), Default, Opts).
+
+aaa_config({appid, AppId}, AAA) ->
+    AAA#{'AAA-Application-Id' => AppId};
+aaa_config({Key, Value}, AAA)
+  when is_list(Value) andalso
+       (Key == 'Username' orelse
+	Key == 'Password') ->
+    Attr = maps:get(Key, AAA),
+    maps:put(Key, lists:foldl(aaa_attr_config(Key, _, _), Attr, Value), AAA);
+aaa_config({Key, Value}, AAA)
+  when Key == '3GPP-GGSN-MCC-MNC' ->
+    AAA#{'3GPP-GGSN-MCC-MNC' => Value};
+aaa_config(Other, AAA) ->
+    lager:warning("unknown AAA config setting: ~p", [Other]),
+    AAA.
+
+aaa_attr_config('Username', {default, Default}, Attr) ->
+    Attr#{default => Default};
+aaa_attr_config('Password', {default, Default}, Attr) ->
+    Attr#{default => Default};
+aaa_attr_config(Key, Value, Attr) ->
+    lager:warning("unknown AAA attribute value: ~w => ~p", [Key, Value]),
+    Attr.

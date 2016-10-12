@@ -198,7 +198,7 @@ handle_request(_From,
 		  quality_of_service_profile = ReqQoSProfile
 		 } = Req, _Resent,
 	       #{tei := LocalTEI, gtp_port := GtpPort, gtp_dp_port := GtpDP,
-		 'Session' := Session} = State) ->
+		 aaa_opts := AAAopts, 'Session' := Session} = State) ->
 
     #create_pdp_context_request{
        recovery = Recovery,
@@ -210,7 +210,7 @@ handle_request(_From,
     Context1 = update_context_from_gtp_req(Request, Context0),
     Context2 = gtp_path:bind(Recovery, Context1),
 
-    SessionOpts0 = init_session(Context2),
+    SessionOpts0 = init_session(Context2, AAAopts),
     SessionOpts1 = init_session_from_gtp_req(Request, SessionOpts0),
     SessionOpts = init_session_qos(ReqQoSProfile, SessionOpts1),
 
@@ -351,15 +351,22 @@ apply_context_change(NewContext0, OldContext, State) ->
     gtp_path:unbind(OldContext),
     State#{context => NewContext}.
 
-init_session(#context{control_port = #gtp_port{
-					ip = LocalIP}}) ->
-    #{'Username'		=> <<"ergw">>,
-      'Password'		=> <<"ergw">>,
+init_session(#context{control_port = #gtp_port{ip = LocalIP}},
+	    #{'Username' := #{default := Username},
+	      'Password' := #{default := Password}} = AAAopts) ->
+    Session = #{
+      'Username'		=> Username,
+      'Password'		=> Password,
       'Service-Type'		=> 'Framed-User',
       'Framed-Protocol'		=> 'GPRS-PDP-Context',
       '3GPP-GGSN-Address'	=> LocalIP
-      %%TODO: '3GPP-GGSN-MCC-MNC'
-     }.
+     },
+    case maps:get('3GPP-GGSN-MCC-MNC', AAAopts, default) of
+	MCCMNC when is_binary(MCCMNC) ->
+	    Session#{'3GPP-GGSN-MCC-MNC' => MCCMNC};
+	_ ->
+	    Session
+    end.
 
 copy_ppp_to_session({pap, 'PAP-Authentication-Request', _Id, Username, Password}, Session) ->
     Session#{'Username' => Username, 'Password' => Password};
