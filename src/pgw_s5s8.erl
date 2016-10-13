@@ -243,7 +243,7 @@ handle_request(_From,
 		       group=[#v2_cause{v2_cause = request_accepted},
 			      EBI,
 			      #v2_fully_qualified_tunnel_endpoint_identifier{
-				 instance = 5,                  %% S5/S8 F-TEI Instance
+				 instance = 2,                  %% S5/S8 F-TEI Instance
 				 interface_type = 5,            %% S5/S8 PGW GTP-U Interface
 				 key = LocalTEI,
 				 ipv4 = gtp_c_lib:ip2bin(LocalIP)}]}],
@@ -413,7 +413,7 @@ create_session_response(EBI,
 		  guaranteed_bit_rate_for_uplink=0,
 		  guaranteed_bit_rate_for_downlink=0},
 	       #v2_fully_qualified_tunnel_endpoint_identifier{
-		  instance = 5,                  %% S5/S8 F-TEI Instance
+		  instance = 2,                  %% S5/S8 F-TEI Instance
 		  interface_type = 5,            %% S5/S8 PGW GTP-U Interface
 		  key = LocalTEI,
 		  ipv4 = gtp_c_lib:ip2bin(LocalIP)}]}].
