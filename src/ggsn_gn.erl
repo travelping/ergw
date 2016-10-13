@@ -482,15 +482,24 @@ copy_to_session(_, _AAAopts, Session) ->
 init_session_from_gtp_req(#gtp{ie = IEs}, AAAopts, Session) ->
     lists:foldr(copy_to_session(_, AAAopts, _), Session, IEs).
 
-init_session_qos(#quality_of_service_profile{data = RequestedQoS}, Session) ->
+init_session_qos(#quality_of_service_profile{
+		    priority = RequestedPriority,
+		    data = RequestedQoS}, Session) ->
     %% TODO: use config setting to init default class....
-    NegotiatedQoS = negotiate_qos(RequestedQoS),
-    Session#{'3GPP-GPRS-Negotiated-QoS-Profile' => NegotiatedQoS}.
+    {NegotiatedPriority, NegotiatedQoS} = negotiate_qos(RequestedPriority, RequestedQoS),
+    Session#{'3GPP-Allocation-Retention-Priority' => NegotiatedPriority,
+	     '3GPP-GPRS-Negotiated-QoS-Profile'   => NegotiatedQoS}.
 
-negotiate_qos(ReqQoSProfileData) ->
+negotiate_qos_prio(X) when X > 0 andalso X =< 3 ->
+    X;
+negotiate_qos_prio(_) ->
+    2.
+
+negotiate_qos(ReqPriority, ReqQoSProfileData) ->
+    NegPriority = negotiate_qos_prio(ReqPriority),
     case '3gpp_qos':decode(ReqQoSProfileData) of
 	Profile when is_binary(Profile) ->
-	    ReqQoSProfileData;
+	    {NegPriority, ReqQoSProfileData};
 	#qos{traffic_class = 0} ->			%% MS to Network: Traffic Class: Subscribed
 	    %% 3GPP TS 24.008, Sect. 10.5.6.5,
 	    QoS = #qos{
@@ -514,9 +523,9 @@ negotiate_qos(ReqQoSProfileData) ->
 		     guaranteed_bit_rate_downlink	= 0,		%% 0 kbps
 		     signaling_indication		= 0,		%% unknown
 		     source_statistics_descriptor	= 0},		%% Not optimised for signalling traffic
-	    '3gpp_qos':encode(QoS);
+	    {NegPriority, '3gpp_qos':encode(QoS)};
 	_ ->
-	    ReqQoSProfileData
+	    {NegPriority, ReqQoSProfileData}
     end.
 
 init_context(APN, CntlPort, CntlTEI, DataPort, DataTEI) ->
@@ -634,8 +643,9 @@ pdp_pco(SessionOpts, #protocol_configuration_options{config = {0, PPPReqOpts}}, 
 pdp_pco(_SessionOpts, _PCO, IE) ->
     IE.
 
-pdp_qos_profile(#{'3GPP-GPRS-Negotiated-QoS-Profile' := NegotiatedQoS}, IE) ->
-    [#quality_of_service_profile{data = NegotiatedQoS} | IE];
+pdp_qos_profile(#{'3GPP-Allocation-Retention-Priority' := NegotiatedPriority,
+		  '3GPP-GPRS-Negotiated-QoS-Profile'   := NegotiatedQoS}, IE) ->
+    [#quality_of_service_profile{priority = NegotiatedPriority, data = NegotiatedQoS} | IE];
 pdp_qos_profile(_SessionOpts, IE) ->
     IE.
 
