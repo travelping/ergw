@@ -238,7 +238,7 @@ handle_request(_From,
 
 handle_request(_From,
 	       #gtp{type = update_pdp_context_request} = Request, Req, _Resent,
-	       #{tei := LocalTEI, gtp_port := GtpPort, context := OldContext} = State0) ->
+	       #{context := OldContext} = State0) ->
 
     #update_pdp_context_request{
        recovery = Recovery,
@@ -262,15 +262,11 @@ handle_request(_From,
 		     State0
 	     end,
 
-    #gtp_port{ip = LocalIP} = GtpPort,
-
     ResponseIEs0 = [#cause{value = request_accepted},
-		    #tunnel_endpoint_identifier_data_i{tei = LocalTEI},
 		    #charging_id{id = <<0,0,0,1>>},
-		    #gsn_address{instance = 0, address = gtp_c_lib:ip2bin(LocalIP)},   %% for Control Plane
-		    #gsn_address{instance = 1, address = gtp_c_lib:ip2bin(LocalIP)},   %% for User Traffic
 		    QoSProfile],
-    ResponseIEs = gtp_v1_c:build_recovery(Context, Recovery /= undefined, ResponseIEs0),
+    ResponseIEs1 = tunnel_endpoint_elements(Context, ResponseIEs0),
+    ResponseIEs = gtp_v1_c:build_recovery(Context, Recovery /= undefined, ResponseIEs1),
     Reply = {update_pdp_context_response, RemoteCntlTEI, ResponseIEs},
     {reply, Reply, State1};
 
@@ -649,22 +645,27 @@ pdp_qos_profile(#{'3GPP-Allocation-Retention-Priority' := NegotiatedPriority,
 pdp_qos_profile(_SessionOpts, IE) ->
     IE.
 
+tunnel_endpoint_elements(#context{control_port = #gtp_port{ip = CntlIP},
+				  local_control_tei = CntlTEI,
+				  data_port = #gtp_port{ip = DataIP},
+				  local_data_tei = DataTEI}, IEs) ->
+    [#tunnel_endpoint_identifier_data_i{tei = CntlTEI},
+     #tunnel_endpoint_identifier_control_plane{tei = DataTEI},
+     #gsn_address{instance = 0, address = gtp_c_lib:ip2bin(CntlIP)},   %% for Control Plane
+     #gsn_address{instance = 1, address = gtp_c_lib:ip2bin(DataIP)}    %% for User Traffic
+     | IEs].
+
 create_pdp_context_response(SessionOpts,
 			    #create_pdp_context_request{
 			       pco = ReqProtocolConfigOpts
 			      },
-			    #context{control_port = #gtp_port{ip = LocalIP},
-				     local_control_tei = LocalTEI,
-				     ms_v4 = MSv4, ms_v6 = MSv6} = Context) ->
+			    #context{ms_v4 = MSv4, ms_v6 = MSv6} = Context) ->
     dp_create_pdp_context(Context),
 
     IE0 = [#cause{value = request_accepted},
-	  #reordering_required{required = no},
-	  #tunnel_endpoint_identifier_data_i{tei = LocalTEI},
-	  #tunnel_endpoint_identifier_control_plane{tei = LocalTEI},
-	  #charging_id{id = <<0,0,0,1>>},
-	  encode_eua(MSv4, MSv6),
-	  #gsn_address{instance = 0, address = gtp_c_lib:ip2bin(LocalIP)},   %% for Control Plane
-	  #gsn_address{instance = 1, address = gtp_c_lib:ip2bin(LocalIP)}],  %% for User Traffic
-    IE = pdp_qos_profile(SessionOpts, IE0),
-    pdp_pco(SessionOpts, ReqProtocolConfigOpts, IE).
+	   #reordering_required{required = no},
+	   #charging_id{id = <<0,0,0,1>>},
+	   encode_eua(MSv4, MSv6)],
+    IE1 = pdp_qos_profile(SessionOpts, IE0),
+    IE2 = pdp_pco(SessionOpts, ReqProtocolConfigOpts, IE1),
+    tunnel_endpoint_elements(Context, IE2).
