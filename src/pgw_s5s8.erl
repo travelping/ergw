@@ -152,7 +152,7 @@ init(_Opts, State) ->
 
 handle_cast({path_restart, Path}, #{context := #context{path = Path} = Context} = State) ->
     dp_delete_pdp_context(Context),
-    pdn_release_ip(Context, State),
+    pdn_release_ip(Context),
     {stop, normal, State};
 handle_cast({path_restart, _Path}, State) ->
     {noreply, State}.
@@ -273,7 +273,7 @@ handle_request(_From,
     case Result of
 	{ok, {ReplyTEI, ReplyIEs, State}} ->
 	    dp_delete_pdp_context(Context),
-	    pdn_release_ip(Context, State),
+	    pdn_release_ip(Context),
 	    Reply = {delete_session_response, ReplyTEI, ReplyIEs},
 	    {stop, Reply, State};
 
@@ -330,8 +330,8 @@ encode_paa(IPv4, IPv6) ->
 encode_paa(Type, IPv4, IPv6) ->
     #v2_pdn_address_allocation{type = Type, address = <<IPv6/binary, IPv4/binary>>}.
 
-pdn_release_ip(#context{ms_v4 = MSv4, ms_v6 = MSv6}, #{gtp_port := GtpPort}) ->
-    apn:release_pdp_ip(GtpPort, MSv4, MSv6).
+pdn_release_ip(#context{apn = APN, ms_v4 = MSv4, ms_v6 = MSv6}) ->
+    apn:release_pdp_ip(APN, MSv4, MSv6).
 
 apply_context_change(NewContext0, OldContext, State) ->
     NewContext = gtp_path:bind(NewContext0),
