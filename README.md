@@ -1,4 +1,4 @@
-erGW - 3GPP GGSN/P-GW in Erlang
+erGW - 3GPP GGSN P-GW in Erlang
 ===============================
 [![Build Status](https://travis-ci.org/travelping/ergw.svg?branch=master)](https://travis-ci.org/travelping/ergw)
 
