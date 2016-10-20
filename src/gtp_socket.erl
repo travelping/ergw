@@ -322,7 +322,7 @@ handle_request(IP, Port, #gtp{seq_no = SeqNo} = Msg,
 	    gen_socket:sendto(Socket, {inet4, IP, Port}, Data);
 
 	_Other ->
-	    lager:info("HandleRequest: ~p", [_Other]),
+	    lager:debug("HandleRequest: ~p", [_Other]),
 	    gtp_context:handle_message(IP, Port, GtpPort, Msg)
     end,
     State.

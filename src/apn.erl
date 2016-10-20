@@ -60,13 +60,13 @@ init([APN, Opts]) ->
     {ok, #state{ip4_pools = IPv4pools, ip6_pools = IPv6pools}}.
 
 handle_call({allocate_pdp_ip, TEI, ReqIPv4, ReqIPv6} = Request, _From, State) ->
-    lager:warning("handle_call: ~p", [Request]),
+    lager:debug("handle_call: ~p", [Request]),
     IPv4 = alloc_ipv4(TEI, ReqIPv4, State),
     IPv6 = alloc_ipv6(TEI, ReqIPv6, State),
     {reply, {ok, IPv4, IPv6}, State};
 
 handle_call({release_pdp_ip, IPv4, IPv6} = Request, _From, State) ->
-    lager:warning("handle_call: ~p", [Request]),
+    lager:debug("handle_call: ~p", [Request]),
     release_ipv4(IPv4, State),
     release_ipv6(IPv6, State),
     {reply, ok, State};

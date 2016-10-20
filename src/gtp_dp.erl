@@ -70,7 +70,7 @@ call(GtpPort, Request) ->
 		  [lager:pr(GtpPort, ?MODULE), Request]).
 
 dp_call(GtpPort, Request) ->
-    lager:info("DP Call ~p: ~p", [lager:pr(GtpPort, ?MODULE), Request]),
+    lager:debug("DP Call ~p: ~p", [lager:pr(GtpPort, ?MODULE), Request]),
     call(GtpPort, {dp, Request}).
 
 %%%===================================================================
@@ -92,9 +92,9 @@ init([Name, SocketOpts]) ->
     {ok, State}.
 
 handle_call({dp, Request}, _From, #state{pid = Pid} = State) ->
-    lager:info("DP Call ~p: ~p", [Pid, Request]),
+    lager:debug("DP Call ~p: ~p", [Pid, Request]),
     Reply = gen_server:call(Pid, Request),
-    lager:info("DP Call Reply: ~p", [Reply]),
+    lager:debug("DP Call Reply: ~p", [Reply]),
     {reply, Reply, State};
 
 handle_call(get_id, _From, #state{pid = Pid} = State) ->
