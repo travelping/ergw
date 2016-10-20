@@ -157,11 +157,10 @@ handle_request(_From, _Msg, true, State) ->
 
 handle_request(From,
 	       #gtp{type = create_pdp_context_request, seq_no = SeqNo,
-		    ie = IEs} = Request, _Resent,
+		    ie = #{?'Recovery' := Recovery} = IEs} = Request, _Resent,
 	       #{tei := LocalTEI, gtp_port := GtpPort, gtp_dp_port := GtpDP,
 		 proxy_ports := ProxyPorts, proxy_dps := ProxyDPs, ggsn := GGSN} = State0) ->
 
-    Recovery = maps:get(?'Recovery', IEs, undefined),
     IMSIie = maps:get(?'IMSI', IEs, undefined),
     APNie = maps:get(?'Access Point Name', IEs, undefined),
 
@@ -202,10 +201,9 @@ handle_request(From,
 
 handle_request(From,
 	       #gtp{type = update_pdp_context_request, seq_no = SeqNo,
-		    ie = IEs} = Request, _Resent,
+		    ie = #{?'Recovery' := Recovery} = IEs} = Request, _Resent,
 	       #{context := OldContext, proxy_context := ProxyContext0} = State0) ->
 
-    Recovery = maps:get(?'Recovery', IEs, undefined),
     IMSIie = maps:get(?'IMSI', IEs, undefined),
 
     Context0 = update_context_from_gtp_req(Request, OldContext),
@@ -237,12 +235,11 @@ handle_request({GtpPort, _IP, _Port}, Msg, _Resent, State) ->
 
 handle_response(#request_info{from = From, seq_no = SeqNo, new_peer = NewPeer},
 		#gtp{type = create_pdp_context_response,
-		     ie = #{?'Cause' := Cause} = IEs} = Response, _Request,
+		     ie = #{?'Recovery' := Recovery,
+			    ?'Cause' := Cause}} = Response, _Request,
 		#{context := Context,
 		  proxy_context := ProxyContext0} = State) ->
     lager:warning("OK Proxy Response ~p", [lager:pr(Response, ?MODULE)]),
-
-    Recovery = maps:get(?'Recovery', IEs, undefined),
 
     ProxyContext1 = update_context_from_gtp_req(Response, ProxyContext0),
     ProxyContext = gtp_path:bind(Recovery, ProxyContext1),

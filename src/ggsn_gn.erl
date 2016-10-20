@@ -73,13 +73,13 @@ handle_request(_From, _Msg, true, State) ->
 handle_request(_From,
 	       #gtp{type = create_pdp_context_request,
 		    ie = #{
+		      ?'Recovery' := Recovery,
 		      ?'Access Point Name' := #access_point_name{apn = APN},
 		      ?'Quality of Service Profile' := ReqQoSProfile
 		     } = IEs}, _Resent,
 	       #{tei := LocalTEI, gtp_port := GtpPort, gtp_dp_port := GtpDP,
 		 aaa_opts := AAAopts, 'Session' := Session} = State) ->
 
-    Recovery = maps:get(?'Recovery', IEs, undefined),
     EUA = maps:get(?'End User Address', IEs, undefined),
 
     Context0 = init_context(APN, GtpPort, LocalTEI, GtpDP, LocalTEI),
@@ -114,10 +114,10 @@ handle_request(_From,
 
 handle_request(_From,
 	       #gtp{type = update_pdp_context_request,
-		    ie = #{?'Quality of Service Profile' := ReqQoSProfile} = IEs}, _Resent,
+		    ie = #{?'Recovery' := Recovery,
+			   ?'Quality of Service Profile' := ReqQoSProfile} = IEs}, _Resent,
 	       #{context := OldContext} = State0) ->
 
-    Recovery = maps:get(?'Recovery', IEs, undefined),
     RemoteCntlTEI = maps:get(?'Tunnel Endpoint Identifier Control Plane',
 			     IEs, OldContext#context.remote_control_tei),
 

@@ -78,14 +78,14 @@ handle_request(_From, _Msg, true, State) ->
 
 handle_request(_From,
 	       #gtp{type = create_session_request,
-		    ie = #{?'Sender F-TEID for Control Plane' := FqCntlTEID,
+		    ie = #{?'Recovery'                        := Recovery,
+			   ?'Sender F-TEID for Control Plane' := FqCntlTEID,
 			   ?'Access Point Name'               := #v2_access_point_name{apn = APN},
 			   ?'Bearer Contexts to be created'   := #v2_bearer_context{group = BearerCreate}
 			  } = IEs},
 	       _Resent,
 	       #{tei := LocalTEI, gtp_port := GtpPort, gtp_dp_port := GtpDP} = State) ->
 
-    Recovery = maps:get(?'Recovery', IEs, undefined),
     PAA = maps:get(?'PDN Address Allocation', IEs, undefined),
 
     #v2_fully_qualified_tunnel_endpoint_identifier{
@@ -109,12 +109,12 @@ handle_request(_From,
 
 handle_request(_From,
 	       #gtp{type = modify_bearer_request, tei = LocalTEI,
-		    ie = #{?'Bearer Contexts to be modified' :=
+		    ie = #{?'Recovery' := Recovery,
+			   ?'Bearer Contexts to be modified' :=
 			       #v2_bearer_context{group = BearerCreate}} = IEs},
 	       _Resent,
 	       #{gtp_port := GtpPort, context := OldContext} = State0) ->
 
-    Recovery = maps:get(?'Recovery', IEs, undefined),
     FqCntlTEID = maps:get(?'Sender F-TEID for Control Plane', IEs, undefined),
 
     #v2_fully_qualified_tunnel_endpoint_identifier{
