@@ -141,7 +141,7 @@ release_ip(IP, #state{base = Base, shift = Shift, size = Size,
 
     case ets:lookup(UsedTid, Id) of
 	[_] ->
-	    ets:delete(UsedTid, IP),
+	    ets:delete(UsedTid, Id),
 	    ets:insert(FreeTid, #lease{ip = Id});
 	_ ->
 	    lager:warning("release of unallocated IP: ~p", [id2ip(Id, State)])
