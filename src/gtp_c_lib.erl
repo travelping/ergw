@@ -7,40 +7,13 @@
 
 -module(gtp_c_lib).
 
--export([build_req_record/3]).
+-compile({parse_transform, cut}).
+
 -export([ip2bin/1, bin2ip/1]).
 -export([alloc_tei/1]).
 -export([fmt_gtp/1]).
 
 -include_lib("gtplib/include/gtp_packet.hrl").
-
-%%====================================================================
-%% Request validation helper
-%%====================================================================
-
-build_req_record(RecTag, Spec, IEs) ->
-    {Fields, {Add, Missing}} = lists:mapfoldl(fun req_merge/2, {IEs, []}, Spec),
-    Record = list_to_tuple([RecTag | Fields] ++ [Add]),
-    {Record, Missing}.
-
-req_merge({IdWant, Opt}, {IEs, Missing}) ->
-    case req_find(IdWant, IEs) of
-	undefined when Opt == mandatory ->
-	    {undefined, {IEs, [IdWant|Missing]}};
-	undefined ->
-	    {undefined, {IEs, Missing}};
-	Value ->
-	    {Value, {lists:delete(Value, IEs), Missing}}
-    end.
-
-req_find(_, []) ->
-    undefined;
-req_find({Type, Instance}, [IE|_])
-  when element(1, IE) == Type andalso
-       element(2, IE) == Instance ->
-    IE;
-req_find(IdWant, [_|Next]) ->
-    req_find(IdWant, Next).
 
 %%====================================================================
 %% IP helpers
@@ -82,12 +55,15 @@ alloc_tei(GtpPort, Cnt) ->
 %%% Helper functions
 %%%===================================================================
 
+fmt_ie(#v2_bearer_context{group = Group}) ->
+    lager:pr(#v2_bearer_context{group = fmt_ies(Group)}, ?MODULE);
+fmt_ie(V) when is_list(V) ->
+    lists:map(fun fmt_ie/1, V);
+fmt_ie(V) ->
+    lager:pr(V, ?MODULE).
+
 fmt_ies(IEs) ->
-    lists:map(fun(#v2_bearer_context{group = Group}) ->
-		      lager:pr(#v2_bearer_context{group = fmt_ies(Group)}, ?MODULE);
-		 (X) ->
-		      lager:pr(X, ?MODULE)
-	      end, IEs).
+    maps:map(fun(_K, V) -> fmt_ie(V) end, IEs).
 
 fmt_gtp(#gtp{ie = IEs} = Msg) ->
     lager:pr(Msg#gtp{ie = fmt_ies(IEs)}, ?MODULE).

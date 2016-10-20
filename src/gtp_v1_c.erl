@@ -22,25 +22,26 @@
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include("include/ergw.hrl").
 
+-define('Recovery',					{recovery, 0}).
+-define('Access Point Name',				{access_point_name, 0}).
+
 %%====================================================================
 %% API
 %%====================================================================
+
 restart_counter(#recovery{restart_counter = RestartCounter}) ->
     RestartCounter;
 restart_counter(_) ->
     undefined.
 
-build_recovery(#gtp_port{restart_counter = RCnt}, NewPeer, IEs)
-  when NewPeer == true ->
-    [#recovery{restart_counter = RCnt} | IEs];
+build_recovery(#gtp_port{} = GtpPort, NewPeer, IEs) when NewPeer == true ->
+    add_recovery(GtpPort, IEs);
 build_recovery(#context{
 		  remote_restart_counter = RemoteRestartCounter,
-		  control_port =
-		      #gtp_port{restart_counter = RCnt}},
-	       NewPeer, IEs)
+		  control_port = GtpPort}, NewPeer, IEs)
   when NewPeer == true orelse
        RemoteRestartCounter == undefined ->
-    [#recovery{restart_counter = RCnt} | IEs];
+    add_recovery(GtpPort, IEs);
 build_recovery(_, _, IEs) ->
     IEs.
 
@@ -152,36 +153,32 @@ gtp_msg_response(ms_info_change_notification_request)		-> ms_info_change_notific
 gtp_msg_response(data_record_transfer_request)			-> data_record_transfer_response;
 gtp_msg_response(Response)					-> Response.
 
-get_handler(#gtp_port{name = PortName}, #gtp{ie = IEs} ) ->
-    case find_ie(access_point_name, 0, IEs) of
-	#access_point_name{apn = APN} ->
-	    case ergw_apns:handler(PortName, gn, APN) of
-		[{_, Handler, Opts}] ->
-		    lager:info("APN lookup: ~p, ~p", [Handler, Opts]),
-		    {ok, Handler, Opts};
-		_ ->
-		    %% TODO: correct error message
-		    {error, not_found}
-	    end;
+get_handler(#gtp_port{name = PortName},
+	    #gtp{ie = #{?'Access Point Name' := #access_point_name{apn = APN}}}) ->
+    case ergw_apns:handler(PortName, gn, APN) of
+	[{_, Handler, Opts}] ->
+	    lager:info("APN lookup: ~p, ~p", [Handler, Opts]),
+	    {ok, Handler, Opts};
 	_ ->
-	    {error, {mandatory_ie_missing, {access_point_name, 0}}}
-    end.
+	    %% TODO: correct error message
+	    {error, not_found}
+    end;
+get_handler(_Port, _Msg) ->
+    {error, {mandatory_ie_missing, ?'Access Point Name'}}.
 
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
 
-find_ie(_, _, []) ->
-    undefined;
-find_ie(Type, Instance, [IE|_])
-  when element(1, IE) == Type,
-       element(2, IE) == Instance ->
-    IE;
-find_ie(Type, Instance, [_|Next]) ->
-    find_ie(Type, Instance, Next).
+add_recovery(#gtp_port{restart_counter = RCnt}, IEs) when is_list(IEs) ->
+    [#recovery{restart_counter = RCnt} | IEs];
+add_recovery(#gtp_port{restart_counter = RCnt}, IEs) when is_map(IEs) ->
+    IEs#{'Recovery' => #recovery{restart_counter = RCnt}}.
 
 map_reply_ies(IEs) when is_list(IEs) ->
     [map_reply_ie(IE) || IE <- IEs];
+map_reply_ies(IEs) when is_map(IEs) ->
+    maps:map(fun(_K, IE) -> map_reply_ie(IE) end, IEs);
 map_reply_ies(IE) ->
     [map_reply_ie(IE)].
 

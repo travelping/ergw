@@ -22,6 +22,10 @@
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include("include/ergw.hrl").
 
+-define('Recovery',					{v2_recovery, 0}).
+-define('Access Point Name',				{v2_access_point_name, 0}).
+-define('Sender F-TEID for Control Plane',		{v2_fully_qualified_tunnel_endpoint_identifier, 0}).
+
 %%====================================================================
 %% API
 %%====================================================================
@@ -30,17 +34,14 @@ restart_counter(#v2_recovery{restart_counter = RestartCounter}) ->
 restart_counter(_) ->
     undefined.
 
-build_recovery(#gtp_port{restart_counter = RCnt}, NewPeer, IEs)
-  when NewPeer == true ->
-    [#v2_recovery{restart_counter = RCnt} | IEs];
+build_recovery(GtpPort = #gtp_port{}, NewPeer, IEs) when NewPeer == true ->
+    add_recovery(GtpPort, IEs);
 build_recovery(#context{
 		  remote_restart_counter = RemoteRestartCounter,
-		  control_port =
-		      #gtp_port{restart_counter = RCnt}},
-	       NewPeer, IEs)
+		  control_port = GtpPort}, NewPeer, IEs)
   when NewPeer == true orelse
        RemoteRestartCounter == undefined ->
-    [#v2_recovery{restart_counter = RCnt} | IEs];
+    add_recovery(GtpPort, IEs);
 build_recovery(_, _, IEs) ->
     IEs.
 
@@ -158,46 +159,41 @@ gtp_msg_response(mbms_session_update_request)				-> mbms_session_update_response
 gtp_msg_response(mbms_session_stop_request)				-> mbms_session_stop_response;
 gtp_msg_response(Response)						-> Response.
 
-get_handler(#gtp_port{name = PortName}, #gtp{ie = IEs} ) ->
-    case find_ie(v2_access_point_name, 0, IEs) of
-	#v2_access_point_name{apn = APN} ->
-	    case find_ie(v2_fully_qualified_tunnel_endpoint_identifier, 0, IEs) of
-		#v2_fully_qualified_tunnel_endpoint_identifier{interface_type = IfType} ->
-		    case map_v2_iftype(IfType) of
-			{ok, Protocol} ->
-			    case ergw_apns:handler(PortName, Protocol, APN) of
-				[{_, Handler, Opts}] ->
-				    {ok, Handler, Opts};
-				_ ->
-				    %% TODO: correct error message
-				    {error, not_found}
-			    end;
-			_ ->
-			    %% TODO: correct error message
-			    {error, not_found}
-		    end;
+get_handler(#gtp_port{name = PortName},
+	    #gtp{ie = #{?'Access Point Name' := #v2_access_point_name{apn = APN},
+			?'Sender F-TEID for Control Plane' :=
+			    #v2_fully_qualified_tunnel_endpoint_identifier{interface_type = IfType}}}) ->
+    case map_v2_iftype(IfType) of
+	{ok, Protocol} ->
+	    case ergw_apns:handler(PortName, Protocol, APN) of
+		[{_, Handler, Opts}] ->
+		    {ok, Handler, Opts};
 		_ ->
-		    {error, {mandatory_ie_missing, {v2_fully_qualified_tunnel_endpoint_identifier, 0}}}
+		    %% TODO: correct error message
+		    {error, not_found}
 	    end;
 	_ ->
-	    {error, {mandatory_ie_missing, {access_point_name, 0}}}
-    end.
+	    %% TODO: correct error message
+	    {error, not_found}
+    end;
+get_handler(_Port, #gtp{ie = #{?'Access Point Name' := _}}) ->
+    {error, {mandatory_ie_missing, ?'Sender F-TEID for Control Plane'}};
+get_handler(_Port, _Msg) ->
+    {error, {mandatory_ie_missing, ?'Access Point Name'}}.
 
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
 
-find_ie(_, _, []) ->
-    undefined;
-find_ie(Type, Instance, [IE|_])
-  when element(1, IE) == Type,
-       element(2, IE) == Instance ->
-    IE;
-find_ie(Type, Instance, [_|Next]) ->
-    find_ie(Type, Instance, Next).
+add_recovery(#gtp_port{restart_counter = RCnt}, IEs) when is_list(IEs) ->
+    [#v2_recovery{restart_counter = RCnt} | IEs];
+add_recovery(#gtp_port{restart_counter = RCnt}, IEs) when is_map(IEs) ->
+    IEs#{'Recovery' => #v2_recovery{restart_counter = RCnt}}.
 
 map_reply_ies(IEs) when is_list(IEs) ->
     [map_reply_ie(IE) || IE <- IEs];
+map_reply_ies(IEs) when is_map(IEs) ->
+    maps:map(fun(_K, IE) -> map_reply_ie(IE) end, IEs);
 map_reply_ies(IE) ->
     [map_reply_ie(IE)].
 

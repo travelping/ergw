@@ -11,7 +11,7 @@
 
 -compile({parse_transform, do}).
 
--export([init/2, request_spec/1, handle_request/5, handle_cast/2]).
+-export([init/2, request_spec/1, handle_request/4, handle_cast/2]).
 
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include("include/ergw.hrl").
@@ -20,73 +20,26 @@
 %% API
 %%====================================================================
 
-%% TODO: the records and matching request spec's should be
-%%       generated from a common source.....
--record(create_session_request, {
-	  imsi,
-	  recovery,
-	  msisdn,
-	  serving_network,
-	  rat_type,
-	  indication,
-	  sender_f_teid_for_control_plane,
-	  apn,
-	  selection_mode,
-	  paa,
-	  apn_ambr,
-	  trusted_wlan_mode_indication,
-	  pco,
-	  bearer_context_to_be_created,
-	  bearer_context_to_be_removed,
-	  trace_information,
-	  twan_fq_csid,
-	  ue_time_zone,
-	  charging_characteristics,
-	  twan_ldn,
-	  apco,
-	  twan_identifier,
-	  additional_ies
-	 }).
-
--record(delete_session_request, {
-	  linked_eps_bearer_id,
-	  pco,
-	  sender_f_teid_for_control_plane,
-	  ue_time_zone,
-	  twan_identifier,
-	  twan_identifier_timestamp
-	 }).
+-define('Recovery',					{v2_recovery, 0}).
+-define('IMSI',						{v2_international_mobile_subscriber_identity, 0}).
+%% -define('MSISDN',					{v2_ms_international_pstn_isdn_number, 0}).
+-define('PDN Address Allocation',			{v2_pdn_address_allocation, 0}).
+-define('RAT Type',					{v2_rat_type, 0}).
+-define('Sender F-TEID for Control Plane',		{v2_fully_qualified_tunnel_endpoint_identifier, 0}).
+-define('Access Point Name',				{v2_access_point_name, 0}).
+-define('Bearer Contexts to be created',		{v2_bearer_context, 0}).
+%% -define('Bearer Contexts to be modified',		   {v2_bearer_context, 0}).
+%% -define('Protocol Configuration Options',		{v2_protocol_configuration_options, 0}).
+%% -define('IMEI',						{v2_imei, 0}).
 
 request_spec(create_session_request) ->
-    [{{v2_international_mobile_subscriber_identity, 0},		mandatory},
-     {{v2_recovery, 0},						conditional},
-     {{v2_msisdn, 0},						conditional},
-     {{v2_serving_network, 0},					optional},
-     {{v2_rat_type, 0},						mandatory},
-     {{v2_indication, 0},					optional},
-     {{v2_fully_qualified_tunnel_endpoint_identifier, 0},	mandatory},
-     {{v2_access_point_name, 0},				mandatory},
-     {{v2_selection_mode, 0},					conditional},
-     {{v2_pdn_address_allocation, 0},				conditional},
-     {{v2_aggregate_maximum_bit_rate, 0},			conditional},
-     {{v2_trusted_wlan_mode_indication, 0},			optional},
-     {{v2_protocol_configuration_options, 0},			optional},
-     {{v2_bearer_context, 0},					mandatory},
-     {{v2_bearer_context, 1},					conditional},
-     {{v2_trace_information, 0},				conditional},
-     {{v2_fully_qualified_pdn_connection_set_identifier, 3},	mandatory},
-     {{v2_ue_time_zone, 0},					mandatory},
-     {{v2_charging_characteristics, 0},				conditional},
-     {{v2_local_distinguished_name, 3},				optional},
-     {{v2_additional_protocol_configuration_options, 0},	optional},
-     {{v2_twan_identifier, 0},					optional}];
+    [{?'IMSI',							conditional},
+     {?'RAT Type',						mandatory},
+     {?'Sender F-TEID for Control Plane',			mandatory},
+     {?'Access Point Name',					mandatory},
+     {?'Bearer Contexts to be created',				mandatory}];
 request_spec(delete_session_request) ->
-    [{{v2_eps_bearer_id, 0},					conditional},
-     {{v2_protocol_configuration_options, 0},			optional},
-     {{v2_fully_qualified_tunnel_endpoint_identifier, 0},	optional},
-     {{v2_ue_time_zone, 0},					conditional},
-     {{v2_twan_identifier, 0},					optional},
-     {{v2_twan_identifier_timestamp, 0},			optional}];
+    [];
 request_spec(_) ->
     [].
 
@@ -96,28 +49,27 @@ init(_Opts, State) ->
     {ok, State}.
 
 handle_cast({path_restart, Path}, #{context := #context{path = Path} = Context} = State) ->
-    %% dp_delete_pdp_context(Context),
+    dp_delete_pdp_context(Context),
     pdn_release_ip(Context, State),
     {stop, normal, State};
 handle_cast({path_restart, _Path}, State) ->
     {noreply, State}.
 
-handle_request(_From, _Msg, _Req, true, State) ->
+handle_request(_From, _Msg, true, State) ->
 %% resent request
     {noreply, State};
 
 handle_request(_From,
-	       #gtp{type = create_session_request}, Req, _Resent,
+	       #gtp{type = create_session_request,
+		    ie = #{?'Sender F-TEID for Control Plane' := FqCntlTEID,
+			   ?'Access Point Name'               := #v2_access_point_name{apn = APN},
+			   ?'Bearer Contexts to be created'   := #v2_bearer_context{group = BearerCreate}
+			  } = IEs},
+	       _Resent,
 	       #{tei := LocalTEI, gtp_port := GtpPort, gtp_dp_port := GtpDP} = State) ->
 
-    #create_session_request{
-       recovery = Recovery,
-       sender_f_teid_for_control_plane = FqCntlTEID,
-       apn = #v2_access_point_name{apn = APN},
-       paa = PAA,
-       bearer_context_to_be_created =
-	   #v2_bearer_context{group = BearerCreate}
-      } = Req,
+    Recovery = maps:get(?'Recovery', IEs, undefined),
+    PAA = maps:get(?'PDN Address Allocation', IEs, undefined),
 
     #v2_fully_qualified_tunnel_endpoint_identifier{
        instance = 6                  %% S2a TEI Instance
@@ -137,15 +89,13 @@ handle_request(_From,
     {ok, Response, State#{context => Context}};
 
 handle_request(_From,
-	       #gtp{type = delete_session_request}, Req, _Resent,
+	       #gtp{type = delete_session_request, ie = IEs}, _Resent,
 	       #{context := Context} = State0) ->
 
-    #delete_session_request{
-       %% according to 3GPP TS 29.274, the F-TEID is not part of the Delete Session Request
-       %% on S2a. However, Cisco iWAG on CSR 1000v does include it. Since we get it, lets
-       %% validate it for now.
-       sender_f_teid_for_control_plane = FqTEI
-      } = Req,
+    %% according to 3GPP TS 29.274, the F-TEID is not part of the Delete Session Request
+    %% on S2a. However, Cisco iWAG on CSR 1000v does include it. Since we get it, lets
+    %% validate it for now.
+    FqTEI = maps:get(?'Sender F-TEID for Control Plane', IEs, undefined),
 
     #context{remote_control_tei = RemoteCntlTEI} = Context,
 
@@ -171,7 +121,7 @@ handle_request(_From,
 	    {reply, Response, State0}
     end;
 
-handle_request(_From, _Msg, _Req, _Resent, State) ->
+handle_request(_From, _Msg, _Resent, State) ->
     {noreply, State}.
 
 %%%===================================================================

@@ -11,7 +11,7 @@
 
 -compile({parse_transform, do}).
 
--export([init/2, request_spec/1, handle_request/5, handle_cast/2]).
+-export([init/2, request_spec/1, handle_request/4, handle_cast/2]).
 
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include("include/ergw.hrl").
@@ -20,128 +20,27 @@
 %% API
 %%====================================================================
 
-%% TODO: the records and matching request spec's should be
-%%       generated from a common source.....
--record(create_session_request, {
-	  imsi,
-	  recovery,
-	  msisdn,
-	  mobile_equipment_identity,
-	  user_location_information,
-	  serving_network,
-	  rat_type,
-	  indication,
-	  sender_f_teid_for_control_plane,
-	  apn,
-	  selection_mode,
-	  pdn_tye,
-	  paa,
-	  apn_restriction,
-	  apn_ambr,
-	  pco,
-	  bearer_context_to_be_created,
-	  bearer_context_to_be_removed,
-	  trace_information,
-	  mme_fq_csid,
-	  sgw_fq_csid,
-	  ue_time_zone,
-	  charging_characteristics,
-	  sgw_ldn,
-	  signalling_priority_indication,
-	  henb_local_ip_address,
-	  s4_sgsn_identifier,
-	  additional_ies
-	 }).
-
--record(delete_session_request, {
-	  cause,
-	  linked_eps_bearer_id,
-	  user_location_information,
-	  indication,
-	  pco,
-	  sender_f_teid_for_control_plane,
-	  ue_time_zone,
-	  uli_timestamp,
-	  additional_ies
-	 }).
-
--record(modify_bearer_request, {
-	  recovery,
-	  mei,
-	  user_location_information,
-	  serving_network,
-	  rat_type,
-	  indication,
-	  sender_f_teid_for_control_plane,
-	  bearer_context_to_be_modified,
-	  bearer_context_to_be_removed,
-	  mme_fq_csid,
-	  sgw_fq_csid,
-	  user_csg_information,
-	  sgw_ldn,
-	  henb_local_ip_address,
-	  henb_local_ip_port,
-	  s4_sgsn_identifier,
-	  presence_reporting_area_information,
-	  additional_ies
-	 }).
+-define('Recovery',					{v2_recovery, 0}).
+-define('IMSI',						{v2_international_mobile_subscriber_identity, 0}).
+-define('MSISDN',					{v2_ms_international_pstn_isdn_number, 0}).
+-define('PDN Address Allocation',			{v2_pdn_address_allocation, 0}).
+-define('RAT Type',					{v2_rat_type, 0}).
+-define('Sender F-TEID for Control Plane',		{v2_fully_qualified_tunnel_endpoint_identifier, 0}).
+-define('Access Point Name',				{v2_access_point_name, 0}).
+-define('Bearer Contexts to be created',		{v2_bearer_context, 0}).
+-define('Bearer Contexts to be modified',		{v2_bearer_context, 0}).
+-define('Protocol Configuration Options',		{v2_protocol_configuration_options, 0}).
+-define('IMEI',						{v2_imei, 0}).
 
 request_spec(create_session_request) ->
-    [{{v2_international_mobile_subscriber_identity, 0},		conditional},
-     {{v2_recovery, 0},						conditional},
-     {{v2_msisdn, 0},						conditional},
-     {{v2_mobile_equipment_identity, 0},			conditional},
-     {{v2_user_location_information, 0},			conditional},
-     {{v2_serving_network, 0},					optional},
-     {{v2_rat_type, 0},						mandatory},
-     {{v2_indication, 0},					optional},
-     {{v2_fully_qualified_tunnel_endpoint_identifier, 0},	mandatory},
-     {{v2_access_point_name, 0},				mandatory},
-     {{v2_selection_mode, 0},					conditional},
-     {{v2_pdn_type, 0},						conditional},
-     {{v2_pdn_address_allocation, 0},				conditional},
-     {{v2_apn_restriction, 0},					conditional},
-     {{v2_aggregate_maximum_bit_rate, 0},			conditional},
-     {{v2_protocol_configuration_options, 0},			optional},
-     {{v2_bearer_context, 0},					mandatory},
-     {{v2_bearer_context, 1},					conditional},
-     {{v2_trace_information, 0},				conditional},
-     {{v2_fully_qualified_pdn_connection_set_identifier, 0},	conditional},
-     {{v2_fully_qualified_pdn_connection_set_identifier, 1},	conditional},
-     {{v2_ue_time_zone, 0},					conditional},
-     {{v2_charging_characteristics, 0},				conditional},
-     {{v2_local_distinguished_name, 1},				optional},
-     {{v2_signalling_priority_indication, 0},			conditional},
-     {{v2_ip_address, 1},					optional},
-     {{v2_ip_address, 2},					optional}];
+    [{?'RAT Type',						mandatory},
+     {?'Sender F-TEID for Control Plane',			mandatory},
+     {?'Access Point Name',					mandatory},
+     {?'Bearer Contexts to be created',				mandatory}];
 request_spec(delete_session_request) ->
-    [{{v2_cause, 0},						conditional},
-     {{v2_eps_bearer_id, 0},					conditional},
-     {{v2_user_location_information, 0},			conditional},
-     {{v2_indication, 0},					conditional},
-     {{v2_protocol_configuration_options, 0},			conditional},
-     {{v2_fully_qualified_tunnel_endpoint_identifier, 0},	optional},
-     {{v2_ue_time_zone, 0},					conditional},
-     {{v2_uli_timestamp, 0},					conditional}];
+    [];
 request_spec(modify_bearer_request) ->
-    [{{v2_recovery, 0},						conditional},
-     {{v2_mobile_equipment_identity, 0},			conditional},
-     {{v2_user_location_information, 0},			conditional},
-     {{v2_serving_network, 0},					optional},
-     {{v2_rat_type, 0},						mandatory},
-     {{v2_indication, 0},					optional},
-     {{v2_fully_qualified_tunnel_endpoint_identifier, 0},	conditional},
-     {{v2_bearer_context, 0},					conditional},
-     {{v2_bearer_context, 1},					conditional},
-     {{v2_ue_time_zone, 0},					conditional},
-     {{v2_fully_qualified_pdn_connection_set_identifier, 0},	conditional},
-     {{v2_fully_qualified_pdn_connection_set_identifier, 1},	conditional},
-     {{v2_user_csg_information, 0},				conditional},
-     {{v2_local_distinguished_name, 1},				optional},
-     {{v2_ip_address, 0},					conditional},
-     {{v2_port_number, 0},					conditional},
-     {{v2_ip_address, 2},					optional},
-     {{v2_presence_reporting_area_information, 0},		conditional}];
+    [{{v2_rat_type, 0},						mandatory}];
 request_spec(_) ->
     [].
 
@@ -173,22 +72,21 @@ handle_cast({path_restart, _Path}, State) ->
 %%   Change Notification Request/Response
 %%   Resume Notification/Acknowledge
 
-handle_request(_From, _Msg, _Req, true, State) ->
+handle_request(_From, _Msg, true, State) ->
 %% resent request
     {noreply, State};
 
 handle_request(_From,
-	       #gtp{type = create_session_request}, Req, _Resent,
+	       #gtp{type = create_session_request,
+		    ie = #{?'Sender F-TEID for Control Plane' := FqCntlTEID,
+			   ?'Access Point Name'               := #v2_access_point_name{apn = APN},
+			   ?'Bearer Contexts to be created'   := #v2_bearer_context{group = BearerCreate}
+			  } = IEs},
+	       _Resent,
 	       #{tei := LocalTEI, gtp_port := GtpPort, gtp_dp_port := GtpDP} = State) ->
 
-    #create_session_request{
-       recovery = Recovery,
-       sender_f_teid_for_control_plane = FqCntlTEID,
-       apn = #v2_access_point_name{apn = APN},
-       paa = PAA,
-       bearer_context_to_be_created =
-	   #v2_bearer_context{group = BearerCreate}
-      } = Req,
+    Recovery = maps:get(?'Recovery', IEs, undefined),
+    PAA = maps:get(?'PDN Address Allocation', IEs, undefined),
 
     #v2_fully_qualified_tunnel_endpoint_identifier{
        instance = 2,
@@ -210,15 +108,14 @@ handle_request(_From,
     {reply, Response, State#{context => Context}};
 
 handle_request(_From,
-	       #gtp{type = modify_bearer_request, tei = LocalTEI}, Req, _Resent,
+	       #gtp{type = modify_bearer_request, tei = LocalTEI,
+		    ie = #{?'Bearer Contexts to be modified' :=
+			       #v2_bearer_context{group = BearerCreate}} = IEs},
+	       _Resent,
 	       #{gtp_port := GtpPort, context := OldContext} = State0) ->
 
-    #modify_bearer_request{
-       recovery = Recovery,
-       sender_f_teid_for_control_plane = FqCntlTEID,
-       bearer_context_to_be_modified =
-	   #v2_bearer_context{group = BearerCreate}
-      } = Req,
+    Recovery = maps:get(?'Recovery', IEs, undefined),
+    FqCntlTEID = maps:get(?'Sender F-TEID for Control Plane', IEs, undefined),
 
     #v2_fully_qualified_tunnel_endpoint_identifier{
        instance = 2,
@@ -252,16 +149,10 @@ handle_request(_From,
     {reply, Response, State1};
 
 handle_request(_From,
-	       #gtp{type = delete_session_request}, Req, _Resent,
+	       #gtp{type = delete_session_request, ie = IEs}, _Resent,
 	       #{context := Context} = State0) ->
 
-    #delete_session_request{
-       %% according to 3GPP TS 29.274, the F-TEID is not part of the Delete Session Request
-       %% on S2a. However, Cisco iWAG on CSR 1000v does include it. Since we get it, lets
-       %% validate it for now.
-       sender_f_teid_for_control_plane = FqTEI
-      } = Req,
-
+    FqTEI = maps:get(?'Sender F-TEID for Control Plane', IEs, undefined),
     #context{remote_control_tei = RemoteCntlTEI} = Context,
 
     Result =
@@ -286,7 +177,7 @@ handle_request(_From,
 	    {reply, Response, State0}
     end;
 
-handle_request(_From, _Msg, _Req, _Resent, State) ->
+handle_request(_From, _Msg, _Resent, State) ->
     {noreply, State}.
 
 %%%===================================================================
@@ -351,19 +242,30 @@ init_context(APN, CntlPort, CntlTEI, DataPort, DataTEI) ->
        state             = #context_state{}
       }.
 
-update_context_tunnel_ids(#v2_fully_qualified_tunnel_endpoint_identifier{
+update_context_cntl_ids(#v2_fully_qualified_tunnel_endpoint_identifier{
 			     key  = RemoteCntlTEI,
-			     ipv4 = RemoteCntlIP},
-			  #v2_fully_qualified_tunnel_endpoint_identifier{
+			     ipv4 = RemoteCntlIP}, Context) ->
+    Context#context{
+      remote_control_ip  = gtp_c_lib:bin2ip(RemoteCntlIP),
+      remote_control_tei = RemoteCntlTEI
+     };
+update_context_cntl_ids(_ , Context) ->
+    Context.
+
+update_context_data_ids(#v2_fully_qualified_tunnel_endpoint_identifier{
 			     key  = RemoteDataTEI,
 			     ipv4 = RemoteDataIP
 			    }, Context) ->
     Context#context{
-      remote_control_ip  = gtp_c_lib:bin2ip(RemoteCntlIP),
-      remote_control_tei = RemoteCntlTEI,
       remote_data_ip     = gtp_c_lib:bin2ip(RemoteDataIP),
       remote_data_tei    = RemoteDataTEI
-     }.
+     };
+update_context_data_ids(_ , Context) ->
+    Context.
+
+update_context_tunnel_ids(Cntl, Data, Context0) ->
+    Context1 = update_context_cntl_ids(Cntl, Context0),
+    update_context_data_ids(Data, Context1).
 
 dp_args(#context{ms_v4 = MSv4}) ->
     MSv4.

@@ -3,7 +3,7 @@
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include_lib("ergw/include/ergw.hrl").
 
--optional_callbacks([handle_response/5]).
+-optional_callbacks([handle_response/4]).
 
 -callback init(Opts :: term(),
 	       State :: map()) ->
@@ -18,7 +18,6 @@
 
 -callback handle_request(From :: {#gtp_port{}, IP :: inet:ip_address(), Port :: 0 .. 65535},
 			 Msg :: #gtp{},
-			 RequestRecord :: term(),
 			 Resent :: boolean(),
 			 State :: map()) ->
     Return :: {reply, Reply :: term(), State :: map()} |
@@ -28,7 +27,6 @@
 
 -callback handle_response(RequestInfo :: term(),
 			  Response :: #gtp{},
-			  ResponseRecord :: term(),
 			  Request  :: #gtp{},
 			  State :: map()) ->
     Result :: {noreply, NewState :: map()} |

@@ -11,7 +11,7 @@
 
 -compile({parse_transform, cut}).
 
--export([init/2, request_spec/1, handle_request/5, handle_response/5, handle_cast/2]).
+-export([init/2, request_spec/1, handle_request/4, handle_response/4, handle_cast/2]).
 
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include("include/ergw.hrl").
@@ -26,300 +26,81 @@
 %% API
 %%====================================================================
 
--record(create_pdp_context_request, {
-	  imsi,
-	  routeing_area_identity,
-	  recovery,
-	  selection_mode,
-	  tunnel_endpoint_identifier_data_i,
-	  tunnel_endpoint_identifier_control_plane,
-	  nsapi,
-	  linked_nsapi,
-	  charging_characteristics,
-	  trace_reference,
-	  trace_type,
-	  end_user_address,
-	  apn,
-	  pco,
-	  sgsn_address_for_signalling,
-	  sgsn_address_for_user_traffic,
-	  alternative_sgsn_address_for_signalling,
-	  alternative_sgsn_address_for_user_traffic,
-	  msisdn,
-	  quality_of_service_profile,
-	  traffic_flow_template,
-	  trigger_id,
-	  omc_identity,
-	  common_flags,
-	  apn_restriction,
-	  rat_type,
-	  user_location_information,
-	  ms_time_zone,
-	  imei,
-	  camel_charging_information_container,
-	  additional_trace_info,
-	  correlation_id,
-	  evolved_allocation_retention_priority_i,
-	  extended_common_flags,
-	  user_csg_information,
-	  ambr,
-	  signalling_priority_indication,
-	  cn_operator_selection_entity,
-	  private_extension,
-	  additional_ies
-	 }).
-
--record(create_pdp_context_response, {
-	  cause,
-	  reordering_required,
-	  recovery,
-	  tunnel_endpoint_identifier_data_i,
-	  tunnel_endpoint_identifier_control_plane,
-	  nsapi,
-	  charging_id,
-	  end_user_address,
-	  protocol_configuration_options,
-	  ggsn_address_for_control_plane,
-	  ggsn_address_for_user_traffic,
-	  alternative_sgsn_address_for_control_plane,
-	  alternative_sgsn_address_for_user_traffic,
-	  quality_of_service_profile,
-	  charging_gateway_address,
-	  alternative_charging_gateway_address,
-	  common_flags,
-	  apn_restriction,
-	  ms_info_change_reporting_action,
-	  bearer_control_mode,
-	  evolved_allocation_retention_priority_i,
-	  csg_information_reporting_action,
-	  apn_ambr_with_nsapi,
-	  ggsn_back_off_time,
-	  private_extension,
-	  additional_ies
-	 }).
-
--record(update_pdp_context_request, {
-	  imsi,
-	  routeing_area_identity,
-	  recovery,
-	  tunnel_endpoint_identifier_data_i,
-	  tunnel_endpoint_identifier_control_plane,
-	  nsapi,
-	  trace_reference,
-	  trace_type,
-	  pco,
-	  sgsn_address_for_signalling,
-	  sgsn_address_for_user_traffic,
-	  alternative_sgsn_address_for_signalling,
-	  alternative_sgsn_address_for_user_traffic,
-	  quality_of_service_profile,
-	  traffic_flow_template,
-	  trigger_id,
-	  omc_identity,
-	  common_flags,
-	  rat_type,
-	  user_location_information,
-	  ms_time_zone,
-	  additional_trace_info,
-	  direct_tunnel_flags,
-	  evolved_allocation_retention_priority_i,
-	  extended_common_flags,
-	  user_csg_information,
-	  ambr,
-	  signalling_priority_indication,
-	  cn_operator_selection_entity,
-	  private_extension,
-	  additional_ies
-	 }).
-
--record(update_pdp_context_response, {
-	  cause,
-	  tunnel_endpoint_identifier_data_i,
-	  tunnel_endpoint_identifier_control_plane,
-	  charging_id,
-	  protocol_configuration_options,
-	  ggsn_address_for_control_plane,
-	  ggsn_address_for_user_traffic,
-	  alternative_ggsn_address_for_control_plane,
-	  alternative_ggsn_address_for_user_traffic,
-	  quality_of_service_profile,
-	  charging_gateway_address,
-	  alternative_charging_gateway_address,
-	  common_flags,
-	  apn_restriction,
-	  bearer_control_mode,
-	  ms_info_change_reporting_action,
-	  evolved_allocation_retention_priority_i,
-	  csg_information_reporting_action,
-	  ambr,
-	  private_extension,
-	  additional_ies
-	 }).
-
-
--record(delete_pdp_context_request, {
-	  cause,
-	  teardown_ind,
-	  nsapi,
-	  protocol_configuration_options,
-	  user_location_information,
-	  ms_time_zone,
-	  extended_common_flags,
-	  uli_timestamp,
-	  private_extension,
-	  additional_ies
-	 }).
-
--record(delete_pdp_context_response, {
-	  cause,
-	  protocol_configuration_options,
-	  user_location_information,
-	  ms_time_zone,
-	  uli_timestamp,
-	  private_extension,
-	  additional_ies
-	 }).
+-define('Cause',					{cause, 0}).
+-define('IMSI',						{international_mobile_subscriber_identity, 0}).
+-define('Recovery',					{recovery, 0}).
+-define('Tunnel Endpoint Identifier Data I',		{tunnel_endpoint_identifier_data_i, 0}).
+-define('Tunnel Endpoint Identifier Control Plane',	{tunnel_endpoint_identifier_control_plane, 0}).
+-define('NSAPI',					{nsapi, 0}).
+-define('End User Address',				{end_user_address, 0}).
+-define('Access Point Name',				{access_point_name, 0}).
+-define('Protocol Configuration Options',		{protocol_configuration_options, 0}).
+-define('SGSN Address for signalling',			{gsn_address, 0}).
+-define('SGSN Address for user traffic',		{gsn_address, 1}).
+-define('MSISDN',					{ms_international_pstn_isdn_number, 0}).
+-define('Quality of Service Profile',			{quality_of_service_profile, 0}).
+-define('IMEI',						{imei, 0}).
 
 request_spec(create_pdp_context_request) ->
-    [{{international_mobile_subscriber_identity, 0},	conditional},
-     {{routeing_area_identity, 0},			optional},
-     {{recovery, 0},					optional},
+    [{?'IMSI',						conditional},
      {{selection_mode, 0},				conditional},
-     {{tunnel_endpoint_identifier_data_i, 0},		mandatory},
-     {{tunnel_endpoint_identifier_control_plane, 0},	conditional},
-     {{nsapi, 0},					mandatory},
+     {?'Tunnel Endpoint Identifier Data I',		mandatory},
+     {?'Tunnel Endpoint Identifier Control Plane',	conditional},
+     {?'NSAPI',						mandatory},
      {{nsapi, 1},					conditional},
      {{charging_characteristics, 0},			conditional},
-     {{trace_reference, 0},				optional},
-     {{trace_type, 0},					optional},
-     {{end_user_address, 0},				conditional},
-     {{access_point_name, 0},				conditional},
-     {{protocol_configuration_options, 0},		optional},
-     {{gsn_address, 0},					mandatory},
-     {{gsn_address, 1},					mandatory},
+     {?'End User Address',				conditional},
+     {?'Access Point Name',				conditional},
+     {?'SGSN Address for signalling',			mandatory},
+     {?'SGSN Address for user traffic',			mandatory},
      {{gsn_address, 2},					conditional},
      {{gsn_address, 3},					conditional},
-     {{ms_international_pstn_isdn_number, 0},		conditional},
-     {{quality_of_service_profile, 0},			mandatory},
+     {?'MSISDN',					conditional},
+     {?'Quality of Service Profile',			mandatory},
      {{traffic_flow_template, 0},			conditional},
-     {{trigger_id, 0},					optional},
-     {{omc_identity, 0},				optional},
-     {{common_flags, 0},				optional},
-     {{apn_restriction, 0},				optional},
-     {{rat_type, 0},					optional},
-     {{user_location_information, 0},			optional},
-     {{ms_time_zone, 0},				optional},
-     {{imei, 0},					conditional},
-     {{camel_charging_information_container, 0},	optional},
-     {{additional_trace_info, 0},			optional},
-     {{correlation_id, 0},				optional},
-     {{evolved_allocation_retention_priority_i, 0},	optional},
-     {{extended_common_flags, 0},			optional},
-     {{user_csg_information, 0},			optional},
-     {{ambr, 0},					optional},
-     {{signalling_priority_indication, 0},		optional},
-     {{cn_operator_selection_entity, 0},		optional},
-     {{private_extension, 0},				optional}];
+     {?'IMEI',						conditional}];
 
 request_spec(create_pdp_context_response) ->
-    [{{cause, 0},					mandatory},
+    [{?'Cause',						mandatory},
      {{reordering_required, 0},				conditional},
-     {{recovery, 0},					optional},
-     {{tunnel_endpoint_identifier_data_i, 0},		conditional},
-     {{tunnel_endpoint_identifier_control_plane, 0},	conditional},
-     {{nsapi, 0},					optional},
+     {?'Tunnel Endpoint Identifier Data I',		conditional},
+     {?'Tunnel Endpoint Identifier Control Plane',	conditional},
      {{charging_id, 0},					conditional},
-     {{end_user_address, 0},				conditional},
-     {{protocol_configuration_options, 0},		optional},
-     {{gsn_address, 0},					conditional},
-     {{gsn_address, 1},					conditional},
+     {?'End User Address',				conditional},
+     {?'SGSN Address for signalling',			conditional},
+     {?'SGSN Address for user traffic',			conditional},
      {{gsn_address, 2},					conditional},
      {{gsn_address, 3},					conditional},
-     {{quality_of_service_profile, 0},			conditional},
-     {{charging_gateway_address, 0},			optional},
-     {{charging_gateway_address, 1},			optional},
-     {{common_flags, 0},				optional},
-     {{apn_restriction, 0},				optional},
-     {{ms_info_change_reporting_action, 0},		optional},
-     {{bearer_control_mode, 0},				optional},
-     {{evolved_allocation_retention_priority_i, 0},	optional},
-     {{csg_information_reporting_action, 0},		optional},
-     {{apn_ambr_with_nsapi, 0},				optional},
-     {{ggsn_back_off_time, 0},				optional},
-     {{private_extension, 0},				optional}];
+     {?'Quality of Service Profile',			conditional}];
 
 request_spec(update_pdp_context_request) ->
-    [{{international_mobile_subscriber_identity, 0},	optional},
-     {{routeing_area_identity, 0},			optional},
-     {{recovery, 0},					optional},
-     {{tunnel_endpoint_identifier_data_i, 0},		mandatory},
-     {{tunnel_endpoint_identifier_control_plane, 0},	conditional},
-     {{nsapi, 0},					mandatory},
-     {{trace_reference, 0},				optional},
-     {{trace_type, 0},					optional},
-     {{protocol_configuration_options, 0},		optional},
-     {{gsn_address, 0},					mandatory},
-     {{gsn_address, 1},					mandatory},
+    [{?'Tunnel Endpoint Identifier Data I',		mandatory},
+     {?'Tunnel Endpoint Identifier Control Plane',	conditional},
+     {?'NSAPI',						mandatory},
+     {?'SGSN Address for signalling',			mandatory},
+     {?'SGSN Address for user traffic',			mandatory},
      {{gsn_address, 2},					conditional},
      {{gsn_address, 3},					conditional},
-     {{quality_of_service_profile, 0},			mandatory},
-     {{traffic_flow_template, 0},			conditional},
-     {{trigger_id, 0},					optional},
-     {{omc_identity, 0},				optional},
-     {{common_flags, 0},				optional},
-     {{rat_type, 0},					optional},
-     {{user_location_information, 0},			optional},
-     {{ms_time_zone, 0},				optional},
-     {{additional_trace_info, 0},			optional},
-     {{direct_tunnel_flags, 0},				optional},
-     {{evolved_allocation_retention_priority_i, 0},	optional},
-     {{extended_common_flags, 0},			optional},
-     {{user_csg_information, 0},			optional},
-     {{ambr, 0},					optional},
-     {{signalling_priority_indication, 0},		optional},
-     {{cn_operator_selection_entity, 0},		optional},
-     {{private_extension, 0},				optional}];
+     {?'Quality of Service Profile',			mandatory},
+     {{traffic_flow_template, 0},			conditional}];
 
 request_spec(update_pdp_context_response) ->
     [{{cause, 0},					mandatory},
-     {{tunnel_endpoint_identifier_data_i, 0},		conditional},
-     {{tunnel_endpoint_identifier_control_plane, 0},	conditional},
+     {?'Tunnel Endpoint Identifier Data I',		conditional},
+     {?'Tunnel Endpoint Identifier Control Plane',	conditional},
      {{charging_id, 0},					conditional},
-     {{protocol_configuration_options, 0},		optional},
-     {{gsn_address, 0},					conditional},
-     {{gsn_address, 1},					conditional},
+     {?'SGSN Address for signalling',			conditional},
+     {?'SGSN Address for user traffic',			conditional},
      {{gsn_address, 2},					conditional},
      {{gsn_address, 3},					conditional},
-     {{quality_of_service_profile, 0},			conditional},
-     {{charging_gateway_address, 0},			optional},
-     {{charging_gateway_address, 1},			optional},
-     {{common_flags, 0},				optional},
-     {{apn_restriction, 0},				optional},
-     {{bearer_control_mode, 0},				optional},
-     {{ms_info_change_reporting_action, 0},		optional},
-     {{evolved_allocation_retention_priority_i, 0},	optional},
-     {{csg_information_reporting_action, 0},		optional},
-     {{ambr, 0},					optional},
-     {{private_extension, 0},				optional}];
+     {?'Quality of Service Profile',			conditional}];
 
 request_spec(delete_pdp_context_request) ->
-    [{{cause, 0},					optional},
-     {{teardown_ind, 0},				conditional},
-     {{nsapi, 0},					mandatory},
-     {{protocol_configuration_options, 0},		optional},
-     {{user_location_information, 0},			optional},
-     {{ms_time_zone, 0},				optional},
-     {{extended_common_flags, 0},			optional},
-     {{uli_timestamp, 0},				optional},
-     {{private_extension, 0},				optional}];
+    [{{teardown_ind, 0},				conditional},
+     {?'NSAPI',						mandatory}];
 
 request_spec(delete_pdp_context_response) ->
-    [{{cause, 0},					mandatory},
-     {{protocol_configuration_options, 0},		optional},
-     {{user_location_information, 0},			optional},
-     {{ms_time_zone, 0},				optional},
-     {{uli_timestamp, 0},				optional},
-     {{private_extension, 0},				optional}];
+    [{?'Cause',						mandatory}];
 
 request_spec(_) ->
     [].
@@ -370,16 +151,19 @@ handle_cast({path_restart, Path},
 handle_cast({path_restart, _Path}, State) ->
     {noreply, State}.
 
-handle_request(_From, _Msg, _Req, true, State) ->
+handle_request(_From, _Msg, true, State) ->
 %% resent request
     {noreply, State};
 
 handle_request(From,
-	       #gtp{seq_no = SeqNo, ie = IEs} = Request,
-	       #create_pdp_context_request{imsi = IMSIie, recovery = Recovery,
-					   apn = APNie}, _Resent,
+	       #gtp{type = create_pdp_context_request, seq_no = SeqNo,
+		    ie = IEs} = Request, _Resent,
 	       #{tei := LocalTEI, gtp_port := GtpPort, gtp_dp_port := GtpDP,
 		 proxy_ports := ProxyPorts, proxy_dps := ProxyDPs, ggsn := GGSN} = State0) ->
+
+    Recovery = maps:get(?'Recovery', IEs, undefined),
+    IMSIie = maps:get(?'IMSI', IEs, undefined),
+    APNie = maps:get(?'Access Point Name', IEs, undefined),
 
     APN = optional_apn_value(APNie, undefined),
 
@@ -417,10 +201,12 @@ handle_request(From,
     {noreply, State};
 
 handle_request(From,
-	       #gtp{seq_no = SeqNo} = Request,
-	       #update_pdp_context_request{imsi = IMSIie,
-					   recovery = Recovery}, _Resent,
+	       #gtp{type = update_pdp_context_request, seq_no = SeqNo,
+		    ie = IEs} = Request, _Resent,
 	       #{context := OldContext, proxy_context := ProxyContext0} = State0) ->
+
+    Recovery = maps:get(?'Recovery', IEs, undefined),
+    IMSIie = maps:get(?'IMSI', IEs, undefined),
 
     Context0 = update_context_from_gtp_req(Request, OldContext),
     Context = gtp_path:bind(Recovery, Context0),
@@ -438,23 +224,25 @@ handle_request(From,
     {noreply, State#{context := Context, proxy_context := ProxyContext}};
 
 handle_request(From,
-	       #gtp{type = delete_pdp_context_request, seq_no = SeqNo} = Request, _ReqRec, _Resent,
+	       #gtp{type = delete_pdp_context_request, seq_no = SeqNo} = Request, _Resent,
 	       #{proxy_context := ProxyContext} = State) ->
     ProxyReq = build_context_request(ProxyContext, undefined, Request),
     forward_request(ProxyContext, ProxyReq, From, SeqNo, false),
 
     {noreply, State};
 
-handle_request({GtpPort, _IP, _Port}, Msg, _ReqRec, _Resent, State) ->
+handle_request({GtpPort, _IP, _Port}, Msg, _Resent, State) ->
     lager:warning("Unknown Proxy Message on ~p: ~p", [GtpPort, lager:pr(Msg, ?MODULE)]),
     {noreply, State}.
 
-handle_response(#request_info{from = From, seq_no = SeqNo, new_peer = NewPeer}, Response,
-		#create_pdp_context_response{cause = #cause{value = Cause},
-					     recovery = Recovery}, _Request,
+handle_response(#request_info{from = From, seq_no = SeqNo, new_peer = NewPeer},
+		#gtp{type = create_pdp_context_response,
+		     ie = #{?'Cause' := Cause} = IEs} = Response, _Request,
 		#{context := Context,
 		  proxy_context := ProxyContext0} = State) ->
     lager:warning("OK Proxy Response ~p", [lager:pr(Response, ?MODULE)]),
+
+    Recovery = maps:get(?'Recovery', IEs, undefined),
 
     ProxyContext1 = update_context_from_gtp_req(Response, ProxyContext0),
     ProxyContext = gtp_path:bind(Recovery, ProxyContext1),
@@ -474,7 +262,7 @@ handle_response(#request_info{from = From, seq_no = SeqNo, new_peer = NewPeer}, 
     end;
 
 handle_response(#request_info{from = From, seq_no = SeqNo, new_peer = NewPeer},
-		#gtp{type = update_pdp_context_response} = Response, _RespRec, _Request,
+		#gtp{type = update_pdp_context_response} = Response, _Request,
 		#{context := Context,
 		  proxy_context := OldProxyContext} = State0) ->
     lager:warning("OK Proxy Response ~p", [lager:pr(Response, ?MODULE)]),
@@ -491,7 +279,7 @@ handle_response(#request_info{from = From, seq_no = SeqNo, new_peer = NewPeer},
     {noreply, State};
 
 handle_response(#request_info{from = From, seq_no = SeqNo},
-		#gtp{type = delete_pdp_context_response} = Response, _RespRec, _Request,
+		#gtp{type = delete_pdp_context_response} = Response, _Request,
 		#{context := Context,
 		  proxy_context := ProxyContext} = State) ->
     lager:warning("OK Proxy Response ~p", [lager:pr(Response, ?MODULE)]),
@@ -502,7 +290,7 @@ handle_response(#request_info{from = From, seq_no = SeqNo},
     dp_delete_pdp_context(Context, ProxyContext),
     {stop, State};
 
-handle_response(_ReqInfo, Response, _RespRec, _Req, State) ->
+handle_response(_ReqInfo, Response, _Req, State) ->
     lager:warning("Unknown Proxy Response ~p", [lager:pr(Response, ?MODULE)]),
     {noreply, State}.
 
@@ -527,25 +315,25 @@ apply_proxy_context_change(_NewContext, _OldContext, State) ->
     State.
 
 init_session(IEs, Session) ->
-    lists:foldr(fun copy_to_session/2, Session, IEs).
+    maps:fold(fun copy_to_session/3, Session, IEs).
 
 %% copy_to_session(#international_mobile_subscriber_identity{imsi = IMSI}, Session) ->
 %%     Id = [{'Subscription-Id-Type' , 1}, {'Subscription-Id-Data', IMSI}],
 %%     Session#{'Subscription-Id' => Id};
 
-copy_to_session(#international_mobile_subscriber_identity{imsi = IMSI}, Session) ->
+copy_to_session(_K, #international_mobile_subscriber_identity{imsi = IMSI}, Session) ->
     Session#{'IMSI' => IMSI};
-copy_to_session(#ms_international_pstn_isdn_number{
-		   msisdn = {isdn_address, _, _, 1, MSISDN}}, Session) ->
+copy_to_session(_K, #ms_international_pstn_isdn_number{
+		       msisdn = {isdn_address, _, _, 1, MSISDN}}, Session) ->
     Session#{'MSISDN' => MSISDN};
-copy_to_session(#gsn_address{instance = 0, address = IP}, Session) ->
+copy_to_session(_K, #gsn_address{instance = 0, address = IP}, Session) ->
     Session#{'SGSN-Address' => gtp_c_lib:ip2bin(IP)};
-copy_to_session(#rat_type{rat_type = Type}, Session) ->
+copy_to_session(_K, #rat_type{rat_type = Type}, Session) ->
     Session#{'RAT-Type' => Type};
-copy_to_session(#selection_mode{mode = Mode}, Session) ->
+copy_to_session(_K, #selection_mode{mode = Mode}, Session) ->
     Session#{'Selection-Mode' => Mode};
 
-copy_to_session(_, Session) ->
+copy_to_session(_K, _V, Session) ->
     Session.
 
 init_context(APN, CntlPort, CntlTEI, DataPort, DataTEI) ->
@@ -560,64 +348,64 @@ init_context(APN, CntlPort, CntlTEI, DataPort, DataTEI) ->
        state             = #context_state{}
       }.
 
-get_context_from_req(#gsn_address{instance = 0, address = CntlIP}, Context) ->
+get_context_from_req(_K, #gsn_address{instance = 0, address = CntlIP}, Context) ->
     Context#context{remote_control_ip = gtp_c_lib:bin2ip(CntlIP)};
-get_context_from_req(#gsn_address{instance = 1, address = DataIP}, Context) ->
+get_context_from_req(_K, #gsn_address{instance = 1, address = DataIP}, Context) ->
     Context#context{remote_data_ip = gtp_c_lib:bin2ip(DataIP)};
-get_context_from_req(#tunnel_endpoint_identifier_data_i{instance = 0, tei = DataTEI}, Context) ->
+get_context_from_req(_K, #tunnel_endpoint_identifier_data_i{instance = 0, tei = DataTEI}, Context) ->
     Context#context{remote_data_tei = DataTEI};
-get_context_from_req(#tunnel_endpoint_identifier_control_plane{instance = 0, tei = CntlTEI}, Context) ->
+get_context_from_req(_K, #tunnel_endpoint_identifier_control_plane{instance = 0, tei = CntlTEI}, Context) ->
     Context#context{remote_control_tei = CntlTEI};
-get_context_from_req(#nsapi{instance = 0, nsapi = NSAPI}, #context{state = State} = Context) ->
+get_context_from_req(_K, #nsapi{instance = 0, nsapi = NSAPI}, #context{state = State} = Context) ->
     Context#context{state = State#context_state{nsapi = NSAPI}};
-get_context_from_req(_, Context) ->
+get_context_from_req(_K, _, Context) ->
     Context.
 
 update_context_from_gtp_req(#gtp{ie = IEs}, Context) ->
-    lists:foldl(fun get_context_from_req/2, Context, IEs).
+    maps:fold(fun get_context_from_req/3, Context, IEs).
 
 set_context_from_req(#context{control_port = #gtp_port{ip = CntlIP}},
-		     #gsn_address{instance = 0} = IE) ->
+		     _K, #gsn_address{instance = 0} = IE) ->
     IE#gsn_address{address = gtp_c_lib:ip2bin(CntlIP)};
 set_context_from_req(#context{data_port = #gtp_port{ip = DataIP}},
-		     #gsn_address{instance = 1} = IE) ->
+		     _K, #gsn_address{instance = 1} = IE) ->
     IE#gsn_address{address = gtp_c_lib:ip2bin(DataIP)};
 set_context_from_req(#context{local_data_tei = DataTEI},
-		     #tunnel_endpoint_identifier_data_i{instance = 0} = IE) ->
+		     _K, #tunnel_endpoint_identifier_data_i{instance = 0} = IE) ->
     IE#tunnel_endpoint_identifier_data_i{tei = DataTEI};
 set_context_from_req(#context{local_control_tei = CntlTEI},
-		     #tunnel_endpoint_identifier_control_plane{instance = 0} = IE) ->
+		     _K, #tunnel_endpoint_identifier_control_plane{instance = 0} = IE) ->
     IE#tunnel_endpoint_identifier_control_plane{tei = CntlTEI};
-set_context_from_req(_, IE) ->
+set_context_from_req(_, _K, IE) ->
     IE.
 
 update_gtp_req_from_context(Context, GtpReqIEs) ->
-    lists:map(set_context_from_req(Context, _), GtpReqIEs).
+    maps:map(set_context_from_req(Context, _, _), GtpReqIEs).
 
 proxy_request_nat(#proxy_info{apn = APN},
-		  #access_point_name{instance = 0} = IE)
+		  _K, #access_point_name{instance = 0} = IE)
   when is_list(APN) ->
     IE#access_point_name{apn = APN};
 
 proxy_request_nat(#proxy_info{imsi = IMSI},
-		  #international_mobile_subscriber_identity{instance = 0} = IE)
+		  _K, #international_mobile_subscriber_identity{instance = 0} = IE)
   when is_binary(IMSI) ->
     IE#international_mobile_subscriber_identity{imsi = IMSI};
 
 proxy_request_nat(#proxy_info{msisdn = MSISDN},
-		  #ms_international_pstn_isdn_number{instance = 0} = IE)
+		  _K, #ms_international_pstn_isdn_number{instance = 0} = IE)
   when is_binary(MSISDN) ->
     IE#ms_international_pstn_isdn_number{msisdn = {isdn_address, 1, 1, 1, MSISDN}};
 
-proxy_request_nat(_ProxyInfo, IE) ->
+proxy_request_nat(_ProxyInfo, _K, IE) ->
     IE.
 
 apply_proxy_request_nat(ProxyInfo, GtpReqIEs) ->
-    lists:map(proxy_request_nat(ProxyInfo, _), GtpReqIEs).
+    maps:map(proxy_request_nat(ProxyInfo, _, _), GtpReqIEs).
 
 build_context_request(#context{remote_control_tei = TEI} = Context,
 		      ProxyInfo, #gtp{ie = RequestIEs} = Request) ->
-    ProxyIEs0 = lists:keydelete(recovery, 1, RequestIEs),
+    ProxyIEs0 = maps:without([?'Recovery'], RequestIEs),
     ProxyIEs1 = apply_proxy_request_nat(ProxyInfo, ProxyIEs0),
     ProxyIEs = update_gtp_req_from_context(Context, ProxyIEs1),
     Request#gtp{tei = TEI, ie = ProxyIEs}.
