@@ -32,6 +32,9 @@
 %% -define('Protocol Configuration Options',		{v2_protocol_configuration_options, 0}).
 %% -define('IMEI',						{v2_imei, 0}).
 
+-define('EPS Bearer ID',                                {v2_eps_bearer_id, 0}).
+-define('S2a-U TWAN F-TEID',                            {v2_fully_qualified_tunnel_endpoint_identifier, 6}).
+
 request_spec(create_session_request) ->
     [{?'IMSI',							conditional},
      {?'RAT Type',						mandatory},
@@ -64,17 +67,16 @@ handle_request(_From,
 		    ie = #{?'Recovery'                        := Recovery,
 			   ?'Sender F-TEID for Control Plane' := FqCntlTEID,
 			   ?'Access Point Name'               := #v2_access_point_name{apn = APN},
-			   ?'Bearer Contexts to be created'   := #v2_bearer_context{group = BearerCreate}
+			   ?'Bearer Contexts to be created' :=
+			       #v2_bearer_context{group = #{
+						    ?'EPS Bearer ID'     := EBI,
+						    ?'S2a-U TWAN F-TEID' := FqDataTEID       %% S2a TEI Instance
+						   }}
 			  } = IEs},
 	       _Resent,
 	       #{tei := LocalTEI, gtp_port := GtpPort, gtp_dp_port := GtpDP} = State) ->
 
     PAA = maps:get(?'PDN Address Allocation', IEs, undefined),
-
-    #v2_fully_qualified_tunnel_endpoint_identifier{
-       instance = 6                  %% S2a TEI Instance
-      } = FqDataTEID =
-	lists:keyfind(v2_fully_qualified_tunnel_endpoint_identifier, 1, BearerCreate),
 
     Context0 = init_context(APN, GtpPort, LocalTEI, GtpDP, LocalTEI),
     Context1 = update_context_tunnel_ids(FqCntlTEID, FqDataTEID, Context0),
@@ -83,7 +85,7 @@ handle_request(_From,
     Context = assign_ips(PAA, Context2),
     dp_create_pdp_context(Context),
 
-    ResponseIEs0 = create_session_response(Context),
+    ResponseIEs0 = create_session_response(EBI, Context),
     ResponseIEs = gtp_v2_c:build_recovery(Context, Recovery /= undefined, ResponseIEs0),
     Response = {create_session_response, Context#context.remote_control_tei, ResponseIEs},
     {ok, Response, State#{context => Context}};
@@ -215,7 +217,8 @@ assign_ips(PAA, #context{apn = APN, local_control_tei = LocalTEI} = Context) ->
     {ok, MSv4, MSv6} = apn:allocate_pdp_ip(APN, LocalTEI, ReqMSv4, ReqMSv6),
     Context#context{ms_v4 = MSv4, ms_v6 = MSv6}.
 
-create_session_response(#context{control_port = #gtp_port{ip = LocalIP},
+create_session_response(EBI,
+			#context{control_port = #gtp_port{ip = LocalIP},
 				 local_control_tei = LocalTEI,
 				 ms_v4 = MSv4, ms_v6 = MSv6}) ->
     [#v2_cause{v2_cause = request_accepted},
@@ -231,7 +234,7 @@ create_session_response(#context{control_port = #gtp_port{ip = LocalIP},
      %% 						  [{ms_dns1,<<8,8,8,8>>},{ms_dns2,<<0,0,0,0>>}]}]}},
      #v2_bearer_context{
 	group=[#v2_cause{v2_cause = request_accepted},
-	       #v2_eps_bearer_id{eps_bearer_id=15},
+	       EBI,
 	       #v2_bearer_level_quality_of_service{
 		  pl=15,
 		  pvi=0,

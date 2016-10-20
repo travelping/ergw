@@ -32,6 +32,9 @@
 -define('Protocol Configuration Options',		{v2_protocol_configuration_options, 0}).
 -define('IMEI',						{v2_imei, 0}).
 
+-define('EPS Bearer ID',                                {v2_eps_bearer_id, 0}).
+-define('S5/S8-U SGW FTEID',                            {v2_fully_qualified_tunnel_endpoint_identifier, 2}).
+
 request_spec(create_session_request) ->
     [{?'RAT Type',						mandatory},
      {?'Sender F-TEID for Control Plane',			mandatory},
@@ -81,19 +84,18 @@ handle_request(_From,
 		    ie = #{?'Recovery'                        := Recovery,
 			   ?'Sender F-TEID for Control Plane' := FqCntlTEID,
 			   ?'Access Point Name'               := #v2_access_point_name{apn = APN},
-			   ?'Bearer Contexts to be created'   := #v2_bearer_context{group = BearerCreate}
+			   ?'Bearer Contexts to be created' :=
+			       #v2_bearer_context{group = #{
+						    ?'EPS Bearer ID'     := EBI,
+						    ?'S5/S8-U SGW FTEID' :=                   %% S5/S8 SGW GTP-U Interface
+							#v2_fully_qualified_tunnel_endpoint_identifier{interface_type = 4} =
+							FqDataTEID
+						   }}
 			  } = IEs},
 	       _Resent,
 	       #{tei := LocalTEI, gtp_port := GtpPort, gtp_dp_port := GtpDP} = State) ->
 
     PAA = maps:get(?'PDN Address Allocation', IEs, undefined),
-
-    #v2_fully_qualified_tunnel_endpoint_identifier{
-       instance = 2,
-       interface_type = 4                  %% S5/S8 SGW GTP-U Interface
-      } = FqDataTEID =
-	lists:keyfind(v2_fully_qualified_tunnel_endpoint_identifier, 1, BearerCreate),
-    EBI = lists:keyfind(v2_eps_bearer_id, 1, BearerCreate),
 
     Context0 = init_context(APN, GtpPort, LocalTEI, GtpDP, LocalTEI),
     Context1 = update_context_tunnel_ids(FqCntlTEID, FqDataTEID, Context0),
@@ -111,18 +113,17 @@ handle_request(_From,
 	       #gtp{type = modify_bearer_request, tei = LocalTEI,
 		    ie = #{?'Recovery' := Recovery,
 			   ?'Bearer Contexts to be modified' :=
-			       #v2_bearer_context{group = BearerCreate}} = IEs},
+			       #v2_bearer_context{group = #{
+						    ?'EPS Bearer ID'     := EBI,
+						    ?'S5/S8-U SGW FTEID' :=                   %% S5/S8 SGW GTP-U Interface
+							#v2_fully_qualified_tunnel_endpoint_identifier{interface_type = 4} =
+							FqDataTEID
+						    }}
+			  } = IEs},
 	       _Resent,
 	       #{gtp_port := GtpPort, context := OldContext} = State0) ->
 
     FqCntlTEID = maps:get(?'Sender F-TEID for Control Plane', IEs, undefined),
-
-    #v2_fully_qualified_tunnel_endpoint_identifier{
-       instance = 2,
-       interface_type = 4                  %% S5/S8 SGW GTP-U Interface
-      } = FqDataTEID =
-	lists:keyfind(v2_fully_qualified_tunnel_endpoint_identifier, 1, BearerCreate),
-    EBI = lists:keyfind(v2_eps_bearer_id, 1, BearerCreate),
 
     Context0 = update_context_tunnel_ids(FqCntlTEID, FqDataTEID, OldContext),
     Context = gtp_path:bind(Recovery, Context0),
