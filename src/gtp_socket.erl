@@ -37,11 +37,14 @@
 
 	  responses  :: gb_trees:tree(#request_key{}, {Data :: binary(), TStamp :: integer()}),
 	  rqueue     :: queue:queue({TStamp :: integer(), #request_key{}}),
+	  cache_timer:: reference(),
+
 	  restart_counter}).
 
 -define(T3, 10 * 1000).
 -define(N3, 5).
 -define(RESPONSE_TIMEOUT, (?T3 * ?N3 + (?T3 div 2))).
+-define(CACHE_TIMEOUT, ?RESPONSE_TIMEOUT).
 
 %%====================================================================
 %% API
@@ -110,7 +113,8 @@ init([Name, SocketOpts]) ->
 
     gtp_socket_reg:register(Name, GtpPort),
 
-    {ok, #state{gtp_port = GtpPort,
+    State0 = #state{
+		gtp_port = GtpPort,
 		ip = IP,
 		socket = S,
 
@@ -120,7 +124,9 @@ init([Name, SocketOpts]) ->
 		responses = gb_trees:empty(),
 		rqueue = queue:new(),
 
-		restart_counter = RCnt}}.
+		restart_counter = RCnt},
+    State = start_cache_timer(State0),
+    {ok, State}.
 
 handle_call(get_restart_counter, _From, #state{restart_counter = RCnt} = State) ->
     {reply, RCnt, State};
@@ -160,6 +166,12 @@ handle_info(Info = {timeout, TRef, {send, SeqNo}}, #state{pending = Pending} = S
 					      State0#state{pending = gb_trees:delete(SeqNo, Pending)}),
 	    {noreply, State}
     end;
+
+handle_info({timeout, TRef, cache_timeout}, #state{cache_timer = TRef} = State0) ->
+    Now = erlang:monotonic_time(milli_seconds),
+    State1 = timeout_queue(Now, State0),
+    State = start_cache_timer(State1),
+    {noreply, State};
 
 handle_info({Socket, input_ready}, #state{socket = Socket} = State) ->
     handle_input(Socket, State);
@@ -345,6 +357,9 @@ send_request_with_timeout(SeqNo, RemoteIP, T3, N3, Data, Sender,
     gen_socket:sendto(Socket, {inet4, RemoteIP, ?GTP1c_PORT}, Data),
     State#state{pending = gb_trees:insert(SeqNo, {RemoteIP, T3, N3, Data, Sender, TRef}, Pending)}.
 
+start_cache_timer(State) ->
+    State#state{cache_timer = erlang:start_timer(?CACHE_TIMEOUT, self(), cache_timeout)}.
+
 timeout_queue(Now, #state{responses = Responses0, rqueue = RQueue0} = State) ->
     case queue:peek(RQueue0) of
 	{value, {TStamp, ReqKey}} when (TStamp + ?RESPONSE_TIMEOUT) < Now ->
@@ -364,7 +379,8 @@ enqueue_response(ReqKey, Data, DoCache,
     timeout_queue(Now, State#state{responses = Responses, rqueue = RQueue});
 
 enqueue_response(_ReqKey, _Data, _DoCache, State) ->
-    State.
+    Now = erlang:monotonic_time(milli_seconds),
+    timeout_queue(Now, State).
 
 do_send_response(#request_key{ip = IP, port = Port} = ReqKey, Data, DoCache,
 		 #state{socket = Socket} = State) ->
