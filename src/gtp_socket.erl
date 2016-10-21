@@ -13,7 +13,7 @@
 
 %% API
 -export([start_sockets/0, start_link/1,
-	 send/4, send_response/4,
+	 send/4, send_response/3,
 	 send_request/5, send_request/7,
 	 get_restart_counter/1]).
 
@@ -35,11 +35,8 @@
 	  seq_no = 0 :: sequence_number(),
 	  pending    :: gb_trees:tree(sequence_number(), term()),
 
-	  responses  :: gb_trees:tree({IP :: inet:ip_address(), SeqNo :: sequence_number()},
-				      {Data :: binary(), TStamp :: integer()}),
-	  rqueue     :: queue:queue({TStamp :: integer(), {IP :: inet:ip_address(),
-							   SeqNo :: sequence_number()}}),
-
+	  responses  :: gb_trees:tree(#request_key{}, {Data :: binary(), TStamp :: integer()}),
+	  rqueue     :: queue:queue({TStamp :: integer(), #request_key{}}),
 	  restart_counter}).
 
 -define(T3, 10 * 1000).
@@ -70,9 +67,9 @@ send(#gtp_port{type = 'gtp-c'} = GtpPort, IP, Port, Data) ->
 send(#gtp_port{type = 'gtp-u'} = GtpPort, IP, Port, Data) ->
     gtp_dp:send(GtpPort, IP, Port, Data).
 
-send_response(GtpPort, IP, Port, Msg = #gtp{seq_no = SeqNo}) ->
+send_response(#request_key{gtp_port = GtpPort} = ReqKey, Msg, DoCache) ->
     Data = gtp_packet:encode(Msg),
-    cast(GtpPort, {send_response, IP, Port, SeqNo, Data}).
+    cast(GtpPort, {send_response, ReqKey, Data, DoCache}).
 
 send_request(#gtp_port{type = 'gtp-c'} = GtpPort, From, RemoteIP, Msg, ReqId) ->
     send_request(GtpPort, From, RemoteIP, ?T3, ?N3, Msg, ReqId).
@@ -137,9 +134,9 @@ handle_cast({send, IP, Port, Data}, #state{socket = Socket} = State)
     gen_socket:sendto(Socket, {inet4, IP, Port}, Data),
     {noreply, State};
 
-handle_cast({send_response, IP, Port, SeqNo, Data}, State0)
+handle_cast({send_response, ReqKey, Data, DoCache}, State0)
   when is_binary(Data) ->
-    State = do_send_response(IP, Port, SeqNo, Data, State0),
+    State = do_send_response(ReqKey, Data, DoCache, State0),
     {noreply, State};
 
 handle_cast({send_request, From, RemoteIP, T3, N3, Msg, ReqId}, State0) ->
@@ -190,6 +187,11 @@ cancel_timer(Ref) ->
         RemainingTime ->
             RemainingTime
     end.
+
+make_request_key(IP, Port, #gtp{type = Type, seq_no = SeqNo}, #state{gtp_port = GtpPort}) ->
+    #request_key{gtp_port = GtpPort,
+		 ip = IP, port = Port,
+		 type = Type, seq_no = SeqNo}.
 
 make_gtp_socket(NetNs, {_,_,_,_} = IP, Port, Opts) when is_list(NetNs) ->
     {ok, Socket} = gen_socket:socketat(NetNs, inet, dgram, udp),
@@ -269,20 +271,19 @@ handle_err_input(Socket, State) ->
 	    {noreply, State}
     end.
 
-handle_message(IP, Port, Data, #state{gtp_port = GtpPort} = State0) ->
+handle_message(IP, Port, Data, State0) ->
     Msg = gtp_packet:decode(Data),
     %% TODO: handle decode failures
 
     lager:debug("handle message: ~p", [{IP, Port,
-					lager:pr(GtpPort, ?MODULE),
+					lager:pr(State0#state.gtp_port, ?MODULE),
 					lager:pr(Msg, ?MODULE)}]),
     State = handle_message_1(IP, Port, Msg, State0),
     {noreply, State}.
 
-handle_message_1(IP, Port,
-		 #gtp{type = echo_request} = Msg,
-		 #state{gtp_port = GtpPort} = State) ->
-    gtp_path:handle_request(IP, Port, GtpPort, Msg),
+handle_message_1(IP, Port, #gtp{type = echo_request} = Msg, State) ->
+    ReqKey = make_request_key(IP, Port, Msg, State),
+    gtp_path:handle_request(ReqKey, Msg),
     State;
 
 handle_message_1(IP, Port, #gtp{version = Version, type = MsgType} = Msg, State) ->
@@ -295,7 +296,8 @@ handle_message_1(IP, Port, #gtp{version = Version, type = MsgType} = Msg, State)
 	response ->
 	    handle_response(IP, Port, Msg, State);
 	request ->
-	    handle_request(IP, Port, Msg, State);
+	    ReqKey = make_request_key(IP, Port, Msg, State),
+	    handle_request(ReqKey, Msg, State);
 	_ ->
 	    State
     end.
@@ -313,17 +315,16 @@ handle_response(_IP, _Port, #gtp{seq_no = SeqNo} = Msg, #state{pending = Pending
 	    State#state{pending = gb_trees:delete(SeqNo, Pending)}
     end.
 
-handle_request(IP, Port, #gtp{seq_no = SeqNo} = Msg,
-	       #state{gtp_port = GtpPort, socket = Socket, responses = Responses} = State) ->
+handle_request(#request_key{ip = IP, port = Port} = ReqKey, Msg,
+	       #state{socket = Socket, responses = Responses} = State) ->
     Now = erlang:monotonic_time(milli_seconds),
-    Key = {IP, SeqNo},
-    case gb_trees:lookup(Key, Responses) of
+    case gb_trees:lookup(ReqKey, Responses) of
 	{value, {Data, TStamp}}  when (TStamp + ?RESPONSE_TIMEOUT) > Now ->
 	    gen_socket:sendto(Socket, {inet4, IP, Port}, Data);
 
 	_Other ->
 	    lager:debug("HandleRequest: ~p", [_Other]),
-	    gtp_context:handle_message(IP, Port, GtpPort, Msg)
+	    gtp_context:handle_message(ReqKey, Msg)
     end,
     State.
 
@@ -346,26 +347,26 @@ send_request_with_timeout(SeqNo, RemoteIP, T3, N3, Data, Sender,
 
 timeout_queue(Now, #state{responses = Responses0, rqueue = RQueue0} = State) ->
     case queue:peek(RQueue0) of
-	{value, {TStamp, Key}} when (TStamp + ?RESPONSE_TIMEOUT) < Now ->
+	{value, {TStamp, ReqKey}} when (TStamp + ?RESPONSE_TIMEOUT) < Now ->
 	    {_, RQueue} = queue:out(RQueue0),
-	    Responses = gb_trees:delete(Key, Responses0),
+	    Responses = gb_trees:delete(ReqKey, Responses0),
 	    timeout_queue(Now, State#state{responses = Responses, rqueue = RQueue});
 	_ ->
 	    State
     end.
 
-enqueue_response(IP, SeqNo, Data, #state{responses = Responses0,
-					 rqueue = RQueue0} = State)
-  when SeqNo /= 0 ->
+enqueue_response(ReqKey, Data, DoCache,
+		 #state{responses = Responses0, rqueue = RQueue0} = State)
+  when DoCache =:= true ->
     Now = erlang:monotonic_time(milli_seconds),
-    Key = {IP, SeqNo},
-    Responses = gb_trees:insert(Key, {Data, Now}, Responses0),
-    RQueue = queue:in({Now, Key}, RQueue0),
+    Responses = gb_trees:insert(ReqKey, {Data, Now}, Responses0),
+    RQueue = queue:in({Now, ReqKey}, RQueue0),
     timeout_queue(Now, State#state{responses = Responses, rqueue = RQueue});
 
-enqueue_response(_IP, _SeqNo, _Data, State) ->
+enqueue_response(_ReqKey, _Data, _DoCache, State) ->
     State.
 
-do_send_response(IP, Port, SeqNo, Data, #state{socket = Socket} = State) ->
+do_send_response(#request_key{ip = IP, port = Port} = ReqKey, Data, DoCache,
+		 #state{socket = Socket} = State) ->
     gen_socket:sendto(Socket, {inet4, IP, Port}, Data),
-    enqueue_response(IP, SeqNo, Data, State).
+    enqueue_response(ReqKey, Data, DoCache, State).

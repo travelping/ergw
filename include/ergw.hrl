@@ -36,3 +36,11 @@
 	  ms_v6                  :: inet:ip6_address(),
 	  state                  :: term()
 	  }).
+
+-record(request_key, {
+	  gtp_port	:: #gtp_port{},
+	  ip		:: inet:ip_address(),
+	  port		:: 0 .. 65535,
+	  type		:: atom(),
+	  seq_no	:: non_neg_integer()
+	 }).

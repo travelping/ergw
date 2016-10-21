@@ -75,11 +75,11 @@ handle_cast({path_restart, _Path}, State) ->
 %%   Change Notification Request/Response
 %%   Resume Notification/Acknowledge
 
-handle_request(_From, _Msg, true, State) ->
+handle_request(_ReqKey, _Msg, true, State) ->
 %% resent request
     {noreply, State};
 
-handle_request(_From,
+handle_request(_ReqKey,
 	       #gtp{type = create_session_request,
 		    ie = #{?'Recovery'                        := Recovery,
 			   ?'Sender F-TEID for Control Plane' := FqCntlTEID,
@@ -109,7 +109,7 @@ handle_request(_From,
     Response = {create_session_response, Context#context.remote_control_tei, ResponseIEs},
     {reply, Response, State#{context => Context}};
 
-handle_request(_From,
+handle_request(_ReqKey,
 	       #gtp{type = modify_bearer_request, tei = LocalTEI,
 		    ie = #{?'Recovery' := Recovery,
 			   ?'Bearer Contexts to be modified' :=
@@ -149,7 +149,7 @@ handle_request(_From,
     Response = {modify_bearer_response, Context#context.remote_control_tei, ResponseIEs},
     {reply, Response, State1};
 
-handle_request(_From,
+handle_request(_ReqKey,
 	       #gtp{type = delete_session_request, ie = IEs}, _Resent,
 	       #{context := Context} = State0) ->
 
@@ -178,7 +178,7 @@ handle_request(_From,
 	    {reply, Response, State0}
     end;
 
-handle_request(_From, _Msg, _Resent, State) ->
+handle_request(_ReqKey, _Msg, _Resent, State) ->
     {noreply, State}.
 
 %%%===================================================================

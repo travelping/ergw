@@ -10,13 +10,16 @@
     Return :: {ok, State ::map()} |
 	      {stop, Reason :: term()}.
 
+-callback request_spec(MsgType :: atom()) ->
+    Return :: [{ { IE :: atom(), Instance :: 0..255 }, 'optional' | 'mandatory' }].
+
 -callback handle_cast(Request:: term(), State :: map()) ->
     Result :: {noreply, NewState :: map()} |
 	      {noreply, NewState :: map(), Timeout :: integer() | 'infinity'} |
 	      {noreply, NewState :: map(), 'hibernate'} |
 	      {stop, Reason :: term(), NewState :: map()}.
 
--callback handle_request(From :: {#gtp_port{}, IP :: inet:ip_address(), Port :: 0 .. 65535},
+-callback handle_request(ReqKey :: #request_key{},
 			 Msg :: #gtp{},
 			 Resent :: boolean(),
 			 State :: map()) ->

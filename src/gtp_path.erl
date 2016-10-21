@@ -14,7 +14,7 @@
 
 %% API
 -export([start_link/4, get/2, all/1,
-	 maybe_new_path/3, handle_request/4,
+	 maybe_new_path/3, handle_request/2,
 	 bind/1, bind/2, unbind/1, down/2, get_handler/2]).
 
 %% gen_server callbacks
@@ -53,9 +53,9 @@ maybe_new_path(GtpPort, Version, RemoteIP) ->
 	    Path
     end.
 
-handle_request(RemoteIP, RemotePort, GtpPort, #gtp{version = Version} = Msg) ->
-    Path = maybe_new_path(GtpPort, Version, RemoteIP),
-    gen_server:cast(Path, {handle_request, RemotePort, Msg}).
+handle_request(#request_key{gtp_port = GtpPort, ip = IP} = ReqKey, #gtp{version = Version} = Msg) ->
+    Path = maybe_new_path(GtpPort, Version, IP),
+    gen_server:cast(Path, {handle_request, ReqKey, Msg}).
 
 bind(#context{remote_restart_counter = RestartCounter} = Context) ->
     bind(RestartCounter, Context).
@@ -153,8 +153,8 @@ handle_call(Request, _From, State) ->
     lager:warning("handle_call: ~p", [lager:pr(Request, ?MODULE)]),
     {reply, ok, State}.
 
-handle_cast({handle_request, RemotePort, Msg}, State0) ->
-    State = handle_request(RemotePort, Msg, State0),
+handle_cast({handle_request, ReqKey, Msg}, State0) ->
+    State = handle_request(ReqKey, Msg, State0),
     {noreply, State};
 
 handle_cast(down, #state{table = TID} = State) ->
@@ -324,12 +324,11 @@ update_path_state(#gtp{}, State) ->
 update_path_state(_, State) ->
     State#state{state = 'DOWN'}.
 
-send_message(Port, Msg, #state{gtp_port = GtpPort, ip = IP} = State) ->
+send_message(ReqKey, Msg, State) ->
     %% TODO: handle encode errors
     try
         Data = gtp_packet:encode(Msg),
-	lager:debug("gtp_context send ~s to ~w:~w: ~p, ~p", [GtpPort#gtp_port.type, IP, Port, Msg, Data]),
-	gtp_socket:send(GtpPort, IP, Port, Data)
+	gtp_socket:send_response(ReqKey, Data, false)
     catch
 	Class:Error ->
 	    Stack  = erlang:get_stacktrace(),
@@ -337,10 +336,10 @@ send_message(Port, Msg, #state{gtp_port = GtpPort, ip = IP} = State) ->
     end,
     State.
 
-handle_request(RemotePort, #gtp{type = echo_request} = Req,
+handle_request(ReqKey, #gtp{type = echo_request} = Req,
 	       #state{gtp_port = GtpPort, handler = Handler} = State) ->
     lager:debug("echo_request: ~p", [Req]),
 
     ResponseIEs = Handler:build_recovery(GtpPort, true, []),
     Response = Req#gtp{type = echo_response, ie = ResponseIEs},
-    send_message(RemotePort, Response, State).
+    send_message(ReqKey, Response, State).

@@ -105,7 +105,7 @@ request_spec(delete_pdp_context_response) ->
 request_spec(_) ->
     [].
 
--record(request_info, {from, seq_no, new_peer}).
+-record(request_info, {request_key, seq_no, new_peer}).
 -record(context_state, {nsapi}).
 
 -define(CAUSE_OK(Cause), (Cause =:= request_accepted orelse
@@ -151,11 +151,11 @@ handle_cast({path_restart, Path},
 handle_cast({path_restart, _Path}, State) ->
     {noreply, State}.
 
-handle_request(_From, _Msg, true, State) ->
+handle_request(_ReqKey, _Msg, true, State) ->
 %% resent request
     {noreply, State};
 
-handle_request(From,
+handle_request(ReqKey,
 	       #gtp{type = create_pdp_context_request, seq_no = SeqNo,
 		    ie = #{?'Recovery' := Recovery} = IEs} = Request, _Resent,
 	       #{tei := LocalTEI, gtp_port := GtpPort, gtp_dp_port := GtpDP,
@@ -195,11 +195,11 @@ handle_request(From,
     {ok, ProxyInfo} = gtp_proxy_ds:map(APN, IMSI),
     ProxyReq0 = build_context_request(ProxyContext, ProxyInfo, Request),
     ProxyReq = build_recovery(ProxyContext, false, ProxyReq0),
-    forward_request(ProxyContext, ProxyReq, From, SeqNo, Recovery /= undefined),
+    forward_request(ProxyContext, ProxyReq, ReqKey, SeqNo, Recovery /= undefined),
 
     {noreply, State};
 
-handle_request(From,
+handle_request(ReqKey,
 	       #gtp{type = update_pdp_context_request, seq_no = SeqNo,
 		    ie = #{?'Recovery' := Recovery} = IEs} = Request, _Resent,
 	       #{context := OldContext, proxy_context := ProxyContext0} = State0) ->
@@ -217,15 +217,15 @@ handle_request(From,
     {ok, ProxyInfo} = gtp_proxy_ds:map(APN, IMSI),
     ProxyReq0 = build_context_request(ProxyContext, ProxyInfo, Request),
     ProxyReq = build_recovery(ProxyContext, false, ProxyReq0),
-    forward_request(ProxyContext, ProxyReq, From, SeqNo, Recovery /= undefined),
+    forward_request(ProxyContext, ProxyReq, ReqKey, SeqNo, Recovery /= undefined),
 
     {noreply, State#{context := Context, proxy_context := ProxyContext}};
 
-handle_request(From,
+handle_request(ReqKey,
 	       #gtp{type = delete_pdp_context_request, seq_no = SeqNo} = Request, _Resent,
 	       #{proxy_context := ProxyContext} = State) ->
     ProxyReq = build_context_request(ProxyContext, undefined, Request),
-    forward_request(ProxyContext, ProxyReq, From, SeqNo, false),
+    forward_request(ProxyContext, ProxyReq, ReqKey, SeqNo, false),
 
     {noreply, State};
 
@@ -233,7 +233,7 @@ handle_request({GtpPort, _IP, _Port}, Msg, _Resent, State) ->
     lager:warning("Unknown Proxy Message on ~p: ~p", [GtpPort, lager:pr(Msg, ?MODULE)]),
     {noreply, State}.
 
-handle_response(#request_info{from = From, seq_no = SeqNo, new_peer = NewPeer},
+handle_response(#request_info{request_key = ReqKey, seq_no = SeqNo, new_peer = NewPeer},
 		#gtp{type = create_pdp_context_response,
 		     ie = #{?'Recovery' := Recovery,
 			    ?'Cause' := Cause}} = Response, _Request,
@@ -246,7 +246,7 @@ handle_response(#request_info{from = From, seq_no = SeqNo, new_peer = NewPeer},
 
     GtpResp0 = build_context_request(Context, undefined, Response),
     GtpResp = build_recovery(Context, NewPeer, GtpResp0),
-    gtp_context:send_response(From, GtpResp#gtp{seq_no = SeqNo}),
+    gtp_context:send_response(ReqKey, GtpResp#gtp{seq_no = SeqNo}),
 
     if ?CAUSE_OK(Cause) ->
 	    dp_create_pdp_context(Context, ProxyContext),
@@ -258,7 +258,7 @@ handle_response(#request_info{from = From, seq_no = SeqNo, new_peer = NewPeer},
 	    {stop, State}
     end;
 
-handle_response(#request_info{from = From, seq_no = SeqNo, new_peer = NewPeer},
+handle_response(#request_info{request_key = ReqKey, seq_no = SeqNo, new_peer = NewPeer},
 		#gtp{type = update_pdp_context_response} = Response, _Request,
 		#{context := Context,
 		  proxy_context := OldProxyContext} = State0) ->
@@ -269,20 +269,20 @@ handle_response(#request_info{from = From, seq_no = SeqNo, new_peer = NewPeer},
 
     GtpResp0 = build_context_request(Context, undefined, Response),
     GtpResp = build_recovery(Context, NewPeer, GtpResp0),
-    gtp_context:send_response(From, GtpResp#gtp{seq_no = SeqNo}),
+    gtp_context:send_response(ReqKey, GtpResp#gtp{seq_no = SeqNo}),
 
     dp_update_pdp_context(Context, ProxyContext),
 
     {noreply, State};
 
-handle_response(#request_info{from = From, seq_no = SeqNo},
+handle_response(#request_info{request_key = ReqKey, seq_no = SeqNo},
 		#gtp{type = delete_pdp_context_response} = Response, _Request,
 		#{context := Context,
 		  proxy_context := ProxyContext} = State) ->
     lager:warning("OK Proxy Response ~p", [lager:pr(Response, ?MODULE)]),
 
     GtpResp = build_context_request(Context, undefined, Response),
-    gtp_context:send_response(From, GtpResp#gtp{seq_no = SeqNo}),
+    gtp_context:send_response(ReqKey, GtpResp#gtp{seq_no = SeqNo}),
 
     dp_delete_pdp_context(Context, ProxyContext),
     {stop, State};
@@ -415,8 +415,8 @@ send_request(#context{control_port = GtpPort,
     gtp_context:send_request(GtpPort, RemoteCntlIP, T3, N3, Msg, undefined).
 
 forward_request(#context{control_port = GtpPort, remote_control_ip = RemoteCntlIP},
-	       Request, From, SeqNo, NewPeer) ->
-    ReqInfo = #request_info{from = From, seq_no = SeqNo, new_peer = NewPeer},
+	       Request, ReqKey, SeqNo, NewPeer) ->
+    ReqInfo = #request_info{request_key = ReqKey, seq_no = SeqNo, new_peer = NewPeer},
     lager:debug("Invoking Context Send Request: ~p", [Request]),
     gtp_context:send_request(GtpPort, RemoteCntlIP, Request, ReqInfo).
 

@@ -66,11 +66,11 @@ handle_cast({path_restart, _Path}, State) ->
     {noreply, State}.
 
 %% resent request
-handle_request(_From, _Msg, true, State) ->
+handle_request(_ReqKey, _Msg, true, State) ->
 %% resent request
     {noreply, State};
 
-handle_request(_From,
+handle_request(_ReqKey,
 	       #gtp{type = create_pdp_context_request,
 		    ie = #{
 		      ?'Recovery' := Recovery,
@@ -112,7 +112,7 @@ handle_request(_From,
 	    {stop, Reply, State#{context => Context2}}
     end;
 
-handle_request(_From,
+handle_request(_ReqKey,
 	       #gtp{type = update_pdp_context_request,
 		    ie = #{?'Recovery' := Recovery,
 			   ?'Quality of Service Profile' := ReqQoSProfile} = IEs}, _Resent,
@@ -138,7 +138,7 @@ handle_request(_From,
     Reply = {update_pdp_context_response, RemoteCntlTEI, ResponseIEs},
     {reply, Reply, State1};
 
-handle_request(_From,
+handle_request(_ReqKey,
 	       #gtp{type = delete_pdp_context_request, ie = _IEs}, _Resent,
 	       #{context := Context} = State) ->
     #context{remote_control_tei = RemoteCntlTEI} = Context,
@@ -149,7 +149,7 @@ handle_request(_From,
     Reply = {delete_pdp_context_response, RemoteCntlTEI, request_accepted},
     {stop, Reply, State};
 
-handle_request(_From, _Msg, _Resent, State) ->
+handle_request(_ReqKey, _Msg, _Resent, State) ->
     {noreply, State}.
 
 %%%===================================================================
