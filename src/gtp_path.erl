@@ -153,8 +153,14 @@ handle_call(Request, _From, State) ->
     lager:warning("handle_call: ~p", [lager:pr(Request, ?MODULE)]),
     {reply, ok, State}.
 
-handle_cast({handle_request, ReqKey, Msg}, State0) ->
-    State = handle_request(ReqKey, Msg, State0),
+handle_cast({handle_request, ReqKey, #gtp{type = echo_request} = Msg},
+	    #state{gtp_port = GtpPort, handler = Handler} = State) ->
+    lager:debug("echo_request: ~p", [Msg]),
+
+    ResponseIEs = Handler:build_recovery(GtpPort, true, []),
+    Response = Msg#gtp{type = echo_response, ie = ResponseIEs},
+    gtp_socket:send_response(ReqKey, Response, false),
+
     {noreply, State};
 
 handle_cast(down, #state{table = TID} = State) ->
@@ -323,23 +329,3 @@ update_path_state(#gtp{}, State) ->
     State#state{state = 'UP'};
 update_path_state(_, State) ->
     State#state{state = 'DOWN'}.
-
-send_message(ReqKey, Msg, State) ->
-    %% TODO: handle encode errors
-    try
-        Data = gtp_packet:encode(Msg),
-	gtp_socket:send_response(ReqKey, Data, false)
-    catch
-	Class:Error ->
-	    Stack  = erlang:get_stacktrace(),
-	    lager:error("gtp send failed with ~p:~p (~p)", [Class, Error, Stack])
-    end,
-    State.
-
-handle_request(ReqKey, #gtp{type = echo_request} = Req,
-	       #state{gtp_port = GtpPort, handler = Handler} = State) ->
-    lager:debug("echo_request: ~p", [Req]),
-
-    ResponseIEs = Handler:build_recovery(GtpPort, true, []),
-    Response = Req#gtp{type = echo_response, ie = ResponseIEs},
-    send_message(ReqKey, Response, State).
