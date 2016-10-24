@@ -10,7 +10,7 @@
 -behaviour(gtp_protocol).
 
 %% API
--export([gtp_msg_type/1,
+-export([gtp_msg_types/0, gtp_msg_type/1,
 	 get_handler/2,
 	 build_response/1,
 	 build_echo_request/0,
@@ -55,6 +55,51 @@ build_response({Type, TEI, IEs}) ->
     #gtp{version = v2, type = gtp_msg_response(Type), tei = TEI, ie = map_reply_ies(IEs)};
 build_response({Type, IEs}) ->
     #gtp{version = v2, type = gtp_msg_response(Type), tei = 0, ie = map_reply_ies(IEs)}.
+
+gtp_msg_types() ->
+    [echo_request,					echo_response,
+     version_not_supported,
+     create_session_request,				create_session_response,
+     delete_session_request,				delete_session_response,
+     modify_bearer_request,				modify_bearer_response,
+     change_notification_request,			change_notification_response,
+     modify_bearer_command,				modify_bearer_failure_indication,
+     delete_bearer_command,				delete_bearer_failure_indication,
+     bearer_resource_command,				bearer_resource_failure_indication,
+     downlink_data_notification_failure_indication,
+     trace_session_activation,				trace_session_deactivation,
+     stop_paging_indication,
+     create_bearer_request,				create_bearer_response,
+     update_bearer_request,				update_bearer_response,
+     delete_bearer_request,				delete_bearer_response,
+     delete_pdn_connection_set_request,			delete_pdn_connection_set_response,
+     pgw_downlink_triggering_notification,		pgw_downlink_triggering_acknowledge,
+     identification_request,				identification_response,
+     context_request,					context_response,
+     context_acknowledge,
+     forward_relocation_request,			forward_relocation_response,
+     forward_relocation_complete_notification,		forward_relocation_complete_acknowledge,
+     forward_access_context_notification,		forward_access_context_acknowledge,
+     relocation_cancel_request,				relocation_cancel_response,
+     configuration_transfer_tunnel,
+     detach_notification,				detach_acknowledge,
+     cs_paging_indication,
+     ran_information_relay,
+     alert_mme_notification,				alert_mme_acknowledge,
+     ue_activity_notification,				ue_activity_acknowledge,
+     isr_status_indication,
+     create_forwarding_tunnel_request,			create_forwarding_tunnel_response,
+     suspend_notification,				suspend_acknowledge,
+     resume_notification,				resume_acknowledge,
+     create_indirect_data_forwarding_tunnel_request,	create_indirect_data_forwarding_tunnel_response,
+     delete_indirect_data_forwarding_tunnel_request,	delete_indirect_data_forwarding_tunnel_response,
+     release_access_bearers_request,			release_access_bearers_response,
+     downlink_data_notification,			downlink_data_notification_acknowledge,
+     pgw_restart_notification,				pgw_restart_notification_acknowledge,
+     update_pdn_connection_set_request,			update_pdn_connection_set_response,
+     mbms_session_start_request,			mbms_session_start_response,
+     mbms_session_update_request,			mbms_session_update_response,
+     mbms_session_stop_request,				mbms_session_stop_response].
 
 gtp_msg_type(echo_request)					-> request;
 gtp_msg_type(echo_response)					-> response;

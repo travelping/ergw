@@ -10,7 +10,7 @@
 -behaviour(gtp_protocol).
 
 %% API
--export([gtp_msg_type/1,
+-export([gtp_msg_types/0, gtp_msg_type/1,
 	 get_handler/2,
 	 build_response/1,
 	 build_echo_request/0,
@@ -55,6 +55,45 @@ build_response({Type, TEI, IEs}) ->
     #gtp{version = v1, type = gtp_msg_response(Type), tei = TEI, ie = map_reply_ies(IEs)};
 build_response({Type, IEs}) ->
     #gtp{version = v1, type = gtp_msg_response(Type), tei = 0, ie = map_reply_ies(IEs)}.
+
+gtp_msg_types() ->
+    [echo_request,					echo_response,
+     version_not_supported,
+     node_alive_request,				node_alive_response,
+     redirection_request,				redirection_response,
+     create_pdp_context_request,			create_pdp_context_response,
+     update_pdp_context_request,			update_pdp_context_response,
+     delete_pdp_context_request,			delete_pdp_context_response,
+     initiate_pdp_context_activation_request,		initiate_pdp_context_activation_response,
+     error_indication,
+     pdu_notification_request,				pdu_notification_response,
+     pdu_notification_reject_request,			pdu_notification_reject_response,
+     supported_extension_headers_notification,
+     send_routeing_information_for_gprs_request,	send_routeing_information_for_gprs_response,
+     failure_report_request,				failure_report_response,
+     note_ms_gprs_present_request,			note_ms_gprs_present_response,
+     identification_request,				identification_response,
+     sgsn_context_request,				sgsn_context_response,
+     sgsn_context_acknowledge,
+     forward_relocation_request,			forward_relocation_response,
+     forward_relocation_complete,
+     relocation_cancel_request,				relocation_cancel_response,
+     forward_srns_context,
+     forward_relocation_complete_acknowledge,
+     forward_srns_context_acknowledge,
+     ran_information_relay,
+     mbms_notification_request,				mbms_notification_response,
+     mbms_notification_reject_request,			mbms_notification_reject_response,
+     create_mbms_context_request,			create_mbms_context_response,
+     update_mbms_context_request,			update_mbms_context_response,
+     delete_mbms_context_request,			delete_mbms_context_response,
+     mbms_registration_request,				mbms_registration_response,
+     mbms_de_registration_request,			mbms_de_registration_response,
+     mbms_session_start_request,			mbms_session_start_response,
+     mbms_session_stop_request,				mbms_session_stop_response,
+     mbms_session_update_request,			mbms_session_update_response,
+     ms_info_change_notification_request,		ms_info_change_notification_response,
+     data_record_transfer_request,			data_record_transfer_response].
 
 gtp_msg_type(echo_request)					-> request;
 gtp_msg_type(echo_response)					-> response;

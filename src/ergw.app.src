@@ -3,7 +3,8 @@
     {vsn,"0.1.0"},
     {description, "3GPP GGSN/PGW"},
     {applications, [kernel, stdlib, lager, erlando, crypto,
-		    regine, gen_socket, gtplib, ergw_aaa]},
+		    regine, gen_socket, gtplib, ergw_aaa,
+		    exometer_core]},
     {mod, {ergw_app, []}},
     {registered, []}
 ]}.

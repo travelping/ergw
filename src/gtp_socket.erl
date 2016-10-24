@@ -41,6 +41,8 @@
 
 	  restart_counter}).
 
+-record(sender, {from, req_id, msg}).
+
 -define(T3, 10 * 1000).
 -define(N3, 5).
 -define(RESPONSE_TIMEOUT, (?T3 * ?N3 + (?T3 div 2))).
@@ -71,6 +73,7 @@ send(#gtp_port{type = 'gtp-u'} = GtpPort, IP, Port, Data) ->
     gtp_dp:send(GtpPort, IP, Port, Data).
 
 send_response(#request_key{gtp_port = GtpPort} = ReqKey, Msg, DoCache) ->
+    message_counter(tx, GtpPort, Msg),
     Data = gtp_packet:encode(Msg),
     cast(GtpPort, {send_response, ReqKey, Data, DoCache}).
 
@@ -111,6 +114,7 @@ init([Name, SocketOpts]) ->
     GtpPort = #gtp_port{name = Name, type = Type, pid = self(),
 			ip = IP, restart_counter = RCnt},
 
+    init_exometer(GtpPort),
     gtp_socket_reg:register(Name, GtpPort),
 
     State0 = #state{
@@ -153,15 +157,17 @@ handle_cast(Msg, State) ->
     lager:error("handle_cast: unknown ~p", [lager:pr(Msg, ?MODULE)]),
     {noreply, State}.
 
-handle_info(Info = {timeout, TRef, {send, SeqNo}}, #state{pending = Pending} = State0) ->
+handle_info(Info = {timeout, TRef, {send, SeqNo}}, #state{gtp_port = GtpPort, pending = Pending} = State0) ->
     lager:debug("handle_info: ~p", [lager:pr(Info, ?MODULE)]),
     case gb_trees:lookup(SeqNo, Pending) of
 	{value, {_RemoteIP, _T3, _N3 = 0, _Data, Sender, TRef}} ->
 	    send_request_reply(Sender, timeout),
+	    message_counter(tx, GtpPort, Sender#sender.msg, timeout),
 	    {noreply, State0#state{pending = gb_trees:delete(SeqNo, Pending)}};
 
 	{value, {RemoteIP, T3, N3, Data, Sender, TRef}} ->
 	    %% resent....
+	    message_counter(tx, GtpPort, Sender#sender.msg, retransmit),
 	    State = send_request_with_timeout(SeqNo, RemoteIP, T3, N3 - 1, Data, Sender,
 					      State0#state{pending = gb_trees:delete(SeqNo, Pending)}),
 	    {noreply, State}
@@ -283,13 +289,14 @@ handle_err_input(Socket, State) ->
 	    {noreply, State}
     end.
 
-handle_message(IP, Port, Data, State0) ->
+handle_message(IP, Port, Data, #state{gtp_port = GtpPort} = State0) ->
     Msg = gtp_packet:decode(Data),
     %% TODO: handle decode failures
 
     lager:debug("handle message: ~p", [{IP, Port,
 					lager:pr(State0#state.gtp_port, ?MODULE),
 					lager:pr(Msg, ?MODULE)}]),
+    message_counter(rx, GtpPort, Msg),
     State = handle_message_1(IP, Port, Msg, State0),
     {noreply, State}.
 
@@ -314,9 +321,10 @@ handle_message_1(IP, Port, #gtp{version = Version, type = MsgType} = Msg, State)
 	    State
     end.
 
-handle_response(_IP, _Port, #gtp{seq_no = SeqNo} = Msg, #state{pending = Pending} = State) ->
+handle_response(_IP, _Port, #gtp{seq_no = SeqNo} = Msg, #state{gtp_port = GtpPort, pending = Pending} = State) ->
     case gb_trees:lookup(SeqNo, Pending) of
 	none -> %% duplicate, drop silently
+	    message_counter(rx, GtpPort, Msg, duplicate),
 	    lager:error("~p: invalid response: ~p, ~p", [self(), SeqNo, Pending]),
 	    State;
 
@@ -328,10 +336,11 @@ handle_response(_IP, _Port, #gtp{seq_no = SeqNo} = Msg, #state{pending = Pending
     end.
 
 handle_request(#request_key{ip = IP, port = Port} = ReqKey, Msg,
-	       #state{socket = Socket, responses = Responses} = State) ->
+	       #state{gtp_port = GtpPort, socket = Socket, responses = Responses} = State) ->
     Now = erlang:monotonic_time(milli_seconds),
     case gb_trees:lookup(ReqKey, Responses) of
 	{value, {Data, TStamp}}  when (TStamp + ?RESPONSE_TIMEOUT) > Now ->
+	    message_counter(rx, GtpPort, Msg, duplicate),
 	    gen_socket:sendto(Socket, {inet4, IP, Port}, Data);
 
 	_Other ->
@@ -341,14 +350,15 @@ handle_request(#request_key{ip = IP, port = Port} = ReqKey, Msg,
     State.
 
 do_send_request(From, RemoteIP, T3, N3, Msg, ReqId,
-	     #state{seq_no = SeqNo} = State) ->
+	     #state{gtp_port = GtpPort, seq_no = SeqNo} = State) ->
     lager:debug("~p: gtp_socket send_request to ~p: ~p", [self(), RemoteIP, Msg]),
+    message_counter(tx, GtpPort, Msg),
     Data = gtp_packet:encode(Msg#gtp{seq_no = SeqNo}),
-    Sender = {From, ReqId, Msg},
+    Sender = #sender{from = From, req_id = ReqId, msg = Msg},
     send_request_with_timeout(SeqNo, RemoteIP, T3, N3, Data, Sender,
 			      State#state{seq_no = (SeqNo + 1) rem 65536}).
 
-send_request_reply({From, ReqId, ReqMsg}, ReplyMsg) ->
+send_request_reply(#sender{from = From, req_id = ReqId, msg = ReqMsg}, ReplyMsg) ->
     From ! {ReqId, ReqMsg, ReplyMsg}.
 
 send_request_with_timeout(SeqNo, RemoteIP, T3, N3, Data, Sender,
@@ -386,3 +396,59 @@ do_send_response(#request_key{ip = IP, port = Port} = ReqKey, Data, DoCache,
 		 #state{socket = Socket} = State) ->
     gen_socket:sendto(Socket, {inet4, IP, Port}, Data),
     enqueue_response(ReqKey, Data, DoCache, State).
+
+%%%===================================================================
+%%% exometer functions
+%%%===================================================================
+
+init_exometer(#gtp_port{name = Name, type = 'gtp-c'}) ->
+    exometer:new([socket, 'gtp-c', Name, rx, v1, unsupported], counter),
+    exometer:new([socket, 'gtp-c', Name, tx, v1, unsupported], counter),
+    lists:foreach(fun(MsgType) ->
+			  exometer:new([socket, 'gtp-c', Name, rx, v1, MsgType], counter),
+			  exometer:new([socket, 'gtp-c', Name, rx, v1, MsgType, duplicate], counter),
+			  exometer:new([socket, 'gtp-c', Name, tx, v1, MsgType], counter),
+			  exometer:new([socket, 'gtp-c', Name, tx, v1, MsgType, retransmit], counter),
+			  case gtp_v1_c:gtp_msg_type(MsgType) of
+			      request ->
+				  exometer:new([socket, 'gtp-c', Name, tx, v1, MsgType, timeout], counter);
+			      _ ->
+				  ok
+			  end
+		  end, gtp_v1_c:gtp_msg_types()),
+    exometer:new([socket, 'gtp-c', Name, rx, v2, unsupported], counter),
+    exometer:new([socket, 'gtp-c', Name, tx, v2, unsupported], counter),
+    lists:foreach(fun(MsgType) ->
+			  exometer:new([socket, 'gtp-c', Name, rx, v2, MsgType, duplicate], counter),
+			  exometer:new([socket, 'gtp-c', Name, rx, v2, MsgType], counter),
+			  exometer:new([socket, 'gtp-c', Name, tx, v2, MsgType, retransmit], counter),
+			  exometer:new([socket, 'gtp-c', Name, tx, v2, MsgType], counter),
+			  case gtp_v2_c:gtp_msg_type(MsgType) of
+			      request ->
+				  exometer:new([socket, 'gtp-c', Name, tx, v2, MsgType, timeout], counter);
+			      _ ->
+				  ok
+			  end
+		  end, gtp_v2_c:gtp_msg_types()),
+    ok;
+init_exometer(_) ->
+    ok.
+
+message_counter_apply(Name, Direction, Version, MsgInfo) ->
+    case exometer:update([socket, 'gtp-c', Name, Direction, Version | MsgInfo], 1) of
+	{error, undefined} ->
+	    exometer:update([socket, 'gtp-c', Name, Direction, Version, unsupported], 1);
+	Other ->
+	    Other
+    end.
+
+message_counter(Direction,
+		#gtp_port{name = Name, type = 'gtp-c'},
+		#gtp{version = Version, type = MsgType}) ->
+    message_counter_apply(Name, Direction, Version, [MsgType]).
+
+message_counter(Direction,
+		#gtp_port{name = Name, type = 'gtp-c'},
+		#gtp{version = Version, type = MsgType},
+		Verdict) ->
+    message_counter_apply(Name, Direction, Version, [MsgType, Verdict]).
