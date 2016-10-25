@@ -9,7 +9,8 @@
 
 -behaviour(gtp_api).
 
--compile({parse_transform, do}).
+-compile([{parse_transform, do},
+	  {parse_transform, cut}]).
 
 -export([init/2, request_spec/1, handle_request/4, handle_cast/2]).
 
@@ -22,7 +23,7 @@
 
 -define('Recovery',					{v2_recovery, 0}).
 -define('IMSI',						{v2_international_mobile_subscriber_identity, 0}).
--define('MSISDN',					{v2_ms_international_pstn_isdn_number, 0}).
+-define('MSISDN',					{v2_msisdn, 0}).
 -define('PDN Address Allocation',			{v2_pdn_address_allocation, 0}).
 -define('RAT Type',					{v2_rat_type, 0}).
 -define('Sender F-TEID for Control Plane',		{v2_fully_qualified_tunnel_endpoint_identifier, 0}).
@@ -30,7 +31,7 @@
 -define('Bearer Contexts to be created',		{v2_bearer_context, 0}).
 -define('Bearer Contexts to be modified',		{v2_bearer_context, 0}).
 -define('Protocol Configuration Options',		{v2_protocol_configuration_options, 0}).
--define('IMEI',						{v2_imei, 0}).
+-define('ME Identity',					{v2_mobile_equipment_identity, 0}).
 
 -define('EPS Bearer ID',                                {v2_eps_bearer_id, 0}).
 -define('S5/S8-U SGW FTEID',                            {v2_fully_qualified_tunnel_endpoint_identifier, 2}).
@@ -50,7 +51,8 @@ request_spec(_) ->
 -record(context_state, {}).
 
 init(_Opts, State) ->
-    {ok, State}.
+    {ok, Session} = ergw_aaa_session_sup:new_session(self(), #{}),
+    {ok, State#{'Session' => Session}}.
 
 handle_cast({path_restart, Path}, #{context := #context{path = Path} = Context} = State) ->
     dp_delete_pdp_context(Context),
@@ -85,15 +87,17 @@ handle_request(_ReqKey,
 			   ?'Sender F-TEID for Control Plane' := FqCntlTEID,
 			   ?'Access Point Name'               := #v2_access_point_name{apn = APN},
 			   ?'Bearer Contexts to be created' :=
-			       #v2_bearer_context{group = #{
-						    ?'EPS Bearer ID'     := EBI,
-						    ?'S5/S8-U SGW FTEID' :=                   %% S5/S8 SGW GTP-U Interface
-							#v2_fully_qualified_tunnel_endpoint_identifier{interface_type = 4} =
-							FqDataTEID
-						   }}
+			       #v2_bearer_context{
+				  group = #{
+				    ?'EPS Bearer ID'     := EBI,
+				    ?'S5/S8-U SGW FTEID' :=                   %% S5/S8 SGW GTP-U Interface
+					#v2_fully_qualified_tunnel_endpoint_identifier{interface_type = 4} =
+					FqDataTEID
+				   }}
 			  } = IEs},
 	       _Resent,
-	       #{tei := LocalTEI, gtp_port := GtpPort, gtp_dp_port := GtpDP} = State) ->
+	       #{tei := LocalTEI, gtp_port := GtpPort, gtp_dp_port := GtpDP,
+		 aaa_opts := AAAopts, 'Session' := Session} = State) ->
 
     PAA = maps:get(?'PDN Address Allocation', IEs, undefined),
 
@@ -101,27 +105,51 @@ handle_request(_ReqKey,
     Context1 = update_context_tunnel_ids(FqCntlTEID, FqDataTEID, Context0),
     Context2 = gtp_path:bind(Recovery, Context1),
 
-    Context = assign_ips(PAA, Context2),
-    dp_create_pdp_context(Context),
+    SessionOpts0 = init_session(IEs, Context2, AAAopts),
+    SessionOpts = init_session_from_gtp_req(IEs, AAAopts, SessionOpts0),
+    %% SessionOpts = init_session_qos(ReqQoSProfile, SessionOpts1),
 
-    ResponseIEs0 = create_session_response(EBI, Context),
-    ResponseIEs = gtp_v2_c:build_recovery(Context, Recovery /= undefined, ResponseIEs0),
-    Response = {create_session_response, Context#context.remote_control_tei, ResponseIEs},
-    {reply, Response, State#{context => Context}};
+    lager:info("SessionOpts: ~p", [SessionOpts]),
+    case ergw_aaa_session:authenticate(Session, SessionOpts) of
+	success ->
+	    lager:info("AuthResult: success"),
+
+	    ActiveSessionOpts = ergw_aaa_session:get(Session),
+	    lager:info("ActiveSessionOpts: ~p", [ActiveSessionOpts]),
+
+	    Context = assign_ips(ActiveSessionOpts, PAA, Context2),
+
+	    dp_create_pdp_context(Context),
+
+	    ResponseIEs0 = create_session_response(SessionOpts, IEs, EBI, Context),
+	    ResponseIEs = gtp_v2_c:build_recovery(Context, Recovery /= undefined, ResponseIEs0),
+	    Response = {create_session_response, Context#context.remote_control_tei, ResponseIEs},
+	    {reply, Response, State#{context => Context}};
+
+	Other ->
+	    lager:info("AuthResult: ~p", [Other]),
+
+	    ResponseIEs0 = [#v2_cause{v2_cause = user_authentication_failed}],
+	    ResponseIEs = gtp_v2_c:build_recovery(Context2, Recovery /= undefined, ResponseIEs0),
+	    Reply = {create_session_response, Context2#context.remote_control_tei, ResponseIEs},
+	    {stop, Reply, State#{context => Context2}}
+
+    end;
 
 handle_request(_ReqKey,
-	       #gtp{type = modify_bearer_request, tei = LocalTEI,
+	       #gtp{type = modify_bearer_request,
 		    ie = #{?'Recovery' := Recovery,
 			   ?'Bearer Contexts to be modified' :=
-			       #v2_bearer_context{group = #{
-						    ?'EPS Bearer ID'     := EBI,
-						    ?'S5/S8-U SGW FTEID' :=                   %% S5/S8 SGW GTP-U Interface
-							#v2_fully_qualified_tunnel_endpoint_identifier{interface_type = 4} =
-							FqDataTEID
-						    }}
+			       #v2_bearer_context{
+				  group = #{
+				    ?'EPS Bearer ID'     := EBI,
+				    ?'S5/S8-U SGW FTEID' :=                   %% S5/S8 SGW GTP-U Interface
+					#v2_fully_qualified_tunnel_endpoint_identifier{interface_type = 4} =
+					FqDataTEID
+				   }}
 			  } = IEs},
 	       _Resent,
-	       #{gtp_port := GtpPort, context := OldContext} = State0) ->
+	       #{context := OldContext} = State0) ->
 
     FqCntlTEID = maps:get(?'Sender F-TEID for Control Plane', IEs, undefined),
 
@@ -134,17 +162,11 @@ handle_request(_ReqKey,
 		     State0
 	     end,
 
-    #gtp_port{ip = LocalIP} = GtpPort,
-
     ResponseIEs0 = [#v2_cause{v2_cause = request_accepted},
 		    #v2_bearer_context{
 		       group=[#v2_cause{v2_cause = request_accepted},
 			      EBI,
-			      #v2_fully_qualified_tunnel_endpoint_identifier{
-				 instance = 2,                  %% S5/S8 F-TEI Instance
-				 interface_type = 5,            %% S5/S8 PGW GTP-U Interface
-				 key = LocalTEI,
-				 ipv4 = gtp_c_lib:ip2bin(LocalIP)}]}],
+			      s5s8_pgw_gtp_u_tei(Context)]}],
     ResponseIEs = gtp_v2_c:build_recovery(Context, Recovery /= undefined, ResponseIEs0),
     Response = {modify_bearer_response, Context#context.remote_control_tei, ResponseIEs},
     {reply, Response, State1};
@@ -231,6 +253,137 @@ apply_context_change(NewContext0, OldContext, State) ->
     gtp_path:unbind(OldContext),
     State#{context => NewContext}.
 
+% -------------------------------------------------------------------------------------
+
+map_attr('APN', #{?'Access Point Name' := #v2_access_point_name{apn = APN}}) ->
+    unicode:characters_to_binary(lists:join($., APN));
+map_attr('IMSI', #{?'IMSI' := #v2_international_mobile_subscriber_identity{imsi = IMSI}}) ->
+    IMSI;
+map_attr('IMEI', #{?'ME Identity' := #v2_mobile_equipment_identity{mei = IMEI}}) ->
+    IMEI;
+map_attr('MSISDN', #{?'MSISDN' := #v2_msisdn{
+				     msisdn = {isdn_address, _, _, 1, MSISDN}}}) ->
+    MSISDN;
+map_attr(Value, _) when is_binary(Value); is_list(Value) ->
+    Value;
+map_attr(Value, _) when is_atom(Value) ->
+    atom_to_binary(Value, utf8);
+map_attr(Value, _) ->
+    io_lib:format("~w", [Value]).
+
+map_username(_IEs, Username, _) when is_binary(Username) ->
+    Username;
+map_username(_IEs, [], Acc) ->
+    iolist_to_binary(lists:reverse(Acc));
+map_username(IEs, [H | Rest], Acc) ->
+    Part = map_attr(H, IEs),
+    map_username(IEs, Rest, [Part | Acc]).
+
+init_session(IEs,
+	     #context{control_port = #gtp_port{ip = LocalIP}},
+	     #{'Username' := #{default := Username},
+	       'Password' := #{default := Password}} = AAAopts) ->
+    MappedUsername = map_username(IEs, Username, []),
+    Session = #{
+      'Username'		=> MappedUsername,
+      'Password'		=> Password,
+      'Service-Type'		=> 'Framed-User',
+      'Framed-Protocol'		=> 'GPRS-PDP-Context',
+      '3GPP-GGSN-Address'	=> LocalIP
+     },
+    case maps:get('3GPP-GGSN-MCC-MNC', AAAopts, default) of
+	MCCMNC when is_binary(MCCMNC) ->
+	    Session#{'3GPP-GGSN-MCC-MNC' => MCCMNC};
+	_ ->
+	    Session
+    end.
+
+copy_optional_binary_ie(Key, Value, Session) when is_binary(Value) ->
+    Session#{Key => Value};
+copy_optional_binary_ie(_Key, _Value, Session) ->
+    Session.
+
+copy_ppp_to_session({pap, 'PAP-Authentication-Request', _Id, Username, Password}, Session0) ->
+    Session = Session0#{'Username' => Username, 'Password' => Password},
+    maps:without(['CHAP-Challenge', 'CHAP_Password'], Session);
+copy_ppp_to_session({chap, 'CHAP-Challenge', _Id, Value, _Name}, Session) ->
+    Session#{'CHAP_Challenge' => Value};
+copy_ppp_to_session({chap, 'CHAP-Response', _Id, Value, Name}, Session0) ->
+    Session = Session0#{'CHAP_Password' => Value, 'Username' => Name},
+    maps:without(['Password'], Session);
+copy_ppp_to_session(_, Session) ->
+    Session.
+
+copy_to_session(_, #v2_protocol_configuration_options{config = {0, Options}},
+		#{'Username' := #{from_protocol_opts := true}}, Session) ->
+    lists:foldr(fun copy_ppp_to_session/2, Session, Options);
+copy_to_session(_, #v2_access_point_name{apn = APN}, _AAAopts, Session) ->
+    Session#{'Called-Station-Id' => unicode:characters_to_binary(lists:join($., APN))};
+copy_to_session(_, #v2_msisdn{
+		   msisdn = {isdn_address, _, _, 1, MSISDN}}, _AAAopts, Session) ->
+    Session#{'Calling-Station-Id' => MSISDN};
+copy_to_session(_, #v2_international_mobile_subscriber_identity{imsi = IMSI}, _AAAopts, Session) ->
+    case itu_e212:split_imsi(IMSI) of
+	{MCC, MNC, _} ->
+	    Session#{'3GPP-IMSI' => IMSI,
+		     '3GPP-IMSI-MCC-MNC' => <<MCC/binary, MNC/binary>>};
+	_ ->
+	    Session#{'3GPP-IMSI' => IMSI}
+    end;
+copy_to_session(_, #v2_pdn_address_allocation{type = ipv4,
+					      address = IP4}, _AAAopts, Session) ->
+    Session#{'3GPP-PDP-Type'     => 'IPv4',
+	     'Framed-IP-Address' => gtp_c_lib:bin2ip(IP4)};
+copy_to_session(_, #v2_pdn_address_allocation{type = ipv6,
+					      address = <<_IP6PrefixLen:8,
+							  IP6Prefix:16/binary>>},
+		_AAAopts, Session) ->
+    Session#{'3GPP-PDP-Type'      => 'IPv6',
+	     'Framed-IPv6-Prefix' => {gtp_c_lib:bin2ip(IP6Prefix), 128}};
+copy_to_session(_, #v2_pdn_address_allocation{type = ipv4v6,
+					      address = <<_IP6PrefixLen:8,
+							  IP6Prefix:16/binary,
+							  IP4:4/binary>>},
+		_AAAopts, Session) ->
+    Session#{'3GPP-PDP-Type' => 'IPv4v6',
+	     'Framed-IP-Address'  => gtp_c_lib:bin2ip(IP4),
+	     'Framed-IPv6-Prefix' => {gtp_c_lib:bin2ip(IP6Prefix), 128}};
+
+copy_to_session(?'Sender F-TEID for Control Plane',
+		#v2_fully_qualified_tunnel_endpoint_identifier{ipv4 = IP4, ipv6 = IP6},
+		_AAAopts, Session0) ->
+    Session1 = copy_optional_binary_ie('3GPP-SGSN-Address', IP4, Session0),
+    copy_optional_binary_ie('3GPP-SGSN-IPv6-Address', IP6, Session1);
+
+copy_to_session(?'Bearer Contexts to be created',
+		#v2_bearer_context{group = #{?'EPS Bearer ID' :=
+						 #v2_eps_bearer_id{eps_bearer_id = EBI}}},
+		_AAAopts, Session) ->
+    Session#{'3GPP-NSAPI' => EBI};
+copy_to_session(_, #v2_selection_mode{mode = Mode}, _AAAopts, Session) ->
+    Session#{'3GPP-Selection-Mode' => Mode};
+%% copy_to_session(_, #v2_charging_characteristics{value = Value}, _AAAopts, Session) ->
+%%     Session#{'3GPP-Charging-Characteristics' => Value};
+
+copy_to_session(_, #v2_serving_network{mcc = MCC, mnc = MNC}, _AAAopts, Session) ->
+    Session#{'3GPP-SGSN-MCC-MNC' => <<MCC/binary, MNC/binary>>};
+copy_to_session(_, #v2_mobile_equipment_identity{mei = IMEI}, _AAAopts, Session) ->
+    Session#{'3GPP-IMEISV' => IMEI};
+copy_to_session(_, #v2_rat_type{rat_type = Type}, _AAAopts, Session) ->
+    Session#{'3GPP-RAT-Type' => Type};
+copy_to_session(_, #v2_user_location_information{} = IE, _AAAopts, Session) ->
+    Value = gtp_packet:encode_v2_user_location_information(IE),
+    Session#{'3GPP-User-Location-Info' => Value};
+copy_to_session(_, #v2_ue_time_zone{timezone = TZ, dst = DST}, _AAAopts, Session) ->
+    Session#{'3GPP-MS-TimeZone' => {TZ, DST}};
+copy_to_session(_, _, _AAAopts, Session) ->
+    Session.
+
+init_session_from_gtp_req(IEs, AAAopts, Session) ->
+    maps:fold(copy_to_session(_, _, AAAopts, _), Session, IEs).
+
+% -------------------------------------------------------------------------------------
+
 init_context(APN, CntlPort, CntlTEI, DataPort, DataTEI) ->
     #context{
        apn               = APN,
@@ -284,39 +437,116 @@ dp_delete_pdp_context(Context) ->
     Args = dp_args(Context),
     gtp_dp:delete_pdp_context(Context, Args).
 
-assign_ips(PAA, #context{apn = APN, local_control_tei = LocalTEI} = Context) ->
-    {ReqMSv4, ReqMSv6} = pdn_alloc(PAA),
+session_ipv4_alloc(#{'Framed-IP-Address' := {255,255,255,255}}, ReqMSv4) ->
+    ReqMSv4;
+session_ipv4_alloc(#{'Framed-IP-Address' := {255,255,255,254}}, _ReqMSv4) ->
+    {0,0,0,0};
+session_ipv4_alloc(#{'Framed-IP-Address' := {_,_,_,_} = IPv4}, _ReqMSv4) ->
+    IPv4;
+session_ipv4_alloc(_SessionOpts, ReqMSv4) ->
+    ReqMSv4.
+
+session_ipv6_alloc(#{'Framed-IPv6-Prefix' := {{_,_,_,_,_,_,_,_}, _} = IPv6}, _ReqMSv6) ->
+    IPv6;
+session_ipv6_alloc(_SessionOpts, ReqMSv6) ->
+    ReqMSv6.
+
+session_ip_alloc(SessionOpts, {ReqMSv4, ReqMSv6}) ->
+    MSv4 = session_ipv4_alloc(SessionOpts, ReqMSv4),
+    MSv6 = session_ipv6_alloc(SessionOpts, ReqMSv6),
+    {MSv4, MSv6}.
+
+assign_ips(SessionOps, PAA, #context{apn = APN, local_control_tei = LocalTEI} = Context) ->
+    {ReqMSv4, ReqMSv6} = session_ip_alloc(SessionOps, pdn_alloc(PAA)),
     {ok, MSv4, MSv6} = apn:allocate_pdp_ip(APN, LocalTEI, ReqMSv4, ReqMSv6),
     Context#context{ms_v4 = MSv4, ms_v6 = MSv6}.
 
-create_session_response(EBI,
-			#context{control_port = #gtp_port{ip = LocalIP},
-				 local_control_tei = LocalTEI,
-				 ms_v4 = MSv4, ms_v6 = MSv6}) ->
+ppp_ipcp_conf_resp(Verdict, Opt, IPCP) ->
+    maps:update_with(Verdict, fun(O) -> [Opt|O] end, [Opt], IPCP).
+
+ppp_ipcp_conf(#{'MS-Primary-DNS-Server' := DNS}, {ms_dns1, <<0,0,0,0>>}, IPCP) ->
+    ppp_ipcp_conf_resp('CP-Configure-Nak', {ms_dns1, gtp_c_lib:ip2bin(DNS)}, IPCP);
+ppp_ipcp_conf(#{'MS-Secondary-DNS-Server' := DNS}, {ms_dns2, <<0,0,0,0>>}, IPCP) ->
+    ppp_ipcp_conf_resp('CP-Configure-Nak', {ms_dns2, gtp_c_lib:ip2bin(DNS)}, IPCP);
+ppp_ipcp_conf(#{'MS-Primary-NBNS-Server' := DNS}, {ms_wins1, <<0,0,0,0>>}, IPCP) ->
+    ppp_ipcp_conf_resp('CP-Configure-Nak', {ms_wins1, gtp_c_lib:ip2bin(DNS)}, IPCP);
+ppp_ipcp_conf(#{'MS-Secondary-NBNS-Server' := DNS}, {ms_wins2, <<0,0,0,0>>}, IPCP) ->
+    ppp_ipcp_conf_resp('CP-Configure-Nak', {ms_wins2, gtp_c_lib:ip2bin(DNS)}, IPCP);
+
+ppp_ipcp_conf(_SessionOpts, Opt, IPCP) ->
+    ppp_ipcp_conf_resp('CP-Configure-Reject', Opt, IPCP).
+
+pdn_ppp_pco(SessionOpts, {pap, 'PAP-Authentication-Request', Id, _Username, _Password}, Opts) ->
+    [{pap, 'PAP-Authenticate-Ack', Id, maps:get('Reply-Message', SessionOpts, <<>>)}|Opts];
+pdn_ppp_pco(SessionOpts, {chap, 'CHAP-Response', Id, _Value, _Name}, Opts) ->
+    [{chap, 'CHAP-Success', Id, maps:get('Reply-Message', SessionOpts, <<>>)}|Opts];
+pdn_ppp_pco(SessionOpts, {ipcp,'CP-Configure-Request', Id, CpReqOpts}, Opts) ->
+    CpRespOpts = lists:foldr(ppp_ipcp_conf(SessionOpts, _, _), #{}, CpReqOpts),
+    maps:fold(fun(K, V, O) -> [{ipcp, K, Id, V} | O] end, Opts, CpRespOpts);
+
+pdn_ppp_pco(#{'3GPP-IPv6-DNS-Servers' := DNS}, {?'PCO-DNS-Server-IPv6-Address', <<>>}, Opts) ->
+    lager:info("Apply IPv6 DNS Servers PCO Opt: ~p", [DNS]),
+    Opts;
+pdn_ppp_pco(SessionOpts, {?'PCO-DNS-Server-IPv4-Address', <<>>}, Opts) ->
+    lists:foldr(fun(Key, O) ->
+			case maps:find(Key, SessionOpts) of
+			    {ok, DNS} ->
+				[{?'PCO-DNS-Server-IPv4-Address', gtp_c_lib:ip2bin(DNS)} | O];
+			    _ ->
+				O
+			end
+		end, Opts, ['MS-Secondary-DNS-Server', 'MS-Primary-DNS-Server']);
+pdn_ppp_pco(_SessionOpts, PPPReqOpt, Opts) ->
+    lager:info("Apply PPP Opt: ~p", [PPPReqOpt]),
+    Opts.
+
+pdn_pco(SessionOpts, #{?'Protocol Configuration Options' :=
+			   #v2_protocol_configuration_options{config = {0, PPPReqOpts}}}, IE) ->
+    case lists:foldr(pdn_ppp_pco(SessionOpts, _, _), [], PPPReqOpts) of
+	[]   -> IE;
+	Opts -> [#v2_protocol_configuration_options{config = {0, Opts}} | IE]
+    end;
+pdn_pco(_SessionOpts, _RequestIEs, IE) ->
+    IE.
+
+bearer_context(EBI, Context, IEs) ->
+    IE = #v2_bearer_context{
+	    group=[#v2_cause{v2_cause = request_accepted},
+		   EBI,
+		   #v2_apn_restriction{restriction_type_value = 0},
+		   #v2_bearer_level_quality_of_service{
+		      pl=15,
+		      pvi=0,
+		      label=9,maximum_bit_rate_for_uplink=0,
+		      maximum_bit_rate_for_downlink=0,
+		      guaranteed_bit_rate_for_uplink=0,
+		      guaranteed_bit_rate_for_downlink=0},
+		   s5s8_pgw_gtp_u_tei(Context)]},
+    [IE | IEs].
+
+s5s8_pgw_gtp_c_tei(#context{control_port = #gtp_port{ip = LocalCntlIP},
+			    local_control_tei = LocalCntlTEI}) ->
+    #v2_fully_qualified_tunnel_endpoint_identifier{
+       instance = 1,		%% PGW S5/S8/ S2a/S2b F-TEID for PMIP based interface
+				%% or for GTP based Control Plane interface
+       interface_type = 7,	%% S5/S8 PGW GTP-C Interface
+       key = LocalCntlTEI,
+       ipv4 = gtp_c_lib:ip2bin(LocalCntlIP)}.
+
+s5s8_pgw_gtp_u_tei(#context{data_port = #gtp_port{ip = LocalDataIP},
+			    local_data_tei = LocalDataTEI}) ->
+    #v2_fully_qualified_tunnel_endpoint_identifier{
+       instance = 2,		%% S5/S8 F-TEI Instance
+       interface_type = 5,	%% S5/S8 PGW GTP-U Interface
+       key = LocalDataTEI,
+       ipv4 = gtp_c_lib:ip2bin(LocalDataIP)}.
+
+create_session_response(SessionOpts, RequestIEs, EBI,
+			#context{ms_v4 = MSv4, ms_v6 = MSv6} = Context) ->
+
+    IE0 = bearer_context(EBI, Context, []),
+    IE1 = pdn_pco(SessionOpts, RequestIEs, IE0),
+
     [#v2_cause{v2_cause = request_accepted},
-     #v2_fully_qualified_tunnel_endpoint_identifier{
-	instance = 1,
-	interface_type = 7,          %% S5/S8 PGW GTP-C Interface
-	key = LocalTEI,
-	ipv4 = gtp_c_lib:ip2bin(LocalIP)},
-     encode_paa(MSv4, MSv6),
-     %% #v2_protocol_configuration_options{config = {0,
-     %% 						[{ipcp,'CP-Configure-Ack',0,
-     %% 						  [{ms_dns1,<<8,8,8,8>>},
-     %% 						   {ms_dns2,<<0,0,0,0>>}]}]}},
-     #v2_bearer_context{
-	group=[#v2_cause{v2_cause = request_accepted},
-	       EBI,
-	       #v2_apn_restriction{restriction_type_value = 0},
-	       #v2_bearer_level_quality_of_service{
-		  pl=15,
-		  pvi=0,
-		  label=9,maximum_bit_rate_for_uplink=0,
-		  maximum_bit_rate_for_downlink=0,
-		  guaranteed_bit_rate_for_uplink=0,
-		  guaranteed_bit_rate_for_downlink=0},
-	       #v2_fully_qualified_tunnel_endpoint_identifier{
-		  instance = 2,                  %% S5/S8 F-TEI Instance
-		  interface_type = 5,            %% S5/S8 PGW GTP-U Interface
-		  key = LocalTEI,
-		  ipv4 = gtp_c_lib:ip2bin(LocalIP)}]}].
+     s5s8_pgw_gtp_c_tei(Context),
+     encode_paa(MSv4, MSv6) | IE1].
