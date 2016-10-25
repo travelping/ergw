@@ -98,6 +98,8 @@ handle_request(_ReqKey,
 	    ActiveSessionOpts = ergw_aaa_session:get(Session),
 	    Context = assign_ips(ActiveSessionOpts, EUA, Context2),
 
+	    dp_create_pdp_context(Context),
+
 	    ResponseIEs0 = create_pdp_context_response(ActiveSessionOpts, IEs, Context),
 	    ResponseIEs = gtp_v1_c:build_recovery(Context, Recovery /= undefined, ResponseIEs0),
 	    Reply = {create_pdp_context_response, Context#context.remote_control_tei, ResponseIEs},
@@ -525,8 +527,6 @@ tunnel_endpoint_elements(#context{control_port = #gtp_port{ip = CntlIP},
 
 create_pdp_context_response(SessionOpts, RequestIEs,
 			    #context{ms_v4 = MSv4, ms_v6 = MSv6} = Context) ->
-    dp_create_pdp_context(Context),
-
     IE0 = [#cause{value = request_accepted},
 	   #reordering_required{required = no},
 	   #charging_id{id = <<0,0,0,1>>},
