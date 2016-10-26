@@ -83,7 +83,7 @@ handle_call({allocate, ClientId} = Request, _From,
     ets:insert(UsedTid, #lease{ip = Id, client_id = ClientId}),
     IP = id2ip(Id, State),
 
-    {reply, {ok, IP}, State};
+    {reply, {ok, IP}, State#state{free = Free - 1}};
 
 handle_call({allocate, _ClientId}, _From, State) ->
     {reply, {error, full}, State};
@@ -134,7 +134,7 @@ int2ip(ipv6, IP) ->
 id2ip(Id, #state{type = Type, base = Base, shift = Shift}) ->
     int2ip(Type, Base + (Id bsl Shift)).
 
-release_ip(IP, #state{base = Base, shift = Shift, size = Size,
+release_ip(IP, #state{base = Base, shift = Shift, size = Size, free = Free,
 		      used_pool = UsedTid, free_pool = FreeTid} = State)
   when IP >= Base andalso IP =< Base + (Size bsl Shift) ->
     Id = (IP - Base) bsr Shift,
@@ -142,11 +142,12 @@ release_ip(IP, #state{base = Base, shift = Shift, size = Size,
     case ets:lookup(UsedTid, Id) of
 	[_] ->
 	    ets:delete(UsedTid, Id),
-	    ets:insert(FreeTid, #lease{ip = Id});
+	    ets:insert(FreeTid, #lease{ip = Id}),
+	    State#state{free = Free + 1};
 	_ ->
-	    lager:warning("release of unallocated IP: ~p", [id2ip(Id, State)])
-    end,
-    State;
+	    lager:warning("release of unallocated IP: ~p", [id2ip(Id, State)]),
+	    State
+    end;
 release_ip(IP, #state{type = Type, base = Base, shift = Shift, size = Size} = State) ->
     lager:warning("release of out-of-pool IP: ~p, ~w < ~w < ~w",
 		  [int2ip(Type, IP), Base, IP, Base + (Size bsl Shift)]),
