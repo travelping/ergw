@@ -227,6 +227,7 @@ bind_gtp_socket(Socket, {_,_,_,_} = IP, Port, Opts) ->
     end,
     ok = gen_socket:bind(Socket, {inet4, IP, Port}),
     ok = gen_socket:setsockopt(Socket, sol_ip, recverr, true),
+    ok = gen_socket:setsockopt(Socket, sol_ip, mtu_discover, 0),
     ok = gen_socket:input_event(Socket, true),
     lists:foreach(socket_setopts(Socket, _), Opts),
     {ok, Socket}.
