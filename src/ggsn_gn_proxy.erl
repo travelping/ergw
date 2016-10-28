@@ -116,7 +116,8 @@ init(Opts, State) ->
     ProxyPorts = proplists:get_value(proxy_sockets, Opts),
     ProxyDPs = proplists:get_value(proxy_data_paths, Opts),
     GGSN = proplists:get_value(ggns, Opts),
-    {ok, State#{proxy_ports => ProxyPorts, proxy_dps => ProxyDPs, ggsn => GGSN}}.
+    ProxyDS = proplists:get_value(proxy_data_source, Opts, gtp_proxy_ds),
+    {ok, State#{proxy_ports => ProxyPorts, proxy_dps => ProxyDPs, ggsn => GGSN, proxy_ds => ProxyDS}}.
 
 handle_cast({path_restart, Path},
 	    #{context := #context{path = Path} = Context,
@@ -159,7 +160,8 @@ handle_request(ReqKey,
 	       #gtp{type = create_pdp_context_request, seq_no = SeqNo,
 		    ie = #{?'Recovery' := Recovery} = IEs} = Request, _Resent,
 	       #{tei := LocalTEI, gtp_port := GtpPort, gtp_dp_port := GtpDP,
-		 proxy_ports := ProxyPorts, proxy_dps := ProxyDPs, ggsn := GGSN} = State0) ->
+		 proxy_ports := ProxyPorts, proxy_dps := ProxyDPs, ggsn := GGSN,
+		 proxy_ds := ProxyDS} = State0) ->
 
     IMSIie = maps:get(?'IMSI', IEs, undefined),
     APNie = maps:get(?'Access Point Name', IEs, undefined),
@@ -192,7 +194,7 @@ handle_request(ReqKey,
     State = State1#{proxy_context => ProxyContext},
 
     IMSI = optional_imsi_value(IMSIie, undefined),
-    {ok, ProxyInfo} = gtp_proxy_ds:map(APN, IMSI),
+    {ok, ProxyInfo} = ProxyDS:map(APN, IMSI),
     ProxyReq0 = build_context_request(ProxyContext, ProxyInfo, Request),
     ProxyReq = build_recovery(ProxyContext, false, ProxyReq0),
     forward_request(ProxyContext, ProxyReq, ReqKey, SeqNo, Recovery /= undefined),
@@ -202,7 +204,8 @@ handle_request(ReqKey,
 handle_request(ReqKey,
 	       #gtp{type = update_pdp_context_request, seq_no = SeqNo,
 		    ie = #{?'Recovery' := Recovery} = IEs} = Request, _Resent,
-	       #{context := OldContext, proxy_context := ProxyContext0} = State0) ->
+	       #{context := OldContext, proxy_context := ProxyContext0,
+		 proxy_ds := ProxyDS} = State0) ->
 
     IMSIie = maps:get(?'IMSI', IEs, undefined),
 
@@ -214,7 +217,7 @@ handle_request(ReqKey,
 
     #context{apn = APN} = ProxyContext,
     IMSI = optional_imsi_value(IMSIie, undefined),
-    {ok, ProxyInfo} = gtp_proxy_ds:map(APN, IMSI),
+    {ok, ProxyInfo} = ProxyDS:map(APN, IMSI),
     ProxyReq0 = build_context_request(ProxyContext, ProxyInfo, Request),
     ProxyReq = build_recovery(ProxyContext, false, ProxyReq0),
     forward_request(ProxyContext, ProxyReq, ReqKey, SeqNo, Recovery /= undefined),
