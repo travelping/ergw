@@ -291,15 +291,21 @@ handle_err_input(Socket, State) ->
     end.
 
 handle_message(IP, Port, Data, #state{gtp_port = GtpPort} = State0) ->
-    Msg = gtp_packet:decode(Data),
-    %% TODO: handle decode failures
+    try gtp_packet:decode(Data) of
+	Msg = #gtp{} ->
+	    %% TODO: handle decode failures
 
-    lager:debug("handle message: ~p", [{IP, Port,
-					lager:pr(State0#state.gtp_port, ?MODULE),
-					lager:pr(Msg, ?MODULE)}]),
-    message_counter(rx, GtpPort, Msg),
-    State = handle_message_1(IP, Port, Msg, State0),
-    {noreply, State}.
+	    lager:debug("handle message: ~p", [{IP, Port,
+						lager:pr(State0#state.gtp_port, ?MODULE),
+						lager:pr(Msg, ?MODULE)}]),
+	    message_counter(rx, GtpPort, Msg),
+	    State = handle_message_1(IP, Port, Msg, State0),
+	    {noreply, State}
+    catch
+	Class:Error ->
+	    lager:error("GTP decoding failed with ~p:~p for ~p", [Class, Error, Data]),
+	    State0
+    end.
 
 handle_message_1(IP, Port, #gtp{type = echo_request} = Msg, State) ->
     ReqKey = make_request_key(IP, Port, Msg, State),
