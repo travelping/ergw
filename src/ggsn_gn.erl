@@ -123,9 +123,6 @@ handle_request(_ReqKey,
 			   ?'Quality of Service Profile' := ReqQoSProfile} = IEs}, _Resent,
 	       #{context := OldContext} = State0) ->
 
-    RemoteCntlTEI = maps:get(?'Tunnel Endpoint Identifier Control Plane',
-			     IEs, OldContext#context.remote_control_tei),
-
     Context0 = update_context_from_gtp_req(IEs, OldContext),
     Context = gtp_path:bind(Recovery, Context0),
 
@@ -140,7 +137,7 @@ handle_request(_ReqKey,
 		    ReqQoSProfile],
     ResponseIEs1 = tunnel_endpoint_elements(Context, ResponseIEs0),
     ResponseIEs = gtp_v1_c:build_recovery(Context, Recovery /= undefined, ResponseIEs1),
-    Reply = {update_pdp_context_response, RemoteCntlTEI, ResponseIEs},
+    Reply = {update_pdp_context_response, Context#context.remote_control_tei, ResponseIEs},
     {reply, Reply, State1};
 
 handle_request(_ReqKey,
