@@ -50,8 +50,11 @@ request_spec(_) ->
 
 -record(context_state, {}).
 
-init(_Opts, State) ->
-    {ok, Session} = ergw_aaa_session_sup:new_session(self(), #{}),
+init(Opts, State) ->
+    SessionOpts0 = proplists:get_value(session, Opts, []),
+    SessionOpts1 = lists:foldl(fun copy_session_defaults/2, #{}, SessionOpts0),
+
+    {ok, Session} = ergw_aaa_session_sup:new_session(self(), SessionOpts1),
     {ok, State#{'Session' => Session}}.
 
 handle_cast({path_restart, Path}, #{context := #context{path = Path} = Context} = State) ->
@@ -253,7 +256,18 @@ apply_context_change(NewContext0, OldContext, State) ->
     gtp_path:unbind(OldContext),
     State#{context => NewContext}.
 
-% -------------------------------------------------------------------------------------
+copy_session_defaults({'3GPP-GGSN-MCC-MNC', MCCMNC}, Session)
+  when is_binary(MCCMNC) ->
+    Session#{'3GPP-GGSN-MCC-MNC' => MCCMNC};
+copy_session_defaults({K, {_,_,_,_} = Value}, Session)
+  when K =:= 'MS-Primary-DNS-Server';
+       K =:= 'MS-Secondary-DNS-Server';
+       K =:= 'MS-Primary-NBNS-Server';
+       K =:= 'MS-Secondary-NBNS-Server' ->
+    Session#{K => gtp_c_lib:ip2bin(Value)};
+copy_session_defaults(KV, Session) ->
+    lager:warning("invalid value (~p) in session defaul", [KV]),
+    Session.
 
 map_attr('APN', #{?'Access Point Name' := #v2_access_point_name{apn = APN}}) ->
     unicode:characters_to_binary(lists:join($., APN));
@@ -282,21 +296,14 @@ map_username(IEs, [H | Rest], Acc) ->
 init_session(IEs,
 	     #context{control_port = #gtp_port{ip = LocalIP}},
 	     #{'Username' := #{default := Username},
-	       'Password' := #{default := Password}} = AAAopts) ->
+	       'Password' := #{default := Password}}) ->
     MappedUsername = map_username(IEs, Username, []),
-    Session = #{
-      'Username'		=> MappedUsername,
+    #{'Username'		=> MappedUsername,
       'Password'		=> Password,
       'Service-Type'		=> 'Framed-User',
       'Framed-Protocol'		=> 'GPRS-PDP-Context',
       '3GPP-GGSN-Address'	=> LocalIP
-     },
-    case maps:get('3GPP-GGSN-MCC-MNC', AAAopts, default) of
-	MCCMNC when is_binary(MCCMNC) ->
-	    Session#{'3GPP-GGSN-MCC-MNC' => MCCMNC};
-	_ ->
-	    Session
-    end.
+     }.
 
 copy_optional_binary_ie(Key, Value, Session) when is_binary(Value) ->
     Session#{Key => Value};
@@ -381,8 +388,6 @@ copy_to_session(_, _, _AAAopts, Session) ->
 
 init_session_from_gtp_req(IEs, AAAopts, Session) ->
     maps:fold(copy_to_session(_, _, AAAopts, _), Session, IEs).
-
-% -------------------------------------------------------------------------------------
 
 init_context(APN, CntlPort, CntlTEI, DataPort, DataTEI) ->
     #context{
