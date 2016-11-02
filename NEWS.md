@@ -1,6 +1,14 @@
 erGW - 3GPP GGSN and PDN-GW in Erlang
 =====================================
 
+Version 1.2.0 - 02 Nov 2016
+---------------------------
+
+* JSON data source for proxy mappings
+* handle GTP-C decoder failures
+* support session default settings
+* AAA support for S5/S8
+
 Version 1.1.0 - 21 Oct 2016
 ---------------------------
 
