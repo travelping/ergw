@@ -223,8 +223,9 @@ send_response(#request_key{gtp_port = GtpPort} = ReqKey, #gtp{seq_no = SeqNo} = 
 	gtp_socket:send_response(ReqKey, Msg, SeqNo /= 0)
     catch
 	Class:Error ->
-	    Stack  = erlang:get_stacktrace(),
-	    lager:error("gtp send failed with ~p:~p (~p)", [Class, Error, Stack])
+	    Stack = erlang:get_stacktrace(),
+	    lager:error("gtp send failed with ~p:~p (~p) for ~p",
+			[Class, Error, Stack, gtp_c_lib:fmt_gtp(Msg)])
     end.
 
 %%%===================================================================
