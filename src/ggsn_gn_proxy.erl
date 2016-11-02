@@ -239,7 +239,7 @@ handle_request({GtpPort, _IP, _Port}, Msg, _Resent, State) ->
 handle_response(#request_info{request_key = ReqKey, seq_no = SeqNo, new_peer = NewPeer},
 		#gtp{type = create_pdp_context_response,
 		     ie = #{?'Recovery' := Recovery,
-			    ?'Cause' := Cause}} = Response, _Request,
+			    ?'Cause' := #cause{value = Cause}}} = Response, _Request,
 		#{context := Context,
 		  proxy_context := ProxyContext0} = State) ->
     lager:warning("OK Proxy Response ~p", [lager:pr(Response, ?MODULE)]),
