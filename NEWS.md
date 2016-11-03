@@ -1,6 +1,13 @@
 erGW - 3GPP GGSN and PDN-GW in Erlang
 =====================================
 
+Version 1.3.0 - 03 Nov 2016
+---------------------------
+
+* extend error message on send failures
+* use TEI from updated context for PDP Update Response
+* rework IP pool handling (configuration format changed!)
+
 Version 1.2.0 - 02 Nov 2016
 ---------------------------
 
