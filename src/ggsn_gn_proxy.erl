@@ -160,10 +160,9 @@ handle_request(ReqKey,
 	       #gtp{type = create_pdp_context_request, seq_no = SeqNo,
 		    ie = #{?'Recovery' := Recovery} = IEs} = Request, _Resent,
 	       #{tei := LocalTEI, gtp_port := GtpPort, gtp_dp_port := GtpDP,
-		 proxy_ports := ProxyPorts, proxy_dps := ProxyDPs, ggsn := GGSN,
+		 proxy_ports := ProxyPorts, proxy_dps := ProxyDPs, ggsn := DefaultGGSN,
 		 proxy_ds := ProxyDS} = State0) ->
 
-    IMSIie = maps:get(?'IMSI', IEs, undefined),
     APNie = maps:get(?'Access Point Name', IEs, undefined),
 
     APN = optional_apn_value(APNie, undefined),
@@ -179,35 +178,45 @@ handle_request(ReqKey,
     lager:debug("Invoking CONTROL: ~p", [Session1]),
     %% ergw_control:authenticate(Session1),
 
-    ProxyGtpPort = gtp_socket_reg:lookup(hd(ProxyPorts)),
-    ProxyGtpDP = gtp_socket_reg:lookup(hd(ProxyDPs)),
-    {ok, ProxyLocalTEI} = gtp_c_lib:alloc_tei(ProxyGtpPort),
+    ProxyInfo0 = init_proxy_info(DefaultGGSN, IEs),
+    case ProxyDS:map(ProxyInfo0) of
+	{ok, #proxy_info{ggsn = GGSN} = ProxyInfo} ->
+	    lager:debug("OK Proxy Map: ~p", [lager:pr(ProxyInfo, ?MODULE)]),
+	    ProxyGtpPort = gtp_socket_reg:lookup(hd(ProxyPorts)),
+	    ProxyGtpDP = gtp_socket_reg:lookup(hd(ProxyDPs)),
+	    {ok, ProxyLocalTEI} = gtp_c_lib:alloc_tei(ProxyGtpPort),
 
-    lager:debug("ProxyGtpPort: ~p", [lager:pr(ProxyGtpPort, ?MODULE)]),
-    ProxyContext0 = init_context(APN, ProxyGtpPort, ProxyLocalTEI, ProxyGtpDP, ProxyLocalTEI),
-    ProxyContext1 = ProxyContext0#context{
-		      remote_control_ip = GGSN,
-		      remote_data_ip    = GGSN,
-		      state             = Context#context.state
-		     },
-    ProxyContext = gtp_path:bind(undefined, ProxyContext1),
-    State = State1#{proxy_context => ProxyContext},
+	    lager:debug("ProxyGtpPort: ~p", [lager:pr(ProxyGtpPort, ?MODULE)]),
+	    ProxyContext0 = init_context(APN, ProxyGtpPort, ProxyLocalTEI, ProxyGtpDP, ProxyLocalTEI),
+	    ProxyContext1 = ProxyContext0#context{
+			      remote_control_ip = GGSN,
+			      remote_data_ip    = GGSN,
+			      state             = Context#context.state
+			     },
+	    ProxyContext = gtp_path:bind(undefined, ProxyContext1),
+	    State = State1#{proxy_info    => ProxyInfo,
+			    proxy_context => ProxyContext},
 
-    IMSI = optional_imsi_value(IMSIie, undefined),
-    {ok, ProxyInfo} = ProxyDS:map(APN, IMSI),
-    ProxyReq0 = build_context_request(ProxyContext, ProxyInfo, Request),
-    ProxyReq = build_recovery(ProxyContext, false, ProxyReq0),
-    forward_request(ProxyContext, ProxyReq, ReqKey, SeqNo, Recovery /= undefined),
+	    ProxyReq0 = build_context_request(ProxyContext, ProxyInfo, Request),
+	    ProxyReq = build_recovery(ProxyContext, false, ProxyReq0),
+	    forward_request(ProxyContext, ProxyReq, ReqKey, SeqNo, Recovery /= undefined),
 
-    {noreply, State};
+	    {noreply, State};
+
+	Other ->
+	    lager:warning("Failed Proxy Map: ~p", [Other]),
+
+	    ResponseIEs0 = [#cause{value = user_authentication_failed}],
+	    ResponseIEs = gtp_v1_c:build_recovery(Context, Recovery /= undefined, ResponseIEs0),
+	    Reply = {create_pdp_context_response, Context#context.remote_control_tei, ResponseIEs},
+	    {stop, Reply, State1}
+    end;
 
 handle_request(ReqKey,
 	       #gtp{type = update_pdp_context_request, seq_no = SeqNo,
-		    ie = #{?'Recovery' := Recovery} = IEs} = Request, _Resent,
-	       #{context := OldContext, proxy_context := ProxyContext0,
-		 proxy_ds := ProxyDS} = State0) ->
-
-    IMSIie = maps:get(?'IMSI', IEs, undefined),
+		    ie = #{?'Recovery' := Recovery}} = Request, _Resent,
+	       #{context := OldContext, proxy_info := ProxyInfo,
+		 proxy_context := ProxyContext0} = State0) ->
 
     Context0 = update_context_from_gtp_req(Request, OldContext),
     Context = gtp_path:bind(Recovery, Context0),
@@ -215,9 +224,6 @@ handle_request(ReqKey,
 
     ProxyContext = gtp_path:bind(undefined, ProxyContext0),
 
-    #context{apn = APN} = ProxyContext,
-    IMSI = optional_imsi_value(IMSIie, undefined),
-    {ok, ProxyInfo} = ProxyDS:map(APN, IMSI),
     ProxyReq0 = build_context_request(ProxyContext, ProxyInfo, Request),
     ProxyReq = build_recovery(ProxyContext, false, ProxyReq0),
     forward_request(ProxyContext, ProxyReq, ReqKey, SeqNo, Recovery /= undefined),
@@ -382,6 +388,18 @@ set_context_from_req(_, _K, IE) ->
 update_gtp_req_from_context(Context, GtpReqIEs) ->
     maps:map(set_context_from_req(Context, _, _), GtpReqIEs).
 
+init_proxy_info(?'Access Point Name', #access_point_name{apn = APN}, PI) ->
+    PI#proxy_info{apn = APN};
+init_proxy_info(?'IMSI', #international_mobile_subscriber_identity{imsi = IMSI}, PI) ->
+    PI#proxy_info{imsi = IMSI};
+init_proxy_info(?'MSISDN', #ms_international_pstn_isdn_number{msisdn = MSISDN}, PI) ->
+    PI#proxy_info{msisdn = MSISDN};
+init_proxy_info(_K, _V, PI) ->
+    PI.
+
+init_proxy_info(DefaultGGSN, IEs) ->
+    maps:fold(fun init_proxy_info/3, #proxy_info{ggsn = DefaultGGSN}, IEs).
+
 proxy_request_nat(#proxy_info{apn = APN},
 		  _K, #access_point_name{instance = 0} = IE)
   when is_list(APN) ->
@@ -444,11 +462,6 @@ dp_delete_pdp_context(GrxContext, FwdContext) ->
 optional_apn_value(#access_point_name{apn = APN}, _) ->
     APN;
 optional_apn_value(_, Default) ->
-    Default.
-
-optional_imsi_value(#international_mobile_subscriber_identity{imsi = IMSI}, _) ->
-    IMSI;
-optional_imsi_value(_, Default) ->
     Default.
 
 build_recovery(Context, NewPeer, #gtp{ie = IEs} = Request) ->

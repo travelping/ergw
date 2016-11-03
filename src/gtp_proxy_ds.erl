@@ -10,7 +10,7 @@
 -behaviour(gen_server).
 
 %% API
--export([start_link/0, map/2]).
+-export([start_link/0, map/1]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -30,8 +30,8 @@
 start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
-map(APN, IMSI) ->
-    gen_server:call(?SERVER, {map, APN, IMSI}).
+map(ProxyInfo) ->
+    gen_server:call(?SERVER, {map, ProxyInfo}).
 
 %%%===================================================================
 %%% gen_server callbacks
@@ -41,16 +41,17 @@ init([]) ->
     State = load_config(),
     {ok, State}.
 
-handle_call({map, APN, IMSI}, _From, #state{apn = APNMap, imsi = IMSIMap} = State) ->
-    ProxyInfo0 = #proxy_info{apn = proplists:get_value(APN, APNMap, APN)},
+handle_call({map, #proxy_info{apn = APN, imsi = IMSI} = ProxyInfo0},
+	    _From, #state{apn = APNMap, imsi = IMSIMap} = State) ->
+    ProxyInfo1 = ProxyInfo0#proxy_info{apn = proplists:get_value(APN, APNMap, APN)},
     ProxyInfo =
 	case proplists:get_value(IMSI, IMSIMap, IMSI) of
 	    {MappedIMSI, MappedMSISDN} ->
-		ProxyInfo0#proxy_info{
+		ProxyInfo1#proxy_info{
 		  imsi = MappedIMSI,
 		  msisdn = MappedMSISDN};
 	     MappedIMSI ->
-		ProxyInfo0#proxy_info{
+		ProxyInfo1#proxy_info{
 		  imsi = MappedIMSI}
 	end,
     {reply, {ok, ProxyInfo}, State}.

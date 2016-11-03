@@ -1,1 +1,1 @@
--record(proxy_info, {apn, imsi, msisdn}).
+-record(proxy_info, {apn, ggsn, imsi, msisdn}).
