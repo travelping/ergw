@@ -22,6 +22,9 @@
 
 -record(state, {ip4_pools, ip6_pools}).
 
+-define(IS_IPv4(X), (is_tuple(X) andalso tuple_size(X) == 4)).
+-define(IS_IPv6(X), (is_tuple(X) andalso tuple_size(X) == 8)).
+
 %%====================================================================
 %% API
 %%====================================================================
@@ -115,13 +118,20 @@ alloc_ipv6(_TEI, {{_,_,_,_,_,_,_,_},_} = ReqIPv6, _State) ->
     %% check if the IP falls into one of our pool and mark a allocated if so
     ReqIPv6.
 
-release_ipv4({IPv4, PrefixLen}, #state{ip4_pools = Pools}) ->
+release_ipv4({IPv4, PrefixLen}, #state{ip4_pools = Pools})
+  when ?IS_IPv4(IPv4)->
     release_ip(IPv4, PrefixLen, Pools);
-release_ipv4(IPv4, #state{ip4_pools = Pools}) ->
-    release_ip(IPv4, 32, Pools).
+release_ipv4(IPv4, #state{ip4_pools = Pools})
+  when ?IS_IPv4(IPv4) ->
+    release_ip(IPv4, 32, Pools);
+release_ipv4(_IP, _State) ->
+    ok.
 
-release_ipv6({IPv6, PrefixLen}, #state{ip6_pools = Pools}) ->
-    release_ip(IPv6, PrefixLen, Pools).
+release_ipv6({IPv6, PrefixLen}, #state{ip6_pools = Pools})
+  when ?IS_IPv6(IPv6) ->
+    release_ip(IPv6, PrefixLen, Pools);
+release_ipv6(_IP, _State) ->
+    ok.
 
 init_pool(X) ->
     %% TODO: to supervise or not to supervise??????
@@ -142,8 +152,6 @@ alloc_ip(TEI, PrefixLen, Pools) ->
 	    undefined
     end.
 
-release_ip(undefined, _, _) ->
-    ok;
 release_ip(IP, PrefixLen, Pools) ->
     case lists:keyfind(PrefixLen, 1, Pools) of
 	{_, Pool} ->
