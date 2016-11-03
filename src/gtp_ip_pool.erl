@@ -17,7 +17,7 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
 	 terminate/2, code_change/3]).
 
--record(state, {type, base, shift, size, free, max_alloc, used_pool, free_pool}).
+-record(state, {type, first, last, shift, used, free, used_pool, free_pool}).
 -record(lease, {ip, client_id}).
 
 -include_lib("stdlib/include/ms_transform.hrl").
@@ -42,39 +42,44 @@ release(Server, IP) ->
 %%% gen_server callbacks
 %%%===================================================================
 
-init({Prefix, PrefixLen}) ->
+init({{_,_,_,_} = First, {_,_,_,_} = Last, PrefixLen})
+  when is_integer(PrefixLen),  PrefixLen =< 32, PrefixLen >= 8 ->
+    init(ipv4, ip2int(First), ip2int(Last), 32 - PrefixLen);
+
+init({{_,_,_,_,_,_,_,_} = First, {_,_,_,_,_,_,_,_} = Last, PrefixLen})
+  when is_integer(PrefixLen), PrefixLen =< 64, PrefixLen >= 32 ->
+    init(ipv6, ip2int(First), ip2int(Last), 128 - PrefixLen).
+
+init(Type, First, Last, Shift) when Last >= First ->
     UsedTid = ets:new(used_pool, [set, {keypos, #lease.ip}]),
     FreeTid = ets:new(free_pool, [set, {keypos, #lease.ip}]),
-    {Type, PrefixLen1, Shift} = case size(Prefix) of
-				    4 -> {ipv4,  32 - PrefixLen,  0};
-				    8 -> {ipv6, 128 - PrefixLen, 64}
-		    end,
-    Size = (1 bsl (PrefixLen1 - Shift)),
-    State = #state{type  = Type,
-		   base  = ip2int(Prefix),
+
+    Start = First bsr Shift,
+    End = Last bsr Shift,
+    Size = End - Start + 1,
+    lager:debug("init Pool ~p - ~p (~p)", [Start, End, Size]),
+    init_table(FreeTid, Start, End),
+
+    State = #state{type = Type,
+		   first = First,
+		   last = Last,
 		   shift = Shift,
-		   size  = Size,
-		   free  = 0,
-		   max_alloc = 0,
+		   used = 0,
+		   free = Size,
 		   used_pool = UsedTid,
 		   free_pool = FreeTid},
     lager:debug("init Pool state: ~p", [lager:pr(State, ?MODULE)]),
     {ok, State}.
 
-handle_call({allocate, ClientId} = Request, _From,
-	    #state{size = Size, free = Free, max_alloc = MaxAlloc,
-		   used_pool = UsedTid} = State0)
-  when MaxAlloc < Size andalso Free == 0 ->
-    lager:debug("~w: Allocate: ~p, State: ~p", [self(), lager:pr(Request, ?MODULE), lager:pr(State0, ?MODULE)]),
-
-    ets:insert(UsedTid, #lease{ip = MaxAlloc, client_id = ClientId}),
-    State = State0#state{max_alloc = MaxAlloc + 1},
-    IP = id2ip(MaxAlloc, State),
-
-    {reply, {ok, IP}, State};
+init_table(_tetTid, Start, End)
+  when Start > End ->
+    ok;
+init_table(Tid, Start, End) ->
+    ets:insert(Tid, #lease{ip = Start}),
+    init_table(Tid, Start + 1, End).
 
 handle_call({allocate, ClientId} = Request, _From,
-	    #state{free = Free, free_pool = FreeTid, used_pool = UsedTid} = State)
+	    #state{used = Used, free = Free, used_pool = UsedTid, free_pool = FreeTid} = State)
   when Free =/= 0 ->
     lager:debug("~w: Allocate: ~p, State: ~p", [self(), lager:pr(Request, ?MODULE), lager:pr(State, ?MODULE)]),
 
@@ -83,7 +88,7 @@ handle_call({allocate, ClientId} = Request, _From,
     ets:insert(UsedTid, #lease{ip = Id, client_id = ClientId}),
     IP = id2ip(Id, State),
 
-    {reply, {ok, IP}, State#state{free = Free - 1}};
+    {reply, {ok, IP}, State#state{used = Used + 1, free = Free - 1}};
 
 handle_call({allocate, _ClientId}, _From, State) ->
     {reply, {error, full}, State};
@@ -91,10 +96,20 @@ handle_call({allocate, _ClientId}, _From, State) ->
 handle_call({release, {_,_,_,_} = IPv4}, _From, State0) ->
     State1 = release_ip(ip2int(IPv4), State0),
     {reply, ok, State1};
+handle_call({release, {{_,_,_,_} = IPv4,_}}, _From, State0) ->
+    State1 = release_ip(ip2int(IPv4), State0),
+    {reply, ok, State1};
 
-handle_call({release, {{_,_,_,_,_,_,_,_} = IPv6, _Len}}, _From, State0) ->
+handle_call({release, {_,_,_,_,_,_,_,_} = IPv6}, _From, State0) ->
     State1 = release_ip(ip2int(IPv6), State0),
     {reply, ok, State1};
+handle_call({release, {{_,_,_,_,_,_,_,_} = IPv6,_}}, _From, State0) ->
+    State1 = release_ip(ip2int(IPv6), State0),
+    {reply, ok, State1};
+
+handle_call({release, IP}, _From, State) ->
+    Reply = {error, invalid, IP},
+    {reply, Reply, State};
 
 handle_call(Request, _From, State) ->
     lager:warning("handle_call: ~p", [lager:pr(Request, ?MODULE)]),
@@ -129,26 +144,31 @@ int2ip(ipv4, IP) ->
     {A, B, C, D};
 int2ip(ipv6, IP) ->
     <<A:16, B:16, C:16, D:16, E:16, F:16, G:16, H:16>> = <<IP:128>>,
-    {{A, B, C, D, E, F, G, H}, 64}.
+    {A, B, C, D, E, F, G, H}.
 
-id2ip(Id, #state{type = Type, base = Base, shift = Shift}) ->
-    int2ip(Type, Base + (Id bsl Shift)).
+id2ip(Id, #state{type = ipv4, shift = Shift}) ->
+    {int2ip(ipv4, Id bsl Shift), 32 - Shift};
+id2ip(Id, #state{type = ipv6, shift = Shift}) ->
+    {int2ip(ipv6, Id bsl Shift), 128 - Shift}.
 
-release_ip(IP, #state{base = Base, shift = Shift, size = Size, free = Free,
+
+release_ip(IP, #state{first = First, last = Last,
+		      shift = Shift,
+		      used = Used, free = Free,
 		      used_pool = UsedTid, free_pool = FreeTid} = State)
-  when IP >= Base andalso IP =< Base + (Size bsl Shift) ->
-    Id = (IP - Base) bsr Shift,
+  when IP >= First andalso IP =< Last ->
+    Id = IP bsr Shift,
 
     case ets:lookup(UsedTid, Id) of
 	[_] ->
 	    ets:delete(UsedTid, Id),
 	    ets:insert(FreeTid, #lease{ip = Id}),
-	    State#state{free = Free + 1};
+	    State#state{used = Used - 1, free = Free + 1};
 	_ ->
 	    lager:warning("release of unallocated IP: ~p", [id2ip(Id, State)]),
 	    State
     end;
-release_ip(IP, #state{type = Type, base = Base, shift = Shift, size = Size} = State) ->
-    lager:warning("release of out-of-pool IP: ~p, ~w < ~w < ~w",
-		  [int2ip(Type, IP), Base, IP, Base + (Size bsl Shift)]),
+release_ip(IP, #state{type = Type, first = First, last = Last} = State) ->
+    lager:warning("release of out-of-pool IP: ~w < ~w < ~w",
+		  [int2ip(Type, First), int2ip(Type, IP), int2ip(Type, Last)]),
     State.

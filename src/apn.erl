@@ -51,8 +51,8 @@ init([APN, Opts]) ->
     lists:foreach(fun(Alias) -> apn_reg:register(Alias) end, proplists:get_value(alias, Opts, [])),
 
     Pools = proplists:get_value(pools, Opts, []),
-    IPv4pools = [init_pool(X) || {Prefix, _Len} = X <- Pools, size(Prefix) == 4],
-    IPv6pools = [init_pool(X) || {Prefix, _Len} = X <- Pools, size(Prefix) == 8],
+    IPv4pools = [{PrefixLen, init_pool(X)} || {First, _Last, PrefixLen} = X <- Pools, size(First) == 4],
+    IPv6pools = [{PrefixLen, init_pool(X)} || {First, _Last, PrefixLen} = X <- Pools, size(First) == 8],
 
     lager:debug("IPv4Pools ~p", [IPv4pools]),
     lager:debug("IPv6Pools ~p", [IPv6pools]),
@@ -96,46 +96,58 @@ code_change(_OldVsn, State, _Extra) ->
 alloc_ipv4(_TEI, undefined, _State) ->
     undefined;
 alloc_ipv4(TEI, {0,0,0,0}, #state{ip4_pools = Pools}) ->
-    alloc_ip(TEI, Pools);
+    alloc_ip(TEI, 32, Pools);
+alloc_ipv4(TEI, {{0,0,0,0},PrefixLen}, #state{ip4_pools = Pools}) ->
+    alloc_ip(TEI, PrefixLen, Pools);
 alloc_ipv4(_TEI, {_,_,_,_} = ReqIPv4, _State) ->
+    %% check if the IP falls into one of our pool and mark a allocate if so
+    {ReqIPv4, 32};
+alloc_ipv4(_TEI, {{_,_,_,_},_} = ReqIPv4, _State) ->
     %% check if the IP falls into one of our pool and mark a allocate if so
     ReqIPv4.
 
 alloc_ipv6(_TEI, undefined, _State) ->
     undefined;
-alloc_ipv6(TEI, {{0,0,0,0,0,0,0,0},_}, #state{ip6_pools = Pools}) ->
-    alloc_ip(TEI, Pools);
+alloc_ipv6(TEI, {{0,0,0,0,0,0,0,0},PrefixLen}, #state{ip6_pools = Pools}) ->
+    alloc_ip(TEI, PrefixLen, Pools);
 alloc_ipv6(_TEI, {{_,_,_,_,_,_,_,_},_} = ReqIPv6, _State) ->
     lager:error("alloc IPv6 not implemented"),
     %% check if the IP falls into one of our pool and mark a allocated if so
     ReqIPv6.
 
+release_ipv4({IPv4, PrefixLen}, #state{ip4_pools = Pools}) ->
+    release_ip(IPv4, PrefixLen, Pools);
 release_ipv4(IPv4, #state{ip4_pools = Pools}) ->
-    release_ip(IPv4, Pools).
+    release_ip(IPv4, 32, Pools).
 
-release_ipv6(IPv6, #state{ip6_pools = Pools}) ->
-    release_ip(IPv6, Pools).
+release_ipv6({IPv6, PrefixLen}, #state{ip6_pools = Pools}) ->
+    release_ip(IPv6, PrefixLen, Pools).
 
 init_pool(X) ->
     %% TODO: to supervise or not to supervise??????
     {ok, Pid} = gtp_ip_pool:start_link(X, []),
     Pid.
 
-%% TODO: error handling....
-alloc_ip(TEI, [Pool|_]) ->
-    case gtp_ip_pool:allocate(Pool, TEI) of
-	{ok, IP} ->
-	    IP;
-	_Other ->
+alloc_ip(TEI, PrefixLen, Pools) ->
+    case lists:keyfind(PrefixLen, 1, Pools) of
+	{_, Pool} ->
+	    case gtp_ip_pool:allocate(Pool, TEI) of
+		{ok, IP} ->
+		    IP;
+		_Other ->
+		    undefined
+	    end;
+	_ ->
+	    lager:error("no pool"),
 	    undefined
-    end;
-alloc_ip(_TEI, _) ->
-    lager:error("no pool"),
-    undefined.
+    end.
 
-release_ip(undefined, _) ->
+release_ip(undefined, _, _) ->
     ok;
-release_ip(_IP, []) ->
-    ok;
-release_ip(IP, [Pool|_]) ->
-    gtp_ip_pool:release(Pool, IP).
+release_ip(IP, PrefixLen, Pools) ->
+    case lists:keyfind(PrefixLen, 1, Pools) of
+	{_, Pool} ->
+	    gtp_ip_pool:release(Pool, IP);
+	_ ->
+	    ok
+    end.

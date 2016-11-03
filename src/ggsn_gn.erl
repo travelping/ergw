@@ -196,11 +196,11 @@ pdp_alloc(#end_user_address{pdp_type_organization = 1,
 pdp_alloc(_) ->
     {undefined, undefined}.
 
-encode_eua(IPv4, undefined) ->
+encode_eua({IPv4,_}, undefined) ->
     encode_eua(1, 16#21, gtp_c_lib:ip2bin(IPv4), <<>>);
 encode_eua(undefined, {IPv6,_}) ->
     encode_eua(1, 16#57, <<>>, gtp_c_lib:ip2bin(IPv6));
-encode_eua(IPv4, {IPv6,_}) ->
+encode_eua({IPv4,_}, {IPv6,_}) ->
     encode_eua(1, 16#8D, gtp_c_lib:ip2bin(IPv4), gtp_c_lib:ip2bin(IPv6)).
 
 encode_eua(Org, Number, IPv4, IPv6) ->
@@ -427,7 +427,7 @@ get_context_from_req(_, _, Context) ->
 update_context_from_gtp_req(Request, Context) ->
     maps:fold(fun get_context_from_req/3, Context, Request).
 
-dp_args(#context{ms_v4 = MSv4}) ->
+dp_args(#context{ms_v4 = {MSv4,_}}) ->
     MSv4.
 
 dp_create_pdp_context(Context) ->

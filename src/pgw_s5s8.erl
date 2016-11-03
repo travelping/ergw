@@ -237,11 +237,11 @@ pdn_alloc(#v2_pdn_address_allocation{type = ipv6,
 				     address = << IP6PrefixLen:8, IP6Prefix:16/binary>>}) ->
     {undefined, {gtp_c_lib:bin2ip(IP6Prefix), IP6PrefixLen}}.
 
-encode_paa(IPv4, undefined) ->
+encode_paa({IPv4,_}, undefined) ->
     encode_paa(ipv4, gtp_c_lib:ip2bin(IPv4), <<>>);
 encode_paa(undefined, IPv6) ->
     encode_paa(ipv6, <<>>, ip2prefix(IPv6));
-encode_paa(IPv4, IPv6) ->
+encode_paa({IPv4,_}, IPv6) ->
     encode_paa(ipv4v6, gtp_c_lib:ip2bin(IPv4), ip2prefix(IPv6)).
 
 encode_paa(Type, IPv4, IPv6) ->
@@ -426,7 +426,7 @@ update_context_tunnel_ids(Cntl, Data, Context0) ->
     Context1 = update_context_cntl_ids(Cntl, Context0),
     update_context_data_ids(Data, Context1).
 
-dp_args(#context{ms_v4 = MSv4}) ->
+dp_args(#context{ms_v4 = {MSv4,_}}) ->
     MSv4.
 
 dp_create_pdp_context(Context) ->
