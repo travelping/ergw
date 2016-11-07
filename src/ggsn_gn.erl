@@ -11,7 +11,7 @@
 
 -compile({parse_transform, cut}).
 
--export([init/2, request_spec/1, handle_request/4, handle_cast/2]).
+-export([validate_options/1, init/2, request_spec/1, handle_request/4, handle_cast/2]).
 
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include("include/ergw.hrl").
@@ -51,6 +51,10 @@ request_spec(update_pdp_context_request) ->
 
 request_spec(_) ->
     [].
+
+validate_options(Options) ->
+    lager:debug("GGSN Gn/Gp Options: ~p", [Options]),
+    Options.
 
 -record(context_state, {}).
 
@@ -209,7 +213,7 @@ encode_eua(Org, Number, IPv4, IPv6) ->
 		      pdp_address = <<IPv4/binary, IPv6/binary >>}.
 
 pdp_release_ip(#context{apn = APN, ms_v4 = MSv4, ms_v6 = MSv6}) ->
-    apn:release_pdp_ip(APN, MSv4, MSv6).
+    vrf:release_pdp_ip(APN, MSv4, MSv6).
 
 apply_context_change(NewContext0, OldContext, State) ->
     NewContext = gtp_path:bind(NewContext0),
@@ -464,7 +468,7 @@ session_ip_alloc(SessionOpts, {ReqMSv4, ReqMSv6}) ->
 
 assign_ips(SessionOps, EUA, #context{apn = APN, local_control_tei = LocalTEI} = Context) ->
     {ReqMSv4, ReqMSv6} = session_ip_alloc(SessionOps, pdp_alloc(EUA)),
-    {ok, MSv4, MSv6} = apn:allocate_pdp_ip(APN, LocalTEI, ReqMSv4, ReqMSv6),
+    {ok, MSv4, MSv6} = vrf:allocate_pdp_ip(APN, LocalTEI, ReqMSv4, ReqMSv6),
     Context#context{ms_v4 = MSv4, ms_v6 = MSv6}.
 
 ppp_ipcp_conf_resp(Verdict, Opt, IPCP) ->

@@ -205,26 +205,17 @@ gtp_msg_response(mbms_session_stop_request)				-> mbms_session_stop_response;
 gtp_msg_response(Response)						-> Response.
 
 get_handler(#gtp_port{name = PortName},
-	    #gtp{ie = #{?'Access Point Name' := #v2_access_point_name{apn = APN},
-			?'Sender F-TEID for Control Plane' :=
+	    #gtp{ie = #{?'Sender F-TEID for Control Plane' :=
 			    #v2_fully_qualified_tunnel_endpoint_identifier{interface_type = IfType}}}) ->
     case map_v2_iftype(IfType) of
 	{ok, Protocol} ->
-	    case ergw_apns:handler(PortName, Protocol, APN) of
-		[{_, Handler, Opts}] ->
-		    {ok, Handler, Opts};
-		_ ->
-		    %% TODO: correct error message
-		    {error, not_found}
-	    end;
+	    ergw:handler(PortName, Protocol);
 	_ ->
 	    %% TODO: correct error message
 	    {error, not_found}
     end;
-get_handler(_Port, #gtp{ie = #{?'Access Point Name' := _}}) ->
-    {error, {mandatory_ie_missing, ?'Sender F-TEID for Control Plane'}};
 get_handler(_Port, _Msg) ->
-    {error, {mandatory_ie_missing, ?'Access Point Name'}}.
+    {error, {mandatory_ie_missing, ?'Sender F-TEID for Control Plane'}}.
 
 %%%===================================================================
 %%% Internal functions

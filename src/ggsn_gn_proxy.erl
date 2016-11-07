@@ -11,7 +11,7 @@
 
 -compile({parse_transform, cut}).
 
--export([init/2, request_spec/1, handle_request/4, handle_response/4, handle_cast/2]).
+-export([validate_options/1, init/2, request_spec/1, handle_request/4, handle_response/4, handle_cast/2]).
 
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include("include/ergw.hrl").
@@ -104,6 +104,10 @@ request_spec(delete_pdp_context_response) ->
 
 request_spec(_) ->
     [].
+
+validate_options(Options) ->
+    lager:debug("GGSN Gn/Gp Options: ~p", [Options]),
+    Options.
 
 -record(request_info, {request_key, seq_no, new_peer}).
 -record(context_state, {nsapi}).

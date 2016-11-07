@@ -5,12 +5,12 @@
 %% as published by the Free Software Foundation; either version
 %% 2 of the License, or (at your option) any later version.
 
--module(apn_sup).
+-module(vrf_sup).
 
 -behaviour(supervisor).
 
 %% API
--export([start_link/0, start_apn/2]).
+-export([start_link/0, start_vrf/2]).
 
 %% Supervisor callbacks
 -export([init/1]).
@@ -24,8 +24,8 @@
 start_link() ->
     supervisor:start_link({local, ?SERVER}, ?MODULE, []).
 
-start_apn(APN, Args) ->
-    supervisor:start_child(?SERVER, [APN, Args]).
+start_vrf(VRF, Args) ->
+    supervisor:start_child(?SERVER, [VRF, Args]).
 
 %% ===================================================================
 %% Supervisor callbacks
@@ -33,4 +33,4 @@ start_apn(APN, Args) ->
 
 init([]) ->
     {ok, {{simple_one_for_one, 5, 10},
-	  [{apn, {apn, start_link, []}, temporary, 1000, worker, [apn]}]}}.
+	  [{vrf, {vrf, start_link, []}, temporary, 1000, worker, [vrf]}]}}.
