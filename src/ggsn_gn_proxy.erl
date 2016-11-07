@@ -11,7 +11,7 @@
 
 -compile({parse_transform, cut}).
 
--export([init/2, request_spec/1, handle_request/4, handle_response/4, handle_cast/2]).
+-export([validate_options/1, init/2, request_spec/1, handle_request/4, handle_response/4, handle_cast/2]).
 
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include("include/ergw.hrl").
@@ -105,6 +105,19 @@ request_spec(delete_pdp_context_response) ->
 request_spec(_) ->
     [].
 
+validate_options(Options) ->
+    lager:debug("GGSN Gn/Gp Options: ~p", [Options]),
+    ergw_config:validate_options(fun validate_option/2, Options).
+
+validate_option(proxy_sockets, Value) when is_list(Value) ->
+    Value;
+validate_option(proxy_data_paths, Value) when is_list(Value) ->
+    Value;
+validate_option(ggsn, Value) ->
+    Value;
+validate_option(Opt, Value) ->
+    gtp_context:validate_option(Opt, Value).
+
 -record(request_info, {request_key, seq_no, new_peer}).
 -record(context_state, {nsapi}).
 
@@ -115,7 +128,7 @@ request_spec(_) ->
 init(Opts, State) ->
     ProxyPorts = proplists:get_value(proxy_sockets, Opts),
     ProxyDPs = proplists:get_value(proxy_data_paths, Opts),
-    GGSN = proplists:get_value(ggns, Opts),
+    GGSN = proplists:get_value(ggsn, Opts),
     ProxyDS = proplists:get_value(proxy_data_source, Opts, gtp_proxy_ds),
     {ok, State#{proxy_ports => ProxyPorts, proxy_dps => ProxyDPs, ggsn => GGSN, proxy_ds => ProxyDS}}.
 

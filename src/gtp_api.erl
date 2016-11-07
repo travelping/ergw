@@ -5,6 +5,9 @@
 
 -optional_callbacks([handle_response/4]).
 
+-callback validate_options(Opts :: [{Key :: atom(), Value :: term()}]) ->
+    Return :: #{Key :: atom() => Value :: term()}.
+
 -callback init(Opts :: term(),
 	       State :: map()) ->
     Return :: {ok, State ::map()} |

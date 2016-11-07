@@ -12,7 +12,7 @@
 -compile({parse_transform, cut}).
 
 %% API
--export([start_sockets/0, start_link/1,
+-export([start_socket/2, start_link/1,
 	 send/4, send_response/3,
 	 send_request/5, send_request/7,
 	 get_restart_counter/1]).
@@ -52,12 +52,9 @@
 %% API
 %%====================================================================
 
-start_sockets() ->
-    {ok, Sockets} = application:get_env(sockets),
-    lists:foreach(fun(Socket) ->
-			  gtp_socket_sup:new(Socket)
-		  end, Sockets),
-    ok.
+start_socket(Name, Opts)
+  when is_atom(Name), is_list(Opts) ->
+    gtp_socket_sup:new({Name, Opts}).
 
 start_link(Socket = {Name, SocketOpts}) ->
     case proplists:get_value(type, SocketOpts, 'gtp-c') of

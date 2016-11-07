@@ -5,14 +5,14 @@
 %% as published by the Free Software Foundation; either version
 %% 2 of the License, or (at your option) any later version.
 
--module(apn).
+-module(vrf).
 
 -behavior(gen_server).
 
 -compile({parse_transform, cut}).
 
 %% API
--export([start_link/2, allocate_pdp_ip/4, release_pdp_ip/3]).
+-export([start_link/2, start_vrf/2, allocate_pdp_ip/4, release_pdp_ip/3]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -29,20 +29,32 @@
 %% API
 %%====================================================================
 
-start_link(APN, Opts) ->
-   gen_server:start_link(?MODULE, [APN, Opts], []).
+start_vrf(Name, Opts)
+  when is_atom(Name), is_list(Opts) ->
+    vrf_sup:start_vrf(Name, Opts).
+
+start_link(VRF, Opts) ->
+   gen_server:start_link(?MODULE, [VRF, Opts], []).
 
 allocate_pdp_ip(APN, TEI, IPv4, IPv6) ->
     with_apn(APN, gen_server:call(_, {allocate_pdp_ip, TEI, IPv4, IPv6})).
 release_pdp_ip(APN, IPv4, IPv6) ->
     with_apn(APN, gen_server:call(_, {release_pdp_ip, IPv4, IPv6})).
 
-with_apn(APN, Fun) when is_function(Fun, 1) ->
-    case apn_reg:lookup(APN) of
+with_vrf(VRF, Fun) when is_function(Fun, 1) ->
+    case vrf_reg:lookup(VRF) of
 	Pid when is_pid(Pid) ->
 	    Fun(Pid);
 	_ ->
 	    {error, not_found}
+    end.
+
+with_apn(APN, Fun) when is_function(Fun, 1) ->
+    case ergw:vrf(APN) of
+	{ok, {VRF, Opts}} when is_list(Opts) ->
+	    with_vrf(VRF, Fun);
+	Other ->
+	    Other
     end.
 
 %%%===================================================================
@@ -50,8 +62,8 @@ with_apn(APN, Fun) when is_function(Fun, 1) ->
 %%%===================================================================
 
 init([APN, Opts]) ->
-    apn_reg:register(APN),
-    lists:foreach(fun(Alias) -> apn_reg:register(Alias) end, proplists:get_value(alias, Opts, [])),
+    vrf_reg:register(APN),
+    lists:foreach(fun(Alias) -> vrf_reg:register(Alias) end, proplists:get_value(alias, Opts, [])),
 
     Pools = proplists:get_value(pools, Opts, []),
     IPv4pools = [{PrefixLen, init_pool(X)} || {First, _Last, PrefixLen} = X <- Pools, size(First) == 4],

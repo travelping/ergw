@@ -5,7 +5,7 @@
 %% as published by the Free Software Foundation; either version
 %% 2 of the License, or (at your option) any later version.
 
--module(apn_reg).
+-module(vrf_reg).
 
 -behaviour(regine_server).
 

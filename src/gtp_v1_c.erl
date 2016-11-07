@@ -192,16 +192,8 @@ gtp_msg_response(ms_info_change_notification_request)		-> ms_info_change_notific
 gtp_msg_response(data_record_transfer_request)			-> data_record_transfer_response;
 gtp_msg_response(Response)					-> Response.
 
-get_handler(#gtp_port{name = PortName},
-	    #gtp{ie = #{?'Access Point Name' := #access_point_name{apn = APN}}}) ->
-    case ergw_apns:handler(PortName, gn, APN) of
-	[{_, Handler, Opts}] ->
-	    lager:info("APN lookup: ~p, ~p", [Handler, Opts]),
-	    {ok, Handler, Opts};
-	_ ->
-	    %% TODO: correct error message
-	    {error, not_found}
-    end;
+get_handler(#gtp_port{name = PortName}, _Msg) ->
+    ergw:handler(PortName, gn);
 get_handler(_Port, _Msg) ->
     {error, {mandatory_ie_missing, ?'Access Point Name'}}.
 

@@ -12,7 +12,7 @@
 -compile([{parse_transform, do},
 	  {parse_transform, cut}]).
 
--export([init/2, request_spec/1, handle_request/4, handle_cast/2]).
+-export([validate_options/1, init/2, request_spec/1, handle_request/4, handle_cast/2]).
 
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include("include/ergw.hrl").
@@ -47,6 +47,13 @@ request_spec(modify_bearer_request) ->
     [{{v2_rat_type, 0},						mandatory}];
 request_spec(_) ->
     [].
+
+validate_options(Options) ->
+    lager:debug("GGSN S5/S8 Options: ~p", [Options]),
+    ergw_config:validate_options(fun validate_option/2, Options).
+
+validate_option(Opt, Value) ->
+    gtp_context:validate_option(Opt, Value).
 
 -record(context_state, {}).
 
@@ -248,7 +255,7 @@ encode_paa(Type, IPv4, IPv6) ->
     #v2_pdn_address_allocation{type = Type, address = <<IPv6/binary, IPv4/binary>>}.
 
 pdn_release_ip(#context{apn = APN, ms_v4 = MSv4, ms_v6 = MSv6}) ->
-    apn:release_pdp_ip(APN, MSv4, MSv6).
+    vrf:release_pdp_ip(APN, MSv4, MSv6).
 
 apply_context_change(NewContext0, OldContext, State) ->
     NewContext = gtp_path:bind(NewContext0),
@@ -463,7 +470,7 @@ session_ip_alloc(SessionOpts, {ReqMSv4, ReqMSv6}) ->
 
 assign_ips(SessionOps, PAA, #context{apn = APN, local_control_tei = LocalTEI} = Context) ->
     {ReqMSv4, ReqMSv6} = session_ip_alloc(SessionOps, pdn_alloc(PAA)),
-    {ok, MSv4, MSv6} = apn:allocate_pdp_ip(APN, LocalTEI, ReqMSv4, ReqMSv6),
+    {ok, MSv4, MSv6} = vrf:allocate_pdp_ip(APN, LocalTEI, ReqMSv4, ReqMSv6),
     Context#context{ms_v4 = MSv4, ms_v6 = MSv6}.
 
 ppp_ipcp_conf_resp(Verdict, Opt, IPCP) ->
