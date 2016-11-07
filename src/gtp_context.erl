@@ -12,7 +12,7 @@
 
 -export([lookup/2, handle_message/2, start_link/5,
 	 send_request/4, send_request/6, send_response/2,
-	 path_restart/2]).
+	 path_restart/2, validate_option/2]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -66,6 +66,17 @@ start_link(GtpPort, Version, Interface, IfOpts, Opts) ->
 
 path_restart(Context, Path) ->
     gen_server:cast(Context, {path_restart, Path}).
+
+validate_option(handler, Value) when is_atom(Value) ->
+    Value;
+validate_option(sockets, Value) when is_list(Value) ->
+    Value;
+validate_option(data_paths, Value) when is_list(Value) ->
+    Value;
+validate_option(aaa, Value) when is_list(Value) ->
+    Value;
+validate_option(Opt, Value) ->
+    throw({error, {options, {Opt, Value}}}).
 
 %%====================================================================
 %% gen_server API

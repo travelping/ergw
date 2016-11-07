@@ -107,7 +107,16 @@ request_spec(_) ->
 
 validate_options(Options) ->
     lager:debug("GGSN Gn/Gp Options: ~p", [Options]),
-    Options.
+    ergw_config:validate_options(fun validate_option/2, Options).
+
+validate_option(proxy_sockets, Value) when is_list(Value) ->
+    Value;
+validate_option(proxy_data_paths, Value) when is_list(Value) ->
+    Value;
+validate_option(ggsn, Value) ->
+    Value;
+validate_option(Opt, Value) ->
+    gtp_context:validate_option(Opt, Value).
 
 -record(request_info, {request_key, seq_no, new_peer}).
 -record(context_state, {nsapi}).

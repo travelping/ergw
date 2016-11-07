@@ -54,7 +54,10 @@ request_spec(_) ->
 
 validate_options(Options) ->
     lager:debug("GGSN Gn/Gp Options: ~p", [Options]),
-    Options.
+    ergw_config:validate_options(fun validate_option/2, Options).
+
+validate_option(Opt, Value) ->
+    gtp_context:validate_option(Opt, Value).
 
 -record(context_state, {}).
 

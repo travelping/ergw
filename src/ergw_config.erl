@@ -10,7 +10,7 @@
 -compile({parse_transform, cut}).
 
 %% API
--export([load_config/1]).
+-export([load_config/1, validate_options/2]).
 
 %%%===================================================================
 %%% API
@@ -79,19 +79,15 @@ validate_socket_option(Opt, Value) ->
 validate_handlers_option(Opt, Value)
   when is_list(Value) andalso
        (Opt == 'gn' orelse Opt == 's5s8' orelse Opt == 's2a') ->
-    maps:from_list(validate_options(fun validate_handler_option/2, Value));
+    Handler = proplists:get_value(handler, Value),
+    case code:ensure_loaded(Handler) of
+	{module, _} ->
+	    ok;
+	_ ->
+	    throw({error, {options, {handler, Value}}})
+    end,
+    maps:from_list(Handler:validate_options(Value));
 validate_handlers_option(Opt, Value) ->
-    throw({error, {options, {Opt, Value}}}).
-
-validate_handler_option(handler, Value) when is_atom(Value) ->
-    Value;
-validate_handler_option(sockets, Value) when is_list(Value) ->
-    Value;
-validate_handler_option(data_paths, Value) when is_list(Value) ->
-    Value;
-validate_handler_option(aaa, Value) when is_list(Value) ->
-    Value;
-validate_handler_option(Opt, Value) ->
     throw({error, {options, {Opt, Value}}}).
 
 validate_vrfs_option(Opt, Value)
