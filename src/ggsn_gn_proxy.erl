@@ -128,7 +128,7 @@ validate_option(Opt, Value) ->
 init(Opts, State) ->
     ProxyPorts = proplists:get_value(proxy_sockets, Opts),
     ProxyDPs = proplists:get_value(proxy_data_paths, Opts),
-    GGSN = proplists:get_value(ggns, Opts),
+    GGSN = proplists:get_value(ggsn, Opts),
     ProxyDS = proplists:get_value(proxy_data_source, Opts, gtp_proxy_ds),
     {ok, State#{proxy_ports => ProxyPorts, proxy_dps => ProxyDPs, ggsn => GGSN, proxy_ds => ProxyDS}}.
 
