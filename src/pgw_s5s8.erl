@@ -134,6 +134,9 @@ handle_request(_ReqKey,
 	    ResponseIEs0 = create_session_response(SessionOpts, IEs, EBI, Context),
 	    ResponseIEs = gtp_v2_c:build_recovery(Context, Recovery /= undefined, ResponseIEs0),
 	    Response = {create_session_response, Context#context.remote_control_tei, ResponseIEs},
+
+	    ergw_aaa_session:start(Session, #{}),
+
 	    {reply, Response, State#{context => Context}};
 
 	Other ->

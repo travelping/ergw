@@ -113,6 +113,9 @@ handle_request(_ReqKey,
 	    ResponseIEs0 = create_pdp_context_response(ActiveSessionOpts, IEs, Context),
 	    ResponseIEs = gtp_v1_c:build_recovery(Context, Recovery /= undefined, ResponseIEs0),
 	    Reply = {create_pdp_context_response, Context#context.remote_control_tei, ResponseIEs},
+
+	    ergw_aaa_session:start(Session, #{}),
+
 	    {reply, Reply, State#{context => Context}};
 
 	Other ->
