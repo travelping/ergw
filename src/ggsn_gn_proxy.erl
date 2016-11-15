@@ -185,7 +185,7 @@ handle_cast({path_restart, Path},
 		   #teardown_ind{value = 1},
 		   #nsapi{nsapi = Context#context.state#context_state.nsapi}],
     RequestIEs = gtp_v1_c:build_recovery(ProxyContext, false, RequestIEs0),
-    send_request(ProxyContext, ?T3, ?N3, RequestIEs),
+    send_request(ProxyContext, ?T3, ?N3, delete_pdp_context_request, RequestIEs),
 
     dp_delete_pdp_context(Context, ProxyContext),
 
@@ -200,7 +200,7 @@ handle_cast({path_restart, Path},
 		   #teardown_ind{value = 1},
 		   #nsapi{nsapi = Context#context.state#context_state.nsapi}],
     RequestIEs = gtp_v1_c:build_recovery(Context, false, RequestIEs0),
-    send_request(Context, ?T3, ?N3, RequestIEs),
+    send_request(Context, ?T3, ?N3, delete_pdp_context_request, RequestIEs),
 
     dp_delete_pdp_context(Context, ProxyContext),
 
@@ -486,8 +486,8 @@ build_context_request(#context{remote_control_tei = TEI} = Context,
 send_request(#context{control_port = GtpPort,
 		      remote_control_tei = RemoteCntlTEI,
 		      remote_control_ip = RemoteCntlIP},
-	     T3, N3, RequestIEs) ->
-    Msg = #gtp{version = v1, tei = RemoteCntlTEI, ie = RequestIEs},
+	     Type, T3, N3, RequestIEs) ->
+    Msg = #gtp{version = v1, type = Type, tei = RemoteCntlTEI, ie = RequestIEs},
     gtp_context:send_request(GtpPort, RemoteCntlIP, T3, N3, Msg, undefined).
 
 forward_request(#context{control_port = GtpPort, remote_control_ip = RemoteCntlIP},
