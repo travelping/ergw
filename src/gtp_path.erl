@@ -113,7 +113,7 @@ get_handler(#gtp_port{type = 'gtp-c'}, v2) ->
 %%%===================================================================
 init([#gtp_port{name = PortName} = GtpPort, Version, RemoteIP, Args]) ->
     gtp_path_reg:register({PortName, RemoteIP}),
-
+    exometer:new([path, PortName, RemoteIP, contexts], gauge),
     TID = ets:new(?MODULE, [ordered_set, public, {keypos, 1}]),
 
     State = #state{table        = TID,
@@ -280,8 +280,14 @@ cancel_timer(Ref) ->
             RemainingTime
     end.
 
+update_path_counter(#state{path_counter = PathCounter,
+			   gtp_port = #gtp_port{name = PortName},
+			   ip = RemoteIP}) ->
+    exometer:update([path, PortName, RemoteIP, contexts], PathCounter).
+
 inc_path_counter(#state{path_counter = OldPathCounter} = State0) ->
     State = State0#state{path_counter = OldPathCounter + 1},
+    update_path_counter(State),
     if OldPathCounter == 0 ->
 	    start_echo_request(State);
        true ->
@@ -293,6 +299,7 @@ dec_path_counter(#state{path_counter = 0} = State) ->
     State;
 dec_path_counter(#state{path_counter = OldPathCounter} = State0) ->
     State = State0#state{path_counter = OldPathCounter - 1},
+    update_path_counter(State),
     if OldPathCounter == 0 ->
 	    stop_echo_request(State);
        true ->
