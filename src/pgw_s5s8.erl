@@ -527,6 +527,7 @@ pdn_pco(_SessionOpts, _RequestIEs, IE) ->
 bearer_context(EBI, Context, IEs) ->
     IE = #v2_bearer_context{
 	    group=[#v2_cause{v2_cause = request_accepted},
+		   #v2_charging_id{id = <<0,0,0,1>>},
 		   EBI,
 		   #v2_bearer_level_quality_of_service{
 		      pl=15,
