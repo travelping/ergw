@@ -528,7 +528,6 @@ bearer_context(EBI, Context, IEs) ->
     IE = #v2_bearer_context{
 	    group=[#v2_cause{v2_cause = request_accepted},
 		   EBI,
-		   #v2_apn_restriction{restriction_type_value = 0},
 		   #v2_bearer_level_quality_of_service{
 		      pl=15,
 		      pvi=0,
@@ -563,5 +562,6 @@ create_session_response(SessionOpts, RequestIEs, EBI,
     IE1 = pdn_pco(SessionOpts, RequestIEs, IE0),
 
     [#v2_cause{v2_cause = request_accepted},
+     #v2_apn_restriction{restriction_type_value = 0},
      s5s8_pgw_gtp_c_tei(Context),
      encode_paa(MSv4, MSv6) | IE1].
