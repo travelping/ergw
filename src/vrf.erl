@@ -12,15 +12,16 @@
 -compile({parse_transform, cut}).
 
 %% API
--export([start_link/2, start_vrf/2, allocate_pdp_ip/4, release_pdp_ip/3]).
+-export([start_link/2, start_vrf/2, allocate_pdp_ip/4, release_pdp_ip/3,
+	 validate_options/1, validate_option/2]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
-	 terminate/2, code_change/3]).
+	 get_opts/1, terminate/2, code_change/3]).
 
 -include("include/ergw.hrl").
 
--record(state, {ip4_pools, ip6_pools}).
+-record(state, {ip4_pools, ip6_pools, opts}).
 
 -define(IS_IPv4(X), (is_tuple(X) andalso tuple_size(X) == 4)).
 -define(IS_IPv6(X), (is_tuple(X) andalso tuple_size(X) == 8)).
@@ -30,8 +31,11 @@
 %%====================================================================
 
 start_vrf(Name, Opts)
-  when is_atom(Name), is_list(Opts) ->
-    vrf_sup:start_vrf(Name, Opts).
+  when is_atom(Name), is_map(Opts) ->
+    vrf_sup:start_vrf(Name, Opts);
+start_vrf(Name, Opts)
+  when is_list(Opts) ->
+    start_vrf(Name, validate_options(Opts)).
 
 start_link(VRF, Opts) ->
    gen_server:start_link(?MODULE, [VRF, Opts], []).
@@ -40,6 +44,9 @@ allocate_pdp_ip(APN, TEI, IPv4, IPv6) ->
     with_apn(APN, gen_server:call(_, {allocate_pdp_ip, TEI, IPv4, IPv6})).
 release_pdp_ip(APN, IPv4, IPv6) ->
     with_apn(APN, gen_server:call(_, {release_pdp_ip, IPv4, IPv6})).
+
+get_opts(VRF) ->
+    with_vrf(VRF,  gen_server:call(_, get_opts)).
 
 with_vrf(VRF, Fun) when is_function(Fun, 1) ->
     case vrf_reg:lookup(VRF) of
@@ -51,28 +58,47 @@ with_vrf(VRF, Fun) when is_function(Fun, 1) ->
 
 with_apn(APN, Fun) when is_function(Fun, 1) ->
     case ergw:vrf(APN) of
-	{ok, {VRF, Opts}} when is_list(Opts) ->
+	{ok, {VRF, Opts}} when is_map(Opts) ->
 	    with_vrf(VRF, Fun);
 	Other ->
 	    Other
     end.
 
+validate_options(Options) ->
+    lager:debug("VRF Options: ~p", [Options]),
+    maps:from_list(ergw_config:validate_options(fun validate_option/2, Options)).
+
+validate_option(pools, Value) when is_list(Value) ->
+    Value;
+validate_option(Opt, {_,_,_,_} = IP)
+  when Opt == 'MS-Primary-DNS-Server';
+       Opt == 'MS-Secondary-DNS-Server';
+       Opt == 'MS-Primary-NBNS-Server';
+       Opt == 'MS-Secondary-NBNS-Server' ->
+    IP;
+validate_option(Opt, Value) ->
+    throw({error, {options, {Opt, Value}}}).
+
 %%%===================================================================
 %%% gen_server callbacks
 %%%===================================================================
 
-init([APN, Opts]) ->
-    vrf_reg:register(APN),
-    lists:foreach(fun(Alias) -> vrf_reg:register(Alias) end, proplists:get_value(alias, Opts, [])),
+init([Name, Opts]) ->
+    vrf_reg:register(Name),
 
-    Pools = proplists:get_value(pools, Opts, []),
+    Pools = maps:get(pools, Opts, []),
     IPv4pools = [{PrefixLen, init_pool(X)} || {First, _Last, PrefixLen} = X <- Pools, size(First) == 4],
     IPv6pools = [{PrefixLen, init_pool(X)} || {First, _Last, PrefixLen} = X <- Pools, size(First) == 8],
 
     lager:debug("IPv4Pools ~p", [IPv4pools]),
     lager:debug("IPv6Pools ~p", [IPv6pools]),
 
-    {ok, #state{ip4_pools = IPv4pools, ip6_pools = IPv6pools}}.
+    VrfOpts = maps:without([pools], Opts),
+    State = #state{ip4_pools = IPv4pools, ip6_pools = IPv6pools, opts = VrfOpts},
+    {ok, State}.
+
+handle_call(get_opts, _From, #state{opts = Opts} = State) ->
+    {reply, {ok, Opts}, State};
 
 handle_call({allocate_pdp_ip, TEI, ReqIPv4, ReqIPv6} = Request, _From, State) ->
     lager:debug("handle_call: ~p", [Request]),

@@ -77,7 +77,14 @@ attach_data_path(#protocol_key{} = Key, DataPath) ->
 	    {error, {invalid, Key}}
     end.
 
-attach_vrf(APN, VRF, Options) ->
+attach_vrf(APN, VRF, Options0) ->
+    Options =
+	case vrf:get_opts(VRF) of
+	    {ok, Opts} when is_map(Opts) ->
+		maps:merge(Opts, Options0);
+	    _Other ->
+		Options0
+	end,
     Route = #route{key = APN, vrf = VRF, options = Options},
     case ets:insert_new(?SERVER, Route) of
 	true -> ok;

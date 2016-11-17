@@ -90,9 +90,9 @@ validate_handlers_option(Opt, Value)
 validate_handlers_option(Opt, Value) ->
     throw({error, {options, {Opt, Value}}}).
 
-validate_vrfs_option(Opt, Value)
-  when is_atom(Opt), is_list(Value)
-       -> Value;
+validate_vrfs_option(Opt, Values)
+  when is_atom(Opt), is_list(Values) ->
+    vrf:validate_options(Values);
 validate_vrfs_option(Opt, Value) ->
     throw({error, {options, {Opt, Value}}}).
 
@@ -106,7 +106,7 @@ validate_apns_option(Opt, Value) ->
 validate_apn_option(vrf, Value) when is_atom(Value) ->
     Value;
 validate_apn_option(Opt, Value) ->
-    throw({error, {options, {Opt, Value}}}).
+    vrf:validate_option(Opt, Value).
 
 load_socket({Name, Options}) ->
     ergw:start_socket(Name, Options).
@@ -122,5 +122,5 @@ load_vrf({Name, Options}) ->
     ergw:start_vrf(Name, Options).
 
 load_apn({APN, #{vrf := VRF} = Opts0}) ->
-    Opts = maps:to_list(maps:without([vrf], Opts0)),
+    Opts = maps:without([vrf], Opts0),
     ergw:attach_vrf(APN, VRF, Opts).

@@ -124,7 +124,8 @@ handle_request(_ReqKey,
 	success ->
 	    lager:info("AuthResult: success"),
 
-	    ActiveSessionOpts = ergw_aaa_session:get(Session),
+	    ActiveSessionOpts0 = ergw_aaa_session:get(Session),
+	    ActiveSessionOpts = apply_vrf_session_defaults(Context2, ActiveSessionOpts0),
 	    lager:info("ActiveSessionOpts: ~p", [ActiveSessionOpts]),
 
 	    Context = assign_ips(ActiveSessionOpts, PAA, Context2),
@@ -269,15 +270,27 @@ apply_context_change(NewContext0, OldContext, State) ->
 copy_session_defaults({'3GPP-GGSN-MCC-MNC', MCCMNC}, Session)
   when is_binary(MCCMNC) ->
     Session#{'3GPP-GGSN-MCC-MNC' => MCCMNC};
-copy_session_defaults({K, {_,_,_,_} = Value}, Session)
-  when K =:= 'MS-Primary-DNS-Server';
-       K =:= 'MS-Secondary-DNS-Server';
-       K =:= 'MS-Primary-NBNS-Server';
-       K =:= 'MS-Secondary-NBNS-Server' ->
-    Session#{K => gtp_c_lib:ip2bin(Value)};
 copy_session_defaults(KV, Session) ->
     lager:warning("invalid value (~p) in session defaul", [KV]),
     Session.
+
+copy_vrf_session_defaults(K, Value, Opts)
+    when K =:= 'MS-Primary-DNS-Server';
+	 K =:= 'MS-Secondary-DNS-Server';
+	 K =:= 'MS-Primary-NBNS-Server';
+	 K =:= 'MS-Secondary-NBNS-Server' ->
+    Opts#{K => gtp_c_lib:ip2bin(Value)};
+copy_vrf_session_defaults(_K, _V, Opts) ->
+    Opts.
+
+apply_vrf_session_defaults(#context{apn = APN}, Session) ->
+    case ergw:vrf(APN) of
+	{ok, {_VRF, Opts}} when is_map(Opts) ->
+	    Defaults = maps:fold(fun copy_vrf_session_defaults/3, #{}, Opts),
+	    maps:merge(Defaults, Session);
+	_ ->
+	    Session
+    end.
 
 map_attr('APN', #{?'Access Point Name' := #v2_access_point_name{apn = APN}}) ->
     unicode:characters_to_binary(lists:join($., APN));
