@@ -116,7 +116,7 @@ validate_context({Name, Opts0})
   when is_binary(Name), is_list(Opts0) ->
     Defaults = [{proxy_sockets,    []},
 		{proxy_data_paths, []}],
-    Opts1 = lists:keymerge(1, lists:keysort(1, Opts0), lists:keysort(1, Defaults)),
+    Opts1 = lists:ukeymerge(1, lists:keysort(1, Opts0), lists:keysort(1, Defaults)),
     Opts = maps:from_list(ergw_config:validate_options(
 			    fun validate_context_option/2, Opts1)),
     {Name, Opts};
@@ -127,7 +127,7 @@ validate_options(Opts0) ->
     lager:debug("GGSN Gn/Gp Options: ~p", [Opts0]),
     Defaults = [{proxy_sockets,    []},
 		{proxy_data_paths, []}],
-    Opts1 = lists:keymerge(1, lists:keysort(1, Opts0), lists:keysort(1, Defaults)),
+    Opts1 = lists:ukeymerge(1, lists:keysort(1, Opts0), lists:keysort(1, Defaults)),
     ergw_config:validate_options(fun validate_option/2, Opts1).
 
 validate_option(Opt, Value)
