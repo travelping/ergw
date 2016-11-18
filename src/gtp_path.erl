@@ -184,13 +184,13 @@ handle_info(Info = {timeout, _TRef, echo}, State) ->
     lager:debug("handle_info: ~p", [lager:pr(Info, ?MODULE)]),
     {noreply, State};
 
-handle_info({echo_respone, _, Msg}, State0)->
+handle_info({echo_request, _, Msg}, State0)->
     lager:debug("echo_response: ~p", [Msg]),
     State = echo_response(Msg, State0),
     {noreply, State};
 
 handle_info(Info, State) ->
-    lager:error("handle_info: ~p", [lager:pr(Info, ?MODULE)]),
+    lager:error("~p: ~w: handle_info: ~p", [self(), ?MODULE, lager:pr(Info, ?MODULE)]),
     {noreply, State}.
 
 terminate(_Reason, _State) ->
