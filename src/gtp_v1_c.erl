@@ -13,7 +13,7 @@
 -export([gtp_msg_types/0, gtp_msg_type/1,
 	 get_handler/2,
 	 build_response/1,
-	 build_echo_request/0,
+	 build_echo_request/1,
 	 type/0, port/0]).
 
 %% support functions
@@ -48,7 +48,7 @@ build_recovery(_, _, IEs) ->
 type() -> 'gtp-c'.
 port() -> ?GTP1c_PORT.
 
-build_echo_request() ->
+build_echo_request(_GtpPort) ->
     #gtp{version = v1, type = echo_request, tei = 0, ie = []}.
 
 build_response({Type, TEI, IEs}) ->

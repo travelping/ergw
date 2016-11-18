@@ -12,7 +12,7 @@
 %% API
 -export([gtp_msg_type/1,
 	 build_response/1,
-	 build_echo_request/0,
+	 build_echo_request/1,
 	 type/0, port/0]).
 
 -include("include/ergw.hrl").
@@ -24,8 +24,8 @@
 type() -> 'gtp-u'.
 port() -> ?GTP1u_PORT.
 
-build_echo_request() ->
-    gtp_v1_c:build_echo_request().
+build_echo_request(GtpPort) ->
+    gtp_v1_c:build_echo_request(GtpPort).
 
 build_response(Response) ->
     gtp_v1_c:build_response(Response).

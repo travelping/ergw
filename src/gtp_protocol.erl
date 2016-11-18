@@ -9,4 +9,4 @@
 -callback type() -> Type :: 'gtp-c' | 'gtp-u'.
 -callback port() -> Port :: non_neg_integer().
 
--callback build_echo_request() -> EchoRequest :: #gtp{}.
+-callback build_echo_request(GtpPort :: term()) -> EchoRequest :: #gtp{}.
