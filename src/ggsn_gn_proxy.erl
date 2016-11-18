@@ -105,16 +105,58 @@ request_spec(delete_pdp_context_response) ->
 request_spec(_) ->
     [].
 
-validate_options(Options) ->
-    lager:debug("GGSN Gn/Gp Options: ~p", [Options]),
-    ergw_config:validate_options(fun validate_option/2, Options).
+validate_context_option(proxy_sockets, Value) when is_list(Value), Value /= [] ->
+    Value;
+validate_context_option(proxy_data_paths, Value) when is_list(Value), Value /= [] ->
+    Value;
+validate_context_option(Opt, Value) ->
+    throw({error, {options, {Opt, Value}}}).
 
-validate_option(proxy_sockets, Value) when is_list(Value) ->
+validate_context({Name, Opts0})
+  when is_binary(Name), is_list(Opts0) ->
+    Defaults = [{proxy_sockets,    []},
+		{proxy_data_paths, []}],
+    Opts1 = lists:ukeymerge(1, lists:keysort(1, Opts0), lists:keysort(1, Defaults)),
+    Opts = maps:from_list(ergw_config:validate_options(
+			    fun validate_context_option/2, Opts1)),
+    {Name, Opts};
+validate_context({Name, Opts0})
+  when is_binary(Name), is_map(Opts0) ->
+    Defaults = #{proxy_sockets    => [],
+		 proxy_data_paths => []},
+    Opts1 = maps:merge(Defaults, Opts0),
+    Opts = maps:from_list(ergw_config:validate_options(
+			    fun validate_context_option/2, maps:to_list(Opts1))),
+    {Name, Opts};
+validate_context(Value) ->
+    throw({error, {options, {contexts, Value}}}).
+
+validate_options(Opts0) ->
+    lager:debug("GGSN Gn/Gp Options: ~p", [Opts0]),
+    Defaults = [{proxy_data_source, gtp_proxy_ds},
+		{proxy_sockets,     []},
+		{proxy_data_paths,  []},
+		{ggsn,              undefined},
+		{contexts,          []}],
+    Opts1 = lists:ukeymerge(1, lists:keysort(1, Opts0), lists:keysort(1, Defaults)),
+    ergw_config:validate_options(fun validate_option/2, Opts1).
+
+validate_option(proxy_data_source, Value) ->
+    case code:ensure_loaded(Value) of
+	{module, _} ->
+	    ok;
+	_ ->
+	    throw({error, {options, {proxy_data_source, Value}}})
+    end,
     Value;
-validate_option(proxy_data_paths, Value) when is_list(Value) ->
+validate_option(Opt, Value)
+  when Opt == proxy_sockets;
+       Opt == proxy_data_paths ->
+    validate_context_option(Opt, Value);
+validate_option(ggsn, {_,_,_,_} = Value) ->
     Value;
-validate_option(ggsn, Value) ->
-    Value;
+validate_option(contexts, Values) when is_list(Values) ->
+    lists:map(fun validate_context/1, Values);
 validate_option(Opt, Value) ->
     gtp_context:validate_option(Opt, Value).
 
@@ -129,8 +171,10 @@ init(Opts, State) ->
     ProxyPorts = proplists:get_value(proxy_sockets, Opts),
     ProxyDPs = proplists:get_value(proxy_data_paths, Opts),
     GGSN = proplists:get_value(ggsn, Opts),
-    ProxyDS = proplists:get_value(proxy_data_source, Opts, gtp_proxy_ds),
-    {ok, State#{proxy_ports => ProxyPorts, proxy_dps => ProxyDPs, ggsn => GGSN, proxy_ds => ProxyDS}}.
+    ProxyDS = proplists:get_value(proxy_data_source, Opts),
+    Contexts = maps:from_list(proplists:get_value(contexts, Opts)),
+    {ok, State#{proxy_ports => ProxyPorts, proxy_dps => ProxyDPs,
+		contexts => Contexts, ggsn => GGSN, proxy_ds => ProxyDS}}.
 
 handle_cast({path_restart, Path},
 	    #{context := #context{path = Path} = Context,
@@ -173,8 +217,7 @@ handle_request(ReqKey,
 	       #gtp{type = create_pdp_context_request, seq_no = SeqNo,
 		    ie = #{?'Recovery' := Recovery} = IEs} = Request, _Resent,
 	       #{tei := LocalTEI, gtp_port := GtpPort, gtp_dp_port := GtpDP,
-		 proxy_ports := ProxyPorts, proxy_dps := ProxyDPs, ggsn := DefaultGGSN,
-		 proxy_ds := ProxyDS} = State0) ->
+		 ggsn := DefaultGGSN, proxy_ds := ProxyDS} = State0) ->
 
     APNie = maps:get(?'Access Point Name', IEs, undefined),
 
@@ -195,8 +238,7 @@ handle_request(ReqKey,
     case ProxyDS:map(ProxyInfo0) of
 	{ok, #proxy_info{ggsn = GGSN} = ProxyInfo} ->
 	    lager:debug("OK Proxy Map: ~p", [lager:pr(ProxyInfo, ?MODULE)]),
-	    ProxyGtpPort = gtp_socket_reg:lookup(hd(ProxyPorts)),
-	    ProxyGtpDP = gtp_socket_reg:lookup(hd(ProxyDPs)),
+	    {ProxyGtpPort, ProxyGtpDP} = get_proxy_sockets(ProxyInfo, State1),
 	    {ok, ProxyLocalTEI} = gtp_c_lib:alloc_tei(ProxyGtpPort),
 
 	    lager:debug("ProxyGtpPort: ~p", [lager:pr(ProxyGtpPort, ?MODULE)]),
@@ -411,7 +453,7 @@ init_proxy_info(_K, _V, PI) ->
     PI.
 
 init_proxy_info(DefaultGGSN, IEs) ->
-    maps:fold(fun init_proxy_info/3, #proxy_info{ggsn = DefaultGGSN}, IEs).
+    maps:fold(fun init_proxy_info/3, #proxy_info{context = default, ggsn = DefaultGGSN}, IEs).
 
 proxy_request_nat(#proxy_info{apn = APN},
 		  _K, #access_point_name{instance = 0} = IE)
@@ -479,3 +521,15 @@ optional_apn_value(_, Default) ->
 
 build_recovery(Context, NewPeer, #gtp{ie = IEs} = Request) ->
     Request#gtp{ie = gtp_v1_c:build_recovery(Context, NewPeer, IEs)}.
+
+get_proxy_sockets(#proxy_info{context = Context},
+	       #{contexts := Contexts, proxy_ports := ProxyPorts, proxy_dps := ProxyDPs}) ->
+    {Cntl, Data} =
+	case maps:get(Context, Contexts, undefined) of
+	    #{proxy_sockets := Cntl0, proxy_data_paths := Data0} ->
+		{Cntl0, Data0};
+	    _ ->
+		lager:warning("proxy context ~p not found, using default", [Context]),
+		{ProxyPorts, ProxyDPs}
+	end,
+    {gtp_socket_reg:lookup(hd(Cntl)), gtp_socket_reg:lookup(hd(Data))}.
