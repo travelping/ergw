@@ -197,3 +197,51 @@ At the very minimum, the catch all APN '_' needs to be configured.
 * apn_options:
 
   - `{vrf, vrf_name()}`
+
+Handler Configuration
+---------------------
+
+Protocol handlers can extend the handler configuration with use case specific
+options.
+
+### ggsn_gn_proxy ###
+
+    {handlers,
+     [{gn, [{handler, ggsn_gn_proxy},
+            {sockets, [irx]},
+            {data_paths, [grx]},
+            {proxy_sockets, ['irx-1']},
+            {proxy_data_paths, ['grx-1']},
+            {ggns, {127, 0, 0, 1}},
+            {contexts, [{<<"ams">>, [{proxy_sockets, ['irx-ams']},
+                                     {proxy_data_paths, ['grx-ams']}]},
+                        {<<"us">>,  [{proxy_sockets, ['irx-us']},
+                                     {proxy_data_paths, ['grx-us']}]}]}
+            ]}]}
+
+* handler_options:
+
+  - `{proxy_sockets, [socket_name()]}`
+
+    the default GTP-C socket for forwarding requests
+
+  - `{data_paths, [socket_name()]}`
+
+    the default GTP-U data paths for forwarding requests
+
+  - `{ggsn, inet:ip_address()}`
+
+    the default GGSN IP address
+
+  - `{contexts, [context()]}`
+
+    list of forwarding context. Forwarding can be selected by the proxy
+    data source
+
+* context: `{context_name(), [{proxy_sockets, [socket_name()]}, {data_paths, [socket_name()]}]}`
+
+  a context comprises of proxy GTP-c sockets and proxy GTP-u data paths
+
+  - context_name: `binary()`
+
+    the context name
