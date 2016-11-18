@@ -164,19 +164,11 @@ which sockets, the AAA provider and the defaults AAA attribute mapping.
 Defines the IP routing domains and their defaults.
 
 * vrfs: `{vrfs, [vrf_definition()]}`
-* vrf_definition: `{vrf_name(), [vrf_options()]}`
+* vrf_definition: `{vrf_name(), [vrf_options() | session_defaults()]}`
 * vrf_name: `atom()`
 * vrf_options:
 
   - `{pools, [vrf_pool()]}`
-
-  - `{'MS-Primary-DNS-Server', inet:ip4_address()}`
-
-  - `{'MS-Secondary-DNS-Server',  inet:ip4_address()}`
-
-  - `{'MS-Primary-NBNS-Server',  inet:ip4_address()}`
-
-  - `{'MS-Secondary-NBNS-Server',  inet:ip4_address()}`
 
 * vrf_pool: `{Start :: ip_address(), End :: ip_address()}`
 
@@ -185,7 +177,7 @@ Defines the IP routing domains and their defaults.
 ### APN's ###
 
      {apns,
-      [{[<<"tpip">>, <<"net">>], [{vrf, upstream}]}]},
+      [{[<<"tpip">>, <<"net">>], [{vrf, upstream} | session_defaults()]}]},
 
 Routes provided default mappings of APN's into VRF's. A route is applied after
 the AAA provider if it did not return a VRF destination for the request.
@@ -197,6 +189,23 @@ At the very minimum, the catch all APN '_' needs to be configured.
 * apn_options:
 
   - `{vrf, vrf_name()}`
+
+Session Options
+---------------
+
+Session defaults can be defined at the VRF and APN level. AAA providers
+can overwrite those defaults. Options defined at an APN will overwrite
+VRF options and AAA providers will overwrite both.
+
+* session_defaults:
+
+  - `{'MS-Primary-DNS-Server', inet:ip4_address()}`
+
+  - `{'MS-Secondary-DNS-Server', inet:ip4_address()}`
+
+  - `{'MS-Primary-NBNS-Server', inet:ip4_address()}`
+
+  - `{'MS-Secondary-NBNS-Server', inet:ip4_address()}`
 
 Handler Configuration
 ---------------------
