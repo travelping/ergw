@@ -148,7 +148,7 @@ validate_option(Opt, Value)
 validate_option(ggsn, {_,_,_,_} = Value) ->
     Value;
 validate_option(contexts, Values) when is_list(Values) ->
-    maps:from_list(lists:map(fun validate_context/1, Values));
+    lists:map(fun validate_context/1, Values);
 validate_option(Opt, Value) ->
     gtp_context:validate_option(Opt, Value).
 
@@ -164,7 +164,7 @@ init(Opts, State) ->
     ProxyDPs = proplists:get_value(proxy_data_paths, Opts),
     GGSN = proplists:get_value(ggsn, Opts),
     ProxyDS = proplists:get_value(proxy_data_source, Opts),
-    Contexts = proplists:get_value(contexts, Opts),
+    Contexts = maps:from_list(proplists:get_value(contexts, Opts)),
     {ok, State#{proxy_ports => ProxyPorts, proxy_dps => ProxyDPs,
 		contexts => Contexts, ggsn => GGSN, proxy_ds => ProxyDS}}.
 
