@@ -120,6 +120,14 @@ validate_context({Name, Opts0})
     Opts = maps:from_list(ergw_config:validate_options(
 			    fun validate_context_option/2, Opts1)),
     {Name, Opts};
+validate_context({Name, Opts0})
+  when is_binary(Name), is_map(Opts0) ->
+    Defaults = #{proxy_sockets    => [],
+		 proxy_data_paths => []},
+    Opts1 = maps:merge(Defaults, Opts0),
+    Opts = maps:from_list(ergw_config:validate_options(
+			    fun validate_context_option/2, maps:to_list(Opts1))),
+    {Name, Opts};
 validate_context(Value) ->
     throw({error, {options, {contexts, Value}}}).
 
