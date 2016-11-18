@@ -125,16 +125,27 @@ validate_context(Value) ->
 
 validate_options(Opts0) ->
     lager:debug("GGSN Gn/Gp Options: ~p", [Opts0]),
-    Defaults = [{proxy_sockets,    []},
-		{proxy_data_paths, []}],
+    Defaults = [{proxy_data_source, gtp_proxy_ds},
+		{proxy_sockets,     []},
+		{proxy_data_paths,  []},
+		{ggsn,              undefined},
+		{contexts,          []}],
     Opts1 = lists:ukeymerge(1, lists:keysort(1, Opts0), lists:keysort(1, Defaults)),
     ergw_config:validate_options(fun validate_option/2, Opts1).
 
+validate_option(proxy_data_source, Value) ->
+    case code:ensure_loaded(Value) of
+	{module, _} ->
+	    ok;
+	_ ->
+	    throw({error, {options, {proxy_data_source, Value}}})
+    end,
+    Value;
 validate_option(Opt, Value)
   when Opt == proxy_sockets;
        Opt == proxy_data_paths ->
     validate_context_option(Opt, Value);
-validate_option(ggsn, Value) ->
+validate_option(ggsn, {_,_,_,_} = Value) ->
     Value;
 validate_option(contexts, Values) when is_list(Values) ->
     maps:from_list(lists:map(fun validate_context/1, Values));
@@ -152,8 +163,8 @@ init(Opts, State) ->
     ProxyPorts = proplists:get_value(proxy_sockets, Opts),
     ProxyDPs = proplists:get_value(proxy_data_paths, Opts),
     GGSN = proplists:get_value(ggsn, Opts),
-    ProxyDS = proplists:get_value(proxy_data_source, Opts, gtp_proxy_ds),
-    Contexts = proplists:get_value(contexts, Opts, #{}),
+    ProxyDS = proplists:get_value(proxy_data_source, Opts),
+    Contexts = proplists:get_value(contexts, Opts),
     {ok, State#{proxy_ports => ProxyPorts, proxy_dps => ProxyDPs,
 		contexts => Contexts, ggsn => GGSN, proxy_ds => ProxyDS}}.
 
