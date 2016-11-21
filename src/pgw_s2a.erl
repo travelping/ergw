@@ -144,14 +144,23 @@ match_context(_Type, _Context, undefined) ->
 match_context(Type,
 	      #context{
 		 remote_control_ip  = RemoteCntlIP,
-		 remote_control_tei = RemoteCntlTEI},
-	      #v2_fully_qualified_tunnel_endpoint_identifier{instance       = 0,
-							     interface_type = Type,
-							     key            = RemoteCntlTEI,
-							     ipv4           = RemoteCntlIP}) ->
-    error_m:return(ok);
+		 remote_control_tei = RemoteCntlTEI} = Context,
+	      #v2_fully_qualified_tunnel_endpoint_identifier{
+		 instance       = 0,
+		 interface_type = Type,
+		 key            = RemoteCntlTEI,
+		 ipv4           = RemoteCntlIPBin} = IE) ->
+    case gtp_c_lib:bin2ip(RemoteCntlIPBin) of
+	RemoteCntlIP ->
+	    error_m:return(ok);
+	_ ->
+	    lager:error("match_context: IP address mismatch, ~p, ~p, ~p",
+			[Type, lager:pr(Context, ?MODULE), lager:pr(IE, ?MODULE)]),
+	    error_m:fail([#v2_cause{v2_cause = context_not_found}])
+    end;
 match_context(Type, Context, IE) ->
-    lager:error("match_context: context not found, ~p, ~p, ~p", [Type, Context, lager:pr(IE, ?MODULE)]),
+    lager:error("match_context: context not found, ~p, ~p, ~p",
+		[Type, lager:pr(Context, ?MODULE), lager:pr(IE, ?MODULE)]),
     error_m:fail([#v2_cause{v2_cause = context_not_found}]).
 
 pdn_alloc(#v2_pdn_address_allocation{type = ipv4v6,
