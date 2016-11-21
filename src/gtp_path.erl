@@ -298,9 +298,10 @@ dec_path_counter(#state{path_counter = 0} = State) ->
     lager:error("attempting to release path when count == 0"),
     State;
 dec_path_counter(#state{path_counter = OldPathCounter} = State0) ->
-    State = State0#state{path_counter = OldPathCounter - 1},
+    NewPathCounter = OldPathCounter - 1
+    State = State0#state{path_counter = NewPathCounter},
     update_path_counter(State),
-    if OldPathCounter == 0 ->
+    if NewPathCounter == 0 ->
 	    stop_echo_request(State);
        true ->
 	    State
