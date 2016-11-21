@@ -132,7 +132,7 @@ handle_request(_ReqKey,
 
 	    dp_create_pdp_context(Context),
 
-	    ResponseIEs0 = create_session_response(SessionOpts, IEs, EBI, Context),
+	    ResponseIEs0 = create_session_response(ActiveSessionOpts, IEs, EBI, Context),
 	    ResponseIEs = gtp_v2_c:build_recovery(Context, Recovery /= undefined, ResponseIEs0),
 	    Response = {create_session_response, Context#context.remote_control_tei, ResponseIEs},
 
