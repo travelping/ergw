@@ -50,12 +50,12 @@ port() -> ?GTP2c_PORT.
 
 build_echo_request(GtpPort) ->
     IEs = add_recovery(GtpPort, []),
-    #gtp{version = v2, type = echo_request, tei = 0, ie = IEs}.
+    #gtp{version = v2, type = echo_request, tei = undefined, ie = IEs}.
 
 build_response({Type, TEI, IEs}) ->
     #gtp{version = v2, type = gtp_msg_response(Type), tei = TEI, ie = map_reply_ies(IEs)};
 build_response({Type, IEs}) ->
-    #gtp{version = v2, type = gtp_msg_response(Type), tei = 0, ie = map_reply_ies(IEs)}.
+    #gtp{version = v2, type = gtp_msg_response(Type), tei = undefined, ie = map_reply_ies(IEs)}.
 
 gtp_msg_types() ->
     [echo_request,					echo_response,
