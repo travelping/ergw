@@ -204,7 +204,7 @@ handle_request(_ReqKey,
 
     Result =
 	do([error_m ||
-	       match_context(35, Context, FqTEI),
+	       match_context(6, Context, FqTEI),
 	       return({RemoteCntlTEI, request_accepted, State0})
 	   ]),
 
