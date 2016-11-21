@@ -186,6 +186,16 @@ handle_request(_ReqKey,
     {reply, Response, State1};
 
 handle_request(_ReqKey,
+	       #gtp{type = modify_bearer_request,
+		    ie = #{?'Recovery' := Recovery} = IEs},
+	       _Resent, #{context := Context} = State) ->
+
+    ResponseIEs0 = [#v2_cause{v2_cause = request_accepted}],
+    ResponseIEs = gtp_v2_c:build_recovery(Context, Recovery /= undefined, ResponseIEs0),
+    Response = {modify_bearer_response, Context#context.remote_control_tei, ResponseIEs},
+    {reply, Response, State};
+
+handle_request(_ReqKey,
 	       #gtp{type = delete_session_request, ie = IEs}, _Resent,
 	       #{context := Context} = State0) ->
 
