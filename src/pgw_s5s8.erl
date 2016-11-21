@@ -44,7 +44,7 @@ request_spec(create_session_request) ->
 request_spec(delete_session_request) ->
     [];
 request_spec(modify_bearer_request) ->
-    [{{v2_rat_type, 0},						mandatory}];
+    [];
 request_spec(_) ->
     [].
 
