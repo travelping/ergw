@@ -12,7 +12,7 @@
 %% API
 -export([start_link/0]).
 -export([register/1, unregister/1, lookup/1]).
--export([all/0]).
+-export([all/0, all/1]).
 
 %% regine_server callbacks
 -export([init/1, handle_register/4, handle_unregister/3, handle_pid_remove/3, handle_death/3, terminate/2]).
@@ -20,6 +20,7 @@
 %% --------------------------------------------------------------------
 %% Include files
 %% --------------------------------------------------------------------
+-include_lib("stdlib/include/ms_transform.hrl").
 
 -define(SERVER, ?MODULE).
 
@@ -47,6 +48,14 @@ lookup(Key) ->
 
 all() ->
     ets:tab2list(?SERVER).
+
+all({_,_,_,_} = IP) ->
+    %%ets:select(Tab,[{{'$1','$2','$3'},[],['$$']}])
+    Ms = ets:fun2ms(fun({{_, PeerIP}, Pid}) when PeerIP =:= IP -> Pid end),
+    ets:select(?SERVER, Ms);
+all(Port) when is_atom(Port) ->
+    Ms = ets:fun2ms(fun({{Name, _}, Pid}) when Name =:= Port -> Pid end),
+    ets:select(?SERVER, Ms).
 
 %%%===================================================================
 %%% regine callbacks

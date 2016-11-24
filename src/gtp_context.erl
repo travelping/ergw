@@ -12,7 +12,7 @@
 
 -export([lookup/2, handle_message/2, start_link/5,
 	 send_request/4, send_request/6, send_response/2,
-	 path_restart/2, validate_option/2]).
+	 path_restart/2, info/1, validate_option/2]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -67,6 +67,9 @@ start_link(GtpPort, Version, Interface, IfOpts, Opts) ->
 path_restart(Context, Path) ->
     gen_server:cast(Context, {path_restart, Path}).
 
+info(Context) ->
+    gen_server:call(Context, info).
+
 validate_option(handler, Value) when is_atom(Value) ->
     Value;
 validate_option(sockets, Value) when is_list(Value) ->
@@ -104,6 +107,8 @@ init([GtpPort, Version, Interface, Opts]) ->
 
     Interface:init(Opts, State).
 
+handle_call(info, _From, State) ->
+    {reply, State, State};
 handle_call(Request, _From, State) ->
     lager:warning("handle_call: ~p", [lager:pr(Request, ?MODULE)]),
     {reply, ok, State}.

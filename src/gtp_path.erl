@@ -15,7 +15,8 @@
 %% API
 -export([start_link/4, get/2, all/1,
 	 maybe_new_path/3, handle_request/2,
-	 bind/1, bind/2, unbind/1, down/2, get_handler/2]).
+	 bind/1, bind/2, unbind/1, down/2, get_handler/2,
+	 info/1]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -97,6 +98,9 @@ get(#gtp_port{name = PortName}, IP) ->
 all(Path) ->
     gen_server:call(Path, all).
 
+info(Path) ->
+    gen_server:call(Path, info).
+
 get_handler(#gtp_port{type = 'gtp-u'}, _) ->
     gtp_v1_u;
 get_handler(#gtp_port{type = 'gtp-c'}, v1) ->
@@ -148,6 +152,14 @@ handle_call({bind, Pid, RestartCounter}, _From, State0) ->
 handle_call({unbind, Pid}, _From, State0) ->
     State = unregister(Pid, State0),
     {reply, ok, State};
+
+handle_call(info, _From, #state{
+			    gtp_port = #gtp_port{name = Name},
+			    path_counter = Cnt, version = Version,
+			    ip = IP, state = S} = State) ->
+    Reply = #{path => self(), port => Name, tunnels => Cnt,
+	      version => Version, ip => IP, state => S},
+    {reply, Reply, State};
 
 handle_call(Request, _From, State) ->
     lager:warning("handle_call: ~p", [lager:pr(Request, ?MODULE)]),
