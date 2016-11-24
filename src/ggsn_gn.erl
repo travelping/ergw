@@ -444,6 +444,13 @@ get_context_from_req(_, #tunnel_endpoint_identifier_data_i{instance = 0, tei = D
     Context#context{remote_data_tei = DataTEI};
 get_context_from_req(_, #tunnel_endpoint_identifier_control_plane{instance = 0, tei = CntlTEI}, Context) ->
     Context#context{remote_control_tei = CntlTEI};
+get_context_from_req(?'IMSI', #international_mobile_subscriber_identity{imsi = IMSI}, Context) ->
+    Context#context{imsi = IMSI};
+get_context_from_req(?'IMEI', #imei{imei = IMEI}, Context) ->
+    Context#context{imei = IMEI};
+get_context_from_req(?'MSISDN', #ms_international_pstn_isdn_number{
+				   msisdn = {isdn_address, _, _, 1, MSISDN}}, Context) ->
+    Context#context{msisdn = MSISDN};
 %% get_context_from_req(#nsapi{instance = 0, nsapi = NSAPI}, #context{state = State} = Context) ->
 %%     Context#context{state = State#context_state{nsapi = NSAPI}};
 get_context_from_req(_, _, Context) ->

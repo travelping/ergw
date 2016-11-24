@@ -20,6 +20,9 @@
 
 -record(context, {
 	  apn                    :: [binary()],
+	  imsi                   :: 'undefined' | binary(),
+	  imei                   :: 'undefined' | binary(),
+	  msisdn                 :: 'undefined' | binary(),
 	  version                :: 'v1' | 'v2',
 	  control_interface      :: atom(),
 	  control_port           :: #gtp_port{},

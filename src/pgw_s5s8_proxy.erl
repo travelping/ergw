@@ -178,7 +178,8 @@ handle_request(ReqKey,
 			      remote_data_ip    = PGW,
 			      state             = Context#context.state
 			     },
-	    ProxyContext = gtp_path:bind(undefined, ProxyContext1),
+	    ProxyContext2 = copy_subscriber_info(Context, ProxyInfo, ProxyContext1),
+	    ProxyContext = gtp_path:bind(undefined, ProxyContext2),
 	    State = State1#{proxy_info    => ProxyInfo,
 			    proxy_context => ProxyContext},
 
@@ -316,6 +317,10 @@ init_context(APN, CntlPort, CntlTEI, DataPort, DataTEI) ->
        state             = #context_state{}
       }.
 
+copy_subscriber_info(#context{apn = APN, imei = IMEI},
+		     #proxy_info{imsi = IMSI, msisdn = MSISDN}, Context) ->
+    Context#context{apn = APN, imsi = IMSI, imei = IMEI, msisdn = MSISDN}.
+
 get_context_from_bearer(?'S5/S8-U SGW FTEID',
 			 #v2_fully_qualified_tunnel_endpoint_identifier{
 			    key = RemoteDataTEI, ipv4 = RemoteDataIP
@@ -348,6 +353,13 @@ get_context_from_req(?'Sender F-TEID for Control Plane',
      };
 get_context_from_req(_K, #v2_bearer_context{instance = 0, group = Bearer}, Context) ->
     maps:fold(fun get_context_from_bearer/3, Context, Bearer);
+get_context_from_req(?'IMSI', #v2_international_mobile_subscriber_identity{imsi = IMSI}, Context) ->
+    Context#context{imsi = IMSI};
+get_context_from_req(?'ME Identity', #v2_mobile_equipment_identity{mei = IMEI}, Context) ->
+    Context#context{imei = IMEI};
+get_context_from_req(?'MSISDN', #v2_msisdn{
+				   msisdn = {isdn_address, _, _, 1, MSISDN}}, Context) ->
+    Context#context{msisdn = MSISDN};
 get_context_from_req(_K, _, Context) ->
     Context.
 

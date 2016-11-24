@@ -248,7 +248,8 @@ handle_request(ReqKey,
 			      remote_data_ip    = GGSN,
 			      state             = Context#context.state
 			     },
-	    ProxyContext = gtp_path:bind(undefined, ProxyContext1),
+	    ProxyContext2 = copy_subscriber_info(Context, ProxyInfo, ProxyContext1),
+	    ProxyContext = gtp_path:bind(undefined, ProxyContext2),
 	    State = State1#{proxy_info    => ProxyInfo,
 			    proxy_context => ProxyContext},
 
@@ -409,6 +410,10 @@ init_context(APN, CntlPort, CntlTEI, DataPort, DataTEI) ->
        state             = #context_state{}
       }.
 
+copy_subscriber_info(#context{apn = APN, imei = IMEI},
+		     #proxy_info{imsi = IMSI, msisdn = MSISDN}, Context) ->
+    Context#context{apn = APN, imsi = IMSI, imei = IMEI, msisdn = MSISDN}.
+
 get_context_from_req(_K, #gsn_address{instance = 0, address = CntlIP}, Context) ->
     Context#context{remote_control_ip = gtp_c_lib:bin2ip(CntlIP)};
 get_context_from_req(_K, #gsn_address{instance = 1, address = DataIP}, Context) ->
@@ -417,6 +422,13 @@ get_context_from_req(_K, #tunnel_endpoint_identifier_data_i{instance = 0, tei = 
     Context#context{remote_data_tei = DataTEI};
 get_context_from_req(_K, #tunnel_endpoint_identifier_control_plane{instance = 0, tei = CntlTEI}, Context) ->
     Context#context{remote_control_tei = CntlTEI};
+get_context_from_req(?'IMSI', #international_mobile_subscriber_identity{imsi = IMSI}, Context) ->
+    Context#context{imsi = IMSI};
+get_context_from_req(?'IMEI', #imei{imei = IMEI}, Context) ->
+    Context#context{imei = IMEI};
+get_context_from_req(?'MSISDN', #ms_international_pstn_isdn_number{
+				   msisdn = {isdn_address, _, _, 1, MSISDN}}, Context) ->
+    Context#context{msisdn = MSISDN};
 get_context_from_req(_K, #nsapi{instance = 0, nsapi = NSAPI}, #context{state = State} = Context) ->
     Context#context{state = State#context_state{nsapi = NSAPI}};
 get_context_from_req(_K, _, Context) ->

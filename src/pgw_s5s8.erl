@@ -113,9 +113,10 @@ handle_request(_ReqKey,
 
     Context0 = init_context(APN, GtpPort, LocalTEI, GtpDP, LocalTEI),
     Context1 = update_context_tunnel_ids(FqCntlTEID, FqDataTEID, Context0),
-    Context2 = gtp_path:bind(Recovery, Context1),
+    Context2 = update_context_from_gtp_req(IEs, Context1),
+    ContextPreAuth = gtp_path:bind(Recovery, Context2),
 
-    SessionOpts0 = init_session(IEs, Context2, AAAopts),
+    SessionOpts0 = init_session(IEs, ContextPreAuth, AAAopts),
     SessionOpts = init_session_from_gtp_req(IEs, AAAopts, SessionOpts0),
     %% SessionOpts = init_session_qos(ReqQoSProfile, SessionOpts1),
 
@@ -125,10 +126,10 @@ handle_request(_ReqKey,
 	    lager:info("AuthResult: success"),
 
 	    ActiveSessionOpts0 = ergw_aaa_session:get(Session),
-	    ActiveSessionOpts = apply_vrf_session_defaults(Context2, ActiveSessionOpts0),
+	    ActiveSessionOpts = apply_vrf_session_defaults(ContextPreAuth, ActiveSessionOpts0),
 	    lager:info("ActiveSessionOpts: ~p", [ActiveSessionOpts]),
 
-	    Context = assign_ips(ActiveSessionOpts, PAA, Context2),
+	    Context = assign_ips(ActiveSessionOpts, PAA, ContextPreAuth),
 
 	    dp_create_pdp_context(Context),
 
@@ -168,7 +169,8 @@ handle_request(_ReqKey,
     FqCntlTEID = maps:get(?'Sender F-TEID for Control Plane', IEs, undefined),
 
     Context0 = update_context_tunnel_ids(FqCntlTEID, FqDataTEID, OldContext),
-    Context = gtp_path:bind(Recovery, Context0),
+    Context1 = update_context_from_gtp_req(IEs, Context0),
+    Context = gtp_path:bind(Recovery, Context1),
 
     State1 = if Context /= OldContext ->
 		     apply_context_change(Context, OldContext, State0);
@@ -188,12 +190,14 @@ handle_request(_ReqKey,
 handle_request(_ReqKey,
 	       #gtp{type = modify_bearer_request,
 		    ie = #{?'Recovery' := Recovery} = IEs},
-	       _Resent, #{context := Context} = State) ->
+	       _Resent, #{context := OldContext} = State) ->
+
+    Context = update_context_from_gtp_req(IEs, OldContext),
 
     ResponseIEs0 = [#v2_cause{v2_cause = request_accepted}],
     ResponseIEs = gtp_v2_c:build_recovery(Context, Recovery /= undefined, ResponseIEs0),
     Response = {modify_bearer_response, Context#context.remote_control_tei, ResponseIEs},
-    {reply, Response, State};
+    {reply, Response, State#{context => Context}};
 
 handle_request(_ReqKey,
 	       #gtp{type = delete_session_request, ie = IEs}, _Resent,
@@ -467,6 +471,19 @@ update_context_data_ids(_ , Context) ->
 update_context_tunnel_ids(Cntl, Data, Context0) ->
     Context1 = update_context_cntl_ids(Cntl, Context0),
     update_context_data_ids(Data, Context1).
+
+get_context_from_req(?'IMSI', #v2_international_mobile_subscriber_identity{imsi = IMSI}, Context) ->
+    Context#context{imsi = IMSI};
+get_context_from_req(?'ME Identity', #v2_mobile_equipment_identity{mei = IMEI}, Context) ->
+    Context#context{imei = IMEI};
+get_context_from_req(?'MSISDN', #v2_msisdn{
+				   msisdn = {isdn_address, _, _, 1, MSISDN}}, Context) ->
+    Context#context{msisdn = MSISDN};
+get_context_from_req(_, _, Context) ->
+    Context.
+
+update_context_from_gtp_req(Request, Context) ->
+    maps:fold(fun get_context_from_req/3, Context, Request).
 
 dp_args(#context{ms_v4 = {MSv4,_}}) ->
     MSv4.
