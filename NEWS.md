@@ -1,6 +1,15 @@
 erGW - 3GPP GGSN and PDN-GW in Erlang
 =====================================
 
+Version 1.4.0 - 25 Nov 2016
+---------------------------
+
+* rework the configuration model, see CONFIG.md for details
+* preliminary API for exporting runtime state information
+  (unstable, subject to change)
+* complete S5/S8 interface
+* initiate Accounting sessin after authentication
+
 Version 1.3.0 - 03 Nov 2016
 ---------------------------
 
