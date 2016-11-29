@@ -38,6 +38,9 @@
 		echo_timer	:: 'stopped' | 'awaiting_response' | reference(),
 		state		:: 'UP' | 'DOWN' }).
 
+%% defaults for exometer probes
+-define(EXO_CONTEXTS_OPTS, []).
+
 %%%===================================================================
 %%% API
 %%%===================================================================
@@ -117,7 +120,7 @@ get_handler(#gtp_port{type = 'gtp-c'}, v2) ->
 %%%===================================================================
 init([#gtp_port{name = PortName} = GtpPort, Version, RemoteIP, Args]) ->
     gtp_path_reg:register({PortName, RemoteIP}),
-    exometer:new([path, PortName, RemoteIP, contexts], gauge),
+    exometer:re_register([path, PortName, RemoteIP, contexts], gauge, ?EXO_CONTEXTS_OPTS),
     TID = ets:new(?MODULE, [ordered_set, public, {keypos, 1}]),
 
     State = #state{table        = TID,
@@ -205,6 +208,10 @@ handle_info(Info, State) ->
     lager:error("~p: ~w: handle_info: ~p", [self(), ?MODULE, lager:pr(Info, ?MODULE)]),
     {noreply, State}.
 
+terminate(_Reason, #state{gtp_port = #gtp_port{name = PortName}, ip = RemoteIP}) ->
+    %% TODO: kill all PDP Context on this path
+    exometer:delete([path, PortName, RemoteIP, contexts]),
+    ok;
 terminate(_Reason, _State) ->
     %% TODO: kill all PDP Context on this path
     ok.
@@ -295,7 +302,7 @@ cancel_timer(Ref) ->
 update_path_counter(#state{path_counter = PathCounter,
 			   gtp_port = #gtp_port{name = PortName},
 			   ip = RemoteIP}) ->
-    exometer:update([path, PortName, RemoteIP, contexts], PathCounter).
+    exometer:update_or_create([path, PortName, RemoteIP, contexts], gauge, PathCounter, ?EXO_CONTEXTS_OPTS).
 
 inc_path_counter(#state{path_counter = OldPathCounter} = State0) ->
     State = State0#state{path_counter = OldPathCounter + 1},
