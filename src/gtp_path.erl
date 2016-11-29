@@ -13,10 +13,10 @@
 -compile({no_auto_import,[register/2]}).
 
 %% API
--export([start_link/4, get/2, all/1,
+-export([start_link/4, all/1,
 	 maybe_new_path/3, handle_request/2,
-	 bind/1, bind/2, unbind/1, down/2, get_handler/2,
-	 info/1]).
+	 bind/1, bind/2, unbind/1, down/2,
+	 get_handler/2, info/1]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -49,7 +49,7 @@ start_link(GtpPort, Version, RemoteIP, Args) ->
     gen_server:start_link(?MODULE, [GtpPort, Version, RemoteIP, Args], []).
 
 maybe_new_path(GtpPort, Version, RemoteIP) ->
-    case get(GtpPort, RemoteIP) of
+    case get(GtpPort, Version, RemoteIP) of
 	Path when is_pid(Path) ->
 	    Path;
 	_ ->
@@ -79,8 +79,8 @@ bind(Recovery, #context{version = Version} = Context) ->
 	    Context#context{path = Path, remote_restart_counter = PathRestartCounter}
     end.
 
-unbind(#context{control_port = GtpPort, remote_control_ip = RemoteIP}) ->
-    case get(GtpPort, RemoteIP) of
+unbind(#context{version = Version, control_port = GtpPort, remote_control_ip = RemoteIP}) ->
+    case get(GtpPort, Version, RemoteIP) of
 	Path when is_pid(Path) ->
 	    gen_server:call(Path, {unbind, self()});
        _ ->
@@ -88,15 +88,19 @@ unbind(#context{control_port = GtpPort, remote_control_ip = RemoteIP}) ->
     end.
 
 down(GtpPort, IP) ->
-    case get(GtpPort, IP) of
+    down(GtpPort, v1, IP),
+    down(GtpPort, v2, IP).
+
+down(GtpPort, Version, IP) ->
+    case get(GtpPort, Version, IP) of
 	Path when is_pid(Path) ->
 	    gen_server:cast(Path, down);
 	_ ->
 	    ok
     end.
 
-get(#gtp_port{name = PortName}, IP) ->
-    gtp_path_reg:lookup({PortName, IP}).
+get(#gtp_port{name = PortName}, Version, IP) ->
+    gtp_path_reg:lookup({PortName, Version, IP}).
 
 all(Path) ->
     gen_server:call(Path, all).
@@ -119,7 +123,7 @@ get_handler(#gtp_port{type = 'gtp-c'}, v2) ->
 %%% gen_server callbacks
 %%%===================================================================
 init([#gtp_port{name = PortName} = GtpPort, Version, RemoteIP, Args]) ->
-    gtp_path_reg:register({PortName, RemoteIP}),
+    gtp_path_reg:register({PortName, Version, RemoteIP}),
     exometer:re_register([path, PortName, RemoteIP, contexts], gauge, ?EXO_CONTEXTS_OPTS),
     TID = ets:new(?MODULE, [ordered_set, public, {keypos, 1}]),
 
