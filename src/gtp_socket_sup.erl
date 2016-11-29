@@ -33,4 +33,4 @@ new(Socket)->
 
 init([]) ->
     {ok, {{simple_one_for_one, 5, 10},
-	  [{gtp_socket, {gtp_socket, start_link, []}, temporary, 1000, worker, [gtp_socket]}]}}.
+	  [{gtp_socket, {gtp_socket, start_link, []}, transient, 1000, worker, [gtp_socket]}]}}.
