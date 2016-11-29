@@ -405,31 +405,42 @@ do_send_response(#request_key{ip = IP, port = Port} = ReqKey, Data, DoCache,
 %%% exometer functions
 %%%===================================================================
 
+%% wrapper to reuse old entries when restarting
+exometer_new(Name, Type, Opts) ->
+    case exometer:ensure(Name, Type, Opts) of
+	ok ->
+	    ok;
+	_ ->
+	    exometer:re_register(Name, Type, Opts)
+    end.
+exometer_new(Name, Type) ->
+    exometer_new(Name, Type, []).
+
 init_exometer(#gtp_port{name = Name, type = 'gtp-c'}) ->
-    exometer:new([socket, 'gtp-c', Name, rx, v1, unsupported], counter),
-    exometer:new([socket, 'gtp-c', Name, tx, v1, unsupported], counter),
+    exometer_new([socket, 'gtp-c', Name, rx, v1, unsupported], counter),
+    exometer_new([socket, 'gtp-c', Name, tx, v1, unsupported], counter),
     lists:foreach(fun(MsgType) ->
-			  exometer:new([socket, 'gtp-c', Name, rx, v1, MsgType], counter),
-			  exometer:new([socket, 'gtp-c', Name, rx, v1, MsgType, duplicate], counter),
-			  exometer:new([socket, 'gtp-c', Name, tx, v1, MsgType], counter),
-			  exometer:new([socket, 'gtp-c', Name, tx, v1, MsgType, retransmit], counter),
+			  exometer_new([socket, 'gtp-c', Name, rx, v1, MsgType], counter),
+			  exometer_new([socket, 'gtp-c', Name, rx, v1, MsgType, duplicate], counter),
+			  exometer_new([socket, 'gtp-c', Name, tx, v1, MsgType], counter),
+			  exometer_new([socket, 'gtp-c', Name, tx, v1, MsgType, retransmit], counter),
 			  case gtp_v1_c:gtp_msg_type(MsgType) of
 			      request ->
-				  exometer:new([socket, 'gtp-c', Name, tx, v1, MsgType, timeout], counter);
+				  exometer_new([socket, 'gtp-c', Name, tx, v1, MsgType, timeout], counter);
 			      _ ->
 				  ok
 			  end
 		  end, gtp_v1_c:gtp_msg_types()),
-    exometer:new([socket, 'gtp-c', Name, rx, v2, unsupported], counter),
-    exometer:new([socket, 'gtp-c', Name, tx, v2, unsupported], counter),
+    exometer_new([socket, 'gtp-c', Name, rx, v2, unsupported], counter),
+    exometer_new([socket, 'gtp-c', Name, tx, v2, unsupported], counter),
     lists:foreach(fun(MsgType) ->
-			  exometer:new([socket, 'gtp-c', Name, rx, v2, MsgType, duplicate], counter),
-			  exometer:new([socket, 'gtp-c', Name, rx, v2, MsgType], counter),
-			  exometer:new([socket, 'gtp-c', Name, tx, v2, MsgType, retransmit], counter),
-			  exometer:new([socket, 'gtp-c', Name, tx, v2, MsgType], counter),
+			  exometer_new([socket, 'gtp-c', Name, rx, v2, MsgType, duplicate], counter),
+			  exometer_new([socket, 'gtp-c', Name, rx, v2, MsgType], counter),
+			  exometer_new([socket, 'gtp-c', Name, tx, v2, MsgType, retransmit], counter),
+			  exometer_new([socket, 'gtp-c', Name, tx, v2, MsgType], counter),
 			  case gtp_v2_c:gtp_msg_type(MsgType) of
 			      request ->
-				  exometer:new([socket, 'gtp-c', Name, tx, v2, MsgType, timeout], counter);
+				  exometer_new([socket, 'gtp-c', Name, tx, v2, MsgType, timeout], counter);
 			      _ ->
 				  ok
 			  end
