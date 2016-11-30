@@ -58,6 +58,14 @@ Socket to VRF wiring:
 Configuration
 -------------
 
+### PLMN Id ###
+
+     {plmn_id, {<<"001">>, <<"01">>}
+
+The PLMN identifier is the MCC and MNC of the served network.
+
+* plmn_id: `{plmn_id, {MCC :: binary(), MNC :: binary()}}`
+
 ### GTP socket ###
 
      {sockets,

@@ -12,16 +12,23 @@
 %% API
 -export([load_config/1, validate_options/2]).
 
+-define(DefaultOptions, [{plmn_id, {<<"001">>, <<"01">>}},
+			 {sockets, []},
+			 {handlers, []},
+			 {vrfs, []},
+			 {apns, []}]).
+
 %%%===================================================================
 %%% API
 %%%===================================================================
 
 load_config(Config0) ->
     Config = validate_config(Config0),
-    lists:foreach(fun load_socket/1, proplists:get_value(sockets, Config, [])),
-    lists:foreach(fun load_handler/1, proplists:get_value(handlers, Config, [])),
-    lists:foreach(fun load_vrf/1, proplists:get_value(vrfs, Config, [])),
-    lists:foreach(fun load_apn/1, proplists:get_value(apns, Config, [])),
+    ergw:set_plmn_id(proplists:get_value(plmn_id, Config)),
+    lists:foreach(fun load_socket/1, proplists:get_value(sockets, Config)),
+    lists:foreach(fun load_handler/1, proplists:get_value(handlers, Config)),
+    lists:foreach(fun load_vrf/1, proplists:get_value(vrfs, Config)),
+    lists:foreach(fun load_apn/1, proplists:get_value(apns, Config)),
     ok.
 
 %%%===================================================================
@@ -36,11 +43,17 @@ validate_options(Fun, [{Opt, Value} | Tail]) ->
         [{Opt, Fun(Opt, Value)} | validate_options(Fun, Tail)].
 
 validate_config(Options) ->
-    validate_options(fun validate_option/2, Options).
+    Opts = lists:keymerge(1, lists:keysort(1, Options), lists:keysort(1, ?DefaultOptions)),
+    validate_options(fun validate_option/2, Opts).
 
-validate_option(sockets, Value) when is_list(Value) ->
+validate_option(plmn_id, {MCC, MNC} = Value) ->
+    case validate_mcc_mcn(MCC, MNC) of
+	ok -> Value;
+	_  -> throw({error, {options, {plmn_id, Value}}})
+    end;
+validate_option(sockets, Value) when is_list(Value), length(Value) >= 1 ->
     validate_options(fun validate_sockets_option/2, Value);
-validate_option(handlers, Value) when is_list(Value) ->
+validate_option(handlers, Value) when is_list(Value), length(Value) >= 1 ->
     validate_options(fun validate_handlers_option/2, Value);
 validate_option(vrfs, Value) when is_list(Value) ->
     validate_options(fun validate_vrfs_option/2, Value);
@@ -48,6 +61,17 @@ validate_option(apns, Value) when is_list(Value) ->
     validate_options(fun validate_apns_option/2, Value);
 validate_option(_Opt, Value) ->
     Value.
+
+validate_mcc_mcn(MCC, MNC)
+  when is_binary(MCC) andalso size(MCC) == 3 andalso
+       is_binary(MNC) andalso (size(MNC) == 2 orelse size(MNC) == 3) ->
+    try {binary_to_integer(MCC), binary_to_integer(MNC)} of
+	_ -> ok
+    catch
+	error:badarg -> error
+    end;
+validate_mcc_mcn(_, _) ->
+    error.
 
 validate_sockets_option(Opt, Value) when is_atom(Opt), is_list(Value) ->
     validate_options(fun validate_socket_option/2, Value);

@@ -14,6 +14,7 @@
 -export([start_socket/2, start_vrf/2,
 	 attach_protocol/4, attach_data_path/2, attach_vrf/3]).
 -export([handler/2, vrf/1]).
+-export([set_plmn_id/1, get_plmn_id/0]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -32,6 +33,13 @@
 
 start_link() ->
     gen_server:start_link(?MODULE, [], []).
+
+%% get/set global PLMN Id (aka MCC/MNC)
+set_plmn_id({MCC, MNC}) ->
+    ets:insert(?SERVER, {config, plmn_id, MCC, MNC}).
+get_plmn_id() ->
+    [{config, plmn_id, MCC, MNC}] = ets:lookup(?SERVER, plmn_id),
+    {MCC, MNC}.
 
 %%
 %% Initialize a new GTPv1/v2-c or GTPv1-u socket
@@ -116,6 +124,7 @@ vrf(APN) ->
 init([]) ->
     TID = ets:new(?SERVER, [ordered_set, named_table, public,
 			    {keypos, 2}, {read_concurrency, true}]),
+    ets:insert(TID, {config, plmn_id, <<"001">>, <<"01">>}),
     {ok, #state{tid = TID}}.
 
 handle_call(_Request, _From, State) ->
