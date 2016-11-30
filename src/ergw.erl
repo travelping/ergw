@@ -109,12 +109,35 @@ handler(Socket, Protocol) ->
 	    {error, not_found}
     end.
 
-vrf(APN) ->
+vrf_lookup(APN) ->
     case ets:lookup(?SERVER, APN) of
 	[#route{vrf = VRF, options = Options}] ->
 	    {ok, {VRF, Options}};
 	_ ->
 	    {error, not_found}
+    end.
+
+expand_apn(<<"gprs">>, APN) when length(APN) > 3 ->
+    {ShortAPN, _} = lists:split(length(APN) - 3, APN),
+    ShortAPN;
+expand_apn(_, APN) ->
+    {MCC, MNC} = get_plmn_id(),
+    MNCpart = if (size(MNC) == 2) -> <<"mnc0", MNC/binary>>;
+		 true             -> <<"mnc",  MNC/binary>>
+	      end,
+    APN ++ [MNCpart, <<"mcc", MCC/binary>>, <<"gprs">>].
+
+vrf(APN) ->
+    case vrf_lookup(APN) of
+	{ok, _} = Result ->
+	    Result;
+	_ ->
+	    case vrf_lookup(expand_apn(lists:last(APN), APN)) of
+		{ok, _} = Result ->
+		    Result;
+		_ ->
+		    vrf_lookup('_')
+	    end
     end.
 
 %%%===================================================================
