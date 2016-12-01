@@ -17,7 +17,7 @@
 %%====================================================================
 
 init() ->
-    StateFile = application:get_env(?App, state_file, "/var/lib/ergw/ergw.state"),
+    StateFile = setup:get_env(?App, state_file, filename:join(setup:data_dir(), "ergw.state")),
     application:set_env(?App, state_file, StateFile, [{persistent, true}]),
 
     State0 = read_term(StateFile),

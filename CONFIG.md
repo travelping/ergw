@@ -58,6 +58,8 @@ Socket to VRF wiring:
 Configuration
 -------------
 
+The configuration is processed through the [Erlang setup](https://github.com/uwiger/setup/blob/master/doc/setup.md) application. Therefor variable expansion as described there is available.
+
 ### PLMN Id ###
 
      {plmn_id, {<<"001">>, <<"01">>}
