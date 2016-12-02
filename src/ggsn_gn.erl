@@ -61,8 +61,6 @@ validate_options(Options) ->
 validate_option(Opt, Value) ->
     gtp_context:validate_option(Opt, Value).
 
--record(context_state, {}).
-
 init(Opts, State) ->
     SessionOpts0 = proplists:get_value(session, Opts, []),
     SessionOpts1 = lists:foldl(fun copy_session_defaults/2, #{}, SessionOpts0),
@@ -89,15 +87,12 @@ handle_request(_ReqKey,
 	       #gtp{type = create_pdp_context_request,
 		    ie = #{
 		      ?'Recovery' := Recovery,
-		      ?'Access Point Name' := #access_point_name{apn = APN},
 		      ?'Quality of Service Profile' := ReqQoSProfile
 		     } = IEs}, _Resent,
-	       #{tei := LocalTEI, gtp_port := GtpPort, gtp_dp_port := GtpDP,
-		 aaa_opts := AAAopts, 'Session' := Session} = State) ->
+	       #{context := Context0, aaa_opts := AAAopts, 'Session' := Session} = State) ->
 
     EUA = maps:get(?'End User Address', IEs, undefined),
 
-    Context0 = init_context(APN, GtpPort, LocalTEI, GtpDP, LocalTEI),
     Context1 = update_context_from_gtp_req(IEs, Context0),
     Context2 = gtp_path:bind(Recovery, Context1),
 
@@ -429,18 +424,6 @@ negotiate_qos(ReqPriority, ReqQoSProfileData) ->
 	    {NegPriority, ReqQoSProfileData}
     end.
 
-init_context(APN, CntlPort, CntlTEI, DataPort, DataTEI) ->
-    #context{
-       apn               = APN,
-       version           = v1,
-       control_interface = ?MODULE,
-       control_port      = CntlPort,
-       local_control_tei = CntlTEI,
-       data_port         = DataPort,
-       local_data_tei    = DataTEI,
-       state             = #context_state{}
-      }.
-
 get_context_from_req(_, #gsn_address{instance = 0, address = CntlIP}, Context) ->
     Context#context{remote_control_ip = gtp_c_lib:bin2ip(CntlIP)};
 get_context_from_req(_, #gsn_address{instance = 1, address = DataIP}, Context) ->
@@ -449,6 +432,8 @@ get_context_from_req(_, #tunnel_endpoint_identifier_data_i{instance = 0, tei = D
     Context#context{remote_data_tei = DataTEI};
 get_context_from_req(_, #tunnel_endpoint_identifier_control_plane{instance = 0, tei = CntlTEI}, Context) ->
     Context#context{remote_control_tei = CntlTEI};
+get_context_from_req(?'Access Point Name', #access_point_name{apn = APN}, Context) ->
+    Context#context{apn = APN};
 get_context_from_req(?'IMSI', #international_mobile_subscriber_identity{imsi = IMSI}, Context) ->
     Context#context{imsi = IMSI};
 get_context_from_req(?'IMEI', #imei{imei = IMEI}, Context) ->

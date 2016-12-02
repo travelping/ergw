@@ -85,24 +85,32 @@ validate_option(Opt, Value) ->
 %% gen_server API
 %%====================================================================
 
-init([GtpPort, Version, Interface, Opts]) ->
-    lager:debug("init(~p)", [[GtpPort, Interface]]),
+init([CntlPort, Version, Interface, Opts]) ->
+    lager:debug("init(~p)", [[CntlPort, Interface]]),
 
     DP = hd(proplists:get_value(data_paths, Opts, [])),
-    GtpDP = gtp_socket_reg:lookup(DP),
+    DataPort = gtp_socket_reg:lookup(DP),
 
-    {ok, TEI} = gtp_c_lib:alloc_tei(GtpPort),
+    {ok, CntlTEI} = gtp_c_lib:alloc_tei(CntlPort),
+    {ok, DataTEI} = gtp_c_lib:alloc_tei(DataPort),
+
+    Context = #context{
+		 version           = Version,
+		 control_interface = Interface,
+		 control_port      = CntlPort,
+		 local_control_tei = CntlTEI,
+		 data_port         = DataPort,
+		 local_data_tei    = DataTEI
+		},
 
     AAAopts = aaa_config(proplists:get_value(aaa, Opts, [])),
     lager:debug("AAA Config Opts: ~p", [AAAopts]),
 
     State = #{
-      gtp_port  => GtpPort,
-      gtp_dp_port => GtpDP,
+      context   => Context,
       version   => Version,
-      handler   => gtp_path:get_handler(GtpPort, Version),
+      handler   => gtp_path:get_handler(CntlPort, Version),
       interface => Interface,
-      tei       => TEI,
       aaa_opts  => AAAopts},
 
     Interface:init(Opts, State).

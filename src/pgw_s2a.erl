@@ -55,8 +55,6 @@ validate_options(Options) ->
 validate_option(Opt, Value) ->
     gtp_context:validate_option(Opt, Value).
 
--record(context_state, {}).
-
 init(_Opts, State) ->
     {ok, State}.
 
@@ -78,7 +76,6 @@ handle_request(_ReqKey,
 	       #gtp{type = create_session_request,
 		    ie = #{?'Recovery'                        := Recovery,
 			   ?'Sender F-TEID for Control Plane' := FqCntlTEID,
-			   ?'Access Point Name'               := #v2_access_point_name{apn = APN},
 			   ?'Bearer Contexts to be created' :=
 			       #v2_bearer_context{group = #{
 						    ?'EPS Bearer ID'     := EBI,
@@ -86,15 +83,15 @@ handle_request(_ReqKey,
 						   }}
 			  } = IEs},
 	       _Resent,
-	       #{tei := LocalTEI, gtp_port := GtpPort, gtp_dp_port := GtpDP} = State) ->
+	       #{context := Context0} = State) ->
 
     PAA = maps:get(?'PDN Address Allocation', IEs, undefined),
 
-    Context0 = init_context(APN, GtpPort, LocalTEI, GtpDP, LocalTEI),
     Context1 = update_context_tunnel_ids(FqCntlTEID, FqDataTEID, Context0),
-    Context2 = gtp_path:bind(Recovery, Context1),
+    Context2 = update_context_from_gtp_req(IEs, Context1),
+    Context3 = gtp_path:bind(Recovery, Context2),
 
-    Context = assign_ips(PAA, Context2),
+    Context = assign_ips(PAA, Context3),
     dp_create_pdp_context(Context),
 
     ResponseIEs0 = create_session_response(EBI, Context),
@@ -191,18 +188,6 @@ encode_paa(Type, IPv4, IPv6) ->
 pdn_release_ip(#context{ms_v4 = MSv4, ms_v6 = MSv6}, #{gtp_port := GtpPort}) ->
     vrf:release_pdp_ip(GtpPort, MSv4, MSv6).
 
-init_context(APN, CntlPort, CntlTEI, DataPort, DataTEI) ->
-    #context{
-       apn               = APN,
-       version           = v2,
-       control_interface = ?MODULE,
-       control_port      = CntlPort,
-       local_control_tei = CntlTEI,
-       data_port         = DataPort,
-       local_data_tei    = DataTEI,
-       state             = #context_state{}
-      }.
-
 update_context_tunnel_ids(#v2_fully_qualified_tunnel_endpoint_identifier{
 			     key  = RemoteCntlTEI,
 			     ipv4 = RemoteCntlIP},
@@ -216,6 +201,16 @@ update_context_tunnel_ids(#v2_fully_qualified_tunnel_endpoint_identifier{
       remote_data_ip     = gtp_c_lib:bin2ip(RemoteDataIP),
       remote_data_tei    = RemoteDataTEI
      }.
+
+get_context_from_req(?'Access Point Name', #v2_access_point_name{apn = APN}, Context) ->
+    Context#context{apn = APN};
+get_context_from_req(?'IMSI', #v2_international_mobile_subscriber_identity{imsi = IMSI}, Context) ->
+    Context#context{imsi = IMSI};
+get_context_from_req(_, _, Context) ->
+    Context.
+
+update_context_from_gtp_req(Request, Context) ->
+    maps:fold(fun get_context_from_req/3, Context, Request).
 
 dp_args(#context{ms_v4 = {MSv4,_}}) ->
     MSv4.

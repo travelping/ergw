@@ -149,16 +149,13 @@ handle_request(_From, _Msg, true, State) ->
 
 handle_request(ReqKey,
 	       #gtp{type = create_session_request, seq_no = SeqNo,
-		    ie = #{?'Recovery'          := Recovery,
-			   ?'Access Point Name' := #v2_access_point_name{apn = APN}
-			  } = IEs} = Request,
+		    ie = #{?'Recovery' := Recovery} = IEs} = Request,
 	       _Resent,
-	       #{tei := LocalTEI, gtp_port := GtpPort, gtp_dp_port := GtpDP,
-		 proxy_ports := ProxyPorts, proxy_dps := ProxyDPs, pgw := DefaultPGW,
+	       #{context := Context0, pgw := DefaultPGW,
+		 proxy_ports := ProxyPorts, proxy_dps := ProxyDPs,
 		 proxy_ds := ProxyDS} = State0) ->
 
-    Context0 = init_context(APN, GtpPort, LocalTEI, GtpDP, LocalTEI),
-    Context1 = update_context_from_gtp_req(Request, Context0),
+    Context1 = update_context_from_gtp_req(Request, Context0#context{state = #context_state{}}),
     Context = gtp_path:bind(Recovery, Context1),
     State1 = State0#{context => Context},
 
@@ -174,17 +171,10 @@ handle_request(ReqKey,
 	    lager:debug("OK Proxy Map: ~p", [lager:pr(ProxyInfo, ?MODULE)]),
 	    ProxyGtpPort = gtp_socket_reg:lookup(hd(ProxyPorts)),
 	    ProxyGtpDP = gtp_socket_reg:lookup(hd(ProxyDPs)),
-	    {ok, ProxyLocalTEI} = gtp_c_lib:alloc_tei(ProxyGtpPort),
 
-	    lager:debug("ProxyGtpPort: ~p", [lager:pr(ProxyGtpPort, ?MODULE)]),
-	    ProxyContext0 = init_context(APN, ProxyGtpPort, ProxyLocalTEI, ProxyGtpDP, ProxyLocalTEI),
-	    ProxyContext1 = ProxyContext0#context{
-			      remote_control_ip = PGW,
-			      remote_data_ip    = PGW,
-			      state             = Context#context.state
-			     },
-	    ProxyContext2 = copy_subscriber_info(Context, ProxyInfo, ProxyContext1),
-	    ProxyContext = gtp_path:bind(undefined, ProxyContext2),
+	    ProxyContext0 = init_proxy_context(PGW, ProxyGtpPort, ProxyGtpDP, Context),
+	    ProxyContext1 = copy_subscriber_info(Context, ProxyInfo, ProxyContext0),
+	    ProxyContext = gtp_path:bind(undefined, ProxyContext1),
 	    State = State1#{proxy_info    => ProxyInfo,
 			    proxy_context => ProxyContext},
 
@@ -310,16 +300,19 @@ apply_proxy_context_change(NewContext0, OldContext, State)
 apply_proxy_context_change(_NewContext, _OldContext, State) ->
     State.
 
-init_context(APN, CntlPort, CntlTEI, DataPort, DataTEI) ->
+init_proxy_context(PGW, CntlPort, DataPort,
+		   #context{version = Version, control_interface = Interface, state = State}) ->
+    {ok, CntlTEI} = gtp_c_lib:alloc_tei(CntlPort),
+    {ok, DataTEI} = gtp_c_lib:alloc_tei(DataPort),
     #context{
-       apn               = APN,
-       version           = v2,
-       control_interface = ?MODULE,
+       version           = Version,
+       control_interface = Interface,
        control_port      = CntlPort,
        local_control_tei = CntlTEI,
        data_port         = DataPort,
        local_data_tei    = DataTEI,
-       state             = #context_state{}
+       remote_control_ip = PGW,
+       state             = State
       }.
 
 copy_subscriber_info(#context{apn = APN, imei = IMEI},
@@ -358,6 +351,8 @@ get_context_from_req(?'Sender F-TEID for Control Plane',
      };
 get_context_from_req(_K, #v2_bearer_context{instance = 0, group = Bearer}, Context) ->
     maps:fold(fun get_context_from_bearer/3, Context, Bearer);
+get_context_from_req(?'Access Point Name', #v2_access_point_name{apn = APN}, Context) ->
+    Context#context{apn = APN};
 get_context_from_req(?'IMSI', #v2_international_mobile_subscriber_identity{imsi = IMSI}, Context) ->
     Context#context{imsi = IMSI};
 get_context_from_req(?'ME Identity', #v2_mobile_equipment_identity{mei = IMEI}, Context) ->
