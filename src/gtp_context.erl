@@ -160,9 +160,9 @@ handle_info({ReqId, Request, Response = #gtp{type = MsgType, ie = IEs}},
 	    handle_response(ReqId, Request, Response, State)
     end;
 
-handle_info(Info, State) ->
+handle_info(Info, #{interface := Interface} = State) ->
     lager:debug("handle_info: ~p", [lager:pr(Info, ?MODULE)]),
-    {noreply, State}.
+    Interface:handle_info(Info, State).
 
 terminate(_Reason, _State) ->
     ok.

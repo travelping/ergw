@@ -22,6 +22,12 @@
 	      {noreply, NewState :: map(), 'hibernate'} |
 	      {stop, Reason :: term(), NewState :: map()}.
 
+-callback handle_info(Info:: term(), State :: map()) ->
+    Result :: {noreply, NewState :: map()} |
+	      {noreply, NewState :: map(), Timeout :: integer() | 'infinity'} |
+	      {noreply, NewState :: map(), 'hibernate'} |
+	      {stop, Reason :: term(), NewState :: map()}.
+
 -callback handle_request(ReqKey :: #request_key{},
 			 Msg :: #gtp{},
 			 Resent :: boolean(),

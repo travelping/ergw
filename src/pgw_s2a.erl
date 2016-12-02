@@ -11,7 +11,9 @@
 
 -compile({parse_transform, do}).
 
--export([validate_options/1, init/2, request_spec/1, handle_request/4, handle_cast/2]).
+-export([validate_options/1, init/2, request_spec/1,
+	 handle_request/4,
+	 handle_cast/2, handle_info/2]).
 
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include("include/ergw.hrl").
@@ -63,6 +65,9 @@ handle_cast({path_restart, Path}, #{context := #context{path = Path} = Context} 
     pdn_release_ip(Context, State),
     {stop, normal, State};
 handle_cast({path_restart, _Path}, State) ->
+    {noreply, State}.
+
+handle_info(_Info, State) ->
     {noreply, State}.
 
 handle_request(_ReqKey, _Msg, true, State) ->
