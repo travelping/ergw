@@ -97,28 +97,16 @@ handle_cast({path_restart, Path},
 	    #{context := #context{path = Path} = Context,
 	      proxy_context := ProxyContext
 	     } = State) ->
-
-    RequestIEs0 = [#v2_cause{v2_cause = network_failure},
-		   #v2_eps_bearer_id{eps_bearer_id = Context#context.state#context_state.ebi}],
-    RequestIEs = gtp_v2_c:build_recovery(ProxyContext, false, RequestIEs0),
-    send_request(ProxyContext, ?T3, ?N3, delete_session_request, RequestIEs),
-
+    initiate_delete_session_request(ProxyContext),
     dp_delete_pdp_context(Context, ProxyContext),
-
     {stop, normal, State};
 
 handle_cast({path_restart, Path},
 	    #{context := Context,
 	      proxy_context := #context{path = Path} = ProxyContext
 	     } = State) ->
-
-    RequestIEs0 = [#v2_cause{v2_cause = network_failure},
-		   #v2_eps_bearer_id{eps_bearer_id = Context#context.state#context_state.ebi}],
-    RequestIEs = gtp_v2_c:build_recovery(Context, false, RequestIEs0),
-    send_request(Context, ?T3, ?N3, delete_session_request, RequestIEs),
-
+    initiate_delete_session_request(Context),
     dp_delete_pdp_context(Context, ProxyContext),
-
     {stop, normal, State};
 
 handle_cast({path_restart, _Path}, State) ->
@@ -448,9 +436,15 @@ build_context_request(#context{remote_control_tei = TEI} = Context,
 send_request(#context{control_port = GtpPort,
 		      remote_control_tei = RemoteCntlTEI,
 		      remote_control_ip = RemoteCntlIP},
-	     Type, T3, N3, RequestIEs) ->
+	     T3, N3, Type, RequestIEs) ->
     Msg = #gtp{version = v2, type = Type, tei = RemoteCntlTEI, ie = RequestIEs},
     gtp_context:send_request(GtpPort, RemoteCntlIP, T3, N3, Msg, undefined).
+
+initiate_delete_session_request(#context{state = #context_state{ebi = EBI}} = Context) ->
+    RequestIEs0 = [#v2_cause{v2_cause = network_failure},
+		   #v2_eps_bearer_id{eps_bearer_id = EBI}],
+    RequestIEs = gtp_v2_c:build_recovery(Context, false, RequestIEs0),
+    send_request(Context, ?T3, ?N3, delete_session_request, RequestIEs).
 
 forward_request(#context{control_port = GtpPort, remote_control_ip = RemoteCntlIP},
 	       Request, ReqKey, SeqNo, NewPeer) ->
