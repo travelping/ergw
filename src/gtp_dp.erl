@@ -23,7 +23,7 @@
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include("include/ergw.hrl").
 
--record(state, {state, tref, timeout, name, node, remote_name, ip, pid}).
+-record(state, {state, tref, timeout, name, node, remote_name, ip, pid, gtp_port}).
 
 %%====================================================================
 %% API
@@ -120,6 +120,11 @@ handle_info(reconnect, State0) ->
     State = connect(State0#state{tref = undefined}),
     {noreply, State};
 
+handle_info({packet_in, IP, Port, Msg} = Info, #state{gtp_port = GtpPort} = State) ->
+    lager:debug("handle_info: ~p, ~p", [lager:pr(Info, ?MODULE), lager:pr(State, ?MODULE)]),
+    gtp_context:handle_packet_in(GtpPort, IP, Port, Msg),
+    {noreply, State};
+
 handle_info(Info, State) ->
     lager:error("handle_info: unknown ~p, ~p", [lager:pr(Info, ?MODULE), lager:pr(State, ?MODULE)]),
     {noreply, State}.
@@ -156,7 +161,7 @@ connect(#state{name = Name, node = Node, remote_name = RemoteName} = State) ->
 				ip = IP, restart_counter = RCnt},
 	    gtp_socket_reg:register(Name, GtpPort),
 
-	    State#state{state = connected, timeout = 10, ip = IP, pid = Pid};
+	    State#state{state = connected, timeout = 10, ip = IP, pid = Pid, gtp_port = GtpPort};
 	pang ->
 	    lager:warning("Node ~p is down", [Node]),
 	    start_nodedown_timeout(State)

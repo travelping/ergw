@@ -10,9 +10,12 @@
 -compile({parse_transform, cut}).
 -compile({parse_transform, do}).
 
--export([lookup/2, handle_message/2, start_link/5,
+-export([lookup/2, handle_message/2, handle_packet_in/4,
+	 start_link/5,
 	 send_request/4, send_request/6, send_response/2,
-	 path_restart/2, info/1, validate_option/2]).
+	 path_restart/2,
+	 register_remote_context/1, update_remote_context/2,
+	 info/1, validate_option/2]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -20,6 +23,8 @@
 
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include("include/ergw.hrl").
+
+-define('Tunnel Endpoint Identifier Data I',	{tunnel_endpoint_identifier_data_i, 0}).
 
 %%====================================================================
 %% API
@@ -55,6 +60,20 @@ handle_message(#request_key{gtp_port = GtpPort} = ReqKey, #gtp{tei = TEI} = Msg)
 	    generic_error(ReqKey, Msg, not_found)
     end.
 
+handle_packet_in(GtpPort, IP, Port,
+		 #gtp{type = error_indication,
+		      ie = #{?'Tunnel Endpoint Identifier Data I' :=
+				 #tunnel_endpoint_identifier_data_i{tei = TEI}}} = Msg) ->
+    lager:debug("handle_packet_in: ~p", [lager:pr(Msg, ?MODULE)]),
+    case lookup(GtpPort, {remote_data, IP, TEI}) of
+	Context when is_pid(Context) ->
+	    gen_server:cast(Context, {packet_in, GtpPort, IP, Port, Msg});
+
+	_ ->
+	    lager:error("handle_packet_in: didn't find ~p, ~p, ~p)", [GtpPort, IP, TEI]),
+	    ok
+    end.
+
 send_request(GtpPort, RemoteIP, Msg, ReqId) ->
     gtp_socket:send_request(GtpPort, self(), RemoteIP, Msg, ReqId).
 
@@ -66,6 +85,35 @@ start_link(GtpPort, Version, Interface, IfOpts, Opts) ->
 
 path_restart(Context, Path) ->
     gen_server:cast(Context, {path_restart, Path}).
+
+register_remote_context(#context{
+			   control_port       = CntlPort,
+			   remote_control_ip  = CntlIP,
+			   remote_control_tei = CntlTEI,
+			   data_port          = DataPort,
+			   remote_data_ip     = DataIP,
+			   remote_data_tei    = DataTEI}) ->
+    gtp_context_reg:register(CntlPort, {remote_control, CntlIP, CntlTEI}),
+    gtp_context_reg:register(DataPort, {remote_data,    DataIP, DataTEI}),
+    ok.
+
+update_remote_control_context(#context{control_port = OldCntlPort, remote_control_ip = OldCntlIP, remote_control_tei = OldCntlTEI},
+			      #context{control_port = NewCntlPort, remote_control_ip = NewCntlIP, remote_control_tei = NewCntlTEI})
+  when OldCntlPort =/= OldCntlIP; OldCntlTEI =/= NewCntlPort; NewCntlIP =/= NewCntlTEI ->
+    gtp_context_reg:unregister(OldCntlPort, {remote_control, OldCntlIP, OldCntlTEI}),
+    gtp_context_reg:register(NewCntlPort, {remote_control, NewCntlIP, NewCntlTEI}),
+    ok.
+
+update_remote_data_context(#context{data_port = OldDataPort, remote_data_ip = OldDataIP, remote_data_tei = OldDataTEI},
+			   #context{data_port = NewDataPort, remote_data_ip = NewDataIP, remote_data_tei = NewDataTEI})
+  when OldDataPort =/= OldDataIP; OldDataTEI =/= NewDataPort; NewDataIP =/= NewDataTEI ->
+    gtp_context_reg:unregister(OldDataPort, {remote_data, OldDataIP, OldDataTEI}),
+    gtp_context_reg:register(NewDataPort, {remote_data, NewDataIP, NewDataTEI}),
+    ok.
+
+update_remote_context(OldContext, NewContext) ->
+    update_remote_control_context(OldContext, NewContext),
+    update_remote_data_context(OldContext, NewContext).
 
 info(Context) ->
     gen_server:call(Context, info).

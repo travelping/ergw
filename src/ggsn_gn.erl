@@ -73,6 +73,10 @@ handle_cast({path_restart, Path}, #{context := #context{path = Path} = Context} 
     pdp_release_ip(Context),
     {stop, normal, State};
 handle_cast({path_restart, _Path}, State) ->
+    {noreply, State};
+
+handle_cast({packet_in, _GtpPort, _IP, _Port, _Msg}, State) ->
+    lager:warning("packet_in not handled (yet): ~p", [_Msg]),
     {noreply, State}.
 
 handle_info(_Info, State) ->
@@ -111,6 +115,7 @@ handle_request(_ReqKey,
 	    lager:info("ActiveSessionOpts: ~p", [ActiveSessionOpts]),
 	    Context = assign_ips(ActiveSessionOpts, EUA, Context2),
 
+	    gtp_context:register_remote_context(Context),
 	    dp_create_pdp_context(Context),
 
 	    ResponseIEs0 = create_pdp_context_response(ActiveSessionOpts, IEs, Context),
@@ -140,6 +145,7 @@ handle_request(_ReqKey,
     Context = gtp_path:bind(Recovery, Context0),
 
     State1 = if Context /= OldContext ->
+		     gtp_context:update_remote_context(OldContext, Context),
 		     apply_context_change(Context, OldContext, State0);
 		true ->
 		     State0

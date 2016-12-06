@@ -69,6 +69,10 @@ handle_cast({path_restart, Path}, #{context := #context{path = Path} = Context} 
     pdn_release_ip(Context),
     {stop, normal, State};
 handle_cast({path_restart, _Path}, State) ->
+    {noreply, State};
+
+handle_cast({packet_in, _GtpPort, _IP, _Port, _Msg}, State) ->
+    lager:warning("packet_in not handled (yet): ~p", [_Msg]),
     {noreply, State}.
 
 handle_info(_Info, State) ->
@@ -131,6 +135,7 @@ handle_request(_ReqKey,
 
 	    Context = assign_ips(ActiveSessionOpts, PAA, ContextPreAuth),
 
+	    gtp_context:register_remote_context(Context),
 	    dp_create_pdp_context(Context),
 
 	    ResponseIEs0 = create_session_response(ActiveSessionOpts, IEs, EBI, Context),
@@ -173,6 +178,7 @@ handle_request(_ReqKey,
     Context = gtp_path:bind(Recovery, Context1),
 
     State1 = if Context /= OldContext ->
+		     gtp_context:update_remote_context(OldContext, Context),
 		     apply_context_change(Context, OldContext, State0);
 		true ->
 		     State0

@@ -209,6 +209,10 @@ handle_cast({path_restart, Path},
     {stop, normal, State};
 
 handle_cast({path_restart, _Path}, State) ->
+    {noreply, State};
+
+handle_cast({packet_in, _GtpPort, _IP, _Port, _Msg}, State) ->
+    lager:warning("packet_in not handled (yet): ~p", [_Msg]),
     {noreply, State}.
 
 handle_info(_Info, State) ->
@@ -225,6 +229,7 @@ handle_request(ReqKey,
 
     Context1 = update_context_from_gtp_req(Request, Context0#context{state = #context_state{}}),
     Context = gtp_path:bind(Recovery, Context1),
+    gtp_context:register_remote_context(Context),
     State1 = State0#{context => Context},
 
     Session1 = init_session(IEs, Context),
@@ -266,6 +271,7 @@ handle_request(ReqKey,
 
     Context0 = update_context_from_gtp_req(Request, OldContext),
     Context = gtp_path:bind(Recovery, Context0),
+    gtp_context:update_remote_context(OldContext, Context),
     State = apply_context_change(Context, OldContext, State0),
 
     ProxyContext = gtp_path:bind(undefined, ProxyContext0),
@@ -298,6 +304,7 @@ handle_response(#request_info{request_key = ReqKey, seq_no = SeqNo, new_peer = N
 
     ProxyContext1 = update_context_from_gtp_req(Response, ProxyContext0),
     ProxyContext = gtp_path:bind(Recovery, ProxyContext1),
+    gtp_context:register_remote_context(ProxyContext),
 
     GtpResp0 = build_context_request(Context, undefined, Response),
     GtpResp = build_recovery(Context, NewPeer, GtpResp0),
@@ -320,6 +327,7 @@ handle_response(#request_info{request_key = ReqKey, seq_no = SeqNo, new_peer = N
     lager:warning("OK Proxy Response ~p", [lager:pr(Response, ?MODULE)]),
 
     ProxyContext = update_context_from_gtp_req(Response, OldProxyContext),
+    gtp_context:update_remote_context(OldProxyContext, ProxyContext),
     State = apply_proxy_context_change(ProxyContext, OldProxyContext, State0),
 
     GtpResp0 = build_context_request(Context, undefined, Response),
