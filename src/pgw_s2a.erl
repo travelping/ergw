@@ -65,6 +65,12 @@ handle_cast({path_restart, Path}, #{context := #context{path = Path} = Context} 
 handle_cast({path_restart, _Path}, State) ->
     {noreply, State};
 
+handle_cast({packet_in, _GtpPort, _IP, _Port, #gtp{type = error_indication}},
+	    #{context := Context} = State) ->
+    dp_delete_pdp_context(Context),
+    pdn_release_ip(Context, State),
+    {stop, normal, State};
+
 handle_cast({packet_in, _GtpPort, _IP, _Port, _Msg}, State) ->
     lager:warning("packet_in not handled (yet): ~p", [_Msg]),
     {noreply, State}.
