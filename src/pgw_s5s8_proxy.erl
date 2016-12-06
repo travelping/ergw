@@ -124,6 +124,11 @@ handle_cast({path_restart, Path},
 handle_cast({path_restart, _Path}, State) ->
     {noreply, State};
 
+handle_cast({packet_in, _GtpPort, _IP, _Port, #gtp{type = error_indication}},
+	    #{context := Context, proxy_context := ProxyContext} = State) ->
+    dp_delete_pdp_context(Context, ProxyContext),
+    {stop, normal, State};
+
 handle_cast({packet_in, _GtpPort, _IP, _Port, _Msg}, State) ->
     lager:warning("packet_in not handled (yet): ~p", [_Msg]),
     {noreply, State}.
