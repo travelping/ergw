@@ -198,12 +198,23 @@ handle_request(_ReqKey,
 		     State0
 	     end,
 
-    ResponseIEs0 = [#v2_cause{v2_cause = request_accepted},
+    ResponseIEs0 =
+	case is_sgw_change(OldContext, Context) of
+	    true ->
+		[EBI,				%% Linked EPS Bearer ID
+		 #v2_apn_restriction{restriction_type_value = 0} |
+		 [#v2_msisdn{msisdn = Context#context.msisdn} || Context#context.msisdn /= undefined]];
+	    _ ->
+		[]
+    end,
+
+    ResponseIEs1 = [#v2_cause{v2_cause = request_accepted},
 		    #v2_bearer_context{
 		       group=[#v2_cause{v2_cause = request_accepted},
 			      #v2_charging_id{id = <<0,0,0,1>>},
-			      EBI]}],
-    ResponseIEs = gtp_v2_c:build_recovery(Context, Recovery /= undefined, ResponseIEs0),
+			      EBI]} |
+		    ResponseIEs0],
+    ResponseIEs = gtp_v2_c:build_recovery(Context, Recovery /= undefined, ResponseIEs1),
     Response = {modify_bearer_response, Context#context.remote_control_tei, ResponseIEs},
     {reply, Response, State1};
 
@@ -582,6 +593,12 @@ pdn_pco(SessionOpts, #{?'Protocol Configuration Options' :=
     end;
 pdn_pco(_SessionOpts, _RequestIEs, IE) ->
     IE.
+
+is_sgw_change(#context{remote_control_ip  = RemoteCntlIP, remote_control_tei = RemoteCntlTEI},
+	      #context{remote_control_ip  = RemoteCntlIP, remote_control_tei = RemoteCntlTEI}) ->
+    false;
+is_sgw_change(_, _) ->
+    true.
 
 bearer_context(EBI, Context, IEs) ->
     IE = #v2_bearer_context{
