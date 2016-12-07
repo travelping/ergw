@@ -175,8 +175,9 @@ handle_request(_ReqKey,
 			   ?'Bearer Contexts to be modified' :=
 			       #v2_bearer_context{
 				  group = #{
-				    ?'EPS Bearer ID'     := EBI,
-				    ?'S5/S8-U SGW FTEID' :=                   %% S5/S8 SGW GTP-U Interface
+				    ?'EPS Bearer ID' := EBI,
+				    {v2_fully_qualified_tunnel_endpoint_identifier, 1} :=
+					%% S5/S8 SGW GTP-U Interface
 					#v2_fully_qualified_tunnel_endpoint_identifier{interface_type = 4} =
 					FqDataTEID
 				   }}
@@ -200,8 +201,8 @@ handle_request(_ReqKey,
     ResponseIEs0 = [#v2_cause{v2_cause = request_accepted},
 		    #v2_bearer_context{
 		       group=[#v2_cause{v2_cause = request_accepted},
-			      EBI,
-			      s5s8_pgw_gtp_u_tei(Context)]}],
+			      #v2_charging_id{id = <<0,0,0,1>>},
+			      EBI]}],
     ResponseIEs = gtp_v2_c:build_recovery(Context, Recovery /= undefined, ResponseIEs0),
     Response = {modify_bearer_response, Context#context.remote_control_tei, ResponseIEs},
     {reply, Response, State1};
