@@ -356,8 +356,7 @@ map_attr('IMSI', #{?'IMSI' := #v2_international_mobile_subscriber_identity{imsi 
     IMSI;
 map_attr('IMEI', #{?'ME Identity' := #v2_mobile_equipment_identity{mei = IMEI}}) ->
     IMEI;
-map_attr('MSISDN', #{?'MSISDN' := #v2_msisdn{
-				     msisdn = {isdn_address, _, _, 1, MSISDN}}}) ->
+map_attr('MSISDN', #{?'MSISDN' := #v2_msisdn{msisdn = MSISDN}}) ->
     MSISDN;
 map_attr(Value, _) when is_binary(Value); is_list(Value) ->
     Value;
@@ -407,8 +406,7 @@ copy_to_session(_, #v2_protocol_configuration_options{config = {0, Options}},
     lists:foldr(fun copy_ppp_to_session/2, Session, Options);
 copy_to_session(_, #v2_access_point_name{apn = APN}, _AAAopts, Session) ->
     Session#{'Called-Station-Id' => unicode:characters_to_binary(lists:join($., APN))};
-copy_to_session(_, #v2_msisdn{
-		   msisdn = {isdn_address, _, _, 1, MSISDN}}, _AAAopts, Session) ->
+copy_to_session(_, #v2_msisdn{msisdn = MSISDN}, _AAAopts, Session) ->
     Session#{'Calling-Station-Id' => MSISDN};
 copy_to_session(_, #v2_international_mobile_subscriber_identity{imsi = IMSI}, _AAAopts, Session) ->
     case itu_e212:split_imsi(IMSI) of
@@ -501,8 +499,7 @@ get_context_from_req(?'IMSI', #v2_international_mobile_subscriber_identity{imsi 
     Context#context{imsi = IMSI};
 get_context_from_req(?'ME Identity', #v2_mobile_equipment_identity{mei = IMEI}, Context) ->
     Context#context{imei = IMEI};
-get_context_from_req(?'MSISDN', #v2_msisdn{
-				   msisdn = {isdn_address, _, _, 1, MSISDN}}, Context) ->
+get_context_from_req(?'MSISDN', #v2_msisdn{msisdn = MSISDN}, Context) ->
     Context#context{msisdn = MSISDN};
 get_context_from_req(_, _, Context) ->
     Context.

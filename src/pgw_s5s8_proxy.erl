@@ -367,8 +367,7 @@ get_context_from_req(?'IMSI', #v2_international_mobile_subscriber_identity{imsi 
     Context#context{imsi = IMSI};
 get_context_from_req(?'ME Identity', #v2_mobile_equipment_identity{mei = IMEI}, Context) ->
     Context#context{imei = IMEI};
-get_context_from_req(?'MSISDN', #v2_msisdn{
-				   msisdn = {isdn_address, _, _, 1, MSISDN}}, Context) ->
+get_context_from_req(?'MSISDN', #v2_msisdn{msisdn = MSISDN}, Context) ->
     Context#context{msisdn = MSISDN};
 get_context_from_req(_K, _, Context) ->
     Context.
@@ -427,7 +426,7 @@ proxy_request_nat(#proxy_info{imsi = IMSI},
 proxy_request_nat(#proxy_info{msisdn = MSISDN},
 		  _K, #v2_msisdn{instance = 0} = IE)
   when is_binary(MSISDN) ->
-    IE#v2_msisdn{msisdn = {isdn_address, 1, 1, 1, MSISDN}};
+    IE#v2_msisdn{msisdn = MSISDN};
 
 proxy_request_nat(_ProxyInfo, _K, IE) ->
     IE.
