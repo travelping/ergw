@@ -157,7 +157,6 @@ init([CntlPort, Version, Interface, Opts]) ->
     State = #{
       context   => Context,
       version   => Version,
-      handler   => gtp_path:get_handler(CntlPort, Version),
       interface => Interface,
       aaa_opts  => AAAopts},
 
@@ -230,17 +229,20 @@ code_change(_OldVsn, State, _Extra) ->
 %%% Message Handling functions
 %%%===================================================================
 
-handle_error(ReqKey, #gtp{type = MsgType, seq_no = SeqNo}, Reply,
-	     #{handler := Handler} = State) ->
+handle_error(#request_key{gtp_port = GtpPort} = ReqKey,
+	     #gtp{version = Version, type = MsgType, seq_no = SeqNo}, Reply, State) ->
+    Handler = gtp_path:get_handler(GtpPort, Version),
     Response = Handler:build_response({MsgType, Reply}),
     send_response(ReqKey, Response#gtp{seq_no = SeqNo}),
     {noreply, State}.
 
-handle_request(ReqKey, #gtp{version = Version, seq_no = SeqNo} = Msg,
-	       Resent, #{handler := Handler, interface := Interface} = State0) ->
+handle_request(#request_key{gtp_port = GtpPort} = ReqKey,
+	       #gtp{version = Version, seq_no = SeqNo} = Msg,
+	       Resent, #{interface := Interface} = State0) ->
     lager:debug("GTP~s ~s:~w: ~p",
 		[Version, inet:ntoa(ReqKey#request_key.ip), ReqKey#request_key.port, gtp_c_lib:fmt_gtp(Msg)]),
 
+    Handler = gtp_path:get_handler(GtpPort, Version),
     try Interface:handle_request(ReqKey, Msg, Resent, State0) of
 	{reply, Reply, State1} ->
 	    Response = Handler:build_response(Reply),
