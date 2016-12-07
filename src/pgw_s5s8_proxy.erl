@@ -20,6 +20,7 @@
 -include("include/ergw.hrl").
 -include("gtp_proxy_ds.hrl").
 
+-define(GTP_v1_Interface, ggsn_gn_proxy).
 -define(T3, 10 * 1000).
 -define(N3, 5).
 
@@ -45,6 +46,8 @@
 -define('S5/S8-U SGW FTEID',                            {v2_fully_qualified_tunnel_endpoint_identifier, 2}).
 -define('S5/S8-U PGW FTEID',                            {v2_fully_qualified_tunnel_endpoint_identifier, 3}).
 
+request_spec(v1, Type) ->
+    ?GTP_v1_Interface:request_spec(v1, Type);
 request_spec(v2, create_session_request) ->
     [{?'RAT Type',					mandatory},
      {?'Sender F-TEID for Control Plane',		mandatory},
@@ -143,6 +146,9 @@ handle_info(_Info, State) ->
 handle_request(_From, _Msg, true, State) ->
 %% resent request
     {noreply, State};
+
+handle_request(ReqKey, #gtp{version = v1} = Msg, Resent, State) ->
+    ?GTP_v1_Interface:handle_request(ReqKey, Msg, Resent, State);
 
 handle_request(ReqKey,
 	       #gtp{type = create_session_request, seq_no = SeqNo,

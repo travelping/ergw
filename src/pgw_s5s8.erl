@@ -19,6 +19,8 @@
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include("include/ergw.hrl").
 
+-define(GTP_v1_Interface, ggsn_gn).
+
 %%====================================================================
 %% API
 %%====================================================================
@@ -38,6 +40,8 @@
 -define('EPS Bearer ID',                                {v2_eps_bearer_id, 0}).
 -define('S5/S8-U SGW FTEID',                            {v2_fully_qualified_tunnel_endpoint_identifier, 2}).
 
+request_spec(v1, Type) ->
+    ?GTP_v1_Interface:request_spec(v1, Type);
 request_spec(v2, create_session_request) ->
     [{?'RAT Type',						mandatory},
      {?'Sender F-TEID for Control Plane',			mandatory},
@@ -103,6 +107,9 @@ handle_info(_Info, State) ->
 handle_request(_ReqKey, _Msg, true, State) ->
 %% resent request
     {noreply, State};
+
+handle_request(ReqKey, #gtp{version = v1} = Msg, Resent, State) ->
+    ?GTP_v1_Interface:handle_request(ReqKey, Msg, Resent, State);
 
 handle_request(_ReqKey,
 	       #gtp{type = create_session_request,
