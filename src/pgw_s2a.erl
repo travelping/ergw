@@ -11,7 +11,7 @@
 
 -compile({parse_transform, do}).
 
--export([validate_options/1, init/2, request_spec/1,
+-export([validate_options/1, init/2, request_spec/2,
 	 handle_request/4,
 	 handle_cast/2, handle_info/2]).
 
@@ -37,15 +37,15 @@
 -define('EPS Bearer ID',                                {v2_eps_bearer_id, 0}).
 -define('S2a-U TWAN F-TEID',                            {v2_fully_qualified_tunnel_endpoint_identifier, 6}).
 
-request_spec(create_session_request) ->
+request_spec(v2, create_session_request) ->
     [{?'IMSI',							conditional},
      {?'RAT Type',						mandatory},
      {?'Sender F-TEID for Control Plane',			mandatory},
      {?'Access Point Name',					mandatory},
      {?'Bearer Contexts to be created',				mandatory}];
-request_spec(delete_session_request) ->
+request_spec(v2, delete_session_request) ->
     [];
-request_spec(_) ->
+request_spec(v2, _) ->
     [].
 
 validate_options(Options) ->

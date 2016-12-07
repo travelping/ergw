@@ -11,7 +11,7 @@
 
 -compile({parse_transform, cut}).
 
--export([validate_options/1, init/2, request_spec/1,
+-export([validate_options/1, init/2, request_spec/2,
 	 handle_request/4, handle_response/4,
 	 handle_cast/2, handle_info/2]).
 
@@ -43,7 +43,7 @@
 -define('Quality of Service Profile',			{quality_of_service_profile, 0}).
 -define('IMEI',						{imei, 0}).
 
-request_spec(create_pdp_context_request) ->
+request_spec(v1, create_pdp_context_request) ->
     [{?'IMSI',						conditional},
      {{selection_mode, 0},				conditional},
      {?'Tunnel Endpoint Identifier Data I',		mandatory},
@@ -62,7 +62,7 @@ request_spec(create_pdp_context_request) ->
      {{traffic_flow_template, 0},			conditional},
      {?'IMEI',						conditional}];
 
-request_spec(create_pdp_context_response) ->
+request_spec(v1, create_pdp_context_response) ->
     [{?'Cause',						mandatory},
      {{reordering_required, 0},				conditional},
      {?'Tunnel Endpoint Identifier Data I',		conditional},
@@ -75,7 +75,7 @@ request_spec(create_pdp_context_response) ->
      {{gsn_address, 3},					conditional},
      {?'Quality of Service Profile',			conditional}];
 
-request_spec(update_pdp_context_request) ->
+request_spec(v1, update_pdp_context_request) ->
     [{?'Tunnel Endpoint Identifier Data I',		mandatory},
      {?'Tunnel Endpoint Identifier Control Plane',	conditional},
      {?'NSAPI',						mandatory},
@@ -86,7 +86,7 @@ request_spec(update_pdp_context_request) ->
      {?'Quality of Service Profile',			mandatory},
      {{traffic_flow_template, 0},			conditional}];
 
-request_spec(update_pdp_context_response) ->
+request_spec(v1, update_pdp_context_response) ->
     [{{cause, 0},					mandatory},
      {?'Tunnel Endpoint Identifier Data I',		conditional},
      {?'Tunnel Endpoint Identifier Control Plane',	conditional},
@@ -97,14 +97,14 @@ request_spec(update_pdp_context_response) ->
      {{gsn_address, 3},					conditional},
      {?'Quality of Service Profile',			conditional}];
 
-request_spec(delete_pdp_context_request) ->
+request_spec(v1, delete_pdp_context_request) ->
     [{{teardown_ind, 0},				conditional},
      {?'NSAPI',						mandatory}];
 
-request_spec(delete_pdp_context_response) ->
+request_spec(v1, delete_pdp_context_response) ->
     [{?'Cause',						mandatory}];
 
-request_spec(_) ->
+request_spec(v1, _) ->
     [].
 
 validate_context_option(proxy_sockets, Value) when is_list(Value), Value /= [] ->

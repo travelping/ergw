@@ -12,7 +12,7 @@
 -compile({parse_transform, cut}).
 -compile({parse_transform, do}).
 
--export([validate_options/1, init/2, request_spec/1,
+-export([validate_options/1, init/2, request_spec/2,
 	 handle_request/4, handle_response/4,
 	 handle_cast/2, handle_info/2]).
 
@@ -45,23 +45,23 @@
 -define('S5/S8-U SGW FTEID',                            {v2_fully_qualified_tunnel_endpoint_identifier, 2}).
 -define('S5/S8-U PGW FTEID',                            {v2_fully_qualified_tunnel_endpoint_identifier, 3}).
 
-request_spec(create_session_request) ->
+request_spec(v2, create_session_request) ->
     [{?'RAT Type',					mandatory},
      {?'Sender F-TEID for Control Plane',		mandatory},
      {?'Access Point Name',				mandatory},
      {?'Bearer Contexts to be created',			mandatory}];
-request_spec(create_session_response) ->
+request_spec(v2, create_session_response) ->
     [{?'Cause',						mandatory},
      {?'Bearer Contexts created',			mandatory}];
-request_spec(modify_bearer_request) ->
+request_spec(v2, modify_bearer_request) ->
     [];
-request_spec(modify_bearer_response) ->
+request_spec(v2, modify_bearer_response) ->
     [{?'Cause',						mandatory}];
-request_spec(delete_session_request) ->
+request_spec(v2, delete_session_request) ->
     [];
-request_spec(delete_session_response) ->
+request_spec(v2, delete_session_response) ->
     [{?'Cause',						mandatory}];
-request_spec(_) ->
+request_spec(v2, _) ->
     [].
 
 validate_options(Options) ->

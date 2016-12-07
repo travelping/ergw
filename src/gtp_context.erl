@@ -169,12 +169,12 @@ handle_call(Request, _From, State) ->
     lager:warning("handle_call: ~p", [lager:pr(Request, ?MODULE)]),
     {reply, ok, State}.
 
-handle_cast({handle_message, ReqKey, #gtp{type = MsgType, ie = IEs} = Msg, Resent},
+handle_cast({handle_message, ReqKey, #gtp{version = Version, type = MsgType, ie = IEs} = Msg, Resent},
 	    #{interface := Interface} = State) ->
     lager:debug("~w: handle gtp: ~w, ~p",
 		[?MODULE, ReqKey#request_key.port, gtp_c_lib:fmt_gtp(Msg)]),
 
-    Spec = Interface:request_spec(MsgType),
+    Spec = Interface:request_spec(Version, MsgType),
     Missing = lists:foldl(fun({Id, mandatory}, M) ->
 				  case maps:is_key(Id, IEs) of
 				      true  -> M;

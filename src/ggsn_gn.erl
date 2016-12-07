@@ -11,7 +11,7 @@
 
 -compile({parse_transform, cut}).
 
--export([validate_options/1, init/2, request_spec/1,
+-export([validate_options/1, init/2, request_spec/2,
 	 handle_request/4,
 	 handle_cast/2, handle_info/2]).
 
@@ -37,21 +37,21 @@
 -define('Quality of Service Profile',			{quality_of_service_profile, 0}).
 -define('IMEI',						{imei, 0}).
 
-request_spec(create_pdp_context_request) ->
+request_spec(v1, create_pdp_context_request) ->
     [{?'Tunnel Endpoint Identifier Data I',		mandatory},
      {?'NSAPI',						mandatory},
      {?'SGSN Address for signalling',			mandatory},
      {?'SGSN Address for user traffic',			mandatory},
      {?'Quality of Service Profile',			mandatory}];
 
-request_spec(update_pdp_context_request) ->
+request_spec(v1, update_pdp_context_request) ->
     [{?'Tunnel Endpoint Identifier Data I',		mandatory},
      {?'NSAPI',						mandatory},
      {?'SGSN Address for signalling',			mandatory},
      {?'SGSN Address for user traffic',			mandatory},
      {?'Quality of Service Profile',			mandatory}];
 
-request_spec(_) ->
+request_spec(v1, _) ->
     [].
 
 validate_options(Options) ->
