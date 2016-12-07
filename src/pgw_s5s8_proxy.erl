@@ -43,8 +43,9 @@
 -define('ME Identity',					{v2_mobile_equipment_identity, 0}).
 
 -define('EPS Bearer ID',                                {v2_eps_bearer_id, 0}).
--define('S5/S8-U SGW FTEID',                            {v2_fully_qualified_tunnel_endpoint_identifier, 2}).
--define('S5/S8-U PGW FTEID',                            {v2_fully_qualified_tunnel_endpoint_identifier, 3}).
+
+-define('S5/S8-U SGW',  4).
+-define('S5/S8-U PGW',  5).
 
 request_spec(v1, Type) ->
     ?GTP_v1_Interface:request_spec(v1, Type);
@@ -326,18 +327,20 @@ copy_subscriber_info(#context{apn = APN, imei = IMEI},
 		     #proxy_info{imsi = IMSI, msisdn = MSISDN}, Context) ->
     Context#context{apn = APN, imsi = IMSI, imei = IMEI, msisdn = MSISDN}.
 
-get_context_from_bearer(?'S5/S8-U SGW FTEID',
-			 #v2_fully_qualified_tunnel_endpoint_identifier{
-			    key = RemoteDataTEI, ipv4 = RemoteDataIP
-			   }, Context) ->
+get_context_from_bearer(_, #v2_fully_qualified_tunnel_endpoint_identifier{
+			      interface_type = ?'S5/S8-U SGW',
+			      key = RemoteDataTEI,
+			      ipv4 = RemoteDataIP
+			     }, Context) ->
     Context#context{
       remote_data_ip  = gtp_c_lib:bin2ip(RemoteDataIP),
       remote_data_tei = RemoteDataTEI
      };
-get_context_from_bearer(?'S5/S8-U PGW FTEID',
-			 #v2_fully_qualified_tunnel_endpoint_identifier{
-			    key = RemoteDataTEI, ipv4 = RemoteDataIP
-			   }, Context) ->
+get_context_from_bearer(_, #v2_fully_qualified_tunnel_endpoint_identifier{
+			      interface_type = ?'S5/S8-U PGW',
+			      key = RemoteDataTEI,
+			      ipv4 = RemoteDataIP
+			     }, Context) ->
     Context#context{
       remote_data_ip  = gtp_c_lib:bin2ip(RemoteDataIP),
       remote_data_tei = RemoteDataTEI
@@ -374,12 +377,12 @@ update_context_from_gtp_req(#gtp{ie = IEs}, Context) ->
     maps:fold(fun get_context_from_req/3, Context, IEs).
 
 set_bearer_from_context(#context{data_port = #gtp_port{ip = DataIP}, local_data_tei = DataTEI},
-			?'S5/S8-U SGW FTEID', IE) ->
+			_, #v2_fully_qualified_tunnel_endpoint_identifier{interface_type = ?'S5/S8-U SGW'} = IE) ->
     IE#v2_fully_qualified_tunnel_endpoint_identifier{
       key = DataTEI,
       ipv4 = gtp_c_lib:ip2bin(DataIP)};
 set_bearer_from_context(#context{data_port = #gtp_port{ip = DataIP}, local_data_tei = DataTEI},
-			?'S5/S8-U PGW FTEID', IE) ->
+			_, #v2_fully_qualified_tunnel_endpoint_identifier{interface_type = ?'S5/S8-U PGW'} = IE) ->
     IE#v2_fully_qualified_tunnel_endpoint_identifier{
       key = DataTEI,
       ipv4 = gtp_c_lib:ip2bin(DataIP)};

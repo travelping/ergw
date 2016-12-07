@@ -38,7 +38,10 @@
 -define('ME Identity',					{v2_mobile_equipment_identity, 0}).
 
 -define('EPS Bearer ID',                                {v2_eps_bearer_id, 0}).
--define('S5/S8-U SGW FTEID',                            {v2_fully_qualified_tunnel_endpoint_identifier, 2}).
+
+-define('S5/S8-U SGW',  4).
+-define('S5/S8-U PGW',  5).
+-define('S5/S8-C PGW',  7).
 
 request_spec(v1, Type) ->
     ?GTP_v1_Interface:request_spec(v1, Type);
@@ -119,8 +122,9 @@ handle_request(_ReqKey,
 			       #v2_bearer_context{
 				  group = #{
 				    ?'EPS Bearer ID'     := EBI,
-				    ?'S5/S8-U SGW FTEID' :=                   %% S5/S8 SGW GTP-U Interface
-					#v2_fully_qualified_tunnel_endpoint_identifier{interface_type = 4} =
+				    {v2_fully_qualified_tunnel_endpoint_identifier, 2} :=
+					%% S5/S8 SGW GTP-U Interface
+					#v2_fully_qualified_tunnel_endpoint_identifier{interface_type = ?'S5/S8-U SGW'} =
 					FqDataTEID
 				   }}
 			  } = IEs},
@@ -178,7 +182,7 @@ handle_request(_ReqKey,
 				    ?'EPS Bearer ID' := EBI,
 				    {v2_fully_qualified_tunnel_endpoint_identifier, 1} :=
 					%% S5/S8 SGW GTP-U Interface
-					#v2_fully_qualified_tunnel_endpoint_identifier{interface_type = 4} =
+					#v2_fully_qualified_tunnel_endpoint_identifier{interface_type = ?'S5/S8-U SGW'} =
 					FqDataTEID
 				   }}
 			  } = IEs},
@@ -620,7 +624,7 @@ s5s8_pgw_gtp_c_tei(#context{control_port = #gtp_port{ip = LocalCntlIP},
     #v2_fully_qualified_tunnel_endpoint_identifier{
        instance = 1,		%% PGW S5/S8/ S2a/S2b F-TEID for PMIP based interface
 				%% or for GTP based Control Plane interface
-       interface_type = 7,	%% S5/S8 PGW GTP-C Interface
+       interface_type = ?'S5/S8-C PGW',
        key = LocalCntlTEI,
        ipv4 = gtp_c_lib:ip2bin(LocalCntlIP)}.
 
@@ -628,7 +632,7 @@ s5s8_pgw_gtp_u_tei(#context{data_port = #gtp_port{ip = LocalDataIP},
 			    local_data_tei = LocalDataTEI}) ->
     #v2_fully_qualified_tunnel_endpoint_identifier{
        instance = 2,		%% S5/S8 F-TEI Instance
-       interface_type = 5,	%% S5/S8 PGW GTP-U Interface
+       interface_type = ?'S5/S8-U PGW',
        key = LocalDataTEI,
        ipv4 = gtp_c_lib:ip2bin(LocalDataIP)}.
 
