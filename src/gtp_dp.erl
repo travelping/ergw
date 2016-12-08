@@ -104,6 +104,11 @@ handle_call(Request, _From, State) ->
     lager:error("handle_call: unknown ~p", [lager:pr(Request, ?MODULE)]),
     {reply, ok, State}.
 
+handle_cast({send, _IP, _Port, _Data} = Msg, #state{pid = Pid} = State) ->
+    lager:debug("DP Cast ~p: ~p", [Pid, Msg]),
+    gen_server:cast(Pid, Msg),
+    {noreply, State};
+
 handle_cast(Msg, State) ->
     lager:error("handle_cast: unknown ~p", [lager:pr(Msg, ?MODULE)]),
     {noreply, State}.
