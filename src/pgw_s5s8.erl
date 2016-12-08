@@ -174,7 +174,8 @@ handle_request(_ReqKey,
     end;
 
 handle_request(_ReqKey,
-	       #gtp{type = modify_bearer_request,
+	       #gtp{version = Version,
+		    type = modify_bearer_request,
 		    ie = #{?'Recovery' := Recovery,
 			   ?'Bearer Contexts to be modified' :=
 			       #v2_bearer_context{
@@ -191,9 +192,10 @@ handle_request(_ReqKey,
 
     FqCntlTEID = maps:get(?'Sender F-TEID for Control Plane', IEs, undefined),
 
-    Context0 = update_context_tunnel_ids(FqCntlTEID, FqDataTEID, OldContext),
-    Context1 = update_context_from_gtp_req(IEs, Context0),
-    Context = gtp_path:bind(Recovery, Context1),
+    Context0 = OldContext#context{version = Version},
+    Context1 = update_context_tunnel_ids(FqCntlTEID, FqDataTEID, Context0),
+    Context2 = update_context_from_gtp_req(IEs, Context1),
+    Context = gtp_path:bind(Recovery, Context2),
 
     State1 = if Context /= OldContext ->
 		     gtp_context:update_remote_context(OldContext, Context),
@@ -522,9 +524,15 @@ dp_create_pdp_context(Context) ->
 dp_update_pdp_context(#context{remote_data_ip  = RemoteDataIP, remote_data_tei = RemoteDataTEI},
 		      #context{remote_data_ip  = RemoteDataIP, remote_data_tei = RemoteDataTEI}) ->
     ok;
-dp_update_pdp_context(NewContext, OldContext) ->
+dp_update_pdp_context(#context{version = NewVersion} = NewContext,
+		      #context{version = OldVersion} = OldContext) ->
     dp_delete_pdp_context(OldContext),
-    send_end_marker(OldContext),
+    if NewVersion =:= OldVersion ->
+	    %% end markers are only used for SGW relocation procedures, not for SGSN/SGW handovers
+	    send_end_marker(OldContext);
+       true ->
+	    ok
+    end,
     dp_create_pdp_context(NewContext).
 
 dp_delete_pdp_context(Context) ->
