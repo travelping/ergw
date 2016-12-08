@@ -1,6 +1,16 @@
 erGW - 3GPP GGSN and PDN-GW in Erlang
 =====================================
 
+Version 1.5.0 - 08 Dec 2016
+---------------------------
+
+* socket are restarted after a crash now
+* handle GTP v1 and v2 on the same path
+* use seperate TEID for GTP-C and GTP-U
+* add configuration for gateways home MCC and MNC
+* GTP-U error indication is now handled properly
+* SGW and SGSN handover procedures are working now
+
 Version 1.4.0 - 25 Nov 2016
 ---------------------------
 
