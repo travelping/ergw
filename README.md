@@ -27,7 +27,7 @@ RADIUS over Gi/SGi
 The GGSN Gn interface supports RADIUS over the Gi interface as specified by 3GPP TS 29.061 Section 16.
 At the moment, only the Authentication and Authorization is supported, Accounting is not supported.
 
-See RADIUS.md for a list of supported Attrbiutes.
+See [RADIUS.md](RADIUS.md) for a list of supported Attrbiutes.
 
 Many thanks to [On Waves](https://www.on-waves.com/) for sponsoring the RADIUS Authentication implementation.
 
@@ -77,51 +77,77 @@ Eshell V8.0.3  (abort with ^G)
 
 This requires a suitable ergw.config, e.g.:
 
-```
-[
-{ergw, [{apns,
-	 [{[<<"example">>, <<"com">>], [{protocols, [{gn,   [{handler, ggsn_gn},
-							     {sockets, [irx]},
-							     {data_paths, [grx]}
-							    ]},
-						     {s5s8, [{handler, pgw_s5s8},
-							     {sockets, [irx]},
-							     {data_paths, [grx]}
-							    ]},
-						     {s2a,  [{handler, pgw_s2a},
-							     {sockets, [irx]},
-							     {data_paths, [grx]}
-							    ]}
-						    ]},
-					{routes, [{{10, 180, 0, 0}, 16}]},
-					{pools,  [{{10, 180, 0, 0}, 16},
-						  {{16#8001, 0, 0, 0, 0, 0, 0, 0}, 48}]}
-				       ]}
-	 ]},
+    [{setup, [{data_dir, "/var/lib/ergw"},
+              {log_dir,  "/var/log/gtp-c-node"}                             %% NOTE: lager is not using this
+             ]},
+    
+     {ergw, [{sockets,
+              [{irx, [{type, 'gtp-c'},
+                      {ip,  {192,0,2,16}},
+                      {netdev, "grx"},
+                      freebind
+                     ]},
+               {grx, [{type, 'gtp-u'},
+                      {node, 'gtp-u-node@localhost'},
+                      {name, 'grx'}]}
+              ]},
+    
+             {vrfs,
+              [{upstream, [{pools,  [{{10, 180, 0, 1}, {10, 180, 255, 254}, 32},
+                                     {{16#8001, 0, 0, 0, 0, 0, 0, 0}, {16#8001, 0, 0, 16#FFFF, 0, 0, 0, 0}, 64}
+                                    ]},
+                           {'MS-Primary-DNS-Server', {8,8,8,8}},
+                           {'MS-Secondary-DNS-Server', {8,8,4,4}},
+                           {'MS-Primary-NBNS-Server', {127,0,0,1}},
+                           {'MS-Secondary-NBNS-Server', {127,0,0,1}}
+                          ]}
+              ]},
+    
+             {handlers,
+              [{gn, [{handler, pgw_s5s8},
+                     {sockets, [irx]},
+                     {data_paths, [grx]},
+                     {aaa, [{'Username',
+                             [{default, ['IMSI', <<"@">>, 'APN']}]}]}
+                    ]},
+               {s5s8, [{handler, pgw_s5s8},
+                       {sockets, [irx]},
+                       {data_paths, [grx]}
+                      ]},
+               {s2a,  [{handler, pgw_s2a},
+                       {sockets, [irx]},
+                       {data_paths, [grx]}
+                      ]}
+              ]},
+    
+             {apns,
+              [{[<<"example">>, <<"net">>], [{vrf, upstream}]}
+              ]}
+            ]},
+    
+     {ergw_aaa, [
+                 %% {ergw_aaa_provider, {ergw_aaa_mock, [{secret, <<"MySecret">>}]}}
+                 {ergw_aaa_provider,
+                  {ergw_aaa_radius,
+                   [{nas_identifier,<<"nas01.example.com">>},
+                    {radius_auth_server,{{192,0,2,32},1812,<<"secret">>}},
+                    {radius_acct_server,{{192,0,2,32},1813,<<"secret">>}}
+                   ]}
+                 }
+                ]},
+    
+     {lager, [
+              {log_root, "/var/log/gtp-c-node"},
+              {colored, true},
+              {handlers, [
+                          {lager_console_backend, debug},
+                          {lager_file_backend, [{file, "error.log"}, {level, error}]},
+                          {lager_file_backend, [{file, "console.log"}, {level, debug}]}
+                         ]}
+             ]}
+    ].
 
-	{sockets,
-	 [{irx, [{type, 'gtp-c'},
-		 {ip,  {192,0,2,16}},
-		 {netdev, "grx"},
-		 freebind
-		]},
-	  {grx, [{type, 'gtp-u'},
-		 {node, 'gtp-u-node@localhost'},
-		 {name, 'grx'}]}
-	 ]},
-
-{ergw_aaa, [
-	    %% {ergw_aaa_provider, {ergw_aaa_mock, [{secret, <<"MySecret">>}]}}
-	    {ergw_aaa_provider,
-	     {ergw_aaa_radius,
-	      [{nas_identifier,<<"nas01.example.com">>},
-	       {radius_auth_server,{{192,0,2,32},1812,<<"secret">>}},
-	       {radius_acct_server,{{192,0,2,32},1813,<<"secret">>}}
-	      ]}
-	    }
-	   ]}
-].
-```
+The configuration is documented in [CONFIG.md](CONFIG.md)
 
 This process can be simplified by using [enit](https://github.com/travelping/enit). A sample config that only requires minimal adjustment for IP's, hostnames and interfaces can be found in priv/enit/ggsn.
 Install those files to / (root) and start with ```enit startfg ergw```.
