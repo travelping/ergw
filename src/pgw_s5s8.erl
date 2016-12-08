@@ -510,13 +510,21 @@ update_context_from_gtp_req(Request, Context) ->
 dp_args(#context{ms_v4 = {MSv4,_}}) ->
     MSv4.
 
+send_end_marker(#context{data_port = GtpPort, remote_data_ip = PeerIP, remote_data_tei = RemoteTEI}) ->
+    Msg = #gtp{version = v1, type = end_marker, tei = RemoteTEI, ie = []},
+    Data = gtp_packet:encode(Msg),
+    gtp_dp:send(GtpPort, PeerIP, ?GTP1u_PORT, Data).
+
 dp_create_pdp_context(Context) ->
     Args = dp_args(Context),
     gtp_dp:create_pdp_context(Context, Args).
 
+dp_update_pdp_context(#context{remote_data_ip  = RemoteDataIP, remote_data_tei = RemoteDataTEI},
+		      #context{remote_data_ip  = RemoteDataIP, remote_data_tei = RemoteDataTEI}) ->
+    ok;
 dp_update_pdp_context(NewContext, OldContext) ->
-    %% TODO: only do that if New /= Old
     dp_delete_pdp_context(OldContext),
+    send_end_marker(OldContext),
     dp_create_pdp_context(NewContext).
 
 dp_delete_pdp_context(Context) ->

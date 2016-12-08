@@ -468,8 +468,10 @@ dp_create_pdp_context(Context) ->
     Args = dp_args(Context),
     gtp_dp:create_pdp_context(Context, Args).
 
+dp_update_pdp_context(#context{remote_data_ip  = RemoteDataIP, remote_data_tei = RemoteDataTEI},
+		      #context{remote_data_ip  = RemoteDataIP, remote_data_tei = RemoteDataTEI}) ->
+    ok;
 dp_update_pdp_context(NewContext, OldContext) ->
-    %% TODO: only do that if New /= Old
     dp_delete_pdp_context(OldContext),
     dp_create_pdp_context(NewContext).
 
