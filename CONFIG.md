@@ -53,7 +53,7 @@ Socket to VRF wiring:
 
 ![Alt text][socket-wiring]
 
-[socket-wiring]: https://github.com/travelping/ergw/raw/doc/cfg/priv/ConfigMsgRouting.jpeg "Socket to VRF connection"
+[socket-wiring]: priv/ConfigMsgRouting.jpeg "Socket to VRF connection"
 
 Configuration
 -------------
@@ -264,3 +264,77 @@ options.
   - context_name: `binary()`
 
     the context name
+
+Operation Modes
+---------------
+
+### PGW with co-located GGSN function ###
+
+A PGW can be operated with a co-located GGSN function to support 3GPP TS 23.401
+Annex D, Interoperation with Gn/Gp SGSNs.
+In this case the PGW handles the Gn/Gp and the S8/S5 protocol. The GTP sockets
+can not be shared with an independent GGSN instance.
+
+Sample handler configuration:
+
+    {handlers,
+     [{gn, [{handler, pgw_s5s8},
+            {sockets, [irx]},
+            {data_paths, [grx]}
+           ]},
+      {s5s8, [{handler, pgw_s5s8},
+              {sockets, [irx]},
+              {data_paths, [grx]}
+             ]}]}
+
+NAPTR records for APN's on such a gateway should use "Service Parameters" of
+"x-3gpp-pgw:x-s5-gtp", "x-3gpp-pgw:x-s8-gtp", "x-3gpp-pgw:x-gn" and
+"x-3gpp-pgw:x-gp"
+
+### PGW ###
+
+Sample handler configuration for a S5/S8 only PGW
+
+    {handlers,
+     [{s5s8, [{handler, pgw_s5s8},
+              {sockets, [irx]},
+              {data_paths, [grx]}
+             ]}]}
+
+NAPTR records for APN's on such a gateway should use "Service Parameters" of
+"x-3gpp-pgw:x-s5-gtp" and "x-3gpp-pgw:x-s8-gtp"
+
+### GGSN ###
+
+Sample handler configuration for Gn/Gp only GGSN
+
+    {handlers,
+     [{gn, [{handler, ggsn_gn},
+            {sockets, [irx]},
+            {data_paths, [grx]}
+           ]}]}
+
+NAPTR records for APN's on such a gateway should use "Service Parameters" of
+"x-3gpp-ggsn:x-gn" and "x-3gpp-ggsn:x-gp"
+
+### PGW and GGSN sharing the same GTP port ###
+
+NOTE: 3GPP TS 23.401 Annex D, Interoperation with Gn/Gp SGSNs is not supported
+      in this configuration.
+
+Sample handler configuration:
+
+    {handlers,
+     [{gn, [{handler, ggsn_gn},
+            {sockets, [irx]},
+            {data_paths, [grx]}
+           ]},
+      {s5s8, [{handler, pgw_s5s8},
+              {sockets, [irx]},
+              {data_paths, [grx]}
+             ]}]}
+
+NAPTR records for APN's on such a gateway should use "Service Parameters" of
+"x-3gpp-ggsn:x-gn", "x-3gpp-ggsn:x-gp", "x-3gpp-pgw:x-s5-gtp" and
+"x-3gpp-pgw:x-s8-gtp". "Service Parameters" of "x-3gpp-pgw:x-gn" and
+"x-3gpp-pgw:x-gp" **should not** be used.

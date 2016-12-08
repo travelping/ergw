@@ -15,8 +15,11 @@ Messages:
 
 From the above the following procedures as defined by 3GPP T 23.060 should work:
 
- * PDP Context Activation/Deactivation Procedure
- * PDP Context Activation/Deactivation Procedure using S4
+ * PDP Context Activation/Modification/Deactivation Procedure
+ * PDP Context Activation/Modification/Deactivation Procedure using S4
+ * Intersystem Change Procedures (handover 2G/3G/LTE)
+ * 3GPP TS 23.401 Annex D, Interoperation with Gn/Gp SGSNs procedures
+   (see [CONFIG.md](CONFIG.md))
 
 RADIUS over Gi/SGi
 ------------------
@@ -35,13 +38,10 @@ The following procedures are assumed/known to be *NOT* working:
 
  * Secondary PDP Context Activation Procedure
  * Secondary PDP Context Activation Procedure using S4
- * most (if not all) TS 23.060, Sect. 9.2.3 Modification Procedures
- * all  TS 23.060, Sect. 6.13 Intersystem Change Procedures (handover 2G/3G/LTE)
 
 Other shortcomings:
 
  * QoS parameters are hard-coded
- * SGSN handover (IP and TEI change) no supported
 
 BUILDING
 --------
