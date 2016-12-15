@@ -25,6 +25,7 @@
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include("include/ergw.hrl").
 
+-record(awaiting_response, {send_ts :: integer()}).
 -record(state, {table		:: ets:tid(),
 		path_counter	:: non_neg_integer(),
 		gtp_port	:: #gtp_port{},
@@ -35,11 +36,13 @@
 		n3		:: non_neg_integer(),
 		recovery	:: 'undefined' | non_neg_integer(),
 		echo		:: non_neg_integer(),
-		echo_timer	:: 'stopped' | 'awaiting_response' | reference(),
+		echo_timer	:: 'stopped' | #awaiting_response{} | reference(),
 		state		:: 'UP' | 'DOWN' }).
 
 %% defaults for exometer probes
 -define(EXO_CONTEXTS_OPTS, []).
+-define(EXO_RTT_OPTS, [{time_span, 3600 * 1000}]).		%% 1 hour might seem long, but we only send
+								%% one echo request per 60 seconds
 
 %%%===================================================================
 %%% API
@@ -125,6 +128,7 @@ get_handler(#gtp_port{type = 'gtp-c'}, v2) ->
 init([#gtp_port{name = PortName} = GtpPort, Version, RemoteIP, Args]) ->
     gtp_path_reg:register({PortName, Version, RemoteIP}),
     exometer:re_register([path, PortName, RemoteIP, contexts], gauge, ?EXO_CONTEXTS_OPTS),
+    exometer:re_register([path, PortName, RemoteIP, rtt], histogram, ?EXO_RTT_OPTS),
     TID = ets:new(?MODULE, [ordered_set, public, {keypos, 1}]),
 
     State = #state{table        = TID,
@@ -215,6 +219,7 @@ handle_info(Info, State) ->
 terminate(_Reason, #state{gtp_port = #gtp_port{name = PortName}, ip = RemoteIP}) ->
     %% TODO: kill all PDP Context on this path
     exometer:delete([path, PortName, RemoteIP, contexts]),
+    exometer:delete([path, PortName, RemoteIP, rtt]),
     ok;
 terminate(_Reason, _State) ->
     %% TODO: kill all PDP Context on this path
@@ -347,9 +352,13 @@ send_echo_request(#state{gtp_port = GtpPort, handler = Handler, ip = RemoteIP,
 			 t3 = T3, n3 = N3} = State) ->
     Msg = Handler:build_echo_request(GtpPort),
     gtp_socket:send_request(GtpPort, self(), RemoteIP, T3, N3, Msg, echo_request),
-    State#state{echo_timer = awaiting_response} .
+    SendTS = erlang:monotonic_time(millisecond),
+    State#state{echo_timer = #awaiting_response{send_ts = SendTS}} .
 
-echo_response(Msg, #state{echo = EchoInterval, echo_timer = awaiting_response} = State0) ->
+echo_response(Msg, #state{gtp_port = #gtp_port{name = PortName}, ip = RemoteIP,
+			  echo = EchoInterval, echo_timer = #awaiting_response{send_ts = SendTS}} = State0) ->
+    RTT = erlang:monotonic_time(millisecond) - SendTS,
+    exometer:update_or_create([path, PortName, RemoteIP, rtt], histogram, RTT, ?EXO_RTT_OPTS),
     State = update_path_state(Msg, State0),
     TRef = erlang:start_timer(EchoInterval, self(), echo),
     State#state{echo_timer = TRef} ;
