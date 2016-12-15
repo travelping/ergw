@@ -311,7 +311,7 @@ cancel_timer(Ref) ->
 update_path_counter(#state{path_counter = PathCounter,
 			   gtp_port = #gtp_port{name = PortName},
 			   ip = RemoteIP}) ->
-    exometer:update_or_create([path, PortName, RemoteIP, contexts], gauge, PathCounter, ?EXO_CONTEXTS_OPTS).
+    exometer:update_or_create([path, PortName, RemoteIP, contexts], PathCounter, gauge, ?EXO_CONTEXTS_OPTS).
 
 inc_path_counter(#state{path_counter = OldPathCounter} = State0) ->
     State = State0#state{path_counter = OldPathCounter + 1},
@@ -358,7 +358,7 @@ send_echo_request(#state{gtp_port = GtpPort, handler = Handler, ip = RemoteIP,
 echo_response(Msg, #state{gtp_port = #gtp_port{name = PortName}, ip = RemoteIP,
 			  echo = EchoInterval, echo_timer = #awaiting_response{send_ts = SendTS}} = State0) ->
     RTT = erlang:monotonic_time(millisecond) - SendTS,
-    exometer:update_or_create([path, PortName, RemoteIP, rtt], histogram, RTT, ?EXO_RTT_OPTS),
+    exometer:update_or_create([path, PortName, RemoteIP, rtt], RTT, histogram, ?EXO_RTT_OPTS),
     State = update_path_state(Msg, State0),
     TRef = erlang:start_timer(EchoInterval, self(), echo),
     State#state{echo_timer = TRef} ;
