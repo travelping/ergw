@@ -14,6 +14,7 @@
 	 get_handler/2,
 	 build_response/1,
 	 build_echo_request/1,
+	 validate_teid/2,
 	 type/0, port/0]).
 
 %% support functions
@@ -196,6 +197,30 @@ get_handler(#gtp_port{name = PortName}, _Msg) ->
     ergw:handler(PortName, gn);
 get_handler(_Port, _Msg) ->
     {error, {mandatory_ie_missing, ?'Access Point Name'}}.
+
+validate_teid(MsgType, 0)
+ when MsgType =:= create_pdp_context_request;
+      MsgType =:= create_mbms_context_request;
+      MsgType =:= identification_request;
+      MsgType =:= sgsn_context_request;
+      MsgType =:= echo_request;
+      MsgType =:= forward_relocation_request;
+      MsgType =:= pdu_notification_request;
+      MsgType =:= mbms_notification_request;
+      MsgType =:= relocation_cancel_request;
+      MsgType =:= mbms_registration_request;
+      MsgType =:= mbms_session_start_request;
+      MsgType =:= ms_info_change_notification_request ->
+    ok;
+validate_teid(MsgType, 0) ->
+    case gtp_msg_type(MsgType) of
+	request ->
+	    {error, not_found};
+	_ ->
+	    ok
+    end;
+validate_teid(_MsgType, _TEID) ->
+    ok.
 
 %%%===================================================================
 %%% Internal functions

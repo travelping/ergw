@@ -34,15 +34,26 @@ lookup(GtpPort, TEI) ->
     gtp_context_reg:lookup(GtpPort, TEI).
 
 handle_message(#request_key{gtp_port = GtpPort} = ReqKey, #gtp{version = Version, tei = 0} = Msg) ->
-    case get_handler(ReqKey, Msg) of
-	{ok, Context} when is_pid(Context) ->
-	    gen_server:cast(Context, {handle_message, ReqKey, Msg, true});
+    Result =
+	case get_handler(ReqKey, Msg) of
+	    {ok, Context} when is_pid(Context) ->
+		gen_server:cast(Context, {handle_message, ReqKey, Msg, true});
 
-	{ok, Interface, InterfaceOpts} ->
-	    do([error_m ||
-		   Context <- gtp_context_sup:new(GtpPort, Version, Interface, InterfaceOpts),
-		   do_handle_message(Context, ReqKey, Msg)
-	       ]);
+	    {ok, Interface, InterfaceOpts} = O->
+		lager:error("handle message #1: ~p", [O]),
+		do([error_m ||
+		       validate_teid(Msg),
+		       Context <- gtp_context_sup:new(GtpPort, Version, Interface, InterfaceOpts),
+		       do_handle_message(Context, ReqKey, Msg)
+		   ]);
+
+	    Other ->
+		Other
+	end,
+    lager:debug("Handle TEID == 0: ~p", [Result]),
+    case Result of
+	ok ->
+	    ok;
 
 	{error, Error} ->
 	    generic_error(ReqKey, Msg, Error);
@@ -311,6 +322,11 @@ generic_error(#request_key{gtp_port = GtpPort} = ReqKey,
     Handler = gtp_path:get_handler(GtpPort, Version),
     Reply = Handler:build_response({MsgType, Error}),
     gtp_socket:send_response(ReqKey, Reply#gtp{seq_no = SeqNo}, SeqNo /= 0).
+
+validate_teid(#gtp{version = v1, type = MsgType, tei = TEID}) ->
+    gtp_v1_c:validate_teid(MsgType, TEID);
+validate_teid(#gtp{version = v2, type = MsgType, tei = TEID}) ->
+    gtp_v2_c:validate_teid(MsgType, TEID).
 
 validate_message(#gtp{version = Version, type = MsgType, ie = IEs}, #{interface := Interface}) ->
     Spec = Interface:request_spec(Version, MsgType),

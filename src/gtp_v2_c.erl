@@ -14,6 +14,7 @@
 	 get_handler/2,
 	 build_response/1,
 	 build_echo_request/1,
+	 validate_teid/2,
 	 type/0, port/0]).
 
 %% support functions
@@ -217,6 +218,26 @@ get_handler(#gtp_port{name = PortName},
     end;
 get_handler(_Port, _Msg) ->
     {error, {mandatory_ie_missing, ?'Sender F-TEID for Control Plane'}}.
+
+validate_teid(MsgType, 0)
+ when MsgType =:= create_session_request;
+      MsgType =:= create_indirect_data_forwarding_tunnel_request;
+      MsgType =:= identification_request;
+      MsgType =:= forward_relocation_request;
+      MsgType =:= context_request;
+      MsgType =:= relocation_cancel_request;
+      MsgType =:= delete_pdn_connection_set_request;
+      MsgType =:= mbms_session_start_request ->
+    ok;
+validate_teid(MsgType, 0) ->
+    case gtp_msg_type(MsgType) of
+	request ->
+	    {error, not_found};
+	_ ->
+	    ok
+    end;
+validate_teid(_MsgType, _TEID) ->
+    ok.
 
 %%%===================================================================
 %%% Internal functions
