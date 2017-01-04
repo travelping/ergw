@@ -168,51 +168,34 @@ handle_call(Request, _From, State) ->
     lager:warning("handle_call: ~p", [lager:pr(Request, ?MODULE)]),
     {reply, ok, State}.
 
-handle_cast({handle_message, ReqKey, #gtp{version = Version, type = MsgType, ie = IEs} = Msg, Resent},
-	    #{interface := Interface} = State) ->
+handle_cast({handle_message, ReqKey, #gtp{} = Msg, Resent}, State) ->
     lager:debug("~w: handle gtp: ~w, ~p",
 		[?MODULE, ReqKey#request_key.port, gtp_c_lib:fmt_gtp(Msg)]),
 
-    Spec = Interface:request_spec(Version, MsgType),
-    Missing = lists:foldl(fun({Id, mandatory}, M) ->
-				  case maps:is_key(Id, IEs) of
-				      true  -> M;
-				      false -> [Id | M]
-				  end;
-			     (_, M) ->
-				  M
-			  end, [], Spec),
-    lager:debug("Mis: ~p", [Missing]),
+    case validate_message(Msg, State) of
+	[] ->
+	    handle_request(ReqKey, Msg, Resent, State);
 
-    if Missing /= [] ->
-	    handle_error(ReqKey, Msg, {mandatory_ie_missing, hd(Missing)}, State);
-       true ->
-	    handle_request(ReqKey, Msg, Resent, State)
+	Missing ->
+	    lager:debug("Mis: ~p", [Missing]),
+	    handle_error(ReqKey, Msg, {mandatory_ie_missing, hd(Missing)}, State)
     end;
 
 handle_cast(Msg, #{interface := Interface} = State) ->
     lager:debug("~w: handle_cast: ~p", [?MODULE, lager:pr(Msg, ?MODULE)]),
     Interface:handle_cast(Msg, State).
 
-handle_info({ReqId, Request, Response = #gtp{type = MsgType, ie = IEs}},
-	    #{interface := Interface} = State) ->
-    Spec = Interface:request_spec(MsgType),
-    Missing = lists:foldl(fun({Id, mandatory}, M) ->
-				  case maps:is_key(Id, IEs) of
-				      true  -> M;
-				      false -> [Id | M]
-				  end;
-			     (_, M) ->
-				  M
-			  end, [], Spec),
-    lager:debug("Mis: ~p", [Missing]),
+handle_info({ReqId, Request, #gtp{} = Response}, State) ->
 
-    if Missing /= [] ->
+    case validate_message(Response, State) of
+	[] ->
+	    handle_response(ReqId, Request, Response, State);
+
+	Missing ->
+	    lager:debug("Mis: ~p", [Missing]),
 	    %% TODO: handle error
 	    %% handle_error({GtpPort, IP, Port}, Msg, {mandatory_ie_missing, hd(Missing)}, State);
-	    ok;
-       true ->
-	    handle_response(ReqId, Request, Response, State)
+	    ok
     end;
 
 handle_info(Info, #{interface := Interface} = State) ->
@@ -328,6 +311,17 @@ generic_error(#request_key{gtp_port = GtpPort} = ReqKey,
     Handler = gtp_path:get_handler(GtpPort, Version),
     Reply = Handler:build_response({MsgType, Error}),
     gtp_socket:send_response(ReqKey, Reply#gtp{seq_no = SeqNo}, SeqNo /= 0).
+
+validate_message(#gtp{version = Version, type = MsgType, ie = IEs}, #{interface := Interface}) ->
+    Spec = Interface:request_spec(Version, MsgType),
+    lists:foldl(fun({Id, mandatory}, M) ->
+			case maps:is_key(Id, IEs) of
+			    true  -> M;
+			    false -> [Id | M]
+			end;
+		   (_, M) ->
+			M
+		end, [], Spec).
 
 aaa_config(Opts) ->
     Default = #{
