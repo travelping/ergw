@@ -239,16 +239,20 @@ handle_request(ReqKey,
     end;
 
 handle_request(ReqKey,
-	       #gtp{type = modify_bearer_request, seq_no = SeqNo,
+	       #gtp{version = Version,
+		    type = modify_bearer_request, seq_no = SeqNo,
 		    ie = #{?'Recovery' := Recovery}} = Request,
 	       _Resent,
 	       #{context := OldContext, proxy_info := ProxyInfo,
-		 proxy_context := ProxyContext0} = State0) ->
-    Context0 = update_context_from_gtp_req(Request, OldContext),
-    Context = gtp_path:bind(Recovery, Context0),
+		 proxy_context := OldProxyContext} = State0) ->
+
+    Context0 = OldContext#context{version = Version},
+    Context1 = update_context_from_gtp_req(Request, Context0),
+    Context = gtp_path:bind(Recovery, Context1),
     gtp_context:update_remote_context(OldContext, Context),
     State = apply_context_change(Context, OldContext, State0),
 
+    ProxyContext0 = OldProxyContext#context{version = Version},
     ProxyContext = gtp_path:bind(undefined, ProxyContext0),
 
     ProxyReq0 = build_context_request(ProxyContext, ProxyInfo, Request),
