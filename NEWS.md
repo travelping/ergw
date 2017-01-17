@@ -1,6 +1,13 @@
 erGW - 3GPP GGSN and PDN-GW in Erlang
 =====================================
 
+Version 1.6.0 - 17 Jan 2017
+---------------------------
+
+* send end marker on S5/S8 GTP-U tunnels during hand over
+* properly handle GTP version changes during handover
+* validate TEID in requests
+
 Version 1.5.0 - 08 Dec 2016
 ---------------------------
 
