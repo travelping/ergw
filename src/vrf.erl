@@ -40,28 +40,20 @@ start_vrf(Name, Opts)
 start_link(VRF, Opts) ->
    gen_server:start_link(?MODULE, [VRF, Opts], []).
 
-allocate_pdp_ip(APN, TEI, IPv4, IPv6) ->
-    with_apn(APN, gen_server:call(_, {allocate_pdp_ip, TEI, IPv4, IPv6})).
-release_pdp_ip(APN, IPv4, IPv6) ->
-    with_apn(APN, gen_server:call(_, {release_pdp_ip, IPv4, IPv6})).
+allocate_pdp_ip(VRF, TEI, IPv4, IPv6) ->
+    with_vrf(VRF, gen_server:call(_, {allocate_pdp_ip, TEI, IPv4, IPv6})).
+release_pdp_ip(VRF, IPv4, IPv6) ->
+    with_vrf(VRF, gen_server:call(_, {release_pdp_ip, IPv4, IPv6})).
 
 get_opts(VRF) ->
-    with_vrf(VRF,  gen_server:call(_, get_opts)).
+    with_vrf(VRF, gen_server:call(_, get_opts)).
 
-with_vrf(VRF, Fun) when is_function(Fun, 1) ->
+with_vrf(VRF, Fun) when is_atom(VRF), is_function(Fun, 1) ->
     case vrf_reg:lookup(VRF) of
 	Pid when is_pid(Pid) ->
 	    Fun(Pid);
 	_ ->
 	    {error, not_found}
-    end.
-
-with_apn(APN, Fun) when is_function(Fun, 1) ->
-    case ergw:vrf(APN) of
-	{ok, {VRF, Opts}} when is_map(Opts) ->
-	    with_vrf(VRF, Fun);
-	Other ->
-	    Other
     end.
 
 validate_options(Options) ->

@@ -115,11 +115,13 @@ handle_request(_ReqKey,
 	success ->
 	    lager:info("AuthResult: success"),
 
-	    ActiveSessionOpts0 = ergw_aaa_session:get(Session),
-	    ActiveSessionOpts = apply_vrf_session_defaults(ContextPreAuth, ActiveSessionOpts0),
+	    {VRF, VRFOpts} = select_vrf(ContextPreAuth),
 
+	    ActiveSessionOpts0 = ergw_aaa_session:get(Session),
+	    ActiveSessionOpts = apply_vrf_session_defaults(VRFOpts, ActiveSessionOpts0),
 	    lager:info("ActiveSessionOpts: ~p", [ActiveSessionOpts]),
-	    Context = assign_ips(ActiveSessionOpts, EUA, ContextPreAuth),
+
+	    Context = assign_ips(ActiveSessionOpts, EUA, ContextPreAuth#context{vrf = VRF}),
 
 	    gtp_context:register_remote_context(Context),
 	    dp_create_pdp_context(Context),
@@ -235,8 +237,8 @@ encode_eua(Org, Number, IPv4, IPv6) ->
 		      pdp_type_number = Number,
 		      pdp_address = <<IPv4/binary, IPv6/binary >>}.
 
-pdp_release_ip(#context{apn = APN, ms_v4 = MSv4, ms_v6 = MSv6}) ->
-    vrf:release_pdp_ip(APN, MSv4, MSv6).
+pdp_release_ip(#context{vrf = VRF, ms_v4 = MSv4, ms_v6 = MSv6}) ->
+    vrf:release_pdp_ip(VRF, MSv4, MSv6).
 
 apply_context_change(NewContext0, OldContext, State) ->
     NewContext = gtp_path:bind(NewContext0),
@@ -251,6 +253,10 @@ copy_session_defaults(KV, Session) ->
     lager:warning("invalid value (~p) in session defaul", [KV]),
     Session.
 
+select_vrf(#context{apn = APN}) ->
+    {ok, {VRF, VRFOpts}} = ergw:vrf(APN),
+    {VRF, VRFOpts}.
+
 copy_vrf_session_defaults(K, Value, Opts)
     when K =:= 'MS-Primary-DNS-Server';
 	 K =:= 'MS-Secondary-DNS-Server';
@@ -260,14 +266,9 @@ copy_vrf_session_defaults(K, Value, Opts)
 copy_vrf_session_defaults(_K, _V, Opts) ->
     Opts.
 
-apply_vrf_session_defaults(#context{apn = APN}, Session) ->
-    case ergw:vrf(APN) of
-	{ok, {_VRF, Opts}} when is_map(Opts) ->
-	    Defaults = maps:fold(fun copy_vrf_session_defaults/3, #{}, Opts),
-	    maps:merge(Defaults, Session);
-	_ ->
-	    Session
-    end.
+apply_vrf_session_defaults(VRFOpts, Session) ->
+    Defaults = maps:fold(fun copy_vrf_session_defaults/3, #{}, VRFOpts),
+    maps:merge(Defaults, Session).
 
 map_attr('APN', #{?'Access Point Name' := #access_point_name{apn = APN}}) ->
     unicode:characters_to_binary(lists:join($., APN));
@@ -500,9 +501,9 @@ session_ip_alloc(SessionOpts, {ReqMSv4, ReqMSv6}) ->
     MSv6 = session_ipv6_alloc(SessionOpts, ReqMSv6),
     {MSv4, MSv6}.
 
-assign_ips(SessionOps, EUA, #context{apn = APN, local_control_tei = LocalTEI} = Context) ->
+assign_ips(SessionOps, EUA, #context{vrf = VRF, local_control_tei = LocalTEI} = Context) ->
     {ReqMSv4, ReqMSv6} = session_ip_alloc(SessionOps, pdp_alloc(EUA)),
-    {ok, MSv4, MSv6} = vrf:allocate_pdp_ip(APN, LocalTEI, ReqMSv4, ReqMSv6),
+    {ok, MSv4, MSv6} = vrf:allocate_pdp_ip(VRF, LocalTEI, ReqMSv4, ReqMSv6),
     Context#context{ms_v4 = MSv4, ms_v6 = MSv6}.
 
 ppp_ipcp_conf_resp(Verdict, Opt, IPCP) ->

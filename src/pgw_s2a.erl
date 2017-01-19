@@ -101,7 +101,9 @@ handle_request(_ReqKey,
     Context2 = update_context_from_gtp_req(IEs, Context1),
     Context3 = gtp_path:bind(Recovery, Context2),
 
-    Context = assign_ips(PAA, Context3),
+    {VRF, _VRFOpts} = select_vrf(Context3),
+
+    Context = assign_ips(PAA, Context3#context{vrf = VRF}),
     gtp_context:register_remote_context(Context),
     dp_create_pdp_context(Context),
 
@@ -198,6 +200,10 @@ encode_paa(Type, IPv4, IPv6) ->
 
 pdn_release_ip(#context{ms_v4 = MSv4, ms_v6 = MSv6}, #{gtp_port := GtpPort}) ->
     vrf:release_pdp_ip(GtpPort, MSv4, MSv6).
+
+select_vrf(#context{apn = APN}) ->
+    {ok, {VRF, VRFOpts}} = ergw:vrf(APN),
+    {VRF, VRFOpts}.
 
 update_context_tunnel_ids(#v2_fully_qualified_tunnel_endpoint_identifier{
 			     key  = RemoteCntlTEI,

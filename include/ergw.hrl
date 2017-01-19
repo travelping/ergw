@@ -32,6 +32,7 @@
 	  remote_control_tei = 0 :: non_neg_integer(),
 	  remote_restart_counter :: 0 .. 255,
 	  data_port              :: #gtp_port{},
+	  vrf                    :: atom(),
 	  local_data_tei         :: non_neg_integer(),
 	  remote_data_ip         :: inet:ip_address(),
 	  remote_data_tei = 0    :: non_neg_integer(),
