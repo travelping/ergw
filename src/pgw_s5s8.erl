@@ -167,9 +167,9 @@ handle_request(_ReqKey,
 	    lager:info("AuthResult: ~p", [Other]),
 
 	    ResponseIEs0 = [#v2_cause{v2_cause = user_authentication_failed}],
-	    ResponseIEs = gtp_v2_c:build_recovery(Context2, Recovery /= undefined, ResponseIEs0),
-	    Reply = {create_session_response, Context2#context.remote_control_tei, ResponseIEs},
-	    {stop, Reply, State#{context => Context2}}
+	    ResponseIEs = gtp_v2_c:build_recovery(ContextPreAuth, Recovery /= undefined, ResponseIEs0),
+	    Reply = {create_session_response, ContextPreAuth#context.remote_control_tei, ResponseIEs},
+	    {stop, Reply, State#{context => ContextPreAuth}}
 
     end;
 

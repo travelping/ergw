@@ -104,9 +104,9 @@ handle_request(_ReqKey,
     EUA = maps:get(?'End User Address', IEs, undefined),
 
     Context1 = update_context_from_gtp_req(IEs, Context0),
-    Context2 = gtp_path:bind(Recovery, Context1),
+    ContextPreAuth = gtp_path:bind(Recovery, Context1),
 
-    SessionOpts0 = init_session(IEs, Context2, AAAopts),
+    SessionOpts0 = init_session(IEs, ContextPreAuth, AAAopts),
     SessionOpts1 = init_session_from_gtp_req(IEs, AAAopts, SessionOpts0),
     SessionOpts = init_session_qos(ReqQoSProfile, SessionOpts1),
 
@@ -116,10 +116,10 @@ handle_request(_ReqKey,
 	    lager:info("AuthResult: success"),
 
 	    ActiveSessionOpts0 = ergw_aaa_session:get(Session),
-	    ActiveSessionOpts = apply_vrf_session_defaults(Context2, ActiveSessionOpts0),
+	    ActiveSessionOpts = apply_vrf_session_defaults(ContextPreAuth, ActiveSessionOpts0),
 
 	    lager:info("ActiveSessionOpts: ~p", [ActiveSessionOpts]),
-	    Context = assign_ips(ActiveSessionOpts, EUA, Context2),
+	    Context = assign_ips(ActiveSessionOpts, EUA, ContextPreAuth),
 
 	    gtp_context:register_remote_context(Context),
 	    dp_create_pdp_context(Context),
@@ -136,9 +136,9 @@ handle_request(_ReqKey,
 	    lager:info("AuthResult: ~p", [Other]),
 
 	    ResponseIEs0 = [#cause{value = user_authentication_failed}],
-	    ResponseIEs = gtp_v1_c:build_recovery(Context2, Recovery /= undefined, ResponseIEs0),
-	    Reply = {create_pdp_context_response, Context2#context.remote_control_tei, ResponseIEs},
-	    {stop, Reply, State#{context => Context2}}
+	    ResponseIEs = gtp_v1_c:build_recovery(ContextPreAuth, Recovery /= undefined, ResponseIEs0),
+	    Reply = {create_pdp_context_response, ContextPreAuth#context.remote_control_tei, ResponseIEs},
+	    {stop, Reply, State#{context => ContextPreAuth}}
     end;
 
 handle_request(_ReqKey,
