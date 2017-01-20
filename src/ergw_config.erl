@@ -43,7 +43,7 @@ validate_options(Fun, [{Opt, Value} | Tail]) ->
         [{Opt, Fun(Opt, Value)} | validate_options(Fun, Tail)].
 
 validate_config(Options) ->
-    Opts = lists:keymerge(1, lists:keysort(1, Options), lists:keysort(1, ?DefaultOptions)),
+    Opts = lists:ukeymerge(1, lists:keysort(1, Options), lists:keysort(1, ?DefaultOptions)),
     validate_options(fun validate_option/2, Opts).
 
 validate_option(plmn_id, {MCC, MNC} = Value) ->
