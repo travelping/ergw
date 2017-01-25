@@ -458,7 +458,7 @@ cache_get(Key, #cache{tree = Tree}) ->
 cache_enter(Key, Data, TimeOut, #cache{tree = Tree0, queue = Q0} = Cache) ->
     Now = erlang:monotonic_time(milli_seconds),
     Expire = Now + TimeOut,
-    Tree = gb_trees:insert(Key, {Expire, Data}, Tree0),
+    Tree = gb_trees:enter(Key, {Expire, Data}, Tree0),
     Q = queue:in({Expire, Key}, Q0),
     cache_expire(Now, Cache#cache{tree = Tree, queue = Q}).
 
@@ -471,7 +471,12 @@ cache_expire(Now, #cache{tree = Tree0, queue = Q0} = Cache) ->
     case queue:peek(Q0) of
 	{value, {Expire, Key}} when Expire < Now ->
 	    {_, Q} = queue:out(Q0),
-	    Tree = gb_trees:delete(Key, Tree0),
+	    Tree = case gb_trees:lookup(Key, Tree0) of
+		       {value, {Expire, _}} ->
+			   gb_trees:delete(Key, Tree0);
+		       _ ->
+			   Tree0
+		   end,
 	    cache_expire(Now, Cache#cache{tree = Tree, queue = Q});
 	_ ->
 	    Cache
