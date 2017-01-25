@@ -41,9 +41,7 @@
 	  v2_seq_no = 0 :: v2_sequence_number(),
 	  pending    :: gb_trees:tree(sequence_id(), term()),
 
-	  responses  :: gb_trees:tree(#request_key{}, {Data :: binary(), TStamp :: integer()}),
-	  rqueue     :: queue:queue({TStamp :: integer(), #request_key{}}),
-	  cache_timer:: reference(),
+	  responses,
 
 	  restart_counter}).
 
@@ -120,20 +118,18 @@ init([Name, SocketOpts]) ->
     init_exometer(GtpPort),
     gtp_socket_reg:register(Name, GtpPort),
 
-    State0 = #state{
-		gtp_port = GtpPort,
-		ip = IP,
-		socket = S,
+    State = #state{
+	       gtp_port = GtpPort,
+	       ip = IP,
+	       socket = S,
 
-		v1_seq_no = 0,
-		v2_seq_no = 0,
-		pending = gb_trees:empty(),
+	       v1_seq_no = 0,
+	       v2_seq_no = 0,
+	       pending = gb_trees:empty(),
+	       responses = cache_new(?CACHE_TIMEOUT, responses),
 
-		responses = gb_trees:empty(),
-		rqueue = queue:new(),
 
-		restart_counter = RCnt},
-    State = start_cache_timer(State0),
+	       restart_counter = RCnt},
     {ok, State}.
 
 handle_call(get_restart_counter, _From, #state{restart_counter = RCnt} = State) ->
@@ -182,11 +178,8 @@ handle_info(Info = {timeout, _TRef, {request, SeqId}}, #state{gtp_port = GtpPort
 	    {noreply, State1}
     end;
 
-handle_info({timeout, TRef, cache_timeout}, #state{cache_timer = TRef} = State0) ->
-    Now = erlang:monotonic_time(milli_seconds),
-    State1 = timeout_queue(Now, State0),
-    State = start_cache_timer(State1),
-    {noreply, State};
+handle_info({timeout, _TRef, responses}, #state{responses = Responses} = State) ->
+    {noreply, State#state{responses = cache_expire(Responses)}};
 
 handle_info({Socket, input_ready}, #state{socket = Socket} = State) ->
     handle_input(Socket, State);
@@ -366,9 +359,8 @@ handle_response(IP, _Port, Msg, #state{gtp_port = GtpPort} = State0) ->
 
 handle_request(#request_key{ip = IP, port = Port} = ReqKey, Msg,
 	       #state{gtp_port = GtpPort, responses = Responses} = State) ->
-    Now = erlang:monotonic_time(milli_seconds),
-    case gb_trees:lookup(ReqKey, Responses) of
-	{value, {Data, TStamp}}  when (TStamp + ?RESPONSE_TIMEOUT) > Now ->
+    case cache_get(ReqKey, Responses) of
+	{value, Data} ->
 	    message_counter(rx, GtpPort, IP, Msg, duplicate),
 	    sendto(IP, Port, Data, State);
 
@@ -415,34 +407,75 @@ send_request_with_timeout(SeqId, RemoteIP, T3, N3, Data, Sender, State) ->
     sendto(RemoteIP, Data, State),
     start_request(SeqId, {RemoteIP, T3, N3, Data, Sender}, T3, State).
 
-start_cache_timer(State) ->
-    State#state{cache_timer = erlang:start_timer(?CACHE_TIMEOUT, self(), cache_timeout)}.
 
-timeout_queue(Now, #state{responses = Responses0, rqueue = RQueue0} = State) ->
-    case queue:peek(RQueue0) of
-	{value, {TStamp, ReqKey}} when (TStamp + ?RESPONSE_TIMEOUT) < Now ->
-	    {_, RQueue} = queue:out(RQueue0),
-	    Responses = gb_trees:delete(ReqKey, Responses0),
-	    timeout_queue(Now, State#state{responses = Responses, rqueue = RQueue});
-	_ ->
-	    State
-    end.
 
 enqueue_response(ReqKey, Data, DoCache,
-		 #state{responses = Responses0, rqueue = RQueue0} = State)
+		 #state{responses = Responses} = State)
   when DoCache =:= true ->
-    Now = erlang:monotonic_time(milli_seconds),
-    Responses = gb_trees:insert(ReqKey, {Data, Now}, Responses0),
-    RQueue = queue:in({Now, ReqKey}, RQueue0),
-    timeout_queue(Now, State#state{responses = Responses, rqueue = RQueue});
-
-enqueue_response(_ReqKey, _Data, _DoCache, State) ->
-    Now = erlang:monotonic_time(milli_seconds),
-    timeout_queue(Now, State).
+    State#state{responses = cache_enter(ReqKey, Data, ?RESPONSE_TIMEOUT, Responses)};
+enqueue_response(_ReqKey, _Data, _DoCache,
+		 #state{responses = Responses} = State) ->
+    State#state{responses = cache_expire(Responses)}.
 
 do_send_response(#request_key{ip = IP, port = Port} = ReqKey, Data, DoCache, State) ->
     sendto(IP, Port, Data, State),
     enqueue_response(ReqKey, Data, DoCache, State).
+
+%%%===================================================================
+%%% exometer functions
+%%%===================================================================
+
+-record(cache, {
+	  expire :: integer(),
+	  key    :: term(),
+	  timer  :: reference(),
+	  tree   :: gb_trees:tree(Key :: term(), {Expire :: integer(), Data :: term()}),
+	  queue  :: queue:queue({Expire :: integer(), Key :: term()})
+	 }).
+
+cache_start_timer(#cache{expire = ExpireInterval, key = Key} = Cache) ->
+    Cache#cache{timer = erlang:start_timer(ExpireInterval, self(), Key)}.
+
+cache_new(ExpireInterval, Key) ->
+    Cache = #cache{
+	       expire = ExpireInterval,
+	       key = Key,
+	       tree = gb_trees:empty(),
+	       queue = queue:new()
+	      },
+    cache_start_timer(Cache).
+
+cache_get(Key, #cache{tree = Tree}) ->
+    Now = erlang:monotonic_time(milli_seconds),
+    case gb_trees:lookup(Key, Tree) of
+	{value, {Expire, Data}}  when Expire > Now ->
+	    {value, Data};
+
+	_ ->
+	    none
+    end.
+
+cache_enter(Key, Data, TimeOut, #cache{tree = Tree0, queue = Q0} = Cache) ->
+    Now = erlang:monotonic_time(milli_seconds),
+    Expire = Now + TimeOut,
+    Tree = gb_trees:insert(Key, {Expire, Data}, Tree0),
+    Q = queue:in({Expire, Key}, Q0),
+    cache_expire(Now, Cache#cache{tree = Tree, queue = Q}).
+
+cache_expire(Cache0) ->
+    Now = erlang:monotonic_time(milli_seconds),
+    Cache = cache_expire(Now, Cache0),
+    cache_start_timer(Cache).
+
+cache_expire(Now, #cache{tree = Tree0, queue = Q0} = Cache) ->
+    case queue:peek(Q0) of
+	{value, {Expire, Key}} when Expire < Now ->
+	    {_, Q} = queue:out(Q0),
+	    Tree = gb_trees:delete(Key, Tree0),
+	    cache_expire(Now, Cache#cache{tree = Tree, queue = Q});
+	_ ->
+	    Cache
+    end.
 
 %%%===================================================================
 %%% exometer functions
