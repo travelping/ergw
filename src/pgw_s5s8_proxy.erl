@@ -272,6 +272,9 @@ handle_request(ReqKey,
 handle_request(_From, _Msg, _Resent, State) ->
     {noreply, State}.
 
+handle_response(ReqInfo, #gtp{version = v1} = Msg, Request, State) ->
+    ?GTP_v1_Interface:handle_response(ReqInfo, Msg, Request, State);
+
 handle_response(#request_info{request_key = ReqKey, seq_no = SeqNo, new_peer = NewPeer},
 		#gtp{type = create_session_response,
 		     ie = #{?'Recovery' := Recovery,
