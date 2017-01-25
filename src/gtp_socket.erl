@@ -143,9 +143,9 @@ handle_call(Request, _From, State) ->
     lager:error("handle_call: unknown ~p", [lager:pr(Request, ?MODULE)]),
     {reply, ok, State}.
 
-handle_cast({send, IP, Port, Data}, #state{socket = Socket} = State)
+handle_cast({send, IP, Port, Data}, State)
   when is_binary(Data) ->
-    gen_socket:sendto(Socket, {inet4, IP, Port}, Data),
+    sendto(IP, Port, Data, State),
     {noreply, State};
 
 handle_cast({send_response, ReqKey, Data, DoCache}, State0)
@@ -356,18 +356,24 @@ handle_response(IP, _Port, #gtp{seq_no = SeqNo} = Msg, #state{gtp_port = GtpPort
     end.
 
 handle_request(#request_key{ip = IP, port = Port} = ReqKey, Msg,
-	       #state{gtp_port = GtpPort, socket = Socket, responses = Responses} = State) ->
+	       #state{gtp_port = GtpPort, responses = Responses} = State) ->
     Now = erlang:monotonic_time(milli_seconds),
     case gb_trees:lookup(ReqKey, Responses) of
 	{value, {Data, TStamp}}  when (TStamp + ?RESPONSE_TIMEOUT) > Now ->
 	    message_counter(rx, GtpPort, IP, Msg, duplicate),
-	    gen_socket:sendto(Socket, {inet4, IP, Port}, Data);
+	    sendto(IP, Port, Data, State);
 
 	_Other ->
 	    lager:debug("HandleRequest: ~p", [_Other]),
 	    gtp_context:handle_message(ReqKey, Msg)
     end,
     State.
+
+sendto(RemoteIP, Data, State) ->
+    sendto(RemoteIP, ?GTP1c_PORT, Data, State).
+
+sendto(RemoteIP, Port, Data, #state{socket = Socket}) ->
+    gen_socket:sendto(Socket, {inet4, RemoteIP, Port}, Data).
 
 do_send_request(From, RemoteIP, T3, N3, Msg0, ReqId,
 	     #state{gtp_port = GtpPort} = State0) ->
@@ -383,9 +389,9 @@ send_request_reply(#sender{from = From, req_id = ReqId, msg = ReqMsg}, ReplyMsg)
     From ! {ReqId, ReqMsg, ReplyMsg}.
 
 send_request_with_timeout(SeqNo, RemoteIP, T3, N3, Data, Sender,
-			  #state{socket = Socket, pending = Pending} = State) ->
+			  #state{pending = Pending} = State) ->
     TRef = erlang:start_timer(T3, self(), {send, SeqNo}),
-    gen_socket:sendto(Socket, {inet4, RemoteIP, ?GTP1c_PORT}, Data),
+    sendto(RemoteIP, Data, State),
     State#state{pending = gb_trees:insert(SeqNo, {RemoteIP, T3, N3, Data, Sender, TRef}, Pending)}.
 
 start_cache_timer(State) ->
@@ -413,9 +419,8 @@ enqueue_response(_ReqKey, _Data, _DoCache, State) ->
     Now = erlang:monotonic_time(milli_seconds),
     timeout_queue(Now, State).
 
-do_send_response(#request_key{ip = IP, port = Port} = ReqKey, Data, DoCache,
-		 #state{socket = Socket} = State) ->
-    gen_socket:sendto(Socket, {inet4, IP, Port}, Data),
+do_send_response(#request_key{ip = IP, port = Port} = ReqKey, Data, DoCache, State) ->
+    sendto(IP, Port, Data, State),
     enqueue_response(ReqKey, Data, DoCache, State).
 
 %%%===================================================================
