@@ -13,7 +13,7 @@
 -export([lookup/2, handle_message/2, handle_packet_in/4,
 	 start_link/5,
 	 send_request/4, send_request/6, send_response/2,
-	 path_restart/2,
+	 forward_request/4, path_restart/2,
 	 register_remote_context/1, update_remote_context/2,
 	 info/1, validate_option/2]).
 
@@ -90,6 +90,9 @@ send_request(GtpPort, RemoteIP, Msg, ReqId) ->
 
 send_request(GtpPort, RemoteIP, T3, N3, Msg, ReqId) ->
     gtp_socket:send_request(GtpPort, self(), RemoteIP, T3, N3, Msg, ReqId).
+
+forward_request(GtpPort, RemoteIP, Msg, ReqId) ->
+    gtp_socket:forward_request(GtpPort, self(), RemoteIP, Msg, ReqId).
 
 start_link(GtpPort, Version, Interface, IfOpts, Opts) ->
     gen_server:start_link(?MODULE, [GtpPort, Version, Interface, IfOpts], Opts).

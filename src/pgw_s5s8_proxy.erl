@@ -502,7 +502,7 @@ forward_request(#context{control_port = GtpPort, remote_control_ip = RemoteCntlI
 	       Request, ReqKey, SeqNo, NewPeer) ->
     ReqInfo = #request_info{request_key = ReqKey, seq_no = SeqNo, new_peer = NewPeer},
     lager:debug("Invoking Context Send Request: ~p", [Request]),
-    gtp_context:send_request(GtpPort, RemoteCntlIP, Request, ReqInfo).
+    gtp_context:forward_request(GtpPort, RemoteCntlIP, Request, ReqInfo).
 
 proxy_dp_args(#context{data_port = #gtp_port{name = Name},
 		       local_data_tei = LocalTEI,
