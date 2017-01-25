@@ -46,5 +46,5 @@
 	  ip		:: inet:ip_address(),
 	  port		:: 0 .. 65535,
 	  type		:: atom(),
-	  seq_no	:: non_neg_integer()
+	  seq_id	:: gtp_socket:sequence_id()
 	 }).

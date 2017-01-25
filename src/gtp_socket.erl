@@ -25,15 +25,21 @@
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include("include/ergw.hrl").
 
--type sequence_number() :: 0 .. 16#ffff.
+-type v1_sequence_number() :: 0 .. 16#ffff.
+-type v2_sequence_number() :: 0 .. 16#7fffff.
+-type sequence_id() :: {v1, v1_sequence_number()} |
+		       {v2, v2_sequence_number()}.
+
+-export_type([sequence_id/0]).
 
 -record(state, {
 	  gtp_port   :: #gtp_port{},
 	  ip         :: inet:ip_address(),
 	  socket     :: gen_socket:socket(),
 
-	  seq_no = 0 :: sequence_number(),
-	  pending    :: gb_trees:tree(sequence_number(), term()),
+	  v1_seq_no = 0 :: v1_sequence_number(),
+	  v2_seq_no = 0 :: v2_sequence_number(),
+	  pending    :: gb_trees:tree(sequence_id(), term()),
 
 	  responses  :: gb_trees:tree(#request_key{}, {Data :: binary(), TStamp :: integer()}),
 	  rqueue     :: queue:queue({TStamp :: integer(), #request_key{}}),
@@ -119,7 +125,8 @@ init([Name, SocketOpts]) ->
 		ip = IP,
 		socket = S,
 
-		seq_no = 0,
+		v1_seq_no = 0,
+		v2_seq_no = 0,
 		pending = gb_trees:empty(),
 
 		responses = gb_trees:empty(),
@@ -154,19 +161,19 @@ handle_cast(Msg, State) ->
     lager:error("handle_cast: unknown ~p", [lager:pr(Msg, ?MODULE)]),
     {noreply, State}.
 
-handle_info(Info = {timeout, TRef, {send, SeqNo}}, #state{gtp_port = GtpPort, pending = Pending} = State0) ->
+handle_info(Info = {timeout, TRef, {send, SeqId}}, #state{gtp_port = GtpPort, pending = Pending} = State0) ->
     lager:debug("handle_info: ~p", [lager:pr(Info, ?MODULE)]),
-    case gb_trees:lookup(SeqNo, Pending) of
+    case gb_trees:lookup(SeqId, Pending) of
 	{value, {RemoteIP, _T3, _N3 = 0, _Data, Sender, TRef}} ->
 	    send_request_reply(Sender, timeout),
 	    message_counter(tx, GtpPort, RemoteIP, Sender#sender.msg, timeout),
-	    {noreply, State0#state{pending = gb_trees:delete(SeqNo, Pending)}};
+	    {noreply, State0#state{pending = gb_trees:delete(SeqId, Pending)}};
 
 	{value, {RemoteIP, T3, N3, Data, Sender, TRef}} ->
 	    %% resent....
 	    message_counter(tx, GtpPort, RemoteIP, Sender#sender.msg, retransmit),
-	    State = send_request_with_timeout(SeqNo, RemoteIP, T3, N3 - 1, Data, Sender,
-					      State0#state{pending = gb_trees:delete(SeqNo, Pending)}),
+	    State = send_request_with_timeout(SeqId, RemoteIP, T3, N3 - 1, Data, Sender,
+					      State0#state{pending = gb_trees:delete(SeqId, Pending)}),
 	    {noreply, State}
     end;
 
@@ -203,10 +210,19 @@ cancel_timer(Ref) ->
             RemainingTime
     end.
 
-make_request_key(IP, Port, #gtp{type = Type, seq_no = SeqNo}, #state{gtp_port = GtpPort}) ->
+new_sequence_number(#gtp{version = v1} = Msg, #state{v1_seq_no = SeqNo} = State) ->
+    {Msg#gtp{seq_no = SeqNo}, State#state{v1_seq_no = (SeqNo + 1) rem 16#ffff}};
+new_sequence_number(#gtp{version = v2} = Msg, #state{v2_seq_no = SeqNo} = State) ->
+    {Msg#gtp{seq_no = SeqNo}, State#state{v2_seq_no = (SeqNo + 1) rem 16#7fffff}}.
+
+make_seq_id(#gtp{version = Version, seq_no = SeqNo}) ->
+    {Version, SeqNo}.
+
+make_request_key(IP, Port, Msg = #gtp{type = Type}, #state{gtp_port = GtpPort}) ->
+    SeqId = make_seq_id(Msg),
     #request_key{gtp_port = GtpPort,
 		 ip = IP, port = Port,
-		 type = Type, seq_no = SeqNo}.
+		 type = Type, seq_id = SeqId}.
 
 make_gtp_socket(NetNs, {_,_,_,_} = IP, Port, Opts) when is_list(NetNs) ->
     {ok, Socket} = gen_socket:socketat(NetNs, inet, dgram, udp),
@@ -353,14 +369,15 @@ handle_request(#request_key{ip = IP, port = Port} = ReqKey, Msg,
     end,
     State.
 
-do_send_request(From, RemoteIP, T3, N3, Msg, ReqId,
-	     #state{gtp_port = GtpPort, seq_no = SeqNo} = State) ->
-    lager:debug("~p: gtp_socket send_request to ~p: ~p", [self(), RemoteIP, Msg]),
-    message_counter(tx, GtpPort, RemoteIP, Msg),
-    Data = gtp_packet:encode(Msg#gtp{seq_no = SeqNo}),
+do_send_request(From, RemoteIP, T3, N3, Msg0, ReqId,
+	     #state{gtp_port = GtpPort} = State0) ->
+    lager:debug("~p: gtp_socket send_request to ~p: ~p", [self(), RemoteIP, Msg0]),
+    message_counter(tx, GtpPort, RemoteIP, Msg0),
+    {Msg, State} = new_sequence_number(Msg0, State0),
+    Data = gtp_packet:encode(Msg),
     Sender = #sender{from = From, req_id = ReqId, msg = Msg},
-    send_request_with_timeout(SeqNo, RemoteIP, T3, N3, Data, Sender,
-			      State#state{seq_no = (SeqNo + 1) rem 65536}).
+    SeqId = make_seq_id(Msg),
+    send_request_with_timeout(SeqId, RemoteIP, T3, N3, Data, Sender, State).
 
 send_request_reply(#sender{from = From, req_id = ReqId, msg = ReqMsg}, ReplyMsg) ->
     From ! {ReqId, ReqMsg, ReplyMsg}.
