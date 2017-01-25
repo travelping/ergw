@@ -161,20 +161,25 @@ handle_cast(Msg, State) ->
     lager:error("handle_cast: unknown ~p", [lager:pr(Msg, ?MODULE)]),
     {noreply, State}.
 
-handle_info(Info = {timeout, TRef, {send, SeqId}}, #state{gtp_port = GtpPort, pending = Pending} = State0) ->
+handle_info(Info = {timeout, _TRef, {request, SeqId}}, #state{gtp_port = GtpPort} = State0) ->
     lager:debug("handle_info: ~p", [lager:pr(Info, ?MODULE)]),
-    case gb_trees:lookup(SeqId, Pending) of
-	{value, {RemoteIP, _T3, _N3 = 0, _Data, Sender, TRef}} ->
+    {Req, State1} = take_request(SeqId, State0),
+    case Req of
+	{RemoteIP, _T3, _N3 = 0, _Data, Sender}
+	  when is_record(Sender, sender) ->
 	    send_request_reply(Sender, timeout),
 	    message_counter(tx, GtpPort, RemoteIP, Sender#sender.msg, timeout),
-	    {noreply, State0#state{pending = gb_trees:delete(SeqId, Pending)}};
+	    {noreply, State1};
 
-	{value, {RemoteIP, T3, N3, Data, Sender, TRef}} ->
+	{RemoteIP, T3, N3, Data, Sender}
+	  when is_record(Sender, sender) ->
 	    %% resent....
 	    message_counter(tx, GtpPort, RemoteIP, Sender#sender.msg, retransmit),
-	    State = send_request_with_timeout(SeqId, RemoteIP, T3, N3 - 1, Data, Sender,
-					      State0#state{pending = gb_trees:delete(SeqId, Pending)}),
-	    {noreply, State}
+	    State = send_request_with_timeout(SeqId, RemoteIP, T3, N3 - 1, Data, Sender, State1),
+	    {noreply, State};
+
+	none ->
+	    {noreply, State1}
     end;
 
 handle_info({timeout, TRef, cache_timeout}, #state{cache_timer = TRef} = State0) ->
@@ -341,18 +346,22 @@ handle_message_1(IP, Port, #gtp{version = Version, type = MsgType} = Msg, State)
 	    State
     end.
 
-handle_response(IP, _Port, #gtp{seq_no = SeqNo} = Msg, #state{gtp_port = GtpPort, pending = Pending} = State) ->
-    case gb_trees:lookup(SeqNo, Pending) of
+handle_response(IP, _Port, Msg, #state{gtp_port = GtpPort} = State0) ->
+    SeqId = make_seq_id(Msg),
+    {Req, State} = take_request(SeqId, State0),
+    case Req of
 	none -> %% duplicate, drop silently
 	    message_counter(rx, GtpPort, IP, Msg, duplicate),
-	    lager:error("~p: invalid response: ~p, ~p", [self(), SeqNo, Pending]),
+	    lager:error("~p: invalid response: ~p, ~p", [self(), SeqId]),
 	    State;
 
-	{value, {_RemoteIP, _T3, _N3, _Data, Sender, TRef}} ->
-	    lager:info("~p: found response: ~p", [self(), SeqNo]),
+	{_RemoteIP, _T3, _N3, _Data, Sender} ->
+	    lager:info("~p: found response: ~p", [self(), SeqId]),
 	    send_request_reply(Sender, Msg),
-	    cancel_timer(TRef),
-	    State#state{pending = gb_trees:delete(SeqNo, Pending)}
+	    State;
+
+	_ ->
+	    State
     end.
 
 handle_request(#request_key{ip = IP, port = Port} = ReqKey, Msg,
@@ -368,6 +377,20 @@ handle_request(#request_key{ip = IP, port = Port} = ReqKey, Msg,
 	    gtp_context:handle_message(ReqKey, Msg)
     end,
     State.
+
+start_request(SeqId, Req, Timeout, #state{pending = Pending} = State) ->
+    TRef = erlang:start_timer(Timeout, self(), {request, SeqId}),
+    State#state{pending = gb_trees:insert(SeqId, {Req, TRef}, Pending)}.
+
+take_request(SeqId, #state{pending = Pending} = State) ->
+    case gb_trees:lookup(SeqId, Pending) of
+	none ->
+	    {none, State};
+
+	{value, {Req, TRef}} ->
+	    cancel_timer(TRef),
+	    {Req, State#state{pending = gb_trees:delete(SeqId, Pending)}}
+    end.
 
 sendto(RemoteIP, Data, State) ->
     sendto(RemoteIP, ?GTP1c_PORT, Data, State).
@@ -388,11 +411,9 @@ do_send_request(From, RemoteIP, T3, N3, Msg0, ReqId,
 send_request_reply(#sender{from = From, req_id = ReqId, msg = ReqMsg}, ReplyMsg) ->
     From ! {ReqId, ReqMsg, ReplyMsg}.
 
-send_request_with_timeout(SeqNo, RemoteIP, T3, N3, Data, Sender,
-			  #state{pending = Pending} = State) ->
-    TRef = erlang:start_timer(T3, self(), {send, SeqNo}),
+send_request_with_timeout(SeqId, RemoteIP, T3, N3, Data, Sender, State) ->
     sendto(RemoteIP, Data, State),
-    State#state{pending = gb_trees:insert(SeqNo, {RemoteIP, T3, N3, Data, Sender, TRef}, Pending)}.
+    start_request(SeqId, {RemoteIP, T3, N3, Data, Sender}, T3, State).
 
 start_cache_timer(State) ->
     State#state{cache_timer = erlang:start_timer(?CACHE_TIMEOUT, self(), cache_timeout)}.
