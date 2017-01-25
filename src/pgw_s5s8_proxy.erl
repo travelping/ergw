@@ -138,7 +138,7 @@ init(Opts, State) ->
     ProxyDS = proplists:get_value(proxy_data_source, Opts, gtp_proxy_ds),
     Contexts = maps:from_list(proplists:get_value(contexts, Opts)),
     {ok, State#{proxy_ports => ProxyPorts, proxy_dps => ProxyDPs,
-		contexts => Contexts, pgw => PGW, proxy_ds => ProxyDS}}.
+		contexts => Contexts, default_gw => PGW, proxy_ds => ProxyDS}}.
 
 handle_cast({path_restart, Path},
 	    #{context := #context{path = Path} = Context,
@@ -198,7 +198,7 @@ handle_request(ReqKey,
 	       #gtp{type = create_session_request, seq_no = SeqNo,
 		    ie = #{?'Recovery' := Recovery} = IEs} = Request,
 	       _Resent,
-	       #{context := Context0, pgw := DefaultPGW, proxy_ds := ProxyDS} = State0) ->
+	       #{context := Context0, default_gw := DefaultPGW, proxy_ds := ProxyDS} = State0) ->
 
     Context1 = update_context_from_gtp_req(Request, Context0#context{state = #context_state{}}),
     Context = gtp_path:bind(Recovery, Context1),
