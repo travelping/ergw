@@ -46,6 +46,8 @@
 
 -define('S5/S8-U SGW',  4).
 -define('S5/S8-U PGW',  5).
+-define('S5/S8-C SGW',  6).
+-define('S5/S8-C PGW',  7).
 
 request_spec(v1, Type) ->
     ?GTP_v1_Interface:request_spec(v1, Type);
@@ -400,8 +402,16 @@ get_context_from_bearer(?'EPS Bearer ID', #v2_eps_bearer_id{eps_bearer_id = EBI}
 get_context_from_bearer(_K, _, Context) ->
     Context.
 
-get_context_from_req(?'Sender F-TEID for Control Plane',
-		     #v2_fully_qualified_tunnel_endpoint_identifier{
+get_context_from_req(_, #v2_fully_qualified_tunnel_endpoint_identifier{
+			   interface_type = ?'S5/S8-C SGW',
+			key = RemoteCntlTEI, ipv4 = RemoteCntlIP
+		       }, Context) ->
+    Context#context{
+      remote_control_ip  = gtp_c_lib:bin2ip(RemoteCntlIP),
+      remote_control_tei = RemoteCntlTEI
+     };
+get_context_from_req(_, #v2_fully_qualified_tunnel_endpoint_identifier{
+			   interface_type = ?'S5/S8-C PGW',
 			key = RemoteCntlTEI, ipv4 = RemoteCntlIP
 		       }, Context) ->
     Context#context{
@@ -438,7 +448,12 @@ set_bearer_from_context(_, _K, IE) ->
     IE.
 
 set_req_from_context(#context{control_port = #gtp_port{ip = CntlIP}, local_control_tei = CntlTEI},
-		     _K, #v2_fully_qualified_tunnel_endpoint_identifier{instance = 0} = IE) ->
+		     _K, #v2_fully_qualified_tunnel_endpoint_identifier{interface_type = ?'S5/S8-C SGW'} = IE) ->
+    IE#v2_fully_qualified_tunnel_endpoint_identifier{
+      key = CntlTEI,
+      ipv4 = gtp_c_lib:ip2bin(CntlIP)};
+set_req_from_context(#context{control_port = #gtp_port{ip = CntlIP}, local_control_tei = CntlTEI},
+		     _K, #v2_fully_qualified_tunnel_endpoint_identifier{interface_type = ?'S5/S8-C PGW'} = IE) ->
     IE#v2_fully_qualified_tunnel_endpoint_identifier{
       key = CntlTEI,
       ipv4 = gtp_c_lib:ip2bin(CntlIP)};
