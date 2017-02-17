@@ -97,6 +97,8 @@ validate_socket_option(netns, Value)
     Value;
 validate_socket_option(freebind, true) ->
     freebind;
+validate_socket_option(rcvbuf, Value) when is_integer(Value) ->
+    Value;
 validate_socket_option(Opt, Value) ->
     throw({error, {options, {Opt, Value}}}).
 
