@@ -1,6 +1,14 @@
 erGW - 3GPP GGSN and PDN-GW in Erlang
 =====================================
 
+Version 1.7.0 - 24 Feb 2017
+---------------------------
+
+* more fixes for the GTPv2 proxy, not yet working
+* fix retransmission cache timeout bug
+* add rcvbuf option to sockets
+* use full sequence number range for GTPv2
+
 Version 1.6.0 - 17 Jan 2017
 ---------------------------
 
