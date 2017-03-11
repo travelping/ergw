@@ -63,6 +63,8 @@ request_spec(v2, modify_bearer_request) ->
     [];
 request_spec(v2, modify_bearer_response) ->
     [{?'Cause',						mandatory}];
+request_spec(v2, modify_bearer_command) ->
+    [];
 request_spec(v2, delete_session_request) ->
     [];
 request_spec(v2, delete_session_response) ->
@@ -266,6 +268,38 @@ handle_request(ReqKey,
     {noreply, State#{context := Context, proxy_context := ProxyContext}};
 
 handle_request(ReqKey,
+	       #gtp{type = modify_bearer_command, seq_no = SeqNo,
+		    ie = #{?'Recovery' := Recovery}} = Request,
+	       _Resent,
+	       #{context := Context0, proxy_info := ProxyInfo,
+		 proxy_context := ProxyContext0} = State) ->
+
+    Context = gtp_path:bind(Recovery, Context0),
+    ProxyContext = gtp_path:bind(undefined, ProxyContext0),
+
+    ProxyReq0 = build_context_request(ProxyContext, ProxyInfo, Request),
+    ProxyReq = build_recovery(ProxyContext, false, ProxyReq0),
+    forward_request(ProxyContext, ProxyReq, ReqKey, SeqNo, Recovery /= undefined),
+
+    {noreply, State#{context := Context, proxy_context := ProxyContext}};
+
+handle_request(ReqKey,
+	       #gtp{type = change_notification_request, seq_no = SeqNo,
+		    ie = #{?'Recovery' := Recovery}} = Request,
+	       _Resent,
+	       #{context := Context0, proxy_info := ProxyInfo,
+		 proxy_context := ProxyContext0} = State) ->
+
+    Context = gtp_path:bind(Recovery, Context0),
+    ProxyContext = gtp_path:bind(undefined, ProxyContext0),
+
+    ProxyReq0 = build_context_request(ProxyContext, ProxyInfo, Request),
+    ProxyReq = build_recovery(ProxyContext, false, ProxyReq0),
+    forward_request(ProxyContext, ProxyReq, ReqKey, SeqNo, Recovery /= undefined),
+
+    {noreply, State#{context := Context, proxy_context := ProxyContext}};
+
+handle_request(ReqKey,
 	       #gtp{type = delete_session_request, seq_no = SeqNo} = Request, _Resent,
 	       #{proxy_context := ProxyContext} = State) ->
     ProxyReq = build_context_request(ProxyContext, undefined, Request),
@@ -320,6 +354,17 @@ handle_response(#request_info{request_key = ReqKey, seq_no = SeqNo, new_peer = N
     gtp_context:send_response(ReqKey, GtpResp#gtp{seq_no = SeqNo}),
 
     dp_update_pdp_context(Context, ProxyContext),
+
+    {noreply, State};
+
+handle_response(#request_info{request_key = ReqKey, seq_no = SeqNo, new_peer = NewPeer},
+		#gtp{type = change_notification_response} = Response, _Request,
+		#{context := Context} = State) ->
+    lager:warning("OK Proxy Response ~p", [lager:pr(Response, ?MODULE)]),
+
+    GtpResp0 = build_context_request(Context, undefined, Response),
+    GtpResp = build_recovery(Context, NewPeer, GtpResp0),
+    gtp_context:send_response(ReqKey, GtpResp#gtp{seq_no = SeqNo}),
 
     {noreply, State};
 
