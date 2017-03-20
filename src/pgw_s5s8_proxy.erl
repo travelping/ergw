@@ -74,6 +74,14 @@ request_spec(v2, update_bearer_request) ->
 request_spec(v2, update_bearer_response) ->
     [{?'Cause',						mandatory},
      {?'Bearer Contexts',				mandatory}];
+request_spec(v2, suspend_notification) ->
+    [];
+request_spec(v2, suspend_acknowledge) ->
+    [{?'Cause',						mandatory}];
+request_spec(v2, resume_notification) ->
+    [{?'IMSI',						mandatory}];
+request_spec(v2, resume_acknowledge) ->
+    [{?'Cause',						mandatory}];
 request_spec(v2, _) ->
     [].
 
@@ -288,6 +296,9 @@ handle_request(ReqKey,
 
     {noreply, State#{context := Context, proxy_context := ProxyContext}};
 
+%%
+%% SGW to PGW requests without tunnel endpoint modification
+%%
 handle_request(ReqKey,
 	       #gtp{type = change_notification_request, seq_no = SeqNo,
 		    ie = #{?'Recovery' := Recovery}} = Request,
@@ -304,6 +315,30 @@ handle_request(ReqKey,
 
     {noreply, State#{context := Context, proxy_context := ProxyContext}};
 
+%%
+%% SGW to PGW notifications without tunnel endpoint modification
+%%
+handle_request(ReqKey,
+	       #gtp{type = Type, seq_no = SeqNo,
+		    ie = #{?'Recovery' := Recovery}} = Request,
+	       _Resent,
+	       #{context := Context0, proxy_info := ProxyInfo,
+		 proxy_context := ProxyContext0} = State)
+  when Type == suspend_notification;
+       Type == resume_notification  ->
+
+    Context = gtp_path:bind(Recovery, Context0),
+    ProxyContext = gtp_path:bind(undefined, ProxyContext0),
+
+    ProxyReq0 = build_context_request(ProxyContext, ProxyInfo, Request),
+    ProxyReq = build_recovery(ProxyContext, false, ProxyReq0),
+    forward_request(ProxyContext, ProxyReq, ReqKey, SeqNo, Recovery /= undefined),
+
+    {noreply, State#{context := Context, proxy_context := ProxyContext}};
+
+%%
+%% PGW to SGW requests without tunnel endpoint modification
+%%
 handle_request(ReqKey,
 	       #gtp{type = update_bearer_request, seq_no = SeqNo,
 		    ie = #{?'Recovery' := Recovery}} = Request,
@@ -378,6 +413,9 @@ handle_response(#request_info{request_key = ReqKey, seq_no = SeqNo, new_peer = N
 
     {noreply, State};
 
+%%
+%% PGW to SGW response without tunnel endpoint modification
+%%
 handle_response(#request_info{request_key = ReqKey, seq_no = SeqNo, new_peer = NewPeer},
 		#gtp{type = change_notification_response} = Response, _Request,
 		#{context := Context} = State) ->
@@ -389,6 +427,25 @@ handle_response(#request_info{request_key = ReqKey, seq_no = SeqNo, new_peer = N
 
     {noreply, State};
 
+%%
+%% PGW to SGW acknowledge without tunnel endpoint modification
+%%
+handle_response(#request_info{request_key = ReqKey, seq_no = SeqNo, new_peer = NewPeer},
+		#gtp{type = Type} = Response, _Request,
+		#{context := Context} = State)
+  when Type == suspend_acknowledge;
+       Type == resume_acknowledge ->
+    lager:warning("OK Proxy Acknowledge ~p", [lager:pr(Response, ?MODULE)]),
+
+    GtpResp0 = build_context_request(Context, undefined, Response),
+    GtpResp = build_recovery(Context, NewPeer, GtpResp0),
+    gtp_context:send_response(ReqKey, GtpResp#gtp{seq_no = SeqNo}),
+
+    {noreply, State};
+
+%%
+%% SGW to PGW response without tunnel endpoint modification
+%%
 handle_response(#request_info{request_key = ReqKey, seq_no = SeqNo, new_peer = NewPeer},
 		#gtp{type = update_bearer_response} = Response, _Request,
 		#{proxy_context := ProxyContext} = State) ->
