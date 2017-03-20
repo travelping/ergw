@@ -118,6 +118,8 @@ validate_option(Opt, Value)
     validate_context_option(Opt, Value);
 validate_option(pgw, {_,_,_,_} = Value) ->
     Value;
+validate_option(pgw, {_,_,_,_,_,_,_,_} = Value) ->
+    Value;
 validate_option(contexts, Values) when is_list(Values) ->
     lists:map(fun validate_context/1, Values);
 validate_option(Opt, Value) ->

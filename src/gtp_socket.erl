@@ -241,11 +241,14 @@ make_request_key(IP, Port, Msg = #gtp{type = Type}, #state{gtp_port = GtpPort}) 
 		 ip = IP, port = Port,
 		 type = Type, seq_id = SeqId}.
 
-make_gtp_socket(NetNs, {_,_,_,_} = IP, Port, Opts) when is_list(NetNs) ->
-    {ok, Socket} = gen_socket:socketat(NetNs, inet, dgram, udp),
+family({_,_,_,_}) -> inet;
+family({_,_,_,_,_,_,_,_}) -> inet6.
+
+make_gtp_socket(NetNs, IP, Port, Opts) when is_list(NetNs) ->
+    {ok, Socket} = gen_socket:socketat(NetNs, family(IP), dgram, udp),
     bind_gtp_socket(Socket, IP, Port, Opts);
-make_gtp_socket(_NetNs, {_,_,_,_} = IP, Port, Opts) ->
-    {ok, Socket} = gen_socket:socket(inet, dgram, udp),
+make_gtp_socket(_NetNs, IP, Port, Opts) ->
+    {ok, Socket} = gen_socket:socket(family(IP), dgram, udp),
     bind_gtp_socket(Socket, IP, Port, Opts).
 
 bind_gtp_socket(Socket, {_,_,_,_} = IP, Port, Opts) ->
@@ -260,6 +263,13 @@ bind_gtp_socket(Socket, {_,_,_,_} = IP, Port, Opts) ->
     ok = gen_socket:setsockopt(Socket, sol_ip, mtu_discover, 0),
     ok = gen_socket:input_event(Socket, true),
     lists:foreach(socket_setopts(Socket, _), Opts),
+    {ok, Socket};
+
+bind_gtp_socket(Socket, {_,_,_,_,_,_,_,_} = IP, Port, Opts) ->
+    %% ok = gen_socket:setsockopt(Socket, sol_ip, recverr, true),
+    ok = gen_socket:bind(Socket, {inet6, IP, Port}),
+    lists:foreach(socket_setopts(Socket, _), Opts),
+    ok = gen_socket:input_event(Socket, true),
     {ok, Socket}.
 
 socket_setopts(Socket, {netdev, Device})
@@ -279,7 +289,7 @@ handle_input(Socket, State) ->
 	{error, _} ->
 	    handle_err_input(Socket, State);
 
-	{ok, {inet4, IP, Port}, Data} ->
+	{ok, {_, IP, Port}, Data} ->
 	    ok = gen_socket:input_event(Socket, true),
 	    handle_message(IP, Port, Data, State);
 
@@ -414,8 +424,10 @@ take_request(SeqId, #state{pending = Pending} = State) ->
 sendto(RemoteIP, Data, State) ->
     sendto(RemoteIP, ?GTP1c_PORT, Data, State).
 
-sendto(RemoteIP, Port, Data, #state{socket = Socket}) ->
-    gen_socket:sendto(Socket, {inet4, RemoteIP, Port}, Data).
+sendto({_,_,_,_} = RemoteIP, Port, Data, #state{socket = Socket}) ->
+    gen_socket:sendto(Socket, {inet4, RemoteIP, Port}, Data);
+sendto({_,_,_,_,_,_,_,_} = RemoteIP, Port, Data, #state{socket = Socket}) ->
+    gen_socket:sendto(Socket, {inet6, RemoteIP, Port}, Data).
 
 do_send_request(From, RemoteIP, T3, N3, Msg0, ReqId,
 	     #state{gtp_port = GtpPort} = State0) ->
