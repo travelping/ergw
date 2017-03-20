@@ -36,11 +36,10 @@
 -define('RAT Type',					{v2_rat_type, 0}).
 -define('Sender F-TEID for Control Plane',		{v2_fully_qualified_tunnel_endpoint_identifier, 0}).
 -define('Access Point Name',				{v2_access_point_name, 0}).
--define('Bearer Contexts to be created',		{v2_bearer_context, 0}).
--define('Bearer Contexts created',			{v2_bearer_context, 0}).
--define('Bearer Contexts to be modified',		{v2_bearer_context, 0}).
+-define('Bearer Contexts',				{v2_bearer_context, 0}).
 -define('Protocol Configuration Options',		{v2_protocol_configuration_options, 0}).
 -define('ME Identity',					{v2_mobile_equipment_identity, 0}).
+-define('AMBR',						{v2_aggregate_maximum_bit_rate, 0}).
 
 -define('EPS Bearer ID',                                {v2_eps_bearer_id, 0}).
 
@@ -55,10 +54,10 @@ request_spec(v2, create_session_request) ->
     [{?'RAT Type',					mandatory},
      {?'Sender F-TEID for Control Plane',		mandatory},
      {?'Access Point Name',				mandatory},
-     {?'Bearer Contexts to be created',			mandatory}];
+     {?'Bearer Contexts',				mandatory}];
 request_spec(v2, create_session_response) ->
     [{?'Cause',						mandatory},
-     {?'Bearer Contexts created',			mandatory}];
+     {?'Bearer Contexts',				mandatory}];
 request_spec(v2, modify_bearer_request) ->
     [];
 request_spec(v2, modify_bearer_response) ->
@@ -69,6 +68,12 @@ request_spec(v2, delete_session_request) ->
     [];
 request_spec(v2, delete_session_response) ->
     [{?'Cause',						mandatory}];
+request_spec(v2, update_bearer_request) ->
+    [{?'Bearer Contexts',				mandatory},
+     {?'AMBR',						mandatory}];
+request_spec(v2, update_bearer_response) ->
+    [{?'Cause',						mandatory},
+     {?'Bearer Contexts',				mandatory}];
 request_spec(v2, _) ->
     [].
 
@@ -300,6 +305,22 @@ handle_request(ReqKey,
     {noreply, State#{context := Context, proxy_context := ProxyContext}};
 
 handle_request(ReqKey,
+	       #gtp{type = update_bearer_request, seq_no = SeqNo,
+		    ie = #{?'Recovery' := Recovery}} = Request,
+	       _Resent,
+	       #{context := Context0, proxy_info := ProxyInfo,
+		 proxy_context := ProxyContext0} = State) ->
+
+    ProxyContext = gtp_path:bind(Recovery, ProxyContext0),
+    Context = gtp_path:bind(undefined, Context0),
+
+    ProxyReq0 = build_context_request(Context, ProxyInfo, Request),
+    ProxyReq = build_recovery(Context, false, ProxyReq0),
+    forward_request(Context, ProxyReq, ReqKey, SeqNo, Recovery /= undefined),
+
+    {noreply, State#{context := Context, proxy_context := ProxyContext}};
+
+handle_request(ReqKey,
 	       #gtp{type = delete_session_request, seq_no = SeqNo} = Request, _Resent,
 	       #{proxy_context := ProxyContext} = State) ->
     ProxyReq = build_context_request(ProxyContext, undefined, Request),
@@ -364,6 +385,17 @@ handle_response(#request_info{request_key = ReqKey, seq_no = SeqNo, new_peer = N
 
     GtpResp0 = build_context_request(Context, undefined, Response),
     GtpResp = build_recovery(Context, NewPeer, GtpResp0),
+    gtp_context:send_response(ReqKey, GtpResp#gtp{seq_no = SeqNo}),
+
+    {noreply, State};
+
+handle_response(#request_info{request_key = ReqKey, seq_no = SeqNo, new_peer = NewPeer},
+		#gtp{type = update_bearer_response} = Response, _Request,
+		#{proxy_context := ProxyContext} = State) ->
+    lager:warning("OK Response ~p", [lager:pr(Response, ?MODULE)]),
+
+    GtpResp0 = build_context_request(ProxyContext, undefined, Response),
+    GtpResp = build_recovery(ProxyContext, NewPeer, GtpResp0),
     gtp_context:send_response(ReqKey, GtpResp#gtp{seq_no = SeqNo}),
 
     {noreply, State};
