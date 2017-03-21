@@ -33,6 +33,30 @@
 lookup(GtpPort, TEI) ->
     gtp_context_reg:lookup(GtpPort, TEI).
 
+lookup_keys(_, []) ->
+    not_found;
+lookup_keys(GtpPort, [H|T]) ->
+    case gtp_context_reg:lookup(GtpPort, H) of
+	Pid when is_pid(Pid) ->
+	    Pid;
+	_ ->
+	    gtp_context_reg:lookup(GtpPort, T)
+    end.
+
+%% TEID handling for GTPv2 is brain dead....
+handle_message(#request_key{gtp_port = GtpPort} = ReqKey,
+	       #gtp{version = v2, type = MsgType, tei = 0} = Msg)
+  when MsgType == change_notification_request;
+       MsgType == change_notification_response ->
+    Keys = gtp_v2_c:get_msg_keys(Msg),
+    case lookup_keys(GtpPort, Keys) of
+	Context when is_pid(Context) ->
+	    do_handle_message(Context, ReqKey, Msg);
+
+	_ ->
+	    generic_error(ReqKey, Msg, not_found)
+    end;
+
 handle_message(#request_key{gtp_port = GtpPort} = ReqKey, #gtp{version = Version, tei = 0} = Msg) ->
     Result =
 	case get_handler(ReqKey, Msg) of
@@ -106,9 +130,21 @@ register_remote_context(#context{
 			   remote_control_tei = CntlTEI,
 			   data_port          = DataPort,
 			   remote_data_ip     = DataIP,
-			   remote_data_tei    = DataTEI}) ->
+			   remote_data_tei    = DataTEI,
+			   imsi               = IMSI,
+			   imei               = IMEI}) ->
     gtp_context_reg:register(CntlPort, {remote_control, CntlIP, CntlTEI}),
     gtp_context_reg:register(DataPort, {remote_data,    DataIP, DataTEI}),
+    if IMSI /= undefiend ->
+	    gtp_context_reg:register(CntlPort, {imsi, IMSI});
+       true ->
+	    ok
+    end,
+    if IMEI /= undefiend ->
+	    gtp_context_reg:register(CntlPort, {imei, IMEI});
+       true ->
+	    ok
+    end,
     ok.
 
 update_remote_control_context(#context{control_port = OldCntlPort, remote_control_ip = OldCntlIP, remote_control_tei = OldCntlTEI},
