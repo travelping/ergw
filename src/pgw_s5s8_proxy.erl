@@ -74,6 +74,10 @@ request_spec(v2, update_bearer_request) ->
 request_spec(v2, update_bearer_response) ->
     [{?'Cause',						mandatory},
      {?'Bearer Contexts',				mandatory}];
+request_spec(v2, delete_bearer_request) ->
+    [];
+request_spec(v2, delete_bearer_response) ->
+    [{?'Cause',						mandatory}];
 request_spec(v2, suspend_notification) ->
     [];
 request_spec(v2, suspend_acknowledge) ->
@@ -363,6 +367,17 @@ handle_request(ReqKey,
 
     {noreply, State};
 
+%%
+%% PGW to SGW delete bearer requests
+%%
+handle_request(ReqKey,
+	       #gtp{type = delete_bearer_request, seq_no = SeqNo} = Request, _Resent,
+	       #{context := Context} = State) ->
+    Req = build_context_request(Context, undefined, Request),
+    forward_request(Context, Req, ReqKey, SeqNo, false),
+
+    {noreply, State};
+
 handle_request(_From, _Msg, _Resent, State) ->
     {noreply, State}.
 
@@ -464,6 +479,21 @@ handle_response(#request_info{request_key = ReqKey, seq_no = SeqNo},
     lager:warning("OK Proxy Response ~p", [lager:pr(Response, ?MODULE)]),
 
     GtpResp = build_context_request(Context, undefined, Response),
+    gtp_context:send_response(ReqKey, GtpResp#gtp{seq_no = SeqNo}),
+
+    dp_delete_pdp_context(Context, ProxyContext),
+    {stop, State};
+
+%%
+%% SGW to PGW delete bearer response
+%%
+handle_response(#request_info{request_key = ReqKey, seq_no = SeqNo},
+		#gtp{type = delete_bearer_response} = Response, _Request,
+		#{context := Context,
+		  proxy_context := ProxyContext} = State) ->
+    lager:warning("OK Proxy Response ~p", [lager:pr(Response, ?MODULE)]),
+
+    GtpResp = build_context_request(ProxyContext, undefined, Response),
     gtp_context:send_response(ReqKey, GtpResp#gtp{seq_no = SeqNo}),
 
     dp_delete_pdp_context(Context, ProxyContext),
