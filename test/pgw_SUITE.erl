@@ -9,7 +9,17 @@
 -compile(export_all).
 
 -include_lib("common_test/include/ct.hrl").
+-include_lib("gtplib/include/gtp_packet.hrl").
 -include("../include/ergw.hrl").
+
+-define(LOCALHOST, {127,0,0,1}).
+
+-define('S5/S8-U SGW',  4).
+-define('S5/S8-U PGW',  5).
+-define('S5/S8-C SGW',  6).
+-define('S5/S8-C PGW',  7).
+
+-define('APN-EXAMPLE', [<<"example">>, <<"net">>]).
 
 -define(equal(Expected, Actual),
     (fun (Expected@@@, Expected@@@) -> true;
@@ -71,7 +81,7 @@
 			       ]},
 
 			      {apns,
-			       [{[<<"example">>, <<"net">>], [{vrf, upstream}]},
+			       [{?'APN-EXAMPLE', [{vrf, upstream}]},
 				{[<<"APN1">>], [{vrf, upstream}]}
 			       ]}
 			     ]},
@@ -94,6 +104,8 @@ init_per_suite(Config) ->
 		  end, ?TEST_CONFIG),
     {ok, _} = application:ensure_all_started(ergw),
     ok = meck:wait(gtp_dp, start_link, '_', 1000),
+    ct:pal("Meck H: ~p", [meck:history(gtp_dp)]),
+    ct:pal("Sockets: ~p", [gtp_socket_reg:all()]),
     Config.
 
 end_per_suite(_) ->
@@ -103,7 +115,7 @@ end_per_suite(_) ->
     ok.
 
 all() ->
-    [invalid_gtp_pdu].
+    [invalid_gtp_pdu, create_session_request_missing_ie, create_session_request].
 
 %%%===================================================================
 %%% Tests
@@ -126,12 +138,102 @@ invalid_gtp_pdu() ->
     [{doc, "Test that an invalid PDU is silently ignored"
       " and that the GTP socket is not crashing"}].
 invalid_gtp_pdu(_Config) ->
-    {ok, S} = gen_udp:open(0, [{ip, {127,0,0,1}}, {active, false}, {reuseaddr, true}]),
-    ct:pal("S: ~p", [S]),
-    gen_udp:send(S, {127,0,0,1}, ?GTP1c_PORT, <<"TESTDATA">>),
+    S = make_gtp_socket(),
+    gen_udp:send(S, ?LOCALHOST, ?GTP2c_PORT, <<"TESTDATA">>),
 
     ?equal({error,timeout}, gen_udp:recv(S, 4096, 1000)),
     ?equal(true, meck:validate(gtp_socket)),
+    ok.
+
+%%--------------------------------------------------------------------
+create_session_request_missing_ie() ->
+    [{doc, "Check that Create Session Request IE validation works"}].
+create_session_request_missing_ie(_Config) ->
+    S = make_gtp_socket(),
+
+    SeqNo = erlang:unique_integer([positive, monotonic]) rem 16#7fffff,
+    IEs = #{},
+    Msg = #gtp{version = v2, type = create_session_request, tei = 0,
+	       seq_no = SeqNo, ie = IEs},
+    ok = send_pdu(S, Msg),
+
+    Response =
+	case gen_udp:recv(S, 4096, 1000) of
+	    {ok, {?LOCALHOST, ?GTP2c_PORT, R}} ->
+		R;
+	    Unexpected ->
+		ct:fail(Unexpected)
+	end,
+
+    ?match(#gtp{type = create_session_response,
+		ie = #{{v2_cause,0} := #v2_cause{v2_cause = mandatory_ie_missing}}},
+	   gtp_packet:decode(Response)),
+    ok.
+
+create_session_request() ->
+    [{doc, "Check that Create Session Request"}].
+create_session_request(_Config) ->
+    ct:pal("Sockets: ~p", [gtp_socket_reg:all()]),
+    S = make_gtp_socket(),
+
+    SeqNo = erlang:unique_integer([positive, monotonic]) rem 16#7fffff,
+    LocalCntlTEI = erlang:unique_integer([positive, monotonic]) rem 16#ffffffff,
+    LocalDataTEI = erlang:unique_integer([positive, monotonic]) rem 16#ffffffff,
+
+    IEs = [#v2_access_point_name{apn = ?'APN-EXAMPLE'},
+	   #v2_aggregate_maximum_bit_rate{uplink = 48128, downlink = 1704125},
+	   #v2_apn_restriction{restriction_type_value = 0},
+	   #v2_bearer_context{
+	      group = [#v2_bearer_level_quality_of_service{
+			  pci = 1, pl = 10, pvi = 0, label = 8,
+			  maximum_bit_rate_for_uplink      = 0,
+			  maximum_bit_rate_for_downlink    = 0,
+			  guaranteed_bit_rate_for_uplink   = 0,
+			  guaranteed_bit_rate_for_downlink = 0},
+		       #v2_eps_bearer_id{eps_bearer_id = 5},
+		       #v2_fully_qualified_tunnel_endpoint_identifier{
+			  instance = 2,
+			  interface_type = ?'S5/S8-U SGW',
+			  key = LocalDataTEI,
+			  ipv4 = gtp_c_lib:ip2bin(?LOCALHOST)}
+		      ]},
+	   #v2_fully_qualified_tunnel_endpoint_identifier{
+	      interface_type = ?'S5/S8-C SGW',
+	      key = LocalCntlTEI,
+	      ipv4 = gtp_c_lib:ip2bin(?LOCALHOST)},
+	   #v2_international_mobile_subscriber_identity{
+	      imsi = <<"111111111111111">>},
+	   #v2_mobile_equipment_identity{mei = <<"AAAAAAAA">>},
+	   #v2_msisdn{msisdn = <<"449999999999">>},
+	   #v2_pdn_address_allocation{type = ipv4,
+				      address = <<0,0,0,0>>},
+	   #v2_pdn_type{pdn_type = ipv4},
+	   #v2_protocol_configuration_options{
+	      config = {0, [{ipcp,'CP-Configure-Request',0,[{ms_dns1,<<0,0,0,0>>},
+							    {ms_dns2,<<0,0,0,0>>}]},
+			    {13,<<>>},{10,<<>>},{5,<<>>}]}},
+	   #v2_rat_type{rat_type = 6},
+	   #v2_selection_mode{mode = 0},
+	   #v2_serving_network{mcc = <<"001">>, mnc = <<"001">>},
+	   #v2_ue_time_zone{timezone = 10, dst = 0},
+	   #v2_user_location_information{tai = <<3,2,22,214,217>>,
+					 ecgi = <<3,2,22,8,71,9,92>>}],
+
+    Msg = #gtp{version = v2, type = create_session_request, tei = 0,
+	       seq_no = SeqNo, ie = IEs},
+    ok = send_pdu(S, Msg),
+
+    Response =
+	case gen_udp:recv(S, 4096, 1000) of
+	    {ok, {?LOCALHOST, ?GTP2c_PORT, R}} ->
+		R;
+	    Unexpected ->
+		ct:fail(Unexpected)
+	end,
+
+    ?match(#gtp{type = create_session_response,
+     		ie = #{{v2_cause, 0} := #v2_cause{v2_cause = request_accepted}}},
+	   gtp_packet:decode(Response)),
     ok.
 
 %%%===================================================================
@@ -140,7 +242,16 @@ invalid_gtp_pdu(_Config) ->
 
 meck_dp() ->
     ok = meck:new(gtp_dp, [passthrough, no_link]),
-    ok = meck:expect(gtp_dp, start_link, fun(_Args) -> ok end),
+    ok = meck:expect(gtp_dp, start_link, fun({Name, _SocketOpts}) ->
+						 RCnt =  erlang:unique_integer([positive, monotonic]) rem 256,
+						 GtpPort = #gtp_port{name = Name,
+								     type = 'gtp-u',
+								     pid = self(),
+								     ip = ?LOCALHOST,
+								     restart_counter = RCnt},
+						 gtp_socket_reg:register(Name, GtpPort),
+						 {ok, self()}
+					 end),
     ok = meck:expect(gtp_dp, send, fun(_GtpPort, _IP, _Port, _Data) -> ok end),
     ok = meck:expect(gtp_dp, get_id, fun(_GtpPort) -> self() end),
     ok = meck:expect(gtp_dp, create_pdp_context, fun(_Context, _Args) -> ok end),
@@ -166,3 +277,12 @@ mkint(C) when $A =< C, C =< $F ->
     C - $A + 10;
 mkint(C) when $a =< C, C =< $f ->
     C - $a + 10.
+
+make_gtp_socket() ->
+    {ok, S} = gen_udp:open(0, [{ip, ?LOCALHOST}, {active, false},
+			       binary, {reuseaddr, true}]),
+    S.
+
+send_pdu(S, Msg) ->
+    Data = gtp_packet:encode(Msg),
+    gen_udp:send(S, ?LOCALHOST, ?GTP2c_PORT, Data).
