@@ -344,7 +344,7 @@ handle_message(IP, Port, Data, #state{gtp_port = GtpPort} = State0) ->
     catch
 	Class:Error ->
 	    lager:error("GTP decoding failed with ~p:~p for ~p", [Class, Error, Data]),
-	    State0
+	    {noreply, State0}
     end.
 
 handle_message_1(IP, Port, #gtp{type = echo_request} = Msg, State) ->
