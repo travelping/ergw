@@ -6,6 +6,7 @@ script:
 - rebar get-deps
 - rebar compile
 - rebar -v skip_deps=true xref
+- rebar -v skip_deps=true ct
 notifications:
   slack:
     secure: VMWPbtMTVKOtOtAIRPEgnN6XXKy40or/D+GMqpuFiz2JrauCao8ggcoQouX7mUMtVDqlgoJVpooCV2iyFRJbxgj/1sv/2LmC7iGALB0mR8HHkm4XpwTWBCHpf/ugiQ5jadcqEfjbVBPddJYYj2k9GxCB4Aiu1d+NyLOuPk58jiXHztfmSiU1XEwNbAq843BTKuEDx/A+Zk/gmZs4Is7j6uuSXhp6+EC+46cDeLq7w1ejVquQgHkk3Yy9NNUjRYmcCbhVqKDb7bkhFnBr6Tt+O3ljzILWFqsnKDQ1CAAdudmYJYR9OUGdmle/0Nwpw/D7hP4ZiNWPVcXeZA6QwXG+46iZ1YlT+45wBb5GrhZnF1zcd8HRA2a3MkTkLci/3/v19GtrRa3G61LdocnmvanpAzN+sSpXlZvkQI2i5s1hgd+L08YkOxXSZxmkcV2Nh2IC8SNMx+sc8Ftrj9sffbznfp1rljDqXP4eKdIoJvBnFdrzUuDR/1/sZ4K/YXj80XdAAANNfebTdE6k2NbZ+YGJADQLxi3Nl7I/66HMSIequaKFIlU8MQairvo4jZgbytuZk8ndOLhR0/04Teb0k8ltNq8OQMV5nRHjznfqVvj1cJIhzvn6WbG2zFiRGiWL9U9XaktA1uHTuV37GRPetIZq1WnMmjH7lEQvGYnqPh/sMt0=
