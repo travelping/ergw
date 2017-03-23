@@ -1,6 +1,7 @@
 erGW - 3GPP GGSN and PDN-GW in Erlang
 =====================================
 [![Build Status](https://travis-ci.org/travelping/ergw.svg?branch=master)](https://travis-ci.org/travelping/ergw)
+[![Coverage Status](https://coveralls.io/repos/github/travelping/ergw/badge.svg?branch=master)](https://coveralls.io/github/travelping/ergw?branch=master)
 
 This is a 3GPP GGSN and PDN-GW implemented in Erlang. It strives to eventually support all the functionality as defined by [3GPP TS 23.002](https://portal.3gpp.org/desktopmodules/Specifications/SpecificationDetails.aspx?specificationId=728) Section 4.1.3.1 for the GGSN and Section 4.1.4.2.2 for the PDN-GW.
 
