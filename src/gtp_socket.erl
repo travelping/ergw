@@ -407,9 +407,14 @@ handle_request(#request_key{ip = IP, port = Port} = ReqKey, Msg,
     end,
     State.
 
-start_request(SeqId, Req, Timeout, #state{pending = Pending} = State) ->
+start_request(SeqId, Req, Timeout, State0) ->
+    %% cancel pending timeout, this can only happend when a
+    %% retransmit was triggerd by the control process and not
+    %% by the socket process itself
+    {_, State} = take_request(SeqId, State0),
+
     TRef = erlang:start_timer(Timeout, self(), {request, SeqId}),
-    State#state{pending = gb_trees:insert(SeqId, {Req, TRef}, Pending)}.
+    State#state{pending = gb_trees:insert(SeqId, {Req, TRef}, State#state.pending)}.
 
 take_request(SeqId, #state{pending = Pending} = State) ->
     case gb_trees:lookup(SeqId, Pending) of
