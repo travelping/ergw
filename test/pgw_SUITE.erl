@@ -115,7 +115,8 @@ end_per_suite(_) ->
     ok.
 
 all() ->
-    [invalid_gtp_pdu, create_session_request_missing_ie, create_session_request].
+    [invalid_gtp_pdu, create_session_request_missing_ie, create_session_request,
+     delete_session_request].
 
 %%%===================================================================
 %%% Tests
@@ -171,7 +172,7 @@ create_session_request_missing_ie(_Config) ->
     ok.
 
 create_session_request() ->
-    [{doc, "Check that Create Session Request"}].
+    [{doc, "Check that Create Session Request works"}].
 create_session_request(_Config) ->
     ct:pal("Sockets: ~p", [gtp_socket_reg:all()]),
     S = make_gtp_socket(),
@@ -180,47 +181,7 @@ create_session_request(_Config) ->
     LocalCntlTEI = erlang:unique_integer([positive, monotonic]) rem 16#ffffffff,
     LocalDataTEI = erlang:unique_integer([positive, monotonic]) rem 16#ffffffff,
 
-    IEs = [#v2_access_point_name{apn = ?'APN-EXAMPLE'},
-	   #v2_aggregate_maximum_bit_rate{uplink = 48128, downlink = 1704125},
-	   #v2_apn_restriction{restriction_type_value = 0},
-	   #v2_bearer_context{
-	      group = [#v2_bearer_level_quality_of_service{
-			  pci = 1, pl = 10, pvi = 0, label = 8,
-			  maximum_bit_rate_for_uplink      = 0,
-			  maximum_bit_rate_for_downlink    = 0,
-			  guaranteed_bit_rate_for_uplink   = 0,
-			  guaranteed_bit_rate_for_downlink = 0},
-		       #v2_eps_bearer_id{eps_bearer_id = 5},
-		       #v2_fully_qualified_tunnel_endpoint_identifier{
-			  instance = 2,
-			  interface_type = ?'S5/S8-U SGW',
-			  key = LocalDataTEI,
-			  ipv4 = gtp_c_lib:ip2bin(?LOCALHOST)}
-		      ]},
-	   #v2_fully_qualified_tunnel_endpoint_identifier{
-	      interface_type = ?'S5/S8-C SGW',
-	      key = LocalCntlTEI,
-	      ipv4 = gtp_c_lib:ip2bin(?LOCALHOST)},
-	   #v2_international_mobile_subscriber_identity{
-	      imsi = <<"111111111111111">>},
-	   #v2_mobile_equipment_identity{mei = <<"AAAAAAAA">>},
-	   #v2_msisdn{msisdn = <<"449999999999">>},
-	   #v2_pdn_address_allocation{type = ipv4,
-				      address = <<0,0,0,0>>},
-	   #v2_pdn_type{pdn_type = ipv4},
-	   #v2_protocol_configuration_options{
-	      config = {0, [{ipcp,'CP-Configure-Request',0,[{ms_dns1,<<0,0,0,0>>},
-							    {ms_dns2,<<0,0,0,0>>}]},
-			    {13,<<>>},{10,<<>>},{5,<<>>}]}},
-	   #v2_rat_type{rat_type = 6},
-	   #v2_selection_mode{mode = 0},
-	   #v2_serving_network{mcc = <<"001">>, mnc = <<"001">>},
-	   #v2_ue_time_zone{timezone = 10, dst = 0},
-	   #v2_user_location_information{tai = <<3,2,22,214,217>>,
-					 ecgi = <<3,2,22,8,71,9,92>>}],
-
-    Msg = #gtp{version = v2, type = create_session_request, tei = 0,
-	       seq_no = SeqNo, ie = IEs},
+    Msg = make_create_session_request(LocalCntlTEI, LocalDataTEI, SeqNo),
     ok = send_pdu(S, Msg),
 
     Response =
@@ -232,8 +193,59 @@ create_session_request(_Config) ->
 	end,
 
     ?match(#gtp{type = create_session_response,
+		tei = LocalCntlTEI,
+		seq_no = SeqNo,
      		ie = #{{v2_cause, 0} := #v2_cause{v2_cause = request_accepted}}},
 	   gtp_packet:decode(Response)),
+    ok.
+
+delete_session_request() ->
+    [{doc, "Check that Delete Session Request works"}].
+delete_session_request(_Config) ->
+    ct:pal("Sockets: ~p", [gtp_socket_reg:all()]),
+    S = make_gtp_socket(),
+
+    SeqNo1 = erlang:unique_integer([positive, monotonic]) rem 16#7fffff,
+    LocalCntlTEI = erlang:unique_integer([positive, monotonic]) rem 16#ffffffff,
+    LocalDataTEI = erlang:unique_integer([positive, monotonic]) rem 16#ffffffff,
+
+    Msg1 = make_create_session_request(LocalCntlTEI, LocalDataTEI, SeqNo1),
+    Resp1 = send_recv_pdu(S, Msg1),
+
+    ?match(#gtp{type = create_session_response,
+		tei = LocalCntlTEI,
+		seq_no = SeqNo1,
+		ie = #{{v2_cause,0} := #v2_cause{v2_cause = request_accepted},
+		       {v2_fully_qualified_tunnel_endpoint_identifier,1} :=
+			   #v2_fully_qualified_tunnel_endpoint_identifier{
+			      interface_type = ?'S5/S8-C PGW'},
+		       {v2_bearer_context,0} :=
+			   #v2_bearer_context{
+			      group = #{{v2_cause,0} := #v2_cause{v2_cause = request_accepted},
+					{v2_fully_qualified_tunnel_endpoint_identifier,2} :=
+					    #v2_fully_qualified_tunnel_endpoint_identifier{
+					       interface_type = ?'S5/S8-U PGW'}}}
+		      }}, Resp1),
+
+    #gtp{ie = #{{v2_fully_qualified_tunnel_endpoint_identifier,1} :=
+		    #v2_fully_qualified_tunnel_endpoint_identifier{
+		       key = RemoteCntlTEI},
+		{v2_bearer_context,0} :=
+		    #v2_bearer_context{
+		       group = #{{v2_fully_qualified_tunnel_endpoint_identifier,2} :=
+				     #v2_fully_qualified_tunnel_endpoint_identifier{
+					key = _RemoteDataTEI}}}
+	       }} = Resp1,
+
+    SeqNo2 = erlang:unique_integer([positive, monotonic]) rem 16#7fffff,
+    Msg2 = make_delete_session_request(LocalCntlTEI, RemoteCntlTEI, SeqNo2),
+    Resp2 = send_recv_pdu(S, Msg2),
+
+    ?match(#gtp{type = delete_session_response,
+		tei = LocalCntlTEI,
+		seq_no = SeqNo2,
+		ie = #{{v2_cause,0} := #v2_cause{v2_cause = request_accepted}}
+	       }, Resp2),
     ok.
 
 %%%===================================================================
@@ -278,6 +290,62 @@ mkint(C) when $A =< C, C =< $F ->
 mkint(C) when $a =< C, C =< $f ->
     C - $a + 10.
 
+make_create_session_request(LocalCntlTEI, LocalDataTEI, SeqNo) ->
+    IEs = [#v2_access_point_name{apn = ?'APN-EXAMPLE'},
+	   #v2_aggregate_maximum_bit_rate{uplink = 48128, downlink = 1704125},
+	   #v2_apn_restriction{restriction_type_value = 0},
+	   #v2_bearer_context{
+	      group = [#v2_bearer_level_quality_of_service{
+			  pci = 1, pl = 10, pvi = 0, label = 8,
+			  maximum_bit_rate_for_uplink      = 0,
+			  maximum_bit_rate_for_downlink    = 0,
+			  guaranteed_bit_rate_for_uplink   = 0,
+			  guaranteed_bit_rate_for_downlink = 0},
+		       #v2_eps_bearer_id{eps_bearer_id = 5},
+		       #v2_fully_qualified_tunnel_endpoint_identifier{
+			  instance = 2,
+			  interface_type = ?'S5/S8-U SGW',
+			  key = LocalDataTEI,
+			  ipv4 = gtp_c_lib:ip2bin(?LOCALHOST)}
+		      ]},
+	   #v2_fully_qualified_tunnel_endpoint_identifier{
+	      interface_type = ?'S5/S8-C SGW',
+	      key = LocalCntlTEI,
+	      ipv4 = gtp_c_lib:ip2bin(?LOCALHOST)},
+	   #v2_international_mobile_subscriber_identity{
+	      imsi = <<"111111111111111">>},
+	   #v2_mobile_equipment_identity{mei = <<"AAAAAAAA">>},
+	   #v2_msisdn{msisdn = <<"449999999999">>},
+	   #v2_pdn_address_allocation{type = ipv4,
+				      address = <<0,0,0,0>>},
+	   #v2_pdn_type{pdn_type = ipv4},
+	   #v2_protocol_configuration_options{
+	      config = {0, [{ipcp,'CP-Configure-Request',0,[{ms_dns1,<<0,0,0,0>>},
+							    {ms_dns2,<<0,0,0,0>>}]},
+			    {13,<<>>},{10,<<>>},{5,<<>>}]}},
+	   #v2_rat_type{rat_type = 6},
+	   #v2_selection_mode{mode = 0},
+	   #v2_serving_network{mcc = <<"001">>, mnc = <<"001">>},
+	   #v2_ue_time_zone{timezone = 10, dst = 0},
+	   #v2_user_location_information{tai = <<3,2,22,214,217>>,
+					 ecgi = <<3,2,22,8,71,9,92>>}],
+
+    #gtp{version = v2, type = create_session_request, tei = 0,
+	 seq_no = SeqNo, ie = IEs}.
+
+make_delete_session_request(LocalCntlTEI, RemoteCntlTEI, SeqNo) ->
+    IEs = [%%{170,0} => {170,0,<<220,126,139,67>>},
+	   #v2_eps_bearer_id{eps_bearer_id = 5},
+	   #v2_fully_qualified_tunnel_endpoint_identifier{
+	      interface_type = ?'S5/S8-C SGW',
+	      key = LocalCntlTEI,
+	      ipv4 = gtp_c_lib:ip2bin(?LOCALHOST)},
+	   #v2_user_location_information{tai = <<3,2,22,214,217>>,
+					 ecgi = <<3,2,22,8,71,9,92>>}],
+
+    #gtp{version = v2, type = delete_session_request,
+	 tei = RemoteCntlTEI, seq_no = SeqNo, ie = IEs}.
+
 make_gtp_socket() ->
     {ok, S} = gen_udp:open(0, [{ip, ?LOCALHOST}, {active, false},
 			       binary, {reuseaddr, true}]),
@@ -286,3 +354,15 @@ make_gtp_socket() ->
 send_pdu(S, Msg) ->
     Data = gtp_packet:encode(Msg),
     gen_udp:send(S, ?LOCALHOST, ?GTP2c_PORT, Data).
+
+send_recv_pdu(S, Msg) ->
+    ok = send_pdu(S, Msg),
+
+    Response =
+	case gen_udp:recv(S, 4096, 1000) of
+	    {ok, {?LOCALHOST, ?GTP2c_PORT, R}} ->
+		R;
+	    Unexpected ->
+		ct:fail(Unexpected)
+	end,
+    gtp_packet:decode(Response).
