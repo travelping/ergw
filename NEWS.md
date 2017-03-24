@@ -1,6 +1,15 @@
 erGW - 3GPP GGSN and PDN-GW in Erlang
 =====================================
 
+Version 1.8.0 - 24 Mar 2017
+---------------------------
+
+* support more message types in GTPv2 proxy
+* fix TEID translation GTPv2 proxy
+* fix retransmit timer handling for the proxy case
+* added basic test suite for PGW
+* (experimental) support for IPv6 as transport for GTP (not as payload)
+
 Version 1.7.0 - 24 Feb 2017
 ---------------------------
 
