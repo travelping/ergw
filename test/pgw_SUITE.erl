@@ -115,8 +115,10 @@ end_per_suite(_) ->
     ok.
 
 all() ->
-    [invalid_gtp_pdu, create_session_request_missing_ie, create_session_request,
-     delete_session_request].
+    [invalid_gtp_pdu,
+     create_session_request_missing_ie, create_session_request,
+     create_session_request_resend,
+     delete_session_request, delete_session_request_resend].
 
 %%%===================================================================
 %%% Tests
@@ -199,6 +201,27 @@ create_session_request(_Config) ->
 	   gtp_packet:decode(Response)),
     ok.
 
+create_session_request_resend() ->
+    [{doc, "Check that a retransmission of a Create Session Request works"}].
+create_session_request_resend(_Config) ->
+    ct:pal("Sockets: ~p", [gtp_socket_reg:all()]),
+    S = make_gtp_socket(),
+
+    SeqNo = erlang:unique_integer([positive, monotonic]) rem 16#7fffff,
+    LocalCntlTEI = erlang:unique_integer([positive, monotonic]) rem 16#ffffffff,
+    LocalDataTEI = erlang:unique_integer([positive, monotonic]) rem 16#ffffffff,
+
+    Msg = make_create_session_request(LocalCntlTEI, LocalDataTEI, SeqNo),
+    Resp = send_recv_pdu(S, Msg),
+
+    ?match(#gtp{type = create_session_response,
+		tei = LocalCntlTEI,
+		seq_no = SeqNo,
+		ie = #{{v2_cause, 0} := #v2_cause{v2_cause = request_accepted}}},
+	   Resp),
+    ?match(Resp, send_recv_pdu(S, Msg)),
+    ok.
+
 delete_session_request() ->
     [{doc, "Check that Delete Session Request works"}].
 delete_session_request(_Config) ->
@@ -246,6 +269,56 @@ delete_session_request(_Config) ->
 		seq_no = SeqNo2,
 		ie = #{{v2_cause,0} := #v2_cause{v2_cause = request_accepted}}
 	       }, Resp2),
+    ok.
+
+delete_session_request_resend() ->
+    [{doc, "Check that a retransmission of a Delete Session Request works"}].
+delete_session_request_resend(_Config) ->
+    ct:pal("Sockets: ~p", [gtp_socket_reg:all()]),
+    S = make_gtp_socket(),
+
+    SeqNo1 = erlang:unique_integer([positive, monotonic]) rem 16#7fffff,
+    LocalCntlTEI = erlang:unique_integer([positive, monotonic]) rem 16#ffffffff,
+    LocalDataTEI = erlang:unique_integer([positive, monotonic]) rem 16#ffffffff,
+
+    Msg1 = make_create_session_request(LocalCntlTEI, LocalDataTEI, SeqNo1),
+    Resp1 = send_recv_pdu(S, Msg1),
+
+    ?match(#gtp{type = create_session_response,
+		tei = LocalCntlTEI,
+		seq_no = SeqNo1,
+		ie = #{{v2_cause,0} := #v2_cause{v2_cause = request_accepted},
+		       {v2_fully_qualified_tunnel_endpoint_identifier,1} :=
+			   #v2_fully_qualified_tunnel_endpoint_identifier{
+			      interface_type = ?'S5/S8-C PGW'},
+		       {v2_bearer_context,0} :=
+			   #v2_bearer_context{
+			      group = #{{v2_cause,0} := #v2_cause{v2_cause = request_accepted},
+					{v2_fully_qualified_tunnel_endpoint_identifier,2} :=
+					    #v2_fully_qualified_tunnel_endpoint_identifier{
+					       interface_type = ?'S5/S8-U PGW'}}}
+		      }}, Resp1),
+
+    #gtp{ie = #{{v2_fully_qualified_tunnel_endpoint_identifier,1} :=
+		    #v2_fully_qualified_tunnel_endpoint_identifier{
+		       key = RemoteCntlTEI},
+		{v2_bearer_context,0} :=
+		    #v2_bearer_context{
+		       group = #{{v2_fully_qualified_tunnel_endpoint_identifier,2} :=
+				     #v2_fully_qualified_tunnel_endpoint_identifier{
+					key = _RemoteDataTEI}}}
+	       }} = Resp1,
+
+    SeqNo2 = erlang:unique_integer([positive, monotonic]) rem 16#7fffff,
+    Msg2 = make_delete_session_request(LocalCntlTEI, RemoteCntlTEI, SeqNo2),
+    Resp2 = send_recv_pdu(S, Msg2),
+
+    ?match(#gtp{type = delete_session_response,
+		tei = LocalCntlTEI,
+		seq_no = SeqNo2,
+		ie = #{{v2_cause,0} := #v2_cause{v2_cause = request_accepted}}
+	       }, Resp2),
+    ?match(Resp2, send_recv_pdu(S, Msg2)),
     ok.
 
 %%%===================================================================
