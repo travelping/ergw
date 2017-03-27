@@ -45,7 +45,8 @@
 
 -define(TEST_CONFIG, [{ergw, [{sockets,
 			       [{irx, [{type, 'gtp-c'},
-				       {ip,  {127,0,0,1}}
+				       {ip,  {127,0,0,1}},
+				       {reuseaddr, true}
 				      ]},
 				{grx, [{type, 'gtp-u'},
 				       {node, 'gtp-u-node@localhost'},

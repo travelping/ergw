@@ -110,6 +110,8 @@ call(#gtp_port{pid = Handler}, Request) ->
 %%%===================================================================
 
 init([Name, SocketOpts]) ->
+    process_flag(trap_exit, true),
+
     %% TODO: better config validation and handling
     IP    = proplists:get_value(ip, SocketOpts),
     NetNs = proplists:get_value(netns, SocketOpts),
@@ -207,7 +209,8 @@ handle_info(Info, State) ->
     lager:error("handle_info: unknown ~p, ~p", [lager:pr(Info, ?MODULE), lager:pr(State, ?MODULE)]),
     {noreply, State}.
 
-terminate(_Reason, _State) ->
+terminate(_Reason, #state{socket = Socket} = _State) ->
+    gen_socket:close(Socket),
     ok.
 
 code_change(_OldVsn, State, _Extra) ->
@@ -281,6 +284,8 @@ socket_setopts(Socket, {rcvbuf, Size}) when is_integer(Size) ->
 	ok -> ok;
 	_ -> gen_socket:setsockopt(Socket, sol_socket, rcvbuf, Size)
     end;
+socket_setopts(Socket, {reuseaddr, true}) ->
+    ok = gen_socket:setsockopt(Socket, sol_socket, reuseaddr, true);
 socket_setopts(_Socket, _) ->
     ok.
 
