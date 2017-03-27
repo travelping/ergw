@@ -67,7 +67,12 @@ bit_rate() ->
 	   scaled_int(        8700,        16000,         100),
 	   %% octed 15, 16, 17 and 18
 	   scaled_int(  17 * ?Mbps,  128 * ?Mbps,   1 * ?Mbps),
-	   scaled_int( 130 * ?Mbps,  256 * ?Mbps,   2 * ?Mbps)
+	   scaled_int( 130 * ?Mbps,  256 * ?Mbps,   2 * ?Mbps),
+
+	   %% octed 19, 20, 21 and 22
+	   scaled_int( 260 * ?Mbps,  500 * ?Mbps,   4 * ?Mbps),
+	   scaled_int( 510 * ?Mbps, 1500 * ?Mbps,  10 * ?Mbps),
+	   scaled_int(1600 * ?Mbps,   10 * ?Gbps, 100 * ?Mbps)
 	  ]).
 
 transfer_delay() ->

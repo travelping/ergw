@@ -41,7 +41,7 @@ decode(<<_:2, DelayClass:3, ReliabilityClass:3,
 	     signaling_indication		= 0,
 	     source_statistics_descriptor	= 0
 	    },
-    decode(IE, octet14, Optional, QoS);
+    decode(IE, 14, Optional, QoS);
 decode(IE) ->
     IE.
 
@@ -77,11 +77,24 @@ encode(#qos{
 	   (encode_delay(TransferDelay)):6, TrafficHandlingPriority:2,
 	   (encode_br(GuaranteedBitRateUpLink)):8,
 	   (encode_br(GuaranteedBitRateDownLink)):8>>,
-    encode(octet14, IE, QoS).
+    encode_optional(IE, QoS).
 
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
+
+pad_length(Width, Length) ->
+    (Width - Length rem Width) rem Width.
+
+%%
+%% pad binary to specific length
+%%   -> http://www.erlang.org/pipermail/erlang-questions/2008-December/040709.html
+%%
+pad_to(Width, Binary) ->
+    case pad_length(Width, size(Binary)) of
+        0 -> Binary;
+        N -> <<Binary/binary, 0:(N*8)>>
+    end.
 
 %% 3GPP TS 24.008, Sect. 10.5.6.5, Table 10.5.156
 decode_sdu_size(0) -> subscribed;
@@ -127,6 +140,19 @@ encode_ext_br(V) when V =< 128000 -> ((V - 16000) div 1000) + 2#01001010;
 encode_ext_br(V) when V =< 256000 -> ((V -128000) div 2000) + 2#10111010;
 encode_ext_br(_) -> 2#11111010.
 
+decode_ext2_br(0, P) -> P;
+decode_ext2_br(V, _) when V =< 2#00111101 ->  256000 + V * 4000;
+decode_ext2_br(V, _) when V =< 2#10100001 ->  500000 + (V - 2#00111101) *  10000;
+decode_ext2_br(V, _) when V =< 2#11110110 -> 1500000 + (V - 2#10100001) * 100000;
+decode_ext2_br(_, _) -> 10000000.
+
+encode_ext2_br(subscribed) -> 0;
+encode_ext2_br(V) when V =<   256000 -> 2#00000000;
+encode_ext2_br(V) when V =<   500000 -> ((V -  256000) div   4000);
+encode_ext2_br(V) when V =<  1500000 -> ((V -  500000) div  10000) + 2#00111101;
+encode_ext2_br(V) when V =< 10000000 -> ((V - 1500000) div 100000) + 2#10100001;
+encode_ext2_br(_) -> 2#11110110.
+
 decode_delay(0) -> subscribed;
 decode_delay(V) when V =< 2#001111 -> V * 10;
 decode_delay(V) when V =< 2#011111 ->  200 + (V - 2#010000) * 50;
@@ -141,30 +167,48 @@ encode_delay(_) -> 2#111111.
 
 decode(_IE, _Octet, <<>>, QoS) ->
     QoS;
-decode(IE, octet14, <<_:3, SignalingIndication:1, SourceStatisticsDescriptor:4, Optional/binary>>, QoS0) ->
+decode(IE, 14, <<_:3, SignalingIndication:1, SourceStatisticsDescriptor:4, Optional/binary>>, QoS0) ->
     QoS = QoS0#qos{
 	    signaling_indication		= SignalingIndication,
 	    source_statistics_descriptor	= SourceStatisticsDescriptor
 	   },
-    decode(IE, octet15, Optional, QoS);
+    decode(IE, 15, Optional, QoS);
 
-decode(IE, octet15, <<MaxBitRateDownLinkExt:8, GuaranteedBitRateDownLinkExt:8, Optional/binary>>,
+decode(IE, 15, <<MaxBitRateDownLinkExt:8, GuaranteedBitRateDownLinkExt:8, Optional/binary>>,
        #qos{max_bit_rate_downlink        = MaxBitRateDownLink,
 	    guaranteed_bit_rate_downlink = GuaranteedBitRateDownLink} = QoS0) ->
     QoS = QoS0#qos{
 	    max_bit_rate_downlink        = decode_ext_br(MaxBitRateDownLinkExt, MaxBitRateDownLink),
 	    guaranteed_bit_rate_downlink = decode_ext_br(GuaranteedBitRateDownLinkExt, GuaranteedBitRateDownLink)
 	   },
-    decode(IE, octet17, Optional, QoS);
+    decode(IE, 17, Optional, QoS);
 
-decode(IE, octet17, <<MaxBitRateUpLinkExt:8, GuaranteedBitRateUpLinkExt:8, Optional/binary>>,
+decode(IE, 17, <<MaxBitRateUpLinkExt:8, GuaranteedBitRateUpLinkExt:8, Optional/binary>>,
        #qos{max_bit_rate_uplink        = MaxBitRateUpLink,
 	    guaranteed_bit_rate_uplink = GuaranteedBitRateUpLink} = QoS0) ->
     QoS = QoS0#qos{
 	    max_bit_rate_uplink        = decode_ext_br(MaxBitRateUpLinkExt, MaxBitRateUpLink),
 	    guaranteed_bit_rate_uplink = decode_ext_br(GuaranteedBitRateUpLinkExt, GuaranteedBitRateUpLink)
 	   },
-    decode(IE, octet19, Optional, QoS);
+    decode(IE, 19, Optional, QoS);
+
+decode(IE, 19, <<MaxBitRateDownLinkExt:8, GuaranteedBitRateDownLinkExt:8, Optional/binary>>,
+       #qos{max_bit_rate_downlink        = MaxBitRateDownLink,
+	    guaranteed_bit_rate_downlink = GuaranteedBitRateDownLink} = QoS0) ->
+    QoS = QoS0#qos{
+	    max_bit_rate_downlink        = decode_ext2_br(MaxBitRateDownLinkExt, MaxBitRateDownLink),
+	    guaranteed_bit_rate_downlink = decode_ext2_br(GuaranteedBitRateDownLinkExt, GuaranteedBitRateDownLink)
+	   },
+    decode(IE, 21, Optional, QoS);
+
+decode(IE, 21, <<MaxBitRateUpLinkExt:8, GuaranteedBitRateUpLinkExt:8, Optional/binary>>,
+       #qos{max_bit_rate_uplink        = MaxBitRateUpLink,
+	    guaranteed_bit_rate_uplink = GuaranteedBitRateUpLink} = QoS0) ->
+    QoS = QoS0#qos{
+	    max_bit_rate_uplink        = decode_ext2_br(MaxBitRateUpLinkExt, MaxBitRateUpLink),
+	    guaranteed_bit_rate_uplink = decode_ext2_br(GuaranteedBitRateUpLinkExt, GuaranteedBitRateUpLink)
+	   },
+    decode(IE, 23, Optional, QoS);
 
 decode(_IE, _Octet, _Rest, QoS) ->
     %% decoding of optional fields failed, but
@@ -177,33 +221,43 @@ decode(_IE, _Octet, _Rest, QoS) ->
     %% so, lets continue what we have so far
     QoS.
 
-encode(octet14, IE0, #qos{signaling_indication         = SignalingIndication,
-			  source_statistics_descriptor = SourceStatisticsDescriptor} = QoS)
+-define(OPTIONAL_OCTETS, [14, 15, 17, 19, 21]).
+encode_optional(IE, QoS) ->
+    lists:foldl(fun(Octet, Acc) -> encode(Octet, Acc, QoS) end, IE, ?OPTIONAL_OCTETS).
+
+encode(14, IE, #qos{signaling_indication         = SignalingIndication,
+		    source_statistics_descriptor = SourceStatisticsDescriptor})
   when is_integer(SignalingIndication),
        is_integer(SourceStatisticsDescriptor) ->
-    IE = <<IE0/binary, 0:3, SignalingIndication:1, SourceStatisticsDescriptor:4>>,
-    encode(octet15, IE, QoS);
-encode(octet14, IE0, QoS) ->
-    IE = <<IE0/binary, 0:8>>,
-    encode(octet15, IE, QoS);
+    <<(pad_to(11, IE))/binary, 0:3, SignalingIndication:1, SourceStatisticsDescriptor:4>>;
 
-encode(octet15, IE0, #qos{max_bit_rate_downlink        = MaxBitRateDownLink,
-			  max_bit_rate_uplink          = MaxBitRateUpLink,
-			  guaranteed_bit_rate_downlink = GuaranteedBitRateDownLink,
-			  guaranteed_bit_rate_uplink   = GuaranteedBitRateUpLink} = QoS)
+encode(15, IE, #qos{max_bit_rate_downlink        = MaxBitRateDownLink,
+		    guaranteed_bit_rate_downlink = GuaranteedBitRateDownLink})
   when (is_integer(MaxBitRateDownLink)        andalso MaxBitRateDownLink        > 8600) orelse
-       (is_integer(MaxBitRateUpLink)          andalso MaxBitRateUpLink          > 8600) orelse
-       (is_integer(GuaranteedBitRateDownLink) andalso GuaranteedBitRateDownLink > 8600) orelse
-       (is_integer(GuaranteedBitRateUpLink)   andalso GuaranteedBitRateUpLink   > 8600) ->
-    IE = <<IE0/binary, (encode_ext_br(MaxBitRateDownLink)):8, (encode_ext_br(GuaranteedBitRateDownLink)):8>>,
-    encode(octet17, IE, QoS);
+       (is_integer(GuaranteedBitRateDownLink) andalso GuaranteedBitRateDownLink > 8600) ->
+    <<(pad_to(12, IE))/binary, (encode_ext_br(MaxBitRateDownLink)):8,
+                               (encode_ext_br(GuaranteedBitRateDownLink)):8>>;
 
-encode(octet17, IE0, #qos{max_bit_rate_uplink          = MaxBitRateUpLink,
-			  guaranteed_bit_rate_uplink   = GuaranteedBitRateUpLink} = QoS)
+encode(17, IE, #qos{max_bit_rate_uplink          = MaxBitRateUpLink,
+		    guaranteed_bit_rate_uplink   = GuaranteedBitRateUpLink})
   when (is_integer(MaxBitRateUpLink)          andalso MaxBitRateUpLink          > 8600) orelse
        (is_integer(GuaranteedBitRateUpLink)   andalso GuaranteedBitRateUpLink   > 8600) ->
-    IE = <<IE0/binary, (encode_ext_br(MaxBitRateUpLink)):8, (encode_ext_br(GuaranteedBitRateUpLink)):8>>,
-    encode(octet19, IE, QoS);
+    <<(pad_to(14, IE))/binary, (encode_ext_br(MaxBitRateUpLink)):8,
+                                (encode_ext_br(GuaranteedBitRateUpLink)):8>>;
+
+encode(19, IE, #qos{max_bit_rate_downlink        = MaxBitRateDownLink,
+		    guaranteed_bit_rate_downlink = GuaranteedBitRateDownLink})
+  when (is_integer(MaxBitRateDownLink)        andalso MaxBitRateDownLink        > 256000) orelse
+       (is_integer(GuaranteedBitRateDownLink) andalso GuaranteedBitRateDownLink > 256000) ->
+    <<(pad_to(16, IE))/binary, (encode_ext2_br(MaxBitRateDownLink)):8,
+                               (encode_ext2_br(GuaranteedBitRateDownLink)):8>>;
+
+encode(21, IE, #qos{max_bit_rate_uplink          = MaxBitRateUpLink,
+		    guaranteed_bit_rate_uplink   = GuaranteedBitRateUpLink})
+  when (is_integer(MaxBitRateUpLink)          andalso MaxBitRateUpLink          > 256000) orelse
+       (is_integer(GuaranteedBitRateUpLink)   andalso GuaranteedBitRateUpLink   > 256000) ->
+    <<(pad_to(18, IE))/binary, (encode_ext2_br(MaxBitRateUpLink)):8,
+                               (encode_ext2_br(GuaranteedBitRateUpLink)):8>>;
 
 encode(_Octet, IE, _QoS) ->
     IE.
