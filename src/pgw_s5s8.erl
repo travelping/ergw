@@ -14,7 +14,8 @@
 
 -export([validate_options/1, init/2, request_spec/2,
 	 handle_request/4,
-	 handle_cast/2, handle_info/2]).
+	 handle_cast/2, handle_info/2,
+	 terminate/2]).
 
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include("include/ergw.hrl").
@@ -269,6 +270,9 @@ handle_request(_ReqKey,
 
 handle_request(_ReqKey, _Msg, _Resent, State) ->
     {noreply, State}.
+
+terminate(_Reason, _State) ->
+    ok.
 
 %%%===================================================================
 %%% Helper functions

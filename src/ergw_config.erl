@@ -89,6 +89,12 @@ validate_socket_option(ip, Value)
   when is_tuple(Value) andalso
        (tuple_size(Value) == 4 orelse tuple_size(Value) == 8) ->
     Value;
+validate_socket_option('$local_port', Value)
+  when is_integer(Value) ->
+    Value;
+validate_socket_option('$remote_port', Value)
+  when is_integer(Value) ->
+    Value;
 validate_socket_option(netdev, Value)
   when is_list(Value); is_binary(Value) ->
     Value;
