@@ -1,7 +1,8 @@
 erGW - 3GPP GGSN and PDN-GW in Erlang
 =====================================
-[![Build Status](https://travis-ci.org/travelping/ergw.svg?branch=master)](https://travis-ci.org/travelping/ergw)
-[![Coverage Status](https://coveralls.io/repos/github/travelping/ergw/badge.svg?branch=master)](https://coveralls.io/github/travelping/ergw?branch=master)
+[![Build Status][travis badge]][travis]
+[![Coverage Status][coveralls badge]][coveralls]
+[![Erlang Versions][erlang version badge]][travis]
 
 This is a 3GPP GGSN and PDN-GW implemented in Erlang. It strives to eventually support all the functionality as defined by [3GPP TS 23.002](https://portal.3gpp.org/desktopmodules/Specifications/SpecificationDetails.aspx?specificationId=728) Section 4.1.3.1 for the GGSN and Section 4.1.4.2.2 for the PDN-GW.
 
@@ -152,3 +153,10 @@ The configuration is documented in [CONFIG.md](CONFIG.md)
 
 This process can be simplified by using [enit](https://github.com/travelping/enit). A sample config that only requires minimal adjustment for IP's, hostnames and interfaces can be found in priv/enit/ggsn.
 Install those files to / (root) and start with ```enit startfg ergw```.
+
+<!-- Badges -->
+[travis]: https://travis-ci.org/travelping/ergw
+[travis badge]: https://img.shields.io/travis/travelping/ergw/master.svg?style=flat-square
+[coveralls]: https://coveralls.io/github/travelping/ergw
+[coveralls badge]: https://img.shields.io/coveralls/travelping/ergw/master.svg?style=flat-square
+[erlang version badge]: https://img.shields.io/badge/erlang-R19.1%20to%2019.3-blue.svg?style=flat-square
