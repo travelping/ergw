@@ -185,6 +185,7 @@ validate_option(Opt, Value) ->
 
 init([CntlPort, Version, Interface, Opts]) ->
     lager:debug("init(~p)", [[CntlPort, Interface]]),
+    process_flag(trap_exit, true),
 
     DP = hd(proplists:get_value(data_paths, Opts, [])),
     DataPort = gtp_socket_reg:lookup(DP),
@@ -252,6 +253,8 @@ handle_info(Info, #{interface := Interface} = State) ->
     lager:debug("handle_info: ~p", [lager:pr(Info, ?MODULE)]),
     Interface:handle_info(Info, State).
 
+terminate(Reason, #{interface := Interface} = State) ->
+    Interface:terminate(Reason, State);
 terminate(_Reason, _State) ->
     ok.
 
