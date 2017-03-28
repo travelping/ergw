@@ -82,6 +82,7 @@ sdu_size() ->
 bit_rate() ->
     oneof([subscribed,
 	   %% octed 8 and 9
+	   0,
 	   scaled_int(           1,           63,           1),
 	   scaled_int(          64,          568,           8),
 	   scaled_int(         576,         8600,          64),
