@@ -129,20 +129,20 @@ init([#gtp_port{name = PortName} = GtpPort, Version, RemoteIP, Args]) ->
     gtp_path_reg:register({PortName, Version, RemoteIP}),
     exometer:re_register([path, PortName, RemoteIP, contexts], gauge, ?EXO_CONTEXTS_OPTS),
     exometer:re_register([path, PortName, RemoteIP, rtt], histogram, ?EXO_RTT_OPTS),
-    TID = ets:new(?MODULE, [ordered_set, public, {keypos, 1}]),
 
-    State = #state{table        = TID,
-		   path_counter = 0,
-		   gtp_port     = GtpPort,
-		   version      = Version,
-		   handler      = get_handler(GtpPort, Version),
-		   ip           = RemoteIP,
-		   t3           = proplists:get_value(t3, Args, 10 * 1000), %% 10sec
-		   n3           = proplists:get_value(n3, Args, 5),
-		   recovery     = undefined,
-		   echo         = proplists:get_value(ping, Args, 60 * 1000), %% 60sec
-		   echo_timer   = stopped,
-		   state        = 'UP'},
+    State0 = #state{
+		path_counter = 0,
+		gtp_port     = GtpPort,
+		version      = Version,
+		handler      = get_handler(GtpPort, Version),
+		ip           = RemoteIP,
+		t3           = proplists:get_value(t3, Args, 10 * 1000), %% 10sec
+		n3           = proplists:get_value(n3, Args, 5),
+		recovery     = undefined,
+		echo         = proplists:get_value(ping, Args, 60 * 1000), %% 60sec
+		echo_timer   = stopped,
+		state        = 'UP'},
+    State = ets_new(State0),
 
     lager:debug("State: ~p", [State]),
     {ok, State}.
@@ -156,8 +156,8 @@ handle_call({bind, Pid}, _From, #state{recovery = RestartCounter} = State0) ->
     {reply, {ok, RestartCounter}, State};
 
 handle_call({bind, Pid, RestartCounter}, _From, State0) ->
-    State1 = register(Pid, State0),
-    State = update_restart_counter(RestartCounter, State1),
+    State1 = update_restart_counter(RestartCounter, State0),
+    State = register(Pid, State1),
     {reply, ok, State};
 
 handle_call({unbind, Pid}, _From, State0) ->
@@ -177,8 +177,10 @@ handle_call(Request, _From, State) ->
     {reply, ok, State}.
 
 handle_cast({handle_request, ReqKey, #gtp{type = echo_request} = Msg},
-	    #state{gtp_port = GtpPort, handler = Handler} = State) ->
+	    #state{gtp_port = GtpPort, handler = Handler} = State0) ->
     lager:debug("echo_request: ~p", [Msg]),
+
+    State = handle_recovery_ie(Msg, State0),
 
     ResponseIEs = Handler:build_recovery(GtpPort, true, []),
     Response = Msg#gtp{type = echo_response, ie = ResponseIEs},
@@ -186,9 +188,14 @@ handle_cast({handle_request, ReqKey, #gtp{type = echo_request} = Msg},
 
     {noreply, State};
 
-handle_cast(down, #state{table = TID} = State) ->
-    proc_lib:spawn(fun() -> ets_foreach(TID, gtp_context:path_restart(_, self())) end),
-    {noreply, State#state{recovery = undefined}};
+handle_cast(down, #state{table = TID} = State0) ->
+    Path = self(),
+    proc_lib:spawn(fun() ->
+			   ets_foreach(TID, gtp_context:path_restart(_, Path)),
+			   ets:delete(TID)
+		   end),
+    State = ets_new(State0#state{recovery = undefined}),
+    {noreply, State};
 
 handle_cast(Msg, State) ->
     lager:error("~p: ~w: handle_cast: ~p", [self(), ?MODULE, lager:pr(Msg, ?MODULE)]),
@@ -209,7 +216,8 @@ handle_info(Info = {timeout, _TRef, echo}, State) ->
 
 handle_info({echo_request, _, Msg}, State0)->
     lager:debug("echo_response: ~p", [Msg]),
-    State = echo_response(Msg, State0),
+    State1 = handle_recovery_ie(Msg, State0),
+    State = echo_response(Msg, State1),
     {noreply, State};
 
 handle_info(Info, State) ->
@@ -265,8 +273,12 @@ update_restart_counter(NewRestartCounter, #state{table = TID, ip = IP,
   when ?SMALLER(OldRestartCounter, NewRestartCounter) ->
     lager:warning("GSN ~s restarted (~w != ~w)",
 		  [inet:ntoa(IP), OldRestartCounter, NewRestartCounter]),
-    proc_lib:spawn(fun() -> ets_foreach(TID, gtp_context:path_restart(_, self())) end),
-    State#state{recovery = NewRestartCounter};
+    Path = self(),
+    proc_lib:spawn(fun() ->
+			   ets_foreach(TID, gtp_context:path_restart(_, Path)),
+			   ets:delete(TID)
+		   end),
+    ets_new(State#state{recovery = NewRestartCounter});
 
 update_restart_counter(NewRestartCounter, #state{ip = IP, recovery = OldRestartCounter} = State)
   when not ?SMALLER(OldRestartCounter, NewRestartCounter) ->
@@ -274,15 +286,32 @@ update_restart_counter(NewRestartCounter, #state{ip = IP, recovery = OldRestartC
 		  [inet:ntoa(IP), OldRestartCounter, NewRestartCounter]),
     State.
 
+handle_recovery_ie(#gtp{version = v1,
+			ie = #{{recovery, 0} :=
+				   #recovery{restart_counter =
+						 RestartCounter}}}, State) ->
+    update_restart_counter(RestartCounter, State);
+
+handle_recovery_ie(#gtp{version = v2,
+			ie = #{{v2_recovery, 0} :=
+				   #v2_recovery{restart_counter =
+						    RestartCounter}}}, State) ->
+    update_restart_counter(RestartCounter, State);
+handle_recovery_ie(_Msg, State) ->
+    State.
+
+ets_new(State) ->
+    TID = ets:new(?MODULE, [public, ordered_set, {keypos, 1}]),
+    State#state{table = TID}.
+
 ets_foreach(TID, Fun) ->
-    ets_foreach(TID, Fun, ets:first(TID)).
+    ets_foreach(TID, Fun, ets:match(TID, {'$1'}, 100)).
 
 ets_foreach(_TID, _Fun, '$end_of_table') ->
     ok;
-ets_foreach(TID, Fun, Pid) ->
-    ets:delete(TID, Pid),
-    Fun(Pid),
-    ets_foreach(TID, Fun, ets:next(TID, Pid)).
+ets_foreach(TID, Fun, {[Pids], Continuation}) ->
+    lists:foreach(Fun, Pids),
+    ets_foreach(TID, Fun, ets:match_object(Continuation)).
 
 register(Pid, #state{table = TID} = State0) ->
     lager:debug("~s: register(~p)", [?MODULE, Pid]),
