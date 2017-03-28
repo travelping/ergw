@@ -42,6 +42,7 @@
 
 -define('S5/S8-U SGW',  4).
 -define('S5/S8-U PGW',  5).
+-define('S5/S8-C SGW',  6).
 -define('S5/S8-C PGW',  7).
 
 request_spec(v1, Type) ->
@@ -248,7 +249,7 @@ handle_request(_ReqKey,
 
     Result =
 	do([error_m ||
-	       match_context(6, Context, FqTEI),
+	       match_context(?'S5/S8-C SGW', Context, FqTEI),
 	       return({RemoteCntlTEI, request_accepted, State0})
 	   ]),
 
