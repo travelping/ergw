@@ -13,6 +13,8 @@
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include("../include/ergw.hrl").
 
+-define(TIMEOUT, 2000).
+-define(HUT, ggsn_gn).				%% Handler Under Test
 -define(LOCALHOST, {127,0,0,1}).
 
 -define('S5/S8-U SGW',  4).
@@ -40,14 +42,28 @@
                   end
           end)())).
 
+-record(gtpc, {restart_counter, seq_no}).
+
 %%%===================================================================
 %%% API
 %%%===================================================================
 
--define(TEST_CONFIG, [{ergw, [{sockets,
+-define(TEST_CONFIG, [
+		      {lager, [{colored, true},
+			       {error_logger_redirect, false},
+			       {handlers, [
+					   %% lager logging leads to timeouts, disable it
+					   {lager_console_backend, emergency},
+					   {lager_file_backend, [{file, "error.log"}, {level, error}]},
+					   {lager_file_backend, [{file, "console.log"}, {level, emergency}]}
+					  ]}
+			      ]},
+
+		      {ergw, [{sockets,
 			       [{irx, [{type, 'gtp-c'},
 				       {ip,  {127,0,0,1}},
-				       {reuseaddr, true}
+				       {reuseaddr, true},
+				       {'$remote_port', ?GTP1c_PORT * 4}
 				      ]},
 				{grx, [{type, 'gtp-u'},
 				       {node, 'gtp-u-node@localhost'},
@@ -66,20 +82,12 @@
 			       ]},
 
 			      {handlers,
-			       [{gn, [{handler, pgw_s5s8},
+			       [{gn, [{handler, ggsn_gn},
 				      {sockets, [irx]},
 				      {data_paths, [grx]},
 				      {aaa, [{'Username',
 					      [{default, ['IMSI', <<"@">>, 'APN']}]}]}
-				     ]},
-				{s5s8, [{handler, pgw_s5s8},
-					{sockets, [irx]},
-					{data_paths, [grx]}
-				       ]},
-				{s2a,  [{handler, pgw_s2a},
-					{sockets, [irx]},
-					{data_paths, [grx]}
-				       ]}
+				     ]}
 			       ]},
 
 			      {apns,
@@ -95,8 +103,12 @@ suite() ->
 	[{timetrap,{seconds,30}}].
 
 init_per_suite(Config) ->
+    application:load(lager),
     application:load(ergw),
+    application:load(ergw_aaa),
     ok = meck_dp(),
+    ok = meck_socket(),
+    ok = meck_handler(),
     lists:foreach(fun({App, Settings}) ->
 			  ct:pal("App: ~p, S: ~p", [App, Settings]),
 			  lists:foreach(fun({K,V}) ->
@@ -105,35 +117,35 @@ init_per_suite(Config) ->
 					end, Settings)
 		  end, ?TEST_CONFIG),
     {ok, _} = application:ensure_all_started(ergw),
-    ok = meck:wait(gtp_dp, start_link, '_', 1000),
-    ct:pal("Meck H: ~p", [meck:history(gtp_dp)]),
-    ct:pal("Sockets: ~p", [gtp_socket_reg:all()]),
+    ok = meck:wait(gtp_dp, start_link, '_', ?TIMEOUT),
     Config.
 
 end_per_suite(_) ->
-    ct:pal("DP: ~p", [meck:history(gtp_dp)]),
-    meck:unload(gtp_dp),
+    meck_unload(),
     application:stop(ergw),
     ok.
 
 all() ->
     [invalid_gtp_pdu,
-     create_pdp_context_request_missing_ie, create_pdp_context_request,
+     create_pdp_context_request_missing_ie,
+     path_restart, path_restart_recovery,
+     simple_pdp_context_request,
      create_pdp_context_request_resend,
-     delete_pdp_context_request, delete_pdp_context_request_resend].
+     delete_pdp_context_request_resend].
 
 %%%===================================================================
 %%% Tests
 %%%===================================================================
 
-init_per_testcase(invalid_gtp_pdu, Config) ->
-    ok = meck:new(gtp_socket, [passthrough]),
+init_per_testcase(path_restart, Config) ->
+    meck_reset(),
+    ok = meck:new(gtp_path, [passthrough, no_link]),
     Config;
 init_per_testcase(_, Config) ->
     Config.
 
-end_per_testcase(invalid_gtp_pdu, Config) ->
-    meck:unload(gtp_socket),
+end_per_testcase(path_restart, Config) ->
+    meck:unload(gtp_path),
     Config;
 end_per_testcase(_, Config) ->
     Config.
@@ -144,10 +156,10 @@ invalid_gtp_pdu() ->
       " and that the GTP socket is not crashing"}].
 invalid_gtp_pdu(_Config) ->
     S = make_gtp_socket(),
-    gen_udp:send(S, ?LOCALHOST, ?GTP2c_PORT, <<"TESTDATA">>),
+    gen_udp:send(S, ?LOCALHOST, ?GTP1c_PORT, <<"TESTDATA">>),
 
-    ?equal({error,timeout}, gen_udp:recv(S, 4096, 1000)),
-    ?equal(true, meck:validate(gtp_socket)),
+    ?equal({error,timeout}, gen_udp:recv(S, 4096, ?TIMEOUT)),
+    meck_validate(),
     ok.
 
 %%--------------------------------------------------------------------
@@ -160,86 +172,164 @@ create_pdp_context_request_missing_ie(_Config) ->
     IEs = #{},
     Msg = #gtp{version = v1, type = create_pdp_context_request, tei = 0,
 	       seq_no = SeqNo, ie = IEs},
-    ok = send_pdu(S, Msg),
-
-    Response =
-	case gen_udp:recv(S, 4096, 1000) of
-	    {ok, {?LOCALHOST, ?GTP2c_PORT, R}} ->
-		R;
-	    Unexpected ->
-		ct:fail(Unexpected)
-	end,
+    Response = send_recv_pdu(S, Msg),
 
     ?match(#gtp{type = create_pdp_context_response,
 		ie = #{{cause,0} := #cause{value = mandatory_ie_missing}}},
-	   gtp_packet:decode(Response)),
+	   Response),
+
+    meck_validate(),
     ok.
 
-create_pdp_context_request() ->
-    [{doc, "Check that Create Session Request works"}].
-create_pdp_context_request(_Config) ->
+path_restart() ->
+    [{doc, "Check that Create PDP Context Request works and "
+           "that a Path Restart terminates the session"}].
+path_restart(_Config) ->
     ct:pal("Sockets: ~p", [gtp_socket_reg:all()]),
     S = make_gtp_socket(),
 
-    SeqNo = erlang:unique_integer([positive, monotonic]) rem 16#7fffff,
+    GtpC = gtp_context(),
     LocalCntlTEI = erlang:unique_integer([positive, monotonic]) rem 16#ffffffff,
     LocalDataTEI = erlang:unique_integer([positive, monotonic]) rem 16#ffffffff,
 
-    Msg = make_create_pdp_context_request(LocalCntlTEI, LocalDataTEI, SeqNo),
-    ok = send_pdu(S, Msg),
-
-    Response =
-	case gen_udp:recv(S, 4096, 1000) of
-	    {ok, {?LOCALHOST, ?GTP2c_PORT, R}} ->
-		R;
-	    Unexpected ->
-		ct:fail(Unexpected)
-	end,
+    Msg = make_create_pdp_context_request(LocalCntlTEI, LocalDataTEI, GtpC),
+    Response = send_recv_pdu(S, Msg),
 
     ?match(#gtp{type = create_pdp_context_response,
 		tei = LocalCntlTEI,
-		seq_no = SeqNo,
      		ie = #{{cause, 0} := #cause{value = request_accepted}}},
-	   gtp_packet:decode(Response)),
+	   Response),
+
+    %% simulate patch restart to kill the PDP context
+    Echo = make_echo_request(
+	     gtp_context_inc_seq(
+	       gtp_context_inc_restart_counter(GtpC))),
+    send_recv_pdu(S, Echo),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    meck_validate(),
+    ok.
+
+path_restart_recovery() ->
+    [{doc, "Check that Create PDP Context Request works and "
+           "that a Path Restart terminates the session"}].
+path_restart_recovery(_Config) ->
+    ct:pal("Sockets: ~p", [gtp_socket_reg:all()]),
+    S = make_gtp_socket(),
+
+    GtpC1 = gtp_context(),
+    LocalCntlTEI = erlang:unique_integer([positive, monotonic]) rem 16#ffffffff,
+    LocalDataTEI = erlang:unique_integer([positive, monotonic]) rem 16#ffffffff,
+
+    Msg1 = make_create_pdp_context_request(LocalCntlTEI, LocalDataTEI, GtpC1),
+    Resp1 = send_recv_pdu(S, Msg1),
+
+    ?match(#gtp{type = create_pdp_context_response,
+		tei = LocalCntlTEI,
+     		ie = #{{cause, 0} := #cause{value = request_accepted}}},
+	   Resp1),
+
+    GtpC2 = gtp_context_inc_seq(gtp_context_inc_restart_counter(GtpC1)),
+    LocalCntlTEI2 = erlang:unique_integer([positive, monotonic]) rem 16#ffffffff,
+    LocalDataTEI2 = erlang:unique_integer([positive, monotonic]) rem 16#ffffffff,
+
+    Msg2 = make_create_pdp_context_request(LocalCntlTEI2, LocalDataTEI2, GtpC2),
+    Resp2 = send_recv_pdu(S, Msg2),
+
+    ?match(#gtp{type = create_pdp_context_response,
+		tei = LocalCntlTEI2,
+		ie = #{{cause,0} := #cause{value = request_accepted}}},
+	   Resp2),
+
+    #gtp{ie = #{{tunnel_endpoint_identifier_control_plane,0} :=
+		    #tunnel_endpoint_identifier_control_plane{
+		       tei = RemoteCntlTEI2}
+	       }} = Resp2,
+
+    GtpC3 = gtp_context_inc_seq(GtpC2),
+    Msg3 = make_delete_pdp_context_request(LocalCntlTEI2, RemoteCntlTEI2, GtpC3),
+    Resp3 = send_recv_pdu(S, Msg3),
+
+    ?match(#gtp{type = delete_pdp_context_response,
+		tei = LocalCntlTEI2,
+		ie = #{{cause,0} := #cause{value = request_accepted}}
+	       }, Resp3),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    meck_validate(),
+    ok.
+
+simple_pdp_context_request() ->
+    [{doc, "Check simple Create PDP Context, Delete PDP Context sequence"}].
+simple_pdp_context_request(_Config) ->
+    ct:pal("Sockets: ~p", [gtp_socket_reg:all()]),
+    S = make_gtp_socket(),
+
+    GtpC1 = gtp_context(),
+    LocalCntlTEI = erlang:unique_integer([positive, monotonic]) rem 16#ffffffff,
+    LocalDataTEI = erlang:unique_integer([positive, monotonic]) rem 16#ffffffff,
+
+    Msg1 = make_create_pdp_context_request(LocalCntlTEI, LocalDataTEI, GtpC1),
+    Resp1 = send_recv_pdu(S, Msg1),
+
+    ?match(#gtp{type = create_pdp_context_response,
+		tei = LocalCntlTEI,
+		ie = #{{cause,0} := #cause{value = request_accepted},
+		       {charging_id,0} := #charging_id{},
+		       {end_user_address,0} :=
+			   #end_user_address{pdp_type_organization = 1,
+					     pdp_type_number = 33},
+		       {gsn_address,0} := #gsn_address{},
+		       {gsn_address,1} := #gsn_address{},
+		       {protocol_configuration_options,0} :=
+			   #protocol_configuration_options{
+			      config = {0,[{ipcp,'CP-Configure-Nak',1,[{ms_dns1,_},
+								       {ms_dns2,_}]},
+					   {13, _},
+					   {13, _}]}},
+		       {quality_of_service_profile,0} :=
+			   #quality_of_service_profile{priority = 2},
+		       {reordering_required,0} :=
+			   #reordering_required{required = no},
+		       {tunnel_endpoint_identifier_control_plane,0} :=
+			   #tunnel_endpoint_identifier_control_plane{},
+		       {tunnel_endpoint_identifier_data_i,0} :=
+			   #tunnel_endpoint_identifier_data_i{}
+		      }}, Resp1),
+
+    #gtp{ie = #{{tunnel_endpoint_identifier_control_plane,0} :=
+		    #tunnel_endpoint_identifier_control_plane{
+		       tei = RemoteCntlTEI}
+	       }} = Resp1,
+
+    GtpC2 = gtp_context_inc_seq(GtpC1),
+    Msg2 = make_delete_pdp_context_request(LocalCntlTEI, RemoteCntlTEI, GtpC2),
+    Resp2 = send_recv_pdu(S, Msg2),
+
+    ?match(#gtp{type = delete_pdp_context_response,
+		tei = LocalCntlTEI,
+		ie = #{{cause,0} := #cause{value = request_accepted}}
+	       }, Resp2),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    meck_validate(),
     ok.
 
 create_pdp_context_request_resend() ->
-    [{doc, "Check that a retransmission of a Create Session Request works"}].
+    [{doc, "Check that a retransmission of a Create PDP Context Request works"}].
 create_pdp_context_request_resend(_Config) ->
     ct:pal("Sockets: ~p", [gtp_socket_reg:all()]),
     S = make_gtp_socket(),
 
-    SeqNo = erlang:unique_integer([positive, monotonic]) rem 16#7fffff,
+    GtpC1 = gtp_context(),
     LocalCntlTEI = erlang:unique_integer([positive, monotonic]) rem 16#ffffffff,
     LocalDataTEI = erlang:unique_integer([positive, monotonic]) rem 16#ffffffff,
 
-    Msg = make_create_pdp_context_request(LocalCntlTEI, LocalDataTEI, SeqNo),
-    Resp = send_recv_pdu(S, Msg),
-
-    ?match(#gtp{type = create_pdp_context_response,
-		tei = LocalCntlTEI,
-		seq_no = SeqNo,
-		ie = #{{cause, 0} := #cause{value = request_accepted}}},
-	   Resp),
-    ?match(Resp, send_recv_pdu(S, Msg)),
-    ok.
-
-delete_pdp_context_request() ->
-    [{doc, "Check that Delete Session Request works"}].
-delete_pdp_context_request(_Config) ->
-    ct:pal("Sockets: ~p", [gtp_socket_reg:all()]),
-    S = make_gtp_socket(),
-
-    SeqNo1 = erlang:unique_integer([positive, monotonic]) rem 16#7fffff,
-    LocalCntlTEI = erlang:unique_integer([positive, monotonic]) rem 16#ffffffff,
-    LocalDataTEI = erlang:unique_integer([positive, monotonic]) rem 16#ffffffff,
-
-    Msg1 = make_create_pdp_context_request(LocalCntlTEI, LocalDataTEI, SeqNo1),
+    Msg1 = make_create_pdp_context_request(LocalCntlTEI, LocalDataTEI, GtpC1),
     Resp1 = send_recv_pdu(S, Msg1),
 
     ?match(#gtp{type = create_pdp_context_response,
 		tei = LocalCntlTEI,
-		seq_no = SeqNo1,
 		ie = #{{cause,0} := #cause{value = request_accepted},
 		       {charging_id,0} := #charging_id{},
 		       {end_user_address,0} :=
@@ -263,38 +353,42 @@ delete_pdp_context_request(_Config) ->
 			   #tunnel_endpoint_identifier_data_i{}
 		      }}, Resp1),
 
+    ?match(Resp1, send_recv_pdu(S, Msg1)),
+
     #gtp{ie = #{{tunnel_endpoint_identifier_control_plane,0} :=
 		    #tunnel_endpoint_identifier_control_plane{
 		       tei = RemoteCntlTEI}
 	       }} = Resp1,
 
-    SeqNo2 = erlang:unique_integer([positive, monotonic]) rem 16#7fffff,
-    Msg2 = make_delete_pdp_context_request(LocalCntlTEI, RemoteCntlTEI, SeqNo2),
+    GtpC2 = gtp_context_inc_seq(GtpC1),
+    Msg2 = make_delete_pdp_context_request(LocalCntlTEI, RemoteCntlTEI, GtpC2),
     Resp2 = send_recv_pdu(S, Msg2),
 
     ?match(#gtp{type = delete_pdp_context_response,
 		tei = LocalCntlTEI,
-		seq_no = SeqNo2,
 		ie = #{{cause,0} := #cause{value = request_accepted}}
 	       }, Resp2),
+    ?match(Resp2, send_recv_pdu(S, Msg2)),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    meck_validate(),
     ok.
 
 delete_pdp_context_request_resend() ->
-    [{doc, "Check that a retransmission of a Delete Session Request works"}].
+    [{doc, "Check that a retransmission of a Delete PDP Context Request works"}].
 delete_pdp_context_request_resend(_Config) ->
     ct:pal("Sockets: ~p", [gtp_socket_reg:all()]),
     S = make_gtp_socket(),
 
-    SeqNo1 = erlang:unique_integer([positive, monotonic]) rem 16#7fffff,
+    GtpC1 = gtp_context(),
     LocalCntlTEI = erlang:unique_integer([positive, monotonic]) rem 16#ffffffff,
     LocalDataTEI = erlang:unique_integer([positive, monotonic]) rem 16#ffffffff,
 
-    Msg1 = make_create_pdp_context_request(LocalCntlTEI, LocalDataTEI, SeqNo1),
+    Msg1 = make_create_pdp_context_request(LocalCntlTEI, LocalDataTEI, GtpC1),
     Resp1 = send_recv_pdu(S, Msg1),
 
     ?match(#gtp{type = create_pdp_context_response,
 		tei = LocalCntlTEI,
-		seq_no = SeqNo1,
 		ie = #{{cause,0} := #cause{value = request_accepted},
 		       {charging_id,0} := #charging_id{},
 		       {end_user_address,0} :=
@@ -323,16 +417,18 @@ delete_pdp_context_request_resend(_Config) ->
 		       tei = RemoteCntlTEI}
 	       }} = Resp1,
 
-    SeqNo2 = erlang:unique_integer([positive, monotonic]) rem 16#7fffff,
-    Msg2 = make_delete_pdp_context_request(LocalCntlTEI, RemoteCntlTEI, SeqNo2),
+    GtpC2 = gtp_context_inc_seq(GtpC1),
+    Msg2 = make_delete_pdp_context_request(LocalCntlTEI, RemoteCntlTEI, GtpC2),
     Resp2 = send_recv_pdu(S, Msg2),
 
     ?match(#gtp{type = delete_pdp_context_response,
 		tei = LocalCntlTEI,
-		seq_no = SeqNo2,
 		ie = #{{cause,0} := #cause{value = request_accepted}}
 	       }, Resp2),
     ?match(Resp2, send_recv_pdu(S, Msg2)),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    meck_validate(),
     ok.
 
 %%%===================================================================
@@ -340,7 +436,7 @@ delete_pdp_context_request_resend(_Config) ->
 %%%===================================================================
 
 meck_dp() ->
-    ok = meck:new(gtp_dp, [passthrough, no_link]),
+    ok = meck:new(gtp_dp, [no_link]),
     ok = meck:expect(gtp_dp, start_link, fun({Name, _SocketOpts}) ->
 						 RCnt =  erlang:unique_integer([positive, monotonic]) rem 256,
 						 GtpPort = #gtp_port{name = Name,
@@ -358,27 +454,40 @@ meck_dp() ->
     ok = meck:expect(gtp_dp, delete_pdp_context, fun(_Context, _Args) -> ok end),
     ok.
 
+meck_socket() ->
+    ok = meck:new(gtp_socket, [passthrough, no_link]).
+
+meck_handler() ->
+    ok = meck:new(?HUT, [passthrough, no_link]).
+
+meck_reset() ->
+    meck:reset(gtp_dp),
+    meck:reset(gtp_socket),
+    meck:reset(?HUT).
+
+meck_unload() ->
+    meck:unload(gtp_dp),
+    meck:unload(gtp_socket),
+    meck:unload(?HUT).
+
+meck_validate() ->
+    ?equal(true, meck:validate(gtp_dp)),
+    ?equal(true, meck:validate(gtp_socket)),
+    ?equal(true, meck:validate(?HUT)).
+
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
 
-%% hexstr2bin from otp/lib/crypto/test/crypto_SUITE.erl
-hexstr2bin(S) ->
-    list_to_binary(hexstr2list(S)).
+make_echo_request(#gtpc{restart_counter = RCnt, seq_no = SeqNo}) ->
+    IEs = [#recovery{restart_counter = RCnt}],
+    #gtp{version = v1, type = echo_request, tei = 0, seq_no = SeqNo, ie = IEs}.
 
-hexstr2list([X,Y|T]) ->
-    [mkint(X)*16 + mkint(Y) | hexstr2list(T)];
-hexstr2list([]) ->
-    [].
-mkint(C) when $0 =< C, C =< $9 ->
-    C - $0;
-mkint(C) when $A =< C, C =< $F ->
-    C - $A + 10;
-mkint(C) when $a =< C, C =< $f ->
-    C - $a + 10.
-
-make_create_pdp_context_request(LocalCntlTEI, LocalDataTEI, SeqNo) ->
-    IEs = [#access_point_name{apn = ?'APN-EXAMPLE'},
+make_create_pdp_context_request(LocalCntlTEI, LocalDataTEI,
+				#gtpc{restart_counter = RCnt,
+				      seq_no = SeqNo}) ->
+    IEs = [#recovery{restart_counter = RCnt},
+	   #access_point_name{apn = ?'APN-EXAMPLE'},
 	   #end_user_address{pdp_type_organization = 1,
 			     pdp_type_number = 16#21,
 			     pdp_address = <<>>},
@@ -411,30 +520,71 @@ make_create_pdp_context_request(LocalCntlTEI, LocalDataTEI, SeqNo) ->
     #gtp{version = v1, type = create_pdp_context_request, tei = 0,
 	 seq_no = SeqNo, ie = IEs}.
 
-make_delete_pdp_context_request(_LocalCntlTEI, RemoteCntlTEI, SeqNo) ->
-    IEs = [#nsapi{nsapi=5},
+make_delete_pdp_context_request(_LocalCntlTEI, RemoteCntlTEI,
+				#gtpc{restart_counter = RCnt,
+				      seq_no = SeqNo}) ->
+    IEs = [#recovery{restart_counter = RCnt},
+	   #nsapi{nsapi=5},
 	   #teardown_ind{value=1}],
 
     #gtp{version = v1, type = delete_pdp_context_request,
 	 tei = RemoteCntlTEI, seq_no = SeqNo, ie = IEs}.
 
+gtp_context() ->
+    #gtpc{
+       restart_counter = erlang:unique_integer([positive, monotonic]) rem 256,
+       seq_no = erlang:unique_integer([positive, monotonic]) rem 16#800000
+      }.
+
+gtp_context_inc_seq(#gtpc{seq_no = SeqNo} = GtpC) ->
+    GtpC#gtpc{seq_no = (SeqNo + 1) rem 16#800000}.
+
+gtp_context_inc_restart_counter(#gtpc{restart_counter = RCnt} = GtpC) ->
+    GtpC#gtpc{restart_counter = (RCnt + 1) rem 256}.
+
 make_gtp_socket() ->
-    {ok, S} = gen_udp:open(0, [{ip, ?LOCALHOST}, {active, false},
-			       binary, {reuseaddr, true}]),
+    {ok, S} = gen_udp:open(?GTP1c_PORT * 4, [{ip, ?LOCALHOST}, {active, false},
+					     binary, {reuseaddr, true}]),
     S.
 
 send_pdu(S, Msg) ->
+    ct:pal("Msg: ~p", [Msg]),
     Data = gtp_packet:encode(Msg),
-    gen_udp:send(S, ?LOCALHOST, ?GTP2c_PORT, Data).
+    gen_udp:send(S, ?LOCALHOST, ?GTP1c_PORT, Data).
 
 send_recv_pdu(S, Msg) ->
-    ok = send_pdu(S, Msg),
+    send_recv_pdu(S, Msg, ?TIMEOUT).
 
+send_recv_pdu(S, Msg, Timeout) ->
+    ok = send_pdu(S, Msg),
+    recv_pdu(S, Msg#gtp.seq_no, Timeout).
+
+recv_pdu(S, Timeout) ->
+    recv_pdu(S, undefined, Timeout).
+
+recv_pdu(_, _SeqNo, Timeout) when Timeout =< 0 ->
+    ct:fail(timeout);
+recv_pdu(S, SeqNo, Timeout) ->
+    Now = erlang:monotonic_time(millisecond),
     Response =
-	case gen_udp:recv(S, 4096, 1000) of
-	    {ok, {?LOCALHOST, ?GTP2c_PORT, R}} ->
+	case gen_udp:recv(S, 4096, Timeout) of
+	    {ok, {?LOCALHOST, ?GTP1c_PORT, R}} ->
 		R;
 	    Unexpected ->
 		ct:fail(Unexpected)
 	end,
-    gtp_packet:decode(Response).
+
+    ct:pal("Msg: ~p", [(catch gtp_packet:decode(Response))]),
+    case gtp_packet:decode(Response) of
+	#gtp{version = v1, type = echo_request} = Msg ->
+	    Resp = Msg#gtp{type = echo_response, ie = []},
+	    send_pdu(S, Resp),
+	    NewTimeout = Timeout - (erlang:monotonic_time(millisecond) - Now),
+	    recv_pdu(S, NewTimeout);
+	#gtp{version = v1, seq_no = SeqNo} = Msg
+	  when is_integer(SeqNo) ->
+	    Msg;
+
+	Msg ->
+	    Msg
+    end.

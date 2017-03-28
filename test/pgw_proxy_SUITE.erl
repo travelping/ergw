@@ -13,6 +13,7 @@
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include("../include/ergw.hrl").
 
+-define(TIMEOUT, 2000).
 -define(HUT, pgw_s5s8_proxy).			%% Handler Under Test
 -define(LOCALHOST, {127,0,0,1}).
 
@@ -47,23 +48,28 @@
 		  end
 	  end)())).
 
+-record(gtpc, {restart_counter, seq_no}).
+
 %%%===================================================================
 %%% API
 %%%===================================================================
 
 -define(TEST_CONFIG, [
-		      %% {lager, [{colored, true},
-		      %% 	       {handlers, [
-		      %% 			   {lager_console_backend, debug},
-		      %% 			   {lager_file_backend, [{file, "error.log"}, {level, error}]},
-		      %% 			   {lager_file_backend, [{file, "console.log"}, {level, debug}]}
-		      %% 			  ]}
-		      %% 	      ]},
+		      {lager, [{colored, true},
+			       {error_logger_redirect, false},
+			       {handlers, [
+					   %% lager logging leads to timeouts, disable it
+					   {lager_console_backend, emergency},
+					   {lager_file_backend, [{file, "error.log"}, {level, error}]},
+					   {lager_file_backend, [{file, "console.log"}, {level, emergency}]}
+					  ]}
+			      ]},
 
 		      {ergw, [{sockets,
 			       [{irx, [{type, 'gtp-c'},
 				       {ip,  {127,0,0,1}},
-				       {reuseaddr, true}
+				       {reuseaddr, true},
+				       {'$remote_port', ?GTP1c_PORT * 4}
 				      ]},
 				{grx, [{type, 'gtp-u'},
 				       {node, 'gtp-u-node@localhost'},
@@ -87,7 +93,7 @@
 					       ]},
 				{'remote-grx', [{type, 'gtp-u'},
 						{node, 'gtp-u-node@localhost'},
-						{name, 'grx'}
+						{name, 'remote-grx'}
 					       ]}
 			       ]},
 
@@ -153,7 +159,7 @@ init_per_suite(Config) ->
     application:load(ergw),
     application:load(ergw_aaa),
     ok = meck_dp(),
-    ok = meck_socket('proxy-irx'),
+    ok = meck_socket(),
     ok = meck_handler(),
     lists:foreach(fun({App, Settings}) ->
 			  ct:pal("App: ~p, S: ~p", [App, Settings]),
@@ -163,7 +169,7 @@ init_per_suite(Config) ->
 					end, Settings)
 		  end, ?TEST_CONFIG),
     {ok, _} = application:ensure_all_started(ergw),
-    ok = meck:wait(gtp_dp, start_link, '_', 1000),
+    ok = meck:wait(gtp_dp, start_link, '_', ?TIMEOUT),
     Config.
 
 end_per_suite(_) ->
@@ -173,19 +179,26 @@ end_per_suite(_) ->
 
 all() ->
     [invalid_gtp_pdu,
-     create_session_request_missing_ie, create_session_request,
+     create_session_request_missing_ie,
+     path_restart, path_restart_recovery,
+     simple_session,
      create_session_request_resend,
-     delete_session_request, delete_session_request_resend].
+     delete_session_request_resend].
 
 %%%===================================================================
 %%% Tests
 %%%===================================================================
 
+init_per_testcase(delete_session_request_resend, Config) ->
+    meck_reset(),
+    ok = meck:new(gtp_path, [passthrough, no_link]),
+    Config;
 init_per_testcase(_, Config) ->
     meck_reset(),
-    %% gtp_fake_socket:take_ownership('proxy-irx'),
     Config.
 
+end_per_testcase(delete_session_request_resend, Config) ->
+    Config;
 end_per_testcase(_, Config) ->
     Config.
 
@@ -197,7 +210,7 @@ invalid_gtp_pdu(_Config) ->
     S = make_gtp_socket(),
     gen_udp:send(S, ?LOCALHOST, ?GTP2c_PORT, <<"TESTDATA">>),
 
-    ?equal({error,timeout}, gen_udp:recv(S, 4096, 1000)),
+    ?equal({error,timeout}, gen_udp:recv(S, 4096, ?TIMEOUT)),
     meck_validate(),
     ok.
 
@@ -211,48 +224,173 @@ create_session_request_missing_ie(_Config) ->
     IEs = #{},
     Msg = #gtp{version = v2, type = create_session_request, tei = 0,
 	       seq_no = SeqNo, ie = IEs},
-    ok = send_pdu(S, Msg),
-
-    Response =
-	case gen_udp:recv(S, 4096, 1000) of
-	    {ok, {?LOCALHOST, ?GTP2c_PORT, R}} ->
-		R;
-	    Unexpected ->
-		ct:fail(Unexpected)
-	end,
+    Response = send_recv_pdu(S, Msg),
 
     ?match(#gtp{type = create_session_response,
 		ie = #{{v2_cause,0} := #v2_cause{v2_cause = mandatory_ie_missing}}},
-	   gtp_packet:decode(Response)),
+	   Response),
     meck_validate(),
     ok.
 
-create_session_request() ->
-    [{doc, "Check that Create Session Request works"}].
-create_session_request(_Config) ->
+path_restart() ->
+    [{doc, "Check that Create Session Request works and "
+           "that a Path Restart terminates the session"}].
+path_restart(_Config) ->
     ct:pal("Sockets: ~p", [gtp_socket_reg:all()]),
     S = make_gtp_socket(),
 
-    SeqNo = erlang:unique_integer([positive, monotonic]) rem 16#7fffff,
+    GtpC = gtp_context(),
     LocalCntlTEI = erlang:unique_integer([positive, monotonic]) rem 16#ffffffff,
     LocalDataTEI = erlang:unique_integer([positive, monotonic]) rem 16#ffffffff,
 
-    Msg = make_create_session_request(LocalCntlTEI, LocalDataTEI, SeqNo),
-    ok = send_pdu(S, Msg),
-
-    Response =
-	case gen_udp:recv(S, 4096, 1000) of
-	    {ok, {?LOCALHOST, ?GTP2c_PORT, R}} ->
-		R;
-	    Unexpected ->
-		ct:fail(Unexpected)
-	end,
+    Msg = make_create_session_request(LocalCntlTEI, LocalDataTEI, GtpC),
+    Response = send_recv_pdu(S, Msg),
 
     ?match(#gtp{type = create_session_response,
 		tei = LocalCntlTEI,
-		seq_no = SeqNo,
 		ie = #{{v2_cause, 0} := #v2_cause{v2_cause = request_accepted}}},
-	   gtp_packet:decode(Response)),
+	   Response),
+
+    %% simulate patch restart to kill the PDP context
+    Echo = make_echo_request(
+	     gtp_context_inc_seq(
+	       gtp_context_inc_restart_counter(GtpC))),
+    send_recv_pdu(S, Echo),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    meck_validate(),
+    ok.
+
+path_restart_recovery() ->
+    [{doc, "Check that Create Session Request works, "
+           "that a Path Restart terminates the session, "
+           "and that a new Create Session Request also works"}].
+path_restart_recovery(_Config) ->
+    ct:pal("Sockets: ~p", [gtp_socket_reg:all()]),
+    S = make_gtp_socket(),
+
+    GtpC1 = gtp_context(),
+    LocalCntlTEI = erlang:unique_integer([positive, monotonic]) rem 16#ffffffff,
+    LocalDataTEI = erlang:unique_integer([positive, monotonic]) rem 16#ffffffff,
+
+    Msg1 = make_create_session_request(LocalCntlTEI, LocalDataTEI, GtpC1),
+    Resp1 = send_recv_pdu(S, Msg1),
+
+    ?match(#gtp{type = create_session_response,
+		tei = LocalCntlTEI,
+		ie = #{{v2_cause,0} := #v2_cause{v2_cause = request_accepted},
+		       {v2_fully_qualified_tunnel_endpoint_identifier,1} :=
+			   #v2_fully_qualified_tunnel_endpoint_identifier{
+			      interface_type = ?'S5/S8-C PGW'},
+		       {v2_bearer_context,0} :=
+			   #v2_bearer_context{
+			      group = #{{v2_cause,0} := #v2_cause{v2_cause = request_accepted},
+					{v2_fully_qualified_tunnel_endpoint_identifier,2} :=
+					    #v2_fully_qualified_tunnel_endpoint_identifier{
+					       interface_type = ?'S5/S8-U PGW'}}}
+		      }}, Resp1),
+
+    #gtp{ie = #{{v2_fully_qualified_tunnel_endpoint_identifier,1} :=
+		    #v2_fully_qualified_tunnel_endpoint_identifier{
+		       key = RemoteCntlTEI},
+		{v2_bearer_context,0} :=
+		    #v2_bearer_context{
+		       group = #{{v2_fully_qualified_tunnel_endpoint_identifier,2} :=
+				     #v2_fully_qualified_tunnel_endpoint_identifier{
+					key = _RemoteDataTEI}}}
+	       }} = Resp1,
+
+    GtpC2 = gtp_context_inc_seq(gtp_context_inc_restart_counter(GtpC1)),
+    LocalCntlTEI2 = erlang:unique_integer([positive, monotonic]) rem 16#ffffffff,
+    LocalDataTEI2 = erlang:unique_integer([positive, monotonic]) rem 16#ffffffff,
+
+    Msg2 = make_create_session_request(LocalCntlTEI2, LocalDataTEI2, GtpC2),
+    Resp2 = send_recv_pdu(S, Msg2),
+
+    ?match(#gtp{type = create_session_response,
+		tei = LocalCntlTEI2,
+		ie = #{{v2_cause,0} := #v2_cause{v2_cause = request_accepted},
+		       {v2_fully_qualified_tunnel_endpoint_identifier,1} :=
+			   #v2_fully_qualified_tunnel_endpoint_identifier{
+			      interface_type = ?'S5/S8-C PGW'},
+		       {v2_bearer_context,0} :=
+			   #v2_bearer_context{
+			      group = #{{v2_cause,0} := #v2_cause{v2_cause = request_accepted},
+					{v2_fully_qualified_tunnel_endpoint_identifier,2} :=
+					    #v2_fully_qualified_tunnel_endpoint_identifier{
+					       interface_type = ?'S5/S8-U PGW'}}}
+		      }}, Resp2),
+
+    #gtp{ie = #{{v2_fully_qualified_tunnel_endpoint_identifier,1} :=
+		    #v2_fully_qualified_tunnel_endpoint_identifier{
+		       key = RemoteCntlTEI2},
+		{v2_bearer_context,0} :=
+		    #v2_bearer_context{
+		       group = #{{v2_fully_qualified_tunnel_endpoint_identifier,2} :=
+				     #v2_fully_qualified_tunnel_endpoint_identifier{
+					key = _RemoteDataTEI2}}}
+	       }} = Resp2,
+
+
+    GtpC3 = gtp_context_inc_seq(GtpC2),
+    Msg3 = make_delete_session_request(LocalCntlTEI2, RemoteCntlTEI2, GtpC3),
+    Resp3 = send_recv_pdu(S, Msg3),
+
+    ?match(#gtp{type = delete_session_response,
+		tei = LocalCntlTEI2,
+		ie = #{{v2_cause,0} := #v2_cause{v2_cause = request_accepted}}
+	       }, Resp3),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    meck_validate(),
+    ok.
+
+simple_session() ->
+    [{doc, "Check simple Create Session, Delete Session sequence"}].
+simple_session(_Config) ->
+    ct:pal("Sockets: ~p", [gtp_socket_reg:all()]),
+    S = make_gtp_socket(),
+
+    GtpC1 = gtp_context(),
+    LocalCntlTEI = erlang:unique_integer([positive, monotonic]) rem 16#ffffffff,
+    LocalDataTEI = erlang:unique_integer([positive, monotonic]) rem 16#ffffffff,
+
+    Msg1 = make_create_session_request(LocalCntlTEI, LocalDataTEI, GtpC1),
+    Resp1 = send_recv_pdu(S, Msg1),
+
+    ?match(#gtp{type = create_session_response,
+		tei = LocalCntlTEI,
+		ie = #{{v2_cause,0} := #v2_cause{v2_cause = request_accepted},
+		       {v2_fully_qualified_tunnel_endpoint_identifier,1} :=
+			   #v2_fully_qualified_tunnel_endpoint_identifier{
+			      interface_type = ?'S5/S8-C PGW'},
+		       {v2_bearer_context,0} :=
+			   #v2_bearer_context{
+			      group = #{{v2_cause,0} := #v2_cause{v2_cause = request_accepted},
+					{v2_fully_qualified_tunnel_endpoint_identifier,2} :=
+					    #v2_fully_qualified_tunnel_endpoint_identifier{
+					       interface_type = ?'S5/S8-U PGW'}}}
+		      }}, Resp1),
+
+    #gtp{ie = #{{v2_fully_qualified_tunnel_endpoint_identifier,1} :=
+		    #v2_fully_qualified_tunnel_endpoint_identifier{
+		       key = RemoteCntlTEI},
+		{v2_bearer_context,0} :=
+		    #v2_bearer_context{
+		       group = #{{v2_fully_qualified_tunnel_endpoint_identifier,2} :=
+				     #v2_fully_qualified_tunnel_endpoint_identifier{
+					key = _RemoteDataTEI}}}
+	       }} = Resp1,
+
+    GtpC2 = gtp_context_inc_seq(GtpC1),
+    Msg2 = make_delete_session_request(LocalCntlTEI, RemoteCntlTEI, GtpC2),
+    Resp2 = send_recv_pdu(S, Msg2),
+
+    ?match(#gtp{type = delete_session_response,
+		tei = LocalCntlTEI,
+		ie = #{{v2_cause,0} := #v2_cause{v2_cause = request_accepted}}
+	       }, Resp2),
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(),
     ok.
 
@@ -262,38 +400,15 @@ create_session_request_resend(_Config) ->
     ct:pal("Sockets: ~p", [gtp_socket_reg:all()]),
     S = make_gtp_socket(),
 
-    SeqNo = erlang:unique_integer([positive, monotonic]) rem 16#7fffff,
+    GtpC1 = gtp_context(),
     LocalCntlTEI = erlang:unique_integer([positive, monotonic]) rem 16#ffffffff,
     LocalDataTEI = erlang:unique_integer([positive, monotonic]) rem 16#ffffffff,
 
-    Msg = make_create_session_request(LocalCntlTEI, LocalDataTEI, SeqNo),
-    Resp = send_recv_pdu(S, Msg),
-
-    ?match(#gtp{type = create_session_response,
-		tei = LocalCntlTEI,
-		seq_no = SeqNo,
-		ie = #{{v2_cause, 0} := #v2_cause{v2_cause = request_accepted}}},
-	   Resp),
-    ?match(Resp, send_recv_pdu(S, Msg)),
-    meck_validate(),
-    ok.
-
-delete_session_request() ->
-    [{doc, "Check that Delete Session Request works"}].
-delete_session_request(_Config) ->
-    ct:pal("Sockets: ~p", [gtp_socket_reg:all()]),
-    S = make_gtp_socket(),
-
-    SeqNo1 = erlang:unique_integer([positive, monotonic]) rem 16#7fffff,
-    LocalCntlTEI = erlang:unique_integer([positive, monotonic]) rem 16#ffffffff,
-    LocalDataTEI = erlang:unique_integer([positive, monotonic]) rem 16#ffffffff,
-
-    Msg1 = make_create_session_request(LocalCntlTEI, LocalDataTEI, SeqNo1),
+    Msg1 = make_create_session_request(LocalCntlTEI, LocalDataTEI, GtpC1),
     Resp1 = send_recv_pdu(S, Msg1),
 
     ?match(#gtp{type = create_session_response,
 		tei = LocalCntlTEI,
-		seq_no = SeqNo1,
 		ie = #{{v2_cause,0} := #v2_cause{v2_cause = request_accepted},
 		       {v2_fully_qualified_tunnel_endpoint_identifier,1} :=
 			   #v2_fully_qualified_tunnel_endpoint_identifier{
@@ -316,16 +431,18 @@ delete_session_request(_Config) ->
 					key = _RemoteDataTEI}}}
 	       }} = Resp1,
 
-    SeqNo2 = erlang:unique_integer([positive, monotonic]) rem 16#7fffff,
-    Msg2 = make_delete_session_request(LocalCntlTEI, RemoteCntlTEI, SeqNo2),
+    ?match(Resp1, send_recv_pdu(S, Msg1)),
+
+    GtpC2 = gtp_context_inc_seq(GtpC1),
+    Msg2 = make_delete_session_request(LocalCntlTEI, RemoteCntlTEI, GtpC2),
     Resp2 = send_recv_pdu(S, Msg2),
 
     ?match(#gtp{type = delete_session_response,
 		tei = LocalCntlTEI,
-		seq_no = SeqNo2,
 		ie = #{{v2_cause,0} := #v2_cause{v2_cause = request_accepted}}
 	       }, Resp2),
-    ok = meck:wait(?HUT, terminate, '_', 1000),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(),
     ok.
 
@@ -335,16 +452,15 @@ delete_session_request_resend(_Config) ->
     ct:pal("Sockets: ~p", [gtp_socket_reg:all()]),
     S = make_gtp_socket(),
 
-    SeqNo1 = erlang:unique_integer([positive, monotonic]) rem 16#7fffff,
+    GtpC1 = gtp_context(),
     LocalCntlTEI = erlang:unique_integer([positive, monotonic]) rem 16#ffffffff,
     LocalDataTEI = erlang:unique_integer([positive, monotonic]) rem 16#ffffffff,
 
-    Msg1 = make_create_session_request(LocalCntlTEI, LocalDataTEI, SeqNo1),
+    Msg1 = make_create_session_request(LocalCntlTEI, LocalDataTEI, GtpC1),
     Resp1 = send_recv_pdu(S, Msg1),
 
     ?match(#gtp{type = create_session_response,
 		tei = LocalCntlTEI,
-		seq_no = SeqNo1,
 		ie = #{{v2_cause,0} := #v2_cause{v2_cause = request_accepted},
 		       {v2_fully_qualified_tunnel_endpoint_identifier,1} :=
 			   #v2_fully_qualified_tunnel_endpoint_identifier{
@@ -367,17 +483,17 @@ delete_session_request_resend(_Config) ->
 					key = _RemoteDataTEI}}}
 	       }} = Resp1,
 
-    SeqNo2 = erlang:unique_integer([positive, monotonic]) rem 16#7fffff,
-    Msg2 = make_delete_session_request(LocalCntlTEI, RemoteCntlTEI, SeqNo2),
+    GtpC2 = gtp_context_inc_seq(GtpC1),
+    Msg2 = make_delete_session_request(LocalCntlTEI, RemoteCntlTEI, GtpC2),
     Resp2 = send_recv_pdu(S, Msg2),
 
     ?match(#gtp{type = delete_session_response,
 		tei = LocalCntlTEI,
-		seq_no = SeqNo2,
 		ie = #{{v2_cause,0} := #v2_cause{v2_cause = request_accepted}}
 	       }, Resp2),
     ?match(Resp2, send_recv_pdu(S, Msg2)),
-    ok = meck:wait(?HUT, terminate, '_', 1000),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(),
     ok.
 
@@ -403,17 +519,8 @@ meck_dp() ->
     ok = meck:expect(gtp_dp, update_pdp_context, fun(_Context, _Args) -> ok end),
     ok = meck:expect(gtp_dp, delete_pdp_context, fun(_Context, _Args) -> ok end).
 
-meck_socket(_SocketName) ->
-    ok = meck:new(gtp_socket, [passthrough, no_link]),
-    %% ok = meck:expect(gtp_socket, start_link, fun(Opts = {Name, _SocketOpts})
-    %% 						   when Name =:= SocketName ->
-    %% 						     ct:pal("Fake Socket Opts: ~p", [Opts]),
-    %% 						     gtp_fake_socket:start_link(Opts);
-    %% 						(Opts) ->
-    %% 						     ct:pal("Socket Opts: ~p", [Opts]),
-    %% 						     meck:passthrough([Opts])
-    %% 					     end).
-    ok.
+meck_socket() ->
+    ok = meck:new(gtp_socket, [passthrough, no_link]).
 
 meck_handler() ->
     ok = meck:new(?HUT, [passthrough, no_link]).
@@ -429,17 +536,23 @@ meck_unload() ->
     meck:unload(?HUT).
 
 meck_validate() ->
-    ct:pal("Socket History: ~p", [meck:history(gtp_socket)]),
     ?equal(true, meck:validate(gtp_socket)),
-    ct:pal("~s History: ~p", [?HUT, meck:history(?HUT)]),
     ?equal(true, meck:validate(?HUT)).
 
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
 
-make_create_session_request(LocalCntlTEI, LocalDataTEI, SeqNo) ->
-    IEs = [#v2_access_point_name{apn = ?'APN-EXAMPLE'},
+make_echo_request(#gtpc{restart_counter = RCnt, seq_no = SeqNo}) ->
+    IEs = [#v2_recovery{restart_counter = RCnt}],
+    #gtp{version = v2, type = echo_request, tei = undefined,
+	 seq_no = SeqNo, ie = IEs}.
+
+make_create_session_request(LocalCntlTEI, LocalDataTEI,
+			    #gtpc{restart_counter = RCnt,
+				  seq_no = SeqNo}) ->
+    IEs = [#v2_recovery{restart_counter = RCnt},
+	   #v2_access_point_name{apn = ?'APN-EXAMPLE'},
 	   #v2_aggregate_maximum_bit_rate{uplink = 48128, downlink = 1704125},
 	   #v2_apn_restriction{restriction_type_value = 0},
 	   #v2_bearer_context{
@@ -481,8 +594,11 @@ make_create_session_request(LocalCntlTEI, LocalDataTEI, SeqNo) ->
     #gtp{version = v2, type = create_session_request, tei = 0,
 	 seq_no = SeqNo, ie = IEs}.
 
-make_delete_session_request(LocalCntlTEI, RemoteCntlTEI, SeqNo) ->
+make_delete_session_request(LocalCntlTEI, RemoteCntlTEI,
+			    #gtpc{restart_counter = RCnt,
+				  seq_no = SeqNo}) ->
     IEs = [%%{170,0} => {170,0,<<220,126,139,67>>},
+	   #v2_recovery{restart_counter = RCnt},
 	   #v2_eps_bearer_id{eps_bearer_id = 5},
 	   #v2_fully_qualified_tunnel_endpoint_identifier{
 	      interface_type = ?'S5/S8-C SGW',
@@ -494,9 +610,21 @@ make_delete_session_request(LocalCntlTEI, RemoteCntlTEI, SeqNo) ->
     #gtp{version = v2, type = delete_session_request,
 	 tei = RemoteCntlTEI, seq_no = SeqNo, ie = IEs}.
 
+gtp_context() ->
+    #gtpc{
+       restart_counter = erlang:unique_integer([positive, monotonic]) rem 256,
+       seq_no = erlang:unique_integer([positive, monotonic]) rem 16#800000
+      }.
+
+gtp_context_inc_seq(#gtpc{seq_no = SeqNo} = GtpC) ->
+    GtpC#gtpc{seq_no = (SeqNo + 1) rem 16#800000}.
+
+gtp_context_inc_restart_counter(#gtpc{restart_counter = RCnt} = GtpC) ->
+    GtpC#gtpc{restart_counter = (RCnt + 1) rem 256}.
+
 make_gtp_socket() ->
-    {ok, S} = gen_udp:open(0, [{ip, ?LOCALHOST}, {active, false},
-			       binary, {reuseaddr, true}]),
+    {ok, S} = gen_udp:open(?GTP2c_PORT * 4, [{ip, ?LOCALHOST}, {active, false},
+					     binary, {reuseaddr, true}]),
     S.
 
 send_pdu(S, Msg) ->
@@ -504,13 +632,38 @@ send_pdu(S, Msg) ->
     gen_udp:send(S, ?LOCALHOST, ?GTP2c_PORT, Data).
 
 send_recv_pdu(S, Msg) ->
-    ok = send_pdu(S, Msg),
+    send_recv_pdu(S, Msg, ?TIMEOUT).
 
+send_recv_pdu(S, Msg, Timeout) ->
+    ok = send_pdu(S, Msg),
+    recv_pdu(S, Msg#gtp.seq_no, Timeout).
+
+recv_pdu(S, Timeout) ->
+    recv_pdu(S, undefined, Timeout).
+
+recv_pdu(_, _SeqNo, Timeout) when Timeout =< 0 ->
+    ct:fail(timeout);
+recv_pdu(S, SeqNo, Timeout) ->
+    Now = erlang:monotonic_time(millisecond),
     Response =
-	case gen_udp:recv(S, 4096, 1000) of
+	case gen_udp:recv(S, 4096, Timeout) of
 	    {ok, {?LOCALHOST, ?GTP2c_PORT, R}} ->
 		R;
 	    Unexpected ->
 		ct:fail(Unexpected)
 	end,
-    gtp_packet:decode(Response).
+
+    ct:pal("Msg: ~p", [(catch gtp_packet:decode(Response))]),
+    case gtp_packet:decode(Response) of
+	#gtp{version = v2, type = echo_request} = Msg ->
+	    Resp = Msg#gtp{type = echo_response, ie = []},
+	    send_pdu(S, Resp),
+	    NewTimeout = Timeout - (erlang:monotonic_time(millisecond) - Now),
+	    recv_pdu(S, NewTimeout);
+	#gtp{version = v2, seq_no = SeqNo} = Msg
+	  when is_integer(SeqNo) ->
+	    Msg;
+
+	Msg ->
+	    Msg
+    end.
