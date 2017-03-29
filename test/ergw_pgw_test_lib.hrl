@@ -9,11 +9,9 @@
 
 -import('ergw_pgw_test_lib', [make_echo_request/1,
 			      create_session/1, create_session/2,
-			      make_create_session_request/1,
-			      validate_create_session_response/2,
 			      delete_session/2,
-			      make_delete_session_request/1,
-			      validate_delete_session_response/2]).
+			      modify_bearer_tei_update/2,
+			      modify_bearer_ra_update/2]).
 
 -endif.
 

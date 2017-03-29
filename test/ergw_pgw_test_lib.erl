@@ -11,11 +11,9 @@
 
 -export([make_echo_request/1,
 	 create_session/1, create_session/2,
-	 make_create_session_request/1,
-	 validate_create_session_response/2,
 	 delete_session/2,
-	 make_delete_session_request/1,
-	 validate_delete_session_response/2]).
+	 modify_bearer_tei_update/2,
+	 modify_bearer_ra_update/2]).
 
 -include("ergw_test_lib.hrl").
 -include("ergw_pgw_test_lib.hrl").
@@ -123,6 +121,94 @@ validate_create_session_response(Response,
 	  remote_control_tei = RemoteCntlTEI,
 	  remote_data_tei = RemoteDataTEI
      }.
+
+modify_bearer_tei_update(Socket, GtpC0) ->
+    GtpC = gtp_context_inc_seq(gtp_context_new_teids(GtpC0)),
+    ct:pal("Old C: ~p", [GtpC0]),
+    ct:pal("New C: ~p", [GtpC]),
+    Msg = make_modify_bearer_request_tei_update(GtpC),
+    Response = send_recv_pdu(Socket, Msg),
+
+    {validate_modify_bearer_response_tei_update(Response, GtpC), Msg, Response}.
+
+make_modify_bearer_request_tei_update(#gtpc{restart_counter = RCnt,
+					    seq_no = SeqNo,
+					    local_control_tei = LocalCntlTEI,
+					    local_data_tei = LocalDataTEI,
+					    remote_control_tei = RemoteCntlTEI}) ->
+
+    IEs = [#v2_recovery{restart_counter = RCnt},
+	   #v2_bearer_context{
+	      group = [#v2_eps_bearer_id{eps_bearer_id = 5},
+		       #v2_fully_qualified_tunnel_endpoint_identifier{
+			  instance = 1,
+			  interface_type = ?'S5/S8-U SGW',
+			  key = LocalDataTEI,
+			  ipv4 = gtp_c_lib:ip2bin(?LOCALHOST)}
+		      ]},
+	   #v2_fully_qualified_tunnel_endpoint_identifier{
+	      interface_type = ?'S5/S8-C SGW',
+	      key = LocalCntlTEI,
+	      ipv4 = gtp_c_lib:ip2bin(?LOCALHOST)}
+	  ],
+
+    #gtp{version = v2, type = modify_bearer_request, tei = RemoteCntlTEI,
+	 seq_no = SeqNo, ie = IEs}.
+
+validate_modify_bearer_response_tei_update(Response,
+				 #gtpc{local_control_tei =
+					   LocalCntlTEI} = GtpC) ->
+    ?match(
+       #gtp{type = modify_bearer_response,
+	    tei = LocalCntlTEI,
+	    ie = #{{v2_cause,0} := #v2_cause{v2_cause = request_accepted},
+		   {v2_bearer_context,0} :=
+		       #v2_bearer_context{
+			  group = #{
+			    {v2_cause,0} := #v2_cause{v2_cause =
+							  request_accepted},
+			    {v2_eps_bearer_id, 0} :=
+				#v2_eps_bearer_id{eps_bearer_id = 5},
+			    {v2_charging_id, 0} := #v2_charging_id{}}}
+		  }}, Response),
+    GtpC.
+
+modify_bearer_ra_update(Socket, GtpC0) ->
+    GtpC = gtp_context_inc_seq(GtpC0),
+    Msg = make_modify_bearer_request_ra_update(GtpC),
+    Response = send_recv_pdu(Socket, Msg),
+
+    {validate_modify_bearer_response_ra_update(Response, GtpC), Msg, Response}.
+
+make_modify_bearer_request_ra_update(#gtpc{restart_counter = RCnt,
+					   seq_no = SeqNo,
+					   local_control_tei = LocalCntlTEI,
+					   remote_control_tei = RemoteCntlTEI}) ->
+
+    IEs = [#v2_recovery{restart_counter = RCnt},
+	   #v2_ue_time_zone{timezone = 10, dst = 0},
+	   #v2_user_location_information{tai = <<3,2,22,214,217>>,
+					 ecgi = <<3,2,22,8,71,9,92>>},
+	   #v2_fully_qualified_tunnel_endpoint_identifier{
+	      interface_type = ?'S5/S8-C SGW',
+	      key = LocalCntlTEI,
+	      ipv4 = gtp_c_lib:ip2bin(?LOCALHOST)}
+	  ],
+
+    #gtp{version = v2, type = modify_bearer_request, tei = RemoteCntlTEI,
+	 seq_no = SeqNo, ie = IEs}.
+
+validate_modify_bearer_response_ra_update(Response,
+					  #gtpc{local_control_tei =
+						    LocalCntlTEI} = GtpC) ->
+    ?match(
+       #gtp{type = modify_bearer_response,
+	    tei = LocalCntlTEI,
+	    ie = #{{v2_cause,0} := #v2_cause{v2_cause = request_accepted}}
+	   }, Response),
+    #gtp{ie = IEs} = Response,
+    ?equal(false, maps:is_key({v2_bearer_context,0}, IEs)),
+    GtpC.
 
 delete_session(Socket, GtpC0) ->
     GtpC = gtp_context_inc_seq(GtpC0),

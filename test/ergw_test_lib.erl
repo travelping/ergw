@@ -18,7 +18,8 @@
 	 meck_validate/1]).
 -export([gtp_context/0,
 	 gtp_context_inc_seq/1,
-	 gtp_context_inc_restart_counter/1]).
+	 gtp_context_inc_restart_counter/1,
+	 gtp_context_new_teids/1]).
 -export([make_gtp_socket/1,
 	 send_pdu/2,
 	 send_recv_pdu/2, send_recv_pdu/3,
@@ -107,18 +108,27 @@ meck_validate(Config) ->
 %%%===================================================================
 
 gtp_context() ->
-    #gtpc{
-       restart_counter = erlang:unique_integer([positive, monotonic]) rem 256,
-       seq_no = erlang:unique_integer([positive, monotonic]) rem 16#800000,
-       local_control_tei = erlang:unique_integer([positive, monotonic]) rem 16#100000000,
-       local_data_tei = erlang:unique_integer([positive, monotonic]) rem 16#100000000
-      }.
+    GtpC = #gtpc{
+	      restart_counter =
+		  erlang:unique_integer([positive, monotonic]) rem 256,
+	      seq_no =
+		  erlang:unique_integer([positive, monotonic]) rem 16#800000
+	     },
+    gtp_context_new_teids(GtpC).
 
 gtp_context_inc_seq(#gtpc{seq_no = SeqNo} = GtpC) ->
     GtpC#gtpc{seq_no = (SeqNo + 1) rem 16#800000}.
 
 gtp_context_inc_restart_counter(#gtpc{restart_counter = RCnt} = GtpC) ->
     GtpC#gtpc{restart_counter = (RCnt + 1) rem 256}.
+
+gtp_context_new_teids(GtpC) ->
+    GtpC#gtpc{
+      local_control_tei =
+	  erlang:unique_integer([positive, monotonic]) rem 16#100000000,
+      local_data_tei =
+	  erlang:unique_integer([positive, monotonic]) rem 16#100000000
+     }.
 
 %%%===================================================================
 %%% I/O and socket functions
