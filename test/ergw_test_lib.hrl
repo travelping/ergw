@@ -1,0 +1,56 @@
+%% Copyright 2017, Travelping GmbH <info@travelping.com>
+
+%% This program is free software; you can redistribute it and/or
+%% modify it under the terms of the GNU General Public License
+%% as published by the Free Software Foundation; either version
+%% 2 of the License, or (at your option) any later version.
+
+-ifndef(ERGW_NO_IMPORTS).
+
+-import('ergw_test_lib', [lib_init_per_suite/1,
+			  lib_end_per_suite/1,
+			  load_config/1]).
+-import('ergw_test_lib', [meck_init/1,
+			  meck_reset/1,
+			  meck_unload/1,
+			  meck_validate/1]).
+-import('ergw_test_lib', [gtp_context/0,
+			  gtp_context_inc_seq/1,
+			  gtp_context_inc_restart_counter/1]).
+-import('ergw_test_lib', [make_gtp_socket/1,
+			  send_pdu/2,
+			  send_recv_pdu/2, send_recv_pdu/3,
+			  recv_pdu/2, recv_pdu/3]).
+
+-endif.
+
+-define(LOCALHOST, {127,0,0,1}).
+
+-define('APN-EXAMPLE', [<<"example">>, <<"net">>]).
+-define('IMSI', <<"111111111111111">>).
+-define('MSISDN', <<"440000000000">>).
+
+-define('APN-PROXY',   [<<"proxy">>, <<"example">>, <<"net">>]).
+-define('PROXY-IMSI', <<"222222222222222">>).
+-define('PROXY-MSISDN', <<"491111111111">>).
+
+-record(gtpc, {restart_counter, seq_no}).
+
+-define(equal(Expected, Actual),
+    (fun (Expected@@@, Expected@@@) -> true;
+	 (Expected@@@, Actual@@@) ->
+	     ct:pal("MISMATCH(~s:~b, ~s)~nExpected: ~p~nActual:   ~p~n",
+		    [?FILE, ?LINE, ??Actual, Expected@@@, Actual@@@]),
+	     false
+     end)(Expected, Actual) orelse error(badmatch)).
+
+-define(match(Guard, Expr),
+	((fun () ->
+		  case (Expr) of
+		      Guard -> ok;
+		      V -> ct:pal("MISMATCH(~s:~b, ~s)~nExpected: ~p~nActual:   ~p~n",
+				   [?FILE, ?LINE, ??Expr, ??Guard, V]),
+			    error(badmatch)
+		  end
+	  end)())).
+

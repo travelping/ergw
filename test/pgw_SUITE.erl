@@ -12,37 +12,15 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include("../include/ergw.hrl").
+-include("ergw_test_lib.hrl").
 
 -define(TIMEOUT, 2000).
 -define(HUT, pgw_s5s8).				%% Handler Under Test
--define(LOCALHOST, {127,0,0,1}).
 
 -define('S5/S8-U SGW',  4).
 -define('S5/S8-U PGW',  5).
 -define('S5/S8-C SGW',  6).
 -define('S5/S8-C PGW',  7).
-
--define('APN-EXAMPLE', [<<"example">>, <<"net">>]).
-
--define(equal(Expected, Actual),
-    (fun (Expected@@@, Expected@@@) -> true;
-         (Expected@@@, Actual@@@) ->
-             ct:pal("MISMATCH(~s:~b, ~s)~nExpected: ~p~nActual:   ~p~n",
-                    [?FILE, ?LINE, ??Actual, Expected@@@, Actual@@@]),
-             false
-     end)(Expected, Actual) orelse error(badmatch)).
-
--define(match(Guard, Expr),
-        ((fun () ->
-                  case (Expr) of
-                      Guard -> ok;
-                      V -> ct:pal("MISMATCH(~s:~b, ~s)~nExpected: ~p~nActual:   ~p~n",
-                                   [?FILE, ?LINE, ??Expr, ??Guard, V]),
-                            error(badmatch)
-                  end
-          end)())).
-
--record(gtpc, {restart_counter, seq_no}).
 
 %%%===================================================================
 %%% API
@@ -108,29 +86,19 @@
 
 
 suite() ->
-	[{timetrap,{seconds,30}}].
+    [{timetrap,{seconds,30}}].
 
-init_per_suite(Config) ->
-    application:load(lager),
-    application:load(ergw),
-    application:load(ergw_aaa),
-    ok = meck_dp(),
-    ok = meck_socket(),
-    ok = meck_handler(),
-    lists:foreach(fun({App, Settings}) ->
-			  ct:pal("App: ~p, S: ~p", [App, Settings]),
-			  lists:foreach(fun({K,V}) ->
-						ct:pal("App: ~p, K: ~p, V: ~p", [App, K, V]),
-						application:set_env(App, K, V)
-					end, Settings)
-		  end, ?TEST_CONFIG),
-    {ok, _} = application:ensure_all_started(ergw),
-    ok = meck:wait(gtp_dp, start_link, '_', ?TIMEOUT),
+init_per_suite(Config0) ->
+    Config = [{handler_under_test, ?HUT},
+	      {app_cfg, ?TEST_CONFIG},
+	      {gtp_port, ?GTP2c_PORT * 4}
+	      | Config0],
+
+    ok = lib_init_per_suite(Config),
     Config.
 
-end_per_suite(_) ->
-    meck_unload(),
-    application:stop(ergw),
+end_per_suite(Config) ->
+    ok = lib_end_per_suite(Config),
     ok.
 
 all() ->
@@ -146,11 +114,11 @@ all() ->
 %%%===================================================================
 
 init_per_testcase(path_restart, Config) ->
-    meck_reset(),
+    meck_reset(Config),
     ok = meck:new(gtp_path, [passthrough, no_link]),
     Config;
 init_per_testcase(_, Config) ->
-    meck_reset(),
+    meck_reset(Config),
     true = meck:validate(gtp_dp),
     Config.
 
@@ -164,19 +132,19 @@ end_per_testcase(_, Config) ->
 invalid_gtp_pdu() ->
     [{doc, "Test that an invalid PDU is silently ignored"
       " and that the GTP socket is not crashing"}].
-invalid_gtp_pdu(_Config) ->
-    S = make_gtp_socket(),
+invalid_gtp_pdu(Config) ->
+    S = make_gtp_socket(Config),
     gen_udp:send(S, ?LOCALHOST, ?GTP2c_PORT, <<"TESTDATA">>),
 
     ?equal({error,timeout}, gen_udp:recv(S, 4096, ?TIMEOUT)),
-    meck_validate(),
+    meck_validate(Config),
     ok.
 
 %%--------------------------------------------------------------------
 create_session_request_missing_ie() ->
     [{doc, "Check that Create Session Request IE validation works"}].
-create_session_request_missing_ie(_Config) ->
-    S = make_gtp_socket(),
+create_session_request_missing_ie(Config) ->
+    S = make_gtp_socket(Config),
 
     SeqNo = erlang:unique_integer([positive, monotonic]) rem 16#7fffff,
     IEs = #{},
@@ -187,15 +155,15 @@ create_session_request_missing_ie(_Config) ->
     ?match(#gtp{type = create_session_response,
 		ie = #{{v2_cause,0} := #v2_cause{v2_cause = mandatory_ie_missing}}},
 	   Response),
-    meck_validate(),
+    meck_validate(Config),
     ok.
 
 path_restart() ->
     [{doc, "Check that Create Session Request works and "
            "that a Path Restart terminates the session"}].
-path_restart(_Config) ->
+path_restart(Config) ->
     ct:pal("Sockets: ~p", [gtp_socket_reg:all()]),
-    S = make_gtp_socket(),
+    S = make_gtp_socket(Config),
 
     GtpC = gtp_context(),
     LocalCntlTEI = erlang:unique_integer([positive, monotonic]) rem 16#ffffffff,
@@ -216,15 +184,15 @@ path_restart(_Config) ->
     send_recv_pdu(S, Echo),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
-    meck_validate(),
+    meck_validate(Config),
     ok.
 
 path_restart_recovery() ->
     [{doc, "Check that Create Session Request works and "
            "that a Path Restart terminates the session"}].
-path_restart_recovery(_Config) ->
+path_restart_recovery(Config) ->
     ct:pal("Sockets: ~p", [gtp_socket_reg:all()]),
-    S = make_gtp_socket(),
+    S = make_gtp_socket(Config),
 
     GtpC1 = gtp_context(),
     LocalCntlTEI = erlang:unique_integer([positive, monotonic]) rem 16#ffffffff,
@@ -299,15 +267,15 @@ path_restart_recovery(_Config) ->
 	       }, Resp3),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
-    meck_validate(),
+    meck_validate(Config),
     ok.
 
 
 simple_session_request() ->
     [{doc, "Check simple Create Session, Delete Session sequence"}].
-simple_session_request(_Config) ->
+simple_session_request(Config) ->
     ct:pal("Sockets: ~p", [gtp_socket_reg:all()]),
-    S = make_gtp_socket(),
+    S = make_gtp_socket(Config),
 
     GtpC1 = gtp_context(),
     LocalCntlTEI = erlang:unique_integer([positive, monotonic]) rem 16#ffffffff,
@@ -349,14 +317,14 @@ simple_session_request(_Config) ->
 		ie = #{{v2_cause,0} := #v2_cause{v2_cause = request_accepted}}
 	       }, Resp2),
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
-    meck_validate(),
+    meck_validate(Config),
     ok.
 
 create_session_request_resend() ->
     [{doc, "Check that a retransmission of a Create Session Request works"}].
-create_session_request_resend(_Config) ->
+create_session_request_resend(Config) ->
     ct:pal("Sockets: ~p", [gtp_socket_reg:all()]),
-    S = make_gtp_socket(),
+    S = make_gtp_socket(Config),
 
     GtpC1 = gtp_context(),
     LocalCntlTEI = erlang:unique_integer([positive, monotonic]) rem 16#ffffffff,
@@ -401,14 +369,14 @@ create_session_request_resend(_Config) ->
 	       }, Resp2),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
-    meck_validate(),
+    meck_validate(Config),
     ok.
 
 delete_session_request_resend() ->
     [{doc, "Check that a retransmission of a Delete Session Request works"}].
-delete_session_request_resend(_Config) ->
+delete_session_request_resend(Config) ->
     ct:pal("Sockets: ~p", [gtp_socket_reg:all()]),
-    S = make_gtp_socket(),
+    S = make_gtp_socket(Config),
 
     GtpC1 = gtp_context(),
     LocalCntlTEI = erlang:unique_integer([positive, monotonic]) rem 16#ffffffff,
@@ -452,52 +420,8 @@ delete_session_request_resend(_Config) ->
     ?match(Resp2, send_recv_pdu(S, Msg2)),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
-    meck_validate(),
+    meck_validate(Config),
     ok.
-
-%%%===================================================================
-%%% Meck functions for fake the GTP sockets
-%%%===================================================================
-
-meck_dp() ->
-    ok = meck:new(gtp_dp, [no_link]),
-    ok = meck:expect(gtp_dp, start_link, fun({Name, _SocketOpts}) ->
-						 RCnt =  erlang:unique_integer([positive, monotonic]) rem 256,
-						 GtpPort = #gtp_port{name = Name,
-								     type = 'gtp-u',
-								     pid = self(),
-								     ip = ?LOCALHOST,
-								     restart_counter = RCnt},
-						 gtp_socket_reg:register(Name, GtpPort),
-						 {ok, self()}
-					 end),
-    ok = meck:expect(gtp_dp, send, fun(_GtpPort, _IP, _Port, _Data) -> ok end),
-    ok = meck:expect(gtp_dp, get_id, fun(_GtpPort) -> self() end),
-    ok = meck:expect(gtp_dp, create_pdp_context, fun(_Context, _Args) -> ok end),
-    ok = meck:expect(gtp_dp, update_pdp_context, fun(_Context, _Args) -> ok end),
-    ok = meck:expect(gtp_dp, delete_pdp_context, fun(_Context, _Args) -> ok end),
-    ok.
-
-meck_socket() ->
-    ok = meck:new(gtp_socket, [passthrough, no_link]).
-
-meck_handler() ->
-    ok = meck:new(?HUT, [passthrough, no_link]).
-
-meck_reset() ->
-    meck:reset(gtp_dp),
-    meck:reset(gtp_socket),
-    meck:reset(?HUT).
-
-meck_unload() ->
-    meck:unload(gtp_dp),
-    meck:unload(gtp_socket),
-    meck:unload(?HUT).
-
-meck_validate() ->
-    ?equal(true, meck:validate(gtp_dp)),
-    ?equal(true, meck:validate(gtp_socket)),
-    ?equal(true, meck:validate(?HUT)).
 
 %%%===================================================================
 %%% Internal functions
@@ -569,62 +493,3 @@ make_delete_session_request(LocalCntlTEI, RemoteCntlTEI,
 
     #gtp{version = v2, type = delete_session_request,
 	 tei = RemoteCntlTEI, seq_no = SeqNo, ie = IEs}.
-
-gtp_context() ->
-    #gtpc{
-       restart_counter = erlang:unique_integer([positive, monotonic]) rem 256,
-       seq_no = erlang:unique_integer([positive, monotonic]) rem 16#800000
-      }.
-
-gtp_context_inc_seq(#gtpc{seq_no = SeqNo} = GtpC) ->
-    GtpC#gtpc{seq_no = (SeqNo + 1) rem 16#800000}.
-
-gtp_context_inc_restart_counter(#gtpc{restart_counter = RCnt} = GtpC) ->
-    GtpC#gtpc{restart_counter = (RCnt + 1) rem 256}.
-
-make_gtp_socket() ->
-    {ok, S} = gen_udp:open(?GTP2c_PORT * 4, [{ip, ?LOCALHOST}, {active, false},
-					     binary, {reuseaddr, true}]),
-    S.
-
-send_pdu(S, Msg) ->
-    ct:pal("Msg: ~p", [Msg]),
-    Data = gtp_packet:encode(Msg),
-    gen_udp:send(S, ?LOCALHOST, ?GTP2c_PORT, Data).
-
-send_recv_pdu(S, Msg) ->
-    send_recv_pdu(S, Msg, ?TIMEOUT).
-
-send_recv_pdu(S, Msg, Timeout) ->
-    ok = send_pdu(S, Msg),
-    recv_pdu(S, Msg#gtp.seq_no, Timeout).
-
-recv_pdu(S, Timeout) ->
-    recv_pdu(S, undefined, Timeout).
-
-recv_pdu(_, _SeqNo, Timeout) when Timeout =< 0 ->
-    ct:fail(timeout);
-recv_pdu(S, SeqNo, Timeout) ->
-    Now = erlang:monotonic_time(millisecond),
-    Response =
-	case gen_udp:recv(S, 4096, Timeout) of
-	    {ok, {?LOCALHOST, ?GTP2c_PORT, R}} ->
-		R;
-	    Unexpected ->
-		ct:fail(Unexpected)
-	end,
-
-    ct:pal("Msg: ~p", [(catch gtp_packet:decode(Response))]),
-    case gtp_packet:decode(Response) of
-	#gtp{version = v2, type = echo_request} = Msg ->
-	    Resp = Msg#gtp{type = echo_response, ie = []},
-	    send_pdu(S, Resp),
-	    NewTimeout = Timeout - (erlang:monotonic_time(millisecond) - Now),
-	    recv_pdu(S, NewTimeout);
-	#gtp{version = v2, seq_no = SeqNo} = Msg
-	  when is_integer(SeqNo) ->
-	    Msg;
-
-	Msg ->
-	    Msg
-    end.
