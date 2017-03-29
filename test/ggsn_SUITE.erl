@@ -101,10 +101,12 @@ all() ->
 %%%===================================================================
 
 init_per_testcase(path_restart, Config) ->
+    ct:pal("Sockets: ~p", [gtp_socket_reg:all()]),
     meck_reset(Config),
     ok = meck:new(gtp_path, [passthrough, no_link]),
     Config;
 init_per_testcase(_, Config) ->
+    ct:pal("Sockets: ~p", [gtp_socket_reg:all()]),
     meck_reset(Config),
     Config.
 
@@ -149,7 +151,6 @@ path_restart() ->
     [{doc, "Check that Create PDP Context Request works and "
            "that a Path Restart terminates the session"}].
 path_restart(Config) ->
-    ct:pal("Sockets: ~p", [gtp_socket_reg:all()]),
     S = make_gtp_socket(Config),
 
     GtpC = gtp_context(),
@@ -178,7 +179,6 @@ path_restart_recovery() ->
     [{doc, "Check that Create PDP Context Request works and "
            "that a Path Restart terminates the session"}].
 path_restart_recovery(Config) ->
-    ct:pal("Sockets: ~p", [gtp_socket_reg:all()]),
     S = make_gtp_socket(Config),
 
     GtpC1 = gtp_context(),
@@ -226,7 +226,6 @@ path_restart_recovery(Config) ->
 simple_pdp_context_request() ->
     [{doc, "Check simple Create PDP Context, Delete PDP Context sequence"}].
 simple_pdp_context_request(Config) ->
-    ct:pal("Sockets: ~p", [gtp_socket_reg:all()]),
     S = make_gtp_socket(Config),
 
     GtpC1 = gtp_context(),
@@ -282,7 +281,6 @@ simple_pdp_context_request(Config) ->
 create_pdp_context_request_resend() ->
     [{doc, "Check that a retransmission of a Create PDP Context Request works"}].
 create_pdp_context_request_resend(Config) ->
-    ct:pal("Sockets: ~p", [gtp_socket_reg:all()]),
     S = make_gtp_socket(Config),
 
     GtpC1 = gtp_context(),
@@ -341,7 +339,6 @@ create_pdp_context_request_resend(Config) ->
 delete_pdp_context_request_resend() ->
     [{doc, "Check that a retransmission of a Delete PDP Context Request works"}].
 delete_pdp_context_request_resend(Config) ->
-    ct:pal("Sockets: ~p", [gtp_socket_reg:all()]),
     S = make_gtp_socket(Config),
 
     GtpC1 = gtp_context(),
