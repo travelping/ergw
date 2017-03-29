@@ -114,10 +114,12 @@ all() ->
 %%%===================================================================
 
 init_per_testcase(path_restart, Config) ->
+    ct:pal("Sockets: ~p", [gtp_socket_reg:all()]),
     meck_reset(Config),
     ok = meck:new(gtp_path, [passthrough, no_link]),
     Config;
 init_per_testcase(_, Config) ->
+    ct:pal("Sockets: ~p", [gtp_socket_reg:all()]),
     meck_reset(Config),
     true = meck:validate(gtp_dp),
     Config.
@@ -162,7 +164,6 @@ path_restart() ->
     [{doc, "Check that Create Session Request works and "
            "that a Path Restart terminates the session"}].
 path_restart(Config) ->
-    ct:pal("Sockets: ~p", [gtp_socket_reg:all()]),
     S = make_gtp_socket(Config),
 
     GtpC = gtp_context(),
@@ -191,7 +192,6 @@ path_restart_recovery() ->
     [{doc, "Check that Create Session Request works and "
            "that a Path Restart terminates the session"}].
 path_restart_recovery(Config) ->
-    ct:pal("Sockets: ~p", [gtp_socket_reg:all()]),
     S = make_gtp_socket(Config),
 
     GtpC1 = gtp_context(),
@@ -274,7 +274,6 @@ path_restart_recovery(Config) ->
 simple_session_request() ->
     [{doc, "Check simple Create Session, Delete Session sequence"}].
 simple_session_request(Config) ->
-    ct:pal("Sockets: ~p", [gtp_socket_reg:all()]),
     S = make_gtp_socket(Config),
 
     GtpC1 = gtp_context(),
@@ -323,7 +322,6 @@ simple_session_request(Config) ->
 create_session_request_resend() ->
     [{doc, "Check that a retransmission of a Create Session Request works"}].
 create_session_request_resend(Config) ->
-    ct:pal("Sockets: ~p", [gtp_socket_reg:all()]),
     S = make_gtp_socket(Config),
 
     GtpC1 = gtp_context(),
@@ -375,7 +373,6 @@ create_session_request_resend(Config) ->
 delete_session_request_resend() ->
     [{doc, "Check that a retransmission of a Delete Session Request works"}].
 delete_session_request_resend(Config) ->
-    ct:pal("Sockets: ~p", [gtp_socket_reg:all()]),
     S = make_gtp_socket(Config),
 
     GtpC1 = gtp_context(),
