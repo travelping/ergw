@@ -16,7 +16,8 @@
 			  meck_validate/1]).
 -import('ergw_test_lib', [gtp_context/0,
 			  gtp_context_inc_seq/1,
-			  gtp_context_inc_restart_counter/1]).
+			  gtp_context_inc_restart_counter/1,
+			  gtp_context_new_teids/1]).
 -import('ergw_test_lib', [make_gtp_socket/1,
 			  send_pdu/2,
 			  send_recv_pdu/2, send_recv_pdu/3,

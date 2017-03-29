@@ -141,7 +141,9 @@ all() ->
      path_restart, path_restart_recovery,
      simple_session,
      create_session_request_resend,
-     delete_session_request_resend].
+     delete_session_request_resend,
+     modify_bearer_request_ra_update,
+     modify_bearer_request_tei_update].
 
 %%%===================================================================
 %%% Tests
@@ -263,6 +265,32 @@ delete_session_request_resend(Config) ->
     {GtpC, _, _} = create_session(S),
     {_, Msg, Response} = delete_session(S, GtpC),
     ?match(Response, send_recv_pdu(S, Msg)),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    meck_validate(Config),
+    ok.
+
+modify_bearer_request_ra_update() ->
+    [{doc, "Check Modify Bearer Routing Area Update"}].
+modify_bearer_request_ra_update(Config) ->
+    S = make_gtp_socket(Config),
+
+    {GtpC1, _, _} = create_session(S),
+    {GtpC2, _, _} = modify_bearer_ra_update(S, GtpC1),
+    delete_session(S, GtpC2),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    meck_validate(Config),
+    ok.
+
+modify_bearer_request_tei_update() ->
+    [{doc, "Check Modify Bearer with TEID update (e.g. SGW change)"}].
+modify_bearer_request_tei_update(Config) ->
+    S = make_gtp_socket(Config),
+
+    {GtpC1, _, _} = create_session(S),
+    {GtpC2, _, _} = modify_bearer_tei_update(S, GtpC1),
+    delete_session(S, GtpC2),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
