@@ -13,14 +13,10 @@
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include("../include/ergw.hrl").
 -include("ergw_test_lib.hrl").
+-include("ergw_pgw_test_lib.hrl").
 
 -define(TIMEOUT, 2000).
 -define(HUT, pgw_s5s8_proxy).			%% Handler Under Test
-
--define('S5/S8-U SGW',  4).
--define('S5/S8-U PGW',  5).
--define('S5/S8-C SGW',  6).
--define('S5/S8-C PGW',  7).
 
 %%%===================================================================
 %%% API
@@ -203,17 +199,7 @@ path_restart() ->
 path_restart(Config) ->
     S = make_gtp_socket(Config),
 
-    GtpC = gtp_context(),
-    LocalCntlTEI = erlang:unique_integer([positive, monotonic]) rem 16#ffffffff,
-    LocalDataTEI = erlang:unique_integer([positive, monotonic]) rem 16#ffffffff,
-
-    Msg = make_create_session_request(LocalCntlTEI, LocalDataTEI, GtpC),
-    Response = send_recv_pdu(S, Msg),
-
-    ?match(#gtp{type = create_session_response,
-		tei = LocalCntlTEI,
-		ie = #{{v2_cause, 0} := #v2_cause{v2_cause = request_accepted}}},
-	   Response),
+    {GtpC, _, _} = create_session(S),
 
     %% simulate patch restart to kill the PDP context
     Echo = make_echo_request(
@@ -232,77 +218,12 @@ path_restart_recovery() ->
 path_restart_recovery(Config) ->
     S = make_gtp_socket(Config),
 
-    GtpC1 = gtp_context(),
-    LocalCntlTEI = erlang:unique_integer([positive, monotonic]) rem 16#ffffffff,
-    LocalDataTEI = erlang:unique_integer([positive, monotonic]) rem 16#ffffffff,
+    {GtpC1, _, _} = create_session(S),
 
-    Msg1 = make_create_session_request(LocalCntlTEI, LocalDataTEI, GtpC1),
-    Resp1 = send_recv_pdu(S, Msg1),
+    %% create 2nd session with new restart_counter (simulate SGW restart)
+    {GtpC2, _, _} = create_session(S, gtp_context_inc_restart_counter(GtpC1)),
 
-    ?match(#gtp{type = create_session_response,
-		tei = LocalCntlTEI,
-		ie = #{{v2_cause,0} := #v2_cause{v2_cause = request_accepted},
-		       {v2_fully_qualified_tunnel_endpoint_identifier,1} :=
-			   #v2_fully_qualified_tunnel_endpoint_identifier{
-			      interface_type = ?'S5/S8-C PGW'},
-		       {v2_bearer_context,0} :=
-			   #v2_bearer_context{
-			      group = #{{v2_cause,0} := #v2_cause{v2_cause = request_accepted},
-					{v2_fully_qualified_tunnel_endpoint_identifier,2} :=
-					    #v2_fully_qualified_tunnel_endpoint_identifier{
-					       interface_type = ?'S5/S8-U PGW'}}}
-		      }}, Resp1),
-
-    #gtp{ie = #{{v2_fully_qualified_tunnel_endpoint_identifier,1} :=
-		    #v2_fully_qualified_tunnel_endpoint_identifier{
-		       key = RemoteCntlTEI},
-		{v2_bearer_context,0} :=
-		    #v2_bearer_context{
-		       group = #{{v2_fully_qualified_tunnel_endpoint_identifier,2} :=
-				     #v2_fully_qualified_tunnel_endpoint_identifier{
-					key = _RemoteDataTEI}}}
-	       }} = Resp1,
-
-    GtpC2 = gtp_context_inc_seq(gtp_context_inc_restart_counter(GtpC1)),
-    LocalCntlTEI2 = erlang:unique_integer([positive, monotonic]) rem 16#ffffffff,
-    LocalDataTEI2 = erlang:unique_integer([positive, monotonic]) rem 16#ffffffff,
-
-    Msg2 = make_create_session_request(LocalCntlTEI2, LocalDataTEI2, GtpC2),
-    Resp2 = send_recv_pdu(S, Msg2),
-
-    ?match(#gtp{type = create_session_response,
-		tei = LocalCntlTEI2,
-		ie = #{{v2_cause,0} := #v2_cause{v2_cause = request_accepted},
-		       {v2_fully_qualified_tunnel_endpoint_identifier,1} :=
-			   #v2_fully_qualified_tunnel_endpoint_identifier{
-			      interface_type = ?'S5/S8-C PGW'},
-		       {v2_bearer_context,0} :=
-			   #v2_bearer_context{
-			      group = #{{v2_cause,0} := #v2_cause{v2_cause = request_accepted},
-					{v2_fully_qualified_tunnel_endpoint_identifier,2} :=
-					    #v2_fully_qualified_tunnel_endpoint_identifier{
-					       interface_type = ?'S5/S8-U PGW'}}}
-		      }}, Resp2),
-
-    #gtp{ie = #{{v2_fully_qualified_tunnel_endpoint_identifier,1} :=
-		    #v2_fully_qualified_tunnel_endpoint_identifier{
-		       key = RemoteCntlTEI2},
-		{v2_bearer_context,0} :=
-		    #v2_bearer_context{
-		       group = #{{v2_fully_qualified_tunnel_endpoint_identifier,2} :=
-				     #v2_fully_qualified_tunnel_endpoint_identifier{
-					key = _RemoteDataTEI2}}}
-	       }} = Resp2,
-
-
-    GtpC3 = gtp_context_inc_seq(GtpC2),
-    Msg3 = make_delete_session_request(LocalCntlTEI2, RemoteCntlTEI2, GtpC3),
-    Resp3 = send_recv_pdu(S, Msg3),
-
-    ?match(#gtp{type = delete_session_response,
-		tei = LocalCntlTEI2,
-		ie = #{{v2_cause,0} := #v2_cause{v2_cause = request_accepted}}
-	       }, Resp3),
+    delete_session(S, GtpC2),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
@@ -313,45 +234,9 @@ simple_session() ->
 simple_session(Config) ->
     S = make_gtp_socket(Config),
 
-    GtpC1 = gtp_context(),
-    LocalCntlTEI = erlang:unique_integer([positive, monotonic]) rem 16#ffffffff,
-    LocalDataTEI = erlang:unique_integer([positive, monotonic]) rem 16#ffffffff,
+    {GtpC, _, _} = create_session(S),
+    delete_session(S, GtpC),
 
-    Msg1 = make_create_session_request(LocalCntlTEI, LocalDataTEI, GtpC1),
-    Resp1 = send_recv_pdu(S, Msg1),
-
-    ?match(#gtp{type = create_session_response,
-		tei = LocalCntlTEI,
-		ie = #{{v2_cause,0} := #v2_cause{v2_cause = request_accepted},
-		       {v2_fully_qualified_tunnel_endpoint_identifier,1} :=
-			   #v2_fully_qualified_tunnel_endpoint_identifier{
-			      interface_type = ?'S5/S8-C PGW'},
-		       {v2_bearer_context,0} :=
-			   #v2_bearer_context{
-			      group = #{{v2_cause,0} := #v2_cause{v2_cause = request_accepted},
-					{v2_fully_qualified_tunnel_endpoint_identifier,2} :=
-					    #v2_fully_qualified_tunnel_endpoint_identifier{
-					       interface_type = ?'S5/S8-U PGW'}}}
-		      }}, Resp1),
-
-    #gtp{ie = #{{v2_fully_qualified_tunnel_endpoint_identifier,1} :=
-		    #v2_fully_qualified_tunnel_endpoint_identifier{
-		       key = RemoteCntlTEI},
-		{v2_bearer_context,0} :=
-		    #v2_bearer_context{
-		       group = #{{v2_fully_qualified_tunnel_endpoint_identifier,2} :=
-				     #v2_fully_qualified_tunnel_endpoint_identifier{
-					key = _RemoteDataTEI}}}
-	       }} = Resp1,
-
-    GtpC2 = gtp_context_inc_seq(GtpC1),
-    Msg2 = make_delete_session_request(LocalCntlTEI, RemoteCntlTEI, GtpC2),
-    Resp2 = send_recv_pdu(S, Msg2),
-
-    ?match(#gtp{type = delete_session_response,
-		tei = LocalCntlTEI,
-		ie = #{{v2_cause,0} := #v2_cause{v2_cause = request_accepted}}
-	       }, Resp2),
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
     ok.
@@ -361,47 +246,10 @@ create_session_request_resend() ->
 create_session_request_resend(Config) ->
     S = make_gtp_socket(Config),
 
-    GtpC1 = gtp_context(),
-    LocalCntlTEI = erlang:unique_integer([positive, monotonic]) rem 16#ffffffff,
-    LocalDataTEI = erlang:unique_integer([positive, monotonic]) rem 16#ffffffff,
+    {GtpC, Msg, Response} = create_session(S),
+    ?match(Response, send_recv_pdu(S, Msg)),
 
-    Msg1 = make_create_session_request(LocalCntlTEI, LocalDataTEI, GtpC1),
-    Resp1 = send_recv_pdu(S, Msg1),
-
-    ?match(#gtp{type = create_session_response,
-		tei = LocalCntlTEI,
-		ie = #{{v2_cause,0} := #v2_cause{v2_cause = request_accepted},
-		       {v2_fully_qualified_tunnel_endpoint_identifier,1} :=
-			   #v2_fully_qualified_tunnel_endpoint_identifier{
-			      interface_type = ?'S5/S8-C PGW'},
-		       {v2_bearer_context,0} :=
-			   #v2_bearer_context{
-			      group = #{{v2_cause,0} := #v2_cause{v2_cause = request_accepted},
-					{v2_fully_qualified_tunnel_endpoint_identifier,2} :=
-					    #v2_fully_qualified_tunnel_endpoint_identifier{
-					       interface_type = ?'S5/S8-U PGW'}}}
-		      }}, Resp1),
-
-    #gtp{ie = #{{v2_fully_qualified_tunnel_endpoint_identifier,1} :=
-		    #v2_fully_qualified_tunnel_endpoint_identifier{
-		       key = RemoteCntlTEI},
-		{v2_bearer_context,0} :=
-		    #v2_bearer_context{
-		       group = #{{v2_fully_qualified_tunnel_endpoint_identifier,2} :=
-				     #v2_fully_qualified_tunnel_endpoint_identifier{
-					key = _RemoteDataTEI}}}
-	       }} = Resp1,
-
-    ?match(Resp1, send_recv_pdu(S, Msg1)),
-
-    GtpC2 = gtp_context_inc_seq(GtpC1),
-    Msg2 = make_delete_session_request(LocalCntlTEI, RemoteCntlTEI, GtpC2),
-    Resp2 = send_recv_pdu(S, Msg2),
-
-    ?match(#gtp{type = delete_session_response,
-		tei = LocalCntlTEI,
-		ie = #{{v2_cause,0} := #v2_cause{v2_cause = request_accepted}}
-	       }, Resp2),
+    delete_session(S, GtpC),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
@@ -412,46 +260,9 @@ delete_session_request_resend() ->
 delete_session_request_resend(Config) ->
     S = make_gtp_socket(Config),
 
-    GtpC1 = gtp_context(),
-    LocalCntlTEI = erlang:unique_integer([positive, monotonic]) rem 16#ffffffff,
-    LocalDataTEI = erlang:unique_integer([positive, monotonic]) rem 16#ffffffff,
-
-    Msg1 = make_create_session_request(LocalCntlTEI, LocalDataTEI, GtpC1),
-    Resp1 = send_recv_pdu(S, Msg1),
-
-    ?match(#gtp{type = create_session_response,
-		tei = LocalCntlTEI,
-		ie = #{{v2_cause,0} := #v2_cause{v2_cause = request_accepted},
-		       {v2_fully_qualified_tunnel_endpoint_identifier,1} :=
-			   #v2_fully_qualified_tunnel_endpoint_identifier{
-			      interface_type = ?'S5/S8-C PGW'},
-		       {v2_bearer_context,0} :=
-			   #v2_bearer_context{
-			      group = #{{v2_cause,0} := #v2_cause{v2_cause = request_accepted},
-					{v2_fully_qualified_tunnel_endpoint_identifier,2} :=
-					    #v2_fully_qualified_tunnel_endpoint_identifier{
-					       interface_type = ?'S5/S8-U PGW'}}}
-		      }}, Resp1),
-
-    #gtp{ie = #{{v2_fully_qualified_tunnel_endpoint_identifier,1} :=
-		    #v2_fully_qualified_tunnel_endpoint_identifier{
-		       key = RemoteCntlTEI},
-		{v2_bearer_context,0} :=
-		    #v2_bearer_context{
-		       group = #{{v2_fully_qualified_tunnel_endpoint_identifier,2} :=
-				     #v2_fully_qualified_tunnel_endpoint_identifier{
-					key = _RemoteDataTEI}}}
-	       }} = Resp1,
-
-    GtpC2 = gtp_context_inc_seq(GtpC1),
-    Msg2 = make_delete_session_request(LocalCntlTEI, RemoteCntlTEI, GtpC2),
-    Resp2 = send_recv_pdu(S, Msg2),
-
-    ?match(#gtp{type = delete_session_response,
-		tei = LocalCntlTEI,
-		ie = #{{v2_cause,0} := #v2_cause{v2_cause = request_accepted}}
-	       }, Resp2),
-    ?match(Resp2, send_recv_pdu(S, Msg2)),
+    {GtpC, _, _} = create_session(S),
+    {_, Msg, Response} = delete_session(S, GtpC),
+    ?match(Response, send_recv_pdu(S, Msg)),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
@@ -460,70 +271,3 @@ delete_session_request_resend(Config) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
-
-make_echo_request(#gtpc{restart_counter = RCnt, seq_no = SeqNo}) ->
-    IEs = [#v2_recovery{restart_counter = RCnt}],
-    #gtp{version = v2, type = echo_request, tei = undefined,
-	 seq_no = SeqNo, ie = IEs}.
-
-make_create_session_request(LocalCntlTEI, LocalDataTEI,
-			    #gtpc{restart_counter = RCnt,
-				  seq_no = SeqNo}) ->
-    IEs = [#v2_recovery{restart_counter = RCnt},
-	   #v2_access_point_name{apn = ?'APN-EXAMPLE'},
-	   #v2_aggregate_maximum_bit_rate{uplink = 48128, downlink = 1704125},
-	   #v2_apn_restriction{restriction_type_value = 0},
-	   #v2_bearer_context{
-	      group = [#v2_bearer_level_quality_of_service{
-			  pci = 1, pl = 10, pvi = 0, label = 8,
-			  maximum_bit_rate_for_uplink      = 0,
-			  maximum_bit_rate_for_downlink    = 0,
-			  guaranteed_bit_rate_for_uplink   = 0,
-			  guaranteed_bit_rate_for_downlink = 0},
-		       #v2_eps_bearer_id{eps_bearer_id = 5},
-		       #v2_fully_qualified_tunnel_endpoint_identifier{
-			  instance = 2,
-			  interface_type = ?'S5/S8-U SGW',
-			  key = LocalDataTEI,
-			  ipv4 = gtp_c_lib:ip2bin(?LOCALHOST)}
-		      ]},
-	   #v2_fully_qualified_tunnel_endpoint_identifier{
-	      interface_type = ?'S5/S8-C SGW',
-	      key = LocalCntlTEI,
-	      ipv4 = gtp_c_lib:ip2bin(?LOCALHOST)},
-	   #v2_international_mobile_subscriber_identity{
-	      imsi = ?'IMSI'},
-	   #v2_mobile_equipment_identity{mei = <<"AAAAAAAA">>},
-	   #v2_msisdn{msisdn = ?'MSISDN'},
-	   #v2_pdn_address_allocation{type = ipv4,
-				      address = <<0,0,0,0>>},
-	   #v2_pdn_type{pdn_type = ipv4},
-	   #v2_protocol_configuration_options{
-	      config = {0, [{ipcp,'CP-Configure-Request',0,[{ms_dns1,<<0,0,0,0>>},
-							    {ms_dns2,<<0,0,0,0>>}]},
-			    {13,<<>>},{10,<<>>},{5,<<>>}]}},
-	   #v2_rat_type{rat_type = 6},
-	   #v2_selection_mode{mode = 0},
-	   #v2_serving_network{mcc = <<"001">>, mnc = <<"001">>},
-	   #v2_ue_time_zone{timezone = 10, dst = 0},
-	   #v2_user_location_information{tai = <<3,2,22,214,217>>,
-					 ecgi = <<3,2,22,8,71,9,92>>}],
-
-    #gtp{version = v2, type = create_session_request, tei = 0,
-	 seq_no = SeqNo, ie = IEs}.
-
-make_delete_session_request(LocalCntlTEI, RemoteCntlTEI,
-			    #gtpc{restart_counter = RCnt,
-				  seq_no = SeqNo}) ->
-    IEs = [%%{170,0} => {170,0,<<220,126,139,67>>},
-	   #v2_recovery{restart_counter = RCnt},
-	   #v2_eps_bearer_id{eps_bearer_id = 5},
-	   #v2_fully_qualified_tunnel_endpoint_identifier{
-	      interface_type = ?'S5/S8-C SGW',
-	      key = LocalCntlTEI,
-	      ipv4 = gtp_c_lib:ip2bin(?LOCALHOST)},
-	   #v2_user_location_information{tai = <<3,2,22,214,217>>,
-					 ecgi = <<3,2,22,8,71,9,92>>}],
-
-    #gtp{version = v2, type = delete_session_request,
-	 tei = RemoteCntlTEI, seq_no = SeqNo, ie = IEs}.

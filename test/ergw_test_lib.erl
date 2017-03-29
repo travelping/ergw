@@ -109,7 +109,9 @@ meck_validate(Config) ->
 gtp_context() ->
     #gtpc{
        restart_counter = erlang:unique_integer([positive, monotonic]) rem 256,
-       seq_no = erlang:unique_integer([positive, monotonic]) rem 16#800000
+       seq_no = erlang:unique_integer([positive, monotonic]) rem 16#800000,
+       local_control_tei = erlang:unique_integer([positive, monotonic]) rem 16#100000000,
+       local_data_tei = erlang:unique_integer([positive, monotonic]) rem 16#100000000
       }.
 
 gtp_context_inc_seq(#gtpc{seq_no = SeqNo} = GtpC) ->
