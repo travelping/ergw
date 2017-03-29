@@ -34,7 +34,15 @@
 -define('PROXY-IMSI', <<"222222222222222">>).
 -define('PROXY-MSISDN', <<"491111111111">>).
 
--record(gtpc, {restart_counter, seq_no}).
+-record(gtpc, {
+	  restart_counter :: 0..255,
+	  seq_no          :: 0..16#ffffffff,
+
+	  local_control_tei      :: non_neg_integer(),
+	  local_data_tei         :: non_neg_integer(),
+	  remote_control_tei = 0 :: non_neg_integer(),
+	  remote_data_tei = 0    :: non_neg_integer()
+	 }).
 
 -define(equal(Expected, Actual),
     (fun (Expected@@@, Expected@@@) -> true;
@@ -53,4 +61,3 @@
 			    error(badmatch)
 		  end
 	  end)())).
-
