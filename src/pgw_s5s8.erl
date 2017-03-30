@@ -159,9 +159,9 @@ handle_request(_ReqKey,
 	    gtp_context:register_remote_context(Context),
 	    dp_create_pdp_context(Context),
 
-	    ResponseIEs0 = create_session_response(ActiveSessionOpts, IEs, EBI, Context),
-	    ResponseIEs = gtp_v2_c:build_recovery(Context, Recovery /= undefined, ResponseIEs0),
-	    Response = {create_session_response, Context#context.remote_control_tei, ResponseIEs},
+	    ResponseIEs = create_session_response(ActiveSessionOpts, IEs, EBI, Context),
+	    Response = response(create_session_response, Context,
+				Recovery /= undefined, ResponseIEs),
 
 	    ergw_aaa_session:start(Session, #{}),
 
@@ -170,9 +170,9 @@ handle_request(_ReqKey,
 	Other ->
 	    lager:info("AuthResult: ~p", [Other]),
 
-	    ResponseIEs0 = [#v2_cause{v2_cause = user_authentication_failed}],
-	    ResponseIEs = gtp_v2_c:build_recovery(ContextPreAuth, Recovery /= undefined, ResponseIEs0),
-	    Reply = {create_session_response, ContextPreAuth#context.remote_control_tei, ResponseIEs},
+	    ResponseIEs = [#v2_cause{v2_cause = user_authentication_failed}],
+	    Reply = response(create_session_response, ContextPreAuth,
+			     Recovery /= undefined, ResponseIEs),
 	    {stop, Reply, State#{context => ContextPreAuth}}
 
     end;
@@ -218,14 +218,14 @@ handle_request(_ReqKey,
 		[]
     end,
 
-    ResponseIEs1 = [#v2_cause{v2_cause = request_accepted},
+    ResponseIEs = [#v2_cause{v2_cause = request_accepted},
 		    #v2_bearer_context{
 		       group=[#v2_cause{v2_cause = request_accepted},
 			      #v2_charging_id{id = <<0,0,0,1>>},
 			      EBI]} |
 		    ResponseIEs0],
-    ResponseIEs = gtp_v2_c:build_recovery(Context, Recovery /= undefined, ResponseIEs1),
-    Response = {modify_bearer_response, Context#context.remote_control_tei, ResponseIEs},
+    Response = response(modify_bearer_response, Context,
+			Recovery /= undefined, ResponseIEs),
     {reply, Response, State1};
 
 handle_request(_ReqKey,
@@ -235,9 +235,9 @@ handle_request(_ReqKey,
 
     Context = update_context_from_gtp_req(IEs, OldContext),
 
-    ResponseIEs0 = [#v2_cause{v2_cause = request_accepted}],
-    ResponseIEs = gtp_v2_c:build_recovery(Context, Recovery /= undefined, ResponseIEs0),
-    Response = {modify_bearer_response, Context#context.remote_control_tei, ResponseIEs},
+    ResponseIEs = [#v2_cause{v2_cause = request_accepted}],
+    Response = response(modify_bearer_response, Context,
+			Recovery /= undefined, ResponseIEs),
     {reply, Response, State#{context => Context}};
 
 handle_request(_ReqKey,
@@ -245,27 +245,22 @@ handle_request(_ReqKey,
 	       #{context := Context} = State0) ->
 
     FqTEI = maps:get(?'Sender F-TEID for Control Plane', IEs, undefined),
-    #context{remote_control_tei = RemoteCntlTEI} = Context,
 
     Result =
 	do([error_m ||
 	       match_context(?'S5/S8-C SGW', Context, FqTEI),
-	       return({RemoteCntlTEI, request_accepted, State0})
+	       return({request_accepted, State0})
 	   ]),
 
     case Result of
-	{ok, {ReplyTEI, ReplyIEs, State}} ->
+	{ok, {ReplyIEs, State}} ->
 	    dp_delete_pdp_context(Context),
 	    pdn_release_ip(Context),
-	    Reply = {delete_session_response, ReplyTEI, ReplyIEs},
+	    Reply = response(delete_session_response, Context, ReplyIEs),
 	    {stop, Reply, State};
 
-	{error, {ReplyTEI, ReplyIEs}} ->
-	    Response = {delete_session_response, ReplyTEI, ReplyIEs},
-	    {reply, Response, State0};
-
 	{error, ReplyIEs} ->
-	    Response = {delete_session_response, 0, ReplyIEs},
+	    Response = response(delete_session_response, Context, ReplyIEs),
 	    {reply, Response, State0}
     end;
 
@@ -280,6 +275,13 @@ terminate(_Reason, _State) ->
 %%%===================================================================
 ip2prefix({IP, Prefix}) ->
     <<Prefix:8, (gtp_c_lib:ip2bin(IP))/binary>>.
+
+response(Cmd, #context{remote_control_tei = TEID}, Response) ->
+    {Cmd, TEID, Response}.
+
+response(Cmd, Context, IncludeRecovery, IEs0) ->
+    IEs = gtp_v2_c:build_recovery(Context, IncludeRecovery, IEs0),
+    response(Cmd, Context, IEs).
 
 match_context(_Type, _Context, undefined) ->
     error_m:return(ok);
