@@ -13,7 +13,9 @@
 	 create_session/1, create_session/2,
 	 delete_session/2,
 	 modify_bearer_tei_update/2,
-	 modify_bearer_ra_update/2]).
+	 modify_bearer_ra_update/2,
+	 change_notification_with_tei/2,
+	 change_notification_without_tei/2]).
 
 -include("ergw_test_lib.hrl").
 -include("ergw_pgw_test_lib.hrl").
@@ -208,6 +210,76 @@ validate_modify_bearer_response_ra_update(Response,
 	   }, Response),
     #gtp{ie = IEs} = Response,
     ?equal(false, maps:is_key({v2_bearer_context,0}, IEs)),
+    GtpC.
+
+change_notification_with_tei(Socket, GtpC0) ->
+    GtpC = gtp_context_inc_seq(GtpC0),
+    Msg = make_change_notification_request_with_tei(GtpC),
+    Response = send_recv_pdu(Socket, Msg),
+
+    {validate_change_notification_response_with_tei(Response, GtpC), Msg, Response}.
+
+make_change_notification_request_with_tei(#gtpc{restart_counter = RCnt,
+						seq_no = SeqNo,
+						remote_control_tei =
+						    RemoteCntlTEI}) ->
+    IEs = [#v2_recovery{restart_counter = RCnt},
+	   #v2_rat_type{rat_type = 6},
+	   #v2_ue_time_zone{timezone = 10, dst = 0},
+	   #v2_user_location_information{tai = <<3,2,22,214,217>>,
+					 ecgi = <<3,2,22,8,71,9,92>>}
+	  ],
+
+    #gtp{version = v2, type = change_notification_request, tei = RemoteCntlTEI,
+	 seq_no = SeqNo, ie = IEs}.
+
+validate_change_notification_response_with_tei(Response,
+					       #gtpc{
+						  local_control_tei =
+						      LocalCntlTEI} = GtpC) ->
+    ?match(
+       #gtp{type = change_notification_response,
+	    tei = LocalCntlTEI,
+	    ie = #{{v2_cause,0} := #v2_cause{v2_cause = request_accepted}}
+	   }, Response),
+    #gtp{ie = IEs} = Response,
+    ?equal(false, maps:is_key({v2_international_mobile_subscriber_identity,0}, IEs)),
+    ?equal(false, maps:is_key({v2_mobile_equipment_identity,0}, IEs)),
+    GtpC.
+
+change_notification_without_tei(Socket, GtpC0) ->
+    GtpC = gtp_context_inc_seq(GtpC0),
+    Msg = make_change_notification_request_without_tei(GtpC),
+    Response = send_recv_pdu(Socket, Msg),
+
+    {validate_change_notification_response_without_tei(Response, GtpC), Msg, Response}.
+
+make_change_notification_request_without_tei(#gtpc{restart_counter = RCnt,
+						   seq_no = SeqNo}) ->
+    IEs = [#v2_recovery{restart_counter = RCnt},
+	   #v2_rat_type{rat_type = 6},
+	   #v2_international_mobile_subscriber_identity{
+	      imsi = ?'IMSI'},
+	   #v2_mobile_equipment_identity{mei = <<"AAAAAAAA">>},
+	   #v2_ue_time_zone{timezone = 10, dst = 0},
+	   #v2_user_location_information{tai = <<3,2,22,214,217>>,
+					 ecgi = <<3,2,22,8,71,9,92>>}
+	  ],
+
+    #gtp{version = v2, type = change_notification_request, tei = 0,
+	 seq_no = SeqNo, ie = IEs}.
+
+validate_change_notification_response_without_tei(Response, GtpC) ->
+    ?match(
+       #gtp{type = change_notification_response,
+	    ie = #{{v2_cause,0} :=
+		       #v2_cause{v2_cause = request_accepted},
+		   {v2_international_mobile_subscriber_identity,0} :=
+		       #v2_international_mobile_subscriber_identity{},
+		   {v2_mobile_equipment_identity,0} :=
+		       #v2_mobile_equipment_identity{}
+		  }
+	   }, Response),
     GtpC.
 
 delete_session(Socket, GtpC0) ->
