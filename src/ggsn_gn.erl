@@ -127,9 +127,9 @@ handle_request(_ReqKey,
 	    gtp_context:register_remote_context(Context),
 	    dp_create_pdp_context(Context),
 
-	    ResponseIEs0 = create_pdp_context_response(ActiveSessionOpts, IEs, Context),
-	    ResponseIEs = gtp_v1_c:build_recovery(Context, Recovery /= undefined, ResponseIEs0),
-	    Reply = {create_pdp_context_response, Context#context.remote_control_tei, ResponseIEs},
+	    ResponseIEs = create_pdp_context_response(ActiveSessionOpts, IEs, Context),
+	    Reply = response(create_pdp_context_response, Context,
+			     Recovery /= undefined, ResponseIEs),
 
 	    ergw_aaa_session:start(Session, #{}),
 
@@ -138,9 +138,9 @@ handle_request(_ReqKey,
 	Other ->
 	    lager:info("AuthResult: ~p", [Other]),
 
-	    ResponseIEs0 = [#cause{value = user_authentication_failed}],
-	    ResponseIEs = gtp_v1_c:build_recovery(ContextPreAuth, Recovery /= undefined, ResponseIEs0),
-	    Reply = {create_pdp_context_response, ContextPreAuth#context.remote_control_tei, ResponseIEs},
+	    ResponseIEs = [#cause{value = user_authentication_failed}],
+	    Reply = response(create_pdp_context_response, ContextPreAuth,
+			     Recovery /= undefined, ResponseIEs),
 	    {stop, Reply, State#{context => ContextPreAuth}}
     end;
 
@@ -165,20 +165,19 @@ handle_request(_ReqKey,
     ResponseIEs0 = [#cause{value = request_accepted},
 		    #charging_id{id = <<0,0,0,1>>},
 		    ReqQoSProfile],
-    ResponseIEs1 = tunnel_endpoint_elements(Context, ResponseIEs0),
-    ResponseIEs = gtp_v1_c:build_recovery(Context, Recovery /= undefined, ResponseIEs1),
-    Reply = {update_pdp_context_response, Context#context.remote_control_tei, ResponseIEs},
+    ResponseIEs = tunnel_endpoint_elements(Context, ResponseIEs0),
+    Reply = response(update_pdp_context_response, Context,
+		     Recovery /= undefined, ResponseIEs),
     {reply, Reply, State1};
 
 handle_request(_ReqKey,
 	       #gtp{type = delete_pdp_context_request, ie = _IEs}, _Resent,
 	       #{context := Context} = State) ->
-    #context{remote_control_tei = RemoteCntlTEI} = Context,
 
     dp_delete_pdp_context(Context),
     pdp_release_ip(Context),
 
-    Reply = {delete_pdp_context_response, RemoteCntlTEI, request_accepted},
+    Reply = response(delete_pdp_context_response, Context, request_accepted),
     {stop, Reply, State};
 
 handle_request(_ReqKey, _Msg, _Resent, State) ->
@@ -190,6 +189,13 @@ terminate(_Reason, _State) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
+
+response(Cmd, #context{remote_control_tei = TEID}, Response) ->
+    {Cmd, TEID, Response}.
+
+response(Cmd, Context, IncludeRecovery, IEs0) ->
+    IEs = gtp_v1_c:build_recovery(Context, IncludeRecovery, IEs0),
+    response(Cmd, Context, IEs).
 
 pdp_alloc(#end_user_address{pdp_type_organization = 1,
 			    pdp_type_number = 16#21,
