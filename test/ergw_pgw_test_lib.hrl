@@ -11,7 +11,9 @@
 			      create_session/1, create_session/2,
 			      delete_session/2,
 			      modify_bearer_tei_update/2,
-			      modify_bearer_ra_update/2]).
+			      modify_bearer_ra_update/2,
+			      change_notification_with_tei/2,
+			      change_notification_without_tei/2]).
 
 -endif.
 

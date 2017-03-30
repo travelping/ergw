@@ -106,7 +106,9 @@ all() ->
      create_session_request_resend,
      delete_session_request_resend,
      modify_bearer_request_ra_update,
-     modify_bearer_request_tei_update].
+     modify_bearer_request_tei_update,
+     change_notification_request_with_tei,
+     change_notification_request_without_tei].
 
 %%%===================================================================
 %%% Tests
@@ -254,6 +256,33 @@ modify_bearer_request_tei_update(Config) ->
 
     {GtpC1, _, _} = create_session(S),
     {GtpC2, _, _} = modify_bearer_tei_update(S, GtpC1),
+    delete_session(S, GtpC2),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    meck_validate(Config),
+    ok.
+
+change_notification_request_with_tei() ->
+    [{doc, "Check Change Notification request with TEID"}].
+change_notification_request_with_tei(Config) ->
+    S = make_gtp_socket(Config),
+
+    {GtpC1, _, _} = create_session(S),
+    {GtpC2, _, _} = change_notification_with_tei(S, GtpC1),
+    delete_session(S, GtpC2),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    meck_validate(Config),
+    ok.
+
+change_notification_request_without_tei() ->
+    [{doc, "Check Change Notification request without TEID "
+           "include IMEI and IMSI instead"}].
+change_notification_request_without_tei(Config) ->
+    S = make_gtp_socket(Config),
+
+    {GtpC1, _, _} = create_session(S),
+    {GtpC2, _, _} = change_notification_without_tei(S, GtpC1),
     delete_session(S, GtpC2),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
