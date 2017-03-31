@@ -145,7 +145,9 @@ all() ->
      modify_bearer_request_ra_update,
      modify_bearer_request_tei_update,
      change_notification_request_with_tei,
-     change_notification_request_without_tei].
+     change_notification_request_without_tei,
+     suspend_notification_request,
+     resume_notification_request].
 
 %%%===================================================================
 %%% Tests
@@ -197,6 +199,7 @@ create_session_request_missing_ie(Config) ->
     meck_validate(Config),
     ok.
 
+%%--------------------------------------------------------------------
 path_restart() ->
     [{doc, "Check that Create Session Request works and "
            "that a Path Restart terminates the session"}].
@@ -215,6 +218,7 @@ path_restart(Config) ->
     meck_validate(Config),
     ok.
 
+%%--------------------------------------------------------------------
 path_restart_recovery() ->
     [{doc, "Check that Create Session Request works, "
            "that a Path Restart terminates the session, "
@@ -233,6 +237,7 @@ path_restart_recovery(Config) ->
     meck_validate(Config),
     ok.
 
+%%--------------------------------------------------------------------
 simple_session() ->
     [{doc, "Check simple Create Session, Delete Session sequence"}].
 simple_session(Config) ->
@@ -245,6 +250,7 @@ simple_session(Config) ->
     meck_validate(Config),
     ok.
 
+%%--------------------------------------------------------------------
 create_session_request_resend() ->
     [{doc, "Check that a retransmission of a Create Session Request works"}].
 create_session_request_resend(Config) ->
@@ -259,6 +265,7 @@ create_session_request_resend(Config) ->
     meck_validate(Config),
     ok.
 
+%%--------------------------------------------------------------------
 delete_session_request_resend() ->
     [{doc, "Check that a retransmission of a Delete Session Request works"}].
 delete_session_request_resend(Config) ->
@@ -272,6 +279,7 @@ delete_session_request_resend(Config) ->
     meck_validate(Config),
     ok.
 
+%%--------------------------------------------------------------------
 modify_bearer_request_ra_update() ->
     [{doc, "Check Modify Bearer Routing Area Update"}].
 modify_bearer_request_ra_update(Config) ->
@@ -298,6 +306,7 @@ modify_bearer_request_tei_update(Config) ->
     meck_validate(Config),
     ok.
 
+%%--------------------------------------------------------------------
 change_notification_request_with_tei() ->
     [{doc, "Check Change Notification request with TEID"}].
 change_notification_request_with_tei(Config) ->
@@ -311,6 +320,7 @@ change_notification_request_with_tei(Config) ->
     meck_validate(Config),
     ok.
 
+%%--------------------------------------------------------------------
 change_notification_request_without_tei() ->
     [{doc, "Check Change Notification request without TEID "
            "include IMEI and IMSI instead"}].
@@ -319,6 +329,34 @@ change_notification_request_without_tei(Config) ->
 
     {GtpC1, _, _} = create_session(S),
     {GtpC2, _, _} = change_notification_without_tei(S, GtpC1),
+    delete_session(S, GtpC2),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+suspend_notification_request() ->
+    [{doc, "Check that Suspend Notification works"}].
+suspend_notification_request(Config) ->
+    S = make_gtp_socket(Config),
+
+    {GtpC1, _, _} = create_session(S),
+    {GtpC2, _, _} = suspend_notification(S, GtpC1),
+    delete_session(S, GtpC2),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+resume_notification_request() ->
+    [{doc, "Check that Resume Notification works"}].
+resume_notification_request(Config) ->
+    S = make_gtp_socket(Config),
+
+    {GtpC1, _, _} = create_session(S),
+    {GtpC2, _, _} = resume_notification(S, GtpC1),
     delete_session(S, GtpC2),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),

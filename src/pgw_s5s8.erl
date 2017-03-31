@@ -56,6 +56,8 @@ request_spec(v2, delete_session_request) ->
     [];
 request_spec(v2, modify_bearer_request) ->
     [];
+request_spec(v2, resume_notification) ->
+    [{?'IMSI',							mandatory}];
 request_spec(v2, _) ->
     [].
 
@@ -254,6 +256,29 @@ handle_request(_ReqKey,
 			Recovery /= undefined, ResponseIEs),
     {reply, Response, State#{context => Context}};
 
+handle_request(_ReqKey,
+	       #gtp{type = suspend_notification,
+		    ie = #{?'Recovery' := Recovery}},
+	       _Resent, #{context := Context} = State) ->
+
+    %% don't do anything special for now
+
+    ResponseIEs = [#v2_cause{v2_cause = request_accepted}],
+    Response = response(suspend_acknowledge, Context,
+			Recovery /= undefined, ResponseIEs),
+    {reply, Response, State#{context => Context}};
+
+handle_request(_ReqKey,
+	       #gtp{type = resume_notification,
+		    ie = #{?'Recovery' := Recovery}},
+	       _Resent, #{context := Context} = State) ->
+
+    %% don't do anything special for now
+
+    ResponseIEs = [#v2_cause{v2_cause = request_accepted}],
+    Response = response(resume_acknowledge, Context,
+			Recovery /= undefined, ResponseIEs),
+    {reply, Response, State#{context => Context}};
 
 handle_request(_ReqKey,
 	       #gtp{type = delete_session_request, ie = IEs}, _Resent,
