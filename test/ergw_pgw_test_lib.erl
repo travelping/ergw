@@ -22,6 +22,45 @@
 -include_lib("gtplib/include/gtp_packet.hrl").
 
 %%%===================================================================
+%%% Execute GTPv2-C transactions
+%%%===================================================================
+
+create_session(Socket) ->
+    create_session(Socket, gtp_context()).
+
+create_session(Socket, GtpC) ->
+    execute_request(Socket, GtpC,
+		    fun make_create_session_request/1,
+		    fun validate_create_session_response/2).
+
+modify_bearer_tei_update(Socket, GtpC0) ->
+    GtpC = gtp_context_inc_seq(gtp_context_new_teids(GtpC0)),
+    Msg = make_modify_bearer_request_tei_update(GtpC),
+    Response = send_recv_pdu(Socket, Msg),
+
+    {validate_modify_bearer_response_tei_update(Response, GtpC), Msg, Response}.
+
+modify_bearer_ra_update(Socket, GtpC) ->
+    execute_request(Socket, GtpC,
+		    fun make_modify_bearer_request_ra_update/1,
+		    fun validate_modify_bearer_response_ra_update/2).
+
+change_notification_with_tei(Socket, GtpC) ->
+    execute_request(Socket, GtpC,
+		    fun make_change_notification_request_with_tei/1,
+		    fun validate_change_notification_response_with_tei/2).
+
+change_notification_without_tei(Socket, GtpC) ->
+    execute_request(Socket, GtpC,
+		    fun make_change_notification_request_without_tei/1,
+		    fun validate_change_notification_response_without_tei/2).
+
+delete_session(Socket, GtpC) ->
+    execute_request(Socket, GtpC,
+		    fun make_delete_session_request/1,
+		    fun validate_delete_session_response/2).
+
+%%%===================================================================
 %%% Create GTPv2-C messages
 %%%===================================================================
 
@@ -29,16 +68,6 @@ make_echo_request(#gtpc{restart_counter = RCnt, seq_no = SeqNo}) ->
     IEs = [#v2_recovery{restart_counter = RCnt}],
     #gtp{version = v2, type = echo_request, tei = undefined,
 	 seq_no = SeqNo, ie = IEs}.
-
-create_session(Socket) ->
-    create_session(Socket, gtp_context()).
-
-create_session(Socket, GtpC0) ->
-    GtpC = gtp_context_inc_seq(GtpC0),
-    Msg = make_create_session_request(GtpC),
-    Response = send_recv_pdu(Socket, Msg),
-
-    {validate_create_session_response(Response, GtpC), Msg, Response}.
 
 make_create_session_request(#gtpc{restart_counter = RCnt,
 				  seq_no = SeqNo,
@@ -124,15 +153,6 @@ validate_create_session_response(Response,
 	  remote_data_tei = RemoteDataTEI
      }.
 
-modify_bearer_tei_update(Socket, GtpC0) ->
-    GtpC = gtp_context_inc_seq(gtp_context_new_teids(GtpC0)),
-    ct:pal("Old C: ~p", [GtpC0]),
-    ct:pal("New C: ~p", [GtpC]),
-    Msg = make_modify_bearer_request_tei_update(GtpC),
-    Response = send_recv_pdu(Socket, Msg),
-
-    {validate_modify_bearer_response_tei_update(Response, GtpC), Msg, Response}.
-
 make_modify_bearer_request_tei_update(#gtpc{restart_counter = RCnt,
 					    seq_no = SeqNo,
 					    local_control_tei = LocalCntlTEI,
@@ -175,13 +195,6 @@ validate_modify_bearer_response_tei_update(Response,
 		  }}, Response),
     GtpC.
 
-modify_bearer_ra_update(Socket, GtpC0) ->
-    GtpC = gtp_context_inc_seq(GtpC0),
-    Msg = make_modify_bearer_request_ra_update(GtpC),
-    Response = send_recv_pdu(Socket, Msg),
-
-    {validate_modify_bearer_response_ra_update(Response, GtpC), Msg, Response}.
-
 make_modify_bearer_request_ra_update(#gtpc{restart_counter = RCnt,
 					   seq_no = SeqNo,
 					   local_control_tei = LocalCntlTEI,
@@ -212,13 +225,6 @@ validate_modify_bearer_response_ra_update(Response,
     ?equal(false, maps:is_key({v2_bearer_context,0}, IEs)),
     GtpC.
 
-change_notification_with_tei(Socket, GtpC0) ->
-    GtpC = gtp_context_inc_seq(GtpC0),
-    Msg = make_change_notification_request_with_tei(GtpC),
-    Response = send_recv_pdu(Socket, Msg),
-
-    {validate_change_notification_response_with_tei(Response, GtpC), Msg, Response}.
-
 make_change_notification_request_with_tei(#gtpc{restart_counter = RCnt,
 						seq_no = SeqNo,
 						remote_control_tei =
@@ -246,13 +252,6 @@ validate_change_notification_response_with_tei(Response,
     ?equal(false, maps:is_key({v2_international_mobile_subscriber_identity,0}, IEs)),
     ?equal(false, maps:is_key({v2_mobile_equipment_identity,0}, IEs)),
     GtpC.
-
-change_notification_without_tei(Socket, GtpC0) ->
-    GtpC = gtp_context_inc_seq(GtpC0),
-    Msg = make_change_notification_request_without_tei(GtpC),
-    Response = send_recv_pdu(Socket, Msg),
-
-    {validate_change_notification_response_without_tei(Response, GtpC), Msg, Response}.
 
 make_change_notification_request_without_tei(#gtpc{restart_counter = RCnt,
 						   seq_no = SeqNo}) ->
@@ -282,13 +281,6 @@ validate_change_notification_response_without_tei(Response, GtpC) ->
 	   }, Response),
     GtpC.
 
-delete_session(Socket, GtpC0) ->
-    GtpC = gtp_context_inc_seq(GtpC0),
-    Msg = make_delete_session_request(GtpC),
-    Response = send_recv_pdu(Socket, Msg),
-
-    {validate_delete_session_response(Response, GtpC), Msg, Response}.
-
 make_delete_session_request(#gtpc{restart_counter = RCnt,
 				  seq_no = SeqNo,
 				  local_control_tei = LocalCntlTEI,
@@ -314,3 +306,14 @@ validate_delete_session_response(Response,
 		ie = #{{v2_cause,0} := #v2_cause{v2_cause = request_accepted}}
 	       }, Response),
     GtpC.
+
+%%%===================================================================
+%%% Helper functions
+%%%===================================================================
+
+execute_request(Socket, GtpC0, Make, Validate) ->
+    GtpC = gtp_context_inc_seq(GtpC0),
+    Msg = Make(GtpC),
+    Response = send_recv_pdu(Socket, Msg),
+
+    {Validate(Response, GtpC), Msg, Response}.
