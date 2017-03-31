@@ -12,6 +12,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include("../include/ergw.hrl").
+-include("../include/gtp_proxy_ds.hrl").
 -include("ergw_test_lib.hrl").
 -include("ergw_pgw_test_lib.hrl").
 
@@ -90,7 +91,11 @@
 					{data_paths, [grx]},
 					{proxy_sockets, ['proxy-irx']},
 					{proxy_data_paths, ['proxy-grx']},
-					{pgw, {127,0,0,1}}
+					{pgw, {127,0,0,1}},
+					{contexts,
+					 [{<<"ams">>,
+					   [{proxy_sockets, ['proxy-irx']},
+					    {proxy_data_paths, ['proxy-grx']}]}]}
 				       ]},
 				%% remote PGW handler
 				{gn, [{handler, pgw_s5s8},
@@ -147,7 +152,9 @@ all() ->
      change_notification_request_with_tei,
      change_notification_request_without_tei,
      suspend_notification_request,
-     resume_notification_request].
+     resume_notification_request,
+     proxy_context_selection,
+     proxy_context_invalid_selection].
 
 %%%===================================================================
 %%% Tests
@@ -363,6 +370,56 @@ resume_notification_request(Config) ->
     meck_validate(Config),
     ok.
 
+%%--------------------------------------------------------------------
+proxy_context_selection() ->
+    [{doc, "Check that the proxy context selection works"}].
+proxy_context_selection(Config) ->
+    ok = meck:new(gtp_proxy_ds, [passthrough]),
+    meck:expect(gtp_proxy_ds, map,
+		fun(ProxyInfo) ->
+			proxy_context_selection_map(ProxyInfo, <<"ams">>)
+		end),
+
+    S = make_gtp_socket(Config),
+
+    {GtpC, _, _} = create_session(S),
+    delete_session(S, GtpC),
+
+    meck:unload(gtp_proxy_ds),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+proxy_context_invalid_selection() ->
+    [{doc, "Check that the proxy context selection works"}].
+proxy_context_invalid_selection(Config) ->
+    ok = meck:new(gtp_proxy_ds, [passthrough]),
+    meck:expect(gtp_proxy_ds, map,
+		fun(ProxyInfo) ->
+			proxy_context_selection_map(ProxyInfo, <<"undefined">>)
+		end),
+
+    S = make_gtp_socket(Config),
+
+    {GtpC, _, _} = create_session(S),
+    delete_session(S, GtpC),
+
+    meck:unload(gtp_proxy_ds),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    meck_validate(Config),
+    ok.
+
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
+
+proxy_context_selection_map(ProxyInfo, Context) ->
+    case meck:passthrough([ProxyInfo]) of
+	{ok, #proxy_info{} = P} ->
+	    {ok, P#proxy_info{context = Context}};
+	Other ->
+	    Other
+    end.
