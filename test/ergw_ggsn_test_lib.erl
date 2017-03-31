@@ -22,6 +22,23 @@
 -include_lib("gtplib/include/gtp_packet.hrl").
 
 %%%===================================================================
+%%% Execute GTPv1-C transactions
+%%%===================================================================
+
+create_pdp_context(Socket) ->
+    create_pdp_context(Socket, gtp_context()).
+
+create_pdp_context(Socket, GtpC) ->
+    execute_request(Socket, GtpC,
+		    fun make_create_pdp_context_request/1,
+		    fun validate_create_pdp_context_response/2).
+
+delete_pdp_context(Socket, GtpC) ->
+    execute_request(Socket, GtpC,
+		    fun make_delete_pdp_context_request/1,
+		    fun validate_delete_pdp_context_response/2).
+
+%%%===================================================================
 %%% Create GTPv1-C messages
 %%%===================================================================
 
@@ -29,20 +46,10 @@ make_echo_request(#gtpc{restart_counter = RCnt, seq_no = SeqNo}) ->
     IEs = [#recovery{restart_counter = RCnt}],
     #gtp{version = v1, type = echo_request, tei = 0, seq_no = SeqNo, ie = IEs}.
 
-create_pdp_context(Socket) ->
-    create_pdp_context(Socket, gtp_context()).
-
-create_pdp_context(Socket, GtpC0) ->
-    GtpC = gtp_context_inc_seq(GtpC0),
-    Msg = make_create_pdp_context_request(GtpC),
-    Response = send_recv_pdu(Socket, Msg),
-
-    {validate_create_pdp_context_response(Response, GtpC), Msg, Response}.
-
 make_create_pdp_context_request(#gtpc{restart_counter = RCnt,
-				  seq_no = SeqNo,
-				  local_control_tei = LocalCntlTEI,
-				  local_data_tei = LocalDataTEI}) ->
+				      seq_no = SeqNo,
+				      local_control_tei = LocalCntlTEI,
+				      local_data_tei = LocalDataTEI}) ->
     IEs = [#recovery{restart_counter = RCnt},
 	   #access_point_name{apn = ?'APN-EXAMPLE'},
 	   #end_user_address{pdp_type_organization = 1,
@@ -120,13 +127,6 @@ validate_create_pdp_context_response(Response,
 	  remote_data_tei = RemoteDataTEI
      }.
 
-delete_pdp_context(Socket, GtpC0) ->
-    GtpC = gtp_context_inc_seq(GtpC0),
-    Msg = make_delete_pdp_context_request(GtpC),
-    Response = send_recv_pdu(Socket, Msg),
-
-    {validate_delete_pdp_context_response(Response, GtpC), Msg, Response}.
-
 make_delete_pdp_context_request(#gtpc{restart_counter = RCnt,
 				      seq_no = SeqNo,
 				      remote_control_tei = RemoteCntlTEI}) ->
@@ -145,3 +145,14 @@ validate_delete_pdp_context_response(Response,
 		ie = #{{cause,0} := #cause{value = request_accepted}}
 	       }, Response),
     GtpC.
+
+%%%===================================================================
+%%% Helper functions
+%%%===================================================================
+
+execute_request(Socket, GtpC0, Make, Validate) ->
+    GtpC = gtp_context_inc_seq(GtpC0),
+    Msg = Make(GtpC),
+    Response = send_recv_pdu(Socket, Msg),
+
+    {Validate(Response, GtpC), Msg, Response}.
