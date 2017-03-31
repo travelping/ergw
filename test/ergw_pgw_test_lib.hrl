@@ -13,7 +13,9 @@
 			      modify_bearer_tei_update/2,
 			      modify_bearer_ra_update/2,
 			      change_notification_with_tei/2,
-			      change_notification_without_tei/2]).
+			      change_notification_without_tei/2,
+			      suspend_notification/2,
+			      resume_notification/2]).
 
 -endif.
 

@@ -46,6 +46,8 @@ make_echo_request(#gtpc{restart_counter = RCnt, seq_no = SeqNo}) ->
     IEs = [#recovery{restart_counter = RCnt}],
     #gtp{version = v1, type = echo_request, tei = 0, seq_no = SeqNo, ie = IEs}.
 
+%%%-------------------------------------------------------------------
+
 make_create_pdp_context_request(#gtpc{restart_counter = RCnt,
 				      seq_no = SeqNo,
 				      local_control_tei = LocalCntlTEI,
@@ -126,6 +128,8 @@ validate_create_pdp_context_response(Response,
 	  remote_control_tei = RemoteCntlTEI,
 	  remote_data_tei = RemoteDataTEI
      }.
+
+%%%-------------------------------------------------------------------
 
 make_delete_pdp_context_request(#gtpc{restart_counter = RCnt,
 				      seq_no = SeqNo,

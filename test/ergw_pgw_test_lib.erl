@@ -15,7 +15,9 @@
 	 modify_bearer_tei_update/2,
 	 modify_bearer_ra_update/2,
 	 change_notification_with_tei/2,
-	 change_notification_without_tei/2]).
+	 change_notification_without_tei/2,
+	 suspend_notification/2,
+	 resume_notification/2]).
 
 -include("ergw_test_lib.hrl").
 -include("ergw_pgw_test_lib.hrl").
@@ -55,6 +57,15 @@ change_notification_without_tei(Socket, GtpC) ->
 		    fun make_change_notification_request_without_tei/1,
 		    fun validate_change_notification_response_without_tei/2).
 
+suspend_notification(Socket, GtpC) ->
+    execute_request(Socket, GtpC,
+		    fun make_suspend_notification/1,
+		    fun validate_suspend_acknowledge/2).
+resume_notification(Socket, GtpC) ->
+    execute_request(Socket, GtpC,
+		    fun make_resume_notification/1,
+		    fun validate_resume_acknowledge/2).
+
 delete_session(Socket, GtpC) ->
     execute_request(Socket, GtpC,
 		    fun make_delete_session_request/1,
@@ -68,6 +79,8 @@ make_echo_request(#gtpc{restart_counter = RCnt, seq_no = SeqNo}) ->
     IEs = [#v2_recovery{restart_counter = RCnt}],
     #gtp{version = v2, type = echo_request, tei = undefined,
 	 seq_no = SeqNo, ie = IEs}.
+
+%%%-------------------------------------------------------------------
 
 make_create_session_request(#gtpc{restart_counter = RCnt,
 				  seq_no = SeqNo,
@@ -153,6 +166,8 @@ validate_create_session_response(Response,
 	  remote_data_tei = RemoteDataTEI
      }.
 
+%%%-------------------------------------------------------------------
+
 make_modify_bearer_request_tei_update(#gtpc{restart_counter = RCnt,
 					    seq_no = SeqNo,
 					    local_control_tei = LocalCntlTEI,
@@ -195,6 +210,8 @@ validate_modify_bearer_response_tei_update(Response,
 		  }}, Response),
     GtpC.
 
+%%%-------------------------------------------------------------------
+
 make_modify_bearer_request_ra_update(#gtpc{restart_counter = RCnt,
 					   seq_no = SeqNo,
 					   local_control_tei = LocalCntlTEI,
@@ -225,6 +242,8 @@ validate_modify_bearer_response_ra_update(Response,
     ?equal(false, maps:is_key({v2_bearer_context,0}, IEs)),
     GtpC.
 
+%%%-------------------------------------------------------------------
+
 make_change_notification_request_with_tei(#gtpc{restart_counter = RCnt,
 						seq_no = SeqNo,
 						remote_control_tei =
@@ -253,6 +272,8 @@ validate_change_notification_response_with_tei(Response,
     ?equal(false, maps:is_key({v2_mobile_equipment_identity,0}, IEs)),
     GtpC.
 
+%%%-------------------------------------------------------------------
+
 make_change_notification_request_without_tei(#gtpc{restart_counter = RCnt,
 						   seq_no = SeqNo}) ->
     IEs = [#v2_recovery{restart_counter = RCnt},
@@ -280,6 +301,54 @@ validate_change_notification_response_without_tei(Response, GtpC) ->
 		  }
 	   }, Response),
     GtpC.
+
+%%%-------------------------------------------------------------------
+
+make_suspend_notification(#gtpc{restart_counter = RCnt,
+				seq_no = SeqNo,
+				remote_control_tei =
+				    RemoteCntlTEI}) ->
+    IEs = [#v2_recovery{restart_counter = RCnt}],
+
+    #gtp{version = v2, type = suspend_notification, tei = RemoteCntlTEI,
+	 seq_no = SeqNo, ie = IEs}.
+
+validate_suspend_acknowledge(Response,
+			     #gtpc{
+				local_control_tei =
+				    LocalCntlTEI} = GtpC) ->
+    ?match(
+       #gtp{type = suspend_acknowledge,
+	    tei = LocalCntlTEI,
+	    ie = #{{v2_cause,0} := #v2_cause{v2_cause = request_accepted}}
+	   }, Response),
+    GtpC.
+
+%%%-------------------------------------------------------------------
+
+make_resume_notification(#gtpc{restart_counter = RCnt,
+			       seq_no = SeqNo,
+			       remote_control_tei =
+				   RemoteCntlTEI}) ->
+    IEs = [#v2_recovery{restart_counter = RCnt},
+	   #v2_international_mobile_subscriber_identity{
+	      imsi = ?'IMSI'}],
+
+    #gtp{version = v2, type = resume_notification, tei = RemoteCntlTEI,
+	 seq_no = SeqNo, ie = IEs}.
+
+validate_resume_acknowledge(Response,
+			    #gtpc{
+			       local_control_tei =
+				   LocalCntlTEI} = GtpC) ->
+    ?match(
+       #gtp{type = resume_acknowledge,
+	    tei = LocalCntlTEI,
+	    ie = #{{v2_cause,0} := #v2_cause{v2_cause = request_accepted}}
+	   }, Response),
+    GtpC.
+
+%%%-------------------------------------------------------------------
 
 make_delete_session_request(#gtpc{restart_counter = RCnt,
 				  seq_no = SeqNo,
