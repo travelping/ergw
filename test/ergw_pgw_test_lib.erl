@@ -9,15 +9,13 @@
 
 -define(ERGW_PGW_NO_IMPORTS, true).
 
--export([make_echo_request/1,
-	 create_session/1, create_session/2,
-	 delete_session/2,
-	 modify_bearer_tei_update/2,
-	 modify_bearer_ra_update/2,
-	 change_notification_with_tei/2,
-	 change_notification_without_tei/2,
-	 suspend_notification/2,
-	 resume_notification/2]).
+-export([make_request/3,
+	 create_session/1, create_session/2, create_session/3,
+	 delete_session/2, delete_session/3,
+	 modify_bearer/3,
+	 change_notification/3,
+	 suspend_notification/3,
+	 resume_notification/3]).
 
 -include("ergw_test_lib.hrl").
 -include("ergw_pgw_test_lib.hrl").
@@ -28,64 +26,56 @@
 %%%===================================================================
 
 create_session(Socket) ->
-    create_session(Socket, gtp_context()).
+    create_session(simple, Socket, gtp_context()).
 
-create_session(Socket, GtpC) ->
-    execute_request(Socket, GtpC,
-		    fun make_create_session_request/1,
-		    fun validate_create_session_response/2).
+create_session(Socket, #gtpc{} = GtpC) ->
+    execute_request(create_session_request, simple, Socket, GtpC);
+create_session(SubType, Socket) ->
+    create_session(SubType, Socket, gtp_context()).
 
-modify_bearer_tei_update(Socket, GtpC0) ->
-    GtpC = gtp_context_inc_seq(gtp_context_new_teids(GtpC0)),
-    Msg = make_modify_bearer_request_tei_update(GtpC),
-    Response = send_recv_pdu(Socket, Msg),
+create_session(SubType, Socket, GtpC) ->
+    execute_request(create_session_request, SubType, Socket, GtpC).
 
-    {validate_modify_bearer_response_tei_update(Response, GtpC), Msg, Response}.
+modify_bearer(SubType, Socket, GtpC0)
+  when SubType == tei_update ->
+    GtpC = gtp_context_new_teids(GtpC0),
+    execute_request(modify_bearer_request, SubType, Socket, GtpC);
+modify_bearer(SubType, Socket, GtpC) ->
+    execute_request(modify_bearer_request, SubType, Socket, GtpC).
 
-modify_bearer_ra_update(Socket, GtpC) ->
-    execute_request(Socket, GtpC,
-		    fun make_modify_bearer_request_ra_update/1,
-		    fun validate_modify_bearer_response_ra_update/2).
+change_notification(SubType, Socket, GtpC) ->
+    execute_request(change_notification_request, SubType, Socket, GtpC).
 
-change_notification_with_tei(Socket, GtpC) ->
-    execute_request(Socket, GtpC,
-		    fun make_change_notification_request_with_tei/1,
-		    fun validate_change_notification_response_with_tei/2).
+suspend_notification(SubType, Socket, GtpC) ->
+    execute_request(suspend_notification, SubType, Socket, GtpC).
 
-change_notification_without_tei(Socket, GtpC) ->
-    execute_request(Socket, GtpC,
-		    fun make_change_notification_request_without_tei/1,
-		    fun validate_change_notification_response_without_tei/2).
-
-suspend_notification(Socket, GtpC) ->
-    execute_request(Socket, GtpC,
-		    fun make_suspend_notification/1,
-		    fun validate_suspend_acknowledge/2).
-resume_notification(Socket, GtpC) ->
-    execute_request(Socket, GtpC,
-		    fun make_resume_notification/1,
-		    fun validate_resume_acknowledge/2).
+resume_notification(SubType, Socket, GtpC) ->
+    execute_request(resume_notification, SubType, Socket, GtpC).
 
 delete_session(Socket, GtpC) ->
-    execute_request(Socket, GtpC,
-		    fun make_delete_session_request/1,
-		    fun validate_delete_session_response/2).
+    execute_request(delete_session_request, simple, Socket, GtpC).
+
+delete_session(SubType, Socket, GtpC) ->
+    execute_request(delete_session_request, SubType, Socket, GtpC).
 
 %%%===================================================================
 %%% Create GTPv2-C messages
 %%%===================================================================
 
-make_echo_request(#gtpc{restart_counter = RCnt, seq_no = SeqNo}) ->
+make_request(Type, invalid_teid, GtpC) ->
+    Msg = make_request(Type, simple, GtpC),
+    Msg#gtp{tei = 16#7fffffff};
+
+make_request(echo_request, _SubType,
+	     #gtpc{restart_counter = RCnt, seq_no = SeqNo}) ->
     IEs = [#v2_recovery{restart_counter = RCnt}],
     #gtp{version = v2, type = echo_request, tei = undefined,
-	 seq_no = SeqNo, ie = IEs}.
+	 seq_no = SeqNo, ie = IEs};
 
-%%%-------------------------------------------------------------------
-
-make_create_session_request(#gtpc{restart_counter = RCnt,
-				  seq_no = SeqNo,
-				  local_control_tei = LocalCntlTEI,
-				  local_data_tei = LocalDataTEI}) ->
+make_request(create_session_request, _SubType,
+	     #gtpc{restart_counter = RCnt, seq_no = SeqNo,
+		   local_control_tei = LocalCntlTEI,
+		   local_data_tei = LocalDataTEI}) ->
     IEs = [#v2_recovery{restart_counter = RCnt},
 	   #v2_access_point_name{apn = ?'APN-EXAMPLE'},
 	   #v2_aggregate_maximum_bit_rate{uplink = 48128, downlink = 1704125},
@@ -128,11 +118,131 @@ make_create_session_request(#gtpc{restart_counter = RCnt,
 					 ecgi = <<3,2,22,8,71,9,92>>}],
 
     #gtp{version = v2, type = create_session_request, tei = 0,
-	 seq_no = SeqNo, ie = IEs}.
+	 seq_no = SeqNo, ie = IEs};
 
-validate_create_session_response(Response,
-				 #gtpc{local_control_tei
-				       = LocalCntlTEI} = GtpC) ->
+make_request(modify_bearer_request, tei_update,
+	     #gtpc{restart_counter = RCnt, seq_no = SeqNo,
+		   local_control_tei = LocalCntlTEI,
+		   local_data_tei = LocalDataTEI,
+		   remote_control_tei = RemoteCntlTEI}) ->
+
+    IEs = [#v2_recovery{restart_counter = RCnt},
+	   #v2_bearer_context{
+	      group = [#v2_eps_bearer_id{eps_bearer_id = 5},
+		       #v2_fully_qualified_tunnel_endpoint_identifier{
+			  instance = 1,
+			  interface_type = ?'S5/S8-U SGW',
+			  key = LocalDataTEI,
+			  ipv4 = gtp_c_lib:ip2bin(?LOCALHOST)}
+		      ]},
+	   #v2_fully_qualified_tunnel_endpoint_identifier{
+	      interface_type = ?'S5/S8-C SGW',
+	      key = LocalCntlTEI,
+	      ipv4 = gtp_c_lib:ip2bin(?LOCALHOST)}
+	  ],
+
+    #gtp{version = v2, type = modify_bearer_request, tei = RemoteCntlTEI,
+	 seq_no = SeqNo, ie = IEs};
+
+make_request(modify_bearer_request, SubType,
+	     #gtpc{restart_counter = RCnt, seq_no = SeqNo,
+		   local_control_tei = LocalCntlTEI,
+		   remote_control_tei = RemoteCntlTEI})
+  when SubType == simple; SubType == ra_update ->
+    IEs = [#v2_recovery{restart_counter = RCnt},
+	   #v2_ue_time_zone{timezone = 10, dst = 0},
+	   #v2_user_location_information{tai = <<3,2,22,214,217>>,
+					 ecgi = <<3,2,22,8,71,9,92>>},
+	   #v2_fully_qualified_tunnel_endpoint_identifier{
+	      interface_type = ?'S5/S8-C SGW',
+	      key = LocalCntlTEI,
+	      ipv4 = gtp_c_lib:ip2bin(?LOCALHOST)}
+	  ],
+
+    #gtp{version = v2, type = modify_bearer_request, tei = RemoteCntlTEI,
+	 seq_no = SeqNo, ie = IEs};
+
+make_request(change_notification_request, simple,
+	     #gtpc{restart_counter = RCnt, seq_no = SeqNo,
+		   remote_control_tei = RemoteCntlTEI}) ->
+    IEs = [#v2_recovery{restart_counter = RCnt},
+	   #v2_rat_type{rat_type = 6},
+	   #v2_ue_time_zone{timezone = 10, dst = 0},
+	   #v2_user_location_information{tai = <<3,2,22,214,217>>,
+					 ecgi = <<3,2,22,8,71,9,92>>}
+	  ],
+
+    #gtp{version = v2, type = change_notification_request, tei = RemoteCntlTEI,
+	 seq_no = SeqNo, ie = IEs};
+
+make_request(suspend_notification, _SubType,
+	     #gtpc{restart_counter = RCnt, seq_no = SeqNo,
+		   remote_control_tei = RemoteCntlTEI}) ->
+    IEs = [#v2_recovery{restart_counter = RCnt}],
+
+    #gtp{version = v2, type = suspend_notification, tei = RemoteCntlTEI,
+	 seq_no = SeqNo, ie = IEs};
+
+make_request(resume_notification, _SubType,
+	     #gtpc{restart_counter = RCnt, seq_no = SeqNo,
+		   remote_control_tei = RemoteCntlTEI}) ->
+    IEs = [#v2_recovery{restart_counter = RCnt},
+	   #v2_international_mobile_subscriber_identity{
+	      imsi = ?'IMSI'}],
+
+    #gtp{version = v2, type = resume_notification, tei = RemoteCntlTEI,
+	 seq_no = SeqNo, ie = IEs};
+
+make_request(change_notification_request, without_tei,
+	     #gtpc{restart_counter = RCnt, seq_no = SeqNo}) ->
+    IEs = [#v2_recovery{restart_counter = RCnt},
+	   #v2_rat_type{rat_type = 6},
+	   #v2_international_mobile_subscriber_identity{
+	      imsi = ?'IMSI'},
+	   #v2_mobile_equipment_identity{mei = <<"AAAAAAAA">>},
+	   #v2_ue_time_zone{timezone = 10, dst = 0},
+	   #v2_user_location_information{tai = <<3,2,22,214,217>>,
+					 ecgi = <<3,2,22,8,71,9,92>>}
+	  ],
+
+    #gtp{version = v2, type = change_notification_request, tei = 0,
+	 seq_no = SeqNo, ie = IEs};
+
+make_request(change_notification_request, invalid_imsi, GtpC) ->
+    #gtp{ie = IEs} = Msg =
+	make_request(change_notification_request, without_tei, GtpC),
+    Msg#gtp{ie = lists:keystore(v2_international_mobile_subscriber_identity,
+				1, IEs,
+				#v2_international_mobile_subscriber_identity{
+				   imsi = <<"991111111111111">>})};
+
+make_request(delete_session_request, _SubType,
+	     #gtpc{restart_counter = RCnt, seq_no = SeqNo,
+		   local_control_tei = LocalCntlTEI,
+		   remote_control_tei = RemoteCntlTEI}) ->
+    IEs = [%%{170,0} => {170,0,<<220,126,139,67>>},
+	   #v2_recovery{restart_counter = RCnt},
+	   #v2_eps_bearer_id{eps_bearer_id = 5},
+	   #v2_fully_qualified_tunnel_endpoint_identifier{
+	      interface_type = ?'S5/S8-C SGW',
+	      key = LocalCntlTEI,
+	      ipv4 = gtp_c_lib:ip2bin(?LOCALHOST)},
+	   #v2_user_location_information{tai = <<3,2,22,214,217>>,
+					 ecgi = <<3,2,22,8,71,9,92>>}],
+
+    #gtp{version = v2, type = delete_session_request,
+	 tei = RemoteCntlTEI, seq_no = SeqNo, ie = IEs}.
+
+%%%-------------------------------------------------------------------
+
+validate_response(_Type, invalid_teid, Response, GtpC) ->
+    ?match(
+       #gtp{ie = #{{v2_cause,0} := #v2_cause{v2_cause = context_not_found}}
+	   }, Response),
+    GtpC;
+
+validate_response(create_session_request, _SubType, Response,
+		  #gtpc{local_control_tei = LocalCntlTEI} = GtpC) ->
     ?match(
        #gtp{type = create_session_response,
 	    tei = LocalCntlTEI,
@@ -164,37 +274,10 @@ validate_create_session_response(Response,
     GtpC#gtpc{
 	  remote_control_tei = RemoteCntlTEI,
 	  remote_data_tei = RemoteDataTEI
-     }.
+     };
 
-%%%-------------------------------------------------------------------
-
-make_modify_bearer_request_tei_update(#gtpc{restart_counter = RCnt,
-					    seq_no = SeqNo,
-					    local_control_tei = LocalCntlTEI,
-					    local_data_tei = LocalDataTEI,
-					    remote_control_tei = RemoteCntlTEI}) ->
-
-    IEs = [#v2_recovery{restart_counter = RCnt},
-	   #v2_bearer_context{
-	      group = [#v2_eps_bearer_id{eps_bearer_id = 5},
-		       #v2_fully_qualified_tunnel_endpoint_identifier{
-			  instance = 1,
-			  interface_type = ?'S5/S8-U SGW',
-			  key = LocalDataTEI,
-			  ipv4 = gtp_c_lib:ip2bin(?LOCALHOST)}
-		      ]},
-	   #v2_fully_qualified_tunnel_endpoint_identifier{
-	      interface_type = ?'S5/S8-C SGW',
-	      key = LocalCntlTEI,
-	      ipv4 = gtp_c_lib:ip2bin(?LOCALHOST)}
-	  ],
-
-    #gtp{version = v2, type = modify_bearer_request, tei = RemoteCntlTEI,
-	 seq_no = SeqNo, ie = IEs}.
-
-validate_modify_bearer_response_tei_update(Response,
-				 #gtpc{local_control_tei =
-					   LocalCntlTEI} = GtpC) ->
+validate_response(modify_bearer_request, tei_update, Response,
+		  #gtpc{local_control_tei = LocalCntlTEI} = GtpC) ->
     ?match(
        #gtp{type = modify_bearer_response,
 	    tei = LocalCntlTEI,
@@ -208,31 +291,11 @@ validate_modify_bearer_response_tei_update(Response,
 				#v2_eps_bearer_id{eps_bearer_id = 5},
 			    {v2_charging_id, 0} := #v2_charging_id{}}}
 		  }}, Response),
-    GtpC.
+    GtpC;
 
-%%%-------------------------------------------------------------------
-
-make_modify_bearer_request_ra_update(#gtpc{restart_counter = RCnt,
-					   seq_no = SeqNo,
-					   local_control_tei = LocalCntlTEI,
-					   remote_control_tei = RemoteCntlTEI}) ->
-
-    IEs = [#v2_recovery{restart_counter = RCnt},
-	   #v2_ue_time_zone{timezone = 10, dst = 0},
-	   #v2_user_location_information{tai = <<3,2,22,214,217>>,
-					 ecgi = <<3,2,22,8,71,9,92>>},
-	   #v2_fully_qualified_tunnel_endpoint_identifier{
-	      interface_type = ?'S5/S8-C SGW',
-	      key = LocalCntlTEI,
-	      ipv4 = gtp_c_lib:ip2bin(?LOCALHOST)}
-	  ],
-
-    #gtp{version = v2, type = modify_bearer_request, tei = RemoteCntlTEI,
-	 seq_no = SeqNo, ie = IEs}.
-
-validate_modify_bearer_response_ra_update(Response,
-					  #gtpc{local_control_tei =
-						    LocalCntlTEI} = GtpC) ->
+validate_response(modify_bearer_request, SubType, Response,
+		  #gtpc{local_control_tei = LocalCntlTEI} = GtpC)
+  when SubType == simple; SubType == ra_update ->
     ?match(
        #gtp{type = modify_bearer_response,
 	    tei = LocalCntlTEI,
@@ -240,28 +303,10 @@ validate_modify_bearer_response_ra_update(Response,
 	   }, Response),
     #gtp{ie = IEs} = Response,
     ?equal(false, maps:is_key({v2_bearer_context,0}, IEs)),
-    GtpC.
+    GtpC;
 
-%%%-------------------------------------------------------------------
-
-make_change_notification_request_with_tei(#gtpc{restart_counter = RCnt,
-						seq_no = SeqNo,
-						remote_control_tei =
-						    RemoteCntlTEI}) ->
-    IEs = [#v2_recovery{restart_counter = RCnt},
-	   #v2_rat_type{rat_type = 6},
-	   #v2_ue_time_zone{timezone = 10, dst = 0},
-	   #v2_user_location_information{tai = <<3,2,22,214,217>>,
-					 ecgi = <<3,2,22,8,71,9,92>>}
-	  ],
-
-    #gtp{version = v2, type = change_notification_request, tei = RemoteCntlTEI,
-	 seq_no = SeqNo, ie = IEs}.
-
-validate_change_notification_response_with_tei(Response,
-					       #gtpc{
-						  local_control_tei =
-						      LocalCntlTEI} = GtpC) ->
+validate_response(change_notification_request, simple, Response,
+		  #gtpc{local_control_tei = LocalCntlTEI} = GtpC) ->
     ?match(
        #gtp{type = change_notification_response,
 	    tei = LocalCntlTEI,
@@ -270,26 +315,9 @@ validate_change_notification_response_with_tei(Response,
     #gtp{ie = IEs} = Response,
     ?equal(false, maps:is_key({v2_international_mobile_subscriber_identity,0}, IEs)),
     ?equal(false, maps:is_key({v2_mobile_equipment_identity,0}, IEs)),
-    GtpC.
+    GtpC;
 
-%%%-------------------------------------------------------------------
-
-make_change_notification_request_without_tei(#gtpc{restart_counter = RCnt,
-						   seq_no = SeqNo}) ->
-    IEs = [#v2_recovery{restart_counter = RCnt},
-	   #v2_rat_type{rat_type = 6},
-	   #v2_international_mobile_subscriber_identity{
-	      imsi = ?'IMSI'},
-	   #v2_mobile_equipment_identity{mei = <<"AAAAAAAA">>},
-	   #v2_ue_time_zone{timezone = 10, dst = 0},
-	   #v2_user_location_information{tai = <<3,2,22,214,217>>,
-					 ecgi = <<3,2,22,8,71,9,92>>}
-	  ],
-
-    #gtp{version = v2, type = change_notification_request, tei = 0,
-	 seq_no = SeqNo, ie = IEs}.
-
-validate_change_notification_response_without_tei(Response, GtpC) ->
+validate_response(change_notification_request, without_tei, Response, GtpC) ->
     ?match(
        #gtp{type = change_notification_response,
 	    ie = #{{v2_cause,0} :=
@@ -300,76 +328,34 @@ validate_change_notification_response_without_tei(Response, GtpC) ->
 		       #v2_mobile_equipment_identity{}
 		  }
 	   }, Response),
-    GtpC.
+    GtpC;
 
-%%%-------------------------------------------------------------------
+validate_response(change_notification_request, invalid_imsi, Response, GtpC) ->
+    ?match(
+       #gtp{ie = #{{v2_cause,0} := #v2_cause{v2_cause = context_not_found}}
+	   }, Response),
+    GtpC;
 
-make_suspend_notification(#gtpc{restart_counter = RCnt,
-				seq_no = SeqNo,
-				remote_control_tei =
-				    RemoteCntlTEI}) ->
-    IEs = [#v2_recovery{restart_counter = RCnt}],
-
-    #gtp{version = v2, type = suspend_notification, tei = RemoteCntlTEI,
-	 seq_no = SeqNo, ie = IEs}.
-
-validate_suspend_acknowledge(Response,
-			     #gtpc{
-				local_control_tei =
-				    LocalCntlTEI} = GtpC) ->
+validate_response(suspend_notification, _SubType, Response,
+		  #gtpc{local_control_tei = LocalCntlTEI} = GtpC) ->
     ?match(
        #gtp{type = suspend_acknowledge,
 	    tei = LocalCntlTEI,
 	    ie = #{{v2_cause,0} := #v2_cause{v2_cause = request_accepted}}
 	   }, Response),
-    GtpC.
+    GtpC;
 
-%%%-------------------------------------------------------------------
-
-make_resume_notification(#gtpc{restart_counter = RCnt,
-			       seq_no = SeqNo,
-			       remote_control_tei =
-				   RemoteCntlTEI}) ->
-    IEs = [#v2_recovery{restart_counter = RCnt},
-	   #v2_international_mobile_subscriber_identity{
-	      imsi = ?'IMSI'}],
-
-    #gtp{version = v2, type = resume_notification, tei = RemoteCntlTEI,
-	 seq_no = SeqNo, ie = IEs}.
-
-validate_resume_acknowledge(Response,
-			    #gtpc{
-			       local_control_tei =
-				   LocalCntlTEI} = GtpC) ->
+validate_response(resume_notification, _SubType, Response,
+		  #gtpc{local_control_tei = LocalCntlTEI} = GtpC) ->
     ?match(
        #gtp{type = resume_acknowledge,
 	    tei = LocalCntlTEI,
 	    ie = #{{v2_cause,0} := #v2_cause{v2_cause = request_accepted}}
 	   }, Response),
-    GtpC.
+    GtpC;
 
-%%%-------------------------------------------------------------------
-
-make_delete_session_request(#gtpc{restart_counter = RCnt,
-				  seq_no = SeqNo,
-				  local_control_tei = LocalCntlTEI,
-				  remote_control_tei = RemoteCntlTEI}) ->
-    IEs = [%%{170,0} => {170,0,<<220,126,139,67>>},
-	   #v2_recovery{restart_counter = RCnt},
-	   #v2_eps_bearer_id{eps_bearer_id = 5},
-	   #v2_fully_qualified_tunnel_endpoint_identifier{
-	      interface_type = ?'S5/S8-C SGW',
-	      key = LocalCntlTEI,
-	      ipv4 = gtp_c_lib:ip2bin(?LOCALHOST)},
-	   #v2_user_location_information{tai = <<3,2,22,214,217>>,
-					 ecgi = <<3,2,22,8,71,9,92>>}],
-
-    #gtp{version = v2, type = delete_session_request,
-	 tei = RemoteCntlTEI, seq_no = SeqNo, ie = IEs}.
-
-validate_delete_session_response(Response,
-				 #gtpc{local_control_tei =
-					   LocalCntlTEI} = GtpC) ->
+validate_response(delete_session_request, _SubType, Response,
+		  #gtpc{local_control_tei = LocalCntlTEI} = GtpC) ->
     ?match(#gtp{type = delete_session_response,
 		tei = LocalCntlTEI,
 		ie = #{{v2_cause,0} := #v2_cause{v2_cause = request_accepted}}
@@ -380,9 +366,9 @@ validate_delete_session_response(Response,
 %%% Helper functions
 %%%===================================================================
 
-execute_request(Socket, GtpC0, Make, Validate) ->
+execute_request(MsgType, SubType, Socket, GtpC0) ->
     GtpC = gtp_context_inc_seq(GtpC0),
-    Msg = Make(GtpC),
+    Msg = make_request(MsgType, SubType, GtpC),
     Response = send_recv_pdu(Socket, Msg),
 
-    {Validate(Response, GtpC), Msg, Response}.
+    {validate_response(MsgType, SubType, Response, GtpC), Msg, Response}.

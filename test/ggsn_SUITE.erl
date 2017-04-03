@@ -95,7 +95,8 @@ all() ->
      path_restart, path_restart_recovery,
      simple_pdp_context_request,
      create_pdp_context_request_resend,
-     delete_pdp_context_request_resend].
+     delete_pdp_context_request_resend,
+     invalid_teid].
 
 %%%===================================================================
 %%% Tests
@@ -157,9 +158,9 @@ path_restart(Config) ->
     {GtpC, _, _} = create_pdp_context(S),
 
     %% simulate patch restart to kill the PDP context
-    Echo = make_echo_request(
-	     gtp_context_inc_seq(
-	       gtp_context_inc_restart_counter(GtpC))),
+    Echo = make_request(echo_request, simple,
+			gtp_context_inc_seq(
+			  gtp_context_inc_restart_counter(GtpC))),
     send_recv_pdu(S, Echo),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
@@ -217,6 +218,19 @@ delete_pdp_context_request_resend(Config) ->
     {GtpC, _, _} = create_pdp_context(S),
     {_, Msg, Response} = delete_pdp_context(S, GtpC),
     ?match(Response, send_recv_pdu(S, Msg)),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    meck_validate(Config),
+    ok.
+
+invalid_teid() ->
+    [{doc, "Check invalid TEID's for a number of request types"}].
+invalid_teid(Config) ->
+    S = make_gtp_socket(Config),
+
+    {GtpC1, _, _} = create_pdp_context(S),
+    {GtpC2, _, _} = delete_pdp_context(invalid_teid, S, GtpC1),
+    delete_pdp_context(S, GtpC2),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
