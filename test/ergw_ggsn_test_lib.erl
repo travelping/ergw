@@ -9,13 +9,9 @@
 
 -define(ERGW_GGSN_NO_IMPORTS, true).
 
--export([make_echo_request/1,
-	 create_pdp_context/1, create_pdp_context/2,
-	 make_create_pdp_context_request/1,
-	 validate_create_pdp_context_response/2,
-	 delete_pdp_context/2,
-	 make_delete_pdp_context_request/1,
-	 validate_delete_pdp_context_response/2]).
+-export([make_request/3,
+	 create_pdp_context/1, create_pdp_context/2, create_pdp_context/3,
+	 delete_pdp_context/2, delete_pdp_context/3]).
 
 -include("ergw_test_lib.hrl").
 -include("ergw_ggsn_test_lib.hrl").
@@ -28,30 +24,37 @@
 create_pdp_context(Socket) ->
     create_pdp_context(Socket, gtp_context()).
 
-create_pdp_context(Socket, GtpC) ->
-    execute_request(Socket, GtpC,
-		    fun make_create_pdp_context_request/1,
-		    fun validate_create_pdp_context_response/2).
+create_pdp_context(Socket, #gtpc{} = GtpC) ->
+    execute_request(create_pdp_context_request, simple, Socket, GtpC);
+create_pdp_context(SubType, Socket) ->
+    create_pdp_context(SubType, Socket, gtp_context()).
+
+create_pdp_context(SubType, Socket, GtpC) ->
+    execute_request(create_pdp_context_request, SubType, Socket, GtpC).
 
 delete_pdp_context(Socket, GtpC) ->
-    execute_request(Socket, GtpC,
-		    fun make_delete_pdp_context_request/1,
-		    fun validate_delete_pdp_context_response/2).
+    execute_request(delete_pdp_context_request, simple, Socket, GtpC).
+
+delete_pdp_context(SubType, Socket, GtpC) ->
+    execute_request(delete_pdp_context_request, SubType, Socket, GtpC).
 
 %%%===================================================================
 %%% Create GTPv1-C messages
 %%%===================================================================
 
-make_echo_request(#gtpc{restart_counter = RCnt, seq_no = SeqNo}) ->
+make_request(Type, invalid_teid, GtpC) ->
+    Msg = make_request(Type, simple, GtpC),
+    Msg#gtp{tei = 16#7fffffff};
+
+make_request(echo_request, _SubType,
+	     #gtpc{restart_counter = RCnt, seq_no = SeqNo}) ->
     IEs = [#recovery{restart_counter = RCnt}],
-    #gtp{version = v1, type = echo_request, tei = 0, seq_no = SeqNo, ie = IEs}.
+    #gtp{version = v1, type = echo_request, tei = 0, seq_no = SeqNo, ie = IEs};
 
-%%%-------------------------------------------------------------------
-
-make_create_pdp_context_request(#gtpc{restart_counter = RCnt,
-				      seq_no = SeqNo,
-				      local_control_tei = LocalCntlTEI,
-				      local_data_tei = LocalDataTEI}) ->
+make_request(create_pdp_context_request, _SubType,
+	     #gtpc{restart_counter = RCnt, seq_no = SeqNo,
+		   local_control_tei = LocalCntlTEI,
+		   local_data_tei = LocalDataTEI}) ->
     IEs = [#recovery{restart_counter = RCnt},
 	   #access_point_name{apn = ?'APN-EXAMPLE'},
 	   #end_user_address{pdp_type_organization = 1,
@@ -85,11 +88,28 @@ make_create_pdp_context_request(#gtpc{restart_counter = RCnt,
 				      rac = 0}],
 
     #gtp{version = v1, type = create_pdp_context_request, tei = 0,
-	 seq_no = SeqNo, ie = IEs}.
+	 seq_no = SeqNo, ie = IEs};
 
-validate_create_pdp_context_response(Response,
-				     #gtpc{local_control_tei =
-					       LocalCntlTEI} = GtpC) ->
+make_request(delete_pdp_context_request, _SubType,
+	     #gtpc{restart_counter = RCnt, seq_no = SeqNo,
+		   remote_control_tei = RemoteCntlTEI}) ->
+    IEs = [#recovery{restart_counter = RCnt},
+	   #nsapi{nsapi=5},
+	   #teardown_ind{value=1}],
+
+    #gtp{version = v1, type = delete_pdp_context_request,
+	 tei = RemoteCntlTEI, seq_no = SeqNo, ie = IEs}.
+
+%%%-------------------------------------------------------------------
+
+validate_response(_Type, invalid_teid, Response, GtpC) ->
+    ?match(
+       #gtp{ie = #{{cause,0} := #cause{value = non_existent}}
+	   }, Response),
+    GtpC;
+
+validate_response(create_pdp_context_request, _SubType, Response,
+		  #gtpc{local_control_tei = LocalCntlTEI} = GtpC) ->
     ?match(#gtp{type = create_pdp_context_response,
 		tei = LocalCntlTEI,
 		ie = #{{cause,0} := #cause{value = request_accepted},
@@ -127,23 +147,10 @@ validate_create_pdp_context_response(Response,
     GtpC#gtpc{
 	  remote_control_tei = RemoteCntlTEI,
 	  remote_data_tei = RemoteDataTEI
-     }.
+     };
 
-%%%-------------------------------------------------------------------
-
-make_delete_pdp_context_request(#gtpc{restart_counter = RCnt,
-				      seq_no = SeqNo,
-				      remote_control_tei = RemoteCntlTEI}) ->
-    IEs = [#recovery{restart_counter = RCnt},
-	   #nsapi{nsapi=5},
-	   #teardown_ind{value=1}],
-
-    #gtp{version = v1, type = delete_pdp_context_request,
-	 tei = RemoteCntlTEI, seq_no = SeqNo, ie = IEs}.
-
-validate_delete_pdp_context_response(Response,
-				 #gtpc{local_control_tei =
-					   LocalCntlTEI} = GtpC) ->
+validate_response(delete_pdp_context_request, _SubType, Response,
+		  #gtpc{local_control_tei = LocalCntlTEI} = GtpC) ->
     ?match(#gtp{type = delete_pdp_context_response,
 		tei = LocalCntlTEI,
 		ie = #{{cause,0} := #cause{value = request_accepted}}
@@ -154,9 +161,9 @@ validate_delete_pdp_context_response(Response,
 %%% Helper functions
 %%%===================================================================
 
-execute_request(Socket, GtpC0, Make, Validate) ->
+execute_request(MsgType, SubType, Socket, GtpC0) ->
     GtpC = gtp_context_inc_seq(GtpC0),
-    Msg = Make(GtpC),
+    Msg = make_request(MsgType, SubType, GtpC),
     Response = send_recv_pdu(Socket, Msg),
 
-    {Validate(Response, GtpC), Msg, Response}.
+    {validate_response(MsgType, SubType, Response, GtpC), Msg, Response}.

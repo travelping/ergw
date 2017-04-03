@@ -7,15 +7,13 @@
 
 -ifndef(ERGW_PGW_NO_IMPORTS).
 
--import('ergw_pgw_test_lib', [make_echo_request/1,
-			      create_session/1, create_session/2,
-			      delete_session/2,
-			      modify_bearer_tei_update/2,
-			      modify_bearer_ra_update/2,
-			      change_notification_with_tei/2,
-			      change_notification_without_tei/2,
-			      suspend_notification/2,
-			      resume_notification/2]).
+-import('ergw_pgw_test_lib', [make_request/3,
+			      create_session/1, create_session/2, create_session/3,
+			      delete_session/2, delete_session/3,
+			      modify_bearer/3,
+			      change_notification/3,
+			      suspend_notification/3,
+			      resume_notification/3]).
 
 -endif.
 
