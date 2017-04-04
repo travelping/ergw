@@ -112,7 +112,10 @@ all() ->
      change_notification_request_invalid_imsi,
      suspend_notification_request,
      resume_notification_request,
-     invalid_teid].
+     delete_bearer_request,
+     invalid_teid,
+     delete_bearer_request,
+     delete_bearer_request_resend].
 
 %%%===================================================================
 %%% Tests
@@ -123,6 +126,24 @@ init_per_testcase(path_restart, Config) ->
     meck_reset(Config),
     ok = meck:new(gtp_path, [passthrough, no_link]),
     Config;
+
+init_per_testcase(TestCase, Config)
+  when TestCase == delete_bearer_request_resend ->
+    ct:pal("Sockets: ~p", [gtp_socket_reg:all()]),
+    ok = meck:expect(gtp_socket, send_request,
+		     fun(GtpPort, From, RemoteIP, _T3, _N3,
+			 #gtp{type = delete_bearer_request} = Msg, ReqId) ->
+			     %% reduce timeout to 1 second and 2 resends
+			     %% to speed up the test
+			     meck:passthrough([GtpPort, From, RemoteIP,
+					       1000, 2, Msg, ReqId]);
+			(GtpPort, From, RemoteIP, T3, N3, Msg, ReqId) ->
+			     meck:passthrough([GtpPort, From, RemoteIP,
+					       T3, N3, Msg, ReqId])
+		     end),
+    meck_reset(Config),
+    true = meck:validate(gtp_dp),
+    Config;
 init_per_testcase(_, Config) ->
     ct:pal("Sockets: ~p", [gtp_socket_reg:all()]),
     meck_reset(Config),
@@ -131,6 +152,10 @@ init_per_testcase(_, Config) ->
 
 end_per_testcase(path_restart, Config) ->
     meck:unload(gtp_path),
+    Config;
+end_per_testcase(TestCase, Config)
+  when TestCase == delete_bearer_request_resend ->
+    ok = meck:delete(gtp_socket, send_request, 7),
     Config;
 end_per_testcase(_, Config) ->
     Config.
@@ -359,6 +384,68 @@ invalid_teid(Config) ->
     {GtpC6, _, _} = delete_session(invalid_teid, S, GtpC5),
     delete_session(S, GtpC6),
 
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+delete_bearer_request() ->
+    [{doc, "Check PGW initiated bearer shutdown"},
+     {timetrap,{seconds,60}}].
+delete_bearer_request(Config) ->
+    S = make_gtp_socket(Config),
+
+    {GtpC, _, _} = create_session(S),
+
+    Context = gtp_context_reg:lookup(#gtp_port{name = irx}, {imsi, ?'IMSI'}),
+    true = is_pid(Context),
+
+    Self = self(),
+    spawn(fun() -> Self ! {req, gtp_context:delete_context(Context)} end),
+
+    Request = recv_pdu(S, 5000),
+    ?match(#gtp{type = delete_bearer_request}, Request),
+    Response = make_response(Request, simple, GtpC),
+    send_pdu(S, Response),
+
+    receive
+	{req, {ok, request_accepted}} ->
+	    ok;
+	{req, Other} ->
+	    ct:fail(Other)
+    after ?TIMEOUT ->
+	    ct:fail(timeout)
+    end,
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+delete_bearer_request_resend() ->
+    [{doc, "Check resend of PGW initiated bearer shutdown"},
+     {timetrap,{seconds,60}}].
+delete_bearer_request_resend(Config) ->
+    S = make_gtp_socket(Config),
+
+    {_, _, _} = create_session(S),
+
+    Context = gtp_context_reg:lookup(#gtp_port{name = irx}, {imsi, ?'IMSI'}),
+    true = is_pid(Context),
+
+    Self = self(),
+    spawn(fun() -> Self ! {req, gtp_context:delete_context(Context)} end),
+
+    Request = recv_pdu(S, 5000),
+    ?match(#gtp{type = delete_bearer_request}, Request),
+    ?equal(Request, recv_pdu(S, 5000)),
+    ?equal(Request, recv_pdu(S, 5000)),
+
+    receive
+	{req, {error, timeout}} ->
+	    ok
+    after ?TIMEOUT ->
+	    ct:fail(timeout)
+    end,
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
     ok.
