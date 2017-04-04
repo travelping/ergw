@@ -9,7 +9,7 @@
 
 -define(ERGW_PGW_NO_IMPORTS, true).
 
--export([make_request/3,
+-export([make_request/3, make_response/3,
 	 create_session/1, create_session/2, create_session/3,
 	 delete_session/2, delete_session/3,
 	 modify_bearer/3,
@@ -231,6 +231,17 @@ make_request(delete_session_request, _SubType,
 					 ecgi = <<3,2,22,8,71,9,92>>}],
 
     #gtp{version = v2, type = delete_session_request,
+	 tei = RemoteCntlTEI, seq_no = SeqNo, ie = IEs}.
+
+%%%-------------------------------------------------------------------
+
+make_response(#gtp{type = delete_bearer_request, seq_no = SeqNo},
+	      _SubType,
+	      #gtpc{restart_counter = RCnt,
+		    remote_control_tei = RemoteCntlTEI}) ->
+    IEs = [#v2_recovery{restart_counter = RCnt},
+	   #v2_cause{v2_cause = request_accepted}],
+    #gtp{version = v2, type = delete_bearer_response,
 	 tei = RemoteCntlTEI, seq_no = SeqNo, ie = IEs}.
 
 %%%-------------------------------------------------------------------

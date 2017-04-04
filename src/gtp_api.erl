@@ -16,6 +16,18 @@
 -callback request_spec(Version :: 'v1' | 'v2', MsgType :: atom()) ->
     Return :: [{ { IE :: atom(), Instance :: 0..255 }, 'optional' | 'mandatory' }].
 
+-callback handle_call(Request:: term(), From :: {pid(), reference()},
+		      State :: map()) ->
+    Result :: {reply, Reply :: term(), NewState :: map()} |
+	      {reply, Reply :: term(), NewState :: map(),
+	       Timeout :: integer() | 'infinity'} |
+	      {reply, Reply :: term(), NewState :: map(), 'hibernate'} |
+	      {noreply, NewState :: map()} |
+	      {noreply, NewState :: map(), Timeout :: integer() | 'infinity'} |
+	      {noreply, NewState :: map(), 'hibernate'} |
+	      {stop, Reason :: term(), Reply :: term(), NewState :: map()} |
+	      {stop, Reason :: term(), NewState :: map()}.
+
 -callback handle_cast(Request:: term(), State :: map()) ->
     Result :: {noreply, NewState :: map()} |
 	      {noreply, NewState :: map(), Timeout :: integer() | 'infinity'} |

@@ -14,6 +14,7 @@
 	 start_link/5,
 	 send_request/4, send_request/6, send_response/2,
 	 forward_request/4, path_restart/2,
+	 delete_context/1,
 	 register_remote_context/1, update_remote_context/2,
 	 info/1, validate_option/2]).
 
@@ -165,6 +166,9 @@ update_remote_context(OldContext, NewContext) ->
     update_remote_control_context(OldContext, NewContext),
     update_remote_data_context(OldContext, NewContext).
 
+delete_context(Context) ->
+    gen_server:call(Context, delete_context).
+
 info(Context) ->
     gen_server:call(Context, info).
 
@@ -215,9 +219,9 @@ init([CntlPort, Version, Interface, Opts]) ->
 
 handle_call(info, _From, State) ->
     {reply, State, State};
-handle_call(Request, _From, State) ->
-    lager:warning("handle_call: ~p", [lager:pr(Request, ?MODULE)]),
-    {reply, ok, State}.
+handle_call(Request, From, #{interface := Interface} = State) ->
+    lager:debug("~w: handle_call: ~p", [?MODULE, Request]),
+    Interface:handle_call(Request, From, State).
 
 handle_cast({handle_message, ReqKey, #gtp{} = Msg, Resent}, State) ->
     lager:debug("~w: handle gtp: ~w, ~p",

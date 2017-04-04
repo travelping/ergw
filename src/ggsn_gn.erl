@@ -12,18 +12,22 @@
 -compile({parse_transform, cut}).
 
 -export([validate_options/1, init/2, request_spec/2,
-	 handle_request/4,
-	 handle_cast/2, handle_info/2,
+	 handle_request/4, handle_response/4,
+	 handle_call/3, handle_cast/2, handle_info/2,
 	 terminate/2]).
 
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include("include/ergw.hrl").
 -include("include/3gpp.hrl").
 
+-define(T3, 10 * 1000).
+-define(N3, 5).
+
 %%====================================================================
 %% API
 %%====================================================================
 
+-define('Cause',					{cause, 0}).
 -define('IMSI',						{international_mobile_subscriber_identity, 0}).
 -define('Recovery',					{recovery, 0}).
 -define('Tunnel Endpoint Identifier Data I',		{tunnel_endpoint_identifier_data_i, 0}).
@@ -69,6 +73,10 @@ init(Opts, State) ->
     {ok, Session} = ergw_aaa_session_sup:new_session(self(), SessionOpts1),
     {ok, State#{'Session' => Session}}.
 
+handle_call(delete_context, From, #{context := Context} = State) ->
+    delete_context(From, Context),
+    {noreply, State}.
+
 handle_cast({path_restart, Path}, #{context := #context{path = Path} = Context} = State) ->
     dp_delete_pdp_context(Context),
     pdp_release_ip(Context),
@@ -85,6 +93,13 @@ handle_cast({packet_in, _GtpPort, _IP, _Port, #gtp{type = error_indication}},
 handle_cast({packet_in, _GtpPort, _IP, _Port, _Msg}, State) ->
     lager:warning("packet_in not handled (yet): ~p", [_Msg]),
     {noreply, State}.
+
+handle_info({From, #gtp{type = delete_pdp_context_request}, timeout},
+	    #{context := Context} = State) ->
+    dp_delete_pdp_context(Context),
+    pdp_release_ip(Context),
+    gen_server:reply(From, {error, timeout}),
+    {stop, normal, State};
 
 handle_info(_Info, State) ->
     {noreply, State}.
@@ -182,6 +197,18 @@ handle_request(_ReqKey,
 
 handle_request(_ReqKey, _Msg, _Resent, State) ->
     {noreply, State}.
+
+handle_response(From,
+		#gtp{type = delete_pdp_context_response,
+		     ie = #{?'Recovery' := Recovery,
+			    ?'Cause'    := #cause{value = Cause}}},
+		_Request,
+		#{context := Context0} = State) ->
+    Context = gtp_path:bind(Recovery, Context0),
+    dp_delete_pdp_context(Context),
+    pdp_release_ip(Context),
+    gen_server:reply(From, {ok, Cause}),
+    {stop, State#{context := Context}}.
 
 terminate(_Reason, _State) ->
     ok.
@@ -473,6 +500,21 @@ get_context_from_req(_, _, Context) ->
 
 update_context_from_gtp_req(Request, Context) ->
     maps:fold(fun get_context_from_req/3, Context, Request).
+
+send_request(#context{control_port = GtpPort,
+		      remote_control_tei = RemoteCntlTEI,
+		      remote_control_ip = RemoteCntlIP},
+	     T3, N3, Type, RequestIEs, ReqId) ->
+    Msg = #gtp{version = v1, type = Type, tei = RemoteCntlTEI, ie = RequestIEs},
+    gtp_context:send_request(GtpPort, RemoteCntlIP, T3, N3, Msg, ReqId).
+
+%% delete_context(From, #context_state{nsapi = NSAPI} = Context) ->
+delete_context(From, Context) ->
+    NSAPI = 5,
+    RequestIEs0 = [#nsapi{nsapi = NSAPI},
+		   #teardown_ind{value = 1}],
+    RequestIEs = gtp_v1_c:build_recovery(Context, false, RequestIEs0),
+    send_request(Context, ?T3, ?N3, delete_pdp_context_request, RequestIEs, From).
 
 dp_args(#context{ms_v4 = {MSv4,_}}) ->
     MSv4.
