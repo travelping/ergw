@@ -57,8 +57,9 @@
 	((fun () ->
 		  case (Expr) of
 		      Guard -> ok;
-		      V -> ct:pal("MISMATCH(~s:~b, ~s)~nExpected: ~p~nActual:   ~p~n",
-				   [?FILE, ?LINE, ??Expr, ??Guard, V]),
+		      V -> ct:pal("MISMATCH(~s:~b, ~s)~nExpected: ~p~nActual:   ~s~n",
+				   [?FILE, ?LINE, ??Expr, ??Guard,
+				    ergw_test_lib:pretty_print(V)]),
 			    error(badmatch)
 		  end
 	  end)())).
