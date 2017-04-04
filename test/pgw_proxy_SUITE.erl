@@ -25,13 +25,11 @@
 
 -define(TEST_CONFIG, [
 		      {lager, [{colored, true},
-			       {error_logger_redirect, false},
-			       {handlers, [
-					   %% lager logging leads to timeouts, disable it
-					   {lager_console_backend, emergency},
-					   {lager_file_backend, [{file, "error.log"}, {level, error}]},
-					   {lager_file_backend, [{file, "console.log"}, {level, emergency}]}
-					  ]}
+			       {error_logger_redirect, true},
+			       %% force lager into async logging, otherwise
+			       %% the test will timeout randomly
+			       {async_threshold, undefined},
+			       {handlers, [{lager_console_backend, debug}]}
 			      ]},
 
 		      {ergw, [{sockets,
