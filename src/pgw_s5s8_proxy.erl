@@ -14,7 +14,7 @@
 
 -export([validate_options/1, init/2, request_spec/2,
 	 handle_request/4, handle_response/4,
-	 handle_cast/2, handle_info/2,
+	 handle_call/3, handle_cast/2, handle_info/2,
 	 terminate/2]).
 
 -include_lib("gtplib/include/gtp_packet.hrl").
@@ -163,6 +163,10 @@ init(Opts, State) ->
     Contexts = maps:from_list(proplists:get_value(contexts, Opts)),
     {ok, State#{proxy_ports => ProxyPorts, proxy_dps => ProxyDPs,
 		contexts => Contexts, default_gw => PGW, proxy_ds => ProxyDS}}.
+
+handle_call(delete_context, _From, State) ->
+    lager:warning("delete_context no handled(yet)"),
+    {reply, ok, State}.
 
 handle_cast({path_restart, Path},
 	    #{context := #context{path = Path} = Context,
