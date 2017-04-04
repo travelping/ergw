@@ -13,7 +13,7 @@
 
 -export([validate_options/1, init/2, request_spec/2,
 	 handle_request/4, handle_response/4,
-	 handle_cast/2, handle_info/2,
+	 handle_call/3, handle_cast/2, handle_info/2,
 	 terminate/2]).
 
 -include_lib("gtplib/include/gtp_packet.hrl").
@@ -181,6 +181,10 @@ init(Opts, State) ->
     {ok, State#{proxy_ports => ProxyPorts, proxy_dps => ProxyDPs,
 		contexts => Contexts, default_gw => GGSN, proxy_ds => ProxyDS}}.
 
+handle_call(delete_context, _From, State) ->
+    lager:warning("delete_context no handled(yet)"),
+    {reply, ok, State}.
+
 handle_cast({path_restart, Path},
 	    #{context := #context{path = Path} = Context,
 	      proxy_context := ProxyContext
@@ -279,15 +283,31 @@ handle_request(ReqKey,
 
     {noreply, State#{context := Context, proxy_context := ProxyContext}};
 
-handle_request(ReqKey,
-	       #gtp{type = delete_pdp_context_request, seq_no = SeqNo} = Request, _Resent,
-	       #{proxy_context := ProxyContext} = State) ->
+handle_request(ReqKey = #request_key{gtp_port = GtpPort},
+	       #gtp{type = delete_pdp_context_request,
+		    seq_no = SeqNo} = Request, _Resent,
+	       #{context :=
+		     #context{control_port = GtpPort},
+		 proxy_context := ProxyContext
+		} = State) ->
     ProxyReq = build_context_request(ProxyContext, undefined, Request),
     forward_request(ProxyContext, ProxyReq, ReqKey, SeqNo, false),
 
     {noreply, State};
 
-handle_request({GtpPort, _IP, _Port}, Msg, _Resent, State) ->
+handle_request(ReqKey = #request_key{gtp_port = GtpPort},
+	       #gtp{type = delete_pdp_context_request,
+		    seq_no = SeqNo} = ProxyReq, _Resent,
+	       #{context := Context,
+		 proxy_context :=
+		     #context{control_port = GtpPort}
+		} = State) ->
+    Req = build_context_request(Context, undefined, ProxyReq),
+    forward_request(Context, Req, ReqKey, SeqNo, false),
+
+    {noreply, State};
+
+handle_request(#request_key{gtp_port = GtpPort}, Msg, _Resent, State) ->
     lager:warning("Unknown Proxy Message on ~p: ~p", [GtpPort, lager:pr(Msg, ?MODULE)]),
     {noreply, State}.
 
@@ -335,10 +355,15 @@ handle_response(#request_info{request_key = ReqKey, seq_no = SeqNo, new_peer = N
 
     {noreply, State};
 
-handle_response(#request_info{request_key = ReqKey, seq_no = SeqNo},
+handle_response(#request_info{request_key =
+				  #request_key{gtp_port = GtpPort} = ReqKey,
+			      seq_no = SeqNo
+			     },
 		#gtp{type = delete_pdp_context_response} = Response, _Request,
-		#{context := Context,
-		  proxy_context := ProxyContext} = State) ->
+		#{context :=
+		      #context{control_port = GtpPort} = Context,
+		  proxy_context := ProxyContext
+		 } = State) ->
     lager:warning("OK Proxy Response ~p", [lager:pr(Response, ?MODULE)]),
 
     GtpResp = build_context_request(Context, undefined, Response),
@@ -346,6 +371,25 @@ handle_response(#request_info{request_key = ReqKey, seq_no = SeqNo},
 
     dp_delete_pdp_context(Context, ProxyContext),
     {stop, State};
+
+
+handle_response(#request_info{request_key =
+				  #request_key{gtp_port = GtpPort} = ReqKey,
+			      seq_no = SeqNo
+			     },
+		#gtp{type = delete_pdp_context_response} = Response, _Request,
+		#{context := Context,
+		  proxy_context :=
+		      #context{control_port = GtpPort} = ProxyContext
+		 } = State) ->
+    lager:warning("OK SGSN Response ~p", [lager:pr(Response, ?MODULE)]),
+
+    GtpResp = build_context_request(ProxyContext, undefined, Response),
+    gtp_context:send_response(ReqKey, GtpResp#gtp{seq_no = SeqNo}),
+
+    dp_delete_pdp_context(Context, ProxyContext),
+    {stop, State};
+
 
 handle_response(_ReqInfo, Response, _Req, State) ->
     lager:warning("Unknown Proxy Response ~p", [lager:pr(Response, ?MODULE)]),

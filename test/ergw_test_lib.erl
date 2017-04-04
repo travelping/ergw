@@ -143,13 +143,13 @@ make_gtp_socket(Config) ->
 
 send_pdu(S, Msg) ->
     Data = gtp_packet:encode(Msg),
-    gen_udp:send(S, ?LOCALHOST, ?GTP2c_PORT, Data).
+    ok = gen_udp:send(S, ?LOCALHOST, ?GTP2c_PORT, Data).
 
 send_recv_pdu(S, Msg) ->
     send_recv_pdu(S, Msg, ?TIMEOUT).
 
 send_recv_pdu(S, Msg, Timeout) ->
-    ok = send_pdu(S, Msg),
+    send_pdu(S, Msg),
     recv_pdu(S, Msg#gtp.seq_no, Timeout).
 
 recv_pdu(S, Timeout) ->

@@ -9,7 +9,7 @@
 
 -define(ERGW_GGSN_NO_IMPORTS, true).
 
--export([make_request/3,
+-export([make_request/3, make_response/3,
 	 create_pdp_context/1, create_pdp_context/2, create_pdp_context/3,
 	 delete_pdp_context/2, delete_pdp_context/3]).
 
@@ -98,6 +98,17 @@ make_request(delete_pdp_context_request, _SubType,
 	   #teardown_ind{value=1}],
 
     #gtp{version = v1, type = delete_pdp_context_request,
+	 tei = RemoteCntlTEI, seq_no = SeqNo, ie = IEs}.
+
+%%%-------------------------------------------------------------------
+
+make_response(#gtp{type = delete_pdp_context_request, seq_no = SeqNo},
+	      _SubType,
+	      #gtpc{restart_counter = RCnt,
+		    remote_control_tei = RemoteCntlTEI}) ->
+    IEs = [#recovery{restart_counter = RCnt},
+	   #cause{value = request_accepted}],
+    #gtp{version = v1, type = delete_pdp_context_response,
 	 tei = RemoteCntlTEI, seq_no = SeqNo, ie = IEs}.
 
 %%%-------------------------------------------------------------------
