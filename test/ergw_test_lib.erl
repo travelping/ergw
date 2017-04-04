@@ -26,7 +26,7 @@
 	 recv_pdu/2, recv_pdu/3]).
 
 -include("ergw_test_lib.hrl").
-%% -include_lib("common_test/include/ct.hrl").
+-include_lib("common_test/include/ct.hrl").
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include("../include/ergw.hrl").
 
@@ -36,18 +36,36 @@
 %%% Init/End helper
 %%%===================================================================
 
-lib_init_per_suite(Config) ->
-    {_, AppCfg} = lists:keyfind(app_cfg, 1, Config),   %% let it crash if undefined
+ets_owner() ->
+    receive
+	stop ->
+	    exit(normal);
+	_ ->
+	    ets_owner()
+    end.
 
+init_ets(Config) ->
+    Pid = spawn(fun ets_owner/0),
+    TabId = ets:new(?MODULE, [set, public, named_table, {heir, Pid, []}]),
+    ets:insert(TabId, [{seq_no, 1},
+		       {restart_counter, 1},
+		       {teid, 1}]),
+    [{table, TabId}, {table_owner, Pid} | Config].
+
+lib_init_per_suite(Config0) ->
+    {_, AppCfg} = lists:keyfind(app_cfg, 1, Config0),   %% let it crash if undefined
+
+    Config = init_ets(Config0),
     [application:load(App) || App <- [lager, ergw, ergw_aaa]],
     meck_init(Config),
     load_config(AppCfg),
     {ok, _} = application:ensure_all_started(ergw),
     ok = meck:wait(gtp_dp, start_link, '_', ?TIMEOUT),
-    ok.
+    Config.
 
 lib_end_per_suite(Config) ->
     meck_unload(Config),
+    ?config(table_owner, Config) ! stop,
     [application:stop(App) || App <- [lager, ergw, ergw_aaa]],
     ok.
 
@@ -67,16 +85,18 @@ load_config(AppCfg) ->
 
 meck_init(Config) ->
     ok = meck:new(gtp_dp, [no_link]),
-    ok = meck:expect(gtp_dp, start_link, fun({Name, _SocketOpts}) ->
-						 RCnt =  erlang:unique_integer([positive, monotonic]) rem 256,
-						 GtpPort = #gtp_port{name = Name,
-								     type = 'gtp-u',
-								     pid = self(),
-								     ip = ?LOCALHOST,
-								     restart_counter = RCnt},
-						 gtp_socket_reg:register(Name, GtpPort),
-						 {ok, self()}
-					 end),
+    ok = meck:expect(gtp_dp, start_link,
+		     fun({Name, _SocketOpts}) ->
+			     RCnt =
+				 ets:update_counter(?MODULE, restart_counter, 1) rem 256,
+			     GtpPort = #gtp_port{name = Name,
+						 type = 'gtp-u',
+						 pid = self(),
+						 ip = ?LOCALHOST,
+						 restart_counter = RCnt},
+			     gtp_socket_reg:register(Name, GtpPort),
+			     {ok, self()}
+		     end),
     ok = meck:expect(gtp_dp, send, fun(_GtpPort, _IP, _Port, _Data) -> ok end),
     ok = meck:expect(gtp_dp, get_id, fun(_GtpPort) -> self() end),
     ok = meck:expect(gtp_dp, create_pdp_context, fun(_Context, _Args) -> ok end),
@@ -110,24 +130,26 @@ meck_validate(Config) ->
 gtp_context() ->
     GtpC = #gtpc{
 	      restart_counter =
-		  erlang:unique_integer([positive, monotonic]) rem 256,
+		  ets:update_counter(?MODULE, restart_counter, 1) rem 256,
 	      seq_no =
-		  erlang:unique_integer([positive, monotonic]) rem 16#800000
+		  ets:update_counter(?MODULE, seq_no, 1) rem 16#800000
 	     },
     gtp_context_new_teids(GtpC).
 
-gtp_context_inc_seq(#gtpc{seq_no = SeqNo} = GtpC) ->
-    GtpC#gtpc{seq_no = (SeqNo + 1) rem 16#800000}.
+gtp_context_inc_seq(GtpC) ->
+    GtpC#gtpc{seq_no =
+		  ets:update_counter(?MODULE, seq_no, 1) rem 16#800000}.
 
-gtp_context_inc_restart_counter(#gtpc{restart_counter = RCnt} = GtpC) ->
-    GtpC#gtpc{restart_counter = (RCnt + 1) rem 256}.
+gtp_context_inc_restart_counter(GtpC) ->
+    GtpC#gtpc{restart_counter =
+		  ets:update_counter(?MODULE, restart_counter, 1) rem 256}.
 
 gtp_context_new_teids(GtpC) ->
     GtpC#gtpc{
       local_control_tei =
-	  erlang:unique_integer([positive, monotonic]) rem 16#100000000,
+	  ets:update_counter(?MODULE, teid, 1) rem 16#100000000,
       local_data_tei =
-	  erlang:unique_integer([positive, monotonic]) rem 16#100000000
+	  ets:update_counter(?MODULE, teid, 1) rem 16#100000000
      }.
 
 %%%===================================================================

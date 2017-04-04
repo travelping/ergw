@@ -72,6 +72,12 @@ make_request(echo_request, _SubType,
     #gtp{version = v2, type = echo_request, tei = undefined,
 	 seq_no = SeqNo, ie = IEs};
 
+make_request(create_session_request, missing_ie,
+	     #gtpc{restart_counter = RCnt, seq_no = SeqNo}) ->
+    IEs = [#v2_recovery{restart_counter = RCnt}],
+    #gtp{version = v2, type = create_session_request, tei = 0,
+	 seq_no = SeqNo, ie = IEs};
+
 make_request(create_session_request, _SubType,
 	     #gtpc{restart_counter = RCnt, seq_no = SeqNo,
 		   local_control_tei = LocalCntlTEI,
@@ -250,6 +256,12 @@ validate_response(_Type, invalid_teid, Response, GtpC) ->
     ?match(
        #gtp{ie = #{{v2_cause,0} := #v2_cause{v2_cause = context_not_found}}
 	   }, Response),
+    GtpC;
+
+validate_response(create_session_request, missing_ie, Response, GtpC) ->
+   ?match(#gtp{type = create_session_response,
+		ie = #{{v2_cause,0} := #v2_cause{v2_cause = mandatory_ie_missing}}},
+	  Response),
     GtpC;
 
 validate_response(create_session_request, _SubType, Response,
