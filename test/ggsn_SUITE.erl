@@ -80,8 +80,7 @@ init_per_suite(Config0) ->
 	      {gtp_port, ?GTP1c_PORT * 4}
 	      | Config0],
 
-    ok = lib_init_per_suite(Config),
-    Config.
+    lib_init_per_suite(Config).
 
 end_per_suite(Config) ->
     ok = lib_end_per_suite(Config),
@@ -157,15 +156,7 @@ create_pdp_context_request_missing_ie() ->
 create_pdp_context_request_missing_ie(Config) ->
     S = make_gtp_socket(Config),
 
-    SeqNo = erlang:unique_integer([positive, monotonic]) rem 16#7fffff,
-    IEs = #{},
-    Msg = #gtp{version = v1, type = create_pdp_context_request, tei = 0,
-	       seq_no = SeqNo, ie = IEs},
-    Response = send_recv_pdu(S, Msg),
-
-    ?match(#gtp{type = create_pdp_context_response,
-		ie = #{{cause,0} := #cause{value = mandatory_ie_missing}}},
-	   Response),
+    create_pdp_context(missing_ie, S),
 
     meck_validate(Config),
     ok.

@@ -51,6 +51,12 @@ make_request(echo_request, _SubType,
     IEs = [#recovery{restart_counter = RCnt}],
     #gtp{version = v1, type = echo_request, tei = 0, seq_no = SeqNo, ie = IEs};
 
+make_request(create_pdp_context_request, missing_ie,
+	     #gtpc{restart_counter = RCnt, seq_no = SeqNo}) ->
+    IEs = [#recovery{restart_counter = RCnt}],
+    #gtp{version = v1, type = create_pdp_context_request, tei = 0,
+	 seq_no = SeqNo, ie = IEs};
+
 make_request(create_pdp_context_request, _SubType,
 	     #gtpc{restart_counter = RCnt, seq_no = SeqNo,
 		   local_control_tei = LocalCntlTEI,
@@ -117,6 +123,12 @@ validate_response(_Type, invalid_teid, Response, GtpC) ->
     ?match(
        #gtp{ie = #{{cause,0} := #cause{value = non_existent}}
 	   }, Response),
+    GtpC;
+
+validate_response(create_pdp_context_request, missing_ie, Response, GtpC) ->
+    ?match(#gtp{type = create_pdp_context_response,
+		ie = #{{cause,0} := #cause{value = mandatory_ie_missing}}},
+	   Response),
     GtpC;
 
 validate_response(create_pdp_context_request, _SubType, Response,

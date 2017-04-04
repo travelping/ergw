@@ -131,8 +131,7 @@ init_per_suite(Config0) ->
 	      {gtp_port, ?GTP2c_PORT * 4}
 	      | Config0],
 
-    ok = lib_init_per_suite(Config),
-    Config.
+    lib_init_per_suite(Config).
 
 end_per_suite(Config) ->
     ok = lib_end_per_suite(Config),
@@ -217,15 +216,8 @@ create_session_request_missing_ie() ->
 create_session_request_missing_ie(Config) ->
     S = make_gtp_socket(Config),
 
-    SeqNo = erlang:unique_integer([positive, monotonic]) rem 16#7fffff,
-    IEs = #{},
-    Msg = #gtp{version = v2, type = create_session_request, tei = 0,
-	       seq_no = SeqNo, ie = IEs},
-    Response = send_recv_pdu(S, Msg),
+    create_session(missing_ie, S),
 
-    ?match(#gtp{type = create_session_response,
-		ie = #{{v2_cause,0} := #v2_cause{v2_cause = mandatory_ie_missing}}},
-	   Response),
     meck_validate(Config),
     ok.
 
