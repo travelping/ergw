@@ -24,6 +24,7 @@
 	 send_pdu/2,
 	 send_recv_pdu/2, send_recv_pdu/3,
 	 recv_pdu/2, recv_pdu/3]).
+-export([pretty_print/1]).
 
 -include("ergw_test_lib.hrl").
 -include_lib("common_test/include/ct.hrl").
@@ -189,7 +190,7 @@ recv_pdu(S, SeqNo, Timeout) ->
 		ct:fail(Unexpected)
 	end,
 
-    ct:pal("Msg: ~p", [(catch gtp_packet:decode(Response))]),
+    ct:pal("Msg: ~s", [pretty_print((catch gtp_packet:decode(Response)))]),
     case gtp_packet:decode(Response) of
 	#gtp{type = echo_request} = Msg ->
 	    Resp = Msg#gtp{type = echo_response, ie = []},
@@ -203,3 +204,19 @@ recv_pdu(S, SeqNo, Timeout) ->
 	Msg ->
 	    Msg
     end.
+
+%%%===================================================================
+%%% Record formating
+%%%===================================================================
+
+pretty_print(Record) ->
+    io_lib_pretty:print(Record, fun pretty_print/2).
+
+pretty_print(gtp, N) ->
+    N = record_info(size, gtp) - 1,
+    record_info(fields, gtp);
+pretty_print(gtpc, N) ->
+    N = record_info(size, gtpc) - 1,
+    record_info(fields, gtpc);
+pretty_print(_, _) ->
+    no.
