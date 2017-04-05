@@ -240,7 +240,7 @@ pdp_alloc(#end_user_address{pdp_type_organization = 1,
 			    pdp_address = Address}) ->
     IP6 = case Address of
 	      << >> ->
-		  {{0,0,0,0,0,0,0,0},0};
+		  {{0,0,0,0,0,0,0,0},64};
 	      <<_:16/bytes>> ->
 		  {gtp_c_lib:bin2ip(Address),128}
 	  end,
@@ -254,9 +254,9 @@ pdp_alloc(#end_user_address{pdp_type_organization = 1,
 	<< IP6:16/bytes >> ->
 	    {{0,0,0,0}, {gtp_c_lib:bin2ip(IP6), 128}};
 	<< IP4:4/bytes >> ->
-	    {gtp_c_lib:bin2ip(IP4), {{0,0,0,0,0,0,0,0},0}};
+	    {gtp_c_lib:bin2ip(IP4), {{0,0,0,0,0,0,0,0},64}};
  	<<  >> ->
-	    {{0,0,0,0}, {{0,0,0,0,0,0,0,0},0}}
+	    {{0,0,0,0}, {{0,0,0,0,0,0,0,0},64}}
    end;
 
 pdp_alloc(_) ->
@@ -517,7 +517,9 @@ delete_context(From, Context) ->
     send_request(Context, ?T3, ?N3, delete_pdp_context_request, RequestIEs, From).
 
 dp_args(#context{ms_v4 = {MSv4,_}}) ->
-    MSv4.
+    MSv4;
+dp_args(_) ->
+    undefined.
 
 dp_create_pdp_context(Context) ->
     Args = dp_args(Context),
