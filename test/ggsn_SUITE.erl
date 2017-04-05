@@ -91,6 +91,8 @@ all() ->
      create_pdp_context_request_missing_ie,
      path_restart, path_restart_recovery,
      simple_pdp_context_request,
+     update_pdp_context_request_ra_update,
+     update_pdp_context_request_tei_update,
      create_pdp_context_request_resend,
      delete_pdp_context_request_resend,
      invalid_teid,
@@ -241,6 +243,34 @@ delete_pdp_context_request_resend(Config) ->
     ok.
 
 %%--------------------------------------------------------------------
+update_pdp_context_request_ra_update() ->
+    [{doc, "Check Update PDP Context with Routing Area Update"}].
+update_pdp_context_request_ra_update(Config) ->
+    S = make_gtp_socket(Config),
+
+    {GtpC1, _, _} = create_pdp_context(S),
+    {GtpC2, _, _} = update_pdp_context(ra_update, S, GtpC1),
+    delete_pdp_context(S, GtpC2),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+update_pdp_context_request_tei_update() ->
+    [{doc, "Check Update PDP Context with TEID update (e.g. SGSN change)"}].
+update_pdp_context_request_tei_update(Config) ->
+    S = make_gtp_socket(Config),
+
+    {GtpC1, _, _} = create_pdp_context(S),
+    {GtpC2, _, _} = update_pdp_context(tei_update, S, GtpC1),
+    delete_pdp_context(S, GtpC2),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
 invalid_teid() ->
     [{doc, "Check invalid TEID's for a number of request types"}].
 invalid_teid(Config) ->
@@ -248,7 +278,8 @@ invalid_teid(Config) ->
 
     {GtpC1, _, _} = create_pdp_context(S),
     {GtpC2, _, _} = delete_pdp_context(invalid_teid, S, GtpC1),
-    delete_pdp_context(S, GtpC2),
+    {GtpC3, _, _} = update_pdp_context(invalid_teid, S, GtpC2),
+    delete_pdp_context(S, GtpC3),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
