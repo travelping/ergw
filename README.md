@@ -12,7 +12,6 @@ IMPLEMENTED FEATURES
 Messages:
 
  * GTPv1 Create/Update/Delete PDP Context Request on Gn
- * GTPv2 Create/Delete Session Request on S2a
  * GTPv2 Create/Delete Session Request on S5/S8
 
 From the above the following procedures as defined by 3GPP T 23.060 should work:
@@ -113,10 +112,6 @@ This requires a suitable ergw.config, e.g.:
                              [{default, ['IMSI', <<"@">>, 'APN']}]}]}
                     ]},
                {s5s8, [{handler, pgw_s5s8},
-                       {sockets, [irx]},
-                       {data_paths, [grx]}
-                      ]},
-               {s2a,  [{handler, pgw_s2a},
                        {sockets, [irx]},
                        {data_paths, [grx]}
                       ]}

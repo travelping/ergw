@@ -64,10 +64,6 @@
 				{s5s8, [{handler, ?HUT},
 					{sockets, [irx]},
 					{data_paths, [grx]}
-				       ]},
-				{s2a,  [{handler, pgw_s2a},
-					{sockets, [irx]},
-					{data_paths, [grx]}
 				       ]}
 			       ]},
 
