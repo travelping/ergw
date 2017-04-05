@@ -12,6 +12,7 @@
 -export([make_request/3, make_response/3,
 	 create_pdp_context/1, create_pdp_context/2, create_pdp_context/3,
 	 update_pdp_context/3,
+	 ms_info_change_notification/3,
 	 delete_pdp_context/2, delete_pdp_context/3]).
 
 -include("ergw_test_lib.hrl").
@@ -39,6 +40,9 @@ update_pdp_context(SubType, Socket, GtpC0)
     execute_request(update_pdp_context_request, SubType, Socket, GtpC);
 update_pdp_context(SubType, Socket, GtpC) ->
     execute_request(update_pdp_context_request, SubType, Socket, GtpC).
+
+ms_info_change_notification(SubType, Socket, GtpC) ->
+    execute_request(ms_info_change_notification_request, SubType, Socket, GtpC).
 
 delete_pdp_context(Socket, GtpC) ->
     execute_request(delete_pdp_context_request, simple, Socket, GtpC).
@@ -182,6 +186,59 @@ make_request(update_pdp_context_request, _SubType,
     #gtp{version = v1, type = update_pdp_context_request,
 	 tei = RemoteCntlTEI, seq_no = SeqNo, ie = IEs};
 
+make_request(ms_info_change_notification_request, without_tei,
+	     #gtpc{restart_counter = RCnt, seq_no = SeqNo}) ->
+    IEs = [#recovery{restart_counter = RCnt},
+	   #rat_type{rat_type = 1},
+	   #imei{imei = <<"1234567890123456">>},
+	   #international_mobile_subscriber_identity{imsi = ?IMSI},
+	   #user_location_information{type = 1,
+				      mcc = <<"001">>,
+				      mnc = <<"001">>,
+				      lac = 11,
+				      ci  = 0,
+				      sac = 20263,
+				      rac = 0}
+	  ],
+
+    #gtp{version = v1, type = ms_info_change_notification_request, tei = 0,
+	 seq_no = SeqNo, ie = IEs};
+
+make_request(ms_info_change_notification_request, invalid_imsi,
+	     #gtpc{restart_counter = RCnt, seq_no = SeqNo}) ->
+    IEs = [#recovery{restart_counter = RCnt},
+	   #rat_type{rat_type = 1},
+	   #international_mobile_subscriber_identity{
+	      imsi = <<"991111111111111">>},
+	   #user_location_information{type = 1,
+				      mcc = <<"001">>,
+				      mnc = <<"001">>,
+				      lac = 11,
+				      ci  = 0,
+				      sac = 20263,
+				      rac = 0}
+	  ],
+
+    #gtp{version = v1, type = ms_info_change_notification_request, tei = 0,
+	 seq_no = SeqNo, ie = IEs};
+
+make_request(ms_info_change_notification_request, _SubType,
+	     #gtpc{restart_counter = RCnt, seq_no = SeqNo,
+		   remote_control_tei = RemoteCntlTEI}) ->
+    IEs = [#recovery{restart_counter = RCnt},
+	   #rat_type{rat_type = 1},
+	   #user_location_information{type = 1,
+				      mcc = <<"001">>,
+				      mnc = <<"001">>,
+				      lac = 11,
+				      ci  = 0,
+				      sac = 20263,
+				      rac = 0}
+	  ],
+
+    #gtp{version = v1, type = ms_info_change_notification_request,
+	 tei = RemoteCntlTEI, seq_no = SeqNo, ie = IEs};
+
 make_request(delete_pdp_context_request, _SubType,
 	     #gtpc{restart_counter = RCnt, seq_no = SeqNo,
 		   remote_control_tei = RemoteCntlTEI}) ->
@@ -277,6 +334,38 @@ validate_response(update_pdp_context_request, _SubType, Response,
 	  remote_control_tei = RemoteCntlTEI,
 	  remote_data_tei = RemoteDataTEI
      };
+
+validate_response(ms_info_change_notification_request, without_tei, Response, GtpC) ->
+    ?match(
+       #gtp{type = ms_info_change_notification_response,
+	    ie = #{{cause,0} :=
+		       #cause{value = request_accepted},
+		   {international_mobile_subscriber_identity,0} :=
+		       #international_mobile_subscriber_identity{},
+		   {imei,0} :=
+		       #imei{}
+		  }
+	   }, Response),
+    GtpC;
+
+validate_response(ms_info_change_notification_request, invalid_imsi,
+		  Response, GtpC) ->
+    ?match(
+       #gtp{ie = #{{cause,0} := #cause{value = non_existent}}
+	   }, Response),
+    GtpC;
+
+validate_response(ms_info_change_notification_request, simple, Response,
+		  #gtpc{local_control_tei = LocalCntlTEI} = GtpC) ->
+    ?match(
+       #gtp{type = ms_info_change_notification_response,
+	    tei = LocalCntlTEI,
+	    ie = #{{cause,0} := #cause{value = request_accepted}}
+	   }, Response),
+    #gtp{ie = IEs} = Response,
+    ?equal(false, maps:is_key({international_mobile_subscriber_identity,0}, IEs)),
+    ?equal(false, maps:is_key({imei,0}, IEs)),
+    GtpC;
 
 validate_response(delete_pdp_context_request, _SubType, Response,
 		  #gtpc{local_control_tei = LocalCntlTEI} = GtpC) ->

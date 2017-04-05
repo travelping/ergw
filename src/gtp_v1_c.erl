@@ -15,7 +15,8 @@
 	 build_response/1,
 	 build_echo_request/1,
 	 validate_teid/2,
-	 type/0, port/0]).
+	 type/0, port/0,
+	 get_msg_keys/1]).
 
 %% support functions
 -export([restart_counter/1, build_recovery/3]).
@@ -25,6 +26,8 @@
 
 -define('Recovery',					{recovery, 0}).
 -define('Access Point Name',				{access_point_name, 0}).
+-define('IMSI',						{international_mobile_subscriber_identity, 0}).
+-define('IMEI',						{imei, 0}).
 
 %%====================================================================
 %% API
@@ -221,6 +224,20 @@ validate_teid(MsgType, 0) ->
     end;
 validate_teid(_MsgType, _TEID) ->
     ok.
+
+get_msg_keys(#gtp{version = v1, ie = IEs}) ->
+    K0 = case maps:get(?'IMEI', IEs, undefined) of
+	     #imei{imei = IMEI} ->
+		 [{imei, IMEI}];
+	     _ ->
+		 []
+	 end,
+    case maps:get(?'IMSI', IEs, undefined) of
+	#international_mobile_subscriber_identity{imsi = IMSI} ->
+	    [{imsi, IMSI} | K0];
+	_ ->
+	    K0
+    end.
 
 %%%===================================================================
 %%% Internal functions
