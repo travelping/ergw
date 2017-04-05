@@ -112,7 +112,7 @@ validate_socket_option(Opt, Value) ->
 
 validate_handlers_option(Opt, Value)
   when is_list(Value) andalso
-       (Opt == 'gn' orelse Opt == 's5s8' orelse Opt == 's2a') ->
+       (Opt == 'gn' orelse Opt == 's5s8') ->
     Handler = proplists:get_value(handler, Value),
     case code:ensure_loaded(Handler) of
 	{module, _} ->
