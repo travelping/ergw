@@ -21,7 +21,7 @@
 -import('ergw_test_lib', [make_gtp_socket/1,
 			  send_pdu/2,
 			  send_recv_pdu/2, send_recv_pdu/3,
-			  recv_pdu/2, recv_pdu/3]).
+			  recv_pdu/2, recv_pdu/3, recv_pdu/4]).
 
 -endif.
 

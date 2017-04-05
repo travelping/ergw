@@ -23,7 +23,7 @@
 -export([make_gtp_socket/1,
 	 send_pdu/2,
 	 send_recv_pdu/2, send_recv_pdu/3,
-	 recv_pdu/2, recv_pdu/3]).
+	 recv_pdu/2, recv_pdu/3, recv_pdu/4]).
 -export([pretty_print/1]).
 
 -include("ergw_test_lib.hrl").
@@ -178,25 +178,30 @@ send_recv_pdu(S, Msg, Timeout) ->
 recv_pdu(S, Timeout) ->
     recv_pdu(S, undefined, Timeout).
 
-recv_pdu(_, _SeqNo, Timeout) when Timeout =< 0 ->
-    ct:fail(timeout);
 recv_pdu(S, SeqNo, Timeout) ->
-    Now = erlang:monotonic_time(millisecond),
-    Response =
-	case gen_udp:recv(S, 4096, Timeout) of
-	    {ok, {?LOCALHOST, _, R}} ->
-		R;
-	    Unexpected ->
-		ct:fail(Unexpected)
-	end,
+    recv_pdu(S, SeqNo, Timeout, fun(Reason) -> ct:fail(Reason) end).
 
+recv_pdu(_, _SeqNo, Timeout, Fail) when Timeout =< 0 ->
+    recv_pdu_fail(Fail, timeout);
+recv_pdu(S, SeqNo, Timeout, Fail) ->
+    Now = erlang:monotonic_time(millisecond),
+    case gen_udp:recv(S, 4096, Timeout) of
+	{ok, {?LOCALHOST, _, Response}} ->
+	    recv_pdu_msg(Response, Now, S, SeqNo, Timeout, Fail);
+	{error, Error} ->
+	    recv_pdu_fail(Fail, Error);
+	Unexpected ->
+	    recv_pdu_fail(Fail, Unexpected)
+    end.
+
+recv_pdu_msg(Response, At, S, SeqNo, Timeout, Fail) ->
     ct:pal("Msg: ~s", [pretty_print((catch gtp_packet:decode(Response)))]),
     case gtp_packet:decode(Response) of
 	#gtp{type = echo_request} = Msg ->
 	    Resp = Msg#gtp{type = echo_response, ie = []},
 	    send_pdu(S, Resp),
-	    NewTimeout = Timeout - (erlang:monotonic_time(millisecond) - Now),
-	    recv_pdu(S, NewTimeout);
+	    NewTimeout = Timeout - (erlang:monotonic_time(millisecond) - At),
+	    recv_pdu(S, SeqNo, NewTimeout, Fail);
 	#gtp{seq_no = SeqNo} = Msg
 	  when is_integer(SeqNo) ->
 	    Msg;
@@ -204,6 +209,11 @@ recv_pdu(S, SeqNo, Timeout) ->
 	Msg ->
 	    Msg
     end.
+
+recv_pdu_fail(Fail, Why) when is_function(Fail) ->
+    Fail(Why);
+recv_pdu_fail(Fail, Why) ->
+    {Fail, Why}.
 
 %%%===================================================================
 %%% Record formating
