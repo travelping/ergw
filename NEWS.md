@@ -1,6 +1,22 @@
 erGW - 3GPP GGSN and PDN-GW in Erlang
 =====================================
 
+Version 1.9.0 - 05 Apr 2017
+---------------------------
+
+* extensive unit tests for GGSN, PGW and proxy modes
+* fix QoS IE encoding for extended bit rates
+* fix path restart behavior
+* implement GTPv2 messages:
+   * Change Notification Request
+   * Delete Bearer Request
+   * Modify Bearer Command
+* implement GTPv1 messages:
+   * MS Info Change Notification Request
+   * SGSN initiated Update PDP Context Request
+   * GGSN initiated Delete PDP Context Request
+* drop S2a support (will be readded later)
+
 Version 1.8.0 - 24 Mar 2017
 ---------------------------
 
