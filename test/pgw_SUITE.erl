@@ -100,13 +100,15 @@ all() ->
      delete_session_request_resend,
      modify_bearer_request_ra_update,
      modify_bearer_request_tei_update,
+     modify_bearer_command,
      change_notification_request_with_tei,
      change_notification_request_without_tei,
      change_notification_request_invalid_imsi,
      suspend_notification_request,
      resume_notification_request,
      delete_bearer_request,
-     invalid_teid,
+     requests_invalid_teid,
+     commands_invalid_teid,
      delete_bearer_request,
      delete_bearer_request_resend].
 
@@ -285,6 +287,21 @@ modify_bearer_request_tei_update(Config) ->
     ok.
 
 %%--------------------------------------------------------------------
+modify_bearer_command() ->
+    [{doc, "Check Modify Bearer Command"}].
+modify_bearer_command(Config) ->
+    S = make_gtp_socket(Config),
+
+    {GtpC1, _, _} = create_session(S),
+    {GtpC2, Req} = modify_bearer_command(simple, S, GtpC1),
+    ?equal({ok, timeout}, recv_pdu(S, Req#gtp.seq_no, ?TIMEOUT, ok)),
+    delete_session(S, GtpC2),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
 change_notification_request_with_tei() ->
     [{doc, "Check Change Notification request with TEID"}].
 change_notification_request_with_tei(Config) ->
@@ -357,9 +374,9 @@ resume_notification_request(Config) ->
     ok.
 
 %%--------------------------------------------------------------------
-invalid_teid() ->
+requests_invalid_teid() ->
     [{doc, "Check invalid TEID's for a number of request types"}].
-invalid_teid(Config) ->
+requests_invalid_teid(Config) ->
     S = make_gtp_socket(Config),
 
     {GtpC1, _, _} = create_session(S),
@@ -369,6 +386,20 @@ invalid_teid(Config) ->
     {GtpC5, _, _} = resume_notification(invalid_teid, S, GtpC4),
     {GtpC6, _, _} = delete_session(invalid_teid, S, GtpC5),
     delete_session(S, GtpC6),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+commands_invalid_teid() ->
+    [{doc, "Check invalid TEID's for a number of command types"}].
+commands_invalid_teid(Config) ->
+    S = make_gtp_socket(Config),
+
+    {GtpC1, _, _} = create_session(S),
+    {GtpC2, _, _} = modify_bearer_command(invalid_teid, S, GtpC1),
+    delete_session(S, GtpC2),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),

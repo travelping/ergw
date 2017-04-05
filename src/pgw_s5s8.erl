@@ -256,6 +256,13 @@ handle_request(_ReqKey,
     {reply, Response, State#{context => Context}};
 
 handle_request(_ReqKey,
+	       #gtp{type = modify_bearer_command,
+		    ie = _IEs},
+	       _Resent, #{context := _Context} = State) ->
+    %% TODO: adjust QoS
+    {noreply, State};
+
+handle_request(_ReqKey,
 	       #gtp{type = change_notification_request,
 		    ie = #{?'Recovery' := Recovery} = IEs},
 	       _Resent, #{context := OldContext} = State) ->

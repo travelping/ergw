@@ -11,6 +11,7 @@
 			      create_session/1, create_session/2, create_session/3,
 			      delete_session/2, delete_session/3,
 			      modify_bearer/3,
+			      modify_bearer_command/3,
 			      change_notification/3,
 			      suspend_notification/3,
 			      resume_notification/3]).
