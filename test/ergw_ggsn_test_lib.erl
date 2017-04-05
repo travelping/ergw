@@ -11,6 +11,7 @@
 
 -export([make_request/3, make_response/3,
 	 create_pdp_context/1, create_pdp_context/2, create_pdp_context/3,
+	 update_pdp_context/3,
 	 delete_pdp_context/2, delete_pdp_context/3]).
 
 -include("ergw_test_lib.hrl").
@@ -31,6 +32,13 @@ create_pdp_context(SubType, Socket) ->
 
 create_pdp_context(SubType, Socket, GtpC) ->
     execute_request(create_pdp_context_request, SubType, Socket, GtpC).
+
+update_pdp_context(SubType, Socket, GtpC0)
+  when SubType == tei_update ->
+    GtpC = gtp_context_new_teids(GtpC0),
+    execute_request(update_pdp_context_request, SubType, Socket, GtpC);
+update_pdp_context(SubType, Socket, GtpC) ->
+    execute_request(update_pdp_context_request, SubType, Socket, GtpC).
 
 delete_pdp_context(Socket, GtpC) ->
     execute_request(delete_pdp_context_request, simple, Socket, GtpC).
@@ -96,6 +104,33 @@ make_request(create_pdp_context_request, _SubType,
     #gtp{version = v1, type = create_pdp_context_request, tei = 0,
 	 seq_no = SeqNo, ie = IEs};
 
+make_request(update_pdp_context_request, _SubType,
+	     #gtpc{restart_counter = RCnt, seq_no = SeqNo,
+		   local_control_tei = LocalCntlTEI,
+		   local_data_tei = LocalDataTEI,
+		   remote_control_tei = RemoteCntlTEI}) ->
+    IEs = [#recovery{restart_counter = RCnt},
+	   #gsn_address{instance = 0, address = gtp_c_lib:ip2bin(?LOCALHOST)},
+	   #gsn_address{instance = 1, address = gtp_c_lib:ip2bin(?LOCALHOST)},
+	   #international_mobile_subscriber_identity{imsi = ?IMSI},
+	   #nsapi{nsapi = 5},
+	   #quality_of_service_profile{
+	      priority = 2,
+	      data = <<19,146,31,113,150,254,254,116,250,255,255,0,142,0>>},
+	   #rat_type{rat_type = 1},
+	   #tunnel_endpoint_identifier_control_plane{tei = LocalCntlTEI},
+	   #tunnel_endpoint_identifier_data_i{tei = LocalDataTEI},
+	   #user_location_information{type = 1,
+				      mcc = <<"001">>,
+				      mnc = <<"001">>,
+				      lac = 11,
+				      ci  = 0,
+				      sac = 20263,
+				      rac = 0}],
+
+    #gtp{version = v1, type = update_pdp_context_request,
+	 tei = RemoteCntlTEI, seq_no = SeqNo, ie = IEs};
+
 make_request(delete_pdp_context_request, _SubType,
 	     #gtpc{restart_counter = RCnt, seq_no = SeqNo,
 		   remote_control_tei = RemoteCntlTEI}) ->
@@ -153,6 +188,35 @@ validate_response(create_pdp_context_request, _SubType, Response,
 			   #quality_of_service_profile{priority = 2},
 		       {reordering_required,0} :=
 			   #reordering_required{required = no},
+		       {tunnel_endpoint_identifier_control_plane,0} :=
+			   #tunnel_endpoint_identifier_control_plane{},
+		       {tunnel_endpoint_identifier_data_i,0} :=
+			   #tunnel_endpoint_identifier_data_i{}
+		      }}, Response),
+
+    #gtp{ie = #{{tunnel_endpoint_identifier_control_plane,0} :=
+		    #tunnel_endpoint_identifier_control_plane{
+		       tei = RemoteCntlTEI},
+		{tunnel_endpoint_identifier_data_i,0} :=
+		    #tunnel_endpoint_identifier_data_i{
+		      tei = RemoteDataTEI}
+	       }} = Response,
+
+    GtpC#gtpc{
+	  remote_control_tei = RemoteCntlTEI,
+	  remote_data_tei = RemoteDataTEI
+     };
+
+validate_response(update_pdp_context_request, _SubType, Response,
+		  #gtpc{local_control_tei = LocalCntlTEI} = GtpC) ->
+    ?match(#gtp{type = update_pdp_context_response,
+		tei = LocalCntlTEI,
+		ie = #{{cause,0} := #cause{value = request_accepted},
+		       {charging_id,0} := #charging_id{},
+		       {gsn_address,0} := #gsn_address{},
+		       {gsn_address,1} := #gsn_address{},
+		       {quality_of_service_profile,0} :=
+			   #quality_of_service_profile{priority = 2},
 		       {tunnel_endpoint_identifier_control_plane,0} :=
 			   #tunnel_endpoint_identifier_control_plane{},
 		       {tunnel_endpoint_identifier_data_i,0} :=
