@@ -58,7 +58,13 @@
 				      {sockets, [irx]},
 				      {data_paths, [grx]},
 				      {aaa, [{'Username',
-					      [{default, ['IMSI', <<"@">>, 'APN']}]}]}
+					      [{default, ['IMSI',   <<"/">>,
+							  'IMEI',   <<"/">>,
+							  'MSISDN', <<"/">>,
+							  'ATOM',   <<"/">>,
+							  "TEXT",   <<"/">>,
+							  12345,
+							  <<"@">>, 'APN']}]}]}
 				     ]}
 			       ]},
 

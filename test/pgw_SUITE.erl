@@ -59,11 +59,25 @@
 				      {sockets, [irx]},
 				      {data_paths, [grx]},
 				      {aaa, [{'Username',
-					      [{default, ['IMSI', <<"@">>, 'APN']}]}]}
+					      [{default, ['IMSI',   <<"/">>,
+							  'IMEI',   <<"/">>,
+							  'MSISDN', <<"/">>,
+							  'ATOM',   <<"/">>,
+							  "TEXT",   <<"/">>,
+							  12345,
+							  <<"@">>, 'APN']}]}]}
 				     ]},
 				{s5s8, [{handler, ?HUT},
 					{sockets, [irx]},
-					{data_paths, [grx]}
+					{data_paths, [grx]},
+					{aaa, [{'Username',
+						[{default, ['IMSI',   <<"/">>,
+							    'IMEI',   <<"/">>,
+							    'MSISDN', <<"/">>,
+							    'ATOM',   <<"/">>,
+							    "TEXT",   <<"/">>,
+							    12345,
+							    <<"@">>, 'APN']}]}]}
 				       ]}
 			       ]},
 
