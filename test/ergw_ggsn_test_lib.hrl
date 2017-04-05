@@ -10,6 +10,7 @@
 -import('ergw_ggsn_test_lib', [make_request/3, make_response/3,
 			       create_pdp_context/1, create_pdp_context/2, create_pdp_context/3,
 			       update_pdp_context/3,
+			       ms_info_change_notification/3,
 			       delete_pdp_context/2, delete_pdp_context/3]).
 
 -endif.

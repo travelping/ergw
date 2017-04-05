@@ -186,6 +186,20 @@ handle_request(_ReqKey,
     {reply, Reply, State1};
 
 handle_request(_ReqKey,
+	       #gtp{type = ms_info_change_notification_request,
+		    ie = #{?'Recovery' := Recovery} = IEs},
+	       _Resent, #{context := OldContext} = State) ->
+
+    Context = update_context_from_gtp_req(IEs, OldContext),
+
+    ResponseIEs0 = [#cause{value = request_accepted}],
+    ResponseIEs = copy_ies_to_response(IEs, ResponseIEs0,
+				       [?'IMSI', ?'IMEI']),
+    Response = response(ms_info_change_notification_response, Context,
+			Recovery /= undefined, ResponseIEs),
+    {reply, Response, State#{context => Context}};
+
+handle_request(_ReqKey,
 	       #gtp{type = delete_pdp_context_request, ie = _IEs}, _Resent,
 	       #{context := Context} = State) ->
 
@@ -500,6 +514,25 @@ get_context_from_req(_, _, Context) ->
 
 update_context_from_gtp_req(Request, Context) ->
     maps:fold(fun get_context_from_req/3, Context, Request).
+
+enter_ie(_Key, Value, IEs)
+  when is_list(IEs) ->
+    [Value|IEs].
+%% enter_ie(Key, Value, IEs)
+%%   when is_map(IEs) ->
+%%     IEs#{Key := Value}.
+
+copy_ies_to_response(_, ResponseIEs, []) ->
+    ResponseIEs;
+copy_ies_to_response(RequestIEs, ResponseIEs0, [H|T]) ->
+    ResponseIEs =
+	case RequestIEs of
+	    #{H := Value} ->
+		enter_ie(H, Value, ResponseIEs0);
+	    _ ->
+		ResponseIEs0
+	end,
+    copy_ies_to_response(RequestIEs, ResponseIEs, T).
 
 send_request(#context{control_port = GtpPort,
 		      remote_control_tei = RemoteCntlTEI,

@@ -44,12 +44,26 @@ lookup_keys(GtpPort, [H|T]) ->
 	    gtp_context_reg:lookup(GtpPort, T)
     end.
 
-%% TEID handling for GTPv2 is brain dead....
+%% TEID handling for GTPv1 is brain dead....
 handle_message(#request_key{gtp_port = GtpPort} = ReqKey,
 	       #gtp{version = v2, type = MsgType, tei = 0} = Msg)
   when MsgType == change_notification_request;
        MsgType == change_notification_response ->
     Keys = gtp_v2_c:get_msg_keys(Msg),
+    case lookup_keys(GtpPort, Keys) of
+	Context when is_pid(Context) ->
+	    do_handle_message(Context, ReqKey, Msg);
+
+	_ ->
+	    generic_error(ReqKey, Msg, not_found)
+    end;
+
+%% same as above for GTPv1
+handle_message(#request_key{gtp_port = GtpPort} = ReqKey,
+	       #gtp{version = v1, type = MsgType, tei = 0} = Msg)
+  when MsgType == ms_info_change_notification_request;
+       MsgType == ms_info_change_notification_response ->
+    Keys = gtp_v1_c:get_msg_keys(Msg),
     case lookup_keys(GtpPort, Keys) of
 	Context when is_pid(Context) ->
 	    do_handle_message(Context, ReqKey, Msg);

@@ -134,6 +134,9 @@ all() ->
      delete_pdp_context_request_resend,
      update_pdp_context_request_ra_update,
      update_pdp_context_request_tei_update,
+     ms_info_change_notification_request_with_tei,
+     ms_info_change_notification_request_without_tei,
+     ms_info_change_notification_request_invalid_imsi,
      proxy_context_selection,
      proxy_context_invalid_selection,
      invalid_teid,
@@ -312,6 +315,50 @@ update_pdp_context_request_tei_update(Config) ->
     ok.
 
 %%--------------------------------------------------------------------
+ms_info_change_notification_request_with_tei() ->
+    [{doc, "Check Ms_Info_Change Notification request with TEID"}].
+ms_info_change_notification_request_with_tei(Config) ->
+    S = make_gtp_socket(Config),
+
+    {GtpC1, _, _} = create_pdp_context(S),
+    {GtpC2, _, _} = ms_info_change_notification(simple, S, GtpC1),
+    delete_pdp_context(S, GtpC2),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+ms_info_change_notification_request_without_tei() ->
+    [{doc, "Check Ms_Info_Change Notification request without TEID "
+           "include IMEI and IMSI instead"}].
+ms_info_change_notification_request_without_tei(Config) ->
+    S = make_gtp_socket(Config),
+
+    {GtpC1, _, _} = create_pdp_context(S),
+    {GtpC2, _, _} = ms_info_change_notification(without_tei, S, GtpC1),
+    delete_pdp_context(S, GtpC2),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+ms_info_change_notification_request_invalid_imsi() ->
+    [{doc, "Check Ms_Info_Change Notification request without TEID "
+           "include a invalid IMEI and IMSI instead"}].
+ms_info_change_notification_request_invalid_imsi(Config) ->
+    S = make_gtp_socket(Config),
+
+    {GtpC1, _, _} = create_pdp_context(S),
+    {GtpC2, _, _} = ms_info_change_notification(invalid_imsi, S, GtpC1),
+    delete_pdp_context(S, GtpC2),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
 proxy_context_selection() ->
     [{doc, "Check that the proxy context selection works"}].
 proxy_context_selection(Config) ->
@@ -361,8 +408,9 @@ invalid_teid(Config) ->
 
     {GtpC1, _, _} = create_pdp_context(S),
     {GtpC2, _, _} = delete_pdp_context(invalid_teid, S, GtpC1),
-    {GtpC3, _, _} = delete_pdp_context(invalid_teid, S, GtpC2),
-    delete_pdp_context(S, GtpC3),
+    {GtpC3, _, _} = update_pdp_context(invalid_teid, S, GtpC2),
+    {GtpC4, _, _} = ms_info_change_notification(invalid_teid, S, GtpC3),
+    delete_pdp_context(S, GtpC4),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
