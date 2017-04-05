@@ -13,6 +13,7 @@
 	 create_session/1, create_session/2, create_session/3,
 	 delete_session/2, delete_session/3,
 	 modify_bearer/3,
+	 modify_bearer_command/3,
 	 change_notification/3,
 	 suspend_notification/3,
 	 resume_notification/3]).
@@ -42,6 +43,9 @@ modify_bearer(SubType, Socket, GtpC0)
     execute_request(modify_bearer_request, SubType, Socket, GtpC);
 modify_bearer(SubType, Socket, GtpC) ->
     execute_request(modify_bearer_request, SubType, Socket, GtpC).
+
+modify_bearer_command(SubType, Socket, GtpC) ->
+    execute_command(modify_bearer_command, SubType, Socket, GtpC).
 
 change_notification(SubType, Socket, GtpC) ->
     execute_request(change_notification_request, SubType, Socket, GtpC).
@@ -166,6 +170,25 @@ make_request(modify_bearer_request, SubType,
 	  ],
 
     #gtp{version = v2, type = modify_bearer_request, tei = RemoteCntlTEI,
+	 seq_no = SeqNo, ie = IEs};
+
+make_request(modify_bearer_command, SubType,
+	     #gtpc{restart_counter = RCnt, seq_no = SeqNo,
+		   local_control_tei = LocalCntlTEI,
+		   remote_control_tei = RemoteCntlTEI})
+  when SubType == simple; SubType == ra_update ->
+    IEs = [#v2_recovery{restart_counter = RCnt},
+	   #v2_aggregate_maximum_bit_rate{},
+	   #v2_bearer_context{
+	      group = [#v2_eps_bearer_id{eps_bearer_id = 5},
+		       #v2_bearer_level_quality_of_service{}
+		      ]},
+	   #v2_fully_qualified_tunnel_endpoint_identifier{
+	      interface_type = ?'S5/S8-C SGW',
+	      key = LocalCntlTEI,
+	      ipv4 = gtp_c_lib:ip2bin(?LOCALHOST)}
+	  ],
+    #gtp{version = v2, type = modify_bearer_command, tei = RemoteCntlTEI,
 	 seq_no = SeqNo, ie = IEs};
 
 make_request(change_notification_request, simple,
@@ -388,6 +411,16 @@ validate_response(delete_session_request, _SubType, Response,
 %%%===================================================================
 %%% Helper functions
 %%%===================================================================
+
+execute_command(MsgType, SubType, Socket, GtpC)
+  when SubType == invalid_teid ->
+    execute_request(MsgType, SubType, Socket, GtpC);
+execute_command(MsgType, SubType, Socket, GtpC0) ->
+    GtpC = gtp_context_inc_seq(GtpC0),
+    Msg = make_request(MsgType, SubType, GtpC),
+    send_pdu(Socket, Msg),
+
+    {GtpC, Msg}.
 
 execute_request(MsgType, SubType, Socket, GtpC0) ->
     GtpC = gtp_context_inc_seq(GtpC0),
