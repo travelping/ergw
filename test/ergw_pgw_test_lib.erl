@@ -66,6 +66,44 @@ delete_session(SubType, Socket, GtpC) ->
 %%% Create GTPv2-C messages
 %%%===================================================================
 
+make_pdn_type(ipv6, IEs) ->
+    PrefixLen = 64,
+    Prefix = gtp_c_lib:ip2bin({0,0,0,0,0,0,0,0}),
+    [#v2_pdn_address_allocation{
+	type = ipv6,
+	address = <<PrefixLen, Prefix/binary>>},
+     #v2_pdn_type{pdn_type = ipv6},
+     #v2_protocol_configuration_options{
+	config = {0, [{1,<<>>}, {3,<<>>}, {10,<<>>}]}}
+     | IEs];
+make_pdn_type(ipv4v6, IEs) ->
+    PrefixLen = 64,
+    Prefix = gtp_c_lib:ip2bin({0,0,0,0,0,0,0,0}),
+    RequestedIP = gtp_c_lib:ip2bin({0,0,0,0}),
+    [#v2_pdn_address_allocation{
+	type = ipv4v6,
+	address = <<PrefixLen, Prefix/binary, RequestedIP/binary>>},
+     #v2_pdn_type{pdn_type = ipv4v6},
+     #v2_protocol_configuration_options{
+	config = {0, [{ipcp,'CP-Configure-Request',0,
+		       [{ms_dns1, <<0,0,0,0>>},
+			{ms_dns2, <<0,0,0,0>>}]},
+		      {13,<<>>},{10,<<>>},{5,<<>>},
+		      {1,<<>>}, {3,<<>>}, {10,<<>>}]}}
+     | IEs];
+make_pdn_type(_, IEs) ->
+    RequestedIP = gtp_c_lib:ip2bin({0,0,0,0}),
+    [#v2_pdn_address_allocation{type = ipv4,
+				address = RequestedIP},
+     #v2_pdn_type{pdn_type = ipv4},
+     #v2_protocol_configuration_options{
+	config = {0, [{ipcp,'CP-Configure-Request',0,
+		       [{ms_dns1, <<0,0,0,0>>},
+			{ms_dns2, <<0,0,0,0>>}]},
+		      {13,<<>>},{10,<<>>},{5,<<>>}]}}
+     | IEs].
+%%%-------------------------------------------------------------------
+
 make_request(Type, invalid_teid, GtpC) ->
     Msg = make_request(Type, simple, GtpC),
     Msg#gtp{tei = 16#7fffffff};
@@ -82,51 +120,44 @@ make_request(create_session_request, missing_ie,
     #gtp{version = v2, type = create_session_request, tei = 0,
 	 seq_no = SeqNo, ie = IEs};
 
-make_request(create_session_request, _SubType,
+make_request(create_session_request, SubType,
 	     #gtpc{restart_counter = RCnt, seq_no = SeqNo,
 		   local_control_tei = LocalCntlTEI,
 		   local_data_tei = LocalDataTEI}) ->
-    IEs = [#v2_recovery{restart_counter = RCnt},
-	   #v2_access_point_name{apn = ?'APN-EXAMPLE'},
-	   #v2_aggregate_maximum_bit_rate{uplink = 48128, downlink = 1704125},
-	   #v2_apn_restriction{restriction_type_value = 0},
-	   #v2_bearer_context{
-	      group = [#v2_bearer_level_quality_of_service{
-			  pci = 1, pl = 10, pvi = 0, label = 8,
-			  maximum_bit_rate_for_uplink      = 0,
-			  maximum_bit_rate_for_downlink    = 0,
-			  guaranteed_bit_rate_for_uplink   = 0,
-			  guaranteed_bit_rate_for_downlink = 0},
-		       #v2_eps_bearer_id{eps_bearer_id = 5},
-		       #v2_fully_qualified_tunnel_endpoint_identifier{
-			  instance = 2,
-			  interface_type = ?'S5/S8-U SGW',
-			  key = LocalDataTEI,
-			  ipv4 = gtp_c_lib:ip2bin(?LOCALHOST)}
-		      ]},
-	   #v2_fully_qualified_tunnel_endpoint_identifier{
-	      interface_type = ?'S5/S8-C SGW',
-	      key = LocalCntlTEI,
-	      ipv4 = gtp_c_lib:ip2bin(?LOCALHOST)},
-	   #v2_international_mobile_subscriber_identity{
-	      imsi = ?'IMSI'},
-	   #v2_mobile_equipment_identity{mei = <<"AAAAAAAA">>},
-	   #v2_msisdn{msisdn = ?'MSISDN'},
-	   #v2_pdn_address_allocation{type = ipv4,
-				      address = <<0,0,0,0>>},
-	   #v2_pdn_type{pdn_type = ipv4},
-	   #v2_protocol_configuration_options{
-	      config = {0, [{ipcp,'CP-Configure-Request',0,
-			     [{ms_dns1,<<0,0,0,0>>},
-			      {ms_dns2,<<0,0,0,0>>}]},
-			    {13,<<>>},{10,<<>>},{5,<<>>}]}},
-	   #v2_rat_type{rat_type = 6},
-	   #v2_selection_mode{mode = 0},
-	   #v2_serving_network{mcc = <<"001">>, mnc = <<"001">>},
-	   #v2_ue_time_zone{timezone = 10, dst = 0},
-	   #v2_user_location_information{tai = <<3,2,22,214,217>>,
-					 ecgi = <<3,2,22,8,71,9,92>>}],
-
+    IEs0 =
+	[#v2_recovery{restart_counter = RCnt},
+	 #v2_access_point_name{apn = ?'APN-EXAMPLE'},
+	 #v2_aggregate_maximum_bit_rate{uplink = 48128, downlink = 1704125},
+	 #v2_apn_restriction{restriction_type_value = 0},
+	 #v2_bearer_context{
+	    group = [#v2_bearer_level_quality_of_service{
+			pci = 1, pl = 10, pvi = 0, label = 8,
+			maximum_bit_rate_for_uplink      = 0,
+			maximum_bit_rate_for_downlink    = 0,
+			guaranteed_bit_rate_for_uplink   = 0,
+			guaranteed_bit_rate_for_downlink = 0},
+		     #v2_eps_bearer_id{eps_bearer_id = 5},
+		     #v2_fully_qualified_tunnel_endpoint_identifier{
+			instance = 2,
+			interface_type = ?'S5/S8-U SGW',
+			key = LocalDataTEI,
+			ipv4 = gtp_c_lib:ip2bin(?LOCALHOST)}
+		    ]},
+	 #v2_fully_qualified_tunnel_endpoint_identifier{
+	    interface_type = ?'S5/S8-C SGW',
+	    key = LocalCntlTEI,
+	    ipv4 = gtp_c_lib:ip2bin(?LOCALHOST)},
+	 #v2_international_mobile_subscriber_identity{
+	    imsi = ?'IMSI'},
+	 #v2_mobile_equipment_identity{mei = <<"AAAAAAAA">>},
+	 #v2_msisdn{msisdn = ?'MSISDN'},
+	 #v2_rat_type{rat_type = 6},
+	 #v2_selection_mode{mode = 0},
+	 #v2_serving_network{mcc = <<"001">>, mnc = <<"001">>},
+	 #v2_ue_time_zone{timezone = 10, dst = 0},
+	 #v2_user_location_information{tai = <<3,2,22,214,217>>,
+				       ecgi = <<3,2,22,8,71,9,92>>}],
+    IEs = make_pdn_type(SubType, IEs0),
     #gtp{version = v2, type = create_session_request, tei = 0,
 	 seq_no = SeqNo, ie = IEs};
 

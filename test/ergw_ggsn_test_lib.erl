@@ -50,6 +50,63 @@ delete_pdp_context(SubType, Socket, GtpC) ->
 %%% Create GTPv1-C messages
 %%%===================================================================
 
+make_pdp_type(ipv6, IEs) ->
+    [#end_user_address{pdp_type_organization = 1,
+		       pdp_type_number = 16#57,
+		       pdp_address = <<>>},
+     #protocol_configuration_options{
+	config = {0, [{1,<<>>}, {3,<<>>}, {10,<<>>}]}}
+     | IEs];
+make_pdp_type(ipv4v6, IEs) ->
+    [#end_user_address{pdp_type_organization = 1,
+		       pdp_type_number = 16#8d,
+		       pdp_address = <<>>},
+     #protocol_configuration_options{
+	config = {0, [{ipcp,'CP-Configure-Request',1,
+		       [{ms_dns1,<<0,0,0,0>>},
+			{ms_dns2,<<0,0,0,0>>}]},
+		      {1,<<>>}, {3,<<>>}, {10,<<>>}, {13,<<>>}]}}
+     | IEs];
+make_pdp_type(_, IEs) ->
+    [#end_user_address{pdp_type_organization = 1,
+		       pdp_type_number = 16#21,
+		       pdp_address = <<>>},
+     #protocol_configuration_options{
+	config = {0, [{ipcp,'CP-Configure-Request',1,
+		       [{ms_dns1,<<0,0,0,0>>},
+			{ms_dns2,<<0,0,0,0>>}]},
+		      {13,<<>>}]}}
+     | IEs].
+
+validate_pdp_type(ipv6, IEs) ->
+     ?match(#{{end_user_address,0} :=
+		 #end_user_address{pdp_type_organization = 1,
+				   pdp_type_number = 87}}, IEs);
+validate_pdp_type(ipv4v6, IEs) ->
+     ?match(#{{end_user_address,0} :=
+		 #end_user_address{pdp_type_organization = 1,
+				   pdp_type_number = 141},
+	      {protocol_configuration_options,0} :=
+		  #protocol_configuration_options{
+		     config = {0,[{ipcp,'CP-Configure-Nak',1,
+				   [{ms_dns1,_},
+				    {ms_dns2,_}]},
+				  {13, _},
+				  {13, _}]}}}, IEs);
+validate_pdp_type(_, IEs) ->
+    ?match(#{{end_user_address,0} :=
+		 #end_user_address{pdp_type_organization = 1,
+				   pdp_type_number = 33},
+	     {protocol_configuration_options,0} :=
+		 #protocol_configuration_options{
+		    config = {0,[{ipcp,'CP-Configure-Nak',1,
+				  [{ms_dns1,_},
+				   {ms_dns2,_}]},
+				 {13, _},
+				 {13, _}]}}}, IEs).
+
+%%%-------------------------------------------------------------------
+
 make_request(Type, invalid_teid, GtpC) ->
     Msg = make_request(Type, simple, GtpC),
     Msg#gtp{tei = 16#7fffffff};
@@ -65,41 +122,35 @@ make_request(create_pdp_context_request, missing_ie,
     #gtp{version = v1, type = create_pdp_context_request, tei = 0,
 	 seq_no = SeqNo, ie = IEs};
 
-make_request(create_pdp_context_request, _SubType,
+make_request(create_pdp_context_request, SubType,
 	     #gtpc{restart_counter = RCnt, seq_no = SeqNo,
 		   local_control_tei = LocalCntlTEI,
 		   local_data_tei = LocalDataTEI}) ->
-    IEs = [#recovery{restart_counter = RCnt},
-	   #access_point_name{apn = ?'APN-EXAMPLE'},
-	   #end_user_address{pdp_type_organization = 1,
-			     pdp_type_number = 16#21,
-			     pdp_address = <<>>},
-	   #gsn_address{instance = 0, address = gtp_c_lib:ip2bin(?LOCALHOST)},
-	   #gsn_address{instance = 1, address = gtp_c_lib:ip2bin(?LOCALHOST)},
-	   #imei{imei = <<"1234567890123456">>},
-	   #international_mobile_subscriber_identity{imsi = ?IMSI},
-	   #ms_international_pstn_isdn_number{
-	      msisdn = {isdn_address,1,1,1, ?'MSISDN'}},
-	   #nsapi{nsapi = 5},
-	   #protocol_configuration_options{
-	      config = {0, [{ipcp,'CP-Configure-Request',1,
-			     [{ms_dns1,<<0,0,0,0>>},
-			      {ms_dns2,<<0,0,0,0>>}]},
-			    {13,<<>>}]}},
-	   #quality_of_service_profile{
-	      priority = 2,
-	      data = <<19,146,31,113,150,254,254,116,250,255,255,0,142,0>>},
-	   #rat_type{rat_type = 1},
-	   #selection_mode{mode = 0},
-	   #tunnel_endpoint_identifier_control_plane{tei = LocalCntlTEI},
-	   #tunnel_endpoint_identifier_data_i{tei = LocalDataTEI},
-	   #user_location_information{type = 1,
-				      mcc = <<"001">>,
-				      mnc = <<"001">>,
-				      lac = 11,
-				      ci  = 0,
-				      sac = 20263,
-				      rac = 0}],
+    IEs0 =
+	[#recovery{restart_counter = RCnt},
+	 #access_point_name{apn = ?'APN-EXAMPLE'},
+	 #gsn_address{instance = 0, address = gtp_c_lib:ip2bin(?LOCALHOST)},
+	 #gsn_address{instance = 1, address = gtp_c_lib:ip2bin(?LOCALHOST)},
+	 #imei{imei = <<"1234567890123456">>},
+	 #international_mobile_subscriber_identity{imsi = ?IMSI},
+	 #ms_international_pstn_isdn_number{
+	    msisdn = {isdn_address,1,1,1, ?'MSISDN'}},
+	 #nsapi{nsapi = 5},
+	 #quality_of_service_profile{
+	    priority = 2,
+	    data = <<19,146,31,113,150,254,254,116,250,255,255,0,142,0>>},
+	 #rat_type{rat_type = 1},
+	 #selection_mode{mode = 0},
+	 #tunnel_endpoint_identifier_control_plane{tei = LocalCntlTEI},
+	 #tunnel_endpoint_identifier_data_i{tei = LocalDataTEI},
+	 #user_location_information{type = 1,
+				    mcc = <<"001">>,
+				    mnc = <<"001">>,
+				    lac = 11,
+				    ci  = 0,
+				    sac = 20263,
+				    rac = 0}],
+    IEs = make_pdp_type(SubType, IEs0),
 
     #gtp{version = v1, type = create_pdp_context_request, tei = 0,
 	 seq_no = SeqNo, ie = IEs};
@@ -166,24 +217,14 @@ validate_response(create_pdp_context_request, missing_ie, Response, GtpC) ->
 	   Response),
     GtpC;
 
-validate_response(create_pdp_context_request, _SubType, Response,
+validate_response(create_pdp_context_request, SubType, Response,
 		  #gtpc{local_control_tei = LocalCntlTEI} = GtpC) ->
     ?match(#gtp{type = create_pdp_context_response,
 		tei = LocalCntlTEI,
 		ie = #{{cause,0} := #cause{value = request_accepted},
 		       {charging_id,0} := #charging_id{},
-		       {end_user_address,0} :=
-			   #end_user_address{pdp_type_organization = 1,
-					     pdp_type_number = 33},
 		       {gsn_address,0} := #gsn_address{},
 		       {gsn_address,1} := #gsn_address{},
-		       {protocol_configuration_options,0} :=
-			   #protocol_configuration_options{
-			      config = {0,[{ipcp,'CP-Configure-Nak',1,
-					    [{ms_dns1,_},
-					     {ms_dns2,_}]},
-					   {13, _},
-					   {13, _}]}},
 		       {quality_of_service_profile,0} :=
 			   #quality_of_service_profile{priority = 2},
 		       {reordering_required,0} :=
@@ -193,6 +234,7 @@ validate_response(create_pdp_context_request, _SubType, Response,
 		       {tunnel_endpoint_identifier_data_i,0} :=
 			   #tunnel_endpoint_identifier_data_i{}
 		      }}, Response),
+    validate_pdp_type(SubType, Response#gtp.ie),
 
     #gtp{ie = #{{tunnel_endpoint_identifier_control_plane,0} :=
 		    #tunnel_endpoint_identifier_control_plane{

@@ -96,6 +96,8 @@ all() ->
      create_session_request_missing_ie,
      path_restart, path_restart_recovery,
      simple_session_request,
+     ipv6_bearer_request,
+     ipv4v6_bearer_request,
      create_session_request_resend,
      delete_session_request_resend,
      modify_bearer_request_ra_update,
@@ -223,6 +225,33 @@ simple_session_request(Config) ->
     S = make_gtp_socket(Config),
 
     {GtpC, _, _} = create_session(S),
+    delete_session(S, GtpC),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+ipv6_bearer_request() ->
+    [{doc, "Check Create Session, Delete Session sequence for IPv6 bearer"}].
+ipv6_bearer_request(Config) ->
+    S = make_gtp_socket(Config),
+
+    {GtpC, _, _} = create_session(ipv6, S),
+    delete_session(S, GtpC),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+ipv4v6_bearer_request() ->
+    [{doc, "Check Create Session, Delete Session sequence for dual stack "
+           "IPv4/IPv6 bearer"}].
+ipv4v6_bearer_request(Config) ->
+    S = make_gtp_socket(Config),
+
+    {GtpC, _, _} = create_session(ipv4v6, S),
     delete_session(S, GtpC),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),

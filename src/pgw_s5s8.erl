@@ -506,19 +506,19 @@ copy_to_session(_, #v2_pdn_address_allocation{type = ipv4,
     Session#{'3GPP-PDP-Type'     => 'IPv4',
 	     'Framed-IP-Address' => gtp_c_lib:bin2ip(IP4)};
 copy_to_session(_, #v2_pdn_address_allocation{type = ipv6,
-					      address = <<_IP6PrefixLen:8,
+					      address = <<IP6PrefixLen:8,
 							  IP6Prefix:16/binary>>},
 		_AAAopts, Session) ->
     Session#{'3GPP-PDP-Type'      => 'IPv6',
-	     'Framed-IPv6-Prefix' => {gtp_c_lib:bin2ip(IP6Prefix), 128}};
+	     'Framed-IPv6-Prefix' => {gtp_c_lib:bin2ip(IP6Prefix), IP6PrefixLen}};
 copy_to_session(_, #v2_pdn_address_allocation{type = ipv4v6,
-					      address = <<_IP6PrefixLen:8,
+					      address = <<IP6PrefixLen:8,
 							  IP6Prefix:16/binary,
 							  IP4:4/binary>>},
 		_AAAopts, Session) ->
     Session#{'3GPP-PDP-Type' => 'IPv4v6',
 	     'Framed-IP-Address'  => gtp_c_lib:bin2ip(IP4),
-	     'Framed-IPv6-Prefix' => {gtp_c_lib:bin2ip(IP6Prefix), 128}};
+	     'Framed-IPv6-Prefix' => {gtp_c_lib:bin2ip(IP6Prefix), IP6PrefixLen}};
 
 copy_to_session(?'Sender F-TEID for Control Plane',
 		#v2_fully_qualified_tunnel_endpoint_identifier{ipv4 = IP4, ipv6 = IP6},
@@ -633,7 +633,9 @@ delete_context(From, Context) ->
     send_request(Context, ?T3, ?N3, delete_bearer_request, RequestIEs, From).
 
 dp_args(#context{ms_v4 = {MSv4,_}}) ->
-    MSv4.
+    MSv4;
+dp_args(_) ->
+    undefined.
 
 dp_create_pdp_context(Context) ->
     Args = dp_args(Context),

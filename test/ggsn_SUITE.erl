@@ -91,6 +91,8 @@ all() ->
      create_pdp_context_request_missing_ie,
      path_restart, path_restart_recovery,
      simple_pdp_context_request,
+     ipv6_pdp_context_request,
+     ipv4v6_pdp_context_request,
      update_pdp_context_request_ra_update,
      update_pdp_context_request_tei_update,
      create_pdp_context_request_resend,
@@ -207,6 +209,34 @@ simple_pdp_context_request(Config) ->
     S = make_gtp_socket(Config),
 
     {GtpC, _, _} = create_pdp_context(S),
+    delete_pdp_context(S, GtpC),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+ipv6_pdp_context_request() ->
+    [{doc, "Check Create PDP Context, Delete PDP Context sequence "
+           "for IPv6 contexts"}].
+ipv6_pdp_context_request(Config) ->
+    S = make_gtp_socket(Config),
+
+    {GtpC, _, _} = create_pdp_context(ipv6, S),
+    delete_pdp_context(S, GtpC),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+ipv4v6_pdp_context_request() ->
+    [{doc, "Check Create PDP Context, Delete PDP Context sequence "
+           "for dual stack IPv4/IPv6 contexts"}].
+ipv4v6_pdp_context_request(Config) ->
+    S = make_gtp_socket(Config),
+
+    {GtpC, _, _} = create_pdp_context(ipv4v6, S),
     delete_pdp_context(S, GtpC),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
