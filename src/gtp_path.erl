@@ -309,8 +309,9 @@ ets_foreach(TID, Fun) ->
 
 ets_foreach(_TID, _Fun, '$end_of_table') ->
     ok;
-ets_foreach(TID, Fun, {[Pids], Continuation}) ->
-    lists:foreach(Fun, Pids),
+ets_foreach(TID, Fun, {Pids, Continuation})
+  when is_list(Pids) ->
+    lists:foreach(fun([Pid]) -> Fun(Pid) end, Pids),
     ets_foreach(TID, Fun, ets:match_object(Continuation)).
 
 register(Pid, #state{table = TID} = State0) ->

@@ -106,7 +106,7 @@ end_per_suite(Config) ->
 all() ->
     [invalid_gtp_pdu,
      create_session_request_missing_ie,
-     path_restart, path_restart_recovery,
+     path_restart, path_restart_recovery, path_restart_multi,
      simple_session_request,
      ipv6_bearer_request,
      ipv4v6_bearer_request,
@@ -229,6 +229,27 @@ path_restart_recovery(Config) ->
     meck_validate(Config),
     ok.
 
+%%--------------------------------------------------------------------
+path_restart_multi() ->
+    [{doc, "Check that a Path Restart terminates multiple session"}].
+path_restart_multi(Config) ->
+    S = make_gtp_socket(Config),
+
+    {GtpC0, _, _} = create_session(S),
+    {GtpC1, _, _} = create_session(S, GtpC0),
+    {GtpC2, _, _} = create_session(S, GtpC1),
+    {GtpC3, _, _} = create_session(S, GtpC2),
+    {GtpC4, _, _} = create_session(S, GtpC3),
+
+    %% simulate patch restart to kill the PDP context
+    Echo = make_request(echo_request, simple,
+			gtp_context_inc_seq(
+			  gtp_context_inc_restart_counter(GtpC4))),
+    send_recv_pdu(S, Echo),
+
+    ok = meck:wait(5, ?HUT, terminate, '_', ?TIMEOUT),
+    meck_validate(Config),
+    ok.
 
 %%--------------------------------------------------------------------
 simple_session_request() ->
