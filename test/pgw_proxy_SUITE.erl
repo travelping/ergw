@@ -23,7 +23,7 @@
 %%% API
 %%%===================================================================
 
--define(TEST_CONFIG,
+-define(TEST_CONFIG_MULTIPLE_PROXY_SOCKETS,
 	[
 	 {lager, [{colored, true},
 		  {error_logger_redirect, true},
@@ -118,22 +118,125 @@
 	 {ergw_aaa, [{ergw_aaa_provider, {ergw_aaa_mock, [{secret, <<"MySecret">>}]}}]}
 	]).
 
+-define(TEST_CONFIG_SINGLE_PROXY_SOCKET,
+	[
+	 {lager, [{colored, true},
+		  {error_logger_redirect, true},
+		  %% force lager into async logging, otherwise
+		  %% the test will timeout randomly
+		  {async_threshold, undefined},
+		  {handlers, [{lager_console_backend, debug}]}
+		 ]},
+
+	 {ergw, [{sockets,
+		  [{irx, [{type, 'gtp-c'},
+			  {ip,  ?TEST_GSN},
+			  {reuseaddr, true}
+			 ]},
+		   {grx, [{type, 'gtp-u'},
+			  {node, 'gtp-u-node@localhost'},
+			  {name, 'grx'}
+			 ]},
+		   {'remote-irx', [{type, 'gtp-c'},
+				   {ip,  ?FINAL_GSN},
+				   {reuseaddr, true}
+				  ]},
+		   {'remote-grx', [{type, 'gtp-u'},
+				   {node, 'gtp-u-node@localhost'},
+				   {name, 'remote-grx'}
+				  ]}
+		  ]},
+
+		 {vrfs,
+		  [{example, [{pools,  [{{10, 180, 0, 1}, {10, 180, 255, 254}, 32},
+					{{16#8001, 0, 0, 0, 0, 0, 0, 0},
+					 {16#8001, 0, 0, 16#FFFF, 0, 0, 0, 0}, 64}
+				       ]},
+			      {'MS-Primary-DNS-Server', {8,8,8,8}},
+			      {'MS-Secondary-DNS-Server', {8,8,4,4}},
+			      {'MS-Primary-NBNS-Server', {127,0,0,1}},
+			      {'MS-Secondary-NBNS-Server', {127,0,0,1}}
+			     ]}
+		  ]},
+
+		 {handlers,
+		  %% proxy handler
+		  [{gn, [{handler, ?HUT},
+			 {sockets, [irx]},
+			 {data_paths, [grx]},
+			 {proxy_sockets, ['irx']},
+			 {proxy_data_paths, ['grx']},
+			 {pgw, ?FINAL_GSN}
+			]},
+		   {s5s8, [{handler, ?HUT},
+			   {sockets, [irx]},
+			   {data_paths, [grx]},
+			   {proxy_sockets, ['irx']},
+			   {proxy_data_paths, ['grx']},
+			   {pgw, ?FINAL_GSN},
+			   {contexts,
+			    [{<<"ams">>,
+			      [{proxy_sockets, ['irx']},
+			       {proxy_data_paths, ['grx']}]}]}
+			  ]},
+		   %% remote PGW handler
+		   {gn, [{handler, pgw_s5s8},
+			 {sockets, ['remote-irx']},
+			 {data_paths, ['remote-grx']},
+			 {aaa, [{'Username',
+				 [{default, ['IMSI', <<"@">>, 'APN']}]}]}
+			]},
+		   {s5s8, [{handler, pgw_s5s8},
+			   {sockets, ['remote-irx']},
+			   {data_paths, ['remote-grx']}
+			  ]}
+		  ]},
+
+		 {apns,
+		  [{?'APN-PROXY', [{vrf, example}]}
+		  ]},
+
+		 {proxy_map,
+		  [{apn,  [{?'APN-EXAMPLE', ?'APN-PROXY'}]},
+		   {imsi, [{?'IMSI', {?'PROXY-IMSI', ?'PROXY-MSISDN'}}
+			  ]}
+		  ]}
+		]},
+	 {ergw_aaa, [{ergw_aaa_provider, {ergw_aaa_mock, [{secret, <<"MySecret">>}]}}]}
+	]).
+
 
 suite() ->
     [{timetrap,{seconds,30}}].
 
 init_per_suite(Config0) ->
-    Config = [{handler_under_test, ?HUT},
-	      {app_cfg, ?TEST_CONFIG}
-	      | Config0],
+    [{handler_under_test, ?HUT} | Config0].
 
+end_per_suite(_Config) ->
+    ok.
+
+init_per_group(single_proxy_interface, Config0) ->
+    Config = lists:keystore(app_cfg, 1, Config0,
+			    {app_cfg, ?TEST_CONFIG_SINGLE_PROXY_SOCKET}),
+    lib_init_per_suite(Config);
+init_per_group(_Group, Config0) ->
+    Config = lists:keystore(app_cfg, 1, Config0,
+			    {app_cfg, ?TEST_CONFIG_MULTIPLE_PROXY_SOCKETS}),
     lib_init_per_suite(Config).
 
-end_per_suite(Config) ->
+end_per_group(_Group, Config) ->
     ok = lib_end_per_suite(Config),
     ok.
 
+groups() ->
+    [{single_proxy_interface, [], all_tests()},
+     {multiple_proxy_interface, [], all_tests()}].
+
 all() ->
+    [{group, single_proxy_interface},
+     {group, multiple_proxy_interface}].
+
+all_tests() ->
     [invalid_gtp_pdu,
      create_session_request_missing_ie,
      path_restart, path_restart_recovery,
