@@ -95,7 +95,7 @@ end_per_suite(Config) ->
 all() ->
     [invalid_gtp_pdu,
      create_pdp_context_request_missing_ie,
-     path_restart, path_restart_recovery,
+     path_restart, path_restart_recovery, path_restart_multi,
      simple_pdp_context_request,
      ipv6_pdp_context_request,
      ipv4v6_pdp_context_request,
@@ -208,6 +208,28 @@ path_restart_recovery(Config) ->
     delete_pdp_context(S, GtpC2),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+path_restart_multi() ->
+    [{doc, "Check that a Path Restart terminates multiple sessions"}].
+path_restart_multi(Config) ->
+    S = make_gtp_socket(Config),
+
+    {GtpC0, _, _} = create_pdp_context(S),
+    {GtpC1, _, _} = create_pdp_context(S, GtpC0),
+    {GtpC2, _, _} = create_pdp_context(S, GtpC1),
+    {GtpC3, _, _} = create_pdp_context(S, GtpC2),
+    {GtpC4, _, _} = create_pdp_context(S, GtpC3),
+
+    %% simulate patch restart to kill the PDP context
+    Echo = make_request(echo_request, simple,
+			gtp_context_inc_seq(
+			  gtp_context_inc_restart_counter(GtpC4))),
+    send_recv_pdu(S, Echo),
+
+    ok = meck:wait(5, ?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
     ok.
 
