@@ -295,6 +295,59 @@ make_request(delete_session_request, _SubType,
 
 %%%-------------------------------------------------------------------
 
+make_response(#gtp{type = create_session_request, seq_no = SeqNo},
+	      _SubType,
+	      #gtpc{restart_counter = RCnt,
+		    local_control_tei = LocalCntlTEI,
+		    local_data_tei = LocalDataTEI,
+		    remote_control_tei = RemoteCntlTEI}) ->
+    IEs = #{{v2_cause,0} => #v2_cause{v2_cause = request_accepted},
+	    {v2_apn_restriction, 0} =>
+		#v2_apn_restriction{restriction_type_value = 0},
+	    {v2_bearer_context, 0} =>
+		#v2_bearer_context{
+		   group =
+		       #{{v2_cause, 0} =>
+			     #v2_cause{v2_cause = request_accepted},
+			 {v2_charging_id, 0} =>
+			     #v2_charging_id{id = <<0,0,0,1>>},
+			 {v2_bearer_level_quality_of_service, 0} =>
+			     #v2_bearer_level_quality_of_service{
+				pci = 1, pl = 10, pvi = 0, label = 8,
+				maximum_bit_rate_for_uplink      = 0,
+				maximum_bit_rate_for_downlink    = 0,
+				guaranteed_bit_rate_for_uplink   = 0,
+				guaranteed_bit_rate_for_downlink = 0},
+			 {v2_eps_bearer_id, 0} =>
+			     #v2_eps_bearer_id{eps_bearer_id = 5},
+			 {v2_fully_qualified_tunnel_endpoint_identifier, 2} =>
+			     #v2_fully_qualified_tunnel_endpoint_identifier{
+				instance = 2,
+				interface_type = ?'S5/S8-U PGW',
+				key = LocalDataTEI,
+				ipv4 = gtp_c_lib:ip2bin(?TEST_GSN)}
+			}},
+	    {v2_fully_qualified_tunnel_endpoint_identifier, 1} =>
+		#v2_fully_qualified_tunnel_endpoint_identifier{
+		   instance = 1,
+		   interface_type = ?'S5/S8-C PGW',
+		   key = LocalCntlTEI,
+		   ipv4 = gtp_c_lib:ip2bin(?TEST_GSN)},
+	    {v2_pdn_address_allocation, 0} =>
+		#v2_pdn_address_allocation{
+		   type = ipv4,
+		   address = gtp_c_lib:ip2bin(?LOCALHOST)},
+	    {v2_protocol_configuration_options, 0} =>
+		#v2_protocol_configuration_options{
+		   config = {0, [{ipcp,'CP-Configure-Nak',0,
+				  [{ms_dns1, gtp_c_lib:ip2bin({8,8,8,8})},
+				   {ms_dns2, gtp_c_lib:ip2bin({8,8,4,4})}]},
+				 {13, gtp_c_lib:ip2bin({8,8,4,4})},
+				 {13, gtp_c_lib:ip2bin({8,8,8,8})}]}},
+	    {v2_recovery, 0} => #v2_recovery{restart_counter = RCnt}},
+    #gtp{version = v2, type = create_session_response,
+	 tei = RemoteCntlTEI, seq_no = SeqNo, ie = IEs};
+
 make_response(#gtp{type = delete_bearer_request, seq_no = SeqNo},
 	      _SubType,
 	      #gtpc{restart_counter = RCnt,

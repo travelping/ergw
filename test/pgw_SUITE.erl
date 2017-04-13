@@ -7,7 +7,7 @@
 
 -module(pgw_SUITE).
 
--compile(export_all).
+-compile([export_all, {parse_transform, lager_transform}]).
 
 -include_lib("common_test/include/ct.hrl").
 -include_lib("gtplib/include/gtp_packet.hrl").
@@ -104,7 +104,8 @@ end_per_suite(Config) ->
     ok.
 
 all() ->
-    [invalid_gtp_pdu,
+    [lager_format_ies,
+     invalid_gtp_pdu,
      create_session_request_missing_ie,
      path_restart, path_restart_recovery, path_restart_multi,
      simple_session_request,
@@ -168,6 +169,19 @@ end_per_testcase(TestCase, Config)
     Config;
 end_per_testcase(_, Config) ->
     Config.
+
+%%--------------------------------------------------------------------
+lager_format_ies() ->
+    [{doc, "Check the lager formater for GTP IE's"}].
+lager_format_ies(_Config) ->
+    GtpC = gtp_context(),
+    Request = make_request(create_session_request, simple, GtpC),
+    Response = make_response(Request, simple, GtpC),
+
+    lager:info("Request: ~p, Response: ~p",
+	       [gtp_c_lib:fmt_gtp(Request), gtp_c_lib:fmt_gtp(Response)]),
+
+    ok.
 
 %%--------------------------------------------------------------------
 invalid_gtp_pdu() ->
