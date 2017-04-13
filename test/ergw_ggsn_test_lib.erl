@@ -133,8 +133,8 @@ make_request(create_pdp_context_request, SubType,
     IEs0 =
 	[#recovery{restart_counter = RCnt},
 	 #access_point_name{apn = ?'APN-EXAMPLE'},
-	 #gsn_address{instance = 0, address = gtp_c_lib:ip2bin(?LOCALHOST)},
-	 #gsn_address{instance = 1, address = gtp_c_lib:ip2bin(?LOCALHOST)},
+	 #gsn_address{instance = 0, address = gtp_c_lib:ip2bin(?CLIENT_IP)},
+	 #gsn_address{instance = 1, address = gtp_c_lib:ip2bin(?CLIENT_IP)},
 	 #imei{imei = <<"1234567890123456">>},
 	 #international_mobile_subscriber_identity{imsi = ?IMSI},
 	 #ms_international_pstn_isdn_number{
@@ -165,8 +165,8 @@ make_request(update_pdp_context_request, _SubType,
 		   local_data_tei = LocalDataTEI,
 		   remote_control_tei = RemoteCntlTEI}) ->
     IEs = [#recovery{restart_counter = RCnt},
-	   #gsn_address{instance = 0, address = gtp_c_lib:ip2bin(?LOCALHOST)},
-	   #gsn_address{instance = 1, address = gtp_c_lib:ip2bin(?LOCALHOST)},
+	   #gsn_address{instance = 0, address = gtp_c_lib:ip2bin(?CLIENT_IP)},
+	   #gsn_address{instance = 1, address = gtp_c_lib:ip2bin(?CLIENT_IP)},
 	   #international_mobile_subscriber_identity{imsi = ?IMSI},
 	   #nsapi{nsapi = 5},
 	   #quality_of_service_profile{

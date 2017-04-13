@@ -37,8 +37,6 @@
 	  gtp_port   :: #gtp_port{},
 	  ip         :: inet:ip_address(),
 	  socket     :: gen_socket:socket(),
-	  local_port  :: integer(),
-	  remote_port :: integer(),
 
 	  v1_seq_no = 0 :: v1_sequence_number(),
 	  v2_seq_no = 0 :: v2_sequence_number(),
@@ -119,11 +117,7 @@ init([Name, SocketOpts]) ->
     NetNs = proplists:get_value(netns, SocketOpts),
     Type  = proplists:get_value(type, SocketOpts, 'gtp-c'),
 
-    %% used only for testing
-    LocalPort = proplists:get_value('$local_port', SocketOpts, ?GTP1c_PORT),
-    RemotePort = proplists:get_value('$remote_port', SocketOpts, ?GTP1c_PORT),
-
-    {ok, S} = make_gtp_socket(NetNs, IP, LocalPort, SocketOpts),
+    {ok, S} = make_gtp_socket(NetNs, IP, ?GTP1c_PORT, SocketOpts),
 
     {ok, RCnt} = gtp_config:get_restart_counter(),
     GtpPort = #gtp_port{name = Name, type = Type, pid = self(),
@@ -136,8 +130,6 @@ init([Name, SocketOpts]) ->
 	       gtp_port = GtpPort,
 	       ip = IP,
 	       socket = S,
-	       local_port = LocalPort,
-	       remote_port = RemotePort,
 
 	       v1_seq_no = 0,
 	       v2_seq_no = 0,
@@ -439,8 +431,8 @@ take_request(SeqId, #state{pending = Pending} = State) ->
 	    {Req, State#state{pending = gb_trees:delete(SeqId, Pending)}}
     end.
 
-sendto(RemoteIP, Data, #state{remote_port = RemotePort} = State) ->
-    sendto(RemoteIP, RemotePort, Data, State).
+sendto(RemoteIP, Data, State) ->
+    sendto(RemoteIP, ?GTP1c_PORT, Data, State).
 
 sendto({_,_,_,_} = RemoteIP, Port, Data, #state{socket = Socket}) ->
     gen_socket:sendto(Socket, {inet4, RemoteIP, Port}, Data);
