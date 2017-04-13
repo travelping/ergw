@@ -22,58 +22,60 @@
 %%% API
 %%%===================================================================
 
--define(TEST_CONFIG, [
-		      {lager, [{colored, true},
-			       {error_logger_redirect, false},
-			       %% force lager into async logging, otherwise
-			       %% the test will timeout randomly
-			       {async_threshold, undefined},
-			       {handlers, [{lager_console_backend, debug}]}
-			      ]},
+-define(TEST_CONFIG,
+	[
+	 {lager, [{colored, true},
+		  {error_logger_redirect, false},
+		  %% force lager into async logging, otherwise
+		  %% the test will timeout randomly
+		  {async_threshold, undefined},
+		  {handlers, [{lager_console_backend, debug}]}
+		 ]},
 
-		      {ergw, [{sockets,
-			       [{irx, [{type, 'gtp-c'},
-				       {ip,  ?TEST_GSN},
-				       {reuseaddr, true}
-				      ]},
-				{grx, [{type, 'gtp-u'},
-				       {node, 'gtp-u-node@localhost'},
-				       {name, 'grx'}]}
-			       ]},
+	 {ergw, [{sockets,
+		  [{irx, [{type, 'gtp-c'},
+			  {ip,  ?TEST_GSN},
+			  {reuseaddr, true}
+			 ]},
+		   {grx, [{type, 'gtp-u'},
+			  {node, 'gtp-u-node@localhost'},
+			  {name, 'grx'}]}
+		  ]},
 
-			      {vrfs,
-			       [{upstream, [{pools,  [{{10, 180, 0, 1}, {10, 180, 255, 254}, 32},
-						      {{16#8001, 0, 0, 0, 0, 0, 0, 0}, {16#8001, 0, 0, 16#FFFF, 0, 0, 0, 0}, 64}
-						     ]},
-					    {'MS-Primary-DNS-Server', {8,8,8,8}},
-					    {'MS-Secondary-DNS-Server', {8,8,4,4}},
-					    {'MS-Primary-NBNS-Server', {127,0,0,1}},
-					    {'MS-Secondary-NBNS-Server', {127,0,0,1}}
-					   ]}
-			       ]},
+		 {vrfs,
+		  [{upstream, [{pools,  [{{10, 180, 0, 1}, {10, 180, 255, 254}, 32},
+					 {{16#8001, 0, 0, 0, 0, 0, 0, 0},
+					  {16#8001, 0, 0, 16#FFFF, 0, 0, 0, 0}, 64}
+					]},
+			       {'MS-Primary-DNS-Server', {8,8,8,8}},
+			       {'MS-Secondary-DNS-Server', {8,8,4,4}},
+			       {'MS-Primary-NBNS-Server', {127,0,0,1}},
+			       {'MS-Secondary-NBNS-Server', {127,0,0,1}}
+			      ]}
+		  ]},
 
-			      {handlers,
-			       [{gn, [{handler, ggsn_gn},
-				      {sockets, [irx]},
-				      {data_paths, [grx]},
-				      {aaa, [{'Username',
-					      [{default, ['IMSI',   <<"/">>,
-							  'IMEI',   <<"/">>,
-							  'MSISDN', <<"/">>,
-							  'ATOM',   <<"/">>,
-							  "TEXT",   <<"/">>,
-							  12345,
-							  <<"@">>, 'APN']}]}]}
-				     ]}
-			       ]},
+		 {handlers,
+		  [{gn, [{handler, ggsn_gn},
+			 {sockets, [irx]},
+			 {data_paths, [grx]},
+			 {aaa, [{'Username',
+				 [{default, ['IMSI',   <<"/">>,
+					     'IMEI',   <<"/">>,
+					     'MSISDN', <<"/">>,
+					     'ATOM',   <<"/">>,
+					     "TEXT",   <<"/">>,
+					     12345,
+					     <<"@">>, 'APN']}]}]}
+			]}
+		  ]},
 
-			      {apns,
-			       [{?'APN-EXAMPLE', [{vrf, upstream}]},
-				{[<<"APN1">>], [{vrf, upstream}]}
-			       ]}
-			     ]},
-		      {ergw_aaa, [{ergw_aaa_provider, {ergw_aaa_mock, [{secret, <<"MySecret">>}]}}]}
-		     ]).
+		 {apns,
+		  [{?'APN-EXAMPLE', [{vrf, upstream}]},
+		   {[<<"APN1">>], [{vrf, upstream}]}
+		  ]}
+		]},
+	 {ergw_aaa, [{ergw_aaa_provider, {ergw_aaa_mock, [{secret, <<"MySecret">>}]}}]}
+	]).
 
 
 suite() ->
