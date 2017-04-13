@@ -26,6 +26,10 @@
 -endif.
 
 -define(LOCALHOST, {127,0,0,1}).
+-define(CLIENT_IP, {127,127,127,127}).
+-define(TEST_GSN, ?LOCALHOST).
+-define(PROXY_GSN, {127,0,100,1}).
+-define(FINAL_GSN, {127,0,200,1}).
 
 -define('APN-EXAMPLE', [<<"example">>, <<"net">>]).
 -define('IMSI', <<"111111111111111">>).

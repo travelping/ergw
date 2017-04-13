@@ -157,16 +157,14 @@ gtp_context_new_teids(GtpC) ->
 %%% I/O and socket functions
 %%%===================================================================
 
-make_gtp_socket(Config) ->
-    {_, Port} = lists:keyfind(gtp_port, 1, Config),   %% let it crash if undefined
-
-    {ok, S} = gen_udp:open(Port, [{ip, ?LOCALHOST}, {active, false},
-				  binary, {reuseaddr, true}]),
+make_gtp_socket(_Config) ->
+    {ok, S} = gen_udp:open(?GTP2c_PORT, [{ip, ?CLIENT_IP}, {active, false},
+					 binary, {reuseaddr, true}]),
     S.
 
 send_pdu(S, Msg) ->
     Data = gtp_packet:encode(Msg),
-    ok = gen_udp:send(S, ?LOCALHOST, ?GTP2c_PORT, Data).
+    ok = gen_udp:send(S, ?TEST_GSN, ?GTP2c_PORT, Data).
 
 send_recv_pdu(S, Msg) ->
     send_recv_pdu(S, Msg, ?TIMEOUT).
@@ -186,7 +184,7 @@ recv_pdu(_, _SeqNo, Timeout, Fail) when Timeout =< 0 ->
 recv_pdu(S, SeqNo, Timeout, Fail) ->
     Now = erlang:monotonic_time(millisecond),
     case gen_udp:recv(S, 4096, Timeout) of
-	{ok, {?LOCALHOST, _, Response}} ->
+	{ok, {?TEST_GSN, _, Response}} ->
 	    recv_pdu_msg(Response, Now, S, SeqNo, Timeout, Fail);
 	{error, Error} ->
 	    recv_pdu_fail(Fail, Error);

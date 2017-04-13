@@ -34,29 +34,24 @@
 
 		      {ergw, [{sockets,
 			       [{irx, [{type, 'gtp-c'},
-				       {ip,  {127,0,0,1}},
-				       {reuseaddr, true},
-				       {'$remote_port', ?GTP1c_PORT * 4}
+				       {ip,  ?TEST_GSN},
+				       {reuseaddr, true}
 				      ]},
 				{grx, [{type, 'gtp-u'},
 				       {node, 'gtp-u-node@localhost'},
 				       {name, 'grx'}
 				      ]},
 				{'proxy-irx', [{type, 'gtp-c'},
-					       {ip,  {127,0,0,1}},
-					       {reuseaddr, true},
-					       {'$local_port',  ?GTP1c_PORT * 2},
-					       {'$remote_port', ?GTP1c_PORT * 3}
+					       {ip,  ?PROXY_GSN},
+					       {reuseaddr, true}
 					      ]},
 				{'proxy-grx', [{type, 'gtp-u'},
 					       {node, 'gtp-u-proxy@vlx161-tpmd'},
 					       {name, 'proxy-grx'}
 					      ]},
 				{'remote-irx', [{type, 'gtp-c'},
-						{ip,  {127,0,0,1}},
-						{reuseaddr, true},
-						{'$local_port',  ?GTP1c_PORT * 3},
-						{'$remote_port', ?GTP1c_PORT * 2}
+						{ip,  ?FINAL_GSN},
+						{reuseaddr, true}
 					       ]},
 				{'remote-grx', [{type, 'gtp-u'},
 						{node, 'gtp-u-node@localhost'},
@@ -82,7 +77,7 @@
 				      {data_paths, [grx]},
 				      {proxy_sockets, ['proxy-irx']},
 				      {proxy_data_paths, ['proxy-grx']},
-				      {ggsn, {127,0,0,1}},
+				      {ggsn, ?FINAL_GSN},
 				      {contexts,
 				       [{<<"ams">>,
 					 [{proxy_sockets, ['proxy-irx']},
@@ -115,8 +110,7 @@ suite() ->
 
 init_per_suite(Config0) ->
     Config = [{handler_under_test, ?HUT},
-	      {app_cfg, ?TEST_CONFIG},
-	      {gtp_port, ?GTP1c_PORT * 4}
+	      {app_cfg, ?TEST_CONFIG}
 	      | Config0],
 
     lib_init_per_suite(Config).
@@ -190,7 +184,7 @@ invalid_gtp_pdu() ->
       " and that the GTP socket is not crashing"}].
 invalid_gtp_pdu(Config) ->
     S = make_gtp_socket(Config),
-    gen_udp:send(S, ?LOCALHOST, ?GTP1c_PORT, <<"TESTDATA">>),
+    gen_udp:send(S, ?TEST_GSN, ?GTP1c_PORT, <<"TESTDATA">>),
 
     ?equal({error,timeout}, gen_udp:recv(S, 4096, ?TIMEOUT)),
     meck_validate(Config),

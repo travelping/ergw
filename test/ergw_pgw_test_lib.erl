@@ -141,12 +141,12 @@ make_request(create_session_request, SubType,
 			instance = 2,
 			interface_type = ?'S5/S8-U SGW',
 			key = LocalDataTEI,
-			ipv4 = gtp_c_lib:ip2bin(?LOCALHOST)}
+			ipv4 = gtp_c_lib:ip2bin(?CLIENT_IP)}
 		    ]},
 	 #v2_fully_qualified_tunnel_endpoint_identifier{
 	    interface_type = ?'S5/S8-C SGW',
 	    key = LocalCntlTEI,
-	    ipv4 = gtp_c_lib:ip2bin(?LOCALHOST)},
+	    ipv4 = gtp_c_lib:ip2bin(?CLIENT_IP)},
 	 #v2_international_mobile_subscriber_identity{
 	    imsi = ?'IMSI'},
 	 #v2_mobile_equipment_identity{mei = <<"AAAAAAAA">>},
@@ -174,12 +174,12 @@ make_request(modify_bearer_request, tei_update,
 			  instance = 1,
 			  interface_type = ?'S5/S8-U SGW',
 			  key = LocalDataTEI,
-			  ipv4 = gtp_c_lib:ip2bin(?LOCALHOST)}
+			  ipv4 = gtp_c_lib:ip2bin(?CLIENT_IP)}
 		      ]},
 	   #v2_fully_qualified_tunnel_endpoint_identifier{
 	      interface_type = ?'S5/S8-C SGW',
 	      key = LocalCntlTEI,
-	      ipv4 = gtp_c_lib:ip2bin(?LOCALHOST)}
+	      ipv4 = gtp_c_lib:ip2bin(?CLIENT_IP)}
 	  ],
 
     #gtp{version = v2, type = modify_bearer_request, tei = RemoteCntlTEI,
@@ -197,7 +197,7 @@ make_request(modify_bearer_request, SubType,
 	   #v2_fully_qualified_tunnel_endpoint_identifier{
 	      interface_type = ?'S5/S8-C SGW',
 	      key = LocalCntlTEI,
-	      ipv4 = gtp_c_lib:ip2bin(?LOCALHOST)}
+	      ipv4 = gtp_c_lib:ip2bin(?CLIENT_IP)}
 	  ],
 
     #gtp{version = v2, type = modify_bearer_request, tei = RemoteCntlTEI,
@@ -217,7 +217,7 @@ make_request(modify_bearer_command, SubType,
 	   #v2_fully_qualified_tunnel_endpoint_identifier{
 	      interface_type = ?'S5/S8-C SGW',
 	      key = LocalCntlTEI,
-	      ipv4 = gtp_c_lib:ip2bin(?LOCALHOST)}
+	      ipv4 = gtp_c_lib:ip2bin(?CLIENT_IP)}
 	  ],
     #gtp{version = v2, type = modify_bearer_command, tei = RemoteCntlTEI,
 	 seq_no = SeqNo, ie = IEs};
@@ -286,7 +286,7 @@ make_request(delete_session_request, _SubType,
 	   #v2_fully_qualified_tunnel_endpoint_identifier{
 	      interface_type = ?'S5/S8-C SGW',
 	      key = LocalCntlTEI,
-	      ipv4 = gtp_c_lib:ip2bin(?LOCALHOST)},
+	      ipv4 = gtp_c_lib:ip2bin(?CLIENT_IP)},
 	   #v2_user_location_information{tai = <<3,2,22,214,217>>,
 					 ecgi = <<3,2,22,8,71,9,92>>}],
 
