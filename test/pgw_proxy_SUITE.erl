@@ -23,98 +23,100 @@
 %%% API
 %%%===================================================================
 
--define(TEST_CONFIG, [
-		      {lager, [{colored, true},
-			       {error_logger_redirect, true},
-			       %% force lager into async logging, otherwise
-			       %% the test will timeout randomly
-			       {async_threshold, undefined},
-			       {handlers, [{lager_console_backend, debug}]}
-			      ]},
+-define(TEST_CONFIG,
+	[
+	 {lager, [{colored, true},
+		  {error_logger_redirect, true},
+		  %% force lager into async logging, otherwise
+		  %% the test will timeout randomly
+		  {async_threshold, undefined},
+		  {handlers, [{lager_console_backend, debug}]}
+		 ]},
 
-		      {ergw, [{sockets,
-			       [{irx, [{type, 'gtp-c'},
-				       {ip,  ?TEST_GSN},
-				       {reuseaddr, true}
-				      ]},
-				{grx, [{type, 'gtp-u'},
-				       {node, 'gtp-u-node@localhost'},
-				       {name, 'grx'}
-				      ]},
-				{'proxy-irx', [{type, 'gtp-c'},
-					       {ip,  ?PROXY_GSN},
-					       {reuseaddr, true}
-					      ]},
-				{'proxy-grx', [{type, 'gtp-u'},
-					       {node, 'gtp-u-proxy@vlx161-tpmd'},
-					       {name, 'proxy-grx'}
-					      ]},
-				{'remote-irx', [{type, 'gtp-c'},
-						{ip,  ?FINAL_GSN},
-						{reuseaddr, true}
-					       ]},
-				{'remote-grx', [{type, 'gtp-u'},
-						{node, 'gtp-u-node@localhost'},
-						{name, 'remote-grx'}
-					       ]}
-			       ]},
+	 {ergw, [{sockets,
+		  [{irx, [{type, 'gtp-c'},
+			  {ip,  ?TEST_GSN},
+			  {reuseaddr, true}
+			 ]},
+		   {grx, [{type, 'gtp-u'},
+			  {node, 'gtp-u-node@localhost'},
+			  {name, 'grx'}
+			 ]},
+		   {'proxy-irx', [{type, 'gtp-c'},
+				  {ip,  ?PROXY_GSN},
+				  {reuseaddr, true}
+				 ]},
+		   {'proxy-grx', [{type, 'gtp-u'},
+				  {node, 'gtp-u-proxy@vlx161-tpmd'},
+				  {name, 'proxy-grx'}
+				 ]},
+		   {'remote-irx', [{type, 'gtp-c'},
+				   {ip,  ?FINAL_GSN},
+				   {reuseaddr, true}
+				  ]},
+		   {'remote-grx', [{type, 'gtp-u'},
+				   {node, 'gtp-u-node@localhost'},
+				   {name, 'remote-grx'}
+				  ]}
+		  ]},
 
-			      {vrfs,
-			       [{example, [{pools,  [{{10, 180, 0, 1}, {10, 180, 255, 254}, 32},
-						     {{16#8001, 0, 0, 0, 0, 0, 0, 0}, {16#8001, 0, 0, 16#FFFF, 0, 0, 0, 0}, 64}
-						    ]},
-					   {'MS-Primary-DNS-Server', {8,8,8,8}},
-					   {'MS-Secondary-DNS-Server', {8,8,4,4}},
-					   {'MS-Primary-NBNS-Server', {127,0,0,1}},
-					   {'MS-Secondary-NBNS-Server', {127,0,0,1}}
-					  ]}
-			       ]},
-
-			      {handlers,
-			       %% proxy handler
-			       [{gn, [{handler, ?HUT},
-				      {sockets, [irx]},
-				      {data_paths, [grx]},
-				      {proxy_sockets, ['proxy-irx']},
-				      {proxy_data_paths, ['proxy-grx']},
-				      {pgw, ?FINAL_GSN}
-				     ]},
-				{s5s8, [{handler, ?HUT},
-					{sockets, [irx]},
-					{data_paths, [grx]},
-					{proxy_sockets, ['proxy-irx']},
-					{proxy_data_paths, ['proxy-grx']},
-					{pgw, ?FINAL_GSN},
-					{contexts,
-					 [{<<"ams">>,
-					   [{proxy_sockets, ['proxy-irx']},
-					    {proxy_data_paths, ['proxy-grx']}]}]}
+		 {vrfs,
+		  [{example, [{pools,  [{{10, 180, 0, 1}, {10, 180, 255, 254}, 32},
+					{{16#8001, 0, 0, 0, 0, 0, 0, 0},
+					 {16#8001, 0, 0, 16#FFFF, 0, 0, 0, 0}, 64}
 				       ]},
-				%% remote PGW handler
-				{gn, [{handler, pgw_s5s8},
-				      {sockets, ['remote-irx']},
-				      {data_paths, ['remote-grx']},
-				      {aaa, [{'Username',
-					      [{default, ['IMSI', <<"@">>, 'APN']}]}]}
-				     ]},
-				{s5s8, [{handler, pgw_s5s8},
-					{sockets, ['remote-irx']},
-					{data_paths, ['remote-grx']}
-				       ]}
-			       ]},
+			      {'MS-Primary-DNS-Server', {8,8,8,8}},
+			      {'MS-Secondary-DNS-Server', {8,8,4,4}},
+			      {'MS-Primary-NBNS-Server', {127,0,0,1}},
+			      {'MS-Secondary-NBNS-Server', {127,0,0,1}}
+			     ]}
+		  ]},
 
-			      {apns,
-			       [{?'APN-PROXY', [{vrf, example}]}
-			       ]},
+		 {handlers,
+		  %% proxy handler
+		  [{gn, [{handler, ?HUT},
+			 {sockets, [irx]},
+			 {data_paths, [grx]},
+			 {proxy_sockets, ['proxy-irx']},
+			 {proxy_data_paths, ['proxy-grx']},
+			 {pgw, ?FINAL_GSN}
+			]},
+		   {s5s8, [{handler, ?HUT},
+			   {sockets, [irx]},
+			   {data_paths, [grx]},
+			   {proxy_sockets, ['proxy-irx']},
+			   {proxy_data_paths, ['proxy-grx']},
+			   {pgw, ?FINAL_GSN},
+			   {contexts,
+			    [{<<"ams">>,
+			      [{proxy_sockets, ['proxy-irx']},
+			       {proxy_data_paths, ['proxy-grx']}]}]}
+			  ]},
+		   %% remote PGW handler
+		   {gn, [{handler, pgw_s5s8},
+			 {sockets, ['remote-irx']},
+			 {data_paths, ['remote-grx']},
+			 {aaa, [{'Username',
+				 [{default, ['IMSI', <<"@">>, 'APN']}]}]}
+			]},
+		   {s5s8, [{handler, pgw_s5s8},
+			   {sockets, ['remote-irx']},
+			   {data_paths, ['remote-grx']}
+			  ]}
+		  ]},
 
-			      {proxy_map,
-			       [{apn,  [{?'APN-EXAMPLE', ?'APN-PROXY'}]},
-				{imsi, [{?'IMSI', {?'PROXY-IMSI', ?'PROXY-MSISDN'}}
-				       ]}
-			       ]}
-			     ]},
-		      {ergw_aaa, [{ergw_aaa_provider, {ergw_aaa_mock, [{secret, <<"MySecret">>}]}}]}
-		     ]).
+		 {apns,
+		  [{?'APN-PROXY', [{vrf, example}]}
+		  ]},
+
+		 {proxy_map,
+		  [{apn,  [{?'APN-EXAMPLE', ?'APN-PROXY'}]},
+		   {imsi, [{?'IMSI', {?'PROXY-IMSI', ?'PROXY-MSISDN'}}
+			  ]}
+		  ]}
+		]},
+	 {ergw_aaa, [{ergw_aaa_provider, {ergw_aaa_mock, [{secret, <<"MySecret">>}]}}]}
+	]).
 
 
 suite() ->
