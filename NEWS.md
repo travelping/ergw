@@ -1,6 +1,13 @@
 erGW - 3GPP GGSN and PDN-GW in Erlang
 =====================================
 
+Version 1.10.0 - 18 Apr 2017
+----------------------------
+
+* fix path restart when multiple context are active
+* better directional filtering of Request/Responses in proxy mode
+* added some more test for proxy functions
+
 Version 1.9.0 - 05 Apr 2017
 ---------------------------
 
