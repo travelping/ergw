@@ -261,10 +261,10 @@ handle_info({ReqId, Request, #gtp{} = Response}, State) ->
 	    handle_response(ReqId, Request, Response, State);
 
 	Missing ->
-	    lager:debug("Mis: ~p", [Missing]),
+	    lager:error("Missing IEs in response message: ~p", [Missing]),
 	    %% TODO: handle error
 	    %% handle_error({GtpPort, IP, Port}, Msg, {mandatory_ie_missing, hd(Missing)}, State);
-	    ok
+	    {noreply, State}
     end;
 
 handle_info(Info, #{interface := Interface} = State) ->
