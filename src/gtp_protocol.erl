@@ -10,3 +10,5 @@
 -callback port() -> Port :: non_neg_integer().
 
 -callback build_echo_request(GtpPort :: term()) -> EchoRequest :: #gtp{}.
+
+-callback get_cause(IEs :: map()) -> Cause :: atom().

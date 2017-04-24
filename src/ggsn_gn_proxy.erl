@@ -11,7 +11,7 @@
 
 -compile({parse_transform, cut}).
 
--export([validate_options/1, init/2, request_spec/2,
+-export([validate_options/1, init/2, request_spec/3,
 	 handle_request/4, handle_response/4,
 	 handle_call/3, handle_cast/2, handle_info/2,
 	 terminate/2]).
@@ -70,7 +70,15 @@
 -define('Quality of Service Profile',			{quality_of_service_profile, 0}).
 -define('IMEI',						{imei, 0}).
 
-request_spec(v1, create_pdp_context_request) ->
+-define(CAUSE_OK(Cause), (Cause =:= request_accepted orelse
+			  Cause =:= new_pdp_type_due_to_network_preference orelse
+			  Cause =:= new_pdp_type_due_to_single_address_bearer_only)).
+
+request_spec(v1, _Type, Cause)
+  when Cause /= undefined andalso not ?CAUSE_OK(Cause) ->
+    [];
+
+request_spec(v1, create_pdp_context_request, _) ->
     [{?'IMSI',						conditional},
      {{selection_mode, 0},				conditional},
      {?'Tunnel Endpoint Identifier Data I',		mandatory},
@@ -89,7 +97,7 @@ request_spec(v1, create_pdp_context_request) ->
      {{traffic_flow_template, 0},			conditional},
      {?'IMEI',						conditional}];
 
-request_spec(v1, create_pdp_context_response) ->
+request_spec(v1, create_pdp_context_response, _) ->
     [{?'Cause',						mandatory},
      {{reordering_required, 0},				conditional},
      {?'Tunnel Endpoint Identifier Data I',		conditional},
@@ -102,7 +110,7 @@ request_spec(v1, create_pdp_context_response) ->
      {{gsn_address, 3},					conditional},
      {?'Quality of Service Profile',			conditional}];
 
-request_spec(v1, update_pdp_context_request) ->
+request_spec(v1, update_pdp_context_request, _) ->
     [{?'Tunnel Endpoint Identifier Data I',		mandatory},
      {?'Tunnel Endpoint Identifier Control Plane',	conditional},
      {?'NSAPI',						mandatory},
@@ -113,7 +121,7 @@ request_spec(v1, update_pdp_context_request) ->
      {?'Quality of Service Profile',			mandatory},
      {{traffic_flow_template, 0},			conditional}];
 
-request_spec(v1, update_pdp_context_response) ->
+request_spec(v1, update_pdp_context_response, _) ->
     [{{cause, 0},					mandatory},
      {?'Tunnel Endpoint Identifier Data I',		conditional},
      {?'Tunnel Endpoint Identifier Control Plane',	conditional},
@@ -124,14 +132,14 @@ request_spec(v1, update_pdp_context_response) ->
      {{gsn_address, 3},					conditional},
      {?'Quality of Service Profile',			conditional}];
 
-request_spec(v1, delete_pdp_context_request) ->
+request_spec(v1, delete_pdp_context_request, _) ->
     [{{teardown_ind, 0},				conditional},
      {?'NSAPI',						mandatory}];
 
-request_spec(v1, delete_pdp_context_response) ->
+request_spec(v1, delete_pdp_context_response, _) ->
     [{?'Cause',						mandatory}];
 
-request_spec(v1, _) ->
+request_spec(v1, _, _) ->
     [].
 
 validate_context_option(proxy_sockets, Value) when is_list(Value), Value /= [] ->
@@ -193,10 +201,6 @@ validate_option(Opt, Value) ->
 
 -record(request_info, {request_key, seq_no, new_peer}).
 -record(context_state, {nsapi}).
-
--define(CAUSE_OK(Cause), (Cause =:= request_accepted orelse
-			  Cause =:= new_pdp_type_due_to_network_preference orelse
-			  Cause =:= new_pdp_type_due_to_single_address_bearer_only)).
 
 init(Opts, State) ->
     ProxyPorts = proplists:get_value(proxy_sockets, Opts),

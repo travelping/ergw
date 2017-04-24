@@ -13,7 +13,8 @@
 -export([gtp_msg_type/1,
 	 build_response/1,
 	 build_echo_request/1,
-	 type/0, port/0]).
+	 type/0, port/0,
+	 get_cause/1]).
 
 -include("include/ergw.hrl").
 
@@ -32,6 +33,9 @@ build_response(Response) ->
 
 gtp_msg_type(Type) ->
     gtp_v1_c:gtp_msg_type(Type).
+
+get_cause(_) ->
+    undefined.
 
 %%%===================================================================
 %%% Internal functions

@@ -13,7 +13,7 @@
     Return :: {ok, State ::map()} |
 	      {stop, Reason :: term()}.
 
--callback request_spec(Version :: 'v1' | 'v2', MsgType :: atom()) ->
+-callback request_spec(Version :: 'v1' | 'v2', MsgType :: atom(), Cause :: atom()) ->
     Return :: [{ { IE :: atom(), Instance :: 0..255 }, 'optional' | 'mandatory' }].
 
 -callback handle_call(Request:: term(), From :: {pid(), reference()},

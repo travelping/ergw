@@ -11,7 +11,7 @@
 
 -compile({parse_transform, cut}).
 
--export([validate_options/1, init/2, request_spec/2,
+-export([validate_options/1, init/2, request_spec/3,
 	 handle_request/4, handle_response/4,
 	 handle_call/3, handle_cast/2, handle_info/2,
 	 terminate/2]).
@@ -42,21 +42,29 @@
 -define('Quality of Service Profile',			{quality_of_service_profile, 0}).
 -define('IMEI',						{imei, 0}).
 
-request_spec(v1, create_pdp_context_request) ->
+-define(CAUSE_OK(Cause), (Cause =:= request_accepted orelse
+			  Cause =:= new_pdp_type_due_to_network_preference orelse
+			  Cause =:= new_pdp_type_due_to_single_address_bearer_only)).
+
+request_spec(v1, _Type, Cause)
+  when Cause /= undefined andalso not ?CAUSE_OK(Cause) ->
+    [];
+
+request_spec(v1, create_pdp_context_request, _) ->
     [{?'Tunnel Endpoint Identifier Data I',		mandatory},
      {?'NSAPI',						mandatory},
      {?'SGSN Address for signalling',			mandatory},
      {?'SGSN Address for user traffic',			mandatory},
      {?'Quality of Service Profile',			mandatory}];
 
-request_spec(v1, update_pdp_context_request) ->
+request_spec(v1, update_pdp_context_request, _) ->
     [{?'Tunnel Endpoint Identifier Data I',		mandatory},
      {?'NSAPI',						mandatory},
      {?'SGSN Address for signalling',			mandatory},
      {?'SGSN Address for user traffic',			mandatory},
      {?'Quality of Service Profile',			mandatory}];
 
-request_spec(v1, _) ->
+request_spec(v1, _, _) ->
     [].
 
 validate_options(Options) ->

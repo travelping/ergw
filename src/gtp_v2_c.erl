@@ -16,7 +16,8 @@
 	 build_echo_request/1,
 	 validate_teid/2,
 	 type/0, port/0,
-	 get_msg_keys/1]).
+	 get_msg_keys/1,
+	 get_cause/1]).
 
 %% support functions
 -export([restart_counter/1, build_recovery/3]).
@@ -24,6 +25,7 @@
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include("include/ergw.hrl").
 
+-define('Cause',					{v2_cause, 0}).
 -define('Recovery',					{v2_recovery, 0}).
 -define('Access Point Name',				{v2_access_point_name, 0}).
 -define('Sender F-TEID for Control Plane',		{v2_fully_qualified_tunnel_endpoint_identifier, 0}).
@@ -259,6 +261,11 @@ get_msg_keys(#gtp{version = v2, ie = IEs}) ->
 	_ ->
 	    K0
     end.
+
+get_cause(#{?Cause := #v2_cause{v2_cause = Cause}}) ->
+    Cause;
+get_cause(_) ->
+    undefined.
 
 %%%===================================================================
 %%% Internal functions
