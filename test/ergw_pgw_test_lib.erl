@@ -295,6 +295,15 @@ make_request(delete_session_request, _SubType,
 
 %%%-------------------------------------------------------------------
 
+make_response(#gtp{type = create_session_request,
+		   ie = #{{v2_fully_qualified_tunnel_endpoint_identifier, 0} :=
+			      #v2_fully_qualified_tunnel_endpoint_identifier{
+				 key = RemoteCntlTEI
+				}}},
+	      overload, _) ->
+    IEs = [#v2_cause{v2_cause = no_resources_available}],
+    {create_session_response, RemoteCntlTEI, IEs};
+
 make_response(#gtp{type = create_session_request, seq_no = SeqNo},
 	      _SubType,
 	      #gtpc{restart_counter = RCnt,
@@ -368,6 +377,12 @@ validate_response(_Type, invalid_teid, Response, GtpC) ->
 validate_response(create_session_request, missing_ie, Response, GtpC) ->
    ?match(#gtp{type = create_session_response,
 		ie = #{{v2_cause,0} := #v2_cause{v2_cause = mandatory_ie_missing}}},
+	  Response),
+    GtpC;
+
+validate_response(create_session_request, overload, Response, GtpC) ->
+   ?match(#gtp{type = create_session_response,
+		ie = #{{v2_cause,0} := #v2_cause{v2_cause = no_resources_available}}},
 	  Response),
     GtpC;
 

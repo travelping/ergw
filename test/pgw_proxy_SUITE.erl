@@ -241,6 +241,7 @@ all_tests() ->
      create_session_request_missing_ie,
      path_restart, path_restart_recovery,
      simple_session,
+     create_session_overload_response,
      create_session_request_resend,
      delete_session_request_resend,
      modify_bearer_request_ra_update,
@@ -284,6 +285,16 @@ init_per_testcase(TestCase, Config)
     meck_reset(Config),
     true = meck:validate(gtp_dp),
     Config;
+init_per_testcase(create_session_overload_response, Config) ->
+    ct:pal("Sockets: ~p", [gtp_socket_reg:all()]),
+    meck_reset(Config),
+    ok = meck:new(pgw_s5s8, [passthrough, no_link]),
+    ok = meck:expect(pgw_s5s8, handle_request,
+		     fun(_ReqKey, Request, _Resent, State) ->
+			     Reply = make_response(Request, overload, undefined),
+			     {stop, Reply, State}
+		     end),
+    Config;
 init_per_testcase(_, Config) ->
     ct:pal("Sockets: ~p", [gtp_socket_reg:all()]),
     meck_reset(Config),
@@ -295,6 +306,9 @@ end_per_testcase(delete_session_request_resend, Config) ->
 end_per_testcase(TestCase, Config)
   when TestCase == delete_bearer_request_resend ->
     ok = meck:delete(gtp_socket, send_request, 7),
+    Config;
+end_per_testcase(create_session_overload_response, Config) ->
+    ok = meck:unload(pgw_s5s8),
     Config;
 end_per_testcase(_, Config) ->
     Config.
@@ -321,6 +335,18 @@ create_session_request_missing_ie(Config) ->
 
     meck_validate(Config),
     ok.
+
+%%--------------------------------------------------------------------
+create_session_overload_response() ->
+    [{doc, "Check that Create Session Response with Cuase Overload works"}].
+create_session_overload_response(Config) ->
+    S = make_gtp_socket(Config),
+
+    create_session(overload, S),
+
+    meck_validate(Config),
+    ok.
+
 
 %%--------------------------------------------------------------------
 path_restart() ->
