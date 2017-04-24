@@ -12,7 +12,7 @@
 -compile([{parse_transform, do},
 	  {parse_transform, cut}]).
 
--export([validate_options/1, init/2, request_spec/2,
+-export([validate_options/1, init/2, request_spec/3,
 	 handle_request/4, handle_response/4,
 	 handle_call/3, handle_cast/2, handle_info/2,
 	 terminate/2]).
@@ -48,20 +48,28 @@
 -define('S5/S8-C SGW',  6).
 -define('S5/S8-C PGW',  7).
 
-request_spec(v1, Type) ->
-    ?GTP_v1_Interface:request_spec(v1, Type);
-request_spec(v2, create_session_request) ->
+-define(CAUSE_OK(Cause), (Cause =:= request_accepted orelse
+			  Cause =:= request_accepted_partially orelse
+			  Cause =:= new_pdp_type_due_to_network_preference orelse
+			  Cause =:= new_pdp_type_due_to_single_address_bearer_only)).
+
+request_spec(v1, Type, Cause) ->
+    ?GTP_v1_Interface:request_spec(v1, Type, Cause);
+request_spec(v2, _Type, Cause)
+  when Cause /= undefined andalso not ?CAUSE_OK(Cause) ->
+    [];
+request_spec(v2, create_session_request, _) ->
     [{?'RAT Type',						mandatory},
      {?'Sender F-TEID for Control Plane',			mandatory},
      {?'Access Point Name',					mandatory},
      {?'Bearer Contexts to be created',				mandatory}];
-request_spec(v2, delete_session_request) ->
+request_spec(v2, delete_session_request, _) ->
     [];
-request_spec(v2, modify_bearer_request) ->
+request_spec(v2, modify_bearer_request, _) ->
     [];
-request_spec(v2, resume_notification) ->
+request_spec(v2, resume_notification, _) ->
     [{?'IMSI',							mandatory}];
-request_spec(v2, _) ->
+request_spec(v2, _, _) ->
     [].
 
 validate_options(Options) ->

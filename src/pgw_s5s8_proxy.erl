@@ -12,7 +12,7 @@
 -compile({parse_transform, cut}).
 -compile({parse_transform, do}).
 
--export([validate_options/1, init/2, request_spec/2,
+-export([validate_options/1, init/2, request_spec/3,
 	 handle_request/4, handle_response/4,
 	 handle_call/3, handle_cast/2, handle_info/2,
 	 terminate/2]).
@@ -75,45 +75,53 @@
 -define('S5/S8-C SGW',  6).
 -define('S5/S8-C PGW',  7).
 
-request_spec(v1, Type) ->
-    ?GTP_v1_Interface:request_spec(v1, Type);
-request_spec(v2, create_session_request) ->
+-define(CAUSE_OK(Cause), (Cause =:= request_accepted orelse
+			  Cause =:= request_accepted_partially orelse
+			  Cause =:= new_pdp_type_due_to_network_preference orelse
+			  Cause =:= new_pdp_type_due_to_single_address_bearer_only)).
+
+request_spec(v1, Type, Cause) ->
+    ?GTP_v1_Interface:request_spec(v1, Type, Cause);
+request_spec(v2, _Type, Cause)
+  when Cause /= undefined andalso not ?CAUSE_OK(Cause) ->
+    [];
+request_spec(v2, create_session_request, _) ->
     [{?'RAT Type',					mandatory},
      {?'Sender F-TEID for Control Plane',		mandatory},
      {?'Access Point Name',				mandatory},
      {?'Bearer Contexts',				mandatory}];
-request_spec(v2, create_session_response) ->
+request_spec(v2, create_session_response, _) ->
     [{?'Cause',						mandatory},
      {?'Bearer Contexts',				mandatory}];
-request_spec(v2, modify_bearer_request) ->
+request_spec(v2, modify_bearer_request, _) ->
     [];
-request_spec(v2, modify_bearer_response) ->
+request_spec(v2, modify_bearer_response, _) ->
     [{?'Cause',						mandatory}];
-request_spec(v2, modify_bearer_command) ->
+request_spec(v2, modify_bearer_command, _) ->
     [];
-request_spec(v2, delete_session_request) ->
+request_spec(v2, delete_session_request, _) ->
     [];
-request_spec(v2, delete_session_response) ->
+request_spec(v2, delete_session_response, _) ->
     [{?'Cause',						mandatory}];
-request_spec(v2, update_bearer_request) ->
+request_spec(v2, update_bearer_request, _) ->
     [{?'Bearer Contexts',				mandatory},
      {?'AMBR',						mandatory}];
-request_spec(v2, update_bearer_response) ->
+request_spec(v2, update_bearer_response, _) ->
     [{?'Cause',						mandatory},
      {?'Bearer Contexts',				mandatory}];
-request_spec(v2, delete_bearer_request) ->
+request_spec(v2, delete_bearer_request, _) ->
     [];
-request_spec(v2, delete_bearer_response) ->
+request_spec(v2, delete_bearer_response, _) ->
     [{?'Cause',						mandatory}];
-request_spec(v2, suspend_notification) ->
+request_spec(v2, suspend_notification, _) ->
     [];
-request_spec(v2, suspend_acknowledge) ->
+request_spec(v2, suspend_acknowledge, _) ->
     [{?'Cause',						mandatory}];
-request_spec(v2, resume_notification) ->
+request_spec(v2, resume_notification, _) ->
     [{?'IMSI',						mandatory}];
-request_spec(v2, resume_acknowledge) ->
+request_spec(v2, resume_acknowledge, _) ->
     [{?'Cause',						mandatory}];
-request_spec(v2, _) ->
+request_spec(v2, _, _) ->
     [].
 
 validate_context_option(proxy_sockets, Value) when is_list(Value), Value /= [] ->
@@ -175,11 +183,6 @@ validate_option(Opt, Value) ->
 
 -record(request_info, {request_key, seq_no, new_peer}).
 -record(context_state, {ebi}).
-
--define(CAUSE_OK(Cause), (Cause =:= request_accepted orelse
-			  Cause =:= request_accepted_partially orelse
-			  Cause =:= new_pdp_type_due_to_network_preference orelse
-			  Cause =:= new_pdp_type_due_to_single_address_bearer_only)).
 
 init(Opts, State) ->
     ProxyPorts = proplists:get_value(proxy_sockets, Opts),

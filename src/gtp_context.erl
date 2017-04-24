@@ -388,8 +388,15 @@ validate_teid(#gtp{version = v1, type = MsgType, tei = TEID}) ->
 validate_teid(#gtp{version = v2, type = MsgType, tei = TEID}) ->
     gtp_v2_c:validate_teid(MsgType, TEID).
 
-validate_message(#gtp{version = Version, type = MsgType, ie = IEs}, #{interface := Interface}) ->
-    Spec = Interface:request_spec(Version, MsgType),
+validate_message(#gtp{version = v1, ie = IEs} = Msg, State) ->
+    Cause = gtp_v1_c:get_cause(IEs),
+    validate_ies(Msg, Cause, State);
+validate_message(#gtp{version = v2, ie = IEs} = Msg, State) ->
+    Cause = gtp_v2_c:get_cause(IEs),
+    validate_ies(Msg, Cause, State).
+
+validate_ies(#gtp{version = Version, type = MsgType, ie = IEs}, Cause, #{interface := Interface}) ->
+    Spec = Interface:request_spec(Version, MsgType, Cause),
     lists:foldl(fun({Id, mandatory}, M) ->
 			case maps:is_key(Id, IEs) of
 			    true  -> M;
