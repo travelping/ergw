@@ -263,14 +263,17 @@ all_tests() ->
 %%% Tests
 %%%===================================================================
 
-init_per_testcase(delete_session_request_resend, Config) ->
+init_per_testcase(Config) ->
     ct:pal("Sockets: ~p", [gtp_socket_reg:all()]),
-    meck_reset(Config),
+    meck_reset(Config).
+
+init_per_testcase(delete_session_request_resend, Config) ->
+    init_per_testcase(Config),
     ok = meck:new(gtp_path, [passthrough, no_link]),
     Config;
 init_per_testcase(TestCase, Config)
   when TestCase == delete_bearer_request_resend ->
-    ct:pal("Sockets: ~p", [gtp_socket_reg:all()]),
+    init_per_testcase(Config),
     ok = meck:expect(gtp_socket, send_request,
 		     fun(GtpPort, From, RemoteIP, _T3, _N3,
 			 #gtp{type = delete_bearer_request} = Msg, ReqId) ->
@@ -282,12 +285,9 @@ init_per_testcase(TestCase, Config)
 			     meck:passthrough([GtpPort, From, RemoteIP,
 					       T3, N3, Msg, ReqId])
 		     end),
-    meck_reset(Config),
-    true = meck:validate(gtp_dp),
     Config;
 init_per_testcase(create_session_overload_response, Config) ->
-    ct:pal("Sockets: ~p", [gtp_socket_reg:all()]),
-    meck_reset(Config),
+    init_per_testcase(Config),
     ok = meck:new(pgw_s5s8, [passthrough, no_link]),
     ok = meck:expect(pgw_s5s8, handle_request,
 		     fun(_ReqKey, Request, _Resent, State) ->
@@ -296,8 +296,7 @@ init_per_testcase(create_session_overload_response, Config) ->
 		     end),
     Config;
 init_per_testcase(_, Config) ->
-    ct:pal("Sockets: ~p", [gtp_socket_reg:all()]),
-    meck_reset(Config),
+    init_per_testcase(Config),
     Config.
 
 end_per_testcase(delete_session_request_resend, Config) ->
