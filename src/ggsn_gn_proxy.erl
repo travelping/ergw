@@ -264,19 +264,17 @@ handle_request(ReqKey,
     lager:debug("Invoking CONTROL: ~p", [Session1]),
     %% ergw_control:authenticate(Session1),
 
-    ProxyInfo0 = init_proxy_info(DefaultGGSN, IEs),
+    ProxyInfo0 = proxy_info(DefaultGGSN, Context),
     case ProxyDS:map(ProxyInfo0) of
 	{ok, #proxy_info{ggsn = GGSN} = ProxyInfo} ->
 	    lager:debug("OK Proxy Map: ~p", [lager:pr(ProxyInfo, ?MODULE)]),
 	    {ProxyGtpPort, ProxyGtpDP} = get_proxy_sockets(ProxyInfo, State1),
 
-	    ProxyContext0 = init_proxy_context(GGSN, ProxyGtpPort, ProxyGtpDP, Context),
-	    ProxyContext1 = copy_subscriber_info(Context, ProxyInfo, ProxyContext0),
-	    ProxyContext = gtp_path:bind(undefined, ProxyContext1),
-	    State = State1#{proxy_info    => ProxyInfo,
-			    proxy_context => ProxyContext},
+	    ProxyContext0 = init_proxy_context(GGSN, ProxyGtpPort, ProxyGtpDP, Context, ProxyInfo),
+	    ProxyContext = gtp_path:bind(undefined, ProxyContext0),
+	    State = State1#{proxy_context => ProxyContext},
 
-	    ProxyReq0 = build_context_request(ProxyContext, ProxyInfo, Request),
+	    ProxyReq0 = build_context_request(ProxyContext, Request),
 	    ProxyReq = build_recovery(ProxyContext, false, ProxyReq0),
 	    forward_request(ProxyContext, ProxyReq, ReqKey, SeqNo, Recovery /= undefined),
 
@@ -295,7 +293,7 @@ handle_request(ReqKey,
 	       #gtp{version = Version,
 		    type = update_pdp_context_request, seq_no = SeqNo,
 		    ie = #{?'Recovery' := Recovery}} = Request, _Resent,
-	       #{context := OldContext, proxy_info := ProxyInfo,
+	       #{context := OldContext,
 		 proxy_context := OldProxyContext} = State)
   when ?IS_REQUEST_CONTEXT(ReqKey, Request, OldContext) ->
 
@@ -308,7 +306,7 @@ handle_request(ReqKey,
     ProxyContext0 = OldProxyContext#context{version = Version},
     ProxyContext = gtp_path:bind(undefined, ProxyContext0),
 
-    ProxyReq0 = build_context_request(ProxyContext, ProxyInfo, Request),
+    ProxyReq0 = build_context_request(ProxyContext, Request),
     ProxyReq = build_recovery(ProxyContext, false, ProxyReq0),
     forward_request(ProxyContext, ProxyReq, ReqKey, SeqNo, Recovery /= undefined),
 
@@ -318,13 +316,13 @@ handle_request(ReqKey,
 	       #gtp{type = ms_info_change_notification_request, seq_no = SeqNo,
 		    ie = #{?'Recovery' := Recovery}} = Request,
 	       _Resent,
-	       #{context := Context0, proxy_info := ProxyInfo,
+	       #{context := Context0,
 		 proxy_context := ProxyContext0} = State) ->
 
     Context = gtp_path:bind(Recovery, Context0),
     ProxyContext = gtp_path:bind(undefined, ProxyContext0),
 
-    ProxyReq0 = build_context_request(ProxyContext, ProxyInfo, Request),
+    ProxyReq0 = build_context_request(ProxyContext, Request),
     ProxyReq = build_recovery(ProxyContext, false, ProxyReq0),
     forward_request(ProxyContext, ProxyReq, ReqKey, SeqNo, Recovery /= undefined),
 
@@ -336,7 +334,7 @@ handle_request(ReqKey,
 	       #{context := Context,
 		 proxy_context := ProxyContext} = State)
   when ?IS_REQUEST_CONTEXT(ReqKey, Request, Context) ->
-    ProxyReq = build_context_request(ProxyContext, undefined, Request),
+    ProxyReq = build_context_request(ProxyContext, Request),
     forward_request(ProxyContext, ProxyReq, ReqKey, SeqNo, false),
 
     {noreply, State};
@@ -347,7 +345,7 @@ handle_request(ReqKey,
 	       #{context := Context,
 		 proxy_context := ProxyContext} = State)
   when ?IS_REQUEST_CONTEXT(ReqKey, ProxyReq, ProxyContext) ->
-    Req = build_context_request(Context, undefined, ProxyReq),
+    Req = build_context_request(Context, ProxyReq),
     forward_request(Context, Req, ReqKey, SeqNo, false),
 
     {noreply, State};
@@ -369,7 +367,7 @@ handle_response(#request_info{request_key = ReqKey, seq_no = SeqNo, new_peer = N
     ProxyContext = gtp_path:bind(Recovery, ProxyContext1),
     gtp_context:register_remote_context(ProxyContext),
 
-    GtpResp0 = build_context_request(Context, undefined, Response),
+    GtpResp0 = build_context_request(Context, Response),
     GtpResp = build_recovery(Context, NewPeer, GtpResp0),
     gtp_context:send_response(ReqKey, GtpResp#gtp{seq_no = SeqNo}),
 
@@ -394,7 +392,7 @@ handle_response(#request_info{request_key = ReqKey, seq_no = SeqNo, new_peer = N
     gtp_context:update_remote_context(OldProxyContext, ProxyContext0),
     ProxyContext = apply_context_change(ProxyContext0, OldProxyContext),
 
-    GtpResp0 = build_context_request(Context, undefined, Response),
+    GtpResp0 = build_context_request(Context, Response),
     GtpResp = build_recovery(Context, NewPeer, GtpResp0),
     gtp_context:send_response(ReqKey, GtpResp#gtp{seq_no = SeqNo}),
 
@@ -409,7 +407,7 @@ handle_response(#request_info{request_key = ReqKey, seq_no = SeqNo, new_peer = N
   when ?IS_RESPONSE_CONTEXT_OPTIONAL_TEI(ReqKey, Context, Response, ProxyContext) ->
     lager:warning("OK Proxy Response ~p", [lager:pr(Response, ?MODULE)]),
 
-    GtpResp0 = build_context_request(Context, undefined, Response),
+    GtpResp0 = build_context_request(Context, Response),
     GtpResp = build_recovery(Context, NewPeer, GtpResp0),
     gtp_context:send_response(ReqKey, GtpResp#gtp{seq_no = SeqNo}),
 
@@ -422,7 +420,7 @@ handle_response(#request_info{request_key = ReqKey, seq_no = SeqNo},
   when ?IS_RESPONSE_CONTEXT(ReqKey, Context, Response, ProxyContext) ->
     lager:warning("OK Proxy Response ~p", [lager:pr(Response, ?MODULE)]),
 
-    GtpResp = build_context_request(Context, undefined, Response),
+    GtpResp = build_context_request(Context, Response),
     gtp_context:send_response(ReqKey, GtpResp#gtp{seq_no = SeqNo}),
 
     dp_delete_pdp_context(Context, ProxyContext),
@@ -436,7 +434,7 @@ handle_response(#request_info{request_key = ReqKey, seq_no = SeqNo},
   when ?IS_RESPONSE_CONTEXT(ReqKey, ProxyContext, Response, Context) ->
     lager:warning("OK SGSN Response ~p", [lager:pr(Response, ?MODULE)]),
 
-    GtpResp = build_context_request(ProxyContext, undefined, Response),
+    GtpResp = build_context_request(ProxyContext, Response),
     gtp_context:send_response(ReqKey, GtpResp#gtp{seq_no = SeqNo}),
 
     dp_delete_pdp_context(Context, ProxyContext),
@@ -489,10 +487,18 @@ copy_to_session(_K, _V, Session) ->
     Session.
 
 init_proxy_context(GGSN, CntlPort, DataPort,
-		   #context{version = Version, control_interface = Interface, state = State}) ->
+		   #context{imei = IMEI, version = Version,
+			    control_interface = Interface, state = State},
+		   #proxy_info{apn = APN, imsi = IMSI, msisdn = MSISDN}) ->
+
     {ok, CntlTEI} = gtp_c_lib:alloc_tei(CntlPort),
     {ok, DataTEI} = gtp_c_lib:alloc_tei(DataPort),
     #context{
+       apn               = APN,
+       imsi              = IMSI,
+       imei              = IMEI,
+       msisdn            = MSISDN,
+
        version           = Version,
        control_interface = Interface,
        control_port      = CntlPort,
@@ -502,10 +508,6 @@ init_proxy_context(GGSN, CntlPort, DataPort,
        remote_control_ip = GGSN,
        state             = State
       }.
-
-copy_subscriber_info(#context{apn = APN, imei = IMEI},
-		     #proxy_info{imsi = IMSI, msisdn = MSISDN}, Context) ->
-    Context#context{apn = APN, imsi = IMSI, imei = IMEI, msisdn = MSISDN}.
 
 get_context_from_req(_K, #gsn_address{instance = 0, address = CntlIP}, Context) ->
     Context#context{remote_control_ip = gtp_c_lib:bin2ip(CntlIP)};
@@ -532,62 +534,44 @@ get_context_from_req(_K, _, Context) ->
 update_context_from_gtp_req(#gtp{ie = IEs}, Context) ->
     maps:fold(fun get_context_from_req/3, Context, IEs).
 
-set_context_from_req(#context{control_port = #gtp_port{ip = CntlIP}},
-		     _K, #gsn_address{instance = 0} = IE) ->
-    IE#gsn_address{address = gtp_c_lib:ip2bin(CntlIP)};
-set_context_from_req(#context{data_port = #gtp_port{ip = DataIP}},
-		     _K, #gsn_address{instance = 1} = IE) ->
-    IE#gsn_address{address = gtp_c_lib:ip2bin(DataIP)};
-set_context_from_req(#context{local_data_tei = DataTEI},
-		     _K, #tunnel_endpoint_identifier_data_i{instance = 0} = IE) ->
-    IE#tunnel_endpoint_identifier_data_i{tei = DataTEI};
-set_context_from_req(#context{local_control_tei = CntlTEI},
-		     _K, #tunnel_endpoint_identifier_control_plane{instance = 0} = IE) ->
-    IE#tunnel_endpoint_identifier_control_plane{tei = CntlTEI};
-set_context_from_req(_, _K, IE) ->
-    IE.
-
-update_gtp_req_from_context(Context, GtpReqIEs) ->
-    maps:map(set_context_from_req(Context, _, _), GtpReqIEs).
-
-init_proxy_info(?'Access Point Name', #access_point_name{apn = APN}, PI) ->
-    PI#proxy_info{apn = APN};
-init_proxy_info(?'IMSI', #international_mobile_subscriber_identity{imsi = IMSI}, PI) ->
-    PI#proxy_info{imsi = IMSI};
-init_proxy_info(?'MSISDN', #ms_international_pstn_isdn_number{msisdn = MSISDN}, PI) ->
-    PI#proxy_info{msisdn = MSISDN};
-init_proxy_info(_K, _V, PI) ->
-    PI.
-
-init_proxy_info(DefaultGGSN, IEs) ->
-    maps:fold(fun init_proxy_info/3, #proxy_info{context = default, ggsn = DefaultGGSN}, IEs).
-
-proxy_request_nat(#proxy_info{apn = APN},
+set_req_from_context(#context{apn = APN},
 		  _K, #access_point_name{instance = 0} = IE)
   when is_list(APN) ->
     IE#access_point_name{apn = APN};
-
-proxy_request_nat(#proxy_info{imsi = IMSI},
+set_req_from_context(#context{imsi = IMSI},
 		  _K, #international_mobile_subscriber_identity{instance = 0} = IE)
   when is_binary(IMSI) ->
     IE#international_mobile_subscriber_identity{imsi = IMSI};
-
-proxy_request_nat(#proxy_info{msisdn = MSISDN},
+set_req_from_context(#context{msisdn = MSISDN},
 		  _K, #ms_international_pstn_isdn_number{instance = 0} = IE)
   when is_binary(MSISDN) ->
     IE#ms_international_pstn_isdn_number{msisdn = {isdn_address, 1, 1, 1, MSISDN}};
-
-proxy_request_nat(_ProxyInfo, _K, IE) ->
+set_req_from_context(#context{control_port = #gtp_port{ip = CntlIP}},
+		     _K, #gsn_address{instance = 0} = IE) ->
+    IE#gsn_address{address = gtp_c_lib:ip2bin(CntlIP)};
+set_req_from_context(#context{data_port = #gtp_port{ip = DataIP}},
+		     _K, #gsn_address{instance = 1} = IE) ->
+    IE#gsn_address{address = gtp_c_lib:ip2bin(DataIP)};
+set_req_from_context(#context{local_data_tei = DataTEI},
+		     _K, #tunnel_endpoint_identifier_data_i{instance = 0} = IE) ->
+    IE#tunnel_endpoint_identifier_data_i{tei = DataTEI};
+set_req_from_context(#context{local_control_tei = CntlTEI},
+		     _K, #tunnel_endpoint_identifier_control_plane{instance = 0} = IE) ->
+    IE#tunnel_endpoint_identifier_control_plane{tei = CntlTEI};
+set_req_from_context(_, _K, IE) ->
     IE.
 
-apply_proxy_request_nat(ProxyInfo, GtpReqIEs) ->
-    maps:map(proxy_request_nat(ProxyInfo, _, _), GtpReqIEs).
+update_gtp_req_from_context(Context, GtpReqIEs) ->
+    maps:map(set_req_from_context(Context, _, _), GtpReqIEs).
+
+proxy_info(DefaultGGSN,
+	   #context{apn = APN, imsi = IMSI, msisdn = MSISDN}) ->
+    #proxy_info{ggsn = DefaultGGSN, apn = APN, imsi = IMSI, msisdn = MSISDN}.
 
 build_context_request(#context{remote_control_tei = TEI} = Context,
-		      ProxyInfo, #gtp{ie = RequestIEs} = Request) ->
+		      #gtp{ie = RequestIEs} = Request) ->
     ProxyIEs0 = maps:without([?'Recovery'], RequestIEs),
-    ProxyIEs1 = apply_proxy_request_nat(ProxyInfo, ProxyIEs0),
-    ProxyIEs = update_gtp_req_from_context(Context, ProxyIEs1),
+    ProxyIEs = update_gtp_req_from_context(Context, ProxyIEs0),
     Request#gtp{tei = TEI, ie = ProxyIEs}.
 
 send_request(#context{control_port = GtpPort,
