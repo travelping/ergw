@@ -286,6 +286,10 @@ init_per_testcase(TestCase, Config)
 					       T3, N3, Msg, ReqId])
 		     end),
     Config;
+init_per_testcase(simple_session, Config) ->
+    init_per_testcase(Config),
+    ok = meck:new(pgw_s5s8, [passthrough, no_link]),
+    Config;
 init_per_testcase(create_session_overload_response, Config) ->
     init_per_testcase(Config),
     ok = meck:new(pgw_s5s8, [passthrough, no_link]),
@@ -305,6 +309,9 @@ end_per_testcase(delete_session_request_resend, Config) ->
 end_per_testcase(TestCase, Config)
   when TestCase == delete_bearer_request_resend ->
     ok = meck:delete(gtp_socket, send_request, 7),
+    Config;
+end_per_testcase(simple_session, Config) ->
+    ok = meck:unload(pgw_s5s8),
     Config;
 end_per_testcase(create_session_overload_response, Config) ->
     ok = meck:unload(pgw_s5s8),
@@ -396,6 +403,18 @@ simple_session(Config) ->
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
+
+    GtpRecMatch0 = list_to_tuple([gtp | lists:duplicate(record_info(size, gtp) - 1, '_')]),
+    GtpRecMatch = GtpRecMatch0#gtp{type = create_session_request},
+    V = meck:capture(first, pgw_s5s8, handle_request, ['_', GtpRecMatch, '_', '_'], 2),
+    ct:pal("V: ~p", [ergw_test_lib:pretty_print(V)]),
+    ?match(
+       #gtp{ie = #{
+	      {v2_access_point_name, 0} := #v2_access_point_name{apn = ?'APN-PROXY'},
+	      {v2_international_mobile_subscriber_identity, 0} :=
+		   #v2_international_mobile_subscriber_identity{imsi = ?'PROXY-IMSI'},
+	      {v2_msisdn, 0} := #v2_msisdn{msisdn = ?'PROXY-MSISDN'}
+	     }}, V),
     ok.
 
 %%--------------------------------------------------------------------

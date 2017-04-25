@@ -262,6 +262,10 @@ init_per_testcase(TestCase, Config)
 					       T3, N3, Msg, ReqId])
 		     end),
     Config;
+init_per_testcase(simple_pdp_context_request, Config) ->
+    init_per_testcase(Config),
+    ok = meck:new(ggsn_gn, [passthrough, no_link]),
+    Config;
 init_per_testcase(_, Config) ->
     init_per_testcase(Config),
     Config.
@@ -272,6 +276,9 @@ end_per_testcase(path_restart, Config) ->
 end_per_testcase(TestCase, Config)
   when TestCase == delete_pdp_context_requested_resend ->
     ok = meck:delete(gtp_socket, send_request, 7),
+    Config;
+end_per_testcase(simple_pdp_context_request, Config) ->
+    meck:unload(ggsn_gn),
     Config;
 end_per_testcase(_, Config) ->
     Config.
@@ -347,6 +354,20 @@ simple_pdp_context_request(Config) ->
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
+
+    GtpRecMatch0 = list_to_tuple([gtp | lists:duplicate(record_info(size, gtp) - 1, '_')]),
+    GtpRecMatch = GtpRecMatch0#gtp{type = create_pdp_context_request},
+    V = meck:capture(first, ggsn_gn, handle_request, ['_', GtpRecMatch, '_', '_'], 2),
+    ct:pal("V: ~p", [ergw_test_lib:pretty_print(V)]),
+    ?match(
+       #gtp{ie = #{
+	      {access_point_name, 0} :=
+		  #access_point_name{apn = ?'APN-PROXY'},
+	      {international_mobile_subscriber_identity, 0} :=
+		  #international_mobile_subscriber_identity{imsi = ?'PROXY-IMSI'},
+	      {ms_international_pstn_isdn_number, 0} :=
+		  #ms_international_pstn_isdn_number{
+		     msisdn = {isdn_address,1,1,1, ?'PROXY-MSISDN'}}}}, V),
     ok.
 
 %%--------------------------------------------------------------------
