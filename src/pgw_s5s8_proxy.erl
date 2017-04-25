@@ -301,14 +301,14 @@ handle_request(ReqKey,
 		    ie = #{?'Recovery' := Recovery}} = Request,
 	       _Resent,
 	       #{context := OldContext, proxy_info := ProxyInfo,
-		 proxy_context := OldProxyContext} = State0)
+		 proxy_context := OldProxyContext} = State)
   when ?IS_REQUEST_CONTEXT(ReqKey, Request, OldContext) ->
 
     Context0 = OldContext#context{version = Version},
     Context1 = update_context_from_gtp_req(Request, Context0),
-    Context = gtp_path:bind(Recovery, Context1),
-    gtp_context:update_remote_context(OldContext, Context),
-    State = apply_context_change(Context, OldContext, State0),
+    Context2 = gtp_path:bind(Recovery, Context1),
+    gtp_context:update_remote_context(OldContext, Context2),
+    Context = apply_context_change(Context2, OldContext),
 
     ProxyContext0 = OldProxyContext#context{version = Version},
     ProxyContext = gtp_path:bind(undefined, ProxyContext0),
@@ -460,13 +460,13 @@ handle_response(#request_info{request_key = ReqKey, seq_no = SeqNo, new_peer = N
 handle_response(#request_info{request_key = ReqKey, seq_no = SeqNo, new_peer = NewPeer},
 		#gtp{type = modify_bearer_response} = Response, _Request,
 		#{context := Context,
-		  proxy_context := OldProxyContext} = State0)
+		  proxy_context := OldProxyContext} = State)
   when ?IS_RESPONSE_CONTEXT(ReqKey, Context, Response, OldProxyContext) ->
     lager:warning("OK Proxy Response ~p", [lager:pr(Response, ?MODULE)]),
 
-    ProxyContext = update_context_from_gtp_req(Response, OldProxyContext),
-    gtp_context:update_remote_context(OldProxyContext, ProxyContext),
-    State = apply_proxy_context_change(ProxyContext, OldProxyContext, State0),
+    ProxyContext0 = update_context_from_gtp_req(Response, OldProxyContext),
+    gtp_context:update_remote_context(OldProxyContext, ProxyContext0),
+    ProxyContext = apply_context_change(ProxyContext0, OldProxyContext),
 
     GtpResp0 = build_context_request(Context, undefined, Response),
     GtpResp = build_recovery(Context, NewPeer, GtpResp0),
@@ -474,7 +474,7 @@ handle_response(#request_info{request_key = ReqKey, seq_no = SeqNo, new_peer = N
 
     dp_update_pdp_context(Context, ProxyContext),
 
-    {noreply, State};
+    {noreply, State#{proxy_context => ProxyContext}};
 
 %%
 %% PGW to SGW response without tunnel endpoint modification
@@ -566,21 +566,13 @@ terminate(_Reason, _State) ->
 %%% Helper functions
 %%%===================================================================
 
-apply_context_change(NewContext0, OldContext, State)
+apply_context_change(NewContext0, OldContext)
   when NewContext0 /= OldContext ->
     NewContext = gtp_path:bind(NewContext0),
     gtp_path:unbind(OldContext),
-    State#{context => NewContext};
-apply_context_change(_NewContext, _OldContext, State) ->
-    State.
-
-apply_proxy_context_change(NewContext0, OldContext, State)
-  when NewContext0 /= OldContext ->
-    NewContext = gtp_path:bind(NewContext0),
-    gtp_path:unbind(OldContext),
-    State#{proxy_context => NewContext};
-apply_proxy_context_change(_NewContext, _OldContext, State) ->
-    State.
+    NewContext;
+apply_context_change(NewContext, _OldContext) ->
+    NewContext.
 
 init_proxy_context(PGW, CntlPort, DataPort,
 		   #context{version = Version, control_interface = Interface, state = State}) ->
