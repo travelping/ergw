@@ -14,10 +14,12 @@
 	 update_pdp_context/3,
 	 ms_info_change_notification/3,
 	 delete_pdp_context/2, delete_pdp_context/3]).
+-export([ggsn_update_context/2]).
 
 -include("ergw_test_lib.hrl").
 -include("ergw_ggsn_test_lib.hrl").
 -include_lib("gtplib/include/gtp_packet.hrl").
+-include("../include/ergw.hrl").
 
 %%%===================================================================
 %%% Execute GTPv1-C transactions
@@ -251,6 +253,15 @@ make_request(delete_pdp_context_request, _SubType,
 
 %%%-------------------------------------------------------------------
 
+make_response(#gtp{type = update_pdp_context_request, seq_no = SeqNo},
+	      _SubType,
+	      #gtpc{restart_counter = RCnt,
+		    remote_control_tei = RemoteCntlTEI}) ->
+    IEs = [#recovery{restart_counter = RCnt},
+	   #cause{value = request_accepted}],
+    #gtp{version = v1, type = update_pdp_context_response,
+	 tei = RemoteCntlTEI, seq_no = SeqNo, ie = IEs};
+
 make_response(#gtp{type = delete_pdp_context_request, seq_no = SeqNo},
 	      _SubType,
 	      #gtpc{restart_counter = RCnt,
@@ -385,3 +396,23 @@ execute_request(MsgType, SubType, Socket, GtpC0) ->
     Response = send_recv_pdu(Socket, Msg),
 
     {validate_response(MsgType, SubType, Response, GtpC), Msg, Response}.
+
+%%%===================================================================
+%%% GGSN injected functions
+%%%===================================================================
+
+-define(T3, 10 * 1000).
+-define(N3, 5).
+
+ggsn_update_context(From, Context) ->
+    NSAPI = 5,
+    RequestIEs0 = [#nsapi{nsapi = NSAPI}],
+    RequestIEs = gtp_v1_c:build_recovery(Context, false, RequestIEs0),
+    ggsn_send_request(Context, ?T3, ?N3, update_pdp_context_request, RequestIEs, From).
+
+ggsn_send_request(#context{control_port = GtpPort,
+			  remote_control_tei = RemoteCntlTEI,
+			  remote_control_ip = RemoteCntlIP},
+		 T3, N3, Type, RequestIEs, ReqId) ->
+    Msg = #gtp{version = v1, type = Type, tei = RemoteCntlTEI, ie = RequestIEs},
+    gtp_context:send_request(GtpPort, RemoteCntlIP, T3, N3, Msg, ReqId).

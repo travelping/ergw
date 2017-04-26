@@ -226,6 +226,7 @@ all_tests() ->
      delete_pdp_context_request_resend,
      update_pdp_context_request_ra_update,
      update_pdp_context_request_tei_update,
+     ggsn_update_pdp_context_request,
      ms_info_change_notification_request_with_tei,
      ms_info_change_notification_request_without_tei,
      ms_info_change_notification_request_invalid_imsi,
@@ -266,6 +267,25 @@ init_per_testcase(simple_pdp_context_request, Config) ->
     init_per_testcase(Config),
     ok = meck:new(ggsn_gn, [passthrough, no_link]),
     Config;
+init_per_testcase(ggsn_update_pdp_context_request, Config) ->
+    %% our GGSN does not send update_bearer_request, so we have to fake them
+    init_per_testcase(Config),
+    ok = meck:new(ggsn_gn, [passthrough, no_link]),
+    ok = meck:expect(ggsn_gn, handle_call,
+		     fun(update_context, From, #{context := Context} = State) ->
+			     ergw_ggsn_test_lib:ggsn_update_context(From, Context),
+			     {noreply, State};
+			(Request, From, State) ->
+			     meck:passthrough([Request, From, State])
+		     end),
+    ok = meck:expect(ggsn_gn, handle_response,
+		     fun(From, #gtp{type = update_pdp_context_response}, _Request, State) ->
+			     gen_server:reply(From, ok),
+			     {noreply, State};
+			(From, Response, Request, State) ->
+			     meck:passthrough([From, Response, Request, State])
+		     end),
+    Config;
 init_per_testcase(_, Config) ->
     init_per_testcase(Config),
     Config.
@@ -278,6 +298,9 @@ end_per_testcase(TestCase, Config)
     ok = meck:delete(gtp_socket, send_request, 7),
     Config;
 end_per_testcase(simple_pdp_context_request, Config) ->
+    meck:unload(ggsn_gn),
+    Config;
+end_per_testcase(ggsn_update_pdp_context_request, Config) ->
     meck:unload(ggsn_gn),
     Config;
 end_per_testcase(_, Config) ->
@@ -587,6 +610,42 @@ delete_pdp_context_requested_resend(Config) ->
     after ?TIMEOUT ->
 	    ct:fail(timeout)
     end,
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+ggsn_update_pdp_context_request() ->
+    [{doc, "Check GGSN initiated Update PDP Context"},
+     {timetrap,{seconds,60}}].
+ggsn_update_pdp_context_request(Config) ->
+    S = make_gtp_socket(Config),
+
+    {GtpC, _, _} = create_pdp_context(S),
+
+    Context = gtp_context_reg:lookup(#gtp_port{name = 'remote-irx'},
+				     {imsi, ?'PROXY-IMSI'}),
+    true = is_pid(Context),
+
+    Self = self(),
+    spawn(fun() -> Self ! {req, gen_server:call(Context, update_context)} end),
+
+    Request = recv_pdu(S, 5000),
+    ?match(#gtp{type = update_pdp_context_request}, Request),
+    Response = make_response(Request, simple, GtpC),
+    send_pdu(S, Response),
+
+    receive
+	{req, ok} ->
+	    ok;
+	{req, Other} ->
+	    ct:fail(Other)
+    after ?TIMEOUT ->
+	    ct:fail(timeout)
+    end,
+
+    delete_pdp_context(S, GtpC),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
     ok.
 
