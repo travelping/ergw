@@ -17,10 +17,12 @@
 	 change_notification/3,
 	 suspend_notification/3,
 	 resume_notification/3]).
+-export([pgw_update_context/2]).
 
 -include("ergw_test_lib.hrl").
 -include("ergw_pgw_test_lib.hrl").
 -include_lib("gtplib/include/gtp_packet.hrl").
+-include("../include/ergw.hrl").
 
 %%%===================================================================
 %%% Execute GTPv2-C transactions
@@ -357,6 +359,19 @@ make_response(#gtp{type = create_session_request, seq_no = SeqNo},
     #gtp{version = v2, type = create_session_response,
 	 tei = RemoteCntlTEI, seq_no = SeqNo, ie = IEs};
 
+make_response(#gtp{type = update_bearer_request, seq_no = SeqNo},
+	      _SubType,
+	      #gtpc{restart_counter = RCnt,
+		    remote_control_tei = RemoteCntlTEI}) ->
+    EBI = 5,
+    IEs = [#v2_recovery{restart_counter = RCnt},
+	   #v2_cause{v2_cause = request_accepted},
+	   #v2_bearer_context{
+	      group = [#v2_eps_bearer_id{eps_bearer_id = EBI},
+		       #v2_cause{v2_cause = request_accepted}]}],
+    #gtp{version = v2, type = update_bearer_response,
+	 tei = RemoteCntlTEI, seq_no = SeqNo, ie = IEs};
+
 make_response(#gtp{type = delete_bearer_request, seq_no = SeqNo},
 	      _SubType,
 	      #gtpc{restart_counter = RCnt,
@@ -527,3 +542,28 @@ execute_request(MsgType, SubType, Socket, GtpC0) ->
     Response = send_recv_pdu(Socket, Msg),
 
     {validate_response(MsgType, SubType, Response, GtpC), Msg, Response}.
+
+%%%===================================================================
+%%% PGW injected functions
+%%%===================================================================
+
+-define(T3, 10 * 1000).
+-define(N3, 5).
+
+pgw_update_context(From, Context) ->
+    EBI = 5,
+    RequestIEs0 =
+	[#v2_bearer_context{
+	    group = [#v2_eps_bearer_id{eps_bearer_id = EBI},
+		     #v2_bearer_level_quality_of_service{}
+		    ]},
+	 #v2_aggregate_maximum_bit_rate{uplink = 48128, downlink = 1704125}],
+    RequestIEs = gtp_v2_c:build_recovery(Context, false, RequestIEs0),
+    pgw_send_request(Context, ?T3, ?N3, update_bearer_request, RequestIEs, From).
+
+pgw_send_request(#context{control_port = GtpPort,
+			  remote_control_tei = RemoteCntlTEI,
+			  remote_control_ip = RemoteCntlIP},
+		 T3, N3, Type, RequestIEs, ReqId) ->
+    Msg = #gtp{version = v2, type = Type, tei = RemoteCntlTEI, ie = RequestIEs},
+    gtp_context:send_request(GtpPort, RemoteCntlIP, T3, N3, Msg, ReqId).

@@ -247,6 +247,7 @@ all_tests() ->
      modify_bearer_request_ra_update,
      modify_bearer_request_tei_update,
      modify_bearer_command,
+     update_bearer_request,
      change_notification_request_with_tei,
      change_notification_request_without_tei,
      change_notification_request_invalid_imsi,
@@ -307,6 +308,26 @@ init_per_testcase(TestCase, Config)
     init_per_testcase(Config),
     ok = meck:new(ggsn_gn_proxy, [passthrough, no_link]),
     Config;
+init_per_testcase(update_bearer_request, Config) ->
+    %% our PGW does not send update_bearer_request, so we have to fake them
+    init_per_testcase(Config),
+    ok = meck:new(pgw_s5s8, [passthrough, no_link]),
+    ok = meck:expect(pgw_s5s8, handle_call,
+		     fun(update_context, From, #{context := Context} = State) ->
+			     ergw_pgw_test_lib:pgw_update_context(From, Context),
+			     {noreply, State};
+			(Request, From, State) ->
+			     meck:passthrough([Request, From, State])
+		     end),
+    ok = meck:expect(pgw_s5s8, handle_response,
+		     fun(From, #gtp{type = update_bearer_response}, _Request, State) ->
+			     gen_server:reply(From, ok),
+			     {noreply, State};
+			(From, Response, Request, State) ->
+			     meck:passthrough([From, Response, Request, State])
+		     end),
+    Config;
+
 init_per_testcase(_, Config) ->
     init_per_testcase(Config),
     Config.
@@ -328,6 +349,9 @@ end_per_testcase(TestCase, Config)
   when TestCase == interop_sgsn_to_sgw;
        TestCase == interop_sgw_to_sgsn ->
     ok = meck:unload(ggsn_gn_proxy),
+    Config;
+end_per_testcase(update_bearer_request, Config) ->
+    ok = meck:unload(pgw_s5s8),
     Config;
 end_per_testcase(_, Config) ->
     Config.
@@ -738,6 +762,42 @@ interop_sgw_to_sgsn(Config) ->
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
     true = meck:validate(ggsn_gn_proxy),
+    ok.
+
+%%--------------------------------------------------------------------
+update_bearer_request() ->
+    [{doc, "Check PGW initiated Update Bearer"},
+     {timetrap,{seconds,60}}].
+update_bearer_request(Config) ->
+    S = make_gtp_socket(Config),
+
+    {GtpC, _, _} = create_session(S),
+
+    Context = gtp_context_reg:lookup(#gtp_port{name = 'remote-irx'},
+				     {imsi, ?'PROXY-IMSI'}),
+    true = is_pid(Context),
+
+    Self = self(),
+    spawn(fun() -> Self ! {req, gen_server:call(Context, update_context)} end),
+
+    Request = recv_pdu(S, 5000),
+    ?match(#gtp{type = update_bearer_request}, Request),
+    Response = make_response(Request, simple, GtpC),
+    send_pdu(S, Response),
+
+    receive
+	{req, ok} ->
+	    ok;
+	{req, Other} ->
+	    ct:fail(Other)
+    after ?TIMEOUT ->
+	    ct:fail(timeout)
+    end,
+
+    delete_session(S, GtpC),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    meck_validate(Config),
     ok.
 
 %%%===================================================================
