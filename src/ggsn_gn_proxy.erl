@@ -110,16 +110,20 @@ request_spec(v1, create_pdp_context_response, _) ->
      {{gsn_address, 3},					conditional},
      {?'Quality of Service Profile',			conditional}];
 
+%% SGSN initated reqeuest:
+%% request_spec(v1, update_pdp_context_request, _) ->
+%%     [{?'Tunnel Endpoint Identifier Data I',		mandatory},
+%%      {?'Tunnel Endpoint Identifier Control Plane',	conditional},
+%%      {?'NSAPI',						mandatory},
+%%      {?'SGSN Address for signalling',			mandatory},
+%%      {?'SGSN Address for user traffic',			mandatory},
+%%      {{gsn_address, 2},					conditional},
+%%      {{gsn_address, 3},					conditional},
+%%      {?'Quality of Service Profile',			mandatory},
+%%      {{traffic_flow_template, 0},			conditional}];
+
 request_spec(v1, update_pdp_context_request, _) ->
-    [{?'Tunnel Endpoint Identifier Data I',		mandatory},
-     {?'Tunnel Endpoint Identifier Control Plane',	conditional},
-     {?'NSAPI',						mandatory},
-     {?'SGSN Address for signalling',			mandatory},
-     {?'SGSN Address for user traffic',			mandatory},
-     {{gsn_address, 2},					conditional},
-     {{gsn_address, 3},					conditional},
-     {?'Quality of Service Profile',			mandatory},
-     {{traffic_flow_template, 0},			conditional}];
+    [{?'NSAPI',						mandatory}];
 
 request_spec(v1, update_pdp_context_response, _) ->
     [{{cause, 0},					mandatory},
@@ -312,6 +316,25 @@ handle_request(ReqKey,
 
     {noreply, State#{context := Context, proxy_context := ProxyContext}};
 
+%%
+%% GGSN to SGW Update PDP Context Request
+%%
+handle_request(ReqKey,
+	       #gtp{type = update_pdp_context_request, seq_no = SeqNo,
+		    ie = #{?'Recovery' := Recovery}} = ProxyReq, _Resent,
+	       #{context := Context0,
+		 proxy_context := ProxyContext0} = State)
+  when ?IS_REQUEST_CONTEXT(ReqKey, ProxyReq, ProxyContext0) ->
+
+    Context = gtp_path:bind(undefined, Context0),
+    ProxyContext = gtp_path:bind(Recovery, ProxyContext0),
+
+    Req0 = build_context_request(Context, ProxyReq),
+    Req = build_recovery(Context, false, Req0),
+    forward_request(Context, Req, ReqKey, SeqNo, Recovery /= undefined),
+
+    {noreply, State#{context := Context, proxy_context := ProxyContext}};
+
 handle_request(ReqKey,
 	       #gtp{type = ms_info_change_notification_request, seq_no = SeqNo,
 		    ie = #{?'Recovery' := Recovery}} = Request,
@@ -399,6 +422,19 @@ handle_response(#request_info{request_key = ReqKey, seq_no = SeqNo, new_peer = N
     dp_update_pdp_context(Context, ProxyContext),
 
     {noreply, State#{proxy_context => ProxyContext}};
+
+handle_response(#request_info{request_key = ReqKey, seq_no = SeqNo, new_peer = NewPeer},
+		#gtp{type = update_pdp_context_response} = Response, _Request,
+		#{context := Context,
+		  proxy_context := ProxyContext} = State)
+  when ?IS_RESPONSE_CONTEXT(ReqKey, ProxyContext, Response, Context) ->
+    lager:warning("OK SGSN Response ~p", [lager:pr(Response, ?MODULE)]),
+
+    GtpResp0 = build_context_request(ProxyContext, Response),
+    GtpResp = build_recovery(ProxyContext, NewPeer, GtpResp0),
+    gtp_context:send_response(ReqKey, GtpResp#gtp{seq_no = SeqNo}),
+
+    {noreply, State};
 
 handle_response(#request_info{request_key = ReqKey, seq_no = SeqNo, new_peer = NewPeer},
 		#gtp{type = ms_info_change_notification_response} = Response, _Request,
