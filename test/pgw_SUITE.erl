@@ -125,7 +125,9 @@ all() ->
      requests_invalid_teid,
      commands_invalid_teid,
      delete_bearer_request,
-     delete_bearer_request_resend].
+     delete_bearer_request_resend,
+     interop_sgsn_to_sgw,
+     interop_sgw_to_sgsn].
 
 %%%===================================================================
 %%% Tests
@@ -154,6 +156,12 @@ init_per_testcase(TestCase, Config)
 					       T3, N3, Msg, ReqId])
 		     end),
     Config;
+init_per_testcase(TestCase, Config)
+  when TestCase == interop_sgsn_to_sgw;
+       TestCase == interop_sgw_to_sgsn ->
+    init_per_testcase(Config),
+    ok = meck:new(ggsn_gn, [passthrough, no_link]),
+    Config;
 init_per_testcase(_, Config) ->
     init_per_testcase(Config),
     Config.
@@ -164,6 +172,11 @@ end_per_testcase(path_restart, Config) ->
 end_per_testcase(TestCase, Config)
   when TestCase == delete_bearer_request_resend ->
     ok = meck:delete(gtp_socket, send_request, 7),
+    Config;
+end_per_testcase(TestCase, Config)
+  when TestCase == interop_sgsn_to_sgw;
+       TestCase == interop_sgw_to_sgsn ->
+    ok = meck:unload(ggsn_gn),
     Config;
 end_per_testcase(_, Config) ->
     Config.
@@ -539,6 +552,36 @@ delete_bearer_request_resend(Config) ->
     end,
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+interop_sgsn_to_sgw() ->
+    [{doc, "Check 3GPP T 23.401, Annex D, SGSN to SGW handover"}].
+interop_sgsn_to_sgw(Config) ->
+    S = make_gtp_socket(Config),
+
+    {GtpC1, _, _} = ergw_ggsn_test_lib:create_pdp_context(S),
+    {GtpC2, _, _} = modify_bearer(tei_update, S, GtpC1),
+    delete_session(S, GtpC2),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    meck_validate(Config),
+    true = meck:validate(ggsn_gn),
+    ok.
+
+%%--------------------------------------------------------------------
+interop_sgw_to_sgsn() ->
+    [{doc, "Check 3GPP T 23.401, Annex D, SGW to SGSN handover"}].
+interop_sgw_to_sgsn(Config) ->
+    S = make_gtp_socket(Config),
+
+    {GtpC1, _, _} = create_session(S),
+    {GtpC2, _, _} = ergw_ggsn_test_lib:update_pdp_context(tei_update, S, GtpC1),
+    ergw_ggsn_test_lib:delete_pdp_context(S, GtpC2),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    meck_validate(Config),
+    true = meck:validate(ggsn_gn),
     ok.
 
 %%%===================================================================
