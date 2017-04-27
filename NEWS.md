@@ -1,6 +1,13 @@
 erGW - 3GPP GGSN and PDN-GW in Erlang
 =====================================
 
+Version 1.11.0 - 27 Apr 2017
+----------------------------
+
+* GTP context no longer crashes when error replies do not contain mandatory IEs
+* unify translation logic in proxy mode
+* more unit test
+
 Version 1.10.0 - 18 Apr 2017
 ----------------------------
 
