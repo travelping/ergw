@@ -395,6 +395,12 @@ validate_response(create_session_request, missing_ie, Response, GtpC) ->
 	  Response),
     GtpC;
 
+validate_response(create_session_request, aaa_reject, Response, GtpC) ->
+   ?match(#gtp{type = create_session_response,
+		ie = #{{v2_cause,0} := #v2_cause{v2_cause = user_authentication_failed}}},
+	  Response),
+    GtpC;
+
 validate_response(create_session_request, overload, Response, GtpC) ->
    ?match(#gtp{type = create_session_response,
 		ie = #{{v2_cause,0} := #v2_cause{v2_cause = no_resources_available}}},

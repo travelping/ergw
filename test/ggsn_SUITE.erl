@@ -96,6 +96,7 @@ end_per_suite(Config) ->
 all() ->
     [invalid_gtp_pdu,
      create_pdp_context_request_missing_ie,
+     create_pdp_context_request_aaa_reject,
      path_restart, path_restart_recovery, path_restart_multi,
      simple_pdp_context_request,
      ipv6_pdp_context_request,
@@ -119,6 +120,14 @@ init_per_testcase(Config) ->
     ct:pal("Sockets: ~p", [gtp_socket_reg:all()]),
     meck_reset(Config).
 
+init_per_testcase(create_pdp_context_request_aaa_reject, Config) ->
+    init_per_testcase(Config),
+    ok = meck:new(ergw_aaa_session, [passthrough, no_link]),
+    ok = meck:expect(ergw_aaa_session,authenticate,
+		     fun(_Session, _SessionOpts) ->
+			     {fail, []}
+		     end),
+    Config;
 init_per_testcase(path_restart, Config) ->
     init_per_testcase(Config),
     ok = meck:new(gtp_path, [passthrough, no_link]),
@@ -142,6 +151,9 @@ init_per_testcase(_, Config) ->
     init_per_testcase(Config),
     Config.
 
+end_per_testcase(create_pdp_context_request_aaa_reject, Config) ->
+    meck:unload(ergw_aaa_session),
+    Config;
 end_per_testcase(path_restart, Config) ->
     meck:unload(gtp_path),
     Config;
@@ -171,6 +183,17 @@ create_pdp_context_request_missing_ie(Config) ->
     S = make_gtp_socket(Config),
 
     create_pdp_context(missing_ie, S),
+
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+create_pdp_context_request_aaa_reject() ->
+    [{doc, "Check AAA reject return on Create PDP Context Request"}].
+create_pdp_context_request_aaa_reject(Config) ->
+    S = make_gtp_socket(Config),
+
+    create_pdp_context(aaa_reject, S),
 
     meck_validate(Config),
     ok.
