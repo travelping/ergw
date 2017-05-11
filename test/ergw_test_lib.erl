@@ -85,7 +85,7 @@ load_config(AppCfg) ->
 %%%===================================================================
 
 meck_init(Config) ->
-    ok = meck:new(gtp_dp, [no_link]),
+    ok = meck:new(gtp_dp, [non_strict, no_link]),
     ok = meck:expect(gtp_dp, start_link,
 		     fun({Name, _SocketOpts}) ->
 			     RCnt =

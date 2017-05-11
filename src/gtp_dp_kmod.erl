@@ -5,9 +5,10 @@
 %% as published by the Free Software Foundation; either version
 %% 2 of the License, or (at your option) any later version.
 
--module(gtp_dp).
+-module(gtp_dp_kmod).
 
 -behavior(gen_server).
+-behavior(gtp_dp_api).
 
 %% API
 -export([start_link/1, send/4, get_id/1,

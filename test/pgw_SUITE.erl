@@ -32,7 +32,8 @@
 		  {handlers, [{lager_console_backend, info}]}
 		 ]},
 
-	 {ergw, [{sockets,
+	 {ergw, [{dp_handler, '$meck'},
+		 {sockets,
 		  [{irx, [{type, 'gtp-c'},
 			  {ip,  ?TEST_GSN},
 			  {reuseaddr, true}

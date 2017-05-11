@@ -13,6 +13,7 @@
 -export([load_config/1, validate_options/2]).
 
 -define(DefaultOptions, [{plmn_id, {<<"001">>, <<"01">>}},
+			 {dp_handler, gtp_dp_kmod},
 			 {sockets, []},
 			 {handlers, []},
 			 {vrfs, []},
@@ -48,8 +49,18 @@ validate_config(Options) ->
 
 validate_option(plmn_id, {MCC, MNC} = Value) ->
     case validate_mcc_mcn(MCC, MNC) of
-	ok -> Value;
-	_  -> throw({error, {options, {plmn_id, Value}}})
+       ok -> Value;
+       _  -> throw({error, {options, {plmn_id, Value}}})
+    end;
+validate_option(dp_handler, Value) when is_atom(Value) ->
+    try
+	ok = ergw_loader:load(gtp_dp_api, gtp_dp, Value)
+    catch
+	error:{missing_exports, Missing} ->
+	    throw({error, {options, {dp_handler, Value, Missing}}});
+	_:Cause ->
+	    ST = erlang:get_stacktrace(),
+	    throw({error, {options, {dp_handler, Value, Cause, ST}}})
     end;
 validate_option(sockets, Value) when is_list(Value), length(Value) >= 1 ->
     validate_options(fun validate_sockets_option/2, Value);
