@@ -55,8 +55,7 @@ Using tetrapak:
 
 Using rebar:
 
-    # rebar get-deps
-    # rebar compile
+    # rebar3 compile
 
 RUNNING
 -------
