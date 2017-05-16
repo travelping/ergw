@@ -39,12 +39,7 @@ get_id(GtpPort) ->
     call_port(GtpPort, get_id).
 
 call(Context, Request, IEs) ->
-    case dp_call(Context, Request, IEs) of
-	{ok, Pid} when is_pid(Pid) ->
-	    Context#context{dp_pid = Pid};
-	_ ->
-	    Context
-    end.
+    dp_call(Context, Request, IEs).
 
 %%%===================================================================
 %%% Options Validation
