@@ -9,7 +9,8 @@
 
 -export([create_sgi_session/1,
 	 modify_sgi_session/2,
-	 delete_sgi_session/1]).
+	 delete_sgi_session/1,
+	 query_usage_report/1]).
 
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include("include/ergw.hrl").
@@ -24,9 +25,15 @@ create_sgi_session(#context{local_data_tei = SEID} = Ctx) ->
       create_pdr => lists:foldl(fun create_pdr/2, [],
 				[{1, gtp, Ctx}, {2, sgi, Ctx}]),
       create_far => lists:foldl(fun create_far/2, [],
-				[{2, gtp, Ctx}, {1, sgi, Ctx}])
+				[{2, gtp, Ctx}, {1, sgi, Ctx}]),
+      create_urr => [#{urr_id => 1, measurement_method => [volume]}]
      },
-    ergw_sx:call(Ctx, session_establishment_request, Req).
+    case ergw_sx:call(Ctx, session_establishment_request, Req) of
+	{ok, Pid} when is_pid(Pid) ->
+	    Ctx#context{dp_pid = Pid};
+	_ ->
+	    Ctx
+    end.
 
 modify_sgi_session(#context{local_data_tei = SEID} = Ctx, OldCtx) ->
     Req = #{
@@ -40,6 +47,10 @@ modify_sgi_session(#context{local_data_tei = SEID} = Ctx, OldCtx) ->
 
 delete_sgi_session(Ctx) ->
     ergw_sx:call(Ctx, session_deletion_request, #{}).
+
+query_usage_report(Ctx) ->
+    Req = #{query_urr => [1]},
+    ergw_sx:call(Ctx, session_modification_request, Req).
 
 %%%===================================================================
 %%% Helper functions
@@ -69,7 +80,8 @@ create_pdr({RuleId, gtp,
       precedence => 100,
       pdi => PDI,
       outer_header_removal => true,
-      far_id => RuleId
+      far_id => RuleId,
+      urr_id => [1]
      },
     [PDR | PDRs];
 
@@ -84,7 +96,8 @@ create_pdr({RuleId, sgi, #context{vrf = InPortName} = Ctx}, PDRs) ->
       precedence => 100,
       pdi => PDI,
       outer_header_removal => false,
-      far_id => RuleId
+      far_id => RuleId,
+      urr_id => [1]
      },
     [PDR | PDRs].
 
@@ -134,7 +147,8 @@ update_pdr({RuleId, gtp,
       precedence => 100,
       pdi => PDI,
       outer_header_removal => true,
-      far_id => RuleId
+      far_id => RuleId,
+      urr_id => [1]
      },
     [PDR | PDRs];
 
@@ -155,7 +169,8 @@ update_pdr({RuleId, sgi,
       precedence => 100,
       pdi => PDI,
       outer_header_removal => false,
-      far_id => RuleId
+      far_id => RuleId,
+      urr_id => [1]
      },
     [PDR | PDRs];
 

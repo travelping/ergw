@@ -12,7 +12,8 @@
 	 get_seq_no/3]).
 -export([create_forward_session/2,
 	 modify_forward_session/4,
-	 delete_forward_session/2]).
+	 delete_forward_session/2,
+	 query_usage_report/1]).
 
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include("include/ergw.hrl").
@@ -131,7 +132,8 @@ create_pdr({RuleId, Intf,
       precedence => 100,
       pdi => PDI,
       outer_header_removal => true,
-      far_id => RuleId
+      far_id => RuleId,
+      urr_id => [1]
      },
     [PDR | PDRs].
 
@@ -170,7 +172,8 @@ update_pdr({RuleId, Intf,
       precedence => 100,
       pdi => PDI,
       outer_header_removal => true,
-      far_id => RuleId
+      far_id => RuleId,
+      urr_id => [1]
      },
     [PDR | PDRs];
 
@@ -216,9 +219,15 @@ create_forward_session(#context{local_data_tei = SEID} = Left, Right) ->
       create_pdr => lists:foldl(fun create_pdr/2, [], [{1, access, Left},
 						       {2, core, Right}]),
       create_far => lists:foldl(fun create_far/2, [], [{2, access, Left},
-						       {1, core, Right}])
+						       {1, core, Right}]),
+      create_urr => [#{urr_id => 1, measurement_method => [volume]}]
      },
-    ergw_sx:call(Left, session_establishment_request, Req).
+    case ergw_sx:call(Left, session_establishment_request, Req) of
+	{ok, Pid} when is_pid(Pid) ->
+	    Left#context{dp_pid = Pid};
+	_ ->
+	    Left
+    end.
 
 modify_forward_session(OldLeft, #context{local_data_tei = NewSEID} = NewLeft,
 		       OldRight, NewRight) ->
@@ -235,3 +244,7 @@ modify_forward_session(OldLeft, #context{local_data_tei = NewSEID} = NewLeft,
 
 delete_forward_session(Left, _Right) ->
     ergw_sx:call(Left, session_deletion_request, #{}).
+
+query_usage_report(Ctx) ->
+    Req = #{query_urr => [1]},
+    ergw_sx:call(Ctx, session_modification_request, Req).
