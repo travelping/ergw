@@ -248,7 +248,8 @@ all_tests() ->
      delete_pdp_context_requested_late_response,
      create_pdp_context_overload,
      unsupported_request,
-     cache_timeout].
+     cache_timeout,
+     session_accounting].
 
 %%%===================================================================
 %%% Tests
@@ -1074,6 +1075,55 @@ cache_timeout(Config) ->
     ?equal(0, length(T1)),
     ?equal(0, length(Q1)),
 
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+session_accounting() ->
+    [{doc, "Check that accounting in session works"}].
+session_accounting(Config) ->
+    S = make_gtp_socket(Config),
+
+    {GtpC, _, _} = create_pdp_context(S),
+
+    [#{'Session' := Session, 'Process' := Context}|_] = ergw_api:tunnel(?CLIENT_IP),
+    SessionOpts0 = ergw_aaa_session:get(Session),
+    #{'Accouting-Update-Fun' := UpdateFun} = SessionOpts0,
+
+    %% the default meck accounting handler returns nothing, make sure we handle that
+    SessionOpts1 = UpdateFun(Context, SessionOpts0),
+    ?equal(false, maps:is_key('InPackets', SessionOpts1)),
+    ?equal(false, maps:is_key('InOctets', SessionOpts1)),
+
+    %% install a sensible accouting meck and try again....
+    ok = meck:expect(ergw_sx, call,
+		     fun(_Ctx, session_modification_request, #{query_urr := _}) ->
+			     Report = #{
+			       usage_report =>
+				   [#{volume =>
+					  #{dl		=> {2,1},
+					    ul		=> {4,3},
+					    total	=> {6,4},
+					    dropped_dl	=> {0,0},
+					    dropped_ul	=> {0,0}
+					    }}]},
+			     {ok, Report};
+			(Ctx, _Request, _IEs) ->
+			     Ctx
+		     end),
+    SessionOpts2 = UpdateFun(Context, SessionOpts1),
+    ?match(#{'InPackets' := 3, 'OutPackets' := 1,
+	     'InOctets' := 4, 'OutOctets' := 2}, SessionOpts2),
+
+    SessionOpts3 = UpdateFun(Context, SessionOpts2),
+    ?match(#{'InPackets' := 3, 'OutPackets' := 1,
+	     'InOctets' := 4, 'OutOctets' := 2}, SessionOpts3),
+
+    ok = meck:expect(ergw_sx, call, fun(Ctx, _Request, _IEs) -> Ctx end),
+
+    delete_pdp_context(S, GtpC),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
     ok.
 

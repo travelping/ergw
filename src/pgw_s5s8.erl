@@ -17,8 +17,13 @@
 	 handle_call/3, handle_cast/2, handle_info/2,
 	 terminate/2]).
 
+%% shared API's
+-export([init_session/3, init_session_from_gtp_req/3]).
+
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include("include/ergw.hrl").
+
+-import(ergw_aaa_session, [to_session/1]).
 
 -define(GTP_v1_Interface, ggsn_gn).
 -define(T3, 10 * 1000).
@@ -84,22 +89,26 @@ validate_option(Opt, Value) ->
     gtp_context:validate_option(Opt, Value).
 
 init(_Opts, State) ->
-    {ok, Session} = ergw_aaa_session_sup:new_session(self(), #{}),
+    SessionOpts = [{'Accouting-Update-Fun', fun accounting_update/2}],
+    {ok, Session} = ergw_aaa_session_sup:new_session(self(), to_session(SessionOpts)),
     {ok, State#{'Session' => Session}}.
+
+handle_call(query_usage_report, _From,
+	    #{context := Context} = State) ->
+    Reply = ergw_gsn_lib:query_usage_report(Context),
+    {reply, Reply, State};
 
 handle_call(delete_context, From, #{context := Context} = State) ->
     delete_context(From, Context),
     {noreply, State};
 
-handle_call(terminate_context, _From, #{context := Context} = State) ->
-    ergw_gsn_lib:delete_sgi_session(Context),
-    pdn_release_ip(Context),
+handle_call(terminate_context, _From, State) ->
+    close_pdn_context(State),
     {stop, normal, ok, State};
 
 handle_call({path_restart, Path}, _From,
-	    #{context := #context{path = Path} = Context} = State) ->
-    ergw_gsn_lib:delete_sgi_session(Context),
-    pdn_release_ip(Context),
+	    #{context := #context{path = Path}} = State) ->
+    close_pdn_context(State),
     {stop, normal, ok, State};
 handle_call({path_restart, _Path}, _From, State) ->
     {reply, ok, State}.
@@ -108,11 +117,8 @@ handle_cast({packet_in, _GtpPort, _IP, _Port, _Msg}, State) ->
     lager:warning("packet_in not handled (yet): ~p", [_Msg]),
     {noreply, State}.
 
-handle_info({_, session_report_request,
-	     #{report_type := [error_indication_report]}},
-	    #{context := Context} = State) ->
-    ergw_gsn_lib:delete_sgi_session(Context),
-    pdn_release_ip(Context),
+handle_info({_, session_report_request, #{report_type := [error_indication_report]}}, State) ->
+    close_pdn_context(State),
     {stop, normal, State};
 
 handle_info(_Info, State) ->
@@ -314,8 +320,7 @@ handle_request(_ReqKey,
 
     case Result of
 	{ok, {ReplyIEs, State}} ->
-	    ergw_gsn_lib:delete_sgi_session(Context),
-	    pdn_release_ip(Context),
+	    close_pdn_context(State),
 	    Reply = response(delete_session_response, Context, ReplyIEs),
 	    {stop, Reply, State};
 
@@ -356,10 +361,8 @@ handle_response(_, timeout, #gtp{type = update_bearer_request},
     delete_context(undefined, Context),
     {noreply, State};
 
-handle_response(From, timeout, #gtp{type = delete_bearer_request},
-		#{context := Context} = State) ->
-    ergw_gsn_lib:delete_sgi_session(Context),
-    pdn_release_ip(Context),
+handle_response(From, timeout, #gtp{type = delete_bearer_request}, State) ->
+    close_pdn_context(State),
     if is_tuple(From) -> gen_server:reply(From, {error, timeout});
        true -> ok
     end,
@@ -371,8 +374,7 @@ handle_response(From,
 		_Request,
 		#{context := Context0} = State) ->
     Context = gtp_path:bind(Response, Context0),
-    ergw_gsn_lib:delete_sgi_session(Context),
-    pdn_release_ip(Context),
+    close_pdn_context(State),
     if is_tuple(From) -> gen_server:reply(From, {ok, Cause});
        true -> ok
     end,
@@ -410,6 +412,30 @@ authenticate(Context, Session, SessionOpts, Request) ->
 	    throw(#ctx_err{level = ?FATAL,
 			   reply = Reply1,
 			   context = Context})
+    end.
+
+usage_report_to_accounting([#{volume :=
+				  #{dl := {SendBytes, SendPkts},
+				    ul := {RcvdBytes, RcvdPkts}
+				   }}]) ->
+    [{'InPackets',  RcvdPkts},
+     {'OutPackets', SendPkts},
+     {'InOctets',   RcvdBytes},
+     {'OutOctets',  SendBytes}].
+
+sx_response_to_accounting(#{usage_report := UR}) ->
+    to_session(usage_report_to_accounting(UR));
+sx_response_to_accounting(_) ->
+    to_session([]).
+
+accounting_update(GTP, SessionOpts) ->
+    case gen_server:call(GTP, query_usage_report) of
+	{ok, Response} ->
+	    Acc = sx_response_to_accounting(Response),
+	    ergw_aaa_session:merge(SessionOpts, Acc);
+	_Other ->
+	    lager:warning("got unexpected Query response: ~p", [_Other]),
+	    to_session([])
     end.
 
 match_context(_Type, _Context, undefined) ->
@@ -458,6 +484,19 @@ encode_paa(Type, IPv4, IPv6) ->
 
 pdn_release_ip(#context{vrf = VRF, ms_v4 = MSv4, ms_v6 = MSv6}) ->
     vrf:release_pdp_ip(VRF, MSv4, MSv6).
+
+close_pdn_context(#{context := Context, 'Session' := Session}) ->
+    SessionOpts =
+	case ergw_gsn_lib:delete_sgi_session(Context) of
+	    {ok, Response} ->
+		sx_response_to_accounting(Response);
+	    Other ->
+		lager:warning("Session Deletion failed with ~p", [Other]),
+		to_session([])
+	end,
+    lager:debug("Accounting Opts: ~p", [SessionOpts]),
+    ergw_aaa_session:stop(Session, SessionOpts),
+    pdn_release_ip(Context).
 
 apply_context_change(NewContext0, OldContext, State) ->
     NewContextPending = gtp_path:bind(NewContext0),

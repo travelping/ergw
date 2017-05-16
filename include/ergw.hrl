@@ -81,3 +81,8 @@
 	  ipv6			:: inet:ip6_address(),
 	  teid			:: 0..16#ffffffff
 	 }).
+
+-record(counter, {
+	  rx :: {Bytes :: integer(), Packets :: integer()},
+	  tx :: {Bytes :: integer(), Packets :: integer()}
+	 }).
