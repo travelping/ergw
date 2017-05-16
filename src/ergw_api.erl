@@ -23,8 +23,8 @@ peer(Port) when is_atom(Port) ->
     collect_peer_info(gtp_path_reg:all(Port)).
 
 tunnel(all) ->
-    Contexts = gtp_context_reg:all(),
-    lists:foldl(fun({{_Socket, _TEID}, Pid}, Tunnels) -> collect_contexts(Pid, Tunnels) end, [], Contexts);
+    Contexts = lists:usort([Pid || {{_Socket, _TEID}, Pid} <- gtp_context_reg:all(), is_pid(Pid)]),
+    lists:foldl(fun collect_contexts/2, [], Contexts);
 tunnel({_,_,_,_} = IP) ->
     lists:foldl(fun collext_path_contexts/2, [], gtp_path_reg:all(IP));
 tunnel(Port) when is_atom(Port) ->
@@ -43,4 +43,4 @@ collext_path_contexts(Path, Tunnels) ->
 collect_contexts(Context, Tunnels) ->
     io:format("Context: ~p~n", [Context]),
     Info = gtp_context:info(Context),
-    [Info | Tunnels].
+    [Info#{'Process' => Context} | Tunnels].

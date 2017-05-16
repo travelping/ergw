@@ -20,6 +20,8 @@
 -include("include/ergw.hrl").
 -include("gtp_proxy_ds.hrl").
 
+-import(ergw_aaa_session, [to_session/1]).
+
 -compile([nowarn_unused_record]).
 
 -define(T3, 10 * 1000).
@@ -153,34 +155,36 @@ init(#{proxy_sockets := ProxyPorts, proxy_data_paths := ProxyDPs,
        ggsn := GGSN, proxy_data_source := ProxyDS,
        contexts := Contexts}, State) ->
 
+    SessionOpts = [{'Accouting-Update-Fun', fun accounting_update/2}],
+    {ok, Session} = ergw_aaa_session_sup:new_session(self(), to_session(SessionOpts)),
+
     {ok, State#{proxy_ports => ProxyPorts, proxy_dps => ProxyDPs,
-		contexts => Contexts, default_gw => GGSN, proxy_ds => ProxyDS}}.
+		'Session' => Session, contexts => Contexts,
+		default_gw => GGSN, proxy_ds => ProxyDS}}.
+
+handle_call(query_usage_report, _From,
+	    #{context := Context} = State) ->
+    Reply = ergw_proxy_lib:query_usage_report(Context),
+    {reply, Reply, State};
 
 handle_call(delete_context, _From, State) ->
     lager:warning("delete_context no handled(yet)"),
     {reply, ok, State};
 
-handle_call(terminate_context, _From,
-	    #{context := Context,
-	      proxy_context := ProxyContext} = State) ->
+handle_call(terminate_context, _From, State) ->
     initiate_pdp_context_teardown(sgsn2ggsn, State),
-    ergw_proxy_lib:delete_forward_session(Context, ProxyContext),
+    delete_forward_session(State),
     {stop, normal, ok, State};
 
 handle_call({path_restart, Path}, _From,
-	    #{context := #context{path = Path} = Context,
-	      proxy_context := ProxyContext
-	     } = State) ->
+	    #{context := #context{path = Path}} = State) ->
     initiate_pdp_context_teardown(sgsn2ggsn, State),
-    ergw_proxy_lib:delete_forward_session(Context, ProxyContext),
+    delete_forward_session(State),
     {stop, normal, ok, State};
 
-handle_call({path_restart, Path}, _From,
-	    #{context := Context,
-	      proxy_context := #context{path = Path} = ProxyContext
-	     } = State) ->
+handle_call({path_restart, Path}, _From, #{proxy_context := #context{path = Path}} = State) ->
     initiate_pdp_context_teardown(ggsn2sgsn, State),
-    ergw_proxy_lib:delete_forward_session(Context, ProxyContext),
+    delete_forward_session(State),
     {stop, normal, ok, State};
 
 handle_call({path_restart, _Path}, _From, State) ->
@@ -192,18 +196,16 @@ handle_cast({packet_in, _GtpPort, _IP, _Port, _Msg}, State) ->
 
 handle_info({_, session_report_request,
 	     #{report_type := [error_indication_report],
-	       error_indication_report := [#{remote_f_teid := FTEID}]}},
-	    #{context := Context, proxy_context := ProxyContext} = State) ->
+	       error_indication_report := [#{remote_f_teid := FTEID}]}}, State) ->
     Direction = fteid_forward_context(FTEID, State),
     initiate_pdp_context_teardown(Direction, State),
-    ergw_proxy_lib:delete_forward_session(Context, ProxyContext),
+    delete_forward_session(State),
     {stop, normal, State};
 
-handle_info({timeout, _, {delete_pdp_context_request, Direction, _ReqKey, _Request}},
-	    #{context := Context, proxy_context := ProxyContext} = State) ->
+handle_info({timeout, _, {delete_pdp_context_request, Direction, _ReqKey, _Request}}, State) ->
     lager:warning("Proxy Delete PDP Context Timeout ~p", [Direction]),
 
-    ergw_proxy_lib:delete_forward_session(Context, ProxyContext),
+    delete_forward_session(State),
     {stop, normal, State};
 
 handle_info(_Info, State) ->
@@ -244,7 +246,8 @@ handle_request(_ReqKey, _Request, true, State) ->
 handle_request(ReqKey,
 	       #gtp{type = create_pdp_context_request,
 		    ie = IEs} = Request, _Resent,
-	       #{context := Context0} = State) ->
+	       #{context := Context0, aaa_opts := AAAopts,
+		 'Session' := Session} = State) ->
 
     Context1 = update_context_from_gtp_req(Request, Context0#context{state = #context_state{}}),
     ContextPreProxy = gtp_path:bind(Request, Context1),
@@ -252,17 +255,17 @@ handle_request(ReqKey,
     gtp_context:terminate_colliding_context(ContextPreProxy),
     gtp_context:remote_context_register_new(ContextPreProxy),
 
-    Session1 = init_session(IEs, ContextPreProxy),
-    lager:debug("Invoking CONTROL: ~p", [Session1]),
-    %% ergw_control:authenticate(Session1),
-
-	ProxyInfo = handle_proxy_info(Request, ContextPreProxy, State),
+    ProxyInfo = handle_proxy_info(Request, ContextPreProxy, State),
     #proxy_ggsn{restrictions = Restrictions} = ProxyGGSN = gtp_proxy_ds:lb(ProxyInfo),
 
     Context = ContextPreProxy#context{restrictions = Restrictions},
     gtp_context:enforce_restrictions(Request, Context),
 
     {ProxyGtpPort, ProxyGtpDP} = get_proxy_sockets(ProxyGGSN, State),
+
+    SessionOpts0 = ggsn_gn:init_session(IEs, Context, AAAopts),
+    SessionOpts = ggsn_gn:init_session_from_gtp_req(IEs, AAAopts, SessionOpts0),
+    ergw_aaa_session:start(Session, SessionOpts),
 
     ProxyContext0 = init_proxy_context(ProxyGtpPort, ProxyGtpDP, Context, ProxyInfo, ProxyGGSN),
     ProxyContext = gtp_path:bind(ProxyContext0),
@@ -409,25 +412,23 @@ handle_response(#proxy_request{direction = sgsn2ggsn} = ProxyRequest,
 
 handle_response(#proxy_request{direction = sgsn2ggsn} = ProxyRequest,
 		#gtp{type = delete_pdp_context_response} = Response, _Request,
-		#{context := Context,
-		  proxy_context := ProxyContext} = State0) ->
+		#{context := Context} = State0) ->
     lager:warning("OK Proxy Response ~p", [lager:pr(Response, ?MODULE)]),
 
     forward_response(ProxyRequest, Response, Context),
-    ergw_proxy_lib:delete_forward_session(Context, ProxyContext),
     State = cancel_timeout(State0),
+    delete_forward_session(State),
     {stop, State};
 
 
 handle_response(#proxy_request{direction = ggsn2sgsn} = ProxyRequest,
 		#gtp{type = delete_pdp_context_response} = Response, _Request,
-		#{context := Context,
-		  proxy_context := ProxyContext} = State0) ->
+		#{proxy_context := ProxyContext} = State0) ->
     lager:warning("OK SGSN Response ~p", [lager:pr(Response, ?MODULE)]),
 
     forward_response(ProxyRequest, Response, ProxyContext),
-    ergw_proxy_lib:delete_forward_session(Context, ProxyContext),
     State = cancel_timeout(State0),
+    delete_forward_session(State),
     {stop, State};
 
 
@@ -463,6 +464,43 @@ handle_proxy_info(#gtp{ie = #{?'Recovery' := Recovery}},
 			   context = Context})
     end.
 
+usage_report_to_accounting([#{volume :=
+				  #{dl := {SendBytes, SendPkts},
+				    ul := {RcvdBytes, RcvdPkts}
+				   }}]) ->
+    [{'InPackets',  RcvdPkts},
+     {'OutPackets', SendPkts},
+     {'InOctets',   RcvdBytes},
+     {'OutOctets',  SendBytes}].
+
+sx_response_to_accounting(#{usage_report := UR}) ->
+    to_session(usage_report_to_accounting(UR));
+sx_response_to_accounting(_) ->
+    to_session([]).
+
+accounting_update(GTP, SessionOpts) ->
+    case gen_server:call(GTP, query_usage_report) of
+	{ok, Response} ->
+	    Acc = sx_response_to_accounting(Response),
+	    ergw_aaa_session:merge(SessionOpts, Acc);
+	_Other ->
+	    lager:warning("got unexpected Query response: ~p", [_Other]),
+	    to_session([])
+    end.
+
+delete_forward_session(#{context := Context, proxy_context := ProxyContext,
+			 'Session' := Session}) ->
+    SessionOpts =
+	case ergw_proxy_lib:delete_forward_session(Context, ProxyContext) of
+	    {ok, Response} ->
+		sx_response_to_accounting(Response);
+	    Other ->
+		lager:warning("Session Deletion failed with ~p", [Other]),
+		to_session([])
+	end,
+    lager:debug("Accounting Opts: ~p", [SessionOpts]),
+    ergw_aaa_session:stop(Session, SessionOpts).
+
 update_path_bind(NewContext0, OldContext)
   when NewContext0 /= OldContext ->
     NewContext = gtp_path:bind(NewContext0),
@@ -470,32 +508,6 @@ update_path_bind(NewContext0, OldContext)
     NewContext;
 update_path_bind(NewContext, _OldContext) ->
     NewContext.
-
-init_session(IEs, #context{control_port = #gtp_port{ip = LocalIP}}) ->
-    Session = #{'Service-Type'      => 'Framed-User',
-		'Framed-Protocol'   => 'GPRS-PDP-Context',
-		'3GPP-GGSN-Address' => LocalIP
-	       },
-    maps:fold(fun copy_to_session/3, Session, IEs).
-
-%% copy_to_session(#international_mobile_subscriber_identity{imsi = IMSI}, Session) ->
-%%     Id = [{'Subscription-Id-Type' , 1}, {'Subscription-Id-Data', IMSI}],
-%%     Session#{'Subscription-Id' => Id};
-
-copy_to_session(_K, #international_mobile_subscriber_identity{imsi = IMSI}, Session) ->
-    Session#{'IMSI' => IMSI};
-copy_to_session(_K, #ms_international_pstn_isdn_number{
-		       msisdn = {isdn_address, _, _, 1, MSISDN}}, Session) ->
-    Session#{'MSISDN' => MSISDN};
-copy_to_session(_K, #gsn_address{instance = 0, address = IP}, Session) ->
-    Session#{'SGSN-Address' => gtp_c_lib:ip2bin(IP)};
-copy_to_session(_K, #rat_type{rat_type = Type}, Session) ->
-    Session#{'RAT-Type' => Type};
-copy_to_session(_K, #selection_mode{mode = Mode}, Session) ->
-    Session#{'Selection-Mode' => Mode};
-
-copy_to_session(_K, _V, Session) ->
-    Session.
 
 init_proxy_context(CntlPort, DataPort,
 		   #context{imei = IMEI, context_id = ContextId, version = Version,
