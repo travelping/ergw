@@ -109,6 +109,7 @@ all() ->
      invalid_gtp_pdu,
      create_session_request_missing_ie,
      create_session_request_aaa_reject,
+     create_session_request_invalid_apn,
      path_restart, path_restart_recovery, path_restart_multi,
      simple_session_request,
      ipv6_bearer_request,
@@ -237,6 +238,17 @@ create_session_request_aaa_reject(Config) ->
     S = make_gtp_socket(Config),
 
     create_session(aaa_reject, S),
+
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+create_session_request_invalid_apn() ->
+    [{doc, "Check invalid APN return on Create Session Request"}].
+create_session_request_invalid_apn(Config) ->
+    S = make_gtp_socket(Config),
+
+    create_session(invalid_apn, S),
 
     meck_validate(Config),
     ok.

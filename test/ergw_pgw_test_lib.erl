@@ -126,9 +126,13 @@ make_request(create_session_request, SubType,
 	     #gtpc{restart_counter = RCnt, seq_no = SeqNo,
 		   local_control_tei = LocalCntlTEI,
 		   local_data_tei = LocalDataTEI}) ->
+    APN = case SubType of
+	      invalid_apn -> [<<"IN", "VA", "LID">>];
+	      _           -> ?'APN-EXAMPLE'
+	  end,
     IEs0 =
 	[#v2_recovery{restart_counter = RCnt},
-	 #v2_access_point_name{apn = ?'APN-EXAMPLE'},
+	 #v2_access_point_name{apn = APN},
 	 #v2_aggregate_maximum_bit_rate{uplink = 48128, downlink = 1704125},
 	 #v2_apn_restriction{restriction_type_value = 0},
 	 #v2_bearer_context{
@@ -404,6 +408,18 @@ validate_response(create_session_request, aaa_reject, Response, GtpC) ->
 validate_response(create_session_request, overload, Response, GtpC) ->
    ?match(#gtp{type = create_session_response,
 		ie = #{{v2_cause,0} := #v2_cause{v2_cause = no_resources_available}}},
+	  Response),
+    GtpC;
+
+validate_response(create_session_request, invalid_apn, Response, GtpC) ->
+   ?match(#gtp{type = create_session_response,
+		ie = #{{v2_cause,0} := #v2_cause{v2_cause = missing_or_unknown_apn}}},
+	  Response),
+    GtpC;
+
+validate_response(create_session_request, invalid_mapping, Response, GtpC) ->
+   ?match(#gtp{type = create_session_response,
+		ie = #{{v2_cause,0} := #v2_cause{v2_cause = user_authentication_failed}}},
 	  Response),
     GtpC;
 

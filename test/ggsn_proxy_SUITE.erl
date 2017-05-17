@@ -233,6 +233,7 @@ all_tests() ->
      ms_info_change_notification_request_invalid_imsi,
      proxy_context_selection,
      proxy_context_invalid_selection,
+     proxy_context_invalid_mapping,
      invalid_teid,
      delete_pdp_context_requested,
      delete_pdp_context_requested_resend].
@@ -530,6 +531,24 @@ proxy_context_invalid_selection(Config) ->
 
     {GtpC, _, _} = create_pdp_context(S),
     delete_pdp_context(S, GtpC),
+
+    meck:unload(gtp_proxy_ds),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+proxy_context_invalid_mapping() ->
+    [{doc, "Check rejection of a session when the proxy selects failes"}].
+proxy_context_invalid_mapping(Config) ->
+    ok = meck:new(gtp_proxy_ds, [passthrough]),
+    meck:expect(gtp_proxy_ds, map,
+		fun(_ProxyInfo) -> {error, not_found} end),
+
+    S = make_gtp_socket(Config),
+
+    {_, _, _} = create_pdp_context(invalid_mapping, S),
 
     meck:unload(gtp_proxy_ds),
 
