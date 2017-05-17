@@ -236,16 +236,28 @@ code_change(_OldVsn, State, _Extra) ->
 log_ctx_error(#ctx_err{level = Level, where = {File, Line}, reply = Reply}) ->
     lager:debug("CtxErr: ~w, at ~s:~w, ~p", [Level, File, Line, Reply]).
 
-handle_ctx_error(#ctx_err{level = ?FATAL} = CtxErr, State) ->
+handle_ctx_error_state(#ctx_err{context = undefined}, State) ->
+    State;
+handle_ctx_error_state(#ctx_err{context = CtxErrContext}, State) ->
+    State#{context => CtxErrContext}.
+
+handle_ctx_error(#ctx_err{level = Level} = CtxErr, State0) ->
     log_ctx_error(CtxErr),
-    {stop, normal, State};
-handle_ctx_error(CtxErr, State) ->
-    log_ctx_error(CtxErr),
-    {noreply, State}.
+    State = handle_ctx_error_state(CtxErr, State0),
+    case Level of
+	?FATAL ->
+	    {stop, normal, State};
+	_ ->
+	    {noreply, State}
+    end.
 
 handle_ctx_error(#ctx_err{reply = Reply} = CtxErr, Handler,
 		 ReqKey, #gtp{type = MsgType, seq_no = SeqNo}, State) ->
-    Response = Handler:build_response({MsgType, Reply}),
+    Response = if is_list(Reply) orelse is_atom(Reply) ->
+		       Handler:build_response({MsgType, Reply});
+		  true ->
+		       Handler:build_response(Reply)
+	       end,
     send_response(ReqKey, Response#gtp{seq_no = SeqNo}),
     handle_ctx_error(CtxErr, State).
 
@@ -378,7 +390,7 @@ validate_message(#gtp{version = Version, ie = IEs} = Msg, State) ->
 	Missing ->
 	    lager:debug("Missing IEs: ~p", [Missing]),
 	    throw(#ctx_err{level = ?WARNING,
-			   reply = {mandatory_ie_missing, hd(Missing)}})
+			   reply = [{mandatory_ie_missing, hd(Missing)}]})
     end.
 
 validate_ies(#gtp{version = Version, type = MsgType, ie = IEs}, Cause, #{interface := Interface}) ->

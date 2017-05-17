@@ -17,7 +17,8 @@
 -record(ctx_err, {
 	  level,
 	  where = {?FILE, ?LINE},
-	  reply
+	  reply,
+	  context
 	 }).
 
 -record(gtp_port, {
