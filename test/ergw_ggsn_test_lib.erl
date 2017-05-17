@@ -132,9 +132,13 @@ make_request(create_pdp_context_request, SubType,
 	     #gtpc{restart_counter = RCnt, seq_no = SeqNo,
 		   local_control_tei = LocalCntlTEI,
 		   local_data_tei = LocalDataTEI}) ->
+    APN = case SubType of
+	      invalid_apn -> [<<"IN", "VA", "LID">>];
+	      _           -> ?'APN-EXAMPLE'
+	  end,
     IEs0 =
 	[#recovery{restart_counter = RCnt},
-	 #access_point_name{apn = ?'APN-EXAMPLE'},
+	 #access_point_name{apn = APN},
 	 #gsn_address{instance = 0, address = gtp_c_lib:ip2bin(?CLIENT_IP)},
 	 #gsn_address{instance = 1, address = gtp_c_lib:ip2bin(?CLIENT_IP)},
 	 #imei{imei = <<"1234567890123456">>},
@@ -282,6 +286,12 @@ validate_response(_Type, invalid_teid, Response, GtpC) ->
 validate_response(create_pdp_context_request, aaa_reject, Response, GtpC) ->
     ?match(#gtp{type = create_pdp_context_response,
 		ie = #{{cause,0} := #cause{value = user_authentication_failed}}},
+	   Response),
+    GtpC;
+
+validate_response(create_pdp_context_request, invalid_apn, Response, GtpC) ->
+    ?match(#gtp{type = create_pdp_context_response,
+		ie = #{{cause,0} := #cause{value = system_failure}}},
 	   Response),
     GtpC;
 

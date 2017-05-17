@@ -268,6 +268,8 @@ map_reply_ie(not_found) ->
     #cause{value = non_existent};
 map_reply_ie({mandatory_ie_missing, _}) ->
     #cause{value = mandatory_ie_missing};
+map_reply_ie(system_failure) ->
+    #cause{value = system_failure};
 map_reply_ie(IE)
   when is_tuple(IE) ->
     IE.
