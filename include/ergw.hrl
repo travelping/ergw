@@ -10,6 +10,16 @@
 -define(GTP1u_PORT,	2152).
 -define(GTP2c_PORT,	2123).
 
+%% ErrLevel
+-define(WARNING, 1).
+-define(FATAL, 2).
+
+-record(ctx_err, {
+	  level,
+	  where = {?FILE, ?LINE},
+	  reply
+	 }).
+
 -record(gtp_port, {
 	  name            :: term(),
 	  type            :: 'gtp-c' | 'gtp-u',

@@ -220,7 +220,7 @@ validate_teid(MsgType, 0)
 validate_teid(MsgType, 0) ->
     case gtp_msg_type(MsgType) of
 	request ->
-	    {error, not_found};
+	    throw({error, not_found});
 	_ ->
 	    ok
     end;
