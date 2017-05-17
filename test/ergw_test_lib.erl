@@ -107,7 +107,16 @@ meck_init(Config) ->
     ok = meck:new(gtp_socket, [passthrough, no_link]),
 
     {_, Hut} = lists:keyfind(handler_under_test, 1, Config),   %% let it crash if HUT is undefined
-    ok = meck:new(Hut, [passthrough, no_link]).
+    ok = meck:new(Hut, [passthrough, no_link]),
+    ok = meck:expect(Hut, handle_request,
+		     fun(ReqKey, Request, Resent, State) ->
+			     try
+				 meck:passthrough([ReqKey, Request, Resent, State])
+			     catch
+				 throw:#ctx_err{} = CtxErr ->
+				     meck:exception(throw, CtxErr)
+			     end
+		     end).
 
 meck_reset(Config) ->
     meck:reset(gtp_dp),

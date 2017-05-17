@@ -256,6 +256,7 @@ all_tests() ->
      resume_notification_request,
      proxy_context_selection,
      proxy_context_invalid_selection,
+     proxy_context_invalid_mapping,
      requests_invalid_teid,
      commands_invalid_teid,
      delete_bearer_request,
@@ -634,6 +635,24 @@ proxy_context_invalid_selection(Config) ->
 
     {GtpC, _, _} = create_session(S),
     delete_session(S, GtpC),
+
+    meck:unload(gtp_proxy_ds),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+proxy_context_invalid_mapping() ->
+    [{doc, "Check rejection of a session when the proxy selects failes"}].
+proxy_context_invalid_mapping(Config) ->
+    ok = meck:new(gtp_proxy_ds, [passthrough]),
+    meck:expect(gtp_proxy_ds, map,
+		fun(_ProxyInfo) -> {error, not_found} end),
+
+    S = make_gtp_socket(Config),
+
+    {_, _, _} = create_session(invalid_mapping, S),
 
     meck:unload(gtp_proxy_ds),
 

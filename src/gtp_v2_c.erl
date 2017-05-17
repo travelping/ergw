@@ -289,6 +289,10 @@ map_reply_ie(not_found) ->
     #v2_cause{v2_cause = context_not_found};
 map_reply_ie({mandatory_ie_missing, {_IE, _Instance}}) ->
     #v2_cause{v2_cause = mandatory_ie_missing};
+map_reply_ie(system_failure) ->
+    #v2_cause{v2_cause = system_failure};
+map_reply_ie(missing_or_unknown_apn) ->
+    #v2_cause{v2_cause = missing_or_unknown_apn};
 map_reply_ie(IE)
   when is_tuple(IE) ->
     IE.

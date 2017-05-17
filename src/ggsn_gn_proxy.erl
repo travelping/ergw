@@ -257,41 +257,30 @@ handle_request(_ReqKey, _Msg, true, State) ->
 handle_request(ReqKey,
 	       #gtp{type = create_pdp_context_request, seq_no = SeqNo,
 		    ie = #{?'Recovery' := Recovery} = IEs} = Request, _Resent,
-	       #{context := Context0, default_gw := DefaultGGSN, proxy_ds := ProxyDS} = State0) ->
+	       #{context := Context0} = State) ->
 
     Context1 = update_context_from_gtp_req(Request, Context0#context{state = #context_state{}}),
     Context = gtp_path:bind(Recovery, Context1),
     gtp_context:register_remote_context(Context),
-    State1 = State0#{context => Context},
 
     Session1 = init_session(IEs, Context),
     lager:debug("Invoking CONTROL: ~p", [Session1]),
     %% ergw_control:authenticate(Session1),
 
-    ProxyInfo0 = proxy_info(DefaultGGSN, Context),
-    case ProxyDS:map(ProxyInfo0) of
-	{ok, #proxy_info{ggsn = GGSN} = ProxyInfo} ->
-	    lager:debug("OK Proxy Map: ~p", [lager:pr(ProxyInfo, ?MODULE)]),
-	    {ProxyGtpPort, ProxyGtpDP} = get_proxy_sockets(ProxyInfo, State1),
+    #proxy_info{ggsn = GGSN} = ProxyInfo =
+	handle_proxy_info(Context, Recovery, State),
 
-	    ProxyContext0 = init_proxy_context(GGSN, ProxyGtpPort, ProxyGtpDP, Context, ProxyInfo),
-	    ProxyContext = gtp_path:bind(undefined, ProxyContext0),
-	    State = State1#{proxy_context => ProxyContext},
+    {ProxyGtpPort, ProxyGtpDP} = get_proxy_sockets(ProxyInfo, State),
 
-	    ProxyReq0 = build_context_request(ProxyContext, Request),
-	    ProxyReq = build_recovery(ProxyContext, false, ProxyReq0),
-	    forward_request(ProxyContext, ProxyReq, ReqKey, SeqNo, Recovery /= undefined),
+    ProxyContext0 = init_proxy_context(GGSN, ProxyGtpPort, ProxyGtpDP, Context, ProxyInfo),
+    ProxyContext = gtp_path:bind(undefined, ProxyContext0),
 
-	    {noreply, State};
+    ProxyReq0 = build_context_request(ProxyContext, Request),
+    ProxyReq = build_recovery(ProxyContext, false, ProxyReq0),
+    forward_request(ProxyContext, ProxyReq, ReqKey, SeqNo, Recovery /= undefined),
 
-	Other ->
-	    lager:warning("Failed Proxy Map: ~p", [Other]),
-
-	    ResponseIEs0 = [#cause{value = user_authentication_failed}],
-	    ResponseIEs = gtp_v1_c:build_recovery(Context, Recovery /= undefined, ResponseIEs0),
-	    Reply = {create_pdp_context_response, Context#context.remote_control_tei, ResponseIEs},
-	    {stop, Reply, State1}
-    end;
+    {noreply, State#{context => Context,
+		     proxy_context => ProxyContext}};
 
 handle_request(ReqKey,
 	       #gtp{version = Version,
@@ -487,6 +476,26 @@ terminate(_Reason, _State) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
+
+handle_proxy_info(Context, Recovery, #{default_gw := DefaultGGSN,
+				       proxy_ds := ProxyDS}) ->
+    ProxyInfo0 = proxy_info(DefaultGGSN, Context),
+    case ProxyDS:map(ProxyInfo0) of
+	{ok, #proxy_info{} = ProxyInfo} ->
+	    lager:debug("OK Proxy Map: ~p", [lager:pr(ProxyInfo, ?MODULE)]),
+	    ProxyInfo;
+
+	Other ->
+	    lager:warning("Failed Proxy Map: ~p", [Other]),
+
+	    ResponseIEs0 = [#cause{value = user_authentication_failed}],
+	    ResponseIEs = gtp_v1_c:build_recovery(Context, Recovery /= undefined, ResponseIEs0),
+	    throw(#ctx_err{level = ?FATAL,
+			   reply = {create_pdp_context_response,
+				    Context#context.remote_control_tei,
+				    ResponseIEs},
+			   context = Context})
+    end.
 
 apply_context_change(NewContext0, OldContext)
   when NewContext0 /= OldContext ->

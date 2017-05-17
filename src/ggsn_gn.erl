@@ -123,7 +123,9 @@ handle_request(_ReqKey,
 		      ?'Recovery' := Recovery,
 		      ?'Quality of Service Profile' := ReqQoSProfile
 		     } = IEs}, _Resent,
-	       #{context := Context0, aaa_opts := AAAopts, 'Session' := Session} = State) ->
+	       #{context := Context0,
+		 aaa_opts := AAAopts,
+		 'Session' := Session} = State) ->
 
     EUA = maps:get(?'End User Address', IEs, undefined),
 
@@ -134,38 +136,25 @@ handle_request(_ReqKey,
     SessionOpts1 = init_session_from_gtp_req(IEs, AAAopts, SessionOpts0),
     SessionOpts = init_session_qos(ReqQoSProfile, SessionOpts1),
 
-    lager:info("SessionOpts: ~p", [SessionOpts]),
-    case ergw_aaa_session:authenticate(Session, SessionOpts) of
-	success ->
-	    lager:info("AuthResult: success"),
+    authenticate(ContextPreAuth, Session, SessionOpts, Recovery),
+    {ContextVRF, VRFOpts} = select_vrf(ContextPreAuth),
 
-	    {VRF, VRFOpts} = select_vrf(ContextPreAuth),
+    ActiveSessionOpts0 = ergw_aaa_session:get(Session),
+    ActiveSessionOpts = apply_vrf_session_defaults(VRFOpts, ActiveSessionOpts0),
+    lager:info("ActiveSessionOpts: ~p", [ActiveSessionOpts]),
 
-	    ActiveSessionOpts0 = ergw_aaa_session:get(Session),
-	    ActiveSessionOpts = apply_vrf_session_defaults(VRFOpts, ActiveSessionOpts0),
-	    lager:info("ActiveSessionOpts: ~p", [ActiveSessionOpts]),
+    Context = assign_ips(ActiveSessionOpts, EUA, ContextVRF),
 
-	    Context = assign_ips(ActiveSessionOpts, EUA, ContextPreAuth#context{vrf = VRF}),
+    gtp_context:register_remote_context(Context),
+    dp_create_pdp_context(Context),
 
-	    gtp_context:register_remote_context(Context),
-	    dp_create_pdp_context(Context),
+    ResponseIEs = create_pdp_context_response(ActiveSessionOpts, IEs, Context),
+    Reply = response(create_pdp_context_response, Context,
+		     Recovery /= undefined, ResponseIEs),
 
-	    ResponseIEs = create_pdp_context_response(ActiveSessionOpts, IEs, Context),
-	    Reply = response(create_pdp_context_response, Context,
-			     Recovery /= undefined, ResponseIEs),
+    ergw_aaa_session:start(Session, #{}),
 
-	    ergw_aaa_session:start(Session, #{}),
-
-	    {reply, Reply, State#{context => Context}};
-
-	Other ->
-	    lager:info("AuthResult: ~p", [Other]),
-
-	    ResponseIEs = [#cause{value = user_authentication_failed}],
-	    Reply = response(create_pdp_context_response, ContextPreAuth,
-			     Recovery /= undefined, ResponseIEs),
-	    {stop, Reply, State#{context => ContextPreAuth}}
-    end;
+    {reply, Reply, State#{context => Context}};
 
 handle_request(_ReqKey,
 	       #gtp{version = Version,
@@ -246,6 +235,25 @@ response(Cmd, Context, IncludeRecovery, IEs0) ->
     IEs = gtp_v1_c:build_recovery(Context, IncludeRecovery, IEs0),
     response(Cmd, Context, IEs).
 
+authenticate(Context, Session, SessionOpts, Recovery) ->
+    lager:info("SessionOpts: ~p", [SessionOpts]),
+
+    case ergw_aaa_session:authenticate(Session, SessionOpts) of
+	success ->
+	    lager:info("AuthResult: success"),
+	    ok;
+
+	Other ->
+	    lager:info("AuthResult: ~p", [Other]),
+
+	    Reply1 = response(create_pdp_context_response, Context,
+			      Recovery /= undefined,
+			      [#cause{value = user_authentication_failed}]),
+	    throw(#ctx_err{level = ?FATAL,
+			   reply = Reply1,
+			   context = Context})
+    end.
+
 pdp_alloc(#end_user_address{pdp_type_organization = 1,
 			    pdp_type_number = 16#21,
 			    pdp_address = Address}) ->
@@ -312,9 +320,15 @@ copy_session_defaults(KV, Session) ->
     lager:warning("invalid value (~p) in session defaul", [KV]),
     Session.
 
-select_vrf(#context{apn = APN}) ->
-    {ok, {VRF, VRFOpts}} = ergw:vrf(APN),
-    {VRF, VRFOpts}.
+select_vrf(#context{apn = APN} = Context) ->
+    case ergw:vrf(APN) of
+	{ok, {VRF, VRFOpts}} ->
+	    {Context#context{vrf = VRF}, VRFOpts};
+	_ ->
+	    throw(#ctx_err{level = ?FATAL,
+			   reply = missing_or_unknown_apn,
+			   context = Context})
+    end.
 
 copy_vrf_session_defaults(K, Value, Opts)
     when K =:= 'MS-Primary-DNS-Server';
