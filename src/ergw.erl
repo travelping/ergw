@@ -14,7 +14,9 @@
 -export([start_socket/2, start_vrf/2,
 	 attach_protocol/4, attach_data_path/2, attach_vrf/3]).
 -export([handler/2, vrf/1]).
--export([set_plmn_id/1, get_plmn_id/0]).
+-export([load_config/1]).
+-export([get_plmn_id/0, get_accept_new/0]).
+-export([system_info/0, system_info/1, system_info/2]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -34,12 +36,41 @@
 start_link() ->
     gen_server:start_link(?MODULE, [], []).
 
-%% get/set global PLMN Id (aka MCC/MNC)
-set_plmn_id({MCC, MNC}) ->
-    ets:insert(?SERVER, {config, plmn_id, MCC, MNC}).
+%% get global PLMN Id (aka MCC/MNC)
 get_plmn_id() ->
     [{config, plmn_id, MCC, MNC}] = ets:lookup(?SERVER, plmn_id),
     {MCC, MNC}.
+get_accept_new() ->
+    [{config, accept_new, Value}] = ets:lookup(?SERVER, accept_new),
+    Value.
+
+system_info() ->
+    lists:map(fun system_info/1, [plmn_id, accept_new]).
+
+system_info(accept_new) ->
+    get_accept_new();
+system_info(plmn_id) ->
+    get_plmn_id();
+system_info(Arg) ->
+    error(badarg, [Arg]).
+
+system_info(accept_new, New) when is_boolean(New) ->
+    Old = get_accept_new(),
+    true = ets:insert(?SERVER, {config, accept_new, New}),
+    Old;
+system_info(Key, Value) ->
+    error(badarg, [Key, Value]).
+
+load_config([]) ->
+    ok;
+load_config([{plmn_id, {MCC, MNC}} | T]) ->
+    true = ets:insert(?SERVER, {config, plmn_id, MCC, MNC}),
+    load_config(T);
+load_config([{accept_new, Value} | T]) ->
+    true = ets:insert(?SERVER, {config, accept_new, Value}),
+    load_config(T);
+load_config([_ | T]) ->
+    load_config(T).
 
 %%
 %% Initialize a new GTPv1/v2-c or GTPv1-u socket
@@ -147,7 +178,8 @@ vrf(APN) ->
 init([]) ->
     TID = ets:new(?SERVER, [ordered_set, named_table, public,
 			    {keypos, 2}, {read_concurrency, true}]),
-    ets:insert(TID, {config, plmn_id, <<"001">>, <<"01">>}),
+    true = ets:insert(TID, {config, plmn_id, <<"001">>, <<"01">>}),
+    true = ets:insert(TID, {config, accpept_new, true}),
     {ok, #state{tid = TID}}.
 
 handle_call(_Request, _From, State) ->
