@@ -45,7 +45,7 @@ get_accept_new() ->
     Value.
 
 system_info() ->
-    lists:map(fun system_info/1, [plmn_id, accept_new]).
+    [{K,system_info(K)} || K <- [plmn_id, accept_new]].
 
 system_info(accept_new) ->
     get_accept_new();
