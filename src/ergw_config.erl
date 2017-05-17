@@ -13,6 +13,7 @@
 -export([load_config/1, validate_options/2]).
 
 -define(DefaultOptions, [{plmn_id, {<<"001">>, <<"01">>}},
+			 {accept_new, true},
 			 {dp_handler, gtp_dp_kmod},
 			 {sockets, []},
 			 {handlers, []},
@@ -25,7 +26,7 @@
 
 load_config(Config0) ->
     Config = validate_config(Config0),
-    ergw:set_plmn_id(proplists:get_value(plmn_id, Config)),
+    ergw:load_config(Config),
     lists:foreach(fun load_socket/1, proplists:get_value(sockets, Config)),
     lists:foreach(fun load_handler/1, proplists:get_value(handlers, Config)),
     lists:foreach(fun load_vrf/1, proplists:get_value(vrfs, Config)),
@@ -52,6 +53,8 @@ validate_option(plmn_id, {MCC, MNC} = Value) ->
        ok -> Value;
        _  -> throw({error, {options, {plmn_id, Value}}})
     end;
+validate_option(accept_new, Value) when is_boolean(Value) ->
+    Value;
 validate_option(dp_handler, Value) when is_atom(Value) ->
     try
 	ok = ergw_loader:load(gtp_dp_api, gtp_dp, Value)
