@@ -289,6 +289,12 @@ validate_response(create_pdp_context_request, aaa_reject, Response, GtpC) ->
 	   Response),
     GtpC;
 
+validate_response(create_pdp_context_request, overload, Response, GtpC) ->
+    ?match(#gtp{type = create_pdp_context_response,
+		ie = #{{cause,0} := #cause{value = no_resources_available}}},
+	   Response),
+    GtpC;
+
 validate_response(create_pdp_context_request, invalid_apn, Response, GtpC) ->
     ?match(#gtp{type = create_pdp_context_response,
 		ie = #{{cause,0} := #cause{value = missing_or_unknown_apn}}},

@@ -293,6 +293,8 @@ map_reply_ie(system_failure) ->
     #v2_cause{v2_cause = system_failure};
 map_reply_ie(missing_or_unknown_apn) ->
     #v2_cause{v2_cause = missing_or_unknown_apn};
+map_reply_ie(no_resources_available) ->
+    #v2_cause{v2_cause = no_resources_available};
 map_reply_ie(IE)
   when is_tuple(IE) ->
     IE.
