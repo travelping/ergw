@@ -10,4 +10,5 @@ rel/example_project
 .rebar
 tetrapak/.local.cache
 *~
-
+_build
+doc
