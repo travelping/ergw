@@ -72,7 +72,7 @@ handle_message(ReqKey, Msg) ->
 	try_handle_message(ReqKey, Msg)
     catch
 	throw:{error, Error} ->
-	    lager:error("handler failed with: ~p"),
+	    lager:error("handler failed with: ~p", [Error]),
 	    generic_error(ReqKey, Msg, Error)
     end.
 
