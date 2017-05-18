@@ -236,14 +236,8 @@ code_change(_OldVsn, State, _Extra) ->
 log_ctx_error(#ctx_err{level = Level, where = {File, Line}, reply = Reply}) ->
     lager:debug("CtxErr: ~w, at ~s:~w, ~p", [Level, File, Line, Reply]).
 
-handle_ctx_error_state(#ctx_err{context = undefined}, State) ->
-    State;
-handle_ctx_error_state(#ctx_err{context = CtxErrContext}, State) ->
-    State#{context => CtxErrContext}.
-
-handle_ctx_error(#ctx_err{level = Level} = CtxErr, State0) ->
+handle_ctx_error(#ctx_err{level = Level} = CtxErr, State) ->
     log_ctx_error(CtxErr),
-    State = handle_ctx_error_state(CtxErr, State0),
     case Level of
 	?FATAL ->
 	    {stop, normal, State};

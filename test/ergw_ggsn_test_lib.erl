@@ -291,13 +291,19 @@ validate_response(create_pdp_context_request, aaa_reject, Response, GtpC) ->
 
 validate_response(create_pdp_context_request, invalid_apn, Response, GtpC) ->
     ?match(#gtp{type = create_pdp_context_response,
-		ie = #{{cause,0} := #cause{value = system_failure}}},
+		ie = #{{cause,0} := #cause{value = missing_or_unknown_apn}}},
 	   Response),
     GtpC;
 
 validate_response(create_pdp_context_request, missing_ie, Response, GtpC) ->
     ?match(#gtp{type = create_pdp_context_response,
 		ie = #{{cause,0} := #cause{value = mandatory_ie_missing}}},
+	   Response),
+    GtpC;
+
+validate_response(create_pdp_context_request, invalid_mapping, Response, GtpC) ->
+    ?match(#gtp{type = create_pdp_context_response,
+		ie = #{{cause,0} := #cause{value = user_authentication_failed}}},
 	   Response),
     GtpC;
 
