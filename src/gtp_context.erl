@@ -56,6 +56,11 @@ try_handle_message(#request_key{gtp_port = GtpPort} = ReqKey, #gtp{version = Ver
 	    gen_server:cast(Context, {handle_message, ReqKey, Msg, true});
 
 	{ok, Interface, InterfaceOpts} ->
+	    case ergw:get_accept_new() of
+		true -> ok;
+		_ ->
+		    throw({error, no_resources_available})
+	    end,
 	    validate_teid(Msg),
 	    Context = context_new(GtpPort, Version, Interface, InterfaceOpts),
 	    context_handle_message(Context, ReqKey, Msg);

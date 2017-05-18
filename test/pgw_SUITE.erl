@@ -110,6 +110,7 @@ all() ->
      create_session_request_missing_ie,
      create_session_request_aaa_reject,
      create_session_request_invalid_apn,
+     create_session_request_accept_new,
      path_restart, path_restart_recovery, path_restart_multi,
      simple_session_request,
      ipv6_bearer_request,
@@ -249,6 +250,19 @@ create_session_request_invalid_apn(Config) ->
     S = make_gtp_socket(Config),
 
     create_session(invalid_apn, S),
+
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+create_session_request_accept_new() ->
+    [{doc, "Check the accept_new = false can block new session"}].
+create_session_request_accept_new(Config) ->
+    S = make_gtp_socket(Config),
+
+    ?equal(ergw:system_info(accept_new, false), true),
+    create_session(overload, S),
+    ?equal(ergw:system_info(accept_new, true), false),
 
     meck_validate(Config),
     ok.

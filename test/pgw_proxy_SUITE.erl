@@ -241,6 +241,7 @@ all() ->
 all_tests() ->
     [invalid_gtp_pdu,
      create_session_request_missing_ie,
+     create_session_request_accept_new,
      path_restart, path_restart_recovery,
      simple_session,
      create_session_overload_response,
@@ -378,6 +379,19 @@ create_session_request_missing_ie(Config) ->
     S = make_gtp_socket(Config),
 
     create_session(missing_ie, S),
+
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+create_session_request_accept_new() ->
+    [{doc, "Check the accept_new = false can block new session"}].
+create_session_request_accept_new(Config) ->
+    S = make_gtp_socket(Config),
+
+    ?equal(ergw:system_info(accept_new, false), true),
+    create_session(overload, S),
+    ?equal(ergw:system_info(accept_new, true), false),
 
     meck_validate(Config),
     ok.

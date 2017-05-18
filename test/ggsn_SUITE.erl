@@ -98,6 +98,7 @@ all() ->
      create_pdp_context_request_missing_ie,
      create_pdp_context_request_aaa_reject,
      create_pdp_context_request_invalid_apn,
+     create_pdp_context_request_accept_new,
      path_restart, path_restart_recovery, path_restart_multi,
      simple_pdp_context_request,
      ipv6_pdp_context_request,
@@ -206,6 +207,19 @@ create_pdp_context_request_invalid_apn(Config) ->
     S = make_gtp_socket(Config),
 
     create_pdp_context(invalid_apn, S),
+
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+create_pdp_context_request_accept_new() ->
+    [{doc, "Check the accept_new = false can block new contexts"}].
+create_pdp_context_request_accept_new(Config) ->
+    S = make_gtp_socket(Config),
+
+    ?equal(ergw:system_info(accept_new, false), true),
+    create_pdp_context(overload, S),
+    ?equal(ergw:system_info(accept_new, true), false),
 
     meck_validate(Config),
     ok.
