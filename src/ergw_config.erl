@@ -31,6 +31,7 @@ load_config(Config0) ->
     lists:foreach(fun load_handler/1, proplists:get_value(handlers, Config)),
     lists:foreach(fun load_vrf/1, proplists:get_value(vrfs, Config)),
     lists:foreach(fun load_apn/1, proplists:get_value(apns, Config)),
+    ergw_http_api:init(),
     ok.
 
 %%%===================================================================
@@ -73,6 +74,8 @@ validate_option(vrfs, Value) when is_list(Value) ->
     validate_options(fun validate_vrfs_option/2, Value);
 validate_option(apns, Value) when is_list(Value) ->
     validate_options(fun validate_apns_option/2, Value);
+validate_option(http_api, Value) when is_list(Value) ->
+    validate_options(fun ergw_http_api:validate_options/2, Value);
 validate_option(_Opt, Value) ->
     Value.
 

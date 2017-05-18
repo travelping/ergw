@@ -57,7 +57,7 @@ lib_init_per_suite(Config0) ->
     {_, AppCfg} = lists:keyfind(app_cfg, 1, Config0),   %% let it crash if undefined
 
     Config = init_ets(Config0),
-    [application:load(App) || App <- [lager, ergw, ergw_aaa]],
+    [application:load(App) || App <- [lager, cowboy, ergw, ergw_aaa]],
     meck_init(Config),
     load_config(AppCfg),
     {ok, _} = application:ensure_all_started(ergw),
@@ -67,7 +67,7 @@ lib_init_per_suite(Config0) ->
 lib_end_per_suite(Config) ->
     meck_unload(Config),
     ?config(table_owner, Config) ! stop,
-    [application:stop(App) || App <- [lager, ergw, ergw_aaa]],
+    [application:stop(App) || App <- [lager, ranch, cowboy, ergw, ergw_aaa]],
     ok.
 
 load_config(AppCfg) ->
