@@ -11,6 +11,9 @@
          handle_request/2, allowed_methods/2,
          content_types_accepted/2]).
 
+-define(FIELDS_MAPPING, [{accept_new, 'acceptNewRequests'},
+			 {plmn_id, 'plmnId'}]).
+
 init(Req, Opts) ->
     {cowboy_rest, Req, Opts}.
 
@@ -35,10 +38,14 @@ handle_request(<<"GET">>, <<"/api/v1/version">>, Req, State) ->
 
 handle_request(<<"GET">>, <<"/api/v1/status">>, Req, State) ->
     Response = ergw:system_info(),
-    ResponseMap = maps:from_list(Response),
-    Result = case maps:find(plmn_id, ResponseMap) of
+    MappedResponse = lists:map(fun({Key, Value}) ->
+					  {_, K} = lists:keyfind(Key, 1, ?FIELDS_MAPPING),
+					  {K, Value}
+			       end, Response),
+    ResponseMap = maps:from_list(MappedResponse),
+    Result = case maps:find('plmnId', ResponseMap) of
         {ok, {Mcc, Mnc}} ->
-            maps:update(plmn_id, [{mcc, Mcc}, {mnc, Mnc}], ResponseMap);
+            maps:update('plmnId', [{mcc, Mcc}, {mnc, Mnc}], ResponseMap);
         _ ->
             ResponseMap
     end,
@@ -46,7 +53,7 @@ handle_request(<<"GET">>, <<"/api/v1/status">>, Req, State) ->
 
 handle_request(<<"GET">>, <<"/api/v1/status/accept-new">>, Req, State) ->
     AcceptNew = ergw:system_info(accept_new),
-    Response = jsx:encode(#{acceptNewRequest => AcceptNew}),
+    Response = jsx:encode(#{acceptNewRequests => AcceptNew}),
     {Response, Req, State};
 
 handle_request(<<"POST">>, _, Req, State) ->
@@ -64,7 +71,7 @@ handle_request(<<"POST">>, _, Req, State) ->
             {false, Req, State};
         _ ->
             ergw:system_info(accept_new, Res),
-            Response = jsx:encode(#{acceptNewRequest => Res}),
+            Response = jsx:encode(#{acceptNewRequests => Res}),
             Req2 = cowboy_req:set_resp_body(Response, Req),
             {true, Req2, State}
     end;

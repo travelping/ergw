@@ -50,10 +50,10 @@ definitions:
   Status:
     type: "object"
     properties:
-      accept_new:
+      acceptNewRequests:
         type: "boolean"
         default: true
-      plmn_id:
+      plmnId:
         $ref:
           "#/definitions/PLMN"
   PLMN:
