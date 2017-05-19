@@ -12,9 +12,6 @@
 -include("ergw_test_lib.hrl").
 -include_lib("common_test/include/ct.hrl").
 
--define(ACCEPT_URL, "http://localhost:8000/api/v1/status/accept-new/true").
--define(STOP_ACCEPT_URL, "http://localhost:8000/api/v1/status/accept-new/false").
-
 -define(TEST_CONFIG,
 	[
 	 {lager, [{colored, true},
@@ -80,7 +77,7 @@
 			  ]}
 		  ]},
 
-                 {http_api, [{port, 8000}]}
+                 {http_api, [{port, 0}]}
                 ]},
 	 {ergw_aaa, [{ergw_aaa_provider, {ergw_aaa_mock, [{secret, <<"MySecret">>}]}}]}
 	]).
@@ -106,7 +103,8 @@ end_per_suite(Config) ->
 http_api_version_req() ->
     [{doc, "Check /api/v1/version API"}].
 http_api_version_req(_Config) ->
-    {ok, {_, _, Body}} = httpc:request(get, {"http://localhost:8000/api/v1/version", []}, [], []),
+    URL = get_test_url("/api/v1/version"),
+    {ok, {_, _, Body}} = httpc:request(get, {URL, []}, [], []),
     {ok, Vsn} = application:get_key(ergw, vsn),
     Res = jsx:decode(list_to_binary(Body), [return_maps]),
     ?equal(Res, #{<<"version">> => list_to_binary(Vsn)}),
@@ -116,7 +114,8 @@ http_api_status_req() ->
     [{doc, "Check /api/v1/status API"}].
 http_api_status_req(_Config) ->
     SysInfo = maps:from_list(ergw:system_info()),
-    {ok, {_, _, Body}} = httpc:request(get, {"http://localhost:8000/api/v1/status", []}, [], []),
+    URL = get_test_url("/api/v1/status"),
+    {ok, {_, _, Body}} = httpc:request(get, {URL, []}, [], []),
     Response = jsx:decode(list_to_binary(Body), [return_maps]),
     ?equal(maps:get(accept_new, SysInfo), maps:get(<<"accept_new">>, Response)),
     {Mcc, Mnc} = maps:get(plmn_id, SysInfo),
@@ -130,7 +129,8 @@ http_api_status_req(_Config) ->
 http_api_status_accept_new_get_req() ->
     [{doc, "Check /api/v1/status/accept-new API"}].
 http_api_status_accept_new_get_req(_Config) ->
-    {ok, {_, _, Body}} = httpc:request(get, {"http://localhost:8000/api/v1/status/accept-new", []}, [], []),
+    URL = get_test_url("/api/v1/status/accept-new"),
+    {ok, {_, _, Body}} = httpc:request(get, {URL, []}, [], []),
     Response = jsx:decode(list_to_binary(Body), [return_maps]),
     AcceptNew = ergw:system_info(accept_new),
     AcceptNewFromResponse = maps:get(<<"acceptNewRequest">>, Response),
@@ -140,14 +140,25 @@ http_api_status_accept_new_get_req(_Config) ->
 http_api_status_accept_new_post_req() ->
     [{doc, "Check GGSN /api/v1/status/accept-new/{true,false} API"}].
 http_api_status_accept_new_post_req(_Config) ->
-    {ok, {_, _, ReqBody1}} = httpc:request(post, {?STOP_ACCEPT_URL, [], "application/json", ""}, [], []),
+    StopURL = get_test_url("/api/v1/status/accept-new/false"),
+    AcceptURL = get_test_url("/api/v1/status/accept-new/true"),
+
+    {ok, {_, _, ReqBody1}} = httpc:request(post, {StopURL, [], "application/json", ""}, [], []),
     Result1 = maps:get(<<"acceptNewRequest">>, jsx:decode(list_to_binary(ReqBody1), [return_maps])),
     ?equal(ergw:system_info(accept_new), Result1),
     ?equal(false, Result1),
 
-    {ok, {_, _, ReqBody2}} = httpc:request(post, {?ACCEPT_URL, [], "application/json", ""}, [], []),
+    {ok, {_, _, ReqBody2}} = httpc:request(post, {AcceptURL, [], "application/json", ""}, [], []),
     Result2 = maps:get(<<"acceptNewRequest">>, jsx:decode(list_to_binary(ReqBody2), [return_maps])),
     ?equal(ergw:system_info(accept_new), Result2),
     ?equal(true, Result2),
 
     ok.
+
+%%%===================================================================
+%%% Internal functions
+%%%===================================================================
+
+get_test_url(Path) ->
+    Port = ranch:get_port(ergw_http_listener),
+    lists:flatten(io_lib:format("http://localhost:~w~s", [Port, Path])).
