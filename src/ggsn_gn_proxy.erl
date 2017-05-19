@@ -260,15 +260,18 @@ handle_request(ReqKey,
 	       #{context := Context0} = State) ->
 
     Context1 = update_context_from_gtp_req(Request, Context0#context{state = #context_state{}}),
-    Context = gtp_path:bind(Recovery, Context1),
-    gtp_context:register_remote_context(Context),
+    ContextPreProxy = gtp_path:bind(Recovery, Context1),
+    gtp_context:register_remote_context(ContextPreProxy),
 
-    Session1 = init_session(IEs, Context),
+    Session1 = init_session(IEs, ContextPreProxy),
     lager:debug("Invoking CONTROL: ~p", [Session1]),
     %% ergw_control:authenticate(Session1),
 
-    #proxy_info{ggsn = GGSN} = ProxyInfo =
-	handle_proxy_info(Context, Recovery, State),
+    #proxy_info{ggsn = GGSN, restrictions = Restrictions} =
+	ProxyInfo = handle_proxy_info(ContextPreProxy, Recovery, State),
+
+    Context = ContextPreProxy#context{restrictions = Restrictions},
+    gtp_context:enforce_restrictions(Request, Context),
 
     {ProxyGtpPort, ProxyGtpDP} = get_proxy_sockets(ProxyInfo, State),
 
@@ -292,6 +295,8 @@ handle_request(ReqKey,
 
     Context0 = OldContext#context{version = Version},
     Context1 = update_context_from_gtp_req(Request, Context0),
+    gtp_context:enforce_restrictions(Request, Context1),
+
     Context2 = gtp_path:bind(Recovery, Context1),
     gtp_context:update_remote_context(OldContext, Context2),
     Context = apply_context_change(Context2, OldContext),
@@ -610,8 +615,10 @@ update_gtp_req_from_context(Context, GtpReqIEs) ->
     maps:map(set_req_from_context(Context, _, _), GtpReqIEs).
 
 proxy_info(DefaultGGSN,
-	   #context{apn = APN, imsi = IMSI, msisdn = MSISDN}) ->
-    #proxy_info{ggsn = DefaultGGSN, apn = APN, imsi = IMSI, msisdn = MSISDN}.
+	   #context{apn = APN, imsi = IMSI, msisdn = MSISDN,
+		    restrictions = Restrictions}) ->
+    #proxy_info{ggsn = DefaultGGSN, apn = APN, imsi = IMSI,
+		msisdn = MSISDN, restrictions = Restrictions}.
 
 build_context_request(#context{remote_control_tei = TEI} = Context,
 		      #gtp{ie = RequestIEs} = Request) ->

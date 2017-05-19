@@ -313,6 +313,10 @@ validate_response(create_pdp_context_request, invalid_mapping, Response, GtpC) -
 	   Response),
     GtpC;
 
+validate_response(create_pdp_context_request, version_restricted, Response, GtpC) ->
+    ?match(#gtp{type = version_not_supported}, Response),
+    GtpC;
+
 validate_response(create_pdp_context_request, SubType, Response,
 		  #gtpc{local_control_tei = LocalCntlTEI} = GtpC) ->
     ?match(#gtp{type = create_pdp_context_response,

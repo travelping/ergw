@@ -423,6 +423,10 @@ validate_response(create_session_request, invalid_mapping, Response, GtpC) ->
 	  Response),
     GtpC;
 
+validate_response(create_session_request, version_restricted, Response, GtpC) ->
+    ?match(#gtp{type = version_not_supported}, Response),
+    GtpC;
+
 validate_response(create_session_request, _SubType, Response,
 		  #gtpc{local_control_tei = LocalCntlTEI} = GtpC) ->
     ?match(

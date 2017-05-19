@@ -49,8 +49,10 @@
 	  remote_data_tei = 0    :: non_neg_integer(),
 	  ms_v4                  :: inet:ip4_address(),
 	  ms_v6                  :: inet:ip6_address(),
-	  state                  :: term()
-	  }).
+	  state                  :: term(),
+	  restrictions = []      :: [{'v1', boolean()} |
+				     {'v2', boolean()}]
+	 }).
 
 -record(request_key, {
 	  gtp_port	:: #gtp_port{},
