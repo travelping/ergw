@@ -29,8 +29,8 @@ init() ->
 
 start_http_listener(HttpOpts) ->
     Port = get_config_option(HttpOpts, port, ?DEFAULT_PORT),
-    Ip = get_config_option(HttpOpts, ip, ?DEFAULT_IP),
-    Inet = get_inet(Ip),
+    IP = get_config_option(HttpOpts, ip, ?DEFAULT_IP),
+    INet = get_inet(IP),
     AcceptorsNum = get_config_option(HttpOpts, acceptors_num, ?ACCEPTORS_NUM),
     Dispatch = cowboy_router:compile([{'_',
                                        [
@@ -43,7 +43,7 @@ start_http_listener(HttpOpts) ->
                                         {"/api/v1/spec/ui", swagger_ui_handler, []},
                                         {"/api/v1/spec/ui/[...]", cowboy_static, {priv_dir, ergw, "static"}}]}
                                      ]),
-    cowboy:start_clear(ergw_http_listener, AcceptorsNum, [{port, Port}, {ip, Ip}, Inet], #{
+    cowboy:start_clear(ergw_http_listener, AcceptorsNum, [{port, Port}, {ip, IP}, INet], #{
                                                            env => #{dispatch => Dispatch}
                                                           }).
 
@@ -59,10 +59,10 @@ validate_options(port, Port) when is_integer(Port) ->
     Port;
 validate_options(acceptors_num, Acceptors) when is_integer(Acceptors) ->
     Acceptors;
-validate_options(ip, {_, _, _, _} = Ip) ->
-    Ip;
-validate_options(ip, {_, _, _, _, _, _, _, _} = Ip) ->
-    Ip;
+validate_options(ip, {_, _, _, _} = IP) ->
+    IP;
+validate_options(ip, {_, _, _, _, _, _, _, _} = IP) ->
+    IP;
 validate_options(OptName, OptValue) ->
     throw({error, {options, {OptName, OptValue}}}).
 
