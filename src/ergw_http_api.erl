@@ -67,6 +67,6 @@ validate_options(OptName, OptValue) ->
     throw({error, {options, {OptName, OptValue}}}).
 
 get_inet({_, _, _, _}) ->
-    inet4;
+    inet;
 get_inet({_, _, _, _, _, _, _, _}) ->
     inet6.
