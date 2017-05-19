@@ -33,11 +33,16 @@ start_http_listener(HttpOpts) ->
     Inet = get_inet(Ip),
     AcceptorsNum = get_config_option(HttpOpts, acceptors_num, ?ACCEPTORS_NUM),
     Dispatch = cowboy_router:compile([{'_',
-                                       [{"/api/v1/version", http_api_handler, []},
+                                       [
+                                        % Public API
+                                        {"/api/v1/version", http_api_handler, []},
                                         {"/api/v1/status", http_api_handler, []},
                                         {"/api/v1/status/accept-new", http_api_handler, []},
-                                        {"/api/v1/status/accept-new/:value", http_api_handler, []}]
-                                      }]),
+                                        {"/api/v1/status/accept-new/:value", http_api_handler, []},
+                                        % serves static files for swagger UI
+                                        {"/api/v1/spec/ui", swagger_ui_handler, []},
+                                        {"/api/v1/spec/ui/[...]", cowboy_static, {priv_dir, ergw, "static"}}]}
+                                     ]),
     cowboy:start_clear(ergw_http_listener, AcceptorsNum, [{port, Port}, {ip, Ip}, Inet], #{
                                                            env => #{dispatch => Dispatch}
                                                           }).
