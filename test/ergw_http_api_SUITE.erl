@@ -119,9 +119,9 @@ http_api_status_req(_Config) ->
     {ok, {_, _, Body}} = httpc:request(get, {URL, []},
 				       [], [{body_format, binary}]),
     Response = jsx:decode(Body, [return_maps]),
-    ?equal(maps:get(accept_new, SysInfo), maps:get(<<"accept_new">>, Response)),
+    ?equal(maps:get(accept_new, SysInfo), maps:get(<<"acceptNewRequests">>, Response)),
     {Mcc, Mnc} = maps:get(plmn_id, SysInfo),
-    PlmnIdFromResponse = maps:get(<<"plmn_id">>, Response),
+    PlmnIdFromResponse = maps:get(<<"plmnId">>, Response),
     MccFromResponse = maps:get(<<"mcc">>, PlmnIdFromResponse),
     MncFromResponse = maps:get(<<"mnc">>, PlmnIdFromResponse),
     ?equal(Mcc, MccFromResponse),
@@ -136,7 +136,7 @@ http_api_status_accept_new_get_req(_Config) ->
 				       [], [{body_format, binary}]),
     Response = jsx:decode(Body, [return_maps]),
     AcceptNew = ergw:system_info(accept_new),
-    AcceptNewFromResponse = maps:get(<<"acceptNewRequest">>, Response),
+    AcceptNewFromResponse = maps:get(<<"acceptNewRequests">>, Response),
     ?equal(AcceptNew, AcceptNewFromResponse),
     ok.
 
@@ -148,13 +148,13 @@ http_api_status_accept_new_post_req(_Config) ->
 
     {ok, {_, _, ReqBody1}} = httpc:request(post, {StopURL, [], "application/json", ""},
 					   [], [{body_format, binary}]),
-    Result1 = maps:get(<<"acceptNewRequest">>, jsx:decode(ReqBody1, [return_maps])),
+    Result1 = maps:get(<<"acceptNewRequests">>, jsx:decode(ReqBody1, [return_maps])),
     ?equal(ergw:system_info(accept_new), Result1),
     ?equal(false, Result1),
 
     {ok, {_, _, ReqBody2}} = httpc:request(post, {AcceptURL, [], "application/json", ""},
 					   [], [{body_format, binary}]),
-    Result2 = maps:get(<<"acceptNewRequest">>, jsx:decode(ReqBody2, [return_maps])),
+    Result2 = maps:get(<<"acceptNewRequests">>, jsx:decode(ReqBody2, [return_maps])),
     ?equal(ergw:system_info(accept_new), Result2),
     ?equal(true, Result2),
 
