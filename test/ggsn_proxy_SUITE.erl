@@ -236,6 +236,7 @@ all_tests() ->
      proxy_context_selection,
      proxy_context_invalid_selection,
      proxy_context_invalid_mapping,
+     proxy_context_version_restricted,
      invalid_teid,
      delete_pdp_context_requested,
      delete_pdp_context_requested_resend].
@@ -564,6 +565,26 @@ proxy_context_invalid_mapping(Config) ->
     S = make_gtp_socket(Config),
 
     {_, _, _} = create_pdp_context(invalid_mapping, S),
+
+    meck:unload(gtp_proxy_ds),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+proxy_context_version_restricted() ->
+    [{doc, "Check GTP version restriction on proxy contexts"}].
+proxy_context_version_restricted(Config) ->
+    ok = meck:new(gtp_proxy_ds, [passthrough]),
+    meck:expect(gtp_proxy_ds, map,
+		fun(ProxyInfo) ->
+			{ok, ProxyInfo#proxy_info{restrictions = [{v1, false}]}}
+		end),
+
+    S = make_gtp_socket(Config),
+
+    {_, _, _} = create_pdp_context(version_restricted, S),
 
     meck:unload(gtp_proxy_ds),
 

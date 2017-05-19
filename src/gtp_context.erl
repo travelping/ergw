@@ -16,6 +16,7 @@
 	 forward_request/4, path_restart/2,
 	 delete_context/1,
 	 register_remote_context/1, update_remote_context/2,
+	 enforce_restrictions/2,
 	 info/1, validate_option/2]).
 
 %% gen_server callbacks
@@ -156,6 +157,9 @@ delete_context(Context) ->
 
 info(Context) ->
     gen_server:call(Context, info).
+
+enforce_restrictions(Msg, #context{restrictions = Restrictions} = Context) ->
+    lists:foreach(fun(R) -> enforce_restriction(Context, Msg, R) end, Restrictions).
 
 validate_option(handler, Value) when is_atom(Value) ->
     Value;
@@ -328,6 +332,13 @@ send_response(#request_key{gtp_port = GtpPort} = ReqKey, #gtp{seq_no = SeqNo} = 
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
+
+enforce_restriction(Context, #gtp{version = Version}, {Version, false}) ->
+    throw(#ctx_err{level = ?FATAL,
+		   reply = {version_not_supported, []},
+		   context = Context});
+enforce_restriction(_Context, _Msg, _Restriction) ->
+    ok.
 
 get_handler_if(GtpPort, #gtp{version = v1} = Msg) ->
     gtp_v1_c:get_handler(GtpPort, Msg);
