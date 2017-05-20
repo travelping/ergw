@@ -24,7 +24,7 @@ content_types_provided(Req, State) ->
     {[{<<"application/json">>, handle_request}], Req, State}.
 
 content_types_accepted(Req, State) ->
-    {[{<<"application/json">>, handle_request}], Req, State}.
+    {[{'*', handle_request}], Req, State}.
 
 handle_request(Req, State) ->
     Path = cowboy_req:path(Req),
