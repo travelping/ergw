@@ -4,7 +4,8 @@
     {description, "3GPP GGSN/PGW"},
     {applications, [kernel, stdlib, lager, erlando, crypto,
 		    regine, gen_socket, gtplib, ergw_aaa,
-		    setup, exometer_core, netdata, cowboy]},
+		    setup, exometer_core, netdata, cowboy,
+		    compiler]},
     {mod, {ergw_app, []}},
     {registered, []}
 ]}.
