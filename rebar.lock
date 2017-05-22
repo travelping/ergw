@@ -24,7 +24,7 @@
   1},
  {<<"ergw_aaa">>,
   {git,"git://github.com/travelping/ergw_aaa",
-       {ref,"22359a1992d265c4103a78a3155c6288f0b46382"}},
+       {ref,"260014045ce18ff63921407e86e6c7e40af01517"}},
   0},
  {<<"erlando">>,
   {git,"https://github.com/travelping/erlando.git",

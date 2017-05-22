@@ -122,7 +122,7 @@ This requires a suitable ergw.config, e.g.:
             ]},
     
      {ergw_aaa, [
-                 %% {ergw_aaa_provider, {ergw_aaa_mock, [{secret, <<"MySecret">>}]}}
+                 %% {ergw_aaa_provider, {ergw_aaa_mock, [{shared_secret, <<"MySecret">>}]}}
                  {ergw_aaa_provider,
                   {ergw_aaa_radius,
                    [{nas_identifier,<<"nas01.example.com">>},
