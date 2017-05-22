@@ -79,7 +79,7 @@
 
                  {http_api, [{port, 0}]}
                 ]},
-	 {ergw_aaa, [{ergw_aaa_provider, {ergw_aaa_mock, [{secret, <<"MySecret">>}]}}]}
+	 {ergw_aaa, [{ergw_aaa_provider, {ergw_aaa_mock, [{shared_secret, <<"MySecret">>}]}}]}
 	]).
 
 all() ->

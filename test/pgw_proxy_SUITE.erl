@@ -116,7 +116,7 @@
 			  ]}
 		  ]}
 		]},
-	 {ergw_aaa, [{ergw_aaa_provider, {ergw_aaa_mock, [{secret, <<"MySecret">>}]}}]}
+	 {ergw_aaa, [{ergw_aaa_provider, {ergw_aaa_mock, [{shared_secret, <<"MySecret">>}]}}]}
 	]).
 
 -define(TEST_CONFIG_SINGLE_PROXY_SOCKET,
@@ -204,7 +204,7 @@
 			  ]}
 		  ]}
 		]},
-	 {ergw_aaa, [{ergw_aaa_provider, {ergw_aaa_mock, [{secret, <<"MySecret">>}]}}]}
+	 {ergw_aaa, [{ergw_aaa_provider, {ergw_aaa_mock, [{shared_secret, <<"MySecret">>}]}}]}
 	]).
 
 

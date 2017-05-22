@@ -86,7 +86,7 @@
 		   {[<<"APN1">>], [{vrf, upstream}]}
 		  ]}
 		]},
-	 {ergw_aaa, [{ergw_aaa_provider, {ergw_aaa_mock, [{secret, <<"MySecret">>}]}}]}
+	 {ergw_aaa, [{ergw_aaa_provider, {ergw_aaa_mock, [{shared_secret, <<"MySecret">>}]}}]}
 	]).
 
 
