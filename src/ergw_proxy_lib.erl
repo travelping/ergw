@@ -52,7 +52,7 @@ validate_context_option(Opt, Value) ->
     throw({error, {options, {Opt, Value}}}).
 
 validate_context(Name, Opts0, Acc)
-  when is_binary(Name) ->
+  when is_binary(Name) andalso (is_list(Opts0) orelse is_map(Opts0)) ->
     Opts = ergw_config:validate_options(
 	     fun validate_context_option/2, Opts0, ?ContextDefaults, map),
     Acc#{Name => Opts};
