@@ -17,7 +17,9 @@
 	 delete_context/1,
 	 register_remote_context/1, update_remote_context/2,
 	 enforce_restrictions/2,
-	 info/1, validate_option/2]).
+	 info/1,
+	 validate_options/3,
+	 validate_option/2]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -161,27 +163,76 @@ info(Context) ->
 enforce_restrictions(Msg, #context{restrictions = Restrictions} = Context) ->
     lists:foreach(fun(R) -> enforce_restriction(Context, Msg, R) end, Restrictions).
 
+%%%===================================================================
+%%% Options Validation
+%%%===================================================================
+
+-define(ContextDefaults, [{data_paths, undefined},
+			  {aaa,        []}]).
+
+-define(DefaultAAAOpts,
+	#{
+	  'AAA-Application-Id' => ergw_aaa_provider,
+	  'Username' => #{default => <<"ergw">>,
+			  from_protocol_opts => true},
+	  'Password' => #{default => <<"ergw">>}
+	 }).
+
+validate_options(Fun, Opts, Defaults) ->
+    ergw_config:validate_options(Fun, Opts, Defaults ++ ?ContextDefaults, map).
+
 validate_option(handler, Value) when is_atom(Value) ->
     Value;
 validate_option(sockets, Value) when is_list(Value) ->
     Value;
 validate_option(data_paths, Value) when is_list(Value) ->
     Value;
-validate_option(aaa, Value) when is_list(Value) ->
-    Value;
+validate_option(aaa, Value) when is_list(Value); is_map(Value) ->
+    ergw_config:opts_fold(fun validate_aaa_option/3, ?DefaultAAAOpts, Value);
 validate_option(Opt, Value) ->
     throw({error, {options, {Opt, Value}}}).
+
+validate_aaa_option(Key, AppId, AAA)
+  when Key == appid; Key == 'AAA-Application-Id' ->
+    AAA#{'AAA-Application-Id' => AppId};
+validate_aaa_option(Key, Value, AAA)
+  when (is_list(Value) orelse is_map(Value)) andalso
+       (Key == 'Username' orelse Key == 'Password') ->
+    %% Attr = maps:get(Key, AAA),
+    %% maps:put(Key, ergw_config:opts_fold(validate_aaa_attr_option(Key, _, _, _), Attr, Value), AAA);
+
+    %% maps:update_with(Key, fun(Attr) ->
+    %% 				  ergw_config:opts_fold(validate_aaa_attr_option(Key, _, _, _), Attr, Value)
+    %% 			  end, AAA);
+    maps:update_with(Key, ergw_config:opts_fold(validate_aaa_attr_option(Key, _, _, _), _, Value), AAA);
+
+validate_aaa_option(Key, Value, AAA)
+  when Key == '3GPP-GGSN-MCC-MNC' ->
+    AAA#{'3GPP-GGSN-MCC-MNC' => Value};
+validate_aaa_option(Key, Value, _AAA) ->
+    throw({error, {options, {aaa, {Key, Value}}}}).
+
+validate_aaa_attr_option('Username', default, Default, Attr) ->
+    Attr#{default => Default};
+validate_aaa_attr_option('Username', from_protocol_opts, Bool, Attr)
+  when Bool == true; Bool == false ->
+    Attr#{from_protocol_opts => Bool};
+validate_aaa_attr_option('Password', default, Default, Attr) ->
+    Attr#{default => Default};
+validate_aaa_attr_option(Key, Setting, Value, _Attr) ->
+    throw({error, {options, {aaa_attr, {Key, Setting, Value}}}}).
 
 %%====================================================================
 %% gen_server API
 %%====================================================================
 
-init([CntlPort, Version, Interface, Opts]) ->
+init([CntlPort, Version, Interface,
+      #{data_paths := DPs, aaa := AAAOpts} = Opts]) ->
+
     lager:debug("init(~p)", [[CntlPort, Interface]]),
     process_flag(trap_exit, true),
 
-    DP = hd(proplists:get_value(data_paths, Opts, [])),
-    DataPort = gtp_socket_reg:lookup(DP),
+    DataPort = gtp_socket_reg:lookup(hd(DPs)),
 
     {ok, CntlTEI} = gtp_c_lib:alloc_tei(CntlPort),
     {ok, DataTEI} = gtp_c_lib:alloc_tei(DataPort),
@@ -195,14 +246,11 @@ init([CntlPort, Version, Interface, Opts]) ->
 		 local_data_tei    = DataTEI
 		},
 
-    AAAopts = aaa_config(proplists:get_value(aaa, Opts, [])),
-    lager:debug("AAA Config Opts: ~p", [AAAopts]),
-
     State = #{
       context   => Context,
       version   => Version,
       interface => Interface,
-      aaa_opts  => AAAopts},
+      aaa_opts  => AAAOpts},
 
     Interface:init(Opts, State).
 
@@ -413,38 +461,3 @@ validate_ies(#gtp{version = Version, type = MsgType, ie = IEs}, Cause, #{interfa
 		   (_, M) ->
 			M
 		end, [], Spec).
-
-aaa_config(Opts) ->
-    Default = #{
-      'AAA-Application-Id' => ergw_aaa_provider,
-      'Username' => #{default => <<"ergw">>,
-		      from_protocol_opts => true},
-      'Password' => #{default => <<"ergw">>}
-     },
-    lists:foldl(aaa_config(_, _), Default, Opts).
-
-aaa_config({appid, AppId}, AAA) ->
-    AAA#{'AAA-Application-Id' => AppId};
-aaa_config({Key, Value}, AAA)
-  when is_list(Value) andalso
-       (Key == 'Username' orelse
-	Key == 'Password') ->
-    Attr = maps:get(Key, AAA),
-    maps:put(Key, lists:foldl(aaa_attr_config(Key, _, _), Attr, Value), AAA);
-aaa_config({Key, Value}, AAA)
-  when Key == '3GPP-GGSN-MCC-MNC' ->
-    AAA#{'3GPP-GGSN-MCC-MNC' => Value};
-aaa_config(Other, AAA) ->
-    lager:warning("unknown AAA config setting: ~p", [Other]),
-    AAA.
-
-aaa_attr_config('Username', {default, Default}, Attr) ->
-    Attr#{default => Default};
-aaa_attr_config('Username', {from_protocol_opts, Bool}, Attr)
-  when Bool == true; Bool == false ->
-    Attr#{from_protocol_opts => Bool};
-aaa_attr_config('Password', {default, Default}, Attr) ->
-    Attr#{default => Default};
-aaa_attr_config(Key, Value, Attr) ->
-    lager:warning("unknown AAA attribute value: ~w => ~p", [Key, Value]),
-    Attr.

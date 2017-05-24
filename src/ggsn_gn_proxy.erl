@@ -146,14 +146,11 @@ request_spec(v1, delete_pdp_context_response, _) ->
 request_spec(v1, _, _) ->
     [].
 
+-define(Defaults, [{ggsn, undefined}]).
+
 validate_options(Opts) ->
     lager:debug("GGSN Gn/Gp Options: ~p", [Opts]),
-    Defaults = [{proxy_data_source, gtp_proxy_ds},
-		{proxy_sockets,     []},
-		{proxy_data_paths,  []},
-		{ggsn,              undefined},
-		{contexts,          []}],
-    ergw_config:validate_options(fun validate_option/2, Opts, Defaults).
+    ergw_proxy_lib:validate_options(fun validate_option/2, Opts, ?Defaults).
 
 validate_option(ggsn, {_,_,_,_} = Value) ->
     Value;
@@ -165,12 +162,10 @@ validate_option(Opt, Value) ->
 -record(request_info, {request_key, seq_no, new_peer}).
 -record(context_state, {nsapi}).
 
-init(Opts, State) ->
-    ProxyPorts = proplists:get_value(proxy_sockets, Opts),
-    ProxyDPs = proplists:get_value(proxy_data_paths, Opts),
-    GGSN = proplists:get_value(ggsn, Opts),
-    ProxyDS = proplists:get_value(proxy_data_source, Opts),
-    Contexts = maps:from_list(proplists:get_value(contexts, Opts)),
+init(#{proxy_sockets := ProxyPorts, proxy_data_paths := ProxyDPs,
+       ggsn := GGSN, proxy_data_source := ProxyDS,
+       contexts := Contexts}, State) ->
+
     {ok, State#{proxy_ports => ProxyPorts, proxy_dps => ProxyDPs,
 		contexts => Contexts, default_gw => GGSN, proxy_ds => ProxyDS}}.
 
