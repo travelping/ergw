@@ -10,7 +10,10 @@
 -compile({parse_transform, cut}).
 
 %% API
--export([load_config/1, validate_options/2, validate_options/3]).
+-export([load_config/1,
+	 validate_options/4,
+	 opts_fold/3,
+	 to_map/1]).
 
 -define(DefaultOptions, [{plmn_id, {<<"001">>, <<"01">>}},
 			 {accept_new, true},
@@ -34,12 +37,36 @@ load_config(Config0) ->
     ergw_http_api:init(),
     ok.
 
+opts_fold(Fun, AccIn, Opts) when is_list(Opts) ->
+    lists:foldl(fun({K,V}, Acc) -> Fun(K, V, Acc) end, AccIn, Opts);
+opts_fold(Fun, AccIn, Opts) when is_map(Opts) ->
+    maps:fold(Fun, AccIn, Opts).
+
+%% opts_map(Fun, Opts) when is_list(Opts) ->
+%%     lists:map(fun({K,V}) -> {K, Fun(K, V)} end, Opts);
+%% opts_map(Fun, Opts) when is_map(Opts) ->
+%%     maps:map(Fun, Opts).
+
+to_map(List) when is_list(List) ->
+    maps:from_list(List);
+to_map(Map) when is_map(Map) ->
+    Map.
+
 %%%===================================================================
 %%% Options Validation
 %%%===================================================================
 
+return_type(List, list) when is_list(List) ->
+    List;
+return_type(List, map) when is_list(List) ->
+    maps:from_list(List);
+return_type(Map, map) when is_map(Map) ->
+    Map;
+return_type(Map, list) when is_map(Map) ->
+    maps:to_list(Map).
+
 validate_config(Config) ->
-    validate_options(fun validate_option/2, Config, ?DefaultOptions).
+    validate_options(fun validate_option/2, Config, ?DefaultOptions, list).
 
 validate_options(_Fun, []) ->
         [];
@@ -48,9 +75,14 @@ validate_options(Fun, [Opt | Tail]) when is_atom(Opt) ->
 validate_options(Fun, [{Opt, Value} | Tail]) ->
         [{Opt, Fun(Opt, Value)} | validate_options(Fun, Tail)].
 
-validate_options(Fun, Options, Defaults) ->
+validate_options(Fun, Options, Defaults, ReturnType)
+  when is_list(Options), is_list(Defaults) ->
     Opts = lists:ukeymerge(1, lists:keysort(1, Options), lists:keysort(1, Defaults)),
-    validate_options(Fun, Opts).
+    return_type(validate_options(Fun, Opts), ReturnType);
+validate_options(Fun, Options, Defaults, ReturnType)
+  when is_map(Options), (is_map(Defaults) orelse is_list(Defaults)) ->
+    Opts = maps:merge(to_map(Defaults), Options),
+    return_type(maps:map(Fun, Opts), ReturnType).
 
 validate_option(plmn_id, {MCC, MNC} = Value) ->
     case validate_mcc_mcn(MCC, MNC) of
@@ -134,7 +166,7 @@ validate_handlers_option(Opt, Value)
 	_ ->
 	    throw({error, {options, {handler, Value}}})
     end,
-    maps:from_list(Handler:validate_options(Value));
+    Handler:validate_options(Value);
 validate_handlers_option(Opt, Value) ->
     throw({error, {options, {Opt, Value}}}).
 
@@ -145,9 +177,9 @@ validate_vrfs_option(Opt, Value) ->
     throw({error, {options, {Opt, Value}}}).
 
 validate_apns_option('_', Value) when is_list(Value) ->
-    maps:from_list(validate_options(fun validate_apn_option/2, Value));
+    validate_options(fun validate_apn_option/2, Value, [], map);
 validate_apns_option(APN, Value) when is_list(APN), is_list(Value) ->
-    maps:from_list(validate_options(fun validate_apn_option/2, Value));
+    validate_options(fun validate_apn_option/2, Value, [], map);
 validate_apns_option(Opt, Value) ->
     throw({error, {options, {Opt, Value}}}).
 
@@ -164,7 +196,7 @@ load_handler({Protocol, #{handler := Handler,
     Opts = maps:to_list(maps:without([handler, sockets], Opts0)),
     lists:foreach(ergw:attach_protocol(_, Protocol, Handler, Opts), Sockets);
 load_handler({Protocol, Value}) ->
-        throw({error, {options, {Protocol, maps:to_list(Value)}}}).
+        throw({error, {options, {Protocol, Value}}}).
 
 load_vrf({Name, Options}) ->
     ergw:start_vrf(Name, Options).

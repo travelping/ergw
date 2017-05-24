@@ -30,15 +30,13 @@
 %% API
 %%====================================================================
 
-start_vrf(Name, Opts)
-  when is_atom(Name), is_map(Opts) ->
-    vrf_sup:start_vrf(Name, Opts);
-start_vrf(Name, Opts)
-  when is_list(Opts) ->
-    start_vrf(Name, validate_options(Opts)).
+start_vrf(Name, Opts0)
+  when is_atom(Name) ->
+    Opts = validate_options(Opts0),
+    vrf_sup:start_vrf(Name, Opts).
 
 start_link(VRF, Opts) ->
-   gen_server:start_link(?MODULE, [VRF, Opts], []).
+    gen_server:start_link(?MODULE, [VRF, Opts], []).
 
 allocate_pdp_ip(VRF, TEI, IPv4, IPv6) ->
     with_vrf(VRF, gen_server:call(_, {allocate_pdp_ip, TEI, IPv4, IPv6})).
@@ -58,7 +56,7 @@ with_vrf(VRF, Fun) when is_atom(VRF), is_function(Fun, 1) ->
 
 validate_options(Options) ->
     lager:debug("VRF Options: ~p", [Options]),
-    maps:from_list(ergw_config:validate_options(fun validate_option/2, Options)).
+    ergw_config:validate_options(fun validate_option/2, Options, [], map).
 
 validate_option(pools, Value) when is_list(Value) ->
     Value;

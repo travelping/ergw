@@ -7,11 +7,18 @@
 
 -module(ergw_proxy_lib).
 
--export([validate_option/2]).
+-export([validate_options/3, validate_option/2]).
 
 %%%===================================================================
 %%% API
 %%%===================================================================
+-define(ProxyDefaults, [{proxy_data_source, gtp_proxy_ds},
+			{proxy_sockets,     []},
+			{proxy_data_paths,  []},
+			{contexts,          []}]).
+
+validate_options(Fun, Opts, Defaults) ->
+    gtp_context:validate_options(Fun, Opts, Defaults ++ ?ProxyDefaults).
 
 validate_option(proxy_data_source, Value) ->
     case code:ensure_loaded(Value) of
@@ -25,14 +32,17 @@ validate_option(Opt, Value)
   when Opt == proxy_sockets;
        Opt == proxy_data_paths ->
     validate_context_option(Opt, Value);
-validate_option(contexts, Values) when is_list(Values) ->
-    lists:map(fun validate_context/1, Values);
+validate_option(contexts, Values) when is_list(Values); is_map(Values) ->
+    ergw_config:opts_fold(fun validate_context/3, #{}, Values);
 validate_option(Opt, Value) ->
     gtp_context:validate_option(Opt, Value).
 
 %%%===================================================================
 %%% Options Validation
 %%%===================================================================
+
+-define(ContextDefaults, [{proxy_sockets,    []},
+			  {proxy_data_paths, []}]).
 
 validate_context_option(proxy_sockets, Value) when is_list(Value), Value /= [] ->
     Value;
@@ -41,20 +51,10 @@ validate_context_option(proxy_data_paths, Value) when is_list(Value), Value /= [
 validate_context_option(Opt, Value) ->
     throw({error, {options, {Opt, Value}}}).
 
-validate_context({Name, Opts0})
-  when is_binary(Name), is_list(Opts0) ->
-    Defaults = [{proxy_sockets,    []},
-		{proxy_data_paths, []}],
-    Opts = maps:from_list(ergw_config:validate_options(
-			    fun validate_context_option/2, Opts0, Defaults)),
-    {Name, Opts};
-validate_context({Name, Opts0})
-  when is_binary(Name), is_map(Opts0) ->
-    Defaults = #{proxy_sockets    => [],
-		 proxy_data_paths => []},
-    Opts1 = maps:merge(Defaults, Opts0),
-    Opts = maps:from_list(ergw_config:validate_options(
-			    fun validate_context_option/2, maps:to_list(Opts1))),
-    {Name, Opts};
-validate_context(Value) ->
-    throw({error, {options, {contexts, Value}}}).
+validate_context(Name, Opts0, Acc)
+  when is_binary(Name) ->
+    Opts = ergw_config:validate_options(
+	     fun validate_context_option/2, Opts0, ?ContextDefaults, map),
+    Acc#{Name => Opts};
+validate_context(Name, Opts, _Acc) ->
+    throw({error, {options, {contexts, {Name, Opts}}}}).

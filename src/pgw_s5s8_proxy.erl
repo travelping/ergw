@@ -124,14 +124,11 @@ request_spec(v2, resume_acknowledge, _) ->
 request_spec(v2, _, _) ->
     [].
 
+-define(Defaults, [{pgw, undefined}]).
+
 validate_options(Opts) ->
     lager:debug("PGW S5/S8 Options: ~p", [Opts]),
-    Defaults = [{proxy_data_source, gtp_proxy_ds},
-		{proxy_sockets,     []},
-		{proxy_data_paths,  []},
-		{pgw,               undefined},
-		{contexts,          []}],
-    ergw_config:validate_options(fun validate_option/2, Opts, Defaults).
+    ergw_proxy_lib:validate_options(fun validate_option/2, Opts, ?Defaults).
 
 validate_option(pgw, {_,_,_,_} = Value) ->
     Value;
@@ -143,12 +140,10 @@ validate_option(Opt, Value) ->
 -record(request_info, {request_key, seq_no, new_peer}).
 -record(context_state, {ebi}).
 
-init(Opts, State) ->
-    ProxyPorts = proplists:get_value(proxy_sockets, Opts),
-    ProxyDPs = proplists:get_value(proxy_data_paths, Opts),
-    PGW = proplists:get_value(pgw, Opts),
-    ProxyDS = proplists:get_value(proxy_data_source, Opts, gtp_proxy_ds),
-    Contexts = maps:from_list(proplists:get_value(contexts, Opts)),
+init(#{proxy_sockets := ProxyPorts, proxy_data_paths := ProxyDPs,
+       pgw := PGW, proxy_data_source := ProxyDS,
+       contexts := Contexts}, State) ->
+
     {ok, State#{proxy_ports => ProxyPorts, proxy_dps => ProxyDPs,
 		contexts => Contexts, default_gw => PGW, proxy_ds => ProxyDS}}.
 

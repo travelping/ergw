@@ -69,16 +69,13 @@ request_spec(v1, _, _) ->
 
 validate_options(Options) ->
     lager:debug("GGSN Gn/Gp Options: ~p", [Options]),
-    ergw_config:validate_options(fun validate_option/2, Options).
+    gtp_context:validate_options(fun validate_option/2, Options, []).
 
 validate_option(Opt, Value) ->
     gtp_context:validate_option(Opt, Value).
 
-init(Opts, State) ->
-    SessionOpts0 = proplists:get_value(session, Opts, []),
-    SessionOpts1 = lists:foldl(fun copy_session_defaults/2, #{}, SessionOpts0),
-
-    {ok, Session} = ergw_aaa_session_sup:new_session(self(), SessionOpts1),
+init(_Opts, State) ->
+    {ok, Session} = ergw_aaa_session_sup:new_session(self(), #{}),
     {ok, State#{'Session' => Session}}.
 
 handle_call(delete_context, From, #{context := Context} = State) ->
@@ -312,13 +309,6 @@ apply_context_change(NewContext0, OldContext, State) ->
     dp_update_pdp_context(NewContext, OldContext),
     gtp_path:unbind(OldContext),
     State#{context => NewContext}.
-
-copy_session_defaults({'3GPP-GGSN-MCC-MNC', MCCMNC}, Session)
-  when is_binary(MCCMNC) ->
-    Session#{'3GPP-GGSN-MCC-MNC' => MCCMNC};
-copy_session_defaults(KV, Session) ->
-    lager:warning("invalid value (~p) in session defaul", [KV]),
-    Session.
 
 select_vrf(#context{apn = APN} = Context) ->
     case ergw:vrf(APN) of
