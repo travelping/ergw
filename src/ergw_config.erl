@@ -11,6 +11,7 @@
 
 %% API
 -export([load_config/1,
+	 validate_config/1,
 	 validate_options/4,
 	 opts_fold/3,
 	 to_map/1]).
@@ -22,6 +23,8 @@
 			 {handlers, []},
 			 {vrfs, []},
 			 {apns, []}]).
+
+-define(is_opts(X), (is_list(X) orelse is_map(X))).
 
 %%%===================================================================
 %%% API
@@ -52,6 +55,11 @@ to_map(List) when is_list(List) ->
 to_map(Map) when is_map(Map) ->
     Map.
 
+get_opt(Key, List) when is_list(List) ->
+    proplists:get_value(Key, List);
+get_opt(Key, Map) when is_map(Map) ->
+    maps:get(Key, Map).
+
 %%%===================================================================
 %%% Options Validation
 %%%===================================================================
@@ -80,7 +88,7 @@ validate_options(Fun, Options, Defaults, ReturnType)
     Opts = lists:ukeymerge(1, lists:keysort(1, Options), lists:keysort(1, Defaults)),
     return_type(validate_options(Fun, Opts), ReturnType);
 validate_options(Fun, Options, Defaults, ReturnType)
-  when is_map(Options), (is_map(Defaults) orelse is_list(Defaults)) ->
+  when is_map(Options) andalso ?is_opts(Defaults) ->
     Opts = maps:merge(to_map(Defaults), Options),
     return_type(maps:map(Fun, Opts), ReturnType).
 
@@ -93,7 +101,8 @@ validate_option(accept_new, Value) when is_boolean(Value) ->
     Value;
 validate_option(dp_handler, Value) when is_atom(Value) ->
     try
-	ok = ergw_loader:load(gtp_dp_api, gtp_dp, Value)
+	ok = ergw_loader:load(gtp_dp_api, gtp_dp, Value),
+	Value
     catch
 	error:{missing_exports, Missing} ->
 	    throw({error, {options, {dp_handler, Value, Missing}}});
@@ -111,6 +120,16 @@ validate_option(apns, Value) when is_list(Value) ->
     validate_options(fun validate_apns_option/2, Value);
 validate_option(http_api, Value) when is_list(Value) ->
     validate_options(fun ergw_http_api:validate_options/2, Value);
+validate_option(Opt, Value)
+  when Opt == plmn_id;
+       Opt == accept_new;
+       Opt == dp_handler;
+       Opt == sockets;
+       Opt == handlers;
+       Opt == vrfs;
+       Opt == apns;
+       Opt == http_api ->
+    throw({error, {options, {Opt, Value}}});
 validate_option(_Opt, Value) ->
     Value.
 
@@ -157,9 +176,9 @@ validate_socket_option(Opt, Value) ->
     throw({error, {options, {Opt, Value}}}).
 
 validate_handlers_option(Opt, Value)
-  when is_list(Value) andalso
+  when ?is_opts(Value) andalso
        (Opt == 'gn' orelse Opt == 's5s8') ->
-    Handler = proplists:get_value(handler, Value),
+    Handler = get_opt(handler, Value),
     case code:ensure_loaded(Handler) of
 	{module, _} ->
 	    ok;
@@ -171,15 +190,15 @@ validate_handlers_option(Opt, Value) ->
     throw({error, {options, {Opt, Value}}}).
 
 validate_vrfs_option(Opt, Values)
-  when is_atom(Opt), is_list(Values) ->
+  when is_atom(Opt), ?is_opts(Values) ->
     vrf:validate_options(Values);
 validate_vrfs_option(Opt, Value) ->
     throw({error, {options, {Opt, Value}}}).
 
-validate_apns_option('_', Value) when is_list(Value) ->
-    validate_options(fun validate_apn_option/2, Value, [], map);
-validate_apns_option(APN, Value) when is_list(APN), is_list(Value) ->
-    validate_options(fun validate_apn_option/2, Value, [], map);
+validate_apns_option('_', Value) when ?is_opts(Value) ->
+    validate_options(fun validate_apn_option/2, Value, [{vrf, {invalid}}], map);
+validate_apns_option(APN, Value) when is_list(APN), ?is_opts(Value) ->
+    validate_options(fun validate_apn_option/2, Value, [{vrf, {invalid}}], map);
 validate_apns_option(Opt, Value) ->
     throw({error, {options, {Opt, Value}}}).
 

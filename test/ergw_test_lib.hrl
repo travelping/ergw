@@ -22,6 +22,7 @@
 			  send_pdu/2,
 			  send_recv_pdu/2, send_recv_pdu/3,
 			  recv_pdu/2, recv_pdu/3, recv_pdu/4]).
+-import('ergw_test_lib', [set_cfg_value/3]).
 
 -endif.
 

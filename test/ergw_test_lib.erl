@@ -25,6 +25,7 @@
 	 send_recv_pdu/2, send_recv_pdu/3,
 	 recv_pdu/2, recv_pdu/3, recv_pdu/4]).
 -export([pretty_print/1]).
+-export([set_cfg_value/3]).
 
 -include("ergw_test_lib.hrl").
 -include_lib("common_test/include/ct.hrl").
@@ -237,3 +238,13 @@ pretty_print(gtpc, N) ->
     record_info(fields, gtpc);
 pretty_print(_, _) ->
     no.
+
+%%%===================================================================
+%%% Config manipulation
+%%%===================================================================
+
+set_cfg_value([Key], Value, Config) ->
+    lists:keystore(Key, 1, Config, {Key, Value});
+set_cfg_value([H | T], Value, Config) ->
+    Prop = proplists:get_value(H, Config, []),
+    lists:keystore(H, 1, Config, {H, set_cfg_value(T, Value, Prop)}).
