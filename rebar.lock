@@ -96,5 +96,5 @@
   2},
  {<<"setup">>,
   {git,"git://github.com/uwiger/setup.git",
-       {ref,"5c7d635145e5ffb8b0fa6b470770cdd1cb16b0b2"}},
+       {ref,"c99610e26bcfcb92e79e1aedfa6f73e5b3161557"}},
   0}].
