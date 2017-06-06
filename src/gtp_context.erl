@@ -181,6 +181,10 @@ enforce_restrictions(Msg, #context{restrictions = Restrictions} = Context) ->
 validate_options(Fun, Opts, Defaults) ->
     ergw_config:validate_options(Fun, Opts, Defaults ++ ?ContextDefaults, map).
 
+validate_option(protocol, Value)
+  when Value == 'gn' orelse
+       Value == 's5s8' ->
+    Value;
 validate_option(handler, Value) when is_atom(Value) ->
     Value;
 validate_option(sockets, Value) when is_list(Value) ->

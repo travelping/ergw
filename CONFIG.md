@@ -121,6 +121,7 @@ Defines a list of named sockets. The format is (in Erlang type syntax):
 
     {handlers,
       [{gn, [{handler, ggsn_gn},
+             {protocol, gn},
              {sockets, [irx]},
              {data_paths, [grx]},
              {aaa, [{'Username',
@@ -137,6 +138,12 @@ which sockets, the AAA provider and the defaults AAA attribute mapping.
   - `{handler, atom()}`
 
     the protocol handler module, ergw ships with handlers for Gn, S5/S8 and S2a
+
+  - `{protocol, atom()}`
+
+    the 3GPP interface that is served by the handler.
+	Versions before 1.12 did derive the protocol from the handler_name. For backward
+	compatibility this option can be omitted it the handler name is 'gn' or 's5s8'.
 
   - `{sockets, [socket_name()]}`
 

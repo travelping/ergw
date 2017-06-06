@@ -23,6 +23,10 @@
 			 {handlers, []},
 			 {vrfs, []},
 			 {apns, []}]).
+-define(DefaultHandlerOpts, [{handler,    undefined},
+			     {protocol,   undefined},
+			     {sockets,    undefined},
+			     {data_paths, undefined}]).
 
 -define(is_opts(X), (is_list(X) orelse is_map(X))).
 
@@ -59,6 +63,22 @@ get_opt(Key, List) when is_list(List) ->
     proplists:get_value(Key, List);
 get_opt(Key, Map) when is_map(Map) ->
     maps:get(Key, Map).
+
+get_opt(Key, List, Default) when is_list(List) ->
+    proplists:get_value(Key, List, Default);
+get_opt(Key, Map, Default) when is_map(Map) ->
+    maps:get(Key, Map, Default).
+
+set_opt(Key, Value, List) when is_list(List) ->
+    lists:keystore(Key, 1, List, {Key, Value});
+set_opt(Key, Value, Map) when is_map(Map) ->
+    Map#{Key => Value}.
+
+without_opts(Keys, List) when is_list(List) ->
+    [X || X <- List, not lists:member(element(1, X), Keys)];
+without_opts(Keys, Map) when is_map(Map) ->
+    maps:without(Keys, Map).
+
 
 %%%===================================================================
 %%% Options Validation
@@ -123,6 +143,7 @@ validate_option(sockets, Value) when is_list(Value), length(Value) >= 1 ->
     check_unique_keys(sockets, Value),
     validate_options(fun validate_sockets_option/2, Value);
 validate_option(handlers, Value) when is_list(Value), length(Value) >= 1 ->
+    check_unique_keys(handlers, without_opts(['gn', 's5s8'], Value)),
     validate_options(fun validate_handlers_option/2, Value);
 validate_option(vrfs, Value) when is_list(Value) ->
     check_unique_keys(vrfs, Value),
@@ -187,19 +208,20 @@ validate_socket_option(rcvbuf, Value) when is_integer(Value) ->
 validate_socket_option(Opt, Value) ->
     throw({error, {options, {Opt, Value}}}).
 
-validate_handlers_option(Opt, Value)
-  when ?is_opts(Value) andalso
-       (Opt == 'gn' orelse Opt == 's5s8') ->
-    Handler = get_opt(handler, Value),
+validate_handlers_option(Opt, Values0)
+  when ?is_opts(Values0) ->
+    Protocol = get_opt(protocol, Values0, Opt),
+    Values = set_opt(protocol, Protocol, Values0),
+    Handler = get_opt(handler, Values),
     case code:ensure_loaded(Handler) of
 	{module, _} ->
 	    ok;
 	_ ->
-	    throw({error, {options, {handler, Value}}})
+	    throw({error, {options, {handler, Values}}})
     end,
-    Handler:validate_options(Value);
-validate_handlers_option(Opt, Value) ->
-    throw({error, {options, {Opt, Value}}}).
+    Handler:validate_options(Values);
+validate_handlers_option(Opt, Values) ->
+    throw({error, {options, {Opt, Values}}}).
 
 validate_vrfs_option(Opt, Values)
   when is_atom(Opt), ?is_opts(Values) ->
@@ -222,12 +244,11 @@ validate_apn_option(Opt, Value) ->
 load_socket({Name, Options}) ->
     ergw:start_socket(Name, Options).
 
-load_handler({Protocol, #{handler := Handler,
-			  sockets := Sockets} = Opts0}) ->
-    Opts = maps:to_list(maps:without([handler, sockets], Opts0)),
-    lists:foreach(ergw:attach_protocol(_, Protocol, Handler, Opts), Sockets);
-load_handler({Protocol, Value}) ->
-        throw({error, {options, {Protocol, Value}}}).
+load_handler({Name, #{handler  := Handler,
+		      protocol := Protocol,
+		      sockets  := Sockets} = Opts0}) ->
+    Opts = maps:to_list(maps:without([handler, protocol, sockets], Opts0)),
+    lists:foreach(ergw:attach_protocol(_, Name, Protocol, Handler, Opts), Sockets).
 
 load_vrf({Name, Options}) ->
     ergw:start_vrf(Name, Options).
