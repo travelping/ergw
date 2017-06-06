@@ -284,6 +284,7 @@ config(_Config)  ->
     ?ok_option(set_cfg_value([sockets, irx, rcvbuf], 1, ?GGSN_CONFIG)),
     ?error_option(set_cfg_value([sockets, irx, invalid], true, ?GGSN_CONFIG)),
     ?error_option(set_cfg_value([sockets, irx], invalid, ?GGSN_CONFIG)),
+    ?error_option(add_cfg_value([sockets, irx], [], ?GGSN_CONFIG)),
 
     ?error_option(set_cfg_value([handlers, gn], invalid, ?GGSN_CONFIG)),
     ?error_option(set_cfg_value([handlers, gn, sockets], invalid, ?GGSN_CONFIG)),
@@ -293,12 +294,15 @@ config(_Config)  ->
     ?error_option(set_cfg_value([handlers, gn, aaa, invalid], invalid, ?GGSN_CONFIG)),
 
     ?error_option(set_cfg_value([vrfs, upstream], invalid, ?GGSN_CONFIG)),
+    ?error_option(add_cfg_value([vrfs, upstream], [], ?GGSN_CONFIG)),
     ?error_option(set_cfg_value([vrfs], invalid, ?GGSN_CONFIG)),
 
     ?error_option(set_cfg_value([apns, '_'], [], ?GGSN_CONFIG)),
     ?ok_option(set_cfg_value([apns, '_', vrf], upstream, ?GGSN_CONFIG)),
     ?error_option(set_cfg_value([apns, ?'APN-EXAMPLE'], [], ?GGSN_CONFIG)),
     ?error_option(set_cfg_value([apns, ?'APN-EXAMPLE'], invalid, ?GGSN_CONFIG)),
+    ?ok_option(add_cfg_value([apns, ?'APN-PROXY'], [{vrf, example}], ?GGSN_CONFIG)),
+    ?error_option(add_cfg_value([apns, ?'APN-EXAMPLE'], [{vrf, example}], ?GGSN_CONFIG)),
     ?error_option(set_cfg_value([apns], invalid, ?GGSN_CONFIG)),
 
     ?ok_option(?GGSN_PROXY_CONFIG),

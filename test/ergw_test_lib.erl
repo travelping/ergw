@@ -25,7 +25,7 @@
 	 send_recv_pdu/2, send_recv_pdu/3,
 	 recv_pdu/2, recv_pdu/3, recv_pdu/4]).
 -export([pretty_print/1]).
--export([set_cfg_value/3]).
+-export([set_cfg_value/3, add_cfg_value/3]).
 
 -include("ergw_test_lib.hrl").
 -include_lib("common_test/include/ct.hrl").
@@ -248,3 +248,10 @@ set_cfg_value([Key], Value, Config) ->
 set_cfg_value([H | T], Value, Config) ->
     Prop = proplists:get_value(H, Config, []),
     lists:keystore(H, 1, Config, {H, set_cfg_value(T, Value, Prop)}).
+
+add_cfg_value([Key], Value, Config) ->
+    ct:pal("Cfg: ~p", [[{Key, Value} | Config]]),
+    [{Key, Value} | Config];
+add_cfg_value([H | T], Value, Config) ->
+    Prop = proplists:get_value(H, Config, []),
+    lists:keystore(H, 1, Config, {H, add_cfg_value(T, Value, Prop)}).
