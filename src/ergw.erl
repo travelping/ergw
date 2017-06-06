@@ -12,7 +12,7 @@
 %% API
 -export([start_link/0]).
 -export([start_socket/2, start_vrf/2,
-	 attach_protocol/4, attach_data_path/2, attach_vrf/3]).
+	 attach_protocol/5, attach_data_path/2, attach_vrf/3]).
 -export([handler/2, vrf/1]).
 -export([load_config/1]).
 -export([get_plmn_id/0, get_accept_new/0]).
@@ -26,7 +26,7 @@
 -record(state, {tid :: ets:tid()}).
 
 -record(protocol_key, {socket, protocol}).
--record(protocol, {key, handler, options}).
+-record(protocol, {key, name, handler, options}).
 -record(route, {key, vrf, options}).
 
 %%====================================================================
@@ -87,23 +87,24 @@ start_vrf(Name, Options) ->
 %%
 %% attach a GTP protocol (Gn, S5, S2a...) to a socket
 %%
-attach_protocol(Socket, Protocol, Handler, Opts0) ->
+attach_protocol(Socket, Name, Protocol, Handler, Opts0) ->
     Key = #protocol_key{socket = Socket, protocol = Protocol},
     case code:ensure_loaded(Handler) of
 	{module, _} ->
 	    Opts = Handler:validate_options(Opts0),
 	    P = #protocol{
 		   key = Key,
+		   name = Name,
 		   handler = Handler,
 		   options = Opts},
 	    case ets:insert_new(?SERVER, P) of
 		true ->
 		    {ok, Key};
 		false ->
-		    {error, {duplicate, Socket, Protocol}}
+		    throw({error, {duplicate, Socket, Protocol}})
 	    end;
 	_ ->
-	    {error, {invalid_handler, Handler}}
+	    throw({error, {invalid_handler, Handler}})
     end.
 
 attach_data_path(#protocol_key{} = Key, DataPath) ->
@@ -113,7 +114,7 @@ attach_data_path(#protocol_key{} = Key, DataPath) ->
 	    ets:update_element(?SERVER, Key, {#protocol.options, Opts}),
 	    ok;
 	_ ->
-	    {error, {invalid, Key}}
+	    throw({error, {invalid, Key}})
     end.
 
 attach_vrf(APN, VRF, Options0) ->
@@ -128,7 +129,7 @@ attach_vrf(APN, VRF, Options0) ->
     case ets:insert_new(?SERVER, Route) of
 	true -> ok;
 	false ->
-	    {error, duplicate}
+	    throw({error, duplicate})
     end.
 
 handler(Socket, Protocol) ->
