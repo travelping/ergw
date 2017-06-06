@@ -73,6 +73,15 @@ return_type(Map, map) when is_map(Map) ->
 return_type(Map, list) when is_map(Map) ->
     maps:to_list(Map).
 
+check_unique_keys(Key, List) when is_list(List) ->
+    UList = lists:ukeysort(1, List),
+    if length(UList) == length(List) ->
+	    ok;
+       true ->
+	    Duplicate = proplists:get_keys(List) -- proplists:get_keys(UList),
+	    throw({error, {options, {Key, Duplicate}}})
+    end.
+
 validate_config(Config) ->
     validate_options(fun validate_option/2, Config, ?DefaultOptions, list).
 
@@ -111,12 +120,15 @@ validate_option(dp_handler, Value) when is_atom(Value) ->
 	    throw({error, {options, {dp_handler, Value, Cause, ST}}})
     end;
 validate_option(sockets, Value) when is_list(Value), length(Value) >= 1 ->
+    check_unique_keys(sockets, Value),
     validate_options(fun validate_sockets_option/2, Value);
 validate_option(handlers, Value) when is_list(Value), length(Value) >= 1 ->
     validate_options(fun validate_handlers_option/2, Value);
 validate_option(vrfs, Value) when is_list(Value) ->
+    check_unique_keys(vrfs, Value),
     validate_options(fun validate_vrfs_option/2, Value);
 validate_option(apns, Value) when is_list(Value) ->
+    check_unique_keys(apns, Value),
     validate_options(fun validate_apns_option/2, Value);
 validate_option(http_api, Value) when is_list(Value) ->
     validate_options(fun ergw_http_api:validate_options/2, Value);
