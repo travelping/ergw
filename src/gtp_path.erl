@@ -16,7 +16,8 @@
 -export([start_link/4, all/1,
 	 maybe_new_path/3, handle_request/2,
 	 bind/1, bind/2, unbind/1, down/2,
-	 get_handler/2, info/1]).
+	 get_handler/2, info/1,
+	 exometer_update_rtt/5]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -25,7 +26,6 @@
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include("include/ergw.hrl").
 
--record(awaiting_response, {send_ts :: integer()}).
 -record(state, {table		:: ets:tid(),
 		path_counter	:: non_neg_integer(),
 		gtp_port	:: #gtp_port{},
@@ -36,13 +36,11 @@
 		n3		:: non_neg_integer(),
 		recovery	:: 'undefined' | non_neg_integer(),
 		echo		:: non_neg_integer(),
-		echo_timer	:: 'stopped' | #awaiting_response{} | reference(),
+		echo_timer	:: 'stopped' | 'awaiting_response' | reference(),
 		state		:: 'UP' | 'DOWN' }).
 
 %% defaults for exometer probes
 -define(EXO_CONTEXTS_OPTS, []).
--define(EXO_RTT_OPTS, [{time_span, 3600 * 1000}]).		%% 1 hour might seem long, but we only send
-								%% one echo request per 60 seconds
 
 %%%===================================================================
 %%% API
@@ -127,8 +125,6 @@ get_handler(#gtp_port{type = 'gtp-c'}, v2) ->
 %%%===================================================================
 init([#gtp_port{name = PortName} = GtpPort, Version, RemoteIP, Args]) ->
     gtp_path_reg:register({PortName, Version, RemoteIP}),
-    exometer:re_register([path, PortName, RemoteIP, contexts], gauge, ?EXO_CONTEXTS_OPTS),
-    exometer:re_register([path, PortName, RemoteIP, rtt], histogram, ?EXO_RTT_OPTS),
 
     State0 = #state{
 		path_counter = 0,
@@ -142,6 +138,7 @@ init([#gtp_port{name = PortName} = GtpPort, Version, RemoteIP, Args]) ->
 		echo         = proplists:get_value(ping, Args, 60 * 1000), %% 60sec
 		echo_timer   = stopped,
 		state        = 'UP'},
+    exometer_new(State0),
     State = ets_new(State0),
 
     lager:debug("State: ~p", [State]),
@@ -224,13 +221,9 @@ handle_info(Info, State) ->
     lager:error("~p: ~w: handle_info: ~p", [self(), ?MODULE, lager:pr(Info, ?MODULE)]),
     {noreply, State}.
 
-terminate(_Reason, #state{gtp_port = #gtp_port{name = PortName}, ip = RemoteIP}) ->
+terminate(_Reason, State) ->
     %% TODO: kill all PDP Context on this path
-    exometer:delete([path, PortName, RemoteIP, contexts]),
-    exometer:delete([path, PortName, RemoteIP, rtt]),
-    ok;
-terminate(_Reason, _State) ->
-    %% TODO: kill all PDP Context on this path
+    exometer_delete(State),
     ok.
 
 code_change(_OldVsn, State, _Extra) ->
@@ -338,11 +331,6 @@ cancel_timer(Ref) ->
             RemainingTime
     end.
 
-update_path_counter(#state{path_counter = PathCounter,
-			   gtp_port = #gtp_port{name = PortName},
-			   ip = RemoteIP}) ->
-    exometer:update_or_create([path, PortName, RemoteIP, contexts], PathCounter, gauge, ?EXO_CONTEXTS_OPTS).
-
 inc_path_counter(#state{path_counter = OldPathCounter} = State0) ->
     State = State0#state{path_counter = OldPathCounter + 1},
     update_path_counter(State),
@@ -382,13 +370,10 @@ send_echo_request(#state{gtp_port = GtpPort, handler = Handler, ip = RemoteIP,
 			 t3 = T3, n3 = N3} = State) ->
     Msg = Handler:build_echo_request(GtpPort),
     gtp_socket:send_request(GtpPort, self(), RemoteIP, T3, N3, Msg, echo_request),
-    SendTS = erlang:monotonic_time(millisecond),
-    State#state{echo_timer = #awaiting_response{send_ts = SendTS}} .
+    State#state{echo_timer = awaiting_response} .
 
-echo_response(Msg, #state{gtp_port = #gtp_port{name = PortName}, ip = RemoteIP,
-			  echo = EchoInterval, echo_timer = #awaiting_response{send_ts = SendTS}} = State0) ->
-    RTT = erlang:monotonic_time(millisecond) - SendTS,
-    exometer:update_or_create([path, PortName, RemoteIP, rtt], RTT, histogram, ?EXO_RTT_OPTS),
+echo_response(Msg, #state{echo = EchoInterval,
+			  echo_timer = awaiting_response} = State0) ->
     State = update_path_state(Msg, State0),
     TRef = erlang:start_timer(EchoInterval, self(), echo),
     State#state{echo_timer = TRef} ;
@@ -399,3 +384,44 @@ update_path_state(#gtp{}, State) ->
     State#state{state = 'UP'};
 update_path_state(_, State) ->
     State#state{state = 'DOWN'}.
+
+%%%===================================================================
+%%% ExoMeter functions
+%%%===================================================================
+
+exo_hist_opts(echo_request) ->
+    %% 1 hour might seem long, but we only send one echo request per 60 seconds
+    [{time_span, 3600 * 1000}];
+exo_hist_opts(_MsgType) ->
+    %% 5 min histogram
+    [{time_span, 300 * 1000}].
+
+foreach_request(Handler, Fun) ->
+    Requests = lists:filter(fun(X) -> Handler:gtp_msg_type(X) =:= request end,
+			    Handler:gtp_msg_types()),
+    lists:foreach(Fun, Requests).
+
+exo_reg_rtt(Name, IP, Version, MsgType) ->
+    exometer:re_register([path, Name, IP, rtt, Version, MsgType],
+			 histogram, exo_hist_opts(MsgType)).
+
+update_path_counter(#state{path_counter = PathCounter,
+			   gtp_port = #gtp_port{name = Name}, ip = IP}) ->
+    exometer:update_or_create([path, Name, IP, contexts], PathCounter, gauge, ?EXO_CONTEXTS_OPTS).
+
+exometer_new(#state{gtp_port = #gtp_port{name = Name}, ip = IP}) ->
+    exometer:re_register([path, Name, IP, contexts], gauge, ?EXO_CONTEXTS_OPTS),
+    foreach_request(gtp_v1_c, exo_reg_rtt(Name, IP, v1, _)),
+    foreach_request(gtp_v2_c, exo_reg_rtt(Name, IP, v2, _)),
+    ok.
+
+exometer_delete(#state{gtp_port = #gtp_port{name = Name}, ip = IP}) ->
+    exometer:delete([path, Name, IP, contexts]),
+    foreach_request(gtp_v1_c, exometer:delete([path, Name, IP, rtt, v1, _])),
+    foreach_request(gtp_v2_c, exometer:delete([path, Name, IP, rtt, v2, _])),
+    ok;
+exometer_delete(_) ->
+    ok.
+
+exometer_update_rtt(#gtp_port{name = Name}, IP, Version, MsgType, RTT) ->
+    exometer:update([path, Name, IP, rtt, Version, MsgType], RTT).

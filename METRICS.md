@@ -8,7 +8,8 @@ The following metrics exist:
 | Metric                                                               | Type      |
 | -------------------------------------------------------------------- | --------- |
 | path.\<SocketName\>.\<PeerIP\>.contexts                              | gauge     |
-| path.\<SocketName\>.\<PeerIP\>.rtt                                   | histogram |
+| path.\<SocketName\>.\<PeerIP\>.rtt.v1.\<GTPv1-C-MessageName\>        | histogram |
+| path.\<SocketName\>.\<PeerIP\>.rtt.v2.\<GTPv2-C-MessageName\>        | histogram |
 | path.\<SocketName\>.\<PeerIP\>.rx.v1.create\_pdp\_context\_request   | counter   |
 | path.\<SocketName\>.\<PeerIP\>.tx.v1.create\_pdp\_context\_response  | counter   |
 | path.\<SocketName\>.\<PeerIP\>.rx.v1.echo_request                    | counter   |
@@ -18,17 +19,28 @@ The following metrics exist:
 | socket.gtp-c.\<SocketName\>.rx.v1.\<GTPv1-C-MessageName\>            | counter   |
 | socket.gtp-c.\<SocketName\>.rx.v1.\<GTPv1-C-MessageName\>.duplicate  | counter   |
 | socket.gtp-c.\<SocketName\>.tx.v1.\<GTPv1-C-MessageName\>            | counter   |
+| socket.gtp-c.\<SocketName\>.tx.v1.\<GTPv1-C-MessageName\>.timeout    | counter   |
 | socket.gtp-c.\<SocketName\>.tx.v1.\<GTPv1-C-MessageName\>.retransmit | counter   |
 | socket.gtp-c.\<SocketName\>.rx.v2.\<GTPv2-C-MessageName\>            | counter   |
 | socket.gtp-c.\<SocketName\>.rx.v2.\<GTPv2-C-MessageName\>.duplicate  | counter   |
 | socket.gtp-c.\<SocketName\>.tx.v2.\<GTPv2-C-MessageName\>            | counter   |
+| socket.gtp-c.\<SocketName\>.tx.v2.\<GTPv2-C-MessageName\>.timeout    | counter   |
 | socket.gtp-c.\<SocketName\>.tx.v2.\<GTPv2-C-MessageName\>.retransmit | counter   |
+| socket.gtp-c.\<SocketName\>.pt.v1.\<GTPv1-C-MessageName\>            | histogram |
+| socket.gtp-c.\<SocketName\>.pt.v2.\<GTPv2-C-MessageName\>            | histogram |
 
 \<SocketName\> is taken from the configuration and PeerIP is the IP address of
 the peer GSN.
 
-The path RTT is the round trip time of the last echo\_request/echo\_response.
-Reponse times for other request/response pairs are not measured.
+The path `rtt` is the round trip time histogram for each request/response
+message pair.
+
+The `tx` and `rx` metrics count the number of message of a given type
+transmitted and received. The `timeout` counter exists only for requests
+that require a response.
+
+The `pt` metrics are a histogram of the total processing time for the last
+incoming message of that type.
 
 Counters for the following GTPv1-C Messages types exist:
 

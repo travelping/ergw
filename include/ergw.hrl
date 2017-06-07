@@ -59,7 +59,9 @@
 	  gtp_port	:: #gtp_port{},
 	  ip		:: inet:ip_address(),
 	  port		:: 0 .. 65535,
-	  type		:: atom()
+	  version	:: 'v1' | 'v2',
+	  type		:: atom(),
+	  arrival_ts    :: integer()
 	 }).
 
 -record(proxy_request, {
