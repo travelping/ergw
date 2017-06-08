@@ -40,7 +40,7 @@
 	      {noreply, NewState :: map(), 'hibernate'} |
 	      {stop, Reason :: term(), NewState :: map()}.
 
--callback handle_request(ReqKey :: #request_key{},
+-callback handle_request(ReqKey :: #request{},
 			 Msg :: #gtp{},
 			 Resent :: boolean(),
 			 State :: map()) ->
