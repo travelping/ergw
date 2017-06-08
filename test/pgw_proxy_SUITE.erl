@@ -479,7 +479,7 @@ create_session_request_resend(Config) ->
     S = make_gtp_socket(Config),
 
     {GtpC, Msg, Response} = create_session(S),
-    ?match(Response, send_recv_pdu(S, Msg)),
+    ?equal(Response, send_recv_pdu(S, Msg)),
 
     delete_session(S, GtpC),
 
@@ -495,7 +495,7 @@ delete_session_request_resend(Config) ->
 
     {GtpC, _, _} = create_session(S),
     {_, Msg, Response} = delete_session(S, GtpC),
-    ?match(Response, send_recv_pdu(S, Msg)),
+    ?equal(Response, send_recv_pdu(S, Msg)),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
