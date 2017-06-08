@@ -54,10 +54,17 @@
 				     {'v2', boolean()}]
 	 }).
 
--record(request_key, {
+-record(request, {
+	  key		:: term(),
 	  gtp_port	:: #gtp_port{},
 	  ip		:: inet:ip_address(),
 	  port		:: 0 .. 65535,
-	  type		:: atom(),
-	  seq_id	:: gtp_socket:sequence_id()
+	  type		:: atom()
 	 }).
+
+-record(proxy_request, {
+	  key		:: term(),
+	  request	:: #request{},
+	  seq_no	:: gtp_socket:sequence_id(),
+	  new_peer	:: boolean()
+}).

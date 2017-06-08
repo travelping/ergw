@@ -26,28 +26,28 @@
 -define(N3, 5).
 
 -define(IS_REQUEST_CONTEXT(Key, Msg, Context),
-	(is_record(Key, request_key) andalso
+	(is_record(Key, request) andalso
 	 is_record(Msg, gtp) andalso
-	 Key#request_key.gtp_port =:= Context#context.control_port andalso
+	 Key#request.gtp_port =:= Context#context.control_port andalso
 	 Msg#gtp.tei =:= Context#context.local_control_tei)).
 
 -define(IS_REQUEST_CONTEXT_OPTIONAL_TEI(Key, Msg, Context),
-	(is_record(Key, request_key) andalso
+	(is_record(Key, request) andalso
 	 is_record(Msg, gtp) andalso
-	 Key#request_key.gtp_port =:= Context#context.control_port andalso
+	 Key#request.gtp_port =:= Context#context.control_port andalso
 	 (Msg#gtp.tei =:= 0 orelse
 	  Msg#gtp.tei =:= Context#context.local_control_tei))).
 
 -define(IS_RESPONSE_CONTEXT(Key, Context, Msg, ProxyContext),
-	(is_record(Key, request_key) andalso
+	(is_record(Key, request) andalso
 	 is_record(Msg, gtp) andalso
-	 Key#request_key.gtp_port =:= Context#context.control_port andalso
+	 Key#request.gtp_port =:= Context#context.control_port andalso
 	 Msg#gtp.tei =:= ProxyContext#context.local_control_tei)).
 
 -define(IS_RESPONSE_CONTEXT_OPTIONAL_TEI(Key, Context, Msg, ProxyContext),
-	(is_record(Key, request_key) andalso
+	(is_record(Key, request) andalso
 	 is_record(Msg, gtp) andalso
-	 Key#request_key.gtp_port =:= Context#context.control_port andalso
+	 Key#request.gtp_port =:= Context#context.control_port andalso
 	 (Msg#gtp.tei =:= 0 orelse
 	  Msg#gtp.tei =:= ProxyContext#context.local_control_tei))).
 
@@ -159,7 +159,6 @@ validate_option(ggsn, {_,_,_,_,_,_,_,_} = Value) ->
 validate_option(Opt, Value) ->
     ergw_proxy_lib:validate_option(Opt, Value).
 
--record(request_info, {request_key, seq_no, new_peer}).
 -record(context_state, {nsapi}).
 
 init(#{proxy_sockets := ProxyPorts, proxy_data_paths := ProxyDPs,
@@ -321,11 +320,11 @@ handle_request(ReqKey,
 
     {noreply, State};
 
-handle_request(#request_key{gtp_port = GtpPort}, Msg, _Resent, State) ->
+handle_request(#request{gtp_port = GtpPort}, Msg, _Resent, State) ->
     lager:warning("Unknown Proxy Message on ~p: ~p", [GtpPort, lager:pr(Msg, ?MODULE)]),
     {noreply, State}.
 
-handle_response(#request_info{request_key = ReqKey, seq_no = SeqNo, new_peer = NewPeer},
+handle_response(#proxy_request{request = ReqKey, seq_no = SeqNo, new_peer = NewPeer},
 		#gtp{type = create_pdp_context_response,
 		     ie = #{?'Recovery' := Recovery,
 			    ?'Cause' := #cause{value = Cause}}} = Response, _Request,
@@ -352,7 +351,7 @@ handle_response(#request_info{request_key = ReqKey, seq_no = SeqNo, new_peer = N
 	    {stop, State}
     end;
 
-handle_response(#request_info{request_key = ReqKey, seq_no = SeqNo, new_peer = NewPeer},
+handle_response(#proxy_request{request = ReqKey, seq_no = SeqNo, new_peer = NewPeer},
 		#gtp{type = update_pdp_context_response} = Response, _Request,
 		#{context := Context,
 		  proxy_context := OldProxyContext} = State)
@@ -371,7 +370,7 @@ handle_response(#request_info{request_key = ReqKey, seq_no = SeqNo, new_peer = N
 
     {noreply, State#{proxy_context => ProxyContext}};
 
-handle_response(#request_info{request_key = ReqKey, seq_no = SeqNo, new_peer = NewPeer},
+handle_response(#proxy_request{request = ReqKey, seq_no = SeqNo, new_peer = NewPeer},
 		#gtp{type = update_pdp_context_response} = Response, _Request,
 		#{context := Context,
 		  proxy_context := ProxyContext} = State)
@@ -384,7 +383,7 @@ handle_response(#request_info{request_key = ReqKey, seq_no = SeqNo, new_peer = N
 
     {noreply, State};
 
-handle_response(#request_info{request_key = ReqKey, seq_no = SeqNo, new_peer = NewPeer},
+handle_response(#proxy_request{request = ReqKey, seq_no = SeqNo, new_peer = NewPeer},
 		#gtp{type = ms_info_change_notification_response} = Response, _Request,
 		#{context := Context,
 		  proxy_context := ProxyContext} = State)
@@ -397,7 +396,7 @@ handle_response(#request_info{request_key = ReqKey, seq_no = SeqNo, new_peer = N
 
     {noreply, State};
 
-handle_response(#request_info{request_key = ReqKey, seq_no = SeqNo},
+handle_response(#proxy_request{request = ReqKey, seq_no = SeqNo},
 		#gtp{type = delete_pdp_context_response} = Response, _Request,
 		#{context := Context,
 		  proxy_context := ProxyContext} = State)
@@ -411,7 +410,7 @@ handle_response(#request_info{request_key = ReqKey, seq_no = SeqNo},
     {stop, State};
 
 
-handle_response(#request_info{request_key = ReqKey, seq_no = SeqNo},
+handle_response(#proxy_request{request = ReqKey, seq_no = SeqNo},
 		#gtp{type = delete_pdp_context_response} = Response, _Request,
 		#{context := Context,
 		  proxy_context := ProxyContext} = State)
@@ -596,7 +595,7 @@ initiate_delete_pdp_context_request(#context{state = #context_state{nsapi = NSAP
 
 forward_request(#context{control_port = GtpPort, remote_control_ip = RemoteCntlIP},
 	       Request, ReqKey, SeqNo, NewPeer) ->
-    ReqInfo = #request_info{request_key = ReqKey, seq_no = SeqNo, new_peer = NewPeer},
+    ReqInfo = ergw_proxy_lib:make_proxy_request(ReqKey, SeqNo, NewPeer),
     lager:debug("Invoking Context Send Request: ~p", [Request]),
     gtp_context:forward_request(GtpPort, RemoteCntlIP, Request, ReqInfo).
 

@@ -74,7 +74,7 @@ send(#gtp_port{type = 'gtp-c'} = GtpPort, IP, Port, Data) ->
 send(#gtp_port{type = 'gtp-u'} = GtpPort, IP, Port, Data) ->
     gtp_dp:send(GtpPort, IP, Port, Data).
 
-send_response(#request_key{gtp_port = GtpPort, ip = RemoteIP} = ReqKey, Msg, DoCache) ->
+send_response(#request{gtp_port = GtpPort, ip = RemoteIP} = ReqKey, Msg, DoCache) ->
     message_counter(tx, GtpPort, RemoteIP, Msg),
     Data = gtp_packet:encode(Msg),
     cast(GtpPort, {send_response, ReqKey, Data, DoCache}).
@@ -238,11 +238,14 @@ new_sequence_number(#gtp{version = v2} = Msg, #state{v2_seq_no = SeqNo} = State)
 make_seq_id(#gtp{version = Version, seq_no = SeqNo}) ->
     {Version, SeqNo}.
 
-make_request_key(IP, Port, Msg = #gtp{type = Type}, #state{gtp_port = GtpPort}) ->
+make_request(IP, Port, Msg = #gtp{type = Type}, #state{gtp_port = GtpPort}) ->
     SeqId = make_seq_id(Msg),
-    #request_key{gtp_port = GtpPort,
-		 ip = IP, port = Port,
-		 type = Type, seq_id = SeqId}.
+    #request{
+       key = {GtpPort, IP, Port, Type, SeqId},
+       gtp_port = GtpPort,
+       ip = IP,
+       port = Port,
+       type = Type}.
 
 family({_,_,_,_}) -> inet;
 family({_,_,_,_,_,_,_,_}) -> inet6.
@@ -353,7 +356,7 @@ handle_message(IP, Port, Data, #state{gtp_port = GtpPort} = State0) ->
     end.
 
 handle_message_1(IP, Port, #gtp{type = echo_request} = Msg, State) ->
-    ReqKey = make_request_key(IP, Port, Msg, State),
+    ReqKey = make_request(IP, Port, Msg, State),
     gtp_path:handle_request(ReqKey, Msg),
     State;
 
@@ -367,7 +370,7 @@ handle_message_1(IP, Port, #gtp{version = Version, type = MsgType} = Msg, State)
 	response ->
 	    handle_response(IP, Port, Msg, State);
 	request ->
-	    ReqKey = make_request_key(IP, Port, Msg, State),
+	    ReqKey = make_request(IP, Port, Msg, State),
 	    handle_request(ReqKey, Msg, State);
 	_ ->
 	    State
@@ -399,7 +402,7 @@ handle_response(IP, _Port, Msg, #state{gtp_port = GtpPort} = State0) ->
 	    State
     end.
 
-handle_request(#request_key{ip = IP, port = Port} = ReqKey, Msg,
+handle_request(#request{ip = IP, port = Port} = ReqKey, Msg,
 	       #state{gtp_port = GtpPort, responses = Responses} = State) ->
     case cache_get(ReqKey, Responses) of
 	{value, Data} ->
@@ -487,7 +490,7 @@ enqueue_response(_ReqKey, _Data, _DoCache,
 		 #state{responses = Responses} = State) ->
     State#state{responses = cache_expire(Responses)}.
 
-do_send_response(#request_key{ip = IP, port = Port} = ReqKey, Data, DoCache, State) ->
+do_send_response(#request{ip = IP, port = Port} = ReqKey, Data, DoCache, State) ->
     sendto(IP, Port, Data, State),
     enqueue_response(ReqKey, Data, DoCache, State).
 
@@ -503,6 +506,13 @@ do_send_response(#request_key{ip = IP, port = Port} = ReqKey, Data, DoCache, Sta
 	  queue  :: queue:queue({Expire :: integer(), Key :: term()})
 	 }).
 
+cache_key(#request{key = Key}) ->
+    Key;
+cache_key(#proxy_request{key = Key}) ->
+    Key;
+cache_key(Object) ->
+    Object.
+
 cache_start_timer(#cache{expire = ExpireInterval, key = Key} = Cache) ->
     Cache#cache{timer = erlang:start_timer(ExpireInterval, self(), Key)}.
 
@@ -515,7 +525,8 @@ cache_new(ExpireInterval, Key) ->
 	      },
     cache_start_timer(Cache).
 
-cache_get(Key, #cache{tree = Tree}) ->
+cache_get(Object, #cache{tree = Tree}) ->
+    Key = cache_key(Object),
     Now = erlang:monotonic_time(milli_seconds),
     case gb_trees:lookup(Key, Tree) of
 	{value, {Expire, Data}}  when Expire > Now ->
@@ -525,7 +536,8 @@ cache_get(Key, #cache{tree = Tree}) ->
 	    none
     end.
 
-cache_enter(Key, Data, TimeOut, #cache{tree = Tree0, queue = Q0} = Cache) ->
+cache_enter(Object, Data, TimeOut, #cache{tree = Tree0, queue = Q0} = Cache) ->
+    Key = cache_key(Object),
     Now = erlang:monotonic_time(milli_seconds),
     Expire = Now + TimeOut,
     Tree = gb_trees:enter(Key, {Expire, Data}, Tree0),

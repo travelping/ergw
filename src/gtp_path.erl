@@ -60,7 +60,7 @@ maybe_new_path(GtpPort, Version, RemoteIP) ->
 	    Path
     end.
 
-handle_request(#request_key{gtp_port = GtpPort, ip = IP} = ReqKey, #gtp{version = Version} = Msg) ->
+handle_request(#request{gtp_port = GtpPort, ip = IP} = ReqKey, #gtp{version = Version} = Msg) ->
     Path = maybe_new_path(GtpPort, Version, IP),
     gen_server:cast(Path, {handle_request, ReqKey, Msg}).
 

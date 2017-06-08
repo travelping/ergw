@@ -7,7 +7,10 @@
 
 -module(ergw_proxy_lib).
 
--export([validate_options/3, validate_option/2]).
+-export([validate_options/3, validate_option/2,
+	 make_proxy_request/3]).
+
+-include("include/ergw.hrl").
 
 %%%===================================================================
 %%% API
@@ -36,6 +39,14 @@ validate_option(contexts, Values) when is_list(Values); is_map(Values) ->
     ergw_config:opts_fold(fun validate_context/3, #{}, Values);
 validate_option(Opt, Value) ->
     gtp_context:validate_option(Opt, Value).
+
+make_proxy_request(#request{key = ReqKey} = Request, SeqNo, NewPeer) ->
+    #proxy_request{
+       key = {ReqKey, SeqNo},
+       request = Request,
+       seq_no = SeqNo,
+       new_peer = NewPeer
+      }.
 
 %%%===================================================================
 %%% Options Validation

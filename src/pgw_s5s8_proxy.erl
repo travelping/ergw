@@ -26,28 +26,28 @@
 -define(N3, 5).
 
 -define(IS_REQUEST_CONTEXT(Key, Msg, Context),
-	(is_record(Key, request_key) andalso
+	(is_record(Key, request) andalso
 	 is_record(Msg, gtp) andalso
-	 Key#request_key.gtp_port =:= Context#context.control_port andalso
+	 Key#request.gtp_port =:= Context#context.control_port andalso
 	 Msg#gtp.tei =:= Context#context.local_control_tei)).
 
 -define(IS_REQUEST_CONTEXT_OPTIONAL_TEI(Key, Msg, Context),
-	(is_record(Key, request_key) andalso
+	(is_record(Key, request) andalso
 	 is_record(Msg, gtp) andalso
-	 Key#request_key.gtp_port =:= Context#context.control_port andalso
+	 Key#request.gtp_port =:= Context#context.control_port andalso
 	 (Msg#gtp.tei =:= 0 orelse
 	  Msg#gtp.tei =:= Context#context.local_control_tei))).
 
 -define(IS_RESPONSE_CONTEXT(Key, Context, Msg, ProxyContext),
-	(is_record(Key, request_key) andalso
+	(is_record(Key, request) andalso
 	 is_record(Msg, gtp) andalso
-	 Key#request_key.gtp_port =:= Context#context.control_port andalso
+	 Key#request.gtp_port =:= Context#context.control_port andalso
 	 Msg#gtp.tei =:= ProxyContext#context.local_control_tei)).
 
 -define(IS_RESPONSE_CONTEXT_OPTIONAL_TEI(Key, Context, Msg, ProxyContext),
-	(is_record(Key, request_key) andalso
+	(is_record(Key, request) andalso
 	 is_record(Msg, gtp) andalso
-	 Key#request_key.gtp_port =:= Context#context.control_port andalso
+	 Key#request.gtp_port =:= Context#context.control_port andalso
 	 (Msg#gtp.tei =:= 0 orelse
 	  Msg#gtp.tei =:= ProxyContext#context.local_control_tei))).
 
@@ -137,7 +137,6 @@ validate_option(pgw, {_,_,_,_,_,_,_,_} = Value) ->
 validate_option(Opt, Value) ->
     ergw_proxy_lib:validate_option(Opt, Value).
 
--record(request_info, {request_key, seq_no, new_peer}).
 -record(context_state, {ebi}).
 
 init(#{proxy_sockets := ProxyPorts, proxy_data_paths := ProxyDPs,
@@ -372,7 +371,7 @@ handle_request(_From, _Msg, _Resent, State) ->
 handle_response(ReqInfo, #gtp{version = v1} = Msg, Request, State) ->
     ?GTP_v1_Interface:handle_response(ReqInfo, Msg, Request, State);
 
-handle_response(#request_info{request_key = ReqKey, seq_no = SeqNo, new_peer = NewPeer},
+handle_response(#proxy_request{request = ReqKey, seq_no = SeqNo, new_peer = NewPeer},
 		#gtp{type = create_session_response,
 		     ie = #{?'Recovery' := Recovery,
 			    ?'Cause'    := #v2_cause{v2_cause = Cause}}} = Response, _Request,
@@ -399,7 +398,7 @@ handle_response(#request_info{request_key = ReqKey, seq_no = SeqNo, new_peer = N
 	    {stop, State}
     end;
 
-handle_response(#request_info{request_key = ReqKey, seq_no = SeqNo, new_peer = NewPeer},
+handle_response(#proxy_request{request = ReqKey, seq_no = SeqNo, new_peer = NewPeer},
 		#gtp{type = modify_bearer_response} = Response, _Request,
 		#{context := Context,
 		  proxy_context := OldProxyContext} = State)
@@ -421,7 +420,7 @@ handle_response(#request_info{request_key = ReqKey, seq_no = SeqNo, new_peer = N
 %%
 %% PGW to SGW response without tunnel endpoint modification
 %%
-handle_response(#request_info{request_key = ReqKey, seq_no = SeqNo, new_peer = NewPeer},
+handle_response(#proxy_request{request = ReqKey, seq_no = SeqNo, new_peer = NewPeer},
 		#gtp{type = change_notification_response} = Response, _Request,
 		#{context := Context,
 		  proxy_context := ProxyContext} = State)
@@ -437,7 +436,7 @@ handle_response(#request_info{request_key = ReqKey, seq_no = SeqNo, new_peer = N
 %%
 %% PGW to SGW acknowledge without tunnel endpoint modification
 %%
-handle_response(#request_info{request_key = ReqKey, seq_no = SeqNo, new_peer = NewPeer},
+handle_response(#proxy_request{request = ReqKey, seq_no = SeqNo, new_peer = NewPeer},
 		#gtp{type = Type} = Response, _Request,
 		#{context := Context,
 		  proxy_context := ProxyContext} = State)
@@ -455,7 +454,7 @@ handle_response(#request_info{request_key = ReqKey, seq_no = SeqNo, new_peer = N
 %%
 %% SGW to PGW response without tunnel endpoint modification
 %%
-handle_response(#request_info{request_key = ReqKey, seq_no = SeqNo, new_peer = NewPeer},
+handle_response(#proxy_request{request = ReqKey, seq_no = SeqNo, new_peer = NewPeer},
 		#gtp{type = update_bearer_response} = Response, _Request,
 		#{context := Context,
 		  proxy_context := ProxyContext} = State)
@@ -468,7 +467,7 @@ handle_response(#request_info{request_key = ReqKey, seq_no = SeqNo, new_peer = N
 
     {noreply, State};
 
-handle_response(#request_info{request_key = ReqKey, seq_no = SeqNo},
+handle_response(#proxy_request{request = ReqKey, seq_no = SeqNo},
 		#gtp{type = delete_session_response} = Response, _Request,
 		#{context := Context,
 		  proxy_context := ProxyContext} = State)
@@ -484,7 +483,7 @@ handle_response(#request_info{request_key = ReqKey, seq_no = SeqNo},
 %%
 %% SGW to PGW delete bearer response
 %%
-handle_response(#request_info{request_key = ReqKey, seq_no = SeqNo},
+handle_response(#proxy_request{request = ReqKey, seq_no = SeqNo},
 		#gtp{type = delete_bearer_response} = Response, _Request,
 		#{context := Context,
 		  proxy_context := ProxyContext} = State)
@@ -685,7 +684,7 @@ initiate_delete_session_request(#context{state = #context_state{ebi = EBI}} = Co
 
 forward_request(#context{control_port = GtpPort, remote_control_ip = RemoteCntlIP},
 	       Request, ReqKey, SeqNo, NewPeer) ->
-    ReqInfo = #request_info{request_key = ReqKey, seq_no = SeqNo, new_peer = NewPeer},
+    ReqInfo = ergw_proxy_lib:make_proxy_request(ReqKey, SeqNo, NewPeer),
     lager:debug("Invoking Context Send Request: ~p", [Request]),
     gtp_context:forward_request(GtpPort, RemoteCntlIP, Request, ReqInfo).
 
