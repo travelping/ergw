@@ -331,7 +331,7 @@ create_pdp_context_request_resend(Config) ->
     S = make_gtp_socket(Config),
 
     {GtpC, Msg, Response} = create_pdp_context(S),
-    ?match(Response, send_recv_pdu(S, Msg)),
+    ?equal(Response, send_recv_pdu(S, Msg)),
 
     delete_pdp_context(S, GtpC),
 
@@ -347,7 +347,7 @@ delete_pdp_context_request_resend(Config) ->
 
     {GtpC, _, _} = create_pdp_context(S),
     {_, Msg, Response} = delete_pdp_context(S, GtpC),
-    ?match(Response, send_recv_pdu(S, Msg)),
+    ?equal(Response, send_recv_pdu(S, Msg)),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
