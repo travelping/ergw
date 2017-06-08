@@ -16,14 +16,14 @@ The following metrics exist:
 | path.\<SocketName\>.\<PeerIP\>.rx.v1.echo\_response                  | counter   |
 | path.\<SocketName\>.\<PeerIP\>.tx.v1.echo\_request                   | counter   |
 | path.\<SocketName\>.\<PeerIP\>.tx.v1.echo\_response                  | counter   |
-| socket.gtp-c.\<SocketName\>.rx.v1.\<GTPv1-C-MessageName\>            | counter   |
+| socket.gtp-c.\<SocketName\>.rx.v1.\<GTPv1-C-MessageName\>.count      | counter   |
 | socket.gtp-c.\<SocketName\>.rx.v1.\<GTPv1-C-MessageName\>.duplicate  | counter   |
-| socket.gtp-c.\<SocketName\>.tx.v1.\<GTPv1-C-MessageName\>            | counter   |
+| socket.gtp-c.\<SocketName\>.tx.v1.\<GTPv1-C-MessageName\>.count      | counter   |
 | socket.gtp-c.\<SocketName\>.tx.v1.\<GTPv1-C-MessageName\>.timeout    | counter   |
 | socket.gtp-c.\<SocketName\>.tx.v1.\<GTPv1-C-MessageName\>.retransmit | counter   |
-| socket.gtp-c.\<SocketName\>.rx.v2.\<GTPv2-C-MessageName\>            | counter   |
+| socket.gtp-c.\<SocketName\>.rx.v2.\<GTPv2-C-MessageName\>.count      | counter   |
 | socket.gtp-c.\<SocketName\>.rx.v2.\<GTPv2-C-MessageName\>.duplicate  | counter   |
-| socket.gtp-c.\<SocketName\>.tx.v2.\<GTPv2-C-MessageName\>            | counter   |
+| socket.gtp-c.\<SocketName\>.tx.v2.\<GTPv2-C-MessageName\>.count      | counter   |
 | socket.gtp-c.\<SocketName\>.tx.v2.\<GTPv2-C-MessageName\>.timeout    | counter   |
 | socket.gtp-c.\<SocketName\>.tx.v2.\<GTPv2-C-MessageName\>.retransmit | counter   |
 | socket.gtp-c.\<SocketName\>.pt.v1.\<GTPv1-C-MessageName\>            | histogram |
@@ -192,3 +192,8 @@ Counters for the following GTPv2-C Messages types exist:
  * update\_pdn\_connection\_set\_request
  * update\_pdn\_connection\_set\_response
  * version\_not\_supported
+
+If the HTTP API has been enable the metrics can be read at `/api/v1/metrics`.
+Stepping into the result is also possible, e.g.:
+
+    curl -X GET "http://localhost:8080/api/v1/metrics/socket/gtp-c/irx/rx/v1" -H  "accept: application/json"

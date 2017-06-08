@@ -86,7 +86,9 @@ all() ->
     [http_api_version_req,
      http_api_status_req,
      http_api_status_accept_new_get_req,
-     http_api_status_accept_new_post_req].
+     http_api_status_accept_new_post_req,
+     http_api_metrics_req,
+     http_api_metrics_sub_req].
 
 init_per_suite(Config0) ->
     inets:start(),
@@ -158,6 +160,26 @@ http_api_status_accept_new_post_req(_Config) ->
     ?equal(ergw:system_info(accept_new), Result2),
     ?equal(true, Result2),
 
+    ok.
+
+http_api_metrics_req() ->
+    [{doc, "Check /api/v1/metrics API"}].
+http_api_metrics_req(_Config) ->
+    URL = get_test_url("/api/v1/metrics"),
+    {ok, {_, _, Body}} = httpc:request(get, {URL, []},
+				       [], [{body_format, binary}]),
+    Res = jsx:decode(Body, [return_maps]),
+    ?match(#{<<"socket">> := #{}}, Res),
+    ok.
+
+http_api_metrics_sub_req() ->
+    [{doc, "Check /api/v1/metrics/... API"}].
+http_api_metrics_sub_req(_Config) ->
+    URL = get_test_url("/api/v1/metrics/socket/gtp-c/irx/rx"),
+    {ok, {_, _, Body}} = httpc:request(get, {URL, []},
+				       [], [{body_format, binary}]),
+    Res = jsx:decode(Body, [return_maps]),
+    ?match(#{<<"v1">> := #{}}, Res),
     ok.
 
 %%%===================================================================
