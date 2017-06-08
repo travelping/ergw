@@ -56,6 +56,17 @@ handle_request(<<"GET">>, <<"/api/v1/status/accept-new">>, Req, State) ->
     Response = jsx:encode(#{acceptNewRequests => AcceptNew}),
     {Response, Req, State};
 
+handle_request(<<"GET">>, <<"/api/v1/metrics">>, Req, State) ->
+    Metrics = ergw_api:metrics([]),
+    Response = jsx:encode(Metrics),
+    {Response, Req, State};
+
+handle_request(<<"GET">>, <<"/api/v1/metrics/", _/binary>>, Req, State) ->
+    Path = path_to_metric(cowboy_req:path_info(Req)),
+    Metrics = ergw_api:metrics(Path),
+    Response = jsx:encode(Metrics),
+    {Response, Req, State};
+
 handle_request(<<"POST">>, _, Req, State) ->
     Value = cowboy_req:binding(value, Req),
     Res = case Value of
@@ -78,3 +89,23 @@ handle_request(<<"POST">>, _, Req, State) ->
 
 handle_request(_, _, Req, State) ->
     {false, Req, State}.
+
+%%%===================================================================
+%%% Internal functions
+%%%===================================================================
+
+path_to_metric(Path) ->
+    lists:map(fun p2m/1, Path).
+
+p2m(Bin) ->
+    case inet:parse_address(binary_to_list(Bin)) of
+	{ok, IP} ->
+	    IP;
+	_ ->
+	    case (catch binary_to_existing_atom(Bin, utf8)) of
+		A when is_atom(A) ->
+		    A;
+		_ ->
+		    Bin
+	    end
+    end.

@@ -601,9 +601,9 @@ foreach_request(Handler, Fun) ->
     lists:foreach(Fun, Requests).
 
 exo_reg_msg(Name, Version, MsgType) ->
-    exometer_new([socket, 'gtp-c', Name, rx, Version, MsgType], counter),
+    exometer_new([socket, 'gtp-c', Name, rx, Version, MsgType, count], counter),
     exometer_new([socket, 'gtp-c', Name, rx, Version, MsgType, duplicate], counter),
-    exometer_new([socket, 'gtp-c', Name, tx, Version, MsgType], counter),
+    exometer_new([socket, 'gtp-c', Name, tx, Version, MsgType, count], counter),
     exometer_new([socket, 'gtp-c', Name, tx, Version, MsgType, retransmit], counter).
 
 exo_reg_timeout(Name, Version, MsgType) ->
