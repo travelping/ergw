@@ -241,7 +241,7 @@ make_sender(From, ReqId, Msg) ->
     #sender{from = From,
 	    req_id = ReqId,
 	    msg = Msg,
-	    send_ts = os:perf_counter()
+	    send_ts = erlang:monotonic_time()
 	   }.
 
 make_seq_id(#gtp{version = Version, seq_no = SeqNo}) ->
@@ -310,7 +310,7 @@ handle_input(Socket, State) ->
 	    handle_err_input(Socket, State);
 
 	{ok, {_, IP, Port}, Data} ->
-	    ArrivalTS = os:perf_counter(),
+	    ArrivalTS = erlang:monotonic_time(),
 	    ok = gen_socket:input_event(Socket, true),
 	    handle_message(ArrivalTS, IP, Port, Data, State);
 
@@ -646,7 +646,7 @@ measure_response(#request{
 		    gtp_port = #gtp_port{name = Name},
 		    version = Version, type = MsgType,
 		    arrival_ts = ArrivalTS}) ->
-    Duration = erlang:convert_time_unit(os:perf_counter() - ArrivalTS, perf_counter, nanosecond),
+    Duration = erlang:convert_time_unit(erlang:monotonic_time() - ArrivalTS, native, microsecond),
     DataPoint = [socket, 'gtp-c', Name, pt, Version, MsgType],
     exometer:update_or_create(DataPoint, Duration, histogram, ?EXO_PERF_OPTS),
     ok.
