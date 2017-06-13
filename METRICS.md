@@ -42,6 +42,8 @@ that require a response.
 The `pt` metrics are a histogram of the total processing time for the last
 incoming message of that type.
 
+All timing values in the histograms are in microseconds (µs).
+
 Counters for the following GTPv1-C Messages types exist:
 
  * create\_mbms\_context\_request
