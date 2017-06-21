@@ -1,6 +1,15 @@
 erGW - 3GPP GGSN and PDN-GW in Erlang
 =====================================
 
+Version 1.12.0 - 21 Jun 2017
+----------------------------
+
+* add more metrics and export them through HTTP API
+* enhance the config validation
+* change the handler configuration to be inline with the documentation
+* enhance the proxy DS API
+* add HTTP status API
+
 Version 1.11.0 - 27 Apr 2017
 ----------------------------
 
