@@ -655,5 +655,5 @@ measure_response(#request{
 measure_reply(ArrivalTS, RemoteIP, GtpPort,
 	      #sender{msg = #gtp{version = Version, type = MsgType},
 		      send_ts = SendTS}) ->
-    RTT = erlang:convert_time_unit(ArrivalTS - SendTS, perf_counter, nanosecond),
+    RTT = erlang:convert_time_unit(ArrivalTS - SendTS, native, microsecond),
     gtp_path:exometer_update_rtt(GtpPort, RemoteIP, Version, MsgType, RTT).
