@@ -8,7 +8,7 @@
 -module(ergw_api).
 
 %% API
--export([peer/1, tunnel/1, metrics/1]).
+-export([peer/1, tunnel/1]).
 
 %%%===================================================================
 %%% API
@@ -30,22 +30,9 @@ tunnel({_,_,_,_} = IP) ->
 tunnel(Port) when is_atom(Port) ->
     lists:foldl(fun collext_path_contexts/2, [], gtp_path_reg:all(Port)).
 
-metrics(Path) ->
-    Metrics = lists:foldl(fun fmt_exo_entries/2, #{}, exometer:get_values(Path)),
-    lists:foldl(fun(M, A) -> maps:get(M, A) end, Metrics, Path).
-
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
-
-fmt_exo_entries({Path, Value}, Metrics) ->
-    fmt_exo_entries(Path, Value, Metrics).
-
-fmt_exo_entries([Path], Value, Metrics) ->
-    Metrics#{Path => maps:from_list(Value)};
-fmt_exo_entries([H|T], Value, Metrics) ->
-    Entry = maps:get(H, Metrics, #{}),
-    Metrics#{H => fmt_exo_entries(T, Value, Entry)}.
 
 collect_peer_info(Peers) ->
     lists:map(fun gtp_path:info/1, Peers).
