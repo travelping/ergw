@@ -87,6 +87,8 @@ all() ->
      http_api_status_req,
      http_api_status_accept_new_get_req,
      http_api_status_accept_new_post_req,
+     http_api_prometheus_metrics_req,
+     http_api_prometheus_metrics_sub_req,
      http_api_metrics_req,
      http_api_metrics_sub_req].
 
@@ -160,6 +162,40 @@ http_api_status_accept_new_post_req(_Config) ->
     ?equal(ergw:system_info(accept_new), Result2),
     ?equal(true, Result2),
 
+    ok.
+
+http_api_prometheus_metrics_req() ->
+    [{doc, "Check Prometheus API Endpoint"}].
+http_api_prometheus_metrics_req(_Config) ->
+    URL = get_test_url("/api/v1/metrics"),
+    Accept = "application/vnd.google.protobuf;proto=io.prometheus.client.MetricFamily;encoding=delimited;q=0.7,"
+             ++ "text/plain;version=0.0.4;q=0.3,*/*;q=0.1",
+    {ok, {_, _, Body}} = httpc:request(get, {URL, [{"Accept", Accept}]},
+				       [], [{body_format, binary}]),
+    Lines = binary:split(Body, <<"\n">>, [global]),
+    Result = 
+        lists:filter(fun(<<"socket_gtp_c_irx_tx_v2_mbms_session_start_response_count", _/binary>>) -> 
+                             true;
+                        (_) -> false
+                     end, Lines), 
+    ?equal(1, length(Result)),
+    ok.
+
+http_api_prometheus_metrics_sub_req() ->
+    [{doc, "Check /api/v1/metrics/... Prometheus API endpoint"}].
+http_api_prometheus_metrics_sub_req(_Config) ->
+    URL = get_test_url("/api/v1/metrics/socket/gtp-c/irx/tx/v2/mbms_session_start_response"),
+    Accept = "application/vnd.google.protobuf;proto=io.prometheus.client.MetricFamily;encoding=delimited;q=0.7,"
+             ++ "text/plain;version=0.0.4;q=0.3,*/*;q=0.1",
+    {ok, {_, _, Body}} = httpc:request(get, {URL, [{"Accept", Accept}]},
+				       [], [{body_format, binary}]),
+    Lines = binary:split(Body, <<"\n">>, [global]),
+    Result = 
+        lists:filter(fun(<<"socket_gtp_c_irx_tx_v2_mbms_session_start_response_count", _/binary>>) -> 
+                             true;
+                        (_) -> false
+                     end, Lines), 
+    ?equal(1, length(Result)),
     ok.
 
 http_api_metrics_req() ->
