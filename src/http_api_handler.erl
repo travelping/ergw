@@ -8,7 +8,8 @@
 -module(http_api_handler).
 
 -export([init/2, content_types_provided/2,
-         handle_request/2, allowed_methods/2,
+         handle_request_json/2, handle_request_text/2, 
+         allowed_methods/2,
          content_types_accepted/2]).
 
 -define(FIELDS_MAPPING, [{accept_new, 'acceptNewRequests'},
@@ -21,22 +22,29 @@ allowed_methods(Req, State) ->
     {[<<"GET">>, <<"POST">>], Req, State}.
 
 content_types_provided(Req, State) ->
-    {[{<<"application/json">>, handle_request}], Req, State}.
+    {[{<<"application/json">>, handle_request_json},
+      {{<<"text">>, <<"plain">>, '*'} , handle_request_text}
+     ], Req, State}.
 
 content_types_accepted(Req, State) ->
-    {[{'*', handle_request}], Req, State}.
+    {[{'*', handle_request_json}], Req, State}.
 
-handle_request(Req, State) ->
+handle_request_json(Req, State) ->
     Path = cowboy_req:path(Req),
     Method = cowboy_req:method(Req),
-    handle_request(Method, Path, Req, State).
+    handle_request(Method, Path, json, Req, State).
 
-handle_request(<<"GET">>, <<"/api/v1/version">>, Req, State) ->
+handle_request_text(Req, State) ->
+    Path = cowboy_req:path(Req),
+    Method = cowboy_req:method(Req),
+    handle_request(Method, Path, prometheus, Req, State).
+
+handle_request(<<"GET">>, <<"/api/v1/version">>, json, Req, State) ->
     {ok, Vsn} = application:get_key(ergw, vsn),
     Response = jsx:encode(#{version => list_to_binary(Vsn)}),
     {Response, Req, State};
 
-handle_request(<<"GET">>, <<"/api/v1/status">>, Req, State) ->
+handle_request(<<"GET">>, <<"/api/v1/status">>, json, Req, State) ->
     Response = ergw:system_info(),
     MappedResponse = lists:map(fun({Key, Value}) ->
 					  {_, K} = lists:keyfind(Key, 1, ?FIELDS_MAPPING),
@@ -51,23 +59,21 @@ handle_request(<<"GET">>, <<"/api/v1/status">>, Req, State) ->
     end,
     {jsx:encode(Result), Req, State};
 
-handle_request(<<"GET">>, <<"/api/v1/status/accept-new">>, Req, State) ->
+handle_request(<<"GET">>, <<"/api/v1/status/accept-new">>, json, Req, State) ->
     AcceptNew = ergw:system_info(accept_new),
     Response = jsx:encode(#{acceptNewRequests => AcceptNew}),
     {Response, Req, State};
 
-handle_request(<<"GET">>, <<"/api/v1/metrics">>, Req, State) ->
-    Metrics = ergw_api:metrics([]),
-    Response = jsx:encode(Metrics),
-    {Response, Req, State};
+handle_request(<<"GET">>, <<"/api/v1/metrics">>, Format, Req, State) ->
+    Metrics = ergw_api:metrics([], Format),
+    {Metrics, Req, State};
 
-handle_request(<<"GET">>, <<"/api/v1/metrics/", _/binary>>, Req, State) ->
+handle_request(<<"GET">>, <<"/api/v1/metrics/", _/binary>>, Format, Req, State) ->
     Path = path_to_metric(cowboy_req:path_info(Req)),
-    Metrics = ergw_api:metrics(Path),
-    Response = jsx:encode(Metrics),
-    {Response, Req, State};
+    Metrics = ergw_api:metrics(Path, Format),
+    {Metrics, Req, State};
 
-handle_request(<<"POST">>, _, Req, State) ->
+handle_request(<<"POST">>, _, json, Req, State) ->
     Value = cowboy_req:binding(value, Req),
     Res = case Value of
               <<"true">> ->
@@ -87,7 +93,7 @@ handle_request(<<"POST">>, _, Req, State) ->
             {true, Req2, State}
     end;
 
-handle_request(_, _, Req, State) ->
+handle_request(_, _, Req, _, State) ->
     {false, Req, State}.
 
 %%%===================================================================
