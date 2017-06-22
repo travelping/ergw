@@ -177,36 +177,18 @@ validate_mcc_mcn(MCC, MNC)
 validate_mcc_mcn(_, _) ->
     error.
 
-validate_sockets_option(Opt, Value) when is_atom(Opt), is_list(Value) ->
-    validate_options(fun validate_socket_option/2, Value);
-validate_sockets_option(Opt, Value) ->
-    throw({error, {options, {Opt, Value}}}).
-
-validate_socket_option(name, Value) when is_atom(Value) ->
-    Value;
-validate_socket_option(type, Value)
-  when Value == 'gtp-c'; Value == 'gtp-u' ->
-    Value;
-validate_socket_option(node, Value) when is_atom(Value) ->
-    Value;
-validate_socket_option(ip, Value)
-  when is_tuple(Value) andalso
-       (tuple_size(Value) == 4 orelse tuple_size(Value) == 8) ->
-    Value;
-validate_socket_option(netdev, Value)
-  when is_list(Value); is_binary(Value) ->
-    Value;
-validate_socket_option(netns, Value)
-  when is_list(Value); is_binary(Value) ->
-    Value;
-validate_socket_option(freebind, true) ->
-    freebind;
-validate_socket_option(reuseaddr, true) ->
-    true;
-validate_socket_option(rcvbuf, Value) when is_integer(Value) ->
-    Value;
-validate_socket_option(Opt, Value) ->
-    throw({error, {options, {Opt, Value}}}).
+validate_sockets_option(Opt, Values)
+  when is_atom(Opt), ?is_opts(Values) ->
+    case get_opt(type, Values) of
+	'gtp-c' ->
+	    gtp_socket:validate_options(Values);
+	'gtp-u' ->
+	    gtp_dp:validate_options(Values);
+	_ ->
+	    throw({error, {options, {Opt, Values}}})
+    end;
+validate_sockets_option(Opt, Values) ->
+    throw({error, {options, {Opt, Values}}}).
 
 validate_handlers_option(Opt, Values0)
   when ?is_opts(Values0) ->

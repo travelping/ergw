@@ -12,7 +12,8 @@
 -compile({parse_transform, cut}).
 
 %% API
--export([start_socket/2, start_link/1,
+-export([validate_options/1,
+	 start_socket/2, start_link/1,
 	 send/4, send_response/3,
 	 send_request/4, send_request/6,
 	 send_request/5, resend_request/2,
@@ -70,16 +71,20 @@
 %%====================================================================
 
 start_socket(Name, Opts)
-  when is_atom(Name), is_list(Opts) ->
+  when is_atom(Name) ->
     gtp_socket_sup:new({Name, Opts}).
 
-start_link(Socket = {Name, SocketOpts}) ->
-    case proplists:get_value(type, SocketOpts, 'gtp-c') of
-	'gtp-c' ->
-	    gen_server:start_link(?MODULE, [Name, SocketOpts], []);
-	'gtp-u' ->
-	    gtp_dp:start_link(Socket)
-    end.
+start_link('gtp-c', {Name, SocketOpts}) ->
+    gen_server:start_link(?MODULE, [Name, SocketOpts], []);
+start_link('gtp-u', Socket) ->
+    gtp_dp:start_link(Socket).
+
+start_link(Socket = {_Name, #{type := Type}}) ->
+    start_link(Type, Socket);
+start_link(Socket = {_Name, SocketOpts})
+  when is_list(SocketOpts) ->
+    Type = proplists:get_value(type, SocketOpts, 'gtp-c'),
+    start_link(Type, Socket).
 
 send(#gtp_port{type = 'gtp-c'} = GtpPort, IP, Port, Data) ->
     cast(GtpPort, {send, IP, Port, Data});
@@ -121,6 +126,39 @@ get_response_q(GtpPort) ->
     call(GtpPort, get_response_q).
 
 %%%===================================================================
+%%% Options Validation
+%%%===================================================================
+
+-define(SocketDefaults, [{ip, invalid}]).
+
+validate_options(Values0) ->
+    Values = proplists:unfold(Values0),
+    ergw_config:validate_options(fun validate_option/2, Values, ?SocketDefaults, list).
+
+validate_option(name, Value) when is_atom(Value) ->
+    Value;
+validate_option(type, 'gtp-c') ->
+    'gtp-c';
+validate_option(ip, Value)
+  when is_tuple(Value) andalso
+       (tuple_size(Value) == 4 orelse tuple_size(Value) == 8) ->
+    Value;
+validate_option(netdev, Value)
+  when is_list(Value); is_binary(Value) ->
+    Value;
+validate_option(netns, Value)
+  when is_list(Value); is_binary(Value) ->
+    Value;
+validate_option(freebind, true) ->
+    freebind;
+validate_option(reuseaddr, true) ->
+    true;
+validate_option(rcvbuf, Value) when is_integer(Value) ->
+    Value;
+validate_option(Opt, Value) ->
+    throw({error, {options, {Opt, Value}}}).
+
+%%%===================================================================
 %%% call/cast wrapper for gtp_port
 %%%===================================================================
 
@@ -137,7 +175,6 @@ call(#gtp_port{pid = Handler}, Request) ->
 init([Name, SocketOpts]) ->
     process_flag(trap_exit, true),
 
-    %% TODO: better config validation and handling
     IP    = proplists:get_value(ip, SocketOpts),
     NetNs = proplists:get_value(netns, SocketOpts),
     Type  = proplists:get_value(type, SocketOpts, 'gtp-c'),

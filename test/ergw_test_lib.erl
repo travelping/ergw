@@ -99,6 +99,7 @@ meck_init(Config) ->
 			     gtp_socket_reg:register(Name, GtpPort),
 			     {ok, self()}
 		     end),
+    ok = meck:expect(gtp_dp, validate_options, fun(Values) -> Values end),
     ok = meck:expect(gtp_dp, send, fun(_GtpPort, _IP, _Port, _Data) -> ok end),
     ok = meck:expect(gtp_dp, get_id, fun(_GtpPort) -> self() end),
     ok = meck:expect(gtp_dp, create_pdp_context, fun(Context, _Args) -> Context end),
