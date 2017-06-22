@@ -248,7 +248,7 @@ make_seq_id(#gtp{version = Version, seq_no = SeqNo}) ->
     {Version, SeqNo}.
 
 make_request(ArrivalTS, IP, Port,
-	     Msg = #gtp{type = Type},
+	     Msg = #gtp{version = Version, type = Type},
 	     #state{gtp_port = GtpPort}) ->
     SeqId = make_seq_id(Msg),
     #request{
@@ -256,6 +256,7 @@ make_request(ArrivalTS, IP, Port,
        gtp_port = GtpPort,
        ip = IP,
        port = Port,
+       version = Version,
        type = Type,
        arrival_ts = ArrivalTS}.
 
