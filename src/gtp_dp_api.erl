@@ -9,6 +9,9 @@
 
 -include("include/ergw.hrl").
 
+-callback validate_options(list() | map()) ->
+    Return :: list() | map().
+
 -callback start_link(Args :: term()) ->
     Return :: {ok, Pid :: pid()} |
 	      ignore |
