@@ -64,11 +64,11 @@ handle_request(<<"GET">>, <<"/api/v1/status/accept-new">>, json, Req, State) ->
     Response = jsx:encode(#{acceptNewRequests => AcceptNew}),
     {Response, Req, State};
 
-handle_request(<<"GET">>, <<"/api/v1/metrics">>, Format, Req, State) ->
+handle_request(<<"GET">>, <<"/metrics">>, Format, Req, State) ->
     Metrics = metrics([], Format),
     {Metrics, Req, State};
 
-handle_request(<<"GET">>, <<"/api/v1/metrics/", _/binary>>, Format, Req, State) ->
+handle_request(<<"GET">>, <<"/metrics/", _/binary>>, Format, Req, State) ->
     Path = path_to_metric(cowboy_req:path_info(Req)),
     Metrics = metrics(Path, Format),
     {Metrics, Req, State};

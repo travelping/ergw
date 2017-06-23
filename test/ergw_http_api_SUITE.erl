@@ -186,7 +186,7 @@ http_api_status_accept_new_post_req(_Config) ->
 http_api_prometheus_metrics_req() ->
     [{doc, "Check Prometheus API Endpoint"}].
 http_api_prometheus_metrics_req(_Config) ->
-    URL = get_test_url("/api/v1/metrics"),
+    URL = get_test_url("/metrics"),
     Accept = "application/vnd.google.protobuf;proto=io.prometheus.client.MetricFamily;encoding=delimited;q=0.7,"
              ++ "text/plain;version=0.0.4;q=0.3,*/*;q=0.1",
     {ok, {_, _, Body}} = httpc:request(get, {URL, [{"Accept", Accept}]},
@@ -201,9 +201,9 @@ http_api_prometheus_metrics_req(_Config) ->
     ok.
 
 http_api_prometheus_metrics_sub_req() ->
-    [{doc, "Check /api/v1/metrics/... Prometheus API endpoint"}].
+    [{doc, "Check /metrics/... Prometheus API endpoint"}].
 http_api_prometheus_metrics_sub_req(_Config) ->
-    URL = get_test_url("/api/v1/metrics/socket/gtp-c/irx/tx/v2/mbms_session_start_response"),
+    URL = get_test_url("/metrics/socket/gtp-c/irx/tx/v2/mbms_session_start_response"),
     Accept = "application/vnd.google.protobuf;proto=io.prometheus.client.MetricFamily;encoding=delimited;q=0.7,"
              ++ "text/plain;version=0.0.4;q=0.3,*/*;q=0.1",
     {ok, {_, _, Body}} = httpc:request(get, {URL, [{"Accept", Accept}]},
@@ -218,9 +218,9 @@ http_api_prometheus_metrics_sub_req(_Config) ->
     ok.
 
 http_api_metrics_req() ->
-    [{doc, "Check /api/v1/metrics API"}].
+    [{doc, "Check /metrics API"}].
 http_api_metrics_req(_Config) ->
-    URL = get_test_url("/api/v1/metrics"),
+    URL = get_test_url("/metrics"),
     {ok, {_, _, Body}} = httpc:request(get, {URL, []},
 				       [], [{body_format, binary}]),
     Res = jsx:decode(Body, [return_maps]),
@@ -228,9 +228,9 @@ http_api_metrics_req(_Config) ->
     ok.
 
 http_api_metrics_sub_req() ->
-    [{doc, "Check /api/v1/metrics/... API"}].
+    [{doc, "Check /metrics/... API"}].
 http_api_metrics_sub_req(_Config) ->
-    URL = get_test_url("/api/v1/metrics/socket/gtp-c/irx/rx"),
+    URL = get_test_url("/metrics/socket/gtp-c/irx/rx"),
     {ok, {_, _, Body}} = httpc:request(get, {URL, []},
 				       [], [{body_format, binary}]),
     Res = jsx:decode(Body, [return_maps]),
