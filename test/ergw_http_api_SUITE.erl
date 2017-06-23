@@ -104,10 +104,14 @@ init_per_suite(Config0) ->
     DataPointH = [socket, 'gtp-c', irx, pt, v1, histogram_test],
     DataPointS = [socket, 'gtp-c', irx, pt, v1, spiral_test],
     DataPointF = [socket, 'gtp-c', irx, pt, v1, function_test],
+    DataPointIP4 = [path, irx, {127,0,0,1}, contexts],
+    DataPointIP6 = [path, irx, {0,0,0,0,0,0,0,1}, contexts],
     exometer:new(DataPointG, gauge, []),
     exometer:new(DataPointH, histogram, [{time_span, 300 * 1000}]),
     exometer:new(DataPointS, spiral, [{time_span, 300 * 1000}]),
     exometer:new(DataPointF, {function, ?MODULE, exo_function}, []),
+    exometer:new(DataPointIP4, gauge, []),
+    exometer:new(DataPointIP6, gauge, []),
     lists:foreach(
       fun(_) ->
 	      Value = rand:uniform(1000),
@@ -203,10 +207,10 @@ http_api_prometheus_metrics_req(_Config) ->
 http_api_prometheus_metrics_sub_req() ->
     [{doc, "Check /metrics/... Prometheus API endpoint"}].
 http_api_prometheus_metrics_sub_req(_Config) ->
-    URL = get_test_url("/metrics/socket/gtp-c/irx/tx/v2/mbms_session_start_response"),
     Accept = "application/vnd.google.protobuf;proto=io.prometheus.client.MetricFamily;encoding=delimited;q=0.7,"
              ++ "text/plain;version=0.0.4;q=0.3,*/*;q=0.1",
-    {ok, {_, _, Body}} = httpc:request(get, {URL, [{"Accept", Accept}]},
+    URL0 = get_test_url("/metrics/socket/gtp-c/irx/tx/v2/mbms_session_start_response"),
+    {ok, {_, _, Body}} = httpc:request(get, {URL0, [{"Accept", Accept}]},
 				       [], [{body_format, binary}]),
     Lines = binary:split(Body, <<"\n">>, [global]),
     Result =
@@ -215,6 +219,15 @@ http_api_prometheus_metrics_sub_req(_Config) ->
                         (_) -> false
                      end, Lines),
     ?equal(1, length(Result)),
+
+    URL1 = get_test_url("/metrics/path/irx/127.0.0.1/contexts"),
+    ?match({ok, _}, httpc:request(get, {URL1, [{"Accept", Accept}]},
+				  [], [{body_format, binary}])),
+
+    URL2 = get_test_url("/metrics/path/irx/::1/contexts"),
+    ?match({ok, _}, httpc:request(get, {URL2, [{"Accept", Accept}]},
+				  [], [{body_format, binary}])),
+
     ok.
 
 http_api_metrics_req() ->
@@ -230,11 +243,23 @@ http_api_metrics_req(_Config) ->
 http_api_metrics_sub_req() ->
     [{doc, "Check /metrics/... API"}].
 http_api_metrics_sub_req(_Config) ->
-    URL = get_test_url("/metrics/socket/gtp-c/irx/rx"),
-    {ok, {_, _, Body}} = httpc:request(get, {URL, []},
+    URL0 = get_test_url("/metrics/socket/gtp-c/irx/rx"),
+    {ok, {_, _, Body0}} = httpc:request(get, {URL0, []},
 				       [], [{body_format, binary}]),
-    Res = jsx:decode(Body, [return_maps]),
-    ?match(#{<<"v1">> := #{}}, Res),
+    Res0 = jsx:decode(Body0, [return_maps]),
+    ?match(#{<<"v1">> := #{}}, Res0),
+
+    URL1 = get_test_url("/metrics/path/irx/127.0.0.1/contexts"),
+    {ok, {_, _, Body1}} = httpc:request(get, {URL1, []},
+				       [], [{body_format, binary}]),
+    Res1 = jsx:decode(Body1, [return_maps]),
+    ?match(#{<<"value">> := _}, Res1),
+
+    URL2 = get_test_url("/metrics/path/irx/::1/contexts"),
+    {ok, {_, _, Body2}} = httpc:request(get, {URL2, []},
+				       [], [{body_format, binary}]),
+    Res2 = jsx:decode(Body2, [return_maps]),
+    ?match(#{<<"value">> := _}, Res2),
     ok.
 
 %%%===================================================================

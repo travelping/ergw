@@ -130,18 +130,19 @@ exo_entry_to_map({Name, Type, enabled}, Metrics) ->
 exo_entry_to_map([Path], {Name, Type}, Metrics) ->
     exo_get_value(Name, fun(V, Acc) ->
 				Entry = maps:from_list(V),
-				Acc#{Path => Entry#{type => Type}}
+				Acc#{ioize(Path) => Entry#{type => Type}}
 			end, Metrics);
 exo_entry_to_map([H|T], Metric, Metrics) ->
-    Entry = maps:get(H, Metrics, #{}),
-    Metrics#{H => exo_entry_to_map(T, Metric, Entry)}.
+    Key = ioize(H),
+    Entry = maps:get(Key, Metrics, #{}),
+    Metrics#{Key => exo_entry_to_map(T, Metric, Entry)}.
 
 exo_entry_to_list({Name, Type, enabled}, Metrics) ->
     exo_get_value(Name, fun(V, Acc) -> [{Name, Type, V}|Acc] end, Metrics).
 
 metrics(Path, json) ->
     Entries = lists:foldl(fun exo_entry_to_map/2, #{}, exometer:find_entries(Path)),
-    Metrics = lists:foldl(fun(M, A) -> maps:get(M, A) end, Entries, Path),
+    Metrics = lists:foldl(fun(M, A) -> maps:get(ioize(M), A) end, Entries, Path),
     jsx:encode(Metrics);
 metrics(Path, prometheus) ->
     Metrics = lists:foldl(fun exo_entry_to_list/2, [], exometer:find_entries(Path)),
@@ -150,7 +151,7 @@ metrics(Path, prometheus) ->
 prometheus_encode(Metrics) ->
     lists:foldl(fun prometheus_encode/2, [], Metrics).
 
-prometheus_encode(V= {Path, Type, DataPoints}, Acc) ->
+prometheus_encode({Path, Type, DataPoints}, Acc) ->
     Name = make_metric_name(Path),
     Payload = [[<<"# TYPE ">>, Name, <<" ">>, map_type(Type), <<"\n">>] |
                [[Name, map_datapoint(DPName), <<" ">>, ioize(Value), <<"\n">>]
@@ -164,8 +165,12 @@ ioize(Number) when is_float(Number) ->
     float_to_binary(Number, [{decimals, 4}]);
 ioize(Number) when is_integer(Number) ->
     integer_to_binary(Number);
+ioize({_,_,_,_} = IP) ->
+    list_to_binary(inet:ntoa(IP));
+ioize({_,_,_,_,_,_,_,_} = IP) ->
+    list_to_binary(inet:ntoa(IP));
 ioize(Something) ->
-    Something.
+    iolist_to_binary(io_lib:format("~p", [Something])).
 
 make_metric_name(Path) ->
     NameList = lists:join($_, lists:map(fun ioize/1, Path)),
