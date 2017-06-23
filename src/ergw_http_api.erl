@@ -39,8 +39,8 @@ start_http_listener(HttpOpts) ->
                                         {"/api/v1/status", http_api_handler, []},
                                         {"/api/v1/status/accept-new", http_api_handler, []},
                                         {"/api/v1/status/accept-new/:value", http_api_handler, []},
-                                        {"/api/v1/metrics", http_api_handler, []},
-                                        {"/api/v1/metrics/[...]", http_api_handler, []},
+                                        {"/metrics", http_api_handler, []},
+                                        {"/metrics/[...]", http_api_handler, []},
                                         % serves static files for swagger UI
                                         {"/api/v1/spec/ui", swagger_ui_handler, []},
                                         {"/api/v1/spec/ui/[...]", cowboy_static, {priv_dir, ergw, "static"}}]}

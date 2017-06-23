@@ -195,18 +195,18 @@ Counters for the following GTPv2-C Messages types exist:
  * update\_pdn\_connection\_set\_response
  * version\_not\_supported
 
-If the HTTP API has been enable the metrics can be read at `/api/v1/metrics`.
+If the HTTP API has been enable the metrics can be read at `/metrics`.
 Stepping into the result is also possible, e.g.:
 
-    curl -X GET "http://localhost:8080/api/v1/metrics/socket/gtp-c/irx/rx/v1" -H  "accept: application/json"
+    curl -X GET "http://localhost:8080/metrics/socket/gtp-c/irx/rx/v1" -H  "accept: application/json"
 
 Also, erGW can provide metrics in Prometheus format:
 
-    curl -X GET "http://localhost:8080/api/v1/metrics" -H  "accept: text/plain;version=0.0.4"
+    curl -X GET "http://localhost:8080/metrics" -H  "accept: text/plain;version=0.0.4"
 
 or more specific:
 
-    curl -X GET "http://localhost:8080/api/v1/metrics/socket/" -H  "accept: text/plain;version=0.0.4"
+    curl -X GET "http://localhost:8080/metrics/socket/" -H  "accept: text/plain;version=0.0.4"
     # TYPE socket_gtp_c_irx_tx_v2_mbms_session_start_response_retransmit gauge
     socket_gtp_c_irx_tx_v2_mbms_session_start_response_retransmit 0
 
