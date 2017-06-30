@@ -63,22 +63,12 @@ handle_request(#request{gtp_port = GtpPort, ip = IP} = ReqKey, #gtp{version = Ve
     gen_server:cast(Path, {handle_request, ReqKey, Msg}).
 
 bind(#context{remote_restart_counter = RestartCounter} = Context) ->
-    bind(RestartCounter, Context).
+    path_recovery(RestartCounter, bind_path(Context)).
 
-bind(Recovery, #context{version = Version} = Context) ->
-    RestartCounter =
-	case Version of
-	    v1 -> gtp_v1_c:restart_counter(Recovery);
-	    v2 -> gtp_v2_c:restart_counter(Recovery)
-	end,
-    Path = maybe_new_path(Context),
-    if is_integer(RestartCounter) ->
-	    ok = gen_server:call(Path, {bind, self(), RestartCounter}),
-	    Context#context{path = Path, remote_restart_counter = RestartCounter};
-       true ->
-	    {ok, PathRestartCounter} = gen_server:call(Path, {bind, self()}),
-	    Context#context{path = Path, remote_restart_counter = PathRestartCounter}
-    end.
+bind(Recovery, #context{version = v1} = Context) ->
+    path_recovery(gtp_v1_c:restart_counter(Recovery), bind_path(Context));
+bind(Recovery, #context{version = v2} = Context) ->
+    path_recovery(gtp_v2_c:restart_counter(Recovery), bind_path(Context)).
 
 unbind(#context{version = Version, control_port = GtpPort, remote_control_ip = RemoteIP}) ->
     case get(GtpPort, Version, RemoteIP) of
@@ -317,9 +307,19 @@ unregister(Pid, #state{table = TID} = State0) ->
     ets:delete(TID, Pid),
     dec_path_counter(State0).
 
-maybe_new_path(#context{version = Version, control_port = CntlGtpPort,
-			remote_control_ip = RemoteCntlIP}) ->
-    maybe_new_path(CntlGtpPort, Version, RemoteCntlIP).
+
+bind_path(#context{version = Version, control_port = CntlGtpPort,
+		   remote_control_ip = RemoteCntlIP} = Context) ->
+    Path = maybe_new_path(CntlGtpPort, Version, RemoteCntlIP),
+    Context#context{path = Path}.
+
+path_recovery(RestartCounter, #context{path = Path} = Context)
+  when is_integer(RestartCounter) ->
+    ok = gen_server:call(Path, {bind, self(), RestartCounter}),
+    Context#context{remote_restart_counter = RestartCounter};
+path_recovery(_RestartCounter, #context{path = Path} = Context) ->
+    {ok, PathRestartCounter} = gen_server:call(Path, {bind, self()}),
+    Context#context{remote_restart_counter = PathRestartCounter}.
 
 cancel_timer(Ref) ->
     case erlang:cancel_timer(Ref) of
