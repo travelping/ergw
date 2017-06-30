@@ -214,7 +214,7 @@ handle_request(ReqKey,
     ContextPreProxy = gtp_path:bind(Recovery, Context1),
     gtp_context:register_remote_context(ContextPreProxy),
 
-    #proxy_info{ggsn = PGW, restrictions = Restrictions} = ProxyInfo =
+    #proxy_info{restrictions = Restrictions} = ProxyInfo =
 	handle_proxy_info(ContextPreProxy, Recovery, State),
 
     Context = ContextPreProxy#context{restrictions = Restrictions},
@@ -222,7 +222,7 @@ handle_request(ReqKey,
 
     {ProxyGtpPort, ProxyGtpDP} = get_proxy_sockets(ProxyInfo, State),
 
-    ProxyContext0 = init_proxy_context(PGW, ProxyGtpPort, ProxyGtpDP, Context, ProxyInfo),
+    ProxyContext0 = init_proxy_context(ProxyGtpPort, ProxyGtpDP, Context, ProxyInfo),
     ProxyContext = gtp_path:bind(undefined, ProxyContext0),
 
     StateNew = State#{context => Context, proxy_context => ProxyContext},
@@ -522,10 +522,10 @@ apply_context_change(NewContext0, OldContext)
 apply_context_change(NewContext, _OldContext) ->
     NewContext.
 
-init_proxy_context(PGW, CntlPort, DataPort,
+init_proxy_context(CntlPort, DataPort,
 		   #context{imei = IMEI, version = Version,
 			    control_interface = Interface, state = State},
-		   #proxy_info{apn = APN, imsi = IMSI, msisdn = MSISDN}) ->
+		   #proxy_info{ggsn = PGW, apn = APN, imsi = IMSI, msisdn = MSISDN}) ->
 
     {ok, CntlTEI} = gtp_c_lib:alloc_tei(CntlPort),
     {ok, DataTEI} = gtp_c_lib:alloc_tei(DataPort),
