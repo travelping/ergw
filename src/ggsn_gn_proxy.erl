@@ -38,19 +38,6 @@
 	 (Msg#gtp.tei =:= 0 orelse
 	  Msg#gtp.tei =:= Context#context.local_control_tei))).
 
--define(IS_RESPONSE_CONTEXT(Key, Context, Msg, ProxyContext),
-	(is_record(Key, request) andalso
-	 is_record(Msg, gtp) andalso
-	 Key#request.gtp_port =:= Context#context.control_port andalso
-	 Msg#gtp.tei =:= ProxyContext#context.local_control_tei)).
-
--define(IS_RESPONSE_CONTEXT_OPTIONAL_TEI(Key, Context, Msg, ProxyContext),
-	(is_record(Key, request) andalso
-	 is_record(Msg, gtp) andalso
-	 Key#request.gtp_port =:= Context#context.control_port andalso
-	 (Msg#gtp.tei =:= 0 orelse
-	  Msg#gtp.tei =:= ProxyContext#context.local_control_tei))).
-
 %%====================================================================
 %% API
 %%====================================================================
@@ -308,12 +295,12 @@ handle_request(#request{gtp_port = GtpPort}, Msg, _Resent, State) ->
     lager:warning("Unknown Proxy Message on ~p: ~p", [GtpPort, lager:pr(Msg, ?MODULE)]),
     {noreply, State}.
 
-handle_response(#proxy_request{request = ReqKey, seq_no = SeqNo, new_peer = NewPeer},
+handle_response(#proxy_request{direction = sgsn2ggsn,
+			       request = ReqKey, seq_no = SeqNo, new_peer = NewPeer},
 		#gtp{type = create_pdp_context_response,
 		     ie = #{?'Cause' := #cause{value = Cause}}} = Response, _Request,
 		#{context := Context,
-		  proxy_context := ProxyContext0} = State)
-  when ?IS_RESPONSE_CONTEXT(ReqKey, Context, Response, ProxyContext0) ->
+		  proxy_context := ProxyContext0} = State) ->
     lager:warning("OK Proxy Response ~p", [lager:pr(Response, ?MODULE)]),
 
     ProxyContext1 = update_context_from_gtp_req(Response, ProxyContext0),
@@ -334,11 +321,11 @@ handle_response(#proxy_request{request = ReqKey, seq_no = SeqNo, new_peer = NewP
 	    {stop, State}
     end;
 
-handle_response(#proxy_request{request = ReqKey, seq_no = SeqNo, new_peer = NewPeer},
+handle_response(#proxy_request{direction = sgsn2ggsn,
+			       request = ReqKey, seq_no = SeqNo, new_peer = NewPeer},
 		#gtp{type = update_pdp_context_response} = Response, _Request,
 		#{context := Context,
-		  proxy_context := OldProxyContext} = State)
-  when ?IS_RESPONSE_CONTEXT(ReqKey, Context, Response, OldProxyContext) ->
+		  proxy_context := OldProxyContext} = State) ->
     lager:warning("OK Proxy Response ~p", [lager:pr(Response, ?MODULE)]),
 
     ProxyContext0 = update_context_from_gtp_req(Response, OldProxyContext),
@@ -353,11 +340,10 @@ handle_response(#proxy_request{request = ReqKey, seq_no = SeqNo, new_peer = NewP
 
     {noreply, State#{proxy_context => ProxyContext}};
 
-handle_response(#proxy_request{request = ReqKey, seq_no = SeqNo, new_peer = NewPeer},
+handle_response(#proxy_request{direction = ggsn2sgsn,
+			       request = ReqKey, seq_no = SeqNo, new_peer = NewPeer},
 		#gtp{type = update_pdp_context_response} = Response, _Request,
-		#{context := Context,
-		  proxy_context := ProxyContext} = State)
-  when ?IS_RESPONSE_CONTEXT(ReqKey, ProxyContext, Response, Context) ->
+		#{proxy_context := ProxyContext} = State) ->
     lager:warning("OK SGSN Response ~p", [lager:pr(Response, ?MODULE)]),
 
     GtpResp0 = build_context_request(ProxyContext, Response),
@@ -366,11 +352,10 @@ handle_response(#proxy_request{request = ReqKey, seq_no = SeqNo, new_peer = NewP
 
     {noreply, State};
 
-handle_response(#proxy_request{request = ReqKey, seq_no = SeqNo, new_peer = NewPeer},
+handle_response(#proxy_request{direction = sgsn2ggsn,
+			       request = ReqKey, seq_no = SeqNo, new_peer = NewPeer},
 		#gtp{type = ms_info_change_notification_response} = Response, _Request,
-		#{context := Context,
-		  proxy_context := ProxyContext} = State)
-  when ?IS_RESPONSE_CONTEXT_OPTIONAL_TEI(ReqKey, Context, Response, ProxyContext) ->
+		#{context := Context} = State) ->
     lager:warning("OK Proxy Response ~p", [lager:pr(Response, ?MODULE)]),
 
     GtpResp0 = build_context_request(Context, Response),
@@ -379,11 +364,11 @@ handle_response(#proxy_request{request = ReqKey, seq_no = SeqNo, new_peer = NewP
 
     {noreply, State};
 
-handle_response(#proxy_request{request = ReqKey, seq_no = SeqNo},
+handle_response(#proxy_request{direction = sgsn2ggsn,
+			       request = ReqKey, seq_no = SeqNo},
 		#gtp{type = delete_pdp_context_response} = Response, _Request,
 		#{context := Context,
-		  proxy_context := ProxyContext} = State)
-  when ?IS_RESPONSE_CONTEXT(ReqKey, Context, Response, ProxyContext) ->
+		  proxy_context := ProxyContext} = State) ->
     lager:warning("OK Proxy Response ~p", [lager:pr(Response, ?MODULE)]),
 
     GtpResp = build_context_request(Context, Response),
@@ -393,11 +378,11 @@ handle_response(#proxy_request{request = ReqKey, seq_no = SeqNo},
     {stop, State};
 
 
-handle_response(#proxy_request{request = ReqKey, seq_no = SeqNo},
+handle_response(#proxy_request{direction = ggsn2sgsn,
+			       request = ReqKey, seq_no = SeqNo},
 		#gtp{type = delete_pdp_context_response} = Response, _Request,
 		#{context := Context,
-		  proxy_context := ProxyContext} = State)
-  when ?IS_RESPONSE_CONTEXT(ReqKey, ProxyContext, Response, Context) ->
+		  proxy_context := ProxyContext} = State) ->
     lager:warning("OK SGSN Response ~p", [lager:pr(Response, ?MODULE)]),
 
     GtpResp = build_context_request(ProxyContext, Response),
@@ -590,7 +575,8 @@ forward_request(Direction, ReqKey,
     FwdReq0 = build_context_request(Context, Request),
     FwdReq = build_recovery(Context, false, FwdReq0),
 
-    ergw_proxy_lib:forward_request(Context, FwdReq, ReqKey, SeqNo, Recovery /= undefined).
+    ergw_proxy_lib:forward_request(Direction, Context, FwdReq, ReqKey,
+				   SeqNo, Recovery /= undefined).
 
 proxy_dp_args(#context{data_port = #gtp_port{name = Name},
 		       local_data_tei = LocalTEI,

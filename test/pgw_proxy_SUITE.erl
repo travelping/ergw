@@ -264,6 +264,8 @@ all_tests() ->
      commands_invalid_teid,
      delete_bearer_request,
      delete_bearer_request_resend,
+     delete_bearer_request_invalid_teid,
+     delete_bearer_request_late_response,
      interop_sgsn_to_sgw,
      interop_sgw_to_sgsn].
 
@@ -280,7 +282,9 @@ init_per_testcase(delete_session_request_resend, Config) ->
     ok = meck:new(gtp_path, [passthrough, no_link]),
     Config;
 init_per_testcase(TestCase, Config)
-  when TestCase == delete_bearer_request_resend ->
+  when TestCase == delete_bearer_request_resend;
+       TestCase == delete_bearer_request_invalid_teid;
+       TestCase == delete_bearer_request_late_response ->
     init_per_testcase(Config),
     ok = meck:expect(gtp_socket, send_request,
 		     fun(GtpPort, From, RemoteIP, _T3, _N3,
@@ -341,7 +345,9 @@ end_per_testcase(delete_session_request_resend, Config) ->
     meck:unload(gtp_path),
     Config;
 end_per_testcase(TestCase, Config)
-  when TestCase == delete_bearer_request_resend ->
+  when TestCase == delete_bearer_request_resend;
+       TestCase == delete_bearer_request_invalid_teid;
+       TestCase == delete_bearer_request_late_response ->
     ok = meck:delete(gtp_socket, send_request, 7),
     Config;
 end_per_testcase(simple_session, Config) ->
@@ -787,6 +793,76 @@ delete_bearer_request_resend(Config) ->
     after ?TIMEOUT ->
 	    ct:fail(timeout)
     end,
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+delete_bearer_request_invalid_teid() ->
+    [{doc, "Check error response of PGW initiated bearer shutdown with invalid TEID"},
+     {timetrap,{seconds,60}}].
+delete_bearer_request_invalid_teid(Config) ->
+    S = make_gtp_socket(Config),
+
+    {GtpC, _, _} = create_session(S),
+
+    Context = gtp_context_reg:lookup(#gtp_port{name = 'remote-irx'},
+				     {imsi, ?'PROXY-IMSI'}),
+    true = is_pid(Context),
+
+    Self = self(),
+    spawn(fun() -> Self ! {req, gtp_context:delete_context(Context)} end),
+
+    Request = recv_pdu(S, 5000),
+    ?match(#gtp{type = delete_bearer_request}, Request),
+
+    Response = make_response(Request, invalid_teid, GtpC),
+    send_pdu(S, Response),
+
+    receive
+	{req, {ok, context_not_found}} ->
+	    ok;
+	{req, Other} ->
+	    ct:fail(Other)
+    after ?TIMEOUT ->
+	    ct:fail(timeout)
+    end,
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+delete_bearer_request_late_response() ->
+    [{doc, "Check a answer folling a resend of PGW initiated bearer shutdown"},
+     {timetrap,{seconds,60}}].
+delete_bearer_request_late_response(Config) ->
+    S = make_gtp_socket(Config),
+
+    {GtpC, _, _} = create_session(S),
+
+    Context = gtp_context_reg:lookup(#gtp_port{name = 'remote-irx'},
+				     {imsi, ?'PROXY-IMSI'}),
+    true = is_pid(Context),
+
+    Self = self(),
+    spawn(fun() -> Self ! {req, gtp_context:delete_context(Context)} end),
+
+    Request = recv_pdu(S, 5000),
+    ?match(#gtp{type = delete_bearer_request}, Request),
+    ?equal(Request, recv_pdu(S, 5000)),
+    ?equal(Request, recv_pdu(S, 5000)),
+
+    Response = make_response(Request, simple, GtpC),
+    send_pdu(S, Response),
+
+    receive
+	{req, {ok, request_accepted}} ->
+	    ok;
+	{req, Other} ->
+	    ct:fail(Other)
+    after ?TIMEOUT ->
+	    ct:fail(timeout)
+    end,
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
     ok.
 

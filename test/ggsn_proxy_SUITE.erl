@@ -239,7 +239,9 @@ all_tests() ->
      proxy_context_version_restricted,
      invalid_teid,
      delete_pdp_context_requested,
-     delete_pdp_context_requested_resend].
+     delete_pdp_context_requested_resend,
+     delete_pdp_context_requested_invalid_teid,
+     delete_pdp_context_requested_late_response].
 
 %%%===================================================================
 %%% Tests
@@ -254,7 +256,9 @@ init_per_testcase(path_restart, Config) ->
     ok = meck:new(gtp_path, [passthrough, no_link]),
     Config;
 init_per_testcase(TestCase, Config)
-  when TestCase == delete_pdp_context_requested_resend ->
+  when TestCase == delete_pdp_context_requested_resend;
+       TestCase == delete_pdp_context_requested_invalid_teid;
+       TestCase == delete_pdp_context_requested_late_response ->
     init_per_testcase(Config),
     ok = meck:expect(gtp_socket, send_request,
 		     fun(GtpPort, From, RemoteIP, _T3, _N3,
@@ -299,7 +303,9 @@ end_per_testcase(path_restart, Config) ->
     meck:unload(gtp_path),
     Config;
 end_per_testcase(TestCase, Config)
-  when TestCase == delete_pdp_context_requested_resend ->
+  when TestCase == delete_pdp_context_requested_resend;
+       TestCase == delete_pdp_context_requested_invalid_teid;
+       TestCase == delete_pdp_context_requested_late_response ->
     ok = meck:delete(gtp_socket, send_request, 7),
     Config;
 end_per_testcase(simple_pdp_context_request, Config) ->
@@ -666,6 +672,74 @@ delete_pdp_context_requested_resend(Config) ->
     after ?TIMEOUT ->
 	    ct:fail(timeout)
     end,
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+delete_pdp_context_requested_invalid_teid() ->
+    [{doc, "Check error response of GGSN initiated Delete PDP Context with invalid TEID"}].
+delete_pdp_context_requested_invalid_teid(Config) ->
+    S = make_gtp_socket(Config),
+
+    {GtpC, _, _} = create_pdp_context(S),
+
+    Context = gtp_context_reg:lookup(#gtp_port{name = 'remote-irx'},
+				     {imsi, ?'PROXY-IMSI'}),
+    true = is_pid(Context),
+
+    Self = self(),
+    spawn(fun() -> Self ! {req, gtp_context:delete_context(Context)} end),
+
+    Request = recv_pdu(S, 5000),
+    ?match(#gtp{type = delete_pdp_context_request}, Request),
+
+    Response = make_response(Request, invalid_teid, GtpC),
+    send_pdu(S, Response),
+
+    receive
+	{req, {ok, context_not_found}} ->
+	    ok;
+	{req, Other} ->
+	    ct:fail(Other)
+    after ?TIMEOUT ->
+	    ct:fail(timeout)
+    end,
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+delete_pdp_context_requested_late_response() ->
+    [{doc, "Check a answer folling a resend of GGSN initiated Delete PDP Context"}].
+delete_pdp_context_requested_late_response(Config) ->
+    S = make_gtp_socket(Config),
+
+    {GtpC, _, _} = create_pdp_context(S),
+
+    Context = gtp_context_reg:lookup(#gtp_port{name = 'remote-irx'},
+				     {imsi, ?'PROXY-IMSI'}),
+    true = is_pid(Context),
+
+    Self = self(),
+    spawn(fun() -> Self ! {req, gtp_context:delete_context(Context)} end),
+
+    Request = recv_pdu(S, 5000),
+    ?match(#gtp{type = delete_pdp_context_request}, Request),
+    ?equal(Request, recv_pdu(S, 5000)),
+    ?equal(Request, recv_pdu(S, 5000)),
+
+    Response = make_response(Request, simple, GtpC),
+    send_pdu(S, Response),
+
+    receive
+	{req, {ok, request_accepted}} ->
+	    ok;
+	{req, Other} ->
+	    ct:fail(Other)
+    after ?TIMEOUT ->
+	    ct:fail(timeout)
+    end,
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
     ok.
 
