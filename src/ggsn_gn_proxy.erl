@@ -295,8 +295,7 @@ handle_request(#request{gtp_port = GtpPort}, Msg, _Resent, State) ->
     lager:warning("Unknown Proxy Message on ~p: ~p", [GtpPort, lager:pr(Msg, ?MODULE)]),
     {noreply, State}.
 
-handle_response(#proxy_request{direction = sgsn2ggsn,
-			       request = ReqKey, seq_no = SeqNo, new_peer = NewPeer},
+handle_response(#proxy_request{direction = sgsn2ggsn} = ProxyRequest,
 		#gtp{type = create_pdp_context_response,
 		     ie = #{?'Cause' := #cause{value = Cause}}} = Response, _Request,
 		#{context := Context,
@@ -307,8 +306,7 @@ handle_response(#proxy_request{direction = sgsn2ggsn,
     ProxyContext = gtp_path:bind(Response, ProxyContext1),
     gtp_context:register_remote_context(ProxyContext),
 
-    GtpResp = build_context_request(Context, NewPeer, Response),
-    gtp_context:send_response(ReqKey, GtpResp#gtp{seq_no = SeqNo}),
+    forward_response(ProxyRequest, Response, Context),
 
     if ?CAUSE_OK(Cause) ->
 	    dp_create_pdp_context(Context, ProxyContext),
@@ -320,8 +318,7 @@ handle_response(#proxy_request{direction = sgsn2ggsn,
 	    {stop, State}
     end;
 
-handle_response(#proxy_request{direction = sgsn2ggsn,
-			       request = ReqKey, seq_no = SeqNo, new_peer = NewPeer},
+handle_response(#proxy_request{direction = sgsn2ggsn} = ProxyRequest,
 		#gtp{type = update_pdp_context_response} = Response, _Request,
 		#{context := Context,
 		  proxy_context := OldProxyContext} = State) ->
@@ -331,59 +328,45 @@ handle_response(#proxy_request{direction = sgsn2ggsn,
     gtp_context:update_remote_context(OldProxyContext, ProxyContext0),
     ProxyContext = apply_context_change(ProxyContext0, OldProxyContext),
 
-    GtpResp = build_context_request(Context, NewPeer, Response),
-    gtp_context:send_response(ReqKey, GtpResp#gtp{seq_no = SeqNo}),
-
+    forward_response(ProxyRequest, Response, Context),
     dp_update_pdp_context(Context, ProxyContext),
 
     {noreply, State#{proxy_context => ProxyContext}};
 
-handle_response(#proxy_request{direction = ggsn2sgsn,
-			       request = ReqKey, seq_no = SeqNo, new_peer = NewPeer},
+handle_response(#proxy_request{direction = ggsn2sgsn} = ProxyRequest,
 		#gtp{type = update_pdp_context_response} = Response, _Request,
 		#{proxy_context := ProxyContext} = State) ->
     lager:warning("OK SGSN Response ~p", [lager:pr(Response, ?MODULE)]),
 
-    GtpResp = build_context_request(ProxyContext, NewPeer, Response),
-    gtp_context:send_response(ReqKey, GtpResp#gtp{seq_no = SeqNo}),
-
+    forward_response(ProxyRequest, Response, ProxyContext),
     {noreply, State};
 
-handle_response(#proxy_request{direction = sgsn2ggsn,
-			       request = ReqKey, seq_no = SeqNo, new_peer = NewPeer},
+handle_response(#proxy_request{direction = sgsn2ggsn} = ProxyRequest,
 		#gtp{type = ms_info_change_notification_response} = Response, _Request,
 		#{context := Context} = State) ->
     lager:warning("OK Proxy Response ~p", [lager:pr(Response, ?MODULE)]),
 
-    GtpResp = build_context_request(Context, NewPeer, Response),
-    gtp_context:send_response(ReqKey, GtpResp#gtp{seq_no = SeqNo}),
-
+    forward_response(ProxyRequest, Response, Context),
     {noreply, State};
 
-handle_response(#proxy_request{direction = sgsn2ggsn,
-			       request = ReqKey, seq_no = SeqNo, new_peer = NewPeer},
+handle_response(#proxy_request{direction = sgsn2ggsn} = ProxyRequest,
 		#gtp{type = delete_pdp_context_response} = Response, _Request,
 		#{context := Context,
 		  proxy_context := ProxyContext} = State) ->
     lager:warning("OK Proxy Response ~p", [lager:pr(Response, ?MODULE)]),
 
-    GtpResp = build_context_request(Context, NewPeer, Response),
-    gtp_context:send_response(ReqKey, GtpResp#gtp{seq_no = SeqNo}),
-
+    forward_response(ProxyRequest, Response, Context),
     dp_delete_pdp_context(Context, ProxyContext),
     {stop, State};
 
 
-handle_response(#proxy_request{direction = ggsn2sgsn,
-			       request = ReqKey, seq_no = SeqNo, new_peer = NewPeer},
+handle_response(#proxy_request{direction = ggsn2sgsn} = ProxyRequest,
 		#gtp{type = delete_pdp_context_response} = Response, _Request,
 		#{context := Context,
 		  proxy_context := ProxyContext} = State) ->
     lager:warning("OK SGSN Response ~p", [lager:pr(Response, ?MODULE)]),
 
-    GtpResp = build_context_request(ProxyContext, NewPeer, Response),
-    gtp_context:send_response(ReqKey, GtpResp#gtp{seq_no = SeqNo}),
-
+    forward_response(ProxyRequest, Response, ProxyContext),
     dp_delete_pdp_context(Context, ProxyContext),
     {stop, State};
 
@@ -573,6 +556,11 @@ forward_request(Direction, ReqKey,
 
     ergw_proxy_lib:forward_request(Direction, Context, FwdReq, ReqKey,
 				   SeqNo, Recovery /= undefined).
+
+forward_response(#proxy_request{request = ReqKey, seq_no = SeqNo, new_peer = NewPeer},
+		 Response, Context) ->
+    GtpResp = build_context_request(Context, NewPeer, Response),
+    gtp_context:send_response(ReqKey, GtpResp#gtp{seq_no = SeqNo}).
 
 proxy_dp_args(#context{data_port = #gtp_port{name = Name},
 		       local_data_tei = LocalTEI,

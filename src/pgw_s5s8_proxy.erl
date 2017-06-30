@@ -337,8 +337,7 @@ handle_request(_From, _Msg, _Resent, State) ->
 handle_response(ReqInfo, #gtp{version = v1} = Msg, Request, State) ->
     ?GTP_v1_Interface:handle_response(ReqInfo, Msg, Request, State);
 
-handle_response(#proxy_request{direction = sgw2pgw,
-			       request = ReqKey, seq_no = SeqNo, new_peer = NewPeer},
+handle_response(#proxy_request{direction = sgw2pgw} = ProxyRequest,
 		#gtp{type = create_session_response,
 		     ie = #{?'Cause' := #v2_cause{v2_cause = Cause}}} = Response, _Request,
 		#{context := Context,
@@ -349,8 +348,7 @@ handle_response(#proxy_request{direction = sgw2pgw,
     ProxyContext = gtp_path:bind(Response, ProxyContext1),
     gtp_context:register_remote_context(ProxyContext),
 
-    GtpResp = build_context_request(Context, NewPeer, Response),
-    gtp_context:send_response(ReqKey, GtpResp#gtp{seq_no = SeqNo}),
+    forward_response(ProxyRequest, Response, Context),
 
     if ?CAUSE_OK(Cause) ->
 	    dp_create_pdp_context(Context, ProxyContext),
@@ -362,8 +360,7 @@ handle_response(#proxy_request{direction = sgw2pgw,
 	    {stop, State}
     end;
 
-handle_response(#proxy_request{direction = sgw2pgw,
-			       request = ReqKey, seq_no = SeqNo, new_peer = NewPeer},
+handle_response(#proxy_request{direction = sgw2pgw} = ProxyRequest,
 		#gtp{type = modify_bearer_response} = Response, _Request,
 		#{context := Context,
 		  proxy_context := OldProxyContext} = State) ->
@@ -373,9 +370,7 @@ handle_response(#proxy_request{direction = sgw2pgw,
     gtp_context:update_remote_context(OldProxyContext, ProxyContext0),
     ProxyContext = apply_context_change(ProxyContext0, OldProxyContext),
 
-    GtpResp = build_context_request(Context, NewPeer, Response),
-    gtp_context:send_response(ReqKey, GtpResp#gtp{seq_no = SeqNo}),
-
+    forward_response(ProxyRequest, Response, Context),
     dp_update_pdp_context(Context, ProxyContext),
 
     {noreply, State#{proxy_context => ProxyContext}};
@@ -383,73 +378,58 @@ handle_response(#proxy_request{direction = sgw2pgw,
 %%
 %% PGW to SGW response without tunnel endpoint modification
 %%
-handle_response(#proxy_request{direction = sgw2pgw,
-			       request = ReqKey, seq_no = SeqNo, new_peer = NewPeer},
+handle_response(#proxy_request{direction = sgw2pgw} = ProxyRequest,
 		#gtp{type = change_notification_response} = Response, _Request,
 		#{context := Context} = State) ->
     lager:warning("OK Proxy Response ~p", [lager:pr(Response, ?MODULE)]),
 
-    GtpResp = build_context_request(Context, NewPeer, Response),
-    gtp_context:send_response(ReqKey, GtpResp#gtp{seq_no = SeqNo}),
-
+    forward_response(ProxyRequest, Response, Context),
     {noreply, State};
 
 %%
 %% PGW to SGW acknowledge without tunnel endpoint modification
 %%
-handle_response(#proxy_request{direction = sgw2pgw,
-			       request = ReqKey, seq_no = SeqNo, new_peer = NewPeer},
+handle_response(#proxy_request{direction = sgw2pgw} = ProxyRequest,
 		#gtp{type = Type} = Response, _Request,
 		#{context := Context} = State)
   when Type == suspend_acknowledge;
        Type == resume_acknowledge ->
     lager:warning("OK Proxy Acknowledge ~p", [lager:pr(Response, ?MODULE)]),
 
-    GtpResp = build_context_request(Context, NewPeer, Response),
-    gtp_context:send_response(ReqKey, GtpResp#gtp{seq_no = SeqNo}),
-
+    forward_response(ProxyRequest, Response, Context),
     {noreply, State};
 
 %%
 %% SGW to PGW response without tunnel endpoint modification
 %%
-handle_response(#proxy_request{direction = pgw2sgw,
-			       request = ReqKey, seq_no = SeqNo, new_peer = NewPeer},
+handle_response(#proxy_request{direction = pgw2sgw} = ProxyRequest,
 		#gtp{type = update_bearer_response} = Response, _Request,
 		#{proxy_context := ProxyContext} = State) ->
     lager:warning("OK Response ~p", [lager:pr(Response, ?MODULE)]),
 
-    GtpResp = build_context_request(ProxyContext, NewPeer, Response),
-    gtp_context:send_response(ReqKey, GtpResp#gtp{seq_no = SeqNo}),
-
+    forward_response(ProxyRequest, Response, ProxyContext),
     {noreply, State};
 
-handle_response(#proxy_request{direction = sgw2pgw,
-			       request = ReqKey, seq_no = SeqNo, new_peer = NewPeer},
+handle_response(#proxy_request{direction = sgw2pgw} = ProxyRequest,
 		#gtp{type = delete_session_response} = Response, _Request,
 		#{context := Context,
 		  proxy_context := ProxyContext} = State) ->
     lager:warning("OK Proxy Response ~p", [lager:pr(Response, ?MODULE)]),
 
-    GtpResp = build_context_request(Context, NewPeer, Response),
-    gtp_context:send_response(ReqKey, GtpResp#gtp{seq_no = SeqNo}),
-
+    forward_response(ProxyRequest, Response, Context),
     dp_delete_pdp_context(Context, ProxyContext),
     {stop, State};
 
 %%
 %% SGW to PGW delete bearer response
 %%
-handle_response(#proxy_request{direction = pgw2sgw,
-			       request = ReqKey, seq_no = SeqNo, new_peer = NewPeer},
+handle_response(#proxy_request{direction = pgw2sgw} = ProxyRequest,
 		#gtp{type = delete_bearer_response} = Response, _Request,
 		#{context := Context,
 		  proxy_context := ProxyContext} = State) ->
     lager:warning("OK Proxy Response ~p", [lager:pr(Response, ?MODULE)]),
 
-    GtpResp = build_context_request(ProxyContext, NewPeer, Response),
-    gtp_context:send_response(ReqKey, GtpResp#gtp{seq_no = SeqNo}),
-
+    forward_response(ProxyRequest, Response, ProxyContext),
     dp_delete_pdp_context(Context, ProxyContext),
     {stop, State};
 
@@ -655,6 +635,11 @@ forward_request(Direction, ReqKey,
 
     ergw_proxy_lib:forward_request(Direction, Context, FwdReq, ReqKey,
 				   SeqNo, Recovery /= undefined).
+
+forward_response(#proxy_request{request = ReqKey, seq_no = SeqNo, new_peer = NewPeer},
+		 Response, Context) ->
+    GtpResp = build_context_request(Context, NewPeer, Response),
+    gtp_context:send_response(ReqKey, GtpResp#gtp{seq_no = SeqNo}).
 
 proxy_dp_args(#context{data_port = #gtp_port{name = Name},
 		       local_data_tei = LocalTEI,
