@@ -117,7 +117,6 @@ handle_request(_ReqKey, _Msg, true, State) ->
 handle_request(_ReqKey,
 	       #gtp{type = create_pdp_context_request,
 		    ie = #{
-		      ?'Recovery' := Recovery,
 		      ?'Quality of Service Profile' := ReqQoSProfile
 		     } = IEs} = Request, _Resent,
 	       #{context := Context0,
@@ -133,7 +132,7 @@ handle_request(_ReqKey,
     SessionOpts1 = init_session_from_gtp_req(IEs, AAAopts, SessionOpts0),
     SessionOpts = init_session_qos(ReqQoSProfile, SessionOpts1),
 
-    authenticate(ContextPreAuth, Session, SessionOpts, Recovery),
+    authenticate(ContextPreAuth, Session, SessionOpts, Request),
     {ContextVRF, VRFOpts} = select_vrf(ContextPreAuth),
 
     ActiveSessionOpts0 = ergw_aaa_session:get(Session),
@@ -146,8 +145,7 @@ handle_request(_ReqKey,
     dp_create_pdp_context(Context),
 
     ResponseIEs = create_pdp_context_response(ActiveSessionOpts, IEs, Context),
-    Reply = response(create_pdp_context_response, Context,
-		     Recovery /= undefined, ResponseIEs),
+    Reply = response(create_pdp_context_response, Context, ResponseIEs, Request),
 
     ergw_aaa_session:start(Session, #{}),
 
@@ -155,8 +153,7 @@ handle_request(_ReqKey,
 
 handle_request(_ReqKey,
 	       #gtp{type = update_pdp_context_request,
-		    ie = #{?'Recovery' := Recovery,
-			   ?'Quality of Service Profile' := ReqQoSProfile
+		    ie = #{?'Quality of Service Profile' := ReqQoSProfile
 			  } = IEs} = Request, _Resent,
 	       #{context := OldContext} = State0) ->
 
@@ -174,22 +171,18 @@ handle_request(_ReqKey,
 		    #charging_id{id = <<0,0,0,1>>},
 		    ReqQoSProfile],
     ResponseIEs = tunnel_endpoint_elements(Context, ResponseIEs0),
-    Reply = response(update_pdp_context_response, Context,
-		     Recovery /= undefined, ResponseIEs),
+    Reply = response(update_pdp_context_response, Context, ResponseIEs, Request),
     {reply, Reply, State1};
 
 handle_request(_ReqKey,
-	       #gtp{type = ms_info_change_notification_request,
-		    ie = #{?'Recovery' := Recovery} = IEs},
+	       #gtp{type = ms_info_change_notification_request, ie = IEs} = Request,
 	       _Resent, #{context := OldContext} = State) ->
 
     Context = update_context_from_gtp_req(IEs, OldContext),
 
     ResponseIEs0 = [#cause{value = request_accepted}],
-    ResponseIEs = copy_ies_to_response(IEs, ResponseIEs0,
-				       [?'IMSI', ?'IMEI']),
-    Response = response(ms_info_change_notification_response, Context,
-			Recovery /= undefined, ResponseIEs),
+    ResponseIEs = copy_ies_to_response(IEs, ResponseIEs0, [?'IMSI', ?'IMEI']),
+    Response = response(ms_info_change_notification_response, Context, ResponseIEs, Request),
     {reply, Response, State#{context => Context}};
 
 handle_request(_ReqKey,
@@ -226,11 +219,11 @@ terminate(_Reason, _State) ->
 response(Cmd, #context{remote_control_tei = TEID}, Response) ->
     {Cmd, TEID, Response}.
 
-response(Cmd, Context, IncludeRecovery, IEs0) ->
-    IEs = gtp_v1_c:build_recovery(Context, IncludeRecovery, IEs0),
+response(Cmd, Context, IEs0, #gtp{ie = #{?'Recovery' := Recovery}}) ->
+    IEs = gtp_v1_c:build_recovery(Context, Recovery /= undefined, IEs0),
     response(Cmd, Context, IEs).
 
-authenticate(Context, Session, SessionOpts, Recovery) ->
+authenticate(Context, Session, SessionOpts, Request) ->
     lager:info("SessionOpts: ~p", [SessionOpts]),
 
     case ergw_aaa_session:authenticate(Session, SessionOpts) of
@@ -242,8 +235,7 @@ authenticate(Context, Session, SessionOpts, Recovery) ->
 	    lager:info("AuthResult: ~p", [Other]),
 
 	    Reply1 = response(create_pdp_context_response, Context,
-			      Recovery /= undefined,
-			      [#cause{value = user_authentication_failed}]),
+			      [#cause{value = user_authentication_failed}], Request),
 	    throw(#ctx_err{level = ?FATAL,
 			   reply = Reply1,
 			   context = Context})
