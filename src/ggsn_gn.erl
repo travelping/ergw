@@ -154,16 +154,14 @@ handle_request(_ReqKey,
     {reply, Reply, State#{context => Context}};
 
 handle_request(_ReqKey,
-	       #gtp{version = Version,
-		    type = update_pdp_context_request,
+	       #gtp{type = update_pdp_context_request,
 		    ie = #{?'Recovery' := Recovery,
 			   ?'Quality of Service Profile' := ReqQoSProfile
 			  } = IEs} = Request, _Resent,
 	       #{context := OldContext} = State0) ->
 
-    Context0 = OldContext#context{version = Version},
-    Context1 = update_context_from_gtp_req(IEs, Context0),
-    Context = gtp_path:bind(Request, Context1),
+    Context0 = update_context_from_gtp_req(IEs, OldContext),
+    Context = gtp_path:bind(Request, Context0),
 
     State1 = if Context /= OldContext ->
 		     gtp_context:update_remote_context(OldContext, Context),

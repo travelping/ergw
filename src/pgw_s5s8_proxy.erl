@@ -231,22 +231,21 @@ handle_request(ReqKey,
     {noreply, StateNew};
 
 handle_request(ReqKey,
-	       #gtp{version = Version, type = modify_bearer_request} = Request,
+	       #gtp{type = modify_bearer_request} = Request,
 	       _Resent,
 	       #{context := OldContext,
 		 proxy_context := OldProxyContext} = State)
   when ?IS_REQUEST_CONTEXT(ReqKey, Request, OldContext) ->
 
-    Context0 = OldContext#context{version = Version},
-    Context1 = update_context_from_gtp_req(Request, Context0),
+    Context0 = update_context_from_gtp_req(Request, OldContext),
+    Context1 = gtp_path:bind(Request, Context0),
+
     gtp_context:enforce_restrictions(Request, Context1),
+    gtp_context:update_remote_context(OldContext, Context1),
 
-    Context2 = gtp_path:bind(Request, Context1),
-    gtp_context:update_remote_context(OldContext, Context2),
-    Context = apply_context_change(Context2, OldContext),
+    Context = apply_context_change(Context1, OldContext),
 
-    ProxyContext0 = OldProxyContext#context{version = Version},
-    ProxyContext = gtp_path:bind(ProxyContext0),
+    ProxyContext = gtp_path:bind(OldProxyContext),
 
     StateNew = State#{context => Context, proxy_context => ProxyContext},
     forward_request(sgw2pgw, ReqKey, Request, StateNew),

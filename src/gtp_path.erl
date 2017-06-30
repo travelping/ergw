@@ -66,13 +66,15 @@ bind(#context{remote_restart_counter = RestartCounter} = Context) ->
     path_recovery(RestartCounter, bind_path(Context)).
 
 bind(#gtp{ie = #{{recovery, 0} :=
-		     #recovery{restart_counter = RestartCounter}}}, Context) ->
-    path_recovery(RestartCounter, bind_path(Context));
+		     #recovery{restart_counter = RestartCounter}}
+	 } = Request, Context) ->
+    path_recovery(RestartCounter, bind_path(Request, Context));
 bind(#gtp{ie = #{{v2_recovery, 0} :=
-		     #v2_recovery{restart_counter = RestartCounter}}}, Context) ->
-    path_recovery(RestartCounter, bind_path(Context));
-bind(_Request, Context) ->
-    path_recovery(undefined, bind_path(Context)).
+		     #v2_recovery{restart_counter = RestartCounter}}
+	 } = Request, Context) ->
+    path_recovery(RestartCounter, bind_path(Request, Context));
+bind(Request, Context) ->
+    path_recovery(undefined, bind_path(Request, Context)).
 
 unbind(#context{version = Version, control_port = GtpPort, remote_control_ip = RemoteIP}) ->
     case get(GtpPort, Version, RemoteIP) of
@@ -311,6 +313,8 @@ unregister(Pid, #state{table = TID} = State0) ->
     ets:delete(TID, Pid),
     dec_path_counter(State0).
 
+bind_path(#gtp{version = Version}, Context) ->
+    bind_path(Context#context{version = Version}).
 
 bind_path(#context{version = Version, control_port = CntlGtpPort,
 		   remote_control_ip = RemoteCntlIP} = Context) ->

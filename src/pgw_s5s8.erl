@@ -184,8 +184,7 @@ handle_request(_ReqKey,
     {reply, Response, State#{context => Context}};
 
 handle_request(_ReqKey,
-	       #gtp{version = Version,
-		    type = modify_bearer_request,
+	       #gtp{type = modify_bearer_request,
 		    ie = #{?'Recovery' := Recovery,
 			   ?'Bearer Contexts to be modified' :=
 			       #v2_bearer_context{
@@ -202,10 +201,9 @@ handle_request(_ReqKey,
 
     FqCntlTEID = maps:get(?'Sender F-TEID for Control Plane', IEs, undefined),
 
-    Context0 = OldContext#context{version = Version},
-    Context1 = update_context_tunnel_ids(FqCntlTEID, FqDataTEID, Context0),
-    Context2 = update_context_from_gtp_req(IEs, Context1),
-    Context = gtp_path:bind(Request, Context2),
+    Context0 = update_context_tunnel_ids(FqCntlTEID, FqDataTEID, OldContext),
+    Context1 = update_context_from_gtp_req(IEs, Context0),
+    Context = gtp_path:bind(Request, Context1),
 
     State1 = if Context /= OldContext ->
 		     gtp_context:update_remote_context(OldContext, Context),
