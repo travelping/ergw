@@ -223,7 +223,7 @@ handle_request(ReqKey,
     {ProxyGtpPort, ProxyGtpDP} = get_proxy_sockets(ProxyInfo, State),
 
     ProxyContext0 = init_proxy_context(ProxyGtpPort, ProxyGtpDP, Context, ProxyInfo),
-    ProxyContext = gtp_path:bind(undefined, ProxyContext0),
+    ProxyContext = gtp_path:bind(ProxyContext0),
 
     StateNew = State#{context => Context, proxy_context => ProxyContext},
     forward_request(sgw2pgw, ReqKey, Request, StateNew),
@@ -248,7 +248,7 @@ handle_request(ReqKey,
     Context = apply_context_change(Context2, OldContext),
 
     ProxyContext0 = OldProxyContext#context{version = Version},
-    ProxyContext = gtp_path:bind(undefined, ProxyContext0),
+    ProxyContext = gtp_path:bind(ProxyContext0),
 
     StateNew = State#{context => Context, proxy_context => ProxyContext},
     forward_request(sgw2pgw, ReqKey, Request, StateNew),
@@ -264,7 +264,7 @@ handle_request(ReqKey,
   when ?IS_REQUEST_CONTEXT(ReqKey, Request, Context0) ->
 
     Context = gtp_path:bind(Recovery, Context0),
-    ProxyContext = gtp_path:bind(undefined, ProxyContext0),
+    ProxyContext = gtp_path:bind(ProxyContext0),
 
     StateNew = State#{context => Context, proxy_context => ProxyContext},
     forward_request(sgw2pgw, ReqKey, Request, StateNew),
@@ -283,7 +283,7 @@ handle_request(ReqKey,
   when ?IS_REQUEST_CONTEXT_OPTIONAL_TEI(ReqKey, Request, Context0) ->
 
     Context = gtp_path:bind(Recovery, Context0),
-    ProxyContext = gtp_path:bind(undefined, ProxyContext0),
+    ProxyContext = gtp_path:bind(ProxyContext0),
 
     StateNew = State#{context => Context, proxy_context => ProxyContext},
     forward_request(sgw2pgw, ReqKey, Request, StateNew),
@@ -304,7 +304,7 @@ handle_request(ReqKey,
        ?IS_REQUEST_CONTEXT(ReqKey, Request, Context0) ->
 
     Context = gtp_path:bind(Recovery, Context0),
-    ProxyContext = gtp_path:bind(undefined, ProxyContext0),
+    ProxyContext = gtp_path:bind(ProxyContext0),
 
     StateNew = State#{context => Context, proxy_context => ProxyContext},
     forward_request(sgw2pgw, ReqKey, Request, StateNew),
@@ -323,7 +323,7 @@ handle_request(ReqKey,
   when ?IS_REQUEST_CONTEXT(ReqKey, Request, ProxyContext0) ->
 
     ProxyContext = gtp_path:bind(Recovery, ProxyContext0),
-    Context = gtp_path:bind(undefined, Context0),
+    Context = gtp_path:bind(Context0),
 
     StateNew = State#{context => Context, proxy_context => ProxyContext},
     forward_request(pgw2sgw, ReqKey, Request, StateNew),
