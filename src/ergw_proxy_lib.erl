@@ -8,17 +8,31 @@
 -module(ergw_proxy_lib).
 
 -export([validate_options/3, validate_option/2,
-	 make_proxy_request/3]).
+	 forward_request/5]).
 
 -include("include/ergw.hrl").
 
 %%%===================================================================
 %%% API
 %%%===================================================================
+
+forward_request(#context{control_port = GtpPort, remote_control_ip = RemoteCntlIP},
+		Request, ReqKey, SeqNo, NewPeer) ->
+    ReqInfo = make_proxy_request(ReqKey, SeqNo, NewPeer),
+    lager:debug("Invoking Context Send Request: ~p", [Request]),
+    gtp_context:forward_request(GtpPort, RemoteCntlIP, Request, ReqInfo).
+
+%%%===================================================================
+%%% Options Validation
+%%%===================================================================
+
 -define(ProxyDefaults, [{proxy_data_source, gtp_proxy_ds},
 			{proxy_sockets,     []},
 			{proxy_data_paths,  []},
 			{contexts,          []}]).
+
+-define(ContextDefaults, [{proxy_sockets,    []},
+			  {proxy_data_paths, []}]).
 
 validate_options(Fun, Opts, Defaults) ->
     gtp_context:validate_options(Fun, Opts, Defaults ++ ?ProxyDefaults).
@@ -40,21 +54,6 @@ validate_option(contexts, Values) when is_list(Values); is_map(Values) ->
 validate_option(Opt, Value) ->
     gtp_context:validate_option(Opt, Value).
 
-make_proxy_request(#request{key = ReqKey} = Request, SeqNo, NewPeer) ->
-    #proxy_request{
-       key = {ReqKey, SeqNo},
-       request = Request,
-       seq_no = SeqNo,
-       new_peer = NewPeer
-      }.
-
-%%%===================================================================
-%%% Options Validation
-%%%===================================================================
-
--define(ContextDefaults, [{proxy_sockets,    []},
-			  {proxy_data_paths, []}]).
-
 validate_context_option(proxy_sockets, Value) when is_list(Value), Value /= [] ->
     Value;
 validate_context_option(proxy_data_paths, Value) when is_list(Value), Value /= [] ->
@@ -69,3 +68,15 @@ validate_context(Name, Opts0, Acc)
     Acc#{Name => Opts};
 validate_context(Name, Opts, _Acc) ->
     throw({error, {options, {contexts, {Name, Opts}}}}).
+
+%%%===================================================================
+%%% Helper functions
+%%%===================================================================
+
+make_proxy_request(#request{key = ReqKey} = Request, SeqNo, NewPeer) ->
+    #proxy_request{
+       key = {ReqKey, SeqNo},
+       request = Request,
+       seq_no = SeqNo,
+       new_peer = NewPeer
+      }.
