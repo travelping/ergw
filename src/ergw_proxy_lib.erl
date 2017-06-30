@@ -8,7 +8,7 @@
 -module(ergw_proxy_lib).
 
 -export([validate_options/3, validate_option/2,
-	 forward_request/5]).
+	 forward_request/6]).
 
 -include("include/ergw.hrl").
 
@@ -16,9 +16,11 @@
 %%% API
 %%%===================================================================
 
-forward_request(#context{control_port = GtpPort, remote_control_ip = RemoteCntlIP},
+forward_request(Direction,
+		#context{control_port = GtpPort,
+			 remote_control_ip = RemoteCntlIP},
 		Request, ReqKey, SeqNo, NewPeer) ->
-    ReqInfo = make_proxy_request(ReqKey, SeqNo, NewPeer),
+    ReqInfo = make_proxy_request(Direction, ReqKey, SeqNo, NewPeer),
     lager:debug("Invoking Context Send Request: ~p", [Request]),
     gtp_context:forward_request(GtpPort, RemoteCntlIP, Request, ReqInfo).
 
@@ -73,9 +75,10 @@ validate_context(Name, Opts, _Acc) ->
 %%% Helper functions
 %%%===================================================================
 
-make_proxy_request(#request{key = ReqKey} = Request, SeqNo, NewPeer) ->
+make_proxy_request(Direction, #request{key = ReqKey} = Request, SeqNo, NewPeer) ->
     #proxy_request{
        key = {ReqKey, SeqNo},
+       direction = Direction,
        request = Request,
        seq_no = SeqNo,
        new_peer = NewPeer
