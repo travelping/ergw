@@ -349,8 +349,7 @@ handle_response(#proxy_request{direction = sgw2pgw,
     ProxyContext = gtp_path:bind(Response, ProxyContext1),
     gtp_context:register_remote_context(ProxyContext),
 
-    GtpResp0 = build_context_request(Context, Response),
-    GtpResp = build_recovery(Context, NewPeer, GtpResp0),
+    GtpResp = build_context_request(Context, NewPeer, Response),
     gtp_context:send_response(ReqKey, GtpResp#gtp{seq_no = SeqNo}),
 
     if ?CAUSE_OK(Cause) ->
@@ -374,8 +373,7 @@ handle_response(#proxy_request{direction = sgw2pgw,
     gtp_context:update_remote_context(OldProxyContext, ProxyContext0),
     ProxyContext = apply_context_change(ProxyContext0, OldProxyContext),
 
-    GtpResp0 = build_context_request(Context, Response),
-    GtpResp = build_recovery(Context, NewPeer, GtpResp0),
+    GtpResp = build_context_request(Context, NewPeer, Response),
     gtp_context:send_response(ReqKey, GtpResp#gtp{seq_no = SeqNo}),
 
     dp_update_pdp_context(Context, ProxyContext),
@@ -391,8 +389,7 @@ handle_response(#proxy_request{direction = sgw2pgw,
 		#{context := Context} = State) ->
     lager:warning("OK Proxy Response ~p", [lager:pr(Response, ?MODULE)]),
 
-    GtpResp0 = build_context_request(Context, Response),
-    GtpResp = build_recovery(Context, NewPeer, GtpResp0),
+    GtpResp = build_context_request(Context, NewPeer, Response),
     gtp_context:send_response(ReqKey, GtpResp#gtp{seq_no = SeqNo}),
 
     {noreply, State};
@@ -408,8 +405,7 @@ handle_response(#proxy_request{direction = sgw2pgw,
        Type == resume_acknowledge ->
     lager:warning("OK Proxy Acknowledge ~p", [lager:pr(Response, ?MODULE)]),
 
-    GtpResp0 = build_context_request(Context, Response),
-    GtpResp = build_recovery(Context, NewPeer, GtpResp0),
+    GtpResp = build_context_request(Context, NewPeer, Response),
     gtp_context:send_response(ReqKey, GtpResp#gtp{seq_no = SeqNo}),
 
     {noreply, State};
@@ -423,20 +419,19 @@ handle_response(#proxy_request{direction = pgw2sgw,
 		#{proxy_context := ProxyContext} = State) ->
     lager:warning("OK Response ~p", [lager:pr(Response, ?MODULE)]),
 
-    GtpResp0 = build_context_request(ProxyContext, Response),
-    GtpResp = build_recovery(ProxyContext, NewPeer, GtpResp0),
+    GtpResp = build_context_request(ProxyContext, NewPeer, Response),
     gtp_context:send_response(ReqKey, GtpResp#gtp{seq_no = SeqNo}),
 
     {noreply, State};
 
 handle_response(#proxy_request{direction = sgw2pgw,
-			       request = ReqKey, seq_no = SeqNo},
+			       request = ReqKey, seq_no = SeqNo, new_peer = NewPeer},
 		#gtp{type = delete_session_response} = Response, _Request,
 		#{context := Context,
 		  proxy_context := ProxyContext} = State) ->
     lager:warning("OK Proxy Response ~p", [lager:pr(Response, ?MODULE)]),
 
-    GtpResp = build_context_request(Context, Response),
+    GtpResp = build_context_request(Context, NewPeer, Response),
     gtp_context:send_response(ReqKey, GtpResp#gtp{seq_no = SeqNo}),
 
     dp_delete_pdp_context(Context, ProxyContext),
@@ -446,13 +441,13 @@ handle_response(#proxy_request{direction = sgw2pgw,
 %% SGW to PGW delete bearer response
 %%
 handle_response(#proxy_request{direction = pgw2sgw,
-			       request = ReqKey, seq_no = SeqNo},
+			       request = ReqKey, seq_no = SeqNo, new_peer = NewPeer},
 		#gtp{type = delete_bearer_response} = Response, _Request,
 		#{context := Context,
 		  proxy_context := ProxyContext} = State) ->
     lager:warning("OK Proxy Response ~p", [lager:pr(Response, ?MODULE)]),
 
-    GtpResp = build_context_request(ProxyContext, Response),
+    GtpResp = build_context_request(ProxyContext, NewPeer, Response),
     gtp_context:send_response(ReqKey, GtpResp#gtp{seq_no = SeqNo}),
 
     dp_delete_pdp_context(Context, ProxyContext),
@@ -627,9 +622,10 @@ proxy_info(DefaultGGSN,
 		msisdn = MSISDN, restrictions = Restrictions}.
 
 build_context_request(#context{remote_control_tei = TEI} = Context,
-		      #gtp{ie = RequestIEs} = Request) ->
+		      NewPeer, #gtp{ie = RequestIEs} = Request) ->
     ProxyIEs0 = maps:without([?'Recovery'], RequestIEs),
-    ProxyIEs = update_gtp_req_from_context(Context, ProxyIEs0),
+    ProxyIEs1 = update_gtp_req_from_context(Context, ProxyIEs0),
+    ProxyIEs = gtp_v2_c:build_recovery(Context, NewPeer, ProxyIEs1),
     Request#gtp{tei = TEI, ie = ProxyIEs}.
 
 send_request(#context{control_port = GtpPort,
@@ -655,8 +651,7 @@ forward_request(Direction, ReqKey,
 		     ie = #{?'Recovery' := Recovery}} = Request,
 		State) ->
     Context = forward_context(Direction, State),
-    FwdReq0 = build_context_request(Context, Request),
-    FwdReq = build_recovery(Context, false, FwdReq0),
+    FwdReq = build_context_request(Context, false, Request),
 
     ergw_proxy_lib:forward_request(Direction, Context, FwdReq, ReqKey,
 				   SeqNo, Recovery /= undefined).
@@ -678,9 +673,6 @@ dp_update_pdp_context(GrxContext, FwdContext) ->
 dp_delete_pdp_context(GrxContext, FwdContext) ->
     Args = proxy_dp_args(FwdContext),
     gtp_dp:delete_pdp_context(GrxContext, Args).
-
-build_recovery(Context, NewPeer, #gtp{ie = IEs} = Request) ->
-    Request#gtp{ie = gtp_v2_c:build_recovery(Context, NewPeer, IEs)}.
 
 get_proxy_sockets(#proxy_info{context = Context},
 	       #{contexts := Contexts, proxy_ports := ProxyPorts, proxy_dps := ProxyDPs}) ->
