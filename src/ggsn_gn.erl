@@ -119,7 +119,7 @@ handle_request(_ReqKey,
 		    ie = #{
 		      ?'Recovery' := Recovery,
 		      ?'Quality of Service Profile' := ReqQoSProfile
-		     } = IEs}, _Resent,
+		     } = IEs} = Request, _Resent,
 	       #{context := Context0,
 		 aaa_opts := AAAopts,
 		 'Session' := Session} = State) ->
@@ -127,7 +127,7 @@ handle_request(_ReqKey,
     EUA = maps:get(?'End User Address', IEs, undefined),
 
     Context1 = update_context_from_gtp_req(IEs, Context0),
-    ContextPreAuth = gtp_path:bind(Recovery, Context1),
+    ContextPreAuth = gtp_path:bind(Request, Context1),
 
     SessionOpts0 = init_session(IEs, ContextPreAuth, AAAopts),
     SessionOpts1 = init_session_from_gtp_req(IEs, AAAopts, SessionOpts0),
@@ -157,12 +157,13 @@ handle_request(_ReqKey,
 	       #gtp{version = Version,
 		    type = update_pdp_context_request,
 		    ie = #{?'Recovery' := Recovery,
-			   ?'Quality of Service Profile' := ReqQoSProfile} = IEs}, _Resent,
+			   ?'Quality of Service Profile' := ReqQoSProfile
+			  } = IEs} = Request, _Resent,
 	       #{context := OldContext} = State0) ->
 
     Context0 = OldContext#context{version = Version},
     Context1 = update_context_from_gtp_req(IEs, Context0),
-    Context = gtp_path:bind(Recovery, Context1),
+    Context = gtp_path:bind(Request, Context1),
 
     State1 = if Context /= OldContext ->
 		     gtp_context:update_remote_context(OldContext, Context),
@@ -208,11 +209,10 @@ handle_request(_ReqKey, _Msg, _Resent, State) ->
 
 handle_response(From,
 		#gtp{type = delete_pdp_context_response,
-		     ie = #{?'Recovery' := Recovery,
-			    ?'Cause'    := #cause{value = Cause}}},
+		     ie = #{?'Cause' := #cause{value = Cause}}} = Response,
 		_Request,
 		#{context := Context0} = State) ->
-    Context = gtp_path:bind(Recovery, Context0),
+    Context = gtp_path:bind(Response, Context0),
     dp_delete_pdp_context(Context),
     pdp_release_ip(Context),
     gen_server:reply(From, {ok, Cause}),

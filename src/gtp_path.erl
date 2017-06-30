@@ -65,10 +65,14 @@ handle_request(#request{gtp_port = GtpPort, ip = IP} = ReqKey, #gtp{version = Ve
 bind(#context{remote_restart_counter = RestartCounter} = Context) ->
     path_recovery(RestartCounter, bind_path(Context)).
 
-bind(Recovery, #context{version = v1} = Context) ->
-    path_recovery(gtp_v1_c:restart_counter(Recovery), bind_path(Context));
-bind(Recovery, #context{version = v2} = Context) ->
-    path_recovery(gtp_v2_c:restart_counter(Recovery), bind_path(Context)).
+bind(#gtp{ie = #{{recovery, 0} :=
+		     #recovery{restart_counter = RestartCounter}}}, Context) ->
+    path_recovery(RestartCounter, bind_path(Context));
+bind(#gtp{ie = #{{v2_recovery, 0} :=
+		     #v2_recovery{restart_counter = RestartCounter}}}, Context) ->
+    path_recovery(RestartCounter, bind_path(Context));
+bind(_Request, Context) ->
+    path_recovery(undefined, bind_path(Context)).
 
 unbind(#context{version = Version, control_port = GtpPort, remote_control_ip = RemoteIP}) ->
     case get(GtpPort, Version, RemoteIP) of

@@ -149,7 +149,7 @@ handle_request(_ReqKey,
 					#v2_fully_qualified_tunnel_endpoint_identifier{interface_type = ?'S5/S8-U SGW'} =
 					FqDataTEID
 				   }}
-			  } = IEs},
+			  } = IEs} = Request,
 	       _Resent,
 	       #{context := Context0, aaa_opts := AAAopts, 'Session' := Session} = State) ->
 
@@ -157,7 +157,7 @@ handle_request(_ReqKey,
 
     Context1 = update_context_tunnel_ids(FqCntlTEID, FqDataTEID, Context0),
     Context2 = update_context_from_gtp_req(IEs, Context1),
-    ContextPreAuth = gtp_path:bind(Recovery, Context2),
+    ContextPreAuth = gtp_path:bind(Request, Context2),
 
     SessionOpts0 = init_session(IEs, ContextPreAuth, AAAopts),
     SessionOpts = init_session_from_gtp_req(IEs, AAAopts, SessionOpts0),
@@ -196,7 +196,7 @@ handle_request(_ReqKey,
 					#v2_fully_qualified_tunnel_endpoint_identifier{interface_type = ?'S5/S8-U SGW'} =
 					FqDataTEID
 				   }}
-			  } = IEs},
+			  } = IEs} = Request,
 	       _Resent,
 	       #{context := OldContext} = State0) ->
 
@@ -205,7 +205,7 @@ handle_request(_ReqKey,
     Context0 = OldContext#context{version = Version},
     Context1 = update_context_tunnel_ids(FqCntlTEID, FqDataTEID, Context0),
     Context2 = update_context_from_gtp_req(IEs, Context1),
-    Context = gtp_path:bind(Recovery, Context2),
+    Context = gtp_path:bind(Request, Context2),
 
     State1 = if Context /= OldContext ->
 		     gtp_context:update_remote_context(OldContext, Context),
@@ -323,11 +323,10 @@ handle_response(ReqInfo, #gtp{version = v1} = Msg, Request, State) ->
 
 handle_response(From,
 		#gtp{type = delete_bearer_response,
-		     ie = #{?'Recovery' := Recovery,
-			    ?'Cause'    := #v2_cause{v2_cause = Cause}}},
+		     ie = #{?'Cause' := #v2_cause{v2_cause = Cause}}} = Response,
 		_Request,
 		#{context := Context0} = State) ->
-    Context = gtp_path:bind(Recovery, Context0),
+    Context = gtp_path:bind(Response, Context0),
     dp_delete_pdp_context(Context),
     pdn_release_ip(Context),
     gen_server:reply(From, {ok, Cause}),

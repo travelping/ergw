@@ -20,7 +20,7 @@
 	 get_cause/1]).
 
 %% support functions
--export([restart_counter/1, build_recovery/3]).
+-export([build_recovery/3]).
 
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include("include/ergw.hrl").
@@ -36,10 +36,6 @@
 %%====================================================================
 %% API
 %%====================================================================
-restart_counter(#v2_recovery{restart_counter = RestartCounter}) ->
-    RestartCounter;
-restart_counter(_) ->
-    undefined.
 
 build_recovery(GtpPort = #gtp_port{}, NewPeer, IEs) when NewPeer == true ->
     add_recovery(GtpPort, IEs);

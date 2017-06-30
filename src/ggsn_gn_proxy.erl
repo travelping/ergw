@@ -213,7 +213,7 @@ handle_request(ReqKey,
 	       #{context := Context0} = State) ->
 
     Context1 = update_context_from_gtp_req(Request, Context0#context{state = #context_state{}}),
-    ContextPreProxy = gtp_path:bind(Recovery, Context1),
+    ContextPreProxy = gtp_path:bind(Request, Context1),
     gtp_context:register_remote_context(ContextPreProxy),
 
     Session1 = init_session(IEs, ContextPreProxy),
@@ -238,8 +238,7 @@ handle_request(ReqKey,
 
 handle_request(ReqKey,
 	       #gtp{version = Version,
-		    type = update_pdp_context_request,
-		    ie = #{?'Recovery' := Recovery}} = Request, _Resent,
+		    type = update_pdp_context_request} = Request, _Resent,
 	       #{context := OldContext,
 		 proxy_context := OldProxyContext} = State)
   when ?IS_REQUEST_CONTEXT(ReqKey, Request, OldContext) ->
@@ -248,7 +247,7 @@ handle_request(ReqKey,
     Context1 = update_context_from_gtp_req(Request, Context0),
     gtp_context:enforce_restrictions(Request, Context1),
 
-    Context2 = gtp_path:bind(Recovery, Context1),
+    Context2 = gtp_path:bind(Request, Context1),
     gtp_context:update_remote_context(OldContext, Context2),
     Context = apply_context_change(Context2, OldContext),
 
@@ -264,14 +263,13 @@ handle_request(ReqKey,
 %% GGSN to SGW Update PDP Context Request
 %%
 handle_request(ReqKey,
-	       #gtp{type = update_pdp_context_request,
-		    ie = #{?'Recovery' := Recovery}} = Request, _Resent,
+	       #gtp{type = update_pdp_context_request} = Request, _Resent,
 	       #{context := Context0,
 		 proxy_context := ProxyContext0} = State)
   when ?IS_REQUEST_CONTEXT(ReqKey, Request, ProxyContext0) ->
 
     Context = gtp_path:bind(Context0),
-    ProxyContext = gtp_path:bind(Recovery, ProxyContext0),
+    ProxyContext = gtp_path:bind(Request, ProxyContext0),
 
     StateNew = State#{context => Context, proxy_context => ProxyContext},
     forward_request(ggsn2sgsn, ReqKey, Request, StateNew),
@@ -279,13 +277,12 @@ handle_request(ReqKey,
     {noreply, StateNew};
 
 handle_request(ReqKey,
-	       #gtp{type = ms_info_change_notification_request,
-		    ie = #{?'Recovery' := Recovery}} = Request,
+	       #gtp{type = ms_info_change_notification_request} = Request,
 	       _Resent,
 	       #{context := Context0,
 		 proxy_context := ProxyContext0} = State) ->
 
-    Context = gtp_path:bind(Recovery, Context0),
+    Context = gtp_path:bind(Request, Context0),
     ProxyContext = gtp_path:bind(ProxyContext0),
 
     StateNew = State#{context => Context, proxy_context => ProxyContext},
@@ -315,15 +312,14 @@ handle_request(#request{gtp_port = GtpPort}, Msg, _Resent, State) ->
 
 handle_response(#proxy_request{request = ReqKey, seq_no = SeqNo, new_peer = NewPeer},
 		#gtp{type = create_pdp_context_response,
-		     ie = #{?'Recovery' := Recovery,
-			    ?'Cause' := #cause{value = Cause}}} = Response, _Request,
+		     ie = #{?'Cause' := #cause{value = Cause}}} = Response, _Request,
 		#{context := Context,
 		  proxy_context := ProxyContext0} = State)
   when ?IS_RESPONSE_CONTEXT(ReqKey, Context, Response, ProxyContext0) ->
     lager:warning("OK Proxy Response ~p", [lager:pr(Response, ?MODULE)]),
 
     ProxyContext1 = update_context_from_gtp_req(Response, ProxyContext0),
-    ProxyContext = gtp_path:bind(Recovery, ProxyContext1),
+    ProxyContext = gtp_path:bind(Response, ProxyContext1),
     gtp_context:register_remote_context(ProxyContext),
 
     GtpResp0 = build_context_request(Context, Response),
