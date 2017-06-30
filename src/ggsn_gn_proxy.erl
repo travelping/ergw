@@ -220,7 +220,7 @@ handle_request(ReqKey,
     lager:debug("Invoking CONTROL: ~p", [Session1]),
     %% ergw_control:authenticate(Session1),
 
-    #proxy_info{ggsn = GGSN, restrictions = Restrictions} =
+    #proxy_info{restrictions = Restrictions} =
 	ProxyInfo = handle_proxy_info(ContextPreProxy, Recovery, State),
 
     Context = ContextPreProxy#context{restrictions = Restrictions},
@@ -228,7 +228,7 @@ handle_request(ReqKey,
 
     {ProxyGtpPort, ProxyGtpDP} = get_proxy_sockets(ProxyInfo, State),
 
-    ProxyContext0 = init_proxy_context(GGSN, ProxyGtpPort, ProxyGtpDP, Context, ProxyInfo),
+    ProxyContext0 = init_proxy_context(ProxyGtpPort, ProxyGtpDP, Context, ProxyInfo),
     ProxyContext = gtp_path:bind(undefined, ProxyContext0),
 
     StateNew = State#{context => Context, proxy_context => ProxyContext},
@@ -478,10 +478,10 @@ copy_to_session(_K, #selection_mode{mode = Mode}, Session) ->
 copy_to_session(_K, _V, Session) ->
     Session.
 
-init_proxy_context(GGSN, CntlPort, DataPort,
+init_proxy_context(CntlPort, DataPort,
 		   #context{imei = IMEI, version = Version,
 			    control_interface = Interface, state = State},
-		   #proxy_info{apn = APN, imsi = IMSI, msisdn = MSISDN}) ->
+		   #proxy_info{ggsn = GGSN, apn = APN, imsi = IMSI, msisdn = MSISDN}) ->
 
     {ok, CntlTEI} = gtp_c_lib:alloc_tei(CntlPort),
     {ok, DataTEI} = gtp_c_lib:alloc_tei(DataPort),
