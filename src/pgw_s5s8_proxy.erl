@@ -205,8 +205,7 @@ handle_request(ReqKey, #gtp{version = v1} = Msg, Resent, State) ->
     ?GTP_v1_Interface:handle_request(ReqKey, Msg, Resent, State);
 
 handle_request(ReqKey,
-	       #gtp{type = create_session_request,
-		    ie = #{?'Recovery' := Recovery}} = Request,
+	       #gtp{type = create_session_request} = Request,
 	       _Resent,
 	       #{context := Context0} = State) ->
 
@@ -215,7 +214,7 @@ handle_request(ReqKey,
     gtp_context:register_remote_context(ContextPreProxy),
 
     #proxy_info{restrictions = Restrictions} = ProxyInfo =
-	handle_proxy_info(ContextPreProxy, Recovery, State),
+	handle_proxy_info(Request, ContextPreProxy, State),
 
     Context = ContextPreProxy#context{restrictions = Restrictions},
     gtp_context:enforce_restrictions(Request, Context),
@@ -486,8 +485,9 @@ terminate(_Reason, _State) ->
 %%% Helper functions
 %%%===================================================================
 
-handle_proxy_info(Context, Recovery, #{default_gw := DefaultPGW,
-				       proxy_ds := ProxyDS}) ->
+handle_proxy_info(#gtp{ie = #{?'Recovery' := Recovery}},
+		  Context,
+		  #{default_gw := DefaultPGW, proxy_ds := ProxyDS}) ->
     ProxyInfo0 = proxy_info(DefaultPGW, Context),
     case ProxyDS:map(ProxyInfo0) of
 	{ok, #proxy_info{} = ProxyInfo} ->

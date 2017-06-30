@@ -209,7 +209,7 @@ handle_request(_ReqKey, _Msg, true, State) ->
 
 handle_request(ReqKey,
 	       #gtp{type = create_pdp_context_request,
-		    ie = #{?'Recovery' := Recovery} = IEs} = Request, _Resent,
+		    ie = IEs} = Request, _Resent,
 	       #{context := Context0} = State) ->
 
     Context1 = update_context_from_gtp_req(Request, Context0#context{state = #context_state{}}),
@@ -221,7 +221,7 @@ handle_request(ReqKey,
     %% ergw_control:authenticate(Session1),
 
     #proxy_info{restrictions = Restrictions} =
-	ProxyInfo = handle_proxy_info(ContextPreProxy, Recovery, State),
+	ProxyInfo = handle_proxy_info(Request, ContextPreProxy, State),
 
     Context = ContextPreProxy#context{restrictions = Restrictions},
     gtp_context:enforce_restrictions(Request, Context),
@@ -418,8 +418,9 @@ terminate(_Reason, _State) ->
 %%% Internal functions
 %%%===================================================================
 
-handle_proxy_info(Context, Recovery, #{default_gw := DefaultGGSN,
-				       proxy_ds := ProxyDS}) ->
+handle_proxy_info(#gtp{ie = #{?'Recovery' := Recovery}},
+		  Context,
+		  #{default_gw := DefaultGGSN, proxy_ds := ProxyDS}) ->
     ProxyInfo0 = proxy_info(DefaultGGSN, Context),
     case ProxyDS:map(ProxyInfo0) of
 	{ok, #proxy_info{} = ProxyInfo} ->

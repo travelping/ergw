@@ -138,8 +138,7 @@ handle_request(ReqKey, #gtp{version = v1} = Msg, Resent, State) ->
 
 handle_request(_ReqKey,
 	       #gtp{type = create_session_request,
-		    ie = #{?'Recovery'                        := Recovery,
-			   ?'Sender F-TEID for Control Plane' := FqCntlTEID,
+		    ie = #{?'Sender F-TEID for Control Plane' := FqCntlTEID,
 			   ?'Bearer Contexts to be created' :=
 			       #v2_bearer_context{
 				  group = #{
@@ -163,7 +162,7 @@ handle_request(_ReqKey,
     SessionOpts = init_session_from_gtp_req(IEs, AAAopts, SessionOpts0),
     %% SessionOpts = init_session_qos(ReqQoSProfile, SessionOpts1),
 
-    authenticate(ContextPreAuth, Session, SessionOpts, Recovery),
+    authenticate(ContextPreAuth, Session, SessionOpts, Request),
     {ContextVRF, VRFOpts} = select_vrf(ContextPreAuth),
 
     ActiveSessionOpts0 = ergw_aaa_session:get(Session),
@@ -176,8 +175,7 @@ handle_request(_ReqKey,
     dp_create_pdp_context(Context),
 
     ResponseIEs = create_session_response(ActiveSessionOpts, IEs, EBI, Context),
-    Response = response(create_session_response, Context,
-			Recovery /= undefined, ResponseIEs),
+    Response = response(create_session_response, Context, ResponseIEs, Request),
 
     ergw_aaa_session:start(Session, #{}),
 
@@ -185,8 +183,7 @@ handle_request(_ReqKey,
 
 handle_request(_ReqKey,
 	       #gtp{type = modify_bearer_request,
-		    ie = #{?'Recovery' := Recovery,
-			   ?'Bearer Contexts to be modified' :=
+		    ie = #{?'Bearer Contexts to be modified' :=
 			       #v2_bearer_context{
 				  group = #{
 				    ?'EPS Bearer ID' := EBI,
@@ -228,20 +225,17 @@ handle_request(_ReqKey,
 			      #v2_charging_id{id = <<0,0,0,1>>},
 			      EBI]} |
 		    ResponseIEs0],
-    Response = response(modify_bearer_response, Context,
-			Recovery /= undefined, ResponseIEs),
+    Response = response(modify_bearer_response, Context, ResponseIEs, Request),
     {reply, Response, State1};
 
 handle_request(_ReqKey,
-	       #gtp{type = modify_bearer_request,
-		    ie = #{?'Recovery' := Recovery} = IEs},
+	       #gtp{type = modify_bearer_request, ie = IEs} = Request,
 	       _Resent, #{context := OldContext} = State) ->
 
     Context = update_context_from_gtp_req(IEs, OldContext),
 
     ResponseIEs = [#v2_cause{v2_cause = request_accepted}],
-    Response = response(modify_bearer_response, Context,
-			Recovery /= undefined, ResponseIEs),
+    Response = response(modify_bearer_response, Context, ResponseIEs, Request),
     {reply, Response, State#{context => Context}};
 
 handle_request(_ReqKey,
@@ -252,41 +246,34 @@ handle_request(_ReqKey,
     {noreply, State};
 
 handle_request(_ReqKey,
-	       #gtp{type = change_notification_request,
-		    ie = #{?'Recovery' := Recovery} = IEs},
+	       #gtp{type = change_notification_request, ie = IEs} = Request,
 	       _Resent, #{context := OldContext} = State) ->
 
     Context = update_context_from_gtp_req(IEs, OldContext),
 
     ResponseIEs0 = [#v2_cause{v2_cause = request_accepted}],
-    ResponseIEs = copy_ies_to_response(IEs, ResponseIEs0,
-				       [?'IMSI', ?'ME Identity']),
-    Response = response(change_notification_response, Context,
-			Recovery /= undefined, ResponseIEs),
+    ResponseIEs = copy_ies_to_response(IEs, ResponseIEs0, [?'IMSI', ?'ME Identity']),
+    Response = response(change_notification_response, Context, ResponseIEs, Request),
     {reply, Response, State#{context => Context}};
 
 handle_request(_ReqKey,
-	       #gtp{type = suspend_notification,
-		    ie = #{?'Recovery' := Recovery}},
+	       #gtp{type = suspend_notification} = Request,
 	       _Resent, #{context := Context} = State) ->
 
     %% don't do anything special for now
 
     ResponseIEs = [#v2_cause{v2_cause = request_accepted}],
-    Response = response(suspend_acknowledge, Context,
-			Recovery /= undefined, ResponseIEs),
+    Response = response(suspend_acknowledge, Context, ResponseIEs, Request),
     {reply, Response, State#{context => Context}};
 
 handle_request(_ReqKey,
-	       #gtp{type = resume_notification,
-		    ie = #{?'Recovery' := Recovery}},
+	       #gtp{type = resume_notification} = Request,
 	       _Resent, #{context := Context} = State) ->
 
     %% don't do anything special for now
 
     ResponseIEs = [#v2_cause{v2_cause = request_accepted}],
-    Response = response(resume_acknowledge, Context,
-			Recovery /= undefined, ResponseIEs),
+    Response = response(resume_acknowledge, Context, ResponseIEs, Request),
     {reply, Response, State#{context => Context}};
 
 handle_request(_ReqKey,
@@ -342,11 +329,11 @@ ip2prefix({IP, Prefix}) ->
 response(Cmd, #context{remote_control_tei = TEID}, Response) ->
     {Cmd, TEID, Response}.
 
-response(Cmd, Context, IncludeRecovery, IEs0) ->
-    IEs = gtp_v2_c:build_recovery(Context, IncludeRecovery, IEs0),
+response(Cmd, Context, IEs0, #gtp{ie = #{?'Recovery' := Recovery}}) ->
+    IEs = gtp_v2_c:build_recovery(Context, Recovery /= undefined, IEs0),
     response(Cmd, Context, IEs).
 
-authenticate(Context, Session, SessionOpts, Recovery) ->
+authenticate(Context, Session, SessionOpts, Request) ->
     lager:info("SessionOpts: ~p", [SessionOpts]),
 
     case ergw_aaa_session:authenticate(Session, SessionOpts) of
@@ -358,8 +345,7 @@ authenticate(Context, Session, SessionOpts, Recovery) ->
 	    lager:info("AuthResult: ~p", [Other]),
 
 	    Reply1 = response(create_session_response, Context,
-			      Recovery /= undefined,
-			      [#v2_cause{v2_cause = user_authentication_failed}]),
+			      [#v2_cause{v2_cause = user_authentication_failed}], Request),
 	    throw(#ctx_err{level = ?FATAL,
 			   reply = Reply1,
 			   context = Context})
