@@ -309,10 +309,10 @@ handle_response(#proxy_request{direction = sgsn2ggsn} = ProxyRequest,
     forward_response(ProxyRequest, Response, Context),
 
     if ?CAUSE_OK(Cause) ->
-	    dp_create_pdp_context(Context, ProxyContext),
-	    lager:info("Create PDP Context ~p", [Context]),
+	    ContextNew = dp_create_pdp_context(Context, ProxyContext),
+	    lager:info("Create PDP Context ~p", [ContextNew]),
 
-	    {noreply, State#{proxy_context => ProxyContext}};
+	    {noreply, State#{context := ContextNew, proxy_context => ProxyContext}};
 
        true ->
 	    {stop, State}

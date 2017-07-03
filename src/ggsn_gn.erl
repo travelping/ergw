@@ -139,10 +139,10 @@ handle_request(_ReqKey,
     ActiveSessionOpts = apply_vrf_session_defaults(VRFOpts, ActiveSessionOpts0),
     lager:info("ActiveSessionOpts: ~p", [ActiveSessionOpts]),
 
-    Context = assign_ips(ActiveSessionOpts, EUA, ContextVRF),
+    ContextPending = assign_ips(ActiveSessionOpts, EUA, ContextVRF),
 
-    gtp_context:register_remote_context(Context),
-    dp_create_pdp_context(Context),
+    gtp_context:register_remote_context(ContextPending),
+    Context = dp_create_pdp_context(ContextPending),
 
     ResponseIEs = create_pdp_context_response(ActiveSessionOpts, IEs, Context),
     Reply = response(create_pdp_context_response, Context, ResponseIEs, Request),
@@ -295,8 +295,8 @@ pdp_release_ip(#context{vrf = VRF, ms_v4 = MSv4, ms_v6 = MSv6}) ->
     vrf:release_pdp_ip(VRF, MSv4, MSv6).
 
 apply_context_change(NewContext0, OldContext, State) ->
-    NewContext = gtp_path:bind(NewContext0),
-    dp_update_pdp_context(NewContext, OldContext),
+    NewContextPending = gtp_path:bind(NewContext0),
+    NewContext = dp_update_pdp_context(NewContextPending, OldContext),
     gtp_path:unbind(OldContext),
     State#{context => NewContext}.
 
@@ -560,9 +560,10 @@ dp_create_pdp_context(Context) ->
     Args = dp_args(Context),
     gtp_dp:create_pdp_context(Context, Args).
 
-dp_update_pdp_context(#context{remote_data_ip  = RemoteDataIP, remote_data_tei = RemoteDataTEI},
+dp_update_pdp_context(#context{remote_data_ip  = RemoteDataIP, remote_data_tei = RemoteDataTEI
+			      } = New,
 		      #context{remote_data_ip  = RemoteDataIP, remote_data_tei = RemoteDataTEI}) ->
-    ok;
+    New;
 dp_update_pdp_context(NewContext, OldContext) ->
     dp_delete_pdp_context(OldContext),
     dp_create_pdp_context(NewContext).

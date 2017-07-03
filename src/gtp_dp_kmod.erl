@@ -39,17 +39,25 @@ send(GtpPort, IP, Port, Data) ->
 get_id(GtpPort) ->
     call(GtpPort, get_id).
 
-create_pdp_context(#context{data_port = GtpPort, remote_data_ip = PeerIP,
-			    local_data_tei = LocalTEI, remote_data_tei = RemoteTEI}, Args) ->
-    dp_call(GtpPort, {create_pdp_context, PeerIP, LocalTEI, RemoteTEI, Args}).
+create_pdp_context(#context{remote_data_ip = PeerIP,
+			    local_data_tei = LocalTEI,
+			    remote_data_tei = RemoteTEI} = Context, Args) ->
+    case dp_call(Context, {create_pdp_context, PeerIP, LocalTEI, RemoteTEI, Args}) of
+	{ok, Pid} when is_pid(Pid) ->
+	    Context#context{dp_pid = Pid};
+	_ ->
+	    Context
+    end.
 
-update_pdp_context(#context{data_port = GtpPort, remote_data_ip = PeerIP,
-			    local_data_tei = LocalTEI, remote_data_tei = RemoteTEI}, Args) ->
-    dp_call(GtpPort, {update_pdp_context, PeerIP, LocalTEI, RemoteTEI, Args}).
+update_pdp_context(#context{remote_data_ip = PeerIP,
+			    local_data_tei = LocalTEI,
+			    remote_data_tei = RemoteTEI} = Context, Args) ->
+    dp_call(Context, {update_pdp_context, PeerIP, LocalTEI, RemoteTEI, Args}).
 
-delete_pdp_context(#context{data_port = GtpPort, remote_data_ip = PeerIP,
-			    local_data_tei = LocalTEI, remote_data_tei = RemoteTEI}, Args) ->
-    dp_call(GtpPort, {delete_pdp_context, PeerIP, LocalTEI, RemoteTEI, Args}).
+delete_pdp_context(#context{remote_data_ip = PeerIP,
+			    local_data_tei = LocalTEI,
+			    remote_data_tei = RemoteTEI} = Context, Args) ->
+    dp_call(Context, {delete_pdp_context, PeerIP, LocalTEI, RemoteTEI, Args}).
 
 %%%===================================================================
 %%% call/cast wrapper for gtp_port
@@ -70,8 +78,11 @@ call(GtpPort, Request) ->
     lager:warning("GTP DP Port ~p, CAST Request ~p not implemented yet",
 		  [lager:pr(GtpPort, ?MODULE), Request]).
 
-dp_call(GtpPort, Request) ->
-    lager:debug("DP Call ~p: ~p", [lager:pr(GtpPort, ?MODULE), Request]),
+dp_call(#context{dp_pid = Pid}, Request) when is_pid(Pid) ->
+    lager:debug("DP Direct Call ~p: ~p", [Pid, Request]),
+    gen_server:call(Pid, Request);
+dp_call(#context{data_port = GtpPort}, Request) ->
+    lager:debug("DP Server Call ~p: ~p", [lager:pr(GtpPort, ?MODULE), Request]),
     call(GtpPort, {dp, Request}).
 
 %%%===================================================================
