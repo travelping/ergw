@@ -111,7 +111,7 @@ start_link(GtpPort, Version, Interface, IfOpts, Opts) ->
     gen_server:start_link(?MODULE, [GtpPort, Version, Interface, IfOpts], Opts).
 
 path_restart(Context, Path) ->
-    gen_server:cast(Context, {path_restart, Path}).
+    jobs:run(path_restart, fun() -> gen_server:call(Context, {path_restart, Path}) end).
 
 register_remote_context(#context{
 			   control_port       = CntlPort,

@@ -80,14 +80,15 @@ init(_Opts, State) ->
 
 handle_call(delete_context, From, #{context := Context} = State) ->
     delete_context(From, Context),
-    {noreply, State}.
+    {noreply, State};
 
-handle_cast({path_restart, Path}, #{context := #context{path = Path} = Context} = State) ->
+handle_call({path_restart, Path}, _From,
+	    #{context := #context{path = Path} = Context} = State) ->
     dp_delete_pdp_context(Context),
     pdp_release_ip(Context),
-    {stop, normal, State};
-handle_cast({path_restart, _Path}, State) ->
-    {noreply, State};
+    {stop, normal, ok, State};
+handle_call({path_restart, _Path}, _From, State) ->
+    {reply, ok, State}.
 
 handle_cast({packet_in, _GtpPort, _IP, _Port, #gtp{type = error_indication}},
 	    #{context := Context} = State) ->
