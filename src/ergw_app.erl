@@ -22,6 +22,7 @@
 start(_StartType, _StartArgs) ->
     do([error_m ||
 	   gtp_config:init(),
+	   ensure_jobs_queues(),
 	   Pid <- ergw_sup:start_link(),
 	   ergw_config:load_config(setup:get_all_env(ergw)),
            return(Pid)
@@ -33,3 +34,16 @@ stop(_State) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
+
+ensure_jobs_queues() ->
+    ensure_jobs_queue(path_restart, [{standard_counter, 100}]),
+    ensure_jobs_queue(create, [{standard_rate, 100}, {max_size, 10}]),
+    ensure_jobs_queue(delete, [{standard_counter, 100}]),
+    ensure_jobs_queue(other, [{standard_rate, 100}, {max_size, 10}]),
+    ok.
+
+ensure_jobs_queue(Name, Options) ->
+    case jobs:queue_info(Name) of
+        undefined -> jobs:add_queue(Name, Options);
+        {queue, _Props} -> ok
+    end.

@@ -17,7 +17,8 @@
 	 validate_teid/2,
 	 type/0, port/0,
 	 get_msg_keys/1,
-	 get_cause/1]).
+	 get_cause/1,
+	 load_class/1]).
 
 %% support functions
 -export([build_recovery/3]).
@@ -241,6 +242,17 @@ get_cause(#{?Cause := #cause{value = Cause}}) ->
 get_cause(_) ->
     undefined.
 
+load_class(#gtp{type = Type})
+  when Type =:= create_pdp_context_request;
+       Type =:= create_mbms_context_request ->
+    create;
+load_class(#gtp{type = Type})
+  when Type =:= delete_pdp_context_request;
+       Type =:= delete_mbms_context_request ->
+    delete;
+load_class(_) ->
+    other.
+
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
@@ -268,6 +280,8 @@ map_reply_ie(system_failure) ->
 map_reply_ie(missing_or_unknown_apn) ->
     #cause{value = missing_or_unknown_apn};
 map_reply_ie(no_resources_available) ->
+    #cause{value = no_resources_available};
+map_reply_ie(rejected) ->
     #cause{value = no_resources_available};
 map_reply_ie(IE)
   when is_tuple(IE) ->

@@ -17,7 +17,8 @@
 	 validate_teid/2,
 	 type/0, port/0,
 	 get_msg_keys/1,
-	 get_cause/1]).
+	 get_cause/1,
+	 load_class/1]).
 
 %% support functions
 -export([build_recovery/3]).
@@ -263,6 +264,18 @@ get_cause(#{?Cause := #v2_cause{v2_cause = Cause}}) ->
 get_cause(_) ->
     undefined.
 
+load_class(#gtp{type = Type})
+  when Type =:= create_session_request;
+       Type =:= create_bearer_request ->
+    create;
+load_class(#gtp{type = Type})
+  when Type =:= delete_session_request;
+       Type =:= delete_bearer_command;
+       Type =:= delete_bearer_request ->
+    delete;
+load_class(_) ->
+    other.
+
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
@@ -290,6 +303,8 @@ map_reply_ie(system_failure) ->
 map_reply_ie(missing_or_unknown_apn) ->
     #v2_cause{v2_cause = missing_or_unknown_apn};
 map_reply_ie(no_resources_available) ->
+    #v2_cause{v2_cause = no_resources_available};
+map_reply_ie(rejected) ->
     #v2_cause{v2_cause = no_resources_available};
 map_reply_ie(IE)
   when is_tuple(IE) ->

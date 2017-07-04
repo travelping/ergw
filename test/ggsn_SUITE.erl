@@ -112,7 +112,8 @@ all() ->
      ms_info_change_notification_request_invalid_imsi,
      invalid_teid,
      delete_pdp_context_requested,
-     delete_pdp_context_requested_resend].
+     delete_pdp_context_requested_resend,
+     create_pdp_context_overload].
 
 %%%===================================================================
 %%% Tests
@@ -149,6 +150,11 @@ init_per_testcase(TestCase, Config)
 					       T3, N3, Msg, ReqId])
 		     end),
     Config;
+init_per_testcase(create_pdp_context_overload, Config) ->
+    init_per_testcase(Config),
+    jobs:modify_queue(create, [{max_size, 0}]),
+    jobs:modify_regulator(rate, create, {rate,create,1}, [{limit,1}]),
+    Config;
 init_per_testcase(_, Config) ->
     init_per_testcase(Config),
     Config.
@@ -162,6 +168,10 @@ end_per_testcase(path_restart, Config) ->
 end_per_testcase(TestCase, Config)
   when TestCase == delete_pdp_context_requested_resend ->
     ok = meck:delete(gtp_socket, send_request, 7),
+    Config;
+end_per_testcase(create_pdp_context_overload, Config) ->
+    jobs:modify_queue(create, [{max_size, 10}]),
+    jobs:modify_regulator(rate, create, {rate,create,1}, [{limit,100}]),
     Config;
 end_per_testcase(_, Config) ->
     Config.
@@ -499,6 +509,17 @@ delete_pdp_context_requested_resend(Config) ->
     after ?TIMEOUT ->
 	    ct:fail(timeout)
     end,
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+create_pdp_context_overload() ->
+    [{doc, "Check that the overload protection works"}].
+create_pdp_context_overload(Config) ->
+    S = make_gtp_socket(Config),
+
+    create_pdp_context(overload, S),
+
     meck_validate(Config),
     ok.
 
