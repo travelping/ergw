@@ -241,7 +241,8 @@ all_tests() ->
      delete_pdp_context_requested,
      delete_pdp_context_requested_resend,
      delete_pdp_context_requested_invalid_teid,
-     delete_pdp_context_requested_late_response].
+     delete_pdp_context_requested_late_response,
+     create_pdp_context_overload].
 
 %%%===================================================================
 %%% Tests
@@ -295,6 +296,11 @@ init_per_testcase(ggsn_update_pdp_context_request, Config) ->
 			     meck:passthrough([From, Response, Request, State])
 		     end),
     Config;
+init_per_testcase(create_pdp_context_overload, Config) ->
+    init_per_testcase(Config),
+    jobs:modify_queue(create, [{max_size, 0}]),
+    jobs:modify_regulator(rate, create, {rate,create,1}, [{limit,1}]),
+    Config;
 init_per_testcase(_, Config) ->
     init_per_testcase(Config),
     Config.
@@ -313,6 +319,10 @@ end_per_testcase(simple_pdp_context_request, Config) ->
     Config;
 end_per_testcase(ggsn_update_pdp_context_request, Config) ->
     meck:unload(ggsn_gn),
+    Config;
+end_per_testcase(create_pdp_context_overload, Config) ->
+    jobs:modify_queue(create, [{max_size, 10}]),
+    jobs:modify_regulator(rate, create, {rate,create,1}, [{limit,100}]),
     Config;
 end_per_testcase(_, Config) ->
     Config.
@@ -776,6 +786,17 @@ ggsn_update_pdp_context_request(Config) ->
     delete_pdp_context(S, GtpC),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+create_pdp_context_overload() ->
+    [{doc, "Check that the overload protection works"}].
+create_pdp_context_overload(Config) ->
+    S = make_gtp_socket(Config),
+
+    create_pdp_context(overload, S),
+
     meck_validate(Config),
     ok.
 

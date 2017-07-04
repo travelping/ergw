@@ -345,3 +345,28 @@ NAPTR records for APN's on such a gateway should use "Service Parameters" of
 "x-3gpp-ggsn:x-gn", "x-3gpp-ggsn:x-gp", "x-3gpp-pgw:x-s5-gtp" and
 "x-3gpp-pgw:x-s8-gtp". "Service Parameters" of "x-3gpp-pgw:x-gn" and
 "x-3gpp-pgw:x-gp" **should not** be used.
+
+Rate Limiting
+-------------
+
+erGW uses the [Erlang jobs](https://github.com/uwiger/jobs/blob/master/README.md)
+to apply rate limiting to all incoming GTP messages.
+
+GTP messages are classified into `create`, `delete` and `other` classes. Each class
+has its own rules. Messages exceeding the configured rate are rejected with
+`No resources available`.
+
+It is recommended to configure the `delete` class with a counter queuing class that
+will limit the delete messages per second but not drop them.
+
+The internal default correspond to this setup:
+
+    {jobs, [{queues,
+             [{path_restart,
+               [{path_restart, [{standard_counter, 100}]},
+                {create, [{standard_rate, 100}, {max_size, 10}]},
+                {delete, [{standard_counter, 100}]},
+                {other, [{standard_rate, 100}, {max_size, 10}]}
+               ]}
+             ]}
+           ]}

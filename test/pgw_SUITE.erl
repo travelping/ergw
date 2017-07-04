@@ -131,7 +131,8 @@ all() ->
      delete_bearer_request,
      delete_bearer_request_resend,
      interop_sgsn_to_sgw,
-     interop_sgw_to_sgsn].
+     interop_sgw_to_sgsn,
+     create_session_overload].
 
 %%%===================================================================
 %%% Tests
@@ -174,6 +175,11 @@ init_per_testcase(TestCase, Config)
     init_per_testcase(Config),
     ok = meck:new(ggsn_gn, [passthrough, no_link]),
     Config;
+init_per_testcase(create_session_overload, Config) ->
+    init_per_testcase(Config),
+    jobs:modify_queue(create, [{max_size, 0}]),
+    jobs:modify_regulator(rate, create, {rate,create,1}, [{limit,1}]),
+    Config;
 init_per_testcase(_, Config) ->
     init_per_testcase(Config),
     Config.
@@ -192,6 +198,10 @@ end_per_testcase(TestCase, Config)
   when TestCase == interop_sgsn_to_sgw;
        TestCase == interop_sgw_to_sgsn ->
     ok = meck:unload(ggsn_gn),
+    Config;
+end_per_testcase(create_session_overload, Config) ->
+    jobs:modify_queue(create, [{max_size, 10}]),
+    jobs:modify_regulator(rate, create, {rate,create,1}, [{limit,100}]),
     Config;
 end_per_testcase(_, Config) ->
     Config.
@@ -632,6 +642,17 @@ interop_sgw_to_sgsn(Config) ->
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
     true = meck:validate(ggsn_gn),
+    ok.
+
+%%--------------------------------------------------------------------
+create_session_overload() ->
+    [{doc, "Check that the overload protection works"}].
+create_session_overload(Config) ->
+    S = make_gtp_socket(Config),
+
+    create_session(overload, S),
+
+    meck_validate(Config),
     ok.
 
 %%%===================================================================

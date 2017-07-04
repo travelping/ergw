@@ -76,10 +76,18 @@ try_handle_message(#request{gtp_port = GtpPort} = ReqKey, #gtp{tei = TEI} = Msg)
     context_handle_message(lookup(GtpPort, TEI), ReqKey, Msg).
 
 handle_message(ReqKey, Msg) ->
+    proc_lib:spawn(fun() -> q_handle_message(ReqKey, Msg) end),
+    ok.
+
+q_handle_message(ReqKey, Msg) ->
+    Q = load_class(Msg),
     try
-	try_handle_message(ReqKey, Msg)
+	jobs:run(Q, fun() -> try_handle_message(ReqKey, Msg) end)
     catch
 	throw:{error, Error} ->
+	    lager:error("handler failed with: ~p", [Error]),
+	    generic_error(ReqKey, Msg, Error);
+	error:Error = rejected ->
 	    lager:error("handler failed with: ~p", [Error]),
 	    generic_error(ReqKey, Msg, Error)
     end.
@@ -397,6 +405,11 @@ get_handler_if(GtpPort, #gtp{version = v1} = Msg) ->
 get_handler_if(GtpPort, #gtp{version = v2} = Msg) ->
     gtp_v2_c:get_handler(GtpPort, Msg).
 
+load_class(#gtp{version = v1} = Msg) ->
+    gtp_v1_c:load_class(Msg);
+load_class(#gtp{version = v2} = Msg) ->
+    gtp_v2_c:load_class(Msg).
+
 get_handler(#request{gtp_port = GtpPort} = ReqKey, Msg) ->
     case gtp_context_reg:lookup(GtpPort, ReqKey) of
 	Context when is_pid(Context) ->
@@ -433,7 +446,7 @@ context_handle_message(_Context, _ReqKey, _Msg) ->
 generic_error(#request{gtp_port = GtpPort} = ReqKey,
 	      #gtp{version = Version, type = MsgType, seq_no = SeqNo}, Error) ->
     Handler = gtp_path:get_handler(GtpPort, Version),
-    Reply = Handler:build_response({MsgType, Error}),
+    Reply = Handler:build_response({MsgType, 0, Error}),
     gtp_socket:send_response(ReqKey, Reply#gtp{seq_no = SeqNo}, SeqNo /= 0).
 
 validate_teid(#gtp{version = v1, type = MsgType, tei = TEID}) ->
