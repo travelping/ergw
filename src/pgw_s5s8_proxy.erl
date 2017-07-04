@@ -135,26 +135,26 @@ init(#{proxy_sockets := ProxyPorts, proxy_data_paths := ProxyDPs,
 
 handle_call(delete_context, _From, State) ->
     lager:warning("delete_context no handled(yet)"),
-    {reply, ok, State}.
+    {reply, ok, State};
 
-handle_cast({path_restart, Path},
+handle_call({path_restart, Path}, _From,
 	    #{context := #context{path = Path} = Context,
 	      proxy_context := ProxyContext
 	     } = State) ->
     initiate_delete_session_request(ProxyContext),
     dp_delete_pdp_context(Context, ProxyContext),
-    {stop, normal, State};
+    {stop, normal, ok, State};
 
-handle_cast({path_restart, Path},
+handle_call({path_restart, Path}, _From,
 	    #{context := Context,
 	      proxy_context := #context{path = Path} = ProxyContext
 	     } = State) ->
     initiate_delete_session_request(Context),
     dp_delete_pdp_context(Context, ProxyContext),
-    {stop, normal, State};
+    {stop, normal, ok, State};
 
-handle_cast({path_restart, _Path}, State) ->
-    {noreply, State};
+handle_call({path_restart, _Path}, _From, State) ->
+    {reply, ok, State}.
 
 handle_cast({packet_in, _GtpPort, _IP, _Port, #gtp{type = error_indication}},
 	    #{context := Context, proxy_context := ProxyContext} = State) ->
