@@ -26,14 +26,15 @@
 %%%===================================================================
 
 create_pdp_context(Socket) ->
-    create_pdp_context(Socket, gtp_context()).
+    create_pdp_context(simple, Socket).
 
 create_pdp_context(Socket, #gtpc{} = GtpC) ->
-    execute_request(create_pdp_context_request, simple, Socket, GtpC);
+    create_pdp_context(simple, Socket, GtpC);
 create_pdp_context(SubType, Socket) ->
-    create_pdp_context(SubType, Socket, gtp_context()).
+    execute_request(create_pdp_context_request, SubType, Socket, gtp_context()).
 
-create_pdp_context(SubType, Socket, GtpC) ->
+create_pdp_context(SubType, Socket, GtpC0) ->
+    GtpC = gtp_context_new_teids(GtpC0),
     execute_request(create_pdp_context_request, SubType, Socket, GtpC).
 
 update_pdp_context(SubType, Socket, GtpC0)

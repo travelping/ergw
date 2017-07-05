@@ -29,14 +29,15 @@
 %%%===================================================================
 
 create_session(Socket) ->
-    create_session(simple, Socket, gtp_context()).
+    create_session(simple, Socket).
 
 create_session(Socket, #gtpc{} = GtpC) ->
-    execute_request(create_session_request, simple, Socket, GtpC);
+    create_session(simple, Socket, GtpC);
 create_session(SubType, Socket) ->
-    create_session(SubType, Socket, gtp_context()).
+    execute_request(create_session_request, SubType, Socket, gtp_context()).
 
-create_session(SubType, Socket, GtpC) ->
+create_session(SubType, Socket, GtpC0) ->
+    GtpC = gtp_context_new_teids(GtpC0),
     execute_request(create_session_request, SubType, Socket, GtpC).
 
 modify_bearer(SubType, Socket, GtpC0)
