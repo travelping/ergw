@@ -105,12 +105,6 @@ handle_cast({packet_in, _GtpPort, _IP, _Port, _Msg}, State) ->
     lager:warning("packet_in not handled (yet): ~p", [_Msg]),
     {noreply, State}.
 
-handle_info({From, #gtp{type = delete_bearer_request}, timeout},
-	    #{context := Context} = State) ->
-    dp_delete_pdp_context(Context),
-    pdn_release_ip(Context),
-    gen_server:reply(From, {error, timeout}),
-    {stop, normal, State};
 handle_info(_Info, State) ->
     {noreply, State}.
 
@@ -306,6 +300,13 @@ handle_request(_ReqKey, _Msg, _Resent, State) ->
 
 handle_response(ReqInfo, #gtp{version = v1} = Msg, Request, State) ->
     ?GTP_v1_Interface:handle_response(ReqInfo, Msg, Request, State);
+
+handle_response(From, timeout, #gtp{type = delete_bearer_request},
+		#{context := Context} = State) ->
+    dp_delete_pdp_context(Context),
+    pdn_release_ip(Context),
+    gen_server:reply(From, {error, timeout}),
+    {stop, State};
 
 handle_response(From,
 		#gtp{type = delete_bearer_response,
@@ -613,9 +614,9 @@ send_end_marker(#context{data_port = GtpPort, remote_data_ip = PeerIP, remote_da
 send_request(#context{control_port = GtpPort,
 		      remote_control_tei = RemoteCntlTEI,
 		      remote_control_ip = RemoteCntlIP},
-	     T3, N3, Type, RequestIEs, ReqId) ->
+	     T3, N3, Type, RequestIEs, ReqInfo) ->
     Msg = #gtp{version = v2, type = Type, tei = RemoteCntlTEI, ie = RequestIEs},
-    gtp_context:send_request(GtpPort, RemoteCntlIP, T3, N3, Msg, ReqId).
+    gtp_context:send_request(GtpPort, RemoteCntlIP, T3, N3, Msg, ReqInfo).
 
 %% delete_context(From, #context_state{ebi = EBI} = Context) ->
 delete_context(From, Context) ->

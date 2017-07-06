@@ -14,7 +14,7 @@
 %% API
 -export([start_socket/2, start_link/1,
 	 send/4, send_response/3,
-	 send_request/5, send_request/7,
+	 send_request/4, send_request/6,
 	 forward_request/5,
 	 get_restart_counter/1]).
 
@@ -46,7 +46,14 @@
 
 	  restart_counter}).
 
--record(sender, {from, req_id, msg, send_ts}).
+-record(send_req, {address :: inet:ip_address(),
+		   t3      :: non_neg_integer(),
+		   n3      :: non_neg_integer(),
+		   data    :: binary(),
+		   msg     :: #gtp{},
+		   cb_info :: {M :: atom(), F :: atom(), A :: [term()]},
+		   send_ts :: non_neg_integer()
+		  }).
 
 -define(T3, 10 * 1000).
 -define(N3, 5).
@@ -81,17 +88,17 @@ send_response(#request{gtp_port = GtpPort, ip = RemoteIP} = ReqKey, Msg, DoCache
     Data = gtp_packet:encode(Msg),
     cast(GtpPort, {send_response, ReqKey, Data, DoCache}).
 
-send_request(#gtp_port{type = 'gtp-c'} = GtpPort, From, RemoteIP, Msg, ReqId) ->
-    send_request(GtpPort, From, RemoteIP, ?T3, ?N3, Msg, ReqId).
+send_request(#gtp_port{type = 'gtp-c'} = GtpPort, RemoteIP, Msg, CbInfo) ->
+    send_request(GtpPort, RemoteIP, ?T3, ?N3, Msg, CbInfo).
 
-send_request(#gtp_port{type = 'gtp-c'} = GtpPort, From, RemoteIP, T3, N3,
-	     Msg = #gtp{version = Version}, ReqId) ->
-    cast(GtpPort, {send_request, From, RemoteIP, T3, N3, Msg, ReqId}),
+send_request(#gtp_port{type = 'gtp-c'} = GtpPort, RemoteIP, T3, N3,
+	     Msg = #gtp{version = Version}, CbInfo) ->
+    cast(GtpPort, {send_request, RemoteIP, T3, N3, Msg, CbInfo}),
     gtp_path:maybe_new_path(GtpPort, Version, RemoteIP).
 
-forward_request(#gtp_port{type = 'gtp-c'} = GtpPort, From, RemoteIP,
-		Msg = #gtp{version = Version}, ReqId) ->
-    cast(GtpPort, {forward_request, From, RemoteIP, Msg, ReqId}),
+forward_request(#gtp_port{type = 'gtp-c'} = GtpPort, RemoteIP,
+		Msg = #gtp{version = Version}, ReqId, CbInfo) ->
+    cast(GtpPort, {forward_request, RemoteIP, Msg, ReqId, CbInfo}),
     gtp_path:maybe_new_path(GtpPort, Version, RemoteIP).
 
 get_restart_counter(GtpPort) ->
@@ -159,12 +166,40 @@ handle_cast({send_response, ReqKey, Data, DoCache}, State0)
     State = do_send_response(ReqKey, Data, DoCache, State0),
     {noreply, State};
 
-handle_cast({send_request, From, RemoteIP, T3, N3, Msg, ReqId}, State0) ->
-    State = do_send_request(From, RemoteIP, T3, N3, Msg, ReqId, State0),
+handle_cast({send_request, RemoteIP, T3, N3, Msg0, CbInfo},
+	    #state{gtp_port = GtpPort} = State0) ->
+    lager:debug("~p: gtp_socket send_request to ~p: ~p", [self(), RemoteIP, Msg0]),
+
+    {Msg, State1} = new_sequence_number(Msg0, State0),
+
+    message_counter(tx, GtpPort, RemoteIP, Msg0),
+    SeqId = make_seq_id(Msg),
+
+    SendReq = make_send_req(RemoteIP, T3, N3, Msg, CbInfo),
+    State = send_request_with_timeout(SeqId, SendReq, State1),
+
     {noreply, State};
 
-handle_cast({forward_request, From, RemoteIP, Msg, ReqId}, State0) ->
-    State = do_forward_request(From, RemoteIP, Msg, ReqId, State0),
+handle_cast({forward_request, RemoteIP, Msg0, ReqId, CbInfo},
+	    #state{gtp_port = GtpPort, fwd_seq_ids = FwdSeqIds} = State0) ->
+    lager:debug("~p: gtp_socket forward_request to ~p: ~p", [self(), RemoteIP, Msg0]),
+
+    {Msg, State1} =
+	case cache_get(ReqId, FwdSeqIds) of
+	    {value, {_Version, SeqNo}} ->
+		{Msg0#gtp{seq_no = SeqNo}, State0};
+	    _ ->
+		new_sequence_number(Msg0, State0)
+	end,
+
+    message_counter(tx, GtpPort, RemoteIP, Msg0),
+    SeqId = make_seq_id(Msg),
+
+    State2 = State1#state{fwd_seq_ids = cache_enter(ReqId, SeqId, ?RESPONSE_TIMEOUT, FwdSeqIds)},
+
+    SendReq = make_send_req(RemoteIP, ?T3 * 2, 0, Msg, CbInfo),
+    State = send_request_with_timeout(SeqId, SendReq, State2),
+
     {noreply, State};
 
 handle_cast(Msg, State) ->
@@ -175,24 +210,16 @@ handle_info(Info = {timeout, _TRef, {request, SeqId}}, #state{gtp_port = GtpPort
     lager:debug("handle_info: ~p", [lager:pr(Info, ?MODULE)]),
     {Req, State1} = take_request(SeqId, State0),
     case Req of
-	{RemoteIP, _T3, _N3 = 0, _Data, Sender}
-	  when is_record(Sender, sender) ->
-	    send_request_reply(Sender, timeout),
-	    message_counter(tx, GtpPort, RemoteIP, Sender#sender.msg, timeout),
+	#send_req{address = RemoteIP, n3 = 0, msg = Msg} = SendReq ->
+	    send_request_reply(SendReq, timeout),
+	    message_counter(tx, GtpPort, RemoteIP, Msg, timeout),
 	    {noreply, State1};
 
-	{RemoteIP, T3, N3, Data, Sender}
-	  when is_record(Sender, sender) ->
+	#send_req{address = RemoteIP, n3 = N3, msg = Msg} = SendReq ->
 	    %% resent....
-	    message_counter(tx, GtpPort, RemoteIP, Sender#sender.msg, retransmit),
-	    State = send_request_with_timeout(SeqId, RemoteIP, T3, N3 - 1, Data, Sender, State1),
+	    message_counter(tx, GtpPort, RemoteIP, Msg, retransmit),
+	    State = send_request_with_timeout(SeqId, SendReq#send_req{n3 = N3 - 1}, State1),
 	    {noreply, State};
-
-	{RemoteIP, Sender}
-	  when is_record(Sender, sender) ->
-	    send_request_reply(Sender, timeout),
-	    message_counter(tx, GtpPort, RemoteIP, Sender#sender.msg, timeout),
-	    {noreply, State1};
 
 	none ->
 	    {noreply, State1}
@@ -237,15 +264,19 @@ new_sequence_number(#gtp{version = v1} = Msg, #state{v1_seq_no = SeqNo} = State)
 new_sequence_number(#gtp{version = v2} = Msg, #state{v2_seq_no = SeqNo} = State) ->
     {Msg#gtp{seq_no = SeqNo}, State#state{v2_seq_no = (SeqNo + 1) rem 16#7fffff}}.
 
-make_sender(From, ReqId, Msg) ->
-    #sender{from = From,
-	    req_id = ReqId,
-	    msg = Msg,
-	    send_ts = erlang:monotonic_time()
-	   }.
-
 make_seq_id(#gtp{version = Version, seq_no = SeqNo}) ->
     {Version, SeqNo}.
+
+make_send_req(Address, T3, N3, Msg, CbInfo) ->
+    #send_req{
+       address = Address,
+       t3 = T3,
+       n3 = N3,
+       data = gtp_packet:encode(Msg),
+       msg = Msg,
+       cb_info = CbInfo,
+       send_ts = erlang:monotonic_time()
+      }.
 
 make_request(ArrivalTS, IP, Port,
 	     Msg = #gtp{version = Version, type = Type},
@@ -399,18 +430,10 @@ handle_response(ArrivalTS, IP, _Port, Msg, #state{gtp_port = GtpPort} = State0) 
 	    lager:error("~p: invalid response: ~p, ~p", [self(), SeqId]),
 	    State;
 
-	{RemoteIP, _T3, _N3, _Data, Sender}
-	  when is_record(Sender, sender) ->
+	#send_req{} = SendReq ->
 	    lager:info("~p: found response: ~p", [self(), SeqId]),
-	    measure_reply(ArrivalTS, RemoteIP, GtpPort, Sender),
-	    send_request_reply(Sender, Msg),
-	    State;
-
-	{RemoteIP, Sender}
-	  when is_record(Sender, sender) ->
-	    lager:info("~p: found response: ~p", [self(), SeqId]),
-	    measure_reply(ArrivalTS, RemoteIP, GtpPort, Sender),
-	    send_request_reply(Sender, Msg),
+	    measure_reply(GtpPort, SendReq, ArrivalTS),
+	    send_request_reply(SendReq, Msg),
 	    State;
 
 	_Other ->
@@ -431,14 +454,14 @@ handle_request(#request{ip = IP, port = Port} = ReqKey, Msg,
     end,
     State.
 
-start_request(SeqId, Req, Timeout, State0) ->
+start_request(SeqId, #send_req{t3 = Timeout} = SendReq, State0) ->
     %% cancel pending timeout, this can only happend when a
     %% retransmit was triggerd by the control process and not
     %% by the socket process itself
     {_, State} = take_request(SeqId, State0),
 
     TRef = erlang:start_timer(Timeout, self(), {request, SeqId}),
-    State#state{pending = gb_trees:insert(SeqId, {Req, TRef}, State#state.pending)}.
+    State#state{pending = gb_trees:insert(SeqId, {SendReq, TRef}, State#state.pending)}.
 
 take_request(SeqId, #state{pending = Pending} = State) ->
     case gb_trees:lookup(SeqId, Pending) of
@@ -458,45 +481,12 @@ sendto({_,_,_,_} = RemoteIP, Port, Data, #state{socket = Socket}) ->
 sendto({_,_,_,_,_,_,_,_} = RemoteIP, Port, Data, #state{socket = Socket}) ->
     gen_socket:sendto(Socket, {inet6, RemoteIP, Port}, Data).
 
-do_send_request(From, RemoteIP, T3, N3, Msg0, ReqId,
-	     #state{gtp_port = GtpPort} = State0) ->
-    lager:debug("~p: gtp_socket send_request to ~p: ~p", [self(), RemoteIP, Msg0]),
-    message_counter(tx, GtpPort, RemoteIP, Msg0),
-    {Msg, State} = new_sequence_number(Msg0, State0),
-    Data = gtp_packet:encode(Msg),
-    Sender = make_sender(From, ReqId, Msg),
-    SeqId = make_seq_id(Msg),
-    send_request_with_timeout(SeqId, RemoteIP, T3, N3, Data, Sender, State).
+send_request_reply(#send_req{cb_info = {M, F, A}}, Reply) ->
+    apply(M, F, A ++ [Reply]).
 
-send_request_reply(#sender{from = From, req_id = ReqId, msg = ReqMsg}, ReplyMsg) ->
-    From ! {ReqId, ReqMsg, ReplyMsg}.
-
-send_request_with_timeout(SeqId, RemoteIP, T3, N3, Data, Sender, State) ->
+send_request_with_timeout(SeqId, #send_req{address = RemoteIP, data = Data} = SendReq, State) ->
     sendto(RemoteIP, Data, State),
-    start_request(SeqId, {RemoteIP, T3, N3, Data, Sender}, T3, State).
-
-do_forward_request(From, RemoteIP, Msg0, ReqId,
-		   #state{gtp_port = GtpPort, fwd_seq_ids = FwdSeqIds} = State0) ->
-    lager:debug("~p: gtp_socket forward_request to ~p: ~p", [self(), RemoteIP, Msg0]),
-    message_counter(tx, GtpPort, RemoteIP, Msg0),
-
-    {Msg, State1} =
-	case cache_get(ReqId, FwdSeqIds) of
-	    {value, {_Version, SeqNo}} ->
-		{Msg0#gtp{seq_no = SeqNo}, State0};
-	    _ ->
-		new_sequence_number(Msg0, State0)
-	end,
-
-    SeqId = make_seq_id(Msg),
-    Sender = make_sender(From, ReqId,  Msg),
-    State2 = start_request(SeqId, {RemoteIP, Sender}, ?T3 * 2, State1),
-
-    State = State2#state{fwd_seq_ids = cache_enter(ReqId, SeqId, ?RESPONSE_TIMEOUT, FwdSeqIds)},
-
-    Data = gtp_packet:encode(Msg),
-    sendto(RemoteIP, Data, State),
-    State.
+    start_request(SeqId, SendReq, State).
 
 enqueue_response(ReqKey, Data, DoCache,
 		 #state{responses = Responses} = State)
@@ -524,8 +514,6 @@ do_send_response(#request{ip = IP, port = Port} = ReqKey, Data, DoCache, State) 
 	 }).
 
 cache_key(#request{key = Key}) ->
-    Key;
-cache_key(#proxy_request{key = Key}) ->
     Key;
 cache_key(Object) ->
     Object.
@@ -653,8 +641,9 @@ measure_response(#request{
     ok.
 
 %% measure the time it takes our peer to reply to a request
-measure_reply(ArrivalTS, RemoteIP, GtpPort,
-	      #sender{msg = #gtp{version = Version, type = MsgType},
-		      send_ts = SendTS}) ->
+measure_reply(GtpPort, #send_req{address = RemoteIP,
+				 msg = #gtp{version = Version, type = MsgType},
+				 send_ts = SendTS},
+	      ArrivalTS) ->
     RTT = erlang:convert_time_unit(ArrivalTS - SendTS, native, microsecond),
     gtp_path:exometer_update_rtt(GtpPort, RemoteIP, Version, MsgType, RTT).

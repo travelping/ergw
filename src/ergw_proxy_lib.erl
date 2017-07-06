@@ -20,9 +20,9 @@ forward_request(Direction,
 		#context{control_port = GtpPort,
 			 remote_control_ip = RemoteCntlIP},
 		Request, ReqKey, SeqNo, NewPeer) ->
-    ReqInfo = make_proxy_request(Direction, ReqKey, SeqNo, NewPeer),
+    {ReqId, ReqInfo} = make_proxy_request(Direction, ReqKey, SeqNo, NewPeer),
     lager:debug("Invoking Context Send Request: ~p", [Request]),
-    gtp_context:forward_request(GtpPort, RemoteCntlIP, Request, ReqInfo).
+    gtp_context:forward_request(GtpPort, RemoteCntlIP, Request, ReqId, ReqInfo).
 
 %%%===================================================================
 %%% Options Validation
@@ -76,10 +76,11 @@ validate_context(Name, Opts, _Acc) ->
 %%%===================================================================
 
 make_proxy_request(Direction, #request{key = ReqKey} = Request, SeqNo, NewPeer) ->
-    #proxy_request{
-       key = {ReqKey, SeqNo},
-       direction = Direction,
-       request = Request,
-       seq_no = SeqNo,
-       new_peer = NewPeer
-      }.
+    ReqId = {ReqKey, SeqNo},
+    ReqInfo = #proxy_request{
+		 direction = Direction,
+		 request = Request,
+		 seq_no = SeqNo,
+		 new_peer = NewPeer
+		},
+    {ReqId, ReqInfo}.

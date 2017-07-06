@@ -14,7 +14,8 @@
 
 %% API
 -export([start_link/4, all/1,
-	 maybe_new_path/3, handle_request/2,
+	 maybe_new_path/3,
+	 handle_request/2, handle_response/2,
 	 bind/1, bind/2, unbind/1, down/2,
 	 get_handler/2, info/1,
 	 exometer_update_rtt/5]).
@@ -61,6 +62,9 @@ maybe_new_path(GtpPort, Version, RemoteIP) ->
 handle_request(#request{gtp_port = GtpPort, ip = IP} = ReqKey, #gtp{version = Version} = Msg) ->
     Path = maybe_new_path(GtpPort, Version, IP),
     gen_server:cast(Path, {handle_request, ReqKey, Msg}).
+
+handle_response(Path, Response) ->
+    gen_server:cast(Path, {handle_response, Response}).
 
 bind(#context{remote_restart_counter = RestartCounter} = Context) ->
     path_recovery(RestartCounter, bind_path(Context)).
@@ -190,6 +194,12 @@ handle_cast(down, #state{table = TID} = State0) ->
     State = ets_new(State0#state{recovery = undefined}),
     {noreply, State};
 
+handle_cast({handle_response, #gtp{} = Msg}, State0)->
+    lager:debug("echo_response: ~p", [Msg]),
+    State1 = handle_recovery_ie(Msg, State0),
+    State = echo_response(Msg, State1),
+    {noreply, State};
+
 handle_cast(Msg, State) ->
     lager:error("~p: ~w: handle_cast: ~p", [self(), ?MODULE, lager:pr(Msg, ?MODULE)]),
     {noreply, State}.
@@ -205,12 +215,6 @@ handle_info(Info = {timeout, TRef, echo}, #state{echo_timer = TRef} = State0) ->
 
 handle_info(Info = {timeout, _TRef, echo}, State) ->
     lager:debug("handle_info: ~p", [lager:pr(Info, ?MODULE)]),
-    {noreply, State};
-
-handle_info({echo_request, _, Msg}, State0)->
-    lager:debug("echo_response: ~p", [Msg]),
-    State1 = handle_recovery_ie(Msg, State0),
-    State = echo_response(Msg, State1),
     {noreply, State};
 
 handle_info(Info, State) ->
@@ -377,7 +381,8 @@ stop_echo_request(#state{echo_timer = EchoTRef} = State) ->
 send_echo_request(#state{gtp_port = GtpPort, handler = Handler, ip = RemoteIP,
 			 t3 = T3, n3 = N3} = State) ->
     Msg = Handler:build_echo_request(GtpPort),
-    gtp_socket:send_request(GtpPort, self(), RemoteIP, T3, N3, Msg, echo_request),
+    CbInfo = {?MODULE, handle_response, [self()]},
+    gtp_socket:send_request(GtpPort, RemoteIP, T3, N3, Msg, CbInfo),
     State#state{echo_timer = awaiting_response} .
 
 echo_response(Msg, #state{echo = EchoInterval,
