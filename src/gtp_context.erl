@@ -38,25 +38,25 @@ lookup(GtpPort, TEI) ->
     gtp_context_reg:lookup(GtpPort, TEI).
 
 %% TEID handling for GTPv1 is brain dead....
-try_handle_message(#request{gtp_port = GtpPort} = ReqKey,
+try_handle_message(#request{gtp_port = GtpPort} = Request,
 	       #gtp{version = v2, type = MsgType, tei = 0} = Msg)
   when MsgType == change_notification_request;
        MsgType == change_notification_response ->
     Keys = gtp_v2_c:get_msg_keys(Msg),
-    context_handle_message(lookup_keys(GtpPort, Keys), ReqKey, Msg);
+    context_handle_message(lookup_keys(GtpPort, Keys), Request, Msg);
 
 %% same as above for GTPv1
-try_handle_message(#request{gtp_port = GtpPort} = ReqKey,
+try_handle_message(#request{gtp_port = GtpPort} = Request,
 	       #gtp{version = v1, type = MsgType, tei = 0} = Msg)
   when MsgType == ms_info_change_notification_request;
        MsgType == ms_info_change_notification_response ->
     Keys = gtp_v1_c:get_msg_keys(Msg),
-    context_handle_message(lookup_keys(GtpPort, Keys), ReqKey, Msg);
+    context_handle_message(lookup_keys(GtpPort, Keys), Request, Msg);
 
-try_handle_message(#request{gtp_port = GtpPort} = ReqKey, #gtp{version = Version, tei = 0} = Msg) ->
-    case get_handler(ReqKey, Msg) of
+try_handle_message(#request{gtp_port = GtpPort} = Request, #gtp{version = Version, tei = 0} = Msg) ->
+    case get_handler(Request, Msg) of
 	{ok, Context} when is_pid(Context) ->
-	    gen_server:cast(Context, {handle_message, ReqKey, Msg, true});
+	    gen_server:cast(Context, {handle_message, Request, Msg, true});
 
 	{ok, Interface, InterfaceOpts} ->
 	    case ergw:get_accept_new() of
@@ -66,30 +66,30 @@ try_handle_message(#request{gtp_port = GtpPort} = ReqKey, #gtp{version = Version
 	    end,
 	    validate_teid(Msg),
 	    Context = context_new(GtpPort, Version, Interface, InterfaceOpts),
-	    context_handle_message(Context, ReqKey, Msg);
+	    context_handle_message(Context, Request, Msg);
 
 	{error, _} = Error ->
 	    throw(Error)
     end;
 
-try_handle_message(#request{gtp_port = GtpPort} = ReqKey, #gtp{tei = TEI} = Msg) ->
-    context_handle_message(lookup(GtpPort, TEI), ReqKey, Msg).
+try_handle_message(#request{gtp_port = GtpPort} = Request, #gtp{tei = TEI} = Msg) ->
+    context_handle_message(lookup(GtpPort, TEI), Request, Msg).
 
-handle_message(ReqKey, Msg) ->
-    proc_lib:spawn(fun() -> q_handle_message(ReqKey, Msg) end),
+handle_message(Request, Msg) ->
+    proc_lib:spawn(fun() -> q_handle_message(Request, Msg) end),
     ok.
 
-q_handle_message(ReqKey, Msg) ->
+q_handle_message(Request, Msg) ->
     Q = load_class(Msg),
     try
-	jobs:run(Q, fun() -> try_handle_message(ReqKey, Msg) end)
+	jobs:run(Q, fun() -> try_handle_message(Request, Msg) end)
     catch
 	throw:{error, Error} ->
 	    lager:error("handler failed with: ~p", [Error]),
-	    generic_error(ReqKey, Msg, Error);
+	    generic_error(Request, Msg, Error);
 	error:Error = rejected ->
-	    lager:error("handler failed with: ~p", [Error]),
-	    generic_error(ReqKey, Msg, Error)
+	    lager:debug("handler failed with: ~p", [Error]),
+	    generic_error(Request, Msg, Error)
     end.
 
 handle_packet_in(GtpPort, IP, Port,
@@ -278,10 +278,10 @@ handle_call(Request, From, #{interface := Interface} = State) ->
     lager:debug("~w: handle_call: ~p", [?MODULE, Request]),
     Interface:handle_call(Request, From, State).
 
-handle_cast({handle_message, ReqKey, #gtp{} = Msg, Resent}, State) ->
+handle_cast({handle_message, Request, #gtp{} = Msg, Resent}, State) ->
     lager:debug("handle gtp request: ~w, ~p",
-		[ReqKey#request.port, gtp_c_lib:fmt_gtp(Msg)]),
-    handle_request(ReqKey, Msg, Resent, State);
+		[Request#request.port, gtp_c_lib:fmt_gtp(Msg)]),
+    handle_request(Request, Msg, Resent, State);
 
 handle_cast({handle_response, ReqInfo, Request, Response},
 	    #{interface := Interface} = State0) ->
@@ -343,41 +343,41 @@ handle_ctx_error(#ctx_err{level = Level} = CtxErr, State) ->
     end.
 
 handle_ctx_error(#ctx_err{reply = Reply} = CtxErr, Handler,
-		 ReqKey, #gtp{type = MsgType, seq_no = SeqNo}, State) ->
+		 Request, #gtp{type = MsgType, seq_no = SeqNo}, State) ->
     Response = if is_list(Reply) orelse is_atom(Reply) ->
 		       Handler:build_response({MsgType, Reply});
 		  true ->
 		       Handler:build_response(Reply)
 	       end,
-    send_response(ReqKey, Response#gtp{seq_no = SeqNo}),
+    send_response(Request, Response#gtp{seq_no = SeqNo}),
     handle_ctx_error(CtxErr, State).
 
-handle_request(#request{gtp_port = GtpPort} = ReqKey,
+handle_request(#request{gtp_port = GtpPort} = Request,
 	       #gtp{version = Version, seq_no = SeqNo} = Msg,
 	       Resent, #{interface := Interface} = State0) ->
     lager:debug("GTP~s ~s:~w: ~p",
-		[Version, inet:ntoa(ReqKey#request.ip), ReqKey#request.port, gtp_c_lib:fmt_gtp(Msg)]),
+		[Version, inet:ntoa(Request#request.ip), Request#request.port, gtp_c_lib:fmt_gtp(Msg)]),
 
     Handler = gtp_path:get_handler(GtpPort, Version),
     try
 	validate_message(Msg, State0),
-	Interface:handle_request(ReqKey, Msg, Resent, State0)
+	Interface:handle_request(Request, Msg, Resent, State0)
     of
 	{reply, Reply, State1} ->
 	    Response = Handler:build_response(Reply),
-	    send_response(ReqKey, Response#gtp{seq_no = SeqNo}),
+	    send_response(Request, Response#gtp{seq_no = SeqNo}),
 	    {noreply, State1};
 
 	{stop, Reply, State1} ->
 	    Response = Handler:build_response(Reply),
-	    send_response(ReqKey, Response#gtp{seq_no = SeqNo}),
+	    send_response(Request, Response#gtp{seq_no = SeqNo}),
 	    {stop, normal, State1};
 
 	{noreply, State1} ->
 	    {noreply, State1}
     catch
 	throw:#ctx_err{} = CtxErr ->
-	    handle_ctx_error(CtxErr, Handler, ReqKey, Msg, State0);
+	    handle_ctx_error(CtxErr, Handler, Request, Msg, State0);
 
 	Class:Error ->
 	    Stack  = erlang:get_stacktrace(),
@@ -386,11 +386,11 @@ handle_request(#request{gtp_port = GtpPort} = ReqKey,
     end.
 
 
-send_response(#request{gtp_port = GtpPort} = ReqKey, #gtp{seq_no = SeqNo} = Msg) ->
+send_response(#request{gtp_port = GtpPort} = Request, #gtp{seq_no = SeqNo} = Msg) ->
     %% TODO: handle encode errors
     try
-	gtp_context_reg:unregister(GtpPort, ReqKey),
-	gtp_socket:send_response(ReqKey, Msg, SeqNo /= 0)
+	gtp_context_reg:unregister(GtpPort, Request),
+	gtp_socket:send_response(Request, Msg, SeqNo /= 0)
     catch
 	Class:Error ->
 	    Stack = erlang:get_stacktrace(),
@@ -419,8 +419,8 @@ load_class(#gtp{version = v1} = Msg) ->
 load_class(#gtp{version = v2} = Msg) ->
     gtp_v2_c:load_class(Msg).
 
-get_handler(#request{gtp_port = GtpPort} = ReqKey, Msg) ->
-    case gtp_context_reg:lookup(GtpPort, ReqKey) of
+get_handler(#request{gtp_port = GtpPort} = Request, Msg) ->
+    case gtp_context_reg:lookup(GtpPort, Request) of
 	Context when is_pid(Context) ->
 	    {ok, Context};
 	_ ->
@@ -445,18 +445,18 @@ context_new(GtpPort, Version, Interface, InterfaceOpts) ->
 	    throw({error, Error})
     end.
 
-context_handle_message(Context, #request{gtp_port = GtpPort} = ReqKey, Msg)
+context_handle_message(Context, #request{gtp_port = GtpPort} = Request, Msg)
   when is_pid(Context) ->
-    gtp_context_reg:register(GtpPort, ReqKey, Context),
-    gen_server:cast(Context, {handle_message, ReqKey, Msg, false});
-context_handle_message(_Context, _ReqKey, _Msg) ->
+    gtp_context_reg:register(GtpPort, Request, Context),
+    gen_server:cast(Context, {handle_message, Request, Msg, false});
+context_handle_message(_Context, _Request, _Msg) ->
     throw({error, not_found}).
 
-generic_error(#request{gtp_port = GtpPort} = ReqKey,
+generic_error(#request{gtp_port = GtpPort} = Request,
 	      #gtp{version = Version, type = MsgType, seq_no = SeqNo}, Error) ->
     Handler = gtp_path:get_handler(GtpPort, Version),
     Reply = Handler:build_response({MsgType, 0, Error}),
-    gtp_socket:send_response(ReqKey, Reply#gtp{seq_no = SeqNo}, SeqNo /= 0).
+    gtp_socket:send_response(Request, Reply#gtp{seq_no = SeqNo}, SeqNo /= 0).
 
 validate_teid(#gtp{version = v1, type = MsgType, tei = TEID}) ->
     gtp_v1_c:validate_teid(MsgType, TEID);
