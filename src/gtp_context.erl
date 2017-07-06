@@ -10,10 +10,10 @@
 -compile({parse_transform, cut}).
 -compile({parse_transform, do}).
 
--export([lookup/2, handle_message/2, handle_packet_in/4,
+-export([lookup/2, handle_message/2, handle_packet_in/4, handle_response/4,
 	 start_link/5,
 	 send_request/4, send_request/6, send_response/2,
-	 forward_request/4, path_restart/2,
+	 forward_request/5, path_restart/2,
 	 delete_context/1,
 	 register_remote_context/1, update_remote_context/2,
 	 enforce_restrictions/2,
@@ -106,14 +106,20 @@ handle_packet_in(GtpPort, IP, Port,
 	    ok
     end.
 
-send_request(GtpPort, RemoteIP, Msg, ReqId) ->
-    gtp_socket:send_request(GtpPort, self(), RemoteIP, Msg, ReqId).
+handle_response(Context, ReqInfo, Request, Response) ->
+    gen_server:cast(Context, {handle_response, ReqInfo, Request, Response}).
 
-send_request(GtpPort, RemoteIP, T3, N3, Msg, ReqId) ->
-    gtp_socket:send_request(GtpPort, self(), RemoteIP, T3, N3, Msg, ReqId).
+send_request(GtpPort, RemoteIP, Msg, ReqInfo) ->
+    CbInfo = {?MODULE, handle_response, [self(), ReqInfo, Msg]},
+    gtp_socket:send_request(GtpPort, RemoteIP, Msg, CbInfo).
 
-forward_request(GtpPort, RemoteIP, Msg, ReqId) ->
-    gtp_socket:forward_request(GtpPort, self(), RemoteIP, Msg, ReqId).
+send_request(GtpPort, RemoteIP, T3, N3, Msg, ReqInfo) ->
+    CbInfo = {?MODULE, handle_response, [self(), ReqInfo, Msg]},
+    gtp_socket:send_request(GtpPort, RemoteIP, T3, N3, Msg, CbInfo).
+
+forward_request(GtpPort, RemoteIP, Msg, ReqId, ReqInfo) ->
+    CbInfo = {?MODULE, handle_response, [self(), ReqInfo, Msg]},
+    gtp_socket:forward_request(GtpPort, RemoteIP, Msg, ReqId, CbInfo).
 
 start_link(GtpPort, Version, Interface, IfOpts, Opts) ->
     gen_server:start_link(?MODULE, [GtpPort, Version, Interface, IfOpts], Opts).
@@ -277,14 +283,36 @@ handle_cast({handle_message, ReqKey, #gtp{} = Msg, Resent}, State) ->
 		[ReqKey#request.port, gtp_c_lib:fmt_gtp(Msg)]),
     handle_request(ReqKey, Msg, Resent, State);
 
+handle_cast({handle_response, ReqInfo, Request, Response},
+	    #{interface := Interface} = State0) ->
+    lager:debug("handle gtp response: ~p", [gtp_c_lib:fmt_gtp(Response)]),
+    try
+	case Response of
+	    #gtp{} ->
+		validate_message(Response, State0);
+	    _ when is_atom(Response) ->
+		ok
+	end,
+	Interface:handle_response(ReqInfo, Response, Request, State0)
+    of
+	{stop, State1} ->
+	    {stop, normal, State1};
+
+	{noreply, State1} ->
+	    {noreply, State1}
+    catch
+	throw:#ctx_err{} = CtxErr ->
+	    handle_ctx_error(CtxErr, State0);
+
+	Class:Error ->
+	    Stack  = erlang:get_stacktrace(),
+	    lager:error("GTP response failed with: ~p:~p (~p)", [Class, Error, Stack]),
+	    {noreply, State0}
+    end;
+
 handle_cast(Msg, #{interface := Interface} = State) ->
     lager:debug("~w: handle_cast: ~p", [?MODULE, lager:pr(Msg, ?MODULE)]),
     Interface:handle_cast(Msg, State).
-
-handle_info({ReqId, Request, #gtp{} = Response}, State) ->
-    lager:debug("handle gtp response: ~p",
-		[gtp_c_lib:fmt_gtp(Response)]),
-    handle_response(ReqId, Request, Response, State);
 
 handle_info(Info, #{interface := Interface} = State) ->
     lager:debug("handle_info: ~p", [lager:pr(Info, ?MODULE)]),
@@ -357,25 +385,6 @@ handle_request(#request{gtp_port = GtpPort} = ReqKey,
 	    {noreply, State0}
     end.
 
-handle_response(ReqId, Request, Response, #{interface := Interface} = State0) ->
-    try
-	validate_message(Response, State0),
-	Interface:handle_response(ReqId, Response, Request, State0)
-    of
-	{stop, State1} ->
-	    {stop, normal, State1};
-
-	{noreply, State1} ->
-	    {noreply, State1}
-    catch
-	throw:#ctx_err{} = CtxErr ->
-	    handle_ctx_error(CtxErr, State0);
-
-	Class:Error ->
-	    Stack  = erlang:get_stacktrace(),
-	    lager:error("GTP response failed with: ~p:~p (~p)", [Class, Error, Stack]),
-	    {noreply, State0}
-    end.
 
 send_response(#request{gtp_port = GtpPort} = ReqKey, #gtp{seq_no = SeqNo} = Msg) ->
     %% TODO: handle encode errors

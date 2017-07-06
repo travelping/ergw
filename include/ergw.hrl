@@ -66,7 +66,6 @@
 	 }).
 
 -record(proxy_request, {
-	  key		:: term(),
 	  direction     :: atom(),
 	  request	:: #request{},
 	  seq_no	:: gtp_socket:sequence_id(),

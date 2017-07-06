@@ -100,13 +100,6 @@ handle_cast({packet_in, _GtpPort, _IP, _Port, _Msg}, State) ->
     lager:warning("packet_in not handled (yet): ~p", [_Msg]),
     {noreply, State}.
 
-handle_info({From, #gtp{type = delete_pdp_context_request}, timeout},
-	    #{context := Context} = State) ->
-    dp_delete_pdp_context(Context),
-    pdp_release_ip(Context),
-    gen_server:reply(From, {error, timeout}),
-    {stop, normal, State};
-
 handle_info(_Info, State) ->
     {noreply, State}.
 
@@ -198,6 +191,13 @@ handle_request(_ReqKey,
 
 handle_request(_ReqKey, _Msg, _Resent, State) ->
     {noreply, State}.
+
+handle_response(From, timeout, #gtp{type = delete_pdp_context_request},
+		#{context := Context} = State) ->
+    dp_delete_pdp_context(Context),
+    pdp_release_ip(Context),
+    gen_server:reply(From, {error, timeout}),
+    {stop, State};
 
 handle_response(From,
 		#gtp{type = delete_pdp_context_response,
@@ -540,9 +540,9 @@ copy_ies_to_response(RequestIEs, ResponseIEs0, [H|T]) ->
 send_request(#context{control_port = GtpPort,
 		      remote_control_tei = RemoteCntlTEI,
 		      remote_control_ip = RemoteCntlIP},
-	     T3, N3, Type, RequestIEs, ReqId) ->
+	     T3, N3, Type, RequestIEs, ReqInfo) ->
     Msg = #gtp{version = v1, type = Type, tei = RemoteCntlTEI, ie = RequestIEs},
-    gtp_context:send_request(GtpPort, RemoteCntlIP, T3, N3, Msg, ReqId).
+    gtp_context:send_request(GtpPort, RemoteCntlIP, T3, N3, Msg, ReqInfo).
 
 %% delete_context(From, #context_state{nsapi = NSAPI} = Context) ->
 delete_context(From, Context) ->

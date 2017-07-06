@@ -455,6 +455,6 @@ ggsn_update_context(From, Context) ->
 ggsn_send_request(#context{control_port = GtpPort,
 			  remote_control_tei = RemoteCntlTEI,
 			  remote_control_ip = RemoteCntlIP},
-		 T3, N3, Type, RequestIEs, ReqId) ->
+		 T3, N3, Type, RequestIEs, From) ->
     Msg = #gtp{version = v1, type = Type, tei = RemoteCntlTEI, ie = RequestIEs},
-    gtp_context:send_request(GtpPort, RemoteCntlIP, T3, N3, Msg, ReqId).
+    gtp_context:send_request(GtpPort, RemoteCntlIP, T3, N3, Msg, From).
