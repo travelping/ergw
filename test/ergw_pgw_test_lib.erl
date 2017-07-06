@@ -9,7 +9,7 @@
 
 -define(ERGW_PGW_NO_IMPORTS, true).
 
--export([make_request/3, make_response/3,
+-export([make_request/3, make_response/3, validate_response/4,
 	 create_session/1, create_session/2, create_session/3,
 	 delete_session/2, delete_session/3,
 	 modify_bearer/3,

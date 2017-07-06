@@ -15,7 +15,7 @@
 -export([start_socket/2, start_link/1,
 	 send/4, send_response/3,
 	 send_request/4, send_request/6,
-	 forward_request/5,
+	 send_request/5, resend_request/2,
 	 get_restart_counter/1]).
 
 %% gen_server callbacks
@@ -41,19 +41,20 @@
 	  v1_seq_no = 0 :: v1_sequence_number(),
 	  v2_seq_no = 0 :: v2_sequence_number(),
 	  pending    :: gb_trees:tree(sequence_id(), term()),
+	  requests,
 	  responses,
-	  fwd_seq_ids,
 
 	  restart_counter}).
 
--record(send_req, {address :: inet:ip_address(),
-		   t3      :: non_neg_integer(),
-		   n3      :: non_neg_integer(),
-		   data    :: binary(),
-		   msg     :: #gtp{},
-		   cb_info :: {M :: atom(), F :: atom(), A :: [term()]},
-		   send_ts :: non_neg_integer()
-		  }).
+-record(send_req, {
+	  address :: inet:ip_address(),
+	  t3      :: non_neg_integer(),
+	  n3      :: non_neg_integer(),
+	  data    :: binary(),
+	  msg     :: #gtp{},
+	  cb_info :: {M :: atom(), F :: atom(), A :: [term()]},
+	  send_ts :: non_neg_integer()
+	 }).
 
 -define(T3, 10 * 1000).
 -define(N3, 5).
@@ -88,7 +89,7 @@ send_response(#request{gtp_port = GtpPort, ip = RemoteIP} = ReqKey, Msg, DoCache
     Data = gtp_packet:encode(Msg),
     cast(GtpPort, {send_response, ReqKey, Data, DoCache}).
 
-send_request(#gtp_port{type = 'gtp-c'} = GtpPort, RemoteIP, Msg, CbInfo) ->
+send_request(#gtp_port{type = 'gtp-c'} = GtpPort, RemoteIP, Msg = #gtp{}, CbInfo) ->
     send_request(GtpPort, RemoteIP, ?T3, ?N3, Msg, CbInfo).
 
 send_request(#gtp_port{type = 'gtp-c'} = GtpPort, RemoteIP, T3, N3,
@@ -96,10 +97,13 @@ send_request(#gtp_port{type = 'gtp-c'} = GtpPort, RemoteIP, T3, N3,
     cast(GtpPort, {send_request, RemoteIP, T3, N3, Msg, CbInfo}),
     gtp_path:maybe_new_path(GtpPort, Version, RemoteIP).
 
-forward_request(#gtp_port{type = 'gtp-c'} = GtpPort, RemoteIP,
-		Msg = #gtp{version = Version}, ReqId, CbInfo) ->
-    cast(GtpPort, {forward_request, RemoteIP, Msg, ReqId, CbInfo}),
+send_request(#gtp_port{type = 'gtp-c'} = GtpPort, RemoteIP, ReqId,
+	     Msg = #gtp{version = Version}, CbInfo) ->
+    cast(GtpPort, {send_request, RemoteIP, ReqId, Msg, CbInfo}),
     gtp_path:maybe_new_path(GtpPort, Version, RemoteIP).
+
+resend_request(#gtp_port{type = 'gtp-c'} = GtpPort, ReqId) ->
+    cast(GtpPort, {resend_request, ReqId}).
 
 get_restart_counter(GtpPort) ->
     call(GtpPort, get_restart_counter).
@@ -143,8 +147,8 @@ init([Name, SocketOpts]) ->
 	       v1_seq_no = 0,
 	       v2_seq_no = 0,
 	       pending = gb_trees:empty(),
+	       requests = cache_new(?T3 * 4, requests),
 	       responses = cache_new(?CACHE_TIMEOUT, responses),
-	       fwd_seq_ids = cache_new(?T3 * 4, fwd_seq_ids),
 
 	       restart_counter = RCnt},
     {ok, State}.
@@ -173,34 +177,35 @@ handle_cast({send_request, RemoteIP, T3, N3, Msg0, CbInfo},
     {Msg, State1} = new_sequence_number(Msg0, State0),
 
     message_counter(tx, GtpPort, RemoteIP, Msg0),
-    SeqId = make_seq_id(Msg),
 
     SendReq = make_send_req(RemoteIP, T3, N3, Msg, CbInfo),
-    State = send_request_with_timeout(SeqId, SendReq, State1),
+    State = send_request(SendReq, State1),
 
     {noreply, State};
 
-handle_cast({forward_request, RemoteIP, Msg0, ReqId, CbInfo},
-	    #state{gtp_port = GtpPort, fwd_seq_ids = FwdSeqIds} = State0) ->
-    lager:debug("~p: gtp_socket forward_request to ~p: ~p", [self(), RemoteIP, Msg0]),
+handle_cast({send_request, RemoteIP, ReqId, Msg0, CbInfo},
+	    #state{gtp_port = GtpPort} = State0) ->
+    lager:debug("~p: gtp_socket send_request ~p to ~p: ~p", [self(), ReqId, RemoteIP, Msg0]),
 
-    {Msg, State1} =
-	case cache_get(ReqId, FwdSeqIds) of
-	    {value, {_Version, SeqNo}} ->
-		{Msg0#gtp{seq_no = SeqNo}, State0};
-	    _ ->
-		new_sequence_number(Msg0, State0)
-	end,
-
-    message_counter(tx, GtpPort, RemoteIP, Msg0),
-    SeqId = make_seq_id(Msg),
-
-    State2 = State1#state{fwd_seq_ids = cache_enter(ReqId, SeqId, ?RESPONSE_TIMEOUT, FwdSeqIds)},
-
+    {Msg, State1} = new_sequence_number(Msg0, State0),
     SendReq = make_send_req(RemoteIP, ?T3 * 2, 0, Msg, CbInfo),
-    State = send_request_with_timeout(SeqId, SendReq, State2),
-
+    message_counter(tx, GtpPort, SendReq),
+    State = send_request(ReqId, SendReq, State1),
     {noreply, State};
+
+handle_cast({resend_request, ReqId},
+	    #state{gtp_port = GtpPort} = State0) ->
+    lager:debug("~p: gtp_socket resend_request ~p", [self(), ReqId]),
+
+    case request_q_peek(ReqId, State0) of
+	{value, SendReq} ->
+	    message_counter(tx, GtpPort, SendReq, retransmit),
+	    State = send_request(ReqId, SendReq, State0),
+	    {noreply, State};
+
+	_ ->
+	    {noreply, State0}
+    end;
 
 handle_cast(Msg, State) ->
     lager:error("handle_cast: unknown ~p", [lager:pr(Msg, ?MODULE)]),
@@ -210,26 +215,26 @@ handle_info(Info = {timeout, _TRef, {request, SeqId}}, #state{gtp_port = GtpPort
     lager:debug("handle_info: ~p", [lager:pr(Info, ?MODULE)]),
     {Req, State1} = take_request(SeqId, State0),
     case Req of
-	#send_req{address = RemoteIP, n3 = 0, msg = Msg} = SendReq ->
+	#send_req{n3 = 0} = SendReq ->
 	    send_request_reply(SendReq, timeout),
-	    message_counter(tx, GtpPort, RemoteIP, Msg, timeout),
+	    message_counter(tx, GtpPort, SendReq, timeout),
 	    {noreply, State1};
 
-	#send_req{address = RemoteIP, n3 = N3, msg = Msg} = SendReq ->
-	    %% resent....
-	    message_counter(tx, GtpPort, RemoteIP, Msg, retransmit),
-	    State = send_request_with_timeout(SeqId, SendReq#send_req{n3 = N3 - 1}, State1),
+	#send_req{n3 = N3} = SendReq ->
+	    %% resend....
+	    message_counter(tx, GtpPort, SendReq, retransmit),
+	    State = send_request(SendReq#send_req{n3 = N3 - 1}, State1),
 	    {noreply, State};
 
 	none ->
 	    {noreply, State1}
     end;
 
+handle_info({timeout, _TRef, requests}, #state{requests = Requests} = State) ->
+    {noreply, State#state{requests = cache_expire(Requests)}};
+
 handle_info({timeout, _TRef, responses}, #state{responses = Responses} = State) ->
     {noreply, State#state{responses = cache_expire(Responses)}};
-
-handle_info({timeout, _TRef, fwd_seq_ids}, #state{fwd_seq_ids = FwdSeqIds} = State) ->
-    {noreply, State#state{fwd_seq_ids = cache_expire(FwdSeqIds)}};
 
 handle_info({Socket, input_ready}, #state{socket = Socket} = State) ->
     handle_input(Socket, State);
@@ -454,7 +459,9 @@ handle_request(#request{ip = IP, port = Port} = ReqKey, Msg,
     end,
     State.
 
-start_request(SeqId, #send_req{t3 = Timeout} = SendReq, State0) ->
+start_request(#send_req{t3 = Timeout, msg = Msg} = SendReq, State0) ->
+    SeqId = make_seq_id(Msg),
+
     %% cancel pending timeout, this can only happend when a
     %% retransmit was triggerd by the control process and not
     %% by the socket process itself
@@ -463,14 +470,14 @@ start_request(SeqId, #send_req{t3 = Timeout} = SendReq, State0) ->
     TRef = erlang:start_timer(Timeout, self(), {request, SeqId}),
     State#state{pending = gb_trees:insert(SeqId, {SendReq, TRef}, State#state.pending)}.
 
-take_request(SeqId, #state{pending = Pending} = State) ->
-    case gb_trees:lookup(SeqId, Pending) of
-	none ->
+take_request(SeqId, #state{pending = PendingIn} = State) ->
+    case gb_trees:take_any(SeqId, PendingIn) of
+	error ->
 	    {none, State};
 
-	{value, {Req, TRef}} ->
+	{{Req, TRef}, PendingOut} ->
 	    cancel_timer(TRef),
-	    {Req, State#state{pending = gb_trees:delete(SeqId, Pending)}}
+	    {Req, State#state{pending = PendingOut}}
     end.
 
 sendto(RemoteIP, Data, State) ->
@@ -484,9 +491,19 @@ sendto({_,_,_,_,_,_,_,_} = RemoteIP, Port, Data, #state{socket = Socket}) ->
 send_request_reply(#send_req{cb_info = {M, F, A}}, Reply) ->
     apply(M, F, A ++ [Reply]).
 
-send_request_with_timeout(SeqId, #send_req{address = RemoteIP, data = Data} = SendReq, State) ->
+send_request(#send_req{address = RemoteIP, data = Data} = SendReq, State) ->
     sendto(RemoteIP, Data, State),
-    start_request(SeqId, SendReq, State).
+    start_request(SendReq, State).
+
+send_request(ReqId, SendReq, State0) ->
+    State1 = send_request(SendReq, State0),
+    request_q_in(ReqId, SendReq, State1).
+
+request_q_in(ReqId, SendReq, #state{requests = Requests} = State) ->
+    State#state{requests = cache_enter(ReqId, SendReq, ?RESPONSE_TIMEOUT, Requests)}.
+
+request_q_peek(ReqId, #state{requests = Requests}) ->
+    cache_get(ReqId, Requests).
 
 enqueue_response(ReqKey, Data, DoCache,
 		 #state{responses = Responses} = State)
@@ -557,7 +574,7 @@ cache_expire(Cache0) ->
 cache_expire(Now, #cache{tree = Tree0, queue = Q0} = Cache) ->
     case queue:peek(Q0) of
 	{value, {Expire, Key}} when Expire < Now ->
-	    {_, Q} = queue:out(Q0),
+	    Q = queue:drop(Q0),
 	    Tree = case gb_trees:lookup(Key, Tree0) of
 		       {value, {Expire, _}} ->
 			   gb_trees:delete(Key, Tree0);
@@ -621,6 +638,13 @@ message_counter_apply(Name, RemoteIP, Direction, Version, MsgInfo) ->
 	    Other
     end.
 
+message_counter(Direction, GtpPort,
+		#send_req{address = RemoteIP, msg = Msg}) ->
+    message_counter(Direction, GtpPort, RemoteIP, Msg).
+
+message_counter(Direction, GtpPort,
+		#send_req{address = RemoteIP, msg = Msg}, Verdict) ->
+    message_counter(Direction, GtpPort, RemoteIP, Msg, Verdict);
 message_counter(Direction, #gtp_port{name = Name, type = 'gtp-c'},
 		RemoteIP, #gtp{version = Version, type = MsgType}) ->
     message_counter_apply(Name, RemoteIP, Direction, Version, [MsgType]).

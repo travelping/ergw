@@ -247,6 +247,7 @@ all_tests() ->
      create_session_overload_response,
      create_session_request_resend,
      delete_session_request_resend,
+     request_fast_resend,
      modify_bearer_request_ra_update,
      modify_bearer_request_tei_update,
      modify_bearer_command,
@@ -275,7 +276,6 @@ all_tests() ->
 %%%===================================================================
 
 init_per_testcase(Config) ->
-    ct:pal("Sockets: ~p", [gtp_socket_reg:all()]),
     meck_reset(Config).
 
 init_per_testcase(delete_session_request_resend, Config) ->
@@ -300,6 +300,17 @@ init_per_testcase(TestCase, Config)
 init_per_testcase(simple_session, Config) ->
     init_per_testcase(Config),
     ok = meck:new(pgw_s5s8, [passthrough, no_link]),
+    Config;
+init_per_testcase(request_fast_resend, Config) ->
+    init_per_testcase(Config),
+    ok = meck:new(pgw_s5s8, [passthrough, no_link]),
+    ok = meck:expect(pgw_s5s8, handle_request,
+		     fun(Request, Msg, Resent, State) ->
+			     if Resent -> ok;
+				true   -> ct:sleep(1000)
+			     end,
+			     meck:passthrough([Request, Msg, Resent, State])
+		     end),
     Config;
 init_per_testcase(create_session_overload_response, Config) ->
     init_per_testcase(Config),
@@ -355,6 +366,9 @@ end_per_testcase(TestCase, Config)
     ok = meck:delete(gtp_socket, send_request, 6),
     Config;
 end_per_testcase(simple_session, Config) ->
+    ok = meck:unload(pgw_s5s8),
+    Config;
+end_per_testcase(request_fast_resend, Config) ->
     ok = meck:unload(pgw_s5s8),
     Config;
 end_per_testcase(create_session_overload_response, Config) ->
@@ -498,6 +512,7 @@ create_session_request_resend(Config) ->
     delete_session(S, GtpC),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    ?match(0, meck:num_calls(?HUT, handle_request, ['_', '_', true, '_'])),
     meck_validate(Config),
     ok.
 
@@ -510,6 +525,41 @@ delete_session_request_resend(Config) ->
     {GtpC, _, _} = create_session(S),
     {_, Msg, Response} = delete_session(S, GtpC),
     ?equal(Response, send_recv_pdu(S, Msg)),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    ?match(0, meck:num_calls(?HUT, handle_request, ['_', '_', true, '_'])),
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+request_fast_resend() ->
+    [{doc, "Check that a retransmission that arrives before the original "
+      "request was processed works"}].
+request_fast_resend(Config) ->
+    S = make_gtp_socket(Config),
+    Send = fun(Type, SubType, GtpCin) ->
+		   GtpC = gtp_context_inc_seq(GtpCin),
+		   Request = make_request(Type, SubType, GtpC),
+		   send_pdu(S, Request),
+		   Response = send_recv_pdu(S, Request),
+		   validate_response(Type, SubType, Response, GtpC)
+	   end,
+
+    GtpC0 = gtp_context(),
+
+    GtpC1 = Send(create_session_request, simple, GtpC0),
+    ?equal(timeout, recv_pdu(S, -1, 100, fun(Why) -> Why end)),
+
+    GtpC2 = Send(change_notification_request, simple, GtpC1),
+    ?equal(timeout, recv_pdu(S, -1, 100, fun(Why) -> Why end)),
+
+    GtpC3 = Send(change_notification_request, without_tei, GtpC2),
+    ?equal(timeout, recv_pdu(S, -1, 100, fun(Why) -> Why end)),
+
+    delete_session(S, GtpC3),
+
+    ?match(3, meck:num_calls(?HUT, handle_request, ['_', '_', true, '_'])),
+    ?match(3, meck:num_calls(pgw_s5s8, handle_request, ['_', '_', true, '_'])),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),

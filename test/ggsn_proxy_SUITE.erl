@@ -227,6 +227,7 @@ all_tests() ->
      simple_pdp_context_request,
      create_pdp_context_request_resend,
      delete_pdp_context_request_resend,
+     request_fast_resend,
      update_pdp_context_request_ra_update,
      update_pdp_context_request_tei_update,
      ggsn_update_pdp_context_request,
@@ -271,6 +272,17 @@ init_per_testcase(TestCase, Config)
 			     meck:passthrough([GtpPort, RemoteIP, T3, N3, Msg, CbInfo])
 		     end),
     Config;
+init_per_testcase(request_fast_resend, Config) ->
+    init_per_testcase(Config),
+    ok = meck:new(ggsn_gn, [passthrough, no_link]),
+    ok = meck:expect(ggsn_gn, handle_request,
+		     fun(Request, Msg, Resent, State) ->
+			     if Resent -> ok;
+				true   -> ct:sleep(1000)
+			     end,
+			     meck:passthrough([Request, Msg, Resent, State])
+		     end),
+    Config;
 init_per_testcase(simple_pdp_context_request, Config) ->
     init_per_testcase(Config),
     ok = meck:new(ggsn_gn, [passthrough, no_link]),
@@ -311,6 +323,9 @@ end_per_testcase(TestCase, Config)
        TestCase == delete_pdp_context_requested_invalid_teid;
        TestCase == delete_pdp_context_requested_late_response ->
     ok = meck:delete(gtp_socket, send_request, 6),
+    Config;
+end_per_testcase(request_fast_resend, Config) ->
+    ok = meck:unload(ggsn_gn),
     Config;
 end_per_testcase(simple_pdp_context_request, Config) ->
     meck:unload(ggsn_gn),
@@ -437,6 +452,7 @@ create_pdp_context_request_resend(Config) ->
     delete_pdp_context(S, GtpC),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    ?match(0, meck:num_calls(?HUT, handle_request, ['_', '_', true, '_'])),
     meck_validate(Config),
     ok.
 
@@ -449,6 +465,42 @@ delete_pdp_context_request_resend(Config) ->
     {GtpC, _, _} = create_pdp_context(S),
     {_, Msg, Response} = delete_pdp_context(S, GtpC),
     ?equal(Response, send_recv_pdu(S, Msg)),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    ?match(0, meck:num_calls(?HUT, handle_request, ['_', '_', true, '_'])),
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+%%--------------------------------------------------------------------
+request_fast_resend() ->
+    [{doc, "Check that a retransmission that arrives before the original "
+      "request was processed works"}].
+request_fast_resend(Config) ->
+    S = make_gtp_socket(Config),
+    Send = fun(Type, SubType, GtpCin) ->
+		   GtpC = gtp_context_inc_seq(GtpCin),
+		   Request = make_request(Type, SubType, GtpC),
+		   send_pdu(S, Request),
+		   Response = send_recv_pdu(S, Request),
+		   validate_response(Type, SubType, Response, GtpC)
+	   end,
+
+    GtpC0 = gtp_context(),
+
+    GtpC1 = Send(create_pdp_context_request, simple, GtpC0),
+    ?equal(timeout, recv_pdu(S, -1, 100, fun(Why) -> Why end)),
+
+    GtpC2 = Send(ms_info_change_notification_request, simple, GtpC1),
+    ?equal(timeout, recv_pdu(S, -1, 100, fun(Why) -> Why end)),
+
+    GtpC3 = Send(ms_info_change_notification_request, without_tei, GtpC2),
+    ?equal(timeout, recv_pdu(S, -1, 100, fun(Why) -> Why end)),
+
+    delete_pdp_context(S, GtpC3),
+
+    ?match(3, meck:num_calls(?HUT, handle_request, ['_', '_', true, '_'])),
+    ?match(3, meck:num_calls(ggsn_gn, handle_request, ['_', '_', true, '_'])),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),

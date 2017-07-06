@@ -103,6 +103,7 @@ all() ->
      simple_pdp_context_request,
      ipv6_pdp_context_request,
      ipv4v6_pdp_context_request,
+     request_fast_resend,
      create_pdp_context_request_resend,
      delete_pdp_context_request_resend,
      update_pdp_context_request_ra_update,
@@ -148,6 +149,16 @@ init_per_testcase(TestCase, Config)
 			     meck:passthrough([GtpPort, RemoteIP, T3, N3, Msg, CbInfo])
 		     end),
     Config;
+init_per_testcase(request_fast_resend, Config) ->
+    init_per_testcase(Config),
+    ok = meck:expect(?HUT, handle_request,
+		     fun(Request, Msg, Resent, State) ->
+			     if Resent -> ok;
+				true   -> ct:sleep(1000)
+			     end,
+			     meck:passthrough([Request, Msg, Resent, State])
+		     end),
+    Config;
 init_per_testcase(create_pdp_context_overload, Config) ->
     init_per_testcase(Config),
     jobs:modify_queue(create, [{max_size, 0}]),
@@ -166,6 +177,9 @@ end_per_testcase(path_restart, Config) ->
 end_per_testcase(TestCase, Config)
   when TestCase == delete_pdp_context_requested_resend ->
     ok = meck:delete(gtp_socket, send_request, 7),
+    Config;
+end_per_testcase(request_fast_resend, Config) ->
+    ok = meck:delete(?HUT, handle_request, 4),
     Config;
 end_per_testcase(create_pdp_context_overload, Config) ->
     jobs:modify_queue(create, [{max_size, 10}]),
@@ -333,6 +347,39 @@ ipv4v6_pdp_context_request(Config) ->
     ok.
 
 %%--------------------------------------------------------------------
+request_fast_resend() ->
+    [{doc, "Check that a retransmission that arrives before the original "
+      "request was processed works"}].
+request_fast_resend(Config) ->
+    S = make_gtp_socket(Config),
+    Send = fun(Type, SubType, GtpCin) ->
+		   GtpC = gtp_context_inc_seq(GtpCin),
+		   Request = make_request(Type, SubType, GtpC),
+		   send_pdu(S, Request),
+		   Response = send_recv_pdu(S, Request),
+		   validate_response(Type, SubType, Response, GtpC)
+	   end,
+
+    GtpC0 = gtp_context(),
+
+    GtpC1 = Send(create_pdp_context_request, simple, GtpC0),
+    ?equal(timeout, recv_pdu(S, -1, 100, fun(Why) -> Why end)),
+
+    GtpC2 = Send(ms_info_change_notification_request, simple, GtpC1),
+    ?equal(timeout, recv_pdu(S, -1, 100, fun(Why) -> Why end)),
+
+    GtpC3 = Send(ms_info_change_notification_request, without_tei, GtpC2),
+    ?equal(timeout, recv_pdu(S, -1, 100, fun(Why) -> Why end)),
+
+    delete_pdp_context(S, GtpC3),
+
+    ?match(3, meck:num_calls(?HUT, handle_request, ['_', '_', true, '_'])),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
 create_pdp_context_request_resend() ->
     [{doc, "Check that a retransmission of a Create PDP Context Request works"}].
 create_pdp_context_request_resend(Config) ->
@@ -344,6 +391,7 @@ create_pdp_context_request_resend(Config) ->
     delete_pdp_context(S, GtpC),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    ?match(0, meck:num_calls(?HUT, handle_request, ['_', '_', true, '_'])),
     meck_validate(Config),
     ok.
 
@@ -358,6 +406,7 @@ delete_pdp_context_request_resend(Config) ->
     ?equal(Response, send_recv_pdu(S, Msg)),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    ?match(0, meck:num_calls(?HUT, handle_request, ['_', '_', true, '_'])),
     meck_validate(Config),
     ok.
 

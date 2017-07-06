@@ -190,8 +190,36 @@ handle_cast({packet_in, _GtpPort, _IP, _Port, _Msg}, State) ->
 handle_info(_Info, State) ->
     {noreply, State}.
 
-handle_request(_ReqKey, _Msg, true, State) ->
-%% resent request
+%%
+%% resend request
+%%
+handle_request(ReqKey, Request, true,
+	       #{context := Context, proxy_context := ProxyContext} = State)
+  when ?IS_REQUEST_CONTEXT(ReqKey, Request, Context) ->
+    ergw_proxy_lib:forward_request(ProxyContext, ReqKey, Request),
+    {noreply, State};
+handle_request(ReqKey, Request, true,
+	       #{context := Context, proxy_context := ProxyContext} = State)
+  when ?IS_REQUEST_CONTEXT(ReqKey, Request, ProxyContext) ->
+    ergw_proxy_lib:forward_request(Context, ReqKey, Request),
+    {noreply, State};
+
+%%
+%% some request type need special treatment for resends
+%%
+handle_request(ReqKey, #gtp{type = create_pdp_context_request} = Request, true,
+	       #{proxy_context := ProxyContext} = State) ->
+    ergw_proxy_lib:forward_request(ProxyContext, ReqKey, Request),
+    {noreply, State};
+handle_request(ReqKey, #gtp{type = ms_info_change_notification_request} = Request, true,
+	       #{context := Context, proxy_context := ProxyContext} = State)
+  when ?IS_REQUEST_CONTEXT_OPTIONAL_TEI(ReqKey, Request, Context) ->
+    ergw_proxy_lib:forward_request(ProxyContext, ReqKey, Request),
+    {noreply, State};
+
+handle_request(_ReqKey, _Request, true, State) ->
+    lager:error("resend of request not handled ~p, ~p",
+		[lager:pr(_ReqKey, ?MODULE), gtp_c_lib:fmt_gtp(_Request)]),
     {noreply, State};
 
 handle_request(ReqKey,
@@ -265,8 +293,8 @@ handle_request(ReqKey,
 	       #gtp{type = ms_info_change_notification_request} = Request,
 	       _Resent,
 	       #{context := Context0,
-		 proxy_context := ProxyContext0} = State) ->
-
+		 proxy_context := ProxyContext0} = State)
+  when ?IS_REQUEST_CONTEXT_OPTIONAL_TEI(ReqKey, Request, Context0) ->
     Context = gtp_path:bind(Request, Context0),
     ProxyContext = gtp_path:bind(ProxyContext0),
 
