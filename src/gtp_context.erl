@@ -13,7 +13,8 @@
 -export([lookup/2, handle_message/2, handle_packet_in/4, handle_response/4,
 	 start_link/5,
 	 send_request/4, send_request/6, send_response/2,
-	 forward_request/5, path_restart/2,
+	 send_request/5, resend_request/2,
+	 path_restart/2,
 	 delete_context/1,
 	 register_remote_context/1, update_remote_context/2,
 	 enforce_restrictions/2,
@@ -53,11 +54,9 @@ try_handle_message(#request{gtp_port = GtpPort} = Request,
     Keys = gtp_v1_c:get_msg_keys(Msg),
     context_handle_message(lookup_keys(GtpPort, Keys), Request, Msg);
 
-try_handle_message(#request{gtp_port = GtpPort} = Request, #gtp{version = Version, tei = 0} = Msg) ->
-    case get_handler(Request, Msg) of
-	{ok, Context} when is_pid(Context) ->
-	    gen_server:cast(Context, {handle_message, Request, Msg, true});
-
+try_handle_message(#request{gtp_port = GtpPort} = Request,
+		   #gtp{version = Version, tei = 0} = Msg) ->
+    case get_handler_if(GtpPort, Msg) of
 	{ok, Interface, InterfaceOpts} ->
 	    case ergw:get_accept_new() of
 		true -> ok;
@@ -80,9 +79,18 @@ handle_message(Request, Msg) ->
     ok.
 
 q_handle_message(Request, Msg) ->
-    Q = load_class(Msg),
+    Queue = load_class(Msg),
     try
-	jobs:run(Q, fun() -> try_handle_message(Request, Msg) end)
+	jobs:run(
+	  Queue,
+	  fun() ->
+		  case lookup_request(Request) of
+		      Context when is_pid(Context) ->
+			  gen_server:cast(Context, {handle_message, Request, Msg, true});
+		      _ ->
+			  try_handle_message(Request, Msg)
+		  end
+	  end)
     catch
 	throw:{error, Error} ->
 	    lager:error("handler failed with: ~p", [Error]),
@@ -117,9 +125,12 @@ send_request(GtpPort, RemoteIP, T3, N3, Msg, ReqInfo) ->
     CbInfo = {?MODULE, handle_response, [self(), ReqInfo, Msg]},
     gtp_socket:send_request(GtpPort, RemoteIP, T3, N3, Msg, CbInfo).
 
-forward_request(GtpPort, RemoteIP, Msg, ReqId, ReqInfo) ->
+send_request(GtpPort, RemoteIP, ReqId, Msg, ReqInfo) ->
     CbInfo = {?MODULE, handle_response, [self(), ReqInfo, Msg]},
-    gtp_socket:forward_request(GtpPort, RemoteIP, Msg, ReqId, CbInfo).
+    gtp_socket:send_request(GtpPort, RemoteIP, ReqId, Msg, CbInfo).
+
+resend_request(GtpPort, ReqId) ->
+    gtp_socket:resend_request(GtpPort, ReqId).
 
 start_link(GtpPort, Version, Interface, IfOpts, Opts) ->
     gen_server:start_link(?MODULE, [GtpPort, Version, Interface, IfOpts], Opts).
@@ -285,12 +296,13 @@ handle_cast({handle_message, Request, #gtp{} = Msg, Resent}, State) ->
 
 handle_cast({handle_response, ReqInfo, Request, Response},
 	    #{interface := Interface} = State0) ->
-    lager:debug("handle gtp response: ~p", [gtp_c_lib:fmt_gtp(Response)]),
     try
 	case Response of
 	    #gtp{} ->
+		lager:debug("handle gtp response: ~p", [gtp_c_lib:fmt_gtp(Response)]),
 		validate_message(Response, State0);
 	    _ when is_atom(Response) ->
+		lager:debug("handle gtp response: ~p", [Response]),
 		ok
 	end,
 	Interface:handle_response(ReqInfo, Response, Request, State0)
@@ -386,10 +398,10 @@ handle_request(#request{gtp_port = GtpPort} = Request,
     end.
 
 
-send_response(#request{gtp_port = GtpPort} = Request, #gtp{seq_no = SeqNo} = Msg) ->
+send_response(Request, #gtp{seq_no = SeqNo} = Msg) ->
     %% TODO: handle encode errors
     try
-	gtp_context_reg:unregister(GtpPort, Request),
+	unregister_request(Request),
 	gtp_socket:send_response(Request, Msg, SeqNo /= 0)
     catch
 	Class:Error ->
@@ -401,6 +413,15 @@ send_response(#request{gtp_port = GtpPort} = Request, #gtp{seq_no = SeqNo} = Msg
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
+
+register_request(Context, #request{key = ReqKey, gtp_port = GtpPort}) ->
+    gtp_context_reg:register(GtpPort, ReqKey, Context).
+
+unregister_request(#request{key = ReqKey, gtp_port = GtpPort}) ->
+    gtp_context_reg:unregister(GtpPort, ReqKey).
+
+lookup_request(#request{key = ReqKey, gtp_port = GtpPort}) ->
+    gtp_context_reg:lookup(GtpPort, ReqKey).
 
 enforce_restriction(Context, #gtp{version = Version}, {Version, false}) ->
     throw(#ctx_err{level = ?FATAL,
@@ -418,14 +439,6 @@ load_class(#gtp{version = v1} = Msg) ->
     gtp_v1_c:load_class(Msg);
 load_class(#gtp{version = v2} = Msg) ->
     gtp_v2_c:load_class(Msg).
-
-get_handler(#request{gtp_port = GtpPort} = Request, Msg) ->
-    case gtp_context_reg:lookup(GtpPort, Request) of
-	Context when is_pid(Context) ->
-	    {ok, Context};
-	_ ->
-	    get_handler_if(GtpPort, Msg)
-    end.
 
 lookup_keys(_, []) ->
     throw({error, not_found});
@@ -445,9 +458,9 @@ context_new(GtpPort, Version, Interface, InterfaceOpts) ->
 	    throw({error, Error})
     end.
 
-context_handle_message(Context, #request{gtp_port = GtpPort} = Request, Msg)
+context_handle_message(Context, Request, Msg)
   when is_pid(Context) ->
-    gtp_context_reg:register(GtpPort, Request, Context),
+    register_request(Context, Request),
     gen_server:cast(Context, {handle_message, Request, Msg, false});
 context_handle_message(_Context, _Request, _Msg) ->
     throw({error, not_found}).
