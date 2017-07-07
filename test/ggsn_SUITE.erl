@@ -114,7 +114,8 @@ all() ->
      invalid_teid,
      delete_pdp_context_requested,
      delete_pdp_context_requested_resend,
-     create_pdp_context_overload].
+     create_pdp_context_overload,
+     cache_timeout].
 
 %%%===================================================================
 %%% Tests
@@ -164,6 +165,14 @@ init_per_testcase(create_pdp_context_overload, Config) ->
     jobs:modify_queue(create, [{max_size, 0}]),
     jobs:modify_regulator(rate, create, {rate,create,1}, [{limit,1}]),
     Config;
+init_per_testcase(cache_timeout, Config) ->
+    case os:getenv("CI_RUN_SLOW_TESTS") of
+	"true" ->
+	    init_per_testcase(Config),
+	    Config;
+	_ ->
+	    {skip, "slow tests run only on CI"}
+    end;
 init_per_testcase(_, Config) ->
     init_per_testcase(Config),
     Config.
@@ -566,6 +575,31 @@ create_pdp_context_overload(Config) ->
     S = make_gtp_socket(Config),
 
     create_pdp_context(overload, S),
+
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+cache_timeout() ->
+    [{doc, "Check GTP socket queue timeout"}, {timetrap, {seconds, 150}}].
+cache_timeout(Config) ->
+    GtpPort = gtp_socket_reg:lookup('irx'),
+    S = make_gtp_socket(Config),
+
+    {GtpC, _, _} = create_pdp_context(S),
+    delete_pdp_context(S, GtpC),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+
+    {T0, Q0} = gtp_socket:get_response_q(GtpPort),
+    ?match(X when X /= 0, length(T0)),
+    ?match(X when X /= 0, length(Q0)),
+
+    ct:sleep({seconds, 120}),
+
+    {T1, Q1} = gtp_socket:get_response_q(GtpPort),
+    ?equal(0, length(T1)),
+    ?equal(0, length(Q1)),
 
     meck_validate(Config),
     ok.
