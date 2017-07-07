@@ -17,6 +17,7 @@
 	 send_request/4, send_request/6,
 	 send_request/5, resend_request/2,
 	 get_restart_counter/1]).
+-export([get_request_q/1, get_response_q/1]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -108,6 +109,12 @@ resend_request(#gtp_port{type = 'gtp-c'} = GtpPort, ReqId) ->
 get_restart_counter(GtpPort) ->
     call(GtpPort, get_restart_counter).
 
+get_request_q(GtpPort) ->
+    call(GtpPort, get_request_q).
+
+get_response_q(GtpPort) ->
+    call(GtpPort, get_response_q).
+
 %%%===================================================================
 %%% call/cast wrapper for gtp_port
 %%%===================================================================
@@ -155,6 +162,11 @@ init([Name, SocketOpts]) ->
 
 handle_call(get_restart_counter, _From, #state{restart_counter = RCnt} = State) ->
     {reply, RCnt, State};
+
+handle_call(get_request_q, _From, #state{requests = Requests} = State) ->
+    {reply, cache_to_list(Requests), State};
+handle_call(get_response_q, _From, #state{responses = Responses} = State) ->
+    {reply, cache_to_list(Responses), State};
 
 handle_call(Request, _From, State) ->
     lager:error("handle_call: unknown ~p", [lager:pr(Request, ?MODULE)]),
@@ -581,6 +593,9 @@ cache_expire(Now, #cache{tree = Tree0, queue = Q0} = Cache) ->
 	_ ->
 	    Cache
     end.
+
+cache_to_list(#cache{tree = Tree, queue = Q}) ->
+    {gb_trees:to_list(Tree), queue:to_list(Q)}.
 
 %%%===================================================================
 %%% exometer functions
