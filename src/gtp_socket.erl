@@ -439,10 +439,6 @@ handle_response(ArrivalTS, IP, _Port, Msg, #state{gtp_port = GtpPort} = State0) 
 	    lager:info("~p: found response: ~p", [self(), SeqId]),
 	    measure_reply(GtpPort, SendReq, ArrivalTS),
 	    send_request_reply(SendReq, Msg),
-	    State;
-
-	_Other ->
-	    lager:error("~p: handle response failed with: ~p, ~p, ~p", [self(), SeqId, _Other, lager:pr(State, ?MODULE)]),
 	    State
     end.
 
