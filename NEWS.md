@@ -1,6 +1,14 @@
 erGW - 3GPP GGSN and PDN-GW in Erlang
 =====================================
 
+Version 1.12.1 - 08 Jul 2017
+----------------------------
+
+* upgrade gtplib, fix PCO's with vendor extensions
+* fix handling of IP's in metrics names
+* Serve Prometheus metrics on `/metrics`
+* populate missing version field on request
+
 Version 1.12.0 - 21 Jun 2017
 ----------------------------
 
