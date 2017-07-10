@@ -78,12 +78,13 @@ handle_message(Request, Msg) ->
     proc_lib:spawn(fun() -> q_handle_message(Request, Msg) end),
     ok.
 
-q_handle_message(Request, Msg) ->
-    Queue = load_class(Msg),
+q_handle_message(Request, Msg0) ->
+    Queue = load_class(Msg0),
     try
 	jobs:run(
 	  Queue,
 	  fun() ->
+		  Msg = gtp_packet:decode_ies(Msg0),
 		  case lookup_request(Request) of
 		      Context when is_pid(Context) ->
 			  gen_server:cast(Context, {handle_message, Request, Msg, true});
@@ -94,10 +95,10 @@ q_handle_message(Request, Msg) ->
     catch
 	throw:{error, Error} ->
 	    lager:error("handler failed with: ~p", [Error]),
-	    generic_error(Request, Msg, Error);
+	    generic_error(Request, Msg0, Error);
 	error:Error = rejected ->
 	    lager:debug("handler failed with: ~p", [Error]),
-	    generic_error(Request, Msg, Error)
+	    generic_error(Request, Msg0, Error)
     end.
 
 handle_packet_in(GtpPort, IP, Port,
@@ -289,14 +290,16 @@ handle_call(Request, From, #{interface := Interface} = State) ->
     lager:debug("~w: handle_call: ~p", [?MODULE, Request]),
     Interface:handle_call(Request, From, State).
 
-handle_cast({handle_message, Request, #gtp{} = Msg, Resent}, State) ->
+handle_cast({handle_message, Request, #gtp{} = Msg0, Resent}, State) ->
+    Msg = gtp_packet:decode_ies(Msg0),
     lager:debug("handle gtp request: ~w, ~p",
 		[Request#request.port, gtp_c_lib:fmt_gtp(Msg)]),
     handle_request(Request, Msg, Resent, State);
 
-handle_cast({handle_response, ReqInfo, Request, Response},
+handle_cast({handle_response, ReqInfo, Request, Response0},
 	    #{interface := Interface} = State0) ->
     try
+	Response = gtp_packet:decode_ies(Response0),
 	case Response of
 	    #gtp{} ->
 		lager:debug("handle gtp response: ~p", [gtp_c_lib:fmt_gtp(Response)]),
