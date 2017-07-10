@@ -173,17 +173,23 @@ handle_call(Request, _From, State) ->
     lager:warning("handle_call: ~p", [lager:pr(Request, ?MODULE)]),
     {reply, ok, State}.
 
-handle_cast({handle_request, ReqKey, #gtp{type = echo_request} = Msg},
+handle_cast({handle_request, ReqKey, #gtp{type = echo_request} = Msg0},
 	    #state{gtp_port = GtpPort, handler = Handler} = State0) ->
-    lager:debug("echo_request: ~p", [Msg]),
+    lager:debug("echo_request: ~p", [Msg0]),
+    try gtp_packet:decode_ies(Msg0) of
+	Msg = #gtp{} ->
 
-    State = handle_recovery_ie(Msg, State0),
+	    State = handle_recovery_ie(Msg, State0),
 
-    ResponseIEs = Handler:build_recovery(GtpPort, true, []),
-    Response = Msg#gtp{type = echo_response, ie = ResponseIEs},
-    gtp_socket:send_response(ReqKey, Response, false),
-
-    {noreply, State};
+	    ResponseIEs = Handler:build_recovery(GtpPort, true, []),
+	    Response = Msg#gtp{type = echo_response, ie = ResponseIEs},
+	    gtp_socket:send_response(ReqKey, Response, false),
+	    {noreply, State}
+    catch
+	Class:Error ->
+	    lager:error("GTP decoding failed with ~p:~p for ~p", [Class, Error, Msg0]),
+	    {noreply, State0}
+    end;
 
 handle_cast(down, #state{table = TID} = State0) ->
     Path = self(),

@@ -48,6 +48,7 @@
 	  restart_counter}).
 
 -record(send_req, {
+	  req_id  :: term(),
 	  address :: inet:ip_address(),
 	  t3      :: non_neg_integer(),
 	  n3      :: non_neg_integer(),
@@ -95,12 +96,16 @@ send_request(#gtp_port{type = 'gtp-c'} = GtpPort, RemoteIP, Msg = #gtp{}, CbInfo
 
 send_request(#gtp_port{type = 'gtp-c'} = GtpPort, RemoteIP, T3, N3,
 	     Msg = #gtp{version = Version}, CbInfo) ->
-    cast(GtpPort, {send_request, RemoteIP, T3, N3, Msg, CbInfo}),
+    lager:debug("~p: gtp_socket send_request to ~p: ~p", [self(), RemoteIP, Msg]),
+
+    cast(GtpPort, make_send_req(undefined, RemoteIP, T3, N3, Msg, CbInfo)),
     gtp_path:maybe_new_path(GtpPort, Version, RemoteIP).
 
 send_request(#gtp_port{type = 'gtp-c'} = GtpPort, RemoteIP, ReqId,
 	     Msg = #gtp{version = Version}, CbInfo) ->
-    cast(GtpPort, {send_request, RemoteIP, ReqId, Msg, CbInfo}),
+    lager:debug("~p: gtp_socket send_request ~p to ~p: ~p", [self(), ReqId, RemoteIP, Msg]),
+
+    cast(GtpPort, make_send_req(ReqId, RemoteIP, ?T3 * 2, 0, Msg, CbInfo)),
     gtp_path:maybe_new_path(GtpPort, Version, RemoteIP).
 
 resend_request(#gtp_port{type = 'gtp-c'} = GtpPort, ReqId) ->
@@ -182,27 +187,10 @@ handle_cast({send_response, ReqKey, Data, DoCache}, State0)
     State = do_send_response(ReqKey, Data, DoCache, State0),
     {noreply, State};
 
-handle_cast({send_request, RemoteIP, T3, N3, Msg0, CbInfo},
-	    #state{gtp_port = GtpPort} = State0) ->
-    lager:debug("~p: gtp_socket send_request to ~p: ~p", [self(), RemoteIP, Msg0]),
-
-    {Msg, State1} = new_sequence_number(Msg0, State0),
-
-    message_counter(tx, GtpPort, RemoteIP, Msg0),
-
-    SendReq = make_send_req(RemoteIP, T3, N3, Msg, CbInfo),
-    State = send_request(SendReq, State1),
-
-    {noreply, State};
-
-handle_cast({send_request, RemoteIP, ReqId, Msg0, CbInfo},
-	    #state{gtp_port = GtpPort} = State0) ->
-    lager:debug("~p: gtp_socket send_request ~p to ~p: ~p", [self(), ReqId, RemoteIP, Msg0]),
-
-    {Msg, State1} = new_sequence_number(Msg0, State0),
-    SendReq = make_send_req(RemoteIP, ?T3 * 2, 0, Msg, CbInfo),
+handle_cast(#send_req{} = SendReq0, #state{gtp_port = GtpPort} = State0) ->
+    {SendReq, State1} = prepare_send_req(SendReq0, State0),
     message_counter(tx, GtpPort, SendReq),
-    State = send_request(ReqId, SendReq, State1),
+    State = send_request(SendReq, State1),
     {noreply, State};
 
 handle_cast({resend_request, ReqId},
@@ -212,7 +200,7 @@ handle_cast({resend_request, ReqId},
     case request_q_peek(ReqId, State0) of
 	{value, SendReq} ->
 	    message_counter(tx, GtpPort, SendReq, retransmit),
-	    State = send_request(ReqId, SendReq, State0),
+	    State = send_request(SendReq, State0),
 	    {noreply, State};
 
 	_ ->
@@ -293,6 +281,11 @@ cancel_timer(Ref) ->
             RemainingTime
     end.
 
+prepare_send_req(#send_req{msg = Msg0} = SendReq, State0) ->
+    {Msg, State} = new_sequence_number(Msg0, State0),
+    BinMsg = gtp_packet:encode(Msg),
+    {SendReq#send_req{msg = Msg, data = BinMsg}, State}.
+
 new_sequence_number(#gtp{version = v1} = Msg, #state{v1_seq_no = SeqNo} = State) ->
     {Msg#gtp{seq_no = SeqNo}, State#state{v1_seq_no = (SeqNo + 1) rem 16#ffff}};
 new_sequence_number(#gtp{version = v2} = Msg, #state{v2_seq_no = SeqNo} = State) ->
@@ -301,13 +294,13 @@ new_sequence_number(#gtp{version = v2} = Msg, #state{v2_seq_no = SeqNo} = State)
 make_seq_id(#gtp{version = Version, seq_no = SeqNo}) ->
     {Version, SeqNo}.
 
-make_send_req(Address, T3, N3, Msg, CbInfo) ->
+make_send_req(ReqId, Address, T3, N3, Msg, CbInfo) ->
     #send_req{
+       req_id = ReqId,
        address = Address,
        t3 = T3,
        n3 = N3,
-       data = gtp_packet:encode(Msg),
-       msg = Msg,
+       msg = gtp_packet:encode_ies(Msg),
        cb_info = CbInfo,
        send_ts = erlang:monotonic_time()
       }.
@@ -418,7 +411,7 @@ handle_err_input(Socket, State) ->
     end.
 
 handle_message(ArrivalTS, IP, Port, Data, #state{gtp_port = GtpPort} = State0) ->
-    try gtp_packet:decode(Data) of
+    try gtp_packet:decode(Data, #{ies => binary}) of
 	Msg = #gtp{} ->
 	    %% TODO: handle decode failures
 
@@ -516,15 +509,14 @@ sendto({_,_,_,_,_,_,_,_} = RemoteIP, Port, Data, #state{socket = Socket}) ->
 send_request_reply(#send_req{cb_info = {M, F, A}}, Reply) ->
     apply(M, F, A ++ [Reply]).
 
-send_request(#send_req{address = RemoteIP, data = Data} = SendReq, State) ->
-    sendto(RemoteIP, Data, State),
-    start_request(SendReq, State).
+send_request(#send_req{address = RemoteIP, data = Data} = SendReq, State0) ->
+    sendto(RemoteIP, Data, State0),
+    State = start_request(SendReq, State0),
+    request_q_in(SendReq, State).
 
-send_request(ReqId, SendReq, State0) ->
-    State1 = send_request(SendReq, State0),
-    request_q_in(ReqId, SendReq, State1).
-
-request_q_in(ReqId, SendReq, #state{requests = Requests} = State) ->
+request_q_in(#send_req{req_id = undefined}, State) ->
+    State;
+request_q_in(#send_req{req_id = ReqId} = SendReq, #state{requests = Requests} = State) ->
     State#state{requests = cache_enter(ReqId, SendReq, ?RESPONSE_TIMEOUT, Requests)}.
 
 request_q_peek(ReqId, #state{requests = Requests}) ->
