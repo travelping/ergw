@@ -45,9 +45,9 @@ start_http_listener(HttpOpts) ->
                                         {"/api/v1/spec/ui", swagger_ui_handler, []},
                                         {"/api/v1/spec/ui/[...]", cowboy_static, {priv_dir, ergw, "static"}}]}
                                      ]),
-    cowboy:start_clear(ergw_http_listener, AcceptorsNum, [{port, Port}, {ip, IP}, INet], #{
-                                                           env => #{dispatch => Dispatch}
-                                                          }).
+    TransOpts = [{port, Port}, {ip, IP}, INet, {num_acceptors, AcceptorsNum}],
+    ProtoOpts = #{env => #{dispatch => Dispatch}},
+    cowboy:start_clear(ergw_http_listener, TransOpts, ProtoOpts).
 
 get_config_option(List, Key, DefaultVal) ->
     case lists:keyfind(Key, 1, List) of
