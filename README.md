@@ -22,6 +22,16 @@ From the above the following procedures as defined by 3GPP T 23.060 should work:
  * 3GPP TS 23.401 Annex D, Interoperation with Gn/Gp SGSNs procedures
    (see [CONFIG.md](CONFIG.md))
 
+EXPERIMENTAL FEATURES
+---------------------
+
+Experimental features may change or be removed at any moment. Configuration settings
+for them are not guaranteed to work across versions. Check [CONFIG.md](CONFIG.md) and
+[NEWS.md](NEWS.md) on version upgrades.
+
+ * rate limiting, defaults to 100 requests/second
+ * metrics, see [METRICS.md](METRICS.md)
+
 RADIUS over Gi/SGi
 ------------------
 

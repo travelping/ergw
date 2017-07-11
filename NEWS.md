@@ -1,10 +1,17 @@
 erGW - 3GPP GGSN and PDN-GW in Erlang
 =====================================
 
-Version 1.13.0 - xx Jul 2017
+Version 1.13.0 - 11 Jul 2017
 ----------------------------
 
 * add rate limiting for incoming requests, the default is 100 req/s
+* upgrade gtplib, fix PCO's with vendor extensions
+* fix handling of IP's in metrics names
+* Serve Prometheus metrics on `/metrics`
+* populate missing version field on request
+* fix resend behaviour in proxy mode
+* support Erlang 20.0
+* optimise GTP message encoding
 
 Version 1.12.0 - 21 Jun 2017
 ----------------------------
