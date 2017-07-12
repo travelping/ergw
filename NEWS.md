@@ -1,6 +1,11 @@
 erGW - 3GPP GGSN and PDN-GW in Erlang
 =====================================
 
+Version 1.13.1 - 12 Jul 2017
+----------------------------
+
+* fix handling of freebind and netdev socket options
+
 Version 1.13.0 - 11 Jul 2017
 ----------------------------
 
