@@ -132,8 +132,12 @@ get_response_q(GtpPort) ->
 -define(SocketDefaults, [{ip, invalid}]).
 
 validate_options(Values0) ->
-    Values = proplists:unfold(Values0),
-    ergw_config:validate_options(fun validate_option/2, Values, ?SocketDefaults, list).
+    Values = if is_list(Values0) ->
+		     proplists:unfold(Values0);
+		true ->
+		     Values0
+	     end,
+    ergw_config:validate_options(fun validate_option/2, Values, ?SocketDefaults, map).
 
 validate_option(name, Value) when is_atom(Value) ->
     Value;
@@ -149,11 +153,12 @@ validate_option(netdev, Value)
 validate_option(netns, Value)
   when is_list(Value); is_binary(Value) ->
     Value;
-validate_option(freebind, true) ->
-    freebind;
-validate_option(reuseaddr, true) ->
-    true;
-validate_option(rcvbuf, Value) when is_integer(Value) ->
+validate_option(freebind, Value) when is_boolean(Value) ->
+    Value;
+validate_option(reuseaddr, Value) when is_boolean(Value) ->
+    Value;
+validate_option(rcvbuf, Value)
+  when is_integer(Value) andalso Value > 0 ->
     Value;
 validate_option(Opt, Value) ->
     throw({error, {options, {Opt, Value}}}).
@@ -172,18 +177,19 @@ call(#gtp_port{pid = Handler}, Request) ->
 %%% gen_server callbacks
 %%%===================================================================
 
-init([Name, SocketOpts]) ->
+init([Name, #{ip := IP} = SocketOpts]) ->
     process_flag(trap_exit, true),
 
-    IP    = proplists:get_value(ip, SocketOpts),
-    NetNs = proplists:get_value(netns, SocketOpts),
-    Type  = proplists:get_value(type, SocketOpts, 'gtp-c'),
-
-    {ok, S} = make_gtp_socket(NetNs, IP, ?GTP1c_PORT, SocketOpts),
-
+    {ok, S} = make_gtp_socket(IP, ?GTP1c_PORT, SocketOpts),
     {ok, RCnt} = gtp_config:get_restart_counter(),
-    GtpPort = #gtp_port{name = Name, type = Type, pid = self(),
-			ip = IP, restart_counter = RCnt},
+
+    GtpPort = #gtp_port{
+		 name = Name,
+		 type = maps:get(type, SocketOpts, 'gtp-c'),
+		 pid = self(),
+		 ip = IP,
+		 restart_counter = RCnt
+		},
 
     init_exometer(GtpPort),
     gtp_socket_reg:register(Name, GtpPort),
@@ -358,46 +364,51 @@ make_request(ArrivalTS, IP, Port,
 family({_,_,_,_}) -> inet;
 family({_,_,_,_,_,_,_,_}) -> inet6.
 
-make_gtp_socket(NetNs, IP, Port, Opts) when is_list(NetNs) ->
+make_gtp_socket(IP, Port, #{netns := NetNs} = Opts)
+  when is_list(NetNs) ->
     {ok, Socket} = gen_socket:socketat(NetNs, family(IP), dgram, udp),
     bind_gtp_socket(Socket, IP, Port, Opts);
-make_gtp_socket(_NetNs, IP, Port, Opts) ->
+make_gtp_socket(IP, Port, Opts) ->
     {ok, Socket} = gen_socket:socket(family(IP), dgram, udp),
     bind_gtp_socket(Socket, IP, Port, Opts).
 
 bind_gtp_socket(Socket, {_,_,_,_} = IP, Port, Opts) ->
-    case proplists:get_bool(freebind, Opts) of
-	true ->
-	    ok = gen_socket:setsockopt(Socket, sol_ip, freebind, true);
-	_ ->
-	    ok
-    end,
+    ok = socket_ip_freebind(Socket, Opts),
+    ok = socket_netdev(Socket, Opts),
     ok = gen_socket:bind(Socket, {inet4, IP, Port}),
     ok = gen_socket:setsockopt(Socket, sol_ip, recverr, true),
     ok = gen_socket:setsockopt(Socket, sol_ip, mtu_discover, 0),
     ok = gen_socket:input_event(Socket, true),
-    lists:foreach(socket_setopts(Socket, _), Opts),
+    maps:fold(fun(K, V, ok) -> ok = socket_setopts(Socket, K, V) end, ok, Opts),
     {ok, Socket};
 
 bind_gtp_socket(Socket, {_,_,_,_,_,_,_,_} = IP, Port, Opts) ->
     %% ok = gen_socket:setsockopt(Socket, sol_ip, recverr, true),
+    ok = socket_netdev(Socket, Opts),
     ok = gen_socket:bind(Socket, {inet6, IP, Port}),
-    lists:foreach(socket_setopts(Socket, _), Opts),
+    maps:fold(fun(K, V, ok) -> ok = socket_setopts(Socket, K, V) end, ok, Opts),
     ok = gen_socket:input_event(Socket, true),
     {ok, Socket}.
 
-socket_setopts(Socket, {netdev, Device})
-  when is_list(Device); is_binary(Device) ->
+socket_ip_freebind(Socket, #{freebind := true}) ->
+    gen_socket:setsockopt(Socket, sol_ip, freebind, true);
+socket_ip_freebind(_, _) ->
+    ok.
+
+socket_netdev(Socket, #{netdev := Device}) ->
     BinDev = iolist_to_binary([Device, 0]),
-    ok = gen_socket:setsockopt(Socket, sol_socket, bindtodevice, BinDev);
-socket_setopts(Socket, {rcvbuf, Size}) when is_integer(Size) ->
+    gen_socket:setsockopt(Socket, sol_socket, bindtodevice, BinDev);
+socket_netdev(_, _) ->
+    ok.
+
+socket_setopts(Socket, rcvbuf, Size) when is_integer(Size) ->
     case gen_socket:setsockopt(Socket, sol_socket, rcvbufforce, Size) of
 	ok -> ok;
-	_ -> gen_socket:setsockopt(Socket, sol_socket, rcvbuf, Size)
+	_  -> gen_socket:setsockopt(Socket, sol_socket, rcvbuf, Size)
     end;
-socket_setopts(Socket, {reuseaddr, true}) ->
+socket_setopts(Socket, reuseaddr, true) ->
     ok = gen_socket:setsockopt(Socket, sol_socket, reuseaddr, true);
-socket_setopts(_Socket, _) ->
+socket_setopts(_Socket, _, _) ->
     ok.
 
 handle_input(Socket, State) ->
