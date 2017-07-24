@@ -319,8 +319,9 @@ handle_request(ReqKey,
     forward_request(ggsn2sgsn, ReqKey, Request, State),
     {noreply, State};
 
-handle_request(#request{gtp_port = GtpPort}, Msg, _Resent, State) ->
+handle_request(#request{gtp_port = GtpPort} = ReqKey, Msg, _Resent, State) ->
     lager:warning("Unknown Proxy Message on ~p: ~p", [GtpPort, lager:pr(Msg, ?MODULE)]),
+    gtp_context:request_finished(ReqKey),
     {noreply, State}.
 
 handle_response(#proxy_request{direction = sgsn2ggsn} = ProxyRequest,

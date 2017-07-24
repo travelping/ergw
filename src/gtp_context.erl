@@ -14,6 +14,7 @@
 	 start_link/5,
 	 send_request/4, send_request/6, send_response/2,
 	 send_request/5, resend_request/2,
+	 request_finished/1,
 	 path_restart/2,
 	 delete_context/1,
 	 register_remote_context/1, update_remote_context/2,
@@ -404,7 +405,7 @@ handle_request(#request{gtp_port = GtpPort} = Request,
 send_response(Request, #gtp{seq_no = SeqNo} = Msg) ->
     %% TODO: handle encode errors
     try
-	unregister_request(Request),
+	request_finished(Request),
 	gtp_socket:send_response(Request, Msg, SeqNo /= 0)
     catch
 	Class:Error ->
@@ -412,6 +413,9 @@ send_response(Request, #gtp{seq_no = SeqNo} = Msg) ->
 	    lager:error("gtp send failed with ~p:~p (~p) for ~p",
 			[Class, Error, Stack, gtp_c_lib:fmt_gtp(Msg)])
     end.
+
+request_finished(Request) ->
+    unregister_request(Request).
 
 %%%===================================================================
 %%% Internal functions

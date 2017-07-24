@@ -7,7 +7,7 @@
 
 -module(ggsn_proxy_SUITE).
 
--compile(export_all).
+-compile([export_all, nowarn_export_all]).
 
 -include_lib("common_test/include/ct.hrl").
 -include_lib("gtplib/include/gtp_packet.hrl").
@@ -244,6 +244,7 @@ all_tests() ->
      delete_pdp_context_requested_invalid_teid,
      delete_pdp_context_requested_late_response,
      create_pdp_context_overload,
+     unsupported_request,
      cache_timeout].
 
 %%%===================================================================
@@ -369,6 +370,7 @@ create_pdp_context_request_missing_ie(Config) ->
 
     create_pdp_context(missing_ie, S),
 
+    ?equal([], outstanding_requests()),
     meck_validate(Config),
     ok.
 
@@ -382,6 +384,7 @@ create_pdp_context_request_accept_new(Config) ->
     create_pdp_context(overload, S),
     ?equal(ergw:system_info(accept_new, true), false),
 
+    ?equal([], outstanding_requests()),
     meck_validate(Config),
     ok.
 
@@ -447,6 +450,8 @@ simple_pdp_context_request(Config) ->
 	      {ms_international_pstn_isdn_number, 0} :=
 		  #ms_international_pstn_isdn_number{
 		     msisdn = {isdn_address,1,1,1, ?'PROXY-MSISDN'}}}}, V),
+
+    ?equal([], outstanding_requests()),
     ok.
 
 %%--------------------------------------------------------------------
@@ -457,6 +462,7 @@ create_pdp_context_request_resend(Config) ->
 
     {GtpC, Msg, Response} = create_pdp_context(S),
     ?equal(Response, send_recv_pdu(S, Msg)),
+    ?equal([], outstanding_requests()),
 
     delete_pdp_context(S, GtpC),
 
@@ -474,6 +480,7 @@ delete_pdp_context_request_resend(Config) ->
     {GtpC, _, _} = create_pdp_context(S),
     {_, Msg, Response} = delete_pdp_context(S, GtpC),
     ?equal(Response, send_recv_pdu(S, Msg)),
+    ?equal([], outstanding_requests()),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     ?match(0, meck:num_calls(?HUT, handle_request, ['_', '_', true, '_'])),
@@ -506,6 +513,8 @@ request_fast_resend(Config) ->
     GtpC3 = Send(ms_info_change_notification_request, without_tei, GtpC2),
     ?equal(timeout, recv_pdu(S, -1, 100, fun(Why) -> Why end)),
 
+    ?equal([], outstanding_requests()),
+
     delete_pdp_context(S, GtpC3),
 
     ?match(3, meck:num_calls(?HUT, handle_request, ['_', '_', true, '_'])),
@@ -523,6 +532,7 @@ update_pdp_context_request_ra_update(Config) ->
 
     {GtpC1, _, _} = create_pdp_context(S),
     {GtpC2, _, _} = update_pdp_context(ra_update, S, GtpC1),
+    ?equal([], outstanding_requests()),
     delete_pdp_context(S, GtpC2),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
@@ -537,6 +547,7 @@ update_pdp_context_request_tei_update(Config) ->
 
     {GtpC1, _, _} = create_pdp_context(S),
     {GtpC2, _, _} = update_pdp_context(tei_update, S, GtpC1),
+    ?equal([], outstanding_requests()),
     delete_pdp_context(S, GtpC2),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
@@ -551,6 +562,7 @@ ms_info_change_notification_request_with_tei(Config) ->
 
     {GtpC1, _, _} = create_pdp_context(S),
     {GtpC2, _, _} = ms_info_change_notification(simple, S, GtpC1),
+    ?equal([], outstanding_requests()),
     delete_pdp_context(S, GtpC2),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
@@ -566,6 +578,7 @@ ms_info_change_notification_request_without_tei(Config) ->
 
     {GtpC1, _, _} = create_pdp_context(S),
     {GtpC2, _, _} = ms_info_change_notification(without_tei, S, GtpC1),
+    ?equal([], outstanding_requests()),
     delete_pdp_context(S, GtpC2),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
@@ -581,6 +594,7 @@ ms_info_change_notification_request_invalid_imsi(Config) ->
 
     {GtpC1, _, _} = create_pdp_context(S),
     {GtpC2, _, _} = ms_info_change_notification(invalid_imsi, S, GtpC1),
+    ?equal([], outstanding_requests()),
     delete_pdp_context(S, GtpC2),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
@@ -600,6 +614,7 @@ proxy_context_selection(Config) ->
     S = make_gtp_socket(Config),
 
     {GtpC, _, _} = create_pdp_context(S),
+    ?equal([], outstanding_requests()),
     delete_pdp_context(S, GtpC),
 
     meck:unload(gtp_proxy_ds),
@@ -621,6 +636,7 @@ proxy_context_invalid_selection(Config) ->
     S = make_gtp_socket(Config),
 
     {GtpC, _, _} = create_pdp_context(S),
+    ?equal([], outstanding_requests()),
     delete_pdp_context(S, GtpC),
 
     meck:unload(gtp_proxy_ds),
@@ -640,6 +656,7 @@ proxy_context_invalid_mapping(Config) ->
     S = make_gtp_socket(Config),
 
     {_, _, _} = create_pdp_context(invalid_mapping, S),
+    ?equal([], outstanding_requests()),
 
     meck:unload(gtp_proxy_ds),
 
@@ -660,6 +677,7 @@ proxy_context_version_restricted(Config) ->
     S = make_gtp_socket(Config),
 
     {_, _, _} = create_pdp_context(version_restricted, S),
+    ?equal([], outstanding_requests()),
 
     meck:unload(gtp_proxy_ds),
 
@@ -677,6 +695,7 @@ invalid_teid(Config) ->
     {GtpC2, _, _} = delete_pdp_context(invalid_teid, S, GtpC1),
     {GtpC3, _, _} = update_pdp_context(invalid_teid, S, GtpC2),
     {GtpC4, _, _} = ms_info_change_notification(invalid_teid, S, GtpC3),
+    ?equal([], outstanding_requests()),
     delete_pdp_context(S, GtpC4),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
@@ -711,6 +730,7 @@ delete_pdp_context_requested(Config) ->
     after ?TIMEOUT ->
 	    ct:fail(timeout)
     end,
+    ?equal([], outstanding_requests()),
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
     ok.
@@ -741,6 +761,7 @@ delete_pdp_context_requested_resend(Config) ->
     after ?TIMEOUT ->
 	    ct:fail(timeout)
     end,
+    ?match([_], outstanding_requests()),
     meck_validate(Config),
     ok.
 
@@ -773,6 +794,7 @@ delete_pdp_context_requested_invalid_teid(Config) ->
     after ?TIMEOUT ->
 	    ct:fail(timeout)
     end,
+    ?equal([], outstanding_requests()),
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
     ok.
@@ -808,6 +830,7 @@ delete_pdp_context_requested_late_response(Config) ->
     after ?TIMEOUT ->
 	    ct:fail(timeout)
     end,
+    ?equal([], outstanding_requests()),
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
     ok.
@@ -842,6 +865,7 @@ ggsn_update_pdp_context_request(Config) ->
 	    ct:fail(timeout)
     end,
 
+    ?equal([], outstanding_requests()),
     delete_pdp_context(S, GtpC),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
@@ -855,7 +879,26 @@ create_pdp_context_overload(Config) ->
     S = make_gtp_socket(Config),
 
     create_pdp_context(overload, S),
+    ?equal([], outstanding_requests()),
 
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+unsupported_request() ->
+    [{doc, "Check that unsupported requests are silently ignore and don't get stuck"}].
+unsupported_request(Config) ->
+    S = make_gtp_socket(Config),
+
+    {GtpC, _, _} = create_pdp_context(S),
+    Request = make_request(unsupported, simple, GtpC),
+
+    ?equal({error,timeout}, send_recv_pdu(S, Request, ?TIMEOUT, error)),
+    ?equal([], outstanding_requests()),
+
+    delete_pdp_context(S, GtpC),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
     ok.
 

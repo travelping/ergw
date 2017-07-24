@@ -7,7 +7,7 @@
 
 -module(ggsn_SUITE).
 
--compile(export_all).
+-compile([export_all, nowarn_export_all]).
 
 -include_lib("common_test/include/ct.hrl").
 -include_lib("gtplib/include/gtp_packet.hrl").
@@ -95,6 +95,7 @@ end_per_suite(Config) ->
 
 all() ->
     [invalid_gtp_pdu,
+     invalid_gtp_msg,
      create_pdp_context_request_missing_ie,
      create_pdp_context_request_aaa_reject,
      create_pdp_context_request_invalid_apn,
@@ -115,6 +116,7 @@ all() ->
      delete_pdp_context_requested,
      delete_pdp_context_requested_resend,
      create_pdp_context_overload,
+     unsupported_request,
      cache_timeout].
 
 %%%===================================================================
@@ -210,6 +212,20 @@ invalid_gtp_pdu(Config) ->
     ok.
 
 %%--------------------------------------------------------------------
+invalid_gtp_msg() ->
+    [{doc, "Test that an invalid message is silently ignored"
+      " and that the GTP socket is not crashing"}].
+invalid_gtp_msg(Config) ->
+    Msg = hexstr2bin("320000040000000044000000"),
+
+    S = make_gtp_socket(Config),
+    gen_udp:send(S, ?TEST_GSN, ?GTP1c_PORT, Msg),
+
+    ?equal({error,timeout}, gen_udp:recv(S, 4096, ?TIMEOUT)),
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
 create_pdp_context_request_missing_ie() ->
     [{doc, "Check that Create Session Request IE validation works"}].
 create_pdp_context_request_missing_ie(Config) ->
@@ -217,6 +233,7 @@ create_pdp_context_request_missing_ie(Config) ->
 
     create_pdp_context(missing_ie, S),
 
+    ?equal([], outstanding_requests()),
     meck_validate(Config),
     ok.
 
@@ -228,6 +245,7 @@ create_pdp_context_request_aaa_reject(Config) ->
 
     create_pdp_context(aaa_reject, S),
 
+    ?equal([], outstanding_requests()),
     meck_validate(Config),
     ok.
 
@@ -239,6 +257,7 @@ create_pdp_context_request_invalid_apn(Config) ->
 
     create_pdp_context(invalid_apn, S),
 
+    ?equal([], outstanding_requests()),
     meck_validate(Config),
     ok.
 
@@ -252,6 +271,7 @@ create_pdp_context_request_accept_new(Config) ->
     create_pdp_context(overload, S),
     ?equal(ergw:system_info(accept_new, true), false),
 
+    ?equal([], outstanding_requests()),
     meck_validate(Config),
     ok.
 
@@ -323,6 +343,7 @@ simple_pdp_context_request(Config) ->
     {GtpC, _, _} = create_pdp_context(S),
     delete_pdp_context(S, GtpC),
 
+    ?equal([], outstanding_requests()),
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
     ok.
@@ -337,6 +358,7 @@ ipv6_pdp_context_request(Config) ->
     {GtpC, _, _} = create_pdp_context(ipv6, S),
     delete_pdp_context(S, GtpC),
 
+    ?equal([], outstanding_requests()),
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
     ok.
@@ -351,6 +373,7 @@ ipv4v6_pdp_context_request(Config) ->
     {GtpC, _, _} = create_pdp_context(ipv4v6, S),
     delete_pdp_context(S, GtpC),
 
+    ?equal([], outstanding_requests()),
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
     ok.
@@ -366,6 +389,7 @@ request_fast_resend(Config) ->
 		   Request = make_request(Type, SubType, GtpC),
 		   send_pdu(S, Request),
 		   Response = send_recv_pdu(S, Request),
+		   ?equal([], outstanding_requests()),
 		   validate_response(Type, SubType, Response, GtpC)
 	   end,
 
@@ -396,6 +420,7 @@ create_pdp_context_request_resend(Config) ->
 
     {GtpC, Msg, Response} = create_pdp_context(S),
     ?equal(Response, send_recv_pdu(S, Msg)),
+    ?equal([], outstanding_requests()),
 
     delete_pdp_context(S, GtpC),
 
@@ -413,6 +438,7 @@ delete_pdp_context_request_resend(Config) ->
     {GtpC, _, _} = create_pdp_context(S),
     {_, Msg, Response} = delete_pdp_context(S, GtpC),
     ?equal(Response, send_recv_pdu(S, Msg)),
+    ?equal([], outstanding_requests()),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     ?match(0, meck:num_calls(?HUT, handle_request, ['_', '_', true, '_'])),
@@ -427,6 +453,7 @@ update_pdp_context_request_ra_update(Config) ->
 
     {GtpC1, _, _} = create_pdp_context(S),
     {GtpC2, _, _} = update_pdp_context(ra_update, S, GtpC1),
+    ?equal([], outstanding_requests()),
     delete_pdp_context(S, GtpC2),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
@@ -441,6 +468,7 @@ update_pdp_context_request_tei_update(Config) ->
 
     {GtpC1, _, _} = create_pdp_context(S),
     {GtpC2, _, _} = update_pdp_context(tei_update, S, GtpC1),
+    ?equal([], outstanding_requests()),
     delete_pdp_context(S, GtpC2),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
@@ -455,6 +483,7 @@ ms_info_change_notification_request_with_tei(Config) ->
 
     {GtpC1, _, _} = create_pdp_context(S),
     {GtpC2, _, _} = ms_info_change_notification(simple, S, GtpC1),
+    ?equal([], outstanding_requests()),
     delete_pdp_context(S, GtpC2),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
@@ -470,6 +499,7 @@ ms_info_change_notification_request_without_tei(Config) ->
 
     {GtpC1, _, _} = create_pdp_context(S),
     {GtpC2, _, _} = ms_info_change_notification(without_tei, S, GtpC1),
+    ?equal([], outstanding_requests()),
     delete_pdp_context(S, GtpC2),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
@@ -485,6 +515,7 @@ ms_info_change_notification_request_invalid_imsi(Config) ->
 
     {GtpC1, _, _} = create_pdp_context(S),
     {GtpC2, _, _} = ms_info_change_notification(invalid_imsi, S, GtpC1),
+    ?equal([], outstanding_requests()),
     delete_pdp_context(S, GtpC2),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
@@ -501,6 +532,7 @@ invalid_teid(Config) ->
     {GtpC2, _, _} = delete_pdp_context(invalid_teid, S, GtpC1),
     {GtpC3, _, _} = update_pdp_context(invalid_teid, S, GtpC2),
     {GtpC4, _, _} = ms_info_change_notification(invalid_teid, S, GtpC3),
+    ?equal([], outstanding_requests()),
     delete_pdp_context(S, GtpC4),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
@@ -535,6 +567,8 @@ delete_pdp_context_requested(Config) ->
     after ?TIMEOUT ->
 	    ct:fail(timeout)
     end,
+    ?equal([], outstanding_requests()),
+
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
     ok.
@@ -565,6 +599,8 @@ delete_pdp_context_requested_resend(Config) ->
     after ?TIMEOUT ->
 	    ct:fail(timeout)
     end,
+
+    ?equal([], outstanding_requests()),
     meck_validate(Config),
     ok.
 
@@ -575,7 +611,26 @@ create_pdp_context_overload(Config) ->
     S = make_gtp_socket(Config),
 
     create_pdp_context(overload, S),
+    ?equal([], outstanding_requests()),
 
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+unsupported_request() ->
+    [{doc, "Check that unsupported requests are silently ignore and don't get stuck"}].
+unsupported_request(Config) ->
+    S = make_gtp_socket(Config),
+
+    {GtpC, _, _} = create_pdp_context(S),
+    Request = make_request(unsupported, simple, GtpC),
+
+    ?equal({error,timeout}, send_recv_pdu(S, Request, ?TIMEOUT, error)),
+    ?equal([], outstanding_requests()),
+
+    delete_pdp_context(S, GtpC),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
     ok.
 

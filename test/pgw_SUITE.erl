@@ -7,7 +7,7 @@
 
 -module(pgw_SUITE).
 
--compile([export_all, {parse_transform, lager_transform}]).
+-compile([export_all, nowarn_export_all, {parse_transform, lager_transform}]).
 
 -include_lib("common_test/include/ct.hrl").
 -include_lib("gtplib/include/gtp_packet.hrl").
@@ -131,6 +131,7 @@ all() ->
      commands_invalid_teid,
      delete_bearer_request,
      delete_bearer_request_resend,
+     unsupported_request,
      interop_sgsn_to_sgw,
      interop_sgw_to_sgsn,
      create_session_overload].
@@ -657,6 +658,24 @@ delete_bearer_request_resend(Config) ->
     after ?TIMEOUT ->
 	    ct:fail(timeout)
     end,
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+unsupported_request() ->
+    [{doc, "Check that unsupported requests are silently ignore and don't get stuck"}].
+unsupported_request(Config) ->
+    S = make_gtp_socket(Config),
+
+    {GtpC, _, _} = create_session(S),
+    Request = make_request(unsupported, simple, GtpC),
+
+    ?equal({error,timeout}, send_recv_pdu(S, Request, ?TIMEOUT, error)),
+    ?equal([], outstanding_requests()),
+
+    delete_session(S, GtpC),
+
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
     ok.

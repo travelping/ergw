@@ -22,10 +22,11 @@
 	 gtp_context_new_teids/1]).
 -export([make_gtp_socket/1,
 	 send_pdu/2,
-	 send_recv_pdu/2, send_recv_pdu/3,
+	 send_recv_pdu/2, send_recv_pdu/3, send_recv_pdu/4,
 	 recv_pdu/2, recv_pdu/3, recv_pdu/4]).
 -export([pretty_print/1]).
 -export([set_cfg_value/3, add_cfg_value/3]).
+-export([outstanding_requests/0, hexstr2bin/1]).
 
 -include("ergw_test_lib.hrl").
 -include_lib("common_test/include/ct.hrl").
@@ -184,6 +185,10 @@ send_recv_pdu(S, Msg, Timeout) ->
     send_pdu(S, Msg),
     recv_pdu(S, Msg#gtp.seq_no, Timeout).
 
+send_recv_pdu(S, Msg, Timeout, Fail) ->
+    send_pdu(S, Msg),
+    recv_pdu(S, Msg#gtp.seq_no, Timeout, Fail).
+
 recv_pdu(S, Timeout) ->
     recv_pdu(S, undefined, Timeout).
 
@@ -256,3 +261,27 @@ add_cfg_value([Key], Value, Config) ->
 add_cfg_value([H | T], Value, Config) ->
     Prop = proplists:get_value(H, Config, []),
     lists:keystore(H, 1, Config, {H, add_cfg_value(T, Value, Prop)}).
+
+%%%===================================================================
+%%% Retrieve outstanding request from gtp_context_reg
+%%%===================================================================
+
+outstanding_requests() ->
+    ets:match_object(gtp_context_reg, {{'_', {'_', '_', '_', '_', '_'}}, '_'}).
+
+%%%===================================================================
+%% hexstr2bin from otp/lib/crypto/test/crypto_SUITE.erl
+%%%===================================================================
+hexstr2bin(S) ->
+    list_to_binary(hexstr2list(S)).
+
+hexstr2list([X,Y|T]) ->
+    [mkint(X)*16 + mkint(Y) | hexstr2list(T)];
+hexstr2list([]) ->
+    [].
+mkint(C) when $0 =< C, C =< $9 ->
+    C - $0;
+mkint(C) when $A =< C, C =< $F ->
+    C - $A + 10;
+mkint(C) when $a =< C, C =< $f ->
+    C - $a + 10.

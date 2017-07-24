@@ -233,11 +233,13 @@ handle_request(_ReqKey,
     Response = response(modify_bearer_response, Context, ResponseIEs, Request),
     {reply, Response, State#{context => Context}};
 
-handle_request(_ReqKey,
+handle_request(ReqKey,
 	       #gtp{type = modify_bearer_command,
 		    ie = _IEs},
 	       _Resent, #{context := _Context} = State) ->
     %% TODO: adjust QoS
+
+    gtp_context:request_finished(ReqKey),
     {noreply, State};
 
 handle_request(_ReqKey,
@@ -295,7 +297,8 @@ handle_request(_ReqKey,
 	    {reply, Response, State0}
     end;
 
-handle_request(_ReqKey, _Msg, _Resent, State) ->
+handle_request(ReqKey, _Msg, _Resent, State) ->
+    gtp_context:request_finished(ReqKey),
     {noreply, State}.
 
 handle_response(ReqInfo, #gtp{version = v1} = Msg, Request, State) ->

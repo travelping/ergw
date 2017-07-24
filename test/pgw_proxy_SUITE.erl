@@ -7,7 +7,7 @@
 
 -module(pgw_proxy_SUITE).
 
--compile(export_all).
+-compile([export_all, nowarn_export_all]).
 
 -include_lib("common_test/include/ct.hrl").
 -include_lib("gtplib/include/gtp_packet.hrl").
@@ -267,6 +267,7 @@ all_tests() ->
      delete_bearer_request_resend,
      delete_bearer_request_invalid_teid,
      delete_bearer_request_late_response,
+     unsupported_request,
      interop_sgsn_to_sgw,
      interop_sgw_to_sgsn,
      create_session_overload].
@@ -409,6 +410,7 @@ create_session_request_missing_ie(Config) ->
 
     create_session(missing_ie, S),
 
+    ?equal([], outstanding_requests()),
     meck_validate(Config),
     ok.
 
@@ -422,6 +424,7 @@ create_session_request_accept_new(Config) ->
     create_session(overload, S),
     ?equal(ergw:system_info(accept_new, true), false),
 
+    ?equal([], outstanding_requests()),
     meck_validate(Config),
     ok.
 
@@ -433,6 +436,7 @@ create_session_overload_response(Config) ->
 
     create_session(overload, S),
 
+    ?equal([], outstanding_requests()),
     meck_validate(Config),
     ok.
 
@@ -498,6 +502,8 @@ simple_session(Config) ->
 		   #v2_international_mobile_subscriber_identity{imsi = ?'PROXY-IMSI'},
 	      {v2_msisdn, 0} := #v2_msisdn{msisdn = ?'PROXY-MSISDN'}
 	     }}, V),
+
+    ?equal([], outstanding_requests()),
     ok.
 
 %%--------------------------------------------------------------------
@@ -508,6 +514,7 @@ create_session_request_resend(Config) ->
 
     {GtpC, Msg, Response} = create_session(S),
     ?equal(Response, send_recv_pdu(S, Msg)),
+    ?equal([], outstanding_requests()),
 
     delete_session(S, GtpC),
 
@@ -525,6 +532,7 @@ delete_session_request_resend(Config) ->
     {GtpC, _, _} = create_session(S),
     {_, Msg, Response} = delete_session(S, GtpC),
     ?equal(Response, send_recv_pdu(S, Msg)),
+    ?equal([], outstanding_requests()),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     ?match(0, meck:num_calls(?HUT, handle_request, ['_', '_', true, '_'])),
@@ -556,6 +564,8 @@ request_fast_resend(Config) ->
     GtpC3 = Send(change_notification_request, without_tei, GtpC2),
     ?equal(timeout, recv_pdu(S, -1, 100, fun(Why) -> Why end)),
 
+    ?equal([], outstanding_requests()),
+
     delete_session(S, GtpC3),
 
     ?match(3, meck:num_calls(?HUT, handle_request, ['_', '_', true, '_'])),
@@ -573,6 +583,7 @@ modify_bearer_request_ra_update(Config) ->
 
     {GtpC1, _, _} = create_session(S),
     {GtpC2, _, _} = modify_bearer(ra_update, S, GtpC1),
+    ?equal([], outstanding_requests()),
     delete_session(S, GtpC2),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
@@ -587,6 +598,7 @@ modify_bearer_request_tei_update(Config) ->
 
     {GtpC1, _, _} = create_session(S),
     {GtpC2, _, _} = modify_bearer(tei_update, S, GtpC1),
+    ?equal([], outstanding_requests()),
     delete_session(S, GtpC2),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
@@ -602,6 +614,7 @@ modify_bearer_command(Config) ->
     {GtpC1, _, _} = create_session(S),
     {GtpC2, Req} = modify_bearer_command(simple, S, GtpC1),
     ?equal({ok, timeout}, recv_pdu(S, Req#gtp.seq_no, ?TIMEOUT, ok)),
+    ?equal([], outstanding_requests()),
     delete_session(S, GtpC2),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
@@ -616,6 +629,7 @@ change_notification_request_with_tei(Config) ->
 
     {GtpC1, _, _} = create_session(S),
     {GtpC2, _, _} = change_notification(simple, S, GtpC1),
+    ?equal([], outstanding_requests()),
     delete_session(S, GtpC2),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
@@ -631,6 +645,7 @@ change_notification_request_without_tei(Config) ->
 
     {GtpC1, _, _} = create_session(S),
     {GtpC2, _, _} = change_notification(without_tei, S, GtpC1),
+    ?equal([], outstanding_requests()),
     delete_session(S, GtpC2),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
@@ -646,6 +661,7 @@ change_notification_request_invalid_imsi(Config) ->
 
     {GtpC1, _, _} = create_session(S),
     {GtpC2, _, _} = change_notification(invalid_imsi, S, GtpC1),
+    ?equal([], outstanding_requests()),
     delete_session(S, GtpC2),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
@@ -660,6 +676,7 @@ suspend_notification_request(Config) ->
 
     {GtpC1, _, _} = create_session(S),
     {GtpC2, _, _} = suspend_notification(simple, S, GtpC1),
+    ?equal([], outstanding_requests()),
     delete_session(S, GtpC2),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
@@ -674,6 +691,7 @@ resume_notification_request(Config) ->
 
     {GtpC1, _, _} = create_session(S),
     {GtpC2, _, _} = resume_notification(simple, S, GtpC1),
+    ?equal([], outstanding_requests()),
     delete_session(S, GtpC2),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
@@ -693,6 +711,7 @@ proxy_context_selection(Config) ->
     S = make_gtp_socket(Config),
 
     {GtpC, _, _} = create_session(S),
+    ?equal([], outstanding_requests()),
     delete_session(S, GtpC),
 
     meck:unload(gtp_proxy_ds),
@@ -714,6 +733,7 @@ proxy_context_invalid_selection(Config) ->
     S = make_gtp_socket(Config),
 
     {GtpC, _, _} = create_session(S),
+    ?equal([], outstanding_requests()),
     delete_session(S, GtpC),
 
     meck:unload(gtp_proxy_ds),
@@ -733,6 +753,7 @@ proxy_context_invalid_mapping(Config) ->
     S = make_gtp_socket(Config),
 
     {_, _, _} = create_session(invalid_mapping, S),
+    ?equal([], outstanding_requests()),
 
     meck:unload(gtp_proxy_ds),
 
@@ -753,6 +774,7 @@ proxy_context_version_restricted(Config) ->
     S = make_gtp_socket(Config),
 
     {_, _, _} = create_session(version_restricted, S),
+    ?equal([], outstanding_requests()),
 
     meck:unload(gtp_proxy_ds),
 
@@ -771,6 +793,7 @@ requests_invalid_teid(Config) ->
     {GtpC3, _, _} = change_notification(invalid_teid, S, GtpC2),
     {GtpC4, _, _} = suspend_notification(invalid_teid, S, GtpC3),
     {GtpC5, _, _} = resume_notification(invalid_teid, S, GtpC4),
+    ?equal([], outstanding_requests()),
     delete_session(S, GtpC5),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
@@ -785,6 +808,7 @@ commands_invalid_teid(Config) ->
 
     {GtpC1, _, _} = create_session(S),
     {GtpC2, _, _} = modify_bearer_command(invalid_teid, S, GtpC1),
+    ?equal([], outstanding_requests()),
     delete_session(S, GtpC2),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
@@ -820,6 +844,7 @@ delete_bearer_request(Config) ->
     after ?TIMEOUT ->
 	    ct:fail(timeout)
     end,
+    ?equal([], outstanding_requests()),
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
     ok.
@@ -851,6 +876,7 @@ delete_bearer_request_resend(Config) ->
     after ?TIMEOUT ->
 	    ct:fail(timeout)
     end,
+    ?match([_], outstanding_requests()),
     meck_validate(Config),
     ok.
 
@@ -884,6 +910,7 @@ delete_bearer_request_invalid_teid(Config) ->
     after ?TIMEOUT ->
 	    ct:fail(timeout)
     end,
+    ?equal([], outstanding_requests()),
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
     ok.
@@ -920,6 +947,25 @@ delete_bearer_request_late_response(Config) ->
     after ?TIMEOUT ->
 	    ct:fail(timeout)
     end,
+    ?equal([], outstanding_requests()),
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+unsupported_request() ->
+    [{doc, "Check that unsupported requests are silently ignore and don't get stuck"}].
+unsupported_request(Config) ->
+    S = make_gtp_socket(Config),
+
+    {GtpC, _, _} = create_session(S),
+    Request = make_request(unsupported, simple, GtpC),
+
+    ?equal({error,timeout}, send_recv_pdu(S, Request, ?TIMEOUT, error)),
+    ?equal([], outstanding_requests()),
+
+    delete_session(S, GtpC),
+
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
     ok.
@@ -932,6 +978,7 @@ interop_sgsn_to_sgw(Config) ->
 
     {GtpC1, _, _} = ergw_ggsn_test_lib:create_pdp_context(S),
     {GtpC2, _, _} = modify_bearer(tei_update, S, GtpC1),
+    ?equal([], outstanding_requests()),
     delete_session(S, GtpC2),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
@@ -949,6 +996,7 @@ interop_sgw_to_sgsn(Config) ->
     {GtpC2, _, _} = ergw_ggsn_test_lib:update_pdp_context(tei_update, S, GtpC1),
     ergw_ggsn_test_lib:delete_pdp_context(S, GtpC2),
 
+    ?equal([], outstanding_requests()),
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
     true = meck:validate(ggsn_gn_proxy),
@@ -984,6 +1032,7 @@ update_bearer_request(Config) ->
 	    ct:fail(timeout)
     end,
 
+    ?equal([], outstanding_requests()),
     delete_session(S, GtpC),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
@@ -997,6 +1046,7 @@ create_session_overload(Config) ->
     S = make_gtp_socket(Config),
 
     create_session(overload, S),
+    ?equal([], outstanding_requests()),
 
     meck_validate(Config),
     ok.
