@@ -254,7 +254,12 @@ make_request(delete_pdp_context_request, _SubType,
 	   #teardown_ind{value=1}],
 
     #gtp{version = v1, type = delete_pdp_context_request,
-	 tei = RemoteCntlTEI, seq_no = SeqNo, ie = IEs}.
+	 tei = RemoteCntlTEI, seq_no = SeqNo, ie = IEs};
+
+make_request(unsupported, _SubType,
+	     #gtpc{seq_no = SeqNo, remote_control_tei = RemoteCntlTEI}) ->
+    #gtp{version = v1, type = data_record_transfer_request,
+	 tei = RemoteCntlTEI, seq_no = SeqNo, ie = []}.
 
 %%%-------------------------------------------------------------------
 

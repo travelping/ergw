@@ -279,6 +279,7 @@ handle_request(ReqKey,
     StateNew = State#{context => Context, proxy_context => ProxyContext},
     forward_request(sgw2pgw, ReqKey, Request, StateNew),
 
+    gtp_context:request_finished(ReqKey),
     {noreply, StateNew};
 
 %%
@@ -359,7 +360,8 @@ handle_request(ReqKey,
     forward_request(pgw2sgw, ReqKey, Request, State),
     {noreply, State};
 
-handle_request(_From, _Msg, _Resent, State) ->
+handle_request(ReqKey, _Request, _Resent, State) ->
+    gtp_context:request_finished(ReqKey),
     {noreply, State}.
 
 handle_response(ReqInfo, #gtp{version = v1} = Msg, Request, State) ->
@@ -439,11 +441,19 @@ handle_response(#proxy_request{direction = pgw2sgw} = ProxyRequest,
     {noreply, State};
 
 handle_response(#proxy_request{direction = sgw2pgw} = ProxyRequest,
-		#gtp{type = delete_session_response} = Response, _Request,
+		Response0, #gtp{type = delete_session_request},
 		#{context := Context,
 		  proxy_context := ProxyContext} = State) ->
-    lager:warning("OK Proxy Response ~p", [lager:pr(Response, ?MODULE)]),
+    lager:warning("Proxy Response ~p", [lager:pr(Response0, ?MODULE)]),
 
+    Response =
+	if is_record(Response0, gtp) ->
+		Response0;
+	   true ->
+		#gtp{version = v2,
+		     type = delete_session_response,
+		     ie = #{?'Cause' => #v2_cause{v2_cause = request_accepted}}}
+	end,
     forward_response(ProxyRequest, Response, Context),
     dp_delete_pdp_context(Context, ProxyContext),
     {stop, State};
@@ -452,17 +462,31 @@ handle_response(#proxy_request{direction = sgw2pgw} = ProxyRequest,
 %% SGW to PGW delete bearer response
 %%
 handle_response(#proxy_request{direction = pgw2sgw} = ProxyRequest,
-		#gtp{type = delete_bearer_response} = Response, _Request,
+		Response0, #gtp{type = delete_bearer_request},
 		#{context := Context,
 		  proxy_context := ProxyContext} = State) ->
-    lager:warning("OK Proxy Response ~p", [lager:pr(Response, ?MODULE)]),
+    lager:warning("Proxy Response ~p", [lager:pr(Response0, ?MODULE)]),
 
+    Response =
+	if is_record(Response0, gtp) ->
+		Response0;
+	   true ->
+		#context{state = #context_state{ebi = EBI}} = ProxyContext,
+		#gtp{version = v2,
+		     type = delete_bearer_response,
+		     ie = #{?'Cause' => #v2_cause{v2_cause = request_accepted},
+			    ?'EPS Bearer ID' =>
+				#v2_eps_bearer_id{eps_bearer_id = EBI}}}
+	end,
     forward_response(ProxyRequest, Response, ProxyContext),
     dp_delete_pdp_context(Context, ProxyContext),
     {stop, State};
 
-handle_response(_ReqInfo, Response, _Req, State) ->
+handle_response(#proxy_request{request = ReqKey} = _ReqInfo,
+		Response, _Request, State) ->
     lager:warning("Unknown Proxy Response ~p", [lager:pr(Response, ?MODULE)]),
+
+    gtp_context:request_finished(ReqKey),
     {noreply, State}.
 
 terminate(_Reason, _State) ->

@@ -298,7 +298,12 @@ make_request(delete_session_request, _SubType,
 					 ecgi = <<3,2,22,8,71,9,92>>}],
 
     #gtp{version = v2, type = delete_session_request,
-	 tei = RemoteCntlTEI, seq_no = SeqNo, ie = IEs}.
+	 tei = RemoteCntlTEI, seq_no = SeqNo, ie = IEs};
+
+make_request(unsupported, _SubType,
+	     #gtpc{seq_no = SeqNo, remote_control_tei = RemoteCntlTEI}) ->
+    #gtp{version = v2, type = mbms_session_stop_request,
+	 tei = RemoteCntlTEI, seq_no = SeqNo, ie = []}.
 
 %%%-------------------------------------------------------------------
 

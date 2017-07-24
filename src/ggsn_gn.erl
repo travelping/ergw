@@ -189,7 +189,8 @@ handle_request(_ReqKey,
     Reply = response(delete_pdp_context_response, Context, request_accepted),
     {stop, Reply, State};
 
-handle_request(_ReqKey, _Msg, _Resent, State) ->
+handle_request(ReqKey, _Msg, _Resent, State) ->
+    gtp_context:request_finished(ReqKey),
     {noreply, State}.
 
 handle_response(From, timeout, #gtp{type = delete_pdp_context_request},
