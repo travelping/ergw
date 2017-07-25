@@ -124,12 +124,12 @@ handle_info(_Info, State) ->
 %%   Change Notification Request/Response
 %%   Resume Notification/Acknowledge
 
+handle_request(ReqKey, #gtp{version = v1} = Msg, Resent, State) ->
+    ?GTP_v1_Interface:handle_request(ReqKey, Msg, Resent, State);
+
 handle_request(_ReqKey, _Msg, true, State) ->
 %% resent request
     {noreply, State};
-
-handle_request(ReqKey, #gtp{version = v1} = Msg, Resent, State) ->
-    ?GTP_v1_Interface:handle_request(ReqKey, Msg, Resent, State);
 
 handle_request(_ReqKey,
 	       #gtp{type = create_session_request,
