@@ -184,6 +184,9 @@ handle_info(_Info, State) ->
 %%   Change Notification Request/Response
 %%   Resume Notification/Acknowledge
 
+handle_request(ReqKey, #gtp{version = v1} = Msg, Resent, State) ->
+    ?GTP_v1_Interface:handle_request(ReqKey, Msg, Resent, State);
+
 %%
 %% resend request
 %%
@@ -215,9 +218,6 @@ handle_request(_ReqKey, _Request, true, State) ->
     lager:error("resend of request not handled ~p, ~p",
 		[lager:pr(_ReqKey, ?MODULE), gtp_c_lib:fmt_gtp(_Request)]),
     {noreply, State};
-
-handle_request(ReqKey, #gtp{version = v1} = Msg, Resent, State) ->
-    ?GTP_v1_Interface:handle_request(ReqKey, Msg, Resent, State);
 
 handle_request(ReqKey,
 	       #gtp{type = create_session_request} = Request,
