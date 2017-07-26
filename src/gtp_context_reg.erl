@@ -88,10 +88,5 @@ terminate(_Reason, _State) ->
 %%%===================================================================
 
 do_unregister(Key, State) ->
-    Pids = case ets:lookup(?SERVER, Key) of
-	       [{Key, Pid}] ->
-		   ets:delete(?SERVER, Key),
-		   [Pid];
-	       _ -> []
-	   end,
+    Pids = [Pid || {_, Pid} <- ets:take(?SERVER, Key)],
     {Pids, State}.
