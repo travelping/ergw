@@ -159,9 +159,8 @@ release_ip(IP, #state{first = First, last = Last,
   when IP >= First andalso IP =< Last ->
     Id = IP bsr Shift,
 
-    case ets:lookup(UsedTid, Id) of
+    case ets:take(UsedTid, Id) of
 	[_] ->
-	    ets:delete(UsedTid, Id),
 	    ets:insert(FreeTid, #lease{ip = Id}),
 	    State#state{used = Used - 1, free = Free + 1};
 	_ ->
