@@ -457,6 +457,8 @@ path_restart(Config) ->
     send_recv_pdu(S, Echo),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    ct:sleep(1000),
+    [?match(#{tunnels := 0}, X) || X <- ergw_api:peer(all)],
     meck_validate(Config),
     ok.
 
@@ -472,6 +474,8 @@ path_restart_recovery(Config) ->
 
     %% create 2nd session with new restart_counter (simulate SGW restart)
     {GtpC2, _, _} = create_session(S, gtp_context_inc_restart_counter(GtpC1)),
+
+    [?match(#{tunnels := 1}, X) || X <- ergw_api:peer(all)],
 
     delete_session(S, GtpC2),
 

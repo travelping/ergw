@@ -28,7 +28,6 @@
 -include("include/ergw.hrl").
 
 -record(state, {table		:: ets:tid(),
-		path_counter	:: non_neg_integer(),
 		gtp_port	:: #gtp_port{},
 		version		:: 'v1' | 'v2',
 		handler		:: atom(),
@@ -127,7 +126,6 @@ init([#gtp_port{name = PortName} = GtpPort, Version, RemoteIP, Args]) ->
     gtp_path_reg:register({PortName, Version, RemoteIP}),
 
     State0 = #state{
-		path_counter = 0,
 		gtp_port     = GtpPort,
 		version      = Version,
 		handler      = get_handler(GtpPort, Version),
@@ -162,9 +160,11 @@ handle_call({unbind, Pid}, _From, State0) ->
     {reply, ok, State};
 
 handle_call(info, _From, #state{
+			    table = TID,
 			    gtp_port = #gtp_port{name = Name},
-			    path_counter = Cnt, version = Version,
+			    version = Version,
 			    ip = IP, state = S} = State) ->
+    Cnt = ets:info(TID, size),
     Reply = #{path => self(), port => Name, tunnels => Cnt,
 	      version => Version, ip => IP, state => S},
     {reply, Reply, State};
@@ -197,7 +197,8 @@ handle_cast(down, #state{table = TID} = State0) ->
 			   ets_foreach(TID, gtp_context:path_restart(_, Path)),
 			   ets:delete(TID)
 		   end),
-    State = ets_new(State0#state{recovery = undefined}),
+    State1 = ets_new(State0#state{recovery = undefined}),
+    State = update_path_counter(0, State1),
     {noreply, State};
 
 handle_cast({handle_response, #gtp{} = Msg}, State0)->
@@ -268,7 +269,7 @@ update_restart_counter(RestartCounter, #state{recovery = undefined} = State) ->
 update_restart_counter(RestartCounter, #state{recovery = RestartCounter} = State) ->
     State;
 update_restart_counter(NewRestartCounter, #state{table = TID, ip = IP,
-						 recovery = OldRestartCounter} = State)
+						 recovery = OldRestartCounter} = State0)
   when ?SMALLER(OldRestartCounter, NewRestartCounter) ->
     lager:warning("GSN ~s restarted (~w != ~w)",
 		  [inet:ntoa(IP), OldRestartCounter, NewRestartCounter]),
@@ -277,7 +278,8 @@ update_restart_counter(NewRestartCounter, #state{table = TID, ip = IP,
 			   ets_foreach(TID, gtp_context:path_restart(_, Path)),
 			   ets:delete(TID)
 		   end),
-    ets_new(State#state{recovery = NewRestartCounter});
+    State1 = ets_new(State0#state{recovery = NewRestartCounter}),
+    update_path_counter(0, State1);
 
 update_restart_counter(NewRestartCounter, #state{ip = IP, recovery = OldRestartCounter} = State)
   when not ?SMALLER(OldRestartCounter, NewRestartCounter) ->
@@ -313,15 +315,23 @@ ets_foreach(TID, Fun, {Pids, Continuation})
     lists:foreach(fun([Pid]) -> Fun(Pid) end, Pids),
     ets_foreach(TID, Fun, ets:match_object(Continuation)).
 
-register(Pid, #state{table = TID} = State0) ->
+register(Pid, #state{table = TID} = State) ->
     lager:debug("~s: register(~p)", [?MODULE, Pid]),
     erlang:monitor(process, Pid),
     ets:insert(TID, {Pid}),
-    inc_path_counter(State0).
+    update_path_counter(ets:info(TID, size), State).
 
-unregister(Pid, #state{table = TID} = State0) ->
+unregister(Pid, #state{table = TID} = State) ->
     ets:delete(TID, Pid),
-    dec_path_counter(State0).
+    update_path_counter(ets:info(TID, size), State).
+
+update_path_counter(PathCounter, State) ->
+    exo_update_path_counter(PathCounter, State),
+    if PathCounter =:= 0 ->
+	    stop_echo_request(State);
+       true ->
+	    start_echo_request(State)
+    end.
 
 bind_path(#gtp{version = Version}, Context) ->
     bind_path(Context#context{version = Version}).
@@ -347,28 +357,6 @@ cancel_timer(Ref) ->
             end;
         RemainingTime ->
             RemainingTime
-    end.
-
-inc_path_counter(#state{path_counter = OldPathCounter} = State0) ->
-    State = State0#state{path_counter = OldPathCounter + 1},
-    update_path_counter(State),
-    if OldPathCounter == 0 ->
-	    start_echo_request(State);
-       true ->
-	    State
-    end.
-
-dec_path_counter(#state{path_counter = 0} = State) ->
-    lager:error("attempting to release path when count == 0"),
-    State;
-dec_path_counter(#state{path_counter = OldPathCounter} = State0) ->
-    NewPathCounter = OldPathCounter - 1,
-    State = State0#state{path_counter = NewPathCounter},
-    update_path_counter(State),
-    if NewPathCounter == 0 ->
-	    stop_echo_request(State);
-       true ->
-	    State
     end.
 
 start_echo_request(#state{echo_timer = stopped} = State) ->
@@ -424,8 +412,7 @@ exo_reg_rtt(Name, IP, Version, MsgType) ->
     exometer:re_register([path, Name, IP, rtt, Version, MsgType],
 			 histogram, exo_hist_opts(MsgType)).
 
-update_path_counter(#state{path_counter = PathCounter,
-			   gtp_port = #gtp_port{name = Name}, ip = IP}) ->
+exo_update_path_counter(PathCounter, #state{gtp_port = #gtp_port{name = Name}, ip = IP}) ->
     exometer:update_or_create([path, Name, IP, contexts], PathCounter, gauge, ?EXO_CONTEXTS_OPTS).
 
 exometer_new(#state{gtp_port = #gtp_port{name = Name}, ip = IP}) ->
