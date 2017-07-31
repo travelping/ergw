@@ -202,8 +202,8 @@ init([Name, #{ip := IP} = SocketOpts]) ->
 	       v1_seq_no = 0,
 	       v2_seq_no = 0,
 	       pending = gb_trees:empty(),
-	       requests = cache_new(?T3 * 4, requests),
-	       responses = cache_new(?CACHE_TIMEOUT, responses),
+	       requests = ergw_cache:new(?T3 * 4, requests),
+	       responses = ergw_cache:new(?CACHE_TIMEOUT, responses),
 
 	       restart_counter = RCnt},
     {ok, State}.
@@ -212,9 +212,9 @@ handle_call(get_restart_counter, _From, #state{restart_counter = RCnt} = State) 
     {reply, RCnt, State};
 
 handle_call(get_request_q, _From, #state{requests = Requests} = State) ->
-    {reply, cache_to_list(Requests), State};
+    {reply, ergw_cache:to_list(Requests), State};
 handle_call(get_response_q, _From, #state{responses = Responses} = State) ->
-    {reply, cache_to_list(Responses), State};
+    {reply, ergw_cache:to_list(Responses), State};
 
 handle_call(Request, _From, State) ->
     lager:error("handle_call: unknown ~p", [lager:pr(Request, ?MODULE)]),
@@ -274,10 +274,10 @@ handle_info(Info = {timeout, _TRef, {request, SeqId}}, #state{gtp_port = GtpPort
     end;
 
 handle_info({timeout, _TRef, requests}, #state{requests = Requests} = State) ->
-    {noreply, State#state{requests = cache_expire(Requests)}};
+    {noreply, State#state{requests = ergw_cache:expire(Requests)}};
 
 handle_info({timeout, _TRef, responses}, #state{responses = Responses} = State) ->
-    {noreply, State#state{responses = cache_expire(Responses)}};
+    {noreply, State#state{responses = ergw_cache:expire(Responses)}};
 
 handle_info({Socket, input_ready}, #state{socket = Socket} = State) ->
     handle_input(Socket, State);
@@ -514,7 +514,7 @@ handle_response(ArrivalTS, IP, _Port, Msg, #state{gtp_port = GtpPort} = State0) 
 
 handle_request(#request{ip = IP, port = Port} = ReqKey, Msg,
 	       #state{gtp_port = GtpPort, responses = Responses} = State) ->
-    case cache_get(ReqKey, Responses) of
+    case ergw_cache:get(cache_key(ReqKey), Responses) of
 	{value, Data} ->
 	    message_counter(rx, GtpPort, IP, Msg, duplicate),
 	    sendto(IP, Port, Data, State);
@@ -565,18 +565,18 @@ send_request(#send_req{address = RemoteIP, data = Data} = SendReq, State0) ->
 request_q_in(#send_req{req_id = undefined}, State) ->
     State;
 request_q_in(#send_req{req_id = ReqId} = SendReq, #state{requests = Requests} = State) ->
-    State#state{requests = cache_enter(ReqId, SendReq, ?RESPONSE_TIMEOUT, Requests)}.
+    State#state{requests = ergw_cache:enter(cache_key(ReqId), SendReq, ?RESPONSE_TIMEOUT, Requests)}.
 
 request_q_peek(ReqId, #state{requests = Requests}) ->
-    cache_get(ReqId, Requests).
+    ergw_cache:get(cache_key(ReqId), Requests).
 
 enqueue_response(ReqKey, Data, DoCache,
 		 #state{responses = Responses} = State)
   when DoCache =:= true ->
-    State#state{responses = cache_enter(ReqKey, Data, ?RESPONSE_TIMEOUT, Responses)};
+    State#state{responses = ergw_cache:enter(cache_key(ReqKey), Data, ?RESPONSE_TIMEOUT, Responses)};
 enqueue_response(_ReqKey, _Data, _DoCache,
 		 #state{responses = Responses} = State) ->
-    State#state{responses = cache_expire(Responses)}.
+    State#state{responses = ergw_cache:expire(Responses)}.
 
 do_send_response(#request{ip = IP, port = Port} = ReqKey, Data, DoCache, State) ->
     sendto(IP, Port, Data, State),
@@ -584,75 +584,13 @@ do_send_response(#request{ip = IP, port = Port} = ReqKey, Data, DoCache, State) 
     enqueue_response(ReqKey, Data, DoCache, State).
 
 %%%===================================================================
-%%% exometer functions
+%%% cache helper
 %%%===================================================================
-
--record(cache, {
-	  expire :: integer(),
-	  key    :: term(),
-	  timer  :: reference(),
-	  tree   :: gb_trees:tree(Key :: term(), {Expire :: integer(), Data :: term()}),
-	  queue  :: queue:queue({Expire :: integer(), Key :: term()})
-	 }).
 
 cache_key(#request{key = Key}) ->
     Key;
 cache_key(Object) ->
     Object.
-
-cache_start_timer(#cache{expire = ExpireInterval, key = Key} = Cache) ->
-    Cache#cache{timer = erlang:start_timer(ExpireInterval, self(), Key)}.
-
-cache_new(ExpireInterval, Key) ->
-    Cache = #cache{
-	       expire = ExpireInterval,
-	       key = Key,
-	       tree = gb_trees:empty(),
-	       queue = queue:new()
-	      },
-    cache_start_timer(Cache).
-
-cache_get(Object, #cache{tree = Tree}) ->
-    Key = cache_key(Object),
-    Now = erlang:monotonic_time(milli_seconds),
-    case gb_trees:lookup(Key, Tree) of
-	{value, {Expire, Data}}  when Expire > Now ->
-	    {value, Data};
-
-	_ ->
-	    none
-    end.
-
-cache_enter(Object, Data, TimeOut, #cache{tree = Tree0, queue = Q0} = Cache) ->
-    Key = cache_key(Object),
-    Now = erlang:monotonic_time(milli_seconds),
-    Expire = Now + TimeOut,
-    Tree = gb_trees:enter(Key, {Expire, Data}, Tree0),
-    Q = queue:in({Expire, Key}, Q0),
-    cache_expire(Now, Cache#cache{tree = Tree, queue = Q}).
-
-cache_expire(Cache0) ->
-    Now = erlang:monotonic_time(milli_seconds),
-    Cache = cache_expire(Now, Cache0),
-    cache_start_timer(Cache).
-
-cache_expire(Now, #cache{tree = Tree0, queue = Q0} = Cache) ->
-    case queue:peek(Q0) of
-	{value, {Expire, Key}} when Expire < Now ->
-	    Q = queue:drop(Q0),
-	    Tree = case gb_trees:lookup(Key, Tree0) of
-		       {value, {Expire, _}} ->
-			   gb_trees:delete(Key, Tree0);
-		       _ ->
-			   Tree0
-		   end,
-	    cache_expire(Now, Cache#cache{tree = Tree, queue = Q});
-	_ ->
-	    Cache
-    end.
-
-cache_to_list(#cache{tree = Tree, queue = Q}) ->
-    {gb_trees:to_list(Tree), queue:to_list(Q)}.
 
 %%%===================================================================
 %%% exometer functions
