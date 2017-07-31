@@ -127,13 +127,9 @@ make_request(create_session_request, SubType,
 	     #gtpc{restart_counter = RCnt, seq_no = SeqNo,
 		   local_control_tei = LocalCntlTEI,
 		   local_data_tei = LocalDataTEI}) ->
-    APN = case SubType of
-	      invalid_apn -> [<<"IN", "VA", "LID">>];
-	      _           -> ?'APN-EXAMPLE'
-	  end,
     IEs0 =
 	[#v2_recovery{restart_counter = RCnt},
-	 #v2_access_point_name{apn = APN},
+	 #v2_access_point_name{apn = apn(SubType)},
 	 #v2_aggregate_maximum_bit_rate{uplink = 48128, downlink = 1704125},
 	 #v2_apn_restriction{restriction_type_value = 0},
 	 #v2_bearer_context{
@@ -155,8 +151,8 @@ make_request(create_session_request, SubType,
 	    key = LocalCntlTEI,
 	    ipv4 = gtp_c_lib:ip2bin(?CLIENT_IP)},
 	 #v2_international_mobile_subscriber_identity{
-	    imsi = ?'IMSI'},
-	 #v2_mobile_equipment_identity{mei = <<"AAAAAAAA">>},
+	    imsi = imsi(SubType)},
+	 #v2_mobile_equipment_identity{mei = imei(SubType)},
 	 #v2_msisdn{msisdn = ?'MSISDN'},
 	 #v2_rat_type{rat_type = 6},
 	 #v2_selection_mode{mode = 0},
@@ -583,6 +579,15 @@ execute_request(MsgType, SubType, Socket, GtpC0) ->
     Response = send_recv_pdu(Socket, Msg),
 
     {validate_response(MsgType, SubType, Response, GtpC), Msg, Response}.
+
+apn(invalid_apn) -> [<<"IN", "VA", "LID">>];
+apn(_)           -> ?'APN-EXAMPLE'.
+
+imsi('2nd') -> <<"454545454545452">>;
+imsi(_)     -> ?IMSI.
+
+imei('2nd') -> <<"BBBBBBBB">>;
+imei(_)     -> <<"AAAAAAAA">>.
 
 %%%===================================================================
 %%% PGW injected functions

@@ -473,7 +473,7 @@ path_restart_recovery(Config) ->
     {GtpC1, _, _} = create_session(S),
 
     %% create 2nd session with new restart_counter (simulate SGW restart)
-    {GtpC2, _, _} = create_session(S, gtp_context_inc_restart_counter(GtpC1)),
+    {GtpC2, _, _} = create_session('2nd', S, gtp_context_inc_restart_counter(GtpC1)),
 
     [?match(#{tunnels := 1}, X) || X <- ergw_api:peer(all)],
 
@@ -828,8 +828,8 @@ delete_bearer_request(Config) ->
 
     {GtpC, _, _} = create_session(S),
 
-    Context = gtp_context_reg:lookup(#gtp_port{name = 'remote-irx'},
-				     {imsi, ?'PROXY-IMSI'}),
+    Context = gtp_context_reg:lookup_key(#gtp_port{name = 'remote-irx'},
+					 {imsi, ?'PROXY-IMSI'}),
     true = is_pid(Context),
 
     Self = self(),
@@ -862,8 +862,8 @@ delete_bearer_request_resend(Config) ->
 
     {_, _, _} = create_session(S),
 
-    Context = gtp_context_reg:lookup(#gtp_port{name = 'remote-irx'},
-				     {imsi, ?'PROXY-IMSI'}),
+    Context = gtp_context_reg:lookup_key(#gtp_port{name = 'remote-irx'},
+					 {imsi, ?'PROXY-IMSI'}),
     true = is_pid(Context),
 
     Self = self(),
@@ -893,8 +893,8 @@ delete_bearer_request_invalid_teid(Config) ->
 
     {GtpC, _, _} = create_session(S),
 
-    Context = gtp_context_reg:lookup(#gtp_port{name = 'remote-irx'},
-				     {imsi, ?'PROXY-IMSI'}),
+    Context = gtp_context_reg:lookup_key(#gtp_port{name = 'remote-irx'},
+					 {imsi, ?'PROXY-IMSI'}),
     true = is_pid(Context),
 
     Self = self(),
@@ -928,8 +928,8 @@ delete_bearer_request_late_response(Config) ->
 
     {GtpC, _, _} = create_session(S),
 
-    Context = gtp_context_reg:lookup(#gtp_port{name = 'remote-irx'},
-				     {imsi, ?'PROXY-IMSI'}),
+    Context = gtp_context_reg:lookup_key(#gtp_port{name = 'remote-irx'},
+					 {imsi, ?'PROXY-IMSI'}),
     true = is_pid(Context),
 
     Self = self(),
@@ -1015,8 +1015,8 @@ update_bearer_request(Config) ->
 
     {GtpC, _, _} = create_session(S),
 
-    Context = gtp_context_reg:lookup(#gtp_port{name = 'remote-irx'},
-				     {imsi, ?'PROXY-IMSI'}),
+    Context = gtp_context_reg:lookup_key(#gtp_port{name = 'remote-irx'},
+					 {imsi, ?'PROXY-IMSI'}),
     true = is_pid(Context),
 
     Self = self(),
