@@ -133,17 +133,13 @@ make_request(create_pdp_context_request, SubType,
 	     #gtpc{restart_counter = RCnt, seq_no = SeqNo,
 		   local_control_tei = LocalCntlTEI,
 		   local_data_tei = LocalDataTEI}) ->
-    APN = case SubType of
-	      invalid_apn -> [<<"IN", "VA", "LID">>];
-	      _           -> ?'APN-EXAMPLE'
-	  end,
     IEs0 =
 	[#recovery{restart_counter = RCnt},
-	 #access_point_name{apn = APN},
+	 #access_point_name{apn = apn(SubType)},
 	 #gsn_address{instance = 0, address = gtp_c_lib:ip2bin(?CLIENT_IP)},
 	 #gsn_address{instance = 1, address = gtp_c_lib:ip2bin(?CLIENT_IP)},
-	 #imei{imei = <<"1234567890123456">>},
-	 #international_mobile_subscriber_identity{imsi = ?IMSI},
+	 #imei{imei = imei(SubType)},
+	 #international_mobile_subscriber_identity{imsi = imsi(SubType)},
 	 #ms_international_pstn_isdn_number{
 	    msisdn = {isdn_address,1,1,1, ?'MSISDN'}},
 	 #nsapi{nsapi = 5},
@@ -443,6 +439,15 @@ execute_request(MsgType, SubType, Socket, GtpC0) ->
     Response = send_recv_pdu(Socket, Msg),
 
     {validate_response(MsgType, SubType, Response, GtpC), Msg, Response}.
+
+apn(invalid_apn) -> [<<"IN", "VA", "LID">>];
+apn(_)           -> ?'APN-EXAMPLE'.
+
+imsi('2nd') -> <<"454545454545452">>;
+imsi(_)     -> ?IMSI.
+
+imei('2nd') -> <<"6543210987654321">>;
+imei(_)     -> <<"1234567890123456">>.
 
 %%%===================================================================
 %%% GGSN injected functions

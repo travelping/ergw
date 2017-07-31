@@ -530,8 +530,8 @@ init_proxy_context(CntlPort, DataPort,
 			    control_interface = Interface, state = State},
 		   #proxy_info{ggsn = PGW, apn = APN, imsi = IMSI, msisdn = MSISDN}) ->
 
-    {ok, CntlTEI} = gtp_c_lib:alloc_tei(CntlPort),
-    {ok, DataTEI} = gtp_c_lib:alloc_tei(DataPort),
+    {ok, CntlTEI} = gtp_context_reg:alloc_tei(CntlPort),
+    {ok, DataTEI} = gtp_context_reg:alloc_tei(DataPort),
     #context{
        apn               = APN,
        imsi              = IMSI,

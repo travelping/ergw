@@ -10,7 +10,7 @@
 -compile({parse_transform, cut}).
 -compile({parse_transform, do}).
 
--export([lookup/2, handle_message/2, handle_packet_in/4, handle_response/4,
+-export([handle_message/2, handle_packet_in/4, handle_response/4,
 	 start_link/5,
 	 send_request/4, send_request/6, send_response/2,
 	 send_request/5, resend_request/2,
@@ -36,16 +36,13 @@
 %% API
 %%====================================================================
 
-lookup(GtpPort, TEI) ->
-    gtp_context_reg:lookup(GtpPort, TEI).
-
 %% TEID handling for GTPv1 is brain dead....
 try_handle_message(#request{gtp_port = GtpPort} = Request,
 	       #gtp{version = v2, type = MsgType, tei = 0} = Msg)
   when MsgType == change_notification_request;
        MsgType == change_notification_response ->
     Keys = gtp_v2_c:get_msg_keys(Msg),
-    context_handle_message(lookup_keys(GtpPort, Keys), Request, Msg);
+    context_handle_message(gtp_context_reg:lookup_keys(GtpPort, Keys), Request, Msg);
 
 %% same as above for GTPv1
 try_handle_message(#request{gtp_port = GtpPort} = Request,
@@ -53,7 +50,7 @@ try_handle_message(#request{gtp_port = GtpPort} = Request,
   when MsgType == ms_info_change_notification_request;
        MsgType == ms_info_change_notification_response ->
     Keys = gtp_v1_c:get_msg_keys(Msg),
-    context_handle_message(lookup_keys(GtpPort, Keys), Request, Msg);
+    context_handle_message(gtp_context_reg:lookup_keys(GtpPort, Keys), Request, Msg);
 
 try_handle_message(#request{gtp_port = GtpPort} = Request,
 		   #gtp{version = Version, tei = 0} = Msg) ->
@@ -73,7 +70,7 @@ try_handle_message(#request{gtp_port = GtpPort} = Request,
     end;
 
 try_handle_message(#request{gtp_port = GtpPort} = Request, #gtp{tei = TEI} = Msg) ->
-    context_handle_message(lookup(GtpPort, TEI), Request, Msg).
+    context_handle_message(gtp_context_reg:lookup_teid(GtpPort, TEI), Request, Msg).
 
 handle_message(Request, Msg) ->
     proc_lib:spawn(fun() -> q_handle_message(Request, Msg) end),
@@ -107,7 +104,7 @@ handle_packet_in(GtpPort, IP, Port,
 		      ie = #{?'Tunnel Endpoint Identifier Data I' :=
 				 #tunnel_endpoint_identifier_data_i{tei = TEI}}} = Msg) ->
     lager:debug("handle_packet_in: ~p", [lager:pr(Msg, ?MODULE)]),
-    case lookup(GtpPort, {remote_data, IP, TEI}) of
+    case gtp_context_reg:lookup_teid(GtpPort, IP, TEI) of
 	Context when is_pid(Context) ->
 	    gen_server:cast(Context, {packet_in, GtpPort, IP, Port, Msg});
 
@@ -140,46 +137,11 @@ start_link(GtpPort, Version, Interface, IfOpts, Opts) ->
 path_restart(Context, Path) ->
     jobs:run(path_restart, fun() -> gen_server:call(Context, {path_restart, Path}) end).
 
-register_remote_context(#context{
-			   control_port       = CntlPort,
-			   remote_control_ip  = CntlIP,
-			   remote_control_tei = CntlTEI,
-			   data_port          = DataPort,
-			   remote_data_ip     = DataIP,
-			   remote_data_tei    = DataTEI,
-			   imsi               = IMSI,
-			   imei               = IMEI}) ->
-    gtp_context_reg:register(CntlPort, {remote_control, CntlIP, CntlTEI}),
-    gtp_context_reg:register(DataPort, {remote_data,    DataIP, DataTEI}),
-    if IMSI /= undefiend ->
-	    gtp_context_reg:register(CntlPort, {imsi, IMSI});
-       true ->
-	    ok
-    end,
-    if IMEI /= undefiend ->
-	    gtp_context_reg:register(CntlPort, {imei, IMEI});
-       true ->
-	    ok
-    end,
-    ok.
-
-update_remote_control_context(#context{control_port = OldCntlPort, remote_control_ip = OldCntlIP, remote_control_tei = OldCntlTEI},
-			      #context{control_port = NewCntlPort, remote_control_ip = NewCntlIP, remote_control_tei = NewCntlTEI})
-  when OldCntlPort =/= OldCntlIP; OldCntlTEI =/= NewCntlPort; NewCntlIP =/= NewCntlTEI ->
-    gtp_context_reg:unregister(OldCntlPort, {remote_control, OldCntlIP, OldCntlTEI}),
-    gtp_context_reg:register(NewCntlPort, {remote_control, NewCntlIP, NewCntlTEI}),
-    ok.
-
-update_remote_data_context(#context{data_port = OldDataPort, remote_data_ip = OldDataIP, remote_data_tei = OldDataTEI},
-			   #context{data_port = NewDataPort, remote_data_ip = NewDataIP, remote_data_tei = NewDataTEI})
-  when OldDataPort =/= OldDataIP; OldDataTEI =/= NewDataPort; NewDataIP =/= NewDataTEI ->
-    gtp_context_reg:unregister(OldDataPort, {remote_data, OldDataIP, OldDataTEI}),
-    gtp_context_reg:register(NewDataPort, {remote_data, NewDataIP, NewDataTEI}),
-    ok.
+register_remote_context(Context) ->
+    gtp_context_reg:register(Context).
 
 update_remote_context(OldContext, NewContext) ->
-    update_remote_control_context(OldContext, NewContext),
-    update_remote_data_context(OldContext, NewContext).
+    gtp_context_reg:update(OldContext, NewContext).
 
 delete_context(Context) ->
     gen_server:call(Context, delete_context).
@@ -265,8 +227,8 @@ init([CntlPort, Version, Interface,
 
     DataPort = gtp_socket_reg:lookup(hd(DPs)),
 
-    {ok, CntlTEI} = gtp_c_lib:alloc_tei(CntlPort),
-    {ok, DataTEI} = gtp_c_lib:alloc_tei(DataPort),
+    {ok, CntlTEI} = gtp_context_reg:alloc_tei(CntlPort),
+    {ok, DataTEI} = gtp_context_reg:alloc_tei(DataPort),
 
     Context = #context{
 		 version           = Version,
@@ -428,7 +390,7 @@ unregister_request(#request{key = ReqKey, gtp_port = GtpPort}) ->
     gtp_context_reg:unregister(GtpPort, ReqKey).
 
 lookup_request(#request{key = ReqKey, gtp_port = GtpPort}) ->
-    gtp_context_reg:lookup(GtpPort, ReqKey).
+    gtp_context_reg:lookup_key(GtpPort, ReqKey).
 
 enforce_restriction(Context, #gtp{version = Version}, {Version, false}) ->
     throw(#ctx_err{level = ?FATAL,
@@ -446,16 +408,6 @@ load_class(#gtp{version = v1} = Msg) ->
     gtp_v1_c:load_class(Msg);
 load_class(#gtp{version = v2} = Msg) ->
     gtp_v2_c:load_class(Msg).
-
-lookup_keys(_, []) ->
-    throw({error, not_found});
-lookup_keys(GtpPort, [H|T]) ->
-    case gtp_context_reg:lookup(GtpPort, H) of
-	Pid when is_pid(Pid) ->
-	    Pid;
-	_ ->
-	    gtp_context_reg:lookup(GtpPort, T)
-    end.
 
 context_new(GtpPort, Version, Interface, InterfaceOpts) ->
     case gtp_context_sup:new(GtpPort, Version, Interface, InterfaceOpts) of
