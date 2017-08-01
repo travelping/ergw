@@ -102,6 +102,7 @@ all() ->
      create_pdp_context_request_accept_new,
      path_restart, path_restart_recovery, path_restart_multi,
      simple_pdp_context_request,
+     duplicate_pdp_context_request,
      ipv6_pdp_context_request,
      ipv4v6_pdp_context_request,
      request_fast_resend,
@@ -347,6 +348,26 @@ simple_pdp_context_request(Config) ->
     {GtpC, _, _} = create_pdp_context(S),
     delete_pdp_context(S, GtpC),
 
+    ?equal([], outstanding_requests()),
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+duplicate_pdp_context_request() ->
+    [{doc, "Check the a new incomming request for the same IMSI terminates the first"}].
+duplicate_pdp_context_request(Config) ->
+    S = make_gtp_socket(Config),
+
+    {GtpC1, _, _} = create_pdp_context(S),
+
+    %% create 2nd PDP context with the same IMSI
+    {GtpC2, _, _} = create_pdp_context(S),
+
+    delete_pdp_context(not_found, S, GtpC1),
+    delete_pdp_context(S, GtpC2),
+
+    [?match(#{tunnels := 0}, X) || X <- ergw_api:peer(all)],
     ?equal([], outstanding_requests()),
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),

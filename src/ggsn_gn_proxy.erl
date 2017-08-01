@@ -159,6 +159,13 @@ handle_call(delete_context, _From, State) ->
     lager:warning("delete_context no handled(yet)"),
     {reply, ok, State};
 
+handle_call(terminate_context, _From,
+	    #{context := Context,
+	      proxy_context := ProxyContext} = State) ->
+    initiate_delete_pdp_context_request(ProxyContext),
+    dp_delete_pdp_context(Context, ProxyContext),
+    {stop, normal, ok, State};
+
 handle_call({path_restart, Path}, _From,
 	    #{context := #context{path = Path} = Context,
 	      proxy_context := ProxyContext
@@ -229,7 +236,9 @@ handle_request(ReqKey,
 
     Context1 = update_context_from_gtp_req(Request, Context0#context{state = #context_state{}}),
     ContextPreProxy = gtp_path:bind(Request, Context1),
-    gtp_context:register_remote_context(ContextPreProxy),
+
+    gtp_context:terminate_colliding_context(ContextPreProxy),
+    gtp_context:remote_context_register_new(ContextPreProxy),
 
     Session1 = init_session(IEs, ContextPreProxy),
     lager:debug("Invoking CONTROL: ~p", [Session1]),
@@ -261,7 +270,7 @@ handle_request(ReqKey,
     Context1 = gtp_path:bind(Request, Context0),
 
     gtp_context:enforce_restrictions(Request, Context1),
-    gtp_context:update_remote_context(OldContext, Context1),
+    gtp_context:remote_context_update(OldContext, Context1),
 
     Context = apply_context_change(Context1, OldContext),
 
@@ -333,7 +342,7 @@ handle_response(#proxy_request{direction = sgsn2ggsn} = ProxyRequest,
 
     ProxyContext1 = update_context_from_gtp_req(Response, ProxyContext0),
     ProxyContext = gtp_path:bind(Response, ProxyContext1),
-    gtp_context:register_remote_context(ProxyContext),
+    gtp_context:remote_context_register(ProxyContext),
 
     forward_response(ProxyRequest, Response, Context),
 
@@ -354,7 +363,7 @@ handle_response(#proxy_request{direction = sgsn2ggsn} = ProxyRequest,
     lager:warning("OK Proxy Response ~p", [lager:pr(Response, ?MODULE)]),
 
     ProxyContext0 = update_context_from_gtp_req(Response, OldProxyContext),
-    gtp_context:update_remote_context(OldProxyContext, ProxyContext0),
+    gtp_context:remote_context_update(OldProxyContext, ProxyContext0),
     ProxyContext = apply_context_change(ProxyContext0, OldProxyContext),
 
     forward_response(ProxyRequest, Response, Context),

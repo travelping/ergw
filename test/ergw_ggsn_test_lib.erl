@@ -421,6 +421,13 @@ validate_response(ms_info_change_notification_request, simple, Response,
     ?equal(false, maps:is_key({imei,0}, IEs)),
     GtpC;
 
+validate_response(delete_pdp_context_request, not_found, Response, GtpC) ->
+    ?match(#gtp{type = delete_pdp_context_response,
+		tei = 0,
+		ie = #{{cause,0} := #cause{value = non_existent}}
+	       }, Response),
+    GtpC;
+
 validate_response(delete_pdp_context_request, _SubType, Response,
 		  #gtpc{local_control_tei = LocalCntlTEI} = GtpC) ->
     ?match(#gtp{type = delete_pdp_context_response,
