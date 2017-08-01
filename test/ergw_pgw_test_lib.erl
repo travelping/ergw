@@ -551,6 +551,14 @@ validate_response(resume_notification, _SubType, Response,
 	   }, Response),
     GtpC;
 
+validate_response(delete_session_request, not_found, Response, GtpC) ->
+    ?match(
+       #gtp{type = delete_session_response,
+	    tei = 0,
+	    ie = #{{v2_cause,0} := #v2_cause{v2_cause = context_not_found}}
+	   }, Response),
+    GtpC;
+
 validate_response(delete_session_request, _SubType, Response,
 		  #gtpc{local_control_tei = LocalCntlTEI} = GtpC) ->
     ?match(#gtp{type = delete_session_response,

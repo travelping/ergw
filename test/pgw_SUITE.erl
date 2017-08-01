@@ -113,6 +113,7 @@ all() ->
      create_session_request_accept_new,
      path_restart, path_restart_recovery, path_restart_multi,
      simple_session_request,
+     duplicate_session_request,
      ipv6_bearer_request,
      ipv4v6_bearer_request,
      request_fast_resend,
@@ -363,6 +364,26 @@ simple_session_request(Config) ->
 
     {GtpC, _, _} = create_session(S),
     delete_session(S, GtpC),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+duplicate_session_request() ->
+    [{doc, "Check the a new incomming request for the same IMSI terminates the first"}].
+duplicate_session_request(Config) ->
+    S = make_gtp_socket(Config),
+
+    {GtpC1, _, _} = create_session(S),
+
+    %% create 2nd session with the same IMSI
+    {GtpC2, _, _} = create_session(S, GtpC1),
+
+    delete_session(not_found, S, GtpC1),
+    delete_session(S, GtpC2),
+
+    [?match(#{tunnels := 0}, X) || X <- ergw_api:peer(all)],
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),

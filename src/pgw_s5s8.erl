@@ -87,6 +87,11 @@ handle_call(delete_context, From, #{context := Context} = State) ->
     delete_context(From, Context),
     {noreply, State};
 
+handle_call(terminate_context, _From, #{context := Context} = State) ->
+    dp_delete_pdp_context(Context),
+    pdn_release_ip(Context),
+    {stop, normal, ok, State};
+
 handle_call({path_restart, Path}, _From,
 	    #{context := #context{path = Path} = Context} = State) ->
     dp_delete_pdp_context(Context),
@@ -153,6 +158,8 @@ handle_request(_ReqKey,
     Context2 = update_context_from_gtp_req(IEs, Context1),
     ContextPreAuth = gtp_path:bind(Request, Context2),
 
+    gtp_context:terminate_colliding_context(ContextPreAuth),
+
     SessionOpts0 = init_session(IEs, ContextPreAuth, AAAopts),
     SessionOpts = init_session_from_gtp_req(IEs, AAAopts, SessionOpts0),
     %% SessionOpts = init_session_qos(ReqQoSProfile, SessionOpts1),
@@ -166,7 +173,7 @@ handle_request(_ReqKey,
 
     ContextPending = assign_ips(ActiveSessionOpts, PAA, ContextVRF),
 
-    gtp_context:register_remote_context(ContextPending),
+    gtp_context:remote_context_register_new(ContextPending),
     Context = dp_create_pdp_context(ContextPending),
 
     ResponseIEs = create_session_response(ActiveSessionOpts, IEs, EBI, Context),
@@ -198,7 +205,7 @@ handle_request(_ReqKey,
     Context = gtp_path:bind(Request, Context1),
 
     State1 = if Context /= OldContext ->
-		     gtp_context:update_remote_context(OldContext, Context),
+		     gtp_context:remote_context_update(OldContext, Context),
 		     apply_context_change(Context, OldContext, State0);
 		true ->
 		     State0

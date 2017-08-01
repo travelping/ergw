@@ -16,8 +16,8 @@
 	 send_request/5, resend_request/2,
 	 request_finished/1,
 	 path_restart/2,
-	 delete_context/1,
-	 register_remote_context/1, update_remote_context/2,
+	 terminate_colliding_context/1, terminate_context/1, delete_context/1,
+	 remote_context_register/1, remote_context_register_new/1, remote_context_update/2,
 	 enforce_restrictions/2,
 	 info/1,
 	 validate_options/3,
@@ -137,14 +137,47 @@ start_link(GtpPort, Version, Interface, IfOpts, Opts) ->
 path_restart(Context, Path) ->
     jobs:run(path_restart, fun() -> gen_server:call(Context, {path_restart, Path}) end).
 
-register_remote_context(Context) ->
+remote_context_register(Context) ->
     gtp_context_reg:register(Context).
 
-update_remote_context(OldContext, NewContext) ->
+remote_context_register_new(Context) ->
+    case gtp_context_reg:register_new(Context) of
+	ok ->
+	    ok;
+	_ ->
+	    throw(#ctx_err{level = ?FATAL,
+			   reply = system_failure,
+			   context = Context})
+    end.
+
+remote_context_update(OldContext, NewContext) ->
     gtp_context_reg:update(OldContext, NewContext).
 
 delete_context(Context) ->
     gen_server:call(Context, delete_context).
+
+%% 3GPP TS 29.060 (GTPv1-C) and TS 29.274 (GTPv2-C) have language that states
+%% that when an incomming Create PDP Context/Create Session requests collides
+%% with an existing context based on a IMSI, Bearer, Protocol tuple, that the
+%% preexisting context should be deleted locally. This function does that.
+terminate_colliding_context(#context{control_port = GtpPort, imsi = IMSI})
+  when IMSI /= undefined ->
+    case gtp_context_reg:lookup_key(GtpPort, {imsi, IMSI}) of
+	Context when is_pid(Context) ->
+	    gtp_context:terminate_context(Context);
+	_ ->
+	    ok
+    end;
+terminate_colliding_context(_) ->
+    ok.
+
+terminate_context(Context) ->
+    try
+	gen_server:call(Context, terminate_context)
+    catch
+	exit:_ ->
+	    ok
+    end.
 
 info(Context) ->
     gen_server:call(Context, info).

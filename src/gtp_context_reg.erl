@@ -11,7 +11,7 @@
 
 %% API
 -export([start_link/0]).
--export([register/1, update/2, unregister/1,
+-export([register_new/1, register/1, update/2, unregister/1,
 	 register/3, unregister/2,
 	 lookup_key/2, lookup_keys/2,
 	 lookup_teid/2, lookup_teid/3, lookup_teid/4]).
@@ -70,6 +70,9 @@ lookup_teid(Port, Type, IP, TEI) ->
 register(#context{} = Context) ->
     gen_server:call(?SERVER, {register, Context}).
 
+register_new(#context{} = Context) ->
+    gen_server:call(?SERVER, {register_new, Context}).
+
 register(#gtp_port{name = Name}, Key, Context) when is_pid(Context) ->
     gen_server:call(?SERVER, {register, {Name, Key}, Context}).
 
@@ -121,10 +124,14 @@ init([]) ->
 
 handle_call({register, Context}, {Pid, _Ref}, State) ->
     Keys = context2keys(Context),
-    handle_add_keys(Keys, Pid, State);
+    handle_add_keys(fun ets:insert/2, Keys, Pid, State);
+
+handle_call({register_new, Context}, {Pid, _Ref}, State) ->
+    Keys = context2keys(Context),
+    handle_add_keys(fun ets:insert_new/2, Keys, Pid, State);
 
 handle_call({register, Key, Pid}, _From, State) ->
-    handle_add_keys([Key], Pid, State);
+    handle_add_keys(fun ets:insert/2, [Key], Pid, State);
 
 handle_call({update, OldContext, NewContext}, {Pid, _Ref}, State) ->
     DelKeys = context2keys(OldContext),
@@ -167,11 +174,15 @@ code_change(_OldVsn, State, _Extra) ->
 %%% Internal functions
 %%%===================================================================
 
-handle_add_keys(Keys, Pid, State) ->
-    ets:insert(?SERVER, [{Key, Pid} || Key <- Keys]),
-    link(Pid),
-    NKeys = ordsets:union(Keys, maps:get(Pid, State, [])),
-    {reply, ok, State#{Pid => NKeys}}.
+handle_add_keys(Fun, Keys, Pid, State) ->
+    case Fun(?SERVER, [{Key, Pid} || Key <- Keys]) of
+	true ->
+	    link(Pid),
+	    NKeys = ordsets:union(Keys, maps:get(Pid, State, [])),
+	    {reply, ok, State#{Pid => NKeys}};
+	_ ->
+	    {reply, {error, duplicate}, State}
+    end.
 
 delete_keys(Keys, Pid, State) ->
     lists:foreach(fun(Key) -> delete_key(Key, Pid) end, Keys),
