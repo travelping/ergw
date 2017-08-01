@@ -103,6 +103,7 @@ all() ->
      path_restart, path_restart_recovery, path_restart_multi,
      simple_pdp_context_request,
      duplicate_pdp_context_request,
+     error_indication,
      ipv6_pdp_context_request,
      ipv4v6_pdp_context_request,
      request_fast_resend,
@@ -369,6 +370,27 @@ duplicate_pdp_context_request(Config) ->
 
     [?match(#{tunnels := 0}, X) || X <- ergw_api:peer(all)],
     ?equal([], outstanding_requests()),
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+error_indication() ->
+    [{doc, "Check the a GTP-U error indication terminates the context"}].
+error_indication(Config) ->
+    S = make_gtp_socket(Config),
+
+    {_, _, Port} = lists:keyfind(grx, 1, gtp_socket_reg:all()),
+    ct:pal("Port: ~p", [Port]),
+
+    {GtpC, _, _} = create_pdp_context(S),
+    gtp_context:handle_packet_in(Port, ?CLIENT_IP, ?GTP1u_PORT,
+				 make_error_indication(GtpC)),
+    ct:sleep(100),
+    delete_pdp_context(not_found, S, GtpC),
+
+    [?match(#{tunnels := 0}, X) || X <- ergw_api:peer(all)],
+
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
     ok.

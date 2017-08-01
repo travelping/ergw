@@ -19,7 +19,8 @@
 -export([gtp_context/0,
 	 gtp_context_inc_seq/1,
 	 gtp_context_inc_restart_counter/1,
-	 gtp_context_new_teids/1]).
+	 gtp_context_new_teids/1,
+	 make_error_indication/1]).
 -export([make_gtp_socket/1,
 	 send_pdu/2,
 	 send_recv_pdu/2, send_recv_pdu/3, send_recv_pdu/4,
@@ -164,6 +165,13 @@ gtp_context_new_teids(GtpC) ->
       local_data_tei =
 	  ets:update_counter(?MODULE, teid, 1) rem 16#100000000
      }.
+
+%% pretend the other side send us a GTP-U packet for an invalid TEID
+-define('Tunnel Endpoint Identifier Data I', {tunnel_endpoint_identifier_data_i, 0}).
+make_error_indication(#gtpc{local_data_tei = TEI}) ->
+    #gtp{type = error_indication, version = v1, tei = 0,
+	 ie = #{?'Tunnel Endpoint Identifier Data I' =>
+		    #tunnel_endpoint_identifier_data_i{tei = TEI}}}.
 
 %%%===================================================================
 %%% I/O and socket functions
