@@ -114,6 +114,7 @@ all() ->
      path_restart, path_restart_recovery, path_restart_multi,
      simple_session_request,
      duplicate_session_request,
+     error_indication,
      ipv6_bearer_request,
      ipv4v6_bearer_request,
      request_fast_resend,
@@ -382,6 +383,27 @@ duplicate_session_request(Config) ->
 
     delete_session(not_found, S, GtpC1),
     delete_session(S, GtpC2),
+
+    [?match(#{tunnels := 0}, X) || X <- ergw_api:peer(all)],
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+error_indication() ->
+    [{doc, "Check the a GTP-U error indication terminates the session"}].
+error_indication(Config) ->
+    S = make_gtp_socket(Config),
+
+    {_, _, Port} = lists:keyfind(grx, 1, gtp_socket_reg:all()),
+    ct:pal("Port: ~p", [Port]),
+
+    {GtpC, _, _} = create_session(S),
+    gtp_context:handle_packet_in(Port, ?CLIENT_IP, ?GTP1u_PORT,
+				 make_error_indication(GtpC)),
+    ct:sleep(100),
+    delete_session(not_found, S, GtpC),
 
     [?match(#{tunnels := 0}, X) || X <- ergw_api:peer(all)],
 
