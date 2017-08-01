@@ -12,7 +12,7 @@
 
 -export([handle_message/2, handle_packet_in/4, handle_response/4,
 	 start_link/5,
-	 send_request/4, send_request/6, send_response/2,
+	 send_request/6, send_response/2,
 	 send_request/5, resend_request/2,
 	 request_finished/1,
 	 path_restart/2,
@@ -115,10 +115,6 @@ handle_packet_in(GtpPort, IP, Port,
 
 handle_response(Context, ReqInfo, Request, Response) ->
     gen_server:cast(Context, {handle_response, ReqInfo, Request, Response}).
-
-send_request(GtpPort, RemoteIP, Msg, ReqInfo) ->
-    CbInfo = {?MODULE, handle_response, [self(), ReqInfo, Msg]},
-    gtp_socket:send_request(GtpPort, RemoteIP, Msg, CbInfo).
 
 send_request(GtpPort, RemoteIP, T3, N3, Msg, ReqInfo) ->
     CbInfo = {?MODULE, handle_response, [self(), ReqInfo, Msg]},

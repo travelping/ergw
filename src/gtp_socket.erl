@@ -15,8 +15,7 @@
 -export([validate_options/1,
 	 start_socket/2, start_link/1,
 	 send/4, send_response/3,
-	 send_request/4, send_request/6,
-	 send_request/5, resend_request/2,
+	 send_request/5, send_request/6, resend_request/2,
 	 get_restart_counter/1]).
 -export([get_request_q/1, get_response_q/1]).
 
@@ -95,9 +94,6 @@ send_response(#request{gtp_port = GtpPort, ip = RemoteIP} = ReqKey, Msg, DoCache
     message_counter(tx, GtpPort, RemoteIP, Msg),
     Data = gtp_packet:encode(Msg),
     cast(GtpPort, {send_response, ReqKey, Data, DoCache}).
-
-send_request(#gtp_port{type = 'gtp-c'} = GtpPort, RemoteIP, Msg = #gtp{}, CbInfo) ->
-    send_request(GtpPort, RemoteIP, ?T3, ?N3, Msg, CbInfo).
 
 send_request(#gtp_port{type = 'gtp-c'} = GtpPort, RemoteIP, T3, N3,
 	     Msg = #gtp{version = Version}, CbInfo) ->
