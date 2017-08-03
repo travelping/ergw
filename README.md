@@ -19,8 +19,9 @@ From the above the following procedures as defined by 3GPP T 23.060 should work:
  * PDP Context Activation/Modification/Deactivation Procedure
  * PDP Context Activation/Modification/Deactivation Procedure using S4
  * Intersystem Change Procedures (handover 2G/3G/LTE)
- * 3GPP TS 23.401 Annex D, Interoperation with Gn/Gp SGSNs procedures
-   (see [CONFIG.md](CONFIG.md))
+ * 3GPP TS 23.401:
+   * Sect. 5.4.2.2, HSS Initiated Subscribed QoS Modification (without PCRF)
+   * Annex D, Interoperation with Gn/Gp SGSNs procedures (see [CONFIG.md](CONFIG.md))
 
 EXPERIMENTAL FEATURES
 ---------------------

@@ -325,6 +325,9 @@ prepare_send_req(#send_req{msg = Msg0} = SendReq, State0) ->
     BinMsg = gtp_packet:encode(Msg),
     {SendReq#send_req{msg = Msg, data = BinMsg}, State}.
 
+new_sequence_number(#gtp{seq_no = SeqNo} = Msg, State)
+  when is_integer(SeqNo) ->
+    {Msg, State};
 new_sequence_number(#gtp{version = v1} = Msg, #state{v1_seq_no = SeqNo} = State) ->
     {Msg#gtp{seq_no = SeqNo}, State#state{v1_seq_no = (SeqNo + 1) rem 16#ffff}};
 new_sequence_number(#gtp{version = v2} = Msg, #state{v2_seq_no = SeqNo} = State) ->
