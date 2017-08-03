@@ -31,6 +31,7 @@
 -define('Access Point Name',				{access_point_name, 0}).
 -define('IMSI',						{international_mobile_subscriber_identity, 0}).
 -define('IMEI',						{imei, 0}).
+-define('Extended Common Flags',			{extended_common_flags, 0}).
 
 %%====================================================================
 %% API
@@ -223,18 +224,26 @@ validate_teid(MsgType, 0) ->
 validate_teid(_MsgType, _TEID) ->
     ok.
 
+get_ext_common_flags(#{?'Extended Common Flags' := #extended_common_flags{flags = Flags}}) ->
+    Flags;
+get_ext_common_flags(_) ->
+    [].
+
 get_msg_keys(#gtp{version = v1, ie = IEs}) ->
-    K0 = case maps:get(?'IMEI', IEs, undefined) of
-	     #imei{imei = IMEI} ->
-		 [{imei, IMEI}];
-	     _ ->
-		 []
-	 end,
-    case maps:get(?'IMSI', IEs, undefined) of
-	#international_mobile_subscriber_identity{imsi = IMSI} ->
-	    [{imsi, IMSI} | K0];
+    UIMSI = proplists:get_bool('Unauthenticated IMSI', get_ext_common_flags(IEs)),
+    %% order of key selection, first match terminates:
+    %%   1. prefer IMEI if unauthenticated IMSI
+    %%   2. use IMSI
+    %%   3. use IMEI
+    case {UIMSI, IEs} of
+	{true, #{?'IMEI' := #imei{imei = IMEI}}} ->
+	    [{imei, IMEI}];
+	{_, #{'IMSI' := #international_mobile_subscriber_identity{imsi = IMSI}}} ->
+	    [{imsi, IMSI}];
+	{_, #{?'IMEI' := #imei{imei = IMEI}}} ->
+	    [{imei, IMEI}];
 	_ ->
-	    K0
+	    []
     end.
 
 get_cause(#{?Cause := #cause{value = Cause}}) ->

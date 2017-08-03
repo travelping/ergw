@@ -33,6 +33,7 @@
 -define('IMSI',						{v2_international_mobile_subscriber_identity, 0}).
 -define('ME Identity',					{v2_mobile_equipment_identity, 0}).
 -define('EPS Bearer ID',				{v2_eps_bearer_id, 0}).
+-define('Indication Flags',				{v2_indication, 0}).
 
 %%====================================================================
 %% API
@@ -245,18 +246,20 @@ validate_teid(MsgType, 0) ->
 validate_teid(_MsgType, _TEID) ->
     ok.
 
+get_indication_flags(#{?'Indication Flags' := #v2_indication{flags = Flags}}) ->
+    Flags;
+get_indication_flags(_) ->
+    [].
+
 get_msg_keys(#gtp{version = v2, ie = IEs}) ->
-    K0 = case maps:get(?'ME Identity', IEs, undefined) of
-	     #v2_mobile_equipment_identity{mei = IMEI} ->
-		 [{imei, IMEI}];
-	     _ ->
-		 []
-	 end,
-    case maps:get(?'IMSI', IEs, undefined) of
-	#v2_international_mobile_subscriber_identity{imsi = IMSI} ->
-	    [{imsi, IMSI} | K0];
+    UIMSI = proplists:get_bool('UIMSI', get_indication_flags(IEs)),
+    case {UIMSI, IEs} of
+	{true, #{?'ME Identity' := #v2_mobile_equipment_identity{mei = IMEI}}} ->
+	    [{imei, IMEI}];
+	{false, #{?'IMSI' := #v2_international_mobile_subscriber_identity{imsi = IMSI}}} ->
+	    [{imsi, IMSI}];
 	_ ->
-	    K0
+	    []
     end.
 
 get_cause(#{?Cause := #v2_cause{v2_cause = Cause}}) ->
