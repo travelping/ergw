@@ -366,15 +366,24 @@ make_response(#gtp{type = create_session_request, seq_no = SeqNo},
 	 tei = RemoteCntlTEI, seq_no = SeqNo, ie = IEs};
 
 make_response(#gtp{type = update_bearer_request, seq_no = SeqNo},
-	      _SubType,
+	      SubType,
 	      #gtpc{restart_counter = RCnt,
 		    remote_control_tei = RemoteCntlTEI}) ->
+    {Cause, BearerCause} =
+	case SubType of
+	    invalid_teid ->
+		{context_not_found, request_accepted};
+	    apn_congestion ->
+		{request_accepted, apn_congestion};
+	    _ ->
+		{request_accepted, request_accepted}
+	end,
     EBI = 5,
     IEs = [#v2_recovery{restart_counter = RCnt},
-	   #v2_cause{v2_cause = request_accepted},
+	   #v2_cause{v2_cause = Cause},
 	   #v2_bearer_context{
 	      group = [#v2_eps_bearer_id{eps_bearer_id = EBI},
-		       #v2_cause{v2_cause = request_accepted}]}],
+		       #v2_cause{v2_cause = BearerCause}]}],
     #gtp{version = v2, type = update_bearer_response,
 	 tei = RemoteCntlTEI, seq_no = SeqNo, ie = IEs};
 
@@ -500,6 +509,21 @@ validate_response(modify_bearer_request, SubType, Response,
 	   }, Response),
     #gtp{ie = IEs} = Response,
     ?equal(false, maps:is_key({v2_bearer_context,0}, IEs)),
+    GtpC;
+
+validate_response(modify_bearer_command, _SubType, Response,
+		  #gtpc{seq_no = SeqNo, local_control_tei = LocalCntlTEI} = GtpC) ->
+    ?match(
+       #gtp{type = update_bearer_request,
+	    seq_no = SeqNo, tei = LocalCntlTEI,
+	    ie = #{{v2_aggregate_maximum_bit_rate,0} := #v2_aggregate_maximum_bit_rate{},
+		   {v2_bearer_context,0} :=
+		       #v2_bearer_context{
+			  group =
+			      #{{v2_bearer_level_quality_of_service,0} :=
+				    #v2_bearer_level_quality_of_service{},
+				{v2_eps_bearer_id,0} := #v2_eps_bearer_id{}}}}
+	   }, Response),
     GtpC;
 
 validate_response(change_notification_request, simple, Response,

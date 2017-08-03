@@ -637,8 +637,14 @@ modify_bearer_command(Config) ->
     S = make_gtp_socket(Config),
 
     {GtpC1, _, _} = create_session(S),
-    {GtpC2, Req} = modify_bearer_command(simple, S, GtpC1),
-    ?equal({ok, timeout}, recv_pdu(S, Req#gtp.seq_no, ?TIMEOUT, ok)),
+    {GtpC2, Req0} = modify_bearer_command(simple, S, GtpC1),
+
+    Req1 = recv_pdu(S, Req0#gtp.seq_no, ?TIMEOUT, ok),
+    validate_response(modify_bearer_command, simple, Req1, GtpC2),
+    Response = make_response(Req1, simple, GtpC2),
+    send_pdu(S, Response),
+
+    ?equal({ok, timeout}, recv_pdu(S, Req1#gtp.seq_no, ?TIMEOUT, ok)),
     ?equal([], outstanding_requests()),
     delete_session(S, GtpC2),
 

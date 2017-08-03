@@ -40,7 +40,8 @@
 -define('Bearer Contexts to be modified',		{v2_bearer_context, 0}).
 -define('Protocol Configuration Options',		{v2_protocol_configuration_options, 0}).
 -define('ME Identity',					{v2_mobile_equipment_identity, 0}).
-
+-define('APN-AMBR',					{v2_aggregate_maximum_bit_rate, 0}).
+-define('Bearer Level QoS',				{v2_bearer_level_quality_of_service, 0}).
 -define('EPS Bearer ID',                                {v2_eps_bearer_id, 0}).
 
 -define('S5/S8-U SGW',  4).
@@ -67,6 +68,9 @@ request_spec(v2, delete_session_request, _) ->
     [];
 request_spec(v2, modify_bearer_request, _) ->
     [];
+request_spec(v2, modify_bearer_command, _) ->
+    [{?'APN-AMBR' ,						mandatory},
+     {?'Bearer Contexts to be modified',			mandatory}];
 request_spec(v2, resume_notification, _) ->
     [{?'IMSI',							mandatory}];
 request_spec(v2, _, _) ->
@@ -242,11 +246,21 @@ handle_request(_ReqKey,
 
 handle_request(ReqKey,
 	       #gtp{type = modify_bearer_command,
-		    ie = _IEs},
-	       _Resent, #{context := _Context} = State) ->
-    %% TODO: adjust QoS
-
+		    seq_no = SeqNo,
+		    ie = #{?'APN-AMBR' := AMBR,
+			   ?'Bearer Contexts to be modified' :=
+			        #v2_bearer_context{
+				   group = #{?'EPS Bearer ID' := EBI} = Bearer}}},
+	       _Resent, #{context := Context} = State) ->
     gtp_context:request_finished(ReqKey),
+
+    RequestIEs0 = [AMBR,
+		   #v2_bearer_context{
+		      group = copy_ies_to_response(Bearer, [EBI], [?'Bearer Level QoS'])}],
+    RequestIEs = gtp_v2_c:build_recovery(Context, false, RequestIEs0),
+    Msg = msg(Context, update_bearer_request, RequestIEs),
+    send_request_msg(Context, ?T3, ?N3, Msg#gtp{seq_no = SeqNo}, undefined),
+
     {noreply, State};
 
 handle_request(_ReqKey,
@@ -311,11 +325,38 @@ handle_request(ReqKey, _Msg, _Resent, State) ->
 handle_response(ReqInfo, #gtp{version = v1} = Msg, Request, State) ->
     ?GTP_v1_Interface:handle_response(ReqInfo, Msg, Request, State);
 
+handle_response(_,
+		#gtp{type = update_bearer_response,
+		     ie = #{?'Cause' := #v2_cause{v2_cause = Cause},
+			    ?'Bearer Contexts to be modified' :=
+			        #v2_bearer_context{
+				   group = #{?'Cause' := #v2_cause{v2_cause = BearerCause}}
+				  }}} = Response,
+		_Request, #{context := Context0} = State) ->
+    Context = gtp_path:bind(Response, Context0),
+
+    if Cause =:= request_accepted andalso BearerCause =:= request_accepted ->
+	    {noreply, State};
+       true ->
+	    lager:error("Update Bearer Request failed with ~p/~p",
+			[Cause, BearerCause]),
+	    delete_context(undefined, Context),
+	    {noreply, State}
+    end;
+
+handle_response(_, timeout, #gtp{type = update_bearer_request},
+		#{context := Context} = State) ->
+    lager:error("Update Bearer Request failed with timeout"),
+    delete_context(undefined, Context),
+    {noreply, State};
+
 handle_response(From, timeout, #gtp{type = delete_bearer_request},
 		#{context := Context} = State) ->
     dp_delete_pdp_context(Context),
     pdn_release_ip(Context),
-    gen_server:reply(From, {error, timeout}),
+    if is_tuple(From) -> gen_server:reply(From, {error, timeout});
+       true -> ok
+    end,
     {stop, State};
 
 handle_response(From,
@@ -326,7 +367,9 @@ handle_response(From,
     Context = gtp_path:bind(Response, Context0),
     dp_delete_pdp_context(Context),
     pdn_release_ip(Context),
-    gen_server:reply(From, {ok, Cause}),
+    if is_tuple(From) -> gen_server:reply(From, {ok, Cause});
+       true -> ok
+    end,
     {stop, State#{context := Context}}.
 
 terminate(_Reason, _State) ->
@@ -621,12 +664,17 @@ send_end_marker(#context{data_port = GtpPort, remote_data_ip = PeerIP, remote_da
     Data = gtp_packet:encode(Msg),
     gtp_dp:send(GtpPort, PeerIP, ?GTP1u_PORT, Data).
 
-send_request(#context{control_port = GtpPort,
-		      remote_control_tei = RemoteCntlTEI,
-		      remote_control_ip = RemoteCntlIP},
-	     T3, N3, Type, RequestIEs, ReqInfo) ->
-    Msg = #gtp{version = v2, type = Type, tei = RemoteCntlTEI, ie = RequestIEs},
+msg(#context{remote_control_tei = RemoteCntlTEI}, Type, RequestIEs) ->
+    #gtp{version = v2, type = Type, tei = RemoteCntlTEI, ie = RequestIEs}.
+
+
+send_request_msg(#context{control_port = GtpPort,
+			  remote_control_ip = RemoteCntlIP},
+		 T3, N3, Msg, ReqInfo) ->
     gtp_context:send_request(GtpPort, RemoteCntlIP, T3, N3, Msg, ReqInfo).
+
+send_request(Context, T3, N3, Type, RequestIEs, ReqInfo) ->
+    send_request_msg(Context, T3, N3, msg(Context, Type, RequestIEs), ReqInfo).
 
 %% delete_context(From, #context_state{ebi = EBI} = Context) ->
 delete_context(From, Context) ->
