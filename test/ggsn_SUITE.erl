@@ -293,8 +293,7 @@ path_restart(Config) ->
     send_recv_pdu(S, Echo),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
-    ct:sleep(1000),
-    [?match(#{tunnels := 0}, X) || X <- ergw_api:peer(all)],
+    wait4tunnels(?TIMEOUT),
     meck_validate(Config),
     ok.
 

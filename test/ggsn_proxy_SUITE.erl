@@ -404,8 +404,7 @@ path_restart(Config) ->
     send_recv_pdu(S, Echo),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
-    ct:sleep(1000),
-    [?match(#{tunnels := 0}, X) || X <- ergw_api:peer(all)],
+    wait4tunnels(?TIMEOUT),
     meck_validate(Config),
     ok.
 
@@ -472,9 +471,9 @@ duplicate_pdp_context_request(Config) ->
     delete_pdp_context(not_found, S, GtpC1),
     delete_pdp_context(S, GtpC2),
 
-    [?match(#{tunnels := 0}, X) || X <- ergw_api:peer(all)],
     ?equal([], outstanding_requests()),
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    wait4tunnels(?TIMEOUT),
     meck_validate(Config),
     ok.
 

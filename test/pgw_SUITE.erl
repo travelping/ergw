@@ -314,8 +314,7 @@ path_restart(Config) ->
     send_recv_pdu(S, Echo),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
-    ct:sleep(1000),
-    [?match(#{tunnels := 0}, X) || X <- ergw_api:peer(all)],
+    wait4tunnels(?TIMEOUT),
     meck_validate(Config),
     ok.
 
@@ -358,8 +357,7 @@ path_restart_multi(Config) ->
     send_recv_pdu(S, Echo),
 
     ok = meck:wait(5, ?HUT, terminate, '_', ?TIMEOUT),
-    ct:sleep(1000),
-    [?match(#{tunnels := 0}, X) || X <- ergw_api:peer(all)],
+    wait4tunnels(?TIMEOUT),
     meck_validate(Config),
     ok.
 
@@ -390,9 +388,8 @@ duplicate_session_request(Config) ->
     delete_session(not_found, S, GtpC1),
     delete_session(S, GtpC2),
 
-    [?match(#{tunnels := 0}, X) || X <- ergw_api:peer(all)],
-
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    wait4tunnels(?TIMEOUT),
     meck_validate(Config),
     ok.
 
@@ -411,9 +408,8 @@ error_indication(Config) ->
     ct:sleep(100),
     delete_session(not_found, S, GtpC),
 
-    [?match(#{tunnels := 0}, X) || X <- ergw_api:peer(all)],
-
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    wait4tunnels(?TIMEOUT),
     meck_validate(Config),
     ok.
 
