@@ -1,6 +1,15 @@
 erGW - 3GPP GGSN and PDN-GW in Erlang
 =====================================
 
+Version 1.14.0 - 04 Aug 2017
+----------------------------
+
+* properly clean DP context on shutdown
+* catch duplicate context registration
+* remove colliding tunnels when a new context is created
+  (mandated by 3GPP procedures)
+* implement 3GPP TS 23.401, Sect. 5.4.2.2, HSS Initiated Subscribed QoS Modification
+
 Version 1.13.1 - 12 Jul 2017
 ----------------------------
 
