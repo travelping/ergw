@@ -27,7 +27,7 @@
 	 recv_pdu/2, recv_pdu/3, recv_pdu/4]).
 -export([pretty_print/1]).
 -export([set_cfg_value/3, add_cfg_value/3]).
--export([outstanding_requests/0, hexstr2bin/1]).
+-export([outstanding_requests/0, wait4tunnels/1, hexstr2bin/1]).
 
 -include("ergw_test_lib.hrl").
 -include_lib("common_test/include/ct.hrl").
@@ -276,6 +276,18 @@ add_cfg_value([H | T], Value, Config) ->
 
 outstanding_requests() ->
     ets:match_object(gtp_context_reg, {{'_', {'_', '_', '_', '_', '_'}}, '_'}).
+
+wait4tunnels(Cnt) ->
+    case [X || X = #{tunnels := T} <- ergw_api:peer(all), T /= 0] of
+	[] -> ok;
+	Other ->
+	    if Cnt > 100 ->
+		    ct:sleep(100),
+		    wait4tunnels(Cnt - 100);
+	       true ->
+		    ct:fail("timeout, waiting for tunnels to terminate, left over ~p", [Other])
+	    end
+    end.
 
 %%%===================================================================
 %% hexstr2bin from otp/lib/crypto/test/crypto_SUITE.erl
