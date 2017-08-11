@@ -138,6 +138,7 @@ all() ->
      delete_bearer_request_resend,
      unsupported_request,
      interop_sgsn_to_sgw,
+     interop_sgsn_to_sgw_const_tei,
      interop_sgw_to_sgsn,
      create_session_overload].
 
@@ -202,6 +203,7 @@ init_per_testcase(request_fast_resend, Config) ->
     Config;
 init_per_testcase(TestCase, Config)
   when TestCase == interop_sgsn_to_sgw;
+       TestCase == interop_sgsn_to_sgw_const_tei;
        TestCase == interop_sgw_to_sgsn ->
     init_per_testcase(Config),
     ok = meck:new(ggsn_gn, [passthrough, no_link]),
@@ -234,6 +236,7 @@ end_per_testcase(request_fast_resend, Config) ->
     Config;
 end_per_testcase(TestCase, Config)
   when TestCase == interop_sgsn_to_sgw;
+       TestCase == interop_sgsn_to_sgw_const_tei;
        TestCase == interop_sgw_to_sgsn ->
     ok = meck:unload(ggsn_gn),
     Config;
@@ -563,7 +566,8 @@ modify_bearer_request_tei_update(Config) ->
 
     {GtpC1, _, _} = create_session(S),
     {GtpC2, _, _} = modify_bearer(tei_update, S, GtpC1),
-    delete_session(S, GtpC2),
+    {GtpC3, _, _} = modify_bearer(sgw_change, S, GtpC2),
+    delete_session(S, GtpC3),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
@@ -844,6 +848,21 @@ interop_sgsn_to_sgw(Config) ->
 
     match_exo_value([path, irx, ?CLIENT_IP, contexts, v1], 0),
     match_exo_value([path, irx, ?CLIENT_IP, contexts, v2], 0),
+    ok.
+
+%%--------------------------------------------------------------------
+interop_sgsn_to_sgw_const_tei() ->
+    [{doc, "Check 3GPP T 23.401, Annex D, SGSN to SGW handover without changing SGW IP or TEI"}].
+interop_sgsn_to_sgw_const_tei(Config) ->
+    S = make_gtp_socket(Config),
+
+    {GtpC1, _, _} = ergw_ggsn_test_lib:create_pdp_context(S),
+    {GtpC2, _, _} = modify_bearer(sgw_change, S, GtpC1),
+    delete_session(S, GtpC2),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    meck_validate(Config),
+    true = meck:validate(ggsn_gn),
     ok.
 
 %%--------------------------------------------------------------------

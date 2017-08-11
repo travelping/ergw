@@ -216,14 +216,19 @@ handle_request(_ReqKey,
 	     end,
 
     ResponseIEs0 =
-	case is_sgw_change(OldContext, Context) of
-	    true ->
+	if FqCntlTEID /= undefined ->
+		%% take the presens of the FQ-TEID element as SGW change indication
+		%%
+		%% 3GPP TS 29.274, Sect. 7.2.7 Modify Bearer Request says that we should
+		%% consider the content as well, but in practice that is not stable enough
+		%% in the presense of middle boxes between the SGW and the PGW
+		%%
 		[EBI,				%% Linked EPS Bearer ID
 		 #v2_apn_restriction{restriction_type_value = 0} |
 		 [#v2_msisdn{msisdn = Context#context.msisdn} || Context#context.msisdn /= undefined]];
-	    _ ->
+	   true ->
 		[]
-    end,
+	end,
 
     ResponseIEs = [#v2_cause{v2_cause = request_accepted},
 		    #v2_bearer_context{
@@ -789,12 +794,6 @@ pdn_pco(SessionOpts, #{?'Protocol Configuration Options' :=
     end;
 pdn_pco(_SessionOpts, _RequestIEs, IE) ->
     IE.
-
-is_sgw_change(#context{remote_control_ip  = RemoteCntlIP, remote_control_tei = RemoteCntlTEI},
-	      #context{remote_control_ip  = RemoteCntlIP, remote_control_tei = RemoteCntlTEI}) ->
-    false;
-is_sgw_change(_, _) ->
-    true.
 
 bearer_context(EBI, Context, IEs) ->
     IE = #v2_bearer_context{
