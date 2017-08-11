@@ -44,6 +44,9 @@ modify_bearer(SubType, Socket, GtpC0)
   when SubType == tei_update ->
     GtpC = gtp_context_new_teids(GtpC0),
     execute_request(modify_bearer_request, SubType, Socket, GtpC);
+modify_bearer(SubType, Socket, GtpC)
+  when SubType == sgw_change ->
+    execute_request(modify_bearer_request, SubType, Socket, GtpC);
 modify_bearer(SubType, Socket, GtpC) ->
     execute_request(modify_bearer_request, SubType, Socket, GtpC).
 
@@ -164,12 +167,12 @@ make_request(create_session_request, SubType,
     #gtp{version = v2, type = create_session_request, tei = 0,
 	 seq_no = SeqNo, ie = IEs};
 
-make_request(modify_bearer_request, tei_update,
+make_request(modify_bearer_request, SubType,
 	     #gtpc{restart_counter = RCnt, seq_no = SeqNo,
 		   local_control_tei = LocalCntlTEI,
 		   local_data_tei = LocalDataTEI,
-		   remote_control_tei = RemoteCntlTEI}) ->
-
+		   remote_control_tei = RemoteCntlTEI})
+  when SubType == tei_update; SubType == sgw_change ->
     IEs = [#v2_recovery{restart_counter = RCnt},
 	   #v2_bearer_context{
 	      group = [#v2_eps_bearer_id{eps_bearer_id = 5},
@@ -482,12 +485,16 @@ validate_response(create_session_request, _SubType, Response,
 	  remote_data_tei = RemoteDataTEI
      };
 
-validate_response(modify_bearer_request, tei_update, Response,
-		  #gtpc{local_control_tei = LocalCntlTEI} = GtpC) ->
+validate_response(modify_bearer_request, SubType, Response,
+		  #gtpc{local_control_tei = LocalCntlTEI} = GtpC)
+  when SubType == tei_update; SubType == sgw_change ->
     ?match(
        #gtp{type = modify_bearer_response,
 	    tei = LocalCntlTEI,
 	    ie = #{{v2_cause,0} := #v2_cause{v2_cause = request_accepted},
+		   {v2_apn_restriction,0} := _,
+		   {v2_msisdn,0} := _,
+		   {v2_eps_bearer_id, 0} := _,
 		   {v2_bearer_context,0} :=
 		       #v2_bearer_context{
 			  group = #{
