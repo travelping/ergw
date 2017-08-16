@@ -4,8 +4,8 @@ info:
   version: "1.0.0"
   description: "erGW API to interact with erGW"
   license:
-    name: "GPL 2.0"
-    url: "https://www.gnu.org/licenses/#GPL"
+    name: "LGPL 3.0+"
+    url: "https://www.gnu.org/licenses/#LGPL"
 basePath: /api/v1
 paths:
   /version:
