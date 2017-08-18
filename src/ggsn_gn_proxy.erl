@@ -244,15 +244,15 @@ handle_request(ReqKey,
     lager:debug("Invoking CONTROL: ~p", [Session1]),
     %% ergw_control:authenticate(Session1),
 
-    #proxy_info{restrictions = Restrictions} =
 	ProxyInfo = handle_proxy_info(Request, ContextPreProxy, State),
+    #proxy_ggsn{restrictions = Restrictions} = ProxyGGSN = gtp_proxy_ds:lb(ProxyInfo),
 
     Context = ContextPreProxy#context{restrictions = Restrictions},
     gtp_context:enforce_restrictions(Request, Context),
 
-    {ProxyGtpPort, ProxyGtpDP} = get_proxy_sockets(ProxyInfo, State),
+    {ProxyGtpPort, ProxyGtpDP} = get_proxy_sockets(ProxyGGSN, State),
 
-    ProxyContext0 = init_proxy_context(ProxyGtpPort, ProxyGtpDP, Context, ProxyInfo),
+    ProxyContext0 = init_proxy_context(ProxyGtpPort, ProxyGtpDP, Context, ProxyInfo, ProxyGGSN),
     ProxyContext = gtp_path:bind(ProxyContext0),
 
     StateNew = State#{context => Context, proxy_context => ProxyContext},
@@ -478,7 +478,8 @@ copy_to_session(_K, _V, Session) ->
 init_proxy_context(CntlPort, DataPort,
 		   #context{imei = IMEI, version = Version,
 			    control_interface = Interface, state = State},
-		   #proxy_info{ggsn = GGSN, apn = APN, imsi = IMSI, msisdn = MSISDN}) ->
+		   #proxy_info{imsi = IMSI, msisdn = MSISDN},
+           #proxy_ggsn{address = GGSN, apn = APN}) ->
 
     {ok, CntlTEI} = gtp_context_reg:alloc_tei(CntlPort),
     {ok, DataTEI} = gtp_context_reg:alloc_tei(DataPort),
@@ -556,8 +557,10 @@ update_gtp_req_from_context(Context, GtpReqIEs) ->
 proxy_info(DefaultGGSN,
 	   #context{apn = APN, imsi = IMSI, msisdn = MSISDN,
 		    restrictions = Restrictions}) ->
-    #proxy_info{ggsn = DefaultGGSN, apn = APN, imsi = IMSI,
-		msisdn = MSISDN, restrictions = Restrictions}.
+    GGSNs = [#proxy_ggsn{address = DefaultGGSN, 
+                         apn = APN,
+		                 restrictions = Restrictions}],
+    #proxy_info{ggsns = GGSNs, imsi = IMSI, msisdn = MSISDN}.
 
 build_context_request(#context{remote_control_tei = TEI} = Context,
 		      NewPeer, #gtp{ie = RequestIEs} = Request) ->
@@ -618,7 +621,7 @@ dp_delete_pdp_context(GrxContext, FwdContext) ->
     Args = proxy_dp_args(FwdContext),
     gtp_dp:delete_pdp_context(GrxContext, Args).
 
-get_proxy_sockets(#proxy_info{context = Context},
+get_proxy_sockets(#proxy_ggsn{context = Context},
 	       #{contexts := Contexts, proxy_ports := ProxyPorts, proxy_dps := ProxyDPs}) ->
     {Cntl, Data} =
 	case maps:get(Context, Contexts, undefined) of

@@ -10,7 +10,7 @@
 -behaviour(gen_server).
 
 %% API
--export([start_link/0, map/1]).
+-export([start_link/0, map/1, lb/1]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -33,6 +33,10 @@ start_link() ->
 map(ProxyInfo) ->
     gen_server:call(?SERVER, {map, ProxyInfo}).
 
+lb(ProxyInfo) ->
+    LBType = application:get_env(?App, proxy_lb_type, first),
+    lb(ProxyInfo, LBType).
+
 %%%===================================================================
 %%% gen_server callbacks
 %%%===================================================================
@@ -41,19 +45,22 @@ init([]) ->
     State = load_config(),
     {ok, State}.
 
-handle_call({map, #proxy_info{apn = APN, imsi = IMSI} = ProxyInfo0},
+handle_call({map, #proxy_info{ggsns = GGSNs0, imsi = IMSI} = ProxyInfo0},
 	    _From, #state{apn = APNMap, imsi = IMSIMap} = State) ->
-    ProxyInfo1 = ProxyInfo0#proxy_info{apn = proplists:get_value(APN, APNMap, APN)},
+    GGSNs = [GGSN#proxy_ggsn{apn = proplists:get_value(APN, APNMap, APN)}
+             || #proxy_ggsn{apn = APN} = GGSN <- GGSNs0],
     ProxyInfo =
-	case proplists:get_value(IMSI, IMSIMap, IMSI) of
-	    {MappedIMSI, MappedMSISDN} ->
-		ProxyInfo1#proxy_info{
-		  imsi = MappedIMSI,
-		  msisdn = MappedMSISDN};
-	     MappedIMSI ->
-		ProxyInfo1#proxy_info{
-		  imsi = MappedIMSI}
-	end,
+        case proplists:get_value(IMSI, IMSIMap, IMSI) of
+            {MappedIMSI, MappedMSISDN} ->
+            ProxyInfo0#proxy_info{
+              ggsns = GGSNs,
+              imsi = MappedIMSI,
+              msisdn = MappedMSISDN};
+             MappedIMSI ->
+            ProxyInfo0#proxy_info{
+              ggsns = GGSNs,
+              imsi = MappedIMSI}
+        end,
     {reply, {ok, ProxyInfo}, State}.
 
 handle_cast(_Msg, State) ->
@@ -71,6 +78,13 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
+
+lb(#proxy_info{ggsns = [GGSN | _]}, first) -> GGSN;
+lb(#proxy_info{ggsns = [GGSN]}, random) -> GGSN;
+lb(#proxy_info{ggsns = GGSNs}, random) when is_list(GGSNs) ->
+    Index = rand:uniform(length(GGSNs)),
+	lists:nth(Index, GGSNs);
+lb(#proxy_info{ggsns = [GGSN | _]}, _) -> GGSN.
 
 load_config() ->
     ProxyMap = application:get_env(?App, proxy_map, []),
