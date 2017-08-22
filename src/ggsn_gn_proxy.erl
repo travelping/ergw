@@ -479,7 +479,7 @@ init_proxy_context(CntlPort, DataPort,
 		   #context{imei = IMEI, version = Version,
 			    control_interface = Interface, state = State},
 		   #proxy_info{imsi = IMSI, msisdn = MSISDN},
-           #proxy_ggsn{address = GGSN, apn = APN}) ->
+           #proxy_ggsn{address = GGSN, dst_apn = APN}) ->
 
     {ok, CntlTEI} = gtp_context_reg:alloc_tei(CntlPort),
     {ok, DataTEI} = gtp_context_reg:alloc_tei(DataPort),
@@ -558,9 +558,9 @@ proxy_info(DefaultGGSN,
 	   #context{apn = APN, imsi = IMSI, msisdn = MSISDN,
 		    restrictions = Restrictions}) ->
     GGSNs = [#proxy_ggsn{address = DefaultGGSN, 
-                         apn = APN,
+                         dst_apn = APN,
 		                 restrictions = Restrictions}],
-    #proxy_info{ggsns = GGSNs, imsi = IMSI, msisdn = MSISDN}.
+    #proxy_info{ggsns = GGSNs, imsi = IMSI, msisdn = MSISDN, src_apn = APN}.
 
 build_context_request(#context{remote_control_tei = TEI} = Context,
 		      NewPeer, #gtp{ie = RequestIEs} = Request) ->

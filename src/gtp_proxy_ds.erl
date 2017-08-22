@@ -45,10 +45,10 @@ init([]) ->
     State = load_config(),
     {ok, State}.
 
-handle_call({map, #proxy_info{ggsns = GGSNs0, imsi = IMSI} = ProxyInfo0},
+handle_call({map, #proxy_info{ggsns = GGSNs0, imsi = IMSI, src_apn = APN} = ProxyInfo0},
 	    _From, #state{apn = APNMap, imsi = IMSIMap} = State) ->
-    GGSNs = [GGSN#proxy_ggsn{apn = proplists:get_value(APN, APNMap, APN)}
-             || #proxy_ggsn{apn = APN} = GGSN <- GGSNs0],
+    GGSNs = [GGSN#proxy_ggsn{dst_apn = proplists:get_value(APN, APNMap, APN)}
+             || GGSN <- GGSNs0],
     ProxyInfo =
         case proplists:get_value(IMSI, IMSIMap, IMSI) of
             {MappedIMSI, MappedMSISDN} ->
