@@ -694,7 +694,7 @@ proxy_context_version_restricted(Config) ->
     ok = meck:new(gtp_proxy_ds, [passthrough]),
     meck:expect(gtp_proxy_ds, map,
 		fun(ProxyInfo) ->
-			{ok, ProxyInfo#proxy_info{restrictions = [{v1, false}]}}
+			{ok, ProxyInfo#proxy_info{ggsns = [#proxy_ggsn{restrictions = [{v1, false}]}]}}
 		end),
 
     S = make_gtp_socket(Config),
@@ -962,8 +962,8 @@ cache_timeout(Config) ->
 
 proxy_context_selection_map(ProxyInfo, Context) ->
     case meck:passthrough([ProxyInfo]) of
-	{ok, #proxy_info{} = P} ->
-	    {ok, P#proxy_info{context = Context}};
+	{ok, #proxy_info{ggsns = GGSNs} = P} ->
+		{ok, P#proxy_info{ggsns = [GGSN#proxy_ggsn{context = Context} || GGSN <- GGSNs]}};
 	Other ->
 	    Other
     end.
