@@ -412,17 +412,19 @@ exo_reg_rtt(Name, IP, Version, MsgType) ->
     exometer:re_register([path, Name, IP, rtt, Version, MsgType],
 			 histogram, exo_hist_opts(MsgType)).
 
-exo_update_path_counter(PathCounter, #state{gtp_port = #gtp_port{name = Name}, ip = IP}) ->
-    exometer:update_or_create([path, Name, IP, contexts], PathCounter, gauge, ?EXO_CONTEXTS_OPTS).
+exo_update_path_counter(PathCounter, #state{gtp_port = #gtp_port{name = Name},
+					    version = Version, ip = IP}) ->
+    exometer:update_or_create([path, Name, IP, contexts, Version],
+			      PathCounter, gauge, ?EXO_CONTEXTS_OPTS).
 
-exometer_new(#state{gtp_port = #gtp_port{name = Name}, ip = IP}) ->
-    exometer:re_register([path, Name, IP, contexts], gauge, ?EXO_CONTEXTS_OPTS),
+exometer_new(#state{gtp_port = #gtp_port{name = Name}, version = Version, ip = IP}) ->
+    exometer:re_register([path, Name, IP, contexts, Version], gauge, ?EXO_CONTEXTS_OPTS),
     foreach_request(gtp_v1_c, exo_reg_rtt(Name, IP, v1, _)),
     foreach_request(gtp_v2_c, exo_reg_rtt(Name, IP, v2, _)),
     ok.
 
-exometer_delete(#state{gtp_port = #gtp_port{name = Name}, ip = IP}) ->
-    exometer:delete([path, Name, IP, contexts]),
+exometer_delete(#state{gtp_port = #gtp_port{name = Name}, version = Version,ip = IP}) ->
+    exometer:delete([path, Name, IP, contexts, Version]),
     foreach_request(gtp_v1_c, exometer:delete([path, Name, IP, rtt, v1, _])),
     foreach_request(gtp_v2_c, exometer:delete([path, Name, IP, rtt, v2, _])),
     ok;
