@@ -14,7 +14,8 @@
 -export([register_new/1, register/1, update/2, unregister/1,
 	 register/3, unregister/2,
 	 lookup_key/2, lookup_keys/2,
-	 lookup_teid/2, lookup_teid/3, lookup_teid/4]).
+	 lookup_teid/2, lookup_teid/3, lookup_teid/4,
+	 await_unreg/1]).
 -export([all/0]).
 -export([alloc_tei/1]).
 
@@ -27,6 +28,7 @@
 -include("include/ergw.hrl").
 
 -define(SERVER, ?MODULE).
+-record(state, {pids, await_unreg}).
 
 %%%===================================================================
 %%% API
@@ -88,6 +90,9 @@ unregister(#gtp_port{name = Name}, Key) ->
 all() ->
     ets:tab2list(?SERVER).
 
+await_unreg(Key) ->
+    gen_server:call(?SERVER, {await_unreg, Key}, 1000).
+
 %%====================================================================
 %% TEI registry
 %%====================================================================
@@ -120,7 +125,11 @@ init([]) ->
     process_flag(trap_exit, true),
 
     ets:new(?SERVER, [ordered_set, named_table, public, {keypos, 1}]),
-    {ok, #{}}.
+    State = #state{
+	       pids = #{},
+	       await_unreg = #{}
+	      },
+    {ok, State}.
 
 handle_call({register, Context}, {Pid, _Ref}, State) ->
     Keys = context2keys(Context),
@@ -141,8 +150,8 @@ handle_call({update, OldContext, NewContext}, {Pid, _Ref}, State) ->
     case ets:insert_new(?SERVER, [{Key, Pid} || Key <- Insert]) of
 	true ->
 	    lists:foreach(fun(Key) -> delete_key(Key, Pid) end, Delete),
-	    NKeys = ordsets:union(ordsets:subtract(maps:get(Pid, State), Delete), Insert),
-	    {reply, ok, State#{Pid => NKeys}};
+	    NKeys = ordsets:union(ordsets:subtract(get_pid(Pid, State), Delete), Insert),
+	    {reply, ok, update_pid(Pid, NKeys, State)};
 	false ->
 	    {reply, {error, duplicate}, State}
     end;
@@ -154,13 +163,25 @@ handle_call({unregister, #context{} = Context}, {Pid, _Ref}, State0) ->
 
 handle_call({unregister, Key}, {Pid, _Ref}, State0) ->
     State = delete_keys([Key], Pid, State0),
-    {reply, ok, State}.
+    {reply, ok, State};
+
+handle_call({await_unreg, Pid}, From, #state{pids = Pids, await_unreg = AWait} = State0)
+  when is_pid(Pid) ->
+    case maps:is_key(Pid, Pids) of
+	true ->
+	    State = State0#state{
+		      await_unreg =
+			  maps:update_with(Pid, fun(V) -> [From|V] end, [From], AWait)},
+	    {noreply, State};
+	_ ->
+	    {reply, ok, State0}
+    end.
 
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
 handle_info({'EXIT', Pid, _Reason}, State0) ->
-    Keys = maps:get(Pid, State0, []),
+    Keys = get_pid(Pid, State0),
     State = delete_keys(Keys, Pid, State0),
     {noreply, State}.
 
@@ -174,24 +195,38 @@ code_change(_OldVsn, State, _Extra) ->
 %%% Internal functions
 %%%===================================================================
 
+get_pid(Pid, #state{pids = Pids}) ->
+    maps:get(Pid, Pids, []).
+
+update_pid(Pid, Keys, #state{pids = Pids} = State) ->
+    State#state{pids = Pids#{Pid => Keys}}.
+
+delete_pid(Pid, #state{pids = Pids} = State) ->
+    notify_unregister(Pid, State#state{pids = maps:remove(Pid, Pids)}).
+
+notify_unregister(Pid, #state{await_unreg = AWait} = State) ->
+    Reply = maps:get(Pid, AWait, []),
+    lists:foreach(fun(From) -> gen_server:reply(From, ok) end, Reply),
+    State#state{await_unreg = maps:remove(Pid, AWait)}.
+
 handle_add_keys(Fun, Keys, Pid, State) ->
     case Fun(?SERVER, [{Key, Pid} || Key <- Keys]) of
 	true ->
 	    link(Pid),
-	    NKeys = ordsets:union(Keys, maps:get(Pid, State, [])),
-	    {reply, ok, State#{Pid => NKeys}};
+	    NKeys = ordsets:union(Keys, get_pid(Pid, State)),
+	    {reply, ok, update_pid(Pid, NKeys, State)};
 	_ ->
 	    {reply, {error, duplicate}, State}
     end.
 
 delete_keys(Keys, Pid, State) ->
     lists:foreach(fun(Key) -> delete_key(Key, Pid) end, Keys),
-    case ordsets:subtract(maps:get(Pid, State, []), Keys) of
+    case ordsets:subtract(get_pid(Pid, State), Keys) of
 	[] ->
 	    unlink(Pid),
-	    maps:remove(Pid, State);
+	    delete_pid(Pid, State);
 	Rest ->
-	    State#{Pid => Rest}
+	    update_pid(Pid, Rest, State)
     end.
 
 %% this is not the same a ets:take, the object will only

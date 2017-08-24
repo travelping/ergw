@@ -167,13 +167,15 @@ terminate_colliding_context(#context{control_port = GtpPort, imsi = IMSI})
 terminate_colliding_context(_) ->
     ok.
 
-terminate_context(Context) ->
+terminate_context(Context)
+  when is_pid(Context) ->
     try
 	gen_server:call(Context, terminate_context)
     catch
 	exit:_ ->
 	    ok
-    end.
+    end,
+    gtp_context_reg:await_unreg(Context).
 
 info(Context) ->
     gen_server:call(Context, info).
