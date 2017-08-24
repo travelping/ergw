@@ -114,6 +114,7 @@ all() ->
      path_restart, path_restart_recovery, path_restart_multi,
      simple_session_request,
      duplicate_session_request,
+     duplicate_session_slow,
      error_indication,
      ipv6_bearer_request,
      ipv4v6_bearer_request,
@@ -159,6 +160,19 @@ init_per_testcase(create_session_request_aaa_reject, Config) ->
 init_per_testcase(path_restart, Config) ->
     init_per_testcase(Config),
     ok = meck:new(gtp_path, [passthrough, no_link]),
+    Config;
+init_per_testcase(duplicate_session_slow, Config) ->
+    init_per_testcase(Config),
+    ok = meck:expect(?HUT, handle_call,
+		     fun(terminate_context, From, StateIn) ->
+			     {stop, normal, Reply, StateOut} =
+				 meck:passthrough([terminate_context, From, StateIn]),
+			     gen_server:reply(From, Reply),
+			     ct:sleep(500),
+			     {stop,normal,StateOut};
+			(Request, From, State) ->
+			     meck:passthrough([Request, From, State])
+		     end),
     Config;
 init_per_testcase(TestCase, Config)
   when TestCase == delete_bearer_request_resend;
@@ -206,6 +220,9 @@ end_per_testcase(create_session_request_aaa_reject, Config) ->
     Config;
 end_per_testcase(path_restart, Config) ->
     meck:unload(gtp_path),
+    Config;
+end_per_testcase(duplicate_session_slow, Config) ->
+    ok = meck:delete(?HUT, handle_call, 3),
     Config;
 end_per_testcase(TestCase, Config)
   when TestCase == delete_bearer_request_resend;
@@ -378,6 +395,26 @@ simple_session_request(Config) ->
 duplicate_session_request() ->
     [{doc, "Check the a new incomming request for the same IMSI terminates the first"}].
 duplicate_session_request(Config) ->
+    S = make_gtp_socket(Config),
+
+    {GtpC1, _, _} = create_session(S),
+
+    %% create 2nd session with the same IMSI
+    {GtpC2, _, _} = create_session(S, GtpC1),
+
+    delete_session(not_found, S, GtpC1),
+    delete_session(S, GtpC2),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    wait4tunnels(?TIMEOUT),
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+duplicate_session_slow() ->
+    [{doc, "Check the a new incomming request for the same IMSI terminates the first "
+           "and deals with a slow shutdown of the first one correctly"}].
+duplicate_session_slow(Config) ->
     S = make_gtp_socket(Config),
 
     {GtpC1, _, _} = create_session(S),
