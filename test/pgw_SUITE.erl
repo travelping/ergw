@@ -795,12 +795,18 @@ interop_sgsn_to_sgw(Config) ->
     S = make_gtp_socket(Config),
 
     {GtpC1, _, _} = ergw_ggsn_test_lib:create_pdp_context(S),
+    match_exo_value([path, irx, ?CLIENT_IP, contexts, v1], 1),
     {GtpC2, _, _} = modify_bearer(tei_update, S, GtpC1),
+    match_exo_value([path, irx, ?CLIENT_IP, contexts, v1], 0),
+    match_exo_value([path, irx, ?CLIENT_IP, contexts, v2], 1),
     delete_session(S, GtpC2),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
     true = meck:validate(ggsn_gn),
+
+    match_exo_value([path, irx, ?CLIENT_IP, contexts, v1], 0),
+    match_exo_value([path, irx, ?CLIENT_IP, contexts, v2], 0),
     ok.
 
 %%--------------------------------------------------------------------
@@ -810,12 +816,18 @@ interop_sgw_to_sgsn(Config) ->
     S = make_gtp_socket(Config),
 
     {GtpC1, _, _} = create_session(S),
+    match_exo_value([path, irx, ?CLIENT_IP, contexts, v2], 1),
     {GtpC2, _, _} = ergw_ggsn_test_lib:update_pdp_context(tei_update, S, GtpC1),
+    match_exo_value([path, irx, ?CLIENT_IP, contexts, v1], 1),
+    match_exo_value([path, irx, ?CLIENT_IP, contexts, v2], 0),
     ergw_ggsn_test_lib:delete_pdp_context(S, GtpC2),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
     true = meck:validate(ggsn_gn),
+
+    match_exo_value([path, irx, ?CLIENT_IP, contexts, v1], 0),
+    match_exo_value([path, irx, ?CLIENT_IP, contexts, v2], 0),
     ok.
 
 %%--------------------------------------------------------------------
@@ -832,3 +844,7 @@ create_session_overload(Config) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
+
+match_exo_value(Path, Expect) ->
+    {ok, Value} = exometer:get_value(Path),
+    ?equal(Expect, proplists:get_value(value, Value)).

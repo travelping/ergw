@@ -328,6 +328,7 @@ init_per_testcase(TestCase, Config)
        TestCase == interop_sgw_to_sgsn ->
     init_per_testcase(Config),
     ok = meck:new(ggsn_gn_proxy, [passthrough, no_link]),
+    [exometer:delete(Metric) || {Metric,_,_} <- exometer:find_entries([path, '_', '_', contexts])],
     Config;
 init_per_testcase(update_bearer_request, Config) ->
     %% our PGW does not send update_bearer_request, so we have to fake them
@@ -1006,13 +1007,21 @@ interop_sgsn_to_sgw(Config) ->
     S = make_gtp_socket(Config),
 
     {GtpC1, _, _} = ergw_ggsn_test_lib:create_pdp_context(S),
+    check_exo_contexts(v1, 3, 1),
+    check_exo_contexts(v2, 0, 0),
     {GtpC2, _, _} = modify_bearer(tei_update, S, GtpC1),
     ?equal([], outstanding_requests()),
+    check_exo_contexts(v1, 3, 0),
+    check_exo_contexts(v2, 3, 1),
     delete_session(S, GtpC2),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
     true = meck:validate(ggsn_gn_proxy),
+
+    ct:sleep(100),
+    check_exo_contexts(v1, 3, 0),
+    check_exo_contexts(v2, 3, 0),
     ok.
 
 %%--------------------------------------------------------------------
@@ -1022,13 +1031,21 @@ interop_sgw_to_sgsn(Config) ->
     S = make_gtp_socket(Config),
 
     {GtpC1, _, _} = create_session(S),
+    check_exo_contexts(v1, 0, 0),
+    check_exo_contexts(v2, 3, 1),
     {GtpC2, _, _} = ergw_ggsn_test_lib:update_pdp_context(tei_update, S, GtpC1),
+    check_exo_contexts(v1, 3, 1),
+    check_exo_contexts(v2, 3, 0),
     ergw_ggsn_test_lib:delete_pdp_context(S, GtpC2),
 
     ?equal([], outstanding_requests()),
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
     true = meck:validate(ggsn_gn_proxy),
+
+    ct:sleep(100),
+    check_exo_contexts(v1, 3, 0),
+    check_exo_contexts(v2, 3, 0),
     ok.
 
 %%--------------------------------------------------------------------
@@ -1091,3 +1108,9 @@ proxy_context_selection_map(ProxyInfo, Context) ->
 	Other ->
 	    Other
     end.
+
+check_exo_contexts(Version, Cnt, Expect) ->
+    Metrics = exometer:get_values([path, '_', '_', contexts, Version]),
+    ?equal(Cnt, length(Metrics)),
+    [?equal({Path, Expect}, {Path, proplists:get_value(value, Value)}) ||
+	{Path, Value} <- Metrics].

@@ -266,9 +266,8 @@ handle_request(ReqKey,
     gtp_context:enforce_restrictions(Request, Context1),
     gtp_context:remote_context_update(OldContext, Context1),
 
-    Context = apply_context_change(Context1, OldContext),
-
-    ProxyContext = gtp_path:bind(OldProxyContext),
+    Context = update_path_bind(Context1, OldContext),
+    ProxyContext = update_path_bind(OldProxyContext#context{version = v2}, OldProxyContext),
 
     StateNew = State#{context => Context, proxy_context => ProxyContext},
     forward_request(sgw2pgw, ReqKey, Request, StateNew),
@@ -405,9 +404,8 @@ handle_response(#proxy_request{direction = sgw2pgw} = ProxyRequest,
 		  proxy_context := OldProxyContext} = State) ->
     lager:warning("OK Proxy Response ~p", [lager:pr(Response, ?MODULE)]),
 
-    ProxyContext0 = update_context_from_gtp_req(Response, OldProxyContext),
-    gtp_context:remote_context_update(OldProxyContext, ProxyContext0),
-    ProxyContext = apply_context_change(ProxyContext0, OldProxyContext),
+    ProxyContext = update_context_from_gtp_req(Response, OldProxyContext),
+    gtp_context:remote_context_update(OldProxyContext, ProxyContext),
 
     forward_response(ProxyRequest, Response, Context),
     dp_update_pdp_context(Context, ProxyContext),
@@ -526,12 +524,12 @@ handle_proxy_info(#gtp{ie = #{?'Recovery' := Recovery}},
 			   context = Context})
     end.
 
-apply_context_change(NewContext0, OldContext)
+update_path_bind(NewContext0, OldContext)
   when NewContext0 /= OldContext ->
     NewContext = gtp_path:bind(NewContext0),
     gtp_path:unbind(OldContext),
     NewContext;
-apply_context_change(NewContext, _OldContext) ->
+update_path_bind(NewContext, _OldContext) ->
     NewContext.
 
 init_proxy_context(CntlPort, DataPort,
