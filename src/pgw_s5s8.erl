@@ -517,6 +517,12 @@ init_session(IEs,
       '3GPP-GGSN-Address'	=> LocalIP
      }.
 
+copy_optional_binary_ie('3GPP-SGSN-Address' = Key, IP, Session) 
+  when IP /= undefined ->
+    Session#{Key => gtp_c_lib:bin2ip(IP)};
+copy_optional_binary_ie('3GPP-SGSN-IPv6-Address' = Key, IP, Session) 
+  when IP /= undefined ->
+    Session#{Key => gtp_c_lib:bin2ip(IP)};
 copy_optional_binary_ie(Key, Value, Session) when is_binary(Value) ->
     Session#{Key => Value};
 copy_optional_binary_ie(_Key, _Value, Session) ->
