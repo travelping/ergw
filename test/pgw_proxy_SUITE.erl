@@ -490,16 +490,23 @@ simple_session() ->
 simple_session(Config) ->
     S = make_gtp_socket(Config),
 
-    {GtpC, _, _} = create_session(S),
-    delete_session(S, GtpC),
+    init_seq_no(?MODULE, 16#80000),
+    GtpC0 = gtp_context(?MODULE),
+
+    {GtpC1, _, _} = create_session(S, GtpC0),
+    delete_session(S, GtpC1),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
 
     GtpRecMatch0 = list_to_tuple([gtp | lists:duplicate(record_info(size, gtp) - 1, '_')]),
     GtpRecMatch = GtpRecMatch0#gtp{type = create_session_request},
+
+    P = meck:capture(first, ?HUT, handle_request, ['_', GtpRecMatch, '_', '_'], 2),
+    ?match(#gtp{seq_no = SeqNo} when SeqNo >= 16#80000, P),
+
     V = meck:capture(first, pgw_s5s8, handle_request, ['_', GtpRecMatch, '_', '_'], 2),
-    ct:pal("V: ~p", [ergw_test_lib:pretty_print(V)]),
+    %% ct:pal("V: ~s", [ergw_test_lib:pretty_print(V)]),
     ?match(
        #gtp{ie = #{
 	      {v2_access_point_name, 0} := #v2_access_point_name{apn = ?'APN-PROXY'},
@@ -507,6 +514,7 @@ simple_session(Config) ->
 		   #v2_international_mobile_subscriber_identity{imsi = ?'PROXY-IMSI'},
 	      {v2_msisdn, 0} := #v2_msisdn{msisdn = ?'PROXY-MSISDN'}
 	     }}, V),
+    ?match(#gtp{seq_no = SeqNo} when SeqNo < 16#80000, V),
 
     ?equal([], outstanding_requests()),
     ok.

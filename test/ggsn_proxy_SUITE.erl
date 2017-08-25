@@ -434,16 +434,23 @@ simple_pdp_context_request() ->
 simple_pdp_context_request(Config) ->
     S = make_gtp_socket(Config),
 
-    {GtpC, _, _} = create_pdp_context(S),
-    delete_pdp_context(S, GtpC),
+    init_seq_no(?MODULE, 16#8000),
+    GtpC0 = gtp_context(?MODULE),
+
+    {GtpC1, _, _} = create_pdp_context(S, GtpC0),
+    delete_pdp_context(S, GtpC1),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
 
     GtpRecMatch0 = list_to_tuple([gtp | lists:duplicate(record_info(size, gtp) - 1, '_')]),
     GtpRecMatch = GtpRecMatch0#gtp{type = create_pdp_context_request},
+
+    P = meck:capture(first, ?HUT, handle_request, ['_', GtpRecMatch, '_', '_'], 2),
+    ?match(#gtp{seq_no = SeqNo} when SeqNo >= 16#8000, P),
+
     V = meck:capture(first, ggsn_gn, handle_request, ['_', GtpRecMatch, '_', '_'], 2),
-    ct:pal("V: ~p", [ergw_test_lib:pretty_print(V)]),
+    %% ct:pal("V: ~s", [ergw_test_lib:pretty_print(V)]),
     ?match(
        #gtp{ie = #{
 	      {access_point_name, 0} :=
@@ -453,6 +460,7 @@ simple_pdp_context_request(Config) ->
 	      {ms_international_pstn_isdn_number, 0} :=
 		  #ms_international_pstn_isdn_number{
 		     msisdn = {isdn_address,1,1,1, ?'PROXY-MSISDN'}}}}, V),
+    ?match(#gtp{seq_no = SeqNo} when SeqNo < 16#8000, V),
 
     ?equal([], outstanding_requests()),
     ok.

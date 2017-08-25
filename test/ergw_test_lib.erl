@@ -16,7 +16,8 @@
 	 meck_reset/1,
 	 meck_unload/1,
 	 meck_validate/1]).
--export([gtp_context/0,
+-export([init_seq_no/2,
+	 gtp_context/0, gtp_context/1,
 	 gtp_context_inc_seq/1,
 	 gtp_context_inc_restart_counter/1,
 	 gtp_context_new_teids/1,
@@ -51,7 +52,7 @@ ets_owner() ->
 init_ets(Config) ->
     Pid = spawn(fun ets_owner/0),
     TabId = ets:new(?MODULE, [set, public, named_table, {heir, Pid, []}]),
-    ets:insert(TabId, [{seq_no, 1},
+    ets:insert(TabId, [{{?MODULE, seq_no}, 1},
 		       {restart_counter, 1},
 		       {teid, 1}]),
     [{table, TabId}, {table_owner, Pid} | Config].
@@ -141,18 +142,25 @@ meck_validate(Config) ->
 %%% GTP entity and context function
 %%%===================================================================
 
+init_seq_no(Counter, SeqNo) ->
+    ets:insert(?MODULE, {{Counter, seq_no}, SeqNo}).
+
 gtp_context() ->
+    gtp_context(?MODULE).
+
+gtp_context(Counter) ->
     GtpC = #gtpc{
+	      counter = Counter,
 	      restart_counter =
 		  ets:update_counter(?MODULE, restart_counter, 1) rem 256,
 	      seq_no =
-		  ets:update_counter(?MODULE, seq_no, 1) rem 16#800000
+		  ets:update_counter(?MODULE, {Counter, seq_no}, 1) rem 16#800000
 	     },
     gtp_context_new_teids(GtpC).
 
-gtp_context_inc_seq(GtpC) ->
+gtp_context_inc_seq(#gtpc{counter = Counter} = GtpC) ->
     GtpC#gtpc{seq_no =
-		  ets:update_counter(?MODULE, seq_no, 1) rem 16#800000}.
+		  ets:update_counter(?MODULE, {Counter, seq_no}, 1) rem 16#800000}.
 
 gtp_context_inc_restart_counter(GtpC) ->
     GtpC#gtpc{restart_counter =

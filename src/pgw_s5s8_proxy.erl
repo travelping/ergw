@@ -275,20 +275,22 @@ handle_request(ReqKey,
     {noreply, StateNew};
 
 handle_request(ReqKey,
-	       #gtp{type = modify_bearer_command} = Request,
+	       #gtp{type = modify_bearer_command, seq_no = SeqNo} = Request,
 	       _Resent,
 	       #{context := Context0,
-		 proxy_context := ProxyContext0} = State)
+		 proxy_context := ProxyContext0} = State0)
   when ?IS_REQUEST_CONTEXT(ReqKey, Request, Context0) ->
 
     Context = gtp_path:bind(Request, Context0),
     ProxyContext = gtp_path:bind(ProxyContext0),
 
-    StateNew = State#{context => Context, proxy_context => ProxyContext},
-    forward_request(sgw2pgw, ReqKey, Request, StateNew),
+    State1 = State0#{context => Context, proxy_context => ProxyContext},
+    forward_request(sgw2pgw, ReqKey, Request, State1),
+
+    State = trigger_seq_pair(sgw2pgw, ReqKey, Request, State1),
 
     gtp_context:request_finished(ReqKey),
-    {noreply, StateNew};
+    {noreply, State};
 
 %%
 %% SGW to PGW requests without tunnel endpoint modification
@@ -332,7 +334,7 @@ handle_request(ReqKey,
 %% PGW to SGW requests without tunnel endpoint modification
 %%
 handle_request(ReqKey,
-	       #gtp{type = update_bearer_request} = Request,
+	       #gtp{type = update_bearer_request, seq_no = SeqNo} = Request,
 	       _Resent,
 	       #{context := Context0,
 		 proxy_context := ProxyContext0} = State)
@@ -341,8 +343,15 @@ handle_request(ReqKey,
     ProxyContext = gtp_path:bind(Request, ProxyContext0),
     Context = gtp_path:bind(Context0),
 
+    FwdSeqNo =
+	case State of
+	    #{last_trigger_id := {SeqNo, LastFwdSeqNo}} ->
+		LastFwdSeqNo;
+	    _ ->
+		undefined
+	end,
     StateNew = State#{context => Context, proxy_context => ProxyContext},
-    forward_request(pgw2sgw, ReqKey, Request, StateNew),
+    forward_request(pgw2sgw, ReqKey, FwdSeqNo, Request, StateNew),
 
     {noreply, StateNew};
 
@@ -664,11 +673,11 @@ proxy_info(DefaultGGSN,
     #proxy_info{ggsns = GGSNs, imsi = IMSI, msisdn = MSISDN, src_apn = APN}.
 
 build_context_request(#context{remote_control_tei = TEI} = Context,
-		      NewPeer, #gtp{ie = RequestIEs} = Request) ->
+		      NewPeer, SeqNo, #gtp{ie = RequestIEs} = Request) ->
     ProxyIEs0 = maps:without([?'Recovery'], RequestIEs),
     ProxyIEs1 = update_gtp_req_from_context(Context, ProxyIEs0),
     ProxyIEs = gtp_v2_c:build_recovery(Context, NewPeer, ProxyIEs1),
-    Request#gtp{tei = TEI, ie = ProxyIEs}.
+    Request#gtp{tei = TEI, seq_no = SeqNo, ie = ProxyIEs}.
 
 send_request(#context{control_port = GtpPort,
 		      remote_control_tei = RemoteCntlTEI,
@@ -688,20 +697,32 @@ forward_context(sgw2pgw, #{proxy_context := Context}) ->
 forward_context(pgw2sgw, #{context := Context}) ->
     Context.
 
-forward_request(Direction, ReqKey,
-		#gtp{seq_no = SeqNo,
+forward_request(Direction, ReqKey, Request, State) ->
+    forward_request(Direction, ReqKey, undefined, Request, State).
+
+forward_request(Direction, ReqKey, FwdSeqNo,
+		#gtp{seq_no = ReqSeqNo,
 		     ie = #{?'Recovery' := Recovery}} = Request,
 		State) ->
     Context = forward_context(Direction, State),
-    FwdReq = build_context_request(Context, false, Request),
+    FwdReq = build_context_request(Context, false, FwdSeqNo, Request),
 
     ergw_proxy_lib:forward_request(Direction, Context, FwdReq, ReqKey,
-				   SeqNo, Recovery /= undefined).
+				   ReqSeqNo, Recovery /= undefined).
+
+trigger_seq_pair(Direction, ReqKey, #gtp{seq_no = SeqNo} = Request, State) ->
+    Context = forward_context(Direction, State),
+    case ergw_proxy_lib:get_seq_no(Context, ReqKey, Request) of
+	{ok, FwdSeqNo} ->
+	    State#{last_trigger_id => {FwdSeqNo, SeqNo}};
+	_ ->
+	    State
+    end.
 
 forward_response(#proxy_request{request = ReqKey, seq_no = SeqNo, new_peer = NewPeer},
 		 Response, Context) ->
-    GtpResp = build_context_request(Context, NewPeer, Response),
-    gtp_context:send_response(ReqKey, GtpResp#gtp{seq_no = SeqNo}).
+    GtpResp = build_context_request(Context, NewPeer, SeqNo, Response),
+    gtp_context:send_response(ReqKey, GtpResp).
 
 proxy_dp_args(#context{data_port = #gtp_port{name = Name},
 		       local_data_tei = LocalTEI,

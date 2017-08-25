@@ -565,7 +565,7 @@ build_context_request(#context{remote_control_tei = TEI} = Context,
     ProxyIEs0 = maps:without([?'Recovery'], RequestIEs),
     ProxyIEs1 = update_gtp_req_from_context(Context, ProxyIEs0),
     ProxyIEs = gtp_v1_c:build_recovery(Context, NewPeer, ProxyIEs1),
-    Request#gtp{tei = TEI, ie = ProxyIEs}.
+    Request#gtp{tei = TEI, seq_no = undefined, ie = ProxyIEs}.
 
 send_request(#context{control_port = GtpPort,
 		      remote_control_tei = RemoteCntlTEI,
