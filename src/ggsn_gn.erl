@@ -431,7 +431,7 @@ copy_to_session(_, #end_user_address{pdp_type_organization = 1,
    end;
 
 copy_to_session(_, #gsn_address{instance = 0, address = IP}, _AAAopts, Session) ->
-    Session#{'3GPP-SGSN-Address' => IP};
+    Session#{'3GPP-SGSN-Address' => gtp_c_lib:bin2ip(IP)};
 copy_to_session(_, #nsapi{instance = 0, nsapi = NSAPI}, _AAAopts, Session) ->
     Session#{'3GPP-NSAPI' => NSAPI};
 copy_to_session(_, #selection_mode{mode = Mode}, _AAAopts, Session) ->
