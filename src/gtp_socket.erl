@@ -17,7 +17,7 @@
 	 send/4, send_response/3,
 	 send_request/5, send_request/6, resend_request/2,
 	 get_restart_counter/1]).
--export([get_request_q/1, get_response_q/1]).
+-export([get_request_q/1, get_response_q/1, get_seq_no/2]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -121,6 +121,9 @@ get_request_q(GtpPort) ->
 get_response_q(GtpPort) ->
     call(GtpPort, get_response_q).
 
+get_seq_no(GtpPort, ReqId) ->
+    call(GtpPort, {get_seq_no, ReqId}).
+
 %%%===================================================================
 %%% Options Validation
 %%%===================================================================
@@ -211,6 +214,15 @@ handle_call(get_request_q, _From, #state{requests = Requests} = State) ->
     {reply, ergw_cache:to_list(Requests), State};
 handle_call(get_response_q, _From, #state{responses = Responses} = State) ->
     {reply, ergw_cache:to_list(Responses), State};
+
+handle_call({get_seq_no, ReqId}, _From, State) ->
+    case request_q_peek(ReqId, State) of
+	{value, #send_req{msg = #gtp{seq_no = SeqNo}}} ->
+	    {reply, {ok, SeqNo}, State};
+
+	_ ->
+	    {reply, {error, not_found}, State}
+    end;
 
 handle_call(Request, _From, State) ->
     lager:error("handle_call: unknown ~p", [lager:pr(Request, ?MODULE)]),

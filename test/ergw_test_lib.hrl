@@ -14,7 +14,8 @@
 			  meck_reset/1,
 			  meck_unload/1,
 			  meck_validate/1]).
--import('ergw_test_lib', [gtp_context/0,
+-import('ergw_test_lib', [init_seq_no/2,
+			  gtp_context/0, gtp_context/1,
 			  gtp_context_inc_seq/1,
 			  gtp_context_inc_restart_counter/1,
 			  gtp_context_new_teids/1,
@@ -43,6 +44,7 @@
 -define('PROXY-MSISDN', <<"491111111111">>).
 
 -record(gtpc, {
+	  counter         :: atom(),
 	  restart_counter :: 0..255,
 	  seq_no          :: 0..16#ffffffff,
 

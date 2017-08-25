@@ -8,7 +8,7 @@
 -module(ergw_proxy_lib).
 
 -export([validate_options/3, validate_option/2,
-	 forward_request/3, forward_request/6]).
+	 forward_request/3, forward_request/6, get_seq_no/3]).
 
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include("include/ergw.hrl").
@@ -28,6 +28,10 @@ forward_request(Direction,
 forward_request(#context{control_port = GtpPort}, ReqKey, Request) ->
     ReqId = make_request_id(ReqKey, Request),
     gtp_context:resend_request(GtpPort, ReqId).
+
+get_seq_no(#context{control_port = GtpPort}, ReqKey, Request) ->
+    ReqId = make_request_id(ReqKey, Request),
+    gtp_socket:get_seq_no(GtpPort, ReqId).
 
 %%%===================================================================
 %%% Options Validation
