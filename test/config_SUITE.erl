@@ -21,7 +21,8 @@
 	?match([_|_], (catch ergw_config:validate_config(Config)))).
 
 -define(GGSN_CONFIG,
-	[{sockets,
+	[accept_new,
+	 {sockets,
 	  [{irx, [{type, 'gtp-c'},
 		  {ip,  ?TEST_GSN},
 		  {reuseaddr, true}
@@ -280,6 +281,14 @@ config(_Config)  ->
     ?error_option(set_cfg_value([dp_handler], undefined, ?GGSN_CONFIG)),
     ?error_option(set_cfg_value([sockets], undefined, ?GGSN_CONFIG)),
 
+    ?error_option(set_cfg_value([accept_new], invalid, ?GGSN_CONFIG)),
+    Accept0 = (catch ergw_config:validate_config(?GGSN_CONFIG)),
+    ?equal(true, proplists:get_value(accept_new, Accept0)),
+    Accept1 = (catch ergw_config:validate_config(set_cfg_value([accept_new], true, ?GGSN_CONFIG))),
+    ?equal(true, proplists:get_value(accept_new, Accept1)),
+    Accept2 = (catch ergw_config:validate_config(set_cfg_value([accept_new], false, ?GGSN_CONFIG))),
+    ?equal(false, proplists:get_value(accept_new, Accept2)),
+
     ?ok_option(set_cfg_value([sockets, irx, netdev], <<"netdev">>, ?GGSN_CONFIG)),
     ?ok_option(set_cfg_value([sockets, irx, netdev], "netdev", ?GGSN_CONFIG)),
     ?error_option(set_cfg_value([sockets, irx, netdev], invalid, ?GGSN_CONFIG)),
@@ -330,6 +339,16 @@ config(_Config)  ->
     ?ok_option(add_cfg_value([apns, ?'APN-PROXY'], [{vrf, example}], ?GGSN_CONFIG)),
     ?error_option(add_cfg_value([apns, ?'APN-EXAMPLE'], [{vrf, example}], ?GGSN_CONFIG)),
     ?error_option(set_cfg_value([apns], invalid, ?GGSN_CONFIG)),
+    ?ok_option(add_cfg_value([apns, [<<"a-b">>]], [{vrf, example}], ?GGSN_CONFIG)),
+    ?match({error, {apn, _}},
+	   (catch ergw_config:validate_config(
+		    add_cfg_value([apns, [<<"$">>]], [{vrf, example}], ?GGSN_CONFIG)))),
+    ?match({error, {apn, _}},
+	   (catch ergw_config:validate_config(
+		    add_cfg_value([apns, [<<"_">>]], [{vrf, example}], ?GGSN_CONFIG)))),
+    APN0 = proplists:get_value(apns, (catch ergw_config:validate_config(?GGSN_CONFIG))),
+    %% check that APN's are lower cased after validation
+    ?match(VRF when is_map(VRF), proplists:get_value([<<"apn1">>], APN0)),
 
     ?ok_option(?GGSN_PROXY_CONFIG),
     ?error_option(set_cfg_value([handlers, gn, contexts, invalid], [], ?GGSN_PROXY_CONFIG)),

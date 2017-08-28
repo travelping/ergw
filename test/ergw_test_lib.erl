@@ -265,6 +265,8 @@ pretty_print(_, _) ->
 %%% Config manipulation
 %%%===================================================================
 
+set_cfg_value([Key], Value, Config) when is_boolean(Value) ->
+    lists:keystore(Key, 1, proplists:delete(Key, Config), {Key, Value});
 set_cfg_value([Key], Value, Config) ->
     lists:keystore(Key, 1, Config, {Key, Value});
 set_cfg_value([H | T], Value, Config) ->
