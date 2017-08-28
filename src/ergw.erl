@@ -141,7 +141,8 @@ handler(Socket, Protocol) ->
 	    {error, not_found}
     end.
 
-vrf_lookup(APN) ->
+vrf_lookup(APN0) ->
+    APN = (catch gtp_c_lib:normalize_labels(APN0)),
     case ets:lookup(?SERVER, APN) of
 	[#route{vrf = VRF, options = Options}] ->
 	    {ok, {VRF, Options}};

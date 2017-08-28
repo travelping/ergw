@@ -613,7 +613,7 @@ execute_request(MsgType, SubType, Socket, GtpC0) ->
     {validate_response(MsgType, SubType, Response, GtpC), Msg, Response}.
 
 apn(invalid_apn) -> [<<"IN", "VA", "LID">>];
-apn(_)           -> ?'APN-EXAMPLE'.
+apn(_)           -> ?'APN-ExAmPlE'.
 
 imsi('2nd') -> <<"454545454545452">>;
 imsi(_)     -> ?IMSI.

@@ -36,6 +36,7 @@
 -define(FINAL_GSN, {127,0,200,1}).
 
 -define('APN-EXAMPLE', [<<"example">>, <<"net">>]).
+-define('APN-ExAmPlE', [<<"eXaMpLe">>, <<"net">>]).
 -define('IMSI', <<"111111111111111">>).
 -define('MSISDN', <<"440000000000">>).
 

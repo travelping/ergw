@@ -105,16 +105,22 @@ check_unique_keys(Key, List) when is_list(List) ->
 validate_config(Config) ->
     validate_options(fun validate_option/2, Config, ?DefaultOptions, list).
 
+validate_option(Fun, Opt, Value) when is_function(Fun, 2) ->
+    {Opt, Fun(Opt, Value)};
+validate_option(Fun, Opt, Value) when is_function(Fun, 1) ->
+    Fun({Opt, Value}).
+
 validate_options(_Fun, []) ->
-        [];
-validate_options(Fun, [Opt | Tail]) when is_atom(Opt) ->
-        [Fun(Opt, true) | validate_options(Fun, Tail)];
+    [];
+%% validate_options(Fun, [Opt | Tail]) when is_atom(Opt) ->
+%%     [validate_option(Fun, Opt, true) | validate_options(Fun, Tail)];
 validate_options(Fun, [{Opt, Value} | Tail]) ->
-        [{Opt, Fun(Opt, Value)} | validate_options(Fun, Tail)].
+    [validate_option(Fun, Opt, Value) | validate_options(Fun, Tail)].
 
 validate_options(Fun, Options, Defaults, ReturnType)
   when is_list(Options), is_list(Defaults) ->
-    Opts = lists:ukeymerge(1, lists:keysort(1, Options), lists:keysort(1, Defaults)),
+    Opts0 = proplists:unfold(Options),
+    Opts = lists:ukeymerge(1, lists:keysort(1, Opts0), lists:keysort(1, Defaults)),
     return_type(validate_options(Fun, Opts), ReturnType);
 validate_options(Fun, Options, Defaults, ReturnType)
   when is_map(Options) andalso ?is_opts(Defaults) ->
@@ -150,7 +156,7 @@ validate_option(vrfs, Value) when is_list(Value) ->
     validate_options(fun validate_vrfs_option/2, Value);
 validate_option(apns, Value) when is_list(Value) ->
     check_unique_keys(apns, Value),
-    validate_options(fun validate_apns_option/2, Value);
+    validate_options(fun validate_apns/1, Value);
 validate_option(http_api, Value) when is_list(Value) ->
     validate_options(fun ergw_http_api:validate_options/2, Value);
 validate_option(Opt, Value)
@@ -211,12 +217,24 @@ validate_vrfs_option(Opt, Values)
 validate_vrfs_option(Opt, Value) ->
     throw({error, {options, {Opt, Value}}}).
 
-validate_apns_option('_', Value) when ?is_opts(Value) ->
-    validate_options(fun validate_apn_option/2, Value, [{vrf, {invalid}}], map);
-validate_apns_option(APN, Value) when is_list(APN), ?is_opts(Value) ->
-    validate_options(fun validate_apn_option/2, Value, [{vrf, {invalid}}], map);
-validate_apns_option(Opt, Value) ->
+validate_apns({APN0, Value}) when ?is_opts(Value) ->
+    APN =
+	if APN0 =:= '_' -> APN0;
+	   true         -> validate_apn_name(APN0)
+	end,
+    {APN, validate_options(fun validate_apn_option/2, Value, [{vrf, {invalid}}], map)};
+validate_apns({Opt, Value}) ->
     throw({error, {options, {Opt, Value}}}).
+
+validate_apn_name(APN) when is_list(APN) ->
+    try
+	gtp_c_lib:normalize_labels(APN)
+    catch
+	error:badarg ->
+	    throw({error, {apn, APN}})
+    end;
+validate_apn_name(APN) ->
+    throw({error, {apn, APN}}).
 
 validate_apn_option(vrf, Value) when is_atom(Value) ->
     Value;
