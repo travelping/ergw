@@ -1,6 +1,18 @@
 erGW - 3GPP GGSN and PDN-GW in Erlang
 =====================================
 
+Version 1.15.0 - 29 Aug 2017
+----------------------------
+
+* GGSN outgoing load balancing in proxy mode
+* fix context path counters
+* make sure colliding session are terminated before the
+  new session is registered (avoiding a race)
+* handle access point names as DNS labels (make them
+  case insensitive)
+* decouple sequence numbers in proxy mode again (fixes bug
+  introduced in last release)
+
 Version 1.14.0 - 04 Aug 2017
 ----------------------------
 
