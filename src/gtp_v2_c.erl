@@ -16,7 +16,7 @@
 	 build_echo_request/1,
 	 validate_teid/2,
 	 type/0, port/0,
-	 get_msg_keys/1,
+	 get_msg_keys/1, update_context_id/2,
 	 get_cause/1,
 	 load_class/1]).
 
@@ -32,6 +32,7 @@
 -define('Sender F-TEID for Control Plane',		{v2_fully_qualified_tunnel_endpoint_identifier, 0}).
 -define('IMSI',						{v2_international_mobile_subscriber_identity, 0}).
 -define('ME Identity',					{v2_mobile_equipment_identity, 0}).
+-define('Bearer Contexts',                  		{v2_bearer_context, 0}).
 -define('EPS Bearer ID',				{v2_eps_bearer_id, 0}).
 -define('Indication Flags',				{v2_indication, 0}).
 
@@ -251,15 +252,42 @@ get_indication_flags(#{?'Indication Flags' := #v2_indication{flags = Flags}}) ->
 get_indication_flags(_) ->
     [].
 
-get_msg_keys(#gtp{version = v2, ie = IEs}) ->
+get_context_ebi(#{?'EPS Bearer ID' := #v2_eps_bearer_id{eps_bearer_id = LBI}}) ->
+    LBI;
+get_context_ebi(#{?'Bearer Contexts' :=
+		      #v2_bearer_context{
+			 group = #{
+			   ?'EPS Bearer ID' := #v2_eps_bearer_id{eps_bearer_id = EBI}}}}) ->
+    EBI;
+get_context_ebi(_) ->
+    '_'.
+
+get_context_id(IEs) ->
+    EBI = get_context_ebi(IEs),
     UIMSI = proplists:get_bool('UIMSI', get_indication_flags(IEs)),
     case {UIMSI, IEs} of
 	{true, #{?'ME Identity' := #v2_mobile_equipment_identity{mei = IMEI}}} ->
-	    [{imei, IMEI}];
+	    {imei, IMEI, EBI};
 	{false, #{?'IMSI' := #v2_international_mobile_subscriber_identity{imsi = IMSI}}} ->
-	    [{imsi, IMSI}];
+	    {imsi, IMSI, EBI};
 	_ ->
-	    []
+	    undefined
+    end.
+
+get_msg_keys(#gtp{version = v2, ie = IEs}) ->
+    case get_context_id(IEs) of
+	undefined ->
+	    [];
+	Id ->
+	    [Id]
+    end.
+
+update_context_id(#gtp{version = v2, ie = IEs}, Context) ->
+    case get_context_id(IEs) of
+	{_, _, EBI} = Id when is_integer(EBI) ->
+	    Context#context{context_id = Id};
+	_Other ->
+	    Context
     end.
 
 get_cause(#{?Cause := #v2_cause{v2_cause = Cause}}) ->

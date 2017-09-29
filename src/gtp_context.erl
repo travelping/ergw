@@ -42,15 +42,15 @@ try_handle_message(#request{gtp_port = GtpPort} = Request,
   when MsgType == change_notification_request;
        MsgType == change_notification_response ->
     Keys = gtp_v2_c:get_msg_keys(Msg),
-    context_handle_message(gtp_context_reg:lookup_keys(GtpPort, Keys), Request, Msg);
+    context_handle_message(gtp_context_reg:match_keys(GtpPort, Keys), Request, Msg);
 
-%% same as above for GTPv1
+%% same as above for GTPv2
 try_handle_message(#request{gtp_port = GtpPort} = Request,
 	       #gtp{version = v1, type = MsgType, tei = 0} = Msg)
   when MsgType == ms_info_change_notification_request;
        MsgType == ms_info_change_notification_response ->
     Keys = gtp_v1_c:get_msg_keys(Msg),
-    context_handle_message(gtp_context_reg:lookup_keys(GtpPort, Keys), Request, Msg);
+    context_handle_message(gtp_context_reg:match_keys(GtpPort, Keys), Request, Msg);
 
 try_handle_message(#request{gtp_port = GtpPort} = Request,
 		   #gtp{version = Version, tei = 0} = Msg) ->
@@ -156,9 +156,9 @@ delete_context(Context) ->
 %% that when an incomming Create PDP Context/Create Session requests collides
 %% with an existing context based on a IMSI, Bearer, Protocol tuple, that the
 %% preexisting context should be deleted locally. This function does that.
-terminate_colliding_context(#context{control_port = GtpPort, imsi = IMSI})
-  when IMSI /= undefined ->
-    case gtp_context_reg:lookup_key(GtpPort, {imsi, IMSI}) of
+terminate_colliding_context(#context{control_port = GtpPort, context_id = Id})
+  when Id /= undefined ->
+    case gtp_context_reg:lookup_key(GtpPort, Id) of
 	Context when is_pid(Context) ->
 	    gtp_context:terminate_context(Context);
 	_ ->
@@ -452,6 +452,8 @@ context_handle_message(Context, Request, Msg)
   when is_pid(Context) ->
     register_request(Context, Request),
     gen_server:cast(Context, {handle_message, Request, Msg, false});
+context_handle_message([Context | _], Request, Msg) ->
+    context_handle_message(Context, Request, Msg);
 context_handle_message(_Context, _Request, _Msg) ->
     throw({error, not_found}).
 

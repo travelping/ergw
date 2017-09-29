@@ -138,8 +138,8 @@ make_request(create_pdp_context_request, SubType,
 	 #access_point_name{apn = apn(SubType)},
 	 #gsn_address{instance = 0, address = gtp_c_lib:ip2bin(?CLIENT_IP)},
 	 #gsn_address{instance = 1, address = gtp_c_lib:ip2bin(?CLIENT_IP)},
-	 #imei{imei = imei(SubType)},
-	 #international_mobile_subscriber_identity{imsi = imsi(SubType)},
+	 #imei{imei = imei(SubType, LocalCntlTEI)},
+	 #international_mobile_subscriber_identity{imsi = imsi(SubType, LocalCntlTEI)},
 	 #ms_international_pstn_isdn_number{
 	    msisdn = {isdn_address,1,1,1, ?'MSISDN'}},
 	 #nsapi{nsapi = 5},
@@ -450,11 +450,19 @@ execute_request(MsgType, SubType, Socket, GtpC0) ->
 apn(invalid_apn) -> [<<"IN", "VA", "LID">>];
 apn(_)           -> ?'APN-EXAMPLE'.
 
-imsi('2nd') -> <<"454545454545452">>;
-imsi(_)     -> ?IMSI.
+imsi('2nd', _) ->
+    <<"454545454545452">>;
+imsi(random, TEI) ->
+    integer_to_binary(700000000000000 + TEI);
+imsi(_, _) ->
+    ?IMSI.
 
-imei('2nd') -> <<"6543210987654321">>;
-imei(_)     -> <<"1234567890123456">>.
+imei('2nd', _) ->
+    <<"6543210987654321">>;
+imei(random, TEI) ->
+    integer_to_binary(7000000000000000 + TEI);
+imei(_, _) ->
+ <<"1234567890123456">>.
 
 %%%===================================================================
 %%% GGSN injected functions

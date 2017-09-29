@@ -493,7 +493,7 @@ copy_to_session(_K, _V, Session) ->
     Session.
 
 init_proxy_context(CntlPort, DataPort,
-		   #context{imei = IMEI, version = Version,
+		   #context{imei = IMEI, context_id = ContextId, version = Version,
 			    control_interface = Interface, state = State},
 		   #proxy_info{imsi = IMSI, msisdn = MSISDN},
            #proxy_ggsn{address = GGSN, dst_apn = APN}) ->
@@ -505,6 +505,7 @@ init_proxy_context(CntlPort, DataPort,
        imsi              = IMSI,
        imei              = IMEI,
        msisdn            = MSISDN,
+       context_id        = ContextId,
 
        version           = Version,
        control_interface = Interface,
@@ -538,8 +539,9 @@ get_context_from_req(_K, #nsapi{instance = 0, nsapi = NSAPI}, #context{state = S
 get_context_from_req(_K, _, Context) ->
     Context.
 
-update_context_from_gtp_req(#gtp{ie = IEs}, Context) ->
-    maps:fold(fun get_context_from_req/3, Context, IEs).
+update_context_from_gtp_req(#gtp{ie = IEs} = Req, Context0) ->
+    Context1 = gtp_v1_c:update_context_id(Req, Context0),
+    maps:fold(fun get_context_from_req/3, Context1, IEs).
 
 set_req_from_context(#context{apn = APN},
 		  _K, #access_point_name{instance = 0} = IE)

@@ -124,7 +124,7 @@ handle_request(_ReqKey,
 
     EUA = maps:get(?'End User Address', IEs, undefined),
 
-    Context1 = update_context_from_gtp_req(IEs, Context0),
+    Context1 = update_context_from_gtp_req(Request, Context0),
     ContextPreAuth = gtp_path:bind(Request, Context1),
 
     gtp_context:terminate_colliding_context(ContextPreAuth),
@@ -154,11 +154,10 @@ handle_request(_ReqKey,
 
 handle_request(_ReqKey,
 	       #gtp{type = update_pdp_context_request,
-		    ie = #{?'Quality of Service Profile' := ReqQoSProfile
-			  } = IEs} = Request, _Resent,
-	       #{context := OldContext} = State0) ->
+		    ie = #{?'Quality of Service Profile' := ReqQoSProfile}} = Request,
+	       _Resent, #{context := OldContext} = State0) ->
 
-    Context0 = update_context_from_gtp_req(IEs, OldContext),
+    Context0 = update_context_from_gtp_req(Request, OldContext),
     Context = gtp_path:bind(Request, Context0),
 
     State1 = if Context /= OldContext ->
@@ -179,7 +178,7 @@ handle_request(_ReqKey,
 	       #gtp{type = ms_info_change_notification_request, ie = IEs} = Request,
 	       _Resent, #{context := OldContext} = State) ->
 
-    Context = update_context_from_gtp_req(IEs, OldContext),
+    Context = update_context_from_gtp_req(Request, OldContext),
 
     ResponseIEs0 = [#cause{value = request_accepted}],
     ResponseIEs = copy_ies_to_response(IEs, ResponseIEs0, [?'IMSI', ?'IMEI']),
@@ -523,8 +522,9 @@ get_context_from_req(?'MSISDN', #ms_international_pstn_isdn_number{
 get_context_from_req(_, _, Context) ->
     Context.
 
-update_context_from_gtp_req(Request, Context) ->
-    maps:fold(fun get_context_from_req/3, Context, Request).
+update_context_from_gtp_req(#gtp{ie = IEs} = Req, Context0) ->
+    Context1 = gtp_v1_c:update_context_id(Req, Context0),
+    maps:fold(fun get_context_from_req/3, Context1, IEs).
 
 enter_ie(_Key, Value, IEs)
   when is_list(IEs) ->

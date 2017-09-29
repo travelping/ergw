@@ -425,6 +425,7 @@ path_restart_recovery(Config) ->
     delete_pdp_context(S, GtpC2),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    [?match(#{tunnels := 0}, X) || X <- ergw_api:peer(all)],
     meck_validate(Config),
     ok.
 
@@ -475,6 +476,8 @@ duplicate_pdp_context_request(Config) ->
 
     %% create 2nd PDP context with the same IMSI
     {GtpC2, _, _} = create_pdp_context(S),
+
+    [?match(#{tunnels := 1}, X) || X <- ergw_api:peer(all)],
 
     delete_pdp_context(not_found, S, GtpC1),
     delete_pdp_context(S, GtpC2),
@@ -742,7 +745,7 @@ delete_pdp_context_requested(Config) ->
     {GtpC, _, _} = create_pdp_context(S),
 
     Context = gtp_context_reg:lookup_key(#gtp_port{name = 'remote-irx'},
-					 {imsi, ?'PROXY-IMSI'}),
+					 {imsi, ?'PROXY-IMSI', 5}),
     true = is_pid(Context),
 
     Self = self(),
@@ -777,7 +780,7 @@ delete_pdp_context_requested_resend(Config) ->
     {_, _, _} = create_pdp_context(S),
 
     Context = gtp_context_reg:lookup_key(#gtp_port{name = 'remote-irx'},
-					 {imsi, ?'PROXY-IMSI'}),
+					 {imsi, ?'PROXY-IMSI', 5}),
     true = is_pid(Context),
 
     Self = self(),
@@ -810,7 +813,7 @@ delete_pdp_context_requested_invalid_teid(Config) ->
     {GtpC, _, _} = create_pdp_context(S),
 
     Context = gtp_context_reg:lookup_key(#gtp_port{name = 'remote-irx'},
-					 {imsi, ?'PROXY-IMSI'}),
+					 {imsi, ?'PROXY-IMSI', 5}),
     true = is_pid(Context),
 
     Self = self(),
@@ -846,7 +849,7 @@ delete_pdp_context_requested_late_response(Config) ->
     {GtpC, _, _} = create_pdp_context(S),
 
     Context = gtp_context_reg:lookup_key(#gtp_port{name = 'remote-irx'},
-					 {imsi, ?'PROXY-IMSI'}),
+					 {imsi, ?'PROXY-IMSI', 5}),
     true = is_pid(Context),
 
     Self = self(),
@@ -885,7 +888,7 @@ ggsn_update_pdp_context_request(Config) ->
     {GtpC, _, _} = create_pdp_context(S),
 
     Context = gtp_context_reg:lookup_key(#gtp_port{name = 'remote-irx'},
-					 {imsi, ?'PROXY-IMSI'}),
+					 {imsi, ?'PROXY-IMSI', 5}),
     true = is_pid(Context),
 
     Self = self(),

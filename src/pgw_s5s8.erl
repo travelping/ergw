@@ -159,7 +159,7 @@ handle_request(_ReqKey,
     PAA = maps:get(?'PDN Address Allocation', IEs, undefined),
 
     Context1 = update_context_tunnel_ids(FqCntlTEID, FqDataTEID, Context0),
-    Context2 = update_context_from_gtp_req(IEs, Context1),
+    Context2 = update_context_from_gtp_req(Request, Context1),
     ContextPreAuth = gtp_path:bind(Request, Context2),
 
     gtp_context:terminate_colliding_context(ContextPreAuth),
@@ -205,7 +205,7 @@ handle_request(_ReqKey,
     FqCntlTEID = maps:get(?'Sender F-TEID for Control Plane', IEs, undefined),
 
     Context0 = update_context_tunnel_ids(FqCntlTEID, FqDataTEID, OldContext),
-    Context1 = update_context_from_gtp_req(IEs, Context0),
+    Context1 = update_context_from_gtp_req(Request, Context0),
     Context = gtp_path:bind(Request, Context1),
 
     State1 = if Context /= OldContext ->
@@ -240,10 +240,10 @@ handle_request(_ReqKey,
     {reply, Response, State1};
 
 handle_request(_ReqKey,
-	       #gtp{type = modify_bearer_request, ie = IEs} = Request,
+	       #gtp{type = modify_bearer_request} = Request,
 	       _Resent, #{context := OldContext} = State) ->
 
-    Context = update_context_from_gtp_req(IEs, OldContext),
+    Context = update_context_from_gtp_req(Request, OldContext),
 
     ResponseIEs = [#v2_cause{v2_cause = request_accepted}],
     Response = response(modify_bearer_response, Context, ResponseIEs, Request),
@@ -272,7 +272,7 @@ handle_request(_ReqKey,
 	       #gtp{type = change_notification_request, ie = IEs} = Request,
 	       _Resent, #{context := OldContext} = State) ->
 
-    Context = update_context_from_gtp_req(IEs, OldContext),
+    Context = update_context_from_gtp_req(Request, OldContext),
 
     ResponseIEs0 = [#v2_cause{v2_cause = request_accepted}],
     ResponseIEs = copy_ies_to_response(IEs, ResponseIEs0, [?'IMSI', ?'ME Identity']),
@@ -647,8 +647,9 @@ get_context_from_req(?'MSISDN', #v2_msisdn{msisdn = MSISDN}, Context) ->
 get_context_from_req(_, _, Context) ->
     Context.
 
-update_context_from_gtp_req(Request, Context) ->
-    maps:fold(fun get_context_from_req/3, Context, Request).
+update_context_from_gtp_req(#gtp{ie = IEs} = Req, Context0) ->
+    Context1 = gtp_v2_c:update_context_id(Req, Context0),
+    maps:fold(fun get_context_from_req/3, Context1, IEs).
 
 enter_ie(_Key, Value, IEs)
   when is_list(IEs) ->

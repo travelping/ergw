@@ -530,6 +530,8 @@ duplicate_session_request(Config) ->
     %% create 2nd session with the same IMSI
     {GtpC2, _, _} = create_session(S, GtpC1),
 
+    [?match(#{tunnels := 1}, X) || X <- ergw_api:peer(all)],
+
     delete_session(not_found, S, GtpC1),
     delete_session(S, GtpC2),
 
@@ -863,7 +865,7 @@ delete_bearer_request(Config) ->
     {GtpC, _, _} = create_session(S),
 
     Context = gtp_context_reg:lookup_key(#gtp_port{name = 'remote-irx'},
-					 {imsi, ?'PROXY-IMSI'}),
+					 {imsi, ?'PROXY-IMSI', 5}),
     true = is_pid(Context),
 
     Self = self(),
@@ -899,7 +901,7 @@ delete_bearer_request_resend(Config) ->
     {_, _, _} = create_session(S),
 
     Context = gtp_context_reg:lookup_key(#gtp_port{name = 'remote-irx'},
-					 {imsi, ?'PROXY-IMSI'}),
+					 {imsi, ?'PROXY-IMSI', 5}),
     true = is_pid(Context),
 
     Self = self(),
@@ -933,7 +935,7 @@ delete_bearer_request_invalid_teid(Config) ->
     {GtpC, _, _} = create_session(S),
 
     Context = gtp_context_reg:lookup_key(#gtp_port{name = 'remote-irx'},
-					 {imsi, ?'PROXY-IMSI'}),
+					 {imsi, ?'PROXY-IMSI', 5}),
     true = is_pid(Context),
 
     Self = self(),
@@ -970,7 +972,7 @@ delete_bearer_request_late_response(Config) ->
     {GtpC, _, _} = create_session(S),
 
     Context = gtp_context_reg:lookup_key(#gtp_port{name = 'remote-irx'},
-					 {imsi, ?'PROXY-IMSI'}),
+					 {imsi, ?'PROXY-IMSI', 5}),
     true = is_pid(Context),
 
     Self = self(),
@@ -1075,7 +1077,7 @@ update_bearer_request(Config) ->
     {GtpC, _, _} = create_session(S),
 
     Context = gtp_context_reg:lookup_key(#gtp_port{name = 'remote-irx'},
-					 {imsi, ?'PROXY-IMSI'}),
+					 {imsi, ?'PROXY-IMSI', 5}),
     true = is_pid(Context),
 
     Self = self(),

@@ -16,7 +16,7 @@
 	 build_echo_request/1,
 	 validate_teid/2,
 	 type/0, port/0,
-	 get_msg_keys/1,
+	 get_msg_keys/1, update_context_id/2,
 	 get_cause/1,
 	 load_class/1]).
 
@@ -31,6 +31,7 @@
 -define('Access Point Name',				{access_point_name, 0}).
 -define('IMSI',						{international_mobile_subscriber_identity, 0}).
 -define('IMEI',						{imei, 0}).
+-define('NSAPI',					{nsapi, 0}).
 -define('Extended Common Flags',			{extended_common_flags, 0}).
 
 %%====================================================================
@@ -224,12 +225,20 @@ validate_teid(MsgType, 0) ->
 validate_teid(_MsgType, _TEID) ->
     ok.
 
-get_ext_common_flags(#{?'Extended Common Flags' := #extended_common_flags{flags = Flags}}) ->
-    Flags;
-get_ext_common_flags(_) ->
-    [].
 
-get_msg_keys(#gtp{version = v1, ie = IEs}) ->
+get_element(Key, IEs, Pos, Default) ->
+    case maps:find(Key, IEs) of
+	{ok, Rec} ->
+	    element(Pos, Rec);
+	_ ->
+	    Default
+    end.
+
+get_ext_common_flags(IEs) ->
+    get_element(?'Extended Common Flags', IEs, #extended_common_flags.flags, []).
+
+get_context_id(IEs) ->
+    NSAPI = get_element(?'NSAPI', IEs, #nsapi.nsapi, '_'),
     UIMSI = proplists:get_bool('Unauthenticated IMSI', get_ext_common_flags(IEs)),
     %% order of key selection, first match terminates:
     %%   1. prefer IMEI if unauthenticated IMSI
@@ -237,13 +246,29 @@ get_msg_keys(#gtp{version = v1, ie = IEs}) ->
     %%   3. use IMEI
     case {UIMSI, IEs} of
 	{true, #{?'IMEI' := #imei{imei = IMEI}}} ->
-	    [{imei, IMEI}];
-	{_, #{'IMSI' := #international_mobile_subscriber_identity{imsi = IMSI}}} ->
-	    [{imsi, IMSI}];
+	    {imei, IMEI, NSAPI};
+	{_, #{?'IMSI' := #international_mobile_subscriber_identity{imsi = IMSI}}} ->
+	    {imsi, IMSI, NSAPI};
 	{_, #{?'IMEI' := #imei{imei = IMEI}}} ->
-	    [{imei, IMEI}];
+	    {imei, IMEI, NSAPI};
 	_ ->
-	    []
+	    undefined
+    end.
+
+get_msg_keys(#gtp{version = v1, ie = IEs}) ->
+    case get_context_id(IEs) of
+	undefined ->
+	    [];
+	Id ->
+	    [Id]
+    end.
+
+update_context_id(#gtp{version = v1, ie = IEs}, Context) ->
+    case get_context_id(IEs) of
+	{_, _, NSAPI} = Id when is_integer(NSAPI) ->
+	    Context#context{context_id = Id};
+	_ ->
+	    Context
     end.
 
 get_cause(#{?Cause := #cause{value = Cause}}) ->
