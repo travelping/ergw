@@ -777,6 +777,9 @@ delete_bearer_request(Config) ->
     after ?TIMEOUT ->
 	    ct:fail(timeout)
     end,
+
+    wait4tunnels(?TIMEOUT),
+    ?equal([], outstanding_requests()),
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
     ok.
@@ -807,7 +810,9 @@ delete_bearer_request_resend(Config) ->
     after ?TIMEOUT ->
 	    ct:fail(timeout)
     end,
-    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+
+    wait4tunnels(?TIMEOUT),
+    ?equal([], outstanding_requests()),
     meck_validate(Config),
     ok.
 

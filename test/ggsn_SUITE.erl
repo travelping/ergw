@@ -646,6 +646,7 @@ delete_pdp_context_requested_resend(Config) ->
 	    ct:fail(timeout)
     end,
 
+    wait4tunnels(?TIMEOUT),
     ?equal([], outstanding_requests()),
     meck_validate(Config),
     ok.
