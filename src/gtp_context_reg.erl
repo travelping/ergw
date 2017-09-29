@@ -15,6 +15,7 @@
 	 register/3, unregister/2,
 	 lookup_key/2, lookup_keys/2,
 	 lookup_teid/2, lookup_teid/3, lookup_teid/4,
+	 match_key/2, match_keys/2,
 	 await_unreg/1]).
 -export([all/0]).
 -export([alloc_tei/1]).
@@ -68,6 +69,20 @@ lookup_teid(#gtp_port{type = Type} = Port, IP, TEI)
 
 lookup_teid(Port, Type, IP, TEI) ->
     lookup_key(Port, {teid, Type, IP, TEI}).
+
+match_key(#gtp_port{name = Name}, Key) ->
+    RegKey = {Name, Key},
+    ets:select(?SERVER, [{{RegKey, '$1'},[],['$1']}]).
+
+match_keys(_, []) ->
+    throw({error, not_found});
+match_keys(Port, [H|T]) ->
+    case match_key(Port, H) of
+	[_|_] = Match ->
+	    Match;
+	_ ->
+	    match_keys(Port, T)
+    end.
 
 register(#context{} = Context) ->
     gen_server:call(?SERVER, {register, Context}).
@@ -240,6 +255,7 @@ delete_key(Key, Pid) ->
     end.
 
 context2keys(#context{
+		context_id         = ContextId,
 		control_port       = #gtp_port{name = CntlPortName},
 		local_control_tei  = LocalCntlTEI,
 		remote_control_ip  = RemoteCntlIP,
@@ -247,13 +263,10 @@ context2keys(#context{
 		data_port          = #gtp_port{name = DataPortName},
 		local_data_tei     = LocalDataTEI,
 		remote_data_ip     = RemoteDataIP,
-		remote_data_tei    = RemoteDataTEI,
-		imsi               = IMSI,
-		imei               = IMEI}) ->
+		remote_data_tei    = RemoteDataTEI}) ->
     ordsets:from_list(
       [{CntlPortName, {teid, 'gtp-c', LocalCntlTEI}},
        {CntlPortName, {teid, 'gtp-u', LocalDataTEI}},
        {CntlPortName, {teid, 'gtp-c', RemoteCntlIP, RemoteCntlTEI}},
-       {DataPortName, {teid, 'gtp-u', RemoteDataIP, RemoteDataTEI}}] ++
-	  [{CntlPortName, {imsi, IMSI}} || IMSI /= undefined] ++
-	  [{CntlPortName, {imei, IMEI}} || IMEI /= undefined]).
+       {DataPortName, {teid, 'gtp-u', RemoteDataIP, RemoteDataTEI}}]
+      ++ [{CntlPortName, ContextId} || ContextId /= undefined]).

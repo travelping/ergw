@@ -365,10 +365,12 @@ path_restart_multi(Config) ->
     S = make_gtp_socket(Config),
 
     {GtpC0, _, _} = create_session(S),
-    {GtpC1, _, _} = create_session(S, GtpC0),
-    {GtpC2, _, _} = create_session(S, GtpC1),
-    {GtpC3, _, _} = create_session(S, GtpC2),
-    {GtpC4, _, _} = create_session(S, GtpC3),
+    {GtpC1, _, _} = create_session(random, S, GtpC0),
+    {GtpC2, _, _} = create_session(random, S, GtpC1),
+    {GtpC3, _, _} = create_session(random, S, GtpC2),
+    {GtpC4, _, _} = create_session(random, S, GtpC3),
+
+    [?match(#{tunnels := 5}, X) || X <- ergw_api:peer(all)],
 
     %% simulate patch restart to kill the PDP context
     Echo = make_request(echo_request, simple,
@@ -390,6 +392,7 @@ simple_session_request(Config) ->
     {GtpC, _, _} = create_session(S),
     delete_session(S, GtpC),
 
+    ?equal([], outstanding_requests()),
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
     ok.
@@ -405,9 +408,12 @@ duplicate_session_request(Config) ->
     %% create 2nd session with the same IMSI
     {GtpC2, _, _} = create_session(S, GtpC1),
 
+    [?match(#{tunnels := 1}, X) || X <- ergw_api:peer(all)],
+
     delete_session(not_found, S, GtpC1),
     delete_session(S, GtpC2),
 
+    ?equal([], outstanding_requests()),
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     wait4tunnels(?TIMEOUT),
     meck_validate(Config),
@@ -758,7 +764,7 @@ delete_bearer_request(Config) ->
 
     {GtpC, _, _} = create_session(S),
 
-    Context = gtp_context_reg:lookup_key(#gtp_port{name = irx}, {imsi, ?'IMSI'}),
+    Context = gtp_context_reg:lookup_key(#gtp_port{name = irx}, {imsi, ?'IMSI', 5}),
     true = is_pid(Context),
 
     Self = self(),
@@ -793,7 +799,7 @@ delete_bearer_request_resend(Config) ->
 
     {_, _, _} = create_session(S),
 
-    Context = gtp_context_reg:lookup_key(#gtp_port{name = irx}, {imsi, ?'IMSI'}),
+    Context = gtp_context_reg:lookup_key(#gtp_port{name = irx}, {imsi, ?'IMSI', 5}),
     true = is_pid(Context),
 
     Self = self(),

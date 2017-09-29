@@ -154,8 +154,8 @@ make_request(create_session_request, SubType,
 	    key = LocalCntlTEI,
 	    ipv4 = gtp_c_lib:ip2bin(?CLIENT_IP)},
 	 #v2_international_mobile_subscriber_identity{
-	    imsi = imsi(SubType)},
-	 #v2_mobile_equipment_identity{mei = imei(SubType)},
+	    imsi = imsi(SubType, LocalCntlTEI)},
+	 #v2_mobile_equipment_identity{mei = imei(SubType, LocalCntlTEI)},
 	 #v2_msisdn{msisdn = ?'MSISDN'},
 	 #v2_rat_type{rat_type = 6},
 	 #v2_selection_mode{mode = 0},
@@ -622,11 +622,19 @@ execute_request(MsgType, SubType, Socket, GtpC0) ->
 apn(invalid_apn) -> [<<"IN", "VA", "LID">>];
 apn(_)           -> ?'APN-ExAmPlE'.
 
-imsi('2nd') -> <<"454545454545452">>;
-imsi(_)     -> ?IMSI.
+imsi('2nd', _) ->
+    <<"454545454545452">>;
+imsi(random, TEI) ->
+    integer_to_binary(700000000000000 + TEI);
+imsi(_, _) ->
+    ?IMSI.
 
-imei('2nd') -> <<"BBBBBBBB">>;
-imei(_)     -> <<"AAAAAAAA">>.
+imei('2nd', _) ->
+    <<"BBBBBBBB">>;
+imei(random, TEI) ->
+    integer_to_binary(70000000 + TEI);
+imei(_, _)     ->
+    <<"AAAAAAAA">>.
 
 %%%===================================================================
 %%% PGW injected functions

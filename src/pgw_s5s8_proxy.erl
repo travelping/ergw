@@ -565,7 +565,7 @@ update_path_bind(NewContext, _OldContext) ->
     NewContext.
 
 init_proxy_context(CntlPort, DataPort,
-		   #context{imei = IMEI, version = Version,
+		   #context{imei = IMEI, context_id = ContextId, version = Version,
 			    control_interface = Interface, state = State},
 		   #proxy_info{imsi = IMSI, msisdn = MSISDN},
 		   #proxy_ggsn{address = PGW, dst_apn = APN}) ->
@@ -577,6 +577,7 @@ init_proxy_context(CntlPort, DataPort,
        imsi              = IMSI,
        imei              = IMEI,
        msisdn            = MSISDN,
+       context_id        = ContextId,
 
        version           = Version,
        control_interface = Interface,
@@ -641,8 +642,9 @@ get_context_from_req(?'MSISDN', #v2_msisdn{msisdn = MSISDN}, Context) ->
 get_context_from_req(_K, _, Context) ->
     Context.
 
-update_context_from_gtp_req(#gtp{ie = IEs}, Context) ->
-    maps:fold(fun get_context_from_req/3, Context, IEs).
+update_context_from_gtp_req(#gtp{ie = IEs} = Req, Context0) ->
+    Context1 = gtp_v2_c:update_context_id(Req, Context0),
+    maps:fold(fun get_context_from_req/3, Context1, IEs).
 
 set_bearer_from_context(#context{data_port = #gtp_port{ip = DataIP}, local_data_tei = DataTEI},
 			_, #v2_fully_qualified_tunnel_endpoint_identifier{interface_type = ?'S5/S8-U SGW'} = IE) ->
