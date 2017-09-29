@@ -24,6 +24,7 @@
 
 -define(T3, 10 * 1000).
 -define(N3, 5).
+-define(RESPONSE_TIMEOUT, (?T3 + (?T3 div 2))).
 
 -define(IS_REQUEST_CONTEXT(Key, Msg, Context),
 	(is_record(Key, request) andalso
@@ -194,6 +195,14 @@ handle_cast({packet_in, _GtpPort, _IP, _Port, _Msg}, State) ->
     lager:warning("packet_in not handled (yet): ~p", [_Msg]),
     {noreply, State}.
 
+
+handle_info({timeout, _, {delete_pdp_context_request, Direction, _ReqKey, _Request}},
+	    #{context := Context, proxy_context := ProxyContext} = State) ->
+    lager:warning("Proxy Delete PDP Context Timeout ~p", [Direction]),
+
+    dp_delete_pdp_context(Context, ProxyContext),
+    {stop, normal, State};
+
 handle_info(_Info, State) ->
     {noreply, State}.
 
@@ -313,18 +322,26 @@ handle_request(ReqKey,
 
 handle_request(ReqKey,
 	       #gtp{type = delete_pdp_context_request} = Request, _Resent,
-	       #{context := Context} = State)
+	       #{context := Context} = State0)
   when ?IS_REQUEST_CONTEXT(ReqKey, Request, Context) ->
 
-    forward_request(sgsn2ggsn, ReqKey, Request, State),
+    forward_request(sgsn2ggsn, ReqKey, Request, State0),
+
+    Msg = {delete_pdp_context_request, sgsn2ggsn, ReqKey, Request},
+    State = restart_timeout(?RESPONSE_TIMEOUT, Msg, State0),
+
     {noreply, State};
 
 handle_request(ReqKey,
 	       #gtp{type = delete_pdp_context_request} = Request, _Resent,
-	       #{proxy_context := ProxyContext} = State)
+	       #{proxy_context := ProxyContext} = State0)
   when ?IS_REQUEST_CONTEXT(ReqKey, Request, ProxyContext) ->
 
-    forward_request(ggsn2sgsn, ReqKey, Request, State),
+    forward_request(ggsn2sgsn, ReqKey, Request, State0),
+
+    Msg = {delete_pdp_context_request, ggsn2sgsn, ReqKey, Request},
+    State = restart_timeout(?RESPONSE_TIMEOUT, Msg, State0),
+
     {noreply, State};
 
 handle_request(#request{gtp_port = GtpPort} = ReqKey, Msg, _Resent, State) ->
@@ -388,22 +405,24 @@ handle_response(#proxy_request{direction = sgsn2ggsn} = ProxyRequest,
 handle_response(#proxy_request{direction = sgsn2ggsn} = ProxyRequest,
 		#gtp{type = delete_pdp_context_response} = Response, _Request,
 		#{context := Context,
-		  proxy_context := ProxyContext} = State) ->
+		  proxy_context := ProxyContext} = State0) ->
     lager:warning("OK Proxy Response ~p", [lager:pr(Response, ?MODULE)]),
 
     forward_response(ProxyRequest, Response, Context),
     dp_delete_pdp_context(Context, ProxyContext),
+    State = cancel_timeout(State0),
     {stop, State};
 
 
 handle_response(#proxy_request{direction = ggsn2sgsn} = ProxyRequest,
 		#gtp{type = delete_pdp_context_response} = Response, _Request,
 		#{context := Context,
-		  proxy_context := ProxyContext} = State) ->
+		  proxy_context := ProxyContext} = State0) ->
     lager:warning("OK SGSN Response ~p", [lager:pr(Response, ?MODULE)]),
 
     forward_response(ProxyRequest, Response, ProxyContext),
     dp_delete_pdp_context(Context, ProxyContext),
+    State = cancel_timeout(State0),
     {stop, State};
 
 
@@ -631,3 +650,20 @@ get_proxy_sockets(#proxy_ggsn{context = Context},
 		{ProxyPorts, ProxyDPs}
 	end,
     {gtp_socket_reg:lookup(hd(Cntl)), gtp_socket_reg:lookup(hd(Data))}.
+
+cancel_timeout(#{timeout := TRef} = State) ->
+    case erlang:cancel_timer(TRef) of
+        false ->
+            receive {timeout, TRef, _} -> ok
+            after 0 -> ok
+            end;
+        _ ->
+            ok
+    end,
+    maps:remove(timeout, State);
+cancel_timeout(State) ->
+    State.
+
+restart_timeout(Timeout, Msg, State) ->
+    cancel_timeout(State),
+    State#{timeout => erlang:start_timer(Timeout, self(), Msg)}.
