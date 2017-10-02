@@ -8,7 +8,8 @@
 -module(ergw_proxy_lib).
 
 -export([validate_options/3, validate_option/2,
-	 forward_request/3, forward_request/6, get_seq_no/3]).
+	 forward_request/3, forward_request/6, forward_request/8,
+	 get_seq_no/3]).
 
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include("include/ergw.hrl").
@@ -17,13 +18,18 @@
 %%% API
 %%%===================================================================
 
+forward_request(Direction, GtpPort, DstIP, DstPort,
+		Request, ReqKey, SeqNo, NewPeer) ->
+    {ReqId, ReqInfo} = make_proxy_request(Direction, ReqKey, SeqNo, NewPeer),
+    lager:debug("Invoking Context Send Request: ~p", [Request]),
+    gtp_context:send_request(GtpPort, DstIP, DstPort, ReqId, Request, ReqInfo).
+
 forward_request(Direction,
 		#context{control_port = GtpPort,
 			 remote_control_ip = RemoteCntlIP},
 		Request, ReqKey, SeqNo, NewPeer) ->
-    {ReqId, ReqInfo} = make_proxy_request(Direction, ReqKey, SeqNo, NewPeer),
-    lager:debug("Invoking Context Send Request: ~p", [Request]),
-    gtp_context:send_request(GtpPort, RemoteCntlIP, ?GTP1c_PORT, ReqId, Request, ReqInfo).
+    forward_request(Direction, GtpPort, RemoteCntlIP, ?GTP1c_PORT,
+		    Request, ReqKey, SeqNo, NewPeer).
 
 forward_request(#context{control_port = GtpPort}, ReqKey, Request) ->
     ReqId = make_request_id(ReqKey, Request),

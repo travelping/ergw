@@ -249,7 +249,7 @@ handle_request(_ReqKey,
     Response = response(modify_bearer_response, Context, ResponseIEs, Request),
     {reply, Response, State#{context => Context}};
 
-handle_request(ReqKey,
+handle_request(#request{gtp_port = GtpPort, ip = SrcIP, port = SrcPort} = ReqKey,
 	       #gtp{type = modify_bearer_command,
 		    seq_no = SeqNo,
 		    ie = #{?'APN-AMBR' := AMBR,
@@ -264,7 +264,7 @@ handle_request(ReqKey,
 		      group = copy_ies_to_response(Bearer, [EBI], [?'Bearer Level QoS'])}],
     RequestIEs = gtp_v2_c:build_recovery(Context, false, RequestIEs0),
     Msg = msg(Context, update_bearer_request, RequestIEs),
-    send_request_msg(Context, ?T3, ?N3, Msg#gtp{seq_no = SeqNo}, undefined),
+    send_request(GtpPort, SrcIP, SrcPort, ?T3, ?N3, Msg#gtp{seq_no = SeqNo}, undefined),
 
     {noreply, State};
 
@@ -680,13 +680,15 @@ msg(#context{remote_control_tei = RemoteCntlTEI}, Type, RequestIEs) ->
     #gtp{version = v2, type = Type, tei = RemoteCntlTEI, ie = RequestIEs}.
 
 
-send_request_msg(#context{control_port = GtpPort,
-			  remote_control_ip = RemoteCntlIP},
-		 T3, N3, Msg, ReqInfo) ->
-    gtp_context:send_request(GtpPort, RemoteCntlIP, ?GTP2c_PORT, T3, N3, Msg, ReqInfo).
+send_request(GtpPort, DstIP, DstPort, T3, N3, Msg, ReqInfo) ->
+    gtp_context:send_request(GtpPort, DstIP, DstPort, T3, N3, Msg, ReqInfo).
+
+send_request(#context{control_port = GtpPort, remote_control_ip = RemoteCntlIP},
+	     T3, N3, Msg, ReqInfo) ->
+    send_request(GtpPort, RemoteCntlIP, ?GTP2c_PORT, T3, N3, Msg, ReqInfo).
 
 send_request(Context, T3, N3, Type, RequestIEs, ReqInfo) ->
-    send_request_msg(Context, T3, N3, msg(Context, Type, RequestIEs), ReqInfo).
+    send_request(Context, T3, N3, msg(Context, Type, RequestIEs), ReqInfo).
 
 %% delete_context(From, #context_state{ebi = EBI} = Context) ->
 delete_context(From, Context) ->

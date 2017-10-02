@@ -244,6 +244,7 @@ all_tests() ->
      create_session_request_accept_new,
      path_restart, path_restart_recovery,
      simple_session,
+     simple_session_random_port,
      duplicate_session_request,
      create_session_overload_response,
      create_session_request_resend,
@@ -252,6 +253,8 @@ all_tests() ->
      modify_bearer_request_ra_update,
      modify_bearer_request_tei_update,
      modify_bearer_command,
+     modify_bearer_command_timeout,
+     modify_bearer_command_congestion,
      update_bearer_request,
      change_notification_request_with_tei,
      change_notification_request_without_tei,
@@ -287,11 +290,14 @@ init_per_testcase(delete_session_request_resend, Config) ->
 init_per_testcase(TestCase, Config)
   when TestCase == delete_bearer_request_resend;
        TestCase == delete_bearer_request_invalid_teid;
-       TestCase == delete_bearer_request_late_response ->
+       TestCase == delete_bearer_request_late_response;
+       TestCase == modify_bearer_command_timeout ->
     init_per_testcase(Config),
     ok = meck:expect(gtp_socket, send_request,
 		     fun(GtpPort, DstIP, DstPort, _T3, _N3,
-			 #gtp{type = delete_bearer_request} = Msg, CbInfo) ->
+			 #gtp{type = Type} = Msg, CbInfo)
+			   when Type == delete_bearer_request;
+				Type == update_bearer_request ->
 			     %% reduce timeout to 1 second and 2 resends
 			     %% to speed up the test
 			     meck:passthrough([GtpPort, DstIP, DstPort, 1000, 2, Msg, CbInfo]);
@@ -365,7 +371,8 @@ end_per_testcase(delete_session_request_resend, Config) ->
 end_per_testcase(TestCase, Config)
   when TestCase == delete_bearer_request_resend;
        TestCase == delete_bearer_request_invalid_teid;
-       TestCase == delete_bearer_request_late_response ->
+       TestCase == delete_bearer_request_late_response;
+       TestCase == modify_bearer_command_timeout ->
     ok = meck:delete(gtp_socket, send_request, 7),
     Config;
 end_per_testcase(simple_session, Config) ->
@@ -520,6 +527,32 @@ simple_session(Config) ->
     ok.
 
 %%--------------------------------------------------------------------
+simple_session_random_port() ->
+    [{doc, "Check simple Create Session, Delete Session sequence"}].
+simple_session_random_port(Config) ->
+    Cntl = start_gtpc_server(Config),
+    S = make_gtp_socket(0, Config),
+
+    init_seq_no(?MODULE, 16#80000),
+    GtpC0 = gtp_context(?MODULE),
+
+    {GtpC1, _, _} = create_session(S, GtpC0),
+    delete_session(S, GtpC1),
+    stop_gtpc_server(Cntl),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    meck_validate(Config),
+
+    GtpRecMatch0 = list_to_tuple([gtp | lists:duplicate(record_info(size, gtp) - 1, '_')]),
+    GtpRecMatch = GtpRecMatch0#gtp{type = create_session_request},
+
+    P = meck:capture(first, ?HUT, handle_request, ['_', GtpRecMatch, '_', '_'], 2),
+    ?match(#gtp{seq_no = SeqNo} when SeqNo >= 16#80000, P),
+
+    ?equal([], outstanding_requests()),
+    ok.
+
+%%--------------------------------------------------------------------
 duplicate_session_request() ->
     [{doc, "Check the a new incomming request for the same IMSI terminates the first"}].
 duplicate_session_request(Config) ->
@@ -643,7 +676,8 @@ modify_bearer_request_tei_update(Config) ->
 modify_bearer_command() ->
     [{doc, "Check Modify Bearer Command"}].
 modify_bearer_command(Config) ->
-    S = make_gtp_socket(Config),
+    Cntl = start_gtpc_server(Config),
+    S = make_gtp_socket(0, Config),
 
     {GtpC1, _, _} = create_session(S),
     {GtpC2, Req0} = modify_bearer_command(simple, S, GtpC1),
@@ -655,7 +689,66 @@ modify_bearer_command(Config) ->
 
     ?equal({ok, timeout}, recv_pdu(S, Req1#gtp.seq_no, ?TIMEOUT, ok)),
     ?equal([], outstanding_requests()),
+
     delete_session(S, GtpC2),
+    stop_gtpc_server(Cntl),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+modify_bearer_command_timeout() ->
+    [{doc, "Check Modify Bearer Command"}].
+modify_bearer_command_timeout(Config) ->
+    Cntl = start_gtpc_server(Config),
+    S = make_gtp_socket(0, Config),
+
+    {GtpC1, _, _} = create_session(S),
+    {GtpC2, Req0} = modify_bearer_command(simple, S, GtpC1),
+
+    Req1 = recv_pdu(S, Req0#gtp.seq_no, ?TIMEOUT, ok),
+    validate_response(modify_bearer_command, simple, Req1, GtpC2),
+    ?equal(Req1, recv_pdu(S, 5000)),
+    ?equal(Req1, recv_pdu(S, 5000)),
+
+    Req2 = recv_pdu(Cntl, 5000),
+    ?match(#gtp{type = delete_bearer_request}, Req2),
+    ?equal(Req2, recv_pdu(Cntl, 5000)),
+    ?equal(Req2, recv_pdu(Cntl, 5000)),
+
+    wait4tunnels(20000),
+
+    stop_gtpc_server(Cntl),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+modify_bearer_command_congestion() ->
+    [{doc, "Check Modify Bearer Command"}].
+modify_bearer_command_congestion(Config) ->
+    Cntl = start_gtpc_server(Config),
+    S = make_gtp_socket(0, Config),
+
+    {GtpC1, _, _} = create_session(S),
+    {GtpC2, Req0} = modify_bearer_command(simple, S, GtpC1),
+
+    Req1 = recv_pdu(S, Req0#gtp.seq_no, ?TIMEOUT, ok),
+    validate_response(modify_bearer_command, simple, Req1, GtpC2),
+    Resp1 = make_response(Req1, apn_congestion, GtpC2),
+    send_pdu(S, Resp1),
+
+    Req2 = recv_pdu(Cntl, 5000),
+    ?match(#gtp{type = delete_bearer_request}, Req2),
+    Resp2 = make_response(Req2, simple, GtpC2),
+    send_pdu(Cntl, Resp2),
+
+    ?equal({ok, timeout}, recv_pdu(S, Req2#gtp.seq_no, ?TIMEOUT, ok)),
+    ?equal([], outstanding_requests()),
+
+    stop_gtpc_server(Cntl),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
