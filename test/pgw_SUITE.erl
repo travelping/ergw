@@ -583,7 +583,8 @@ modify_bearer_request_tei_update(Config) ->
 modify_bearer_command() ->
     [{doc, "Check Modify Bearer Command"}].
 modify_bearer_command(Config) ->
-    S = make_gtp_socket(Config),
+    Cntl = start_gtpc_server(Config),
+    S = make_gtp_socket(0, Config),
 
     {GtpC1, _, _} = create_session(S),
     {GtpC2, Req0} = modify_bearer_command(simple, S, GtpC1),
@@ -597,6 +598,7 @@ modify_bearer_command(Config) ->
     ?equal([], outstanding_requests()),
 
     delete_session(S, GtpC2),
+    stop_gtpc_server(Cntl),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
@@ -606,7 +608,8 @@ modify_bearer_command(Config) ->
 modify_bearer_command_timeout() ->
     [{doc, "Check Modify Bearer Command"}].
 modify_bearer_command_timeout(Config) ->
-    S = make_gtp_socket(Config),
+    Cntl = start_gtpc_server(Config),
+    S = make_gtp_socket(0, Config),
 
     {GtpC1, _, _} = create_session(S),
     {GtpC2, Req0} = modify_bearer_command(simple, S, GtpC1),
@@ -616,10 +619,12 @@ modify_bearer_command_timeout(Config) ->
     ?equal(Req1, recv_pdu(S, 5000)),
     ?equal(Req1, recv_pdu(S, 5000)),
 
-    Req2 = recv_pdu(S, 5000),
+    Req2 = recv_pdu(Cntl, 5000),
     ?match(#gtp{type = delete_bearer_request}, Req2),
-    ?equal(Req2, recv_pdu(S, 5000)),
-    ?equal(Req2, recv_pdu(S, 5000)),
+    ?equal(Req2, recv_pdu(Cntl, 5000)),
+    ?equal(Req2, recv_pdu(Cntl, 5000)),
+
+    stop_gtpc_server(Cntl),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
@@ -629,7 +634,8 @@ modify_bearer_command_timeout(Config) ->
 modify_bearer_command_congestion() ->
     [{doc, "Check Modify Bearer Command"}].
 modify_bearer_command_congestion(Config) ->
-    S = make_gtp_socket(Config),
+    Cntl = start_gtpc_server(Config),
+    S = make_gtp_socket(0, Config),
 
     {GtpC1, _, _} = create_session(S),
     {GtpC2, Req0} = modify_bearer_command(simple, S, GtpC1),
@@ -639,13 +645,15 @@ modify_bearer_command_congestion(Config) ->
     Resp1 = make_response(Req1, apn_congestion, GtpC2),
     send_pdu(S, Resp1),
 
-    Req2 = recv_pdu(S, 5000),
+    Req2 = recv_pdu(Cntl, 5000),
     ?match(#gtp{type = delete_bearer_request}, Req2),
     Resp2 = make_response(Req2, simple, GtpC2),
-    send_pdu(S, Resp2),
+    send_pdu(Cntl, Resp2),
 
     ?equal({ok, timeout}, recv_pdu(S, Req2#gtp.seq_no, ?TIMEOUT, ok)),
     ?equal([], outstanding_requests()),
+
+    stop_gtpc_server(Cntl),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
