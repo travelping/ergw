@@ -659,4 +659,4 @@ pgw_send_request(#context{control_port = GtpPort,
 			  remote_control_ip = RemoteCntlIP},
 		 T3, N3, Type, RequestIEs, From) ->
     Msg = #gtp{version = v2, type = Type, tei = RemoteCntlTEI, ie = RequestIEs},
-    gtp_context:send_request(GtpPort, RemoteCntlIP, T3, N3, Msg, From).
+    gtp_context:send_request(GtpPort, RemoteCntlIP, ?GTP2c_PORT, T3, N3, Msg, From).

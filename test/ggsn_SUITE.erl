@@ -145,13 +145,13 @@ init_per_testcase(TestCase, Config)
   when TestCase == delete_pdp_context_requested_resend ->
     init_per_testcase(Config),
     ok = meck:expect(gtp_socket, send_request,
-		     fun(GtpPort, RemoteIP, _T3, _N3,
+		     fun(GtpPort, DstIP, DstPort, _T3, _N3,
 			 #gtp{type = delete_pdp_context_request} = Msg, CbInfo) ->
 			     %% reduce timeout to 1 second and 2 resends
 			     %% to speed up the test
-			     meck:passthrough([GtpPort, RemoteIP, 1000, 2, Msg, CbInfo]);
-			(GtpPort, RemoteIP, T3, N3, Msg, CbInfo) ->
-			     meck:passthrough([GtpPort, RemoteIP, T3, N3, Msg, CbInfo])
+			     meck:passthrough([GtpPort, DstIP, DstPort, 1000, 2, Msg, CbInfo]);
+			(GtpPort, DstIP, DstPort, T3, N3, Msg, CbInfo) ->
+			     meck:passthrough([GtpPort, DstIP, DstPort, T3, N3, Msg, CbInfo])
 		     end),
     Config;
 init_per_testcase(request_fast_resend, Config) ->

@@ -683,7 +683,7 @@ msg(#context{remote_control_tei = RemoteCntlTEI}, Type, RequestIEs) ->
 send_request_msg(#context{control_port = GtpPort,
 			  remote_control_ip = RemoteCntlIP},
 		 T3, N3, Msg, ReqInfo) ->
-    gtp_context:send_request(GtpPort, RemoteCntlIP, T3, N3, Msg, ReqInfo).
+    gtp_context:send_request(GtpPort, RemoteCntlIP, ?GTP2c_PORT, T3, N3, Msg, ReqInfo).
 
 send_request(Context, T3, N3, Type, RequestIEs, ReqInfo) ->
     send_request_msg(Context, T3, N3, msg(Context, Type, RequestIEs), ReqInfo).

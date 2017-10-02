@@ -15,7 +15,7 @@
 -export([validate_options/1,
 	 start_socket/2, start_link/1,
 	 send/4, send_response/3,
-	 send_request/5, send_request/6, resend_request/2,
+	 send_request/6, send_request/7, resend_request/2,
 	 get_restart_counter/1]).
 -export([get_request_q/1, get_response_q/1, get_seq_no/2]).
 
@@ -50,6 +50,7 @@
 -record(send_req, {
 	  req_id  :: term(),
 	  address :: inet:ip_address(),
+	  port    :: inet:port_number(),
 	  t3      :: non_neg_integer(),
 	  n3      :: non_neg_integer(),
 	  data    :: binary(),
@@ -95,19 +96,21 @@ send_response(#request{gtp_port = GtpPort, ip = RemoteIP} = ReqKey, Msg, DoCache
     Data = gtp_packet:encode(Msg),
     cast(GtpPort, {send_response, ReqKey, Data, DoCache}).
 
-send_request(#gtp_port{type = 'gtp-c'} = GtpPort, RemoteIP, T3, N3,
+send_request(#gtp_port{type = 'gtp-c'} = GtpPort, DstIP, DstPort, T3, N3,
 	     Msg = #gtp{version = Version}, CbInfo) ->
-    lager:debug("~p: gtp_socket send_request to ~p: ~p", [self(), RemoteIP, Msg]),
+    lager:debug("~p: gtp_socket send_request to ~s:~w: ~p",
+		[self(), inet:ntoa(DstIP), DstPort, Msg]),
 
-    cast(GtpPort, make_send_req(undefined, RemoteIP, T3, N3, Msg, CbInfo)),
-    gtp_path:maybe_new_path(GtpPort, Version, RemoteIP).
+    cast(GtpPort, make_send_req(undefined, DstIP, DstPort, T3, N3, Msg, CbInfo)),
+    gtp_path:maybe_new_path(GtpPort, Version, DstIP).
 
-send_request(#gtp_port{type = 'gtp-c'} = GtpPort, RemoteIP, ReqId,
+send_request(#gtp_port{type = 'gtp-c'} = GtpPort, DstIP, DstPort, ReqId,
 	     Msg = #gtp{version = Version}, CbInfo) ->
-    lager:debug("~p: gtp_socket send_request ~p to ~p: ~p", [self(), ReqId, RemoteIP, Msg]),
+    lager:debug("~p: gtp_socket send_request ~p to ~s:~w: ~p",
+		[self(), ReqId, inet:ntoa(DstIP), DstPort, Msg]),
 
-    cast(GtpPort, make_send_req(ReqId, RemoteIP, ?T3 * 2, 0, Msg, CbInfo)),
-    gtp_path:maybe_new_path(GtpPort, Version, RemoteIP).
+    cast(GtpPort, make_send_req(ReqId, DstIP, DstPort, ?T3 * 2, 0, Msg, CbInfo)),
+    gtp_path:maybe_new_path(GtpPort, Version, DstIP).
 
 resend_request(#gtp_port{type = 'gtp-c'} = GtpPort, ReqId) ->
     cast(GtpPort, {resend_request, ReqId}).
@@ -348,10 +351,11 @@ new_sequence_number(#gtp{version = v2} = Msg, #state{v2_seq_no = SeqNo} = State)
 make_seq_id(#gtp{version = Version, seq_no = SeqNo}) ->
     {Version, SeqNo}.
 
-make_send_req(ReqId, Address, T3, N3, Msg, CbInfo) ->
+make_send_req(ReqId, Address, Port, T3, N3, Msg, CbInfo) ->
     #send_req{
        req_id = ReqId,
        address = Address,
+       port = Port,
        t3 = T3,
        n3 = N3,
        msg = gtp_packet:encode_ies(Msg),
@@ -557,9 +561,6 @@ take_request(SeqId, #state{pending = PendingIn} = State) ->
 	    {Req, State#state{pending = PendingOut}}
     end.
 
-sendto(RemoteIP, Data, State) ->
-    sendto(RemoteIP, ?GTP1c_PORT, Data, State).
-
 sendto({_,_,_,_} = RemoteIP, Port, Data, #state{socket = Socket}) ->
     gen_socket:sendto(Socket, {inet4, RemoteIP, Port}, Data);
 sendto({_,_,_,_,_,_,_,_} = RemoteIP, Port, Data, #state{socket = Socket}) ->
@@ -568,8 +569,8 @@ sendto({_,_,_,_,_,_,_,_} = RemoteIP, Port, Data, #state{socket = Socket}) ->
 send_request_reply(#send_req{cb_info = {M, F, A}}, Reply) ->
     apply(M, F, A ++ [Reply]).
 
-send_request(#send_req{address = RemoteIP, data = Data} = SendReq, State0) ->
-    sendto(RemoteIP, Data, State0),
+send_request(#send_req{address = DstIP, port = DstPort, data = Data} = SendReq, State0) ->
+    sendto(DstIP, DstPort, Data, State0),
     State = start_request(SendReq, State0),
     request_q_in(SendReq, State).
 

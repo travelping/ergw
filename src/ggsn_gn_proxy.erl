@@ -594,7 +594,7 @@ send_request(#context{control_port = GtpPort,
 		      remote_control_ip = RemoteCntlIP},
 	     T3, N3, Type, RequestIEs) ->
     Msg = #gtp{version = v1, type = Type, tei = RemoteCntlTEI, ie = RequestIEs},
-    gtp_context:send_request(GtpPort, RemoteCntlIP, T3, N3, Msg, undefined).
+    gtp_context:send_request(GtpPort, RemoteCntlIP, ?GTP1c_PORT, T3, N3, Msg, undefined).
 
 initiate_delete_pdp_context_request(#context{state = #context_state{nsapi = NSAPI}} = Context) ->
     RequestIEs0 = [#cause{value = request_accepted},
