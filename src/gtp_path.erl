@@ -372,11 +372,11 @@ stop_echo_request(#state{echo_timer = EchoTRef} = State) ->
     end,
     State#state{echo_timer = stopped}.
 
-send_echo_request(#state{gtp_port = GtpPort, handler = Handler, ip = RemoteIP,
+send_echo_request(#state{gtp_port = GtpPort, handler = Handler, ip = DstIP,
 			 t3 = T3, n3 = N3} = State) ->
     Msg = Handler:build_echo_request(GtpPort),
     CbInfo = {?MODULE, handle_response, [self()]},
-    gtp_socket:send_request(GtpPort, RemoteIP, T3, N3, Msg, CbInfo),
+    gtp_socket:send_request(GtpPort, DstIP, ?GTP1c_PORT, T3, N3, Msg, CbInfo),
     State#state{echo_timer = awaiting_response} .
 
 echo_response(Msg, #state{echo = EchoInterval,

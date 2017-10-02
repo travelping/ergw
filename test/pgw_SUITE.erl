@@ -180,15 +180,15 @@ init_per_testcase(TestCase, Config)
        TestCase == modify_bearer_command_timeout ->
     init_per_testcase(Config),
     ok = meck:expect(gtp_socket, send_request,
-		     fun(GtpPort, RemoteIP, _T3, _N3,
+		     fun(GtpPort, DstIP, DstPort, _T3, _N3,
 			 #gtp{type = Type} = Msg, CbInfo)
 			   when Type == delete_bearer_request;
 				Type == update_bearer_request ->
 			     %% reduce timeout to 1 second and 2 resends
 			     %% to speed up the test
-			     meck:passthrough([GtpPort, RemoteIP, 1000, 2, Msg, CbInfo]);
-			(GtpPort, RemoteIP, T3, N3, Msg, CbInfo) ->
-			     meck:passthrough([GtpPort, RemoteIP, T3, N3, Msg, CbInfo])
+			     meck:passthrough([GtpPort, DstIP, DstPort, 1000, 2, Msg, CbInfo]);
+			(GtpPort, DstIP, DstPort, T3, N3, Msg, CbInfo) ->
+			     meck:passthrough([GtpPort, DstIP, DstPort, T3, N3, Msg, CbInfo])
 		     end),
     Config;
 init_per_testcase(request_fast_resend, Config) ->

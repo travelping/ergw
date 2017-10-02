@@ -23,7 +23,7 @@ forward_request(Direction,
 		Request, ReqKey, SeqNo, NewPeer) ->
     {ReqId, ReqInfo} = make_proxy_request(Direction, ReqKey, SeqNo, NewPeer),
     lager:debug("Invoking Context Send Request: ~p", [Request]),
-    gtp_context:send_request(GtpPort, RemoteCntlIP, ReqId, Request, ReqInfo).
+    gtp_context:send_request(GtpPort, RemoteCntlIP, ?GTP1c_PORT, ReqId, Request, ReqInfo).
 
 forward_request(#context{control_port = GtpPort}, ReqKey, Request) ->
     ReqId = make_request_id(ReqKey, Request),

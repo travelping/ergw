@@ -710,7 +710,7 @@ send_request(#context{control_port = GtpPort,
 		      remote_control_ip = RemoteCntlIP},
 	     T3, N3, Type, RequestIEs) ->
     Msg = #gtp{version = v2, type = Type, tei = RemoteCntlTEI, ie = RequestIEs},
-    gtp_context:send_request(GtpPort, RemoteCntlIP, T3, N3, Msg, undefined).
+    gtp_context:send_request(GtpPort, RemoteCntlIP, ?GTP2c_PORT, T3, N3, Msg, undefined).
 
 initiate_delete_session_request(#context{state = #context_state{ebi = EBI}} = Context) ->
     RequestIEs0 = [#v2_cause{v2_cause = network_failure},
