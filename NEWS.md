@@ -1,6 +1,13 @@
 erGW - 3GPP GGSN and PDN-GW in Erlang
 =====================================
 
+Version 1.16.0 - 03 Oct 2017
+----------------------------
+
+* change Modify Bearer Request SGW change detection for RAU/TAU/HO
+* change session collision detection to take only IMSI or IMEI, not both
+* implement destination port handling for GTPv2-C triggered request
+
 Version 1.15.0 - 29 Aug 2017
 ----------------------------
 
