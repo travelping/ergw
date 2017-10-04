@@ -227,6 +227,7 @@ all_tests() ->
      simple_pdp_context_request,
      create_pdp_context_request_resend,
      delete_pdp_context_request_resend,
+     delete_pdp_context_request_timeout,
      request_fast_resend,
      update_pdp_context_request_ra_update,
      update_pdp_context_request_tei_update,
@@ -258,6 +259,17 @@ init_per_testcase(Config) ->
 init_per_testcase(path_restart, Config) ->
     init_per_testcase(Config),
     ok = meck:new(gtp_path, [passthrough, no_link]),
+    Config;
+init_per_testcase(delete_pdp_context_request_timeout, Config) ->
+    init_per_testcase(Config),
+    ok = meck:new(ggsn_gn, [passthrough, no_link]),
+    ok = meck:expect(ggsn_gn, handle_request,
+		     fun(ReqKey, #gtp{type = delete_pdp_context_request}, _Resent, State) ->
+			     gtp_context:request_finished(ReqKey),
+			     {noreply, State};
+			(ReqKey, Msg, Resent, State) ->
+			     meck:passthrough([ReqKey, Msg, Resent, State])
+		     end),
     Config;
 init_per_testcase(TestCase, Config)
   when TestCase == delete_pdp_context_requested_resend;
@@ -327,6 +339,9 @@ init_per_testcase(_, Config) ->
 
 end_per_testcase(path_restart, Config) ->
     meck:unload(gtp_path),
+    Config;
+end_per_testcase(delete_pdp_context_request_timeout, Config) ->
+    ok = meck:unload(ggsn_gn),
     Config;
 end_per_testcase(TestCase, Config)
   when TestCase == delete_pdp_context_requested_resend;
@@ -522,6 +537,32 @@ delete_pdp_context_request_resend(Config) ->
     ok.
 
 %%--------------------------------------------------------------------
+delete_pdp_context_request_timeout() ->
+    [{doc, "Check that a Delete PDP Context Request terminates the "
+           "proxy session even when the final GSN fails"}].
+delete_pdp_context_request_timeout(Config) ->
+    S = make_gtp_socket(Config),
+
+    {GtpC, _, _} = create_pdp_context(S),
+    Context = gtp_context_reg:lookup_key(#gtp_port{name = 'remote-irx'},
+					 {imsi, ?'PROXY-IMSI', 5}),
+    true = is_pid(Context),
+
+    Request = make_request(delete_pdp_context_request, simple, GtpC),
+
+    %% simulate retransmissions
+    ?equal({error,timeout}, send_recv_pdu(S, Request, ?TIMEOUT, error)),
+    ?equal({error,timeout}, send_recv_pdu(S, Request, ?TIMEOUT, error)),
+    ?equal({error,timeout}, send_recv_pdu(S, Request, ?TIMEOUT, error)),
+
+    %% killing the GGSN context
+    exit(Context, kill),
+
+    wait4tunnels(20000),
+    ?equal([], outstanding_requests()),
+    meck_validate(Config),
+    ok.
+
 %%--------------------------------------------------------------------
 request_fast_resend() ->
     [{doc, "Check that a retransmission that arrives before the original "

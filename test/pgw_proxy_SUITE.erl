@@ -249,6 +249,7 @@ all_tests() ->
      create_session_overload_response,
      create_session_request_resend,
      delete_session_request_resend,
+     delete_session_request_timeout,
      request_fast_resend,
      modify_bearer_request_ra_update,
      modify_bearer_request_tei_update,
@@ -286,6 +287,17 @@ init_per_testcase(Config) ->
 init_per_testcase(delete_session_request_resend, Config) ->
     init_per_testcase(Config),
     ok = meck:new(gtp_path, [passthrough, no_link]),
+    Config;
+init_per_testcase(delete_session_request_timeout, Config) ->
+    init_per_testcase(Config),
+    ok = meck:new(pgw_s5s8, [passthrough, no_link]),
+    ok = meck:expect(pgw_s5s8, handle_request,
+		     fun(ReqKey, #gtp{type = delete_session_request}, _Resent, State) ->
+			     gtp_context:request_finished(ReqKey),
+			     {noreply, State};
+			(ReqKey, Msg, Resent, State) ->
+			     meck:passthrough([ReqKey, Msg, Resent, State])
+		     end),
     Config;
 init_per_testcase(TestCase, Config)
   when TestCase == delete_bearer_request_resend;
@@ -367,6 +379,9 @@ init_per_testcase(_, Config) ->
 
 end_per_testcase(delete_session_request_resend, Config) ->
     meck:unload(gtp_path),
+    Config;
+end_per_testcase(delete_session_request_timeout, Config) ->
+    ok = meck:unload(pgw_s5s8),
     Config;
 end_per_testcase(TestCase, Config)
   when TestCase == delete_bearer_request_resend;
@@ -603,6 +618,33 @@ delete_session_request_resend(Config) ->
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     ?match(0, meck:num_calls(?HUT, handle_request, ['_', '_', true, '_'])),
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+delete_session_request_timeout() ->
+    [{doc, "Check that a Delete Session Request terminates the "
+           "proxy session even when the final GSN fails"}].
+delete_session_request_timeout(Config) ->
+    S = make_gtp_socket(Config),
+
+    {GtpC, _, _} = create_session(S),
+    Context = gtp_context_reg:lookup_key(#gtp_port{name = 'remote-irx'},
+					 {imsi, ?'PROXY-IMSI', 5}),
+    true = is_pid(Context),
+
+    Request = make_request(delete_session_request, simple, GtpC),
+
+    %% simulate retransmissions
+    ?equal({error,timeout}, send_recv_pdu(S, Request, ?TIMEOUT, error)),
+    ?equal({error,timeout}, send_recv_pdu(S, Request, ?TIMEOUT, error)),
+    ?equal({error,timeout}, send_recv_pdu(S, Request, ?TIMEOUT, error)),
+
+    %% killing the PGW context
+    exit(Context, kill),
+
+    wait4tunnels(20000),
+    ?equal([], outstanding_requests()),
     meck_validate(Config),
     ok.
 
