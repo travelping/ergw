@@ -517,7 +517,7 @@ handle_response(ArrivalTS, IP, _Port, Msg, #state{gtp_port = GtpPort} = State0) 
     case Req of
 	none -> %% duplicate, drop silently
 	    message_counter(rx, GtpPort, IP, Msg, duplicate),
-	    lager:error("~p: invalid response: ~p, ~p", [self(), SeqId]),
+	    lager:debug("~p: duplicate response: ~p, ~p", [self(), SeqId, Msg]),
 	    State;
 
 	#send_req{} = SendReq ->
