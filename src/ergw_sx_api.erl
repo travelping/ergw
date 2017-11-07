@@ -5,7 +5,7 @@
 %% as published by the Free Software Foundation; either version
 %% 2 of the License, or (at your option) any later version.
 
--module(gtp_dp_api).
+-module(ergw_sx_api).
 
 -include("include/ergw.hrl").
 
@@ -26,14 +26,7 @@
 -callback get_id(GtpPort :: #gtp_port{}) ->
     Return :: term().
 
--callback create_pdp_context(Context :: #context{},
-			     Args :: [term()]) ->
-    Return :: term().
-
--callback update_pdp_context(Context :: #context{},
-			     Args :: [term()]) ->
-    Return :: term().
-
--callback delete_pdp_context(Context :: #context{},
-			     Args :: [term()]) ->
+-callback call(Context :: #context{},
+	       Request :: atom(),
+	       IEs :: map()) ->
     Return :: term().

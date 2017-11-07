@@ -18,7 +18,7 @@
 
 -define(DefaultOptions, [{plmn_id, {<<"001">>, <<"01">>}},
 			 {accept_new, true},
-			 {dp_handler, gtp_dp_kmod},
+			 {dp_handler, ergw_sx_erl},
 			 {sockets, []},
 			 {handlers, []},
 			 {vrfs, []},
@@ -136,7 +136,7 @@ validate_option(accept_new, Value) when is_boolean(Value) ->
     Value;
 validate_option(dp_handler, Value) when is_atom(Value) ->
     try
-	ok = ergw_loader:load(gtp_dp_api, gtp_dp, Value),
+	ok = ergw_loader:load(ergw_sx_api, ergw_sx, Value),
 	Value
     catch
 	error:{missing_exports, Missing} ->
@@ -189,7 +189,7 @@ validate_sockets_option(Opt, Values)
 	'gtp-c' ->
 	    gtp_socket:validate_options(Values);
 	'gtp-u' ->
-	    gtp_dp:validate_options(Values);
+	    ergw_sx:validate_options(Values);
 	_ ->
 	    throw({error, {options, {Opt, Values}}})
     end;
