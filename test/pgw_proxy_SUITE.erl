@@ -521,9 +521,7 @@ simple_session(Config) ->
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
 
-    GtpRecMatch0 = list_to_tuple([gtp | lists:duplicate(record_info(size, gtp) - 1, '_')]),
-    GtpRecMatch = GtpRecMatch0#gtp{type = create_session_request},
-
+    GtpRecMatch = #gtp{type = create_session_request, _ = '_'},
     P = meck:capture(first, ?HUT, handle_request, ['_', GtpRecMatch, '_', '_'], 2),
     ?match(#gtp{seq_no = SeqNo} when SeqNo >= 16#80000, P),
 
@@ -558,9 +556,7 @@ simple_session_random_port(Config) ->
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
 
-    GtpRecMatch0 = list_to_tuple([gtp | lists:duplicate(record_info(size, gtp) - 1, '_')]),
-    GtpRecMatch = GtpRecMatch0#gtp{type = create_session_request},
-
+    GtpRecMatch = #gtp{type = create_session_request, _ = '_'},
     P = meck:capture(first, ?HUT, handle_request, ['_', GtpRecMatch, '_', '_'], 2),
     ?match(#gtp{seq_no = SeqNo} when SeqNo >= 16#80000, P),
 
@@ -709,6 +705,12 @@ modify_bearer_request_tei_update(Config) ->
     {GtpC2, _, _} = modify_bearer(tei_update, S, GtpC1),
     ?equal([], outstanding_requests()),
     delete_session(S, GtpC2),
+
+    SMR = meck:capture(first, ergw_sx, call, [#context{apn = ?'APN-ExAmPlE', _='_'},
+					      session_modification_request, '_'], 3),
+    FAR = hd(maps:get(update_far, SMR)),
+    SxSMReqFlags = maps:get(sxsmreq_flags, FAR, []),
+    ?equal(true, proplists:get_bool(sndem, SxSMReqFlags)),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
@@ -1169,6 +1171,12 @@ interop_sgsn_to_sgw(Config) ->
     check_exo_contexts(v2, 3, 1),
     delete_session(S, GtpC2),
 
+    SMR = meck:capture(first, ergw_sx, call, [#context{apn = ?'APN-EXAMPLE', _='_'},
+					      session_modification_request, '_'], 3),
+    FAR = hd(maps:get(update_far, SMR)),
+    SxSMReqFlags = maps:get(sxsmreq_flags, FAR, []),
+    ?equal(false, proplists:get_bool(sndem, SxSMReqFlags)),
+
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
     true = meck:validate(ggsn_gn_proxy),
@@ -1191,6 +1199,12 @@ interop_sgw_to_sgsn(Config) ->
     check_exo_contexts(v1, 3, 1),
     check_exo_contexts(v2, 3, 0),
     ergw_ggsn_test_lib:delete_pdp_context(S, GtpC2),
+
+    SMR = meck:capture(first, ergw_sx, call, [#context{apn = ?'APN-ExAmPlE', _='_'},
+					      session_modification_request, '_'], 3),
+    FAR = hd(maps:get(update_far, SMR)),
+    SxSMReqFlags = maps:get(sxsmreq_flags, FAR, []),
+    ?equal(false, proplists:get_bool(sndem, SxSMReqFlags)),
 
     ?equal([], outstanding_requests()),
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),

@@ -264,7 +264,7 @@ handle_request(ReqKey,
     ProxyContext = gtp_path:bind(ProxyContext0),
 
     StateNew = State#{context => Context, proxy_context => ProxyContext},
-    forward_request(sgw2pgw, ReqKey, Request, StateNew),
+    forward_request(sgw2pgw, ReqKey, Request, StateNew, State),
 
     {noreply, StateNew};
 
@@ -285,7 +285,7 @@ handle_request(ReqKey,
     ProxyContext = update_path_bind(OldProxyContext#context{version = v2}, OldProxyContext),
 
     StateNew = State#{context => Context, proxy_context => ProxyContext},
-    forward_request(sgw2pgw, ReqKey, Request, StateNew),
+    forward_request(sgw2pgw, ReqKey, Request, StateNew, State),
 
     {noreply, StateNew};
 
@@ -296,7 +296,7 @@ handle_request(ReqKey,
   when ?IS_REQUEST_CONTEXT(ReqKey, Request, Context) ->
 
     State1 = bind_forward_path(sgw2pgw, Request, State0),
-    forward_request(sgw2pgw, ReqKey, Request, State1),
+    forward_request(sgw2pgw, ReqKey, Request, State1, State0),
 
     State = trigger_request(sgw2pgw, ReqKey, Request, State1),
 
@@ -313,7 +313,7 @@ handle_request(ReqKey,
   when ?IS_REQUEST_CONTEXT_OPTIONAL_TEI(ReqKey, Request, Context) ->
 
     StateNew = bind_forward_path(sgw2pgw, Request, State),
-    forward_request(sgw2pgw, ReqKey, Request, StateNew),
+    forward_request(sgw2pgw, ReqKey, Request, StateNew, State),
 
     {noreply, StateNew};
 
@@ -329,7 +329,7 @@ handle_request(ReqKey,
        ?IS_REQUEST_CONTEXT(ReqKey, Request, Context) ->
 
     StateNew = bind_forward_path(sgw2pgw, Request, State),
-    forward_request(sgw2pgw, ReqKey, Request, StateNew),
+    forward_request(sgw2pgw, ReqKey, Request, StateNew, State),
 
     {noreply, StateNew};
 
@@ -343,7 +343,7 @@ handle_request(ReqKey,
   when ?IS_REQUEST_CONTEXT(ReqKey, Request, ProxyContext) ->
 
     State = bind_forward_path(pgw2sgw, Request, State0),
-    forward_request(pgw2sgw, ReqKey, Request, State),
+    forward_request(pgw2sgw, ReqKey, Request, State, State),
     {noreply, State};
 
 %%
@@ -354,7 +354,7 @@ handle_request(ReqKey,
 	       #{context := Context} = State0)
   when ?IS_REQUEST_CONTEXT(ReqKey, Request, Context) ->
 
-    forward_request(sgw2pgw, ReqKey, Request, State0),
+    forward_request(sgw2pgw, ReqKey, Request, State0, State0),
 
     Msg = {delete_session_request, sgw2pgw, ReqKey, Request},
     State = restart_timeout(?RESPONSE_TIMEOUT, Msg, State0),
@@ -369,7 +369,7 @@ handle_request(ReqKey,
 	       #{proxy_context := ProxyContext} = State0)
   when ?IS_REQUEST_CONTEXT(ReqKey, Request, ProxyContext) ->
 
-    forward_request(pgw2sgw, ReqKey, Request, State0),
+    forward_request(pgw2sgw, ReqKey, Request, State0, State0),
 
     Msg = {delete_bearer_request, pgw2sgw, ReqKey, Request},
     State = restart_timeout(?RESPONSE_TIMEOUT, Msg, State0),
@@ -406,7 +406,9 @@ handle_response(#proxy_request{direction = sgw2pgw} = ProxyRequest,
 	    {stop, State}
     end;
 
-handle_response(#proxy_request{direction = sgw2pgw} = ProxyRequest,
+handle_response(#proxy_request{direction = sgw2pgw,
+			       context = PrevContext,
+			       proxy_ctx = PrevProxyCtx} = ProxyRequest,
 		#gtp{type = modify_bearer_response} = Response, _Request,
 		#{context := Context,
 		  proxy_context := OldProxyContext} = State) ->
@@ -416,7 +418,7 @@ handle_response(#proxy_request{direction = sgw2pgw} = ProxyRequest,
     gtp_context:remote_context_update(OldProxyContext, ProxyContext),
 
     forward_response(ProxyRequest, Response, Context),
-    ergw_proxy_lib:modify_forward_session(Context, Context, OldProxyContext, ProxyContext),
+    ergw_proxy_lib:modify_forward_session(PrevContext, Context, PrevProxyCtx, ProxyContext),
 
     {noreply, State#{proxy_context => ProxyContext}};
 
@@ -716,20 +718,21 @@ forward_request(Direction, ReqKey,
 		#gtp{seq_no = ReqSeqNo,
 		     ie = #{?'Recovery' := Recovery}} = Request,
 		#{last_trigger_id :=
-		      {ReqSeqNo, LastFwdSeqNo, GtpPort, SrcIP, SrcPort}} = State) ->
+		      {ReqSeqNo, LastFwdSeqNo, GtpPort, SrcIP, SrcPort}} = State,
+	       StateOld) ->
 
     Context = forward_context(Direction, State),
     FwdReq = build_context_request(Context, false, LastFwdSeqNo, Request),
     ergw_proxy_lib:forward_request(Direction, GtpPort, SrcIP, SrcPort, FwdReq, ReqKey,
-				   ReqSeqNo, Recovery /= undefined);
+				   ReqSeqNo, Recovery /= undefined, StateOld);
 forward_request(Direction, ReqKey,
 		#gtp{seq_no = ReqSeqNo,
 		     ie = #{?'Recovery' := Recovery}} = Request,
-		State) ->
+		State, StateOld) ->
     Context = forward_context(Direction, State),
     FwdReq = build_context_request(Context, false, undefined, Request),
     ergw_proxy_lib:forward_request(Direction, Context, FwdReq, ReqKey,
-				   ReqSeqNo, Recovery /= undefined).
+				   ReqSeqNo, Recovery /= undefined, StateOld).
 
 trigger_request(Direction, #request{gtp_port = GtpPort, ip = SrcIP, port = SrcPort} = ReqKey,
 		#gtp{seq_no = SeqNo} = Request, State) ->

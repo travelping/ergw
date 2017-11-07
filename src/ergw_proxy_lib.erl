@@ -8,7 +8,7 @@
 -module(ergw_proxy_lib).
 
 -export([validate_options/3, validate_option/2,
-	 forward_request/3, forward_request/6, forward_request/8,
+	 forward_request/3, forward_request/7, forward_request/9,
 	 get_seq_no/3]).
 -export([create_forward_session/2,
 	 modify_forward_session/4,
@@ -22,17 +22,17 @@
 %%%===================================================================
 
 forward_request(Direction, GtpPort, DstIP, DstPort,
-		Request, ReqKey, SeqNo, NewPeer) ->
-    {ReqId, ReqInfo} = make_proxy_request(Direction, ReqKey, SeqNo, NewPeer),
+		Request, ReqKey, SeqNo, NewPeer, OldState) ->
+    {ReqId, ReqInfo} = make_proxy_request(Direction, ReqKey, SeqNo, NewPeer, OldState),
     lager:debug("Invoking Context Send Request: ~p", [Request]),
     gtp_context:send_request(GtpPort, DstIP, DstPort, ReqId, Request, ReqInfo).
 
 forward_request(Direction,
 		#context{control_port = GtpPort,
 			 remote_control_ip = RemoteCntlIP},
-		Request, ReqKey, SeqNo, NewPeer) ->
+		Request, ReqKey, SeqNo, NewPeer, OldState) ->
     forward_request(Direction, GtpPort, RemoteCntlIP, ?GTP1c_PORT,
-		    Request, ReqKey, SeqNo, NewPeer).
+		    Request, ReqKey, SeqNo, NewPeer, OldState).
 
 forward_request(#context{control_port = GtpPort}, ReqKey, Request) ->
     ReqId = make_request_id(ReqKey, Request),
@@ -100,13 +100,15 @@ make_request_id(#request{key = ReqKey}, SeqNo)
   when is_integer(SeqNo) ->
     {ReqKey, SeqNo}.
 
-make_proxy_request(Direction, Request, SeqNo, NewPeer) ->
+make_proxy_request(Direction, Request, SeqNo, NewPeer, State) ->
     ReqId = make_request_id(Request, SeqNo),
     ReqInfo = #proxy_request{
 		 direction = Direction,
 		 request = Request,
 		 seq_no = SeqNo,
-		 new_peer = NewPeer
+		 new_peer = NewPeer,
+		 context = maps:get(context, State, undefined),
+		 proxy_ctx = maps:get(proxy_context, State, undefined)
 		},
     {ReqId, ReqInfo}.
 
@@ -173,17 +175,19 @@ update_pdr({_RuleId, _OldIn, _NewIn}, PDRs) ->
     PDRs.
 
 update_far({RuleId,
-	    #context{data_port = #gtp_port{name = OldOutPortName},
+	    #context{version = OldVersion,
+		     data_port = #gtp_port{name = OldOutPortName},
 		     remote_data_ip = OldPeerIP,
 		     remote_data_tei = OldRemoteTEI},
-	    #context{data_port = #gtp_port{name = NewOutPortName},
+	    #context{version = NewVersion,
+		     data_port = #gtp_port{name = NewOutPortName},
 		     remote_data_ip = NewPeerIP,
 		     remote_data_tei = NewRemoteTEI}},
 	   FARs)
   when OldOutPortName /= NewOutPortName;
        OldPeerIP /= NewPeerIP;
        OldRemoteTEI /= NewRemoteTEI ->
-    FAR = #{
+    FAR0 = #{
       far_id => RuleId,
       apply_action => [forward],
       update_forwarding_parameters => #{
@@ -191,6 +195,12 @@ update_far({RuleId,
 	outer_header_creation => #f_teid{ipv4 = NewPeerIP, teid = NewRemoteTEI}
        }
      },
+    FAR = if v2 =:= NewVersion andalso
+	     v2 =:= OldVersion ->
+		  FAR0#{sxsmreq_flags => [sndem]};
+	     true ->
+		  FAR0
+	  end,
     [FAR | FARs];
 
 update_far({_RuleId, _OldOut, _NewOut}, FARs) ->
