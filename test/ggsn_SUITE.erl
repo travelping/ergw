@@ -29,7 +29,7 @@
 		  %% force lager into async logging, otherwise
 		  %% the test will timeout randomly
 		  {async_threshold, undefined},
-		  {handlers, [{lager_console_backend, info}]}
+		  {handlers, [{lager_console_backend, [{level, info}]}]}
 		 ]},
 
 	 {ergw, [{dp_handler, '$meck'},
