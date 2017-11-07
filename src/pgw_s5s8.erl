@@ -92,27 +92,28 @@ handle_call(delete_context, From, #{context := Context} = State) ->
     {noreply, State};
 
 handle_call(terminate_context, _From, #{context := Context} = State) ->
-    dp_delete_pdp_context(Context),
+    ergw_gsn_lib:delete_sgi_session(Context),
     pdn_release_ip(Context),
     {stop, normal, ok, State};
 
 handle_call({path_restart, Path}, _From,
 	    #{context := #context{path = Path} = Context} = State) ->
-    dp_delete_pdp_context(Context),
+    ergw_gsn_lib:delete_sgi_session(Context),
     pdn_release_ip(Context),
     {stop, normal, ok, State};
 handle_call({path_restart, _Path}, _From, State) ->
     {reply, ok, State}.
 
-handle_cast({packet_in, _GtpPort, _IP, _Port, #gtp{type = error_indication}},
-	    #{context := Context} = State) ->
-    dp_delete_pdp_context(Context),
-    pdn_release_ip(Context),
-    {stop, normal, State};
-
 handle_cast({packet_in, _GtpPort, _IP, _Port, _Msg}, State) ->
     lager:warning("packet_in not handled (yet): ~p", [_Msg]),
     {noreply, State}.
+
+handle_info({_, session_report_request,
+	     #{report_type := [error_indication_report]}},
+	    #{context := Context} = State) ->
+    ergw_gsn_lib:delete_sgi_session(Context),
+    pdn_release_ip(Context),
+    {stop, normal, State};
 
 handle_info(_Info, State) ->
     {noreply, State}.
@@ -178,7 +179,7 @@ handle_request(_ReqKey,
     ContextPending = assign_ips(ActiveSessionOpts, PAA, ContextVRF),
 
     gtp_context:remote_context_register_new(ContextPending),
-    Context = dp_create_pdp_context(ContextPending),
+    Context = ergw_gsn_lib:create_sgi_session(ContextPending),
 
     ResponseIEs = create_session_response(ActiveSessionOpts, IEs, EBI, Context),
     Response = response(create_session_response, Context, ResponseIEs, Request),
@@ -313,7 +314,7 @@ handle_request(_ReqKey,
 
     case Result of
 	{ok, {ReplyIEs, State}} ->
-	    dp_delete_pdp_context(Context),
+	    ergw_gsn_lib:delete_sgi_session(Context),
 	    pdn_release_ip(Context),
 	    Reply = response(delete_session_response, Context, ReplyIEs),
 	    {stop, Reply, State};
@@ -357,7 +358,7 @@ handle_response(_, timeout, #gtp{type = update_bearer_request},
 
 handle_response(From, timeout, #gtp{type = delete_bearer_request},
 		#{context := Context} = State) ->
-    dp_delete_pdp_context(Context),
+    ergw_gsn_lib:delete_sgi_session(Context),
     pdn_release_ip(Context),
     if is_tuple(From) -> gen_server:reply(From, {error, timeout});
        true -> ok
@@ -370,7 +371,7 @@ handle_response(From,
 		_Request,
 		#{context := Context0} = State) ->
     Context = gtp_path:bind(Response, Context0),
-    dp_delete_pdp_context(Context),
+    ergw_gsn_lib:delete_sgi_session(Context),
     pdn_release_ip(Context),
     if is_tuple(From) -> gen_server:reply(From, {ok, Cause});
        true -> ok
@@ -460,7 +461,7 @@ pdn_release_ip(#context{vrf = VRF, ms_v4 = MSv4, ms_v6 = MSv6}) ->
 
 apply_context_change(NewContext0, OldContext, State) ->
     NewContextPending = gtp_path:bind(NewContext0),
-    NewContext = dp_update_pdp_context(NewContextPending, OldContext),
+    NewContext = ergw_gsn_lib:modify_sgi_session(NewContextPending, OldContext),
     gtp_path:unbind(OldContext),
     State#{context => NewContext}.
 
@@ -671,11 +672,6 @@ copy_ies_to_response(RequestIEs, ResponseIEs0, [H|T]) ->
     copy_ies_to_response(RequestIEs, ResponseIEs, T).
 
 
-send_end_marker(#context{data_port = GtpPort, remote_data_ip = PeerIP, remote_data_tei = RemoteTEI}) ->
-    Msg = #gtp{version = v1, type = end_marker, tei = RemoteTEI, ie = []},
-    Data = gtp_packet:encode(Msg),
-    gtp_dp:send(GtpPort, PeerIP, ?GTP1u_PORT, Data).
-
 msg(#context{remote_control_tei = RemoteCntlTEI}, Type, RequestIEs) ->
     #gtp{version = v2, type = Type, tei = RemoteCntlTEI, ie = RequestIEs}.
 
@@ -697,34 +693,6 @@ delete_context(From, Context) ->
 		   #v2_eps_bearer_id{eps_bearer_id = EBI}],
     RequestIEs = gtp_v2_c:build_recovery(Context, false, RequestIEs0),
     send_request(Context, ?T3, ?N3, delete_bearer_request, RequestIEs, From).
-
-dp_args(#context{ms_v4 = {MSv4,_}}) ->
-    MSv4;
-dp_args(_) ->
-    undefined.
-
-dp_create_pdp_context(Context) ->
-    Args = dp_args(Context),
-    gtp_dp:create_pdp_context(Context, Args).
-
-dp_update_pdp_context(#context{remote_data_ip  = RemoteDataIP, remote_data_tei = RemoteDataTEI
-			      } = New ,
-		      #context{remote_data_ip  = RemoteDataIP, remote_data_tei = RemoteDataTEI}) ->
-    New;
-dp_update_pdp_context(#context{version = NewVersion} = NewContext,
-		      #context{version = OldVersion} = OldContext) ->
-    dp_delete_pdp_context(OldContext),
-    if NewVersion =:= OldVersion ->
-	    %% end markers are only used for SGW relocation procedures, not for SGSN/SGW handovers
-	    send_end_marker(OldContext);
-       true ->
-	    ok
-    end,
-    dp_create_pdp_context(NewContext).
-
-dp_delete_pdp_context(Context) ->
-    Args = dp_args(Context),
-    gtp_dp:delete_pdp_context(Context, Args).
 
 session_ipv4_alloc(#{'Framed-IP-Address' := {255,255,255,255}}, ReqMSv4) ->
     ReqMSv4;
