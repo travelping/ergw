@@ -83,27 +83,28 @@ handle_call(delete_context, From, #{context := Context} = State) ->
     {noreply, State};
 
 handle_call(terminate_context, _From, #{context := Context} = State) ->
-    dp_delete_pdp_context(Context),
+    ergw_gsn_lib:delete_sgi_session(Context),
     pdp_release_ip(Context),
     {stop, normal, ok, State};
 
 handle_call({path_restart, Path}, _From,
 	    #{context := #context{path = Path} = Context} = State) ->
-    dp_delete_pdp_context(Context),
+    ergw_gsn_lib:delete_sgi_session(Context),
     pdp_release_ip(Context),
     {stop, normal, ok, State};
 handle_call({path_restart, _Path}, _From, State) ->
     {reply, ok, State}.
 
-handle_cast({packet_in, _GtpPort, _IP, _Port, #gtp{type = error_indication}},
-	    #{context := Context} = State) ->
-    dp_delete_pdp_context(Context),
-    pdp_release_ip(Context),
-    {stop, normal, State};
-
 handle_cast({packet_in, _GtpPort, _IP, _Port, _Msg}, State) ->
     lager:warning("packet_in not handled (yet): ~p", [_Msg]),
     {noreply, State}.
+
+handle_info({_, session_report_request,
+	     #{report_type := [error_indication_report]}},
+	    #{context := Context} = State) ->
+    ergw_gsn_lib:delete_sgi_session(Context),
+    pdp_release_ip(Context),
+    {stop, normal, State};
 
 handle_info(_Info, State) ->
     {noreply, State}.
@@ -143,7 +144,7 @@ handle_request(_ReqKey,
     ContextPending = assign_ips(ActiveSessionOpts, EUA, ContextVRF),
 
     gtp_context:remote_context_register_new(ContextPending),
-    Context = dp_create_pdp_context(ContextPending),
+    Context = ergw_gsn_lib:create_sgi_session(ContextPending),
 
     ResponseIEs = create_pdp_context_response(ActiveSessionOpts, IEs, Context),
     Reply = response(create_pdp_context_response, Context, ResponseIEs, Request),
@@ -189,7 +190,7 @@ handle_request(_ReqKey,
 	       #gtp{type = delete_pdp_context_request, ie = _IEs}, _Resent,
 	       #{context := Context} = State) ->
 
-    dp_delete_pdp_context(Context),
+    ergw_gsn_lib:delete_sgi_session(Context),
     pdp_release_ip(Context),
 
     Reply = response(delete_pdp_context_response, Context, request_accepted),
@@ -201,7 +202,7 @@ handle_request(ReqKey, _Msg, _Resent, State) ->
 
 handle_response(From, timeout, #gtp{type = delete_pdp_context_request},
 		#{context := Context} = State) ->
-    dp_delete_pdp_context(Context),
+    ergw_gsn_lib:delete_sgi_session(Context),
     pdp_release_ip(Context),
     gen_server:reply(From, {error, timeout}),
     {stop, State};
@@ -212,7 +213,7 @@ handle_response(From,
 		_Request,
 		#{context := Context0} = State) ->
     Context = gtp_path:bind(Response, Context0),
-    dp_delete_pdp_context(Context),
+    ergw_gsn_lib:delete_sgi_session(Context),
     pdp_release_ip(Context),
     gen_server:reply(From, {ok, Cause}),
     {stop, State#{context := Context}}.
@@ -304,7 +305,7 @@ pdp_release_ip(#context{vrf = VRF, ms_v4 = MSv4, ms_v6 = MSv6}) ->
 
 apply_context_change(NewContext0, OldContext, State) ->
     NewContextPending = gtp_path:bind(NewContext0),
-    NewContext = dp_update_pdp_context(NewContextPending, OldContext),
+    NewContext = ergw_gsn_lib:modify_sgi_session(NewContextPending, OldContext),
     gtp_path:unbind(OldContext),
     State#{context => NewContext}.
 
@@ -559,27 +560,6 @@ delete_context(From, Context) ->
 		   #teardown_ind{value = 1}],
     RequestIEs = gtp_v1_c:build_recovery(Context, false, RequestIEs0),
     send_request(Context, ?T3, ?N3, delete_pdp_context_request, RequestIEs, From).
-
-dp_args(#context{ms_v4 = {MSv4,_}}) ->
-    MSv4;
-dp_args(_) ->
-    undefined.
-
-dp_create_pdp_context(Context) ->
-    Args = dp_args(Context),
-    gtp_dp:create_pdp_context(Context, Args).
-
-dp_update_pdp_context(#context{remote_data_ip  = RemoteDataIP, remote_data_tei = RemoteDataTEI
-			      } = New,
-		      #context{remote_data_ip  = RemoteDataIP, remote_data_tei = RemoteDataTEI}) ->
-    New;
-dp_update_pdp_context(NewContext, OldContext) ->
-    dp_delete_pdp_context(OldContext),
-    dp_create_pdp_context(NewContext).
-
-dp_delete_pdp_context(Context) ->
-    Args = dp_args(Context),
-    gtp_dp:delete_pdp_context(Context, Args).
 
 session_ipv4_alloc(#{'Framed-IP-Address' := {255,255,255,255}}, ReqMSv4) ->
     ReqMSv4;

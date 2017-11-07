@@ -384,11 +384,10 @@ error_indication(Config) ->
     S = make_gtp_socket(Config),
 
     {_, _, Port} = lists:keyfind(grx, 1, gtp_socket_reg:all()),
-    ct:pal("Port: ~p", [Port]),
-
     {GtpC, _, _} = create_pdp_context(S),
-    gtp_context:handle_packet_in(Port, ?CLIENT_IP, ?GTP1u_PORT,
-				 make_error_indication(GtpC)),
+
+    gtp_context:session_report(Port, make_error_indication_report(GtpC)),
+
     ct:sleep(100),
     delete_pdp_context(not_found, S, GtpC),
 

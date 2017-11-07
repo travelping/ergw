@@ -5,17 +5,15 @@
 %% as published by the Free Software Foundation; either version
 %% 2 of the License, or (at your option) any later version.
 
--module(gtp_dp_kmod).
+-module(ergw_sx_erl).
 
 -behavior(gen_server).
--behavior(gtp_dp_api).
+-behavior(ergw_sx_api).
 
 %% API
 -export([validate_options/1,
 	 start_link/1, send/4, get_id/1,
-	 create_pdp_context/2,
-	 update_pdp_context/2,
-	 delete_pdp_context/2]).
+	 call/3]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -38,27 +36,15 @@ send(GtpPort, IP, Port, Data) ->
     cast(GtpPort, {send, IP, Port, Data}).
 
 get_id(GtpPort) ->
-    call(GtpPort, get_id).
+    call_port(GtpPort, get_id).
 
-create_pdp_context(#context{remote_data_ip = PeerIP,
-			    local_data_tei = LocalTEI,
-			    remote_data_tei = RemoteTEI} = Context, Args) ->
-    case dp_call(Context, {create_pdp_context, PeerIP, LocalTEI, RemoteTEI, Args}) of
+call(Context, Request, IEs) ->
+    case dp_call(Context, Request, IEs) of
 	{ok, Pid} when is_pid(Pid) ->
 	    Context#context{dp_pid = Pid};
 	_ ->
 	    Context
     end.
-
-update_pdp_context(#context{remote_data_ip = PeerIP,
-			    local_data_tei = LocalTEI,
-			    remote_data_tei = RemoteTEI} = Context, Args) ->
-    dp_call(Context, {update_pdp_context, PeerIP, LocalTEI, RemoteTEI, Args}).
-
-delete_pdp_context(#context{remote_data_ip = PeerIP,
-			    local_data_tei = LocalTEI,
-			    remote_data_tei = RemoteTEI} = Context, Args) ->
-    dp_call(Context, {delete_pdp_context, PeerIP, LocalTEI, RemoteTEI, Args}).
 
 %%%===================================================================
 %%% Options Validation
@@ -91,19 +77,19 @@ cast(GtpPort, Request) ->
     lager:warning("GTP DP Port ~p, CAST Request ~p not implemented yet",
 		  [lager:pr(GtpPort, ?MODULE), Request]).
 
-call(#gtp_port{pid = Handler}, Request)
+call_port(#gtp_port{pid = Handler}, Request)
   when is_pid(Handler) ->
     gen_server:call(Handler, Request);
-call(GtpPort, Request) ->
+call_port(GtpPort, Request) ->
     lager:warning("GTP DP Port ~p, CAST Request ~p not implemented yet",
 		  [lager:pr(GtpPort, ?MODULE), Request]).
 
-dp_call(#context{dp_pid = Pid}, Request) when is_pid(Pid) ->
-    lager:debug("DP Direct Call ~p: ~p", [Pid, Request]),
-    gen_server:call(Pid, Request);
-dp_call(#context{data_port = GtpPort}, Request) ->
-    lager:debug("DP Server Call ~p: ~p", [lager:pr(GtpPort, ?MODULE), Request]),
-    call(GtpPort, {dp, Request}).
+dp_call(#context{local_data_tei = TEI, dp_pid = Pid}, Request, IEs) when is_pid(Pid) ->
+    lager:debug("DP Direct Call ~p: ~p(~p)", [Pid, Request, IEs]),
+    gen_server:call(Pid, {TEI, Request, IEs});
+dp_call(#context{local_data_tei = TEI, data_port = GtpPort}, Request, IEs) ->
+    lager:debug("DP Server Call ~p: ~p(~p)", [lager:pr(GtpPort, ?MODULE), Request, IEs]),
+    call_port(GtpPort, {dp, TEI, Request, IEs}).
 
 %%%===================================================================
 %%% gen_server callbacks
@@ -119,9 +105,9 @@ init([Name, #{node := Node, name := RemoteName}]) ->
     State = connect(State0),
     {ok, State}.
 
-handle_call({dp, Request}, _From, #state{pid = Pid} = State) ->
-    lager:debug("DP Call ~p: ~p", [Pid, Request]),
-    Reply = gen_server:call(Pid, Request),
+handle_call({dp, TEI, Request, IEs}, _From, #state{pid = Pid} = State) ->
+    lager:debug("DP Call ~p: ~p(~p)", [Pid, Request, IEs]),
+    Reply = gen_server:call(Pid, {TEI, Request, IEs}),
     lager:debug("DP Call Reply: ~p", [Reply]),
     {reply, Reply, State};
 
@@ -153,9 +139,10 @@ handle_info(reconnect, State0) ->
     State = connect(State0#state{tref = undefined}),
     {noreply, State};
 
-handle_info({packet_in, IP, Port, Msg} = Info, #state{gtp_port = GtpPort} = State) ->
-    lager:debug("handle_info: ~p, ~p", [lager:pr(Info, ?MODULE), lager:pr(State, ?MODULE)]),
-    gtp_context:handle_packet_in(GtpPort, IP, Port, Msg),
+handle_info({_, session_report_request, _} = Report,
+	    #state{gtp_port = GtpPort} = State) ->
+    lager:debug("handle_info: ~p, ~p", [Report, lager:pr(State, ?MODULE)]),
+    gtp_context:session_report(GtpPort, Report),
     {noreply, State};
 
 handle_info(Info, State) ->

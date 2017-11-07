@@ -77,7 +77,7 @@ start_socket(Name, Opts)
 start_link('gtp-c', {Name, SocketOpts}) ->
     gen_server:start_link(?MODULE, [Name, SocketOpts], []);
 start_link('gtp-u', Socket) ->
-    gtp_dp:start_link(Socket).
+    ergw_sx:start_link(Socket).
 
 start_link(Socket = {_Name, #{type := Type}}) ->
     start_link(Type, Socket);
@@ -89,7 +89,7 @@ start_link(Socket = {_Name, SocketOpts})
 send(#gtp_port{type = 'gtp-c'} = GtpPort, IP, Port, Data) ->
     cast(GtpPort, {send, IP, Port, Data});
 send(#gtp_port{type = 'gtp-u'} = GtpPort, IP, Port, Data) ->
-    gtp_dp:send(GtpPort, IP, Port, Data).
+    ergw_sx:send(GtpPort, IP, Port, Data).
 
 send_response(#request{gtp_port = GtpPort, ip = RemoteIP} = ReqKey, Msg, DoCache) ->
     message_counter(tx, GtpPort, RemoteIP, Msg),

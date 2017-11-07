@@ -266,7 +266,7 @@ context2keys(#context{
 		remote_data_tei    = RemoteDataTEI}) ->
     ordsets:from_list(
       [{CntlPortName, {teid, 'gtp-c', LocalCntlTEI}},
-       {CntlPortName, {teid, 'gtp-u', LocalDataTEI}},
+       {DataPortName, {teid, 'gtp-u', LocalDataTEI}},
        {CntlPortName, {teid, 'gtp-c', RemoteCntlIP, RemoteCntlTEI}},
        {DataPortName, {teid, 'gtp-u', RemoteDataIP, RemoteDataTEI}}]
       ++ [{CntlPortName, ContextId} || ContextId /= undefined]).

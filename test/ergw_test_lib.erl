@@ -21,7 +21,7 @@
 	 gtp_context_inc_seq/1,
 	 gtp_context_inc_restart_counter/1,
 	 gtp_context_new_teids/1,
-	 make_error_indication/1]).
+	 make_error_indication_report/1]).
 -export([start_gtpc_server/1, stop_gtpc_server/1,
 	 make_gtp_socket/1, make_gtp_socket/2,
 	 send_pdu/2,
@@ -67,7 +67,7 @@ lib_init_per_suite(Config0) ->
     load_config(AppCfg),
     {ok, _} = application:ensure_all_started(ergw),
     lager_common_test_backend:bounce(debug),
-    ok = meck:wait(gtp_dp, start_link, '_', ?TIMEOUT),
+    ok = meck:wait(ergw_sx, start_link, '_', ?TIMEOUT),
     Config.
 
 lib_end_per_suite(Config) ->
@@ -91,8 +91,8 @@ load_config(AppCfg) ->
 %%%===================================================================
 
 meck_init(Config) ->
-    ok = meck:new(gtp_dp, [non_strict, no_link]),
-    ok = meck:expect(gtp_dp, start_link,
+    ok = meck:new(ergw_sx, [non_strict, no_link]),
+    ok = meck:expect(ergw_sx, start_link,
 		     fun({Name, _SocketOpts}) ->
 			     RCnt =
 				 ets:update_counter(?MODULE, restart_counter, 1) rem 256,
@@ -104,12 +104,10 @@ meck_init(Config) ->
 			     gtp_socket_reg:register(Name, GtpPort),
 			     {ok, self()}
 		     end),
-    ok = meck:expect(gtp_dp, validate_options, fun(Values) -> Values end),
-    ok = meck:expect(gtp_dp, send, fun(_GtpPort, _IP, _Port, _Data) -> ok end),
-    ok = meck:expect(gtp_dp, get_id, fun(_GtpPort) -> self() end),
-    ok = meck:expect(gtp_dp, create_pdp_context, fun(Context, _Args) -> Context end),
-    ok = meck:expect(gtp_dp, update_pdp_context, fun(_Context, _Args) -> ok end),
-    ok = meck:expect(gtp_dp, delete_pdp_context, fun(_Context, _Args) -> ok end),
+    ok = meck:expect(ergw_sx, validate_options, fun(Values) -> Values end),
+    ok = meck:expect(ergw_sx, send, fun(_GtpPort, _IP, _Port, _Data) -> ok end),
+    ok = meck:expect(ergw_sx, get_id, fun(_GtpPort) -> self() end),
+    ok = meck:expect(ergw_sx, call, fun(Context, _Request, _IEs) -> Context end),
 
     ok = meck:new(gtp_socket, [passthrough, no_link]),
 
@@ -126,17 +124,17 @@ meck_init(Config) ->
 		     end).
 
 meck_reset(Config) ->
-    meck:reset(gtp_dp),
+    meck:reset(ergw_sx),
     meck:reset(gtp_socket),
     meck:reset(proplists:get_value(handler_under_test, Config)).
 
 meck_unload(Config) ->
-    meck:unload(gtp_dp),
+    meck:unload(ergw_sx),
     meck:unload(gtp_socket),
     meck:unload(proplists:get_value(handler_under_test, Config)).
 
 meck_validate(Config) ->
-    ?equal(true, meck:validate(gtp_dp)),
+    ?equal(true, meck:validate(ergw_sx)),
     ?equal(true, meck:validate(gtp_socket)),
     ?equal(true, meck:validate(proplists:get_value(handler_under_test, Config))).
 
@@ -176,12 +174,15 @@ gtp_context_new_teids(GtpC) ->
 	  ets:update_counter(?MODULE, teid, 1) rem 16#100000000
      }.
 
-%% pretend the other side send us a GTP-U packet for an invalid TEID
--define('Tunnel Endpoint Identifier Data I', {tunnel_endpoint_identifier_data_i, 0}).
-make_error_indication(#gtpc{local_data_tei = TEI}) ->
-    #gtp{type = error_indication, version = v1, tei = 0,
-	 ie = #{?'Tunnel Endpoint Identifier Data I' =>
-		    #tunnel_endpoint_identifier_data_i{tei = TEI}}}.
+make_error_indication_report(#gtpc{local_data_tei = TEI,
+				   remote_data_tei = SEID}) ->
+    IEs = #{report_type => [error_indication_report],
+	    error_indication_report =>
+		[#{remote_f_teid =>
+		       #f_teid{ipv4 = ?CLIENT_IP, teid = TEI}
+		  }]
+	   },
+    {SEID, session_report_request, IEs}.
 
 %%%===================================================================
 %%% I/O and socket functions
