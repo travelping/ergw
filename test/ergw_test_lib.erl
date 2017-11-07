@@ -66,6 +66,7 @@ lib_init_per_suite(Config0) ->
     meck_init(Config),
     load_config(AppCfg),
     {ok, _} = application:ensure_all_started(ergw),
+    lager_common_test_backend:bounce(debug),
     ok = meck:wait(gtp_dp, start_link, '_', ?TIMEOUT),
     Config.
 

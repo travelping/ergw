@@ -17,7 +17,7 @@
 	 {lager, [{colored, true},
 		  {error_logger_redirect, true},
 		  {async_threshold, undefined},
-		  {handlers, [{lager_console_backend, info}]}
+		  {handlers, [{lager_console_backend, [{level, info}]}]}
 		 ]},
 
 	 {ergw, [{dp_handler, '$meck'},
