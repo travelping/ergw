@@ -459,9 +459,7 @@ simple_pdp_context_request(Config) ->
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
 
-    GtpRecMatch0 = list_to_tuple([gtp | lists:duplicate(record_info(size, gtp) - 1, '_')]),
-    GtpRecMatch = GtpRecMatch0#gtp{type = create_pdp_context_request},
-
+    GtpRecMatch = #gtp{type = create_pdp_context_request, _ = '_'},
     P = meck:capture(first, ?HUT, handle_request, ['_', GtpRecMatch, '_', '_'], 2),
     ?match(#gtp{seq_no = SeqNo} when SeqNo >= 16#8000, P),
 
@@ -624,6 +622,12 @@ update_pdp_context_request_tei_update(Config) ->
     {GtpC2, _, _} = update_pdp_context(tei_update, S, GtpC1),
     ?equal([], outstanding_requests()),
     delete_pdp_context(S, GtpC2),
+
+    SMR = meck:capture(first, ergw_sx, call, [#context{apn = ?'APN-EXAMPLE', _='_'},
+					      session_modification_request, '_'], 3),
+    FAR = hd(maps:get(update_far, SMR)),
+    SxSMReqFlags = maps:get(sxsmreq_flags, FAR, []),
+    ?equal(false, proplists:get_bool(sndem, SxSMReqFlags)),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
