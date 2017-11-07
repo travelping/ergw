@@ -571,8 +571,12 @@ modify_bearer_request_tei_update(Config) ->
 
     {GtpC1, _, _} = create_session(S),
     {GtpC2, _, _} = modify_bearer(tei_update, S, GtpC1),
-    {GtpC3, _, _} = modify_bearer(sgw_change, S, GtpC2),
-    delete_session(S, GtpC3),
+    delete_session(S, GtpC2),
+
+    SMR = meck:capture(first, ergw_sx, call, ['_', session_modification_request, '_'], 3),
+    FAR = hd(maps:get(update_far, SMR)),
+    SxSMReqFlags = maps:get(sxsmreq_flags, FAR, []),
+    ?equal(true, proplists:get_bool(sndem, SxSMReqFlags)),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
@@ -860,6 +864,11 @@ interop_sgsn_to_sgw(Config) ->
     match_exo_value([path, irx, ?CLIENT_IP, contexts, v2], 1),
     delete_session(S, GtpC2),
 
+    SMR = meck:capture(first, ergw_sx, call, ['_', session_modification_request, '_'], 3),
+    FAR = hd(maps:get(update_far, SMR)),
+    SxSMReqFlags = maps:get(sxsmreq_flags, FAR, []),
+    ?equal(false, proplists:get_bool(sndem, SxSMReqFlags)),
+
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
     true = meck:validate(ggsn_gn),
@@ -895,6 +904,11 @@ interop_sgw_to_sgsn(Config) ->
     match_exo_value([path, irx, ?CLIENT_IP, contexts, v1], 1),
     match_exo_value([path, irx, ?CLIENT_IP, contexts, v2], 0),
     ergw_ggsn_test_lib:delete_pdp_context(S, GtpC2),
+
+    SMR = meck:capture(first, ergw_sx, call, ['_', session_modification_request, '_'], 3),
+    FAR = hd(maps:get(update_far, SMR)),
+    SxSMReqFlags = maps:get(sxsmreq_flags, FAR, []),
+    ?equal(false, proplists:get_bool(sndem, SxSMReqFlags)),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),

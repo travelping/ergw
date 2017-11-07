@@ -157,17 +157,19 @@ update_pdr({_RuleId, _Type, _In, _OldIn}, PDRs) ->
     PDRs.
 
 update_far({RuleId, gtp,
-	    #context{data_port = #gtp_port{name = OutPortName},
+	    #context{version = Version,
+		     data_port = #gtp_port{name = OutPortName},
 		     remote_data_ip = PeerIP,
 		     remote_data_tei = RemoteTEI},
-	    #context{data_port = #gtp_port{name = OldOutPortName},
+	    #context{version = OldVersion,
+		     data_port = #gtp_port{name = OldOutPortName},
 		     remote_data_ip = OldPeerIP,
 		     remote_data_tei = OldRemoteTEI}},
 	   FARs)
   when OldOutPortName /= OutPortName;
        OldPeerIP /= PeerIP;
        OldRemoteTEI /= RemoteTEI ->
-    FAR = #{
+    FAR0 = #{
       far_id => RuleId,
       apply_action => [forward],
       update_forwarding_parameters => #{
@@ -175,6 +177,12 @@ update_far({RuleId, gtp,
 	outer_header_creation => #f_teid{ipv4 = PeerIP, teid = RemoteTEI}
        }
      },
+    FAR = if v2 =:= Version andalso
+	     v2 =:= OldVersion ->
+		  FAR0#{sxsmreq_flags => [sndem]};
+	     true ->
+		  FAR0
+	  end,
     [FAR | FARs];
 
 update_far({RuleId, sgi,
@@ -193,10 +201,3 @@ update_far({RuleId, sgi,
 
 update_far({_RuleId, _Type, _Out, _OldOut}, FARs) ->
     FARs.
-
-%% send_end_marker(#context{data_port = GtpPort,
-%% 			 remote_data_ip = PeerIP,
-%% 			 remote_data_tei = RemoteTEI}) ->
-%%     Msg = #gtp{version = v1, type = end_marker, tei = RemoteTEI, ie = []},
-%%     Data = gtp_packet:encode(Msg),
-%%     ergw_sx:send(GtpPort, PeerIP, ?GTP1u_PORT, Data).
