@@ -520,6 +520,12 @@ update_pdp_context_request_tei_update(Config) ->
     ?equal([], outstanding_requests()),
     delete_pdp_context(S, GtpC2),
 
+    SMR = meck:capture(first, ergw_sx, call, [#context{apn = ?'APN-EXAMPLE', _='_'},
+					      session_modification_request, '_'], 3),
+    FAR = hd(maps:get(update_far, SMR)),
+    SxSMReqFlags = maps:get(sxsmreq_flags, FAR, []),
+    ?equal(false, proplists:get_bool(sndem, SxSMReqFlags)),
+
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
     ok.

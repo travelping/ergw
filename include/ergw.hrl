@@ -68,9 +68,11 @@
 	 }).
 
 -record(proxy_request, {
-	  direction     :: atom(),
+	  direction	:: atom(),
 	  request	:: #request{},
 	  seq_no	:: gtp_socket:sequence_id(),
+	  context	:: #context{},
+	  proxy_ctx	:: #context{},
 	  new_peer	:: boolean()
 }).
 

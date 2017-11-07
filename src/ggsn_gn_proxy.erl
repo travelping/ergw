@@ -265,7 +265,7 @@ handle_request(ReqKey,
     ProxyContext = gtp_path:bind(ProxyContext0),
 
     StateNew = State#{context => Context, proxy_context => ProxyContext},
-    forward_request(sgsn2ggsn, ReqKey, Request, StateNew),
+    forward_request(sgsn2ggsn, ReqKey, Request, StateNew, State),
 
     {noreply, StateNew};
 
@@ -285,7 +285,7 @@ handle_request(ReqKey,
     ProxyContext = update_path_bind(OldProxyContext#context{version = v1}, OldProxyContext),
 
     StateNew = State#{context => Context, proxy_context => ProxyContext},
-    forward_request(sgsn2ggsn, ReqKey, Request, StateNew),
+    forward_request(sgsn2ggsn, ReqKey, Request, StateNew, State),
 
     {noreply, StateNew};
 
@@ -302,7 +302,7 @@ handle_request(ReqKey,
     ProxyContext = gtp_path:bind(Request, ProxyContext0),
 
     StateNew = State#{context => Context, proxy_context => ProxyContext},
-    forward_request(ggsn2sgsn, ReqKey, Request, StateNew),
+    forward_request(ggsn2sgsn, ReqKey, Request, StateNew, State),
 
     {noreply, StateNew};
 
@@ -316,7 +316,7 @@ handle_request(ReqKey,
     ProxyContext = gtp_path:bind(ProxyContext0),
 
     StateNew = State#{context => Context, proxy_context => ProxyContext},
-    forward_request(sgsn2ggsn, ReqKey, Request, StateNew),
+    forward_request(sgsn2ggsn, ReqKey, Request, StateNew, State),
 
     {noreply, StateNew};
 
@@ -325,7 +325,7 @@ handle_request(ReqKey,
 	       #{context := Context} = State0)
   when ?IS_REQUEST_CONTEXT(ReqKey, Request, Context) ->
 
-    forward_request(sgsn2ggsn, ReqKey, Request, State0),
+    forward_request(sgsn2ggsn, ReqKey, Request, State0, State0),
 
     Msg = {delete_pdp_context_request, sgsn2ggsn, ReqKey, Request},
     State = restart_timeout(?RESPONSE_TIMEOUT, Msg, State0),
@@ -337,7 +337,7 @@ handle_request(ReqKey,
 	       #{proxy_context := ProxyContext} = State0)
   when ?IS_REQUEST_CONTEXT(ReqKey, Request, ProxyContext) ->
 
-    forward_request(ggsn2sgsn, ReqKey, Request, State0),
+    forward_request(ggsn2sgsn, ReqKey, Request, State0, State0),
 
     Msg = {delete_pdp_context_request, ggsn2sgsn, ReqKey, Request},
     State = restart_timeout(?RESPONSE_TIMEOUT, Msg, State0),
@@ -372,7 +372,9 @@ handle_response(#proxy_request{direction = sgsn2ggsn} = ProxyRequest,
 	    {stop, State}
     end;
 
-handle_response(#proxy_request{direction = sgsn2ggsn} = ProxyRequest,
+handle_response(#proxy_request{direction = sgsn2ggsn,
+			       context = PrevContext,
+			       proxy_ctx = PrevProxyCtx} = ProxyRequest,
 		#gtp{type = update_pdp_context_response} = Response, _Request,
 		#{context := Context,
 		  proxy_context := OldProxyContext} = State) ->
@@ -382,7 +384,7 @@ handle_response(#proxy_request{direction = sgsn2ggsn} = ProxyRequest,
     gtp_context:remote_context_update(OldProxyContext, ProxyContext),
 
     forward_response(ProxyRequest, Response, Context),
-    ergw_proxy_lib:modify_forward_session(Context, Context, OldProxyContext, ProxyContext),
+    ergw_proxy_lib:modify_forward_session(PrevContext, Context, PrevProxyCtx, ProxyContext),
 
     {noreply, State#{proxy_context => ProxyContext}};
 
@@ -611,12 +613,12 @@ forward_context(ggsn2sgsn, #{context := Context}) ->
 forward_request(Direction, ReqKey,
 		#gtp{seq_no = SeqNo,
 		     ie = #{?'Recovery' := Recovery}} = Request,
-		State) ->
+		State, StateOld) ->
     Context = forward_context(Direction, State),
     FwdReq = build_context_request(Context, false, Request),
 
     ergw_proxy_lib:forward_request(Direction, Context, FwdReq, ReqKey,
-				   SeqNo, Recovery /= undefined).
+				   SeqNo, Recovery /= undefined, StateOld).
 
 forward_response(#proxy_request{request = ReqKey, seq_no = SeqNo, new_peer = NewPeer},
 		 Response, Context) ->
