@@ -164,7 +164,7 @@ handle_call(terminate_context, _From,
 	    #{context := Context,
 	      proxy_context := ProxyContext} = State) ->
     initiate_delete_pdp_context_request(ProxyContext),
-    dp_delete_pdp_context(Context, ProxyContext),
+    ergw_proxy_lib:delete_forward_session(Context, ProxyContext),
     {stop, normal, ok, State};
 
 handle_call({path_restart, Path}, _From,
@@ -172,7 +172,7 @@ handle_call({path_restart, Path}, _From,
 	      proxy_context := ProxyContext
 	     } = State) ->
     initiate_delete_pdp_context_request(ProxyContext),
-    dp_delete_pdp_context(Context, ProxyContext),
+    ergw_proxy_lib:delete_forward_session(Context, ProxyContext),
     {stop, normal, ok, State};
 
 handle_call({path_restart, Path}, _From,
@@ -180,7 +180,7 @@ handle_call({path_restart, Path}, _From,
 	      proxy_context := #context{path = Path} = ProxyContext
 	     } = State) ->
     initiate_delete_pdp_context_request(Context),
-    dp_delete_pdp_context(Context, ProxyContext),
+    ergw_proxy_lib:delete_forward_session(Context, ProxyContext),
     {stop, normal, ok, State};
 
 handle_call({path_restart, _Path}, _From, State) ->
@@ -188,7 +188,7 @@ handle_call({path_restart, _Path}, _From, State) ->
 
 handle_cast({packet_in, _GtpPort, _IP, _Port, #gtp{type = error_indication}},
 	    #{context := Context, proxy_context := ProxyContext} = State) ->
-    dp_delete_pdp_context(Context, ProxyContext),
+    ergw_proxy_lib:delete_forward_session(Context, ProxyContext),
     {stop, normal, State};
 
 handle_cast({packet_in, _GtpPort, _IP, _Port, _Msg}, State) ->
@@ -200,7 +200,7 @@ handle_info({timeout, _, {delete_pdp_context_request, Direction, _ReqKey, _Reque
 	    #{context := Context, proxy_context := ProxyContext} = State) ->
     lager:warning("Proxy Delete PDP Context Timeout ~p", [Direction]),
 
-    dp_delete_pdp_context(Context, ProxyContext),
+    ergw_proxy_lib:delete_forward_session(Context, ProxyContext),
     {stop, normal, State};
 
 handle_info(_Info, State) ->
@@ -363,7 +363,7 @@ handle_response(#proxy_request{direction = sgsn2ggsn} = ProxyRequest,
     forward_response(ProxyRequest, Response, Context),
 
     if ?CAUSE_OK(Cause) ->
-	    ContextNew = dp_create_pdp_context(Context, ProxyContext),
+	    ContextNew = ergw_proxy_lib:create_forward_session(Context, ProxyContext),
 	    lager:info("Create PDP Context ~p", [ContextNew]),
 
 	    {noreply, State#{context := ContextNew, proxy_context => ProxyContext}};
@@ -382,7 +382,7 @@ handle_response(#proxy_request{direction = sgsn2ggsn} = ProxyRequest,
     gtp_context:remote_context_update(OldProxyContext, ProxyContext),
 
     forward_response(ProxyRequest, Response, Context),
-    dp_update_pdp_context(Context, ProxyContext),
+    ergw_proxy_lib:modify_forward_session(Context, Context, OldProxyContext, ProxyContext),
 
     {noreply, State#{proxy_context => ProxyContext}};
 
@@ -409,7 +409,7 @@ handle_response(#proxy_request{direction = sgsn2ggsn} = ProxyRequest,
     lager:warning("OK Proxy Response ~p", [lager:pr(Response, ?MODULE)]),
 
     forward_response(ProxyRequest, Response, Context),
-    dp_delete_pdp_context(Context, ProxyContext),
+    ergw_proxy_lib:delete_forward_session(Context, ProxyContext),
     State = cancel_timeout(State0),
     {stop, State};
 
@@ -421,7 +421,7 @@ handle_response(#proxy_request{direction = ggsn2sgsn} = ProxyRequest,
     lager:warning("OK SGSN Response ~p", [lager:pr(Response, ?MODULE)]),
 
     forward_response(ProxyRequest, Response, ProxyContext),
-    dp_delete_pdp_context(Context, ProxyContext),
+    ergw_proxy_lib:delete_forward_session(Context, ProxyContext),
     State = cancel_timeout(State0),
     {stop, State};
 
@@ -622,24 +622,6 @@ forward_response(#proxy_request{request = ReqKey, seq_no = SeqNo, new_peer = New
 		 Response, Context) ->
     GtpResp = build_context_request(Context, NewPeer, Response),
     gtp_context:send_response(ReqKey, GtpResp#gtp{seq_no = SeqNo}).
-
-proxy_dp_args(#context{data_port = #gtp_port{name = Name},
-		       local_data_tei = LocalTEI,
-		       remote_data_tei = RemoteTEI,
-		       remote_data_ip = RemoteIP}) ->
-    {forward, [Name, RemoteIP, LocalTEI, RemoteTEI]}.
-
-dp_create_pdp_context(GrxContext, FwdContext) ->
-    Args = proxy_dp_args(FwdContext),
-    gtp_dp:create_pdp_context(GrxContext, Args).
-
-dp_update_pdp_context(GrxContext, FwdContext) ->
-    Args = proxy_dp_args(FwdContext),
-    gtp_dp:update_pdp_context(GrxContext, Args).
-
-dp_delete_pdp_context(GrxContext, FwdContext) ->
-    Args = proxy_dp_args(FwdContext),
-    gtp_dp:delete_pdp_context(GrxContext, Args).
 
 get_proxy_sockets(#proxy_ggsn{context = Context},
 	       #{contexts := Contexts, proxy_ports := ProxyPorts, proxy_dps := ProxyDPs}) ->

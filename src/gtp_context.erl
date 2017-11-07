@@ -10,7 +10,7 @@
 -compile({parse_transform, cut}).
 -compile({parse_transform, do}).
 
--export([handle_message/2, handle_packet_in/4, handle_response/4,
+-export([handle_message/2, session_report/2, handle_response/4,
 	 start_link/5,
 	 send_request/7, send_response/2,
 	 send_request/6, resend_request/2,
@@ -99,17 +99,14 @@ q_handle_message(Request, Msg0) ->
 	    generic_error(Request, Msg0, Error)
     end.
 
-handle_packet_in(GtpPort, IP, Port,
-		 #gtp{type = error_indication,
-		      ie = #{?'Tunnel Endpoint Identifier Data I' :=
-				 #tunnel_endpoint_identifier_data_i{tei = TEI}}} = Msg) ->
-    lager:debug("handle_packet_in: ~p", [lager:pr(Msg, ?MODULE)]),
-    case gtp_context_reg:lookup_teid(GtpPort, IP, TEI) of
+session_report(GtpPort, {SEID, _, _} = Report) ->
+    lager:debug("Session Report: ~p", [Report]),
+    case gtp_context_reg:lookup_teid(GtpPort, SEID) of
 	Context when is_pid(Context) ->
-	    gen_server:cast(Context, {packet_in, GtpPort, IP, Port, Msg});
+	    Context ! Report;
 
 	_ ->
-	    lager:error("handle_packet_in: didn't find ~p, ~p, ~p)", [GtpPort, IP, TEI]),
+	    lager:error("Session Report: didn't find ~p, ~p", [GtpPort, SEID]),
 	    ok
     end.
 
