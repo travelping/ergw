@@ -116,13 +116,14 @@ make_proxy_request(Direction, Request, SeqNo, NewPeer, State) ->
 %%% Sx DP API
 %%%===================================================================
 
-create_pdr({RuleId,
+create_pdr({RuleId, Intf,
 	    #context{
 	       data_port = #gtp_port{name = InPortName},
 	       local_data_tei = LocalTEI}},
 	   PDRs) ->
     PDI = #{
-      source_interface => InPortName,
+      source_interface => Intf,
+      network_instance => InPortName,
       local_f_teid => #f_teid{teid = LocalTEI}
      },
     PDR = #{
@@ -134,7 +135,7 @@ create_pdr({RuleId,
      },
     [PDR | PDRs].
 
-create_far({RuleId,
+create_far({RuleId, Intf,
 	    #context{
 	       data_port = #gtp_port{name = OutPortName},
 	       remote_data_ip = PeerIP,
@@ -144,13 +145,14 @@ create_far({RuleId,
       far_id => RuleId,
       apply_action => [forward],
       forwarding_parameters => #{
-	destination_interface => OutPortName,
+	destination_interface => Intf,
+	network_instance => OutPortName,
 	outer_header_creation => #f_teid{ipv4 = PeerIP, teid = RemoteTEI}
        }
      },
     [FAR | FARs].
 
-update_pdr({RuleId,
+update_pdr({RuleId, Intf,
 	    #context{data_port = #gtp_port{name = OldInPortName},
 		     local_data_tei = OldLocalTEI},
 	    #context{data_port = #gtp_port{name = NewInPortName},
@@ -159,7 +161,8 @@ update_pdr({RuleId,
   when OldInPortName /= NewInPortName;
        OldLocalTEI /= NewLocalTEI ->
     PDI = #{
-      source_interface => NewInPortName,
+      source_interface => Intf,
+      network_instance => NewInPortName,
       local_f_teid => #f_teid{teid = NewLocalTEI}
      },
     PDR = #{
@@ -171,10 +174,10 @@ update_pdr({RuleId,
      },
     [PDR | PDRs];
 
-update_pdr({_RuleId, _OldIn, _NewIn}, PDRs) ->
+update_pdr({_RuleId, _Intf, _OldIn, _NewIn}, PDRs) ->
     PDRs.
 
-update_far({RuleId,
+update_far({RuleId, Intf,
 	    #context{version = OldVersion,
 		     data_port = #gtp_port{name = OldOutPortName},
 		     remote_data_ip = OldPeerIP,
@@ -191,7 +194,8 @@ update_far({RuleId,
       far_id => RuleId,
       apply_action => [forward],
       update_forwarding_parameters => #{
-	destination_interface => NewOutPortName,
+	destination_interface => Intf,
+	network_instance => NewOutPortName,
 	outer_header_creation => #f_teid{ipv4 = NewPeerIP, teid = NewRemoteTEI}
        }
      },
@@ -203,14 +207,16 @@ update_far({RuleId,
 	  end,
     [FAR | FARs];
 
-update_far({_RuleId, _OldOut, _NewOut}, FARs) ->
+update_far({_RuleId, _Intf, _OldOut, _NewOut}, FARs) ->
     FARs.
 
 create_forward_session(#context{local_data_tei = SEID} = Left, Right) ->
     Req = #{
       cp_f_seid  => SEID,
-      create_pdr => lists:foldl(fun create_pdr/2, [], [{1, Left}, {2, Right}]),
-      create_far => lists:foldl(fun create_far/2, [], [{2, Left}, {1, Right}])
+      create_pdr => lists:foldl(fun create_pdr/2, [], [{1, access, Left},
+						       {2, core, Right}]),
+      create_far => lists:foldl(fun create_far/2, [], [{2, access, Left},
+						       {1, core, Right}])
      },
     ergw_sx:call(Left, session_establishment_request, Req).
 
@@ -219,9 +225,11 @@ modify_forward_session(OldLeft, #context{local_data_tei = NewSEID} = NewLeft,
     Req = #{
       cp_f_seid => NewSEID,
       update_pdr => lists:foldl(fun update_pdr/2, [],
-				[{1, OldLeft, NewLeft}, {2, OldRight, NewRight}]),
+				[{1, access, OldLeft, NewLeft},
+				 {2, core, OldRight, NewRight}]),
       update_far => lists:foldl(fun update_far/2, [],
-				[{2, OldLeft, NewLeft}, {1, OldRight, NewRight}])
+				[{2, access, OldLeft, NewLeft},
+				 {1, core, OldRight, NewRight}])
      },
     ergw_sx:call(NewLeft, session_modification_request, Req).
 
