@@ -440,7 +440,7 @@ path_restart_recovery(Config) ->
     delete_pdp_context(S, GtpC2),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
-    [?match(#{tunnels := 0}, X) || X <- ergw_api:peer(all)],
+    wait4tunnels(?TIMEOUT),
     meck_validate(Config),
     ok.
 
@@ -592,10 +592,9 @@ request_fast_resend(Config) ->
 
     delete_pdp_context(S, GtpC3),
 
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     ?match(3, meck:num_calls(?HUT, handle_request, ['_', '_', true, '_'])),
     ?match(3, meck:num_calls(ggsn_gn, handle_request, ['_', '_', true, '_'])),
-
-    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
     ok.
 
@@ -834,7 +833,7 @@ delete_pdp_context_requested(Config) ->
 	    ct:fail(timeout)
     end,
 
-    [?match(#{tunnels := 0}, X) || X <- ergw_api:peer(all)],
+    wait4tunnels(?TIMEOUT),
     ?equal([], outstanding_requests()),
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
@@ -903,7 +902,7 @@ delete_pdp_context_requested_invalid_teid(Config) ->
 	    ct:fail(timeout)
     end,
 
-    [?match(#{tunnels := 0}, X) || X <- ergw_api:peer(all)],
+    wait4tunnels(?TIMEOUT),
     ?equal([], outstanding_requests()),
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
@@ -941,7 +940,7 @@ delete_pdp_context_requested_late_response(Config) ->
 	    ct:fail(timeout)
     end,
 
-    [?match(#{tunnels := 0}, X) || X <- ergw_api:peer(all)],
+    wait4tunnels(?TIMEOUT),
     ?equal([], outstanding_requests()),
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),

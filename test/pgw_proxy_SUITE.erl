@@ -677,10 +677,9 @@ request_fast_resend(Config) ->
 
     delete_session(S, GtpC3),
 
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     ?match(3, meck:num_calls(?HUT, handle_request, ['_', '_', true, '_'])),
     ?match(3, meck:num_calls(pgw_s5s8, handle_request, ['_', '_', true, '_'])),
-
-    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
     ok.
 
@@ -1048,7 +1047,7 @@ delete_bearer_request(Config) ->
 	    ct:fail(timeout)
     end,
 
-    [?match(#{tunnels := 0}, X) || X <- ergw_api:peer(all)],
+    wait4tunnels(?TIMEOUT),
     ?equal([], outstanding_requests()),
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
@@ -1119,7 +1118,7 @@ delete_bearer_request_invalid_teid(Config) ->
 	    ct:fail(timeout)
     end,
 
-    [?match(#{tunnels := 0}, X) || X <- ergw_api:peer(all)],
+    wait4tunnels(?TIMEOUT),
     ?equal([], outstanding_requests()),
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
@@ -1158,7 +1157,7 @@ delete_bearer_request_late_response(Config) ->
 	    ct:fail(timeout)
     end,
 
-    [?match(#{tunnels := 0}, X) || X <- ergw_api:peer(all)],
+    wait4tunnels(?TIMEOUT),
     ?equal([], outstanding_requests()),
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
