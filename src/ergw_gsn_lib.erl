@@ -60,7 +60,8 @@ create_pdr({RuleId, gtp,
 	       local_data_tei = LocalTEI}},
 	   PDRs) ->
     PDI = #{
-      source_interface => InPortName,
+      source_interface => access,
+      network_instance => InPortName,
       local_f_teid => #f_teid{teid = LocalTEI}
      },
     PDR = #{
@@ -74,7 +75,8 @@ create_pdr({RuleId, gtp,
 
 create_pdr({RuleId, sgi, #context{vrf = InPortName} = Ctx}, PDRs) ->
     PDI = #{
-      source_interface => InPortName,
+      source_interface => core,
+      network_instance => InPortName,
       ue_ip_address => ue_ip_address(dst, Ctx)
      },
     PDR = #{
@@ -96,7 +98,8 @@ create_far({RuleId, gtp,
       far_id => RuleId,
       apply_action => [forward],
       forwarding_parameters => #{
-	destination_interface => OutPortName,
+	destination_interface => access,
+	network_instance => OutPortName,
 	outer_header_creation => #f_teid{ipv4 = PeerIP, teid = RemoteTEI}
        }
      },
@@ -107,7 +110,8 @@ create_far({RuleId, sgi, #context{vrf = OutPortName}}, FARs) ->
       far_id => RuleId,
       apply_action => [forward],
       forwarding_parameters => #{
-	destination_interface => OutPortName
+	destination_interface => core,
+	network_instance => OutPortName
        }
      },
     [FAR | FARs].
@@ -121,7 +125,8 @@ update_pdr({RuleId, gtp,
   when OldInPortName /= InPortName;
        OldLocalTEI /= LocalTEI ->
     PDI = #{
-      source_interface => InPortName,
+      source_interface => access,
+      network_instance => InPortName,
       local_f_teid => #f_teid{teid = LocalTEI}
      },
     PDR = #{
@@ -141,7 +146,8 @@ update_pdr({RuleId, sgi,
        OldMSv4 /= MSv4;
        OldMSv6 /= MSv6 ->
     PDI = #{
-      source_interface => InPortName,
+      source_interface => core,
+      network_instance => InPortName,
       ue_ip_address => ue_ip_address(dst, Ctx)
      },
     PDR = #{
@@ -173,7 +179,8 @@ update_far({RuleId, gtp,
       far_id => RuleId,
       apply_action => [forward],
       update_forwarding_parameters => #{
-	destination_interface => OutPortName,
+	destination_interface => access,
+	network_instance => OutPortName,
 	outer_header_creation => #f_teid{ipv4 = PeerIP, teid = RemoteTEI}
        }
      },
@@ -194,7 +201,8 @@ update_far({RuleId, sgi,
       far_id => RuleId,
       apply_action => [forward],
       update_forwarding_parameters => #{
-	destination_interface => OutPortName
+	destination_interface => core,
+	network_instance => OutPortName
        }
      },
     [FAR | FARs];
