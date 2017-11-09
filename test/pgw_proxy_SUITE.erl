@@ -250,6 +250,8 @@ all_tests() ->
      create_session_request_resend,
      delete_session_request_resend,
      delete_session_request_timeout,
+     error_indication_sgw2pgw,
+     error_indication_pgw2sgw,
      request_fast_resend,
      modify_bearer_request_ra_update,
      modify_bearer_request_tei_update,
@@ -640,6 +642,61 @@ delete_session_request_timeout(Config) ->
     exit(Context, kill),
 
     wait4tunnels(20000),
+    ?equal([], outstanding_requests()),
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+error_indication_sgw2pgw() ->
+    [{doc, "Check the a GTP-U error indication terminates the session"}].
+error_indication_sgw2pgw(Config) ->
+    S = make_gtp_socket(Config),
+
+    {_, _, Port} = lists:keyfind(grx, 1, gtp_socket_reg:all()),
+    {GtpC, _, _} = create_session(S),
+
+    gtp_context:session_report(Port, make_error_indication_report(GtpC)),
+
+    ct:sleep(100),
+    delete_session(not_found, S, GtpC),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    wait4tunnels(?TIMEOUT),
+    ?equal([], outstanding_requests()),
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+error_indication_pgw2sgw() ->
+    [{doc, "Check the a GTP-U error indication terminates the session"}].
+error_indication_pgw2sgw(Config) ->
+    S = make_gtp_socket(Config),
+
+    {GtpC, _, _} = create_session(S),
+
+    CtxPid = gtp_context_reg:lookup_key(#gtp_port{name = 'irx'},
+					{imsi, ?'IMSI', 5}),
+    true = is_pid(CtxPid),
+    #{proxy_context := Ctx} = gtp_context:info(CtxPid),
+
+    CtxPid ! make_error_indication_report(Ctx),
+
+    Request = recv_pdu(S, 5000),
+    ?match(#gtp{type = delete_bearer_request}, Request),
+    Response = make_response(Request, simple, GtpC),
+    send_pdu(S, Response),
+
+    ct:sleep(100),
+    delete_session(not_found, S, GtpC),
+
+    Context = gtp_context_reg:lookup_key(#gtp_port{name = 'remote-irx'},
+					 {imsi, ?'PROXY-IMSI', 5}),
+    true = is_pid(Context),
+    %% killing the PGW context
+    exit(Context, kill),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    wait4tunnels(?TIMEOUT),
     ?equal([], outstanding_requests()),
     meck_validate(Config),
     ok.

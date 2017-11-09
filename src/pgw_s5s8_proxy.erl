@@ -141,7 +141,7 @@ handle_call(delete_context, _From, State) ->
 handle_call(terminate_context, _From,
 	    #{context := Context,
 	      proxy_context := ProxyContext} = State) ->
-    initiate_delete_session_request(ProxyContext),
+    initiate_session_teardown(sgw2pgw, State),
     ergw_proxy_lib:delete_forward_session(Context, ProxyContext),
     {stop, normal, ok, State};
 
@@ -149,7 +149,7 @@ handle_call({path_restart, Path}, _From,
 	    #{context := #context{path = Path} = Context,
 	      proxy_context := ProxyContext
 	     } = State) ->
-    initiate_delete_session_request(ProxyContext),
+    initiate_session_teardown(sgw2pgw, State),
     ergw_proxy_lib:delete_forward_session(Context, ProxyContext),
     {stop, normal, ok, State};
 
@@ -157,21 +157,25 @@ handle_call({path_restart, Path}, _From,
 	    #{context := Context,
 	      proxy_context := #context{path = Path} = ProxyContext
 	     } = State) ->
-    initiate_delete_session_request(Context),
+    initiate_session_teardown(pgw2sgw, State),
     ergw_proxy_lib:delete_forward_session(Context, ProxyContext),
     {stop, normal, ok, State};
 
 handle_call({path_restart, _Path}, _From, State) ->
     {reply, ok, State}.
 
-handle_cast({packet_in, _GtpPort, _IP, _Port, #gtp{type = error_indication}},
-	    #{context := Context, proxy_context := ProxyContext} = State) ->
-    ergw_proxy_lib:delete_forward_session(Context, ProxyContext),
-    {stop, normal, State};
-
 handle_cast({packet_in, _GtpPort, _IP, _Port, _Msg}, State) ->
     lager:warning("packet_in not handled (yet): ~p", [_Msg]),
     {noreply, State}.
+
+handle_info({_, session_report_request,
+	     #{report_type := [error_indication_report],
+	       error_indication_report := [#{remote_f_teid := FTEID}]}},
+	    #{context := Context, proxy_context := ProxyContext} = State) ->
+    Direction = fteid_forward_context(FTEID, State),
+    initiate_session_teardown(Direction, State),
+    ergw_proxy_lib:delete_forward_session(Context, ProxyContext),
+    {stop, normal, State};
 
 handle_info({timeout, _, {delete_session_request, Direction, _ReqKey, _Request}},
 	    #{context := Context, proxy_context := ProxyContext} = State) ->
@@ -690,11 +694,20 @@ send_request(#context{control_port = GtpPort,
     Msg = #gtp{version = v2, type = Type, tei = RemoteCntlTEI, ie = RequestIEs},
     gtp_context:send_request(GtpPort, RemoteCntlIP, ?GTP2c_PORT, T3, N3, Msg, undefined).
 
-initiate_delete_session_request(#context{state = #context_state{ebi = EBI}} = Context) ->
+initiate_session_teardown(sgw2pgw,
+			  #{proxy_context :=
+				#context{state = #context_state{ebi = EBI}} = Ctx}) ->
     RequestIEs0 = [#v2_cause{v2_cause = network_failure},
 		   #v2_eps_bearer_id{eps_bearer_id = EBI}],
-    RequestIEs = gtp_v2_c:build_recovery(Context, false, RequestIEs0),
-    send_request(Context, ?T3, ?N3, delete_session_request, RequestIEs).
+    RequestIEs = gtp_v2_c:build_recovery(Ctx, false, RequestIEs0),
+    send_request(Ctx, ?T3, ?N3, delete_session_request, RequestIEs);
+initiate_session_teardown(pgw2sgw,
+			  #{context :=
+				#context{state = #context_state{ebi = EBI}} = Ctx}) ->
+    RequestIEs0 = [#v2_cause{v2_cause = reactivation_requested},
+		   #v2_eps_bearer_id{eps_bearer_id = EBI}],
+    RequestIEs = gtp_v2_c:build_recovery(Ctx, false, RequestIEs0),
+    send_request(Ctx, ?T3, ?N3, delete_bearer_request, RequestIEs).
 
 bind_forward_path(sgw2pgw, Request, #{context := Context,
 				      proxy_context := ProxyContext} = State) ->
@@ -708,6 +721,15 @@ bind_forward_path(pgw2sgw, Request, #{context := Context,
       context => gtp_path:bind(Context),
       proxy_context => gtp_path:bind(Request, ProxyContext)
      }.
+
+fteid_forward_context(#f_teid{ipv4 = IPv4, teid = TEID},
+			     #{proxy_context := #context{remote_data_ip = IPv4,
+							 remote_data_tei = TEID}}) ->
+    pgw2sgw;
+fteid_forward_context(#f_teid{ipv4 = IPv4, teid = TEID},
+			     #{context := #context{remote_data_ip = IPv4,
+						   remote_data_tei = TEID}}) ->
+    sgw2pgw.
 
 forward_context(sgw2pgw, #{proxy_context := Context}) ->
     Context;

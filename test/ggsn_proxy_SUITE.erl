@@ -228,6 +228,8 @@ all_tests() ->
      create_pdp_context_request_resend,
      delete_pdp_context_request_resend,
      delete_pdp_context_request_timeout,
+     error_indication_sgsn2ggsn,
+     error_indication_ggsn2sgsn,
      request_fast_resend,
      update_pdp_context_request_ra_update,
      update_pdp_context_request_tei_update,
@@ -557,6 +559,61 @@ delete_pdp_context_request_timeout(Config) ->
     exit(Context, kill),
 
     wait4tunnels(20000),
+    ?equal([], outstanding_requests()),
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+error_indication_sgsn2ggsn() ->
+    [{doc, "Check the a GTP-U error indication terminates the session"}].
+error_indication_sgsn2ggsn(Config) ->
+    S = make_gtp_socket(Config),
+
+    {_, _, Port} = lists:keyfind(grx, 1, gtp_socket_reg:all()),
+    {GtpC, _, _} = create_pdp_context(S),
+
+    gtp_context:session_report(Port, make_error_indication_report(GtpC)),
+
+    ct:sleep(100),
+    delete_pdp_context(not_found, S, GtpC),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    wait4tunnels(?TIMEOUT),
+    ?equal([], outstanding_requests()),
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+error_indication_ggsn2sgsn() ->
+    [{doc, "Check the a GTP-U error indication terminates the session"}].
+error_indication_ggsn2sgsn(Config) ->
+    S = make_gtp_socket(Config),
+
+    {GtpC, _, _} = create_pdp_context(S),
+
+    CtxPid = gtp_context_reg:lookup_key(#gtp_port{name = 'irx'},
+					{imsi, ?'IMSI', 5}),
+    true = is_pid(CtxPid),
+    #{proxy_context := Ctx} = gtp_context:info(CtxPid),
+
+    CtxPid ! make_error_indication_report(Ctx),
+
+    Request = recv_pdu(S, 5000),
+    ?match(#gtp{type = delete_pdp_context_request}, Request),
+    Response = make_response(Request, simple, GtpC),
+    send_pdu(S, Response),
+
+    ct:sleep(100),
+    delete_pdp_context(not_found, S, GtpC),
+
+    Context = gtp_context_reg:lookup_key(#gtp_port{name = 'remote-irx'},
+					 {imsi, ?'PROXY-IMSI', 5}),
+    true = is_pid(Context),
+    %% killing the GGSN context
+    exit(Context, kill),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    wait4tunnels(?TIMEOUT),
     ?equal([], outstanding_requests()),
     meck_validate(Config),
     ok.
