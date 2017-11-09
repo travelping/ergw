@@ -163,7 +163,7 @@ handle_call(delete_context, _From, State) ->
 handle_call(terminate_context, _From,
 	    #{context := Context,
 	      proxy_context := ProxyContext} = State) ->
-    initiate_delete_pdp_context_request(ProxyContext),
+    initiate_pdp_context_teardown(sgsn2ggsn, State),
     ergw_proxy_lib:delete_forward_session(Context, ProxyContext),
     {stop, normal, ok, State};
 
@@ -171,7 +171,7 @@ handle_call({path_restart, Path}, _From,
 	    #{context := #context{path = Path} = Context,
 	      proxy_context := ProxyContext
 	     } = State) ->
-    initiate_delete_pdp_context_request(ProxyContext),
+    initiate_pdp_context_teardown(sgsn2ggsn, State),
     ergw_proxy_lib:delete_forward_session(Context, ProxyContext),
     {stop, normal, ok, State};
 
@@ -179,22 +179,25 @@ handle_call({path_restart, Path}, _From,
 	    #{context := Context,
 	      proxy_context := #context{path = Path} = ProxyContext
 	     } = State) ->
-    initiate_delete_pdp_context_request(Context),
+    initiate_pdp_context_teardown(ggsn2sgsn, State),
     ergw_proxy_lib:delete_forward_session(Context, ProxyContext),
     {stop, normal, ok, State};
 
 handle_call({path_restart, _Path}, _From, State) ->
     {reply, ok, State}.
 
-handle_cast({packet_in, _GtpPort, _IP, _Port, #gtp{type = error_indication}},
-	    #{context := Context, proxy_context := ProxyContext} = State) ->
-    ergw_proxy_lib:delete_forward_session(Context, ProxyContext),
-    {stop, normal, State};
-
 handle_cast({packet_in, _GtpPort, _IP, _Port, _Msg}, State) ->
     lager:warning("packet_in not handled (yet): ~p", [_Msg]),
     {noreply, State}.
 
+handle_info({_, session_report_request,
+	     #{report_type := [error_indication_report],
+	       error_indication_report := [#{remote_f_teid := FTEID}]}},
+	    #{context := Context, proxy_context := ProxyContext} = State) ->
+    Direction = fteid_forward_context(FTEID, State),
+    initiate_pdp_context_teardown(Direction, State),
+    ergw_proxy_lib:delete_forward_session(Context, ProxyContext),
+    {stop, normal, State};
 
 handle_info({timeout, _, {delete_pdp_context_request, Direction, _ReqKey, _Request}},
 	    #{context := Context, proxy_context := ProxyContext} = State) ->
@@ -598,12 +601,23 @@ send_request(#context{control_port = GtpPort,
     Msg = #gtp{version = v1, type = Type, tei = RemoteCntlTEI, ie = RequestIEs},
     gtp_context:send_request(GtpPort, RemoteCntlIP, ?GTP1c_PORT, T3, N3, Msg, undefined).
 
-initiate_delete_pdp_context_request(#context{state = #context_state{nsapi = NSAPI}} = Context) ->
+initiate_pdp_context_teardown(Direction, State) ->
+    #context{state = #context_state{nsapi = NSAPI}} =
+	Ctx = forward_context(Direction, State),
     RequestIEs0 = [#cause{value = request_accepted},
 		   #teardown_ind{value = 1},
 		   #nsapi{nsapi = NSAPI}],
-    RequestIEs = gtp_v1_c:build_recovery(Context, false, RequestIEs0),
-    send_request(Context, ?T3, ?N3, delete_pdp_context_request, RequestIEs).
+    RequestIEs = gtp_v1_c:build_recovery(Ctx, false, RequestIEs0),
+    send_request(Ctx, ?T3, ?N3, delete_pdp_context_request, RequestIEs).
+
+fteid_forward_context(#f_teid{ipv4 = IPv4, teid = TEID},
+			     #{proxy_context := #context{remote_data_ip = IPv4,
+							 remote_data_tei = TEID}}) ->
+    ggsn2sgsn;
+fteid_forward_context(#f_teid{ipv4 = IPv4, teid = TEID},
+			     #{context := #context{remote_data_ip = IPv4,
+						   remote_data_tei = TEID}}) ->
+    sgsn2ggsn.
 
 forward_context(sgsn2ggsn, #{proxy_context := Context}) ->
     Context;
