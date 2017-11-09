@@ -182,6 +182,16 @@ make_error_indication_report(#gtpc{local_data_tei = TEI,
 		       #f_teid{ipv4 = ?CLIENT_IP, teid = TEI}
 		  }]
 	   },
+    {SEID, session_report_request, IEs};
+make_error_indication_report(#context{local_control_tei = SEID,
+				      data_port = #gtp_port{ip = IP},
+				      remote_data_tei = TEI}) ->
+    IEs = #{report_type => [error_indication_report],
+	    error_indication_report =>
+		[#{remote_f_teid =>
+		       #f_teid{ipv4 = IP, teid = TEI}
+		  }]
+	   },
     {SEID, session_report_request, IEs}.
 
 %%%===================================================================
