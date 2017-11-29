@@ -21,8 +21,6 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
 	 terminate/2, code_change/3]).
 
--include_lib("gen_socket/include/gen_socket.hrl").
--include_lib("gtplib/include/gtp_packet.hrl").
 -include("include/ergw.hrl").
 
 -record(state, {state, tref, timeout, name, node, remote_name, ip, pid, gtp_port}).
