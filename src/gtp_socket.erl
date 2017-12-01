@@ -17,7 +17,8 @@
 	 send/4, send_response/3,
 	 send_request/6, send_request/7, resend_request/2,
 	 get_restart_counter/1]).
--export([get_request_q/1, get_response_q/1, get_seq_no/2]).
+-export([get_request_q/1, get_response_q/1, get_seq_no/2, 
+	 family/1]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -44,6 +45,8 @@
 	  pending    :: gb_trees:tree(sequence_id(), term()),
 	  requests,
 	  responses,
+
+      redirector  = undefined :: gtp_redirector:redirector(),
 
 	  restart_counter}).
 
@@ -162,6 +165,8 @@ validate_option(reuseaddr, Value) when is_boolean(Value) ->
 validate_option(rcvbuf, Value)
   when is_integer(Value) andalso Value > 0 ->
     Value;
+validate_option(redirector, Values) when is_list(Values) ->
+    gtp_redirector:validate_options(Values);
 validate_option(Opt, Value) ->
     throw({error, {options, {Opt, Value}}}).
 
@@ -206,6 +211,8 @@ init([Name, #{ip := IP} = SocketOpts]) ->
 	       pending = gb_trees:empty(),
 	       requests = ergw_cache:new(?T3 * 4, requests),
 	       responses = ergw_cache:new(?CACHE_TIMEOUT, responses),
+
+           redirector = gtp_redirector:init(IP, SocketOpts),
 
 	       restart_counter = RCnt},
     {ok, State}.
@@ -284,11 +291,21 @@ handle_info(Info = {timeout, _TRef, {request, SeqId}}, #state{gtp_port = GtpPort
 	    {noreply, State1}
     end;
 
+handle_info({timeout, _TRef, redirector_keep_alive}, 
+            #state{gtp_port = GtpPort,
+                   redirector = Redirector} = State) when Redirector /= undefined ->
+    NewRedirector = gtp_redirector:keep_alive(Redirector, GtpPort),
+    {noreply, State#state{redirector = NewRedirector}};
+
 handle_info({timeout, _TRef, requests}, #state{requests = Requests} = State) ->
     {noreply, State#state{requests = ergw_cache:expire(Requests)}};
 
 handle_info({timeout, _TRef, responses}, #state{responses = Responses} = State) ->
     {noreply, State#state{responses = ergw_cache:expire(Responses)}};
+
+handle_info({timeout, _TRef, redirector_requests}, 
+            #state{redirector = Redirector} = State) when Redirector /= undefined ->
+    {noreply, State#state{redirector = gtp_redirector:timeout_requests(Redirector)}};
 
 handle_info({Socket, input_ready}, #state{socket = Socket} = State) ->
     handle_input(Socket, State);
@@ -482,7 +499,7 @@ handle_message(ArrivalTS, IP, Port, Data, #state{gtp_port = GtpPort} = State0) -
 						lager:pr(State0#state.gtp_port, ?MODULE),
 						lager:pr(Msg, ?MODULE)}]),
 	    message_counter(rx, GtpPort, IP, Msg),
-	    State = handle_message_1(ArrivalTS, IP, Port, Msg, State0),
+	    State = handle_message_1(ArrivalTS, IP, Port, Msg, Data, State0),
 	    {noreply, State}
     catch
 	Class:Error ->
@@ -490,12 +507,20 @@ handle_message(ArrivalTS, IP, Port, Data, #state{gtp_port = GtpPort} = State0) -
 	    {noreply, State0}
     end.
 
-handle_message_1(ArrivalTS, IP, Port, #gtp{type = echo_request} = Msg, State) ->
+handle_message_1(_ArrivalTS, IP, Port, 
+                 #gtp{type = Type} = Msg, Packet, 
+                 #state{gtp_port = GtpPort,
+                        redirector = Redirector} = State) 
+  when Redirector /= undefined, Type /= echo_response, Type /= echo_request ->
+    NewRedirector = gtp_redirector:handle_message(Redirector, GtpPort, IP, Port, Msg, Packet),
+    State#state{redirector = NewRedirector};
+
+handle_message_1(ArrivalTS, IP, Port, #gtp{type = echo_request} = Msg, _Data, State) ->
     ReqKey = make_request(ArrivalTS, IP, Port, Msg, State),
     gtp_path:handle_request(ReqKey, Msg),
     State;
 
-handle_message_1(ArrivalTS, IP, Port, #gtp{version = Version, type = MsgType} = Msg, State) ->
+handle_message_1(ArrivalTS, IP, Port, #gtp{version = Version, type = MsgType} = Msg, _Data, State) ->
     Handler =
 	case Version of
 	    v1 -> gtp_v1_c;
@@ -511,7 +536,9 @@ handle_message_1(ArrivalTS, IP, Port, #gtp{version = Version, type = MsgType} = 
 	    State
     end.
 
-handle_response(ArrivalTS, IP, _Port, Msg, #state{gtp_port = GtpPort} = State0) ->
+handle_response(ArrivalTS, IP, _Port, Msg, 
+                #state{gtp_port = GtpPort,
+                       redirector = Redirector} = State0) ->
     SeqId = make_seq_id(Msg),
     {Req, State} = take_request(SeqId, State0),
     case Req of
@@ -520,11 +547,12 @@ handle_response(ArrivalTS, IP, _Port, Msg, #state{gtp_port = GtpPort} = State0) 
 	    lager:debug("~p: invalid response: ~p, ~p", [self(), SeqId, gtp_c_lib:fmt_gtp(Msg)]),
 	    State;
 
-	#send_req{} = SendReq ->
-	    lager:info("~p: found response: ~p", [self(), SeqId]),
+	#send_req{address = RIP, port = RPort, msg = RMsg} = SendReq ->
+	    lager:debug("~p: found response: ~p", [self(), SeqId]),
 	    measure_reply(GtpPort, SendReq, ArrivalTS),
 	    send_request_reply(SendReq, Msg),
-	    State
+	    NewRedirector = gtp_redirector:echo_response(Redirector, GtpPort, RIP, RPort, RMsg, ArrivalTS),
+        State#state{redirector = NewRedirector}
     end.
 
 handle_request(#request{ip = IP, port = Port} = ReqKey, Msg,
@@ -567,7 +595,8 @@ sendto({_,_,_,_,_,_,_,_} = RemoteIP, Port, Data, #state{socket = Socket}) ->
     gen_socket:sendto(Socket, {inet6, RemoteIP, Port}, Data).
 
 send_request_reply(#send_req{cb_info = {M, F, A}}, Reply) ->
-    apply(M, F, A ++ [Reply]).
+    apply(M, F, A ++ [Reply]);
+send_request_reply(_SendReq, _Reply) -> ok.
 
 send_request(#send_req{address = DstIP, port = DstPort, data = Data} = SendReq, State0) ->
     sendto(DstIP, DstPort, Data, State0),
