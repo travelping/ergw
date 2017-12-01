@@ -254,7 +254,7 @@ recv_pdu(S, SeqNo, Timeout, Fail) ->
     Now = erlang:monotonic_time(millisecond),
     recv_active(S),
     receive
-	{udp, S, ?TEST_GSN, _InPortNo, Response} ->
+	{udp, S, IP, _InPortNo, Response} when IP == ?TEST_GSN; IP == ?TEST_GSN_R ->
 	    recv_pdu_msg(Response, Now, S, SeqNo, Timeout, Fail);
 	{udp, _Socket, _IP, _InPortNo, _Packet} = Unexpected ->
 	    recv_pdu_fail(Fail, Unexpected);

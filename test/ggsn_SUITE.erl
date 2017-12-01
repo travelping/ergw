@@ -78,6 +78,7 @@
 	 {ergw_aaa, [{ergw_aaa_provider, {ergw_aaa_mock, [{shared_secret, <<"MySecret">>}]}}]}
 	]).
 
+get_test_config() -> ?TEST_CONFIG.
 
 suite() ->
     [{timetrap,{seconds,30}}].
