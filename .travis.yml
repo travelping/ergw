@@ -1,5 +1,5 @@
-sudo: false
-dist: xenial
+sudo: required
+dist: trusty
 
 language: erlang
 
@@ -14,7 +14,9 @@ install: "true"
 script:
   - source test/env.sh
   - rebar3 compile
-  - rebar3 do xref, ct, coveralls send
+  # sudo -E ... doesn't work see https://github.com/travis-ci/travis-ci/issues/5224
+  # we do it some unflexable way
+  - sudo env PATH=$PATH CI_RUN_SLOW_TESTS=$CI_RUN_SLOW_TESTS rebar3 do xref, ct, coveralls send
 
 notifications:
   slack:

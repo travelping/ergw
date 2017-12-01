@@ -95,7 +95,7 @@ all() ->
 init_per_suite(Config0) ->
     inets:start(),
     Config1 = [{app_cfg, ?TEST_CONFIG},
-              {handler_under_test, ggsn_gn_proxy}
+              {handlers_under_test, [ggsn_gn_proxy]}
 	      | Config0],
     Config = lib_init_per_suite(Config1),
 
