@@ -67,7 +67,8 @@ fmt_ie(V) ->
 fmt_ies(IEs) when is_map(IEs) ->
     maps:map(fun(_K, V) -> fmt_ie(V) end, IEs);
 fmt_ies(IEs) when is_list(IEs) ->
-    lists:map(fun fmt_ie/1, IEs).
+    lists:map(fun fmt_ie/1, IEs);
+fmt_ies(IEs) -> IEs.
 
 fmt_gtp(#gtp{ie = IEs} = Msg) ->
     lager:pr(Msg#gtp{ie = fmt_ies(IEs)}, ?MODULE).
