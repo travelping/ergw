@@ -52,6 +52,61 @@ paths:
       responses:
         '200':
           description: returns the metrics
+  /sessions:
+    get:
+      summary: 'get list of sessions'
+      responses:
+        '200':
+          description: 'returns list of the sessions'
+          schema:
+            $ref: '#/definitions/SessionsList'
+  /sessions/{id}/{bearer_id}:
+    get:
+      summary: 'returns information about session with the given IMSI or IMEI'
+      parameters:
+        - name: id
+          in: path
+          required: true
+          type: string
+          description: 'session identity (IMSI or IMEI)'
+        - name: bearer_id
+          in: path
+          required: true
+          type: integer
+          default: 5
+          description: 'EPS Bearer Id'
+      responses:
+        '200':
+          description: 'session with the given session identity'
+          schema:
+            $ref: '#/definitions/SessionInfo'
+        '404':
+          description: 'a session with the given session identity is not found'
+          schema:
+            $ref: '#/definitions/SessionItemNotFound'
+    delete:
+      summary: 'stops a session with the given session IMSI or IMEI'
+      parameters:
+        - name: id
+          in: path
+          required: true
+          type: string
+          description: 'session identity'
+        - name: bearer_id
+          in: path
+          required: true
+          default: 5
+          type: integer
+          description: 'EPS Bearer Id'
+      responses:
+        '200':
+          description: 'a session with the given session identity is stopped'
+          schema:
+            $ref: '#/definitions/SessionDeleted'
+        '404':
+          description: 'a session with the given session identity is not found'
+          schema:
+            $ref: '#/definitions/SessionNotFound'
 definitions:
   Status:
     type: "object"
@@ -79,3 +134,91 @@ definitions:
     properties:
       version:
         type: "string"
+  SessionsList:
+    type: "object"
+    properties:
+      TotalCount:
+        type: integer
+      Sessions:
+        type: array
+        items:
+          $ref: '#/definitions/SessionInfo'
+  SessionInfo:
+    type: "object"
+    properties:
+      IMSI:
+        type: string
+      IMEI:
+        type: string
+      MSISDN:
+        type: string
+      StartTime:
+        type: string
+        format: date-time
+      LocalGTPEntity:
+        type: object
+        properties:
+          GTP-C:
+            type: object
+            properties:
+              Version:
+                type: string
+              TEID:
+                type: integer
+              IP:
+                type: string
+          GTP-U:
+            type: object
+            properties:
+              Version:
+                type: string
+              TEID:
+                type: integer
+              IP:
+                type: string
+      RemoteGTPEntity:
+        type: object
+        properties:
+          GTP-C:
+            type: object
+            properties:
+              Version:
+                type: string
+              TEID:
+                type: integer
+              IP:
+                type: string
+          GTP-U:
+            type: object
+            properties:
+              Version:
+                type: string
+              TEID:
+                type: integer
+              IP:
+                type: string
+      APN:
+        type: array
+        items:
+          type: string
+  SessionItemNotFound:
+    type: "object"
+    properties:
+      TotalCount:
+        type: integer
+      Session:
+        type: array
+        items:
+          type: string
+  SessionNotFound:
+    type: "object"
+    properties:
+      Result:
+        type: string
+        default: "Session not found"
+  SessionDeleted:
+    type: "object"
+    properties:
+      Result:
+        type: string
+        default: "ok"

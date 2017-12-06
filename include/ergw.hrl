@@ -54,7 +54,8 @@
 	  ms_v6                  :: inet:ip6_address(),
 	  state                  :: term(),
 	  restrictions = []      :: [{'v1', boolean()} |
-				     {'v2', boolean()}]
+				     {'v2', boolean()}],
+	  start_time             :: calendar:datetime()
 	 }).
 
 -record(request, {

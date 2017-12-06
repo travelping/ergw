@@ -7,9 +7,12 @@
 
 -module(http_api_handler).
 
+-include("include/ergw.hrl").
+-include_lib("stdlib/include/ms_transform.hrl").
+
 -export([init/2, content_types_provided/2,
          handle_request_json/2, handle_request_text/2,
-         allowed_methods/2,
+         allowed_methods/2, delete_resource/2,
          content_types_accepted/2]).
 
 -define(FIELDS_MAPPING, [{accept_new, 'acceptNewRequests'},
@@ -19,7 +22,7 @@ init(Req, Opts) ->
     {cowboy_rest, Req, Opts}.
 
 allowed_methods(Req, State) ->
-    {[<<"GET">>, <<"POST">>], Req, State}.
+    {[<<"GET">>, <<"POST">>, <<"DELETE">>], Req, State}.
 
 content_types_provided(Req, State) ->
     {[{<<"application/json">>, handle_request_json},
@@ -93,7 +96,55 @@ handle_request(<<"POST">>, _, json, Req, State) ->
             {true, Req2, State}
     end;
 
+handle_request(<<"GET">>, _, json, Req, State) ->
+    case cowboy_req:binding(id, Req) of
+        undefined ->
+            SessionsPids = get_sessions(),
+            Sessions = lists:map(fun (SessionState) ->
+                                         build_session_info(SessionState)
+                                 end, SessionsPids),
+            {jsx:encode(#{<<"Sessions">> => Sessions, <<"TotalCount">> => length(Sessions)}), Req, State};
+        Id ->
+            BearerId = cowboy_req:binding(bearer_id, Req),
+            case find_session(Id, BearerId) of
+                {error, not_found} ->
+                    Req2 = cowboy_req:set_resp_body(jsx:encode(#{<<"Session">> => []}), Req),
+                    {ok, Req3} = cowboy_req:reply(404, Req2),
+                    {false, Req3, State};
+                Pid ->
+                    {jsx:encode(#{<<"Session">> => build_session_info(Pid)}), Req, State}
+            end
+    end;
+
 handle_request(_, _, Req, _, State) ->
+    {false, Req, State}.
+
+delete_resource(Req, State) ->
+    Path = cowboy_req:path(Req),
+    PathParts = binary:split(Path, <<"/">>, [global]),
+    handle_delete(PathParts, Req, State).
+
+handle_delete([<<>>,<<"api">>,<<"v1">>,<<"sessions">>, SessionIdentity | Rest], Req, State) ->
+    BearerId = case Rest of
+                   [] ->
+                       undefined;
+                   [Id | _] ->
+                       try binary_to_integer(Id) of
+                           Num -> Num
+                           catch _:_ -> 5
+                       end
+               end,
+    case find_session(SessionIdentity, BearerId) of
+        {error, not_found} ->
+            Req2 = cowboy_req:set_resp_body(jsx:encode(#{<<"Result">> => <<"Session not found">>}), Req),
+            {ok, Req3} = cowboy_req:reply(404, Req2),
+            {false, Req3, State};
+        Pid ->
+            Req2 = cowboy_req:set_resp_body(jsx:encode(#{<<"Result">> => <<"ok">>}), Req),
+            gtp_context:delete_context(Pid),
+            {true, Req2, State}
+    end;
+handle_delete(_, Req, State) ->
     {false, Req, State}.
 
 %%%===================================================================
@@ -216,3 +267,57 @@ maybe_add_sum(Name, DataPoints, histogram, Payload) ->
     [Payload | [Name, <<"_sum ">>, ioize(Mean * N), <<"\n">>]];
 maybe_add_sum(_Name, _DataPoints, _Type, Payload) ->
     Payload.
+
+get_sessions() ->
+    F = ets:fun2ms(fun ({{_SockName, {Id, _, _}}, Pid})
+                         when (Id == imsi) or (Id == imei) ->
+                           Pid
+                   end),
+    ets:select(gtp_context_reg, F).
+
+find_session(SessionIdentity, undefined) ->
+    find_session(SessionIdentity, 5);
+find_session(SessionIdentity, BearerId) ->
+    F = ets:fun2ms(fun({{_, {Id, SessionId, BId}}, Pid})
+                         when (Id == imsi) or (Id == imei),
+                              SessionIdentity == SessionId,
+                              BearerId == BId ->
+                           Pid
+                   end),
+    case ets:select(gtp_context_reg, F, 1) of
+        {[Pid], _} ->
+            Pid;
+        _ ->
+            {error, not_found}
+    end.
+
+build_session_info(Session) ->
+    SessionInfo = maps:get(context, gtp_context:info(Session)),
+    ControlPort = SessionInfo#context.control_port,
+    DataPort = SessionInfo#context.data_port,
+    Version = SessionInfo#context.version,
+    APN = SessionInfo#context.apn,
+    #{<<"IMSI">> => SessionInfo#context.imsi,
+      <<"IMEI">> => SessionInfo#context.imei,
+      <<"MSISDN">> => SessionInfo#context.msisdn,
+      <<"APN">> => APN,
+      <<"LocalGTPEntity">> =>
+          #{<<"GTP-C">> => #{<<"Version">> => Version,
+                             <<"TEID">> => SessionInfo#context.local_control_tei,
+                             <<"IP">> => format_ip(ControlPort#gtp_port.ip)},
+            <<"GTP-U">> => #{<<"Version">> => Version,
+                             <<"TEID">> => SessionInfo#context.local_data_tei,
+                             <<"IP">> => format_ip(DataPort#gtp_port.ip)}},
+      <<"RemoteGTPEntity">> =>
+          #{<<"GTP-C">> => #{<<"Version">> => Version,
+                             <<"TEID">> => SessionInfo#context.remote_control_tei,
+                             <<"IP">> => format_ip(SessionInfo#context.remote_control_ip)},
+            <<"GTP-U">> => #{<<"Version">> => Version,
+                             <<"TEID">> => SessionInfo#context.remote_data_tei,
+                             <<"IP">> => format_ip(SessionInfo#context.remote_data_ip)}},
+      <<"StartTime">> => SessionInfo#context.start_time}.
+
+format_ip(undefined) ->
+    undefined;
+format_ip(Ip) ->
+    list_to_binary(inet_parse:ntoa(Ip)).

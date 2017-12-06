@@ -267,7 +267,8 @@ init([CntlPort, Version, Interface,
 		 control_port      = CntlPort,
 		 local_control_tei = CntlTEI,
 		 data_port         = DataPort,
-		 local_data_tei    = DataTEI
+		 local_data_tei    = DataTEI,
+		 start_time        = calendar:universal_time()
 		},
 
     State = #{

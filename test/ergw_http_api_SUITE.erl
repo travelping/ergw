@@ -10,12 +10,16 @@
 -compile(export_all).
 
 -include("ergw_test_lib.hrl").
+-include("ergw_ggsn_test_lib.hrl").
+-include_lib("gtplib/include/gtp_packet.hrl").
 -include_lib("common_test/include/ct.hrl").
 
 -define(TEST_CONFIG,
 	[
 	 {lager, [{colored, true},
-		  {error_logger_redirect, true},
+		  {error_logger_redirect, false},
+		  %% force lager into async logging, otherwise
+		  %% the test will timeout randomly
 		  {async_threshold, undefined},
 		  {handlers, [{lager_console_backend, info}]}
 		 ]},
@@ -28,57 +32,48 @@
 			 ]},
 		   {grx, [{type, 'gtp-u'},
 			  {node, 'gtp-u-node@localhost'},
-			  {name, 'grx'}
-			 ]},
-		   {'proxy-irx', [{type, 'gtp-c'},
-				  {ip,  ?PROXY_GSN},
-				  {reuseaddr, true}
-				 ]},
-		   {'proxy-grx', [{type, 'gtp-u'},
-				  {node, 'gtp-u-proxy@vlx161-tpmd'},
-				  {name, 'proxy-grx'}
-				 ]}
+			  {name, 'grx'}]}
 		  ]},
 
 		 {vrfs,
 		  [{example, [{pools,  [{{10, 180, 0, 1}, {10, 180, 255, 254}, 32},
-					{{16#8001, 0, 0, 0, 0, 0, 0, 0},
-					 {16#8001, 0, 0, 16#FFFF, 0, 0, 0, 0}, 64}
-				       ]},
-			      {'MS-Primary-DNS-Server', {8,8,8,8}},
-			      {'MS-Secondary-DNS-Server', {8,8,4,4}},
-			      {'MS-Primary-NBNS-Server', {127,0,0,1}},
-			      {'MS-Secondary-NBNS-Server', {127,0,0,1}}
-			     ]}
+                                        {{16#8001, 0, 0, 0, 0, 0, 0, 0},
+					  {16#8001, 0, 0, 16#FFFF, 0, 0, 0, 0}, 64}
+					]},
+			       {'MS-Primary-DNS-Server', {8,8,8,8}},
+			       {'MS-Secondary-DNS-Server', {8,8,4,4}},
+			       {'MS-Primary-NBNS-Server', {127,0,0,1}},
+			       {'MS-Secondary-NBNS-Server', {127,0,0,1}}
+			      ]}
 		  ]},
 
 		 {handlers,
-		  %% proxy handler
-		  [{gn, [{handler, ggsn_gn_proxy},
+		  [{gn, [{handler, ggsn_gn},
 			 {sockets, [irx]},
 			 {data_paths, [grx]},
-			 {proxy_sockets, ['proxy-irx']},
-			 {proxy_data_paths, ['proxy-grx']},
-			 {ggsn, ?FINAL_GSN},
-			 {contexts,
-			  [{<<"ams">>,
-			    [{proxy_sockets, ['proxy-irx']},
-			     {proxy_data_paths, ['proxy-grx']}]}]}
+			 {aaa, [{'Username',
+				 [{default, ['IMSI',   <<"/">>,
+					     'IMEI',   <<"/">>,
+					     'MSISDN', <<"/">>,
+					     'ATOM',   <<"/">>,
+					     "TEXT",   <<"/">>,
+					     12345,
+					     <<"@">>, 'APN']}]}]}
+			]},
+		   {gn, [{handler, ggsn_gn},
+			 {sockets, ['remote-irx']},
+			 {data_paths, ['remote-grx']},
+			 {aaa, [{'Username',
+				 [{default, ['IMSI', <<"@">>, 'APN']}]}]}
 			]}
 		  ]},
 
 		 {apns,
-		  [{?'APN-PROXY', [{vrf, example}]}
+		  [{?'APN-EXAMPLE', [{vrf, example}]},
+		   {[<<"APN1">>], [{vrf, example}]}
 		  ]},
-
-		 {proxy_map,
-		  [{apn,  [{?'APN-EXAMPLE', ?'APN-PROXY'}]},
-		   {imsi, [{?'IMSI', {?'PROXY-IMSI', ?'PROXY-MSISDN'}}
-			  ]}
-		  ]},
-
                  {http_api, [{port, 0}]}
-                ]},
+		]},
 	 {ergw_aaa, [{ergw_aaa_provider, {ergw_aaa_mock, [{shared_secret, <<"MySecret">>}]}}]}
 	]).
 
@@ -90,12 +85,38 @@ all() ->
      http_api_prometheus_metrics_req,
      http_api_prometheus_metrics_sub_req,
      http_api_metrics_req,
-     http_api_metrics_sub_req].
+     http_api_metrics_sub_req,
+     http_api_session_stop,
+     http_api_session_info,
+     http_api_sessions_list].
+
+init_per_testcase(Config) ->
+    meck_reset(Config).
+init_per_testcase(http_api_session_stop, Config) ->
+    ok = meck:expect(gtp_socket, send_request,
+		     fun(GtpPort, DstIP, DstPort, _T3, _N3,
+			 #gtp{type = delete_pdp_context_request} = Msg, CbInfo) ->
+			     %% reduce timeout to 1 second and 2 resends
+			     %% to speed up the test
+			     meck:passthrough([GtpPort, DstIP, DstPort, 1000, 2, Msg, CbInfo]);
+			(GtpPort, DstIP, DstPort, T3, N3, Msg, CbInfo) ->
+			     meck:passthrough([GtpPort, DstIP, DstPort, T3, N3, Msg, CbInfo])
+		     end),
+    Config;
+init_per_testcase(_, Config) ->
+    init_per_testcase(Config),
+    Config.
+
+end_per_testcase(http_api_session_stop, Config) ->
+    ok = meck:delete(gtp_socket, send_request, 7),
+    Config;
+end_per_testcase(_, Config) ->
+    Config.
 
 init_per_suite(Config0) ->
     inets:start(),
     Config1 = [{app_cfg, ?TEST_CONFIG},
-              {handler_under_test, ggsn_gn_proxy}
+              {handler_under_test, ggsn_gn}
 	      | Config0],
     Config = lib_init_per_suite(Config1),
 
@@ -125,6 +146,109 @@ init_per_suite(Config0) ->
 end_per_suite(Config) ->
     inets:stop(),
     ok = lib_end_per_suite(Config),
+    ok.
+
+http_api_session_info() ->
+    [{doc, "Check /session/id/bearer_id API"}].
+http_api_session_info(Config) ->
+    S = make_gtp_socket(Config),
+    {GtpC1, _, _} = create_pdp_context(S),
+
+    URL1 = get_test_url("/api/v1/sessions/111111111111111"),
+    {ok, {_, _, Body1}} = httpc:request(get, {URL1, []},
+                                        [], [{body_format, binary}]),
+    Res1 = jsx:decode(Body1, [return_maps]),
+    Session1 = maps:get(<<"Session">>, Res1),
+    ?match(#{<<"MSISDN">> := ?MSISDN, <<"IMSI">> := ?IMSI}, Session1),
+
+    URL2 = get_test_url("/api/v1/sessions/111111111111112"),
+    {ok, {{_, StatusCode, _}, _, Body2}} = httpc:request(get, {URL2, []},
+                                                         [], [{body_format, binary}]),
+    ?equal(404, StatusCode),
+    Res2 = jsx:decode(Body2, [return_maps]),
+    ?match(#{<<"Session">> := []}, Res2),
+
+    delete_pdp_context(S, GtpC1),
+    ok = meck:wait(ggsn_gn, terminate, '_', 2000),
+    meck_validate(Config),
+    ok.
+
+http_api_sessions_list() ->
+    [{doc, "Check /session API"}].
+http_api_sessions_list(Config) ->
+    URL1 = get_test_url("/api/v1/sessions"),
+    {ok, {_, _, Body1}} = httpc:request(get, {URL1, []},
+                                        [], [{body_format, binary}]),
+    Res1 = jsx:decode(Body1, [return_maps]),
+    ?match(#{<<"TotalCount">> := 0, <<"Sessions">> := []}, Res1),
+
+    S = make_gtp_socket(Config),
+    {GtpC1, _, _} = create_pdp_context(S),
+    {GtpC2, _, _} = create_pdp_context(random, S, GtpC1),
+
+    URL2 = get_test_url("/api/v1/sessions"),
+    {ok, {_, _, Body2}} = httpc:request(get, {URL2, []},
+                                        [], [{body_format, binary}]),
+    Res2 = jsx:decode(Body2, [return_maps]),
+    ?match(#{<<"TotalCount">> := 2}, Res2),
+    lists:foreach(fun (Session) ->
+                          ?match(#{<<"MSISDN">> := ?MSISDN,
+                                   <<"LocalGTPEntity">> :=
+                                       #{<<"GTP-C">> :=
+                                             #{<<"IP">> := <<"127.0.0.1">>, <<"Version">> := <<"v1">>},
+                                         <<"GTP-U">> :=
+                                             #{<<"IP">> := <<"127.0.0.1">>, <<"Version">> := <<"v1">>}},
+                                   <<"RemoteGTPEntity">> :=
+                                       #{<<"GTP-C">> :=
+                                             #{<<"IP">> := <<"127.127.127.127">>, <<"Version">> := <<"v1">>},
+                                         <<"GTP-U">> :=
+                                             #{<<"IP">> := <<"127.127.127.127">>, <<"Version">> := <<"v1">>}}
+                                  }, Session)
+                  end, maps:get(<<"Sessions">>, Res1)),
+    delete_pdp_context(S, GtpC1),
+    delete_pdp_context(S, GtpC2),
+    ok = meck:wait(ggsn_gn, terminate, '_', 2000),
+    meck_validate(Config),
+    ok.
+
+http_api_session_stop() ->
+    [{doc, "Check DELETE /session/id/bearer_id"}].
+http_api_session_stop(Config) ->
+    % Create session and request it
+    S = make_gtp_socket(Config),
+    {_GtpC1, _, _} = create_pdp_context(S),
+
+    URL1 = get_test_url("/api/v1/sessions"),
+    {ok, {_, _, Body1}} = httpc:request(get, {URL1, []},
+                                        [], [{body_format, binary}]),
+    Res1 = jsx:decode(Body1, [return_maps]),
+    ?match(#{<<"TotalCount">> := 1}, Res1),
+
+    % Stop session
+    URL2 = get_test_url("/api/v1/sessions/111111111111111/5"),
+    {ok, {_, _, Body2}} = httpc:request(delete, {URL2, [], "", []},
+                                        [], [{body_format, binary}]),
+    Res2 = jsx:decode(Body2, [return_maps]),
+    ?match(#{<<"Result">> := <<"ok">>}, Res2),
+
+    % Stop non-existent session
+    URL3 = get_test_url("/api/v1/sessions/111111111111112/5"),
+    {ok, {{_, StatusCode, _}, _, Body3}} = httpc:request(delete, {URL3, [], "", []},
+                                                         [], [{body_format, binary}]),
+    ?equal(404, StatusCode),
+    Res3 = jsx:decode(Body3, [return_maps]),
+    ?match(#{<<"Result">> := <<"Session not found">>}, Res3),
+
+    % Check that session was destroyed after stop
+    URL4 = get_test_url("/api/v1/sessions"),
+    {ok, {_, _, Body4}} = httpc:request(get, {URL4, []},
+                                        [], [{body_format, binary}]),
+    Res4 = jsx:decode(Body4, [return_maps]),
+    ?match(#{<<"TotalCount">> := 0}, Res4),
+
+    ok = meck:wait(ggsn_gn, terminate, '_', 2000),
+    wait4tunnels(2000),
+    meck_validate(Config),
     ok.
 
 http_api_version_req() ->
