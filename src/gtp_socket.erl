@@ -17,7 +17,8 @@
 	 send/4, send_response/3,
 	 send_request/6, send_request/7, resend_request/2,
 	 get_restart_counter/1]).
--export([get_request_q/1, get_response_q/1, get_seq_no/2]).
+-export([get_request_q/1, get_response_q/1, get_seq_no/2, 
+	 family/1, family_v/1, message_counter/4]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -45,20 +46,7 @@
 	  requests,
 	  responses,
 
-	  redirector_socket     = nil   :: nil | gen_socket:socket(),
-	  % lists of all nodes, including bad
-	  redirector_nodes      = []    :: list(),
-	  % here we have nodes which are not answered for Keep-Alive echo request
-	  % no requests should be transfered to such nodes
-	  redirector_bad_nodes  = []    :: list(),
-	  redirector_lb_type    = round_robin :: random | round_robin,
-	  redirector_ka_timeout = 60000 :: non_neg_integer(), % Keep-Alive timeout
-	  redirector_ka_timer   = nil   :: reference(),
-	  % cached nodes for requests, because retransmission should happen for the same node
-	  redirector_requests,        % :: ergw_cache(),
-	  redirector_rt_timeout = 10000 :: non_neg_integer(), % retransmission timeout
-	  % timestamps for responses which used by Keep-Alive mechanism
-	  redirector_responses  = maps:new() :: map(),
+      redirector  = undefined :: gtp_redirector:redirector(),
 
 	  restart_counter}).
 
@@ -178,30 +166,10 @@ validate_option(rcvbuf, Value)
   when is_integer(Value) andalso Value > 0 ->
     Value;
 validate_option(redirector, Value) when is_list(Value) ->
-    lists:map(fun validate_redirector_option/1, Value),
+    lists:map(fun gtp_redirector:validate_option/1, Value),
     Value;
 validate_option(Opt, Value) ->
     throw({error, {options, {Opt, Value}}}).
-
-validate_redirector_option({redirector_nodes, Nodes}) when is_list(Nodes) ->
-    lists:map(fun({Family, IP, Port, Version} = Value) when 
-                      (Family == inet4 orelse Family == inet6),
-                      is_tuple(IP), is_integer(Port), Port > 0,
-                      (Version == v1 orelse Version == v2) -> Value;
-                 (Value) -> throw({error, {redirector_nodes, Value}})
-              end, Nodes),
-    ok;
-validate_redirector_option({redirector_lb_type, Type}) 
-  when Type == round_robin; Type == random ->
-    ok;
-validate_redirector_option({redirector_ka_timeout, Timeout})
-  when is_integer(Timeout), Timeout > 0 ->
-    ok;
-validate_redirector_option({redirector_rt_timeout, Timeout})
-  when is_integer(Timeout), Timeout > 0 ->
-    ok;
-validate_redirector_option(Value) ->
-    throw({error, {redirector_options, Value}}).
 
 %%%===================================================================
 %%% call/cast wrapper for gtp_port
@@ -234,7 +202,7 @@ init([Name, #{ip := IP} = SocketOpts]) ->
     init_exometer(GtpPort),
     gtp_socket_reg:register(Name, GtpPort),
 
-    State0 = #state{
+    State = #state{
 	       gtp_port = GtpPort,
 	       ip = IP,
 	       socket = S,
@@ -245,30 +213,10 @@ init([Name, #{ip := IP} = SocketOpts]) ->
 	       requests = ergw_cache:new(?T3 * 4, requests),
 	       responses = ergw_cache:new(?CACHE_TIMEOUT, responses),
 
-	       restart_counter = RCnt},
-    State = maybe_init_redirector(State0, SocketOpts),
-    {ok, State}.
+           redirector = gtp_redirector:init(IP, SocketOpts),
 
-maybe_init_redirector(#state{ip = IP} = State, #{redirector := [_|_] = Redirector}) -> 
-    {ok, Socket} = gen_socket:socket(family(IP), raw, udp),
-    ok = gen_socket:setsockopt(Socket, sol_ip, hdrincl, true),
-    ok = gen_socket:bind(Socket, {family_v(IP), IP, 0}),
-    KATimeout = proplists:get_value(redirector_ka_timeout, Redirector, 60000),
-    RTTimeout = proplists:get_value(redirector_rt_timeout, Redirector, 10000),
-    Nodes = proplists:get_value(redirector_nodes, Redirector, []),
-    TRef = erlang:start_timer(KATimeout, self(), redirector_keep_alive),
-    % let's assume that on start all backends are available 
-    % then set echo_response to the time now for all of them
-    Responses = lists:foldl(fun(Node, Acc) -> Acc#{Node => erlang:monotonic_time()} end, #{}, Nodes),
-    State#state{redirector_socket = Socket, 
-                redirector_nodes = Nodes,
-                redirector_lb_type = proplists:get_value(redirector_lb_type, Redirector, round_robin),
-                redirector_ka_timeout = KATimeout,
-                redirector_ka_timer = TRef,
-                redirector_requests = ergw_cache:new(?T3 * 4, redirector_requests), 
-                redirector_rt_timeout = RTTimeout,
-                redirector_responses = Responses};
-maybe_init_redirector(State, _) -> State.
+	       restart_counter = RCnt},
+    {ok, State}.
 
 handle_call(get_restart_counter, _From, #state{restart_counter = RCnt} = State) ->
     {reply, RCnt, State};
@@ -346,26 +294,9 @@ handle_info(Info = {timeout, _TRef, {request, SeqId}}, #state{gtp_port = GtpPort
 
 handle_info({timeout, _TRef, redirector_keep_alive}, 
             #state{gtp_port = GtpPort,
-                   redirector_ka_timeout = KATimeout,
-                   redirector_nodes = Nodes,
-                   redirector_responses = Responses} = State) ->
-    NotAnswered = maps:map(fun(_K, TS) when is_integer(TS) ->  
-                                   Now = erlang:monotonic_time(),
-                                   Duration = erlang:convert_time_unit(Now - TS, native, millisecond),
-                                   Duration > (KATimeout * 2);
-                              (_K, _V) -> true
-                           end, Responses),
-    BadNodes = lists:filter(fun(Node) -> maps:get(Node, NotAnswered, false) end, Nodes),
-    lists:foreach(fun({_, IP, Port, Version}) ->
-                      Msg = case Version of
-                                v1 -> gtp_v1_c:build_echo_request(GtpPort);
-                                v2 -> gtp_v2_c:build_echo_request(GtpPort)
-                            end,
-                      send_request(GtpPort, IP, Port, ?T3 * 2, 0, Msg, [])
-                  end, Nodes),
-    TRef = erlang:start_timer(KATimeout, self(), redirector_keep_alive),
-    {noreply, State#state{redirector_ka_timer = TRef, 
-                          redirector_bad_nodes = BadNodes}};
+                   redirector = Redirector} = State) when Redirector /= undefined ->
+    NewRedirector = gtp_redirector:keep_alive(Redirector, GtpPort),
+    {noreply, State#state{redirector = NewRedirector}};
 
 handle_info({timeout, _TRef, requests}, #state{requests = Requests} = State) ->
     {noreply, State#state{requests = ergw_cache:expire(Requests)}};
@@ -374,8 +305,8 @@ handle_info({timeout, _TRef, responses}, #state{responses = Responses} = State) 
     {noreply, State#state{responses = ergw_cache:expire(Responses)}};
 
 handle_info({timeout, _TRef, redirector_requests}, 
-            #state{redirector_requests = Requests} = State) ->
-    {noreply, State#state{redirector_requests = ergw_cache:expire(Requests)}};
+            #state{redirector = Redirector} = State) when Redirector /= undefined ->
+    {noreply, State#state{redirector = gtp_redirector:timeout_requests(Redirector)}};
 
 handle_info({Socket, input_ready}, #state{socket = Socket} = State) ->
     handle_input(Socket, State);
@@ -581,74 +512,13 @@ handle_message(ArrivalTS, IP, Port, Data, #state{gtp_port = GtpPort} = State0) -
 	    {noreply, State0}
     end.
 
-optlen(HL) -> (HL - 5) * 4.
-create_ipv4_udp_packet({SA1, SA2, SA3, SA4}, SPort, {DA1, DA2, DA3, DA4}, DPort, Payload) ->
-    % UDP
-    ULen = 8 + byte_size(Payload),
-    USum = 0,
-    UDP = <<SPort:16, DPort:16, ULen:16, USum:16, Payload/binary>>,
-    % IPv4
-    HL = 5, DSCP = 0, ECN = 0, Len = 160 + optlen(HL) + byte_size(UDP),
-    Id = 0, DF = 0, MF = 0, Off = 0,
-    TTL = 64, Protocol = 17, Sum = 0,
-    Opt = <<>>,
-    % Packet
-    <<4:4, HL:4, DSCP:6, ECN:2, Len:16, 
-      Id:16, 0:1, DF:1, MF:1, Off:13, 
-      TTL:8, Protocol:8, Sum:16,
-      SA1:8, SA2:8, SA3:8, SA4:8, 
-      DA1:8, DA2:8, DA3:8, DA4:8, 
-      Opt:(optlen(HL))/binary, UDP/binary>>.
-
-apply_redirector_lb_type(Nodes, BadNodes, LBType) ->
-    case Nodes -- BadNodes of
-        [] -> {error, no_nodes};
-        _ -> apply_redirector_lb_type_1(Nodes, BadNodes, LBType)
-    end.
-
-apply_redirector_lb_type_1([Node | Nodes], BadNodes, LBType = round_robin) ->
-    case lists:member(Node, BadNodes) of
-        true -> apply_redirector_lb_type_1(Nodes ++ [Node], BadNodes, LBType);
-        false -> {Node, Nodes ++ [Node]} 
-    end;
-apply_redirector_lb_type_1(Nodes, BadNodes, random) ->
-    Index = rand:uniform(length(Nodes) - length(BadNodes)),
-    {lists:nth(Index, Nodes -- BadNodes), Nodes}.
-
 handle_message_1(_ArrivalTS, IP, Port, 
-                 #gtp{type = Type, seq_no = SeqId} = Msg, Packet0, 
+                 #gtp{type = Type} = Msg, Packet, 
                  #state{gtp_port = GtpPort,
-                        redirector_socket = Socket,
-                        redirector_nodes = [_|_] = Nodes,
-                        redirector_bad_nodes = BadNodes,
-                        redirector_rt_timeout = RTTimeout,
-                        redirector_requests = Requests,
-                        redirector_lb_type = LBType} = State)
-  when Socket /= nil, Type /= echo_response, Type /= echo_request ->
-    ReqKey = {GtpPort, IP, Port, Type, SeqId},
-    Result = case ergw_cache:get(ReqKey, Requests) of
-                 {value, CachedNode} -> 
-                     lager:debug("~p was cached for using backend: ~p", [ReqKey, CachedNode]),
-                     {true, {CachedNode, Nodes}};
-                 _Other -> {false, apply_redirector_lb_type(Nodes, BadNodes, LBType)}
-             end,
-    case Result of
-        {_, {error, no_nodes}} -> 
-            lager:warning("~p: no nodes to redirect request", [GtpPort#gtp_port.name]),
-            State;
-        {Cached, {{Family, DIP, DPort, _} = Node, NewNodes}} ->
-            % if a backend was taken from cache we should not update it in cache this time
-            NewRequests = if Cached == true -> Requests;
-                             true -> ergw_cache:enter(ReqKey, Node, RTTimeout, Requests)
-                          end,
-            Packet = case Family of
-                         inet4 -> create_ipv4_udp_packet(IP, Port, DIP, DPort, Packet0);
-                         inet6 -> throw("inet6 is not supported now")
-                     end,
-            gen_socket:sendto(Socket, {Family, DIP, DPort}, Packet),
-            message_counter(rr, GtpPort, IP, Msg),
-            State#state{redirector_nodes = NewNodes, redirector_requests = NewRequests}
-    end;
+                        redirector = Redirector} = State) 
+  when Redirector /= undefined, Type /= echo_response, Type /= echo_request ->
+    NewRedirector = gtp_redirector:handle_message(Redirector, GtpPort, IP, Port, Msg, Packet),
+    State#state{redirector = NewRedirector};
 
 handle_message_1(ArrivalTS, IP, Port, #gtp{type = echo_request} = Msg, _Data, State) ->
     ReqKey = make_request(ArrivalTS, IP, Port, Msg, State),
@@ -671,7 +541,9 @@ handle_message_1(ArrivalTS, IP, Port, #gtp{version = Version, type = MsgType} = 
 	    State
     end.
 
-handle_response(ArrivalTS, IP, _Port, Msg, #state{gtp_port = GtpPort} = State0) ->
+handle_response(ArrivalTS, IP, _Port, Msg, 
+                #state{gtp_port = GtpPort,
+                       redirector = Redirector} = State0) ->
     SeqId = make_seq_id(Msg),
     {Req, State} = take_request(SeqId, State0),
     case Req of
@@ -680,34 +552,13 @@ handle_response(ArrivalTS, IP, _Port, Msg, #state{gtp_port = GtpPort} = State0) 
 	    lager:debug("~p: invalid response: ~p, ~p", [self(), SeqId, gtp_c_lib:fmt_gtp(Msg)]),
 	    State;
 
-	#send_req{} = SendReq ->
+	#send_req{address = RIP, port = RPort, msg = RMsg} = SendReq ->
 	    lager:debug("~p: found response: ~p", [self(), SeqId]),
 	    measure_reply(GtpPort, SendReq, ArrivalTS),
 	    send_request_reply(SendReq, Msg),
-	    redirector_echo_response(ArrivalTS, SendReq, State)
+	    NewRedirector = gtp_redirector:echo_response(Redirector, GtpPort, RIP, RPort, RMsg, ArrivalTS),
+        State#state{redirector = NewRedirector}
     end.
-
-redirector_echo_response(ArrivalTS,
-                         #send_req{address = IP, port = Port, 
-                                   msg = #gtp{version = Version, type = echo_request}}, 
-                         #state{gtp_port = #gtp_port{name = Name},
-                                redirector_socket = Socket,
-                                redirector_nodes = [_|_] = Nodes,
-                                redirector_responses = Responses} = State)
-  when Socket /= nil ->
-    Match = lists:any(fun({F, IP0, Port0, V0}) -> 
-                              IP0 == IP andalso Port0 == Port andalso
-                              F == family_v(IP) andalso V0 == Version;
-                         (_) -> false
-                      end, Nodes),
-    if Match == true ->
-        lager:info("~p: ~p got echo_response from ~p:~p", [ArrivalTS, Name, IP, Port]),
-        NewResponses = Responses#{{family_v(IP), IP, Port, Version} => ArrivalTS},
-        State#state{redirector_responses = NewResponses};
-       true -> State
-    end;
-redirector_echo_response(_ArrivalTS, _SendReq, State) ->
-    State.
 
 handle_request(#request{ip = IP, port = Port} = ReqKey, Msg,
 	       #state{gtp_port = GtpPort, responses = Responses} = State) ->
