@@ -10,6 +10,7 @@
 -compile([export_all, nowarn_export_all]).
 
 -include_lib("common_test/include/ct.hrl").
+
 -include("../include/ergw.hrl").
 -include("ergw_test_lib.hrl").
 -include("ergw_ggsn_test_lib.hrl").
@@ -48,19 +49,71 @@ inject_redirector(Config) ->
                  {ip,  ?TEST_GSN},
                  {reuseaddr, true},
                  {redirector, [
-                               {redirector_ka_timeout, 500},
-                               {redirector_nodes, [{inet4, ?TEST_GSN_R, ?GTP1c_PORT, v1},
-                                                   % this one should be not available 
-                                                   % and be ignored by keep-alive mechanism
-                                                   {inet4, {10,0,0,1}, ?GTP1c_PORT, v1} 
-                                                  ]}
-                              ]} ]},
-    ModifySockets = 
+                               {keep_alive_timeout, 500},
+                               {retransmit_timeout, 10000},
+                               {lb_type, random},
+                               {nodes, [
+                                        {node, [{name, <<"gsn">>},
+                                                {keep_alive_version, v1},
+                                                {address, ?TEST_GSN_R}
+                                               ]},
+                                        {node, [{name, <<"broken">>},
+                                                {keep_alive_version, v1},
+                                                {address, {10,0,0,1}}
+                                               ]}
+                                       ]},
+                               {rules, [
+                                        % this rule should never happen by sgsn_ip
+                                        {rule, [
+                                                {conditions, [{sgsn_ip, {192, 255, 127, 127}},
+                                                              {version, [v1, v2]}
+                                                             ]},
+                                                {nodes, [<<"gsn">>]}
+                                               ]},
+                                        % to ggsn
+                                        {rule, [% when ip and imsi are matched
+                                                {conditions, [{sgsn_ip, {127, 127, 127, 127}},
+                                                              {imsi, <<"111111111111111">>},
+                                                              {version, [v1]}
+                                                             ]},
+                                                {nodes, [<<"gsn">>, <<"broken">>]}
+                                               ]},
+                                        % to pgw
+                                        {rule, [% when ip and imsi are matched
+                                                {conditions, [{sgsn_ip, {127, 127, 127, 127}},
+                                                              {imsi, <<"111111111111111">>},
+                                                              {version, [v2]}
+                                                             ]},
+                                                {nodes, [<<"gsn">>, <<"broken">>]}
+                                               ]},
+                                        {rule, [% TODO: some request like delete_pdp_context_request
+                                                %       go to this rule. we do it because now test helpers are
+                                                %       not able to change destination api to send requests.
+                                                {conditions, []},
+                                                {nodes, [<<"gsn">>]}
+                                               ]}
+                                       ]} 
+                              ]}
+                ]},
+    S5S8 = {s5s8, [{handler, pgw_s5s8},
+                   {sockets, [irx]},
+                   {data_paths, [grx]},
+                   {aaa, [{'Username',
+                           [{default, ['IMSI',   <<"/">>,
+                                       'IMEI',   <<"/">>,
+                                       'MSISDN', <<"/">>,
+                                       'ATOM',   <<"/">>,
+                                       "TEXT",   <<"/">>,
+                                       12345,
+                                       <<"@">>, 'APN']}]}]}
+                  ]},
+    ModifySocketsAndHandlers = 
         fun({sockets, Sockets}) -> {sockets, lists:map(ModifyIRX, [RRX | Sockets])};
+           ({handlers, Handlers}) -> {handlers, [S5S8 | Handlers]};
            (Other) -> Other
         end,
     lists:map(fun({ergw, Ergw}) -> 
-                      {ergw, lists:map(ModifySockets, Ergw)};
+                      {ergw, lists:map(ModifySocketsAndHandlers, Ergw)};
                  (Other) -> Other
              end, Config).
 
@@ -127,14 +180,16 @@ create_pdp_context_request_resend(Config) ->
     % a node for the particular create_pdp_context_request in redirector mode.
     % `ggsn_SUITE:create_pdp_context_request_resend` sends `create_pdp_context_request` twice
     % but because rederector socket has some retransmission cache we expect that `enter`
-    % will be called just one, and the seconds request will be processed to node 
+    % will be called just once, and the seconds request will be processed to node 
     % which was cached before
-    Id = {'_', '_', '_', create_pdp_context_request, '_'},
-    Node = {'_', '_', '_', '_'},
-    Count0 = meck:num_calls(ergw_cache, enter, [Id, Node, '_', '_']),
+    Count = get_count(),
     ggsn_SUITE:create_pdp_context_request_resend(Config),
-    Count = meck:num_calls(ergw_cache, enter, [Id, Node, '_', '_']),
-    ?match(1, Count - Count0).
+    ?equal(1, get_count() - Count).
+
+get_count() ->
+    Id = {'_', '_', '_', create_pdp_context_request, '_'},
+    Node = {'_', '_'},
+    meck:num_calls(ergw_cache, enter, [Id, Node, '_', '_']).
 
 %%--------------------------------------------------------------------
 keep_alive() ->
@@ -149,7 +204,3 @@ keep_alive(_Config) ->
 
 get_value({ok, DPs}) -> proplists:get_value(value, DPs, -1);
 get_value(_) -> -1.
-
-%%%===================================================================
-%%% Internal functions
-%%%===================================================================

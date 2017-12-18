@@ -9,25 +9,36 @@
 
 -export([init/2, 
          validate_option/1, 
-         get_nodes/1, 
-         set_nodes/2,
          keep_alive/2, 
          timeout_requests/1, 
          handle_message/6, 
          echo_response/6]).
 
+-record(rule, {
+          conditions = []          :: list({Key :: atom(), Value :: term()}),
+          nodes      = []          :: list(binary())
+         }).
+
+-record(node, {
+          name                    :: binary(),
+          keep_alive_version = v1 :: v1 | v2, 
+          address                 :: inet:ip_address()
+         }).
+
 -record(redirector, {
           socket     = undefined    :: undefined | gen_socket:socket(),
 
           % lists of all nodes, including bad
-          nodes      = []    :: list(),
+          nodes      = []    :: list(#node{}),
 
           % here we have nodes which are not answered for Keep-Alive echo request
           % no requests should be transfered to such nodes
           bad_nodes  = []    :: list(),
-          lb_type    = round_robin :: random | round_robin,
+          lb_type    = random :: random | round_robin, % for now only random is supported
           ka_timeout = 60000 :: non_neg_integer(), % Keep-Alive timeout
           ka_timer   = undefined    :: reference(),
+
+          rules      = []    :: list(#rule{}),
 
           % cached nodes for requests, because retransmission should happen for the same node
           requests,        % :: ergw_cache(),
@@ -51,16 +62,24 @@ init(IP, #{redirector := [_|_] = Opts}) ->
     {ok, Socket} = gen_socket:socket(gtp_socket:family(IP), raw, udp),
     ok = gen_socket:setsockopt(Socket, sol_ip, hdrincl, true),
     ok = gen_socket:bind(Socket, {gtp_socket:family_v(IP), IP, 0}),
-    KATimeout = proplists:get_value(redirector_ka_timeout, Opts, 60000),
-    RTTimeout = proplists:get_value(redirector_rt_timeout, Opts, 10000),
-    Nodes = proplists:get_value(redirector_nodes, Opts, []),
+    KATimeout = proplists:get_value(keep_alive_timeout, Opts, 60000),
+    RTTimeout = proplists:get_value(retransmit_timeout, Opts, 10000),
+    Rules = [maps:from_list(Rule) || {rule, Rule} <- proplists:get_value(rules, Opts, [])],
+    Nodes0 = lists:map(fun({node, Node}) -> 
+                           Name = proplists:get_value(name, Node, undefined),
+                           Address = proplists:get_value(address, Node, undefined),
+                           Version = proplists:get_value(keep_alive_version, Node, v1),
+                           {Name, {Version, Address}}
+                       end, proplists:get_value(nodes, Opts, [])),
+    Nodes = maps:from_list(Nodes0),
     TRef = erlang:start_timer(KATimeout, self(), redirector_keep_alive),
     % let's assume that on start all backends are available 
     % then set echo_response to the time now for all of them
-    Responses = lists:foldl(fun(Node, Acc) -> Acc#{Node => erlang:monotonic_time()} end, #{}, Nodes),
+    Responses = maps:fold(fun(_, Node, Acc) -> Acc#{Node => erlang:monotonic_time()} end, #{}, Nodes),
     #redirector{socket = Socket, 
                 nodes = Nodes,
-                lb_type = proplists:get_value(redirector_lb_type, Opts, round_robin),
+                rules = Rules,
+                lb_type = proplists:get_value(lb_type, Opts, random),
                 ka_timeout = KATimeout,
                 ka_timer = TRef,
                 requests = ergw_cache:new(?T3 * 4, redirector_requests), 
@@ -68,32 +87,77 @@ init(IP, #{redirector := [_|_] = Opts}) ->
                 responses = Responses};
 init(_IP, _Opts) -> undefined.
 
-validate_option({redirector_nodes, Nodes}) when is_list(Nodes) ->
-    lists:map(fun({Version, IP} = Value) when 
-                     is_tuple(IP), 
-                     (Version == v1 orelse Version == v2) -> Value;
-                 (Value) -> throw({error, {redirector_nodes, Value}})
-              end, Nodes),
+
+validate_option({rules, Rules}) when is_list(Rules) ->
+    lists:map(fun validate_rule/1, Rules),
     ok;
-validate_option({redirector_lb_type, Type}) 
+validate_option({nodes, Nodes}) when is_list(Nodes) ->
+    lists:map(fun validate_node/1, Nodes),
+    ok;
+validate_option({lb_type, Type}) 
   when Type == round_robin; Type == random ->
     ok;
-validate_option({redirector_ka_timeout, Timeout})
+validate_option({keep_alive_timeout, Timeout})
   when is_integer(Timeout), Timeout > 0 ->
     ok;
-validate_option({redirector_rt_timeout, Timeout})
+validate_option({retransmit_timeout, Timeout})
   when is_integer(Timeout), Timeout > 0 ->
     ok;
 validate_option(Value) ->
     throw({error, {redirector_options, Value}}).
 
-get_nodes(#redirector{nodes = Nodes}) -> Nodes;
-get_nodes(_) -> [].
+validate_rule({rule, Rule}) ->
+    lists:map(fun validate_rule_option/1, Rule),
+    ok;
+validate_rule(Value) ->
+    throw({error, {redirector_rule, Value}}).
 
-set_nodes(#redirector{bad_nodes = BadNodes0} = Redirector, Nodes) ->
-    BadNodes = BadNodes0 -- Nodes,
-    Redirector#redirector{nodes = Nodes, bad_nodes = BadNodes};
-set_nodes(Redirector, _) -> Redirector.
+validate_rule_option({conditions, Conditions}) when is_list(Conditions) ->
+    lists:map(fun validate_condition/1, Conditions),
+    ok;
+validate_rule_option({nodes, Nodes}) when is_list(Nodes) ->
+    lists:map(fun validate_rule_node/1, Nodes),
+    ok;
+validate_rule_option(Value) ->
+    throw({error, {redirector_rule_option, Value}}).
+
+validate_rule_node(Node) when is_binary(Node) -> ok;
+validate_rule_node(Value) ->
+    throw({error, {redirector_rule, Value}}).
+
+validate_condition({sgsn_ip, {_, _, _, _}}) ->
+    ok;
+validate_condition({version, Versions}) ->
+    validate_versions(Versions);
+validate_condition({imsi, IMSI}) when is_list(IMSI); is_binary(IMSI) ->
+    ok;
+validate_condition(Value) ->
+    throw({error, {redirector_rule_condition, Value}}).
+
+validate_node({node, Node}) ->
+    lists:map(fun validate_node_option/1, Node),
+    ok;
+validate_node(Value) ->
+    throw({error, {redirector_rule, Value}}).
+
+validate_node_option({name, Name}) when is_binary(Name) ->
+    ok;
+validate_node_option({keep_alive_version, v1}) ->
+    ok;
+validate_node_option({keep_alive_version, v2}) ->
+    ok;
+validate_node_option({address, {_, _, _, _} = _IPv4}) ->
+    ok;
+validate_node_option(Value) ->
+    throw({error, {redirector_node_option, Value}}).
+
+validate_versions(Versions) when is_list(Versions) ->
+    lists:map(fun validate_versions/1, Versions),
+    ok;
+validate_versions(v1) -> ok;
+validate_versions(v2) -> ok;
+validate_versions(Value) ->
+    throw({error, {redirector_rule_version, Value}}).
 
 keep_alive(#redirector{ka_timeout = KATimeout,
                        nodes = Nodes,
@@ -104,8 +168,8 @@ keep_alive(#redirector{ka_timeout = KATimeout,
                                    Duration > (KATimeout * 2);
                               (_K, _V) -> true
                            end, Responses),
-    BadNodes = lists:filter(fun(Node) -> maps:get(Node, NotAnswered, false) end, Nodes),
-    lists:foreach(fun({Version, IP}) ->
+    BadNodes = maps:filter(fun(_, Node) -> maps:get(Node, NotAnswered, false) end, Nodes),
+    maps:map(fun(_, {Version, IP}) ->
                       Msg = case Version of
                                 v1 -> gtp_v1_c:build_echo_request(GtpPort);
                                 v2 -> gtp_v2_c:build_echo_request(GtpPort)
@@ -122,11 +186,9 @@ timeout_requests(#redirector{requests = Requests} = Redirector) ->
 timeout_requests(Redirector) -> Redirector.
 
 handle_message(#redirector{socket = Socket,
-                           nodes = [_|_] = Nodes,
-                           bad_nodes = BadNodes,
                            rt_timeout = RTTimeout,
-                           requests = Requests,
-                           lb_type = LBType} = Redirector,
+                           requests = Requests
+                          } = Redirector,
                GtpPort, IP, Port, 
                #gtp{type = Type, seq_no = SeqId} = Msg, Packet0)
   when Socket /= undefined, Type /= echo_response, Type /= echo_request ->
@@ -135,15 +197,15 @@ handle_message(#redirector{socket = Socket,
                  {value, CachedNode} -> 
                      lager:debug("~p: ~p was cached for using backend: ~p", 
                                  [GtpPort#gtp_port.name, ReqKey, CachedNode]),
-                     {true, {CachedNode, Nodes}};
-                 _Other -> {false, apply_redirector_lb_type(Nodes, BadNodes, LBType)}
+                     {true, {CachedNode, Redirector}};
+                 _Other -> {false, route(Redirector, Msg)}
              end,
     case Result of
         {_, {error, no_nodes}} -> 
             lager:warning("~p: no nodes to redirect request ~p", 
                           [GtpPort#gtp_port.name, ReqKey]),
             Redirector;
-        {Cached, {{_, DstIP} = Node, NewNodes}} ->
+        {Cached, {{_, DstIP} = Node, NewRedirector}} ->
             % if a backend was taken from cache we should not update it in cache this time
             NewRequests = if Cached == true -> Requests;
                              true -> ergw_cache:enter(ReqKey, Node, RTTimeout, Requests)
@@ -157,20 +219,21 @@ handle_message(#redirector{socket = Socket,
             gen_socket:sendto(Socket, {Family, DstIP, DstPort}, Packet),
             lager:debug("~p: redirect to ~p", [GtpPort#gtp_port.name, DstIP]),
             gtp_socket:message_counter(rr, GtpPort, IP, Msg),
-            Redirector#redirector{nodes = NewNodes, requests = NewRequests}
+            NewRedirector#redirector{requests = NewRequests}
     end;
 handle_message(Redirector, _GtpPort, _IP, _Port, _Msg, _Packet) -> Redirector.
 
 echo_response(#redirector{socket = Socket,
-                          nodes = [_|_] = Nodes,
+                          %nodes = [_|_] = Nodes,
+                          nodes = Nodes,
                           responses = Responses} = Redirector,
               #gtp_port{name = Name},
               IP, Port, #gtp{version = Version, type = echo_request}, 
               ArrivalTS)
   when Socket /= undefined ->
-    Match = lists:any(fun({V0, IP0}) -> IP0 == IP andalso V0 == Version;
+    Match = lists:any(fun({_, {V0, IP0}}) -> IP0 == IP andalso V0 == Version;
                          (_) -> false
-                      end, Nodes),
+                      end, maps:to_list(Nodes)),
     if Match == true ->
         lager:info("~p: ~p got echo_response from ~p:~p", [ArrivalTS, Name, IP, Port]),
         NewResponses = Responses#{{Version, IP} => ArrivalTS},
@@ -198,17 +261,77 @@ create_ipv4_udp_packet({SA1, SA2, SA3, SA4}, SPort, {DA1, DA2, DA3, DA4}, DPort,
       DA1:8, DA2:8, DA3:8, DA4:8, 
       Opt:(optlen(HL))/binary, UDP/binary>>.
 
-apply_redirector_lb_type(Nodes, BadNodes, LBType) ->
-    case Nodes -- BadNodes of
+route(#redirector{nodes = Nodes, 
+                  bad_nodes = BadNodes} = Redirector, Msg) ->
+    case maps:filter(fun(Node, _) -> not maps:is_key(Node, BadNodes) end, Nodes) of
         [] -> {error, no_nodes};
-        _ -> apply_redirector_lb_type_1(Nodes, BadNodes, LBType)
+        _ -> route_1(Redirector, Msg)
     end.
 
-apply_redirector_lb_type_1([Node | Nodes], BadNodes, LBType = round_robin) ->
-    case lists:member(Node, BadNodes) of
-        true -> apply_redirector_lb_type_1(Nodes ++ [Node], BadNodes, LBType);
-        false -> {Node, Nodes ++ [Node]} 
+route_1(#redirector{bad_nodes = BadNodes, rules = Rules} = Redirector, Msg) ->
+    Rule = match(Rules, BadNodes, Msg),
+    Nodes = maps:get(nodes, Rule, []),
+    case lists:filter(fun(Node) -> not maps:is_key(Node, BadNodes) end, Nodes) of
+        [] -> {error, no_nodes};
+        Nodes0 -> 
+            % random
+            Index = rand:uniform(length(Nodes0)),
+            Name = lists:nth(Index, Nodes0),
+            {maps:get(Name, Redirector#redirector.nodes), Redirector}
+    end.
+
+match(Rules, BadNodes, Msg) ->
+    IEs = (gtp_packet:decode_ies(Msg))#gtp.ie,
+    Matched = lists:filter(
+                fun(#{conditions := Conditions, nodes := Nodes}) ->
+                        length(lists:filter(fun(Node) -> not maps:is_key(Node, BadNodes) end, Nodes)) > 0
+                        andalso
+                        lists:all(fun({sgsn_ip, IP}) -> match_sender_ip(Msg#gtp.version, IP, IEs);
+                                     ({version, Versions}) when is_list(Versions) -> 
+                                          lists:member(Msg#gtp.version, Versions);
+                                     ({version, Version}) -> Version == Msg#gtp.version;
+                                     ({imsi, IMSI}) -> match_imsi(Msg#gtp.version, IMSI, IEs);
+                                     (_) -> false
+                                  end, Conditions);
+                   (_) -> false
+                end, Rules),
+    case Matched of
+        [Rule | _] -> Rule;
+        _ -> #{nodes => []}
+    end.
+
+match_sender_ip(v1, IP, IEs) ->
+    #gsn_address{address = IP0} 
+        = maps:get({gsn_address, 0}, IEs,
+                   #gsn_address{}),
+    if is_tuple(IP) -> gtp_c_lib:ip2bin(IP) == IP0;
+       true -> IP == IP0
     end;
-apply_redirector_lb_type_1(Nodes, BadNodes, random) ->
-    Index = rand:uniform(length(Nodes) - length(BadNodes)),
-    {lists:nth(Index, Nodes -- BadNodes), Nodes}.
+
+match_sender_ip(v2, IP, IEs) ->
+    #v2_fully_qualified_tunnel_endpoint_identifier{ipv4 = IP0} 
+        = maps:get({v2_fully_qualified_tunnel_endpoint_identifier, 0}, IEs, 
+                   #v2_fully_qualified_tunnel_endpoint_identifier{}),
+    if is_tuple(IP) -> gtp_c_lib:ip2bin(IP) == IP0;
+       true -> IP == IP0
+    end;
+
+match_sender_ip(_, _, _) -> false.
+
+match_imsi(v1, IMSI, IEs) ->
+    #international_mobile_subscriber_identity{imsi = IMSI0} 
+        = maps:get({international_mobile_subscriber_identity, 0}, IEs, 
+                   #international_mobile_subscriber_identity{}),
+    if is_list(IMSI) -> list_to_binary(IMSI) == IMSI0;
+       true -> IMSI == IMSI0
+    end;
+
+match_imsi(v2, IMSI, IEs) ->
+    #v2_international_mobile_subscriber_identity{imsi = IMSI0} 
+        = maps:get({v2_international_mobile_subscriber_identity, 0}, IEs, 
+                   #v2_international_mobile_subscriber_identity{}),
+    if is_list(IMSI) -> list_to_binary(IMSI) == IMSI0;
+       true -> IMSI == IMSI0
+    end;
+
+match_imsi(_, _, _) -> false.
