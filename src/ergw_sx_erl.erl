@@ -13,7 +13,7 @@
 %% API
 -export([validate_options/1,
 	 start_link/1, send/4, get_id/1,
-	 call/3]).
+	 call/2]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -21,6 +21,7 @@
 
 -include_lib("gen_socket/include/gen_socket.hrl").
 -include_lib("gtplib/include/gtp_packet.hrl").
+-include_lib("pfcplib/include/pfcp_packet.hrl").
 -include("include/ergw.hrl").
 
 -record(state, {state, tref, timeout, name, node, remote_name, ip, pid, gtp_port}).
@@ -38,8 +39,8 @@ send(GtpPort, IP, Port, Data) ->
 get_id(GtpPort) ->
     call_port(GtpPort, get_id).
 
-call(Context, Request, IEs) ->
-    dp_call(Context, Request, IEs).
+call(Context, Request) ->
+    dp_call(Context, Request).
 
 %%%===================================================================
 %%% Options Validation
@@ -77,14 +78,15 @@ call_port(#gtp_port{pid = Handler}, Request)
     gen_server:call(Handler, Request);
 call_port(GtpPort, Request) ->
     lager:warning("GTP DP Port ~p, CAST Request ~p not implemented yet",
-		  [lager:pr(GtpPort, ?MODULE), Request]).
+		  [lager:pr(GtpPort, ?MODULE), lager:pr(Request, ?MODULE)]).
 
-dp_call(#context{local_data_tei = TEI, dp_pid = Pid}, Request, IEs) when is_pid(Pid) ->
-    lager:debug("DP Direct Call ~p: ~p(~p)", [Pid, Request, IEs]),
-    gen_server:call(Pid, {TEI, Request, IEs});
-dp_call(#context{local_data_tei = TEI, data_port = GtpPort}, Request, IEs) ->
-    lager:debug("DP Server Call ~p: ~p(~p)", [lager:pr(GtpPort, ?MODULE), Request, IEs]),
-    call_port(GtpPort, {dp, TEI, Request, IEs}).
+dp_call(#context{dp_pid = Pid}, Request) when is_pid(Pid) ->
+    lager:debug("DP Direct Call ~p: ~p(~p)", [Pid, Request]),
+    gen_server:call(Pid, Request);
+dp_call(#context{data_port = GtpPort}, Request) ->
+    lager:debug("DP Server Call ~p: ~p",
+		[lager:pr(GtpPort, ?MODULE), lager:pr(Request, ?MODULE)]),
+    call_port(GtpPort, Request).
 
 %%%===================================================================
 %%% gen_server callbacks
@@ -100,9 +102,9 @@ init([Name, #{node := Node, name := RemoteName}]) ->
     State = connect(State0),
     {ok, State}.
 
-handle_call({dp, TEI, Request, IEs}, _From, #state{pid = Pid} = State) ->
-    lager:debug("DP Call ~p: ~p(~p)", [Pid, Request, IEs]),
-    Reply = gen_server:call(Pid, {TEI, Request, IEs}),
+handle_call(#pfcp{} = Request, _From, #state{pid = Pid} = State) ->
+    lager:debug("DP Call ~p: ~p(~p)", [Pid, lager:pr(Request, ?MODULE)]),
+    Reply = gen_server:call(Pid, Request),
     lager:debug("DP Call Reply: ~p", [Reply]),
     {reply, Reply, State};
 
@@ -134,9 +136,9 @@ handle_info(reconnect, State0) ->
     State = connect(State0#state{tref = undefined}),
     {noreply, State};
 
-handle_info({_, session_report_request, _} = Report,
+handle_info(#pfcp{type = session_report_request} = Report,
 	    #state{gtp_port = GtpPort} = State) ->
-    lager:debug("handle_info: ~p, ~p", [Report, lager:pr(State, ?MODULE)]),
+    lager:debug("handle_info: ~p, ~p", [lager:pr(Report, ?MODULE), lager:pr(State, ?MODULE)]),
     gtp_context:session_report(GtpPort, Report),
     {noreply, State};
 
