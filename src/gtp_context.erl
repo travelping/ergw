@@ -28,6 +28,7 @@
          terminate/2, code_change/3]).
 
 -include_lib("gtplib/include/gtp_packet.hrl").
+-include_lib("pfcplib/include/pfcp_packet.hrl").
 -include("include/ergw.hrl").
 
 -define('Tunnel Endpoint Identifier Data I',	{tunnel_endpoint_identifier_data_i, 0}).
@@ -99,7 +100,7 @@ q_handle_message(Request, Msg0) ->
 	    generic_error(Request, Msg0, Error)
     end.
 
-session_report(GtpPort, {SEID, _, _} = Report) ->
+session_report(GtpPort, #pfcp{version = v1, seid = SEID} = Report) ->
     lager:debug("Session Report: ~p", [Report]),
     case gtp_context_reg:lookup_teid(GtpPort, SEID) of
 	Context when is_pid(Context) ->

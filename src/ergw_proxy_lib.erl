@@ -16,6 +16,7 @@
 	 query_usage_report/1]).
 
 -include_lib("gtplib/include/gtp_packet.hrl").
+-include_lib("pfcplib/include/pfcp_packet.hrl").
 -include("include/ergw.hrl").
 
 %%%===================================================================
@@ -117,24 +118,29 @@ make_proxy_request(Direction, Request, SeqNo, NewPeer, State) ->
 %%% Sx DP API
 %%%===================================================================
 
+network_instance(Name) when is_atom(Name) ->
+    #network_instance{instance = [atom_to_binary(Name, latin1)]}.
+
 create_pdr({RuleId, Intf,
 	    #context{
 	       data_port = #gtp_port{name = InPortName},
 	       local_data_tei = LocalTEI}},
 	   PDRs) ->
-    PDI = #{
-      source_interface => Intf,
-      network_instance => InPortName,
-      local_f_teid => #f_teid{teid = LocalTEI}
-     },
-    PDR = #{
-      pdr_id => RuleId,
-      precedence => 100,
-      pdi => PDI,
-      outer_header_removal => true,
-      far_id => RuleId,
-      urr_id => [1]
-     },
+    PDI = #pdi{
+	     group =
+		 [#source_interface{interface = Intf},
+		  network_instance(InPortName),
+		  #f_teid{teid = LocalTEI}]
+	    },
+    PDR = #create_pdr{
+	     group =
+		 [#pdr_id{id = RuleId},
+		  #precedence{precedence = 100},
+		  PDI,
+		  #outer_header_removal{header = 'GTP-U/UDP/IPv4'},
+		  #far_id{id = RuleId},
+		  #urr_id{id = 1}]
+	    },
     [PDR | PDRs].
 
 create_far({RuleId, Intf,
@@ -143,15 +149,23 @@ create_far({RuleId, Intf,
 	       remote_data_ip = PeerIP,
 	       remote_data_tei = RemoteTEI}},
 	   FARs) ->
-    FAR = #{
-      far_id => RuleId,
-      apply_action => [forward],
-      forwarding_parameters => #{
-	destination_interface => Intf,
-	network_instance => OutPortName,
-	outer_header_creation => #f_teid{ipv4 = PeerIP, teid = RemoteTEI}
-       }
-     },
+    FAR = #create_far{
+	     group =
+		 [#far_id{id = RuleId},
+		  #apply_action{forw = 1},
+		  #forwarding_parameters{
+		     group =
+			 [#destination_interface{interface = Intf},
+			  network_instance(OutPortName),
+			  #outer_header_creation{
+			     type = 'GTP-U/UDP/IPv4',
+			     teid = RemoteTEI,
+			     address = gtp_c_lib:ip2bin(PeerIP)
+			    }
+			 ]
+		    }
+		 ]
+	    },
     [FAR | FARs].
 
 update_pdr({RuleId, Intf,
@@ -162,19 +176,21 @@ update_pdr({RuleId, Intf,
 	   PDRs)
   when OldInPortName /= NewInPortName;
        OldLocalTEI /= NewLocalTEI ->
-    PDI = #{
-      source_interface => Intf,
-      network_instance => NewInPortName,
-      local_f_teid => #f_teid{teid = NewLocalTEI}
-     },
-    PDR = #{
-      pdr_id => RuleId,
-      precedence => 100,
-      pdi => PDI,
-      outer_header_removal => true,
-      far_id => RuleId,
-      urr_id => [1]
-     },
+    PDI = #pdi{
+	     group =
+		 [#source_interface{interface = Intf},
+		  network_instance(NewInPortName),
+		  #f_teid{teid = NewLocalTEI}]
+	    },
+    PDR = #update_pdr{
+	     group =
+		 [#pdr_id{id = RuleId},
+		  #precedence{precedence = 100},
+		  PDI,
+		  #outer_header_removal{header = 'GTP-U/UDP/IPv4'},
+		  #far_id{id = RuleId},
+		  #urr_id{id = 1}]
+	    },
     [PDR | PDRs];
 
 update_pdr({_RuleId, _Intf, _OldIn, _NewIn}, PDRs) ->
@@ -193,58 +209,65 @@ update_far({RuleId, Intf,
   when OldOutPortName /= NewOutPortName;
        OldPeerIP /= NewPeerIP;
        OldRemoteTEI /= NewRemoteTEI ->
-    FAR0 = #{
-      far_id => RuleId,
-      apply_action => [forward],
-      update_forwarding_parameters => #{
-	destination_interface => Intf,
-	network_instance => NewOutPortName,
-	outer_header_creation => #f_teid{ipv4 = NewPeerIP, teid = NewRemoteTEI}
-       }
-     },
-    FAR = if v2 =:= NewVersion andalso
-	     v2 =:= OldVersion ->
-		  FAR0#{sxsmreq_flags => [sndem]};
-	     true ->
-		  FAR0
-	  end,
+    FAR = #update_far{
+	     group =
+		 [#far_id{id = RuleId},
+		  #apply_action{forw = 1},
+		  #update_forwarding_parameters{
+		     group =
+			 [#destination_interface{interface = Intf},
+			  network_instance(NewOutPortName),
+			  #outer_header_creation{
+			     type = 'GTP-U/UDP/IPv4',
+			     teid = NewRemoteTEI,
+			     address = gtp_c_lib:ip2bin(NewPeerIP)
+			    }
+			  | [#sxsmreq_flags{sndem = 1} ||
+				v2 =:= NewVersion andalso v2 =:= OldVersion]
+			 ]
+		    }
+		 ]
+	    },
     [FAR | FARs];
 
 update_far({_RuleId, _Intf, _OldOut, _NewOut}, FARs) ->
     FARs.
 
 create_forward_session(#context{local_data_tei = SEID} = Left, Right) ->
-    Req = #{
-      cp_f_seid  => SEID,
-      create_pdr => lists:foldl(fun create_pdr/2, [], [{1, access, Left},
-						       {2, core, Right}]),
-      create_far => lists:foldl(fun create_far/2, [], [{2, access, Left},
-						       {1, core, Right}]),
-      create_urr => [#{urr_id => 1, measurement_method => [volume]}]
-     },
-    case ergw_sx:call(Left, session_establishment_request, Req) of
+    IEs =
+	[#f_seid{seid = SEID}] ++
+	lists:foldl(fun create_pdr/2, [], [{1, 'Access', Left}, {2, 'Core', Right}]) ++
+	lists:foldl(fun create_far/2, [], [{2, 'Access', Left}, {1, 'Core', Right}]) ++
+	[#create_urr{group =
+			 [#urr_id{id = 1}, #measurement_method{volum = 1}]}],
+    Req = #pfcp{version = v1, type = session_establishment_request, seid = 0, ie = IEs},
+    case ergw_sx:call(Left, Req) of
 	{ok, Pid} when is_pid(Pid) ->
 	    Left#context{dp_pid = Pid};
 	_ ->
 	    Left
     end.
 
-modify_forward_session(OldLeft, #context{local_data_tei = NewSEID} = NewLeft,
+modify_forward_session(#context{local_data_tei = OldSEID} = OldLeft,
+		       #context{local_data_tei = NewSEID} = NewLeft,
 		       OldRight, NewRight) ->
-    Req = #{
-      cp_f_seid => NewSEID,
-      update_pdr => lists:foldl(fun update_pdr/2, [],
-				[{1, access, OldLeft, NewLeft},
-				 {2, core, OldRight, NewRight}]),
-      update_far => lists:foldl(fun update_far/2, [],
-				[{2, access, OldLeft, NewLeft},
-				 {1, core, OldRight, NewRight}])
-     },
-    ergw_sx:call(NewLeft, session_modification_request, Req).
+    IEs =
+	[#f_seid{seid = NewSEID} || NewSEID /= OldSEID] ++
+	lists:foldl(fun update_pdr/2, [],
+		    [{1, 'Access', OldLeft, NewLeft},
+		     {2, 'Core', OldRight, NewRight}]) ++
+	lists:foldl(fun update_far/2, [],
+		    [{2, 'Access', OldLeft, NewLeft},
+		     {1, 'Core', OldRight, NewRight}]),
+    Req = #pfcp{version = v1, type = session_modification_request, seid = OldSEID, ie = IEs},
+    ergw_sx:call(NewLeft, Req).
 
-delete_forward_session(Left, _Right) ->
-    ergw_sx:call(Left, session_deletion_request, #{}).
+delete_forward_session(#context{local_data_tei = SEID} = Left, _Right) ->
+    Req = #pfcp{version = v1, type = session_deletion_request, seid = SEID, ie = []},
+    ergw_sx:call(Left, Req).
 
-query_usage_report(Ctx) ->
-    Req = #{query_urr => [1]},
-    ergw_sx:call(Ctx, session_modification_request, Req).
+query_usage_report(#context{local_data_tei = SEID} = Ctx) ->
+    IEs = [#query_urr{group = [#urr_id{id = 1}]}],
+    Req = #pfcp{version = v1, type = session_modification_request,
+		seid = SEID, ie = IEs},
+    ergw_sx:call(Ctx, Req).
