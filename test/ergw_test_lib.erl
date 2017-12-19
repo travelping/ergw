@@ -112,9 +112,10 @@ meck_init(Config) ->
 
     ok = meck:new(gtp_socket, [passthrough, no_link]),
 
-    {_, Hut} = lists:keyfind(handler_under_test, 1, Config),   %% let it crash if HUT is undefined
-    ok = meck:new(Hut, [passthrough, no_link]),
-    ok = meck:expect(Hut, handle_request,
+    {_, Hs} = lists:keyfind(handlers_under_test, 1, Config),   %% let it crash if HUT is undefined
+    [begin
+        ok = meck:new(Hut, [passthrough, no_link]),
+        ok = meck:expect(Hut, handle_request,
 		     fun(ReqKey, Request, Resent, State) ->
 			     try
 				 meck:passthrough([ReqKey, Request, Resent, State])
@@ -122,22 +123,24 @@ meck_init(Config) ->
 				 throw:#ctx_err{} = CtxErr ->
 				     meck:exception(throw, CtxErr)
 			     end
-		     end).
+		     end)
+     end || Hut <- Hs].
 
 meck_reset(Config) ->
     meck:reset(gtp_dp),
     meck:reset(gtp_socket),
-    meck:reset(proplists:get_value(handler_under_test, Config)).
+    [meck:reset(Hut) || Hut <- proplists:get_value(handlers_under_test, Config)].
 
 meck_unload(Config) ->
     meck:unload(gtp_dp),
     meck:unload(gtp_socket),
-    meck:unload(proplists:get_value(handler_under_test, Config)).
+    [meck:unload(Hut) || Hut <- proplists:get_value(handlers_under_test, Config)].
 
 meck_validate(Config) ->
     ?equal(true, meck:validate(gtp_dp)),
     ?equal(true, meck:validate(gtp_socket)),
-    ?equal(true, meck:validate(proplists:get_value(handler_under_test, Config))).
+    [?equal(true, meck:validate(Hut)) 
+     || Hut <- proplists:get_value(handlers_under_test, Config)].
 
 %%%===================================================================
 %%% GTP entity and context function

@@ -16,7 +16,6 @@
 -include("ergw_ggsn_test_lib.hrl").
 
 -define(TIMEOUT, 2000).
--define(HUT, ggsn_gn).              %% Handler Under Test
 
 %%%===================================================================
 %%% API
@@ -27,7 +26,7 @@ suite() ->
 
 init_per_suite(Config0) ->
     AppCfg = inject_redirector(ggsn_SUITE:get_test_config()),
-    Config = [{handler_under_test, ?HUT},
+    Config = [{handlers_under_test, [ggsn_gn, pgw_s5s8]},
               {app_cfg, AppCfg}
               | Config0],
     Config1 = lib_init_per_suite(Config),
@@ -127,6 +126,7 @@ all() ->
      invalid_gtp_msg,
      simple_pdp_context_request,
      create_pdp_context_request_resend,
+     create_session_request_resend,
      keep_alive
     ].
 
@@ -204,3 +204,9 @@ keep_alive(_Config) ->
 
 get_value({ok, DPs}) -> proplists:get_value(value, DPs, -1);
 get_value(_) -> -1.
+
+%%--------------------------------------------------------------------
+create_session_request_resend() ->
+    [{doc, "Check that a retransmission of a Create Session Request works through Redirector socket"}].
+create_session_request_resend(Config) ->
+    pgw_SUITE:create_session_request_resend(Config).
