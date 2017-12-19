@@ -7,6 +7,7 @@
 
 -module(ergw_sx_api).
 
+-include_lib("pfcplib/include/pfcp_packet.hrl").
 -include("include/ergw.hrl").
 
 -callback validate_options(list() | map()) ->
@@ -27,6 +28,5 @@
     Return :: term().
 
 -callback call(Context :: #context{},
-	       Request :: atom(),
-	       IEs :: map()) ->
+	       Request :: #pfcp{}) ->
     Return :: term().

@@ -11,6 +11,7 @@
 
 -include_lib("common_test/include/ct.hrl").
 -include_lib("gtplib/include/gtp_packet.hrl").
+-include_lib("pfcplib/include/pfcp_packet.hrl").
 -include("../include/ergw.hrl").
 -include("ergw_test_lib.hrl").
 -include("ergw_pgw_test_lib.hrl").
@@ -574,10 +575,15 @@ modify_bearer_request_tei_update(Config) ->
     {GtpC2, _, _} = modify_bearer(tei_update, S, GtpC1),
     delete_session(S, GtpC2),
 
-    SMR = meck:capture(first, ergw_sx, call, ['_', session_modification_request, '_'], 3),
-    FAR = hd(maps:get(update_far, SMR)),
-    SxSMReqFlags = maps:get(sxsmreq_flags, FAR, []),
-    ?equal(true, proplists:get_bool(sndem, SxSMReqFlags)),
+    SMR0 = meck:capture(first, ergw_sx, call,
+		       ['_', #pfcp{type = session_modification_request, _='_'}], 2),
+    SMR = pfcp_packet:to_map(SMR0),
+    #{update_far :=
+	  #update_far{
+	     group =
+		 #{update_forwarding_parameters :=
+		       #update_forwarding_parameters{group = UFP}}}} = SMR#pfcp.ie,
+    ?match(#sxsmreq_flags{sndem = 1}, maps:get(sxsmreq_flags, UFP)),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
@@ -865,10 +871,16 @@ interop_sgsn_to_sgw(Config) ->
     match_exo_value([path, irx, ?CLIENT_IP, contexts, v2], 1),
     delete_session(S, GtpC2),
 
-    SMR = meck:capture(first, ergw_sx, call, ['_', session_modification_request, '_'], 3),
-    FAR = hd(maps:get(update_far, SMR)),
-    SxSMReqFlags = maps:get(sxsmreq_flags, FAR, []),
-    ?equal(false, proplists:get_bool(sndem, SxSMReqFlags)),
+    SMR0 = meck:capture(first, ergw_sx, call,
+		       ['_', #pfcp{type = session_modification_request, _='_'}], 2),
+    SMR = pfcp_packet:to_map(SMR0),
+    #{update_far :=
+	  #update_far{
+	     group =
+		 #{update_forwarding_parameters :=
+		       #update_forwarding_parameters{group = UFP}}}} = SMR#pfcp.ie,
+    ?match(#sxsmreq_flags{sndem = 0},
+	   maps:get(sxsmreq_flags, UFP, #sxsmreq_flags{sndem = 0})),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
@@ -906,10 +918,16 @@ interop_sgw_to_sgsn(Config) ->
     match_exo_value([path, irx, ?CLIENT_IP, contexts, v2], 0),
     ergw_ggsn_test_lib:delete_pdp_context(S, GtpC2),
 
-    SMR = meck:capture(first, ergw_sx, call, ['_', session_modification_request, '_'], 3),
-    FAR = hd(maps:get(update_far, SMR)),
-    SxSMReqFlags = maps:get(sxsmreq_flags, FAR, []),
-    ?equal(false, proplists:get_bool(sndem, SxSMReqFlags)),
+    SMR0 = meck:capture(first, ergw_sx, call,
+			['_', #pfcp{type = session_modification_request, _='_'}], 2),
+    SMR = pfcp_packet:to_map(SMR0),
+    #{update_far :=
+	  #update_far{
+	     group =
+		 #{update_forwarding_parameters :=
+		       #update_forwarding_parameters{group = UFP}}}} = SMR#pfcp.ie,
+    ?match(#sxsmreq_flags{sndem = 0},
+	   maps:get(sxsmreq_flags, UFP, #sxsmreq_flags{sndem = 0})),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
@@ -948,21 +966,8 @@ session_accounting(Config) ->
     ?equal(false, maps:is_key('InOctets', SessionOpts1)),
 
     %% install a sensible accouting meck and try again....
-    ok = meck:expect(ergw_sx, call,
-		     fun(_Ctx, session_modification_request, #{query_urr := _}) ->
-			     Report = #{
-			       usage_report =>
-				   [#{volume =>
-					  #{dl		=> {2,1},
-					    ul		=> {4,3},
-					    total	=> {6,4},
-					    dropped_dl	=> {0,0},
-					    dropped_ul	=> {0,0}
-					    }}]},
-			     {ok, Report};
-			(Ctx, _Request, _IEs) ->
-			     Ctx
-		     end),
+    meck_ergw_sx_call_smr_urr(Config),
+
     SessionOpts2 = UpdateFun(Context, SessionOpts1),
     ?match(#{'InPackets' := 3, 'OutPackets' := 1,
 	     'InOctets' := 4, 'OutOctets' := 2}, SessionOpts2),
@@ -971,7 +976,7 @@ session_accounting(Config) ->
     ?match(#{'InPackets' := 3, 'OutPackets' := 1,
 	     'InOctets' := 4, 'OutOctets' := 2}, SessionOpts3),
 
-    ok = meck:expect(ergw_sx, call, fun(Ctx, _Request, _IEs) -> Ctx end),
+    meck_ergw_sx_call(Config),
 
     delete_session(S, GtpC),
 
