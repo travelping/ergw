@@ -13,7 +13,9 @@
 -import('ergw_test_lib', [meck_init/1,
 			  meck_reset/1,
 			  meck_unload/1,
-			  meck_validate/1]).
+			  meck_validate/1,
+			  meck_ergw_sx_call/1,
+			  meck_ergw_sx_call_smr_urr/1]).
 -import('ergw_test_lib', [init_seq_no/2,
 			  gtp_context/0, gtp_context/1,
 			  gtp_context_inc_seq/1,

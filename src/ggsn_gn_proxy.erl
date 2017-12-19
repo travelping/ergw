@@ -17,6 +17,7 @@
 	 terminate/2]).
 
 -include_lib("gtplib/include/gtp_packet.hrl").
+-include_lib("pfcplib/include/pfcp_packet.hrl").
 -include("include/ergw.hrl").
 -include("gtp_proxy_ds.hrl").
 
@@ -194,9 +195,15 @@ handle_cast({packet_in, _GtpPort, _IP, _Port, _Msg}, State) ->
     lager:warning("packet_in not handled (yet): ~p", [_Msg]),
     {noreply, State}.
 
-handle_info({_, session_report_request,
-	     #{report_type := [error_indication_report],
-	       error_indication_report := [#{remote_f_teid := FTEID}]}}, State) ->
+handle_info(#pfcp{version = v1, type = session_report_request,
+		  ie = #{
+		    report_type := #report_type{erir = 1},
+		    error_indication_report :=
+			#error_indication_report{group = #{f_teid := FTEID0}}
+		   }
+		 }, State) ->
+    FTEID = FTEID0#f_teid{ipv4 = gtp_c_lib:bin2ip(FTEID0#f_teid.ipv4),
+			  ipv6 = gtp_c_lib:bin2ip(FTEID0#f_teid.ipv6)},
     Direction = fteid_forward_context(FTEID, State),
     initiate_pdp_context_teardown(Direction, State),
     delete_forward_session(State),
@@ -464,27 +471,41 @@ handle_proxy_info(#gtp{ie = #{?'Recovery' := Recovery}},
 			   context = Context})
     end.
 
-usage_report_to_accounting([#{volume :=
-				  #{dl := {SendBytes, SendPkts},
-				    ul := {RcvdBytes, RcvdPkts}
-				   }}]) ->
+usage_report_to_accounting(
+  #{volume_measurement :=
+	#volume_measurement{uplink = RcvdBytes, downlink = SendBytes},
+    tp_packet_measurement :=
+	#tp_packet_measurement{uplink = RcvdPkts, downlink = SendPkts}}) ->
     [{'InPackets',  RcvdPkts},
      {'OutPackets', SendPkts},
      {'InOctets',   RcvdBytes},
-     {'OutOctets',  SendBytes}].
-
-sx_response_to_accounting(#{usage_report := UR}) ->
-    to_session(usage_report_to_accounting(UR));
-sx_response_to_accounting(_) ->
-    to_session([]).
+     {'OutOctets',  SendBytes}];
+usage_report_to_accounting(
+  #{volume_measurement :=
+	#volume_measurement{uplink = RcvdBytes, downlink = SendBytes}}) ->
+    [{'InOctets',   RcvdBytes},
+     {'OutOctets',  SendBytes}];
+usage_report_to_accounting(#usage_report_smr{group = UR}) ->
+    usage_report_to_accounting(UR);
+usage_report_to_accounting(#usage_report_sdr{group = UR}) ->
+    usage_report_to_accounting(UR);
+usage_report_to_accounting(#usage_report_srr{group = UR}) ->
+    usage_report_to_accounting(UR);
+usage_report_to_accounting([H|_]) ->
+    usage_report_to_accounting(H);
+usage_report_to_accounting(undefined) ->
+    [].
 
 accounting_update(GTP, SessionOpts) ->
     case gen_server:call(GTP, query_usage_report) of
-	{ok, Response} ->
-	    Acc = sx_response_to_accounting(Response),
+	#pfcp{type = session_modification_response,
+	      ie = #{pfcp_cause := #pfcp_cause{cause = 'Request accepted'}} = IEs} ->
+	    Acc = to_session(usage_report_to_accounting(
+			       maps:get(usage_report_smr, IEs, undefined))),
 	    ergw_aaa_session:merge(SessionOpts, Acc);
 	_Other ->
-	    lager:warning("got unexpected Query response: ~p", [_Other]),
+	    lager:warning("Gn/Gp proxy: got unexpected Query response: ~p",
+			  [lager:pr(_Other, ?MODULE)]),
 	    to_session([])
     end.
 
@@ -492,10 +513,13 @@ delete_forward_session(#{context := Context, proxy_context := ProxyContext,
 			 'Session' := Session}) ->
     SessionOpts =
 	case ergw_proxy_lib:delete_forward_session(Context, ProxyContext) of
-	    {ok, Response} ->
-		sx_response_to_accounting(Response);
-	    Other ->
-		lager:warning("Session Deletion failed with ~p", [Other]),
+	    #pfcp{type = session_deletion_response,
+		  ie = #{pfcp_cause := #pfcp_cause{cause = 'Request accepted'}} = IEs} ->
+		to_session(usage_report_to_accounting(
+			     maps:get(usage_report_sdr, IEs, undefined)));
+	    _Other ->
+		lager:warning("Gn/Gp proxy: Session Deletion failed with ~p",
+			      [lager:pr(_Other, ?MODULE)]),
 		to_session([])
 	end,
     lager:debug("Accounting Opts: ~p", [SessionOpts]),

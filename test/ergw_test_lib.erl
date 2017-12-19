@@ -15,7 +15,9 @@
 -export([meck_init/1,
 	 meck_reset/1,
 	 meck_unload/1,
-	 meck_validate/1]).
+	 meck_validate/1,
+	 meck_ergw_sx_call/1,
+	 meck_ergw_sx_call_smr_urr/1]).
 -export([init_seq_no/2,
 	 gtp_context/0, gtp_context/1,
 	 gtp_context_inc_seq/1,
@@ -35,6 +37,7 @@
 -include("ergw_test_lib.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("gtplib/include/gtp_packet.hrl").
+-include_lib("pfcplib/include/pfcp_packet.hrl").
 -include("../include/ergw.hrl").
 
 -define(TIMEOUT, 2000).
@@ -91,6 +94,52 @@ load_config(AppCfg) ->
 %%% Meck functions for fake the GTP sockets
 %%%===================================================================
 
+meck_ergw_sx_call(_Config) ->
+    ok = meck:expect(ergw_sx, call,
+		     fun(Context, Req) ->
+			     pfcp_packet:encode(Req#pfcp{seq_no = 0}),
+			     Context
+		     end).
+
+meck_ergw_sx_call_smr_urr(_Config) ->
+    ok = meck:expect(
+	   ergw_sx, call,
+	   fun(Ctx,
+	       #pfcp{type = session_modification_request,
+		     seid = SEID, ie = IEs} = Req) ->
+		   pfcp_packet:encode(Req#pfcp{seq_no = 0}),
+		   case lists:keymember(query_urr, 1, IEs) of
+		       true ->
+			   Report = [#pfcp_cause{cause = 'Request accepted'},
+				     #usage_report_smr{
+					group =
+					    [#urr_id{id = 1},
+					     #volume_measurement{
+						total = 6,
+						uplink = 4,
+						downlink = 2
+					       },
+					     #tp_packet_measurement{
+						total = 4,
+						uplink = 3,
+						downlink = 1
+					       }
+					    ]
+				       }
+				    ],
+			   Response = #pfcp{version = v1,
+					    type = session_modification_response,
+					    seq_no = 0,
+					    seid = SEID,
+					    ie = Report},
+			   pfcp_packet:to_map(Response);
+		       _ ->
+			   Ctx
+		   end;
+	      (Ctx, _Request) ->
+		   Ctx
+	   end).
+
 meck_init(Config) ->
     ok = meck:new(ergw_sx, [non_strict, no_link]),
     ok = meck:expect(ergw_sx, start_link,
@@ -108,8 +157,7 @@ meck_init(Config) ->
     ok = meck:expect(ergw_sx, validate_options, fun(Values) -> Values end),
     ok = meck:expect(ergw_sx, send, fun(_GtpPort, _IP, _Port, _Data) -> ok end),
     ok = meck:expect(ergw_sx, get_id, fun(_GtpPort) -> self() end),
-    ok = meck:expect(ergw_sx, call, fun(Context, _Request, _IEs) -> Context end),
-
+    meck_ergw_sx_call(Config),
     ok = meck:new(gtp_socket, [passthrough, no_link]),
 
     {_, Hut} = lists:keyfind(handler_under_test, 1, Config),   %% let it crash if HUT is undefined
@@ -177,23 +225,24 @@ gtp_context_new_teids(GtpC) ->
 
 make_error_indication_report(#gtpc{local_data_tei = TEI,
 				   remote_data_tei = SEID}) ->
-    IEs = #{report_type => [error_indication_report],
-	    error_indication_report =>
-		[#{remote_f_teid =>
-		       #f_teid{ipv4 = ?CLIENT_IP, teid = TEI}
-		  }]
-	   },
-    {SEID, session_report_request, IEs};
+    IEs =
+	[#report_type{erir = 1},
+	 #error_indication_report{
+	    group = [#f_teid{ipv4 = gtp_c_lib:ip2bin(?CLIENT_IP), teid = TEI}]}],
+    Req = #pfcp{version = v1, type = session_report_request, seid = SEID, ie = IEs},
+    pfcp_packet:encode(Req#pfcp{seq_no = 0}),
+    pfcp_packet:to_map(Req);
+
 make_error_indication_report(#context{local_control_tei = SEID,
 				      data_port = #gtp_port{ip = IP},
 				      remote_data_tei = TEI}) ->
-    IEs = #{report_type => [error_indication_report],
-	    error_indication_report =>
-		[#{remote_f_teid =>
-		       #f_teid{ipv4 = IP, teid = TEI}
-		  }]
-	   },
-    {SEID, session_report_request, IEs}.
+    IEs =
+	[#report_type{erir = 1},
+	 #error_indication_report{
+	    group = [#f_teid{ipv4 = gtp_c_lib:ip2bin(IP), teid = TEI}]}],
+    Req = #pfcp{version = v1, type = session_report_request, seid = SEID, ie = IEs},
+    pfcp_packet:encode(Req#pfcp{seq_no = 0}),
+    pfcp_packet:to_map(Req).
 
 %%%===================================================================
 %%% I/O and socket functions
