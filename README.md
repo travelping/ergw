@@ -58,11 +58,7 @@ Other shortcomings:
 BUILDING
 --------
 
-*The minimum supported Erlang version is 19.0.*
-
-Using tetrapak:
-
-    # tetrapak build check
+*The minimum supported Erlang version is 20.0.*
 
 Using rebar:
 
@@ -164,4 +160,4 @@ Install those files to / (root) and start with ```enit startfg ergw```.
 [travis badge]: https://img.shields.io/travis/travelping/ergw/master.svg?style=flat-square
 [coveralls]: https://coveralls.io/github/travelping/ergw
 [coveralls badge]: https://img.shields.io/coveralls/travelping/ergw/master.svg?style=flat-square
-[erlang version badge]: https://img.shields.io/badge/erlang-R19.3%20to%2020.1-blue.svg?style=flat-square
+[erlang version badge]: https://img.shields.io/badge/erlang-R20.0%20to%2020.1-blue.svg?style=flat-square

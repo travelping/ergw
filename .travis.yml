@@ -1,22 +1,19 @@
 sudo: false
 
+dist: xenial
+
 language: erlang
 
 otp_release:
- - 19.3
  - 20.0
  - 20.1
 
 install: "true"
 
-before_install:
-  - wget https://s3.amazonaws.com/rebar3/rebar3
-  - chmod u+x ./rebar3
-
 script:
   - source test/env.sh
-  - ./rebar3 compile
-  - ./rebar3 do xref, ct, coveralls send
+  - rebar3 compile
+  - rebar3 do xref, ct, coveralls send
 
 notifications:
   slack:
