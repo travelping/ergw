@@ -107,6 +107,11 @@
 			  ]}
 		  ]},
 
+		 {sx_socket,
+		  [{node, 'ergw'},
+		   {name, 'ergw'},
+		   {ip, {127,0,0,1}}]},
+
 		 {apns,
 		  [{?'APN-PROXY', [{vrf, example}]}
 		  ]},
@@ -194,6 +199,11 @@
 			   {data_paths, ['remote-grx']}
 			  ]}
 		  ]},
+
+		 {sx_socket,
+		  [{node, 'ergw'},
+		   {name, 'ergw'},
+		   {ip, {127,0,0,1}}]},
 
 		 {apns,
 		  [{?'APN-PROXY', [{vrf, example}]}

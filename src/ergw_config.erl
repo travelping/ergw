@@ -19,6 +19,7 @@
 -define(DefaultOptions, [{plmn_id, {<<"001">>, <<"01">>}},
 			 {accept_new, true},
 			 {dp_handler, ergw_sx_erl},
+			 {sx_socket, undefined},
 			 {sockets, []},
 			 {handlers, []},
 			 {vrfs, []},
@@ -37,6 +38,7 @@
 load_config(Config0) ->
     Config = validate_config(Config0),
     ergw:load_config(Config),
+    {ok, _} = ergw_sx_socket:start_sx_socket(proplists:get_value(sx_socket, Config)),
     lists:foreach(fun load_socket/1, proplists:get_value(sockets, Config)),
     lists:foreach(fun load_handler/1, proplists:get_value(handlers, Config)),
     lists:foreach(fun load_vrf/1, proplists:get_value(vrfs, Config)),
@@ -145,6 +147,8 @@ validate_option(dp_handler, Value) when is_atom(Value) ->
 	    ST = erlang:get_stacktrace(),
 	    throw({error, {options, {dp_handler, Value, Cause, ST}}})
     end;
+validate_option(sx_socket, Value) when is_list(Value); is_map(Value) ->
+    ergw_sx_socket:validate_options(Value);
 validate_option(sockets, Value) when is_list(Value), length(Value) >= 1 ->
     check_unique_keys(sockets, Value),
     validate_options(fun validate_sockets_option/2, Value);
@@ -163,6 +167,7 @@ validate_option(Opt, Value)
   when Opt == plmn_id;
        Opt == accept_new;
        Opt == dp_handler;
+       Opt == sx_socket;
        Opt == sockets;
        Opt == handlers;
        Opt == vrfs;
