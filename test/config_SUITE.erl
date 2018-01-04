@@ -59,6 +59,11 @@
 		]}
 	  ]},
 
+	 {sx_socket,
+	  [{node, 'ergw'},
+	   {name, 'ergw'},
+	   {ip, {127,0,0,1}}]},
+
 	 {apns,
 	  [{?'APN-EXAMPLE', [{vrf, upstream}]},
 	   {[<<"APN1">>], [{vrf, upstream}]}
@@ -118,6 +123,11 @@
 			 [{default, ['IMSI', <<"@">>, 'APN']}]}]}
 		]}
 	  ]},
+
+	 {sx_socket,
+	  [{node, 'ergw'},
+	   {name, 'ergw'},
+	   {ip, {127,0,0,1}}]},
 
 	 {apns,
 	  [{?'APN-PROXY', [{vrf, example}]}
@@ -180,6 +190,11 @@
 				       <<"@">>, 'APN']}]}]}
 		  ]}
 	  ]},
+
+	 {sx_socket,
+	  [{node, 'ergw'},
+	   {name, 'ergw'},
+	   {ip, {127,0,0,1}}]},
 
 	 {apns,
 	  [{?'APN-EXAMPLE', [{vrf, upstream}]},
@@ -252,6 +267,12 @@
 		   {data_paths, ['remote-grx']}
 		  ]}
 	  ]},
+
+	 {sx_socket,
+	  [{node, 'ergw'},
+	   {name, 'ergw'},
+	   {ip, {127,0,0,1}},
+	   {reuseaddr, true}]},
 
 	 {apns,
 	  [{?'APN-PROXY', [{vrf, example}]}
