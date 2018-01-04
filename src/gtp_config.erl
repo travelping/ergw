@@ -8,7 +8,7 @@
 -module(gtp_config).
 
 %% API
--export([init/0, get_restart_counter/0]).
+-export([init/0, get_restart_counter/0, get_start_time/0]).
 
 -define(App, ergw).
 
@@ -27,12 +27,17 @@ init() ->
     lists:foreach(fun({K, V}) ->
 			  application:set_env(?App, K, V, [{persistent, true}])
 		  end, State1),
+    application:set_env(?App, start_time, erlang:system_time(seconds), [{persistent, true}]),
 
     write_terms(StateFile, State1),
     ok.
 
 get_restart_counter() ->
     application:get_env(?App, restart_count).
+
+get_start_time() ->
+    {ok, Time} = application:get_env(?App, start_time),
+    Time.
 
 %%%===================================================================
 %%% Internal functions

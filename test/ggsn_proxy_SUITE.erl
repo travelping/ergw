@@ -96,6 +96,12 @@
 			]}
 		  ]},
 
+		 {sx_socket,
+		  [{node, 'ergw'},
+		   {name, 'ergw'},
+		   {ip, {127,0,0,1}},
+		   {reuseaddr, true}]},
+
 		 {apns,
 		  [{?'APN-PROXY', [{vrf, example}]}
 		  ]},
@@ -171,6 +177,12 @@
 				 [{default, ['IMSI', <<"@">>, 'APN']}]}]}
 			]}
 		  ]},
+
+		 {sx_socket,
+		  [{node, 'ergw'},
+		   {name, 'ergw'},
+		   {ip, {127,0,0,1}},
+		   {reuseaddr, true}]},
 
 		 {apns,
 		  [{?'APN-PROXY', [{vrf, example}]}
