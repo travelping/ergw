@@ -74,7 +74,7 @@ create_pdr({RuleId, gtp,
 	   PDRs) ->
     PDI = #pdi{
 	     group =
-		 [#source_interface{interface = 'Access'},
+		 [#source_interface{interface = 'Core'},
 		  network_instance(InPortName),
 		  #f_teid{teid = LocalTEI}]
 	    },
@@ -92,7 +92,7 @@ create_pdr({RuleId, gtp,
 create_pdr({RuleId, sgi, #context{vrf = InPortName} = Ctx}, PDRs) ->
     PDI = #pdi{
 	     group =
-		 [#source_interface{interface = 'Core'},
+		 [#source_interface{interface = 'SGi-LAN'},
 		  network_instance(InPortName),
 		  ue_ip_address(dst, Ctx)]
 	     },
@@ -118,7 +118,7 @@ create_far({RuleId, gtp,
 		  #apply_action{forw = 1},
 		  #forwarding_parameters{
 		     group =
-			 [#destination_interface{interface = 'Access'},
+			 [#destination_interface{interface = 'Core'},
 			  network_instance(OutPortName),
 			  #outer_header_creation{
 			     type = 'GTP-U/UDP/IPv4',
@@ -138,7 +138,7 @@ create_far({RuleId, sgi, #context{vrf = OutPortName}}, FARs) ->
 		  #apply_action{forw = 1},
 		  #forwarding_parameters{
 		     group =
-			 [#destination_interface{interface = 'Core'},
+			 [#destination_interface{interface = 'SGi-LAN'},
 			  network_instance(OutPortName)]
 		    }
 		 ]
@@ -155,7 +155,7 @@ update_pdr({RuleId, gtp,
        OldLocalTEI /= LocalTEI ->
     PDI = #pdi{
 	     group =
-		 [#source_interface{interface = 'Access'},
+		 [#source_interface{interface = 'Core'},
 		  network_instance(InPortName),
 		  #f_teid{teid = LocalTEI}]
 	    },
@@ -179,7 +179,7 @@ update_pdr({RuleId, sgi,
        OldMSv6 /= MSv6 ->
     PDI = #pdi{
 	     group =
-		 [#source_interface{interface = 'Core'},
+		 [#source_interface{interface = 'SGi-LAN'},
 		  network_instance(InPortName),
 		  ue_ip_address(dst, Ctx)]
 	     },
@@ -215,7 +215,7 @@ update_far({RuleId, gtp,
 		  #apply_action{forw = 1},
 		  #update_forwarding_parameters{
 		     group =
-			 [#destination_interface{interface = 'Access'},
+			 [#destination_interface{interface = 'Core'},
 			  network_instance(OutPortName),
 			  #outer_header_creation{
 			     type = 'GTP-U/UDP/IPv4',
@@ -241,7 +241,7 @@ update_far({RuleId, sgi,
 		  #apply_action{forw = 1},
 		  #update_forwarding_parameters{
 		     group =
-			 [#destination_interface{interface = 'Core'},
+			 [#destination_interface{interface = 'SGi-LAN'},
 			  network_instance(OutPortName)]
 		    }
 		 ]
