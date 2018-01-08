@@ -165,9 +165,8 @@ validate_option(reuseaddr, Value) when is_boolean(Value) ->
 validate_option(rcvbuf, Value)
   when is_integer(Value) andalso Value > 0 ->
     Value;
-validate_option(redirector, Value) when is_list(Value) ->
-    lists:map(fun gtp_redirector:validate_option/1, Value),
-    Value;
+validate_option(redirector, Values) when is_list(Values) ->
+    gtp_redirector:validate_options(Values);
 validate_option(Opt, Value) ->
     throw({error, {options, {Opt, Value}}}).
 
@@ -397,7 +396,7 @@ make_request(ArrivalTS, IP, Port,
 family({_,_,_,_}) -> inet;
 family({_,_,_,_,_,_,_,_}) -> inet6.
 
-% this returs family with the version number in the end
+% this returns family with the version number in the end
 family_v({_,_,_,_}) -> inet4;
 family_v({_,_,_,_,_,_,_,_}) -> inet6.
 

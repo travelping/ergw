@@ -16,6 +16,52 @@
 -include("ergw_ggsn_test_lib.hrl").
 
 -define(TIMEOUT, 2000).
+-define(REDIRECTOR_OPTS, 
+        [{keep_alive_timeout, 500},
+         {retransmit_timeout, 10000},
+         {lb_type, random},
+         {nodes, [
+                  {node, [{name, <<"gsn">>},
+                          {keep_alive_version, v1},
+                          {address, ?TEST_GSN_R}
+                         ]},
+                  {node, [{name, <<"broken">>},
+                          {keep_alive_version, v1},
+                          {address, {10,0,0,1}}
+                         ]}
+                 ]},
+         {rules, [
+                  % this rule should never happen by sgsn_ip
+                  {rule, [
+                          {conditions, [{sgsn_ip, {192, 255, 127, 127}},
+                                        {version, [v1, v2]}
+                                       ]},
+                          {nodes, [<<"gsn">>]}
+                         ]},
+                  % to ggsn
+                  {rule, [% when ip and imsi are matched
+                          {conditions, [{sgsn_ip, {127, 127, 127, 127}},
+                                        {imsi, <<"111111111111111">>},
+                                        {version, [v1]}
+                                       ]},
+                          {nodes, [<<"gsn">>, <<"broken">>]}
+                         ]},
+                  % to pgw
+                  {rule, [% when ip and imsi are matched
+                          {conditions, [{sgsn_ip, {127, 127, 127, 127}},
+                                        {imsi, <<"111111111111111">>},
+                                        {version, [v2]}
+                                       ]},
+                          {nodes, [<<"gsn">>, <<"broken">>]}
+                         ]},
+                  {rule, [% TODO: some request like delete_pdp_context_request
+                          %       go to this rule. we do it because now test helpers are
+                          %       not able to change destination api to send requests.
+                          {conditions, []},
+                          {nodes, [<<"gsn">>]}
+                         ]}
+                 ]} 
+        ]).
 
 %%%===================================================================
 %%% API
@@ -47,52 +93,7 @@ inject_redirector(Config) ->
     RRX = {rrx, [{type, 'gtp-c'},
                  {ip,  ?TEST_GSN},
                  {reuseaddr, true},
-                 {redirector, [
-                               {keep_alive_timeout, 500},
-                               {retransmit_timeout, 10000},
-                               {lb_type, random},
-                               {nodes, [
-                                        {node, [{name, <<"gsn">>},
-                                                {keep_alive_version, v1},
-                                                {address, ?TEST_GSN_R}
-                                               ]},
-                                        {node, [{name, <<"broken">>},
-                                                {keep_alive_version, v1},
-                                                {address, {10,0,0,1}}
-                                               ]}
-                                       ]},
-                               {rules, [
-                                        % this rule should never happen by sgsn_ip
-                                        {rule, [
-                                                {conditions, [{sgsn_ip, {192, 255, 127, 127}},
-                                                              {version, [v1, v2]}
-                                                             ]},
-                                                {nodes, [<<"gsn">>]}
-                                               ]},
-                                        % to ggsn
-                                        {rule, [% when ip and imsi are matched
-                                                {conditions, [{sgsn_ip, {127, 127, 127, 127}},
-                                                              {imsi, <<"111111111111111">>},
-                                                              {version, [v1]}
-                                                             ]},
-                                                {nodes, [<<"gsn">>, <<"broken">>]}
-                                               ]},
-                                        % to pgw
-                                        {rule, [% when ip and imsi are matched
-                                                {conditions, [{sgsn_ip, {127, 127, 127, 127}},
-                                                              {imsi, <<"111111111111111">>},
-                                                              {version, [v2]}
-                                                             ]},
-                                                {nodes, [<<"gsn">>, <<"broken">>]}
-                                               ]},
-                                        {rule, [% TODO: some request like delete_pdp_context_request
-                                                %       go to this rule. we do it because now test helpers are
-                                                %       not able to change destination api to send requests.
-                                                {conditions, []},
-                                                {nodes, [<<"gsn">>]}
-                                               ]}
-                                       ]} 
-                              ]}
+                 {redirector,  ?REDIRECTOR_OPTS}
                 ]},
     S5S8 = {s5s8, [{handler, pgw_s5s8},
                    {sockets, [irx]},
@@ -122,6 +123,7 @@ end_per_suite(Config) ->
 
 all() ->
     [
+     validate_options,
      invalid_gtp_pdu,
      invalid_gtp_msg,
      simple_pdp_context_request,
@@ -150,6 +152,70 @@ end_per_testcase(create_pdp_context_request_resend, Config) ->
 
 end_per_testcase(_, Config) ->
     Config.
+
+%%--------------------------------------------------------------------
+validate_options() ->
+    [{doc, "Check all possible configuration options"}].
+validate_options(_Config) ->
+    % all options are default
+    ?equal(#{keep_alive_timeout => 60000,
+             lb_type => random,
+             retransmit_timeout => 10000,
+             rules => [],
+             nodes => #{}},
+           gtp_redirector:validate_options([])),
+    % some options are default
+    ?equal(#{keep_alive_timeout => 60000,
+             lb_type => round_robin,
+             retransmit_timeout => 10000,
+             rules => [],
+             nodes => #{}},
+           validate([{lb_type, round_robin}])),
+    ?equal(#{keep_alive_timeout => 10000,
+             lb_type => random,
+             retransmit_timeout => 10000,
+             rules => [],
+             nodes => #{}},
+           validate([{keep_alive_timeout, 10000}])),
+    ?equal(#{keep_alive_timeout => 60000,
+             lb_type => random,
+             retransmit_timeout => 1000,
+             rules => [],
+             nodes => #{}},
+           validate([{retransmit_timeout, 1000}])),
+    % negative cases
+    ?equal({error, {redirector_options, {rules, 1000}}},
+           validate([{rules, 1000}])),
+    ?equal({error, {redirector_options, {nodes, 1000}}},
+           validate([{nodes, 1000}])),
+    % nodes and rules
+    ?equal(#{keep_alive_timeout => 500,
+             retransmit_timeout => 10000,
+             lb_type => random,
+             nodes =>
+                 #{<<"broken">> => {v1,{10,0,0,1}},
+                  <<"gsn">> => {v1,{127,0,1,1}}},
+             rules =>
+                 [#{conditions =>
+                    [{sgsn_ip,{192,255,127,127}},
+                     {version,[v1,v2]}],
+                    nodes => [<<"gsn">>]},
+                  #{conditions =>
+                    [{sgsn_ip,{127,127,127,127}},
+                     {imsi,<<"111111111111111">>},
+                     {version,[v1]}],
+                    nodes => [<<"gsn">>,<<"broken">>]},
+                  #{conditions =>
+                    [{sgsn_ip,{127,127,127,127}},
+                     {imsi,<<"111111111111111">>},
+                     {version,[v2]}],
+                    nodes => [<<"gsn">>,<<"broken">>]},
+                  #{conditions => [],nodes => [<<"gsn">>]}]},
+           gtp_redirector:validate_options(?REDIRECTOR_OPTS)),
+    ok.
+
+validate(Opts) ->
+    catch (gtp_redirector:validate_options(Opts)).
 
 %%--------------------------------------------------------------------
 invalid_gtp_pdu() ->

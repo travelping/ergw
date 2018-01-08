@@ -8,41 +8,37 @@
 -module(gtp_redirector).
 
 -export([init/2, 
-         validate_option/1, 
+         validate_options/1, 
          keep_alive/2, 
          timeout_requests/1, 
          handle_message/6, 
          echo_response/6]).
 
--record(rule, {
-          conditions = []          :: list({Key :: atom(), Value :: term()}),
-          nodes      = []          :: list(binary())
-         }).
-
--record(node, {
-          name                    :: binary(),
-          keep_alive_version = v1 :: v1 | v2, 
-          address                 :: inet:ip_address()
-         }).
+-type nodes_map() :: #{binary() => {v1 | v2, inet:ip_address()}}.
+-type condition() :: {sgsn_ip, inet:ip_address()} |
+                     {version, list(v1 | v2)} |
+                     {imsi, binary()}.
+-type rule():: #{conditions => list(condition()),
+                 nodes => list(binary())}.
 
 -record(redirector, {
           socket     = undefined    :: undefined | gen_socket:socket(),
 
           % lists of all nodes, including bad
-          nodes      = []    :: list(#node{}),
+          nodes      = #{}    :: nodes_map(),
 
           % here we have nodes which are not answered for Keep-Alive echo request
           % no requests should be transfered to such nodes
-          bad_nodes  = []    :: list(),
-          lb_type    = random :: random | round_robin, % for now only random is supported
-          ka_timeout = 60000 :: non_neg_integer(), % Keep-Alive timeout
-          ka_timer   = undefined    :: reference(),
+          bad_nodes  = #{}       :: nodes_map(),
+          lb_type    = random    :: random | round_robin, % for now only random is supported
+          ka_timeout = 60000     :: non_neg_integer(), % Keep-Alive timeout
+          ka_timer   = undefined :: reference(),
 
-          rules      = []    :: list(#rule{}),
+          rules      = []  :: list(rule()),
 
           % cached nodes for requests, because retransmission should happen for the same node
-          requests,        % :: ergw_cache(),
-          rt_timeout = 10000 :: non_neg_integer(), % retransmission timeout
+          requests,         % :: ergw_cache(),
+          rt_timeout = 10000  :: non_neg_integer(), % retransmission timeout
 
           % timestamps for responses which used by Keep-Alive mechanism
           responses  = maps:new() :: map()
@@ -58,20 +54,14 @@
 
 -define(T3, 10 * 1000).
 
-init(IP, #{redirector := [_|_] = Opts}) -> 
+init(IP, #{redirector := #{keep_alive_timeout := KATimeout,
+                           retransmit_timeout := RTTimeout,
+                           lb_type := LBType,
+                           rules := Rules,
+                           nodes := Nodes} = _Opts}) -> 
     {ok, Socket} = gen_socket:socket(gtp_socket:family(IP), raw, udp),
     ok = gen_socket:setsockopt(Socket, sol_ip, hdrincl, true),
     ok = gen_socket:bind(Socket, {gtp_socket:family_v(IP), IP, 0}),
-    KATimeout = proplists:get_value(keep_alive_timeout, Opts, 60000),
-    RTTimeout = proplists:get_value(retransmit_timeout, Opts, 10000),
-    Rules = [maps:from_list(Rule) || {rule, Rule} <- proplists:get_value(rules, Opts, [])],
-    Nodes0 = lists:map(fun({node, Node}) -> 
-                           Name = proplists:get_value(name, Node, undefined),
-                           Address = proplists:get_value(address, Node, undefined),
-                           Version = proplists:get_value(keep_alive_version, Node, v1),
-                           {Name, {Version, Address}}
-                       end, proplists:get_value(nodes, Opts, [])),
-    Nodes = maps:from_list(Nodes0),
     TRef = erlang:start_timer(KATimeout, self(), redirector_keep_alive),
     % let's assume that on start all backends are available 
     % then set echo_response to the time now for all of them
@@ -79,7 +69,7 @@ init(IP, #{redirector := [_|_] = Opts}) ->
     #redirector{socket = Socket, 
                 nodes = Nodes,
                 rules = Rules,
-                lb_type = proplists:get_value(lb_type, Opts, random),
+                lb_type = LBType,
                 ka_timeout = KATimeout,
                 ka_timer = TRef,
                 requests = ergw_cache:new(?T3 * 4, redirector_requests), 
@@ -87,75 +77,83 @@ init(IP, #{redirector := [_|_] = Opts}) ->
                 responses = Responses};
 init(_IP, _Opts) -> undefined.
 
+-define(DefaultOptions, [{lb_type, random},
+                         {keep_alive_timeout, 60000},
+                         {retransmit_timeout, 10000},
+                         {nodes, []},
+                         {rules, []}]).
+-define(DefaultNode, [{name, undefined}, 
+                      {address, undefined},
+                      {keep_alive_version, v1}]).
+-define(DefaultRule, [{conditions, []}, {nodes, []}]).
 
-validate_option({rules, Rules}) when is_list(Rules) ->
-    lists:map(fun validate_rule/1, Rules),
-    ok;
-validate_option({nodes, Nodes}) when is_list(Nodes) ->
-    lists:map(fun validate_node/1, Nodes),
-    ok;
-validate_option({lb_type, Type}) 
+validate_options(Values) ->
+    ergw_config:validate_options(fun validate_option/2, Values, ?DefaultOptions, map).
+
+validate_option(rules, Rules) when is_list(Rules) ->
+    [Rule || {rule, Rule} 
+             <- ergw_config:validate_options(fun validate_rule/2, Rules, [], list)];
+validate_option(nodes, Nodes0) when is_list(Nodes0) ->
+    Nodes = ergw_config:validate_options(fun validate_node/2, Nodes0, [], list),
+    maps:from_list(lists:map(fun({node, Node}) -> Node end, Nodes));
+validate_option(lb_type, Type) 
   when Type == round_robin; Type == random ->
-    ok;
-validate_option({keep_alive_timeout, Timeout})
+    Type;
+validate_option(keep_alive_timeout, Timeout)
   when is_integer(Timeout), Timeout > 0 ->
-    ok;
-validate_option({retransmit_timeout, Timeout})
+    Timeout;
+validate_option(retransmit_timeout, Timeout)
   when is_integer(Timeout), Timeout > 0 ->
-    ok;
-validate_option(Value) ->
-    throw({error, {redirector_options, Value}}).
+    Timeout;
+validate_option(Opt, Value) ->
+    throw({error, {redirector_options, {Opt, Value}}}).
 
-validate_rule({rule, Rule}) ->
-    lists:map(fun validate_rule_option/1, Rule),
-    ok;
-validate_rule(Value) ->
-    throw({error, {redirector_rule, Value}}).
+validate_rule(rule, Rule) ->
+    ergw_config:validate_options(fun validate_rule_option/2, Rule, ?DefaultRule, map);
+validate_rule(Opt, Value) ->
+    throw({error, {redirector_rule, {Opt, Value}}}).
 
-validate_rule_option({conditions, Conditions}) when is_list(Conditions) ->
-    lists:map(fun validate_condition/1, Conditions),
-    ok;
-validate_rule_option({nodes, Nodes}) when is_list(Nodes) ->
-    lists:map(fun validate_rule_node/1, Nodes),
-    ok;
-validate_rule_option(Value) ->
-    throw({error, {redirector_rule_option, Value}}).
+validate_rule_option(conditions, Conditions) when is_list(Conditions) ->
+    lists:map(fun validate_condition/1, Conditions);
+validate_rule_option(nodes, Nodes) when is_list(Nodes) ->
+    lists:map(fun validate_rule_node/1, Nodes);
+validate_rule_option(Opt, Value) ->
+    throw({error, {redirector_rule_option, {Opt, Value}}}).
 
-validate_rule_node(Node) when is_binary(Node) -> ok;
+validate_rule_node(Node) when is_binary(Node) -> Node;
 validate_rule_node(Value) ->
     throw({error, {redirector_rule, Value}}).
 
-validate_condition({sgsn_ip, {_, _, _, _}}) ->
-    ok;
+validate_condition({sgsn_ip, {_, _, _, _}} = Value) ->
+    Value;
 validate_condition({version, Versions}) ->
-    validate_versions(Versions);
-validate_condition({imsi, IMSI}) when is_list(IMSI); is_binary(IMSI) ->
-    ok;
+    {version, validate_versions(Versions)};
+validate_condition({imsi, IMSI} = Value) when is_list(IMSI); is_binary(IMSI) ->
+    Value;
 validate_condition(Value) ->
     throw({error, {redirector_rule_condition, Value}}).
 
-validate_node({node, Node}) ->
-    lists:map(fun validate_node_option/1, Node),
-    ok;
-validate_node(Value) ->
-    throw({error, {redirector_rule, Value}}).
+validate_node(node, Node0) ->
+    Node = ergw_config:validate_options(fun validate_node_option/2, Node0, ?DefaultNode, map),
+    #{name := Name, address := Address, keep_alive_version := Version} = Node,
+    {Name, {Version, Address}};
+validate_node(Opt, Value) ->
+    throw({error, {redirector_node, {Opt, Value}}}).
 
-validate_node_option({name, Name}) when is_binary(Name) ->
-    ok;
-validate_node_option({keep_alive_version, v1}) ->
-    ok;
-validate_node_option({keep_alive_version, v2}) ->
-    ok;
-validate_node_option({address, {_, _, _, _} = _IPv4}) ->
-    ok;
-validate_node_option(Value) ->
-    throw({error, {redirector_node_option, Value}}).
+validate_node_option(name, Name) when is_binary(Name) ->
+    Name;
+validate_node_option(keep_alive_version, Version) 
+  when Version == v1; Version == v2 ->
+    Version;
+validate_node_option(address, {_, _, _, _} = IPv4) ->
+    IPv4;
+validate_node_option(Opt, Value) ->
+    throw({error, {redirector_node_option, {Opt, Value}}}).
 
 validate_versions(Versions) when is_list(Versions) ->
-    lists:map(fun validate_versions/1, Versions),
-    ok;
-validate_versions(v1) -> ok;
-validate_versions(v2) -> ok;
+    lists:map(fun validate_versions/1, Versions);
+validate_versions(v1) -> v1;
+validate_versions(v2) -> v2;
 validate_versions(Value) ->
     throw({error, {redirector_rule_version, Value}}).
 
@@ -269,8 +267,7 @@ route(#redirector{nodes = Nodes,
     end.
 
 route_1(#redirector{bad_nodes = BadNodes, rules = Rules} = Redirector, Msg) ->
-    Rule = match(Rules, BadNodes, Msg),
-    Nodes = maps:get(nodes, Rule, []),
+    #{nodes := Nodes} = match(Rules, BadNodes, Msg),
     case lists:filter(fun(Node) -> not maps:is_key(Node, BadNodes) end, Nodes) of
         [] -> {error, no_nodes};
         Nodes0 -> 
