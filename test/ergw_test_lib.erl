@@ -234,6 +234,10 @@ send_pdu(S, Msg) ->
     Data = gtp_packet:encode(Msg),
     ok = gen_udp:send(S, ?TEST_GSN, ?GTP2c_PORT, Data).
 
+send_pdu(S, IP, Msg) ->
+    Data = gtp_packet:encode(Msg),
+    ok = gen_udp:send(S, IP, ?GTP2c_PORT, Data).
+
 send_recv_pdu(S, Msg) ->
     send_recv_pdu(S, Msg, ?TIMEOUT).
 
@@ -258,7 +262,7 @@ recv_pdu(S, SeqNo, Timeout, Fail) ->
     recv_active(S),
     receive
 	{udp, S, IP, _InPortNo, Response} when IP == ?TEST_GSN; IP == ?TEST_GSN_R ->
-	    recv_pdu_msg(Response, Now, S, SeqNo, Timeout, Fail);
+	    recv_pdu_msg(Response, Now, S, IP, SeqNo, Timeout, Fail);
 	{udp, _Socket, _IP, _InPortNo, _Packet} = Unexpected ->
 	    recv_pdu_fail(Fail, Unexpected);
 	{S, #gtp{seq_no = SeqNo} = Msg}
@@ -286,12 +290,12 @@ update_timeout(infinity, _At) ->
 update_timeout(Timeout, At) ->
     Timeout - (erlang:monotonic_time(millisecond) - At).
 
-recv_pdu_msg(Response, At, S, SeqNo, Timeout, Fail) ->
+recv_pdu_msg(Response, At, S, IP, SeqNo, Timeout, Fail) ->
     ct:pal("Msg: ~s", [pretty_print((catch gtp_packet:decode(Response)))]),
     case gtp_packet:decode(Response) of
 	#gtp{type = echo_request} = Msg ->
 	    Resp = Msg#gtp{type = echo_response, ie = []},
-	    send_pdu(S, Resp),
+	    send_pdu(S, IP, Resp),
 	    recv_pdu(S, SeqNo, update_timeout(Timeout, At), Fail);
 	#gtp{seq_no = SeqNo} = Msg
 	  when is_integer(SeqNo) ->
