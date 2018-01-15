@@ -59,9 +59,7 @@ init(IP, #{redirector := #{keep_alive_timeout := KATimeout,
                            lb_type := LBType,
                            rules := Rules,
                            nodes := Nodes} = _Opts}) -> 
-    {ok, Socket} = gen_socket:socket(gtp_socket:family(IP), raw, udp),
-    ok = gen_socket:setsockopt(Socket, sol_ip, hdrincl, true),
-    ok = gen_socket:bind(Socket, {gtp_socket:family_v(IP), IP, 0}),
+    {ok, Socket} = make_gtp_redirector_socket(IP, 0, #{hdrincl => true}),
     TRef = erlang:start_timer(KATimeout, self(), redirector_keep_alive),
     % let's assume that on start all backends are available 
     % then set echo_response to the time now for all of them
@@ -76,6 +74,21 @@ init(IP, #{redirector := #{keep_alive_timeout := KATimeout,
                 rt_timeout = RTTimeout,
                 responses = Responses};
 init(_IP, _Opts) -> undefined.
+
+make_gtp_redirector_socket(IP, Port, Opts) ->
+    {ok, Socket} = gen_socket:socket(gtp_socket:family(IP), raw, udp),
+    bind_gtp_socket(Socket, IP, Port, Opts).
+
+bind_gtp_socket(Socket, {_,_,_,_} = IP, Port, Opts) ->
+    ok = gen_socket:bind(Socket, {inet4, IP, Port}),
+    maps:fold(fun(K, V, ok) -> ok = socket_setopts(Socket, K, V) end, ok, Opts),
+    {ok, Socket};
+bind_gtp_socket(_Socket, {_,_,_,_,_,_,_,_} = _IP, _Port, _Opts) ->
+    throw("inet6 is not supported now").
+
+socket_setopts(Socket, hdrincl, true) ->
+    gen_socket:setsockopt(Socket, sol_ip, hdrincl, true);
+socket_setopts(_Socket, _, _) -> ok.
 
 -define(DefaultOptions, [{lb_type, random},
                          {keep_alive_timeout, 60000},
@@ -208,13 +221,13 @@ handle_message(#redirector{socket = Socket,
             NewRequests = if Cached == true -> Requests;
                              true -> ergw_cache:enter(ReqKey, Node, RTTimeout, Requests)
                           end,
-            Family = gtp_socket:family_v(DstIP),
+            Family = gtp_socket:family(DstIP),
             DstPort = ?GTP1c_PORT,
             Packet = case Family of
-                         inet4 -> create_ipv4_udp_packet(IP, Port, DstIP, DstPort, Packet0);
+                         inet -> create_ipv4_udp_packet(IP, Port, DstIP, DstPort, Packet0);
                          inet6 -> throw("inet6 is not supported now")
                      end,
-            gen_socket:sendto(Socket, {Family, DstIP, DstPort}, Packet),
+            gen_socket:sendto(Socket, {inet4, DstIP, DstPort}, Packet), % only IPv4 for now 
             lager:debug("~p: redirect to ~p", [GtpPort#gtp_port.name, DstIP]),
             gtp_socket:message_counter(rr, GtpPort, IP, Msg),
             NewRedirector#redirector{requests = NewRequests}

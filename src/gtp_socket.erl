@@ -18,7 +18,7 @@
 	 send_request/6, send_request/7, resend_request/2,
 	 get_restart_counter/1]).
 -export([get_request_q/1, get_response_q/1, get_seq_no/2, 
-	 family/1, family_v/1, message_counter/4]).
+	 family/1, message_counter/4]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -395,10 +395,6 @@ make_request(ArrivalTS, IP, Port,
 
 family({_,_,_,_}) -> inet;
 family({_,_,_,_,_,_,_,_}) -> inet6.
-
-% this returns family with the version number in the end
-family_v({_,_,_,_}) -> inet4;
-family_v({_,_,_,_,_,_,_,_}) -> inet6.
 
 make_gtp_socket(IP, Port, #{netns := NetNs} = Opts)
   when is_list(NetNs) ->
