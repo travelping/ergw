@@ -18,7 +18,7 @@
 	 send_request/6, send_request/7, resend_request/2,
 	 get_restart_counter/1]).
 -export([get_request_q/1, get_response_q/1, get_seq_no/2, 
-	 family/1, message_counter/4]).
+	 family/1]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,

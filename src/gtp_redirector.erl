@@ -229,7 +229,6 @@ handle_message(#redirector{socket = Socket,
                      end,
             gen_socket:sendto(Socket, {inet4, DstIP, DstPort}, Packet), % only IPv4 for now 
             lager:debug("~p: redirect to ~p", [GtpPort#gtp_port.name, DstIP]),
-            gtp_socket:message_counter(rr, GtpPort, IP, Msg),
             NewRedirector#redirector{requests = NewRequests}
     end;
 handle_message(Redirector, _GtpPort, _IP, _Port, _Msg, _Packet) -> Redirector.

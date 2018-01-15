@@ -21,13 +21,11 @@ The following metrics exist:
 | socket.gtp-c.\<SocketName\>.tx.v1.\<GTPv1-C-MessageName\>.count      | counter   |
 | socket.gtp-c.\<SocketName\>.tx.v1.\<GTPv1-C-MessageName\>.timeout    | counter   |
 | socket.gtp-c.\<SocketName\>.tx.v1.\<GTPv1-C-MessageName\>.retransmit | counter   |
-| socket.gtp-c.\<SocketName\>.rr.v1.\<GTPv1-C-MessageName\>.count      | counter   |
 | socket.gtp-c.\<SocketName\>.rx.v2.\<GTPv2-C-MessageName\>.count      | counter   |
 | socket.gtp-c.\<SocketName\>.rx.v2.\<GTPv2-C-MessageName\>.duplicate  | counter   |
 | socket.gtp-c.\<SocketName\>.tx.v2.\<GTPv2-C-MessageName\>.count      | counter   |
 | socket.gtp-c.\<SocketName\>.tx.v2.\<GTPv2-C-MessageName\>.timeout    | counter   |
 | socket.gtp-c.\<SocketName\>.tx.v2.\<GTPv2-C-MessageName\>.retransmit | counter   |
-| socket.gtp-c.\<SocketName\>.rr.v1.\<GTPv2-C-MessageName\>.count      | counter   |
 | socket.gtp-c.\<SocketName\>.pt.v1.\<GTPv1-C-MessageName\>            | histogram |
 | socket.gtp-c.\<SocketName\>.pt.v2.\<GTPv2-C-MessageName\>            | histogram |
 
@@ -38,8 +36,7 @@ The path `rtt` is the round trip time histogram for each request/response
 message pair.
 
 The `tx` and `rx` metrics count the number of message of a given type
-transmitted and received. The `rr` metric count the number of message processed
-in GTP redirector mode. The `timeout` counter exists only for requests that 
+transmitted and received. The `timeout` counter exists only for requests that 
 require a response.
 
 The `pt` metrics are a histogram of the total processing time for the last
