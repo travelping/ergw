@@ -665,7 +665,7 @@ message_counter(Direction, GtpPort,
     message_counter(Direction, GtpPort, RemoteIP, Msg, Verdict);
 message_counter(Direction, #gtp_port{name = Name, type = 'gtp-c'},
 		RemoteIP, #gtp{version = Version, type = MsgType}) ->
-    message_counter_apply(Name, RemoteIP, Direction, Version, [MsgType]).
+    message_counter_apply(Name, RemoteIP, Direction, Version, [MsgType, count]).
 
 message_counter(Direction, #gtp_port{name = Name, type = 'gtp-c'},
 		RemoteIP, #gtp{version = Version, type = MsgType},

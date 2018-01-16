@@ -468,11 +468,18 @@ create_pdp_context_request_resend() ->
 create_pdp_context_request_resend(Config) ->
     S = make_gtp_socket(Config),
 
+    CntId = [socket,'gtp-c',irx,rx,v1,create_pdp_context_request,count],
+    DupId = [socket,'gtp-c',irx,rx,v1,create_pdp_context_request,duplicate],
+    Cnt0 = get_exo_value(CntId),
+    Dup0 = get_exo_value(DupId),
+
     {GtpC, Msg, Response} = create_pdp_context(S),
+    match_exo_value(CntId, Cnt0 + 1),
     ?equal(Response, send_recv_pdu(S, Msg)),
     ?equal([], outstanding_requests()),
 
     delete_pdp_context(S, GtpC),
+    match_exo_value(DupId, Dup0 + 1),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     ?match(0, meck:num_calls(?HUT, handle_request, ['_', '_', true, '_'])),
