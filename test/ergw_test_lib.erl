@@ -30,6 +30,7 @@
 -export([pretty_print/1]).
 -export([set_cfg_value/3, add_cfg_value/3]).
 -export([outstanding_requests/0, wait4tunnels/1, hexstr2bin/1]).
+-export([match_exo_value/2, get_exo_value/1]).
 
 -include("ergw_test_lib.hrl").
 -include_lib("common_test/include/ct.hrl").
@@ -373,3 +374,14 @@ mkint(C) when $A =< C, C =< $F ->
     C - $A + 10;
 mkint(C) when $a =< C, C =< $f ->
     C - $a + 10.
+
+%%%===================================================================
+%%% Exometer helpers
+%%%===================================================================
+
+match_exo_value(Path, Expect) ->
+    ?equal(Expect, get_exo_value(Path)).
+
+get_exo_value(Path) ->
+    {ok, Value} = exometer:get_value(Path),
+    proplists:get_value(value, Value).

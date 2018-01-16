@@ -919,7 +919,3 @@ create_session_overload(Config) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
-
-match_exo_value(Path, Expect) ->
-    {ok, Value} = exometer:get_value(Path),
-    ?equal(Expect, proplists:get_value(value, Value)).
