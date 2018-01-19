@@ -19,12 +19,12 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
 	 terminate/2, code_change/3]).
 
+-include_lib("kernel/include/inet.hrl").
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include_lib("pfcplib/include/pfcp_packet.hrl").
 -include("include/ergw.hrl").
 
--record(state, {state, tref, timeout, name, node,
-		remote_name, remote_ip, ip, pid, gtp_port}).
+-record(state, {state, tref, timeout, name, node, ip, pid, gtp_port}).
 
 %%====================================================================
 %% API
@@ -50,14 +50,26 @@ heartbeat_response(Pid, Response) ->
 %%%===================================================================
 
 -define(SocketDefaults, [{node, "invalid"},
-			 {name, "invalid"}]).
+			 {ip, invalid}]).
 
 validate_options(Values) ->
      ergw_config:validate_options(fun validate_option/2, Values, ?SocketDefaults, map).
 
-validate_option(node, Value) when is_atom(Value) ->
+validate_option(node, Value)
+  when is_atom(Value); is_list(Value) ->
+    case inet:gethostbyname(Value) of
+	{ok, #hostent{h_addr_list = Addrs}} ->
+	    hd(Addrs);
+	_ ->
+	    throw({error, {options, {node, Value}}})
+    end;
+validate_option(node, Value)
+  when is_tuple(Value) andalso
+       (tuple_size(Value) == 4 orelse tuple_size(Value) == 8) ->
     Value;
-validate_option(name, Value) when is_atom(Value) ->
+validate_option(ip, Value)
+  when is_tuple(Value) andalso
+       (tuple_size(Value) == 4 orelse tuple_size(Value) == 8) ->
     Value;
 validate_option(type, Value) when Value =:= 'gtp-u' ->
     Value;
@@ -92,20 +104,19 @@ dp_call(#context{data_port = GtpPort}, Request) ->
 %%% gen_server callbacks
 %%%===================================================================
 
-init([Name, #{node := Node, name := RemoteName}]) ->
+init([Name, #{node := Node, ip := IP}]) ->
     State = #state{state = disconnected,
 		   tref = undefined,
 		   timeout = 10,
 		   name = Name,
 		   node = Node,
-		   remote_name = RemoteName,
-		   remote_ip = {172,21,16,1}},
+		   ip = IP},
     send_heartbeat(State),
     {ok, State}.
 
-handle_call(#pfcp{} = Request, _From, #state{remote_ip = IP} = State) ->
+handle_call(#pfcp{} = Request, _From, #state{node = Node} = State) ->
     lager:debug("DP Call ~p", [lager:pr(Request, ?MODULE)]),
-    Reply = ergw_sx_socket:call(IP, Request),
+    Reply = ergw_sx_socket:call(Node, Request),
     {reply, Reply, State};
 
 handle_call(get_id, _From, #state{pid = Pid} = State) ->
@@ -236,18 +247,18 @@ shedule_next_heartbeat(State = #state{state = ConnState, timeout = Timeout}) ->
     TRef = erlang:send_after(Timeout, self(), heartbeat),
     State#state{tref = TRef, timeout = NewTimeout}.
 
-send_heartbeat(#state{remote_ip = IP}) ->
+send_heartbeat(#state{node = Node}) ->
     IEs = [#recovery_time_stamp{
 	      time = seconds_to_sntp_time(gtp_config:get_start_time())}],
     Req = #pfcp{version = v1, type = heartbeat_request, ie = IEs},
-    ergw_sx_socket:call(IP, 500, 5, Req, {?MODULE, heartbeat_response, [self()]}).
+    ergw_sx_socket:call(Node, 500, 5, Req, {?MODULE, heartbeat_response, [self()]}).
 
-handle_nodeup(#state{name = Name, node = Node, remote_name = RemoteName} = State) ->
-    lager:warning("Node ~p is up", [Node]),
+handle_nodeup(#state{name = Name, node = Node, ip = IP} = State) ->
+    lager:warning("Node ~s is up", [inet:ntoa(Node)]),
 
     %% {ok, Pid, IP} = bind(Node, RemoteName),
     %% ok = clear(Pid),
-    Pid = self(), IP = {127,0,0,1},
+    Pid = self(),
 
     {ok, RCnt} = gtp_config:get_restart_counter(),
     GtpPort = #gtp_port{name = Name, type = 'gtp-u', pid = self(),
