@@ -22,3 +22,5 @@
 -define('S5/S8-U PGW',  5).
 -define('S5/S8-C SGW',  6).
 -define('S5/S8-C PGW',  7).
+-define('S11-C MME',    10).
+-define('S11/S4-C SGW', 11).
