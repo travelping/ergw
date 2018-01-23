@@ -342,4 +342,5 @@ map_reply_ie(IE)
     IE.
 
 map_v2_iftype(6)  -> {ok, s5s8};
+map_v2_iftype(10) -> {ok, s11};
 map_v2_iftype(_)  -> {error, unsupported}.
