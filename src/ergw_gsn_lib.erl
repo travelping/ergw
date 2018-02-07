@@ -67,16 +67,22 @@ ue_ip_address(Direction, #context{ms_v6 = {MSv6,_}}) ->
 network_instance(Name) when is_atom(Name) ->
     #network_instance{instance = [atom_to_binary(Name, latin1)]}.
 
+f_teid(TEID, {_,_,_,_} = IP) ->
+    #f_teid{teid = TEID, ipv4 = gtp_c_lib:ip2bin(IP)};
+f_teid(TEID, {_,_,_,_,_,_,_,_} = IP) ->
+    #f_teid{teid = TEID, ipv6 = gtp_c_lib:ip2bin(IP)}.
+
 create_pdr({RuleId, gtp,
 	    #context{
-	       data_port = #gtp_port{name = InPortName},
-	       local_data_tei = LocalTEI}},
+	       data_port = #gtp_port{name = InPortName, ip = IP},
+	       local_data_tei = LocalTEI} = Ctx},
 	   PDRs) ->
     PDI = #pdi{
 	     group =
-		 [#source_interface{interface = 'Core'},
+		 [#source_interface{interface = 'Access'},
 		  network_instance(InPortName),
-		  #f_teid{teid = LocalTEI}]
+		  f_teid(LocalTEI, IP),
+		  ue_ip_address(src, Ctx)]
 	    },
     PDR = #create_pdr{
 	     group =
@@ -118,7 +124,7 @@ create_far({RuleId, gtp,
 		  #apply_action{forw = 1},
 		  #forwarding_parameters{
 		     group =
-			 [#destination_interface{interface = 'Core'},
+			 [#destination_interface{interface = 'Access'},
 			  network_instance(OutPortName),
 			  #outer_header_creation{
 			     type = 'GTP-U/UDP/IPv4',
@@ -146,7 +152,7 @@ create_far({RuleId, sgi, #context{vrf = OutPortName}}, FARs) ->
     [FAR | FARs].
 
 update_pdr({RuleId, gtp,
-	    #context{data_port = #gtp_port{name = InPortName},
+	    #context{data_port = #gtp_port{name = InPortName, ip = IP},
 		     local_data_tei = LocalTEI},
 	    #context{data_port = #gtp_port{name = OldInPortName},
 		     local_data_tei = OldLocalTEI}},
@@ -157,7 +163,7 @@ update_pdr({RuleId, gtp,
 	     group =
 		 [#source_interface{interface = 'Core'},
 		  network_instance(InPortName),
-		  #f_teid{teid = LocalTEI}]
+		  f_teid(LocalTEI, IP)]
 	    },
     PDR = #update_pdr{
 	     group =
