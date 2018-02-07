@@ -21,6 +21,11 @@
 	  context
 	 }).
 
+-record(node, {
+	  node	:: atom(),
+	  ip	:: inet:ip_address()
+	 }).
+
 -record(gtp_port, {
 	  name            :: term(),
 	  type            :: 'gtp-c' | 'gtp-u',
