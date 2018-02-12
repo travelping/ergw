@@ -39,6 +39,8 @@ send(GtpPort, IP, Port, Data) ->
 get_id(GtpPort) ->
     call_port(GtpPort, get_id).
 
+call(Context, #pfcp{} = Request) ->
+    dp_call(Context, pfcp_packet:to_map(Request));
 call(Context, Request) ->
     dp_call(Context, Request).
 
