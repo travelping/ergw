@@ -22,7 +22,7 @@
  {<<"folsom">>,{pkg,<<"folsom">>,<<"0.8.5">>},1},
  {<<"gen_socket">>,
   {git,"git://github.com/travelping/gen_socket",
-       {ref,"c155d2007f1fbd350e663780849e4feba26b8083"}},
+       {ref,"195a42700ba15b7ddc26a49865abcdaa627eba33"}},
   0},
  {<<"goldrush">>,{pkg,<<"goldrush">>,<<"0.1.9">>},1},
  {<<"gtplib">>,
