@@ -152,8 +152,9 @@ This requires a suitable ergw.config, e.g.:
 
 The configuration is documented in [CONFIG.md](CONFIG.md)
 
-This process can be simplified by using [enit](https://github.com/travelping/enit). A sample config that only requires minimal adjustment for IP's, hostnames and interfaces can be found in priv/enit/ggsn.
-Install those files to / (root) and start with ```enit startfg ergw```.
+This process can be simplified by using release application [ergw-gtp-c-node](https://github.com/travelping/ergw-gtp-c-node).
+A sample config that only requires minimal adjustment for IP's, hostnames and interfaces can be found in `ergw-gtp-c-node/config/ergw-gtp-c-node.config`.
+See [Installing on Ubuntu 16.04](https://github.com/travelping/ergw-gtp-c-node#installing-on-ubuntu-1604) section for futher information.
 
 <!-- Badges -->
 [travis]: https://travis-ci.org/travelping/ergw
