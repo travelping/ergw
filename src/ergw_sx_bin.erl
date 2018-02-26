@@ -24,7 +24,7 @@
 -include_lib("pfcplib/include/pfcp_packet.hrl").
 -include("include/ergw.hrl").
 
--record(data, {timeout, name, cp, dp, gtp_port}).
+-record(data, {timeout, name, cp, dp, network_instances}).
 
 %%====================================================================
 %% API
@@ -112,7 +112,9 @@ init([Name, #{node := Node, ip := IP}]) ->
     Data = #data{timeout = 10,
 		 name = Name,
 		 cp = CP,
-		 dp = #node{node = Node, ip = IP}},
+		 dp = #node{node = Node, ip = IP},
+		 network_instances = #{}
+		},
     {ok, disconnected, Data, [{next_event, internal, setup}]}.
 
 handle_event(_, setup, disconnected, #data{cp = CP, dp = #node{node = Node}}) ->
@@ -242,26 +244,44 @@ send_heartbeat(#data{dp = #node{node = Node}}) ->
     Req = #pfcp{version = v1, type = heartbeat_request, ie = IEs},
     ergw_sx_socket:call(Node, 500, 5, Req, response_cb(heartbeat)).
 
-handle_nodeup(#{user_plane_ip_resource_information :=
-		    #user_plane_ip_resource_information{
-		       ipv4 = IPv4, ipv6 = IPv6
-		      }
-	       } = _IEs, #data{name = Name, dp = #node{node = Node} = DP} = Data) ->
+handle_nodeup(#{user_plane_ip_resource_information := UPIPResInfo} = _IEs,
+	      #data{dp = #node{node = Node}} = Data) ->
     lager:warning("Node ~s is up", [inet:ntoa(Node)]),
     lager:warning("Node IEs: ~p", [lager:pr(_IEs, ?MODULE)]),
 
+    {ok, RCnt} = gtp_config:get_restart_counter(),
+    Data#data{
+      timeout = 100,
+      network_instances =
+	  init_network_instance(RCnt, Data#data.network_instances, UPIPResInfo)
+     }.
+
+label2name(Label) when is_list(Label) ->
+    binary_to_atom(iolist_to_binary(lists:join($., Label)), latin1);
+label2name(Name) when is_binary(Name) ->
+    binary_to_atom(Name, latin1).
+
+init_network_instance(RCnt, NetworkInstances, UPIPResInfo)
+    when is_list(UPIPResInfo) ->
+    lists:foldl(fun(I, Acc) ->
+			init_network_instance(RCnt, Acc, I)
+		end, NetworkInstances, UPIPResInfo);
+init_network_instance(RCnt, NetworkInstances,
+		      #user_plane_ip_resource_information{
+			 ipv4 = IPv4, ipv6 = IPv6,
+			 network_instance = NetworkInstance
+			}) ->
+    NwInstName = label2name(NetworkInstance),
     IP =
 	if IPv4 /= undefined -> gtp_c_lib:bin2ip(IPv4);
 	   IPv6 /= undefined -> gtp_c_lib:bin2ip(IPv6)
 	end,
 
-    {ok, RCnt} = gtp_config:get_restart_counter(),
-    GtpPort = #gtp_port{name = Name, type = 'gtp-u', pid = self(),
+    GtpPort = #gtp_port{name = NwInstName, type = 'gtp-u', pid = self(),
 			ip = IP, restart_counter = RCnt},
-    gtp_socket_reg:register(Name, GtpPort),
+    gtp_socket_reg:register(NwInstName, GtpPort),
+    NetworkInstances#{NwInstName => GtpPort}.
 
-    Data#data{timeout = 100, gtp_port = GtpPort, dp = DP#node{ip = IP}}.
-
-handle_nodedown(#data{name = Name} = Data) ->
-    gtp_socket_reg:unregister(Name),
-    Data.
+handle_nodedown(#data{network_instances = NetworkInstances} = Data) ->
+    lists:foreach(fun gtp_socket_reg:unregister/1, maps:keys(NetworkInstances)),
+    Data#data{network_instances = #{}}.
