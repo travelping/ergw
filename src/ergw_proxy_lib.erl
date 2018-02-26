@@ -121,16 +121,21 @@ make_proxy_request(Direction, Request, SeqNo, NewPeer, State) ->
 network_instance(Name) when is_atom(Name) ->
     #network_instance{instance = [atom_to_binary(Name, latin1)]}.
 
+f_teid(TEID, {_,_,_,_} = IP) ->
+    #f_teid{teid = TEID, ipv4 = gtp_c_lib:ip2bin(IP)};
+f_teid(TEID, {_,_,_,_,_,_,_,_} = IP) ->
+    #f_teid{teid = TEID, ipv6 = gtp_c_lib:ip2bin(IP)}.
+
 create_pdr({RuleId, Intf,
 	    #context{
-	       data_port = #gtp_port{name = InPortName},
+	       data_port = #gtp_port{name = InPortName, ip = IP},
 	       local_data_tei = LocalTEI}},
 	   PDRs) ->
     PDI = #pdi{
 	     group =
 		 [#source_interface{interface = Intf},
 		  network_instance(InPortName),
-		  #f_teid{teid = LocalTEI}]
+		  f_teid(LocalTEI, IP)]
 	    },
     PDR = #create_pdr{
 	     group =
@@ -171,7 +176,7 @@ create_far({RuleId, Intf,
 update_pdr({RuleId, Intf,
 	    #context{data_port = #gtp_port{name = OldInPortName},
 		     local_data_tei = OldLocalTEI},
-	    #context{data_port = #gtp_port{name = NewInPortName},
+	    #context{data_port = #gtp_port{name = NewInPortName, ip = IP},
 		     local_data_tei = NewLocalTEI}},
 	   PDRs)
   when OldInPortName /= NewInPortName;
@@ -180,7 +185,7 @@ update_pdr({RuleId, Intf,
 	     group =
 		 [#source_interface{interface = Intf},
 		  network_instance(NewInPortName),
-		  #f_teid{teid = NewLocalTEI}]
+		  f_teid(NewLocalTEI, IP)]
 	    },
     PDR = #update_pdr{
 	     group =
