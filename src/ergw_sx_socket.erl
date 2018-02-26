@@ -53,6 +53,18 @@
 -define(RESPONSE_TIMEOUT, (?T1 * ?N1 + (?T1 div 2))).
 -define(CACHE_TIMEOUT, ?RESPONSE_TIMEOUT).
 
+-define(log_pfcp(Level, Fmt, Args, PFCP),
+	try
+	    #pfcp{version = Version, type = MsgType, seid = SEID, seq_no = SeqNo, ie = IE} = PFCP,
+	    IEList =
+		if is_map(IE) -> maps:values(IE);
+		   true -> IE
+		end,
+	    lager:Level(Fmt "~s(V: ~w, SEID: ~w, Seq: ~w): ~p", Args ++ [pfcp_packet:msg_description_v1(MsgType), Version, SEID, SeqNo, [lager:pr(E, ?MODULE) || E <- IEList]])
+	catch
+	    _:_ -> ok
+	end).
+
 %%====================================================================
 %% API
 %%====================================================================
@@ -311,7 +323,7 @@ handle_message(ArrivalTS, IP, Port, Data, State0) ->
     end.
 
 handle_message_1(ArrivalTS, IP, Port, #pfcp{type = MsgType} = Msg, State) ->
-    lager:debug("handle message ~s:~w: ~p", [inet:ntoa(IP), Port, Msg]),
+    ?log_pfcp(debug, "handle message ~s:~w: ", [inet:ntoa(IP), Port], Msg),
     case pfcp_msg_type(MsgType) of
 	response ->
 	    handle_response(ArrivalTS, IP, Port, Msg, State);
@@ -328,11 +340,11 @@ handle_response(_ArrivalTS, _IP, _Port, #pfcp{seq_no = SeqNo} = Msg, State0) ->
     {Req, State} = take_request(SeqNo, State0),
     case Req of
 	none -> %% duplicate, drop silently
-	    lager:debug("~p: duplicate response: ~p, ~p", [self(), SeqNo, Msg]),
+	    ?log_pfcp(debug, "~p: duplicate response: ~p: ", [self(), SeqNo], Msg),
 	    State;
 
 	#send_req{} = SendReq ->
-	    lager:info("~p: found response: ~p", [self(), SeqNo]),
+	    ?log_pfcp(info, "~p: found response: ~p: ", [self(), SeqNo], Msg),
 	    send_request_reply(SendReq, Msg),
 	    State
     end.
@@ -395,8 +407,8 @@ cancel_timer(Ref) ->
 
 prepare_send_req(#send_req{msg = Msg0} = SendReq, State0) ->
     lager:info("PrepSend: ~p", [lager:pr(SendReq, ?MODULE)]),
-    lager:info("PrepSend: ~p", [lager:pr(Msg0, ?MODULE)]),
     {Msg, State} = new_sequence_number(Msg0, State0),
+    ?log_pfcp(info, "PrepSend: ", [], Msg),
     BinMsg = pfcp_packet:encode(Msg),
     {SendReq#send_req{msg = Msg, data = BinMsg}, State}.
 
