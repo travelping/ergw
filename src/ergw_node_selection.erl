@@ -13,7 +13,7 @@
 
 -module(ergw_node_selection).
 
--export([lookup/2]).
+-export([lookup/2, colocation_match/2, topology_match/2]).
 
 -ifdef(TEST).
 -export([naptr/1]).
@@ -42,11 +42,92 @@ lookup(Name, ServiceSet) ->
     Response = ?NAPTR(Name),
     match(Response, ordsets:from_list(ServiceSet)).
 
+colocation_match(CandidatesA, CandidatesB) ->
+    Tree0 = #{},
+    Tree1 = lists:foldl(insert_colo_candidates(_, 1, _), Tree0, CandidatesA),
+    Tree = lists:foldl(insert_colo_candidates(_, 2, _), Tree1, CandidatesB),
+    filter_tree(Tree).
+
+topology_match(CandidatesA, CandidatesB) ->
+    Tree0 = {#{}, #{}},
+    Tree1 = lists:foldl(insert_topo_candidates(_, 1, _), Tree0, CandidatesA),
+    {MatchTree, PrefixTree} = lists:foldl(insert_topo_candidates(_, 2, _), Tree1, CandidatesB),
+
+    case filter_tree(MatchTree) of
+	[] ->
+	    filter_tree(PrefixTree);
+	L ->
+	    L
+    end.
+
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
 
 %% @private
+
+add_candidate(Pos, Tuple, Candidate) ->
+    L = erlang:element(Pos, Tuple),
+    erlang:setelement(Pos, Tuple, [Candidate | L]).
+
+insert_candidate(Label, {Host, Order, Services, IP4, IP6}, Pos, Tree) ->
+    {_, Proto} = lists:unzip(Services),
+    Candidate = {Host, Order, Proto, IP4, IP6},
+    maps:update_with(Label, add_candidate(Pos, _, Candidate),
+		     add_candidate(Pos, {[], []}, Candidate), Tree).
+
+insert_candidates([], Candidate, Pos, Tree) ->
+    insert_candidate([], Candidate, Pos, Tree);
+insert_candidates([_|Next] = Label, Candidate, Pos, Tree0) ->
+    Tree = insert_candidate(Label, Candidate, Pos, Tree0),
+    insert_candidates(Next, Candidate, Pos, Tree).
+
+insert_colo_candidates({Host, _, _, _, _} = Candidate, Pos, Tree) ->
+    case string:tokens(Host, ".") of
+	[Top, _ | Labels]
+	  when Top =:= "topon"; Top =:= "topoff" ->
+	    insert_candidate(Labels, Candidate, Pos, Tree);
+	Labels ->
+	    insert_candidate(Labels, Candidate, Pos, Tree)
+    end.
+
+insert_topo_candidates({Host, _, _, _, _} = Candidate, Pos,
+		       {MatchTree0, PrefixTree0} = Tree) ->
+    case string:tokens(Host, ".") of
+	["topon", _ | Labels] ->
+	    PrefixTree = insert_candidates(Labels, Candidate, Pos, PrefixTree0),
+	    MatchTree = insert_candidate(Labels, Candidate, Pos, MatchTree0),
+	    {MatchTree, PrefixTree};
+	_ ->
+	    Tree
+    end.
+
+have_common_services({_, _, ServicesA, _, _}, {_, _, ServicesB, _, _}) ->
+    not ordsets:is_disjoint(ServicesA, ServicesB).
+
+merge_candidates(K, {A, B}, List) ->
+    Degree = length(K),
+    [{Degree, {X, Y}} || X <- lists:keysort(2, A),
+			 Y <- lists:keysort(2, B),
+			 have_common_services(X, Y)] ++ List.
+
+filter_tree([], _, List) ->
+    lists:reverse(List);
+filter_tree(_, [], List) ->
+    lists:reverse(List);
+filter_tree([{_, H}|T], Elements, List) ->
+    case lists:member(H, Elements) of
+	true ->
+	    filter_tree(T, lists:delete(H, Elements), [H | List]);
+	_ ->
+	    filter_tree(T, Elements, List)
+    end.
+
+filter_tree(Tree) ->
+    List = maps:fold(fun merge_candidates/3, [], Tree),
+    {_, Pairs} = lists:unzip(List),
+    filter_tree(lists:reverse(lists:keysort(1, List)), lists:usort(Pairs), []).
+
 naptr(Name) ->
     NsOpts =
 	case setup:get_env(ergw, nameservers) of
