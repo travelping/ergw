@@ -65,12 +65,68 @@
 			     data = ?HUB2}]
 	  }).
 
+-define(L1, [{"topon.gngp.pgw.north.epc.mnc990.mcc311.3gppnetwork.org",
+	      {500,64536},
+	      [{"x-3gpp-pgw","x-gn"},{"x-3gpp-pgw","x-gp"}],
+	      [{1,0,0,2}],
+	      []},
+	     {"topon.s5s8.pgw.north.epc.mnc990.mcc311.3gppnetwork.org",
+	      {200,64536},
+	      [{"x-3gpp-pgw","x-s5-gtp"},{"x-3gpp-pgw","x-s8-gtp"}],
+	      [{1,0,0,1}],
+	      []}]).
+
+-define(L2, [{"topon.s5s8.pgw.south.epc.mnc990.mcc311.3gppnetwork.org",
+	      {200,64536},
+	      [{"x-3gpp-pgw","x-s5-gtp"},{"x-3gpp-pgw","x-s8-gtp"}],
+	      [{2,0,0,1}],
+	      []},
+	     {"topon.gngp.pgw.south.epc.mnc990.mcc311.3gppnetwork.org",
+	      {500,64536},
+	      [{"x-3gpp-pgw","x-gn"},{"x-3gpp-pgw","x-gp"}],
+	      [{2,0,0,2}],
+	      []}]).
+
+-define(L3, [{"topon.gngp.saegw.south.epc.mnc990.mcc311.3gppnetwork.org",
+	      {500,64536},
+	      [{"x-3gpp-pgw","x-gn"},{"x-3gpp-pgw","x-gp"}],
+	      [{5,0,0,2},{5,0,0,5}],
+	      []},
+	     {"topon.s5s8.saegw.south.epc.mnc990.mcc311.3gppnetwork.org",
+	      {200,64536},
+	      [{"x-3gpp-pgw","x-s5-gtp"},{"x-3gpp-pgw","x-s8-gtp"}],
+	      [{5,0,0,4},{5,0,0,1}],
+	      []}]).
+
+-define(S1, [{"topon.s5s8.sgw.south.epc.mnc990.mcc311.3gppnetwork.org",
+	      {300,64536},
+	      [{"x-3gpp-sgw","x-s5-gtp"},{"x-3gpp-sgw","x-s8-gtp"}],
+	      [{4,0,0,2}],
+	      []},
+	     {"topon.gngp.sgw.south.epc.mnc990.mcc311.3gppnetwork.org",
+	      {800,64536},
+	      [{"x-3gpp-sgw","x-gn"},{"x-3gpp-sgw","x-gp"}],
+	      [{4,0,0,3}],
+	      []}]).
+
+-define(S2, [{"topon.gngp.saegw.south.epc.mnc990.mcc311.3gppnetwork.org",
+	      {800,64536},
+	      [{"x-3gpp-sgw","x-gn"},{"x-3gpp-sgw","x-gp"}],
+	      [{5,0,0,5},{5,0,0,2}],
+	      []},
+	     {"topon.s5s8.saegw.south.epc.mnc990.mcc311.3gppnetwork.org",
+	      {300,64536},
+	      [{"x-3gpp-sgw","x-s5-gtp"},{"x-3gpp-sgw","x-s8-gtp"}],
+	      [{5,0,0,1},{5,0,0,4}],
+	      []}]).
+
+
 %%%===================================================================
 %%% Common Test callbacks
 %%%===================================================================
 
 all() ->
-    [srv_lookup, a_lookup].
+    [srv_lookup, a_lookup, topology_match, colocation_match].
 
 suite() ->
     [{timetrap, {seconds, 30}}].
@@ -114,3 +170,17 @@ a_lookup(_Config) ->
     [{_, _, _, IP4, _}] = R,
     ?equal(lists:sort([?HUB1, ?HUB2]), lists:sort(IP4)),
     ok.
+
+topology_match() ->
+    [{doc, "Check that topon node matching find the best combination"}].
+topology_match(_Config) ->
+    ?match([{{"topon.gngp.pgw.south.epc.mnc990.mcc311.3gppnetwork.org", _, _, _, _},
+	     {"topon.gngp.sgw.south.epc.mnc990.mcc311.3gppnetwork.org", _, _, _, _}} | _],
+	   ergw_node_selection:topology_match(?L1 ++ ?L2, ?S1)).
+
+colocation_match() ->
+    [{doc, "Check that topon node matching find the best combination"}].
+colocation_match(_Config) ->
+    ?match([{{"topon.gngp.saegw.south.epc.mnc990.mcc311.3gppnetwork.org", _, _, _, _},
+	     {"topon.gngp.saegw.south.epc.mnc990.mcc311.3gppnetwork.org", _, _, _, _}} | _],
+	   ergw_node_selection:colocation_match(?L1 ++ ?L2 ++ ?L3, ?S1 ++ ?S2)).
