@@ -201,7 +201,8 @@ validate_options(Fun, Opts, Defaults) ->
 
 validate_option(protocol, Value)
   when Value == 'gn' orelse
-       Value == 's5s8' ->
+       Value == 's5s8' orelse
+       Value == 's11' ->
     Value;
 validate_option(handler, Value) when is_atom(Value) ->
     Value;
