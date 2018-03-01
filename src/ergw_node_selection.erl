@@ -13,10 +13,10 @@
 
 -module(ergw_node_selection).
 
--export([lookup/2, colocation_match/2, topology_match/2]).
+-export([lookup_dns/3, colocation_match/2, topology_match/2, candidates/3]).
 
 -ifdef(TEST).
--export([naptr/1]).
+-export([naptr/2]).
 -define(NAPTR, ?MODULE:naptr).
 -else.
 -define(NAPTR, naptr).
@@ -33,13 +33,15 @@
 -type service_parameter() :: {service(), protocol()}.
 -type preference()        :: {integer(), integer()}.
 
--spec lookup(Name :: string(), QueryServices :: [service_parameter()]) ->
-		    [{Host :: string(), Preference :: preference(),
-		      Services :: [service_parameter()],
-		      IPv4 :: [inet:ip4_address()],
-		      IPv6 :: [inet:ip4_address()]}].
-lookup(Name, ServiceSet) ->
-    Response = ?NAPTR(Name),
+-spec lookup_dns(Name :: string(),
+		 QueryServices :: [service_parameter()],
+		 NameServers :: undefined | {inet:ip_address(), inet:port_number()}) ->
+			[{Host :: string(), Preference :: preference(),
+			  Services :: [service_parameter()],
+			  IPv4 :: [inet:ip4_address()],
+			  IPv6 :: [inet:ip4_address()]}].
+lookup_dns(Name, ServiceSet, NameServers) ->
+    Response = ?NAPTR(Name, NameServers),
     match(Response, ordsets:from_list(ServiceSet)).
 
 colocation_match(CandidatesA, CandidatesB) ->
@@ -60,11 +62,74 @@ topology_match(CandidatesA, CandidatesB) ->
 	    L
     end.
 
+candidates(Name, Services, NodeSelection) ->
+    ServiceSet = ordsets:from_list(Services),
+    Norm = [_ | T] = normalize_name(Name),
+    case get_candidates(lists:flatten(lists:join($., Norm)), ServiceSet, NodeSelection) of
+	[] ->
+	    %% no candidates, try with _default
+	    get_candidates(lists:flatten(lists:join($., ["_default" | T])),
+			   ServiceSet, NodeSelection);
+	L ->
+	    L
+    end.
+
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
 
 %% @private
+
+lookup(Name, ServiceSet, dns, NameServers) ->
+    lookup_dns(Name, ServiceSet, NameServers);
+lookup(Name, ServiceSet, static, RR) ->
+    L1 = [X || X <- RR, string:equal(element(1, X), Name, true),
+			not ordsets:is_disjoint(element(3, X), ServiceSet)],
+    lists:foldl(lookup_static(_, RR, _), [], L1).
+
+lookup_static({_, Order, Services, Host}, RR, Acc) ->
+    case lists:keyfind(Host, 1, RR) of
+	{_, IP4, IP6} ->
+	    [{Host, Order, Services, IP4, IP6} | Acc];
+	_ ->
+	    Acc
+    end;
+lookup_static(_, _, Acc) ->
+    Acc.
+
+lookup(Name, ServiceSet, Selection) ->
+    NodeSel = setup:get_env(ergw, node_selection, []),
+    case proplists:get_value(Selection, NodeSel) of
+	{Type, Opts} ->
+	    lookup(Name, ServiceSet, Type, Opts);
+	_ ->
+	    []
+    end.
+
+get_candidates(_Name, _ServiceSet, []) ->
+    [];
+get_candidates(Name, ServiceSet, [NodeSelection | NextSelection]) ->
+    case lookup(Name, ServiceSet, NodeSelection) of
+	[] ->
+	    get_candidates(Name, ServiceSet, NextSelection);
+	L ->
+	    L
+    end.
+
+normalize_name([H|_] = Name) when is_list(H) ->
+    normalize_name_fqdn(lists:reverse(Name));
+normalize_name(Name) when is_list(Name) ->
+    normalize_name_fqdn(lists:reverse(string:tokens(Name, "."))).
+
+normalize_name_fqdn(["org", "3gppnetwork" | _] = Name) ->
+    lists:reverse(Name);
+normalize_name_fqdn(["epc" | _] = Name) ->
+    {MCC, MNC} = ergw:get_plmn_id(),
+    lists:reverse(
+      ["org", "3gppnetwork",
+       lists:flatten(io_lib:format("mcc~s", [MCC])),
+       lists:flatten(io_lib:format("mnc~s", [MNC])) |
+       Name]).
 
 add_candidate(Pos, Tuple, Candidate) ->
     L = erlang:element(Pos, Tuple),
@@ -128,13 +193,13 @@ filter_tree(Tree) ->
     {_, Pairs} = lists:unzip(List),
     filter_tree(lists:reverse(lists:keysort(1, List)), lists:usort(Pairs), []).
 
-naptr(Name) ->
+naptr(Name, NameServers) ->
     NsOpts =
-	case setup:get_env(ergw, nameservers) of
-	    undefined ->
-		[];
-	    {ok, Nameservers} ->
-		[{nameservers, Nameservers}]
+	case NameServers of
+	    {_,_}  ->
+		[{nameservers, NameServers}];
+	    _ ->
+		[]
 	end,
     %% 3GPP DNS answers are almost always large, use TCP by default....
     inet_res:resolve(Name, in, naptr, [{usevc, true} | NsOpts]).
