@@ -15,6 +15,7 @@
 -define(ERGW2, {100, 255, 4, 125}).
 -define(HUB1,  {100, 255, 5, 46}).
 -define(HUB2,  {100, 255, 5, 45}).
+-define(UP1,   {172,20,16,91}).
 
 -define(SERVICES, [{"x-3gpp-pgw", "x-s8-gtp"},
 		   {"x-3gpp-pgw", "x-s5-gtp"},
@@ -120,13 +121,41 @@
 	      [{5,0,0,1},{5,0,0,4}],
 	      []}]).
 
+-define(ERGW_NODE_SELECTION,
+	[{default,
+	  {static,
+	   [
+	    %% APN NAPTR alternative
+	    {"_default.apn.$ORIGIN", {300,64536},
+	     [{"x-3gpp-pgw","x-s5-gtp"},{"x-3gpp-pgw","x-s8-gtp"},
+	      {"x-3gpp-pgw","x-gn"},{"x-3gpp-pgw","x-gp"}],
+	     "topon.s5s8.pgw.$ORIGIN"},
+	    {"_default.apn.$ORIGIN", {300,64536},
+	     [{"x-3gpp-upf","x-sxa"}],
+	     "topon.sx.prox01.$ORIGIN"},
+
+	    {"web.apn.$ORIGIN", {300,64536},
+	     [{"x-3gpp-pgw","x-s5-gtp"},{"x-3gpp-pgw","x-s8-gtp"},
+	      {"x-3gpp-pgw","x-gn"},{"x-3gpp-pgw","x-gp"}],
+	     "topon.s5s8.pgw.$ORIGIN"},
+	    {"web.apn.$ORIGIN", {300,64536},
+	     [{"x-3gpp-upf","x-sxa"}],
+	     "topon.sx.prox01.$ORIGIN"},
+
+	    %% A/AAAA record alternatives
+	    {"topon.s5s8.pgw.$ORIGIN",  [?ERGW1], []},
+	    {"topon.sx.prox01.$ORIGIN", [?UP1], []}
+	   ]
+	  }
+	 }
+	]).
 
 %%%===================================================================
 %%% Common Test callbacks
 %%%===================================================================
 
 all() ->
-    [srv_lookup, a_lookup, topology_match, colocation_match].
+    [srv_lookup, a_lookup, topology_match, colocation_match, static_lookup].
 
 suite() ->
     [{timetrap, {seconds, 30}}].
@@ -137,15 +166,18 @@ groups() ->
 init_per_suite(Config) ->
     ok = meck:new(ergw_node_selection, [passthrough, no_link]),
     ok = meck:expect(ergw_node_selection, naptr,
-		     fun("example.apn.epc.mnc123.mcc310.3gppnetwork.org.") ->
+		     fun("example.apn.epc.mnc123.mcc310.3gppnetwork.org.", _) ->
 			     {ok, ?SRV_q};
-			("example.apn.epc.mnc001.mcc456.3gppnetwork.org.") ->
+			("example.apn.epc.mnc001.mcc456.3gppnetwork.org.", _) ->
 			     {ok, ?A_q}
 		     end),
+    ok = meck:new(ergw, [passthrough, no_link]),
+    ok = meck:expect(ergw, get_plmn_id, fun() -> {<<"001">>, <<"01">>} end),
     Config.
 
 end_per_suite(_Config) ->
     ok = meck:unload(ergw_node_selection),
+    ok = meck:unload(ergw),
     ok.
 
 %%%===================================================================
@@ -155,7 +187,8 @@ end_per_suite(_Config) ->
 srv_lookup() ->
     [{doc, "NPTR lookup with following SRV"}].
 srv_lookup(_Config) ->
-    R = ergw_node_selection:lookup("example.apn.epc.mnc123.mcc310.3gppnetwork.org.", ?SERVICES),
+    R = ergw_node_selection:lookup_dns("example.apn.epc.mnc123.mcc310.3gppnetwork.org.",
+				       ?SERVICES, undefined),
     ?match([{"pgw-list-2.node.epc.mnc123.mcc310.3gppnetwork.org", _, _, [_|_], []}], R),
     [{_, _, _, IP4, _}] = R,
     ?equal(lists:sort([?ERGW1, ?ERGW2]), lists:sort(IP4)),
@@ -165,10 +198,23 @@ srv_lookup(_Config) ->
 a_lookup() ->
     [{doc, "NPTR lookup with following A"}].
 a_lookup(_Config) ->
-    R = ergw_node_selection:lookup("example.apn.epc.mnc001.mcc456.3gppnetwork.org.", ?SERVICES),
+    R = ergw_node_selection:lookup_dns("example.apn.epc.mnc001.mcc456.3gppnetwork.org.",
+				       ?SERVICES, undefined),
     ?match([{"hub.node.epc.mnc001.mcc456.3gppnetwork.org", _, _, [_|_], []}], R),
     [{_, _, _, IP4, _}] = R,
     ?equal(lists:sort([?HUB1, ?HUB2]), lists:sort(IP4)),
+    ok.
+
+static_lookup() ->
+    [{doc, "lookup from config"}].
+static_lookup(_Config) ->
+    application:set_env(ergw, '$setup_vars',
+			[{"ORIGIN", {value, "epc.mnc01.mcc001.3gppnetwork.org"}}]),
+    application:set_env(ergw, node_selection, ?ERGW_NODE_SELECTION),
+    R = ergw_node_selection:candidates("example.apn.epc", [{"x-3gpp-upf","x-sxa"}], [default]),
+    ?match([{"topon.sx.prox01.epc.mnc01.mcc001.3gppnetwork.org", _, _, [_|_], []}], R),
+    [{_, _, _, IP4, _}] = R,
+    ?equal(lists:sort([?UP1]), lists:sort(IP4)),
     ok.
 
 topology_match() ->
