@@ -82,25 +82,24 @@ candidates(Name, Services, NodeSelection) ->
 
 -define(IS_IP(X), (is_tuple(X) andalso (tuple_size(X) == 4 orelse tuple_size(X) == 8))).
 
-validate_static_option({Label, {Order, Prio}, [{_,_}|_] = _Services, Host})
+validate_static_option({Label, {Order, Prio} = Degree, [{_,_}|_] = Services, Host})
   when is_list(Label),
        is_integer(Order),
        is_integer(Prio),
        is_list(Host) ->
-    ok;
-validate_static_option({Host, IP4, IP6})
+    {Label, Degree, ordsets:from_list(Services), Host};
+validate_static_option({Host, IP4, IP6} = Opt)
   when is_list(Host),
        is_list(IP4),
        is_list(IP6),
        (length(IP4) /= 0 orelse length(IP6) /= 0) ->
-    ok;
+    Opt;
 validate_static_option(Opt) ->
     throw({error, {options, {static, Opt}}}).
 
 validate_options(static, Opts)
   when is_list(Opts), length(Opts) > 0 ->
-    lists:foreach(fun validate_static_option/1, Opts),
-    Opts;
+    lists:map(fun validate_static_option/1, Opts);
 validate_options(dns, undefined) ->
     undefined;
 validate_options(dns, IP) when ?IS_IP(IP) ->
