@@ -13,7 +13,8 @@
 
 -module(ergw_node_selection).
 
--export([lookup_dns/3, colocation_match/2, topology_match/2, candidates/3]).
+-export([validate_options/2,
+	 lookup_dns/3, colocation_match/2, topology_match/2, candidates/3]).
 
 -ifdef(TEST).
 -export([naptr/2]).
@@ -75,6 +76,41 @@ candidates(Name, Services, NodeSelection) ->
     end.
 
 %%%===================================================================
+%%% Options Validation
+%%%===================================================================
+
+-define(IS_IP(X), (is_tuple(X) andalso (tuple_size(X) == 4 orelse tuple_size(X) == 8))).
+
+validate_static_option({Label, {Order, Prio}, [{_,_}|_] = _Services, Host})
+  when is_list(Label),
+       is_integer(Order),
+       is_integer(Prio),
+       is_list(Host) ->
+    ok;
+validate_static_option({Host, IP4, IP6})
+  when is_list(Host),
+       is_list(IP4),
+       is_list(IP6),
+       (length(IP4) /= 0 orelse length(IP6) /= 0) ->
+    ok;
+validate_static_option(Opt) ->
+    throw({error, {options, {static, Opt}}}).
+
+validate_options(static, Opts)
+  when is_list(Opts), length(Opts) > 0 ->
+    lists:foreach(fun validate_static_option/1, Opts),
+    Opts;
+validate_options(dns, undefined) ->
+    undefined;
+validate_options(dns, IP) when ?IS_IP(IP) ->
+    {IP, 53};
+validate_options(dns, {IP, Port} = Server)
+  when ?IS_IP(IP) andalso is_integer(Port) ->
+    Server;
+validate_options(Type, Opts) ->
+    throw({error, {options, {Type, Opts}}}).
+
+%%%===================================================================
 %%% Internal functions
 %%%===================================================================
 
@@ -98,9 +134,8 @@ lookup_static(_, _, Acc) ->
     Acc.
 
 lookup(Name, ServiceSet, Selection) ->
-    NodeSel = setup:get_env(ergw, node_selection, []),
-    case proplists:get_value(Selection, NodeSel) of
-	{Type, Opts} ->
+    case application:get_env(ergw, node_selection, #{}) of
+	#{Selection := {Type, Opts}} ->
 	    lookup(Name, ServiceSet, Type, Opts);
 	_ ->
 	    []

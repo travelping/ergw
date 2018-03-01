@@ -22,6 +22,7 @@
 			 {sx_socket, undefined},
 			 {sockets, []},
 			 {handlers, []},
+			 {node_selection, [{default, {dns, undefined}}]},
 			 {vrfs, []},
 			 {apns, []}]).
 -define(DefaultHandlerOpts, [{handler,    undefined},
@@ -43,6 +44,7 @@ load_config(Config0) ->
     lists:foreach(fun load_handler/1, proplists:get_value(handlers, Config)),
     lists:foreach(fun load_vrf/1, proplists:get_value(vrfs, Config)),
     lists:foreach(fun load_apn/1, proplists:get_value(apns, Config)),
+    application:set_env(ergw, node_selection, proplists:get_value(node_selection, Config)),
     ergw_http_api:init(),
     ok.
 
@@ -95,6 +97,8 @@ return_type(Map, map) when is_map(Map) ->
 return_type(Map, list) when is_map(Map) ->
     maps:to_list(Map).
 
+check_unique_keys(_Key, Map) when is_map(Map) ->
+    ok;
 check_unique_keys(Key, List) when is_list(List) ->
     UList = lists:ukeysort(1, List),
     if length(UList) == length(List) ->
@@ -155,6 +159,9 @@ validate_option(sockets, Value) when is_list(Value), length(Value) >= 1 ->
 validate_option(handlers, Value) when is_list(Value), length(Value) >= 1 ->
     check_unique_keys(handlers, without_opts(['gn', 's5s8'], Value)),
     validate_options(fun validate_handlers_option/2, Value);
+validate_option(node_selection, Value) when ?is_opts(Value) ->
+    check_unique_keys(node_selection, Value),
+    validate_options(fun validate_node_selection_option/2, Value, [], map);
 validate_option(vrfs, Value) when is_list(Value) ->
     check_unique_keys(vrfs, Value),
     validate_options(fun validate_vrfs_option/2, Value);
@@ -170,6 +177,7 @@ validate_option(Opt, Value)
        Opt == sx_socket;
        Opt == sockets;
        Opt == handlers;
+       Opt == node_selection;
        Opt == vrfs;
        Opt == apns;
        Opt == http_api ->
@@ -214,6 +222,12 @@ validate_handlers_option(Opt, Values0)
     end,
     Handler:validate_options(Values);
 validate_handlers_option(Opt, Values) ->
+    throw({error, {options, {Opt, Values}}}).
+
+validate_node_selection_option(Key, {Type, Opts})
+  when is_atom(Key), is_atom(Type) ->
+    {Type, ergw_node_selection:validate_options(Type, Opts)};
+validate_node_selection_option(Opt, Values) ->
     throw({error, {options, {Opt, Values}}}).
 
 validate_vrfs_option(Opt, Values)
