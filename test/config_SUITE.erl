@@ -282,7 +282,39 @@
 	  [{apn,  [{?'APN-EXAMPLE', ?'APN-PROXY'}]},
 	   {imsi, [{?'IMSI', {?'PROXY-IMSI', ?'PROXY-MSISDN'}}
 		  ]}
-	  ]}
+	  ]},
+
+	 {node_selection,
+	  [{default,
+	    {static,
+	     [
+	      %% APN NAPTR alternative
+	      {"_default.apn.epc.mnc01.mcc001.3gppnetwork.org", {300,64536},
+	       [{"x-3gpp-pgw","x-s5-gtp"},{"x-3gpp-pgw","x-s8-gtp"},
+		{"x-3gpp-pgw","x-gn"},{"x-3gpp-pgw","x-gp"}],
+	       "topon.s5s8.pgw.epc.mnc01.mcc001.3gppnetwork.org"},
+	      {"_default.apn.epc.mnc01.mcc001.3gppnetwork.org", {300,64536},
+	       [{"x-3gpp-upf","x-sxa"}],
+	       "topon.sx.prox01.epc.mnc01.mcc001.3gppnetwork.org"},
+
+	      {"web.apn.epc.mnc01.mcc001.3gppnetwork.org", {300,64536},
+	       [{"x-3gpp-pgw","x-s5-gtp"},{"x-3gpp-pgw","x-s8-gtp"},
+		{"x-3gpp-pgw","x-gn"},{"x-3gpp-pgw","x-gp"}],
+	       "topon.s5s8.pgw.epc.mnc01.mcc001.3gppnetwork.org"},
+	      {"web.apn.epc.mnc01.mcc001.3gppnetwork.org", {300,64536},
+	       [{"x-3gpp-upf","x-sxa"}],
+	       "topon.sx.prox01.epc.mnc01.mcc001.3gppnetwork.org"},
+
+	      %% A/AAAA record alternatives
+	      {"topon.s5s8.pgw.epc.mnc01.mcc001.3gppnetwork.org",  [{172, 20, 16, 89}], []},
+	      {"topon.sx.prox01.epc.mnc01.mcc001.3gppnetwork.org", [{172,20,16,91}], []}
+	     ]
+	    }
+	   },
+	   {mydns,
+	    {dns, {{172,20,16,75}, 53}}}
+	  ]
+	 }
 	]).
 
 %%%===================================================================
@@ -385,4 +417,27 @@ config(_Config)  ->
     ?ok_option(?PGW_PROXY_CONFIG),
     ?ok_option(set_cfg_value([handlers, gn, pgw], {1,2,3,4,5,6,7,8}, ?PGW_PROXY_CONFIG)),
 
+    ?error_option(set_cfg_value([node_selection], {1,2,3,4,5,6,7,8}, ?PGW_PROXY_CONFIG)),
+    ?error_option(set_cfg_value([node_selection, mydns], {1,2,3,4,5,6,7,8}, ?PGW_PROXY_CONFIG)),
+    ?error_option(set_cfg_value([node_selection, mydns], {dns, 1}, ?PGW_PROXY_CONFIG)),
+    ?ok_option(set_cfg_value([node_selection, mydns], {dns, undefined}, ?PGW_PROXY_CONFIG)),
+    ?ok_option(set_cfg_value([node_selection, mydns], {dns, {172,20,16,75}},
+			     ?PGW_PROXY_CONFIG)),
+    ?ok_option(set_cfg_value([node_selection, mydns], {dns, {{172,20,16,75}, 53}},
+			     ?PGW_PROXY_CONFIG)),
+
+    ?error_option(set_cfg_value([node_selection, default], {static, 1}, ?PGW_PROXY_CONFIG)),
+    ?error_option(set_cfg_value([node_selection, default], {static, []}, ?PGW_PROXY_CONFIG)),
+    ?error_option(set_cfg_value([node_selection, default],
+				{static, [{"Label", {0,0}, [], "Host"}]},
+				?PGW_PROXY_CONFIG)),
+    ?ok_option(set_cfg_value([node_selection, default],
+			     {static, [{"Label", {0,0}, [{"x-3gpp-pgw","x-s8-gtp"}], "Host"}]},
+			     ?PGW_PROXY_CONFIG)),
+    ?error_option(set_cfg_value([node_selection, default],
+			     {static, [{"Host", [], []}]},
+			     ?PGW_PROXY_CONFIG)),
+    ?ok_option(set_cfg_value([node_selection, default],
+			     {static, [{"Host", [{1,1,1,1}], []}]},
+			     ?PGW_PROXY_CONFIG)),
     ok.
