@@ -65,11 +65,12 @@ topology_match(CandidatesA, CandidatesB) ->
 
 candidates(Name, Services, NodeSelection) ->
     ServiceSet = ordsets:from_list(Services),
-    Norm = [_ | T] = normalize_name(Name),
+    Norm = normalize_name(Name),
     case get_candidates(lists:flatten(lists:join($., Norm)), ServiceSet, NodeSelection) of
 	[] ->
 	    %% no candidates, try with _default
-	    get_candidates(lists:flatten(lists:join($., ["_default" | T])),
+	    DefaultAPN = normalize_name(["_default", "apn", "epc"]),
+	    get_candidates(lists:flatten(lists:join($., DefaultAPN)),
 			   ServiceSet, NodeSelection);
 	L ->
 	    L
