@@ -13,6 +13,7 @@
 %            }. 
 
 -record(proxy_ggsn, {
+      node              :: list(),
       address           :: inet:ip_address(),
       context           :: binary(),
       dst_apn           :: [binary()],

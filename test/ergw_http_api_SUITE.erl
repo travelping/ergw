@@ -59,7 +59,7 @@
 			 {data_paths, [grx]},
 			 {proxy_sockets, ['proxy-irx']},
 			 {proxy_data_paths, ['proxy-grx']},
-			 {ggsn, ?FINAL_GSN},
+			 {node_selection, [static]},
 			 {contexts,
 			  [{<<"ams">>,
 			    [{proxy_sockets, ['proxy-irx']},
@@ -82,6 +82,31 @@
 		   {imsi, [{?'IMSI', {?'PROXY-IMSI', ?'PROXY-MSISDN'}}
 			  ]}
 		  ]},
+
+		 {node_selection,
+		  [{default,
+		    {static,
+		     [
+		      %% APN NAPTR alternative
+		      {"_default.apn.epc.mnc01.mcc001.3gppnetwork.org", {300,64536},
+		       [{"x-3gpp-pgw","x-s5-gtp"},{"x-3gpp-pgw","x-s8-gtp"},
+			{"x-3gpp-pgw","x-gn"},{"x-3gpp-pgw","x-gp"}],
+		       "topon.s5s8.pgw.epc.mnc01.mcc001.3gppnetwork.org"},
+
+		      {"web.apn.epc.mnc01.mcc001.3gppnetwork.org", {300,64536},
+		       [{"x-3gpp-pgw","x-s5-gtp"},{"x-3gpp-pgw","x-s8-gtp"},
+			{"x-3gpp-pgw","x-gn"},{"x-3gpp-pgw","x-gp"}],
+		       "topon.s5s8.pgw.epc.mnc01.mcc001.3gppnetwork.org"},
+
+		      %% A/AAAA record alternatives
+		      {"topon.s5s8.pgw.epc.mnc01.mcc001.3gppnetwork.org",  [{172, 20, 16, 89}], []}
+		     ]
+		    }
+		   },
+		   {mydns,
+		    {dns, {{172,20,16,75}, 53}}}
+		  ]
+		 },
 
                  {http_api, [{port, 0}]}
                 ]},

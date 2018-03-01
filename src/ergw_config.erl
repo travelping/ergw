@@ -11,6 +11,7 @@
 
 %% API
 -export([load_config/1,
+	 validate_node_name/1,
 	 validate_config/1,
 	 validate_options/4,
 	 opts_fold/3,
@@ -83,6 +84,18 @@ without_opts(Keys, List) when is_list(List) ->
 without_opts(Keys, Map) when is_map(Map) ->
     maps:without(Keys, Map).
 
+validate_node_name(Name)
+  when is_list(Name) ->
+    validate_node_name_list(lists:reverse(string:tokens(Name, "."))),
+    Name;
+validate_node_name(Name)
+  when is_binary(Name) ->
+    validate_node_name(binary_to_list(Name));
+validate_node_name(Name)
+  when is_atom(Name) ->
+    validate_node_name(atom_to_list(Name));
+validate_node_name(Name) ->
+    throw({error, {options, Name}}).
 
 %%%===================================================================
 %%% Options Validation
@@ -107,6 +120,13 @@ check_unique_keys(Key, List) when is_list(List) ->
 	    Duplicate = proplists:get_keys(List) -- proplists:get_keys(UList),
 	    throw({error, {options, {Key, Duplicate}}})
     end.
+
+validate_node_name_list(["org", "3gppnetwork" | _]) ->
+    ok;
+validate_node_name_list(["epc" | _]) ->
+    ok;
+validate_node_name_list(Name) ->
+    throw({error, {options, lists:flatten(lists:join($., lists:reverse(Name)))}}).
 
 validate_config(Config) ->
     validate_options(fun validate_option/2, Config, ?DefaultOptions, list).

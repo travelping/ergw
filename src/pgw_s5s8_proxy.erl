@@ -115,15 +115,14 @@ request_spec(v2, resume_acknowledge, _) ->
 request_spec(v2, _, _) ->
     [].
 
--define(Defaults, [{pgw, undefined}]).
+-define(Defaults, [{node_selection, undefined}]).
 
 validate_options(Opts) ->
     lager:debug("PGW S5/S8 Options: ~p", [Opts]),
     ergw_proxy_lib:validate_options(fun validate_option/2, Opts, ?Defaults).
 
-validate_option(pgw, {_,_,_,_} = Value) ->
-    Value;
-validate_option(pgw, {_,_,_,_,_,_,_,_} = Value) ->
+validate_option(node_selection, [S|_] = Value)
+  when is_atom(S) ->
     Value;
 validate_option(Opt, Value) ->
     ergw_proxy_lib:validate_option(Opt, Value).
@@ -131,7 +130,7 @@ validate_option(Opt, Value) ->
 -record(context_state, {ebi}).
 
 init(#{proxy_sockets := ProxyPorts, proxy_data_paths := ProxyDPs,
-       pgw := PGW, proxy_data_source := ProxyDS,
+       node_selection := NodeSelect, proxy_data_source := ProxyDS,
        contexts := Contexts}, State) ->
 
     SessionOpts = [{'Accouting-Update-Fun', fun accounting_update/2}],
@@ -139,7 +138,7 @@ init(#{proxy_sockets := ProxyPorts, proxy_data_paths := ProxyDPs,
 
     {ok, State#{proxy_ports => ProxyPorts, proxy_dps => ProxyDPs,
 		'Session' => Session, contexts => Contexts,
-		default_gw => PGW, proxy_ds => ProxyDS}}.
+		node_selection => NodeSelect, proxy_ds => ProxyDS}}.
 
 handle_call(query_usage_report, _From,
 	    #{context := Context} = State) ->
@@ -265,7 +264,11 @@ handle_request(ReqKey,
     gtp_context:remote_context_register_new(ContextPreProxy),
 
     ProxyInfo = handle_proxy_info(Request, ContextPreProxy, State),
-    #proxy_ggsn{restrictions = Restrictions} = ProxyGGSN = gtp_proxy_ds:lb(ProxyInfo),
+    #proxy_ggsn{restrictions = Restrictions} = ProxyGGSN0 = gtp_proxy_ds:lb(ProxyInfo),
+
+    %% GTP v2 services only, we don't do v1 to v2 conversion (yet)
+    Services = [{"x-3gpp-pgw", "x-s8-gtp"}, {"x-3gpp-pgw", "x-s5-gtp"}],
+    ProxyGGSN = ergw_proxy_lib:select_proxy_gsn(ProxyInfo, ProxyGGSN0, Services, State),
 
     Context = ContextPreProxy#context{restrictions = Restrictions},
     gtp_context:enforce_restrictions(Request, Context),
@@ -528,9 +531,8 @@ terminate(_Reason, _State) ->
 %%%===================================================================
 
 handle_proxy_info(#gtp{ie = #{?'Recovery' := Recovery}},
-		  Context,
-		  #{default_gw := DefaultPGW, proxy_ds := ProxyDS}) ->
-    ProxyInfo0 = proxy_info(DefaultPGW, Context),
+		  Context, #{proxy_ds := ProxyDS}) ->
+    ProxyInfo0 = proxy_info(Context),
     case ProxyDS:map(ProxyInfo0) of
 	{ok, #proxy_info{} = ProxyInfo} ->
 	    lager:debug("OK Proxy Map: ~p", [lager:pr(ProxyInfo, ?MODULE)]),
@@ -735,12 +737,8 @@ set_req_from_context(_, _K, IE) ->
 update_gtp_req_from_context(Context, GtpReqIEs) ->
     maps:map(set_req_from_context(Context, _, _), GtpReqIEs).
 
-proxy_info(DefaultGGSN,
-	   #context{apn = APN, imsi = IMSI,
-		    msisdn = MSISDN, restrictions = Restrictions}) ->
-    GGSNs = [#proxy_ggsn{address = DefaultGGSN, 
-                         dst_apn = APN,
-		                 restrictions = Restrictions}],
+proxy_info(#context{apn = APN, imsi = IMSI, msisdn = MSISDN, restrictions = Restrictions}) ->
+    GGSNs = [#proxy_ggsn{dst_apn = APN, restrictions = Restrictions}],
     LookupAPN = (catch gtp_c_lib:normalize_labels(APN)),
     #proxy_info{ggsns = GGSNs, imsi = IMSI, msisdn = MSISDN, src_apn = LookupAPN}.
 

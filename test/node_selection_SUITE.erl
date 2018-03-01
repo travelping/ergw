@@ -19,7 +19,7 @@
 
 -define(SERVICES, [{"x-3gpp-pgw", "x-s8-gtp"},
 		   {"x-3gpp-pgw", "x-s5-gtp"},
-		   {"x-3gpp-pgw", "x-s8-gtp"},
+		   {"x-3gpp-pgw", "x-gp"},
 		   {"x-3gpp-pgw", "x-gn"}]).
 
 -define(SRV_q,
@@ -122,33 +122,33 @@
 	      []}]).
 
 -define(ERGW_NODE_SELECTION,
-	[{default,
-	  {static,
-	   [
-	    %% APN NAPTR alternative
-	    {"_default.apn.$ORIGIN", {300,64536},
-	     [{"x-3gpp-pgw","x-s5-gtp"},{"x-3gpp-pgw","x-s8-gtp"},
-	      {"x-3gpp-pgw","x-gn"},{"x-3gpp-pgw","x-gp"}],
-	     "topon.s5s8.pgw.$ORIGIN"},
-	    {"_default.apn.$ORIGIN", {300,64536},
-	     [{"x-3gpp-upf","x-sxa"}],
-	     "topon.sx.prox01.$ORIGIN"},
+	#{default =>
+	      {static,
+	       [
+		%% APN NAPTR alternative
+		{"_default.apn.epc.mnc01.mcc001.3gppnetwork.org", {300,64536},
+		 [{"x-3gpp-pgw","x-s5-gtp"},{"x-3gpp-pgw","x-s8-gtp"},
+		  {"x-3gpp-pgw","x-gn"},{"x-3gpp-pgw","x-gp"}],
+		 "topon.s5s8.pgw.epc.mnc01.mcc001.3gppnetwork.org"},
+		{"_default.apn.epc.mnc01.mcc001.3gppnetwork.org", {300,64536},
+		 [{"x-3gpp-upf","x-sxa"}],
+		 "topon.sx.prox01.epc.mnc01.mcc001.3gppnetwork.org"},
 
-	    {"web.apn.$ORIGIN", {300,64536},
-	     [{"x-3gpp-pgw","x-s5-gtp"},{"x-3gpp-pgw","x-s8-gtp"},
-	      {"x-3gpp-pgw","x-gn"},{"x-3gpp-pgw","x-gp"}],
-	     "topon.s5s8.pgw.$ORIGIN"},
-	    {"web.apn.$ORIGIN", {300,64536},
-	     [{"x-3gpp-upf","x-sxa"}],
-	     "topon.sx.prox01.$ORIGIN"},
+		{"web.apn.epc.mnc01.mcc001.3gppnetwork.org", {300,64536},
+		 [{"x-3gpp-pgw","x-s5-gtp"},{"x-3gpp-pgw","x-s8-gtp"},
+		  {"x-3gpp-pgw","x-gn"},{"x-3gpp-pgw","x-gp"}],
+		 "topon.s5s8.pgw.epc.mnc01.mcc001.3gppnetwork.org"},
+		{"web.apn.epc.mnc01.mcc001.3gppnetwork.org", {300,64536},
+		 [{"x-3gpp-upf","x-sxa"}],
+		 "topon.sx.prox01.epc.mnc01.mcc001.3gppnetwork.org"},
 
-	    %% A/AAAA record alternatives
-	    {"topon.s5s8.pgw.$ORIGIN",  [?ERGW1], []},
-	    {"topon.sx.prox01.$ORIGIN", [?UP1], []}
-	   ]
-	  }
+		%% A/AAAA record alternatives
+		{"topon.s5s8.pgw.epc.mnc01.mcc001.3gppnetwork.org",  [?ERGW1], []},
+		{"topon.sx.prox01.epc.mnc01.mcc001.3gppnetwork.org", [?UP1], []}
+	       ]
+	      }
 	 }
-	]).
+       ).
 
 %%%===================================================================
 %%% Common Test callbacks
@@ -208,9 +208,8 @@ a_lookup(_Config) ->
 static_lookup() ->
     [{doc, "lookup from config"}].
 static_lookup(_Config) ->
-    application:set_env(ergw, '$setup_vars',
-			[{"ORIGIN", {value, "epc.mnc01.mcc001.3gppnetwork.org"}}]),
     application:set_env(ergw, node_selection, ?ERGW_NODE_SELECTION),
+
     R = ergw_node_selection:candidates("example.apn.epc", [{"x-3gpp-upf","x-sxa"}], [default]),
     ?match([{"topon.sx.prox01.epc.mnc01.mcc001.3gppnetwork.org", _, _, [_|_], []}], R),
     [{_, _, _, IP4, _}] = R,
