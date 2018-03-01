@@ -109,7 +109,7 @@
 		 {data_paths, [grx]},
 		 {proxy_sockets, ['irx']},
 		 {proxy_data_paths, ['grx']},
-		 {ggsn, ?FINAL_GSN},
+		 {node_selection, [static]},
 		 {contexts,
 		  [{<<"ams">>,
 		    [{proxy_sockets, ['irx']},
@@ -137,7 +137,39 @@
 	  [{apn,  [{?'APN-EXAMPLE', ?'APN-PROXY'}]},
 	   {imsi, [{?'IMSI', {?'PROXY-IMSI', ?'PROXY-MSISDN'}}
 		  ]}
-	  ]}
+	  ]},
+
+	 {node_selection,
+	  [{default,
+	    {static,
+	     [
+	      %% APN NAPTR alternative
+	      {"_default.apn.epc.mnc01.mcc001.3gppnetwork.org", {300,64536},
+	       [{"x-3gpp-pgw","x-s5-gtp"},{"x-3gpp-pgw","x-s8-gtp"},
+		{"x-3gpp-pgw","x-gn"},{"x-3gpp-pgw","x-gp"}],
+	       "topon.s5s8.pgw.epc.mnc01.mcc001.3gppnetwork.org"},
+	      {"_default.apn.epc.mnc01.mcc001.3gppnetwork.org", {300,64536},
+	       [{"x-3gpp-upf","x-sxa"}],
+	       "topon.sx.prox01.epc.mnc01.mcc001.3gppnetwork.org"},
+
+	      {"web.apn.epc.mnc01.mcc001.3gppnetwork.org", {300,64536},
+	       [{"x-3gpp-pgw","x-s5-gtp"},{"x-3gpp-pgw","x-s8-gtp"},
+		{"x-3gpp-pgw","x-gn"},{"x-3gpp-pgw","x-gp"}],
+	       "topon.s5s8.pgw.epc.mnc01.mcc001.3gppnetwork.org"},
+	      {"web.apn.epc.mnc01.mcc001.3gppnetwork.org", {300,64536},
+	       [{"x-3gpp-upf","x-sxa"}],
+	       "topon.sx.prox01.epc.mnc01.mcc001.3gppnetwork.org"},
+
+	      %% A/AAAA record alternatives
+	      {"topon.s5s8.pgw.epc.mnc01.mcc001.3gppnetwork.org",  [{172, 20, 16, 89}], []},
+	      {"topon.sx.prox01.epc.mnc01.mcc001.3gppnetwork.org", [{172,20,16,91}], []}
+	     ]
+	    }
+	   },
+	   {mydns,
+	    {dns, {{172,20,16,75}, 53}}}
+	  ]
+	 }
 	]).
 
 -define(PGW_CONFIG,
@@ -242,14 +274,14 @@
 		 {data_paths, [grx]},
 		 {proxy_sockets, ['irx']},
 		 {proxy_data_paths, ['grx']},
-		 {pgw, ?FINAL_GSN}
+		 {node_selection, [static]}
 		]},
 	   {s5s8, [{handler, pgw_s5s8_proxy},
 		   {sockets, [irx]},
 		   {data_paths, [grx]},
 		   {proxy_sockets, ['irx']},
 		   {proxy_data_paths, ['grx']},
-		   {pgw, ?FINAL_GSN},
+		   {node_selection, [static]},
 		   {contexts,
 		    [{<<"ams">>,
 		      [{proxy_sockets, ['irx']},
@@ -407,7 +439,32 @@ config(_Config)  ->
     ?error_option(set_cfg_value([handlers, gn, contexts, invalid], [], ?GGSN_PROXY_CONFIG)),
     ?error_option(set_cfg_value([handlers, gn, contexts, <<"ams">>], invalid, ?GGSN_PROXY_CONFIG)),
     ?error_option(set_cfg_value([handlers, gn, contexts, <<"ams">>, proxy_sockets], invalid, ?GGSN_PROXY_CONFIG)),
-    ?ok_option(set_cfg_value([handlers, gn, ggsn], {1,2,3,4,5,6,7,8}, ?GGSN_PROXY_CONFIG)),
+    ?error_option(set_cfg_value([handlers, gn, node_selection], [], ?GGSN_PROXY_CONFIG)),
+    ?ok_option(set_cfg_value([handlers, gn, node_selection], [static], ?GGSN_PROXY_CONFIG)),
+
+    ?error_option(set_cfg_value([node_selection], {1,2,3,4,5,6,7,8}, ?GGSN_PROXY_CONFIG)),
+    ?error_option(set_cfg_value([node_selection, mydns], {1,2,3,4,5,6,7,8}, ?GGSN_PROXY_CONFIG)),
+    ?error_option(set_cfg_value([node_selection, mydns], {dns, 1}, ?GGSN_PROXY_CONFIG)),
+    ?ok_option(set_cfg_value([node_selection, mydns], {dns, undefined}, ?GGSN_PROXY_CONFIG)),
+    ?ok_option(set_cfg_value([node_selection, mydns], {dns, {172,20,16,75}},
+			     ?GGSN_PROXY_CONFIG)),
+    ?ok_option(set_cfg_value([node_selection, mydns], {dns, {{172,20,16,75}, 53}},
+			     ?GGSN_PROXY_CONFIG)),
+
+    ?error_option(set_cfg_value([node_selection, default], {static, 1}, ?GGSN_PROXY_CONFIG)),
+    ?error_option(set_cfg_value([node_selection, default], {static, []}, ?GGSN_PROXY_CONFIG)),
+    ?error_option(set_cfg_value([node_selection, default],
+				{static, [{"Label", {0,0}, [], "Host"}]},
+				?GGSN_PROXY_CONFIG)),
+    ?ok_option(set_cfg_value([node_selection, default],
+			     {static, [{"Label", {0,0}, [{"x-3gpp-pgw","x-gp"}], "Host"}]},
+			     ?GGSN_PROXY_CONFIG)),
+    ?error_option(set_cfg_value([node_selection, default],
+			     {static, [{"Host", [], []}]},
+			     ?GGSN_PROXY_CONFIG)),
+    ?ok_option(set_cfg_value([node_selection, default],
+			     {static, [{"Host", [{1,1,1,1}], []}]},
+			     ?GGSN_PROXY_CONFIG)),
 
     ?ok_option(?PGW_CONFIG),
     ?error_option(set_cfg_value([handlers, 'h1'], [{handler, pgw_s5s8},
@@ -415,7 +472,8 @@ config(_Config)  ->
 						   {data_paths, [grx]}], ?PGW_CONFIG)),
 
     ?ok_option(?PGW_PROXY_CONFIG),
-    ?ok_option(set_cfg_value([handlers, gn, pgw], {1,2,3,4,5,6,7,8}, ?PGW_PROXY_CONFIG)),
+    ?error_option(set_cfg_value([handlers, gn, node_selection], [], ?PGW_PROXY_CONFIG)),
+    ?ok_option(set_cfg_value([handlers, gn, node_selection], [static], ?PGW_PROXY_CONFIG)),
 
     ?error_option(set_cfg_value([node_selection], {1,2,3,4,5,6,7,8}, ?PGW_PROXY_CONFIG)),
     ?error_option(set_cfg_value([node_selection, mydns], {1,2,3,4,5,6,7,8}, ?PGW_PROXY_CONFIG)),

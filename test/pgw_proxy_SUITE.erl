@@ -34,7 +34,9 @@
 		  {handlers, [{lager_console_backend, [{level, info}]}]}
 		 ]},
 
-	 {ergw, [{dp_handler, '$meck'},
+	 {ergw, [{'$setup_vars',
+		  [{"ORIGIN", {value, "epc.mnc01.mcc001.3gppnetwork.org"}}]},
+		 {dp_handler, '$meck'},
 		 {sockets,
 		  [{irx, [{type, 'gtp-c'},
 			  {ip,  ?TEST_GSN},
@@ -81,14 +83,14 @@
 			 {data_paths, [grx]},
 			 {proxy_sockets, ['proxy-irx']},
 			 {proxy_data_paths, ['proxy-grx']},
-			 {pgw, ?FINAL_GSN}
+			 {node_selection, [default]}
 			]},
 		   {s5s8, [{handler, ?HUT},
 			   {sockets, [irx]},
 			   {data_paths, [grx]},
 			   {proxy_sockets, ['proxy-irx']},
 			   {proxy_data_paths, ['proxy-grx']},
-			   {pgw, ?FINAL_GSN},
+			   {node_selection, [default]},
 			   {contexts,
 			    [{<<"ams">>,
 			      [{proxy_sockets, ['proxy-irx']},
@@ -106,6 +108,24 @@
 			   {data_paths, ['remote-grx']}
 			  ]}
 		  ]},
+
+		 {node_selection,
+		  [{default,
+		    {static,
+		     [
+		      %% APN NAPTR alternative
+		      {"_default.apn.$ORIGIN", {300,64536},
+		       [{"x-3gpp-pgw","x-s5-gtp"},{"x-3gpp-pgw","x-s8-gtp"},
+			{"x-3gpp-pgw","x-gn"},{"x-3gpp-pgw","x-gp"}],
+		       "topon.s5s8.pgw.$ORIGIN"},
+
+		      %% A/AAAA record alternatives
+		      {"topon.s5s8.pgw.$ORIGIN", [?FINAL_GSN], []}
+		     ]
+		    }
+		   }
+		  ]
+		 },
 
 		 {sx_socket,
 		  [{node, 'ergw'},
@@ -135,7 +155,9 @@
 		  {handlers, [{lager_console_backend, [{level, info}]}]}
 		 ]},
 
-	 {ergw, [{dp_handler, '$meck'},
+	 {ergw, [{'$setup_vars',
+		  [{"ORIGIN", {value, "epc.mnc01.mcc001.3gppnetwork.org"}}]},
+		 {dp_handler, '$meck'},
 		 {sockets,
 		  [{irx, [{type, 'gtp-c'},
 			  {ip,  ?TEST_GSN},
@@ -174,14 +196,14 @@
 			 {data_paths, [grx]},
 			 {proxy_sockets, ['irx']},
 			 {proxy_data_paths, ['grx']},
-			 {pgw, ?FINAL_GSN}
+			 {node_selection, [default]}
 			]},
 		   {s5s8, [{handler, ?HUT},
 			   {sockets, [irx]},
 			   {data_paths, [grx]},
 			   {proxy_sockets, ['irx']},
 			   {proxy_data_paths, ['grx']},
-			   {pgw, ?FINAL_GSN},
+			   {node_selection, [default]},
 			   {contexts,
 			    [{<<"ams">>,
 			      [{proxy_sockets, ['irx']},
@@ -199,6 +221,24 @@
 			   {data_paths, ['remote-grx']}
 			  ]}
 		  ]},
+
+		 {node_selection,
+		  [{default,
+		    {static,
+		     [
+		      %% APN NAPTR alternative
+		      {"_default.apn.$ORIGIN", {300,64536},
+		       [{"x-3gpp-pgw","x-s5-gtp"},{"x-3gpp-pgw","x-s8-gtp"},
+			{"x-3gpp-pgw","x-gn"},{"x-3gpp-pgw","x-gp"}],
+		       "topon.s5s8.pgw.$ORIGIN"},
+
+		      %% A/AAAA record alternatives
+		      {"topon.s5s8.pgw.$ORIGIN", [?FINAL_GSN], []}
+		     ]
+		    }
+		   }
+		  ]
+		 },
 
 		 {sx_socket,
 		  [{node, 'ergw'},

@@ -9,7 +9,8 @@
 
 -export([validate_options/3, validate_option/2,
 	 forward_request/3, forward_request/7, forward_request/9,
-	 get_seq_no/3]).
+	 get_seq_no/3,
+	 select_proxy_gsn/4]).
 -export([create_forward_session/2,
 	 modify_forward_session/4,
 	 delete_forward_session/2,
@@ -18,6 +19,7 @@
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include_lib("pfcplib/include/pfcp_packet.hrl").
 -include("include/ergw.hrl").
+-include("gtp_proxy_ds.hrl").
 
 %%%===================================================================
 %%% API
@@ -43,6 +45,26 @@ forward_request(#context{control_port = GtpPort}, ReqKey, Request) ->
 get_seq_no(#context{control_port = GtpPort}, ReqKey, Request) ->
     ReqId = make_request_id(ReqKey, Request),
     gtp_socket:get_seq_no(GtpPort, ReqId).
+
+select_proxy_gsn(#proxy_info{src_apn = SrcAPN},
+		 #proxy_ggsn{address = undefined, dst_apn = DstAPN} = ProxyGSN,
+		 Services,
+		 #{node_selection := NodeSelect}) ->
+    APN = if is_list(DstAPN) -> DstAPN;
+	     true            -> SrcAPN
+	  end,
+    Norm = lists:flatten(lists:join($., [binary_to_list(X) || X <- qualify_apn(APN)])),
+    case ergw_node_selection:candidates(Norm, Services, NodeSelect) of
+	[{Node, _, _, IP4, _}|_] when length(IP4) /= 0 ->
+	    ProxyGSN#proxy_ggsn{node = Node, address = hd(IP4)};
+	[{Node, _, _, _, IP6}|_] when length(IP6) /= 0 ->
+	    ProxyGSN#proxy_ggsn{node = Node, address = hd(IP6)};
+	Other ->
+	    lager:error("No proxy address for APN '~w', got ~p", [APN, Other]),
+	    ProxyGSN
+    end;
+select_proxy_gsn(_ProxyInfo, ProxyGSN, _Services, _State) ->
+    ProxyGSN.
 
 %%%===================================================================
 %%% Options Validation
@@ -113,6 +135,19 @@ make_proxy_request(Direction, Request, SeqNo, NewPeer, State) ->
 		 proxy_ctx = maps:get(proxy_context, State, undefined)
 		},
     {ReqId, ReqInfo}.
+
+qualify_apn(Labels) ->
+    case lists:reverse(Labels) of
+	[<<"gprs">>, <<"mcc", _/binary>> = MCC, <<"mnc", _binary>> = MNC | APN] ->
+	    lists:reverse(
+	      [<<"org">>, <<"3gppnetwork">>, MCC, MNC, <<"epc">>, <<"apn">> | APN]);
+	[<<"org">>, <<"3gppnetwork">> | _ ] ->
+	    Labels;
+	_ ->
+	    {MCC, MNC} = ergw:get_plmn_id(),
+	    Labels ++ [<<"apn">>, <<"epc">>, <<"mnc", MNC/binary>>, <<"mcc", MCC/binary>>,
+		       <<"3gppnetwork">>,<<"org">>]
+    end.
 
 %%%===================================================================
 %%% Sx DP API
