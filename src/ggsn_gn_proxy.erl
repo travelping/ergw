@@ -467,11 +467,10 @@ handle_proxy_info(#gtp{ie = #{?'Recovery' := Recovery}},
 
 	    ResponseIEs0 = [#cause{value = user_authentication_failed}],
 	    ResponseIEs = gtp_v1_c:build_recovery(Context, Recovery /= undefined, ResponseIEs0),
-	    throw(#ctx_err{level = ?FATAL,
-			   reply = {create_pdp_context_response,
-				    Context#context.remote_control_tei,
-				    ResponseIEs},
-			   context = Context})
+	    throw(?CTX_ERR(?FATAL,
+			   {create_pdp_context_response,
+			    Context#context.remote_control_tei,
+			    ResponseIEs}, Context))
     end.
 
 usage_report_to_accounting(

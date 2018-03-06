@@ -139,9 +139,7 @@ remote_context_register_new(Context) ->
 	ok ->
 	    ok;
 	_ ->
-	    throw(#ctx_err{level = ?FATAL,
-			   reply = system_failure,
-			   context = Context})
+	    throw(?CTX_ERR(?FATAL, system_failure, Context))
     end.
 
 remote_context_update(OldContext, NewContext) ->
@@ -422,9 +420,7 @@ lookup_request(#request{key = ReqKey, gtp_port = GtpPort}) ->
     gtp_context_reg:lookup_key(GtpPort, ReqKey).
 
 enforce_restriction(Context, #gtp{version = Version}, {Version, false}) ->
-    throw(#ctx_err{level = ?FATAL,
-		   reply = {version_not_supported, []},
-		   context = Context});
+    throw(?CTX_ERR(?FATAL, {version_not_supported, []}, Context));
 enforce_restriction(_Context, _Msg, _Restriction) ->
     ok.
 
@@ -476,8 +472,7 @@ validate_message(#gtp{version = Version, ie = IEs} = Msg, State) ->
 	    ok;
 	Missing ->
 	    lager:debug("Missing IEs: ~p", [Missing]),
-	    throw(#ctx_err{level = ?WARNING,
-			   reply = [{mandatory_ie_missing, hd(Missing)}]})
+	    throw(?CTX_ERR(?WARNING, [{mandatory_ie_missing, hd(Missing)}]))
     end.
 
 validate_ies(#gtp{version = Version, type = MsgType, ie = IEs}, Cause, #{interface := Interface}) ->

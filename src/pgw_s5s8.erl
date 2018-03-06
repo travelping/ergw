@@ -411,9 +411,7 @@ authenticate(Context, Session, SessionOpts, Request) ->
 
 	    Reply1 = response(create_session_response, Context,
 			      [#v2_cause{v2_cause = user_authentication_failed}], Request),
-	    throw(#ctx_err{level = ?FATAL,
-			   reply = Reply1,
-			   context = Context})
+	    throw(?CTX_ERR(?FATAL, Reply1, Context))
     end.
 
 usage_report_to_accounting(
@@ -528,9 +526,7 @@ select_vrf(#context{apn = APN} = Context) ->
 	{ok, {VRF, VRFOpts}} ->
 	    {Context#context{vrf = VRF}, VRFOpts};
 	_ ->
-	    throw(#ctx_err{level = ?FATAL,
-			   reply = missing_or_unknown_apn,
-			   context = Context})
+	    throw(?CTX_ERR(?FATAL, missing_or_unknown_apn, Context))
     end.
 
 copy_vrf_session_defaults(K, Value, Opts)
