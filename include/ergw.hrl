@@ -16,10 +16,14 @@
 
 -record(ctx_err, {
 	  level,
-	  where = {?FILE, ?LINE},
+	  where,
 	  reply,
 	  context
 	 }).
+
+-define(CTX_ERR(Level,Reply), #ctx_err{level=Level,reply=Reply,where={?FILE, ?LINE}}).
+-define(CTX_ERR(Level,Reply,Context), #ctx_err{level=Level,reply=Reply,
+					       context=Context,where={?FILE, ?LINE}}).
 
 -record(node, {
 	  node	:: atom(),
