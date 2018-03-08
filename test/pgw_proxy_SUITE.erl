@@ -35,7 +35,7 @@
 		 ]},
 
 	 {ergw, [{'$setup_vars',
-		  [{"ORIGIN", {value, "epc.mnc01.mcc001.3gppnetwork.org"}}]},
+		  [{"ORIGIN", {value, "epc.mnc001.mcc001.3gppnetwork.org"}}]},
 		 {dp_handler, '$meck'},
 		 {sockets,
 		  [{irx, [{type, 'gtp-c'},
@@ -156,7 +156,7 @@
 		 ]},
 
 	 {ergw, [{'$setup_vars',
-		  [{"ORIGIN", {value, "epc.mnc01.mcc001.3gppnetwork.org"}}]},
+		  [{"ORIGIN", {value, "epc.mnc001.mcc001.3gppnetwork.org"}}]},
 		 {dp_handler, '$meck'},
 		 {sockets,
 		  [{irx, [{type, 'gtp-c'},

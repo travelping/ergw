@@ -88,18 +88,18 @@
 		    {static,
 		     [
 		      %% APN NAPTR alternative
-		      {"_default.apn.epc.mnc01.mcc001.3gppnetwork.org", {300,64536},
+		      {"_default.apn.epc.mnc001.mcc001.3gppnetwork.org", {300,64536},
 		       [{"x-3gpp-pgw","x-s5-gtp"},{"x-3gpp-pgw","x-s8-gtp"},
 			{"x-3gpp-pgw","x-gn"},{"x-3gpp-pgw","x-gp"}],
-		       "topon.s5s8.pgw.epc.mnc01.mcc001.3gppnetwork.org"},
+		       "topon.s5s8.pgw.epc.mnc001.mcc001.3gppnetwork.org"},
 
-		      {"web.apn.epc.mnc01.mcc001.3gppnetwork.org", {300,64536},
+		      {"web.apn.epc.mnc001.mcc001.3gppnetwork.org", {300,64536},
 		       [{"x-3gpp-pgw","x-s5-gtp"},{"x-3gpp-pgw","x-s8-gtp"},
 			{"x-3gpp-pgw","x-gn"},{"x-3gpp-pgw","x-gp"}],
-		       "topon.s5s8.pgw.epc.mnc01.mcc001.3gppnetwork.org"},
+		       "topon.s5s8.pgw.epc.mnc001.mcc001.3gppnetwork.org"},
 
 		      %% A/AAAA record alternatives
-		      {"topon.s5s8.pgw.epc.mnc01.mcc001.3gppnetwork.org",  [{172, 20, 16, 89}], []}
+		      {"topon.s5s8.pgw.epc.mnc001.mcc001.3gppnetwork.org",  [{172, 20, 16, 89}], []}
 		     ]
 		    }
 		   },
