@@ -7,7 +7,7 @@
 
 -module(ergw_gsn_lib).
 
--export([create_sgi_session/1,
+-export([create_sgi_session/2,
 	 modify_sgi_session/2,
 	 delete_sgi_session/1,
 	 query_usage_report/1]).
@@ -20,7 +20,12 @@
 %%% Sx DP API
 %%%===================================================================
 
-create_sgi_session(#context{local_data_tei = SEID} = Ctx) ->
+create_sgi_session(Candidates, Ctx0) ->
+    Ctx1 = ergw_sx_node:select_sx_node(Candidates, Ctx0),
+    {ok, NWIs} = ergw_sx_node:get_network_instances(Ctx1),
+    Ctx = assign_data_teid(Ctx1, get_context_nwi(Ctx1, NWIs)),
+    SEID = ergw_sx_socket:seid(),
+
     IEs =
 	[#f_seid{seid = SEID}] ++
 	lists:foldl(fun create_pdr/2, [], [{1, gtp, Ctx}, {2, sgi, Ctx}]) ++
@@ -28,29 +33,40 @@ create_sgi_session(#context{local_data_tei = SEID} = Ctx) ->
 	[#create_urr{group =
 			 [#urr_id{id = 1}, #measurement_method{volum = 1}]}],
     Req = #pfcp{version = v1, type = session_establishment_request, seid = 0, ie = IEs},
-    case ergw_sx:call(Ctx, Req) of
-	{ok, Pid} when is_pid(Pid) ->
-	    Ctx#context{dp_pid = Pid};
+    case ergw_sx_node:call(Ctx, Req) of
+	#pfcp{version = v1, type = session_establishment_response,
+	      %% seid = SEID, TODO: fix DP
+	      ie = #{pfcp_cause := #pfcp_cause{cause = 'Request accepted'},
+		     f_seid := #f_seid{seid = DataPathSEID}} = _RespIEs} ->
+	    Ctx#context{cp_seid = SEID, dp_seid = DataPathSEID};
 	_ ->
-	    Ctx
+	    throw(?CTX_ERR(?FATAL, system_failure, Ctx))
     end.
 
-modify_sgi_session(#context{local_data_tei = SEID} = Ctx, OldCtx) ->
+modify_sgi_session(#context{dp_seid = SEID} = Ctx, OldCtx) ->
     IEs =
 	lists:foldl(fun update_pdr/2, [], [{1, gtp, Ctx, OldCtx}, {2, sgi, Ctx, OldCtx}]) ++
 	lists:foldl(fun update_far/2, [], [{2, gtp, Ctx, OldCtx}, {1, sgi, Ctx, OldCtx}]),
     Req = #pfcp{version = v1, type = session_modification_request, seid = SEID, ie = IEs},
-    ergw_sx:call(Ctx, Req).
 
-delete_sgi_session(#context{local_data_tei = SEID} = Ctx) ->
+    case ergw_sx_node:call(Ctx, Req) of
+	#pfcp{version = v1, type = session_modification_response,
+	      %% seid = SEID, TODO: fix DP
+	      ie = #{pfcp_cause := #pfcp_cause{cause = 'Request accepted'}} = _RespIEs} ->
+	    Ctx;
+	_ ->
+	    throw(?CTX_ERR(?FATAL, system_failure, Ctx))
+    end.
+
+delete_sgi_session(#context{dp_seid = SEID} = Ctx) ->
     Req = #pfcp{version = v1, type = session_deletion_request, seid = SEID, ie = []},
-    ergw_sx:call(Ctx, Req).
+    ergw_sx_node:call(Ctx, Req).
 
-query_usage_report(#context{local_data_tei = SEID} = Ctx) ->
+query_usage_report(#context{dp_seid = SEID} = Ctx) ->
     IEs = [#query_urr{group = [#urr_id{id = 1}]}],
     Req = #pfcp{version = v1, type = session_modification_request,
 		seid = SEID, ie = IEs},
-    ergw_sx:call(Ctx, Req).
+    ergw_sx_node:call(Ctx, Req).
 
 %%%===================================================================
 %%% Helper functions
@@ -65,7 +81,9 @@ ue_ip_address(Direction, #context{ms_v6 = {MSv6,_}}) ->
     #ue_ip_address{type = Direction, ipv6 = gtp_c_lib:ip2bin(MSv6)}.
 
 network_instance(Name) when is_atom(Name) ->
-    #network_instance{instance = [atom_to_binary(Name, latin1)]}.
+    #network_instance{instance = [atom_to_binary(Name, latin1)]};
+network_instance(#gtp_port{network_instance = Name}) ->
+    #network_instance{instance = Name}.
 
 f_teid(TEID, {_,_,_,_} = IP) ->
     #f_teid{teid = TEID, ipv4 = gtp_c_lib:ip2bin(IP)};
@@ -74,13 +92,13 @@ f_teid(TEID, {_,_,_,_,_,_,_,_} = IP) ->
 
 create_pdr({RuleId, gtp,
 	    #context{
-	       data_port = #gtp_port{name = InPortName, ip = IP},
+	       data_port = #gtp_port{ip = IP} = DataPort,
 	       local_data_tei = LocalTEI} = Ctx},
 	   PDRs) ->
     PDI = #pdi{
 	     group =
 		 [#source_interface{interface = 'Access'},
-		  network_instance(InPortName),
+		  network_instance(DataPort),
 		  f_teid(LocalTEI, IP),
 		  ue_ip_address(src, Ctx)]
 	    },
@@ -114,7 +132,7 @@ create_pdr({RuleId, sgi, #context{vrf = InPortName} = Ctx}, PDRs) ->
 
 create_far({RuleId, gtp,
 	    #context{
-	       data_port = #gtp_port{name = OutPortName},
+	       data_port = DataPort,
 	       remote_data_ip = PeerIP,
 	       remote_data_tei = RemoteTEI}},
 	   FARs) ->
@@ -125,7 +143,7 @@ create_far({RuleId, gtp,
 		  #forwarding_parameters{
 		     group =
 			 [#destination_interface{interface = 'Access'},
-			  network_instance(OutPortName),
+			  network_instance(DataPort),
 			  #outer_header_creation{
 			     type = 'GTP-U/UDP/IPv4',
 			     teid = RemoteTEI,
@@ -137,7 +155,7 @@ create_far({RuleId, gtp,
 	    },
     [FAR | FARs];
 
-create_far({RuleId, sgi, #context{vrf = OutPortName}}, FARs) ->
+create_far({RuleId, sgi, #context{vrf = VRF}}, FARs) ->
     FAR = #create_far{
 	     group =
 		 [#far_id{id = RuleId},
@@ -145,14 +163,14 @@ create_far({RuleId, sgi, #context{vrf = OutPortName}}, FARs) ->
 		  #forwarding_parameters{
 		     group =
 			 [#destination_interface{interface = 'SGi-LAN'},
-			  network_instance(OutPortName)]
+			  network_instance(VRF)]
 		    }
 		 ]
 	    },
     [FAR | FARs].
 
 update_pdr({RuleId, gtp,
-	    #context{data_port = #gtp_port{name = InPortName, ip = IP},
+	    #context{data_port = #gtp_port{name = InPortName, ip = IP} = DataPort,
 		     local_data_tei = LocalTEI},
 	    #context{data_port = #gtp_port{name = OldInPortName},
 		     local_data_tei = OldLocalTEI}},
@@ -162,7 +180,7 @@ update_pdr({RuleId, gtp,
     PDI = #pdi{
 	     group =
 		 [#source_interface{interface = 'Core'},
-		  network_instance(InPortName),
+		  network_instance(DataPort),
 		  f_teid(LocalTEI, IP)]
 	    },
     PDR = #update_pdr{
@@ -204,7 +222,7 @@ update_pdr({_RuleId, _Type, _In, _OldIn}, PDRs) ->
 
 update_far({RuleId, gtp,
 	    #context{version = Version,
-		     data_port = #gtp_port{name = OutPortName},
+		     data_port = #gtp_port{name = OutPortName} = DataPort,
 		     remote_data_ip = PeerIP,
 		     remote_data_tei = RemoteTEI},
 	    #context{version = OldVersion,
@@ -222,7 +240,7 @@ update_far({RuleId, gtp,
 		  #update_forwarding_parameters{
 		     group =
 			 [#destination_interface{interface = 'Core'},
-			  network_instance(OutPortName),
+			  network_instance(DataPort),
 			  #outer_header_creation{
 			     type = 'GTP-U/UDP/IPv4',
 			     teid = RemoteTEI,
@@ -256,3 +274,15 @@ update_far({RuleId, sgi,
 
 update_far({_RuleId, _Type, _Out, _OldOut}, FARs) ->
     FARs.
+
+get_context_nwi(#context{control_port = #gtp_port{name = Name}}, NWIs) ->
+    maps:get(Name, NWIs).
+
+assign_data_teid(#context{data_port = DataPort} = Context,
+		 #user_plane_ip_resource_information{
+		    ipv4 = IP, network_instance = NWInst}) ->
+    {ok, DataTEI} = gtp_context_reg:alloc_tei(DataPort),
+    Context#context{
+      data_port = DataPort#gtp_port{ip = gtp_c_lib:bin2ip(IP), network_instance = NWInst},
+      local_data_tei = DataTEI
+     }.

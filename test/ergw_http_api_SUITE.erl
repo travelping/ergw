@@ -20,23 +20,16 @@
 		  {handlers, [{lager_console_backend, [{level, info}]}]}
 		 ]},
 
-	 {ergw, [{dp_handler, '$meck'},
+	 {ergw, [{'$setup_vars',
+		  [{"ORIGIN", {value, "epc.mnc001.mcc001.3gppnetwork.org"}}]},
 		 {sockets,
 		  [{irx, [{type, 'gtp-c'},
 			  {ip,  ?TEST_GSN},
 			  {reuseaddr, true}
 			 ]},
-		   {grx, [{type, 'gtp-u'},
-			  {node, 'gtp-u-node@localhost'},
-			  {name, 'grx'}
-			 ]},
 		   {'proxy-irx', [{type, 'gtp-c'},
 				  {ip,  ?PROXY_GSN},
 				  {reuseaddr, true}
-				 ]},
-		   {'proxy-grx', [{type, 'gtp-u'},
-				  {node, 'gtp-u-proxy@vlx161-tpmd'},
-				  {name, 'proxy-grx'}
 				 ]}
 		  ]},
 
@@ -56,14 +49,11 @@
 		  %% proxy handler
 		  [{gn, [{handler, ggsn_gn_proxy},
 			 {sockets, [irx]},
-			 {data_paths, [grx]},
 			 {proxy_sockets, ['proxy-irx']},
-			 {proxy_data_paths, ['proxy-grx']},
 			 {node_selection, [static]},
 			 {contexts,
 			  [{<<"ams">>,
-			    [{proxy_sockets, ['proxy-irx']},
-			     {proxy_data_paths, ['proxy-grx']}]}]}
+			    [{proxy_sockets, ['proxy-irx']}]}]}
 			]}
 		  ]},
 

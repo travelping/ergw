@@ -31,11 +31,12 @@
 	 }).
 
 -record(gtp_port, {
-	  name            :: term(),
-	  type            :: 'gtp-c' | 'gtp-u',
-	  pid             :: pid(),
-	  restart_counter :: integer(),
-	  ip              :: inet:ip_address()
+	  name             :: term(),
+	  network_instance :: term(),
+	  type             :: 'gtp-c' | 'gtp-u',
+	  pid              :: pid(),
+	  restart_counter  :: integer(),
+	  ip               :: inet:ip_address()
 	 }).
 
 -record(context, {
@@ -54,7 +55,9 @@
 	  remote_control_tei = 0 :: non_neg_integer(),
 	  remote_restart_counter :: 0 .. 255,
 	  data_port              :: #gtp_port{},
-	  dp_pid                 :: pid(),
+	  dp_node                :: pid(),
+	  cp_seid                :: non_neg_integer(),
+	  dp_seid                :: non_neg_integer(),
 	  vrf                    :: atom(),
 	  local_data_tei         :: non_neg_integer(),
 	  remote_data_ip         :: inet:ip_address(),

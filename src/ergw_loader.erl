@@ -9,9 +9,6 @@
 
 -export([load/3]).
 
-load(API, Module, '$meck') ->
-    %% assume the module has been mocked by meck.
-    ok;
 load(API, Module, Handler) ->
     Callbacks = API:behaviour_info(callbacks),
     case (lists:subtract(Callbacks, Handler:module_info(exports))) of

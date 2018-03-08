@@ -10,7 +10,7 @@
 -compile({parse_transform, cut}).
 -compile({parse_transform, do}).
 
--export([handle_message/2, session_report/2, handle_response/4,
+-export([handle_message/2, session_report/1, handle_response/4,
 	 start_link/5,
 	 send_request/7, send_response/2,
 	 send_request/6, resend_request/2,
@@ -100,14 +100,14 @@ q_handle_message(Request, Msg0) ->
 	    generic_error(Request, Msg0, Error)
     end.
 
-session_report(GtpPort, #pfcp{version = v1, seid = SEID} = Report) ->
+session_report(#pfcp{version = v1, seid = SEID} = Report) ->
     lager:debug("Session Report: ~p", [Report]),
-    case gtp_context_reg:lookup_teid(GtpPort, SEID) of
+    case gtp_context_reg:lookup_seid(SEID) of
 	Context when is_pid(Context) ->
 	    Context ! Report;
 
 	_ ->
-	    lager:error("Session Report: didn't find ~p, ~p", [GtpPort, SEID]),
+	    lager:error("Session Report: didn't find ~p", [SEID]),
 	    ok
     end.
 
@@ -183,8 +183,8 @@ enforce_restrictions(Msg, #context{restrictions = Restrictions} = Context) ->
 %%% Options Validation
 %%%===================================================================
 
--define(ContextDefaults, [{data_paths, undefined},
-			  {aaa,        []}]).
+-define(ContextDefaults, [{node_selection, undefined},
+			  {aaa,            []}]).
 
 -define(DefaultAAAOpts,
 	#{
@@ -205,7 +205,8 @@ validate_option(handler, Value) when is_atom(Value) ->
     Value;
 validate_option(sockets, Value) when is_list(Value) ->
     Value;
-validate_option(data_paths, Value) when is_list(Value) ->
+validate_option(node_selection, [S|_] = Value)
+  when is_atom(S) ->
     Value;
 validate_option(aaa, Value) when is_list(Value); is_map(Value) ->
     ergw_config:opts_fold(fun validate_aaa_option/3, ?DefaultAAAOpts, Value);
@@ -247,30 +248,27 @@ validate_aaa_attr_option(Key, Setting, Value, _Attr) ->
 %%====================================================================
 
 init([CntlPort, Version, Interface,
-      #{data_paths := DPs, aaa := AAAOpts} = Opts]) ->
+      #{node_selection := NodeSelect, aaa := AAAOpts} = Opts]) ->
 
-    lager:debug("init(~p)", [[CntlPort, Interface]]),
+    lager:debug("init(~p)", [[lager:pr(CntlPort, ?MODULE), Interface]]),
     process_flag(trap_exit, true),
 
-    DataPort = gtp_socket_reg:lookup(hd(DPs)),
 
     {ok, CntlTEI} = gtp_context_reg:alloc_tei(CntlPort),
-    {ok, DataTEI} = gtp_context_reg:alloc_tei(DataPort),
 
     Context = #context{
 		 version           = Version,
 		 control_interface = Interface,
 		 control_port      = CntlPort,
-		 local_control_tei = CntlTEI,
-		 data_port         = DataPort,
-		 local_data_tei    = DataTEI
+		 local_control_tei = CntlTEI
 		},
 
     State = #{
-      context   => Context,
-      version   => Version,
-      interface => Interface,
-      aaa_opts  => AAAOpts},
+      context        => Context,
+      version        => Version,
+      interface      => Interface,
+      node_selection => NodeSelect,
+      aaa_opts       => AAAOpts},
 
     Interface:init(Opts, State).
 

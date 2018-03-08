@@ -14,7 +14,7 @@
 -export([register_new/1, register/1, update/2, unregister/1,
 	 register/3, unregister/2,
 	 lookup_key/2, lookup_keys/2,
-	 lookup_teid/2, lookup_teid/3, lookup_teid/4,
+	 lookup_teid/2, lookup_teid/3, lookup_teid/4, lookup_seid/1,
 	 match_key/2, match_keys/2,
 	 await_unreg/1]).
 -export([all/0]).
@@ -69,6 +69,14 @@ lookup_teid(#gtp_port{type = Type} = Port, IP, TEI)
 
 lookup_teid(Port, Type, IP, TEI) ->
     lookup_key(Port, {teid, Type, IP, TEI}).
+
+lookup_seid(SEID) ->
+    case ets:lookup(?SERVER, {seid, SEID}) of
+	[{_, Pid}] ->
+	    Pid;
+	_ ->
+	    undefined
+    end.
 
 match_key(#gtp_port{name = Name}, Key) ->
     RegKey = {Name, Key},
@@ -260,13 +268,9 @@ context2keys(#context{
 		local_control_tei  = LocalCntlTEI,
 		remote_control_ip  = RemoteCntlIP,
 		remote_control_tei = RemoteCntlTEI,
-		data_port          = #gtp_port{name = DataPortName},
-		local_data_tei     = LocalDataTEI,
-		remote_data_ip     = RemoteDataIP,
-		remote_data_tei    = RemoteDataTEI}) ->
+		cp_seid            = SEID}) ->
     ordsets:from_list(
       [{CntlPortName, {teid, 'gtp-c', LocalCntlTEI}},
-       {DataPortName, {teid, 'gtp-u', LocalDataTEI}},
-       {CntlPortName, {teid, 'gtp-c', RemoteCntlIP, RemoteCntlTEI}},
-       {DataPortName, {teid, 'gtp-u', RemoteDataIP, RemoteDataTEI}}]
+       {CntlPortName, {teid, 'gtp-c', RemoteCntlIP, RemoteCntlTEI}}]
+      ++ [{seid, SEID} || SEID /= undefined]
       ++ [{CntlPortName, ContextId} || ContextId /= undefined]).

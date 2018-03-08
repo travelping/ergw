@@ -10,8 +10,8 @@
 -export([validate_options/3, validate_option/2,
 	 forward_request/3, forward_request/7, forward_request/9,
 	 get_seq_no/3,
-	 select_proxy_gsn/4]).
--export([create_forward_session/2,
+	 select_proxy_gsn/4, select_proxy_sockets/2]).
+-export([create_forward_session/3,
 	 modify_forward_session/4,
 	 delete_forward_session/2,
 	 query_usage_report/1]).
@@ -53,18 +53,46 @@ select_proxy_gsn(#proxy_info{src_apn = SrcAPN},
     APN = if is_list(DstAPN) -> DstAPN;
 	     true            -> SrcAPN
 	  end,
-    Norm = lists:flatten(lists:join($., [binary_to_list(X) || X <- qualify_apn(APN)])),
-    case ergw_node_selection:candidates(Norm, Services, NodeSelect) of
+    APN_FQDN = ergw_node_selection:apn_to_fqdn(APN),
+    case ergw_node_selection:candidates(APN_FQDN, Services, NodeSelect) of
 	[{Node, _, _, IP4, _}|_] when length(IP4) /= 0 ->
 	    ProxyGSN#proxy_ggsn{node = Node, address = hd(IP4)};
 	[{Node, _, _, _, IP6}|_] when length(IP6) /= 0 ->
 	    ProxyGSN#proxy_ggsn{node = Node, address = hd(IP6)};
 	Other ->
-	    lager:error("No proxy address for APN '~w', got ~p", [APN, Other]),
+	    lager:error("No proxy address for APN '~w', got ~p", [APN_FQDN, Other]),
 	    ProxyGSN
     end;
 select_proxy_gsn(_ProxyInfo, ProxyGSN, _Services, _State) ->
     ProxyGSN.
+
+select_proxy_sockets(#proxy_ggsn{node = Node, dst_apn = DstAPN, context = Context},
+		     #{contexts := Contexts, proxy_ports := ProxyPorts,
+		       node_selection := ProxyNodeSelect}) ->
+    {Cntl, NodeSelect} =
+	case maps:get(Context, Contexts, undefined) of
+	    #{proxy_sockets := Cntl0, node_selection := NodeSelect0} ->
+		{Cntl0, NodeSelect0};
+	    _ ->
+		lager:warning("proxy context ~p not found, using default", [Context]),
+		{ProxyPorts, ProxyNodeSelect}
+	end,
+
+    APN_FQDN = ergw_node_selection:apn_to_fqdn(DstAPN),
+    Services = [{"x-3gpp-upf", "x-sxa"}],
+    Candidates0 = ergw_node_selection:candidates(APN_FQDN, Services, NodeSelect),
+    PGWCandidate = [{Node, 0, Services, [], []}],
+    Candidates =
+	case ergw_node_selection:topology_match(Candidates0, PGWCandidate) of
+	    {_, C} when is_list(C), length(C) /= 0 ->
+		C;
+	    {C, _} when is_list(C), length(C) /= 0 ->
+		C;
+	    _ ->
+		%% neither colocation, not topology matched
+		Candidates0
+	end,
+    {gtp_socket_reg:lookup(hd(Cntl)), Candidates}.
 
 %%%===================================================================
 %%% Options Validation
@@ -72,11 +100,9 @@ select_proxy_gsn(_ProxyInfo, ProxyGSN, _Services, _State) ->
 
 -define(ProxyDefaults, [{proxy_data_source, gtp_proxy_ds},
 			{proxy_sockets,     []},
-			{proxy_data_paths,  []},
 			{contexts,          []}]).
 
--define(ContextDefaults, [{proxy_sockets,    []},
-			  {proxy_data_paths, []}]).
+-define(ContextDefaults, [{proxy_sockets,    []}]).
 
 validate_options(Fun, Opts, Defaults) ->
     gtp_context:validate_options(Fun, Opts, Defaults ++ ?ProxyDefaults).
@@ -90,8 +116,7 @@ validate_option(proxy_data_source, Value) ->
     end,
     Value;
 validate_option(Opt, Value)
-  when Opt == proxy_sockets;
-       Opt == proxy_data_paths ->
+  when Opt == proxy_sockets ->
     validate_context_option(Opt, Value);
 validate_option(contexts, Values) when is_list(Values); is_map(Values) ->
     ergw_config:opts_fold(fun validate_context/3, #{}, Values);
@@ -99,8 +124,6 @@ validate_option(Opt, Value) ->
     gtp_context:validate_option(Opt, Value).
 
 validate_context_option(proxy_sockets, Value) when is_list(Value), Value /= [] ->
-    Value;
-validate_context_option(proxy_data_paths, Value) when is_list(Value), Value /= [] ->
     Value;
 validate_context_option(Opt, Value) ->
     throw({error, {options, {Opt, Value}}}).
@@ -136,25 +159,12 @@ make_proxy_request(Direction, Request, SeqNo, NewPeer, State) ->
 		},
     {ReqId, ReqInfo}.
 
-qualify_apn(Labels) ->
-    case lists:reverse(Labels) of
-	[<<"gprs">>, <<"mcc", _/binary>> = MCC, <<"mnc", _binary>> = MNC | APN] ->
-	    lists:reverse(
-	      [<<"org">>, <<"3gppnetwork">>, MCC, MNC, <<"epc">>, <<"apn">> | APN]);
-	[<<"org">>, <<"3gppnetwork">> | _ ] ->
-	    Labels;
-	_ ->
-	    {MCC, MNC} = ergw:get_plmn_id(),
-	    Labels ++ [<<"apn">>, <<"epc">>, <<"mnc", MNC/binary>>, <<"mcc", MCC/binary>>,
-		       <<"3gppnetwork">>,<<"org">>]
-    end.
-
 %%%===================================================================
 %%% Sx DP API
 %%%===================================================================
 
-network_instance(Name) when is_atom(Name) ->
-    #network_instance{instance = [atom_to_binary(Name, latin1)]}.
+network_instance(#gtp_port{network_instance = Name}) ->
+    #network_instance{instance = Name}.
 
 f_teid(TEID, {_,_,_,_} = IP) ->
     #f_teid{teid = TEID, ipv4 = gtp_c_lib:ip2bin(IP)};
@@ -163,13 +173,13 @@ f_teid(TEID, {_,_,_,_,_,_,_,_} = IP) ->
 
 create_pdr({RuleId, Intf,
 	    #context{
-	       data_port = #gtp_port{name = InPortName, ip = IP},
+	       data_port = #gtp_port{ip = IP} = DataPort,
 	       local_data_tei = LocalTEI}},
 	   PDRs) ->
     PDI = #pdi{
 	     group =
 		 [#source_interface{interface = Intf},
-		  network_instance(InPortName),
+		  network_instance(DataPort),
 		  f_teid(LocalTEI, IP)]
 	    },
     PDR = #create_pdr{
@@ -185,10 +195,11 @@ create_pdr({RuleId, Intf,
 
 create_far({RuleId, Intf,
 	    #context{
-	       data_port = #gtp_port{name = OutPortName},
+	       data_port = DataPort,
 	       remote_data_ip = PeerIP,
 	       remote_data_tei = RemoteTEI}},
-	   FARs) ->
+	   FARs)
+  when PeerIP /= undefined ->
     FAR = #create_far{
 	     group =
 		 [#far_id{id = RuleId},
@@ -196,7 +207,7 @@ create_far({RuleId, Intf,
 		  #forwarding_parameters{
 		     group =
 			 [#destination_interface{interface = Intf},
-			  network_instance(OutPortName),
+			  network_instance(DataPort),
 			  #outer_header_creation{
 			     type = 'GTP-U/UDP/IPv4',
 			     teid = RemoteTEI,
@@ -206,12 +217,14 @@ create_far({RuleId, Intf,
 		    }
 		 ]
 	    },
-    [FAR | FARs].
+    [FAR | FARs];
+create_far({_RuleId, _Intf, _Out}, FARs) ->
+    FARs.
 
 update_pdr({RuleId, Intf,
 	    #context{data_port = #gtp_port{name = OldInPortName},
 		     local_data_tei = OldLocalTEI},
-	    #context{data_port = #gtp_port{name = NewInPortName, ip = IP},
+	    #context{data_port = #gtp_port{name = NewInPortName, ip = IP} = NewDataPort,
 		     local_data_tei = NewLocalTEI}},
 	   PDRs)
   when OldInPortName /= NewInPortName;
@@ -219,7 +232,7 @@ update_pdr({RuleId, Intf,
     PDI = #pdi{
 	     group =
 		 [#source_interface{interface = Intf},
-		  network_instance(NewInPortName),
+		  network_instance(NewDataPort),
 		  f_teid(NewLocalTEI, IP)]
 	    },
     PDR = #update_pdr{
@@ -237,12 +250,18 @@ update_pdr({_RuleId, _Intf, _OldIn, _NewIn}, PDRs) ->
     PDRs.
 
 update_far({RuleId, Intf,
+	    #context{remote_data_ip = OldPeerIP},
+	    #context{remote_data_ip = NewPeerIP} = NewContext},
+	   FARs)
+  when (OldPeerIP =:= undefined andalso NewPeerIP /= undefined) ->
+    create_far({RuleId, Intf, NewContext}, FARs);
+update_far({RuleId, Intf,
 	    #context{version = OldVersion,
 		     data_port = #gtp_port{name = OldOutPortName},
 		     remote_data_ip = OldPeerIP,
 		     remote_data_tei = OldRemoteTEI},
 	    #context{version = NewVersion,
-		     data_port = #gtp_port{name = NewOutPortName},
+		     data_port = #gtp_port{name = NewOutPortName} = NewDataPort,
 		     remote_data_ip = NewPeerIP,
 		     remote_data_tei = NewRemoteTEI}},
 	   FARs)
@@ -256,7 +275,7 @@ update_far({RuleId, Intf,
 		  #update_forwarding_parameters{
 		     group =
 			 [#destination_interface{interface = Intf},
-			  network_instance(NewOutPortName),
+			  network_instance(NewDataPort),
 			  #outer_header_creation{
 			     type = 'GTP-U/UDP/IPv4',
 			     teid = NewRemoteTEI,
@@ -269,11 +288,19 @@ update_far({RuleId, Intf,
 		 ]
 	    },
     [FAR | FARs];
-
 update_far({_RuleId, _Intf, _OldOut, _NewOut}, FARs) ->
     FARs.
 
-create_forward_session(#context{local_data_tei = SEID} = Left, Right) ->
+create_forward_session(Candidates, Left0, Right0) ->
+    Left1 = ergw_sx_node:select_sx_node(Candidates, Left0),
+    Right1 = Right0#context{dp_node = Left1#context.dp_node,
+			    data_port = Left1#context.data_port},
+
+    {ok, NWIs} = ergw_sx_node:get_network_instances(Left1),
+    Left = assign_data_teid(Left1, get_context_nwi(Left1, NWIs)),
+    Right = assign_data_teid(Right1, get_context_nwi(Right1, NWIs)),
+    SEID = ergw_sx_socket:seid(),
+
     IEs =
 	[#f_seid{seid = SEID}] ++
 	lists:foldl(fun create_pdr/2, [], [{1, 'Access', Left}, {2, 'Core', Right}]) ++
@@ -281,15 +308,19 @@ create_forward_session(#context{local_data_tei = SEID} = Left, Right) ->
 	[#create_urr{group =
 			 [#urr_id{id = 1}, #measurement_method{volum = 1}]}],
     Req = #pfcp{version = v1, type = session_establishment_request, seid = 0, ie = IEs},
-    case ergw_sx:call(Left, Req) of
-	{ok, Pid} when is_pid(Pid) ->
-	    Left#context{dp_pid = Pid};
-	_ ->
-	    Left
+    case ergw_sx_node:call(Left, Req) of
+	#pfcp{version = v1, type = session_establishment_response,
+	      %% seid = SEID, TODO: fix DP
+	      ie = #{pfcp_cause := #pfcp_cause{cause = 'Request accepted'},
+		     f_seid := #f_seid{seid = DataPathSEID}} = _RespIEs} ->
+	    {Left#context{cp_seid = SEID, dp_seid = DataPathSEID},
+	     Right#context{cp_seid = SEID, dp_seid = DataPathSEID}};
+	_Other ->
+	    throw(?CTX_ERR(?FATAL, system_failure, Left))
     end.
 
-modify_forward_session(#context{local_data_tei = OldSEID} = OldLeft,
-		       #context{local_data_tei = NewSEID} = NewLeft,
+modify_forward_session(#context{dp_seid = SEID, local_control_tei = OldSEID} = OldLeft,
+		       #context{local_control_tei = NewSEID} = NewLeft,
 		       OldRight, NewRight) ->
     IEs =
 	[#f_seid{seid = NewSEID} || NewSEID /= OldSEID] ++
@@ -299,15 +330,27 @@ modify_forward_session(#context{local_data_tei = OldSEID} = OldLeft,
 	lists:foldl(fun update_far/2, [],
 		    [{2, 'Access', OldLeft, NewLeft},
 		     {1, 'Core', OldRight, NewRight}]),
-    Req = #pfcp{version = v1, type = session_modification_request, seid = OldSEID, ie = IEs},
-    ergw_sx:call(NewLeft, Req).
+    Req = #pfcp{version = v1, type = session_modification_request, seid = SEID, ie = IEs},
+    ergw_sx_node:call(NewLeft, Req).
 
-delete_forward_session(#context{local_data_tei = SEID} = Left, _Right) ->
+delete_forward_session(#context{dp_seid = SEID} = Left, _Right) ->
     Req = #pfcp{version = v1, type = session_deletion_request, seid = SEID, ie = []},
-    ergw_sx:call(Left, Req).
+    ergw_sx_node:call(Left, Req).
 
-query_usage_report(#context{local_data_tei = SEID} = Ctx) ->
+query_usage_report(#context{dp_seid = SEID} = Ctx) ->
     IEs = [#query_urr{group = [#urr_id{id = 1}]}],
     Req = #pfcp{version = v1, type = session_modification_request,
 		seid = SEID, ie = IEs},
-    ergw_sx:call(Ctx, Req).
+    ergw_sx_node:call(Ctx, Req).
+
+get_context_nwi(#context{control_port = #gtp_port{name = Name}}, NWIs) ->
+    maps:get(Name, NWIs).
+
+assign_data_teid(#context{data_port = DataPort} = Context,
+		 #user_plane_ip_resource_information{
+		    ipv4 = IP, network_instance = NWInst}) ->
+    {ok, DataTEI} = gtp_context_reg:alloc_tei(DataPort),
+    Context#context{
+      data_port = DataPort#gtp_port{ip = gtp_c_lib:bin2ip(IP), network_instance = NWInst},
+      local_data_tei = DataTEI
+     }.

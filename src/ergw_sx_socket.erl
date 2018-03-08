@@ -13,7 +13,7 @@
 
 %% API
 -export([validate_options/1, start_link/1, start_sx_socket/1]).
--export([call/2, call/3, call/5, id/0]).
+-export([call/2, call/3, call/5, id/0, seid/0]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -88,6 +88,11 @@ call(Peer, T1, N1, Msg, {_,_,_} = CbInfo) ->
 
 id() ->
     gen_server:call(?SERVER, id).
+
+seid() ->
+    %% 64bit unique id, inspired by https://github.com/fogfish/uid
+    ((erlang:monotonic_time(millisecond) band 16#3ffffffffffff) bsl 14) bor
+	(erlang:unique_integer([positive]) band 16#3fff).
 
 %%%===================================================================
 %%% Options Validation

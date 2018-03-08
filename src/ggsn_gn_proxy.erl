@@ -137,28 +137,24 @@ request_spec(v1, delete_pdp_context_response, _) ->
 request_spec(v1, _, _) ->
     [].
 
--define(Defaults, [{node_selection, undefined}]).
+-define(Defaults, []).
 
 validate_options(Opts) ->
     lager:debug("GGSN Gn/Gp Options: ~p", [Opts]),
     ergw_proxy_lib:validate_options(fun validate_option/2, Opts, ?Defaults).
 
-validate_option(node_selection, [S|_] = Value)
-  when is_atom(S) ->
-    Value;
 validate_option(Opt, Value) ->
     ergw_proxy_lib:validate_option(Opt, Value).
 
 -record(context_state, {nsapi}).
 
-init(#{proxy_sockets := ProxyPorts, proxy_data_paths := ProxyDPs,
-       node_selection := NodeSelect, proxy_data_source := ProxyDS,
-       contexts := Contexts}, State) ->
+init(#{proxy_sockets := ProxyPorts, node_selection := NodeSelect,
+       proxy_data_source := ProxyDS, contexts := Contexts}, State) ->
 
     SessionOpts = [{'Accouting-Update-Fun', fun accounting_update/2}],
     {ok, Session} = ergw_aaa_session_sup:new_session(self(), to_session(SessionOpts)),
 
-    {ok, State#{proxy_ports => ProxyPorts, proxy_dps => ProxyDPs,
+    {ok, State#{proxy_ports => ProxyPorts,
 		'Session' => Session, contexts => Contexts,
 		node_selection => NodeSelect, proxy_ds => ProxyDS}}.
 
@@ -272,16 +268,19 @@ handle_request(ReqKey,
     Context = ContextPreProxy#context{restrictions = Restrictions},
     gtp_context:enforce_restrictions(Request, Context),
 
-    {ProxyGtpPort, ProxyGtpDP} = get_proxy_sockets(ProxyGGSN, State),
+    {ProxyGtpPort, DPCandidates} = ergw_proxy_lib:select_proxy_sockets(ProxyGGSN, State),
 
     SessionOpts0 = ggsn_gn:init_session(IEs, Context, AAAopts),
     SessionOpts = ggsn_gn:init_session_from_gtp_req(IEs, AAAopts, SessionOpts0),
     ergw_aaa_session:start(Session, SessionOpts),
 
-    ProxyContext0 = init_proxy_context(ProxyGtpPort, ProxyGtpDP, Context, ProxyInfo, ProxyGGSN),
-    ProxyContext = gtp_path:bind(ProxyContext0),
+    ProxyContext0 = init_proxy_context(ProxyGtpPort, Context, ProxyInfo, ProxyGGSN),
+    ProxyContext1 = gtp_path:bind(ProxyContext0),
 
-    StateNew = State#{context => Context, proxy_context => ProxyContext},
+    {ContextNew, ProxyContext} =
+	ergw_proxy_lib:create_forward_session(DPCandidates, Context, ProxyContext1),
+
+    StateNew = State#{context => ContextNew, proxy_context => ProxyContext},
     forward_request(sgsn2ggsn, ReqKey, Request, StateNew, State),
 
     {noreply, StateNew};
@@ -370,20 +369,18 @@ handle_response(#proxy_request{direction = sgsn2ggsn} = ProxyRequest,
 		#gtp{type = create_pdp_context_response,
 		     ie = #{?'Cause' := #cause{value = Cause}}} = Response, _Request,
 		#{context := Context,
-		  proxy_context := ProxyContext0} = State) ->
+		  proxy_context := PrevProxyCtx} = State) ->
     lager:warning("OK Proxy Response ~p", [lager:pr(Response, ?MODULE)]),
 
-    ProxyContext1 = update_context_from_gtp_req(Response, ProxyContext0),
+    ProxyContext1 = update_context_from_gtp_req(Response, PrevProxyCtx),
     ProxyContext = gtp_path:bind(Response, ProxyContext1),
     gtp_context:remote_context_register(ProxyContext),
 
     forward_response(ProxyRequest, Response, Context),
 
     if ?CAUSE_OK(Cause) ->
-	    ContextNew = ergw_proxy_lib:create_forward_session(Context, ProxyContext),
-	    lager:info("Create PDP Context ~p", [ContextNew]),
-
-	    {noreply, State#{context := ContextNew, proxy_context => ProxyContext}};
+	    ergw_proxy_lib:modify_forward_session(Context, Context, PrevProxyCtx, ProxyContext),
+	    {noreply, State#{proxy_context => ProxyContext}};
 
        true ->
 	    {stop, State}
@@ -535,14 +532,13 @@ update_path_bind(NewContext0, OldContext)
 update_path_bind(NewContext, _OldContext) ->
     NewContext.
 
-init_proxy_context(CntlPort, DataPort,
+init_proxy_context(CntlPort,
 		   #context{imei = IMEI, context_id = ContextId, version = Version,
 			    control_interface = Interface, state = State},
 		   #proxy_info{imsi = IMSI, msisdn = MSISDN},
-           #proxy_ggsn{address = GGSN, dst_apn = APN}) ->
+		   #proxy_ggsn{address = GGSN, dst_apn = APN}) ->
 
     {ok, CntlTEI} = gtp_context_reg:alloc_tei(CntlPort),
-    {ok, DataTEI} = gtp_context_reg:alloc_tei(DataPort),
     #context{
        apn               = APN,
        imsi              = IMSI,
@@ -554,8 +550,6 @@ init_proxy_context(CntlPort, DataPort,
        control_interface = Interface,
        control_port      = CntlPort,
        local_control_tei = CntlTEI,
-       data_port         = DataPort,
-       local_data_tei    = DataTEI,
        remote_control_ip = GGSN,
        state             = State
       }.
@@ -672,18 +666,6 @@ forward_response(#proxy_request{request = ReqKey, seq_no = SeqNo, new_peer = New
 		 Response, Context) ->
     GtpResp = build_context_request(Context, NewPeer, Response),
     gtp_context:send_response(ReqKey, GtpResp#gtp{seq_no = SeqNo}).
-
-get_proxy_sockets(#proxy_ggsn{context = Context},
-	       #{contexts := Contexts, proxy_ports := ProxyPorts, proxy_dps := ProxyDPs}) ->
-    {Cntl, Data} =
-	case maps:get(Context, Contexts, undefined) of
-	    #{proxy_sockets := Cntl0, proxy_data_paths := Data0} ->
-		{Cntl0, Data0};
-	    _ ->
-		lager:warning("proxy context ~p not found, using default", [Context]),
-		{ProxyPorts, ProxyDPs}
-	end,
-    {gtp_socket_reg:lookup(hd(Cntl)), gtp_socket_reg:lookup(hd(Data))}.
 
 cancel_timeout(#{timeout := TRef} = State) ->
     case erlang:cancel_timer(TRef) of

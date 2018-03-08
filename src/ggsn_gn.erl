@@ -126,10 +126,10 @@ handle_request(_ReqKey, _Msg, true, State) ->
 handle_request(_ReqKey,
 	       #gtp{type = create_pdp_context_request,
 		    ie = #{
+		      ?'Access Point Name' := #access_point_name{apn = APN},
 		      ?'Quality of Service Profile' := ReqQoSProfile
 		     } = IEs} = Request, _Resent,
-	       #{context := Context0,
-		 aaa_opts := AAAopts,
+	       #{context := Context0, aaa_opts := AAAopts, node_selection := NodeSelect,
 		 'Session' := Session} = State) ->
 
     EUA = maps:get(?'End User Address', IEs, undefined),
@@ -152,8 +152,12 @@ handle_request(_ReqKey,
 
     ContextPending = assign_ips(ActiveSessionOpts, EUA, ContextVRF),
 
-    gtp_context:remote_context_register_new(ContextPending),
-    Context = ergw_gsn_lib:create_sgi_session(ContextPending),
+    APN_FQDN = ergw_node_selection:apn_to_fqdn(APN),
+    Services = [{"x-3gpp-upf", "x-sxb"}],
+    Candidates = ergw_node_selection:candidates(APN_FQDN, Services, NodeSelect),
+
+    Context = ergw_gsn_lib:create_sgi_session(Candidates, ContextPending),
+    gtp_context:remote_context_register_new(Context),
 
     ResponseIEs = create_pdp_context_response(ActiveSessionOpts, IEs, Context),
     Reply = response(create_pdp_context_response, Context, ResponseIEs, Request),
