@@ -162,8 +162,8 @@ normalize_name_fqdn(["epc" | _] = Name) ->
     {MCC, MNC} = ergw:get_plmn_id(),
     lists:reverse(
       ["org", "3gppnetwork",
-       lists:flatten(io_lib:format("mcc~s", [MCC])),
-       lists:flatten(io_lib:format("mnc~s", [MNC])) |
+       lists:flatten(io_lib:format("mcc~3..0s", [MCC])),
+       lists:flatten(io_lib:format("mnc~3..0s", [MNC])) |
        Name]).
 
 add_candidate(Pos, Tuple, Candidate) ->

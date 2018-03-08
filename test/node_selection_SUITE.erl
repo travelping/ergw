@@ -126,25 +126,25 @@
 	      {static,
 	       [
 		%% APN NAPTR alternative
-		{"_default.apn.epc.mnc01.mcc001.3gppnetwork.org", {300,64536},
+		{"_default.apn.epc.mnc001.mcc001.3gppnetwork.org", {300,64536},
 		 [{"x-3gpp-pgw","x-s5-gtp"},{"x-3gpp-pgw","x-s8-gtp"},
 		  {"x-3gpp-pgw","x-gn"},{"x-3gpp-pgw","x-gp"}],
-		 "topon.s5s8.pgw.epc.mnc01.mcc001.3gppnetwork.org"},
-		{"_default.apn.epc.mnc01.mcc001.3gppnetwork.org", {300,64536},
+		 "topon.s5s8.pgw.epc.mnc001.mcc001.3gppnetwork.org"},
+		{"_default.apn.epc.mnc001.mcc001.3gppnetwork.org", {300,64536},
 		 [{"x-3gpp-upf","x-sxa"}],
-		 "topon.sx.prox01.epc.mnc01.mcc001.3gppnetwork.org"},
+		 "topon.sx.prox01.epc.mnc001.mcc001.3gppnetwork.org"},
 
-		{"web.apn.epc.mnc01.mcc001.3gppnetwork.org", {300,64536},
+		{"web.apn.epc.mnc001.mcc001.3gppnetwork.org", {300,64536},
 		 [{"x-3gpp-pgw","x-s5-gtp"},{"x-3gpp-pgw","x-s8-gtp"},
 		  {"x-3gpp-pgw","x-gn"},{"x-3gpp-pgw","x-gp"}],
-		 "topon.s5s8.pgw.epc.mnc01.mcc001.3gppnetwork.org"},
-		{"web.apn.epc.mnc01.mcc001.3gppnetwork.org", {300,64536},
+		 "topon.s5s8.pgw.epc.mnc001.mcc001.3gppnetwork.org"},
+		{"web.apn.epc.mnc001.mcc001.3gppnetwork.org", {300,64536},
 		 [{"x-3gpp-upf","x-sxa"}],
-		 "topon.sx.prox01.epc.mnc01.mcc001.3gppnetwork.org"},
+		 "topon.sx.prox01.epc.mnc001.mcc001.3gppnetwork.org"},
 
 		%% A/AAAA record alternatives
-		{"topon.s5s8.pgw.epc.mnc01.mcc001.3gppnetwork.org",  [?ERGW1], []},
-		{"topon.sx.prox01.epc.mnc01.mcc001.3gppnetwork.org", [?UP1], []}
+		{"topon.s5s8.pgw.epc.mnc001.mcc001.3gppnetwork.org",  [?ERGW1], []},
+		{"topon.sx.prox01.epc.mnc001.mcc001.3gppnetwork.org", [?UP1], []}
 	       ]
 	      }
 	 }
@@ -211,7 +211,7 @@ static_lookup(_Config) ->
     application:set_env(ergw, node_selection, ?ERGW_NODE_SELECTION),
 
     R = ergw_node_selection:candidates("example.apn.epc", [{"x-3gpp-upf","x-sxa"}], [default]),
-    ?match([{"topon.sx.prox01.epc.mnc01.mcc001.3gppnetwork.org", _, _, [_|_], []}], R),
+    ?match([{"topon.sx.prox01.epc.mnc001.mcc001.3gppnetwork.org", _, _, [_|_], []}], R),
     [{_, _, _, IP4, _}] = R,
     ?equal(lists:sort([?UP1]), lists:sort(IP4)),
     ok.
