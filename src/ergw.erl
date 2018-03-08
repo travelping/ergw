@@ -12,7 +12,7 @@
 %% API
 -export([start_link/0]).
 -export([start_socket/2, start_vrf/2,
-	 attach_protocol/5, attach_data_path/2, attach_vrf/3]).
+	 attach_protocol/5, attach_vrf/3]).
 -export([handler/2, vrf/1]).
 -export([load_config/1]).
 -export([get_plmn_id/0, get_accept_new/0]).
@@ -105,16 +105,6 @@ attach_protocol(Socket, Name, Protocol, Handler, Opts0) ->
 	    end;
 	_ ->
 	    throw({error, {invalid_handler, Handler}})
-    end.
-
-attach_data_path(#protocol_key{} = Key, DataPath) ->
-    case ets:lookup(?SERVER, Key) of
-	[#protocol{options = Opts0}] ->
-	    Opts = maps:update_with(data_paths, fun(DPs) -> [DataPath | DPs] end, {data_paths, [DataPath]}, Opts0),
-	    ets:update_element(?SERVER, Key, {#protocol.options, Opts}),
-	    ok;
-	_ ->
-	    throw({error, {invalid, Key}})
     end.
 
 attach_vrf(APN, VRF, Options0) ->

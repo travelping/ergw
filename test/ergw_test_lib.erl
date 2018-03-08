@@ -16,14 +16,14 @@
 	 meck_reset/1,
 	 meck_unload/1,
 	 meck_validate/1,
-	 meck_ergw_sx_call/1,
-	 meck_ergw_sx_call_smr_urr/1]).
+	 meck_ergw_sx_call/1]).
 -export([init_seq_no/2,
 	 gtp_context/0, gtp_context/1,
 	 gtp_context_inc_seq/1,
 	 gtp_context_inc_restart_counter/1,
 	 gtp_context_new_teids/1,
-	 make_error_indication_report/1]).
+	 make_error_indication_report/1,
+	 make_error_indication_report/2]).
 -export([start_gtpc_server/1, stop_gtpc_server/1,
 	 make_gtp_socket/1, make_gtp_socket/2,
 	 send_pdu/2,
@@ -71,7 +71,7 @@ lib_init_per_suite(Config0) ->
     load_config(AppCfg),
     {ok, _} = application:ensure_all_started(ergw),
     lager_common_test_backend:bounce(debug),
-    ok = meck:wait(ergw_sx, start_link, '_', ?TIMEOUT),
+    ok = meck:wait(ergw_sx_socket, start_link, '_', ?TIMEOUT),
     Config.
 
 lib_end_per_suite(Config) ->
@@ -94,69 +94,105 @@ load_config(AppCfg) ->
 %%% Meck functions for fake the GTP sockets
 %%%===================================================================
 
-meck_ergw_sx_call(_Config) ->
-    ok = meck:expect(ergw_sx, call,
-		     fun(Context, Req) ->
+make_sx_response(heartbeat_request)             -> heartbeat_response;
+make_sx_response(pfd_management_request)        -> pfd_management_response;
+make_sx_response(association_setup_request)     -> association_setup_response;
+make_sx_response(association_update_request)    -> association_update_response;
+make_sx_response(association_release_request)   -> association_release_response;
+make_sx_response(node_report_request)           -> node_report_response;
+make_sx_response(session_set_deletion_request)  -> session_set_deletion_response;
+make_sx_response(session_establishment_request) -> session_establishment_response;
+make_sx_response(session_modification_request)  -> session_modification_response;
+make_sx_response(session_deletion_request)      -> session_deletion_response;
+make_sx_response(session_report_request)        -> session_report_response.
+
+make_sx_reply(_Acct, #pfcp{type = heartbeat_request}) ->
+    #pfcp{version = v1, type = heartbeat_response};
+
+make_sx_reply(_Acct, #pfcp{type = association_setup_request, seid = SEID}) ->
+    IEs = [#pfcp_cause{cause = 'Request accepted'},
+	   #user_plane_ip_resource_information{
+	      network_instance = [<<"irx">>],
+	      ipv4 = gtp_c_lib:ip2bin(?LOCALHOST)
+	     },
+	   #user_plane_ip_resource_information{
+	      network_instance = [<<"proxy-irx">>],
+	      ipv4 = gtp_c_lib:ip2bin(?LOCALHOST)
+	     },
+	   #user_plane_ip_resource_information{
+	      network_instance = [<<"remote-irx">>],
+	      ipv4 = gtp_c_lib:ip2bin(?LOCALHOST)
+	     }
+	  ],
+    Response = #pfcp{version = v1, type = association_setup_response,
+		     seq_no = 0, seid = SEID, ie = IEs},
+    pfcp_packet:to_map(Response);
+
+make_sx_reply(_Acct, #pfcp{type = session_establishment_request, seid = SEID}) ->
+    #pfcp{version = v1, type = session_establishment_response,
+	  seq_no = 0, seid = SEID,
+	  ie = #{pfcp_cause => #pfcp_cause{cause = 'Request accepted'},
+		 f_seid => #f_seid{seid = SEID}}};
+
+make_sx_reply(Acct, #pfcp{type = session_modification_request, seid = SEID, ie = IEs} = Req) ->
+    pfcp_packet:encode(Req#pfcp{seq_no = 0}),
+    RespIEs =
+	case {Acct, lists:keymember(query_urr, 1, IEs)} of
+	    {on, true} ->
+		[#pfcp_cause{cause = 'Request accepted'},
+		 #usage_report_smr{
+		    group =
+			[#urr_id{id = 1},
+			 #volume_measurement{
+			    total = 6,
+			    uplink = 4,
+			    downlink = 2
+			   },
+			 #tp_packet_measurement{
+			    total = 4,
+			    uplink = 3,
+			    downlink = 1
+			   }
+			]
+		   }
+		];
+	    _ ->
+		[#pfcp_cause{cause = 'Request accepted'}]
+	end,
+    Response = #pfcp{version = v1, type = session_modification_response,
+		     seq_no = 0, seid = SEID, ie = RespIEs},
+    pfcp_packet:to_map(Response);
+
+make_sx_reply(_Acct, #pfcp{type = ReqType, seid = SEID}) ->
+    #pfcp{version = v1, type = make_sx_response(ReqType),
+	  seq_no = 0, seid = SEID,
+	  ie = #{pfcp_cause => #pfcp_cause{cause = 'System failure'}}}.
+
+meck_ergw_sx_call(Config) ->
+    Accounting = proplists:get_value(accounting, Config, on),
+    ok = meck:expect(ergw_sx_socket, call,
+		     fun(_Peer, Req) ->
 			     pfcp_packet:encode(Req#pfcp{seq_no = 0}),
-			     Context
+			     make_sx_reply(Accounting, Req)
+		     end),
+    ok = meck:expect(ergw_sx_socket, call,
+		     fun(_Peer, Req, {M,F,A} = Cb) ->
+			     pfcp_packet:encode(Req#pfcp{seq_no = 0}),
+			     erlang:apply(M,F,A++[make_sx_reply(Accounting, Req)])
+		     end),
+    ok = meck:expect(ergw_sx_socket, call,
+		     fun(_Peer, _T1, _N1, Req, {M,F,A} = Cb) ->
+			     pfcp_packet:encode(Req#pfcp{seq_no = 0}),
+			     erlang:apply(M,F,A++[make_sx_reply(Accounting, Req)])
 		     end).
 
-meck_ergw_sx_call_smr_urr(_Config) ->
-    ok = meck:expect(
-	   ergw_sx, call,
-	   fun(Ctx,
-	       #pfcp{type = session_modification_request,
-		     seid = SEID, ie = IEs} = Req) ->
-		   pfcp_packet:encode(Req#pfcp{seq_no = 0}),
-		   case lists:keymember(query_urr, 1, IEs) of
-		       true ->
-			   Report = [#pfcp_cause{cause = 'Request accepted'},
-				     #usage_report_smr{
-					group =
-					    [#urr_id{id = 1},
-					     #volume_measurement{
-						total = 6,
-						uplink = 4,
-						downlink = 2
-					       },
-					     #tp_packet_measurement{
-						total = 4,
-						uplink = 3,
-						downlink = 1
-					       }
-					    ]
-				       }
-				    ],
-			   Response = #pfcp{version = v1,
-					    type = session_modification_response,
-					    seq_no = 0,
-					    seid = SEID,
-					    ie = Report},
-			   pfcp_packet:to_map(Response);
-		       _ ->
-			   Ctx
-		   end;
-	      (Ctx, _Request) ->
-		   Ctx
-	   end).
-
 meck_init(Config) ->
-    ok = meck:new(ergw_sx, [non_strict, no_link]),
-    ok = meck:expect(ergw_sx, start_link,
-		     fun({Name, _SocketOpts}) ->
-			     RCnt =
-				 ets:update_counter(?MODULE, restart_counter, 1) rem 256,
-			     GtpPort = #gtp_port{name = Name,
-						 type = 'gtp-u',
-						 pid = self(),
-						 ip = ?LOCALHOST,
-						 restart_counter = RCnt},
-			     gtp_socket_reg:register(Name, GtpPort),
-			     {ok, self()}
-		     end),
-    ok = meck:expect(ergw_sx, validate_options, fun(Values) -> Values end),
-    ok = meck:expect(ergw_sx, send, fun(_GtpPort, _IP, _Port, _Data) -> ok end),
-    ok = meck:expect(ergw_sx, get_id, fun(_GtpPort) -> self() end),
+    ok = meck:new(ergw_sx_socket, [passthrough, non_strict, no_link]),
+    ok = meck:expect(ergw_sx_socket, start_link, fun(_Opts) -> {ok, self()} end),
+    ok = meck:expect(ergw_sx_socket, validate_options, fun(Values) -> Values end),
+    ok = meck:expect(ergw_sx_socket, id,
+		     fun() -> {ok, #node{node = 'ergw', ip = ?LOCALHOST}} end),
+    ok = meck:expect(ergw_sx_socket, send, fun(_GtpPort, _IP, _Port, _Data) -> ok end),
     meck_ergw_sx_call(Config),
     ok = meck:new(gtp_socket, [passthrough, no_link]),
 
@@ -173,17 +209,17 @@ meck_init(Config) ->
 		     end).
 
 meck_reset(Config) ->
-    meck:reset(ergw_sx),
+    meck:reset(ergw_sx_socket),
     meck:reset(gtp_socket),
     meck:reset(proplists:get_value(handler_under_test, Config)).
 
 meck_unload(Config) ->
-    meck:unload(ergw_sx),
+    meck:unload(ergw_sx_socket),
     meck:unload(gtp_socket),
     meck:unload(proplists:get_value(handler_under_test, Config)).
 
 meck_validate(Config) ->
-    ?equal(true, meck:validate(ergw_sx)),
+    ?equal(true, meck:validate(ergw_sx_socket)),
     ?equal(true, meck:validate(gtp_socket)),
     ?equal(true, meck:validate(proplists:get_value(handler_under_test, Config))).
 
@@ -223,19 +259,15 @@ gtp_context_new_teids(GtpC) ->
 	  ets:update_counter(?MODULE, teid, 1) rem 16#100000000
      }.
 
-make_error_indication_report(#gtpc{local_data_tei = TEI,
-				   remote_data_tei = SEID}) ->
-    IEs =
-	[#report_type{erir = 1},
-	 #error_indication_report{
-	    group = [#f_teid{ipv4 = gtp_c_lib:ip2bin(?CLIENT_IP), teid = TEI}]}],
-    Req = #pfcp{version = v1, type = session_report_request, seid = SEID, ie = IEs},
-    pfcp_packet:encode(Req#pfcp{seq_no = 0}),
-    pfcp_packet:to_map(Req);
+make_error_indication_report(#gtpc{local_data_tei = TEI}, SEID) ->
+    make_error_indication_report(SEID, ?CLIENT_IP, TEI).
 
-make_error_indication_report(#context{local_control_tei = SEID,
+make_error_indication_report(#context{cp_seid = SEID,
 				      data_port = #gtp_port{ip = IP},
 				      remote_data_tei = TEI}) ->
+make_error_indication_report(SEID, IP, TEI).
+
+make_error_indication_report(SEID, IP, TEI) ->
     IEs =
 	[#report_type{erir = 1},
 	 #error_indication_report{

@@ -26,10 +26,7 @@
 	  [{irx, [{type, 'gtp-c'},
 		  {ip,  ?TEST_GSN},
 		  {reuseaddr, true}
-		 ]},
-	   {grx, [{type, 'gtp-u'},
-		  {node, 'gtp-u-node@localhost'},
-		  {name, 'grx'}]}
+		 ]}
 	  ]},
 
 	 {vrfs,
@@ -47,7 +44,7 @@
 	 {handlers,
 	  [{gn, [{handler, ggsn_gn},
 		 {sockets, [irx]},
-		 {data_paths, [grx]},
+		 {node_selection, [static]},
 		 {aaa, [{'Username',
 			 [{default, ['IMSI',   <<"/">>,
 				     'IMEI',   <<"/">>,
@@ -76,17 +73,9 @@
 		  {ip,  ?TEST_GSN},
 		  {reuseaddr, true}
 		 ]},
-	   {grx, [{type, 'gtp-u'},
-		  {node, 'gtp-u-node@localhost'},
-		  {name, 'grx'}
-		 ]},
 	   {'remote-irx', [{type, 'gtp-c'},
 			   {ip,  ?FINAL_GSN},
 			   {reuseaddr, true}
-			  ]},
-	   {'remote-grx', [{type, 'gtp-u'},
-			   {node, 'gtp-u-node@localhost'},
-			   {name, 'remote-grx'}
 			  ]}
 	  ]},
 
@@ -106,19 +95,16 @@
 	  %% proxy handler
 	  [{gn, [{handler, ggsn_gn_proxy},
 		 {sockets, [irx]},
-		 {data_paths, [grx]},
 		 {proxy_sockets, ['irx']},
-		 {proxy_data_paths, ['grx']},
 		 {node_selection, [static]},
 		 {contexts,
 		  [{<<"ams">>,
-		    [{proxy_sockets, ['irx']},
-		     {proxy_data_paths, ['grx']}]}]}
+		    [{proxy_sockets, ['irx']}]}]}
 		]},
 	   %% remote GGSN handler
 	   {gn, [{handler, ggsn_gn},
 		 {sockets, ['remote-irx']},
-		 {data_paths, ['remote-grx']},
+		 {node_selection, [static]},
 		 {aaa, [{'Username',
 			 [{default, ['IMSI', <<"@">>, 'APN']}]}]}
 		]}
@@ -177,10 +163,7 @@
 	  [{irx, [{type, 'gtp-c'},
 		  {ip,  ?TEST_GSN},
 		  {reuseaddr, true}
-		 ]},
-	   {grx, [{type, 'gtp-u'},
-		  {node, 'gtp-u-node@localhost'},
-		  {name, 'grx'}]}
+		 ]}
 	  ]},
 
 	 {vrfs,
@@ -198,7 +181,7 @@
 	  [{'h1', [{handler, pgw_s5s8},
 		   {protocol, gn},
 		   {sockets, [irx]},
-		   {data_paths, [grx]},
+		   {node_selection, [static]},
 		   {aaa, [{'Username',
 			   [{default, ['IMSI',   <<"/">>,
 				       'IMEI',   <<"/">>,
@@ -211,7 +194,7 @@
 	   {'h2', [{handler, pgw_s5s8},
 		   {protocol, s5s8},
 		   {sockets, [irx]},
-		   {data_paths, [grx]},
+		   {node_selection, [static]},
 		   {aaa, [{'Username',
 			   [{default, ['IMSI',   <<"/">>,
 				       'IMEI',   <<"/">>,
@@ -236,22 +219,15 @@
 
 
 -define(PGW_PROXY_CONFIG,
-	[{sockets,
+	[
+	 {sockets,
 	  [{irx, [{type, 'gtp-c'},
 		  {ip,  ?TEST_GSN},
 		  {reuseaddr, true}
 		 ]},
-	   {grx, [{type, 'gtp-u'},
-		  {node, 'gtp-u-node@localhost'},
-		  {name, 'grx'}
-		 ]},
 	   {'remote-irx', [{type, 'gtp-c'},
 			   {ip,  ?FINAL_GSN},
 			   {reuseaddr, true}
-			  ]},
-	   {'remote-grx', [{type, 'gtp-u'},
-			   {node, 'gtp-u-node@localhost'},
-			   {name, 'remote-grx'}
 			  ]}
 	  ]},
 
@@ -271,32 +247,27 @@
 	  %% proxy handler
 	  [{gn, [{handler, pgw_s5s8_proxy},
 		 {sockets, [irx]},
-		 {data_paths, [grx]},
 		 {proxy_sockets, ['irx']},
-		 {proxy_data_paths, ['grx']},
 		 {node_selection, [static]}
 		]},
 	   {s5s8, [{handler, pgw_s5s8_proxy},
 		   {sockets, [irx]},
-		   {data_paths, [grx]},
 		   {proxy_sockets, ['irx']},
-		   {proxy_data_paths, ['grx']},
 		   {node_selection, [static]},
 		   {contexts,
 		    [{<<"ams">>,
-		      [{proxy_sockets, ['irx']},
-		       {proxy_data_paths, ['grx']}]}]}
+		      [{proxy_sockets, ['irx']}]}]}
 		  ]},
 	   %% remote PGW handler
 	   {gn, [{handler, pgw_s5s8},
 		 {sockets, ['remote-irx']},
-		 {data_paths, ['remote-grx']},
+		 {node_selection, [static]},
 		 {aaa, [{'Username',
 			 [{default, ['IMSI', <<"@">>, 'APN']}]}]}
 		]},
 	   {s5s8, [{handler, pgw_s5s8},
 		   {sockets, ['remote-irx']},
-		   {data_paths, ['remote-grx']}
+		   {node_selection, [static]}
 		  ]}
 	  ]},
 
@@ -363,7 +334,6 @@ config(_Config)  ->
     ?ok_option(ergw_config:validate_config(?GGSN_CONFIG)),
     ?error_option(set_cfg_value([plmn_id], {undefined, undefined}, ?GGSN_CONFIG)),
     ?error_option(set_cfg_value([plmn_id], {<<"abc">>, <<"ab">>}, ?GGSN_CONFIG)),
-    ?error_option(set_cfg_value([dp_handler], undefined, ?GGSN_CONFIG)),
     ?error_option(set_cfg_value([sockets], undefined, ?GGSN_CONFIG)),
 
     ?error_option(set_cfg_value([accept_new], invalid, ?GGSN_CONFIG)),
@@ -409,9 +379,14 @@ config(_Config)  ->
     ?error_option(set_cfg_value([handlers, gn, aaa, invalid], invalid, ?GGSN_CONFIG)),
     ?ok_option(set_cfg_value([handlers, gn], [{handler, ggsn_gn},
 					      {sockets, [irx]},
-					      {data_paths, [grx]}], ?GGSN_CONFIG)),
+					      {node_selection, [static]}], ?GGSN_CONFIG)),
     ?error_option(set_cfg_value([handlers, gn], [{sockets, [irx]},
-						 {data_paths, [grx]}], ?GGSN_CONFIG)),
+						 {node_selection, [static]}], ?GGSN_CONFIG)),
+    ?error_option(set_cfg_value([handlers, gn], [{handler, ggsn_gn},
+						 {sockets, [irx]}], ?GGSN_CONFIG)),
+    ?error_option(set_cfg_value([handlers, gn], [{handler, ggsn_gn},
+						 {sockets, [irx]},
+						 {node_selection, []}], ?GGSN_CONFIG)),
 
     ?error_option(set_cfg_value([vrfs, upstream], invalid, ?GGSN_CONFIG)),
     ?error_option(add_cfg_value([vrfs, upstream], [], ?GGSN_CONFIG)),
@@ -468,8 +443,7 @@ config(_Config)  ->
 
     ?ok_option(?PGW_CONFIG),
     ?error_option(set_cfg_value([handlers, 'h1'], [{handler, pgw_s5s8},
-						   {sockets, [irx]},
-						   {data_paths, [grx]}], ?PGW_CONFIG)),
+						   {sockets, [irx]}], ?PGW_CONFIG)),
 
     ?ok_option(?PGW_PROXY_CONFIG),
     ?error_option(set_cfg_value([handlers, gn, node_selection], [], ?PGW_PROXY_CONFIG)),

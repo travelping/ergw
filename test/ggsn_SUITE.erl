@@ -33,15 +33,13 @@
 		  {handlers, [{lager_console_backend, [{level, info}]}]}
 		 ]},
 
-	 {ergw, [{dp_handler, '$meck'},
+	 {ergw, [{'$setup_vars',
+		  [{"ORIGIN", {value, "epc.mnc001.mcc001.3gppnetwork.org"}}]},
 		 {sockets,
 		  [{irx, [{type, 'gtp-c'},
 			  {ip,  ?TEST_GSN},
 			  {reuseaddr, true}
-			 ]},
-		   {grx, [{type, 'gtp-u'},
-			  {node, 'gtp-u-node@localhost'},
-			  {name, 'grx'}]}
+			 ]}
 		  ]},
 
 		 {vrfs,
@@ -59,7 +57,7 @@
 		 {handlers,
 		  [{gn, [{handler, ggsn_gn},
 			 {sockets, [irx]},
-			 {data_paths, [grx]},
+			 {node_selection, [default]},
 			 {aaa, [{'Username',
 				 [{default, ['IMSI',   <<"/">>,
 					     'IMEI',   <<"/">>,
@@ -70,6 +68,27 @@
 					     <<"@">>, 'APN']}]}]}
 			]}
 		  ]},
+
+		 {node_selection,
+		  [{default,
+		    {static,
+		     [
+		      %% APN NAPTR alternative
+		      {"_default.apn.$ORIGIN", {300,64536},
+		       [{"x-3gpp-ggsn","x-gn"},{"x-3gpp-ggsn","x-gp"}],
+		       "topon.gn.ggsn.$ORIGIN"},
+		      {"_default.apn.$ORIGIN", {300,64536},
+		       [{"x-3gpp-upf","x-sxb"}],
+		       "topon.sx.prox01.$ORIGIN"},
+
+		      %% A/AAAA record alternatives
+		      {"topon.gn.ggsn.$ORIGIN", [?FINAL_GSN], []},
+		      {"topon.sx.prox01.$ORIGIN", [?LOCALHOST], []}
+		     ]
+		    }
+		   }
+		  ]
+		 },
 
 		 {sx_socket,
 		  [{node, 'ergw'},
@@ -391,10 +410,10 @@ error_indication() ->
 error_indication(Config) ->
     S = make_gtp_socket(Config),
 
-    {_, _, Port} = lists:keyfind(grx, 1, gtp_socket_reg:all()),
     {GtpC, _, _} = create_pdp_context(S),
 
-    gtp_context:session_report(Port, make_error_indication_report(GtpC)),
+    [SEID] = [X || {{seid, X}, _} <- gtp_context_reg:all()],
+    gtp_context:session_report(make_error_indication_report(GtpC, SEID)),
 
     ct:sleep(100),
     delete_pdp_context(not_found, S, GtpC),
@@ -535,9 +554,8 @@ update_pdp_context_request_tei_update(Config) ->
     ?equal([], outstanding_requests()),
     delete_pdp_context(S, GtpC2),
 
-    SMR0 = meck:capture(first, ergw_sx, call,
-		       [#context{apn = ?'APN-EXAMPLE', _='_'},
-			#pfcp{type = session_modification_request, _='_'}], 2),
+    SMR0 = meck:capture(first, ergw_sx_socket, call,
+		       ['_', #pfcp{type = session_modification_request, _='_'}], 2),
     SMR = pfcp_packet:to_map(SMR0),
     #{update_far :=
 	  #update_far{
@@ -748,13 +766,15 @@ session_accounting(Config) ->
     SessionOpts0 = ergw_aaa_session:get(Session),
     #{'Accouting-Update-Fun' := UpdateFun} = SessionOpts0,
 
-    %% the default meck accounting handler returns nothing, make sure we handle that
+    %% install a accouting meck thar returns nothing, make sure we handle that
+    meck_ergw_sx_call(lists:keystore(accounting, 1, Config, {accounting, off})),
+
     SessionOpts1 = UpdateFun(Context, SessionOpts0),
     ?equal(false, maps:is_key('InPackets', SessionOpts1)),
     ?equal(false, maps:is_key('InOctets', SessionOpts1)),
 
     %% install a sensible accouting meck and try again....
-    meck_ergw_sx_call_smr_urr(Config),
+    meck_ergw_sx_call(Config),
 
     SessionOpts2 = UpdateFun(Context, SessionOpts1),
     ?match(#{'InPackets' := 3, 'OutPackets' := 1,
@@ -763,8 +783,6 @@ session_accounting(Config) ->
     SessionOpts3 = UpdateFun(Context, SessionOpts2),
     ?match(#{'InPackets' := 3, 'OutPackets' := 1,
 	     'InOctets' := 4, 'OutOctets' := 2}, SessionOpts3),
-
-    meck_ergw_sx_call(Config),
 
     delete_pdp_context(S, GtpC),
 

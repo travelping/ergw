@@ -14,14 +14,14 @@
 			  meck_reset/1,
 			  meck_unload/1,
 			  meck_validate/1,
-			  meck_ergw_sx_call/1,
-			  meck_ergw_sx_call_smr_urr/1]).
+			  meck_ergw_sx_call/1]).
 -import('ergw_test_lib', [init_seq_no/2,
 			  gtp_context/0, gtp_context/1,
 			  gtp_context_inc_seq/1,
 			  gtp_context_inc_restart_counter/1,
 			  gtp_context_new_teids/1,
-			  make_error_indication_report/1]).
+			  make_error_indication_report/1,
+			  make_error_indication_report/2]).
 -import('ergw_test_lib', [start_gtpc_server/1, stop_gtpc_server/1,
 			  make_gtp_socket/1, make_gtp_socket/2,
 			  send_pdu/2,

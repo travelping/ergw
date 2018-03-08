@@ -19,17 +19,12 @@
 
 -define(DefaultOptions, [{plmn_id, {<<"001">>, <<"01">>}},
 			 {accept_new, true},
-			 {dp_handler, ergw_sx_erl},
 			 {sx_socket, undefined},
 			 {sockets, []},
 			 {handlers, []},
 			 {node_selection, [{default, {dns, undefined}}]},
 			 {vrfs, []},
 			 {apns, []}]).
--define(DefaultHandlerOpts, [{handler,    undefined},
-			     {protocol,   undefined},
-			     {sockets,    undefined},
-			     {data_paths, undefined}]).
 
 -define(is_opts(X), (is_list(X) orelse is_map(X))).
 
@@ -160,17 +155,6 @@ validate_option(plmn_id, {MCC, MNC} = Value) ->
     end;
 validate_option(accept_new, Value) when is_boolean(Value) ->
     Value;
-validate_option(dp_handler, Value) when is_atom(Value) ->
-    try
-	ok = ergw_loader:load(ergw_sx_api, ergw_sx, Value),
-	Value
-    catch
-	error:{missing_exports, Missing} ->
-	    throw({error, {options, {dp_handler, Value, Missing}}});
-	_:Cause ->
-	    ST = erlang:get_stacktrace(),
-	    throw({error, {options, {dp_handler, Value, Cause, ST}}})
-    end;
 validate_option(sx_socket, Value) when is_list(Value); is_map(Value) ->
     ergw_sx_socket:validate_options(Value);
 validate_option(sockets, Value) when is_list(Value), length(Value) >= 1 ->
@@ -193,7 +177,6 @@ validate_option(http_api, Value) when is_list(Value) ->
 validate_option(Opt, Value)
   when Opt == plmn_id;
        Opt == accept_new;
-       Opt == dp_handler;
        Opt == sx_socket;
        Opt == sockets;
        Opt == handlers;
@@ -221,8 +204,6 @@ validate_sockets_option(Opt, Values)
     case get_opt(type, Values) of
 	'gtp-c' ->
 	    gtp_socket:validate_options(Values);
-	'gtp-u' ->
-	    ergw_sx:validate_options(Values);
 	_ ->
 	    throw({error, {options, {Opt, Values}}})
     end;

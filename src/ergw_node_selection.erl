@@ -13,7 +13,7 @@
 
 -module(ergw_node_selection).
 
--export([validate_options/2,
+-export([validate_options/2, apn_to_fqdn/1,
 	 lookup_dns/3, colocation_match/2, topology_match/2, candidates/3]).
 
 -ifdef(TEST).
@@ -74,6 +74,20 @@ candidates(Name, Services, NodeSelection) ->
 			   ServiceSet, NodeSelection);
 	L ->
 	    L
+    end.
+
+apn_to_fqdn([H|_] = APN)
+  when is_binary(H) ->
+    apn_to_fqdn([binary_to_list(X) || X <- APN]);
+apn_to_fqdn(APN)
+  when is_list(APN) ->
+    case lists:reverse(APN) of
+	["gprs", MCC, MNC | APN_NI] ->
+	    lists:reverse(["org", "3gppnetwork", MCC, MNC, "epc", "apn" | APN_NI]);
+	["org", "3gppnetwork" | _] ->
+	    APN;
+	APN_NI ->
+	    normalize_name_fqdn(["epc", "apn" | APN_NI])
     end.
 
 %%%===================================================================

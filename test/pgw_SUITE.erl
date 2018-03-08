@@ -33,15 +33,13 @@
 		  {handlers, [{lager_console_backend, [{level, info}]}]}
 		 ]},
 
-	 {ergw, [{dp_handler, '$meck'},
+	 {ergw, [{'$setup_vars',
+		  [{"ORIGIN", {value, "epc.mnc001.mcc001.3gppnetwork.org"}}]},
 		 {sockets,
 		  [{irx, [{type, 'gtp-c'},
 			  {ip,  ?TEST_GSN},
 			  {reuseaddr, true}
-			 ]},
-		   {grx, [{type, 'gtp-u'},
-			  {node, 'gtp-u-node@localhost'},
-			  {name, 'grx'}]}
+			 ]}
 		  ]},
 
 		 {vrfs,
@@ -58,7 +56,7 @@
 		 {handlers,
 		  [{gn, [{handler, ?HUT},
 			 {sockets, [irx]},
-			 {data_paths, [grx]},
+			 {node_selection, [default]},
 			 {aaa, [{'Username',
 				 [{default, ['IMSI',   <<"/">>,
 					     'IMEI',   <<"/">>,
@@ -70,7 +68,7 @@
 			]},
 		   {s5s8, [{handler, ?HUT},
 			   {sockets, [irx]},
-			   {data_paths, [grx]},
+			   {node_selection, [default]},
 			   {aaa, [{'Username',
 				   [{default, ['IMSI',   <<"/">>,
 					       'IMEI',   <<"/">>,
@@ -81,6 +79,28 @@
 					       <<"@">>, 'APN']}]}]}
 			  ]}
 		  ]},
+
+		 {node_selection,
+		  [{default,
+		    {static,
+		     [
+		      %% APN NAPTR alternative
+		      {"_default.apn.$ORIGIN", {300,64536},
+		       [{"x-3gpp-pgw","x-s5-gtp"},{"x-3gpp-pgw","x-s8-gtp"},
+			{"x-3gpp-pgw","x-gn"},{"x-3gpp-pgw","x-gp"}],
+		       "topon.s5s8.pgw.$ORIGIN"},
+		      {"_default.apn.$ORIGIN", {300,64536},
+		       [{"x-3gpp-upf","x-sxb"}],
+		       "topon.sx.prox01.$ORIGIN"},
+
+		      %% A/AAAA record alternatives
+		      {"topon.s5s8.pgw.$ORIGIN", [?FINAL_GSN], []},
+		      {"topon.sx.prox01.$ORIGIN", [?LOCALHOST], []}
+		     ]
+		    }
+		   }
+		  ]
+		 },
 
 		 {sx_socket,
 		  [{node, 'ergw'},
@@ -452,10 +472,10 @@ error_indication() ->
 error_indication(Config) ->
     S = make_gtp_socket(Config),
 
-    {_, _, Port} = lists:keyfind(grx, 1, gtp_socket_reg:all()),
     {GtpC, _, _} = create_session(S),
 
-    gtp_context:session_report(Port, make_error_indication_report(GtpC)),
+    [SEID] = [X || {{seid, X}, _} <- gtp_context_reg:all()],
+    gtp_context:session_report(make_error_indication_report(GtpC, SEID)),
 
     ct:sleep(100),
     delete_session(not_found, S, GtpC),
@@ -580,7 +600,7 @@ modify_bearer_request_tei_update(Config) ->
     {GtpC2, _, _} = modify_bearer(tei_update, S, GtpC1),
     delete_session(S, GtpC2),
 
-    SMR0 = meck:capture(first, ergw_sx, call,
+    SMR0 = meck:capture(first, ergw_sx_socket, call,
 		       ['_', #pfcp{type = session_modification_request, _='_'}], 2),
     SMR = pfcp_packet:to_map(SMR0),
     #{update_far :=
@@ -876,7 +896,7 @@ interop_sgsn_to_sgw(Config) ->
     match_exo_value([path, irx, ?CLIENT_IP, contexts, v2], 1),
     delete_session(S, GtpC2),
 
-    SMR0 = meck:capture(first, ergw_sx, call,
+    SMR0 = meck:capture(first, ergw_sx_socket, call,
 		       ['_', #pfcp{type = session_modification_request, _='_'}], 2),
     SMR = pfcp_packet:to_map(SMR0),
     #{update_far :=
@@ -923,7 +943,7 @@ interop_sgw_to_sgsn(Config) ->
     match_exo_value([path, irx, ?CLIENT_IP, contexts, v2], 0),
     ergw_ggsn_test_lib:delete_pdp_context(S, GtpC2),
 
-    SMR0 = meck:capture(first, ergw_sx, call,
+    SMR0 = meck:capture(first, ergw_sx_socket, call,
 			['_', #pfcp{type = session_modification_request, _='_'}], 2),
     SMR = pfcp_packet:to_map(SMR0),
     #{update_far :=
@@ -965,13 +985,15 @@ session_accounting(Config) ->
     SessionOpts0 = ergw_aaa_session:get(Session),
     #{'Accouting-Update-Fun' := UpdateFun} = SessionOpts0,
 
-    %% the default meck accounting handler returns nothing, make sure we handle that
+    %% install a accouting meck thar returns nothing, make sure we handle that
+    meck_ergw_sx_call(lists:keystore(accounting, 1, Config, {accounting, off})),
+
     SessionOpts1 = UpdateFun(Context, SessionOpts0),
     ?equal(false, maps:is_key('InPackets', SessionOpts1)),
     ?equal(false, maps:is_key('InOctets', SessionOpts1)),
 
     %% install a sensible accouting meck and try again....
-    meck_ergw_sx_call_smr_urr(Config),
+    meck_ergw_sx_call(Config),
 
     SessionOpts2 = UpdateFun(Context, SessionOpts1),
     ?match(#{'InPackets' := 3, 'OutPackets' := 1,

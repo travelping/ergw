@@ -36,31 +36,18 @@
 
 	 {ergw, [{'$setup_vars',
 		  [{"ORIGIN", {value, "epc.mnc001.mcc001.3gppnetwork.org"}}]},
-		 {dp_handler, '$meck'},
 		 {sockets,
 		  [{irx, [{type, 'gtp-c'},
 			  {ip,  ?TEST_GSN},
 			  {reuseaddr, true}
 			 ]},
-		   {grx, [{type, 'gtp-u'},
-			  {node, 'gtp-u-node@localhost'},
-			  {name, 'grx'}
-			 ]},
 		   {'proxy-irx', [{type, 'gtp-c'},
 				  {ip,  ?PROXY_GSN},
 				  {reuseaddr, true}
 				 ]},
-		   {'proxy-grx', [{type, 'gtp-u'},
-				  {node, 'gtp-u-proxy@vlx161-tpmd'},
-				  {name, 'proxy-grx'}
-				 ]},
 		   {'remote-irx', [{type, 'gtp-c'},
 				   {ip,  ?FINAL_GSN},
 				   {reuseaddr, true}
-				  ]},
-		   {'remote-grx', [{type, 'gtp-u'},
-				   {node, 'gtp-u-node@localhost'},
-				   {name, 'remote-grx'}
 				  ]}
 		  ]},
 
@@ -80,32 +67,27 @@
 		  %% proxy handler
 		  [{gn, [{handler, ?HUT},
 			 {sockets, [irx]},
-			 {data_paths, [grx]},
 			 {proxy_sockets, ['proxy-irx']},
-			 {proxy_data_paths, ['proxy-grx']},
 			 {node_selection, [default]}
 			]},
 		   {s5s8, [{handler, ?HUT},
 			   {sockets, [irx]},
-			   {data_paths, [grx]},
 			   {proxy_sockets, ['proxy-irx']},
-			   {proxy_data_paths, ['proxy-grx']},
 			   {node_selection, [default]},
 			   {contexts,
 			    [{<<"ams">>,
-			      [{proxy_sockets, ['proxy-irx']},
-			       {proxy_data_paths, ['proxy-grx']}]}]}
+			      [{proxy_sockets, ['proxy-irx']}]}]}
 			  ]},
 		   %% remote PGW handler
 		   {gn, [{handler, pgw_s5s8},
 			 {sockets, ['remote-irx']},
-			 {data_paths, ['remote-grx']},
+			 {node_selection, [default]},
 			 {aaa, [{'Username',
 				 [{default, ['IMSI', <<"@">>, 'APN']}]}]}
 			]},
 		   {s5s8, [{handler, pgw_s5s8},
 			   {sockets, ['remote-irx']},
-			   {data_paths, ['remote-grx']}
+			   {node_selection, [default]}
 			  ]}
 		  ]},
 
@@ -118,9 +100,17 @@
 		       [{"x-3gpp-pgw","x-s5-gtp"},{"x-3gpp-pgw","x-s8-gtp"},
 			{"x-3gpp-pgw","x-gn"},{"x-3gpp-pgw","x-gp"}],
 		       "topon.s5s8.pgw.$ORIGIN"},
+		      {"_default.apn.$ORIGIN", {300,64536},
+		       [{"x-3gpp-upf","x-sxa"}],
+		       "topon.sx.prox01.$ORIGIN"},
+		      {"_default.apn.$ORIGIN", {300,64536},
+		       [{"x-3gpp-upf","x-sxb"}],
+		       "topon.sx.prox02.$ORIGIN"},
 
 		      %% A/AAAA record alternatives
-		      {"topon.s5s8.pgw.$ORIGIN", [?FINAL_GSN], []}
+		      {"topon.s5s8.pgw.$ORIGIN", [?FINAL_GSN], []},
+		      {"topon.sx.prox01.$ORIGIN", [?LOCALHOST], []},
+		      {"topon.sx.prox02.$ORIGIN", [?LOCALHOST], []}
 		     ]
 		    }
 		   }
@@ -157,23 +147,14 @@
 
 	 {ergw, [{'$setup_vars',
 		  [{"ORIGIN", {value, "epc.mnc001.mcc001.3gppnetwork.org"}}]},
-		 {dp_handler, '$meck'},
 		 {sockets,
 		  [{irx, [{type, 'gtp-c'},
 			  {ip,  ?TEST_GSN},
 			  {reuseaddr, true}
 			 ]},
-		   {grx, [{type, 'gtp-u'},
-			  {node, 'gtp-u-node@localhost'},
-			  {name, 'grx'}
-			 ]},
 		   {'remote-irx', [{type, 'gtp-c'},
 				   {ip,  ?FINAL_GSN},
 				   {reuseaddr, true}
-				  ]},
-		   {'remote-grx', [{type, 'gtp-u'},
-				   {node, 'gtp-u-node@localhost'},
-				   {name, 'remote-grx'}
 				  ]}
 		  ]},
 
@@ -193,32 +174,27 @@
 		  %% proxy handler
 		  [{gn, [{handler, ?HUT},
 			 {sockets, [irx]},
-			 {data_paths, [grx]},
 			 {proxy_sockets, ['irx']},
-			 {proxy_data_paths, ['grx']},
 			 {node_selection, [default]}
 			]},
 		   {s5s8, [{handler, ?HUT},
 			   {sockets, [irx]},
-			   {data_paths, [grx]},
 			   {proxy_sockets, ['irx']},
-			   {proxy_data_paths, ['grx']},
 			   {node_selection, [default]},
 			   {contexts,
 			    [{<<"ams">>,
-			      [{proxy_sockets, ['irx']},
-			       {proxy_data_paths, ['grx']}]}]}
+			      [{proxy_sockets, ['irx']}]}]}
 			  ]},
 		   %% remote PGW handler
 		   {gn, [{handler, pgw_s5s8},
 			 {sockets, ['remote-irx']},
-			 {data_paths, ['remote-grx']},
+			 {node_selection, [default]},
 			 {aaa, [{'Username',
 				 [{default, ['IMSI', <<"@">>, 'APN']}]}]}
 			]},
 		   {s5s8, [{handler, pgw_s5s8},
 			   {sockets, ['remote-irx']},
-			   {data_paths, ['remote-grx']}
+			   {node_selection, [default]}
 			  ]}
 		  ]},
 
@@ -231,9 +207,17 @@
 		       [{"x-3gpp-pgw","x-s5-gtp"},{"x-3gpp-pgw","x-s8-gtp"},
 			{"x-3gpp-pgw","x-gn"},{"x-3gpp-pgw","x-gp"}],
 		       "topon.s5s8.pgw.$ORIGIN"},
+		      {"_default.apn.$ORIGIN", {300,64536},
+		       [{"x-3gpp-upf","x-sxa"}],
+		       "topon.sx.prox01.$ORIGIN"},
+		      {"_default.apn.$ORIGIN", {300,64536},
+		       [{"x-3gpp-upf","x-sxb"}],
+		       "topon.sx.prox02.$ORIGIN"},
 
 		      %% A/AAAA record alternatives
-		      {"topon.s5s8.pgw.$ORIGIN", [?FINAL_GSN], []}
+		      {"topon.s5s8.pgw.$ORIGIN", [?FINAL_GSN], []},
+		      {"topon.sx.prox01.$ORIGIN", [?LOCALHOST], []},
+		      {"topon.sx.prox02.$ORIGIN", [?LOCALHOST], []}
 		     ]
 		    }
 		   }
@@ -704,10 +688,14 @@ error_indication_sgw2pgw() ->
 error_indication_sgw2pgw(Config) ->
     S = make_gtp_socket(Config),
 
-    {_, _, Port} = lists:keyfind(grx, 1, gtp_socket_reg:all()),
     {GtpC, _, _} = create_session(S),
 
-    gtp_context:session_report(Port, make_error_indication_report(GtpC)),
+    CtxPid = gtp_context_reg:lookup_key(#gtp_port{name = 'irx'},
+					{imsi, ?'IMSI', 5}),
+    true = is_pid(CtxPid),
+    #{context := #context{cp_seid = SEID}} = gtp_context:info(CtxPid),
+
+    gtp_context:session_report(make_error_indication_report(GtpC, SEID)),
 
     ct:sleep(100),
     delete_session(not_found, S, GtpC),
@@ -814,9 +802,8 @@ modify_bearer_request_tei_update(Config) ->
     ?equal([], outstanding_requests()),
     delete_session(S, GtpC2),
 
-    SMR0 = meck:capture(first, ergw_sx, call,
-		       [#context{apn = ?'APN-ExAmPlE', _='_'},
-			#pfcp{type = session_modification_request, _='_'}], 2),
+    SMR0 = meck:capture(2, ergw_sx_socket, call,
+		       ['_', #pfcp{type = session_modification_request, _='_'}], 2),
     SMR = pfcp_packet:to_map(SMR0),
     #{update_far :=
 	  #update_far{
@@ -1284,9 +1271,8 @@ interop_sgsn_to_sgw(Config) ->
     check_exo_contexts(v2, 3, 1),
     delete_session(S, GtpC2),
 
-    SMR0 = meck:capture(first, ergw_sx, call,
-		       [#context{apn = ?'APN-EXAMPLE', _='_'},
-			#pfcp{type = session_modification_request, _='_'}], 2),
+    SMR0 = meck:capture(3, ergw_sx_socket, call,
+		       ['_', #pfcp{type = session_modification_request, _='_'}], 2),
     SMR = pfcp_packet:to_map(SMR0),
     #{update_far :=
 	  #update_far{
@@ -1319,9 +1305,8 @@ interop_sgw_to_sgsn(Config) ->
     check_exo_contexts(v2, 3, 0),
     ergw_ggsn_test_lib:delete_pdp_context(S, GtpC2),
 
-    SMR0 = meck:capture(first, ergw_sx, call,
-		       [#context{apn = ?'APN-ExAmPlE', _='_'},
-			#pfcp{type = session_modification_request, _='_'}], 2),
+    SMR0 = meck:capture(3, ergw_sx_socket, call,
+		       ['_', #pfcp{type = session_modification_request, _='_'}], 2),
     SMR = pfcp_packet:to_map(SMR0),
     #{update_far :=
 	  #update_far{
@@ -1403,13 +1388,15 @@ session_accounting(Config) ->
     SessionOpts0 = ergw_aaa_session:get(Session),
     #{'Accouting-Update-Fun' := UpdateFun} = SessionOpts0,
 
-    %% the default meck accounting handler returns nothing, make sure we handle that
+    %% install a accouting meck thar returns nothing, make sure we handle that
+    meck_ergw_sx_call(lists:keystore(accounting, 1, Config, {accounting, off})),
+
     SessionOpts1 = UpdateFun(Context, SessionOpts0),
     ?equal(false, maps:is_key('InPackets', SessionOpts1)),
     ?equal(false, maps:is_key('InOctets', SessionOpts1)),
 
     %% install a sensible accouting meck and try again....
-    meck_ergw_sx_call_smr_urr(Config),
+    meck_ergw_sx_call(Config),
 
     SessionOpts2 = UpdateFun(Context, SessionOpts1),
     ?match(#{'InPackets' := 3, 'OutPackets' := 1,

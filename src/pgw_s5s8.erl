@@ -49,6 +49,7 @@
 -define('APN-AMBR',					{v2_aggregate_maximum_bit_rate, 0}).
 -define('Bearer Level QoS',				{v2_bearer_level_quality_of_service, 0}).
 -define('EPS Bearer ID',                                {v2_eps_bearer_id, 0}).
+-define('SGW-U node name',                              {v2_fully_qualified_domain_name, 0}).
 
 -define('S5/S8-U SGW',  4).
 -define('S5/S8-U PGW',  5).
@@ -152,6 +153,7 @@ handle_request(_ReqKey, _Msg, true, State) ->
 handle_request(_ReqKey,
 	       #gtp{type = create_session_request,
 		    ie = #{?'Sender F-TEID for Control Plane' := FqCntlTEID,
+			   ?'Access Point Name' := #v2_access_point_name{apn = APN},
 			   ?'Bearer Contexts to be created' :=
 			       #v2_bearer_context{
 				  group = #{
@@ -163,7 +165,8 @@ handle_request(_ReqKey,
 				   }}
 			  } = IEs} = Request,
 	       _Resent,
-	       #{context := Context0, aaa_opts := AAAopts, 'Session' := Session} = State) ->
+	       #{context := Context0, aaa_opts := AAAopts, node_selection := NodeSelect,
+		 'Session' := Session} = State) ->
 
     PAA = maps:get(?'PDN Address Allocation', IEs, undefined),
 
@@ -186,8 +189,28 @@ handle_request(_ReqKey,
 
     ContextPending = assign_ips(ActiveSessionOpts, PAA, ContextVRF),
 
-    gtp_context:remote_context_register_new(ContextPending),
-    Context = ergw_gsn_lib:create_sgi_session(ContextPending),
+    APN_FQDN = ergw_node_selection:apn_to_fqdn(APN),
+    Services = [{"x-3gpp-upf", "x-sxb"}],
+    Candidates0 = ergw_node_selection:candidates(APN_FQDN, Services, NodeSelect),
+    Candidates =
+	case IEs of
+	    #{?'SGW-U node name' := #v2_fully_qualified_domain_name{fqdn = FQDN}} ->
+		SGWCandidates = [{FQDN, 0, Services, [], []}],
+		case ergw_node_selection:topology_match(Candidates0, SGWCandidates) of
+		    {_, C} when is_list(C), length(C) /= 0 ->
+			C;
+		    {C, _} when is_list(C), length(C) /= 0 ->
+			C;
+		    _ ->
+			%% neither colocation, not topology matched
+			Candidates0
+		end;
+	    _ ->
+		Candidates0
+	end,
+
+    Context = ergw_gsn_lib:create_sgi_session(Candidates, ContextPending),
+    gtp_context:remote_context_register_new(Context),
 
     ResponseIEs = create_session_response(ActiveSessionOpts, IEs, EBI, Context),
     Response = response(create_session_response, Context, ResponseIEs, Request),

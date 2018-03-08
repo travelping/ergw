@@ -75,9 +75,7 @@ start_socket(Name, Opts)
     gtp_socket_sup:new({Name, Opts}).
 
 start_link('gtp-c', {Name, SocketOpts}) ->
-    gen_server:start_link(?MODULE, [Name, SocketOpts], []);
-start_link('gtp-u', Socket) ->
-    ergw_sx:start_link(Socket).
+    gen_server:start_link(?MODULE, [Name, SocketOpts], []).
 
 start_link(Socket = {_Name, #{type := Type}}) ->
     start_link(Type, Socket);
@@ -87,9 +85,7 @@ start_link(Socket = {_Name, SocketOpts})
     start_link(Type, Socket).
 
 send(#gtp_port{type = 'gtp-c'} = GtpPort, IP, Port, Data) ->
-    cast(GtpPort, {send, IP, Port, Data});
-send(#gtp_port{type = 'gtp-u'} = GtpPort, IP, Port, Data) ->
-    ergw_sx:send(GtpPort, IP, Port, Data).
+    cast(GtpPort, {send, IP, Port, Data}).
 
 send_response(#request{gtp_port = GtpPort, ip = RemoteIP} = ReqKey, Msg, DoCache) ->
     message_counter(tx, GtpPort, RemoteIP, Msg),
@@ -98,8 +94,8 @@ send_response(#request{gtp_port = GtpPort, ip = RemoteIP} = ReqKey, Msg, DoCache
 
 send_request(#gtp_port{type = 'gtp-c'} = GtpPort, DstIP, DstPort, T3, N3,
 	     Msg = #gtp{version = Version}, CbInfo) ->
-    lager:debug("~p: gtp_socket send_request to ~s:~w: ~p",
-		[self(), inet:ntoa(DstIP), DstPort, Msg]),
+    lager:debug("~p: gtp_socket send_request to ~s(~p):~w: ~p",
+		[self(), inet:ntoa(DstIP), DstIP, DstPort, Msg]),
 
     cast(GtpPort, make_send_req(undefined, DstIP, DstPort, T3, N3, Msg, CbInfo)),
     gtp_path:maybe_new_path(GtpPort, Version, DstIP).
