@@ -26,9 +26,10 @@ create_sgi_session(Candidates, Ctx0) ->
     {ok, NWIs} = ergw_sx_node:get_network_instances(Ctx1),
     Ctx = assign_data_teid(Ctx1, get_context_nwi(Ctx1, NWIs)),
     SEID = ergw_sx_socket:seid(),
+    {ok, #node{node = _Node, ip = IP}} = ergw_sx_socket:id(),
 
     IEs =
-	[#f_seid{seid = SEID}] ++
+	[#f_seid{seid = SEID, ipv4 = gtp_c_lib:ip2bin(IP)}] ++
 	lists:foldl(fun create_pdr/2, [], [{1, gtp, Ctx}, {2, sgi, Ctx}]) ++
 	lists:foldl(fun create_far/2, [], [{2, gtp, Ctx}, {1, sgi, Ctx}]) ++
 	[#create_urr{group =
