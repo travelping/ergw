@@ -102,15 +102,15 @@
 		       "topon.s5s8.pgw.$ORIGIN"},
 		      {"_default.apn.$ORIGIN", {300,64536},
 		       [{"x-3gpp-upf","x-sxa"}],
-		       "topon.sx.prox01.$ORIGIN"},
+		       "topon.sx.sgw-u01.$ORIGIN"},
 		      {"_default.apn.$ORIGIN", {300,64536},
 		       [{"x-3gpp-upf","x-sxb"}],
-		       "topon.sx.prox02.$ORIGIN"},
+		       "topon.sx.pgw-u01.$ORIGIN"},
 
 		      %% A/AAAA record alternatives
 		      {"topon.s5s8.pgw.$ORIGIN", [?FINAL_GSN], []},
-		      {"topon.sx.prox01.$ORIGIN", [?LOCALHOST], []},
-		      {"topon.sx.prox02.$ORIGIN", [?LOCALHOST], []}
+		      {"topon.sx.sgw-u01.$ORIGIN", [?SGW_U_SX], []},
+		      {"topon.sx.pgw-u01.$ORIGIN", [?PGW_U_SX], []}
 		     ]
 		    }
 		   }
@@ -120,8 +120,8 @@
 		 {sx_socket,
 		  [{node, 'ergw'},
 		   {name, 'ergw'},
-		   {ip, {127,0,0,1}}]},
-
+		   {ip, ?LOCALHOST},
+		   {reuseaddr, true}]},
 		 {apns,
 		  [{?'APN-PROXY', [{vrf, example}]}
 		  ]},
@@ -209,15 +209,15 @@
 		       "topon.s5s8.pgw.$ORIGIN"},
 		      {"_default.apn.$ORIGIN", {300,64536},
 		       [{"x-3gpp-upf","x-sxa"}],
-		       "topon.sx.prox01.$ORIGIN"},
+		       "topon.sx.sgw-u01.$ORIGIN"},
 		      {"_default.apn.$ORIGIN", {300,64536},
 		       [{"x-3gpp-upf","x-sxb"}],
-		       "topon.sx.prox02.$ORIGIN"},
+		       "topon.sx.pgw-u01.$ORIGIN"},
 
 		      %% A/AAAA record alternatives
 		      {"topon.s5s8.pgw.$ORIGIN", [?FINAL_GSN], []},
-		      {"topon.sx.prox01.$ORIGIN", [?LOCALHOST], []},
-		      {"topon.sx.prox02.$ORIGIN", [?LOCALHOST], []}
+		      {"topon.sx.sgw-u01.$ORIGIN", [?SGW_U_SX], []},
+		      {"topon.sx.pgw-u01.$ORIGIN", [?PGW_U_SX], []}
 		     ]
 		    }
 		   }
@@ -227,7 +227,8 @@
 		 {sx_socket,
 		  [{node, 'ergw'},
 		   {name, 'ergw'},
-		   {ip, {127,0,0,1}}]},
+		   {ip, ?LOCALHOST},
+		   {reuseaddr, true}]},
 
 		 {apns,
 		  [{?'APN-PROXY', [{vrf, example}]}
@@ -320,6 +321,8 @@ all_tests() ->
 %%%===================================================================
 
 init_per_testcase(Config) ->
+    ergw_test_sx_up:reset('pgw-u'),
+    ergw_test_sx_up:reset('sgw-u'),
     meck_reset(Config).
 
 init_per_testcase(delete_session_request_resend, Config) ->
@@ -690,12 +693,7 @@ error_indication_sgw2pgw(Config) ->
 
     {GtpC, _, _} = create_session(S),
 
-    CtxPid = gtp_context_reg:lookup_key(#gtp_port{name = 'irx'},
-					{imsi, ?'IMSI', 5}),
-    true = is_pid(CtxPid),
-    #{context := #context{cp_seid = SEID}} = gtp_context:info(CtxPid),
-
-    gtp_context:session_report(make_error_indication_report(GtpC, SEID)),
+    ergw_test_sx_up:send('sgw-u', make_error_indication_report(GtpC)),
 
     ct:sleep(100),
     delete_session(not_found, S, GtpC),
@@ -719,7 +717,7 @@ error_indication_pgw2sgw(Config) ->
     true = is_pid(CtxPid),
     #{proxy_context := Ctx} = gtp_context:info(CtxPid),
 
-    CtxPid ! make_error_indication_report(Ctx),
+    ergw_test_sx_up:send('sgw-u', make_error_indication_report(Ctx)),
 
     Request = recv_pdu(S, 5000),
     ?match(#gtp{type = delete_bearer_request}, Request),
@@ -802,8 +800,10 @@ modify_bearer_request_tei_update(Config) ->
     ?equal([], outstanding_requests()),
     delete_session(S, GtpC2),
 
-    SMR0 = meck:capture(2, ergw_sx_socket, call,
-		       ['_', #pfcp{type = session_modification_request, _='_'}], 2),
+    [_, SMR0|_] = lists:filter(
+		    fun(#pfcp{type = session_modification_request}) -> true;
+		       (_) -> false
+		    end, ergw_test_sx_up:history('sgw-u')),
     SMR = pfcp_packet:to_map(SMR0),
     #{update_far :=
 	  #update_far{
@@ -1271,8 +1271,10 @@ interop_sgsn_to_sgw(Config) ->
     check_exo_contexts(v2, 3, 1),
     delete_session(S, GtpC2),
 
-    SMR0 = meck:capture(3, ergw_sx_socket, call,
-		       ['_', #pfcp{type = session_modification_request, _='_'}], 2),
+    [_, SMR0|_] = lists:filter(
+		    fun(#pfcp{type = session_modification_request}) -> true;
+		       (_) -> false
+		    end, ergw_test_sx_up:history('sgw-u')),
     SMR = pfcp_packet:to_map(SMR0),
     #{update_far :=
 	  #update_far{
@@ -1305,8 +1307,10 @@ interop_sgw_to_sgsn(Config) ->
     check_exo_contexts(v2, 3, 0),
     ergw_ggsn_test_lib:delete_pdp_context(S, GtpC2),
 
-    SMR0 = meck:capture(3, ergw_sx_socket, call,
-		       ['_', #pfcp{type = session_modification_request, _='_'}], 2),
+    [_, SMR0|_] = lists:filter(
+		    fun(#pfcp{type = session_modification_request}) -> true;
+		       (_) -> false
+		    end, ergw_test_sx_up:history('sgw-u')),
     SMR = pfcp_packet:to_map(SMR0),
     #{update_far :=
 	  #update_far{
@@ -1388,15 +1392,15 @@ session_accounting(Config) ->
     SessionOpts0 = ergw_aaa_session:get(Session),
     #{'Accouting-Update-Fun' := UpdateFun} = SessionOpts0,
 
-    %% install a accouting meck thar returns nothing, make sure we handle that
-    meck_ergw_sx_call(lists:keystore(accounting, 1, Config, {accounting, off})),
+    %% make sure we handle that the Sx node is not returning any accounting
+    ergw_test_sx_up:accounting('sgw-u', off),
 
     SessionOpts1 = UpdateFun(Context, SessionOpts0),
     ?equal(false, maps:is_key('InPackets', SessionOpts1)),
     ?equal(false, maps:is_key('InOctets', SessionOpts1)),
 
-    %% install a sensible accouting meck and try again....
-    meck_ergw_sx_call(Config),
+    %% enable accouting again....
+    ergw_test_sx_up:accounting('sgw-u', on),
 
     SessionOpts2 = UpdateFun(Context, SessionOpts1),
     ?match(#{'InPackets' := 3, 'OutPackets' := 1,
@@ -1405,8 +1409,6 @@ session_accounting(Config) ->
     SessionOpts3 = UpdateFun(Context, SessionOpts2),
     ?match(#{'InPackets' := 3, 'OutPackets' := 1,
 	     'InOctets' := 4, 'OutOctets' := 2}, SessionOpts3),
-
-    meck_ergw_sx_call(Config),
 
     delete_session(S, GtpC),
 
