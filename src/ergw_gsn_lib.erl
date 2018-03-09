@@ -140,7 +140,8 @@ create_far({RuleId, gtp,
 	       data_port = DataPort,
 	       remote_data_ip = PeerIP,
 	       remote_data_tei = RemoteTEI}},
-	   FARs) ->
+	   FARs)
+  when PeerIP /= undefined ->
     FAR = #create_far{
 	     group =
 		 [#far_id{id = RuleId},
@@ -172,7 +173,10 @@ create_far({RuleId, sgi, #context{vrf = VRF}}, FARs) ->
 		    }
 		 ]
 	    },
-    [FAR | FARs].
+    [FAR | FARs];
+
+create_far({_RuleId, _Intf, _Out}, FARs) ->
+    FARs.
 
 update_pdr({RuleId, gtp,
 	    #context{data_port = #gtp_port{name = InPortName, ip = IP} = DataPort,
@@ -224,6 +228,13 @@ update_pdr({RuleId, sgi,
 
 update_pdr({_RuleId, _Type, _In, _OldIn}, PDRs) ->
     PDRs.
+
+update_far({RuleId, gtp,
+	    #context{remote_data_ip = PeerIP} = Context,
+	    #context{remote_data_ip = OldPeerIP}},
+	   FARs)
+  when (OldPeerIP =:= undefined andalso PeerIP /= undefined) ->
+    create_far({RuleId, gtp, Context}, FARs);
 
 update_far({RuleId, gtp,
 	    #context{version = Version,

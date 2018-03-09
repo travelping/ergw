@@ -40,9 +40,6 @@ modify_bearer(SubType, Socket, GtpC0)
   when SubType == tei_update ->
     GtpC = gtp_context_new_teids(GtpC0),
     execute_request(modify_bearer_request, SubType, Socket, GtpC);
-modify_bearer(SubType, Socket, GtpC)
-  when SubType == sgw_change ->
-    execute_request(modify_bearer_request, SubType, Socket, GtpC);
 modify_bearer(SubType, Socket, GtpC) ->
     execute_request(modify_bearer_request, SubType, Socket, GtpC).
 
@@ -117,25 +114,40 @@ make_request(create_session_request, SubType,
 	     #gtpc{restart_counter = RCnt, seq_no = SeqNo,
 		   local_control_tei = LocalCntlTEI,
 		   local_data_tei = LocalDataTEI}) ->
+    BearerContexts0 =
+	[#v2_bearer_level_quality_of_service{
+	    pci = 1, pl = 10, pvi = 0, label = 8,
+	    maximum_bit_rate_for_uplink      = 0,
+	    maximum_bit_rate_for_downlink    = 0,
+	    guaranteed_bit_rate_for_uplink   = 0,
+	    guaranteed_bit_rate_for_downlink = 0},
+	 #v2_eps_bearer_id{eps_bearer_id = 5}],
+    BearerContexts =
+	case SubType of
+	    x2_handover ->
+		[#v2_fully_qualified_tunnel_endpoint_identifier{
+		    instance = 0,
+		    interface_type = ?'S1-U eNode-B',
+		    key = LocalDataTEI,
+		    ipv4 = gtp_c_lib:ip2bin(?CLIENT_IP)}
+		 | BearerContexts0];
+	    tau_rau_handover ->
+		[#v2_fully_qualified_tunnel_endpoint_identifier{
+		    instance = 3,
+		    interface_type = ?'S5/S8-U PGW',
+		    %% TODO: this might be wrong, should be remote_data_tei instead...
+		    key = LocalDataTEI,
+		    ipv4 = gtp_c_lib:ip2bin(?CLIENT_IP)}
+		 | BearerContexts0];
+	    _ ->
+		BearerContexts0
+	end,
     IEs0 =
 	[#v2_recovery{restart_counter = RCnt},
 	 #v2_access_point_name{apn = apn(SubType)},
 	 #v2_aggregate_maximum_bit_rate{uplink = 48128, downlink = 1704125},
 	 #v2_apn_restriction{restriction_type_value = 0},
-	 #v2_bearer_context{
-	    group = [#v2_bearer_level_quality_of_service{
-			pci = 1, pl = 10, pvi = 0, label = 8,
-			maximum_bit_rate_for_uplink      = 0,
-			maximum_bit_rate_for_downlink    = 0,
-			guaranteed_bit_rate_for_uplink   = 0,
-			guaranteed_bit_rate_for_downlink = 0},
-		     #v2_eps_bearer_id{eps_bearer_id = 5},
-		     #v2_fully_qualified_tunnel_endpoint_identifier{
-			instance = 0,
-			interface_type = ?'S1-U eNode-B',
-			key = LocalDataTEI,
-			ipv4 = gtp_c_lib:ip2bin(?CLIENT_IP)}
-		    ]},
+	 #v2_bearer_context{group = BearerContexts},
 	 #v2_fully_qualified_tunnel_endpoint_identifier{
 	    instance = 0,
 	    interface_type = ?'S11-C MME',
@@ -162,10 +174,29 @@ make_request(create_session_request, SubType,
 
 make_request(modify_bearer_request, SubType,
 	     #gtpc{restart_counter = RCnt, seq_no = SeqNo,
+		   local_data_tei = LocalDataTEI,
+		   remote_control_tei = RemoteCntlTEI})
+  when SubType == enb_u_tei ->
+    IEs = [#v2_recovery{restart_counter = RCnt},
+	   #v2_bearer_context{
+	      group = [#v2_eps_bearer_id{eps_bearer_id = 5},
+		       #v2_fully_qualified_tunnel_endpoint_identifier{
+			  instance = 0,
+			  interface_type = ?'S1-U eNode-B',
+			  key = LocalDataTEI,
+			  ipv4 = gtp_c_lib:ip2bin(?CLIENT_IP)}
+		      ]}
+	  ],
+
+    #gtp{version = v2, type = modify_bearer_request, tei = RemoteCntlTEI,
+	 seq_no = SeqNo, ie = IEs};
+
+make_request(modify_bearer_request, SubType,
+	     #gtpc{restart_counter = RCnt, seq_no = SeqNo,
 		   local_control_tei = LocalCntlTEI,
 		   local_data_tei = LocalDataTEI,
 		   remote_control_tei = RemoteCntlTEI})
-  when SubType == tei_update; SubType == sgw_change ->
+  when SubType == tei_update ->
     IEs = [#v2_recovery{restart_counter = RCnt},
 	   #v2_bearer_context{
 	      group = [#v2_eps_bearer_id{eps_bearer_id = 5},
@@ -429,7 +460,7 @@ validate_response(create_session_request, _SubType, Response,
 
 validate_response(modify_bearer_request, SubType, Response,
 		  #gtpc{local_control_tei = LocalCntlTEI} = GtpC)
-  when SubType == tei_update; SubType == sgw_change ->
+  when SubType == tei_update; SubType == enb_u_tei ->
     ?match(
        #gtp{type = modify_bearer_response,
 	    tei = LocalCntlTEI,
