@@ -138,6 +138,7 @@ handle_request(_ReqKey, _Msg, true, State) ->
 handle_request(_ReqKey,
 	       #gtp{type = create_session_request,
 		    ie = #{?'Sender F-TEID for Control Plane' := FqCntlTEID,
+			   ?'Access Point Name' := #v2_access_point_name{apn = APN},
 			   ?'Bearer Contexts to be created' :=
 			       #v2_bearer_context{
 				  group = #{
@@ -145,17 +146,22 @@ handle_request(_ReqKey,
 				   } = BearerGroup}
 			  } = IEs} = Request,
 	       _Resent,
-	       #{context := Context0, aaa_opts := AAAopts, 'Session' := Session} = State) ->
+	       #{context := Context0, aaa_opts := AAAopts, node_selection := NodeSelect,
+		 'Session' := Session} = State) ->
 
     PAA = maps:get(?'PDN Address Allocation', IEs, undefined),
 
-    FqDataTEID = maps:get({v2_fully_qualified_tunnel_endpoint_identifier, 0}, BearerGroup, undefined),
-    Context1 = case FqDataTEID of
-	#v2_fully_qualified_tunnel_endpoint_identifier{interface_type = ?'S1-U eNode-B'} ->
-	    update_context_tunnel_ids(FqCntlTEID, FqDataTEID, Context0);
-	_ ->
-	    update_context_cntl_ids(FqCntlTEID, Context0)
-    end,
+    FqDataTEID =
+	case BearerGroup of
+	    #{{v2_fully_qualified_tunnel_endpoint_identifier, 0} :=
+		  #v2_fully_qualified_tunnel_endpoint_identifier{
+		     interface_type = ?'S1-U eNode-B'} = TEID} ->
+		TEID;
+	    _ ->
+		undefined
+	end,
+
+    Context1 = update_context_tunnel_ids(FqCntlTEID, FqDataTEID, Context0),
     Context2 = update_context_from_gtp_req(Request, Context1),
     ContextPreAuth = gtp_path:bind(Request, Context2),
 
@@ -174,11 +180,12 @@ handle_request(_ReqKey,
 
     ContextPending = assign_ips(ActiveSessionOpts, PAA, ContextVRF),
 
-    gtp_context:remote_context_register_new(ContextPending),
-    Context = if ContextPending#context.remote_data_ip /= undefined ->
-		     ergw_gsn_lib:create_sgi_session(ContextPending);
-		true -> ContextPending
-	      end,
+    APN_FQDN = ergw_node_selection:apn_to_fqdn(APN),
+    Services = [{"x-3gpp-upf", "x-sxb"}],
+    Candidates = ergw_node_selection:candidates(APN_FQDN, Services, NodeSelect),
+
+    Context = ergw_gsn_lib:create_sgi_session(Candidates, ContextPending),
+    gtp_context:remote_context_register_new(Context),
 
     ResponseIEs = create_session_response(ActiveSessionOpts, IEs, EBI, Context),
     Response = response(create_session_response, Context, ResponseIEs, Request),
@@ -206,16 +213,11 @@ handle_request(_ReqKey,
 
     Context0 = update_context_tunnel_ids(FqCntlTEID, FqDataTEID, OldContext),
     Context1 = update_context_from_gtp_req(Request, Context0),
-    Context2 = gtp_path:bind(Request, Context1),
+    Context = gtp_path:bind(Request, Context1),
 
-    Context = if OldContext#context.remote_data_ip == undefined ->
-		     ergw_gsn_lib:create_sgi_session(Context2);
-		 true -> Context2
-	      end,
-    
-    State1 = if OldContext#context.remote_data_ip /= undefined andalso Context /= OldContext ->
-		    gtp_context:remote_context_update(OldContext, Context),
-		    apply_context_change(Context, OldContext, State0);
+    State1 = if Context /= OldContext ->
+		     gtp_context:remote_context_update(OldContext, Context),
+		     apply_context_change(Context, OldContext, State0);
 		true ->
 		     State0
 	     end,

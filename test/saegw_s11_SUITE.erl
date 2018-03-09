@@ -33,15 +33,13 @@
 		  {handlers, [{lager_console_backend, [{level, info}]}]}
 		 ]},
 
-	 {ergw, [{dp_handler, '$meck'},
+	 {ergw, [{'$setup_vars',
+		  [{"ORIGIN", {value, "epc.mnc001.mcc001.3gppnetwork.org"}}]},
 		 {sockets,
 		  [{irx, [{type, 'gtp-c'},
 			  {ip,  ?TEST_GSN},
 			  {reuseaddr, true}
-			 ]},
-		   {grx, [{type, 'gtp-u'},
-			  {node, 'gtp-u-node@localhost'},
-			  {name, 'grx'}]}
+			 ]}
 		  ]},
 
 		 {vrfs,
@@ -58,16 +56,39 @@
 		 {handlers,
 		  [{s11, [{handler, ?HUT},
 			  {sockets, [irx]},
-			  {data_paths, [grx]},
+			  {node_selection, [default]},
 			  {aaa, [{'Username',
 				  [{default, ['IMSI', <<"/">>, 'IMEI', <<"/">>, 'MSISDN', <<"@">>, 'APN']}]}]}
 			 ]}
 		  ]},
 
+		 {node_selection,
+		  [{default,
+		    {static,
+		     [
+		      %% APN NAPTR alternative
+		      {"_default.apn.$ORIGIN", {300,64536},
+		       [{"x-3gpp-pgw","x-s5-gtp"},{"x-3gpp-pgw","x-s8-gtp"},
+			{"x-3gpp-pgw","x-gn"},{"x-3gpp-pgw","x-gp"}],
+		       "topon.s5s8.pgw.$ORIGIN"},
+		      {"_default.apn.$ORIGIN", {300,64536},
+		       [{"x-3gpp-upf","x-sxb"}],
+		       "topon.sx.prox01.$ORIGIN"},
+
+		      %% A/AAAA record alternatives
+		      {"topon.s5s8.pgw.$ORIGIN", [?FINAL_GSN], []},
+		      {"topon.sx.prox01.$ORIGIN", [?PGW_U_SX], []}
+		     ]
+		    }
+		   }
+		  ]
+		 },
+
 		 {sx_socket,
 		  [{node, 'ergw'},
 		   {name, 'ergw'},
-		   {ip, {127,0,0,1}}]},
+		   {ip, ?LOCALHOST},
+		   {reuseaddr, true}]},
 
 		 {apns,
 		  [{?'APN-EXAMPLE', [{vrf, upstream}]},
@@ -98,6 +119,8 @@ all() ->
      create_session_request_aaa_reject,
      create_session_request_invalid_apn,
      create_session_request_accept_new,
+     simple_session_request,
+     create_session_request_x2_handover,
      create_session_request_resend,
      delete_session_request_resend,
      modify_bearer_request_ra_update,
@@ -119,6 +142,7 @@ all() ->
 
 init_per_testcase(Config) ->
     ct:pal("Sockets: ~p", [gtp_socket_reg:all()]),
+    ergw_test_sx_up:reset('pgw-u'),
     meck_reset(Config).
 
 init_per_testcase(create_session_request_aaa_reject, Config) ->
@@ -228,6 +252,35 @@ create_session_request_accept_new(Config) ->
     ok.
 
 %%--------------------------------------------------------------------
+simple_session_request() ->
+    [{doc, "Check simple Create Session, Delete Session sequence"}].
+simple_session_request(Config) ->
+    S = make_gtp_socket(Config),
+
+    {GtpC1, _, _} = create_session(S),
+    {GtpC2, _, _} = modify_bearer(enb_u_tei, S, GtpC1),
+    delete_session(S, GtpC2),
+
+    ?equal([], outstanding_requests()),
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+create_session_request_x2_handover() ->
+    [{doc, "Check X11 handover, Delete Session sequence"}].
+create_session_request_x2_handover(Config) ->
+    S = make_gtp_socket(Config),
+
+    {GtpC1, _, _} = create_session(x2_handover, S),
+    delete_session(S, GtpC1),
+
+    ?equal([], outstanding_requests()),
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
 create_session_request_resend() ->
     [{doc, "Check that a retransmission of a Create Session Request works"}].
 create_session_request_resend(Config) ->
@@ -265,8 +318,9 @@ modify_bearer_request_ra_update(Config) ->
     S = make_gtp_socket(Config),
 
     {GtpC1, _, _} = create_session(S),
-    {GtpC2, _, _} = modify_bearer(ra_update, S, GtpC1),
-    delete_session(S, GtpC2),
+    {GtpC2, _, _} = modify_bearer(enb_u_tei, S, GtpC1),
+    {GtpC3, _, _} = modify_bearer(ra_update, S, GtpC2),
+    delete_session(S, GtpC3),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
@@ -279,11 +333,14 @@ modify_bearer_request_tei_update(Config) ->
     S = make_gtp_socket(Config),
 
     {GtpC1, _, _} = create_session(S),
-    {GtpC2, _, _} = modify_bearer(tei_update, S, GtpC1),
-    delete_session(S, GtpC2),
+    {GtpC2, _, _} = modify_bearer(enb_u_tei, S, GtpC1),
+    {GtpC3, _, _} = modify_bearer(tei_update, S, GtpC2),
+    delete_session(S, GtpC3),
 
-    SMR0 = meck:capture(first, ergw_sx, call,
-			['_', #pfcp{type = session_modification_request, _='_'}], 2),
+    [_, SMR0|_] = lists:filter(
+		    fun(#pfcp{type = session_modification_request}) -> true;
+		       (_) -> false
+		    end, ergw_test_sx_up:history('pgw-u')),
     SMR = pfcp_packet:to_map(SMR0),
     #{update_far :=
 	  #update_far{
@@ -304,17 +361,18 @@ modify_bearer_command(Config) ->
     S = make_gtp_socket(0, Config),
 
     {GtpC1, _, _} = create_session(S),
-    {GtpC2, Req0} = modify_bearer_command(simple, S, GtpC1),
+    {GtpC2, _, _} = modify_bearer(enb_u_tei, S, GtpC1),
+    {GtpC3, Req0} = modify_bearer_command(simple, S, GtpC2),
 
     Req1 = recv_pdu(S, Req0#gtp.seq_no, ?TIMEOUT, ok),
-    validate_response(modify_bearer_command, simple, Req1, GtpC2),
-    Response = make_response(Req1, simple, GtpC2),
+    validate_response(modify_bearer_command, simple, Req1, GtpC3),
+    Response = make_response(Req1, simple, GtpC3),
     send_pdu(S, Response),
 
     ?equal({ok, timeout}, recv_pdu(S, Req1#gtp.seq_no, ?TIMEOUT, ok)),
     ?equal([], outstanding_requests()),
 
-    delete_session(S, GtpC2),
+    delete_session(S, GtpC3),
     stop_gtpc_server(Cntl),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
@@ -329,10 +387,11 @@ modify_bearer_command_timeout(Config) ->
     S = make_gtp_socket(0, Config),
 
     {GtpC1, _, _} = create_session(S),
-    {GtpC2, Req0} = modify_bearer_command(simple, S, GtpC1),
+    {GtpC2, _, _} = modify_bearer(enb_u_tei, S, GtpC1),
+    {GtpC3, Req0} = modify_bearer_command(simple, S, GtpC2),
 
     Req1 = recv_pdu(S, Req0#gtp.seq_no, ?TIMEOUT, ok),
-    validate_response(modify_bearer_command, simple, Req1, GtpC2),
+    validate_response(modify_bearer_command, simple, Req1, GtpC3),
     ?equal(Req1, recv_pdu(S, 5000)),
     ?equal(Req1, recv_pdu(S, 5000)),
 
@@ -355,16 +414,17 @@ modify_bearer_command_congestion(Config) ->
     S = make_gtp_socket(0, Config),
 
     {GtpC1, _, _} = create_session(S),
-    {GtpC2, Req0} = modify_bearer_command(simple, S, GtpC1),
+    {GtpC2, _, _} = modify_bearer(enb_u_tei, S, GtpC1),
+    {GtpC3, Req0} = modify_bearer_command(simple, S, GtpC2),
 
     Req1 = recv_pdu(S, Req0#gtp.seq_no, ?TIMEOUT, ok),
-    validate_response(modify_bearer_command, simple, Req1, GtpC2),
-    Resp1 = make_response(Req1, apn_congestion, GtpC2),
+    validate_response(modify_bearer_command, simple, Req1, GtpC3),
+    Resp1 = make_response(Req1, apn_congestion, GtpC3),
     send_pdu(S, Resp1),
 
     Req2 = recv_pdu(Cntl, 5000),
     ?match(#gtp{type = delete_bearer_request}, Req2),
-    Resp2 = make_response(Req2, simple, GtpC2),
+    Resp2 = make_response(Req2, simple, GtpC3),
     send_pdu(Cntl, Resp2),
 
     ?equal({ok, timeout}, recv_pdu(S, Req2#gtp.seq_no, ?TIMEOUT, ok)),
@@ -383,9 +443,10 @@ requests_invalid_teid(Config) ->
     S = make_gtp_socket(Config),
 
     {GtpC1, _, _} = create_session(S),
-    {GtpC2, _, _} = modify_bearer(invalid_teid, S, GtpC1),
-    {GtpC3, _, _} = delete_session(invalid_teid, S, GtpC2),
-    delete_session(S, GtpC3),
+    {GtpC2, _, _} = modify_bearer(enb_u_tei, S, GtpC1),
+    {GtpC3, _, _} = modify_bearer(invalid_teid, S, GtpC2),
+    {GtpC4, _, _} = delete_session(invalid_teid, S, GtpC3),
+    delete_session(S, GtpC4),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
@@ -398,8 +459,9 @@ commands_invalid_teid(Config) ->
     S = make_gtp_socket(Config),
 
     {GtpC1, _, _} = create_session(S),
-    {GtpC2, _, _} = modify_bearer_command(invalid_teid, S, GtpC1),
-    delete_session(S, GtpC2),
+    {GtpC2, _, _} = modify_bearer(enb_u_tei, S, GtpC1),
+    {GtpC3, _, _} = modify_bearer_command(invalid_teid, S, GtpC2),
+    delete_session(S, GtpC3),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
