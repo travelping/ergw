@@ -300,9 +300,10 @@ create_forward_session(Candidates, Left0, Right0) ->
     Left = assign_data_teid(Left1, get_context_nwi(Left1, NWIs)),
     Right = assign_data_teid(Right1, get_context_nwi(Right1, NWIs)),
     SEID = ergw_sx_socket:seid(),
+    {ok, #node{node = _Node, ip = IP}} = ergw_sx_socket:id(),
 
     IEs =
-	[#f_seid{seid = SEID}] ++
+	[#f_seid{seid = SEID, ipv4 = gtp_c_lib:ip2bin(IP)}] ++
 	lists:foldl(fun create_pdr/2, [], [{1, 'Access', Left}, {2, 'Core', Right}]) ++
 	lists:foldl(fun create_far/2, [], [{2, 'Access', Left}, {1, 'Core', Right}]) ++
 	[#create_urr{group =
