@@ -120,8 +120,13 @@ handle_cast({packet_in, _GtpPort, _IP, _Port, _Msg}, State) ->
     lager:warning("packet_in not handled (yet): ~p", [_Msg]),
     {noreply, State}.
 
-handle_info(#pfcp{version = v1, type = session_report_request,
-		  ie = #{report_type := #report_type{erir = 1}}}, State) ->
+handle_info({ReqKey, #pfcp{version = v1, type = session_report_request, seq_no = SeqNo,
+			   ie = #{report_type := #report_type{erir = 1}}}},
+	    #{context := Ctx} = State) ->
+    SxResponse =
+	#pfcp{version = v1, type = session_report_response, seq_no = SeqNo,
+	      ie = [#pfcp_cause{cause = 'Request accepted'}]},
+    ergw_gsn_lib:send_sx_response(ReqKey, Ctx, SxResponse),
     close_pdn_context(State),
     {stop, normal, State};
 
