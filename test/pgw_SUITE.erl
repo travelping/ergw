@@ -95,7 +95,7 @@
 
 		      %% A/AAAA record alternatives
 		      {"topon.s5s8.pgw.$ORIGIN", [?FINAL_GSN], []},
-		      {"topon.sx.prox01.$ORIGIN", [?LOCALHOST], []}
+		      {"topon.sx.prox01.$ORIGIN", [?PGW_U_SX], []}
 		     ]
 		    }
 		   }
@@ -105,7 +105,8 @@
 		 {sx_socket,
 		  [{node, 'ergw'},
 		   {name, 'ergw'},
-		   {ip, {127,0,0,1}}]},
+		   {ip, ?LOCALHOST},
+		   {reuseaddr, true}]},
 
 		 {apns,
 		  [{?'APN-EXAMPLE', [{vrf, upstream}]},
@@ -175,6 +176,7 @@ all() ->
 
 init_per_testcase(Config) ->
     ct:pal("Sockets: ~p", [gtp_socket_reg:all()]),
+    ergw_test_sx_up:reset('pgw-u'),
     meck_reset(Config).
 
 init_per_testcase(create_session_request_aaa_reject, Config) ->
@@ -474,8 +476,7 @@ error_indication(Config) ->
 
     {GtpC, _, _} = create_session(S),
 
-    [SEID] = [X || {{seid, X}, _} <- gtp_context_reg:all()],
-    gtp_context:session_report(make_error_indication_report(GtpC, SEID)),
+    ergw_test_sx_up:send('pgw-u', make_error_indication_report(GtpC)),
 
     ct:sleep(100),
     delete_session(not_found, S, GtpC),
@@ -600,8 +601,10 @@ modify_bearer_request_tei_update(Config) ->
     {GtpC2, _, _} = modify_bearer(tei_update, S, GtpC1),
     delete_session(S, GtpC2),
 
-    SMR0 = meck:capture(first, ergw_sx_socket, call,
-		       ['_', #pfcp{type = session_modification_request, _='_'}], 2),
+    [SMR0|_] = lists:filter(
+		 fun(#pfcp{type = session_modification_request}) -> true;
+		    (_) -> false
+		 end, ergw_test_sx_up:history('pgw-u')),
     SMR = pfcp_packet:to_map(SMR0),
     #{update_far :=
 	  #update_far{
@@ -896,8 +899,10 @@ interop_sgsn_to_sgw(Config) ->
     match_exo_value([path, irx, ?CLIENT_IP, contexts, v2], 1),
     delete_session(S, GtpC2),
 
-    SMR0 = meck:capture(first, ergw_sx_socket, call,
-		       ['_', #pfcp{type = session_modification_request, _='_'}], 2),
+    [SMR0|_] = lists:filter(
+		 fun(#pfcp{type = session_modification_request}) -> true;
+		    (_) -> false
+		 end, ergw_test_sx_up:history('pgw-u')),
     SMR = pfcp_packet:to_map(SMR0),
     #{update_far :=
 	  #update_far{
@@ -943,8 +948,10 @@ interop_sgw_to_sgsn(Config) ->
     match_exo_value([path, irx, ?CLIENT_IP, contexts, v2], 0),
     ergw_ggsn_test_lib:delete_pdp_context(S, GtpC2),
 
-    SMR0 = meck:capture(first, ergw_sx_socket, call,
-			['_', #pfcp{type = session_modification_request, _='_'}], 2),
+    [SMR0|_] = lists:filter(
+		 fun(#pfcp{type = session_modification_request}) -> true;
+		    (_) -> false
+		 end, ergw_test_sx_up:history('pgw-u')),
     SMR = pfcp_packet:to_map(SMR0),
     #{update_far :=
 	  #update_far{
@@ -985,15 +992,15 @@ session_accounting(Config) ->
     SessionOpts0 = ergw_aaa_session:get(Session),
     #{'Accouting-Update-Fun' := UpdateFun} = SessionOpts0,
 
-    %% install a accouting meck thar returns nothing, make sure we handle that
-    meck_ergw_sx_call(lists:keystore(accounting, 1, Config, {accounting, off})),
+    %% make sure we handle that the Sx node is not returning any accounting
+    ergw_test_sx_up:accounting('pgw-u', off),
 
     SessionOpts1 = UpdateFun(Context, SessionOpts0),
     ?equal(false, maps:is_key('InPackets', SessionOpts1)),
     ?equal(false, maps:is_key('InOctets', SessionOpts1)),
 
-    %% install a sensible accouting meck and try again....
-    meck_ergw_sx_call(Config),
+    %% enable accouting again....
+    ergw_test_sx_up:accounting('pgw-u', on),
 
     SessionOpts2 = UpdateFun(Context, SessionOpts1),
     ?match(#{'InPackets' := 3, 'OutPackets' := 1,
@@ -1002,8 +1009,6 @@ session_accounting(Config) ->
     SessionOpts3 = UpdateFun(Context, SessionOpts2),
     ?match(#{'InPackets' := 3, 'OutPackets' := 1,
 	     'InOctets' := 4, 'OutOctets' := 2}, SessionOpts3),
-
-    meck_ergw_sx_call(Config),
 
     delete_session(S, GtpC),
 
