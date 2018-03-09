@@ -10,7 +10,7 @@
 -compile({parse_transform, cut}).
 -compile({parse_transform, do}).
 
--export([handle_message/2, session_report/1, handle_response/4,
+-export([handle_message/2, session_report/2, handle_response/4,
 	 start_link/5,
 	 send_request/7, send_response/2,
 	 send_request/6, resend_request/2,
@@ -100,15 +100,16 @@ q_handle_message(Request, Msg0) ->
 	    generic_error(Request, Msg0, Error)
     end.
 
-session_report(#pfcp{version = v1, seid = SEID} = Report) ->
+session_report(ReqKey, #pfcp{version = v1, seid = SEID} = Report) ->
     lager:debug("Session Report: ~p", [Report]),
     case gtp_context_reg:lookup_seid(SEID) of
 	Context when is_pid(Context) ->
-	    Context ! Report;
+	    Context ! {ReqKey, Report},
+	    ok;
 
 	_ ->
 	    lager:error("Session Report: didn't find ~p", [SEID]),
-	    ok
+	    {error, not_found}
     end.
 
 handle_response(Context, ReqInfo, Request, Response) ->

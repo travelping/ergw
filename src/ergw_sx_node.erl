@@ -13,7 +13,8 @@
 
 %% API
 -export([select_sx_node/2, select_sx_node/3]).
--export([start_link/3, send/4, call/2, get_network_instances/1, response/3]).
+-export([start_link/3, send/4, call/2, get_network_instances/1,
+	 handle_request/2, response/3]).
 
 %% gen_server callbacks
 -export([init/1, callback_mode/0, handle_event/4,
@@ -64,6 +65,14 @@ get_network_instances(Context) ->
 
 response(Pid, Type, Response) ->
     gen_statem:cast(Pid, {Type, Response}).
+
+handle_request(ReqKey, #pfcp{type = session_report_request, seq_no = SeqNo} = Report) ->
+    case gtp_context:session_report(ReqKey, Report) of
+	ok ->
+	    ok;
+	{error, not_found} ->
+	    session_not_found(ReqKey, session_report_response, SeqNo)
+    end.
 
 %%%===================================================================
 %%% call/cast wrapper for gtp_port
@@ -298,6 +307,13 @@ init_network_instance(NetworkInstances,
 handle_nodedown(#data{dp = #node{node = Node}} = Data) ->
     ergw_sx_node_reg:unregister(Node),
     Data#data{network_instances = #{}}.
+
+session_not_found(ReqKey, Type, SeqNo) ->
+    Response =
+	#pfcp{version = v1, type = Type, seq_no = SeqNo, seid = 0,
+	      ie = #{pfcp_cause => #pfcp_cause{cause = 'Session context not found'}}},
+    ergw_sx_socket:send_response(ReqKey, Response, true),
+    ok.
 
 %%%===================================================================
 %%% F-TEID Ch handling...

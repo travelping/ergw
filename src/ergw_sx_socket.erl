@@ -13,7 +13,7 @@
 
 %% API
 -export([validate_options/1, start_link/1, start_sx_socket/1]).
--export([call/2, call/3, call/5, id/0, seid/0]).
+-export([call/2, call/3, call/5, send_response/3, id/0, seid/0]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -32,7 +32,9 @@
 	  socket     :: gen_socket:socket(),
 
 	  seq_no = 1 :: sequence_number(),
-	  pending    :: gb_trees:tree(sequence_number(), term())
+	  pending    :: gb_trees:tree(sequence_number(), term()),
+
+	  responses
 	 }).
 
 -record(send_req, {
@@ -85,6 +87,10 @@ call(Peer, Msg, {_,_,_} = CbInfo) ->
 call(Peer, T1, N1, Msg, {_,_,_} = CbInfo) ->
     Req = make_send_req(Peer, T1, N1, Msg, CbInfo),
     gen_server:cast(?SERVER, {call, Req}).
+
+send_response(ReqKey, Msg, DoCache) ->
+    Data = pfcp_packet:encode(Msg),
+    gen_server:cast(?SERVER, {send_response, ReqKey, Data, DoCache}).
 
 id() ->
     gen_server:call(?SERVER, id).
@@ -151,7 +157,9 @@ init(#{name := Name, node := Node, ip := IP} = Opts) ->
 	       node = Node,
 
 	       seq_no = 1,
-	       pending = gb_trees:empty()
+	       pending = gb_trees:empty(),
+
+	       responses = ergw_cache:new(?CACHE_TIMEOUT, responses)
 	      },
     {ok, State}.
 
@@ -172,6 +180,11 @@ handle_call(Request, _From, State) ->
 handle_cast({call, SendReq0}, State0) ->
     {SendReq, State1} = prepare_send_req(SendReq0, State0),
     State = send_request(SendReq, State1),
+    {noreply, State};
+
+handle_cast({send_response, ReqKey, Data, DoCache}, State0)
+  when is_binary(Data) ->
+    State = do_send_response(ReqKey, Data, DoCache, State0),
     {noreply, State};
 
 handle_cast(Msg, State) ->
@@ -213,8 +226,26 @@ code_change(_OldVsn, State, _Extra) ->
 %%% Socket functions
 %%%===================================================================
 
+-record(sx_request, {
+	  key		:: term(),
+	  ip		:: inet:ip_address(),
+	  port		:: 0 .. 65535,
+	  version	:: 'v1' | 'v2',
+	  type		:: atom(),
+	  arrival_ts    :: integer()
+	 }).
+
 family({_,_,_,_}) -> inet;
 family({_,_,_,_,_,_,_,_}) -> inet6.
+
+make_request(ArrivalTS, IP, Port, #pfcp{version = Version, seq_no = SeqNo, type = Type}) ->
+    #sx_request{
+       key = {IP, Port, Type, SeqNo},
+       ip = IP,
+       port = Port,
+       version = Version,
+       type = Type,
+       arrival_ts = ArrivalTS}.
 
 make_sx_socket(IP, Port, #{netns := NetNs} = Opts)
   when is_list(NetNs) ->
@@ -333,10 +364,8 @@ handle_message_1(ArrivalTS, IP, Port, #pfcp{type = MsgType} = Msg, State) ->
 	response ->
 	    handle_response(ArrivalTS, IP, Port, Msg, State);
 	request ->
-	    %%TODO:
-	    %% ReqKey = make_request(ArrivalTS, IP, Port, Msg, State),
-	    %% handle_request(ReqKey, Msg, State);
-	    State;
+	    ReqKey = make_request(ArrivalTS, IP, Port, Msg),
+	    handle_request(ReqKey, Msg, State);
 	_ ->
 	    State
     end.
@@ -353,6 +382,17 @@ handle_response(_ArrivalTS, _IP, _Port, #pfcp{seq_no = SeqNo} = Msg, State0) ->
 	    send_request_reply(SendReq, Msg),
 	    State
     end.
+
+handle_request(#sx_request{ip = IP, port = Port} = ReqKey, Msg,
+	       #state{responses = Responses} = State) ->
+    case ergw_cache:get(cache_key(ReqKey), Responses) of
+	{value, Data} ->
+	    sendto(IP, Port, Data, State);
+
+	_Other ->
+	    ergw_sx_node:handle_request(ReqKey, Msg)
+    end,
+    State.
 
 %%%===================================================================
 %%% older version compat stuff
@@ -460,3 +500,26 @@ send_request_reply(#send_req{cb_info = {M, F, A}} = SendReq, Reply) ->
 send_request_reply(#send_req{from = {_, _} = From} = SendReq, Reply) ->
     lager:info("send_request_reply: ~p", [lager:pr(SendReq, ?MODULE)]),
     gen_server:reply(From, Reply).
+
+enqueue_response(ReqKey, Data, DoCache,
+		 #state{responses = Responses} = State)
+  when DoCache =:= true ->
+    State#state{responses =
+		    ergw_cache:enter(cache_key(ReqKey), Data, ?RESPONSE_TIMEOUT, Responses)};
+enqueue_response(_ReqKey, _Data, _DoCache,
+		 #state{responses = Responses} = State) ->
+    State#state{responses = ergw_cache:expire(Responses)}.
+
+do_send_response(#sx_request{ip = IP, port = Port} = ReqKey, Data, DoCache, State) ->
+    sendto(IP, Port, Data, State),
+    %% TODO: measure_response(ReqKey),
+    enqueue_response(ReqKey, Data, DoCache, State).
+
+%%%===================================================================
+%%% cache helper
+%%%===================================================================
+
+cache_key(#sx_request{key = Key}) ->
+    Key;
+cache_key(Object) ->
+    Object.
