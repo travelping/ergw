@@ -130,7 +130,7 @@ to make sure you pick up changes in upstream projects
              ]},
 
             {handlers,
-              {s11, [{handler, saegw_s11},
+              [{s11, [{handler, saegw_s11},
                   {sockets, [irx]},
                   {node_selection, [default]}
                  ]}
