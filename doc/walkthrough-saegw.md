@@ -283,7 +283,7 @@ VPP Installation
 
 7. start vpp
 
-       sudo build-root/install-vpp_debug-native/vpp/bin/vpp -v startup.conf
+       sudo build-root/install-vpp_debug-native/vpp/bin/vpp -c startup.conf
 
 8. configure vpptap (from a another shell)
 
