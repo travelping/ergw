@@ -156,7 +156,7 @@ make_request(create_session_request, SubType,
 	 #v2_fully_qualified_tunnel_endpoint_identifier{
 	    instance = 1,
 	    interface_type = ?'S5/S8-C PGW',
-	    key = LocalCntlTEI,
+	    key = 0,
 	    ipv4 = gtp_c_lib:ip2bin(?CLIENT_IP)},
 	 #v2_international_mobile_subscriber_identity{
 	    imsi = imsi(SubType, LocalCntlTEI)},

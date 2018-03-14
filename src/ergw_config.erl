@@ -123,8 +123,16 @@ validate_node_name_list(["epc" | _]) ->
 validate_node_name_list(Name) ->
     throw({error, {options, lists:flatten(lists:join($., lists:reverse(Name)))}}).
 
+-ifdef (SIMULATOR).
+validate_config(Config) ->
+    catch (validate_options(fun validate_option/2, Config, ?DefaultOptions, list)),
+    Config.
+-else.
+
 validate_config(Config) ->
     validate_options(fun validate_option/2, Config, ?DefaultOptions, list).
+
+-endif.
 
 validate_option(Fun, Opt, Value) when is_function(Fun, 2) ->
     {Opt, Fun(Opt, Value)};
