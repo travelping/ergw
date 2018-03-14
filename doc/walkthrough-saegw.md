@@ -84,17 +84,25 @@ erGW Installation
            {netdata, ".*", {git, "git://github.com/RoadRunnr/erl_netdata", "master"}}
        ]}.
 
-3. Build a release
+3. Regenerate rebar.lock
+
+This is neccesary when you change the version of dependency (in Step 3.) or if you want
+to make sure you pick up changes in upstream projects
+
+    rm rebar.lock
+    rebar3 upgrade
+
+4. Build a release
 
        rebar3 release
 
-4. Install the release in /opt/ergw-gtp-c-node and the config in /etc/ergw-gtp-c-node
+5. Install the release in /opt/ergw-gtp-c-node and the config in /etc/ergw-gtp-c-node
 
        sudo cp -aL _build/default/rel/ergw-gtp-c-node /opt
        sudo mkdir /etc/ergw-gtp-c-node
        sudo cp config/ergw-gtp-c-node.config /etc/ergw-gtp-c-node/ergw-gtp-c-node.config
 
-5. Adjust  /etc/ergw-gtp-c-node/ergw-gtp-c-node.config, for the walk-through the following config is used:
+6. Adjust  /etc/ergw-gtp-c-node/ergw-gtp-c-node.config, for the walk-through the following config is used:
 
        %-*-Erlang-*-
        [{setup, [{data_dir, "/var/lib/ergw"},
@@ -197,7 +205,7 @@ erGW Installation
             ]}
        ].
 
-6. Start the erGW:
+7. Start the erGW:
 
        /opt/ergw-gtp-c-node/bin/ergw-gtp-c-node foreground
 
