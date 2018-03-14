@@ -1,4 +1,4 @@
-Walk-Through SEA-GW (combined S-GW/PGW)
+Walk-Through SAE-GW (combined S-GW/PGW)
 =======================================
 
 This walk-through creates a combined S-GW/PGW (sometimes also called
@@ -271,7 +271,7 @@ VPP Installation
 
 6. create a ```vpp``` group
 
-       groupadd vpp
+       sudo groupadd vpp
 
 7. start vpp
 
@@ -295,3 +295,46 @@ Check that the VPP gtpdp setup is working, on the vpp cli
 After a GTP session has been created, on the vpp cli list all sessions
 
     show gtpdp session
+
+Sending GTP Requests Manually
+-----------------------------
+
+###  Understanding Path Keep-Alive
+
+GTP nodes learn the IPs of peer node from the GSN Node IP (v1) and Fq-TEID (v2)
+information elements in create requests. They will then start sending Echo Requests
+to those node and expect Echo Replies back from them. If the peer node fails to
+answer the Echo Requests or if the Restart Counter changes, they will terminate
+all existing GTP context on that path.
+
+To test a GTP Node it is therefore not enough to just send requests, the test system
+also needs to be able to handle Echo Request on GTP-C and GTP-U.
+
+
+### Procedures
+
+To start a Erlang CLI on a test client with the simulator code run
+
+    rebar3 as simulator shell
+
+#### E-UTRAN Initial Attach
+
+3GPP TS 23.401, Figure 5.3.2.1-1, Step 12, 16, 23 and 24
+
+| Parameter | Value      |
+| --------- | ---------- |
+| APN       | `internet` |
+| IMEI      | `12345`    |
+| IMSI      | `12345`    |
+| MSISDN    | `89000000` |
+| PDP Type  | `IPv4`     |
+
+In the Erlang CLI execute a EUTRAN Initial Attachment on S11 with
+
+    ergw_sim:start("172.20.16.150", "172.20.17.150").
+    ergw_sim:s11("172.20.16.1", initial_attachment, <<"internet">>, <<"12345">>, <<"12345">>, <<"89000000">>, ipv4).
+
+172.20.16.150 is the GTP-C IP address of the MME, 172.20.17.150 is the GTP-U address
+of the eNode-B and 172.20.16.1 is the SAE-GW GTP-C address.
+
+*Make sure you have those IP's configured on your test client*
