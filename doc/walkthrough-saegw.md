@@ -215,7 +215,7 @@ VPP Installation
 1. Checkout the VPP with GTP UP plugin to /usr/src/vpp
 
        cd /usr/src
-       git clone https://github.com/RoadRunnr/vpp.git
+       git clone https://github.com/travelping/vpp.git
        cd vpp
        git checkout feature/gtp-dp
 
