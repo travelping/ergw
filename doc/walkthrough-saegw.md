@@ -217,7 +217,7 @@ VPP Installation
        cd /usr/src
        git clone https://github.com/travelping/vpp.git
        cd vpp
-       git checkout feature/gtp-dp
+       git checkout feature/gtp-up
 
 2. Install the VPP build depedencies
 
@@ -269,13 +269,13 @@ VPP Installation
        set int state tapcli-0 up
        ip route add 0.0.0.0/0 table 1 via 172.20.17.250 host-grx
        ip route add 0.0.0.0/0 table 2 via 172.20.18.250 host-sgi
-       gtpdp nwi create label irx vrf 1
-       gtpdp nwi set gtpu address label irx 172.20.17.1 teid 0x80000000/2
-       gtpdp nwi set interface type label irx access interface host-grx
-       gtpdp nwi set interface type label irx cp interface tapcli-0
-       gtpdp nwi create label sgi vrf 2
-       gtpdp nwi set interface type label sgi sgi interface host-sgi
-       gtpdp sx
+       gtp-up nwi create label irx vrf 1
+       gtp-up nwi set gtpu address label irx 172.20.17.1 teid 0x80000000/2
+       gtp-up nwi set interface type label irx access interface host-grx
+       gtp-up nwi set interface type label irx cp interface tapcli-0
+       gtp-up nwi create label sgi vrf 2
+       gtp-up nwi set interface type label sgi sgi interface host-sgi
+       gtp-up sx
 
 6. create a ```vpp``` group
 
@@ -287,7 +287,7 @@ VPP Installation
 
 8. configure vpptap (from a another shell)
 
-       sudo ip addr add 192.16.1.2/24 dev vpptap
+       sudo ip addr add 192.168.1.2/24 dev vpptap
 
 Status Checks
 -------------
