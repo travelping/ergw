@@ -208,6 +208,9 @@ handle_info(Info = {timeout, _TRef, {request, SeqNo}}, State0) ->
 	    {noreply, State1}
     end;
 
+handle_info({timeout, _TRef, responses}, #state{responses = Responses} = State) ->
+    {noreply, State#state{responses = ergw_cache:expire(Responses)}};
+
 handle_info({Socket, input_ready}, #state{socket = Socket} = State) ->
     handle_input(Socket, State);
 
