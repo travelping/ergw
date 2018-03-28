@@ -36,8 +36,8 @@ The path `rtt` is the round trip time histogram for each request/response
 message pair.
 
 The `tx` and `rx` metrics count the number of message of a given type
-transmitted and received. The `timeout` counter exists only for requests
-that require a response.
+transmitted and received. The `timeout` counter exists only for requests that 
+require a response.
 
 The `pt` metrics are a histogram of the total processing time for the last
 incoming message of that type.

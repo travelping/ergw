@@ -44,6 +44,13 @@ default VRF of a APN.
 
 A GTP socket is a GTP-C or GTP-U IP endpoint.
 
+### GTP Redirector ###
+
+The redirection mode means that a GTP request will be transferred to a GTP backed 
+with saving source IP and port. For the GTP backend, such request looks like it 
+came from particular GTP client directly. See the GTP socket configuration example 
+for more information.
+
 Pictures
 --------
 
@@ -70,23 +77,53 @@ The PLMN identifier is the MCC and MNC of the served network.
 
 ### GTP socket ###
 
-     {sockets,
-      [{irx, [{type, 'gtp-c'},
-          {ip,  {172,20,16,89}},
-          {netdev, "grx"},
-          freebind
-          {netns, "/var/run/netns/grx"}
-         ]},
-       {grx, [{type, 'gtp-u'},
-          {node, 'gtp-u-node@vlx159-tpmd'},
-          {name, 'grx'}]}
-      ]}
+    {sockets, [
+        {irx, [
+            {type, 'gtp-c'},
+                {ip,  {172,20,16,89}},
+                {netdev, "grx"},
+                freebind
+                {netns, "/var/run/netns/grx"}
+        ]},
+        {grx, [
+            {type, 'gtp-u'},
+            {node, 'gtp-u-node@vlx159-tpmd'},
+            {name, 'grx'}
+        ]},
+        {rrx, [
+            {type, 'gtp-c'},
+            {ip, {192, 168, 1, 100}},
+            {reuseaddr, true},
+            {redirector, [
+                {keep_alive_timeout, 60000},
+                {retransmit_timeout, 10000},
+                {lb_type, random},
+                {nodes, [
+                    {node, [
+                        {name, <<"gsn">>},
+                        {keep_alive_version, v1},
+                        {address, {192, 168, 1, 16}}
+                    ]}
+                ]},
+                {rules, [
+                    {rule, [
+                        {conditions, [
+                            {sgsn_ip, {192, 255, 127, 127}},
+                            {version, [v1, v2]}
+                        ]},
+                        {nodes, [<<"gsn">>]}
+                    ]}
+                ]}
+            ]} 
+        ]}
+    ]}
 
 Defines a list of named sockets. The format is (in Erlang type syntax):
 
 * sockets: `{sockets, [socket_definition()]}`
 * socket_definition: `{socket_name(), [socket_options()]}`
 * socket_name: `atom()`
+* gtp_version: `v1 | v2`
 * socket_options:
 
   - `{type, 'gtp-c' | 'gtp-u'}`
@@ -116,6 +153,74 @@ Defines a list of named sockets. The format is (in Erlang type syntax):
   - `{name, socket_name()}`
 
     name the datapath on a remote node
+
+  - `{redirector, redirector_options()}`
+
+    if defined socket works in redirector mode
+
+* redirector_options:
+
+  - `{keep_alive_timeout, non_neg_integer()}`
+
+    (ms) how often redirector socket will send echo_request to nodes to keep connection up
+
+  - `{retransmit_timeout, non_neg_integer()}`
+
+    (ms) how long request will be memorized to use previously selected node
+
+  - `{lb_type, random}`
+
+    how to select node from list of nodes. now only `random` is supported
+
+  - `{nodes, [node()]}`
+  
+    list of nodes to redirect requests
+
+  - `{rules, [rule()]}`
+  
+    list of rules to make decision about redirecting of the requests
+
+* node: `{node, [node_definition()]}`
+
+* rule: `{rule, [rule_definition()]}`
+
+* node_definition:
+
+  - `{name, binary()}`
+
+    name will be used to describe nodes to make routing in `rules` section
+
+  - `{keep_alive_version, gtp_version()}`
+
+    version to build echo_request
+
+  - `{address, inet:ip_address())}`
+
+    IP addres of node. Only ipv4 for now
+
+* rule_definition:
+
+  - `{conditions, [condition()]}`
+
+    list of conditions to match rule
+
+  - `{nodes, [binary()]}`
+
+    list of node's names to redirect request. Node will be selected with using `lb_type` logic
+
+* condition:
+
+  - `{sgsn_ip, inet:ip_address())}`
+
+    SGSN IP
+
+  - `{imsi, binary())}`
+
+    IMSI
+
+  - `{version, [gtp_version()]}`
+
+    GTP version
 
 ### Handlers ###
 
