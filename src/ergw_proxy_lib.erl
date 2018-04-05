@@ -171,6 +171,11 @@ f_teid(TEID, {_,_,_,_} = IP) ->
 f_teid(TEID, {_,_,_,_,_,_,_,_} = IP) ->
     #f_teid{teid = TEID, ipv6 = gtp_c_lib:ip2bin(IP)}.
 
+gtp_u_peer(TEID, {_,_,_,_} = IP) ->
+    #outer_header_creation{type = 'GTP-U', teid = TEID, ipv4 = gtp_c_lib:ip2bin(IP)};
+gtp_u_peer(TEID,  {_,_,_,_,_,_,_,_} = IP) ->
+    #outer_header_creation{type = 'GTP-U', teid = TEID, ipv6 = gtp_c_lib:ip2bin(IP)}.
+
 create_pdr({RuleId, Intf,
 	    #context{
 	       data_port = #gtp_port{ip = IP} = DataPort,
@@ -208,11 +213,7 @@ create_far({RuleId, Intf,
 		     group =
 			 [#destination_interface{interface = Intf},
 			  network_instance(DataPort),
-			  #outer_header_creation{
-			     type = 'GTP-U/UDP/IPv4',
-			     teid = RemoteTEI,
-			     address = gtp_c_lib:ip2bin(PeerIP)
-			    }
+			  gtp_u_peer(RemoteTEI, PeerIP)
 			 ]
 		    }
 		 ]
@@ -276,11 +277,7 @@ update_far({RuleId, Intf,
 		     group =
 			 [#destination_interface{interface = Intf},
 			  network_instance(NewDataPort),
-			  #outer_header_creation{
-			     type = 'GTP-U/UDP/IPv4',
-			     teid = NewRemoteTEI,
-			     address = gtp_c_lib:ip2bin(NewPeerIP)
-			    }
+			  gtp_u_peer(NewRemoteTEI, NewPeerIP)
 			  | [#sxsmreq_flags{sndem = 1} ||
 				v2 =:= NewVersion andalso v2 =:= OldVersion]
 			 ]
