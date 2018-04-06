@@ -65,7 +65,7 @@ irx VRF:
     ip link set dev vrf-irx up
     ip link set dev irx master vrf-irx
     ip link set dev irx up
-    ip addr add 172.20.16.1 dev vrf-ir
+    ip addr add 172.20.16.1 dev vrf-irx
     ip route add table 10 default via 192.20.16.250
 
 The grx and sgi interfaces are handled by VPP.
@@ -346,3 +346,17 @@ In the Erlang CLI execute a EUTRAN Initial Attachment on S11 with
 of the eNode-B and 172.20.16.1 is the SAE-GW GTP-C address.
 
 *Make sure you have those IP's configured on your test client*
+
+#### erGW Logging
+
+erGW with debug logging will produce a lot of error messages if the 
+PFCP requests are not answered by VPP.
+
+If you've followed the setup procedure above, the log level should 
+be `debug` (see the "lager" section of the ergw-gtp-c-node.config).
+
+#### VPP Session Status
+
+On the VPP CLI, the session status can be checked with 
+`show gtp-up sessions` (`show gtpdp sessions` on some clients).
+
