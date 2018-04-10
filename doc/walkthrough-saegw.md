@@ -104,106 +104,123 @@ to make sure you pick up changes in upstream projects
 
 6. Adjust  /etc/ergw-gtp-c-node/ergw-gtp-c-node.config, for the walk-through the following config is used:
 
-       %-*-Erlang-*-
+       %% -*-Erlang-*-
        [{setup, [{data_dir, "/var/lib/ergw"},
-             {log_dir,  "/var/log/gtp-c-node"}             %% NOTE: lager is not using this
-            ]},
+                 {log_dir,  "/var/log/gtp-c-node"}             %% NOTE: lager is not using this
+                ]},
 
         {ergw, [{'$setup_vars',
-             [{"ORIGIN", {value, "epc.mnc001.mcc001.3gppnetwork.org"}}]},
-            {http_api,
-             [{port, 8080},
-              {ip, {0,0,0,0}}
-             ]},
-            {sockets,
-             [{irx, [{type, 'gtp-c'},
-                 {ip,  {172,20,16,1}},
-                 {netdev, "irx"}
-                ]}
-             ]},
+                 [{"ORIGIN", {value, "epc.mnc001.mcc001.3gppnetwork.org"}}]},
+                {http_api,
+                 [{port, 8080},
+                  {ip, {0,0,0,0}}
+                 ]},
 
-            {sx_socket,
-             [{node, 'ergw'},
-              {name, 'ergw'},
-              {ip, {0,0,0,0}
-              }
-             ]},
+                {sockets,
+                 [{epc, [{type, 'gtp-c'},
+                         {ip,  {172,20,16,1}},
+                         {netdev, "vrf-irx"}
+                        ]}
+                 ]},
 
-            {handlers,
-              [{s11, [{handler, saegw_s11},
-                  {sockets, [irx]},
-                  {node_selection, [default]}
-                 ]}
-             ]},
+                {vrfs,
+                 [{sgi, [{pools,  [{{10, 180, 0, 1}, {10, 180, 255, 254}, 32}]},
+                         {'MS-Primary-DNS-Server', {8,8,8,8}},
+                         {'MS-Secondary-DNS-Server', {8,8,4,4}},
+                         {'MS-Primary-NBNS-Server', {127,0,0,1}},
+                         {'MS-Secondary-NBNS-Server', {127,0,0,1}}
+                        ]}
+                 ]},
 
-            {node_selection,
-             [{default,
-               {static,
-                [
-                 %% APN NAPTR alternative
-                 {"_default.apn.$ORIGIN", {300,64536},
-                  [{"x-3gpp-pgw","x-s5-gtp"},{"x-3gpp-pgw","x-s8-gtp"},
-                   {"x-3gpp-sgw","x-s5-gtp"},{"x-3gpp-sgw","x-s8-gtp"}],
-                  "topon.s1u.saegw.$ORIGIN"},
-                 {"_default.apn.$ORIGIN", {300,64536},
-                  [{"x-3gpp-upf","x-sxb"}],
-                  "topon.sx.saegw01.$ORIGIN"},
+                {sx_socket,
+                 [{node, 'ergw'},
+                  {name, 'ergw'},
+                  {ip, {0,0,0,0}
+                  }
+                 ]},
 
-                 %% A/AAAA record alternatives
-                 {"topon.s1u.saegw.$ORIGIN", [172,20,17,1], []},
-                 {"topon.sx.saegw01.$ORIGIN", [192,168,1,1], []}
-                ]
-               }
-              }
-             ]
-            }
-           ]},
+                {handlers,
+                 [{s11, [{handler, saegw_s11},
+                         {sockets, [epc]},
+                         {node_selection, [default]}
+                        ]}
+                 ]},
+
+                {apns,
+                 [{[<<"APN1">>], [{vrf, sgi}]},
+                  {['_'], [{vrf, sgi}]}                         %% wildcard APN
+                 ]},
+
+                {node_selection,
+                 [{default,
+                   {static,
+                    [
+                     %% APN NAPTR alternative
+                     {"_default.apn.$ORIGIN", {300,64536},
+                      [{"x-3gpp-pgw","x-s5-gtp"},{"x-3gpp-pgw","x-s8-gtp"},
+                       {"x-3gpp-sgw","x-s5-gtp"},{"x-3gpp-sgw","x-s8-gtp"}],
+                      "topon.s1u.saegw.$ORIGIN"},
+                     {"_default.apn.$ORIGIN", {300,64536},
+                      [{"x-3gpp-upf","x-sxb"}],
+                      "topon.sx.saegw01.$ORIGIN"},
+
+                     %% A/AAAA record alternatives
+                     {"topon.s1u.saegw.$ORIGIN", [172,20,17,1], []},
+                     {"topon.sx.saegw01.$ORIGIN", [192,168,1,1], []}
+                    ]
+                   }
+                  }
+                 ]
+                }
+               ]},
 
         {ergw_aaa, [
-                {ergw_aaa_provider, {ergw_aaa_mock, [{shared_secret, <<"MySecret">>}]}}
-               ]},
+                    {ergw_aaa_provider, {ergw_aaa_mock, [{shared_secret, <<"MySecret">>}]}}
+                   ]},
 
         {hackney, [
-               {mod_metrics, exometer}
-              ]},
+                   {mod_metrics, exometer}
+                  ]},
 
         {jobs, [{samplers,
-             [{cpu_feedback, jobs_sampler_cpu, []}
-             ]},
-            {queues,
-             [{path_restart,
-               [{regulators, [{counter, [{limit, 100}]}]},
-                {modifiers,  [{cpu_feedback, 10}]} %% 10 = % increment by which to modify the limit
+                 [{cpu_feedback, jobs_sampler_cpu, []}
+                 ]},
+                {queues,
+                 [{path_restart,
+                   [{regulators, [{counter, [{limit, 100}]}]},
+                    {modifiers,  [{cpu_feedback, 10}]} %% 10 = % increment by which to modify the limit
+                   ]},
+                  {create,
+                   [{max_time, 5000}, %% max 5 seconds
+                    {regulators, [{rate, [{limit, 100}]}]},
+                    {modifiers,  [{cpu_feedback, 10}]} %% 10 = % increment by which to modify the limit
+                   ]},
+                  {delete,
+                   [{regulators, [{counter, [{limit, 100}]}]},
+                    {modifiers,  [{cpu_feedback, 10}]} %% 10 = % increment by which to modify the limit
+                   ]},
+                  {other,
+                   [{max_time, 10000}, %% max 10 seconds
+                    {regulators, [{rate, [{limit, 1000}]}]},
+                    {modifiers,  [{cpu_feedback, 10}]} %% 10 = % increment by which to modify the limit
+                   ]}
+                 ]}
                ]},
-              {create,
-               [{max_time, 5000}, %% max 5 seconds
-                {regulators, [{rate, [{limit, 100}]}]},
-                {modifiers,  [{cpu_feedback, 10}]} %% 10 = % increment by which to modify the limit
-               ]},
-              {delete,
-               [{regulators, [{counter, [{limit, 100}]}]},
-                {modifiers,  [{cpu_feedback, 10}]} %% 10 = % increment by which to modify the limit
-               ]},
-              {other,
-               [{max_time, 10000}, %% max 10 seconds
-                {regulators, [{rate, [{limit, 1000}]}]},
-                {modifiers,  [{cpu_feedback, 10}]} %% 10 = % increment by which to modify the limit
-               ]}
-             ]}
-           ]},
 
         {lager, [
-             {log_root, "/var/log/gtp-c-node"},
-             {colored, true},
-             {error_logger_redirect, true},
-             {crash_log, "crash.log"},
-             {handlers, [
-                     {lager_console_backend, [{level, debug}]},
-                     {lager_file_backend, [{file, "error.log"}, {level, error}]},
-                     {lager_file_backend, [{file, "console.log"}, {level, debug}]}
-                    ]}
-            ]}
+                 {log_root, "/var/log/gtp-c-node"},
+                 {colored, true},
+                 {error_logger_redirect, true},
+                 {crash_log, "crash.log"},
+                 {handlers, [
+                             {lager_console_backend, [{level, debug}]},
+                             {lager_file_backend, [{file, "error.log"}, {level, error}]},
+                             {lager_file_backend, [{file, "console.log"}, {level, debug}]}
+                            ]}
+                ]}
        ].
+
+The VRF names have to match the network instances (nwi's) in the VPP configuration.
 
 7. Start the erGW:
 
@@ -269,11 +286,11 @@ VPP Installation
        set int state tapcli-0 up
        ip route add 0.0.0.0/0 table 1 via 172.20.17.250 host-grx
        ip route add 0.0.0.0/0 table 2 via 172.20.18.250 host-sgi
-       gtp-up nwi create label irx vrf 1
-       gtp-up nwi set gtpu address label irx 172.20.17.1 teid 0x80000000/2
-       gtp-up nwi set interface type label irx access interface host-grx
-       gtp-up nwi set interface type label irx cp interface tapcli-0
-       gtp-up nwi create label sgi vrf 2
+       gtp-up nwi create label epc
+       gtp-up nwi set gtpu address label epc 172.20.17.1 teid 0x80000000/2
+       gtp-up nwi set interface type label epc access interface host-grx
+       gtp-up nwi set interface type label epc cp interface tapcli-0
+       gtp-up nwi create label sgi
        gtp-up nwi set interface type label sgi sgi interface host-sgi
 
 6. create a ```vpp``` group
