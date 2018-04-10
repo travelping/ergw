@@ -3,9 +3,9 @@
     {vsn,git},
     {description, "3GPP GGSN/PGW"},
     {applications, [kernel, stdlib, lager, erlando, crypto,
-		    regine, gen_socket, gtplib, ergw_aaa,
-		    setup, exometer_core, netdata, cowboy,
-		    compiler, os_mon, jobs]},
+		    regine, gen_socket, gtplib, pfcplib,
+		    ergw_aaa, setup, exometer_core, netdata,
+		    cowboy, jsx, compiler, os_mon, jobs]},
     {mod, {ergw_app, []}},
     {registered, []}
 ]}.
