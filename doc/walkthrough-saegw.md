@@ -312,13 +312,13 @@ Check that the Erlang erGW CP is listening to the GTP-C and Sx UDP ports
 
     sudo ss -aunp \( sport = 2123 or sport = 8805 \)
 
-Check that the VPP gtpdp setup is working, on the vpp cli
+Check that the VPP gtp-up setup is working, on the vpp cli
 
-    show gtpdp nwi
+    show gtp-up nwi
 
 After a GTP session has been created, on the vpp cli list all sessions
 
-    show gtpdp session
+    show gtp-up session
 
 Sending GTP Requests Manually
 -----------------------------
