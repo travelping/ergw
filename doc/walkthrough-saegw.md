@@ -165,8 +165,8 @@ to make sure you pick up changes in upstream projects
                       "topon.sx.saegw01.$ORIGIN"},
 
                      %% A/AAAA record alternatives
-                     {"topon.s1u.saegw.$ORIGIN", [172,20,17,1], []},
-                     {"topon.sx.saegw01.$ORIGIN", [192,168,1,1], []}
+                     {"topon.s1u.saegw.$ORIGIN", [{172,20,17,1}], []},
+                     {"topon.sx.saegw01.$ORIGIN", [{192,168,1,1}], []}
                     ]
                    }
                   }
