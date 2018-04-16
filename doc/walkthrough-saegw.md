@@ -86,11 +86,11 @@ erGW Installation
 
 3. Regenerate rebar.lock
 
-This is neccesary when you change the version of dependency (in Step 3.) or if you want
-to make sure you pick up changes in upstream projects
+   This is neccesary when you change the version of dependency (in Step 3.) or if you want
+   to make sure you pick up changes in upstream projects
 
-    rm rebar.lock
-    rebar3 upgrade
+       rm rebar.lock
+       rebar3 upgrade
 
 4. Build a release
 
