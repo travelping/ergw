@@ -17,16 +17,17 @@
 	 meck_unload/1,
 	 meck_validate/1]).
 -export([init_seq_no/2,
-	 gtp_context/0, gtp_context/1,
+	 gtp_context/1, gtp_context/2,
 	 gtp_context_inc_seq/1,
 	 gtp_context_inc_restart_counter/1,
 	 gtp_context_new_teids/1,
 	 make_error_indication_report/1]).
--export([start_gtpc_server/1, stop_gtpc_server/1,
+-export([start_gtpc_server/1, stop_gtpc_server/1, stop_gtpc_server/0,
 	 make_gtp_socket/1, make_gtp_socket/2,
-	 send_pdu/2,
+	 send_pdu/2, send_pdu/3,
 	 send_recv_pdu/2, send_recv_pdu/3, send_recv_pdu/4,
 	 recv_pdu/2, recv_pdu/3, recv_pdu/4]).
+-export([gtpc_server_init/2]).
 -export([pretty_print/1]).
 -export([set_cfg_value/3, add_cfg_value/3]).
 -export([outstanding_requests/0, wait4tunnels/1, hexstr2bin/1]).
@@ -133,16 +134,23 @@ meck_validate(Config) ->
 init_seq_no(Counter, SeqNo) ->
     ets:insert(?MODULE, {{Counter, seq_no}, SeqNo}).
 
-gtp_context() ->
-    gtp_context(?MODULE).
+gtp_context(Config) ->
+    gtp_context(?MODULE, Config).
 
-gtp_context(Counter) ->
+gtp_context(Counter, Config) ->
     GtpC = #gtpc{
 	      counter = Counter,
 	      restart_counter =
 		  ets:update_counter(?MODULE, restart_counter, 1) rem 256,
 	      seq_no =
-		  ets:update_counter(?MODULE, {Counter, seq_no}, 1) rem 16#800000
+		  ets:update_counter(?MODULE, {Counter, seq_no}, 1) rem 16#800000,
+
+	      socket = make_gtp_socket(0, Config),
+
+	      ue_ip = ?LOCALHOST,
+
+	      local_ip = ?CLIENT_IP,
+	      remote_ip = ?TEST_GSN
 	     },
     gtp_context_new_teids(GtpC).
 
@@ -162,8 +170,8 @@ gtp_context_new_teids(GtpC) ->
 	  ets:update_counter(?MODULE, teid, 1) rem 16#100000000
      }.
 
-make_error_indication_report(#gtpc{local_data_tei = TEI}) ->
-    make_error_indication_report(?CLIENT_IP, TEI);
+make_error_indication_report(#gtpc{local_data_tei = TEI, local_ip = IP}) ->
+    make_error_indication_report(IP, TEI);
 make_error_indication_report(#context{data_port = #gtp_port{ip = IP},
 				      remote_data_tei = TEI}) ->
 make_error_indication_report(IP, TEI).
@@ -185,7 +193,9 @@ make_error_indication_report(IP, TEI) ->
 gtpc_server_init(Owner, Config) ->
     process_flag(trap_exit, true),
 
-    CntlS = make_gtp_socket(Config),
+    CntlS = make_gtp_socket(?GTP2c_PORT, Config),
+
+    proc_lib:init_ack(Owner, {ok, self()}),
     gtpc_server_loop(Owner, CntlS).
 
 gtpc_server_loop(Owner, CntlS) ->
@@ -205,12 +215,21 @@ gtpc_server_loop(Owner, CntlS) ->
     end.
 
 start_gtpc_server(Config) ->
-    Owner = self(),
-    spawn_link(fun() -> gtpc_server_init(Owner, Config) end).
+    {ok, Pid} = proc_lib:start_link(?MODULE, gtpc_server_init, [self(), Config]),
+    register(gtpc_client_server, Pid),
+    Pid.
 
-stop_gtpc_server(Pid) ->
-    unlink(Pid),
-    exit(Pid, normal).
+stop_gtpc_server(_) ->
+    stop_gtpc_server().
+
+stop_gtpc_server() ->
+    case whereis(gtpc_client_server) of
+	Pid when is_pid(Pid) ->
+	    unlink(Pid),
+	    exit(Pid, normal);
+	_ ->
+	    ok
+    end.
 
 make_gtp_socket(Config) ->
     make_gtp_socket(?GTP2c_PORT, Config).
@@ -220,21 +239,29 @@ make_gtp_socket(Port, _Config) ->
 					 binary, {reuseaddr, true}]),
     S.
 
-send_pdu(S, Msg) when is_pid(S) ->
-    S ! {send, Msg};
-send_pdu(S, Msg) ->
+send_pdu(#gtpc{socket = S, remote_ip = IP}, Msg) ->
+    send_pdu(S, IP, Msg).
+
+send_pdu(S, IP, Port, Msg) when is_port(S) ->
     Data = gtp_packet:encode(Msg),
-    ok = gen_udp:send(S, ?TEST_GSN, ?GTP2c_PORT, Data).
+    ok = gen_udp:send(S, IP, Port, Data).
 
-send_recv_pdu(S, Msg) ->
-    send_recv_pdu(S, Msg, ?TIMEOUT).
+send_pdu(S, #gtpc{remote_ip = IP}, Msg) when is_port(S) ->
+    send_pdu(S, IP, ?GTP2c_PORT, Msg);
+send_pdu(S, IP, Msg) when is_port(S) ->
+    send_pdu(S, IP, ?GTP2c_PORT, Msg);
+send_pdu(S, Peer, Msg) when is_pid(S) ->
+    S ! {send, Peer, Msg}.
 
-send_recv_pdu(S, Msg, Timeout) ->
-    send_pdu(S, Msg),
+send_recv_pdu(GtpC, Msg) ->
+    send_recv_pdu(GtpC, Msg, ?TIMEOUT).
+
+send_recv_pdu(#gtpc{socket = S} = GtpC, Msg, Timeout) ->
+    send_pdu(GtpC, Msg),
     recv_pdu(S, Msg#gtp.seq_no, Timeout).
 
-send_recv_pdu(S, Msg, Timeout, Fail) ->
-    send_pdu(S, Msg),
+send_recv_pdu(#gtpc{socket = S} = GtpC, Msg, Timeout, Fail) ->
+    send_pdu(GtpC, Msg),
     recv_pdu(S, Msg#gtp.seq_no, Timeout, Fail).
 
 recv_pdu(S, Timeout) ->
@@ -243,16 +270,16 @@ recv_pdu(S, Timeout) ->
 recv_pdu(S, SeqNo, Timeout) ->
     recv_pdu(S, SeqNo, Timeout, fun(Reason) -> ct:fail(Reason) end).
 
+recv_pdu(#gtpc{socket = S}, SeqNo, Timeout, Fail) ->
+    recv_pdu(S, SeqNo, Timeout, Fail);
 recv_pdu(_, _SeqNo, Timeout, Fail) when Timeout =< 0 ->
     recv_pdu_fail(Fail, timeout);
 recv_pdu(S, SeqNo, Timeout, Fail) ->
     Now = erlang:monotonic_time(millisecond),
     recv_active(S),
     receive
-	{udp, S, ?TEST_GSN, _InPortNo, Response} ->
-	    recv_pdu_msg(Response, Now, S, SeqNo, Timeout, Fail);
-	{udp, _Socket, _IP, _InPortNo, _Packet} = Unexpected ->
-	    recv_pdu_fail(Fail, Unexpected);
+	{udp, S, IP, _InPortNo, Response} ->
+	    recv_pdu_msg(Response, Now, S, IP, SeqNo, Timeout, Fail);
 	{S, #gtp{seq_no = SeqNo} = Msg}
 	  when is_integer(SeqNo) ->
 	    Msg;
@@ -261,8 +288,8 @@ recv_pdu(S, SeqNo, Timeout, Fail) ->
 	    Msg;
 	{'EXIT', _From, _Reason} = Exit ->
 	    recv_pdu_fail(Fail, Exit);
-	{send, Msg} ->
-	    send_pdu(S, Msg),
+	{send, Peer, Msg} ->
+	    send_pdu(S, Peer, Msg),
 	    recv_pdu(S, SeqNo, update_timeout(Timeout, Now), Fail)
     after Timeout ->
 	    recv_pdu_fail(Fail, timeout)
@@ -278,12 +305,12 @@ update_timeout(infinity, _At) ->
 update_timeout(Timeout, At) ->
     Timeout - (erlang:monotonic_time(millisecond) - At).
 
-recv_pdu_msg(Response, At, S, SeqNo, Timeout, Fail) ->
+recv_pdu_msg(Response, At, S, IP, SeqNo, Timeout, Fail) ->
     ct:pal("Msg: ~s", [pretty_print((catch gtp_packet:decode(Response)))]),
     case gtp_packet:decode(Response) of
 	#gtp{type = echo_request} = Msg ->
 	    Resp = Msg#gtp{type = echo_response, ie = []},
-	    send_pdu(S, Resp),
+	    send_pdu(S, IP, Resp),
 	    recv_pdu(S, SeqNo, update_timeout(Timeout, At), Fail);
 	#gtp{seq_no = SeqNo} = Msg
 	  when is_integer(SeqNo) ->

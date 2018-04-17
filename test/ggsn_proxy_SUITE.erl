@@ -300,7 +300,8 @@ init_per_testcase(Config) ->
     ct:pal("Sockets: ~p", [gtp_socket_reg:all()]),
     ergw_test_sx_up:reset('pgw-u'),
     ergw_test_sx_up:reset('sgw-u'),
-    meck_reset(Config).
+    meck_reset(Config),
+    start_gtpc_server(Config).
 
 init_per_testcase(path_restart, Config) ->
     init_per_testcase(Config),
@@ -383,32 +384,43 @@ init_per_testcase(_, Config) ->
     init_per_testcase(Config),
     Config.
 
+end_per_testcase(_Config) ->
+    stop_gtpc_server().
+
 end_per_testcase(path_restart, Config) ->
     meck:unload(gtp_path),
+    end_per_testcase(Config),
     Config;
 end_per_testcase(delete_pdp_context_request_timeout, Config) ->
     ok = meck:unload(ggsn_gn),
+    end_per_testcase(Config),
     Config;
 end_per_testcase(TestCase, Config)
   when TestCase == delete_pdp_context_requested_resend;
        TestCase == delete_pdp_context_requested_invalid_teid;
        TestCase == delete_pdp_context_requested_late_response ->
     ok = meck:delete(gtp_socket, send_request, 7),
+    end_per_testcase(Config),
     Config;
 end_per_testcase(request_fast_resend, Config) ->
     ok = meck:unload(ggsn_gn),
+    end_per_testcase(Config),
     Config;
 end_per_testcase(simple_pdp_context_request, Config) ->
     meck:unload(ggsn_gn),
+    end_per_testcase(Config),
     Config;
 end_per_testcase(ggsn_update_pdp_context_request, Config) ->
     meck:unload(ggsn_gn),
+    end_per_testcase(Config),
     Config;
 end_per_testcase(create_pdp_context_overload, Config) ->
     jobs:modify_queue(create, [{max_size, 10}]),
     jobs:modify_regulator(rate, create, {rate,create,1}, [{limit,100}]),
+    end_per_testcase(Config),
     Config;
 end_per_testcase(_, Config) ->
+    end_per_testcase(Config),
     Config.
 
 %%--------------------------------------------------------------------
@@ -427,9 +439,7 @@ invalid_gtp_pdu(Config) ->
 create_pdp_context_request_missing_ie() ->
     [{doc, "Check that Create Session Request IE validation works"}].
 create_pdp_context_request_missing_ie(Config) ->
-    S = make_gtp_socket(Config),
-
-    create_pdp_context(missing_ie, S),
+    create_pdp_context(missing_ie, Config),
 
     ?equal([], outstanding_requests()),
     meck_validate(Config),
@@ -439,10 +449,8 @@ create_pdp_context_request_missing_ie(Config) ->
 create_pdp_context_request_accept_new() ->
     [{doc, "Check the accept_new = false can block new connections"}].
 create_pdp_context_request_accept_new(Config) ->
-    S = make_gtp_socket(Config),
-
     ?equal(ergw:system_info(accept_new, false), true),
-    create_pdp_context(overload, S),
+    create_pdp_context(overload, Config),
     ?equal(ergw:system_info(accept_new, true), false),
 
     ?equal([], outstanding_requests()),
@@ -454,15 +462,13 @@ path_restart() ->
     [{doc, "Check that Create PDP Context Request works and "
            "that a Path Restart terminates the session"}].
 path_restart(Config) ->
-    S = make_gtp_socket(Config),
-
-    {GtpC, _, _} = create_pdp_context(S),
+    {GtpC, _, _} = create_pdp_context(Config),
 
     %% simulate patch restart to kill the PDP context
     Echo = make_request(echo_request, simple,
 			gtp_context_inc_seq(
 			  gtp_context_inc_restart_counter(GtpC))),
-    send_recv_pdu(S, Echo),
+    send_recv_pdu(GtpC, Echo),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     wait4tunnels(?TIMEOUT),
@@ -474,16 +480,14 @@ path_restart_recovery() ->
     [{doc, "Check that Create PDP Context Request works and "
            "that a Path Restart terminates the session"}].
 path_restart_recovery(Config) ->
-    S = make_gtp_socket(Config),
-
-    {GtpC1, _, _} = create_pdp_context(S),
+    {GtpC1, _, _} = create_pdp_context(Config),
 
     %% create 2nd session with new restart_counter (simulate SGSN restart)
-    {GtpC2, _, _} = create_pdp_context('2nd', S, gtp_context_inc_restart_counter(GtpC1)),
+    {GtpC2, _, _} = create_pdp_context('2nd', gtp_context_inc_restart_counter(GtpC1)),
 
     [?match(#{tunnels := 1}, X) || X <- ergw_api:peer(all)],
 
-    delete_pdp_context(S, GtpC2),
+    delete_pdp_context(GtpC2),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     wait4tunnels(?TIMEOUT),
@@ -494,13 +498,11 @@ path_restart_recovery(Config) ->
 simple_pdp_context_request() ->
     [{doc, "Check simple Create PDP Context, Delete PDP Context sequence"}].
 simple_pdp_context_request(Config) ->
-    S = make_gtp_socket(Config),
-
     init_seq_no(?MODULE, 16#8000),
-    GtpC0 = gtp_context(?MODULE),
+    GtpC0 = gtp_context(?MODULE, Config),
 
-    {GtpC1, _, _} = create_pdp_context(S, GtpC0),
-    delete_pdp_context(S, GtpC1),
+    {GtpC1, _, _} = create_pdp_context(GtpC0),
+    delete_pdp_context(GtpC1),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
@@ -529,17 +531,15 @@ simple_pdp_context_request(Config) ->
 duplicate_pdp_context_request() ->
     [{doc, "Check the a new incomming request for the same IMSI terminates the first"}].
 duplicate_pdp_context_request(Config) ->
-    S = make_gtp_socket(Config),
-
-    {GtpC1, _, _} = create_pdp_context(S),
+    {GtpC1, _, _} = create_pdp_context(Config),
 
     %% create 2nd PDP context with the same IMSI
-    {GtpC2, _, _} = create_pdp_context(S),
+    {GtpC2, _, _} = create_pdp_context(Config),
 
     [?match(#{tunnels := 1}, X) || X <- ergw_api:peer(all)],
 
-    delete_pdp_context(not_found, S, GtpC1),
-    delete_pdp_context(S, GtpC2),
+    delete_pdp_context(not_found, GtpC1),
+    delete_pdp_context(GtpC2),
 
     ?equal([], outstanding_requests()),
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
@@ -551,13 +551,11 @@ duplicate_pdp_context_request(Config) ->
 create_pdp_context_request_resend() ->
     [{doc, "Check that a retransmission of a Create PDP Context Request works"}].
 create_pdp_context_request_resend(Config) ->
-    S = make_gtp_socket(Config),
-
-    {GtpC, Msg, Response} = create_pdp_context(S),
-    ?equal(Response, send_recv_pdu(S, Msg)),
+    {GtpC, Msg, Response} = create_pdp_context(Config),
+    ?equal(Response, send_recv_pdu(GtpC, Msg)),
     ?equal([], outstanding_requests()),
 
-    delete_pdp_context(S, GtpC),
+    delete_pdp_context(GtpC),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     ?match(0, meck:num_calls(?HUT, handle_request, ['_', '_', true, '_'])),
@@ -568,11 +566,9 @@ create_pdp_context_request_resend(Config) ->
 delete_pdp_context_request_resend() ->
     [{doc, "Check that a retransmission of a Delete PDP Context Request works"}].
 delete_pdp_context_request_resend(Config) ->
-    S = make_gtp_socket(Config),
-
-    {GtpC, _, _} = create_pdp_context(S),
-    {_, Msg, Response} = delete_pdp_context(S, GtpC),
-    ?equal(Response, send_recv_pdu(S, Msg)),
+    {GtpC, _, _} = create_pdp_context(Config),
+    {_, Msg, Response} = delete_pdp_context(GtpC),
+    ?equal(Response, send_recv_pdu(GtpC, Msg)),
     ?equal([], outstanding_requests()),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
@@ -585,9 +581,7 @@ delete_pdp_context_request_timeout() ->
     [{doc, "Check that a Delete PDP Context Request terminates the "
            "proxy session even when the final GSN fails"}].
 delete_pdp_context_request_timeout(Config) ->
-    S = make_gtp_socket(Config),
-
-    {GtpC, _, _} = create_pdp_context(S),
+    {GtpC, _, _} = create_pdp_context(Config),
     Context = gtp_context_reg:lookup_key(#gtp_port{name = 'remote-irx'},
 					 {imsi, ?'PROXY-IMSI', 5}),
     true = is_pid(Context),
@@ -595,9 +589,9 @@ delete_pdp_context_request_timeout(Config) ->
     Request = make_request(delete_pdp_context_request, simple, GtpC),
 
     %% simulate retransmissions
-    ?equal({error,timeout}, send_recv_pdu(S, Request, ?TIMEOUT, error)),
-    ?equal({error,timeout}, send_recv_pdu(S, Request, ?TIMEOUT, error)),
-    ?equal({error,timeout}, send_recv_pdu(S, Request, ?TIMEOUT, error)),
+    ?equal({error,timeout}, send_recv_pdu(GtpC, Request, ?TIMEOUT, error)),
+    ?equal({error,timeout}, send_recv_pdu(GtpC, Request, ?TIMEOUT, error)),
+    ?equal({error,timeout}, send_recv_pdu(GtpC, Request, ?TIMEOUT, error)),
 
     %% killing the GGSN context
     exit(Context, kill),
@@ -611,14 +605,12 @@ delete_pdp_context_request_timeout(Config) ->
 error_indication_sgsn2ggsn() ->
     [{doc, "Check the a GTP-U error indication terminates the session"}].
 error_indication_sgsn2ggsn(Config) ->
-    S = make_gtp_socket(Config),
-
-    {GtpC, _, _} = create_pdp_context(S),
+    {GtpC, _, _} = create_pdp_context(Config),
 
     ergw_test_sx_up:send('sgw-u', make_error_indication_report(GtpC)),
 
     ct:sleep(100),
-    delete_pdp_context(not_found, S, GtpC),
+    delete_pdp_context(not_found, GtpC),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     wait4tunnels(?TIMEOUT),
@@ -630,9 +622,9 @@ error_indication_sgsn2ggsn(Config) ->
 error_indication_ggsn2sgsn() ->
     [{doc, "Check the a GTP-U error indication terminates the session"}].
 error_indication_ggsn2sgsn(Config) ->
-    S = make_gtp_socket(Config),
+    Cntl = whereis(gtpc_client_server),
 
-    {GtpC, _, _} = create_pdp_context(S),
+    {GtpC, _, _} = create_pdp_context(Config),
 
     CtxPid = gtp_context_reg:lookup_key(#gtp_port{name = 'irx'},
 					{imsi, ?'IMSI', 5}),
@@ -641,13 +633,13 @@ error_indication_ggsn2sgsn(Config) ->
 
     ergw_test_sx_up:send('sgw-u', make_error_indication_report(Ctx)),
 
-    Request = recv_pdu(S, 5000),
+    Request = recv_pdu(Cntl, 5000),
     ?match(#gtp{type = delete_pdp_context_request}, Request),
     Response = make_response(Request, simple, GtpC),
-    send_pdu(S, Response),
+    send_pdu(Cntl, GtpC, Response),
 
     ct:sleep(100),
-    delete_pdp_context(not_found, S, GtpC),
+    delete_pdp_context(not_found, GtpC),
 
     Context = gtp_context_reg:lookup_key(#gtp_port{name = 'remote-irx'},
 					 {imsi, ?'PROXY-IMSI', 5}),
@@ -666,29 +658,28 @@ request_fast_resend() ->
     [{doc, "Check that a retransmission that arrives before the original "
       "request was processed works"}].
 request_fast_resend(Config) ->
-    S = make_gtp_socket(Config),
     Send = fun(Type, SubType, GtpCin) ->
 		   GtpC = gtp_context_inc_seq(GtpCin),
 		   Request = make_request(Type, SubType, GtpC),
-		   send_pdu(S, Request),
-		   Response = send_recv_pdu(S, Request),
+		   send_pdu(GtpC, Request),
+		   Response = send_recv_pdu(GtpC, Request),
 		   validate_response(Type, SubType, Response, GtpC)
 	   end,
 
-    GtpC0 = gtp_context(),
+    GtpC0 = gtp_context(Config),
 
     GtpC1 = Send(create_pdp_context_request, simple, GtpC0),
-    ?equal(timeout, recv_pdu(S, -1, 100, fun(Why) -> Why end)),
+    ?equal(timeout, recv_pdu(GtpC1, -1, 100, fun(Why) -> Why end)),
 
     GtpC2 = Send(ms_info_change_notification_request, simple, GtpC1),
-    ?equal(timeout, recv_pdu(S, -1, 100, fun(Why) -> Why end)),
+    ?equal(timeout, recv_pdu(GtpC2, -1, 100, fun(Why) -> Why end)),
 
     GtpC3 = Send(ms_info_change_notification_request, without_tei, GtpC2),
-    ?equal(timeout, recv_pdu(S, -1, 100, fun(Why) -> Why end)),
+    ?equal(timeout, recv_pdu(GtpC3, -1, 100, fun(Why) -> Why end)),
 
     ?equal([], outstanding_requests()),
 
-    delete_pdp_context(S, GtpC3),
+    delete_pdp_context(GtpC3),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     ?match(3, meck:num_calls(?HUT, handle_request, ['_', '_', true, '_'])),
@@ -700,12 +691,10 @@ request_fast_resend(Config) ->
 update_pdp_context_request_ra_update() ->
     [{doc, "Check Update PDP Context with Routing Area Update"}].
 update_pdp_context_request_ra_update(Config) ->
-    S = make_gtp_socket(Config),
-
-    {GtpC1, _, _} = create_pdp_context(S),
-    {GtpC2, _, _} = update_pdp_context(ra_update, S, GtpC1),
+    {GtpC1, _, _} = create_pdp_context(Config),
+    {GtpC2, _, _} = update_pdp_context(ra_update, GtpC1),
     ?equal([], outstanding_requests()),
-    delete_pdp_context(S, GtpC2),
+    delete_pdp_context(GtpC2),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
@@ -715,12 +704,10 @@ update_pdp_context_request_ra_update(Config) ->
 update_pdp_context_request_tei_update() ->
     [{doc, "Check Update PDP Context with TEID update (e.g. SGSN change)"}].
 update_pdp_context_request_tei_update(Config) ->
-    S = make_gtp_socket(Config),
-
-    {GtpC1, _, _} = create_pdp_context(S),
-    {GtpC2, _, _} = update_pdp_context(tei_update, S, GtpC1),
+    {GtpC1, _, _} = create_pdp_context(Config),
+    {GtpC2, _, _} = update_pdp_context(tei_update, GtpC1),
     ?equal([], outstanding_requests()),
-    delete_pdp_context(S, GtpC2),
+    delete_pdp_context(GtpC2),
 
     [_, SMR0|_] = lists:filter(
 		    fun(#pfcp{type = session_modification_request}) -> true;
@@ -743,12 +730,10 @@ update_pdp_context_request_tei_update(Config) ->
 ms_info_change_notification_request_with_tei() ->
     [{doc, "Check Ms_Info_Change Notification request with TEID"}].
 ms_info_change_notification_request_with_tei(Config) ->
-    S = make_gtp_socket(Config),
-
-    {GtpC1, _, _} = create_pdp_context(S),
-    {GtpC2, _, _} = ms_info_change_notification(simple, S, GtpC1),
+    {GtpC1, _, _} = create_pdp_context(Config),
+    {GtpC2, _, _} = ms_info_change_notification(simple, GtpC1),
     ?equal([], outstanding_requests()),
-    delete_pdp_context(S, GtpC2),
+    delete_pdp_context(GtpC2),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
@@ -759,12 +744,10 @@ ms_info_change_notification_request_without_tei() ->
     [{doc, "Check Ms_Info_Change Notification request without TEID "
            "include IMEI and IMSI instead"}].
 ms_info_change_notification_request_without_tei(Config) ->
-    S = make_gtp_socket(Config),
-
-    {GtpC1, _, _} = create_pdp_context(S),
-    {GtpC2, _, _} = ms_info_change_notification(without_tei, S, GtpC1),
+    {GtpC1, _, _} = create_pdp_context(Config),
+    {GtpC2, _, _} = ms_info_change_notification(without_tei, GtpC1),
     ?equal([], outstanding_requests()),
-    delete_pdp_context(S, GtpC2),
+    delete_pdp_context(GtpC2),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
@@ -775,12 +758,10 @@ ms_info_change_notification_request_invalid_imsi() ->
     [{doc, "Check Ms_Info_Change Notification request without TEID "
            "include a invalid IMEI and IMSI instead"}].
 ms_info_change_notification_request_invalid_imsi(Config) ->
-    S = make_gtp_socket(Config),
-
-    {GtpC1, _, _} = create_pdp_context(S),
-    {GtpC2, _, _} = ms_info_change_notification(invalid_imsi, S, GtpC1),
+    {GtpC1, _, _} = create_pdp_context(Config),
+    {GtpC2, _, _} = ms_info_change_notification(invalid_imsi, GtpC1),
     ?equal([], outstanding_requests()),
-    delete_pdp_context(S, GtpC2),
+    delete_pdp_context(GtpC2),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
@@ -796,11 +777,9 @@ proxy_context_selection(Config) ->
 			proxy_context_selection_map(ProxyInfo, <<"ams">>)
 		end),
 
-    S = make_gtp_socket(Config),
-
-    {GtpC, _, _} = create_pdp_context(S),
+    {GtpC, _, _} = create_pdp_context(Config),
     ?equal([], outstanding_requests()),
-    delete_pdp_context(S, GtpC),
+    delete_pdp_context(GtpC),
 
     meck:unload(gtp_proxy_ds),
 
@@ -818,11 +797,9 @@ proxy_context_invalid_selection(Config) ->
 			proxy_context_selection_map(ProxyInfo, <<"undefined">>)
 		end),
 
-    S = make_gtp_socket(Config),
-
-    {GtpC, _, _} = create_pdp_context(S),
+    {GtpC, _, _} = create_pdp_context(Config),
     ?equal([], outstanding_requests()),
-    delete_pdp_context(S, GtpC),
+    delete_pdp_context(GtpC),
 
     meck:unload(gtp_proxy_ds),
 
@@ -838,9 +815,7 @@ proxy_context_invalid_mapping(Config) ->
     meck:expect(gtp_proxy_ds, map,
 		fun(_ProxyInfo) -> {error, not_found} end),
 
-    S = make_gtp_socket(Config),
-
-    {_, _, _} = create_pdp_context(invalid_mapping, S),
+    {_, _, _} = create_pdp_context(invalid_mapping, Config),
     ?equal([], outstanding_requests()),
 
     meck:unload(gtp_proxy_ds),
@@ -859,9 +834,7 @@ proxy_context_version_restricted(Config) ->
 			{ok, ProxyInfo#proxy_info{ggsns = [#proxy_ggsn{restrictions = [{v1, false}]}]}}
 		end),
 
-    S = make_gtp_socket(Config),
-
-    {_, _, _} = create_pdp_context(version_restricted, S),
+    {_, _, _} = create_pdp_context(version_restricted, Config),
     ?equal([], outstanding_requests()),
 
     meck:unload(gtp_proxy_ds),
@@ -874,14 +847,12 @@ proxy_context_version_restricted(Config) ->
 invalid_teid() ->
     [{doc, "Check invalid TEID's for a number of request types"}].
 invalid_teid(Config) ->
-    S = make_gtp_socket(Config),
-
-    {GtpC1, _, _} = create_pdp_context(S),
-    {GtpC2, _, _} = delete_pdp_context(invalid_teid, S, GtpC1),
-    {GtpC3, _, _} = update_pdp_context(invalid_teid, S, GtpC2),
-    {GtpC4, _, _} = ms_info_change_notification(invalid_teid, S, GtpC3),
+    {GtpC1, _, _} = create_pdp_context(Config),
+    {GtpC2, _, _} = delete_pdp_context(invalid_teid, GtpC1),
+    {GtpC3, _, _} = update_pdp_context(invalid_teid, GtpC2),
+    {GtpC4, _, _} = ms_info_change_notification(invalid_teid, GtpC3),
     ?equal([], outstanding_requests()),
-    delete_pdp_context(S, GtpC4),
+    delete_pdp_context(GtpC4),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
@@ -891,9 +862,9 @@ invalid_teid(Config) ->
 delete_pdp_context_requested() ->
     [{doc, "Check GGSN initiated Delete PDP Context"}].
 delete_pdp_context_requested(Config) ->
-    S = make_gtp_socket(Config),
+    Cntl = whereis(gtpc_client_server),
 
-    {GtpC, _, _} = create_pdp_context(S),
+    {GtpC, _, _} = create_pdp_context(Config),
 
     Context = gtp_context_reg:lookup_key(#gtp_port{name = 'remote-irx'},
 					 {imsi, ?'PROXY-IMSI', 5}),
@@ -902,10 +873,10 @@ delete_pdp_context_requested(Config) ->
     Self = self(),
     spawn(fun() -> Self ! {req, gtp_context:delete_context(Context)} end),
 
-    Request = recv_pdu(S, 5000),
+    Request = recv_pdu(Cntl, 5000),
     ?match(#gtp{type = delete_pdp_context_request}, Request),
     Response = make_response(Request, simple, GtpC),
-    send_pdu(S, Response),
+    send_pdu(Cntl, GtpC, Response),
 
     receive
 	{req, {ok, request_accepted}} ->
@@ -926,9 +897,9 @@ delete_pdp_context_requested(Config) ->
 delete_pdp_context_requested_resend() ->
     [{doc, "Check resend of GGSN initiated Delete PDP Context"}].
 delete_pdp_context_requested_resend(Config) ->
-    S = make_gtp_socket(Config),
+    Cntl = whereis(gtpc_client_server),
 
-    {_, _, _} = create_pdp_context(S),
+    {_, _, _} = create_pdp_context(Config),
 
     Context = gtp_context_reg:lookup_key(#gtp_port{name = 'remote-irx'},
 					 {imsi, ?'PROXY-IMSI', 5}),
@@ -937,10 +908,10 @@ delete_pdp_context_requested_resend(Config) ->
     Self = self(),
     spawn(fun() -> Self ! {req, gtp_context:delete_context(Context)} end),
 
-    Request = recv_pdu(S, 5000),
+    Request = recv_pdu(Cntl, 5000),
     ?match(#gtp{type = delete_pdp_context_request}, Request),
-    ?equal(Request, recv_pdu(S, 5000)),
-    ?equal(Request, recv_pdu(S, 5000)),
+    ?equal(Request, recv_pdu(Cntl, 5000)),
+    ?equal(Request, recv_pdu(Cntl, 5000)),
 
     receive
 	{req, {error, timeout}} ->
@@ -959,9 +930,9 @@ delete_pdp_context_requested_resend(Config) ->
 delete_pdp_context_requested_invalid_teid() ->
     [{doc, "Check error response of GGSN initiated Delete PDP Context with invalid TEID"}].
 delete_pdp_context_requested_invalid_teid(Config) ->
-    S = make_gtp_socket(Config),
+    Cntl = whereis(gtpc_client_server),
 
-    {GtpC, _, _} = create_pdp_context(S),
+    {GtpC, _, _} = create_pdp_context(Config),
 
     Context = gtp_context_reg:lookup_key(#gtp_port{name = 'remote-irx'},
 					 {imsi, ?'PROXY-IMSI', 5}),
@@ -970,11 +941,11 @@ delete_pdp_context_requested_invalid_teid(Config) ->
     Self = self(),
     spawn(fun() -> Self ! {req, gtp_context:delete_context(Context)} end),
 
-    Request = recv_pdu(S, 5000),
+    Request = recv_pdu(Cntl, 5000),
     ?match(#gtp{type = delete_pdp_context_request}, Request),
 
     Response = make_response(Request, invalid_teid, GtpC),
-    send_pdu(S, Response),
+    send_pdu(Cntl, GtpC, Response),
 
     receive
 	{req, {ok, context_not_found}} ->
@@ -995,9 +966,9 @@ delete_pdp_context_requested_invalid_teid(Config) ->
 delete_pdp_context_requested_late_response() ->
     [{doc, "Check a answer folling a resend of GGSN initiated Delete PDP Context"}].
 delete_pdp_context_requested_late_response(Config) ->
-    S = make_gtp_socket(Config),
+    Cntl = whereis(gtpc_client_server),
 
-    {GtpC, _, _} = create_pdp_context(S),
+    {GtpC, _, _} = create_pdp_context(Config),
 
     Context = gtp_context_reg:lookup_key(#gtp_port{name = 'remote-irx'},
 					 {imsi, ?'PROXY-IMSI', 5}),
@@ -1006,13 +977,13 @@ delete_pdp_context_requested_late_response(Config) ->
     Self = self(),
     spawn(fun() -> Self ! {req, gtp_context:delete_context(Context)} end),
 
-    Request = recv_pdu(S, 5000),
+    Request = recv_pdu(Cntl, 5000),
     ?match(#gtp{type = delete_pdp_context_request}, Request),
-    ?equal(Request, recv_pdu(S, 5000)),
-    ?equal(Request, recv_pdu(S, 5000)),
+    ?equal(Request, recv_pdu(Cntl, 5000)),
+    ?equal(Request, recv_pdu(Cntl, 5000)),
 
     Response = make_response(Request, simple, GtpC),
-    send_pdu(S, Response),
+    send_pdu(Cntl, GtpC, Response),
 
     receive
 	{req, {ok, request_accepted}} ->
@@ -1034,9 +1005,9 @@ ggsn_update_pdp_context_request() ->
     [{doc, "Check GGSN initiated Update PDP Context"},
      {timetrap,{seconds,60}}].
 ggsn_update_pdp_context_request(Config) ->
-    S = make_gtp_socket(Config),
+    Cntl = whereis(gtpc_client_server),
 
-    {GtpC, _, _} = create_pdp_context(S),
+    {GtpC, _, _} = create_pdp_context(Config),
 
     Context = gtp_context_reg:lookup_key(#gtp_port{name = 'remote-irx'},
 					 {imsi, ?'PROXY-IMSI', 5}),
@@ -1045,10 +1016,10 @@ ggsn_update_pdp_context_request(Config) ->
     Self = self(),
     spawn(fun() -> Self ! {req, gen_server:call(Context, update_context)} end),
 
-    Request = recv_pdu(S, 5000),
+    Request = recv_pdu(Cntl, 5000),
     ?match(#gtp{type = update_pdp_context_request}, Request),
     Response = make_response(Request, simple, GtpC),
-    send_pdu(S, Response),
+    send_pdu(Cntl, GtpC, Response),
 
     receive
 	{req, ok} ->
@@ -1060,7 +1031,7 @@ ggsn_update_pdp_context_request(Config) ->
     end,
 
     ?equal([], outstanding_requests()),
-    delete_pdp_context(S, GtpC),
+    delete_pdp_context(GtpC),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
@@ -1070,9 +1041,7 @@ ggsn_update_pdp_context_request(Config) ->
 create_pdp_context_overload() ->
     [{doc, "Check that the overload protection works"}].
 create_pdp_context_overload(Config) ->
-    S = make_gtp_socket(Config),
-
-    create_pdp_context(overload, S),
+    create_pdp_context(overload, Config),
     ?equal([], outstanding_requests()),
 
     meck_validate(Config),
@@ -1082,15 +1051,13 @@ create_pdp_context_overload(Config) ->
 unsupported_request() ->
     [{doc, "Check that unsupported requests are silently ignore and don't get stuck"}].
 unsupported_request(Config) ->
-    S = make_gtp_socket(Config),
-
-    {GtpC, _, _} = create_pdp_context(S),
+    {GtpC, _, _} = create_pdp_context(Config),
     Request = make_request(unsupported, simple, GtpC),
 
-    ?equal({error,timeout}, send_recv_pdu(S, Request, ?TIMEOUT, error)),
+    ?equal({error,timeout}, send_recv_pdu(GtpC, Request, ?TIMEOUT, error)),
     ?equal([], outstanding_requests()),
 
-    delete_pdp_context(S, GtpC),
+    delete_pdp_context(GtpC),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
@@ -1107,10 +1074,8 @@ cache_timeout(Config) ->
 	    Other ->
 		Other
 	end,
-    S = make_gtp_socket(Config),
-
-    {GtpC, _, _} = create_pdp_context(S),
-    delete_pdp_context(S, GtpC),
+    {GtpC, _, _} = create_pdp_context(Config),
+    delete_pdp_context(GtpC),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
 
@@ -1131,9 +1096,8 @@ cache_timeout(Config) ->
 session_accounting() ->
     [{doc, "Check that accounting in session works"}].
 session_accounting(Config) ->
-    S = make_gtp_socket(Config),
 
-    {GtpC, _, _} = create_pdp_context(S),
+    {GtpC, _, _} = create_pdp_context(Config),
 
     [#{'Session' := Session, 'Process' := Context}|_] = ergw_api:tunnel(?CLIENT_IP),
     SessionOpts0 = ergw_aaa_session:get(Session),
@@ -1157,7 +1121,7 @@ session_accounting(Config) ->
     ?match(#{'InPackets' := 3, 'OutPackets' := 1,
 	     'InOctets' := 4, 'OutOctets' := 2}, SessionOpts3),
 
-    delete_pdp_context(S, GtpC),
+    delete_pdp_context(GtpC),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),

@@ -15,14 +15,14 @@
 			  meck_unload/1,
 			  meck_validate/1]).
 -import('ergw_test_lib', [init_seq_no/2,
-			  gtp_context/0, gtp_context/1,
+			  gtp_context/1, gtp_context/2,
 			  gtp_context_inc_seq/1,
 			  gtp_context_inc_restart_counter/1,
 			  gtp_context_new_teids/1,
 			  make_error_indication_report/1]).
--import('ergw_test_lib', [start_gtpc_server/1, stop_gtpc_server/1,
+-import('ergw_test_lib', [start_gtpc_server/1, stop_gtpc_server/1, stop_gtpc_server/0,
 			  make_gtp_socket/1, make_gtp_socket/2,
-			  send_pdu/2,
+			  send_pdu/2, send_pdu/3,
 			  send_recv_pdu/2, send_recv_pdu/3, send_recv_pdu/4,
 			  recv_pdu/2, recv_pdu/3, recv_pdu/4]).
 -import('ergw_test_lib', [set_cfg_value/3, add_cfg_value/3]).
@@ -54,8 +54,14 @@
 	  restart_counter :: 0..255,
 	  seq_no          :: 0..16#ffffffff,
 
+	  socket,
+
+	  ue_ip                  :: inet:ip_address(),
+
+	  local_ip               :: inet:ip_address(),
 	  local_control_tei      :: non_neg_integer(),
 	  local_data_tei         :: non_neg_integer(),
+	  remote_ip              :: inet:ip_address(),
 	  remote_control_tei = 0 :: non_neg_integer(),
 	  remote_data_tei = 0    :: non_neg_integer()
 	 }).
