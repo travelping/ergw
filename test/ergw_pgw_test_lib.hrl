@@ -8,13 +8,13 @@
 -ifndef(ERGW_PGW_NO_IMPORTS).
 
 -import('ergw_pgw_test_lib', [make_request/3, make_response/3, validate_response/4,
-			      create_session/1, create_session/2, create_session/3,
-			      delete_session/2, delete_session/3,
-			      modify_bearer/3,
-			      modify_bearer_command/3,
-			      change_notification/3,
-			      suspend_notification/3,
-			      resume_notification/3]).
+			      create_session/1, create_session/2,
+			      delete_session/1, delete_session/2,
+			      modify_bearer/2,
+			      modify_bearer_command/2,
+			      change_notification/2,
+			      suspend_notification/2,
+			      resume_notification/2]).
 
 -endif.
 

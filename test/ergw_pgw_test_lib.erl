@@ -10,13 +10,13 @@
 -define(ERGW_PGW_NO_IMPORTS, true).
 
 -export([make_request/3, make_response/3, validate_response/4,
-	 create_session/1, create_session/2, create_session/3,
-	 delete_session/2, delete_session/3,
-	 modify_bearer/3,
-	 modify_bearer_command/3,
-	 change_notification/3,
-	 suspend_notification/3,
-	 resume_notification/3]).
+	 create_session/1, create_session/2,
+	 delete_session/1, delete_session/2,
+	 modify_bearer/2,
+	 modify_bearer_command/2,
+	 change_notification/2,
+	 suspend_notification/2,
+	 resume_notification/2]).
 -export([pgw_update_context/2]).
 
 -include("ergw_test_lib.hrl").
@@ -28,45 +28,45 @@
 %%% Execute GTPv2-C transactions
 %%%===================================================================
 
-create_session(Socket) ->
-    create_session(simple, Socket).
+create_session(#gtpc{} = GtpC) ->
+    create_session(simple, GtpC);
+create_session(Config) ->
+    create_session(simple, Config).
 
-create_session(Socket, #gtpc{} = GtpC) ->
-    create_session(simple, Socket, GtpC);
-create_session(SubType, Socket) ->
-    execute_request(create_session_request, SubType, Socket, gtp_context()).
-
-create_session(SubType, Socket, GtpC0) ->
+create_session(SubType, #gtpc{} = GtpC0) ->
     GtpC = gtp_context_new_teids(GtpC0),
-    execute_request(create_session_request, SubType, Socket, GtpC).
+    execute_request(create_session_request, SubType, GtpC);
 
-modify_bearer(SubType, Socket, GtpC0)
+create_session(SubType, Config) ->
+    execute_request(create_session_request, SubType, gtp_context(Config)).
+
+modify_bearer(SubType, GtpC0)
   when SubType == tei_update ->
     GtpC = gtp_context_new_teids(GtpC0),
-    execute_request(modify_bearer_request, SubType, Socket, GtpC);
-modify_bearer(SubType, Socket, GtpC)
+    execute_request(modify_bearer_request, SubType, GtpC);
+modify_bearer(SubType, GtpC)
   when SubType == sgw_change ->
-    execute_request(modify_bearer_request, SubType, Socket, GtpC);
-modify_bearer(SubType, Socket, GtpC) ->
-    execute_request(modify_bearer_request, SubType, Socket, GtpC).
+    execute_request(modify_bearer_request, SubType, GtpC);
+modify_bearer(SubType, GtpC) ->
+    execute_request(modify_bearer_request, SubType, GtpC).
 
-modify_bearer_command(SubType, Socket, GtpC) ->
-    execute_command(modify_bearer_command, SubType, Socket, GtpC).
+modify_bearer_command(SubType, GtpC) ->
+    execute_command(modify_bearer_command, SubType, GtpC).
 
-change_notification(SubType, Socket, GtpC) ->
-    execute_request(change_notification_request, SubType, Socket, GtpC).
+change_notification(SubType, GtpC) ->
+    execute_request(change_notification_request, SubType, GtpC).
 
-suspend_notification(SubType, Socket, GtpC) ->
-    execute_request(suspend_notification, SubType, Socket, GtpC).
+suspend_notification(SubType, GtpC) ->
+    execute_request(suspend_notification, SubType, GtpC).
 
-resume_notification(SubType, Socket, GtpC) ->
-    execute_request(resume_notification, SubType, Socket, GtpC).
+resume_notification(SubType, GtpC) ->
+    execute_request(resume_notification, SubType, GtpC).
 
-delete_session(Socket, GtpC) ->
-    execute_request(delete_session_request, simple, Socket, GtpC).
+delete_session(GtpC) ->
+    execute_request(delete_session_request, simple, GtpC).
 
-delete_session(SubType, Socket, GtpC) ->
-    execute_request(delete_session_request, SubType, Socket, GtpC).
+delete_session(SubType, GtpC) ->
+    execute_request(delete_session_request, SubType, GtpC).
 
 %%%===================================================================
 %%% Create GTPv2-C messages
@@ -128,6 +128,7 @@ make_request(create_session_request, missing_ie,
 
 make_request(create_session_request, SubType,
 	     #gtpc{restart_counter = RCnt, seq_no = SeqNo,
+		   local_ip = LocalIP,
 		   local_control_tei = LocalCntlTEI,
 		   local_data_tei = LocalDataTEI}) ->
     IEs0 =
@@ -147,12 +148,12 @@ make_request(create_session_request, SubType,
 			instance = 2,
 			interface_type = ?'S5/S8-U SGW',
 			key = LocalDataTEI,
-			ipv4 = gtp_c_lib:ip2bin(?CLIENT_IP)}
+			ipv4 = gtp_c_lib:ip2bin(LocalIP)}
 		    ]},
 	 #v2_fully_qualified_tunnel_endpoint_identifier{
 	    interface_type = ?'S5/S8-C SGW',
 	    key = LocalCntlTEI,
-	    ipv4 = gtp_c_lib:ip2bin(?CLIENT_IP)},
+	    ipv4 = gtp_c_lib:ip2bin(LocalIP)},
 	 #v2_international_mobile_subscriber_identity{
 	    imsi = imsi(SubType, LocalCntlTEI)},
 	 #v2_mobile_equipment_identity{mei = imei(SubType, LocalCntlTEI)},
@@ -169,6 +170,7 @@ make_request(create_session_request, SubType,
 
 make_request(modify_bearer_request, SubType,
 	     #gtpc{restart_counter = RCnt, seq_no = SeqNo,
+		   local_ip = LocalIP,
 		   local_control_tei = LocalCntlTEI,
 		   local_data_tei = LocalDataTEI,
 		   remote_control_tei = RemoteCntlTEI})
@@ -180,12 +182,12 @@ make_request(modify_bearer_request, SubType,
 			  instance = 1,
 			  interface_type = ?'S5/S8-U SGW',
 			  key = LocalDataTEI,
-			  ipv4 = gtp_c_lib:ip2bin(?CLIENT_IP)}
+			  ipv4 = gtp_c_lib:ip2bin(LocalIP)}
 		      ]},
 	   #v2_fully_qualified_tunnel_endpoint_identifier{
 	      interface_type = ?'S5/S8-C SGW',
 	      key = LocalCntlTEI,
-	      ipv4 = gtp_c_lib:ip2bin(?CLIENT_IP)}
+	      ipv4 = gtp_c_lib:ip2bin(LocalIP)}
 	  ],
 
     #gtp{version = v2, type = modify_bearer_request, tei = RemoteCntlTEI,
@@ -193,6 +195,7 @@ make_request(modify_bearer_request, SubType,
 
 make_request(modify_bearer_request, SubType,
 	     #gtpc{restart_counter = RCnt, seq_no = SeqNo,
+		   local_ip = LocalIP,
 		   local_control_tei = LocalCntlTEI,
 		   remote_control_tei = RemoteCntlTEI})
   when SubType == simple; SubType == ra_update ->
@@ -203,7 +206,7 @@ make_request(modify_bearer_request, SubType,
 	   #v2_fully_qualified_tunnel_endpoint_identifier{
 	      interface_type = ?'S5/S8-C SGW',
 	      key = LocalCntlTEI,
-	      ipv4 = gtp_c_lib:ip2bin(?CLIENT_IP)}
+	      ipv4 = gtp_c_lib:ip2bin(LocalIP)}
 	  ],
 
     #gtp{version = v2, type = modify_bearer_request, tei = RemoteCntlTEI,
@@ -211,6 +214,7 @@ make_request(modify_bearer_request, SubType,
 
 make_request(modify_bearer_command, SubType,
 	     #gtpc{restart_counter = RCnt, seq_no = SeqNo,
+		   local_ip = LocalIP,
 		   local_control_tei = LocalCntlTEI,
 		   remote_control_tei = RemoteCntlTEI})
   when SubType == simple; SubType == ra_update ->
@@ -223,7 +227,7 @@ make_request(modify_bearer_command, SubType,
 	   #v2_fully_qualified_tunnel_endpoint_identifier{
 	      interface_type = ?'S5/S8-C SGW',
 	      key = LocalCntlTEI,
-	      ipv4 = gtp_c_lib:ip2bin(?CLIENT_IP)}
+	      ipv4 = gtp_c_lib:ip2bin(LocalIP)}
 	  ],
     #gtp{version = v2, type = modify_bearer_command, tei = RemoteCntlTEI,
 	 seq_no = SeqNo, ie = IEs};
@@ -284,6 +288,7 @@ make_request(change_notification_request, invalid_imsi, GtpC) ->
 
 make_request(delete_session_request, _SubType,
 	     #gtpc{restart_counter = RCnt, seq_no = SeqNo,
+		   local_ip = LocalIP,
 		   local_control_tei = LocalCntlTEI,
 		   remote_control_tei = RemoteCntlTEI}) ->
     IEs = [%%{170,0} => {170,0,<<220,126,139,67>>},
@@ -292,7 +297,7 @@ make_request(delete_session_request, _SubType,
 	   #v2_fully_qualified_tunnel_endpoint_identifier{
 	      interface_type = ?'S5/S8-C SGW',
 	      key = LocalCntlTEI,
-	      ipv4 = gtp_c_lib:ip2bin(?CLIENT_IP)},
+	      ipv4 = gtp_c_lib:ip2bin(LocalIP)},
 	   #v2_user_location_information{tai = <<3,2,22,214,217>>,
 					 ecgi = <<3,2,22,8,71,9,92>>}],
 
@@ -317,9 +322,10 @@ make_response(#gtp{type = create_session_request,
 
 make_response(#gtp{type = create_session_request, seq_no = SeqNo},
 	      _SubType,
-	      #gtpc{restart_counter = RCnt,
+	      #gtpc{restart_counter = RCnt, ue_ip = UE_IP,
 		    local_control_tei = LocalCntlTEI,
 		    local_data_tei = LocalDataTEI,
+		    remote_ip = RemoteIP,
 		    remote_control_tei = RemoteCntlTEI}) ->
     IEs = #{{v2_cause,0} => #v2_cause{v2_cause = request_accepted},
 	    {v2_apn_restriction, 0} =>
@@ -345,18 +351,18 @@ make_response(#gtp{type = create_session_request, seq_no = SeqNo},
 				instance = 2,
 				interface_type = ?'S5/S8-U PGW',
 				key = LocalDataTEI,
-				ipv4 = gtp_c_lib:ip2bin(?TEST_GSN)}
+				ipv4 = gtp_c_lib:ip2bin(RemoteIP)}
 			}},
 	    {v2_fully_qualified_tunnel_endpoint_identifier, 1} =>
 		#v2_fully_qualified_tunnel_endpoint_identifier{
 		   instance = 1,
 		   interface_type = ?'S5/S8-C PGW',
 		   key = LocalCntlTEI,
-		   ipv4 = gtp_c_lib:ip2bin(?TEST_GSN)},
+		   ipv4 = gtp_c_lib:ip2bin(RemoteIP)},
 	    {v2_pdn_address_allocation, 0} =>
 		#v2_pdn_address_allocation{
 		   type = ipv4,
-		   address = gtp_c_lib:ip2bin(?LOCALHOST)},
+		   address = gtp_c_lib:ip2bin(UE_IP)},
 	    {v2_protocol_configuration_options, 0} =>
 		#v2_protocol_configuration_options{
 		   config = {0, [{ipcp,'CP-Configure-Nak',0,
@@ -602,20 +608,20 @@ validate_response(delete_session_request, _SubType, Response,
 %%% Helper functions
 %%%===================================================================
 
-execute_command(MsgType, SubType, Socket, GtpC)
+execute_command(MsgType, SubType, GtpC)
   when SubType == invalid_teid ->
-    execute_request(MsgType, SubType, Socket, GtpC);
-execute_command(MsgType, SubType, Socket, GtpC0) ->
+    execute_request(MsgType, SubType, GtpC);
+execute_command(MsgType, SubType, GtpC0) ->
     GtpC = gtp_context_inc_seq(GtpC0),
     Msg = make_request(MsgType, SubType, GtpC),
-    send_pdu(Socket, Msg),
+    send_pdu(GtpC, Msg),
 
     {GtpC, Msg}.
 
-execute_request(MsgType, SubType, Socket, GtpC0) ->
+execute_request(MsgType, SubType, GtpC0) ->
     GtpC = gtp_context_inc_seq(GtpC0),
     Msg = make_request(MsgType, SubType, GtpC),
-    Response = send_recv_pdu(Socket, Msg),
+    Response = send_recv_pdu(GtpC, Msg),
 
     {validate_response(MsgType, SubType, Response, GtpC), Msg, Response}.
 

@@ -10,10 +10,10 @@
 -define(ERGW_GGSN_NO_IMPORTS, true).
 
 -export([make_request/3, make_response/3, validate_response/4,
-	 create_pdp_context/1, create_pdp_context/2, create_pdp_context/3,
-	 update_pdp_context/3,
-	 ms_info_change_notification/3,
-	 delete_pdp_context/2, delete_pdp_context/3]).
+	 create_pdp_context/1, create_pdp_context/2,
+	 update_pdp_context/2,
+	 ms_info_change_notification/2,
+	 delete_pdp_context/1, delete_pdp_context/2]).
 -export([ggsn_update_context/2]).
 
 -include("ergw_test_lib.hrl").
@@ -25,33 +25,34 @@
 %%% Execute GTPv1-C transactions
 %%%===================================================================
 
-create_pdp_context(Socket) ->
-    create_pdp_context(simple, Socket).
+create_pdp_context(#gtpc{} = GtpC) ->
+    create_pdp_context(simple, GtpC);
 
-create_pdp_context(Socket, #gtpc{} = GtpC) ->
-    create_pdp_context(simple, Socket, GtpC);
-create_pdp_context(SubType, Socket) ->
-    execute_request(create_pdp_context_request, SubType, Socket, gtp_context()).
+create_pdp_context(Config) ->
+    create_pdp_context(simple, Config).
 
-create_pdp_context(SubType, Socket, GtpC0) ->
+create_pdp_context(SubType, #gtpc{} = GtpC0) ->
     GtpC = gtp_context_new_teids(GtpC0),
-    execute_request(create_pdp_context_request, SubType, Socket, GtpC).
+    execute_request(create_pdp_context_request, SubType, GtpC);
 
-update_pdp_context(SubType, Socket, GtpC0)
+create_pdp_context(SubType, Config) ->
+    execute_request(create_pdp_context_request, SubType, gtp_context(Config)).
+
+update_pdp_context(SubType, GtpC0)
   when SubType == tei_update ->
     GtpC = gtp_context_new_teids(GtpC0),
-    execute_request(update_pdp_context_request, SubType, Socket, GtpC);
-update_pdp_context(SubType, Socket, GtpC) ->
-    execute_request(update_pdp_context_request, SubType, Socket, GtpC).
+    execute_request(update_pdp_context_request, SubType, GtpC);
+update_pdp_context(SubType, GtpC) ->
+    execute_request(update_pdp_context_request, SubType, GtpC).
 
-ms_info_change_notification(SubType, Socket, GtpC) ->
-    execute_request(ms_info_change_notification_request, SubType, Socket, GtpC).
+ms_info_change_notification(SubType, GtpC) ->
+    execute_request(ms_info_change_notification_request, SubType, GtpC).
 
-delete_pdp_context(Socket, GtpC) ->
-    execute_request(delete_pdp_context_request, simple, Socket, GtpC).
+delete_pdp_context(GtpC) ->
+    execute_request(delete_pdp_context_request, simple, GtpC).
 
-delete_pdp_context(SubType, Socket, GtpC) ->
-    execute_request(delete_pdp_context_request, SubType, Socket, GtpC).
+delete_pdp_context(SubType, GtpC) ->
+    execute_request(delete_pdp_context_request, SubType, GtpC).
 
 %%%===================================================================
 %%% Create GTPv1-C messages
@@ -131,13 +132,14 @@ make_request(create_pdp_context_request, missing_ie,
 
 make_request(create_pdp_context_request, SubType,
 	     #gtpc{restart_counter = RCnt, seq_no = SeqNo,
+		   local_ip = IP,
 		   local_control_tei = LocalCntlTEI,
 		   local_data_tei = LocalDataTEI}) ->
     IEs0 =
 	[#recovery{restart_counter = RCnt},
 	 #access_point_name{apn = apn(SubType)},
-	 #gsn_address{instance = 0, address = gtp_c_lib:ip2bin(?CLIENT_IP)},
-	 #gsn_address{instance = 1, address = gtp_c_lib:ip2bin(?CLIENT_IP)},
+	 #gsn_address{instance = 0, address = gtp_c_lib:ip2bin(IP)},
+	 #gsn_address{instance = 1, address = gtp_c_lib:ip2bin(IP)},
 	 #imei{imei = imei(SubType, LocalCntlTEI)},
 	 #international_mobile_subscriber_identity{imsi = imsi(SubType, LocalCntlTEI)},
 	 #ms_international_pstn_isdn_number{
@@ -164,12 +166,13 @@ make_request(create_pdp_context_request, SubType,
 
 make_request(update_pdp_context_request, _SubType,
 	     #gtpc{restart_counter = RCnt, seq_no = SeqNo,
+		   local_ip = IP,
 		   local_control_tei = LocalCntlTEI,
 		   local_data_tei = LocalDataTEI,
 		   remote_control_tei = RemoteCntlTEI}) ->
     IEs = [#recovery{restart_counter = RCnt},
-	   #gsn_address{instance = 0, address = gtp_c_lib:ip2bin(?CLIENT_IP)},
-	   #gsn_address{instance = 1, address = gtp_c_lib:ip2bin(?CLIENT_IP)},
+	   #gsn_address{instance = 0, address = gtp_c_lib:ip2bin(IP)},
+	   #gsn_address{instance = 1, address = gtp_c_lib:ip2bin(IP)},
 	   #international_mobile_subscriber_identity{imsi = ?IMSI},
 	   #nsapi{nsapi = 5},
 	   #quality_of_service_profile{
@@ -440,10 +443,10 @@ validate_response(delete_pdp_context_request, _SubType, Response,
 %%% Helper functions
 %%%===================================================================
 
-execute_request(MsgType, SubType, Socket, GtpC0) ->
+execute_request(MsgType, SubType, GtpC0) ->
     GtpC = gtp_context_inc_seq(GtpC0),
     Msg = make_request(MsgType, SubType, GtpC),
-    Response = send_recv_pdu(Socket, Msg),
+    Response = send_recv_pdu(GtpC, Msg),
 
     {validate_response(MsgType, SubType, Response, GtpC), Msg, Response}.
 
