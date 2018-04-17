@@ -1,17 +1,24 @@
 sudo: false
-dist: xenial
-
-dist: xenial
+dist: trusty
 
 language: erlang
 
 otp_release:
  - 20.0
  - 20.1
+ - 20.2
 
 install: "true"
 
+before_script:
+  # Add an IPv6 config - see the corresponding Travis issue
+  # https://github.com/travis-ci/travis-ci/issues/8361
+  - if [ "${TRAVIS_OS_NAME}" == "linux" ]; then
+      sudo sh -c 'echo 0 > /proc/sys/net/ipv6/conf/all/disable_ipv6';
+    fi
+
 script:
+  - ip addr
   - source test/env.sh
   - rebar3 compile
   - rebar3 do xref, ct, coveralls send

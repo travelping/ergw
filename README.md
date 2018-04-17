@@ -161,4 +161,4 @@ See [Installing on Ubuntu 16.04](https://github.com/travelping/ergw-gtp-c-node#i
 [travis badge]: https://img.shields.io/travis/travelping/ergw/master.svg?style=flat-square
 [coveralls]: https://coveralls.io/github/travelping/ergw
 [coveralls badge]: https://img.shields.io/coveralls/travelping/ergw/master.svg?style=flat-square
-[erlang version badge]: https://img.shields.io/badge/erlang-R20.0%20to%2020.1-blue.svg?style=flat-square
+[erlang version badge]: https://img.shields.io/badge/erlang-R20.0%20to%2020.2-blue.svg?style=flat-square
