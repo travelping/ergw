@@ -11,7 +11,8 @@
 	 modify_sgi_session/2,
 	 delete_sgi_session/1,
 	 query_usage_report/1,
-	 send_sx_response/3]).
+	 send_sx_response/3,
+	 choose_context_ip/3]).
 
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include_lib("pfcplib/include/pfcp_packet.hrl").
@@ -301,10 +302,19 @@ update_far({_RuleId, _Type, _Out, _OldOut}, FARs) ->
 get_context_nwi(#context{control_port = #gtp_port{name = Name}}, NWIs) ->
     maps:get(Name, NWIs).
 
+%% use additional information from the Context to prefre V4 or V6....
+choose_context_ip(IP4, _IP6, _Context)
+  when is_binary(IP4) ->
+    IP4;
+choose_context_ip(_IP4, IP6, _Context)
+  when is_binary(IP6) ->
+    IP6.
+
 assign_data_teid(#context{data_port = DataPort} = Context,
 		 #user_plane_ip_resource_information{
-		    ipv4 = IP, network_instance = NWInst}) ->
+		    ipv4 = IP4, ipv6 = IP6, network_instance = NWInst}) ->
     {ok, DataTEI} = gtp_context_reg:alloc_tei(DataPort),
+    IP = choose_context_ip(IP4, IP6, Context),
     Context#context{
       data_port = DataPort#gtp_port{ip = gtp_c_lib:bin2ip(IP), network_instance = NWInst},
       local_data_tei = DataTEI
