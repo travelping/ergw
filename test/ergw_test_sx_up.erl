@@ -147,15 +147,15 @@ handle_message(#pfcp{type = association_setup_request}, State) ->
 	[#pfcp_cause{cause = 'Request accepted'},
 	 #user_plane_ip_resource_information{
 	    network_instance = [<<"irx">>],
-	    ipv4 = gtp_c_lib:ip2bin(?LOCALHOST)
+	    ipv4 = gtp_c_lib:ip2bin(?LOCALHOST_IPv4)
 	   },
 	 #user_plane_ip_resource_information{
 	    network_instance = [<<"proxy-irx">>],
-	    ipv4 = gtp_c_lib:ip2bin(?LOCALHOST)
+	    ipv4 = gtp_c_lib:ip2bin(?LOCALHOST_IPv4)
 	   },
 	 #user_plane_ip_resource_information{
 	    network_instance = [<<"remote-irx">>],
-	    ipv4 = gtp_c_lib:ip2bin(?LOCALHOST)
+	    ipv4 = gtp_c_lib:ip2bin(?LOCALHOST_IPv4)
 	   }
 	],
     sx_reply(association_setup_response, RespIEs, State);

@@ -20,7 +20,7 @@
 -define(HUT, ggsn_gn).				%% Handler Under Test
 
 %%%===================================================================
-%%% API
+%%% Config
 %%%===================================================================
 
 -define(TEST_CONFIG,
@@ -37,7 +37,7 @@
 		  [{"ORIGIN", {value, "epc.mnc001.mcc001.3gppnetwork.org"}}]},
 		 {sockets,
 		  [{irx, [{type, 'gtp-c'},
-			  {ip,  ?TEST_GSN},
+			  {ip,  ?MUST_BE_UPDATED},
 			  {reuseaddr, true}
 			 ]}
 		  ]},
@@ -82,8 +82,8 @@
 		       "topon.sx.prox01.$ORIGIN"},
 
 		      %% A/AAAA record alternatives
-		      {"topon.gn.ggsn.$ORIGIN", [?FINAL_GSN], []},
-		      {"topon.sx.prox01.$ORIGIN", [?PGW_U_SX], []}
+		      {"topon.gn.ggsn.$ORIGIN", ?MUST_BE_UPDATED, []},
+		      {"topon.sx.prox01.$ORIGIN", ?MUST_BE_UPDATED, []}
 		     ]
 		    }
 		   }
@@ -93,7 +93,7 @@
 		 {sx_socket,
 		  [{node, 'ergw'},
 		   {name, 'ergw'},
-		   {ip, ?LOCALHOST},
+		   {ip, ?MUST_BE_UPDATED},
 		   {reuseaddr, true}]},
 
 		 {apns,
@@ -105,14 +105,33 @@
 	]).
 
 
+-define(CONFIG_UPDATE,
+	[{[sockets, irx, ip], test_gsn},
+	 {[sx_socket, ip], localhost},
+	 {[node_selection, {default, 2}, 2, "topon.gn.ggsn.$ORIGIN"],
+	  {fun node_sel_update/2, final_gsn}},
+	 {[node_selection, {default, 2}, 2, "topon.sx.prox01.$ORIGIN"],
+	  {fun node_sel_update/2, pgw_u_sx}}
+	]).
+
+node_sel_update(Node, {_,_,_,_} = IP) ->
+    {Node, [IP], []};
+node_sel_update(Node, {_,_,_,_,_,_,_,_} = IP) ->
+    {Node, [], [IP]}.
+
+%%%===================================================================
+%%% Setup
+%%%===================================================================
+
 suite() ->
     [{timetrap,{seconds,30}}].
 
 init_per_suite(Config0) ->
-    Config = [{handler_under_test, ?HUT},
-	      {app_cfg, ?TEST_CONFIG}
-	      | Config0],
+    Config1 = [{handler_under_test, ?HUT},
+	       {app_cfg, ?TEST_CONFIG}
+	       | Config0],
 
+    Config = update_app_config(ipv4, ?CONFIG_UPDATE, Config1),
     lib_init_per_suite(Config).
 
 end_per_suite(Config) ->
@@ -244,8 +263,10 @@ invalid_gtp_pdu() ->
     [{doc, "Test that an invalid PDU is silently ignored"
       " and that the GTP socket is not crashing"}].
 invalid_gtp_pdu(Config) ->
+    TestGSN = proplists:get_value(test_gsn, Config),
+
     S = make_gtp_socket(Config),
-    gen_udp:send(S, ?TEST_GSN, ?GTP1c_PORT, <<"TESTDATA">>),
+    gen_udp:send(S, TestGSN, ?GTP1c_PORT, <<"TESTDATA">>),
 
     ?equal({error,timeout}, gen_udp:recv(S, 4096, ?TIMEOUT)),
     meck_validate(Config),
@@ -256,10 +277,11 @@ invalid_gtp_msg() ->
     [{doc, "Test that an invalid message is silently ignored"
       " and that the GTP socket is not crashing"}].
 invalid_gtp_msg(Config) ->
+    TestGSN = proplists:get_value(test_gsn, Config),
     Msg = hexstr2bin("320000040000000044000000"),
 
     S = make_gtp_socket(Config),
-    gen_udp:send(S, ?TEST_GSN, ?GTP1c_PORT, Msg),
+    gen_udp:send(S, TestGSN, ?GTP1c_PORT, Msg),
 
     ?equal({error,timeout}, gen_udp:recv(S, 4096, ?TIMEOUT)),
     meck_validate(Config),

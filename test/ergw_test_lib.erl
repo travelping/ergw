@@ -11,6 +11,7 @@
 
 -export([lib_init_per_suite/1,
 	 lib_end_per_suite/1,
+	 update_app_config/3,
 	 load_config/1]).
 -export([meck_init/1,
 	 meck_reset/1,
@@ -70,8 +71,8 @@ lib_init_per_suite(Config0) ->
     load_config(AppCfg),
     {ok, _} = application:ensure_all_started(ergw),
     lager_common_test_backend:bounce(debug),
-    {ok, _} = ergw_test_sx_up:start('pgw-u', ?PGW_U_SX),
-    {ok, _} = ergw_test_sx_up:start('sgw-u', ?SGW_U_SX),
+    {ok, _} = ergw_test_sx_up:start('pgw-u', proplists:get_value(pgw_u_sx, Config)),
+    {ok, _} = ergw_test_sx_up:start('sgw-u', proplists:get_value(sgw_u_sx, Config)),
     Config.
 
 lib_end_per_suite(Config) ->
@@ -91,6 +92,41 @@ load_config(AppCfg) ->
 					end, Settings)
 		  end, AppCfg),
     ok.
+
+merge_config(Opts, Config) ->
+    lists:ukeymerge(1, lists:keysort(1, Opts), lists:keysort(1, Config)).
+
+group_config(ipv4, Config) ->
+    Opts = [{localhost, ?LOCALHOST_IPv4},
+	    {ue_ip, ?LOCALHOST_IPv4},
+	    {client_ip, ?CLIENT_IP_IPv4},
+	    {test_gsn, ?TEST_GSN_IPv4},
+	    {proxy_gsn, ?PROXY_GSN_IPv4},
+	    {final_gsn, ?FINAL_GSN_IPv4},
+	    {sgw_u_sx, ?SGW_U_SX_IPv4},
+	    {pgw_u_sx, ?PGW_U_SX_IPv4}],
+    merge_config(Opts, Config).
+
+
+update_app_cfgkey({Fun, CfgKey}, Config) ->
+    fun(X) -> Fun(X, proplists:get_value(CfgKey, Config)) end;
+update_app_cfgkey(CfgKey, Config)
+  when is_atom(CfgKey) ->
+    proplists:get_value(CfgKey, Config);
+update_app_cfgkey(CfgKey, Config)
+  when is_list(CfgKey) ->
+    lists:map(fun(K) -> update_app_cfgkey(K, Config) end, CfgKey).
+
+update_app_config(Group, CfgUpd, Config0) ->
+    Config = group_config(Group, Config0),
+    AppCfg0 = proplists:get_value(app_cfg, Config),
+    AppCfg1 =
+	lists:foldl(
+	  fun({AppKey, CfgKey}, AppCfg) ->
+		  set_cfg_value([ergw] ++ AppKey, update_app_cfgkey(CfgKey, Config), AppCfg)
+	  end, AppCfg0, CfgUpd),
+    ergw_config:validate_config(proplists:get_value(ergw, AppCfg1)),
+    lists:keystore(app_cfg, 1, Config, {app_cfg, AppCfg1}).
 
 %%%===================================================================
 %%% Meck functions for fake the GTP sockets
@@ -147,10 +183,10 @@ gtp_context(Counter, Config) ->
 
 	      socket = make_gtp_socket(0, Config),
 
-	      ue_ip = ?LOCALHOST,
+	      ue_ip = proplists:get_value(ue_ip, Config),
 
-	      local_ip = ?CLIENT_IP,
-	      remote_ip = ?TEST_GSN
+	      local_ip = proplists:get_value(client_ip, Config),
+	      remote_ip = proplists:get_value(test_gsn, Config)
 	     },
     gtp_context_new_teids(GtpC).
 
@@ -234,9 +270,9 @@ stop_gtpc_server() ->
 make_gtp_socket(Config) ->
     make_gtp_socket(?GTP2c_PORT, Config).
 
-make_gtp_socket(Port, _Config) ->
-    {ok, S} = gen_udp:open(Port, [{ip, ?CLIENT_IP}, {active, false},
-					 binary, {reuseaddr, true}]),
+make_gtp_socket(Port, Config) ->
+    {ok, S} = gen_udp:open(Port, [{ip, proplists:get_value(client_ip, Config)}, {active, false},
+				  binary, {reuseaddr, true}]),
     S.
 
 send_pdu(#gtpc{socket = S, remote_ip = IP}, Msg) ->
@@ -345,10 +381,25 @@ pretty_print(_, _) ->
 %%% Config manipulation
 %%%===================================================================
 
+set_cfg_value(Key, Value) when is_function(Value) ->
+    Value(Key);
+set_cfg_value(Key, Value) ->
+    {Key, Value}.
+
 set_cfg_value([Key], Value, Config) when is_boolean(Value) ->
-    lists:keystore(Key, 1, proplists:delete(Key, Config), {Key, Value});
+    lists:keystore(Key, 1, proplists:delete(Key, Config), set_cfg_value(Key, Value));
+set_cfg_value([{Key, Pos}], Value, Config) ->
+    Tuple = lists:keyfind(Key, 1, Config),
+    lists:keystore(Key, 1, Config, setelement(Pos, Tuple, set_cfg_value(Key, Value)));
 set_cfg_value([Key], Value, Config) ->
-    lists:keystore(Key, 1, Config, {Key, Value});
+    lists:keystore(Key, 1, Config, set_cfg_value(Key, Value));
+set_cfg_value([{Key, Pos} | T], Value, Config) ->
+    Tuple = lists:keyfind(Key, 1, Config),
+    lists:keystore(Key, 1, Config,
+		   setelement(Pos, Tuple, set_cfg_value(T, Value, element(Pos, Tuple))));
+set_cfg_value([Pos | T], Value, Config)
+  when is_integer(Pos), is_tuple(Config) ->
+    setelement(Pos, Config, set_cfg_value(T, Value, element(Pos, Config)));
 set_cfg_value([H | T], Value, Config) ->
     Prop = proplists:get_value(H, Config, []),
     lists:keystore(H, 1, Config, {H, set_cfg_value(T, Value, Prop)}).

@@ -21,7 +21,7 @@
 -define(HUT, ggsn_gn_proxy).			%% Handler Under Test
 
 %%%===================================================================
-%%% API
+%%% Config
 %%%===================================================================
 
 -define(TEST_CONFIG_MULTIPLE_PROXY_SOCKETS,
@@ -39,15 +39,15 @@
 		 {dp_handler, '$meck'},
 		 {sockets,
 		  [{irx, [{type, 'gtp-c'},
-			  {ip,  ?TEST_GSN},
+			  {ip,  ?MUST_BE_UPDATED},
 			  {reuseaddr, true}
 			 ]},
 		   {'proxy-irx', [{type, 'gtp-c'},
-				  {ip,  ?PROXY_GSN},
+				  {ip,  ?MUST_BE_UPDATED},
 				  {reuseaddr, true}
 				 ]},
 		   {'remote-irx', [{type, 'gtp-c'},
-				   {ip,  ?FINAL_GSN},
+				   {ip,  ?MUST_BE_UPDATED},
 				   {reuseaddr, true}
 				  ]}
 		  ]},
@@ -99,9 +99,9 @@
 		       "topon.sx.pgw-u01.$ORIGIN"},
 
 		      %% A/AAAA record alternatives
-		      {"topon.gtp.ggsn.$ORIGIN", [?FINAL_GSN], []},
-		      {"topon.sx.sgw-u01.$ORIGIN", [?SGW_U_SX], []},
-		      {"topon.sx.pgw-u01.$ORIGIN", [?PGW_U_SX], []}
+		      {"topon.gtp.ggsn.$ORIGIN", ?MUST_BE_UPDATED, []},
+		      {"topon.sx.sgw-u01.$ORIGIN", ?MUST_BE_UPDATED, []},
+		      {"topon.sx.pgw-u01.$ORIGIN", ?MUST_BE_UPDATED, []}
 		     ]
 		    }
 		   }
@@ -111,7 +111,7 @@
 		 {sx_socket,
 		  [{node, 'ergw'},
 		   {name, 'ergw'},
-		   {ip, ?LOCALHOST},
+		   {ip, ?MUST_BE_UPDATED},
 		   {reuseaddr, true}]},
 
 		 {apns,
@@ -141,11 +141,11 @@
 		 {dp_handler, '$meck'},
 		 {sockets,
 		  [{irx, [{type, 'gtp-c'},
-			  {ip,  ?TEST_GSN},
+			  {ip,  ?TEST_GSN_IPv4},
 			  {reuseaddr, true}
 			 ]},
 		   {'remote-irx', [{type, 'gtp-c'},
-				   {ip,  ?FINAL_GSN},
+				   {ip,  ?FINAL_GSN_IPv4},
 				   {reuseaddr, true}
 				  ]}
 		  ]},
@@ -197,9 +197,9 @@
 		       "topon.sx.pgw-u01.$ORIGIN"},
 
 		      %% A/AAAA record alternatives
-		      {"topon.gtp.ggsn.$ORIGIN", [?FINAL_GSN], []},
-		      {"topon.sx.sgw-u01.$ORIGIN", [?SGW_U_SX], []},
-		      {"topon.sx.pgw-u01.$ORIGIN", [?PGW_U_SX], []}
+		      {"topon.gtp.ggsn.$ORIGIN", ?MUST_BE_UPDATED, []},
+		      {"topon.sx.sgw-u01.$ORIGIN", ?MUST_BE_UPDATED, []},
+		      {"topon.sx.pgw-u01.$ORIGIN", ?MUST_BE_UPDATED, []}
 		     ]
 		    }
 		   }
@@ -209,7 +209,7 @@
 		 {sx_socket,
 		  [{node, 'ergw'},
 		   {name, 'ergw'},
-		   {ip, ?LOCALHOST},
+		   {ip, ?MUST_BE_UPDATED},
 		   {reuseaddr, true}]},
 
 		 {apns,
@@ -224,6 +224,40 @@
 	 {ergw_aaa, [{ergw_aaa_provider, {ergw_aaa_mock, [{shared_secret, <<"MySecret">>}]}}]}
 	]).
 
+-define(CONFIG_UPDATE_MULTIPLE_PROXY_SOCKETS,
+	[{[sockets, irx, ip], test_gsn},
+	 {[sockets, 'proxy-irx', ip], proxy_gsn},
+	 {[sockets, 'remote-irx', ip], final_gsn},
+	 {[sx_socket, ip], localhost},
+	 {[node_selection, {default, 2}, 2, "topon.gtp.ggsn.$ORIGIN"],
+	  {fun node_sel_update/2, final_gsn}},
+	 {[node_selection, {default, 2}, 2, "topon.sx.sgw-u01.$ORIGIN"],
+	  {fun node_sel_update/2, sgw_u_sx}},
+	 {[node_selection, {default, 2}, 2, "topon.sx.pgw-u01.$ORIGIN"],
+	  {fun node_sel_update/2, pgw_u_sx}}
+	]).
+
+-define(CONFIG_UPDATE_SINGLE_PROXY_SOCKET,
+	[{[sockets, irx, ip], test_gsn},
+	 {[sockets, 'remote-irx', ip], final_gsn},
+	 {[sx_socket, ip], localhost},
+	 {[node_selection, {default, 2}, 2, "topon.gtp.ggsn.$ORIGIN"],
+	  {fun node_sel_update/2, final_gsn}},
+	 {[node_selection, {default, 2}, 2, "topon.sx.sgw-u01.$ORIGIN"],
+	  {fun node_sel_update/2, sgw_u_sx}},
+	 {[node_selection, {default, 2}, 2, "topon.sx.pgw-u01.$ORIGIN"],
+	  {fun node_sel_update/2, pgw_u_sx}}
+	]).
+
+node_sel_update(Node, {_,_,_,_} = IP) ->
+    {Node, [IP], []};
+node_sel_update(Node, {_,_,_,_,_,_,_,_} = IP) ->
+    {Node, [], [IP]}.
+
+%%%===================================================================
+%%% Setup
+%%%===================================================================
+
 suite() ->
     [{timetrap,{seconds,30}}].
 
@@ -234,12 +268,14 @@ end_per_suite(_Config) ->
     ok.
 
 init_per_group(single_proxy_interface, Config0) ->
-    Config = lists:keystore(app_cfg, 1, Config0,
+    Config1 = lists:keystore(app_cfg, 1, Config0,
 			    {app_cfg, ?TEST_CONFIG_SINGLE_PROXY_SOCKET}),
+    Config = update_app_config(ipv4, ?CONFIG_UPDATE_SINGLE_PROXY_SOCKET, Config1),
     lib_init_per_suite(Config);
 init_per_group(_Group, Config0) ->
-    Config = lists:keystore(app_cfg, 1, Config0,
+    Config1 = lists:keystore(app_cfg, 1, Config0,
 			    {app_cfg, ?TEST_CONFIG_MULTIPLE_PROXY_SOCKETS}),
+    Config = update_app_config(ipv4, ?CONFIG_UPDATE_MULTIPLE_PROXY_SOCKETS, Config1),
     lib_init_per_suite(Config).
 
 end_per_group(_Group, Config) ->
@@ -428,8 +464,10 @@ invalid_gtp_pdu() ->
     [{doc, "Test that an invalid PDU is silently ignored"
       " and that the GTP socket is not crashing"}].
 invalid_gtp_pdu(Config) ->
+    TestGSN = proplists:get_value(test_gsn, Config),
+
     S = make_gtp_socket(Config),
-    gen_udp:send(S, ?TEST_GSN, ?GTP1c_PORT, <<"TESTDATA">>),
+    gen_udp:send(S, TestGSN, ?GTP1c_PORT, <<"TESTDATA">>),
 
     ?equal({error,timeout}, gen_udp:recv(S, 4096, ?TIMEOUT)),
     meck_validate(Config),
@@ -1096,10 +1134,11 @@ cache_timeout(Config) ->
 session_accounting() ->
     [{doc, "Check that accounting in session works"}].
 session_accounting(Config) ->
+    ClientIP = proplists:get_value(client_ip, Config),
 
     {GtpC, _, _} = create_pdp_context(Config),
 
-    [#{'Session' := Session, 'Process' := Context}|_] = ergw_api:tunnel(?CLIENT_IP),
+    [#{'Session' := Session, 'Process' := Context}|_] = ergw_api:tunnel(ClientIP),
     SessionOpts0 = ergw_aaa_session:get(Session),
     #{'Accouting-Update-Fun' := UpdateFun} = SessionOpts0,
 

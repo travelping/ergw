@@ -9,6 +9,7 @@
 
 -import('ergw_test_lib', [lib_init_per_suite/1,
 			  lib_end_per_suite/1,
+			  update_app_config/3,
 			  load_config/1]).
 -import('ergw_test_lib', [meck_init/1,
 			  meck_reset/1,
@@ -31,14 +32,16 @@
 
 -endif.
 
--define(LOCALHOST, {127,0,0,1}).
--define(CLIENT_IP, {127,127,127,127}).
--define(TEST_GSN, ?LOCALHOST).
--define(PROXY_GSN, {127,0,100,1}).
--define(FINAL_GSN, {127,0,200,1}).
+-define(MUST_BE_UPDATED, 'must be updated').
 
--define(SGW_U_SX, {127,0,100,1}).
--define(PGW_U_SX, {127,0,200,1}).
+-define(LOCALHOST_IPv4, {127,0,0,1}).
+-define(CLIENT_IP_IPv4, {127,127,127,127}).
+-define(TEST_GSN_IPv4, ?LOCALHOST_IPv4).
+-define(PROXY_GSN_IPv4, {127,0,100,1}).
+-define(FINAL_GSN_IPv4, {127,0,200,1}).
+
+-define(SGW_U_SX_IPv4, {127,0,100,1}).
+-define(PGW_U_SX_IPv4, {127,0,200,1}).
 
 -define('APN-EXAMPLE', [<<"example">>, <<"net">>]).
 -define('APN-ExAmPlE', [<<"eXaMpLe">>, <<"net">>]).
