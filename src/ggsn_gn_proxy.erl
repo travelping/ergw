@@ -644,13 +644,15 @@ initiate_pdp_context_teardown(Direction, State) ->
     RequestIEs = gtp_v1_c:build_recovery(Ctx, false, RequestIEs0),
     send_request(Ctx, ?T3, ?N3, delete_pdp_context_request, RequestIEs).
 
-fteid_forward_context(#f_teid{ipv4 = IPv4, teid = TEID},
-			     #{proxy_context := #context{remote_data_ip = IPv4,
-							 remote_data_tei = TEID}}) ->
+fteid_forward_context(#f_teid{ipv4 = IPv4, ipv6 = IPv6, teid = TEID},
+		      #{proxy_context := #context{remote_data_ip = IP,
+						  remote_data_tei = TEID}})
+  when IP =:= IPv4; IP =:= IPv6 ->
     ggsn2sgsn;
-fteid_forward_context(#f_teid{ipv4 = IPv4, teid = TEID},
-			     #{context := #context{remote_data_ip = IPv4,
-						   remote_data_tei = TEID}}) ->
+fteid_forward_context(#f_teid{ipv4 = IPv4, ipv6 = IPv6, teid = TEID},
+		      #{context := #context{remote_data_ip = IP,
+					    remote_data_tei = TEID}})
+  when IP =:= IPv4; IP =:= IPv6 ->
     sgsn2ggsn.
 
 forward_context(sgsn2ggsn, #{proxy_context := Context}) ->
