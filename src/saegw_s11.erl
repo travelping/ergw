@@ -417,9 +417,12 @@ match_context(Type,
 		 instance       = 0,
 		 interface_type = Type,
 		 key            = RemoteCntlTEI,
-		 ipv4           = RemoteCntlIPBin} = IE) ->
-    case gtp_c_lib:bin2ip(RemoteCntlIPBin) of
-	RemoteCntlIP ->
+		 ipv4           = RemoteCntlIP4,
+		 ipv6           = RemoteCntlIP6} = IE) ->
+    case gtp_c_lib:ip2bin(RemoteCntlIP) of
+	RemoteCntlIP4 ->
+	    error_m:return(ok);
+	RemoteCntlIP6 ->
 	    error_m:return(ok);
 	_ ->
 	    lager:error("match_context: IP address mismatch, ~p, ~p, ~p",
@@ -621,23 +624,30 @@ copy_to_session(_, _, _AAAopts, Session) ->
 init_session_from_gtp_req(IEs, AAAopts, Session) ->
     maps:fold(copy_to_session(_, _, AAAopts, _), Session, IEs).
 
+%% use additional information from the Context to prefre V4 or V6....
+choose_context_ip(IP4, _IP6, _Context)
+  when is_binary(IP4) ->
+    IP4;
+choose_context_ip(_IP4, IP6, _Context)
+  when is_binary(IP6) ->
+    IP6.
+
 update_context_cntl_ids(#v2_fully_qualified_tunnel_endpoint_identifier{
-			     key  = RemoteCntlTEI,
-			     ipv4 = RemoteCntlIP}, Context) ->
+			   key = TEI, ipv4 = IP4, ipv6 = IP6}, Context) ->
+    IP = choose_context_ip(IP4, IP6, Context),
     Context#context{
-      remote_control_ip  = gtp_c_lib:bin2ip(RemoteCntlIP),
-      remote_control_tei = RemoteCntlTEI
+      remote_control_ip  = gtp_c_lib:bin2ip(IP),
+      remote_control_tei = TEI
      };
 update_context_cntl_ids(_ , Context) ->
     Context.
 
 update_context_data_ids(#v2_fully_qualified_tunnel_endpoint_identifier{
-			     key  = RemoteDataTEI,
-			     ipv4 = RemoteDataIP
-			    }, Context) ->
+			   key = TEI, ipv4 = IP4, ipv6 = IP6}, Context) ->
+    IP = choose_context_ip(IP4, IP6, Context),
     Context#context{
-      remote_data_ip     = gtp_c_lib:bin2ip(RemoteDataIP),
-      remote_data_tei    = RemoteDataTEI
+      remote_data_ip  = gtp_c_lib:bin2ip(IP),
+      remote_data_tei = TEI
      };
 update_context_data_ids(_ , Context) ->
     Context.
@@ -791,29 +801,24 @@ bearer_context(EBI, Context, IEs) ->
 		   s5s8_pgw_gtp_u_tei(Context)]},
     [IE | IEs].
 
-s11_sender_f_teid(#context{control_port = #gtp_port{ip = LocalCntlIP},
-			   local_control_tei = LocalCntlTEI}) ->
+fq_teid(Instance, Type, TEI, {_,_,_,_} = IP) ->
     #v2_fully_qualified_tunnel_endpoint_identifier{
-       instance = 0,
-       interface_type = ?'S11/S4-C SGW',
-       key = LocalCntlTEI,
-       ipv4 = gtp_c_lib:ip2bin(LocalCntlIP)}.
+       instance = Instance, interface_type = Type,
+       key = TEI, ipv4 = gtp_c_lib:ip2bin(IP)};
+fq_teid(Instance, Type, TEI, {_,_,_,_,_,_,_,_} = IP) ->
+    #v2_fully_qualified_tunnel_endpoint_identifier{
+       instance = Instance, interface_type = Type,
+       key = TEI, ipv6 = gtp_c_lib:ip2bin(IP)}.
 
-s1_sgw_gtp_u_tei(#context{data_port = #gtp_port{ip = LocalDataIP},
-			  local_data_tei = LocalDataTEI}) ->
-    #v2_fully_qualified_tunnel_endpoint_identifier{
-       instance = 0,	    %% S1 F-TEI Instance
-       interface_type = ?'S1-U SGW',
-       key = LocalDataTEI,
-       ipv4 = gtp_c_lib:ip2bin(LocalDataIP)}.
+s11_sender_f_teid(#context{control_port = #gtp_port{ip = IP}, local_control_tei = TEI}) ->
+    fq_teid(0, ?'S11/S4-C SGW', TEI, IP).
 
-s5s8_pgw_gtp_u_tei(#context{data_port = #gtp_port{ip = LocalDataIP},
-			    local_data_tei = LocalDataTEI}) ->
-    #v2_fully_qualified_tunnel_endpoint_identifier{
-       instance = 2,		%% S5/S8 F-TEI Instance
-       interface_type = ?'S5/S8-U PGW',
-       key = LocalDataTEI,
-       ipv4 = gtp_c_lib:ip2bin(LocalDataIP)}.
+s1_sgw_gtp_u_tei(#context{data_port = #gtp_port{ip = IP}, local_data_tei = TEI}) ->
+    fq_teid(0, ?'S1-U SGW', TEI, IP).
+
+s5s8_pgw_gtp_u_tei(#context{data_port = #gtp_port{ip = IP}, local_data_tei = TEI}) ->
+    %% S5/S8 F-TEI Instance
+    fq_teid(2, ?'S5/S8-U PGW', TEI, IP).
 
 create_session_response(SessionOpts, RequestIEs, EBI,
 			#context{ms_v4 = MSv4, ms_v6 = MSv6} = Context) ->
