@@ -138,18 +138,29 @@ suite() ->
     [{timetrap,{seconds,30}}].
 
 init_per_suite(Config0) ->
-    Config1 = [{handler_under_test, ?HUT},
-	       {app_cfg, ?TEST_CONFIG}
-	       | Config0],
+    [{handler_under_test, ?HUT},
+     {app_cfg, ?TEST_CONFIG} | Config0].
 
-    Config = update_app_config(ipv4, ?CONFIG_UPDATE, Config1),
-    lib_init_per_suite(Config).
-
-end_per_suite(Config) ->
-    ok = lib_end_per_suite(Config),
+end_per_suite(_Config) ->
     ok.
 
-all() ->
+init_per_group(ipv6, Config0) ->
+    case ergw_test_lib:has_ipv6_test_config() of
+	true ->
+	    Config = update_app_config(ipv6, ?CONFIG_UPDATE, Config0),
+	    lib_init_per_suite(Config);
+	_ ->
+	    {skip, "IPv6 test IPs not configured"}
+    end;
+init_per_group(ipv4, Config0) ->
+    Config = update_app_config(ipv4, ?CONFIG_UPDATE, Config0),
+    lib_init_per_suite(Config).
+
+end_per_group(Group, Config)
+  when Group == ipv4; Group == ipv6 ->
+    ok = lib_end_per_suite(Config).
+
+common() ->
     [lager_format_ies,
      invalid_gtp_pdu,
      create_session_request_missing_ie,
@@ -186,6 +197,14 @@ all() ->
      interop_sgw_to_sgsn,
      create_session_overload,
      session_accounting].
+
+groups() ->
+    [{ipv4, [], common()},
+     {ipv6, [], common()}].
+
+all() ->
+    [{group, ipv4},
+     {group, ipv6}].
 
 %%%===================================================================
 %%% Tests

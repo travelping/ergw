@@ -96,6 +96,12 @@ apn_to_fqdn(APN)
 
 -define(IS_IP(X), (is_tuple(X) andalso (tuple_size(X) == 4 orelse tuple_size(X) == 8))).
 
+validate_ip_list(L) ->
+    lists:foreach(
+      fun(IP) when ?IS_IP(IP) -> ok;
+	 (IP) -> throw({error, {options, {ip, IP}}})
+      end, L).
+
 validate_static_option({Label, {Order, Prio} = Degree, [{_,_}|_] = Services, Host})
   when is_list(Label),
        is_integer(Order),
@@ -107,6 +113,8 @@ validate_static_option({Host, IP4, IP6} = Opt)
        is_list(IP4),
        is_list(IP6),
        (length(IP4) /= 0 orelse length(IP6) /= 0) ->
+    validate_ip_list(IP4),
+    validate_ip_list(IP6),
     Opt;
 validate_static_option(Opt) ->
     throw({error, {options, {static, Opt}}}).
