@@ -166,6 +166,11 @@ make_proxy_request(Direction, Request, SeqNo, NewPeer, State) ->
 network_instance(#gtp_port{network_instance = Name}) ->
     #network_instance{instance = Name}.
 
+f_seid(SEID, {_,_,_,_} = IP) ->
+    #f_seid{seid = SEID, ipv4 = gtp_c_lib:ip2bin(IP)};
+f_seid(SEID, {_,_,_,_,_,_,_,_} = IP) ->
+    #f_seid{seid = SEID, ipv6 = gtp_c_lib:ip2bin(IP)}.
+
 f_teid(TEID, {_,_,_,_} = IP) ->
     #f_teid{teid = TEID, ipv4 = gtp_c_lib:ip2bin(IP)};
 f_teid(TEID, {_,_,_,_,_,_,_,_} = IP) ->
@@ -300,7 +305,7 @@ create_forward_session(Candidates, Left0, Right0) ->
     {ok, #node{node = _Node, ip = IP}} = ergw_sx_socket:id(),
 
     IEs =
-	[#f_seid{seid = SEID, ipv4 = gtp_c_lib:ip2bin(IP)}] ++
+	[f_seid(SEID, IP)] ++
 	lists:foldl(fun create_pdr/2, [], [{1, 'Access', Left}, {2, 'Core', Right}]) ++
 	lists:foldl(fun create_far/2, [], [{2, 'Access', Left}, {1, 'Core', Right}]) ++
 	[#create_urr{group =
