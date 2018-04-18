@@ -29,7 +29,7 @@ create_sgi_session(Candidates, Ctx0) ->
     {ok, #node{node = _Node, ip = IP}} = ergw_sx_socket:id(),
 
     IEs =
-	[#f_seid{seid = SEID, ipv4 = gtp_c_lib:ip2bin(IP)}] ++
+	[f_seid(SEID, IP)] ++
 	lists:foldl(fun create_pdr/2, [], [{1, gtp, Ctx}, {2, sgi, Ctx}]) ++
 	lists:foldl(fun create_far/2, [], [{2, gtp, Ctx}, {1, sgi, Ctx}]) ++
 	[#create_urr{group =
@@ -89,6 +89,11 @@ network_instance(Name) when is_atom(Name) ->
     #network_instance{instance = [atom_to_binary(Name, latin1)]};
 network_instance(#gtp_port{network_instance = Name}) ->
     #network_instance{instance = Name}.
+
+f_seid(SEID, {_,_,_,_} = IP) ->
+    #f_seid{seid = SEID, ipv4 = gtp_c_lib:ip2bin(IP)};
+f_seid(SEID, {_,_,_,_,_,_,_,_} = IP) ->
+    #f_seid{seid = SEID, ipv6 = gtp_c_lib:ip2bin(IP)}.
 
 f_teid(TEID, {_,_,_,_} = IP) ->
     #f_teid{teid = TEID, ipv4 = gtp_c_lib:ip2bin(IP)};
