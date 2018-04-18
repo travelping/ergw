@@ -105,6 +105,11 @@ gtp_u_peer(TEID, {_,_,_,_} = IP) ->
 gtp_u_peer(TEID,  {_,_,_,_,_,_,_,_} = IP) ->
     #outer_header_creation{type = 'GTP-U', teid = TEID, ipv6 = gtp_c_lib:ip2bin(IP)}.
 
+outer_header_removal({_,_,_,_}) ->
+    #outer_header_removal{header = 'GTP-U/UDP/IPv4'};
+outer_header_removal({_,_,_,_,_,_,_,_}) ->
+    #outer_header_removal{header = 'GTP-U/UDP/IPv6'}.
+
 create_pdr({RuleId, gtp,
 	    #context{
 	       data_port = #gtp_port{ip = IP} = DataPort,
@@ -122,7 +127,7 @@ create_pdr({RuleId, gtp,
 		 [#pdr_id{id = RuleId},
 		  #precedence{precedence = 100},
 		  PDI,
-		  #outer_header_removal{header = 'GTP-U/UDP/IPv4'},
+		  outer_header_removal(IP),
 		  #far_id{id = RuleId},
 		  #urr_id{id = 1}]
 	    },
@@ -203,7 +208,7 @@ update_pdr({RuleId, gtp,
 		 [#pdr_id{id = RuleId},
 		  #precedence{precedence = 100},
 		  PDI,
-		  #outer_header_removal{header = 'GTP-U/UDP/IPv4'},
+		  outer_header_removal(IP),
 		  #far_id{id = RuleId},
 		  #urr_id{id = 1}]
 	    },
