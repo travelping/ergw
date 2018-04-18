@@ -93,11 +93,14 @@ cast(GtpPort, Request) ->
 %% callback_mode() -> [handle_event_function, state_enter].
 callback_mode() -> handle_event_function.
 
-init([Node, IP4, _IP6]) ->
+init([Node, IP4, IP6]) ->
+    IP = if length(IP4) /= 0 -> hd(IP4);
+	    length(IP6) /= 0 -> hd(IP6)
+	 end,
     {ok, CP} = ergw_sx_socket:id(),
     Data = #data{timeout = 10,
 		 cp = CP,
-		 dp = #node{node = Node, ip = hd(IP4)},
+		 dp = #node{node = Node, ip = IP},
 		 network_instances = #{},
 		 call_q = queue:new()
 		},
