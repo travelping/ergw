@@ -781,13 +781,15 @@ bind_forward_path(pgw2sgw, Request, #{context := Context,
       proxy_context => gtp_path:bind(Request, ProxyContext)
      }.
 
-fteid_forward_context(#f_teid{ipv4 = IPv4, teid = TEID},
-			     #{proxy_context := #context{remote_data_ip = IPv4,
-							 remote_data_tei = TEID}}) ->
+fteid_forward_context(#f_teid{ipv4 = IPv4, ipv6 = IPv6, teid = TEID},
+		      #{proxy_context := #context{remote_data_ip = IP,
+						  remote_data_tei = TEID}})
+  when IP =:= IPv4; IP =:= IPv6 ->
     pgw2sgw;
-fteid_forward_context(#f_teid{ipv4 = IPv4, teid = TEID},
-			     #{context := #context{remote_data_ip = IPv4,
-						   remote_data_tei = TEID}}) ->
+fteid_forward_context(#f_teid{ipv4 = IPv4, ipv6 = IPv6, teid = TEID},
+		      #{context := #context{remote_data_ip = IP,
+					    remote_data_tei = TEID}})
+  when IP =:= IPv4; IP =:= IPv6 ->
     sgw2pgw.
 
 forward_context(sgw2pgw, #{proxy_context := Context}) ->
