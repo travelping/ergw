@@ -20,7 +20,7 @@
 -define(HUT, pgw_s5s8).				%% Handler Under Test
 
 %%%===================================================================
-%%% API
+%%% Config
 %%%===================================================================
 
 -define(TEST_CONFIG,
@@ -37,7 +37,7 @@
 		  [{"ORIGIN", {value, "epc.mnc001.mcc001.3gppnetwork.org"}}]},
 		 {sockets,
 		  [{irx, [{type, 'gtp-c'},
-			  {ip,  ?TEST_GSN},
+			  {ip, ?MUST_BE_UPDATED},
 			  {reuseaddr, true}
 			 ]}
 		  ]},
@@ -94,8 +94,8 @@
 		       "topon.sx.prox01.$ORIGIN"},
 
 		      %% A/AAAA record alternatives
-		      {"topon.s5s8.pgw.$ORIGIN", [?FINAL_GSN], []},
-		      {"topon.sx.prox01.$ORIGIN", [?PGW_U_SX], []}
+		      {"topon.s5s8.pgw.$ORIGIN", ?MUST_BE_UPDATED, []},
+		      {"topon.sx.prox01.$ORIGIN", ?MUST_BE_UPDATED, []}
 		     ]
 		    }
 		   }
@@ -105,7 +105,7 @@
 		 {sx_socket,
 		  [{node, 'ergw'},
 		   {name, 'ergw'},
-		   {ip, ?LOCALHOST},
+		   {ip, ?MUST_BE_UPDATED},
 		   {reuseaddr, true}]},
 
 		 {apns,
@@ -116,15 +116,33 @@
 	 {ergw_aaa, [{ergw_aaa_provider, {ergw_aaa_mock, [{shared_secret, <<"MySecret">>}]}}]}
 	]).
 
+-define(CONFIG_UPDATE,
+	[{[sockets, irx, ip], test_gsn},
+	 {[sx_socket, ip], localhost},
+	 {[node_selection, {default, 2}, 2, "topon.s5s8.pgw.$ORIGIN"],
+	  {fun node_sel_update/2, final_gsn}},
+	 {[node_selection, {default, 2}, 2, "topon.sx.prox01.$ORIGIN"],
+	  {fun node_sel_update/2, pgw_u_sx}}
+	]).
+
+node_sel_update(Node, {_,_,_,_} = IP) ->
+    {Node, [IP], []};
+node_sel_update(Node, {_,_,_,_,_,_,_,_} = IP) ->
+    {Node, [], [IP]}.
+
+%%%===================================================================
+%%% Setup
+%%%===================================================================
 
 suite() ->
     [{timetrap,{seconds,30}}].
 
 init_per_suite(Config0) ->
-    Config = [{handler_under_test, ?HUT},
-	      {app_cfg, ?TEST_CONFIG}
-	      | Config0],
+    Config1 = [{handler_under_test, ?HUT},
+	       {app_cfg, ?TEST_CONFIG}
+	       | Config0],
 
+    Config = update_app_config(ipv4, ?CONFIG_UPDATE, Config1),
     lib_init_per_suite(Config).
 
 end_per_suite(Config) ->
@@ -305,8 +323,10 @@ invalid_gtp_pdu() ->
     [{doc, "Test that an invalid PDU is silently ignored"
       " and that the GTP socket is not crashing"}].
 invalid_gtp_pdu(Config) ->
+    TestGSN = proplists:get_value(test_gsn, Config),
+
     S = make_gtp_socket(Config),
-    gen_udp:send(S, ?TEST_GSN, ?GTP2c_PORT, <<"TESTDATA">>),
+    gen_udp:send(S, TestGSN, ?GTP2c_PORT, <<"TESTDATA">>),
 
     ?equal({error,timeout}, gen_udp:recv(S, 4096, ?TIMEOUT)),
     meck_validate(Config),
@@ -841,11 +861,13 @@ unsupported_request(Config) ->
 interop_sgsn_to_sgw() ->
     [{doc, "Check 3GPP T 23.401, Annex D, SGSN to SGW handover"}].
 interop_sgsn_to_sgw(Config) ->
+    ClientIP = proplists:get_value(client_ip, Config),
+
     {GtpC1, _, _} = ergw_ggsn_test_lib:create_pdp_context(Config),
-    match_exo_value([path, irx, ?CLIENT_IP, contexts, v1], 1),
+    match_exo_value([path, irx, ClientIP, contexts, v1], 1),
     {GtpC2, _, _} = modify_bearer(tei_update, GtpC1),
-    match_exo_value([path, irx, ?CLIENT_IP, contexts, v1], 0),
-    match_exo_value([path, irx, ?CLIENT_IP, contexts, v2], 1),
+    match_exo_value([path, irx, ClientIP, contexts, v1], 0),
+    match_exo_value([path, irx, ClientIP, contexts, v2], 1),
     delete_session(GtpC2),
 
     [SMR0|_] = lists:filter(
@@ -865,8 +887,8 @@ interop_sgsn_to_sgw(Config) ->
     meck_validate(Config),
     true = meck:validate(ggsn_gn),
 
-    match_exo_value([path, irx, ?CLIENT_IP, contexts, v1], 0),
-    match_exo_value([path, irx, ?CLIENT_IP, contexts, v2], 0),
+    match_exo_value([path, irx, ClientIP, contexts, v1], 0),
+    match_exo_value([path, irx, ClientIP, contexts, v2], 0),
     ok.
 
 %%--------------------------------------------------------------------
@@ -886,12 +908,13 @@ interop_sgsn_to_sgw_const_tei(Config) ->
 interop_sgw_to_sgsn() ->
     [{doc, "Check 3GPP T 23.401, Annex D, SGW to SGSN handover"}].
 interop_sgw_to_sgsn(Config) ->
+    ClientIP = proplists:get_value(client_ip, Config),
 
     {GtpC1, _, _} = create_session(Config),
-    match_exo_value([path, irx, ?CLIENT_IP, contexts, v2], 1),
+    match_exo_value([path, irx, ClientIP, contexts, v2], 1),
     {GtpC2, _, _} = ergw_ggsn_test_lib:update_pdp_context(tei_update, GtpC1),
-    match_exo_value([path, irx, ?CLIENT_IP, contexts, v1], 1),
-    match_exo_value([path, irx, ?CLIENT_IP, contexts, v2], 0),
+    match_exo_value([path, irx, ClientIP, contexts, v1], 1),
+    match_exo_value([path, irx, ClientIP, contexts, v2], 0),
     ergw_ggsn_test_lib:delete_pdp_context(GtpC2),
 
     [SMR0|_] = lists:filter(
@@ -911,8 +934,8 @@ interop_sgw_to_sgsn(Config) ->
     meck_validate(Config),
     true = meck:validate(ggsn_gn),
 
-    match_exo_value([path, irx, ?CLIENT_IP, contexts, v1], 0),
-    match_exo_value([path, irx, ?CLIENT_IP, contexts, v2], 0),
+    match_exo_value([path, irx, ClientIP, contexts, v1], 0),
+    match_exo_value([path, irx, ClientIP, contexts, v2], 0),
     ok.
 
 %%--------------------------------------------------------------------

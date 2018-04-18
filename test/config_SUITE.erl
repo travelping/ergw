@@ -24,7 +24,7 @@
 	[accept_new,
 	 {sockets,
 	  [{irx, [{type, 'gtp-c'},
-		  {ip,  ?TEST_GSN},
+		  {ip,  ?TEST_GSN_IPv4},
 		  {reuseaddr, true}
 		 ]}
 	  ]},
@@ -70,11 +70,11 @@
 -define(GGSN_PROXY_CONFIG,
 	[{sockets,
 	  [{irx, [{type, 'gtp-c'},
-		  {ip,  ?TEST_GSN},
+		  {ip,  ?TEST_GSN_IPv4},
 		  {reuseaddr, true}
 		 ]},
 	   {'remote-irx', [{type, 'gtp-c'},
-			   {ip,  ?FINAL_GSN},
+			   {ip,  ?FINAL_GSN_IPv4},
 			   {reuseaddr, true}
 			  ]}
 	  ]},
@@ -161,7 +161,7 @@
 -define(PGW_CONFIG,
 	[{sockets,
 	  [{irx, [{type, 'gtp-c'},
-		  {ip,  ?TEST_GSN},
+		  {ip,  ?TEST_GSN_IPv4},
 		  {reuseaddr, true}
 		 ]}
 	  ]},
@@ -222,11 +222,11 @@
 	[
 	 {sockets,
 	  [{irx, [{type, 'gtp-c'},
-		  {ip,  ?TEST_GSN},
+		  {ip,  ?TEST_GSN_IPv4},
 		  {reuseaddr, true}
 		 ]},
 	   {'remote-irx', [{type, 'gtp-c'},
-			   {ip,  ?FINAL_GSN},
+			   {ip,  ?FINAL_GSN_IPv4},
 			   {reuseaddr, true}
 			  ]}
 	  ]},
@@ -360,7 +360,7 @@ config(_Config)  ->
     ?error_option(set_cfg_value([sockets, irx], invalid, ?GGSN_CONFIG)),
     ?error_option(add_cfg_value([sockets, irx], [], ?GGSN_CONFIG)),
 
-    SockOpts = [{type, 'gtp-c'}, {ip,  ?TEST_GSN}, reuseaddr, freebind],
+    SockOpts = [{type, 'gtp-c'}, {ip,  ?TEST_GSN_IPv4}, reuseaddr, freebind],
     SockCfg = (catch ergw_config:validate_config(
 		       add_cfg_value([sockets, 'irx-2'], SockOpts, ?GGSN_CONFIG))),
     ?match(#{type      := 'gtp-c',

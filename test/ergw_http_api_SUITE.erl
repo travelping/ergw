@@ -24,11 +24,11 @@
 		  [{"ORIGIN", {value, "epc.mnc001.mcc001.3gppnetwork.org"}}]},
 		 {sockets,
 		  [{irx, [{type, 'gtp-c'},
-			  {ip,  ?TEST_GSN},
+			  {ip,  ?TEST_GSN_IPv4},
 			  {reuseaddr, true}
 			 ]},
 		   {'proxy-irx', [{type, 'gtp-c'},
-				  {ip,  ?PROXY_GSN},
+				  {ip,  ?PROXY_GSN_IPv4},
 				  {reuseaddr, true}
 				 ]}
 		  ]},
@@ -116,9 +116,10 @@ all() ->
 init_per_suite(Config0) ->
     inets:start(),
     Config1 = [{app_cfg, ?TEST_CONFIG},
-              {handler_under_test, ggsn_gn_proxy}
+	       {handler_under_test, ggsn_gn_proxy}
 	      | Config0],
-    Config = lib_init_per_suite(Config1),
+    Config2 = update_app_config(ipv4, [], Config1),
+    Config = lib_init_per_suite(Config2),
 
     %% fake exometer entries
     DataPointG = [socket, 'gtp-c', irx, pt, v1, gauge_test],
