@@ -489,9 +489,9 @@ take_request(SeqNo, #state{pending = PendingIn} = State) ->
     end.
 
 sendto({_,_,_,_} = RemoteIP, Port, Data, #state{socket = Socket}) ->
-    gen_socket:sendto(Socket, {inet4, RemoteIP, Port}, Data);
+    {ok, _} = gen_socket:sendto(Socket, {inet4, RemoteIP, Port}, Data);
 sendto({_,_,_,_,_,_,_,_} = RemoteIP, Port, Data, #state{socket = Socket}) ->
-    gen_socket:sendto(Socket, {inet6, RemoteIP, Port}, Data).
+    {ok, _} = gen_socket:sendto(Socket, {inet6, RemoteIP, Port}, Data).
 
 send_request(#send_req{address = DstIP, data = Data} = SendReq, State0) ->
     sendto(DstIP, 8805, Data, State0),
