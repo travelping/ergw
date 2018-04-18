@@ -144,6 +144,19 @@ choose_control_ip(_IP4, IP6, #state{up_ip = IP})
   when size(IP) == 16, is_binary(IP6) ->
     IP6.
 
+user_plane_ip_resource_information(NWI, #state{up_ip = IP})
+  when size(IP) == 4 ->
+    #user_plane_ip_resource_information{
+       network_instance = NWI,
+       ipv4 = gtp_c_lib:ip2bin(?LOCALHOST_IPv4)
+      };
+user_plane_ip_resource_information(NWI, #state{up_ip = IP})
+  when size(IP) == 16 ->
+    #user_plane_ip_resource_information{
+       network_instance = NWI,
+       ipv6 = gtp_c_lib:ip2bin(?LOCALHOST_IPv6)
+      }.
+
 sx_reply(Type, State) ->
     sx_reply(Type, undefined, [], State).
 sx_reply(Type, IEs, State) ->
@@ -157,18 +170,9 @@ handle_message(#pfcp{type = heartbeat_request}, State) ->
 handle_message(#pfcp{type = association_setup_request}, State) ->
     RespIEs =
 	[#pfcp_cause{cause = 'Request accepted'},
-	 #user_plane_ip_resource_information{
-	    network_instance = [<<"irx">>],
-	    ipv4 = gtp_c_lib:ip2bin(?LOCALHOST_IPv4)
-	   },
-	 #user_plane_ip_resource_information{
-	    network_instance = [<<"proxy-irx">>],
-	    ipv4 = gtp_c_lib:ip2bin(?LOCALHOST_IPv4)
-	   },
-	 #user_plane_ip_resource_information{
-	    network_instance = [<<"remote-irx">>],
-	    ipv4 = gtp_c_lib:ip2bin(?LOCALHOST_IPv4)
-	   }
+	 user_plane_ip_resource_information([<<"irx">>], State),
+	 user_plane_ip_resource_information([<<"proxy-irx">>], State),
+	 user_plane_ip_resource_information([<<"remote-irx">>], State)
 	],
     sx_reply(association_setup_response, RespIEs, State);
 

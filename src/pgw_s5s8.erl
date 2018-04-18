@@ -697,17 +697,9 @@ copy_to_session(_, _, _AAAopts, Session) ->
 init_session_from_gtp_req(IEs, AAAopts, Session) ->
     maps:fold(copy_to_session(_, _, AAAopts, _), Session, IEs).
 
-%% use additional information from the Context to prefre V4 or V6....
-choose_context_ip(IP4, _IP6, _Context)
-  when is_binary(IP4) ->
-    IP4;
-choose_context_ip(_IP4, IP6, _Context)
-  when is_binary(IP6) ->
-    IP6.
-
 update_context_cntl_ids(#v2_fully_qualified_tunnel_endpoint_identifier{
 			   key = TEI, ipv4 = IP4, ipv6 = IP6}, Context) ->
-    IP = choose_context_ip(IP4, IP6, Context),
+    IP = ergw_gsn_lib:choose_context_ip(IP4, IP6, Context),
     Context#context{
       remote_control_ip  = gtp_c_lib:bin2ip(IP),
       remote_control_tei = TEI
@@ -717,7 +709,7 @@ update_context_cntl_ids(_ , Context) ->
 
 update_context_data_ids(#v2_fully_qualified_tunnel_endpoint_identifier{
 			     key = TEI, ipv4 = IP4, ipv6 = IP6}, Context) ->
-    IP = choose_context_ip(IP4, IP6, Context),
+    IP = ergw_gsn_lib:choose_context_ip(IP4, IP6, Context),
     Context#context{
       remote_data_ip  = gtp_c_lib:bin2ip(IP),
       remote_data_tei = TEI

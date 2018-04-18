@@ -24,6 +24,9 @@
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include("../include/ergw.hrl").
 
+-define(IS_IP4(X), (is_binary(X) andalso size(X) == 4)).
+-define(IS_IP6(X), (is_binary(X) andalso size(X) == 16)).
+
 %%%===================================================================
 %%% Execute GTPv2-C transactions
 %%%===================================================================
@@ -448,7 +451,8 @@ validate_response(create_session_request, version_restricted, Response, GtpC) ->
     GtpC;
 
 validate_response(create_session_request, _SubType, Response,
-		  #gtpc{local_control_tei = LocalCntlTEI} = GtpC) ->
+		  #gtpc{local_ip = LocalIP,
+			local_control_tei = LocalCntlTEI} = GtpC) ->
     ?match(
        #gtp{type = create_session_response,
 	    tei = LocalCntlTEI,
@@ -468,14 +472,38 @@ validate_response(create_session_request, _SubType, Response,
 
     #gtp{ie = #{{v2_fully_qualified_tunnel_endpoint_identifier,1} :=
 		    #v2_fully_qualified_tunnel_endpoint_identifier{
-		       key = RemoteCntlTEI},
+		       key = RemoteCntlTEI,
+		       ipv4 = RemoteCntlIP4,
+		       ipv6 = RemoteCntlIP6},
 		{v2_bearer_context,0} :=
 		    #v2_bearer_context{
 		       group = #{
 			 {v2_fully_qualified_tunnel_endpoint_identifier,2} :=
 			     #v2_fully_qualified_tunnel_endpoint_identifier{
-				key = RemoteDataTEI}}}
+				key = RemoteDataTEI,
+				ipv4 = RemoteDataIP4,
+				ipv6 = RemoteDataIP6}}}
 	       }} = Response,
+
+    if size(LocalIP) == 4 ->
+	    if ?IS_IP4(RemoteCntlIP4) andalso ?IS_IP4(RemoteDataIP4) ->
+		    ok;
+	       true ->
+		    ct:pal("Local IPv4, remote V4 C: ~w, U: ~w, V6 C: ~w, U: ~w",
+			   [RemoteCntlIP4, RemoteDataIP4,
+			    RemoteCntlIP6, RemoteDataIP6]),
+		    error(invalid_ip)
+	    end;
+       size(LocalIP) == 8 ->
+	    if ?IS_IP6(RemoteCntlIP6) andalso ?IS_IP6(RemoteDataIP6) ->
+		    ok;
+	       true ->
+		    ct:pal("Local IPv6, remote V4 C: ~w, U: ~w, V6 C: ~w, U: ~w",
+			   [RemoteCntlIP4, RemoteDataIP4,
+			    RemoteCntlIP6, RemoteDataIP6]),
+		    error(invalid_ip)
+	    end
+    end,
 
     GtpC#gtpc{
 	  remote_control_tei = RemoteCntlTEI,
