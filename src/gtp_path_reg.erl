@@ -50,11 +50,16 @@ all() ->
     ets:tab2list(?SERVER).
 
 all({_,_,_,_} = IP) ->
-    %%ets:select(Tab,[{{'$1','$2','$3'},[],['$$']}])
-    Ms = ets:fun2ms(fun({{_, _, PeerIP}, Pid}) when PeerIP =:= IP -> Pid end),
-    ets:select(?SERVER, Ms);
+    all_ip(IP);
+all({_,_,_,_,_,_,_,_} = IP) ->
+    all_ip(IP);
 all(Port) when is_atom(Port) ->
     Ms = ets:fun2ms(fun({{Name, _, _}, Pid}) when Name =:= Port -> Pid end),
+    ets:select(?SERVER, Ms).
+
+all_ip(IP) ->
+    %%ets:select(Tab,[{{'$1','$2','$3'},[],['$$']}])
+    Ms = ets:fun2ms(fun({{_, _, PeerIP}, Pid}) when PeerIP =:= IP -> Pid end),
     ets:select(?SERVER, Ms).
 
 %%%===================================================================
