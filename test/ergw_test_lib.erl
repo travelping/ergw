@@ -33,6 +33,7 @@
 -export([set_cfg_value/3, add_cfg_value/3]).
 -export([outstanding_requests/0, wait4tunnels/1, hexstr2bin/1]).
 -export([match_exo_value/2, get_exo_value/1]).
+-export([has_ipv6_test_config/0]).
 
 -include("ergw_test_lib.hrl").
 -include_lib("common_test/include/ct.hrl").
@@ -105,6 +106,16 @@ group_config(ipv4, Config) ->
 	    {final_gsn, ?FINAL_GSN_IPv4},
 	    {sgw_u_sx, ?SGW_U_SX_IPv4},
 	    {pgw_u_sx, ?PGW_U_SX_IPv4}],
+    merge_config(Opts, Config);
+group_config(ipv6, Config) ->
+    Opts = [{localhost, ?LOCALHOST_IPv6},
+	    {ue_ip, ?LOCALHOST_IPv6},
+	    {client_ip, ?CLIENT_IP_IPv6},
+	    {test_gsn, ?TEST_GSN_IPv6},
+	    {proxy_gsn, ?PROXY_GSN_IPv6},
+	    {final_gsn, ?FINAL_GSN_IPv6},
+	    {sgw_u_sx, ?SGW_U_SX_IPv6},
+	    {pgw_u_sx, ?PGW_U_SX_IPv6}],
     merge_config(Opts, Config).
 
 
@@ -210,13 +221,18 @@ make_error_indication_report(#gtpc{local_data_tei = TEI, local_ip = IP}) ->
     make_error_indication_report(IP, TEI);
 make_error_indication_report(#context{data_port = #gtp_port{ip = IP},
 				      remote_data_tei = TEI}) ->
-make_error_indication_report(IP, TEI).
+    make_error_indication_report(IP, TEI).
+
+f_teid(TEID, {_,_,_,_} = IP) ->
+    #f_teid{teid = TEID, ipv4 = gtp_c_lib:ip2bin(IP)};
+f_teid(TEID, {_,_,_,_,_,_,_,_} = IP) ->
+    #f_teid{teid = TEID, ipv6 = gtp_c_lib:ip2bin(IP)}.
 
 make_error_indication_report(IP, TEI) ->
     IEs =
 	[#report_type{erir = 1},
 	 #error_indication_report{
-	    group = [#f_teid{ipv4 = gtp_c_lib:ip2bin(IP), teid = TEI}]}],
+	    group = [f_teid(TEI, IP)]}],
     Req = #pfcp{version = v1, type = session_report_request, seid = 0, ie = IEs},
     pfcp_packet:encode(Req#pfcp{seq_no = 0}),
     Req.
@@ -457,3 +473,19 @@ match_exo_value(Path, Expect) ->
 get_exo_value(Path) ->
     {ok, Value} = exometer:get_value(Path),
     proplists:get_value(value, Value).
+
+%%%===================================================================
+%%% IPv6
+%%%===================================================================
+
+has_ipv6_test_config() ->
+    try
+	{ok, IfList} = inet:getifaddrs(),
+	Lo = proplists:get_value("lo", IfList),
+	V6 = [X || {addr, X = {16#fd96, 16#dcd2, 16#efdb, 16#41c3,_,_,_,_}} <- Lo],
+	ct:pal("V6: ~p", [V6]),
+	length(V6) >= 4
+    catch
+	_:_ ->
+	    false
+    end.

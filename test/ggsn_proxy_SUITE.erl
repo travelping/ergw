@@ -267,36 +267,37 @@ init_per_suite(Config0) ->
 end_per_suite(_Config) ->
     ok.
 
+init_per_group(ipv6, Config) ->
+    case ergw_test_lib:has_ipv6_test_config() of
+	true ->
+	    lists:keystore(ip_group, 1, Config, {ip_group, ipv6});
+	_ ->
+	    {skip, "IPv6 test IPs not configured"}
+    end;
+init_per_group(ipv4, Config) ->
+    lists:keystore(ip_group, 1, Config, {ip_group, ipv4});
+
 init_per_group(single_proxy_interface, Config0) ->
     Config1 = lists:keystore(app_cfg, 1, Config0,
 			    {app_cfg, ?TEST_CONFIG_SINGLE_PROXY_SOCKET}),
-    Config = update_app_config(ipv4, ?CONFIG_UPDATE_SINGLE_PROXY_SOCKET, Config1),
+    Config = update_app_config(proplists:get_value(ip_group, Config1),
+			       ?CONFIG_UPDATE_SINGLE_PROXY_SOCKET, Config1),
     lib_init_per_suite(Config);
 init_per_group(_Group, Config0) ->
     Config1 = lists:keystore(app_cfg, 1, Config0,
 			    {app_cfg, ?TEST_CONFIG_MULTIPLE_PROXY_SOCKETS}),
-    Config = update_app_config(ipv4, ?CONFIG_UPDATE_MULTIPLE_PROXY_SOCKETS, Config1),
+    Config = update_app_config(proplists:get_value(ip_group, Config1),
+			       ?CONFIG_UPDATE_MULTIPLE_PROXY_SOCKETS, Config1),
     lib_init_per_suite(Config).
 
+end_per_group(Group, _Config)
+  when Group == ipv4; Group == ipv6 ->
+    ok;
 end_per_group(_Group, Config) ->
     ok = lib_end_per_suite(Config),
     ok.
 
-%% groups() ->
-%%     [{single_proxy_interface, [], [path_restart]}].
-
-%% all() ->
-%%     [{group, single_proxy_interface}].
-
-groups() ->
-    [{single_proxy_interface, [], all_tests()},
-     {multiple_proxy_interface, [], all_tests()}].
-
-all() ->
-    [{group, single_proxy_interface},
-     {group, multiple_proxy_interface}].
-
-all_tests() ->
+common() ->
     [invalid_gtp_pdu,
      create_pdp_context_request_missing_ie,
      create_pdp_context_request_accept_new,
@@ -327,6 +328,20 @@ all_tests() ->
      unsupported_request,
      cache_timeout,
      session_accounting].
+
+common_groups() ->
+    [{group, single_proxy_interface},
+     {group, multiple_proxy_interface}].
+
+groups() ->
+    [{single_proxy_interface, [], common()},
+     {multiple_proxy_interface, [], common()},
+     {ipv4, [], common_groups()},
+     {ipv6, [], common_groups()}].
+
+all() ->
+    [{group, ipv4},
+     {group, ipv6}].
 
 %%%===================================================================
 %%% Tests

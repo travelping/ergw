@@ -43,6 +43,15 @@
 -define(SGW_U_SX_IPv4, {127,0,100,1}).
 -define(PGW_U_SX_IPv4, {127,0,200,1}).
 
+-define(LOCALHOST_IPv6, {0,0,0,0,0,0,0,1}).
+-define(CLIENT_IP_IPv6, {16#fd96, 16#dcd2, 16#efdb, 16#41c3, 0, 0, 0, 16#10}).
+-define(TEST_GSN_IPv6, ?LOCALHOST_IPv6).
+-define(PROXY_GSN_IPv6, {16#fd96, 16#dcd2, 16#efdb, 16#41c3, 0, 0, 0, 16#20}).
+-define(FINAL_GSN_IPv6, {16#fd96, 16#dcd2, 16#efdb, 16#41c3, 0, 0, 0, 16#30}).
+
+-define(SGW_U_SX_IPv6, {16#fd96, 16#dcd2, 16#efdb, 16#41c3, 0, 0, 0, 16#20}).
+-define(PGW_U_SX_IPv6, {16#fd96, 16#dcd2, 16#efdb, 16#41c3, 0, 0, 0, 16#30}).
+
 -define('APN-EXAMPLE', [<<"example">>, <<"net">>]).
 -define('APN-ExAmPlE', [<<"eXaMpLe">>, <<"net">>]).
 -define('IMSI', <<"111111111111111">>).

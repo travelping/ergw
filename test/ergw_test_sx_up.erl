@@ -132,6 +132,18 @@ make_sx_response(session_modification_request)  -> session_modification_response
 make_sx_response(session_deletion_request)      -> session_deletion_response;
 make_sx_response(session_report_request)        -> session_report_response.
 
+f_seid(SEID, IP) when size(IP) == 4 ->
+    #f_seid{seid = SEID, ipv4 = IP};
+f_seid(SEID, IP) when size(IP) == 16 ->
+    #f_seid{seid = SEID, ipv6 = IP}.
+
+choose_control_ip(IP4, _IP6, #state{up_ip = IP})
+  when size(IP) == 4, is_binary(IP4) ->
+    IP4;
+choose_control_ip(_IP4, IP6, #state{up_ip = IP})
+  when size(IP) == 16, is_binary(IP6) ->
+    IP6.
+
 sx_reply(Type, State) ->
     sx_reply(Type, undefined, [], State).
 sx_reply(Type, IEs, State) ->
@@ -162,11 +174,13 @@ handle_message(#pfcp{type = association_setup_request}, State) ->
 
 handle_message(#pfcp{type = session_establishment_request, seid = 0,
 		     ie = #{f_seid := #f_seid{seid = ControlPlaneSEID,
-					      ipv4 = ControlPlaneIP}}},
+					      ipv4 = ControlPlaneIP4,
+					      ipv6 = ControlPlaneIP6}}},
 	       #state{up_ip = IP, up_seid = UserPlaneSEID} = State0) ->
+    ControlPlaneIP = choose_control_ip(ControlPlaneIP4, ControlPlaneIP6, State0),
     RespIEs =
 	[#pfcp_cause{cause = 'Request accepted'},
-	 #f_seid{seid = UserPlaneSEID, ipv4 = IP}],
+	 f_seid(UserPlaneSEID, IP)],
     State = State0#state{cp_ip = gtp_c_lib:bin2ip(ControlPlaneIP),
 			 cp_seid = ControlPlaneSEID},
     sx_reply(session_establishment_response, ControlPlaneSEID, RespIEs, State);

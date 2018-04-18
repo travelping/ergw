@@ -15,6 +15,10 @@ before_script:
   # https://github.com/travis-ci/travis-ci/issues/8361
   - if [ "${TRAVIS_OS_NAME}" == "linux" ]; then
       sudo sh -c 'echo 0 > /proc/sys/net/ipv6/conf/all/disable_ipv6';
+      sudo ip addr add fd96:dcd2:efdb:41c3::10/64 dev lo;
+      sudo ip addr add fd96:dcd2:efdb:41c3::20/64 dev lo;
+      sudo ip addr add fd96:dcd2:efdb:41c3::30/64 dev lo;
+      sudo ip addr add fd96:dcd2:efdb:41c3::40/64 dev lo;
     fi
 
 script:
