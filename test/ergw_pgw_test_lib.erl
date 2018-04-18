@@ -72,6 +72,31 @@ delete_session(SubType, GtpC) ->
 %%% Create GTPv2-C messages
 %%%===================================================================
 
+fq_teid(Instance, Type, TEI, {_,_,_,_} = IP) ->
+    #v2_fully_qualified_tunnel_endpoint_identifier{
+       instance = Instance, interface_type = Type,
+       key = TEI, ipv4 = gtp_c_lib:ip2bin(IP)};
+fq_teid(Instance, Type, TEI, {_,_,_,_,_,_,_,_} = IP) ->
+    #v2_fully_qualified_tunnel_endpoint_identifier{
+       instance = Instance, interface_type = Type,
+       key = TEI, ipv6 = gtp_c_lib:ip2bin(IP)}.
+
+paa({_,_,_,_} = IP) ->
+    #v2_pdn_address_allocation{
+       type = ipv4,
+       address = gtp_c_lib:ip2bin(IP)
+      };
+paa({_,_,_,_,_,_,_,_} = IP) ->
+    #v2_pdn_address_allocation{
+       type = ipv6,
+       address = <<64:8, (gtp_c_lib:ip2bin(IP))/binary>>
+      };
+paa({{_,_,_,_,_,_,_,_} = IP, PrefixLen}) ->
+    #v2_pdn_address_allocation{
+       type = ipv6,
+       address = <<PrefixLen:8, (gtp_c_lib:ip2bin(IP))/binary>>
+      }.
+
 make_pdn_type(ipv6, IEs) ->
     PrefixLen = 64,
     Prefix = gtp_c_lib:ip2bin({0,0,0,0,0,0,0,0}),
@@ -144,16 +169,9 @@ make_request(create_session_request, SubType,
 			guaranteed_bit_rate_for_uplink   = 0,
 			guaranteed_bit_rate_for_downlink = 0},
 		     #v2_eps_bearer_id{eps_bearer_id = 5},
-		     #v2_fully_qualified_tunnel_endpoint_identifier{
-			instance = 2,
-			interface_type = ?'S5/S8-U SGW',
-			key = LocalDataTEI,
-			ipv4 = gtp_c_lib:ip2bin(LocalIP)}
+		     fq_teid(2, ?'S5/S8-U SGW', LocalDataTEI, LocalIP)
 		    ]},
-	 #v2_fully_qualified_tunnel_endpoint_identifier{
-	    interface_type = ?'S5/S8-C SGW',
-	    key = LocalCntlTEI,
-	    ipv4 = gtp_c_lib:ip2bin(LocalIP)},
+	 fq_teid(0, ?'S5/S8-C SGW', LocalCntlTEI, LocalIP),
 	 #v2_international_mobile_subscriber_identity{
 	    imsi = imsi(SubType, LocalCntlTEI)},
 	 #v2_mobile_equipment_identity{mei = imei(SubType, LocalCntlTEI)},
@@ -178,16 +196,9 @@ make_request(modify_bearer_request, SubType,
     IEs = [#v2_recovery{restart_counter = RCnt},
 	   #v2_bearer_context{
 	      group = [#v2_eps_bearer_id{eps_bearer_id = 5},
-		       #v2_fully_qualified_tunnel_endpoint_identifier{
-			  instance = 1,
-			  interface_type = ?'S5/S8-U SGW',
-			  key = LocalDataTEI,
-			  ipv4 = gtp_c_lib:ip2bin(LocalIP)}
+		       fq_teid(1, ?'S5/S8-U SGW', LocalDataTEI, LocalIP)
 		      ]},
-	   #v2_fully_qualified_tunnel_endpoint_identifier{
-	      interface_type = ?'S5/S8-C SGW',
-	      key = LocalCntlTEI,
-	      ipv4 = gtp_c_lib:ip2bin(LocalIP)}
+	   fq_teid(0, ?'S5/S8-C SGW', LocalCntlTEI, LocalIP)
 	  ],
 
     #gtp{version = v2, type = modify_bearer_request, tei = RemoteCntlTEI,
@@ -203,10 +214,7 @@ make_request(modify_bearer_request, SubType,
 	   #v2_ue_time_zone{timezone = 10, dst = 0},
 	   #v2_user_location_information{tai = <<3,2,22,214,217>>,
 					 ecgi = <<3,2,22,8,71,9,92>>},
-	   #v2_fully_qualified_tunnel_endpoint_identifier{
-	      interface_type = ?'S5/S8-C SGW',
-	      key = LocalCntlTEI,
-	      ipv4 = gtp_c_lib:ip2bin(LocalIP)}
+	   fq_teid(0, ?'S5/S8-C SGW', LocalCntlTEI, LocalIP)
 	  ],
 
     #gtp{version = v2, type = modify_bearer_request, tei = RemoteCntlTEI,
@@ -224,10 +232,7 @@ make_request(modify_bearer_command, SubType,
 	      group = [#v2_eps_bearer_id{eps_bearer_id = 5},
 		       #v2_bearer_level_quality_of_service{}
 		      ]},
-	   #v2_fully_qualified_tunnel_endpoint_identifier{
-	      interface_type = ?'S5/S8-C SGW',
-	      key = LocalCntlTEI,
-	      ipv4 = gtp_c_lib:ip2bin(LocalIP)}
+	   fq_teid(0, ?'S5/S8-C SGW',LocalCntlTEI, LocalIP)
 	  ],
     #gtp{version = v2, type = modify_bearer_command, tei = RemoteCntlTEI,
 	 seq_no = SeqNo, ie = IEs};
@@ -294,10 +299,7 @@ make_request(delete_session_request, _SubType,
     IEs = [%%{170,0} => {170,0,<<220,126,139,67>>},
 	   #v2_recovery{restart_counter = RCnt},
 	   #v2_eps_bearer_id{eps_bearer_id = 5},
-	   #v2_fully_qualified_tunnel_endpoint_identifier{
-	      interface_type = ?'S5/S8-C SGW',
-	      key = LocalCntlTEI,
-	      ipv4 = gtp_c_lib:ip2bin(LocalIP)},
+	   fq_teid(0, ?'S5/S8-C SGW', LocalCntlTEI, LocalIP),
 	   #v2_user_location_information{tai = <<3,2,22,214,217>>,
 					 ecgi = <<3,2,22,8,71,9,92>>}],
 
@@ -347,22 +349,11 @@ make_response(#gtp{type = create_session_request, seq_no = SeqNo},
 			 {v2_eps_bearer_id, 0} =>
 			     #v2_eps_bearer_id{eps_bearer_id = 5},
 			 {v2_fully_qualified_tunnel_endpoint_identifier, 2} =>
-			     #v2_fully_qualified_tunnel_endpoint_identifier{
-				instance = 2,
-				interface_type = ?'S5/S8-U PGW',
-				key = LocalDataTEI,
-				ipv4 = gtp_c_lib:ip2bin(RemoteIP)}
+			     fq_teid(2, ?'S5/S8-U PGW',LocalDataTEI, RemoteIP)
 			}},
 	    {v2_fully_qualified_tunnel_endpoint_identifier, 1} =>
-		#v2_fully_qualified_tunnel_endpoint_identifier{
-		   instance = 1,
-		   interface_type = ?'S5/S8-C PGW',
-		   key = LocalCntlTEI,
-		   ipv4 = gtp_c_lib:ip2bin(RemoteIP)},
-	    {v2_pdn_address_allocation, 0} =>
-		#v2_pdn_address_allocation{
-		   type = ipv4,
-		   address = gtp_c_lib:ip2bin(UE_IP)},
+		fq_teid(1, ?'S5/S8-C PGW', LocalCntlTEI, RemoteIP),
+	    {v2_pdn_address_allocation, 0} => paa(UE_IP),
 	    {v2_protocol_configuration_options, 0} =>
 		#v2_protocol_configuration_options{
 		   config = {0, [{ipcp,'CP-Configure-Nak',0,
