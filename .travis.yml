@@ -16,6 +16,16 @@ script:
   - rebar3 compile
   - rebar3 do xref, ct, coveralls send
 
+addons:
+  artifacts:
+    key: AKIAJQ3KOWKFAGFGGAFQ
+    secret:
+      secure: "VXQ39xhVjXQ+prsFTmxwilGtiUAgX86SJbwp2g0HV1Sq9DhscZQGvvS5/IAWeIlUWHf3ZQvOi2+am32RHRfLyGeq27jZ6YCEOIkp93IHNnk49/oReMsNbmQphNWVU3/nVIc1RZs0oqbxgVwDf24W591y+M3qkcfriVmDH/ayC1zggH5UT9d9VEfNEJckNe26fndcHsjq8WsWptz3o1VlG0oBhha61cNbqB18WM2dH3CEemPVUukzqQbu5c8xVcnlxIxjCB6MRnjwjC/oHaxUMUFUu9AV129Ipp4vAfLuElQPBh0JTXKqz1nir/xQo0m6htBN3rEUWqXxQb9XHMp05MVvMm6Vv9jLitFclv68BLpigb4Src3U1+MHHCeDMkjvok3u3uC02iTXIxITKnrswRv8vIjWl8jfBd0PvMu2QlcQ4fKcbDcvxrKpXBerhLlbc0+vFy5RvkBoFrMUJeqfAd2KDxKnmfO0AWbrsn1gYuKo3uvjcvOxuZQCQ+ZFz2pTks4AbryP/pM0pYdBBRhlr8pwu3m2A1+romO6YxaqEGALiO2xihinUCHYqWEejCx1bh4ewnEu3ocj02mptQzsUN51l0/mqk/40X6BcIZeVHPvAE+yYTPPGh4Bov3HshHO2qDuUGA+aKNlj5yd8kQ4cBcYdvKKt8mtR8sXW2bWej0="
+    working_dir: _build/test/logs
+    bucket: travis-erlang-logs
+    s3_region: eu-west-1
+    acl: public_read
+
 notifications:
   slack:
     secure: VMWPbtMTVKOtOtAIRPEgnN6XXKy40or/D+GMqpuFiz2JrauCao8ggcoQouX7mUMtVDqlgoJVpooCV2iyFRJbxgj/1sv/2LmC7iGALB0mR8HHkm4XpwTWBCHpf/ugiQ5jadcqEfjbVBPddJYYj2k9GxCB4Aiu1d+NyLOuPk58jiXHztfmSiU1XEwNbAq843BTKuEDx/A+Zk/gmZs4Is7j6uuSXhp6+EC+46cDeLq7w1ejVquQgHkk3Yy9NNUjRYmcCbhVqKDb7bkhFnBr6Tt+O3ljzILWFqsnKDQ1CAAdudmYJYR9OUGdmle/0Nwpw/D7hP4ZiNWPVcXeZA6QwXG+46iZ1YlT+45wBb5GrhZnF1zcd8HRA2a3MkTkLci/3/v19GtrRa3G61LdocnmvanpAzN+sSpXlZvkQI2i5s1hgd+L08YkOxXSZxmkcV2Nh2IC8SNMx+sc8Ftrj9sffbznfp1rljDqXP4eKdIoJvBnFdrzUuDR/1/sZ4K/YXj80XdAAANNfebTdE6k2NbZ+YGJADQLxi3Nl7I/66HMSIequaKFIlU8MQairvo4jZgbytuZk8ndOLhR0/04Teb0k8ltNq8OQMV5nRHjznfqVvj1cJIhzvn6WbG2zFiRGiWL9U9XaktA1uHTuV37GRPetIZq1WnMmjH7lEQvGYnqPh/sMt0=
