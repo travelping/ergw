@@ -7,7 +7,7 @@
 
 -module(ergw_proxy_lib).
 
--export([validate_options/3, validate_option/2,
+-export([validate_options/3, validate_option/2, validate_next_gsn_option/2,
 	 forward_request/3, forward_request/6, forward_request/8,
 	 get_seq_no/3]).
 
@@ -70,6 +70,22 @@ validate_option(contexts, Values) when is_list(Values); is_map(Values) ->
     ergw_config:opts_fold(fun validate_context/3, #{}, Values);
 validate_option(Opt, Value) ->
     gtp_context:validate_option(Opt, Value).
+
+validate_ip_option({_,_,_,_} = Value) ->
+    Value;
+validate_ip_option({_,_,_,_,_,_,_,_} = Value) ->
+    Value;
+validate_ip_option(Value) ->
+    throw({error, {options, {ip, Value}}}).
+
+validate_next_gsn_option(_, Value)
+  when is_tuple(Value) ->
+    [validate_ip_option(Value)];
+validate_next_gsn_option(_, Values)
+  when is_list(Values), length(Values) /= 0 ->
+    [validate_ip_option(IP) || IP <- Values];
+validate_next_gsn_option(Opt, Value) ->
+    throw({error, {options, {Opt, Value}}}).
 
 validate_context_option(proxy_sockets, Value) when is_list(Value), Value /= [] ->
     Value;

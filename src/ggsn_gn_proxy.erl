@@ -140,10 +140,8 @@ validate_options(Opts) ->
     lager:debug("GGSN Gn/Gp Options: ~p", [Opts]),
     ergw_proxy_lib:validate_options(fun validate_option/2, Opts, ?Defaults).
 
-validate_option(ggsn, {_,_,_,_} = Value) ->
-    Value;
-validate_option(ggsn, {_,_,_,_,_,_,_,_} = Value) ->
-    Value;
+validate_option(ggsn, Value) ->
+    ergw_proxy_lib:validate_next_gsn_option(ggsn, Value);
 validate_option(Opt, Value) ->
     ergw_proxy_lib:validate_option(Opt, Value).
 
@@ -573,14 +571,14 @@ set_req_from_context(_, _K, IE) ->
 update_gtp_req_from_context(Context, GtpReqIEs) ->
     maps:map(set_req_from_context(Context, _, _), GtpReqIEs).
 
-proxy_info(DefaultGGSN,
+proxy_info(DefaultGGSNs,
 	   #context{apn = APN, imsi = IMSI, msisdn = MSISDN,
 		    restrictions = Restrictions}) ->
-    GGSNs = [#proxy_ggsn{address = DefaultGGSN,
-                         dst_apn = APN,
-		                 restrictions = Restrictions}],
+    GSNs = [#proxy_ggsn{address = GGSN,
+			dst_apn = APN,
+			restrictions = Restrictions} || GGSN <- DefaultGGSNs],
     LookupAPN = (catch gtp_c_lib:normalize_labels(APN)),
-    #proxy_info{ggsns = GGSNs, imsi = IMSI, msisdn = MSISDN, src_apn = LookupAPN}.
+    #proxy_info{ggsns = GSNs, imsi = IMSI, msisdn = MSISDN, src_apn = LookupAPN}.
 
 build_context_request(#context{remote_control_tei = TEI} = Context,
 		      NewPeer, #gtp{ie = RequestIEs} = Request) ->
