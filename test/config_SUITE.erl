@@ -354,7 +354,12 @@ config(_Config)  ->
     ?error_option(set_cfg_value([handlers, gn, contexts, invalid], [], ?GGSN_PROXY_CONFIG)),
     ?error_option(set_cfg_value([handlers, gn, contexts, <<"ams">>], invalid, ?GGSN_PROXY_CONFIG)),
     ?error_option(set_cfg_value([handlers, gn, contexts, <<"ams">>, proxy_sockets], invalid, ?GGSN_PROXY_CONFIG)),
+    ?ok_option(set_cfg_value([handlers, gn, ggsn], {1,2,3,4}, ?GGSN_PROXY_CONFIG)),
     ?ok_option(set_cfg_value([handlers, gn, ggsn], {1,2,3,4,5,6,7,8}, ?GGSN_PROXY_CONFIG)),
+    ?ok_option(set_cfg_value([handlers, gn, ggsn], [{1,1,1,1}, {1,1,1,2}], ?GGSN_PROXY_CONFIG)),
+    ?error_option(set_cfg_value([handlers, gn, ggsn], [], ?GGSN_PROXY_CONFIG)),
+    ?error_option(set_cfg_value([handlers, gn, ggsn], {1,2,3,4,5,6,7}, ?GGSN_PROXY_CONFIG)),
+    ?error_option(set_cfg_value([handlers, gn, ggsn], invalid, ?GGSN_PROXY_CONFIG)),
 
     ?ok_option(?PGW_CONFIG),
     ?error_option(set_cfg_value([handlers, 'h1'], [{handler, pgw_s5s8},
@@ -362,6 +367,11 @@ config(_Config)  ->
 						   {data_paths, [grx]}], ?PGW_CONFIG)),
 
     ?ok_option(?PGW_PROXY_CONFIG),
+    ?ok_option(set_cfg_value([handlers, gn, pgw], {1,2,3,4}, ?PGW_PROXY_CONFIG)),
     ?ok_option(set_cfg_value([handlers, gn, pgw], {1,2,3,4,5,6,7,8}, ?PGW_PROXY_CONFIG)),
+    ?ok_option(set_cfg_value([handlers, gn, pgw], [{1,1,1,1}, {1,1,1,2}], ?PGW_PROXY_CONFIG)),
+    ?error_option(set_cfg_value([handlers, gn, pgw], [], ?PGW_PROXY_CONFIG)),
+    ?error_option(set_cfg_value([handlers, gn, pgw], {1,2,3,4,5,6,7}, ?PGW_PROXY_CONFIG)),
+    ?error_option(set_cfg_value([handlers, gn, pgw], invalid, ?PGW_PROXY_CONFIG)),
 
     ok.

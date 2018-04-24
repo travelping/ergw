@@ -255,9 +255,9 @@ options.
 
     the default GTP-U data paths for forwarding requests
 
-  - `{ggsn, inet:ip_address()}`
+  - `{ggsn, inet:ip_address() | [inet:ip_address()]}`
 
-    the default GGSN IP address
+    the default GGSN(s) IP address
 
   - `{contexts, [context()]}`
 
