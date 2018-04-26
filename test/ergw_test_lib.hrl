@@ -61,6 +61,14 @@
 -define('PROXY-IMSI', <<"222222222222222">>).
 -define('PROXY-MSISDN', <<"491111111111">>).
 
+-define(IPv4PoolStart, {10, 180, 0, 1}).
+-define(IPv4PoolEnd,   {10, 180, 255, 254}).
+-define(IPv4StaticIP,  {10, 180, 128, 128}).
+
+-define(IPv6PoolStart, {16#8001, 0, 0, 0, 0, 0, 0, 0}).
+-define(IPv6PoolEnd,   {16#8001, 0, 0, 16#FFFF, 16#FFFF, 16#FFFF, 16#FFFF, 16#FFFF}).
+-define(IPv6StaticIP,  {16#8001, 0, 0, 16#0180, 1, 2, 3, 4}).
+
 -record(gtpc, {
 	  counter         :: atom(),
 	  restart_counter :: 0..255,
