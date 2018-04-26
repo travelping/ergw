@@ -65,9 +65,15 @@
 -define(IPv4PoolEnd,   {10, 180, 255, 254}).
 -define(IPv4StaticIP,  {10, 180, 128, 128}).
 
--define(IPv6PoolStart, {16#8001, 0, 0, 0, 0, 0, 0, 0}).
--define(IPv6PoolEnd,   {16#8001, 0, 0, 16#FFFF, 16#FFFF, 16#FFFF, 16#FFFF, 16#FFFF}).
--define(IPv6StaticIP,  {16#8001, 0, 0, 16#0180, 1, 2, 3, 4}).
+-define(IPv6PoolStart, {16#8001, 0, 1, 0, 0, 0, 0, 0}).
+-define(IPv6PoolEnd,   {16#8001, 0, 1, 16#FFFF, 16#FFFF, 16#FFFF, 16#FFFF, 16#FFFF}).
+-define(IPv6StaticIP,  {16#8001, 0, 1, 16#0180, 1, 2, 3, 4}).
+
+%% for non-standard /128 assigments
+%% NOTE: the pool allocator can't handle pools larger than > 2^20
+-define(IPv6HostPoolStart, {16#8001, 0, 0, 0, 0, 0, 0, 0}).
+-define(IPv6HostPoolEnd,   {16#8001, 0, 0, 0, 0, 0, 0, 16#FFFF}).
+-define(IPv6StaticHostIP,  {16#8001, 0, 0, 0, 0, 0, 0, 8}).
 
 -record(gtpc, {
 	  counter         :: atom(),

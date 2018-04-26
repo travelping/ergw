@@ -44,7 +44,8 @@
 
 		 {vrfs,
 		  [{upstream, [{pools,  [{?IPv4PoolStart, ?IPv4PoolEnd, 32},
-					 {?IPv6PoolStart, ?IPv6PoolEnd, 64}
+					 {?IPv6PoolStart, ?IPv6PoolEnd, 64},
+					 {?IPv6HostPoolStart, ?IPv6HostPoolEnd, 128}
 					]},
 			       {'MS-Primary-DNS-Server', {8,8,8,8}},
 			       {'MS-Secondary-DNS-Server', {8,8,4,4}},
@@ -173,6 +174,8 @@ common() ->
      duplicate_session_slow,
      error_indication,
      ipv6_bearer_request,
+     static_ipv6_bearer_request,
+     static_ipv6_host_bearer_request,
      ipv4v6_bearer_request,
      request_fast_resend,
      create_session_request_resend,
@@ -526,6 +529,29 @@ ipv6_bearer_request(Config) ->
     meck_validate(Config),
     ok.
 
+%%--------------------------------------------------------------------
+static_ipv6_bearer_request() ->
+    [{doc, "Check Create Session, Delete Session sequence for "
+      "IPv6 bearer with static IP"}].
+static_ipv6_bearer_request(Config) ->
+    {GtpC, _, _} = create_session(static_ipv6, Config),
+    delete_session(GtpC),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+static_ipv6_host_bearer_request() ->
+    [{doc, "Check Create Session, Delete Session sequence for "
+      "IPv6 bearer with non-standard /128 static IP"}].
+static_ipv6_host_bearer_request(Config) ->
+    {GtpC, _, _} = create_session(static_host_ipv6, Config),
+    delete_session(GtpC),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    meck_validate(Config),
+    ok.
 %%--------------------------------------------------------------------
 ipv4v6_bearer_request() ->
     [{doc, "Check Create Session, Delete Session sequence for dual stack "

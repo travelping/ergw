@@ -11,7 +11,7 @@
 
 %% API
 -export([start_link/2, start_link/3,
-	 allocate/2, release/2]).
+	 allocate/2, take/3, release/2]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -35,6 +35,9 @@ start_link(ServerName, Pool, Opts) ->
 allocate(Server, ClientId) ->
     gen_server:call(Server, {allocate, ClientId}).
 
+take(Server, ClientId, IP) ->
+    gen_server:call(Server, {take, ClientId, IP}).
+
 release(Server, IP) ->
     gen_server:call(Server, {release, IP}).
 
@@ -43,11 +46,11 @@ release(Server, IP) ->
 %%%===================================================================
 
 init({{_,_,_,_} = First, {_,_,_,_} = Last, PrefixLen})
-  when is_integer(PrefixLen),  PrefixLen =< 32, PrefixLen >= 8 ->
+  when is_integer(PrefixLen),  PrefixLen =< 32 ->
     init(ipv4, ip2int(First), ip2int(Last), 32 - PrefixLen);
 
 init({{_,_,_,_,_,_,_,_} = First, {_,_,_,_,_,_,_,_} = Last, PrefixLen})
-  when is_integer(PrefixLen), PrefixLen =< 64, PrefixLen >= 32 ->
+  when is_integer(PrefixLen), PrefixLen =< 128 ->
     init(ipv6, ip2int(First), ip2int(Last), 128 - PrefixLen).
 
 init(Type, First, Last, Shift) when Last >= First ->
@@ -92,6 +95,12 @@ handle_call({allocate, ClientId} = Request, _From,
 
 handle_call({allocate, _ClientId}, _From, State) ->
     {reply, {error, full}, State};
+
+handle_call({take, ClientId, ReqIP} = Request, _From, State0) ->
+    lager:debug("~w: Allocate: ~p, State: ~p",
+		[self(), lager:pr(Request, ?MODULE), lager:pr(State0, ?MODULE)]),
+    {Reply, State} = take_ip(ClientId, ip2int(ReqIP), State0),
+    {reply, Reply, State};
 
 handle_call({release, {_,_,_,_} = IPv4}, _From, State0) ->
     State1 = release_ip(ip2int(IPv4), State0),
@@ -169,5 +178,27 @@ release_ip(IP, #state{first = First, last = Last,
     end;
 release_ip(IP, #state{type = Type, first = First, last = Last} = State) ->
     lager:warning("release of out-of-pool IP: ~w < ~w < ~w",
+		  [int2ip(Type, First), int2ip(Type, IP), int2ip(Type, Last)]),
+    State.
+
+
+
+take_ip(ClientId, IP, #state{first = First, last = Last,
+			     shift = Shift,
+			     used = Used, free = Free,
+			     used_pool = UsedTid, free_pool = FreeTid} = State)
+  when IP >= First andalso IP =< Last ->
+    Id = IP bsr Shift,
+
+    case ets:take(FreeTid, Id) of
+	[_] ->
+	    ets:insert(UsedTid, #lease{ip = d, client_id = ClientId}),
+	    {{ok, id2ip(Id, State)}, State#state{used = Used + 1, free = Free - 1}};
+	_ ->
+	    lager:warning("attempt to take already allocated IP: ~p", [id2ip(Id, State)]),
+	    {{error, taken}, State}
+    end;
+take_ip(_ClientId, IP, #state{type = Type, first = First, last = Last} = State) ->
+    lager:warning("attempt to take of out-of-pool IP: ~w < ~w < ~w",
 		  [int2ip(Type, First), int2ip(Type, IP), int2ip(Type, Last)]),
     State.
