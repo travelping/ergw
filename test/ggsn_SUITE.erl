@@ -43,9 +43,8 @@
 		  ]},
 
 		 {vrfs,
-		  [{upstream, [{pools,  [{{10, 180, 0, 1}, {10, 180, 255, 254}, 32},
-					 {{16#8001, 0, 0, 0, 0, 0, 0, 0},
-					  {16#8001, 0, 0, 16#FFFF, 0, 0, 0, 0}, 64}
+		  [{upstream, [{pools,  [{?IPv4PoolStart, ?IPv4PoolEnd, 32},
+					 {?IPv6PoolStart, ?IPv6PoolEnd, 64}
 					]},
 			       {'MS-Primary-DNS-Server', {8,8,8,8}},
 			       {'MS-Secondary-DNS-Server', {8,8,4,4}},
