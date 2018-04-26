@@ -110,6 +110,26 @@ make_pdn_type(ipv6, IEs) ->
      #v2_protocol_configuration_options{
 	config = {0, [{1,<<>>}, {3,<<>>}, {10,<<>>}]}}
      | IEs];
+make_pdn_type(static_ipv6, IEs) ->
+    PrefixLen = 64,
+    Prefix = gtp_c_lib:ip2bin(?IPv6StaticIP),
+    [#v2_pdn_address_allocation{
+	type = ipv6,
+	address = <<PrefixLen, Prefix/binary>>},
+     #v2_pdn_type{pdn_type = ipv6},
+     #v2_protocol_configuration_options{
+	config = {0, [{1,<<>>}, {3,<<>>}, {10,<<>>}]}}
+     | IEs];
+make_pdn_type(static_host_ipv6, IEs) ->
+    PrefixLen = 128,
+    Prefix = gtp_c_lib:ip2bin(?IPv6StaticHostIP),
+    [#v2_pdn_address_allocation{
+	type = ipv6,
+	address = <<PrefixLen, Prefix/binary>>},
+     #v2_pdn_type{pdn_type = ipv6},
+     #v2_protocol_configuration_options{
+	config = {0, [{1,<<>>}, {3,<<>>}, {10,<<>>}]}}
+     | IEs];
 make_pdn_type(ipv4v6, IEs) ->
     PrefixLen = 64,
     Prefix = gtp_c_lib:ip2bin({0,0,0,0,0,0,0,0}),
@@ -125,6 +145,17 @@ make_pdn_type(ipv4v6, IEs) ->
 		      {13,<<>>},{10,<<>>},{5,<<>>},
 		      {1,<<>>}, {3,<<>>}, {10,<<>>}]}}
      | IEs];
+make_pdn_type(static_ipv4, IEs) ->
+    RequestedIP = gtp_c_lib:ip2bin(?IPv4StaticIP),
+    [#v2_pdn_address_allocation{type = ipv4,
+				address = RequestedIP},
+     #v2_pdn_type{pdn_type = ipv4},
+     #v2_protocol_configuration_options{
+	config = {0, [{ipcp,'CP-Configure-Request',0,
+		       [{ms_dns1, <<0,0,0,0>>},
+			{ms_dns2, <<0,0,0,0>>}]},
+		      {13,<<>>},{10,<<>>},{5,<<>>}]}}
+     | IEs];
 make_pdn_type(_, IEs) ->
     RequestedIP = gtp_c_lib:ip2bin({0,0,0,0}),
     [#v2_pdn_address_allocation{type = ipv4,
@@ -136,6 +167,7 @@ make_pdn_type(_, IEs) ->
 			{ms_dns2, <<0,0,0,0>>}]},
 		      {13,<<>>},{10,<<>>},{5,<<>>}]}}
      | IEs].
+
 %%%-------------------------------------------------------------------
 
 make_request(Type, invalid_teid, GtpC) ->
@@ -448,6 +480,26 @@ validate_response(create_session_request, invalid_mapping, Response, GtpC) ->
 
 validate_response(create_session_request, version_restricted, Response, GtpC) ->
     ?match(#gtp{type = version_not_supported}, Response),
+    GtpC;
+
+validate_response(create_session_request, static_ipv6, Response, GtpC0) ->
+    GtpC = validate_response(create_session_request, default, Response, GtpC0),
+    #gtp{ie = #{
+	   {v2_pdn_address_allocation,0} :=
+	       #v2_pdn_address_allocation{
+		  type = ipv6, address = <<PrefixLen:8, IPv6/binary>>}}} = Response,
+    ?equal(64, PrefixLen),
+    ?equal(?IPv6StaticIP, gtp_c_lib:bin2ip(IPv6)),
+    GtpC;
+
+validate_response(create_session_request, static_host_ipv6, Response, GtpC0) ->
+    GtpC = validate_response(create_session_request, default, Response, GtpC0),
+    #gtp{ie = #{
+	   {v2_pdn_address_allocation,0} :=
+	       #v2_pdn_address_allocation{
+		  type = ipv6, address = <<PrefixLen:8, IPv6/binary>>}}} = Response,
+    ?equal(128, PrefixLen),
+    ?equal(?IPv6StaticHostIP, gtp_c_lib:bin2ip(IPv6)),
     GtpC;
 
 validate_response(create_session_request, _SubType, Response,

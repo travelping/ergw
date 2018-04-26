@@ -26,6 +26,8 @@
 -define(IS_IPv4(X), (is_tuple(X) andalso tuple_size(X) == 4)).
 -define(IS_IPv6(X), (is_tuple(X) andalso tuple_size(X) == 8)).
 
+-define(UE_INTERFACE_ID, {0,0,0,0,0,0,0,1}).
+
 %%====================================================================
 %% API
 %%====================================================================
@@ -39,9 +41,11 @@ start_link(VRF, Opts) ->
     gen_server:start_link(?MODULE, [VRF, Opts], []).
 
 allocate_pdp_ip(VRF, TEI, IPv4, IPv6) ->
-    with_vrf(VRF, gen_server:call(_, {allocate_pdp_ip, TEI, IPv4, IPv6})).
+    Req = {allocate_pdp_ip, TEI, normalize_ipv4(IPv4), normalize_ipv6(IPv6)},
+    with_vrf(VRF, gen_server:call(_, Req)).
 release_pdp_ip(VRF, IPv4, IPv6) ->
-    with_vrf(VRF, gen_server:call(_, {release_pdp_ip, IPv4, IPv6})).
+    Req = {release_pdp_ip, normalize_ipv4(IPv4), normalize_ipv6(IPv6)},
+    with_vrf(VRF, gen_server:call(_, Req)).
 
 get_opts(VRF) ->
     with_vrf(VRF, gen_server:call(_, get_opts)).
@@ -58,8 +62,29 @@ validate_options(Options) ->
     lager:debug("VRF Options: ~p", [Options]),
     ergw_config:validate_options(fun validate_option/2, Options, [], map).
 
-validate_option(pools, Value) when is_list(Value) ->
-    Value;
+validate_ip_pool({Start, End, PrefixLen} = Pool)
+  when ?IS_IPv4(Start), ?IS_IPv4(End), End > Start,
+       is_integer(PrefixLen), PrefixLen > 0, PrefixLen =< 32 ->
+    Pool;
+validate_ip_pool({Start, End, PrefixLen} = Pool)
+  when ?IS_IPv6(Start), ?IS_IPv6(End), End > Start,
+       is_integer(PrefixLen), PrefixLen > 0, PrefixLen =< 128 ->
+    if PrefixLen =:= 127 ->
+	    lager:warning("a /127 IPv6 prefix is not supported"),
+	    throw({error, {options, {pool, Pool}}});
+       PrefixLen =/= 64 ->
+	    lager:warning("3GPP only supports /64 IPv6 prefix assigment, "
+			  "/~w might not work, USE AT YOUR OWN RISK!", [PrefixLen]),
+	    Pool;
+       true ->
+	    Pool
+    end;
+validate_ip_pool(Pool) ->
+    throw({error, {options, {pool, Pool}}}).
+
+validate_option(pools, Pools)
+  when is_list(Pools), length(Pools) /= 0 ->
+    [validate_ip_pool(X) || X <- Pools];
 validate_option(Opt, {_,_,_,_} = IP)
   when Opt == 'MS-Primary-DNS-Server';
        Opt == 'MS-Secondary-DNS-Server';
@@ -124,39 +149,48 @@ code_change(_OldVsn, State, _Extra) ->
 %%% Internal functions
 %%%===================================================================
 
-alloc_ipv4(_TEI, undefined, _State) ->
-    undefined;
-alloc_ipv4(TEI, {0,0,0,0}, #state{ip4_pools = Pools}) ->
-    alloc_ip(TEI, 32, Pools);
-alloc_ipv4(TEI, {{0,0,0,0},PrefixLen}, #state{ip4_pools = Pools}) ->
-    alloc_ip(TEI, PrefixLen, Pools);
-alloc_ipv4(_TEI, {_,_,_,_} = ReqIPv4, _State) ->
-    %% check if the IP falls into one of our pool and mark a allocate if so
-    {ReqIPv4, 32};
-alloc_ipv4(_TEI, {{_,_,_,_},_} = ReqIPv4, _State) ->
-    %% check if the IP falls into one of our pool and mark a allocate if so
-    ReqIPv4.
+normalize_ipv4({IP, PLen} = Addr)
+  when ?IS_IPv4(IP), is_integer(PLen), PLen > 0, PLen =< 32 ->
+    Addr;
+normalize_ipv4(IP) when ?IS_IPv4(IP) ->
+    {IP, 32};
+normalize_ipv4(undefined) ->
+    undefined.
 
-alloc_ipv6(_TEI, undefined, _State) ->
-    undefined;
-alloc_ipv6(TEI, {{0,0,0,0,0,0,0,0},PrefixLen}, #state{ip6_pools = Pools}) ->
-    alloc_ip(TEI, PrefixLen, Pools);
-alloc_ipv6(_TEI, {{_,_,_,_,_,_,_,_},_} = ReqIPv6, _State) ->
-    lager:error("alloc IPv6 not implemented"),
-    %% check if the IP falls into one of our pool and mark a allocated if so
-    ReqIPv6.
+normalize_ipv6({IP, PLen} = Addr)
+  when ?IS_IPv6(IP), is_integer(PLen), PLen > 0, PLen =< 128 ->
+    Addr;
+normalize_ipv6(IP) when ?IS_IPv6(IP) ->
+    {IP, 64};
+normalize_ipv6(undefined) ->
+    undefined.
 
-release_ipv4({IPv4, PrefixLen}, #state{ip4_pools = Pools})
-  when ?IS_IPv4(IPv4)->
+alloc_ipv4(TEI, {ReqIPv4, PrefixLen}, #state{ip4_pools = Pools}) ->
+    case ReqIPv4 of
+	{0,0,0,0} ->
+	    alloc_prefix(TEI, PrefixLen, Pools);
+	_ ->
+	    alloc_prefix(TEI, ReqIPv4, PrefixLen, Pools)
+    end;
+alloc_ipv4(_TEI, _ReqIPv4, _State) ->
+    undefined.
+
+alloc_ipv6(TEI, {ReqIPv6, PrefixLen}, #state{ip6_pools = Pools}) ->
+    case ReqIPv6 of
+	{0,0,0,0,0,0,0,0} ->
+	    ipv6_interface_id(alloc_prefix(TEI, PrefixLen, Pools), ?UE_INTERFACE_ID);
+	_ ->
+	    ipv6_interface_id(alloc_prefix(TEI, ReqIPv6, PrefixLen, Pools), ReqIPv6)
+    end;
+alloc_ipv6(_TEI, _ReqIPv6, _State) ->
+    undefined.
+
+release_ipv4({IPv4, PrefixLen}, #state{ip4_pools = Pools}) ->
     release_ip(IPv4, PrefixLen, Pools);
-release_ipv4(IPv4, #state{ip4_pools = Pools})
-  when ?IS_IPv4(IPv4) ->
-    release_ip(IPv4, 32, Pools);
 release_ipv4(_IP, _State) ->
     ok.
 
-release_ipv6({IPv6, PrefixLen}, #state{ip6_pools = Pools})
-  when ?IS_IPv6(IPv6) ->
+release_ipv6({IPv6, PrefixLen}, #state{ip6_pools = Pools}) ->
     release_ip(IPv6, PrefixLen, Pools);
 release_ipv6(_IP, _State) ->
     ok.
@@ -166,10 +200,10 @@ init_pool(X) ->
     {ok, Pid} = gtp_ip_pool:start_link(X, []),
     Pid.
 
-alloc_ip(TEI, PrefixLen, Pools) ->
+with_pool(Fun, PrefixLen, Pools) ->
     case lists:keyfind(PrefixLen, 1, Pools) of
 	{_, Pool} ->
-	    case gtp_ip_pool:allocate(Pool, TEI) of
+	    case Fun(Pool) of
 		{ok, IP} ->
 		    IP;
 		_Other ->
@@ -180,6 +214,12 @@ alloc_ip(TEI, PrefixLen, Pools) ->
 	    undefined
     end.
 
+alloc_prefix(TEI, PrefixLen, Pools) ->
+    with_pool(fun(Pool) -> gtp_ip_pool:allocate(Pool, TEI) end, PrefixLen, Pools).
+
+alloc_prefix(TEI, IP, PrefixLen, Pools) ->
+    with_pool(fun(Pool) -> gtp_ip_pool:take(Pool, TEI, IP) end, PrefixLen, Pools).
+
 release_ip(IP, PrefixLen, Pools) ->
     case lists:keyfind(PrefixLen, 1, Pools) of
 	{_, Pool} ->
@@ -187,3 +227,10 @@ release_ip(IP, PrefixLen, Pools) ->
 	_ ->
 	    ok
     end.
+
+ipv6_interface_id({Prefix, PrefixLen}, IntId) when PrefixLen =< 126 ->
+    <<Addr:PrefixLen/bits, _/bits>> = gtp_c_lib:ip2bin(Prefix),
+    <<_:PrefixLen/bits, IntIdBin/bits>> = gtp_c_lib:ip2bin(IntId),
+    {gtp_c_lib:bin2ip(<<Addr/bits, IntIdBin/bits>>), PrefixLen};
+ipv6_interface_id(Other, _) ->
+    Other.
