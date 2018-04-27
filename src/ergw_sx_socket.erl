@@ -270,6 +270,7 @@ bind_sx_socket(Socket, {_,_,_,_} = IP, Port, Opts) ->
 
 bind_sx_socket(Socket, {_,_,_,_,_,_,_,_} = IP, Port, Opts) ->
     %% ok = gen_socket:setsockopt(Socket, sol_ip, recverr, true),
+    ok = socket_ip_freebind(Socket, Opts),
     ok = socket_netdev(Socket, Opts),
     ok = gen_socket:bind(Socket, {inet6, IP, Port}),
     maps:fold(fun(K, V, ok) -> ok = socket_setopts(Socket, K, V) end, ok, Opts),
