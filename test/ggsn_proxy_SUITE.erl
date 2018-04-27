@@ -346,7 +346,7 @@ all() ->
 %%%===================================================================
 
 init_per_testcase(Config) ->
-    ct:pal("Sockets: ~p", [gtp_socket_reg:all()]),
+    ct:pal("Sockets: ~p", [ergw_gtp_socket_reg:all()]),
     ergw_test_sx_up:reset('pgw-u'),
     ergw_test_sx_up:reset('sgw-u'),
     meck_reset(Config),
@@ -372,7 +372,7 @@ init_per_testcase(TestCase, Config)
        TestCase == delete_pdp_context_requested_invalid_teid;
        TestCase == delete_pdp_context_requested_late_response ->
     init_per_testcase(Config),
-    ok = meck:expect(gtp_socket, send_request,
+    ok = meck:expect(ergw_gtp_c_socket, send_request,
 		     fun(GtpPort, DstIP, DstPort, _T3, _N3,
 			 #gtp{type = delete_pdp_context_request} = Msg, CbInfo) ->
 			     %% reduce timeout to 1 second and 2 resends
@@ -448,7 +448,7 @@ end_per_testcase(TestCase, Config)
   when TestCase == delete_pdp_context_requested_resend;
        TestCase == delete_pdp_context_requested_invalid_teid;
        TestCase == delete_pdp_context_requested_late_response ->
-    ok = meck:delete(gtp_socket, send_request, 7),
+    ok = meck:delete(ergw_gtp_c_socket, send_request, 7),
     end_per_testcase(Config),
     Config;
 end_per_testcase(request_fast_resend, Config) ->
@@ -1119,9 +1119,9 @@ cache_timeout() ->
     [{doc, "Check GTP socket queue timeout"}, {timetrap, {seconds, 150}}].
 cache_timeout(Config) ->
     GtpPort =
-	case gtp_socket_reg:lookup('proxy-irx') of
+	case ergw_gtp_socket_reg:lookup('proxy-irx') of
 	    undefined ->
-		gtp_socket_reg:lookup('irx');
+		ergw_gtp_socket_reg:lookup('irx');
 	    Other ->
 		Other
 	end,
@@ -1130,13 +1130,13 @@ cache_timeout(Config) ->
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
 
-    {T0, Q0} = gtp_socket:get_request_q(GtpPort),
+    {T0, Q0} = ergw_gtp_c_socket:get_request_q(GtpPort),
     ?match(X when X /= 0, length(T0)),
     ?match(X when X /= 0, length(Q0)),
 
     ct:sleep({seconds, 120}),
 
-    {T1, Q1} = gtp_socket:get_request_q(GtpPort),
+    {T1, Q1} = ergw_gtp_c_socket:get_request_q(GtpPort),
     ?equal(0, length(T1)),
     ?equal(0, length(Q1)),
 

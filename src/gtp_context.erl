@@ -117,14 +117,14 @@ handle_response(Context, ReqInfo, Request, Response) ->
 
 send_request(GtpPort, DstIP, DstPort, T3, N3, Msg, ReqInfo) ->
     CbInfo = {?MODULE, handle_response, [self(), ReqInfo, Msg]},
-    gtp_socket:send_request(GtpPort, DstIP, DstPort, T3, N3, Msg, CbInfo).
+    ergw_gtp_c_socket:send_request(GtpPort, DstIP, DstPort, T3, N3, Msg, CbInfo).
 
 send_request(GtpPort, DstIP, DstPort, ReqId, Msg, ReqInfo) ->
     CbInfo = {?MODULE, handle_response, [self(), ReqInfo, Msg]},
-    gtp_socket:send_request(GtpPort, DstIP, DstPort, ReqId, Msg, CbInfo).
+    ergw_gtp_c_socket:send_request(GtpPort, DstIP, DstPort, ReqId, Msg, CbInfo).
 
 resend_request(GtpPort, ReqId) ->
-    gtp_socket:resend_request(GtpPort, ReqId).
+    ergw_gtp_c_socket:resend_request(GtpPort, ReqId).
 
 start_link(GtpPort, Version, Interface, IfOpts, Opts) ->
     gen_server:start_link(?MODULE, [GtpPort, Version, Interface, IfOpts], Opts).
@@ -395,7 +395,7 @@ send_response(Request, #gtp{seq_no = SeqNo} = Msg) ->
     %% TODO: handle encode errors
     try
 	request_finished(Request),
-	gtp_socket:send_response(Request, Msg, SeqNo /= 0)
+	ergw_gtp_c_socket:send_response(Request, Msg, SeqNo /= 0)
     catch
 	Class:Error ->
 	    Stack = erlang:get_stacktrace(),
@@ -455,7 +455,7 @@ generic_error(#request{gtp_port = GtpPort} = Request,
 	      #gtp{version = Version, type = MsgType, seq_no = SeqNo}, Error) ->
     Handler = gtp_path:get_handler(GtpPort, Version),
     Reply = Handler:build_response({MsgType, 0, Error}),
-    gtp_socket:send_response(Request, Reply#gtp{seq_no = SeqNo}, SeqNo /= 0).
+    ergw_gtp_c_socket:send_response(Request, Reply#gtp{seq_no = SeqNo}, SeqNo /= 0).
 
 validate_teid(#gtp{version = v1, type = MsgType, tei = TEID}) ->
     gtp_v1_c:validate_teid(MsgType, TEID);

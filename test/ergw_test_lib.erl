@@ -145,7 +145,7 @@ update_app_config(Group, CfgUpd, Config0) ->
 
 meck_init(Config) ->
     ok = meck:new(ergw_sx_socket, [passthrough, no_link]),
-    ok = meck:new(gtp_socket, [passthrough, no_link]),
+    ok = meck:new(ergw_gtp_c_socket, [passthrough, no_link]),
 
     {_, Hut} = lists:keyfind(handler_under_test, 1, Config),   %% let it crash if HUT is undefined
     ok = meck:new(Hut, [passthrough, no_link]),
@@ -161,17 +161,17 @@ meck_init(Config) ->
 
 meck_reset(Config) ->
     meck:reset(ergw_sx_socket),
-    meck:reset(gtp_socket),
+    meck:reset(ergw_gtp_c_socket),
     meck:reset(proplists:get_value(handler_under_test, Config)).
 
 meck_unload(Config) ->
     meck:unload(ergw_sx_socket),
-    meck:unload(gtp_socket),
+    meck:unload(ergw_gtp_c_socket),
     meck:unload(proplists:get_value(handler_under_test, Config)).
 
 meck_validate(Config) ->
     ?equal(true, meck:validate(ergw_sx_socket)),
-    ?equal(true, meck:validate(gtp_socket)),
+    ?equal(true, meck:validate(ergw_gtp_c_socket)),
     ?equal(true, meck:validate(proplists:get_value(handler_under_test, Config))).
 
 %%%===================================================================

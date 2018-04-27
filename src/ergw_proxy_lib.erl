@@ -44,7 +44,7 @@ forward_request(#context{control_port = GtpPort}, ReqKey, Request) ->
 
 get_seq_no(#context{control_port = GtpPort}, ReqKey, Request) ->
     ReqId = make_request_id(ReqKey, Request),
-    gtp_socket:get_seq_no(GtpPort, ReqId).
+    ergw_gtp_c_socket:get_seq_no(GtpPort, ReqId).
 
 select_proxy_gsn(#proxy_info{src_apn = SrcAPN},
 		 #proxy_ggsn{address = undefined, dst_apn = DstAPN} = ProxyGSN,
@@ -92,7 +92,7 @@ select_proxy_sockets(#proxy_ggsn{node = Node, dst_apn = DstAPN, context = Contex
 		%% neither colocation, not topology matched
 		Candidates0
 	end,
-    {gtp_socket_reg:lookup(hd(Cntl)), Candidates}.
+    {ergw_gtp_socket_reg:lookup(hd(Cntl)), Candidates}.
 
 %%%===================================================================
 %%% Options Validation

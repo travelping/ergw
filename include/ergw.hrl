@@ -82,7 +82,7 @@
 -record(proxy_request, {
 	  direction	:: atom(),
 	  request	:: #request{},
-	  seq_no	:: gtp_socket:sequence_id(),
+	  seq_no	:: non_neg_integer(),
 	  context	:: #context{},
 	  proxy_ctx	:: #context{},
 	  new_peer	:: boolean()

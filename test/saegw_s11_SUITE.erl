@@ -178,7 +178,7 @@ all() ->
 %%%===================================================================
 
 init_per_testcase(Config) ->
-    ct:pal("Sockets: ~p", [gtp_socket_reg:all()]),
+    ct:pal("Sockets: ~p", [ergw_gtp_socket_reg:all()]),
     ergw_test_sx_up:reset('pgw-u'),
     meck_reset(Config),
     start_gtpc_server(Config).
@@ -195,7 +195,7 @@ init_per_testcase(TestCase, Config)
   when TestCase == delete_bearer_request_resend;
        TestCase == modify_bearer_command_timeout ->
     init_per_testcase(Config),
-    ok = meck:expect(gtp_socket, send_request,
+    ok = meck:expect(ergw_gtp_c_socket, send_request,
 		     fun(GtpPort, DstIP, DstPort, _T3, _N3,
 			 #gtp{type = Type} = Msg, CbInfo)
 			   when Type == delete_bearer_request;
@@ -226,7 +226,7 @@ end_per_testcase(create_session_request_aaa_reject, Config) ->
 end_per_testcase(TestCase, Config)
   when TestCase == delete_bearer_request_resend;
        TestCase == modify_bearer_command_timeout ->
-    ok = meck:delete(gtp_socket, send_request, 7),
+    ok = meck:delete(ergw_gtp_c_socket, send_request, 7),
     end_per_testcase(Config),
     Config;
 end_per_testcase(create_session_overload, Config) ->
