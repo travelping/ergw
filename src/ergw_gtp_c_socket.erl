@@ -1,19 +1,18 @@
-%% Copyright 2015, Travelping GmbH <info@travelping.com>
+%% Copyright 2015,2018 Travelping GmbH <info@travelping.com>
 
 %% This program is free software; you can redistribute it and/or
 %% modify it under the terms of the GNU General Public License
 %% as published by the Free Software Foundation; either version
 %% 2 of the License, or (at your option) any later version.
 
--module(gtp_socket).
+-module(ergw_gtp_c_socket).
 
 -behavior(gen_server).
 
 -compile({parse_transform, cut}).
 
 %% API
--export([validate_options/1,
-	 start_socket/2, start_link/1,
+-export([start_link/1,
 	 send/4, send_response/3,
 	 send_request/6, send_request/7, resend_request/2,
 	 get_restart_counter/1]).
@@ -70,19 +69,8 @@
 %% API
 %%====================================================================
 
-start_socket(Name, Opts)
-  when is_atom(Name) ->
-    gtp_socket_sup:new({Name, Opts}).
-
-start_link('gtp-c', {Name, SocketOpts}) ->
+start_link({Name, SocketOpts}) ->
     gen_server:start_link(?MODULE, [Name, SocketOpts], []).
-
-start_link(Socket = {_Name, #{type := Type}}) ->
-    start_link(Type, Socket);
-start_link(Socket = {_Name, SocketOpts})
-  when is_list(SocketOpts) ->
-    Type = proplists:get_value(type, SocketOpts, 'gtp-c'),
-    start_link(Type, Socket).
 
 send(#gtp_port{type = 'gtp-c'} = GtpPort, IP, Port, Data) ->
     cast(GtpPort, {send, IP, Port, Data}).
@@ -124,44 +112,6 @@ get_seq_no(GtpPort, ReqId) ->
     call(GtpPort, {get_seq_no, ReqId}).
 
 %%%===================================================================
-%%% Options Validation
-%%%===================================================================
-
--define(SocketDefaults, [{ip, invalid}]).
-
-validate_options(Values0) ->
-    Values = if is_list(Values0) ->
-		     proplists:unfold(Values0);
-		true ->
-		     Values0
-	     end,
-    ergw_config:validate_options(fun validate_option/2, Values, ?SocketDefaults, map).
-
-validate_option(name, Value) when is_atom(Value) ->
-    Value;
-validate_option(type, 'gtp-c') ->
-    'gtp-c';
-validate_option(ip, Value)
-  when is_tuple(Value) andalso
-       (tuple_size(Value) == 4 orelse tuple_size(Value) == 8) ->
-    Value;
-validate_option(netdev, Value)
-  when is_list(Value); is_binary(Value) ->
-    Value;
-validate_option(netns, Value)
-  when is_list(Value); is_binary(Value) ->
-    Value;
-validate_option(freebind, Value) when is_boolean(Value) ->
-    Value;
-validate_option(reuseaddr, Value) when is_boolean(Value) ->
-    Value;
-validate_option(rcvbuf, Value)
-  when is_integer(Value) andalso Value > 0 ->
-    Value;
-validate_option(Opt, Value) ->
-    throw({error, {options, {Opt, Value}}}).
-
-%%%===================================================================
 %%% call/cast wrapper for gtp_port
 %%%===================================================================
 
@@ -178,7 +128,7 @@ call(#gtp_port{pid = Handler}, Request) ->
 init([Name, #{ip := IP} = SocketOpts]) ->
     process_flag(trap_exit, true),
 
-    {ok, S} = make_gtp_socket(IP, ?GTP1c_PORT, SocketOpts),
+    {ok, S} = ergw_gtp_socket:make_gtp_socket(IP, ?GTP1c_PORT, SocketOpts),
     {ok, RCnt} = gtp_config:get_restart_counter(),
 
     GtpPort = #gtp_port{
@@ -190,7 +140,7 @@ init([Name, #{ip := IP} = SocketOpts]) ->
 		},
 
     init_exometer(GtpPort),
-    gtp_socket_reg:register(Name, GtpPort),
+    ergw_gtp_socket_reg:register(Name, GtpPort),
 
     State = #state{
 	       gtp_port = GtpPort,
@@ -290,7 +240,8 @@ handle_info({Socket, input_ready}, #state{socket = Socket} = State) ->
     handle_input(Socket, State);
 
 handle_info(Info, State) ->
-    lager:error("handle_info: unknown ~p, ~p", [lager:pr(Info, ?MODULE), lager:pr(State, ?MODULE)]),
+    lager:error("~s:handle_info: unknown ~p, ~p",
+		[?MODULE, lager:pr(Info, ?MODULE), lager:pr(State, ?MODULE)]),
     {noreply, State}.
 
 terminate(_Reason, #state{socket = Socket} = _State) ->
@@ -344,9 +295,6 @@ new_sequence_number(#gtp{version = v1} = Msg, #state{v1_seq_no = SeqNo} = State)
 new_sequence_number(#gtp{version = v2} = Msg, #state{v2_seq_no = SeqNo} = State) ->
     {Msg#gtp{seq_no = SeqNo}, State#state{v2_seq_no = (SeqNo + 1) rem 16#7fffff}}.
 
-make_seq_id(#gtp{version = Version, seq_no = SeqNo}) ->
-    {Version, SeqNo}.
-
 make_send_req(ReqId, Address, Port, T3, N3, Msg, CbInfo) ->
     #send_req{
        req_id = ReqId,
@@ -359,69 +307,8 @@ make_send_req(ReqId, Address, Port, T3, N3, Msg, CbInfo) ->
        send_ts = erlang:monotonic_time()
       }.
 
-make_request(ArrivalTS, IP, Port,
-	     Msg = #gtp{version = Version, type = Type},
-	     #state{gtp_port = GtpPort}) ->
-    SeqId = make_seq_id(Msg),
-    #request{
-       key = {GtpPort, IP, Port, Type, SeqId},
-       gtp_port = GtpPort,
-       ip = IP,
-       port = Port,
-       version = Version,
-       type = Type,
-       arrival_ts = ArrivalTS}.
-
-family({_,_,_,_}) -> inet;
-family({_,_,_,_,_,_,_,_}) -> inet6.
-
-make_gtp_socket(IP, Port, #{netns := NetNs} = Opts)
-  when is_list(NetNs) ->
-    {ok, Socket} = gen_socket:socketat(NetNs, family(IP), dgram, udp),
-    bind_gtp_socket(Socket, IP, Port, Opts);
-make_gtp_socket(IP, Port, Opts) ->
-    {ok, Socket} = gen_socket:socket(family(IP), dgram, udp),
-    bind_gtp_socket(Socket, IP, Port, Opts).
-
-bind_gtp_socket(Socket, {_,_,_,_} = IP, Port, Opts) ->
-    ok = socket_ip_freebind(Socket, Opts),
-    ok = socket_netdev(Socket, Opts),
-    ok = gen_socket:bind(Socket, {inet4, IP, Port}),
-    ok = gen_socket:setsockopt(Socket, sol_ip, recverr, true),
-    ok = gen_socket:setsockopt(Socket, sol_ip, mtu_discover, 0),
-    ok = gen_socket:input_event(Socket, true),
-    maps:fold(fun(K, V, ok) -> ok = socket_setopts(Socket, K, V) end, ok, Opts),
-    {ok, Socket};
-
-bind_gtp_socket(Socket, {_,_,_,_,_,_,_,_} = IP, Port, Opts) ->
-    %% ok = gen_socket:setsockopt(Socket, sol_ip, recverr, true),
-    ok = socket_ip_freebind(Socket, Opts),
-    ok = socket_netdev(Socket, Opts),
-    ok = gen_socket:bind(Socket, {inet6, IP, Port}),
-    maps:fold(fun(K, V, ok) -> ok = socket_setopts(Socket, K, V) end, ok, Opts),
-    ok = gen_socket:input_event(Socket, true),
-    {ok, Socket}.
-
-socket_ip_freebind(Socket, #{freebind := true}) ->
-    gen_socket:setsockopt(Socket, sol_ip, freebind, true);
-socket_ip_freebind(_, _) ->
-    ok.
-
-socket_netdev(Socket, #{netdev := Device}) ->
-    BinDev = iolist_to_binary([Device, 0]),
-    gen_socket:setsockopt(Socket, sol_socket, bindtodevice, BinDev);
-socket_netdev(_, _) ->
-    ok.
-
-socket_setopts(Socket, rcvbuf, Size) when is_integer(Size) ->
-    case gen_socket:setsockopt(Socket, sol_socket, rcvbufforce, Size) of
-	ok -> ok;
-	_  -> gen_socket:setsockopt(Socket, sol_socket, rcvbuf, Size)
-    end;
-socket_setopts(Socket, reuseaddr, true) ->
-    ok = gen_socket:setsockopt(Socket, sol_socket, reuseaddr, true);
-socket_setopts(_Socket, _, _) ->
-    ok.
+make_request(ArrivalTS, IP, Port, Msg, #state{gtp_port = GtpPort}) ->
+    ergw_gtp_socket:make_request(ArrivalTS, IP, Port, Msg, GtpPort).
 
 handle_input(Socket, State) ->
     case gen_socket:recvfrom(Socket) of
@@ -509,7 +396,7 @@ handle_message_1(ArrivalTS, IP, Port, #gtp{version = Version, type = MsgType} = 
     end.
 
 handle_response(ArrivalTS, IP, _Port, Msg, #state{gtp_port = GtpPort} = State0) ->
-    SeqId = make_seq_id(Msg),
+    SeqId = ergw_gtp_socket:make_seq_id(Msg),
     {Req, State} = take_request(SeqId, State0),
     case Req of
 	none -> %% duplicate, drop silently
@@ -538,7 +425,7 @@ handle_request(#request{ip = IP, port = Port} = ReqKey, Msg,
     State.
 
 start_request(#send_req{t3 = Timeout, msg = Msg} = SendReq, State0) ->
-    SeqId = make_seq_id(Msg),
+    SeqId = ergw_gtp_socket:make_seq_id(Msg),
 
     %% cancel pending timeout, this can only happend when a
     %% retransmit was triggerd by the control process and not

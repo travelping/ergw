@@ -76,7 +76,7 @@ load_config([_ | T]) ->
 %% Initialize a new GTPv1/v2-c or GTPv1-u socket
 %%
 start_socket(Name, Options) ->
-    gtp_socket:start_socket(Name, Options).
+    ergw_gtp_socket:start_socket(Name, Options).
 
 %%
 %% start VRF instance

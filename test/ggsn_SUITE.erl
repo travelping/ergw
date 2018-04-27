@@ -190,7 +190,7 @@ all() ->
 %%%===================================================================
 
 init_per_testcase(Config) ->
-    ct:pal("Sockets: ~p", [gtp_socket_reg:all()]),
+    ct:pal("Sockets: ~p", [ergw_gtp_socket_reg:all()]),
     ergw_test_sx_up:reset('pgw-u'),
     meck_reset(Config),
     start_gtpc_server(Config).
@@ -210,7 +210,7 @@ init_per_testcase(path_restart, Config) ->
 init_per_testcase(TestCase, Config)
   when TestCase == delete_pdp_context_requested_resend ->
     init_per_testcase(Config),
-    ok = meck:expect(gtp_socket, send_request,
+    ok = meck:expect(ergw_gtp_c_socket, send_request,
 		     fun(GtpPort, DstIP, DstPort, _T3, _N3,
 			 #gtp{type = delete_pdp_context_request} = Msg, CbInfo) ->
 			     %% reduce timeout to 1 second and 2 resends
@@ -260,7 +260,7 @@ end_per_testcase(path_restart, Config) ->
     Config;
 end_per_testcase(TestCase, Config)
   when TestCase == delete_pdp_context_requested_resend ->
-    ok = meck:delete(gtp_socket, send_request, 7),
+    ok = meck:delete(ergw_gtp_c_socket, send_request, 7),
     end_per_testcase(Config),
     Config;
 end_per_testcase(request_fast_resend, Config) ->
@@ -740,19 +740,19 @@ unsupported_request(Config) ->
 cache_timeout() ->
     [{doc, "Check GTP socket queue timeout"}, {timetrap, {seconds, 150}}].
 cache_timeout(Config) ->
-    GtpPort = gtp_socket_reg:lookup('irx'),
+    GtpPort = ergw_gtp_socket_reg:lookup('irx'),
     {GtpC, _, _} = create_pdp_context(Config),
     delete_pdp_context(GtpC),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
 
-    {T0, Q0} = gtp_socket:get_response_q(GtpPort),
+    {T0, Q0} = ergw_gtp_c_socket:get_response_q(GtpPort),
     ?match(X when X /= 0, length(T0)),
     ?match(X when X /= 0, length(Q0)),
 
     ct:sleep({seconds, 120}),
 
-    {T1, Q1} = gtp_socket:get_response_q(GtpPort),
+    {T1, Q1} = ergw_gtp_c_socket:get_response_q(GtpPort),
     ?equal(0, length(T1)),
     ?equal(0, length(Q1)),
 

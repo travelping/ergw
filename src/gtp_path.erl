@@ -183,7 +183,7 @@ handle_cast({handle_request, ReqKey, #gtp{type = echo_request} = Msg0},
 
 	    ResponseIEs = Handler:build_recovery(GtpPort, true, []),
 	    Response = Msg#gtp{type = echo_response, ie = ResponseIEs},
-	    gtp_socket:send_response(ReqKey, Response, false),
+	    ergw_gtp_c_socket:send_response(ReqKey, Response, false),
 	    {noreply, State}
     catch
 	Class:Error ->
@@ -376,7 +376,7 @@ send_echo_request(#state{gtp_port = GtpPort, handler = Handler, ip = DstIP,
 			 t3 = T3, n3 = N3} = State) ->
     Msg = Handler:build_echo_request(GtpPort),
     CbInfo = {?MODULE, handle_response, [self()]},
-    gtp_socket:send_request(GtpPort, DstIP, ?GTP1c_PORT, T3, N3, Msg, CbInfo),
+    ergw_gtp_c_socket:send_request(GtpPort, DstIP, ?GTP1c_PORT, T3, N3, Msg, CbInfo),
     State#state{echo_timer = awaiting_response} .
 
 echo_response(Msg, #state{echo = EchoInterval,

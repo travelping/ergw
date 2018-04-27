@@ -211,7 +211,7 @@ validate_sockets_option(Opt, Values)
   when is_atom(Opt), ?is_opts(Values) ->
     case get_opt(type, Values) of
 	'gtp-c' ->
-	    gtp_socket:validate_options(Values);
+	    ergw_gtp_socket:validate_options(Values);
 	_ ->
 	    throw({error, {options, {Opt, Values}}})
     end;
