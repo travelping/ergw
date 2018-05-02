@@ -36,7 +36,11 @@
 	 {ergw, [{'$setup_vars',
 		  [{"ORIGIN", {value, "epc.mnc001.mcc001.3gppnetwork.org"}}]},
 		 {sockets,
-		  [{irx, [{type, 'gtp-c'},
+		  [{cp, [{type, 'gtp-u'},
+			 {ip, ?MUST_BE_UPDATED},
+			 {reuseaddr, true}
+			]},
+		   {irx, [{type, 'gtp-c'},
 			  {ip, ?MUST_BE_UPDATED},
 			  {reuseaddr, true}
 			 ]}
@@ -106,6 +110,7 @@
 		 {sx_socket,
 		  [{node, 'ergw'},
 		   {name, 'ergw'},
+		   {socket, cp},
 		   {ip, ?MUST_BE_UPDATED},
 		   {reuseaddr, true}]},
 
@@ -118,7 +123,8 @@
 	]).
 
 -define(CONFIG_UPDATE,
-	[{[sockets, irx, ip], test_gsn},
+	[{[sockets, cp, ip], localhost},
+	 {[sockets, irx, ip], test_gsn},
 	 {[sx_socket, ip], localhost},
 	 {[node_selection, {default, 2}, 2, "topon.s5s8.pgw.$ORIGIN"],
 	  {fun node_sel_update/2, final_gsn}},
@@ -199,7 +205,8 @@ common() ->
      interop_sgsn_to_sgw_const_tei,
      interop_sgw_to_sgsn,
      create_session_overload,
-     session_accounting].
+     session_accounting,
+     sx_cp_to_up_forward].
 
 groups() ->
     [{ipv4, [], common()},
@@ -1023,6 +1030,30 @@ session_accounting(Config) ->
     delete_session(GtpC),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+sx_cp_to_up_forward() ->
+    [{doc, "Test Sx{a,b,c} CP to UP forwarding"}].
+sx_cp_to_up_forward(Config) ->
+    {GtpC, _, _} = create_session(Config),
+
+    #gtpc{remote_data_tei = DataTEI} = GtpC,
+
+    SxIP = gtp_c_lib:ip2bin(proplists:get_value(pgw_u_sx, Config)),
+    LocalIP = gtp_c_lib:ip2bin(proplists:get_value(localhost, Config)),
+
+    InnerGTP = gtp_packet:encode(
+		 #gtp{version = v1, type = g_pdu, tei = DataTEI, ie = <<0,0,0,0,0,0,0>>}),
+    InnerIP = ergw_sx_node:make_udp(SxIP, LocalIP, ?GTP1u_PORT, ?GTP1u_PORT, InnerGTP),
+    ergw_test_sx_up:send('pgw-u', InnerIP),
+
+    ct:sleep(500),
+    delete_session(GtpC),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    ?match(1, meck:num_calls(?HUT, handle_pdu, ['_', #gtp{type = g_pdu, _ = '_'}, '_'])),
     meck_validate(Config),
     ok.
 

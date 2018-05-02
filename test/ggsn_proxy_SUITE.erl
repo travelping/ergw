@@ -38,7 +38,11 @@
 		  [{"ORIGIN", {value, "epc.mnc001.mcc001.3gppnetwork.org"}}]},
 		 {dp_handler, '$meck'},
 		 {sockets,
-		  [{irx, [{type, 'gtp-c'},
+		  [{cp, [{type, 'gtp-u'},
+			 {ip, ?MUST_BE_UPDATED},
+			 {reuseaddr, true}
+			]},
+		   {irx, [{type, 'gtp-c'},
 			  {ip,  ?MUST_BE_UPDATED},
 			  {reuseaddr, true}
 			 ]},
@@ -110,6 +114,7 @@
 		 {sx_socket,
 		  [{node, 'ergw'},
 		   {name, 'ergw'},
+		   {socket, cp},
 		   {ip, ?MUST_BE_UPDATED},
 		   {reuseaddr, true}]},
 
@@ -139,7 +144,11 @@
 		  [{"ORIGIN", {value, "epc.mnc001.mcc001.3gppnetwork.org"}}]},
 		 {dp_handler, '$meck'},
 		 {sockets,
-		  [{irx, [{type, 'gtp-c'},
+		  [{cp, [{type, 'gtp-u'},
+			 {ip, ?MUST_BE_UPDATED},
+			 {reuseaddr, true}
+			]},
+		   {irx, [{type, 'gtp-c'},
 			  {ip,  ?TEST_GSN_IPv4},
 			  {reuseaddr, true}
 			 ]},
@@ -207,6 +216,7 @@
 		 {sx_socket,
 		  [{node, 'ergw'},
 		   {name, 'ergw'},
+		   {socket, cp},
 		   {ip, ?MUST_BE_UPDATED},
 		   {reuseaddr, true}]},
 
@@ -223,7 +233,8 @@
 	]).
 
 -define(CONFIG_UPDATE_MULTIPLE_PROXY_SOCKETS,
-	[{[sockets, irx, ip], test_gsn},
+	[{[sockets, cp, ip], localhost},
+	 {[sockets, irx, ip], test_gsn},
 	 {[sockets, 'proxy-irx', ip], proxy_gsn},
 	 {[sockets, 'remote-irx', ip], final_gsn},
 	 {[sx_socket, ip], localhost},
@@ -236,7 +247,8 @@
 	]).
 
 -define(CONFIG_UPDATE_SINGLE_PROXY_SOCKET,
-	[{[sockets, irx, ip], test_gsn},
+	[{[sockets, cp, ip], localhost},
+	 {[sockets, irx, ip], test_gsn},
 	 {[sockets, 'remote-irx', ip], final_gsn},
 	 {[sx_socket, ip], localhost},
 	 {[node_selection, {default, 2}, 2, "topon.gtp.ggsn.$ORIGIN"],

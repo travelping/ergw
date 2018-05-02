@@ -40,6 +40,12 @@
 	      {noreply, NewState :: map(), 'hibernate'} |
 	      {stop, Reason :: term(), NewState :: map()}.
 
+-callback handle_pdu(ReqKey :: #request{},
+		     Msg :: #gtp{},
+		     State :: map()) ->
+    Return :: {stop, Reply :: term(), State :: map()} |
+	      {noreply, State :: map()}.
+
 -callback handle_request(ReqKey :: #request{},
 			 Msg :: #gtp{},
 			 Resent :: boolean(),

@@ -36,7 +36,11 @@
 	 {ergw, [{'$setup_vars',
 		  [{"ORIGIN", {value, "epc.mnc001.mcc001.3gppnetwork.org"}}]},
 		 {sockets,
-		  [{irx, [{type, 'gtp-c'},
+		  [{cp, [{type, 'gtp-u'},
+			 {ip, ?MUST_BE_UPDATED},
+			 {reuseaddr, true}
+			]},
+		   {irx, [{type, 'gtp-c'},
 			  {ip,  ?MUST_BE_UPDATED},
 			  {reuseaddr, true}
 			 ]}
@@ -92,6 +96,7 @@
 		 {sx_socket,
 		  [{node, 'ergw'},
 		   {name, 'ergw'},
+		   {socket, cp},
 		   {ip, ?MUST_BE_UPDATED},
 		   {reuseaddr, true}]},
 
@@ -105,7 +110,8 @@
 
 
 -define(CONFIG_UPDATE,
-	[{[sockets, irx, ip], test_gsn},
+	[{[sockets, cp, ip], localhost},
+	 {[sockets, irx, ip], test_gsn},
 	 {[sx_socket, ip], localhost},
 	 {[node_selection, {default, 2}, 2, "topon.gn.ggsn.$ORIGIN"],
 	  {fun node_sel_update/2, final_gsn}},

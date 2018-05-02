@@ -13,7 +13,7 @@
 -compile({parse_transform, do}).
 
 -export([validate_options/1, init/2, request_spec/3,
-	 handle_request/4, handle_response/4,
+	 handle_pdu/3, handle_request/4, handle_response/4,
 	 handle_call/3, handle_cast/2, handle_info/2,
 	 terminate/2]).
 
@@ -217,6 +217,11 @@ handle_info(_Info, State) ->
 %%
 %%   Change Notification Request/Response
 %%   Resume Notification/Acknowledge
+
+handle_pdu(ReqKey, Msg, State) ->
+    lager:debug("GTP-U v2 Proxy: ~p, ~p",
+		[lager:pr(ReqKey, ?MODULE), gtp_c_lib:fmt_gtp(Msg)]),
+    {noreply, State}.
 
 handle_request(ReqKey, #gtp{version = v1} = Msg, Resent, State) ->
     ?GTP_v1_Interface:handle_request(ReqKey, Msg, Resent, State);

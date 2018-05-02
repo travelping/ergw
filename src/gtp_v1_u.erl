@@ -14,7 +14,8 @@
 	 build_response/1,
 	 build_echo_request/1,
 	 type/0, port/0,
-	 get_cause/1]).
+	 get_cause/1,
+	 gtp_msg_types/0]).
 
 -include("include/ergw.hrl").
 
@@ -36,6 +37,12 @@ gtp_msg_type(Type) ->
 
 get_cause(_) ->
     undefined.
+
+gtp_msg_types() ->
+    [echo_request,
+     echo_response,
+     version_not_supported,
+     g_pdu].
 
 %%%===================================================================
 %%% Internal functions

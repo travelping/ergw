@@ -35,11 +35,11 @@
 load_config(Config0) ->
     Config = validate_config(Config0),
     ergw:load_config(Config),
-    {ok, _} = ergw_sx_socket:start_sx_socket(proplists:get_value(sx_socket, Config)),
     lists:foreach(fun load_socket/1, proplists:get_value(sockets, Config)),
     lists:foreach(fun load_handler/1, proplists:get_value(handlers, Config)),
     lists:foreach(fun load_vrf/1, proplists:get_value(vrfs, Config)),
     lists:foreach(fun load_apn/1, proplists:get_value(apns, Config)),
+    {ok, _} = ergw_sx_socket:start_sx_socket(proplists:get_value(sx_socket, Config)),
     application:set_env(ergw, node_selection, proplists:get_value(node_selection, Config)),
     ergw_http_api:init(),
     ok.
@@ -211,6 +211,8 @@ validate_sockets_option(Opt, Values)
   when is_atom(Opt), ?is_opts(Values) ->
     case get_opt(type, Values) of
 	'gtp-c' ->
+	    ergw_gtp_socket:validate_options(Values);
+	'gtp-u' ->
 	    ergw_gtp_socket:validate_options(Values);
 	_ ->
 	    throw({error, {options, {Opt, Values}}})

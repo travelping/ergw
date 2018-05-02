@@ -23,7 +23,11 @@
 	 {ergw, [{'$setup_vars',
 		  [{"ORIGIN", {value, "epc.mnc001.mcc001.3gppnetwork.org"}}]},
 		 {sockets,
-		  [{irx, [{type, 'gtp-c'},
+		  [{cp, [{type, 'gtp-u'},
+			 {ip, ?LOCALHOST_IPv4},
+			 {reuseaddr, true}
+			]},
+		   {irx, [{type, 'gtp-c'},
 			  {ip,  ?TEST_GSN_IPv4},
 			  {reuseaddr, true}
 			 ]},
@@ -59,6 +63,7 @@
 		 {sx_socket,
 		  [{node, 'ergw'},
 		   {name, 'ergw'},
+		   {socket, cp},
 		   {ip, {127,0,0,1}},
 		   {reuseaddr, true}]},
 
