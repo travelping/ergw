@@ -9,12 +9,14 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
 	 terminate/2, code_change/3]).
 
+-include("include/ergw.hrl").
 -include("ergw_test_lib.hrl").
+-include_lib("gtplib/include/gtp_packet.hrl").
 -include_lib("pfcplib/include/pfcp_packet.hrl").
 
 -define(SERVER, ?MODULE).
 
--record(state, {socket, accounting, cp_ip, cp_seid, up_ip, up_seid, seq_no, history}).
+-record(state, {sx, gtp, accounting, cp_ip, cp_seid, up_ip, up_seid, seq_no, history}).
 
 %%%===================================================================
 %%% API
@@ -46,9 +48,11 @@ init([IP]) ->
     process_flag(trap_exit, true),
 
     SockOpts = [binary, {ip, IP}, {active, true}, {reuseaddr, true}],
-    {ok, Socket} = gen_udp:open(8805, SockOpts),
+    {ok, GtpSocket} = gen_udp:open(?GTP1u_PORT, SockOpts),
+    {ok, SxSocket} = gen_udp:open(8805, SockOpts),
     State = #state{
-	       socket = Socket,
+	       sx = SxSocket,
+	       gtp = GtpSocket,
 	       accounting = on,
 	       cp_seid = 0,
 	       up_ip = gtp_c_lib:ip2bin(IP),
@@ -74,11 +78,19 @@ handle_call(history, _From, #state{history = Hist} = State) ->
 handle_call({accounting, Acct}, _From, State) ->
     {reply, ok, State#state{accounting = Acct}};
 
-handle_call({send, Msg}, _From,
-	    #state{socket = Socket, cp_ip = IP, cp_seid = SEID, seq_no = SeqNo} = State) ->
+handle_call({send, #pfcp{} = Msg}, _From,
+	    #state{sx = SxSocket, cp_ip = IP, cp_seid = SEID, seq_no = SeqNo} = State) ->
     BinMsg = pfcp_packet:encode(Msg#pfcp{seid = SEID, seq_no = SeqNo}),
-    ok = gen_udp:send(Socket, IP, 8805, BinMsg),
+    ok = gen_udp:send(SxSocket, IP, 8805, BinMsg),
     {reply, ok, State#state{seq_no = (SeqNo + 1) rem 16#ffffff}};
+
+handle_call({send, Msg}, _From,
+	    #state{gtp = GtpSocket, cp_ip = IP} = State)
+  when is_binary(Msg) ->
+    [[SxTEI, _SxPid]] = ets:match(gtp_context_reg, {{cp,{teid,'gtp-u','$1'}},'$2'}),
+    BinMsg = gtp_packet:encode(#gtp{version = v1, type = g_pdu, tei = SxTEI, ie = Msg}),
+    ok = gen_udp:send(GtpSocket, IP, ?GTP1u_PORT, BinMsg),
+    {reply, ok, State};
 
 handle_call(stop, _From, State) ->
     {stop, normal, ok, State}.
@@ -86,14 +98,15 @@ handle_call(stop, _From, State) ->
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
-handle_info({udp, Socket, IP, InPortNo, Packet}, #state{history = Hist} = State0) ->
+handle_info({udp, SxSocket, IP, InPortNo, Packet},
+	    #state{sx = SxSocket, history = Hist} = State0) ->
     try
 	Msg = pfcp_packet:decode(Packet),
 	{Reply, State} = handle_message(Msg, State0#state{history = [Msg|Hist]}),
 	case Reply of
 	    #pfcp{} ->
 		BinReply = pfcp_packet:encode(Reply#pfcp{seq_no = Msg#pfcp.seq_no}),
-		ok = gen_udp:send(Socket, IP, InPortNo, BinReply);
+		ok = gen_udp:send(SxSocket, IP, InPortNo, BinReply);
 	    _ ->
 		ok
 	end,
@@ -104,8 +117,8 @@ handle_info({udp, Socket, IP, InPortNo, Packet}, #state{history = Hist} = State0
 	    {stop, error, State0}
     end.
 
-terminate(_Reason, #state{socket = Socket}) ->
-    gen_udp:close(Socket),
+terminate(_Reason, #state{sx = SxSocket}) ->
+    catch gen_udp:close(SxSocket),
     ok.
 
 code_change(_OldVsn, State, _Extra) ->

@@ -30,6 +30,7 @@
 	  name,
 	  node,
 	  socket     :: gen_socket:socket(),
+	  gtp_port,
 
 	  seq_no = 1 :: sequence_number(),
 	  pending    :: gb_trees:tree(sequence_number(), term()),
@@ -107,6 +108,7 @@ seid() ->
 -define(SOCKET_OPTS, [netdev, netns, freebind, reuseaddr, rcvbuf]).
 -define(SocketDefaults, [{node, "invalid"},
 			 {name, "invalid"},
+			 {socket, "invalid"},
 			 {ip, invalid}]).
 
 validate_options(Values0) ->
@@ -138,6 +140,9 @@ validate_option(reuseaddr, Value) when is_boolean(Value) ->
 validate_option(rcvbuf, Value)
   when is_integer(Value) andalso Value > 0 ->
     Value;
+validate_option(socket, Value)
+  when is_atom(Value) ->
+    Value;
 validate_option(Opt, Value) ->
     throw({error, {options, {Opt, Value}}}).
 
@@ -145,16 +150,19 @@ validate_option(Opt, Value) ->
 %%% gen_server callbacks
 %%%===================================================================
 
-init(#{name := Name, node := Node, ip := IP} = Opts) ->
+init(#{name := Name, node := Node, ip := IP, socket := GtpSocket} = Opts) ->
     process_flag(trap_exit, true),
 
     SocketOpts = maps:with(?SOCKET_OPTS, Opts),
     {ok, Socket} = make_sx_socket(IP, 8805, SocketOpts),
 
+    GtpPort = #gtp_port{} = ergw_gtp_socket_reg:lookup(GtpSocket),
+
     State = #state{
 	       socket = Socket,
 	       name = Name,
 	       node = Node,
+	       gtp_port = GtpPort,
 
 	       seq_no = 1,
 	       pending = gb_trees:empty(),
@@ -163,9 +171,9 @@ init(#{name := Name, node := Node, ip := IP} = Opts) ->
 	      },
     {ok, State}.
 
-handle_call(id, _From, #state{socket = Socket, node = Node} = State) ->
+handle_call(id, _From, #state{socket = Socket, node = Node, gtp_port = GtpPort} = State) ->
     {_, IP, _} = gen_socket:getsockname(Socket),
-    Reply = {ok, #node{node = Node, ip = IP}},
+    Reply = {ok, #node{node = Node, ip = IP}, GtpPort},
     {reply, Reply, State};
 
 handle_call({call, SendReq0}, From, State0) ->

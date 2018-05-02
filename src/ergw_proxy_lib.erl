@@ -302,7 +302,7 @@ create_forward_session(Candidates, Left0, Right0) ->
     Left = assign_data_teid(Left1, get_context_nwi(Left1, NWIs)),
     Right = assign_data_teid(Right1, get_context_nwi(Right1, NWIs)),
     SEID = ergw_sx_socket:seid(),
-    {ok, #node{node = _Node, ip = IP}} = ergw_sx_socket:id(),
+    {ok, #node{node = _Node, ip = IP}, _} = ergw_sx_socket:id(),
 
     IEs =
 	[f_seid(SEID, IP)] ++

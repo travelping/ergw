@@ -27,7 +27,7 @@ create_sgi_session(Candidates, Ctx0) ->
     {ok, NWIs} = ergw_sx_node:get_network_instances(Ctx1),
     Ctx = assign_data_teid(Ctx1, get_context_nwi(Ctx1, NWIs)),
     SEID = ergw_sx_socket:seid(),
-    {ok, #node{node = _Node, ip = IP}} = ergw_sx_socket:id(),
+    {ok, #node{node = _Node, ip = IP}, _} = ergw_sx_socket:id(),
 
     IEs =
 	[f_seid(SEID, IP)] ++

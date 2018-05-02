@@ -266,11 +266,15 @@ context2keys(#context{
 		context_id         = ContextId,
 		control_port       = #gtp_port{name = CntlPortName},
 		local_control_tei  = LocalCntlTEI,
+		data_port          = DataPort,
+		local_data_tei     = LocalDataTEI,
 		remote_control_ip  = RemoteCntlIP,
 		remote_control_tei = RemoteCntlTEI,
 		cp_seid            = SEID}) ->
     ordsets:from_list(
       [{CntlPortName, {teid, 'gtp-c', LocalCntlTEI}},
        {CntlPortName, {teid, 'gtp-c', RemoteCntlIP, RemoteCntlTEI}}]
+      ++ [{DataPort#gtp_port.name, {teid, 'gtp-u', DataPort#gtp_port.ip, LocalDataTEI}} ||
+	     is_record(DataPort, gtp_port), is_integer(LocalDataTEI)]
       ++ [{seid, SEID} || SEID /= undefined]
       ++ [{CntlPortName, ContextId} || ContextId /= undefined]).

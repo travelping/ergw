@@ -25,12 +25,7 @@ start_link() ->
     supervisor:start_link({local, ?SERVER}, ?MODULE, []).
 
 new(Node, IP4, IP6)->
-    case supervisor:start_child(?SERVER, [Node, IP4, IP6]) of
-	{ok, _Pid, GtpPort} ->
-	    {ok, GtpPort};
-	Other ->
-	    Other
-    end.
+    supervisor:start_child(?SERVER, [Node, IP4, IP6]).
 
 %% ===================================================================
 %% Supervisor callbacks

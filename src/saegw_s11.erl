@@ -13,7 +13,7 @@
 	  {parse_transform, cut}]).
 
 -export([validate_options/1, init/2, request_spec/3,
-	 handle_request/4, handle_response/4,
+	 handle_pdu/3, handle_request/4, handle_response/4,
 	 handle_call/3, handle_cast/2, handle_info/2,
 	 terminate/2]).
 
@@ -131,6 +131,10 @@ handle_info({ReqKey, #pfcp{version = v1, type = session_report_request, seq_no =
     {stop, normal, State};
 
 handle_info(_Info, State) ->
+    {noreply, State}.
+
+handle_pdu(ReqKey, Msg, State) ->
+    lager:debug("GTP-U SAE-GW: ~p, ~p", [lager:pr(ReqKey, ?MODULE), gtp_c_lib:fmt_gtp(Msg)]),
     {noreply, State}.
 
 handle_request(ReqKey, #gtp{version = v1} = Msg, Resent, State) ->

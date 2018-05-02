@@ -10,7 +10,8 @@
 -compile({parse_transform, cut}).
 -compile({parse_transform, do}).
 
--export([handle_message/2, session_report/2, handle_response/4,
+-export([handle_message/2, try_handle_message/2, context_handle_message/3,
+	 session_report/2, handle_response/4,
 	 start_link/5,
 	 send_request/7, send_response/2,
 	 send_request/6, resend_request/2,
@@ -286,6 +287,11 @@ handle_cast({handle_message, Request, #gtp{} = Msg0, Resent}, State) ->
 		[Request#request.port, gtp_c_lib:fmt_gtp(Msg)]),
     handle_request(Request, Msg, Resent, State);
 
+handle_cast({handle_pdu, Request, Msg}, #{interface := Interface} = State) ->
+    lager:debug("handle GTP-U PDU: ~w, ~p",
+		[Request#request.port, gtp_c_lib:fmt_gtp(Msg)]),
+    Interface:handle_pdu(Request, Msg, State);
+
 handle_cast({handle_response, ReqInfo, Request, Response0},
 	    #{interface := Interface} = State0) ->
     try
@@ -442,6 +448,9 @@ context_new(GtpPort, Version, Interface, InterfaceOpts) ->
 	    throw({error, Error})
     end.
 
+context_handle_message(Context, Request, #gtp{type = g_pdu} = Msg)
+  when is_pid(Context) ->
+    gen_server:cast(Context, {handle_pdu, Request, Msg});
 context_handle_message(Context, Request, Msg)
   when is_pid(Context) ->
     register_request(Context, Request),

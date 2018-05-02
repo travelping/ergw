@@ -15,6 +15,9 @@
 -export([select_sx_node/2, select_sx_node/3]).
 -export([start_link/3, send/4, call/2, get_network_instances/1,
 	 handle_request/2, response/3]).
+-ifdef(TEST).
+-export([ip_csum/1, make_udp/5]).
+-endif.
 
 %% gen_server callbacks
 -export([init/1, callback_mode/0, handle_event/4,
@@ -25,7 +28,13 @@
 -include_lib("pfcplib/include/pfcp_packet.hrl").
 -include("include/ergw.hrl").
 
--record(data, {timeout, cp, dp, network_instances, call_q}).
+-record(data, {timeout           :: non_neg_integer(),
+	       gtp_port,
+	       cp_tei            :: undefined | non_neg_integer(),
+	       cp,
+	       dp,
+	       network_instances,
+	       call_q}).
 
 %%====================================================================
 %% API
@@ -97,8 +106,10 @@ init([Node, IP4, IP6]) ->
     IP = if length(IP4) /= 0 -> hd(IP4);
 	    length(IP6) /= 0 -> hd(IP6)
 	 end,
-    {ok, CP} = ergw_sx_socket:id(),
+    {ok, CP, GtpPort} = ergw_sx_socket:id(),
+
     Data = #data{timeout = 10,
+		 gtp_port = GtpPort,
 		 cp = CP,
 		 dp = #node{node = Node, ip = IP},
 		 network_instances = #{},
@@ -174,7 +185,19 @@ handle_event({call, From}, Request, _, #data{call_q = QIn} = Data)
     Ref = make_ref(),
     Item = {Ref, From, Request},
     QOut = queue:in(Item, QIn),
-    {keep_state, Data#data{call_q = QOut}, [{{timeout, {call, Ref}}, 1000, Item}]}.
+    {keep_state, Data#data{call_q = QOut}, [{{timeout, {call, Ref}}, 1000, Item}]};
+
+handle_event(cast, {handle_pdu, _Request, #gtp{type=g_pdu, ie = PDU}}, _, Data) ->
+    try
+	R = handle_ip_pdu(PDU, Data),
+	ct:pal("handle_ip_pdu: ~p", [R])
+    catch
+	throw:{error, Error} ->
+	    lager:error("handler for GTP-U failed with: ~p", [Error]);
+	Class:Error ->
+	    lager:error("handler for GTP-U failed with: ~p:~p", [Class, Error])
+    end,
+    keep_state_and_data.
 
 %% handle_event({call, From}, #pfcp{} = Request, _, Data) ->
 %%     Reply = {error, not_connected},
@@ -225,14 +248,64 @@ code_change(_OldVsn, Data, _Extra) ->
 %%     {noreply, Data}.
 
 %%%===================================================================
-%%% Internal functions
+%%% GTP-U CP to DP forward functions
 %%%===================================================================
 
+%%%===================================================================
+%%% Internal functions
+%%%===================================================================
 %% sntp_time_to_seconds(Time) ->
 %%      case Time band 16#80000000 of
 %% 	 0 -> Time + 2085978496; % use base: 7-Feb-2036 @ 06:28:16 UTC
 %% 	 _ -> Time - 2208988800  % use base: 1-Jan-1900 @ 01:00:00 UTC
 %%      end.
+
+make_request(IP, Port, Msg, #data{gtp_port = GtpPort}) ->
+    ergw_gtp_socket:make_request(0, IP, Port, Msg, GtpPort).
+
+%% IPv4, non fragmented, UDP packet
+handle_ip_pdu(<<Version:4, IHL:4, _TOS:8, TotLen:16, _Id:16, _:2, 0:1, 0:13,
+		_TTL:8, Proto:8, _HdrCSum:16,
+		SrcIP:4/bytes, DstIP:4/bytes, _/binary>> = PDU, Data)
+  when Version == 4, Proto == 17 ->
+    HeaderLen = IHL * 4,
+    UDPLen = TotLen - HeaderLen,
+    <<_:HeaderLen/bytes, UDP:UDPLen/bytes, _/binary>> = PDU,
+    lager:debug("IPv4 UDP: ~p", [UDP]),
+    handle_udp_gtp(SrcIP, DstIP, UDP, Data);
+%% IPv6, non fragmented, UDP packet
+handle_ip_pdu(<<Version:4, _TC:8, _Label:20, PayloadLen:16, NextHeader:8, _TTL:8,
+		SrcIP:16/bytes, DstIP:16/bytes, UDP:PayloadLen/bytes, _/binary>>, Data)
+  when Version == 6, NextHeader == 17  ->
+    lager:debug("IPv6 UDP: ~p", [UDP]),
+    handle_udp_gtp(SrcIP, DstIP, UDP, Data);
+handle_ip_pdu(PDU, _Data) ->
+    lager:debug("unexpected GTP-U payload: ~p", [PDU]),
+    ok.
+
+handle_udp_gtp(SrcIP, DstIP, <<SrcPort:16, DstPort:16, _:16, _:16, PayLoad/binary>>,
+	       #data{dp = #node{node = Node}} = Data)
+  when DstPort =:= ?GTP1u_PORT ->
+    Msg = gtp_packet:decode(PayLoad),
+    lager:debug("GTP-U ~s:~w -> ~s:~w: ~p",
+		[inet:ntoa(gtp_c_lib:bin2ip(SrcIP)), SrcPort,
+		 inet:ntoa(gtp_c_lib:bin2ip(DstIP)), DstPort,
+		 lager:pr(Msg, ?MODULE)]),
+
+    ReqKey = make_request(SrcIP, SrcPort, Msg, Data),
+    GtpPort = #gtp_port{name = Node, type = 'gtp-u'},
+    case gtp_context_reg:lookup_teid(GtpPort, 'gtp-u', gtp_c_lib:bin2ip(DstIP), Msg#gtp.tei) of
+	Context when is_pid(Context) ->
+	    gtp_context:context_handle_message(Context, ReqKey, Msg);
+	Other ->
+	    lager:warning("GTP-U tunnel lookup failed with ~p", [Other])
+    end,
+    ok;
+handle_udp_gtp(SrcIP, DstIP, <<SrcPort:16, DstPort:16, _:16, _:16, PayLoad/binary>>, _Data) ->
+    lager:debug("unexpected UDP ~s:~w -> ~s:~w: ~p",
+		[inet:ntoa(gtp_c_lib:bin2ip(SrcIP)), SrcPort,
+		 inet:ntoa(gtp_c_lib:bin2ip(DstIP)), DstPort, PayLoad]),
+    ok.
 
 connect_sx_node([]) ->
     {error, not_found};
@@ -276,7 +349,7 @@ send_heartbeat(#data{dp = #node{ip = IP}}) ->
     ergw_sx_socket:call(IP, 500, 5, Req, response_cb(heartbeat)).
 
 handle_nodeup(#{user_plane_ip_resource_information := UPIPResInfo} = _IEs,
-	      #data{dp = #node{node = Node, ip = IP}} = Data) ->
+	      #data{gtp_port = GtpPort, dp = #node{node = Node, ip = IP}} = Data) ->
     lager:warning("Node ~s (~s) is up", [Node, inet:ntoa(IP)]),
     lager:warning("Node IEs: ~p", [lager:pr(_IEs, ?MODULE)]),
 
@@ -284,8 +357,12 @@ handle_nodeup(#{user_plane_ip_resource_information := UPIPResInfo} = _IEs,
     %% GtpPort = #gtp_port{name = Node, type = 'gtp-u', pid = self(), restart_counter = RCnt},
     ergw_sx_node_reg:register(Node, self()),
 
+    {ok, TEI} = gtp_context_reg:alloc_tei(GtpPort),
+    gtp_context_reg:register(GtpPort, {teid, 'gtp-u', TEI}, self()),
+
     Data#data{
       timeout = 100,
+      cp_tei = TEI,
       network_instances =
 	  init_network_instance(Data#data.network_instances, UPIPResInfo)
      }.
@@ -307,8 +384,9 @@ init_network_instance(NetworkInstances,
     NwInstName = label2name(NetworkInstance),
     NetworkInstances#{NwInstName => UPIPResInfo}.
 
-handle_nodedown(#data{dp = #node{node = Node}} = Data) ->
+handle_nodedown(#data{gtp_port = GtpPort, cp_tei = TEI, dp = #node{node = Node}} = Data) ->
     ergw_sx_node_reg:unregister(Node),
+    gtp_context_reg:unregister(GtpPort, {teid, 'gtp-u', TEI}),
     Data#data{network_instances = #{}}.
 
 session_not_found(ReqKey, Type, SeqNo) ->
@@ -317,6 +395,63 @@ session_not_found(ReqKey, Type, SeqNo) ->
 	      ie = #{pfcp_cause => #pfcp_cause{cause = 'Session context not found'}}},
     ergw_sx_socket:send_response(ReqKey, Response, true),
     ok.
+
+%%%===================================================================
+%%% Raw IP helper
+%%%===================================================================
+
+-ifdef(TEST).
+
+ip_csum(<<>>, CSum) ->
+    CSum;
+ip_csum(<<Head:8/integer>>, CSum) ->
+    CSum + Head * 256;
+ip_csum(<<Head:16/integer, Tail/binary>>, CSum) ->
+    ip_csum(Tail, CSum + Head).
+
+ip_csum(Bin) ->
+    CSum0 = ip_csum(Bin, 0),
+    CSum1 = ((CSum0 band 16#ffff) + (CSum0 bsr 16)),
+    ((CSum1 band 16#ffff) + (CSum1 bsr 16)) bxor 16#ffff.
+
+make_udp(NwSrc, NwDst, TpSrc, TpDst, PayLoad)
+  when size(NwSrc) =:= 4, size(NwDst) =:= 4 ->
+    Id = 0,
+    Proto = gen_socket:protocol(udp),
+
+    UDPLength = 8 + size(PayLoad),
+    UDPCSum = ip_csum(<<NwSrc:4/bytes-unit:8, NwDst:4/bytes-unit:8,
+			0:8, Proto:8, UDPLength:16,
+			TpSrc:16, TpDst:16, UDPLength:16, 0:16,
+			PayLoad/binary>>),
+    UDP = <<TpSrc:16, TpDst:16, UDPLength:16, UDPCSum:16, PayLoad/binary>>,
+
+    TotLen = 20 + size(UDP),
+    HdrCSum = ip_csum(<<4:4, 5:4, 0:8, TotLen:16,
+			Id:16, 0:16, 64:8, Proto:8,
+			0:16/integer, NwSrc:4/bytes-unit:8, NwDst:4/bytes-unit:8>>),
+    IP = <<4:4, 5:4, 0:8, TotLen:16,
+	   Id:16, 0:16, 64:8, Proto:8,
+	   HdrCSum:16/integer, NwSrc:4/bytes-unit:8, NwDst:4/bytes-unit:8>>,
+    list_to_binary([IP, UDP]);
+
+make_udp(NwSrc, NwDst, TpSrc, TpDst, PayLoad)
+  when size(NwSrc) =:= 16, size(NwDst) =:= 16 ->
+    FlowLabel = rand:uniform(16#ffffff),
+    Proto = gen_socket:protocol(udp),
+
+    UDPLength = 8 + size(PayLoad),
+    UDPCSum = ip_csum(<<NwSrc:16/bytes-unit:8, NwDst:16/bytes-unit:8,
+			UDPLength:32,
+			0:24, Proto:8,
+			TpSrc:16, TpDst:16, UDPLength:16, 0:16,
+			PayLoad/binary>>),
+    <<6:4, 0:8, FlowLabel:20,
+      UDPLength:16, Proto:8, 64:8,
+      NwSrc:16/bytes-unit:8, NwDst:16/bytes-unit:8,
+      TpSrc:16, TpDst:16, UDPLength:16, UDPCSum:16, PayLoad/binary>>.
+
+-endif.
 
 %%%===================================================================
 %%% F-TEID Ch handling...

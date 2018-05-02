@@ -30,9 +30,9 @@ start_socket(Name, Opts)
     ergw_gtp_socket_sup:new({Name, Opts}).
 
 start_link('gtp-c', Opts) ->
-    ergw_gtp_c_socket:start_link(Opts).
-%% start_link('gtp-u', Opts) ->
-%%     ergw_gtp_u_socket:start_link(Opts).
+    ergw_gtp_c_socket:start_link(Opts);
+start_link('gtp-u', Opts) ->
+    ergw_gtp_u_socket:start_link(Opts).
 
 start_link(Socket = {_Name, #{type := Type}}) ->
     start_link(Type, Socket);
