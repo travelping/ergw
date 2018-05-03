@@ -43,8 +43,7 @@
 select_sx_node(Candidates, Context) ->
     case connect_sx_node(Candidates) of
 	{ok, Pid} ->
-	    {ok, Port} = gen_statem:call(Pid, get_port),
-	    Context#context{dp_node = Pid, data_port = Port};
+	    gen_statem:call(Pid, {attach, Context});
 	_ ->
 	    throw(?CTX_ERR(?FATAL, system_failure, Context))
     end.
@@ -106,10 +105,15 @@ init([Node, IP4, IP6]) ->
     IP = if length(IP4) /= 0 -> hd(IP4);
 	    length(IP6) /= 0 -> hd(IP6)
 	 end,
+
     {ok, CP, GtpPort} = ergw_sx_socket:id(),
+    {ok, TEI} = gtp_context_reg:alloc_tei(GtpPort),
+    gtp_context_reg:register(GtpPort, {teid, 'gtp-u', TEI}, self()),
+    NWI = string:split(atom_to_binary(GtpPort#gtp_port.name, utf8), ".", all),
 
     Data = #data{timeout = 10,
-		 gtp_port = GtpPort,
+		 gtp_port = GtpPort#gtp_port{network_instance = NWI},
+		 cp_tei = TEI,
 		 cp = CP,
 		 dp = #node{node = Node, ip = IP},
 		 network_instances = #{},
@@ -157,9 +161,12 @@ handle_event(cast, {heartbeat, timeout}, connected, Data0) ->
 handle_event(cast, {_, #pfcp{version = v1, type = heartbeat_response}}, connected, Data) ->
     {next_state, connected, Data, [next_heartbeat(Data)]};
 
-handle_event({call, From}, get_port, _, #data{dp = #node{node = Node}}) ->
-    Port = #gtp_port{name = Node, type = 'gtp-u', pid = self()},
-    {keep_state_and_data, [{reply, From, {ok, Port}}]};
+handle_event({call, From}, {attach, Context0}, _,
+	     #data{gtp_port = CpPort, cp_tei = CpTEI, dp = #node{node = Node}}) ->
+    DataPort = #gtp_port{name = Node, type = 'gtp-u', pid = self()},
+    Context = Context0#context{dp_node = self(), data_port = DataPort,
+			       cp_port = CpPort, cp_tei = CpTEI},
+    {keep_state_and_data, [{reply, From, Context}]};
 
 handle_event({call, From}, get_network_instances, connected,
 	     #data{network_instances = NWIs}) ->
@@ -357,12 +364,8 @@ handle_nodeup(#{user_plane_ip_resource_information := UPIPResInfo} = _IEs,
     %% GtpPort = #gtp_port{name = Node, type = 'gtp-u', pid = self(), restart_counter = RCnt},
     ergw_sx_node_reg:register(Node, self()),
 
-    {ok, TEI} = gtp_context_reg:alloc_tei(GtpPort),
-    gtp_context_reg:register(GtpPort, {teid, 'gtp-u', TEI}, self()),
-
     Data#data{
       timeout = 100,
-      cp_tei = TEI,
       network_instances =
 	  init_network_instance(Data#data.network_instances, UPIPResInfo)
      }.
@@ -384,9 +387,8 @@ init_network_instance(NetworkInstances,
     NwInstName = label2name(NetworkInstance),
     NetworkInstances#{NwInstName => UPIPResInfo}.
 
-handle_nodedown(#data{gtp_port = GtpPort, cp_tei = TEI, dp = #node{node = Node}} = Data) ->
+handle_nodedown(#data{dp = #node{node = Node}} = Data) ->
     ergw_sx_node_reg:unregister(Node),
-    gtp_context_reg:unregister(GtpPort, {teid, 'gtp-u', TEI}),
     Data#data{network_instances = #{}}.
 
 session_not_found(ReqKey, Type, SeqNo) ->
