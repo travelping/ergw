@@ -25,14 +25,16 @@
 create_sgi_session(Candidates, Ctx0) ->
     Ctx1 = ergw_sx_node:select_sx_node(Candidates, Ctx0),
     {ok, NWIs} = ergw_sx_node:get_network_instances(Ctx1),
-    Ctx = assign_data_teid(Ctx1, get_context_nwi(Ctx1, NWIs)),
+    Ctx = assign_data_teid(Ctx1, get_context_nwi(control, Ctx1, NWIs)),
     SEID = ergw_sx_socket:seid(),
     {ok, #node{node = _Node, ip = IP}, _} = ergw_sx_socket:id(),
 
     IEs =
-	[f_seid(SEID, IP)] ++
+	[f_seid(SEID, IP),
+	 create_dp_to_cp_far(access, 1000, Ctx)] ++
 	lists:foldl(fun create_pdr/2, [], [{1, gtp, Ctx}, {2, sgi, Ctx}]) ++
 	lists:foldl(fun create_far/2, [], [{2, gtp, Ctx}, {1, sgi, Ctx}]) ++
+	[create_ipv6_mcast_pdr(1000, 1000, Ctx) || Ctx#context.ms_v6 /= undefined] ++
 	[#create_urr{group =
 			 [#urr_id{id = 1}, #measurement_method{volum = 1}]}],
     Req = #pfcp{version = v1, type = session_establishment_request, seid = 0, ie = IEs},
@@ -110,6 +112,43 @@ outer_header_removal({_,_,_,_}) ->
     #outer_header_removal{header = 'GTP-U/UDP/IPv4'};
 outer_header_removal({_,_,_,_,_,_,_,_}) ->
     #outer_header_removal{header = 'GTP-U/UDP/IPv6'}.
+
+create_ipv6_mcast_pdr(PdrId, FarId,
+		      #context{
+			 data_port = #gtp_port{ip = IP} = DataPort,
+			 local_data_tei = LocalTEI}) ->
+    #create_pdr{
+       group =
+	   [#pdr_id{id = PdrId},
+	    #precedence{precedence = 100},
+	    #pdi{
+	       group =
+		   [#source_interface{interface = 'Access'},
+		    network_instance(DataPort),
+		    f_teid(LocalTEI, IP),
+		    #sdf_filter{
+		       flow_description =
+			   <<"permit out 58 from any to ff00::/8">>}
+		   ]},
+	    #far_id{id = FarId},
+	    #urr_id{id = 1}]
+      }.
+
+create_dp_to_cp_far(access, FarId,
+		    #context{cp_port = #gtp_port{ip = CpIP} = CpPort, cp_tei = CpTEI}) ->
+    #create_far{
+       group =
+	   [#far_id{id = FarId},
+	    #apply_action{forw = 1},
+	    #forwarding_parameters{
+	       group =
+		   [#destination_interface{interface = 'CP-function'},
+		    network_instance(CpPort),
+		    gtp_u_peer(CpTEI, CpIP)
+		   ]
+	      }
+	   ]
+      }.
 
 create_pdr({RuleId, gtp,
 	    #context{
@@ -299,7 +338,11 @@ update_far({RuleId, sgi,
 update_far({_RuleId, _Type, _Out, _OldOut}, FARs) ->
     FARs.
 
-get_context_nwi(#context{control_port = #gtp_port{name = Name}}, NWIs) ->
+get_context_nwi(control, #context{control_port = #gtp_port{name = Name}}, NWIs) ->
+    maps:get(Name, NWIs);
+get_context_nwi(data, #context{data_port = #gtp_port{name = Name}}, NWIs) ->
+    maps:get(Name, NWIs);
+get_context_nwi(cp, #context{cp_port = #gtp_port{name = Name}}, NWIs) ->
     maps:get(Name, NWIs).
 
 %% use additional information from the Context to prefre V4 or V6....

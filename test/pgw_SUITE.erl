@@ -532,6 +532,25 @@ ipv6_bearer_request(Config) ->
     {GtpC, _, _} = create_session(ipv6, Config),
     delete_session(GtpC),
 
+    %% check that the wildcard PDR and FAR are present
+    [SER0|_] = lists:filter(
+		fun(#pfcp{type = session_establishment_request}) -> true;
+		   (_) -> false
+		end, ergw_test_sx_up:history('pgw-u')),
+    SER = pfcp_packet:to_map(SER0),
+    #{create_far := FAR0,
+      create_pdr := PDR0} = SER#pfcp.ie,
+    FAR = lists:filter(
+	    fun(#create_far{group = #{far_id := #far_id{id = 1000}}}) -> true;
+	       (_) -> false
+	    end, FAR0),
+    PDR = lists:filter(
+	    fun(#create_pdr{group = #{pdr_id := #pdr_id{id = 1000}}}) -> true;
+	       (_) -> false
+	    end, PDR0),
+    ?match([_], PDR),
+    ?match([_], FAR),
+
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
     ok.
