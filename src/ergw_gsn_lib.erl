@@ -239,7 +239,7 @@ update_pdr({RuleId, gtp,
        OldLocalTEI /= LocalTEI ->
     PDI = #pdi{
 	     group =
-		 [#source_interface{interface = 'Core'},
+		 [#source_interface{interface = 'Access'},
 		  network_instance(DataPort),
 		  f_teid(LocalTEI, IP)]
 	    },
@@ -306,7 +306,7 @@ update_far({RuleId, gtp,
 		  #apply_action{forw = 1},
 		  #update_forwarding_parameters{
 		     group =
-			 [#destination_interface{interface = 'Core'},
+			 [#destination_interface{interface = 'Access'},
 			  network_instance(DataPort),
 			  gtp_u_peer(RemoteTEI, PeerIP)
 			  | [#sxsmreq_flags{sndem = 1} ||
