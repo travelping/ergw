@@ -820,6 +820,11 @@ s11_sender_f_teid(#context{control_port = #gtp_port{ip = IP}, local_control_tei 
 s1_sgw_gtp_u_tei(#context{data_port = #gtp_port{ip = IP}, local_data_tei = TEI}) ->
     fq_teid(0, ?'S1-U SGW', TEI, IP).
 
+s5s8_pgw_gtp_c_tei(#context{control_port = #gtp_port{ip = IP}, local_control_tei = TEI}) ->
+    %% PGW S5/S8/ S2a/S2b F-TEID for PMIP based interface
+    %% or for GTP based Control Plane interface
+    fq_teid(1, ?'S5/S8-C PGW', TEI, IP).
+
 s5s8_pgw_gtp_u_tei(#context{data_port = #gtp_port{ip = IP}, local_data_tei = TEI}) ->
     %% S5/S8 F-TEI Instance
     fq_teid(2, ?'S5/S8-U PGW', TEI, IP).
@@ -833,5 +838,6 @@ create_session_response(SessionOpts, RequestIEs, EBI,
     [#v2_cause{v2_cause = request_accepted},
      %% Sender F-TEID for Control Plane
      s11_sender_f_teid(Context),
+     s5s8_pgw_gtp_c_tei(Context),
      #v2_apn_restriction{restriction_type_value = 0},
      encode_paa(MSv4, MSv6) | IE1].
