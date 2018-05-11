@@ -130,12 +130,12 @@ handle_event(cast, {association_setup_request, timeout}, disconnected, _Data) ->
     {keep_state_and_data, [{state_timeout, 5000, setup}]};
 
 handle_event(cast, {_, #pfcp{version = v1, type = association_setup_response, ie = IEs}},
-	     disconnected, #data{call_q = Q} = Data0) ->
+	     disconnected, Data0) ->
     case IEs of
 	#{pfcp_cause := #pfcp_cause{cause = 'Request accepted'}} ->
 	    Data = handle_nodeup(IEs, Data0),
-	    Actions = [{next_event, {call, From}, Request} ||
-			  {_, From, Request} <- queue:to_list(Q)],
+	    Actions = [{next_event, Evt, Request} ||
+			  {Evt, Request} <- queue:to_list(Data#data.call_q)],
 	    {next_state, connected, Data#data{call_q = queue:new()},
 	     [next_heartbeat(Data) | Actions]};
 	Other ->
@@ -169,12 +169,13 @@ handle_event({call, From}, get_network_instances, connected,
 	     #data{network_instances = NWIs}) ->
     {keep_state_and_data, [{reply, From, {ok, NWIs}}]};
 
-handle_event({call, From}, #pfcp{} = Request, connected, #data{dp = #node{ip = IP}}) ->
+handle_event({call, _} = Evt, #pfcp{} = Request, connected, #data{dp = #node{ip = IP}}) ->
     lager:debug("DP Call ~p", [lager:pr(Request, ?MODULE)]),
     Reply = ergw_sx_socket:call(IP, Request),
-    {keep_state_and_data, [{reply, From, Reply}]};
+    Actions = pfcp_reply_actions(Evt, Reply),
+    {keep_state_and_data, Actions};
 
-handle_event({timeout, {call, _}}, {_, From, _} = Item, _, #data{call_q = QIn} = Data) ->
+handle_event({timeout, {call, From}}, Item, _, #data{call_q = QIn} = Data) ->
     case queue:member(Item, QIn) of
 	true ->
 	    QOut = queue:filter(fun(X) -> X /= Item end, QIn),
@@ -183,13 +184,12 @@ handle_event({timeout, {call, _}}, {_, From, _} = Item, _, #data{call_q = QIn} =
 	    keep_state_and_data
     end;
 
-handle_event({call, From}, Request, _, #data{call_q = QIn} = Data)
+handle_event({call, _} = Evt, Request, _, #data{call_q = QIn} = Data)
   when is_record(Request, pfcp);
        Request == get_network_instances ->
-    Ref = make_ref(),
-    Item = {Ref, From, Request},
+    Item = {Evt, Request},
     QOut = queue:in(Item, QIn),
-    {keep_state, Data#data{call_q = QOut}, [{{timeout, {call, Ref}}, 1000, Item}]};
+    {keep_state, Data#data{call_q = QOut}, [{{timeout, Evt}, 1000, Item}]};
 
 handle_event(cast, {handle_pdu, _Request, #gtp{type=g_pdu, ie = PDU}}, _, Data) ->
     try
@@ -263,6 +263,9 @@ code_change(_OldVsn, Data, _Extra) ->
 %% 	 0 -> Time + 2085978496; % use base: 7-Feb-2036 @ 06:28:16 UTC
 %% 	 _ -> Time - 2208988800  % use base: 1-Jan-1900 @ 01:00:00 UTC
 %%      end.
+
+pfcp_reply_actions({call, From}, Reply) ->
+    [{reply, From, Reply}].
 
 make_request(IP, Port, Msg, #data{gtp_port = GtpPort}) ->
     ergw_gtp_socket:make_request(0, IP, Port, Msg, GtpPort).
