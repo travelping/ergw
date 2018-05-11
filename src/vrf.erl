@@ -229,8 +229,8 @@ release_ip(IP, PrefixLen, Pools) ->
     end.
 
 ipv6_interface_id({Prefix, PrefixLen}, IntId) when PrefixLen =< 126 ->
-    <<Addr:PrefixLen/bits, _/bits>> = gtp_c_lib:ip2bin(Prefix),
-    <<_:PrefixLen/bits, IntIdBin/bits>> = gtp_c_lib:ip2bin(IntId),
-    {gtp_c_lib:bin2ip(<<Addr/bits, IntIdBin/bits>>), PrefixLen};
+    <<Addr:PrefixLen/bits, _/bits>> = ergw_inet:ip2bin(Prefix),
+    <<_:PrefixLen/bits, IntIdBin/bits>> = ergw_inet:ip2bin(IntId),
+    {ergw_inet:bin2ip(<<Addr/bits, IntIdBin/bits>>), PrefixLen};
 ipv6_interface_id(Other, _) ->
     Other.

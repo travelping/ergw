@@ -203,8 +203,8 @@ handle_info({ReqKey,
 	      ie = [#pfcp_cause{cause = 'Request accepted'}]},
     ergw_gsn_lib:send_sx_response(ReqKey, Ctx, SxResponse),
 
-    FTEID = FTEID0#f_teid{ipv4 = gtp_c_lib:bin2ip(FTEID0#f_teid.ipv4),
-			  ipv6 = gtp_c_lib:bin2ip(FTEID0#f_teid.ipv6)},
+    FTEID = FTEID0#f_teid{ipv4 = ergw_inet:bin2ip(FTEID0#f_teid.ipv4),
+			  ipv6 = ergw_inet:bin2ip(FTEID0#f_teid.ipv6)},
     Direction = fteid_forward_context(FTEID, State),
     initiate_pdp_context_teardown(Direction, State),
     delete_forward_session(State),
@@ -566,9 +566,9 @@ init_proxy_context(CntlPort,
       }.
 
 get_context_from_req(_K, #gsn_address{instance = 0, address = CntlIP}, Context) ->
-    Context#context{remote_control_ip = gtp_c_lib:bin2ip(CntlIP)};
+    Context#context{remote_control_ip = ergw_inet:bin2ip(CntlIP)};
 get_context_from_req(_K, #gsn_address{instance = 1, address = DataIP}, Context) ->
-    Context#context{remote_data_ip = gtp_c_lib:bin2ip(DataIP)};
+    Context#context{remote_data_ip = ergw_inet:bin2ip(DataIP)};
 get_context_from_req(_K, #tunnel_endpoint_identifier_data_i{instance = 0, tei = DataTEI}, Context) ->
     Context#context{remote_data_tei = DataTEI};
 get_context_from_req(_K, #tunnel_endpoint_identifier_control_plane{instance = 0, tei = CntlTEI}, Context) ->
@@ -605,10 +605,10 @@ set_req_from_context(#context{msisdn = MSISDN},
     IE#ms_international_pstn_isdn_number{msisdn = {isdn_address, 1, 1, 1, MSISDN}};
 set_req_from_context(#context{control_port = #gtp_port{ip = CntlIP}},
 		     _K, #gsn_address{instance = 0} = IE) ->
-    IE#gsn_address{address = gtp_c_lib:ip2bin(CntlIP)};
+    IE#gsn_address{address = ergw_inet:ip2bin(CntlIP)};
 set_req_from_context(#context{data_port = #gtp_port{ip = DataIP}},
 		     _K, #gsn_address{instance = 1} = IE) ->
-    IE#gsn_address{address = gtp_c_lib:ip2bin(DataIP)};
+    IE#gsn_address{address = ergw_inet:ip2bin(DataIP)};
 set_req_from_context(#context{local_data_tei = DataTEI},
 		     _K, #tunnel_endpoint_identifier_data_i{instance = 0} = IE) ->
     IE#tunnel_endpoint_identifier_data_i{tei = DataTEI};

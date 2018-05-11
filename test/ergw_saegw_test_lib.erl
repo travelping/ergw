@@ -59,31 +59,31 @@ delete_session(SubType, GtpC) ->
 fq_teid(Instance, Type, TEI, {_,_,_,_} = IP) ->
     #v2_fully_qualified_tunnel_endpoint_identifier{
        instance = Instance, interface_type = Type,
-       key = TEI, ipv4 = gtp_c_lib:ip2bin(IP)};
+       key = TEI, ipv4 = ergw_inet:ip2bin(IP)};
 fq_teid(Instance, Type, TEI, {_,_,_,_,_,_,_,_} = IP) ->
     #v2_fully_qualified_tunnel_endpoint_identifier{
        instance = Instance, interface_type = Type,
-       key = TEI, ipv6 = gtp_c_lib:ip2bin(IP)}.
+       key = TEI, ipv6 = ergw_inet:ip2bin(IP)}.
 
 paa({_,_,_,_} = IP) ->
     #v2_pdn_address_allocation{
        type = ipv4,
-       address = gtp_c_lib:ip2bin(IP)
+       address = ergw_inet:ip2bin(IP)
       };
 paa({_,_,_,_,_,_,_,_} = IP) ->
     #v2_pdn_address_allocation{
        type = ipv6,
-       address = <<64:8, (gtp_c_lib:ip2bin(IP))/binary>>
+       address = <<64:8, (ergw_inet:ip2bin(IP))/binary>>
       };
 paa({{_,_,_,_,_,_,_,_} = IP, PrefixLen}) ->
     #v2_pdn_address_allocation{
        type = ipv6,
-       address = <<PrefixLen:8, (gtp_c_lib:ip2bin(IP))/binary>>
+       address = <<PrefixLen:8, (ergw_inet:ip2bin(IP))/binary>>
       }.
 
 make_pdn_type(ipv6, IEs) ->
     PrefixLen = 64,
-    Prefix = gtp_c_lib:ip2bin({0,0,0,0,0,0,0,0}),
+    Prefix = ergw_inet:ip2bin({0,0,0,0,0,0,0,0}),
     [#v2_pdn_address_allocation{
 	type = ipv6,
 	address = <<PrefixLen, Prefix/binary>>},
@@ -93,8 +93,8 @@ make_pdn_type(ipv6, IEs) ->
      | IEs];
 make_pdn_type(ipv4v6, IEs) ->
     PrefixLen = 64,
-    Prefix = gtp_c_lib:ip2bin({0,0,0,0,0,0,0,0}),
-    RequestedIP = gtp_c_lib:ip2bin({0,0,0,0}),
+    Prefix = ergw_inet:ip2bin({0,0,0,0,0,0,0,0}),
+    RequestedIP = ergw_inet:ip2bin({0,0,0,0}),
     [#v2_pdn_address_allocation{
 	type = ipv4v6,
 	address = <<PrefixLen, Prefix/binary, RequestedIP/binary>>},
@@ -107,7 +107,7 @@ make_pdn_type(ipv4v6, IEs) ->
 		      {1,<<>>}, {3,<<>>}, {10,<<>>}]}}
      | IEs];
 make_pdn_type(_, IEs) ->
-    RequestedIP = gtp_c_lib:ip2bin({0,0,0,0}),
+    RequestedIP = ergw_inet:ip2bin({0,0,0,0}),
     [#v2_pdn_address_allocation{type = ipv4,
 				address = RequestedIP},
      #v2_pdn_type{pdn_type = ipv4},
@@ -313,10 +313,10 @@ make_response(#gtp{type = create_session_request, seq_no = SeqNo},
 	    {v2_protocol_configuration_options, 0} =>
 		#v2_protocol_configuration_options{
 		   config = {0, [{ipcp,'CP-Configure-Nak',0,
-				  [{ms_dns1, gtp_c_lib:ip2bin({8,8,8,8})},
-				   {ms_dns2, gtp_c_lib:ip2bin({8,8,4,4})}]},
-				 {13, gtp_c_lib:ip2bin({8,8,4,4})},
-				 {13, gtp_c_lib:ip2bin({8,8,8,8})}]}},
+				  [{ms_dns1, ergw_inet:ip2bin({8,8,8,8})},
+				   {ms_dns2, ergw_inet:ip2bin({8,8,4,4})}]},
+				 {13, ergw_inet:ip2bin({8,8,4,4})},
+				 {13, ergw_inet:ip2bin({8,8,8,8})}]}},
 	    {v2_recovery, 0} => #v2_recovery{restart_counter = RCnt}},
     #gtp{version = v2, type = create_session_response,
 	 tei = RemoteCntlTEI, seq_no = SeqNo, ie = IEs};

@@ -309,7 +309,7 @@ pdp_alloc(#end_user_address{pdp_type_organization = 1,
 	      << >> ->
 		  {0,0,0,0};
 	      <<_:4/bytes>> ->
-		  gtp_c_lib:bin2ip(Address)
+		  ergw_inet:bin2ip(Address)
 	  end,
     {IP4, undefined};
 
@@ -320,7 +320,7 @@ pdp_alloc(#end_user_address{pdp_type_organization = 1,
 	      << >> ->
 		  {{0,0,0,0,0,0,0,0},64};
 	      <<_:16/bytes>> ->
-		  {gtp_c_lib:bin2ip(Address),128}
+		  {ergw_inet:bin2ip(Address),128}
 	  end,
     {undefined, IP6};
 pdp_alloc(#end_user_address{pdp_type_organization = 1,
@@ -328,11 +328,11 @@ pdp_alloc(#end_user_address{pdp_type_organization = 1,
 			    pdp_address = Address}) ->
     case Address of
 	<< IP4:4/bytes, IP6:16/bytes >> ->
-	    {gtp_c_lib:bin2ip(IP4), {gtp_c_lib:bin2ip(IP6), 128}};
+	    {ergw_inet:bin2ip(IP4), {ergw_inet:bin2ip(IP6), 128}};
 	<< IP6:16/bytes >> ->
-	    {{0,0,0,0}, {gtp_c_lib:bin2ip(IP6), 128}};
+	    {{0,0,0,0}, {ergw_inet:bin2ip(IP6), 128}};
 	<< IP4:4/bytes >> ->
-	    {gtp_c_lib:bin2ip(IP4), {{0,0,0,0,0,0,0,0},64}};
+	    {ergw_inet:bin2ip(IP4), {{0,0,0,0,0,0,0,0},64}};
  	<<  >> ->
 	    {{0,0,0,0}, {{0,0,0,0,0,0,0,0},64}}
    end;
@@ -341,11 +341,11 @@ pdp_alloc(_) ->
     {undefined, undefined}.
 
 encode_eua({IPv4,_}, undefined) ->
-    encode_eua(1, 16#21, gtp_c_lib:ip2bin(IPv4), <<>>);
+    encode_eua(1, 16#21, ergw_inet:ip2bin(IPv4), <<>>);
 encode_eua(undefined, {IPv6,_}) ->
-    encode_eua(1, 16#57, <<>>, gtp_c_lib:ip2bin(IPv6));
+    encode_eua(1, 16#57, <<>>, ergw_inet:ip2bin(IPv6));
 encode_eua({IPv4,_}, {IPv6,_}) ->
-    encode_eua(1, 16#8D, gtp_c_lib:ip2bin(IPv4), gtp_c_lib:ip2bin(IPv6)).
+    encode_eua(1, 16#8D, ergw_inet:ip2bin(IPv4), ergw_inet:ip2bin(IPv6)).
 
 encode_eua(Org, Number, IPv4, IPv6) ->
     #end_user_address{pdp_type_organization = Org,
@@ -390,7 +390,7 @@ copy_vrf_session_defaults(K, Value, Opts)
 	 K =:= 'MS-Secondary-DNS-Server';
 	 K =:= 'MS-Primary-NBNS-Server';
 	 K =:= 'MS-Secondary-NBNS-Server' ->
-    Opts#{K => gtp_c_lib:ip2bin(Value)};
+    Opts#{K => ergw_inet:ip2bin(Value)};
 copy_vrf_session_defaults(_K, _V, Opts) ->
     Opts.
 
@@ -469,7 +469,7 @@ copy_to_session(_, #end_user_address{pdp_type_organization = 1,
 				  pdp_address = Address}, _AAAopts, Session0) ->
     Session = Session0#{'3GPP-PDP-Type' => 'IPv4'},
     case Address of
-	<<_:4/bytes>> -> Session#{'Framed-IP-Address' => gtp_c_lib:bin2ip(Address)};
+	<<_:4/bytes>> -> Session#{'Framed-IP-Address' => ergw_inet:bin2ip(Address)};
 	_             -> Session
     end;
 copy_to_session(_, #end_user_address{pdp_type_organization = 1,
@@ -477,7 +477,7 @@ copy_to_session(_, #end_user_address{pdp_type_organization = 1,
 				  pdp_address = Address}, _AAAopts, Session0) ->
     Session = Session0#{'3GPP-PDP-Type' => 'IPv6'},
     case Address of
-	<<_:16/bytes>> -> Session#{'Framed-IPv6-Prefix' => {gtp_c_lib:bin2ip(Address), 128}};
+	<<_:16/bytes>> -> Session#{'Framed-IPv6-Prefix' => {ergw_inet:bin2ip(Address), 128}};
 	_              -> Session
     end;
 copy_to_session(_, #end_user_address{pdp_type_organization = 1,
@@ -486,18 +486,18 @@ copy_to_session(_, #end_user_address{pdp_type_organization = 1,
     Session = Session0#{'3GPP-PDP-Type' => 'IPv4v6'},
     case Address of
 	<< IP4:4/bytes >> ->
-	    Session#{'Framed-IP-Address'  => gtp_c_lib:bin2ip(IP4)};
+	    Session#{'Framed-IP-Address'  => ergw_inet:bin2ip(IP4)};
 	<< IP6:16/bytes >> ->
-	    Session#{'Framed-IPv6-Prefix' => {gtp_c_lib:bin2ip(IP6), 128}};
+	    Session#{'Framed-IPv6-Prefix' => {ergw_inet:bin2ip(IP6), 128}};
 	<< IP4:4/bytes, IP6:16/bytes >> ->
-	    Session#{'Framed-IP-Address'  => gtp_c_lib:bin2ip(IP4),
-		     'Framed-IPv6-Prefix' => {gtp_c_lib:bin2ip(IP6), 128}};
+	    Session#{'Framed-IP-Address'  => ergw_inet:bin2ip(IP4),
+		     'Framed-IPv6-Prefix' => {ergw_inet:bin2ip(IP6), 128}};
 	_ ->
 	    Session
    end;
 
 copy_to_session(_, #gsn_address{instance = 0, address = IP}, _AAAopts, Session) ->
-    Session#{'3GPP-SGSN-Address' => gtp_c_lib:bin2ip(IP)};
+    Session#{'3GPP-SGSN-Address' => ergw_inet:bin2ip(IP)};
 copy_to_session(_, #nsapi{instance = 0, nsapi = NSAPI}, _AAAopts, Session) ->
     Session#{'3GPP-NSAPI' => NSAPI};
 copy_to_session(_, #selection_mode{mode = Mode}, _AAAopts, Session) ->
@@ -568,9 +568,9 @@ negotiate_qos(ReqPriority, ReqQoSProfileData) ->
     end.
 
 get_context_from_req(_, #gsn_address{instance = 0, address = CntlIP}, Context) ->
-    Context#context{remote_control_ip = gtp_c_lib:bin2ip(CntlIP)};
+    Context#context{remote_control_ip = ergw_inet:bin2ip(CntlIP)};
 get_context_from_req(_, #gsn_address{instance = 1, address = DataIP}, Context) ->
-    Context#context{remote_data_ip = gtp_c_lib:bin2ip(DataIP)};
+    Context#context{remote_data_ip = ergw_inet:bin2ip(DataIP)};
 get_context_from_req(_, #tunnel_endpoint_identifier_data_i{instance = 0, tei = DataTEI}, Context) ->
     Context#context{remote_data_tei = DataTEI};
 get_context_from_req(_, #tunnel_endpoint_identifier_control_plane{instance = 0, tei = CntlTEI}, Context) ->
@@ -655,13 +655,13 @@ ppp_ipcp_conf_resp(Verdict, Opt, IPCP) ->
     maps:update_with(Verdict, fun(O) -> [Opt|O] end, [Opt], IPCP).
 
 ppp_ipcp_conf(#{'MS-Primary-DNS-Server' := DNS}, {ms_dns1, <<0,0,0,0>>}, IPCP) ->
-    ppp_ipcp_conf_resp('CP-Configure-Nak', {ms_dns1, gtp_c_lib:ip2bin(DNS)}, IPCP);
+    ppp_ipcp_conf_resp('CP-Configure-Nak', {ms_dns1, ergw_inet:ip2bin(DNS)}, IPCP);
 ppp_ipcp_conf(#{'MS-Secondary-DNS-Server' := DNS}, {ms_dns2, <<0,0,0,0>>}, IPCP) ->
-    ppp_ipcp_conf_resp('CP-Configure-Nak', {ms_dns2, gtp_c_lib:ip2bin(DNS)}, IPCP);
+    ppp_ipcp_conf_resp('CP-Configure-Nak', {ms_dns2, ergw_inet:ip2bin(DNS)}, IPCP);
 ppp_ipcp_conf(#{'MS-Primary-NBNS-Server' := DNS}, {ms_wins1, <<0,0,0,0>>}, IPCP) ->
-    ppp_ipcp_conf_resp('CP-Configure-Nak', {ms_wins1, gtp_c_lib:ip2bin(DNS)}, IPCP);
+    ppp_ipcp_conf_resp('CP-Configure-Nak', {ms_wins1, ergw_inet:ip2bin(DNS)}, IPCP);
 ppp_ipcp_conf(#{'MS-Secondary-NBNS-Server' := DNS}, {ms_wins2, <<0,0,0,0>>}, IPCP) ->
-    ppp_ipcp_conf_resp('CP-Configure-Nak', {ms_wins2, gtp_c_lib:ip2bin(DNS)}, IPCP);
+    ppp_ipcp_conf_resp('CP-Configure-Nak', {ms_wins2, ergw_inet:ip2bin(DNS)}, IPCP);
 
 ppp_ipcp_conf(_SessionOpts, Opt, IPCP) ->
     ppp_ipcp_conf_resp('CP-Configure-Reject', Opt, IPCP).
@@ -681,7 +681,7 @@ pdp_ppp_pco(SessionOpts, {?'PCO-DNS-Server-IPv4-Address', <<>>}, Opts) ->
     lists:foldr(fun(Key, O) ->
 			case maps:find(Key, SessionOpts) of
 			    {ok, DNS} ->
-				[{?'PCO-DNS-Server-IPv4-Address', gtp_c_lib:ip2bin(DNS)} | O];
+				[{?'PCO-DNS-Server-IPv4-Address', ergw_inet:ip2bin(DNS)} | O];
 			    _ ->
 				O
 			end
@@ -711,8 +711,8 @@ tunnel_endpoint_elements(#context{control_port = #gtp_port{ip = CntlIP},
 				  local_data_tei = DataTEI}, IEs) ->
     [#tunnel_endpoint_identifier_data_i{tei = DataTEI},
      #tunnel_endpoint_identifier_control_plane{tei = CntlTEI},
-     #gsn_address{instance = 0, address = gtp_c_lib:ip2bin(CntlIP)},   %% for Control Plane
-     #gsn_address{instance = 1, address = gtp_c_lib:ip2bin(DataIP)}    %% for User Traffic
+     #gsn_address{instance = 0, address = ergw_inet:ip2bin(CntlIP)},   %% for Control Plane
+     #gsn_address{instance = 1, address = ergw_inet:ip2bin(DataIP)}    %% for User Traffic
      | IEs].
 
 create_pdp_context_response(SessionOpts, RequestIEs,

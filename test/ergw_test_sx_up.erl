@@ -55,7 +55,7 @@ init([IP]) ->
 	       gtp = GtpSocket,
 	       accounting = on,
 	       cp_seid = 0,
-	       up_ip = gtp_c_lib:ip2bin(IP),
+	       up_ip = ergw_inet:ip2bin(IP),
 	       up_seid = ergw_sx_socket:seid(),
 	       seq_no = erlang:unique_integer([positive]) rem 16#ffffff,
 	       history = []
@@ -161,13 +161,13 @@ user_plane_ip_resource_information(NWI, #state{up_ip = IP})
   when size(IP) == 4 ->
     #user_plane_ip_resource_information{
        network_instance = NWI,
-       ipv4 = gtp_c_lib:ip2bin(?LOCALHOST_IPv4)
+       ipv4 = ergw_inet:ip2bin(?LOCALHOST_IPv4)
       };
 user_plane_ip_resource_information(NWI, #state{up_ip = IP})
   when size(IP) == 16 ->
     #user_plane_ip_resource_information{
        network_instance = NWI,
-       ipv6 = gtp_c_lib:ip2bin(?LOCALHOST_IPv6)
+       ipv6 = ergw_inet:ip2bin(?LOCALHOST_IPv6)
       }.
 
 sx_reply(Type, State) ->
@@ -198,7 +198,7 @@ handle_message(#pfcp{type = session_establishment_request, seid = 0,
     RespIEs =
 	[#pfcp_cause{cause = 'Request accepted'},
 	 f_seid(UserPlaneSEID, IP)],
-    State = State0#state{cp_ip = gtp_c_lib:bin2ip(ControlPlaneIP),
+    State = State0#state{cp_ip = ergw_inet:bin2ip(ControlPlaneIP),
 			 cp_seid = ControlPlaneSEID},
     sx_reply(session_establishment_response, ControlPlaneSEID, RespIEs, State);
 

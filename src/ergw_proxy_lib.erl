@@ -167,19 +167,19 @@ network_instance(#gtp_port{network_instance = Name}) ->
     #network_instance{instance = Name}.
 
 f_seid(SEID, {_,_,_,_} = IP) ->
-    #f_seid{seid = SEID, ipv4 = gtp_c_lib:ip2bin(IP)};
+    #f_seid{seid = SEID, ipv4 = ergw_inet:ip2bin(IP)};
 f_seid(SEID, {_,_,_,_,_,_,_,_} = IP) ->
-    #f_seid{seid = SEID, ipv6 = gtp_c_lib:ip2bin(IP)}.
+    #f_seid{seid = SEID, ipv6 = ergw_inet:ip2bin(IP)}.
 
 f_teid(TEID, {_,_,_,_} = IP) ->
-    #f_teid{teid = TEID, ipv4 = gtp_c_lib:ip2bin(IP)};
+    #f_teid{teid = TEID, ipv4 = ergw_inet:ip2bin(IP)};
 f_teid(TEID, {_,_,_,_,_,_,_,_} = IP) ->
-    #f_teid{teid = TEID, ipv6 = gtp_c_lib:ip2bin(IP)}.
+    #f_teid{teid = TEID, ipv6 = ergw_inet:ip2bin(IP)}.
 
 gtp_u_peer(TEID, {_,_,_,_} = IP) ->
-    #outer_header_creation{type = 'GTP-U', teid = TEID, ipv4 = gtp_c_lib:ip2bin(IP)};
+    #outer_header_creation{type = 'GTP-U', teid = TEID, ipv4 = ergw_inet:ip2bin(IP)};
 gtp_u_peer(TEID,  {_,_,_,_,_,_,_,_} = IP) ->
-    #outer_header_creation{type = 'GTP-U', teid = TEID, ipv6 = gtp_c_lib:ip2bin(IP)}.
+    #outer_header_creation{type = 'GTP-U', teid = TEID, ipv6 = ergw_inet:ip2bin(IP)}.
 
 create_pdr({RuleId, Intf,
 	    #context{
@@ -355,6 +355,6 @@ assign_data_teid(#context{data_port = DataPort} = Context,
     {ok, DataTEI} = gtp_context_reg:alloc_tei(DataPort),
     IP = ergw_gsn_lib:choose_context_ip(IP4, IP6, Context),
     Context#context{
-      data_port = DataPort#gtp_port{ip = gtp_c_lib:bin2ip(IP), network_instance = NWInst},
+      data_port = DataPort#gtp_port{ip = ergw_inet:bin2ip(IP), network_instance = NWInst},
       local_data_tei = DataTEI
      }.
