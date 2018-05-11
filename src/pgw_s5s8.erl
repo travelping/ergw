@@ -893,6 +893,7 @@ create_session_response(SessionOpts, RequestIEs, EBI,
     IE1 = pdn_pco(SessionOpts, RequestIEs, IE0),
 
     [#v2_cause{v2_cause = request_accepted},
+     #v2_change_reporting_action{action = start_reporting_tai_and_ecgi},
      #v2_apn_restriction{restriction_type_value = 0},
      s5s8_pgw_gtp_c_tei(Context),
      encode_paa(MSv4, MSv6) | IE1].
