@@ -180,8 +180,8 @@ handle_info({ReqKey,
 	      ie = [#pfcp_cause{cause = 'Request accepted'}]},
     ergw_gsn_lib:send_sx_response(ReqKey, Ctx, SxResponse),
 
-    FTEID = FTEID0#f_teid{ipv4 = gtp_c_lib:bin2ip(FTEID0#f_teid.ipv4),
-			  ipv6 = gtp_c_lib:bin2ip(FTEID0#f_teid.ipv6)},
+    FTEID = FTEID0#f_teid{ipv4 = ergw_inet:bin2ip(FTEID0#f_teid.ipv4),
+			  ipv6 = ergw_inet:bin2ip(FTEID0#f_teid.ipv6)},
     Direction = fteid_forward_context(FTEID, State),
     initiate_session_teardown(Direction, State),
     delete_forward_session(State),
@@ -644,7 +644,7 @@ get_context_from_bearer(_, #v2_fully_qualified_tunnel_endpoint_identifier{
 			      key = TEI, ipv4 = IP4, ipv6 = IP6}, Context) ->
     IP = ergw_gsn_lib:choose_context_ip(IP4, IP6, Context),
     Context#context{
-      remote_data_ip  = gtp_c_lib:bin2ip(IP),
+      remote_data_ip  = ergw_inet:bin2ip(IP),
       remote_data_tei = TEI
      };
 get_context_from_bearer(_, #v2_fully_qualified_tunnel_endpoint_identifier{
@@ -652,7 +652,7 @@ get_context_from_bearer(_, #v2_fully_qualified_tunnel_endpoint_identifier{
 			      key = TEI, ipv4 = IP4, ipv6 = IP6}, Context) ->
     IP = ergw_gsn_lib:choose_context_ip(IP4, IP6, Context),
     Context#context{
-      remote_data_ip  = gtp_c_lib:bin2ip(IP),
+      remote_data_ip  = ergw_inet:bin2ip(IP),
       remote_data_tei = TEI
      };
 get_context_from_bearer(?'EPS Bearer ID', #v2_eps_bearer_id{eps_bearer_id = EBI},
@@ -666,7 +666,7 @@ get_context_from_req(_, #v2_fully_qualified_tunnel_endpoint_identifier{
 			   key = TEI, ipv4 = IP4, ipv6 = IP6}, Context) ->
     IP = ergw_gsn_lib:choose_context_ip(IP4, IP6, Context),
     Context#context{
-      remote_control_ip  = gtp_c_lib:bin2ip(IP),
+      remote_control_ip  = ergw_inet:bin2ip(IP),
       remote_control_tei = TEI
      };
 get_context_from_req(_, #v2_fully_qualified_tunnel_endpoint_identifier{
@@ -674,7 +674,7 @@ get_context_from_req(_, #v2_fully_qualified_tunnel_endpoint_identifier{
 			   key = TEI, ipv4 = IP4, ipv6 = IP6}, Context) ->
     IP = ergw_gsn_lib:choose_context_ip(IP4, IP6, Context),
     Context#context{
-      remote_control_ip  = gtp_c_lib:bin2ip(IP),
+      remote_control_ip  = ergw_inet:bin2ip(IP),
       remote_control_tei = TEI
      };
 get_context_from_req(_K, #v2_bearer_context{instance = 0, group = Bearer}, Context) ->
@@ -696,10 +696,10 @@ update_context_from_gtp_req(#gtp{ie = IEs} = Req, Context0) ->
 
 fq_teid(TEI, {_,_,_,_} = IP, IE) ->
     IE#v2_fully_qualified_tunnel_endpoint_identifier{
-       key = TEI, ipv4 = gtp_c_lib:ip2bin(IP)};
+       key = TEI, ipv4 = ergw_inet:ip2bin(IP)};
 fq_teid(TEI, {_,_,_,_,_,_,_,_} = IP, IE) ->
     IE#v2_fully_qualified_tunnel_endpoint_identifier{
-      key = TEI, ipv6 = gtp_c_lib:ip2bin(IP)}.
+      key = TEI, ipv6 = ergw_inet:ip2bin(IP)}.
 
 set_bearer_from_context(#context{data_port = #gtp_port{ip = DataIP}, local_data_tei = DataTEI},
 			_, #v2_fully_qualified_tunnel_endpoint_identifier{

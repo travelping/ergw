@@ -15,9 +15,6 @@
 -export([select_sx_node/2, select_sx_node/3]).
 -export([start_link/3, send/4, call/2, get_network_instances/1,
 	 handle_request/2, response/3]).
--ifdef(TEST).
--export([ip_csum/1, make_udp/5]).
--endif.
 
 %% gen_server callbacks
 -export([init/1, callback_mode/0, handle_event/4,
@@ -295,13 +292,13 @@ handle_udp_gtp(SrcIP, DstIP, <<SrcPort:16, DstPort:16, _:16, _:16, PayLoad/binar
   when DstPort =:= ?GTP1u_PORT ->
     Msg = gtp_packet:decode(PayLoad),
     lager:debug("GTP-U ~s:~w -> ~s:~w: ~p",
-		[inet:ntoa(gtp_c_lib:bin2ip(SrcIP)), SrcPort,
-		 inet:ntoa(gtp_c_lib:bin2ip(DstIP)), DstPort,
+		[inet:ntoa(ergw_inet:bin2ip(SrcIP)), SrcPort,
+		 inet:ntoa(ergw_inet:bin2ip(DstIP)), DstPort,
 		 lager:pr(Msg, ?MODULE)]),
 
     ReqKey = make_request(SrcIP, SrcPort, Msg, Data),
     GtpPort = #gtp_port{name = Node, type = 'gtp-u'},
-    case gtp_context_reg:lookup_teid(GtpPort, 'gtp-u', gtp_c_lib:bin2ip(DstIP), Msg#gtp.tei) of
+    case gtp_context_reg:lookup_teid(GtpPort, 'gtp-u', ergw_inet:bin2ip(DstIP), Msg#gtp.tei) of
 	Context when is_pid(Context) ->
 	    gtp_context:context_handle_message(Context, ReqKey, Msg);
 	Other ->
@@ -310,8 +307,8 @@ handle_udp_gtp(SrcIP, DstIP, <<SrcPort:16, DstPort:16, _:16, _:16, PayLoad/binar
     ok;
 handle_udp_gtp(SrcIP, DstIP, <<SrcPort:16, DstPort:16, _:16, _:16, PayLoad/binary>>, _Data) ->
     lager:debug("unexpected UDP ~s:~w -> ~s:~w: ~p",
-		[inet:ntoa(gtp_c_lib:bin2ip(SrcIP)), SrcPort,
-		 inet:ntoa(gtp_c_lib:bin2ip(DstIP)), DstPort, PayLoad]),
+		[inet:ntoa(ergw_inet:bin2ip(SrcIP)), SrcPort,
+		 inet:ntoa(ergw_inet:bin2ip(DstIP)), DstPort, PayLoad]),
     ok.
 
 connect_sx_node([]) ->
@@ -397,63 +394,6 @@ session_not_found(ReqKey, Type, SeqNo) ->
 	      ie = #{pfcp_cause => #pfcp_cause{cause = 'Session context not found'}}},
     ergw_sx_socket:send_response(ReqKey, Response, true),
     ok.
-
-%%%===================================================================
-%%% Raw IP helper
-%%%===================================================================
-
--ifdef(TEST).
-
-ip_csum(<<>>, CSum) ->
-    CSum;
-ip_csum(<<Head:8/integer>>, CSum) ->
-    CSum + Head * 256;
-ip_csum(<<Head:16/integer, Tail/binary>>, CSum) ->
-    ip_csum(Tail, CSum + Head).
-
-ip_csum(Bin) ->
-    CSum0 = ip_csum(Bin, 0),
-    CSum1 = ((CSum0 band 16#ffff) + (CSum0 bsr 16)),
-    ((CSum1 band 16#ffff) + (CSum1 bsr 16)) bxor 16#ffff.
-
-make_udp(NwSrc, NwDst, TpSrc, TpDst, PayLoad)
-  when size(NwSrc) =:= 4, size(NwDst) =:= 4 ->
-    Id = 0,
-    Proto = gen_socket:protocol(udp),
-
-    UDPLength = 8 + size(PayLoad),
-    UDPCSum = ip_csum(<<NwSrc:4/bytes-unit:8, NwDst:4/bytes-unit:8,
-			0:8, Proto:8, UDPLength:16,
-			TpSrc:16, TpDst:16, UDPLength:16, 0:16,
-			PayLoad/binary>>),
-    UDP = <<TpSrc:16, TpDst:16, UDPLength:16, UDPCSum:16, PayLoad/binary>>,
-
-    TotLen = 20 + size(UDP),
-    HdrCSum = ip_csum(<<4:4, 5:4, 0:8, TotLen:16,
-			Id:16, 0:16, 64:8, Proto:8,
-			0:16/integer, NwSrc:4/bytes-unit:8, NwDst:4/bytes-unit:8>>),
-    IP = <<4:4, 5:4, 0:8, TotLen:16,
-	   Id:16, 0:16, 64:8, Proto:8,
-	   HdrCSum:16/integer, NwSrc:4/bytes-unit:8, NwDst:4/bytes-unit:8>>,
-    list_to_binary([IP, UDP]);
-
-make_udp(NwSrc, NwDst, TpSrc, TpDst, PayLoad)
-  when size(NwSrc) =:= 16, size(NwDst) =:= 16 ->
-    FlowLabel = rand:uniform(16#ffffff),
-    Proto = gen_socket:protocol(udp),
-
-    UDPLength = 8 + size(PayLoad),
-    UDPCSum = ip_csum(<<NwSrc:16/bytes-unit:8, NwDst:16/bytes-unit:8,
-			UDPLength:32,
-			0:24, Proto:8,
-			TpSrc:16, TpDst:16, UDPLength:16, 0:16,
-			PayLoad/binary>>),
-    <<6:4, 0:8, FlowLabel:20,
-      UDPLength:16, Proto:8, 64:8,
-      NwSrc:16/bytes-unit:8, NwDst:16/bytes-unit:8,
-      TpSrc:16, TpDst:16, UDPLength:16, UDPCSum:16, PayLoad/binary>>.
-
--endif.
 
 %%%===================================================================
 %%% F-TEID Ch handling...

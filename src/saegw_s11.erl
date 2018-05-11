@@ -348,7 +348,7 @@ terminate(_Reason, _State) ->
 %%% Helper functions
 %%%===================================================================
 ip2prefix({IP, Prefix}) ->
-    <<Prefix:8, (gtp_c_lib:ip2bin(IP))/binary>>.
+    <<Prefix:8, (ergw_inet:ip2bin(IP))/binary>>.
 
 response(Cmd, #context{remote_control_tei = TEID}, Response) ->
     {Cmd, TEID, Response}.
@@ -423,7 +423,7 @@ match_context(Type,
 		 key            = RemoteCntlTEI,
 		 ipv4           = RemoteCntlIP4,
 		 ipv6           = RemoteCntlIP6} = IE) ->
-    case gtp_c_lib:ip2bin(RemoteCntlIP) of
+    case ergw_inet:ip2bin(RemoteCntlIP) of
 	RemoteCntlIP4 ->
 	    error_m:return(ok);
 	RemoteCntlIP6 ->
@@ -440,20 +440,20 @@ match_context(Type, Context, IE) ->
 
 pdn_alloc(#v2_pdn_address_allocation{type = ipv4v6,
 				     address = << IP6PrefixLen:8, IP6Prefix:16/binary, IP4:4/binary>>}) ->
-    {gtp_c_lib:bin2ip(IP4), {gtp_c_lib:bin2ip(IP6Prefix), IP6PrefixLen}};
+    {ergw_inet:bin2ip(IP4), {ergw_inet:bin2ip(IP6Prefix), IP6PrefixLen}};
 pdn_alloc(#v2_pdn_address_allocation{type = ipv4,
 				     address = << IP4:4/binary>>}) ->
-    {gtp_c_lib:bin2ip(IP4), undefined};
+    {ergw_inet:bin2ip(IP4), undefined};
 pdn_alloc(#v2_pdn_address_allocation{type = ipv6,
 				     address = << IP6PrefixLen:8, IP6Prefix:16/binary>>}) ->
-    {undefined, {gtp_c_lib:bin2ip(IP6Prefix), IP6PrefixLen}}.
+    {undefined, {ergw_inet:bin2ip(IP6Prefix), IP6PrefixLen}}.
 
 encode_paa({IPv4,_}, undefined) ->
-    encode_paa(ipv4, gtp_c_lib:ip2bin(IPv4), <<>>);
+    encode_paa(ipv4, ergw_inet:ip2bin(IPv4), <<>>);
 encode_paa(undefined, IPv6) ->
     encode_paa(ipv6, <<>>, ip2prefix(IPv6));
 encode_paa({IPv4,_}, IPv6) ->
-    encode_paa(ipv4v6, gtp_c_lib:ip2bin(IPv4), ip2prefix(IPv6)).
+    encode_paa(ipv4v6, ergw_inet:ip2bin(IPv4), ip2prefix(IPv6)).
 
 encode_paa(Type, IPv4, IPv6) ->
     #v2_pdn_address_allocation{type = Type, address = <<IPv6/binary, IPv4/binary>>}.
@@ -496,7 +496,7 @@ copy_vrf_session_defaults(K, Value, Opts)
 	 K =:= 'MS-Secondary-DNS-Server';
 	 K =:= 'MS-Primary-NBNS-Server';
 	 K =:= 'MS-Secondary-NBNS-Server' ->
-    Opts#{K => gtp_c_lib:ip2bin(Value)};
+    Opts#{K => ergw_inet:ip2bin(Value)};
 copy_vrf_session_defaults(_K, _V, Opts) ->
     Opts.
 
@@ -541,10 +541,10 @@ init_session(IEs,
 
 copy_optional_binary_ie('3GPP-SGSN-Address' = Key, IP, Session) 
   when IP /= undefined ->
-    Session#{Key => gtp_c_lib:bin2ip(IP)};
+    Session#{Key => ergw_inet:bin2ip(IP)};
 copy_optional_binary_ie('3GPP-SGSN-IPv6-Address' = Key, IP, Session) 
   when IP /= undefined ->
-    Session#{Key => gtp_c_lib:bin2ip(IP)};
+    Session#{Key => ergw_inet:bin2ip(IP)};
 copy_optional_binary_ie(Key, Value, Session) when is_binary(Value) ->
     Session#{Key => Value};
 copy_optional_binary_ie(_Key, _Value, Session) ->
@@ -579,21 +579,21 @@ copy_to_session(_, #v2_international_mobile_subscriber_identity{imsi = IMSI}, _A
 copy_to_session(_, #v2_pdn_address_allocation{type = ipv4,
 					      address = IP4}, _AAAopts, Session) ->
     Session#{'3GPP-PDP-Type'     => 'IPv4',
-	     'Framed-IP-Address' => gtp_c_lib:bin2ip(IP4)};
+	     'Framed-IP-Address' => ergw_inet:bin2ip(IP4)};
 copy_to_session(_, #v2_pdn_address_allocation{type = ipv6,
 					      address = <<IP6PrefixLen:8,
 							  IP6Prefix:16/binary>>},
 		_AAAopts, Session) ->
     Session#{'3GPP-PDP-Type'      => 'IPv6',
-	     'Framed-IPv6-Prefix' => {gtp_c_lib:bin2ip(IP6Prefix), IP6PrefixLen}};
+	     'Framed-IPv6-Prefix' => {ergw_inet:bin2ip(IP6Prefix), IP6PrefixLen}};
 copy_to_session(_, #v2_pdn_address_allocation{type = ipv4v6,
 					      address = <<IP6PrefixLen:8,
 							  IP6Prefix:16/binary,
 							  IP4:4/binary>>},
 		_AAAopts, Session) ->
     Session#{'3GPP-PDP-Type' => 'IPv4v6',
-	     'Framed-IP-Address'  => gtp_c_lib:bin2ip(IP4),
-	     'Framed-IPv6-Prefix' => {gtp_c_lib:bin2ip(IP6Prefix), IP6PrefixLen}};
+	     'Framed-IP-Address'  => ergw_inet:bin2ip(IP4),
+	     'Framed-IPv6-Prefix' => {ergw_inet:bin2ip(IP6Prefix), IP6PrefixLen}};
 
 copy_to_session(?'Sender F-TEID for Control Plane',
 		#v2_fully_qualified_tunnel_endpoint_identifier{ipv4 = IP4, ipv6 = IP6},
@@ -640,7 +640,7 @@ update_context_cntl_ids(#v2_fully_qualified_tunnel_endpoint_identifier{
 			   key = TEI, ipv4 = IP4, ipv6 = IP6}, Context) ->
     IP = choose_context_ip(IP4, IP6, Context),
     Context#context{
-      remote_control_ip  = gtp_c_lib:bin2ip(IP),
+      remote_control_ip  = ergw_inet:bin2ip(IP),
       remote_control_tei = TEI
      };
 update_context_cntl_ids(_ , Context) ->
@@ -650,7 +650,7 @@ update_context_data_ids(#v2_fully_qualified_tunnel_endpoint_identifier{
 			   key = TEI, ipv4 = IP4, ipv6 = IP6}, Context) ->
     IP = choose_context_ip(IP4, IP6, Context),
     Context#context{
-      remote_data_ip  = gtp_c_lib:bin2ip(IP),
+      remote_data_ip  = ergw_inet:bin2ip(IP),
       remote_data_tei = TEI
      };
 update_context_data_ids(_ , Context) ->
@@ -745,13 +745,13 @@ ppp_ipcp_conf_resp(Verdict, Opt, IPCP) ->
     maps:update_with(Verdict, fun(O) -> [Opt|O] end, [Opt], IPCP).
 
 ppp_ipcp_conf(#{'MS-Primary-DNS-Server' := DNS}, {ms_dns1, <<0,0,0,0>>}, IPCP) ->
-    ppp_ipcp_conf_resp('CP-Configure-Nak', {ms_dns1, gtp_c_lib:ip2bin(DNS)}, IPCP);
+    ppp_ipcp_conf_resp('CP-Configure-Nak', {ms_dns1, ergw_inet:ip2bin(DNS)}, IPCP);
 ppp_ipcp_conf(#{'MS-Secondary-DNS-Server' := DNS}, {ms_dns2, <<0,0,0,0>>}, IPCP) ->
-    ppp_ipcp_conf_resp('CP-Configure-Nak', {ms_dns2, gtp_c_lib:ip2bin(DNS)}, IPCP);
+    ppp_ipcp_conf_resp('CP-Configure-Nak', {ms_dns2, ergw_inet:ip2bin(DNS)}, IPCP);
 ppp_ipcp_conf(#{'MS-Primary-NBNS-Server' := DNS}, {ms_wins1, <<0,0,0,0>>}, IPCP) ->
-    ppp_ipcp_conf_resp('CP-Configure-Nak', {ms_wins1, gtp_c_lib:ip2bin(DNS)}, IPCP);
+    ppp_ipcp_conf_resp('CP-Configure-Nak', {ms_wins1, ergw_inet:ip2bin(DNS)}, IPCP);
 ppp_ipcp_conf(#{'MS-Secondary-NBNS-Server' := DNS}, {ms_wins2, <<0,0,0,0>>}, IPCP) ->
-    ppp_ipcp_conf_resp('CP-Configure-Nak', {ms_wins2, gtp_c_lib:ip2bin(DNS)}, IPCP);
+    ppp_ipcp_conf_resp('CP-Configure-Nak', {ms_wins2, ergw_inet:ip2bin(DNS)}, IPCP);
 
 ppp_ipcp_conf(_SessionOpts, Opt, IPCP) ->
     ppp_ipcp_conf_resp('CP-Configure-Reject', Opt, IPCP).
@@ -771,7 +771,7 @@ pdn_ppp_pco(SessionOpts, {?'PCO-DNS-Server-IPv4-Address', <<>>}, Opts) ->
     lists:foldr(fun(Key, O) ->
 			case maps:find(Key, SessionOpts) of
 			    {ok, DNS} ->
-				[{?'PCO-DNS-Server-IPv4-Address', gtp_c_lib:ip2bin(DNS)} | O];
+				[{?'PCO-DNS-Server-IPv4-Address', ergw_inet:ip2bin(DNS)} | O];
 			    _ ->
 				O
 			end
@@ -808,11 +808,11 @@ bearer_context(EBI, Context, IEs) ->
 fq_teid(Instance, Type, TEI, {_,_,_,_} = IP) ->
     #v2_fully_qualified_tunnel_endpoint_identifier{
        instance = Instance, interface_type = Type,
-       key = TEI, ipv4 = gtp_c_lib:ip2bin(IP)};
+       key = TEI, ipv4 = ergw_inet:ip2bin(IP)};
 fq_teid(Instance, Type, TEI, {_,_,_,_,_,_,_,_} = IP) ->
     #v2_fully_qualified_tunnel_endpoint_identifier{
        instance = Instance, interface_type = Type,
-       key = TEI, ipv6 = gtp_c_lib:ip2bin(IP)}.
+       key = TEI, ipv6 = ergw_inet:ip2bin(IP)}.
 
 s11_sender_f_teid(#context{control_port = #gtp_port{ip = IP}, local_control_tei = TEI}) ->
     fq_teid(0, ?'S11/S4-C SGW', TEI, IP).

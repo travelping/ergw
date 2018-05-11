@@ -1060,12 +1060,12 @@ sx_cp_to_up_forward(Config) ->
 
     #gtpc{remote_data_tei = DataTEI} = GtpC,
 
-    SxIP = gtp_c_lib:ip2bin(proplists:get_value(pgw_u_sx, Config)),
-    LocalIP = gtp_c_lib:ip2bin(proplists:get_value(localhost, Config)),
+    SxIP = ergw_inet:ip2bin(proplists:get_value(pgw_u_sx, Config)),
+    LocalIP = ergw_inet:ip2bin(proplists:get_value(localhost, Config)),
 
     InnerGTP = gtp_packet:encode(
 		 #gtp{version = v1, type = g_pdu, tei = DataTEI, ie = <<0,0,0,0,0,0,0>>}),
-    InnerIP = ergw_sx_node:make_udp(SxIP, LocalIP, ?GTP1u_PORT, ?GTP1u_PORT, InnerGTP),
+    InnerIP = ergw_inet:make_udp(SxIP, LocalIP, ?GTP1u_PORT, ?GTP1u_PORT, InnerGTP),
     ergw_test_sx_up:send('pgw-u', InnerIP),
 
     ct:sleep(500),

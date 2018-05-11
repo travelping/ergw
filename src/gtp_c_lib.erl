@@ -9,7 +9,6 @@
 
 -compile({parse_transform, cut}).
 
--export([ip2bin/1, bin2ip/1]).
 -export([fmt_gtp/1]).
 -export([normalize_labels/1]).
 
@@ -37,25 +36,6 @@ dns_char(C) ->
     ct:pal("invalude ~p", [C]),
     error(badarg, [C]).
 
-%%====================================================================
-%% IP helpers
-%%====================================================================
-
-ip2bin(V) when is_atom(V) ->
-    V;
-ip2bin(IP) when is_binary(IP) ->
-    IP;
-ip2bin({A, B, C, D}) ->
-    <<A, B, C, D>>;
-ip2bin({A, B, C, D, E, F, G, H}) ->
-    <<A:16, B:16, C:16, D:16, E:16, F:16, G:16, H:16>>.
-
-bin2ip(V) when is_atom(V) ->
-    V;
-bin2ip(<<A, B, C, D>>) ->
-    {A, B, C, D};
-bin2ip(<<A:16, B:16, C:16, D:16, E:16, F:16, G:16, H:16>>) ->
-    {A, B, C, D, E, F, G, H}.
 
 %%%===================================================================
 %%% Helper functions

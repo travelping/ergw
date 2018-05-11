@@ -224,9 +224,9 @@ make_error_indication_report(#context{data_port = #gtp_port{ip = IP},
     make_error_indication_report(IP, TEI).
 
 f_teid(TEID, {_,_,_,_} = IP) ->
-    #f_teid{teid = TEID, ipv4 = gtp_c_lib:ip2bin(IP)};
+    #f_teid{teid = TEID, ipv4 = ergw_inet:ip2bin(IP)};
 f_teid(TEID, {_,_,_,_,_,_,_,_} = IP) ->
-    #f_teid{teid = TEID, ipv6 = gtp_c_lib:ip2bin(IP)}.
+    #f_teid{teid = TEID, ipv6 = ergw_inet:ip2bin(IP)}.
 
 make_error_indication_report(IP, TEI) ->
     IEs =
