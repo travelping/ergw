@@ -23,7 +23,7 @@
  {<<"goldrush">>,{pkg,<<"goldrush">>,<<"0.1.9">>},1},
  {<<"gtplib">>,
   {git,"https://github.com/travelping/gtplib.git",
-       {ref,"8315fd9f37e2674b921ff714d96076cd0efe36c4"}},
+       {ref,"3245442000d3b426c8d231e02266e538a1956f79"}},
   0},
  {<<"hut">>,{pkg,<<"hut">>,<<"1.2.0">>},1},
  {<<"jobs">>,{pkg,<<"jobs">>,<<"0.7.0">>},0},
