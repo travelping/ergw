@@ -126,7 +126,20 @@
 		  [{apn,  [{?'APN-EXAMPLE', ?'APN-PROXY'}]},
 		   {imsi, [{?'IMSI', {?'PROXY-IMSI', ?'PROXY-MSISDN'}}
 			  ]}
-		  ]}			     ]},
+		  ]},
+
+		 {nodes,
+		  [{default,
+		    [{network_instances,
+		      [{cp, [{features, ['CP-Function']}]},
+		       {irx, [{features, ['Access']}]},
+		       {'proxy-irx', [{features, ['Core']}]},
+		       {'remote-irx', [{features, ['Access']}]},
+		       {example, [{features, ['SGi-LAN']}]}]
+		     }]
+		   }]
+		 }
+		]},
 	 {ergw_aaa, [{ergw_aaa_provider, {ergw_aaa_mock, [{shared_secret, <<"MySecret">>}]}}]}
 	]).
 
@@ -228,7 +241,19 @@
 		  [{apn,  [{?'APN-EXAMPLE', ?'APN-PROXY'}]},
 		   {imsi, [{?'IMSI', {?'PROXY-IMSI', ?'PROXY-MSISDN'}}
 			  ]}
-		  ]}			     ]},
+		  ]},
+
+		 {nodes,
+		  [{default,
+		    [{network_instances,
+		      [{cp, [{features, ['CP-Function']}]},
+		       {irx, [{features, ['Access', 'Core']}]},
+		       {'remote-irx', [{features, ['Access']}]},
+		       {example, [{features, ['SGi-LAN']}]}]
+		     }]
+		   }]
+		 }
+		]},
 	 {ergw_aaa, [{ergw_aaa_provider, {ergw_aaa_mock, [{shared_secret, <<"MySecret">>}]}}]}
 	]).
 

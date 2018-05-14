@@ -90,6 +90,15 @@
 	  new_peer	:: boolean()
 }).
 
+-record(nwi, {
+	  name                   :: atom(),
+	  features = ['SGi-Lan'] :: ['Access' | 'Core' | 'SGi-LAN' |
+				     'CP-Function' | 'LI Function'],
+	  teid_range,
+	  ipv4,
+	  ipv6
+	 }).
+
 -record(counter, {
 	  rx :: {Bytes :: integer(), Packets :: integer()},
 	  tx :: {Bytes :: integer(), Packets :: integer()}
