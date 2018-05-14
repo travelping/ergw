@@ -98,7 +98,17 @@
 		 {apns,
 		  [{?'APN-EXAMPLE', [{vrf, upstream}]},
 		   {[<<"APN1">>], [{vrf, upstream}]}
-		  ]}
+		  ]},
+
+		 {nodes,
+		  [{default,
+		    [{network_instances,
+		      [{cp, [{features, ['CP-Function']}]},
+		       {irx, [{features, ['Access']}]},
+		       {upstream, [{features, ['SGi-LAN']}]}]
+		     }]
+		   }]
+		 }
 		]},
 	 {ergw_aaa, [{ergw_aaa_provider, {ergw_aaa_mock, [{shared_secret, <<"MySecret">>}]}}]}
 	]).

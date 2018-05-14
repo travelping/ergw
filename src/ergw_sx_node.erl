@@ -106,14 +106,23 @@ init([Node, IP4, IP6]) ->
     {ok, CP, GtpPort} = ergw_sx_socket:id(),
     {ok, TEI} = gtp_context_reg:alloc_tei(GtpPort),
     gtp_context_reg:register(GtpPort, {teid, 'gtp-u', TEI}, self()),
-    NWI = string:split(atom_to_binary(GtpPort#gtp_port.name, utf8), ".", all),
+    GtpNWI = string:split(atom_to_binary(GtpPort#gtp_port.name, utf8), ".", all),
+
+    NWIs = lists:foldl(
+	     fun({Id, Opts}, N) ->
+		     NWI = #nwi{
+			      name = Id,
+			      features = proplists:get_value(features, Opts, [])
+			     },
+		     N#{Id => NWI}
+	     end, #{}, node_network_instances(Node)),
 
     Data = #data{timeout = 10,
-		 gtp_port = GtpPort#gtp_port{network_instance = NWI},
+		 gtp_port = GtpPort#gtp_port{network_instance = GtpNWI},
 		 cp_tei = TEI,
 		 cp = CP,
 		 dp = #node{node = Node, ip = IP},
-		 network_instances = #{},
+		 network_instances = NWIs,
 		 call_q = queue:new()
 		},
     {ok, disconnected, Data, [{next_event, internal, setup}]}.
@@ -213,6 +222,15 @@ code_change(_OldVsn, Data, _Extra) ->
 %%% Internal functions
 %%%===================================================================
 
+node_network_instances(Name, Nodes, Default) ->
+    Layout = proplists:get_value(Name, Nodes, []),
+    proplists:get_value(network_instances, Layout, Default).
+
+node_network_instances(Name) ->
+    {ok, Nodes} = setup:get_env(ergw, nodes),
+    Default = node_network_instances(default, Nodes, []),
+    node_network_instances(Name, Nodes, Default).
+
 pfcp_reply_actions({call, From}, Reply) ->
     [{reply, From, Reply}].
 
@@ -305,18 +323,16 @@ send_heartbeat(#data{dp = #node{ip = IP}}) ->
     ergw_sx_socket:call(IP, 500, 5, Req, response_cb(heartbeat)).
 
 handle_nodeup(#{user_plane_ip_resource_information := UPIPResInfo} = _IEs,
-	      #data{gtp_port = GtpPort, dp = #node{node = Node, ip = IP}} = Data) ->
+	      #data{dp = #node{node = Node, ip = IP},
+		    network_instances = NWIs} = Data) ->
     lager:warning("Node ~s (~s) is up", [Node, inet:ntoa(IP)]),
     lager:warning("Node IEs: ~p", [lager:pr(_IEs, ?MODULE)]),
 
-    %% {ok, RCnt} = gtp_config:get_restart_counter(),
-    %% GtpPort = #gtp_port{name = Node, type = 'gtp-u', pid = self(), restart_counter = RCnt},
     ergw_sx_node_reg:register(Node, self()),
 
     Data#data{
       timeout = 100,
-      network_instances =
-	  init_network_instance(Data#data.network_instances, UPIPResInfo)
+      network_instances = init_network_instance(NWIs, UPIPResInfo)
      }.
 
 label2name(Label) when is_list(Label) ->
@@ -325,7 +341,7 @@ label2name(Name) when is_binary(Name) ->
     binary_to_atom(Name, latin1).
 
 init_network_instance(NetworkInstances, UPIPResInfo)
-    when is_list(UPIPResInfo) ->
+  when is_list(UPIPResInfo) ->
     lists:foldl(fun(I, Acc) ->
 			init_network_instance(Acc, I)
 		end, NetworkInstances, UPIPResInfo);
@@ -334,7 +350,18 @@ init_network_instance(NetworkInstances,
 			 network_instance = NetworkInstance
 			} = UPIPResInfo) ->
     NwInstName = label2name(NetworkInstance),
-    NetworkInstances#{NwInstName => UPIPResInfo}.
+    case NetworkInstances of
+	#{NwInstName := NWI0} ->
+	    NWI = NWI0#nwi{
+		    teid_range = UPIPResInfo#user_plane_ip_resource_information.teid_range,
+		    ipv4 = UPIPResInfo#user_plane_ip_resource_information.ipv4,
+		    ipv6 = UPIPResInfo#user_plane_ip_resource_information.ipv6
+		   },
+	    NetworkInstances#{NwInstName => NWI};
+	_ ->
+	    lager:warning("UP Nodes reported unknown Network Instance '~p'", [NwInstName]),
+	    NetworkInstances
+    end.
 
 handle_nodedown(#data{dp = #node{node = Node}} = Data) ->
     ergw_sx_node_reg:unregister(Node),
