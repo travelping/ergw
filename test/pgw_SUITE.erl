@@ -304,7 +304,9 @@ init_per_testcase(_, Config) ->
     Config.
 
 end_per_testcase(_Config) ->
-    stop_gtpc_server().
+    stop_gtpc_server(),
+    stop_all_sx_nodes(),
+    ok.
 
 end_per_testcase(create_session_request_aaa_reject, Config) ->
     meck:unload(ergw_aaa_session),
@@ -543,10 +545,10 @@ ipv6_bearer_request(Config) ->
     delete_session(GtpC),
 
     %% check that the wildcard PDR and FAR are present
-    [SER0|_] = lists:filter(
-		fun(#pfcp{type = session_establishment_request}) -> true;
-		   (_) -> false
-		end, ergw_test_sx_up:history('pgw-u')),
+    [_, SER0|_] = lists:filter(
+		    fun(#pfcp{type = session_establishment_request}) -> true;
+		       (_) -> false
+		    end, ergw_test_sx_up:history('pgw-u')),
     SER = pfcp_packet:to_map(SER0),
     #{create_far := FAR0,
       create_pdr := PDR0} = SER#pfcp.ie,
@@ -1080,6 +1082,37 @@ sx_cp_to_up_forward(Config) ->
 
     ct:sleep(500),
     delete_session(GtpC),
+
+    %% check that the CP to UP PDR and FAR are present
+    [SER0|_] = lists:filter(
+		fun(#pfcp{type = session_establishment_request}) -> true;
+		   (_) -> false
+		end, ergw_test_sx_up:history('pgw-u')),
+    SER = pfcp_packet:to_map(SER0),
+    #{create_far := FAR,
+      create_pdr := PDR} = SER#pfcp.ie,
+    ?match(#create_far{
+	      group =
+		  #{forwarding_parameters :=
+			#forwarding_parameters{
+			   group =
+			       #{network_instance :=
+				     #network_instance{instance = [<<"irx">>]},
+				 destination_interface :=
+				     #destination_interface{interface = 'Access'}}},
+		    apply_action := #apply_action{forw = 1}}}, FAR),
+    ?match(#create_pdr{
+	      group =
+		  #{pdi :=
+			#pdi{
+			   group =
+			       #{source_interface :=
+				     #source_interface{interface = 'CP-function'},
+				 network_instance :=
+				     #network_instance{instance = [<<"cp">>]}}},
+		    outer_header_removal :=
+			#outer_header_removal{}
+		    }}, PDR),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     ?match(1, meck:num_calls(?HUT, handle_pdu, ['_', #gtp{type = g_pdu, _ = '_'}, '_'])),

@@ -24,6 +24,7 @@
 	 gtp_context_new_teids/1,
 	 make_error_indication_report/1]).
 -export([start_gtpc_server/1, stop_gtpc_server/1, stop_gtpc_server/0,
+	 stop_all_sx_nodes/0,
 	 make_gtp_socket/1, make_gtp_socket/2,
 	 send_pdu/2, send_pdu/3,
 	 send_recv_pdu/2, send_recv_pdu/3, send_recv_pdu/4,
@@ -270,6 +271,17 @@ start_gtpc_server(Config) ->
     {ok, Pid} = proc_lib:start_link(?MODULE, gtpc_server_init, [self(), Config]),
     register(gtpc_client_server, Pid),
     Pid.
+
+stop_all_sx_nodes() ->
+    SxNodes = supervisor:which_children(ergw_sx_node_sup),
+    [ergw_sx_node:stop(Pid) || {_, Pid, _, _} <- SxNodes, is_pid(Pid)],
+    stop_all_sx_nodes(supervisor:which_children(ergw_sx_node_sup)).
+
+stop_all_sx_nodes([]) ->
+    ok;
+stop_all_sx_nodes(_) ->
+    timer:sleep(10),
+    stop_all_sx_nodes(supervisor:which_children(ergw_sx_node_sup)).
 
 stop_gtpc_server(_) ->
     stop_gtpc_server().
