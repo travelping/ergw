@@ -63,7 +63,10 @@
 			      {'MS-Primary-DNS-Server', {8,8,8,8}},
 			      {'MS-Secondary-DNS-Server', {8,8,4,4}},
 			      {'MS-Primary-NBNS-Server', {127,0,0,1}},
-			      {'MS-Secondary-NBNS-Server', {127,0,0,1}}
+			      {'MS-Secondary-NBNS-Server', {127,0,0,1}},
+			       {'DNS-Server-IPv6-Address',
+				[{16#2001, 16#4860, 16#4860, 0, 0, 0, 0, 16#8888},
+				 {16#2001, 16#4860, 16#4860, 0, 0, 0, 0, 16#8844}]}
 			     ]}
 		  ]},
 
@@ -178,7 +181,10 @@
 			      {'MS-Primary-DNS-Server', {8,8,8,8}},
 			      {'MS-Secondary-DNS-Server', {8,8,4,4}},
 			      {'MS-Primary-NBNS-Server', {127,0,0,1}},
-			      {'MS-Secondary-NBNS-Server', {127,0,0,1}}
+			      {'MS-Secondary-NBNS-Server', {127,0,0,1}},
+			       {'DNS-Server-IPv6-Address',
+				[{16#2001, 16#4860, 16#4860, 0, 0, 0, 0, 16#8888},
+				 {16#2001, 16#4860, 16#4860, 0, 0, 0, 0, 16#8844}]}
 			     ]}
 		  ]},
 

@@ -224,6 +224,10 @@ VRF options and AAA providers will overwrite both.
 
   - `{'MS-Secondary-NBNS-Server', inet:ip4_address()}`
 
+  - `{'DNS-Server-IPv6-Address', [inet:ip6_address()]}`
+
+  - `{'3GPP-IPv6-DNS-Servers', [inet:ip6_address()]}`
+
 Handler Configuration
 ---------------------
 

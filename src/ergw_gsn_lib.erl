@@ -12,7 +12,8 @@
 	 delete_sgi_session/1,
 	 query_usage_report/1,
 	 send_sx_response/3,
-	 choose_context_ip/3]).
+	 choose_context_ip/3,
+	 ip_pdu/2]).
 
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include_lib("pfcplib/include/pfcp_packet.hrl").
@@ -311,3 +312,90 @@ choose_context_ip(IP4, _IP6, _Context)
 choose_context_ip(_IP4, IP6, _Context)
   when is_binary(IP6) ->
     IP6.
+
+%%%===================================================================
+%%% T-PDU functions
+%%%===================================================================
+
+-define('ICMPv6', 58).
+
+-define('IPv6 All Nodes LL',   <<255,2,0,0,0,0,0,0,0,0,0,0,0,0,0,1>>).
+-define('IPv6 All Routers LL', <<255,2,0,0,0,0,0,0,0,0,0,0,0,0,0,2>>).
+-define('ICMPv6 Router Solicitation',  133).
+-define('ICMPv6 Router Advertisement', 134).
+
+-define(NULL_INTERFACE_ID, {0,0,0,0,0,0,0,0}).
+-define('Our LL IP', <<254,128,0,0,0,0,0,0,0,0,0,0,0,0,0,2>>).
+
+-define('RA Prefix Information', 3).
+-define('RDNSS', 25).
+
+%% ICMPv6
+ip_pdu(<<6:4, TC:8, FlowLabel:20, Length:16, ?ICMPv6:8,
+	     _HopLimit:8, SrcAddr:16/bytes, DstAddr:16/bytes,
+	     PayLoad:Length/bytes, _/binary>>, Context) ->
+    icmpv6(TC, FlowLabel, SrcAddr, DstAddr, PayLoad, Context);
+ip_pdu(Data, _Context) ->
+    lager:warning("unhandled T-PDU: ~p", [Data]),
+    ok.
+
+%% IPv6 Router Solicitation
+icmpv6(TC, FlowLabel, _SrcAddr, ?'IPv6 All Routers LL',
+       <<?'ICMPv6 Router Solicitation':8, _Code:8, _CSum:16, _/binary>>,
+       #context{data_port = #gtp_port{ip = DpGtpIP,
+				      network_instance = NetworkInstance},
+		remote_data_ip = GtpIP, remote_data_tei = TEI,
+		ms_v6 = MSv6, dns_v6 = DNSv6} = Context) ->
+    {Prefix, PLen} = ergw_inet:ipv6_interface_id(MSv6, ?NULL_INTERFACE_ID),
+
+    OnLink = 1,
+    AutoAddrCnf = 1,
+    ValidLifeTime = 2592000,
+    PreferredLifeTime = 604800,
+    PrefixInformation = <<?'RA Prefix Information':8, 4:8,
+			  PLen:8, OnLink:1, AutoAddrCnf:1, 0:6,
+			  ValidLifeTime:32, PreferredLifeTime:32, 0:32,
+			  (ergw_inet:ip2bin(Prefix))/binary>>,
+
+    DNSCnt = length(DNSv6),
+    DNSSrvOpt =
+	if (DNSCnt /= 0) ->
+		<<?'RDNSS', (1 + DNSCnt * 2):8, 0:16, 16#ffffffff:32,
+		  << <<(ergw_inet:ip2bin(DNS))/binary>> || DNS <- DNSv6 >>/binary >>;
+	   true ->
+		<<>>
+	end,
+
+    TTL = 255,
+    Managed = 0,
+    OtherCnf = 0,
+    LifeTime = 1800,
+    ReachableTime = 0,
+    RetransTime = 0,
+    RAOpts = <<TTL:8, Managed:1, OtherCnf:1, 0:6, LifeTime:16,
+	       ReachableTime:32, RetransTime:32,
+	       PrefixInformation/binary,
+	       DNSSrvOpt/binary>>,
+
+    NwSrc = ?'Our LL IP',
+    NwDst = ?'IPv6 All Nodes LL',
+    ICMPLength = 4 + size(RAOpts),
+
+    CSum = ergw_inet:ip_csum(<<NwSrc:16/bytes-unit:8, NwDst:16/bytes-unit:8,
+				  ICMPLength:32, 0:24, ?ICMPv6:8,
+				  ?'ICMPv6 Router Advertisement':8, 0:8, 0:16,
+				  RAOpts/binary>>),
+    ICMPv6 = <<6:4, TC:8, FlowLabel:20, ICMPLength:16, ?ICMPv6:8, TTL:8,
+	       NwSrc:16/bytes, NwDst:16/bytes,
+	       ?'ICMPv6 Router Advertisement':8, 0:8, CSum:16, RAOpts/binary>>,
+    GTP = #gtp{version =v1, type = g_pdu, tei = TEI, ie = ICMPv6},
+    PayLoad = gtp_packet:encode(GTP),
+    UDP = ergw_inet:make_udp(
+	    ergw_inet:ip2bin(DpGtpIP), ergw_inet:ip2bin(GtpIP),
+	    ?GTP1u_PORT, ?GTP1u_PORT, PayLoad),
+    ergw_sx_node:send(Context, 'Access', NetworkInstance, UDP),
+    ok;
+
+icmpv6(_TC, _FlowLabel, _SrcAddr, _DstAddr, _PayLoad, _Context) ->
+    lager:warning("unhandeld ICMPv6 from ~p to ~p: ~p", [_SrcAddr, _DstAddr, _PayLoad]),
+    ok.

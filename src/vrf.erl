@@ -82,6 +82,11 @@ validate_ip_pool({Start, End, PrefixLen} = Pool)
 validate_ip_pool(Pool) ->
     throw({error, {options, {pool, Pool}}}).
 
+validate_ip6(_Opt, {_,_,_,_,_,_,_,_} = IP) ->
+    IP;
+validate_ip6(Opt, Value) ->
+    throw({error, {options, {Opt, Value}}}).
+
 validate_option(pools, Pools)
   when is_list(Pools), length(Pools) /= 0 ->
     [validate_ip_pool(X) || X <- Pools];
@@ -91,6 +96,11 @@ validate_option(Opt, {_,_,_,_} = IP)
        Opt == 'MS-Primary-NBNS-Server';
        Opt == 'MS-Secondary-NBNS-Server' ->
     IP;
+validate_option(Opt, DNS)
+  when is_list(DNS) andalso
+       (Opt == 'DNS-Server-IPv6-Address' orelse
+	Opt == '3GPP-IPv6-DNS-Servers') ->
+    [validate_ip6(Opt, IP) || IP <- DNS];
 validate_option(Opt, Value) ->
     throw({error, {options, {Opt, Value}}}).
 

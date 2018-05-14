@@ -196,7 +196,8 @@ handle_request(_ReqKey,
     ActiveSessionOpts = apply_vrf_session_defaults(VRFOpts, ActiveSessionOpts0),
     lager:info("ActiveSessionOpts: ~p", [ActiveSessionOpts]),
 
-    ContextPending = assign_ips(ActiveSessionOpts, PAA, ContextVRF),
+    ContextPending0 = assign_ips(ActiveSessionOpts, PAA, ContextVRF),
+    ContextPending = session_to_context(ActiveSessionOpts, ContextPending0),
 
     APN_FQDN = ergw_node_selection:apn_to_fqdn(APN),
     Services = [{"x-3gpp-upf", "x-sxb"}],
@@ -570,6 +571,10 @@ copy_vrf_session_defaults(K, Value, Opts)
 	 K =:= 'MS-Primary-NBNS-Server';
 	 K =:= 'MS-Secondary-NBNS-Server' ->
     Opts#{K => ergw_inet:ip2bin(Value)};
+copy_vrf_session_defaults(K, Value, Opts)
+  when K =:= 'DNS-Server-IPv6-Address';
+       K =:= '3GPP-IPv6-DNS-Servers' ->
+    Opts#{K => Value};
 copy_vrf_session_defaults(_K, _V, Opts) ->
     Opts.
 
@@ -805,6 +810,13 @@ assign_ips(SessionOps, PAA, #context{vrf = VRF, local_control_tei = LocalTEI} = 
     {ReqMSv4, ReqMSv6} = session_ip_alloc(SessionOps, pdn_alloc(PAA)),
     {ok, MSv4, MSv6} = vrf:allocate_pdp_ip(VRF, LocalTEI, ReqMSv4, ReqMSv6),
     Context#context{ms_v4 = MSv4, ms_v6 = MSv6}.
+
+session_to_context(SessionOpts, Context) ->
+    %% RFC 6911
+    DNS0 = maps:get('DNS-Server-IPv6-Address', SessionOpts, []),
+    %% 3GPP
+    DNS1 = maps:get('3GPP-IPv6-DNS-Servers', SessionOpts, []),
+    Context#context{dns_v6 = DNS0 ++ DNS1}.
 
 ppp_ipcp_conf_resp(Verdict, Opt, IPCP) ->
     maps:update_with(Verdict, fun(O) -> [Opt|O] end, [Opt], IPCP).

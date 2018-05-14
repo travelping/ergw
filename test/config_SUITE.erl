@@ -41,7 +41,10 @@
 		       {'MS-Primary-DNS-Server', {8,8,8,8}},
 		       {'MS-Secondary-DNS-Server', {8,8,4,4}},
 		       {'MS-Primary-NBNS-Server', {127,0,0,1}},
-		       {'MS-Secondary-NBNS-Server', {127,0,0,1}}
+		       {'MS-Secondary-NBNS-Server', {127,0,0,1}},
+		       {'DNS-Server-IPv6-Address',
+			[{16#2001, 16#4860, 16#4860, 0, 0, 0, 0, 16#8888},
+			 {16#2001, 16#4860, 16#4860, 0, 0, 0, 0, 16#8844}]}
 		      ]}
 	  ]},
 
@@ -98,7 +101,10 @@
 		      {'MS-Primary-DNS-Server', {8,8,8,8}},
 		      {'MS-Secondary-DNS-Server', {8,8,4,4}},
 		      {'MS-Primary-NBNS-Server', {127,0,0,1}},
-		      {'MS-Secondary-NBNS-Server', {127,0,0,1}}
+		      {'MS-Secondary-NBNS-Server', {127,0,0,1}},
+		      {'DNS-Server-IPv6-Address',
+		       [{16#2001, 16#4860, 16#4860, 0, 0, 0, 0, 16#8888},
+			{16#2001, 16#4860, 16#4860, 0, 0, 0, 0, 16#8844}]}
 		     ]}
 	  ]},
 
@@ -192,7 +198,10 @@
 		       {'MS-Primary-DNS-Server', {8,8,8,8}},
 		       {'MS-Secondary-DNS-Server', {8,8,4,4}},
 		       {'MS-Primary-NBNS-Server', {127,0,0,1}},
-		       {'MS-Secondary-NBNS-Server', {127,0,0,1}}
+		       {'MS-Secondary-NBNS-Server', {127,0,0,1}},
+		       {'DNS-Server-IPv6-Address',
+			[{16#2001, 16#4860, 16#4860, 0, 0, 0, 0, 16#8888},
+			 {16#2001, 16#4860, 16#4860, 0, 0, 0, 0, 16#8844}]}
 		      ]}
 	  ]},
 
@@ -265,7 +274,10 @@
 		      {'MS-Primary-DNS-Server', {8,8,8,8}},
 		      {'MS-Secondary-DNS-Server', {8,8,4,4}},
 		      {'MS-Primary-NBNS-Server', {127,0,0,1}},
-		      {'MS-Secondary-NBNS-Server', {127,0,0,1}}
+		      {'MS-Secondary-NBNS-Server', {127,0,0,1}},
+		      {'DNS-Server-IPv6-Address',
+		       [{16#2001, 16#4860, 16#4860, 0, 0, 0, 0, 16#8888},
+			{16#2001, 16#4860, 16#4860, 0, 0, 0, 0, 16#8844}]}
 		     ]}
 	  ]},
 
@@ -454,6 +466,39 @@ config(_Config)  ->
 				[{invalid, ?IPv6PoolEnd, 64}], ?GGSN_CONFIG)),
     ?error_option(set_cfg_value([vrfs, upstream, pools],
 				[{?IPv6PoolEnd, ?IPv6PoolStart, 64}], ?GGSN_CONFIG)),
+
+    ?error_option(set_cfg_value([vrfs, upstream, 'MS-Primary-DNS-Server'],
+				invalid, ?GGSN_CONFIG)),
+    ?error_option(set_cfg_value([vrfs, upstream, 'MS-Primary-DNS-Server'],
+				?LOCALHOST_IPv6, ?GGSN_CONFIG)),
+    ?error_option(set_cfg_value([vrfs, upstream, 'MS-Secondary-DNS-Server'],
+				invalid, ?GGSN_CONFIG)),
+    ?error_option(set_cfg_value([vrfs, upstream, 'MS-Secondary-DNS-Server'],
+				?LOCALHOST_IPv6, ?GGSN_CONFIG)),
+    ?error_option(set_cfg_value([vrfs, upstream, 'MS-Primary-NBNS-Server'],
+				invalid, ?GGSN_CONFIG)),
+    ?error_option(set_cfg_value([vrfs, upstream, 'MS-Primary-NBNS-Server'],
+				?LOCALHOST_IPv6, ?GGSN_CONFIG)),
+    ?error_option(set_cfg_value([vrfs, upstream, 'MS-Secondary-NBNS-Server'],
+				invalid, ?GGSN_CONFIG)),
+    ?error_option(set_cfg_value([vrfs, upstream, 'MS-Secondary-NBNS-Server'],
+				?LOCALHOST_IPv6, ?GGSN_CONFIG)),
+    ?error_option(set_cfg_value([vrfs, upstream, 'DNS-Server-IPv6-Address'],
+				invalid, ?GGSN_CONFIG)),
+    ?error_option(set_cfg_value([vrfs, upstream, 'DNS-Server-IPv6-Address'],
+				?LOCALHOST_IPv4, ?GGSN_CONFIG)),
+    ?error_option(set_cfg_value([vrfs, upstream, '3GPP-IPv6-DNS-Servers'],
+				invalid, ?GGSN_CONFIG)),
+    ?error_option(set_cfg_value([vrfs, upstream, '3GPP-IPv6-DNS-Servers'],
+				?LOCALHOST_IPv4, ?GGSN_CONFIG)),
+    ?ok_option(set_cfg_value([vrfs, upstream, '3GPP-IPv6-DNS-Servers'],
+			     [?LOCALHOST_IPv6], ?GGSN_CONFIG)),
+    ?error_option(set_cfg_value([vrfs, upstream, '3GPP-IPv6-DNS-Servers'],
+				?LOCALHOST_IPv6, ?GGSN_CONFIG)),
+    ?ok_option(set_cfg_value([vrfs, upstream, '3GPP-IPv6-DNS-Servers'],
+			     [?LOCALHOST_IPv6], ?GGSN_CONFIG)),
+    ?error_option(set_cfg_value([vrfs, upstream, '3GPP-IPv6-DNS-Servers'],
+				?LOCALHOST_IPv6, ?GGSN_CONFIG)),
 
     ?error_option(set_cfg_value([apns, '_'], [], ?GGSN_CONFIG)),
     ?ok_option(set_cfg_value([apns, '_', vrf], upstream, ?GGSN_CONFIG)),

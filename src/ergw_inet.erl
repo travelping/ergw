@@ -8,9 +8,7 @@
 -module(ergw_inet).
 
 -export([ip2bin/1, bin2ip/1, ipv6_interface_id/2, ipv6_interface_id/3]).
--ifdef(TEST).
 -export([ip_csum/1, make_udp/5]).
--endif.
 
 -define(IS_IPv6(X), (is_tuple(X) andalso tuple_size(X) == 8)).
 
@@ -50,8 +48,6 @@ ipv6_interface_id(Prefix, PrefixLen, InterfaceId)
 %%%===================================================================
 %%% Raw IP helper
 %%%===================================================================
-
--ifdef(TEST).
 
 ip_csum(<<>>, CSum) ->
     CSum;
@@ -101,5 +97,3 @@ make_udp(NwSrc, NwDst, TpSrc, TpDst, PayLoad)
       UDPLength:16, Proto:8, 64:8,
       NwSrc:16/bytes-unit:8, NwDst:16/bytes-unit:8,
       TpSrc:16, TpDst:16, UDPLength:16, UDPCSum:16, PayLoad/binary>>.
-
--endif.
