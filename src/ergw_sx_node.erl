@@ -15,6 +15,9 @@
 -export([select_sx_node/2, select_sx_node/3]).
 -export([start_link/3, send/4, call/2, get_network_instances/1,
 	 handle_request/2, response/3]).
+-ifdef(TEST).
+-export([stop/1]).
+-endif.
 
 %% gen_server callbacks
 -export([init/1, callback_mode/0, handle_event/4,
@@ -57,6 +60,14 @@ select_sx_node(APN, Services, NodeSelect) ->
 start_link(Node, IP4, IP6) ->
     gen_statem:start_link(?MODULE, [Node, IP4, IP6], []).
 
+-ifdef(TEST).
+stop(Pid) when is_pid(Pid) ->
+    gen_statem:call(Pid, stop).
+-endif.
+
+send(Context, Intf, NetworkInstance, Data)
+  when is_record(Context, context), is_atom(Intf), is_binary(Data) ->
+    cast(Context, {send, Intf, NetworkInstance, Data});
 send(GtpPort, IP, Port, Data) ->
     cast(GtpPort, {send, IP, Port, Data}).
 
@@ -85,6 +96,9 @@ handle_request(ReqKey, #pfcp{type = session_report_request, seq_no = SeqNo} = Re
 
 %% TODO: GTP data path handler is currently not working!!
 cast(#gtp_port{pid = Handler}, Request)
+  when is_pid(Handler) ->
+    gen_statem:cast(Handler, Request);
+cast(#context{dp_node = Handler}, Request)
   when is_pid(Handler) ->
     gen_statem:cast(Handler, Request);
 cast(GtpPort, Request) ->
@@ -127,6 +141,9 @@ init([Node, IP4, IP6]) ->
 		},
     {ok, disconnected, Data, [{next_event, internal, setup}]}.
 
+handle_event({call, From}, stop, _, Data) ->
+    {stop_and_reply, normal, [{reply, From, ok}], Data};
+
 handle_event(_, setup, disconnected, #data{cp = CP, dp = #node{ip = IP}}) ->
     IEs = [node_id(CP),
 	   #recovery_time_stamp{
@@ -151,6 +168,15 @@ handle_event(cast, {_, #pfcp{version = v1, type = association_setup_response, ie
 	    lager:warning("Other: ~p", [lager:pr(Other, ?MODULE)]),
 	    {keep_state_and_data, [{state_timeout, 5000, setup}]}
     end;
+
+handle_event(cast, {send, 'Access', NetworkInstance, Data}, connected,
+	     #data{gtp_port = Port, dp = #node{ip = IP}, network_instances = NWI}) ->
+    #nwi{cp_to_access_tei = TEI} = maps:get(NetworkInstance, NWI),
+    Msg = #gtp{version = v1, type = g_pdu, tei = TEI, ie = Data},
+    Bin = gtp_packet:encode(Msg),
+    ergw_gtp_u_socket:send(Port, IP, ?GTP1u_PORT, Bin),
+
+    keep_state_and_data;
 
 %%
 %% heartbeat logic
@@ -183,6 +209,9 @@ handle_event({call, _} = Evt, #pfcp{} = Request, connected, #data{dp = #node{ip 
     Reply = ergw_sx_socket:call(IP, Request),
     Actions = pfcp_reply_actions(Evt, Reply),
     {keep_state_and_data, Actions};
+
+handle_event(internal, {from_cp_rule, _Reply}, connected, _Data) ->
+    keep_state_and_data;
 
 handle_event({timeout, {call, From}}, Item, _, #data{call_q = QIn} = Data) ->
     case queue:member(Item, QIn) of
@@ -231,6 +260,9 @@ node_network_instances(Name) ->
     Default = node_network_instances(default, Nodes, []),
     node_network_instances(Name, Nodes, Default).
 
+pfcp_reply_actions({call, {Pid, Tag}}, Reply)
+  when Pid =:= self() ->
+    [{next_event, internal, {Tag, Reply}}];
 pfcp_reply_actions({call, From}, Reply) ->
     [{reply, From, Reply}].
 
@@ -324,16 +356,17 @@ send_heartbeat(#data{dp = #node{ip = IP}}) ->
 
 handle_nodeup(#{user_plane_ip_resource_information := UPIPResInfo} = _IEs,
 	      #data{dp = #node{node = Node, ip = IP},
-		    network_instances = NWIs} = Data) ->
+		    network_instances = NWIs} = Data0) ->
     lager:warning("Node ~s (~s) is up", [Node, inet:ntoa(IP)]),
     lager:warning("Node IEs: ~p", [lager:pr(_IEs, ?MODULE)]),
 
     ergw_sx_node_reg:register(Node, self()),
 
-    Data#data{
-      timeout = 100,
-      network_instances = init_network_instance(NWIs, UPIPResInfo)
-     }.
+    Data = Data0#data{
+	     timeout = 100,
+	     network_instances = init_network_instance(NWIs, UPIPResInfo)
+	    },
+    install_cp_rules(Data).
 
 label2name(Label) when is_list(Label) ->
     binary_to_atom(iolist_to_binary(lists:join($., Label)), latin1);
@@ -373,3 +406,103 @@ session_not_found(ReqKey, Type, SeqNo) ->
 	      ie = #{pfcp_cause => #pfcp_cause{cause = 'Session context not found'}}},
     ergw_sx_socket:send_response(ReqKey, Response, true),
     ok.
+
+%%%===================================================================
+%%% CP to Access Interface forwarding
+%%%===================================================================
+
+%% use additional information from the Context to prefre V4 or V6....
+choose_up_ip(IP4, _IP6, {_,_,_,_} = _IP)
+  when is_binary(IP4) ->
+    ergw_inet:bin2ip(IP4);
+choose_up_ip(_IP4, IP6, {_,_,_,_,_,_,_,_} = _IP)
+  when is_binary(IP6) ->
+    ergw_inet:bin2ip(IP6);
+choose_up_ip(_IP4, _IP6, IP) ->
+    IP.
+
+maps_mapfold(Fun, AccIn, Map)
+  when is_function(Fun, 2), is_map(Map) ->
+    ListIn = maps:to_list(Map),
+    {ListOut, AccOut} =
+	lists:mapfoldl(fun({K, A}, InnerAccIn) ->
+			       {B, InnerAccOut} = Fun(A, InnerAccIn),
+			       {{K, B}, InnerAccOut}
+		       end, AccIn, ListIn),
+    {maps:from_list(ListOut), AccOut}.
+
+gen_cp_rules(#nwi{features = Features} = NWI, DpGtpIP, Data, Rules) ->
+    lists:foldl(gen_per_feature_cp_rule(_, DpGtpIP, Data, _), {NWI, Rules}, Features).
+
+gen_per_feature_cp_rule('Access', DpGtpIP, #data{gtp_port = GtpPort},
+			{#nwi{name = Instance} = NWI0, Rules}) ->
+    RuleId = length(Rules) + 1,
+
+    {ok, TEI} = gtp_context_reg:alloc_tei(GtpPort),
+
+    PDR = create_from_cp_pdr(RuleId, GtpPort, DpGtpIP, TEI),
+    FAR = create_from_cp_far('Access', Instance, RuleId, GtpPort),
+
+    NWI = NWI0#nwi{
+	       cp_to_access_tei = TEI
+	   },
+    {NWI, [PDR, FAR | Rules]};
+gen_per_feature_cp_rule(_, _DpGtpIP, _Data, Acc) ->
+    Acc.
+
+install_cp_rules(#data{cp = #node{node = _Node, ip = CpNodeIP},
+		       dp = #node{ip = DpNodeIP},
+		       network_instances = NWIs0,
+		       call_q = Q} = Data) ->
+    [#nwi{name = CpNwInstance, ipv4 = DpGtpIP4, ipv6 = DpGtpIP6}] =
+	lists:filter(fun(#nwi{features = Features}) ->
+				lists:member('CP-Function', Features)
+			end, maps:values(NWIs0)),
+    DpGtpIP = choose_up_ip(DpGtpIP4, DpGtpIP6, DpNodeIP),
+
+    {NWIs, Rules} = maps_mapfold(gen_cp_rules(_, DpGtpIP, Data, _), [], NWIs0),
+
+    SEID = ergw_sx_socket:seid(),
+
+    IEs =
+	[ergw_pfcp:f_seid(SEID, CpNodeIP) | Rules],
+
+    Req = #pfcp{version = v1, type = session_establishment_request, seid = 0, ie = IEs},
+    %% put the new request at the front of the queue
+    Evt = {call, {self(), from_cp_rule}},
+    Item = {Evt, Req},
+    Data#data{
+      network_instances = NWIs,
+      call_q = queue:in_r(Item, Q)
+     }.
+
+create_from_cp_pdr(RuleId, Port, IP, TEI) ->
+    #create_pdr{
+       group =
+	   [#pdr_id{id = RuleId},
+	    #precedence{precedence = 100},
+
+	    #pdi{
+	       group =
+		   [#source_interface{interface = 'CP-function'},
+		    ergw_pfcp:network_instance(Port),
+		    ergw_pfcp:f_teid(TEI, IP)]
+	      },
+
+	    ergw_pfcp:outer_header_removal(IP),
+	    #far_id{id = RuleId}]
+      }.
+
+create_from_cp_far(Intf, Instance, RuleId, _Port) ->
+    #create_far{
+       group =
+	   [#far_id{id = RuleId},
+	    #apply_action{forw = 1},
+	    #forwarding_parameters{
+	       group =
+		   [#destination_interface{interface = Intf},
+		    ergw_pfcp:network_instance(Instance)
+		   ]
+	      }
+	   ]
+      }.

@@ -96,7 +96,9 @@
 				     'CP-Function' | 'LI Function'],
 	  teid_range,
 	  ipv4,
-	  ipv6
+	  ipv6,
+
+	  cp_to_access_tei
 	 }).
 
 -record(counter, {

@@ -22,6 +22,7 @@
 			  gtp_context_new_teids/1,
 			  make_error_indication_report/1]).
 -import('ergw_test_lib', [start_gtpc_server/1, stop_gtpc_server/1, stop_gtpc_server/0,
+			  stop_all_sx_nodes/0,
 			  make_gtp_socket/1, make_gtp_socket/2,
 			  send_pdu/2, send_pdu/3,
 			  send_recv_pdu/2, send_recv_pdu/3, send_recv_pdu/4,
