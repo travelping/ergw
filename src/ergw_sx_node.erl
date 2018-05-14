@@ -203,15 +203,6 @@ handle_event(cast, {handle_pdu, _Request, #gtp{type=g_pdu, ie = PDU}}, _, Data) 
     end,
     keep_state_and_data.
 
-%% handle_event({call, From}, #pfcp{} = Request, _, Data) ->
-%%     Reply = {error, not_connected},
-%%     {keep_state_and_data, [{reply, From, Reply}]};
-
-%% handle_event(cast, {send, _IP, _Port, _Data} = Msg, _, #data{pid = Pid}) ->
-%%     lager:debug("DP Cast ~p: ~p", [Pid, Msg]),
-%%     gen_server:cast(Pid, Msg),
-%%     keep_state_and_data.
-
 terminate(_Reason, _Data) ->
     ok.
 
@@ -219,50 +210,8 @@ code_change(_OldVsn, Data, _Extra) ->
     {ok, Data}.
 
 %%%===================================================================
-%%% Sx Msg handler functions
-%%%===================================================================
-
-%% handle_msg(#pfcp{type = heartbeat_response},
-%% 	   #data{state = disconnected} = Data0) ->
-%%     Data1 = cancel_timeout(Data0),
-%%     Data2 = handle_nodeup(Data1),
-%%     Data = shedule_next_heartbeat(Data2),
-%%     {noreply, Data};
-
-%% handle_msg(#pfcp{type = heartbeat_response}, Data0) ->
-%%     Data1 = cancel_timeout(Data0),
-%%     Data = shedule_next_heartbeat(Data1),
-%%     {noreply, Data};
-
-%% handle_msg(#pfcp{type = session_report_request} = Report,
-%% 	   #data{gtp_port = GtpPort} = Data) ->
-%%     lager:debug("handle_info: ~p, ~p",
-%% 		[lager:pr(Report, ?MODULE), lager:pr(Data, ?MODULE)]),
-%%     gtp_context:session_report(GtpPort, Report),
-%%     {noreply, Data};
-
-%% handle_msg(Msg, #data{pending = From} = Data0)
-%%   when From /= undefined ->
-%%     Data = cancel_timeout(Data0),
-%%     gen_server:reply(From, Msg),
-%%     {noreply, Data#data{pending = undefined}};
-
-%% handle_msg(Msg, Data) ->
-%%     lager:error("handle_msg: unknown ~p, ~p", [Msg, lager:pr(Data, ?MODULE)]),
-%%     {noreply, Data}.
-
-%%%===================================================================
-%%% GTP-U CP to DP forward functions
-%%%===================================================================
-
-%%%===================================================================
 %%% Internal functions
 %%%===================================================================
-%% sntp_time_to_seconds(Time) ->
-%%      case Time band 16#80000000 of
-%% 	 0 -> Time + 2085978496; % use base: 7-Feb-2036 @ 06:28:16 UTC
-%% 	 _ -> Time - 2208988800  % use base: 1-Jan-1900 @ 01:00:00 UTC
-%%      end.
 
 pfcp_reply_actions({call, From}, Reply) ->
     [{reply, From, Reply}].
@@ -397,47 +346,3 @@ session_not_found(ReqKey, Type, SeqNo) ->
 	      ie = #{pfcp_cause => #pfcp_cause{cause = 'Session context not found'}}},
     ergw_sx_socket:send_response(ReqKey, Response, true),
     ok.
-
-%%%===================================================================
-%%% F-TEID Ch handling...
-%%%===================================================================
-
-%% choose_f_teids(NWIs, Contexts0, #pfcp{ie = IEs0} = Req) ->
-%%     {IEs, {TEIDbyChId, TEIDbyNWIs}} =
-%% 	lists:mapfold(choose_f_teid(NWIs, _, _), {#{}, #{}}, IEs0),
-%%     lager:warning("NWIs: ~p", [NWIs]),
-%%     {Req#pfcp{ie = IEs}, Contexts0}.
-
-
-%% choose_pdi_f_teid(NWIs, #f_teid{teid = choose, choose_id = ChId}, NWI, PDI0,
-%% 		  {TEIDbyChId0, TEIDbyNWI0} = State0)
-%%   when ChId /= undefined ->
-%%     case TEIDbyChId0 of
-%% 	#{ChId := TEID} ->
-%% 	    {lists:keystore(f_teid, 1, TEID, PDI0), State0};
-%% 	_ ->
-	    
-%% 	    ok
-%%     end;
-%% choose_pdi_f_teid(_, _, _, PDI, State) ->
-%%     {PDI, State}.
-
-%% choose_pdr_f_teid(NWIs, PDR0, State0) ->
-%%     case lists:keyfind(pdi, PDR0) of
-%% 	#pdi{group = IEs} = PDI0 ->
-%% 	    TEID = lists:keyfind(f_teid, 1, PDI0),
-%% 	    NWI = lists:keyfind(network_instance, 1, PDI0),
-%% 	    {PDI, State} = choose_pdi_f_teid(NWIs, TEID, NWI, PDI0, State0),
-%% 	    {lists:keystore(pdi, 1, PDR0, PDI), State};
-%% 	_ ->
-%% 	    {PDR0, State0}
-%%     end.
-
-%% choose_f_teid(NWIs, #create_pdr{group = PDR0} = Create, State0) ->
-%%     {PDR, State} = choose_pdr_f_teid(NWIs, PDR0, State0),
-%%     {Create#create_pdr{group = PDR}, State};
-%% choose_f_teid(NWIs, #update_pdr{group = PDR0} = Create, State0) ->
-%%     {PDR, State} = choose_pdr_f_teid(NWIs, PDR0, State0),
-%%     {Create#update_pdr{group = PDR}, State};
-%% choose_f_teid(_, IE, State) ->
-%%     {IE, State}.
