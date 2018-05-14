@@ -686,9 +686,12 @@ pdp_ppp_pco(SessionOpts, {ipcp,'CP-Configure-Request', Id, CpReqOpts}, Opts) ->
     CpRespOpts = lists:foldr(ppp_ipcp_conf(SessionOpts, _, _), #{}, CpReqOpts),
     maps:fold(fun(K, V, O) -> [{ipcp, K, Id, V} | O] end, Opts, CpRespOpts);
 
-pdp_ppp_pco(#{'3GPP-IPv6-DNS-Servers' := DNS}, {?'PCO-DNS-Server-IPv6-Address', <<>>}, Opts) ->
-    lager:info("Apply IPv6 DNS Servers PCO Opt: ~p", [DNS]),
-    Opts;
+pdp_ppp_pco(SessionOpts, {?'PCO-DNS-Server-IPv6-Address', <<>>}, Opts) ->
+    [{?'PCO-DNS-Server-IPv6-Address', ergw_inet:ip2bin(DNS)}
+     || DNS <- maps:get('DNS-Server-IPv6-Address', SessionOpts, [])]
+	++ [{?'PCO-DNS-Server-IPv6-Address', ergw_inet:ip2bin(DNS)}
+	    || DNS <- maps:get('3GPP-IPv6-DNS-Servers', SessionOpts, [])]
+	++ Opts;
 pdp_ppp_pco(SessionOpts, {?'PCO-DNS-Server-IPv4-Address', <<>>}, Opts) ->
     lists:foldr(fun(Key, O) ->
 			case maps:find(Key, SessionOpts) of
