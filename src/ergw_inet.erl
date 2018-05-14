@@ -7,7 +7,7 @@
 
 -module(ergw_inet).
 
--export([ip2bin/1, bin2ip/1]).
+-export([ip2bin/1, bin2ip/1, ipv6_interface_id/2, ipv6_interface_id/3]).
 -ifdef(TEST).
 -export([ip_csum/1, make_udp/5]).
 -endif.
@@ -33,6 +33,19 @@ bin2ip(<<A, B, C, D>>) ->
     {A, B, C, D};
 bin2ip(<<A:16, B:16, C:16, D:16, E:16, F:16, G:16, H:16>>) ->
     {A, B, C, D, E, F, G, H}.
+
+ipv6_interface_id({Prefix, PrefixLen}, IntId) when PrefixLen =< 126 ->
+    IP = ipv6_interface_id(ergw_inet:ip2bin(Prefix), PrefixLen,
+			   ergw_inet:ip2bin(IntId)),
+    {ergw_inet:bin2ip(IP), PrefixLen};
+ipv6_interface_id(Other, _) ->
+    Other.
+
+ipv6_interface_id(Prefix, PrefixLen, InterfaceId)
+  when is_binary(Prefix), is_binary(InterfaceId) ->
+    <<PrefixPart:PrefixLen/bits, _/bits>> = Prefix,
+    <<_:PrefixLen/bits, IntIdPart/bits>> = InterfaceId,
+    <<PrefixPart/bits, IntIdPart/bits>>.
 
 %%%===================================================================
 %%% Raw IP helper

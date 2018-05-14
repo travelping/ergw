@@ -178,9 +178,9 @@ alloc_ipv4(_TEI, _ReqIPv4, _State) ->
 alloc_ipv6(TEI, {ReqIPv6, PrefixLen}, #state{ip6_pools = Pools}) ->
     case ReqIPv6 of
 	{0,0,0,0,0,0,0,0} ->
-	    ipv6_interface_id(alloc_prefix(TEI, PrefixLen, Pools), ?UE_INTERFACE_ID);
+	    ergw_inet:ipv6_interface_id(alloc_prefix(TEI, PrefixLen, Pools), ?UE_INTERFACE_ID);
 	_ ->
-	    ipv6_interface_id(alloc_prefix(TEI, ReqIPv6, PrefixLen, Pools), ReqIPv6)
+	    ergw_inet:ipv6_interface_id(alloc_prefix(TEI, ReqIPv6, PrefixLen, Pools), ReqIPv6)
     end;
 alloc_ipv6(_TEI, _ReqIPv6, _State) ->
     undefined.
@@ -227,10 +227,3 @@ release_ip(IP, PrefixLen, Pools) ->
 	_ ->
 	    ok
     end.
-
-ipv6_interface_id({Prefix, PrefixLen}, IntId) when PrefixLen =< 126 ->
-    <<Addr:PrefixLen/bits, _/bits>> = ergw_inet:ip2bin(Prefix),
-    <<_:PrefixLen/bits, IntIdBin/bits>> = ergw_inet:ip2bin(IntId),
-    {ergw_inet:bin2ip(<<Addr/bits, IntIdBin/bits>>), PrefixLen};
-ipv6_interface_id(Other, _) ->
-    Other.
