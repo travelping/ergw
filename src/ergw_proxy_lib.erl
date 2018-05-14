@@ -163,24 +163,6 @@ make_proxy_request(Direction, Request, SeqNo, NewPeer, State) ->
 %%% Sx DP API
 %%%===================================================================
 
-network_instance(#gtp_port{network_instance = Name}) ->
-    #network_instance{instance = Name}.
-
-f_seid(SEID, {_,_,_,_} = IP) ->
-    #f_seid{seid = SEID, ipv4 = ergw_inet:ip2bin(IP)};
-f_seid(SEID, {_,_,_,_,_,_,_,_} = IP) ->
-    #f_seid{seid = SEID, ipv6 = ergw_inet:ip2bin(IP)}.
-
-f_teid(TEID, {_,_,_,_} = IP) ->
-    #f_teid{teid = TEID, ipv4 = ergw_inet:ip2bin(IP)};
-f_teid(TEID, {_,_,_,_,_,_,_,_} = IP) ->
-    #f_teid{teid = TEID, ipv6 = ergw_inet:ip2bin(IP)}.
-
-gtp_u_peer(TEID, {_,_,_,_} = IP) ->
-    #outer_header_creation{type = 'GTP-U', teid = TEID, ipv4 = ergw_inet:ip2bin(IP)};
-gtp_u_peer(TEID,  {_,_,_,_,_,_,_,_} = IP) ->
-    #outer_header_creation{type = 'GTP-U', teid = TEID, ipv6 = ergw_inet:ip2bin(IP)}.
-
 create_pdr({RuleId, Intf,
 	    #context{
 	       data_port = #gtp_port{ip = IP} = DataPort,
@@ -189,15 +171,15 @@ create_pdr({RuleId, Intf,
     PDI = #pdi{
 	     group =
 		 [#source_interface{interface = Intf},
-		  network_instance(DataPort),
-		  f_teid(LocalTEI, IP)]
+		  ergw_pfcp:network_instance(DataPort),
+		  ergw_pfcp:f_teid(LocalTEI, IP)]
 	    },
     PDR = #create_pdr{
 	     group =
 		 [#pdr_id{id = RuleId},
 		  #precedence{precedence = 100},
 		  PDI,
-		  #outer_header_removal{header = 'GTP-U/UDP/IPv4'},
+		  ergw_pfcp:outer_header_removal(IP),
 		  #far_id{id = RuleId},
 		  #urr_id{id = 1}]
 	    },
@@ -217,8 +199,8 @@ create_far({RuleId, Intf,
 		  #forwarding_parameters{
 		     group =
 			 [#destination_interface{interface = Intf},
-			  network_instance(DataPort),
-			  gtp_u_peer(RemoteTEI, PeerIP)
+			  ergw_pfcp:network_instance(DataPort),
+			  ergw_pfcp:outer_header_creation(RemoteTEI, PeerIP)
 			 ]
 		    }
 		 ]
@@ -238,15 +220,15 @@ update_pdr({RuleId, Intf,
     PDI = #pdi{
 	     group =
 		 [#source_interface{interface = Intf},
-		  network_instance(NewDataPort),
-		  f_teid(NewLocalTEI, IP)]
+		  ergw_pfcp:network_instance(NewDataPort),
+		  ergw_pfcp:f_teid(NewLocalTEI, IP)]
 	    },
     PDR = #update_pdr{
 	     group =
 		 [#pdr_id{id = RuleId},
 		  #precedence{precedence = 100},
 		  PDI,
-		  #outer_header_removal{header = 'GTP-U/UDP/IPv4'},
+		  ergw_pfcp:outer_header_removal(IP),
 		  #far_id{id = RuleId},
 		  #urr_id{id = 1}]
 	    },
@@ -281,8 +263,8 @@ update_far({RuleId, Intf,
 		  #update_forwarding_parameters{
 		     group =
 			 [#destination_interface{interface = Intf},
-			  network_instance(NewDataPort),
-			  gtp_u_peer(NewRemoteTEI, NewPeerIP)
+			  ergw_pfcp:network_instance(NewDataPort),
+			  ergw_pfcp:outer_header_creation(NewRemoteTEI, NewPeerIP)
 			  | [#sxsmreq_flags{sndem = 1} ||
 				v2 =:= NewVersion andalso v2 =:= OldVersion]
 			 ]
@@ -298,14 +280,13 @@ create_forward_session(Candidates, Left0, Right0) ->
     Right1 = Right0#context{dp_node = Left1#context.dp_node,
 			    data_port = Left1#context.data_port},
 
-    {ok, NWIs} = ergw_sx_node:get_network_instances(Left1),
-    Left = assign_data_teid(Left1, get_context_nwi(Left1, NWIs)),
-    Right = assign_data_teid(Right1, get_context_nwi(Right1, NWIs)),
+    Left = ergw_pfcp:assign_data_teid(Left1, control),
+    Right = ergw_pfcp:assign_data_teid(Right1, control),
     SEID = ergw_sx_socket:seid(),
     {ok, #node{node = _Node, ip = IP}, _} = ergw_sx_socket:id(),
 
     IEs =
-	[f_seid(SEID, IP)] ++
+	[ergw_pfcp:f_seid(SEID, IP)] ++
 	lists:foldl(fun create_pdr/2, [], [{1, 'Access', Left}, {2, 'Core', Right}]) ++
 	lists:foldl(fun create_far/2, [], [{2, 'Access', Left}, {1, 'Core', Right}]) ++
 	[#create_urr{group =
@@ -325,8 +306,10 @@ create_forward_session(Candidates, Left0, Right0) ->
 modify_forward_session(#context{dp_seid = SEID, local_control_tei = OldSEID} = OldLeft,
 		       #context{local_control_tei = NewSEID} = NewLeft,
 		       OldRight, NewRight) ->
+    {ok, #node{node = _Node, ip = IP}, _} = ergw_sx_socket:id(),
+
     IEs =
-	[#f_seid{seid = NewSEID} || NewSEID /= OldSEID] ++
+	[ergw_pfcp:f_seid(NewSEID, IP) || NewSEID /= OldSEID] ++
 	lists:foldl(fun update_pdr/2, [],
 		    [{1, 'Access', OldLeft, NewLeft},
 		     {2, 'Core', OldRight, NewRight}]) ++
@@ -345,15 +328,3 @@ query_usage_report(#context{dp_seid = SEID} = Ctx) ->
     Req = #pfcp{version = v1, type = session_modification_request,
 		seid = SEID, ie = IEs},
     ergw_sx_node:call(Ctx, Req).
-
-get_context_nwi(#context{control_port = #gtp_port{name = Name}}, NWIs) ->
-    maps:get(Name, NWIs).
-
-assign_data_teid(#context{data_port = DataPort} = Context,
-		 #nwi{name = Name, ipv4 = IP4, ipv6 = IP6}) ->
-    {ok, DataTEI} = gtp_context_reg:alloc_tei(DataPort),
-    IP = ergw_gsn_lib:choose_context_ip(IP4, IP6, Context),
-    Context#context{
-      data_port = DataPort#gtp_port{ip = ergw_inet:bin2ip(IP), network_instance = Name},
-      local_data_tei = DataTEI
-     }.

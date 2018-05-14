@@ -24,13 +24,12 @@
 
 create_sgi_session(Candidates, Ctx0) ->
     Ctx1 = ergw_sx_node:select_sx_node(Candidates, Ctx0),
-    {ok, NWIs} = ergw_sx_node:get_network_instances(Ctx1),
-    Ctx = assign_data_teid(Ctx1, get_context_nwi(control, Ctx1, NWIs)),
+    Ctx = ergw_pfcp:assign_data_teid(Ctx1, control),
     SEID = ergw_sx_socket:seid(),
     {ok, #node{node = _Node, ip = IP}, _} = ergw_sx_socket:id(),
 
     IEs =
-	[f_seid(SEID, IP),
+	[ergw_pfcp:f_seid(SEID, IP),
 	 create_dp_to_cp_far(access, 1000, Ctx)] ++
 	lists:foldl(fun create_pdr/2, [], [{1, gtp, Ctx}, {2, sgi, Ctx}]) ++
 	lists:foldl(fun create_far/2, [], [{2, gtp, Ctx}, {1, sgi, Ctx}]) ++
@@ -80,39 +79,6 @@ send_sx_response(ReqKey, #context{dp_seid = SEID}, Msg) ->
 %%% Helper functions
 %%%===================================================================
 
-ue_ip_address(Direction, #context{ms_v4 = {MSv4,_}, ms_v6 = {MSv6,_}}) ->
-    #ue_ip_address{type = Direction, ipv4 = ergw_inet:ip2bin(MSv4),
-		   ipv6 = ergw_inet:ip2bin(MSv6)};
-ue_ip_address(Direction, #context{ms_v4 = {MSv4,_}}) ->
-    #ue_ip_address{type = Direction, ipv4 = ergw_inet:ip2bin(MSv4)};
-ue_ip_address(Direction, #context{ms_v6 = {MSv6,_}}) ->
-    #ue_ip_address{type = Direction, ipv6 = ergw_inet:ip2bin(MSv6)}.
-
-network_instance(Name) when is_atom(Name) ->
-    #network_instance{instance = [atom_to_binary(Name, latin1)]};
-network_instance(#gtp_port{network_instance = Name}) ->
-    #network_instance{instance = Name}.
-
-f_seid(SEID, {_,_,_,_} = IP) ->
-    #f_seid{seid = SEID, ipv4 = ergw_inet:ip2bin(IP)};
-f_seid(SEID, {_,_,_,_,_,_,_,_} = IP) ->
-    #f_seid{seid = SEID, ipv6 = ergw_inet:ip2bin(IP)}.
-
-f_teid(TEID, {_,_,_,_} = IP) ->
-    #f_teid{teid = TEID, ipv4 = ergw_inet:ip2bin(IP)};
-f_teid(TEID, {_,_,_,_,_,_,_,_} = IP) ->
-    #f_teid{teid = TEID, ipv6 = ergw_inet:ip2bin(IP)}.
-
-gtp_u_peer(TEID, {_,_,_,_} = IP) ->
-    #outer_header_creation{type = 'GTP-U', teid = TEID, ipv4 = ergw_inet:ip2bin(IP)};
-gtp_u_peer(TEID,  {_,_,_,_,_,_,_,_} = IP) ->
-    #outer_header_creation{type = 'GTP-U', teid = TEID, ipv6 = ergw_inet:ip2bin(IP)}.
-
-outer_header_removal({_,_,_,_}) ->
-    #outer_header_removal{header = 'GTP-U/UDP/IPv4'};
-outer_header_removal({_,_,_,_,_,_,_,_}) ->
-    #outer_header_removal{header = 'GTP-U/UDP/IPv6'}.
-
 create_ipv6_mcast_pdr(PdrId, FarId,
 		      #context{
 			 data_port = #gtp_port{ip = IP} = DataPort,
@@ -124,8 +90,8 @@ create_ipv6_mcast_pdr(PdrId, FarId,
 	    #pdi{
 	       group =
 		   [#source_interface{interface = 'Access'},
-		    network_instance(DataPort),
-		    f_teid(LocalTEI, IP),
+		    ergw_pfcp:network_instance(DataPort),
+		    ergw_pfcp:f_teid(LocalTEI, IP),
 		    #sdf_filter{
 		       flow_description =
 			   <<"permit out 58 from any to ff00::/8">>}
@@ -143,8 +109,8 @@ create_dp_to_cp_far(access, FarId,
 	    #forwarding_parameters{
 	       group =
 		   [#destination_interface{interface = 'CP-function'},
-		    network_instance(CpPort),
-		    gtp_u_peer(CpTEI, CpIP)
+		    ergw_pfcp:network_instance(CpPort),
+		    ergw_pfcp:outer_header_creation(CpTEI, CpIP)
 		   ]
 	      }
 	   ]
@@ -158,16 +124,16 @@ create_pdr({RuleId, gtp,
     PDI = #pdi{
 	     group =
 		 [#source_interface{interface = 'Access'},
-		  network_instance(DataPort),
-		  f_teid(LocalTEI, IP),
-		  ue_ip_address(src, Ctx)]
+		  ergw_pfcp:network_instance(DataPort),
+		  ergw_pfcp:f_teid(LocalTEI, IP),
+		  ergw_pfcp:ue_ip_address(src, Ctx)]
 	    },
     PDR = #create_pdr{
 	     group =
 		 [#pdr_id{id = RuleId},
 		  #precedence{precedence = 100},
 		  PDI,
-		  outer_header_removal(IP),
+		  ergw_pfcp:outer_header_removal(IP),
 		  #far_id{id = RuleId},
 		  #urr_id{id = 1}]
 	    },
@@ -177,8 +143,8 @@ create_pdr({RuleId, sgi, #context{vrf = InPortName} = Ctx}, PDRs) ->
     PDI = #pdi{
 	     group =
 		 [#source_interface{interface = 'SGi-LAN'},
-		  network_instance(InPortName),
-		  ue_ip_address(dst, Ctx)]
+		  ergw_pfcp:network_instance(InPortName),
+		  ergw_pfcp:ue_ip_address(dst, Ctx)]
 	     },
     PDR = #create_pdr{
 	     group =
@@ -204,8 +170,8 @@ create_far({RuleId, gtp,
 		  #forwarding_parameters{
 		     group =
 			 [#destination_interface{interface = 'Access'},
-			  network_instance(DataPort),
-			  gtp_u_peer(RemoteTEI, PeerIP)
+			  ergw_pfcp:network_instance(DataPort),
+			  ergw_pfcp:outer_header_creation(RemoteTEI, PeerIP)
 			 ]
 		    }
 		 ]
@@ -220,7 +186,7 @@ create_far({RuleId, sgi, #context{vrf = VRF}}, FARs) ->
 		  #forwarding_parameters{
 		     group =
 			 [#destination_interface{interface = 'SGi-LAN'},
-			  network_instance(VRF)]
+			  ergw_pfcp:network_instance(VRF)]
 		    }
 		 ]
 	    },
@@ -240,15 +206,15 @@ update_pdr({RuleId, gtp,
     PDI = #pdi{
 	     group =
 		 [#source_interface{interface = 'Access'},
-		  network_instance(DataPort),
-		  f_teid(LocalTEI, IP)]
+		  ergw_pfcp:network_instance(DataPort),
+		  ergw_pfcp:f_teid(LocalTEI, IP)]
 	    },
     PDR = #update_pdr{
 	     group =
 		 [#pdr_id{id = RuleId},
 		  #precedence{precedence = 100},
 		  PDI,
-		  outer_header_removal(IP),
+		  ergw_pfcp:outer_header_removal(IP),
 		  #far_id{id = RuleId},
 		  #urr_id{id = 1}]
 	    },
@@ -264,8 +230,8 @@ update_pdr({RuleId, sgi,
     PDI = #pdi{
 	     group =
 		 [#source_interface{interface = 'SGi-LAN'},
-		  network_instance(InPortName),
-		  ue_ip_address(dst, Ctx)]
+		  ergw_pfcp:network_instance(InPortName),
+		  ergw_pfcp:ue_ip_address(dst, Ctx)]
 	     },
     PDR = #update_pdr{
 	     group =
@@ -307,8 +273,8 @@ update_far({RuleId, gtp,
 		  #update_forwarding_parameters{
 		     group =
 			 [#destination_interface{interface = 'Access'},
-			  network_instance(DataPort),
-			  gtp_u_peer(RemoteTEI, PeerIP)
+			  ergw_pfcp:network_instance(DataPort),
+			  ergw_pfcp:outer_header_creation(RemoteTEI, PeerIP)
 			  | [#sxsmreq_flags{sndem = 1} ||
 				v2 =:= Version andalso v2 =:= OldVersion]
 			 ]
@@ -329,7 +295,7 @@ update_far({RuleId, sgi,
 		  #update_forwarding_parameters{
 		     group =
 			 [#destination_interface{interface = 'SGi-LAN'},
-			  network_instance(OutPortName)]
+			  ergw_pfcp:network_instance(OutPortName)]
 		    }
 		 ]
 	    },
@@ -338,13 +304,6 @@ update_far({RuleId, sgi,
 update_far({_RuleId, _Type, _Out, _OldOut}, FARs) ->
     FARs.
 
-get_context_nwi(control, #context{control_port = #gtp_port{name = Name}}, NWIs) ->
-    maps:get(Name, NWIs);
-get_context_nwi(data, #context{data_port = #gtp_port{name = Name}}, NWIs) ->
-    maps:get(Name, NWIs);
-get_context_nwi(cp, #context{cp_port = #gtp_port{name = Name}}, NWIs) ->
-    maps:get(Name, NWIs).
-
 %% use additional information from the Context to prefre V4 or V6....
 choose_context_ip(IP4, _IP6, _Context)
   when is_binary(IP4) ->
@@ -352,12 +311,3 @@ choose_context_ip(IP4, _IP6, _Context)
 choose_context_ip(_IP4, IP6, _Context)
   when is_binary(IP6) ->
     IP6.
-
-assign_data_teid(#context{data_port = DataPort} = Context,
-		 #nwi{name = Name, ipv4 = IP4, ipv6 = IP6}) ->
-    {ok, DataTEI} = gtp_context_reg:alloc_tei(DataPort),
-    IP = choose_context_ip(IP4, IP6, Context),
-    Context#context{
-      data_port = DataPort#gtp_port{ip = ergw_inet:bin2ip(IP), network_instance = Name},
-      local_data_tei = DataTEI
-     }.
