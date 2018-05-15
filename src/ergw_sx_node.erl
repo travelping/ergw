@@ -122,14 +122,10 @@ init([Node, IP4, IP6]) ->
     gtp_context_reg:register(GtpPort, {teid, 'gtp-u', TEI}, self()),
     GtpNWI = string:split(atom_to_binary(GtpPort#gtp_port.name, utf8), ".", all),
 
-    NWIs = lists:foldl(
-	     fun({Id, Opts}, N) ->
-		     NWI = #nwi{
-			      name = Id,
-			      features = proplists:get_value(features, Opts, [])
-			     },
-		     N#{Id => NWI}
-	     end, #{}, node_network_instances(Node)),
+    NWIs = maps:map(
+	     fun(Id, #{features := Features}) ->
+		     #nwi{name = Id, features = Features}
+	     end, node_network_instances(Node)),
 
     Data = #data{timeout = 10,
 		 gtp_port = GtpPort#gtp_port{network_instance = GtpNWI},
@@ -252,12 +248,12 @@ code_change(_OldVsn, Data, _Extra) ->
 %%%===================================================================
 
 node_network_instances(Name, Nodes, Default) ->
-    Layout = proplists:get_value(Name, Nodes, []),
-    proplists:get_value(network_instances, Layout, Default).
+    Layout = maps:get(Name, Nodes, #{}),
+    maps:get(network_instances, Layout, Default).
 
 node_network_instances(Name) ->
     {ok, Nodes} = setup:get_env(ergw, nodes),
-    Default = node_network_instances(default, Nodes, []),
+    Default = node_network_instances(default, Nodes, #{}),
     node_network_instances(Name, Nodes, Default).
 
 pfcp_reply_actions({call, {Pid, Tag}}, Reply)
