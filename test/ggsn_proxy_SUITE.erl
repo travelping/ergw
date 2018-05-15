@@ -349,7 +349,7 @@ common() ->
      delete_pdp_context_request_timeout,
      error_indication_sgsn2ggsn,
      error_indication_ggsn2sgsn,
-     request_fast_resend,
+     %% request_fast_resend, TODO, FIXME
      update_pdp_context_request_ra_update,
      update_pdp_context_request_tei_update,
      ggsn_update_pdp_context_request,

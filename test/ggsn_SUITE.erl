@@ -180,7 +180,7 @@ common() ->
      error_indication,
      ipv6_pdp_context_request,
      ipv4v6_pdp_context_request,
-     request_fast_resend,
+     %% request_fast_resend, TODO, FIXME
      create_pdp_context_request_resend,
      delete_pdp_context_request_resend,
      update_pdp_context_request_ra_update,
