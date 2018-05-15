@@ -23,10 +23,13 @@
 			 {sockets, []},
 			 {handlers, []},
 			 {node_selection, [{default, {dns, undefined}}]},
+			 {nodes, []},
 			 {vrfs, []},
 			 {apns, []}]).
 
 -define(is_opts(X), (is_list(X) orelse is_map(X))).
+-define(non_empty_opts(X), ((is_list(X) andalso length(X) /= 0) orelse
+			    (is_map(X) andalso map_size(X) /= 0))).
 
 %%%===================================================================
 %%% API
@@ -41,6 +44,7 @@ load_config(Config0) ->
     lists:foreach(fun load_apn/1, proplists:get_value(apns, Config)),
     {ok, _} = ergw_sx_socket:start_sx_socket(proplists:get_value(sx_socket, Config)),
     application:set_env(ergw, node_selection, proplists:get_value(node_selection, Config)),
+    application:set_env(ergw, nodes, proplists:get_value(nodes, Config)),
     ergw_http_api:init(),
     ok.
 
@@ -174,6 +178,9 @@ validate_option(handlers, Value) when is_list(Value), length(Value) >= 1 ->
 validate_option(node_selection, Value) when ?is_opts(Value) ->
     check_unique_keys(node_selection, Value),
     validate_options(fun validate_node_selection_option/2, Value, [], map);
+validate_option(nodes, Value) when ?non_empty_opts(Value) ->
+    check_unique_keys(nodes, Value),
+    validate_options(fun validate_nodes/2, Value, [], map);
 validate_option(vrfs, Value) when is_list(Value) ->
     check_unique_keys(vrfs, Value),
     validate_options(fun validate_vrfs_option/2, Value);
@@ -189,6 +196,7 @@ validate_option(Opt, Value)
        Opt == sockets;
        Opt == handlers;
        Opt == node_selection;
+       Opt == nodes;
        Opt == vrfs;
        Opt == apns;
        Opt == http_api ->
@@ -239,6 +247,37 @@ validate_node_selection_option(Key, {Type, Opts})
   when is_atom(Key), is_atom(Type) ->
     {Type, ergw_node_selection:validate_options(Type, Opts)};
 validate_node_selection_option(Opt, Values) ->
+    throw({error, {options, {Opt, Values}}}).
+
+validate_node_nwi_option(features, Features)
+  when is_list(Features), length(Features) /= 0 ->
+    Rem = lists:usort(Features) --
+	['Access', 'Core', 'SGi-LAN', 'CP-Function', 'LI Function'],
+    if Rem /= [] ->
+	    throw({error, {options, {features, Features}}});
+       true ->
+	    Features
+    end;
+validate_node_nwi_option(Opt, Values) ->
+    throw({error, {options, {Opt, Values}}}).
+
+validate_node_nwis(Name, Opts)
+  when is_atom(Name), ?is_opts(Opts) ->
+    validate_options(fun validate_node_nwi_option/2, Opts, [{features, invalid}], map);
+validate_node_nwis(Name, Opts) ->
+    throw({error, {options, {Name, Opts}}}).
+
+validate_node_option(network_instances, NWIs)
+  when ?non_empty_opts(NWIs) ->
+    check_unique_keys(network_instances, NWIs),
+    validate_options(fun validate_node_nwis/2, NWIs, [], map);
+validate_node_option(Opt, Values) ->
+    throw({error, {options, {Opt, Values}}}).
+
+validate_nodes(Name, Opts)
+  when is_atom(Name), ?is_opts(Opts) ->
+    validate_options(fun validate_node_option/2, Opts, [{network_instances, invalid}], map);
+validate_nodes(Opt, Values) ->
     throw({error, {options, {Opt, Values}}}).
 
 validate_vrfs_option(Opt, Values)

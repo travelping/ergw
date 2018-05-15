@@ -102,6 +102,16 @@
 		  ]
 		 },
 
+		 {nodes,
+		  [{default,
+		    [{network_instances,
+		      [{cp, [{features, ['CP-Function']}]},
+		       {irx, [{features, ['Access']}]},
+		       {sgi, [{features, ['SGi-LAN']}]}]
+		     }]
+		   }]
+		 },
+
                  {http_api, [{port, 0}]}
                 ]},
 	 {ergw_aaa, [{ergw_aaa_provider, {ergw_aaa_mock, [{shared_secret, <<"MySecret">>}]}}]}
