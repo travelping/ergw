@@ -196,7 +196,7 @@ common() ->
      static_ipv6_bearer_request,
      static_ipv6_host_bearer_request,
      ipv4v6_bearer_request,
-     request_fast_resend,
+     %% request_fast_resend, TODO, FIXME
      create_session_request_resend,
      delete_session_request_resend,
      modify_bearer_request_ra_update,

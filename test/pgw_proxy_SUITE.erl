@@ -369,7 +369,7 @@ common() ->
      delete_session_request_timeout,
      error_indication_sgw2pgw,
      error_indication_pgw2sgw,
-     request_fast_resend,
+     %% request_fast_resend, TODO, FIXME
      modify_bearer_request_ra_update,
      modify_bearer_request_tei_update,
      modify_bearer_command,
