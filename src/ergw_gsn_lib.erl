@@ -140,11 +140,11 @@ create_pdr({RuleId, gtp,
 	    },
     [PDR | PDRs];
 
-create_pdr({RuleId, sgi, #context{vrf = InPortName} = Ctx}, PDRs) ->
+create_pdr({RuleId, sgi, Ctx}, PDRs) ->
     PDI = #pdi{
 	     group =
 		 [#source_interface{interface = 'SGi-LAN'},
-		  ergw_pfcp:network_instance(InPortName),
+		  ergw_pfcp:network_instance(Ctx),
 		  ergw_pfcp:ue_ip_address(dst, Ctx)]
 	     },
     PDR = #create_pdr{
@@ -179,7 +179,7 @@ create_far({RuleId, gtp,
 	    },
     [FAR | FARs];
 
-create_far({RuleId, sgi, #context{vrf = VRF}}, FARs) ->
+create_far({RuleId, sgi, Ctx}, FARs) ->
     FAR = #create_far{
 	     group =
 		 [#far_id{id = RuleId},
@@ -187,7 +187,7 @@ create_far({RuleId, sgi, #context{vrf = VRF}}, FARs) ->
 		  #forwarding_parameters{
 		     group =
 			 [#destination_interface{interface = 'SGi-LAN'},
-			  ergw_pfcp:network_instance(VRF)]
+			  ergw_pfcp:network_instance(Ctx)]
 		    }
 		 ]
 	    },
@@ -222,16 +222,16 @@ update_pdr({RuleId, gtp,
     [PDR | PDRs];
 
 update_pdr({RuleId, sgi,
-	    #context{vrf = InPortName, ms_v4 = MSv4, ms_v6 = MSv6} = Ctx,
-	    #context{vrf = OldInPortName, ms_v4 = OldMSv4, ms_v6 = OldMSv6}},
+	    #context{vrf = VRF, ms_v4 = MSv4, ms_v6 = MSv6} = Ctx,
+	    #context{vrf = OldVRF, ms_v4 = OldMSv4, ms_v6 = OldMSv6}},
 	   PDRs)
-  when OldInPortName /= InPortName;
+  when OldVRF /= VRF;
        OldMSv4 /= MSv4;
        OldMSv6 /= MSv6 ->
     PDI = #pdi{
 	     group =
 		 [#source_interface{interface = 'SGi-LAN'},
-		  ergw_pfcp:network_instance(InPortName),
+		  ergw_pfcp:network_instance(Ctx),
 		  ergw_pfcp:ue_ip_address(dst, Ctx)]
 	     },
     PDR = #update_pdr{
@@ -284,11 +284,8 @@ update_far({RuleId, gtp,
 	    },
     [FAR | FARs];
 
-update_far({RuleId, sgi,
-	    #context{vrf = OutPortName},
-	    #context{vrf = OldOutPortName}},
-	   FARs)
-  when OldOutPortName /= OutPortName ->
+update_far({RuleId, sgi, #context{vrf = VRF} = Ctx, #context{vrf = OldVRF}}, FARs)
+  when OldVRF /= VRF ->
     FAR = #update_far{
 	     group =
 		 [#far_id{id = RuleId},
@@ -296,7 +293,7 @@ update_far({RuleId, sgi,
 		  #update_forwarding_parameters{
 		     group =
 			 [#destination_interface{interface = 'SGi-LAN'},
-			  ergw_pfcp:network_instance(OutPortName)]
+			  ergw_pfcp:network_instance(Ctx)]
 		    }
 		 ]
 	    },
@@ -342,8 +339,7 @@ ip_pdu(Data, _Context) ->
 %% IPv6 Router Solicitation
 icmpv6(TC, FlowLabel, _SrcAddr, ?'IPv6 All Routers LL',
        <<?'ICMPv6 Router Solicitation':8, _Code:8, _CSum:16, _/binary>>,
-       #context{data_port = #gtp_port{ip = DpGtpIP,
-				      network_instance = NetworkInstance},
+       #context{data_port = #gtp_port{ip = DpGtpIP, vrf = VRF},
 		remote_data_ip = GtpIP, remote_data_tei = TEI,
 		ms_v6 = MSv6, dns_v6 = DNSv6} = Context) ->
     {Prefix, PLen} = ergw_inet:ipv6_interface_id(MSv6, ?NULL_INTERFACE_ID),
@@ -393,7 +389,7 @@ icmpv6(TC, FlowLabel, _SrcAddr, ?'IPv6 All Routers LL',
     UDP = ergw_inet:make_udp(
 	    ergw_inet:ip2bin(DpGtpIP), ergw_inet:ip2bin(GtpIP),
 	    ?GTP1u_PORT, ?GTP1u_PORT, PayLoad),
-    ergw_sx_node:send(Context, 'Access', NetworkInstance, UDP),
+    ergw_sx_node:send(Context, 'Access', VRF, UDP),
     ok;
 
 icmpv6(_TC, _FlowLabel, _SrcAddr, _DstAddr, _PayLoad, _Context) ->

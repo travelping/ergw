@@ -32,7 +32,7 @@
 
 -record(gtp_port, {
 	  name             :: term(),
-	  network_instance :: term(),
+	  vrf              :: term(),
 	  type             :: 'gtp-c' | 'gtp-u',
 	  pid              :: pid(),
 	  restart_counter  :: integer(),
@@ -91,7 +91,7 @@
 	  new_peer	:: boolean()
 }).
 
--record(nwi, {
+-record(vrf, {
 	  name                   :: atom(),
 	  features = ['SGi-Lan'] :: ['Access' | 'Core' | 'SGi-LAN' |
 				     'CP-Function' | 'LI Function'],

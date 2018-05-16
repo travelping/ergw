@@ -35,8 +35,12 @@ network_instance(Name) when is_atom(Name) ->
     #network_instance{instance = [atom_to_binary(Name, latin1)]};
 network_instance([Label | _] = Instance) when is_binary(Label) ->
     #network_instance{instance = Instance};
-network_instance(#gtp_port{network_instance = NetworkInstance}) ->
-    network_instance(NetworkInstance).
+network_instance(#gtp_port{vrf = VRF}) ->
+    network_instance(VRF);
+network_instance(#context{vrf = VRF}) ->
+    network_instance(VRF);
+network_instance(#vrf{name = Name}) ->
+    network_instance(Name).
 
 f_seid(SEID, {_,_,_,_} = IP) ->
     #f_seid{seid = SEID, ipv4 = ergw_inet:ip2bin(IP)};
@@ -58,22 +62,22 @@ outer_header_removal({_,_,_,_}) ->
 outer_header_removal({_,_,_,_,_,_,_,_}) ->
     #outer_header_removal{header = 'GTP-U/UDP/IPv6'}.
 
-get_context_nwi(control, #context{control_port = #gtp_port{name = Name}}, NWIs) ->
-    maps:get(Name, NWIs);
-get_context_nwi(data, #context{data_port = #gtp_port{name = Name}}, NWIs) ->
-    maps:get(Name, NWIs);
-get_context_nwi(cp, #context{cp_port = #gtp_port{name = Name}}, NWIs) ->
-    maps:get(Name, NWIs).
+get_context_vrf(control, #context{control_port = #gtp_port{name = Name}}, VRFs) ->
+    maps:get(Name, VRFs);
+get_context_vrf(data, #context{data_port = #gtp_port{name = Name}}, VRFs) ->
+    maps:get(Name, VRFs);
+get_context_vrf(cp, #context{cp_port = #gtp_port{name = Name}}, VRFs) ->
+    maps:get(Name, VRFs).
 
 assign_data_teid(#context{data_port = DataPort} = Context, Type) ->
 
-    {ok, NWIs} = ergw_sx_node:get_network_instances(Context),
-    #nwi{name = Name, ipv4 = IP4, ipv6 = IP6} =
-	get_context_nwi(Type, Context, NWIs),
+    {ok, VRFs} = ergw_sx_node:get_vrfs(Context),
+    #vrf{name = Name, ipv4 = IP4, ipv6 = IP6} =
+	get_context_vrf(Type, Context, VRFs),
 
     {ok, DataTEI} = gtp_context_reg:alloc_tei(DataPort),
     IP = ergw_gsn_lib:choose_context_ip(IP4, IP6, Context),
     Context#context{
-      data_port = DataPort#gtp_port{ip = ergw_inet:bin2ip(IP), network_instance = Name},
+      data_port = DataPort#gtp_port{ip = ergw_inet:bin2ip(IP), vrf = Name},
       local_data_tei = DataTEI
      }.

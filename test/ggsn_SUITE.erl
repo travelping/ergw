@@ -110,7 +110,7 @@
 
 		 {nodes,
 		  [{default,
-		    [{network_instances,
+		    [{vrfs,
 		      [{cp, [{features, ['CP-Function']}]},
 		       {irx, [{features, ['Access']}]},
 		       {upstream, [{features, ['SGi-LAN']}]}]

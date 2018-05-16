@@ -104,7 +104,7 @@
 
 		 {nodes,
 		  [{default,
-		    [{network_instances,
+		    [{vrfs,
 		      [{cp, [{features, ['CP-Function']}]},
 		       {irx, [{features, ['Access']}]},
 		       {sgi, [{features, ['SGi-LAN']}]}]
