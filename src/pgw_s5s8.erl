@@ -424,7 +424,7 @@ terminate(_Reason, _State) ->
 ip2prefix({IP, Prefix}) ->
     <<Prefix:8, (ergw_inet:ip2bin(IP))/binary>>.
 
-response(Cmd, #context{remote_control_tei = TEID}, Response) ->
+response(Cmd, #context{remote_control_teid = #fq_teid{teid = TEID}}, Response) ->
     {Cmd, TEID, Response}.
 
 response(Cmd, Context, IEs0, #gtp{ie = #{?'Recovery' := Recovery}}) ->
@@ -489,8 +489,11 @@ match_context(_Type, _Context, undefined) ->
     error_m:return(ok);
 match_context(Type,
 	      #context{
-		 remote_control_ip  = RemoteCntlIP,
-		 remote_control_tei = RemoteCntlTEI} = Context,
+		 remote_control_teid =
+		     #fq_teid{
+			ip = RemoteCntlIP,
+			teid = RemoteCntlTEI
+		       }} = Context,
 	      #v2_fully_qualified_tunnel_endpoint_identifier{
 		 instance       = 0,
 		 interface_type = Type,
@@ -710,8 +713,7 @@ update_context_cntl_ids(#v2_fully_qualified_tunnel_endpoint_identifier{
 			   key = TEI, ipv4 = IP4, ipv6 = IP6}, Context) ->
     IP = ergw_gsn_lib:choose_context_ip(IP4, IP6, Context),
     Context#context{
-      remote_control_ip  = ergw_inet:bin2ip(IP),
-      remote_control_tei = TEI
+      remote_control_teid = #fq_teid{ip = ergw_inet:bin2ip(IP), teid = TEI}
      };
 update_context_cntl_ids(_ , Context) ->
     Context.
@@ -720,8 +722,7 @@ update_context_data_ids(#v2_fully_qualified_tunnel_endpoint_identifier{
 			     key = TEI, ipv4 = IP4, ipv6 = IP6}, Context) ->
     IP = ergw_gsn_lib:choose_context_ip(IP4, IP6, Context),
     Context#context{
-      remote_data_ip  = ergw_inet:bin2ip(IP),
-      remote_data_tei = TEI
+      remote_data_teid = #fq_teid{ip = ergw_inet:bin2ip(IP), teid = TEI}
      };
 update_context_data_ids(_ , Context) ->
     Context.
@@ -765,14 +766,15 @@ copy_ies_to_response(RequestIEs, ResponseIEs0, [H|T]) ->
     copy_ies_to_response(RequestIEs, ResponseIEs, T).
 
 
-msg(#context{remote_control_tei = RemoteCntlTEI}, Type, RequestIEs) ->
+msg(#context{remote_control_teid = #fq_teid{teid = RemoteCntlTEI}}, Type, RequestIEs) ->
     #gtp{version = v2, type = Type, tei = RemoteCntlTEI, ie = RequestIEs}.
 
 
 send_request(GtpPort, DstIP, DstPort, T3, N3, Msg, ReqInfo) ->
     gtp_context:send_request(GtpPort, DstIP, DstPort, T3, N3, Msg, ReqInfo).
 
-send_request(#context{control_port = GtpPort, remote_control_ip = RemoteCntlIP},
+send_request(#context{control_port = GtpPort,
+		      remote_control_teid = #fq_teid{ip = RemoteCntlIP}},
 	     T3, N3, Msg, ReqInfo) ->
     send_request(GtpPort, RemoteCntlIP, ?GTP2c_PORT, T3, N3, Msg, ReqInfo).
 

@@ -33,7 +33,7 @@ forward_request(Direction, GtpPort, DstIP, DstPort,
 
 forward_request(Direction,
 		#context{control_port = GtpPort,
-			 remote_control_ip = RemoteCntlIP},
+			 remote_control_teid = #fq_teid{ip = RemoteCntlIP}},
 		Request, ReqKey, SeqNo, NewPeer, OldState) ->
     forward_request(Direction, GtpPort, RemoteCntlIP, ?GTP1c_PORT,
 		    Request, ReqKey, SeqNo, NewPeer, OldState).
@@ -188,10 +188,9 @@ create_pdr({RuleId, Intf,
 create_far({RuleId, Intf,
 	    #context{
 	       data_port = DataPort,
-	       remote_data_ip = PeerIP,
-	       remote_data_tei = RemoteTEI}},
+	       remote_data_teid = PeerTEID}},
 	   FARs)
-  when PeerIP /= undefined ->
+  when PeerTEID /= undefined ->
     FAR = #create_far{
 	     group =
 		 [#far_id{id = RuleId},
@@ -200,7 +199,7 @@ create_far({RuleId, Intf,
 		     group =
 			 [#destination_interface{interface = Intf},
 			  ergw_pfcp:network_instance(DataPort),
-			  ergw_pfcp:outer_header_creation(RemoteTEI, PeerIP)
+			  ergw_pfcp:outer_header_creation(PeerTEID)
 			 ]
 		    }
 		 ]
@@ -238,24 +237,21 @@ update_pdr({_RuleId, _Intf, _OldIn, _NewIn}, PDRs) ->
     PDRs.
 
 update_far({RuleId, Intf,
-	    #context{remote_data_ip = OldPeerIP},
-	    #context{remote_data_ip = NewPeerIP} = NewContext},
+	    #context{remote_data_teid = OldPeerTEID},
+	    #context{remote_data_teid = NewPeerTEID} = NewContext},
 	   FARs)
-  when (OldPeerIP =:= undefined andalso NewPeerIP /= undefined) ->
+  when (OldPeerTEID =:= undefined andalso NewPeerTEID /= undefined) ->
     create_far({RuleId, Intf, NewContext}, FARs);
 update_far({RuleId, Intf,
 	    #context{version = OldVersion,
 		     data_port = #gtp_port{name = OldOutPortName},
-		     remote_data_ip = OldPeerIP,
-		     remote_data_tei = OldRemoteTEI},
+		     remote_data_teid = OldPeerTEID},
 	    #context{version = NewVersion,
 		     data_port = #gtp_port{name = NewOutPortName} = NewDataPort,
-		     remote_data_ip = NewPeerIP,
-		     remote_data_tei = NewRemoteTEI}},
+		     remote_data_teid = NewPeerTEID}},
 	   FARs)
   when OldOutPortName /= NewOutPortName;
-       OldPeerIP /= NewPeerIP;
-       OldRemoteTEI /= NewRemoteTEI ->
+       OldPeerTEID /= NewPeerTEID ->
     FAR = #update_far{
 	     group =
 		 [#far_id{id = RuleId},
@@ -264,7 +260,7 @@ update_far({RuleId, Intf,
 		     group =
 			 [#destination_interface{interface = Intf},
 			  ergw_pfcp:network_instance(NewDataPort),
-			  ergw_pfcp:outer_header_creation(NewRemoteTEI, NewPeerIP)
+			  ergw_pfcp:outer_header_creation(NewPeerTEID)
 			  | [#sxsmreq_flags{sndem = 1} ||
 				v2 =:= NewVersion andalso v2 =:= OldVersion]
 			 ]

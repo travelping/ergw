@@ -14,7 +14,7 @@
 -export([register_new/1, register/1, update/2, unregister/1,
 	 register/3, unregister/2,
 	 lookup_key/2, lookup_keys/2,
-	 lookup_teid/2, lookup_teid/3, lookup_teid/4, lookup_seid/1,
+	 lookup_teid/2, lookup_seid/1,
 	 match_key/2, match_keys/2,
 	 await_unreg/1]).
 -export([all/0]).
@@ -58,17 +58,7 @@ lookup_keys(Port, [H|T]) ->
     end.
 
 lookup_teid(#gtp_port{type = Type} = Port, TEI) ->
-    lookup_teid(Port, Type, TEI).
-
-lookup_teid(Port, Type, TEI)
-  when is_atom(Type) ->
-    lookup_key(Port, {teid, Type, TEI});
-lookup_teid(#gtp_port{type = Type} = Port, IP, TEI)
-  when is_tuple(IP) andalso (size(IP) == 4 orelse size(IP) == 8) ->
-    lookup_teid(Port, Type, IP, TEI).
-
-lookup_teid(Port, Type, IP, TEI) ->
-    lookup_key(Port, {teid, Type, IP, TEI}).
+    lookup_key(Port, {teid, Type, TEI}).
 
 lookup_seid(SEID) ->
     case ets:lookup(?SERVER, {seid, SEID}) of
@@ -268,13 +258,13 @@ context2keys(#context{
 		local_control_tei  = LocalCntlTEI,
 		data_port          = DataPort,
 		local_data_tei     = LocalDataTEI,
-		remote_control_ip  = RemoteCntlIP,
-		remote_control_tei = RemoteCntlTEI,
+		remote_control_teid = RemoteCntlTEID,
 		cp_seid            = SEID}) ->
     ordsets:from_list(
       [{CntlPortName, {teid, 'gtp-c', LocalCntlTEI}},
-       {CntlPortName, {teid, 'gtp-c', RemoteCntlIP, RemoteCntlTEI}}]
-      ++ [{DataPort#gtp_port.name, {teid, 'gtp-u', DataPort#gtp_port.ip, LocalDataTEI}} ||
+       {CntlPortName, {teid, 'gtp-c', RemoteCntlTEID}}]
+      ++ [{DataPort#gtp_port.name, {teid, 'gtp-u', #fq_teid{ip = DataPort#gtp_port.ip,
+							    teid = LocalDataTEI}}} ||
 	     is_record(DataPort, gtp_port), is_integer(LocalDataTEI)]
       ++ [{seid, SEID} || SEID /= undefined]
       ++ [{CntlPortName, ContextId} || ContextId /= undefined]).

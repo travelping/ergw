@@ -242,7 +242,7 @@ terminate(_Reason, _State) ->
 %%% Internal functions
 %%%===================================================================
 
-response(Cmd, #context{remote_control_tei = TEID}, Response) ->
+response(Cmd, #context{remote_control_teid = #fq_teid{teid = TEID}}, Response) ->
     {Cmd, TEID, Response}.
 
 response(Cmd, Context, IEs0, #gtp{ie = #{?'Recovery' := Recovery}}) ->
@@ -572,14 +572,24 @@ negotiate_qos(ReqPriority, ReqQoSProfileData) ->
 	    {NegPriority, ReqQoSProfileData}
     end.
 
+set_fq_teid(Id, undefined, Value) ->
+    set_fq_teid(Id, #fq_teid{}, Value);
+set_fq_teid(ip, TEID, Value) ->
+    TEID#fq_teid{ip = ergw_inet:bin2ip(Value)};
+set_fq_teid(teid, TEID, Value) ->
+    TEID#fq_teid{teid = Value}.
+
+set_fq_teid(Id, Field, Context, Value) ->
+    setelement(Field, Context, set_fq_teid(Id, element(Field, Context), Value)).
+
 get_context_from_req(_, #gsn_address{instance = 0, address = CntlIP}, Context) ->
-    Context#context{remote_control_ip = ergw_inet:bin2ip(CntlIP)};
+    set_fq_teid(ip, #context.remote_control_teid, Context, CntlIP);
 get_context_from_req(_, #gsn_address{instance = 1, address = DataIP}, Context) ->
-    Context#context{remote_data_ip = ergw_inet:bin2ip(DataIP)};
+    set_fq_teid(ip, #context.remote_data_teid, Context, DataIP);
 get_context_from_req(_, #tunnel_endpoint_identifier_data_i{instance = 0, tei = DataTEI}, Context) ->
-    Context#context{remote_data_tei = DataTEI};
+    set_fq_teid(teid, #context.remote_data_teid, Context, DataTEI);
 get_context_from_req(_, #tunnel_endpoint_identifier_control_plane{instance = 0, tei = CntlTEI}, Context) ->
-    Context#context{remote_control_tei = CntlTEI};
+    set_fq_teid(teid, #context.remote_control_teid, Context, CntlTEI);
 get_context_from_req(?'Access Point Name', #access_point_name{apn = APN}, Context) ->
     Context#context{apn = APN};
 get_context_from_req(?'IMSI', #international_mobile_subscriber_identity{imsi = IMSI}, Context) ->
@@ -618,8 +628,11 @@ copy_ies_to_response(RequestIEs, ResponseIEs0, [H|T]) ->
     copy_ies_to_response(RequestIEs, ResponseIEs, T).
 
 send_request(#context{control_port = GtpPort,
-		      remote_control_tei = RemoteCntlTEI,
-		      remote_control_ip = RemoteCntlIP},
+		      remote_control_teid =
+			  #fq_teid{
+			     ip = RemoteCntlIP,
+			     teid = RemoteCntlTEI}
+		     },
 	     T3, N3, Type, RequestIEs, ReqInfo) ->
     Msg = #gtp{version = v1, type = Type, tei = RemoteCntlTEI, ie = RequestIEs},
     gtp_context:send_request(GtpPort, RemoteCntlIP, ?GTP1c_PORT, T3, N3, Msg, ReqInfo).

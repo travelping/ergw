@@ -12,7 +12,7 @@
 	 f_teid/2,
 	 ue_ip_address/2,
 	 network_instance/1,
-	 outer_header_creation/2,
+	 outer_header_creation/1,
 	 outer_header_removal/1,
 	 assign_data_teid/2]).
 
@@ -52,9 +52,9 @@ f_teid(TEID, {_,_,_,_} = IP) ->
 f_teid(TEID, {_,_,_,_,_,_,_,_} = IP) ->
     #f_teid{teid = TEID, ipv6 = ergw_inet:ip2bin(IP)}.
 
-outer_header_creation(TEID, {_,_,_,_} = IP) ->
+outer_header_creation(#fq_teid{ip = {_,_,_,_} = IP, teid = TEID}) ->
     #outer_header_creation{type = 'GTP-U', teid = TEID, ipv4 = ergw_inet:ip2bin(IP)};
-outer_header_creation(TEID,  {_,_,_,_,_,_,_,_} = IP) ->
+outer_header_creation(#fq_teid{ip = {_,_,_,_,_,_,_,_} = IP, teid = TEID}) ->
     #outer_header_creation{type = 'GTP-U', teid = TEID, ipv6 = ergw_inet:ip2bin(IP)}.
 
 outer_header_removal({_,_,_,_}) ->

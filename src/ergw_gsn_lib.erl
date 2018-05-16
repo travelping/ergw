@@ -111,7 +111,7 @@ create_dp_to_cp_far(access, FarId,
 	       group =
 		   [#destination_interface{interface = 'CP-function'},
 		    ergw_pfcp:network_instance(CpPort),
-		    ergw_pfcp:outer_header_creation(CpTEI, CpIP)
+		    ergw_pfcp:outer_header_creation(#fq_teid{ip = CpIP, teid = CpTEI})
 		   ]
 	      }
 	   ]
@@ -160,10 +160,9 @@ create_pdr({RuleId, sgi, Ctx}, PDRs) ->
 create_far({RuleId, gtp,
 	    #context{
 	       data_port = DataPort,
-	       remote_data_ip = PeerIP,
-	       remote_data_tei = RemoteTEI}},
+	       remote_data_teid = PeerTEID}},
 	   FARs)
-  when PeerIP /= undefined ->
+  when PeerTEID /= undefined ->
     FAR = #create_far{
 	     group =
 		 [#far_id{id = RuleId},
@@ -172,7 +171,7 @@ create_far({RuleId, gtp,
 		     group =
 			 [#destination_interface{interface = 'Access'},
 			  ergw_pfcp:network_instance(DataPort),
-			  ergw_pfcp:outer_header_creation(RemoteTEI, PeerIP)
+			  ergw_pfcp:outer_header_creation(PeerTEID)
 			 ]
 		    }
 		 ]
@@ -248,25 +247,22 @@ update_pdr({_RuleId, _Type, _In, _OldIn}, PDRs) ->
     PDRs.
 
 update_far({RuleId, gtp,
-	    #context{remote_data_ip = PeerIP} = Context,
-	    #context{remote_data_ip = OldPeerIP}},
+	    #context{remote_data_teid = PeerTEID} = Context,
+	    #context{remote_data_teid = OldPeerTEID}},
 	   FARs)
-  when (OldPeerIP =:= undefined andalso PeerIP /= undefined) ->
+  when (OldPeerTEID =:= undefined andalso PeerTEID /= undefined) ->
     create_far({RuleId, gtp, Context}, FARs);
 
 update_far({RuleId, gtp,
 	    #context{version = Version,
 		     data_port = #gtp_port{name = OutPortName} = DataPort,
-		     remote_data_ip = PeerIP,
-		     remote_data_tei = RemoteTEI},
+		     remote_data_teid = PeerTEID},
 	    #context{version = OldVersion,
 		     data_port = #gtp_port{name = OldOutPortName},
-		     remote_data_ip = OldPeerIP,
-		     remote_data_tei = OldRemoteTEI}},
+		     remote_data_teid = OldPeerTEID}},
 	   FARs)
   when OldOutPortName /= OutPortName;
-       OldPeerIP /= PeerIP;
-       OldRemoteTEI /= RemoteTEI ->
+       OldPeerTEID /= PeerTEID ->
     FAR = #update_far{
 	     group =
 		 [#far_id{id = RuleId},
@@ -275,7 +271,7 @@ update_far({RuleId, gtp,
 		     group =
 			 [#destination_interface{interface = 'Access'},
 			  ergw_pfcp:network_instance(DataPort),
-			  ergw_pfcp:outer_header_creation(RemoteTEI, PeerIP)
+			  ergw_pfcp:outer_header_creation(PeerTEID)
 			  | [#sxsmreq_flags{sndem = 1} ||
 				v2 =:= Version andalso v2 =:= OldVersion]
 			 ]
@@ -340,7 +336,7 @@ ip_pdu(Data, _Context) ->
 icmpv6(TC, FlowLabel, _SrcAddr, ?'IPv6 All Routers LL',
        <<?'ICMPv6 Router Solicitation':8, _Code:8, _CSum:16, _/binary>>,
        #context{data_port = #gtp_port{ip = DpGtpIP, vrf = VRF},
-		remote_data_ip = GtpIP, remote_data_tei = TEI,
+		remote_data_teid = #fq_teid{ip = GtpIP, teid = TEID},
 		ms_v6 = MSv6, dns_v6 = DNSv6} = Context) ->
     {Prefix, PLen} = ergw_inet:ipv6_interface_id(MSv6, ?NULL_INTERFACE_ID),
 
@@ -384,7 +380,7 @@ icmpv6(TC, FlowLabel, _SrcAddr, ?'IPv6 All Routers LL',
     ICMPv6 = <<6:4, TC:8, FlowLabel:20, ICMPLength:16, ?ICMPv6:8, TTL:8,
 	       NwSrc:16/bytes, NwDst:16/bytes,
 	       ?'ICMPv6 Router Advertisement':8, 0:8, CSum:16, RAOpts/binary>>,
-    GTP = #gtp{version =v1, type = g_pdu, tei = TEI, ie = ICMPv6},
+    GTP = #gtp{version =v1, type = g_pdu, tei = TEID, ie = ICMPv6},
     PayLoad = gtp_packet:encode(GTP),
     UDP = ergw_inet:make_udp(
 	    ergw_inet:ip2bin(DpGtpIP), ergw_inet:ip2bin(GtpIP),
