@@ -296,7 +296,8 @@ handle_udp_gtp(SrcIP, DstIP, <<SrcPort:16, DstPort:16, _:16, _:16, PayLoad/binar
 
     ReqKey = make_request(SrcIP, SrcPort, Msg, Data),
     GtpPort = #gtp_port{name = Node, type = 'gtp-u'},
-    case gtp_context_reg:lookup_teid(GtpPort, 'gtp-u', ergw_inet:bin2ip(DstIP), Msg#gtp.tei) of
+    TEID = #fq_teid{ip = ergw_inet:bin2ip(DstIP), teid = Msg#gtp.tei},
+    case gtp_context_reg:lookup_teid(GtpPort, TEID) of
 	Context when is_pid(Context) ->
 	    gtp_context:context_handle_message(Context, ReqKey, Msg);
 	Other ->

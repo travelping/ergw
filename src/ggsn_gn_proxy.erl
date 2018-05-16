@@ -477,7 +477,7 @@ handle_proxy_info(#gtp{ie = #{?'Recovery' := Recovery}},
 	    ResponseIEs = gtp_v1_c:build_recovery(Context, Recovery /= undefined, ResponseIEs0),
 	    throw(?CTX_ERR(?FATAL,
 			   {create_pdp_context_response,
-			    Context#context.remote_control_tei,
+			    Context#context.remote_control_teid#fq_teid.teid,
 			    ResponseIEs}, Context))
     end.
 
@@ -561,18 +561,29 @@ init_proxy_context(CntlPort,
        control_interface = Interface,
        control_port      = CntlPort,
        local_control_tei = CntlTEI,
-       remote_control_ip = GGSN,
+       remote_control_teid =
+	   #fq_teid{ip = GGSN},
        state             = State
       }.
 
-get_context_from_req(_K, #gsn_address{instance = 0, address = CntlIP}, Context) ->
-    Context#context{remote_control_ip = ergw_inet:bin2ip(CntlIP)};
-get_context_from_req(_K, #gsn_address{instance = 1, address = DataIP}, Context) ->
-    Context#context{remote_data_ip = ergw_inet:bin2ip(DataIP)};
-get_context_from_req(_K, #tunnel_endpoint_identifier_data_i{instance = 0, tei = DataTEI}, Context) ->
-    Context#context{remote_data_tei = DataTEI};
-get_context_from_req(_K, #tunnel_endpoint_identifier_control_plane{instance = 0, tei = CntlTEI}, Context) ->
-    Context#context{remote_control_tei = CntlTEI};
+set_fq_teid(Id, undefined, Value) ->
+    set_fq_teid(Id, #fq_teid{}, Value);
+set_fq_teid(ip, TEID, Value) ->
+    TEID#fq_teid{ip = ergw_inet:bin2ip(Value)};
+set_fq_teid(teid, TEID, Value) ->
+    TEID#fq_teid{teid = Value}.
+
+set_fq_teid(Id, Field, Context, Value) ->
+    setelement(Field, Context, set_fq_teid(Id, element(Field, Context), Value)).
+
+get_context_from_req(_, #gsn_address{instance = 0, address = CntlIP}, Context) ->
+    set_fq_teid(ip, #context.remote_control_teid, Context, CntlIP);
+get_context_from_req(_, #gsn_address{instance = 1, address = DataIP}, Context) ->
+    set_fq_teid(ip, #context.remote_data_teid, Context, DataIP);
+get_context_from_req(_, #tunnel_endpoint_identifier_data_i{instance = 0, tei = DataTEI}, Context) ->
+    set_fq_teid(teid, #context.remote_data_teid, Context, DataTEI);
+get_context_from_req(_, #tunnel_endpoint_identifier_control_plane{instance = 0, tei = CntlTEI}, Context) ->
+    set_fq_teid(teid, #context.remote_control_teid, Context, CntlTEI);
 get_context_from_req(?'Access Point Name', #access_point_name{apn = APN}, Context) ->
     Context#context{apn = APN};
 get_context_from_req(?'IMSI', #international_mobile_subscriber_identity{imsi = IMSI}, Context) ->
@@ -626,7 +637,7 @@ proxy_info(#context{apn = APN, imsi = IMSI, msisdn = MSISDN, restrictions = Rest
     LookupAPN = (catch gtp_c_lib:normalize_labels(APN)),
     #proxy_info{ggsns = GGSNs, imsi = IMSI, msisdn = MSISDN, src_apn = LookupAPN}.
 
-build_context_request(#context{remote_control_tei = TEI} = Context,
+build_context_request(#context{remote_control_teid = #fq_teid{teid = TEI}} = Context,
 		      NewPeer, #gtp{ie = RequestIEs} = Request) ->
     ProxyIEs0 = maps:without([?'Recovery'], RequestIEs),
     ProxyIEs1 = update_gtp_req_from_context(Context, ProxyIEs0),
@@ -634,8 +645,11 @@ build_context_request(#context{remote_control_tei = TEI} = Context,
     Request#gtp{tei = TEI, seq_no = undefined, ie = ProxyIEs}.
 
 send_request(#context{control_port = GtpPort,
-		      remote_control_tei = RemoteCntlTEI,
-		      remote_control_ip = RemoteCntlIP},
+		      remote_control_teid =
+			  #fq_teid{
+			     ip = RemoteCntlIP,
+			     teid = RemoteCntlTEI}
+		     },
 	     T3, N3, Type, RequestIEs) ->
     Msg = #gtp{version = v1, type = Type, tei = RemoteCntlTEI, ie = RequestIEs},
     gtp_context:send_request(GtpPort, RemoteCntlIP, ?GTP1c_PORT, T3, N3, Msg, undefined).
@@ -650,13 +664,19 @@ initiate_pdp_context_teardown(Direction, State) ->
     send_request(Ctx, ?T3, ?N3, delete_pdp_context_request, RequestIEs).
 
 fteid_forward_context(#f_teid{ipv4 = IPv4, ipv6 = IPv6, teid = TEID},
-		      #{proxy_context := #context{remote_data_ip = IP,
-						  remote_data_tei = TEID}})
+		      #{proxy_context :=
+			    #context{
+			       remote_data_teid =
+				   #fq_teid{ip = IP,
+					    teid = TEID}}})
   when IP =:= IPv4; IP =:= IPv6 ->
     ggsn2sgsn;
 fteid_forward_context(#f_teid{ipv4 = IPv4, ipv6 = IPv6, teid = TEID},
-		      #{context := #context{remote_data_ip = IP,
-					    remote_data_tei = TEID}})
+		      #{context :=
+			    #context{
+			       remote_data_teid =
+				   #fq_teid{ip = IP,
+					    teid = TEID}}})
   when IP =:= IPv4; IP =:= IPv6 ->
     sgsn2ggsn.
 

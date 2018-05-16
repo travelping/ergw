@@ -79,7 +79,8 @@ bind(#gtp{ie = #{{v2_recovery, 0} :=
 bind(Request, Context) ->
     path_recovery(undefined, bind_path(Request, Context)).
 
-unbind(#context{version = Version, control_port = GtpPort, remote_control_ip = RemoteIP}) ->
+unbind(#context{version = Version, control_port = GtpPort,
+		remote_control_teid = #fq_teid{ip = RemoteIP}}) ->
     case get(GtpPort, Version, RemoteIP) of
 	Path when is_pid(Path) ->
 	    gen_server:call(Path, {unbind, self()});
@@ -337,7 +338,7 @@ bind_path(#gtp{version = Version}, Context) ->
     bind_path(Context#context{version = Version}).
 
 bind_path(#context{version = Version, control_port = CntlGtpPort,
-		   remote_control_ip = RemoteCntlIP} = Context) ->
+		   remote_control_teid = #fq_teid{ip = RemoteCntlIP}} = Context) ->
     Path = maybe_new_path(CntlGtpPort, Version, RemoteCntlIP),
     Context#context{path = Path}.
 

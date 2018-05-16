@@ -30,6 +30,11 @@
 	  ip	:: inet:ip_address()
 	 }).
 
+-record(fq_teid, {
+	  ip       :: inet:ip_address(),
+	  teid = 0 :: non_neg_integer()
+	 }).
+
 -record(gtp_port, {
 	  name             :: term(),
 	  vrf              :: term(),
@@ -51,8 +56,7 @@
 	  control_port           :: #gtp_port{},
 	  path                   :: 'undefined' | pid(),
 	  local_control_tei      :: non_neg_integer(),
-	  remote_control_ip      :: inet:ip_address(),
-	  remote_control_tei = 0 :: non_neg_integer(),
+	  remote_control_teid    :: #fq_teid{},
 	  remote_restart_counter :: 0 .. 255,
 	  data_port              :: #gtp_port{},
 	  cp_port                :: #gtp_port{},
@@ -62,8 +66,7 @@
 	  cp_tei                 :: non_neg_integer(),
 	  vrf                    :: atom(),
 	  local_data_tei         :: non_neg_integer(),
-	  remote_data_ip         :: inet:ip_address(),
-	  remote_data_tei = 0    :: non_neg_integer(),
+	  remote_data_teid       :: #fq_teid{},
 	  ms_v4                  :: inet:ip4_address(),
 	  ms_v6                  :: inet:ip6_address(),
 	  dns_v6                 :: [inet:ip6_address()],

@@ -780,8 +780,9 @@ pgw_update_context(From, Context) ->
     pgw_send_request(Context, ?T3, ?N3, update_bearer_request, RequestIEs, From).
 
 pgw_send_request(#context{control_port = GtpPort,
-			  remote_control_tei = RemoteCntlTEI,
-			  remote_control_ip = RemoteCntlIP},
+			  remote_control_teid =
+			      #fq_teid{ip = RemoteCntlIP, teid = RemoteCntlTEI}
+			 },
 		 T3, N3, Type, RequestIEs, From) ->
     Msg = #gtp{version = v2, type = Type, tei = RemoteCntlTEI, ie = RequestIEs},
     gtp_context:send_request(GtpPort, RemoteCntlIP, ?GTP2c_PORT, T3, N3, Msg, From).
