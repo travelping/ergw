@@ -78,7 +78,7 @@
 
 	 {nodes,
 	  [{default,
-	    [{network_instances,
+	    [{vrfs,
 	      [{cp, [{features, ['CP-Function']}]},
 	       {irx, [{features, ['Access']}]},
 	       {sgi, [{features, ['SGi-LAN']}]}]
@@ -189,7 +189,7 @@
 
 	 {nodes,
 	  [{default,
-	    [{network_instances,
+	    [{vrfs,
 	      [{cp, [{features, ['CP-Function']}]},
 	       {irx, [{features, ['Access']}]},
 	       {sgi, [{features, ['SGi-LAN']}]}]
@@ -269,7 +269,7 @@
 
 	 {nodes,
 	  [{default,
-	    [{network_instances,
+	    [{vrfs,
 	      [{cp, [{features, ['CP-Function']}]},
 	       {irx, [{features, ['Access']}]},
 	       {sgi, [{features, ['SGi-LAN']}]}]
@@ -391,7 +391,7 @@
 
 	 {nodes,
 	  [{default,
-	    [{network_instances,
+	    [{vrfs,
 	      [{cp, [{features, ['CP-Function']}]},
 	       {irx, [{features, ['Access']}]},
 	       {sgi, [{features, ['SGi-LAN']}]}]
@@ -615,13 +615,13 @@ config(_Config)  ->
     ?error_option(set_cfg_value([nodes, default], invalid, ?GGSN_PROXY_CONFIG)),
     ?error_option(set_cfg_value([nodes, default], [], ?GGSN_PROXY_CONFIG)),
     ?error_option(set_cfg_value([nodes, default], [{invalid, invalid}], ?GGSN_PROXY_CONFIG)),
-    ?error_option(set_cfg_value([nodes, default, network_instances], invalid, ?GGSN_PROXY_CONFIG)),
-    ?error_option(set_cfg_value([nodes, default, network_instances], [], ?GGSN_PROXY_CONFIG)),
-    ?error_option(set_cfg_value([nodes, default, network_instances, cp], invalid, ?GGSN_PROXY_CONFIG)),
-    ?error_option(set_cfg_value([nodes, default, network_instances, cp], [], ?GGSN_PROXY_CONFIG)),
-    ?error_option(set_cfg_value([nodes, default, network_instances, cp, features], [], ?GGSN_PROXY_CONFIG)),
-    ?error_option(set_cfg_value([nodes, default, network_instances, cp, features], invalid, ?GGSN_PROXY_CONFIG)),
-    ?error_option(set_cfg_value([nodes, default, network_instances, cp, features], [invalid], ?GGSN_PROXY_CONFIG)),
+    ?error_option(set_cfg_value([nodes, default, vrfs], invalid, ?GGSN_PROXY_CONFIG)),
+    ?error_option(set_cfg_value([nodes, default, vrfs], [], ?GGSN_PROXY_CONFIG)),
+    ?error_option(set_cfg_value([nodes, default, vrfs, cp], invalid, ?GGSN_PROXY_CONFIG)),
+    ?error_option(set_cfg_value([nodes, default, vrfs, cp], [], ?GGSN_PROXY_CONFIG)),
+    ?error_option(set_cfg_value([nodes, default, vrfs, cp, features], [], ?GGSN_PROXY_CONFIG)),
+    ?error_option(set_cfg_value([nodes, default, vrfs, cp, features], invalid, ?GGSN_PROXY_CONFIG)),
+    ?error_option(set_cfg_value([nodes, default, vrfs, cp, features], [invalid], ?GGSN_PROXY_CONFIG)),
 
     ?ok_option(?PGW_CONFIG),
     ?error_option(set_cfg_value([handlers, 'h1'], [{handler, pgw_s5s8},

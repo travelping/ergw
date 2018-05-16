@@ -133,7 +133,7 @@
 
 		 {nodes,
 		  [{default,
-		    [{network_instances,
+		    [{vrfs,
 		      [{cp, [{features, ['CP-Function']}]},
 		       {irx, [{features, ['Access']}]},
 		       {'proxy-irx', [{features, ['Core']}]},
@@ -251,7 +251,7 @@
 
 		 {nodes,
 		  [{default,
-		    [{network_instances,
+		    [{vrfs,
 		      [{cp, [{features, ['CP-Function']}]},
 		       {irx, [{features, ['Access', 'Core']}]},
 		       {'remote-irx', [{features, ['Access']}]},

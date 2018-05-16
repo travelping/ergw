@@ -13,7 +13,7 @@
 
 %% API
 -export([select_sx_node/2, select_sx_node/3]).
--export([start_link/3, send/4, call/2, get_network_instances/1,
+-export([start_link/3, send/4, call/2, get_vrfs/1,
 	 handle_request/2, response/3]).
 -ifdef(TEST).
 -export([stop/1]).
@@ -33,7 +33,7 @@
 	       cp_tei            :: undefined | non_neg_integer(),
 	       cp,
 	       dp,
-	       network_instances,
+	       vrfs,
 	       call_q}).
 
 %%====================================================================
@@ -65,9 +65,9 @@ stop(Pid) when is_pid(Pid) ->
     gen_statem:call(Pid, stop).
 -endif.
 
-send(Context, Intf, NetworkInstance, Data)
+send(Context, Intf, VRF, Data)
   when is_record(Context, context), is_atom(Intf), is_binary(Data) ->
-    cast(Context, {send, Intf, NetworkInstance, Data});
+    cast(Context, {send, Intf, VRF, Data});
 send(GtpPort, IP, Port, Data) ->
     cast(GtpPort, {send, IP, Port, Data}).
 
@@ -76,8 +76,8 @@ call(#context{dp_node = Pid}, Request)
     lager:debug("DP Server Call ~p: ~p", [Pid, lager:pr(Request, ?MODULE)]),
     gen_statem:call(Pid, Request).
 
-get_network_instances(Context) ->
-    call(Context, get_network_instances).
+get_vrfs(Context) ->
+    call(Context, get_vrfs).
 
 response(Pid, Type, Response) ->
     gen_statem:cast(Pid, {Type, Response}).
@@ -120,19 +120,19 @@ init([Node, IP4, IP6]) ->
     {ok, CP, GtpPort} = ergw_sx_socket:id(),
     {ok, TEI} = gtp_context_reg:alloc_tei(GtpPort),
     gtp_context_reg:register(GtpPort, {teid, 'gtp-u', TEI}, self()),
-    GtpNWI = string:split(atom_to_binary(GtpPort#gtp_port.name, utf8), ".", all),
+    GtpVRF = string:split(atom_to_binary(GtpPort#gtp_port.name, utf8), ".", all),
 
-    NWIs = maps:map(
+    VRFs = maps:map(
 	     fun(Id, #{features := Features}) ->
-		     #nwi{name = Id, features = Features}
-	     end, node_network_instances(Node)),
+		     #vrf{name = Id, features = Features}
+	     end, node_vrfs(Node)),
 
     Data = #data{timeout = 10,
-		 gtp_port = GtpPort#gtp_port{network_instance = GtpNWI},
+		 gtp_port = GtpPort#gtp_port{vrf = GtpVRF},
 		 cp_tei = TEI,
 		 cp = CP,
 		 dp = #node{node = Node, ip = IP},
-		 network_instances = NWIs,
+		 vrfs = VRFs,
 		 call_q = queue:new()
 		},
     {ok, disconnected, Data, [{next_event, internal, setup}]}.
@@ -165,9 +165,9 @@ handle_event(cast, {_, #pfcp{version = v1, type = association_setup_response, ie
 	    {keep_state_and_data, [{state_timeout, 5000, setup}]}
     end;
 
-handle_event(cast, {send, 'Access', NetworkInstance, Data}, connected,
-	     #data{gtp_port = Port, dp = #node{ip = IP}, network_instances = NWI}) ->
-    #nwi{cp_to_access_tei = TEI} = maps:get(NetworkInstance, NWI),
+handle_event(cast, {send, 'Access', VRF, Data}, connected,
+	     #data{gtp_port = Port, dp = #node{ip = IP}, vrfs = VRFs}) ->
+    #vrf{cp_to_access_tei = TEI} = maps:get(VRF, VRFs),
     Msg = #gtp{version = v1, type = g_pdu, tei = TEI, ie = Data},
     Bin = gtp_packet:encode(Msg),
     ergw_gtp_u_socket:send(Port, IP, ?GTP1u_PORT, Bin),
@@ -196,9 +196,9 @@ handle_event({call, From}, {attach, Context0}, _,
 			       cp_port = CpPort, cp_tei = CpTEI},
     {keep_state_and_data, [{reply, From, Context}]};
 
-handle_event({call, From}, get_network_instances, connected,
-	     #data{network_instances = NWIs}) ->
-    {keep_state_and_data, [{reply, From, {ok, NWIs}}]};
+handle_event({call, From}, get_vrfs, connected,
+	     #data{vrfs = VRFs}) ->
+    {keep_state_and_data, [{reply, From, {ok, VRFs}}]};
 
 handle_event({call, _} = Evt, #pfcp{} = Request, connected, #data{dp = #node{ip = IP}}) ->
     lager:debug("DP Call ~p", [lager:pr(Request, ?MODULE)]),
@@ -220,7 +220,7 @@ handle_event({timeout, {call, From}}, Item, _, #data{call_q = QIn} = Data) ->
 
 handle_event({call, _} = Evt, Request, _, #data{call_q = QIn} = Data)
   when is_record(Request, pfcp);
-       Request == get_network_instances ->
+       Request == get_vrfs ->
     Item = {Evt, Request},
     QOut = queue:in(Item, QIn),
     {keep_state, Data#data{call_q = QOut}, [{{timeout, Evt}, 1000, Item}]};
@@ -247,14 +247,14 @@ code_change(_OldVsn, Data, _Extra) ->
 %%% Internal functions
 %%%===================================================================
 
-node_network_instances(Name, Nodes, Default) ->
+node_vrfs(Name, Nodes, Default) ->
     Layout = maps:get(Name, Nodes, #{}),
-    maps:get(network_instances, Layout, Default).
+    maps:get(vrfs, Layout, Default).
 
-node_network_instances(Name) ->
+node_vrfs(Name) ->
     {ok, Nodes} = setup:get_env(ergw, nodes),
-    Default = node_network_instances(default, Nodes, #{}),
-    node_network_instances(Name, Nodes, Default).
+    Default = node_vrfs(default, Nodes, #{}),
+    node_vrfs(Name, Nodes, Default).
 
 pfcp_reply_actions({call, {Pid, Tag}}, Reply)
   when Pid =:= self() ->
@@ -352,7 +352,7 @@ send_heartbeat(#data{dp = #node{ip = IP}}) ->
 
 handle_nodeup(#{user_plane_ip_resource_information := UPIPResInfo} = _IEs,
 	      #data{dp = #node{node = Node, ip = IP},
-		    network_instances = NWIs} = Data0) ->
+		    vrfs = VRFs} = Data0) ->
     lager:warning("Node ~s (~s) is up", [Node, inet:ntoa(IP)]),
     lager:warning("Node IEs: ~p", [lager:pr(_IEs, ?MODULE)]),
 
@@ -360,7 +360,7 @@ handle_nodeup(#{user_plane_ip_resource_information := UPIPResInfo} = _IEs,
 
     Data = Data0#data{
 	     timeout = 100,
-	     network_instances = init_network_instance(NWIs, UPIPResInfo)
+	     vrfs = init_vrfs(VRFs, UPIPResInfo)
 	    },
     install_cp_rules(Data).
 
@@ -369,32 +369,32 @@ label2name(Label) when is_list(Label) ->
 label2name(Name) when is_binary(Name) ->
     binary_to_atom(Name, latin1).
 
-init_network_instance(NetworkInstances, UPIPResInfo)
+init_vrfs(VRFs, UPIPResInfo)
   when is_list(UPIPResInfo) ->
     lists:foldl(fun(I, Acc) ->
-			init_network_instance(Acc, I)
-		end, NetworkInstances, UPIPResInfo);
-init_network_instance(NetworkInstances,
-		      #user_plane_ip_resource_information{
-			 network_instance = NetworkInstance
-			} = UPIPResInfo) ->
+			init_vrfs(Acc, I)
+		end, VRFs, UPIPResInfo);
+init_vrfs(VRFs,
+	  #user_plane_ip_resource_information{
+	     network_instance = NetworkInstance
+	    } = UPIPResInfo) ->
     NwInstName = label2name(NetworkInstance),
-    case NetworkInstances of
-	#{NwInstName := NWI0} ->
-	    NWI = NWI0#nwi{
+    case VRFs of
+	#{NwInstName := VRF0} ->
+	    VRF = VRF0#vrf{
 		    teid_range = UPIPResInfo#user_plane_ip_resource_information.teid_range,
 		    ipv4 = UPIPResInfo#user_plane_ip_resource_information.ipv4,
 		    ipv6 = UPIPResInfo#user_plane_ip_resource_information.ipv6
 		   },
-	    NetworkInstances#{NwInstName => NWI};
+	    VRFs#{NwInstName => VRF};
 	_ ->
 	    lager:warning("UP Nodes reported unknown Network Instance '~p'", [NwInstName]),
-	    NetworkInstances
+	    VRFs
     end.
 
 handle_nodedown(#data{dp = #node{node = Node}} = Data) ->
     ergw_sx_node_reg:unregister(Node),
-    Data#data{network_instances = #{}}.
+    Data#data{vrfs = #{}}.
 
 session_not_found(ReqKey, Type, SeqNo) ->
     Response =
@@ -427,48 +427,43 @@ maps_mapfold(Fun, AccIn, Map)
 		       end, AccIn, ListIn),
     {maps:from_list(ListOut), AccOut}.
 
-gen_cp_rules(#nwi{features = Features} = NWI, DpGtpIP, Data, Rules) ->
-    lists:foldl(gen_per_feature_cp_rule(_, DpGtpIP, Data, _), {NWI, Rules}, Features).
+gen_cp_rules(#vrf{features = Features} = VRF, DpGtpIP, Data, Rules) ->
+    lists:foldl(gen_per_feature_cp_rule(_, DpGtpIP, Data, _), {VRF, Rules}, Features).
 
-gen_per_feature_cp_rule('Access', DpGtpIP, #data{gtp_port = GtpPort},
-			{#nwi{name = Instance} = NWI0, Rules}) ->
+gen_per_feature_cp_rule('Access', DpGtpIP, #data{gtp_port = GtpPort}, {VRF0, Rules}) ->
     RuleId = length(Rules) + 1,
 
     {ok, TEI} = gtp_context_reg:alloc_tei(GtpPort),
 
     PDR = create_from_cp_pdr(RuleId, GtpPort, DpGtpIP, TEI),
-    FAR = create_from_cp_far('Access', Instance, RuleId, GtpPort),
+    FAR = create_from_cp_far('Access', VRF0, RuleId, GtpPort),
 
-    NWI = NWI0#nwi{
-	       cp_to_access_tei = TEI
-	   },
-    {NWI, [PDR, FAR | Rules]};
+    VRF = VRF0#vrf{cp_to_access_tei = TEI},
+    {VRF, [PDR, FAR | Rules]};
 gen_per_feature_cp_rule(_, _DpGtpIP, _Data, Acc) ->
     Acc.
 
 install_cp_rules(#data{cp = #node{node = _Node, ip = CpNodeIP},
 		       dp = #node{ip = DpNodeIP},
-		       network_instances = NWIs0,
+		       vrfs = VRFs0,
 		       call_q = Q} = Data) ->
-    [#nwi{name = CpNwInstance, ipv4 = DpGtpIP4, ipv6 = DpGtpIP6}] =
-	lists:filter(fun(#nwi{features = Features}) ->
-				lists:member('CP-Function', Features)
-			end, maps:values(NWIs0)),
+    [#vrf{ipv4 = DpGtpIP4, ipv6 = DpGtpIP6}] =
+	lists:filter(fun(#vrf{features = Features}) ->
+			     lists:member('CP-Function', Features)
+		     end, maps:values(VRFs0)),
     DpGtpIP = choose_up_ip(DpGtpIP4, DpGtpIP6, DpNodeIP),
 
-    {NWIs, Rules} = maps_mapfold(gen_cp_rules(_, DpGtpIP, Data, _), [], NWIs0),
+    {VRFs, Rules} = maps_mapfold(gen_cp_rules(_, DpGtpIP, Data, _), [], VRFs0),
 
     SEID = ergw_sx_socket:seid(),
-
-    IEs =
-	[ergw_pfcp:f_seid(SEID, CpNodeIP) | Rules],
+    IEs = [ergw_pfcp:f_seid(SEID, CpNodeIP) | Rules],
 
     Req = #pfcp{version = v1, type = session_establishment_request, seid = 0, ie = IEs},
     %% put the new request at the front of the queue
     Evt = {call, {self(), from_cp_rule}},
     Item = {Evt, Req},
     Data#data{
-      network_instances = NWIs,
+      vrfs = VRFs,
       call_q = queue:in_r(Item, Q)
      }.
 
@@ -489,7 +484,7 @@ create_from_cp_pdr(RuleId, Port, IP, TEI) ->
 	    #far_id{id = RuleId}]
       }.
 
-create_from_cp_far(Intf, Instance, RuleId, _Port) ->
+create_from_cp_far(Intf, VRF, RuleId, _Port) ->
     #create_far{
        group =
 	   [#far_id{id = RuleId},
@@ -497,7 +492,7 @@ create_from_cp_far(Intf, Instance, RuleId, _Port) ->
 	    #forwarding_parameters{
 	       group =
 		   [#destination_interface{interface = Intf},
-		    ergw_pfcp:network_instance(Instance)
+		    ergw_pfcp:network_instance(VRF)
 		   ]
 	      }
 	   ]
