@@ -1100,7 +1100,7 @@ sx_cp_to_up_forward(Config) ->
 			#forwarding_parameters{
 			   group =
 			       #{network_instance :=
-				     #network_instance{instance = [<<"irx">>]},
+				     #network_instance{instance = <<3, "irx">>},
 				 destination_interface :=
 				     #destination_interface{interface = 'Access'}}},
 		    apply_action := #apply_action{forw = 1}}}, FAR),
@@ -1112,7 +1112,7 @@ sx_cp_to_up_forward(Config) ->
 			       #{source_interface :=
 				     #source_interface{interface = 'CP-function'},
 				 network_instance :=
-				     #network_instance{instance = [<<"cp">>]}}},
+				     #network_instance{instance = <<2, "cp">>}}},
 		    outer_header_removal :=
 			#outer_header_removal{}
 		    }}, PDR),

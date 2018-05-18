@@ -13,7 +13,8 @@
 
 %% API
 -export([start_link/2, start_vrf/2, allocate_pdp_ip/4, release_pdp_ip/3,
-	 validate_options/1, validate_option/2]).
+	 validate_options/1, validate_option/2,
+	 validate_name/1, normalize_name/1]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -33,7 +34,7 @@
 %%====================================================================
 
 start_vrf(Name, Opts0)
-  when is_atom(Name) ->
+  when is_binary(Name) ->
     Opts = validate_options(Opts0),
     vrf_sup:start_vrf(Name, Opts).
 
@@ -50,7 +51,7 @@ release_pdp_ip(VRF, IPv4, IPv6) ->
 get_opts(VRF) ->
     with_vrf(VRF, gen_server:call(_, get_opts)).
 
-with_vrf(VRF, Fun) when is_atom(VRF), is_function(Fun, 1) ->
+with_vrf(VRF, Fun) when is_binary(VRF), is_function(Fun, 1) ->
     case vrf_reg:lookup(VRF) of
 	Pid when is_pid(Pid) ->
 	    Fun(Pid);
@@ -104,12 +105,35 @@ validate_option(Opt, DNS)
 validate_option(Opt, Value) ->
     throw({error, {options, {Opt, Value}}}).
 
+validate_name(Name) ->
+    try
+	normalize_name(Name)
+    catch
+	_:_ ->
+	    throw({error, {options, {vrf, Name}}})
+    end.
+
+normalize_name(Name)
+  when is_atom(Name) ->
+    List = binary:split(atom_to_binary(Name, latin1), [<<".">>], [global, trim_all]),
+    normalize_name(List);
+normalize_name([Label | _] = Name)
+  when is_binary(Label) ->
+    << <<(size(L)):8, L/binary>> || L <- Name >>;
+normalize_name(Name)
+  when is_list(Name) ->
+    List = binary:split(list_to_binary(Name), [<<".">>], [global, trim_all]),
+    normalize_name(List);
+normalize_name(Name)
+  when is_binary(Name) ->
+    Name.
+
 %%%===================================================================
 %%% gen_server callbacks
 %%%===================================================================
 
 init([Name, Opts]) ->
-    vrf_reg:register(Name),
+    vrf_reg:register(normalize_name(Name)),
 
     Pools = maps:get(pools, Opts, []),
     IPv4pools = [{PrefixLen, init_pool(X)} || {First, _Last, PrefixLen} = X <- Pools, size(First) == 4],

@@ -157,8 +157,8 @@ validate_options(Fun, Options, Defaults, ReturnType)
     return_type(validate_options(Fun, Opts), ReturnType);
 validate_options(Fun, Options, Defaults, ReturnType)
   when is_map(Options) andalso ?is_opts(Defaults) ->
-    Opts = maps:merge(to_map(Defaults), Options),
-    return_type(maps:map(Fun, Opts), ReturnType).
+    Opts = maps:to_list(maps:merge(to_map(Defaults), Options)),
+    return_type(validate_options(Fun, Opts), ReturnType).
 
 validate_option(plmn_id, {MCC, MNC} = Value) ->
     case validate_mcc_mcn(MCC, MNC) of
@@ -183,7 +183,7 @@ validate_option(nodes, Value) when ?non_empty_opts(Value) ->
     validate_options(fun validate_nodes/2, Value, [], map);
 validate_option(vrfs, Value) when is_list(Value) ->
     check_unique_keys(vrfs, Value),
-    validate_options(fun validate_vrfs_option/2, Value);
+    validate_options(fun validate_vrfs/1, Value);
 validate_option(apns, Value) when is_list(Value) ->
     check_unique_keys(apns, Value),
     validate_options(fun validate_apns/1, Value);
@@ -261,16 +261,17 @@ validate_node_vrf_option(features, Features)
 validate_node_vrf_option(Opt, Values) ->
     throw({error, {options, {Opt, Values}}}).
 
-validate_node_vrfs(Name, Opts)
-  when is_atom(Name), ?is_opts(Opts) ->
-    validate_options(fun validate_node_vrf_option/2, Opts, [{features, invalid}], map);
-validate_node_vrfs(Name, Opts) ->
+validate_node_vrfs({Name, Opts})
+  when ?is_opts(Opts) ->
+    {vrf:validate_name(Name),
+     validate_options(fun validate_node_vrf_option/2, Opts, [{features, invalid}], map)};
+validate_node_vrfs({Name, Opts}) ->
     throw({error, {options, {Name, Opts}}}).
 
 validate_node_option(vrfs, VRFs)
   when ?non_empty_opts(VRFs) ->
     check_unique_keys(vrfs, VRFs),
-    validate_options(fun validate_node_vrfs/2, VRFs, [], map);
+    validate_options(fun validate_node_vrfs/1, VRFs, [], map);
 validate_node_option(Opt, Values) ->
     throw({error, {options, {Opt, Values}}}).
 
@@ -280,10 +281,10 @@ validate_nodes(Name, Opts)
 validate_nodes(Opt, Values) ->
     throw({error, {options, {Opt, Values}}}).
 
-validate_vrfs_option(Opt, Values)
-  when is_atom(Opt), ?is_opts(Values) ->
-    vrf:validate_options(Values);
-validate_vrfs_option(Opt, Value) ->
+validate_vrfs({Name, Values})
+  when ?is_opts(Values) ->
+    {vrf:validate_name(Name), vrf:validate_options(Values)};
+validate_vrfs({Opt, Value}) ->
     throw({error, {options, {Opt, Value}}}).
 
 validate_apns({APN0, Value}) when ?is_opts(Value) ->
@@ -305,8 +306,8 @@ validate_apn_name(APN) when is_list(APN) ->
 validate_apn_name(APN) ->
     throw({error, {apn, APN}}).
 
-validate_apn_option(vrf, Value) when is_atom(Value) ->
-    Value;
+validate_apn_option(vrf, Name) ->
+    vrf:validate_name(Name);
 validate_apn_option(Opt, Value) ->
     vrf:validate_option(Opt, Value).
 
