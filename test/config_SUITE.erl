@@ -444,6 +444,14 @@ config(_Config)  ->
     ?error_option(set_cfg_value([sockets, irx], invalid, ?GGSN_CONFIG)),
     ?error_option(add_cfg_value([sockets, irx], [], ?GGSN_CONFIG)),
 
+    ?ok_option(add_cfg_value([sockets, irx, vrf], 'irx', ?GGSN_CONFIG)),
+    ?ok_option(add_cfg_value([sockets, irx, vrf], "irx", ?GGSN_CONFIG)),
+    ?ok_option(add_cfg_value([sockets, irx, vrf], <<"irx">>, ?GGSN_CONFIG)),
+    ?ok_option(add_cfg_value([sockets, irx, vrf], [<<"irx">>], ?GGSN_CONFIG)),
+    ?error_option(add_cfg_value([sockets, irx, vrf], ["irx", invalid], ?GGSN_CONFIG)),
+    ?error_option(add_cfg_value([sockets, irx, vrf], [<<"irx">>, invalid], ?GGSN_CONFIG)),
+    ?error_option(add_cfg_value([sockets, irx, vrf], [<<"irx">>, "invalid"], ?GGSN_CONFIG)),
+
     SockOpts = [{type, 'gtp-c'}, {ip,  ?TEST_GSN_IPv4}, reuseaddr, freebind],
     SockCfg = (catch ergw_config:validate_config(
 		       add_cfg_value([sockets, 'irx-2'], SockOpts, ?GGSN_CONFIG))),

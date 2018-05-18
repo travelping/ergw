@@ -61,9 +61,9 @@ outer_header_removal({_,_,_,_}) ->
 outer_header_removal({_,_,_,_,_,_,_,_}) ->
     #outer_header_removal{header = 'GTP-U/UDP/IPv6'}.
 
-get_port_vrf(#gtp_port{name = Name}, VRFs)
+get_port_vrf(#gtp_port{vrf = VRF}, VRFs)
   when is_map(VRFs) ->
-    maps:get(vrf:normalize_name(Name), VRFs).
+    maps:get(VRF, VRFs).
 
 get_context_vrf(control, #context{control_port = Port}, VRFs) ->
     get_port_vrf(Port, VRFs);

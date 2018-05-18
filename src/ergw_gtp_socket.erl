@@ -77,6 +77,8 @@ validate_option(netdev, Value)
 validate_option(netns, Value)
   when is_list(Value); is_binary(Value) ->
     Value;
+validate_option(vrf, Value) ->
+    vrf:validate_name(Value);
 validate_option(freebind, Value) when is_boolean(Value) ->
     Value;
 validate_option(reuseaddr, Value) when is_boolean(Value) ->

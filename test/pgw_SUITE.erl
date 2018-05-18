@@ -36,11 +36,15 @@
 	 {ergw, [{'$setup_vars',
 		  [{"ORIGIN", {value, "epc.mnc001.mcc001.3gppnetwork.org"}}]},
 		 {sockets,
-		  [{cp, [{type, 'gtp-u'},
+		  [{'cp-socket',
+		        [{type, 'gtp-u'},
+			 {vrf, cp},
 			 {ip, ?MUST_BE_UPDATED},
 			 {reuseaddr, true}
 			]},
-		   {irx, [{type, 'gtp-c'},
+		   {'irx-socket',
+		         [{type, 'gtp-c'},
+			  {vrf, irx},
 			  {ip, ?MUST_BE_UPDATED},
 			  {reuseaddr, true}
 			 ]}
@@ -63,7 +67,7 @@
 
 		 {handlers,
 		  [{gn, [{handler, ?HUT},
-			 {sockets, [irx]},
+			 {sockets, ['irx-socket']},
 			 {node_selection, [default]},
 			 {aaa, [{'Username',
 				 [{default, ['IMSI',   <<"/">>,
@@ -75,7 +79,7 @@
 					     <<"@">>, 'APN']}]}]}
 			]},
 		   {s5s8, [{handler, ?HUT},
-			   {sockets, [irx]},
+			   {sockets, ['irx-socket']},
 			   {node_selection, [default]},
 			   {aaa, [{'Username',
 				   [{default, ['IMSI',   <<"/">>,
@@ -113,7 +117,7 @@
 		 {sx_socket,
 		  [{node, 'ergw'},
 		   {name, 'ergw'},
-		   {socket, cp},
+		   {socket, 'cp-socket'},
 		   {ip, ?MUST_BE_UPDATED},
 		   {reuseaddr, true}]},
 
@@ -136,8 +140,8 @@
 	]).
 
 -define(CONFIG_UPDATE,
-	[{[sockets, cp, ip], localhost},
-	 {[sockets, irx, ip], test_gsn},
+	[{[sockets, 'cp-socket', ip], localhost},
+	 {[sockets, 'irx-socket', ip], test_gsn},
 	 {[sx_socket, ip], localhost},
 	 {[node_selection, {default, 2}, 2, "topon.s5s8.pgw.$ORIGIN"],
 	  {fun node_sel_update/2, final_gsn}},
@@ -869,7 +873,7 @@ delete_bearer_request(Config) ->
 
     {GtpC, _, _} = create_session(Config),
 
-    Context = gtp_context_reg:lookup_key(#gtp_port{name = irx}, {imsi, ?'IMSI', 5}),
+    Context = gtp_context_reg:lookup_key(#gtp_port{name = 'irx-socket'}, {imsi, ?'IMSI', 5}),
     true = is_pid(Context),
 
     Self = self(),
@@ -904,7 +908,7 @@ delete_bearer_request_resend(Config) ->
 
     {_, _, _} = create_session(Config),
 
-    Context = gtp_context_reg:lookup_key(#gtp_port{name = irx}, {imsi, ?'IMSI', 5}),
+    Context = gtp_context_reg:lookup_key(#gtp_port{name = 'irx-socket'}, {imsi, ?'IMSI', 5}),
     true = is_pid(Context),
 
     Self = self(),
@@ -950,10 +954,10 @@ interop_sgsn_to_sgw(Config) ->
     ClientIP = proplists:get_value(client_ip, Config),
 
     {GtpC1, _, _} = ergw_ggsn_test_lib:create_pdp_context(Config),
-    match_exo_value([path, irx, ClientIP, contexts, v1], 1),
+    match_exo_value([path, 'irx-socket', ClientIP, contexts, v1], 1),
     {GtpC2, _, _} = modify_bearer(tei_update, GtpC1),
-    match_exo_value([path, irx, ClientIP, contexts, v1], 0),
-    match_exo_value([path, irx, ClientIP, contexts, v2], 1),
+    match_exo_value([path, 'irx-socket', ClientIP, contexts, v1], 0),
+    match_exo_value([path, 'irx-socket', ClientIP, contexts, v2], 1),
     delete_session(GtpC2),
 
     [SMR0|_] = lists:filter(
@@ -973,8 +977,8 @@ interop_sgsn_to_sgw(Config) ->
     meck_validate(Config),
     true = meck:validate(ggsn_gn),
 
-    match_exo_value([path, irx, ClientIP, contexts, v1], 0),
-    match_exo_value([path, irx, ClientIP, contexts, v2], 0),
+    match_exo_value([path, 'irx-socket', ClientIP, contexts, v1], 0),
+    match_exo_value([path, 'irx-socket', ClientIP, contexts, v2], 0),
     ok.
 
 %%--------------------------------------------------------------------
@@ -997,10 +1001,10 @@ interop_sgw_to_sgsn(Config) ->
     ClientIP = proplists:get_value(client_ip, Config),
 
     {GtpC1, _, _} = create_session(Config),
-    match_exo_value([path, irx, ClientIP, contexts, v2], 1),
+    match_exo_value([path, 'irx-socket', ClientIP, contexts, v2], 1),
     {GtpC2, _, _} = ergw_ggsn_test_lib:update_pdp_context(tei_update, GtpC1),
-    match_exo_value([path, irx, ClientIP, contexts, v1], 1),
-    match_exo_value([path, irx, ClientIP, contexts, v2], 0),
+    match_exo_value([path, 'irx-socket', ClientIP, contexts, v1], 1),
+    match_exo_value([path, 'irx-socket', ClientIP, contexts, v2], 0),
     ergw_ggsn_test_lib:delete_pdp_context(GtpC2),
 
     [SMR0|_] = lists:filter(
@@ -1020,8 +1024,8 @@ interop_sgw_to_sgsn(Config) ->
     meck_validate(Config),
     true = meck:validate(ggsn_gn),
 
-    match_exo_value([path, irx, ClientIP, contexts, v1], 0),
-    match_exo_value([path, irx, ClientIP, contexts, v2], 0),
+    match_exo_value([path, 'irx-socket', ClientIP, contexts, v1], 0),
+    match_exo_value([path, 'irx-socket', ClientIP, contexts, v2], 0),
     ok.
 
 %%--------------------------------------------------------------------

@@ -146,6 +146,11 @@ Defines a list of named sockets. The format is (in Erlang type syntax):
 
     name the datapath on a remote node
 
+  - `{vrf, vrf_name()}`
+
+    name of the VRF this socket is located in, defaults to the name
+	of the socket if not given
+
 ### Handlers ###
 
     {handlers,

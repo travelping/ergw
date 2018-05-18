@@ -87,7 +87,7 @@ handle_call({send, #pfcp{} = Msg}, _From,
 handle_call({send, Msg}, _From,
 	    #state{gtp = GtpSocket, cp_ip = IP} = State)
   when is_binary(Msg) ->
-    [[SxTEI, _SxPid]] = ets:match(gtp_context_reg, {{cp,{teid,'gtp-u','$1'}},'$2'}),
+    [[SxTEI, _SxPid]] = ets:match(gtp_context_reg, {{'cp-socket',{teid,'gtp-u','$1'}},'$2'}),
     BinMsg = gtp_packet:encode(#gtp{version = v1, type = g_pdu, tei = SxTEI, ie = Msg}),
     ok = gen_udp:send(GtpSocket, IP, ?GTP1u_PORT, BinMsg),
     {reply, ok, State};
