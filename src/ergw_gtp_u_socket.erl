@@ -67,9 +67,15 @@ init([Name, #{ip := IP} = SocketOpts]) ->
 
     {ok, S} = ergw_gtp_socket:make_gtp_socket(IP, ?GTP1u_PORT, SocketOpts),
     {ok, RCnt} = gtp_config:get_restart_counter(),
+    VRF = case SocketOpts of
+	      #{vrf := VRF0} when is_binary(VRF0) ->
+		  VRF0;
+	      _ -> vrf:normalize_name(Name)
+	  end,
 
     GtpPort = #gtp_port{
 		 name = Name,
+		 vrf = VRF,
 		 type = maps:get(type, SocketOpts, 'gtp-u'),
 		 pid = self(),
 		 ip = IP,

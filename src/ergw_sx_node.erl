@@ -120,7 +120,6 @@ init([Node, IP4, IP6]) ->
     {ok, CP, GtpPort} = ergw_sx_socket:id(),
     {ok, TEI} = gtp_context_reg:alloc_tei(GtpPort),
     gtp_context_reg:register(GtpPort, {teid, 'gtp-u', TEI}, self()),
-    GtpVRF = vrf:normalize_name(GtpPort#gtp_port.name),
 
     VRFs = maps:map(
 	     fun(Id, #{features := Features}) ->
@@ -128,7 +127,7 @@ init([Node, IP4, IP6]) ->
 	     end, node_vrfs(Node)),
 
     Data = #data{timeout = 10,
-		 gtp_port = GtpPort#gtp_port{vrf = GtpVRF},
+		 gtp_port = GtpPort,
 		 cp_tei = TEI,
 		 cp = CP,
 		 dp = #node{node = Node, ip = IP},
