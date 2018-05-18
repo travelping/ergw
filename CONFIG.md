@@ -19,6 +19,35 @@ Configuration settings per VRF:
 The AAA provider can override the DNS and NBNS server settings and assign
 IP addresses. The assigned IP address has to be reachable through the routes.
 
+#### Syntax of VRF names ####
+
+VRF names are use internally and also as Network Instance names in the PFCP
+protocol. They have to meet the encoding semantics of the PFCP and be identical
+on the CP and UP node.
+
+3GPP TS 29.244, 8.2.4 Network Instance is a bit vague about the encoding of the
+network instance identifier. When an APN name is used as name, we can assume
+DNS label type encoding, however the Domain Name encoding is left open.
+
+The VPP UP uses DNS label encoding in all cases. erGW might someday also work
+with other GTP UP nodes. It therefore takes a more generic approach. Internally
+a VRF name (and therefore a Network Instance name) is always a opaque binary.
+When reading from configuration, supported formats are converted to such a binary.
+
+VRF names specified as Erlang atoms or strings, are converted to binaries, split
+into DNS label parts and encoded as DNS labels. Names specified as list of
+binaries are encoded as DNS labels. Names specified as binaries are used as is.
+
+Samples:
+
+| Config                              | Network Instance                   |
+| ----------------------------------- | ---------------------------------- |
+| 'epc'                               | <<3, "epc">>                       |
+| 'apn.dns.label'                     | <<3, "apn", 3, "dns", 5, "label">> |
+| "apn.dns.label"                     | <<3, "apn", 3, "dns", 5, "label">> |
+| [<<"apn">>, <<"dns">>, <<"label">>] | <<3, "apn", 3, "dns", 5, "label">> |
+| <<"apn.dns.label">>                 | <<"apn.dns.label">>                |
+
 ### APN ###
 
 3GPP TS 23.003, Section 9 defines an APN in terms of selecting a GGSN:
@@ -182,7 +211,7 @@ Defines the IP routing domains and their defaults.
 
 * vrfs: `{vrfs, [vrf_definition()]}`
 * vrf_definition: `{vrf_name(), [vrf_options() | session_defaults()]}`
-* vrf_name: `atom()`
+* vrf_name: `atom() | [binary()] | binary() | string()`
 * vrf_options:
 
   - `{pools, [vrf_pool()]}`

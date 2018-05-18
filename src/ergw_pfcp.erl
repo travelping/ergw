@@ -31,10 +31,9 @@ ue_ip_address(Direction, #context{ms_v4 = {MSv4,_}}) ->
 ue_ip_address(Direction, #context{ms_v6 = {MSv6,_}}) ->
     #ue_ip_address{type = Direction, ipv6 = ergw_inet:ip2bin(MSv6)}.
 
-network_instance(Name) when is_atom(Name) ->
-    #network_instance{instance = [atom_to_binary(Name, latin1)]};
-network_instance([Label | _] = Instance) when is_binary(Label) ->
-    #network_instance{instance = Instance};
+network_instance(Name)
+  when is_binary(Name) ->
+    #network_instance{instance = Name};
 network_instance(#gtp_port{vrf = VRF}) ->
     network_instance(VRF);
 network_instance(#context{vrf = VRF}) ->
@@ -62,12 +61,16 @@ outer_header_removal({_,_,_,_}) ->
 outer_header_removal({_,_,_,_,_,_,_,_}) ->
     #outer_header_removal{header = 'GTP-U/UDP/IPv6'}.
 
-get_context_vrf(control, #context{control_port = #gtp_port{name = Name}}, VRFs) ->
-    maps:get(Name, VRFs);
-get_context_vrf(data, #context{data_port = #gtp_port{name = Name}}, VRFs) ->
-    maps:get(Name, VRFs);
-get_context_vrf(cp, #context{cp_port = #gtp_port{name = Name}}, VRFs) ->
-    maps:get(Name, VRFs).
+get_port_vrf(#gtp_port{name = Name}, VRFs)
+  when is_map(VRFs) ->
+    maps:get(vrf:normalize_name(Name), VRFs).
+
+get_context_vrf(control, #context{control_port = Port}, VRFs) ->
+    get_port_vrf(Port, VRFs);
+get_context_vrf(data, #context{data_port = Port}, VRFs) ->
+    get_port_vrf(Port, VRFs);
+get_context_vrf(cp, #context{cp_port = Port}, VRFs) ->
+    get_port_vrf(Port, VRFs).
 
 assign_data_teid(#context{data_port = DataPort} = Context, Type) ->
 

@@ -472,6 +472,13 @@ config(_Config)  ->
 						 {sockets, [irx]},
 						 {node_selection, []}], ?GGSN_CONFIG)),
 
+    ?match({error,{options, {vrf, _}}}, (catch vrf:validate_name([<<"1st">>, "2nd"]))),
+    ?match(X when is_binary(X), (catch vrf:validate_name('aaa'))),
+    ?match(X when is_binary(X), (catch vrf:validate_name('1st.2nd'))),
+    ?match(X when is_binary(X), (catch vrf:validate_name("1st.2nd"))),
+    ?match(X when is_binary(X), (catch vrf:validate_name(<<"1st.2nd">>))),
+    ?match(X when is_binary(X), (catch vrf:validate_name([<<"1st">>, <<"2nd">>]))),
+
     ?error_option(set_cfg_value([vrfs, upstream], invalid, ?GGSN_CONFIG)),
     ?error_option(add_cfg_value([vrfs, upstream], [], ?GGSN_CONFIG)),
     ?error_option(set_cfg_value([vrfs], invalid, ?GGSN_CONFIG)),

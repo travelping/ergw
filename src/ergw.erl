@@ -107,7 +107,8 @@ attach_protocol(Socket, Name, Protocol, Handler, Opts0) ->
 	    throw({error, {invalid_handler, Handler}})
     end.
 
-attach_vrf(APN, VRF, Options0) ->
+attach_vrf(APN, VRF, Options0)
+  when is_binary(VRF) ->
     Options =
 	case vrf:get_opts(VRF) of
 	    {ok, Opts} when is_map(Opts) ->

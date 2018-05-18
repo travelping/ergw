@@ -120,7 +120,7 @@ init([Node, IP4, IP6]) ->
     {ok, CP, GtpPort} = ergw_sx_socket:id(),
     {ok, TEI} = gtp_context_reg:alloc_tei(GtpPort),
     gtp_context_reg:register(GtpPort, {teid, 'gtp-u', TEI}, self()),
-    GtpVRF = string:split(atom_to_binary(GtpPort#gtp_port.name, utf8), ".", all),
+    GtpVRF = vrf:normalize_name(GtpPort#gtp_port.name),
 
     VRFs = maps:map(
 	     fun(Id, #{features := Features}) ->
@@ -365,11 +365,6 @@ handle_nodeup(#{user_plane_ip_resource_information := UPIPResInfo} = _IEs,
 	    },
     install_cp_rules(Data).
 
-label2name(Label) when is_list(Label) ->
-    binary_to_atom(iolist_to_binary(lists:join($., Label)), latin1);
-label2name(Name) when is_binary(Name) ->
-    binary_to_atom(Name, latin1).
-
 init_vrfs(VRFs, UPIPResInfo)
   when is_list(UPIPResInfo) ->
     lists:foldl(fun(I, Acc) ->
@@ -379,17 +374,17 @@ init_vrfs(VRFs,
 	  #user_plane_ip_resource_information{
 	     network_instance = NetworkInstance
 	    } = UPIPResInfo) ->
-    NwInstName = label2name(NetworkInstance),
+    Name = vrf:normalize_name(NetworkInstance),
     case VRFs of
-	#{NwInstName := VRF0} ->
+	#{Name := VRF0} ->
 	    VRF = VRF0#vrf{
 		    teid_range = UPIPResInfo#user_plane_ip_resource_information.teid_range,
 		    ipv4 = UPIPResInfo#user_plane_ip_resource_information.ipv4,
 		    ipv6 = UPIPResInfo#user_plane_ip_resource_information.ipv6
 		   },
-	    VRFs#{NwInstName => VRF};
+	    VRFs#{Name => VRF};
 	_ ->
-	    lager:warning("UP Nodes reported unknown Network Instance '~p'", [NwInstName]),
+	    lager:warning("UP Nodes reported unknown Network Instance '~p'", [Name]),
 	    VRFs
     end.
 

@@ -160,13 +160,13 @@ choose_control_ip(_IP4, IP6, #state{up_ip = IP})
 user_plane_ip_resource_information(VRF, #state{up_ip = IP})
   when size(IP) == 4 ->
     #user_plane_ip_resource_information{
-       network_instance = VRF,
+       network_instance = vrf:normalize_name(VRF),
        ipv4 = ergw_inet:ip2bin(?LOCALHOST_IPv4)
       };
 user_plane_ip_resource_information(VRF, #state{up_ip = IP})
   when size(IP) == 16 ->
     #user_plane_ip_resource_information{
-       network_instance = VRF,
+       network_instance = vrf:normalize_name(VRF),
        ipv6 = ergw_inet:ip2bin(?LOCALHOST_IPv6)
       }.
 
