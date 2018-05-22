@@ -13,7 +13,8 @@
 	 create_session/1, create_session/2,
 	 delete_session/1, delete_session/2,
 	 modify_bearer/2,
-	 modify_bearer_command/2]).
+	 modify_bearer_command/2,
+	 release_access_bearers/2]).
 
 -include("ergw_test_lib.hrl").
 -include("ergw_saegw_test_lib.hrl").
@@ -45,6 +46,9 @@ modify_bearer(SubType, GtpC) ->
 
 modify_bearer_command(SubType, GtpC) ->
     execute_command(modify_bearer_command, SubType, GtpC).
+
+release_access_bearers(SubType, GtpC) ->
+    execute_request(release_access_bearers_request, SubType, GtpC).
 
 delete_session(GtpC) ->
     execute_request(delete_session_request, simple, GtpC).
@@ -246,6 +250,13 @@ make_request(modify_bearer_command, SubType,
 	  ],
     #gtp{version = v2, type = modify_bearer_command, tei = RemoteCntlTEI,
 	 seq_no = SeqNo, ie = IEs};
+
+make_request(release_access_bearers_request, _SubType,
+	     #gtpc{restart_counter = RCnt, seq_no = SeqNo,
+		   remote_control_tei = RemoteCntlTEI}) ->
+    IEs = [#v2_recovery{restart_counter = RCnt}],
+    #gtp{version = v2,type=release_access_bearers_request,
+	 tei = RemoteCntlTEI, seq_no = SeqNo, ie = IEs};
 
 make_request(delete_session_request, _SubType,
 	     #gtpc{restart_counter = RCnt, seq_no = SeqNo,
@@ -483,6 +494,14 @@ validate_response(modify_bearer_command, _SubType, Response,
 				#v2_bearer_level_quality_of_service{},
 			    {v2_eps_bearer_id,0} := #v2_eps_bearer_id{}}}}
 	   }, Response),
+    GtpC;
+
+validate_response(release_access_bearers_request, _SubType, Response,
+		  #gtpc{local_control_tei = LocalCntlTEI} = GtpC) ->
+    ?match(#gtp{type = release_access_bearers_response,
+		tei = LocalCntlTEI,
+		ie = #{{v2_cause,0} := #v2_cause{v2_cause = request_accepted}}
+	       }, Response),
     GtpC;
 
 validate_response(delete_session_request, not_found, Response, GtpC) ->

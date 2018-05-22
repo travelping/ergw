@@ -181,7 +181,8 @@ common() ->
      commands_invalid_teid,
      delete_bearer_request_resend,
      unsupported_request,
-     create_session_overload
+     create_session_overload,
+     enb_connection_suspend
     ].
 
 groups() ->
@@ -588,6 +589,29 @@ create_session_overload() ->
 create_session_overload(Config) ->
     create_session(overload, Config),
 
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+enb_connection_suspend() ->
+    [{doc, "Check S1 release / eNodeB initiated Connection Suspend procedure"}].
+enb_connection_suspend(Config) ->
+    {GtpC1, _, _} = create_session(Config),
+    {GtpC2, _, _} = modify_bearer(enb_u_tei, GtpC1),
+    {GtpC3, _, _} = release_access_bearers(simple, GtpC2),
+    {GtpC4, _, _} = modify_bearer(enb_u_tei, GtpC3),
+    delete_session(GtpC4),
+
+    ?equal([], outstanding_requests()),
+
+    [_, SMR0|_] = lists:filter(
+		    fun(#pfcp{type = session_modification_request}) -> true;
+		       (_) -> false
+		    end, ergw_test_sx_up:history('pgw-u')),
+    SMR = pfcp_packet:to_map(SMR0),
+    ?match(#{remove_far := #remove_far{}}, SMR#pfcp.ie),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
     ok.
 

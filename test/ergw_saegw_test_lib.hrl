@@ -12,9 +12,7 @@
 				delete_session/1, delete_session/2,
 				modify_bearer/2,
 				modify_bearer_command/2,
-				change_notification/2,
-				suspend_notification/2,
-				resume_notification/2]).
+				release_access_bearers/2]).
 
 -endif.
 
