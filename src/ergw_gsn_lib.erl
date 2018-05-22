@@ -32,8 +32,8 @@ create_sgi_session(Candidates, Ctx0) ->
     IEs =
 	[ergw_pfcp:f_seid(SEID, IP),
 	 create_dp_to_cp_far(access, 1000, Ctx)] ++
-	lists:foldl(fun create_pdr/2, [], [{1, gtp, Ctx}, {2, sgi, Ctx}]) ++
-	lists:foldl(fun create_far/2, [], [{2, gtp, Ctx}, {1, sgi, Ctx}]) ++
+	lists:foldl(fun create_pdr/2, [], [{1, 'Access', Ctx}, {2, 'SGi-LAN', Ctx}]) ++
+	lists:foldl(fun create_far/2, [], [{2, 'Access', Ctx}, {1, 'SGi-LAN', Ctx}]) ++
 	[create_ipv6_mcast_pdr(1000, 1000, Ctx) || Ctx#context.ms_v6 /= undefined] ++
 	[#create_urr{group =
 			 [#urr_id{id = 1}, #measurement_method{volum = 1}]}],
@@ -50,8 +50,8 @@ create_sgi_session(Candidates, Ctx0) ->
 
 modify_sgi_session(#context{dp_seid = SEID} = Ctx, OldCtx) ->
     IEs =
-	lists:foldl(fun update_pdr/2, [], [{1, gtp, Ctx, OldCtx}, {2, sgi, Ctx, OldCtx}]) ++
-	lists:foldl(fun update_far/2, [], [{2, gtp, Ctx, OldCtx}, {1, sgi, Ctx, OldCtx}]),
+	lists:foldl(fun update_pdr/2, [], [{1, 'Access', Ctx, OldCtx}, {2, 'SGi-LAN', Ctx, OldCtx}]) ++
+	lists:foldl(fun update_far/2, [], [{2, 'Access', Ctx, OldCtx}, {1, 'SGi-LAN', Ctx, OldCtx}]),
     Req = #pfcp{version = v1, type = session_modification_request, seid = SEID, ie = IEs},
 
     case ergw_sx_node:call(Ctx, Req) of
@@ -117,7 +117,7 @@ create_dp_to_cp_far(access, FarId,
 	   ]
       }.
 
-create_pdr({RuleId, gtp,
+create_pdr({RuleId, 'Access',
 	    #context{
 	       data_port = #gtp_port{ip = IP} = DataPort,
 	       local_data_tei = LocalTEI} = Ctx},
@@ -140,7 +140,7 @@ create_pdr({RuleId, gtp,
 	    },
     [PDR | PDRs];
 
-create_pdr({RuleId, sgi, Ctx}, PDRs) ->
+create_pdr({RuleId, 'SGi-LAN', Ctx}, PDRs) ->
     PDI = #pdi{
 	     group =
 		 [#source_interface{interface = 'SGi-LAN'},
@@ -157,7 +157,7 @@ create_pdr({RuleId, sgi, Ctx}, PDRs) ->
 	    },
     [PDR | PDRs].
 
-create_far({RuleId, gtp,
+create_far({RuleId, 'Access',
 	    #context{
 	       data_port = DataPort,
 	       remote_data_teid = PeerTEID}},
@@ -178,7 +178,7 @@ create_far({RuleId, gtp,
 	    },
     [FAR | FARs];
 
-create_far({RuleId, sgi, Ctx}, FARs) ->
+create_far({RuleId, 'SGi-LAN', Ctx}, FARs) ->
     FAR = #create_far{
 	     group =
 		 [#far_id{id = RuleId},
@@ -195,7 +195,7 @@ create_far({RuleId, sgi, Ctx}, FARs) ->
 create_far({_RuleId, _Intf, _Out}, FARs) ->
     FARs.
 
-update_pdr({RuleId, gtp,
+update_pdr({RuleId, 'Access',
 	    #context{data_port = #gtp_port{name = InPortName, ip = IP} = DataPort,
 		     local_data_tei = LocalTEI},
 	    #context{data_port = #gtp_port{name = OldInPortName},
@@ -220,7 +220,7 @@ update_pdr({RuleId, gtp,
 	    },
     [PDR | PDRs];
 
-update_pdr({RuleId, sgi,
+update_pdr({RuleId, 'SGi-LAN',
 	    #context{vrf = VRF, ms_v4 = MSv4, ms_v6 = MSv6} = Ctx,
 	    #context{vrf = OldVRF, ms_v4 = OldMSv4, ms_v6 = OldMSv6}},
 	   PDRs)
@@ -246,21 +246,21 @@ update_pdr({RuleId, sgi,
 update_pdr({_RuleId, _Type, _In, _OldIn}, PDRs) ->
     PDRs.
 
-update_far({RuleId, gtp,
+update_far({RuleId, 'Access',
 	    #context{remote_data_teid = PeerTEID} = Context,
 	    #context{remote_data_teid = OldPeerTEID}},
 	   FARs)
   when (OldPeerTEID =:= undefined andalso PeerTEID /= undefined) ->
-    create_far({RuleId, gtp, Context}, FARs);
+    create_far({RuleId, 'Access', Context}, FARs);
 
-update_far({RuleId, gtp,
+update_far({RuleId, 'Access',
 	    #context{remote_data_teid = PeerTEID},
 	    #context{remote_data_teid = OldPeerTEID} = Context},
 	   FARs)
   when (OldPeerTEID /= undefined andalso PeerTEID =:= undefined) ->
-    remove_far({RuleId, gtp, Context}, FARs);
+    remove_far({RuleId, 'Access', Context}, FARs);
 
-update_far({RuleId, gtp,
+update_far({RuleId, 'Access',
 	    #context{version = Version,
 		     data_port = #gtp_port{name = OutPortName} = DataPort,
 		     remote_data_teid = PeerTEID},
@@ -287,7 +287,7 @@ update_far({RuleId, gtp,
 	    },
     [FAR | FARs];
 
-update_far({RuleId, sgi, #context{vrf = VRF} = Ctx, #context{vrf = OldVRF}}, FARs)
+update_far({RuleId, 'SGi-LAN', #context{vrf = VRF} = Ctx, #context{vrf = OldVRF}}, FARs)
   when OldVRF /= VRF ->
     FAR = #update_far{
 	     group =
@@ -305,7 +305,7 @@ update_far({RuleId, sgi, #context{vrf = VRF} = Ctx, #context{vrf = OldVRF}}, FAR
 update_far({_RuleId, _Type, _Out, _OldOut}, FARs) ->
     FARs.
 
-remove_far({RuleId, gtp, #context{remote_data_teid = PeerTEID}}, FARs)
+remove_far({RuleId, 'Access', #context{remote_data_teid = PeerTEID}}, FARs)
   when PeerTEID /= undefined ->
     [#remove_far{group = [#far_id{id = RuleId}]} | FARs];
 remove_far({_RuleId, _Type, _Context}, FARs) ->
