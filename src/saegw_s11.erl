@@ -271,6 +271,20 @@ handle_request(#request{gtp_port = GtpPort, ip = SrcIP, port = SrcPort} = ReqKey
     {noreply, State};
 
 handle_request(_ReqKey,
+	       #gtp{type = release_access_bearers_request} = Request, _Resent,
+	       #{context := OldContext} = State) ->
+
+    NewContext = OldContext#context{
+		   remote_data_teid = undefined
+		  },
+    gtp_context:remote_context_update(OldContext, NewContext),
+    Context = ergw_gsn_lib:modify_sgi_session(NewContext, OldContext),
+
+    ResponseIEs = [#v2_cause{v2_cause = request_accepted}],
+    Response = response(release_access_bearers_response, Context, ResponseIEs, Request),
+    {reply, Response, State#{context => Context}};
+
+handle_request(_ReqKey,
 	       #gtp{type = delete_session_request, ie = IEs}, _Resent,
 	       #{context := Context} = State0) ->
 

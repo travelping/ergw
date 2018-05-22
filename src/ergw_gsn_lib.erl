@@ -254,6 +254,13 @@ update_far({RuleId, gtp,
     create_far({RuleId, gtp, Context}, FARs);
 
 update_far({RuleId, gtp,
+	    #context{remote_data_teid = PeerTEID},
+	    #context{remote_data_teid = OldPeerTEID} = Context},
+	   FARs)
+  when (OldPeerTEID /= undefined andalso PeerTEID =:= undefined) ->
+    remove_far({RuleId, gtp, Context}, FARs);
+
+update_far({RuleId, gtp,
 	    #context{version = Version,
 		     data_port = #gtp_port{name = OutPortName} = DataPort,
 		     remote_data_teid = PeerTEID},
@@ -296,6 +303,12 @@ update_far({RuleId, sgi, #context{vrf = VRF} = Ctx, #context{vrf = OldVRF}}, FAR
     [FAR | FARs];
 
 update_far({_RuleId, _Type, _Out, _OldOut}, FARs) ->
+    FARs.
+
+remove_far({RuleId, gtp, #context{remote_data_teid = PeerTEID}}, FARs)
+  when PeerTEID /= undefined ->
+    [#remove_far{group = [#far_id{id = RuleId}]} | FARs];
+remove_far({_RuleId, _Type, _Context}, FARs) ->
     FARs.
 
 %% use additional information from the Context to prefre V4 or V6....
