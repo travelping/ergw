@@ -1,6 +1,17 @@
 erGW - 3GPP GGSN and PDN-GW in Erlang
 =====================================
 
+Version 1.17.0 - 24 May 2018
+----------------------------
+
+* Make the fallback GGSN/PGW IP setting into a list of candidates
+* Add DNS helper module to resolve names with NAPTR record [#67](https://github.com/travelping/ergw/pull/67)
+* Upgrade `gen_socket` to work on Erlang-R20+ [#68](https://github.com/travelping/ergw/pull/68)
+* Fix metrics suffix for counters [#65](https://github.com/travelping/ergw/pull/65)
+* Use exometer_core, cowboy and jobs dependencies from hex.pm [#58](https://github.com/travelping/ergw/pull/58)
+* Fix fmt_ies/1 during pretty print of gtp message [#61](https://github.com/travelping/ergw/pull/61)
+* Fix error log about invalid response in gtp_socket [#60](https://github.com/travelping/ergw/pull/60)
+
 Version 1.16.0 - 03 Oct 2017
 ----------------------------
 
