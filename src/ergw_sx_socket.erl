@@ -72,6 +72,8 @@
 %% API
 %%====================================================================
 
+start_sx_socket(undefined) ->
+    {ok, undefined};
 start_sx_socket(Opts) ->
     ergw_sup:start_sx_socket(Opts).
 

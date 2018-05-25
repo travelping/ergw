@@ -8,6 +8,11 @@
 -callback validate_options(Opts :: [{Key :: atom(), Value :: term()}]) ->
     Return :: #{Key :: atom() => Value :: term()}.
 
+-callback attach_protocol(Socket   :: term(),
+			  Name     :: term(),
+			  Protocol :: atom(),
+			  Opts     :: [term()]) -> ok.
+
 -callback init(Opts :: term(),
 	       State :: map()) ->
     Return :: {ok, State ::map()} |

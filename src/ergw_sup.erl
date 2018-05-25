@@ -10,7 +10,7 @@
 -behaviour(supervisor).
 
 %% API
--export([start_link/0, start_sx_socket/1]).
+-export([start_link/0, start_sx_socket/1, ensure_child/1]).
 
 %% Supervisor callbacks
 -export([init/1]).
@@ -27,6 +27,20 @@ start_link() ->
 
 start_sx_socket(Opts) ->
     {ok, _} = supervisor:start_child(?MODULE, ?CHILD(ergw_sx_socket, worker, [Opts])).
+
+ensure_child(ChildSpec) ->
+    case supervisor:start_child(?MODULE, ChildSpec) of
+	{ok, _} ->
+	    ok;
+	{ok, _, _} ->
+	    ok;
+	{error, already_present} ->
+	    ok;
+	{error, {already_started, _}} ->
+	    ok;
+	Other ->
+	    Other
+    end.
 
 %% ===================================================================
 %% Supervisor callbacks

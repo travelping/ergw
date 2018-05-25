@@ -201,6 +201,8 @@ handle_message(#pfcp{type = association_setup_request}, State) ->
 	[#pfcp_cause{cause = 'Request accepted'},
 	 user_plane_ip_resource_information([<<"cp">>], State),
 	 user_plane_ip_resource_information([<<"irx">>], State),
+	 user_plane_ip_resource_information([<<"irx1">>], State),
+	 user_plane_ip_resource_information([<<"irx2">>], State),
 	 user_plane_ip_resource_information([<<"proxy-irx">>], State),
 	 user_plane_ip_resource_information([<<"remote-irx">>], State)
 	],

@@ -73,6 +73,15 @@ default VRF of a APN.
 
 A GTP socket is a GTP-C or GTP-U IP endpoint.
 
+### GTP Loadbalancer ###
+
+LB hander implements a redirection and load balancing mode for initial GTP requests.
+It will forward initial GTP request to another GTP peer while keeping the original
+sourer IP address and port. For the GTP peer, such request looks like they came from
+the original GTP client directly.
+The LB mode requires access to raw IP sockets and therefore needs heightened Linux
+network capabilities (CAP_NET_RAW).
+
 Pictures
 --------
 
@@ -309,6 +318,64 @@ options.
   - context_name: `binary()`
 
     the context name
+
+### gtp_c_lb ###
+
+    {handlers,
+     [{'h1', [{handler, gtp_c_lb},
+          {protocol, gn},
+          {sockets, [epc]},
+          {forward, [fwd]},
+          {rules, [
+               {'gsn1', [
+                     {conditions, [{src_ip, {192, 168, 127, 127}}]},
+                     {strategy, random},
+                     {nodes, [{172,20,16,59}]}
+                    ]},
+               {'gsn2', [
+                     {strategy, random},
+                     {nodes, [{172,20,16,59}]}
+                    ]}
+              ]}
+         ]}]}
+
+* lb_options:
+
+  - `{forward, [socket_name()]}`
+
+    the default raw IP GTP-C socket for forwarding requests
+
+  - `{rules, [rule()]}`
+
+* rule: `{rule_name(), [rule()]}`
+* rule_name: `atom()`
+* rule_definition:
+
+  - `{conditions, [condition()]}`
+
+    list of conditions to match rule
+
+  - `{nodes, [inet:ip_address()]}`
+
+    list of node's names to redirect request. Node will be selected with using `lb_type` logic
+
+  - `{strategy, strategy()}`
+
+    how to select node from list of nodes
+
+* condition:
+
+  - `{src_ip, inet:ip_address())}`
+
+    source IP address from the IP packet
+
+  - `{peer_ip, inet:ip_address())}`
+
+    peer GSN IP address from the request information elements
+
+ - `{imsi, binary())}`
+
+    IMSI
 
 Operation Modes
 ---------------

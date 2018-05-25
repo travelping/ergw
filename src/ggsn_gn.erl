@@ -11,7 +11,7 @@
 
 -compile({parse_transform, cut}).
 
--export([validate_options/1, init/2, request_spec/3,
+-export([validate_options/1, attach_protocol/4, init/2, request_spec/3,
 	 handle_pdu/3, handle_request/4, handle_response/4,
 	 handle_call/3, handle_cast/2, handle_info/2,
 	 terminate/2]).
@@ -79,6 +79,9 @@ validate_options(Options) ->
 
 validate_option(Opt, Value) ->
     gtp_context:validate_option(Opt, Value).
+
+attach_protocol(Socket, Name, Protocol, Opts) ->
+    ergw:attach_protocol(Socket, Name, Protocol, ?MODULE, Opts).
 
 init(_Opts, State) ->
     {ok, Session} = ergw_aaa_session_sup:new_session(self(), to_session([])),

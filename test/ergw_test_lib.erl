@@ -150,7 +150,7 @@ meck_init(Config) ->
 
     {_, Hs} = lists:keyfind(handlers_under_test, 1, Config),   %% let it crash if HUT is undefined
     [begin
-        ok = meck:new(Hut, [passthrough, no_link]),
+        ok = meck:new(Hut, [passthrough, no_link, non_strict]),
         ok = meck:expect(Hut, handle_request,
 		     fun(ReqKey, Request, Resent, State) ->
 			     try

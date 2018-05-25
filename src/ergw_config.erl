@@ -14,6 +14,7 @@
 	 validate_node_name/1,
 	 validate_config/1,
 	 validate_options/4,
+	 check_unique_keys/2,
 	 opts_fold/3,
 	 to_map/1]).
 
@@ -167,6 +168,8 @@ validate_option(plmn_id, {MCC, MNC} = Value) ->
     end;
 validate_option(accept_new, Value) when is_boolean(Value) ->
     Value;
+validate_option(sx_socket, undefined) ->
+    undefined;
 validate_option(sx_socket, Value) when is_list(Value); is_map(Value) ->
     ergw_sx_socket:validate_options(Value);
 validate_option(sockets, Value) when is_list(Value), length(Value) >= 1 ->
@@ -178,7 +181,7 @@ validate_option(handlers, Value) when is_list(Value), length(Value) >= 1 ->
 validate_option(node_selection, Value) when ?is_opts(Value) ->
     check_unique_keys(node_selection, Value),
     validate_options(fun validate_node_selection_option/2, Value, [], map);
-validate_option(nodes, Value) when ?non_empty_opts(Value) ->
+validate_option(nodes, Value) when ?is_opts(Value) ->
     check_unique_keys(nodes, Value),
     validate_options(fun validate_nodes/2, Value, [], map);
 validate_option(vrfs, Value) when is_list(Value) ->
@@ -218,9 +221,9 @@ validate_mcc_mcn(_, _) ->
 validate_sockets_option(Opt, Values)
   when is_atom(Opt), ?is_opts(Values) ->
     case get_opt(type, Values) of
-	'gtp-c' ->
-	    ergw_gtp_socket:validate_options(Values);
-	'gtp-u' ->
+	Type when Type =:= 'gtp-c';
+		  Type =:= 'gtp-u';
+		  Type =:= 'gtp-raw' ->
 	    ergw_gtp_socket:validate_options(Values);
 	_ ->
 	    throw({error, {options, {Opt, Values}}})
@@ -318,7 +321,7 @@ load_handler({Name, #{handler  := Handler,
 		      protocol := Protocol,
 		      sockets  := Sockets} = Opts0}) ->
     Opts = maps:to_list(maps:without([handler, protocol, sockets], Opts0)),
-    lists:foreach(ergw:attach_protocol(_, Name, Protocol, Handler, Opts), Sockets).
+    lists:foreach(Handler:attach_protocol(_, Name, Protocol, Opts), Sockets).
 
 load_vrf({Name, Options}) ->
     ergw:start_vrf(Name, Options).

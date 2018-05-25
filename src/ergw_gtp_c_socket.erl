@@ -34,6 +34,7 @@
 -export_type([sequence_id/0]).
 
 -record(state, {
+	  mode       :: 'statefull' | 'stateless',
 	  gtp_port   :: #gtp_port{},
 	  ip         :: inet:ip_address(),
 	  socket     :: gen_socket:socket(),
@@ -155,6 +156,8 @@ init([Name, #{ip := IP} = SocketOpts]) ->
     ergw_gtp_socket_reg:register(Name, GtpPort),
 
     State = #state{
+	       mode = maps:get(mode, SocketOpts, 'statefull'),
+
 	       gtp_port = GtpPort,
 	       ip = IP,
 	       socket = S,
@@ -431,6 +434,9 @@ handle_response(ArrivalTS, IP, _Port, Msg, #state{gtp_port = GtpPort} = State0) 
 	    State
     end.
 
+handle_request(ReqKey, Msg, #state{mode = stateless} = State) ->
+    ergw_gtp_stateless:handle_message(ReqKey, Msg),
+    State;
 handle_request(#request{ip = IP, port = Port} = ReqKey, Msg,
 	       #state{gtp_port = GtpPort, responses = Responses} = State) ->
     case ergw_cache:get(cache_key(ReqKey), Responses) of

@@ -32,7 +32,9 @@ start_socket(Name, Opts)
 start_link('gtp-c', Opts) ->
     ergw_gtp_c_socket:start_link(Opts);
 start_link('gtp-u', Opts) ->
-    ergw_gtp_u_socket:start_link(Opts).
+    ergw_gtp_u_socket:start_link(Opts);
+start_link('gtp-raw', Opts) ->
+    ergw_gtp_raw_socket:start_link(Opts).
 
 start_link(Socket = {_Name, #{type := Type}}) ->
     start_link(Type, Socket);
@@ -51,7 +53,7 @@ get_restart_counter(GtpPort) ->
 %%% Options Validation
 %%%===================================================================
 
--define(SocketDefaults, [{ip, invalid}]).
+-define(SocketDefaults, [{ip, invalid}, {mode, statefull}]).
 
 validate_options(Values0) ->
     Values = if is_list(Values0) ->
@@ -67,6 +69,8 @@ validate_option(type, 'gtp-c') ->
     'gtp-c';
 validate_option(type, 'gtp-u') ->
     'gtp-u';
+validate_option(type, 'gtp-raw') ->
+    'gtp-raw';
 validate_option(ip, Value)
   when is_tuple(Value) andalso
        (tuple_size(Value) == 4 orelse tuple_size(Value) == 8) ->
@@ -86,6 +90,9 @@ validate_option(reuseaddr, Value) when is_boolean(Value) ->
 validate_option(rcvbuf, Value)
   when is_integer(Value) andalso Value > 0 ->
     Value;
+validate_option(mode, Value)
+  when Value =:= stateless; Value =:= statefull ->
+    Value;
 validate_option(Opt, Value) ->
     throw({error, {options, {Opt, Value}}}).
 
@@ -96,7 +103,9 @@ validate_option(Opt, Value) ->
 invoke_handler(#gtp_port{type = 'gtp-c'} = GtpPort, F, A) ->
     erlang:apply(ergw_gtp_c_socket, F, [GtpPort | A]);
 invoke_handler(#gtp_port{type = 'gtp-u'} = GtpPort, F, A) ->
-    erlang:apply(ergw_gtp_u_socket, F, [GtpPort | A]).
+    erlang:apply(ergw_gtp_u_socket, F, [GtpPort | A]);
+invoke_handler(#gtp_port{type = 'gtp-raw'} = GtpPort, F, A) ->
+    erlang:apply(ergw_gtp_raw_socket, F, [GtpPort | A]).
 
 %%%===================================================================
 %%% Socket Helper

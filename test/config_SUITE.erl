@@ -400,6 +400,55 @@
 	 }
 	]).
 
+-define(LB_CONFIG,
+	[{sockets,
+	  [{epc, [{type, 'gtp-c'},
+		  {ip,  ?LOCALHOST_IPv4},
+		  {mode, stateless}
+		 ]},
+	   {fwd, [{type, 'gtp-raw'},
+		  {ip,  ?LOCALHOST_IPv4},
+		  {mode, stateless}
+		 ]}
+	  ]},
+
+	 {handlers,
+	  [{'h1', [{handler, gtp_c_lb},
+		   {protocol, gn},
+		   {sockets, [epc]},
+		   {forward, [fwd]},
+		   {rules, [
+			    {'gsn1', [
+				      {conditions, [{peer_ip, ?LOCALHOST_IPv4}]},
+				      {strategy, random},
+				      {nodes, [?LOCALHOST_IPv4]}
+				     ]},
+			    {'gsn2', [
+				      {strategy, random},
+				      {nodes, [?LOCALHOST_IPv4]}
+				     ]}
+			   ]}
+		  ]},
+	   {'h2', [{handler, gtp_c_lb},
+		   {protocol, s5s8},
+		   {sockets, [epc]},
+		   {forward, [fwd]},
+		   {rules, [
+			    {'gsn1', [
+				      {conditions, [{peer_ip, ?LOCALHOST_IPv4}]},
+				      {strategy, random},
+				      {nodes, [?LOCALHOST_IPv4]}
+				     ]},
+			    {'gsn2', [
+				      {strategy, random},
+				      {nodes, [?LOCALHOST_IPv4]}
+				     ]}
+			   ]}
+		  ]}
+	  ]}
+	]).
+
+
 %%%===================================================================
 %%% API
 %%%===================================================================
@@ -626,7 +675,6 @@ config(_Config)  ->
 			     ?GGSN_PROXY_CONFIG)),
 
     ?error_option(set_cfg_value([nodes], invalid, ?GGSN_PROXY_CONFIG)),
-    ?error_option(set_cfg_value([nodes], [], ?GGSN_PROXY_CONFIG)),
     ?error_option(set_cfg_value([nodes, default], invalid, ?GGSN_PROXY_CONFIG)),
     ?error_option(set_cfg_value([nodes, default], [], ?GGSN_PROXY_CONFIG)),
     ?error_option(set_cfg_value([nodes, default], [{invalid, invalid}], ?GGSN_PROXY_CONFIG)),
@@ -669,4 +717,26 @@ config(_Config)  ->
     ?ok_option(set_cfg_value([node_selection, default],
 			     {static, [{"Host", [{1,1,1,1}], []}]},
 			     ?PGW_PROXY_CONFIG)),
+
+    ?ok_option(?LB_CONFIG),
+    Rules = [handlers, 'h1', rules, 'gsn1'],
+    Cond = Rules ++ [conditions],
+    ?error_option(set_cfg_value([handlers, 'h1', forward], [], ?LB_CONFIG)),
+    ?error_option(set_cfg_value([handlers, 'h1', forward], ["fwd"], ?LB_CONFIG)),
+    ?error_option(set_cfg_value([handlers, 'h1', forward], invalid, ?LB_CONFIG)),
+    ?ok_option(set_cfg_value(Rules ++ [nodes], [?LOCALHOST_IPv6], ?LB_CONFIG)),
+    ?error_option(set_cfg_value(Rules ++ [nodes], [], ?LB_CONFIG)),
+    ?ok_option(set_cfg_value(Rules ++ [strategy], round_robin, ?LB_CONFIG)),
+    ?error_option(set_cfg_value(Rules ++ [strategy], invalid, ?LB_CONFIG)),
+    ?ok_option(set_cfg_value(Cond, [], ?LB_CONFIG)),
+    ?error_option(set_cfg_value(Cond, invalid, ?LB_CONFIG)),
+    ?error_option(set_cfg_value(Cond ++ [invalid], invalid, ?LB_CONFIG)),
+    ?ok_option(set_cfg_value(Cond ++ [peer_ip], ?LOCALHOST_IPv6, ?LB_CONFIG)),
+    ?error_option(set_cfg_value(Cond ++ [peer_ip], invalid, ?LB_CONFIG)),
+    ?ok_option(set_cfg_value(Cond ++ [src_ip], ?LOCALHOST_IPv6, ?LB_CONFIG)),
+    ?error_option(set_cfg_value(Cond ++ [src_ip], invalid, ?LB_CONFIG)),
+    ?ok_option(set_cfg_value(Cond ++ [imsi], ?'IMSI', ?LB_CONFIG)),
+    ?error_option(set_cfg_value(Cond ++ [imsi], invalid, ?LB_CONFIG)),
+    ?error_option(set_cfg_value(Cond ++ [msisdn], ?'MSISDN', ?LB_CONFIG)),
+
     ok.
