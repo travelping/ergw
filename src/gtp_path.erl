@@ -13,8 +13,8 @@
 -compile({no_auto_import,[register/2]}).
 
 %% API
--export([start_link/4, all/1,
-	 maybe_new_path/3,
+-export([start_link/5, all/1,
+	 maybe_new_path/3, maybe_new_path/4,
 	 handle_request/2, handle_response/3,
 	 bind/1, bind/2, unbind/1, down/2,
 	 get_handler/2, info/1,
@@ -29,6 +29,7 @@
 
 -record(state, {table		:: ets:tid(),
 		gtp_port	:: #gtp_port{},
+		type            :: 'transient' | 'persistent',
 		version		:: 'v1' | 'v2',
 		handler		:: atom(),
 		ip		:: inet:ip_address(),
@@ -46,17 +47,20 @@
 %%% API
 %%%===================================================================
 
-start_link(GtpPort, Version, RemoteIP, Args) ->
+start_link(GtpPort, Version, RemoteIP, Type, Args) ->
     Opts = [{hibernate_after, 5000},
 	    {spawn_opt,[{fullsweep_after, 0}]}],
-    gen_server:start_link(?MODULE, [GtpPort, Version, RemoteIP, Args], Opts).
+    gen_server:start_link(?MODULE, [GtpPort, Version, RemoteIP, Type, Args], []).
 
 maybe_new_path(GtpPort, Version, RemoteIP) ->
+    maybe_new_path(GtpPort, Version, RemoteIP, transient).
+
+maybe_new_path(GtpPort, Version, RemoteIP, Type) ->
     case get(GtpPort, Version, RemoteIP) of
 	Path when is_pid(Path) ->
 	    Path;
 	_ ->
-	    {ok, Path} = gtp_path_sup:new_path(GtpPort, Version, RemoteIP, []),
+	    {ok, Path} = gtp_path_sup:new_path(GtpPort, Version, RemoteIP, Type, []),
 	    Path
     end.
 
@@ -125,11 +129,12 @@ get_handler(#gtp_port{type = 'gtp-c'}, v2) ->
 %%%===================================================================
 %%% gen_server callbacks
 %%%===================================================================
-init([#gtp_port{name = PortName} = GtpPort, Version, RemoteIP, Args]) ->
+init([#gtp_port{name = PortName} = GtpPort, Version, RemoteIP, Type, Args]) ->
     gtp_path_reg:register({PortName, Version, RemoteIP}),
 
     State0 = #state{
 		gtp_port     = GtpPort,
+		type         = Type,
 		version      = Version,
 		handler      = get_handler(GtpPort, Version),
 		ip           = RemoteIP,
@@ -140,8 +145,13 @@ init([#gtp_port{name = PortName} = GtpPort, Version, RemoteIP, Args]) ->
 		echo_timer   = stopped,
 		state        = 'UP'},
     exometer_new(State0),
-    State = ets_new(State0),
-
+    State1 = ets_new(State0),
+    State =
+	if Type =:= 'persistent' ->
+		start_echo_request(State1);
+	   true ->
+		State1
+	end,
     lager:debug("State: ~p", [State]),
     {ok, State}.
 
@@ -328,9 +338,9 @@ unregister(Pid, #state{table = TID} = State) ->
     ets:delete(TID, Pid),
     update_path_counter(ets:info(TID, size), State).
 
-update_path_counter(PathCounter, State) ->
+update_path_counter(PathCounter, #state{type = Type} = State) ->
     exo_update_path_counter(PathCounter, State),
-    if PathCounter =:= 0 ->
+    if Type =:= 'transient' andalso PathCounter =:= 0 ->
 	    stop_echo_request(State);
        true ->
 	    start_echo_request(State)
