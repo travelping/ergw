@@ -145,7 +145,7 @@ suite() ->
     [{timetrap,{seconds,30}}].
 
 init_per_suite(Config0) ->
-    [{handler_under_test, ?HUT},
+    [{handlers_under_test, [?HUT]},
      {app_cfg, ?TEST_CONFIG} | Config0].
 
 end_per_suite(_Config) ->
