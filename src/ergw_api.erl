@@ -10,13 +10,15 @@
 %% API
 -export([peer/1, tunnel/1]).
 
+-include("include/ergw.hrl").
+
 %%%===================================================================
 %%% API
 %%%===================================================================
 
 peer(all) ->
     Peers = gtp_path_reg:all(),
-    lists:map(fun({_, Pid}) -> gtp_path:info(Pid) end, Peers);
+    lists:map(fun(#path{pid = Pid}) -> gtp_path:info(Pid) end, Peers);
 peer({_,_,_,_} = IP) ->
     collect_peer_info(gtp_path_reg:all(IP));
 peer({_,_,_,_,_,_,_,_} = IP) ->

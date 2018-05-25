@@ -391,9 +391,15 @@ echo_response(Msg, State0) ->
     update_path_state(Msg, State0).
 
 update_path_state(#gtp{}, State) ->
-    State#state{state = 'UP'};
+    set_path_state('UP', State);
 update_path_state(_, State) ->
-    State#state{state = 'DOWN'}.
+    set_path_state('DOWN', State).
+
+set_path_state(Status, #state{gtp_port = #gtp_port{name = PortName},
+			      version = Version, ip = RemoteIP} = State) ->
+    Key = {PortName, Version, RemoteIP},
+    gtp_path_reg:status(Key, Status),
+    State#state{state = Status}.
 
 %%%===================================================================
 %%% ExoMeter functions
