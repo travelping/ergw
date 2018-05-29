@@ -60,10 +60,17 @@ match(_, _) -> [].
 %% RFC2915: "A" means that the next lookup should be for either an A, AAAA, or A6 record. 
 %% We only support A for now.
 follow({_Order, _Pref, "a", _Server, _Regexp, Replacement}, Resources) -> 
-    [data(Resource)
-     || Resource <- Resources,
-		    type(Resource) =:= a,
-		    string_equal(domain(Resource), Replacement)];
+    IPs = [data(Resource)
+           || Resource <- Resources,
+              type(Resource) =:= a,
+              string_equal(domain(Resource), Replacement)],
+    if IPs == [] -> 
+           case inet:parse_ipv4_address(Replacement) of
+               {ok, IP} -> [IP];
+               _ -> IPs
+           end;
+       true -> IPs
+    end;
 
 %% RFC2915: the "S" flag means that the next lookup should be for SRV records.
 follow({_Order, _Pref, "s", _Server, _Regexp, Replacement}, Resources) -> 

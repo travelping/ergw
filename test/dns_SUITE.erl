@@ -15,6 +15,8 @@
 -define(ERGW2, {100, 255, 4, 125}).
 -define(HUB1,  {100, 255, 5, 46}).
 -define(HUB2,  {100, 255, 5, 45}).
+-define(HUB3,  {100, 255, 10, 1}).
+-define(HUB3str,  "100.255.10.1").
 
 -define(SRV_q,
 	#dns_rec{
@@ -60,12 +62,24 @@
 			     data = ?HUB2}]
 	  }).
 
+-define(A_IP_q,
+	#dns_rec{
+	   anlist = [#dns_rr{domain = "example.apn.epc.mnc002.mcc456.3gppnetwork.org",
+			     type = naptr,
+			     data = % order pref flags service
+				    { 20,   20, "a",   "x-3gpp-pgw:x-s5-gtp:x-s8-gtp:x-gn",
+				    % regexp replacement       
+				      [],    ?HUB3str}}],
+	   arlist = []
+	  }).
+
+
 %%%===================================================================
 %%% Common Test callbacks
 %%%===================================================================
 
 all() ->
-    [srv_lookup, a_lookup].
+    [srv_lookup, a_lookup, a_ip_lookup].
 
 suite() ->
     [{timetrap, {seconds, 30}}].
@@ -79,7 +93,9 @@ init_per_suite(Config) ->
 		     fun("example.apn.epc.mnc123.mcc310.3gppnetwork.org.") -> 
 			     {ok, ?SRV_q};
 			("example.apn.epc.mnc001.mcc456.3gppnetwork.org.") -> 
-			     {ok, ?A_q}
+			     {ok, ?A_q};
+			("example.apn.epc.mnc002.mcc456.3gppnetwork.org.") -> 
+			     {ok, ?A_IP_q}
 		     end),
     Config.
 
@@ -101,4 +117,10 @@ a_lookup() ->
     [{doc, "NPTR lookup with following A"}].
 a_lookup(_Config) ->
     ?equal([], [?HUB1, ?HUB2] -- ergw_dns:lookup("example.apn.epc.mnc001.mcc456.3gppnetwork.org.")),
+    ok.
+
+a_ip_lookup() ->
+    [{doc, "NPTR lookup with A when Replacement is an IP"}].
+a_ip_lookup(_Config) ->
+    ?equal([], [?HUB3] -- ergw_dns:lookup("example.apn.epc.mnc002.mcc456.3gppnetwork.org.")),
     ok.
