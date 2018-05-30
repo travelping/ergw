@@ -226,8 +226,7 @@ handle_event({call, _} = Evt, Request, _, #data{call_q = QIn} = Data)
 
 handle_event(cast, {handle_pdu, _Request, #gtp{type=g_pdu, ie = PDU}}, _, Data) ->
     try
-	R = handle_ip_pdu(PDU, Data),
-	ct:pal("handle_ip_pdu: ~p", [R])
+	handle_ip_pdu(PDU, Data)
     catch
 	throw:{error, Error} ->
 	    ST = erlang:get_stacktrace(),
