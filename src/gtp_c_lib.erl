@@ -33,7 +33,6 @@ dns_char(C) when C >= $A andalso C =< $Z ->
 dns_char(C) when C >= $a andalso C =< $z ->
     C;
 dns_char(C) ->
-    ct:pal("invalude ~p", [C]),
     error(badarg, [C]).
 
 
