@@ -123,8 +123,10 @@ handle_info({ReqKey, #pfcp{version = v1, type = session_report_request, seq_no =
 handle_info(_Info, State) ->
     {noreply, State}.
 
-handle_pdu(ReqKey, Msg, State) ->
+handle_pdu(ReqKey, #gtp{ie = Data} = Msg, #{context := Context} = State) ->
     lager:debug("GTP-U GGSN: ~p, ~p", [lager:pr(ReqKey, ?MODULE), gtp_c_lib:fmt_gtp(Msg)]),
+
+    ergw_gsn_lib:ip_pdu(Data, Context),
     {noreply, State}.
 
 %% resent request
