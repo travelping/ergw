@@ -27,6 +27,8 @@
 -define(IS_IPv4(X), (is_tuple(X) andalso tuple_size(X) == 4)).
 -define(IS_IPv6(X), (is_tuple(X) andalso tuple_size(X) == 8)).
 
+-define(ZERO_IPv4, {0,0,0,0}).
+-define(ZERO_IPv6, {0,0,0,0,0,0,0,0}).
 -define(UE_INTERFACE_ID, {0,0,0,0,0,0,0,1}).
 
 %%====================================================================
@@ -191,6 +193,8 @@ normalize_ipv4(IP) when ?IS_IPv4(IP) ->
 normalize_ipv4(undefined) ->
     undefined.
 
+normalize_ipv6({?ZERO_IPv6, 0}) ->
+    {?ZERO_IPv6, 64};
 normalize_ipv6({IP, PLen} = Addr)
   when ?IS_IPv6(IP), is_integer(PLen), PLen > 0, PLen =< 128 ->
     Addr;
@@ -201,7 +205,7 @@ normalize_ipv6(undefined) ->
 
 alloc_ipv4(TEI, {ReqIPv4, PrefixLen}, #state{ip4_pools = Pools}) ->
     case ReqIPv4 of
-	{0,0,0,0} ->
+	?ZERO_IPv4 ->
 	    alloc_prefix(TEI, PrefixLen, Pools);
 	_ ->
 	    alloc_prefix(TEI, ReqIPv4, PrefixLen, Pools)
@@ -211,7 +215,7 @@ alloc_ipv4(_TEI, _ReqIPv4, _State) ->
 
 alloc_ipv6(TEI, {ReqIPv6, PrefixLen}, #state{ip6_pools = Pools}) ->
     case ReqIPv6 of
-	{0,0,0,0,0,0,0,0} ->
+	?ZERO_IPv6 ->
 	    ergw_inet:ipv6_interface_id(alloc_prefix(TEI, PrefixLen, Pools), ?UE_INTERFACE_ID);
 	_ ->
 	    ergw_inet:ipv6_interface_id(alloc_prefix(TEI, ReqIPv6, PrefixLen, Pools), ReqIPv6)

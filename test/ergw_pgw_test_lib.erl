@@ -101,7 +101,7 @@ paa({{_,_,_,_,_,_,_,_} = IP, PrefixLen}) ->
       }.
 
 make_pdn_type(ipv6, IEs) ->
-    PrefixLen = 64,
+    PrefixLen = 0,
     Prefix = ergw_inet:ip2bin({0,0,0,0,0,0,0,0}),
     [#v2_pdn_address_allocation{
 	type = ipv6,
@@ -137,7 +137,7 @@ make_pdn_type(static_host_ipv6, IEs) ->
 		      {?'PCO-IP-Address-Allocation-Via-NAS-Signalling',<<>>}]}}
      | IEs];
 make_pdn_type(ipv4v6, IEs) ->
-    PrefixLen = 64,
+    PrefixLen = 0,
     Prefix = ergw_inet:ip2bin({0,0,0,0,0,0,0,0}),
     RequestedIP = ergw_inet:ip2bin({0,0,0,0}),
     [#v2_pdn_address_allocation{
