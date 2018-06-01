@@ -58,7 +58,7 @@ Other shortcomings:
 BUILDING
 --------
 
-*The minimum supported Erlang version is 20.0.*
+*The minimum supported Erlang version is 20.1.*
 
 Using rebar:
 

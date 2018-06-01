@@ -26,7 +26,7 @@
 -define(TEST_CONFIG,
 	[
 	 {lager, [{colored, true},
-		  {error_logger_redirect, false},
+		  {error_logger_redirect, true},
 		  %% force lager into async logging, otherwise
 		  %% the test will timeout randomly
 		  {async_threshold, undefined},
@@ -117,8 +117,7 @@
 		     }]
 		   }]
 		 }
-		]},
-	 {ergw_aaa, [{ergw_aaa_provider, {ergw_aaa_mock, [{shared_secret, <<"MySecret">>}]}}]}
+		]}
 	]).
 
 
@@ -217,9 +216,11 @@ init_per_testcase(Config) ->
 init_per_testcase(create_pdp_context_request_aaa_reject, Config) ->
     init_per_testcase(Config),
     ok = meck:new(ergw_aaa_session, [passthrough, no_link]),
-    ok = meck:expect(ergw_aaa_session,authenticate,
-		     fun(_Session, _SessionOpts) ->
-			     {fail, []}
+    ok = meck:expect(ergw_aaa_session, invoke,
+		     fun(_, _, authenticate, _) ->
+			     {fail, #{}, []};
+			(_, _, _, _) ->
+			     ok
 		     end),
     Config;
 init_per_testcase(path_restart, Config) ->
@@ -784,25 +785,24 @@ session_accounting() ->
 session_accounting(Config) ->
     {GtpC, _, _} = create_pdp_context(Config),
 
-    [#{'Session' := Session, 'Process' := Context}|_] = ergw_api:tunnel(all),
-    SessionOpts0 = ergw_aaa_session:get(Session),
-    #{'Accouting-Update-Fun' := UpdateFun} = SessionOpts0,
+    [#{'Process' := Pid}|_] = ergw_api:tunnel(all),
+    #{context := Context} = gtp_context:info(Pid),
 
     %% make sure we handle that the Sx node is not returning any accounting
     ergw_test_sx_up:accounting('pgw-u', off),
 
-    SessionOpts1 = UpdateFun(Context, SessionOpts0),
+    SessionOpts1 = gtp_context:query_usage_report(Context),
     ?equal(false, maps:is_key('InPackets', SessionOpts1)),
     ?equal(false, maps:is_key('InOctets', SessionOpts1)),
 
     %% enable accouting again....
     ergw_test_sx_up:accounting('pgw-u', on),
 
-    SessionOpts2 = UpdateFun(Context, SessionOpts1),
+    SessionOpts2 = gtp_context:query_usage_report(Context),
     ?match(#{'InPackets' := 3, 'OutPackets' := 1,
 	     'InOctets' := 4, 'OutOctets' := 2}, SessionOpts2),
 
-    SessionOpts3 = UpdateFun(Context, SessionOpts2),
+    SessionOpts3 = gtp_context:query_usage_report(Context),
     ?match(#{'InPackets' := 3, 'OutPackets' := 1,
 	     'InOctets' := 4, 'OutOctets' := 2}, SessionOpts3),
 

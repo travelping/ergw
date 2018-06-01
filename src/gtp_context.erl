@@ -23,16 +23,26 @@
 	 info/1,
 	 validate_options/3,
 	 validate_option/2]).
+-export([usage_report_to_accounting/1]).
+-export([session_events/2]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
-         terminate/2, code_change/3]).
+	 terminate/2, code_change/3]).
+
+-ifdef(TEST).
+-export([query_usage_report/1]).
+-endif.
 
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include_lib("pfcplib/include/pfcp_packet.hrl").
 -include("include/ergw.hrl").
 
+-import(ergw_aaa_session, [to_session/1]).
+
 -define('Tunnel Endpoint Identifier Data I',	{tunnel_endpoint_identifier_data_i, 0}).
+
+-record(trigger, {key, type, level, value, opts, tref}).
 
 %%====================================================================
 %% API
@@ -181,6 +191,9 @@ info(Context) ->
 enforce_restrictions(Msg, #context{restrictions = Restrictions} = Context) ->
     lists:foreach(fun(R) -> enforce_restriction(Context, Msg, R) end, Restrictions).
 
+session_events(Events, Context) ->
+    lists:foldr(fun session_event/2, Context, Events).
+
 %%%===================================================================
 %%% Options Validation
 %%%===================================================================
@@ -256,7 +269,6 @@ init([CntlPort, Version, Interface,
     lager:debug("init(~p)", [[lager:pr(CntlPort, ?MODULE), Interface]]),
     process_flag(trap_exit, true),
 
-
     {ok, CntlTEI} = gtp_context_reg:alloc_tei(CntlPort),
 
     Context = #context{
@@ -326,6 +338,30 @@ handle_cast({handle_response, ReqInfo, Request, Response0},
 handle_cast(Msg, #{interface := Interface} = State) ->
     lager:debug("~w: handle_cast: ~p", [?MODULE, lager:pr(Msg, ?MODULE)]),
     Interface:handle_cast(Msg, State).
+
+%%====================================================================
+
+handle_info({timeout, TRef, {trigger, K}},
+	    #{context := #context{triggers = Triggers0} = Context} = State0) ->
+    State =
+	case maps:get(K, Triggers0, undefined) of
+	    #trigger{tref = TRef} = T ->
+		lager:info("OK Trigger: ~p, ~p, ~p", [TRef, K, Triggers0]),
+		State1 = trigger_action(T, State0),
+		Triggers = trigger_opts(T, Triggers0),
+		State1#{context => Context#context{triggers = Triggers}};
+	    _ ->
+		lager:error("Spurious Trigger: ~p, ~p, ~p", [TRef, K, Triggers0]),
+		State0
+	end,
+    {noreply, State};
+
+handle_info({update_session, _Session, Events},
+	    #{context := Context0} = State) ->
+    Context = session_events(Events, Context0),
+    {noreply, State#{context => Context}};
+
+%%====================================================================
 
 handle_info(Info, #{interface := Interface} = State) ->
     lager:debug("handle_info: ~p", [lager:pr(Info, ?MODULE)]),
@@ -496,3 +532,93 @@ validate_ies(#gtp{version = Version, type = MsgType, ie = IEs}, Cause, #{interfa
 		   (_, M) ->
 			M
 		end, [], Spec).
+
+%%====================================================================
+%% Experimental Trigger Support
+%%====================================================================
+
+usage_report_to_accounting(
+  #{volume_measurement :=
+	#volume_measurement{uplink = RcvdBytes, downlink = SendBytes},
+    tp_packet_measurement :=
+	#tp_packet_measurement{uplink = RcvdPkts, downlink = SendPkts}}) ->
+    [{'InPackets',  RcvdPkts},
+     {'OutPackets', SendPkts},
+     {'InOctets',   RcvdBytes},
+     {'OutOctets',  SendBytes}];
+usage_report_to_accounting(
+  #{volume_measurement :=
+	#volume_measurement{uplink = RcvdBytes, downlink = SendBytes}}) ->
+    [{'InOctets',   RcvdBytes},
+     {'OutOctets',  SendBytes}];
+usage_report_to_accounting(#usage_report_smr{group = UR}) ->
+    usage_report_to_accounting(UR);
+usage_report_to_accounting(#usage_report_sdr{group = UR}) ->
+    usage_report_to_accounting(UR);
+usage_report_to_accounting(#usage_report_srr{group = UR}) ->
+    usage_report_to_accounting(UR);
+usage_report_to_accounting([H|_]) ->
+    usage_report_to_accounting(H);
+usage_report_to_accounting(undefined) ->
+    [].
+
+add_trigger(_, {time, _, 0, _}, Triggers) ->
+    Triggers;
+add_trigger(K, {time, Level, Value, Opts}, Triggers) ->
+    TRef = erlang:start_timer(Value, self(), {trigger, K}),
+    Triggers#{K => #trigger{key = K, type = time, level = Level,
+			    value = Value, opts = Opts, tref = TRef}}.
+
+del_trigger(K, {time, _, _, _}, Triggers) ->
+    case Triggers of
+	#{K := #trigger{tref = TRef}} ->
+	    erlang:cancel_timer(TRef, [{async, true}]),
+	    maps:without(K, Triggers);
+	_ ->
+	    Triggers
+    end.
+
+set_trigger(K, V, Triggers) ->
+    add_trigger(K, V, del_trigger(K, V, Triggers)).
+
+session_event({add, {K, {time, _, _, _} = T}}, #context{triggers = Triggers} = Context) ->
+    Context#context{triggers = add_trigger(K, T, Triggers)};
+session_event({del, {K, {time, _, _, _} = T}}, #context{triggers = Triggers} = Context) ->
+    Context#context{triggers = del_trigger(K, T, Triggers)};
+session_event({set, {K, {time, _, _, _} = T}}, #context{triggers = Triggers} = Context) ->
+    Context#context{triggers = set_trigger(K, T, Triggers)};
+session_event(_, Context) ->
+    Context.
+
+query_usage_report(Context) ->
+    case ergw_gsn_lib:query_usage_report(Context) of
+	#pfcp{type = session_modification_response,
+	      ie = #{pfcp_cause := #pfcp_cause{cause = 'Request accepted'}} = IEs} ->
+	    to_session(
+	      usage_report_to_accounting(
+		maps:get(usage_report_smr, IEs, undefined)));
+	_Other ->
+	    lager:warning("Gn/Gp: got unexpected Query response: ~p",
+			  [lager:pr(_Other, ?MODULE)]),
+	    #{}
+    end.
+
+trigger_action(#trigger{key = Key, type = time, level = 'IP-CAN', opts = EvOpts} = _Trigger,
+	       #{context := Context, 'Session' := Session} = State) ->
+    lager:info("TIME Trigger Action: ~p", [lager:pr(_Trigger, ?MODULE)]),
+    SessionOpts = query_usage_report(Context),
+    lager:info("URR: ~p", [SessionOpts]),
+    ergw_aaa_session:event(Session, Key, EvOpts, SessionOpts),
+    State;
+trigger_action(_Trigger, State) ->
+    lager:info("Trigger Action: ~p", [lager:pr(_Trigger, ?MODULE)]),
+    State.
+
+trigger_opts(#trigger{key = K, value = Value, opts = Opts} = T, Triggers) ->
+    case proplists:get_bool('recurring', Opts) of
+	true ->
+	    TRef = erlang:start_timer(Value, self(), {trigger, K}),
+	    Triggers#{K => T#trigger{tref = TRef}};
+	_ ->
+	    maps:without(K, Triggers)
+    end.

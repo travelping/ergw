@@ -112,8 +112,7 @@
 		     }]
 		   }]
 		 }
-		]},
-	 {ergw_aaa, [{ergw_aaa_provider, {ergw_aaa_mock, [{shared_secret, <<"MySecret">>}]}}]}
+		]}
 	]).
 
 -define(CONFIG_UPDATE,
@@ -206,9 +205,11 @@ init_per_testcase(Config) ->
 init_per_testcase(create_session_request_aaa_reject, Config) ->
     init_per_testcase(Config),
     ok = meck:new(ergw_aaa_session, [passthrough, no_link]),
-    ok = meck:expect(ergw_aaa_session,authenticate,
-		     fun(_Session, _SessionOpts) ->
-			     {fail, []}
+    ok = meck:expect(ergw_aaa_session, invoke,
+		     fun(_, _, authenticate, _) ->
+			     {fail, #{}, []};
+			(_, _, _, _) ->
+			     ok
 		     end),
     Config;
 init_per_testcase(TestCase, Config)

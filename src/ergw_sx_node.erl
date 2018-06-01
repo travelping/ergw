@@ -19,7 +19,7 @@
 -export([stop/1]).
 -endif.
 
-%% gen_server callbacks
+%% gen_statem callbacks
 -export([init/1, callback_mode/0, handle_event/4,
 	 terminate/2, code_change/3]).
 

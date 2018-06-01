@@ -92,8 +92,7 @@ validate_option(Opt, Value) ->
     gtp_context:validate_option(Opt, Value).
 
 init(_Opts, State) ->
-    SessionOpts = [{'Accouting-Update-Fun', fun accounting_update/2}],
-    {ok, Session} = ergw_aaa_session_sup:new_session(self(), to_session(SessionOpts)),
+    {ok, Session} = ergw_aaa_session_sup:new_session(self(), to_session([])),
     {ok, State#{'Session' => Session}}.
 
 handle_call(query_usage_report, _From,
@@ -182,27 +181,28 @@ handle_request(_ReqKey,
     SessionOpts = init_session_from_gtp_req(IEs, AAAopts, SessionOpts0),
     %% SessionOpts = init_session_qos(ReqQoSProfile, SessionOpts1),
 
-    authenticate(ContextPreAuth, Session, SessionOpts, Request),
+    {ok, ActiveSessionOpts0, SessionEvents} =
+	authenticate(ContextPreAuth, Session, SessionOpts, Request),
     {ContextVRF, VRFOpts} = select_vrf(ContextPreAuth),
 
-    ActiveSessionOpts0 = ergw_aaa_session:get(Session),
     ActiveSessionOpts = apply_vrf_session_defaults(VRFOpts, ActiveSessionOpts0),
     lager:info("ActiveSessionOpts: ~p", [ActiveSessionOpts]),
 
     ContextPending0 = assign_ips(ActiveSessionOpts, PAA, ContextVRF),
-    ContextPending = session_to_context(ActiveSessionOpts, ContextPending0),
+    ContextPending1 = session_to_context(ActiveSessionOpts, ContextPending0),
 
     APN_FQDN = ergw_node_selection:apn_to_fqdn(APN),
     Services = [{"x-3gpp-upf", "x-sxb"}],
     Candidates = ergw_node_selection:candidates(APN_FQDN, Services, NodeSelect),
+
+    ok = ergw_aaa_session:invoke(Session, #{}, start, [], true),
+    ContextPending = gtp_context:session_events(SessionEvents, ContextPending1),
 
     Context = ergw_gsn_lib:create_sgi_session(Candidates, ContextPending),
     gtp_context:remote_context_register_new(Context),
 
     ResponseIEs = create_session_response(ActiveSessionOpts, IEs, EBI, Context),
     Response = response(create_session_response, Context, ResponseIEs, Request),
-
-    ergw_aaa_session:start(Session, #{}),
 
     {reply, Response, State#{context => Context}};
 
@@ -377,10 +377,10 @@ response(Cmd, Context, IEs0, #gtp{ie = #{?'Recovery' := Recovery}}) ->
 authenticate(Context, Session, SessionOpts, Request) ->
     lager:info("SessionOpts: ~p", [SessionOpts]),
 
-    case ergw_aaa_session:authenticate(Session, SessionOpts) of
-	success ->
+    case ergw_aaa_session:invoke(Session, SessionOpts, authenticate, [inc_session_id]) of
+	{ok, _Session, _Events} = Result ->
 	    lager:info("AuthResult: success"),
-	    ok;
+	    Result;
 
 	Other ->
 	    lager:info("AuthResult: ~p", [Other]),
@@ -388,44 +388,6 @@ authenticate(Context, Session, SessionOpts, Request) ->
 	    Reply1 = response(create_session_response, Context,
 			      [#v2_cause{v2_cause = user_authentication_failed}], Request),
 	    throw(?CTX_ERR(?FATAL, Reply1, Context))
-    end.
-
-usage_report_to_accounting(
-  #{volume_measurement :=
-	#volume_measurement{uplink = RcvdBytes, downlink = SendBytes},
-    tp_packet_measurement :=
-	#tp_packet_measurement{uplink = RcvdPkts, downlink = SendPkts}}) ->
-    [{'InPackets',  RcvdPkts},
-     {'OutPackets', SendPkts},
-     {'InOctets',   RcvdBytes},
-     {'OutOctets',  SendBytes}];
-usage_report_to_accounting(
-  #{volume_measurement :=
-	#volume_measurement{uplink = RcvdBytes, downlink = SendBytes}}) ->
-    [{'InOctets',   RcvdBytes},
-     {'OutOctets',  SendBytes}];
-usage_report_to_accounting(#usage_report_smr{group = UR}) ->
-    usage_report_to_accounting(UR);
-usage_report_to_accounting(#usage_report_sdr{group = UR}) ->
-    usage_report_to_accounting(UR);
-usage_report_to_accounting(#usage_report_srr{group = UR}) ->
-    usage_report_to_accounting(UR);
-usage_report_to_accounting([H|_]) ->
-    usage_report_to_accounting(H);
-usage_report_to_accounting(undefined) ->
-    [].
-
-accounting_update(GTP, SessionOpts) ->
-    case gen_server:call(GTP, query_usage_report) of
-	#pfcp{type = session_modification_response,
-	      ie = #{pfcp_cause := #pfcp_cause{cause = 'Request accepted'}} = IEs} ->
-	    Acc = to_session(usage_report_to_accounting(
-			       maps:get(usage_report_smr, IEs, undefined))),
-	    ergw_aaa_session:merge(SessionOpts, Acc);
-	_Other ->
-	    lager:warning("S11: got unexpected Query response: ~p",
-			  [lager:pr(_Other, ?MODULE)]),
-	    to_session([])
     end.
 
 match_context(_Type, _Context, undefined) ->
@@ -481,12 +443,12 @@ encode_paa(Type, IPv4, IPv6) ->
 pdn_release_ip(#context{vrf = VRF, ms_v4 = MSv4, ms_v6 = MSv6}) ->
     vrf:release_pdp_ip(VRF, MSv4, MSv6).
 
-close_pdn_context(#{context := Context, 'Session' := Session}) ->
+close_pdn_context(#{context := Context, 'Session' := Session} = State) ->
     SessionOpts =
 	case ergw_gsn_lib:delete_sgi_session(Context) of
 	    #pfcp{type = session_deletion_response,
 		  ie = #{pfcp_cause := #pfcp_cause{cause = 'Request accepted'}} = IEs} ->
-		to_session(usage_report_to_accounting(
+		to_session(gtp_context:usage_report_to_accounting(
 			     maps:get(usage_report_sdr, IEs, undefined)));
 	    _Other ->
 		lager:warning("S11: Session Deletion failed with ~p",
@@ -494,7 +456,7 @@ close_pdn_context(#{context := Context, 'Session' := Session}) ->
 		to_session([])
 	end,
     lager:debug("Accounting Opts: ~p", [SessionOpts]),
-    ergw_aaa_session:stop(Session, SessionOpts),
+    ergw_aaa_session:invoke(Session, SessionOpts, stop, [], true),
     pdn_release_ip(Context).
 
 apply_context_change(NewContext0, OldContext, State) ->
