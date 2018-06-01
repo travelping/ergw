@@ -1,6 +1,12 @@
 erGW - 3GPP GGSN and PDN-GW in Erlang
 =====================================
 
+Version 1.18.0 - 01 Jun 2018
+----------------------------
+
+* Rework DNS resolver to traverse records manually
+* Add redirector mode for GTP socket
+
 Version 1.17.0 - 24 May 2018
 ----------------------------
 
