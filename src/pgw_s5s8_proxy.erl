@@ -129,8 +129,7 @@ validate_option(Opt, Value) ->
 init(#{proxy_sockets := ProxyPorts, node_selection := NodeSelect,
        proxy_data_source := ProxyDS, contexts := Contexts}, State) ->
 
-    SessionOpts = [{'Accouting-Update-Fun', fun accounting_update/2}],
-    {ok, Session} = ergw_aaa_session_sup:new_session(self(), to_session(SessionOpts)),
+    {ok, Session} = ergw_aaa_session_sup:new_session(self(), to_session([])),
 
     {ok, State#{proxy_ports => ProxyPorts,
 		'Session' => Session, contexts => Contexts,
@@ -265,34 +264,35 @@ handle_request(ReqKey,
 		 'Session' := Session} = State) ->
 
     Context1 = update_context_from_gtp_req(Request, Context0#context{state = #context_state{}}),
-    ContextPreProxy = gtp_path:bind(Request, Context1),
+    Context2 = gtp_path:bind(Request, Context1),
 
-    gtp_context:terminate_colliding_context(ContextPreProxy),
-    gtp_context:remote_context_register_new(ContextPreProxy),
+    gtp_context:terminate_colliding_context(Context2),
+    gtp_context:remote_context_register_new(Context2),
 
-    ProxyInfo = handle_proxy_info(Request, ContextPreProxy, State),
+    ProxyInfo = handle_proxy_info(Request, Context2, State),
     #proxy_ggsn{restrictions = Restrictions} = ProxyGGSN0 = gtp_proxy_ds:lb(ProxyInfo),
 
     %% GTP v2 services only, we don't do v1 to v2 conversion (yet)
     Services = [{"x-3gpp-pgw", "x-s8-gtp"}, {"x-3gpp-pgw", "x-s5-gtp"}],
     ProxyGGSN = ergw_proxy_lib:select_proxy_gsn(ProxyInfo, ProxyGGSN0, Services, State),
 
-    Context = ContextPreProxy#context{restrictions = Restrictions},
-    gtp_context:enforce_restrictions(Request, Context),
+    Context3 = Context2#context{restrictions = Restrictions},
+    gtp_context:enforce_restrictions(Request, Context3),
 
     {ProxyGtpPort, DPCandidates} = ergw_proxy_lib:select_proxy_sockets(ProxyGGSN, State),
 
-    SessionOpts0 = pgw_s5s8:init_session(IEs, Context, AAAopts),
+    SessionOpts0 = pgw_s5s8:init_session(IEs, Context3, AAAopts),
     SessionOpts = pgw_s5s8:init_session_from_gtp_req(IEs, AAAopts, SessionOpts0),
-    ergw_aaa_session:start(Session, SessionOpts),
 
-    ProxyContext0 = init_proxy_context(ProxyGtpPort, Context, ProxyInfo, ProxyGGSN),
+    ok = ergw_aaa_session:invoke(Session, SessionOpts, start, [], true),
+
+    ProxyContext0 = init_proxy_context(ProxyGtpPort, Context3, ProxyInfo, ProxyGGSN),
     ProxyContext1 = gtp_path:bind(ProxyContext0),
 
-    {ContextNew, ProxyContext} =
-	ergw_proxy_lib:create_forward_session(DPCandidates, Context, ProxyContext1),
+    {Context, ProxyContext} =
+	ergw_proxy_lib:create_forward_session(DPCandidates, Context3, ProxyContext1),
 
-    StateNew = State#{context => ContextNew, proxy_context => ProxyContext},
+    StateNew = State#{context => Context, proxy_context => ProxyContext},
     forward_request(sgw2pgw, ReqKey, Request, StateNew, State),
 
     {noreply, StateNew};
@@ -555,51 +555,13 @@ handle_proxy_info(#gtp{ie = #{?'Recovery' := Recovery}},
 			    ResponseIEs}, Context))
     end.
 
-usage_report_to_accounting(
-  #{volume_measurement :=
-	#volume_measurement{uplink = RcvdBytes, downlink = SendBytes},
-    tp_packet_measurement :=
-	#tp_packet_measurement{uplink = RcvdPkts, downlink = SendPkts}}) ->
-    [{'InPackets',  RcvdPkts},
-     {'OutPackets', SendPkts},
-     {'InOctets',   RcvdBytes},
-     {'OutOctets',  SendBytes}];
-usage_report_to_accounting(
-  #{volume_measurement :=
-	#volume_measurement{uplink = RcvdBytes, downlink = SendBytes}}) ->
-    [{'InOctets',   RcvdBytes},
-     {'OutOctets',  SendBytes}];
-usage_report_to_accounting(#usage_report_smr{group = UR}) ->
-    usage_report_to_accounting(UR);
-usage_report_to_accounting(#usage_report_sdr{group = UR}) ->
-    usage_report_to_accounting(UR);
-usage_report_to_accounting(#usage_report_srr{group = UR}) ->
-    usage_report_to_accounting(UR);
-usage_report_to_accounting([H|_]) ->
-    usage_report_to_accounting(H);
-usage_report_to_accounting(undefined) ->
-    [].
-
-accounting_update(GTP, SessionOpts) ->
-    case gen_server:call(GTP, query_usage_report) of
-	#pfcp{type = session_modification_response,
-	      ie = #{pfcp_cause := #pfcp_cause{cause = 'Request accepted'}} = IEs} ->
-	    Acc = to_session(usage_report_to_accounting(
-			       maps:get(usage_report_smr, IEs, undefined))),
-	    ergw_aaa_session:merge(SessionOpts, Acc);
-	_Other ->
-	    lager:warning("S5/S8 proxy: got unexpected Query response: ~p",
-			  [lager:pr(_Other, ?MODULE)]),
-	    to_session([])
-    end.
-
 delete_forward_session(#{context := Context, proxy_context := ProxyContext,
 			 'Session' := Session}) ->
     SessionOpts =
 	case ergw_proxy_lib:delete_forward_session(Context, ProxyContext) of
 	    #pfcp{type = session_deletion_response,
 		  ie = #{pfcp_cause := #pfcp_cause{cause = 'Request accepted'}} = IEs} ->
-		to_session(usage_report_to_accounting(
+		to_session(gtp_context:usage_report_to_accounting(
 			     maps:get(usage_report_sdr, IEs, undefined)));
 	    _Other ->
 		lager:warning("S5/S8 proxy: Session Deletion failed with ~p",
@@ -607,7 +569,7 @@ delete_forward_session(#{context := Context, proxy_context := ProxyContext,
 		to_session([])
 	end,
     lager:debug("Accounting Opts: ~p", [SessionOpts]),
-    ergw_aaa_session:stop(Session, SessionOpts).
+    ergw_aaa_session:invoke(Session, SessionOpts, stop, [], true).
 
 update_path_bind(NewContext0, OldContext)
   when NewContext0 /= OldContext ->
