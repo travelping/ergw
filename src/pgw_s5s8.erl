@@ -700,9 +700,41 @@ copy_to_session(_, #v2_mobile_equipment_identity{mei = IMEI}, _AAAopts, Session)
     Session#{'3GPP-IMEISV' => IMEI};
 copy_to_session(_, #v2_rat_type{rat_type = Type}, _AAAopts, Session) ->
     Session#{'3GPP-RAT-Type' => Type};
-copy_to_session(_, #v2_user_location_information{} = IE, _AAAopts, Session) ->
-    Value = gtp_packet:encode_v2_user_location_information(IE),
+
+%% 0        CGI
+%% 1        SAI
+%% 2        RAI
+%% 3-127    Spare for future use
+%% 128      TAI
+%% 129      ECGI
+%% 130      TAI and ECGI
+%% 131-255  Spare for future use
+
+copy_to_session(_, #v2_user_location_information{tai = TAI, ecgi = ECGI}, _AAAopts, Session)
+  when is_binary(TAI), is_binary(ECGI) ->
+    Value = <<130, TAI/binary, ECGI/binary>>,
     Session#{'3GPP-User-Location-Info' => Value};
+copy_to_session(_, #v2_user_location_information{ecgi = ECGI}, _AAAopts, Session)
+  when is_binary(ECGI) ->
+    Value = <<129, ECGI/binary>>,
+    Session#{'3GPP-User-Location-Info' => Value};
+copy_to_session(_, #v2_user_location_information{tai = TAI}, _AAAopts, Session)
+  when is_binary(TAI) ->
+    Value = <<129, TAI/binary>>,
+    Session#{'3GPP-User-Location-Info' => Value};
+copy_to_session(_, #v2_user_location_information{rai = RAI}, _AAAopts, Session)
+  when is_binary(RAI) ->
+    Value = <<2, RAI/binary>>,
+    Session#{'3GPP-User-Location-Info' => Value};
+copy_to_session(_, #v2_user_location_information{sai = SAI}, _AAAopts, Session)
+  when is_binary(SAI) ->
+    Value = <<1, SAI/binary>>,
+    Session#{'3GPP-User-Location-Info' => Value};
+copy_to_session(_, #v2_user_location_information{cgi = CGI}, _AAAopts, Session)
+  when is_binary(CGI) ->
+    Value = <<0, CGI/binary>>,
+    Session#{'3GPP-User-Location-Info' => Value};
+
 copy_to_session(_, #v2_ue_time_zone{timezone = TZ, dst = DST}, _AAAopts, Session) ->
     Session#{'3GPP-MS-TimeZone' => {TZ, DST}};
 copy_to_session(_, _, _AAAopts, Session) ->
