@@ -632,8 +632,8 @@ copy_to_session(?'Bearer Contexts to be created',
     Session#{'3GPP-NSAPI' => EBI};
 copy_to_session(_, #v2_selection_mode{mode = Mode}, _AAAopts, Session) ->
     Session#{'3GPP-Selection-Mode' => Mode};
-%% copy_to_session(_, #v2_charging_characteristics{value = Value}, _AAAopts, Session) ->
-%%     Session#{'3GPP-Charging-Characteristics' => Value};
+copy_to_session(_, #v2_charging_characteristics{value = Value}, _AAAopts, Session) ->
+    Session#{'3GPP-Charging-Characteristics' => Value};
 
 copy_to_session(_, #v2_serving_network{mcc = MCC, mnc = MNC}, _AAAopts, Session) ->
     Session#{'3GPP-SGSN-MCC-MNC' => <<MCC/binary, MNC/binary>>};
