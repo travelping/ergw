@@ -414,6 +414,8 @@ make_response(#gtp{type = create_session_request, seq_no = SeqNo},
     IEs = #{{v2_cause,0} => #v2_cause{v2_cause = request_accepted},
 	    {v2_apn_restriction, 0} =>
 		#v2_apn_restriction{restriction_type_value = 0},
+	    {v2_charging_id, 0} =>
+		#v2_charging_id{id = <<0,0,0,1>>},
 	    {v2_bearer_context, 0} =>
 		#v2_bearer_context{
 		   group =
@@ -620,6 +622,7 @@ validate_response(modify_bearer_request, SubType, Response,
 		   {v2_apn_restriction,0} := _,
 		   {v2_msisdn,0} := _,
 		   {v2_eps_bearer_id, 0} := _,
+		   {v2_charging_id, 0} := #v2_charging_id{},
 		   {v2_bearer_context,0} :=
 		       #v2_bearer_context{
 			  group = #{

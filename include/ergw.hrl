@@ -50,6 +50,7 @@
 	  imei                   :: 'undefined' | binary(),
 	  msisdn                 :: 'undefined' | binary(),
 	  context_id             :: term(),
+	  charging_identifier    :: non_neg_integer(),
 
 	  version                :: 'v1' | 'v2',
 	  control_interface      :: atom(),

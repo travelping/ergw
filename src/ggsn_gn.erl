@@ -194,7 +194,7 @@ handle_request(_ReqKey,
 	     end,
 
     ResponseIEs0 = [#cause{value = request_accepted},
-		    #charging_id{id = <<0,0,0,1>>},
+		    context_charging_id(Context),
 		    ReqQoSProfile],
     ResponseIEs = tunnel_endpoint_elements(Context, ResponseIEs0),
     Reply = response(update_pdp_context_response, Context, ResponseIEs, Request),
@@ -430,7 +430,8 @@ map_username(IEs, [H | Rest], Acc) ->
     map_username(IEs, Rest, [Part | Acc]).
 
 init_session(IEs,
-	     #context{control_port = #gtp_port{ip = LocalIP}},
+	     #context{control_port = #gtp_port{ip = LocalIP},
+		      charging_identifier = ChargingId},
 	     #{'Username' := #{default := Username},
 	       'Password' := #{default := Password}}) ->
     MappedUsername = map_username(IEs, Username, []),
@@ -438,7 +439,8 @@ init_session(IEs,
       'Password'		=> Password,
       'Service-Type'		=> 'Framed-User',
       'Framed-Protocol'		=> 'GPRS-PDP-Context',
-      '3GPP-GGSN-Address'	=> LocalIP
+      '3GPP-GGSN-Address'	=> LocalIP,
+      '3GPP-Charging-Id'	=> ChargingId
      }.
 
 copy_ppp_to_session({pap, 'PAP-Authentication-Request', _Id, Username, Password}, Session0) ->
@@ -745,11 +747,14 @@ tunnel_endpoint_elements(#context{control_port = #gtp_port{ip = CntlIP},
      #gsn_address{instance = 1, address = ergw_inet:ip2bin(DataIP)}    %% for User Traffic
      | IEs].
 
+context_charging_id(#context{charging_identifier = ChargingId}) ->
+    #charging_id{id = <<ChargingId:32>>}.
+
 create_pdp_context_response(SessionOpts, RequestIEs,
 			    #context{ms_v4 = MSv4, ms_v6 = MSv6} = Context) ->
     IE0 = [#cause{value = request_accepted},
 	   #reordering_required{required = no},
-	   #charging_id{id = <<0,0,0,1>>},
+	   context_charging_id(Context),
 	   encode_eua(MSv4, MSv6)],
     IE1 = pdp_qos_profile(SessionOpts, IE0),
     IE2 = pdp_pco(SessionOpts, RequestIEs, IE1),
