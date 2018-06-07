@@ -268,18 +268,19 @@ handle_request(_ReqKey,
 		%% in the presense of middle boxes between the SGW and the PGW
 		%%
 		[EBI,				%% Linked EPS Bearer ID
-		 #v2_apn_restriction{restriction_type_value = 0} |
+		 #v2_apn_restriction{restriction_type_value = 0},
+		 context_charging_id(Context) |
 		 [#v2_msisdn{msisdn = Context#context.msisdn} || Context#context.msisdn /= undefined]];
 	   true ->
 		[]
 	end,
 
     ResponseIEs = [#v2_cause{v2_cause = request_accepted},
-		    #v2_bearer_context{
-		       group=[#v2_cause{v2_cause = request_accepted},
-			      #v2_charging_id{id = <<0,0,0,1>>},
-			      EBI]} |
-		    ResponseIEs0],
+		   #v2_bearer_context{
+		      group=[#v2_cause{v2_cause = request_accepted},
+			     context_charging_id(Context),
+			     EBI]} |
+		   ResponseIEs0],
     Response = response(modify_bearer_response, Context, ResponseIEs, Request),
     {reply, Response, State1};
 
@@ -611,7 +612,8 @@ map_username(IEs, [H | Rest], Acc) ->
     map_username(IEs, Rest, [Part | Acc]).
 
 init_session(IEs,
-	     #context{control_port = #gtp_port{ip = LocalIP}},
+	     #context{control_port = #gtp_port{ip = LocalIP},
+		      charging_identifier = ChargingId},
 	     #{'Username' := #{default := Username},
 	       'Password' := #{default := Password}}) ->
     MappedUsername = map_username(IEs, Username, []),
@@ -619,7 +621,8 @@ init_session(IEs,
       'Password'		=> Password,
       'Service-Type'		=> 'Framed-User',
       'Framed-Protocol'		=> 'GPRS-PDP-Context',
-      '3GPP-GGSN-Address'	=> LocalIP
+      '3GPP-GGSN-Address'	=> LocalIP,
+      '3GPP-Charging-Id'	=> ChargingId
      }.
 
 copy_optional_binary_ie('3GPP-SGSN-Address' = Key, IP, Session) 
@@ -905,10 +908,13 @@ pdn_pco(SessionOpts, #{?'Protocol Configuration Options' :=
 pdn_pco(_SessionOpts, _RequestIEs, IE) ->
     IE.
 
+context_charging_id(#context{charging_identifier = ChargingId}) ->
+    #v2_charging_id{id = <<ChargingId:32>>}.
+
 bearer_context(EBI, Context, IEs) ->
     IE = #v2_bearer_context{
 	    group=[#v2_cause{v2_cause = request_accepted},
-		   #v2_charging_id{id = <<0,0,0,1>>},
+		   context_charging_id(Context),
 		   EBI,
 		   #v2_bearer_level_quality_of_service{
 		      pl=15,
@@ -946,5 +952,6 @@ create_session_response(SessionOpts, RequestIEs, EBI,
     [#v2_cause{v2_cause = request_accepted},
      #v2_change_reporting_action{action = start_reporting_tai_and_ecgi},
      #v2_apn_restriction{restriction_type_value = 0},
+     context_charging_id(Context),
      s5s8_pgw_gtp_c_tei(Context),
      encode_paa(MSv4, MSv6) | IE1].

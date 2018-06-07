@@ -260,6 +260,8 @@ init([CntlPort, Version, Interface,
     {ok, CntlTEI} = gtp_context_reg:alloc_tei(CntlPort),
 
     Context = #context{
+		 charging_identifier = ergw_gtp_c_socket:get_uniq_id(CntlPort),
+
 		 version           = Version,
 		 control_interface = Interface,
 		 control_port      = CntlPort,

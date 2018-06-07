@@ -552,7 +552,8 @@ map_username(IEs, [H | Rest], Acc) ->
     map_username(IEs, Rest, [Part | Acc]).
 
 init_session(IEs,
-	     #context{control_port = #gtp_port{ip = LocalIP}},
+	     #context{control_port = #gtp_port{ip = LocalIP},
+		      charging_identifier = ChargingId},
 	     #{'Username' := #{default := Username},
 	       'Password' := #{default := Password}}) ->
     MappedUsername = map_username(IEs, Username, []),
@@ -560,7 +561,8 @@ init_session(IEs,
       'Password'		=> Password,
       'Service-Type'		=> 'Framed-User',
       'Framed-Protocol'		=> 'GPRS-PDP-Context',
-      '3GPP-GGSN-Address'	=> LocalIP
+      '3GPP-GGSN-Address'	=> LocalIP,
+      '3GPP-Charging-Id'	=> ChargingId
      }.
 
 copy_optional_binary_ie('3GPP-SGSN-Address' = Key, IP, Session) 

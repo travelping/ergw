@@ -16,7 +16,7 @@
 	 send/4, send_response/3,
 	 send_request/6, send_request/7, resend_request/2,
 	 get_restart_counter/1]).
--export([get_request_q/1, get_response_q/1, get_seq_no/2]).
+-export([get_request_q/1, get_response_q/1, get_seq_no/2, get_uniq_id/1]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -44,6 +44,7 @@
 	  requests,
 	  responses,
 
+	  unique_id,
 	  restart_counter}).
 
 -record(send_req, {
@@ -111,6 +112,9 @@ get_response_q(GtpPort) ->
 get_seq_no(GtpPort, ReqId) ->
     call(GtpPort, {get_seq_no, ReqId}).
 
+get_uniq_id(GtpPort) ->
+    call(GtpPort, get_uniq_id).
+
 %%%===================================================================
 %%% call/cast wrapper for gtp_port
 %%%===================================================================
@@ -159,11 +163,15 @@ init([Name, #{ip := IP} = SocketOpts]) ->
 	       requests = ergw_cache:new(?T3 * 4, requests),
 	       responses = ergw_cache:new(?CACHE_TIMEOUT, responses),
 
+	       unique_id = rand:uniform(16#ffffffff),
 	       restart_counter = RCnt},
     {ok, State}.
 
 handle_call(get_restart_counter, _From, #state{restart_counter = RCnt} = State) ->
     {reply, RCnt, State};
+
+handle_call(get_uniq_id, _From, #state{unique_id = Id} = State) ->
+    {reply, Id, State#state{unique_id = galois_lfsr_32(Id)}};
 
 handle_call(get_request_q, _From, #state{requests = Requests} = State) ->
     {reply, ergw_cache:to_list(Requests), State};
@@ -277,6 +285,10 @@ gb_trees_take_any(Key, Tree) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
+
+galois_lfsr_32(V) ->
+    %% 32-bit maximal-period Galois LFSR
+    (V bsr 1) bxor (-(V band 1) band 16#80200003).
 
 cancel_timer(Ref) ->
     case erlang:cancel_timer(Ref) of
