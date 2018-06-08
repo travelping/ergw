@@ -651,7 +651,11 @@ copy_to_session(_, #v2_protocol_configuration_options{config = {0, Options}},
 		#{'Username' := #{from_protocol_opts := true}}, Session) ->
     lists:foldr(fun copy_ppp_to_session/2, Session, Options);
 copy_to_session(_, #v2_access_point_name{apn = APN}, _AAAopts, Session) ->
-    Session#{'Called-Station-Id' => unicode:characters_to_binary(lists:join($., APN))};
+    Session#{
+      'Called-Station-Id' =>
+	  unicode:characters_to_binary(
+	    lists:join($., gtp_c_lib:apn_strip_oi(APN)))
+     };
 copy_to_session(_, #v2_msisdn{msisdn = MSISDN}, _AAAopts, Session) ->
     Session#{'Calling-Station-Id' => MSISDN};
 copy_to_session(_, #v2_international_mobile_subscriber_identity{imsi = IMSI}, _AAAopts, Session) ->

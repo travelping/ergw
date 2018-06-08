@@ -10,7 +10,7 @@
 -compile({parse_transform, cut}).
 
 -export([fmt_gtp/1]).
--export([normalize_labels/1]).
+-export([normalize_labels/1, apn_strip_oi/1]).
 
 -include_lib("gtplib/include/gtp_packet.hrl").
 
@@ -35,6 +35,14 @@ dns_char(C) when C >= $a andalso C =< $z ->
 dns_char(C) ->
     error(badarg, [C]).
 
+%% strip Operator Identity from APN
+apn_strip_oi(APN) ->
+    case lists:suffix([<<"gprs">>], APN) of
+	true ->
+	    lists:sublist(APN, length(APN) - 3);
+	_ ->
+	    APN
+    end.
 
 %%%===================================================================
 %%% Helper functions
