@@ -487,16 +487,24 @@ copy_to_session(_, #end_user_address{pdp_type_organization = 1,
 				  pdp_address = Address}, _AAAopts, Session0) ->
     Session = Session0#{'3GPP-PDP-Type' => 'IPv4'},
     case Address of
-	<<_:4/bytes>> -> Session#{'Framed-IP-Address' => ergw_inet:bin2ip(Address)};
-	_             -> Session
+	<<_:4/bytes>> ->
+	    IP4 = ergw_inet:bin2ip(Address),
+	    Session#{'Framed-IP-Address' => IP4,
+		     'Requested-IP-Address' => IP4};
+	_ ->
+	    Session
     end;
 copy_to_session(_, #end_user_address{pdp_type_organization = 1,
 				  pdp_type_number = 16#21,
 				  pdp_address = Address}, _AAAopts, Session0) ->
     Session = Session0#{'3GPP-PDP-Type' => 'IPv6'},
     case Address of
-	<<_:16/bytes>> -> Session#{'Framed-IPv6-Prefix' => {ergw_inet:bin2ip(Address), 128}};
-	_              -> Session
+	<<_:16/bytes>> ->
+	    IP6 = {ergw_inet:bin2ip(Address), 128},
+	    Session#{'Framed-IPv6-Prefix' => IP6,
+		     'Requested-IPv6-Prefix' => IP6};
+	_ ->
+	    Session
     end;
 copy_to_session(_, #end_user_address{pdp_type_organization = 1,
 				  pdp_type_number = 16#8D,
@@ -504,12 +512,20 @@ copy_to_session(_, #end_user_address{pdp_type_organization = 1,
     Session = Session0#{'3GPP-PDP-Type' => 'IPv4v6'},
     case Address of
 	<< IP4:4/bytes >> ->
-	    Session#{'Framed-IP-Address'  => ergw_inet:bin2ip(IP4)};
+	    IP4addr = ergw_inet:bin2ip(IP4),
+	    Session#{'Framed-IP-Address' => IP4addr,
+		     'Requested-IP-Address' => IP4addr};
 	<< IP6:16/bytes >> ->
-	    Session#{'Framed-IPv6-Prefix' => {ergw_inet:bin2ip(IP6), 128}};
+	    IP6addr = {ergw_inet:bin2ip(IP6), 128},
+	    Session#{'Framed-IPv6-Prefix' => IP6addr,
+		     'Requested-IPv6-Prefix' => IP6addr};
 	<< IP4:4/bytes, IP6:16/bytes >> ->
-	    Session#{'Framed-IP-Address'  => ergw_inet:bin2ip(IP4),
-		     'Framed-IPv6-Prefix' => {ergw_inet:bin2ip(IP6), 128}};
+	    IP4addr = ergw_inet:bin2ip(IP4),
+	    IP6addr = {ergw_inet:bin2ip(IP6), 128},
+	    Session#{'Framed-IP-Address' => IP4addr,
+		     'Framed-IPv6-Prefix' => IP6addr,
+		     'Requested-IP-Address' => IP4addr,
+		     'Requested-IPv6-Prefix' => IP6addr};
 	_ ->
 	    Session
    end;
