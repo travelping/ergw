@@ -557,10 +557,12 @@ init_session(IEs,
 	     #{'Username' := #{default := Username},
 	       'Password' := #{default := Password}}) ->
     MappedUsername = map_username(IEs, Username, []),
+    {MCC, MNC} = ergw:get_plmn_id(),
     #{'Username'		=> MappedUsername,
       'Password'		=> Password,
       'Service-Type'		=> 'Framed-User',
       'Framed-Protocol'		=> 'GPRS-PDP-Context',
+      '3GPP-GGSN-MCC-MNC'	=> <<MCC/binary, MNC/binary>>,
       '3GPP-GGSN-Address'	=> LocalIP,
       '3GPP-Charging-Id'	=> ChargingId
      }.
