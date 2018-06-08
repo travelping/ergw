@@ -608,24 +608,33 @@ copy_to_session(_, #v2_international_mobile_subscriber_identity{imsi = IMSI}, _A
 	_ ->
 	    Session#{'3GPP-IMSI' => IMSI}
     end;
+
 copy_to_session(_, #v2_pdn_address_allocation{type = ipv4,
 					      address = IP4}, _AAAopts, Session) ->
-    Session#{'3GPP-PDP-Type'     => 'IPv4',
-	     'Framed-IP-Address' => ergw_inet:bin2ip(IP4)};
+    IP4addr = ergw_inet:bin2ip(IP4),
+    Session#{'3GPP-PDP-Type' => 'IPv4',
+	     'Framed-IP-Address' => IP4addr,
+	     'Requested-IP-Address' => IP4addr};
 copy_to_session(_, #v2_pdn_address_allocation{type = ipv6,
 					      address = <<IP6PrefixLen:8,
 							  IP6Prefix:16/binary>>},
 		_AAAopts, Session) ->
-    Session#{'3GPP-PDP-Type'      => 'IPv6',
-	     'Framed-IPv6-Prefix' => {ergw_inet:bin2ip(IP6Prefix), IP6PrefixLen}};
+    IP6addr = {ergw_inet:bin2ip(IP6Prefix), IP6PrefixLen},
+    Session#{'3GPP-PDP-Type' => 'IPv6',
+	     'Framed-IPv6-Prefix' => IP6addr,
+	     'Requested-IPv6-Prefix' => IP6addr};
 copy_to_session(_, #v2_pdn_address_allocation{type = ipv4v6,
 					      address = <<IP6PrefixLen:8,
 							  IP6Prefix:16/binary,
 							  IP4:4/binary>>},
 		_AAAopts, Session) ->
+    IP4addr = ergw_inet:bin2ip(IP4),
+    IP6addr = {ergw_inet:bin2ip(IP6Prefix), IP6PrefixLen},
     Session#{'3GPP-PDP-Type' => 'IPv4v6',
-	     'Framed-IP-Address'  => ergw_inet:bin2ip(IP4),
-	     'Framed-IPv6-Prefix' => {ergw_inet:bin2ip(IP6Prefix), IP6PrefixLen}};
+	     'Framed-IP-Address' => IP4addr,
+	     'Framed-IPv6-Prefix' => IP6addr,
+	     'Requested-IP-Address' => IP4addr,
+	     'Requested-IPv6-Prefix' => IP6addr};
 
 %% let pdn_type overwrite PAA
 copy_to_session(_, #v2_pdn_type{pdn_type = ipv4}, _AAAopts, Session) ->
