@@ -687,6 +687,16 @@ copy_to_session(_, #v2_pdn_address_allocation{type = ipv4v6,
 	     'Framed-IP-Address'  => ergw_inet:bin2ip(IP4),
 	     'Framed-IPv6-Prefix' => {ergw_inet:bin2ip(IP6Prefix), IP6PrefixLen}};
 
+%% let pdn_type overwrite PAA
+copy_to_session(_, #v2_pdn_type{pdn_type = ipv4}, _AAAopts, Session) ->
+    Session#{'3GPP-PDP-Type' => 'IPv4'};
+copy_to_session(_, #v2_pdn_type{pdn_type = ipv6}, _AAAopts, Session) ->
+    Session#{'3GPP-PDP-Type' => 'IPv6'};
+copy_to_session(_, #v2_pdn_type{pdn_type = ipv4v6}, _AAAopts, Session) ->
+    Session#{'3GPP-PDP-Type' => 'IPv4v6'};
+copy_to_session(_, #v2_pdn_type{pdn_type = non_ip}, _AAAopts, Session) ->
+    Session#{'3GPP-PDP-Type' => 'Non-IP'};
+
 copy_to_session(?'Sender F-TEID for Control Plane',
 		#v2_fully_qualified_tunnel_endpoint_identifier{ipv4 = IP4, ipv6 = IP6},
 		_AAAopts, Session0) ->
