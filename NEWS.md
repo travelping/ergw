@@ -1,6 +1,11 @@
 erGW - 3GPP GGSN and PDN-GW in Erlang
 =====================================
 
+Version 1.18.1 - 28 Jun 2018
+----------------------------
+
+* Add missing jsx dependency to .app file
+
 Version 1.18.0 - 01 Jun 2018
 ----------------------------
 
