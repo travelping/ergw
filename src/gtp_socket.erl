@@ -708,7 +708,7 @@ measure_response(#request{
 		    arrival_ts = ArrivalTS}) ->
     Duration = erlang:convert_time_unit(erlang:monotonic_time() - ArrivalTS, native, microsecond),
     DataPoint = [socket, 'gtp-c', Name, pt, Version, MsgType],
-    exometer:update_or_create(DataPoint, Duration, histogram, ?EXO_PERF_OPTS),
+    % disabled, see gtp_path.erl NOTE %exometer:update_or_create(DataPoint, Duration, histogram, ?EXO_PERF_OPTS),
     ok.
 
 %% measure the time it takes our peer to reply to a request

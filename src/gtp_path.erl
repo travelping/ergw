@@ -396,21 +396,27 @@ update_path_state(_, State) ->
 %%% ExoMeter functions
 %%%===================================================================
 
-exo_hist_opts(echo_request) ->
-    %% 1 hour might seem long, but we only send one echo request per 60 seconds
-    [{time_span, 3600 * 1000}];
-exo_hist_opts(_MsgType) ->
-    %% 5 min histogram
-    [{time_span, 300 * 1000}].
+% NOTE: The histogram related metric parts are disabled for now. they
+% consume way to much memory: per peer, a histogram is created for 
+% every msg type (v1: 28, v2: 42). Each histogram is its own process
+% and it has a minimum_heapsize of 40000 words (320kbytes). 50 peers
+% will consume at least 1.12GB of memory.
 
-foreach_request(Handler, Fun) ->
-    Requests = lists:filter(fun(X) -> Handler:gtp_msg_type(X) =:= request end,
-			    Handler:gtp_msg_types()),
-    lists:foreach(Fun, Requests).
+% disabled, see ^NOTE %exo_hist_opts(echo_request) ->
+% disabled, see ^NOTE %    %% 1 hour might seem long, but we only send one echo request per 60 seconds
+% disabled, see ^NOTE %    [{time_span, 3600 * 1000}];
+% disabled, see ^NOTE %exo_hist_opts(_MsgType) ->
+% disabled, see ^NOTE %    %% 5 min histogram
+% disabled, see ^NOTE %    [{time_span, 300 * 1000}].
 
-exo_reg_rtt(Name, IP, Version, MsgType) ->
-    exometer:re_register([path, Name, IP, rtt, Version, MsgType],
-			 histogram, exo_hist_opts(MsgType)).
+% disabled, see ^NOTE %foreach_request(Handler, Fun) ->
+% disabled, see ^NOTE %    Requests = lists:filter(fun(X) -> Handler:gtp_msg_type(X) =:= request end,
+% disabled, see ^NOTE %			    Handler:gtp_msg_types()),
+% disabled, see ^NOTE %    lists:foreach(Fun, Requests).
+
+% disabled, see ^NOTE %exo_reg_rtt(Name, IP, Version, MsgType) ->
+% disabled, see ^NOTE %    exometer:re_register([path, Name, IP, rtt, Version, MsgType],
+% disabled, see ^NOTE %			 histogram, exo_hist_opts(MsgType)).
 
 exo_update_path_counter(PathCounter, #state{gtp_port = #gtp_port{name = Name},
 					    version = Version, ip = IP}) ->
@@ -419,17 +425,18 @@ exo_update_path_counter(PathCounter, #state{gtp_port = #gtp_port{name = Name},
 
 exometer_new(#state{gtp_port = #gtp_port{name = Name}, version = Version, ip = IP}) ->
     exometer:re_register([path, Name, IP, contexts, Version], gauge, ?EXO_CONTEXTS_OPTS),
-    foreach_request(gtp_v1_c, exo_reg_rtt(Name, IP, v1, _)),
-    foreach_request(gtp_v2_c, exo_reg_rtt(Name, IP, v2, _)),
+    % disabled, see ^NOTE %foreach_request(gtp_v1_c, exo_reg_rtt(Name, IP, v1, _)),
+    % disabled, see ^NOTE %foreach_request(gtp_v2_c, exo_reg_rtt(Name, IP, v2, _)),
     ok.
 
 exometer_delete(#state{gtp_port = #gtp_port{name = Name}, version = Version,ip = IP}) ->
     exometer:delete([path, Name, IP, contexts, Version]),
-    foreach_request(gtp_v1_c, exometer:delete([path, Name, IP, rtt, v1, _])),
-    foreach_request(gtp_v2_c, exometer:delete([path, Name, IP, rtt, v2, _])),
+    % disabled, see ^NOTE %foreach_request(gtp_v1_c, exometer:delete([path, Name, IP, rtt, v1, _])),
+    % disabled, see ^NOTE %foreach_request(gtp_v2_c, exometer:delete([path, Name, IP, rtt, v2, _])),
     ok;
 exometer_delete(_) ->
     ok.
 
 exometer_update_rtt(#gtp_port{name = Name}, IP, Version, MsgType, RTT) ->
-    exometer:update([path, Name, IP, rtt, Version, MsgType], RTT).
+    % disabled, see ^NOTE %exometer:update([path, Name, IP, rtt, Version, MsgType], RTT),
+    ok.

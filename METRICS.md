@@ -8,8 +8,6 @@ The following metrics exist:
 | Metric                                                               | Type      |
 | -------------------------------------------------------------------- | --------- |
 | path.\<SocketName\>.\<PeerIP\>.contexts                              | gauge     |
-| path.\<SocketName\>.\<PeerIP\>.rtt.v1.\<GTPv1-C-MessageName\>        | histogram |
-| path.\<SocketName\>.\<PeerIP\>.rtt.v2.\<GTPv2-C-MessageName\>        | histogram |
 | path.\<SocketName\>.\<PeerIP\>.rx.v1.create\_pdp\_context\_request   | counter   |
 | path.\<SocketName\>.\<PeerIP\>.tx.v1.create\_pdp\_context\_response  | counter   |
 | path.\<SocketName\>.\<PeerIP\>.rx.v1.echo_request                    | counter   |
@@ -26,14 +24,9 @@ The following metrics exist:
 | socket.gtp-c.\<SocketName\>.tx.v2.\<GTPv2-C-MessageName\>.count      | counter   |
 | socket.gtp-c.\<SocketName\>.tx.v2.\<GTPv2-C-MessageName\>.timeout    | counter   |
 | socket.gtp-c.\<SocketName\>.tx.v2.\<GTPv2-C-MessageName\>.retransmit | counter   |
-| socket.gtp-c.\<SocketName\>.pt.v1.\<GTPv1-C-MessageName\>            | histogram |
-| socket.gtp-c.\<SocketName\>.pt.v2.\<GTPv2-C-MessageName\>            | histogram |
 
 \<SocketName\> is taken from the configuration and PeerIP is the IP address of
 the peer GSN.
-
-The path `rtt` is the round trip time histogram for each request/response
-message pair.
 
 The `tx` and `rx` metrics count the number of message of a given type
 transmitted and received. The `timeout` counter exists only for requests that 
@@ -195,7 +188,7 @@ Counters for the following GTPv2-C Messages types exist:
  * update\_pdn\_connection\_set\_response
  * version\_not\_supported
 
-If the HTTP API has been enable the metrics can be read at `/metrics`.
+If the HTTP API has been enabled, the metrics can be read at `/metrics`.
 Stepping into the result is also possible, e.g.:
 
     curl -X GET "http://localhost:8080/metrics/socket/gtp-c/irx/rx/v1" -H  "accept: application/json"
