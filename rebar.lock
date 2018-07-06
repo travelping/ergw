@@ -23,7 +23,7 @@
  {<<"goldrush">>,{pkg,<<"goldrush">>,<<"0.1.9">>},1},
  {<<"gtplib">>,
   {git,"https://github.com/travelping/gtplib.git",
-       {ref,"3245442000d3b426c8d231e02266e538a1956f79"}},
+       {ref,"10085740f9abaa9c72083c668712d438fffd8e59"}},
   0},
  {<<"hut">>,{pkg,<<"hut">>,<<"1.2.0">>},1},
  {<<"jobs">>,{pkg,<<"jobs">>,<<"0.7.1">>},0},
@@ -55,7 +55,8 @@
   {git,"https://github.com/travelping/regine.git",
        {ref,"4c63d24ff798c785beb30d1447ace27611761dce"}},
   2},
- {<<"setup">>,{pkg,<<"setup">>,<<"2.0.2">>},0}]}.
+ {<<"setup">>,{pkg,<<"setup">>,<<"2.0.2">>},0},
+ {<<"stacktrace_compat">>,{pkg,<<"stacktrace_compat">>,<<"1.0.0">>},0}]}.
 [
 {pkg_hash,[
  {<<"bear">>, <<"E95FCA1627CD9E15BAF93CE0A52AFF16917BAF325F0EE65B88CD715376CD2344">>},
@@ -70,5 +71,6 @@
  {<<"lager">>, <<"FE78951D174616273F87F0DBC3374D1430B1952E5EFC4E1C995592D30A207294">>},
  {<<"parse_trans">>, <<"9E96B1C9C3A0DF54E7B76F8F685D38BFA1EB21B31E042B1D1A5A70258E4DB1E3">>},
  {<<"ranch">>, <<"F04166F456790FEE2AC1AA05A02745CC75783C2BFB26D39FAF6AEFC9A3D3A58A">>},
- {<<"setup">>, <<"1203F4CDA11306C2E34434244576DED0A7BBFB0908D9A572356C809BD0CDF085">>}]}
+ {<<"setup">>, <<"1203F4CDA11306C2E34434244576DED0A7BBFB0908D9A572356C809BD0CDF085">>},
+ {<<"stacktrace_compat">>, <<"78E13E0747FABC71DC725A49A4CBDDE54CEC1E9ED13BD80C1D35AC37182E1FA0">>}]}
 ].
