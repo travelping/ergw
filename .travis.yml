@@ -4,13 +4,17 @@ dist: trusty
 language: erlang
 
 otp_release:
- - 20.0
- - 20.1
- - 20.2
+ - 20.0.5
+ - 20.1.7
+ - 20.2.4
+ - 20.3.8.2
+ - 21.0.2
 
 install: "true"
 
 before_script:
+  - wget https://s3.amazonaws.com/rebar3/rebar3
+  - chmod u+x ./rebar3
   # Add an IPv6 config - see the corresponding Travis issue
   # https://github.com/travis-ci/travis-ci/issues/8361
   - if [ "${TRAVIS_OS_NAME}" == "linux" ]; then
@@ -24,8 +28,8 @@ before_script:
 script:
   - ip addr
   - source test/env.sh
-  - rebar3 compile
-  - rebar3 do xref, ct, coveralls send
+  - ./rebar3 compile
+  - ./rebar3 do xref, ct, coveralls send
   - (cd _build/test/logs/; zip -1r ../../../ct-logs.zip . )
 
 addons:
