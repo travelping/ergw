@@ -222,7 +222,8 @@ common() ->
      interop_sgw_to_sgsn,
      create_session_overload,
      session_accounting,
-     sx_cp_to_up_forward].
+     sx_cp_to_up_forward,
+     sx_timeout].
 
 groups() ->
     [{ipv4, [], common()},
@@ -1125,6 +1126,20 @@ sx_cp_to_up_forward(Config) ->
     ?match(1, meck:num_calls(?HUT, handle_pdu, ['_', #gtp{type = g_pdu, _ = '_'}, '_'])),
     meck_validate(Config),
     ok.
+
+%%--------------------------------------------------------------------
+sx_timeout() ->
+    [{doc, "Check that a timeout on Sx leads to a proper error response"}].
+sx_timeout(Config) ->
+    ergw_test_sx_up:disable('pgw-u'),
+
+    create_session(system_failure, Config),
+
+    ?equal([], outstanding_requests()),
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    meck_validate(Config),
+    ok.
+
 
 %%%===================================================================
 %%% Internal functions
