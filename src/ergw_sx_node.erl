@@ -28,13 +28,16 @@
 -include_lib("pfcplib/include/pfcp_packet.hrl").
 -include("include/ergw.hrl").
 
--record(data, {timeout           :: non_neg_integer(),
+-record(data, {retries = 0  :: non_neg_integer(),
 	       gtp_port,
 	       cp_tei            :: undefined | non_neg_integer(),
 	       cp,
 	       dp,
-	       vrfs,
-	       call_q}).
+	       vrfs}).
+
+-define(AssocReqTimeout, 200).
+-define(AssocTimeout, 500).
+-define(AssocRetries, 5).
 
 %%====================================================================
 %% API
@@ -43,7 +46,7 @@
 select_sx_node(Candidates, Context) ->
     case connect_sx_node(Candidates) of
 	{ok, Pid} ->
-	    gen_statem:call(Pid, {attach, Context});
+	    call(Pid, {attach, Context}, Context);
 	_ ->
 	    throw(?CTX_ERR(?FATAL, system_failure, Context))
     end.
@@ -71,16 +74,15 @@ send(Context, Intf, VRF, Data)
 send(GtpPort, IP, Port, Data) ->
     cast(GtpPort, {send, IP, Port, Data}).
 
-call(#context{dp_node = Pid}, Request)
+call(#context{dp_node = Pid} = Ctx, Request)
   when is_pid(Pid) ->
-    lager:debug("DP Server Call ~p: ~p", [Pid, lager:pr(Request, ?MODULE)]),
-    gen_statem:call(Pid, Request).
+    call(Pid, Request, Ctx).
 
 get_vrfs(Context) ->
     call(Context, get_vrfs).
 
-response(Pid, Type, Response) ->
-    gen_statem:cast(Pid, {Type, Response}).
+response(Pid, CbData, Response) ->
+    gen_statem:cast(Pid, {response, CbData, Response}).
 
 handle_request(ReqKey, #pfcp{type = session_report_request, seq_no = SeqNo} = Report) ->
     case gtp_context:session_report(ReqKey, Report) of
@@ -93,6 +95,16 @@ handle_request(ReqKey, #pfcp{type = session_report_request, seq_no = SeqNo} = Re
 %%%===================================================================
 %%% call/cast wrapper for gtp_port
 %%%===================================================================
+
+call(Pid, Request, Ctx)
+  when is_pid(Pid) ->
+    lager:debug("DP Server Call ~p: ~p", [Pid, lager:pr(Request, ?MODULE)]),
+    case gen_statem:call(Pid, Request) of
+	{error, dead} ->
+	    throw(?CTX_ERR(?FATAL, system_failure, Ctx));
+	Other ->
+	    Other
+    end.
 
 %% TODO: GTP data path handler is currently not working!!
 cast(#gtp_port{pid = Handler}, Request)
@@ -109,10 +121,11 @@ cast(GtpPort, Request) ->
 %%% gen_server callbacks
 %%%===================================================================
 
-%% callback_mode() -> [handle_event_function, state_enter].
-callback_mode() -> handle_event_function.
+callback_mode() -> [handle_event_function, state_enter].
 
 init([Node, IP4, IP6]) ->
+    ergw_sx_node_reg:register(Node, self()),
+
     IP = if length(IP4) /= 0 -> hd(IP4);
 	    length(IP6) /= 0 -> hd(IP6)
 	 end,
@@ -126,42 +139,58 @@ init([Node, IP4, IP6]) ->
 		     #vrf{name = Id, features = Features}
 	     end, node_vrfs(Node)),
 
-    Data = #data{timeout = 10,
-		 gtp_port = GtpPort,
+    Data = #data{gtp_port = GtpPort,
 		 cp_tei = TEI,
 		 cp = CP,
 		 dp = #node{node = Node, ip = IP},
-		 vrfs = VRFs,
-		 call_q = queue:new()
+		 vrfs = VRFs
 		},
-    {ok, disconnected, Data, [{next_event, internal, setup}]}.
+    {ok, dead, Data}.
+
+handle_event(enter, OldState, dead, Data)
+  when OldState =:= connected;
+       OldState =:= dead ->
+    {next_state, dead, Data#data{retries = 0}, [{state_timeout, 0, setup}]};
+handle_event(enter, _, dead, #data{retries = Retries} = Data) ->
+    Timeout = (2 bsl Retries) * ?AssocTimeout,
+    lager:debug("Timeout: ~w/~w", [Retries, Timeout]),
+    {next_state, dead, Data, [{state_timeout, Timeout, setup}]};
+handle_event(enter, _OldState, State, Data) ->
+    {next_state, State, Data};
 
 handle_event({call, From}, stop, _, Data) ->
     {stop_and_reply, normal, [{reply, From, ok}], Data};
 
-handle_event(_, setup, disconnected, #data{cp = CP, dp = #node{ip = IP}}) ->
+handle_event(_, setup, dead, #data{cp = CP, dp = #node{ip = IP}} = Data) ->
     IEs = [node_id(CP),
 	   #recovery_time_stamp{
 	      time = seconds_to_sntp_time(gtp_config:get_start_time())}],
     Req = #pfcp{version = v1, type = association_setup_request, ie = IEs},
-    ergw_sx_socket:call(IP, 500, 5, Req, response_cb(association_setup_request)),
-    keep_state_and_data;
+    ergw_sx_socket:call(IP, ?AssocReqTimeout, 0, Req, response_cb(association_setup_request)),
+    {next_state, connecting, Data};
 
-handle_event(cast, {association_setup_request, timeout}, disconnected, _Data) ->
-    {keep_state_and_data, [{state_timeout, 5000, setup}]};
+handle_event({call, From}, _Evt, dead, _Data) ->
+    lager:warning("Call from ~p, ~p failed with {error, dead}", [From, _Evt]),
+    {keep_state_and_data, [{reply, From, {error, dead}}]};
 
-handle_event(cast, {_, #pfcp{version = v1, type = association_setup_response, ie = IEs}},
-	     disconnected, Data0) ->
+handle_event(cast, {response, association_setup_request, timeout},
+	     connecting, #data{retries = Retries, dp = #node{ip = IP}} = Data) ->
+    lager:debug("~p:~s Timeout @ Retry: ~w", [self(), inet:ntoa(IP), Retries]),
+    if Retries >= ?AssocRetries ->
+	    {stop, normal};
+       true ->
+	    {next_state, dead, Data#data{retries = Retries + 1}}
+    end;
+
+handle_event(cast, {response, _, #pfcp{version = v1, type = association_setup_response, ie = IEs}},
+	     connecting, Data0) ->
     case IEs of
 	#{pfcp_cause := #pfcp_cause{cause = 'Request accepted'}} ->
 	    Data = handle_nodeup(IEs, Data0),
-	    Actions = [{next_event, Evt, Request} ||
-			  {Evt, Request} <- queue:to_list(Data#data.call_q)],
-	    {next_state, connected, Data#data{call_q = queue:new()},
-	     [next_heartbeat(Data) | Actions]};
+	    {next_state, connected, Data, [next_heartbeat(Data)]};
 	Other ->
 	    lager:warning("Other: ~p", [lager:pr(Other, ?MODULE)]),
-	    {keep_state_and_data, [{state_timeout, 5000, setup}]}
+	    {next_state, dead, Data0}
     end;
 
 handle_event(cast, {send, 'Access', VRF, Data}, connected,
@@ -183,9 +212,9 @@ handle_event(state_timeout, heartbeat, connected, Data) ->
 
 handle_event(cast, {heartbeat, timeout}, connected, Data0) ->
     Data = handle_nodedown(Data0),
-    {next_state, disconnected, Data, [{next_event, internal, setup}]};
+    {next_state, dead, Data};
 
-handle_event(cast, {_, #pfcp{version = v1, type = heartbeat_response}}, connected, Data) ->
+handle_event(cast, {response, _, #pfcp{version = v1, type = heartbeat_response}}, connected, Data) ->
     {next_state, connected, Data, [next_heartbeat(Data)]};
 
 handle_event({call, From}, {attach, Context0}, _,
@@ -199,30 +228,21 @@ handle_event({call, From}, get_vrfs, connected,
 	     #data{vrfs = VRFs}) ->
     {keep_state_and_data, [{reply, From, {ok, VRFs}}]};
 
-handle_event({call, _} = Evt, #pfcp{} = Request, connected, #data{dp = #node{ip = IP}}) ->
-    lager:debug("DP Call ~p", [lager:pr(Request, ?MODULE)]),
-    Reply = ergw_sx_socket:call(IP, Request),
+handle_event(cast, {response, {call, _} = Evt, Reply}, _, _Data) ->
     Actions = pfcp_reply_actions(Evt, Reply),
     {keep_state_and_data, Actions};
 
-handle_event(internal, {from_cp_rule, _Reply}, connected, _Data) ->
+handle_event(cast, {response, _, _}, _, _Data) ->
     keep_state_and_data;
 
-handle_event({timeout, {call, From}}, Item, _, #data{call_q = QIn} = Data) ->
-    case queue:member(Item, QIn) of
-	true ->
-	    QOut = queue:filter(fun(X) -> X /= Item end, QIn),
-	    {keep_state, Data#data{call_q = QOut}, [{reply, From, {error, timeout}}]};
-	_ ->
-	    keep_state_and_data
-    end;
+handle_event({call, _} = Evt, #pfcp{} = Request, connected, #data{dp = #node{ip = IP}}) ->
+    lager:debug("DP Call ~p", [lager:pr(Request, ?MODULE)]),
+    ergw_sx_socket:call(IP, Request, response_cb(Evt)),
+    keep_state_and_data;
 
-handle_event({call, _} = Evt, Request, _, #data{call_q = QIn} = Data)
-  when is_record(Request, pfcp);
-       Request == get_vrfs ->
-    Item = {Evt, Request},
-    QOut = queue:in(Item, QIn),
-    {keep_state, Data#data{call_q = QOut}, [{{timeout, Evt}, 1000, Item}]};
+handle_event({call, _}, Request, _, _Data)
+  when is_record(Request, pfcp); Request == get_vrfs ->
+    {keep_state_and_data, postpone};
 
 handle_event(cast, {handle_pdu, _Request, #gtp{type=g_pdu, ie = PDU}}, _, Data) ->
     try
@@ -328,8 +348,8 @@ connect_sx_node(Node, IP4, IP6) ->
 	    ergw_sx_node_sup:new(Node, IP4, IP6)
     end.
 
-response_cb(Type) ->
-    {?MODULE, response, [self(), Type]}.
+response_cb(CbData) ->
+    {?MODULE, response, [self(), CbData]}.
 
 seconds_to_sntp_time(Sec) ->
     if Sec >= 2085978496 ->
@@ -357,12 +377,7 @@ handle_nodeup(#{user_plane_ip_resource_information := UPIPResInfo} = _IEs,
     lager:warning("Node ~s (~s) is up", [Node, inet:ntoa(IP)]),
     lager:warning("Node IEs: ~p", [lager:pr(_IEs, ?MODULE)]),
 
-    ergw_sx_node_reg:register(Node, self()),
-
-    Data = Data0#data{
-	     timeout = 100,
-	     vrfs = init_vrfs(VRFs, UPIPResInfo)
-	    },
+    Data = Data0#data{vrfs = init_vrfs(VRFs, UPIPResInfo)},
     install_cp_rules(Data).
 
 init_vrfs(VRFs, UPIPResInfo)
@@ -388,8 +403,7 @@ init_vrfs(VRFs,
 	    VRFs
     end.
 
-handle_nodedown(#data{dp = #node{node = Node}} = Data) ->
-    ergw_sx_node_reg:unregister(Node),
+handle_nodedown(Data) ->
     Data#data{vrfs = #{}}.
 
 session_not_found(ReqKey, Type, SeqNo) ->
@@ -441,8 +455,7 @@ gen_per_feature_cp_rule(_, _DpGtpIP, _Data, Acc) ->
 
 install_cp_rules(#data{cp = #node{node = _Node, ip = CpNodeIP},
 		       dp = #node{ip = DpNodeIP},
-		       vrfs = VRFs0,
-		       call_q = Q} = Data) ->
+		       vrfs = VRFs0} = Data) ->
     [#vrf{ipv4 = DpGtpIP4, ipv6 = DpGtpIP6}] =
 	lists:filter(fun(#vrf{features = Features}) ->
 			     lists:member('CP-Function', Features)
@@ -455,13 +468,9 @@ install_cp_rules(#data{cp = #node{node = _Node, ip = CpNodeIP},
     IEs = [ergw_pfcp:f_seid(SEID, CpNodeIP) | Rules],
 
     Req = #pfcp{version = v1, type = session_establishment_request, seid = 0, ie = IEs},
-    %% put the new request at the front of the queue
-    Evt = {call, {self(), from_cp_rule}},
-    Item = {Evt, Req},
-    Data#data{
-      vrfs = VRFs,
-      call_q = queue:in_r(Item, Q)
-     }.
+    ergw_sx_socket:call(DpNodeIP, Req, response_cb(from_cp_rule)),
+
+    Data#data{vrfs = VRFs}.
 
 create_from_cp_pdr(RuleId, Port, IP, TEI) ->
     #create_pdr{

@@ -73,7 +73,6 @@ get_context_vrf(cp, #context{cp_port = Port}, VRFs) ->
     get_port_vrf(Port, VRFs).
 
 assign_data_teid(#context{data_port = DataPort} = Context, Type) ->
-
     {ok, VRFs} = ergw_sx_node:get_vrfs(Context),
     #vrf{name = Name, ipv4 = IP4, ipv6 = IP6} =
 	get_context_vrf(Type, Context, VRFs),

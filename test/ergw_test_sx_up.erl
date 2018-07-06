@@ -3,7 +3,8 @@
 -behaviour(gen_server).
 
 %% API
--export([start/2, stop/1, send/2, reset/1, history/1, accounting/2]).
+-export([start/2, stop/1, send/2, reset/1, history/1, accounting/2,
+	enable/1, disable/1]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -16,7 +17,8 @@
 
 -define(SERVER, ?MODULE).
 
--record(state, {sx, gtp, accounting, cp_ip, cp_seid, up_ip, up_seid, seq_no, history}).
+-record(state, {sx, gtp, accounting, enabled, cp_ip, cp_seid,
+		up_ip, up_seid, seq_no, history}).
 
 %%%===================================================================
 %%% API
@@ -40,6 +42,12 @@ history(Role) ->
 accounting(Role, Acct) ->
     gen_server:call(server_name(Role), {accounting, Acct}).
 
+enable(Role) ->
+    gen_server:call(server_name(Role), {enabled, true}).
+
+disable(Role) ->
+    gen_server:call(server_name(Role), {enabled, false}).
+
 %%%===================================================================
 %%% gen_server callbacks
 %%%===================================================================
@@ -54,6 +62,7 @@ init([IP]) ->
 	       sx = SxSocket,
 	       gtp = GtpSocket,
 	       accounting = on,
+	       enabled = true,
 	       cp_seid = 0,
 	       up_ip = ergw_inet:ip2bin(IP),
 	       up_seid = ergw_sx_socket:seid(),
@@ -65,12 +74,16 @@ init([IP]) ->
 handle_call(reset, _From, State0) ->
     State = State0#state{
 	      accounting = on,
+	       enabled = true,
 	      cp_ip = undefined,
 	      cp_seid = 0,
 	      up_seid = ergw_sx_socket:seid(),
 	      history = []
 	     },
     {reply, ok, State};
+
+handle_call({enabled, Bool}, _From, State) ->
+    {reply, ok, State#state{enabled = Bool}};
 
 handle_call(history, _From, #state{history = Hist} = State) ->
     {reply, lists:reverse(Hist), State};
@@ -97,6 +110,9 @@ handle_call(stop, _From, State) ->
 
 handle_cast(_Msg, State) ->
     {noreply, State}.
+
+handle_info({udp, _, _, _, _}, #state{enabled = false} = State) ->
+    {noreply, State};
 
 handle_info({udp, SxSocket, IP, InPortNo, Packet},
 	    #state{sx = SxSocket, history = Hist} = State0) ->

@@ -491,6 +491,12 @@ make_response(#gtp{type = delete_bearer_request, seq_no = SeqNo},
 
 %%%-------------------------------------------------------------------
 
+validate_response(_Type, system_failure, Response, GtpC) ->
+    ?match(
+       #gtp{ie = #{{v2_cause,0} := #v2_cause{v2_cause = system_failure}}
+	   }, Response),
+    GtpC;
+
 validate_response(_Type, invalid_teid, Response, GtpC) ->
     ?match(
        #gtp{ie = #{{v2_cause,0} := #v2_cause{v2_cause = context_not_found}}
