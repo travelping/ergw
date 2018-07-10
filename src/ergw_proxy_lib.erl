@@ -49,7 +49,7 @@ get_seq_no(#context{control_port = GtpPort}, ReqKey, Request) ->
 select_proxy_gsn(#proxy_info{src_apn = SrcAPN},
 		 #proxy_ggsn{address = undefined, dst_apn = DstAPN} = ProxyGSN,
 		 Services,
-		 #{node_selection := NodeSelect}) ->
+		 #{node_selection := NodeSelect} = State) ->
     APN = if is_list(DstAPN) -> DstAPN;
 	     true            -> SrcAPN
 	  end,
@@ -59,12 +59,12 @@ select_proxy_gsn(#proxy_info{src_apn = SrcAPN},
 	    ProxyGSN#proxy_ggsn{node = Node, address = hd(IP4)};
 	[{Node, _, _, _, IP6}|_] when length(IP6) /= 0 ->
 	    ProxyGSN#proxy_ggsn{node = Node, address = hd(IP6)};
-	Other ->
-	    lager:error("No proxy address for APN '~w', got ~p", [APN_FQDN, Other]),
-	    ProxyGSN
+	_Other ->
+	    lager:error("proxy GSN for ~p not found, rejecting request, got ~p", [APN, _Other]),
+	    throw(?CTX_ERR(?FATAL, system_failure, maps:get(context, State)))
     end;
-select_proxy_gsn(_ProxyInfo, ProxyGSN, _Services, _State) ->
-    ProxyGSN.
+select_proxy_gsn(_ProxyInfo, _ProxyGSN, _Services, State) ->
+    throw(?CTX_ERR(?FATAL, system_failure, maps:get(context, State))).
 
 select_proxy_sockets(#proxy_ggsn{node = Node, dst_apn = DstAPN, context = Context},
 		     #{contexts := Contexts, proxy_ports := ProxyPorts,
