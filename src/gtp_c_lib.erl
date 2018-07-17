@@ -17,13 +17,18 @@
 %% make sure DNS and APN labels are lower case and contain only
 %% permited characters (labels have to start with letters and
 %% not end with hyphens, but we don't check that)
+%% also do not consider "." (dot) as not permitted character
+%% but split labels by it
 normalize_labels('_') ->
     '_';
 normalize_labels(Labels) when is_list(Labels) ->
-    lists:map(fun normalize_labels/1, Labels);
+    lists:flatten(lists:map(fun normalize_labels/1, Labels));
 normalize_labels(Label) when is_binary(Label) ->
-    << << (dns_char(C)):8 >> || <<C:8>> <= Label >>.
+    binary:split(<< << (dns_char(C)):8 >> || <<C:8>> <= Label >>,
+                 <<$.>>, [global, trim_all]).
 
+dns_char($.) ->
+    $.;
 dns_char($-) ->
     $-;
 dns_char(C) when C >= $0 andalso C =< $9 ->
