@@ -123,6 +123,7 @@
 
 		 {apns,
 		  [{?'APN-EXAMPLE', [{vrf, upstream}]},
+		   {[<<"exa">>, <<"mple">>, <<"net">>], [{vrf, upstream}]},
 		   {[<<"APN1">>], [{vrf, upstream}]}
 		  ]},
 
@@ -189,6 +190,7 @@ common() ->
      create_session_request_missing_ie,
      create_session_request_aaa_reject,
      create_session_request_invalid_apn,
+     create_session_request_dotted_apn,
      create_session_request_accept_new,
      path_restart, path_restart_recovery, path_restart_multi,
      simple_session_request,
@@ -405,6 +407,17 @@ create_session_request_invalid_apn() ->
     [{doc, "Check invalid APN return on Create Session Request"}].
 create_session_request_invalid_apn(Config) ->
     create_session(invalid_apn, Config),
+
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+create_session_request_dotted_apn() ->
+    [{doc, "Check dotted APN return on Create Session Request"}].
+create_session_request_dotted_apn(Config) ->
+    {GtpC, _, _} = create_session(dotted_apn, Config),
+    {_, _Msg, _Response} = delete_session(GtpC),
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
 
     meck_validate(Config),
     ok.

@@ -754,6 +754,7 @@ execute_request(MsgType, SubType, GtpC0) ->
     {validate_response(MsgType, SubType, Response, GtpC), Msg, Response}.
 
 apn(invalid_apn) -> [<<"IN", "VA", "LID">>];
+apn(dotted_apn)  -> ?'APN-EXA.MPLE';
 apn(_)           -> ?'APN-ExAmPlE'.
 
 imsi('2nd', _) ->

@@ -55,6 +55,7 @@
 
 -define('APN-EXAMPLE', [<<"example">>, <<"net">>]).
 -define('APN-ExAmPlE', [<<"eXaMpLe">>, <<"net">>]).
+-define('APN-EXA.MPLE', [<<"exa.mple">>, <<"net">>]).
 -define('IMSI', <<"111111111111111">>).
 -define('MSISDN', <<"440000000000">>).
 
