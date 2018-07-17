@@ -83,6 +83,7 @@
 
 		 {apns,
 		  [{?'APN-EXAMPLE', [{vrf, upstream}]},
+		   {[<<"exa">>, <<"mple">>, <<"net">>], [{vrf, upstream}]},
 		   {[<<"APN1">>], [{vrf, upstream}]}
 		  ]}
 		]},
@@ -110,6 +111,7 @@ all() ->
      create_session_request_missing_ie,
      create_session_request_aaa_reject,
      create_session_request_invalid_apn,
+     create_session_request_dotted_apn,
      create_session_request_accept_new,
      path_restart, path_restart_recovery, path_restart_multi,
      simple_session_request,
@@ -301,6 +303,17 @@ create_session_request_invalid_apn(Config) ->
     S = make_gtp_socket(Config),
 
     create_session(invalid_apn, S),
+
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+create_session_request_dotted_apn() ->
+    [{doc, "Check dotted APN return on Create Session Request"}].
+create_session_request_dotted_apn(Config) ->
+    S = make_gtp_socket(Config),
+
+    create_session(dotted_apn, S),
 
     meck_validate(Config),
     ok.
