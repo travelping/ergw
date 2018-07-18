@@ -1,6 +1,17 @@
 erGW - 3GPP GGSN and PDN-GW in Erlang
 =====================================
 
+Version 1.18.3 - 18 Jul 2018
+----------------------------
+
+* Split APN label if there is a dot [#91](https://github.com/travelping/ergw/pull/91)
+
+Version 1.18.2 - 02 Jul 2018
+----------------------------
+
+* Reduce memory consumption [#86](https://github.com/travelping/ergw/pull/86)
+* Upgrade dependencies [#87](https://github.com/travelping/ergw/pull/87)
+
 Version 1.18.1 - 28 Jun 2018
 ----------------------------
 
