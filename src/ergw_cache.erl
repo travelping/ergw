@@ -7,7 +7,7 @@
 
 -module(ergw_cache).
 
--export([new/2, get/2, enter/4, expire/1, to_list/1]).
+-export([new/2, get/2, enter/4, expire/2, to_list/1]).
 
 %%%===================================================================
 %%% exometer functions
@@ -21,7 +21,10 @@
 	  queue  :: queue:queue({Expire :: integer(), Key :: term()})
 	 }).
 
-start_timer(#cache{expire = ExpireInterval, key = Key} = Cache) ->
+start_timer(Ref, #cache{timer = TimerRef, expire = ExpireInterval, key = Key} = Cache) ->
+    if Ref =/= TimerRef andalso is_reference(TimerRef) -> erlang:cancel_timer(TimerRef);
+       true -> ok
+    end,
     Cache#cache{timer = erlang:start_timer(ExpireInterval, self(), Key)}.
 
 new(ExpireInterval, Key) ->
@@ -31,7 +34,7 @@ new(ExpireInterval, Key) ->
 	       tree = gb_trees:empty(),
 	       queue = queue:new()
 	      },
-    start_timer(Cache).
+    start_timer(undefined, Cache).
 
 get(Key, #cache{tree = Tree}) ->
     Now = erlang:monotonic_time(milli_seconds),
@@ -48,14 +51,14 @@ enter(Key, Data, TimeOut, #cache{tree = Tree0, queue = Q0} = Cache) ->
     Expire = Now + TimeOut,
     Tree = gb_trees:enter(Key, {Expire, Data}, Tree0),
     Q = queue:in({Expire, Key}, Q0),
-    expire(Now, Cache#cache{tree = Tree, queue = Q}).
+    expire_now(Now, Cache#cache{tree = Tree, queue = Q}).
 
-expire(Cache0) ->
+expire(TRef, Cache0) when is_reference(TRef) ->
     Now = erlang:monotonic_time(milli_seconds),
-    Cache = expire(Now, Cache0),
-    start_timer(Cache).
+    Cache = expire_now(Now, Cache0),
+    start_timer(TRef, Cache).
 
-expire(Now, #cache{tree = Tree0, queue = Q0} = Cache) ->
+expire_now(Now, #cache{tree = Tree0, queue = Q0} = Cache) ->
     case queue:peek(Q0) of
 	{value, {Expire, Key}} when Expire < Now ->
 	    Q = queue:drop(Q0),
@@ -65,7 +68,7 @@ expire(Now, #cache{tree = Tree0, queue = Q0} = Cache) ->
 		       _ ->
 			   Tree0
 		   end,
-	    expire(Now, Cache#cache{tree = Tree, queue = Q});
+	    expire_now(Now, Cache#cache{tree = Tree, queue = Q});
 	_ ->
 	    Cache
     end.
