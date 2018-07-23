@@ -44,7 +44,9 @@
 %%====================================================================
 
 start_link({Name, SocketOpts}) ->
-    gen_server:start_link(?MODULE, [Name, SocketOpts], []).
+    Opts = [{hibernate_after, 5000},
+	    {spawn_opt,[{fullsweep_after, 16}]}],
+    gen_server:start_link(?MODULE, [Name, SocketOpts], Opts).
 
 send(#gtp_port{type = 'gtp-u'} = GtpPort, IP, Port, #gtp{} = Msg) ->
     cast(GtpPort, make_send_req(IP, Port, Msg));
