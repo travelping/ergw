@@ -30,7 +30,9 @@
 %%====================================================================
 
 start_link({Name, SocketOpts}) ->
-    gen_server:start_link(?MODULE, [Name, SocketOpts], []).
+    Opts = [{hibernate_after, 5000},
+	    {spawn_opt,[{fullsweep_after, 16}]}],
+    gen_server:start_link(?MODULE, [Name, SocketOpts], Opts).
 
 send(GtpPort, IP, Port, Data) ->
     cast(GtpPort, {send, IP, Port, Data}).

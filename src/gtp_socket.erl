@@ -78,7 +78,9 @@ start_socket(Name, Opts)
     gtp_socket_sup:new({Name, Opts}).
 
 start_link('gtp-c', {Name, SocketOpts}) ->
-    gen_server:start_link(?MODULE, [Name, SocketOpts], []);
+    Opts = [{hibernate_after, 5000},
+	    {spawn_opt,[{fullsweep_after, 16}]}],
+    gen_server:start_link(?MODULE, [Name, SocketOpts], Opts);
 start_link('gtp-u', Socket) ->
     gtp_dp:start_link(Socket).
 
