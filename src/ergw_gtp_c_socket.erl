@@ -244,11 +244,11 @@ handle_info(Info = {timeout, _TRef, {request, SeqId}}, #state{gtp_port = GtpPort
 	    {noreply, State1}
     end;
 
-handle_info({timeout, _TRef, requests}, #state{requests = Requests} = State) ->
-    {noreply, State#state{requests = ergw_cache:expire(Requests)}};
+handle_info({timeout, TRef, requests}, #state{requests = Requests} = State) ->
+    {noreply, State#state{requests = ergw_cache:expire(TRef, Requests)}};
 
-handle_info({timeout, _TRef, responses}, #state{responses = Responses} = State) ->
-    {noreply, State#state{responses = ergw_cache:expire(Responses)}};
+handle_info({timeout, TRef, responses}, #state{responses = Responses} = State) ->
+    {noreply, State#state{responses = ergw_cache:expire(TRef, Responses)}};
 
 handle_info({Socket, input_ready}, #state{socket = Socket} = State) ->
     handle_input(Socket, State);
@@ -488,9 +488,8 @@ enqueue_response(ReqKey, Data, DoCache,
 		 #state{responses = Responses} = State)
   when DoCache =:= true ->
     State#state{responses = ergw_cache:enter(cache_key(ReqKey), Data, ?RESPONSE_TIMEOUT, Responses)};
-enqueue_response(_ReqKey, _Data, _DoCache,
-		 #state{responses = Responses} = State) ->
-    State#state{responses = ergw_cache:expire(Responses)}.
+enqueue_response(_ReqKey, _Data, _DoCache, State) ->
+    State.
 
 do_send_response(#request{ip = IP, port = Port} = ReqKey, Data, DoCache, State) ->
     sendto(IP, Port, Data, State),
