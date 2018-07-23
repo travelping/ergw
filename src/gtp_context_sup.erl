@@ -25,7 +25,9 @@ start_link() ->
     supervisor:start_link({local, ?SERVER}, ?MODULE, []).
 
 new(GtpPort, Version, Interface, IfOpts) ->
-    new(GtpPort, Version, Interface, IfOpts, []).
+    Opts = [{hibernate_after, 500},
+	    {spawn_opt,[{fullsweep_after, 0}]}],
+    new(GtpPort, Version, Interface, IfOpts, Opts).
 
 new(GtpPort, Version, Interface, IfOpts, Opts) ->
     lager:debug("new(~p)", [[GtpPort, Version, Interface, IfOpts, Opts]]),

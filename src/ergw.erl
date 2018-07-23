@@ -17,6 +17,7 @@
 -export([load_config/1]).
 -export([get_plmn_id/0, get_accept_new/0]).
 -export([system_info/0, system_info/1, system_info/2]).
+-export([i/0, i/1, i/2]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -163,6 +164,38 @@ vrf(APN) ->
 		    vrf_lookup('_')
 	    end
     end.
+
+i() ->
+    lists:map(fun i/1, [memory]).
+
+i(memory) ->
+    {memory, lists:map(fun(X) -> i(memory, X) end, [socket, path, context])}.
+
+i(memory, socket) ->
+    MemUsage =
+	lists:foldl(fun({_, Pid, _}, Mem) ->
+			    {memory, M} = erlang:process_info(Pid, memory),
+			    Mem + M
+		    end, 0, ergw_gtp_socket_reg:all()),
+    {socket, MemUsage};
+i(memory, path) ->
+    MemUsage =
+	lists:foldl(fun({_, Pid}, Mem) ->
+			    {memory, M} = erlang:process_info(Pid, memory),
+			    Mem + M
+		    end, 0, gtp_path_reg:all()),
+    {path, MemUsage};
+
+i(memory, context) ->
+    MemUsage =
+	lists:foldl(fun({{seid, _}, Pid}, Mem) ->
+			    {memory, M} = erlang:process_info(Pid, memory),
+			    Mem + M;
+		       (_, Mem) ->
+			    Mem
+		    end, 0, gtp_context_reg:all()),
+    {context, MemUsage}.
+
 
 %%%===================================================================
 %%% gen_server callbacks

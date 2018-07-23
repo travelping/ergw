@@ -47,7 +47,9 @@
 %%%===================================================================
 
 start_link(GtpPort, Version, RemoteIP, Args) ->
-    gen_server:start_link(?MODULE, [GtpPort, Version, RemoteIP, Args], []).
+    Opts = [{hibernate_after, 5000},
+	    {spawn_opt,[{fullsweep_after, 0}]}],
+    gen_server:start_link(?MODULE, [GtpPort, Version, RemoteIP, Args], Opts).
 
 maybe_new_path(GtpPort, Version, RemoteIP) ->
     case get(GtpPort, Version, RemoteIP) of
