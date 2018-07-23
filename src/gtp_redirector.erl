@@ -10,7 +10,7 @@
 -export([init/2, 
          validate_options/1, 
          keep_alive/2, 
-         timeout_requests/1, 
+         timeout_requests/2, 
          handle_message/6, 
          echo_response/6]).
 
@@ -192,9 +192,9 @@ keep_alive(#redirector{ka_timeout = KATimeout,
                           bad_nodes = BadNodes};
 keep_alive(Redirector, _) -> Redirector.
 
-timeout_requests(#redirector{requests = Requests} = Redirector) ->
-    Redirector#redirector{requests = ergw_cache:expire(Requests)};
-timeout_requests(Redirector) -> Redirector.
+timeout_requests(TRef, #redirector{requests = Requests} = Redirector) ->
+    Redirector#redirector{requests = ergw_cache:expire(TRef, Requests)};
+timeout_requests(_TRef, Redirector) -> Redirector.
 
 handle_message(#redirector{socket = Socket,
                            rt_timeout = RTTimeout,
