@@ -427,17 +427,38 @@ choose_up_ip(_IP4, IP6, {_,_,_,_,_,_,_,_} = _IP)
 choose_up_ip(_IP4, _IP6, IP) ->
     IP.
 
+-ifdef(OTP_RELEASE).
+%% OTP 21 or higher
+
+maps_mapfold(Fun, Init, Map)
+  when is_function(Fun, 3), is_map(Map) ->
+    maps_mapfold_i(Fun, {[], Init}, maps:iterator(Map)).
+
+maps_mapfold_i(Fun, {L1, A1}, Iter) ->
+    case maps:next(Iter) of
+	{K, V1, NextIter} ->
+	    {V2, A2} = Fun(K, V1, A1),
+	    maps_mapfold_i(Fun, {[{K, V2} | L1], A2}, NextIter);
+	none ->
+	    {maps:from_list(L1), A1}
+    end.
+
+-else.
+%% OTP 20 or lower.
+
 maps_mapfold(Fun, AccIn, Map)
-  when is_function(Fun, 2), is_map(Map) ->
+  when is_function(Fun, 3), is_map(Map) ->
     ListIn = maps:to_list(Map),
     {ListOut, AccOut} =
 	lists:mapfoldl(fun({K, A}, InnerAccIn) ->
-			       {B, InnerAccOut} = Fun(A, InnerAccIn),
+			       {B, InnerAccOut} = Fun(K, A, InnerAccIn),
 			       {{K, B}, InnerAccOut}
 		       end, AccIn, ListIn),
     {maps:from_list(ListOut), AccOut}.
 
-gen_cp_rules(#vrf{features = Features} = VRF, DpGtpIP, Data, Rules) ->
+-endif.
+
+gen_cp_rules(_Key, #vrf{features = Features} = VRF, DpGtpIP, Data, Rules) ->
     lists:foldl(gen_per_feature_cp_rule(_, DpGtpIP, Data, _), {VRF, Rules}, Features).
 
 gen_per_feature_cp_rule('Access', DpGtpIP, #data{gtp_port = GtpPort}, {VRF0, Rules}) ->
@@ -462,7 +483,7 @@ install_cp_rules(#data{cp = #node{node = _Node, ip = CpNodeIP},
 		     end, maps:values(VRFs0)),
     DpGtpIP = choose_up_ip(DpGtpIP4, DpGtpIP6, DpNodeIP),
 
-    {VRFs, Rules} = maps_mapfold(gen_cp_rules(_, DpGtpIP, Data, _), [], VRFs0),
+    {VRFs, Rules} = maps_mapfold(gen_cp_rules(_, _, DpGtpIP, Data, _), [], VRFs0),
 
     SEID = ergw_sx_socket:seid(),
     IEs = [ergw_pfcp:f_seid(SEID, CpNodeIP) | Rules],
