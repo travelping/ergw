@@ -1,6 +1,18 @@
 erGW - 3GPP GGSN and PDN-GW in Erlang
 =====================================
 
+Version 2.0.0 - 02 Aug 2018
+----------------------------
+
+* Rewrite user plane interface to use control and user plane separation
+  of EPC nodes (CUPS) architecture, compatible [UPF implementation](https://github.com/travelping/vpp/tree/feature/upf)
+* Drop tetrapak build support
+* Support Erlang OTP 20.1 through 21.0
+* Implement NAPTR based node selection
+* IPv6 control and user plane support
+* Beta quality features:
+   * S11 / SAE-GW
+
 Version 1.16.0 - 03 Oct 2017
 ----------------------------
 
