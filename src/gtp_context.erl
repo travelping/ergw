@@ -573,7 +573,7 @@ del_trigger(K, {time, _, _, _}, Triggers) ->
     case Triggers of
 	#{K := #trigger{tref = TRef}} ->
 	    erlang:cancel_timer(TRef, [{async, true}]),
-	    maps:without(K, Triggers);
+	    maps:without([K], Triggers);
 	_ ->
 	    Triggers
     end.
@@ -620,5 +620,5 @@ trigger_opts(#trigger{key = K, value = Value, opts = Opts} = T, Triggers) ->
 	    TRef = erlang:start_timer(Value, self(), {trigger, K}),
 	    Triggers#{K => T#trigger{tref = TRef}};
 	_ ->
-	    maps:without(K, Triggers)
+	    maps:without([K], Triggers)
     end.
