@@ -1,0 +1,11 @@
+If you have started sgsnemu with the '--create-if' option, it will create
+a tun0 network interface and assign the UE IP to it.
+
+If you also used the --default-route option, it also add a default route
+through the tun0 interfaces. If you omitted the --default-route option,
+you add it manually with 'ip route add default via tun0'.
+
+To test that our simulated UE network connection is working, use
+
+  # ping -I tun0 <host-ip>
+
