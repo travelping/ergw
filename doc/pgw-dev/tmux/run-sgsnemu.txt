@@ -1,0 +1,11 @@
+Once erGW and VPP have started succesfully, you can run sgsnemu here.
+
+For a simple, self contained ping test use something like:
+
+  # sgsnemu --conf=tmux/sgsn.conf --pinghost=<host ip>
+
+To tunneld interface with a valid UE IP use:
+
+  # sgsnemu --conf=tmux/sgsn.conf --createif --defaultroute
+
+Have fun .....
