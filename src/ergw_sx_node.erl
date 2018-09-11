@@ -161,11 +161,9 @@ handle_event(enter, _OldState, State, Data) ->
 handle_event({call, From}, stop, _, Data) ->
     {stop_and_reply, normal, [{reply, From, ok}], Data};
 
-handle_event(_, setup, dead, #data{cp = CP, dp = #node{ip = IP}} = Data) ->
-    IEs = [node_id(CP),
-	   #recovery_time_stamp{
-	      time = seconds_to_sntp_time(gtp_config:get_start_time())}],
-    Req = #pfcp{version = v1, type = association_setup_request, ie = IEs},
+handle_event(_, setup, dead, #data{dp = #node{ip = IP}} = Data) ->
+    Req0 = #pfcp{version = v1, type = association_setup_request, ie = []},
+    Req = augment_mandatory_ie(Req0, Data),
     ergw_sx_socket:call(IP, ?AssocReqTimeout, 0, Req, response_cb(association_setup_request)),
     {next_state, connecting, Data};
 
@@ -235,7 +233,9 @@ handle_event(cast, {response, {call, _} = Evt, Reply}, _, _Data) ->
 handle_event(cast, {response, _, _}, _, _Data) ->
     keep_state_and_data;
 
-handle_event({call, _} = Evt, #pfcp{} = Request, connected, #data{dp = #node{ip = IP}}) ->
+handle_event({call, _} = Evt, #pfcp{} = Request0, connected,
+	     #data{dp = #node{ip = IP}} = Data) ->
+    Request = augment_mandatory_ie(Request0, Data),
     lager:debug("DP Call ~p", [lager:pr(Request, ?MODULE)]),
     ergw_sx_socket:call(IP, Request, response_cb(Evt)),
     keep_state_and_data;
@@ -361,9 +361,44 @@ seconds_to_sntp_time(Sec) ->
 next_heartbeat(_Data) ->
     {state_timeout, 5000, heartbeat}.
 
-node_id(#node{node = Node})
-  when is_atom(Node) ->
-    #node_id{id = string:split(atom_to_binary(Node, utf8), ".", all)}.
+put_ie(IE, IEs) when is_map(IEs) ->
+    maps:put(element(1, IE), IE, IEs);
+put_ie(IE, IEs) when is_list(IEs) ->
+    [IE | IEs];
+put_ie(IE, _IEs) ->
+    [IE].
+
+put_node_id(R = #pfcp{ie = IEs}, #data{cp = #node{node = Node}}) ->
+    NodeId = #node_id{id = string:split(atom_to_binary(Node, utf8), ".", all)},
+    R#pfcp{ie = put_ie(NodeId, IEs)}.
+
+put_recovery_time_stamp(R = #pfcp{ie = IEs}) ->
+    TS = #recovery_time_stamp{
+	    time = seconds_to_sntp_time(gtp_config:get_start_time())},
+    R#pfcp{ie = put_ie(TS, IEs)}.
+
+augment_mandatory_ie(R = #pfcp{type = Type}, _Data)
+  when Type == heartbeat_request orelse
+       Type == heartbeat_response ->
+    put_recovery_time_stamp(R);
+augment_mandatory_ie(R = #pfcp{type = Type}, Data)
+  when Type == association_update_request orelse
+       Type == association_update_response orelse
+       Type == association_release_request orelse
+       Type == association_release_response orelse
+       Type == node_report_request orelse
+       Type == node_report_response orelse
+       Type == session_set_deletion_request orelse
+       Type == session_set_deletion_response orelse
+       Type == session_establishment_request orelse
+       Type == session_establishment_response ->
+    put_node_id(R, Data);
+augment_mandatory_ie(R = #pfcp{type = Type}, Data)
+  when Type == association_setup_request orelse
+       Type == association_setup_response ->
+    put_recovery_time_stamp(put_node_id(R, Data));
+augment_mandatory_ie(Request, _Data) ->
+    Request.
 
 send_heartbeat(#data{dp = #node{ip = IP}}) ->
     IEs = [#recovery_time_stamp{
@@ -488,7 +523,8 @@ install_cp_rules(#data{cp = #node{node = _Node, ip = CpNodeIP},
     SEID = ergw_sx_socket:seid(),
     IEs = [ergw_pfcp:f_seid(SEID, CpNodeIP) | Rules],
 
-    Req = #pfcp{version = v1, type = session_establishment_request, seid = 0, ie = IEs},
+    Req0 = #pfcp{version = v1, type = session_establishment_request, seid = 0, ie = IEs},
+    Req = augment_mandatory_ie(Req0, Data),
     ergw_sx_socket:call(DpNodeIP, Req, response_cb(from_cp_rule)),
 
     Data#data{vrfs = VRFs}.
