@@ -361,11 +361,11 @@ create_pdp_context_request_invalid_apn(Config) ->
 create_pdp_context_request_dotted_apn() ->
     [{doc, "Check dotted APN return on Create PDP Context Request"}].
 create_pdp_context_request_dotted_apn(Config) ->
-    S = make_gtp_socket(Config),
-
-    create_pdp_context(dotted_apn, S),
+    {GtpC, _, _} = create_pdp_context(dotted_apn, Config),
+    delete_pdp_context(GtpC),
 
     ?equal([], outstanding_requests()),
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
     ok.
 

@@ -417,8 +417,9 @@ create_session_request_dotted_apn() ->
 create_session_request_dotted_apn(Config) ->
     {GtpC, _, _} = create_session(dotted_apn, Config),
     {_, _Msg, _Response} = delete_session(GtpC),
-    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
 
+    ?equal([], outstanding_requests()),
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
     ok.
 
