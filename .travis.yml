@@ -33,9 +33,6 @@ script:
 
 addons:
   artifacts:
-    key: AKIAJQ3KOWKFAGFGGAFQ
-    secret:
-      secure: "ActTb8raCkP3irc2Eorlct5pscfvFK6rvPzkixRqO4VVPBHSRlsVXgfMjvtvcKabePBF3vJoYV9WrHFSi4De0TSVmxtSB/X6VVxnl2mz6tr1kc3fbicxl/DkoDosmca60gQ5iH/o7erIwfIDqOfsbmQ1qrxW9Xy2ypBkrHk2M0I7beKbvvADf4GiO1+IEK5U2js2ETe2OhM4OMmtc1MThH81PRdLmLH4prPytoG4Pw2jb9JBKG8o8cUTwRMvTEwecQiind+WO0/U6wmOaj1x7r9ZZ5Ln3AgD/eFce4HZ6//V94lZgSZRO4ieO2YrBifacd9Fp8hng/r64hYZ6OIMZ4zuuwA8Kumpx1Q80DhaRFnxIQW56qiTkC0AmmCSTs/n86VoNrCu7Xz3+ym+jOTWSOrMCX6HZIgiBerPIcmKMrIy+W5sLnfX0bl/jm8jV6/9HEzzw6+hJr8kYH4s/Wj1LFLB99uqzX7/IxUwJI4+yZe7HoyTMzqfZ9+1PdjR1BPVEc8KqpuaUyRwsi5f2SfIjsXM0Ehgwe/zkiVd+MotnHL63oAve2EL74tBRQbnmdZi1UBUfIW3go1CGoDks2A0MMXIfgZD4jfH9vzvmynm3vwoJIcrZDN9ISd5lezsmPkyxIMxvaTKiXdFfh/tizKOkVfK9LD4LEQpRS5Kh7Lakrg="
     paths: ct-logs.zip
     bucket: travis-erlang-logs
     s3_region: eu-west-1
