@@ -13,7 +13,7 @@
 	 select_proxy_gsn/4, select_proxy_sockets/2]).
 -export([create_forward_session/3,
 	 modify_forward_session/4,
-	 delete_forward_session/2,
+	 delete_forward_session/3,
 	 query_usage_report/1]).
 
 -include_lib("gtplib/include/gtp_packet.hrl").
@@ -315,9 +315,19 @@ modify_forward_session(#context{dp_seid = SEID, local_control_tei = OldSEID} = O
     Req = #pfcp{version = v1, type = session_modification_request, seid = SEID, ie = IEs},
     ergw_sx_node:call(NewLeft, Req).
 
-delete_forward_session(#context{dp_seid = SEID} = Left, _Right) ->
+delete_forward_session(normal, #context{dp_seid = SEID} = Left, _Right) ->
     Req = #pfcp{version = v1, type = session_deletion_request, seid = SEID, ie = []},
-    ergw_sx_node:call(Left, Req).
+    case ergw_sx_node:call(Left, Req) of
+	#pfcp{type = session_deletion_response,
+	      ie = #{pfcp_cause := #pfcp_cause{cause = 'Request accepted'}} = IEs} ->
+	    maps:get(usage_report_sdr, IEs, undefined);
+	_Other ->
+	    lager:warning("PFCP (proxy): Session Deletion failed with ~p",
+			  [lager:pr(_Other, ?MODULE)]),
+	    undefined
+    end;
+delete_forward_session(_Reason, _Left, _Right) ->
+    undefined.
 
 query_usage_report(#context{dp_seid = SEID} = Ctx) ->
     IEs = [#query_urr{group = [#urr_id{id = 1}]}],
