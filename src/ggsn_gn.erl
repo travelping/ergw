@@ -429,7 +429,7 @@ copy_to_session(_, #access_point_name{apn = APN}, _AAAopts, Session) ->
      };
 copy_to_session(_, #ms_international_pstn_isdn_number{
 		   msisdn = {isdn_address, _, _, 1, MSISDN}}, _AAAopts, Session) ->
-    Session#{'Calling-Station-Id' => MSISDN};
+    Session#{'Calling-Station-Id' => MSISDN, '3GPP-MSISDN' => MSISDN};
 copy_to_session(_, #international_mobile_subscriber_identity{imsi = IMSI}, _AAAopts, Session) ->
     case itu_e212:split_imsi(IMSI) of
 	{MCC, MNC, _} ->
