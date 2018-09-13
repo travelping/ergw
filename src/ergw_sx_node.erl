@@ -246,7 +246,8 @@ handle_event(cast, {response, {call, _} = Evt, Reply}, _, _Data) ->
     Actions = pfcp_reply_actions(Evt, Reply),
     {keep_state_and_data, Actions};
 
-handle_event(cast, {response, _, _}, _, _Data) ->
+handle_event(cast, {response, _, _} = R, _, _Data) ->
+    lager:warning("Response: ~p", [R]),
     keep_state_and_data;
 
 handle_event({call, _} = Evt, #pfcp{} = Request0, connected,

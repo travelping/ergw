@@ -198,7 +198,7 @@ handle_request(_ReqKey,
     SessionOpts = init_session_from_gtp_req(IEs, AAAopts, SessionOpts0),
     %% SessionOpts = init_session_qos(ReqQoSProfile, SessionOpts1),
 
-    {ok, ActiveSessionOpts0, SessionEvents} =
+    {ok, ActiveSessionOpts0, _SessionEvents} =
 	authenticate(ContextPreAuth, Session, SessionOpts, Request),
     {ContextVRF, VRFOpts} = select_vrf(ContextPreAuth),
 
@@ -206,7 +206,7 @@ handle_request(_ReqKey,
     lager:info("ActiveSessionOpts: ~p", [ActiveSessionOpts]),
 
     {SessionIPs, ContextPending0} = assign_ips(ActiveSessionOpts, PAA, ContextVRF),
-    ContextPending1 = session_to_context(ActiveSessionOpts, ContextPending0),
+    ContextPending = session_to_context(ActiveSessionOpts, ContextPending0),
 
     APN_FQDN = ergw_node_selection:apn_to_fqdn(APN),
     Services = [{"x-3gpp-upf", "x-sxb"}],
@@ -229,7 +229,7 @@ handle_request(_ReqKey,
 	end,
 
     ok = ergw_aaa_session:invoke(Session, SessionIPs, start, [], true),
-    ContextPending = ergw_gsn_lib:session_events(SessionEvents, ContextPending1),
+    %% ContextPending = ergw_gsn_lib:session_events(SessionEvents, ContextPending1),
 
     %% ===========================================================================
 

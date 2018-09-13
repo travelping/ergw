@@ -41,8 +41,6 @@
 
 -define('Tunnel Endpoint Identifier Data I',	{tunnel_endpoint_identifier_data_i, 0}).
 
--record(trigger, {key, type, level, value, opts, tref}).
-
 %%====================================================================
 %% API
 %%====================================================================
@@ -353,21 +351,6 @@ handle_cast(Msg, #{interface := Interface} = State) ->
 
 %%====================================================================
 
-handle_info({timeout, TRef, {trigger, K}},
-	    #{context := #context{triggers = Triggers0} = Context} = State0) ->
-    State =
-	case maps:get(K, Triggers0, undefined) of
-	    #trigger{tref = TRef} = T ->
-		lager:info("OK Trigger: ~p, ~p, ~p", [TRef, K, Triggers0]),
-		State1 = trigger_action(T, State0),
-		Triggers = trigger_opts(T, Triggers0),
-		State1#{context => Context#context{triggers = Triggers}};
-	    _ ->
-		lager:error("Spurious Trigger: ~p, ~p, ~p", [TRef, K, Triggers0]),
-		State0
-	end,
-    {noreply, State};
-
 handle_info({update_session, Session, Events} = Us, #{interface := Interface} = State0) ->
     State = Interface:session_events(Session, Events, State0),
     {noreply, State};
@@ -573,6 +556,8 @@ usage_report_to_accounting([H|_]) ->
 usage_report_to_accounting(undefined) ->
     [].
 
+-ifdef(TEST).
+
 query_usage_report(Context) ->
     case ergw_gsn_lib:query_usage_report(Context) of
 	#pfcp{type = session_modification_response,
@@ -586,22 +571,4 @@ query_usage_report(Context) ->
 	    #{}
     end.
 
-trigger_action(#trigger{key = Key, type = time, level = 'IP-CAN', opts = EvOpts} = _Trigger,
-	       #{context := Context, 'Session' := Session} = State) ->
-    lager:info("TIME Trigger Action: ~p", [lager:pr(_Trigger, ?MODULE)]),
-    SessionOpts = query_usage_report(Context),
-    lager:info("URR: ~p", [SessionOpts]),
-    ergw_aaa_session:event(Session, Key, EvOpts, SessionOpts),
-    State;
-trigger_action(_Trigger, State) ->
-    lager:info("Trigger Action: ~p", [lager:pr(_Trigger, ?MODULE)]),
-    State.
-
-trigger_opts(#trigger{key = K, value = Value, opts = Opts} = T, Triggers) ->
-    case proplists:get_bool('recurring', Opts) of
-	true ->
-	    TRef = erlang:start_timer(Value, self(), {trigger, K}),
-	    Triggers#{K => T#trigger{tref = TRef}};
-	_ ->
-	    maps:without([K], Triggers)
-    end.
+-endif.
