@@ -252,7 +252,7 @@ gtpc_server_init(Owner, Config) ->
     gtpc_server_loop(Owner, CntlS).
 
 gtpc_server_loop(Owner, CntlS) ->
-    case recv_pdu(CntlS, infinity) of
+    case recv_pdu(CntlS, undefined, infinity, fun(Reason) -> Reason end) of
 	#gtp{} = Msg ->
 	    Owner ! {self(), Msg},
 	    gtpc_server_loop(Owner, CntlS);
@@ -290,7 +290,7 @@ stop_gtpc_server() ->
     case whereis(gtpc_client_server) of
 	Pid when is_pid(Pid) ->
 	    unlink(Pid),
-	    exit(Pid, normal);
+	    exit(Pid, shutdown);
 	_ ->
 	    ok
     end.
