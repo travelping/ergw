@@ -13,7 +13,8 @@
 -compile({parse_transform, do}).
 
 -export([validate_options/1, init/2, request_spec/3,
-	 handle_pdu/3, handle_request/4, handle_response/4,
+	 handle_pdu/3, handle_sx_report/3,
+	 handle_request/4, handle_response/4,
 	 handle_call/3, handle_cast/2, handle_info/2,
 	 terminate/2]).
 
@@ -166,26 +167,6 @@ handle_cast({packet_in, _GtpPort, _IP, _Port, _Msg}, State) ->
     lager:warning("packet_in not handled (yet): ~p", [_Msg]),
     {noreply, State}.
 
-handle_info({ReqKey,
-	     #pfcp{version = v1, type = session_report_request, seq_no = SeqNo,
-		   ie = #{
-		     report_type := #report_type{erir = 1},
-		     error_indication_report :=
-			 #error_indication_report{group = #{f_teid := FTEID0}}
-		    }
-		  }}, #{context := Ctx} = State) ->
-    SxResponse =
-	#pfcp{version = v1, type = session_report_response, seq_no = SeqNo,
-	      ie = [#pfcp_cause{cause = 'Request accepted'}]},
-    ergw_gsn_lib:send_sx_response(ReqKey, Ctx, SxResponse),
-
-    FTEID = FTEID0#f_teid{ipv4 = ergw_inet:bin2ip(FTEID0#f_teid.ipv4),
-			  ipv6 = ergw_inet:bin2ip(FTEID0#f_teid.ipv6)},
-    Direction = fteid_forward_context(FTEID, State),
-    initiate_session_teardown(Direction, State),
-    delete_forward_session(normal, State),
-    {stop, normal, State};
-
 handle_info({timeout, _, {delete_session_request, Direction, _ReqKey, _Request}}, State) ->
     lager:warning("Proxy Delete Session Timeout ~p", [Direction]),
 
@@ -221,6 +202,23 @@ handle_pdu(ReqKey, Msg, State) ->
     lager:debug("GTP-U v2 Proxy: ~p, ~p",
 		[lager:pr(ReqKey, ?MODULE), gtp_c_lib:fmt_gtp(Msg)]),
     {noreply, State}.
+
+handle_sx_report(#pfcp{type = session_report_request,
+		       ie = #{report_type := #report_type{erir = 1},
+			      error_indication_report :=
+				  #error_indication_report{
+				     group =
+					 #{f_teid :=
+					       #f_teid{ipv4 = IP4, ipv6 = IP6} = FTEID0}}}},
+		 _From, State) ->
+    FTEID = FTEID0#f_teid{ipv4 = ergw_inet:bin2ip(IP4), ipv6 = ergw_inet:bin2ip(IP6)},
+    Direction = fteid_forward_context(FTEID, State),
+    initiate_session_teardown(Direction, State),
+    delete_forward_session(normal, State),
+    {stop, State};
+
+handle_sx_report(_, _From, State) ->
+    {error, 'System failure', State}.
 
 handle_request(ReqKey, #gtp{version = v1} = Msg, Resent, State) ->
     ?GTP_v1_Interface:handle_request(ReqKey, Msg, Resent, State);

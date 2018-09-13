@@ -84,13 +84,29 @@ get_vrfs(Context) ->
 response(Pid, CbData, Response) ->
     gen_statem:cast(Pid, {response, CbData, Response}).
 
-handle_request(ReqKey, #pfcp{type = session_report_request, seq_no = SeqNo} = Report) ->
-    case gtp_context:session_report(ReqKey, Report) of
-	ok ->
-	    ok;
-	{error, not_found} ->
-	    session_not_found(ReqKey, session_report_response, SeqNo)
-    end.
+handle_request(ReqKey, #pfcp{type = session_report_request} = Report) ->
+    spawn(fun() -> handle_request_fun(ReqKey, Report) end),
+    ok.
+
+handle_request_fun(ReqKey, #pfcp{type = session_report_request, seq_no = SeqNo} = Report) ->
+    {SEID, IEs} =
+	case gtp_context:session_report(ReqKey, Report) of
+	    {ok, SEID0} ->
+		{SEID0, #{pfcp_cause => #pfcp_cause{cause = 'Request accepted'}}};
+	    {ok, SEID0, Cause}
+	      when is_atom(Cause) ->
+		{SEID0, #{pfcp_cause => #pfcp_cause{cause = Cause}}};
+	    {ok, SEID0, IEs0}
+	      when is_map(IEs0) ->
+		{SEID0, IEs0};
+	    {error, not_found} ->
+		{0, #{pfcp_cause => #pfcp_cause{cause = 'Session context not found'}}}
+	end,
+
+    Response = #pfcp{version = v1, type = session_report_response,
+		     seq_no = SeqNo, seid = SEID, ie = IEs},
+    ergw_sx_socket:send_response(ReqKey, Response, true),
+    ok.
 
 %%%===================================================================
 %%% call/cast wrapper for gtp_port
@@ -440,13 +456,6 @@ init_vrfs(VRFs,
 
 handle_nodedown(Data) ->
     Data#data{vrfs = #{}}.
-
-session_not_found(ReqKey, Type, SeqNo) ->
-    Response =
-	#pfcp{version = v1, type = Type, seq_no = SeqNo, seid = 0,
-	      ie = #{pfcp_cause => #pfcp_cause{cause = 'Session context not found'}}},
-    ergw_sx_socket:send_response(ReqKey, Response, true),
-    ok.
 
 %%%===================================================================
 %%% CP to Access Interface forwarding

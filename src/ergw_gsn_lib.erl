@@ -11,7 +11,6 @@
 	 modify_sgi_session/2,
 	 delete_sgi_session/2,
 	 query_usage_report/1,
-	 send_sx_response/3,
 	 choose_context_ip/3,
 	 ip_pdu/2]).
 
@@ -83,9 +82,6 @@ query_usage_report(#context{dp_seid = SEID} = Ctx) ->
     Req = #pfcp{version = v1, type = session_modification_request,
 		seid = SEID, ie = IEs},
     ergw_sx_node:call(Ctx, Req).
-
-send_sx_response(ReqKey, #context{dp_seid = SEID}, Msg) ->
-    ergw_sx_socket:send_response(ReqKey, Msg#pfcp{seid = SEID}, true).
 
 %%%===================================================================
 %%% Helper functions

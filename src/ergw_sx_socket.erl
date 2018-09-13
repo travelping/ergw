@@ -63,7 +63,9 @@
 		if is_map(IE) -> maps:values(IE);
 		   true -> IE
 		end,
-	    lager:Level(Fmt "~s(V: ~w, SEID: ~w, Seq: ~w): ~p", Args ++ [pfcp_packet:msg_description_v1(MsgType), Version, SEID, SeqNo, [lager:pr(E, ?MODULE) || E <- IEList]])
+	    lager:Level(Fmt "~s(V: ~w, SEID: ~w, Seq: ~w): ~p", Args ++
+			    [pfcp_packet:msg_description_v1(MsgType), Version, SEID, SeqNo,
+			     pfcp_packet:lager_pr(IEList)])
 	catch
 	    _:_ -> ok
 	end).

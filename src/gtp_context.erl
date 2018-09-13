@@ -115,8 +115,7 @@ session_report(ReqKey, #pfcp{version = v1, seid = SEID} = Report) ->
     lager:debug("Session Report: ~p", [Report]),
     case gtp_context_reg:lookup_seid(SEID) of
 	Context when is_pid(Context) ->
-	    Context ! {ReqKey, Report},
-	    ok;
+	    gen_server:call(Context, {sx, ReqKey, Report});
 
 	_ ->
 	    lager:error("Session Report: didn't find ~p", [SEID]),
@@ -291,6 +290,23 @@ init([CntlPort, Version, Interface,
 
 handle_call(info, _From, State) ->
     {reply, State, State};
+
+handle_call({sx, _ReqKey, Report}, From,
+	    #{interface := Interface,
+	      context := #context{dp_seid = SEID}} = State0) ->
+    case Interface:handle_sx_report(Report, From, State0) of
+	{ok, State} ->
+	    {reply, {ok, SEID}, State};
+	{reply, Reply, State} ->
+	    {reply, {ok, SEID, Reply}, State};
+	{stop, State} ->
+	    {stop, normal, {ok, SEID}, State};
+	{error, Reply, State} ->
+	    {reply, {ok, SEID, Reply}, State};
+	{noreply, State} ->
+	    {noreply, State}
+    end;
+
 handle_call(Request, From, #{interface := Interface} = State) ->
     lager:debug("~w: handle_call: ~p", [?MODULE, Request]),
     Interface:handle_call(Request, From, State).
