@@ -330,7 +330,7 @@ handle_cast({handle_response, ReqInfo, Request, Response0},
 	    handle_ctx_error(CtxErr, State0);
 
 	Class:Error ->
-	    Stack  = erlang:get_stacktrace(),
+	    Stack = erlang:get_stacktrace(),
 	    lager:error("GTP response failed with: ~p:~p (~p)", [Class, Error, Stack]),
 	    {noreply, State0}
     end;
@@ -429,7 +429,7 @@ handle_request(#request{gtp_port = GtpPort} = Request,
 	    handle_ctx_error(CtxErr, Handler, Request, Msg, State0);
 
 	Class:Error ->
-	    Stack  = erlang:get_stacktrace(),
+	    Stack = erlang:get_stacktrace(),
 	    lager:error("GTP~p failed with: ~p:~p (~p)", [Version, Class, Error, Stack]),
 	    {noreply, State0}
     end.
