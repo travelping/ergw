@@ -136,7 +136,33 @@
 		     }]
 		   }]
 		 }
-		]}
+		]},
+
+	 {ergw_aaa,
+	  [{handlers,
+	    [{ergw_aaa_static,
+	      [{'NAS-Identifier',          <<"NAS-Identifier">>},
+	       {'Node-Id',                 <<"PGW-001">>},
+	       {'Charging-Rule-Base-Name', <<"m2m0001">>},
+	       {rules, #{'Default' =>
+			     #{'Rating-Group' => [3000],
+			       'Flow-Information' =>
+				   [#{'Flow-Description' => [<<"permit out ip from any to assigned">>],
+				      'Flow-Direction'   => [1]    %% DownLink
+				     },
+				    #{'Flow-Description' => [<<"permit out ip from any to assigned">>],
+				      'Flow-Direction'   => [2]    %% UpLink
+				     }],
+			       'Metering-Method'  => [1],
+			       'Precedence' => [100]
+			      }
+			}
+	       }
+	      ]}
+	    ]},
+	   {services, [{'Default', [{handler, 'ergw_aaa_static'}]}]},
+	   {apps, [{default, [{session, ['Default']}]}]}
+	  ]}
 	]).
 
 -define(CONFIG_UPDATE,
@@ -576,11 +602,33 @@ ipv6_bearer_request(Config) ->
     #{create_far := FAR0,
       create_pdr := PDR0} = SER#pfcp.ie,
     FAR = lists:filter(
-	    fun(#create_far{group = #{far_id := #far_id{id = 1000}}}) -> true;
+	    fun(#create_far{
+		   group =
+		       #{forwarding_parameters :=
+			     #forwarding_parameters{
+				group =
+				    #{destination_interface :=
+					  #destination_interface{interface = 'CP-function'}
+				     }
+			       }
+			 }}) -> true;
 	       (_) -> false
 	    end, FAR0),
     PDR = lists:filter(
-	    fun(#create_pdr{group = #{pdr_id := #pdr_id{id = 1000}}}) -> true;
+	    fun(#create_pdr{
+		   group =
+		       #{pdi :=
+			     #pdi{
+				group =
+				    #{source_interface :=
+					  #source_interface{interface = 'Access'},
+				      sdf_filter :=
+					  #sdf_filter{
+					     flow_description =
+						 <<"permit out 58 from any to ff00::/8">>}
+				     }
+			       }
+			}}) -> true;
 	       (_) -> false
 	    end, PDR0),
     ?match([_], PDR),

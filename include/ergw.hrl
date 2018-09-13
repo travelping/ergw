@@ -75,7 +75,9 @@
 	  restrictions = []      :: [{'v1', boolean()} |
 				     {'v2', boolean()}],
 
-	  triggers = #{}         :: map()
+	  triggers = #{}         :: map(),
+	  sx_ids,
+	  sx_rules = #{}         :: map()
 	 }).
 
 -record(request, {

@@ -22,6 +22,7 @@
 
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include_lib("pfcplib/include/pfcp_packet.hrl").
+-include_lib("ergw_aaa/include/diameter_3gpp_ts32_299.hrl").
 -include("include/ergw.hrl").
 -include("include/3gpp.hrl").
 
@@ -124,6 +125,22 @@ handle_sx_report(#pfcp{type = session_report_request,
     close_pdp_context(normal, State),
     {stop, State};
 
+%% ===========================================================================
+
+handle_sx_report(#pfcp{type = session_report_request,
+		       ie = #{report_type := #report_type{usar = 1},
+			      usage_report_srr := UsageReport}},
+		 _From, #{context := Context, 'Session' := Session} = State) ->
+
+    GyUpdate = ergw_gsn_lib:usage_report_to_credit_report(UsageReport, Context),
+    GyReqServices = #{'used_credits' => GyUpdate},
+    ergw_aaa_session:invoke(Session, GyReqServices, {gy, 'CCR-Update'}, [], true),
+
+    {ok, State};
+
+
+%% ===========================================================================
+
 handle_sx_report(_, _From, State) ->
     {error, 'System failure', State}.
 
@@ -172,7 +189,26 @@ handle_request(_ReqKey,
     ok = ergw_aaa_session:invoke(Session, SessionIPs, start, [], true),
     ContextPending = ergw_gsn_lib:session_events(SessionEvents, ContextPending1),
 
-    Context = ergw_gsn_lib:create_sgi_session(Candidates, ContextPending),
+    %% ===========================================================================
+
+    %% Gx/Gy interaction
+    %%  1. CCR on Gx to get PCC rules
+    %%  2. extraxt all rating groups
+    %%  3. CCR on Gy to get charging information for rating groups
+
+    %%  1. CCR on Gx to get PCC rules
+    {ok, GxSessionOpts, _} =
+	ergw_aaa_session:invoke(Session, #{}, {gx, 'CCR-Initial'}, [], false),
+    GxRules = maps:get(rules, GxSessionOpts, #{}),
+
+    Credits = ergw_gsn_lib:pcc_rules_to_credit_request(GxRules),
+    GyReqServices = #{credits => Credits},
+    {ok, GySessionOpts, _} =
+	ergw_aaa_session:invoke(Session, GyReqServices, {gy, 'CCR-Initial'}, [], false),
+
+    %% ===========================================================================
+
+    Context = ergw_gsn_lib:create_sgi_session(Candidates, GySessionOpts, ContextPending),
     gtp_context:remote_context_register_new(Context),
 
     ResponseIEs = create_pdp_context_response(ActiveSessionOpts, IEs, Context),
@@ -327,6 +363,20 @@ close_pdp_context(Reason, #{context := Context, 'Session' := Session}) ->
     SessionOpts = to_session(gtp_context:usage_report_to_accounting(URRs)),
     lager:debug("Accounting Opts: ~p", [SessionOpts]),
     ergw_aaa_session:invoke(Session, SessionOpts, stop, [], true),
+
+    %% ===========================================================================
+
+    %%  1. CCR on Gx to get PCC rules
+    {ok, _GxSessionOpts, _} =
+	ergw_aaa_session:invoke(Session, #{}, {gx, 'CCR-Terminate'}, [], false),
+
+    Report = ergw_gsn_lib:usage_report_to_credit_report(URRs, Context),
+    GyReqServices = #{used_credits => Report},
+    {ok, GySessionOpts, _} =
+	ergw_aaa_session:invoke(Session, GyReqServices, {gy, 'CCR-Terminate'}, [], false),
+
+    %% ===========================================================================
+
     pdp_release_ip(Context).
 
 apply_context_change(NewContext0, OldContext, State) ->
@@ -397,7 +447,8 @@ init_session(IEs,
       'Framed-Protocol'		=> 'GPRS-PDP-Context',
       '3GPP-GGSN-MCC-MNC'	=> <<MCC/binary, MNC/binary>>,
       '3GPP-GGSN-Address'	=> LocalIP,
-      '3GPP-Charging-Id'	=> ChargingId
+      '3GPP-Charging-Id'	=> ChargingId,
+      'PDP-Context-Type'	=> primary
      }.
 
 copy_ppp_to_session({pap, 'PAP-Authentication-Request', _Id, Username, Password}, Session0) ->
