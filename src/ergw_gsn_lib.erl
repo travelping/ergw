@@ -13,10 +13,13 @@
 	 query_usage_report/1,
 	 choose_context_ip/3,
 	 ip_pdu/2]).
+-export([session_events/2, session_events/3]).
 
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include_lib("pfcplib/include/pfcp_packet.hrl").
 -include("include/ergw.hrl").
+
+-record(trigger, {key, type, level, value, opts, tref}).
 
 %%%===================================================================
 %%% Sx DP API
@@ -325,6 +328,50 @@ choose_context_ip(IP4, _IP6, _Context)
 choose_context_ip(_IP4, IP6, _Context)
   when is_binary(IP6) ->
     IP6.
+
+%%%===================================================================
+%%% Session Trigger functions
+%%%===================================================================
+
+add_trigger(_, {time, _, 0, _}, Triggers) ->
+    Triggers;
+add_trigger(K, {time, Level, Value, Opts}, Triggers) ->
+    TRef = erlang:start_timer(Value, self(), {trigger, K}),
+    Triggers#{K => #trigger{key = K, type = time, level = Level,
+			    value = Value, opts = Opts, tref = TRef}}.
+
+del_trigger(K, {time, _, _, _}, Triggers) ->
+    case Triggers of
+	#{K := #trigger{tref = TRef}} ->
+	    erlang:cancel_timer(TRef, [{async, true}]),
+	    maps:without([K], Triggers);
+	_ ->
+	    Triggers
+    end.
+
+set_trigger(K, V, Triggers) ->
+    add_trigger(K, V, del_trigger(K, V, Triggers)).
+
+session_event({add, {K, {time, _, _, _} = T}}, #context{triggers = Triggers} = Context) ->
+    Context#context{triggers = add_trigger(K, T, Triggers)};
+session_event({del, {K, {time, _, _, _} = T}}, #context{triggers = Triggers} = Context) ->
+    Context#context{triggers = del_trigger(K, T, Triggers)};
+session_event({set, {K, {time, _, _, _} = T}}, #context{triggers = Triggers} = Context) ->
+    Context#context{triggers = set_trigger(K, T, Triggers)};
+session_event(_, Context) ->
+    Context.
+
+session_events(Events, Context) ->
+    lists:foldr(fun session_event/2, Context, Events).
+
+session_events(_Session, [], State) ->
+    State;
+session_events(Session, [{Action, _} = H|T],  #{context := Context} = State)
+  when Action =:= add; Action =:= del; Action =:= set ->
+    session_events(Session, T, State#{context => session_event(H, Context)});
+session_events(Session, [H | T], State) ->
+    lager:error("unhandled session event: ~p", [H]),
+    session_events(Session, T, State).
 
 %%%===================================================================
 %%% T-PDU functions

@@ -24,7 +24,6 @@
 	 validate_options/3,
 	 validate_option/2]).
 -export([usage_report_to_accounting/1]).
--export([session_events/2]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -189,9 +188,6 @@ info(Context) ->
 
 enforce_restrictions(Msg, #context{restrictions = Restrictions} = Context) ->
     lists:foreach(fun(R) -> enforce_restriction(Context, Msg, R) end, Restrictions).
-
-session_events(Events, Context) ->
-    lists:foldr(fun session_event/2, Context, Events).
 
 %%%===================================================================
 %%% Options Validation
@@ -372,10 +368,9 @@ handle_info({timeout, TRef, {trigger, K}},
 	end,
     {noreply, State};
 
-handle_info({update_session, _Session, Events},
-	    #{context := Context0} = State) ->
-    Context = session_events(Events, Context0),
-    {noreply, State#{context => Context}};
+handle_info({update_session, Session, Events} = Us, #{interface := Interface} = State0) ->
+    State = Interface:session_events(Session, Events, State0),
+    {noreply, State};
 
 %%====================================================================
 
@@ -577,34 +572,6 @@ usage_report_to_accounting([H|_]) ->
     usage_report_to_accounting(H);
 usage_report_to_accounting(undefined) ->
     [].
-
-add_trigger(_, {time, _, 0, _}, Triggers) ->
-    Triggers;
-add_trigger(K, {time, Level, Value, Opts}, Triggers) ->
-    TRef = erlang:start_timer(Value, self(), {trigger, K}),
-    Triggers#{K => #trigger{key = K, type = time, level = Level,
-			    value = Value, opts = Opts, tref = TRef}}.
-
-del_trigger(K, {time, _, _, _}, Triggers) ->
-    case Triggers of
-	#{K := #trigger{tref = TRef}} ->
-	    erlang:cancel_timer(TRef, [{async, true}]),
-	    maps:without([K], Triggers);
-	_ ->
-	    Triggers
-    end.
-
-set_trigger(K, V, Triggers) ->
-    add_trigger(K, V, del_trigger(K, V, Triggers)).
-
-session_event({add, {K, {time, _, _, _} = T}}, #context{triggers = Triggers} = Context) ->
-    Context#context{triggers = add_trigger(K, T, Triggers)};
-session_event({del, {K, {time, _, _, _} = T}}, #context{triggers = Triggers} = Context) ->
-    Context#context{triggers = del_trigger(K, T, Triggers)};
-session_event({set, {K, {time, _, _, _} = T}}, #context{triggers = Triggers} = Context) ->
-    Context#context{triggers = set_trigger(K, T, Triggers)};
-session_event(_, Context) ->
-    Context.
 
 query_usage_report(Context) ->
     case ergw_gsn_lib:query_usage_report(Context) of

@@ -73,3 +73,6 @@
 	      {stop, NewState :: map()} |
 	      {error, Reply :: term(), NewState :: map()} |
 	      {noreply, NewState :: map()}.
+
+-callback session_events(Session :: list() | map(), Events :: list(), State :: map()) ->
+    State :: map().

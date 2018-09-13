@@ -13,7 +13,7 @@
 	  {parse_transform, cut}]).
 
 -export([validate_options/1, init/2, request_spec/3,
-	 handle_pdu/3, handle_sx_report/3,
+	 handle_pdu/3, handle_sx_report/3, session_events/3,
 	 handle_request/4, handle_response/4,
 	 handle_call/3, handle_cast/2, handle_info/2,
 	 terminate/2]).
@@ -132,6 +132,9 @@ handle_sx_report(#pfcp{type = session_report_request,
 handle_sx_report(_, _From, State) ->
     {error, 'System failure', State}.
 
+session_events(Session, Events, State) ->
+    ergw_gsn_lib:session_events(Session, Events, State).
+
 handle_pdu(ReqKey, #gtp{ie = Data} = Msg, #{context := Context} = State) ->
     lager:debug("GTP-U SAE-GW: ~p, ~p", [lager:pr(ReqKey, ?MODULE), gtp_c_lib:fmt_gtp(Msg)]),
 
@@ -196,7 +199,7 @@ handle_request(_ReqKey,
     Candidates = ergw_node_selection:candidates(APN_FQDN, Services, NodeSelect),
 
     ok = ergw_aaa_session:invoke(Session, SessionIPs, start, [], true),
-    ContextPending = gtp_context:session_events(SessionEvents, ContextPending1),
+    ContextPending = ergw_gsn_lib:session_events(SessionEvents, ContextPending1),
 
     Context = ergw_gsn_lib:create_sgi_session(Candidates, ContextPending),
     gtp_context:remote_context_register_new(Context),

@@ -13,7 +13,7 @@
 -compile({parse_transform, do}).
 
 -export([validate_options/1, init/2, request_spec/3,
-	 handle_pdu/3, handle_sx_report/3,
+	 handle_pdu/3, handle_sx_report/3, session_events/3,
 	 handle_request/4, handle_response/4,
 	 handle_call/3, handle_cast/2, handle_info/2,
 	 terminate/2]).
@@ -219,6 +219,10 @@ handle_sx_report(#pfcp{type = session_report_request,
 
 handle_sx_report(_, _From, State) ->
     {error, 'System failure', State}.
+
+session_events(_Session, _Events, State) ->
+    %% TODO: implement Gx/Gy/Rf support
+    State.
 
 handle_request(ReqKey, #gtp{version = v1} = Msg, Resent, State) ->
     ?GTP_v1_Interface:handle_request(ReqKey, Msg, Resent, State);
