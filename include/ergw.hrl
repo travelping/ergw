@@ -75,7 +75,6 @@
 	  restrictions = []      :: [{'v1', boolean()} |
 				     {'v2', boolean()}],
 
-	  triggers = #{}         :: map(),
 	  sx_ids,
 	  sx_rules = #{}         :: map()
 	 }).

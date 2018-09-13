@@ -11,21 +11,20 @@
 
 -export([create_sgi_session/3,
 	 usage_report_to_credit_report/2,
+	 usage_report_to_monitoring_report/2,
 	 pcc_rules_to_credit_request/1,
 	 modify_sgi_session/2,
 	 delete_sgi_session/2,
 	 query_usage_report/1,
 	 choose_context_ip/3,
 	 ip_pdu/2]).
--export([update_pcc_rules/2, session_events/2, session_events/3]).
+-export([update_pcc_rules/2, session_events/3]).
 -export([find_sx_by_id/3]).
 
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include_lib("pfcplib/include/pfcp_packet.hrl").
 -include_lib("ergw_aaa/include/diameter_3gpp_ts32_299.hrl").
 -include("include/ergw.hrl").
-
--record(trigger, {key, type, level, value, opts, tref}).
 
 %%%===================================================================
 %%% Sx DP API
@@ -274,42 +273,8 @@ choose_context_ip(_IP4, IP6, _Context)
 %%% Session Trigger functions
 %%%===================================================================
 
-add_trigger(_, {time, _, 0, _}, Triggers) ->
-    Triggers;
-add_trigger(K, {time, Level, Value, Opts}, Triggers) ->
-    TRef = erlang:start_timer(Value, self(), {trigger, K}),
-    Triggers#{K => #trigger{key = K, type = time, level = Level,
-			    value = Value, opts = Opts, tref = TRef}}.
-
-del_trigger(K, {time, _, _, _}, Triggers) ->
-    case Triggers of
-	#{K := #trigger{tref = TRef}} ->
-	    erlang:cancel_timer(TRef, [{async, true}]),
-	    maps:without([K], Triggers);
-	_ ->
-	    Triggers
-    end.
-
-set_trigger(K, V, Triggers) ->
-    add_trigger(K, V, del_trigger(K, V, Triggers)).
-
-session_event({add, {K, {time, _, _, _} = T}}, #context{triggers = Triggers} = Context) ->
-    Context#context{triggers = add_trigger(K, T, Triggers)};
-session_event({del, {K, {time, _, _, _} = T}}, #context{triggers = Triggers} = Context) ->
-    Context#context{triggers = del_trigger(K, T, Triggers)};
-session_event({set, {K, {time, _, _, _} = T}}, #context{triggers = Triggers} = Context) ->
-    Context#context{triggers = set_trigger(K, T, Triggers)};
-session_event(_, Context) ->
-    Context.
-
-session_events(Events, Context) ->
-    lists:foldr(fun session_event/2, Context, Events).
-
 session_events(_Session, [], State) ->
     State;
-session_events(Session, [{Action, _} = H|T],  #{context := Context} = State)
-  when Action =:= add; Action =:= del; Action =:= set ->
-    session_events(Session, T, State#{context => session_event(H, Context)});
 session_events(Session, [{update_credits, Update} | T], State0) ->
     lager:info("Session credit Update: ~p", [Update]),
     State = update_sx_usage_rules(Update, State0),
@@ -371,7 +336,7 @@ install_pcc_rule_def(#{'Charging-Rule-Name' := Name} = UpdRule,
 %% convert PCC rule state into Sx rule states
 
 -record(sx_ids, {cnt = #{}, idmap = #{}}).
--record(sx_upd, {errors = [], rules = #{}, ids = #sx_ids{}, context}).
+-record(sx_upd, {errors = [], rules = #{}, monitors = #{}, ids = #sx_ids{}, context}).
 
 sx_rule_error(Error, #sx_upd{errors = Errors} = Update) ->
     Update#sx_upd{errors = [Error | Errors]}.
@@ -409,13 +374,19 @@ find_sx_by_id(Type, Id, #sx_ids{idmap = IdMap}) ->
     maps:find(Id, TypeId).
 
 build_sx_rules(SessionOpts, #context{sx_ids = SxIds0, sx_rules = OldSxRules} = Ctx) ->
+    Monitors = maps:get(monitoring, SessionOpts, #{}),
     PolicyRules = maps:get(rules, SessionOpts, #{}),
     Credits = maps:get('Multiple-Services-Credit-Control', SessionOpts, []),
     SxIds1 = if is_record(SxIds0, sx_ids) -> SxIds0;
 		true -> #sx_ids{}
 	     end,
+
+    Update0 = #sx_upd{ids = SxIds1, context = Ctx},
+    Update1 = maps:fold(fun build_sx_monitor_rule/3, Update0, Monitors),
+    Update2 = lists:foldl(fun build_sx_usage_rule/2, Update1, Credits),
+    Update3 = maps:fold(fun build_sx_rule/3, Update2, PolicyRules),
     #sx_upd{errors = Errors, rules = NewSxRules, ids = SxIds2} =
-	build_sx_rules(PolicyRules, Credits, SxIds1, Ctx),
+	Update3,
 
     SxRuleReq = update_sx_rules(OldSxRules, NewSxRules),
 
@@ -423,11 +394,6 @@ build_sx_rules(SessionOpts, #context{sx_ids = SxIds0, sx_rules = OldSxRules} = C
     %% remove unused SxIds
 
     {SxRuleReq, Errors, Ctx#context{sx_ids = SxIds2, sx_rules = NewSxRules}}.
-
-build_sx_rules(PolicyRules, Credits, #sx_ids{} = Ids, Ctx) ->
-    Init = #sx_upd{ids = Ids, context = Ctx},
-    Upd = lists:foldl(fun build_sx_usage_rule/2, Init, Credits),
-    maps:fold(fun build_sx_rule/3, Upd, PolicyRules).
 
 %% no need to split into dl and ul direction, URR contain DL, UL and Total
 build_sx_rule(Name, #{'Flow-Information' := FlowInfo,
@@ -452,10 +418,27 @@ build_sx_rule(Name, #{'Flow-Information' := FlowInfo,
     Update1 = build_sx_rule(downlink, Name, Definition, DL, URRs, Update0),
     build_sx_rule(uplink, Name, Definition, UL, URRs, Update1);
 
+build_sx_rule(Name, #{'TDF-Application-Identifier' := [AppId],
+		      'Metering-Method' := [_MeterM]} = Definition,
+	      #sx_upd{} = Update) ->
+    %% we need PDR+FAR (and PDI) for UL and URR
+
+    URRs = collect_urrs(Name, Definition, Update),
+    build_sx_rule(uplink, Name, Definition, AppId, URRs, Update);
+
 build_sx_rule(Name, _Definition, Update) ->
     sx_rule_error({system_error, Name}, Update).
 
-build_sx_rule(Direction = downlink, Name, Definition, FlowInfo, URRs,
+build_sx_filter(FlowInfo)
+  when is_list(FlowInfo) ->
+    [#sdf_filter{flow_description = FD} || #{'Flow-Description' := [FD]} <- FlowInfo];
+build_sx_filter(AppId)
+  when is_binary(AppId) ->
+    [#application_id{id = AppId}];
+build_sx_filter(_) ->
+    [].
+
+build_sx_rule(Direction = downlink, Name, Definition, FilterInfo, URRs,
 	      #sx_upd{
 		 rules = Rules,
 		 context = #context{
@@ -472,8 +455,7 @@ build_sx_rule(Direction = downlink, Name, Definition, FlowInfo, URRs,
 		 [#source_interface{interface = 'SGi-LAN'},
 		  ergw_pfcp:network_instance(Ctx),
 		  ergw_pfcp:ue_ip_address(dst, Ctx)] ++
-		 [#sdf_filter{flow_description = FD} ||
-		     #{'Flow-Description' := [FD]} <- FlowInfo]
+		 build_sx_filter(FilterInfo)
 	     },
     PDR = [#pdr_id{id = PdrId},
 	   #precedence{precedence = Precedence},
@@ -497,7 +479,7 @@ build_sx_rule(Direction = downlink, Name, Definition, FlowInfo, URRs,
 		 {far, RuleName} => FAR
 		}
      };
-build_sx_rule(Direction = uplink, Name, Definition, FlowInfo, URRs,
+build_sx_rule(Direction = uplink, Name, Definition, FilterInfo, URRs,
 	      #sx_upd{rules = Rules,
 		 context = #context{
 			      data_port = #gtp_port{ip = IP} = DataPort,
@@ -513,8 +495,7 @@ build_sx_rule(Direction = uplink, Name, Definition, FlowInfo, URRs,
 		  ergw_pfcp:network_instance(DataPort),
 		  ergw_pfcp:f_teid(LocalTEI, IP),
 		  ergw_pfcp:ue_ip_address(src, Ctx)] ++
-		 [#sdf_filter{flow_description = FD} ||
-		     #{'Flow-Description' := [FD]} <- FlowInfo]
+		 build_sx_filter(FilterInfo)
 	    },
     PDR = [#pdr_id{id = PdrId},
 	   #precedence{precedence = Precedence},
@@ -541,12 +522,14 @@ build_sx_rule(Direction = uplink, Name, Definition, FlowInfo, URRs,
 build_sx_rule(_Direction, Name, _Definition, _FlowInfo, _URRs, Update) ->
     sx_rule_error({system_error, Name}, Update).
 
-collect_urrs(_Name, #{'Rating-Group' := [RatingGroup]}, Update) ->
+collect_urrs(_Name, #{'Rating-Group' := [RatingGroup]},
+	     #sx_upd{monitors = Monitors} = Update) ->
+    URRs = maps:get('IP-CAN', Monitors, []),
     case find_sx_id(urr, RatingGroup, Update) of
 	{ok, UrrId} ->
-	    [UrrId];
+	    [UrrId | URRs];
 	_ ->
-	    []
+	    URRs
     end;
 collect_urrs(Name, _Definition, Update) ->
     lager:error("URR: ~p, ~p", [Name, _Definition]),
@@ -661,6 +644,23 @@ build_sx_usage_rule(Definition, Update) ->
     lager:error("URR: ~p", [Definition]),
     sx_rule_error({system_error, Definition}, Update).
 
+build_sx_monitor_rule(Service, {'IP-CAN', periodic, Time} = _Definition,
+		      #sx_upd{rules = Rules, monitors = Monitors0} = Update0) ->
+    RuleName = {monitor, 'IP-CAN', Service},
+    {UrrId, Update} = sx_id(urr, RuleName, Update0),
+
+    URR = [#urr_id{id = UrrId},
+	   #measurement_method{volum = 1, durat = 1},
+	   #reporting_triggers{periodic_reporting = 1},
+	   #measurement_period{period = Time}],
+
+    Monitors1 = maps:update_with('IP-CAN', [UrrId | _], [UrrId], Monitors0),
+    Monitors = Monitors1#{{urr, UrrId}  => Service},
+    Update#sx_upd{rules = Rules#{{urr, RuleName} => URR}, monitors = Monitors};
+
+build_sx_monitor_rule(Service, Definition, Update) ->
+    sx_rule_error({system_error, Definition}, Update).
+
 update_sx_usage_rules(Update, #{context := Ctx} = State) ->
     Init = #sx_upd{ids = Ctx#context.sx_ids, context = Ctx},
     #sx_upd{errors = Errors, rules = Rules, ids = SxIds} =
@@ -768,6 +768,9 @@ create_sgi_session(Candidates, SessionOpts, Ctx0) ->
 opt_int(X) when is_integer(X) -> [X];
 opt_int(_) -> [].
 
+opt_int(K, X, M) when is_integer(X) -> M#{K => X};
+opt_int(_, _, M) -> M.
+
 credit_report_volume(#volume_measurement{total = Total, uplink = UL, downlink = DL}, Report) ->
     Report#{'CC-Total-Octets' => opt_int(Total),
 	    'CC-Input-Octets' => opt_int(UL),
@@ -842,6 +845,36 @@ usage_report_to_credit_report({Id, Report}, UrrMap, R) ->
 usage_report_to_credit_report(URR, #context{sx_ids = #sx_ids{idmap = IdMap}}) ->
     CR = map_usage_report(fun usage_report_to_credit_report/1, URR),
     lists:foldl(usage_report_to_credit_report(_, maps:get(urr, IdMap, #{}), _), [], CR).
+
+monitor_report_volume(#volume_measurement{uplink = UL, downlink = DL}, Report0) ->
+    Report = opt_int('InOctets', UL, Report0),
+    opt_int('OutOctets', DL, Report);
+monitor_report_volume(_, Report) ->
+    Report.
+
+monitor_report_duration(#duration_measurement{duration = Duration}, Report) ->
+    opt_int('Session-Time', Duration, Report);
+monitor_report_duration(_, Report) ->
+    Report.
+
+usage_report_to_monitor_report(#{urr_id := #urr_id{id = Id}} = URR) ->
+    Report0 = monitor_report_volume(maps:get(volume_measurement, URR, undefined), #{}),
+    Report = monitor_report_duration(maps:get(duration_measurement, URR, undefined), Report0),
+    {Id, Report}.
+
+usage_report_to_monitor_report({urr, {monitor, Level, Service}}, Id, CR, Report) ->
+    case CR of
+	#{Id := R} ->
+	    maps:update_with(Level, maps:put(Service, R, _), #{Service => R}, Report);
+	_ ->
+	    Report
+    end;
+usage_report_to_monitor_report(_, _, _, Report) ->
+    Report.
+
+usage_report_to_monitoring_report(URR, #context{sx_ids = #sx_ids{idmap = IdMap}}) ->
+    CR = map_usage_report(fun usage_report_to_monitor_report/1, URR),
+    maps:fold(usage_report_to_monitor_report(_, _, maps:from_list(CR), _), #{}, IdMap).
 
 %% 3GPP TS 23.203, Sect. 6.1.2 Reporting:
 %%

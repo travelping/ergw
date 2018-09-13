@@ -132,9 +132,21 @@ handle_sx_report(#pfcp{type = session_report_request,
 			      usage_report_srr := UsageReport}},
 		 _From, #{context := Context, 'Session' := Session} = State) ->
 
-    GyUpdate = ergw_gsn_lib:usage_report_to_credit_report(UsageReport, Context),
-    GyReqServices = #{'used_credits' => GyUpdate},
-    ergw_aaa_session:invoke(Session, GyReqServices, {gy, 'CCR-Update'}, [], true),
+    case ergw_gsn_lib:usage_report_to_credit_report(UsageReport, Context) of
+	GyUpdate when length(GyUpdate) /= 0 ->
+	    GyReqServices = #{'used_credits' => GyUpdate},
+	    ergw_aaa_session:invoke(Session, GyReqServices, {gy, 'CCR-Update'}, [], true);
+	_ ->
+	    ok
+    end,
+
+    case ergw_gsn_lib:usage_report_to_monitoring_report(UsageReport, Context) of
+	Interim when map_size(Interim) /= 0 ->
+	    InterimReq = #{'monitors' => Interim},
+	    ergw_aaa_session:invoke(Session, InterimReq, interim, [], true);
+	_ ->
+	    ok
+    end,
 
     {ok, State};
 
@@ -172,7 +184,7 @@ handle_request(_ReqKey,
     SessionOpts1 = init_session_from_gtp_req(IEs, AAAopts, SessionOpts0),
     SessionOpts = init_session_qos(ReqQoSProfile, SessionOpts1),
 
-    {ok, ActiveSessionOpts0, SessionEvents} =
+    {ok, ActiveSessionOpts0, _SessionEvents} =
 	authenticate(ContextPreAuth, Session, SessionOpts, Request),
     {ContextVRF, VRFOpts} = select_vrf(ContextPreAuth),
 
@@ -180,14 +192,14 @@ handle_request(_ReqKey,
     lager:info("ActiveSessionOpts: ~p", [ActiveSessionOpts]),
 
     {SessionIPs, ContextPending0} = assign_ips(ActiveSessionOpts, EUA, ContextVRF),
-    ContextPending1 = session_to_context(ActiveSessionOpts, ContextPending0),
+    ContextPending = session_to_context(ActiveSessionOpts, ContextPending0),
 
     APN_FQDN = ergw_node_selection:apn_to_fqdn(APN),
     Services = [{"x-3gpp-upf", "x-sxb"}],
     Candidates = ergw_node_selection:candidates(APN_FQDN, Services, NodeSelect),
 
     ok = ergw_aaa_session:invoke(Session, SessionIPs, start, [], true),
-    ContextPending = ergw_gsn_lib:session_events(SessionEvents, ContextPending1),
+    %% ContextPending = ergw_gsn_lib:session_events(SessionEvents, ContextPending1),
 
     %% ===========================================================================
 
