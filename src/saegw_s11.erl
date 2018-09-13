@@ -281,6 +281,7 @@ handle_request(_ReqKey,
     GyReqServices = #{credits => Credits},
     {ok, GySessionOpts, _} =
 	ergw_aaa_session:invoke(Session, GyReqServices, {gy, 'CCR-Initial'}, SOpts),
+    lager:info("GySessionOpts: ~p", [GySessionOpts]),
 
     {ok, FinalSessionOpts, _} =
 	ergw_aaa_session:invoke(Session, SessionIPs, start, SOpts),
@@ -556,6 +557,8 @@ close_pdn_context(Reason, #{context := Context, 'Session' := Session}) ->
     end,
 
     Report = ergw_gsn_lib:usage_report_to_credit_report(URRs, Context),
+    lager:info("URR: ~p~n", [URRs]),
+    lager:info("Report: ~p~n", [Report]),
     GyReqServices = #{'Termination-Cause' => TermCause,
 		      used_credits => Report},
     case ergw_aaa_session:invoke(Session, GyReqServices, {gy, 'CCR-Terminate'}, SOpts) of

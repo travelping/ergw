@@ -284,7 +284,11 @@ handle_call(info, _From, State) ->
 handle_call({sx, _ReqKey, Report}, From,
 	    #{interface := Interface,
 	      context := #context{dp_seid = SEID}} = State0) ->
-    case Interface:handle_sx_report(Report, From, State0) of
+    lager:debug("~w: handle_call Sx: ~p", [?MODULE, lager:pr(Report, ?MODULE)]),
+%%    case Interface:handle_sx_report(Report, From, State0) of
+    R = Interface:handle_sx_report(Report, From, State0),
+    lager:info("Sx reply from ~p: ~p", [Interface, R]),
+    case R of
 	{ok, State} ->
 	    {reply, {ok, SEID}, State};
 	{reply, Reply, State} ->
@@ -348,6 +352,7 @@ handle_cast(Msg, #{interface := Interface} = State) ->
 %%====================================================================
 
 handle_info({update_session, Session, Events} = Us, #{interface := Interface} = State0) ->
+    lager:warning("UpdateSession: ~p", [Us]),
     State = Interface:session_events(Session, Events, State0),
     {noreply, State};
 

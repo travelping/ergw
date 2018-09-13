@@ -89,6 +89,7 @@ response(Pid, CbData, Response) ->
 handle_request(ReqKey, IP, #pfcp{type = heartbeat_request} = Request) ->
     case ergw_sx_node_reg:lookup(IP) of
 	{ok, Pid} when is_pid(Pid) ->
+	    lager:debug("cast HB request to ~p", [Pid]),
 	    gen_statem:cast(Pid, {request, ReqKey, Request});
 	_Other ->
 	    lager:error("lookup for ~p failed with ~p", [IP, _Other]),

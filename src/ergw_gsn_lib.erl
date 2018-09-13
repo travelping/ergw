@@ -49,6 +49,7 @@ delete_sgi_session(_Reason, _Context) ->
     undefined.
 
 query_usage_report(#context{dp_seid = SEID, sx_ids = #sx_ids{idmap = #{urr := URRs}}} = Ctx) ->
+    lager:error("Q URRs: ~p", [URRs]),
     IEs = maps:fold(fun(K, V, A) when is_integer(V) ->
 			    [#query_urr{group = [#urr_id{id = K}]} | A];
 		       (_, _, A) -> A
@@ -61,6 +62,7 @@ query_usage_report(_) ->
 
 query_usage_report(RatingGroup, #context{dp_seid = SEID,
 					 sx_ids = #sx_ids{idmap = #{urr := URRs}}} = Ctx) ->
+    lager:error("Q URRs: ~p", [URRs]),
     case URRs of
 	#{RatingGroup := Id} ->
 	    IEs = [#query_urr{group = [#urr_id{id = Id}]}],
@@ -138,6 +140,9 @@ choose_context_ip(_IP4, IP6, _Context)
 
 session_events(_Session, [], State) ->
     State;
+%% session_events(Session, [{Action, _} = H|_],  State)
+%%   when Action =:= add; Action =:= del; Action =:= set ->
+%%     erlang:error(badarg, [Session, H,  State]);
 session_events(Session, [{update_credits, Update} | T], State0) ->
     lager:info("Session credit Update: ~p", [Update]),
     State = update_sx_usage_rules(Update, State0),
@@ -280,6 +285,7 @@ build_sx_offline_charging_rule(_Name,
 		   period = maps:get('Acct-Interim-Interval', SessionOpts, 600)}
 	   },
 
+    lager:warning("Offline URR: ~p", [URR]),
     Update#sx_upd{rules = Rules#{{urr, ChargingKey} => URR}};
 
 build_sx_offline_charging_rule(Name, #{'Offline' := [1]}, _SessionOpts, Update) ->
@@ -545,6 +551,8 @@ build_sx_usage_rule(Definition, Update) ->
 
 build_sx_monitor_rule(Service, {'IP-CAN', periodic, Time} = _Definition,
 		      #sx_upd{rules = Rules, monitors = Monitors0} = Update0) ->
+    lager:info("Sx Monitor Rule: ~p", [_Definition]),
+
     RuleName = {monitor, 'IP-CAN', Service},
     {UrrId, Update} = sx_id(urr, RuleName, Update0),
 
@@ -554,11 +562,13 @@ build_sx_monitor_rule(Service, {'IP-CAN', periodic, Time} = _Definition,
 	     #reporting_triggers{periodic_reporting = 1},
 	     #measurement_period{period = Time}]),
 
+    lager:warning("URR: ~p", [URR]),
     Monitors1 = update_m_key('IP-CAN', UrrId, Monitors0),
     Monitors = Monitors1#{{urr, UrrId}  => Service},
     Update#sx_upd{rules = Rules#{{urr, RuleName} => URR}, monitors = Monitors};
 
 build_sx_monitor_rule(Service, Definition, Update) ->
+    lager:error("Monitor URR: ~p:~p", [Service, Definition]),
     sx_rule_error({system_error, Definition}, Update).
 
 update_sx_usage_rules(Update, #{context := Ctx} = State) ->
@@ -594,6 +604,8 @@ put_rec(Record, Map) when is_tuple(Record) ->
     maps:put(element(1, Record), Record, Map).
 
 update_sx_rules(Old, New, Opts) ->
+    lager:debug("Update Sx Rules Old: ~p", [lager:pr(Old, ?MODULE)]),
+    lager:debug("Update Sx Rules New: ~p", [lager:pr(New, ?MODULE)]),
     Del = maps:fold(fun del_sx_rules/3, #{}, maps:without(maps:keys(New), Old)),
     maps:fold(upd_sx_rules(_, _, Old, _, Opts), Del, New).
 
@@ -642,7 +654,10 @@ update_sx_pdr(#{pdr_id := Id} = New, Old, _Opts) ->
     put_rec(Id, Update).
 
 update_sx_far(#{far_id := Id} = New, Old, Opts) ->
+    lager:debug("Update Sx Far Old: ~p", [lager:pr(Old, ?MODULE)]),
+    lager:debug("Update Sx Far New: ~p", [lager:pr(New, ?MODULE)]),
     Update = update_sx_simplify(New, Old),
+    lager:debug("Update Sx Far Update: ~p", [lager:pr(Update, ?MODULE)]),
     maps:fold(update_sx_far(_, _, Old, _, Opts), #{}, put_rec(Id, Update)).
 
 update_sx_far(_, #forwarding_parameters{
@@ -651,8 +666,12 @@ update_sx_far(_, #forwarding_parameters{
 			      #destination_interface{interface = Interface}} = New},
 	      #{forwarding_parameters := #forwarding_parameters{group = Old}},
 	      Far, Opts) ->
+    lager:debug("Update Sx Forward Old: ~p", [lager:pr(Old, ?MODULE)]),
+    lager:debug("Update Sx Forward P0: ~p", [lager:pr(New, ?MODULE)]),
+
     SendEM = maps:get(send_end_marker, Opts, false),
     Update0 = update_sx_simplify(New, Old),
+    lager:debug("Update Sx Forward Update: ~p", [lager:pr(Update0, ?MODULE)]),
     Update =
 	case Update0 of
 	    #{outer_header_creation := _}
@@ -686,6 +705,8 @@ create_sgi_session(Candidates, SessionOpts, Ctx0) ->
     SxRules2 = create_ipv6_mcast_pdr(IPv6MCastPdrId, CPinFarId, Ctx, SxRules1),
     IEs = update_m_rec(ergw_pfcp:f_seid(SEID, IP), SxRules2),
 
+    lager:info("IEs: ~p~n", [IEs]),
+
     Req = #pfcp{version = v1, type = session_establishment_request, seid = 0, ie = IEs},
     case ergw_sx_node:call(Ctx, Req) of
 	#pfcp{version = v1, type = session_establishment_response,
@@ -702,6 +723,10 @@ modify_sgi_session(SessionOpts, Opts, #context{dp_seid = SEID} = Ctx) ->
 
     %% TODO: at the moment, modify_sgi_session is only used to change TEIDs,
     SxRules = maps:without([update_urr], SxRules0),
+
+    lager:info("SxRules: ~p~n", [SxRules]),
+    lager:info("SxErrors: ~p~n", [SxErrors]),
+    lager:info("CtxPending: ~p~n", [CtxPending]),
 
     Req = #pfcp{version = v1, type = session_modification_request, seid = SEID, ie = SxRules},
     case ergw_sx_node:call(CtxPending, Req) of
@@ -784,6 +809,7 @@ map_usage_report(_Fun, undefined) ->
     [].
 
 usage_report_to_credit_report({Id, Report}, UrrMap, R) ->
+    lager:warning("usage_report_to_credit_report: ~p, ~p", [Id, UrrMap]),
     case UrrMap of
 	#{Id := ChargingKey} when is_integer(ChargingKey) ->
 	    [{ChargingKey, Report} | R];
@@ -830,7 +856,9 @@ usage_report_to_monitor_report(_, _, _, Report) ->
 
 usage_report_to_monitoring_report(URR, #context{sx_ids = #sx_ids{idmap = IdMap}}) ->
     CR = map_usage_report(fun usage_report_to_monitor_report/1, URR),
-    maps:fold(usage_report_to_monitor_report(_, _, maps:from_list(CR), _), #{}, IdMap).
+    CR1 = maps:fold(usage_report_to_monitor_report(_, _, maps:from_list(CR), _), #{}, IdMap),
+    lager:warning("Monitoring Report ~p", [lager:pr(CR1, ?MODULE)]),
+    CR1.
 
 %% 3GPP TS 23.203, Sect. 6.1.2 Reporting:
 %%

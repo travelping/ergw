@@ -148,10 +148,17 @@ handle_info(#aaa_request{procedure = {gy, 'RAR'}, request = Request},
 	#pfcp{type = session_modification_response,
 	      ie = #{pfcp_cause := #pfcp_cause{cause = 'Request accepted'},
 		     usage_report_smr := UsageReport}} ->
+	    lager:info("RAR UsageReport: ~p", [UsageReport]),
 
 	    GyUpdate = (catch ergw_gsn_lib:usage_report_to_credit_report(UsageReport, Context)),
+	    lager:info("RAR GyUpdate: ~p", [GyUpdate]),
+
 	    GyReqServices = #{'used_credits' => GyUpdate},
-	    ergw_aaa_session:invoke(Session, GyReqServices, {gy, 'CCR-Update'}, #{async => true});
+	    lager:info("GyReqServices: ~p", [GyReqServices]),
+	    R1 =
+		ergw_aaa_session:invoke(Session, GyReqServices, {gy, 'CCR-Update'}, #{async => true}),
+	    lager:info("R: ~p", [R1]),
+	    ok;
 	_ ->
 	    ok
     end,
@@ -284,6 +291,7 @@ handle_request(_ReqKey,
     GyReqServices = #{credits => Credits},
     {ok, GySessionOpts, _} =
 	ergw_aaa_session:invoke(Session, GyReqServices, {gy, 'CCR-Initial'}, SOpts),
+    lager:info("GySessionOpts: ~p", [GySessionOpts]),
 
     {ok, FinalSessionOpts, _} =
 	ergw_aaa_session:invoke(Session, SessionIPs, start, SOpts),
@@ -593,6 +601,8 @@ close_pdn_context(Reason, #{context := Context, 'Session' := Session}) ->
     end,
 
     Report = ergw_gsn_lib:usage_report_to_credit_report(URRs, Context),
+    lager:info("URR: ~p~n", [URRs]),
+    lager:info("Report: ~p~n", [Report]),
     GyReqServices = #{'Termination-Cause' => TermCause,
 		      used_credits => Report},
     case ergw_aaa_session:invoke(Session, GyReqServices, {gy, 'CCR-Terminate'}, SOpts) of
