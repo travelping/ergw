@@ -168,18 +168,18 @@ handle_call(delete_context, _From, State) ->
 
 handle_call(terminate_context, _From, State) ->
     initiate_pdp_context_teardown(sgsn2ggsn, State),
-    delete_forward_session(State),
+    delete_forward_session(normal, State),
     {stop, normal, ok, State};
 
 handle_call({path_restart, Path}, _From,
 	    #{context := #context{path = Path}} = State) ->
     initiate_pdp_context_teardown(sgsn2ggsn, State),
-    delete_forward_session(State),
+    delete_forward_session(normal, State),
     {stop, normal, ok, State};
 
 handle_call({path_restart, Path}, _From, #{proxy_context := #context{path = Path}} = State) ->
     initiate_pdp_context_teardown(ggsn2sgsn, State),
-    delete_forward_session(State),
+    delete_forward_session(normal, State),
     {stop, normal, ok, State};
 
 handle_call({path_restart, _Path}, _From, State) ->
@@ -206,13 +206,13 @@ handle_info({ReqKey,
 			  ipv6 = ergw_inet:bin2ip(FTEID0#f_teid.ipv6)},
     Direction = fteid_forward_context(FTEID, State),
     initiate_pdp_context_teardown(Direction, State),
-    delete_forward_session(State),
+    delete_forward_session(normal, State),
     {stop, normal, State};
 
 handle_info({timeout, _, {delete_pdp_context_request, Direction, _ReqKey, _Request}}, State) ->
     lager:warning("Proxy Delete PDP Context Timeout ~p", [Direction]),
 
-    delete_forward_session(State),
+    delete_forward_session(normal, State),
     {stop, normal, State};
 
 handle_info(_Info, State) ->
@@ -436,7 +436,7 @@ handle_response(#proxy_request{direction = sgsn2ggsn} = ProxyRequest,
 
     forward_response(ProxyRequest, Response, Context),
     State = cancel_timeout(State0),
-    delete_forward_session(State),
+    delete_forward_session(normal, State),
     {stop, State};
 
 
@@ -447,7 +447,7 @@ handle_response(#proxy_request{direction = ggsn2sgsn} = ProxyRequest,
 
     forward_response(ProxyRequest, Response, ProxyContext),
     State = cancel_timeout(State0),
-    delete_forward_session(State),
+    delete_forward_session(normal, State),
     {stop, State};
 
 
@@ -481,19 +481,10 @@ handle_proxy_info(#gtp{ie = #{?'Recovery' := Recovery}},
 			    ResponseIEs}, Context))
     end.
 
-delete_forward_session(#{context := Context, proxy_context := ProxyContext,
-			 'Session' := Session}) ->
-    SessionOpts =
-	case ergw_proxy_lib:delete_forward_session(Context, ProxyContext) of
-	    #pfcp{type = session_deletion_response,
-		  ie = #{pfcp_cause := #pfcp_cause{cause = 'Request accepted'}} = IEs} ->
-		to_session(gtp_context:usage_report_to_accounting(
-			     maps:get(usage_report_sdr, IEs, undefined)));
-	    _Other ->
-		lager:warning("Gn/Gp proxy: Session Deletion failed with ~p",
-			      [lager:pr(_Other, ?MODULE)]),
-		to_session([])
-	end,
+delete_forward_session(Reason, #{context := Context, proxy_context := ProxyContext,
+				 'Session' := Session}) ->
+    URRs = ergw_proxy_lib:delete_forward_session(Reason, Context, ProxyContext),
+    SessionOpts = to_session(gtp_context:usage_report_to_accounting(URRs)),
     lager:debug("Accounting Opts: ~p", [SessionOpts]),
     ergw_aaa_session:invoke(Session, SessionOpts, stop, [], true).
 

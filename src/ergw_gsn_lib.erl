@@ -9,7 +9,7 @@
 
 -export([create_sgi_session/2,
 	 modify_sgi_session/2,
-	 delete_sgi_session/1,
+	 delete_sgi_session/2,
 	 query_usage_report/1,
 	 send_sx_response/3,
 	 choose_context_ip/3,
@@ -63,9 +63,20 @@ modify_sgi_session(#context{dp_seid = SEID} = Ctx, OldCtx) ->
 	    throw(?CTX_ERR(?FATAL, system_failure, Ctx))
     end.
 
-delete_sgi_session(#context{dp_seid = SEID} = Ctx) ->
+delete_sgi_session(normal, #context{dp_seid = SEID} = Ctx) ->
     Req = #pfcp{version = v1, type = session_deletion_request, seid = SEID, ie = []},
-    ergw_sx_node:call(Ctx, Req).
+    case ergw_sx_node:call(Ctx, Req) of
+	#pfcp{type = session_deletion_response,
+	      ie = #{pfcp_cause := #pfcp_cause{cause = 'Request accepted'}} = IEs} ->
+	    maps:get(usage_report_sdr, IEs, undefined);
+
+	_Other ->
+	    lager:warning("PFCP: Session Deletion failed with ~p",
+			  [lager:pr(_Other, ?MODULE)]),
+	    undefined
+    end;
+delete_sgi_session(_Reason, _Context) ->
+    undefined.
 
 query_usage_report(#context{dp_seid = SEID} = Ctx) ->
     IEs = [#query_urr{group = [#urr_id{id = 1}]}],

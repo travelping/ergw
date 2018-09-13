@@ -105,12 +105,12 @@ handle_call(delete_context, From, #{context := Context} = State) ->
     {noreply, State};
 
 handle_call(terminate_context, _From, State) ->
-    close_pdn_context(State),
+    close_pdn_context(normal, State),
     {stop, normal, ok, State};
 
 handle_call({path_restart, Path}, _From,
 	    #{context := #context{path = Path}} = State) ->
-    close_pdn_context(State),
+    close_pdn_context(normal, State),
     {stop, normal, ok, State};
 handle_call({path_restart, _Path}, _From, State) ->
     {reply, ok, State}.
@@ -126,7 +126,7 @@ handle_info({ReqKey, #pfcp{version = v1, type = session_report_request, seq_no =
 	#pfcp{version = v1, type = session_report_response, seq_no = SeqNo,
 	      ie = [#pfcp_cause{cause = 'Request accepted'}]},
     ergw_gsn_lib:send_sx_response(ReqKey, Ctx, SxResponse),
-    close_pdn_context(State),
+    close_pdn_context(normal, State),
     {stop, normal, State};
 
 handle_info(_Info, State) ->
@@ -298,7 +298,7 @@ handle_request(_ReqKey,
 
     case Result of
 	{ok, {ReplyIEs, State}} ->
-	    close_pdn_context(State),
+	    close_pdn_context(normal, State),
 	    Reply = response(delete_session_response, Context, ReplyIEs),
 	    {stop, Reply, State};
 
@@ -340,7 +340,7 @@ handle_response(_, timeout, #gtp{type = update_bearer_request},
     {noreply, State};
 
 handle_response(From, timeout, #gtp{type = delete_bearer_request}, State) ->
-    close_pdn_context(State),
+    close_pdn_context(normal, State),
     if is_tuple(From) -> gen_server:reply(From, {error, timeout});
        true -> ok
     end,
@@ -352,7 +352,7 @@ handle_response(From,
 		_Request,
 		#{context := Context0} = State) ->
     Context = gtp_path:bind(Response, Context0),
-    close_pdn_context(State),
+    close_pdn_context(normal, State),
     if is_tuple(From) -> gen_server:reply(From, {ok, Cause});
        true -> ok
     end,
@@ -443,18 +443,9 @@ encode_paa(Type, IPv4, IPv6) ->
 pdn_release_ip(#context{vrf = VRF, ms_v4 = MSv4, ms_v6 = MSv6}) ->
     vrf:release_pdp_ip(VRF, MSv4, MSv6).
 
-close_pdn_context(#{context := Context, 'Session' := Session} = State) ->
-    SessionOpts =
-	case ergw_gsn_lib:delete_sgi_session(Context) of
-	    #pfcp{type = session_deletion_response,
-		  ie = #{pfcp_cause := #pfcp_cause{cause = 'Request accepted'}} = IEs} ->
-		to_session(gtp_context:usage_report_to_accounting(
-			     maps:get(usage_report_sdr, IEs, undefined)));
-	    _Other ->
-		lager:warning("S11: Session Deletion failed with ~p",
-			      [lager:pr(_Other, ?MODULE)]),
-		to_session([])
-	end,
+close_pdn_context(Reason, #{context := Context, 'Session' := Session}) ->
+    URRs = ergw_gsn_lib:delete_sgi_session(Reason, Context),
+    SessionOpts = to_session(gtp_context:usage_report_to_accounting(URRs)),
     lager:debug("Accounting Opts: ~p", [SessionOpts]),
     ergw_aaa_session:invoke(Session, SessionOpts, stop, [], true),
     pdn_release_ip(Context).
