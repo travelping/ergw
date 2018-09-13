@@ -231,7 +231,26 @@ handle_request(_ReqKey,
     ok = ergw_aaa_session:invoke(Session, SessionIPs, start, [], true),
     ContextPending = ergw_gsn_lib:session_events(SessionEvents, ContextPending1),
 
-    Context = ergw_gsn_lib:create_sgi_session(Candidates, ContextPending),
+    %% ===========================================================================
+
+    %% Gx/Gy interaction
+    %%  1. CCR on Gx to get PCC rules
+    %%  2. extraxt all rating groups
+    %%  3. CCR on Gy to get charging information for rating groups
+
+    %%  1. CCR on Gx to get PCC rules
+    {ok, GxSessionOpts, _} =
+	ergw_aaa_session:invoke(Session, #{}, {gx, 'CCR-Initial'}, [], false),
+    GxRules = maps:get(rules, GxSessionOpts, #{}),
+
+    Credits = ergw_gsn_lib:pcc_rules_to_credit_request(GxRules),
+    GyReqServices = #{credits => Credits},
+    {ok, GySessionOpts, _} =
+	ergw_aaa_session:invoke(Session, GyReqServices, {gy, 'CCR-Initial'}, [], false),
+
+    %% ===========================================================================
+
+    Context = ergw_gsn_lib:create_sgi_session(Candidates, GySessionOpts, ContextPending),
     gtp_context:remote_context_register_new(Context),
 
     ResponseIEs = create_session_response(ActiveSessionOpts, IEs, EBI, Context),
@@ -516,6 +535,20 @@ close_pdn_context(Reason, #{context := Context, 'Session' := Session}) ->
     SessionOpts = to_session(gtp_context:usage_report_to_accounting(URRs)),
     lager:debug("Accounting Opts: ~p", [SessionOpts]),
     ergw_aaa_session:invoke(Session, SessionOpts, stop, [], true),
+
+    %% ===========================================================================
+
+    %%  1. CCR on Gx to get PCC rules
+    {ok, _GxSessionOpts, _} =
+	ergw_aaa_session:invoke(Session, #{}, {gx, 'CCR-Terminate'}, [], false),
+
+    Report = ergw_gsn_lib:usage_report_to_credit_report(URRs, Context),
+    GyReqServices = #{used_credits => Report},
+    {ok, GySessionOpts, _} =
+	ergw_aaa_session:invoke(Session, GyReqServices, {gy, 'CCR-Terminate'}, [], false),
+
+    %% ===========================================================================
+
     pdn_release_ip(Context).
 
 apply_context_change(NewContext0, OldContext, State) ->
