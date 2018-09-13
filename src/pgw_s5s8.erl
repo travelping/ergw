@@ -197,7 +197,7 @@ handle_request(_ReqKey,
     ActiveSessionOpts = apply_vrf_session_defaults(VRFOpts, ActiveSessionOpts0),
     lager:info("ActiveSessionOpts: ~p", [ActiveSessionOpts]),
 
-    ContextPending0 = assign_ips(ActiveSessionOpts, PAA, ContextVRF),
+    {SessionIPs, ContextPending0} = assign_ips(ActiveSessionOpts, PAA, ContextVRF),
     ContextPending1 = session_to_context(ActiveSessionOpts, ContextPending0),
 
     APN_FQDN = ergw_node_selection:apn_to_fqdn(APN),
@@ -220,7 +220,7 @@ handle_request(_ReqKey,
 		Candidates0
 	end,
 
-    ok = ergw_aaa_session:invoke(Session, #{}, start, [], true),
+    ok = ergw_aaa_session:invoke(Session, SessionIPs, start, [], true),
     ContextPending = gtp_context:session_events(SessionEvents, ContextPending1),
 
     Context = ergw_gsn_lib:create_sgi_session(Candidates, ContextPending),
@@ -832,10 +832,19 @@ session_ip_alloc(SessionOpts, {ReqMSv4, ReqMSv6}) ->
     MSv6 = session_ipv6_alloc(SessionOpts, ReqMSv6),
     {MSv4, MSv6}.
 
+maybe_ip(Key, {{_,_,_,_} = IPv4, _}, SessionIP) ->
+    SessionIP#{Key => IPv4};
+maybe_ip(Key, {{_,_,_,_,_,_,_,_},_} = IPv6, SessionIP) ->
+    SessionIP#{Key => IPv6};
+maybe_ip(_, _, SessionIP) ->
+    SessionIP.
+
 assign_ips(SessionOps, PAA, #context{vrf = VRF, local_control_tei = LocalTEI} = Context) ->
     {ReqMSv4, ReqMSv6} = session_ip_alloc(SessionOps, pdn_alloc(PAA)),
     {ok, MSv4, MSv6} = vrf:allocate_pdp_ip(VRF, LocalTEI, ReqMSv4, ReqMSv6),
-    Context#context{ms_v4 = MSv4, ms_v6 = MSv6}.
+    SessionIP4 = maybe_ip('Framed-IP-Address', MSv4, #{}),
+    SessionIP = maybe_ip('Framed-IPv6-Prefix', MSv6, SessionIP4),
+    {SessionIP, Context#context{ms_v4 = MSv4, ms_v6 = MSv6}}.
 
 session_to_context(SessionOpts, Context) ->
     %% RFC 6911
