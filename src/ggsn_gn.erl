@@ -12,7 +12,8 @@
 -compile({parse_transform, cut}).
 
 -export([validate_options/1, init/2, request_spec/3,
-	 handle_pdu/3, handle_request/4, handle_response/4,
+	 handle_pdu/3, handle_sx_report/3,
+	 handle_request/4, handle_response/4,
 	 handle_call/3, handle_cast/2, handle_info/2,
 	 terminate/2]).
 
@@ -108,16 +109,6 @@ handle_cast({packet_in, _GtpPort, _IP, _Port, _Msg}, State) ->
     lager:warning("packet_in not handled (yet): ~p", [_Msg]),
     {noreply, State}.
 
-handle_info({ReqKey, #pfcp{version = v1, type = session_report_request, seq_no = SeqNo,
-			   ie = #{report_type := #report_type{erir = 1}}}},
-	    #{context := Ctx} = State) ->
-    SxResponse =
-	#pfcp{version = v1, type = session_report_response, seq_no = SeqNo,
-	      ie = [#pfcp_cause{cause = 'Request accepted'}]},
-    ergw_gsn_lib:send_sx_response(ReqKey, Ctx, SxResponse),
-    close_pdp_context(normal, State),
-    {stop, normal, State};
-
 handle_info(_Info, State) ->
     {noreply, State}.
 
@@ -126,6 +117,15 @@ handle_pdu(ReqKey, #gtp{ie = Data} = Msg, #{context := Context} = State) ->
 
     ergw_gsn_lib:ip_pdu(Data, Context),
     {noreply, State}.
+
+handle_sx_report(#pfcp{type = session_report_request,
+		       ie = #{report_type := #report_type{erir = 1}}},
+	    _From, State) ->
+    close_pdp_context(normal, State),
+    {stop, State};
+
+handle_sx_report(_, _From, State) ->
+    {error, 'System failure', State}.
 
 %% resent request
 handle_request(_ReqKey, _Msg, true, State) ->

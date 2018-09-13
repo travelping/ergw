@@ -1,6 +1,7 @@
 -module(gtp_api).
 
 -include_lib("gtplib/include/gtp_packet.hrl").
+-include_lib("pfcplib/include/pfcp_packet.hrl").
 -include_lib("ergw/include/ergw.hrl").
 
 -optional_callbacks([handle_response/4]).
@@ -63,3 +64,12 @@
 	      {noreply, NewState :: map(), Timeout :: integer() | 'infinity'} |
 	      {noreply, NewState :: map(), 'hibernate'} |
 	      {stop, Reason :: term(), NewState :: map()}.
+
+-callback handle_sx_report(Msg :: #pfcp{},
+			   From :: {pid(), reference()},
+			   State :: map()) ->
+    Return :: {reply, Reply :: term(), NewState :: map()} |
+	      {ok, NewState :: map()} |
+	      {stop, NewState :: map()} |
+	      {error, Reply :: term(), NewState :: map()} |
+	      {noreply, NewState :: map()}.
