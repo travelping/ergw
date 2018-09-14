@@ -15,7 +15,7 @@
 %% API
 -export([start_link/4, all/1,
 	 maybe_new_path/3,
-	 handle_request/2, handle_response/2,
+	 handle_request/2, handle_response/3,
 	 bind/1, bind/2, unbind/1, down/2,
 	 get_handler/2, info/1,
 	 exometer_update_rtt/5]).
@@ -64,8 +64,8 @@ handle_request(#request{gtp_port = GtpPort, ip = IP} = ReqKey, #gtp{version = Ve
     Path = maybe_new_path(GtpPort, Version, IP),
     gen_server:cast(Path, {handle_request, ReqKey, Msg}).
 
-handle_response(Path, Response) ->
-    gen_server:cast(Path, {handle_response, Response}).
+handle_response(Path, Type, Response) ->
+    gen_server:cast(Path, {handle_response, Type, Response}).
 
 bind(#context{remote_restart_counter = RestartCounter} = Context) ->
     path_recovery(RestartCounter, bind_path(Context)).
@@ -204,7 +204,7 @@ handle_cast(down, #state{table = TID} = State0) ->
     State = update_path_counter(0, State1),
     {noreply, State};
 
-handle_cast({handle_response, #gtp{} = Msg}, State0)->
+handle_cast({handle_response, echo, Msg}, State0)->
     lager:debug("echo_response: ~p", [Msg]),
     State1 = handle_recovery_ie(Msg, State0),
     State = echo_response(Msg, State1),
@@ -378,7 +378,7 @@ stop_echo_request(#state{echo_timer = EchoTRef} = State) ->
 send_echo_request(#state{gtp_port = GtpPort, handler = Handler, ip = DstIP,
 			 t3 = T3, n3 = N3} = State) ->
     Msg = Handler:build_echo_request(GtpPort),
-    CbInfo = {?MODULE, handle_response, [self()]},
+    CbInfo = {?MODULE, handle_response, [self(), echo]},
     ergw_gtp_c_socket:send_request(GtpPort, DstIP, ?GTP1c_PORT, T3, N3, Msg, CbInfo),
     State#state{echo_timer = awaiting_response} .
 
