@@ -19,8 +19,6 @@
 %% not end with hyphens, but we don't check that)
 %% also do not consider "." (dot) as not permitted character
 %% but split labels by it
-normalize_labels('_') ->
-    '_';
 normalize_labels(Labels) when is_list(Labels) ->
     lists:flatmap(fun normalize_labels/1, Labels);
 normalize_labels(Label) when is_binary(Label) ->
