@@ -35,6 +35,7 @@
 -export([outstanding_requests/0, wait4tunnels/1, hexstr2bin/1]).
 -export([match_exo_value/2, get_exo_value/1]).
 -export([has_ipv6_test_config/0]).
+-export([query_usage_report/1]).
 
 -include("ergw_test_lib.hrl").
 -include_lib("common_test/include/ct.hrl").
@@ -500,4 +501,29 @@ has_ipv6_test_config() ->
     catch
 	_:_ ->
 	    false
+    end.
+
+%%%===================================================================
+%%% PFCP
+%%%===================================================================
+
+query_usage_report(#context{dp_seid = SEID} = Context) ->
+    Req = #pfcp{
+	     version = v1,
+	     type = session_modification_request,
+	     seid = SEID,
+	     ie = [#query_urr{group = [#urr_id{id = 1}]}]
+	    },
+    case ergw_sx_node:call(Context, Req) of
+	#pfcp{type = session_modification_response,
+	      ie = #{pfcp_cause := #pfcp_cause{cause = 'Request accepted'}} = IEs} ->
+	    lager:warning("Gn/Gp: got OK Query response: ~p",
+			  [pfcp_packet:lager_pr(IEs)]),
+	    ergw_aaa_session:to_session(
+	      gtp_context:usage_report_to_accounting(
+		maps:get(usage_report_smr, IEs, undefined)));
+	_Other ->
+	    lager:warning("Gn/Gp: got unexpected Query response: ~p",
+			  [lager:pr(_Other, ?MODULE)]),
+	    #{}
     end.

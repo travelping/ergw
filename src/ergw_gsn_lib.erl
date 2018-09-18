@@ -15,7 +15,7 @@
 	 pcc_rules_to_credit_request/1,
 	 modify_sgi_session/2,
 	 delete_sgi_session/2,
-	 query_usage_report/1,
+	 query_usage_report/1, query_usage_report/2,
 	 choose_context_ip/3,
 	 ip_pdu/2]).
 -export([update_pcc_rules/2, session_events/3]).
@@ -25,6 +25,9 @@
 -include_lib("pfcplib/include/pfcp_packet.hrl").
 -include_lib("ergw_aaa/include/diameter_3gpp_ts32_299.hrl").
 -include("include/ergw.hrl").
+
+-record(sx_ids, {cnt = #{}, idmap = #{}}).
+-record(sx_upd, {errors = [], rules = #{}, monitors = #{}, ids = #sx_ids{}, context}).
 
 %%%===================================================================
 %%% Sx DP API
@@ -60,11 +63,28 @@ delete_sgi_session(normal, #context{dp_seid = SEID} = Ctx) ->
 delete_sgi_session(_Reason, _Context) ->
     undefined.
 
-query_usage_report(#context{dp_seid = SEID} = Ctx) ->
-    IEs = [#query_urr{group = [#urr_id{id = 1}]}],
+query_usage_report(#context{dp_seid = SEID, sx_ids = #sx_ids{idmap = #{urr := URRs}}} = Ctx) ->
+    IEs = maps:fold(fun(K, V, A) when is_integer(V) ->
+			    [#query_urr{group = [#urr_id{id = K}]} | A];
+		       (_, _, A) -> A
+		    end, [], URRs),
     Req = #pfcp{version = v1, type = session_modification_request,
 		seid = SEID, ie = IEs},
-    ergw_sx_node:call(Ctx, Req).
+    ergw_sx_node:call(Ctx, Req);
+query_usage_report(_) ->
+    undefined.
+
+query_usage_report(RatingGroup, #context{dp_seid = SEID,
+					 sx_ids = #sx_ids{idmap = #{urr := URRs}}} = Ctx) ->
+    case URRs of
+	#{RatingGroup := Id} ->
+	    IEs = [#query_urr{group = [#urr_id{id = Id}]}],
+	    Req = #pfcp{version = v1, type = session_modification_request,
+			seid = SEID, ie = IEs},
+	    ergw_sx_node:call(Ctx, Req);
+	_ ->
+	    undefined
+    end.
 
 %%%===================================================================
 %%% Helper functions
@@ -334,9 +354,6 @@ install_pcc_rule_def(#{'Charging-Rule-Name' := Name} = UpdRule,
     end.
 
 %% convert PCC rule state into Sx rule states
-
--record(sx_ids, {cnt = #{}, idmap = #{}}).
--record(sx_upd, {errors = [], rules = #{}, monitors = #{}, ids = #sx_ids{}, context}).
 
 sx_rule_error(Error, #sx_upd{errors = Errors} = Update) ->
     Update#sx_upd{errors = [Error | Errors]}.
