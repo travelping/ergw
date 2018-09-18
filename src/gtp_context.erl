@@ -29,10 +29,6 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
 	 terminate/2, code_change/3]).
 
--ifdef(TEST).
--export([query_usage_report/1]).
--endif.
-
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include_lib("pfcplib/include/pfcp_packet.hrl").
 -include("include/ergw.hrl").
@@ -555,20 +551,3 @@ usage_report_to_accounting([H|_]) ->
     usage_report_to_accounting(H);
 usage_report_to_accounting(undefined) ->
     [].
-
--ifdef(TEST).
-
-query_usage_report(Context) ->
-    case ergw_gsn_lib:query_usage_report(Context) of
-	#pfcp{type = session_modification_response,
-	      ie = #{pfcp_cause := #pfcp_cause{cause = 'Request accepted'}} = IEs} ->
-	    to_session(
-	      usage_report_to_accounting(
-		maps:get(usage_report_smr, IEs, undefined)));
-	_Other ->
-	    lager:warning("Gn/Gp: got unexpected Query response: ~p",
-			  [lager:pr(_Other, ?MODULE)]),
-	    #{}
-    end.
-
--endif.

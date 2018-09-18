@@ -24,6 +24,7 @@
 -include_lib("pfcplib/include/pfcp_packet.hrl").
 -include_lib("diameter/include/diameter_gen_base_rfc6733.hrl").
 -include_lib("ergw_aaa/include/diameter_3gpp_ts32_299.hrl").
+-include_lib("ergw_aaa/include/ergw_aaa_session.hrl").
 -include("include/ergw.hrl").
 -include("include/3gpp.hrl").
 
@@ -110,6 +111,29 @@ handle_call({path_restart, _Path}, _From, State) ->
 handle_cast({packet_in, _GtpPort, _IP, _Port, _Msg}, State) ->
     lager:warning("packet_in not handled (yet): ~p", [_Msg]),
     {noreply, State}.
+
+%% ===========================================================================
+
+handle_info(#aaa_request{procedure = {gy, 'RAR'}, request = Request},
+	    #{context := Context, 'Session' := Session} = State) ->
+    ergw_aaa_session:response(Session, ok, #{}),
+
+    %% Triggered CCR.....
+
+    case query_usage_report(Request, Context) of
+	#pfcp{type = session_modification_response,
+	      ie = #{pfcp_cause := #pfcp_cause{cause = 'Request accepted'},
+		     usage_report_smr := UsageReport}} ->
+
+	    GyUpdate = (catch ergw_gsn_lib:usage_report_to_credit_report(UsageReport, Context)),
+	    GyReqServices = #{'used_credits' => GyUpdate},
+	    ergw_aaa_session:invoke(Session, GyReqServices, {gy, 'CCR-Update'}, [], true);
+	_ ->
+	    ok
+    end,
+    {noreply, State};
+
+%% ===========================================================================
 
 handle_info(_Info, State) ->
     {noreply, State}.
@@ -408,6 +432,12 @@ close_pdp_context(Reason, #{context := Context, 'Session' := Session}) ->
     %% ===========================================================================
 
     pdp_release_ip(Context).
+
+query_usage_report(#{'Rating-Group' := [RatingGroup]}, Context) ->
+    ergw_gsn_lib:query_usage_report(RatingGroup, Context);
+query_usage_report(_, Context) ->
+    ergw_gsn_lib:query_usage_report(Context).
+
 
 apply_context_change(NewContext0, OldContext, State) ->
     NewContextPending = gtp_path:bind(NewContext0),
