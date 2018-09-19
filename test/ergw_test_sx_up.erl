@@ -18,7 +18,7 @@
 -define(SERVER, ?MODULE).
 
 -record(state, {sx, gtp, accounting, enabled, cp_ip, cp_seid,
-		up_ip, up_seid, seq_no, history}).
+		up_ip, up_seid, recovery_ts, seq_no, history}).
 
 %%%===================================================================
 %%% API
@@ -66,6 +66,7 @@ init([IP]) ->
 	       cp_seid = 0,
 	       up_ip = ergw_inet:ip2bin(IP),
 	       up_seid = ergw_sx_socket:seid(),
+	       recovery_ts = erlang:system_time(seconds),
 	       seq_no = erlang:unique_integer([positive]) rem 16#ffffff,
 	       history = []
 	      },
@@ -193,12 +194,18 @@ sx_reply(Type, IEs, State) ->
 sx_reply(Type, SEID, IEs, State) ->
     {#pfcp{version = v1, type = Type, seid = SEID, ie = IEs}, State}.
 
-handle_message(#pfcp{type = heartbeat_request}, State) ->
-    sx_reply(heartbeat_response, State);
+handle_message(#pfcp{type = heartbeat_request}, #state{recovery_ts = RecoveryTS} = State) ->
+    IEs = [#recovery_time_stamp{
+	      time = ergw_sx_node:seconds_to_sntp_time(RecoveryTS)}],
+    sx_reply(heartbeat_response, undefined, IEs, State);
 
-handle_message(#pfcp{type = association_setup_request}, State) ->
+handle_message(#pfcp{type = association_setup_request},
+	       #state{recovery_ts = RecoveryTS} = State) ->
     RespIEs =
-	[#pfcp_cause{cause = 'Request accepted'},
+	[#node_id{id = [<<"test">>, <<"server">>]},
+	 #pfcp_cause{cause = 'Request accepted'},
+	 #recovery_time_stamp{
+	    time = ergw_sx_node:seconds_to_sntp_time(RecoveryTS)},
 	 user_plane_ip_resource_information([<<"cp">>], State),
 	 user_plane_ip_resource_information([<<"irx">>], State),
 	 user_plane_ip_resource_information([<<"proxy-irx">>], State),

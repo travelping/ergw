@@ -196,6 +196,11 @@ handle_info({timeout, _, {delete_pdp_context_request, Direction, _ReqKey, _Reque
     delete_forward_session(normal, State),
     {stop, normal, State};
 
+handle_info({'DOWN', _MonitorRef, process, Pid, _Info},
+	    #{context := #context{dp_node = Pid}} = State) ->
+    delete_forward_session(upf_failure, State),
+    {noreply, State};
+
 handle_info(_Info, State) ->
     {noreply, State}.
 

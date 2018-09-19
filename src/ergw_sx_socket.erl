@@ -404,7 +404,7 @@ handle_request(#sx_request{ip = IP, port = Port} = ReqKey, Msg,
 	    sendto(IP, Port, Data, State);
 
 	_Other ->
-	    ergw_sx_node:handle_request(ReqKey, Msg)
+	    ergw_sx_node:handle_request(ReqKey, IP, Msg)
     end,
     State.
 

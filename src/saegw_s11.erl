@@ -122,6 +122,11 @@ handle_cast({packet_in, _GtpPort, _IP, _Port, _Msg}, State) ->
     lager:warning("packet_in not handled (yet): ~p", [_Msg]),
     {noreply, State}.
 
+handle_info({'DOWN', _MonitorRef, process, Pid, _Info},
+	    #{context := #context{dp_node = Pid}} = State) ->
+    close_pdn_context(upf_failure, State),
+    {noreply, State};
+
 %% ===========================================================================
 
 handle_info(#aaa_request{procedure = {gy, 'RAR'}, request = Request},

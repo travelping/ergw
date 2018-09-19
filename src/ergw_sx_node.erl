@@ -14,9 +14,9 @@
 %% API
 -export([select_sx_node/2, select_sx_node/3]).
 -export([start_link/3, send/4, call/2, get_vrfs/1,
-	 handle_request/2, response/3]).
+	 handle_request/3, response/3]).
 -ifdef(TEST).
--export([stop/1]).
+-export([stop/1, seconds_to_sntp_time/1]).
 -endif.
 
 %% gen_statem callbacks
@@ -29,6 +29,7 @@
 -include("include/ergw.hrl").
 
 -record(data, {retries = 0  :: non_neg_integer(),
+	       recovery_ts       :: undefined | non_neg_integer(),
 	       gtp_port,
 	       cp_tei            :: undefined | non_neg_integer(),
 	       cp,
@@ -46,6 +47,7 @@
 select_sx_node(Candidates, Context) ->
     case connect_sx_node(Candidates) of
 	{ok, Pid} ->
+	    monitor(process, Pid),
 	    call(Pid, {attach, Context}, Context);
 	_ ->
 	    throw(?CTX_ERR(?FATAL, system_failure, Context))
@@ -84,7 +86,16 @@ get_vrfs(Context) ->
 response(Pid, CbData, Response) ->
     gen_statem:cast(Pid, {response, CbData, Response}).
 
-handle_request(ReqKey, #pfcp{type = session_report_request} = Report) ->
+handle_request(ReqKey, IP, #pfcp{type = heartbeat_request} = Request) ->
+    case ergw_sx_node_reg:lookup(IP) of
+	{ok, Pid} when is_pid(Pid) ->
+	    gen_statem:cast(Pid, {request, ReqKey, Request});
+	_Other ->
+	    lager:error("lookup for ~p failed with ~p", [IP, _Other]),
+	    heartbeat_response(ReqKey, Request)
+    end,
+    ok;
+handle_request(ReqKey, _IP, #pfcp{type = session_report_request} = Report) ->
     spawn(fun() -> handle_request_fun(ReqKey, Report) end),
     ok.
 
@@ -140,33 +151,29 @@ cast(GtpPort, Request) ->
 callback_mode() -> [handle_event_function, state_enter].
 
 init([Node, IP4, IP6]) ->
-    ergw_sx_node_reg:register(Node, self()),
-
     IP = if length(IP4) /= 0 -> hd(IP4);
 	    length(IP6) /= 0 -> hd(IP6)
 	 end,
+
+    ergw_sx_node_reg:register(Node, self()),
+    ergw_sx_node_reg:register(IP, self()),
 
     {ok, CP, GtpPort} = ergw_sx_socket:id(),
     {ok, TEI} = gtp_context_reg:alloc_tei(GtpPort),
     gtp_context_reg:register(GtpPort, {teid, 'gtp-u', TEI}, self()),
 
-    VRFs = maps:map(
-	     fun(Id, #{features := Features}) ->
-		     #vrf{name = Id, features = Features}
-	     end, node_vrfs(Node)),
-
     Data = #data{gtp_port = GtpPort,
 		 cp_tei = TEI,
 		 cp = CP,
 		 dp = #node{node = Node, ip = IP},
-		 vrfs = VRFs
+		 vrfs = init_vrfs(Node)
 		},
     {ok, dead, Data}.
 
 handle_event(enter, OldState, dead, Data)
   when OldState =:= connected;
        OldState =:= dead ->
-    {next_state, dead, Data#data{retries = 0}, [{state_timeout, 0, setup}]};
+    {next_state, dead, Data#data{retries = 0, recovery_ts = undefined}, [{state_timeout, 0, setup}]};
 handle_event(enter, _, dead, #data{retries = Retries} = Data) ->
     Timeout = (2 bsl Retries) * ?AssocTimeout,
     lager:debug("Timeout: ~w/~w", [Retries, Timeout]),
@@ -224,12 +231,47 @@ handle_event(state_timeout, heartbeat, connected, Data) ->
     send_heartbeat(Data),
     keep_state_and_data;
 
-handle_event(cast, {heartbeat, timeout}, connected, Data0) ->
-    Data = handle_nodedown(Data0),
-    {next_state, dead, Data};
+handle_event(cast, {heartbeat, timeout}, connected, Data) ->
+    {next_state, dead, handle_nodedown(Data)};
 
-handle_event(cast, {response, _, #pfcp{version = v1, type = heartbeat_response}}, connected, Data) ->
+handle_event(cast, {request, ReqKey,
+		    #pfcp{type = heartbeat_request,
+			  ie = #{recovery_time_stamp :=
+				     #recovery_time_stamp{time = RecoveryTS}}} = Request},
+	     _, #data{recovery_ts = StoredRecoveryTS} = Data0)
+  when is_integer(StoredRecoveryTS) andalso RecoveryTS > StoredRecoveryTS ->
+    heartbeat_response(ReqKey, Request),
+    Data = Data0#data{recovery_ts = RecoveryTS},
+    {next_state, dead, handle_nodedown(Data)};
+handle_event(cast, {request, _,
+		    #pfcp{type = heartbeat_request,
+			  ie = #{recovery_time_stamp :=
+				     #recovery_time_stamp{time = RecoveryTS}}}},
+	     _, #data{recovery_ts = StoredRecoveryTS})
+  when is_integer(StoredRecoveryTS) andalso RecoveryTS < StoredRecoveryTS ->
+    keep_state_and_data;
+handle_event(cast, {request, ReqKey,
+		    #pfcp{type = heartbeat_request,
+			  ie = #{recovery_time_stamp :=
+				     #recovery_time_stamp{time = RecoveryTS}}} = Request},
+	     State, #data{recovery_ts = StoredRecoveryTS} = Data)
+  when not is_integer(StoredRecoveryTS) ->
+    heartbeat_response(ReqKey, Request),
+    {next_state, State, Data#data{recovery_ts = RecoveryTS}};
+handle_event(cast, {request, ReqKey, #pfcp{type = heartbeat_request} = Request}, _, _) ->
+    heartbeat_response(ReqKey, Request),
+    keep_state_and_data;
+
+handle_event(cast, {response, _, #pfcp{version = v1, type = heartbeat_response,
+				       ie = #{recovery_time_stamp :=
+						  #recovery_time_stamp{time = RecoveryTS}} = IEs}},
+		    connected, #data{recovery_ts = RecoveryTS} = Data) ->
+    lager:info("PFCP OK Response: ~p", [pfcp_packet:lager_pr(IEs)]),
     {next_state, connected, Data, [next_heartbeat(Data)]};
+handle_event(cast, {response, _, #pfcp{version = v1, type = heartbeat_response, ie = _IEs}},
+	     connected, Data) ->
+    lager:warning("PFCP Fail Response: ~p", [pfcp_packet:lager_pr(_IEs)]),
+    {next_state, dead, handle_nodedown(Data)};
 
 handle_event({call, From}, {attach, Context0}, _,
 	     #data{gtp_port = CpPort, cp_tei = CpTEI, dp = #node{node = Node}}) ->
@@ -245,6 +287,10 @@ handle_event({call, From}, get_vrfs, connected,
 handle_event(cast, {response, {call, _} = Evt, Reply}, _, _Data) ->
     Actions = pfcp_reply_actions(Evt, Reply),
     {keep_state_and_data, Actions};
+
+handle_event(cast, {response, heartbeat, timeout} = R, _, Data) ->
+    lager:warning("PFCP Timeout: ~p", [R]),
+    {next_state, dead, handle_nodedown(Data)};
 
 handle_event(cast, {response, _, _} = R, _, _Data) ->
     lager:warning("Response: ~p", [R]),
@@ -292,6 +338,12 @@ node_vrfs(Name) ->
     {ok, Nodes} = setup:get_env(ergw, nodes),
     Default = node_vrfs(default, Nodes, #{}),
     node_vrfs(Name, Nodes, Default).
+
+init_vrfs(Node) ->
+    maps:map(
+      fun(Id, #{features := Features}) ->
+	      #vrf{name = Id, features = Features}
+      end, node_vrfs(Node)).
 
 pfcp_reply_actions({call, {Pid, Tag}}, Reply)
   when Pid =:= self() ->
@@ -423,13 +475,23 @@ send_heartbeat(#data{dp = #node{ip = IP}}) ->
     Req = #pfcp{version = v1, type = heartbeat_request, ie = IEs},
     ergw_sx_socket:call(IP, 500, 5, Req, response_cb(heartbeat)).
 
-handle_nodeup(#{user_plane_ip_resource_information := UPIPResInfo} = _IEs,
+heartbeat_response(ReqKey, #pfcp{type = heartbeat_request, seq_no = SeqNo}) ->
+    Response0 = #pfcp{version = v1, type = heartbeat_response,
+		      seq_no = SeqNo, ie = []},
+    Response = put_recovery_time_stamp(Response0),
+    ergw_sx_socket:send_response(ReqKey, Response, true).
+
+handle_nodeup(#{recovery_time_stamp := #recovery_time_stamp{time = RecoveryTS}} = IEs,
 	      #data{dp = #node{node = Node, ip = IP},
 		    vrfs = VRFs} = Data0) ->
     lager:warning("Node ~s (~s) is up", [Node, inet:ntoa(IP)]),
-    lager:warning("Node IEs: ~p", [lager:pr(_IEs, ?MODULE)]),
+    lager:warning("Node IEs: ~p", [pfcp_packet:lager_pr(IEs)]),
 
-    Data = Data0#data{vrfs = init_vrfs(VRFs, UPIPResInfo)},
+    UPIPResInfo = maps:get(user_plane_ip_resource_information, IEs, []),
+    Data = Data0#data{
+	     recovery_ts = RecoveryTS,
+	     vrfs = init_vrfs(VRFs, UPIPResInfo)
+	    },
     install_cp_rules(Data).
 
 init_vrfs(VRFs, UPIPResInfo)
@@ -439,24 +501,24 @@ init_vrfs(VRFs, UPIPResInfo)
 		end, VRFs, UPIPResInfo);
 init_vrfs(VRFs,
 	  #user_plane_ip_resource_information{
-	     network_instance = NetworkInstance
-	    } = UPIPResInfo) ->
+	     network_instance = NetworkInstance,
+	     teid_range = Range, ipv4 = IP4, ipv6 = IP6}) ->
     Name = vrf:normalize_name(NetworkInstance),
     case VRFs of
 	#{Name := VRF0} ->
-	    VRF = VRF0#vrf{
-		    teid_range = UPIPResInfo#user_plane_ip_resource_information.teid_range,
-		    ipv4 = UPIPResInfo#user_plane_ip_resource_information.ipv4,
-		    ipv6 = UPIPResInfo#user_plane_ip_resource_information.ipv6
-		   },
+	    VRF = VRF0#vrf{teid_range = Range, ipv4 = IP4, ipv6 = IP6},
 	    VRFs#{Name => VRF};
 	_ ->
 	    lager:warning("UP Nodes reported unknown Network Instance '~p'", [Name]),
 	    VRFs
     end.
 
-handle_nodedown(Data) ->
-    Data#data{vrfs = #{}}.
+handle_nodedown(#data{dp = #node{node = Node}} = Data) ->
+    Self = self(),
+    {monitored_by, Notify} = process_info(Self, monitored_by),
+    lager:info("Node Down Monitor Notify: ~p", [Notify]),
+    lists:foreach(fun(Pid) -> Pid ! {'DOWN', undefined, pfcp, Self, undefined} end, Notify),
+    Data#data{vrfs = init_vrfs(Node)}.
 
 %%%===================================================================
 %%% CP to Access Interface forwarding

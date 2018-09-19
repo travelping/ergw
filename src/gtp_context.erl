@@ -354,7 +354,7 @@ handle_info({update_session, Session, Events} = Us, #{interface := Interface} = 
 %%====================================================================
 
 handle_info(Info, #{interface := Interface} = State) ->
-    lager:debug("handle_info: ~p", [lager:pr(Info, ?MODULE)]),
+    lager:debug("handle_info ~p:~p", [Interface, lager:pr(Info, ?MODULE)]),
     Interface:handle_info(Info, State).
 
 terminate(Reason, #{interface := Interface} = State) ->
