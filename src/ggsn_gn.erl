@@ -22,6 +22,7 @@
 
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include_lib("pfcplib/include/pfcp_packet.hrl").
+-include_lib("diameter/include/diameter_gen_base_rfc6733.hrl").
 -include_lib("ergw_aaa/include/diameter_3gpp_ts32_299.hrl").
 -include("include/ergw.hrl").
 -include("include/3gpp.hrl").
@@ -378,14 +379,31 @@ close_pdp_context(Reason, #{context := Context, 'Session' := Session}) ->
 
     %% ===========================================================================
 
+    TermCause =
+	case Reason of
+	    upf_failure ->
+		?'DIAMETER_BASE_TERMINATION-CAUSE_LINK_BROKEN';
+	    _ ->
+		?'DIAMETER_BASE_TERMINATION-CAUSE_LOGOUT'
+	end,
+
     %%  1. CCR on Gx to get PCC rules
-    {ok, _GxSessionOpts, _} =
-	ergw_aaa_session:invoke(Session, #{}, {gx, 'CCR-Terminate'}, [], false),
+    case ergw_aaa_session:invoke(Session, #{}, {gx, 'CCR-Terminate'}, [], false) of
+	{ok, _GxSessionOpts, _} ->
+	    lager:info("GxSessionOpts: ~p", [_GxSessionOpts]);
+	GxOther ->
+	    lager:warning("Gx terminate failed with: ~p", [GxOther])
+    end,
 
     Report = ergw_gsn_lib:usage_report_to_credit_report(URRs, Context),
-    GyReqServices = #{used_credits => Report},
-    {ok, GySessionOpts, _} =
-	ergw_aaa_session:invoke(Session, GyReqServices, {gy, 'CCR-Terminate'}, [], false),
+    GyReqServices = #{'Termination-Cause' => TermCause,
+		      used_credits => Report},
+    case ergw_aaa_session:invoke(Session, GyReqServices, {gy, 'CCR-Terminate'}, [], false) of
+	{ok, GySessionOpts, _} ->
+	    lager:debug("GySessionOpts: ~p", [GySessionOpts]);
+	GyOther ->
+	    lager:warning("Gy terminate failed with: ~p", [GyOther])
+    end,
 
     %% ===========================================================================
 
