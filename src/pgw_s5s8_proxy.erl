@@ -133,7 +133,7 @@ init(#{proxy_sockets := ProxyPorts, node_selection := NodeSelect,
     {ok, Session} = ergw_aaa_session_sup:new_session(self(), to_session([])),
 
     {ok, State#{proxy_ports => ProxyPorts,
-		'Session' => Session, contexts => Contexts,
+		'Version' => v2, 'Session' => Session, contexts => Contexts,
 		node_selection => NodeSelect, proxy_ds => ProxyDS}}.
 
 handle_call(query_usage_report, _From,
@@ -166,6 +166,9 @@ handle_call({path_restart, _Path}, _From, State) ->
 handle_cast({packet_in, _GtpPort, _IP, _Port, _Msg}, State) ->
     lager:warning("packet_in not handled (yet): ~p", [_Msg]),
     {noreply, State}.
+
+handle_info(Info, #{'Version' := v1} = State) ->
+    ?GTP_v1_Interface:handle_info(Info, State);
 
 handle_info({timeout, _, {delete_session_request, Direction, _ReqKey, _Request}}, State) ->
     lager:warning("Proxy Delete Session Timeout ~p", [Direction]),
@@ -225,7 +228,9 @@ session_events(_Session, _Events, State) ->
     State.
 
 handle_request(ReqKey, #gtp{version = v1} = Msg, Resent, State) ->
-    ?GTP_v1_Interface:handle_request(ReqKey, Msg, Resent, State);
+    ?GTP_v1_Interface:handle_request(ReqKey, Msg, Resent, State#{'Version' => v1});
+handle_request(ReqKey, #gtp{version = v2} = Msg, Resent, #{'Version' := v1} = State) ->
+    handle_request(ReqKey, Msg, Resent, State#{'Version' => v2});
 
 %%
 %% resend request
