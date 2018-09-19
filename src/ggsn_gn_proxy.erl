@@ -155,7 +155,7 @@ init(#{proxy_sockets := ProxyPorts, node_selection := NodeSelect,
     {ok, Session} = ergw_aaa_session_sup:new_session(self(), to_session([])),
 
     {ok, State#{proxy_ports => ProxyPorts,
-		'Session' => Session, contexts => Contexts,
+		'Version' => v1, 'Session' => Session, contexts => Contexts,
 		node_selection => NodeSelect, proxy_ds => ProxyDS}}.
 
 handle_call(query_usage_report, _From,

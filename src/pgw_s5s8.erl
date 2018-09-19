@@ -93,7 +93,7 @@ validate_option(Opt, Value) ->
 
 init(_Opts, State) ->
     {ok, Session} = ergw_aaa_session_sup:new_session(self(), to_session([])),
-    {ok, State#{'Session' => Session}}.
+    {ok, State#{'Version' => v2, 'Session' => Session}}.
 
 handle_call(query_usage_report, _From,
 	    #{context := Context} = State) ->
@@ -118,6 +118,9 @@ handle_call({path_restart, _Path}, _From, State) ->
 handle_cast({packet_in, _GtpPort, _IP, _Port, _Msg}, State) ->
     lager:warning("packet_in not handled (yet): ~p", [_Msg]),
     {noreply, State}.
+
+handle_info(Info, #{'Version' := v1} = State) ->
+    ?GTP_v1_Interface:handle_info(Info, State);
 
 handle_info(_Info, State) ->
     {noreply, State}.
@@ -157,7 +160,9 @@ session_events(Session, Events, State) ->
 %%   Resume Notification/Acknowledge
 
 handle_request(ReqKey, #gtp{version = v1} = Msg, Resent, State) ->
-    ?GTP_v1_Interface:handle_request(ReqKey, Msg, Resent, State);
+    ?GTP_v1_Interface:handle_request(ReqKey, Msg, Resent, State#{'Version' => v1});
+handle_request(ReqKey, #gtp{version = v2} = Msg, Resent, #{'Version' := v1} = State) ->
+    handle_request(ReqKey, Msg, Resent, State#{'Version' => v2});
 
 handle_request(_ReqKey, _Msg, true, State) ->
 %% resent request

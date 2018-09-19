@@ -83,7 +83,7 @@ validate_option(Opt, Value) ->
 
 init(_Opts, State) ->
     {ok, Session} = ergw_aaa_session_sup:new_session(self(), to_session([])),
-    {ok, State#{'Session' => Session}}.
+    {ok, State#{'Version' => v1, 'Session' => Session}}.
 
 handle_call(query_usage_report, _From,
 	    #{context := Context} = State) ->
