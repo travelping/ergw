@@ -334,13 +334,14 @@ handle_request(#request{gtp_port = GtpPort, ip = SrcIP, port = SrcPort} = ReqKey
 
 handle_request(_ReqKey,
 	       #gtp{type = release_access_bearers_request} = Request, _Resent,
-	       #{context := OldContext} = State) ->
-
+	       #{'Session' := Session, context := OldContext} = State) ->
+    ModifyOpts = #{send_end_marker => true},
+    SessionOpts = ergw_aaa_session:get(Session),
     NewContext = OldContext#context{
 		   remote_data_teid = undefined
 		  },
     gtp_context:remote_context_update(OldContext, NewContext),
-    Context = ergw_gsn_lib:modify_sgi_session(NewContext, OldContext),
+    Context = ergw_gsn_lib:modify_sgi_session(SessionOpts, ModifyOpts, NewContext),
 
     ResponseIEs = [#v2_cause{v2_cause = request_accepted}],
     Response = response(release_access_bearers_response, Context, ResponseIEs, Request),
@@ -548,9 +549,11 @@ query_usage_report(#{'Rating-Group' := [RatingGroup]}, Context) ->
 query_usage_report(_, Context) ->
     ergw_gsn_lib:query_usage_report(Context).
 
-apply_context_change(NewContext0, OldContext, State) ->
+apply_context_change(NewContext0, OldContext, #{'Session' := Session} = State) ->
+    ModifyOpts = #{send_end_marker => true},
+    SessionOpts = ergw_aaa_session:get(Session),
     NewContextPending = gtp_path:bind(NewContext0),
-    NewContext = ergw_gsn_lib:modify_sgi_session(NewContextPending, OldContext),
+    NewContext = ergw_gsn_lib:modify_sgi_session(SessionOpts, ModifyOpts, NewContextPending),
     gtp_path:unbind(OldContext),
     State#{context => NewContext}.
 

@@ -439,9 +439,10 @@ query_usage_report(_, Context) ->
     ergw_gsn_lib:query_usage_report(Context).
 
 
-apply_context_change(NewContext0, OldContext, State) ->
+apply_context_change(NewContext0, OldContext, #{'Session' := Session} = State) ->
+    SessionOpts = ergw_aaa_session:get(Session),
     NewContextPending = gtp_path:bind(NewContext0),
-    NewContext = ergw_gsn_lib:modify_sgi_session(NewContextPending, OldContext),
+    NewContext = ergw_gsn_lib:modify_sgi_session(SessionOpts, #{}, NewContextPending),
     gtp_path:unbind(OldContext),
     State#{context => NewContext}.
 

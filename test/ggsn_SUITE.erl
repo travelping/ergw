@@ -640,10 +640,15 @@ update_pdp_context_request_tei_update(Config) ->
     #{update_far :=
 	  #update_far{
 	     group =
-		 #{update_forwarding_parameters :=
+		 #{far_id := _,
+		   update_forwarding_parameters :=
 		       #update_forwarding_parameters{group = UFP}}}} = SMR#pfcp.ie,
     ?match(#sxsmreq_flags{sndem = 0},
 	   maps:get(sxsmreq_flags, UFP, #sxsmreq_flags{sndem = 0})),
+
+    #gtpc{local_data_tei = NewDataTEI} = GtpC2,
+    ?match(#outer_header_creation{teid = NewDataTEI},
+	   maps:get(outer_header_creation, UFP, undefined)),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
