@@ -112,7 +112,33 @@
 		     }]
 		   }]
 		 }
-		]}
+		]},
+
+	 {ergw_aaa,
+	  [{handlers,
+	    [{ergw_aaa_static,
+	      [{'NAS-Identifier',          <<"NAS-Identifier">>},
+	       {'Node-Id',                 <<"PGW-001">>},
+	       {'Charging-Rule-Base-Name', <<"m2m0001">>},
+	       {rules, #{'Default' =>
+			     #{'Rating-Group' => [3000],
+			       'Flow-Information' =>
+				   [#{'Flow-Description' => [<<"permit out ip from any to assigned">>],
+				      'Flow-Direction'   => [1]    %% DownLink
+				     },
+				    #{'Flow-Description' => [<<"permit out ip from any to assigned">>],
+				      'Flow-Direction'   => [2]    %% UpLink
+				     }],
+			       'Metering-Method'  => [1],
+			       'Precedence' => [100]
+			      }
+			}
+	       }
+	      ]}
+	    ]},
+	   {services, [{'Default', [{handler, 'ergw_aaa_static'}]}]},
+	   {apps, [{default, [{session, ['Default']}]}]}
+	  ]}
 	]).
 
 -define(CONFIG_UPDATE,
@@ -389,13 +415,19 @@ modify_bearer_request_tei_update(Config) ->
 		    fun(#pfcp{type = session_modification_request}) -> true;
 		       (_) -> false
 		    end, ergw_test_sx_up:history('pgw-u')),
+
     SMR = pfcp_packet:to_map(SMR0),
     #{update_far :=
 	  #update_far{
 	     group =
-		 #{update_forwarding_parameters :=
+		 #{far_id := _,
+		   update_forwarding_parameters :=
 		       #update_forwarding_parameters{group = UFP}}}} = SMR#pfcp.ie,
     ?match(#sxsmreq_flags{sndem = 1}, maps:get(sxsmreq_flags, UFP)),
+
+    #gtpc{local_data_tei = NewDataTEI} = GtpC3,
+    ?match(#outer_header_creation{teid = NewDataTEI},
+	   maps:get(outer_header_creation, UFP, undefined)),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),

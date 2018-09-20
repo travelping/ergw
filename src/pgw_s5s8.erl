@@ -598,9 +598,17 @@ query_usage_report(#{'Rating-Group' := [RatingGroup]}, Context) ->
 query_usage_report(_, Context) ->
     ergw_gsn_lib:query_usage_report(Context).
 
-apply_context_change(NewContext0, OldContext, State) ->
+apply_context_change(NewContext0, OldContext, #{'Session' := Session} = State) ->
+    ModifyOpts =
+	case {NewContext0, OldContext} of
+	    {#context{version = v2}, #context{version = v2}} ->
+		#{send_end_marker => true};
+	    _ ->
+		#{}
+	end,
+    SessionOpts = ergw_aaa_session:get(Session),
     NewContextPending = gtp_path:bind(NewContext0),
-    NewContext = ergw_gsn_lib:modify_sgi_session(NewContextPending, OldContext),
+    NewContext = ergw_gsn_lib:modify_sgi_session(SessionOpts, ModifyOpts, NewContextPending),
     gtp_path:unbind(OldContext),
     State#{context => NewContext}.
 

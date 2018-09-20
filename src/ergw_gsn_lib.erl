@@ -13,7 +13,7 @@
 	 usage_report_to_credit_report/2,
 	 usage_report_to_monitoring_report/2,
 	 pcc_rules_to_credit_request/1,
-	 modify_sgi_session/2,
+	 modify_sgi_session/3,
 	 delete_sgi_session/2,
 	 query_usage_report/1, query_usage_report/2,
 	 choose_context_ip/3,
@@ -32,21 +32,6 @@
 %%%===================================================================
 %%% Sx DP API
 %%%===================================================================
-
-modify_sgi_session(#context{dp_seid = SEID} = Ctx, OldCtx) ->
-    IEs =
-	lists:foldl(fun update_pdr/2, [], [{1, 'Access', Ctx, OldCtx}, {2, 'SGi-LAN', Ctx, OldCtx}]) ++
-	lists:foldl(fun update_far/2, [], [{2, 'Access', Ctx, OldCtx}, {1, 'SGi-LAN', Ctx, OldCtx}]),
-    Req = #pfcp{version = v1, type = session_modification_request, seid = SEID, ie = IEs},
-
-    case ergw_sx_node:call(Ctx, Req) of
-	#pfcp{version = v1, type = session_modification_response,
-	      %% seid = SEID, TODO: fix DP
-	      ie = #{pfcp_cause := #pfcp_cause{cause = 'Request accepted'}} = _RespIEs} ->
-	    Ctx;
-	_ ->
-	    throw(?CTX_ERR(?FATAL, system_failure, Ctx))
-    end.
 
 delete_sgi_session(normal, #context{dp_seid = SEID} = Ctx) ->
     Req = #pfcp{version = v1, type = session_deletion_request, seid = SEID, ie = []},
@@ -93,193 +78,51 @@ query_usage_report(RatingGroup, #context{dp_seid = SEID,
 create_ipv6_mcast_pdr(PdrId, FarId,
 		      #context{
 			 data_port = #gtp_port{ip = IP} = DataPort,
-			 local_data_tei = LocalTEI}) ->
-    #create_pdr{
-       group =
-	   [#pdr_id{id = PdrId},
-	    #precedence{precedence = 100},
-	    #pdi{
-	       group =
-		   [#source_interface{interface = 'Access'},
-		    ergw_pfcp:network_instance(DataPort),
-		    ergw_pfcp:f_teid(LocalTEI, IP),
-		    #sdf_filter{
-		       flow_description =
-			   <<"permit out 58 from any to ff00::/8">>}
-		   ]},
-	    #far_id{id = FarId},
-	    #urr_id{id = 1}]
-      }.
+			 local_data_tei = LocalTEI,
+			 ms_v6 = IPv6},
+		     Rules)
+  when IPv6 /= undefined ->
+    PDR =
+	pfcp_packet:ies_to_map(
+	  #create_pdr{
+	     group =
+		 [#pdr_id{id = PdrId},
+		  #precedence{precedence = 100},
+		  #pdi{
+		     group =
+			 [#source_interface{interface = 'Access'},
+			  ergw_pfcp:network_instance(DataPort),
+			  ergw_pfcp:f_teid(LocalTEI, IP),
+			  #sdf_filter{
+			     flow_description =
+				 <<"permit out 58 from any to ff00::/8">>}
+			 ]},
+		  #far_id{id = FarId},
+		  #urr_id{id = 1}]
+	    }),
+    update_m_rec(PDR, Rules);
+create_ipv6_mcast_pdr(_, _, _, Rules) ->
+    Rules.
 
 create_dp_to_cp_far(access, FarId,
-		    #context{cp_port = #gtp_port{ip = CpIP} = CpPort, cp_tei = CpTEI}) ->
-    #create_far{
-       group =
-	   [#far_id{id = FarId},
-	    #apply_action{forw = 1},
-	    #forwarding_parameters{
-	       group =
-		   [#destination_interface{interface = 'CP-function'},
-		    ergw_pfcp:network_instance(CpPort),
-		    ergw_pfcp:outer_header_creation(#fq_teid{ip = CpIP, teid = CpTEI})
-		   ]
-	      }
-	   ]
-      }.
-
-create_far({RuleId, 'Access',
-	    #context{
-	       data_port = DataPort,
-	       remote_data_teid = PeerTEID}},
-	   FARs)
-  when PeerTEID /= undefined ->
-    FAR = #create_far{
+		    #context{cp_port = #gtp_port{ip = CpIP} = CpPort, cp_tei = CpTEI},
+		    Rules) ->
+    FAR =
+	pfcp_packet:ies_to_map(
+	  #create_far{
 	     group =
-		 [#far_id{id = RuleId},
+		 [#far_id{id = FarId},
 		  #apply_action{forw = 1},
 		  #forwarding_parameters{
 		     group =
-			 [#destination_interface{interface = 'Access'},
-			  ergw_pfcp:network_instance(DataPort),
-			  ergw_pfcp:outer_header_creation(PeerTEID)
+			 [#destination_interface{interface = 'CP-function'},
+			  ergw_pfcp:network_instance(CpPort),
+			  ergw_pfcp:outer_header_creation(#fq_teid{ip = CpIP, teid = CpTEI})
 			 ]
 		    }
 		 ]
-	    },
-    [FAR | FARs];
-
-create_far({RuleId, 'SGi-LAN', Ctx}, FARs) ->
-    FAR = #create_far{
-	     group =
-		 [#far_id{id = RuleId},
-		  #apply_action{forw = 1},
-		  #forwarding_parameters{
-		     group =
-			 [#destination_interface{interface = 'SGi-LAN'},
-			  ergw_pfcp:network_instance(Ctx)]
-		    }
-		 ]
-	    },
-    [FAR | FARs];
-
-create_far({_RuleId, _Intf, _Out}, FARs) ->
-    FARs.
-
-update_pdr({RuleId, 'Access',
-	    #context{data_port = #gtp_port{name = InPortName, ip = IP} = DataPort,
-		     local_data_tei = LocalTEI},
-	    #context{data_port = #gtp_port{name = OldInPortName},
-		     local_data_tei = OldLocalTEI}},
-	   PDRs)
-  when OldInPortName /= InPortName;
-       OldLocalTEI /= LocalTEI ->
-    PDI = #pdi{
-	     group =
-		 [#source_interface{interface = 'Access'},
-		  ergw_pfcp:network_instance(DataPort),
-		  ergw_pfcp:f_teid(LocalTEI, IP)]
-	    },
-    PDR = #update_pdr{
-	     group =
-		 [#pdr_id{id = RuleId},
-		  #precedence{precedence = 100},
-		  PDI,
-		  ergw_pfcp:outer_header_removal(IP),
-		  #far_id{id = RuleId},
-		  #urr_id{id = 1}]
-	    },
-    [PDR | PDRs];
-
-update_pdr({RuleId, 'SGi-LAN',
-	    #context{vrf = VRF, ms_v4 = MSv4, ms_v6 = MSv6} = Ctx,
-	    #context{vrf = OldVRF, ms_v4 = OldMSv4, ms_v6 = OldMSv6}},
-	   PDRs)
-  when OldVRF /= VRF;
-       OldMSv4 /= MSv4;
-       OldMSv6 /= MSv6 ->
-    PDI = #pdi{
-	     group =
-		 [#source_interface{interface = 'SGi-LAN'},
-		  ergw_pfcp:network_instance(Ctx),
-		  ergw_pfcp:ue_ip_address(dst, Ctx)]
-	     },
-    PDR = #update_pdr{
-	     group =
-		 [#pdr_id{id = RuleId},
-		  #precedence{precedence = 100},
-		  PDI,
-		  #far_id{id = RuleId},
-		  #urr_id{id = 1}]
-	    },
-    [PDR | PDRs];
-
-update_pdr({_RuleId, _Type, _In, _OldIn}, PDRs) ->
-    PDRs.
-
-update_far({RuleId, 'Access',
-	    #context{remote_data_teid = PeerTEID} = Context,
-	    #context{remote_data_teid = OldPeerTEID}},
-	   FARs)
-  when (OldPeerTEID =:= undefined andalso PeerTEID /= undefined) ->
-    create_far({RuleId, 'Access', Context}, FARs);
-
-update_far({RuleId, 'Access',
-	    #context{remote_data_teid = PeerTEID},
-	    #context{remote_data_teid = OldPeerTEID} = Context},
-	   FARs)
-  when (OldPeerTEID /= undefined andalso PeerTEID =:= undefined) ->
-    remove_far({RuleId, 'Access', Context}, FARs);
-
-update_far({RuleId, 'Access',
-	    #context{version = Version,
-		     data_port = #gtp_port{name = OutPortName} = DataPort,
-		     remote_data_teid = PeerTEID},
-	    #context{version = OldVersion,
-		     data_port = #gtp_port{name = OldOutPortName},
-		     remote_data_teid = OldPeerTEID}},
-	   FARs)
-  when OldOutPortName /= OutPortName;
-       OldPeerTEID /= PeerTEID ->
-    FAR = #update_far{
-	     group =
-		 [#far_id{id = RuleId},
-		  #apply_action{forw = 1},
-		  #update_forwarding_parameters{
-		     group =
-			 [#destination_interface{interface = 'Access'},
-			  ergw_pfcp:network_instance(DataPort),
-			  ergw_pfcp:outer_header_creation(PeerTEID)
-			  | [#sxsmreq_flags{sndem = 1} ||
-				v2 =:= Version andalso v2 =:= OldVersion]
-			 ]
-		    }
-		 ]
-	    },
-    [FAR | FARs];
-
-update_far({RuleId, 'SGi-LAN', #context{vrf = VRF} = Ctx, #context{vrf = OldVRF}}, FARs)
-  when OldVRF /= VRF ->
-    FAR = #update_far{
-	     group =
-		 [#far_id{id = RuleId},
-		  #apply_action{forw = 1},
-		  #update_forwarding_parameters{
-		     group =
-			 [#destination_interface{interface = 'SGi-LAN'},
-			  ergw_pfcp:network_instance(Ctx)]
-		    }
-		 ]
-	    },
-    [FAR | FARs];
-
-update_far({_RuleId, _Type, _Out, _OldOut}, FARs) ->
-    FARs.
-
-remove_far({RuleId, 'Access', #context{remote_data_teid = PeerTEID}}, FARs)
-  when PeerTEID /= undefined ->
-    [#remove_far{group = [#far_id{id = RuleId}]} | FARs];
-remove_far({_RuleId, _Type, _Context}, FARs) ->
-    FARs.
+	    }),
+    update_m_rec(FAR, Rules).
 
 %% use additional information from the Context to prefre V4 or V6....
 choose_context_ip(IP4, _IP6, _Context)
@@ -390,7 +233,7 @@ find_sx_by_id(Type, Id, #sx_ids{idmap = IdMap}) ->
     TypeId = maps:get(Type, IdMap, #{}),
     maps:find(Id, TypeId).
 
-build_sx_rules(SessionOpts, #context{sx_ids = SxIds0, sx_rules = OldSxRules} = Ctx) ->
+build_sx_rules(SessionOpts, Opts, #context{sx_ids = SxIds0, sx_rules = OldSxRules} = Ctx) ->
     Monitors = maps:get(monitoring, SessionOpts, #{}),
     PolicyRules = maps:get(rules, SessionOpts, #{}),
     Credits = maps:get('Multiple-Services-Credit-Control', SessionOpts, []),
@@ -405,7 +248,7 @@ build_sx_rules(SessionOpts, #context{sx_ids = SxIds0, sx_rules = OldSxRules} = C
     #sx_upd{errors = Errors, rules = NewSxRules, ids = SxIds2} =
 	Update3,
 
-    SxRuleReq = update_sx_rules(OldSxRules, NewSxRules),
+    SxRuleReq = update_sx_rules(OldSxRules, NewSxRules, Opts),
 
     %% TODO:
     %% remove unused SxIds
@@ -492,8 +335,8 @@ build_sx_rule(Direction = downlink, Name, Definition, FilterInfo, URRs,
     Update2#sx_upd{
       rules =
 	  Rules#{
-		 {pdr, RuleName} => PDR,
-		 {far, RuleName} => FAR
+		 {pdr, RuleName} => pfcp_packet:ies_to_map(PDR),
+		 {far, RuleName} => pfcp_packet:ies_to_map(FAR)
 		}
      };
 build_sx_rule(Direction = uplink, Name, Definition, FilterInfo, URRs,
@@ -531,8 +374,8 @@ build_sx_rule(Direction = uplink, Name, Definition, FilterInfo, URRs,
     Update2#sx_upd{
       rules =
 	  Rules#{
-		 {pdr, RuleName} => PDR,
-		 {far, RuleName} => FAR
+		 {pdr, RuleName} => pfcp_packet:ies_to_map(PDR),
+		 {far, RuleName} => pfcp_packet:ies_to_map(FAR)
 		}
      };
 
@@ -648,13 +491,12 @@ build_sx_usage_rule(#{'Result-Code' := [2001],
     URR0 = #{urr_id => #urr_id{id = UrrId},
 	     measurement_method => #measurement_method{},
 	     reporting_triggers => #reporting_triggers{}},
-    URR1 = lists:foldl(build_sx_usage_rule(_, GSU, GCU, _), URR0,
-		       [time, time_quota_threshold,
-			total_octets, input_octets, output_octets,
-			total_quota_threshold, input_quota_threshold, output_quota_threshold,
-			monitoring_time]),
+    URR = lists:foldl(build_sx_usage_rule(_, GSU, GCU, _), URR0,
+		      [time, time_quota_threshold,
+		       total_octets, input_octets, output_octets,
+		       total_quota_threshold, input_quota_threshold, output_quota_threshold,
+		       monitoring_time]),
 
-    URR = maps:values(URR1),
     lager:warning("URR: ~p", [URR]),
     Update#sx_upd{rules = Rules#{{urr, ChargingKey} => URR}};
 build_sx_usage_rule(Definition, Update) ->
@@ -666,12 +508,13 @@ build_sx_monitor_rule(Service, {'IP-CAN', periodic, Time} = _Definition,
     RuleName = {monitor, 'IP-CAN', Service},
     {UrrId, Update} = sx_id(urr, RuleName, Update0),
 
-    URR = [#urr_id{id = UrrId},
-	   #measurement_method{volum = 1, durat = 1},
-	   #reporting_triggers{periodic_reporting = 1},
-	   #measurement_period{period = Time}],
+    URR = pfcp_packet:ies_to_map(
+	    [#urr_id{id = UrrId},
+	     #measurement_method{volum = 1, durat = 1},
+	     #reporting_triggers{periodic_reporting = 1},
+	     #measurement_period{period = Time}]),
 
-    Monitors1 = maps:update_with('IP-CAN', [UrrId | _], [UrrId], Monitors0),
+    Monitors1 = update_m_key('IP-CAN', UrrId, Monitors0),
     Monitors = Monitors1#{{urr, UrrId}  => Service},
     Update#sx_upd{rules = Rules#{{urr, RuleName} => URR}, monitors = Monitors};
 
@@ -701,52 +544,89 @@ update_sx_usage_rules(Update, #{context := Ctx} = State) ->
     end,
     State#{context => Ctx#context{sx_ids = SxIds}}.
 
+update_m_key(Key, Value, Map) ->
+    maps:update_with(Key, [Value | _], [Value], Map).
 
-update_sx_rules(Old, New) ->
-    Del = maps:fold(fun del_sx_rules/3, [], maps:without(maps:keys(New), Old)),
-    maps:fold(upd_sx_rules(_, _, Old, _), Del, New).
+update_m_rec(Record, Map) when is_tuple(Record) ->
+    maps:update_with(element(1, Record), [Record | _], [Record], Map).
 
-del_sx_rules({pdr, _}, V, Acc) ->
-    Id = lists:keysearch(pdr_id, 1, V),
-    [#remove_pdr{group = [Id]} | Acc];
-del_sx_rules({far, _}, V, Acc) ->
-    Id = lists:keysearch(far_id, 1, V),
-    [#remove_far{group = [Id]} | Acc];
-del_sx_rules({urr, _}, V, Acc) ->
-    Id = lists:keysearch(urr_id, 1, V),
-    [#remove_urr{group = [Id]} | Acc].
+put_rec(Record, Map) when is_tuple(Record) ->
+    maps:put(element(1, Record), Record, Map).
 
-upd_sx_rules({Type, _} = K, V, Old, Acc) ->
-    upd_sx_rules_1(Type, V, maps:get(K, Old, undefined), Acc).
+update_sx_rules(Old, New, Opts) ->
+    Del = maps:fold(fun del_sx_rules/3, #{}, maps:without(maps:keys(New), Old)),
+    maps:fold(upd_sx_rules(_, _, Old, _, Opts), Del, New).
 
-upd_sx_rules_1(pdr, V, undefined, Acc) ->
-    [#create_pdr{group = V} | Acc];
-upd_sx_rules_1(far, V, undefined, Acc) ->
-    [#create_far{group = V} | Acc];
-upd_sx_rules_1(urr, V, undefined, Acc) ->
-    [#create_urr{group = V} | Acc];
+del_sx_rules({pdr, _}, #{pdr_id := Id}, Acc) ->
+    update_m_rec(#remove_pdr{group = [Id]}, Acc);
+del_sx_rules({far, _}, #{far_id := Id}, Acc) ->
+    update_m_rec(#remove_far{group = [Id]}, Acc);
+del_sx_rules({urr, _}, #{urr_id := Id}, Acc) ->
+    update_m_rec(#remove_urr{group = [Id]}, Acc).
 
-upd_sx_rules_1(_Type, V, V, Acc) ->
+upd_sx_rules({Type, _} = K, V, Old, Acc, Opts) ->
+    upd_sx_rules_1(Type, V, maps:get(K, Old, undefined), Acc, Opts).
+
+upd_sx_rules_1(pdr, V, undefined, Acc, _Opts) ->
+    update_m_rec(#create_pdr{group = V}, Acc);
+upd_sx_rules_1(far, V, undefined, Acc, _Opts) ->
+    update_m_rec(#create_far{group = V}, Acc);
+upd_sx_rules_1(urr, V, undefined, Acc, _Opts) ->
+    update_m_rec(#create_urr{group = V}, Acc);
+
+upd_sx_rules_1(_Type, V, V, Acc, _Opts) ->
     Acc;
 
-upd_sx_rules_1(pdr, V, OldV, Acc) ->
-    [#update_pdr{group = lists:foldl(update_sx_pdr(_, OldV, _), [], V)} | Acc];
-upd_sx_rules_1(far, V, OldV, Acc) ->
-    [#update_far{group = lists:map(update_sx_far(_, OldV), V)} | Acc];
-upd_sx_rules_1(urr, V, _OldV, Acc) ->
-    [#update_urr{group = V} | Acc].
+upd_sx_rules_1(pdr, V, OldV, Acc, Opts) ->
+    update_m_rec(#update_pdr{group = update_sx_pdr(V, OldV, Opts)}, Acc);
+upd_sx_rules_1(far, V, OldV, Acc, Opts) ->
+    update_m_rec(#update_far{group = update_sx_far(V, OldV, Opts)}, Acc);
+upd_sx_rules_1(urr, V, _OldV, Acc, _Opts) ->
+    update_m_rec(#update_urr{group = V}, Acc).
 
-update_sx_pdr(V, _Old, A) ->
-    %% TODO: predefined rules (activate/deactivate)
-    [V | A].
+update_sx_simplify(New, Old)
+  when is_map(Old), New =/= Old ->
+    Added = maps:without(maps:keys(Old), New),
+    maps:fold(fun(K, V, A) ->
+		      case maps:get(K, New) of
+			  V -> A;
+			  NewV -> maps:put(K, NewV, A)
+		      end
+	      end, Added, Old);
+update_sx_simplify(New, _Old) ->
+    New.
 
-update_sx_far(#forwarding_parameters{group = P}, _Old) ->
-    %% TODO: sxsmreq_flags....
-    #update_forwarding_parameters{group = P};
-update_sx_far(#duplicating_parameters{group = P}, _Old) ->
-    #update_duplicating_parameters{group = P};
-update_sx_far(V, _Old) ->
-    V.
+%% TODO: predefined rules (activate/deactivate)
+update_sx_pdr(#{pdr_id := Id} = New, Old, _Opts) ->
+    Update = update_sx_simplify(New, Old),
+    put_rec(Id, Update).
+
+update_sx_far(#{far_id := Id} = New, Old, Opts) ->
+    Update = update_sx_simplify(New, Old),
+    maps:fold(update_sx_far(_, _, Old, _, Opts), #{}, put_rec(Id, Update)).
+
+update_sx_far(_, #forwarding_parameters{
+		    group =
+			#{destination_interface :=
+			      #destination_interface{interface = Interface}} = New},
+	      #{forwarding_parameters := #forwarding_parameters{group = Old}},
+	      Far, Opts) ->
+    SendEM = maps:get(send_end_marker, Opts, false),
+    Update0 = update_sx_simplify(New, Old),
+    Update =
+	case Update0 of
+	    #{outer_header_creation := _}
+	      when SendEM andalso (Interface == 'Access' orelse Interface == 'Core')->
+		put_rec(#sxsmreq_flags{sndem = 1}, Update0);
+	    _ ->
+		Update0
+	end,
+    put_rec(#update_forwarding_parameters{group = Update}, Far);
+update_sx_far(_, #duplicating_parameters{group = P}, _Old, Far, _Opts) ->
+    put_rec(#update_duplicating_parameters{group = P}, Far);
+update_sx_far(K, V, _Old, Far, _Opts) ->
+    lager:debug("Update Sx Far: ~p, ~p", [K, lager:pr(V, ?MODULE)]),
+    Far#{K => V}.
 
 create_sgi_session(Candidates, SessionOpts, Ctx0) ->
     Ctx1 = ergw_sx_node:select_sx_node(Candidates, Ctx0),
@@ -757,18 +637,14 @@ create_sgi_session(Candidates, SessionOpts, Ctx0) ->
     {CPinFarId, Ctx3} = sx_id(far, dp_to_cp_far, Ctx2),
     {IPv6MCastPdrId, Ctx4} = sx_id(pdr, ipv6_mcast_pdr, Ctx3),
 
-    {SxRules, SxErrors, Ctx} = build_sx_rules(SessionOpts, Ctx4),
-    lager:info("SxRules: ~p~n", [SxRules]),
+    {SxRules0, SxErrors, Ctx} = build_sx_rules(SessionOpts, #{}, Ctx4),
+    lager:info("SxRules: ~p~n", [SxRules0]),
     lager:info("SxErrors: ~p~n", [SxErrors]),
     lager:info("CtxPending: ~p~n", [Ctx]),
 
-    IEs =
-	[ergw_pfcp:f_seid(SEID, IP),
-	 create_dp_to_cp_far(access, CPinFarId, Ctx)] ++
-	[create_ipv6_mcast_pdr(IPv6MCastPdrId, CPinFarId, Ctx) || Ctx#context.ms_v6 /= undefined] ++
-	%% [#create_urr{group =
-	%% 		 [#urr_id{id = 1}, #measurement_method{volum = 1}]}] ++
-	SxRules,
+    SxRules1 = create_dp_to_cp_far(access, CPinFarId, Ctx, SxRules0),
+    SxRules2 = create_ipv6_mcast_pdr(IPv6MCastPdrId, CPinFarId, Ctx, SxRules1),
+    IEs = update_m_rec(ergw_pfcp:f_seid(SEID, IP), SxRules2),
 
     Req = #pfcp{version = v1, type = session_establishment_request, seid = 0, ie = IEs},
     case ergw_sx_node:call(Ctx, Req) of
@@ -779,6 +655,22 @@ create_sgi_session(Candidates, SessionOpts, Ctx0) ->
 	    Ctx#context{cp_seid = SEID, dp_seid = DataPathSEID};
 	_ ->
 	    throw(?CTX_ERR(?FATAL, system_failure, Ctx))
+    end.
+
+modify_sgi_session(SessionOpts, Opts, #context{dp_seid = SEID} = Ctx) ->
+    {SxRules0, SxErrors, CtxPending} = build_sx_rules(SessionOpts, Opts, Ctx),
+
+    %% TODO: at the moment, modify_sgi_session is only used to change TEIDs,
+    SxRules = maps:without([update_urr], SxRules0),
+
+    Req = #pfcp{version = v1, type = session_modification_request, seid = SEID, ie = SxRules},
+    case ergw_sx_node:call(CtxPending, Req) of
+	#pfcp{version = v1, type = session_modification_response,
+	      %% seid = SEID, TODO: fix DP
+	      ie = #{pfcp_cause := #pfcp_cause{cause = 'Request accepted'}} = _RespIEs} ->
+	    CtxPending;
+	_ ->
+	    throw(?CTX_ERR(?FATAL, system_failure, CtxPending))
     end.
 
 
