@@ -544,14 +544,14 @@ copy_to_session(_, #international_mobile_subscriber_identity{imsi = IMSI}, _AAAo
 	    Session#{'3GPP-IMSI' => IMSI}
     end;
 copy_to_session(_, #end_user_address{pdp_type_organization = 0,
-				  pdp_type_number = 1}, _AAAopts, Session) ->
+				     pdp_type_number = 1}, _AAAopts, Session) ->
     Session#{'3GPP-PDP-Type' => 'PPP'};
 copy_to_session(_, #end_user_address{pdp_type_organization = 0,
-				  pdp_type_number = 2}, _AAAopts, Session) ->
+				     pdp_type_number = 2}, _AAAopts, Session) ->
     Session#{'3GPP-PDP-Type' => 'Non-IP'};
 copy_to_session(_, #end_user_address{pdp_type_organization = 1,
-				  pdp_type_number = 16#57,
-				  pdp_address = Address}, _AAAopts, Session0) ->
+				     pdp_type_number = 16#21,
+				     pdp_address = Address}, _AAAopts, Session0) ->
     Session = Session0#{'3GPP-PDP-Type' => 'IPv4'},
     case Address of
 	<<_:4/bytes>> ->
@@ -562,8 +562,8 @@ copy_to_session(_, #end_user_address{pdp_type_organization = 1,
 	    Session
     end;
 copy_to_session(_, #end_user_address{pdp_type_organization = 1,
-				  pdp_type_number = 16#21,
-				  pdp_address = Address}, _AAAopts, Session0) ->
+				     pdp_type_number = 16#57,
+				     pdp_address = Address}, _AAAopts, Session0) ->
     Session = Session0#{'3GPP-PDP-Type' => 'IPv6'},
     case Address of
 	<<_:16/bytes>> ->
@@ -574,8 +574,8 @@ copy_to_session(_, #end_user_address{pdp_type_organization = 1,
 	    Session
     end;
 copy_to_session(_, #end_user_address{pdp_type_organization = 1,
-				  pdp_type_number = 16#8D,
-				  pdp_address = Address}, _AAAopts, Session0) ->
+				     pdp_type_number = 16#8D,
+				     pdp_address = Address}, _AAAopts, Session0) ->
     Session = Session0#{'3GPP-PDP-Type' => 'IPv4v6'},
     case Address of
 	<< IP4:4/bytes >> ->
