@@ -205,8 +205,14 @@ create_far({RuleId, Intf,
 		 ]
 	    },
     [FAR | FARs];
-create_far({_RuleId, _Intf, _Out}, FARs) ->
-    FARs.
+create_far({RuleId, _Intf, _Out}, FARs) ->
+    FAR = #create_far{
+	     group =
+		 [#far_id{id = RuleId},
+		  #apply_action{drop = 1}
+		 ]
+	    },
+    [FAR | FARs].
 
 update_pdr({RuleId, Intf,
 	    #context{data_port = #gtp_port{name = OldInPortName},
@@ -236,12 +242,6 @@ update_pdr({RuleId, Intf,
 update_pdr({_RuleId, _Intf, _OldIn, _NewIn}, PDRs) ->
     PDRs.
 
-update_far({RuleId, Intf,
-	    #context{remote_data_teid = OldPeerTEID},
-	    #context{remote_data_teid = NewPeerTEID} = NewContext},
-	   FARs)
-  when (OldPeerTEID =:= undefined andalso NewPeerTEID /= undefined) ->
-    create_far({RuleId, Intf, NewContext}, FARs);
 update_far({RuleId, Intf,
 	    #context{version = OldVersion,
 		     data_port = #gtp_port{name = OldOutPortName},
@@ -286,7 +286,10 @@ create_forward_session(Candidates, Left0, Right0) ->
 	lists:foldl(fun create_pdr/2, [], [{1, 'Access', Left}, {2, 'Core', Right}]) ++
 	lists:foldl(fun create_far/2, [], [{2, 'Access', Left}, {1, 'Core', Right}]) ++
 	[#create_urr{group =
-			 [#urr_id{id = 1}, #measurement_method{volum = 1}]}],
+			 [#urr_id{id = 1},
+			  #measurement_method{volum = 1},
+			  #reporting_triggers{periodic_reporting = 1}
+			 ]}],
     Req = #pfcp{version = v1, type = session_establishment_request, seid = 0, ie = IEs},
     case ergw_sx_node:call(Left, Req) of
 	#pfcp{version = v1, type = session_establishment_response,
