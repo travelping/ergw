@@ -434,14 +434,16 @@ handle_response(#proxy_request{direction = sgw2pgw} = ProxyRequest,
     ProxyContext = gtp_path:bind(Response, ProxyContext1),
     gtp_context:remote_context_register(ProxyContext),
 
-    forward_response(ProxyRequest, Response, Context),
+    Return =
+	if ?CAUSE_OK(Cause) ->
+		ergw_proxy_lib:modify_forward_session(Context, Context, PrevProxyCtx, ProxyContext),
+		{noreply, State#{proxy_context => ProxyContext}};
+	   true ->
+		{stop, State}
+	end,
 
-    if ?CAUSE_OK(Cause) ->
-	    ergw_proxy_lib:modify_forward_session(Context, Context, PrevProxyCtx, ProxyContext),
-	    {noreply, State#{proxy_context => ProxyContext}};
-       true ->
-	    {stop, State}
-    end;
+    forward_response(ProxyRequest, Response, Context),
+    Return;
 
 handle_response(#proxy_request{direction = sgw2pgw,
 			       context = PrevContext,
@@ -454,8 +456,8 @@ handle_response(#proxy_request{direction = sgw2pgw,
     ProxyContext = update_context_from_gtp_req(Response, OldProxyContext),
     gtp_context:remote_context_update(OldProxyContext, ProxyContext),
 
-    forward_response(ProxyRequest, Response, Context),
     ergw_proxy_lib:modify_forward_session(PrevContext, Context, PrevProxyCtx, ProxyContext),
+    forward_response(ProxyRequest, Response, Context),
 
     {noreply, State#{proxy_context => ProxyContext}};
 
