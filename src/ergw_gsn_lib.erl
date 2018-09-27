@@ -258,10 +258,9 @@ build_sx_rules(SessionOpts, Opts, #context{sx_ids = SxIds0, sx_rules = OldSxRule
 %% no need to split into dl and ul direction, URR contain DL, UL and Total
 build_sx_rule(Name, #{'Flow-Information' := FlowInfo,
 		      'Metering-Method' := [_MeterM]} = Definition,
-	      #sx_upd{} = Update0) ->
+	      #sx_upd{} = Update) ->
     %% we need PDR+FAR (and PDI) for UL and DL, URR is universal for both
 
-    URRs = collect_urrs(Name, Definition, Update0),
     {DL, UL} = lists:foldl(
 		 fun(#{'Flow-Direction' :=
 			   [?'DIAMETER_3GPP_CHARGING_FLOW-DIRECTION_DOWNLINK']} = R, {D, U}) ->
@@ -275,19 +274,20 @@ build_sx_rule(Name, #{'Flow-Information' := FlowInfo,
 		    (_, A) ->
 			 A
 		 end, {[], []}, FlowInfo),
-    Update1 = build_sx_rule(downlink, Name, Definition, DL, URRs, Update0),
-    build_sx_rule(uplink, Name, Definition, UL, URRs, Update1);
+    build_sx_rule(Name, Definition, DL, UL, Update);
 
 build_sx_rule(Name, #{'TDF-Application-Identifier' := [AppId],
 		      'Metering-Method' := [_MeterM]} = Definition,
 	      #sx_upd{} = Update) ->
-    %% we need PDR+FAR (and PDI) for UL and URR
-
-    URRs = collect_urrs(Name, Definition, Update),
-    build_sx_rule(uplink, Name, Definition, AppId, URRs, Update);
+    build_sx_rule(Name, Definition, AppId, AppId, Update);
 
 build_sx_rule(Name, _Definition, Update) ->
     sx_rule_error({system_error, Name}, Update).
+
+build_sx_rule(Name, Definition, DL, UL, Update0) ->
+    URRs = collect_urrs(Name, Definition, Update0),
+    Update = build_sx_rule(downlink, Name, Definition, DL, URRs, Update0),
+    build_sx_rule(uplink, Name, Definition, UL, URRs, Update).
 
 build_sx_filter(FlowInfo)
   when is_list(FlowInfo) ->
