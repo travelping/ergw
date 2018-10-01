@@ -625,7 +625,7 @@ ipv6_bearer_request(Config) ->
 				      sdf_filter :=
 					  #sdf_filter{
 					     flow_description =
-						 <<"permit out 58 from any to ff00::/8">>}
+						 <<"permit out 58 from ff00::/8 to assigned">>}
 				     }
 			       }
 			}}) -> true;

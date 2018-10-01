@@ -95,7 +95,7 @@ create_ipv6_mcast_pdr(PdrId, FarId,
 			  ergw_pfcp:f_teid(LocalTEI, IP),
 			  #sdf_filter{
 			     flow_description =
-				 <<"permit out 58 from any to ff00::/8">>}
+				 <<"permit out 58 from ff00::/8 to assigned">>}
 			 ]},
 		  #far_id{id = FarId},
 		  #urr_id{id = 1}]
