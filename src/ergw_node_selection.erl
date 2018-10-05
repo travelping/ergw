@@ -76,19 +76,23 @@ candidates(Name, Services, NodeSelection) ->
 	    L
     end.
 
+apn_to_fqdn({fqdn, _} = FQDN) ->
+    FQDN;
 apn_to_fqdn([H|_] = APN)
   when is_binary(H) ->
     apn_to_fqdn([binary_to_list(X) || X <- APN]);
 apn_to_fqdn(APN)
   when is_list(APN) ->
-    case lists:reverse(APN) of
-	["gprs", MCC, MNC | APN_NI] ->
-	    lists:reverse(["org", "3gppnetwork", MCC, MNC, "epc", "apn" | APN_NI]);
-	["org", "3gppnetwork" | _] ->
-	    APN;
-	APN_NI ->
-	    normalize_name_fqdn(["epc", "apn" | APN_NI])
-    end.
+    FQDN =
+	case lists:reverse(APN) of
+	    ["gprs", MCC, MNC | APN_NI] ->
+		lists:reverse(["org", "3gppnetwork", MCC, MNC, "epc", "apn" | APN_NI]);
+	    ["org", "3gppnetwork" | _] ->
+		APN;
+	    APN_NI ->
+		normalize_name_fqdn(["epc", "apn" | APN_NI])
+	end,
+    {fqdn, FQDN}.
 
 %%%===================================================================
 %%% Options Validation
@@ -173,6 +177,8 @@ get_candidates(Name, ServiceSet, [NodeSelection | NextSelection]) ->
 	    L
     end.
 
+normalize_name({fqdn, FQDN}) ->
+    FQDN;
 normalize_name([H|_] = Name) when is_list(H) ->
     normalize_name_fqdn(lists:reverse(Name));
 normalize_name(Name) when is_list(Name) ->
