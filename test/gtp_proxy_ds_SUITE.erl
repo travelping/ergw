@@ -20,10 +20,10 @@
 
 init_per_suite(Config) ->
     ProxyMap = [
-        {imsi, [{<<"111111111111111">>, {<<"111111111111111">>, <<"16477141111">>}}, 
-                {<<"222222222222222">>, {<<"333333333333333">>, <<"16477141222">>}} ]}, 
-        {apn, [{[<<"apn1">>], [<<"example1">>, <<"com">>]},
-               {[<<"apn2">>], [<<"example2">>, <<"com">>]} ]}
+	{imsi, [{<<"111111111111111">>, {<<"111111111111111">>, <<"16477141111">>}},
+		{<<"222222222222222">>, {<<"333333333333333">>, <<"16477141222">>}} ]},
+	{apn, [{[<<"apn1">>], [<<"example1">>, <<"com">>]},
+	       {[<<"apn2">>], [<<"example2">>, <<"com">>]} ]}
     ],
     application:set_env(ergw, proxy_map, ProxyMap),
     gen_server:start({local, gtp_proxy_ds_test}, gtp_proxy_ds, [], []),
@@ -47,33 +47,33 @@ all() ->
 map() ->
     [{doc, "Check that gtp_proxy_ds:map/1 works as expected"}].
 map(_Config) ->
-    ?equal({ok, #proxy_info{}}, 
-           gen_server:call(gtp_proxy_ds_test, {map, #proxy_info{}})),
+    ?equal({ok, #proxy_info{}},
+	   gen_server:call(gtp_proxy_ds_test, {map, #proxy_info{}})),
 
     ProxyInfo0 = #proxy_info{ggsns = [#proxy_ggsn{dst_apn = [<<"apn0">>]}],
-                             src_apn = [<<"apn0">>],
-                             imsi = <<"000000000000000">>, 
-                             msisdn = <<"unknown">>},
+			     src_apn = [<<"apn0">>],
+			     imsi = <<"000000000000000">>,
+			     msisdn = <<"unknown">>},
     ?match({ok, ProxyInfo0}, gen_server:call(gtp_proxy_ds_test, {map, ProxyInfo0})),
 
     ProxyInfo1 = #proxy_info{ggsns = [#proxy_ggsn{}],
-                             src_apn = [<<"apn1">>],
-                             imsi = <<"111111111111111">>, 
-                             msisdn = <<"unknown">>},
+			     src_apn = [<<"apn1">>],
+			     imsi = <<"111111111111111">>,
+			     msisdn = <<"unknown">>},
     ?match({ok, #proxy_info{ggsns = [#proxy_ggsn{dst_apn = [<<"example1">>, <<"com">>]}],
-                            src_apn = [<<"apn1">>],
-                            imsi = <<"111111111111111">>, 
-                            msisdn = <<"16477141111">>}}, 
-           gen_server:call(gtp_proxy_ds_test, {map, ProxyInfo1})),
+			    src_apn = [<<"apn1">>],
+			    imsi = <<"111111111111111">>,
+			    msisdn = <<"16477141111">>}},
+	   gen_server:call(gtp_proxy_ds_test, {map, ProxyInfo1})),
 
     ProxyInfo2 = #proxy_info{ggsns = [#proxy_ggsn{dst_apn = [<<"apn2">>]}],
-                             src_apn = [<<"apn2">>],
-                             imsi = <<"222222222222222">>, 
-                             msisdn = <<"unknown">>},
-    ?match({ok, #proxy_info{ggsns = [#proxy_ggsn{dst_apn = [<<"example2">>, <<"com">>]}], 
-                            src_apn = [<<"apn2">>],
-                            imsi = <<"333333333333333">>, 
-                            msisdn = <<"16477141222">>}}, 
-           gen_server:call(gtp_proxy_ds_test, {map, ProxyInfo2})),
+			     src_apn = [<<"apn2">>],
+			     imsi = <<"222222222222222">>,
+			     msisdn = <<"unknown">>},
+    ?match({ok, #proxy_info{ggsns = [#proxy_ggsn{dst_apn = [<<"example2">>, <<"com">>]}],
+			    src_apn = [<<"apn2">>],
+			    imsi = <<"333333333333333">>,
+			    msisdn = <<"16477141222">>}},
+	   gen_server:call(gtp_proxy_ds_test, {map, ProxyInfo2})),
 
     ok.
