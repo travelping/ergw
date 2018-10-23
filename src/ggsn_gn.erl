@@ -121,6 +121,12 @@ handle_info({'DOWN', _MonitorRef, Type, Pid, _Info} = _I,
 
 %% ===========================================================================
 
+handle_info(#aaa_request{procedure = {diameter, 'ASR'}},
+	    #{context := Context, 'Session' := Session} = State) ->
+    ergw_aaa_session:response(Session, ok, #{}),
+    delete_context(undefined, Context),
+    {noreply, State};
+
 handle_info(#aaa_request{procedure = {gy, 'RAR'}, request = Request},
 	    #{context := Context, 'Session' := Session} = State) ->
     ergw_aaa_session:response(Session, ok, #{}),
@@ -306,7 +312,9 @@ handle_request(ReqKey, _Msg, _Resent, State) ->
 
 handle_response(From, timeout, #gtp{type = delete_pdp_context_request}, State) ->
     close_pdp_context(normal, State),
-    gen_server:reply(From, {error, timeout}),
+    if is_tuple(From) -> gen_server:reply(From, {error, timeout});
+       true -> ok
+    end,
     {stop, State};
 
 handle_response(From,
@@ -316,7 +324,9 @@ handle_response(From,
 		#{context := Context0} = State) ->
     Context = gtp_path:bind(Response, Context0),
     close_pdp_context(normal, State),
-    gen_server:reply(From, {ok, Cause}),
+    if is_tuple(From) -> gen_server:reply(From, {ok, Cause});
+       true -> ok
+    end,
     {stop, State#{context := Context}}.
 
 terminate(_Reason, _State) ->

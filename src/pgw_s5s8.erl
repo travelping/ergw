@@ -132,6 +132,12 @@ handle_info({'DOWN', _MonitorRef, Type, Pid, _Info},
 
 %% ===========================================================================
 
+handle_info(#aaa_request{procedure = {diameter, 'ASR'}},
+	    #{context := Context, 'Session' := Session} = State) ->
+    ergw_aaa_session:response(Session, ok, #{}),
+    delete_context(undefined, Context),
+    {noreply, State};
+
 handle_info(#aaa_request{procedure = {gy, 'RAR'}, request = Request},
 	    #{context := Context, 'Session' := Session} = State) ->
     ergw_aaa_session:response(Session, ok, #{}),
