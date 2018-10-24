@@ -236,7 +236,6 @@ handle_request(_ReqKey,
     Services = [{"x-3gpp-upf", "x-sxb"}],
     Candidates = ergw_node_selection:candidates(APN_FQDN, Services, NodeSelect),
 
-    ok = ergw_aaa_session:invoke(Session, SessionIPs, start, [], true),
     %% ContextPending = ergw_gsn_lib:session_events(SessionEvents, ContextPending1),
 
     %% ===========================================================================
@@ -255,6 +254,8 @@ handle_request(_ReqKey,
     GyReqServices = #{credits => Credits},
     {ok, GySessionOpts, _} =
 	ergw_aaa_session:invoke(Session, GyReqServices, {gy, 'CCR-Initial'}, [], false),
+
+    ok = ergw_aaa_session:invoke(Session, SessionIPs, start, [], true),
 
     %% ===========================================================================
 
@@ -414,9 +415,6 @@ pdp_release_ip(#context{vrf = VRF, ms_v4 = MSv4, ms_v6 = MSv6}) ->
 
 close_pdp_context(Reason, #{context := Context, 'Session' := Session}) ->
     URRs = ergw_gsn_lib:delete_sgi_session(Reason, Context),
-    SessionOpts = to_session(gtp_context:usage_report_to_accounting(URRs)),
-    lager:debug("Accounting Opts: ~p", [SessionOpts]),
-    ergw_aaa_session:invoke(Session, SessionOpts, stop, [], true),
 
     %% ===========================================================================
 
@@ -444,6 +442,14 @@ close_pdp_context(Reason, #{context := Context, 'Session' := Session}) ->
 	    lager:debug("GySessionOpts: ~p", [GySessionOpts]);
 	GyOther ->
 	    lager:warning("Gy terminate failed with: ~p", [GyOther])
+    end,
+
+    case ergw_gsn_lib:usage_report_to_monitoring_report(URRs, Context) of
+	Final when map_size(Final) /= 0 ->
+	    FinalReq = #{'monitors' => Final},
+	    ergw_aaa_session:invoke(Session, FinalReq, stop, [], true);
+	_ ->
+	    ok
     end,
 
     %% ===========================================================================

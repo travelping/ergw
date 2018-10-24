@@ -243,10 +243,11 @@ build_sx_rules(SessionOpts, Opts, #context{sx_ids = SxIds0, sx_rules = OldSxRule
 
     Update0 = #sx_upd{ids = SxIds1, context = Ctx},
     Update1 = maps:fold(fun build_sx_monitor_rule/3, Update0, Monitors),
-    Update2 = lists:foldl(fun build_sx_usage_rule/2, Update1, Credits),
-    Update3 = maps:fold(fun build_sx_rule/3, Update2, PolicyRules),
+    Update2 = maps:fold(build_sx_offline_charging_rule(_, _, SessionOpts, _), Update1, PolicyRules),
+    Update3 = lists:foldl(fun build_sx_usage_rule/2, Update2, Credits),
+    Update4 = maps:fold(fun build_sx_rule/3, Update3, PolicyRules),
     #sx_upd{errors = Errors, rules = NewSxRules, ids = SxIds2} =
-	Update3,
+	Update4,
 
     SxRuleReq = update_sx_rules(OldSxRules, NewSxRules, Opts),
 
@@ -254,6 +255,38 @@ build_sx_rules(SessionOpts, Opts, #context{sx_ids = SxIds0, sx_rules = OldSxRule
     %% remove unused SxIds
 
     {SxRuleReq, Errors, Ctx#context{sx_ids = SxIds2, sx_rules = NewSxRules}}.
+
+build_sx_offline_charging_rule(_Name,
+			       #{'Rating-Group' := [RatingGroup],
+				 'Offline' := [1]} = Definition,
+			       SessionOpts, #sx_upd{rules = Rules} = Update0) ->
+    ChargingKey = {offline, RatingGroup},
+    MM = case maps:get('Metering-Method', Definition,
+		       [?'DIAMETER_3GPP_CHARGING_METERING-METHOD_DURATION_VOLUME']) of
+	     [?'DIAMETER_3GPP_CHARGING_METERING-METHOD_DURATION'] ->
+		 #measurement_method{durat = 1};
+	     [?'DIAMETER_3GPP_CHARGING_METERING-METHOD_VOLUME'] ->
+		 #measurement_method{volum = 1};
+	     [?'DIAMETER_3GPP_CHARGING_METERING-METHOD_DURATION_VOLUME'] ->
+		 #measurement_method{volum = 1, durat = 1}
+	 end,
+
+    {UrrId, Update} = sx_id(urr, ChargingKey, Update0),
+    URR = #{urr_id => #urr_id{id = UrrId},
+	    measurement_method => MM,
+	    reporting_triggers => #reporting_triggers{periodic_reporting = 1},
+	    measurement_period =>
+		#measurement_period{
+		   period = maps:get('Acct-Interim-Interval', SessionOpts, 600)}
+	   },
+
+    Update#sx_upd{rules = Rules#{{urr, ChargingKey} => URR}};
+
+build_sx_offline_charging_rule(Name, #{'Offline' := [1]}, _SessionOpts, Update) ->
+    %% Offline without Rating-Group ???
+    sx_rule_error({system_error, Name}, Update);
+build_sx_offline_charging_rule(_Name, _Definition, _SessionOpts, Update) ->
+    Update.
 
 %% no need to split into dl and ul direction, URR contain DL, UL and Total
 build_sx_rule(Name, #{'Flow-Information' := FlowInfo,
@@ -382,15 +415,22 @@ build_sx_rule(Direction = uplink, Name, Definition, FilterInfo, URRs,
 build_sx_rule(_Direction, Name, _Definition, _FlowInfo, _URRs, Update) ->
     sx_rule_error({system_error, Name}, Update).
 
+get_sx_ids(_Type, [], _Update, URRs) ->
+    URRs;
+get_sx_ids(Type, [H|T], Update, URRs0) ->
+    URRs =
+	case find_sx_id(urr, H, Update) of
+	    {ok, UrrId} ->
+		[UrrId | URRs0];
+	    _ ->
+		URRs0
+	end,
+    get_sx_ids(Type, T, Update, URRs).
+
 collect_urrs(_Name, #{'Rating-Group' := [RatingGroup]},
 	     #sx_upd{monitors = Monitors} = Update) ->
     URRs = maps:get('IP-CAN', Monitors, []),
-    case find_sx_id(urr, RatingGroup, Update) of
-	{ok, UrrId} ->
-	    [UrrId | URRs];
-	_ ->
-	    URRs
-    end;
+    get_sx_ids(urr, [RatingGroup, {offline, RatingGroup}], Update, URRs);
 collect_urrs(Name, _Definition, Update) ->
     lager:error("URR: ~p, ~p", [Name, _Definition]),
     {[], sx_rule_error({system_error, Name}, Update)}.
@@ -775,6 +815,13 @@ usage_report_to_monitor_report({urr, {monitor, Level, Service}}, Id, CR, Report)
     case CR of
 	#{Id := R} ->
 	    maps:update_with(Level, maps:put(Service, R, _), #{Service => R}, Report);
+	_ ->
+	    Report
+    end;
+usage_report_to_monitor_report({urr, {offline, RatingGroup}}, Id, CR, Report) ->
+    case CR of
+	#{Id := R} ->
+	    maps:update_with(offline, maps:put(RatingGroup, R, _), #{RatingGroup => R}, Report);
 	_ ->
 	    Report
     end;
