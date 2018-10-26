@@ -148,7 +148,7 @@ handle_info(#aaa_request{procedure = {gy, 'RAR'}, request = Request},
 
 	    GyUpdate = (catch ergw_gsn_lib:usage_report_to_credit_report(UsageReport, Context)),
 	    GyReqServices = #{'used_credits' => GyUpdate},
-	    ergw_aaa_session:invoke(Session, GyReqServices, {gy, 'CCR-Update'}, [], true);
+	    ergw_aaa_session:invoke(Session, GyReqServices, {gy, 'CCR-Update'}, #{async => true});
 	_ ->
 	    ok
     end,
@@ -172,9 +172,22 @@ handle_sx_report(#pfcp{type = session_report_request,
 			      usage_report_srr := UsageReport}},
 		 _From, #{context := Context, 'Session' := Session} = State) ->
 
-    GyUpdate = ergw_gsn_lib:usage_report_to_credit_report(UsageReport, Context),
-    GyReqServices = #{'used_credits' => GyUpdate},
-    ergw_aaa_session:invoke(Session, GyReqServices, {gy, 'CCR-Update'}, [], true),
+    SOpts = #{now => erlang:monotonic_time(), async => true},
+    case ergw_gsn_lib:usage_report_to_credit_report(UsageReport, Context) of
+	GyUpdate when length(GyUpdate) /= 0 ->
+	    GyReqServices = #{'used_credits' => GyUpdate},
+	    ergw_aaa_session:invoke(Session, GyReqServices, {gy, 'CCR-Update'}, SOpts);
+	_ ->
+	    ok
+    end,
+
+    case ergw_gsn_lib:usage_report_to_monitoring_report(UsageReport, Context) of
+	Interim when map_size(Interim) /= 0 ->
+	    InterimReq = #{'monitors' => Interim},
+	    ergw_aaa_session:invoke(Session, InterimReq, interim, SOpts);
+	_ ->
+	    ok
+    end,
 
     {ok, State};
 
@@ -259,16 +272,17 @@ handle_request(_ReqKey,
     %%  3. CCR on Gy to get charging information for rating groups
 
     %%  1. CCR on Gx to get PCC rules
+    SOpts = #{now => erlang:monotonic_time()},
     {ok, GxSessionOpts, _} =
-	ergw_aaa_session:invoke(Session, #{}, {gx, 'CCR-Initial'}, [], false),
+	ergw_aaa_session:invoke(Session, #{}, {gx, 'CCR-Initial'}, SOpts),
     GxRules = maps:get(rules, GxSessionOpts, #{}),
 
     Credits = ergw_gsn_lib:pcc_rules_to_credit_request(GxRules),
     GyReqServices = #{credits => Credits},
     {ok, GySessionOpts, _} =
-	ergw_aaa_session:invoke(Session, GyReqServices, {gy, 'CCR-Initial'}, [], false),
+	ergw_aaa_session:invoke(Session, GyReqServices, {gy, 'CCR-Initial'}, SOpts),
 
-    ok = ergw_aaa_session:invoke(Session, SessionIPs, start, [], true),
+    ok = ergw_aaa_session:invoke(Session, SessionIPs, start, SOpts#{async => true}),
 
     %% ===========================================================================
 
@@ -532,7 +546,8 @@ close_pdn_context(Reason, #{context := Context, 'Session' := Session}) ->
 	end,
 
     %%  1. CCR on Gx to get PCC rules
-    case ergw_aaa_session:invoke(Session, #{}, {gx, 'CCR-Terminate'}, [], false) of
+    SOpts = #{now => erlang:monotonic_time()},
+    case ergw_aaa_session:invoke(Session, #{}, {gx, 'CCR-Terminate'}, SOpts) of
 	{ok, _GxSessionOpts, _} ->
 	    lager:info("GxSessionOpts: ~p", [_GxSessionOpts]);
 	GxOther ->
@@ -542,7 +557,7 @@ close_pdn_context(Reason, #{context := Context, 'Session' := Session}) ->
     Report = ergw_gsn_lib:usage_report_to_credit_report(URRs, Context),
     GyReqServices = #{'Termination-Cause' => TermCause,
 		      used_credits => Report},
-    case ergw_aaa_session:invoke(Session, GyReqServices, {gy, 'CCR-Terminate'}, [], false) of
+    case ergw_aaa_session:invoke(Session, GyReqServices, {gy, 'CCR-Terminate'}, SOpts) of
 	{ok, GySessionOpts, _} ->
 	    lager:debug("GySessionOpts: ~p", [GySessionOpts]);
 	GyOther ->
@@ -552,7 +567,7 @@ close_pdn_context(Reason, #{context := Context, 'Session' := Session}) ->
     case ergw_gsn_lib:usage_report_to_monitoring_report(URRs, Context) of
        Final when map_size(Final) /= 0 ->
 	    FinalReq = #{'monitors' => Final},
-	    ergw_aaa_session:invoke(Session, FinalReq, stop, [], true);
+	    ergw_aaa_session:invoke(Session, FinalReq, stop, SOpts#{async => true});
 	_ ->
 	    ok
     end,
