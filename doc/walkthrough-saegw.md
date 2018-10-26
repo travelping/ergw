@@ -73,40 +73,36 @@ The grx and sgi interfaces are handled by VPP.
 erGW Installation
 -----------------
 
+1. Make sure you have a supported Erlang installed on your Linux system. Check
+   your vendors documentation and consult [erlang.org](http:/www.erlang.org) for
+   installation instructions. Make sure that at lease 20.1.7 is install and that
+   the installed version is using    the latest patch release of Erlang.
+   Some distributions ship outdated and buggy Erlang version. When in doubt install
+   the newest version using    [kerl](https://github.com/kerl/kerl) or use a package
+   from [Erlang Solutions](https://www.erlang-solutions.com/resources/download.html).
+
+   When using OTP 20.1, ensure that at least 20.1.7 is installed. Prior version
+   have a known problem with gen_statem.
+
 1. Checkout the Erlang release for a GTP-C node
 
-       git clone https://github.com/travelping/ergw-gtp-c-node.git
+       git clone https://github.com/travelping/ergw.git
 
-2. Adjust the erGW git setting in rebar.config to point to the desired erGW version
-
-       {deps, [
-           {ergw, {git, "git://github.com/travelping/ergw", {branch, "master"}}},
-           {netdata, ".*", {git, "git://github.com/RoadRunnr/erl_netdata", "master"}}
-       ]}.
-
-3. Regenerate rebar.lock
-
-   This is neccesary when you change the version of dependency (in Step 3.) or if you want
-   to make sure you pick up changes in upstream projects
-
-       rm rebar.lock
-       rebar3 upgrade
-
-4. Build a release
+2. Build a release
 
        rebar3 release
 
-5. Install the release in /opt/ergw-gtp-c-node and the config in /etc/ergw-gtp-c-node
+3. Install the release in /opt/ergw-c-node and the configuration in /etc/ergw-c-node
 
-       sudo cp -aL _build/default/rel/ergw-gtp-c-node /opt
-       sudo mkdir /etc/ergw-gtp-c-node
-       sudo cp config/ergw-gtp-c-node.config /etc/ergw-gtp-c-node/ergw-gtp-c-node.config
+       sudo cp -aL _build/default/rel/ergw-c-node /opt
+       sudo mkdir /etc/ergw-c-node
+       sudo cp config/ergw-c-node.config /etc/ergw-c-node/ergw-c-node.config
 
-6. Adjust  /etc/ergw-gtp-c-node/ergw-gtp-c-node.config, for the walk-through the following config is used:
+4. Adjust  /etc/ergw-c-node/ergw-c-node.config, for the walk-through the following config is used:
 
        %% -*-Erlang-*-
        [{setup, [{data_dir, "/var/lib/ergw"},
-                 {log_dir,  "/var/log/gtp-c-node"}             %% NOTE: lager is not using this
+                 {log_dir,  "/var/log/ergw-c-node"}             %% NOTE: lager is not using this
                 ]},
 
         {ergw, [{'$setup_vars',
@@ -208,7 +204,7 @@ erGW Installation
                ]},
 
         {lager, [
-                 {log_root, "/var/log/gtp-c-node"},
+                 {log_root, "/var/log/ergw-c-node"},
                  {colored, true},
                  {error_logger_redirect, true},
                  {crash_log, "crash.log"},
@@ -222,9 +218,9 @@ erGW Installation
 
 The VRF names have to match the network instances (nwi's) in the VPP configuration.
 
-7. Start the erGW:
+5. Start the erGW:
 
-       /opt/ergw-gtp-c-node/bin/ergw-gtp-c-node foreground
+       /opt/ergw-c-node/bin/ergw-c-node foreground
 
 VPP Installation
 ----------------
@@ -369,10 +365,9 @@ erGW with debug logging will produce a lot of error messages if the
 PFCP requests are not answered by VPP.
 
 If you've followed the setup procedure above, the log level should 
-be `debug` (see the "lager" section of the ergw-gtp-c-node.config).
+be `debug` (see the "lager" section of the ergw-c-node.config).
 
 #### VPP Session Status
 
 On the VPP CLI, the session status can be checked with 
 `show gtp-up sessions`
-

@@ -1,15 +1,21 @@
-sudo: false
-dist: trusty
+sudo: required
+services:
+  - docker
 
 language: erlang
 
 otp_release:
- - 20.1.7
- - 20.2.4
  - 20.3.8.2
- - 21.0.2
+ - 21.0.9
+ - 21.1.1
 
 install: "true"
+
+env:
+  global:
+    - BUILD_IMAGE="ergw/ergw-c-node"
+    - DOCKER_USERNAME="ergwci"
+    - secure: "JpJScMSO4Sqj4odjSFEpshqFk93ZyVkhMNNc9xh2yfRpkHFNXXnhLYhKLA/nr1gcd1f9jnWz++1cqa4MQXRGanDT3+iGNO12R/M3ZVT26ywV0QEmj6z/acsv5wC34hje8/zWAgKWBsIxswFVT+RRPzNOQNVq6JPLZSp014qX5P+ChwmPeCG2kY/od9fsftp7ZjqyhqOOlXGJeEInvF5SD1RqnVMYP2OEQnGQyAHg9aoczO1cZnpZSRQFTqtDzwG1lp21oqsk2IVSCTqXdD1+GNSZCV4oHddXwGJICN9klSHUnxKb7/rFwbVh090+wP7PA+4eqCOOCGIIePFRMDiux6wX07p4wFhtt6/ZGmOs+1kV9ZR4W9FP+rv/0LUlMpmd52WoWkn1kGA/fEr/Jff3n+PjcXd25W/ASeKciahhvXLudeoauP3/wB/3gfFBSnaVR1FvU10rAdL9X+W13z+UiL5C+1qDRjs/6OFpq0T4KfWkxxy1+9eG5J5u8gsKQ+1THvSerddGX77ZvnHu1m1A8z8fGF6toMUvR7EJvr/wpeVwRO/SOB03JYUYdeRnGYXYbOt4UE2ovh/g34mnxQptKW3Pk9aqT2x/Uamsn661tRJL7kVCGOnIUohh4Ynf2tniLbWsRorZlltcIxK4kaKuNfsV/gpvAaguDkeY0ul5AqM="
 
 before_script:
   - wget https://s3.amazonaws.com/rebar3/rebar3
@@ -30,6 +36,22 @@ script:
   - ./rebar3 compile
   - ./rebar3 do xref, ct, coveralls send
   - (cd _build/test/logs/; zip -1r ../../../ct-logs.zip . )
+
+jobs:
+  include:
+    - stage: docker
+      otp_release: 21.1.1
+      script:
+        - docker build -t $BUILD_IMAGE -f docker/Dockerfile .
+      after_success:
+        - docker login -u="$DOCKER_USERNAME" -p="$DOCKER_PASSWORD"
+        - export TAG=`if [ "$TRAVIS_EVENT_TYPE" == "pull_request" ]; then echo PR-$TRAVIS_PULL_REQUEST_BRANCH\_$TRAVIS_PULL_REQUEST_SHA ; else echo $TRAVIS_BRANCH\_$TRAVIS_COMMIT ; fi`
+        - export TAG=`echo "$TAG" | sed -e 's,/,-,g'`
+        - echo "Docker image $BUILD_IMAGE:$TAG"
+        - if [ "$TAG" == "master" ]; then export TAG="latest"; fi
+        - docker tag $BUILD_IMAGE $BUILD_IMAGE:$TAG
+        - docker push $BUILD_IMAGE:$TAG
+        - echo "docker push done"
 
 addons:
   artifacts:
