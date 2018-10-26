@@ -61,10 +61,22 @@ Other shortcomings:
 
  * QoS parameters are hard-coded
 
+ERLANG Version Support
+----------------------
+
+All minor version of the current major release and the highest minor version of the
+previous major release will be supported.
+At the moment this means OTP 20.3.8, OTP 21.0 and OTP 21.1 are supported. OTP versions
+greater than 20.1.7 could work, but are not tested or guaranteed to work. When in doubt
+check the `otp_release` section in [.travis.yml](.travis.yml) for tested versions.
+
 BUILDING
 --------
 
-*The minimum supported Erlang version is 20.1.*
+*The minimum supported Erlang version is 20.1.7.*
+
+Erlang 21.1.1 is the recommended version. Support for version prior to 20.3.8 will
+dropped at the end of 2018.
 
 Using rebar:
 
@@ -92,7 +104,7 @@ This requires a suitable ergw.config, e.g.:
 ```erlang
 %-*-Erlang-*-
 [{setup, [{data_dir, "/var/lib/ergw"},
-	  {log_dir,  "/var/log/gtp-c-node"}				%% NOTE: lager is not using this
+	  {log_dir,  "/var/log/ergw-c-node"}				%% NOTE: lager is not using this
 	 ]},
 
  {ergw, [{'$setup_vars',
@@ -260,7 +272,7 @@ This requires a suitable ergw.config, e.g.:
 	]},
 
  {lager, [
-	  {log_root, "/var/log/gtp-c-node"},
+	  {log_root, "/var/log/ergw-c-node"},
 	  {colored, true},
 	  {error_logger_redirect, true},
 	  {crash_log, "crash.log"},
@@ -275,10 +287,6 @@ This requires a suitable ergw.config, e.g.:
 ```
 
 The configuration is documented in [CONFIG.md](CONFIG.md)
-
-This process can be simplified by using release application [ergw-gtp-c-node](https://github.com/travelping/ergw-gtp-c-node).
-A sample config that only requires minimal adjustment for IP's, hostnames and interfaces can be found in `ergw-gtp-c-node/config/ergw-gtp-c-node.config`.
-See [Installing on Ubuntu 16.04](https://github.com/travelping/ergw-gtp-c-node#installing-on-ubuntu-1604) section for futher information.
 
 <!-- Badges -->
 [travis]: https://travis-ci.org/travelping/ergw
