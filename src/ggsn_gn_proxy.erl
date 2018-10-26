@@ -290,7 +290,7 @@ handle_request(ReqKey,
     SessionOpts0 = ggsn_gn:init_session(IEs, Context3, AAAopts),
     SessionOpts = ggsn_gn:init_session_from_gtp_req(IEs, AAAopts, SessionOpts0),
 
-    ok = ergw_aaa_session:invoke(Session, SessionOpts, start, [], true),
+    ok = ergw_aaa_session:invoke(Session, SessionOpts, start, #{async => true}),
 
     ProxyContext0 = init_proxy_context(ProxyGtpPort, Context3, ProxyInfo, ProxyGGSN),
     ProxyContext1 = gtp_path:bind(ProxyContext0),
@@ -495,7 +495,7 @@ delete_forward_session(Reason, #{context := Context, proxy_context := ProxyConte
     URRs = ergw_proxy_lib:delete_forward_session(Reason, Context, ProxyContext),
     SessionOpts = to_session(gtp_context:usage_report_to_accounting(URRs)),
     lager:debug("Accounting Opts: ~p", [SessionOpts]),
-    ergw_aaa_session:invoke(Session, SessionOpts, stop, [], true).
+    ergw_aaa_session:invoke(Session, SessionOpts, stop, #{async => true}).
 
 update_path_bind(NewContext0, OldContext)
   when NewContext0 /= OldContext ->
