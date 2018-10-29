@@ -282,11 +282,12 @@ handle_request(_ReqKey,
     {ok, GySessionOpts, _} =
 	ergw_aaa_session:invoke(Session, GyReqServices, {gy, 'CCR-Initial'}, SOpts),
 
-    ok = ergw_aaa_session:invoke(Session, SessionIPs, start, SOpts#{async => true}),
+    {ok, FinalSessionOpts, _} =
+	ergw_aaa_session:invoke(Session, SessionIPs, start, SOpts),
 
     %% ===========================================================================
 
-    Context = ergw_gsn_lib:create_sgi_session(Candidates, GySessionOpts, ContextPending),
+    Context = ergw_gsn_lib:create_sgi_session(Candidates, FinalSessionOpts, ContextPending),
     gtp_context:remote_context_register_new(Context),
 
     ResponseIEs = create_session_response(ActiveSessionOpts, IEs, EBI, Context),
