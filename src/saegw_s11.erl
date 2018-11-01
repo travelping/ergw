@@ -129,7 +129,7 @@ handle_info({'DOWN', _MonitorRef, process, Pid, _Info},
 
 %% ===========================================================================
 
-handle_info(#aaa_request{procedure = {diameter, 'ASR'}},
+handle_info(#aaa_request{procedure = {_, 'ASR'}},
 	    #{context := Context, 'Session' := Session} = State) ->
     ergw_aaa_session:response(Session, ok, #{}),
     delete_context(undefined, Context),
