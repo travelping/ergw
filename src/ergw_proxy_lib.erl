@@ -73,14 +73,13 @@ select_proxy_gsn_fqdn(FQDN, ProxyGSN, Services, #{node_selection := NodeSelect} 
 select_proxy_sockets(#proxy_ggsn{node = Node, dst_apn = DstAPN, context = Context},
 		     #{contexts := Contexts, proxy_ports := ProxyPorts,
 		       node_selection := ProxyNodeSelect}) ->
-    {Cntl, NodeSelect} =
-	case maps:get(Context, Contexts, undefined) of
-	    #{proxy_sockets := Cntl0, node_selection := NodeSelect0} ->
-		{Cntl0, NodeSelect0};
-	    _ ->
-		lager:warning("proxy context ~p not found, using default", [Context]),
-		{ProxyPorts, ProxyNodeSelect}
-	end,
+    Ctx = maps:get(Context, Contexts, #{}),
+    if Ctx =:= #{} ->
+	    lager:warning("proxy context ~p not found, using default", [Context]);
+       true -> ok
+    end,
+    Cntl = maps:get(proxy_sockets, Ctx, ProxyPorts),
+    NodeSelect = maps:get(node_selection, Ctx, ProxyNodeSelect),
 
     APN_FQDN = ergw_node_selection:apn_to_fqdn(DstAPN),
     Services = [{"x-3gpp-upf", "x-sxa"}],
@@ -106,7 +105,9 @@ select_proxy_sockets(#proxy_ggsn{node = Node, dst_apn = DstAPN, context = Contex
 			{proxy_sockets,     []},
 			{contexts,          []}]).
 
--define(ContextDefaults, [{proxy_sockets,    []}]).
+-define(ContextDefaults, []).
+
+-define(is_opts(X), (is_list(X) orelse is_map(X))).
 
 validate_options(Fun, Opts, Defaults) ->
     gtp_context:validate_options(Fun, Opts, Defaults ++ ?ProxyDefaults).
@@ -129,11 +130,14 @@ validate_option(Opt, Value) ->
 
 validate_context_option(proxy_sockets, Value) when is_list(Value), Value /= [] ->
     Value;
+validate_context_option(node_selection, [S|_] = Value)
+  when is_atom(S) ->
+    Value;
 validate_context_option(Opt, Value) ->
     throw({error, {options, {Opt, Value}}}).
 
 validate_context(Name, Opts0, Acc)
-  when is_binary(Name) andalso (is_list(Opts0) orelse is_map(Opts0)) ->
+  when is_binary(Name) andalso ?is_opts(Opts0) ->
     Opts = ergw_config:validate_options(
 	     fun validate_context_option/2, Opts0, ?ContextDefaults, map),
     Acc#{Name => Opts};
