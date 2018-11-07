@@ -598,6 +598,12 @@ config(_Config)  ->
     ?error_option(set_cfg_value([handlers, gn, contexts, invalid], [], ?GGSN_PROXY_CONFIG)),
     ?error_option(set_cfg_value([handlers, gn, contexts, <<"ams">>], invalid, ?GGSN_PROXY_CONFIG)),
     ?error_option(set_cfg_value([handlers, gn, contexts, <<"ams">>, proxy_sockets], invalid, ?GGSN_PROXY_CONFIG)),
+    ?error_option(set_cfg_value([handlers, gn, contexts, <<"ams">>, node_selection],
+				invalid, ?GGSN_PROXY_CONFIG)),
+    ?error_option(set_cfg_value([handlers, gn, contexts, <<"ams">>, node_selection],
+				[], ?GGSN_PROXY_CONFIG)),
+    ?ok_option(set_cfg_value([handlers, gn, contexts, <<"ams">>, node_selection],
+			     [static], ?GGSN_PROXY_CONFIG)),
     ?error_option(set_cfg_value([handlers, gn, node_selection], [], ?GGSN_PROXY_CONFIG)),
     ?ok_option(set_cfg_value([handlers, gn, node_selection], [static], ?GGSN_PROXY_CONFIG)),
 
