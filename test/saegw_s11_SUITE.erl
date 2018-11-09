@@ -207,6 +207,7 @@ common() ->
      delete_bearer_request_resend,
      unsupported_request,
      create_session_overload,
+     session_options,
      enb_connection_suspend
     ].
 
@@ -622,6 +623,69 @@ create_session_overload() ->
 create_session_overload(Config) ->
     create_session(overload, Config),
 
+    meck_validate(Config),
+    ok.
+
+%--------------------------------------------------------------------
+session_options() ->
+    [{doc, "Check that all required session options are present"}].
+session_options(Config) ->
+    {GtpC, _, _} = create_session(ipv4v6, Config),
+
+    [#{'Process' := Pid}|_] = ergw_api:tunnel(all),
+    #{'Session' := Session} = gtp_context:info(Pid),
+
+    Opts = ergw_aaa_session:get(Session),
+    ct:pal("Opts: ~p", [Opts]),
+
+    ?match_map(
+       #{
+	 'Node-Id' => <<"PGW-001">>,
+	 'NAS-Identifier' => <<"NAS-Identifier">>,
+
+	 '3GPP-Charging-Id' => '_',
+	 %% TODO check '3GPP-Allocation-Retention-Priority' => 2,
+	 '3GPP-Selection-Mode' => 0,
+	 '3GPP-IMEISV' => <<"AAAAAAAA">>,
+	 '3GPP-GGSN-MCC-MNC' => <<"00101">>,
+	 '3GPP-NSAPI' => 5,
+	 %% TODO: check '3GPP-GPRS-Negotiated-QoS-Profile' => '_',
+	 '3GPP-GGSN-Address' => ?TEST_GSN_IPv4,
+	 '3GPP-IMSI-MCC-MNC' => <<"11111">>,
+	 '3GPP-SGSN-Address' => {127,127,127,127},
+	 '3GPP-PDP-Type' => 'IPv4v6',
+	 '3GPP-MSISDN' => ?MSISDN,
+	 '3GPP-RAT-Type' => 6,
+	 '3GPP-IMSI' => ?IMSI,
+	 '3GPP-User-Location-Info' => '_',
+
+	 credits => '_',
+
+	 'Session-Id' => '_',
+	 'Multi-Session-Id' => '_',
+	 'Diameter-Session-Id' => '_',
+	 'Called-Station-Id' => <<"eXaMpLe.net">>,
+	 'Calling-Station-Id' => ?MSISDN,
+	 'Service-Type' => 'Framed-User',
+	 'Framed-Protocol' => 'GPRS-PDP-Context',
+	 'Username' => '_',
+	 'Password' => '_',
+
+	 %% TODO check 'PDP-Context-Type' => primary,
+	 'Framed-IP-Address' => {10, 180, '_', '_'},
+	 'Framed-IPv6-Prefix' => {{16#8001, 0, 1, '_', '_', '_', '_', '_'},64},
+
+	 'Charging-Rule-Base-Name' => <<"m2m0001">>,
+
+	 'Accounting-Start' => '_',
+	 'Session-Start' => '_',
+
+	 rules => '_'
+       }, Opts),
+
+    delete_session(GtpC),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
     ok.
 

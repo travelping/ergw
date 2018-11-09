@@ -36,6 +36,7 @@
 -export([match_exo_value/2, get_exo_value/1]).
 -export([has_ipv6_test_config/0]).
 -export([query_usage_report/1]).
+-export([match_map/4]).
 
 -include("ergw_test_lib.hrl").
 -include_lib("common_test/include/ct.hrl").
@@ -527,3 +528,28 @@ query_usage_report(#context{dp_seid = SEID} = Context) ->
 			  [lager:pr(_Other, ?MODULE)]),
 	    #{}
     end.
+
+%%%===================================================================
+%%% Helpers
+%%%===================================================================
+
+match_map(Match, Map, File, Line) ->
+    maps:fold(
+      fun(Key, Expected, R) ->
+	      case maps:is_key(Key, Map) of
+		  true ->
+		      Actual = maps:get(Key, Map),
+		      case erlang:match_spec_test({Actual, ok}, [{{Expected, '$1'}, [], ['$1']}], table) of
+			  {ok, ok, _, _} ->
+			      R andalso true;
+			  {ok, false, _, _} ->
+			      ct:pal("MISMATCH(~s:~b, ~s)~nExpected: ~p~nActual:   ~p~n",
+				     [File, Line, Key, Expected, Actual]),
+			      false
+		      end;
+		  _ ->
+		      ct:pal("MAP KEY MISSING(~s:~b, ~s)~n", [File, Line, Key]),
+		      false
+	      end
+      end, true, Match) orelse error(badmatch),
+    ok.

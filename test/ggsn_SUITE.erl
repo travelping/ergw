@@ -222,6 +222,7 @@ common() ->
      create_pdp_context_overload,
      unsupported_request,
      cache_timeout,
+     session_options,
      session_accounting].
 
 groups() ->
@@ -411,7 +412,7 @@ create_pdp_context_request_accept_new(Config) ->
 %%--------------------------------------------------------------------
 path_restart() ->
     [{doc, "Check that Create PDP Context Request works and "
-           "that a Path Restart terminates the session"}].
+	   "that a Path Restart terminates the session"}].
 path_restart(Config) ->
     {GtpC, _, _} = create_pdp_context(Config),
 
@@ -822,6 +823,71 @@ cache_timeout(Config) ->
     ?equal(0, length(T1)),
     ?equal(0, length(Q1)),
 
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+
+session_options() ->
+    [{doc, "Check that all required session options are present"}].
+session_options(Config) ->
+    {GtpC, _, _} = create_pdp_context(ipv4v6, Config),
+
+    [#{'Process' := Pid}|_] = ergw_api:tunnel(all),
+    #{'Session' := Session} = gtp_context:info(Pid),
+
+    Opts = ergw_aaa_session:get(Session),
+    ct:pal("Opts: ~p", [Opts]),
+
+    ?match_map(
+       #{
+	 'Node-Id' => <<"PGW-001">>,
+	 'NAS-Identifier' => <<"NAS-Identifier">>,
+
+	 '3GPP-Charging-Id' => '_',
+	 '3GPP-Allocation-Retention-Priority' => 2,
+	 '3GPP-Selection-Mode' => 0,
+	 '3GPP-IMEISV' => <<"1234567890123456">>,
+	 '3GPP-GGSN-MCC-MNC' => <<"00101">>,
+	 '3GPP-NSAPI' => 5,
+	 '3GPP-GPRS-Negotiated-QoS-Profile' => '_',
+	 '3GPP-GGSN-Address' => ?TEST_GSN_IPv4,
+	 '3GPP-IMSI-MCC-MNC' => <<"11111">>,
+	 '3GPP-SGSN-Address' => {127,127,127,127},
+	 '3GPP-PDP-Type' => 'IPv4v6',
+	 '3GPP-MSISDN' => ?MSISDN,
+	 '3GPP-RAT-Type' => 1,
+	 '3GPP-IMSI' => ?IMSI,
+	 '3GPP-User-Location-Info' => '_',
+
+	 credits => '_',
+
+	 'Session-Id' => '_',
+	 'Multi-Session-Id' => '_',
+	 'Diameter-Session-Id' => '_',
+	 'Called-Station-Id' => unicode:characters_to_binary(lists:join($., ?'APN-EXAMPLE')),
+	 'Calling-Station-Id' => ?MSISDN,
+	 'Service-Type' => 'Framed-User',
+	 'Framed-Protocol' => 'GPRS-PDP-Context',
+	 'Username' => '_',
+	 'Password' => '_',
+
+	 'PDP-Context-Type' => primary,
+	 'Framed-IP-Address' => {10, 180, '_', '_'},
+	 'Framed-IPv6-Prefix' => {{16#8001, 0, 1, '_', '_', '_', '_', '_'},64},
+
+	 'Charging-Rule-Base-Name' => <<"m2m0001">>,
+
+	 'Accounting-Start' => '_',
+	 'Session-Start' => '_',
+	 'Acct-Interim-Interval' => 600,
+
+	 rules => '_'
+       }, Opts),
+
+    delete_pdp_context(GtpC),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
     ok.
 
