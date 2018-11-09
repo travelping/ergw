@@ -700,13 +700,19 @@ init_session(IEs,
 	       'Password' := #{default := Password}}) ->
     MappedUsername = map_username(IEs, Username, []),
     {MCC, MNC} = ergw:get_plmn_id(),
-    #{'Username'		=> MappedUsername,
-      'Password'		=> Password,
-      'Service-Type'		=> 'Framed-User',
-      'Framed-Protocol'		=> 'GPRS-PDP-Context',
-      '3GPP-GGSN-MCC-MNC'	=> <<MCC/binary, MNC/binary>>,
-      '3GPP-GGSN-Address'	=> LocalIP,
-      '3GPP-Charging-Id'	=> ChargingId
+    Opts =
+	case LocalIP of
+	    {_,_,_,_,_,_,_,_} ->
+		#{'3GPP-GGSN-IPv6-Address' => LocalIP};
+	    _ ->
+		#{'3GPP-GGSN-Address' => LocalIP}
+	end,
+    Opts#{'Username'		=> MappedUsername,
+	  'Password'		=> Password,
+	  'Service-Type'	=> 'Framed-User',
+	  'Framed-Protocol'	=> 'GPRS-PDP-Context',
+	  '3GPP-GGSN-MCC-MNC'	=> <<MCC/binary, MNC/binary>>,
+	  '3GPP-Charging-Id'	=> ChargingId
      }.
 
 copy_optional_binary_ie('3GPP-SGSN-Address' = Key, IP, Session) 
