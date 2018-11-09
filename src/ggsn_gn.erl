@@ -556,14 +556,20 @@ init_session(IEs,
 	       'Password' := #{default := Password}}) ->
     MappedUsername = map_username(IEs, Username, []),
     {MCC, MNC} = ergw:get_plmn_id(),
-    #{'Username'		=> MappedUsername,
-      'Password'		=> Password,
-      'Service-Type'		=> 'Framed-User',
-      'Framed-Protocol'		=> 'GPRS-PDP-Context',
-      '3GPP-GGSN-MCC-MNC'	=> <<MCC/binary, MNC/binary>>,
-      '3GPP-GGSN-Address'	=> LocalIP,
-      '3GPP-Charging-Id'	=> ChargingId,
-      'PDP-Context-Type'	=> primary
+    Opts =
+	case LocalIP of
+	    {_,_,_,_,_,_,_,_} ->
+		#{'3GPP-GGSN-IPv6-Address' => LocalIP};
+	    _ ->
+		#{'3GPP-GGSN-Address' => LocalIP}
+	end,
+    Opts#{'Username'		=> MappedUsername,
+	  'Password'		=> Password,
+	  'Service-Type'	=> 'Framed-User',
+	  'Framed-Protocol'	=> 'GPRS-PDP-Context',
+	  '3GPP-GGSN-MCC-MNC'	=> <<MCC/binary, MNC/binary>>,
+	  '3GPP-Charging-Id'	=> ChargingId,
+	  'PDP-Context-Type'	=> primary
      }.
 
 copy_ppp_to_session({pap, 'PAP-Authentication-Request', _Id, Username, Password}, Session0) ->
@@ -651,8 +657,12 @@ copy_to_session(_, #end_user_address{pdp_type_organization = 1,
 	    Session
    end;
 
-copy_to_session(_, #gsn_address{instance = 0, address = IP}, _AAAopts, Session) ->
+copy_to_session(_, #gsn_address{instance = 0, address = IP}, _AAAopts, Session)
+  when size(IP) == 4 ->
     Session#{'3GPP-SGSN-Address' => ergw_inet:bin2ip(IP)};
+copy_to_session(_, #gsn_address{instance = 0, address = IP}, _AAAopts, Session)
+  when size(IP) == 16 ->
+    Session#{'3GPP-SGSN-IPv6-Address' => ergw_inet:bin2ip(IP)};
 copy_to_session(_, #nsapi{instance = 0, nsapi = NSAPI}, _AAAopts, Session) ->
     Session#{'3GPP-NSAPI' => NSAPI};
 copy_to_session(_, #selection_mode{mode = Mode}, _AAAopts, Session) ->

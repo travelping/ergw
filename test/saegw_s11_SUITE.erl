@@ -638,50 +638,58 @@ session_options(Config) ->
     Opts = ergw_aaa_session:get(Session),
     ct:pal("Opts: ~p", [Opts]),
 
-    ?match_map(
-       #{
-	 'Node-Id' => <<"PGW-001">>,
-	 'NAS-Identifier' => <<"NAS-Identifier">>,
+    Expected0 =
+	case ?config(client_ip, Config) of
+	    IP = {_,_,_,_,_,_,_,_} ->
+		#{'3GPP-GGSN-IPv6-Address' => ?config(test_gsn, Config),
+		  '3GPP-SGSN-IPv6-Address' => IP};
+	    IP ->
+		#{'3GPP-GGSN-Address' => ?config(test_gsn, Config),
+		  '3GPP-SGSN-Address' => IP}
+	end,
+    Expected =
+	Expected0#{'Node-Id' => <<"PGW-001">>,
+		   'NAS-Identifier' => <<"NAS-Identifier">>,
 
-	 '3GPP-Charging-Id' => '_',
-	 %% TODO check '3GPP-Allocation-Retention-Priority' => 2,
-	 '3GPP-Selection-Mode' => 0,
-	 '3GPP-IMEISV' => <<"AAAAAAAA">>,
-	 '3GPP-GGSN-MCC-MNC' => <<"00101">>,
-	 '3GPP-NSAPI' => 5,
-	 %% TODO: check '3GPP-GPRS-Negotiated-QoS-Profile' => '_',
-	 '3GPP-GGSN-Address' => ?TEST_GSN_IPv4,
-	 '3GPP-IMSI-MCC-MNC' => <<"11111">>,
-	 '3GPP-SGSN-Address' => {127,127,127,127},
-	 '3GPP-PDP-Type' => 'IPv4v6',
-	 '3GPP-MSISDN' => ?MSISDN,
-	 '3GPP-RAT-Type' => 6,
-	 '3GPP-IMSI' => ?IMSI,
-	 '3GPP-User-Location-Info' => '_',
+		   '3GPP-Charging-Id' => '_',
+		   %% TODO check '3GPP-Allocation-Retention-Priority' => 2,
+		   '3GPP-Selection-Mode' => 0,
+		   '3GPP-IMEISV' => <<"AAAAAAAA">>,
+		   '3GPP-GGSN-MCC-MNC' => <<"00101">>,
+		   '3GPP-NSAPI' => 5,
+		   %% TODO: check '3GPP-GPRS-Negotiated-QoS-Profile' => '_',
+		   '3GPP-IMSI-MCC-MNC' => <<"11111">>,
+		   '3GPP-PDP-Type' => 'IPv4v6',
+		   '3GPP-MSISDN' => ?MSISDN,
+		   '3GPP-RAT-Type' => 6,
+		   '3GPP-IMSI' => ?IMSI,
+		   '3GPP-User-Location-Info' => '_',
 
-	 credits => '_',
+		   credits => '_',
 
-	 'Session-Id' => '_',
-	 'Multi-Session-Id' => '_',
-	 'Diameter-Session-Id' => '_',
-	 'Called-Station-Id' => <<"eXaMpLe.net">>,
-	 'Calling-Station-Id' => ?MSISDN,
-	 'Service-Type' => 'Framed-User',
-	 'Framed-Protocol' => 'GPRS-PDP-Context',
-	 'Username' => '_',
-	 'Password' => '_',
+		   'Session-Id' => '_',
+		   'Multi-Session-Id' => '_',
+		   'Diameter-Session-Id' => '_',
+		   'Called-Station-Id' =>
+		       unicode:characters_to_binary(lists:join($., ?'APN-ExAmPlE')),
+		   'Calling-Station-Id' => ?MSISDN,
+		   'Service-Type' => 'Framed-User',
+		   'Framed-Protocol' => 'GPRS-PDP-Context',
+		   'Username' => '_',
+		   'Password' => '_',
 
-	 %% TODO check 'PDP-Context-Type' => primary,
-	 'Framed-IP-Address' => {10, 180, '_', '_'},
-	 'Framed-IPv6-Prefix' => {{16#8001, 0, 1, '_', '_', '_', '_', '_'},64},
+		   %% TODO check 'PDP-Context-Type' => primary,
+		   'Framed-IP-Address' => {10, 180, '_', '_'},
+		   'Framed-IPv6-Prefix' => {{16#8001, 0, 1, '_', '_', '_', '_', '_'},64},
 
-	 'Charging-Rule-Base-Name' => <<"m2m0001">>,
+		   'Charging-Rule-Base-Name' => <<"m2m0001">>,
 
-	 'Accounting-Start' => '_',
-	 'Session-Start' => '_',
+		   'Accounting-Start' => '_',
+		   'Session-Start' => '_',
 
-	 rules => '_'
-       }, Opts),
+		   rules => '_'
+		  },
+    ?match_map(Expected, Opts),
 
     delete_session(GtpC),
 
