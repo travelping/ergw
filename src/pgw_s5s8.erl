@@ -276,6 +276,8 @@ handle_request(_ReqKey,
 
     %% ===========================================================================
 
+    ergw_aaa_session:set(Session, SessionIPs),
+
     %% Gx/Gy interaction
     %%  1. CCR on Gx to get PCC rules
     %%  2. extraxt all rating groups
@@ -294,7 +296,7 @@ handle_request(_ReqKey,
     lager:info("GySessionOpts: ~p", [GySessionOpts]),
 
     {ok, FinalSessionOpts, _} =
-	ergw_aaa_session:invoke(Session, SessionIPs, start, SOpts),
+	ergw_aaa_session:invoke(Session, #{}, start, SOpts),
 
     %% ===========================================================================
 

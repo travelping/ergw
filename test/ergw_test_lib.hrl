@@ -112,3 +112,5 @@
 			    error(badmatch)
 		  end
 	  end)())).
+
+-define(match_map(Expected, Actual), ergw_test_lib:match_map(Expected, Actual, ?FILE, ?LINE)).
