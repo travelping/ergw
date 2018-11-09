@@ -8,7 +8,7 @@
   1},
  {<<"ergw_aaa">>,
   {git,"git://github.com/travelping/ergw_aaa",
-       {ref,"f2c256a4467ecdd1ad7be4a9614b5e1df19d78c5"}},
+       {ref,"acf3d7fadd4b4acd943cc26cb49aa9bcaa4ec5d3"}},
   0},
  {<<"erlando">>,
   {git,"https://github.com/travelping/erlando.git",
