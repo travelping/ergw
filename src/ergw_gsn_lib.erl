@@ -147,6 +147,9 @@ session_events(Session, [{update_credits, Update} | T], State0) ->
     lager:info("Session credit Update: ~p", [Update]),
     State = update_sx_usage_rules(Update, State0),
     session_events(Session, T, State);
+session_events(Session, [stop | T], State) ->
+    self() ! stop_from_session,
+    session_events(Session, T, State);
 session_events(Session, [H | T], State) ->
     lager:error("unhandled session event: ~p", [H]),
     session_events(Session, T, State).

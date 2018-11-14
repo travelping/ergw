@@ -129,6 +129,10 @@ handle_info({'DOWN', _MonitorRef, process, Pid, _Info},
 
 %% ===========================================================================
 
+handle_info(stop_from_session, #{context := Context} = State) ->
+    delete_context(undefined, Context),
+    {noreply, State};
+
 handle_info(#aaa_request{procedure = {_, 'ASR'}},
 	    #{context := Context, 'Session' := Session} = State) ->
     ergw_aaa_session:response(Session, ok, #{}),
@@ -248,8 +252,7 @@ handle_request(_ReqKey,
     SessionOpts = init_session_from_gtp_req(IEs, AAAopts, SessionOpts0),
     %% SessionOpts = init_session_qos(ReqQoSProfile, SessionOpts1),
 
-    {ok, ActiveSessionOpts0, _SessionEvents} =
-	authenticate(ContextPreAuth, Session, SessionOpts, Request),
+    ActiveSessionOpts0 = authenticate(ContextPreAuth, Session, SessionOpts, Request),
     {ContextVRF, VRFOpts} = select_vrf(ContextPreAuth),
 
     ActiveSessionOpts = apply_vrf_session_defaults(VRFOpts, ActiveSessionOpts0),
@@ -275,18 +278,17 @@ handle_request(_ReqKey,
 
     %%  1. CCR on Gx to get PCC rules
     SOpts = #{now => erlang:monotonic_time()},
-    {ok, GxSessionOpts, _} =
-	ergw_aaa_session:invoke(Session, #{}, {gx, 'CCR-Initial'}, SOpts),
+    GxSessionOpts = ccr_initial(ContextPending, Session, gx, #{}, SOpts, Request),
     GxRules = maps:get(rules, GxSessionOpts, #{}),
 
     Credits = ergw_gsn_lib:pcc_rules_to_credit_request(GxRules),
     GyReqServices = #{credits => Credits},
-    {ok, GySessionOpts, _} =
-	ergw_aaa_session:invoke(Session, GyReqServices, {gy, 'CCR-Initial'}, SOpts),
+
+    GySessionOpts = ccr_initial(ContextPending, Session, gy, GyReqServices, SOpts, Request),
     lager:info("GySessionOpts: ~p", [GySessionOpts]),
 
-    {ok, FinalSessionOpts, _} =
-	ergw_aaa_session:invoke(Session, #{}, start, SOpts),
+    ergw_aaa_session:invoke(Session, #{}, start, SOpts),
+    FinalSessionOpts = ergw_aaa_session:get(Session),
 
     %% ===========================================================================
 
@@ -467,20 +469,31 @@ response(Cmd, Context, IEs0, #gtp{ie = #{?'Recovery' := Recovery}}) ->
     IEs = gtp_v2_c:build_recovery(Context, Recovery /= undefined, IEs0),
     response(Cmd, Context, IEs).
 
+session_failure_to_gtp_cause(_) ->
+    system_failure.
+
 authenticate(Context, Session, SessionOpts, Request) ->
     lager:info("SessionOpts: ~p", [SessionOpts]),
-
     case ergw_aaa_session:invoke(Session, SessionOpts, authenticate, [inc_session_id]) of
-	{ok, _Session, _Events} = Result ->
-	    lager:info("AuthResult: success"),
-	    Result;
-
+	{ok, NewSOpts, _Events} ->
+	    NewSOpts;
 	Other ->
 	    lager:info("AuthResult: ~p", [Other]),
+	    Type = create_session_response,
+	    Cause = user_authentication_failed,
+	    Reply = response(Type, Context, [#v2_cause{v2_cause = Cause}], Request),
+	    throw(?CTX_ERR(?FATAL, Reply, Context))
+    end.
 
-	    Reply1 = response(create_session_response, Context,
-			      [#v2_cause{v2_cause = user_authentication_failed}], Request),
-	    throw(?CTX_ERR(?FATAL, Reply1, Context))
+ccr_initial(Context, Session, API, SessionOpts, ReqOpts, Request) ->
+    case ergw_aaa_session:invoke(Session, SessionOpts, {API, 'CCR-Initial'}, ReqOpts) of
+	{ok, NewSOpts, _} ->
+		NewSOpts;
+	{Fail, _, _} ->
+	    Type = create_session_response,
+	    Cause = session_failure_to_gtp_cause(Fail),
+	    Reply = response(Type, Context, [#v2_cause{v2_cause = Cause}], Request),
+	    throw(?CTX_ERR(?FATAL, Reply, Context))
     end.
 
 match_context(_Type, _Context, undefined) ->
