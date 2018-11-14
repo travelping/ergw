@@ -215,6 +215,9 @@ common() ->
      invalid_gtp_pdu,
      create_session_request_missing_ie,
      create_session_request_aaa_reject,
+     create_session_request_gx_fail,
+     create_session_request_gy_fail,
+     create_session_request_rf_fail,
      create_session_request_invalid_apn,
      create_session_request_dotted_apn,
      create_session_request_accept_new,
@@ -278,8 +281,38 @@ init_per_testcase(create_session_request_aaa_reject, Config) ->
     ok = meck:expect(ergw_aaa_session, invoke,
 		     fun(_, _, authenticate, _) ->
 			     {fail, #{}, []};
-			(_, _, _, _) ->
-			     ok
+			(_, Opts, _, _) ->
+			     {ok, Opts, []}
+		     end),
+    Config;
+init_per_testcase(create_session_request_gx_fail, Config) ->
+    init_per_testcase(Config),
+    ok = meck:new(ergw_aaa_session, [passthrough, no_link]),
+    ok = meck:expect(ergw_aaa_session, invoke,
+		     fun(_, _, {gx, 'CCR-Initial'}, _) ->
+			     {fail, #{}, []};
+			(_, Opts, _, _) ->
+			     {ok, Opts, []}
+		     end),
+    Config;
+init_per_testcase(create_session_request_gy_fail, Config) ->
+    init_per_testcase(Config),
+    ok = meck:new(ergw_aaa_session, [passthrough, no_link]),
+    ok = meck:expect(ergw_aaa_session, invoke,
+		     fun(_, _, {gy, 'CCR-Initial'}, _) ->
+			     {fail, #{}, []};
+			(_, Opts, _, _) ->
+			     {ok, Opts, []}
+		     end),
+    Config;
+init_per_testcase(create_session_request_rf_fail, Config) ->
+    init_per_testcase(Config),
+    ok = meck:new(ergw_aaa_session, [passthrough, no_link]),
+    ok = meck:expect(ergw_aaa_session, invoke,
+		     fun(_, _, start, _) ->
+			     {fail, #{}, []};
+			(_, Opts, _, _) ->
+			     {ok, Opts, []}
 		     end),
     Config;
 init_per_testcase(path_restart, Config) ->
@@ -346,7 +379,11 @@ end_per_testcase(_Config) ->
     stop_all_sx_nodes(),
     ok.
 
-end_per_testcase(create_session_request_aaa_reject, Config) ->
+end_per_testcase(TestCase, Config)
+  when TestCase == create_session_request_aaa_reject;
+       TestCase == create_session_request_gx_fail;
+       TestCase == create_session_request_gy_fail;
+       TestCase == create_session_request_rf_fail ->
     meck:unload(ergw_aaa_session),
     end_per_testcase(Config),
     Config;
@@ -426,6 +463,36 @@ create_session_request_aaa_reject() ->
 create_session_request_aaa_reject(Config) ->
     create_session(aaa_reject, Config),
 
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+create_session_request_gx_fail() ->
+    [{doc, "Check Gx failure on Create Session Request"}].
+create_session_request_gx_fail(Config) ->
+    create_session(gx_fail, Config),
+
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+create_session_request_gy_fail() ->
+    [{doc, "Check Gy failure on Create Session Request"}].
+create_session_request_gy_fail(Config) ->
+    create_session(gy_fail, Config),
+
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+create_session_request_rf_fail() ->
+    [{doc, "Check Gx failure on Create Session Request"}].
+create_session_request_rf_fail(Config) ->
+    {GtpC, _, _} = create_session(Config),
+    delete_session(GtpC),
+
+    ?equal([], outstanding_requests()),
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
     ok.
 

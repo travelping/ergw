@@ -199,6 +199,9 @@ common() ->
      invalid_gtp_msg,
      create_pdp_context_request_missing_ie,
      create_pdp_context_request_aaa_reject,
+     create_pdp_context_request_gx_fail,
+     create_pdp_context_request_gy_fail,
+     create_pdp_context_request_rf_fail,
      create_pdp_context_request_invalid_apn,
      create_pdp_context_request_dotted_apn,
      create_pdp_context_request_accept_new,
@@ -249,8 +252,38 @@ init_per_testcase(create_pdp_context_request_aaa_reject, Config) ->
     ok = meck:expect(ergw_aaa_session, invoke,
 		     fun(_, _, authenticate, _) ->
 			     {fail, #{}, []};
-			(_, _, _, _) ->
-			     ok
+			(_, Opts, _, _) ->
+			     {ok, Opts, []}
+		     end),
+    Config;
+init_per_testcase(create_pdp_context_request_gx_fail, Config) ->
+    init_per_testcase(Config),
+    ok = meck:new(ergw_aaa_session, [passthrough, no_link]),
+    ok = meck:expect(ergw_aaa_session, invoke,
+		     fun(_, _, {gx, 'CCR-Initial'}, _) ->
+			     {fail, #{}, []};
+			(_, Opts, _, _) ->
+			     {ok, Opts, []}
+		     end),
+    Config;
+init_per_testcase(create_pdp_context_request_gy_fail, Config) ->
+    init_per_testcase(Config),
+    ok = meck:new(ergw_aaa_session, [passthrough, no_link]),
+    ok = meck:expect(ergw_aaa_session, invoke,
+		     fun(_, _, {gy, 'CCR-Initial'}, _) ->
+			     {fail, #{}, []};
+			(_, Opts, _, _) ->
+			     {ok, Opts, []}
+		     end),
+    Config;
+init_per_testcase(create_pdp_context_request_rf_fail, Config) ->
+    init_per_testcase(Config),
+    ok = meck:new(ergw_aaa_session, [passthrough, no_link]),
+    ok = meck:expect(ergw_aaa_session, invoke,
+		     fun(_, _, start, _) ->
+			     {fail, #{}, []};
+			(_, Opts, _, _) ->
+			     {ok, Opts, []}
 		     end),
     Config;
 init_per_testcase(path_restart, Config) ->
@@ -300,7 +333,11 @@ init_per_testcase(_, Config) ->
 end_per_testcase(_Config) ->
     stop_gtpc_server().
 
-end_per_testcase(create_pdp_context_request_aaa_reject, Config) ->
+end_per_testcase(TestCase, Config)
+  when TestCase == create_pdp_context_request_aaa_reject;
+       TestCase == create_pdp_context_request_gx_fail;
+       TestCase == create_pdp_context_request_gy_fail;
+       TestCase == create_pdp_context_request_rf_fail ->
     meck:unload(ergw_aaa_session),
     end_per_testcase(Config),
     Config;
@@ -370,6 +407,37 @@ create_pdp_context_request_aaa_reject() ->
     [{doc, "Check AAA reject return on Create PDP Context Request"}].
 create_pdp_context_request_aaa_reject(Config) ->
     create_pdp_context(aaa_reject, Config),
+
+    ?equal([], outstanding_requests()),
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+create_pdp_context_request_gx_fail() ->
+    [{doc, "Check Gx failure on Create PDP Context Request"}].
+create_pdp_context_request_gx_fail(Config) ->
+    create_pdp_context(gx_fail, Config),
+
+    ?equal([], outstanding_requests()),
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+create_pdp_context_request_gy_fail() ->
+    [{doc, "Check Gy failure on Create PDP Context Request"}].
+create_pdp_context_request_gy_fail(Config) ->
+    create_pdp_context(gy_fail, Config),
+
+    ?equal([], outstanding_requests()),
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+create_pdp_context_request_rf_fail() ->
+    [{doc, "Check Rf failure on Create PDP Context Request"}].
+create_pdp_context_request_rf_fail(Config) ->
+    {GtpC, _, _} = create_pdp_context(Config),
+    delete_pdp_context(GtpC),
 
     ?equal([], outstanding_requests()),
     meck_validate(Config),
