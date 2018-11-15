@@ -73,6 +73,7 @@ request_spec(v2, create_session_request, _) ->
     [{?'RAT Type',						mandatory},
      {?'Sender F-TEID for Control Plane',			mandatory},
      {?'Access Point Name',					mandatory},
+     {?'APN-AMBR' ,						mandatory},
      {?'Bearer Contexts to be created',				mandatory}];
 request_spec(v2, delete_session_request, _) ->
     [];
@@ -813,8 +814,9 @@ copy_to_session(?'Sender F-TEID for Control Plane',
     copy_optional_binary_ie('3GPP-SGSN-IPv6-Address', IP6, Session1);
 
 copy_to_session(?'Bearer Contexts to be created',
-		#v2_bearer_context{group = #{?'EPS Bearer ID' :=
-						 #v2_eps_bearer_id{eps_bearer_id = EBI}}},
+		#v2_bearer_context{
+		   group =
+		       #{?'EPS Bearer ID' := #v2_eps_bearer_id{eps_bearer_id = EBI}}},
 		_AAAopts, Session) ->
     Session#{'3GPP-NSAPI' => EBI};
 copy_to_session(_, #v2_selection_mode{mode = Mode}, _AAAopts, Session) ->
@@ -863,12 +865,52 @@ copy_to_session(_, #v2_user_location_information{cgi = CGI}, _AAAopts, Session)
     Value = <<0, CGI/binary>>,
     Session#{'3GPP-User-Location-Info' => Value};
 
+
 copy_to_session(_, #v2_ue_time_zone{timezone = TZ, dst = DST}, _AAAopts, Session) ->
     Session#{'3GPP-MS-TimeZone' => {TZ, DST}};
 copy_to_session(_, _, _AAAopts, Session) ->
     Session.
 
-init_session_from_gtp_req(IEs, AAAopts, Session) ->
+copy_qos_to_session(#{?'Bearer Contexts to be created' :=
+			  #v2_bearer_context{
+			     group = #{?'Bearer Level QoS' :=
+					   #v2_bearer_level_quality_of_service{
+					      pci = PCI, pl = PL, pvi = PVI, label = Label,
+					      maximum_bit_rate_for_uplink = MBR4ul,
+					      maximum_bit_rate_for_downlink = MBR4dl,
+					      guaranteed_bit_rate_for_uplink = GBR4ul,
+					      guaranteed_bit_rate_for_downlink = GBR4dl}}},
+		      ?'APN-AMBR' :=
+			  #v2_aggregate_maximum_bit_rate{
+			     uplink = AMBR4ul, downlink = AMBR4dl}},
+		    Session) ->
+    ARP = #{
+	    'Priority-Level' => PL,
+	    'Pre-emption-Capability' => PCI,
+	    'Pre-emption-Vulnerability' => PVI
+	   },
+    Info = #{
+	     'QoS-Class-Identifier' => Label,
+	     'Max-Requested-Bandwidth-UL' => MBR4ul * 1000,
+	     'Max-Requested-Bandwidth-DL' => MBR4dl * 1000,
+	     'Guaranteed-Bitrate-UL' => GBR4ul * 1000,
+	     'Guaranteed-Bitrate-DL' => GBR4dl * 1000,
+
+	     %% TBD:
+	     %%   [ Bearer-Identifier ]
+
+	     'Allocation-Retention-Priority' => ARP,
+	     'APN-Aggregate-Max-Bitrate-UL' => AMBR4ul * 1000,
+	     'APN-Aggregate-Max-Bitrate-DL' => AMBR4dl * 1000
+
+	     %%  *[ Conditional-APN-Aggregate-Max-Bitrate ]
+	    },
+    Session#{'QoS-Information' => Info};
+copy_qos_to_session(_, Session) ->
+    Session.
+
+init_session_from_gtp_req(IEs, AAAopts, Session0) ->
+    Session = copy_qos_to_session(IEs, Session0),
     maps:fold(copy_to_session(_, _, AAAopts, _), Session, IEs).
 
 update_context_cntl_ids(#v2_fully_qualified_tunnel_endpoint_identifier{

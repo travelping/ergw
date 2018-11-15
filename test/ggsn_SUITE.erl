@@ -934,6 +934,21 @@ session_options(Config) ->
 		   '3GPP-IMSI' => ?IMSI,
 		   '3GPP-User-Location-Info' => '_',
 
+		   'QoS-Information' =>
+		       #{
+			 'QoS-Class-Identifier' => 6,
+			 'Max-Requested-Bandwidth-DL' => '_',
+			 'Max-Requested-Bandwidth-UL' => '_',
+			 'Guaranteed-Bitrate-DL' => 0,
+			 'Guaranteed-Bitrate-UL' => 0,
+			 'Allocation-Retention-Priority' =>
+			     #{'Priority-Level' => 2,
+			       'Pre-emption-Capability' => 1,
+			       'Pre-emption-Vulnerability' => 0},
+			 'APN-Aggregate-Max-Bitrate-UL' => '_',
+			 'APN-Aggregate-Max-Bitrate-DL' => '_'
+			},
+
 		   credits => '_',
 
 		   'Session-Id' => '_',

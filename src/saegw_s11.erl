@@ -819,7 +819,46 @@ copy_to_session(_, #v2_ue_time_zone{timezone = TZ, dst = DST}, _AAAopts, Session
 copy_to_session(_, _, _AAAopts, Session) ->
     Session.
 
-init_session_from_gtp_req(IEs, AAAopts, Session) ->
+copy_qos_to_session(#{?'Bearer Contexts to be created' :=
+			  #v2_bearer_context{
+			     group = #{?'Bearer Level QoS' :=
+					   #v2_bearer_level_quality_of_service{
+					      pci = PCI, pl = PL, pvi = PVI, label = Label,
+					      maximum_bit_rate_for_uplink = MBR4ul,
+					      maximum_bit_rate_for_downlink = MBR4dl,
+					      guaranteed_bit_rate_for_uplink = GBR4ul,
+					      guaranteed_bit_rate_for_downlink = GBR4dl}}},
+		      ?'APN-AMBR' :=
+			  #v2_aggregate_maximum_bit_rate{
+			     uplink = AMBR4ul, downlink = AMBR4dl}},
+		    Session) ->
+    ARP = #{
+	    'Priority-Level' => PL,
+	    'Pre-emption-Capability' => PCI,
+	    'Pre-emption-Vulnerability' => PVI
+	   },
+    Info = #{
+	     'QoS-Class-Identifier' => Label,
+	     'Max-Requested-Bandwidth-UL' => MBR4ul * 1000,
+	     'Max-Requested-Bandwidth-DL' => MBR4dl * 1000,
+	     'Guaranteed-Bitrate-UL' => GBR4ul * 1000,
+	     'Guaranteed-Bitrate-DL' => GBR4dl * 1000,
+
+	     %% TBD:
+	     %%   [ Bearer-Identifier ]
+
+	     'Allocation-Retention-Priority' => ARP,
+	     'APN-Aggregate-Max-Bitrate-UL' => AMBR4ul * 1000,
+	     'APN-Aggregate-Max-Bitrate-DL' => AMBR4dl * 1000
+
+	     %%  *[ Conditional-APN-Aggregate-Max-Bitrate ]
+	    },
+    Session#{'QoS-Information' => Info};
+copy_qos_to_session(_, Session) ->
+    Session.
+
+init_session_from_gtp_req(IEs, AAAopts, Session0) ->
+    Session = copy_qos_to_session(IEs, Session0),
     maps:fold(copy_to_session(_, _, AAAopts, _), Session, IEs).
 
 %% use additional information from the Context to prefre V4 or V6....

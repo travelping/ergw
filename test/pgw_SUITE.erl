@@ -1213,6 +1213,21 @@ session_options(Config) ->
 		   '3GPP-IMSI' => ?IMSI,
 		   '3GPP-User-Location-Info' => '_',
 
+		   'QoS-Information' =>
+		       #{
+			 'QoS-Class-Identifier' => 8,
+			 'Max-Requested-Bandwidth-DL' => 0,
+			 'Max-Requested-Bandwidth-UL' => 0,
+			 'Guaranteed-Bitrate-DL' => 0,
+			 'Guaranteed-Bitrate-UL' => 0,
+			 'Allocation-Retention-Priority' =>
+			     #{'Priority-Level' => 10,
+			       'Pre-emption-Capability' => 1,
+			       'Pre-emption-Vulnerability' => 0},
+			 'APN-Aggregate-Max-Bitrate-UL' => '_',
+			 'APN-Aggregate-Max-Bitrate-DL' => '_'
+			},
+
 		   credits => '_',
 
 		   'Session-Id' => '_',
