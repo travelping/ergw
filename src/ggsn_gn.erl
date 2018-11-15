@@ -51,6 +51,8 @@
 -define('MSISDN',					{ms_international_pstn_isdn_number, 0}).
 -define('Quality of Service Profile',			{quality_of_service_profile, 0}).
 -define('IMEI',						{imei, 0}).
+-define('APN-AMBR',					{aggregate_maximum_bit_rate, 0}).
+-define('Evolved ARP I',				{evolved_allocation_retention_priority_i, 0}).
 
 -define(CAUSE_OK(Cause), (Cause =:= request_accepted orelse
 			  Cause =:= new_pdp_type_due_to_network_preference orelse
@@ -227,9 +229,8 @@ handle_request(_ReqKey, _Msg, true, State) ->
 handle_request(_ReqKey,
 	       #gtp{type = create_pdp_context_request,
 		    ie = #{
-		      ?'Access Point Name' := #access_point_name{apn = APN},
-		      ?'Quality of Service Profile' := ReqQoSProfile
-		     } = IEs} = Request, _Resent,
+			   ?'Access Point Name' := #access_point_name{apn = APN}
+			  } = IEs} = Request, _Resent,
 	       #{context := Context0, aaa_opts := AAAopts, node_selection := NodeSelect,
 		 'Session' := Session} = State) ->
 
@@ -242,7 +243,7 @@ handle_request(_ReqKey,
 
     SessionOpts0 = init_session(IEs, ContextPreAuth, AAAopts),
     SessionOpts1 = init_session_from_gtp_req(IEs, AAAopts, SessionOpts0),
-    SessionOpts = init_session_qos(ReqQoSProfile, SessionOpts1),
+    SessionOpts = init_session_qos(IEs, SessionOpts1),
 
     ActiveSessionOpts0 = authenticate(ContextPreAuth, Session, SessionOpts, Request),
     {ContextVRF, VRFOpts} = select_vrf(ContextPreAuth),
@@ -699,24 +700,121 @@ copy_to_session(_, _, _AAAopts, Session) ->
 init_session_from_gtp_req(IEs, AAAopts, Session) ->
     maps:fold(copy_to_session(_, _, AAAopts, _), Session, IEs).
 
-init_session_qos(#quality_of_service_profile{
-		    priority = RequestedPriority,
-		    data = RequestedQoS}, Session) ->
+init_session_qos(#{?'Quality of Service Profile' :=
+		       #quality_of_service_profile{
+			  priority = RequestedPriority,
+			  data = RequestedQoS}} = IEs, Session0) ->
     %% TODO: use config setting to init default class....
-    {NegotiatedPriority, NegotiatedQoS} = negotiate_qos(RequestedPriority, RequestedQoS),
-    Session#{'3GPP-Allocation-Retention-Priority' => NegotiatedPriority,
-	     '3GPP-GPRS-Negotiated-QoS-Profile'   => NegotiatedQoS}.
+    {NegotiatedARP, NegotiatedQoS, QoS} =
+	negotiate_qos(RequestedPriority, RequestedQoS),
+    Session = Session0#{'3GPP-Allocation-Retention-Priority' => NegotiatedARP,
+			'3GPP-GPRS-Negotiated-QoS-Profile'   => NegotiatedQoS},
+    session_qos_info(QoS, NegotiatedARP, IEs, Session).
 
 negotiate_qos_prio(X) when X > 0 andalso X =< 3 ->
     X;
 negotiate_qos_prio(_) ->
     2.
 
+session_qos_info_qci(#qos{
+			traffic_class			= 1,		%% Conversational class
+			source_statistics_descriptor	= 1}) ->	%% Speech
+    1;
+session_qos_info_qci(#qos{
+			traffic_class			= 1,		%% Conversational class
+			transfer_delay			= TransferDelay})
+  when TransferDelay >= 150 ->
+    2;
+session_qos_info_qci(#qos{traffic_class			= 1}) ->	%% Conversational class
+%% TransferDelay < 150
+    3;
+session_qos_info_qci(#qos{traffic_class			= 2}) ->	%% Streaming class
+    4;
+session_qos_info_qci(#qos{
+			traffic_class			= 3,		%% Interactive class
+			traffic_handling_priority	= 1,		%% Priority level 1
+			signaling_indication		= 1}) ->	%% yes
+    5;
+session_qos_info_qci(#qos{
+			traffic_class			= 3,		%% Interactive class
+			signaling_indication		= 0}) ->	%% no
+    6;
+session_qos_info_qci(#qos{
+			traffic_class			= 3,		%% Interactive class
+			traffic_handling_priority	= 2}) ->	%% Priority level 2
+    7;
+session_qos_info_qci(#qos{
+			traffic_class			= 3,		%% Interactive class
+			traffic_handling_priority	= 3}) ->	%% Priority level 3
+    8;
+session_qos_info_qci(#qos{traffic_class			= 4}) ->	%% Background class
+    9;
+session_qos_info_qci(_) -> 9.
+
+session_qos_info_arp(_ARP,
+		     #{?'Evolved ARP I' :=
+			   #evolved_allocation_retention_priority_i{
+			      pci = PCI, pl = PL, pvi = PVI}}) ->
+    #{'Priority-Level' => PL,
+      'Pre-emption-Capability' => PCI,
+      'Pre-emption-Vulnerability' => PVI};
+session_qos_info_arp(_ARP = 1, _IEs) ->
+    #{'Priority-Level' => 1,
+      'Pre-emption-Capability' => 1,         %% TODO operator policy
+      'Pre-emption-Vulnerability' => 0};     %% TODO operator policy
+session_qos_info_arp(_ARP = 2, _IEs) ->
+    #{'Priority-Level' => 2,                 %% TODO operator policy, H + 1 with H >= 1
+      'Pre-emption-Capability' => 1,         %% TODO operator policy
+      'Pre-emption-Vulnerability' => 0};     %% TODO operator policy
+session_qos_info_arp(_ARP = 3, _IEs) ->
+    #{'Priority-Level' => 3,                 %% TODO operator policy M + 1 with M >= H + 1
+      'Pre-emption-Capability' => 1,         %% TODO operator policy
+      'Pre-emption-Vulnerability' => 0}.     %% TODO operator policy
+
+session_qos_info_apn_ambr(_QoS,
+			  #{?'APN-AMBR' :=
+				#aggregate_maximum_bit_rate{
+				   uplink   = AMBR4ul,
+				   downlink = AMBR4dl
+				  }}, Info) ->
+    Info#{'APN-Aggregate-Max-Bitrate-UL' => AMBR4ul * 1000,
+	  'APN-Aggregate-Max-Bitrate-DL' => AMBR4dl * 1000};
+session_qos_info_apn_ambr(#qos{
+			     max_bit_rate_uplink   = MBR4ul,
+			     max_bit_rate_downlink = MBR4dl},
+			  _IEs, Info) ->
+    Info#{'APN-Aggregate-Max-Bitrate-UL' => MBR4ul * 1000,
+	  'APN-Aggregate-Max-Bitrate-DL' => MBR4dl * 1000}.
+
+%% see 3GPP TS 29.212 version 15.3.0, Appending B.3.3.3
+session_qos_info(#qos{
+		    max_bit_rate_uplink          = MBR4ul,
+		    max_bit_rate_downlink        = MBR4dl,
+		    guaranteed_bit_rate_uplink   = GBR4ul,
+		    guaranteed_bit_rate_downlink = GBR4dl
+		   } = QoS, ARP, IEs, Session) ->
+    Info0 = #{
+	      'QoS-Class-Identifier' =>
+		  session_qos_info_qci(QoS),
+	      'Max-Requested-Bandwidth-UL' => MBR4ul * 1000,
+	      'Max-Requested-Bandwidth-DL' => MBR4dl * 1000,
+	      'Guaranteed-Bitrate-UL' => GBR4ul * 1000,
+	      'Guaranteed-Bitrate-DL' => GBR4dl * 1000,
+
+	      'Allocation-Retention-Priority' =>
+		  session_qos_info_arp(ARP, IEs)
+	     },
+    Info = session_qos_info_apn_ambr(QoS, IEs, Info0),
+    Session#{'QoS-Information' => Info};
+
+session_qos_info(_QoS, _ARP, _IEs, Session) ->
+    Session.
+
 negotiate_qos(ReqPriority, ReqQoSProfileData) ->
     NegPriority = negotiate_qos_prio(ReqPriority),
     case '3gpp_qos':decode(ReqQoSProfileData) of
 	Profile when is_binary(Profile) ->
-	    {NegPriority, ReqQoSProfileData};
+	    {NegPriority, ReqQoSProfileData, undefined};
 	#qos{traffic_class = 0} ->			%% MS to Network: Traffic Class: Subscribed
 	    %% 3GPP TS 24.008, Sect. 10.5.6.5,
 	    QoS = #qos{
@@ -738,11 +836,11 @@ negotiate_qos(ReqPriority, ReqQoSProfileData) ->
 		     traffic_handling_priority		= 3,		%% Priority level 3
 		     guaranteed_bit_rate_uplink		= 0,		%% 0 kbps
 		     guaranteed_bit_rate_downlink	= 0,		%% 0 kbps
-		     signaling_indication		= 0,		%% unknown
-		     source_statistics_descriptor	= 0},		%% Not optimised for signalling traffic
-	    {NegPriority, '3gpp_qos':encode(QoS)};
-	_ ->
-	    {NegPriority, ReqQoSProfileData}
+		     signaling_indication		= 0,		%% Not optimised for signalling traffic
+		     source_statistics_descriptor	= 0},		%% unknown
+	    {NegPriority, '3gpp_qos':encode(QoS), QoS};
+	#qos{} = QoS ->
+	    {NegPriority, ReqQoSProfileData, QoS}
     end.
 
 set_fq_teid(Id, undefined, Value) ->
