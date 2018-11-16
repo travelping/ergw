@@ -43,9 +43,9 @@ load_config(Config0) ->
     lists:foreach(fun load_vrf/1, proplists:get_value(vrfs, Config)),
     lists:foreach(fun load_apn/1, proplists:get_value(apns, Config)),
     {ok, _} = ergw_sx_socket:start_sx_socket(proplists:get_value(sx_socket, Config)),
+    ergw_http_api:init(proplists:get_value(http_api, Config)),
     application:set_env(ergw, node_selection, proplists:get_value(node_selection, Config)),
     application:set_env(ergw, nodes, proplists:get_value(nodes, Config)),
-    ergw_http_api:init(),
     ok.
 
 opts_fold(Fun, AccIn, Opts) when is_list(Opts) ->
@@ -187,8 +187,9 @@ validate_option(vrfs, Value) when is_list(Value) ->
 validate_option(apns, Value) when is_list(Value) ->
     check_unique_keys(apns, Value),
     validate_options(fun validate_apns/1, Value);
-validate_option(http_api, Value) when is_list(Value) ->
-    validate_options(fun ergw_http_api:validate_options/2, Value);
+validate_option(http_api, Value) when ?is_opts(Value) ->
+    ergw_http_api:validate_options(Value);
+
 validate_option(Opt, Value)
   when Opt == plmn_id;
        Opt == accept_new;

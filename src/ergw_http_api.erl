@@ -7,66 +7,62 @@
 
 -module(ergw_http_api).
 
--export([init/0]).
--export([validate_options/2]).
+%% API
+-export([init/1, validate_options/1]).
 
--define(DEFAULT_PORT,	8000).
--define(DEFAULT_IP,     {127, 0, 0, 1}).
--define(ACCEPTORS_NUM,  100).
+init(undefined) ->
+    lager:debug("HTTP API will not be started because of lack of configuration~n"),
+    ok;
+init(Opts) when is_map(Opts) ->
+    lager:debug("HTTP API listener options: ~p", [Opts]),
+    %% HTTP API options should be already validated in the ergw_config,
+    %% so it should be safe to run with it
+    start_http_listener(Opts).
 
-init() ->
-    HttpConfig = application:get_env(ergw, http_api),
-    case HttpConfig of
-        undefined ->
-            lager:debug("HTTP API will not be started because of lack of configuration~n"),
-            ok;
-        {ok, HttpOpts0} ->
-            lager:debug("HTTP API listener options: ~p", [HttpOpts0]),
-            % HTTP API options should be already validated in the ergw_config,
-            % so it should be safe to run with it
-            start_http_listener(HttpOpts0)
-    end.
-
-start_http_listener(HttpOpts) ->
-    Port = get_config_option(HttpOpts, port, ?DEFAULT_PORT),
-    IP = get_config_option(HttpOpts, ip, ?DEFAULT_IP),
+start_http_listener(#{ip := IP, port := Port, acceptors_num := AcceptorsNum}) ->
     INet = get_inet(IP),
-    AcceptorsNum = get_config_option(HttpOpts, acceptors_num, ?ACCEPTORS_NUM),
-    Dispatch = cowboy_router:compile([{'_',
-                                       [
-                                        % Public API
-                                        {"/api/v1/version", http_api_handler, []},
-                                        {"/api/v1/status", http_api_handler, []},
-                                        {"/api/v1/status/accept-new", http_api_handler, []},
-                                        {"/api/v1/status/accept-new/:value", http_api_handler, []},
-                                        {"/metrics", http_api_handler, []},
-                                        {"/metrics/[...]", http_api_handler, []},
-                                        % serves static files for swagger UI
-                                        {"/api/v1/spec/ui", swagger_ui_handler, []},
-                                        {"/api/v1/spec/ui/[...]", cowboy_static, {priv_dir, ergw, "static"}}]}
-                                     ]),
-    TransOpts = [{port, Port}, {ip, IP}, INet, {num_acceptors, AcceptorsNum}],
+    Dispatch = cowboy_router:compile(
+		 [{'_',
+		   [
+		    %% Public API
+		    {"/api/v1/version", http_api_handler, []},
+		    {"/api/v1/status", http_api_handler, []},
+		    {"/api/v1/status/accept-new", http_api_handler, []},
+		    {"/api/v1/status/accept-new/:value", http_api_handler, []},
+		    {"/metrics", http_api_handler, []},
+		    {"/metrics/[...]", http_api_handler, []},
+		    %% serves static files for swagger UI
+		    {"/api/v1/spec/ui", swagger_ui_handler, []},
+		    {"/api/v1/spec/ui/[...]", cowboy_static, {priv_dir, ergw, "static"}}]}
+		 ]),
+    TransOpts = #{socket_opts => [{port, Port}, {ip, IP}, INet],
+		  num_acceptors => AcceptorsNum},
     ProtoOpts = #{env => #{dispatch => Dispatch}},
     cowboy:start_clear(ergw_http_listener, TransOpts, ProtoOpts).
 
-get_config_option(List, Key, DefaultVal) ->
-    case lists:keyfind(Key, 1, List) of
-        false ->
-            DefaultVal;
-        {_, Value} ->
-            Value
-    end.
+%%%===================================================================
+%%% Options Validation
+%%%===================================================================
 
-validate_options(port, Port) when is_integer(Port) ->
+-define(Defaults, [{ip, {127, 0, 0, 1}},
+		   {port, 8000},
+		   {acceptors_num, 100}]).
+
+validate_options(Values) ->
+    ergw_config:validate_options(fun validate_option/2, Values, ?Defaults, map).
+
+validate_option(port, Port)
+  when is_integer(Port) ->
     Port;
-validate_options(acceptors_num, Acceptors) when is_integer(Acceptors) ->
+validate_option(acceptors_num, Acceptors)
+  when is_integer(Acceptors) ->
     Acceptors;
-validate_options(ip, {_, _, _, _} = IP) ->
-    IP;
-validate_options(ip, {_, _, _, _, _, _, _, _} = IP) ->
-    IP;
-validate_options(OptName, OptValue) ->
-    throw({error, {options, {OptName, OptValue}}}).
+validate_option(ip, Value)
+  when is_tuple(Value) andalso
+       (tuple_size(Value) == 4 orelse tuple_size(Value) == 8) ->
+    Value;
+validate_option(Opt, Value) ->
+    throw({error, {options, {Opt, Value}}}).
 
 get_inet({_, _, _, _}) ->
     inet;

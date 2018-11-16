@@ -1,7 +1,7 @@
 {"1.1.0",
 [{<<"bear">>,{pkg,<<"bear">>,<<"0.8.7">>},2},
- {<<"cowboy">>,{pkg,<<"cowboy">>,<<"2.4.0">>},0},
- {<<"cowlib">>,{pkg,<<"cowlib">>,<<"2.3.0">>},1},
+ {<<"cowboy">>,{pkg,<<"cowboy">>,<<"2.5.0">>},0},
+ {<<"cowlib">>,{pkg,<<"cowlib">>,<<"2.6.0">>},1},
  {<<"eradius">>,
   {git,"https://github.com/RoadRunnr/eradius.git",
        {ref,"e21878935b801c4966a0e34c1c70cfcc42d56a29"}},
@@ -46,7 +46,7 @@
   {git,"git://github.com/travelping/ppp",
        {ref,"b5e3aeff690a7bc70cd1ef9cfc046dfb4ea26e5e"}},
   1},
- {<<"ranch">>,{pkg,<<"ranch">>,<<"1.5.0">>},1},
+ {<<"ranch">>,{pkg,<<"ranch">>,<<"1.6.2">>},1},
  {<<"regine">>,
   {git,"https://github.com/travelping/regine.git",
        {ref,"2d2c0c2606cb68377c6b41bb0f2ea6bbe98927e8"}},
@@ -56,8 +56,8 @@
 [
 {pkg_hash,[
  {<<"bear">>, <<"16264309AE5D005D03718A5C82641FCC259C9E8F09ADEB6FD79CA4271168656F">>},
- {<<"cowboy">>, <<"F1B72FABE9C8A5FC64AC5AC85FB65474D64733D1DF52A26FAD5D4BA3D9F70A9F">>},
- {<<"cowlib">>, <<"BBD58EF537904E4F7C1DD62E6AA8BC831C8183CE4EFA9BD1150164FE15BE4CAA">>},
+ {<<"cowboy">>, <<"4EF3AE066EE10FE01EA3272EDC8F024347A0D3EB95F6FBB9AED556DACBFC1337">>},
+ {<<"cowlib">>, <<"8AA629F81A0FC189F261DC98A42243FA842625FEEA3C7EC56C48F4CCDB55490F">>},
  {<<"exometer_core">>, <<"62A99A361BA8A14D53857D4C716A191E810299D2F43C5C981EB7B086C0BFCCE1">>},
  {<<"folsom">>, <<"A885F0AEEE4C84270954C88A55A5A473D6B2C7493E32FFDC5765412DD555A951">>},
  {<<"goldrush">>, <<"F06E5D5F1277DA5C413E84D5A2924174182FB108DABB39D5EC548B27424CD106">>},
@@ -66,7 +66,7 @@
  {<<"jsx">>, <<"D2F6E5F069C00266CAD52FB15D87C428579EA4D7D73A33669E12679E203329DD">>},
  {<<"lager">>, <<"831910109F3FCB503DEBF658CA0538836B348C58BFBF349A6D48228096CE9040">>},
  {<<"parse_trans">>, <<"9E96B1C9C3A0DF54E7B76F8F685D38BFA1EB21B31E042B1D1A5A70258E4DB1E3">>},
- {<<"ranch">>, <<"F04166F456790FEE2AC1AA05A02745CC75783C2BFB26D39FAF6AEFC9A3D3A58A">>},
+ {<<"ranch">>, <<"6DB93C78F411EE033DBB18BA8234C5574883ACB9A75AF0FB90A9B82EA46AFA00">>},
  {<<"setup">>, <<"1203F4CDA11306C2E34434244576DED0A7BBFB0908D9A572356C809BD0CDF085">>},
  {<<"stacktrace_compat">>, <<"78E13E0747FABC71DC725A49A4CBDDE54CEC1E9ED13BD80C1D35AC37182E1FA0">>}]}
 ].
