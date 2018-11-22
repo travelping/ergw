@@ -260,7 +260,7 @@ naptr(Name, NameServers) ->
     NsOpts =
 	case NameServers of
 	    {_,_}  ->
-		[{nameservers, NameServers}];
+		[{nameservers, [NameServers]}];
 	    _ ->
 		[]
 	end,
