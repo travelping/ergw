@@ -37,6 +37,7 @@
 	       vrfs}).
 
 -define(AssocReqTimeout, 200).
+-define(AssocReqRetries, 5).
 -define(AssocTimeout, 500).
 -define(AssocRetries, 5).
 
@@ -188,7 +189,8 @@ handle_event({call, From}, stop, _, Data) ->
 handle_event(_, setup, dead, #data{dp = #node{ip = IP}} = Data) ->
     Req0 = #pfcp{version = v1, type = association_setup_request, ie = []},
     Req = augment_mandatory_ie(Req0, Data),
-    ergw_sx_socket:call(IP, ?AssocReqTimeout, 0, Req, response_cb(association_setup_request)),
+    ergw_sx_socket:call(IP, ?AssocReqTimeout, ?AssocReqRetries, Req,
+			response_cb(association_setup_request)),
     {next_state, connecting, Data};
 
 handle_event({call, From}, _Evt, dead, _Data) ->
