@@ -155,7 +155,8 @@
 %%%===================================================================
 
 all() ->
-    [srv_lookup, a_lookup, topology_match, colocation_match, static_lookup].
+    [srv_lookup, a_lookup, topology_match, colocation_match,
+     static_lookup, apn_to_fqdn].
 
 suite() ->
     [{timetrap, {seconds, 30}}].
@@ -229,3 +230,48 @@ colocation_match(_Config) ->
     ?match([{{"topon.gngp.saegw.south.epc.mnc990.mcc311.3gppnetwork.org", _, _, _, _},
 	     {"topon.gngp.saegw.south.epc.mnc990.mcc311.3gppnetwork.org", _, _, _, _}} | _],
 	   ergw_node_selection:colocation_match(?L1 ++ ?L2 ++ ?L3, ?S1 ++ ?S2)).
+
+apn_to_fqdn() ->
+    [{doc, "Translater APN-NI and APN-OI into a proper DNS FQDN for lookup"}].
+apn_to_fqdn(_Config) ->
+    TestsOk =
+	[["example","com"],
+	 [<<"example">>, <<"com">>],
+	 ["example","com","mnc001","mcc001","gprs"],
+	 ["example","com","apn","epc","mnc001","mcc001","3gppnetwork","org"]],
+    lists:foreach(
+      fun(X) ->
+	      ?equal({fqdn,["example","com","apn","epc","mnc001","mcc001","3gppnetwork","org"]},
+		     ergw_node_selection:apn_to_fqdn(X)) end, TestsOk),
+
+    %%
+    %% malformed APNs will result in broken FQDNs, but should not crash
+    %% see 3GPP TS 23.003, Sect. 9.1 Structure of APN
+    %%
+
+    %% APN-NI ends with GRPS
+    ?equal({fqdn,["example","gprs","apn","epc","mnc001","mcc001","3gppnetwork","org"]},
+	   ergw_node_selection:apn_to_fqdn(["example","gprs"])),
+    ?equal({fqdn,["apn","epc","example","com","3gppnetwork","org"]},
+	   ergw_node_selection:apn_to_fqdn(["example","com","gprs"])),
+
+    %% MCC/MNC swapped
+    ?equal({fqdn,["example","com","apn","epc","mcc001","mnc001","3gppnetwork","org"]},
+	   ergw_node_selection:apn_to_fqdn(["example","com","mcc001","mnc001","gprs"])),
+
+    %% end with .3gppnetwork.org
+    ?equal({fqdn,["example","com","3gppnetwork","org"]},
+	   ergw_node_selection:apn_to_fqdn(["example","com","3gppnetwork","org"])),
+
+    %% .3gppnetwork.org with incomplete content
+    ?equal({fqdn,["example","com","mcc001","mnc001","3gppnetwork","org"]},
+	   ergw_node_selection:apn_to_fqdn(["example","com","mcc001","mnc001","3gppnetwork","org"])),
+
+    ?equal({fqdn,["example",<<"com">>,"apn","epc","mnc001","mcc001","3gppnetwork","org"]},
+	   ergw_node_selection:apn_to_fqdn(["example",<<"com">>])),
+
+    %% expected to crash
+    ?match({'EXIT', {badarg, _}},
+	   (catch ergw_node_selection:apn_to_fqdn([<<"example">>,"com"]))),
+
+    ok.
