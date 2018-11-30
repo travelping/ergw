@@ -136,23 +136,18 @@ handle_info(#aaa_request{procedure = {_, 'ASR'}},
 handle_info(#aaa_request{procedure = {gy, 'RAR'}, request = Request},
 	    #{context := Context, 'Session' := Session} = State) ->
     ergw_aaa_session:response(Session, ok, #{}),
+    Now = erlang:monotonic_time(),
 
     %% Triggered CCR.....
 
     case query_usage_report(Request, Context) of
 	#pfcp{type = session_modification_response,
-	      ie = #{pfcp_cause := #pfcp_cause{cause = 'Request accepted'},
-		     usage_report_smr := UsageReport}} ->
-	    lager:info("RAR UsageReport: ~p", [UsageReport]),
+	      ie = #{pfcp_cause := #pfcp_cause{cause = 'Request accepted'}} = IEs} ->
 
-	    GyUpdate = (catch ergw_gsn_lib:usage_report_to_credit_report(UsageReport, Context)),
-	    lager:info("RAR GyUpdate: ~p", [GyUpdate]),
-
-	    GyReqServices = #{'used_credits' => GyUpdate},
-	    lager:info("GyReqServices: ~p", [GyReqServices]),
-	    R1 =
-		ergw_aaa_session:invoke(Session, GyReqServices, {gy, 'CCR-Update'}, #{async => true}),
-	    lager:info("R: ~p", [R1]),
+	    UsageReport = maps:get(usage_report_smr, IEs, undefined),
+	    {Online, Offline, _} = ergw_gsn_lib:usage_report_to_charging_events(UsageReport, Context),
+	    ergw_gsn_lib:process_online_charging_events(interim, Online, Now, Session),
+	    ergw_gsn_lib:process_offline_charging_events(interim, Offline, Now, Session),
 	    ok;
 	_ ->
 	    ok
@@ -184,32 +179,10 @@ handle_sx_report(#pfcp{type = session_report_request,
 			      usage_report_srr := UsageReport}},
 		 _From, #{context := Context, 'Session' := Session} = State) ->
 
-    SOpts = #{now => erlang:monotonic_time(), async => true},
-    case ergw_gsn_lib:usage_report_to_credit_report(UsageReport, Context) of
-	GyUpdate when length(GyUpdate) /= 0 ->
-	    lager:info("GyUpdate: ~p", [GyUpdate]),
-
-	    GyReqServices = #{'used_credits' => GyUpdate},
-	    lager:info("GyReqServices: ~p", [GyReqServices]),
-	    R1 =
-		ergw_aaa_session:invoke(Session, GyReqServices, {gy, 'CCR-Update'}, SOpts),
-	    lager:info("R: ~p", [R1]);
-	_ ->
-	    ok
-    end,
-
-    case ergw_gsn_lib:usage_report_to_monitoring_report(UsageReport, Context) of
-	Interim when map_size(Interim) /= 0 ->
-	    lager:info("Interim: ~p", [Interim]),
-
-	    InterimReq = #{'monitors' => Interim},
-	    lager:info("InterimReq: ~p", [InterimReq]),
-	    R2 =
-		ergw_aaa_session:invoke(Session, InterimReq, interim, SOpts),
-	    lager:info("R: ~p", [R2]);
-	_ ->
-	    ok
-    end,
+    Now = erlang:monotonic_time(),
+    {Online, Offline, _} = ergw_gsn_lib:usage_report_to_charging_events(UsageReport, Context),
+    ergw_gsn_lib:process_online_charging_events(interim, Online, Now, Session),
+    ergw_gsn_lib:process_offline_charging_events(interim, Offline, Now, Session),
 
     {ok, State};
 
@@ -280,6 +253,7 @@ handle_request(_ReqKey,
     lager:info("GySessionOpts: ~p", [GySessionOpts]),
 
     ergw_aaa_session:invoke(Session, #{}, start, SOpts),
+    ergw_aaa_session:invoke(Session, #{}, {rf, 'Initial'}, SOpts),
     FinalSessionOpts = ergw_aaa_session:get(Session),
 
     %% ===========================================================================
@@ -463,8 +437,11 @@ close_pdp_context(Reason, #{context := Context, 'Session' := Session}) ->
 		?'DIAMETER_BASE_TERMINATION-CAUSE_LOGOUT'
 	end,
 
+    %% TODO: Monitors, AAA over SGi
+
     %%  1. CCR on Gx to get PCC rules
-    SOpts = #{now => erlang:monotonic_time()},
+    Now = erlang:monotonic_time(),
+    SOpts = #{now => Now},
     case ergw_aaa_session:invoke(Session, #{}, {gx, 'CCR-Terminate'}, SOpts) of
 	{ok, _GxSessionOpts, _} ->
 	    lager:info("GxSessionOpts: ~p", [_GxSessionOpts]);
@@ -472,30 +449,11 @@ close_pdp_context(Reason, #{context := Context, 'Session' := Session}) ->
 	    lager:warning("Gx terminate failed with: ~p", [GxOther])
     end,
 
-    Report = ergw_gsn_lib:usage_report_to_credit_report(URRs, Context),
-    lager:info("URR: ~p~n", [URRs]),
-    lager:info("Report: ~p~n", [Report]),
-    GyReqServices = #{'Termination-Cause' => TermCause,
-		      used_credits => Report},
-    case ergw_aaa_session:invoke(Session, GyReqServices, {gy, 'CCR-Terminate'}, SOpts) of
-	{ok, GySessionOpts, _} ->
-	    lager:debug("GySessionOpts: ~p", [GySessionOpts]);
-	GyOther ->
-	    lager:warning("Gy terminate failed with: ~p", [GyOther])
-    end,
+    ergw_aaa_session:invoke(Session, #{}, stop, SOpts#{async => true}),
 
-    case ergw_gsn_lib:usage_report_to_monitoring_report(URRs, Context) of
-	Final when map_size(Final) /= 0 ->
-	    lager:info("Final: ~p", [Final]),
-
-	    FinalReq = #{'monitors' => Final},
-	    lager:info("FinalReq: ~p", [FinalReq]),
-	    R2 =
-		ergw_aaa_session:invoke(Session, FinalReq, stop, SOpts#{async => true}),
-	    lager:info("R: ~p", [R2]);
-	_ ->
-	    ok
-    end,
+    {Online, Offline, _} = ergw_gsn_lib:usage_report_to_charging_events(URRs, Context),
+    ergw_gsn_lib:process_online_charging_events({terminate, TermCause}, Online, Now, Session),
+    ergw_gsn_lib:process_offline_charging_events({terminate, TermCause}, Offline, Now, Session),
 
     %% ===========================================================================
 
