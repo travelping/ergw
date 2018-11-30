@@ -10,8 +10,10 @@
 -compile({parse_transform, cut}).
 
 -export([create_sgi_session/3,
-	 usage_report_to_credit_report/2,
 	 usage_report_to_monitoring_report/2,
+	 usage_report_to_charging_events/2,
+	 process_online_charging_events/4,
+	 process_offline_charging_events/4,
 	 pcc_rules_to_credit_request/1,
 	 modify_sgi_session/3,
 	 delete_sgi_session/2,
@@ -28,6 +30,10 @@
 
 -record(sx_ids, {cnt = #{}, idmap = #{}}).
 -record(sx_upd, {errors = [], rules = #{}, monitors = #{}, ids = #sx_ids{}, context}).
+
+-define(SECONDS_PER_DAY, 86400).
+-define(DAYS_FROM_0_TO_1970, 719528).
+-define(SECONDS_FROM_0_TO_1970, (?DAYS_FROM_0_TO_1970*?SECONDS_PER_DAY)).
 
 %%%===================================================================
 %%% Sx DP API
@@ -457,6 +463,13 @@ seconds_to_sntp_time(Sec) ->
 	    Sec + 2208988800
     end.
 
+sntp_time_to_seconds(SNTP) ->
+    if SNTP >= 2208988800 ->
+	    SNTP - 2208988800;
+       true ->
+	    SNTP + 2085978496
+    end.
+
 build_sx_usage_rule(time, #{'CC-Time' := [Time]}, _,
 		    #{measurement_method := MM,
 		      reporting_triggers := RT} = URR) ->
@@ -522,10 +535,8 @@ build_sx_usage_rule(output_quota_threshold,
 		     URR#{reporting_triggers => RT#reporting_triggers{volume_threshold = 1}});
 
 build_sx_usage_rule(monitoring_time, #{'Tariff-Time-Change' := [TTC]}, _, URR) ->
-    %% Time = calendar:datetime_to_gregorian_seconds(TTC) - 62167219200,   %% 1970
-    %% Time = calendar:datetime_to_gregorian_seconds(TTC) - 59958230400,   %% 1900
     Time = seconds_to_sntp_time(
-	     calendar:datetime_to_gregorian_seconds(TTC) - 62167219200),   %% 1970
+	     calendar:datetime_to_gregorian_seconds(TTC) - ?SECONDS_FROM_0_TO_1970),   %% 1970
     URR#{monitoring_time => #monitoring_time{time = Time}};
 
 build_sx_usage_rule(Type, _, _, URR) ->
@@ -748,6 +759,10 @@ opt_int(_) -> [].
 opt_int(K, X, M) when is_integer(X) -> M#{K => X};
 opt_int(_, _, M) -> M.
 
+%% ===========================================================================
+%% Gy Support - Online Charging
+%% ===========================================================================
+
 credit_report_volume(#volume_measurement{total = Total, uplink = UL, downlink = DL}, Report) ->
     Report#{'CC-Total-Octets' => opt_int(Total),
 	    'CC-Input-Octets' => opt_int(UL),
@@ -776,7 +791,7 @@ trigger_to_reason(#usage_report_trigger{termr = 1}, Report) ->
     Report#{'Reporting-Reason' =>
 		[?'DIAMETER_3GPP_CHARGING_REPORTING-REASON_FINAL']};
 trigger_to_reason(_, Report) ->
-    Report.
+   Report.
 
 tariff_change_usage(#{usage_information := #usage_information{bef = 1}}, Report) ->
     Report#{'Tariff-Change-Usage' =>
@@ -787,13 +802,137 @@ tariff_change_usage(#{usage_information := #usage_information{aft = 1}}, Report)
 tariff_change_usage(_, Report) ->
     Report.
 
-usage_report_to_credit_report(#{urr_id := #urr_id{id = Id},
-				usage_report_trigger := Trigger} = URR) ->
+%% charging_event_to_gy/1
+charging_event_to_gy(#{'Rating-Group' := ChargingKey,
+		       usage_report_trigger := Trigger} = URR) ->
     Report0 = trigger_to_reason(Trigger, #{}),
     Report1 = tariff_change_usage(URR, Report0),
     Report2 = credit_report_volume(maps:get(volume_measurement, URR, undefined), Report1),
     Report = credit_report_duration(maps:get(duration_measurement, URR, undefined), Report2),
-    {Id, Report}.
+    {ChargingKey, Report}.
+
+%% ===========================================================================
+%% Rf Support - Offline Charging
+%% ===========================================================================
+
+%% Service-Data-Container :: = < AVP Header: 2040>
+%%   [ AF-Correlation-Information ]
+%%   [ Charging-Rule-Base-Name ]
+%%   [ Accounting-Input-Octets ]
+%%   [ Accounting-Output-Octets ]
+%%   [ Local-Sequence-Number ]
+%%   [ QoS-Information ]
+%%   [ Rating-Group ]
+%%   [ Change-Time ]
+%%   [ Service-Identifier ]
+%%   [ Service-Specific-Info ]
+%%   [ ADC-Rule-Base-Name ]
+%%   [ SGSN-Address ]
+%%   [ Time-First-Usage ]
+%%   [ Time-Last-Usage ]
+%%   [ Time-Usage ]
+%% * [ Change-Condition]
+%%   [ 3GPP-User-Location-Info ]
+%%   [ 3GPP2-BSID ]
+%%   [ UWAN-User-Location-Info ]
+%%   [ TWAN-User-Location-Info ]
+%%   [ Sponsor-Identity ]
+%%   [ Application-Service-Provider-Identity ]
+%% * [ Presence-Reporting-Area-Information]
+%%   [ Presence-Reporting-Area-Status ]
+%%   [ User-CSG-Information ]
+%%   [ 3GPP-RAT-Type ]
+%%   [ Related-Change-Condition-Information ]
+%%   [ Serving-PLMN-Rate-Control ]
+%%   [ APN-Rate-Control ]
+%%   [ 3GPP-PS-Data-Off-Status ]
+%%   [ Traffic-Steering-Policy-Identifier-DL ]
+%%   [ Traffic-Steering-Policy-Identifier-UL ]
+
+-if (TBD).
+
+assign([Key], Fun, Avps) ->
+    Fun(Key, Avps);
+assign([Key | Next], Fun, Avps) ->
+    [V] = maps:get(Key, Avps, [#{}]),
+    Avps#{Key => [assign(Next, Fun, V)]}.
+
+repeated(Keys, Value, Avps) when is_list(Keys) ->
+    assign(Keys, repeated(_, Value, _), Avps);
+repeated(Key, Value, Avps)
+  when is_atom(Key) ->
+    maps:update_with(Key, fun(V) -> [Value|V] end, [Value], Avps).
+
+%% TBD: Change Condition
+cev_to_rf_change_condition([], _, SDC) ->
+    SDC;
+cev_to_rf_change_condition([immer|Fields], [1|Values], SDC) ->
+    repeated('Change-Condition', 0, SDC);
+cev_to_rf_change_condition([droth|Fields], [1|Values], SDC) ->
+    repeated('Change-Condition', 0, SDC);
+cev_to_rf_change_condition([stopt|Fields], [1|Values], SDC) ->
+    repeated('Change-Condition', 0, SDC);
+cev_to_rf_change_condition([start|Fields], [1|Values], SDC) ->
+    repeated('Change-Condition', 0, SDC);
+cev_to_rf_change_condition([quhti|Fields], [1|Values], SDC) ->
+    repeated('Change-Condition', 0, SDC);
+cev_to_rf_change_condition([timth|Fields], [1|Values], SDC) ->
+    %% Time Threshold ->
+    repeated('Change-Condition', 0, SDC);
+cev_to_rf_change_condition([volth|Fields], [1|Values], SDC) ->
+    %% Volume Threshold ->
+    repeated('Change-Condition', 0, SDC);
+cev_to_rf_change_condition([perio|Fields], [1|Values], SDC) ->
+    repeated('Change-Condition', 0, SDC);
+cev_to_rf_change_condition([macar|Fields], [1|Values], SDC) ->
+    repeated('Change-Condition', 0, SDC);
+cev_to_rf_change_condition([envcl|Fields], [1|Values], SDC) ->
+    repeated('Change-Condition', 0, SDC);
+cev_to_rf_change_condition([monit|Fields], [1|Values], SDC) ->
+    repeated('Change-Condition', 0, SDC);
+cev_to_rf_change_condition([termr|Fields], [1|Values], SDC) ->
+    %% Normal Release
+    repeated('Change-Condition', 0, SDC);
+cev_to_rf_change_condition([liusa|Fields], [1|Values], SDC) ->
+    repeated('Change-Condition', 0, SDC);
+cev_to_rf_change_condition([timqu|Fields], [1|Values], SDC) ->
+    %% Time Quota -> Time Limit
+    repeated('Change-Condition', 0, SDC);
+cev_to_rf_change_condition([volqu|Fields], [1|Values], SDC) ->
+    %% Volume Quota ->
+    repeated('Change-Condition', 0, SDC);
+
+cev_to_rf_change_condition([_|Fields], [_|Values], SDC) ->
+    cev_to_rf_change_condition(Fields, Values, SDC).
+
+-endif.
+
+cev_to_rf('Rating-Group' = Key, RatingGroup, SDC) ->
+    SDC#{Key => RatingGroup};
+cev_to_rf(_, #start_time{time = TS}, SDC) ->
+    SDC#{'Time-First-Usage' =>
+	     [calendar:gregorian_seconds_to_datetime(sntp_time_to_seconds(TS)
+						     + ?SECONDS_FROM_0_TO_1970)]};
+cev_to_rf(_, #end_time{time = TS}, SDC) ->
+    SDC#{'Time-Last-Usage' =>
+	     [calendar:gregorian_seconds_to_datetime(sntp_time_to_seconds(TS)
+						     + ?SECONDS_FROM_0_TO_1970)]};
+%% cev_to_rf(usage_report_trigger, #usage_report_trigger{} = Trigger, SDC) ->
+%%     cev_to_rf_change_condition(record_info(fields, usage_report_trigger),
+%% 			       tl(tuple_to_list(Trigger)), SDC);
+cev_to_rf(_, #volume_measurement{uplink = UL, downlink = DL}, SDC) ->
+    SDC#{'Accounting-Input-Octets'  => opt_int(UL),
+	 'Accounting-Output-Octets' => opt_int(DL)};
+cev_to_rf(_, #duration_measurement{duration = Duration}, SDC) ->
+    SDC#{'Time-Usage' => opt_int(Duration)};
+cev_to_rf(_, _, SDC) ->
+    SDC.
+
+%% charging_event_to_rf/1
+charging_event_to_rf(#{'Rating-Group' := ChargingKey} = URR) ->
+    maps:fold(fun cev_to_rf/3, #{}, URR).
+
+%% ===========================================================================
 
 map_usage_report_1(Fun, #usage_report_smr{group = UR}) ->
     Fun(UR);
@@ -811,19 +950,6 @@ map_usage_report(Fun, URR) when is_tuple(URR) ->
 map_usage_report(_Fun, undefined) ->
     [].
 
-usage_report_to_credit_report({Id, Report}, UrrMap, R) ->
-    lager:warning("usage_report_to_credit_report: ~p, ~p", [Id, UrrMap]),
-    case UrrMap of
-	#{Id := ChargingKey} when is_integer(ChargingKey) ->
-	    [{ChargingKey, Report} | R];
-	_ ->
-	    R
-    end.
-
-usage_report_to_credit_report(URR, #context{sx_ids = #sx_ids{idmap = IdMap}}) ->
-    CR = map_usage_report(fun usage_report_to_credit_report/1, URR),
-    lists:foldl(usage_report_to_credit_report(_, maps:get(urr, IdMap, #{}), _), [], CR).
-
 monitor_report_volume(#volume_measurement{uplink = UL, downlink = DL}, Report0) ->
     Report = opt_int('InOctets', UL, Report0),
     opt_int('OutOctets', DL, Report);
@@ -835,11 +961,13 @@ monitor_report_duration(#duration_measurement{duration = Duration}, Report) ->
 monitor_report_duration(_, Report) ->
     Report.
 
+%% usage_report_to_monitor_report/1
 usage_report_to_monitor_report(#{urr_id := #urr_id{id = Id}} = URR) ->
     Report0 = monitor_report_volume(maps:get(volume_measurement, URR, undefined), #{}),
     Report = monitor_report_duration(maps:get(duration_measurement, URR, undefined), Report0),
     {Id, Report}.
 
+%% usage_report_to_monitor_report/4
 usage_report_to_monitor_report({urr, {monitor, Level, Service}}, Id, CR, Report) ->
     case CR of
 	#{Id := R} ->
@@ -857,11 +985,102 @@ usage_report_to_monitor_report({urr, {offline, RatingGroup}}, Id, CR, Report) ->
 usage_report_to_monitor_report(_, _, _, Report) ->
     Report.
 
+%% usage_report_to_monitor_report/2
 usage_report_to_monitoring_report(URR, #context{sx_ids = #sx_ids{idmap = IdMap}}) ->
     CR = map_usage_report(fun usage_report_to_monitor_report/1, URR),
     CR1 = maps:fold(usage_report_to_monitor_report(_, _, maps:from_list(CR), _), #{}, IdMap),
     lager:warning("Monitoring Report ~p", [lager:pr(CR1, ?MODULE)]),
     CR1.
+
+
+%% ===========================================================================
+
+fold_usage_report_1(Fun, #usage_report_smr{group = UR}, Acc) ->
+    Fun(UR, Acc);
+fold_usage_report_1(Fun, #usage_report_sdr{group = UR}, Acc) ->
+    Fun(UR, Acc);
+fold_usage_report_1(Fun, #usage_report_srr{group = UR}, Acc) ->
+    Fun(UR, Acc).
+
+foldl_usage_report(_Fun, Acc, []) ->
+    Acc;
+foldl_usage_report(Fun, Acc, [H|T]) ->
+    foldl_usage_report(Fun, fold_usage_report_1(Fun, H, Acc), T);
+foldl_usage_report(Fun, Acc, URR) when is_tuple(URR) ->
+    fold_usage_report_1(Fun, URR, Acc);
+foldl_usage_report(_Fun, Acc, undefined) ->
+    Acc.
+
+init_charging_events() ->
+    {[], [], []}.
+
+%% usage_report_to_charging_events/3
+usage_report_to_charging_events(RatingGroup, Report, {On, _, _} = Ev)
+  when is_integer(RatingGroup), is_map(Report) ->
+    setelement(1, Ev, [Report#{'Rating-Group' => RatingGroup} | On]);
+usage_report_to_charging_events({offline, RatingGroup}, Report, {_, Off, _} = Ev)
+  when is_integer(RatingGroup), is_map(Report) ->
+    setelement(2, Ev, [Report#{'Rating-Group' => RatingGroup} | Off]);
+%% usage_report_to_charging_events({monitor, Level, Service}, Report, {_, _, Mon} = Ev)
+%%   when is_map(Report) ->
+%%     Ev;
+usage_report_to_charging_events(_K, _V, Ev) ->
+    Ev.
+
+%% usage_report_to_charging_events/2
+usage_report_to_charging_events(URR, #context{sx_ids = #sx_ids{idmap = IdMap}}) ->
+    UrrIds = maps:get(urr, IdMap, #{}),
+
+    %% map URR Ids in Usage Reports into On/Offline/Monitoing Keys
+    UsageByChargingKey =
+	foldl_usage_report(
+	  fun (#{urr_id := #urr_id{id = Id}} = Report, M) ->
+		  case UrrIds of
+		      #{Id := Key} ->
+			  M#{Key => Report};
+		      _ ->
+			  M
+		  end
+	  end, #{}, URR),
+
+    %% translate Charging/Monitoring Keys in Request Containers for Gx, Gy and Rf
+    Ev0 = init_charging_events(),
+    maps:fold(fun usage_report_to_charging_events/3, Ev0, UsageByChargingKey).
+
+process_online_charging_events(Reason, Ev, Now, Session) when is_list(Ev) ->
+    SOpts = #{now => Now, async => true},
+
+    Update = lists:map(fun charging_event_to_gy/1, Ev),
+
+    case Reason of
+	{terminate, Cause} ->
+	    Request = #{'Termination-Cause' => Cause,
+			used_credits => Update},
+	    ergw_aaa_session:invoke(Session, Request, {gy, 'CCR-Terminate'}, SOpts);
+	_ when length(Update) /= 0 ->
+	    Request = #{'used_credits' => Update},
+	    ergw_aaa_session:invoke(Session, Request, {gy, 'CCR-Update'}, SOpts);
+	_ ->
+	    ok
+    end.
+
+
+process_offline_charging_events(Reason, Ev, Now, Session) when is_list(Ev) ->
+    SOpts = #{now => Now, async => true},
+
+    Update = lists:map(fun charging_event_to_rf/1, Ev),
+
+    Request = #{'gy_event' => Reason, 'service_data' => Update},
+    case Reason of
+	{terminate, _} ->
+	    ergw_aaa_session:invoke(Session, Request, {rf, 'Terminate'}, SOpts);
+	_ when length(Update) /= 0 ->
+	    ergw_aaa_session:invoke(Session, Request, {rf, 'Update'}, SOpts);
+	_ ->
+	    ok
+    end.
+
+%% ===========================================================================
 
 %% 3GPP TS 23.203, Sect. 6.1.2 Reporting:
 %%

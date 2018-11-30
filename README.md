@@ -42,12 +42,39 @@ in [3GPP TS 23.214](http://www.3gpp.org/dynareport/23244.htm) and [3GPP TS 29.24
 RADIUS over Gi/SGi
 ------------------
 
+**Normal AAA integration is currently not working the feature/rf branch.**
+
 The GGSN Gn interface supports RADIUS over the Gi interface as specified by 3GPP TS 29.061 Section 16.
 At the moment, only the Authentication and Authorization is supported, Accounting is not supported.
 
 See [RADIUS.md](RADIUS.md) for a list of supported Attrbiutes.
 
 Many thanks to [On Waves](https://www.on-waves.com/) for sponsoring the RADIUS Authentication implementation.
+
+ONLINE/OFFLINE CHARING
+----------------------
+
+Online charging through Gy works with the following caveats:
+
+ * When multiple rating groups are in use, CCR Update requests will contain unit
+   reservation requests for all rating groups, however they should only contain the entries
+   for the rating groups where new quotas, threshold and validity's are needed.
+
+Offline charging through Rf is somewhat functional in "independent online and offline
+charging" mode (tight interworking of online and offline charging is not supported).
+The following caveats apply:
+
+ * only expiry of time limit is supported as trigger for addition to "List of Service Data",
+   most importantly, **none of the IP-CAN bearer modification triggers are supported**,
+   see 3GPP TS 32.251, Table 5.2.3.4.1.1 for the triggers that *should* be supported.
+ * only a few fields in the Service-Data-Container are filed, those are:
+   * Accounting-Input-Octets
+   * Accounting-Output-Octets
+   * Local-Sequence-Number
+   * Rating-Group
+   * Time-First-Usage
+   * Time-Last-Usage
+   * Time-Usage
 
 MISSING FEATURES
 ----------------
