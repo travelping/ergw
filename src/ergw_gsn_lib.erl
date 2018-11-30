@@ -470,6 +470,19 @@ sntp_time_to_seconds(SNTP) ->
 	    SNTP + 2085978496
     end.
 
+-ifdef(OTP_RELEASE).
+%% OTP 21 or higher
+system_time_to_universal_time(Time, TimeUnit) ->
+    calendar:system_time_to_universal_time(Time, TimeUnit).
+
+-else.
+%% from Erlang R21:
+
+system_time_to_universal_time(Time, TimeUnit) ->
+    Secs = erlang:convert_time_unit(Time, TimeUnit, second),
+    calendar:gregorian_seconds_to_datetime(Secs + ?SECONDS_FROM_0_TO_1970).
+-endif.
+
 build_sx_usage_rule(time, #{'CC-Time' := [Time]}, _,
 		    #{measurement_method := MM,
 		      reporting_triggers := RT} = URR) ->
@@ -849,6 +862,23 @@ charging_event_to_gy(#{'Rating-Group' := ChargingKey,
 %%   [ Traffic-Steering-Policy-Identifier-DL ]
 %%   [ Traffic-Steering-Policy-Identifier-UL ]
 
+init_sdc_from_session(Now, Session) ->
+    Keys = ['Charging-Rule-Base-Name', 'QoS-Information',
+	    '3GPP-User-Location-Info', '3GPP-RAT-Type',
+	    '3GPP-SGSN-Address', '3GPP-SGSN-IPv6-Address'],
+    SDC =
+	maps:fold(fun(K, V, M) when K == '3GPP-User-Location-Info';
+				    K == '3GPP-RAT-Type' ->
+			  M#{K => [ergw_aaa_diameter:'3gpp_from_session'(K, V)]};
+		     (K, V, M) when K == '3GPP-SGSN-Address';
+				    K == '3GPP-SGSN-IPv6-Address' ->
+			  M#{'SGSN-Address' => [V]};
+		     (K, V, M) -> M#{K => [V]}
+		 end,
+		 #{}, maps:with(Keys, ergw_aaa_session:get(Session))),
+    SDC#{'Change-Time' =>
+	     [system_time_to_universal_time(Now + erlang:time_offset(), native)]}.
+
 -if (TBD).
 
 assign([Key], Fun, Avps) ->
@@ -908,7 +938,7 @@ cev_to_rf_change_condition([_|Fields], [_|Values], SDC) ->
 -endif.
 
 cev_to_rf('Rating-Group' = Key, RatingGroup, SDC) ->
-    SDC#{Key => RatingGroup};
+    SDC#{Key => [RatingGroup]};
 cev_to_rf(_, #start_time{time = TS}, SDC) ->
     SDC#{'Time-First-Usage' =>
 	     [calendar:gregorian_seconds_to_datetime(sntp_time_to_seconds(TS)
@@ -928,9 +958,9 @@ cev_to_rf(_, #duration_measurement{duration = Duration}, SDC) ->
 cev_to_rf(_, _, SDC) ->
     SDC.
 
-%% charging_event_to_rf/1
-charging_event_to_rf(#{'Rating-Group' := ChargingKey} = URR) ->
-    maps:fold(fun cev_to_rf/3, #{}, URR).
+%% charging_event_to_rf/2
+charging_event_to_rf(#{'Rating-Group' := ChargingKey} = URR, SDCInit) ->
+    maps:fold(fun cev_to_rf/3, SDCInit, URR).
 
 %% ===========================================================================
 
@@ -1068,7 +1098,8 @@ process_online_charging_events(Reason, Ev, Now, Session) when is_list(Ev) ->
 process_offline_charging_events(Reason, Ev, Now, Session) when is_list(Ev) ->
     SOpts = #{now => Now, async => true},
 
-    Update = lists:map(fun charging_event_to_rf/1, Ev),
+    SDCInit = init_sdc_from_session(Now, Session),
+    Update = lists:map(charging_event_to_rf(_, SDCInit), Ev),
 
     Request = #{'gy_event' => Reason, 'service_data' => Update},
     case Reason of
