@@ -879,7 +879,7 @@ init_sdc_from_session(Now, Session) ->
     SDC#{'Change-Time' =>
 	     [system_time_to_universal_time(Now + erlang:time_offset(), native)]}.
 
--if (TBD).
+-ifdef (TBD).
 
 assign([Key], Fun, Avps) ->
     Fun(Key, Avps);
