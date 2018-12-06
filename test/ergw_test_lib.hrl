@@ -91,7 +91,9 @@
 	  local_data_tei         :: non_neg_integer(),
 	  remote_ip              :: inet:ip_address(),
 	  remote_control_tei = 0 :: non_neg_integer(),
-	  remote_data_tei = 0    :: non_neg_integer()
+	  remote_data_tei = 0    :: non_neg_integer(),
+
+	  rat_type = 1           :: non_neg_integer()
 	 }).
 
 -define(equal(Expected, Actual),

@@ -268,15 +268,19 @@ handle_request(_ReqKey,
 
 handle_request(_ReqKey,
 	       #gtp{type = update_pdp_context_request,
-		    ie = #{?'Quality of Service Profile' := ReqQoSProfile}} = Request,
-	       _Resent, #{context := OldContext} = State0) ->
+		    ie = #{?'Quality of Service Profile' := ReqQoSProfile} = IEs} = Request,
+	       _Resent, #{context := OldContext, 'Session' := Session} = State0) ->
 
     Context0 = update_context_from_gtp_req(Request, OldContext),
     Context = gtp_path:bind(Request, Context0),
+    URRActions = update_session_from_gtp_req(IEs, Session, Context),
 
     State1 = if Context /= OldContext ->
 		     gtp_context:remote_context_update(OldContext, Context),
-		     apply_context_change(Context, OldContext, State0);
+		     apply_context_change(Context, OldContext, URRActions, State0);
+		URRActions /= [] ->
+		     gtp_context:trigger_charging_events(URRActions, Context),
+		     State0;
 		true ->
 		     State0
 	     end,
@@ -290,9 +294,15 @@ handle_request(_ReqKey,
 
 handle_request(_ReqKey,
 	       #gtp{type = ms_info_change_notification_request, ie = IEs} = Request,
-	       _Resent, #{context := OldContext} = State) ->
+	       _Resent, #{context := OldContext, 'Session' := Session} = State) ->
 
     Context = update_context_from_gtp_req(Request, OldContext),
+    case update_session_from_gtp_req(IEs, Session, Context) of
+	URRActions when URRActions /= [] ->
+	    gtp_context:trigger_charging_events(URRActions, Context);
+	_ ->
+	    ok
+    end,
 
     ResponseIEs0 = [#cause{value = request_accepted}],
     ResponseIEs = copy_ies_to_response(IEs, ResponseIEs0, [?'IMSI', ?'IMEI']),
@@ -465,10 +475,10 @@ query_usage_report(_, Context) ->
     ergw_gsn_lib:query_usage_report(Context).
 
 
-apply_context_change(NewContext0, OldContext, #{'Session' := Session} = State) ->
+apply_context_change(NewContext0, OldContext, URRActions, #{'Session' := Session} = State) ->
     SessionOpts = ergw_aaa_session:get(Session),
     NewContextPending = gtp_path:bind(NewContext0),
-    NewContext = ergw_gsn_lib:modify_sgi_session(SessionOpts, #{}, NewContextPending),
+    NewContext = ergw_gsn_lib:modify_sgi_session(SessionOpts, URRActions, #{}, NewContextPending),
     gtp_path:unbind(OldContext),
     State#{context => NewContext}.
 
@@ -520,6 +530,11 @@ map_username(_IEs, [], Acc) ->
 map_username(IEs, [H | Rest], Acc) ->
     Part = map_attr(H, IEs),
     map_username(IEs, Rest, [Part | Acc]).
+
+hexstr(Value, _Width) when is_binary(Value) ->
+    erlang:iolist_to_binary([io_lib:format("~2.16.0B", [X]) || <<X>> <= Value]);
+hexstr(Value, Width) when is_integer(Value) ->
+     erlang:iolist_to_binary(io_lib:format("~*.16.0B", [Width, Value])).
 
 init_session(IEs,
 	     #context{control_port = #gtp_port{ip = LocalIP},
@@ -641,13 +656,26 @@ copy_to_session(_, #selection_mode{mode = Mode}, _AAAopts, Session) ->
     Session#{'3GPP-Selection-Mode' => Mode};
 copy_to_session(_, #charging_characteristics{value = Value}, _AAAopts, Session) ->
     Session#{'3GPP-Charging-Characteristics' => Value};
-copy_to_session(_, #routeing_area_identity{mcc = MCC, mnc = MNC}, _AAAopts, Session) ->
-    Session#{'3GPP-SGSN-MCC-MNC' => <<MCC/binary, MNC/binary>>};
+copy_to_session(_, #routeing_area_identity{mcc = MCC, mnc = MNC,
+					   lac = LAC, rac = RAC}, _AAAopts, Session) ->
+    RAI = <<MCC/binary, MNC/binary, (hexstr(LAC, 4))/binary, (hexstr(RAC, 2))/binary>>,
+    Session#{'RAI' => RAI,
+	     '3GPP-SGSN-MCC-MNC' => <<MCC/binary, MNC/binary>>};
 copy_to_session(_, #imei{imei = IMEI}, _AAAopts, Session) ->
     Session#{'3GPP-IMEISV' => IMEI};
 copy_to_session(_, #rat_type{rat_type = Type}, _AAAopts, Session) ->
     Session#{'3GPP-RAT-Type' => Type};
-copy_to_session(_, #user_location_information{} = IE, _AAAopts, Session) ->
+copy_to_session(_, #user_location_information{type = Type, mcc = MCC, mnc = MNC, lac = LAC,
+					      ci = CI, sac = SAC} = IE, _AAAopts, Session0) ->
+    Session = if Type == 0 ->
+		      CGI = <<MCC/binary, MNC/binary, LAC:16, CI:16>>,
+		      maps:without(['SAI'], Session0#{'CGI' => CGI});
+		 Type == 1 ->
+		      SAI = <<MCC/binary, MNC/binary, LAC:16, SAC:16>>,
+		      maps:without(['CGI'], Session0#{'SAI' => SAI});
+		 true ->
+		      Session0
+	      end,
     Value = gtp_packet:encode_v1_uli(IE),
     Session#{'3GPP-User-Location-Info' => Value};
 copy_to_session(_, #ms_time_zone{timezone = TZ, dst = DST}, _AAAopts, Session) ->
@@ -667,7 +695,18 @@ init_session_qos(#{?'Quality of Service Profile' :=
 	negotiate_qos(RequestedPriority, RequestedQoS),
     Session = Session0#{'3GPP-Allocation-Retention-Priority' => NegotiatedARP,
 			'3GPP-GPRS-Negotiated-QoS-Profile'   => NegotiatedQoS},
-    session_qos_info(QoS, NegotiatedARP, IEs, Session).
+    session_qos_info(QoS, NegotiatedARP, IEs, Session);
+init_session_qos(_IEs, Session) ->
+    Session.
+
+update_session_from_gtp_req(IEs, Session, Context) ->
+    OldSOpts = ergw_aaa_session:get(Session),
+    NewSOpts0 =
+	maps:fold(copy_to_session(_, _, undefined, _), OldSOpts, IEs),
+    NewSOpts =
+	init_session_qos(IEs, NewSOpts0),
+    ergw_aaa_session:set(Session, NewSOpts),
+    gtp_context:collect_charging_events(OldSOpts, NewSOpts, Context).
 
 negotiate_qos_prio(X) when X > 0 andalso X =< 3 ->
     X;

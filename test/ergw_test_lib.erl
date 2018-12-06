@@ -149,6 +149,7 @@ update_app_config(Group, CfgUpd, Config0) ->
 meck_init(Config) ->
     ok = meck:new(ergw_sx_socket, [passthrough, no_link]),
     ok = meck:new(ergw_gtp_c_socket, [passthrough, no_link]),
+    ok = meck:new(ergw_aaa_session, [passthrough, no_link]),
 
     {_, Hut} = lists:keyfind(handler_under_test, 1, Config),   %% let it crash if HUT is undefined
     ok = meck:new(Hut, [passthrough, no_link]),
@@ -165,16 +166,19 @@ meck_init(Config) ->
 meck_reset(Config) ->
     meck:reset(ergw_sx_socket),
     meck:reset(ergw_gtp_c_socket),
+    meck:reset(ergw_aaa_session),
     meck:reset(proplists:get_value(handler_under_test, Config)).
 
 meck_unload(Config) ->
     meck:unload(ergw_sx_socket),
     meck:unload(ergw_gtp_c_socket),
+    meck:unload(ergw_aaa_session),
     meck:unload(proplists:get_value(handler_under_test, Config)).
 
 meck_validate(Config) ->
     ?equal(true, meck:validate(ergw_sx_socket)),
     ?equal(true, meck:validate(ergw_gtp_c_socket)),
+    ?equal(true, meck:validate(ergw_aaa_session)),
     ?equal(true, meck:validate(proplists:get_value(handler_under_test, Config))).
 
 %%%===================================================================
@@ -200,7 +204,9 @@ gtp_context(Counter, Config) ->
 	      ue_ip = proplists:get_value(ue_ip, Config),
 
 	      local_ip = proplists:get_value(client_ip, Config),
-	      remote_ip = proplists:get_value(test_gsn, Config)
+	      remote_ip = proplists:get_value(test_gsn, Config),
+
+	      rat_type = 1
 	     },
     gtp_context_new_teids(GtpC).
 

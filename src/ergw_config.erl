@@ -25,7 +25,8 @@
 			 {node_selection, [{default, {dns, undefined}}]},
 			 {nodes, []},
 			 {vrfs, []},
-			 {apns, []}]).
+			 {apns, []},
+			 {charging, [{default, []}]}]).
 
 -define(is_opts(X), (is_list(X) orelse is_map(X))).
 -define(non_empty_opts(X), ((is_list(X) andalso length(X) /= 0) orelse
@@ -46,6 +47,7 @@ load_config(Config0) ->
     ergw_http_api:init(proplists:get_value(http_api, Config)),
     application:set_env(ergw, node_selection, proplists:get_value(node_selection, Config)),
     application:set_env(ergw, nodes, proplists:get_value(nodes, Config)),
+    application:set_env(ergw, charging, proplists:get_value(charging, Config)),
     ok.
 
 opts_fold(Fun, AccIn, Opts) when is_list(Opts) ->
@@ -189,6 +191,10 @@ validate_option(apns, Value) when is_list(Value) ->
     validate_options(fun validate_apns/1, Value);
 validate_option(http_api, Value) when ?is_opts(Value) ->
     ergw_http_api:validate_options(Value);
+validate_option(charging, Opts)
+  when ?non_empty_opts(Opts) ->
+    check_unique_keys(charging, Opts),
+    validate_options(fun ergw_charging:validate_options/1, Opts, [], map);
 
 validate_option(Opt, Value)
   when Opt == plmn_id;
@@ -200,7 +206,8 @@ validate_option(Opt, Value)
        Opt == nodes;
        Opt == vrfs;
        Opt == apns;
-       Opt == http_api ->
+       Opt == http_api;
+       Opt == charging ->
     throw({error, {options, {Opt, Value}}});
 validate_option(_Opt, Value) ->
     Value.

@@ -154,7 +154,8 @@
 				      'Flow-Direction'   => [2]    %% UpLink
 				     }],
 			       'Metering-Method'  => [1],
-			       'Precedence' => [100]
+			       'Precedence' => [100],
+			       'Offline'  => [1]
 			      }
 			}
 	       }
@@ -234,6 +235,7 @@ common() ->
      create_session_request_resend,
      delete_session_request_resend,
      modify_bearer_request_ra_update,
+     modify_bearer_request_rat_update,
      modify_bearer_request_tei_update,
      modify_bearer_command,
      modify_bearer_command_timeout,
@@ -277,7 +279,6 @@ init_per_testcase(Config) ->
 
 init_per_testcase(create_session_request_aaa_reject, Config) ->
     init_per_testcase(Config),
-    ok = meck:new(ergw_aaa_session, [passthrough, no_link]),
     ok = meck:expect(ergw_aaa_session, invoke,
 		     fun(_, _, authenticate, _) ->
 			     {fail, #{}, []};
@@ -287,7 +288,6 @@ init_per_testcase(create_session_request_aaa_reject, Config) ->
     Config;
 init_per_testcase(create_session_request_gx_fail, Config) ->
     init_per_testcase(Config),
-    ok = meck:new(ergw_aaa_session, [passthrough, no_link]),
     ok = meck:expect(ergw_aaa_session, invoke,
 		     fun(_, _, {gx, 'CCR-Initial'}, _) ->
 			     {fail, #{}, []};
@@ -297,7 +297,6 @@ init_per_testcase(create_session_request_gx_fail, Config) ->
     Config;
 init_per_testcase(create_session_request_gy_fail, Config) ->
     init_per_testcase(Config),
-    ok = meck:new(ergw_aaa_session, [passthrough, no_link]),
     ok = meck:expect(ergw_aaa_session, invoke,
 		     fun(_, _, {gy, 'CCR-Initial'}, _) ->
 			     {fail, #{}, []};
@@ -307,7 +306,6 @@ init_per_testcase(create_session_request_gy_fail, Config) ->
     Config;
 init_per_testcase(create_session_request_rf_fail, Config) ->
     init_per_testcase(Config),
-    ok = meck:new(ergw_aaa_session, [passthrough, no_link]),
     ok = meck:expect(ergw_aaa_session, invoke,
 		     fun(_, _, start, _) ->
 			     {fail, #{}, []};
@@ -384,7 +382,7 @@ end_per_testcase(TestCase, Config)
        TestCase == create_session_request_gx_fail;
        TestCase == create_session_request_gy_fail;
        TestCase == create_session_request_rf_fail ->
-    meck:unload(ergw_aaa_session),
+    ok = meck:delete(ergw_aaa_session, invoke, 4),
     end_per_testcase(Config),
     Config;
 end_per_testcase(path_restart, Config) ->
@@ -804,9 +802,71 @@ delete_session_request_resend(Config) ->
 modify_bearer_request_ra_update() ->
     [{doc, "Check Modify Bearer Routing Area Update"}].
 modify_bearer_request_ra_update(Config) ->
+    UpdateCount = 4,
+
     {GtpC1, _, _} = create_session(Config),
-    {GtpC2, _, _} = modify_bearer(ra_update, GtpC1),
+
+    GtpC2 =
+	lists:foldl(
+	  fun(_, GtpCtxIn) ->
+		  {GtpCtxOut, _, _} = modify_bearer(ra_update, GtpCtxIn),
+		  ?equal([], outstanding_requests()),
+		  ct:sleep(1000),
+		  GtpCtxOut
+	  end, GtpC1, lists:seq(1, UpdateCount)),
+
     delete_session(GtpC2),
+
+    ContainerClosePredicate =
+	meck:is(fun(#{gy_event := container_closure}) -> true;
+		   (_) -> false
+		end),
+    ?match(UpdateCount, meck:num_calls(ergw_aaa_session, invoke,
+				       ['_', '_', {rf, 'Update'}, ContainerClosePredicate])),
+    ?match(1, meck:num_calls(ergw_aaa_session, invoke,
+			     ['_', '_', {rf, 'Terminate'}, '_'])),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+modify_bearer_request_rat_update() ->
+    [{doc, "Check Modify Bearer Routing Area Update and RAT change"}].
+modify_bearer_request_rat_update(Config) ->
+    UpdateCount = 4,
+
+    {GtpC1, _, _} = create_session(Config),
+
+    GtpC2 =
+	lists:foldl(
+	  fun(_, GtpCtxIn) ->
+		  {GtpCtxOut, _, _} = modify_bearer(ra_update, GtpCtxIn),
+		  ?equal([], outstanding_requests()),
+		  ct:sleep(1000),
+		  GtpCtxOut
+	  end, GtpC1, lists:seq(1, UpdateCount)),
+
+    {GtpC3, _, _} = modify_bearer(ra_update, GtpC2#gtpc{rat_type = 5}),
+    ?equal([], outstanding_requests()),
+    ct:sleep(1000),
+
+    delete_session(GtpC3),
+
+    ContainerClosePredicate =
+	meck:is(fun(#{gy_event := container_closure}) -> true;
+		   (_) -> false
+		end),
+    ?match(UpdateCount, meck:num_calls(ergw_aaa_session, invoke,
+				       ['_', '_', {rf, 'Update'}, ContainerClosePredicate])),
+    CDRClosePredicate =
+	meck:is(fun(#{gy_event := cdr_closure}) -> true;
+		   (_) -> false
+		end),
+    ?match(1, meck:num_calls(ergw_aaa_session, invoke,
+			     ['_', '_', {rf, 'Update'}, CDRClosePredicate])),
+    ?match(1, meck:num_calls(ergw_aaa_session, invoke,
+			     ['_', '_', {rf, 'Terminate'}, '_'])),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
@@ -817,7 +877,8 @@ modify_bearer_request_tei_update() ->
     [{doc, "Check Modify Bearer with TEID update (e.g. SGW change)"}].
 modify_bearer_request_tei_update(Config) ->
     {GtpC1, _, _} = create_session(Config),
-    {GtpC2, _, _} = modify_bearer(tei_update, GtpC1),
+    {GtpC2, _, _} = modify_bearer(tei_update, GtpC1#gtpc{local_ip = {1,1,1,1}}),
+    ct:sleep(1000),
     delete_session(GtpC2),
 
     [SMR0|_] = lists:filter(
@@ -836,6 +897,13 @@ modify_bearer_request_tei_update(Config) ->
     #gtpc{local_data_tei = NewDataTEI} = GtpC2,
     ?match(#outer_header_creation{teid = NewDataTEI},
 	   maps:get(outer_header_creation, UFP, undefined)),
+
+    CDRClosePred =
+	meck:is(fun(#{gy_event := cdr_closure}) -> true;
+		   (_) -> false
+		end),
+    ?match(1, meck:num_calls(ergw_aaa_session, invoke,
+			     ['_', '_', {rf, 'Update'}, CDRClosePred])),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
@@ -1209,7 +1277,7 @@ session_options(Config) ->
 		   '3GPP-IMSI-MCC-MNC' => <<"11111">>,
 		   '3GPP-PDP-Type' => 'IPv4v6',
 		   '3GPP-MSISDN' => ?MSISDN,
-		   '3GPP-RAT-Type' => 6,
+		   '3GPP-RAT-Type' => 1,
 		   '3GPP-IMSI' => ?IMSI,
 		   '3GPP-User-Location-Info' => '_',
 

@@ -319,17 +319,21 @@ handle_request(_ReqKey,
 				   }}
 			  } = IEs} = Request,
 	       _Resent,
-	       #{context := OldContext} = State0) ->
+	       #{context := OldContext, 'Session' := Session} = State0) ->
 
     FqCntlTEID = maps:get(?'Sender F-TEID for Control Plane', IEs, undefined),
 
     Context0 = update_context_tunnel_ids(FqCntlTEID, FqDataTEID, OldContext),
     Context1 = update_context_from_gtp_req(Request, Context0),
     Context = gtp_path:bind(Request, Context1),
+    URRActions = update_session_from_gtp_req(IEs, Session, Context),
 
     State1 = if Context /= OldContext ->
 		     gtp_context:remote_context_update(OldContext, Context),
-		     apply_context_change(Context, OldContext, State0);
+		     apply_context_change(Context, OldContext, URRActions, State0);
+		URRActions /= [] ->
+		     gtp_context:trigger_charging_events(URRActions, Context),
+		     State0;
 		true ->
 		     State0
 	     end,
@@ -360,10 +364,16 @@ handle_request(_ReqKey,
     {reply, Response, State1};
 
 handle_request(_ReqKey,
-	       #gtp{type = modify_bearer_request} = Request,
-	       _Resent, #{context := OldContext} = State) ->
+	       #gtp{type = modify_bearer_request, ie = IEs} = Request,
+	       _Resent, #{context := OldContext, 'Session' := Session} = State) ->
 
     Context = update_context_from_gtp_req(Request, OldContext),
+    case update_session_from_gtp_req(IEs, Session, Context) of
+	URRActions when URRActions /= [] ->
+	    gtp_context:trigger_charging_events(URRActions, Context);
+	_ ->
+	    ok
+    end,
 
     ResponseIEs = [#v2_cause{v2_cause = request_accepted}],
     Response = response(modify_bearer_response, Context, ResponseIEs, Request),
@@ -375,9 +385,15 @@ handle_request(#request{gtp_port = GtpPort, ip = SrcIP, port = SrcPort} = ReqKey
 		    ie = #{?'APN-AMBR' := AMBR,
 			   ?'Bearer Contexts to be modified' :=
 			       #v2_bearer_context{
-				   group = #{?'EPS Bearer ID' := EBI} = Bearer}}},
-	       _Resent, #{context := Context} = State) ->
+				   group = #{?'EPS Bearer ID' := EBI} = Bearer}} = IEs},
+	       _Resent, #{context := Context, 'Session' := Session} = State) ->
     gtp_context:request_finished(ReqKey),
+    case update_session_from_gtp_req(IEs, Session, Context) of
+	URRActions when URRActions /= [] ->
+	    gtp_context:trigger_charging_events(URRActions, Context);
+	_ ->
+	    ok
+    end,
 
     RequestIEs0 = [AMBR,
 		   #v2_bearer_context{
@@ -390,9 +406,15 @@ handle_request(#request{gtp_port = GtpPort, ip = SrcIP, port = SrcPort} = ReqKey
 
 handle_request(_ReqKey,
 	       #gtp{type = change_notification_request, ie = IEs} = Request,
-	       _Resent, #{context := OldContext} = State) ->
+	       _Resent, #{context := OldContext, 'Session' := Session} = State) ->
 
     Context = update_context_from_gtp_req(Request, OldContext),
+    case update_session_from_gtp_req(IEs, Session, Context) of
+	URRActions when URRActions /= [] ->
+	    gtp_context:trigger_charging_events(URRActions, Context);
+	_ ->
+	    ok
+    end,
 
     ResponseIEs0 = [#v2_cause{v2_cause = request_accepted}],
     ResponseIEs = copy_ies_to_response(IEs, ResponseIEs0, [?'IMSI', ?'ME Identity']),
@@ -453,14 +475,20 @@ handle_response(_,
 		#gtp{type = update_bearer_response,
 		     ie = #{?'Cause' := #v2_cause{v2_cause = Cause},
 			    ?'Bearer Contexts to be modified' :=
-			        #v2_bearer_context{
+				#v2_bearer_context{
 				   group = #{?'Cause' := #v2_cause{v2_cause = BearerCause}}
-				  }}} = Response,
-		_Request, #{context := Context0} = State) ->
+				  }} = IEs} = Response,
+		_Request, #{context := Context0, 'Session' := Session} = State) ->
     Context = gtp_path:bind(Response, Context0),
 
     if Cause =:= request_accepted andalso BearerCause =:= request_accepted ->
-	    {noreply, State};
+	    case update_session_from_gtp_req(IEs, Session, Context) of
+		URRActions when URRActions /= [] ->
+		    gtp_context:trigger_charging_events(URRActions, Context);
+		_ ->
+		    ok
+	    end,
+	    {noreply, State#{context => Context}};
        true ->
 	    lager:error("Update Bearer Request failed with ~p/~p",
 			[Cause, BearerCause]),
@@ -629,7 +657,7 @@ query_usage_report(#{'Rating-Group' := [RatingGroup]}, Context) ->
 query_usage_report(_, Context) ->
     ergw_gsn_lib:query_usage_report(Context).
 
-apply_context_change(NewContext0, OldContext, #{'Session' := Session} = State) ->
+apply_context_change(NewContext0, OldContext, URRActions, #{'Session' := Session} = State) ->
     ModifyOpts =
 	case {NewContext0, OldContext} of
 	    {#context{version = v2}, #context{version = v2}} ->
@@ -639,7 +667,8 @@ apply_context_change(NewContext0, OldContext, #{'Session' := Session} = State) -
 	end,
     SessionOpts = ergw_aaa_session:get(Session),
     NewContextPending = gtp_path:bind(NewContext0),
-    NewContext = ergw_gsn_lib:modify_sgi_session(SessionOpts, ModifyOpts, NewContextPending),
+    NewContext = ergw_gsn_lib:modify_sgi_session(SessionOpts, URRActions,
+						 ModifyOpts, NewContextPending),
     gtp_path:unbind(OldContext),
     State#{context => NewContext}.
 
@@ -828,25 +857,27 @@ copy_to_session(_, #v2_rat_type{rat_type = Type}, _AAAopts, Session) ->
 copy_to_session(_, #v2_user_location_information{tai = TAI, ecgi = ECGI}, _AAAopts, Session)
   when is_binary(TAI), is_binary(ECGI) ->
     Value = <<130, TAI/binary, ECGI/binary>>,
-    Session#{'3GPP-User-Location-Info' => Value};
+    Session#{'TAI' => TAI, 'ECGI' => ECGI, '3GPP-User-Location-Info' => Value};
 copy_to_session(_, #v2_user_location_information{ecgi = ECGI}, _AAAopts, Session)
   when is_binary(ECGI) ->
     Value = <<129, ECGI/binary>>,
-    Session#{'3GPP-User-Location-Info' => Value};
+    Session#{'ECGI' => ECGI, '3GPP-User-Location-Info' => Value};
 copy_to_session(_, #v2_user_location_information{tai = TAI}, _AAAopts, Session)
   when is_binary(TAI) ->
     Value = <<129, TAI/binary>>,
-    Session#{'3GPP-User-Location-Info' => Value};
+    Session#{'TAI' => TAI, '3GPP-User-Location-Info' => Value};
 copy_to_session(_, #v2_user_location_information{rai = RAI}, _AAAopts, Session)
   when is_binary(RAI) ->
     Value = <<2, RAI/binary>>,
-    Session#{'3GPP-User-Location-Info' => Value};
-copy_to_session(_, #v2_user_location_information{sai = SAI}, _AAAopts, Session)
+    Session#{'RAI' => RAI, '3GPP-User-Location-Info' => Value};
+copy_to_session(_, #v2_user_location_information{sai = SAI}, _AAAopts, Session0)
   when is_binary(SAI) ->
+    Session = maps:without(['CGI'], Session0#{'SAI' => SAI}),
     Value = <<1, SAI/binary>>,
     Session#{'3GPP-User-Location-Info' => Value};
-copy_to_session(_, #v2_user_location_information{cgi = CGI}, _AAAopts, Session)
+copy_to_session(_, #v2_user_location_information{cgi = CGI}, _AAAopts, Session0)
   when is_binary(CGI) ->
+    Session = maps:without(['SAI'], Session0#{'CGI' => CGI}),
     Value = <<0, CGI/binary>>,
     Session#{'3GPP-User-Location-Info' => Value};
 
@@ -897,6 +928,14 @@ copy_qos_to_session(_, Session) ->
 init_session_from_gtp_req(IEs, AAAopts, Session0) ->
     Session = copy_qos_to_session(IEs, Session0),
     maps:fold(copy_to_session(_, _, AAAopts, _), Session, IEs).
+
+update_session_from_gtp_req(IEs, Session, Context) ->
+    OldSOpts = ergw_aaa_session:get(Session),
+    NewSOpts0 = copy_qos_to_session(IEs, OldSOpts),
+    NewSOpts =
+	maps:fold(copy_to_session(_, _, undefined, _), NewSOpts0, IEs),
+    ergw_aaa_session:set(Session, NewSOpts),
+    gtp_context:collect_charging_events(OldSOpts, NewSOpts, Context).
 
 update_context_cntl_ids(#v2_fully_qualified_tunnel_endpoint_identifier{
 			   key = TEI, ipv4 = IP4, ipv6 = IP6}, Context) ->

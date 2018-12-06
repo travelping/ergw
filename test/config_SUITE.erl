@@ -675,4 +675,14 @@ config(_Config)  ->
     ?ok_option(set_cfg_value([node_selection, default],
 			     {static, [{"Host", [{1,1,1,1}], []}]},
 			     ?PGW_PROXY_CONFIG)),
+
+    %% Charging Config
+    ?error_option(set_cfg_value([charging], [], ?GGSN_CONFIG)),
+    ?ok_option(set_cfg_value([charging, default], [], ?GGSN_CONFIG)),
+    ?ok_option(set_cfg_value([charging, default, online], [], ?GGSN_CONFIG)),
+    ?ok_option(set_cfg_value([charging, default, offline], [], ?GGSN_CONFIG)),
+    ?ok_option(set_cfg_value([charging, default, offline, triggers], [], ?GGSN_CONFIG)),
+    ?error_option(set_cfg_value([charging, default, offline, triggers, invalid], cdr, ?GGSN_CONFIG)),
+    ?ok_option(set_cfg_value([charging, default, offline, triggers], [{'ecgi-change', off}], ?GGSN_CONFIG)),
+
     ok.

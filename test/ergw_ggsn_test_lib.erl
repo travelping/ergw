@@ -145,7 +145,8 @@ make_request(create_pdp_context_request, SubType,
 	     #gtpc{restart_counter = RCnt, seq_no = SeqNo,
 		   local_ip = IP,
 		   local_control_tei = LocalCntlTEI,
-		   local_data_tei = LocalDataTEI}) ->
+		   local_data_tei = LocalDataTEI,
+		   rat_type = RAT}) ->
     IEs0 =
 	[#recovery{restart_counter = RCnt},
 	 #access_point_name{apn = apn(SubType)},
@@ -159,7 +160,7 @@ make_request(create_pdp_context_request, SubType,
 	 #quality_of_service_profile{
 	    priority = 2,
 	    data = <<19,146,31,113,150,254,254,116,250,255,255,0,142,0>>},
-	 #rat_type{rat_type = 1},
+	 #rat_type{rat_type = RAT},
 	 #selection_mode{mode = 0},
 	 #tunnel_endpoint_identifier_control_plane{tei = LocalCntlTEI},
 	 #tunnel_endpoint_identifier_data_i{tei = LocalDataTEI},
@@ -175,12 +176,25 @@ make_request(create_pdp_context_request, SubType,
     #gtp{version = v1, type = create_pdp_context_request, tei = 0,
 	 seq_no = SeqNo, ie = IEs};
 
-make_request(update_pdp_context_request, _SubType,
+make_request(update_pdp_context_request, SubType,
 	     #gtpc{restart_counter = RCnt, seq_no = SeqNo,
 		   local_ip = IP,
 		   local_control_tei = LocalCntlTEI,
 		   local_data_tei = LocalDataTEI,
-		   remote_control_tei = RemoteCntlTEI}) ->
+		   remote_control_tei = RemoteCntlTEI,
+		   rat_type = RAT}) ->
+    ULI =
+	case SubType of
+	    ra_update ->
+		#user_location_information
+		    {type = 1, mcc = <<"001">>, mnc = <<"001">>,
+		     lac = 11, ci  = 0, sac = SeqNo rem 16#10000, rac = 0};
+	    _ ->
+		#user_location_information
+		    {type = 1, mcc = <<"001">>, mnc = <<"001">>,
+		     lac = 11, ci  = 0, sac = 20263, rac = 0}
+	end,
+
     IEs = [#recovery{restart_counter = RCnt},
 	   #gsn_address{instance = 0, address = ergw_inet:ip2bin(IP)},
 	   #gsn_address{instance = 1, address = ergw_inet:ip2bin(IP)},
@@ -189,24 +203,19 @@ make_request(update_pdp_context_request, _SubType,
 	   #quality_of_service_profile{
 	      priority = 2,
 	      data = <<19,146,31,113,150,254,254,116,250,255,255,0,142,0>>},
-	   #rat_type{rat_type = 1},
+	   #rat_type{rat_type = RAT},
 	   #tunnel_endpoint_identifier_control_plane{tei = LocalCntlTEI},
 	   #tunnel_endpoint_identifier_data_i{tei = LocalDataTEI},
-	   #user_location_information{type = 1,
-				      mcc = <<"001">>,
-				      mnc = <<"001">>,
-				      lac = 11,
-				      ci  = 0,
-				      sac = 20263,
-				      rac = 0}],
+	   ULI],
 
     #gtp{version = v1, type = update_pdp_context_request,
 	 tei = RemoteCntlTEI, seq_no = SeqNo, ie = IEs};
 
 make_request(ms_info_change_notification_request, without_tei,
-	     #gtpc{restart_counter = RCnt, seq_no = SeqNo}) ->
+	     #gtpc{restart_counter = RCnt, seq_no = SeqNo,
+		   rat_type = RAT}) ->
     IEs = [#recovery{restart_counter = RCnt},
-	   #rat_type{rat_type = 1},
+	   #rat_type{rat_type = RAT},
 	   #imei{imei = <<"1234567890123456">>},
 	   #international_mobile_subscriber_identity{imsi = ?IMSI},
 	   #user_location_information{type = 1,
@@ -222,9 +231,10 @@ make_request(ms_info_change_notification_request, without_tei,
 	 seq_no = SeqNo, ie = IEs};
 
 make_request(ms_info_change_notification_request, invalid_imsi,
-	     #gtpc{restart_counter = RCnt, seq_no = SeqNo}) ->
+	     #gtpc{restart_counter = RCnt, seq_no = SeqNo,
+		   rat_type = RAT}) ->
     IEs = [#recovery{restart_counter = RCnt},
-	   #rat_type{rat_type = 1},
+	   #rat_type{rat_type = RAT},
 	   #international_mobile_subscriber_identity{
 	      imsi = <<"991111111111111">>},
 	   #user_location_information{type = 1,
@@ -241,9 +251,10 @@ make_request(ms_info_change_notification_request, invalid_imsi,
 
 make_request(ms_info_change_notification_request, _SubType,
 	     #gtpc{restart_counter = RCnt, seq_no = SeqNo,
-		   remote_control_tei = RemoteCntlTEI}) ->
+		   remote_control_tei = RemoteCntlTEI,
+		   rat_type = RAT}) ->
     IEs = [#recovery{restart_counter = RCnt},
-	   #rat_type{rat_type = 1},
+	   #rat_type{rat_type = RAT},
 	   #user_location_information{type = 1,
 				      mcc = <<"001">>,
 				      mnc = <<"001">>,

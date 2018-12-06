@@ -23,7 +23,10 @@
 	 info/1,
 	 validate_options/3,
 	 validate_option/2]).
--export([usage_report_to_accounting/1]).
+-export([usage_report_to_accounting/1,
+	 collect_charging_events/3,
+	 trigger_charging_events/2,
+	 triggered_offline_usage_report/4]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -152,6 +155,57 @@ remote_context_update(OldContext, NewContext) ->
 delete_context(Context) ->
     gen_server:call(Context, delete_context).
 
+triggered_offline_usage_report(Pid, Actions, OldS, Response) ->
+    gen_server:cast(Pid, {triggered_offline_usage_report, Actions, OldS, Response}).
+
+trigger_charging_events(URRActions, Context) ->
+    lists:map(fun({offline, Cb}) ->
+		      ergw_gsn_lib:trigger_offline_usage_report(Context, Cb);
+		 (_) ->
+		      ok
+	      end, URRActions).
+
+%% TODO: add online charing events
+collect_charging_events(OldS, NewS, Context) ->
+    {ok, ChargingCnf} = application:get_env(ergw, charging),
+    Config = maps:get(default, ChargingCnf, #{}),
+    EvChecks =
+	[
+	 {'CGI',                     'cgi-sai-change'},
+	 {'SAI',                     'cgi-sai-change'},
+	 {'ECGI',                    'ecgi-change'},
+	 %%{qos, 'max-cond-change'},
+	 {'3GPP-MS-TimeZone',        'ms-time-zone-change'},
+	 {'QoS-Information',         'qos-change'},
+	 {'RAI',                     'rai-change'},
+	 {'3GPP-RAT-Type',           'rat-change'},
+	 {'3GPP-SGSN-Address',       'sgsn-sgw-change'},
+	 {'3GPP-SGSN-IPv6-Address',  'sgsn-sgw-change'},
+	 {'3GPP-SGSN-MCC-MNC',       'sgsn-sgw-plmn-id-change'},
+	 {'TAI',                     'tai-change'},
+	 %%{ qos, 'tariff-switch-change'},
+	 {'3GPP-User-Location-Info', 'user-location-info-change'}
+	],
+
+    Events =
+	lists:foldl(
+	  fun({Field, Ev}, Evs) ->
+		  Old = maps:get(Field, OldS, undefined),
+		  New = maps:get(Field, NewS, undefined),
+		  if Old /= New ->
+			  [Ev | Evs];
+		     true ->
+			  Evs
+		  end
+	  end, [], EvChecks),
+    Actions = ergw_charging:is_charging_event(offline, Events, Config),
+    if Actions /= [] ->
+	    %% trigger offline charging action
+	    [{offline, {?MODULE, triggered_offline_usage_report, [self(), Actions, OldS]}}];
+       true ->
+	    []
+    end.
+
 %% 3GPP TS 29.060 (GTPv1-C) and TS 29.274 (GTPv2-C) have language that states
 %% that when an incomming Create PDP Context/Create Session requests collides
 %% with an existing context based on a IMSI, Bearer, Protocol tuple, that the
@@ -186,6 +240,10 @@ enforce_restrictions(Msg, #context{restrictions = Restrictions} = Context) ->
 %%%===================================================================
 %%% Options Validation
 %%%===================================================================
+
+-define(is_opts(X), (is_list(X) orelse is_map(X))).
+-define(non_empty_opts(X), ((is_list(X) andalso length(X) /= 0) orelse
+			    (is_map(X) andalso map_size(X) /= 0))).
 
 -define(ContextDefaults, [{node_selection, undefined},
 			  {aaa,            []}]).
@@ -253,7 +311,8 @@ validate_aaa_attr_option(Key, Setting, Value, _Attr) ->
 %%====================================================================
 
 init([CntlPort, Version, Interface,
-      #{node_selection := NodeSelect, aaa := AAAOpts} = Opts]) ->
+      #{node_selection := NodeSelect,
+	aaa := AAAOpts} = Opts]) ->
 
     lager:debug("init(~p)", [[lager:pr(CntlPort, ?MODULE), Interface]]),
     process_flag(trap_exit, true),
@@ -344,6 +403,28 @@ handle_cast({handle_response, ReqInfo, Request, Response0},
 	    lager:error("GTP response failed with: ~p:~p (~p)", [Class, Error, Stack]),
 	    {noreply, State0}
     end;
+
+handle_cast({triggered_offline_usage_report, Events, OldS, #pfcp{ie = IEs}},
+	    #{context := Context, 'Session' := Session} = State)
+  when Events /= [] ->
+    Now = erlang:monotonic_time(),
+
+    UsageReport = maps:get(usage_report_smr, IEs, undefined),
+    {_Online, Offline, _} = ergw_gsn_lib:usage_report_to_charging_events(UsageReport, Context),
+
+    Reason =
+	case proplists:get_bool(cdr, Events) of
+	    true ->
+		cdr_closure;
+	    _ ->
+		container_closure
+	end,
+    ergw_gsn_lib:process_offline_charging_events(Reason, Offline, Now, OldS, Session),
+
+    {noreply, State};
+
+handle_cast({triggered_offline_usage_report, _Events, _OldS, _Response}, State) ->
+    {noreply, State};
 
 handle_cast(Msg, #{interface := Interface} = State) ->
     lager:debug("~w: handle_cast: ~p", [?MODULE, lager:pr(Msg, ?MODULE)]),
