@@ -237,7 +237,8 @@ make_request(create_session_request, SubType,
 	     #gtpc{restart_counter = RCnt, seq_no = SeqNo,
 		   local_ip = LocalIP,
 		   local_control_tei = LocalCntlTEI,
-		   local_data_tei = LocalDataTEI}) ->
+		   local_data_tei = LocalDataTEI,
+		   rat_type = RAT}) ->
     IEs0 =
 	[#v2_recovery{restart_counter = RCnt},
 	 #v2_access_point_name{apn = apn(SubType)},
@@ -258,7 +259,7 @@ make_request(create_session_request, SubType,
 	    imsi = imsi(SubType, LocalCntlTEI)},
 	 #v2_mobile_equipment_identity{mei = imei(SubType, LocalCntlTEI)},
 	 #v2_msisdn{msisdn = ?'MSISDN'},
-	 #v2_rat_type{rat_type = 6},
+	 #v2_rat_type{rat_type = RAT},
 	 #v2_selection_mode{mode = 0},
 	 #v2_serving_network{mcc = <<"001">>, mnc = <<"001">>},
 	 #v2_ue_time_zone{timezone = 10, dst = 0},
@@ -290,12 +291,25 @@ make_request(modify_bearer_request, SubType,
 	     #gtpc{restart_counter = RCnt, seq_no = SeqNo,
 		   local_ip = LocalIP,
 		   local_control_tei = LocalCntlTEI,
-		   remote_control_tei = RemoteCntlTEI})
+		   remote_control_tei = RemoteCntlTEI,
+		   rat_type = RAT})
   when SubType == simple; SubType == ra_update ->
+    MCCMNC = <<16#00, 16#11, 16#00>>,       %% MCC => 001, MNC => 001
+    ULI =
+	case SubType of
+	    ra_update ->
+		#v2_user_location_information{
+		   tai  = <<MCCMNC/binary, (SeqNo rem 16#10000):16>>,
+		   ecgi = <<MCCMNC/binary, 0:4, 138873180:28>>};
+	    _ ->
+		#v2_user_location_information{
+		   tai  = <<MCCMNC/binary, 20263:16>>,
+		   ecgi = <<MCCMNC/binary, 0:4, 138873180:28>>}
+	end,
     IEs = [#v2_recovery{restart_counter = RCnt},
 	   #v2_ue_time_zone{timezone = 10, dst = 0},
-	   #v2_user_location_information{tai = <<3,2,22,214,217>>,
-					 ecgi = <<3,2,22,8,71,9,92>>},
+	   ULI,
+	   #v2_rat_type{rat_type = RAT},
 	   fq_teid(0, ?'S5/S8-C SGW', LocalCntlTEI, LocalIP)
 	  ],
 
@@ -321,9 +335,10 @@ make_request(modify_bearer_command, SubType,
 
 make_request(change_notification_request, simple,
 	     #gtpc{restart_counter = RCnt, seq_no = SeqNo,
-		   remote_control_tei = RemoteCntlTEI}) ->
+		   remote_control_tei = RemoteCntlTEI,
+		   rat_type = RAT}) ->
     IEs = [#v2_recovery{restart_counter = RCnt},
-	   #v2_rat_type{rat_type = 6},
+	   #v2_rat_type{rat_type = RAT},
 	   #v2_ue_time_zone{timezone = 10, dst = 0},
 	   #v2_user_location_information{tai = <<3,2,22,214,217>>,
 					 ecgi = <<3,2,22,8,71,9,92>>}
@@ -351,9 +366,10 @@ make_request(resume_notification, _SubType,
 	 seq_no = SeqNo, ie = IEs};
 
 make_request(change_notification_request, without_tei,
-	     #gtpc{restart_counter = RCnt, seq_no = SeqNo}) ->
+	     #gtpc{restart_counter = RCnt, seq_no = SeqNo,
+		   rat_type = RAT}) ->
     IEs = [#v2_recovery{restart_counter = RCnt},
-	   #v2_rat_type{rat_type = 6},
+	   #v2_rat_type{rat_type = RAT},
 	   #v2_international_mobile_subscriber_identity{
 	      imsi = ?'IMSI'},
 	   #v2_mobile_equipment_identity{mei = <<"AAAAAAAA">>},

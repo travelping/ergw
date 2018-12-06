@@ -13,8 +13,8 @@
 
 %% API
 -export([select_sx_node/2, select_sx_node/3]).
--export([start_link/3, send/4, call/2, get_vrfs/1,
-	 handle_request/3, response/3]).
+-export([start_link/3, send/4, call/2, call/3,
+	 get_vrfs/1, handle_request/3, response/3]).
 -ifdef(TEST).
 -export([stop/1, seconds_to_sntp_time/1]).
 -endif.
@@ -49,7 +49,7 @@ select_sx_node(Candidates, Context) ->
     case connect_sx_node(Candidates) of
 	{ok, Pid} ->
 	    monitor(process, Pid),
-	    call(Pid, {attach, Context}, Context);
+	    call_3(Pid, {attach, Context}, Context);
 	_ ->
 	    throw(?CTX_ERR(?FATAL, system_failure, Context))
     end.
@@ -79,7 +79,10 @@ send(GtpPort, IP, Port, Data) ->
 
 call(#context{dp_node = Pid} = Ctx, Request)
   when is_pid(Pid) ->
-    call(Pid, Request, Ctx).
+    call_3(Pid, Request, Ctx).
+
+call(Server, #pfcp{} = Request, {_,_,_} = Cb) ->
+    cast(Server, {Request, Cb}).
 
 get_vrfs(Context) ->
     call(Context, get_vrfs).
@@ -125,7 +128,7 @@ handle_request_fun(ReqKey, #pfcp{type = session_report_request, seq_no = SeqNo} 
 %%% call/cast wrapper for gtp_port
 %%%===================================================================
 
-call(Pid, Request, Ctx)
+call_3(Pid, Request, Ctx)
   when is_pid(Pid) ->
     lager:debug("DP Server Call ~p: ~p", [Pid, lager:pr(Request, ?MODULE)]),
     case gen_statem:call(Pid, Request) of
@@ -309,6 +312,15 @@ handle_event({call, _} = Evt, #pfcp{} = Request0, connected,
 handle_event({call, _}, Request, _, _Data)
   when is_record(Request, pfcp); Request == get_vrfs ->
     {keep_state_and_data, postpone};
+
+handle_event(cast, {#pfcp{} = Request0, Cb}, connected,
+	     #data{dp = #node{ip = IP}} = Data) ->
+    Request = augment_mandatory_ie(Request0, Data),
+    ergw_sx_socket:call(IP, Request, Cb),
+    keep_state_and_data;
+handle_event(cast, {#pfcp{}, Cb}, _, _Data) ->
+    (catch Cb({error, dead})),
+    keep_state_and_data;
 
 handle_event(cast, {handle_pdu, _Request, #gtp{type=g_pdu, ie = PDU}}, _, Data) ->
     try

@@ -14,10 +14,12 @@
 	 usage_report_to_charging_events/2,
 	 process_online_charging_events/4,
 	 process_offline_charging_events/4,
+	 process_offline_charging_events/5,
 	 pcc_rules_to_credit_request/1,
-	 modify_sgi_session/3,
+	 modify_sgi_session/4,
 	 delete_sgi_session/2,
 	 query_usage_report/1, query_usage_report/2,
+	 trigger_offline_usage_report/2,
 	 choose_context_ip/3,
 	 ip_pdu/2]).
 -export([update_pcc_rules/2, session_events/3]).
@@ -54,12 +56,21 @@ delete_sgi_session(normal, #context{dp_seid = SEID} = Ctx) ->
 delete_sgi_session(_Reason, _Context) ->
     undefined.
 
+build_query_usage_report(Type, #context{sx_ids = #sx_ids{idmap = #{urr := URRs}}}) ->
+    maps:fold(fun(K, {offline, V}, A)
+		    when Type =:= offline, is_integer(V) ->
+		      [#query_urr{group = [#urr_id{id = K}]} | A];
+		 (K, V, A)
+		    when Type =:= online andalso is_integer(V) ->
+		      [#query_urr{group = [#urr_id{id = K}]} | A];
+		 (_, _, A) -> A
+	      end, [], URRs);
+build_query_usage_report(_Type, _Context) ->
+    [].
+
 query_usage_report(#context{dp_seid = SEID, sx_ids = #sx_ids{idmap = #{urr := URRs}}} = Ctx) ->
     lager:error("Q URRs: ~p", [URRs]),
-    IEs = maps:fold(fun(K, V, A) when is_integer(V) ->
-			    [#query_urr{group = [#urr_id{id = K}]} | A];
-		       (_, _, A) -> A
-		    end, [], URRs),
+    IEs = build_query_usage_report(online, Ctx),
     Req = #pfcp{version = v1, type = session_modification_request,
 		seid = SEID, ie = IEs},
     ergw_sx_node:call(Ctx, Req);
@@ -78,6 +89,15 @@ query_usage_report(RatingGroup, #context{dp_seid = SEID,
 	_ ->
 	    undefined
     end.
+
+trigger_offline_usage_report(#context{dp_seid = SEID, sx_ids =
+					  #sx_ids{idmap = #{urr := URRs}}} = Ctx, Cb) ->
+    IEs = build_query_usage_report(offline, Ctx),
+    Req = #pfcp{version = v1, type = session_modification_request,
+		seid = SEID, ie = IEs},
+    ergw_sx_node:call(Ctx, Req, Cb);
+trigger_offline_usage_report(_, _) ->
+    undefined.
 
 %%%===================================================================
 %%% Helper functions
@@ -745,11 +765,26 @@ create_sgi_session(Candidates, SessionOpts, Ctx0) ->
 	    throw(?CTX_ERR(?FATAL, system_failure, Ctx))
     end.
 
-modify_sgi_session(SessionOpts, Opts, #context{dp_seid = SEID} = Ctx) ->
+modify_sgi_report_urrs(Response, URRActions) ->
+    lists:map(
+	  fun({offline, {M,F,A}}) ->
+		  (catch erlang:apply(M, F, A ++ [Response]));
+	     (_) ->
+		  ok
+	  end, URRActions).
+
+modify_sgi_session(SessionOpts, URRActions, Opts, #context{dp_seid = SEID} = Ctx) ->
     {SxRules0, SxErrors, CtxPending} = build_sx_rules(SessionOpts, Opts, Ctx),
+    SxRules1 =
+	lists:foldl(
+	  fun({offline, _}, SxR) ->
+		  SxR#{query_urr => build_query_usage_report(offline, Ctx)};
+	     (_, SxR) ->
+		  SxR
+	  end, SxRules0, URRActions),
 
     %% TODO: at the moment, modify_sgi_session is only used to change TEIDs,
-    SxRules = maps:without([update_urr], SxRules0),
+    SxRules = maps:without([update_urr], SxRules1),
 
     lager:info("SxRules: ~p~n", [SxRules]),
     lager:info("SxErrors: ~p~n", [SxErrors]),
@@ -759,7 +794,9 @@ modify_sgi_session(SessionOpts, Opts, #context{dp_seid = SEID} = Ctx) ->
     case ergw_sx_node:call(CtxPending, Req) of
 	#pfcp{version = v1, type = session_modification_response,
 	      %% seid = SEID, TODO: fix DP
-	      ie = #{pfcp_cause := #pfcp_cause{cause = 'Request accepted'}} = _RespIEs} ->
+	      ie = #{pfcp_cause := #pfcp_cause{cause = 'Request accepted'}} =
+		  _RespIEs} = Response ->
+	    modify_sgi_report_urrs(Response, URRActions),
 	    CtxPending;
 	_ ->
 	    throw(?CTX_ERR(?FATAL, system_failure, CtxPending))
@@ -862,7 +899,7 @@ charging_event_to_gy(#{'Rating-Group' := ChargingKey,
 %%   [ Traffic-Steering-Policy-Identifier-DL ]
 %%   [ Traffic-Steering-Policy-Identifier-UL ]
 
-init_sdc_from_session(Now, Session) ->
+init_sdc_from_session(Now, SessionOpts) ->
     Keys = ['Charging-Rule-Base-Name', 'QoS-Information',
 	    '3GPP-User-Location-Info', '3GPP-RAT-Type',
 	    '3GPP-SGSN-Address', '3GPP-SGSN-IPv6-Address'],
@@ -875,7 +912,7 @@ init_sdc_from_session(Now, Session) ->
 			  M#{'SGSN-Address' => [V]};
 		     (K, V, M) -> M#{K => [V]}
 		 end,
-		 #{}, maps:with(Keys, ergw_aaa_session:get(Session))),
+		 #{}, maps:with(Keys, SessionOpts)),
     SDC#{'Change-Time' =>
 	     [system_time_to_universal_time(Now + erlang:time_offset(), native)]}.
 
@@ -1095,13 +1132,18 @@ process_online_charging_events(Reason, Ev, Now, Session) when is_list(Ev) ->
     end.
 
 
-process_offline_charging_events(Reason, Ev, Now, Session) when is_list(Ev) ->
-    SOpts = #{now => Now, async => true},
+process_offline_charging_events(Reason, Ev, Now, Session)
+  when is_list(Ev) ->
+    process_offline_charging_events(Reason, Ev, Now, ergw_aaa_session:get(Session), Session).
 
-    SDCInit = init_sdc_from_session(Now, Session),
+process_offline_charging_events(Reason, Ev, Now, SessionOpts, Session)
+  when is_list(Ev) ->
+    SOpts = #{now => Now, async => true, 'gy_event' => Reason},
+
+    SDCInit = init_sdc_from_session(Now, SessionOpts),
     Update = lists:map(charging_event_to_rf(_, SDCInit), Ev),
 
-    Request = #{'gy_event' => Reason, 'service_data' => Update},
+    Request = #{'service_data' => Update},
     case Reason of
 	{terminate, _} ->
 	    ergw_aaa_session:invoke(Session, Request, {rf, 'Terminate'}, SOpts);

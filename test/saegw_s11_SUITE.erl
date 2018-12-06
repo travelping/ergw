@@ -130,7 +130,8 @@
 				      'Flow-Direction'   => [2]    %% UpLink
 				     }],
 			       'Metering-Method'  => [1],
-			       'Precedence' => [100]
+			       'Precedence' => [100],
+			       'Offline'  => [1]
 			      }
 			}
 	       }
@@ -234,7 +235,6 @@ init_per_testcase(Config) ->
 
 init_per_testcase(create_session_request_aaa_reject, Config) ->
     init_per_testcase(Config),
-    ok = meck:new(ergw_aaa_session, [passthrough, no_link]),
     ok = meck:expect(ergw_aaa_session, invoke,
 		     fun(_, _, authenticate, _) ->
 			     {fail, #{}, []};
@@ -244,7 +244,6 @@ init_per_testcase(create_session_request_aaa_reject, Config) ->
     Config;
 init_per_testcase(create_session_request_gx_fail, Config) ->
     init_per_testcase(Config),
-    ok = meck:new(ergw_aaa_session, [passthrough, no_link]),
     ok = meck:expect(ergw_aaa_session, invoke,
 		     fun(_, _, {gx, 'CCR-Initial'}, _) ->
 			     {fail, #{}, []};
@@ -254,7 +253,6 @@ init_per_testcase(create_session_request_gx_fail, Config) ->
     Config;
 init_per_testcase(create_session_request_gy_fail, Config) ->
     init_per_testcase(Config),
-    ok = meck:new(ergw_aaa_session, [passthrough, no_link]),
     ok = meck:expect(ergw_aaa_session, invoke,
 		     fun(_, _, {gy, 'CCR-Initial'}, _) ->
 			     {fail, #{}, []};
@@ -264,7 +262,6 @@ init_per_testcase(create_session_request_gy_fail, Config) ->
     Config;
 init_per_testcase(create_session_request_rf_fail, Config) ->
     init_per_testcase(Config),
-    ok = meck:new(ergw_aaa_session, [passthrough, no_link]),
     ok = meck:expect(ergw_aaa_session, invoke,
 		     fun(_, _, start, _) ->
 			     {fail, #{}, []};
@@ -305,7 +302,7 @@ end_per_testcase(TestCase, Config)
        TestCase == create_session_request_gx_fail;
        TestCase == create_session_request_gy_fail;
        TestCase == create_session_request_rf_fail ->
-    meck:unload(ergw_aaa_session),
+    ok = meck:delete(ergw_aaa_session, invoke, 4),
     end_per_testcase(Config),
     Config;
 end_per_testcase(TestCase, Config)
