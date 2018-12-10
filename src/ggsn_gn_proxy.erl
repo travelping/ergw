@@ -316,7 +316,9 @@ handle_request(ReqKey,
     gtp_context:remote_context_update(OldContext, Context1),
 
     Context = update_path_bind(Context1, OldContext),
-    ProxyContext = update_path_bind(OldProxyContext#context{version = v1}, OldProxyContext),
+
+    ProxyContext1 = handle_sgsn_change(Context, OldContext, OldProxyContext#context{version = v1}),
+    ProxyContext = update_path_bind(ProxyContext1, OldProxyContext),
 
     StateNew = State#{context => Context, proxy_context => ProxyContext},
     forward_request(sgsn2ggsn, ReqKey, Request, StateNew, State),
@@ -496,6 +498,15 @@ delete_forward_session(Reason, #{context := Context, proxy_context := ProxyConte
     SessionOpts = to_session(gtp_context:usage_report_to_accounting(URRs)),
     lager:debug("Accounting Opts: ~p", [SessionOpts]),
     ergw_aaa_session:invoke(Session, SessionOpts, stop, #{async => true}).
+
+handle_sgsn_change(#context{remote_control_teid = NewFqTEID},
+		  #context{remote_control_teid = OldFqTEID},
+		  #context{control_port = CntlPort} = ProxyContext)
+  when OldFqTEID /= NewFqTEID ->
+    {ok, CntlTEI} = gtp_context_reg:alloc_tei(CntlPort),
+    ProxyContext#context{local_control_tei = CntlTEI};
+handle_sgsn_change(_, _, ProxyContext) ->
+    ProxyContext.
 
 update_path_bind(NewContext0, OldContext)
   when NewContext0 /= OldContext ->

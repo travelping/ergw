@@ -104,6 +104,14 @@
 	     false
      end)(Expected, Actual) orelse error(badmatch)).
 
+-define(not_equal(A, B),
+    (fun (A@@@, A@@@) ->
+	     ct:pal("SHOULD NOT BE EQUAL(~s:~b, ~s, ~s)~nGot: ~p~n",
+		    [?FILE, ?LINE, ??A, ??B, A]),
+	     false;
+	 (_, _) -> true
+     end)(A, B) orelse error(badmatch)).
+
 -define(match(Guard, Expr),
 	((fun () ->
 		  case (Expr) of

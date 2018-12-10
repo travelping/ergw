@@ -784,9 +784,23 @@ update_pdp_context_request_ra_update() ->
     [{doc, "Check Update PDP Context with Routing Area Update"}].
 update_pdp_context_request_ra_update(Config) ->
     {GtpC1, _, _} = create_pdp_context(Config),
+    CtxPid = gtp_context_reg:lookup_key(#gtp_port{name = 'remote-irx'},
+					 {imsi, ?'PROXY-IMSI', 5}),
+    #{context := Ctx1} = gtp_context:info(CtxPid),
+
     {GtpC2, _, _} = update_pdp_context(ra_update, GtpC1),
+    #{context := Ctx2} = gtp_context:info(CtxPid),
+
     ?equal([], outstanding_requests()),
     delete_pdp_context(GtpC2),
+
+    %% make sure the SGSN side TEID don't change
+    ?equal(GtpC1#gtpc.remote_control_tei, GtpC2#gtpc.remote_control_tei),
+    ?equal(GtpC1#gtpc.remote_data_tei,    GtpC2#gtpc.remote_data_tei),
+
+    %% make sure the GGSN side control TEID don't change
+    ?equal(Ctx1#context.remote_control_teid, Ctx2#context.remote_control_teid),
+    ?equal(Ctx1#context.remote_data_teid,    Ctx2#context.remote_data_teid),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
@@ -797,9 +811,23 @@ update_pdp_context_request_tei_update() ->
     [{doc, "Check Update PDP Context with TEID update (e.g. SGSN change)"}].
 update_pdp_context_request_tei_update(Config) ->
     {GtpC1, _, _} = create_pdp_context(Config),
+    CtxPid = gtp_context_reg:lookup_key(#gtp_port{name = 'remote-irx'},
+					 {imsi, ?'PROXY-IMSI', 5}),
+    #{context := Ctx1} = gtp_context:info(CtxPid),
+
     {GtpC2, _, _} = update_pdp_context(tei_update, GtpC1),
+    #{context := Ctx2} = gtp_context:info(CtxPid),
+
     ?equal([], outstanding_requests()),
     delete_pdp_context(GtpC2),
+
+    %% make sure the SGSN side TEID don't change
+    ?equal(GtpC1#gtpc.remote_control_tei, GtpC2#gtpc.remote_control_tei),
+    ?equal(GtpC1#gtpc.remote_data_tei,    GtpC2#gtpc.remote_data_tei),
+
+    %% make sure the GGSN side control TEID DOES change
+    ?not_equal(Ctx1#context.remote_control_teid, Ctx2#context.remote_control_teid),
+    ?equal(Ctx1#context.remote_data_teid,    Ctx2#context.remote_data_teid),
 
     [_, SMR0|_] = lists:filter(
 		    fun(#pfcp{type = session_modification_request}) -> true;
