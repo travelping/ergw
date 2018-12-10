@@ -691,9 +691,23 @@ modify_bearer_request_ra_update(Config) ->
     S = make_gtp_socket(Config),
 
     {GtpC1, _, _} = create_session(S),
+    CtxPid = gtp_context_reg:lookup_key(#gtp_port{name = 'remote-irx'},
+					 {imsi, ?'PROXY-IMSI', 5}),
+    #{context := Ctx1} = gtp_context:info(CtxPid),
+
     {GtpC2, _, _} = modify_bearer(ra_update, S, GtpC1),
+    #{context := Ctx2} = gtp_context:info(CtxPid),
+
     ?equal([], outstanding_requests()),
     delete_session(S, GtpC2),
+
+    %% make sure the SGW side TEID don't change
+    ?equal(GtpC1#gtpc.remote_control_tei, GtpC2#gtpc.remote_control_tei),
+    ?equal(GtpC1#gtpc.remote_data_tei,    GtpC2#gtpc.remote_data_tei),
+
+    %% make sure the PDN-GW side control TEID don't change
+    ?equal(Ctx1#context.remote_control_tei, Ctx2#context.remote_control_tei),
+    ?equal(Ctx1#context.remote_data_tei,    Ctx2#context.remote_data_tei),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
@@ -706,9 +720,23 @@ modify_bearer_request_tei_update(Config) ->
     S = make_gtp_socket(Config),
 
     {GtpC1, _, _} = create_session(S),
+    CtxPid = gtp_context_reg:lookup_key(#gtp_port{name = 'remote-irx'},
+					 {imsi, ?'PROXY-IMSI', 5}),
+    #{context := Ctx1} = gtp_context:info(CtxPid),
+
     {GtpC2, _, _} = modify_bearer(tei_update, S, GtpC1),
+    #{context := Ctx2} = gtp_context:info(CtxPid),
+
     ?equal([], outstanding_requests()),
     delete_session(S, GtpC2),
+
+    %% make sure the SGW side TEID don't change
+    ?equal(GtpC1#gtpc.remote_control_tei, GtpC2#gtpc.remote_control_tei),
+    ?equal(GtpC1#gtpc.remote_data_tei,    GtpC2#gtpc.remote_data_tei),
+
+    %% make sure the PDN-GW side control TEID DOES change
+    ?not_equal(Ctx1#context.remote_control_tei, Ctx2#context.remote_control_tei),
+    ?equal(Ctx1#context.remote_data_tei,    Ctx2#context.remote_data_tei),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
@@ -1161,13 +1189,28 @@ interop_sgsn_to_sgw(Config) ->
     S = make_gtp_socket(Config),
 
     {GtpC1, _, _} = ergw_ggsn_test_lib:create_pdp_context(S),
+    CtxPid = gtp_context_reg:lookup_key(#gtp_port{name = 'remote-irx'},
+					 {imsi, ?'PROXY-IMSI', 5}),
+    #{context := Ctx1} = gtp_context:info(CtxPid),
+
     check_exo_contexts(v1, 3, 1),
     check_exo_contexts(v2, 0, 0),
+
     {GtpC2, _, _} = modify_bearer(tei_update, S, GtpC1),
+    #{context := Ctx2} = gtp_context:info(CtxPid),
+
     ?equal([], outstanding_requests()),
     check_exo_contexts(v1, 3, 0),
     check_exo_contexts(v2, 3, 1),
     delete_session(S, GtpC2),
+
+    %% make sure the SGSN/SGW side TEID don't change
+    ?equal(GtpC1#gtpc.remote_control_tei, GtpC2#gtpc.remote_control_tei),
+    ?equal(GtpC1#gtpc.remote_data_tei,    GtpC2#gtpc.remote_data_tei),
+
+    %% make sure the GGSN/PDN-GW side control TEID DOES change
+    ?not_equal(Ctx1#context.remote_control_tei, Ctx2#context.remote_control_tei),
+    ?equal(Ctx1#context.remote_data_tei, Ctx2#context.remote_data_tei),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
@@ -1185,12 +1228,26 @@ interop_sgw_to_sgsn(Config) ->
     S = make_gtp_socket(Config),
 
     {GtpC1, _, _} = create_session(S),
+    CtxPid = gtp_context_reg:lookup_key(#gtp_port{name = 'remote-irx'},
+					 {imsi, ?'PROXY-IMSI', 5}),
+    #{context := Ctx1} = gtp_context:info(CtxPid),
+
     check_exo_contexts(v1, 0, 0),
     check_exo_contexts(v2, 3, 1),
     {GtpC2, _, _} = ergw_ggsn_test_lib:update_pdp_context(tei_update, S, GtpC1),
+    #{context := Ctx2} = gtp_context:info(CtxPid),
+
     check_exo_contexts(v1, 3, 1),
     check_exo_contexts(v2, 3, 0),
     ergw_ggsn_test_lib:delete_pdp_context(S, GtpC2),
+
+    %% make sure the SGSN/SGW side TEID don't change
+    ?equal(GtpC1#gtpc.remote_control_tei, GtpC2#gtpc.remote_control_tei),
+    ?equal(GtpC1#gtpc.remote_data_tei,    GtpC2#gtpc.remote_data_tei),
+
+    %% make sure the GGSN/PDN-GW side control TEID DOES change
+    ?not_equal(Ctx1#context.remote_control_tei, Ctx2#context.remote_control_tei),
+    ?equal(Ctx1#context.remote_data_tei, Ctx2#context.remote_data_tei),
 
     ?equal([], outstanding_requests()),
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
