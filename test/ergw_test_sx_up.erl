@@ -237,6 +237,7 @@ handle_message(#pfcp{type = session_modification_request, seid = UserPlaneSEID, 
 		 #usage_report_smr{
 		    group =
 			[#urr_id{id = 1},
+			 #usage_report_trigger{immer = 1},
 			 #volume_measurement{
 			    total = 6,
 			    uplink = 4,
