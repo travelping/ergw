@@ -996,8 +996,14 @@ cev_to_rf(_, _, SDC) ->
     SDC.
 
 %% charging_event_to_rf/2
-charging_event_to_rf(#{'Rating-Group' := ChargingKey} = URR, SDCInit) ->
-    maps:fold(fun cev_to_rf/3, SDCInit, URR).
+charging_event_to_rf(#{'Rating-Group' := ChargingKey,
+		       usage_report_trigger :=
+			   #usage_report_trigger{perio = Periodic}} = URR, SDCInit, Reason0) ->
+    Reason = if Periodic == 1 -> cdr_closure;
+		true          -> Reason0
+	     end,
+    SDC = maps:fold(fun cev_to_rf/3, SDCInit, URR),
+    {SDC, Reason}.
 
 %% ===========================================================================
 
@@ -1136,13 +1142,12 @@ process_offline_charging_events(Reason, Ev, Now, Session)
   when is_list(Ev) ->
     process_offline_charging_events(Reason, Ev, Now, ergw_aaa_session:get(Session), Session).
 
-process_offline_charging_events(Reason, Ev, Now, SessionOpts, Session)
+process_offline_charging_events(Reason0, Ev, Now, SessionOpts, Session)
   when is_list(Ev) ->
-    SOpts = #{now => Now, async => true, 'gy_event' => Reason},
-
     SDCInit = init_sdc_from_session(Now, SessionOpts),
-    Update = lists:map(charging_event_to_rf(_, SDCInit), Ev),
+    {Update, Reason} = lists:mapfoldl(charging_event_to_rf(_, SDCInit, _), Reason0, Ev),
 
+    SOpts = #{now => Now, async => true, 'gy_event' => Reason},
     Request = #{'service_data' => Update},
     case Reason of
 	{terminate, _} ->
