@@ -861,9 +861,23 @@ modify_bearer_request_ra_update() ->
     [{doc, "Check Modify Bearer Routing Area Update"}].
 modify_bearer_request_ra_update(Config) ->
     {GtpC1, _, _} = create_session(Config),
+    CtxPid = gtp_context_reg:lookup_key(#gtp_port{name = 'remote-irx'},
+					 {imsi, ?'PROXY-IMSI', 5}),
+    #{context := Ctx1} = gtp_context:info(CtxPid),
+
     {GtpC2, _, _} = modify_bearer(ra_update, GtpC1),
+    #{context := Ctx2} = gtp_context:info(CtxPid),
+
     ?equal([], outstanding_requests()),
     delete_session(GtpC2),
+
+    %% make sure the SGW side TEID don't change
+    ?equal(GtpC1#gtpc.remote_control_tei, GtpC2#gtpc.remote_control_tei),
+    ?equal(GtpC1#gtpc.remote_data_tei,    GtpC2#gtpc.remote_data_tei),
+
+    %% make sure the PDN-GW side control TEID don't change
+    ?equal(Ctx1#context.remote_control_teid, Ctx2#context.remote_control_teid),
+    ?equal(Ctx1#context.remote_data_teid,    Ctx2#context.remote_data_teid),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
@@ -874,9 +888,23 @@ modify_bearer_request_tei_update() ->
     [{doc, "Check Modify Bearer with TEID update (e.g. SGW change)"}].
 modify_bearer_request_tei_update(Config) ->
     {GtpC1, _, _} = create_session(Config),
+    CtxPid = gtp_context_reg:lookup_key(#gtp_port{name = 'remote-irx'},
+					 {imsi, ?'PROXY-IMSI', 5}),
+    #{context := Ctx1} = gtp_context:info(CtxPid),
+
     {GtpC2, _, _} = modify_bearer(tei_update, GtpC1),
+    #{context := Ctx2} = gtp_context:info(CtxPid),
+
     ?equal([], outstanding_requests()),
     delete_session(GtpC2),
+
+    %% make sure the SGW side TEID don't change
+    ?equal(GtpC1#gtpc.remote_control_tei, GtpC2#gtpc.remote_control_tei),
+    ?equal(GtpC1#gtpc.remote_data_tei,    GtpC2#gtpc.remote_data_tei),
+
+    %% make sure the PDN-GW side control TEID DOES change
+    ?not_equal(Ctx1#context.remote_control_teid, Ctx2#context.remote_control_teid),
+    ?equal(Ctx1#context.remote_data_teid,    Ctx2#context.remote_data_teid),
 
     [_, SMR0|_] = lists:filter(
 		    fun(#pfcp{type = session_modification_request}) -> true;
@@ -1305,13 +1333,28 @@ interop_sgsn_to_sgw() ->
     [{doc, "Check 3GPP T 23.401, Annex D, SGSN to SGW handover"}].
 interop_sgsn_to_sgw(Config) ->
     {GtpC1, _, _} = ergw_ggsn_test_lib:create_pdp_context(Config),
+    CtxPid = gtp_context_reg:lookup_key(#gtp_port{name = 'remote-irx'},
+					 {imsi, ?'PROXY-IMSI', 5}),
+    #{context := Ctx1} = gtp_context:info(CtxPid),
+
     check_exo_contexts(v1, 3, 1),
     check_exo_contexts(v2, 0, 0),
+
     {GtpC2, _, _} = modify_bearer(tei_update, GtpC1),
+    #{context := Ctx2} = gtp_context:info(CtxPid),
+
     ?equal([], outstanding_requests()),
     check_exo_contexts(v1, 3, 0),
     check_exo_contexts(v2, 3, 1),
     delete_session(GtpC2),
+
+    %% make sure the SGSN/SGW side TEID don't change
+    ?equal(GtpC1#gtpc.remote_control_tei, GtpC2#gtpc.remote_control_tei),
+    ?equal(GtpC1#gtpc.remote_data_tei,    GtpC2#gtpc.remote_data_tei),
+
+    %% make sure the GGSN/PDN-GW side control TEID DOES change
+    ?not_equal(Ctx1#context.remote_control_teid, Ctx2#context.remote_control_teid),
+    ?equal(Ctx1#context.remote_data_teid,    Ctx2#context.remote_data_teid),
 
     [_, SMR0|_] = lists:filter(
 		    fun(#pfcp{type = session_modification_request}) -> true;
@@ -1340,12 +1383,26 @@ interop_sgw_to_sgsn() ->
     [{doc, "Check 3GPP T 23.401, Annex D, SGW to SGSN handover"}].
 interop_sgw_to_sgsn(Config) ->
     {GtpC1, _, _} = create_session(Config),
+    CtxPid = gtp_context_reg:lookup_key(#gtp_port{name = 'remote-irx'},
+					 {imsi, ?'PROXY-IMSI', 5}),
+    #{context := Ctx1} = gtp_context:info(CtxPid),
+
     check_exo_contexts(v1, 0, 0),
     check_exo_contexts(v2, 3, 1),
     {GtpC2, _, _} = ergw_ggsn_test_lib:update_pdp_context(tei_update, GtpC1),
+    #{context := Ctx2} = gtp_context:info(CtxPid),
+
     check_exo_contexts(v1, 3, 1),
     check_exo_contexts(v2, 3, 0),
     ergw_ggsn_test_lib:delete_pdp_context(GtpC2),
+
+    %% make sure the SGSN/SGW side TEID don't change
+    ?equal(GtpC1#gtpc.remote_control_tei, GtpC2#gtpc.remote_control_tei),
+    ?equal(GtpC1#gtpc.remote_data_tei,    GtpC2#gtpc.remote_data_tei),
+
+    %% make sure the GGSN/PDN-GW side control TEID DOES change
+    ?not_equal(Ctx1#context.remote_control_teid, Ctx2#context.remote_control_teid),
+    ?equal(Ctx1#context.remote_data_teid,    Ctx2#context.remote_data_teid),
 
     [_, SMR0|_] = lists:filter(
 		    fun(#pfcp{type = session_modification_request}) -> true;
