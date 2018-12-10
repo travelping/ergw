@@ -280,7 +280,9 @@ handle_request(ReqKey,
     gtp_context:remote_context_update(OldContext, Context1),
 
     Context = update_path_bind(Context1, OldContext),
-    ProxyContext = update_path_bind(OldProxyContext#context{version = v2}, OldProxyContext),
+
+    ProxyContext1 = handle_sgw_change(Context, OldContext, OldProxyContext#context{version = v2}),
+    ProxyContext = update_path_bind(ProxyContext1, OldProxyContext),
 
     StateNew = State#{context => Context, proxy_context => ProxyContext},
     forward_request(sgw2pgw, ReqKey, Request, StateNew),
@@ -529,6 +531,17 @@ handle_proxy_info(#gtp{ie = #{?'Recovery' := Recovery}},
 				    ResponseIEs},
 			   context = Context})
     end.
+
+handle_sgw_change(#context{remote_control_ip = NewIP,
+			   remote_control_tei = NewTEI},
+		  #context{remote_control_ip = OldIP,
+			   remote_control_tei = OldTEI},
+		  #context{control_port = CntlPort} = ProxyContext)
+  when NewIP /= OldIP; OldTEI /= NewTEI ->
+    {ok, CntlTEI} = gtp_context_reg:alloc_tei(CntlPort),
+    ProxyContext#context{local_control_tei = CntlTEI};
+handle_sgw_change(_, _, ProxyContext) ->
+    ProxyContext.
 
 update_path_bind(NewContext0, OldContext)
   when NewContext0 /= OldContext ->
