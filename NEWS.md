@@ -1,11 +1,15 @@
 erGW - 3GPP GGSN and PDN-GW in Erlang
 =====================================
 
-Version 1.18.4 - 31 Jul 2018
- ----------------------------
+Version 1.19.0 - 11 Dec 2018
+----------------------------
+* Forward change of SGSN/SGW in proxy mode
 
- * Fix cache expire logic [#93](https://github.com/travelping/ergw/pull/93)
- * Adjust GC and hibernation for session processes [#94](https://github.com/travelping/ergw/pull/94)
+Version 1.18.4 - 31 Jul 2018
+----------------------------
+
+* Fix cache expire logic [#93](https://github.com/travelping/ergw/pull/93)
+* Adjust GC and hibernation for session processes [#94](https://github.com/travelping/ergw/pull/94)
 
 Version 1.18.3 - 18 Jul 2018
 ----------------------------
