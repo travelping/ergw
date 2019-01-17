@@ -1103,22 +1103,16 @@ usage_report_to_charging_events(_K, _V, Ev) ->
 %% usage_report_to_charging_events/2
 usage_report_to_charging_events(URR, #context{sx_ids = #sx_ids{idmap = IdMap}}) ->
     UrrIds = maps:get(urr, IdMap, #{}),
-
-    %% map URR Ids in Usage Reports into On/Offline/Monitoing Keys
-    UsageByChargingKey =
-	foldl_usage_report(
-	  fun (#{urr_id := #urr_id{id = Id}} = Report, M) ->
-		  case UrrIds of
-		      #{Id := Key} ->
-			  M#{Key => Report};
-		      _ ->
-			  M
-		  end
-	  end, #{}, URR),
-
-    %% translate Charging/Monitoring Keys in Request Containers for Gx, Gy and Rf
-    Ev0 = init_charging_events(),
-    maps:fold(fun usage_report_to_charging_events/3, Ev0, UsageByChargingKey).
+    foldl_usage_report(
+      fun (#{urr_id := #urr_id{id = Id}} = Report, Ev) ->
+	      case UrrIds of
+		  #{Id := Key} ->
+		      usage_report_to_charging_events(Key, Report, Ev);
+		  _ ->
+		      Ev
+	      end
+      end,
+      init_charging_events(), URR).
 
 process_online_charging_events(Reason, Ev, Now, Session) when is_list(Ev) ->
     SOpts = #{now => Now, async => true},
