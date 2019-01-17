@@ -267,6 +267,43 @@ find_sx_by_id(Type, Id, #sx_ids{idmap = IdMap}) ->
     TypeId = maps:get(Type, IdMap, #{}),
     maps:find(Id, TypeId).
 
+apply_charing_tariff_time({H, M}, URR)
+  when is_integer(H), H >= 0, H < 24,
+       is_integer(M), M >= 0, M < 60 ->
+    {Date, _} = Now = calendar:universal_time(),
+    NowSecs = calendar:datetime_to_gregorian_seconds(Now),
+    TCSecs =
+	case calendar:datetime_to_gregorian_seconds({Date, {H, M, 0}}) of
+	    T when T > NowSecs ->
+		T;
+	    T when T =< NowSecs ->
+		T + ?SECONDS_PER_DAY
+	end,
+    TCTime = seconds_to_sntp_time(TCSecs - ?SECONDS_FROM_0_TO_1970),   %% 1970
+    case URR of
+	#{monitoring_time := #monitoring_time{time = OldTCTime}}
+	  when TCTime > OldTCTime ->
+	    %% don't update URR when new time is after existing time
+	    URR;
+	_ ->
+	    URR#{monitoring_time => #monitoring_time{time = TCTime}}
+    end;
+apply_charing_tariff_time(Time, URR) ->
+    lager:error("Invalid Tariff-Time \"~p\"", [Time]),
+    URR.
+
+apply_charging_profile('Tariff-Time', Value, URR)
+  when is_tuple(Value) ->
+    apply_charing_tariff_time(Value, URR);
+apply_charging_profile('Tariff-Time', Value, URR)
+  when is_list(Value) ->
+    lists:foldl(fun apply_charing_tariff_time/2, URR, Value);
+apply_charging_profile(_K, _V, URR) ->
+    URR.
+
+apply_charging_profile(URR, OCP) ->
+    maps:fold(fun apply_charging_profile/3, URR, OCP).
+
 build_sx_rules(SessionOpts, Opts, #context{sx_ids = SxIds0, sx_rules = OldSxRules} = Ctx) ->
     Monitors = maps:get(monitoring, SessionOpts, #{}),
     PolicyRules = maps:get(rules, SessionOpts, #{}),
@@ -306,13 +343,17 @@ build_sx_offline_charging_rule(_Name,
 	 end,
 
     {UrrId, Update} = sx_id(urr, ChargingKey, Update0),
-    URR = #{urr_id => #urr_id{id = UrrId},
+    URR0 = #{urr_id => #urr_id{id = UrrId},
 	    measurement_method => MM,
 	    reporting_triggers => #reporting_triggers{periodic_reporting = 1},
 	    measurement_period =>
 		#measurement_period{
 		   period = maps:get('Acct-Interim-Interval', SessionOpts, 600)}
 	   },
+
+    OCPcfg = maps:get('Offline-Charging-Profile', SessionOpts, #{}),
+    OCP = maps:get('Default', OCPcfg, #{}),
+    URR = apply_charging_profile(URR0, OCP),
 
     lager:warning("Offline URR: ~p", [URR]),
     Update#sx_upd{rules = Rules#{{urr, ChargingKey} => URR}};
