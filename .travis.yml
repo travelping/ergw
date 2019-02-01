@@ -1,13 +1,14 @@
 sudo: required
+dist: xenial
 services:
   - docker
 
 language: erlang
 
 otp_release:
- - 20.3.8.2
- - 21.0.9
- - 21.1.1
+ - 20.3.8.5
+ - 21.1.4
+ - 21.2.4
 
 install: "true"
 
@@ -40,7 +41,7 @@ script:
 jobs:
   include:
     - stage: docker
-      otp_release: 21.1.1
+      otp_release: 21.2.4
       script:
         - docker build -t $BUILD_IMAGE -f docker/Dockerfile .
       after_success:
