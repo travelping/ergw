@@ -164,8 +164,12 @@ init([Node, IP4, IP6]) ->
     ergw_sx_node_reg:register(IP, self()),
 
     {ok, CP, GtpPort} = ergw_sx_socket:id(),
+    #gtp_port{name = CntlPortName} = GtpPort,
     {ok, TEI} = gtp_context_reg:alloc_tei(GtpPort),
-    gtp_context_reg:register(GtpPort, {teid, 'gtp-u', TEI}, self()),
+
+    RegKeys =
+	[{CntlPortName, {teid, 'gtp-u', TEI}}],
+    gtp_context_reg:register(RegKeys, self()),
 
     Data = #data{gtp_port = GtpPort,
 		 cp_tei = TEI,
@@ -401,7 +405,7 @@ handle_udp_gtp(SrcIP, DstIP, <<SrcPort:16, DstPort:16, _:16, _:16, PayLoad/binar
     ReqKey = make_request(SrcIP, SrcPort, Msg, Data),
     GtpPort = #gtp_port{name = Node, type = 'gtp-u'},
     TEID = #fq_teid{ip = ergw_inet:bin2ip(DstIP), teid = Msg#gtp.tei},
-    case gtp_context_reg:lookup_teid(GtpPort, TEID) of
+    case gtp_context_reg:lookup(gtp_context:port_teid_key(GtpPort, TEID)) of
 	Context when is_pid(Context) ->
 	    gtp_context:context_handle_message(Context, ReqKey, Msg);
 	Other ->

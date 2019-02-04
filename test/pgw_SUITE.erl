@@ -1078,7 +1078,7 @@ delete_bearer_request(Config) ->
 
     {GtpC, _, _} = create_session(Config),
 
-    Context = gtp_context_reg:lookup_key(#gtp_port{name = 'irx-socket'}, {imsi, ?'IMSI', 5}),
+    Context = gtp_context_reg:lookup({'irx-socket', {imsi, ?'IMSI', 5}}),
     true = is_pid(Context),
 
     Self = self(),
@@ -1113,7 +1113,7 @@ delete_bearer_request_resend(Config) ->
 
     {_, _, _} = create_session(Config),
 
-    Context = gtp_context_reg:lookup_key(#gtp_port{name = 'irx-socket'}, {imsi, ?'IMSI', 5}),
+    Context = gtp_context_reg:lookup({'irx-socket', {imsi, ?'IMSI', 5}}),
     true = is_pid(Context),
 
     Self = self(),

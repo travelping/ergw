@@ -22,7 +22,8 @@
 	 enforce_restrictions/2,
 	 info/1,
 	 validate_options/3,
-	 validate_option/2]).
+	 validate_option/2,
+	 port_key/2, port_teid_key/2]).
 -export([usage_report_to_accounting/1,
 	 collect_charging_events/3,
 	 trigger_charging_events/2,
@@ -78,7 +79,7 @@ try_handle_message(#request{gtp_port = GtpPort} = Request,
     end;
 
 try_handle_message(#request{gtp_port = GtpPort} = Request, #gtp{tei = TEI} = Msg) ->
-    context_handle_message(gtp_context_reg:lookup_teid(GtpPort, TEI), Request, Msg).
+    context_handle_message(gtp_context_reg:lookup(port_teid_key(GtpPort, TEI)), Request, Msg).
 
 handle_message(Request, Msg) ->
     proc_lib:spawn(fun() -> q_handle_message(Request, Msg) end),
@@ -138,19 +139,29 @@ start_link(GtpPort, Version, Interface, IfOpts, Opts) ->
 path_restart(Context, Path) ->
     jobs:run(path_restart, fun() -> gen_server:call(Context, {path_restart, Path}) end).
 
-remote_context_register(Context) ->
-    gtp_context_reg:register(Context).
+remote_context_register(Context)
+  when is_record(Context, context) ->
+    Keys = context2keys(Context),
+    gtp_context_reg:register(Keys, self()).
 
-remote_context_register_new(Context) ->
-    case gtp_context_reg:register_new(Context) of
+remote_context_register_new(Context)
+  when is_record(Context, context) ->
+    Keys = context2keys(Context),
+    case gtp_context_reg:register_new(Keys, self()) of
 	ok ->
 	    ok;
 	_ ->
 	    throw(?CTX_ERR(?FATAL, system_failure, Context))
     end.
 
-remote_context_update(OldContext, NewContext) ->
-    gtp_context_reg:update(OldContext, NewContext).
+remote_context_update(OldContext, NewContext)
+  when is_record(OldContext, context),
+       is_record(NewContext, context) ->
+    OldKeys = context2keys(OldContext),
+    NewKeys = context2keys(NewContext),
+    Delete = ordsets:subtract(OldKeys, NewKeys),
+    Insert = ordsets:subtract(NewKeys, OldKeys),
+    gtp_context_reg:update(Delete, Insert, self()).
 
 delete_context(Context) ->
     gen_server:call(Context, delete_context).
@@ -212,7 +223,7 @@ collect_charging_events(OldS, NewS, Context) ->
 %% preexisting context should be deleted locally. This function does that.
 terminate_colliding_context(#context{control_port = GtpPort, context_id = Id})
   when Id /= undefined ->
-    case gtp_context_reg:lookup_key(GtpPort, Id) of
+    case gtp_context_reg:lookup(port_key(GtpPort, Id)) of
 	Context when is_pid(Context) ->
 	    gtp_context:terminate_context(Context);
 	_ ->
@@ -531,13 +542,13 @@ request_finished(Request) ->
 %%%===================================================================
 
 register_request(Context, #request{key = ReqKey, gtp_port = GtpPort}) ->
-    gtp_context_reg:register(GtpPort, ReqKey, Context).
+    gtp_context_reg:register([port_key(GtpPort, ReqKey)], Context).
 
 unregister_request(#request{key = ReqKey, gtp_port = GtpPort}) ->
-    gtp_context_reg:unregister(GtpPort, ReqKey).
+    gtp_context_reg:unregister([port_key(GtpPort, ReqKey)], self()).
 
 lookup_request(#request{key = ReqKey, gtp_port = GtpPort}) ->
-    gtp_context_reg:lookup_key(GtpPort, ReqKey).
+    gtp_context_reg:lookup(port_key(GtpPort, ReqKey)).
 
 enforce_restriction(Context, #gtp{version = Version}, {Version, false}) ->
     throw(?CTX_ERR(?FATAL, {version_not_supported, []}, Context));
@@ -608,6 +619,36 @@ validate_ies(#gtp{version = Version, type = MsgType, ie = IEs}, Cause, #{interfa
 		   (_, M) ->
 			M
 		end, [], Spec).
+
+%%====================================================================
+%% context registry
+%%====================================================================
+
+context2keys(#context{
+		context_id         = ContextId,
+		control_port       = CntlPort,
+		local_control_tei  = LocalCntlTEI,
+		data_port          = DataPort,
+		local_data_tei     = LocalDataTEI,
+		remote_control_teid = RemoteCntlTEID,
+		cp_seid            = SEID}) ->
+    ordsets:from_list(
+      [port_teid_key(CntlPort, 'gtp-c', LocalCntlTEI),
+       port_teid_key(CntlPort, 'gtp-c', RemoteCntlTEID)]
+      ++ [port_teid_key(DataPort, 'gtp-u', #fq_teid{ip = DataPort#gtp_port.ip,
+						    teid = LocalDataTEI}) ||
+	     is_record(DataPort, gtp_port), is_integer(LocalDataTEI)]
+      ++ [{seid, SEID} || SEID /= undefined]
+      ++ [port_key(CntlPort, ContextId) || ContextId /= undefined]).
+
+port_key(#gtp_port{name = Name}, Key) ->
+    {Name, Key}.
+
+port_teid_key(#gtp_port{type = Type} = Port, TEI) ->
+    port_teid_key(Port, Type, TEI).
+
+port_teid_key(#gtp_port{name = Name}, Type, TEI) ->
+    {Name, {teid, Type, TEI}}.
 
 %%====================================================================
 %% Experimental Trigger Support
