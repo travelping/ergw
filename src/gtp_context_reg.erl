@@ -11,10 +11,8 @@
 
 %% API
 -export([start_link/0]).
--export([register_new/1, register/1, update/2, unregister/1,
-	 register/3, unregister/2,
-	 lookup_key/2, lookup_keys/2,
-	 lookup_teid/2, lookup_seid/1,
+-export([register/2, register_new/2, update/3, unregister/2,
+	 lookup/1, lookup_seid/1,
 	 match_key/2, match_keys/2,
 	 await_unreg/1]).
 -export([all/0]).
@@ -38,35 +36,16 @@
 start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
-lookup_key(#gtp_port{name = Name}, Key) ->
-    RegKey = {Name, Key},
-    case ets:lookup(?SERVER, RegKey) of
-	[{RegKey, Pid}] ->
+lookup(Key) when is_tuple(Key) ->
+    case ets:lookup(?SERVER, Key) of
+	[{Key, Pid}] ->
 	    Pid;
 	_ ->
 	    undefined
     end.
-
-lookup_keys(_, []) ->
-    throw({error, not_found});
-lookup_keys(Port, [H|T]) ->
-    case lookup_key(Port, H) of
-	Pid when is_pid(Pid) ->
-	    Pid;
-	_ ->
-	    lookup_keys(Port, T)
-    end.
-
-lookup_teid(#gtp_port{type = Type} = Port, TEI) ->
-    lookup_key(Port, {teid, Type, TEI}).
 
 lookup_seid(SEID) ->
-    case ets:lookup(?SERVER, {seid, SEID}) of
-	[{_, Pid}] ->
-	    Pid;
-	_ ->
-	    undefined
-    end.
+    lookup({seid, SEID}).
 
 match_key(#gtp_port{name = Name}, Key) ->
     RegKey = {Name, Key},
@@ -82,23 +61,18 @@ match_keys(Port, [H|T]) ->
 	    match_keys(Port, T)
     end.
 
-register(#context{} = Context) ->
-    gen_server:call(?SERVER, {register, Context}).
+register(Keys, Pid) when is_list(Keys), is_pid(Pid) ->
+    gen_server:call(?SERVER, {register, Keys, Pid}).
 
-register_new(#context{} = Context) ->
-    gen_server:call(?SERVER, {register_new, Context}).
+register_new(Keys, Pid) when is_list(Keys), is_pid(Pid) ->
+    gen_server:call(?SERVER, {register_new, Keys, Pid}).
 
-register(#gtp_port{name = Name}, Key, Context) when is_pid(Context) ->
-    gen_server:call(?SERVER, {register, {Name, Key}, Context}).
+update(Delete, Insert, Pid)
+  when is_list(Delete), is_list(Insert), is_pid(Pid) ->
+    gen_server:call(?SERVER, {update, Delete, Insert, Pid}).
 
-update(#context{} = OldContext, #context{} = NewContext) ->
-    gen_server:call(?SERVER, {update, OldContext, NewContext}).
-
-unregister(#context{} = Context) ->
-    gen_server:call(?SERVER, {unregister, Context}).
-
-unregister(#gtp_port{name = Name}, Key) ->
-    gen_server:call(?SERVER, {unregister, {Name, Key}}).
+unregister(Keys, Pid) when is_list(Keys), is_pid(Pid) ->
+    gen_server:call(?SERVER, {unregister, Keys, Pid}).
 
 all() ->
     ets:tab2list(?SERVER).
@@ -108,6 +82,7 @@ await_unreg(Key) ->
 
 %%====================================================================
 %% TEI registry
+%% TODO: move this out of here
 %%====================================================================
 
 -define(MAX_TRIES, 32).
@@ -123,7 +98,7 @@ alloc_tei(#gtp_port{name = Name} = Port, Cnt) ->
     %% 32bit maxint = 4294967295
     TEI = ets:update_counter(?SERVER, Key, {2, 1, 4294967295, 1}, {Key, 0}),
 
-    case lookup_teid(Port, TEI) of
+    case lookup(gtp_context:port_teid_key(Port, TEI)) of
 	undefined ->
 	    {ok, TEI};
 	_ ->
@@ -144,38 +119,19 @@ init([]) ->
 	      },
     {ok, State}.
 
-handle_call({register, Context}, {Pid, _Ref}, State) ->
-    Keys = context2keys(Context),
+handle_call({register, Keys, Pid}, _From, State) ->
     handle_add_keys(fun ets:insert/2, Keys, Pid, State);
 
-handle_call({register_new, Context}, {Pid, _Ref}, State) ->
-    Keys = context2keys(Context),
+handle_call({register_new, Keys, Pid}, _From, State) ->
     handle_add_keys(fun ets:insert_new/2, Keys, Pid, State);
 
-handle_call({register, Key, Pid}, _From, State) ->
-    handle_add_keys(fun ets:insert/2, [Key], Pid, State);
+handle_call({update, Delete, Insert, Pid}, _From, State) ->
+    lists:foreach(fun(Key) -> delete_key(Key, Pid) end, Delete),
+    NKeys = ordsets:union(ordsets:subtract(get_pid(Pid, State), Delete), Insert),
+    handle_add_keys(fun ets:insert/2, Insert, Pid, update_pid(Pid, NKeys, State));
 
-handle_call({update, OldContext, NewContext}, {Pid, _Ref}, State) ->
-    DelKeys = context2keys(OldContext),
-    AddKeys = context2keys(NewContext),
-    Delete = ordsets:subtract(DelKeys, AddKeys),
-    Insert = ordsets:subtract(AddKeys, DelKeys),
-    case ets:insert_new(?SERVER, [{Key, Pid} || Key <- Insert]) of
-	true ->
-	    lists:foreach(fun(Key) -> delete_key(Key, Pid) end, Delete),
-	    NKeys = ordsets:union(ordsets:subtract(get_pid(Pid, State), Delete), Insert),
-	    {reply, ok, update_pid(Pid, NKeys, State)};
-	false ->
-	    {reply, {error, duplicate}, State}
-    end;
-
-handle_call({unregister, #context{} = Context}, {Pid, _Ref}, State0) ->
-    Keys = context2keys(Context),
+handle_call({unregister, Keys, Pid}, _From, State0) ->
     State = delete_keys(Keys, Pid, State0),
-    {reply, ok, State};
-
-handle_call({unregister, Key}, {Pid, _Ref}, State0) ->
-    State = delete_keys([Key], Pid, State0),
     {reply, ok, State};
 
 handle_call({await_unreg, Pid}, From, #state{pids = Pids, await_unreg = AWait} = State0)
@@ -251,20 +207,3 @@ delete_key(Key, Pid) ->
 	Other ->
 	    Other
     end.
-
-context2keys(#context{
-		context_id         = ContextId,
-		control_port       = #gtp_port{name = CntlPortName},
-		local_control_tei  = LocalCntlTEI,
-		data_port          = DataPort,
-		local_data_tei     = LocalDataTEI,
-		remote_control_teid = RemoteCntlTEID,
-		cp_seid            = SEID}) ->
-    ordsets:from_list(
-      [{CntlPortName, {teid, 'gtp-c', LocalCntlTEI}},
-       {CntlPortName, {teid, 'gtp-c', RemoteCntlTEID}}]
-      ++ [{DataPort#gtp_port.name, {teid, 'gtp-u', #fq_teid{ip = DataPort#gtp_port.ip,
-							    teid = LocalDataTEI}}} ||
-	     is_record(DataPort, gtp_port), is_integer(LocalDataTEI)]
-      ++ [{seid, SEID} || SEID /= undefined]
-      ++ [{CntlPortName, ContextId} || ContextId /= undefined]).
