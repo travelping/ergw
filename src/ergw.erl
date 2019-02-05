@@ -188,7 +188,7 @@ i(memory, path) ->
 
 i(memory, context) ->
     MemUsage =
-	lists:foldl(fun({{seid, _}, Pid}, Mem) ->
+	lists:foldl(fun({{seid, _}, {_, Pid}}, Mem) ->
 			    {memory, M} = erlang:process_info(Pid, memory),
 			    Mem + M;
 		       (_, Mem) ->

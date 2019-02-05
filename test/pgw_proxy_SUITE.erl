@@ -751,8 +751,8 @@ delete_session_request_timeout() ->
            "proxy session even when the final GSN fails"}].
 delete_session_request_timeout(Config) ->
     {GtpC, _, _} = create_session(Config),
-    Context = gtp_context_reg:lookup({'remote-irx', {imsi, ?'PROXY-IMSI', 5}}),
-    true = is_pid(Context),
+    {_Handler, Server} = gtp_context_reg:lookup({'remote-irx', {imsi, ?'PROXY-IMSI', 5}}),
+    true = is_pid(Server),
 
     Request = make_request(delete_session_request, simple, GtpC),
 
@@ -762,7 +762,7 @@ delete_session_request_timeout(Config) ->
     ?equal({error,timeout}, send_recv_pdu(GtpC, Request, ?TIMEOUT, error)),
 
     %% killing the PGW context
-    exit(Context, kill),
+    exit(Server, kill),
 
     wait4tunnels(20000),
     ?equal([], outstanding_requests()),
@@ -794,7 +794,7 @@ error_indication_pgw2sgw(Config) ->
 
     {GtpC, _, _} = create_session(Config),
 
-    CtxPid = gtp_context_reg:lookup({'irx', {imsi, ?'IMSI', 5}}),
+    {_Handler, CtxPid} = gtp_context_reg:lookup({'irx', {imsi, ?'IMSI', 5}}),
     true = is_pid(CtxPid),
     #{proxy_context := Ctx} = gtp_context:info(CtxPid),
 
@@ -808,10 +808,10 @@ error_indication_pgw2sgw(Config) ->
     ct:sleep(100),
     delete_session(not_found, GtpC),
 
-    Context = gtp_context_reg:lookup({'remote-irx', {imsi, ?'PROXY-IMSI', 5}}),
-    true = is_pid(Context),
+    {_Handler, Server} = gtp_context_reg:lookup({'remote-irx', {imsi, ?'PROXY-IMSI', 5}}),
+    true = is_pid(Server),
     %% killing the PGW context
-    exit(Context, kill),
+    exit(Server, kill),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     wait4tunnels(?TIMEOUT),
@@ -858,7 +858,7 @@ modify_bearer_request_ra_update() ->
     [{doc, "Check Modify Bearer Routing Area Update"}].
 modify_bearer_request_ra_update(Config) ->
     {GtpC1, _, _} = create_session(Config),
-    CtxPid = gtp_context_reg:lookup({'remote-irx', {imsi, ?'PROXY-IMSI', 5}}),
+    {_Handler, CtxPid} = gtp_context_reg:lookup({'remote-irx', {imsi, ?'PROXY-IMSI', 5}}),
     #{context := Ctx1} = gtp_context:info(CtxPid),
 
     {GtpC2, _, _} = modify_bearer(ra_update, GtpC1),
@@ -884,7 +884,7 @@ modify_bearer_request_tei_update() ->
     [{doc, "Check Modify Bearer with TEID update (e.g. SGW change)"}].
 modify_bearer_request_tei_update(Config) ->
     {GtpC1, _, _} = create_session(Config),
-    CtxPid = gtp_context_reg:lookup({'remote-irx', {imsi, ?'PROXY-IMSI', 5}}),
+    {_Handler, CtxPid} = gtp_context_reg:lookup({'remote-irx', {imsi, ?'PROXY-IMSI', 5}}),
     #{context := Ctx1} = gtp_context:info(CtxPid),
 
     {GtpC2, _, _} = modify_bearer(tei_update, GtpC1),
@@ -1170,11 +1170,11 @@ delete_bearer_request(Config) ->
 
     {GtpC, _, _} = create_session(Config),
 
-    Context = gtp_context_reg:lookup({'remote-irx', {imsi, ?'PROXY-IMSI', 5}}),
-    true = is_pid(Context),
+    {_Handler, Server} = gtp_context_reg:lookup({'remote-irx', {imsi, ?'PROXY-IMSI', 5}}),
+    true = is_pid(Server),
 
     Self = self(),
-    spawn(fun() -> Self ! {req, gtp_context:delete_context(Context)} end),
+    spawn(fun() -> Self ! {req, gtp_context:delete_context(Server)} end),
 
     Request = recv_pdu(Cntl, 5000),
     ?match(#gtp{type = delete_bearer_request}, Request),
@@ -1205,11 +1205,11 @@ delete_bearer_request_resend(Config) ->
 
     {_, _, _} = create_session(Config),
 
-    Context = gtp_context_reg:lookup({'remote-irx', {imsi, ?'PROXY-IMSI', 5}}),
-    true = is_pid(Context),
+    {_Handler, Server} = gtp_context_reg:lookup({'remote-irx', {imsi, ?'PROXY-IMSI', 5}}),
+    true = is_pid(Server),
 
     Self = self(),
-    spawn(fun() -> Self ! {req, gtp_context:delete_context(Context)} end),
+    spawn(fun() -> Self ! {req, gtp_context:delete_context(Server)} end),
 
     Request = recv_pdu(Cntl, 5000),
     ?match(#gtp{type = delete_bearer_request}, Request),
@@ -1238,11 +1238,11 @@ delete_bearer_request_invalid_teid(Config) ->
 
     {GtpC, _, _} = create_session(Config),
 
-    Context = gtp_context_reg:lookup({'remote-irx', {imsi, ?'PROXY-IMSI', 5}}),
-    true = is_pid(Context),
+    {_Handler, Server} = gtp_context_reg:lookup({'remote-irx', {imsi, ?'PROXY-IMSI', 5}}),
+    true = is_pid(Server),
 
     Self = self(),
-    spawn(fun() -> Self ! {req, gtp_context:delete_context(Context)} end),
+    spawn(fun() -> Self ! {req, gtp_context:delete_context(Server)} end),
 
     Request = recv_pdu(Cntl, 5000),
     ?match(#gtp{type = delete_bearer_request}, Request),
@@ -1274,11 +1274,11 @@ delete_bearer_request_late_response(Config) ->
 
     {GtpC, _, _} = create_session(Config),
 
-    Context = gtp_context_reg:lookup({'remote-irx', {imsi, ?'PROXY-IMSI', 5}}),
-    true = is_pid(Context),
+    {_Handler, Server} = gtp_context_reg:lookup({'remote-irx', {imsi, ?'PROXY-IMSI', 5}}),
+    true = is_pid(Server),
 
     Self = self(),
-    spawn(fun() -> Self ! {req, gtp_context:delete_context(Context)} end),
+    spawn(fun() -> Self ! {req, gtp_context:delete_context(Server)} end),
 
     Request = recv_pdu(Cntl, 5000),
     ?match(#gtp{type = delete_bearer_request}, Request),
@@ -1324,7 +1324,7 @@ interop_sgsn_to_sgw() ->
     [{doc, "Check 3GPP T 23.401, Annex D, SGSN to SGW handover"}].
 interop_sgsn_to_sgw(Config) ->
     {GtpC1, _, _} = ergw_ggsn_test_lib:create_pdp_context(Config),
-    CtxPid = gtp_context_reg:lookup({'remote-irx', {imsi, ?'PROXY-IMSI', 5}}),
+    {_Handler, CtxPid} = gtp_context_reg:lookup({'remote-irx', {imsi, ?'PROXY-IMSI', 5}}),
     #{context := Ctx1} = gtp_context:info(CtxPid),
 
     check_exo_contexts(v1, 3, 1),
@@ -1373,7 +1373,7 @@ interop_sgw_to_sgsn() ->
     [{doc, "Check 3GPP T 23.401, Annex D, SGW to SGSN handover"}].
 interop_sgw_to_sgsn(Config) ->
     {GtpC1, _, _} = create_session(Config),
-    CtxPid = gtp_context_reg:lookup({'remote-irx', {imsi, ?'PROXY-IMSI', 5}}),
+    {_Handler, CtxPid} = gtp_context_reg:lookup({'remote-irx', {imsi, ?'PROXY-IMSI', 5}}),
     #{context := Ctx1} = gtp_context:info(CtxPid),
 
     check_exo_contexts(v1, 0, 0),
@@ -1426,11 +1426,11 @@ update_bearer_request(Config) ->
 
     {GtpC, _, _} = create_session(Config),
 
-    Context = gtp_context_reg:lookup({'remote-irx', {imsi, ?'PROXY-IMSI', 5}}),
-    true = is_pid(Context),
+    {_Handler, Server} = gtp_context_reg:lookup({'remote-irx', {imsi, ?'PROXY-IMSI', 5}}),
+    true = is_pid(Server),
 
     Self = self(),
-    spawn(fun() -> Self ! {req, gen_server:call(Context, update_context)} end),
+    spawn(fun() -> Self ! {req, gen_server:call(Server, update_context)} end),
 
     Request = recv_pdu(Cntl, 5000),
     ?match(#gtp{type = update_bearer_request}, Request),
