@@ -674,8 +674,8 @@ delete_pdp_context_request_timeout() ->
            "proxy session even when the final GSN fails"}].
 delete_pdp_context_request_timeout(Config) ->
     {GtpC, _, _} = create_pdp_context(Config),
-    Context = gtp_context_reg:lookup({'remote-irx', {imsi, ?'PROXY-IMSI', 5}}),
-    true = is_pid(Context),
+    {_Handler, Server} = gtp_context_reg:lookup({'remote-irx', {imsi, ?'PROXY-IMSI', 5}}),
+    true = is_pid(Server),
 
     Request = make_request(delete_pdp_context_request, simple, GtpC),
 
@@ -685,7 +685,7 @@ delete_pdp_context_request_timeout(Config) ->
     ?equal({error,timeout}, send_recv_pdu(GtpC, Request, ?TIMEOUT, error)),
 
     %% killing the GGSN context
-    exit(Context, kill),
+    exit(Server, kill),
 
     wait4tunnels(20000),
     ?equal([], outstanding_requests()),
@@ -717,7 +717,7 @@ error_indication_ggsn2sgsn(Config) ->
 
     {GtpC, _, _} = create_pdp_context(Config),
 
-    CtxPid = gtp_context_reg:lookup({'irx', {imsi, ?'IMSI', 5}}),
+    {_Handler, CtxPid} = gtp_context_reg:lookup({'irx', {imsi, ?'IMSI', 5}}),
     true = is_pid(CtxPid),
     #{proxy_context := Ctx} = gtp_context:info(CtxPid),
 
@@ -731,10 +731,10 @@ error_indication_ggsn2sgsn(Config) ->
     ct:sleep(100),
     delete_pdp_context(not_found, GtpC),
 
-    Context = gtp_context_reg:lookup({'remote-irx', {imsi, ?'PROXY-IMSI', 5}}),
-    true = is_pid(Context),
+    {_Handler, Server} = gtp_context_reg:lookup({'remote-irx', {imsi, ?'PROXY-IMSI', 5}}),
+    true = is_pid(Server),
     %% killing the GGSN context
-    exit(Context, kill),
+    exit(Server, kill),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     wait4tunnels(?TIMEOUT),
@@ -781,7 +781,7 @@ update_pdp_context_request_ra_update() ->
     [{doc, "Check Update PDP Context with Routing Area Update"}].
 update_pdp_context_request_ra_update(Config) ->
     {GtpC1, _, _} = create_pdp_context(Config),
-    CtxPid = gtp_context_reg:lookup({'remote-irx', {imsi, ?'PROXY-IMSI', 5}}),
+    {_Handler, CtxPid} = gtp_context_reg:lookup({'remote-irx', {imsi, ?'PROXY-IMSI', 5}}),
     #{context := Ctx1} = gtp_context:info(CtxPid),
 
     {GtpC2, _, _} = update_pdp_context(ra_update, GtpC1),
@@ -807,7 +807,7 @@ update_pdp_context_request_tei_update() ->
     [{doc, "Check Update PDP Context with TEID update (e.g. SGSN change)"}].
 update_pdp_context_request_tei_update(Config) ->
     {GtpC1, _, _} = create_pdp_context(Config),
-    CtxPid = gtp_context_reg:lookup({'remote-irx', {imsi, ?'PROXY-IMSI', 5}}),
+    {_Handler, CtxPid} = gtp_context_reg:lookup({'remote-irx', {imsi, ?'PROXY-IMSI', 5}}),
     #{context := Ctx1} = gtp_context:info(CtxPid),
 
     {GtpC2, _, _} = update_pdp_context(tei_update, GtpC1),
@@ -981,11 +981,11 @@ delete_pdp_context_requested(Config) ->
 
     {GtpC, _, _} = create_pdp_context(Config),
 
-    Context = gtp_context_reg:lookup({'remote-irx', {imsi, ?'PROXY-IMSI', 5}}),
-    true = is_pid(Context),
+    {_Handler, Server} = gtp_context_reg:lookup({'remote-irx', {imsi, ?'PROXY-IMSI', 5}}),
+    true = is_pid(Server),
 
     Self = self(),
-    spawn(fun() -> Self ! {req, gtp_context:delete_context(Context)} end),
+    spawn(fun() -> Self ! {req, gtp_context:delete_context(Server)} end),
 
     Request = recv_pdu(Cntl, 5000),
     ?match(#gtp{type = delete_pdp_context_request}, Request),
@@ -1015,11 +1015,11 @@ delete_pdp_context_requested_resend(Config) ->
 
     {_, _, _} = create_pdp_context(Config),
 
-    Context = gtp_context_reg:lookup({'remote-irx', {imsi, ?'PROXY-IMSI', 5}}),
-    true = is_pid(Context),
+    {_Handler, Server} = gtp_context_reg:lookup({'remote-irx', {imsi, ?'PROXY-IMSI', 5}}),
+    true = is_pid(Server),
 
     Self = self(),
-    spawn(fun() -> Self ! {req, gtp_context:delete_context(Context)} end),
+    spawn(fun() -> Self ! {req, gtp_context:delete_context(Server)} end),
 
     Request = recv_pdu(Cntl, 5000),
     ?match(#gtp{type = delete_pdp_context_request}, Request),
@@ -1047,11 +1047,11 @@ delete_pdp_context_requested_invalid_teid(Config) ->
 
     {GtpC, _, _} = create_pdp_context(Config),
 
-    Context = gtp_context_reg:lookup({'remote-irx', {imsi, ?'PROXY-IMSI', 5}}),
-    true = is_pid(Context),
+    {_Handler, Server} = gtp_context_reg:lookup({'remote-irx', {imsi, ?'PROXY-IMSI', 5}}),
+    true = is_pid(Server),
 
     Self = self(),
-    spawn(fun() -> Self ! {req, gtp_context:delete_context(Context)} end),
+    spawn(fun() -> Self ! {req, gtp_context:delete_context(Server)} end),
 
     Request = recv_pdu(Cntl, 5000),
     ?match(#gtp{type = delete_pdp_context_request}, Request),
@@ -1082,11 +1082,11 @@ delete_pdp_context_requested_late_response(Config) ->
 
     {GtpC, _, _} = create_pdp_context(Config),
 
-    Context = gtp_context_reg:lookup({'remote-irx', {imsi, ?'PROXY-IMSI', 5}}),
-    true = is_pid(Context),
+    {_Handler, Server} = gtp_context_reg:lookup({'remote-irx', {imsi, ?'PROXY-IMSI', 5}}),
+    true = is_pid(Server),
 
     Self = self(),
-    spawn(fun() -> Self ! {req, gtp_context:delete_context(Context)} end),
+    spawn(fun() -> Self ! {req, gtp_context:delete_context(Server)} end),
 
     Request = recv_pdu(Cntl, 5000),
     ?match(#gtp{type = delete_pdp_context_request}, Request),
@@ -1120,11 +1120,11 @@ ggsn_update_pdp_context_request(Config) ->
 
     {GtpC, _, _} = create_pdp_context(Config),
 
-    Context = gtp_context_reg:lookup({'remote-irx', {imsi, ?'PROXY-IMSI', 5}}),
-    true = is_pid(Context),
+    {_Handler, Server} = gtp_context_reg:lookup({'remote-irx', {imsi, ?'PROXY-IMSI', 5}}),
+    true = is_pid(Server),
 
     Self = self(),
-    spawn(fun() -> Self ! {req, gen_server:call(Context, update_context)} end),
+    spawn(fun() -> Self ! {req, gen_server:call(Server, update_context)} end),
 
     Request = recv_pdu(Cntl, 5000),
     ?match(#gtp{type = update_pdp_context_request}, Request),

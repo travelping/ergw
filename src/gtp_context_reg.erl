@@ -11,8 +11,8 @@
 
 %% API
 -export([start_link/0]).
--export([register/2, register_new/2, update/3, unregister/2,
-	 lookup/1, lookup_seid/1,
+-export([register/3, register_new/3, update/4, unregister/3,
+	 lookup/1,
 	 match_key/2, match_keys/2,
 	 await_unreg/1]).
 -export([all/0]).
@@ -38,14 +38,11 @@ start_link() ->
 
 lookup(Key) when is_tuple(Key) ->
     case ets:lookup(?SERVER, Key) of
-	[{Key, Pid}] ->
-	    Pid;
+	[{Key, Value}] ->
+	    Value;
 	_ ->
 	    undefined
     end.
-
-lookup_seid(SEID) ->
-    lookup({seid, SEID}).
 
 match_key(#gtp_port{name = Name}, Key) ->
     RegKey = {Name, Key},
@@ -61,18 +58,21 @@ match_keys(Port, [H|T]) ->
 	    match_keys(Port, T)
     end.
 
-register(Keys, Pid) when is_list(Keys), is_pid(Pid) ->
-    gen_server:call(?SERVER, {register, Keys, Pid}).
+register(Keys, Handler, Pid)
+  when is_list(Keys), is_atom(Handler), is_pid(Pid) ->
+    gen_server:call(?SERVER, {register, Keys, Handler, Pid}).
 
-register_new(Keys, Pid) when is_list(Keys), is_pid(Pid) ->
-    gen_server:call(?SERVER, {register_new, Keys, Pid}).
+register_new(Keys, Handler, Pid)
+  when is_list(Keys), is_atom(Handler), is_pid(Pid) ->
+    gen_server:call(?SERVER, {register_new, Keys, Handler, Pid}).
 
-update(Delete, Insert, Pid)
-  when is_list(Delete), is_list(Insert), is_pid(Pid) ->
-    gen_server:call(?SERVER, {update, Delete, Insert, Pid}).
+update(Delete, Insert, Handler, Pid)
+  when is_list(Delete), is_list(Insert), is_atom(Handler), is_pid(Pid) ->
+    gen_server:call(?SERVER, {update, Delete, Insert, Handler, Pid}).
 
-unregister(Keys, Pid) when is_list(Keys), is_pid(Pid) ->
-    gen_server:call(?SERVER, {unregister, Keys, Pid}).
+unregister(Keys, Handler, Pid)
+  when is_list(Keys), is_atom(Handler), is_pid(Pid) ->
+    gen_server:call(?SERVER, {unregister, Keys, Handler, Pid}).
 
 all() ->
     ets:tab2list(?SERVER).
@@ -119,18 +119,18 @@ init([]) ->
 	      },
     {ok, State}.
 
-handle_call({register, Keys, Pid}, _From, State) ->
-    handle_add_keys(fun ets:insert/2, Keys, Pid, State);
+handle_call({register, Keys, Handler, Pid}, _From, State) ->
+    handle_add_keys(fun ets:insert/2, Keys, Handler, Pid, State);
 
-handle_call({register_new, Keys, Pid}, _From, State) ->
-    handle_add_keys(fun ets:insert_new/2, Keys, Pid, State);
+handle_call({register_new, Keys, Handler, Pid}, _From, State) ->
+    handle_add_keys(fun ets:insert_new/2, Keys, Handler, Pid, State);
 
-handle_call({update, Delete, Insert, Pid}, _From, State) ->
+handle_call({update, Delete, Insert, Handler, Pid}, _From, State) ->
     lists:foreach(fun(Key) -> delete_key(Key, Pid) end, Delete),
     NKeys = ordsets:union(ordsets:subtract(get_pid(Pid, State), Delete), Insert),
-    handle_add_keys(fun ets:insert/2, Insert, Pid, update_pid(Pid, NKeys, State));
+    handle_add_keys(fun ets:insert/2, Insert, Handler, Pid, update_pid(Pid, NKeys, State));
 
-handle_call({unregister, Keys, Pid}, _From, State0) ->
+handle_call({unregister, Keys, _Handler, Pid}, _From, State0) ->
     State = delete_keys(Keys, Pid, State0),
     {reply, ok, State};
 
@@ -178,8 +178,9 @@ notify_unregister(Pid, #state{await_unreg = AWait} = State) ->
     lists:foreach(fun(From) -> gen_server:reply(From, ok) end, Reply),
     State#state{await_unreg = maps:remove(Pid, AWait)}.
 
-handle_add_keys(Fun, Keys, Pid, State) ->
-    case Fun(?SERVER, [{Key, Pid} || Key <- Keys]) of
+handle_add_keys(Fun, Keys, Handler, Pid, State) ->
+    RegV = {Handler, Pid},
+    case Fun(?SERVER, [{Key, RegV} || Key <- Keys]) of
 	true ->
 	    link(Pid),
 	    NKeys = ordsets:union(Keys, get_pid(Pid, State)),
@@ -202,7 +203,7 @@ delete_keys(Keys, Pid, State) ->
 %% be delete if Key and Pid match.....
 delete_key(Key, Pid) ->
     case ets:lookup(?SERVER, Key) of
-	[{Key, Pid}] ->
+	[{Key, {_, Pid}}] ->
 	    ets:take(?SERVER, Key);
 	Other ->
 	    Other

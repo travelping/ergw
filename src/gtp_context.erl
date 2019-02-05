@@ -93,8 +93,8 @@ q_handle_message(Request, Msg0) ->
 	  fun() ->
 		  Msg = gtp_packet:decode_ies(Msg0),
 		  case lookup_request(Request) of
-		      Context when is_pid(Context) ->
-			  gen_server:cast(Context, {handle_message, Request, Msg, true});
+		      {_Handler, Server} when is_pid(Server) ->
+			  gen_server:cast(Server, {handle_message, Request, Msg, true});
 		      _ ->
 			  try_handle_message(Request, Msg)
 		  end
@@ -110,9 +110,9 @@ q_handle_message(Request, Msg0) ->
 
 session_report(ReqKey, #pfcp{version = v1, seid = SEID} = Report) ->
     lager:debug("Session Report: ~p", [Report]),
-    case gtp_context_reg:lookup_seid(SEID) of
-	Context when is_pid(Context) ->
-	    gen_server:call(Context, {sx, ReqKey, Report});
+    case gtp_context_reg:lookup({seid, SEID}) of
+	{Handler, Server} when is_atom(Handler), is_pid(Server) ->
+	    gen_server:call(Server, {sx, ReqKey, Report});
 
 	_ ->
 	    lager:error("Session Report: didn't find ~p", [SEID]),
@@ -142,12 +142,12 @@ path_restart(Context, Path) ->
 remote_context_register(Context)
   when is_record(Context, context) ->
     Keys = context2keys(Context),
-    gtp_context_reg:register(Keys, self()).
+    gtp_context_reg:register(Keys, ?MODULE, self()).
 
 remote_context_register_new(Context)
   when is_record(Context, context) ->
     Keys = context2keys(Context),
-    case gtp_context_reg:register_new(Keys, self()) of
+    case gtp_context_reg:register_new(Keys, ?MODULE, self()) of
 	ok ->
 	    ok;
 	_ ->
@@ -161,7 +161,7 @@ remote_context_update(OldContext, NewContext)
     NewKeys = context2keys(NewContext),
     Delete = ordsets:subtract(OldKeys, NewKeys),
     Insert = ordsets:subtract(NewKeys, OldKeys),
-    gtp_context_reg:update(Delete, Insert, self()).
+    gtp_context_reg:update(Delete, Insert, ?MODULE, self()).
 
 delete_context(Context) ->
     gen_server:call(Context, delete_context).
@@ -224,8 +224,8 @@ collect_charging_events(OldS, NewS, Context) ->
 terminate_colliding_context(#context{control_port = GtpPort, context_id = Id})
   when Id /= undefined ->
     case gtp_context_reg:lookup(port_key(GtpPort, Id)) of
-	Context when is_pid(Context) ->
-	    gtp_context:terminate_context(Context);
+	{_Handler, Server} when is_pid(Server) ->
+	    gtp_context:terminate_context(Server);
 	_ ->
 	    ok
     end;
@@ -541,11 +541,11 @@ request_finished(Request) ->
 %%% Internal functions
 %%%===================================================================
 
-register_request(Context, #request{key = ReqKey, gtp_port = GtpPort}) ->
-    gtp_context_reg:register([port_key(GtpPort, ReqKey)], Context).
+register_request(Handler, Server, #request{key = ReqKey, gtp_port = GtpPort}) ->
+    gtp_context_reg:register([port_key(GtpPort, ReqKey)], Handler, Server).
 
 unregister_request(#request{key = ReqKey, gtp_port = GtpPort}) ->
-    gtp_context_reg:unregister([port_key(GtpPort, ReqKey)], self()).
+    gtp_context_reg:unregister([port_key(GtpPort, ReqKey)], ?MODULE, self()).
 
 lookup_request(#request{key = ReqKey, gtp_port = GtpPort}) ->
     gtp_context_reg:lookup(port_key(GtpPort, ReqKey)).
@@ -567,19 +567,20 @@ load_class(#gtp{version = v2} = Msg) ->
 
 context_new(GtpPort, Version, Interface, InterfaceOpts) ->
     case gtp_context_sup:new(GtpPort, Version, Interface, InterfaceOpts) of
-	{ok, Context} ->
-	    Context;
+	{ok, Server}
+	  when is_pid(Server) ->
+	    {?MODULE, Server};
 	{error, Error} ->
 	    throw({error, Error})
     end.
 
-context_handle_message(Context, Request, #gtp{type = g_pdu} = Msg)
-  when is_pid(Context) ->
-    gen_server:cast(Context, {handle_pdu, Request, Msg});
-context_handle_message(Context, Request, Msg)
-  when is_pid(Context) ->
-    register_request(Context, Request),
-    gen_server:cast(Context, {handle_message, Request, Msg, false});
+context_handle_message({_Handler, Server}, Request, #gtp{type = g_pdu} = Msg)
+  when is_pid(Server) ->
+    gen_server:cast(Server, {handle_pdu, Request, Msg});
+context_handle_message({Handler, Server}, Request, Msg)
+  when is_atom(Handler), is_pid(Server) ->
+    register_request(Handler, Server, Request),
+    gen_server:cast(Server, {handle_message, Request, Msg, false});
 context_handle_message([Context | _], Request, Msg) ->
     context_handle_message(Context, Request, Msg);
 context_handle_message(_Context, _Request, _Msg) ->

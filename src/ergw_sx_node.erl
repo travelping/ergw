@@ -169,7 +169,7 @@ init([Node, IP4, IP6]) ->
 
     RegKeys =
 	[{CntlPortName, {teid, 'gtp-u', TEI}}],
-    gtp_context_reg:register(RegKeys, self()),
+    gtp_context_reg:register(RegKeys, ?MODULE, self()),
 
     Data = #data{gtp_port = GtpPort,
 		 cp_tei = TEI,
@@ -406,7 +406,7 @@ handle_udp_gtp(SrcIP, DstIP, <<SrcPort:16, DstPort:16, _:16, _:16, PayLoad/binar
     GtpPort = #gtp_port{name = Node, type = 'gtp-u'},
     TEID = #fq_teid{ip = ergw_inet:bin2ip(DstIP), teid = Msg#gtp.tei},
     case gtp_context_reg:lookup(gtp_context:port_teid_key(GtpPort, TEID)) of
-	Context when is_pid(Context) ->
+	{Handler, Server} = Context when is_atom(Handler), is_pid(Server) ->
 	    gtp_context:context_handle_message(Context, ReqKey, Msg);
 	Other ->
 	    lager:warning("GTP-U tunnel lookup failed with ~p", [Other])

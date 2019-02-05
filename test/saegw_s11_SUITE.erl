@@ -607,11 +607,11 @@ delete_bearer_request(Config) ->
 
     {GtpC, _, _} = create_session(Config),
 
-    Context = gtp_context_reg:lookup({irx, {imsi, ?'IMSI', 5}}),
-    true = is_pid(Context),
+    {_Handler, Server} = gtp_context_reg:lookup({irx, {imsi, ?'IMSI', 5}}),
+    true = is_pid(Server),
 
     Self = self(),
-    spawn(fun() -> Self ! {req, gtp_context:delete_context(Context)} end),
+    spawn(fun() -> Self ! {req, gtp_context:delete_context(Server)} end),
 
     Request = recv_pdu(Cntl, 5000),
     ?match(#gtp{type = delete_bearer_request}, Request),
@@ -642,11 +642,11 @@ delete_bearer_request_resend(Config) ->
 
     {_, _, _} = create_session(Config),
 
-    Context = gtp_context_reg:lookup({irx, {imsi, ?'IMSI', 5}}),
-    true = is_pid(Context),
+    {_Handler, Server} = gtp_context_reg:lookup({irx, {imsi, ?'IMSI', 5}}),
+    true = is_pid(Server),
 
     Self = self(),
-    spawn(fun() -> Self ! {req, gtp_context:delete_context(Context)} end),
+    spawn(fun() -> Self ! {req, gtp_context:delete_context(Server)} end),
 
     Request = recv_pdu(Cntl, 5000),
     ?match(#gtp{type = delete_bearer_request}, Request),
