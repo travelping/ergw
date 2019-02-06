@@ -39,6 +39,7 @@ ensure_jobs_queues() ->
     ensure_jobs_queue(path_restart, [{standard_counter, 100}]),
     ensure_jobs_queue(create, [{standard_rate, 100}, {max_size, 10}]),
     ensure_jobs_queue(delete, [{standard_counter, 100}]),
+    ensure_jobs_queue(data, [{standard_rate, 100}, {max_size, 10}]),
     ensure_jobs_queue(other, [{standard_rate, 100}, {max_size, 10}]),
     ok.
 

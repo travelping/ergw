@@ -8,6 +8,7 @@
 -module(ergw_sx_node).
 
 -behavior(gen_statem).
+-behavior(ergw_context).
 
 -compile({parse_transform, cut}).
 
@@ -18,6 +19,9 @@
 -ifdef(TEST).
 -export([stop/1, seconds_to_sntp_time/1]).
 -endif.
+
+%% ergw_context callbacks
+-export([sx_report/2, port_message/2, port_message/4]).
 
 %% gen_statem callbacks
 -export([init/1, callback_mode/0, handle_event/4,
@@ -104,9 +108,10 @@ handle_request(ReqKey, _IP, #pfcp{type = session_report_request} = Report) ->
     spawn(fun() -> handle_request_fun(ReqKey, Report) end),
     ok.
 
-handle_request_fun(ReqKey, #pfcp{type = session_report_request, seq_no = SeqNo} = Report) ->
+handle_request_fun(ReqKey, #pfcp{type = session_report_request,
+				 seq_no = SeqNo} = Report) ->
     {SEID, IEs} =
-	case gtp_context:session_report(ReqKey, Report) of
+	case ergw_context:sx_report(Report) of
 	    {ok, SEID0} ->
 		{SEID0, #{pfcp_cause => #pfcp_cause{cause = 'Request accepted'}}};
 	    {ok, SEID0, Cause}
@@ -148,6 +153,24 @@ cast(#context{dp_node = Handler}, Request)
 cast(GtpPort, Request) ->
     lager:warning("GTP DP Port ~p, CAST Request ~p not implemented yet",
 		  [lager:pr(GtpPort, ?MODULE), lager:pr(Request, ?MODULE)]).
+
+%%====================================================================
+%% ergw_context API
+%%====================================================================
+
+sx_report(_Server, _Report) ->
+    %% gen_statem:call(Server, {sx, Report}).
+    {error, not_found}.
+
+port_message(Request, Msg) ->
+    lager:error("unhandled port message (~p, ~p)", [Request, Msg]),
+    erlang:error(badarg, [Request, Msg]).
+
+port_message(Server, Request, #gtp{type = g_pdu} = Msg, _Resent) ->
+    gen_server:cast(Server, {handle_pdu, Request, Msg});
+port_message(_Server, Request, Msg, _Resent) ->
+    lager:error("unhandled port message (~p, ~p)", [Request, Msg]),
+    erlang:error(badarg, [Request, Msg]).
 
 %%%===================================================================
 %%% gen_server callbacks
@@ -401,16 +424,10 @@ handle_udp_gtp(SrcIP, DstIP, <<SrcPort:16, DstPort:16, _:16, _:16, PayLoad/binar
 		[inet:ntoa(ergw_inet:bin2ip(SrcIP)), SrcPort,
 		 inet:ntoa(ergw_inet:bin2ip(DstIP)), DstPort,
 		 lager:pr(Msg, ?MODULE)]),
-
     ReqKey = make_request(SrcIP, SrcPort, Msg, Data),
     GtpPort = #gtp_port{name = Node, type = 'gtp-u'},
     TEID = #fq_teid{ip = ergw_inet:bin2ip(DstIP), teid = Msg#gtp.tei},
-    case gtp_context_reg:lookup(gtp_context:port_teid_key(GtpPort, TEID)) of
-	{Handler, Server} = Context when is_atom(Handler), is_pid(Server) ->
-	    gtp_context:context_handle_message(Context, ReqKey, Msg);
-	Other ->
-	    lager:warning("GTP-U tunnel lookup failed with ~p", [Other])
-    end,
+    ergw_context:port_message(gtp_context:port_teid_key(GtpPort, TEID), ReqKey, Msg, false),
     ok;
 handle_udp_gtp(SrcIP, DstIP, <<SrcPort:16, DstPort:16, _:16, _:16, PayLoad/binary>>, _Data) ->
     lager:debug("unexpected UDP ~s:~w -> ~s:~w: ~p",

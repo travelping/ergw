@@ -7,11 +7,13 @@
 
 -module(gtp_context).
 
+-behavior(gen_server).
+-behavior(ergw_context).
+
 -compile({parse_transform, cut}).
 -compile({parse_transform, do}).
 
--export([handle_message/2, try_handle_message/2, context_handle_message/3,
-	 session_report/2, handle_response/4,
+-export([handle_response/4,
 	 start_link/5,
 	 send_request/7, send_response/2,
 	 send_request/6, resend_request/2,
@@ -23,11 +25,15 @@
 	 info/1,
 	 validate_options/3,
 	 validate_option/2,
+	 generic_error/3,
 	 port_key/2, port_teid_key/2]).
 -export([usage_report_to_accounting/1,
 	 collect_charging_events/3,
 	 trigger_charging_events/2,
 	 triggered_offline_usage_report/4]).
+
+%% ergw_context callbacks
+-export([sx_report/2, port_message/2, port_message/4]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -44,80 +50,6 @@
 %%====================================================================
 %% API
 %%====================================================================
-
-%% TEID handling for GTPv1 is brain dead....
-try_handle_message(#request{gtp_port = GtpPort} = Request,
-	       #gtp{version = v2, type = MsgType, tei = 0} = Msg)
-  when MsgType == change_notification_request;
-       MsgType == change_notification_response ->
-    Keys = gtp_v2_c:get_msg_keys(Msg),
-    context_handle_message(gtp_context_reg:match_keys(GtpPort, Keys), Request, Msg);
-
-%% same as above for GTPv2
-try_handle_message(#request{gtp_port = GtpPort} = Request,
-	       #gtp{version = v1, type = MsgType, tei = 0} = Msg)
-  when MsgType == ms_info_change_notification_request;
-       MsgType == ms_info_change_notification_response ->
-    Keys = gtp_v1_c:get_msg_keys(Msg),
-    context_handle_message(gtp_context_reg:match_keys(GtpPort, Keys), Request, Msg);
-
-try_handle_message(#request{gtp_port = GtpPort} = Request,
-		   #gtp{version = Version, tei = 0} = Msg) ->
-    case get_handler_if(GtpPort, Msg) of
-	{ok, Interface, InterfaceOpts} ->
-	    case ergw:get_accept_new() of
-		true -> ok;
-		_ ->
-		    throw({error, no_resources_available})
-	    end,
-	    validate_teid(Msg),
-	    Context = context_new(GtpPort, Version, Interface, InterfaceOpts),
-	    context_handle_message(Context, Request, Msg);
-
-	{error, _} = Error ->
-	    throw(Error)
-    end;
-
-try_handle_message(#request{gtp_port = GtpPort} = Request, #gtp{tei = TEI} = Msg) ->
-    context_handle_message(gtp_context_reg:lookup(port_teid_key(GtpPort, TEI)), Request, Msg).
-
-handle_message(Request, Msg) ->
-    proc_lib:spawn(fun() -> q_handle_message(Request, Msg) end),
-    ok.
-
-q_handle_message(Request, Msg0) ->
-    Queue = load_class(Msg0),
-    try
-	jobs:run(
-	  Queue,
-	  fun() ->
-		  Msg = gtp_packet:decode_ies(Msg0),
-		  case lookup_request(Request) of
-		      {_Handler, Server} when is_pid(Server) ->
-			  gen_server:cast(Server, {handle_message, Request, Msg, true});
-		      _ ->
-			  try_handle_message(Request, Msg)
-		  end
-	  end)
-    catch
-	throw:{error, Error} ->
-	    lager:error("handler failed with: ~p", [Error]),
-	    generic_error(Request, Msg0, Error);
-	error:Error = rejected ->
-	    lager:debug("handler failed with: ~p", [Error]),
-	    generic_error(Request, Msg0, Error)
-    end.
-
-session_report(ReqKey, #pfcp{version = v1, seid = SEID} = Report) ->
-    lager:debug("Session Report: ~p", [Report]),
-    case gtp_context_reg:lookup({seid, SEID}) of
-	{Handler, Server} when is_atom(Handler), is_pid(Server) ->
-	    gen_server:call(Server, {sx, ReqKey, Report});
-
-	_ ->
-	    lager:error("Session Report: didn't find ~p", [SEID]),
-	    {error, not_found}
-    end.
 
 handle_response(Context, ReqInfo, Request, Response) ->
     gen_server:cast(Context, {handle_response, ReqInfo, Request, Response}).
@@ -224,7 +156,7 @@ collect_charging_events(OldS, NewS, Context) ->
 terminate_colliding_context(#context{control_port = GtpPort, context_id = Id})
   when Id /= undefined ->
     case gtp_context_reg:lookup(port_key(GtpPort, Id)) of
-	{_Handler, Server} when is_pid(Server) ->
+	{?MODULE, Server} when is_pid(Server) ->
 	    gtp_context:terminate_context(Server);
 	_ ->
 	    ok
@@ -318,6 +250,54 @@ validate_aaa_attr_option(Key, Setting, Value, _Attr) ->
     throw({error, {options, {aaa_attr, {Key, Setting, Value}}}}).
 
 %%====================================================================
+%% ergw_context API
+%%====================================================================
+
+sx_report(Server, Report) ->
+    gen_server:call(Server, {sx, Report}).
+
+%% TEID handling for GTPv1 is brain dead....
+port_message(Request, #gtp{version = v2, type = MsgType, tei = 0} = Msg)
+  when MsgType == change_notification_request;
+       MsgType == change_notification_response ->
+    Keys = gtp_v2_c:get_msg_keys(Msg),
+    ergw_context:port_message(Keys, Request, Msg);
+
+%% same as above for GTPv2
+port_message(Request, #gtp{version = v1, type = MsgType, tei = 0} = Msg)
+  when MsgType == ms_info_change_notification_request;
+       MsgType == ms_info_change_notification_response ->
+    Keys = gtp_v1_c:get_msg_keys(Msg),
+    ergw_context:port_message(Keys, Request, Msg);
+
+port_message(#request{gtp_port = GtpPort} = Request,
+		 #gtp{version = Version, tei = 0} = Msg) ->
+    case get_handler_if(GtpPort, Msg) of
+	{ok, Interface, InterfaceOpts} ->
+	    case ergw:get_accept_new() of
+		true -> ok;
+		_ ->
+		    throw({error, no_resources_available})
+	    end,
+	    validate_teid(Msg),
+	    Server = context_new(GtpPort, Version, Interface, InterfaceOpts),
+	    port_message(Server, Request, Msg, false);
+
+	{error, _} = Error ->
+	    throw(Error)
+    end;
+port_message(_Request, _Msg) ->
+    throw({error, not_found}).
+
+port_message(Server, Request, #gtp{type = g_pdu} = Msg, _Resent) ->
+    gen_server:cast(Server, {handle_pdu, Request, Msg});
+port_message(Server, Request, Msg, Resent) ->
+    if not Resent -> register_request(?MODULE, Server, Request);
+       true       -> ok
+    end,
+    gen_server:cast(Server, {handle_message, Request, Msg, Resent}).
+
+%%====================================================================
 %% gen_server API
 %%====================================================================
 
@@ -351,7 +331,7 @@ init([CntlPort, Version, Interface,
 handle_call(info, _From, State) ->
     {reply, State, State};
 
-handle_call({sx, _ReqKey, Report}, From,
+handle_call({sx, Report}, From,
 	    #{interface := Interface,
 	      context := #context{dp_seid = SEID}} = State0) ->
     lager:debug("~w: handle_call Sx: ~p", [?MODULE, lager:pr(Report, ?MODULE)]),
@@ -537,6 +517,14 @@ send_response(Request, #gtp{seq_no = SeqNo} = Msg) ->
 request_finished(Request) ->
     unregister_request(Request).
 
+generic_error(_Request, #gtp{type = g_pdu}, _Error) ->
+    ok;
+generic_error(#request{gtp_port = GtpPort} = Request,
+	      #gtp{version = Version, type = MsgType, seq_no = SeqNo}, Error) ->
+    Handler = gtp_path:get_handler(GtpPort, Version),
+    Reply = Handler:build_response({MsgType, 0, Error}),
+    ergw_gtp_c_socket:send_response(Request, Reply#gtp{seq_no = SeqNo}, SeqNo /= 0).
+
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
@@ -546,9 +534,6 @@ register_request(Handler, Server, #request{key = ReqKey, gtp_port = GtpPort}) ->
 
 unregister_request(#request{key = ReqKey, gtp_port = GtpPort}) ->
     gtp_context_reg:unregister([port_key(GtpPort, ReqKey)], ?MODULE, self()).
-
-lookup_request(#request{key = ReqKey, gtp_port = GtpPort}) ->
-    gtp_context_reg:lookup(port_key(GtpPort, ReqKey)).
 
 enforce_restriction(Context, #gtp{version = Version}, {Version, false}) ->
     throw(?CTX_ERR(?FATAL, {version_not_supported, []}, Context));
@@ -560,37 +545,13 @@ get_handler_if(GtpPort, #gtp{version = v1} = Msg) ->
 get_handler_if(GtpPort, #gtp{version = v2} = Msg) ->
     gtp_v2_c:get_handler(GtpPort, Msg).
 
-load_class(#gtp{version = v1} = Msg) ->
-    gtp_v1_c:load_class(Msg);
-load_class(#gtp{version = v2} = Msg) ->
-    gtp_v2_c:load_class(Msg).
-
 context_new(GtpPort, Version, Interface, InterfaceOpts) ->
     case gtp_context_sup:new(GtpPort, Version, Interface, InterfaceOpts) of
-	{ok, Server}
-	  when is_pid(Server) ->
-	    {?MODULE, Server};
+	{ok, Server} when is_pid(Server) ->
+	    Server;
 	{error, Error} ->
 	    throw({error, Error})
     end.
-
-context_handle_message({_Handler, Server}, Request, #gtp{type = g_pdu} = Msg)
-  when is_pid(Server) ->
-    gen_server:cast(Server, {handle_pdu, Request, Msg});
-context_handle_message({Handler, Server}, Request, Msg)
-  when is_atom(Handler), is_pid(Server) ->
-    register_request(Handler, Server, Request),
-    gen_server:cast(Server, {handle_message, Request, Msg, false});
-context_handle_message([Context | _], Request, Msg) ->
-    context_handle_message(Context, Request, Msg);
-context_handle_message(_Context, _Request, _Msg) ->
-    throw({error, not_found}).
-
-generic_error(#request{gtp_port = GtpPort} = Request,
-	      #gtp{version = Version, type = MsgType, seq_no = SeqNo}, Error) ->
-    Handler = gtp_path:get_handler(GtpPort, Version),
-    Reply = Handler:build_response({MsgType, 0, Error}),
-    ergw_gtp_c_socket:send_response(Request, Reply#gtp{seq_no = SeqNo}, SeqNo /= 0).
 
 validate_teid(#gtp{version = v1, type = MsgType, tei = TEID}) ->
     gtp_v1_c:validate_teid(MsgType, TEID);

@@ -440,7 +440,7 @@ handle_request(#request{ip = IP, port = Port} = ReqKey, Msg,
 
 	_Other ->
 	    lager:debug("HandleRequest: ~p", [_Other]),
-	    gtp_context:handle_message(ReqKey, Msg)
+	    ergw_context:port_message(ReqKey, Msg)
     end,
     State.
 
