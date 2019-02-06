@@ -304,6 +304,8 @@ load_class(#gtp{type = Type})
        Type =:= delete_bearer_command;
        Type =:= delete_bearer_request ->
     delete;
+load_class(#gtp{type = g_pdu}) ->
+    data;
 load_class(_) ->
     other.
 

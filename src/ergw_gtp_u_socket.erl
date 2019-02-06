@@ -211,12 +211,7 @@ handle_message(IP, Port, Data, #state{gtp_port = GtpPort} = State0) ->
 handle_message_1(IP, Port, #gtp{version = v1, type = g_pdu, tei = TEI} = Msg, State)
   when TEI /= 0 ->
     ReqKey = make_request(IP, Port, Msg, State),
-    try
-	gtp_context:try_handle_message(ReqKey, Msg)
-    catch
-	throw:{error, Error} ->
-	    lager:error("handler for GTP-U failed with: ~p", [Error])
-    end,
+    ergw_context:port_message(ReqKey, Msg),
     State;
 handle_message_1(IP, Port, Msg, State) ->
     lager:warning("¨unhandled GTP-U from ~s:~w: ~p",

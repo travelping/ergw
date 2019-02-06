@@ -284,6 +284,8 @@ load_class(#gtp{type = Type})
   when Type =:= delete_pdp_context_request;
        Type =:= delete_mbms_context_request ->
     delete;
+load_class(#gtp{type = g_pdu}) ->
+    data;
 load_class(_) ->
     other.
 
