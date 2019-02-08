@@ -126,7 +126,7 @@ handle_info(Info, #{'Version' := v1} = State) ->
     ?GTP_v1_Interface:handle_info(Info, State);
 
 handle_info({'DOWN', _MonitorRef, Type, Pid, _Info},
-	    #{context := #context{dp_node = Pid}} = State)
+	    #{context := #context{pfcp_ctx = #pfcp_ctx{node = Pid}}} = State)
   when Type == process; Type == pfcp ->
     close_pdn_context(upf_failure, State),
     {noreply, State};

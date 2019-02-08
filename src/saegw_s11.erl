@@ -122,8 +122,9 @@ handle_cast({packet_in, _GtpPort, _IP, _Port, _Msg}, State) ->
     lager:warning("packet_in not handled (yet): ~p", [_Msg]),
     {noreply, State}.
 
-handle_info({'DOWN', _MonitorRef, process, Pid, _Info},
-	    #{context := #context{dp_node = Pid}} = State) ->
+handle_info({'DOWN', _MonitorRef, Type, Pid, _Info},
+	    #{context := #context{pfcp_ctx = #pfcp_ctx{node = Pid}}} = State)
+  when Type == process; Type == pfcp ->
     close_pdn_context(upf_failure, State),
     {noreply, State};
 

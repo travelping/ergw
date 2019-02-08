@@ -148,6 +148,12 @@ validate_context(Name, Opts, _Acc) ->
 %%% Helper functions
 %%%===================================================================
 
+ctx_update_dp_seid(#{f_seid := #f_seid{seid = DP}},
+		   #pfcp_ctx{seid = SEID} = PCtx) ->
+    PCtx#pfcp_ctx{seid = SEID#seid{dp = DP}};
+ctx_update_dp_seid(_, PCtx) ->
+    PCtx.
+
 make_request_id(#request{key = ReqKey}, #gtp{seq_no = SeqNo})
   when is_integer(SeqNo) ->
     {ReqKey, SeqNo};
@@ -280,17 +286,15 @@ update_far({_RuleId, _Intf, _OldOut, _NewOut}, FARs) ->
     FARs.
 
 create_forward_session(Candidates, Left0, Right0) ->
-    Left1 = ergw_sx_node:select_sx_node(Candidates, Left0),
-    Right1 = Right0#context{dp_node = Left1#context.dp_node,
-			    data_port = Left1#context.data_port},
+    {PCtx, Left1} = ergw_sx_node:select_sx_node(Candidates, Left0),
+    Right1 = Right0#context{pfcp_ctx = PCtx, data_port = Left1#context.data_port},
 
-    Left = ergw_pfcp:assign_data_teid(Left1, control),
-    Right = ergw_pfcp:assign_data_teid(Right1, control),
-    SEID = ergw_sx_socket:seid(),
+    Left = ergw_pfcp:assign_data_teid(PCtx, Left1, control),
+    Right = ergw_pfcp:assign_data_teid(PCtx, Right1, control),
     {ok, #node{node = _Node, ip = IP}, _} = ergw_sx_socket:id(),
 
     IEs =
-	[ergw_pfcp:f_seid(SEID, IP)] ++
+	[ergw_pfcp:f_seid(PCtx, IP)] ++
 	lists:foldl(fun create_pdr/2, [], [{1, 'Access', Left}, {2, 'Core', Right}]) ++
 	lists:foldl(fun create_far/2, [], [{2, 'Access', Left}, {1, 'Core', Right}]) ++
 	[#create_urr{group =
@@ -298,20 +302,21 @@ create_forward_session(Candidates, Left0, Right0) ->
 			  #measurement_method{volum = 1},
 			  #reporting_triggers{periodic_reporting = 1}
 			 ]}],
-    Req = #pfcp{version = v1, type = session_establishment_request, seid = 0, ie = IEs},
-    case ergw_sx_node:call(Left, Req) of
+    Req = #pfcp{version = v1, type = session_establishment_request, ie = IEs},
+    case ergw_sx_node:call(PCtx, Req, Left) of
 	#pfcp{version = v1, type = session_establishment_response,
-	      %% seid = SEID, TODO: fix DP
 	      ie = #{pfcp_cause := #pfcp_cause{cause = 'Request accepted'},
-		     f_seid := #f_seid{seid = DataPathSEID}} = _RespIEs} ->
-	    {Left#context{cp_seid = SEID, dp_seid = DataPathSEID},
-	     Right#context{cp_seid = SEID, dp_seid = DataPathSEID}};
+		     f_seid := #f_seid{}} = RespIEs} ->
+	    {Left#context{pfcp_ctx = ctx_update_dp_seid(RespIEs, PCtx)},
+	     Right#context{pfcp_ctx = ctx_update_dp_seid(RespIEs, PCtx)}};
 	_Other ->
 	    throw(?CTX_ERR(?FATAL, system_failure, Left))
     end.
 
-modify_forward_session(#context{dp_seid = SEID, local_control_tei = OldSEID} = OldLeft,
-		       #context{local_control_tei = NewSEID} = NewLeft,
+modify_forward_session(#context{pfcp_ctx =
+				    #pfcp_ctx{seid = OldSEID} = OldPCtx} = OldLeft,
+		       #context{pfcp_ctx
+				= #pfcp_ctx{seid = NewSEID}} = NewLeft,
 		       OldRight, NewRight) ->
     {ok, #node{node = _Node, ip = IP}, _} = ergw_sx_socket:id(),
 
@@ -323,12 +328,12 @@ modify_forward_session(#context{dp_seid = SEID, local_control_tei = OldSEID} = O
 	lists:foldl(fun update_far/2, [],
 		    [{2, 'Access', OldLeft, NewLeft},
 		     {1, 'Core', OldRight, NewRight}]),
-    Req = #pfcp{version = v1, type = session_modification_request, seid = SEID, ie = IEs},
-    ergw_sx_node:call(NewLeft, Req).
+    Req = #pfcp{version = v1, type = session_modification_request, ie = IEs},
+    ergw_sx_node:call(OldPCtx, Req, NewLeft).
 
-delete_forward_session(normal, #context{dp_seid = SEID} = Left, _Right) ->
-    Req = #pfcp{version = v1, type = session_deletion_request, seid = SEID, ie = []},
-    case ergw_sx_node:call(Left, Req) of
+delete_forward_session(normal, #context{pfcp_ctx = PCtx} = Left, _Right) ->
+    Req = #pfcp{version = v1, type = session_deletion_request, ie = []},
+    case ergw_sx_node:call(PCtx, Req, Left) of
 	#pfcp{type = session_deletion_response,
 	      ie = #{pfcp_cause := #pfcp_cause{cause = 'Request accepted'}} = IEs} ->
 	    maps:get(usage_report_sdr, IEs, undefined);
@@ -340,8 +345,7 @@ delete_forward_session(normal, #context{dp_seid = SEID} = Left, _Right) ->
 delete_forward_session(_Reason, _Left, _Right) ->
     undefined.
 
-query_usage_report(#context{dp_seid = SEID} = Ctx) ->
+query_usage_report(#context{pfcp_ctx = PCtx} = Ctx) ->
     IEs = [#query_urr{group = [#urr_id{id = 1}]}],
-    Req = #pfcp{version = v1, type = session_modification_request,
-		seid = SEID, ie = IEs},
-    ergw_sx_node:call(Ctx, Req).
+    Req = #pfcp{version = v1, type = session_modification_request, ie = IEs},
+    ergw_sx_node:call(PCtx, Req, Ctx).

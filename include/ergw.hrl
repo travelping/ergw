@@ -44,6 +44,19 @@
 	  ip               :: inet:ip_address()
 	 }).
 
+-record(seid, {
+	  cp = 0           :: non_neg_integer(),
+	  dp = 0           :: non_neg_integer()
+	 }).
+
+-record(pfcp_ctx, {
+	  node                :: pid(),
+	  seid                :: #seid{},
+
+	  sx_ids,
+	  sx_rules = #{}         :: map()
+	 }).
+
 -record(context, {
 	  apn                    :: [binary()],
 	  imsi                   :: 'undefined' | binary(),
@@ -61,9 +74,6 @@
 	  remote_restart_counter :: 0 .. 255,
 	  data_port              :: #gtp_port{},
 	  cp_port                :: #gtp_port{},
-	  dp_node                :: pid(),
-	  cp_seid                :: non_neg_integer(),
-	  dp_seid                :: non_neg_integer(),
 	  cp_tei                 :: non_neg_integer(),
 	  vrf                    :: atom(),
 	  local_data_tei         :: non_neg_integer(),
@@ -75,8 +85,7 @@
 	  restrictions = []      :: [{'v1', boolean()} |
 				     {'v2', boolean()}],
 
-	  sx_ids,
-	  sx_rules = #{}         :: map()
+	  pfcp_ctx               :: #pfcp_ctx{}
 	 }).
 
 -record(request, {
