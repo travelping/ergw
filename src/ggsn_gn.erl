@@ -115,7 +115,7 @@ handle_cast({packet_in, _GtpPort, _IP, _Port, _Msg}, State) ->
     {noreply, State}.
 
 handle_info({'DOWN', _MonitorRef, Type, Pid, _Info} = _I,
-	    #{context := #context{dp_node = Pid}} = State)
+	    #{context := #context{pfcp_ctx = #pfcp_ctx{node = Pid}}} = State)
   when Type == process; Type == pfcp ->
     lager:info("~p, handle_info(~p, ~p)", [?MODULE, _I, State]),
     close_pdp_context(upf_failure, State),

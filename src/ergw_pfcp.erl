@@ -14,7 +14,7 @@
 	 network_instance/1,
 	 outer_header_creation/1,
 	 outer_header_removal/1,
-	 assign_data_teid/2]).
+	 assign_data_teid/3]).
 
 -include_lib("pfcplib/include/pfcp_packet.hrl").
 -include("include/ergw.hrl").
@@ -41,8 +41,12 @@ network_instance(#context{vrf = VRF}) ->
 network_instance(#vrf{name = Name}) ->
     network_instance(Name).
 
+f_seid(#pfcp_ctx{seid = SEID}, IP) ->
+    f_seid(SEID, IP);
+f_seid(#seid{cp = SEID}, IP) ->
+    f_seid(SEID, IP);
 f_seid(SEID, {_,_,_,_} = IP) ->
-    #f_seid{seid = SEID, ipv4 = ergw_inet:ip2bin(IP)};
+   #f_seid{seid = SEID, ipv4 = ergw_inet:ip2bin(IP)};
 f_seid(SEID, {_,_,_,_,_,_,_,_} = IP) ->
     #f_seid{seid = SEID, ipv6 = ergw_inet:ip2bin(IP)}.
 
@@ -72,8 +76,8 @@ get_context_vrf(data, #context{data_port = Port}, VRFs) ->
 get_context_vrf(cp, #context{cp_port = Port}, VRFs) ->
     get_port_vrf(Port, VRFs).
 
-assign_data_teid(#context{data_port = DataPort} = Context, Type) ->
-    {ok, VRFs} = ergw_sx_node:get_vrfs(Context),
+assign_data_teid(PCtx, #context{data_port = DataPort} = Context, Type) ->
+    {ok, VRFs} = ergw_sx_node:get_vrfs(PCtx, Context),
     #vrf{name = Name, ipv4 = IP4, ipv6 = IP6} =
 	get_context_vrf(Type, Context, VRFs),
 

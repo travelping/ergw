@@ -14,8 +14,8 @@
 
 %% API
 -export([select_sx_node/2, select_sx_node/3]).
--export([start_link/3, send/4, call/2, call/3,
-	 get_vrfs/1, handle_request/3, response/3]).
+-export([start_link/3, send/4, call/3, call_async/3,
+	 get_vrfs/2, handle_request/3, response/3]).
 -ifdef(TEST).
 -export([stop/1, seconds_to_sntp_time/1]).
 -endif.
@@ -82,15 +82,18 @@ send(Context, Intf, VRF, Data)
 send(GtpPort, IP, Port, Data) ->
     cast(GtpPort, {send, IP, Port, Data}).
 
-call(#context{dp_node = Pid} = Ctx, Request)
-  when is_pid(Pid) ->
-    call_3(Pid, Request, Ctx).
+%% call/3
+call(#pfcp_ctx{node = Node, seid = #seid{dp = SEID}}, #pfcp{} = Request, OpaqueRef) ->
+    call_3(Node, Request#pfcp{seid = SEID}, OpaqueRef);
+call(#pfcp_ctx{node = Node}, Request, OpaqueRef) ->
+    call_3(Node, Request, OpaqueRef).
 
-call(Server, #pfcp{} = Request, {_,_,_} = Cb) ->
-    cast(Server, {Request, Cb}).
+call_async(#pfcp_ctx{node = Node, seid = #seid{dp = SEID}},
+	   #pfcp{} = Request, {_,_,_} = Cb) ->
+    gen_statem:cast(Node, {Request#pfcp{seid = SEID}, Cb}).
 
-get_vrfs(Context) ->
-    call(Context, get_vrfs).
+get_vrfs(PCtx, Context) ->
+    call(PCtx, get_vrfs, Context).
 
 response(Pid, CbData, Response) ->
     gen_statem:cast(Pid, {response, CbData, Response}).
@@ -109,24 +112,22 @@ handle_request(ReqKey, _IP, #pfcp{type = session_report_request} = Report) ->
     spawn(fun() -> handle_request_fun(ReqKey, Report) end),
     ok.
 
-handle_request_fun(ReqKey, #pfcp{type = session_report_request,
-				 seq_no = SeqNo} = Report) ->
-    {SEID, IEs} =
+handle_request_fun(ReqKey, #pfcp{type = session_report_request} = Report) ->
+    {Ctx, IEs} =
 	case ergw_context:sx_report(Report) of
-	    {ok, SEID0} ->
-		{SEID0, #{pfcp_cause => #pfcp_cause{cause = 'Request accepted'}}};
-	    {ok, SEID0, Cause}
+	    {ok, Ctx0} ->
+		{Ctx0, #{pfcp_cause => #pfcp_cause{cause = 'Request accepted'}}};
+	    {ok, Ctx0, Cause}
 	      when is_atom(Cause) ->
-		{SEID0, #{pfcp_cause => #pfcp_cause{cause = Cause}}};
-	    {ok, SEID0, IEs0}
+		{Ctx0, #{pfcp_cause => #pfcp_cause{cause = Cause}}};
+	    {ok, Ctx0, IEs0}
 	      when is_map(IEs0) ->
-		{SEID0, IEs0};
+		{Ctx0, IEs0};
 	    {error, not_found} ->
 		{0, #{pfcp_cause => #pfcp_cause{cause = 'Session context not found'}}}
 	end,
 
-    Response = #pfcp{version = v1, type = session_report_response,
-		     seq_no = SeqNo, seid = SEID, ie = IEs},
+    Response = make_response(session_report_response, Ctx, Report, IEs),
     ergw_sx_socket:send_response(ReqKey, Response, true),
     ok.
 
@@ -134,23 +135,25 @@ handle_request_fun(ReqKey, #pfcp{type = session_report_request,
 %%% call/cast wrapper for gtp_port
 %%%===================================================================
 
-call_3(Pid, Request, Ctx)
+call_3(Pid, Request, OpaqueRef)
   when is_pid(Pid) ->
     lager:debug("DP Server Call ~p: ~p", [Pid, lager:pr(Request, ?MODULE)]),
     case gen_statem:call(Pid, Request) of
 	{error, dead} ->
-	    throw(?CTX_ERR(?FATAL, system_failure, Ctx));
+	    throw(?CTX_ERR(?FATAL, system_failure, OpaqueRef));
 	Other ->
 	    Other
     end.
 
-%% TODO: GTP data path handler is currently not working!!
+cast(#pfcp_ctx{node = Handler}, Request)
+  when is_pid(Handler) ->
+    gen_statem:cast(Handler, Request);
 cast(#gtp_port{pid = Handler}, Request)
   when is_pid(Handler) ->
+    %% TODO: GTP data path handler is currently not working!!
     gen_statem:cast(Handler, Request);
-cast(#context{dp_node = Handler}, Request)
-  when is_pid(Handler) ->
-    gen_statem:cast(Handler, Request);
+cast(#context{pfcp_ctx = Ctx}, Request) ->
+    cast(Ctx, Request);
 cast(GtpPort, Request) ->
     lager:warning("GTP DP Port ~p, CAST Request ~p not implemented yet",
 		  [lager:pr(GtpPort, ?MODULE), lager:pr(Request, ?MODULE)]).
@@ -312,9 +315,9 @@ handle_event(cast, {response, _, #pfcp{version = v1, type = heartbeat_response, 
 handle_event({call, From}, {attach, Context0}, _,
 	     #data{gtp_port = CpPort, cp_tei = CpTEI, dp = #node{node = Node}}) ->
     DataPort = #gtp_port{name = Node, type = 'gtp-u', pid = self()},
-    Context = Context0#context{dp_node = self(), data_port = DataPort,
-			       cp_port = CpPort, cp_tei = CpTEI},
-    {keep_state_and_data, [{reply, From, Context}]};
+    PCtx = #pfcp_ctx{node = self(), seid = #seid{cp = ergw_sx_socket:seid()}},
+    Context = Context0#context{data_port = DataPort, cp_port = CpPort, cp_tei = CpTEI},
+    {keep_state_and_data, [{reply, From, {PCtx, Context}}]};
 
 handle_event({call, From}, get_vrfs, connected,
 	     #data{vrfs = VRFs}) ->
@@ -364,8 +367,9 @@ handle_event(cast, {handle_pdu, _Request, #gtp{type=g_pdu, ie = PDU}}, _, Data) 
 	    lager:error("handler for GTP-U failed with: ~p:~p @ ~p", [Class, Error, ST])
     end,
     keep_state_and_data;
+
 handle_event({call, From}, {sx, Report}, _State, #data{cp_seid = SEID}) ->
-    lager:info("Sx NodeSession Report: ~p", [Report]),
+    lager:error("Sx Node Session Report unexpected: ~p", [Report]),
     {keep_state_and_data, [{reply, From, {ok, SEID}}]}.
 
 terminate(_Reason, _Data) ->
@@ -511,16 +515,21 @@ augment_mandatory_ie(R = #pfcp{type = Type}, Data)
 augment_mandatory_ie(Request, _Data) ->
     Request.
 
+make_response(Type, #pfcp_ctx{seid = #seid{dp = SEID}}, Request, IEs) ->
+    make_response(Type, SEID, Request, IEs);
+make_response(Type, SEID, #pfcp{version = v1, seq_no = SeqNo}, IEs) ->
+    #pfcp{version = v1, type = Type, seid = SEID, seq_no = SeqNo, ie = IEs}.
+
+
 send_heartbeat(#data{dp = #node{ip = IP}}) ->
     IEs = [#recovery_time_stamp{
 	      time = seconds_to_sntp_time(gtp_config:get_start_time())}],
     Req = #pfcp{version = v1, type = heartbeat_request, ie = IEs},
     ergw_sx_socket:call(IP, 500, 5, Req, response_cb(heartbeat)).
 
-heartbeat_response(ReqKey, #pfcp{type = heartbeat_request, seq_no = SeqNo}) ->
-    Response0 = #pfcp{version = v1, type = heartbeat_response,
-		      seq_no = SeqNo, ie = []},
-    Response = put_recovery_time_stamp(Response0),
+heartbeat_response(ReqKey, #pfcp{type = heartbeat_request} = Request) ->
+    Response = put_recovery_time_stamp(
+		 make_response(heartbeat_response, undefined, Request, [])),
     ergw_sx_socket:send_response(ReqKey, Response, true).
 
 handle_nodeup(#{recovery_time_stamp := #recovery_time_stamp{time = RecoveryTS}} = IEs,

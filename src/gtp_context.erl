@@ -332,21 +332,17 @@ handle_call(info, _From, State) ->
     {reply, State, State};
 
 handle_call({sx, Report}, From,
-	    #{interface := Interface,
-	      context := #context{dp_seid = SEID}} = State0) ->
+	    #{interface := Interface, context := #context{pfcp_ctx = Ctx}} = State0) ->
     lager:debug("~w: handle_call Sx: ~p", [?MODULE, lager:pr(Report, ?MODULE)]),
-%%    case Interface:handle_sx_report(Report, From, State0) of
-    R = Interface:handle_sx_report(Report, From, State0),
-    lager:info("Sx reply from ~p: ~p", [Interface, R]),
-    case R of
+    case Interface:handle_sx_report(Report, From, State0) of
 	{ok, State} ->
-	    {reply, {ok, SEID}, State};
+	    {reply, {ok, Ctx}, State};
 	{reply, Reply, State} ->
-	    {reply, {ok, SEID, Reply}, State};
+	    {reply, {ok, Ctx, Reply}, State};
 	{stop, State} ->
-	    {stop, normal, {ok, SEID}, State};
+	    {stop, normal, {ok, Ctx}, State};
 	{error, Reply, State} ->
-	    {reply, {ok, SEID, Reply}, State};
+	    {reply, {ok, Ctx, Reply}, State};
 	{noreply, State} ->
 	    {noreply, State}
     end;
@@ -586,6 +582,11 @@ validate_ies(#gtp{version = Version, type = MsgType, ie = IEs}, Cause, #{interfa
 %% context registry
 %%====================================================================
 
+ctx_cp_seid_key(#pfcp_ctx{seid = #seid{cp = SEID}}) ->
+    [{seid, SEID}];
+ctx_cp_seid_key(_) ->
+    [].
+
 context2keys(#context{
 		context_id         = ContextId,
 		control_port       = CntlPort,
@@ -593,14 +594,15 @@ context2keys(#context{
 		data_port          = DataPort,
 		local_data_tei     = LocalDataTEI,
 		remote_control_teid = RemoteCntlTEID,
-		cp_seid            = SEID}) ->
+		pfcp_ctx           = PCtx %% TODO: fixme....
+	       }) ->
     ordsets:from_list(
       [port_teid_key(CntlPort, 'gtp-c', LocalCntlTEI),
        port_teid_key(CntlPort, 'gtp-c', RemoteCntlTEID)]
       ++ [port_teid_key(DataPort, 'gtp-u', #fq_teid{ip = DataPort#gtp_port.ip,
 						    teid = LocalDataTEI}) ||
 	     is_record(DataPort, gtp_port), is_integer(LocalDataTEI)]
-      ++ [{seid, SEID} || SEID /= undefined]
+      ++ ctx_cp_seid_key(PCtx)
       ++ [port_key(CntlPort, ContextId) || ContextId /= undefined]).
 
 port_key(#gtp_port{name = Name}, Key) ->

@@ -514,14 +514,13 @@ has_ipv6_test_config() ->
 %%% PFCP
 %%%===================================================================
 
-query_usage_report(#context{dp_seid = SEID} = Context) ->
+query_usage_report(#context{pfcp_ctx = PCtx} = Context) ->
     Req = #pfcp{
 	     version = v1,
 	     type = session_modification_request,
-	     seid = SEID,
 	     ie = [#query_urr{group = [#urr_id{id = 1}]}]
 	    },
-    case ergw_sx_node:call(Context, Req) of
+    case ergw_sx_node:call(PCtx, Req, Context) of
 	#pfcp{type = session_modification_response,
 	      ie = #{pfcp_cause := #pfcp_cause{cause = 'Request accepted'}} = IEs} ->
 	    lager:warning("Gn/Gp: got OK Query response: ~p",
