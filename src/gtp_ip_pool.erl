@@ -192,7 +192,7 @@ take_ip(ClientId, IP, #state{first = First, last = Last,
 
     case ets:take(FreeTid, Id) of
 	[_] ->
-	    ets:insert(UsedTid, #lease{ip = d, client_id = ClientId}),
+	    ets:insert(UsedTid, #lease{ip = Id, client_id = ClientId}),
 	    {{ok, id2ip(Id, State)}, State#state{used = Used + 1, free = Free - 1}};
 	_ ->
 	    lager:warning("attempt to take already allocated IP: ~p", [id2ip(Id, State)]),
@@ -201,4 +201,4 @@ take_ip(ClientId, IP, #state{first = First, last = Last,
 take_ip(_ClientId, IP, #state{type = Type, first = First, last = Last} = State) ->
     lager:warning("attempt to take of out-of-pool IP: ~w < ~w < ~w",
 		  [int2ip(Type, First), int2ip(Type, IP), int2ip(Type, Last)]),
-    State.
+    {{error, out_of_pool}, State}.
