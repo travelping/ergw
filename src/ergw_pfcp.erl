@@ -14,7 +14,7 @@
 	 network_instance/1,
 	 outer_header_creation/1,
 	 outer_header_removal/1,
-	 assign_data_teid/3]).
+	 assign_data_teid/2]).
 
 -include_lib("pfcplib/include/pfcp_packet.hrl").
 -include("include/ergw.hrl").
@@ -69,17 +69,10 @@ get_port_vrf(#gtp_port{vrf = VRF}, VRFs)
   when is_map(VRFs) ->
     maps:get(VRF, VRFs).
 
-get_context_vrf(control, #context{control_port = Port}, VRFs) ->
-    get_port_vrf(Port, VRFs);
-get_context_vrf(data, #context{data_port = Port}, VRFs) ->
-    get_port_vrf(Port, VRFs);
-get_context_vrf(cp, #context{cp_port = Port}, VRFs) ->
-    get_port_vrf(Port, VRFs).
-
-assign_data_teid(PCtx, #context{data_port = DataPort} = Context, Type) ->
+assign_data_teid(PCtx, #context{control_port = ControlPort, data_port = DataPort} = Context) ->
     {ok, VRFs} = ergw_sx_node:get_vrfs(PCtx, Context),
     #vrf{name = Name, ipv4 = IP4, ipv6 = IP6} =
-	get_context_vrf(Type, Context, VRFs),
+	get_port_vrf(ControlPort, VRFs),
 
     {ok, DataTEI} = gtp_context_reg:alloc_tei(DataPort),
     IP = ergw_gsn_lib:choose_context_ip(IP4, IP6, Context),

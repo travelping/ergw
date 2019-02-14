@@ -315,8 +315,13 @@ handle_event(cast, {response, _, #pfcp{version = v1, type = heartbeat_response, 
 handle_event({call, From}, {attach, Context0}, _,
 	     #data{gtp_port = CpPort, cp_tei = CpTEI, dp = #node{node = Node}}) ->
     DataPort = #gtp_port{name = Node, type = 'gtp-u', pid = self()},
-    PCtx = #pfcp_ctx{node = self(), seid = #seid{cp = ergw_sx_socket:seid()}},
-    Context = Context0#context{data_port = DataPort, cp_port = CpPort, cp_tei = CpTEI},
+    PCtx = #pfcp_ctx{
+	      node = self(),
+	      seid = #seid{cp = ergw_sx_socket:seid()},
+
+	      cp_port = CpPort,
+	      cp_tei = CpTEI},
+    Context = Context0#context{data_port = DataPort},
     {keep_state_and_data, [{reply, From, {PCtx, Context}}]};
 
 handle_event({call, From}, get_vrfs, connected,
