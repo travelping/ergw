@@ -289,8 +289,8 @@ create_forward_session(Candidates, Left0, Right0) ->
     {PCtx, Left1} = ergw_sx_node:select_sx_node(Candidates, Left0),
     Right1 = Right0#context{pfcp_ctx = PCtx, data_port = Left1#context.data_port},
 
-    Left = ergw_pfcp:assign_data_teid(PCtx, Left1, control),
-    Right = ergw_pfcp:assign_data_teid(PCtx, Right1, control),
+    Left = ergw_pfcp:assign_data_teid(PCtx, Left1),
+    Right = ergw_pfcp:assign_data_teid(PCtx, Right1),
     {ok, #node{node = _Node, ip = IP}, _} = ergw_sx_socket:id(),
 
     IEs =

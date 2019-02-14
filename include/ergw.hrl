@@ -50,11 +50,14 @@
 	 }).
 
 -record(pfcp_ctx, {
-	  node                :: pid(),
-	  seid                :: #seid{},
+	  node			:: pid(),
+	  seid			:: #seid{},
+
+	  cp_port		:: #gtp_port{},
+	  cp_tei		:: non_neg_integer(),
 
 	  sx_ids,
-	  sx_rules = #{}         :: map()
+	  sx_rules = #{}	:: map()
 	 }).
 
 -record(context, {
@@ -73,8 +76,6 @@
 	  remote_control_teid    :: #fq_teid{},
 	  remote_restart_counter :: 0 .. 255,
 	  data_port              :: #gtp_port{},
-	  cp_port                :: #gtp_port{},
-	  cp_tei                 :: non_neg_integer(),
 	  vrf                    :: atom(),
 	  local_data_tei         :: non_neg_integer(),
 	  remote_data_teid       :: #fq_teid{},

@@ -145,7 +145,7 @@ create_ipv6_mcast_pdr(_, _, _, Rules) ->
     Rules.
 
 create_dp_to_cp_far(access, FarId,
-		    #context{cp_port = #gtp_port{ip = CpIP} = CpPort, cp_tei = CpTEI},
+		    #pfcp_ctx{cp_port = #gtp_port{ip = CpIP} = CpPort, cp_tei = CpTEI},
 		    Rules) ->
     FAR =
 	pfcp_packet:ies_to_map(
@@ -795,7 +795,7 @@ update_sx_far(K, V, _Old, Far, _Opts) ->
 
 create_sgi_session(Candidates, SessionOpts, Ctx0) ->
     {PCtx0, Ctx1} = ergw_sx_node:select_sx_node(Candidates, Ctx0),
-    Ctx = ergw_pfcp:assign_data_teid(PCtx0, Ctx1, control),
+    Ctx = ergw_pfcp:assign_data_teid(PCtx0, Ctx1),
     {ok, #node{node = _Node, ip = IP}, _} = ergw_sx_socket:id(),
 
     {CPinFarId, PCtx1} = sx_id(far, dp_to_cp_far, PCtx0),
@@ -806,7 +806,7 @@ create_sgi_session(Candidates, SessionOpts, Ctx0) ->
     lager:info("SxErrors: ~p~n", [SxErrors]),
     lager:info("CtxPending: ~p~n", [Ctx]),
 
-    SxRules1 = create_dp_to_cp_far(access, CPinFarId, Ctx, SxRules0),
+    SxRules1 = create_dp_to_cp_far(access, CPinFarId, PCtx, SxRules0),
     SxRules2 = create_ipv6_mcast_pdr(IPv6MCastPdrId, CPinFarId, Ctx, SxRules1),
     IEs = update_m_rec(ergw_pfcp:f_seid(PCtx, IP), SxRules2),
 
