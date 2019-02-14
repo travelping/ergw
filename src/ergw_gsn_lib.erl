@@ -116,11 +116,8 @@ ctx_update_dp_seid(_, PCtx) ->
     PCtx.
 
 create_ipv6_mcast_pdr(PdrId, FarId,
-		      #context{
-			 data_port = #gtp_port{ip = IP} = DataPort,
-			 local_data_tei = LocalTEI,
-			 ms_v6 = IPv6},
-		     Rules)
+		      #context{local_data_endp = LocalDataEndp, ms_v6 = IPv6},
+		      Rules)
   when IPv6 /= undefined ->
     PDR =
 	pfcp_packet:ies_to_map(
@@ -131,8 +128,8 @@ create_ipv6_mcast_pdr(PdrId, FarId,
 		  #pdi{
 		     group =
 			 [#source_interface{interface = 'Access'},
-			  ergw_pfcp:network_instance(DataPort),
-			  ergw_pfcp:f_teid(LocalTEI, IP),
+			  ergw_pfcp:network_instance(LocalDataEndp),
+			  ergw_pfcp:f_teid(LocalDataEndp),
 			  #sdf_filter{
 			     flow_description =
 				 <<"permit out 58 from ff00::/8 to assigned">>}
@@ -433,9 +430,8 @@ build_sx_filter(_) ->
 build_sx_rule(Direction = downlink, Name, Definition, FilterInfo, URRs,
 	      #sx_upd{
 		 pctx = PCtx0,
-		 sctx = #context{
-			   data_port = DataPort,
-			   remote_data_teid = PeerTEID} = Ctx
+		 sctx = #context{local_data_endp = LocalDataEndp,
+				 remote_data_teid = PeerTEID} = Ctx
 		} = Update)
   when PeerTEID /= undefined ->
     [Precedence] = maps:get('Precedence', Definition, [1000]),
@@ -459,7 +455,7 @@ build_sx_rule(Direction = downlink, Name, Definition, FilterInfo, URRs,
 	   #forwarding_parameters{
 	      group =
 		  [#destination_interface{interface = 'Access'},
-		   ergw_pfcp:network_instance(DataPort),
+		   ergw_pfcp:network_instance(LocalDataEndp),
 		   ergw_pfcp:outer_header_creation(PeerTEID)
 		  ]
 	     }
@@ -471,9 +467,7 @@ build_sx_rule(Direction = downlink, Name, Definition, FilterInfo, URRs,
 
 build_sx_rule(Direction = uplink, Name, Definition, FilterInfo, URRs,
 	      #sx_upd{pctx = PCtx0,
-		      sctx = #context{
-				data_port = #gtp_port{ip = IP} = DataPort,
-				local_data_tei = LocalTEI} = Ctx
+		      sctx = #context{local_data_endp = LocalDataEndp} = Ctx
 		     } = Update) ->
     [Precedence] = maps:get('Precedence', Definition, [1000]),
     RuleName = {Direction, Name},
@@ -482,15 +476,15 @@ build_sx_rule(Direction = uplink, Name, Definition, FilterInfo, URRs,
     PDI = #pdi{
 	     group =
 		 [#source_interface{interface = 'Access'},
-		  ergw_pfcp:network_instance(DataPort),
-		  ergw_pfcp:f_teid(LocalTEI, IP),
+		  ergw_pfcp:network_instance(LocalDataEndp),
+		  ergw_pfcp:f_teid(LocalDataEndp),
 		  ergw_pfcp:ue_ip_address(src, Ctx)] ++
 		 build_sx_filter(FilterInfo)
 	    },
     PDR = [#pdr_id{id = PdrId},
 	   #precedence{precedence = Precedence},
 	   PDI,
-	   ergw_pfcp:outer_header_removal(IP),
+	   ergw_pfcp:outer_header_removal(LocalDataEndp),
 	   #far_id{id = FarId}] ++
 	[#urr_id{id = X} || X <- URRs],
     FAR = [#far_id{id = FarId},
@@ -794,8 +788,8 @@ update_sx_far(K, V, _Old, Far, _Opts) ->
     Far#{K => V}.
 
 create_sgi_session(Candidates, SessionOpts, Ctx0) ->
-    {PCtx0, Ctx1} = ergw_sx_node:select_sx_node(Candidates, Ctx0),
-    Ctx = ergw_pfcp:assign_data_teid(PCtx0, Ctx1),
+    PCtx0 = ergw_sx_node:select_sx_node(Candidates, Ctx0),
+    Ctx = ergw_pfcp:assign_data_teid(PCtx0, Ctx0),
     {ok, #node{node = _Node, ip = IP}, _} = ergw_sx_socket:id(),
 
     {CPinFarId, PCtx1} = sx_id(far, dp_to_cp_far, PCtx0),
@@ -1272,7 +1266,7 @@ ip_pdu(Data, _Context) ->
 %% IPv6 Router Solicitation
 icmpv6(TC, FlowLabel, _SrcAddr, ?'IPv6 All Routers LL',
        <<?'ICMPv6 Router Solicitation':8, _Code:8, _CSum:16, _/binary>>,
-       #context{data_port = #gtp_port{ip = DpGtpIP, vrf = VRF},
+       #context{local_data_endp = #gtp_endp{vrf = VRF, ip = DpGtpIP},
 		remote_data_teid = #fq_teid{ip = GtpIP, teid = TEID},
 		ms_v6 = MSv6, dns_v6 = DNSv6} = Context) ->
     {Prefix, PLen} = ergw_inet:ipv6_interface_id(MSv6, ?NULL_INTERFACE_ID),

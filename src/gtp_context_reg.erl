@@ -103,6 +103,18 @@ alloc_tei(#gtp_port{name = Name} = Port, Cnt) ->
 	    {ok, TEI};
 	_ ->
 	    alloc_tei(Port, Cnt - 1)
+    end;
+alloc_tei(#pfcp_ctx{name = Name} = PCtx, Cnt) ->
+    Key = {Name, tei},
+
+    %% 32bit maxint = 4294967295
+    TEI = ets:update_counter(?SERVER, Key, {2, 1, 4294967295, 1}, {Key, 0}),
+
+    case lookup(ergw_pfcp:ctx_teid_key(PCtx, TEI)) of
+	undefined ->
+	    {ok, TEI};
+	_ ->
+	    alloc_tei(PCtx, Cnt - 1)
     end.
 
 %%%===================================================================

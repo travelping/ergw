@@ -9,11 +9,12 @@
 
 -export([
 	 f_seid/2,
-	 f_teid/2,
+	 f_teid/1, f_teid/2,
 	 ue_ip_address/2,
 	 network_instance/1,
 	 outer_header_creation/1,
 	 outer_header_removal/1,
+	 ctx_teid_key/2,
 	 assign_data_teid/2]).
 
 -include_lib("pfcplib/include/pfcp_packet.hrl").
@@ -36,6 +37,8 @@ network_instance(Name)
     #network_instance{instance = Name};
 network_instance(#gtp_port{vrf = VRF}) ->
     network_instance(VRF);
+network_instance(#gtp_endp{vrf = VRF}) ->
+    network_instance(VRF);
 network_instance(#context{vrf = VRF}) ->
     network_instance(VRF);
 network_instance(#vrf{name = Name}) ->
@@ -50,6 +53,9 @@ f_seid(SEID, {_,_,_,_} = IP) ->
 f_seid(SEID, {_,_,_,_,_,_,_,_} = IP) ->
     #f_seid{seid = SEID, ipv6 = ergw_inet:ip2bin(IP)}.
 
+f_teid(#gtp_endp{ip = IP, teid = TEID}) ->
+    f_teid(TEID, IP).
+
 f_teid(TEID, {_,_,_,_} = IP) ->
     #f_teid{teid = TEID, ipv4 = ergw_inet:ip2bin(IP)};
 f_teid(TEID, {_,_,_,_,_,_,_,_} = IP) ->
@@ -60,6 +66,8 @@ outer_header_creation(#fq_teid{ip = {_,_,_,_} = IP, teid = TEID}) ->
 outer_header_creation(#fq_teid{ip = {_,_,_,_,_,_,_,_} = IP, teid = TEID}) ->
     #outer_header_creation{type = 'GTP-U', teid = TEID, ipv6 = ergw_inet:ip2bin(IP)}.
 
+outer_header_removal(#gtp_endp{ip = IP}) ->
+    outer_header_removal(IP);
 outer_header_removal({_,_,_,_}) ->
     #outer_header_removal{header = 'GTP-U/UDP/IPv4'};
 outer_header_removal({_,_,_,_,_,_,_,_}) ->
@@ -69,14 +77,16 @@ get_port_vrf(#gtp_port{vrf = VRF}, VRFs)
   when is_map(VRFs) ->
     maps:get(VRF, VRFs).
 
-assign_data_teid(PCtx, #context{control_port = ControlPort, data_port = DataPort} = Context) ->
+ctx_teid_key(#pfcp_ctx{name = Name}, TEI) ->
+    {Name, {teid, 'gtp-u', TEI}}.
+
+assign_data_teid(PCtx, #context{control_port = ControlPort} = Context) ->
     {ok, VRFs} = ergw_sx_node:get_vrfs(PCtx, Context),
     #vrf{name = Name, ipv4 = IP4, ipv6 = IP6} =
 	get_port_vrf(ControlPort, VRFs),
 
-    {ok, DataTEI} = gtp_context_reg:alloc_tei(DataPort),
     IP = ergw_gsn_lib:choose_context_ip(IP4, IP6, Context),
+    {ok, DataTEI} = gtp_context_reg:alloc_tei(PCtx),
     Context#context{
-      data_port = DataPort#gtp_port{ip = ergw_inet:bin2ip(IP), vrf = Name},
-      local_data_tei = DataTEI
+      local_data_endp = #gtp_endp{vrf = Name, ip = ergw_inet:bin2ip(IP), teid = DataTEI}
      }.
