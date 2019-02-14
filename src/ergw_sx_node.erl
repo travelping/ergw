@@ -54,7 +54,7 @@ select_sx_node(Candidates, Context) ->
     case connect_sx_node(Candidates) of
 	{ok, Pid} ->
 	    monitor(process, Pid),
-	    call_3(Pid, {attach, Context}, Context);
+	    call_3(Pid, attach, Context);
 	_ ->
 	    throw(?CTX_ERR(?FATAL, system_failure, Context))
     end.
@@ -312,17 +312,16 @@ handle_event(cast, {response, _, #pfcp{version = v1, type = heartbeat_response, 
     lager:warning("PFCP Fail Response: ~p", [pfcp_packet:lager_pr(_IEs)]),
     {next_state, dead, handle_nodedown(Data)};
 
-handle_event({call, From}, {attach, Context0}, _,
+handle_event({call, From}, attach, _,
 	     #data{gtp_port = CpPort, cp_tei = CpTEI, dp = #node{node = Node}}) ->
-    DataPort = #gtp_port{name = Node, type = 'gtp-u', pid = self()},
     PCtx = #pfcp_ctx{
+	      name = Node,
 	      node = self(),
 	      seid = #seid{cp = ergw_sx_socket:seid()},
 
 	      cp_port = CpPort,
 	      cp_tei = CpTEI},
-    Context = Context0#context{data_port = DataPort},
-    {keep_state_and_data, [{reply, From, {PCtx, Context}}]};
+    {keep_state_and_data, [{reply, From, PCtx}]};
 
 handle_event({call, From}, get_vrfs, connected,
 	     #data{vrfs = VRFs}) ->

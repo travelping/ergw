@@ -50,6 +50,7 @@
 	 }).
 
 -record(pfcp_ctx, {
+	  name			:: term(),
 	  node			:: pid(),
 	  seid			:: #seid{},
 
@@ -58,6 +59,12 @@
 
 	  sx_ids,
 	  sx_rules = #{}	:: map()
+	 }).
+
+-record(gtp_endp, {
+	  vrf			:: term(),
+	  ip			:: inet:ip_address(),
+	  teid			:: non_neg_integer()
 	 }).
 
 -record(context, {
@@ -75,9 +82,8 @@
 	  local_control_tei      :: non_neg_integer(),
 	  remote_control_teid    :: #fq_teid{},
 	  remote_restart_counter :: 0 .. 255,
-	  data_port              :: #gtp_port{},
 	  vrf                    :: atom(),
-	  local_data_tei         :: non_neg_integer(),
+	  local_data_endp        :: 'undefined' | #gtp_endp{},
 	  remote_data_teid       :: #fq_teid{},
 	  ms_v4                  :: inet:ip4_address(),
 	  ms_v6                  :: inet:ip6_address(),

@@ -1012,8 +1012,8 @@ pdp_qos_profile(_SessionOpts, IE) ->
 
 tunnel_endpoint_elements(#context{control_port = #gtp_port{ip = CntlIP},
 				  local_control_tei = CntlTEI,
-				  data_port = #gtp_port{ip = DataIP},
-				  local_data_tei = DataTEI}, IEs) ->
+				  local_data_endp = #gtp_endp{ip = DataIP, teid = DataTEI}
+				 }, IEs) ->
     [#tunnel_endpoint_identifier_data_i{tei = DataTEI},
      #tunnel_endpoint_identifier_control_plane{tei = CntlTEI},
      #gsn_address{instance = 0, address = ergw_inet:ip2bin(CntlIP)},   %% for Control Plane

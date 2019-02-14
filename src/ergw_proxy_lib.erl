@@ -177,23 +177,19 @@ make_proxy_request(Direction, Request, SeqNo, NewPeer, State) ->
 %%% Sx DP API
 %%%===================================================================
 
-create_pdr({RuleId, Intf,
-	    #context{
-	       data_port = #gtp_port{ip = IP} = DataPort,
-	       local_data_tei = LocalTEI}},
-	   PDRs) ->
+create_pdr({RuleId, Intf, #context{local_data_endp = LocalDataEndp}}, PDRs) ->
     PDI = #pdi{
 	     group =
 		 [#source_interface{interface = Intf},
-		  ergw_pfcp:network_instance(DataPort),
-		  ergw_pfcp:f_teid(LocalTEI, IP)]
+		  ergw_pfcp:network_instance(LocalDataEndp),
+		  ergw_pfcp:f_teid(LocalDataEndp)]
 	    },
     PDR = #create_pdr{
 	     group =
 		 [#pdr_id{id = RuleId},
 		  #precedence{precedence = 100},
 		  PDI,
-		  ergw_pfcp:outer_header_removal(IP),
+		  ergw_pfcp:outer_header_removal(LocalDataEndp),
 		  #far_id{id = RuleId},
 		  #urr_id{id = 1}]
 	    },
@@ -201,7 +197,7 @@ create_pdr({RuleId, Intf,
 
 create_far({RuleId, Intf,
 	    #context{
-	       data_port = DataPort,
+	       local_data_endp = LocalDataEndp,
 	       remote_data_teid = PeerTEID}},
 	   FARs)
   when PeerTEID /= undefined ->
@@ -212,7 +208,7 @@ create_far({RuleId, Intf,
 		  #forwarding_parameters{
 		     group =
 			 [#destination_interface{interface = Intf},
-			  ergw_pfcp:network_instance(DataPort),
+			  ergw_pfcp:network_instance(LocalDataEndp),
 			  ergw_pfcp:outer_header_creation(PeerTEID)
 			 ]
 		    }
@@ -229,25 +225,22 @@ create_far({RuleId, _Intf, _Out}, FARs) ->
     [FAR | FARs].
 
 update_pdr({RuleId, Intf,
-	    #context{data_port = #gtp_port{name = OldInPortName},
-		     local_data_tei = OldLocalTEI},
-	    #context{data_port = #gtp_port{name = NewInPortName, ip = IP} = NewDataPort,
-		     local_data_tei = NewLocalTEI}},
+	    #context{local_data_endp = OldDataEndp},
+	    #context{local_data_endp = NewDataEndp}},
 	   PDRs)
-  when OldInPortName /= NewInPortName;
-       OldLocalTEI /= NewLocalTEI ->
+  when OldDataEndp /= NewDataEndp ->
     PDI = #pdi{
 	     group =
 		 [#source_interface{interface = Intf},
-		  ergw_pfcp:network_instance(NewDataPort),
-		  ergw_pfcp:f_teid(NewLocalTEI, IP)]
+		  ergw_pfcp:network_instance(NewDataEndp),
+		  ergw_pfcp:f_teid(NewDataEndp)]
 	    },
     PDR = #update_pdr{
 	     group =
 		 [#pdr_id{id = RuleId},
 		  #precedence{precedence = 100},
 		  PDI,
-		  ergw_pfcp:outer_header_removal(IP),
+		  ergw_pfcp:outer_header_removal(NewDataEndp),
 		  #far_id{id = RuleId},
 		  #urr_id{id = 1}]
 	    },
@@ -258,13 +251,13 @@ update_pdr({_RuleId, _Intf, _OldIn, _NewIn}, PDRs) ->
 
 update_far({RuleId, Intf,
 	    #context{version = OldVersion,
-		     data_port = #gtp_port{name = OldOutPortName},
+		     local_data_endp = OldDataEndp,
 		     remote_data_teid = OldPeerTEID},
 	    #context{version = NewVersion,
-		     data_port = #gtp_port{name = NewOutPortName} = NewDataPort,
+		     local_data_endp = NewDataEndp,
 		     remote_data_teid = NewPeerTEID}},
 	   FARs)
-  when OldOutPortName /= NewOutPortName;
+  when OldDataEndp /= NewDataEndp;
        OldPeerTEID /= NewPeerTEID ->
     FAR = #update_far{
 	     group =
@@ -273,7 +266,7 @@ update_far({RuleId, Intf,
 		  #update_forwarding_parameters{
 		     group =
 			 [#destination_interface{interface = Intf},
-			  ergw_pfcp:network_instance(NewDataPort),
+			  ergw_pfcp:network_instance(NewDataEndp),
 			  ergw_pfcp:outer_header_creation(NewPeerTEID)
 			  | [#sxsmreq_flags{sndem = 1} ||
 				v2 =:= NewVersion andalso v2 =:= OldVersion]
@@ -286,11 +279,9 @@ update_far({_RuleId, _Intf, _OldOut, _NewOut}, FARs) ->
     FARs.
 
 create_forward_session(Candidates, Left0, Right0) ->
-    {PCtx, Left1} = ergw_sx_node:select_sx_node(Candidates, Left0),
-    Right1 = Right0#context{pfcp_ctx = PCtx, data_port = Left1#context.data_port},
-
-    Left = ergw_pfcp:assign_data_teid(PCtx, Left1),
-    Right = ergw_pfcp:assign_data_teid(PCtx, Right1),
+    PCtx = ergw_sx_node:select_sx_node(Candidates, Left0),
+    Left = ergw_pfcp:assign_data_teid(PCtx, Left0),
+    Right = ergw_pfcp:assign_data_teid(PCtx, Right0),
     {ok, #node{node = _Node, ip = IP}, _} = ergw_sx_socket:id(),
 
     IEs =

@@ -591,17 +591,16 @@ context2keys(#context{
 		context_id         = ContextId,
 		control_port       = CntlPort,
 		local_control_tei  = LocalCntlTEI,
-		data_port          = DataPort,
-		local_data_tei     = LocalDataTEI,
+		local_data_endp    = LocalDataEndp,
 		remote_control_teid = RemoteCntlTEID,
 		pfcp_ctx           = PCtx %% TODO: fixme....
 	       }) ->
     ordsets:from_list(
       [port_teid_key(CntlPort, 'gtp-c', LocalCntlTEI),
        port_teid_key(CntlPort, 'gtp-c', RemoteCntlTEID)]
-      ++ [port_teid_key(DataPort, 'gtp-u', #fq_teid{ip = DataPort#gtp_port.ip,
-						    teid = LocalDataTEI}) ||
-	     is_record(DataPort, gtp_port), is_integer(LocalDataTEI)]
+      ++ [ergw_pfcp:ctx_teid_key(PCtx, #fq_teid{ip = LocalDataEndp#gtp_endp.ip,
+						teid = LocalDataEndp#gtp_endp.teid}) ||
+	     is_record(LocalDataEndp, gtp_endp)]
       ++ ctx_cp_seid_key(PCtx)
       ++ [port_key(CntlPort, ContextId) || ContextId /= undefined]).
 

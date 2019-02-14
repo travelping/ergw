@@ -591,12 +591,12 @@ set_req_from_context(#context{msisdn = MSISDN},
 set_req_from_context(#context{control_port = #gtp_port{ip = CntlIP}},
 		     _K, #gsn_address{instance = 0} = IE) ->
     IE#gsn_address{address = ergw_inet:ip2bin(CntlIP)};
-set_req_from_context(#context{data_port = #gtp_port{ip = DataIP}},
+set_req_from_context(#context{local_data_endp = #gtp_endp{ip = IP}},
 		     _K, #gsn_address{instance = 1} = IE) ->
-    IE#gsn_address{address = ergw_inet:ip2bin(DataIP)};
-set_req_from_context(#context{local_data_tei = DataTEI},
+    IE#gsn_address{address = ergw_inet:ip2bin(IP)};
+set_req_from_context(#context{local_data_endp = #gtp_endp{teid = TEI}},
 		     _K, #tunnel_endpoint_identifier_data_i{instance = 0} = IE) ->
-    IE#tunnel_endpoint_identifier_data_i{tei = DataTEI};
+    IE#tunnel_endpoint_identifier_data_i{tei = TEI};
 set_req_from_context(#context{local_control_tei = CntlTEI},
 		     _K, #tunnel_endpoint_identifier_control_plane{instance = 0} = IE) ->
     IE#tunnel_endpoint_identifier_control_plane{tei = CntlTEI};

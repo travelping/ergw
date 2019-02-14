@@ -678,14 +678,14 @@ fq_teid(TEI, {_,_,_,_,_,_,_,_} = IP, IE) ->
     IE#v2_fully_qualified_tunnel_endpoint_identifier{
       key = TEI, ipv6 = ergw_inet:ip2bin(IP)}.
 
-set_bearer_from_context(#context{data_port = #gtp_port{ip = DataIP}, local_data_tei = DataTEI},
+set_bearer_from_context(#context{local_data_endp = #gtp_endp{ip = IP, teid = TEI}},
 			_, #v2_fully_qualified_tunnel_endpoint_identifier{
 			      interface_type = ?'S5/S8-U SGW'} = IE) ->
-    fq_teid(DataTEI, DataIP, IE);
-set_bearer_from_context(#context{data_port = #gtp_port{ip = DataIP}, local_data_tei = DataTEI},
+    fq_teid(TEI, IP, IE);
+set_bearer_from_context(#context{local_data_endp = #gtp_endp{ip = IP, teid = TEI}},
 			_, #v2_fully_qualified_tunnel_endpoint_identifier{
 			      interface_type = ?'S5/S8-U PGW'} = IE) ->
-    fq_teid(DataTEI, DataIP, IE);
+    fq_teid(TEI, IP, IE);
 set_bearer_from_context(_, _K, IE) ->
     IE.
 

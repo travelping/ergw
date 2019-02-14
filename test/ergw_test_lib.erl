@@ -228,7 +228,7 @@ gtp_context_new_teids(GtpC) ->
 
 make_error_indication_report(#gtpc{local_data_tei = TEI, local_ip = IP}) ->
     make_error_indication_report(IP, TEI);
-make_error_indication_report(#context{data_port = #gtp_port{ip = IP},
+make_error_indication_report(#context{local_data_endp = #gtp_endp{ip = IP},
 				      remote_data_teid = #fq_teid{teid = TEI}}) ->
     make_error_indication_report(IP, TEI).
 
