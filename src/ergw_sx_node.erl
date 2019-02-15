@@ -74,11 +74,9 @@ stop(Pid) when is_pid(Pid) ->
     gen_statem:call(Pid, stop).
 -endif.
 
-send(Context, Intf, VRF, Data)
-  when is_record(Context, context), is_atom(Intf), is_binary(Data) ->
-    cast(Context, {send, Intf, VRF, Data});
-send(GtpPort, IP, Port, Data) ->
-    cast(GtpPort, {send, IP, Port, Data}).
+send(#pfcp_ctx{node = Handler}, Intf, VRF, Data)
+  when is_pid(Handler), is_atom(Intf), is_binary(Data) ->
+    gen_statem:cast(Handler, {send, Intf, VRF, Data}).
 
 %% call/3
 call(#pfcp_ctx{node = Node, seid = #seid{dp = SEID}}, #pfcp{} = Request, OpaqueRef) ->
@@ -142,19 +140,6 @@ call_3(Pid, Request, OpaqueRef)
 	Other ->
 	    Other
     end.
-
-cast(#pfcp_ctx{node = Handler}, Request)
-  when is_pid(Handler) ->
-    gen_statem:cast(Handler, Request);
-cast(#gtp_port{pid = Handler}, Request)
-  when is_pid(Handler) ->
-    %% TODO: GTP data path handler is currently not working!!
-    gen_statem:cast(Handler, Request);
-cast(#context{pfcp_ctx = Ctx}, Request) ->
-    cast(Ctx, Request);
-cast(GtpPort, Request) ->
-    lager:warning("GTP DP Port ~p, CAST Request ~p not implemented yet",
-		  [lager:pr(GtpPort, ?MODULE), lager:pr(Request, ?MODULE)]).
 
 %%====================================================================
 %% ergw_context API
@@ -641,7 +626,7 @@ gen_per_feature_cp_rule('Access', DpGtpIP, #pfcp_ctx{cp_port = GtpPort}, {VRF0, 
 gen_per_feature_cp_rule(_, _DpGtpIP, _PCtx, Acc) ->
     Acc.
 
-install_cp_rules(#data{pfcp_ctx = #pfcp_ctx{seid = #seid{dp = SEID}} = PCtx,
+install_cp_rules(#data{pfcp_ctx = #pfcp_ctx{seid = #seid{cp = SEID}} = PCtx,
 		       cp = #node{node = _Node, ip = CpNodeIP},
 		       dp = #node{ip = DpNodeIP},
 		       vrfs = VRFs0} = Data) ->
