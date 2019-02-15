@@ -34,9 +34,7 @@
 
 -record(data, {retries = 0  :: non_neg_integer(),
 	       recovery_ts       :: undefined | non_neg_integer(),
-	       gtp_port,
-	       cp_tei            :: undefined | non_neg_integer(),
-	       cp_seid           :: undefined | non_neg_integer(),
+	       pfcp_ctx          :: #pfcp_ctx{},
 	       cp,
 	       dp,
 	       vrfs}).
@@ -193,15 +191,20 @@ init([Node, IP4, IP6]) ->
     #gtp_port{name = CntlPortName} = GtpPort,
     {ok, TEI} = gtp_context_reg:alloc_tei(GtpPort),
     SEID = ergw_sx_socket:seid(),
+    PCtx = #pfcp_ctx{
+	      name = Node,
+	      node = self(),
+	      seid = #seid{cp = SEID},
+	      cp_port = GtpPort,
+	      cp_tei = TEI
+	     },
 
     RegKeys =
 	[{CntlPortName, {teid, 'gtp-u', TEI}},
 	 {seid, SEID}],
     gtp_context_reg:register(RegKeys, ?MODULE, self()),
 
-    Data = #data{gtp_port = GtpPort,
-		 cp_tei = TEI,
-		 cp_seid = SEID,
+    Data = #data{pfcp_ctx = PCtx,
 		 cp = CP,
 		 dp = #node{node = Node, ip = IP},
 		 vrfs = init_vrfs(Node)
@@ -254,7 +257,7 @@ handle_event(cast, {response, _, #pfcp{version = v1, type = association_setup_re
     end;
 
 handle_event(cast, {send, 'Access', VRF, Data}, connected,
-	     #data{gtp_port = Port, dp = #node{ip = IP}, vrfs = VRFs}) ->
+	     #data{pfcp_ctx = #pfcp_ctx{cp_port = Port}, dp = #node{ip = IP}, vrfs = VRFs}) ->
     #vrf{cp_to_access_tei = TEI} = maps:get(VRF, VRFs),
     Msg = #gtp{version = v1, type = g_pdu, tei = TEI, ie = Data},
     Bin = gtp_packet:encode(Msg),
@@ -312,15 +315,16 @@ handle_event(cast, {response, _, #pfcp{version = v1, type = heartbeat_response, 
     lager:warning("PFCP Fail Response: ~p", [pfcp_packet:lager_pr(_IEs)]),
     {next_state, dead, handle_nodedown(Data)};
 
-handle_event({call, From}, attach, _,
-	     #data{gtp_port = CpPort, cp_tei = CpTEI, dp = #node{node = Node}}) ->
-    PCtx = #pfcp_ctx{
-	      name = Node,
-	      node = self(),
-	      seid = #seid{cp = ergw_sx_socket:seid()},
+handle_event(cast, {response, from_cp_rule,
+		    #pfcp{version = v1, type = session_establishment_response,
+			  ie = #{pfcp_cause := #pfcp_cause{cause = 'Request accepted'},
+				 f_seid := #f_seid{seid = DP}}}} = R,
+	     connected, #data{pfcp_ctx = #pfcp_ctx{seid = SEID} = PCtx} = Data) ->
+    lager:warning("Response: ~p", [R]),
+    {keep_state, Data#data{pfcp_ctx = PCtx#pfcp_ctx{seid = SEID#seid{dp = DP}}}};
 
-	      cp_port = CpPort,
-	      cp_tei = CpTEI},
+handle_event({call, From}, attach, _, #data{pfcp_ctx = PNodeCtx}) ->
+    PCtx = PNodeCtx#pfcp_ctx{seid = #seid{cp = ergw_sx_socket:seid()}},
     {keep_state_and_data, [{reply, From, PCtx}]};
 
 handle_event({call, From}, get_vrfs, connected,
@@ -372,7 +376,8 @@ handle_event(cast, {handle_pdu, _Request, #gtp{type=g_pdu, ie = PDU}}, _, Data) 
     end,
     keep_state_and_data;
 
-handle_event({call, From}, {sx, Report}, _State, #data{cp_seid = SEID}) ->
+handle_event({call, From}, {sx, Report}, _State,
+	     #data{pfcp_ctx = #pfcp_ctx{seid = #seid{dp = SEID}}}) ->
     lager:error("Sx Node Session Report unexpected: ~p", [Report]),
     {keep_state_and_data, [{reply, From, {ok, SEID}}]}.
 
@@ -407,7 +412,7 @@ pfcp_reply_actions({call, {Pid, Tag}}, Reply)
 pfcp_reply_actions({call, From}, Reply) ->
     [{reply, From, Reply}].
 
-make_request(IP, Port, Msg, #data{gtp_port = GtpPort}) ->
+make_request(IP, Port, Msg, #data{pfcp_ctx = #pfcp_ctx{cp_port = GtpPort}}) ->
     ergw_gtp_socket:make_request(0, IP, Port, Msg, GtpPort).
 
 %% IPv4, non fragmented, UDP packet
@@ -620,10 +625,10 @@ maps_mapfold(Fun, AccIn, Map)
 
 -endif.
 
-gen_cp_rules(_Key, #vrf{features = Features} = VRF, DpGtpIP, Data, Rules) ->
-    lists:foldl(gen_per_feature_cp_rule(_, DpGtpIP, Data, _), {VRF, Rules}, Features).
+gen_cp_rules(_Key, #vrf{features = Features} = VRF, DpGtpIP, PCtx, Rules) ->
+    lists:foldl(gen_per_feature_cp_rule(_, DpGtpIP, PCtx, _), {VRF, Rules}, Features).
 
-gen_per_feature_cp_rule('Access', DpGtpIP, #data{gtp_port = GtpPort}, {VRF0, Rules}) ->
+gen_per_feature_cp_rule('Access', DpGtpIP, #pfcp_ctx{cp_port = GtpPort}, {VRF0, Rules}) ->
     RuleId = length(Rules) + 1,
 
     {ok, TEI} = gtp_context_reg:alloc_tei(GtpPort),
@@ -633,10 +638,10 @@ gen_per_feature_cp_rule('Access', DpGtpIP, #data{gtp_port = GtpPort}, {VRF0, Rul
 
     VRF = VRF0#vrf{cp_to_access_tei = TEI},
     {VRF, [PDR, FAR | Rules]};
-gen_per_feature_cp_rule(_, _DpGtpIP, _Data, Acc) ->
+gen_per_feature_cp_rule(_, _DpGtpIP, _PCtx, Acc) ->
     Acc.
 
-install_cp_rules(#data{cp_seid = SEID,
+install_cp_rules(#data{pfcp_ctx = #pfcp_ctx{seid = #seid{dp = SEID}} = PCtx,
 		       cp = #node{node = _Node, ip = CpNodeIP},
 		       dp = #node{ip = DpNodeIP},
 		       vrfs = VRFs0} = Data) ->
@@ -646,7 +651,7 @@ install_cp_rules(#data{cp_seid = SEID,
 		     end, maps:values(VRFs0)),
     DpGtpIP = choose_up_ip(DpGtpIP4, DpGtpIP6, DpNodeIP),
 
-    {VRFs, Rules} = maps_mapfold(gen_cp_rules(_, _, DpGtpIP, Data, _), [], VRFs0),
+    {VRFs, Rules} = maps_mapfold(gen_cp_rules(_, _, DpGtpIP, PCtx, _), [], VRFs0),
 
     IEs = [ergw_pfcp:f_seid(SEID, CpNodeIP) | Rules],
     Req0 = #pfcp{version = v1, type = session_establishment_request, seid = 0, ie = IEs},
