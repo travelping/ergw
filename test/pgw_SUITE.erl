@@ -257,6 +257,7 @@ common() ->
      session_options,
      session_accounting,
      sx_cp_to_up_forward,
+     sx_up_to_cp_forward,
      sx_timeout].
 
 groups() ->
@@ -1420,6 +1421,69 @@ sx_cp_to_up_forward(Config) ->
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     ?match(1, meck:num_calls(?HUT, handle_pdu, ['_', #gtp{type = g_pdu, _ = '_'}, '_'])),
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+-define('ICMPv6', 58).
+
+%-define('IPv6 All Nodes LL',   <<255,2,0,0,0,0,0,0,0,0,0,0,0,0,0,1>>).
+-define('IPv6 All Routers LL', <<255,2,0,0,0,0,0,0,0,0,0,0,0,0,0,2>>).
+-define('ICMPv6 Router Solicitation',  133).
+%-define('ICMPv6 Router Advertisement', 134).
+
+%-define(NULL_INTERFACE_ID, {0,0,0,0,0,0,0,0}).
+%-define('Our LL IP', <<254,128,0,0,0,0,0,0,0,0,0,0,0,0,0,2>>).
+
+%-define('RA Prefix Information', 3).
+%-define('RDNSS', 25).
+
+sx_up_to_cp_forward() ->
+    [{doc, "Test Sx{a,b,c} UP to CP forwarding"}].
+sx_up_to_cp_forward(Config) ->
+    %% use a IPv6 session Router Solitation for the test...
+
+    {GtpC, _, _} = create_session(ipv6, Config),
+
+    #gtpc{remote_data_tei = DataTEI} = GtpC,
+
+    SxIP = ergw_inet:ip2bin(proplists:get_value(pgw_u_sx, Config)),
+    LocalIP = ergw_inet:ip2bin(proplists:get_value(localhost, Config)),
+
+    Code = 0,
+    CSum = 0,
+    Pad = <<1,2,3,4,5,6,7,8>>,
+    PayLoad = <<?'ICMPv6 Router Solicitation':8, Code:8, CSum:16, Pad/binary>>,
+
+    TC = 0,
+    FlowLabel = 0,
+    Length = byte_size(PayLoad),
+    HopLimit = 255,
+    SrcAddr = <<1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16>>,
+    DstAddr = ?'IPv6 All Routers LL',
+
+    PDU = <<6:4, TC:8, FlowLabel:20, Length:16, ?ICMPv6:8,
+	    HopLimit:8, SrcAddr:16/bytes, DstAddr:16/bytes,
+	    PayLoad/binary>>,
+
+    InnerGTP = gtp_packet:encode(
+		 #gtp{version = v1, type = g_pdu, tei = DataTEI, ie = PDU}),
+    InnerIP = ergw_inet:make_udp(SxIP, LocalIP, ?GTP1u_PORT, ?GTP1u_PORT, InnerGTP),
+    ergw_test_sx_up:send('pgw-u', InnerIP),
+
+    ct:sleep(500),
+    delete_session(GtpC),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    ?match(1, meck:num_calls(?HUT, handle_pdu, ['_', #gtp{type = g_pdu, _ = '_'}, '_'])),
+
+    UDP = lists:filter(
+	    fun({udp, _, _, ?GTP1u_PORT, _}) -> true;
+	       (_) -> false
+	    end, ergw_test_sx_up:history('pgw-u')),
+
+    ?match([{_, _, _, _, <<_/binary>>}|_], UDP),
+
     meck_validate(Config),
     ok.
 

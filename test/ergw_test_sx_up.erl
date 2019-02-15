@@ -132,7 +132,10 @@ handle_info({udp, SxSocket, IP, InPortNo, Packet},
 	Class:Error ->
 	    ct:fail("Sx Socket Error: ~p:~p~n~p", [Class, Error, erlang:get_stacktrace()]),
 	    {stop, error, State0}
-    end.
+    end;
+handle_info({udp, GtpSocket, IP, InPortNo, Packet} = Msg,
+	    #state{gtp = GtpSocket, history = Hist} = State) ->
+    {noreply, State#state{history = [Msg|Hist]}}.
 
 terminate(_Reason, #state{sx = SxSocket}) ->
     catch gen_udp:close(SxSocket),

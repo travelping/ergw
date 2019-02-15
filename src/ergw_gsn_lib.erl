@@ -1241,6 +1241,15 @@ pcc_rules_to_credit_request(_Rules) ->
 %%% T-PDU functions
 %%%===================================================================
 
+send_g_pdu(PCtx, #gtp_endp{vrf = VRF, ip = SrcIP}, #fq_teid{ip = DstIP, teid = TEID}, Data) ->
+    GTP = #gtp{version =v1, type = g_pdu, tei = TEID, ie = Data},
+    PayLoad = gtp_packet:encode(GTP),
+    UDP = ergw_inet:make_udp(
+	    ergw_inet:ip2bin(SrcIP), ergw_inet:ip2bin(DstIP),
+	    ?GTP1u_PORT, ?GTP1u_PORT, PayLoad),
+    ergw_sx_node:send(PCtx, 'Access', VRF, UDP),
+    ok.
+
 -define('ICMPv6', 58).
 
 -define('IPv6 All Nodes LL',   <<255,2,0,0,0,0,0,0,0,0,0,0,0,0,0,1>>).
@@ -1266,9 +1275,8 @@ ip_pdu(Data, _Context) ->
 %% IPv6 Router Solicitation
 icmpv6(TC, FlowLabel, _SrcAddr, ?'IPv6 All Routers LL',
        <<?'ICMPv6 Router Solicitation':8, _Code:8, _CSum:16, _/binary>>,
-       #context{local_data_endp = #gtp_endp{vrf = VRF, ip = DpGtpIP},
-		remote_data_teid = #fq_teid{ip = GtpIP, teid = TEID},
-		ms_v6 = MSv6, dns_v6 = DNSv6} = Context) ->
+       #context{local_data_endp = LocalDataEndp, remote_data_teid = RemoteDataTEID,
+		pfcp_ctx = PCtx, ms_v6 = MSv6, dns_v6 = DNSv6} = Context) ->
     {Prefix, PLen} = ergw_inet:ipv6_interface_id(MSv6, ?NULL_INTERFACE_ID),
 
     OnLink = 1,
@@ -1311,13 +1319,7 @@ icmpv6(TC, FlowLabel, _SrcAddr, ?'IPv6 All Routers LL',
     ICMPv6 = <<6:4, TC:8, FlowLabel:20, ICMPLength:16, ?ICMPv6:8, TTL:8,
 	       NwSrc:16/bytes, NwDst:16/bytes,
 	       ?'ICMPv6 Router Advertisement':8, 0:8, CSum:16, RAOpts/binary>>,
-    GTP = #gtp{version =v1, type = g_pdu, tei = TEID, ie = ICMPv6},
-    PayLoad = gtp_packet:encode(GTP),
-    UDP = ergw_inet:make_udp(
-	    ergw_inet:ip2bin(DpGtpIP), ergw_inet:ip2bin(GtpIP),
-	    ?GTP1u_PORT, ?GTP1u_PORT, PayLoad),
-    ergw_sx_node:send(Context, 'Access', VRF, UDP),
-    ok;
+    send_g_pdu(PCtx, LocalDataEndp, RemoteDataTEID, ICMPv6);
 
 icmpv6(_TC, _FlowLabel, _SrcAddr, _DstAddr, _PayLoad, _Context) ->
     lager:warning("unhandeld ICMPv6 from ~p to ~p: ~p", [_SrcAddr, _DstAddr, _PayLoad]),
