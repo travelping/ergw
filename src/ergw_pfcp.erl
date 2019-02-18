@@ -43,6 +43,14 @@ ue_ip_address(Direction, #context{ms_v4 = {MSv4,_}, ms_v6 = {MSv6,_}}) ->
 ue_ip_address(Direction, #context{ms_v4 = {MSv4,_}}) ->
     #ue_ip_address{type = Direction, ipv4 = ergw_inet:ip2bin(MSv4)};
 ue_ip_address(Direction, #context{ms_v6 = {MSv6,_}}) ->
+    #ue_ip_address{type = Direction, ipv6 = ergw_inet:ip2bin(MSv6)};
+
+ue_ip_address(Direction, #tdf_ctx{ms_v4 = {MSv4,_}, ms_v6 = {MSv6,_}}) ->
+    #ue_ip_address{type = Direction, ipv4 = ergw_inet:ip2bin(MSv4),
+		   ipv6 = ergw_inet:ip2bin(MSv6)};
+ue_ip_address(Direction, #tdf_ctx{ms_v4 = {MSv4,_}}) ->
+    #ue_ip_address{type = Direction, ipv4 = ergw_inet:ip2bin(MSv4)};
+ue_ip_address(Direction, #tdf_ctx{ms_v6 = {MSv6,_}}) ->
     #ue_ip_address{type = Direction, ipv6 = ergw_inet:ip2bin(MSv6)}.
 
 network_instance(Name)

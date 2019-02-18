@@ -3,7 +3,7 @@
 -behaviour(gen_server).
 
 %% API
--export([start/2, stop/1, send/2, reset/1, history/1, accounting/2,
+-export([start/2, stop/1, send/2, send/3, reset/1, history/1, accounting/2,
 	enable/1, disable/1]).
 
 %% gen_server callbacks
@@ -32,6 +32,9 @@ stop(Role) ->
 
 send(Role, Msg) ->
     gen_server:call(server_name(Role), {send, Msg}).
+
+send(Role, SEID, Msg) ->
+    gen_server:call(server_name(Role), {send, SEID, Msg}).
 
 reset(Role) ->
     gen_server:call(server_name(Role), reset).
@@ -75,7 +78,7 @@ init([IP]) ->
 handle_call(reset, _From, State0) ->
     State = State0#state{
 	      accounting = on,
-	       enabled = true,
+	      enabled = true,
 	      cp_ip = undefined,
 	      cp_seid = 0,
 	      up_seid = ergw_sx_socket:seid(),
@@ -94,6 +97,12 @@ handle_call({accounting, Acct}, _From, State) ->
 
 handle_call({send, #pfcp{} = Msg}, _From,
 	    #state{sx = SxSocket, cp_ip = IP, cp_seid = SEID, seq_no = SeqNo} = State) ->
+    BinMsg = pfcp_packet:encode(Msg#pfcp{seid = SEID, seq_no = SeqNo}),
+    ok = gen_udp:send(SxSocket, IP, 8805, BinMsg),
+    {reply, ok, State#state{seq_no = (SeqNo + 1) rem 16#ffffff}};
+
+handle_call({send, SEID, #pfcp{} = Msg}, _From,
+	    #state{sx = SxSocket, cp_ip = IP, seq_no = SeqNo} = State) ->
     BinMsg = pfcp_packet:encode(Msg#pfcp{seid = SEID, seq_no = SeqNo}),
     ok = gen_udp:send(SxSocket, IP, 8805, BinMsg),
     {reply, ok, State#state{seq_no = (SeqNo + 1) rem 16#ffffff}};

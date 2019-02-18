@@ -13,11 +13,11 @@
 -compile({parse_transform, cut}).
 
 %% API
--export([select_sx_node/2, select_sx_node/3]).
--export([start_link/3, send/4, call/3, call_async/3,
+-export([select_sx_node/2, select_sx_node/3, connect_sx_node/4, attach/2]).
+-export([start_link/4, send/4, call/3, call_async/3,
 	 get_vrfs/2, handle_request/3, response/3]).
 -ifdef(TEST).
--export([stop/1, seconds_to_sntp_time/1]).
+-export([test_cmd/2, seconds_to_sntp_time/1]).
 -endif.
 
 %% ergw_context callbacks
@@ -38,12 +38,15 @@
 	       upf_data_endp     :: #gtp_endp{},
 	       cp,
 	       dp,
-	       vrfs}).
+	       vrfs,
+	       opts}).
 
 -define(AssocReqTimeout, 200).
 -define(AssocReqRetries, 5).
 -define(AssocTimeout, 500).
 -define(AssocRetries, 5).
+
+-define(TestCmdTag, '$TestCmd').
 
 %%====================================================================
 %% API
@@ -52,8 +55,7 @@
 select_sx_node(Candidates, Context) ->
     case connect_sx_node(Candidates) of
 	{ok, Pid} ->
-	    monitor(process, Pid),
-	    call_3(Pid, attach, Context);
+	    attach(Pid, Context);
 	_ ->
 	    throw(?CTX_ERR(?FATAL, system_failure, Context))
     end.
@@ -67,12 +69,18 @@ select_sx_node(APN, Services, NodeSelect) ->
 	    {error, not_found}
     end.
 
-start_link(Node, IP4, IP6) ->
-    gen_statem:start_link(?MODULE, [Node, IP4, IP6], []).
+attach(Node, Context) when is_pid(Node) ->
+    monitor(process, Node),
+    call_3(Node, attach, Context).
+
+start_link(Node, IP4, IP6, Opts) ->
+    gen_statem:start_link(?MODULE, [Node, IP4, IP6, Opts], []).
 
 -ifdef(TEST).
-stop(Pid) when is_pid(Pid) ->
-    gen_statem:call(Pid, stop).
+
+test_cmd(Pid, Cmd) when is_pid(Pid) ->
+    gen_statem:call(Pid, {?TestCmdTag, Cmd}).
+
 -endif.
 
 send(#pfcp_ctx{node = Handler}, Intf, VRF, Data)
@@ -165,7 +173,7 @@ port_message(_Server, Request, Msg, _Resent) ->
 
 callback_mode() -> [handle_event_function, state_enter].
 
-init([Node, IP4, IP6]) ->
+init([Node, IP4, IP6, Opts]) ->
     IP = if length(IP4) /= 0 -> hd(IP4);
 	    length(IP6) /= 0 -> hd(IP6)
 	 end,
@@ -193,7 +201,8 @@ init([Node, IP4, IP6]) ->
     Data = #data{pfcp_ctx = PCtx,
 		 cp = CP,
 		 dp = #node{node = Node, ip = IP},
-		 vrfs = init_vrfs(Node)
+		 vrfs = init_vrfs(Node),
+		 opts = Opts
 		},
     {ok, dead, Data}.
 
@@ -208,7 +217,20 @@ handle_event(enter, _, dead, #data{retries = Retries} = Data) ->
 handle_event(enter, _OldState, State, Data) ->
     {next_state, State, Data};
 
-handle_event({call, From}, stop, _, Data) ->
+handle_event({call, From}, {?TestCmdTag, pfcp_ctx}, _, #data{pfcp_ctx = PCtx}) ->
+    {keep_state_and_data, [{reply, From, PCtx}]};
+handle_event({call, From}, {?TestCmdTag, reconnect}, dead, Data) ->
+    {keep_state_and_data, [{reply, From, ok}, {state_timeout, 0, setup}]};
+handle_event({call, From}, {?TestCmdTag, reconnect}, connecting, _) ->
+    {keep_state_and_data, [{reply, From, ok}]};
+handle_event({call, From}, {?TestCmdTag, reconnect}, connected, Data) ->
+    {next_state, dead, handle_nodedown(Data), [{reply, From, ok}]};
+handle_event({call, From}, {?TestCmdTag, wait4nodeup}, connected, _) ->
+   {keep_state_and_data, [{reply, From, ok}]};
+handle_event({call, _From}, {?TestCmdTag, wait4nodeup}, _, _) ->
+    {keep_state_and_data, [postpone]};
+
+handle_event({call, From}, {?TestCmdTag, stop}, _, Data) ->
     {stop_and_reply, normal, [{reply, From, ok}], Data};
 
 handle_event(_, setup, dead, #data{dp = #node{ip = IP}} = Data) ->
@@ -371,6 +393,42 @@ handle_event(cast, {handle_pdu, _Request, #gtp{type=g_pdu, ie = PDU}}, _, Data) 
     end,
     keep_state_and_data;
 
+handle_event({call, From},
+	     {sx, #pfcp{
+		     type = session_report_request,
+		     ie =
+			 #{report_type := #report_type{usar = 1},
+			   usage_report_srr :=
+			       #usage_report_srr{
+				  group =
+				      #{urr_id := #urr_id{id = Id},
+					usage_report_trigger :=
+					    #usage_report_trigger{start = 1},
+					ue_ip_address :=
+					    #ue_ip_address{
+					       type = src,
+					       ipv4 = IP4,
+					       ipv6 = IP6}
+				       }
+				 }
+			  }
+		    }
+	     },
+	     _State,
+	     #data{pfcp_ctx = #pfcp_ctx{seid = #seid{dp = SEID}} = PCtx, opts = Opts}) ->
+    {ok, {tdf, VRF}} = ergw_pfcp:find_urr_by_id(Id, PCtx),
+    lager:error("Sx Node TDF Report on ~p for UE IPv4 ~p IPv6 ~p", [VRF, IP4, IP6]),
+
+    Handler = maps:get(handler, Opts, tdf),
+    try
+	Handler:unsolicited_report(self(), VRF, IP4, IP6, Opts)
+    catch
+	Class:Error ->
+	    lager:error("Unsolicited Report Handler '~p' failed with ~p:~p~n~p",
+			[Handler, Class, Error, erlang:get_stacktrace()])
+    end,
+
+    {keep_state_and_data, [{reply, From, {ok, SEID}}]};
 handle_event({call, From}, {sx, Report}, _State,
 	     #data{pfcp_ctx = #pfcp_ctx{seid = #seid{dp = SEID}}}) ->
     lager:error("Sx Node Session Report unexpected: ~p", [Report]),
@@ -452,19 +510,19 @@ handle_udp_gtp(SrcIP, DstIP, <<SrcPort:16, DstPort:16, _:16, _:16, PayLoad/binar
 connect_sx_node([]) ->
     {error, not_found};
 connect_sx_node([{Node, _, _, IP4, IP6}|Next]) ->
-    case connect_sx_node(Node, IP4, IP6) of
+    case connect_sx_node(Node, IP4, IP6, #{}) of
 	{ok, _Pid} = Result ->
 	    Result;
 	_ ->
 	    connect_sx_node(Next)
     end.
 
-connect_sx_node(Node, IP4, IP6) ->
+connect_sx_node(Node, IP4, IP6, Opts) ->
     case ergw_sx_node_reg:lookup(Node) of
 	{ok, _} = Result ->
 	    Result;
 	_ ->
-	    ergw_sx_node_sup:new(Node, IP4, IP6)
+	    ergw_sx_node_sup:new(Node, IP4, IP6, Opts)
     end.
 
 response_cb(CbData) ->
@@ -637,6 +695,41 @@ gen_per_feature_pfcp_rule('Access', #vrf{name = Name} = VRF,
     ergw_pfcp:pfcp_rules_add(
       [{pdr, PdrId, PDR},
        {far, FarId, FAR}], PCtx);
+gen_per_feature_pfcp_rule('TDF-Source', #vrf{name = Name} = VRF,
+			  _DataEndP, PCtx0) ->
+    Key = {tdf, Name},
+    {PdrId, PCtx1} = ergw_pfcp:get_id(pdr, Key, PCtx0),
+    {FarId, PCtx2} = ergw_pfcp:get_id(far, Key, PCtx1),
+    {UrrId, PCtx} = ergw_pfcp:get_urr_id(Key, [], Key, PCtx2),
+
+    %% detect traffic from Access interface (TDF)
+    PDI = #pdi{
+	     group =
+		 [#source_interface{interface = 'Access'},
+		  ergw_pfcp:network_instance(VRF),
+		  %% WildCard SDF
+		  #sdf_filter{
+		     flow_description =
+			 <<"permit out ip from any to any">>}
+		 ]},
+    PDR = [#pdr_id{id = PdrId},
+	   #precedence{precedence = 65000},
+	   PDI,
+	   #far_id{id = FarId},
+	   #urr_id{id = UrrId}],
+    %% default drop rule for TDF
+    FAR = [#far_id{id = FarId},
+	   #apply_action{drop = 1}],
+    %% Start of Traffic report rule
+    URR = [#urr_id{id = UrrId},
+	   #measurement_method{event = 1},
+	   #reporting_triggers{start_of_traffic = 1},
+	   #time_quota{quota = 60}],
+
+    ergw_pfcp:pfcp_rules_add(
+      [{pdr, PdrId, PDR},
+       {far, FarId, FAR},
+       {urr, UrrId, URR}], PCtx);
 gen_per_feature_pfcp_rule(_, _VRF, _DpGtpIP, Acc) ->
     Acc.
 

@@ -77,6 +77,7 @@
 	  imsi                   :: 'undefined' | binary(),
 	  imei                   :: 'undefined' | binary(),
 	  msisdn                 :: 'undefined' | binary(),
+
 	  context_id             :: term(),
 	  charging_identifier    :: non_neg_integer(),
 
@@ -96,6 +97,13 @@
 	  state                  :: term(),
 	  restrictions = []      :: [{'v1', boolean()} |
 				     {'v2', boolean()}]
+	 }).
+
+-record(tdf_ctx, {
+	  in_vrf                 :: atom(),
+	  out_vrf                :: atom(),
+	  ms_v4                  :: inet:ip4_address(),
+	  ms_v6                  :: inet:ip6_address()
 	 }).
 
 -record(request, {

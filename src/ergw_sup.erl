@@ -37,6 +37,7 @@ init([]) ->
 				 ?CHILD(gtp_path_sup, supervisor, []),
 				 ?CHILD(gtp_context_reg, worker, []),
 				 ?CHILD(gtp_context_sup, supervisor, []),
+				 ?CHILD(tdf_sup, supervisor, []),
 				 ?CHILD(ergw_gtp_socket_reg, worker, []),
 				 ?CHILD(ergw_gtp_socket_sup, supervisor, []),
 				 ?CHILD(ergw_sx_node_reg, worker, []),

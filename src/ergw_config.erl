@@ -14,6 +14,7 @@
 	 validate_node_name/1,
 	 validate_config/1,
 	 validate_options/4,
+	 validate_apn_name/1,
 	 check_unique_keys/2,
 	 opts_fold/3,
 	 to_map/1]).
@@ -28,6 +29,7 @@
 			 {vrfs, []},
 			 {apns, []},
 			 {charging, [{default, []}]}]).
+-define(VrfDefaults, [{features, invalid}]).
 
 -define(is_opts(X), (is_list(X) orelse is_map(X))).
 -define(non_empty_opts(X), ((is_list(X) andalso length(X) /= 0) orelse
@@ -41,14 +43,11 @@ load_config(Config0) ->
     Config = validate_config(Config0),
     ergw:load_config(Config),
     lists:foreach(fun load_socket/1, proplists:get_value(sockets, Config)),
+    {ok, _} = ergw_sx_socket:start_sx_socket(proplists:get_value(sx_socket, Config)),
     lists:foreach(fun load_handler/1, proplists:get_value(handlers, Config)),
     lists:foreach(fun load_vrf/1, proplists:get_value(vrfs, Config)),
     lists:foreach(fun load_apn/1, proplists:get_value(apns, Config)),
-    {ok, _} = ergw_sx_socket:start_sx_socket(proplists:get_value(sx_socket, Config)),
     ergw_http_api:init(proplists:get_value(http_api, Config)),
-    application:set_env(ergw, node_selection, proplists:get_value(node_selection, Config)),
-    application:set_env(ergw, nodes, proplists:get_value(nodes, Config)),
-    application:set_env(ergw, charging, proplists:get_value(charging, Config)),
     ok.
 
 opts_fold(Fun, AccIn, Opts) when is_list(Opts) ->
@@ -261,7 +260,7 @@ validate_node_selection_option(Opt, Values) ->
 validate_node_vrf_option(features, Features)
   when is_list(Features), length(Features) /= 0 ->
     Rem = lists:usort(Features) --
-	['Access', 'Core', 'SGi-LAN', 'CP-Function', 'LI Function'],
+	['Access', 'Core', 'SGi-LAN', 'CP-Function', 'LI Function', 'TDF-Source'],
     if Rem /= [] ->
 	    throw({error, {options, {features, Features}}});
        true ->
@@ -273,7 +272,7 @@ validate_node_vrf_option(Opt, Values) ->
 validate_node_vrfs({Name, Opts})
   when ?is_opts(Opts) ->
     {vrf:validate_name(Name),
-     validate_options(fun validate_node_vrf_option/2, Opts, [{features, invalid}], map)};
+    validate_options(fun validate_node_vrf_option/2, Opts, ?VrfDefaults, map)};
 validate_node_vrfs({Name, Opts}) ->
     throw({error, {options, {Name, Opts}}}).
 
@@ -322,6 +321,10 @@ validate_apn_option(Opt, Value) ->
 
 load_socket({Name, Options}) ->
     ergw:start_socket(Name, Options).
+
+load_handler({_Name, #{protocol := ip, nodes := Nodes} = Opts0}) ->
+    Opts = maps:without([protocol, nodes], Opts0),
+    lists:foreach(ergw:attach_tdf(_, Opts), Nodes);
 
 load_handler({Name, #{handler  := Handler,
 		      protocol := Protocol,
