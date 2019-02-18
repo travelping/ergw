@@ -78,6 +78,7 @@ lib_init_per_suite(Config0) ->
     lager_common_test_backend:bounce(debug),
     {ok, _} = ergw_test_sx_up:start('pgw-u', proplists:get_value(pgw_u_sx, Config)),
     {ok, _} = ergw_test_sx_up:start('sgw-u', proplists:get_value(sgw_u_sx, Config)),
+    {ok, _} = ergw_test_sx_up:start('tdf-u', proplists:get_value(tdf_u_sx, Config)),
     {ok, AppsCfg} = application:get_env(ergw_aaa, apps),
     [{aaa_cfg, AppsCfg} |Config].
 
@@ -85,6 +86,7 @@ lib_end_per_suite(Config) ->
     meck_unload(Config),
     ok = ergw_test_sx_up:stop('pgw-u'),
     ok = ergw_test_sx_up:stop('sgw-u'),
+    ok = ergw_test_sx_up:stop('tdf-u'),
     ?config(table_owner, Config) ! stop,
     [application:stop(App) || App <- [lager, ranch, cowboy, ergw, ergw_aaa]],
     ok.
@@ -110,7 +112,8 @@ group_config(ipv4, Config) ->
 	    {proxy_gsn, ?PROXY_GSN_IPv4},
 	    {final_gsn, ?FINAL_GSN_IPv4},
 	    {sgw_u_sx, ?SGW_U_SX_IPv4},
-	    {pgw_u_sx, ?PGW_U_SX_IPv4}],
+	    {pgw_u_sx, ?PGW_U_SX_IPv4},
+	    {tdf_u_sx, ?TDF_U_SX_IPv4}],
     merge_config(Opts, Config);
 group_config(ipv6, Config) ->
     Opts = [{localhost, ?LOCALHOST_IPv6},
@@ -120,7 +123,8 @@ group_config(ipv6, Config) ->
 	    {proxy_gsn, ?PROXY_GSN_IPv6},
 	    {final_gsn, ?FINAL_GSN_IPv6},
 	    {sgw_u_sx, ?SGW_U_SX_IPv6},
-	    {pgw_u_sx, ?PGW_U_SX_IPv6}],
+	    {pgw_u_sx, ?PGW_U_SX_IPv6},
+	    {tdf_u_sx, ?TDF_U_SX_IPv6}],
     merge_config(Opts, Config).
 
 
@@ -152,9 +156,11 @@ meck_init(Config) ->
     ok = meck:new(ergw_sx_socket, [passthrough, no_link]),
     ok = meck:new(ergw_gtp_c_socket, [passthrough, no_link]),
     ok = meck:new(ergw_aaa_session, [passthrough, no_link]),
+    ok = meck:new(ergw_gsn_lib, [passthrough, no_link]),
+    ok = meck:new(ergw_proxy_lib, [passthrough, no_link]),
 
     {_, Hut} = lists:keyfind(handler_under_test, 1, Config),   %% let it crash if HUT is undefined
-    ok = meck:new(Hut, [passthrough, no_link]),
+    ok = meck:new(Hut, [passthrough, no_link, non_strict]),
     ok = meck:expect(Hut, handle_request,
 		     fun(ReqKey, Request, Resent, State) ->
 			     try
@@ -169,18 +175,24 @@ meck_reset(Config) ->
     meck:reset(ergw_sx_socket),
     meck:reset(ergw_gtp_c_socket),
     meck:reset(ergw_aaa_session),
+    meck:reset(ergw_gsn_lib),
+    meck:reset(ergw_proxy_lib),
     meck:reset(proplists:get_value(handler_under_test, Config)).
 
 meck_unload(Config) ->
     meck:unload(ergw_sx_socket),
     meck:unload(ergw_gtp_c_socket),
     meck:unload(ergw_aaa_session),
+    meck:unload(ergw_gsn_lib),
+    meck:unload(ergw_proxy_lib),
     meck:unload(proplists:get_value(handler_under_test, Config)).
 
 meck_validate(Config) ->
     ?equal(true, meck:validate(ergw_sx_socket)),
     ?equal(true, meck:validate(ergw_gtp_c_socket)),
     ?equal(true, meck:validate(ergw_aaa_session)),
+    ?equal(true, meck:validate(ergw_gsn_lib)),
+    ?equal(true, meck:validate(ergw_proxy_lib)),
     ?equal(true, meck:validate(proplists:get_value(handler_under_test, Config))).
 
 %%%===================================================================
@@ -292,7 +304,7 @@ start_gtpc_server(Config) ->
 
 stop_all_sx_nodes() ->
     SxNodes = supervisor:which_children(ergw_sx_node_sup),
-    [ergw_sx_node:stop(Pid) || {_, Pid, _, _} <- SxNodes, is_pid(Pid)],
+    [ergw_sx_node:test_cmd(Pid, stop) || {_, Pid, _, _} <- SxNodes, is_pid(Pid)],
     stop_all_sx_nodes(supervisor:which_children(ergw_sx_node_sup)).
 
 stop_all_sx_nodes([]) ->
