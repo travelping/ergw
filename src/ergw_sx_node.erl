@@ -36,6 +36,7 @@
 	       recovery_ts       :: undefined | non_neg_integer(),
 	       gtp_port,
 	       cp_tei            :: undefined | non_neg_integer(),
+	       cp_seid           :: undefined | non_neg_integer(),
 	       cp,
 	       dp,
 	       vrfs}).
@@ -158,9 +159,8 @@ cast(GtpPort, Request) ->
 %% ergw_context API
 %%====================================================================
 
-sx_report(_Server, _Report) ->
-    %% gen_statem:call(Server, {sx, Report}).
-    {error, not_found}.
+sx_report(Server, Report) ->
+    gen_statem:call(Server, {sx, Report}).
 
 port_message(Request, Msg) ->
     lager:error("unhandled port message (~p, ~p)", [Request, Msg]),
@@ -189,13 +189,16 @@ init([Node, IP4, IP6]) ->
     {ok, CP, GtpPort} = ergw_sx_socket:id(),
     #gtp_port{name = CntlPortName} = GtpPort,
     {ok, TEI} = gtp_context_reg:alloc_tei(GtpPort),
+    SEID = ergw_sx_socket:seid(),
 
     RegKeys =
-	[{CntlPortName, {teid, 'gtp-u', TEI}}],
+	[{CntlPortName, {teid, 'gtp-u', TEI}},
+	 {seid, SEID}],
     gtp_context_reg:register(RegKeys, ?MODULE, self()),
 
     Data = #data{gtp_port = GtpPort,
 		 cp_tei = TEI,
+		 cp_seid = SEID,
 		 cp = CP,
 		 dp = #node{node = Node, ip = IP},
 		 vrfs = init_vrfs(Node)
@@ -360,7 +363,10 @@ handle_event(cast, {handle_pdu, _Request, #gtp{type=g_pdu, ie = PDU}}, _, Data) 
 	    ST = erlang:get_stacktrace(),
 	    lager:error("handler for GTP-U failed with: ~p:~p @ ~p", [Class, Error, ST])
     end,
-    keep_state_and_data.
+    keep_state_and_data;
+handle_event({call, From}, {sx, Report}, _State, #data{cp_seid = SEID}) ->
+    lager:info("Sx NodeSession Report: ~p", [Report]),
+    {keep_state_and_data, [{reply, From, {ok, SEID}}]}.
 
 terminate(_Reason, _Data) ->
     ok.
@@ -617,7 +623,8 @@ gen_per_feature_cp_rule('Access', DpGtpIP, #data{gtp_port = GtpPort}, {VRF0, Rul
 gen_per_feature_cp_rule(_, _DpGtpIP, _Data, Acc) ->
     Acc.
 
-install_cp_rules(#data{cp = #node{node = _Node, ip = CpNodeIP},
+install_cp_rules(#data{cp_seid = SEID,
+		       cp = #node{node = _Node, ip = CpNodeIP},
 		       dp = #node{ip = DpNodeIP},
 		       vrfs = VRFs0} = Data) ->
     [#vrf{ipv4 = DpGtpIP4, ipv6 = DpGtpIP6}] =
@@ -628,9 +635,7 @@ install_cp_rules(#data{cp = #node{node = _Node, ip = CpNodeIP},
 
     {VRFs, Rules} = maps_mapfold(gen_cp_rules(_, _, DpGtpIP, Data, _), [], VRFs0),
 
-    SEID = ergw_sx_socket:seid(),
     IEs = [ergw_pfcp:f_seid(SEID, CpNodeIP) | Rules],
-
     Req0 = #pfcp{version = v1, type = session_establishment_request, seid = 0, ie = IEs},
     Req = augment_mandatory_ie(Req0, Data),
     ergw_sx_socket:call(DpNodeIP, Req, response_cb(from_cp_rule)),
