@@ -400,6 +400,93 @@
 	 }
 	]).
 
+-define(TDF_CONFIG,
+	[
+	 {sockets,
+	  [{'cp-socket', [{type, 'gtp-u'},
+			  {vrf, cp},
+			  {ip,  ?LOCALHOST_IPv4},
+			  freebind,
+			  {reuseaddr, true}
+			 ]}
+	  ]},
+
+	 {vrfs,
+	  [{sgi, [{pools,  [{?IPv4PoolStart, ?IPv4PoolEnd, 32},
+			    {?IPv6PoolStart, ?IPv6PoolEnd, 64}
+			   ]},
+		  {'MS-Primary-DNS-Server', {8,8,8,8}},
+		  {'MS-Secondary-DNS-Server', {8,8,4,4}},
+		  {'MS-Primary-NBNS-Server', {127,0,0,1}},
+		  {'MS-Secondary-NBNS-Server', {127,0,0,1}}
+		 ]}
+	  ]},
+
+	 {sx_socket,
+	  [{node, 'ergw'},
+	   {name, 'ergw'},
+	   {socket, 'cp-socket'},
+	   {ip, ?LOCALHOST_IPv4},
+	   {reuseaddr, true},
+	   freebind
+	  ]},
+
+	 {handlers,
+	  [{'h1', [{handler, tdf},
+		   {protocol, ip},
+		   {apn, ?'APN-EXAMPLE'},
+		   {nodes, ["topon.sx.prox01.mnc001.mcc001.3gppnetwork.org"]},
+		   {node_selection, [default]}
+		  ]}
+	  ]},
+
+	 {apns,
+	  [{?'APN-EXAMPLE', [{vrf, sgi}]},
+	   {'_', [{vrf, sgi}]}
+	  ]},
+
+	 {node_selection,
+	  [{default,
+	    {static,
+	     [
+	      %% APN NAPTR alternative
+	      {"_default.apn.mnc001.mcc001.3gppnetwork.org", {300,64536},
+	       [{"x-3gpp-pgw","x-s5-gtp"},{"x-3gpp-pgw","x-s8-gtp"},
+		{"x-3gpp-pgw","x-gn"},{"x-3gpp-pgw","x-gp"}],
+	       "topon.s5s8.pgw.mnc001.mcc001.3gppnetwork.org"},
+	      {"_default.apn.mnc001.mcc001.3gppnetwork.org", {300,64536},
+	       [{"x-3gpp-upf","x-sxb"}],
+	       "topon.sx.prox01.mnc001.mcc001.3gppnetwork.org"},
+
+	      {"web.apn.mnc001.mcc001.3gppnetwork.org", {300,64536},
+	       [{"x-3gpp-pgw","x-s5-gtp"},{"x-3gpp-pgw","x-s8-gtp"},
+		{"x-3gpp-pgw","x-gn"},{"x-3gpp-pgw","x-gp"}],
+	       "topon.s5s8.pgw.mnc001.mcc001.3gppnetwork.org"},
+	      {"web.apn.mnc001.mcc001.3gppnetwork.org", {300,64536},
+	       [{"x-3gpp-upf","x-sxb"}],
+	       "topon.sx.prox01.mnc001.mcc001.3gppnetwork.org"},
+
+	      %% A/AAAA record alternatives
+	      {"topon.s5s8.pgw.mnc001.mcc001.3gppnetwork.org",  [{172, 20, 16, 28}], []},
+	      {"topon.sx.prox01.mnc001.mcc001.3gppnetwork.org", [{172,21,16,1}], []}
+	     ]
+	    }
+	   },
+	   {dns, {dns, {{8,8,8,8}, 53}}}
+	  ]
+	 },
+
+	 {nodes,
+	  [{default,
+	    [{vrfs,
+	      [{cp, [{features, ['CP-Function']}]},
+	       {epc, [{features, ['TDF-Source', 'Access']}]},
+	       {sgi, [{features, ['SGi-LAN']}]}]
+	     }]
+	   }]
+	 }
+	]).
+
 %%%===================================================================
 %%% API
 %%%===================================================================
@@ -684,6 +771,34 @@ config(_Config)  ->
     ?ok_option(set_cfg_value([charging, default, offline, triggers], [], ?GGSN_CONFIG)),
     ?error_option(set_cfg_value([charging, default, offline, triggers, invalid], cdr, ?GGSN_CONFIG)),
     ?ok_option(set_cfg_value([charging, default, offline, triggers], [{'ecgi-change', off}], ?GGSN_CONFIG)),
+
+    ?ok_option(?TDF_CONFIG),
+    ?error_option(set_cfg_value([handlers, tdf], invalid, ?TDF_CONFIG)),
+    ?error_option(set_cfg_value([handlers, tdf, handler], invalid, ?TDF_CONFIG)),
+    ?error_option(set_cfg_value([handlers, tdf, protocol], invalid, ?TDF_CONFIG)),
+    ?error_option(set_cfg_value([handlers, tdf, protocol], ipv6, ?TDF_CONFIG)),
+    ?error_option(set_cfg_value([handlers, tdf, sockets], invalid, ?TDF_CONFIG)),
+    ?error_option(set_cfg_value([handlers, tdf, nodes], [], ?TDF_CONFIG)),
+    ?error_option(set_cfg_value([handlers, tdf, node_selection], [], ?TDF_CONFIG)),
+    ?error_option(set_cfg_value([handlers, tdf, node_selection], ["default"], ?TDF_CONFIG)),
+    ?error_option(set_cfg_value([handlers, tdf, node_selection], [<<"default">>], ?TDF_CONFIG)),
+    %% missing mandatory options
+    ?error_option(set_cfg_value([handlers, tdf],
+				[{handler, tdf},
+				 {protocol, ip},
+				 {nodes, ["topon.sx.prox01.mnc001.mcc001.3gppnetwork.org"]},
+				 {node_selection, [default]}], ?TDF_CONFIG)),
+    ?error_option(set_cfg_value([handlers, tdf],
+				[{handler, tdf},
+				 {protocol, ip},
+				 {apn, ?'APN-EXAMPLE'},
+				 {node_selection, [default]}], ?TDF_CONFIG)),
+    ?error_option(set_cfg_value([handlers, tdf],
+				[{handler, tdf},
+				 {protocol, ip},
+				 {apn, ?'APN-EXAMPLE'},
+				 {nodes, ["topon.sx.prox01.mnc001.mcc001.3gppnetwork.org"]}],
+				?TDF_CONFIG)),
 
     %% Charging Policy Rulebase Config
     RB = [charging, default, rulebase],

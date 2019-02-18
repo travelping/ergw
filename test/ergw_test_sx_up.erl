@@ -5,7 +5,7 @@
 
 %% API
 -export([start/2, stop/1, restart/1,
-	 send/2, usage_report/4,
+	 send/2, send/3, usage_report/4,
 	 reset/1, history/1, history/2,
 	 accounting/2,
 	 enable/1, disable/1]).
@@ -44,6 +44,9 @@ restart(Role) ->
 
 send(Role, Msg) ->
     gen_server:call(server_name(Role), {send, Msg}).
+
+send(Role, SEID, Msg) ->
+    gen_server:call(server_name(Role), {send, SEID, Msg}).
 
 usage_report(Role, PCtx, MatchSpec, Report) ->
     gen_server:call(server_name(Role), {usage_report, PCtx, MatchSpec, Report}).
@@ -129,6 +132,10 @@ handle_call({accounting, Acct}, _From, State) ->
     {reply, ok, State#state{accounting = Acct}};
 
 handle_call({send, #pfcp{} = Msg}, _From, #state{cp_seid = SEID} = State0) ->
+    State = do_send(SEID, Msg, State0),
+    {reply, ok, State};
+
+handle_call({send, SEID, #pfcp{} = Msg}, _From, State0) ->
     State = do_send(SEID, Msg, State0),
     {reply, ok, State};
 

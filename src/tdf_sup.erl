@@ -1,16 +1,16 @@
-%% Copyright 2018, Travelping GmbH <info@travelping.com>
+%% Copyright 2019, Travelping GmbH <info@travelping.com>
 
 %% This program is free software; you can redistribute it and/or
 %% modify it under the terms of the GNU General Public License
 %% as published by the Free Software Foundation; either version
 %% 2 of the License, or (at your option) any later version.
 
--module(ergw_sx_node_sup).
+-module(tdf_sup).
 
 -behaviour(supervisor).
 
 %% API
--export([start_link/0, new/4]).
+-export([start_link/0, new/5, new/6]).
 
 %% Supervisor callbacks
 -export([init/1]).
@@ -24,8 +24,14 @@
 start_link() ->
     supervisor:start_link({local, ?SERVER}, ?MODULE, []).
 
-new(Node, IP4, IP6, Opts)->
-    supervisor:start_child(?SERVER, [Node, IP4, IP6, Opts]).
+new(Node, VRF, IP4, IP6, SxOpts) ->
+    Opts = [{hibernate_after, 500},
+	    {spawn_opt,[{fullsweep_after, 0}]}],
+    new(Node, VRF, IP4, IP6, SxOpts, Opts).
+
+new(Node, VRF, IP4, IP6, SxOpts, Opts) ->
+    lager:debug("new(~p)", [[Node, VRF, IP4, IP6, SxOpts, Opts]]),
+    supervisor:start_child(?SERVER, [Node, VRF, IP4, IP6, SxOpts, Opts]).
 
 %% ===================================================================
 %% Supervisor callbacks
@@ -33,5 +39,4 @@ new(Node, IP4, IP6, Opts)->
 
 init([]) ->
     {ok, {{simple_one_for_one, 5, 10},
-	  [{ergw_sx_node, {ergw_sx_node, start_link, []},
-	    transient, 1000, worker, [ergw_sx_node]}]}}.
+	  [{tdf, {tdf, start_link, []}, temporary, 1000, worker, [tdf]}]}}.
