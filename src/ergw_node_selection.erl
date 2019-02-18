@@ -14,7 +14,8 @@
 -module(ergw_node_selection).
 
 -export([validate_options/2, apn_to_fqdn/1,
-	 lookup_dns/3, colocation_match/2, topology_match/2, candidates/3]).
+	 lookup_dns/3, colocation_match/2, topology_match/2,
+	 candidates/3, lookup/2, lookup/3]).
 
 -ifdef(TEST).
 -export([naptr/2]).
@@ -142,30 +143,73 @@ validate_options(Type, Opts) ->
 
 %% @private
 
-lookup(Name, ServiceSet, dns, NameServers) ->
+lookup_host(Name, dns, NameServers) ->
+    NsOpts =
+	case NameServers of
+	    {_,_}  ->
+		[{nameservers, [NameServers]}];
+	    _ ->
+		[]
+	end,
+    %% 3GPP DNS answers are almost always large, use TCP by default....
+    case inet_res:resolve(Name, in, any, [{usevc, true} | NsOpts]) of
+	{ok, Msg} ->
+	    lists:foldl(
+	      fun(RR, R) ->
+		      case {inet_dns:rr(RR, class), inet_dns:rr(RR, type)} of
+			  {in, a} ->
+			      setelement(2, R, [inet_dns:rr(RR, data) | element(2, R)]);
+			  {in, aaaa} ->
+			      setelement(3, R, [inet_dns:rr(RR, data) | element(3, R)]);
+			  Other ->
+			      R
+		      end
+	      end, {Name, [], []}, inet_dns:msg(Msg, anlist));
+	{error, _} = Error ->
+	    lager:debug("DNS Error: ~p", [Error]),
+	    Error
+    end;
+lookup_host(Name, static, RR) ->
+    lager:info("Host ~p, RR ~p", [Name, RR]),
+    case lists:keyfind(Name, 1, RR) of
+	{_, _, _} = R ->
+	    R;
+	_ ->
+	    {error, not_found}
+    end.
+
+lookup_naptr(Name, ServiceSet, dns, NameServers) ->
     lookup_dns(Name, ServiceSet, NameServers);
-lookup(Name, ServiceSet, static, RR) ->
+lookup_naptr(Name, ServiceSet, static, RR) ->
     L1 = [X || X <- RR, string:equal(element(1, X), Name, true),
 			not ordsets:is_disjoint(element(3, X), ServiceSet)],
-    lists:foldl(lookup_static(_, RR, _), [], L1).
+    lists:foldl(lookup_naptr_static(_, RR, _), [], L1).
 
-lookup_static({_, Order, Services, Host}, RR, Acc) ->
+lookup_naptr_static({_, Order, Services, Host}, RR, Acc) ->
     case lists:keyfind(Host, 1, RR) of
 	{_, IP4, IP6} ->
 	    [{Host, Order, Services, IP4, IP6} | Acc];
 	_ ->
 	    Acc
     end;
-lookup_static(_, _, Acc) ->
+lookup_naptr_static(_, _, Acc) ->
     Acc.
 
-lookup(Name, ServiceSet, Selection) ->
+do_lookup(Selection, DoFun) ->
+    lager:info("Selection ~p in ~p", [Selection, application:get_env(ergw, node_selection, #{})]),
     case application:get_env(ergw, node_selection, #{}) of
 	#{Selection := {Type, Opts}} ->
-	    lookup(Name, ServiceSet, Type, Opts);
+	    lager:info("Type ~p, Opts ~p", [Type, Opts]),
+	    DoFun(Type, Opts);
 	_ ->
 	    []
     end.
+
+lookup(Name, Selection) ->
+    do_lookup(Selection, lookup_host(Name, _, _)).
+
+lookup(Name, ServiceSet, Selection) ->
+    do_lookup(Selection, lookup_naptr(Name, ServiceSet, _, _)).
 
 get_candidates(_Name, _ServiceSet, []) ->
     [];

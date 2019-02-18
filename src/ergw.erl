@@ -12,7 +12,7 @@
 %% API
 -export([start_link/0]).
 -export([start_socket/2, start_vrf/2,
-	 attach_protocol/5, attach_vrf/3]).
+	 attach_tdf/2, attach_protocol/5, attach_vrf/3]).
 -export([handler/2, vrf/1]).
 -export([load_config/1]).
 -export([get_plmn_id/0, get_accept_new/0]).
@@ -70,6 +70,12 @@ load_config([{plmn_id, {MCC, MNC}} | T]) ->
 load_config([{accept_new, Value} | T]) ->
     true = ets:insert(?SERVER, {config, accept_new, Value}),
     load_config(T);
+load_config([{Key, Value} | T])
+  when Key =:= node_selection;
+       Key =:= nodes;
+       Key =:= charging ->
+    ok = application:set_env(ergw, Key, Value),
+    load_config(T);
 load_config([_ | T]) ->
     load_config(T).
 
@@ -84,6 +90,19 @@ start_socket(Name, Options) ->
 %%
 start_vrf(Name, Options) ->
     vrf:start_vrf(Name, Options).
+
+attach_tdf(SxNode, #{node_selection := NodeSelections} = Opts) ->
+    (fun NodeLookup([]) ->
+	    {error, not_found};
+	 NodeLookup([NodeSelection | NextSelection]) ->
+	    case ergw_node_selection:lookup(SxNode, NodeSelection) of
+		{Node, IP4, IP6} ->
+		    ergw_sx_node:connect_sx_node(Node, IP4, IP6, Opts);
+		_Other ->
+		    lager:warning("TDF lookup for ~p failed ~p", [SxNode, _Other]),
+		    NodeLookup(NextSelection)
+	    end
+    end)(NodeSelections).
 
 %%
 %% attach a GTP protocol (Gn, S5, S2a...) to a socket

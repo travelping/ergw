@@ -2073,6 +2073,15 @@ sx_upf_restart(Config) ->
 sx_timeout() ->
     [{doc, "Check that a timeout on Sx leads to a proper error response"}].
 sx_timeout(Config) ->
+    ok = meck:expect(ergw_gsn_lib, create_sgi_session,
+		     fun(Candidates, SessionOpts, CreditEvs, Ctx) ->
+			     try
+				 meck:passthrough([Candidates, SessionOpts, CreditEvs, Ctx])
+			     catch
+				 throw:#ctx_err{} = CtxErr ->
+				     meck:exception(throw, CtxErr)
+			     end
+		     end),
     ergw_test_sx_up:disable('pgw-u'),
 
     create_session(system_failure, Config),

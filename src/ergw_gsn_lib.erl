@@ -9,7 +9,7 @@
 
 -compile({parse_transform, cut}).
 
--export([create_sgi_session/4,
+-export([create_sgi_session/4, create_tdf_session/4,
 	 usage_report_to_charging_events/3,
 	 process_online_charging_events/4,
 	 process_online_charging_events/5,
@@ -101,6 +101,27 @@ choose_context_ip(IP4, _IP6, _Context)
 choose_context_ip(_IP4, IP6, _Context)
   when is_binary(IP6) ->
     IP6.
+
+session_establishment_request(SessionOpts, CreditEvs, PCtx0, Ctx) ->
+    {ok, CntlNode, _} = ergw_sx_socket:id(),
+
+    {SxRules, SxErrors, PCtx} = build_sx_rules(SessionOpts, CreditEvs, #{}, PCtx0, Ctx),
+    lager:info("SxRules: ~p~n", [SxRules]),
+    lager:info("SxErrors: ~p~n", [SxErrors]),
+    lager:info("CtxPending: ~p~n", [Ctx]),
+
+    IEs = update_m_rec(ergw_pfcp:f_seid(PCtx, CntlNode), SxRules),
+    lager:info("IEs: ~p~n", [IEs]),
+
+    Req = #pfcp{version = v1, type = session_establishment_request, ie = IEs},
+    case ergw_sx_node:call(PCtx, Req, Ctx) of
+	#pfcp{version = v1, type = session_establishment_response,
+	      ie = #{pfcp_cause := #pfcp_cause{cause = 'Request accepted'},
+		     f_seid := #f_seid{}} = RespIEs} ->
+	    {Ctx, ctx_update_dp_seid(RespIEs, PCtx)};
+	_ ->
+	    throw(?CTX_ERR(?FATAL, system_failure, Ctx))
+    end.
 
 session_modification_request(PCtx, ReqIEs, Ctx)
   when (is_list(ReqIEs) andalso length(ReqIEs) /= 0) orelse
@@ -528,6 +549,79 @@ build_sx_rule(Direction = uplink, Name, Definition, FilterInfo, URRs,
 	       [{pdr, RuleName, PDR},
 		{far, RuleName, FAR}], PCtx)};
 
+%% ===========================================================================
+
+build_sx_rule(Direction = downlink, Name, Definition, FilterInfo, URRs,
+	      #sx_upd{pctx = PCtx0,
+		      sctx = #tdf_ctx{in_vrf = InVrf, out_vrf = OutVrf} = SCtx
+		     } = Update) ->
+    [Precedence] = maps:get('Precedence', Definition, [1000]),
+    RuleName = {Direction, Name},
+    {PdrId, PCtx1} = ergw_pfcp:get_id(pdr, RuleName, PCtx0),
+    {FarId, PCtx} = ergw_pfcp:get_id(far, RuleName, PCtx1),
+    PDI = #pdi{
+	     group =
+		 [#source_interface{interface = 'SGi-LAN'},
+		  ergw_pfcp:network_instance(OutVrf),
+		  ergw_pfcp:ue_ip_address(dst, SCtx)] ++
+		 build_sx_filter(FilterInfo)
+	     },
+    PDR = [#pdr_id{id = PdrId},
+	   #precedence{precedence = Precedence},
+	   PDI,
+	   #far_id{id = FarId}] ++
+	[#urr_id{id = X} || X <- URRs],
+    FAR = [#far_id{id = FarId},
+	   #apply_action{forw = 1},
+	   #forwarding_parameters{
+	      group =
+		  [#destination_interface{interface = 'Access'},
+		   ergw_pfcp:network_instance(InVrf)
+		  ]
+	     }
+	  ],
+    Update#sx_upd{
+      pctx = ergw_pfcp:pfcp_rules_add(
+	       [{pdr, RuleName, PDR},
+		{far, RuleName, FAR}], PCtx)};
+
+build_sx_rule(Direction = uplink, Name, Definition, FilterInfo, URRs,
+	      #sx_upd{pctx = PCtx0,
+		      sctx = #tdf_ctx{in_vrf = InVrf, out_vrf = OutVrf} = SCtx
+		     } = Update) ->
+    [Precedence] = maps:get('Precedence', Definition, [1000]),
+    RuleName = {Direction, Name},
+    {PdrId, PCtx1} = ergw_pfcp:get_id(pdr, RuleName, PCtx0),
+    {FarId, PCtx} = ergw_pfcp:get_id(far, RuleName, PCtx1),
+    PDI = #pdi{
+	     group =
+		 [#source_interface{interface = 'Access'},
+		  ergw_pfcp:network_instance(InVrf),
+		  ergw_pfcp:ue_ip_address(src, SCtx)] ++
+		 build_sx_filter(FilterInfo)
+	    },
+    PDR = [#pdr_id{id = PdrId},
+	   #precedence{precedence = Precedence},
+	   PDI,
+	   #far_id{id = FarId}] ++
+	[#urr_id{id = X} || X <- URRs],
+    FAR = [#far_id{id = FarId},
+	    #apply_action{forw = 1},
+	    #forwarding_parameters{
+	       group =
+		   [#destination_interface{interface = 'SGi-LAN'},
+		    ergw_pfcp:network_instance(OutVrf)
+		   ]
+	       ++ build_sx_redirect(maps:get('Redirect-Information', Definition, undefined))
+	      }
+	  ],
+    Update#sx_upd{
+      pctx = ergw_pfcp:pfcp_rules_add(
+	       [{pdr, RuleName, PDR},
+		{far, RuleName, FAR}], PCtx)};
+
+%% ===========================================================================
+
 build_sx_rule(_Direction, Name, _Definition, _FlowInfo, _URRs, Update) ->
     sx_rule_error({system_error, Name}, Update).
 
@@ -714,6 +808,10 @@ update_m_key(Key, Value, Map) ->
 update_m_rec(Record, Map) when is_tuple(Record) ->
     maps:update_with(element(1, Record), [Record | _], [Record], Map).
 
+register_ctx_ids(Handler, #pfcp_ctx{seid = #seid{cp = SEID}}) ->
+    Keys = [{seid, SEID}],
+    gtp_context_reg:register(Keys, Handler, self()).
+
 register_ctx_ids(Handler,
 		 #context{local_data_endp = LocalDataEndp},
 		 #pfcp_ctx{seid = #seid{cp = SEID}} = PCtx) ->
@@ -724,29 +822,10 @@ register_ctx_ids(Handler,
     gtp_context_reg:register(Keys, Handler, self()).
 
 create_sgi_session(Candidates, SessionOpts, CreditEvs, Ctx0) ->
-    PCtx0 = ergw_sx_node:select_sx_node(Candidates, Ctx0),
-    Ctx = ergw_pfcp:assign_data_teid(PCtx0, Ctx0),
-    register_ctx_ids(gtp_context, Ctx, PCtx0),
-
-    {ok, CntlNode, _} = ergw_sx_socket:id(),
-
-    {SxRules, SxErrors, PCtx} = build_sx_rules(SessionOpts, CreditEvs, #{}, PCtx0, Ctx),
-    lager:info("SxRules: ~p~n", [SxRules]),
-    lager:info("SxErrors: ~p~n", [SxErrors]),
-    lager:info("CtxPending: ~p~n", [Ctx]),
-
-    IEs = update_m_rec(ergw_pfcp:f_seid(PCtx, CntlNode), SxRules),
-    lager:info("IEs: ~p~n", [IEs]),
-
-    Req = #pfcp{version = v1, type = session_establishment_request, ie = IEs},
-    case ergw_sx_node:call(PCtx, Req, Ctx) of
-	#pfcp{version = v1, type = session_establishment_response,
-	      ie = #{pfcp_cause := #pfcp_cause{cause = 'Request accepted'},
-		     f_seid := #f_seid{}} = RespIEs} ->
-	    {Ctx, ctx_update_dp_seid(RespIEs, PCtx)};
-	_ ->
-	    throw(?CTX_ERR(?FATAL, system_failure, Ctx))
-    end.
+    PCtx = ergw_sx_node:select_sx_node(Candidates, Ctx0),
+    Ctx = ergw_pfcp:assign_data_teid(PCtx, Ctx0),
+    register_ctx_ids(gtp_context, Ctx, PCtx),
+    session_establishment_request(SessionOpts, CreditEvs, PCtx, Ctx).
 
 modify_sgi_session(SessionOpts, Evs, URRActions, Opts, Ctx, PCtx0) ->
     {SxRules0, SxErrors, PCtx} = build_sx_rules(SessionOpts, Evs, Opts, PCtx0, Ctx),
@@ -761,8 +840,12 @@ modify_sgi_session(SessionOpts, Evs, URRActions, Opts, Ctx, PCtx0) ->
     lager:info("SxRules: ~p~n", [SxRules]),
     lager:info("SxErrors: ~p~n", [SxErrors]),
     lager:info("PCtx: ~p~n", [PCtx]),
-
     session_modification_request(PCtx, SxRules, Ctx).
+
+create_tdf_session(Node, SessionOpts, CreditEvs, #tdf_ctx{} = Ctx) ->
+    PCtx = ergw_sx_node:attach(Node, Ctx),
+    register_ctx_ids(tdf, PCtx),
+    session_establishment_request(SessionOpts, CreditEvs, PCtx, Ctx).
 
 opt_int(X) when is_integer(X) -> [X];
 opt_int(_) -> [].
