@@ -790,7 +790,7 @@ update_sx_far(K, V, _Old, Far, _Opts) ->
 create_sgi_session(Candidates, SessionOpts, Ctx0) ->
     PCtx0 = ergw_sx_node:select_sx_node(Candidates, Ctx0),
     Ctx = ergw_pfcp:assign_data_teid(PCtx0, Ctx0),
-    {ok, #node{node = _Node, ip = IP}, _} = ergw_sx_socket:id(),
+    {ok, CntlNode, _} = ergw_sx_socket:id(),
 
     {CPinFarId, PCtx1} = sx_id(far, dp_to_cp_far, PCtx0),
     {IPv6MCastPdrId, PCtx2} = sx_id(pdr, ipv6_mcast_pdr, PCtx1),
@@ -802,7 +802,7 @@ create_sgi_session(Candidates, SessionOpts, Ctx0) ->
 
     SxRules1 = create_dp_to_cp_far(access, CPinFarId, PCtx, SxRules0),
     SxRules2 = create_ipv6_mcast_pdr(IPv6MCastPdrId, CPinFarId, Ctx, SxRules1),
-    IEs = update_m_rec(ergw_pfcp:f_seid(PCtx, IP), SxRules2),
+    IEs = update_m_rec(ergw_pfcp:f_seid(PCtx, CntlNode), SxRules2),
 
     lager:info("IEs: ~p~n", [IEs]),
 
