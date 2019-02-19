@@ -626,8 +626,8 @@ gen_per_feature_cp_rule('Access', DpGtpIP, #pfcp_ctx{cp_port = GtpPort}, {VRF0, 
 gen_per_feature_cp_rule(_, _DpGtpIP, _PCtx, Acc) ->
     Acc.
 
-install_cp_rules(#data{pfcp_ctx = #pfcp_ctx{seid = #seid{cp = SEID}} = PCtx,
-		       cp = #node{node = _Node, ip = CpNodeIP},
+install_cp_rules(#data{pfcp_ctx = PCtx,
+		       cp = CntlNode,
 		       dp = #node{ip = DpNodeIP},
 		       vrfs = VRFs0} = Data) ->
     [#vrf{ipv4 = DpGtpIP4, ipv6 = DpGtpIP6}] =
@@ -638,7 +638,7 @@ install_cp_rules(#data{pfcp_ctx = #pfcp_ctx{seid = #seid{cp = SEID}} = PCtx,
 
     {VRFs, Rules} = maps_mapfold(gen_cp_rules(_, _, DpGtpIP, PCtx, _), [], VRFs0),
 
-    IEs = [ergw_pfcp:f_seid(SEID, CpNodeIP) | Rules],
+    IEs = [ergw_pfcp:f_seid(PCtx, CntlNode) | Rules],
     Req0 = #pfcp{version = v1, type = session_establishment_request, seid = 0, ie = IEs},
     Req = augment_mandatory_ie(Req0, Data),
     ergw_sx_socket:call(DpNodeIP, Req, response_cb(from_cp_rule)),

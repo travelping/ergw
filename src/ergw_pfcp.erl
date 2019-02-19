@@ -44,13 +44,9 @@ network_instance(#context{vrf = VRF}) ->
 network_instance(#vrf{name = Name}) ->
     network_instance(Name).
 
-f_seid(#pfcp_ctx{seid = SEID}, IP) ->
-    f_seid(SEID, IP);
-f_seid(#seid{cp = SEID}, IP) ->
-    f_seid(SEID, IP);
-f_seid(SEID, {_,_,_,_} = IP) ->
+f_seid(#pfcp_ctx{seid = #seid{cp = SEID}}, #node{ip = {_,_,_,_} = IP}) ->
    #f_seid{seid = SEID, ipv4 = ergw_inet:ip2bin(IP)};
-f_seid(SEID, {_,_,_,_,_,_,_,_} = IP) ->
+f_seid(#pfcp_ctx{seid = #seid{cp = SEID}}, #node{ip = {_,_,_,_,_,_,_,_} = IP}) ->
     #f_seid{seid = SEID, ipv6 = ergw_inet:ip2bin(IP)}.
 
 f_teid(#gtp_endp{ip = IP, teid = TEID}) ->

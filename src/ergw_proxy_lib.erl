@@ -282,10 +282,10 @@ create_forward_session(Candidates, Left0, Right0) ->
     PCtx = ergw_sx_node:select_sx_node(Candidates, Left0),
     Left = ergw_pfcp:assign_data_teid(PCtx, Left0),
     Right = ergw_pfcp:assign_data_teid(PCtx, Right0),
-    {ok, #node{node = _Node, ip = IP}, _} = ergw_sx_socket:id(),
+    {ok, CntlNode, _} = ergw_sx_socket:id(),
 
     IEs =
-	[ergw_pfcp:f_seid(PCtx, IP)] ++
+	[ergw_pfcp:f_seid(PCtx, CntlNode)] ++
 	lists:foldl(fun create_pdr/2, [], [{1, 'Access', Left}, {2, 'Core', Right}]) ++
 	lists:foldl(fun create_far/2, [], [{2, 'Access', Left}, {1, 'Core', Right}]) ++
 	[#create_urr{group =
@@ -309,10 +309,10 @@ modify_forward_session(#context{pfcp_ctx =
 		       #context{pfcp_ctx
 				= #pfcp_ctx{seid = NewSEID}} = NewLeft,
 		       OldRight, NewRight) ->
-    {ok, #node{node = _Node, ip = IP}, _} = ergw_sx_socket:id(),
+    {ok, CntlNode, _} = ergw_sx_socket:id(),
 
     IEs =
-	[ergw_pfcp:f_seid(NewSEID, IP) || NewSEID /= OldSEID] ++
+	[ergw_pfcp:f_seid(NewLeft, CntlNode) || NewSEID /= OldSEID] ++
 	lists:foldl(fun update_pdr/2, [],
 		    [{1, 'Access', OldLeft, NewLeft},
 		     {2, 'Core', OldRight, NewRight}]) ++
