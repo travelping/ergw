@@ -268,23 +268,6 @@ code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
 %%%===================================================================
-%%% older version compat stuff
-%%%===================================================================
-
--ifdef(HAS_TAKE_ANY).
--define('gb_trees:take_any', gb_trees:take_any).
--else.
--define('gb_trees:take_any', gb_trees_take_any).
-gb_trees_take_any(Key, Tree) ->
-    case gb_trees:lookup(Key, Tree) of
-	none ->
-	    error;
-	{value, Value} ->
-	    {Value, gb_trees:delete(Key, Tree)}
-    end.
--endif.
-
-%%%===================================================================
 %%% Internal functions
 %%%===================================================================
 
@@ -456,7 +439,7 @@ start_request(#send_req{t3 = Timeout, msg = Msg} = SendReq, State0) ->
     State#state{pending = gb_trees:insert(SeqId, {SendReq, TRef}, State#state.pending)}.
 
 take_request(SeqId, #state{pending = PendingIn} = State) ->
-    case ?'gb_trees:take_any'(SeqId, PendingIn) of
+    case gb_trees:take_any(SeqId, PendingIn) of
 	error ->
 	    {none, State};
 

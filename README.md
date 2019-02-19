@@ -93,7 +93,7 @@ ERLANG Version Support
 
 All minor version of the current major release and the highest minor version of the
 previous major release will be supported.
-At the moment this means OTP 20.3.8, OTP 21.0 and OTP 21.1 are supported. OTP versions
+At the moment this means OTP 20.3.8, OTP 21.1 and OTP 21.2 are supported. OTP versions
 greater than 20.1.7 could work, but are not tested or guaranteed to work. When in doubt
 check the `otp_release` section in [.travis.yml](.travis.yml) for tested versions.
 
@@ -316,8 +316,8 @@ This requires a suitable ergw.config, e.g.:
 The configuration is documented in [CONFIG.md](CONFIG.md)
 
 <!-- Badges -->
-[travis]: https://travis-ci.org/travelping/ergw
-[travis badge]: https://img.shields.io/travis/travelping/ergw/master.svg?style=flat-square
+[travis]: https://travis-ci.com/travelping/ergw
+[travis badge]: https://img.shields.io/travis/com/travelping/ergw/master.svg?style=flat-square
 [coveralls]: https://coveralls.io/github/travelping/ergw
 [coveralls badge]: https://img.shields.io/coveralls/travelping/ergw/master.svg?style=flat-square
-[erlang version badge]: https://img.shields.io/badge/erlang-R20.1%20to%2021.0-blue.svg?style=flat-square
+[erlang version badge]: https://img.shields.io/badge/erlang-R20.3%20to%2021.2-blue.svg?style=flat-square
