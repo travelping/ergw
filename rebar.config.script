@@ -1,27 +1,8 @@
 %% -*- erlang -*-
-code:is_loaded(rebar3) =:= false andalso code:load_file(rebar3),
-CoverallsPlugin = case erlang:function_exported(rebar3, version, 0) of
-    true -> {coveralls, {git, "git://github.com/markusn/coveralls-erl.git", {branch, "master"}}};
-    false -> rebar_coveralls
-end,
-Config2 =
 case os:getenv("TRAVIS") of
     "true" ->
-        JobId   = os:getenv("TRAVIS_JOB_ID"),
-        Config1 = lists:keystore(coveralls_service_job_id, 1, CONFIG, {coveralls_service_job_id, JobId}),
-        {value, {plugins, Plugins}} = lists:keysearch(plugins, 1, Config1),
-        lists:keystore(plugins, 1, Config1, {plugins, Plugins ++ [CoverallsPlugin]})
-            ++ [{coveralls_coverdata, "_build/test/cover/ct.coverdata"},
-                {coveralls_service_name, "travis-ci"},
-                {do_coveralls_after_ct, false},
-                {do_coveralls_after_eunit, false}];
-    _ -> CONFIG
-end,
-{_, ErlOpts0} = lists:keyfind(erl_opts, 1, Config2),
-ErlOpts1 = case erlang:function_exported(gb_trees, take_any, 2) of
-	       true ->
-		   [{d, 'HAS_TAKE_ANY'}|ErlOpts0];
-	       _ ->
-		   ErlOpts0
-	   end,
-lists:keystore(erl_opts, 1, Config2, {erl_opts, ErlOpts1}).
+	JobId   = os:getenv("TRAVIS_JOB_ID"),
+	lists:keystore(coveralls_service_job_id, 1, CONFIG, {coveralls_service_job_id, JobId});
+    _ ->
+	CONFIG
+end.

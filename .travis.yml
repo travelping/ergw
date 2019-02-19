@@ -35,7 +35,8 @@ script:
   - ip addr
   - source test/env.sh
   - ./rebar3 compile
-  - ./rebar3 do xref, ct, coveralls send
+  - ./rebar3 do xref, ct
+  - (./rebar3 as test do coveralls send || /bin/true)
   - (cd _build/test/logs/; zip -1r ../../../ct-logs.zip . )
 
 jobs:

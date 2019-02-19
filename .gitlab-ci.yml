@@ -1,0 +1,67 @@
+stages:
+  - build
+  - test
+  - container
+
+before_script:
+  - apk update
+  - apk --no-cache upgrade
+  - apk --no-cache add gcc git libc-dev libc-utils libgcc linux-headers make bash musl-dev musl-utils ncurses-dev pcre2 pkgconf scanelf wget zlib
+
+.build:otp: &build_otp
+  stage: build
+  image: erlang
+  artifacts:
+    untracked: true
+    paths:
+      - _build
+  script:
+    # Prepare environmental variables
+    - wget https://s3.amazonaws.com/rebar3/rebar3 && chmod a+x rebar3
+    - ./rebar3 compile
+
+build:otp-20:
+  <<: *build_otp
+  image: erlang:20-alpine
+
+build:otp-21:
+  <<: *build_otp
+  image: erlang:21-alpine
+
+.check:otp: &check_otp
+  stage: test
+  image: erlang
+  artifacts:
+    when: always
+    untracked: true
+    paths:
+      - _build
+  script:
+    - ./rebar3 do xref
+    - ./rebar3 do ct
+
+check:otp-20:
+  <<: *check_otp
+  image: erlang:20-alpine
+  dependencies:
+    - build:otp-20
+
+check:otp-21:
+  <<: *check_otp
+  image: erlang:21-alpine
+  dependencies:
+    - build:otp-21
+
+docker:
+  image: docker:git
+  stage: container
+  services:
+    - docker:dind
+  script:
+    - docker login -u gitlab-ci-token -p $CI_BUILD_TOKEN $CI_REGISTRY
+    - docker build -t $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA -f docker/Dockerfile .
+    - docker tag $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME
+    - docker push $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA
+    - docker push $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME
+    - if [ $CI_COMMIT_REF_NAME == "master" ] ; then docker tag $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA $CI_REGISTRY_IMAGE:latest ; docker push $CI_REGISTRY_IMAGE:latest ; fi
+  when: always

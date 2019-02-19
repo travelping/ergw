@@ -410,23 +410,6 @@ handle_request(#sx_request{ip = IP, port = Port} = ReqKey, Msg,
     State.
 
 %%%===================================================================
-%%% older version compat stuff
-%%%===================================================================
-
--ifdef(HAS_TAKE_ANY).
--define('gb_trees:take_any', gb_trees:take_any).
--else.
--define('gb_trees:take_any', gb_trees_take_any).
-gb_trees_take_any(Key, Tree) ->
-    case gb_trees:lookup(Key, Tree) of
-	none ->
-	    error;
-	{value, Value} ->
-	    {Value, gb_trees:delete(Key, Tree)}
-    end.
--endif.
-
-%%%===================================================================
 %%% Internal functions
 %%%===================================================================
 
@@ -491,7 +474,7 @@ start_request(#send_req{t1 = Timeout, msg = Msg} = SendReq, State) ->
     State#state{pending = gb_trees:insert(SeqNo, {SendReq, TRef}, State#state.pending)}.
 
 take_request(SeqNo, #state{pending = PendingIn} = State) ->
-    case ?'gb_trees:take_any'(SeqNo, PendingIn) of
+    case gb_trees:take_any(SeqNo, PendingIn) of
 	error ->
 	    {none, State};
 
