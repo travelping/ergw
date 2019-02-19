@@ -242,8 +242,10 @@ handle_event(cast, {response, _, #pfcp{version = v1, type = association_setup_re
     end;
 
 handle_event(cast, {send, 'Access', VRF, Data}, connected,
-	     #data{pfcp_ctx = #pfcp_ctx{cp_port = Port}, dp = #node{ip = IP}, vrfs = VRFs}) ->
-    #vrf{cp_to_access_tei = TEI} = maps:get(VRF, VRFs),
+	     #data{pfcp_ctx = #pfcp_ctx{sx_ids = Ids, cp_port = Port},
+		   dp = #node{ip = IP}}) ->
+    Key = {VRF, 'Access', tei},
+    TEI = maps:get(Key, Ids),
     Msg = #gtp{version = v1, type = g_pdu, tei = TEI, ie = Data},
     Bin = gtp_packet:encode(Msg),
     ergw_gtp_u_socket:send(Port, IP, ?GTP1u_PORT, Bin),
@@ -309,7 +311,14 @@ handle_event(cast, {response, from_cp_rule,
     {keep_state, Data#data{pfcp_ctx = PCtx#pfcp_ctx{seid = SEID#seid{dp = DP}}}};
 
 handle_event({call, From}, attach, _, #data{pfcp_ctx = PNodeCtx}) ->
-    PCtx = PNodeCtx#pfcp_ctx{seid = #seid{cp = ergw_sx_socket:seid()}},
+    PCtx = #pfcp_ctx{
+	      name = PNodeCtx#pfcp_ctx.name,
+	      node = PNodeCtx#pfcp_ctx.node,
+	      seid = #seid{cp = ergw_sx_socket:seid()},
+
+	      cp_port = PNodeCtx#pfcp_ctx.cp_port,
+	      cp_tei = PNodeCtx#pfcp_ctx.cp_tei
+	     },
     {keep_state_and_data, [{reply, From, PCtx}]};
 
 handle_event({call, From}, get_vrfs, connected,
@@ -579,71 +588,75 @@ choose_up_ip(_IP4, IP6, {_,_,_,_,_,_,_,_} = _IP)
 choose_up_ip(_IP4, _IP6, IP) ->
     IP.
 
--ifdef(OTP_RELEASE).
-%% OTP 21 or higher
+%% -ifdef(OTP_RELEASE).
+%% %% OTP 21 or higher
 
-maps_mapfold(Fun, Init, Map)
-  when is_function(Fun, 3), is_map(Map) ->
-    maps_mapfold_i(Fun, {[], Init}, maps:iterator(Map)).
+%% maps_mapfold(Fun, Init, Map)
+%%   when is_function(Fun, 3), is_map(Map) ->
+%%     maps_mapfold_i(Fun, {[], Init}, maps:iterator(Map)).
 
-maps_mapfold_i(Fun, {L1, A1}, Iter) ->
-    case maps:next(Iter) of
-	{K, V1, NextIter} ->
-	    {V2, A2} = Fun(K, V1, A1),
-	    maps_mapfold_i(Fun, {[{K, V2} | L1], A2}, NextIter);
-	none ->
-	    {maps:from_list(L1), A1}
-    end.
+%% maps_mapfold_i(Fun, {L1, A1}, Iter) ->
+%%     case maps:next(Iter) of
+%% 	{K, V1, NextIter} ->
+%% 	    {V2, A2} = Fun(K, V1, A1),
+%% 	    maps_mapfold_i(Fun, {[{K, V2} | L1], A2}, NextIter);
+%% 	none ->
+%% 	    {maps:from_list(L1), A1}
+%%     end.
 
--else.
-%% OTP 20 or lower.
+%% -else.
+%% %% OTP 20 or lower.
 
-maps_mapfold(Fun, AccIn, Map)
-  when is_function(Fun, 3), is_map(Map) ->
-    ListIn = maps:to_list(Map),
-    {ListOut, AccOut} =
-	lists:mapfoldl(fun({K, A}, InnerAccIn) ->
-			       {B, InnerAccOut} = Fun(K, A, InnerAccIn),
-			       {{K, B}, InnerAccOut}
-		       end, AccIn, ListIn),
-    {maps:from_list(ListOut), AccOut}.
+%% maps_mapfold(Fun, AccIn, Map)
+%%   when is_function(Fun, 3), is_map(Map) ->
+%%     ListIn = maps:to_list(Map),
+%%     {ListOut, AccOut} =
+%% 	lists:mapfoldl(fun({K, A}, InnerAccIn) ->
+%% 			       {B, InnerAccOut} = Fun(K, A, InnerAccIn),
+%% 			       {{K, B}, InnerAccOut}
+%% 		       end, AccIn, ListIn),
+%%     {maps:from_list(ListOut), AccOut}.
 
--endif.
+%% -endif.
 
-gen_cp_rules(_Key, #vrf{features = Features} = VRF, DpGtpIP, PCtx, Rules) ->
-    lists:foldl(gen_per_feature_cp_rule(_, DpGtpIP, PCtx, _), {VRF, Rules}, Features).
+gen_cp_rules(_Key, #vrf{features = Features} = VRF, DpGtpIP, Acc) ->
+    lists:foldl(gen_per_feature_cp_rule(_, VRF, DpGtpIP, _), Acc, Features).
 
-gen_per_feature_cp_rule('Access', DpGtpIP, #pfcp_ctx{cp_port = GtpPort}, {VRF0, Rules}) ->
+gen_per_feature_cp_rule('Access', #vrf{name = Name} = VRF, DpGtpIP,
+			#pfcp_ctx{sx_ids = Ids0, sx_rules = Rules, cp_port = GtpPort} = PCtx) ->
     RuleId = length(Rules) + 1,
 
     {ok, TEI} = gtp_context_reg:alloc_tei(GtpPort),
 
     PDR = create_from_cp_pdr(RuleId, GtpPort, DpGtpIP, TEI),
-    FAR = create_from_cp_far('Access', VRF0, RuleId, GtpPort),
+    FAR = create_from_cp_far('Access', VRF, RuleId, GtpPort),
 
-    VRF = VRF0#vrf{cp_to_access_tei = TEI},
-    {VRF, [PDR, FAR | Rules]};
+    Key = {Name, 'Access', tei},
+    Ids = Ids0#{Key => TEI},
+    PCtx#pfcp_ctx{sx_ids = Ids, sx_rules = [PDR, FAR | Rules]};
 gen_per_feature_cp_rule(_, _DpGtpIP, _PCtx, Acc) ->
     Acc.
 
-install_cp_rules(#data{pfcp_ctx = PCtx,
+install_cp_rules(#data{pfcp_ctx = PCtx0,
 		       cp = CntlNode,
 		       dp = #node{ip = DpNodeIP},
-		       vrfs = VRFs0} = Data) ->
+		       vrfs = VRFs} = Data) ->
     [#vrf{ipv4 = DpGtpIP4, ipv6 = DpGtpIP6}] =
 	lists:filter(fun(#vrf{features = Features}) ->
 			     lists:member('CP-Function', Features)
-		     end, maps:values(VRFs0)),
+		     end, maps:values(VRFs)),
     DpGtpIP = choose_up_ip(DpGtpIP4, DpGtpIP6, DpNodeIP),
 
-    {VRFs, Rules} = maps_mapfold(gen_cp_rules(_, _, DpGtpIP, PCtx, _), [], VRFs0),
+    PCtx1 = PCtx0#pfcp_ctx{sx_rules = [], sx_ids = #{}},
+    PCtx = #pfcp_ctx{sx_rules = Rules} =
+	maps:fold(gen_cp_rules(_, _, DpGtpIP, _), PCtx1, VRFs),
 
     IEs = [ergw_pfcp:f_seid(PCtx, CntlNode) | Rules],
     Req0 = #pfcp{version = v1, type = session_establishment_request, seid = 0, ie = IEs},
     Req = augment_mandatory_ie(Req0, Data),
     ergw_sx_socket:call(DpNodeIP, Req, response_cb(from_cp_rule)),
 
-    Data#data{vrfs = VRFs}.
+    Data#data{pfcp_ctx = PCtx}.
 
 create_from_cp_pdr(RuleId, Port, IP, TEI) ->
     #create_pdr{
