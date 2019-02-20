@@ -1,7 +1,7 @@
 # -- build-environment --
 # see https://docs.docker.com/engine/userguide/eng-image/multistage-build/
 
-FROM erlang:21.2.4-alpine AS build-env
+FROM erlang:21.2.5-alpine AS build-env
 
 WORKDIR /build
 RUN     apk update && apk --no-cache upgrade && \
@@ -28,12 +28,12 @@ RUN     rebar3 as prod release
 
 # -- runtime image --
 
-FROM alpine:3.8
+FROM alpine:3.9
 
 WORKDIR /
 RUN     apk update && \
 		apk --no-cache upgrade && \
-		apk --no-cache add zlib ncurses-libs libcrypto1.0 lksctp-tools
+		apk --no-cache add zlib ncurses-libs libcrypto1.1 lksctp-tools
 COPY    docker/docker-entrypoint.sh /
 COPY    config/ergw-c-node.config /etc/ergw-c-node/
 
