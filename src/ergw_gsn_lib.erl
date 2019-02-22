@@ -330,7 +330,7 @@ build_sx_rules(SessionOpts, Opts, PCtx, SCtx) ->
     #sx_upd{errors = Errors, pctx = NewPCtx} =
 	build_sx_rules_3(SessionOpts, Opts, Init),
 
-    SxRuleReq = update_sx_rules(PCtx, NewPCtx, Opts),
+    SxRuleReq = ergw_pfcp:update_pfcp_rules(PCtx, NewPCtx, Opts),
 
     %% TODO:
     %% remove unused SxIds
@@ -699,93 +699,6 @@ update_m_key(Key, Value, Map) ->
 
 update_m_rec(Record, Map) when is_tuple(Record) ->
     maps:update_with(element(1, Record), [Record | _], [Record], Map).
-
-put_rec(Record, Map) when is_tuple(Record) ->
-    maps:put(element(1, Record), Record, Map).
-
-update_sx_rules(#pfcp_ctx{sx_rules = Old}, #pfcp_ctx{sx_rules = New}, Opts) ->
-    lager:debug("Update Sx Rules Old: ~p", [lager:pr(Old, ?MODULE)]),
-    lager:debug("Update Sx Rules New: ~p", [lager:pr(New, ?MODULE)]),
-    Del = maps:fold(fun del_sx_rules/3, #{}, maps:without(maps:keys(New), Old)),
-    maps:fold(upd_sx_rules(_, _, Old, _, Opts), Del, New).
-
-del_sx_rules({pdr, _}, #{pdr_id := Id}, Acc) ->
-    update_m_rec(#remove_pdr{group = [Id]}, Acc);
-del_sx_rules({far, _}, #{far_id := Id}, Acc) ->
-    update_m_rec(#remove_far{group = [Id]}, Acc);
-del_sx_rules({urr, _}, #{urr_id := Id}, Acc) ->
-    update_m_rec(#remove_urr{group = [Id]}, Acc).
-
-upd_sx_rules({Type, _} = K, V, Old, Acc, Opts) ->
-    upd_sx_rules_1(Type, V, maps:get(K, Old, undefined), Acc, Opts).
-
-upd_sx_rules_1(pdr, V, undefined, Acc, _Opts) ->
-    update_m_rec(#create_pdr{group = V}, Acc);
-upd_sx_rules_1(far, V, undefined, Acc, _Opts) ->
-    update_m_rec(#create_far{group = V}, Acc);
-upd_sx_rules_1(urr, V, undefined, Acc, _Opts) ->
-    update_m_rec(#create_urr{group = V}, Acc);
-
-upd_sx_rules_1(_Type, V, V, Acc, _Opts) ->
-    Acc;
-
-upd_sx_rules_1(pdr, V, OldV, Acc, Opts) ->
-    update_m_rec(#update_pdr{group = update_sx_pdr(V, OldV, Opts)}, Acc);
-upd_sx_rules_1(far, V, OldV, Acc, Opts) ->
-    update_m_rec(#update_far{group = update_sx_far(V, OldV, Opts)}, Acc);
-upd_sx_rules_1(urr, V, _OldV, Acc, _Opts) ->
-    update_m_rec(#update_urr{group = V}, Acc).
-
-update_sx_simplify(New, Old)
-  when is_map(Old), New =/= Old ->
-    Added = maps:without(maps:keys(Old), New),
-    maps:fold(fun(K, V, A) ->
-		      case maps:get(K, New) of
-			  V -> A;
-			  NewV -> maps:put(K, NewV, A)
-		      end
-	      end, Added, Old);
-update_sx_simplify(New, _Old) ->
-    New.
-
-%% TODO: predefined rules (activate/deactivate)
-update_sx_pdr(#{pdr_id := Id} = New, Old, _Opts) ->
-    Update = update_sx_simplify(New, Old),
-    put_rec(Id, Update).
-
-update_sx_far(#{far_id := Id} = New, Old, Opts) ->
-    lager:debug("Update Sx Far Old: ~p", [lager:pr(Old, ?MODULE)]),
-    lager:debug("Update Sx Far New: ~p", [lager:pr(New, ?MODULE)]),
-    Update = update_sx_simplify(New, Old),
-    lager:debug("Update Sx Far Update: ~p", [lager:pr(Update, ?MODULE)]),
-    maps:fold(update_sx_far(_, _, Old, _, Opts), #{}, put_rec(Id, Update)).
-
-update_sx_far(_, #forwarding_parameters{
-		    group =
-			#{destination_interface :=
-			      #destination_interface{interface = Interface}} = New},
-	      #{forwarding_parameters := #forwarding_parameters{group = Old}},
-	      Far, Opts) ->
-    lager:debug("Update Sx Forward Old: ~p", [lager:pr(Old, ?MODULE)]),
-    lager:debug("Update Sx Forward P0: ~p", [lager:pr(New, ?MODULE)]),
-
-    SendEM = maps:get(send_end_marker, Opts, false),
-    Update0 = update_sx_simplify(New, Old),
-    lager:debug("Update Sx Forward Update: ~p", [lager:pr(Update0, ?MODULE)]),
-    Update =
-	case Update0 of
-	    #{outer_header_creation := _}
-	      when SendEM andalso (Interface == 'Access' orelse Interface == 'Core')->
-		put_rec(#sxsmreq_flags{sndem = 1}, Update0);
-	    _ ->
-		Update0
-	end,
-    put_rec(#update_forwarding_parameters{group = Update}, Far);
-update_sx_far(_, #duplicating_parameters{group = P}, _Old, Far, _Opts) ->
-    put_rec(#update_duplicating_parameters{group = P}, Far);
-update_sx_far(K, V, _Old, Far, _Opts) ->
-    lager:debug("Update Sx Far: ~p, ~p", [K, lager:pr(V, ?MODULE)]),
-    Far#{K => V}.
 
 create_sgi_session(Candidates, SessionOpts, Ctx0) ->
     PCtx0 = ergw_sx_node:select_sx_node(Candidates, Ctx0),
