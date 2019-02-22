@@ -430,7 +430,7 @@ handle_response(ReqInfo, #gtp{version = v1} = Msg, Request, State) ->
 handle_response(#proxy_request{direction = sgw2pgw} = ProxyRequest,
 		#gtp{type = create_session_response,
 		     ie = #{?'Cause' := #v2_cause{v2_cause = Cause}}} = Response, _Request,
-		#{context := Context, proxy_context := PrevProxyCtx} = State) ->
+		#{context := PendingContext, proxy_context := PrevProxyCtx} = State) ->
     lager:warning("OK Proxy Response ~p", [lager:pr(Response, ?MODULE)]),
 
     ProxyContext1 = update_context_from_gtp_req(Response, PrevProxyCtx),
@@ -439,30 +439,34 @@ handle_response(#proxy_request{direction = sgw2pgw} = ProxyRequest,
 
     Return =
 	if ?CAUSE_OK(Cause) ->
-		ergw_proxy_lib:modify_forward_session(Context, Context, PrevProxyCtx, ProxyContext),
-		{noreply, State#{proxy_context => ProxyContext}};
+		Context =
+		    ergw_proxy_lib:modify_forward_session(PendingContext, PendingContext,
+							  PrevProxyCtx, ProxyContext),
+		{noreply, State#{context => Context, proxy_context => ProxyContext}};
 	   true ->
 		{stop, State}
 	end,
 
-    forward_response(ProxyRequest, Response, Context),
+    forward_response(ProxyRequest, Response, PendingContext),
     Return;
 
 handle_response(#proxy_request{direction = sgw2pgw,
 			       context = PrevContext,
 			       proxy_ctx = PrevProxyCtx} = ProxyRequest,
 		#gtp{type = modify_bearer_response} = Response, _Request,
-		#{context := Context,
+		#{context := PendingContext,
 		  proxy_context := OldProxyContext} = State) ->
     lager:warning("OK Proxy Response ~p", [lager:pr(Response, ?MODULE)]),
 
     ProxyContext = update_context_from_gtp_req(Response, OldProxyContext),
     gtp_context:remote_context_update(OldProxyContext, ProxyContext),
 
-    ergw_proxy_lib:modify_forward_session(PrevContext, Context, PrevProxyCtx, ProxyContext),
+    Context =
+	ergw_proxy_lib:modify_forward_session(PrevContext, PendingContext,
+					      PrevProxyCtx, ProxyContext),
     forward_response(ProxyRequest, Response, Context),
 
-    {noreply, State#{proxy_context => ProxyContext}};
+    {noreply, State#{context => Context, proxy_context => ProxyContext}};
 
 %%
 %% PGW to SGW response without tunnel endpoint modification

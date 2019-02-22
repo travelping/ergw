@@ -7,6 +7,8 @@
 
 -module(ergw_proxy_lib).
 
+-compile({parse_transform, cut}).
+
 -export([validate_options/3, validate_option/2,
 	 forward_request/3, forward_request/7, forward_request/9,
 	 get_seq_no/3,
@@ -173,126 +175,84 @@ make_proxy_request(Direction, Request, SeqNo, NewPeer, State) ->
 		},
     {ReqId, ReqInfo}.
 
+update_m_rec(Record, Map) when is_tuple(Record) ->
+    maps:update_with(element(1, Record), [Record | _], [Record], Map).
+
 %%%===================================================================
 %%% Sx DP API
 %%%===================================================================
 
-create_pdr({RuleId, Intf, #context{local_data_endp = LocalDataEndp}}, PDRs) ->
+proxy_pdr({RuleId, Intf, #context{local_data_endp = LocalDataEndp}},
+	  #pfcp_ctx{sx_rules = Rules} = PCtx) ->
     PDI = #pdi{
 	     group =
 		 [#source_interface{interface = Intf},
 		  ergw_pfcp:network_instance(LocalDataEndp),
 		  ergw_pfcp:f_teid(LocalDataEndp)]
 	    },
-    PDR = #create_pdr{
-	     group =
-		 [#pdr_id{id = RuleId},
-		  #precedence{precedence = 100},
-		  PDI,
-		  ergw_pfcp:outer_header_removal(LocalDataEndp),
-		  #far_id{id = RuleId},
-		  #urr_id{id = 1}]
-	    },
-    [PDR | PDRs].
+    PDR = [#pdr_id{id = RuleId},
+	   #precedence{precedence = 100},
+	   PDI,
+	   ergw_pfcp:outer_header_removal(LocalDataEndp),
+	   #far_id{id = RuleId},
+	   #urr_id{id = 1}],
+    PCtx#pfcp_ctx{
+      sx_rules =
+	  Rules#{{pdr, RuleId} => pfcp_packet:ies_to_map(PDR)}
+     }.
 
-create_far({RuleId, Intf,
+proxy_far({RuleId, Intf,
 	    #context{
 	       local_data_endp = LocalDataEndp,
 	       remote_data_teid = PeerTEID}},
-	   FARs)
+	  #pfcp_ctx{sx_rules = Rules} = PCtx)
   when PeerTEID /= undefined ->
-    FAR = #create_far{
-	     group =
-		 [#far_id{id = RuleId},
-		  #apply_action{forw = 1},
-		  #forwarding_parameters{
-		     group =
-			 [#destination_interface{interface = Intf},
-			  ergw_pfcp:network_instance(LocalDataEndp),
-			  ergw_pfcp:outer_header_creation(PeerTEID)
-			 ]
-		    }
-		 ]
-	    },
-    [FAR | FARs];
-create_far({RuleId, _Intf, _Out}, FARs) ->
-    FAR = #create_far{
-	     group =
-		 [#far_id{id = RuleId},
-		  #apply_action{drop = 1}
-		 ]
-	    },
-    [FAR | FARs].
+    FAR = [#far_id{id = RuleId},
+	   #apply_action{forw = 1},
+	   #forwarding_parameters{
+	      group =
+		  [#destination_interface{interface = Intf},
+		   ergw_pfcp:network_instance(LocalDataEndp),
+		   ergw_pfcp:outer_header_creation(PeerTEID)
+		  ]
+	     }
+	  ],
+    PCtx#pfcp_ctx{
+      sx_rules =
+	  Rules#{{far, RuleId} => pfcp_packet:ies_to_map(FAR)}
+     };
+proxy_far({RuleId, _Intf, _Out},
+	  #pfcp_ctx{sx_rules = Rules} = PCtx) ->
+    FAR = [#far_id{id = RuleId},
+	   #apply_action{drop = 1}
+	  ],
+    PCtx#pfcp_ctx{
+      sx_rules =
+	  Rules#{{far, RuleId} => pfcp_packet:ies_to_map(FAR)}
+     }.
 
-update_pdr({RuleId, Intf,
-	    #context{local_data_endp = OldDataEndp},
-	    #context{local_data_endp = NewDataEndp}},
-	   PDRs)
-  when OldDataEndp /= NewDataEndp ->
-    PDI = #pdi{
-	     group =
-		 [#source_interface{interface = Intf},
-		  ergw_pfcp:network_instance(NewDataEndp),
-		  ergw_pfcp:f_teid(NewDataEndp)]
-	    },
-    PDR = #update_pdr{
-	     group =
-		 [#pdr_id{id = RuleId},
-		  #precedence{precedence = 100},
-		  PDI,
-		  ergw_pfcp:outer_header_removal(NewDataEndp),
-		  #far_id{id = RuleId},
-		  #urr_id{id = 1}]
-	    },
-    [PDR | PDRs];
-
-update_pdr({_RuleId, _Intf, _OldIn, _NewIn}, PDRs) ->
-    PDRs.
-
-update_far({RuleId, Intf,
-	    #context{version = OldVersion,
-		     local_data_endp = OldDataEndp,
-		     remote_data_teid = OldPeerTEID},
-	    #context{version = NewVersion,
-		     local_data_endp = NewDataEndp,
-		     remote_data_teid = NewPeerTEID}},
-	   FARs)
-  when OldDataEndp /= NewDataEndp;
-       OldPeerTEID /= NewPeerTEID ->
-    FAR = #update_far{
-	     group =
-		 [#far_id{id = RuleId},
-		  #apply_action{forw = 1},
-		  #update_forwarding_parameters{
-		     group =
-			 [#destination_interface{interface = Intf},
-			  ergw_pfcp:network_instance(NewDataEndp),
-			  ergw_pfcp:outer_header_creation(NewPeerTEID)
-			  | [#sxsmreq_flags{sndem = 1} ||
-				v2 =:= NewVersion andalso v2 =:= OldVersion]
-			 ]
-		    }
-		 ]
-	    },
-    [FAR | FARs];
-update_far({_RuleId, _Intf, _OldOut, _NewOut}, FARs) ->
-    FARs.
+proxy_urr(RuleId, #pfcp_ctx{sx_rules = Rules} = PCtx) ->
+    URR = [#urr_id{id = RuleId},
+	   #measurement_method{volum = 1},
+	   #reporting_triggers{periodic_reporting = 1}
+	  ],
+    PCtx#pfcp_ctx{
+      sx_rules =
+	  Rules#{{urr, RuleId} => pfcp_packet:ies_to_map(URR)}
+     }.
 
 create_forward_session(Candidates, Left0, Right0) ->
-    PCtx = ergw_sx_node:select_sx_node(Candidates, Left0),
-    Left = ergw_pfcp:assign_data_teid(PCtx, Left0),
-    Right = ergw_pfcp:assign_data_teid(PCtx, Right0),
+    PCtx0 = ergw_sx_node:select_sx_node(Candidates, Left0),
+    Left = ergw_pfcp:assign_data_teid(PCtx0, Left0),
+    Right = ergw_pfcp:assign_data_teid(PCtx0, Right0),
     {ok, CntlNode, _} = ergw_sx_socket:id(),
 
-    IEs =
-	[ergw_pfcp:f_seid(PCtx, CntlNode)] ++
-	lists:foldl(fun create_pdr/2, [], [{1, 'Access', Left}, {2, 'Core', Right}]) ++
-	lists:foldl(fun create_far/2, [], [{2, 'Access', Left}, {1, 'Core', Right}]) ++
-	[#create_urr{group =
-			 [#urr_id{id = 1},
-			  #measurement_method{volum = 1},
-			  #reporting_triggers{periodic_reporting = 1}
-			 ]}],
+    PCtx1 = lists:foldl(fun proxy_pdr/2, PCtx0, [{1, 'Access', Left}, {2, 'Core', Right}]),
+    PCtx2 = lists:foldl(fun proxy_far/2, PCtx1, [{2, 'Access', Left}, {1, 'Core', Right}]),
+    PCtx = proxy_urr(1, PCtx2),
+    Rules = ergw_pfcp:update_pfcp_rules(PCtx0, PCtx, #{}),
+    IEs = update_m_rec(ergw_pfcp:f_seid(PCtx, CntlNode), Rules),
+
     Req = #pfcp{version = v1, type = session_establishment_request, ie = IEs},
     case ergw_sx_node:call(PCtx, Req, Left) of
 	#pfcp{version = v1, type = session_establishment_response,
@@ -304,23 +264,29 @@ create_forward_session(Candidates, Left0, Right0) ->
 	    throw(?CTX_ERR(?FATAL, system_failure, Left))
     end.
 
-modify_forward_session(#context{pfcp_ctx =
-				    #pfcp_ctx{seid = OldSEID} = OldPCtx} = OldLeft,
-		       #context{pfcp_ctx
-				= #pfcp_ctx{seid = NewSEID}} = NewLeft,
-		       OldRight, NewRight) ->
-    {ok, CntlNode, _} = ergw_sx_socket:id(),
+modify_forward_session(#context{version = OldVersion,
+				pfcp_ctx = OldPCtx} = OldLeft,
+		       #context{version = NewVersion} = NewLeft,
+		       _OldRight, NewRight) ->
+    PCtx0 = OldPCtx#pfcp_ctx{sx_rules = #{}},
+    PCtx1 = lists:foldl(fun proxy_pdr/2, PCtx0, [{1, 'Access', NewLeft}, {2, 'Core', NewRight}]),
+    PCtx2 = lists:foldl(fun proxy_far/2, PCtx1, [{2, 'Access', NewLeft}, {1, 'Core', NewRight}]),
+    PCtx = proxy_urr(1, PCtx2),
+    Opts = #{send_end_marker => (v2 =:= NewVersion andalso v2 =:= OldVersion)},
+    IEs = ergw_pfcp:update_pfcp_rules(OldPCtx, PCtx, Opts),
 
-    IEs =
-	[ergw_pfcp:f_seid(NewLeft, CntlNode) || NewSEID /= OldSEID] ++
-	lists:foldl(fun update_pdr/2, [],
-		    [{1, 'Access', OldLeft, NewLeft},
-		     {2, 'Core', OldRight, NewRight}]) ++
-	lists:foldl(fun update_far/2, [],
-		    [{2, 'Access', OldLeft, NewLeft},
-		     {1, 'Core', OldRight, NewRight}]),
     Req = #pfcp{version = v1, type = session_modification_request, ie = IEs},
-    ergw_sx_node:call(OldPCtx, Req, NewLeft).
+    case ergw_sx_node:call(OldPCtx, Req, NewLeft) of
+	#pfcp{version = v1, type = session_modification_response,
+	      ie = #{
+		     pfcp_cause :=
+			 #pfcp_cause{cause = 'Request accepted'}} = RespIEs} = _Response ->
+	    %%TODO: modify_proxy_report_urrs(Response, URRActions),
+	    NewLeft#context{pfcp_ctx = ctx_update_dp_seid(RespIEs, PCtx)};
+	_ ->
+	    throw(?CTX_ERR(?FATAL, system_failure, OldLeft))
+    end.
+
 
 delete_forward_session(normal, #context{pfcp_ctx = PCtx} = Left, _Right) ->
     Req = #pfcp{version = v1, type = session_deletion_request, ie = []},

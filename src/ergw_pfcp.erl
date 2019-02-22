@@ -19,6 +19,9 @@
 	 ctx_teid_key/2,
 	 assign_data_teid/2,
 	 update_pfcp_rules/3]).
+-ifdef(TEST).
+-export([pfcp_rule_diff/2]).
+-endif.
 
 -include_lib("pfcplib/include/pfcp_packet.hrl").
 -include("include/ergw.hrl").
@@ -91,6 +94,44 @@ assign_data_teid(PCtx, #context{control_port = ControlPort} = Context) ->
      }.
 
 %%%===================================================================
+%%% Test Helper
+%%%===================================================================
+
+-ifdef(TEST).
+
+pfcp_rule_diff(Old, New) when is_list(Old) ->
+    pfcp_rule_diff(pfcp_packet:ies_to_map(Old), New);
+pfcp_rule_diff(Old, New) when is_list(New) ->
+    pfcp_rule_diff(Old, pfcp_packet:ies_to_map(New));
+pfcp_rule_diff(Old, New) when is_map(Old), is_map(New) ->
+    Add = maps:without(maps:keys(Old), New),
+    Del = maps:without(maps:keys(New), Old),
+    OldUpd0 = maps:without(maps:keys(Del), Old),
+    NewUpd0 = maps:without(maps:keys(Add), New),
+    Upd = pfcp_rule_diff(OldUpd0, maps:next(maps:iterator(NewUpd0)), #{}),
+    ct:pal("PFCP Rule Diff~nAdd: ~120p~nDel: ~120p~nUpd: ~120p", [Add, Del, Upd]).
+
+pfcp_rule_diff(_Old, none, Diff) ->
+    Diff;
+pfcp_rule_diff(Old, {K, V, Next}, Diff) ->
+    pfcp_rule_diff(K, maps:get(K, Old), V, pfcp_rule_diff(Old, maps:next(Next), Diff)).
+
+pfcp_rule_diff(_, V, V, Diff) ->
+    Diff;
+pfcp_rule_diff(K, Old, New, Diff)
+  when is_list(Old), is_list(New) ->
+    case {lists:sort(Old), lists:sort(New)} of
+	{V, V} ->
+	    Diff;
+	{O, N} ->
+	    Diff#{K => {upd, O, N}}
+    end;
+pfcp_rule_diff(K, Old, New, Diff) ->
+    Diff#{K => {upd, Old, New}}.
+
+-endif.
+
+%%%===================================================================
 %%% Translate PFCP state into Create/Modify/Delete rules
 %%%===================================================================
 
@@ -151,10 +192,10 @@ update_pfcp_pdr(#{pdr_id := Id} = New, Old, _Opts) ->
     put_rec(Id, Update).
 
 update_pfcp_far(#{far_id := Id} = New, Old, Opts) ->
-    lager:debug("Update PFCP Far Old: ~p", [lager:pr(Old, ?MODULE)]),
-    lager:debug("Update PFCP Far New: ~p", [lager:pr(New, ?MODULE)]),
+    lager:debug("Update PFCP Far Old: ~p", [pfcp_packet:lager_pr(Old)]),
+    lager:debug("Update PFCP Far New: ~p", [pfcp_packet:lager_pr(New)]),
     Update = update_pfcp_simplify(New, Old),
-    lager:debug("Update PFCP Far Update: ~p", [lager:pr(Update, ?MODULE)]),
+    lager:debug("Update PFCP Far Update: ~p", [pfcp_packet:lager_pr(Update)]),
     maps:fold(update_pfcp_far(_, _, Old, _, Opts), #{}, put_rec(Id, Update)).
 
 update_pfcp_far(_, #forwarding_parameters{
@@ -178,6 +219,8 @@ update_pfcp_far(_, #forwarding_parameters{
 		Update0
 	end,
     put_rec(#update_forwarding_parameters{group = Update}, Far);
+update_pfcp_far(_, #forwarding_parameters{group = P}, _Old, Far, _Opts) ->
+    put_rec(#update_forwarding_parameters{group = P}, Far);
 update_pfcp_far(_, #duplicating_parameters{group = P}, _Old, Far, _Opts) ->
     put_rec(#update_duplicating_parameters{group = P}, Far);
 update_pfcp_far(K, V, _Old, Far, _Opts) ->
