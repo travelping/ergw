@@ -389,7 +389,7 @@ handle_request(#request{gtp_port = GtpPort} = ReqKey, Msg, _Resent, State) ->
 handle_response(#proxy_request{direction = sgsn2ggsn} = ProxyRequest,
 		#gtp{type = create_pdp_context_response,
 		     ie = #{?'Cause' := #cause{value = Cause}}} = Response, _Request,
-		#{context := Context,
+		#{context := PendingContext,
 		  proxy_context := PrevProxyCtx} = State) ->
     lager:warning("OK Proxy Response ~p", [lager:pr(Response, ?MODULE)]),
 
@@ -399,31 +399,35 @@ handle_response(#proxy_request{direction = sgsn2ggsn} = ProxyRequest,
 
     Return =
 	if ?CAUSE_OK(Cause) ->
-		ergw_proxy_lib:modify_forward_session(Context, Context, PrevProxyCtx, ProxyContext),
-		{noreply, State#{proxy_context => ProxyContext}};
+		Context =
+		    ergw_proxy_lib:modify_forward_session(PendingContext, PendingContext,
+							  PrevProxyCtx, ProxyContext),
+		{noreply, State#{context => Context, proxy_context => ProxyContext}};
 
 	   true ->
 		{stop, State}
 	end,
 
-    forward_response(ProxyRequest, Response, Context),
+    forward_response(ProxyRequest, Response, PendingContext),
     Return;
 
 handle_response(#proxy_request{direction = sgsn2ggsn,
 			       context = PrevContext,
 			       proxy_ctx = PrevProxyCtx} = ProxyRequest,
 		#gtp{type = update_pdp_context_response} = Response, _Request,
-		#{context := Context,
+		#{context := PendingContext,
 		  proxy_context := OldProxyContext} = State) ->
     lager:warning("OK Proxy Response ~p", [lager:pr(Response, ?MODULE)]),
 
     ProxyContext = update_context_from_gtp_req(Response, OldProxyContext),
     gtp_context:remote_context_update(OldProxyContext, ProxyContext),
 
-    ergw_proxy_lib:modify_forward_session(PrevContext, Context, PrevProxyCtx, ProxyContext),
+    Context =
+	ergw_proxy_lib:modify_forward_session(PrevContext, PendingContext,
+					      PrevProxyCtx, ProxyContext),
     forward_response(ProxyRequest, Response, Context),
 
-    {noreply, State#{proxy_context => ProxyContext}};
+    {noreply, State#{context => Context, proxy_context => ProxyContext}};
 
 handle_response(#proxy_request{direction = ggsn2sgsn} = ProxyRequest,
 		#gtp{type = update_pdp_context_response} = Response, _Request,
