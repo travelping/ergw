@@ -35,6 +35,7 @@
 -record(data, {retries = 0  :: non_neg_integer(),
 	       recovery_ts       :: undefined | non_neg_integer(),
 	       pfcp_ctx          :: #pfcp_ctx{},
+	       local_data_endp,
 	       cp,
 	       dp,
 	       vrfs}).
@@ -582,14 +583,25 @@ update_m_rec(Record, Map) when is_tuple(Record) ->
     maps:update_with(element(1, Record), [Record | _], [Record], Map).
 
 %% use additional information from the Context to prefre V4 or V6....
-choose_up_ip(IP4, _IP6, {_,_,_,_} = _IP)
+choose_up_ip(#node{ip = {_,_,_,_}}, #vrf{ipv4 = IP4})
   when is_binary(IP4) ->
     ergw_inet:bin2ip(IP4);
-choose_up_ip(_IP4, IP6, {_,_,_,_,_,_,_,_} = _IP)
+choose_up_ip(#node{ip = {_,_,_,_,_,_,_,_}}, #vrf{ipv4 = IP6})
   when is_binary(IP6) ->
     ergw_inet:bin2ip(IP6);
-choose_up_ip(_IP4, _IP6, IP) ->
+choose_up_ip(#node{ip = IP}, _VRF) ->
     IP.
+
+create_data_endp(PCtx, Node, VRFs) ->
+    [VRF|_] =
+	lists:filter(fun(#vrf{features = Features}) ->
+			     lists:member('CP-Function', Features)
+		     end, maps:values(VRFs)),
+    {ok, DataTEI} = gtp_context_reg:alloc_tei(PCtx),
+    #gtp_endp{
+       vrf = VRF#vrf.name,
+       ip = choose_up_ip(Node, VRF),
+       teid = DataTEI}.
 
 %% -ifdef(OTP_RELEASE).
 %% %% OTP 21 or higher
@@ -622,26 +634,25 @@ choose_up_ip(_IP4, _IP6, IP) ->
 
 %% -endif.
 
-gen_pfcp_rules(_Key, #vrf{features = Features} = VRF, DpGtpIP, Acc) ->
-    lists:foldl(gen_per_feature_pfcp_rule(_, VRF, DpGtpIP, _), Acc, Features).
+gen_pfcp_rules(_Key, #vrf{features = Features} = VRF, DataEndP, Acc) ->
+    lists:foldl(gen_per_feature_pfcp_rule(_, VRF, DataEndP, _), Acc, Features).
 
-gen_per_feature_pfcp_rule('Access', #vrf{name = Name} = VRF, DpGtpIP,
-			#pfcp_ctx{sx_ids = Ids, sx_rules = Rules, cp_port = GtpPort} = PCtx) ->
+gen_per_feature_pfcp_rule('Access', #vrf{name = Name} = VRF,
+			  #gtp_endp{teid = TEI} = DataEndP,
+			  #pfcp_ctx{sx_ids = Ids, sx_rules = Rules} = PCtx) ->
     RuleId = maps:size(Rules) + 1,
-
-    {ok, TEI} = gtp_context_reg:alloc_tei(GtpPort),
 
     %% GTP-U encapsulated packet from CP
     PDI = #pdi{
 	     group =
 		 [#source_interface{interface = 'CP-function'},
-		  ergw_pfcp:network_instance(GtpPort),
-		  ergw_pfcp:f_teid(TEI, DpGtpIP)]
+		  ergw_pfcp:network_instance(DataEndP),
+		  ergw_pfcp:f_teid(DataEndP)]
 	    },
     PDR = [#pdr_id{id = RuleId},
 	   #precedence{precedence = 100},
 	   PDI,
-	   ergw_pfcp:outer_header_removal(DpGtpIP),
+	   ergw_pfcp:outer_header_removal(DataEndP),
 	   #far_id{id = RuleId}],
     %% forward to Access intefaces
     FAR = [#far_id{id = RuleId},
@@ -665,16 +676,12 @@ gen_per_feature_pfcp_rule(_, _VRF, _DpGtpIP, Acc) ->
 
 install_cp_rules(#data{pfcp_ctx = PCtx0,
 		       cp = CntlNode,
-		       dp = #node{ip = DpNodeIP},
+		       dp = #node{ip = DpNodeIP} = DpNode,
 		       vrfs = VRFs} = Data) ->
-    [#vrf{ipv4 = DpGtpIP4, ipv6 = DpGtpIP6}] =
-	lists:filter(fun(#vrf{features = Features}) ->
-			     lists:member('CP-Function', Features)
-		     end, maps:values(VRFs)),
-    DpGtpIP = choose_up_ip(DpGtpIP4, DpGtpIP6, DpNodeIP),
+    DataEndP = create_data_endp(PCtx0, DpNode, VRFs),
 
     PCtx1 = PCtx0#pfcp_ctx{sx_rules = #{}, sx_ids = #{}},
-    PCtx = maps:fold(gen_pfcp_rules(_, _, DpGtpIP, _), PCtx1, VRFs),
+    PCtx = maps:fold(gen_pfcp_rules(_, _, DataEndP, _), PCtx1, VRFs),
     Rules = ergw_pfcp:update_pfcp_rules(PCtx1, PCtx, #{}),
     IEs = update_m_rec(ergw_pfcp:f_seid(PCtx, CntlNode), Rules),
 
@@ -682,4 +689,4 @@ install_cp_rules(#data{pfcp_ctx = PCtx0,
     Req = augment_mandatory_ie(Req0, Data),
     ergw_sx_socket:call(DpNodeIP, Req, response_cb(from_cp_rule)),
 
-    Data#data{pfcp_ctx = PCtx}.
+    Data#data{pfcp_ctx = PCtx, local_data_endp = DataEndP}.
