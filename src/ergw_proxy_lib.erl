@@ -182,36 +182,41 @@ update_m_rec(Record, Map) when is_tuple(Record) ->
 %%% Sx DP API
 %%%===================================================================
 
-proxy_pdr({RuleId, Intf, #context{local_data_endp = LocalDataEndp}},
-	  #pfcp_ctx{sx_rules = Rules} = PCtx) ->
+proxy_pdr({DstIntf, SrcIntf,
+	   #context{local_data_endp = LocalDataEndp}},
+	  #pfcp_ctx{sx_rules = Rules} = PCtx0) ->
+
+    {[PdrId, FarId, UrrId], PCtx} =
+	ergw_pfcp:get_id([{pdr, SrcIntf}, {far, DstIntf}, {urr, proxy}], PCtx0),
     PDI = #pdi{
 	     group =
-		 [#source_interface{interface = Intf},
+		 [#source_interface{interface = SrcIntf},
 		  ergw_pfcp:network_instance(LocalDataEndp),
 		  ergw_pfcp:f_teid(LocalDataEndp)]
 	    },
-    PDR = [#pdr_id{id = RuleId},
+    PDR = [#pdr_id{id = PdrId},
 	   #precedence{precedence = 100},
 	   PDI,
 	   ergw_pfcp:outer_header_removal(LocalDataEndp),
-	   #far_id{id = RuleId},
-	   #urr_id{id = 1}],
+	   #far_id{id = FarId},
+	   #urr_id{id = UrrId}],
     PCtx#pfcp_ctx{
       sx_rules =
-	  Rules#{{pdr, RuleId} => pfcp_packet:ies_to_map(PDR)}
+	  Rules#{{pdr, PdrId} => pfcp_packet:ies_to_map(PDR)}
      }.
 
-proxy_far({RuleId, Intf,
+proxy_far({DstIntf, _SrcIntf,
 	    #context{
 	       local_data_endp = LocalDataEndp,
 	       remote_data_teid = PeerTEID}},
-	  #pfcp_ctx{sx_rules = Rules} = PCtx)
+	  #pfcp_ctx{sx_rules = Rules} = PCtx0)
   when PeerTEID /= undefined ->
-    FAR = [#far_id{id = RuleId},
+    {FarId, PCtx} = ergw_pfcp:get_id(far, DstIntf, PCtx0),
+    FAR = [#far_id{id = FarId},
 	   #apply_action{forw = 1},
 	   #forwarding_parameters{
 	      group =
-		  [#destination_interface{interface = Intf},
+		  [#destination_interface{interface = DstIntf},
 		   ergw_pfcp:network_instance(LocalDataEndp),
 		   ergw_pfcp:outer_header_creation(PeerTEID)
 		  ]
@@ -219,26 +224,28 @@ proxy_far({RuleId, Intf,
 	  ],
     PCtx#pfcp_ctx{
       sx_rules =
-	  Rules#{{far, RuleId} => pfcp_packet:ies_to_map(FAR)}
+	  Rules#{{far, FarId} => pfcp_packet:ies_to_map(FAR)}
      };
-proxy_far({RuleId, _Intf, _Out},
-	  #pfcp_ctx{sx_rules = Rules} = PCtx) ->
-    FAR = [#far_id{id = RuleId},
+proxy_far({DstIntf, _SrcIntf, _Out},
+	  #pfcp_ctx{sx_rules = Rules} = PCtx0) ->
+    {FarId, PCtx} = ergw_pfcp:get_id(far, DstIntf, PCtx0),
+    FAR = [#far_id{id = FarId},
 	   #apply_action{drop = 1}
 	  ],
     PCtx#pfcp_ctx{
       sx_rules =
-	  Rules#{{far, RuleId} => pfcp_packet:ies_to_map(FAR)}
+	  Rules#{{far, FarId} => pfcp_packet:ies_to_map(FAR)}
      }.
 
-proxy_urr(RuleId, #pfcp_ctx{sx_rules = Rules} = PCtx) ->
-    URR = [#urr_id{id = RuleId},
+proxy_urr(#pfcp_ctx{sx_rules = Rules} = PCtx0) ->
+    {UrrId, PCtx} = ergw_pfcp:get_id(urr, proxy, PCtx0),
+    URR = [#urr_id{id = UrrId},
 	   #measurement_method{volum = 1},
 	   #reporting_triggers{periodic_reporting = 1}
 	  ],
     PCtx#pfcp_ctx{
       sx_rules =
-	  Rules#{{urr, RuleId} => pfcp_packet:ies_to_map(URR)}
+	  Rules#{{urr, UrrId} => pfcp_packet:ies_to_map(URR)}
      }.
 
 create_forward_session(Candidates, Left0, Right0) ->
@@ -247,9 +254,10 @@ create_forward_session(Candidates, Left0, Right0) ->
     Right = ergw_pfcp:assign_data_teid(PCtx0, Right0),
     {ok, CntlNode, _} = ergw_sx_socket:id(),
 
-    PCtx1 = lists:foldl(fun proxy_pdr/2, PCtx0, [{1, 'Access', Left}, {2, 'Core', Right}]),
-    PCtx2 = lists:foldl(fun proxy_far/2, PCtx1, [{2, 'Access', Left}, {1, 'Core', Right}]),
-    PCtx = proxy_urr(1, PCtx2),
+    MakeRules = [{'Access', 'Core', Left}, {'Core', 'Access', Right}],
+    PCtx1 = lists:foldl(fun proxy_pdr/2, PCtx0, MakeRules),
+    PCtx2 = lists:foldl(fun proxy_far/2, PCtx1, MakeRules),
+    PCtx = proxy_urr(PCtx2),
     Rules = ergw_pfcp:update_pfcp_rules(PCtx0, PCtx, #{}),
     IEs = update_m_rec(ergw_pfcp:f_seid(PCtx, CntlNode), Rules),
 
@@ -268,10 +276,11 @@ modify_forward_session(#context{version = OldVersion,
 				pfcp_ctx = OldPCtx} = OldLeft,
 		       #context{version = NewVersion} = NewLeft,
 		       _OldRight, NewRight) ->
+    MakeRules = [{'Access', 'Core', NewLeft}, {'Core', 'Access', NewRight}],
     PCtx0 = OldPCtx#pfcp_ctx{sx_rules = #{}},
-    PCtx1 = lists:foldl(fun proxy_pdr/2, PCtx0, [{1, 'Access', NewLeft}, {2, 'Core', NewRight}]),
-    PCtx2 = lists:foldl(fun proxy_far/2, PCtx1, [{2, 'Access', NewLeft}, {1, 'Core', NewRight}]),
-    PCtx = proxy_urr(1, PCtx2),
+    PCtx1 = lists:foldl(fun proxy_pdr/2, PCtx0, MakeRules),
+    PCtx2 = lists:foldl(fun proxy_far/2, PCtx1, MakeRules),
+    PCtx = proxy_urr(PCtx2),
     Opts = #{send_end_marker => (v2 =:= NewVersion andalso v2 =:= OldVersion)},
     IEs = ergw_pfcp:update_pfcp_rules(OldPCtx, PCtx, Opts),
 
