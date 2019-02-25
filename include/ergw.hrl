@@ -57,7 +57,8 @@
 	  cp_port		:: #gtp_port{},
 	  cp_tei		:: non_neg_integer(),
 
-	  sx_ids,
+	  idcnt = #{}		:: map(),
+	  idmap = #{}		:: map(),
 	  sx_rules = #{}	:: map()
 	 }).
 

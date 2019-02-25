@@ -35,7 +35,7 @@
 -record(data, {retries = 0  :: non_neg_integer(),
 	       recovery_ts       :: undefined | non_neg_integer(),
 	       pfcp_ctx          :: #pfcp_ctx{},
-	       local_data_endp,
+	       upf_data_endp     :: #gtp_endp{},
 	       cp,
 	       dp,
 	       vrfs}).
@@ -242,11 +242,11 @@ handle_event(cast, {response, _, #pfcp{version = v1, type = association_setup_re
 	    {next_state, dead, Data0}
     end;
 
-handle_event(cast, {send, 'Access', VRF, Data}, connected,
-	     #data{pfcp_ctx = #pfcp_ctx{sx_ids = Ids, cp_port = Port},
-		   dp = #node{ip = IP}}) ->
-    Key = {VRF, 'Access', tei},
-    TEI = maps:get(Key, Ids),
+handle_event(cast, {send, 'Access', _VRF, Data}, connected,
+	     #data{pfcp_ctx = #pfcp_ctx{cp_port = Port},
+		   dp = #node{ip = IP},
+		   upf_data_endp = #gtp_endp{teid = TEI}}) ->
+
     Msg = #gtp{version = v1, type = g_pdu, tei = TEI, ie = Data},
     Bin = gtp_packet:encode(Msg),
     ergw_gtp_u_socket:send(Port, IP, ?GTP1u_PORT, Bin),
@@ -638,9 +638,10 @@ gen_pfcp_rules(_Key, #vrf{features = Features} = VRF, DataEndP, Acc) ->
     lists:foldl(gen_per_feature_pfcp_rule(_, VRF, DataEndP, _), Acc, Features).
 
 gen_per_feature_pfcp_rule('Access', #vrf{name = Name} = VRF,
-			  #gtp_endp{teid = TEI} = DataEndP,
-			  #pfcp_ctx{sx_ids = Ids, sx_rules = Rules} = PCtx) ->
-    RuleId = maps:size(Rules) + 1,
+			  DataEndP, #pfcp_ctx{sx_rules = Rules} = PCtx0) ->
+    Key = {Name, 'Access'},
+    {PdrId, PCtx1} = ergw_pfcp:get_id(pdr, Key, PCtx0),
+    {FarId, PCtx} = ergw_pfcp:get_id(far, Key, PCtx1),
 
     %% GTP-U encapsulated packet from CP
     PDI = #pdi{
@@ -649,13 +650,13 @@ gen_per_feature_pfcp_rule('Access', #vrf{name = Name} = VRF,
 		  ergw_pfcp:network_instance(DataEndP),
 		  ergw_pfcp:f_teid(DataEndP)]
 	    },
-    PDR = [#pdr_id{id = RuleId},
+    PDR = [#pdr_id{id = PdrId},
 	   #precedence{precedence = 100},
 	   PDI,
 	   ergw_pfcp:outer_header_removal(DataEndP),
-	   #far_id{id = RuleId}],
+	   #far_id{id = FarId}],
     %% forward to Access intefaces
-    FAR = [#far_id{id = RuleId},
+    FAR = [#far_id{id = FarId},
 	   #apply_action{forw = 1},
 	   #forwarding_parameters{
 	      group =
@@ -664,12 +665,10 @@ gen_per_feature_pfcp_rule('Access', #vrf{name = Name} = VRF,
 	     }
 	  ],
 
-    Key = {Name, 'Access', tei},
     PCtx#pfcp_ctx{
-      sx_ids = Ids#{Key => TEI},
       sx_rules =
-	  Rules#{{pdr, RuleId} => pfcp_packet:ies_to_map(PDR),
-		 {far, RuleId} => pfcp_packet:ies_to_map(FAR)}
+	  Rules#{{pdr, PdrId} => pfcp_packet:ies_to_map(PDR),
+		 {far, FarId} => pfcp_packet:ies_to_map(FAR)}
      };
 gen_per_feature_pfcp_rule(_, _VRF, _DpGtpIP, Acc) ->
     Acc.
@@ -680,7 +679,7 @@ install_cp_rules(#data{pfcp_ctx = PCtx0,
 		       vrfs = VRFs} = Data) ->
     DataEndP = create_data_endp(PCtx0, DpNode, VRFs),
 
-    PCtx1 = PCtx0#pfcp_ctx{sx_rules = #{}, sx_ids = #{}},
+    PCtx1 = ergw_pfcp:init_ctx(PCtx0),
     PCtx = maps:fold(gen_pfcp_rules(_, _, DataEndP, _), PCtx1, VRFs),
     Rules = ergw_pfcp:update_pfcp_rules(PCtx1, PCtx, #{}),
     IEs = update_m_rec(ergw_pfcp:f_seid(PCtx, CntlNode), Rules),
@@ -689,4 +688,4 @@ install_cp_rules(#data{pfcp_ctx = PCtx0,
     Req = augment_mandatory_ie(Req0, Data),
     ergw_sx_socket:call(DpNodeIP, Req, response_cb(from_cp_rule)),
 
-    Data#data{pfcp_ctx = PCtx, local_data_endp = DataEndP}.
+    Data#data{pfcp_ctx = PCtx, upf_data_endp = DataEndP}.
