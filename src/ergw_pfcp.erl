@@ -17,8 +17,10 @@
 	 outer_header_creation/1,
 	 outer_header_removal/1,
 	 ctx_teid_key/2,
-	 assign_data_teid/2,
-	 update_pfcp_rules/3]).
+	 assign_data_teid/2]).
+-export([init_ctx/1, get_ids/2, get_id/2, get_id/3,
+	 find_by_name/3, find_by_id/3, update_pfcp_rules/3]).
+
 -ifdef(TEST).
 -export([pfcp_rule_diff/2]).
 -endif.
@@ -132,9 +134,40 @@ pfcp_rule_diff(K, Old, New, Diff) ->
 -endif.
 
 %%%===================================================================
-%%% Translate PFCP state into Create/Modify/Delete rules
+%%% Manage PFCP rules identifier
 %%%===================================================================
 
+init_ctx(PCtx) ->
+    PCtx#pfcp_ctx{idcnt = #{}, idmap = #{}, sx_rules = #{}}.
+
+get_ids(Type, #pfcp_ctx{idmap = IdMap}) ->
+    maps:get(Type, IdMap, #{}).
+
+get_id(Keys, PCtx) ->
+    lists:mapfoldr(fun({Type, Name}, P) -> get_id(Type, Name, P) end, PCtx, Keys).
+
+get_id(Type, Name, #pfcp_ctx{idcnt = Cnt, idmap = IdMap0} = PCtx) ->
+    Key = {Type, Name},
+    case IdMap0 of
+	#{Key := Id} ->
+	    {Id, PCtx};
+	_ ->
+	    Id = maps:get(Type, Cnt, 1),
+	    IdMap = maps:update_with(Type, fun(X) -> X#{Id => Name} end,
+				     #{Id => Name}, IdMap0),
+	    {Id, PCtx#pfcp_ctx{idcnt = Cnt#{Type => Id + 1},
+			       idmap = IdMap#{Key => Id}}}
+    end.
+
+find_by_name(Type, Name, #pfcp_ctx{idmap = IdMap}) ->
+    maps:find({Type, Name}, IdMap).
+
+find_by_id(Type, Id, #pfcp_ctx{idmap = IdMap}) ->
+    maps:find(Id, maps:get(Type, IdMap, #{})).
+
+%%%===================================================================
+%%% Translate PFCP state into Create/Modify/Delete rules
+%%%===================================================================
 update_pfcp_rules(#pfcp_ctx{sx_rules = Old}, #pfcp_ctx{sx_rules = New}, Opts) ->
     lager:debug("Update PFCP Rules Old: ~p", [lager:pr(Old, ?MODULE)]),
     lager:debug("Update PFCP Rules New: ~p", [lager:pr(New, ?MODULE)]),

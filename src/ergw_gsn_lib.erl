@@ -10,7 +10,6 @@
 -compile({parse_transform, cut}).
 
 -export([create_sgi_session/3,
-	 usage_report_to_monitoring_report/2,
 	 usage_report_to_charging_events/2,
 	 process_online_charging_events/4,
 	 process_offline_charging_events/4,
@@ -23,14 +22,12 @@
 	 choose_context_ip/3,
 	 ip_pdu/2]).
 -export([update_pcc_rules/2, session_events/3]).
--export([find_sx_by_id/3]).
 
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include_lib("pfcplib/include/pfcp_packet.hrl").
 -include_lib("ergw_aaa/include/diameter_3gpp_ts32_299.hrl").
 -include("include/ergw.hrl").
 
--record(sx_ids, {cnt = #{}, idmap = #{}}).
 -record(sx_upd, {errors = [], monitors = #{}, pctx = #pfcp_ctx{}, sctx}).
 
 -define(SECONDS_PER_DAY, 86400).
@@ -56,10 +53,8 @@ delete_sgi_session(normal, #context{pfcp_ctx = PCtx} = Ctx) ->
 delete_sgi_session(_Reason, _Context) ->
     undefined.
 
-build_query_usage_report(Type, #context{
-				  pfcp_ctx =
-				      #pfcp_ctx{
-					 sx_ids = #sx_ids{idmap = #{urr := URRs}}}}) ->
+build_query_usage_report(Type, PCtx)
+  when is_record(PCtx, pfcp_ctx) ->
     maps:fold(fun(K, {offline, V}, A)
 		    when Type =:= offline, is_integer(V) ->
 		      [#query_urr{group = [#urr_id{id = K}]} | A];
@@ -67,29 +62,19 @@ build_query_usage_report(Type, #context{
 		    when Type =:= online andalso is_integer(V) ->
 		      [#query_urr{group = [#urr_id{id = K}]} | A];
 		 (_, _, A) -> A
-	      end, [], URRs);
-build_query_usage_report(_Type, _Context) ->
-    [].
+	      end, [], ergw_pfcp:get_ids(urr, PCtx)).
 
-query_usage_report(#context{
-		      pfcp_ctx =
-			  #pfcp_ctx{
-			     sx_ids = #sx_ids{idmap = #{urr := URRs}}
-			    } = PCtx} = Ctx) ->
-    lager:error("Q URRs: ~p", [URRs]),
-    IEs = build_query_usage_report(online, Ctx),
-    Req = #pfcp{version = v1, type = session_modification_request, ie = IEs},
-    ergw_sx_node:call(PCtx, Req, Ctx);
-query_usage_report(_) ->
-    undefined.
+query_usage_report(#context{pfcp_ctx = PCtx} = Ctx) ->
+    case build_query_usage_report(online, PCtx) of
+	IEs when length(IEs) /= 0 ->
+	    Req = #pfcp{version = v1, type = session_modification_request, ie = IEs},
+	    ergw_sx_node:call(PCtx, Req, Ctx);
+	_ ->
+	    undefined
+    end.
 
-query_usage_report(RatingGroup, #context{
-				   pfcp_ctx =
-				       #pfcp_ctx{
-					  sx_ids = #sx_ids{idmap = #{urr := URRs}}
-					 } = PCtx} = Ctx) ->
-    lager:error("Q URRs: ~p", [URRs]),
-    case URRs of
+query_usage_report(RatingGroup, #context{pfcp_ctx = PCtx} = Ctx) ->
+    case ergw_pfcp:get_ids(urr, PCtx) of
 	#{RatingGroup := Id} ->
 	    IEs = [#query_urr{group = [#urr_id{id = Id}]}],
 	    Req = #pfcp{version = v1, type = session_modification_request, ie = IEs},
@@ -98,12 +83,14 @@ query_usage_report(RatingGroup, #context{
 	    undefined
     end.
 
-trigger_offline_usage_report(#context{pfcp_ctx = PCtx} = Ctx, Cb) ->
-    IEs = build_query_usage_report(offline, Ctx),
-    Req = #pfcp{version = v1, type = session_modification_request, ie = IEs},
-    ergw_sx_node:call_async(PCtx, Req, Cb);
-trigger_offline_usage_report(_, _) ->
-    undefined.
+trigger_offline_usage_report(#context{pfcp_ctx = PCtx}, Cb) ->
+    case build_query_usage_report(offline, PCtx) of
+	IEs when length(IEs) /= 0 ->
+	    Req = #pfcp{version = v1, type = session_modification_request, ie = IEs},
+	    ergw_sx_node:call_async(PCtx, Req, Cb);
+	_ ->
+	    undefined
+    end.
 
 %%%===================================================================
 %%% Helper functions
@@ -250,43 +237,6 @@ sx_rule_add(Key, Rule, #pfcp_ctx{sx_rules = Rules} = PCtx) ->
 sx_rules_add(Add, #pfcp_ctx{sx_rules = Rules} = PCtx) ->
     PCtx#pfcp_ctx{sx_rules = maps:merge(Add, Rules)}.
 
-sx_id(Type, Name, Record, Field) ->
-    F0 = element(Field, Record),
-    {Id, F1} = sx_id(Type, Name, F0),
-    {Id, setelement(Field, Record, F1)}.
-
-sx_id(Type, Name, Upd) when is_record(Upd, sx_upd) ->
-    sx_id(Type, Name, Upd, #sx_upd.pctx);
-sx_id(Type, Name, PCtx) when is_record(PCtx, pfcp_ctx) ->
-    sx_id(Type, Name, PCtx, #pfcp_ctx.sx_ids);
-
-sx_id(Type, Name, undefined) ->
-    sx_id(Type, Name, #sx_ids{});
-sx_id(Type, Name, #sx_ids{cnt = Cnt, idmap = IdMap0} = State) ->
-    Key = {Type, Name},
-    case IdMap0 of
-	#{Key := Id} ->
-	    {Id, State};
-	_ ->
-	    Id = maps:get(Type, Cnt, 1),
-	    IdMap = maps:update_with(Type, fun(X) -> X#{Id => Name} end,
-				     #{Id => Name}, IdMap0),
-	    {Id, State#sx_ids{cnt = Cnt#{Type => Id + 1},
-			      idmap = IdMap#{Key => Id}}}
-    end.
-
-find_sx_id(Type, Name, #sx_upd{pctx = PCtx}) ->
-    find_sx_id(Type, Name, PCtx);
-find_sx_id(Type, Name, #pfcp_ctx{sx_ids = Ids}) ->
-    find_sx_id(Type, Name, Ids);
-find_sx_id(Type, Name, #sx_ids{idmap = IdMap}) ->
-    Key = {Type, Name},
-    maps:find(Key, IdMap).
-
-find_sx_by_id(Type, Id, #sx_ids{idmap = IdMap}) ->
-    TypeId = maps:get(Type, IdMap, #{}),
-    maps:find(Id, TypeId).
-
 apply_charing_tariff_time({H, M}, URR)
   when is_integer(H), H >= 0, H < 24,
        is_integer(M), M >= 0, M < 60 ->
@@ -362,7 +312,7 @@ build_sx_offline_charging_rule(_Name,
 		 #measurement_method{volum = 1, durat = 1}
 	 end,
 
-    {UrrId, PCtx} = sx_id(urr, ChargingKey, PCtx0),
+    {UrrId, PCtx} = ergw_pfcp:get_id(urr, ChargingKey, PCtx0),
     URR0 = #{urr_id => #urr_id{id = UrrId},
 	    measurement_method => MM,
 	    reporting_triggers => #reporting_triggers{periodic_reporting = 1},
@@ -436,8 +386,8 @@ build_sx_rule(Direction = downlink, Name, Definition, FilterInfo, URRs,
   when PeerTEID /= undefined ->
     [Precedence] = maps:get('Precedence', Definition, [1000]),
     RuleName = {Direction, Name},
-    {PdrId, PCtx1} = sx_id(pdr, RuleName, PCtx0),
-    {FarId, PCtx} = sx_id(far, RuleName, PCtx1),
+    {PdrId, PCtx1} = ergw_pfcp:get_id(pdr, RuleName, PCtx0),
+    {FarId, PCtx} = ergw_pfcp:get_id(far, RuleName, PCtx1),
     PDI = #pdi{
 	     group =
 		 [#source_interface{interface = 'SGi-LAN'},
@@ -471,8 +421,8 @@ build_sx_rule(Direction = uplink, Name, Definition, FilterInfo, URRs,
 		     } = Update) ->
     [Precedence] = maps:get('Precedence', Definition, [1000]),
     RuleName = {Direction, Name},
-    {PdrId, PCtx1} = sx_id(pdr, RuleName, PCtx0),
-    {FarId, PCtx} = sx_id(far, RuleName, PCtx1),
+    {PdrId, PCtx1} = ergw_pfcp:get_id(pdr, RuleName, PCtx0),
+    {FarId, PCtx} = ergw_pfcp:get_id(far, RuleName, PCtx1),
     PDI = #pdi{
 	     group =
 		 [#source_interface{interface = 'Access'},
@@ -503,22 +453,22 @@ build_sx_rule(Direction = uplink, Name, Definition, FilterInfo, URRs,
 build_sx_rule(_Direction, Name, _Definition, _FlowInfo, _URRs, Update) ->
     sx_rule_error({system_error, Name}, Update).
 
-get_sx_ids(_Type, [], _Update, URRs) ->
+get_sx_ids(_Type, [], _PCtx, URRs) ->
     URRs;
-get_sx_ids(Type, [H|T], Update, URRs0) ->
+get_sx_ids(Type, [H|T], PCtx, URRs0) ->
     URRs =
-	case find_sx_id(urr, H, Update) of
+	case ergw_pfcp:find_by_name(Type, H, PCtx) of
 	    {ok, UrrId} ->
 		[UrrId | URRs0];
 	    _ ->
 		URRs0
 	end,
-    get_sx_ids(Type, T, Update, URRs).
+    get_sx_ids(Type, T, PCtx, URRs).
 
 collect_urrs(_Name, #{'Rating-Group' := [RatingGroup]},
-	     #sx_upd{monitors = Monitors} = Update) ->
+	     #sx_upd{pctx = PCtx, monitors = Monitors}) ->
     URRs = maps:get('IP-CAN', Monitors, []),
-    get_sx_ids(urr, [RatingGroup, {offline, RatingGroup}], Update, URRs);
+    get_sx_ids(urr, [RatingGroup, {offline, RatingGroup}], PCtx, URRs);
 collect_urrs(Name, _Definition, Update) ->
     lager:error("URR: ~p, ~p", [Name, _Definition]),
     {[], sx_rule_error({system_error, Name}, Update)}.
@@ -633,7 +583,7 @@ build_sx_usage_rule(#{'Result-Code' := [2001],
 		      'Rating-Group' := [ChargingKey],
 		      'Granted-Service-Unit' := [GSU]} = GCU,
 		    #sx_upd{pctx = PCtx0} = Update) ->
-    {UrrId, PCtx} = sx_id(urr, ChargingKey, PCtx0),
+    {UrrId, PCtx} = ergw_pfcp:get_id(urr, ChargingKey, PCtx0),
     URR0 = #{urr_id => #urr_id{id = UrrId},
 	     measurement_method => #measurement_method{},
 	     reporting_triggers => #reporting_triggers{}},
@@ -654,7 +604,7 @@ build_sx_monitor_rule(Service, {'IP-CAN', periodic, Time} = _Definition,
     lager:info("Sx Monitor Rule: ~p", [_Definition]),
 
     RuleName = {monitor, 'IP-CAN', Service},
-    {UrrId, PCtx} = sx_id(urr, RuleName, PCtx0),
+    {UrrId, PCtx} = ergw_pfcp:get_id(urr, RuleName, PCtx0),
 
     URR = pfcp_packet:ies_to_map(
 	    [#urr_id{id = UrrId},
@@ -705,8 +655,8 @@ create_sgi_session(Candidates, SessionOpts, Ctx0) ->
     Ctx = ergw_pfcp:assign_data_teid(PCtx0, Ctx0),
     {ok, CntlNode, _} = ergw_sx_socket:id(),
 
-    {CPinFarId, PCtx1} = sx_id(far, dp_to_cp_far, PCtx0),
-    {IPv6MCastPdrId, PCtx2} = sx_id(pdr, ipv6_mcast_pdr, PCtx1),
+    {CPinFarId, PCtx1} = ergw_pfcp:get_id(far, dp_to_cp_far, PCtx0),
+    {IPv6MCastPdrId, PCtx2} = ergw_pfcp:get_id(pdr, ipv6_mcast_pdr, PCtx1),
 
     {SxRules0, SxErrors, PCtx} = build_sx_rules(SessionOpts, #{}, PCtx2, Ctx),
     lager:info("SxRules: ~p~n", [SxRules0]),
@@ -742,7 +692,7 @@ modify_sgi_session(SessionOpts, URRActions, Opts, #context{pfcp_ctx = PCtx0} = C
     SxRules1 =
 	lists:foldl(
 	  fun({offline, _}, SxR) ->
-		  SxR#{query_urr => build_query_usage_report(offline, Ctx)};
+		  SxR#{query_urr => build_query_usage_report(offline, PCtx)};
 	     (_, SxR) ->
 		  SxR
 	  end, SxRules0, URRActions),
@@ -769,9 +719,6 @@ modify_sgi_session(SessionOpts, URRActions, Opts, #context{pfcp_ctx = PCtx0} = C
 
 opt_int(X) when is_integer(X) -> [X];
 opt_int(_) -> [].
-
-opt_int(K, X, M) when is_integer(X) -> M#{K => X};
-opt_int(_, _, M) -> M.
 
 %% ===========================================================================
 %% Gy Support - Online Charging
@@ -969,72 +916,6 @@ charging_event_to_rf(#{'Rating-Group' := ChargingKey,
     SDC = maps:fold(fun cev_to_rf/3, SDCInit, URR),
     {SDC, Reason}.
 
-%% ===========================================================================
-
-map_usage_report_1(Fun, #usage_report_smr{group = UR}) ->
-    Fun(UR);
-map_usage_report_1(Fun, #usage_report_sdr{group = UR}) ->
-    Fun(UR);
-map_usage_report_1(Fun, #usage_report_srr{group = UR}) ->
-    Fun(UR).
-
-map_usage_report(_Fun, []) ->
-    [];
-map_usage_report(Fun, [H|T]) ->
-    [map_usage_report_1(Fun, H) | map_usage_report(Fun, T)];
-map_usage_report(Fun, URR) when is_tuple(URR) ->
-    [map_usage_report_1(Fun, URR)];
-map_usage_report(_Fun, undefined) ->
-    [].
-
-monitor_report_volume(#volume_measurement{uplink = UL, downlink = DL}, Report0) ->
-    Report = opt_int('InOctets', UL, Report0),
-    opt_int('OutOctets', DL, Report);
-monitor_report_volume(_, Report) ->
-    Report.
-
-monitor_report_duration(#duration_measurement{duration = Duration}, Report) ->
-    opt_int('Session-Time', Duration, Report);
-monitor_report_duration(_, Report) ->
-    Report.
-
-%% usage_report_to_monitor_report/1
-usage_report_to_monitor_report(#{urr_id := #urr_id{id = Id}} = URR) ->
-    Report0 = monitor_report_volume(maps:get(volume_measurement, URR, undefined), #{}),
-    Report = monitor_report_duration(maps:get(duration_measurement, URR, undefined), Report0),
-    {Id, Report}.
-
-%% usage_report_to_monitor_report/4
-usage_report_to_monitor_report({urr, {monitor, Level, Service}}, Id, CR, Report) ->
-    case CR of
-	#{Id := R} ->
-	    maps:update_with(Level, maps:put(Service, R, _), #{Service => R}, Report);
-	_ ->
-	    Report
-    end;
-usage_report_to_monitor_report({urr, {offline, RatingGroup}}, Id, CR, Report) ->
-    case CR of
-	#{Id := R} ->
-	    maps:update_with(offline, maps:put(RatingGroup, R, _), #{RatingGroup => R}, Report);
-	_ ->
-	    Report
-    end;
-usage_report_to_monitor_report(_, _, _, Report) ->
-    Report.
-
-%% usage_report_to_monitor_report/2
-usage_report_to_monitoring_report(URR, #context{
-					  pfcp_ctx =
-					      #pfcp_ctx{
-						 sx_ids = #sx_ids{idmap = IdMap}}}) ->
-    CR = map_usage_report(fun usage_report_to_monitor_report/1, URR),
-    CR1 = maps:fold(usage_report_to_monitor_report(_, _, maps:from_list(CR), _), #{}, IdMap),
-    lager:warning("Monitoring Report ~p", [lager:pr(CR1, ?MODULE)]),
-    CR1.
-
-
-%% ===========================================================================
-
 fold_usage_report_1(Fun, #usage_report_smr{group = UR}, Acc) ->
     Fun(UR, Acc);
 fold_usage_report_1(Fun, #usage_report_sdr{group = UR}, Acc) ->
@@ -1068,19 +949,11 @@ usage_report_to_charging_events(_K, _V, Ev) ->
     Ev.
 
 %% usage_report_to_charging_events/2
-usage_report_to_charging_events(URR, #context{
-					pfcp_ctx =
-					    #pfcp_ctx{
-					       sx_ids = #sx_ids{idmap = IdMap}}}) ->
-    UrrIds = maps:get(urr, IdMap, #{}),
+usage_report_to_charging_events(URR, #context{pfcp_ctx = PCtx}) ->
+    UrrIds = ergw_pfcp:get_ids(urr, PCtx),
     foldl_usage_report(
       fun (#{urr_id := #urr_id{id = Id}} = Report, Ev) ->
-	      case UrrIds of
-		  #{Id := Key} ->
-		      usage_report_to_charging_events(Key, Report, Ev);
-		  _ ->
-		      Ev
-	      end
+	      usage_report_to_charging_events(maps:get(Id, UrrIds, undefined), Report, Ev)
       end,
       init_charging_events(), URR).
 
