@@ -578,6 +578,9 @@ handle_nodedown(#data{dp = #node{node = Node}} = Data) ->
 %%% CP to Access Interface forwarding
 %%%===================================================================
 
+update_m_rec(Record, Map) when is_tuple(Record) ->
+    maps:update_with(element(1, Record), [Record | _], [Record], Map).
+
 %% use additional information from the Context to prefre V4 or V6....
 choose_up_ip(IP4, _IP6, {_,_,_,_} = _IP)
   when is_binary(IP4) ->
@@ -619,22 +622,45 @@ choose_up_ip(_IP4, _IP6, IP) ->
 
 %% -endif.
 
-gen_cp_rules(_Key, #vrf{features = Features} = VRF, DpGtpIP, Acc) ->
-    lists:foldl(gen_per_feature_cp_rule(_, VRF, DpGtpIP, _), Acc, Features).
+gen_pfcp_rules(_Key, #vrf{features = Features} = VRF, DpGtpIP, Acc) ->
+    lists:foldl(gen_per_feature_pfcp_rule(_, VRF, DpGtpIP, _), Acc, Features).
 
-gen_per_feature_cp_rule('Access', #vrf{name = Name} = VRF, DpGtpIP,
-			#pfcp_ctx{sx_ids = Ids0, sx_rules = Rules, cp_port = GtpPort} = PCtx) ->
-    RuleId = length(Rules) + 1,
+gen_per_feature_pfcp_rule('Access', #vrf{name = Name} = VRF, DpGtpIP,
+			#pfcp_ctx{sx_ids = Ids, sx_rules = Rules, cp_port = GtpPort} = PCtx) ->
+    RuleId = maps:size(Rules) + 1,
 
     {ok, TEI} = gtp_context_reg:alloc_tei(GtpPort),
 
-    PDR = create_from_cp_pdr(RuleId, GtpPort, DpGtpIP, TEI),
-    FAR = create_from_cp_far('Access', VRF, RuleId, GtpPort),
+    %% GTP-U encapsulated packet from CP
+    PDI = #pdi{
+	     group =
+		 [#source_interface{interface = 'CP-function'},
+		  ergw_pfcp:network_instance(GtpPort),
+		  ergw_pfcp:f_teid(TEI, DpGtpIP)]
+	    },
+    PDR = [#pdr_id{id = RuleId},
+	   #precedence{precedence = 100},
+	   PDI,
+	   ergw_pfcp:outer_header_removal(DpGtpIP),
+	   #far_id{id = RuleId}],
+    %% forward to Access intefaces
+    FAR = [#far_id{id = RuleId},
+	   #apply_action{forw = 1},
+	   #forwarding_parameters{
+	      group =
+		  [#destination_interface{interface = 'Access'},
+		   ergw_pfcp:network_instance(VRF)]
+	     }
+	  ],
 
     Key = {Name, 'Access', tei},
-    Ids = Ids0#{Key => TEI},
-    PCtx#pfcp_ctx{sx_ids = Ids, sx_rules = [PDR, FAR | Rules]};
-gen_per_feature_cp_rule(_, _DpGtpIP, _PCtx, Acc) ->
+    PCtx#pfcp_ctx{
+      sx_ids = Ids#{Key => TEI},
+      sx_rules =
+	  Rules#{{pdr, RuleId} => pfcp_packet:ies_to_map(PDR),
+		 {far, RuleId} => pfcp_packet:ies_to_map(FAR)}
+     };
+gen_per_feature_pfcp_rule(_, _VRF, _DpGtpIP, Acc) ->
     Acc.
 
 install_cp_rules(#data{pfcp_ctx = PCtx0,
@@ -647,44 +673,13 @@ install_cp_rules(#data{pfcp_ctx = PCtx0,
 		     end, maps:values(VRFs)),
     DpGtpIP = choose_up_ip(DpGtpIP4, DpGtpIP6, DpNodeIP),
 
-    PCtx1 = PCtx0#pfcp_ctx{sx_rules = [], sx_ids = #{}},
-    PCtx = #pfcp_ctx{sx_rules = Rules} =
-	maps:fold(gen_cp_rules(_, _, DpGtpIP, _), PCtx1, VRFs),
+    PCtx1 = PCtx0#pfcp_ctx{sx_rules = #{}, sx_ids = #{}},
+    PCtx = maps:fold(gen_pfcp_rules(_, _, DpGtpIP, _), PCtx1, VRFs),
+    Rules = ergw_pfcp:update_pfcp_rules(PCtx1, PCtx, #{}),
+    IEs = update_m_rec(ergw_pfcp:f_seid(PCtx, CntlNode), Rules),
 
-    IEs = [ergw_pfcp:f_seid(PCtx, CntlNode) | Rules],
     Req0 = #pfcp{version = v1, type = session_establishment_request, seid = 0, ie = IEs},
     Req = augment_mandatory_ie(Req0, Data),
     ergw_sx_socket:call(DpNodeIP, Req, response_cb(from_cp_rule)),
 
     Data#data{pfcp_ctx = PCtx}.
-
-create_from_cp_pdr(RuleId, Port, IP, TEI) ->
-    #create_pdr{
-       group =
-	   [#pdr_id{id = RuleId},
-	    #precedence{precedence = 100},
-
-	    #pdi{
-	       group =
-		   [#source_interface{interface = 'CP-function'},
-		    ergw_pfcp:network_instance(Port),
-		    ergw_pfcp:f_teid(TEI, IP)]
-	      },
-
-	    ergw_pfcp:outer_header_removal(IP),
-	    #far_id{id = RuleId}]
-      }.
-
-create_from_cp_far(Intf, VRF, RuleId, _Port) ->
-    #create_far{
-       group =
-	   [#far_id{id = RuleId},
-	    #apply_action{forw = 1},
-	    #forwarding_parameters{
-	       group =
-		   [#destination_interface{interface = Intf},
-		    ergw_pfcp:network_instance(VRF)
-		   ]
-	      }
-	   ]
-      }.
