@@ -663,18 +663,188 @@ simple_session(Config) ->
     P = meck:capture(first, ?HUT, handle_request, ['_', GtpRecMatch, '_', '_'], 2),
     ?match(#gtp{seq_no = SeqNo} when SeqNo >= 16#80000, P),
 
-    V = meck:capture(first, pgw_s5s8, handle_request, ['_', GtpRecMatch, '_', '_'], 2),
-    %% ct:pal("V: ~s", [ergw_test_lib:pretty_print(V)]),
+    FirstHR = meck:capture(first, pgw_s5s8, handle_request, ['_', GtpRecMatch, '_', '_'], 2),
+    %% ct:pal("FirstHR: ~s", [ergw_test_lib:pretty_print(FirstHR)]),
     ?match(
        #gtp{ie = #{
 	      {v2_access_point_name, 0} := #v2_access_point_name{apn = ?'APN-PROXY'},
 	      {v2_international_mobile_subscriber_identity, 0} :=
 		   #v2_international_mobile_subscriber_identity{imsi = ?'PROXY-IMSI'},
 	      {v2_msisdn, 0} := #v2_msisdn{msisdn = ?'PROXY-MSISDN'}
-	     }}, V),
-    ?match(#gtp{seq_no = SeqNo} when SeqNo < 16#80000, V),
+	     }}, FirstHR),
+    ?match(#gtp{seq_no = SeqNo} when SeqNo < 16#80000, FirstHR),
 
     ?equal([], outstanding_requests()),
+
+    PSeids = pfcp_seids(),
+    History = ergw_test_sx_up:history('sgw-u'),
+    ct:pal("History:~n~s", [pfcp_packet:pretty_print(History)]),
+    [SER, SMR|_] =
+	lists:filter(
+	  fun(#pfcp{type = session_establishment_request,
+		    ie = #{f_seid := #f_seid{seid = FSeid}}}) ->
+		  not lists:member(FSeid, PSeids);
+	     (#pfcp{type = session_modification_request, seid = FSeid}) ->
+		  not lists:member(FSeid, PSeids);
+	     (_) -> false
+	  end, History),
+
+    SERMap =
+	fun SERFilter(Value, Acc) when is_list(Value) ->
+		lists:foldl(SERFilter, Acc, Value);
+	    SERFilter(#create_pdr{
+			 group =
+			     #{pdi :=
+				   #pdi{group =
+					    #{source_interface :=
+						  #source_interface{interface = Intf}}}}} = PDR,
+		      Acc) ->
+		Acc#{{pdr, Intf} => PDR};
+	    SERFilter(#create_far{
+			 group =
+			     #{far_id := Id,
+			       forwarding_parameters :=
+				   #forwarding_parameters{
+				      group =
+					  #{destination_interface :=
+						#destination_interface{interface = Intf}}}}
+			} = FAR,
+		      Acc) ->
+		Acc#{{far, id, Intf} => Id, {far, Intf} => FAR};
+	    SERFilter(#create_far{
+			 group =
+			     #{far_id := Id,
+			       apply_action :=
+				   #apply_action{drop = 1}}} = FAR,
+		      Acc) ->
+		Acc#{{far, id, drop} => Id, {far, drop} => FAR};
+	    SERFilter(#create_urr{
+			 group =
+			     #{urr_id := Id,
+			       reporting_triggers :=
+				   #reporting_triggers{
+				      periodic_reporting = 1}
+			      }}, Acc) ->
+		Acc#{{urr, id} => Id};
+	    SERFilter(Value, Acc) ->
+		Acc
+	end(maps:values(SER#pfcp.ie), #{}),
+    ct:pal("SER Map:~n~s", [pfcp_packet:pretty_print(SERMap)]),
+
+    #{{far,'Access'} := FarAccess,
+      {far,drop} := FarDrop,
+      {pdr,'Access'} := PdrAccess,
+      {pdr,'Core'} := PdrCore,
+      {far,id,'Access'} := FarAccessId,
+      {far,id,drop} := FarDropId,
+      {urr, id} := UrrId} = SERMap,
+
+    ?match(#create_far{
+	      group =
+		  #{far_id := #far_id{},
+		    apply_action :=
+			#apply_action{forw = 1},
+		    forwarding_parameters :=
+			#forwarding_parameters{
+			   group =
+			       #{destination_interface :=
+				     #destination_interface{interface = 'Access'},
+				 network_instance :=
+				     #network_instance{},
+				 outer_header_creation :=
+				     #outer_header_creation{
+					type = 'GTP-U'}
+				}
+			  }
+		   }
+	     }, FarAccess),
+    ?match(#create_far{
+	      group =
+		  #{far_id := #far_id{},
+		    apply_action :=
+			#apply_action{drop = 1}
+		   }
+	     }, FarDrop),
+    ?match(#create_pdr{
+	      group =
+		  #{far_id := FarDropId,
+		    outer_header_removal :=
+			#outer_header_removal{},
+		    pdi :=
+			#pdi{
+			   group =
+			       #{f_teid :=
+				     #f_teid{},
+				 network_instance :=
+				     #network_instance{},
+				 source_interface :=
+				     #source_interface{interface = 'Access'}}},
+		    pdr_id := #pdr_id{},
+		    precedence := #precedence{precedence = 100},
+		    urr_id := UrrId
+		   }
+	     }, PdrAccess),
+    ?match(#create_pdr{
+	      group =
+		  #{far_id := FarAccessId,
+		    outer_header_removal :=
+			#outer_header_removal{},
+		    pdi :=
+			#pdi{
+			   group =
+			       #{f_teid :=
+				     #f_teid{},
+				 network_instance :=
+				     #network_instance{},
+				 source_interface :=
+				     #source_interface{interface = 'Core'}}},
+		    pdr_id := #pdr_id{},
+		    precedence := #precedence{precedence = 100},
+		    urr_id := UrrId
+		   }
+	     }, PdrCore),
+    SMRMap =
+	fun SMRFilter(Value, Acc) when is_list(Value) ->
+		lists:foldl(SMRFilter, Acc, Value);
+	    SMRFilter(#update_far{
+			 group =
+			     #{far_id := Id,
+			       update_forwarding_parameters :=
+				   #update_forwarding_parameters{
+				      group =
+					  #{destination_interface :=
+						#destination_interface{interface = Intf}}}}
+			} = FAR,
+		      Acc) ->
+		Acc#{{far, id, Intf} => Id, {far, Intf} => FAR};
+	    SMRFilter(Value, Acc) ->
+		Acc
+	end(maps:values(SMR#pfcp.ie), #{}),
+    ct:pal("SMR Map:~n~s", [pfcp_packet:pretty_print(SMRMap)]),
+
+    #{{far,'Core'} := FarCore,
+      {far,id,'Core'} := FarCoreId} = SMRMap,
+
+    ?equal(FarCoreId, FarDropId),
+    ?match(#update_far{
+	      group =
+		  #{apply_action :=
+			#apply_action{forw = 1},
+		    update_forwarding_parameters :=
+			#update_forwarding_parameters{
+			   group =
+			       #{destination_interface :=
+				     #destination_interface{interface = 'Core'},
+				 network_instance :=
+				     #network_instance{},
+			      outer_header_creation :=
+				     #outer_header_creation{
+				      type = 'GTP-U'}
+				}
+			  }
+		   }
+	     }, FarCore),
+
     ok.
 
 %%--------------------------------------------------------------------
@@ -1522,3 +1692,6 @@ check_exo_contexts(Version, Cnt, Expect) ->
     ?equal(Cnt, length(Metrics)),
     [?equal({Path, Expect}, {Path, proplists:get_value(value, Value)}) ||
 	{Path, Value} <- Metrics].
+
+pfcp_seids() ->
+    lists:flatten(ets:match(gtp_context_reg, {{seid, '$1'},{ergw_sx_node, '_'}})).
