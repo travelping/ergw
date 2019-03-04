@@ -405,6 +405,7 @@ handle_response(#proxy_request{direction = sgsn2ggsn} = ProxyRequest,
 		{noreply, State#{context => Context, proxy_context => ProxyContext}};
 
 	   true ->
+		delete_forward_session(normal, State),
 		{stop, State}
 	end,
 
