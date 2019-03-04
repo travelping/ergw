@@ -182,8 +182,8 @@ update_m_rec(Record, Map) when is_tuple(Record) ->
 %%% Sx DP API
 %%%===================================================================
 
-proxy_pdr({DstIntf, SrcIntf,
-	   #context{local_data_endp = LocalDataEndp}},
+proxy_pdr({SrcIntf, #context{local_data_endp = LocalDataEndp},
+	  DstIntf, _Right},
 	  #pfcp_ctx{sx_rules = Rules} = PCtx0) ->
 
     {[PdrId, FarId, UrrId], PCtx} =
@@ -205,10 +205,11 @@ proxy_pdr({DstIntf, SrcIntf,
 	  Rules#{{pdr, PdrId} => pfcp_packet:ies_to_map(PDR)}
      }.
 
-proxy_far({DstIntf, _SrcIntf,
-	    #context{
-	       local_data_endp = LocalDataEndp,
-	       remote_data_teid = PeerTEID}},
+proxy_far({_SrcIntf, _Left, DstIntf,
+	   #context{
+	      local_data_endp = LocalDataEndp,
+	      remote_data_teid = PeerTEID}
+	  },
 	  #pfcp_ctx{sx_rules = Rules} = PCtx0)
   when PeerTEID /= undefined ->
     {FarId, PCtx} = ergw_pfcp:get_id(far, DstIntf, PCtx0),
@@ -226,7 +227,7 @@ proxy_far({DstIntf, _SrcIntf,
       sx_rules =
 	  Rules#{{far, FarId} => pfcp_packet:ies_to_map(FAR)}
      };
-proxy_far({DstIntf, _SrcIntf, _Out},
+proxy_far({_SrcIntf, _Left, DstIntf, _Right},
 	  #pfcp_ctx{sx_rules = Rules} = PCtx0) ->
     {FarId, PCtx} = ergw_pfcp:get_id(far, DstIntf, PCtx0),
     FAR = [#far_id{id = FarId},
@@ -254,7 +255,7 @@ create_forward_session(Candidates, Left0, Right0) ->
     Right = ergw_pfcp:assign_data_teid(PCtx0, Right0),
     {ok, CntlNode, _} = ergw_sx_socket:id(),
 
-    MakeRules = [{'Access', 'Core', Left}, {'Core', 'Access', Right}],
+    MakeRules = [{'Access', Left, 'Core', Right}, {'Core', Right, 'Access', Left}],
     PCtx1 = lists:foldl(fun proxy_pdr/2, PCtx0, MakeRules),
     PCtx2 = lists:foldl(fun proxy_far/2, PCtx1, MakeRules),
     PCtx = proxy_urr(PCtx2),
@@ -276,7 +277,7 @@ modify_forward_session(#context{version = OldVersion,
 				pfcp_ctx = OldPCtx} = OldLeft,
 		       #context{version = NewVersion} = NewLeft,
 		       _OldRight, NewRight) ->
-    MakeRules = [{'Access', 'Core', NewLeft}, {'Core', 'Access', NewRight}],
+    MakeRules = [{'Access', NewLeft, 'Core', NewRight}, {'Core', NewRight, 'Access', NewLeft}],
     PCtx0 = OldPCtx#pfcp_ctx{sx_rules = #{}},
     PCtx1 = lists:foldl(fun proxy_pdr/2, PCtx0, MakeRules),
     PCtx2 = lists:foldl(fun proxy_far/2, PCtx1, MakeRules),
