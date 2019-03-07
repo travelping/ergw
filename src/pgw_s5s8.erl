@@ -153,10 +153,12 @@ handle_info(#aaa_request{procedure = {gy, 'RAR'}, request = Request},
 	#pfcp{type = session_modification_response,
 	      ie = #{pfcp_cause := #pfcp_cause{cause = 'Request accepted'}} = IEs} ->
 
+	    ChargeEv = interim,
 	    UsageReport = maps:get(usage_report_smr, IEs, undefined),
-	    {Online, Offline, _} = ergw_gsn_lib:usage_report_to_charging_events(UsageReport, Context),
-	    ergw_gsn_lib:process_online_charging_events(interim, Online, Now, Session),
-	    ergw_gsn_lib:process_offline_charging_events(interim, Offline, Now, Session),
+	    {Online, Offline, _} =
+		ergw_gsn_lib:usage_report_to_charging_events(UsageReport, ChargeEv, Context),
+	    ergw_gsn_lib:process_online_charging_events(ChargeEv, Online, Now, Session),
+	    ergw_gsn_lib:process_offline_charging_events(ChargeEv, Offline, Now, Session),
 	    ok;
 	_ ->
 	    ok
@@ -644,9 +646,10 @@ close_pdn_context(Reason, #{context := Context, 'Session' := Session}) ->
 
     ergw_aaa_session:invoke(Session, #{}, stop, SOpts#{async => true}),
 
-    {Online, Offline, _} = ergw_gsn_lib:usage_report_to_charging_events(URRs, Context),
-    ergw_gsn_lib:process_online_charging_events({terminate, TermCause}, Online, Now, Session),
-    ergw_gsn_lib:process_offline_charging_events({terminate, TermCause}, Offline, Now, Session),
+    ChargeEv = {terminate, TermCause},
+    {Online, Offline, _} = ergw_gsn_lib:usage_report_to_charging_events(URRs, ChargeEv, Context),
+    ergw_gsn_lib:process_online_charging_events(ChargeEv, Online, Now, Session),
+    ergw_gsn_lib:process_offline_charging_events(ChargeEv, Offline, Now, Session),
 
     %% ===========================================================================
 
