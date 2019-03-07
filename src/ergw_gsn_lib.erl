@@ -10,7 +10,7 @@
 -compile({parse_transform, cut}).
 
 -export([create_sgi_session/3,
-	 usage_report_to_charging_events/2,
+	 usage_report_to_charging_events/3,
 	 process_online_charging_events/4,
 	 process_offline_charging_events/4,
 	 process_offline_charging_events/5,
@@ -25,6 +25,7 @@
 
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include_lib("pfcplib/include/pfcp_packet.hrl").
+-include_lib("ergw_aaa/include/ergw_aaa_3gpp.hrl").
 -include_lib("ergw_aaa/include/diameter_3gpp_ts32_299.hrl").
 -include("include/ergw.hrl").
 
@@ -776,6 +777,9 @@ charging_event_to_gy(#{'Rating-Group' := ChargingKey,
 %% Rf Support - Offline Charging
 %% ===========================================================================
 
+optional_if_unset(K, V, M) ->
+    maps:update_with(K, fun(L) -> L end, [V], M).
+
 %% Service-Data-Container :: = < AVP Header: 2040>
 %%   [ AF-Correlation-Information ]
 %%   [ Charging-Rule-Base-Name ]
@@ -827,63 +831,84 @@ init_sdc_from_session(Now, SessionOpts) ->
     SDC#{'Change-Time' =>
 	     [system_time_to_universal_time(Now + erlang:time_offset(), native)]}.
 
--ifdef (TBD).
+cev_to_rf_cc_kv(immer, SDC) ->
+    %% Immediate Reporting means something has triggered a Report Request,
+    %% the triggering function has to make sure to fill in the
+    %% Change-Condition
+    SDC;
+cev_to_rf_cc_kv(droth, SDC) ->
+    %% Drop-Threshold, similar enough to Volume Limit
+    optional_if_unset('Change-Condition', ?'DIAMETER_3GPP_CHARGING-CHANGE-CONDITION_VOLUME_LIMIT', SDC);
+cev_to_rf_cc_kv(stopt, SDC) ->
+    %% best match for Stop-Of-Trigger seems to be Service Idled Out
+    optional_if_unset('Change-Condition', ?'DIAMETER_3GPP_CHARGING-CHANGE-CONDITION_SERVICE_IDLED_OUT', SDC);
+cev_to_rf_cc_kv(start, SDC) ->
+    %% Start-Of-Traffic should not trigger a chargable event....
+    %%    maybe a container opening
+    SDC;
+cev_to_rf_cc_kv(quhti, SDC) ->
+    %% Quota Holding Time
+    optional_if_unset('Change-Condition', ?'DIAMETER_3GPP_CHARGING-CHANGE-CONDITION_TIME_LIMIT', SDC);
+cev_to_rf_cc_kv(timth, SDC) ->
+    %% Time Threshold ->
+    optional_if_unset('Change-Condition', ?'DIAMETER_3GPP_CHARGING-CHANGE-CONDITION_TIME_LIMIT', SDC);
+cev_to_rf_cc_kv(volth, SDC) ->
+    %% Volume Threshold ->
+    optional_if_unset('Change-Condition', ?'DIAMETER_3GPP_CHARGING-CHANGE-CONDITION_VOLUME_LIMIT', SDC);
+cev_to_rf_cc_kv(perio, SDC) ->
+    %% Periodic Reporting
+    optional_if_unset('Change-Condition', ?'DIAMETER_3GPP_CHARGING-CHANGE-CONDITION_TIME_LIMIT', SDC);
+cev_to_rf_cc_kv(macar, SDC) ->
+    %% MAC Addresses Reporting
+    SDC;
+cev_to_rf_cc_kv(envcl, SDC) ->
+    %% Envelope Closure
+    SDC;
+cev_to_rf_cc_kv(monit, SDC) ->
+    %% Monitoring Time
+    optional_if_unset('Change-Condition', ?'DIAMETER_3GPP_CHARGING-CHANGE-CONDITION_TIME_LIMIT', SDC);
+cev_to_rf_cc_kv(termr, SDC) ->
+    %% Termination Report -> Normal Release
+    optional_if_unset('Change-Condition', ?'DIAMETER_3GPP_CHARGING-CHANGE-CONDITION_NORMAL_RELEASE', SDC);
+cev_to_rf_cc_kv(liusa, SDC) ->
+    %% Linked Usage Reporting -> TBD, not used for now
+    SDC;
+cev_to_rf_cc_kv(timqu, SDC) ->
+    %% Time Quota -> Time Limit
+    optional_if_unset('Change-Condition', ?'DIAMETER_3GPP_CHARGING-CHANGE-CONDITION_TIME_LIMIT', SDC);
+cev_to_rf_cc_kv(volqu, SDC) ->
+    %% Volume Quota ->
+    optional_if_unset('Change-Condition', ?'DIAMETER_3GPP_CHARGING-CHANGE-CONDITION_VOLUME_LIMIT', SDC);
+cev_to_rf_cc_kv(_, SDC) ->
+    SDC.
 
-assign([Key], Fun, Avps) ->
-    Fun(Key, Avps);
-assign([Key | Next], Fun, Avps) ->
-    [V] = maps:get(Key, Avps, [#{}]),
-    Avps#{Key => [assign(Next, Fun, V)]}.
-
-repeated(Keys, Value, Avps) when is_list(Keys) ->
-    assign(Keys, repeated(_, Value, _), Avps);
-repeated(Key, Value, Avps)
-  when is_atom(Key) ->
-    maps:update_with(Key, fun(V) -> [Value|V] end, [Value], Avps).
-
-%% TBD: Change Condition
 cev_to_rf_change_condition([], _, SDC) ->
     SDC;
-cev_to_rf_change_condition([immer|Fields], [1|Values], SDC) ->
-    repeated('Change-Condition', 0, SDC);
-cev_to_rf_change_condition([droth|Fields], [1|Values], SDC) ->
-    repeated('Change-Condition', 0, SDC);
-cev_to_rf_change_condition([stopt|Fields], [1|Values], SDC) ->
-    repeated('Change-Condition', 0, SDC);
-cev_to_rf_change_condition([start|Fields], [1|Values], SDC) ->
-    repeated('Change-Condition', 0, SDC);
-cev_to_rf_change_condition([quhti|Fields], [1|Values], SDC) ->
-    repeated('Change-Condition', 0, SDC);
-cev_to_rf_change_condition([timth|Fields], [1|Values], SDC) ->
-    %% Time Threshold ->
-    repeated('Change-Condition', 0, SDC);
-cev_to_rf_change_condition([volth|Fields], [1|Values], SDC) ->
-    %% Volume Threshold ->
-    repeated('Change-Condition', 0, SDC);
-cev_to_rf_change_condition([perio|Fields], [1|Values], SDC) ->
-    repeated('Change-Condition', 0, SDC);
-cev_to_rf_change_condition([macar|Fields], [1|Values], SDC) ->
-    repeated('Change-Condition', 0, SDC);
-cev_to_rf_change_condition([envcl|Fields], [1|Values], SDC) ->
-    repeated('Change-Condition', 0, SDC);
-cev_to_rf_change_condition([monit|Fields], [1|Values], SDC) ->
-    repeated('Change-Condition', 0, SDC);
-cev_to_rf_change_condition([termr|Fields], [1|Values], SDC) ->
-    %% Normal Release
-    repeated('Change-Condition', 0, SDC);
-cev_to_rf_change_condition([liusa|Fields], [1|Values], SDC) ->
-    repeated('Change-Condition', 0, SDC);
-cev_to_rf_change_condition([timqu|Fields], [1|Values], SDC) ->
-    %% Time Quota -> Time Limit
-    repeated('Change-Condition', 0, SDC);
-cev_to_rf_change_condition([volqu|Fields], [1|Values], SDC) ->
-    %% Volume Quota ->
-    repeated('Change-Condition', 0, SDC);
-
+cev_to_rf_change_condition([K|Fields], [1|Values], SDC) ->
+    cev_to_rf_change_condition(Fields, Values, cev_to_rf_cc_kv(K, SDC));
 cev_to_rf_change_condition([_|Fields], [_|Values], SDC) ->
     cev_to_rf_change_condition(Fields, Values, SDC).
 
--endif.
+cev_to_rf('Charge-Event', {_, 'qos-change'}, SDC) ->
+    SDC#{'Change-Condition' => ?'DIAMETER_3GPP_CHARGING-CHANGE-CONDITION_QOS_CHANGE'};
+cev_to_rf('Charge-Event', {_, 'sgsn-sgw-change'}, SDC) ->
+    SDC#{'Change-Condition' => ?'DIAMETER_3GPP_CHARGING-CHANGE-CONDITION_SERVING_NODE_CHANGE'};
+cev_to_rf('Charge-Event', {_, 'sgsn-sgw-plmn-id-change'}, SDC) ->
+    SDC#{'Change-Condition' => ?'DIAMETER_3GPP_CHARGING-CHANGE-CONDITION_SERVING_NODE_PLMN_CHANGE'};
+cev_to_rf('Charge-Event', {_, 'user-location-info-change'}, SDC) ->
+    SDC#{'Change-Condition' => ?'DIAMETER_3GPP_CHARGING-CHANGE-CONDITION_USER_LOCATION_CHANGE'};
+cev_to_rf('Charge-Event', {_, 'rat-change'}, SDC) ->
+    SDC#{'Change-Condition' => ?'DIAMETER_3GPP_CHARGING-CHANGE-CONDITION_RAT_CHANGE'};
+cev_to_rf('Charge-Event', {_, 'ms-time-zone-change'}, SDC) ->
+    SDC#{'Change-Condition' => ?'DIAMETER_3GPP_CHARGING-CHANGE-CONDITION_UE_TIMEZONE_CHANGE'};
+cev_to_rf('Charge-Event', {_, 'cgi-sai-change'}, SDC) ->
+    SDC#{'Change-Condition' => ?'DIAMETER_3GPP_CHARGING-CHANGE-CONDITION_CGI_SAI_CHANGE'};
+cev_to_rf('Charge-Event', {_, 'rai-change'}, SDC) ->
+    SDC#{'Change-Condition' => ?'DIAMETER_3GPP_CHARGING-CHANGE-CONDITION_RAI_CHANGE'};
+cev_to_rf('Charge-Event', {_, 'ecgi-change'}, SDC) ->
+    SDC#{'Change-Condition' => ?'DIAMETER_3GPP_CHARGING-CHANGE-CONDITION_ECGI_CHANGE'};
+cev_to_rf('Charge-Event', {_, 'tai-change'}, SDC) ->
+    SDC#{'Change-Condition' => ?'DIAMETER_3GPP_CHARGING-CHANGE-CONDITION_TAI_CHANGE'};
 
 cev_to_rf('Rating-Group' = Key, RatingGroup, SDC) ->
     SDC#{Key => [RatingGroup]};
@@ -895,9 +920,9 @@ cev_to_rf(_, #end_time{time = TS}, SDC) ->
     SDC#{'Time-Last-Usage' =>
 	     [calendar:gregorian_seconds_to_datetime(sntp_time_to_seconds(TS)
 						     + ?SECONDS_FROM_0_TO_1970)]};
-%% cev_to_rf(usage_report_trigger, #usage_report_trigger{} = Trigger, SDC) ->
-%%     cev_to_rf_change_condition(record_info(fields, usage_report_trigger),
-%% 			       tl(tuple_to_list(Trigger)), SDC);
+cev_to_rf(usage_report_trigger, #usage_report_trigger{} = Trigger, SDC) ->
+    cev_to_rf_change_condition(record_info(fields, usage_report_trigger),
+			       tl(tuple_to_list(Trigger)), SDC);
 cev_to_rf(_, #volume_measurement{uplink = UL, downlink = DL}, SDC) ->
     SDC#{'Accounting-Input-Octets'  => opt_int(UL),
 	 'Accounting-Output-Octets' => opt_int(DL)};
@@ -907,8 +932,7 @@ cev_to_rf(_, _, SDC) ->
     SDC.
 
 %% charging_event_to_rf/2
-charging_event_to_rf(#{'Rating-Group' := ChargingKey,
-		       usage_report_trigger :=
+charging_event_to_rf(#{usage_report_trigger :=
 			   #usage_report_trigger{perio = Periodic}} = URR, SDCInit, Reason0) ->
     Reason = if Periodic == 1 -> cdr_closure;
 		true          -> Reason0
@@ -935,25 +959,29 @@ foldl_usage_report(_Fun, Acc, undefined) ->
 init_charging_events() ->
     {[], [], []}.
 
-%% usage_report_to_charging_events/3
-usage_report_to_charging_events(RatingGroup, Report, {On, _, _} = Ev)
+%% usage_report_to_charging_events/4
+usage_report_to_charging_events(RatingGroup, Report,
+				_ChargeEv, {On, _, _} = Ev)
   when is_integer(RatingGroup), is_map(Report) ->
     setelement(1, Ev, [Report#{'Rating-Group' => RatingGroup} | On]);
-usage_report_to_charging_events({offline, RatingGroup}, Report, {_, Off, _} = Ev)
+usage_report_to_charging_events({offline, RatingGroup}, Report,
+				ChargeEv, {_, Off, _} = Ev)
   when is_integer(RatingGroup), is_map(Report) ->
-    setelement(2, Ev, [Report#{'Rating-Group' => RatingGroup} | Off]);
-%% usage_report_to_charging_events({monitor, Level, Service}, Report, {_, _, Mon} = Ev)
+    setelement(2, Ev, [Report#{'Rating-Group' => RatingGroup,
+			       'Charge-Event' => ChargeEv} | Off]);
+%% usage_report_to_charging_events({monitor, Level, Service}, Report,
+%% 				ChargeEv, {_, _, Mon} = Ev)
 %%   when is_map(Report) ->
 %%     Ev;
-usage_report_to_charging_events(_K, _V, Ev) ->
+usage_report_to_charging_events(_K, _V, _ChargeEv, Ev) ->
     Ev.
 
-%% usage_report_to_charging_events/2
-usage_report_to_charging_events(URR, #context{pfcp_ctx = PCtx}) ->
+%% usage_report_to_charging_events/3
+usage_report_to_charging_events(URR, ChargeEv, #context{pfcp_ctx = PCtx}) ->
     UrrIds = ergw_pfcp:get_ids(urr, PCtx),
     foldl_usage_report(
       fun (#{urr_id := #urr_id{id = Id}} = Report, Ev) ->
-	      usage_report_to_charging_events(maps:get(Id, UrrIds, undefined), Report, Ev)
+	      usage_report_to_charging_events(maps:get(Id, UrrIds, undefined), Report, ChargeEv, Ev)
       end,
       init_charging_events(), URR).
 

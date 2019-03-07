@@ -98,8 +98,8 @@ remote_context_update(OldContext, NewContext)
 delete_context(Context) ->
     gen_server:call(Context, delete_context).
 
-triggered_offline_usage_report(Pid, Actions, OldS, Response) ->
-    gen_server:cast(Pid, {triggered_offline_usage_report, Actions, OldS, Response}).
+triggered_offline_usage_report(Pid, ChargeEv, OldS, Response) ->
+    gen_server:cast(Pid, {triggered_offline_usage_report, ChargeEv, OldS, Response}).
 
 trigger_charging_events(URRActions, Context) ->
     lists:map(fun({offline, Cb}) ->
@@ -141,12 +141,11 @@ collect_charging_events(OldS, NewS, Context) ->
 			  Evs
 		  end
 	  end, [], EvChecks),
-    Actions = ergw_charging:is_charging_event(offline, Events, Config),
-    if Actions /= [] ->
-	    %% trigger offline charging action
-	    [{offline, {?MODULE, triggered_offline_usage_report, [self(), Actions, OldS]}}];
-       true ->
-	    []
+    case ergw_charging:is_charging_event(offline, Events, Config) of
+	false ->
+	    [];
+	ChargeEv ->
+	    [{offline, {?MODULE, triggered_offline_usage_report, [self(), ChargeEv, OldS]}}]
     end.
 
 %% 3GPP TS 29.060 (GTPv1-C) and TS 29.274 (GTPv2-C) have language that states
@@ -391,26 +390,19 @@ handle_cast({handle_response, ReqInfo, Request, Response0},
 	    {noreply, State0}
     end;
 
-handle_cast({triggered_offline_usage_report, Events, OldS, #pfcp{ie = IEs}},
+handle_cast({triggered_offline_usage_report, {Reason, _} = ChargeEv, OldS, #pfcp{ie = IEs}},
 	    #{context := Context, 'Session' := Session} = State)
-  when Events /= [] ->
+  when ChargeEv =/= false ->
     Now = erlang:monotonic_time(),
 
     UsageReport = maps:get(usage_report_smr, IEs, undefined),
-    {_Online, Offline, _} = ergw_gsn_lib:usage_report_to_charging_events(UsageReport, Context),
-
-    Reason =
-	case proplists:get_bool(cdr, Events) of
-	    true ->
-		cdr_closure;
-	    _ ->
-		container_closure
-	end,
+    {_Online, Offline, _} =
+	ergw_gsn_lib:usage_report_to_charging_events(UsageReport, ChargeEv, Context),
     ergw_gsn_lib:process_offline_charging_events(Reason, Offline, Now, OldS, Session),
 
     {noreply, State};
 
-handle_cast({triggered_offline_usage_report, _Events, _OldS, _Response}, State) ->
+handle_cast({triggered_offline_usage_report, _ChargeEv, _OldS, _Response}, State) ->
     {noreply, State};
 
 handle_cast(Msg, #{interface := Interface} = State) ->

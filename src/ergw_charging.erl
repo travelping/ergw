@@ -99,7 +99,40 @@ is_charging_event(_, _, _Config) ->
 %%% Helper functions
 %%%===================================================================
 
+%% use the numeric ordering from 3GPP TS 32.299,
+%% sect. 7.2.37 Change-Condition AVP
+ev_highest_prio(Evs) ->
+    PrioM =
+	#{
+	  'qos-change' =>                       2,
+	  'sgsn-sgw-change' =>                  5,
+	  'sgsn-sgw-plmn-id-change' =>          6,
+	  'user-location-info-change' =>        7,
+	  'rat-change' =>                       8,
+	  'ms-time-zone-change' =>              9,
+	  'tariff-switch-change' =>             10,
+	  'max-cond-change' =>                  13,
+	  'cgi-sai-change' =>                   14,
+	  'rai-change' =>                       15,
+	  'ecgi-change' =>                      16,
+	  'tai-change' =>                       17
+	 },
+    {_, H} = lists:min([{maps:get(Ev, PrioM, 255), Ev} || Ev <- Evs]),
+    H.
+
+assign_ev(Key, Ev, M) ->
+    maps:update_with(Key, fun(L) -> [Ev|L] end, [Ev], M).
+
 is_offline_charging_event(Evs, Filter)
   when is_map(Filter) ->
-    Es = ordsets:from_list([maps:get(Ev, Filter, off) || Ev <- Evs]),
-    ordsets:del_element(off, Es).
+    Em = lists:foldl(
+	   fun(Ev, M) -> assign_ev(maps:get(Ev, Filter, off), Ev, M) end,
+	   #{}, Evs),
+    case Em of
+	#{cdr := CdrEvs} when CdrEvs /= [] ->
+	    {cdr_closure, ev_highest_prio(CdrEvs)};
+	#{container := CCEvs} when CCEvs /= [] ->
+	    {container_closure, ev_highest_prio(CCEvs)};
+	_ ->
+	    false
+    end.
