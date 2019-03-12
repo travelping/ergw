@@ -103,52 +103,6 @@ ctx_update_dp_seid(#{f_seid := #f_seid{seid = DP}},
 ctx_update_dp_seid(_, PCtx) ->
     PCtx.
 
-create_ipv6_mcast_pdr(PdrId, FarId,
-		      #context{local_data_endp = LocalDataEndp, ms_v6 = IPv6},
-		      Rules)
-  when IPv6 /= undefined ->
-    PDR =
-	pfcp_packet:ies_to_map(
-	  #create_pdr{
-	     group =
-		 [#pdr_id{id = PdrId},
-		  #precedence{precedence = 100},
-		  #pdi{
-		     group =
-			 [#source_interface{interface = 'Access'},
-			  ergw_pfcp:network_instance(LocalDataEndp),
-			  ergw_pfcp:f_teid(LocalDataEndp),
-			  #sdf_filter{
-			     flow_description =
-				 <<"permit out 58 from ff00::/8 to assigned">>}
-			 ]},
-		  #far_id{id = FarId},
-		  #urr_id{id = 1}]
-	    }),
-    update_m_rec(PDR, Rules);
-create_ipv6_mcast_pdr(_, _, _, Rules) ->
-    Rules.
-
-create_dp_to_cp_far(access, FarId,
-		    #pfcp_ctx{cp_port = #gtp_port{ip = CpIP} = CpPort, cp_tei = CpTEI},
-		    Rules) ->
-    FAR =
-	pfcp_packet:ies_to_map(
-	  #create_far{
-	     group =
-		 [#far_id{id = FarId},
-		  #apply_action{forw = 1},
-		  #forwarding_parameters{
-		     group =
-			 [#destination_interface{interface = 'CP-function'},
-			  ergw_pfcp:network_instance(CpPort),
-			  ergw_pfcp:outer_header_creation(#fq_teid{ip = CpIP, teid = CpTEI})
-			 ]
-		    }
-		 ]
-	    }),
-    update_m_rec(FAR, Rules).
-
 %% use additional information from the Context to prefre V4 or V6....
 choose_context_ip(IP4, _IP6, _Context)
   when is_binary(IP4) ->
@@ -275,6 +229,7 @@ apply_charging_profile(_K, _V, URR) ->
 apply_charging_profile(URR, OCP) ->
     maps:fold(fun apply_charging_profile/3, URR, OCP).
 
+%% build_sx_rules/4
 build_sx_rules(SessionOpts, Opts, PCtx, SCtx) ->
     InitPCtx = PCtx#pfcp_ctx{sx_rules = #{}},
     Init = #sx_upd{pctx = InitPCtx, sctx = SCtx},
@@ -293,10 +248,54 @@ build_sx_rules_3(SessionOpts, _Opts, Update0) ->
     PolicyRules = maps:get(rules, SessionOpts, #{}),
     Credits = maps:get('Multiple-Services-Credit-Control', SessionOpts, []),
 
-    Update1 = maps:fold(fun build_sx_monitor_rule/3, Update0, Monitors),
-    Update2 = maps:fold(build_sx_offline_charging_rule(_, _, SessionOpts, _), Update1, PolicyRules),
-    Update3 = lists:foldl(fun build_sx_usage_rule/2, Update2, Credits),
-    maps:fold(fun build_sx_rule/3, Update3, PolicyRules).
+    Update1 = build_sx_ctx_rule(Update0),
+    Update2 = maps:fold(fun build_sx_monitor_rule/3, Update1, Monitors),
+    Update3 = maps:fold(build_sx_offline_charging_rule(_, _, SessionOpts, _), Update2, PolicyRules),
+    Update4 = lists:foldl(fun build_sx_usage_rule/2, Update3, Credits),
+    maps:fold(fun build_sx_rule/3, Update4, PolicyRules).
+
+build_sx_ctx_rule(#sx_upd{
+		     pctx =
+			 #pfcp_ctx{cp_port = #gtp_port{ip = CpIP} = CpPort,
+				   cp_tei = CpTEI} = PCtx0,
+		     sctx = #context{
+			       local_data_endp = LocalDataEndp,
+			       ms_v6 = {{_,_,_,_,_,_,_,_},_}}
+		    } = Update) ->
+    {PdrId, PCtx1} = ergw_pfcp:get_id(pdr, ipv6_mcast_pdr, PCtx0),
+    {FarId, PCtx} = ergw_pfcp:get_id(far, dp_to_cp_far, PCtx1),
+
+    PDI = #pdi{
+	     group =
+		 [#source_interface{interface = 'Access'},
+		  ergw_pfcp:network_instance(LocalDataEndp),
+		  ergw_pfcp:f_teid(LocalDataEndp),
+		  #sdf_filter{
+		     flow_description =
+			 <<"permit out 58 from ff00::/8 to assigned">>}]
+	    },
+    PDR = [#pdr_id{id = PdrId},
+	   #precedence{precedence = 100},
+	   PDI,
+	   #far_id{id = FarId}
+	   %% TBD: #urr_id{id = 1}
+	  ],
+    FAR = [#far_id{id = FarId},
+	   #apply_action{forw = 1},
+	   #forwarding_parameters{
+	      group =
+		  [#destination_interface{interface = 'CP-function'},
+		   ergw_pfcp:network_instance(CpPort),
+		   ergw_pfcp:outer_header_creation(#fq_teid{ip = CpIP, teid = CpTEI})
+		  ]
+	     }
+	  ],
+    Update#sx_upd{
+      pctx = sx_rules_add(
+	       #{{pdr, ipv6_mcast_pdr} => pfcp_packet:ies_to_map(PDR),
+		 {far, dp_to_cp_far} => pfcp_packet:ies_to_map(FAR)}, PCtx)};
+build_sx_ctx_rule(Update) ->
+    Update.
 
 build_sx_offline_charging_rule(_Name,
 			       #{'Rating-Group' := [RatingGroup],
@@ -656,18 +655,12 @@ create_sgi_session(Candidates, SessionOpts, Ctx0) ->
     Ctx = ergw_pfcp:assign_data_teid(PCtx0, Ctx0),
     {ok, CntlNode, _} = ergw_sx_socket:id(),
 
-    {CPinFarId, PCtx1} = ergw_pfcp:get_id(far, dp_to_cp_far, PCtx0),
-    {IPv6MCastPdrId, PCtx2} = ergw_pfcp:get_id(pdr, ipv6_mcast_pdr, PCtx1),
-
-    {SxRules0, SxErrors, PCtx} = build_sx_rules(SessionOpts, #{}, PCtx2, Ctx),
-    lager:info("SxRules: ~p~n", [SxRules0]),
+    {SxRules, SxErrors, PCtx} = build_sx_rules(SessionOpts, #{}, PCtx0, Ctx),
+    lager:info("SxRules: ~p~n", [SxRules]),
     lager:info("SxErrors: ~p~n", [SxErrors]),
     lager:info("CtxPending: ~p~n", [Ctx]),
 
-    SxRules1 = create_dp_to_cp_far(access, CPinFarId, PCtx, SxRules0),
-    SxRules2 = create_ipv6_mcast_pdr(IPv6MCastPdrId, CPinFarId, Ctx, SxRules1),
-    IEs = update_m_rec(ergw_pfcp:f_seid(PCtx, CntlNode), SxRules2),
-
+    IEs = update_m_rec(ergw_pfcp:f_seid(PCtx, CntlNode), SxRules),
     lager:info("IEs: ~p~n", [IEs]),
 
     Req = #pfcp{version = v1, type = session_establishment_request, ie = IEs},
