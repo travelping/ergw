@@ -56,11 +56,8 @@ delete_sgi_session(_Reason, _Context) ->
 
 build_query_usage_report(Type, PCtx)
   when is_record(PCtx, pfcp_ctx) ->
-    maps:fold(fun(K, {offline, V}, A)
-		    when Type =:= offline, is_integer(V) ->
-		      [#query_urr{group = [#urr_id{id = K}]} | A];
-		 (K, V, A)
-		    when Type =:= online andalso is_integer(V) ->
+    maps:fold(fun(K, {URRType, V}, A)
+		    when Type =:= URRType, is_integer(V) ->
 		      [#query_urr{group = [#urr_id{id = K}]} | A];
 		 (_, _, A) -> A
 	      end, [], ergw_pfcp:get_urr_ids(PCtx)).
@@ -75,8 +72,9 @@ query_usage_report(#context{pfcp_ctx = PCtx} = Ctx) ->
     end.
 
 query_usage_report(RatingGroup, #context{pfcp_ctx = PCtx} = Ctx) ->
+    ChargingKey = {online, RatingGroup},
     case ergw_pfcp:get_urr_ids(PCtx) of
-	#{RatingGroup := Id} ->
+	#{ChargingKey := Id} ->
 	    IEs = [#query_urr{group = [#urr_id{id = Id}]}],
 	    Req = #pfcp{version = v1, type = session_modification_request, ie = IEs},
 	    ergw_sx_node:call(PCtx, Req, Ctx);
@@ -472,7 +470,7 @@ get_sx_urr_ids([H|T], PCtx, URRs0) ->
 collect_urrs(_Name, #{'Rating-Group' := [RatingGroup]},
 	     #sx_upd{pctx = PCtx, monitors = Monitors}) ->
     URRs = maps:get('IP-CAN', Monitors, []),
-    get_sx_urr_ids([RatingGroup, {offline, RatingGroup}], PCtx, URRs);
+    get_sx_urr_ids([{online, RatingGroup}, {offline, RatingGroup}], PCtx, URRs);
 collect_urrs(Name, _Definition, Update) ->
     lager:error("URR: ~p, ~p", [Name, _Definition]),
     {[], sx_rule_error({system_error, Name}, Update)}.
@@ -586,9 +584,10 @@ build_sx_usage_rule(Type, _, _, URR) ->
 
 %% build_sx_usage_rule/2
 build_sx_usage_rule(#{'Result-Code' := [2001],
-		      'Rating-Group' := [ChargingKey],
+		      'Rating-Group' := [RatingGroup],
 		      'Granted-Service-Unit' := [GSU]} = GCU,
 		    #sx_upd{pctx = PCtx0} = Update) ->
+    ChargingKey = {online, RatingGroup},
     {UrrId, PCtx} = get_urr_id(ChargingKey, PCtx0),
 
     URR0 = #{urr_id => #urr_id{id = UrrId},
@@ -960,7 +959,7 @@ init_charging_events() ->
     {[], [], []}.
 
 %% usage_report_to_charging_events/4
-usage_report_to_charging_events(RatingGroup, Report,
+usage_report_to_charging_events({online, RatingGroup}, Report,
 				_ChargeEv, {On, _, _} = Ev)
   when is_integer(RatingGroup), is_map(Report) ->
     setelement(1, Ev, [Report#{'Rating-Group' => RatingGroup} | On]);
