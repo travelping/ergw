@@ -59,6 +59,7 @@
 
 	  idcnt = #{}		:: map(),
 	  idmap = #{}		:: map(),
+	  urr_by_id = #{}	:: map(),
 	  sx_rules = #{}	:: map()
 	 }).
 

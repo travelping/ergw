@@ -18,8 +18,8 @@
 	 outer_header_removal/1,
 	 ctx_teid_key/2,
 	 assign_data_teid/2]).
--export([init_ctx/1, get_ids/2, get_id/2, get_id/3,
-	 find_by_name/3, find_by_id/3, update_pfcp_rules/3]).
+-export([init_ctx/1, get_id/2, get_id/3, update_pfcp_rules/3]).
+-export([set_urr_id/3, get_urr_ids/1, find_urr_by_name/2, find_urr_by_id/2]).
 
 -ifdef(TEST).
 -export([pfcp_rule_diff/2]).
@@ -138,32 +138,33 @@ pfcp_rule_diff(K, Old, New, Diff) ->
 %%%===================================================================
 
 init_ctx(PCtx) ->
-    PCtx#pfcp_ctx{idcnt = #{}, idmap = #{}, sx_rules = #{}}.
-
-get_ids(Type, #pfcp_ctx{idmap = IdMap}) ->
-    maps:get(Type, IdMap, #{}).
+    PCtx#pfcp_ctx{idcnt = #{}, idmap = #{}, urr_by_id = #{}, sx_rules = #{}}.
 
 get_id(Keys, PCtx) ->
     lists:mapfoldr(fun({Type, Name}, P) -> get_id(Type, Name, P) end, PCtx, Keys).
 
-get_id(Type, Name, #pfcp_ctx{idcnt = Cnt, idmap = IdMap0} = PCtx) ->
+get_id(Type, Name, #pfcp_ctx{idcnt = Cnt, idmap = IdMap} = PCtx) ->
     Key = {Type, Name},
-    case IdMap0 of
+    case IdMap of
 	#{Key := Id} ->
 	    {Id, PCtx};
 	_ ->
 	    Id = maps:get(Type, Cnt, 1),
-	    IdMap = maps:update_with(Type, fun(X) -> X#{Id => Name} end,
-				     #{Id => Name}, IdMap0),
 	    {Id, PCtx#pfcp_ctx{idcnt = Cnt#{Type => Id + 1},
 			       idmap = IdMap#{Key => Id}}}
     end.
 
-find_by_name(Type, Name, #pfcp_ctx{idmap = IdMap}) ->
-    maps:find({Type, Name}, IdMap).
+set_urr_id(Id, URR, #pfcp_ctx{urr_by_id = M} = PCtx) ->
+    PCtx#pfcp_ctx{urr_by_id = M#{Id => URR}}.
 
-find_by_id(Type, Id, #pfcp_ctx{idmap = IdMap}) ->
-    maps:find(Id, maps:get(Type, IdMap, #{})).
+get_urr_ids(#pfcp_ctx{urr_by_id = M}) ->
+    M.
+
+find_urr_by_name(Name, #pfcp_ctx{idmap = M}) ->
+    maps:find({urr, Name}, M).
+
+find_urr_by_id(Id, #pfcp_ctx{urr_by_id = M}) ->
+    maps:find(Id, M).
 
 %%%===================================================================
 %%% Translate PFCP state into Create/Modify/Delete rules
