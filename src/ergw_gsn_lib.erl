@@ -63,7 +63,7 @@ build_query_usage_report(Type, PCtx)
 		    when Type =:= online andalso is_integer(V) ->
 		      [#query_urr{group = [#urr_id{id = K}]} | A];
 		 (_, _, A) -> A
-	      end, [], ergw_pfcp:get_ids(urr, PCtx)).
+	      end, [], ergw_pfcp:get_urr_ids(PCtx)).
 
 query_usage_report(#context{pfcp_ctx = PCtx} = Ctx) ->
     case build_query_usage_report(online, PCtx) of
@@ -75,7 +75,7 @@ query_usage_report(#context{pfcp_ctx = PCtx} = Ctx) ->
     end.
 
 query_usage_report(RatingGroup, #context{pfcp_ctx = PCtx} = Ctx) ->
-    case ergw_pfcp:get_ids(urr, PCtx) of
+    case ergw_pfcp:get_urr_ids(PCtx) of
 	#{RatingGroup := Id} ->
 	    IEs = [#query_urr{group = [#urr_id{id = Id}]}],
 	    Req = #pfcp{version = v1, type = session_modification_request, ie = IEs},
@@ -110,6 +110,10 @@ choose_context_ip(IP4, _IP6, _Context)
 choose_context_ip(_IP4, IP6, _Context)
   when is_binary(IP6) ->
     IP6.
+
+get_urr_id(Key, PCtx0) ->
+    {Id, PCtx} = ergw_pfcp:get_id(urr, Key, PCtx0),
+    {Id, ergw_pfcp:set_urr_id(Id, Key, PCtx)}.
 
 %%%===================================================================
 %%% Session Trigger functions
@@ -312,7 +316,7 @@ build_sx_offline_charging_rule(_Name,
 		 #measurement_method{volum = 1, durat = 1}
 	 end,
 
-    {UrrId, PCtx} = ergw_pfcp:get_id(urr, ChargingKey, PCtx0),
+    {UrrId, PCtx} = get_urr_id(ChargingKey, PCtx0),
     URR0 = #{urr_id => #urr_id{id = UrrId},
 	    measurement_method => MM,
 	    reporting_triggers => #reporting_triggers{periodic_reporting = 1},
@@ -453,22 +457,22 @@ build_sx_rule(Direction = uplink, Name, Definition, FilterInfo, URRs,
 build_sx_rule(_Direction, Name, _Definition, _FlowInfo, _URRs, Update) ->
     sx_rule_error({system_error, Name}, Update).
 
-get_sx_ids(_Type, [], _PCtx, URRs) ->
+get_sx_urr_ids([], _PCtx, URRs) ->
     URRs;
-get_sx_ids(Type, [H|T], PCtx, URRs0) ->
+get_sx_urr_ids([H|T], PCtx, URRs0) ->
     URRs =
-	case ergw_pfcp:find_by_name(Type, H, PCtx) of
+	case ergw_pfcp:find_urr_by_name(H, PCtx) of
 	    {ok, UrrId} ->
 		[UrrId | URRs0];
 	    _ ->
 		URRs0
 	end,
-    get_sx_ids(Type, T, PCtx, URRs).
+    get_sx_urr_ids(T, PCtx, URRs).
 
 collect_urrs(_Name, #{'Rating-Group' := [RatingGroup]},
 	     #sx_upd{pctx = PCtx, monitors = Monitors}) ->
     URRs = maps:get('IP-CAN', Monitors, []),
-    get_sx_ids(urr, [RatingGroup, {offline, RatingGroup}], PCtx, URRs);
+    get_sx_urr_ids([RatingGroup, {offline, RatingGroup}], PCtx, URRs);
 collect_urrs(Name, _Definition, Update) ->
     lager:error("URR: ~p, ~p", [Name, _Definition]),
     {[], sx_rule_error({system_error, Name}, Update)}.
@@ -506,6 +510,7 @@ system_time_to_universal_time(Time, TimeUnit) ->
     calendar:gregorian_seconds_to_datetime(Secs + ?SECONDS_FROM_0_TO_1970).
 -endif.
 
+%% build_sx_usage_rule/4
 build_sx_usage_rule(time, #{'CC-Time' := [Time]}, _,
 		    #{measurement_method := MM,
 		      reporting_triggers := RT} = URR) ->
@@ -579,11 +584,13 @@ build_sx_usage_rule(Type, _, _, URR) ->
     lager:warning("build_sx_usage_rule: not handling ~p", [Type]),
     URR.
 
+%% build_sx_usage_rule/2
 build_sx_usage_rule(#{'Result-Code' := [2001],
 		      'Rating-Group' := [ChargingKey],
 		      'Granted-Service-Unit' := [GSU]} = GCU,
 		    #sx_upd{pctx = PCtx0} = Update) ->
-    {UrrId, PCtx} = ergw_pfcp:get_id(urr, ChargingKey, PCtx0),
+    {UrrId, PCtx} = get_urr_id(ChargingKey, PCtx0),
+
     URR0 = #{urr_id => #urr_id{id = UrrId},
 	     measurement_method => #measurement_method{},
 	     reporting_triggers => #reporting_triggers{}},
@@ -604,7 +611,7 @@ build_sx_monitor_rule(Service, {'IP-CAN', periodic, Time} = _Definition,
     lager:info("Sx Monitor Rule: ~p", [_Definition]),
 
     RuleName = {monitor, 'IP-CAN', Service},
-    {UrrId, PCtx} = ergw_pfcp:get_id(urr, RuleName, PCtx0),
+    {UrrId, PCtx} = get_urr_id(RuleName, PCtx0),
 
     URR = pfcp_packet:ies_to_map(
 	    [#urr_id{id = UrrId},
@@ -971,7 +978,7 @@ usage_report_to_charging_events(_K, _V, _ChargeEv, Ev) ->
 
 %% usage_report_to_charging_events/3
 usage_report_to_charging_events(URR, ChargeEv, #context{pfcp_ctx = PCtx}) ->
-    UrrIds = ergw_pfcp:get_ids(urr, PCtx),
+    UrrIds = ergw_pfcp:get_urr_ids(PCtx),
     foldl_usage_report(
       fun (#{urr_id := #urr_id{id = Id}} = Report, Ev) ->
 	      usage_report_to_charging_events(maps:get(Id, UrrIds, undefined), Report, ChargeEv, Ev)
