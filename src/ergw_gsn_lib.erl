@@ -184,12 +184,6 @@ install_pcc_rule_def(#{'Charging-Rule-Name' := Name} = UpdRule,
 sx_rule_error(Error, #sx_upd{errors = Errors} = Update) ->
     Update#sx_upd{errors = [Error | Errors]}.
 
-sx_rule_add(Key, Rule, #pfcp_ctx{sx_rules = Rules} = PCtx) ->
-    PCtx#pfcp_ctx{sx_rules = Rules#{Key => Rule}}.
-
-sx_rules_add(Add, #pfcp_ctx{sx_rules = Rules} = PCtx) ->
-    PCtx#pfcp_ctx{sx_rules = maps:merge(Add, Rules)}.
-
 apply_charing_tariff_time({H, M}, URR)
   when is_integer(H), H >= 0, H < 24,
        is_integer(M), M >= 0, M < 60 ->
@@ -289,9 +283,9 @@ build_sx_ctx_rule(#sx_upd{
 	     }
 	  ],
     Update#sx_upd{
-      pctx = sx_rules_add(
-	       #{{pdr, ipv6_mcast_pdr} => pfcp_packet:ies_to_map(PDR),
-		 {far, dp_to_cp_far} => pfcp_packet:ies_to_map(FAR)}, PCtx)};
+      pctx = ergw_pfcp:pfcp_rules_add(
+	       [{pdr, ipv6_mcast_pdr, PDR},
+		{far, dp_to_cp_far, FAR}], PCtx)};
 build_sx_ctx_rule(Update) ->
     Update.
 
@@ -324,7 +318,9 @@ build_sx_offline_charging_rule(_Name,
     URR = apply_charging_profile(URR0, OCP),
 
     lager:warning("Offline URR: ~p", [URR]),
-    Update#sx_upd{pctx = sx_rule_add({urr, ChargingKey}, URR, PCtx)};
+    Update#sx_upd{
+      pctx = ergw_pfcp:pfcp_rules_add(
+	       [{urr, ChargingKey, URR}], PCtx)};
 
 build_sx_offline_charging_rule(Name, #{'Offline' := [1]}, _SessionOpts, Update) ->
     %% Offline without Rating-Group ???
@@ -409,9 +405,9 @@ build_sx_rule(Direction = downlink, Name, Definition, FilterInfo, URRs,
 	     }
 	  ],
     Update#sx_upd{
-      pctx = sx_rules_add(
-	       #{{pdr, RuleName} => pfcp_packet:ies_to_map(PDR),
-		 {far, RuleName} => pfcp_packet:ies_to_map(FAR)}, PCtx)};
+      pctx = ergw_pfcp:pfcp_rules_add(
+	       [{pdr, RuleName, PDR},
+		{far, RuleName, FAR}], PCtx)};
 
 build_sx_rule(Direction = uplink, Name, Definition, FilterInfo, URRs,
 	      #sx_upd{pctx = PCtx0,
@@ -444,9 +440,9 @@ build_sx_rule(Direction = uplink, Name, Definition, FilterInfo, URRs,
 	      }
 	  ],
     Update#sx_upd{
-      pctx = sx_rules_add(
-	       #{{pdr, RuleName} => pfcp_packet:ies_to_map(PDR),
-		 {far, RuleName} => pfcp_packet:ies_to_map(FAR)}, PCtx)};
+      pctx = ergw_pfcp:pfcp_rules_add(
+	       [{pdr, RuleName, PDR},
+		{far, RuleName, FAR}], PCtx)};
 
 build_sx_rule(_Direction, Name, _Definition, _FlowInfo, _URRs, Update) ->
     sx_rule_error({system_error, Name}, Update).
@@ -582,7 +578,9 @@ build_sx_usage_rule(#{'Result-Code' := [2001],
 		       monitoring_time]),
 
     lager:warning("URR: ~p", [URR]),
-    Update#sx_upd{pctx = sx_rule_add({urr, ChargingKey}, URR, PCtx)};
+    Update#sx_upd{
+      pctx = ergw_pfcp:pfcp_rules_add(
+	       [{urr, ChargingKey, URR}], PCtx)};
 build_sx_usage_rule(Definition, Update) ->
     lager:error("URR: ~p", [Definition]),
     sx_rule_error({system_error, Definition}, Update).
@@ -594,16 +592,18 @@ build_sx_monitor_rule(Service, {'IP-CAN', periodic, Time} = _Definition,
     RuleName = {monitor, 'IP-CAN', Service},
     {UrrId, PCtx} = ergw_pfcp:get_urr_id(RuleName, ['IP-CAN'], RuleName, PCtx0),
 
-    URR = pfcp_packet:ies_to_map(
-	    [#urr_id{id = UrrId},
-	     #measurement_method{volum = 1, durat = 1},
-	     #reporting_triggers{periodic_reporting = 1},
-	     #measurement_period{period = Time}]),
+    URR = [#urr_id{id = UrrId},
+	   #measurement_method{volum = 1, durat = 1},
+	   #reporting_triggers{periodic_reporting = 1},
+	   #measurement_period{period = Time}],
 
     lager:warning("URR: ~p", [URR]),
     Monitors1 = update_m_key('IP-CAN', UrrId, Monitors0),
     Monitors = Monitors1#{{urr, UrrId}  => Service},
-    Update#sx_upd{pctx = sx_rule_add({urr, RuleName}, URR, PCtx), monitors = Monitors};
+    Update#sx_upd{
+      pctx = ergw_pfcp:pfcp_rules_add(
+	       [{urr, RuleName, URR}], PCtx),
+      monitors = Monitors};
 
 build_sx_monitor_rule(Service, Definition, Update) ->
     lager:error("Monitor URR: ~p:~p", [Service, Definition]),

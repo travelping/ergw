@@ -183,8 +183,7 @@ update_m_rec(Record, Map) when is_tuple(Record) ->
 %%%===================================================================
 
 proxy_pdr({SrcIntf, #context{local_data_endp = LocalDataEndp},
-	  DstIntf, _Right},
-	  #pfcp_ctx{sx_rules = Rules} = PCtx0) ->
+	  DstIntf, _Right}, PCtx0) ->
 
     {[PdrId, FarId, UrrId], PCtx} =
 	ergw_pfcp:get_id([{pdr, SrcIntf}, {far, DstIntf}, {urr, proxy}], PCtx0),
@@ -200,17 +199,13 @@ proxy_pdr({SrcIntf, #context{local_data_endp = LocalDataEndp},
 	   ergw_pfcp:outer_header_removal(LocalDataEndp),
 	   #far_id{id = FarId},
 	   #urr_id{id = UrrId}],
-    PCtx#pfcp_ctx{
-      sx_rules =
-	  Rules#{{pdr, PdrId} => pfcp_packet:ies_to_map(PDR)}
-     }.
+    ergw_pfcp:pfcp_rules_add([{pdr, PdrId, PDR}], PCtx).
 
 proxy_far({_SrcIntf, _Left, DstIntf,
 	   #context{
 	      local_data_endp = LocalDataEndp,
 	      remote_data_teid = PeerTEID}
-	  },
-	  #pfcp_ctx{sx_rules = Rules} = PCtx0)
+	  }, PCtx0)
   when PeerTEID /= undefined ->
     {FarId, PCtx} = ergw_pfcp:get_id(far, DstIntf, PCtx0),
     FAR = [#far_id{id = FarId},
@@ -223,31 +218,21 @@ proxy_far({_SrcIntf, _Left, DstIntf,
 		  ]
 	     }
 	  ],
-    PCtx#pfcp_ctx{
-      sx_rules =
-	  Rules#{{far, FarId} => pfcp_packet:ies_to_map(FAR)}
-     };
-proxy_far({_SrcIntf, _Left, DstIntf, _Right},
-	  #pfcp_ctx{sx_rules = Rules} = PCtx0) ->
+    ergw_pfcp:pfcp_rules_add([{far, FarId, FAR}], PCtx);
+proxy_far({_SrcIntf, _Left, DstIntf, _Right}, PCtx0) ->
     {FarId, PCtx} = ergw_pfcp:get_id(far, DstIntf, PCtx0),
     FAR = [#far_id{id = FarId},
 	   #apply_action{drop = 1}
 	  ],
-    PCtx#pfcp_ctx{
-      sx_rules =
-	  Rules#{{far, FarId} => pfcp_packet:ies_to_map(FAR)}
-     }.
+    ergw_pfcp:pfcp_rules_add([{far, FarId, FAR}], PCtx).
 
-proxy_urr(#pfcp_ctx{sx_rules = Rules} = PCtx0) ->
+proxy_urr(PCtx0) ->
     {UrrId, PCtx} = ergw_pfcp:get_id(urr, proxy, PCtx0),
     URR = [#urr_id{id = UrrId},
 	   #measurement_method{volum = 1},
 	   #reporting_triggers{periodic_reporting = 1}
 	  ],
-    PCtx#pfcp_ctx{
-      sx_rules =
-	  Rules#{{urr, UrrId} => pfcp_packet:ies_to_map(URR)}
-     }.
+    ergw_pfcp:pfcp_rules_add([{urr, UrrId, URR}], PCtx).
 
 create_forward_session(Candidates, Left0, Right0) ->
     PCtx0 = ergw_sx_node:select_sx_node(Candidates, Left0),
