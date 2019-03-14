@@ -109,10 +109,6 @@ choose_context_ip(_IP4, IP6, _Context)
   when is_binary(IP6) ->
     IP6.
 
-get_urr_id(Key, PCtx0) ->
-    {Id, PCtx} = ergw_pfcp:get_id(urr, Key, PCtx0),
-    {Id, ergw_pfcp:set_urr_id(Id, Key, PCtx)}.
-
 %%%===================================================================
 %%% Session Trigger functions
 %%%===================================================================
@@ -233,7 +229,7 @@ apply_charging_profile(URR, OCP) ->
 
 %% build_sx_rules/4
 build_sx_rules(SessionOpts, Opts, PCtx, SCtx) ->
-    InitPCtx = PCtx#pfcp_ctx{sx_rules = #{}},
+    InitPCtx = ergw_pfcp:reset_ctx(PCtx),
     Init = #sx_upd{pctx = InitPCtx, sctx = SCtx},
     #sx_upd{errors = Errors, pctx = NewPCtx} =
 	build_sx_rules_3(SessionOpts, Opts, Init),
@@ -314,7 +310,7 @@ build_sx_offline_charging_rule(_Name,
 		 #measurement_method{volum = 1, durat = 1}
 	 end,
 
-    {UrrId, PCtx} = get_urr_id(ChargingKey, PCtx0),
+    {UrrId, PCtx} = ergw_pfcp:get_urr_id(ChargingKey, [RatingGroup], ChargingKey, PCtx0),
     URR0 = #{urr_id => #urr_id{id = UrrId},
 	    measurement_method => MM,
 	    reporting_triggers => #reporting_triggers{periodic_reporting = 1},
@@ -366,7 +362,7 @@ build_sx_rule(Name, _Definition, Update) ->
     sx_rule_error({system_error, Name}, Update).
 
 build_sx_rule(Name, Definition, DL, UL, Update0) ->
-    URRs = collect_urrs(Name, Definition, Update0),
+    URRs = get_rule_urrs(Definition, Update0),
     Update = build_sx_rule(downlink, Name, Definition, DL, URRs, Update0),
     build_sx_rule(uplink, Name, Definition, UL, URRs, Update).
 
@@ -455,25 +451,11 @@ build_sx_rule(Direction = uplink, Name, Definition, FilterInfo, URRs,
 build_sx_rule(_Direction, Name, _Definition, _FlowInfo, _URRs, Update) ->
     sx_rule_error({system_error, Name}, Update).
 
-get_sx_urr_ids([], _PCtx, URRs) ->
-    URRs;
-get_sx_urr_ids([H|T], PCtx, URRs0) ->
-    URRs =
-	case ergw_pfcp:find_urr_by_name(H, PCtx) of
-	    {ok, UrrId} ->
-		[UrrId | URRs0];
-	    _ ->
-		URRs0
-	end,
-    get_sx_urr_ids(T, PCtx, URRs).
-
-collect_urrs(_Name, #{'Rating-Group' := [RatingGroup]},
-	     #sx_upd{pctx = PCtx, monitors = Monitors}) ->
-    URRs = maps:get('IP-CAN', Monitors, []),
-    get_sx_urr_ids([{online, RatingGroup}, {offline, RatingGroup}], PCtx, URRs);
-collect_urrs(Name, _Definition, Update) ->
-    lager:error("URR: ~p, ~p", [Name, _Definition]),
-    {[], sx_rule_error({system_error, Name}, Update)}.
+get_rule_urrs(#{'Rating-Group' := [RatingGroup]}, #sx_upd{pctx = PCtx}) ->
+    ergw_pfcp:get_urr_group(RatingGroup, PCtx) ++
+	ergw_pfcp:get_urr_group('IP-CAN', PCtx);
+get_rule_urrs(_Definition, _Update) ->
+    [].
 
 %% 'Granted-Service-Unit' => [#{'CC-Time' => [14400],'CC-Total-Octets' => [10485760]}],
 %% 'Rating-Group' => [3000],'Result-Code' => [?'DIAMETER_BASE_RESULT-CODE_SUCCESS'],
@@ -588,7 +570,7 @@ build_sx_usage_rule(#{'Result-Code' := [2001],
 		      'Granted-Service-Unit' := [GSU]} = GCU,
 		    #sx_upd{pctx = PCtx0} = Update) ->
     ChargingKey = {online, RatingGroup},
-    {UrrId, PCtx} = get_urr_id(ChargingKey, PCtx0),
+    {UrrId, PCtx} = ergw_pfcp:get_urr_id(ChargingKey, [RatingGroup], ChargingKey, PCtx0),
 
     URR0 = #{urr_id => #urr_id{id = UrrId},
 	     measurement_method => #measurement_method{},
@@ -610,7 +592,7 @@ build_sx_monitor_rule(Service, {'IP-CAN', periodic, Time} = _Definition,
     lager:info("Sx Monitor Rule: ~p", [_Definition]),
 
     RuleName = {monitor, 'IP-CAN', Service},
-    {UrrId, PCtx} = get_urr_id(RuleName, PCtx0),
+    {UrrId, PCtx} = ergw_pfcp:get_urr_id(RuleName, ['IP-CAN'], RuleName, PCtx0),
 
     URR = pfcp_packet:ies_to_map(
 	    [#urr_id{id = UrrId},

@@ -596,6 +596,118 @@ simple_session_request(Config) ->
 
     ?equal([], outstanding_requests()),
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+
+    [_, SER|_] = lists:filter(
+		   fun(#pfcp{type = session_establishment_request}) -> true;
+		      (_) ->false
+		   end, ergw_test_sx_up:history('pgw-u')),
+
+    #{create_pdr := PDRs0,
+      create_far := FARs0,
+      create_urr := URR
+     } = SER#pfcp.ie,
+
+    PDRs = lists:sort(PDRs0),
+    FARs = lists:sort(FARs0),
+
+    lager:debug("PDRs: ~p", [pfcp_packet:lager_pr(PDRs)]),
+    lager:debug("FARs: ~p", [pfcp_packet:lager_pr(FARs)]),
+    lager:debug("URR: ~p", [pfcp_packet:lager_pr([URR])]),
+
+    ?match(
+       [#create_pdr{
+	   group =
+	       #{pdr_id := #pdr_id{id = _},
+		 precedence := #precedence{precedence = 100},
+		 pdi :=
+		     #pdi{
+			group =
+			    #{network_instance :=
+				  #network_instance{instance = <<8, "upstream">>},
+			      sdf_filter :=
+				  #sdf_filter{
+				     flow_description =
+					 <<"permit out ip from any to assigned">>},
+			      source_interface :=
+				  #source_interface{interface='SGi-LAN'},
+			      ue_ip_address := #ue_ip_address{type = dst}
+			     }
+		       },
+		 far_id := #far_id{id = _},
+		 urr_id := #urr_id{id = _}
+		}
+	  },
+	#create_pdr{
+	   group =
+	       #{
+		 pdr_id := #pdr_id{id = _},
+		 precedence := #precedence{precedence = 100},
+		 pdi :=
+		     #pdi{
+			group =
+			    #{network_instance :=
+				  #network_instance{instance = <<3, "irx">>},
+			      sdf_filter :=
+				  #sdf_filter{
+				     flow_description =
+					 <<"permit out ip from any to assigned">>},
+			      source_interface :=
+				  #source_interface{interface='Access'},
+			      ue_ip_address := #ue_ip_address{type = src}
+			     }
+		       },
+		 far_id := #far_id{id = _},
+		 urr_id := #urr_id{id = _}
+		}
+	  }], PDRs),
+
+    ?match(
+       [#create_far{
+	   group =
+	       #{far_id := #far_id{id = _},
+		 apply_action :=
+		     #apply_action{forw = 1},
+		 forwarding_parameters :=
+		     #forwarding_parameters{
+			group =
+			    #{destination_interface :=
+				  #destination_interface{interface='Access'},
+			      network_instance :=
+				  #network_instance{instance = <<3, "irx">>}
+			     }
+		       }
+		}
+	  },
+	#create_far{
+	   group =
+	       #{far_id := #far_id{id = _},
+		 apply_action :=
+		     #apply_action{forw = 1},
+		 forwarding_parameters :=
+		     #forwarding_parameters{
+			group =
+			    #{destination_interface :=
+				  #destination_interface{interface='SGi-LAN'},
+			      network_instance :=
+				  #network_instance{instance = <<8, "upstream">>}
+			     }
+		       }
+		}
+	  }], FARs),
+
+    ?match(
+       #create_urr{
+	  group =
+	      #{urr_id := #urr_id{id = _},
+		measurement_method :=
+		    #measurement_method{volum = 1},
+		measurement_period :=
+		    #measurement_period{period = 600},
+		reporting_triggers :=
+		    #reporting_triggers{periodic_reporting=1}
+	       }
+	 }, URR),
+
     meck_validate(Config),
     ok.
 
