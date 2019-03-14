@@ -278,7 +278,7 @@ modify_forward_session(#context{version = OldVersion,
 		       #context{version = NewVersion} = NewLeft,
 		       _OldRight, NewRight) ->
     MakeRules = [{'Access', NewLeft, 'Core', NewRight}, {'Core', NewRight, 'Access', NewLeft}],
-    PCtx0 = OldPCtx#pfcp_ctx{sx_rules = #{}},
+    PCtx0 = ergw_pfcp:reset_ctx(OldPCtx),
     PCtx1 = lists:foldl(fun proxy_pdr/2, PCtx0, MakeRules),
     PCtx2 = lists:foldl(fun proxy_far/2, PCtx1, MakeRules),
     PCtx = proxy_urr(PCtx2),

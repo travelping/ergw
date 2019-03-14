@@ -18,8 +18,9 @@
 	 outer_header_removal/1,
 	 ctx_teid_key/2,
 	 assign_data_teid/2]).
--export([init_ctx/1, get_id/2, get_id/3, update_pfcp_rules/3]).
--export([set_urr_id/3, get_urr_ids/1, find_urr_by_name/2, find_urr_by_id/2]).
+-export([init_ctx/1, reset_ctx/1, get_id/2, get_id/3, update_pfcp_rules/3]).
+-export([get_urr_id/4, get_urr_group/2, get_urr_ids/1,
+	 find_urr_by_id/2]).
 
 -ifdef(TEST).
 -export([pfcp_rule_diff/2]).
@@ -138,7 +139,10 @@ pfcp_rule_diff(K, Old, New, Diff) ->
 %%%===================================================================
 
 init_ctx(PCtx) ->
-    PCtx#pfcp_ctx{idcnt = #{}, idmap = #{}, urr_by_id = #{}, sx_rules = #{}}.
+    PCtx#pfcp_ctx{idcnt = #{}, idmap = #{}, urr_by_id = #{}, urr_by_grp = #{}, sx_rules = #{}}.
+
+reset_ctx(PCtx) ->
+    PCtx#pfcp_ctx{urr_by_grp = #{}, sx_rules = #{}}.
 
 get_id(Keys, PCtx) ->
     lists:mapfoldr(fun({Type, Name}, P) -> get_id(Type, Name, P) end, PCtx, Keys).
@@ -154,14 +158,21 @@ get_id(Type, Name, #pfcp_ctx{idcnt = Cnt, idmap = IdMap} = PCtx) ->
 			       idmap = IdMap#{Key => Id}}}
     end.
 
-set_urr_id(Id, URR, #pfcp_ctx{urr_by_id = M} = PCtx) ->
-    PCtx#pfcp_ctx{urr_by_id = M#{Id => URR}}.
+get_urr_id(Key, Groups, Info, #pfcp_ctx{urr_by_id = M, urr_by_grp = Grp0} = PCtx0) ->
+    {Id, PCtx1} = ergw_pfcp:get_id(urr, Key, PCtx0),
+    UpdF = [Id|_],
+    Grp = lists:foldl(maps:update_with(_, UpdF, [Id], _), Grp0, Groups),
+    PCtx = PCtx1#pfcp_ctx{
+	     urr_by_id  = M#{Id => Info},
+	     urr_by_grp = Grp
+	    },
+    {Id, PCtx}.
+
+get_urr_group(Group, #pfcp_ctx{urr_by_grp = Grp}) ->
+    maps:get(Group, Grp, []).
 
 get_urr_ids(#pfcp_ctx{urr_by_id = M}) ->
     M.
-
-find_urr_by_name(Name, #pfcp_ctx{idmap = M}) ->
-    maps:find({urr, Name}, M).
 
 find_urr_by_id(Id, #pfcp_ctx{urr_by_id = M}) ->
     maps:find(Id, M).
