@@ -268,10 +268,8 @@ make_request(ms_info_change_notification_request, _SubType,
 	 tei = RemoteCntlTEI, seq_no = SeqNo, ie = IEs};
 
 make_request(delete_pdp_context_request, _SubType,
-	     #gtpc{restart_counter = RCnt, seq_no = SeqNo,
-		   remote_control_tei = RemoteCntlTEI}) ->
-    IEs = [#recovery{restart_counter = RCnt},
-	   #nsapi{nsapi=5},
+	     #gtpc{seq_no = SeqNo, remote_control_tei = RemoteCntlTEI}) ->
+    IEs = [#nsapi{nsapi=5},
 	   #teardown_ind{value=1}],
 
     #gtp{version = v1, type = delete_pdp_context_request,
@@ -295,19 +293,15 @@ make_response(#gtp{type = update_pdp_context_request, seq_no = SeqNo},
 
 make_response(#gtp{type = delete_pdp_context_request, seq_no = SeqNo},
 	      invalid_teid,
-	      #gtpc{restart_counter = RCnt,
-		    remote_control_tei = RemoteCntlTEI}) ->
-    IEs = [#recovery{restart_counter = RCnt},
-	   #cause{value = context_not_found}],
+	      #gtpc{remote_control_tei = RemoteCntlTEI}) ->
+    IEs = [#cause{value = context_not_found}],
     #gtp{version = v1, type = delete_pdp_context_response,
 	 tei = 0, seq_no = SeqNo, ie = IEs};
 
 make_response(#gtp{type = delete_pdp_context_request, seq_no = SeqNo},
 	      _SubType,
-	      #gtpc{restart_counter = RCnt,
-		    remote_control_tei = RemoteCntlTEI}) ->
-    IEs = [#recovery{restart_counter = RCnt},
-	   #cause{value = request_accepted}],
+	      #gtpc{remote_control_tei = RemoteCntlTEI}) ->
+    IEs = [#cause{value = request_accepted}],
     #gtp{version = v1, type = delete_pdp_context_response,
 	 tei = RemoteCntlTEI, seq_no = SeqNo, ie = IEs}.
 
