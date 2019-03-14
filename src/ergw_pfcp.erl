@@ -21,6 +21,7 @@
 -export([init_ctx/1, reset_ctx/1, get_id/2, get_id/3, update_pfcp_rules/3]).
 -export([get_urr_id/4, get_urr_group/2, get_urr_ids/1,
 	 find_urr_by_id/2]).
+-export([pfcp_rules_add/2]).
 
 -ifdef(TEST).
 -export([pfcp_rule_diff/2]).
@@ -176,6 +177,17 @@ get_urr_ids(#pfcp_ctx{urr_by_id = M}) ->
 
 find_urr_by_id(Id, #pfcp_ctx{urr_by_id = M}) ->
     maps:find(Id, M).
+
+%%%===================================================================
+%%% Manage PFCP rules in context
+%%%===================================================================
+
+pfcp_rules_add([], PCtx) ->
+    PCtx;
+pfcp_rules_add([{Type, Key, Rule}|T], #pfcp_ctx{sx_rules = Rules} = PCtx) ->
+    pfcp_rules_add(T, PCtx#pfcp_ctx{
+			sx_rules =
+			    Rules#{{Type, Key} => pfcp_packet:ies_to_map(Rule)}}).
 
 %%%===================================================================
 %%% Translate PFCP state into Create/Modify/Delete rules

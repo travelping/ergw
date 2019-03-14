@@ -638,7 +638,7 @@ gen_pfcp_rules(_Key, #vrf{features = Features} = VRF, DataEndP, Acc) ->
     lists:foldl(gen_per_feature_pfcp_rule(_, VRF, DataEndP, _), Acc, Features).
 
 gen_per_feature_pfcp_rule('Access', #vrf{name = Name} = VRF,
-			  DataEndP, #pfcp_ctx{sx_rules = Rules} = PCtx0) ->
+			  DataEndP, PCtx0) ->
     Key = {Name, 'Access'},
     {PdrId, PCtx1} = ergw_pfcp:get_id(pdr, Key, PCtx0),
     {FarId, PCtx} = ergw_pfcp:get_id(far, Key, PCtx1),
@@ -665,11 +665,9 @@ gen_per_feature_pfcp_rule('Access', #vrf{name = Name} = VRF,
 	     }
 	  ],
 
-    PCtx#pfcp_ctx{
-      sx_rules =
-	  Rules#{{pdr, PdrId} => pfcp_packet:ies_to_map(PDR),
-		 {far, FarId} => pfcp_packet:ies_to_map(FAR)}
-     };
+    ergw_pfcp:pfcp_rules_add(
+      [{pdr, PdrId, PDR},
+       {far, FarId, FAR}], PCtx);
 gen_per_feature_pfcp_rule(_, _VRF, _DpGtpIP, Acc) ->
     Acc.
 
