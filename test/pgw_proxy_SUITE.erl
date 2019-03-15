@@ -363,6 +363,7 @@ common() ->
      duplicate_session_request,
      create_session_overload_response,
      create_session_request_resend,
+     create_session_proxy_request_resend,
      delete_session_request_resend,
      delete_session_request_timeout,
      error_indication_sgw2pgw,
@@ -422,6 +423,17 @@ init_per_testcase(Config) ->
 init_per_testcase(delete_session_request_resend, Config) ->
     init_per_testcase(Config),
     ok = meck:new(gtp_path, [passthrough, no_link]),
+    Config;
+init_per_testcase(create_session_proxy_request_resend, Config) ->
+    init_per_testcase(Config),
+    ok = meck:new(pgw_s5s8, [passthrough, no_link]),
+    ok = meck:expect(pgw_s5s8, handle_request,
+		     fun(ReqKey, #gtp{type = create_session_request}, _Resent, State) ->
+			     gtp_context:request_finished(ReqKey),
+			     {noreply, State};
+			(ReqKey, Msg, Resent, State) ->
+			     meck:passthrough([ReqKey, Msg, Resent, State])
+		     end),
     Config;
 init_per_testcase(delete_session_request_timeout, Config) ->
     init_per_testcase(Config),
@@ -515,6 +527,10 @@ init_per_testcase(_, Config) ->
 end_per_testcase(_Config) ->
     stop_gtpc_server().
 
+end_per_testcase(create_session_proxy_request_resend, Config) ->
+    ok = meck:unload(pgw_s5s8),
+    end_per_testcase(Config),
+    Config;
 end_per_testcase(delete_session_request_resend, Config) ->
     meck:unload(gtp_path),
     end_per_testcase(Config),
@@ -898,6 +914,26 @@ create_session_request_resend(Config) ->
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     ?match(0, meck:num_calls(?HUT, handle_request, ['_', '_', true, '_'])),
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+create_session_proxy_request_resend() ->
+    [{doc, "Check that the proxy does not send the Create Session Request multiple times"}].
+create_session_proxy_request_resend(Config) ->
+    GtpC = gtp_context(Config),
+    Request = make_request(create_session_request, simple, GtpC),
+
+    ?equal({error,timeout}, send_recv_pdu(GtpC, Request, 2 * 1000, error)),
+
+    {_Handler, Server} = gtp_context_reg:lookup({'irx', {imsi, ?'IMSI', 5}}),
+    true = is_pid(Server),
+
+    %% killing the proxy PGW context
+    gtp_context:terminate_context(Server),
+
+    ?match(1, meck:num_calls(pgw_s5s8, handle_request,
+			     ['_', #gtp{type = create_session_request, _ = '_'}, '_', '_'])),
     meck_validate(Config),
     ok.
 
