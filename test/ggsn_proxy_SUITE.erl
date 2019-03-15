@@ -343,6 +343,7 @@ common() ->
      path_restart, path_restart_recovery,
      simple_pdp_context_request,
      create_pdp_context_request_resend,
+     create_pdp_context_proxy_request_resend,
      delete_pdp_context_request_resend,
      delete_pdp_context_request_timeout,
      error_indication_sgsn2ggsn,
@@ -396,6 +397,17 @@ init_per_testcase(Config) ->
 init_per_testcase(path_restart, Config) ->
     init_per_testcase(Config),
     ok = meck:new(gtp_path, [passthrough, no_link]),
+    Config;
+init_per_testcase(create_pdp_context_proxy_request_resend, Config) ->
+    init_per_testcase(Config),
+    ok = meck:new(ggsn_gn, [passthrough, no_link]),
+    ok = meck:expect(ggsn_gn, handle_request,
+		     fun(ReqKey, #gtp{type = create_pdp_context_request}, _Resent, State) ->
+			     gtp_context:request_finished(ReqKey),
+			     {noreply, State};
+			(ReqKey, Msg, Resent, State) ->
+			     meck:passthrough([ReqKey, Msg, Resent, State])
+		     end),
     Config;
 init_per_testcase(delete_pdp_context_request_timeout, Config) ->
     init_per_testcase(Config),
@@ -479,6 +491,10 @@ end_per_testcase(_Config) ->
 
 end_per_testcase(path_restart, Config) ->
     meck:unload(gtp_path),
+    end_per_testcase(Config),
+    Config;
+end_per_testcase(create_pdp_context_proxy_request_resend, Config) ->
+    ok = meck:unload(ggsn_gn),
     end_per_testcase(Config),
     Config;
 end_per_testcase(delete_pdp_context_request_timeout, Config) ->
@@ -656,6 +672,26 @@ create_pdp_context_request_resend(Config) ->
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     ?match(0, meck:num_calls(?HUT, handle_request, ['_', '_', true, '_'])),
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+create_pdp_context_proxy_request_resend() ->
+    [{doc, "Check that the proxy does not send the Create PDP Context Request multiple times"}].
+create_pdp_context_proxy_request_resend(Config) ->
+    GtpC = gtp_context(Config),
+    Request = make_request(create_pdp_context_request, simple, GtpC),
+
+    ?equal({error,timeout}, send_recv_pdu(GtpC, Request, 2 * 1000, error)),
+
+    {_Handler, Server} = gtp_context_reg:lookup({'irx', {imsi, ?'IMSI', 5}}),
+    true = is_pid(Server),
+
+    %% killing the proxy PGW context
+    gtp_context:terminate_context(Server),
+
+    ?match(1, meck:num_calls(ggsn_gn, handle_request,
+			     ['_', #gtp{type = create_pdp_context_request, _ = '_'}, '_', '_'])),
     meck_validate(Config),
     ok.
 
