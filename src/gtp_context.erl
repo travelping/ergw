@@ -54,10 +54,12 @@
 handle_response(Context, ReqInfo, Request, Response) ->
     gen_server:cast(Context, {handle_response, ReqInfo, Request, Response}).
 
+%% send_request/7
 send_request(GtpPort, DstIP, DstPort, T3, N3, Msg, ReqInfo) ->
     CbInfo = {?MODULE, handle_response, [self(), ReqInfo, Msg]},
     ergw_gtp_c_socket:send_request(GtpPort, DstIP, DstPort, T3, N3, Msg, CbInfo).
 
+%% send_request/6
 send_request(GtpPort, DstIP, DstPort, ReqId, Msg, ReqInfo) ->
     CbInfo = {?MODULE, handle_response, [self(), ReqInfo, Msg]},
     ergw_gtp_c_socket:send_request(GtpPort, DstIP, DstPort, ReqId, Msg, CbInfo).

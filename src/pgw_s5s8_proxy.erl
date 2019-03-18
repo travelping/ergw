@@ -558,8 +558,14 @@ terminate(_Reason, _State) ->
 %%% Helper functions
 %%%===================================================================
 
-handle_proxy_info(#gtp{ie = #{?'Recovery' := Recovery}},
-		  Context, #{proxy_ds := ProxyDS}) ->
+response(Cmd, #context{remote_control_teid = #fq_teid{teid = TEID}}, Response) ->
+    {Cmd, TEID, Response}.
+
+response(Cmd, Context, IEs0, #gtp{ie = #{?'Recovery' := Recovery}}) ->
+    IEs = gtp_v2_c:build_recovery(Cmd, Context, Recovery /= undefined, IEs0),
+    response(Cmd, Context, IEs).
+
+handle_proxy_info(Request, Context, #{proxy_ds := ProxyDS}) ->
     ProxyInfo0 = proxy_info(Context),
     case ProxyDS:map(ProxyInfo0) of
 	{ok, #proxy_info{} = ProxyInfo} ->
@@ -568,13 +574,10 @@ handle_proxy_info(#gtp{ie = #{?'Recovery' := Recovery}},
 
 	Other ->
 	    lager:warning("Failed Proxy Map: ~p", [Other]),
-
-	    ResponseIEs0 = [#v2_cause{v2_cause = user_authentication_failed}],
-	    ResponseIEs = gtp_v2_c:build_recovery(Context, Recovery /= undefined, ResponseIEs0),
-	    throw(?CTX_ERR(?FATAL,
-			   {create_session_response,
-			    Context#context.remote_control_teid#fq_teid.teid,
-			    ResponseIEs}, Context))
+	    Type = create_session_response,
+	    Cause = user_authentication_failed,
+	    Reply = response(Type, Context, [#v2_cause{v2_cause = Cause}], Request),
+	    throw(?CTX_ERR(?FATAL, Reply, Context))
     end.
 
 delete_forward_session(Reason, #{context := Context,
@@ -728,10 +731,10 @@ proxy_info(#context{apn = APN, imsi = IMSI, msisdn = MSISDN, restrictions = Rest
     #proxy_info{ggsns = GGSNs, imsi = IMSI, msisdn = MSISDN, src_apn = LookupAPN}.
 
 build_context_request(#context{remote_control_teid = #fq_teid{teid = TEI}} = Context,
-		      NewPeer, SeqNo, #gtp{ie = RequestIEs} = Request) ->
+		      NewPeer, SeqNo, #gtp{type = Type, ie = RequestIEs} = Request) ->
     ProxyIEs0 = maps:without([?'Recovery'], RequestIEs),
     ProxyIEs1 = update_gtp_req_from_context(Context, ProxyIEs0),
-    ProxyIEs = gtp_v2_c:build_recovery(Context, NewPeer, ProxyIEs1),
+    ProxyIEs = gtp_v2_c:build_recovery(Type, Context, NewPeer, ProxyIEs1),
     Request#gtp{tei = TEI, seq_no = SeqNo, ie = ProxyIEs}.
 
 send_request(#context{control_port = GtpPort,
@@ -747,17 +750,19 @@ send_request(#context{control_port = GtpPort,
 initiate_session_teardown(sgw2pgw,
 			  #{proxy_context :=
 				#context{state = #context_state{ebi = EBI}} = Ctx}) ->
+    Type = delete_session_request,
     RequestIEs0 = [#v2_cause{v2_cause = network_failure},
 		   #v2_eps_bearer_id{eps_bearer_id = EBI}],
-    RequestIEs = gtp_v2_c:build_recovery(Ctx, false, RequestIEs0),
-    send_request(Ctx, ?T3, ?N3, delete_session_request, RequestIEs);
+    RequestIEs = gtp_v2_c:build_recovery(Type, Ctx, false, RequestIEs0),
+    send_request(Ctx, ?T3, ?N3, Type, RequestIEs);
 initiate_session_teardown(pgw2sgw,
 			  #{context :=
 				#context{state = #context_state{ebi = EBI}} = Ctx}) ->
+    Type = delete_bearer_request,
     RequestIEs0 = [#v2_cause{v2_cause = reactivation_requested},
 		   #v2_eps_bearer_id{eps_bearer_id = EBI}],
-    RequestIEs = gtp_v2_c:build_recovery(Ctx, false, RequestIEs0),
-    send_request(Ctx, ?T3, ?N3, delete_bearer_request, RequestIEs).
+    RequestIEs = gtp_v2_c:build_recovery(Type, Ctx, false, RequestIEs0),
+    send_request(Ctx, ?T3, ?N3, Type, RequestIEs).
 
 bind_forward_path(sgw2pgw, Request, #{context := Context,
 				      proxy_context := ProxyContext} = State) ->

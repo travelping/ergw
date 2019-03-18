@@ -184,7 +184,7 @@ handle_cast({handle_request, ReqKey, #gtp{type = echo_request} = Msg0},
 
 	    State = handle_recovery_ie(Msg, State0),
 
-	    ResponseIEs = Handler:build_recovery(GtpPort, true, []),
+	    ResponseIEs = Handler:build_recovery(echo_request, GtpPort, true, []),
 	    Response = Msg#gtp{type = echo_response, ie = ResponseIEs},
 	    ergw_gtp_c_socket:send_response(ReqKey, Response, false),
 	    {noreply, State}

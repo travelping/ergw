@@ -503,10 +503,11 @@ imei(_, _) ->
 -define(N3, 5).
 
 ggsn_update_context(From, Context) ->
+    Type = update_pdp_context_request,
     NSAPI = 5,
     RequestIEs0 = [#nsapi{nsapi = NSAPI}],
-    RequestIEs = gtp_v1_c:build_recovery(Context, false, RequestIEs0),
-    ggsn_send_request(Context, ?T3, ?N3, update_pdp_context_request, RequestIEs, From).
+    RequestIEs = gtp_v1_c:build_recovery(Type, Context, false, RequestIEs0),
+    ggsn_send_request(Context, ?T3, ?N3, Type, RequestIEs, From).
 
 ggsn_send_request(#context{control_port = GtpPort,
 			   remote_control_teid =
