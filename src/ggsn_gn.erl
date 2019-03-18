@@ -354,7 +354,7 @@ response(Cmd, #context{remote_control_teid = #fq_teid{teid = TEID}}, Response) -
     {Cmd, TEID, Response}.
 
 response(Cmd, Context, IEs0, #gtp{ie = #{?'Recovery' := Recovery}}) ->
-    IEs = gtp_v1_c:build_recovery(Context, Recovery /= undefined, IEs0),
+    IEs = gtp_v1_c:build_recovery(Cmd, Context, Recovery /= undefined, IEs0),
     response(Cmd, Context, IEs).
 
 session_failure_to_gtp_cause(_) ->
@@ -913,11 +913,12 @@ send_request(#context{control_port = GtpPort,
 
 %% delete_context(From, #context_state{nsapi = NSAPI} = Context) ->
 delete_context(From, Context) ->
+    Type = delete_pdp_context_request,
     NSAPI = 5,
     RequestIEs0 = [#nsapi{nsapi = NSAPI},
 		   #teardown_ind{value = 1}],
-    RequestIEs = gtp_v1_c:build_recovery(Context, false, RequestIEs0),
-    send_request(Context, ?T3, ?N3, delete_pdp_context_request, RequestIEs, From).
+    RequestIEs = gtp_v1_c:build_recovery(Type, Context, false, RequestIEs0),
+    send_request(Context, ?T3, ?N3, Type, RequestIEs, From).
 
 session_ipv4_alloc(#{'Framed-IP-Address' := {255,255,255,255}}, ReqMSv4) ->
     ReqMSv4;

@@ -807,6 +807,7 @@ imei(_, _)     ->
 -define(N3, 5).
 
 pgw_update_context(From, Context) ->
+    Type = update_bearer_request,
     EBI = 5,
     RequestIEs0 =
 	[#v2_bearer_context{
@@ -814,8 +815,8 @@ pgw_update_context(From, Context) ->
 		     #v2_bearer_level_quality_of_service{}
 		    ]},
 	 #v2_aggregate_maximum_bit_rate{uplink = 48128, downlink = 1704125}],
-    RequestIEs = gtp_v2_c:build_recovery(Context, false, RequestIEs0),
-    pgw_send_request(Context, ?T3, ?N3, update_bearer_request, RequestIEs, From).
+    RequestIEs = gtp_v2_c:build_recovery(Type, Context, false, RequestIEs0),
+    pgw_send_request(Context, ?T3, ?N3, Type, RequestIEs, From).
 
 pgw_send_request(#context{control_port = GtpPort,
 			  remote_control_teid =

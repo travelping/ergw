@@ -21,7 +21,7 @@
 	 load_class/1]).
 
 %% support functions
--export([build_recovery/3]).
+-export([build_recovery/4]).
 
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include("include/ergw.hrl").
@@ -40,6 +40,49 @@
 %% API
 %%====================================================================
 
+%% build_recovery/4
+%%
+%% set gtp_v1_c:build_recovery/4
+%%
+build_recovery(Cmd, CtxOrPort, NewPeer, IEs)
+  when
+      %% Path Management Messages
+      Cmd =:= echo_request;
+      Cmd =:= echo_response;
+      %% Tunnel Management Messages
+      Cmd =:= create_session_request;
+      Cmd =:= create_session_response;
+      Cmd =:= create_bearer_response;
+      Cmd =:= bearer_resource_failure_indication;
+      Cmd =:= modify_bearer_request;
+      Cmd =:= modify_bearer_response;
+      Cmd =:= delete_session_response;
+      Cmd =:= delete_bearer_response;
+      Cmd =:= downlink_data_notification_acknowledge;
+      Cmd =:= delete_indirect_data_forwarding_tunnel_response;
+      Cmd =:= modify_bearer_failure_indication;
+      Cmd =:= update_bearer_response;
+      Cmd =:= delete_bearer_failure_indication;
+      Cmd =:= create_indirect_data_forwarding_tunnel_request;
+      Cmd =:= create_indirect_data_forwarding_tunnel_response;
+      Cmd =:= release_access_bearers_response;
+      %% Cmd =:= modify_access_bearer_request;
+      %% Cmd =:= modify_access_bearer_response;
+      Cmd =:= forward_relocation_request;
+      Cmd =:= forward_relocation_complete_acknowledge;
+      Cmd =:= detach_acknowledge;
+      Cmd =:= delete_pdn_connection_set_response;
+      Cmd =:= update_pdn_connection_set_response;
+      Cmd =:= mbms_session_start_request;
+      Cmd =:= mbms_session_start_response;
+      Cmd =:= mbms_session_update_response;
+      Cmd =:= mbms_session_stop_response ->
+    build_recovery(CtxOrPort, NewPeer, IEs);
+build_recovery(_Cmd, _CtxOrPort, _NewPeer, IEs) ->
+    IEs.
+
+
+%% build_recovery/3
 build_recovery(GtpPort = #gtp_port{}, NewPeer, IEs) when NewPeer == true ->
     add_recovery(GtpPort, IEs);
 build_recovery(#context{

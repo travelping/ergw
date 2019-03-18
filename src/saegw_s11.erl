@@ -367,11 +367,12 @@ handle_request(#request{gtp_port = GtpPort, ip = SrcIP, port = SrcPort} = ReqKey
 	    ok
     end,
 
+    Type = update_bearer_request,
     RequestIEs0 = [AMBR,
 		   #v2_bearer_context{
 		      group = copy_ies_to_response(Bearer, [EBI], [?'Bearer Level QoS'])}],
-    RequestIEs = gtp_v2_c:build_recovery(Context, false, RequestIEs0),
-    Msg = msg(Context, update_bearer_request, RequestIEs),
+    RequestIEs = gtp_v2_c:build_recovery(Type, Context, false, RequestIEs0),
+    Msg = msg(Context, Type, RequestIEs),
     send_request(GtpPort, SrcIP, SrcPort, ?T3, ?N3, Msg#gtp{seq_no = SeqNo}, undefined),
 
     {noreply, State};
@@ -484,7 +485,7 @@ response(Cmd, #context{remote_control_teid = #fq_teid{teid = TEID}}, Response) -
     {Cmd, TEID, Response}.
 
 response(Cmd, Context, IEs0, #gtp{ie = #{?'Recovery' := Recovery}}) ->
-    IEs = gtp_v2_c:build_recovery(Context, Recovery /= undefined, IEs0),
+    IEs = gtp_v2_c:build_recovery(Cmd, Context, Recovery /= undefined, IEs0),
     response(Cmd, Context, IEs).
 
 session_failure_to_gtp_cause(_) ->
@@ -963,11 +964,12 @@ send_request(Context, T3, N3, Type, RequestIEs, ReqInfo) ->
 
 %% delete_context(From, #context_state{ebi = EBI} = Context) ->
 delete_context(From, Context) ->
+    Type = delete_bearer_request,
     EBI = 5,
     RequestIEs0 = [#v2_cause{v2_cause = reactivation_requested},
 		   #v2_eps_bearer_id{eps_bearer_id = EBI}],
-    RequestIEs = gtp_v2_c:build_recovery(Context, false, RequestIEs0),
-    send_request(Context, ?T3, ?N3, delete_bearer_request, RequestIEs, From).
+    RequestIEs = gtp_v2_c:build_recovery(Type, Context, false, RequestIEs0),
+    send_request(Context, ?T3, ?N3, Type, RequestIEs, From).
 
 session_ipv4_alloc(#{'Framed-IP-Address' := {255,255,255,255}}, ReqMSv4) ->
     ReqMSv4;

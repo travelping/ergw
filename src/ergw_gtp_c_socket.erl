@@ -83,6 +83,7 @@ send_response(#request{gtp_port = GtpPort, ip = RemoteIP} = ReqKey, Msg, DoCache
     Data = gtp_packet:encode(Msg),
     cast(GtpPort, {send_response, ReqKey, Data, DoCache}).
 
+%% send_request/7
 send_request(#gtp_port{type = 'gtp-c'} = GtpPort, DstIP, DstPort, T3, N3,
 	     Msg = #gtp{version = Version}, CbInfo) ->
     lager:debug("~p: gtp_socket send_request to ~s(~p):~w: ~p",
@@ -91,6 +92,7 @@ send_request(#gtp_port{type = 'gtp-c'} = GtpPort, DstIP, DstPort, T3, N3,
     cast(GtpPort, make_send_req(undefined, DstIP, DstPort, T3, N3, Msg, CbInfo)),
     gtp_path:maybe_new_path(GtpPort, Version, DstIP).
 
+%% send_request/6
 send_request(#gtp_port{type = 'gtp-c'} = GtpPort, DstIP, DstPort, ReqId,
 	     Msg = #gtp{version = Version}, CbInfo) ->
     lager:debug("~p: gtp_socket send_request ~p to ~s:~w: ~p",

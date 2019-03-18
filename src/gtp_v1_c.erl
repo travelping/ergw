@@ -21,7 +21,7 @@
 	 load_class/1]).
 
 %% support functions
--export([build_recovery/3]).
+-export([build_recovery/4]).
 
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include("include/ergw.hrl").
@@ -38,6 +38,38 @@
 %% API
 %%====================================================================
 
+%% build_recovery/4
+%%
+%% At least one GGSN implementation is brain dead enough to
+%% ignore TS 29.060, Section 11.1.1 and reject messages with an
+%% unexpected but otherwise correct (Recovery) IE.
+%% Make sure that only message that are explicitely expected to
+%% contain a Recovery IE to have one.
+%%
+build_recovery(Cmd, CtxOrPort, NewPeer, IEs)
+  when
+      %% Path Management Messages
+      %% Cmd =:= echo_request;
+      Cmd =:= echo_response;
+      %% Tunnel Management Messages
+      Cmd =:= create_pdp_context_request;
+      Cmd =:= create_pdp_context_response;
+      Cmd =:= update_pdp_context_request;
+      Cmd =:= update_pdp_context_response;
+      %% MBMS Messages
+      Cmd =:= create_mbms_context_request;
+      Cmd =:= create_mbms_context_response;
+      Cmd =:= update_mbms_context_request;
+      Cmd =:= update_mbms_context_response;
+      Cmd =:= delete_mbms_context_request;
+      Cmd =:= delete_mbms_context_response;
+      Cmd =:= mbms_session_start_request;
+      Cmd =:= mbms_session_start_response ->
+    build_recovery(CtxOrPort, NewPeer, IEs);
+build_recovery(_Cmd, _CtxOrPort, _NewPeer, IEs) ->
+    IEs.
+
+%% build_recovery/3
 build_recovery(#gtp_port{} = GtpPort, NewPeer, IEs) when NewPeer == true ->
     add_recovery(GtpPort, IEs);
 build_recovery(#context{

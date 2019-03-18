@@ -479,8 +479,14 @@ terminate(_Reason, _State) ->
 %%% Internal functions
 %%%===================================================================
 
-handle_proxy_info(#gtp{ie = #{?'Recovery' := Recovery}},
-		  Context, #{proxy_ds := ProxyDS}) ->
+response(Cmd, #context{remote_control_teid = #fq_teid{teid = TEID}}, Response) ->
+    {Cmd, TEID, Response}.
+
+response(Cmd, Context, IEs0, #gtp{ie = #{?'Recovery' := Recovery}}) ->
+    IEs = gtp_v1_c:build_recovery(Cmd, Context, Recovery /= undefined, IEs0),
+    response(Cmd, Context, IEs).
+
+handle_proxy_info(Request, Context, #{proxy_ds := ProxyDS}) ->
     ProxyInfo0 = proxy_info(Context),
     case ProxyDS:map(ProxyInfo0) of
 	{ok, #proxy_info{} = ProxyInfo} ->
@@ -489,13 +495,10 @@ handle_proxy_info(#gtp{ie = #{?'Recovery' := Recovery}},
 
 	Other ->
 	    lager:warning("Failed Proxy Map: ~p", [Other]),
-
-	    ResponseIEs0 = [#cause{value = user_authentication_failed}],
-	    ResponseIEs = gtp_v1_c:build_recovery(Context, Recovery /= undefined, ResponseIEs0),
-	    throw(?CTX_ERR(?FATAL,
-			   {create_pdp_context_response,
-			    Context#context.remote_control_teid#fq_teid.teid,
-			    ResponseIEs}, Context))
+	    Type = create_pdp_context_response,
+	    Cause = user_authentication_failed,
+	    Reply = response(Type, Context, [#cause{value = Cause}], Request),
+	    throw(?CTX_ERR(?FATAL, Reply, Context))
     end.
 
 delete_forward_session(Reason, #{context := Context, proxy_context := ProxyContext,
@@ -617,10 +620,10 @@ proxy_info(#context{apn = APN, imsi = IMSI, msisdn = MSISDN, restrictions = Rest
     #proxy_info{ggsns = GGSNs, imsi = IMSI, msisdn = MSISDN, src_apn = LookupAPN}.
 
 build_context_request(#context{remote_control_teid = #fq_teid{teid = TEI}} = Context,
-		      NewPeer, #gtp{ie = RequestIEs} = Request) ->
+		      NewPeer, #gtp{type = Type, ie = RequestIEs} = Request) ->
     ProxyIEs0 = maps:without([?'Recovery'], RequestIEs),
     ProxyIEs1 = update_gtp_req_from_context(Context, ProxyIEs0),
-    ProxyIEs = gtp_v1_c:build_recovery(Context, NewPeer, ProxyIEs1),
+    ProxyIEs = gtp_v1_c:build_recovery(Type, Context, NewPeer, ProxyIEs1),
     Request#gtp{tei = TEI, seq_no = undefined, ie = ProxyIEs}.
 
 send_request(#context{control_port = GtpPort,
@@ -636,11 +639,12 @@ send_request(#context{control_port = GtpPort,
 initiate_pdp_context_teardown(Direction, State) ->
     #context{state = #context_state{nsapi = NSAPI}} =
 	Ctx = forward_context(Direction, State),
+    Type = delete_pdp_context_request,
     RequestIEs0 = [#cause{value = request_accepted},
 		   #teardown_ind{value = 1},
 		   #nsapi{nsapi = NSAPI}],
-    RequestIEs = gtp_v1_c:build_recovery(Ctx, false, RequestIEs0),
-    send_request(Ctx, ?T3, ?N3, delete_pdp_context_request, RequestIEs).
+    RequestIEs = gtp_v1_c:build_recovery(Type, Ctx, false, RequestIEs0),
+    send_request(Ctx, ?T3, ?N3, Type, RequestIEs).
 
 fteid_forward_context(#f_teid{ipv4 = IPv4, ipv6 = IPv6, teid = TEID},
 		      #{proxy_context :=
