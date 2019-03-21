@@ -14,6 +14,7 @@
 	 process_online_charging_events/4,
 	 process_offline_charging_events/4,
 	 process_offline_charging_events/5,
+	 pfcp_to_context_event/1,
 	 pcc_rules_to_credit_request/1,
 	 modify_sgi_session/4,
 	 delete_sgi_session/2,
@@ -29,7 +30,7 @@
 -include_lib("ergw_aaa/include/diameter_3gpp_ts32_299.hrl").
 -include("include/ergw.hrl").
 
--record(sx_upd, {errors = [], monitors = #{}, pctx = #pfcp_ctx{}, sctx}).
+-record(sx_upd, {now, errors = [], monitors = #{}, pctx = #pfcp_ctx{}, sctx}).
 
 -define(SECONDS_PER_DAY, 86400).
 -define(DAYS_FROM_0_TO_1970, 719528).
@@ -62,6 +63,7 @@ build_query_usage_report(Type, PCtx)
 		 (_, _, A) -> A
 	      end, [], ergw_pfcp:get_urr_ids(PCtx)).
 
+%% query_usage_report/1
 query_usage_report(#context{pfcp_ctx = PCtx} = Ctx) ->
     case build_query_usage_report(online, PCtx) of
 	IEs when length(IEs) /= 0 ->
@@ -71,14 +73,14 @@ query_usage_report(#context{pfcp_ctx = PCtx} = Ctx) ->
 	    undefined
     end.
 
-query_usage_report(RatingGroup, #context{pfcp_ctx = PCtx} = Ctx) ->
-    ChargingKey = {online, RatingGroup},
-    case ergw_pfcp:get_urr_ids(PCtx) of
-	#{ChargingKey := Id} ->
-	    IEs = [#query_urr{group = [#urr_id{id = Id}]}],
+%% query_usage_report/2
+query_usage_report(ChargingKeys, #context{pfcp_ctx = PCtx} = Ctx) ->
+    IEs = [#query_urr{group = [#urr_id{id = Id}]} ||
+	   Id <- ergw_pfcp:get_urr_ids(ChargingKeys, PCtx), is_integer(Id)],
+    if length(IEs) /= 0 ->
 	    Req = #pfcp{version = v1, type = session_modification_request, ie = IEs},
 	    ergw_sx_node:call(PCtx, Req, Ctx);
-	_ ->
+       true ->
 	    undefined
     end.
 
@@ -224,9 +226,11 @@ apply_charging_profile(URR, OCP) ->
 %% build_sx_rules/4
 build_sx_rules(SessionOpts, Opts, PCtx, SCtx) ->
     InitPCtx = ergw_pfcp:reset_ctx(PCtx),
-    Init = #sx_upd{pctx = InitPCtx, sctx = SCtx},
-    #sx_upd{errors = Errors, pctx = NewPCtx} =
+    Init = #sx_upd{now = erlang:monotonic_time(millisecond),
+		   pctx = InitPCtx, sctx = SCtx},
+    #sx_upd{errors = Errors, pctx = NewPCtx0} =
 	build_sx_rules_3(SessionOpts, Opts, Init),
+    NewPCtx = ergw_pfcp:apply_timers(PCtx, NewPCtx0),
 
     SxRuleReq = ergw_pfcp:update_pfcp_rules(PCtx, NewPCtx, Opts),
 
@@ -560,13 +564,31 @@ build_sx_usage_rule(Type, _, _, URR) ->
     lager:warning("build_sx_usage_rule: not handling ~p", [Type]),
     URR.
 
+pfcp_to_context_event([], M) ->
+    M;
+pfcp_to_context_event([{ChargingKey, Ev}|T], M) ->
+    pfcp_to_context_event(T,
+			  maps:update_with(Ev, [ChargingKey|_], [ChargingKey], M)).
+
+%% pfcp_to_context_event/1
+pfcp_to_context_event(Evs) ->
+    pfcp_to_context_event(Evs, #{}).
+
+handle_validity_time(ChargingKey,
+		     #{'Validity-Time' := [Time]}, PCtx, #sx_upd{now = Now}) ->
+    AbsTime = Now + erlang:convert_time_unit(Time, second, millisecond),
+    ergw_pfcp:set_timer(AbsTime, {ChargingKey, validity_time}, PCtx);
+handle_validity_time(_, _, PCtx, _) ->
+    PCtx.
+
 %% build_sx_usage_rule/2
 build_sx_usage_rule(#{'Result-Code' := [2001],
 		      'Rating-Group' := [RatingGroup],
 		      'Granted-Service-Unit' := [GSU]} = GCU,
 		    #sx_upd{pctx = PCtx0} = Update) ->
     ChargingKey = {online, RatingGroup},
-    {UrrId, PCtx} = ergw_pfcp:get_urr_id(ChargingKey, [RatingGroup], ChargingKey, PCtx0),
+    {UrrId, PCtx1} = ergw_pfcp:get_urr_id(ChargingKey, [RatingGroup], ChargingKey, PCtx0),
+    PCtx = handle_validity_time(ChargingKey, GCU, PCtx1, Update),
 
     URR0 = #{urr_id => #urr_id{id = UrrId},
 	     measurement_method => #measurement_method{},
@@ -610,10 +632,12 @@ build_sx_monitor_rule(Service, Definition, Update) ->
     sx_rule_error({system_error, Definition}, Update).
 
 update_sx_usage_rules(Update, #{context := #context{pfcp_ctx = PCtx0} = Ctx} = State) ->
-    Init = #sx_upd{pctx = PCtx0, sctx = Ctx},
-    #sx_upd{errors = Errors, pctx = PCtx} =
+    Init = #sx_upd{now = erlang:monotonic_time(millisecond),
+		   pctx = ergw_pfcp:reset_ctx_timers(PCtx0), sctx = Ctx},
+    #sx_upd{errors = Errors, pctx = PCtx1} =
 	lists:foldl(fun build_sx_usage_rule/2, Init, Update),
-    #pfcp_ctx{sx_rules = Rules} = PCtx,
+    PCtx = #pfcp_ctx{sx_rules = Rules} =
+	ergw_pfcp:apply_timers(PCtx0, PCtx1),
 
     lager:info("Sx Modify: ~p, (~p)", [maps:values(Rules), Errors]),
 
@@ -736,6 +760,12 @@ trigger_to_reason(#usage_report_trigger{termr = 1}, Report) ->
 trigger_to_reason(_, Report) ->
    Report.
 
+charge_event_to_reason(#{'Charge-Event' := validity_time}, Report) ->
+    Report#{'Reporting-Reason' =>
+		[?'DIAMETER_3GPP_CHARGING_REPORTING-REASON_VALIDITY_TIME']};
+charge_event_to_reason(_, Report) ->
+    Report.
+
 tariff_change_usage(#{usage_information := #usage_information{bef = 1}}, Report) ->
     Report#{'Tariff-Change-Usage' =>
 		[?'DIAMETER_3GPP_CHARGING_TARIFF-CHANGE-USAGE_UNIT_BEFORE_TARIFF_CHANGE']};
@@ -749,9 +779,10 @@ tariff_change_usage(_, Report) ->
 charging_event_to_gy(#{'Rating-Group' := ChargingKey,
 		       usage_report_trigger := Trigger} = URR) ->
     Report0 = trigger_to_reason(Trigger, #{}),
-    Report1 = tariff_change_usage(URR, Report0),
-    Report2 = credit_report_volume(maps:get(volume_measurement, URR, undefined), Report1),
-    Report = credit_report_duration(maps:get(duration_measurement, URR, undefined), Report2),
+    Report1 = charge_event_to_reason(URR, Report0),
+    Report2 = tariff_change_usage(URR, Report1),
+    Report3 = credit_report_volume(maps:get(volume_measurement, URR, undefined), Report2),
+    Report = credit_report_duration(maps:get(duration_measurement, URR, undefined), Report3),
     {ChargingKey, Report}.
 
 %% ===========================================================================
@@ -942,9 +973,10 @@ init_charging_events() ->
 
 %% usage_report_to_charging_events/4
 usage_report_to_charging_events({online, RatingGroup}, Report,
-				_ChargeEv, {On, _, _} = Ev)
+				ChargeEv, {On, _, _} = Ev)
   when is_integer(RatingGroup), is_map(Report) ->
-    setelement(1, Ev, [Report#{'Rating-Group' => RatingGroup} | On]);
+    setelement(1, Ev, [Report#{'Rating-Group' => RatingGroup,
+			       'Charge-Event' => ChargeEv} | On]);
 usage_report_to_charging_events({offline, RatingGroup}, Report,
 				ChargeEv, {_, Off, _} = Ev)
   when is_integer(RatingGroup), is_map(Report) ->

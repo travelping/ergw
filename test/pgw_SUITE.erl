@@ -139,7 +139,8 @@
 		]},
 
 	 {ergw_aaa,
-	  [{handlers,
+	  [
+	   {handlers,
 	    [{ergw_aaa_static,
 	      [{'NAS-Identifier',          <<"NAS-Identifier">>},
 	       {'Node-Id',                 <<"PGW-001">>},
@@ -161,8 +162,55 @@
 	       }
 	      ]}
 	    ]},
-	   {services, [{'Default', [{handler, 'ergw_aaa_static'}]}]},
-	   {apps, [{default, [{session, ['Default']}]}]}
+	   {services,
+	    [{'Default', [{handler, 'ergw_aaa_static'},
+			  {answers, #{'Initial-OCS' =>
+					  #{'Result-Code' => [2001],
+					    'Multiple-Services-Credit-Control' =>
+						[#{'Envelope-Reporting' => [0],
+						   'Granted-Service-Unit' =>
+						       [#{'CC-Time' => [3600],
+							  'CC-Total-Octets' => [102400]}],
+						   'Rating-Group' => [3000],
+						   'Validity-Time' => [2],
+						   'Result-Code' => [2001],
+						   'Time-Quota-Threshold' => [60],
+						   'Volume-Quota-Threshold' => [10240]}
+						]
+					   },
+				      'Update-OCS' =>
+					  #{'Result-Code' => [2001],
+					    'Multiple-Services-Credit-Control' =>
+						[#{'Envelope-Reporting' => [0],
+						   'Granted-Service-Unit' =>
+						       [#{'CC-Time' => [3600],
+							  'CC-Total-Octets' => [102400]}],
+						   'Rating-Group' => [3000],
+						   'Validity-Time' => [2],
+						   'Result-Code' => [2001],
+						   'Time-Quota-Threshold' => [60],
+						   'Volume-Quota-Threshold' => [10240]}
+						]
+					   }
+				     }
+			  }
+			 ]}
+	    ]},
+	   {apps,
+	    [{default,
+	      [{session, ['Default']},
+	       {procedures, [{authenticate, []},
+			     {authorize, []},
+			     {start, []},
+			     {interim, []},
+			     {stop, []},
+			     {{gy, 'CCR-Initial'},   []},
+			     {{gy, 'CCR-Update'},    []},
+			     %%{{gy, 'CCR-Update'},    [{'Default', [{answer, 'Update-If-Down'}]}]},
+			     {{gy, 'CCR-Terminate'}, []}
+			    ]}
+	      ]}
+	    ]}
 	  ]}
 	]).
 
@@ -258,7 +306,8 @@ common() ->
      session_accounting,
      sx_cp_to_up_forward,
      sx_up_to_cp_forward,
-     sx_timeout].
+     sx_timeout,
+     gy_validity_timer].
 
 groups() ->
     [{ipv4, [], common()},
@@ -1612,6 +1661,64 @@ sx_timeout(Config) ->
     meck_validate(Config),
     ok.
 
+%%--------------------------------------------------------------------
+
+maps_recusive_merge(Key, Value, Map) ->
+    maps:update_with(Key, fun(V) -> maps_recusive_merge(V, Value) end, Value, Map).
+
+maps_recusive_merge(M1, M2)
+  when is_map(M1) andalso is_map(M1) ->
+    maps:fold(fun maps_recusive_merge/3, M1, M2);
+maps_recusive_merge(_, New) ->
+    New.
+
+cfg_get_value([], Cfg) ->
+    Cfg;
+cfg_get_value([H|T], Cfg) when is_map(Cfg) ->
+    cfg_get_value(T, maps:get(H, Cfg));
+cfg_get_value([H|T], Cfg) when is_list(Cfg) ->
+    cfg_get_value(T, proplists:get_value(H, Cfg)).
+
+gy_validity_timer() ->
+    [{doc, "Check Validity-Timer attached to MSCC"}].
+gy_validity_timer(Config) ->
+    {ok, Cfg0} = application:get_env(ergw_aaa, apps),
+    Session = cfg_get_value([default, session, 'Default'], Cfg0),
+    UpdCfg =
+	#{default =>
+	      #{procedures =>
+		    #{
+		      {gy, 'CCR-Initial'} =>
+			  [{'Default', Session#{answer => 'Initial-OCS'}}],
+		      {gy, 'CCR-Update'} =>
+			  [{'Default', Session#{answer => 'Update-OCS'}}]
+		     }
+	       }
+	 },
+    Cfg = maps_recusive_merge(Cfg0, UpdCfg),
+    ok = application:set_env(ergw_aaa, apps, Cfg),
+    ct:pal("Cfg: ~p", [Cfg]),
+
+    {GtpC, _, _} = create_session(Config),
+    ct:sleep({seconds, 10}),
+    delete_session(GtpC),
+
+    ?match(X when X >= 3, meck:num_calls(?HUT, handle_info, [{pfcp_timer, '_'}, '_'])),
+
+    CCRU = lists:foldl(
+	     fun({_, {ergw_aaa_session, invoke, [_, S, {gy,'CCR-Update'}, _]}, _}, Acc) ->
+		     ?match(#{used_credits := [{3000, #{'Reporting-Reason' := [4]}}]}, S),
+		     [S|Acc];
+		(_, Acc) -> Acc
+	     end, [], meck:history(ergw_aaa_session)),
+    ?match(X when X >= 3, length(CCRU)),
+
+    ?equal([], outstanding_requests()),
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    meck_validate(Config),
+
+    ok = application:set_env(ergw_aaa, apps, Cfg0),
+    ok.
 
 %%%===================================================================
 %%% Internal functions

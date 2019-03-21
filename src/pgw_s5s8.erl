@@ -131,8 +131,6 @@ handle_info({'DOWN', _MonitorRef, Type, Pid, _Info},
     close_pdn_context(upf_failure, State),
     {noreply, State};
 
-%% ===========================================================================
-
 handle_info(stop_from_session, #{context := Context} = State) ->
     delete_context(undefined, Context),
     {noreply, State};
@@ -143,29 +141,19 @@ handle_info(#aaa_request{procedure = {_, 'ASR'}},
     delete_context(undefined, Context),
     {noreply, State};
 handle_info(#aaa_request{procedure = {gy, 'RAR'}, request = Request},
-	    #{context := Context, 'Session' := Session} = State) ->
+	    #{'Session' := Session} = State) ->
     ergw_aaa_session:response(Session, ok, #{}),
     Now = erlang:monotonic_time(),
 
     %% Triggered CCR.....
-
-    case query_usage_report(Request, Context) of
-	#pfcp{type = session_modification_response,
-	      ie = #{pfcp_cause := #pfcp_cause{cause = 'Request accepted'}} = IEs} ->
-
-	    ChargeEv = interim,
-	    UsageReport = maps:get(usage_report_smr, IEs, undefined),
-	    {Online, Offline, _} =
-		ergw_gsn_lib:usage_report_to_charging_events(UsageReport, ChargeEv, Context),
-	    ergw_gsn_lib:process_online_charging_events(ChargeEv, Online, Now, Session),
-	    ergw_gsn_lib:process_offline_charging_events(ChargeEv, Offline, Now, Session),
-	    ok;
-	_ ->
-	    ok
-    end,
+    triggered_charging_event(interim, Now, Request, State),
     {noreply, State};
 
-%% ===========================================================================
+handle_info({pfcp_timer, #{validity_time := ChargingKeys}}, State) ->
+    Now = erlang:monotonic_time(),
+    triggered_charging_event(validity_time, Now, ChargingKeys, State),
+
+    {noreply, State};
 
 handle_info(_Info, State) ->
     {noreply, State}.
@@ -657,9 +645,28 @@ close_pdn_context(Reason, #{context := Context, 'Session' := Session}) ->
     pdn_release_ip(Context).
 
 query_usage_report(#{'Rating-Group' := [RatingGroup]}, Context) ->
-    ergw_gsn_lib:query_usage_report(RatingGroup, Context);
+    ChargingKeys = [{online, RatingGroup}],
+    ergw_gsn_lib:query_usage_report(ChargingKeys, Context);
+query_usage_report(ChargingKeys, Context) when is_list(ChargingKeys) ->
+    ergw_gsn_lib:query_usage_report(ChargingKeys, Context);
 query_usage_report(_, Context) ->
     ergw_gsn_lib:query_usage_report(Context).
+
+triggered_charging_event(ChargeEv, Now, Request,
+			 #{context := Context, 'Session' := Session}) ->
+    case query_usage_report(Request, Context) of
+	#pfcp{type = session_modification_response,
+	      ie = #{pfcp_cause := #pfcp_cause{cause = 'Request accepted'}} = IEs} ->
+
+	    UsageReport = maps:get(usage_report_smr, IEs, undefined),
+	    {Online, Offline, _} =
+		ergw_gsn_lib:usage_report_to_charging_events(UsageReport, ChargeEv, Context),
+	    ergw_gsn_lib:process_online_charging_events(ChargeEv, Online, Now, Session),
+	    ergw_gsn_lib:process_offline_charging_events(ChargeEv, Offline, Now, Session),
+	    ok;
+	_ ->
+	    ok
+    end.
 
 apply_context_change(NewContext0, OldContext, URRActions, #{'Session' := Session} = State) ->
     ModifyOpts =

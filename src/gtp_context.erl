@@ -420,6 +420,13 @@ handle_info({update_session, Session, Events} = Us, #{interface := Interface} = 
 
 %%====================================================================
 
+handle_info({timeout, TRef, pfcp_timer} = Info,
+	    #{interface := Interface, context := #context{pfcp_ctx = PCtx0} = Ctx} = State) ->
+    lager:debug("handle_info ~p:~p", [Interface, lager:pr(Info, ?MODULE)]),
+    {Evs, PCtx} = ergw_pfcp:timer_expired(TRef, PCtx0),
+    CtxEvs = ergw_gsn_lib:pfcp_to_context_event(Evs),
+    Interface:handle_info({pfcp_timer, CtxEvs}, State#{context => Ctx#context{pfcp_ctx = PCtx}});
+
 handle_info(Info, #{interface := Interface} = State) ->
     lager:debug("handle_info ~p:~p", [Interface, lager:pr(Info, ?MODULE)]),
     Interface:handle_info(Info, State).

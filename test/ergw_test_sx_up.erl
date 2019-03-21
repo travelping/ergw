@@ -234,26 +234,30 @@ handle_message(#pfcp{type = session_modification_request, seid = UserPlaneSEID, 
 		     cp_seid = ControlPlaneSEID,
 		     up_seid = UserPlaneSEID} = State) ->
     RespIEs =
-	case {Acct, maps:is_key(query_urr, ReqIEs)} of
-	    {on, true} ->
-		[#pfcp_cause{cause = 'Request accepted'},
-		 #usage_report_smr{
-		    group =
-			[#urr_id{id = 1},
-			 #usage_report_trigger{immer = 1},
-			 #volume_measurement{
-			    total = 6,
-			    uplink = 4,
-			    downlink = 2
-			   },
-			 #tp_packet_measurement{
-			    total = 4,
-			    uplink = 3,
-			    downlink = 1
-			   }
-			]
-		   }
-		];
+	case {Acct, maps:get(query_urr, ReqIEs, [])} of
+	    {on, Query} ->
+		Response =
+		    fun Answer(#query_urr{group = #{urr_id := #urr_id{id = Id}}}) ->
+			    #usage_report_smr{
+			       group =
+				   [#urr_id{id = Id},
+				    #usage_report_trigger{immer = 1},
+				    #volume_measurement{
+				       total = 6,
+				       uplink = 4,
+				       downlink = 2
+				      },
+				    #tp_packet_measurement{
+				       total = 4,
+				       uplink = 3,
+				       downlink = 1
+				      }
+				   ]
+			      };
+			Answer([])  -> [];
+			Answer([H|T]) -> [Answer(H) | Answer(T)]
+		    end(Query),
+		lists:flatten([#pfcp_cause{cause = 'Request accepted'}, Response]);
 	    _ ->
 		[#pfcp_cause{cause = 'Request accepted'}]
 	end,
