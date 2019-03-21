@@ -18,9 +18,12 @@
 	 outer_header_removal/1,
 	 ctx_teid_key/2,
 	 assign_data_teid/2]).
--export([init_ctx/1, reset_ctx/1, get_id/2, get_id/3, update_pfcp_rules/3]).
--export([get_urr_id/4, get_urr_group/2, get_urr_ids/1,
+-export([init_ctx/1, reset_ctx/1, reset_ctx_timers/1,
+	 get_id/2, get_id/3, update_pfcp_rules/3]).
+-export([get_urr_id/4, get_urr_group/2,
+	 get_urr_ids/1, get_urr_ids/2,
 	 find_urr_by_id/2]).
+-export([set_timer/3, apply_timers/2, timer_expired/2]).
 -export([pfcp_rules_add/2]).
 
 -ifdef(TEST).
@@ -140,10 +143,14 @@ pfcp_rule_diff(K, Old, New, Diff) ->
 %%%===================================================================
 
 init_ctx(PCtx) ->
-    PCtx#pfcp_ctx{idcnt = #{}, idmap = #{}, urr_by_id = #{}, urr_by_grp = #{}, sx_rules = #{}}.
+    PCtx#pfcp_ctx{idcnt = #{}, idmap = #{}, urr_by_id = #{}, urr_by_grp = #{},
+		  sx_rules = #{}, timers = #{}, timer_by_tref = #{}}.
 
 reset_ctx(PCtx) ->
-    PCtx#pfcp_ctx{urr_by_grp = #{}, sx_rules = #{}}.
+    PCtx#pfcp_ctx{urr_by_grp = #{}, sx_rules = #{}, timers = #{}, timer_by_tref = #{}}.
+
+reset_ctx_timers(PCtx) ->
+    PCtx#pfcp_ctx{timers = #{}, timer_by_tref = #{}}.
 
 get_id(Keys, PCtx) ->
     lists:mapfoldr(fun({Type, Name}, P) -> get_id(Type, Name, P) end, PCtx, Keys).
@@ -175,8 +182,49 @@ get_urr_group(Group, #pfcp_ctx{urr_by_grp = Grp}) ->
 get_urr_ids(#pfcp_ctx{urr_by_id = M}) ->
     M.
 
+get_urr_ids(Names, #pfcp_ctx{idmap = IdMap}) ->
+    lists:map(fun(N) -> maps:get({urr, N}, IdMap, undefined) end, Names).
+
 find_urr_by_id(Id, #pfcp_ctx{urr_by_id = M}) ->
     maps:find(Id, M).
+
+%%%===================================================================
+%%% Timer handling
+%%%===================================================================
+
+set_timer(Time, Ev, #pfcp_ctx{timers = T0} = PCtx) ->
+    T = maps:update_with(Time, fun({K, Evs}) -> {K, [Ev|Evs]} end, {undefined, [Ev]}, T0),
+    PCtx#pfcp_ctx{timers = T}.
+
+apply_timers(#pfcp_ctx{timers = Old}, #pfcp_ctx{timers = New} = PCtx) ->
+    lager:debug("Update Timers Old: ~p", [Old]),
+    lager:debug("Update Timers New: ~p", [New]),
+    maps:map(fun del_timers/2, maps:without(maps:keys(New), Old)),
+    maps:fold(fun upd_timers/3, reset_ctx_timers(PCtx), New).
+
+del_timers(_, {TRef, _}) ->
+    erlang:cancel_timer(TRef).
+
+upd_timers(Time, {TRef0, Evs}, #pfcp_ctx{timers = Ts, timer_by_tref = Ids} = PCtx) ->
+    TRef = if is_reference(TRef0) -> TRef0;
+	      true -> erlang:start_timer(Time, self(), pfcp_timer, [{abs, true}])
+	   end,
+    PCtx#pfcp_ctx{
+      timers = Ts#{Time => {TRef, Evs}},
+      timer_by_tref = Ids#{TRef => Time}
+     }.
+
+timer_expired(TRef, #pfcp_ctx{timers = Ts, timer_by_tref = Ids} = PCtx0) ->
+    case Ids of
+	#{TRef := Time} ->
+	    {_, Evs} = maps:get(Time, Ts, {undefined, []}),
+	    PCtx = PCtx0#pfcp_ctx{
+		     timers = maps:remove(Time, Ts),
+		     timer_by_tref = maps:remove(TRef, Ids)},
+	    {Evs, PCtx};
+	_ ->
+	    {[], PCtx0}
+    end.
 
 %%%===================================================================
 %%% Manage PFCP rules in context

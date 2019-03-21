@@ -61,7 +61,9 @@
 	  idmap = #{}		:: map(),
 	  urr_by_id = #{}	:: map(),
 	  urr_by_grp = #{}	:: map(),
-	  sx_rules = #{}	:: map()
+	  sx_rules = #{}	:: map(),
+	  timers = #{}		:: map(),
+	  timer_by_tref = #{}	:: map()
 	 }).
 
 -record(gtp_endp, {
