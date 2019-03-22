@@ -91,8 +91,8 @@ init(_Opts, State) ->
     {ok, State#{'Version' => v1, 'Session' => Session}}.
 
 handle_call(query_usage_report, _From,
-	    #{context := Context} = State) ->
-    Reply = ergw_gsn_lib:query_usage_report(Context),
+	    #{context := Context, pfcp := PCtx} = State) ->
+    Reply = ergw_gsn_lib:query_usage_report(Context, PCtx),
     {reply, Reply, State};
 
 handle_call(delete_context, From, #{context := Context} = State) ->
@@ -115,7 +115,7 @@ handle_cast({packet_in, _GtpPort, _IP, _Port, _Msg}, State) ->
     {noreply, State}.
 
 handle_info({'DOWN', _MonitorRef, Type, Pid, _Info} = _I,
-	    #{context := #context{pfcp_ctx = #pfcp_ctx{node = Pid}}} = State)
+	    #{pfcp := #pfcp_ctx{node = Pid}} = State)
   when Type == process; Type == pfcp ->
     lager:info("~p, handle_info(~p, ~p)", [?MODULE, _I, State]),
     close_pdp_context(upf_failure, State),
@@ -150,10 +150,10 @@ handle_info(_Info, State) ->
     lager:warning("~p, handle_info(~p, ~p)", [?MODULE, _Info, State]),
     {noreply, State}.
 
-handle_pdu(ReqKey, #gtp{ie = Data} = Msg, #{context := Context} = State) ->
+handle_pdu(ReqKey, #gtp{ie = Data} = Msg, #{context := Context, pfcp := PCtx} = State) ->
     lager:debug("GTP-U GGSN: ~p, ~p", [lager:pr(ReqKey, ?MODULE), gtp_c_lib:fmt_gtp(Msg)]),
 
-    ergw_gsn_lib:ip_pdu(Data, Context),
+    ergw_gsn_lib:ip_pdu(Data, Context, PCtx),
     {noreply, State}.
 
 handle_sx_report(#pfcp{type = session_report_request,
@@ -167,12 +167,12 @@ handle_sx_report(#pfcp{type = session_report_request,
 handle_sx_report(#pfcp{type = session_report_request,
 		       ie = #{report_type := #report_type{usar = 1},
 			      usage_report_srr := UsageReport}},
-		 _From, #{context := Context, 'Session' := Session} = State) ->
+		 _From, #{pfcp := PCtx, 'Session' := Session} = State) ->
 
     Now = erlang:monotonic_time(),
     ChargeEv = interim,
     {Online, Offline, _} =
-	ergw_gsn_lib:usage_report_to_charging_events(UsageReport, ChargeEv, Context),
+	ergw_gsn_lib:usage_report_to_charging_events(UsageReport, ChargeEv, PCtx),
     ergw_gsn_lib:process_online_charging_events(ChargeEv, Online, Now, Session),
     ergw_gsn_lib:process_offline_charging_events(ChargeEv, Offline, Now, Session),
 
@@ -250,18 +250,20 @@ handle_request(_ReqKey,
 
     %% ===========================================================================
 
-    Context = ergw_gsn_lib:create_sgi_session(Candidates, FinalSessionOpts, ContextPending),
+    {Context, PCtx} =
+	ergw_gsn_lib:create_sgi_session(Candidates, FinalSessionOpts, ContextPending),
     gtp_context:remote_context_register_new(Context),
 
     ResponseIEs = create_pdp_context_response(ActiveSessionOpts, IEs, Context),
     Reply = response(create_pdp_context_response, Context, ResponseIEs, Request),
 
-    {reply, Reply, State#{context => Context}};
+    {reply, Reply, State#{context => Context, pfcp => PCtx}};
 
 handle_request(_ReqKey,
 	       #gtp{type = update_pdp_context_request,
 		    ie = #{?'Quality of Service Profile' := ReqQoSProfile} = IEs} = Request,
-	       _Resent, #{context := OldContext, 'Session' := Session} = State0) ->
+	       _Resent, #{context := OldContext, pfcp := PCtx,
+			  'Session' := Session} = State0) ->
 
     Context0 = update_context_from_gtp_req(Request, OldContext),
     Context = gtp_path:bind(Request, Context0),
@@ -271,7 +273,7 @@ handle_request(_ReqKey,
 		     gtp_context:remote_context_update(OldContext, Context),
 		     apply_context_change(Context, OldContext, URRActions, State0);
 		URRActions /= [] ->
-		     gtp_context:trigger_charging_events(URRActions, Context),
+		     gtp_context:trigger_charging_events(URRActions, PCtx),
 		     State0;
 		true ->
 		     State0
@@ -286,12 +288,13 @@ handle_request(_ReqKey,
 
 handle_request(_ReqKey,
 	       #gtp{type = ms_info_change_notification_request, ie = IEs} = Request,
-	       _Resent, #{context := OldContext, 'Session' := Session} = State) ->
+	       _Resent, #{context := OldContext, pfcp := PCtx,
+			  'Session' := Session} = State) ->
 
     Context = update_context_from_gtp_req(Request, OldContext),
     case update_session_from_gtp_req(IEs, Session, Context) of
 	URRActions when URRActions /= [] ->
-	    gtp_context:trigger_charging_events(URRActions, Context);
+	    gtp_context:trigger_charging_events(URRActions, PCtx);
 	_ ->
 	    ok
     end,
@@ -426,8 +429,8 @@ encode_eua(Org, Number, IPv4, IPv6) ->
 pdp_release_ip(#context{vrf = VRF, ms_v4 = MSv4, ms_v6 = MSv6}) ->
     vrf:release_pdp_ip(VRF, MSv4, MSv6).
 
-close_pdp_context(Reason, #{context := Context, 'Session' := Session}) ->
-    URRs = ergw_gsn_lib:delete_sgi_session(Reason, Context),
+close_pdp_context(Reason, #{context := Context, pfcp := PCtx, 'Session' := Session}) ->
+    URRs = ergw_gsn_lib:delete_sgi_session(Reason, Context, PCtx),
 
     %% ===========================================================================
 
@@ -455,7 +458,7 @@ close_pdp_context(Reason, #{context := Context, 'Session' := Session}) ->
 
     ChargeEv = {terminate, TermCause},
     {Online, Offline, _} =
-	ergw_gsn_lib:usage_report_to_charging_events(URRs, ChargeEv, Context),
+	ergw_gsn_lib:usage_report_to_charging_events(URRs, ChargeEv, PCtx),
     ergw_gsn_lib:process_online_charging_events(ChargeEv, Online, Now, Session),
     ergw_gsn_lib:process_offline_charging_events(ChargeEv, Offline, Now, Session),
 
@@ -463,23 +466,24 @@ close_pdp_context(Reason, #{context := Context, 'Session' := Session}) ->
 
     pdp_release_ip(Context).
 
-query_usage_report(#{'Rating-Group' := [RatingGroup]}, Context) ->
+query_usage_report(#{'Rating-Group' := [RatingGroup]}, Context, PCtx) ->
     ChargingKeys = [{online, RatingGroup}],
-    ergw_gsn_lib:query_usage_report(ChargingKeys, Context);
-query_usage_report(ChargingKeys, Context) when is_list(ChargingKeys) ->
-    ergw_gsn_lib:query_usage_report(ChargingKeys, Context);
-query_usage_report(_, Context) ->
-    ergw_gsn_lib:query_usage_report(Context).
+    ergw_gsn_lib:query_usage_report(ChargingKeys, Context, PCtx);
+query_usage_report(ChargingKeys, Context, PCtx)
+  when is_list(ChargingKeys) ->
+    ergw_gsn_lib:query_usage_report(ChargingKeys, Context, PCtx);
+query_usage_report(_, Context, PCtx) ->
+    ergw_gsn_lib:query_usage_report(Context, PCtx).
 
 triggered_charging_event(ChargeEv, Now, Request,
-			 #{context := Context, 'Session' := Session}) ->
-    case query_usage_report(Request, Context) of
+			 #{context := Context, pfcp := PCtx, 'Session' := Session}) ->
+    case query_usage_report(Request, Context, PCtx) of
 	#pfcp{type = session_modification_response,
 	      ie = #{pfcp_cause := #pfcp_cause{cause = 'Request accepted'}} = IEs} ->
 
 	    UsageReport = maps:get(usage_report_smr, IEs, undefined),
 	    {Online, Offline, _} =
-		ergw_gsn_lib:usage_report_to_charging_events(UsageReport, ChargeEv, Context),
+		ergw_gsn_lib:usage_report_to_charging_events(UsageReport, ChargeEv, PCtx),
 	    ergw_gsn_lib:process_online_charging_events(ChargeEv, Online, Now, Session),
 	    ergw_gsn_lib:process_offline_charging_events(ChargeEv, Offline, Now, Session),
 	    ok;
@@ -487,12 +491,14 @@ triggered_charging_event(ChargeEv, Now, Request,
 	    ok
     end.
 
-apply_context_change(NewContext0, OldContext, URRActions, #{'Session' := Session} = State) ->
+apply_context_change(NewContext0, OldContext, URRActions,
+		     #{pfcp := PCtx0, 'Session' := Session} = State) ->
     SessionOpts = ergw_aaa_session:get(Session),
-    NewContextPending = gtp_path:bind(NewContext0),
-    NewContext = ergw_gsn_lib:modify_sgi_session(SessionOpts, URRActions, #{}, NewContextPending),
+    NewContext = gtp_path:bind(NewContext0),
+    PCtx = ergw_gsn_lib:modify_sgi_session(SessionOpts, URRActions,
+					   #{}, NewContext, PCtx0),
     gtp_path:unbind(OldContext),
-    State#{context => NewContext}.
+    State#{context => NewContext, pfcp => PCtx}.
 
 select_vrf(#context{apn = APN} = Context) ->
     case ergw:vrf(APN) of

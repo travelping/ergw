@@ -1105,7 +1105,7 @@ modify_bearer_request_tei_update(Config) ->
 
     %% make sure the PDN-GW side control TEID DOES change
     ?not_equal(Ctx1#context.remote_control_teid, Ctx2#context.remote_control_teid),
-    ?equal(Ctx1#context.remote_data_teid,    Ctx2#context.remote_data_teid),
+    ?equal(Ctx1#context.remote_data_teid, Ctx2#context.remote_data_teid),
 
     [_, SMR0|_] = lists:filter(
 		    fun(#pfcp{type = session_modification_request}) -> true;
@@ -1685,23 +1685,23 @@ session_accounting(Config) ->
     {GtpC, _, _} = create_session(Config),
 
     [#{'Process' := Pid}|_] = ergw_api:tunnel(ClientIP),
-    #{context := Context} = gtp_context:info(Pid),
+    #{context := Context, pfcp:= PCtx} = gtp_context:info(Pid),
 
     %% make sure we handle that the Sx node is not returning any accounting
     ergw_test_sx_up:accounting('sgw-u', off),
 
-    SessionOpts1 = ergw_test_lib:query_usage_report(Context),
+    SessionOpts1 = ergw_test_lib:query_usage_report(Context, PCtx),
     ?equal(false, maps:is_key('InPackets', SessionOpts1)),
     ?equal(false, maps:is_key('InOctets', SessionOpts1)),
 
     %% enable accouting again....
     ergw_test_sx_up:accounting('sgw-u', on),
 
-    SessionOpts2 = ergw_test_lib:query_usage_report(Context),
+    SessionOpts2 = ergw_test_lib:query_usage_report(Context, PCtx),
     ?match(#{'InPackets' := 3, 'OutPackets' := 1,
 	     'InOctets' := 4, 'OutOctets' := 2}, SessionOpts2),
 
-    SessionOpts3 = ergw_test_lib:query_usage_report(Context),
+    SessionOpts3 = ergw_test_lib:query_usage_report(Context, PCtx),
     ?match(#{'InPackets' := 3, 'OutPackets' := 1,
 	     'InOctets' := 4, 'OutOctets' := 2}, SessionOpts3),
 

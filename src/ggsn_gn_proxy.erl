@@ -159,8 +159,8 @@ init(#{proxy_sockets := ProxyPorts, node_selection := NodeSelect,
 		node_selection => NodeSelect, proxy_ds => ProxyDS}}.
 
 handle_call(query_usage_report, _From,
-	    #{context := Context} = State) ->
-    Reply = ergw_proxy_lib:query_usage_report(Context),
+	    #{context := Context, pfcp := PCtx} = State) ->
+    Reply = ergw_proxy_lib:query_usage_report(Context, PCtx),
     {reply, Reply, State};
 
 handle_call(delete_context, _From, State) ->
@@ -197,7 +197,7 @@ handle_info({timeout, _, {delete_pdp_context_request, Direction, _ReqKey, _Reque
     {stop, normal, State};
 
 handle_info({'DOWN', _MonitorRef, Type, Pid, _Info},
-	    #{context := #context{pfcp_ctx = #pfcp_ctx{node = Pid}}} = State)
+	    #{pfcp := #pfcp_ctx{node = Pid}} = State)
   when Type == process; Type == pfcp ->
     delete_forward_session(upf_failure, State),
     {noreply, State};
@@ -296,10 +296,10 @@ handle_request(ReqKey,
     ProxyContext0 = init_proxy_context(ProxyGtpPort, Context3, ProxyInfo, ProxyGGSN),
     ProxyContext1 = gtp_path:bind(ProxyContext0),
 
-    {Context, ProxyContext} =
+    {Context, ProxyContext, PCtx} =
 	ergw_proxy_lib:create_forward_session(DPCandidates, Context3, ProxyContext1),
 
-    StateNew = State#{context => Context, proxy_context => ProxyContext},
+    StateNew = State#{context => Context, proxy_context => ProxyContext, pfcp => PCtx},
     forward_request(sgsn2ggsn, ReqKey, Request, StateNew, State),
 
     {noreply, StateNew};
@@ -390,7 +390,8 @@ handle_response(#proxy_request{direction = sgsn2ggsn} = ProxyRequest,
 		#gtp{type = create_pdp_context_response,
 		     ie = #{?'Cause' := #cause{value = Cause}}} = Response, _Request,
 		#{context := PendingContext,
-		  proxy_context := PrevProxyCtx} = State) ->
+		  proxy_context := PrevProxyCtx,
+		  pfcp := PCtx0} = State) ->
     lager:warning("OK Proxy Response ~p", [lager:pr(Response, ?MODULE)]),
 
     ProxyContext1 = update_context_from_gtp_req(Response, PrevProxyCtx),
@@ -399,10 +400,10 @@ handle_response(#proxy_request{direction = sgsn2ggsn} = ProxyRequest,
 
     Return =
 	if ?CAUSE_OK(Cause) ->
-		Context =
+		PCtx =
 		    ergw_proxy_lib:modify_forward_session(PendingContext, PendingContext,
-							  PrevProxyCtx, ProxyContext),
-		{noreply, State#{context => Context, proxy_context => ProxyContext}};
+							  PrevProxyCtx, ProxyContext, PCtx0),
+		{noreply, State#{proxy_context => ProxyContext, pfcp => PCtx}};
 
 	   true ->
 		delete_forward_session(normal, State),
@@ -416,19 +417,19 @@ handle_response(#proxy_request{direction = sgsn2ggsn,
 			       context = PrevContext,
 			       proxy_ctx = PrevProxyCtx} = ProxyRequest,
 		#gtp{type = update_pdp_context_response} = Response, _Request,
-		#{context := PendingContext,
-		  proxy_context := OldProxyContext} = State) ->
+		#{context := Context,
+		  proxy_context := OldProxyContext,
+		  pfcp := PCtx0} = State) ->
     lager:warning("OK Proxy Response ~p", [lager:pr(Response, ?MODULE)]),
 
     ProxyContext = update_context_from_gtp_req(Response, OldProxyContext),
     gtp_context:remote_context_update(OldProxyContext, ProxyContext),
 
-    Context =
-	ergw_proxy_lib:modify_forward_session(PrevContext, PendingContext,
-					      PrevProxyCtx, ProxyContext),
+    PCtx = ergw_proxy_lib:modify_forward_session(PrevContext, Context,
+						 PrevProxyCtx, ProxyContext, PCtx0),
     forward_response(ProxyRequest, Response, Context),
 
-    {noreply, State#{context => Context, proxy_context => ProxyContext}};
+    {noreply, State#{proxy_context => ProxyContext, pfcp => PCtx}};
 
 handle_response(#proxy_request{direction = ggsn2sgsn} = ProxyRequest,
 		#gtp{type = update_pdp_context_response} = Response, _Request,
@@ -501,9 +502,11 @@ handle_proxy_info(Request, Context, #{proxy_ds := ProxyDS}) ->
 	    throw(?CTX_ERR(?FATAL, Reply, Context))
     end.
 
-delete_forward_session(Reason, #{context := Context, proxy_context := ProxyContext,
+delete_forward_session(Reason, #{context := Context,
+				 proxy_context := ProxyContext,
+				 pfcp := PCtx,
 				 'Session' := Session}) ->
-    URRs = ergw_proxy_lib:delete_forward_session(Reason, Context, ProxyContext),
+    URRs = ergw_proxy_lib:delete_forward_session(Reason, Context, ProxyContext, PCtx),
     SessionOpts = to_session(gtp_context:usage_report_to_accounting(URRs)),
     lager:debug("Accounting Opts: ~p", [SessionOpts]),
     ergw_aaa_session:invoke(Session, SessionOpts, stop, #{async => true}).
