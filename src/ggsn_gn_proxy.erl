@@ -513,10 +513,12 @@ delete_forward_session(Reason, #{context := Context,
 
 handle_sgsn_change(#context{remote_control_teid = NewFqTEID},
 		  #context{remote_control_teid = OldFqTEID},
-		  #context{control_port = CntlPort} = ProxyContext)
+		  #context{control_port = CntlPort} = ProxyContext0)
   when OldFqTEID /= NewFqTEID ->
     {ok, CntlTEI} = gtp_context_reg:alloc_tei(CntlPort),
-    ProxyContext#context{local_control_tei = CntlTEI};
+    ProxyContext = ProxyContext0#context{local_control_tei = CntlTEI},
+    gtp_context:remote_context_update(ProxyContext0, ProxyContext),
+    ProxyContext;
 handle_sgsn_change(_, _, ProxyContext) ->
     ProxyContext.
 
