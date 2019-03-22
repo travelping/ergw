@@ -1504,23 +1504,23 @@ session_accounting(Config) ->
     {GtpC, _, _} = create_session(Config),
 
     [#{'Process' := Pid}|_] = ergw_api:tunnel(all),
-    #{context := Context} = gtp_context:info(Pid),
+    #{context := Context, pfcp:= PCtx} = gtp_context:info(Pid),
 
     %% make sure we handle that the Sx node is not returning any accounting
     ergw_test_sx_up:accounting('pgw-u', off),
 
-    SessionOpts1 = ergw_test_lib:query_usage_report(Context),
+    SessionOpts1 = ergw_test_lib:query_usage_report(Context, PCtx),
     ?equal(false, maps:is_key('InPackets', SessionOpts1)),
     ?equal(false, maps:is_key('InOctets', SessionOpts1)),
 
     %% enable accouting again....
     ergw_test_sx_up:accounting('pgw-u', on),
 
-    SessionOpts2 = ergw_test_lib:query_usage_report(Context),
+    SessionOpts2 = ergw_test_lib:query_usage_report(Context, PCtx),
     ?match(#{'InPackets' := 3, 'OutPackets' := 1,
 	     'InOctets' := 4, 'OutOctets' := 2}, SessionOpts2),
 
-    SessionOpts3 = ergw_test_lib:query_usage_report(Context),
+    SessionOpts3 = ergw_test_lib:query_usage_report(Context, PCtx),
     ?match(#{'InPackets' := 3, 'OutPackets' := 1,
 	     'InOctets' := 4, 'OutOctets' := 2}, SessionOpts3),
 

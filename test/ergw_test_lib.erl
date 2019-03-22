@@ -35,7 +35,7 @@
 -export([outstanding_requests/0, wait4tunnels/1, hexstr2bin/1]).
 -export([match_exo_value/2, get_exo_value/1]).
 -export([has_ipv6_test_config/0]).
--export([query_usage_report/1]).
+-export([query_usage_report/2]).
 -export([match_map/4]).
 
 -include("ergw_test_lib.hrl").
@@ -514,7 +514,7 @@ has_ipv6_test_config() ->
 %%% PFCP
 %%%===================================================================
 
-query_usage_report(#context{pfcp_ctx = PCtx} = Context) ->
+query_usage_report(Context, PCtx) ->
     Req = #pfcp{
 	     version = v1,
 	     type = session_modification_request,

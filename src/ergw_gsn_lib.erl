@@ -16,12 +16,12 @@
 	 process_offline_charging_events/5,
 	 pfcp_to_context_event/1,
 	 pcc_rules_to_credit_request/1,
-	 modify_sgi_session/4,
-	 delete_sgi_session/2,
-	 query_usage_report/1, query_usage_report/2,
+	 modify_sgi_session/5,
+	 delete_sgi_session/3,
+	 query_usage_report/2, query_usage_report/3,
 	 trigger_offline_usage_report/2,
 	 choose_context_ip/3,
-	 ip_pdu/2]).
+	 ip_pdu/3]).
 -export([update_pcc_rules/2, session_events/3]).
 
 -include_lib("gtplib/include/gtp_packet.hrl").
@@ -40,7 +40,7 @@
 %%% Sx DP API
 %%%===================================================================
 
-delete_sgi_session(normal, #context{pfcp_ctx = PCtx} = Ctx) ->
+delete_sgi_session(normal, Ctx, PCtx) ->
     Req = #pfcp{version = v1, type = session_deletion_request, ie = []},
     case ergw_sx_node:call(PCtx, Req, Ctx) of
 	#pfcp{type = session_deletion_response,
@@ -52,11 +52,10 @@ delete_sgi_session(normal, #context{pfcp_ctx = PCtx} = Ctx) ->
 			  [lager:pr(_Other, ?MODULE)]),
 	    undefined
     end;
-delete_sgi_session(_Reason, _Context) ->
+delete_sgi_session(_Reason, _Context, _PCtx) ->
     undefined.
 
-build_query_usage_report(Type, PCtx)
-  when is_record(PCtx, pfcp_ctx) ->
+build_query_usage_report(Type, PCtx) ->
     maps:fold(fun(K, {URRType, V}, A)
 		    when Type =:= URRType, is_integer(V) ->
 		      [#query_urr{group = [#urr_id{id = K}]} | A];
@@ -64,7 +63,8 @@ build_query_usage_report(Type, PCtx)
 	      end, [], ergw_pfcp:get_urr_ids(PCtx)).
 
 %% query_usage_report/1
-query_usage_report(#context{pfcp_ctx = PCtx} = Ctx) ->
+query_usage_report(Ctx, PCtx)
+  when is_record(PCtx, pfcp_ctx) ->
     case build_query_usage_report(online, PCtx) of
 	IEs when length(IEs) /= 0 ->
 	    Req = #pfcp{version = v1, type = session_modification_request, ie = IEs},
@@ -74,7 +74,8 @@ query_usage_report(#context{pfcp_ctx = PCtx} = Ctx) ->
     end.
 
 %% query_usage_report/2
-query_usage_report(ChargingKeys, #context{pfcp_ctx = PCtx} = Ctx) ->
+query_usage_report(ChargingKeys, Ctx, PCtx)
+  when is_record(PCtx, pfcp_ctx) ->
     IEs = [#query_urr{group = [#urr_id{id = Id}]} ||
 	   Id <- ergw_pfcp:get_urr_ids(ChargingKeys, PCtx), is_integer(Id)],
     if length(IEs) /= 0 ->
@@ -84,7 +85,8 @@ query_usage_report(ChargingKeys, #context{pfcp_ctx = PCtx} = Ctx) ->
 	    undefined
     end.
 
-trigger_offline_usage_report(#context{pfcp_ctx = PCtx}, Cb) ->
+trigger_offline_usage_report(PCtx, Cb)
+  when is_record(PCtx, pfcp_ctx) ->
     case build_query_usage_report(offline, PCtx) of
 	IEs when length(IEs) /= 0 ->
 	    Req = #pfcp{version = v1, type = session_modification_request, ie = IEs},
@@ -120,9 +122,11 @@ session_events(_Session, [], State) ->
 %% session_events(Session, [{Action, _} = H|_],  State)
 %%   when Action =:= add; Action =:= del; Action =:= set ->
 %%     erlang:error(badarg, [Session, H,  State]);
-session_events(Session, [{update_credits, Update} | T], State0) ->
+session_events(Session, [{update_credits, Update} | T],
+	       #{context := Context, pfcp := PCtx0} = State0) ->
     lager:info("Session credit Update: ~p", [Update]),
-    State = update_sx_usage_rules(Update, State0),
+    PCtx = update_sx_usage_rules(Update, Context, PCtx0),
+    State = State0#{pfcp => PCtx},
     session_events(Session, T, State);
 session_events(Session, [stop | T], State) ->
     self() ! stop_from_session,
@@ -631,7 +635,8 @@ build_sx_monitor_rule(Service, Definition, Update) ->
     lager:error("Monitor URR: ~p:~p", [Service, Definition]),
     sx_rule_error({system_error, Definition}, Update).
 
-update_sx_usage_rules(Update, #{context := #context{pfcp_ctx = PCtx0} = Ctx} = State) ->
+update_sx_usage_rules(Update, Ctx, PCtx0)
+  when is_record(PCtx0, pfcp_ctx) ->
     Init = #sx_upd{now = erlang:monotonic_time(millisecond),
 		   pctx = ergw_pfcp:reset_ctx_timers(PCtx0), sctx = Ctx},
     #sx_upd{errors = Errors, pctx = PCtx1} =
@@ -654,7 +659,7 @@ update_sx_usage_rules(Update, #{context := #context{pfcp_ctx = PCtx0} = Ctx} = S
 	    lager:warning("R: ~p", [R]),
 	    ok
     end,
-    State#{context => Ctx#context{pfcp_ctx = PCtx}}.
+    PCtx.
 
 update_m_key(Key, Value, Map) ->
     maps:update_with(Key, [Value | _], [Value], Map).
@@ -662,9 +667,20 @@ update_m_key(Key, Value, Map) ->
 update_m_rec(Record, Map) when is_tuple(Record) ->
     maps:update_with(element(1, Record), [Record | _], [Record], Map).
 
+register_ctx_ids(Handler,
+		 #context{local_data_endp = LocalDataEndp},
+		 #pfcp_ctx{seid = #seid{cp = SEID}} = PCtx) ->
+    Keys = [{seid, SEID} |
+	    [ergw_pfcp:ctx_teid_key(PCtx, #fq_teid{ip = LocalDataEndp#gtp_endp.ip,
+						   teid = LocalDataEndp#gtp_endp.teid}) ||
+		is_record(LocalDataEndp, gtp_endp)]],
+    gtp_context_reg:register(Keys, Handler, self()).
+
 create_sgi_session(Candidates, SessionOpts, Ctx0) ->
     PCtx0 = ergw_sx_node:select_sx_node(Candidates, Ctx0),
     Ctx = ergw_pfcp:assign_data_teid(PCtx0, Ctx0),
+    register_ctx_ids(gtp_context, Ctx, PCtx0),
+
     {ok, CntlNode, _} = ergw_sx_socket:id(),
 
     {SxRules, SxErrors, PCtx} = build_sx_rules(SessionOpts, #{}, PCtx0, Ctx),
@@ -680,7 +696,7 @@ create_sgi_session(Candidates, SessionOpts, Ctx0) ->
 	#pfcp{version = v1, type = session_establishment_response,
 	      ie = #{pfcp_cause := #pfcp_cause{cause = 'Request accepted'},
 		     f_seid := #f_seid{}} = RespIEs} ->
-	    Ctx#context{pfcp_ctx = ctx_update_dp_seid(RespIEs, PCtx)};
+	    {Ctx, ctx_update_dp_seid(RespIEs, PCtx)};
 	_ ->
 	    throw(?CTX_ERR(?FATAL, system_failure, Ctx))
     end.
@@ -693,7 +709,7 @@ modify_sgi_report_urrs(Response, URRActions) ->
 		  ok
 	  end, URRActions).
 
-modify_sgi_session(SessionOpts, URRActions, Opts, #context{pfcp_ctx = PCtx0} = Ctx) ->
+modify_sgi_session(SessionOpts, URRActions, Opts, Ctx, PCtx0) ->
     {SxRules0, SxErrors, PCtx} = build_sx_rules(SessionOpts, Opts, PCtx0, Ctx),
     SxRules1 =
 	lists:foldl(
@@ -717,7 +733,7 @@ modify_sgi_session(SessionOpts, URRActions, Opts, #context{pfcp_ctx = PCtx0} = C
 		     pfcp_cause :=
 			 #pfcp_cause{cause = 'Request accepted'}} = RespIEs} = Response ->
 	    modify_sgi_report_urrs(Response, URRActions),
-	    Ctx#context{pfcp_ctx = ctx_update_dp_seid(RespIEs, PCtx)};
+	    ctx_update_dp_seid(RespIEs, PCtx);
 	_ ->
 	    throw(?CTX_ERR(?FATAL, system_failure, Ctx))
     end.
@@ -990,7 +1006,8 @@ usage_report_to_charging_events(_K, _V, _ChargeEv, Ev) ->
     Ev.
 
 %% usage_report_to_charging_events/3
-usage_report_to_charging_events(URR, ChargeEv, #context{pfcp_ctx = PCtx}) ->
+usage_report_to_charging_events(URR, ChargeEv, PCtx)
+  when is_record(PCtx, pfcp_ctx) ->
     UrrIds = ergw_pfcp:get_urr_ids(PCtx),
     foldl_usage_report(
       fun (#{urr_id := #urr_id{id = Id}} = Report, Ev) ->
@@ -1093,9 +1110,9 @@ send_g_pdu(PCtx, #gtp_endp{vrf = VRF, ip = SrcIP}, #fq_teid{ip = DstIP, teid = T
 %% ICMPv6
 ip_pdu(<<6:4, TC:8, FlowLabel:20, Length:16, ?ICMPv6:8,
 	     _HopLimit:8, SrcAddr:16/bytes, DstAddr:16/bytes,
-	     PayLoad:Length/bytes, _/binary>>, Context) ->
-    icmpv6(TC, FlowLabel, SrcAddr, DstAddr, PayLoad, Context);
-ip_pdu(Data, _Context) ->
+	     PayLoad:Length/bytes, _/binary>>, Context, PCtx) ->
+    icmpv6(TC, FlowLabel, SrcAddr, DstAddr, PayLoad, Context, PCtx);
+ip_pdu(Data, _Context, _PCtx) ->
     lager:warning("unhandled T-PDU: ~p", [Data]),
     ok.
 
@@ -1103,7 +1120,7 @@ ip_pdu(Data, _Context) ->
 icmpv6(TC, FlowLabel, _SrcAddr, ?'IPv6 All Routers LL',
        <<?'ICMPv6 Router Solicitation':8, _Code:8, _CSum:16, _/binary>>,
        #context{local_data_endp = LocalDataEndp, remote_data_teid = RemoteDataTEID,
-		pfcp_ctx = PCtx, ms_v6 = MSv6, dns_v6 = DNSv6} = Context) ->
+		ms_v6 = MSv6, dns_v6 = DNSv6}, PCtx) ->
     {Prefix, PLen} = ergw_inet:ipv6_interface_id(MSv6, ?NULL_INTERFACE_ID),
 
     OnLink = 1,
@@ -1148,6 +1165,6 @@ icmpv6(TC, FlowLabel, _SrcAddr, ?'IPv6 All Routers LL',
 	       ?'ICMPv6 Router Advertisement':8, 0:8, CSum:16, RAOpts/binary>>,
     send_g_pdu(PCtx, LocalDataEndp, RemoteDataTEID, ICMPv6);
 
-icmpv6(_TC, _FlowLabel, _SrcAddr, _DstAddr, _PayLoad, _Context) ->
+icmpv6(_TC, _FlowLabel, _SrcAddr, _DstAddr, _PayLoad, _Context, _PCtx) ->
     lager:warning("unhandeld ICMPv6 from ~p to ~p: ~p", [_SrcAddr, _DstAddr, _PayLoad]),
     ok.

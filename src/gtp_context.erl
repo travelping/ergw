@@ -103,9 +103,10 @@ delete_context(Context) ->
 triggered_offline_usage_report(Pid, ChargeEv, OldS, Response) ->
     gen_server:cast(Pid, {triggered_offline_usage_report, ChargeEv, OldS, Response}).
 
-trigger_charging_events(URRActions, Context) ->
+trigger_charging_events(URRActions, PCtx)
+  when is_record(PCtx, pfcp_ctx) ->
     lists:map(fun({offline, Cb}) ->
-		      ergw_gsn_lib:trigger_offline_usage_report(Context, Cb);
+		      ergw_gsn_lib:trigger_offline_usage_report(PCtx, Cb);
 		 (_) ->
 		      ok
 	      end, URRActions).
@@ -333,17 +334,17 @@ handle_call(info, _From, State) ->
     {reply, State, State};
 
 handle_call({sx, Report}, From,
-	    #{interface := Interface, context := #context{pfcp_ctx = Ctx}} = State0) ->
+	    #{interface := Interface, pfcp := PCtx} = State0) ->
     lager:debug("~w: handle_call Sx: ~p", [?MODULE, lager:pr(Report, ?MODULE)]),
     case Interface:handle_sx_report(Report, From, State0) of
 	{ok, State} ->
-	    {reply, {ok, Ctx}, State};
+	    {reply, {ok, PCtx}, State};
 	{reply, Reply, State} ->
-	    {reply, {ok, Ctx, Reply}, State};
+	    {reply, {ok, PCtx, Reply}, State};
 	{stop, State} ->
-	    {stop, normal, {ok, Ctx}, State};
+	    {stop, normal, {ok, PCtx}, State};
 	{error, Reply, State} ->
-	    {reply, {ok, Ctx, Reply}, State};
+	    {reply, {ok, PCtx, Reply}, State};
 	{noreply, State} ->
 	    {noreply, State}
     end;
@@ -393,13 +394,13 @@ handle_cast({handle_response, ReqInfo, Request, Response0},
     end;
 
 handle_cast({triggered_offline_usage_report, {Reason, _} = ChargeEv, OldS, #pfcp{ie = IEs}},
-	    #{context := Context, 'Session' := Session} = State)
+	    #{pfcp := PCtx, 'Session' := Session} = State)
   when ChargeEv =/= false ->
     Now = erlang:monotonic_time(),
 
     UsageReport = maps:get(usage_report_smr, IEs, undefined),
     {_Online, Offline, _} =
-	ergw_gsn_lib:usage_report_to_charging_events(UsageReport, ChargeEv, Context),
+	ergw_gsn_lib:usage_report_to_charging_events(UsageReport, ChargeEv, PCtx),
     ergw_gsn_lib:process_offline_charging_events(Reason, Offline, Now, OldS, Session),
 
     {noreply, State};
@@ -421,11 +422,11 @@ handle_info({update_session, Session, Events} = Us, #{interface := Interface} = 
 %%====================================================================
 
 handle_info({timeout, TRef, pfcp_timer} = Info,
-	    #{interface := Interface, context := #context{pfcp_ctx = PCtx0} = Ctx} = State) ->
+	    #{interface := Interface, pfcp := PCtx0} = State) ->
     lager:debug("handle_info ~p:~p", [Interface, lager:pr(Info, ?MODULE)]),
     {Evs, PCtx} = ergw_pfcp:timer_expired(TRef, PCtx0),
     CtxEvs = ergw_gsn_lib:pfcp_to_context_event(Evs),
-    Interface:handle_info({pfcp_timer, CtxEvs}, State#{context => Ctx#context{pfcp_ctx = PCtx}});
+    Interface:handle_info({pfcp_timer, CtxEvs}, State#{pfcp => PCtx});
 
 handle_info(Info, #{interface := Interface} = State) ->
     lager:debug("handle_info ~p:~p", [Interface, lager:pr(Info, ?MODULE)]),
@@ -583,26 +584,15 @@ validate_ies(#gtp{version = Version, type = MsgType, ie = IEs}, Cause, #{interfa
 %% context registry
 %%====================================================================
 
-ctx_cp_seid_key(#pfcp_ctx{seid = #seid{cp = SEID}}) ->
-    [{seid, SEID}];
-ctx_cp_seid_key(_) ->
-    [].
-
 context2keys(#context{
 		context_id         = ContextId,
 		control_port       = CntlPort,
 		local_control_tei  = LocalCntlTEI,
-		local_data_endp    = LocalDataEndp,
-		remote_control_teid = RemoteCntlTEID,
-		pfcp_ctx           = PCtx %% TODO: fixme....
+		remote_control_teid = RemoteCntlTEID
 	       }) ->
     ordsets:from_list(
       [port_teid_key(CntlPort, 'gtp-c', LocalCntlTEI),
        port_teid_key(CntlPort, 'gtp-c', RemoteCntlTEID)]
-      ++ [ergw_pfcp:ctx_teid_key(PCtx, #fq_teid{ip = LocalDataEndp#gtp_endp.ip,
-						teid = LocalDataEndp#gtp_endp.teid}) ||
-	     is_record(LocalDataEndp, gtp_endp)]
-      ++ ctx_cp_seid_key(PCtx)
       ++ [port_key(CntlPort, ContextId) || ContextId /= undefined]).
 
 port_key(#gtp_port{name = Name}, Key) ->
