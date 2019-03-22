@@ -731,8 +731,19 @@ modify_bearer_request_tei_update(Config) ->
 					 {imsi, ?'PROXY-IMSI', 5}),
     #{context := Ctx1} = gtp_context:info(CtxPid),
 
+    ProxyCtxPid = gtp_context_reg:lookup_key(#gtp_port{name = 'irx'}, {imsi, ?'IMSI', 5}),
+    #{proxy_context := PrxCtx1} = gtp_context:info(ProxyCtxPid),
+    #context{control_port = ProxyPort} = PrxCtx1,
+    ProxyRegKey1 = {teid, 'gtp-c', PrxCtx1#context.local_control_tei},
+    ?match(ProxyCtxPid, gtp_context_reg:lookup_key(ProxyPort, ProxyRegKey1)),
+
     {GtpC2, _, _} = modify_bearer(tei_update, S, GtpC1),
     #{context := Ctx2} = gtp_context:info(CtxPid),
+
+    #{proxy_context := PrxCtx2} = gtp_context:info(ProxyCtxPid),
+    ProxyRegKey2 = {teid, 'gtp-c', PrxCtx2#context.local_control_tei},
+    ?match(undefined, gtp_context_reg:lookup_key(ProxyPort, ProxyRegKey1)),
+    ?match(ProxyCtxPid, gtp_context_reg:lookup_key(ProxyPort, ProxyRegKey2)),
 
     ?equal([], outstanding_requests()),
     delete_session(S, GtpC2),

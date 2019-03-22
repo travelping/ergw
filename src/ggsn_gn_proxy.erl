@@ -462,10 +462,12 @@ handle_sgsn_change(#context{remote_control_ip = NewIP,
 			    remote_control_tei = NewTEI},
 		   #context{remote_control_ip = OldIP,
 			    remote_control_tei = OldTEI},
-		   #context{control_port = CntlPort} = ProxyContext)
+		   #context{control_port = CntlPort} = ProxyContext0)
   when NewIP /= OldIP; OldTEI /= NewTEI ->
     {ok, CntlTEI} = gtp_context_reg:alloc_tei(CntlPort),
-    ProxyContext#context{local_control_tei = CntlTEI};
+    ProxyContext = ProxyContext0#context{local_control_tei = CntlTEI},
+    gtp_context:remote_context_update(ProxyContext0, ProxyContext),
+    ProxyContext;
 handle_sgsn_change(_, _, ProxyContext) ->
     ProxyContext.
 
