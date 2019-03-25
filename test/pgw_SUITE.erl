@@ -124,7 +124,9 @@
 		 {apns,
 		  [{?'APN-EXAMPLE', [{vrf, upstream}]},
 		   {[<<"exa">>, <<"mple">>, <<"net">>], [{vrf, upstream}]},
-		   {[<<"APN1">>], [{vrf, upstream}]}
+		   {[<<"APN1">>], [{vrf, upstream}]},
+		   {[<<"APN2">>, <<"mnc001">>, <<"mcc001">>, <<"gprs">>], [{vrf, upstream}]}
+		   %% {'_', [{vrf, wildcard}]}
 		  ]},
 
 		 {nodes,
@@ -262,6 +264,7 @@ end_per_group(Group, Config)
 common() ->
     [lager_format_ies,
      invalid_gtp_pdu,
+     apn_lookup,
      create_session_request_missing_ie,
      create_session_request_aaa_reject,
      create_session_request_gx_fail,
@@ -1718,6 +1721,22 @@ gy_validity_timer(Config) ->
     meck_validate(Config),
 
     ok = application:set_env(ergw_aaa, apps, Cfg0),
+    ok.
+
+%%--------------------------------------------------------------------
+apn_lookup() ->
+    [{doc, "Check that the APN and wildcard APN lookup works"}].
+apn_lookup(Config) ->
+    ct:pal("VRF: ~p", [ergw:vrf(?'APN-EXAMPLE')]),
+    ?match({ok, {<<8, "upstream">>, _}}, ergw:vrf(?'APN-EXAMPLE')),
+    ?match({ok, {<<8, "upstream">>, _}}, ergw:vrf([<<"exa">>, <<"mple">>, <<"net">>])),
+    ?match({ok, {<<8, "upstream">>, _}}, ergw:vrf([<<"APN1">>])),
+    ?match({ok, {<<8, "upstream">>, _}}, ergw:vrf([<<"APN1">>, <<"mnc001">>, <<"mcc001">>, <<"gprs">>])),
+    ?match({ok, {<<8, "upstream">>, _}}, ergw:vrf([<<"APN2">>])),
+    ?match({ok, {<<8, "upstream">>, _}}, ergw:vrf([<<"APN2">>, <<"mnc001">>, <<"mcc001">>, <<"gprs">>])),
+    %% ?match({ok, {<<8, "wildcard">>, _}}, ergw:vrf([<<"APN3">>])),
+    %% ?match({ok, {<<8, "wildcard">>, _}}, ergw:vrf([<<"APN3">>, <<"mnc001">>, <<"mcc001">>, <<"gprs">>])),
+    %% ?match({ok, {<<8, "wildcard">>, _}}, ergw:vrf([<<"APN4">>, <<"mnc001">>, <<"mcc901">>, <<"gprs">>])),
     ok.
 
 %%%===================================================================

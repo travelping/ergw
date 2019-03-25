@@ -133,8 +133,7 @@ handler(Socket, Protocol) ->
 	    {error, not_found}
     end.
 
-vrf_lookup(APN0) ->
-    APN = (catch gtp_c_lib:normalize_labels(APN0)),
+vrf_lookup(APN) ->
     case ets:lookup(?SERVER, APN) of
 	[#route{vrf = VRF, options = Options}] ->
 	    {ok, {VRF, Options}};
@@ -152,7 +151,8 @@ expand_apn(_, APN) ->
 	      end,
     APN ++ [MNCpart, <<"mcc", MCC/binary>>, <<"gprs">>].
 
-vrf(APN) ->
+vrf(APN0) ->
+    APN = gtp_c_lib:normalize_labels(APN0),
     case vrf_lookup(APN) of
 	{ok, _} = Result ->
 	    Result;
