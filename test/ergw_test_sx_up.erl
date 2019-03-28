@@ -119,6 +119,7 @@ handle_info({udp, SxSocket, IP, InPortNo, Packet},
 	    #state{sx = SxSocket, history = Hist} = State0) ->
     try
 	Msg = pfcp_packet:decode(Packet),
+	?match(ok, (catch pfcp_packet:validate('Sxb', Msg))),
 	{Reply, State} = handle_message(Msg, State0#state{history = [Msg|Hist]}),
 	case Reply of
 	    #pfcp{} ->
