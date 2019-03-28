@@ -644,19 +644,18 @@ update_sx_usage_rules(Update, Ctx, PCtx0)
     PCtx = #pfcp_ctx{sx_rules = Rules} =
 	ergw_pfcp:apply_timers(PCtx0, PCtx1),
 
-    lager:info("Sx Modify: ~p, (~p)", [maps:values(Rules), Errors]),
+    Add = [{urr, {online, RatingGroup}} ||
+	      #{'Result-Code' := [Code], 'Rating-Group' := [RatingGroup]} <- Update, Code == 2001],
+    UpdateURRs = [#update_urr{group = V} || V <- maps:values(maps:with(Add, Rules))],
 
-    case maps:values(Rules) of
-	[] ->
-	    ok;
-	RulesList when is_list(RulesList) ->
-	    URRs = [#update_urr{group = V} || V <- RulesList],
-	    lager:info("Sx Modify: ~p", [URRs]),
+    if length(UpdateURRs) /= 0 ->
+	    lager:info("Sx Modify: ~p", [UpdateURRs]),
 
-	    IEs = [#update_urr{group = V} || V <- maps:values(Rules)],
-	    Req = #pfcp{version = v1, type = session_modification_request, ie = IEs},
+	    Req = #pfcp{version = v1, type = session_modification_request, ie = UpdateURRs},
 	    R = ergw_sx_node:call(PCtx, Req, Ctx),
 	    lager:warning("R: ~p", [R]),
+	    ok;
+       true ->
 	    ok
     end,
     PCtx.
