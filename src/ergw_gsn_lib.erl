@@ -22,7 +22,7 @@
 	 trigger_offline_usage_report/2,
 	 choose_context_ip/3,
 	 ip_pdu/3]).
--export([update_pcc_rules/2, session_events/3]).
+-export([update_pcc_rules/2, session_events/4]).
 
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include_lib("pfcplib/include/pfcp_packet.hrl").
@@ -117,23 +117,21 @@ choose_context_ip(_IP4, IP6, _Context)
 %%% Session Trigger functions
 %%%===================================================================
 
-session_events(_Session, [], State) ->
-    State;
-%% session_events(Session, [{Action, _} = H|_],  State)
+session_events(_Session, [], _Ctx, PCtx) ->
+    PCtx;
+%% session_events(Session, [{Action, _} = H|_], Ctx, PCtx)
 %%   when Action =:= add; Action =:= del; Action =:= set ->
-%%     erlang:error(badarg, [Session, H,  State]);
-session_events(Session, [{update_credits, Update} | T],
-	       #{context := Context, pfcp := PCtx0} = State0) ->
+%%     erlang:error(badarg, [Session, H, Ctx, PCtx]);
+session_events(Session, [{update_credits, Update} | T], Ctx, PCtx0) ->
     lager:info("Session credit Update: ~p", [Update]),
-    PCtx = update_sx_usage_rules(Update, Context, PCtx0),
-    State = State0#{pfcp => PCtx},
-    session_events(Session, T, State);
-session_events(Session, [stop | T], State) ->
+    PCtx = update_sx_usage_rules(Update, Ctx, PCtx0),
+    session_events(Session, T, Ctx, PCtx);
+session_events(Session, [stop | T], Ctx, PCtx) ->
     self() ! stop_from_session,
-    session_events(Session, T, State);
-session_events(Session, [H | T], State) ->
+    session_events(Session, T, Ctx, PCtx);
+session_events(Session, [H | T], Ctx, PCtx) ->
     lager:error("unhandled session event: ~p", [H]),
-    session_events(Session, T, State).
+    session_events(Session, T, Ctx, PCtx).
 
 %%%===================================================================
 %%% PCC to Sx translation functions

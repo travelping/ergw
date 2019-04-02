@@ -173,8 +173,9 @@ handle_sx_report(#pfcp{type = session_report_request,
 handle_sx_report(Report, From, State) ->
     ?GTP_v1_Interface:handle_sx_report(Report, From, State).
 
-session_events(Session, Events, State) ->
-    ergw_gsn_lib:session_events(Session, Events, State).
+session_events(Session, Events, #{context := Context, pfcp := PCtx0} = State) ->
+    PCtx = ergw_gsn_lib:session_events(Session, Events, Context, PCtx0),
+    State#{pfcp => PCtx}.
 
 %% API Message Matrix:
 %%
