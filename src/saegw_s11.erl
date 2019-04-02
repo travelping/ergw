@@ -183,8 +183,9 @@ handle_sx_report(#pfcp{type = session_report_request,
 handle_sx_report(_, _From, State) ->
     {error, 'System failure', State}.
 
-session_events(Session, Events, State) ->
-    ergw_gsn_lib:session_events(Session, Events, State).
+session_events(Session, Events, #{context := Context, pfcp := PCtx0} = State) ->
+    PCtx = ergw_gsn_lib:session_events(Session, Events, Context, PCtx0),
+    State#{pfcp => PCtx}.
 
 handle_pdu(ReqKey, #gtp{ie = Data} = Msg, #{context := Context, pfcp := PCtx} = State) ->
     lager:debug("GTP-U SAE-GW: ~p, ~p", [lager:pr(ReqKey, ?MODULE), gtp_c_lib:fmt_gtp(Msg)]),
