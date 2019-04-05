@@ -24,6 +24,7 @@
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include_lib("pfcplib/include/pfcp_packet.hrl").
 -include_lib("diameter/include/diameter_gen_base_rfc6733.hrl").
+-include_lib("ergw_aaa/include/diameter_3gpp_ts29_212.hrl").
 -include_lib("ergw_aaa/include/ergw_aaa_session.hrl").
 -include("include/ergw.hrl").
 
@@ -58,6 +59,12 @@
 -define('S5/S8-U PGW',  5).
 -define('S5/S8-C SGW',  6).
 -define('S5/S8-C PGW',  7).
+
+-define(ABORT_CTX_REQUEST(Context, Request, Type, Cause),
+	begin
+	    AbortReply = response(Type, Context, [#v2_cause{v2_cause = Cause}], Request),
+	    throw(?CTX_ERR(?FATAL, AbortReply, Context))
+	end).
 
 -define(CAUSE_OK(Cause), (Cause =:= request_accepted orelse
 			  Cause =:= request_accepted_partially orelse
@@ -274,13 +281,31 @@ handle_request(_ReqKey,
 
     %%  1. CCR on Gx to get PCC rules
     SOpts = #{now => erlang:monotonic_time()},
-    GxSessionOpts = ccr_initial(ContextPending, Session, gx, #{}, SOpts, Request),
-    GxRules = maps:get(rules, GxSessionOpts, #{}),
 
-    Credits = ergw_gsn_lib:pcc_rules_to_credit_request(GxRules),
-    GyReqServices = #{credits => Credits},
+    GxOpts = #{'Event-Trigger' => ?'DIAMETER_GX_EVENT-TRIGGER_UE_IP_ADDRESS_ALLOCATE',
+	       'Bearer-Operation' => ?'DIAMETER_GX_BEARER-OPERATION_ESTABLISHMENT'},
 
-    GySessionOpts = ccr_initial(ContextPending, Session, gy, GyReqServices, SOpts, Request),
+    {ok, _, GxEvents} =
+	ccr_initial(ContextPending, Session, gx, GxOpts, SOpts, Request),
+
+    RuleBase = ergw_charging:rulebase(),
+    {PCCRules, _PCCErrors} =
+	ergw_gsn_lib:gx_events_to_pcc_rules(GxEvents, RuleBase, #{}),
+
+    if PCCRules =:= #{} ->
+	    ?ABORT_CTX_REQUEST(ContextPending, Request, create_session_response,
+			       user_authentication_failed);
+       true ->
+	    ok
+    end,
+
+    %% TODO: handle PCCErrors
+
+    Credits = ergw_gsn_lib:pcc_rules_to_credit_request(PCCRules),
+    GyReqServices = #{'PCC-Rules' => PCCRules, credits => Credits},
+
+    {ok, GySessionOpts, _} =
+	ccr_initial(ContextPending, Session, gy, GyReqServices, SOpts, Request),
     lager:info("GySessionOpts: ~p", [GySessionOpts]),
 
     ergw_aaa_session:invoke(Session, #{}, start, SOpts),
@@ -543,21 +568,17 @@ authenticate(Context, Session, SessionOpts, Request) ->
 	    NewSOpts;
 	Other ->
 	    lager:info("AuthResult: ~p", [Other]),
-	    Type = create_session_response,
-	    Cause = user_authentication_failed,
-	    Reply = response(Type, Context, [#v2_cause{v2_cause = Cause}], Request),
-	    throw(?CTX_ERR(?FATAL, Reply, Context))
+	    ?ABORT_CTX_REQUEST(Context, Request, create_session_response,
+			       user_authentication_failed)
     end.
 
 ccr_initial(Context, Session, API, SessionOpts, ReqOpts, Request) ->
     case ergw_aaa_session:invoke(Session, SessionOpts, {API, 'CCR-Initial'}, ReqOpts) of
-	{ok, NewSOpts, _} ->
-		NewSOpts;
+	{ok, _, _} = Result ->
+	    Result;
 	{Fail, _, _} ->
-	    Type = create_session_response,
-	    Cause = session_failure_to_gtp_cause(Fail),
-	    Reply = response(Type, Context, [#v2_cause{v2_cause = Cause}], Request),
-	    throw(?CTX_ERR(?FATAL, Reply, Context))
+	    ?ABORT_CTX_REQUEST(Context, Request, create_session_response,
+			       session_failure_to_gtp_cause(Fail))
     end.
 
 match_context(_Type, _Context, undefined) ->

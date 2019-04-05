@@ -14,6 +14,7 @@
 	 validate_node_name/1,
 	 validate_config/1,
 	 validate_options/4,
+	 check_unique_keys/2,
 	 opts_fold/3,
 	 to_map/1]).
 

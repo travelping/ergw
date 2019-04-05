@@ -22,7 +22,8 @@
 	 trigger_offline_usage_report/2,
 	 choose_context_ip/3,
 	 ip_pdu/3]).
--export([update_pcc_rules/2, session_events/4]).
+-export([%%update_pcc_rules/2,
+	 gx_events_to_pcc_rules/3, session_events/4]).
 
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include_lib("pfcplib/include/pfcp_packet.hrl").
@@ -141,47 +142,82 @@ session_events(Session, [H | T], Ctx, PCtx) ->
 
 %% convert Gx like Install/Remove interactions in PCC rule states
 
-update_pcc_rules(CRUpdate, Rules) when is_map(CRUpdate) ->
-    Update = update_pcc_rules(fun remove_pcc_rule/3,
-			      maps:get('Charging-Rule-Remove', CRUpdate, []),
-			      #pcc_upd{rules = Rules}),
-    update_pcc_rules(fun install_pcc_rule/3,
-		     maps:get('Charging-Rule-Install', CRUpdate, []),
-		     Update).
+gx_events_to_pcc_rules(Evs, RuleBase, Rules0) ->
+    #pcc_upd{errors = Errors, rules = Rules} =
+	lists:foldl(update_pcc_rules(_, RuleBase, _), #pcc_upd{rules = Rules0}, Evs),
+    {Rules, Errors}.
 
-update_pcc_rules(Fun, Update, Rules) ->
-    lists:foldl(maps:fold(Fun, _, _), Update, Rules).
-
-pcc_rule_error(Error, #pcc_upd{errors = Errors} = Update) ->
-    Update#pcc_upd{errors = [Error | Errors]}.
-
-remove_pcc_rule('Charging-Rule-Name', Names, #pcc_upd{} = Update) ->
-    lists:foldl(
-      fun(Name, #pcc_upd{rules = Rules} = Upd) ->
-	      case maps:is_key(Name, Rules) of
-		  true ->
-		      Update#pcc_upd{rules = maps:without([Name], Rules)};
-		  _ ->
-		      pcc_rule_error({unknown_rule_name, Name}, Upd)
-	      end
-      end, Update, Names);
-remove_pcc_rule(_K, _V, #pcc_upd{} = Update) ->
+update_pcc_rules({pcc, install, Ev}, RuleBase, Update) ->
+    lists:foldl(install_pcc_rules(_, RuleBase, _), Update, Ev);
+update_pcc_rules({pcc, remove, Ev}, _RuleBase, Update) ->
+    lists:foldl(fun remove_pcc_rules/2, Update, Ev);
+update_pcc_rules(_, _, Update) ->
     Update.
 
-install_pcc_rule('Charging-Rule-Definition', Definitions, #pcc_upd{} = Update)
-  when is_list(Definitions) ->
-    lists:foldl(fun install_pcc_rule_def/2, Update, Definitions);
-install_pcc_rule(_K, _V, #pcc_upd{} = Update) ->
-    Update.
+split_pcc_rule(Rule) ->
+    maps:fold(fun(K, V, {Action, Opts})
+		    when K =:= 'Charging-Rule-Name';
+			 K =:= 'Charging-Rule-Base-Name';
+			 K =:= 'Charging-Rule-Definition' ->
+		      {Action#{K => V}, Opts};
+		 (K, V, {Action, Opts}) ->
+		      {Action, Opts#{K => V}}
+	      end, {#{}, #{}}, Rule).
 
-install_pcc_rule_def(#{'Charging-Rule-Name' := Name} = UpdRule,
-		     #pcc_upd{rules = Rules} = Update) ->
-    case maps:get(Name, Rules, #{}) of
-	OldRule when is_map(OldRule) ->
-	    Update#pcc_upd{rules = Rules#{Name => maps:merge(OldRule, UpdRule)}};
+pcc_upd_error(Error, #pcc_upd{errors = Errs} = Updates) ->
+    Updates #pcc_upd{errors = [Error|Errs]}.
+
+update_pcc_rule(Name, Rule, Opts, #pcc_upd{rules = Rules0} = Update) ->
+    UpdRule = maps:merge(Opts, Rule),
+    Rules = maps:update_with(Name, maps:merge(_, UpdRule), UpdRule, Rules0),
+    Update#pcc_upd{rules = Rules}.
+
+install_preconf_rule(Name, IsRuleBase, Opts, RuleBase, Update) ->
+    case RuleBase of
+	#{Name := Rules} when IsRuleBase andalso is_list(Rules) ->
+	    UpdOpts = Opts#{'Charging-Rule-Base-Name' => Name},
+	    lists:foldl(install_preconf_rule(_, false, UpdOpts, RuleBase, _), Update, Rules);
+	#{Name := Rule} when (not IsRuleBase) andalso is_map(Rule) ->
+	    update_pcc_rule(Name, Rule, Opts, Update);
 	_ ->
-	    pcc_rule_error({unknown_rule_name, Name}, Update)
+	    pcc_upd_error({not_found, Name}, Update)
     end.
+
+install_pcc_rules(Install, RuleBase, Update) ->
+    {Rules, Opts} = split_pcc_rule(Install),
+    maps:fold(install_pcc_rule(_, _, Opts, RuleBase, _), Update, Rules).
+
+install_pcc_rule('Charging-Rule-Name', V, Opts, RuleBase, Update) ->
+    lists:foldl(install_preconf_rule(_, false, Opts, RuleBase, _), Update, V);
+install_pcc_rule('Charging-Rule-Base-Name', V, Opts, RuleBase, Update) ->
+    lists:foldl(install_preconf_rule(_, true, Opts, RuleBase, _), Update, V);
+install_pcc_rule('Charging-Rule-Definition', V, Opts, _RuleBase, Update) ->
+    lists:foldl(fun(#{'Charging-Rule-Name' := Name} = Rule, Upd) ->
+			update_pcc_rule(Name, Rule, Opts, Upd)
+		end, Update, V).
+
+remove_pcc_rules(Install, Update) ->
+    {Rules, Opts} = split_pcc_rule(Install),
+    maps:fold(remove_pcc_rules(_, _, Opts, _), Update, Rules).
+
+remove_pcc_rule(Name, true, _Opts, #pcc_upd{rules = Rules0} = Update) ->
+    Rules =
+	maps:filter(fun(_K, #{'Charging-Rule-Base-Name' := BaseName}) ->
+			    BaseName /= Name;
+		       (_K, _V) -> true
+		    end, Rules0),
+    Update#pcc_upd{rules = Rules};
+remove_pcc_rule(Name, false, _Opts, #pcc_upd{rules = Rules} = Update) ->
+    case Rules of
+	#{Name := _} ->
+	    Update#pcc_upd{rules = maps:remove(Name, Rules)};
+	_ ->
+	    pcc_upd_error({not_found, Name}, Update)
+    end.
+remove_pcc_rules('Charging-Rule-Name', V, Opts, Update) ->
+    lists:foldl(remove_pcc_rule(_, false, Opts, _), Update, V);
+remove_pcc_rules('Charging-Rule-Base-Name', V, Opts, Update) ->
+    lists:foldl(remove_pcc_rule(_, true, Opts, _), Update, V).
 
 %% convert PCC rule state into Sx rule states
 
@@ -243,7 +279,7 @@ build_sx_rules(SessionOpts, Opts, PCtx, SCtx) ->
 
 build_sx_rules_3(SessionOpts, _Opts, Update0) ->
     Monitors = maps:get(monitoring, SessionOpts, #{}),
-    PolicyRules = maps:get(rules, SessionOpts, #{}),
+    PolicyRules = maps:get('PCC-Rules', SessionOpts, #{}),
     Credits = maps:get('Multiple-Services-Credit-Control', SessionOpts, []),
 
     Update1 = build_sx_ctx_rule(Update0),
@@ -460,7 +496,7 @@ get_rule_urrs(_Definition, _Update) ->
     [].
 
 %% 'Granted-Service-Unit' => [#{'CC-Time' => [14400],'CC-Total-Octets' => [10485760]}],
-%% 'Rating-Group' => [3000],'Result-Code' => [?'DIAMETER_BASE_RESULT-CODE_SUCCESS'],
+%% 'Rating-Group' => [3000],'Result-Code' => ?'DIAMETER_BASE_RESULT-CODE_SUCCESS',
 %% 'Time-Quota-Threshold' => [1440],
 %% 'Validity-Time' => [600],
 %% 'Volume-Quota-Threshold' => [921600]}],
