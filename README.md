@@ -100,10 +100,9 @@ check the `otp_release` section in [.travis.yml](.travis.yml) for tested version
 BUILDING
 --------
 
-*The minimum supported Erlang version is 20.1.7.*
+*The minimum supported Erlang version is 21.0.*
 
-Erlang 21.1.1 is the recommended version. Support for version prior to 20.3.8 will
-dropped at the end of 2018.
+Erlang 21.3.3 is the recommended version.
 
 Using rebar:
 
@@ -320,4 +319,4 @@ The configuration is documented in [CONFIG.md](CONFIG.md)
 [travis badge]: https://img.shields.io/travis/com/travelping/ergw/master.svg?style=flat-square
 [coveralls]: https://coveralls.io/github/travelping/ergw
 [coveralls badge]: https://img.shields.io/coveralls/travelping/ergw/master.svg?style=flat-square
-[erlang version badge]: https://img.shields.io/badge/erlang-R20.3%20to%2021.2-blue.svg?style=flat-square
+[erlang version badge]: https://img.shields.io/badge/erlang-R21.0%20to%2021.3-blue.svg?style=flat-square

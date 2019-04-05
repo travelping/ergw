@@ -603,37 +603,6 @@ create_data_endp(PCtx, Node, VRFs) ->
        ip = choose_up_ip(Node, VRF),
        teid = DataTEI}.
 
-%% -ifdef(OTP_RELEASE).
-%% %% OTP 21 or higher
-
-%% maps_mapfold(Fun, Init, Map)
-%%   when is_function(Fun, 3), is_map(Map) ->
-%%     maps_mapfold_i(Fun, {[], Init}, maps:iterator(Map)).
-
-%% maps_mapfold_i(Fun, {L1, A1}, Iter) ->
-%%     case maps:next(Iter) of
-%% 	{K, V1, NextIter} ->
-%% 	    {V2, A2} = Fun(K, V1, A1),
-%% 	    maps_mapfold_i(Fun, {[{K, V2} | L1], A2}, NextIter);
-%% 	none ->
-%% 	    {maps:from_list(L1), A1}
-%%     end.
-
-%% -else.
-%% %% OTP 20 or lower.
-
-%% maps_mapfold(Fun, AccIn, Map)
-%%   when is_function(Fun, 3), is_map(Map) ->
-%%     ListIn = maps:to_list(Map),
-%%     {ListOut, AccOut} =
-%% 	lists:mapfoldl(fun({K, A}, InnerAccIn) ->
-%% 			       {B, InnerAccOut} = Fun(K, A, InnerAccIn),
-%% 			       {{K, B}, InnerAccOut}
-%% 		       end, AccIn, ListIn),
-%%     {maps:from_list(ListOut), AccOut}.
-
-%% -endif.
-
 gen_pfcp_rules(_Key, #vrf{features = Features} = VRF, DataEndP, Acc) ->
     lists:foldl(gen_per_feature_pfcp_rule(_, VRF, DataEndP, _), Acc, Features).
 

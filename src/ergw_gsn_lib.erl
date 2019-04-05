@@ -479,19 +479,6 @@ sntp_time_to_seconds(SNTP) ->
 	    SNTP + 2085978496
     end.
 
--ifdef(OTP_RELEASE).
-%% OTP 21 or higher
-system_time_to_universal_time(Time, TimeUnit) ->
-    calendar:system_time_to_universal_time(Time, TimeUnit).
-
--else.
-%% from Erlang R21:
-
-system_time_to_universal_time(Time, TimeUnit) ->
-    Secs = erlang:convert_time_unit(Time, TimeUnit, second),
-    calendar:gregorian_seconds_to_datetime(Secs + ?SECONDS_FROM_0_TO_1970).
--endif.
-
 %% build_sx_usage_rule/4
 build_sx_usage_rule(time, #{'CC-Time' := [Time]}, _,
 		    #{measurement_method := MM,
@@ -854,7 +841,7 @@ init_sdc_from_session(Now, SessionOpts) ->
 		 end,
 		 #{}, maps:with(Keys, SessionOpts)),
     SDC#{'Change-Time' =>
-	     [system_time_to_universal_time(Now + erlang:time_offset(), native)]}.
+	     [calendar:system_time_to_universal_time(Now + erlang:time_offset(), native)]}.
 
 cev_to_rf_cc_kv(immer, SDC) ->
     %% Immediate Reporting means something has triggered a Report Request,
