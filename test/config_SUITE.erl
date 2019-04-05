@@ -685,4 +685,38 @@ config(_Config)  ->
     ?error_option(set_cfg_value([charging, default, offline, triggers, invalid], cdr, ?GGSN_CONFIG)),
     ?ok_option(set_cfg_value([charging, default, offline, triggers], [{'ecgi-change', off}], ?GGSN_CONFIG)),
 
+    %% Charging Policy Rulebase Config
+    RB = [charging, default, rulebase],
+    ?ok_option(set_cfg_value(RB, [], ?GGSN_CONFIG)),
+    ?error_option(set_cfg_value(RB ++ [<<"r-0001">>], [], ?GGSN_CONFIG)),
+    ?ok_option(set_cfg_value(RB ++ [<<"rb-0001">>], [<<"r-0001">>], ?GGSN_CONFIG)),
+    ?ok_option(set_cfg_value(RB, [{<<"rb-0001">>, [<<"r-0001">>]}], ?GGSN_CONFIG)),
+    ?error_option(set_cfg_value(RB, [{<<"rb-0001">>, [<<"r-0001">>, <<"r-0001">>]}], ?GGSN_CONFIG)),
+    ?error_option(set_cfg_value(RB, [{<<"rb-0001">>, [<<"r-0001">>]},
+				  {<<"rb-0001">>, [<<"r-0001">>]}], ?GGSN_CONFIG)),
+    ?error_option(set_cfg_value(RB ++ [<<"rb-0001">>], [<<"r-0001">>, undefined], ?GGSN_CONFIG)),
+    ?error_option(set_cfg_value(RB ++ [<<"rb-0001">>], [], ?GGSN_CONFIG)),
+    ?error_option(set_cfg_value(RB ++ [<<"rb-0001">>], #{}, ?GGSN_CONFIG)),
+    ?error_option(set_cfg_value(RB ++ [<<"rb-0001">>], [undefined], ?GGSN_CONFIG)),
+
+    ?ok_option(set_cfg_value(RB ++ [<<"rb-0001">>],
+			     [{'Rating-Group', [3000]}], ?GGSN_CONFIG)),
+    ?ok_option(set_cfg_value(RB ++ [<<"rb-0001">>],
+			     [{'Rating-Group', [3000]},
+			      {'Service-Identifier', [value]}], ?GGSN_CONFIG)),
+    ?error_option(set_cfg_value(RB ++ [<<"rb-0001">>],
+			     [{'Rating-Group', 3000}], ?GGSN_CONFIG)),
+    ?error_option(set_cfg_value(RB ++ [<<"rb-0001">>],
+				[{'Rating-Group', [3000]}, {'Rating-Group', [3000]}], ?GGSN_CONFIG)),
+    ?error_option(set_cfg_value(RB ++ [<<"rb-0001">>],
+				[{'Rating-Group', []}], ?GGSN_CONFIG)),
+
+    ?ok_option(set_cfg_value(RB ++ [<<"rb-0001">>],
+			     #{'Rating-Group' => [3000]}, ?GGSN_CONFIG)),
+    ?error_option(set_cfg_value(RB ++ [<<"rb-0001">>],
+				#{'Rating-Group' => 3000}, ?GGSN_CONFIG)),
+
+    ?error_option(set_cfg_value(RB ++ [<<"rb-0001">>],
+				[{'Rating-Group', 3000}], ?GGSN_CONFIG)),
+
     ok.

@@ -7,7 +7,9 @@
 
 -module(ergw_charging).
 
--export([validate_options/1, is_charging_event/3]).
+-export([validate_options/1,
+	 is_charging_event/2,
+	 rulebase/0]).
 
 %%%===================================================================
 %%% Options Validation
@@ -17,7 +19,9 @@
 -define(non_empty_opts(X), ((is_list(X) andalso length(X) /= 0) orelse
 			    (is_map(X) andalso map_size(X) /= 0))).
 
--define(DefaultChargingOpts, [{online, []}, {offline, []}]).
+-define(DefaultChargingOpts, [{rulebase, []}, {online, []}, {offline, []}]).
+-define(DefaultRulebase, []).
+-define(DefaultRuleDef, []).
 -define(DefaultOnlineChargingOpts, []).
 -define(DefaultOfflineChargingOpts, [{triggers, []}]).
 -define(DefaultOfflineChargingTriggers,
@@ -37,6 +41,66 @@
 validate_options({Key, Opts})
   when is_atom(Key), ?is_opts(Opts) ->
     {Key, ergw_config:validate_options(fun validate_charging_options/2, Opts, ?DefaultChargingOpts, map)}.
+
+%% validate_rule_def('Service-Identifier', Value) ->
+%% validate_rule_def('Rating-Group', Value) ->
+%% validate_rule_def('Flow-Information', Value) ->
+%% validate_rule_def('Default-Bearer-Indication', Value) ->
+%% validate_rule_def('TDF-Application-Identifier', Value) ->
+%% validate_rule_def('Flow-Status', Value) ->
+%% validate_rule_def('QoS-Information', Value) ->
+%% validate_rule_def('PS-to-CS-Session-Continuity', Value) ->
+%% validate_rule_def('Reporting-Level', Value) ->
+%% validate_rule_def('Online', Value) ->
+%% validate_rule_def('Offline', Value) ->
+%% validate_rule_def('Max-PLR-DL', Value) ->
+%% validate_rule_def('Max-PLR-UL', Value) ->
+%% validate_rule_def('Metering-Method', Value) ->
+%% validate_rule_def('Precedence', Value) ->
+%% validate_rule_def('AF-Charging-Identifier', Value) ->
+%% validate_rule_def('Flows', Value) ->
+%% validate_rule_def('Monitoring-Key', Value) ->
+%% validate_rule_def('Redirect-Information', Value) ->
+%% validate_rule_def('Mute-Notification', Value) ->
+%% validate_rule_def('AF-Signalling-Protocol', Value) ->
+%% validate_rule_def('Sponsor-Identity', Value) ->
+%% validate_rule_def('Application-Service-Provider-Identity', Value) ->
+%% validate_rule_def('Required-Access-Info', Value) ->
+%% validate_rule_def('Sharing-Key-DL', Value) ->
+%% validate_rule_def('Sharing-Key-UL', Value) ->
+%% validate_rule_def('Traffic-Steering-Policy-Identifier-DL', Value) ->
+%% validate_rule_def('Traffic-Steering-Policy-Identifier-UL', Value) ->
+%% validate_rule_def('Content-Version', Value) ->
+
+validate_rule_def(Key, Value)
+  when is_atom(Key) andalso
+       is_list(Value) andalso length(Value) /= 0 ->
+    Value;
+validate_rule_def(Key, Value) ->
+    throw({error, {options, {rule, {Key, Value}}}}).
+
+validate_rulebase(Key, [Id | _] = RuleBaseDef)
+  when is_binary(Key) andalso is_binary(Id) ->
+    case lists:usort(RuleBaseDef) of
+	S when length(S) /= length(RuleBaseDef) ->
+	    throw({error, {options, {rulebase, {Key, RuleBaseDef}}}});
+	_ ->
+	    ok
+    end,
+
+    lists:foreach(fun(RId) when is_binary(RId) ->
+			  ok;
+		     (RId) ->
+			  throw({error, {options, {rule, {Key, RId}}}})
+		  end, RuleBaseDef),
+    RuleBaseDef;
+validate_rulebase(Key, Rule)
+  when is_binary(Key) andalso ?non_empty_opts(Rule) ->
+    ergw_config:check_unique_keys(Key, Rule),
+    ergw_config:validate_options(fun validate_rule_def/2,
+				 Rule, ?DefaultRuleDef, map);
+validate_rulebase(Key, Rule) ->
+    throw({error, {options, {rulebase, {Key, Rule}}}}).
 
 validate_online_charging_options(Key, Opts) ->
     throw({error, {options, {{online, charging}, {Key, Opts}}}}).
@@ -71,6 +135,10 @@ validate_offline_charging_options(triggers, Opts) ->
 validate_offline_charging_options(Key, Opts) ->
     throw({error, {options, {{offline, charging}, {Key, Opts}}}}).
 
+validate_charging_options(rulebase, RuleBase) ->
+    ergw_config:check_unique_keys(rulebase, RuleBase),
+    ergw_config:validate_options(fun validate_rulebase/2,
+				 RuleBase, ?DefaultRulebase, map);
 validate_charging_options(online, Opts) ->
     ergw_config:validate_options(fun validate_online_charging_options/2,
 				 Opts, ?DefaultOnlineChargingOpts, map);
@@ -84,16 +152,24 @@ validate_charging_options(Key, Opts) ->
 %%% API
 %%%===================================================================
 
-is_charging_event(offline, Evs, Config)
-  when is_map(Config) ->
+config() ->
+    %% TODO: use APN, VPLMN, HPLMN and Charging Characteristics
+    %%       to select config
+    case application:get_env(ergw, charging) of
+	{ok, #{default := Cfg}} -> Cfg;
+	_ -> #{}
+    end.
+
+is_charging_event(offline, Evs) ->
     Filter =
 	maps:get(triggers,
-		 maps:get(offline, Config, #{}), #{}),
+		 maps:get(offline, config(), #{}), #{}),
     is_offline_charging_event(Evs, Filter);
-is_charging_event(online, _, _Config) ->
-    true;
-is_charging_event(_, _, _Config) ->
-    [].
+is_charging_event(online, _) ->
+    true.
+
+rulebase() ->
+    maps:get(rulebase, config(), #{}).
 
 %%%===================================================================
 %%% Helper functions

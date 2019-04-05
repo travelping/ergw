@@ -103,6 +103,27 @@
 		   {[<<"APN1">>], [{vrf, upstream}]}
 		  ]},
 
+		 {charging,
+		  [{default,
+		    [{rulebase,
+		      [{<<"r-0001">>,
+			#{'Rating-Group' => [3000],
+			  'Flow-Information' =>
+			      [#{'Flow-Description' => [<<"permit out ip from any to assigned">>],
+				 'Flow-Direction'   => [1]    %% DownLink
+				},
+			       #{'Flow-Description' => [<<"permit out ip from any to assigned">>],
+				 'Flow-Direction'   => [2]    %% UpLink
+				}],
+			  'Metering-Method'  => [1],
+			  'Precedence' => [100],
+			  'Offline'  => [1]
+			 }},
+		       {<<"m2m0001">>, [<<"r-0001">>]}
+		      ]}
+		     ]}
+		  ]},
+
 		 {nodes,
 		  [{default,
 		    [{vrfs,
@@ -120,57 +141,52 @@
 	    [{ergw_aaa_static,
 	      [{'NAS-Identifier',          <<"NAS-Identifier">>},
 	       {'Node-Id',                 <<"PGW-001">>},
-	       {'Charging-Rule-Base-Name', <<"m2m0001">>},
-	       {rules, #{'Default' =>
-			     #{'Rating-Group' => [3000],
-			       'Flow-Information' =>
-				   [#{'Flow-Description' => [<<"permit out ip from any to assigned">>],
-				      'Flow-Direction'   => [1]    %% DownLink
-				     },
-				    #{'Flow-Description' => [<<"permit out ip from any to assigned">>],
-				      'Flow-Direction'   => [2]    %% UpLink
-				     }],
-			       'Metering-Method'  => [1],
-			       'Precedence' => [100],
-			       'Offline'  => [1]
-			      }
-			}
-	       }
+	       {'Charging-Rule-Base-Name', <<"m2m0001">>}
 	      ]}
 	    ]},
 	   {services,
-	    [{'Default', [{handler, 'ergw_aaa_static'},
-			  {answers, #{'Initial-OCS' =>
-					  #{'Result-Code' => [2001],
-					    'Multiple-Services-Credit-Control' =>
-						[#{'Envelope-Reporting' => [0],
-						   'Granted-Service-Unit' =>
-						       [#{'CC-Time' => [3600],
-							  'CC-Total-Octets' => [102400]}],
-						   'Rating-Group' => [3000],
-						   'Validity-Time' => [2],
-						   'Result-Code' => [2001],
-						   'Time-Quota-Threshold' => [60],
-						   'Volume-Quota-Threshold' => [10240]}
-						]
-					   },
-				      'Update-OCS' =>
-					  #{'Result-Code' => [2001],
-					    'Multiple-Services-Credit-Control' =>
-						[#{'Envelope-Reporting' => [0],
-						   'Granted-Service-Unit' =>
-						       [#{'CC-Time' => [3600],
-							  'CC-Total-Octets' => [102400]}],
-						   'Rating-Group' => [3000],
-						   'Validity-Time' => [2],
-						   'Result-Code' => [2001],
-						   'Time-Quota-Threshold' => [60],
-						   'Volume-Quota-Threshold' => [10240]}
-						]
-					   }
-				     }
-			  }
-			 ]}
+	    [{'Default',
+	      [{handler, 'ergw_aaa_static'},
+	       {answers,
+		#{'Initial-Gx' =>
+		      #{'Result-Code' => 2001,
+			'Charging-Rule-Install' =>
+			    [#{'Charging-Rule-Base-Name' => [<<"m2m0001">>]}]
+		       },
+		  'Update-Gx' => #{'Result-Code' => 2001},
+		  'Final-Gx' => #{'Result-Code' => 2001},
+		  'Initial-OCS' =>
+		      #{'Result-Code' => 2001,
+			'Multiple-Services-Credit-Control' =>
+			    [#{'Envelope-Reporting' => [0],
+			       'Granted-Service-Unit' =>
+				   [#{'CC-Time' => [3600],
+				      'CC-Total-Octets' => [102400]}],
+			       'Rating-Group' => [3000],
+			       'Validity-Time' => [2],
+			       'Result-Code' => [2001],
+			       'Time-Quota-Threshold' => [60],
+			       'Volume-Quota-Threshold' => [10240]
+			      }]
+		       },
+		  'Update-OCS' =>
+		      #{'Result-Code' => 2001,
+			'Multiple-Services-Credit-Control' =>
+			    [#{'Envelope-Reporting' => [0],
+			       'Granted-Service-Unit' =>
+				   [#{'CC-Time' => [3600],
+				      'CC-Total-Octets' => [102400]}],
+			       'Rating-Group' => [3000],
+			       'Validity-Time' => [2],
+			       'Result-Code' => [2001],
+			       'Time-Quota-Threshold' => [60],
+			       'Volume-Quota-Threshold' => [10240]
+			      }]
+		       },
+		  'Final-OCS' => #{'Result-Code' => 2001}
+		 }
+	       }
+	      ]}
 	    ]},
 	   {apps,
 	    [{default,
@@ -180,6 +196,9 @@
 			     {start, []},
 			     {interim, []},
 			     {stop, []},
+			     {{gx, 'CCR-Initial'},   [{'Default', [{answer, 'Initial-Gx'}]}]},
+			     {{gx, 'CCR-Update'},    [{'Default', [{answer, 'Update-Gx'}]}]},
+			     {{gx, 'CCR-Terminate'}, [{'Default', [{answer, 'Final-Gx'}]}]},
 			     {{gy, 'CCR-Initial'},   []},
 			     {{gy, 'CCR-Update'},    []},
 			     %%{{gy, 'CCR-Update'},    [{'Default', [{answer, 'Update-If-Down'}]}]},
@@ -287,8 +306,8 @@ init_per_testcase(create_session_request_aaa_reject, Config) ->
     ok = meck:expect(ergw_aaa_session, invoke,
 		     fun(_, _, authenticate, _) ->
 			     {fail, #{}, []};
-			(_, Opts, _, _) ->
-			     {ok, Opts, []}
+			(Session, SessionOpts, Procedure, Opts) ->
+			     meck:passthrough([Session, SessionOpts, Procedure, Opts])
 		     end),
     Config;
 init_per_testcase(create_session_request_gx_fail, Config) ->
@@ -296,8 +315,8 @@ init_per_testcase(create_session_request_gx_fail, Config) ->
     ok = meck:expect(ergw_aaa_session, invoke,
 		     fun(_, _, {gx, 'CCR-Initial'}, _) ->
 			     {fail, #{}, []};
-			(_, Opts, _, _) ->
-			     {ok, Opts, []}
+			(Session, SessionOpts, Procedure, Opts) ->
+			     meck:passthrough([Session, SessionOpts, Procedure, Opts])
 		     end),
     Config;
 init_per_testcase(create_session_request_gy_fail, Config) ->
@@ -305,8 +324,8 @@ init_per_testcase(create_session_request_gy_fail, Config) ->
     ok = meck:expect(ergw_aaa_session, invoke,
 		     fun(_, _, {gy, 'CCR-Initial'}, _) ->
 			     {fail, #{}, []};
-			(_, Opts, _, _) ->
-			     {ok, Opts, []}
+			(Session, SessionOpts, Procedure, Opts) ->
+			     meck:passthrough([Session, SessionOpts, Procedure, Opts])
 		     end),
     Config;
 init_per_testcase(create_session_request_rf_fail, Config) ->
@@ -314,8 +333,8 @@ init_per_testcase(create_session_request_rf_fail, Config) ->
     ok = meck:expect(ergw_aaa_session, invoke,
 		     fun(_, _, start, _) ->
 			     {fail, #{}, []};
-			(_, Opts, _, _) ->
-			     {ok, Opts, []}
+			(Session, SessionOpts, Procedure, Opts) ->
+			     meck:passthrough([Session, SessionOpts, Procedure, Opts])
 		     end),
     Config;
 init_per_testcase(TestCase, Config)
@@ -813,9 +832,7 @@ session_options(Config) ->
 		   'Charging-Rule-Base-Name' => <<"m2m0001">>,
 
 		   'Accounting-Start' => '_',
-		   'Session-Start' => '_',
-
-		   rules => '_'
+		   'Session-Start' => '_'
 		  },
     ?match_map(Expected, Opts),
 

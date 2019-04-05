@@ -112,9 +112,7 @@ trigger_charging_events(URRActions, PCtx)
 	      end, URRActions).
 
 %% TODO: add online charing events
-collect_charging_events(OldS, NewS, Context) ->
-    {ok, ChargingCnf} = application:get_env(ergw, charging),
-    Config = maps:get(default, ChargingCnf, #{}),
+collect_charging_events(OldS, NewS, _Context) ->
     EvChecks =
 	[
 	 {'CGI',                     'cgi-sai-change'},
@@ -144,7 +142,7 @@ collect_charging_events(OldS, NewS, Context) ->
 			  Evs
 		  end
 	  end, [], EvChecks),
-    case ergw_charging:is_charging_event(offline, Events, Config) of
+    case ergw_charging:is_charging_event(offline, Events) of
 	false ->
 	    [];
 	ChargeEv ->
