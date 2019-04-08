@@ -19,6 +19,10 @@
 %% ergw_context callbacks
 -export([sx_report/2, port_message/2, port_message/4]).
 
+-ifdef(TEST).
+-export([test_cmd/2]).
+-endif.
+
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
 	 terminate/2, code_change/3]).
@@ -32,6 +36,7 @@
 -import(ergw_aaa_session, [to_session/1]).
 
 -define(SERVER, ?MODULE).
+-define(TestCmdTag, '$TestCmd').
 
 -record(state, {dp_node :: pid(),
 		session :: pid(),
@@ -48,6 +53,13 @@ start_link(Node, VRF, IP4, IP6, SxOpts, GenOpts) ->
 
 unsolicited_report(Node, VRF, IP4, IP6, SxOpts) ->
     tdf_sup:new(Node, VRF, IP4, IP6, SxOpts).
+
+-ifdef(TEST).
+
+test_cmd(Pid, Cmd) when is_pid(Pid) ->
+    gen_server:call(Pid, {?TestCmdTag, Cmd}).
+
+-endif.
 
 %%%===================================================================
 %%% Options Validation
@@ -81,9 +93,8 @@ validate_option(Opt, Value) ->
 %% ergw_context API
 %%====================================================================
 
-sx_report(_Server, Report) ->
-    lager:error("TDF Sx Report: ~p", [Report]),
-    ok.
+sx_report(Server, Report) ->
+    gen_server:call(Server, {sx, Report}).
 
 port_message(Request, Msg) ->
     %% we currently do not configure DP to CP forwards,
@@ -134,10 +145,31 @@ init([Node, InVRF, IP4, IP6, #{apn := APN} = SxOpts]) ->
     lager:info("TDF process started for ~p", [[Node, IP4, IP6]]),
     {ok, State}.
 
+handle_call({?TestCmdTag, pfcp_ctx}, _From, #state{pfcp = PCtx} = State) ->
+    {reply, {ok, PCtx}, State};
+
+handle_call({sx, #pfcp{type = session_report_request,
+		       ie = #{report_type := #report_type{usar = 1},
+			      usage_report_srr := UsageReport}} = Report},
+	    _From, #state{session = Session, pfcp = PCtx} = State) ->
+    lager:debug("~w: handle_call Sx: ~p", [?MODULE, lager:pr(Report, ?MODULE)]),
+
+    Now = erlang:monotonic_time(),
+    ChargeEv = interim,
+    {Online, Offline, _} =
+	ergw_gsn_lib:usage_report_to_charging_events(UsageReport, ChargeEv, PCtx),
+    ergw_gsn_lib:process_online_charging_events(ChargeEv, Online, Now, Session),
+    ergw_gsn_lib:process_offline_charging_events(ChargeEv, Offline, Now, Session),
+
+    {reply, {ok, PCtx}, State};
+
+handle_call({sx, Report}, _From, #state{pfcp = PCtx} = State) ->
+    lager:warning("~w: unhandled Sx report: ~p", [?MODULE, lager:pr(Report, ?MODULE)]),
+    {reply, {ok, PCtx, 'System failure'}, State};
+
 handle_call(_Request, _From, State) ->
     Reply = ok,
     {reply, Reply, State}.
-
 
 handle_cast(init, State) ->
     %% start Rf/Gx/Gy interaction

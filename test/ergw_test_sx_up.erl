@@ -3,8 +3,8 @@
 -behaviour(gen_server).
 
 %% API
--export([start/2, stop/1, send/2, send/3, reset/1, history/1, accounting/2,
-	enable/1, disable/1]).
+-export([start/2, stop/1, send/2, send/3, usage_report/4,
+	 reset/1, history/1, accounting/2, enable/1, disable/1]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -35,6 +35,9 @@ send(Role, Msg) ->
 
 send(Role, SEID, Msg) ->
     gen_server:call(server_name(Role), {send, SEID, Msg}).
+
+usage_report(Role, PCtx, MatchSpec, Report) ->
+    gen_server:call(server_name(Role), {usage_report, PCtx, MatchSpec, Report}).
 
 reset(Role) ->
     gen_server:call(server_name(Role), reset).
@@ -95,17 +98,13 @@ handle_call(history, _From, #state{history = Hist} = State) ->
 handle_call({accounting, Acct}, _From, State) ->
     {reply, ok, State#state{accounting = Acct}};
 
-handle_call({send, #pfcp{} = Msg}, _From,
-	    #state{sx = SxSocket, cp_ip = IP, cp_seid = SEID, seq_no = SeqNo} = State) ->
-    BinMsg = pfcp_packet:encode(Msg#pfcp{seid = SEID, seq_no = SeqNo}),
-    ok = gen_udp:send(SxSocket, IP, 8805, BinMsg),
-    {reply, ok, State#state{seq_no = (SeqNo + 1) rem 16#ffffff}};
+handle_call({send, #pfcp{} = Msg}, _From, #state{cp_seid = SEID} = State0) ->
+    State = do_send(SEID, Msg, State0),
+    {reply, ok, State};
 
-handle_call({send, SEID, #pfcp{} = Msg}, _From,
-	    #state{sx = SxSocket, cp_ip = IP, seq_no = SeqNo} = State) ->
-    BinMsg = pfcp_packet:encode(Msg#pfcp{seid = SEID, seq_no = SeqNo}),
-    ok = gen_udp:send(SxSocket, IP, 8805, BinMsg),
-    {reply, ok, State#state{seq_no = (SeqNo + 1) rem 16#ffffff}};
+handle_call({send, SEID, #pfcp{} = Msg}, _From, State0) ->
+    State = do_send(SEID, Msg, State0),
+    {reply, ok, State};
 
 handle_call({send, Msg}, _From,
 	    #state{gtp = GtpSocket, cp_ip = IP} = State)
@@ -114,6 +113,16 @@ handle_call({send, Msg}, _From,
     BinMsg = gtp_packet:encode(#gtp{version = v1, type = g_pdu, tei = SxTEI, ie = Msg}),
     ok = gen_udp:send(GtpSocket, IP, ?GTP1u_PORT, BinMsg),
     {reply, ok, State};
+
+handle_call({usage_report, #pfcp_ctx{seid = #seid{cp = SEID}, urr_by_id = Rules} = PCtx,
+	     MatchSpec, Report}, _From, State0) ->
+    Ids = ets:match_spec_run(maps:to_list(Rules), ets:match_spec_compile(MatchSpec)),
+    URRs = [#usage_report_srr{group = [#urr_id{id = Id}|Report]} || Id <- Ids],
+    IEs = [#report_type{usar = 1}|URRs],
+    SRreq = #pfcp{version = v1, type = session_report_request, ie = IEs},
+    State = do_send(SEID, SRreq, State0),
+    {reply, ok, State};
+
 
 handle_call(stop, _From, State) ->
     {stop, normal, ok, State}.
@@ -206,6 +215,12 @@ sx_reply(Type, IEs, State) ->
     sx_reply(Type, undefined, IEs, State).
 sx_reply(Type, SEID, IEs, State) ->
     {#pfcp{version = v1, type = Type, seid = SEID, ie = IEs}, State}.
+
+do_send(SEID, #pfcp{} = Msg, #state{sx = SxSocket, cp_ip = IP, seq_no = SeqNo} = State) ->
+    BinMsg = pfcp_packet:encode(Msg#pfcp{seid = SEID, seq_no = SeqNo}),
+    ok = gen_udp:send(SxSocket, IP, 8805, BinMsg),
+    State#state{seq_no = (SeqNo + 1) rem 16#ffffff}.
+
 
 handle_message(#pfcp{type = heartbeat_request}, #state{recovery_ts = RecoveryTS} = State) ->
     IEs = [#recovery_time_stamp{
