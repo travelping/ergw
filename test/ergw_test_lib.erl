@@ -77,7 +77,8 @@ lib_init_per_suite(Config0) ->
     lager_common_test_backend:bounce(debug),
     {ok, _} = ergw_test_sx_up:start('pgw-u', proplists:get_value(pgw_u_sx, Config)),
     {ok, _} = ergw_test_sx_up:start('sgw-u', proplists:get_value(sgw_u_sx, Config)),
-    Config.
+    {ok, AppsCfg} = application:get_env(ergw_aaa, apps),
+    [{aaa_cfg, AppsCfg} |Config].
 
 lib_end_per_suite(Config) ->
     meck_unload(Config),
