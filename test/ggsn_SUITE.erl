@@ -9,12 +9,14 @@
 
 -compile([export_all, nowarn_export_all]).
 
+-include_lib("ergw_aaa/include/diameter_3gpp_ts32_299.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include_lib("pfcplib/include/pfcp_packet.hrl").
 -include("../include/ergw.hrl").
 -include("ergw_test_lib.hrl").
 -include("ergw_ggsn_test_lib.hrl").
+-include_lib("stdlib/include/ms_transform.hrl").
 
 -define(TIMEOUT, 2000).
 -define(HUT, ggsn_gn).				%% Handler Under Test
@@ -170,13 +172,41 @@
 				   [#{'CC-Time' => [3600],
 				      'CC-Total-Octets' => [102400]}],
 			       'Rating-Group' => [3000],
-			       'Validity-Time' => [2],
+			       'Validity-Time' => [3600],
 			       'Result-Code' => [2001],
 			       'Time-Quota-Threshold' => [60],
 			       'Volume-Quota-Threshold' => [10240]
 			      }]
 		       },
 		  'Update-OCS' =>
+		      #{'Result-Code' => 2001,
+			'Multiple-Services-Credit-Control' =>
+			    [#{'Envelope-Reporting' => [0],
+			       'Granted-Service-Unit' =>
+				   [#{'CC-Time' => [3600],
+				      'CC-Total-Octets' => [102400]}],
+			       'Rating-Group' => [3000],
+			       'Validity-Time' => [3600],
+			       'Result-Code' => [2001],
+			       'Time-Quota-Threshold' => [60],
+			       'Volume-Quota-Threshold' => [10240]
+			      }]
+		       },
+		  'Initial-OCS-VT' =>
+		      #{'Result-Code' => 2001,
+			'Multiple-Services-Credit-Control' =>
+			    [#{'Envelope-Reporting' => [0],
+			       'Granted-Service-Unit' =>
+				   [#{'CC-Time' => [3600],
+				      'CC-Total-Octets' => [102400]}],
+			       'Rating-Group' => [3000],
+			       'Validity-Time' => [2],
+			       'Result-Code' => [2001],
+			       'Time-Quota-Threshold' => [60],
+			       'Volume-Quota-Threshold' => [10240]
+			      }]
+		       },
+		  'Update-OCS-VT' =>
 		      #{'Result-Code' => 2001,
 			'Multiple-Services-Credit-Control' =>
 			    [#{'Envelope-Reporting' => [0],
@@ -295,7 +325,8 @@ common() ->
      cache_timeout,
      session_options,
      session_accounting,
-     gy_validity_timer].
+     gy_validity_timer,
+     volume_threshold].
 
 groups() ->
     [{ipv4, [], common()},
@@ -391,6 +422,14 @@ init_per_testcase(cache_timeout, Config) ->
 	_ ->
 	    {skip, "slow tests run only on CI"}
     end;
+init_per_testcase(gy_validity_timer, Config) ->
+    init_per_testcase(Config),
+    load_ocs_config('Initial-OCS-VT', 'Update-OCS-VT'),
+    Config;
+init_per_testcase(volume_threshold, Config) ->
+    init_per_testcase(Config),
+    load_ocs_config('Initial-OCS', 'Update-OCS'),
+    Config;
 init_per_testcase(_, Config) ->
     init_per_testcase(Config),
     Config.
@@ -1153,6 +1192,92 @@ session_accounting(Config) ->
 
 %%--------------------------------------------------------------------
 
+gy_validity_timer() ->
+    [{doc, "Check Validity-Timer attached to MSCC"}].
+gy_validity_timer(Config) ->
+    {GtpC, _, _} = create_pdp_context(Config),
+    ct:sleep({seconds, 10}),
+    delete_pdp_context(GtpC),
+
+    ?match(X when X >= 3, meck:num_calls(?HUT, handle_info, [{pfcp_timer, '_'}, '_'])),
+
+    CCRU = lists:filter(
+	     fun({_, {ergw_aaa_session, invoke, [_, S, {gy,'CCR-Update'}, _]}, _}) ->
+		     ?match(
+			#{used_credits :=
+			      [{3000,
+				#{'Reporting-Reason' :=
+				      [?'DIAMETER_3GPP_CHARGING_REPORTING-REASON_VALIDITY_TIME']}}]}, S),
+		     true;
+		(_) -> false
+	     end, meck:history(ergw_aaa_session)),
+    ?match(X when X >= 3, length(CCRU)),
+
+    ?equal([], outstanding_requests()),
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+
+volume_threshold() ->
+    [{doc, "Test Gy interaction when volume threshold is reached"}].
+volume_threshold(Config) ->
+    {GtpC, _, _} = create_pdp_context(Config),
+
+    [#{'Process' := Pid}|_] = ergw_api:tunnel(all),
+    #{pfcp:= PCtx} = gtp_context:info(Pid),
+
+    MatchSpec = ets:fun2ms(fun({Id, {'online', _}}) -> Id end),
+
+    ergw_test_sx_up:usage_report('pgw-u', PCtx, MatchSpec, [#usage_report_trigger{volth = 1}]),
+    ergw_test_sx_up:usage_report('pgw-u', PCtx, MatchSpec, [#usage_report_trigger{volqu = 1}]),
+
+    ct:sleep({seconds, 1}),
+
+    delete_pdp_context(GtpC),
+
+    H = meck:history(ergw_aaa_session),
+    CCRUvolth =
+	lists:filter(
+	  fun({_, {ergw_aaa_session, invoke,
+		   [_,
+		    #{used_credits :=
+			  [{3000,
+			    #{'Reporting-Reason' :=
+				  [?'DIAMETER_3GPP_CHARGING_REPORTING-REASON_THRESHOLD']}}]},
+		    {gy,'CCR-Update'}, _]}, _}) ->
+		  true;
+	     (_) ->
+		  false
+	  end, H),
+    ?match(X when X == 1, length(CCRUvolth)),
+
+    CCRUvolqu =
+	lists:filter(
+	  fun({_, {ergw_aaa_session, invoke,
+		   [_,
+		    #{used_credits :=
+			  [{3000,
+			    #{'Reporting-Reason' :=
+				  [?'DIAMETER_3GPP_CHARGING_REPORTING-REASON_QUOTA_EXHAUSTED']}}]},
+		    {gy,'CCR-Update'}, _]}, _}) ->
+		  true;
+	     (_) ->
+		  false
+	  end, H),
+    ?match(X when X == 1, length(CCRUvolqu)),
+
+    ?equal([], outstanding_requests()),
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    meck_validate(Config),
+
+    ok.
+
+%%%===================================================================
+%%% Internal functions
+%%%===================================================================
+
 maps_recusive_merge(Key, Value, Map) ->
     maps:update_with(Key, fun(V) -> maps_recusive_merge(V, Value) end, Value, Map).
 
@@ -1169,9 +1294,7 @@ cfg_get_value([H|T], Cfg) when is_map(Cfg) ->
 cfg_get_value([H|T], Cfg) when is_list(Cfg) ->
     cfg_get_value(T, proplists:get_value(H, Cfg)).
 
-gy_validity_timer() ->
-    [{doc, "Check Validity-Timer attached to MSCC"}].
-gy_validity_timer(Config) ->
+load_ocs_config(Initial, Update) ->
     {ok, Cfg0} = application:get_env(ergw_aaa, apps),
     Session = cfg_get_value([default, session, 'Default'], Cfg0),
     UpdCfg =
@@ -1179,37 +1302,11 @@ gy_validity_timer(Config) ->
 	      #{procedures =>
 		    #{
 		      {gy, 'CCR-Initial'} =>
-			  [{'Default', Session#{answer => 'Initial-OCS'}}],
+			  [{'Default', Session#{answer => Initial}}],
 		      {gy, 'CCR-Update'} =>
-			  [{'Default', Session#{answer => 'Update-OCS'}}]
-		     }
+			  [{'Default', Session#{answer => Update}}]
+		 }
 	       }
 	 },
     Cfg = maps_recusive_merge(Cfg0, UpdCfg),
-    ok = application:set_env(ergw_aaa, apps, Cfg),
-    ct:pal("Cfg: ~p", [Cfg]),
-
-    {GtpC, _, _} = create_pdp_context(Config),
-    ct:sleep({seconds, 10}),
-    delete_pdp_context(GtpC),
-
-    ?match(X when X >= 3, meck:num_calls(?HUT, handle_info, [{pfcp_timer, '_'}, '_'])),
-
-    CCRU = lists:foldl(
-	     fun({_, {ergw_aaa_session, invoke, [_, S, {gy,'CCR-Update'}, _]}, _}, Acc) ->
-		     ?match(#{used_credits := [{3000, #{'Reporting-Reason' := [4]}}]}, S),
-		     [S|Acc];
-		(_, Acc) -> Acc
-	     end, [], meck:history(ergw_aaa_session)),
-    ?match(X when X >= 3, length(CCRU)),
-
-    ?equal([], outstanding_requests()),
-    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
-    meck_validate(Config),
-
-    ok = application:set_env(ergw_aaa, apps, Cfg0),
-    ok.
-
-%%%===================================================================
-%%% Internal functions
-%%%===================================================================
+    ok = application:set_env(ergw_aaa, apps, Cfg).
