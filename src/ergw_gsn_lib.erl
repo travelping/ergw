@@ -413,6 +413,18 @@ build_sx_filter(AppId)
 build_sx_filter(_) ->
     [].
 
+to_binary(List) when is_list(List) ->
+    list_to_binary(List);
+to_binary(Bin) when is_binary(Bin) ->
+    Bin.
+
+build_sx_redirect([#{'Redirect-Support' :=        [1],   %% ENABLED
+		     'Redirect-Address-Type' :=   [2],   %% URL
+		     'Redirect-Server-Address' := [URL]}]) ->
+    [#redirect_information{type = 'URL', address = to_binary(URL)}];
+build_sx_redirect(_) ->
+    [].
+
 build_sx_rule(Direction = downlink, Name, Definition, FilterInfo, URRs,
 	      #sx_upd{
 		 pctx = PCtx0,
@@ -479,6 +491,7 @@ build_sx_rule(Direction = uplink, Name, Definition, FilterInfo, URRs,
 	       group =
 		   [#destination_interface{interface = 'SGi-LAN'},
 		    ergw_pfcp:network_instance(Ctx)]
+	       ++ build_sx_redirect(maps:get('Redirect-Information', Definition, undefined))
 	      }
 	  ],
     Update#sx_upd{
@@ -549,6 +562,7 @@ build_sx_rule(Direction = uplink, Name, Definition, FilterInfo, URRs,
 		   [#destination_interface{interface = 'SGi-LAN'},
 		    ergw_pfcp:network_instance(OutVrf)
 		   ]
+	       ++ build_sx_redirect(maps:get('Redirect-Information', Definition, undefined))
 	      }
 	  ],
     Update#sx_upd{
