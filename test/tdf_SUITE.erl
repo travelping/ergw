@@ -154,6 +154,48 @@
 			'Charging-Rule-Install' =>
 			    [#{'Charging-Rule-Base-Name' => [<<"m2m0001">>]}]
 		       },
+		  'Initial-Gx-Redirect' =>
+		      #{'Result-Code' => 2001,
+			'Charging-Rule-Install' =>
+			    [#{'Charging-Rule-Definition' =>
+				   [#{
+				      'Charging-Rule-Name' => <<"m2m">>,
+				      'Rating-Group' => [3000],
+				      'Flow-Information' =>
+					  [#{'Flow-Description' => [<<"permit out ip from any to assigned">>],
+					     'Flow-Direction'   => [1]    %% DownLink
+					    },
+					   #{'Flow-Description' => [<<"permit out ip from any to assigned">>],
+					     'Flow-Direction'   => [2]    %% UpLink
+					    }],
+				      'Metering-Method'  => [1],
+				      'Precedence' => [100],
+				      'Offline'  => [1],
+				      'Redirect-Information' =>
+					  [#{'Redirect-Support' =>
+						 [1],   %% ENABLED
+					     'Redirect-Address-Type' =>
+						 [2],   %% URL
+					     'Redirect-Server-Address' =>
+						 ["http://www.heise.de/"]
+					    }]
+				     }]
+			      }]
+		       },
+		  'Initial-Gx-TDF-App' =>
+		      #{'Result-Code' => 2001,
+			'Charging-Rule-Install' =>
+			    [#{'Charging-Rule-Definition' =>
+				   [#{
+				      'Charging-Rule-Name' => <<"m2m">>,
+				      'Rating-Group' => [3000],
+				      'TDF-Application-Identifier' => [<<"Gold">>],
+				      'Metering-Method'  => [1],
+				      'Precedence' => [100],
+				      'Offline'  => [1]
+				     }]
+			      }]
+		       },
 		  'Update-Gx' => #{'Result-Code' => 2001},
 		  'Final-Gx' => #{'Result-Code' => 2001},
 		  'Initial-OCS' =>
@@ -286,7 +328,9 @@ common() ->
     [setup_upf,  %% <- keep this first
      simple_session,
      gy_validity_timer,
-     volume_threshold
+     volume_threshold,
+     redirect_info,
+     tdf_app_id
     ].
 
 groups() ->
@@ -325,11 +369,21 @@ init_per_testcase(setup_upf, Config) ->
      {aaa_cfg, AppsCfg} | Config];
 init_per_testcase(gy_validity_timer, Config0) ->
     Config = init_per_testcase(Config0),
-    load_ocs_config('Initial-OCS-VT', 'Update-OCS-VT'),
+    load_aaa_answer_config([{{gy, 'CCR-Initial'}, 'Initial-OCS-VT'},
+			    {{gy, 'CCR-Update'},  'Update-OCS-VT'}]),
     Config;
 init_per_testcase(volume_threshold, Config0) ->
     Config = init_per_testcase(Config0),
-    load_ocs_config('Initial-OCS', 'Update-OCS'),
+    load_aaa_answer_config([{{gy, 'CCR-Initial'}, 'Initial-OCS'},
+			    {{gy, 'CCR-Update'},  'Update-OCS'}]),
+    Config;
+init_per_testcase(redirect_info, Config0) ->
+    Config = init_per_testcase(Config0),
+    load_aaa_answer_config([{{gx, 'CCR-Initial'}, 'Initial-Gx-Redirect'}]),
+    Config;
+init_per_testcase(tdf_app_id, Config0) ->
+    Config = init_per_testcase(Config0),
+    load_aaa_answer_config([{{gx, 'CCR-Initial'}, 'Initial-Gx-TDF-App'}]),
     Config;
 init_per_testcase(_, Config) ->
     init_per_testcase(Config).
@@ -623,6 +677,295 @@ volume_threshold(Config) ->
 
     ok.
 
+%%--------------------------------------------------------------------
+
+redirect_info() ->
+    [{doc, "Check Session with Gx redirect info"}].
+redirect_info(Config) ->
+    SEID = proplists:get_value(seid, Config),
+    UeIP = ergw_inet:ip2bin(proplists:get_value(ue_ip, Config)),
+    UeIPSrcIe = ue_ip_address(src, Config),
+    UeIPDstIe = ue_ip_address(dst, Config),
+
+    packet_in(Config),
+    ct:sleep({seconds, 1}),
+
+    History = ergw_test_sx_up:history('tdf-u'),
+    [SRresp|_] =
+	lists:filter(
+	  fun(#pfcp{type = session_report_response}) -> true;
+	     (_) ->false
+	  end, History),
+    ?match(#pfcp{ie = #{pfcp_cause :=
+			     #pfcp_cause{cause = 'Request accepted'}}}, SRresp),
+
+    ct:pal("H: ~p", [History]),
+    [SER|_] =
+	lists:filter(
+	  fun(#pfcp{type = session_establishment_request,
+		    ie = #{f_seid := #f_seid{seid = FSeid}}}) -> FSeid /= SEID;
+	     (_) ->false
+	  end, History),
+
+    #{create_pdr := PDRs0,
+      create_far := FARs0,
+      create_urr := URR
+     } = SER#pfcp.ie,
+
+    PDRs = lists:sort(PDRs0),
+    FARs = lists:sort(FARs0),
+
+    lager:debug("PDRs: ~p", [pfcp_packet:lager_pr(PDRs)]),
+    lager:debug("FARs: ~p", [pfcp_packet:lager_pr(FARs)]),
+    lager:debug("URR: ~p", [pfcp_packet:lager_pr([URR])]),
+
+    ?match(
+       [#create_pdr{
+	   group =
+	       #{pdr_id := #pdr_id{id = _},
+		 precedence := #precedence{precedence = 100},
+		 pdi :=
+		     #pdi{
+			group =
+			    #{network_instance :=
+				  #network_instance{instance = <<3, "sgi">>},
+			      sdf_filter :=
+				  #sdf_filter{
+				     flow_description =
+					 <<"permit out ip from any to assigned">>},
+			      source_interface :=
+				  #source_interface{interface='SGi-LAN'},
+			      ue_ip_address := UeIPDstIe
+			     }
+		       },
+		 far_id := #far_id{id = _},
+		 urr_id := #urr_id{id = _}
+		}
+	  },
+	#create_pdr{
+	   group =
+	       #{
+		 pdr_id := #pdr_id{id = _},
+		 precedence := #precedence{precedence = 100},
+		 pdi :=
+		     #pdi{
+			group =
+			    #{network_instance :=
+				  #network_instance{instance = <<3, "epc">>},
+			      sdf_filter :=
+				  #sdf_filter{
+				     flow_description =
+					 <<"permit out ip from any to assigned">>},
+			      source_interface :=
+				  #source_interface{interface='Access'},
+			      ue_ip_address := UeIPSrcIe
+			     }
+		       },
+		 far_id := #far_id{id = _},
+		 urr_id := #urr_id{id = _}
+		}
+	  }], PDRs),
+
+    ?match(
+       [#create_far{
+	   group =
+	       #{far_id := #far_id{id = _},
+		 apply_action :=
+		     #apply_action{forw = 1},
+		 forwarding_parameters :=
+		     #forwarding_parameters{
+			group =
+			    #{destination_interface :=
+				  #destination_interface{interface='Access'},
+			      network_instance :=
+				  #network_instance{instance = <<3, "epc">>}
+			     }
+		       }
+		}
+	  },
+	#create_far{
+	   group =
+	       #{far_id := #far_id{id = _},
+		 apply_action :=
+		     #apply_action{forw = 1},
+		 forwarding_parameters :=
+		     #forwarding_parameters{
+			group =
+			    #{destination_interface :=
+				  #destination_interface{interface='SGi-LAN'},
+			      redirect_information :=
+				  #redirect_information{type = 'URL',
+							address = <<"http://www.heise.de/">>},
+			      network_instance :=
+				  #network_instance{instance = <<3, "sgi">>}
+			     }
+		       }
+		}
+	  }], FARs),
+
+    ?match(
+       #create_urr{
+	  group =
+	      #{urr_id := #urr_id{id = _},
+		measurement_method :=
+		    #measurement_method{volum = 1},
+		measurement_period :=
+		    #measurement_period{period = 600},
+		reporting_triggers :=
+		    #reporting_triggers{periodic_reporting=1}
+	       }
+	 }, URR),
+
+    {tdf, Pid} = gtp_context_reg:lookup({ue, <<3, "sgi">>, UeIP}),
+    Pid ! stop_from_session,
+
+    ct:sleep({seconds, 1}),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+
+tdf_app_id() ->
+    [{doc, "Check Session with Gx TDF-Application-Identifier"}].
+tdf_app_id(Config) ->
+    SEID = proplists:get_value(seid, Config),
+    UeIP = ergw_inet:ip2bin(proplists:get_value(ue_ip, Config)),
+    UeIPSrcIe = ue_ip_address(src, Config),
+    UeIPDstIe = ue_ip_address(dst, Config),
+
+    packet_in(Config),
+    ct:sleep({seconds, 1}),
+
+    History = ergw_test_sx_up:history('tdf-u'),
+    [SRresp|_] =
+	lists:filter(
+	  fun(#pfcp{type = session_report_response}) -> true;
+	     (_) ->false
+	  end, History),
+    ?match(#pfcp{ie = #{pfcp_cause :=
+			     #pfcp_cause{cause = 'Request accepted'}}}, SRresp),
+
+    ct:pal("H: ~p", [History]),
+    [SER|_] =
+	lists:filter(
+	  fun(#pfcp{type = session_establishment_request,
+		    ie = #{f_seid := #f_seid{seid = FSeid}}}) -> FSeid /= SEID;
+	     (_) ->false
+	  end, History),
+
+    #{create_pdr := PDRs0,
+      create_far := FARs0,
+      create_urr := URR
+     } = SER#pfcp.ie,
+
+    PDRs = lists:sort(PDRs0),
+    FARs = lists:sort(FARs0),
+
+    lager:debug("PDRs: ~p", [pfcp_packet:lager_pr(PDRs)]),
+    lager:debug("FARs: ~p", [pfcp_packet:lager_pr(FARs)]),
+    lager:debug("URR: ~p", [pfcp_packet:lager_pr([URR])]),
+
+    ?match(
+       [#create_pdr{
+	   group =
+	       #{pdr_id := #pdr_id{id = _},
+		 precedence := #precedence{precedence = 100},
+		 pdi :=
+		     #pdi{
+			group =
+			    #{network_instance :=
+				  #network_instance{instance = <<3, "sgi">>},
+			      application_id :=
+				  #application_id{id = <<"Gold">>},
+			      source_interface :=
+				  #source_interface{interface='SGi-LAN'},
+			      ue_ip_address := UeIPDstIe
+			     }
+		       },
+		 far_id := #far_id{id = _},
+		 urr_id := #urr_id{id = _}
+		}
+	  },
+	#create_pdr{
+	   group =
+	       #{
+		 pdr_id := #pdr_id{id = _},
+		 precedence := #precedence{precedence = 100},
+		 pdi :=
+		     #pdi{
+			group =
+			    #{network_instance :=
+				  #network_instance{instance = <<3, "epc">>},
+			      application_id :=
+				  #application_id{id = <<"Gold">>},
+			      source_interface :=
+				  #source_interface{interface='Access'},
+			      ue_ip_address := UeIPSrcIe
+			     }
+		       },
+		 far_id := #far_id{id = _},
+		 urr_id := #urr_id{id = _}
+		}
+	  }], PDRs),
+
+    ?match(
+       [#create_far{
+	   group =
+	       #{far_id := #far_id{id = _},
+		 apply_action :=
+		     #apply_action{forw = 1},
+		 forwarding_parameters :=
+		     #forwarding_parameters{
+			group =
+			    #{destination_interface :=
+				  #destination_interface{interface='Access'},
+			      network_instance :=
+				  #network_instance{instance = <<3, "epc">>}
+			     }
+		       }
+		}
+	  },
+	#create_far{
+	   group =
+	       #{far_id := #far_id{id = _},
+		 apply_action :=
+		     #apply_action{forw = 1},
+		 forwarding_parameters :=
+		     #forwarding_parameters{
+			group =
+			    #{destination_interface :=
+				  #destination_interface{interface='SGi-LAN'},
+			      network_instance :=
+				  #network_instance{instance = <<3, "sgi">>}
+			     }
+		       }
+		}
+	  }], FARs),
+
+    ?match(
+       #create_urr{
+	  group =
+	      #{urr_id := #urr_id{id = _},
+		measurement_method :=
+		    #measurement_method{volum = 1},
+		measurement_period :=
+		    #measurement_period{period = 600},
+		reporting_triggers :=
+		    #reporting_triggers{periodic_reporting=1}
+	       }
+	 }, URR),
+
+    {tdf, Pid} = gtp_context_reg:lookup({ue, <<3, "sgi">>, UeIP}),
+    Pid ! stop_from_session,
+
+    ct:sleep({seconds, 1}),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    meck_validate(Config),
+    ok.
+
 %%%===================================================================
 %%% Helper
 %%%===================================================================
@@ -673,19 +1016,14 @@ cfg_get_value([H|T], Cfg) when is_map(Cfg) ->
 cfg_get_value([H|T], Cfg) when is_list(Cfg) ->
     cfg_get_value(T, proplists:get_value(H, Cfg)).
 
-load_ocs_config(Initial, Update) ->
+load_aaa_answer_config(AnswerCfg) ->
     {ok, Cfg0} = application:get_env(ergw_aaa, apps),
     Session = cfg_get_value([default, session, 'Default'], Cfg0),
+    Answers =
+	[{Proc, [{'Default', Session#{answer => Answer}}]}
+	 || {Proc, Answer} <- AnswerCfg],
     UpdCfg =
 	#{default =>
-	      #{procedures =>
-		    #{
-		      {gy, 'CCR-Initial'} =>
-			  [{'Default', Session#{answer => Initial}}],
-		      {gy, 'CCR-Update'} =>
-			  [{'Default', Session#{answer => Update}}]
-		 }
-	       }
-	 },
+	      #{procedures => maps:from_list(Answers)}},
     Cfg = maps_recusive_merge(Cfg0, UpdCfg),
     ok = application:set_env(ergw_aaa, apps, Cfg).
