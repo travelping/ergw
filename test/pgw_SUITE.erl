@@ -181,6 +181,34 @@
 			'Charging-Rule-Install' =>
 			    [#{'Charging-Rule-Base-Name' => [<<"m2m0001">>]}]
 		       },
+		  'Initial-Gx-Redirect' =>
+		      #{'Result-Code' => 2001,
+			'Charging-Rule-Install' =>
+			    [#{'Charging-Rule-Definition' =>
+				   [#{
+				      'Charging-Rule-Name' => <<"m2m">>,
+				      'Rating-Group' => [3000],
+				      'Flow-Information' =>
+					  [#{'Flow-Description' => [<<"permit out ip from any to assigned">>],
+					     'Flow-Direction'   => [1]    %% DownLink
+					    },
+					   #{'Flow-Description' => [<<"permit out ip from any to assigned">>],
+					     'Flow-Direction'   => [2]    %% UpLink
+					    }],
+				      'Metering-Method'  => [1],
+				      'Precedence' => [100],
+				      'Offline'  => [1],
+				      'Redirect-Information' =>
+					  [#{'Redirect-Support' =>
+						 [1],   %% ENABLED
+					     'Redirect-Address-Type' =>
+						 [2],   %% URL
+					     'Redirect-Server-Address' =>
+						 ["http://www.heise.de/"]
+					    }]
+				     }]
+			      }]
+		       },
 		  'Update-Gx' => #{'Result-Code' => 2001},
 		  'Final-Gx' => #{'Result-Code' => 2001},
 		  'Initial-OCS' =>
@@ -361,7 +389,8 @@ common() ->
      sx_upf_restart,
      sx_timeout,
      gy_validity_timer,
-     volume_threshold].
+     volume_threshold,
+     redirect_info].
 
 groups() ->
     [{ipv4, [], common()},
@@ -474,11 +503,17 @@ init_per_testcase(create_session_overload, Config) ->
     Config;
 init_per_testcase(gy_validity_timer, Config) ->
     init_per_testcase(Config),
-    load_ocs_config('Initial-OCS-VT', 'Update-OCS-VT'),
+    load_aaa_answer_config([{{gy, 'CCR-Initial'}, 'Initial-OCS-VT'},
+			    {{gy, 'CCR-Update'},  'Update-OCS-VT'}]),
     Config;
 init_per_testcase(volume_threshold, Config) ->
     init_per_testcase(Config),
-    load_ocs_config('Initial-OCS', 'Update-OCS'),
+    load_aaa_answer_config([{{gy, 'CCR-Initial'}, 'Initial-OCS'},
+			    {{gy, 'CCR-Update'},  'Update-OCS'}]),
+    Config;
+init_per_testcase(redirect_info, Config) ->
+    init_per_testcase(Config),
+    load_aaa_answer_config([{{gx, 'CCR-Initial'}, 'Initial-Gx-Redirect'}]),
     Config;
 init_per_testcase(_, Config) ->
     init_per_testcase(Config),
@@ -1888,6 +1923,133 @@ volume_threshold(Config) ->
     ok.
 
 %%--------------------------------------------------------------------
+redirect_info() ->
+    [{doc, "Check Session with Gx redirect info"}].
+redirect_info(Config) ->
+    {GtpC, _, _} = create_session(Config),
+    delete_session(GtpC),
+
+    ?equal([], outstanding_requests()),
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+
+    [_, SER|_] = lists:filter(
+		   fun(#pfcp{type = session_establishment_request}) -> true;
+		      (_) ->false
+		   end, ergw_test_sx_up:history('pgw-u')),
+
+    #{create_pdr := PDRs0,
+      create_far := FARs0,
+      create_urr := URR
+     } = SER#pfcp.ie,
+
+    PDRs = lists:sort(PDRs0),
+    FARs = lists:sort(FARs0),
+
+    lager:debug("PDRs: ~p", [pfcp_packet:lager_pr(PDRs)]),
+    lager:debug("FARs: ~p", [pfcp_packet:lager_pr(FARs)]),
+    lager:debug("URR: ~p", [pfcp_packet:lager_pr([URR])]),
+
+    ?match(
+       [#create_pdr{
+	   group =
+	       #{pdr_id := #pdr_id{id = _},
+		 precedence := #precedence{precedence = 100},
+		 pdi :=
+		     #pdi{
+			group =
+			    #{network_instance :=
+				  #network_instance{instance = <<8, "upstream">>},
+			      sdf_filter :=
+				  #sdf_filter{
+				     flow_description =
+					 <<"permit out ip from any to assigned">>},
+			      source_interface :=
+				  #source_interface{interface='SGi-LAN'},
+			      ue_ip_address := #ue_ip_address{type = dst}
+			     }
+		       },
+		 far_id := #far_id{id = _},
+		 urr_id := #urr_id{id = _}
+		}
+	  },
+	#create_pdr{
+	   group =
+	       #{
+		 pdr_id := #pdr_id{id = _},
+		 precedence := #precedence{precedence = 100},
+		 pdi :=
+		     #pdi{
+			group =
+			    #{network_instance :=
+				  #network_instance{instance = <<3, "irx">>},
+			      sdf_filter :=
+				  #sdf_filter{
+				     flow_description =
+					 <<"permit out ip from any to assigned">>},
+			      source_interface :=
+				  #source_interface{interface='Access'},
+			      ue_ip_address := #ue_ip_address{type = src}
+			     }
+		       },
+		 far_id := #far_id{id = _},
+		 urr_id := #urr_id{id = _}
+		}
+	  }], PDRs),
+
+    ?match(
+       [#create_far{
+	   group =
+	       #{far_id := #far_id{id = _},
+		 apply_action :=
+		     #apply_action{forw = 1},
+		 forwarding_parameters :=
+		     #forwarding_parameters{
+			group =
+			    #{destination_interface :=
+				  #destination_interface{interface='Access'},
+			      network_instance :=
+				  #network_instance{instance = <<3, "irx">>}
+			     }
+		       }
+		}
+	  },
+	#create_far{
+	   group =
+	       #{far_id := #far_id{id = _},
+		 apply_action :=
+		     #apply_action{forw = 1},
+		 forwarding_parameters :=
+		     #forwarding_parameters{
+			group =
+			    #{destination_interface :=
+				  #destination_interface{interface='SGi-LAN'},
+			      redirect_information :=
+				  #redirect_information{type = 'URL',
+							address = <<"http://www.heise.de/">>},
+			      network_instance :=
+				  #network_instance{instance = <<8, "upstream">>}
+			     }
+		       }
+		}
+	  }], FARs),
+
+    ?match(
+       #create_urr{
+	  group =
+	      #{urr_id := #urr_id{id = _},
+		measurement_method :=
+		    #measurement_method{volum = 1},
+		measurement_period :=
+		    #measurement_period{period = 600},
+		reporting_triggers :=
+		    #reporting_triggers{periodic_reporting=1}
+	       }
+	 }, URR),
+
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
 apn_lookup() ->
     [{doc, "Check that the APN and wildcard APN lookup works"}].
 apn_lookup(_Config) ->
@@ -1923,19 +2085,14 @@ cfg_get_value([H|T], Cfg) when is_map(Cfg) ->
 cfg_get_value([H|T], Cfg) when is_list(Cfg) ->
     cfg_get_value(T, proplists:get_value(H, Cfg)).
 
-load_ocs_config(Initial, Update) ->
+load_aaa_answer_config(AnswerCfg) ->
     {ok, Cfg0} = application:get_env(ergw_aaa, apps),
     Session = cfg_get_value([default, session, 'Default'], Cfg0),
+    Answers =
+	[{Proc, [{'Default', Session#{answer => Answer}}]}
+	 || {Proc, Answer} <- AnswerCfg],
     UpdCfg =
 	#{default =>
-	      #{procedures =>
-		    #{
-		      {gy, 'CCR-Initial'} =>
-			  [{'Default', Session#{answer => Initial}}],
-		      {gy, 'CCR-Update'} =>
-			  [{'Default', Session#{answer => Update}}]
-		 }
-	       }
-	 },
+	      #{procedures => maps:from_list(Answers)}},
     Cfg = maps_recusive_merge(Cfg0, UpdCfg),
     ok = application:set_env(ergw_aaa, apps, Cfg).
