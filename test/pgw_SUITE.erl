@@ -240,6 +240,20 @@
 				     }]
 			      }]
 		       },
+		  'Initial-Gx-TDF-App' =>
+		      #{'Result-Code' => 2001,
+			'Charging-Rule-Install' =>
+			    [#{'Charging-Rule-Definition' =>
+				   [#{
+				      'Charging-Rule-Name' => <<"m2m">>,
+				      'Rating-Group' => [3000],
+				      'TDF-Application-Identifier' => [<<"Gold">>],
+				      'Metering-Method'  => [1],
+				      'Precedence' => [100],
+				      'Offline'  => [1]
+				     }]
+			      }]
+		       },
 		  'Update-Gx' => #{'Result-Code' => 2001},
 		  'Final-Gx' => #{'Result-Code' => 2001},
 
@@ -445,8 +459,8 @@ common() ->
      gx_rar,
      gy_asr,
      gx_invalid_charging_rulebase,
-     gx_invalid_charging_rule].
-
+     gx_invalid_charging_rule,
+     tdf_app_id].
 
 groups() ->
     [{ipv4, [], common()},
@@ -593,6 +607,10 @@ init_per_testcase(gx_invalid_charging_rulebase, Config) ->
 init_per_testcase(gx_invalid_charging_rule, Config) ->
     init_per_testcase(Config),
     load_aaa_answer_config([{{gx, 'CCR-Initial'}, 'Initial-Gx-Fail-2'}]),
+    Config;
+init_per_testcase(tdf_app_id, Config) ->
+    init_per_testcase(Config),
+    load_aaa_answer_config([{{gx, 'CCR-Initial'}, 'Initial-Gx-TDF-App'}]),
     Config;
 init_per_testcase(_, Config) ->
     init_per_testcase(Config),
@@ -2592,6 +2610,126 @@ gy_asr(Config) ->
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     wait4tunnels(?TIMEOUT),
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+tdf_app_id() ->
+    [{doc, "Check Session with Gx TDF-Application-Identifier"}].
+tdf_app_id(Config) ->
+    {GtpC, _, _} = create_session(Config),
+    delete_session(GtpC),
+
+    ?equal([], outstanding_requests()),
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+
+    [_, SER|_] = lists:filter(
+		   fun(#pfcp{type = session_establishment_request}) -> true;
+		      (_) ->false
+		   end, ergw_test_sx_up:history('pgw-u')),
+
+    #{create_pdr := PDRs0,
+      create_far := FARs0,
+      create_urr := URR
+     } = SER#pfcp.ie,
+
+    PDRs = lists:sort(PDRs0),
+    FARs = lists:sort(FARs0),
+
+    lager:debug("PDRs: ~p", [pfcp_packet:lager_pr(PDRs)]),
+    lager:debug("FARs: ~p", [pfcp_packet:lager_pr(FARs)]),
+    lager:debug("URR: ~p", [pfcp_packet:lager_pr([URR])]),
+
+    ?match(
+       [#create_pdr{
+	   group =
+	       #{pdr_id := #pdr_id{id = _},
+		 precedence := #precedence{precedence = 100},
+		 pdi :=
+		     #pdi{
+			group =
+			    #{network_instance :=
+				  #network_instance{instance = <<8, "upstream">>},
+			      application_id :=
+				  #application_id{id = <<"Gold">>},
+			      source_interface :=
+				  #source_interface{interface='SGi-LAN'},
+			      ue_ip_address := #ue_ip_address{type = dst}
+			     }
+		       },
+		 far_id := #far_id{id = _},
+		 urr_id := #urr_id{id = _}
+		}
+	  },
+	#create_pdr{
+	   group =
+	       #{
+		 pdr_id := #pdr_id{id = _},
+		 precedence := #precedence{precedence = 100},
+		 pdi :=
+		     #pdi{
+			group =
+			    #{network_instance :=
+				  #network_instance{instance = <<3, "irx">>},
+			      application_id :=
+				  #application_id{id = <<"Gold">>},
+			      source_interface :=
+				  #source_interface{interface='Access'},
+			      ue_ip_address := #ue_ip_address{type = src}
+			     }
+		       },
+		 far_id := #far_id{id = _},
+		 urr_id := #urr_id{id = _}
+		}
+	  }], PDRs),
+
+    ?match(
+       [#create_far{
+	   group =
+	       #{far_id := #far_id{id = _},
+		 apply_action :=
+		     #apply_action{forw = 1},
+		 forwarding_parameters :=
+		     #forwarding_parameters{
+			group =
+			    #{destination_interface :=
+				  #destination_interface{interface='Access'},
+			      network_instance :=
+				  #network_instance{instance = <<3, "irx">>}
+			     }
+		       }
+		}
+	  },
+	#create_far{
+	   group =
+	       #{far_id := #far_id{id = _},
+		 apply_action :=
+		     #apply_action{forw = 1},
+		 forwarding_parameters :=
+		     #forwarding_parameters{
+			group =
+			    #{destination_interface :=
+				  #destination_interface{interface='SGi-LAN'},
+			      network_instance :=
+				  #network_instance{instance = <<8, "upstream">>}
+			     }
+		       }
+		}
+	  }], FARs),
+
+    ?match(
+       #create_urr{
+	  group =
+	      #{urr_id := #urr_id{id = _},
+		measurement_method :=
+		    #measurement_method{volum = 1},
+		measurement_period :=
+		    #measurement_period{period = 600},
+		reporting_triggers :=
+		    #reporting_triggers{periodic_reporting=1}
+	       }
+	 }, URR),
+
     meck_validate(Config),
     ok.
 
