@@ -38,15 +38,18 @@
 sx_report(#pfcp{type = session_report_request, seid = SEID} = Report) ->
     apply({seid, SEID}, sx_report, [Report]).
 
+%% port_message/2
 port_message(Request, Msg) ->
     proc_lib:spawn(fun() -> port_message_h(Request, Msg) end),
     ok.
 
+%% port_message/3
 port_message(Keys, #request{gtp_port = GtpPort} = Request, Msg)
   when is_list(Keys) ->
     Contexts = gtp_context_reg:match_keys(GtpPort, Keys),
     port_message_ctx(Contexts, Request, Msg).
 
+%% port_message/4
 port_message(Key, Request, Msg, Resent) ->
     apply(Key, port_message, [Request, Msg, Resent]).
 
@@ -59,6 +62,7 @@ apply(Key, F, A) ->
 	{Handler, Server} when is_atom(Handler), is_pid(Server) ->
 	    erlang:apply(Handler, F, [Server | A]);
 	_Other ->
+	    lager:error("unable to find context ~p", [Key]),
 	    {error, not_found}
     end.
 

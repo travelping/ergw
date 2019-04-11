@@ -326,6 +326,14 @@ handle_event({call, From}, get_vrfs, connected,
 	     #data{vrfs = VRFs}) ->
     {keep_state_and_data, [{reply, From, {ok, VRFs}}]};
 
+handle_event(cast, {response, {call, _} = Evt,
+		    #pfcp{
+		       ie = #{pfcp_cause :=
+				  #pfcp_cause{cause = 'No established Sx Association'}}} =
+			Reply}, _, Data) ->
+    Actions = pfcp_reply_actions(Evt, Reply),
+    {next_state, dead, handle_nodedown(Data), Actions};
+
 handle_event(cast, {response, {call, _} = Evt, Reply}, _, _Data) ->
     Actions = pfcp_reply_actions(Evt, Reply),
     {keep_state_and_data, Actions};

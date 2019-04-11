@@ -328,6 +328,7 @@ common() ->
      session_accounting,
      sx_cp_to_up_forward,
      sx_up_to_cp_forward,
+     sx_upf_restart,
      sx_timeout,
      gy_validity_timer].
 
@@ -1623,6 +1624,85 @@ sx_up_to_cp_forward() ->
     [{doc, "Test Sx{a,b,c} UP to CP forwarding"}].
 sx_up_to_cp_forward(Config) ->
     %% use a IPv6 session Router Solitation for the test...
+
+    {GtpC, _, _} = create_session(ipv6, Config),
+
+    #gtpc{remote_data_tei = DataTEI} = GtpC,
+
+    SxIP = ergw_inet:ip2bin(proplists:get_value(pgw_u_sx, Config)),
+    LocalIP = ergw_inet:ip2bin(proplists:get_value(localhost, Config)),
+
+    Code = 0,
+    CSum = 0,
+    Pad = <<1,2,3,4,5,6,7,8>>,
+    PayLoad = <<?'ICMPv6 Router Solicitation':8, Code:8, CSum:16, Pad/binary>>,
+
+    TC = 0,
+    FlowLabel = 0,
+    Length = byte_size(PayLoad),
+    HopLimit = 255,
+    SrcAddr = <<1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16>>,
+    DstAddr = ?'IPv6 All Routers LL',
+
+    PDU = <<6:4, TC:8, FlowLabel:20, Length:16, ?ICMPv6:8,
+	    HopLimit:8, SrcAddr:16/bytes, DstAddr:16/bytes,
+	    PayLoad/binary>>,
+
+    InnerGTP = gtp_packet:encode(
+		 #gtp{version = v1, type = g_pdu, tei = DataTEI, ie = PDU}),
+    InnerIP = ergw_inet:make_udp(SxIP, LocalIP, ?GTP1u_PORT, ?GTP1u_PORT, InnerGTP),
+    ergw_test_sx_up:send('pgw-u', InnerIP),
+
+    ct:sleep(500),
+    delete_session(GtpC),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    ?match(1, meck:num_calls(?HUT, handle_pdu, ['_', #gtp{type = g_pdu, _ = '_'}, '_'])),
+
+    UDP = lists:filter(
+	    fun({udp, _, _, ?GTP1u_PORT, _}) -> true;
+	       (_) -> false
+	    end, ergw_test_sx_up:history('pgw-u')),
+
+    ?match([{_, _, _, _, <<_/binary>>}|_], UDP),
+
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+
+sx_upf_restart() ->
+    [{doc, "Test UPF restart behavior"}].
+sx_upf_restart(Config) ->
+    ok = meck:expect(ergw_gsn_lib, create_sgi_session,
+		     fun(Candidates, SessionOpts, Ctx) ->
+			     try
+				 meck:passthrough([Candidates, SessionOpts, Ctx])
+			     catch
+				 throw:#ctx_err{} = CtxErr ->
+				     meck:exception(throw, CtxErr)
+			     end
+		     end),
+
+    {GtpCinit, _, _} = create_session(Config),
+    delete_session(GtpCinit),
+
+    ?equal([], outstanding_requests()),
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+
+    ergw_test_sx_up:restart('pgw-u'),
+
+    %% expect the first request to fail
+    create_session(system_failure, Config),
+
+    %% the next should work
+    {GtpC2nd, _, _} = create_session(Config),
+    delete_session(GtpC2nd),
+
+    ?equal([], outstanding_requests()),
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+
+    %% check that a IPv6 session Router Solitation after UPF restart works...
 
     {GtpC, _, _} = create_session(ipv6, Config),
 
