@@ -3,8 +3,9 @@
 -behaviour(gen_server).
 
 %% API
--export([start/2, stop/1, send/2, reset/1, history/1, accounting/2,
-	enable/1, disable/1]).
+-export([start/2, stop/1, restart/1, send/2,
+	 reset/1, history/1, accounting/2,
+	 enable/1, disable/1]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -17,8 +18,12 @@
 
 -define(SERVER, ?MODULE).
 
--record(state, {sx, gtp, accounting, enabled, cp_ip, cp_seid,
-		up_ip, up_seid, recovery_ts, seq_no, history}).
+-record(state, {sx, gtp, accounting, enabled,
+		cp_ip, cp_seid,
+		up_ip, up_seid,
+		cp_recovery_ts,
+		dp_recovery_ts,
+		seq_no, history}).
 
 %%%===================================================================
 %%% API
@@ -29,6 +34,9 @@ start(Role, IP) ->
 
 stop(Role) ->
     gen_server:call(server_name(Role), stop).
+
+restart(Role) ->
+    gen_server:call(server_name(Role), restart).
 
 send(Role, Msg) ->
     gen_server:call(server_name(Role), {send, Msg}).
@@ -66,7 +74,8 @@ init([IP]) ->
 	       cp_seid = 0,
 	       up_ip = ergw_inet:ip2bin(IP),
 	       up_seid = ergw_sx_socket:seid(),
-	       recovery_ts = erlang:system_time(seconds),
+	       cp_recovery_ts = undefined,
+	       dp_recovery_ts = erlang:system_time(seconds),
 	       seq_no = erlang:unique_integer([positive]) rem 16#ffffff,
 	       history = []
 	      },
@@ -85,6 +94,20 @@ handle_call(reset, _From, State0) ->
 
 handle_call({enabled, Bool}, _From, State) ->
     {reply, ok, State#state{enabled = Bool}};
+
+handle_call(restart, _From, State0) ->
+    State = State0#state{
+	      accounting = on,
+	      enabled = true,
+	      cp_ip = undefined,
+	      cp_seid = 0,
+	      up_seid = ergw_sx_socket:seid(),
+	      cp_recovery_ts = undefined,
+	      dp_recovery_ts = erlang:system_time(seconds),
+	      seq_no = erlang:unique_integer([positive]) rem 16#ffffff,
+	      history = []
+	     },
+    {reply, ok, State};
 
 handle_call(history, _From, #state{history = Hist} = State) ->
     {reply, lists:reverse(Hist), State};
@@ -198,24 +221,52 @@ sx_reply(Type, IEs, State) ->
 sx_reply(Type, SEID, IEs, State) ->
     {#pfcp{version = v1, type = Type, seid = SEID, ie = IEs}, State}.
 
-handle_message(#pfcp{type = heartbeat_request}, #state{recovery_ts = RecoveryTS} = State) ->
+handle_message(#pfcp{type = heartbeat_request,
+		     ie = #{recovery_time_stamp :=
+				#recovery_time_stamp{time = InCpRecoveryTS}}},
+	       #state{dp_recovery_ts = RecoveryTS,
+		      cp_recovery_ts = CpRecoveryTS} = State0) ->
     IEs = [#recovery_time_stamp{
 	      time = ergw_sx_node:seconds_to_sntp_time(RecoveryTS)}],
+    State =
+	if InCpRecoveryTS =/= CpRecoveryTS ->
+		State0#state{cp_recovery_ts = undefined};
+	   true ->
+		State0
+	end,
     sx_reply(heartbeat_response, undefined, IEs, State);
 
-handle_message(#pfcp{type = association_setup_request},
-	       #state{recovery_ts = RecoveryTS} = State) ->
+handle_message(#pfcp{type = association_setup_request,
+		     ie = #{recovery_time_stamp :=
+				#recovery_time_stamp{time = CpRecoveryTS}}},
+	       #state{dp_recovery_ts = RecoveryTS} = State0) ->
     RespIEs =
 	[#node_id{id = [<<"test">>, <<"server">>]},
 	 #pfcp_cause{cause = 'Request accepted'},
 	 #recovery_time_stamp{
 	    time = ergw_sx_node:seconds_to_sntp_time(RecoveryTS)},
-	 user_plane_ip_resource_information([<<"cp">>], State),
-	 user_plane_ip_resource_information([<<"irx">>], State),
-	 user_plane_ip_resource_information([<<"proxy-irx">>], State),
-	 user_plane_ip_resource_information([<<"remote-irx">>], State)
+	 user_plane_ip_resource_information([<<"cp">>], State0),
+	 user_plane_ip_resource_information([<<"irx">>], State0),
+	 user_plane_ip_resource_information([<<"proxy-irx">>], State0),
+	 user_plane_ip_resource_information([<<"remote-irx">>], State0)
 	],
+    State = State0#state{cp_recovery_ts = CpRecoveryTS},
     sx_reply(association_setup_response, RespIEs, State);
+
+handle_message(#pfcp{type = Type}, #state{cp_recovery_ts = undefined} = State)
+when Type =:= pfd_management_request;
+     Type =:= association_update_request;
+     Type =:= association_release_request;
+     Type =:= node_report_request;
+     Type =:= session_set_deletion_request;
+     Type =:= session_establishment_request;
+     Type =:= session_modification_request;
+     Type =:= session_deletion_request;
+     Type =:= session_report_request ->
+    RespIEs =
+	[#node_id{id = [<<"test">>, <<"server">>]},
+	 #pfcp_cause{cause = 'No established Sx Association'}],
+     sx_reply(pfcp_response(Type), RespIEs, State);
 
 handle_message(#pfcp{type = session_establishment_request, seid = 0,
 		     ie = #{f_seid := #f_seid{seid = ControlPlaneSEID,
@@ -301,3 +352,16 @@ handle_message(#pfcp{type = ReqType}, State)
       ReqType == session_deletion_response orelse
       ReqType == session_report_response ->
     {noreply, State}.
+
+
+pfcp_response(heartbeat_request) -> heartbeat_response;
+pfcp_response(pfd_management_request) -> pfd_management_response;
+pfcp_response(association_setup_request) -> association_setup_response;
+pfcp_response(association_update_request) -> association_update_response;
+pfcp_response(association_release_request) -> association_release_response;
+pfcp_response(node_report_request) -> node_report_response;
+pfcp_response(session_set_deletion_request) -> session_set_deletion_response;
+pfcp_response(session_establishment_request) -> session_establishment_response;
+pfcp_response(session_modification_request) -> session_modification_response;
+pfcp_response(session_deletion_request) -> session_deletion_response;
+pfcp_response(session_report_request) -> session_report_response.
