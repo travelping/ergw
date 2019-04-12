@@ -27,7 +27,10 @@ end_per_suite( _Config ) ->
 create_all( _Config ) ->
 	%% ergw_metrics:create_all/0 is done in init_per_suite/1
 	Es = exometer:find_entries( "" ),
-	12 = erlang:length( Es ).
+	1 = erlang:length( metric_find(session, request, Es) ),
+	5 = erlang:length( metric_find(session, response, Es) ),
+	1 = erlang:length( metric_find(pdp_context, request, Es) ),
+	5 = erlang:length( metric_find(pdp_context, response, Es) ).
 
 pdp_context_create_request( _Config ) ->
 	{Before_request, Before_response_ok, Before_response_error} = three_values( pdp_context ),
@@ -87,6 +90,8 @@ metric( exist ) -> request_accepted;
 metric( _ ) -> asdqwe.
 
 
+metric_find( Command, Action, Metrics ) ->
+	[X || {[C, create, A |_], counter, enabled}=X <- Metrics, C =:= Command, A =:= Action].
 	
 path( Command, Action ) -> [Command, create, Action].
 
