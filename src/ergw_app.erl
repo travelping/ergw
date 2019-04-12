@@ -25,6 +25,7 @@ start(_StartType, _StartArgs) ->
 	   ensure_jobs_queues(),
 	   Pid <- ergw_sup:start_link(),
 	   ergw_config:load_config(setup:get_all_env(ergw)),
+	   ergw_metrics:create_all(),
 	   return(Pid)
        ]).
 

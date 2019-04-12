@@ -473,6 +473,7 @@ handle_request(#request{gtp_port = GtpPort} = Request,
     Handler = gtp_path:get_handler(GtpPort, Version),
     try
 	validate_message(Msg, State0),
+	handle_request_metrics( not Resent, Msg ),
 	Interface:handle_request(Request, Msg, Resent, State0)
     of
 	{reply, Reply, State1} ->
@@ -502,6 +503,7 @@ send_response(Request, #gtp{seq_no = SeqNo} = Msg) ->
     %% TODO: handle encode errors
     try
 	request_finished(Request),
+	send_response_metrics( Msg ),
 	ergw_gtp_c_socket:send_response(Request, Msg, SeqNo /= 0)
     catch
 	Class:Error ->
@@ -525,8 +527,26 @@ generic_error(#request{gtp_port = GtpPort} = Request,
 %%% Internal functions
 %%%===================================================================
 
+
+handle_request_metrics( true, #gtp{type = create_pdp_context_request} ) -> ergw_metrics:pdp_context_create_request();
+handle_request_metrics( true, #gtp{type = create_session_request} ) -> ergw_metrics:session_create_request();
+handle_request_metrics( _, _GTP ) -> ok.
+
+
 register_request(Handler, Server, #request{key = ReqKey, gtp_port = GtpPort}) ->
     gtp_context_reg:register([port_key(GtpPort, ReqKey)], Handler, Server).
+
+
+send_response_metrics( #gtp{type = create_pdp_context_response, version = v1, ie = [#cause{value=V}|_]} ) ->
+	ergw_metrics:pdp_context_create_response( V );
+send_response_metrics( #gtp{type = create_pdp_context_response, version = v1, ie = IE} ) ->
+	ergw_metrics:pdp_context_create_response( gtp_v1_c:get_cause(IE) );
+send_response_metrics( #gtp{type = create_session_response, version = v2, ie = [#v2_cause{v2_cause=V}|_]} ) ->
+	ergw_metrics:session_create_response( V );
+send_response_metrics( #gtp{type = create_session_response, version = v2, ie = IE} ) ->
+	ergw_metrics:session_create_response( gtp_v2_c:get_cause(IE) );
+send_response_metrics( _GTP ) -> ok.
+
 
 unregister_request(#request{key = ReqKey, gtp_port = GtpPort}) ->
     gtp_context_reg:unregister([port_key(GtpPort, ReqKey)], ?MODULE, self()).
