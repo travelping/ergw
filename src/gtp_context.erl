@@ -537,15 +537,28 @@ register_request(Handler, Server, #request{key = ReqKey, gtp_port = GtpPort}) ->
     gtp_context_reg:register([port_key(GtpPort, ReqKey)], Handler, Server).
 
 
-send_response_metrics( #gtp{type = create_pdp_context_response, version = v1, ie = [#cause{value=V}|_]} ) ->
-	ergw_metrics:pdp_context_create_response( V );
+send_response_metrics( #gtp{type = create_pdp_context_response, version = v1, ie = IEs} ) when is_list(IEs)->
+	C = send_response_metrics_cause( IEs ),
+	ergw_metrics:pdp_context_create_response( C );
 send_response_metrics( #gtp{type = create_pdp_context_response, version = v1, ie = IE} ) ->
 	ergw_metrics:pdp_context_create_response( gtp_v1_c:get_cause(IE) );
-send_response_metrics( #gtp{type = create_session_response, version = v2, ie = [#v2_cause{v2_cause=V}|_]} ) ->
-	ergw_metrics:session_create_response( V );
+send_response_metrics( #gtp{type = create_session_response, version = v2, ie = IEs} ) when is_list(IEs)->
+	C = send_response_metrics_cause( IEs ),
+	ergw_metrics:session_create_response( C );
 send_response_metrics( #gtp{type = create_session_response, version = v2, ie = IE} ) ->
 	ergw_metrics:session_create_response( gtp_v2_c:get_cause(IE) );
 send_response_metrics( _GTP ) -> ok.
+
+send_response_metrics_cause( IEs ) ->
+	send_response_metrics_cause_value( lists:dropwhile( fun send_response_metrics_cause_not_found/1, IEs) ).
+	
+send_response_metrics_cause_not_found( #v2_cause{} ) -> false;
+send_response_metrics_cause_not_found( #cause{} ) -> false;
+send_response_metrics_cause_not_found( _ ) -> true.
+
+send_response_metrics_cause_value( [#cause{value=C} | _] ) -> C;
+send_response_metrics_cause_value( [#v2_cause{v2_cause=C} | _] ) -> C;
+send_response_metrics_cause_value( _ ) -> nocause.
 
 
 unregister_request(#request{key = ReqKey, gtp_port = GtpPort}) ->

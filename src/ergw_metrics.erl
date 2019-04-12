@@ -35,7 +35,7 @@ session_create_response( Cause ) ->
 %% Internal functions
 %%====================================================================
 
-response_causes() -> [request_accepted, rejected, mandatory_ie_missing, system_failure, missing_or_unknown_apn].
+response_causes() -> [request_accepted, rejected, user_authentication_failed, mandatory_ie_missing, system_failure, missing_or_unknown_apn].
 
 
 pdp_context_create_path( request ) -> [pdp_context, create, request].
