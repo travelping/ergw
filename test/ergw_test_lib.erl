@@ -196,9 +196,9 @@ gtp_context(Counter, Config) ->
     GtpC = #gtpc{
 	      counter = Counter,
 	      restart_counter =
-		  ets:update_counter(?MODULE, restart_counter, 1) rem 256,
+		  ets:update_counter(?MODULE, restart_counter, 1) band 16#ff,
 	      seq_no =
-		  ets:update_counter(?MODULE, {Counter, seq_no}, 1) rem 16#800000,
+		  ets:update_counter(?MODULE, {Counter, seq_no}, 1) band 16#7fffff,
 
 	      socket = make_gtp_socket(0, Config),
 
@@ -213,18 +213,18 @@ gtp_context(Counter, Config) ->
 
 gtp_context_inc_seq(#gtpc{counter = Counter} = GtpC) ->
     GtpC#gtpc{seq_no =
-		  ets:update_counter(?MODULE, {Counter, seq_no}, 1) rem 16#800000}.
+		  ets:update_counter(?MODULE, {Counter, seq_no}, 1) band 16#7fffff}.
 
 gtp_context_inc_restart_counter(GtpC) ->
     GtpC#gtpc{restart_counter =
-		  ets:update_counter(?MODULE, restart_counter, 1) rem 256}.
+		  ets:update_counter(?MODULE, restart_counter, 1) band 16#ff}.
 
 gtp_context_new_teids(GtpC) ->
     GtpC#gtpc{
       local_control_tei =
-	  ets:update_counter(?MODULE, teid, 1) rem 16#100000000,
+	  ets:update_counter(?MODULE, teid, 1) band 16#ffffffff,
       local_data_tei =
-	  ets:update_counter(?MODULE, teid, 1) rem 16#100000000
+	  ets:update_counter(?MODULE, teid, 1) band 16#ffffffff
      }.
 
 make_error_indication_report(#gtpc{local_data_tei = TEI, local_ip = IP}) ->

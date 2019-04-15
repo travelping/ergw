@@ -22,7 +22,7 @@ init() ->
 
     State0 = read_term(StateFile),
     Count = proplists:get_value(restart_count, State0, 0),
-    State1 = lists:keystore(restart_count, 1, State0, {restart_count, (Count + 1) rem 256}),
+    State1 = lists:keystore(restart_count, 1, State0, {restart_count, (Count + 1) band 16#ff}),
 
     lists:foreach(fun({K, V}) ->
 			  application:set_env(?App, K, V, [{persistent, true}])

@@ -80,7 +80,7 @@ init([IP]) ->
 	       up_seid = ergw_sx_socket:seid(),
 	       cp_recovery_ts = undefined,
 	       dp_recovery_ts = erlang:system_time(seconds),
-	       seq_no = erlang:unique_integer([positive]) rem 16#ffffff,
+	       seq_no = erlang:unique_integer([positive]) band 16#ffffff,
 	       history = []
 	      },
     {ok, State}.
@@ -108,7 +108,7 @@ handle_call(restart, _From, State0) ->
 	      up_seid = ergw_sx_socket:seid(),
 	      cp_recovery_ts = undefined,
 	      dp_recovery_ts = erlang:system_time(seconds),
-	      seq_no = erlang:unique_integer([positive]) rem 16#ffffff,
+	      seq_no = erlang:unique_integer([positive]) band 16#ffffff,
 	      history = []
 	     },
     {reply, ok, State};

@@ -188,7 +188,7 @@ make_request(update_pdp_context_request, SubType,
 	    ra_update ->
 		#user_location_information
 		    {type = 1, mcc = <<"001">>, mnc = <<"001">>,
-		     lac = 11, ci  = 0, sac = SeqNo rem 16#10000, rac = 0};
+		     lac = 11, ci  = 0, sac = SeqNo band 16#ffff, rac = 0};
 	    _ ->
 		#user_location_information
 		    {type = 1, mcc = <<"001">>, mnc = <<"001">>,

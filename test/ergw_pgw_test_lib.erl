@@ -299,7 +299,7 @@ make_request(modify_bearer_request, SubType,
 	case SubType of
 	    ra_update ->
 		#v2_user_location_information{
-		   tai  = <<MCCMNC/binary, (SeqNo rem 16#10000):16>>,
+		   tai  = <<MCCMNC/binary, (SeqNo band 16#ffff):16>>,
 		   ecgi = <<MCCMNC/binary, 0:4, 138873180:28>>};
 	    _ ->
 		#v2_user_location_information{
@@ -331,7 +331,7 @@ make_request(modify_bearer_command, SubType,
 	   fq_teid(0, ?'S5/S8-C SGW',LocalCntlTEI, LocalIP)
 	  ],
     #gtp{version = v2, type = modify_bearer_command, tei = RemoteCntlTEI,
-	 seq_no = SeqNo, ie = IEs};
+	 seq_no = SeqNo bor 16#800000, ie = IEs};
 
 make_request(change_notification_request, simple,
 	     #gtpc{restart_counter = RCnt, seq_no = SeqNo,
@@ -682,9 +682,10 @@ validate_response(modify_bearer_request, SubType, Response,
 
 validate_response(modify_bearer_command, _SubType, Response,
 		  #gtpc{seq_no = SeqNo, local_control_tei = LocalCntlTEI} = GtpC) ->
+    CmdSeqNo = SeqNo bor 16#800000,
     ?match(
        #gtp{type = update_bearer_request,
-	    seq_no = SeqNo, tei = LocalCntlTEI,
+	    seq_no = CmdSeqNo, tei = LocalCntlTEI,
 	    ie = #{{v2_aggregate_maximum_bit_rate,0} := #v2_aggregate_maximum_bit_rate{},
 		   {v2_bearer_context,0} :=
 		       #v2_bearer_context{
