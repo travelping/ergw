@@ -296,9 +296,17 @@ new_sequence_number(#gtp{seq_no = SeqNo} = Msg, State)
   when is_integer(SeqNo) ->
     {Msg, State};
 new_sequence_number(#gtp{version = v1} = Msg, #state{v1_seq_no = SeqNo} = State) ->
-    {Msg#gtp{seq_no = SeqNo}, State#state{v1_seq_no = (SeqNo + 1) rem 16#ffff}};
-new_sequence_number(#gtp{version = v2} = Msg, #state{v2_seq_no = SeqNo} = State) ->
-    {Msg#gtp{seq_no = SeqNo}, State#state{v2_seq_no = (SeqNo + 1) rem 16#7fffff}}.
+    {Msg#gtp{seq_no = SeqNo}, State#state{v1_seq_no = (SeqNo + 1) band 16#ffff}};
+new_sequence_number(#gtp{version = v2, type = Type} = Msg,
+		    #state{v2_seq_no = SeqNo} = State0) ->
+    State = State0#state{v2_seq_no = (SeqNo + 1) band 16#7fffff},
+    if Type =:= modify_bearer_command;
+       Type =:= delete_bearer_command;
+       Type =:= bearer_resource_command ->
+	    {Msg#gtp{seq_no = SeqNo bor 16#800000}, State};
+       true ->
+	    {Msg#gtp{seq_no = SeqNo}, State}
+    end.
 
 make_send_req(ReqId, Address, Port, T3, N3, Msg, CbInfo) ->
     #send_req{
