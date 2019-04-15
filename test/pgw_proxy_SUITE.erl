@@ -133,6 +133,27 @@
 		  [{?'APN-PROXY', [{vrf, example}]}
 		  ]},
 
+		 {charging,
+		  [{default,
+		    [{rulebase,
+		      [{<<"r-0001">>,
+			#{'Rating-Group' => [3000],
+			  'Flow-Information' =>
+			      [#{'Flow-Description' => [<<"permit out ip from any to assigned">>],
+				 'Flow-Direction'   => [1]    %% DownLink
+				},
+			       #{'Flow-Description' => [<<"permit out ip from any to assigned">>],
+				 'Flow-Direction'   => [2]    %% UpLink
+				}],
+			  'Metering-Method'  => [1],
+			  'Precedence' => [100],
+			  'Offline'  => [1]
+			 }},
+		       {<<"m2m0001">>, [<<"r-0001">>]}
+		      ]}
+		     ]}
+		  ]},
+
 		 {proxy_map,
 		  [{apn,  [{?'APN-EXAMPLE', ?'APN-PROXY'}]},
 		   {imsi, [{?'IMSI', {?'PROXY-IMSI', ?'PROXY-MSISDN'}}
@@ -150,7 +171,50 @@
 		     }]
 		   }]
 		 }
-		]}
+		]},
+
+	 {ergw_aaa,
+	  [
+	   {handlers,
+	    [{ergw_aaa_static,
+	      [{'NAS-Identifier',          <<"NAS-Identifier">>},
+	       {'Node-Id',                 <<"PGW-001">>},
+	       {'Charging-Rule-Base-Name', <<"m2m0001">>}
+	      ]}
+	    ]},
+	   {services,
+	    [{'Default',
+	      [{handler, 'ergw_aaa_static'},
+	       {answers,
+		#{'Initial-Gx' =>
+		      #{'Result-Code' => 2001,
+			'Charging-Rule-Install' =>
+			    [#{'Charging-Rule-Base-Name' => [<<"m2m0001">>]}]
+		       },
+		  'Update-Gx' => #{'Result-Code' => 2001},
+		  'Final-Gx' => #{'Result-Code' => 2001}
+		 }
+	       }
+	      ]}
+	    ]},
+	   {apps,
+	    [{default,
+	      [{session, ['Default']},
+	       {procedures, [{authenticate, []},
+			     {authorize, []},
+			     {start, []},
+			     {interim, []},
+			     {stop, []},
+			     {{gx, 'CCR-Initial'},   [{'Default', [{answer, 'Initial-Gx'}]}]},
+			     {{gx, 'CCR-Update'},    [{'Default', [{answer, 'Update-Gx'}]}]},
+			     {{gx, 'CCR-Terminate'}, [{'Default', [{answer, 'Final-Gx'}]}]},
+			     {{gy, 'CCR-Initial'},   []},
+			     {{gy, 'CCR-Update'},    []},
+			     {{gy, 'CCR-Terminate'}, []}
+			    ]}
+	      ]}
+	    ]}
+	  ]}
 	]).
 
 -define(TEST_CONFIG_SINGLE_PROXY_SOCKET,
@@ -259,6 +323,27 @@
 		  [{?'APN-PROXY', [{vrf, example}]}
 		  ]},
 
+		 {charging,
+		  [{default,
+		    [{rulebase,
+		      [{<<"r-0001">>,
+			#{'Rating-Group' => [3000],
+			  'Flow-Information' =>
+			      [#{'Flow-Description' => [<<"permit out ip from any to assigned">>],
+				 'Flow-Direction'   => [1]    %% DownLink
+				},
+			       #{'Flow-Description' => [<<"permit out ip from any to assigned">>],
+				 'Flow-Direction'   => [2]    %% UpLink
+				}],
+			  'Metering-Method'  => [1],
+			  'Precedence' => [100],
+			  'Offline'  => [1]
+			 }},
+		       {<<"m2m0001">>, [<<"r-0001">>]}
+		      ]}
+		     ]}
+		  ]},
+
 		 {proxy_map,
 		  [{apn,  [{?'APN-EXAMPLE', ?'APN-PROXY'}]},
 		   {imsi, [{?'IMSI', {?'PROXY-IMSI', ?'PROXY-MSISDN'}}
@@ -275,7 +360,50 @@
 		     }]
 		   }]
 		 }
-		]}
+		]},
+
+	 {ergw_aaa,
+	  [
+	   {handlers,
+	    [{ergw_aaa_static,
+	      [{'NAS-Identifier',          <<"NAS-Identifier">>},
+	       {'Node-Id',                 <<"PGW-001">>},
+	       {'Charging-Rule-Base-Name', <<"m2m0001">>}
+	      ]}
+	    ]},
+	   {services,
+	    [{'Default',
+	      [{handler, 'ergw_aaa_static'},
+	       {answers,
+		#{'Initial-Gx' =>
+		      #{'Result-Code' => 2001,
+			'Charging-Rule-Install' =>
+			    [#{'Charging-Rule-Base-Name' => [<<"m2m0001">>]}]
+		       },
+		  'Update-Gx' => #{'Result-Code' => 2001},
+		  'Final-Gx' => #{'Result-Code' => 2001}
+		 }
+	       }
+	      ]}
+	    ]},
+	   {apps,
+	    [{default,
+	      [{session, ['Default']},
+	       {procedures, [{authenticate, []},
+			     {authorize, []},
+			     {start, []},
+			     {interim, []},
+			     {stop, []},
+			     {{gx, 'CCR-Initial'},   [{'Default', [{answer, 'Initial-Gx'}]}]},
+			     {{gx, 'CCR-Update'},    [{'Default', [{answer, 'Update-Gx'}]}]},
+			     {{gx, 'CCR-Terminate'}, [{'Default', [{answer, 'Final-Gx'}]}]},
+			     {{gy, 'CCR-Initial'},   []},
+			     {{gy, 'CCR-Update'},    []},
+			     {{gy, 'CCR-Terminate'}, []}
+			    ]}
+	      ]}
+	    ]}
+	  ]}
 	]).
 
 -define(CONFIG_UPDATE_MULTIPLE_PROXY_SOCKETS,
