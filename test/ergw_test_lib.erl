@@ -390,7 +390,9 @@ recv_pdu_msg(Response, At, S, IP, SeqNo, Timeout, Fail) ->
 	    Msg;
 	#gtp{} = Msg
 	  when SeqNo =:= undefined ->
-	    Msg
+	    Msg;
+	#gtp{} = Msg ->
+	    recv_pdu_fail(Fail, {unexpected, Msg})
     end.
 
 recv_pdu_fail(Fail, Why) when is_function(Fail) ->

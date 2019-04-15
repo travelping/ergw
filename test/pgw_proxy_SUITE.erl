@@ -500,6 +500,7 @@ common() ->
      modify_bearer_request_ra_update,
      modify_bearer_request_tei_update,
      modify_bearer_command,
+     modify_bearer_command_resend,
      modify_bearer_command_timeout,
      modify_bearer_command_congestion,
      update_bearer_request,
@@ -1290,6 +1291,36 @@ modify_bearer_command(Config) ->
     GtpRecMatch = #gtp{type = modify_bearer_command, _ = '_'},
     P = meck:capture(first, pgw_s5s8, handle_request, ['_', GtpRecMatch, '_', '_'], 2),
     ?match(#gtp{seq_no = SeqNo} when SeqNo >= 16#800000, P),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+modify_bearer_command_resend() ->
+    [{doc, "Check Modify Bearer Command"}].
+modify_bearer_command_resend(Config) ->
+    %% a resend of a Modify Bearer Command should not
+    %% trigger a second Update Bearer Request
+
+    {GtpC1, _, _} = create_session(Config),
+    {GtpC2, Req0} = modify_bearer_command(simple, GtpC1),
+
+    Req1 = recv_pdu(GtpC2, Req0#gtp.seq_no, ?TIMEOUT, ok),
+    validate_response(modify_bearer_command, simple, Req1, GtpC2),
+
+    %% resend Modify Bearer Command...
+    send_pdu(GtpC2, Req0),
+    %% ... should not trigger a second request
+    ?equal(timeout, recv_pdu(GtpC2, -1, 100, fun(Why) -> Why end)),
+
+    Response = make_response(Req1, simple, GtpC2),
+    send_pdu(GtpC2, Response),
+
+    ?equal({ok, timeout}, recv_pdu(GtpC2, Req1#gtp.seq_no, ?TIMEOUT, ok)),
+    ?equal([], outstanding_requests()),
+
+    delete_session(GtpC2),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),

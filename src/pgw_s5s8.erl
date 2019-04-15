@@ -405,7 +405,6 @@ handle_request(#request{gtp_port = GtpPort, ip = SrcIP, port = SrcPort} = ReqKey
 			       #v2_bearer_context{
 				   group = #{?'EPS Bearer ID' := EBI} = Bearer}} = IEs},
 	       _Resent, #{context := Context, pfcp := PCtx, 'Session' := Session} = State) ->
-    gtp_context:request_finished(ReqKey),
     case update_session_from_gtp_req(IEs, Session, Context) of
 	URRActions when URRActions /= [] ->
 	    gtp_context:trigger_charging_events(URRActions, PCtx);
@@ -419,7 +418,7 @@ handle_request(#request{gtp_port = GtpPort, ip = SrcIP, port = SrcPort} = ReqKey
 		      group = copy_ies_to_response(Bearer, [EBI], [?'Bearer Level QoS'])}],
     RequestIEs = gtp_v2_c:build_recovery(Type, Context, false, RequestIEs0),
     Msg = msg(Context, Type, RequestIEs),
-    send_request(GtpPort, SrcIP, SrcPort, ?T3, ?N3, Msg#gtp{seq_no = SeqNo}, undefined),
+    send_request(GtpPort, SrcIP, SrcPort, ?T3, ?N3, Msg#gtp{seq_no = SeqNo}, ReqKey),
 
     {noreply, State};
 
@@ -491,7 +490,7 @@ handle_request(ReqKey, _Msg, _Resent, State) ->
 handle_response(ReqInfo, #gtp{version = v1} = Msg, Request, State) ->
     ?GTP_v1_Interface:handle_response(ReqInfo, Msg, Request, State);
 
-handle_response(_,
+handle_response(CommandReqKey,
 		#gtp{type = update_bearer_response,
 		     ie = #{?'Cause' := #v2_cause{v2_cause = Cause},
 			    ?'Bearer Contexts to be modified' :=
@@ -500,6 +499,7 @@ handle_response(_,
 				  }} = IEs} = Response,
 		_Request, #{context := Context0, pfcp := PCtx,
 			    'Session' := Session} = State) ->
+    gtp_context:request_finished(CommandReqKey),
     Context = gtp_path:bind(Response, Context0),
 
     if Cause =:= request_accepted andalso BearerCause =:= request_accepted ->
