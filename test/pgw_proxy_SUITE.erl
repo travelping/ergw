@@ -299,6 +299,10 @@ init_per_testcase(delete_session_request_timeout, Config) ->
 			     meck:passthrough([ReqKey, Msg, Resent, State])
 		     end),
     Config;
+init_per_testcase(modify_bearer_command, Config) ->
+    init_per_testcase(Config),
+    ok = meck:new(pgw_s5s8, [passthrough, no_link]),
+    Config;
 init_per_testcase(TestCase, Config)
   when TestCase == delete_bearer_request_resend;
        TestCase == delete_bearer_request_invalid_teid;
@@ -381,6 +385,9 @@ end_per_testcase(delete_session_request_resend, Config) ->
     meck:unload(gtp_path),
     Config;
 end_per_testcase(delete_session_request_timeout, Config) ->
+    ok = meck:unload(pgw_s5s8),
+    Config;
+end_per_testcase(modify_bearer_command, Config) ->
     ok = meck:unload(pgw_s5s8),
     Config;
 end_per_testcase(TestCase, Config)
@@ -761,6 +768,10 @@ modify_bearer_command(Config) ->
 
     delete_session(S, GtpC2),
     stop_gtpc_server(Cntl),
+
+    GtpRecMatch = #gtp{type = modify_bearer_command, _ = '_'},
+    P = meck:capture(first, pgw_s5s8, handle_request, ['_', GtpRecMatch, '_', '_'], 2),
+    ?match(#gtp{seq_no = SeqNo} when SeqNo >= 16#800000, P),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
