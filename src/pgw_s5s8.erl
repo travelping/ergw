@@ -257,14 +257,12 @@ handle_request(#request{gtp_port = GtpPort, ip = SrcIP, port = SrcPort} = ReqKey
 			        #v2_bearer_context{
 				   group = #{?'EPS Bearer ID' := EBI} = Bearer}}},
 	       _Resent, #{context := Context} = State) ->
-    gtp_context:request_finished(ReqKey),
-
     RequestIEs0 = [AMBR,
 		   #v2_bearer_context{
 		      group = copy_ies_to_response(Bearer, [EBI], [?'Bearer Level QoS'])}],
     RequestIEs = gtp_v2_c:build_recovery(Context, false, RequestIEs0),
     Msg = msg(Context, update_bearer_request, RequestIEs),
-    send_request(GtpPort, SrcIP, SrcPort, ?T3, ?N3, Msg#gtp{seq_no = SeqNo}, undefined),
+    send_request(GtpPort, SrcIP, SrcPort, ?T3, ?N3, Msg#gtp{seq_no = SeqNo}, ReqKey),
 
     {noreply, State};
 
@@ -330,7 +328,7 @@ handle_request(ReqKey, _Msg, _Resent, State) ->
 handle_response(ReqInfo, #gtp{version = v1} = Msg, Request, State) ->
     ?GTP_v1_Interface:handle_response(ReqInfo, Msg, Request, State);
 
-handle_response(_,
+handle_response(CommandReqKey,
 		#gtp{type = update_bearer_response,
 		     ie = #{?'Cause' := #v2_cause{v2_cause = Cause},
 			    ?'Bearer Contexts to be modified' :=
@@ -338,6 +336,7 @@ handle_response(_,
 				   group = #{?'Cause' := #v2_cause{v2_cause = BearerCause}}
 				  }}} = Response,
 		_Request, #{context := Context0} = State) ->
+    gtp_context:request_finished(CommandReqKey),
     Context = gtp_path:bind(Response, Context0),
 
     if Cause =:= request_accepted andalso BearerCause =:= request_accepted ->

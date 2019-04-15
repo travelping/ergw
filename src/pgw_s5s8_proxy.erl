@@ -299,8 +299,6 @@ handle_request(ReqKey,
     forward_request(sgw2pgw, ReqKey, Request, State1),
 
     State = trigger_request(sgw2pgw, ReqKey, Request, State1),
-
-    gtp_context:request_finished(ReqKey),
     {noreply, State};
 
 %%
@@ -453,6 +451,8 @@ handle_response(#proxy_request{direction = pgw2sgw} = ProxyRequest,
     lager:warning("OK Response ~p", [lager:pr(Response, ?MODULE)]),
 
     forward_response(ProxyRequest, Response, ProxyContext),
+    trigger_request_finished(Response, State),
+
     {noreply, State};
 
 handle_response(#proxy_request{direction = sgw2pgw} = ProxyRequest,
@@ -727,7 +727,7 @@ forward_request(Direction, ReqKey,
 		#gtp{seq_no = ReqSeqNo,
 		     ie = #{?'Recovery' := Recovery}} = Request,
 		#{last_trigger_id :=
-		      {ReqSeqNo, LastFwdSeqNo, GtpPort, SrcIP, SrcPort}} = State) ->
+		      {ReqSeqNo, LastFwdSeqNo, GtpPort, SrcIP, SrcPort, _}} = State) ->
 
     Context = forward_context(Direction, State),
     FwdReq = build_context_request(Context, false, LastFwdSeqNo, Request),
@@ -747,10 +747,17 @@ trigger_request(Direction, #request{gtp_port = GtpPort, ip = SrcIP, port = SrcPo
     Context = forward_context(Direction, State),
     case ergw_proxy_lib:get_seq_no(Context, ReqKey, Request) of
 	{ok, FwdSeqNo} ->
-	    State#{last_trigger_id => {FwdSeqNo, SeqNo, GtpPort, SrcIP, SrcPort}};
+	    State#{last_trigger_id => {FwdSeqNo, SeqNo, GtpPort, SrcIP, SrcPort, ReqKey}};
 	_ ->
 	    State
     end.
+
+trigger_request_finished(#gtp{seq_no = SeqNo},
+			 #{last_trigger_id :=
+			       {_, SeqNo, _, _, _, CommandReqKey}}) ->
+    gtp_context:request_finished(CommandReqKey);
+trigger_request_finished(_, _) ->
+    ok.
 
 forward_response(#proxy_request{request = ReqKey, seq_no = SeqNo, new_peer = NewPeer},
 		 Response, Context) ->
