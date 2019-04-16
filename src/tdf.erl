@@ -197,7 +197,7 @@ handle_info(stop_from_session, State) ->
 handle_info(#aaa_request{procedure = {_, 'ASR'}},
 	    #state{session = Session} = State) ->
     ergw_aaa_session:response(Session, ok, #{}),
-    close_pdn_context(undefined, State),
+    close_pdn_context(normal, State),
     {stop, normal, State};
 handle_info(#aaa_request{procedure = {gy, 'RAR'}, request = Request},
 	    #state{session = Session} = State) ->
