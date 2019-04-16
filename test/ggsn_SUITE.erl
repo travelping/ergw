@@ -500,60 +500,60 @@ invalid_gtp_msg(Config) ->
 create_pdp_context_request_missing_ie() ->
     [{doc, "Check that Create Session Request IE validation works"}].
 create_pdp_context_request_missing_ie(Config) ->
-    Metrics_before = socket_counter_metrics(),
+    MetricsBefore = socket_counter_metrics(),
 
     create_pdp_context(missing_ie, Config),
 
-    Metrics_after = socket_counter_metrics(),
+    MetricsAfter = socket_counter_metrics(),
     ?equal([], outstanding_requests()),
     meck_validate(Config),
-    socket_counter_metrics_ok( Metrics_before, Metrics_after, create_pdp_context_request ),
-    socket_counter_metrics_ok( Metrics_before, Metrics_after, mandatory_ie_missing ), % In response
+    socket_counter_metrics_ok( MetricsBefore, MetricsAfter, create_pdp_context_request ),
+    socket_counter_metrics_ok( MetricsBefore, MetricsAfter, mandatory_ie_missing ), % In response
     ok.
 
 %%--------------------------------------------------------------------
 create_pdp_context_request_aaa_reject() ->
     [{doc, "Check AAA reject return on Create PDP Context Request"}].
 create_pdp_context_request_aaa_reject(Config) ->
-    Metrics_before = socket_counter_metrics(),
+    MetricsBefore = socket_counter_metrics(),
 
     create_pdp_context(aaa_reject, Config),
 
-    Metrics_after = socket_counter_metrics(),
+    MetricsAfter = socket_counter_metrics(),
     ?equal([], outstanding_requests()),
     meck_validate(Config),
-    socket_counter_metrics_ok( Metrics_before, Metrics_after, create_pdp_context_request ),
-    socket_counter_metrics_ok( Metrics_before, Metrics_after, user_authentication_failed ), % In response
+    socket_counter_metrics_ok( MetricsBefore, MetricsAfter, create_pdp_context_request ),
+    socket_counter_metrics_ok( MetricsBefore, MetricsAfter, user_authentication_failed ), % In response
     ok.
 
 %%--------------------------------------------------------------------
 create_pdp_context_request_gx_fail() ->
     [{doc, "Check Gx failure on Create PDP Context Request"}].
 create_pdp_context_request_gx_fail(Config) ->
-    Metrics_before = socket_counter_metrics(),
+    MetricsBefore = socket_counter_metrics(),
 
     create_pdp_context(gx_fail, Config),
 
-    Metrics_after = socket_counter_metrics(),
+    MetricsAfter = socket_counter_metrics(),
     ?equal([], outstanding_requests()),
     meck_validate(Config),
-    socket_counter_metrics_ok( Metrics_before, Metrics_after, create_pdp_context_request ),
-    socket_counter_metrics_ok( Metrics_before, Metrics_after, system_failure ), % In response
+    socket_counter_metrics_ok( MetricsBefore, MetricsAfter, create_pdp_context_request ),
+    socket_counter_metrics_ok( MetricsBefore, MetricsAfter, system_failure ), % In response
     ok.
 
 %%--------------------------------------------------------------------
 create_pdp_context_request_gy_fail() ->
     [{doc, "Check Gy failure on Create PDP Context Request"}].
 create_pdp_context_request_gy_fail(Config) ->
-    Metrics_before = socket_counter_metrics(),
+    MetricsBefore = socket_counter_metrics(),
 
     create_pdp_context(gy_fail, Config),
 
-    Metrics_after = socket_counter_metrics(),
+    MetricsAfter = socket_counter_metrics(),
     ?equal([], outstanding_requests()),
     meck_validate(Config),
-    socket_counter_metrics_ok( Metrics_before, Metrics_after, create_pdp_context_request ),
-    socket_counter_metrics_ok( Metrics_before, Metrics_after, system_failure ), % In response
+    socket_counter_metrics_ok( MetricsBefore, MetricsAfter, create_pdp_context_request ),
+    socket_counter_metrics_ok( MetricsBefore, MetricsAfter, system_failure ), % In response
     ok.
 
 %%--------------------------------------------------------------------
@@ -571,15 +571,15 @@ create_pdp_context_request_rf_fail(Config) ->
 create_pdp_context_request_invalid_apn() ->
     [{doc, "Check invalid APN return on Create PDP Context Request"}].
 create_pdp_context_request_invalid_apn(Config) ->
-    Metrics_before = socket_counter_metrics(),
+    MetricsBefore = socket_counter_metrics(),
 
     create_pdp_context(invalid_apn, Config),
 
-    Metrics_after = socket_counter_metrics(),
+    MetricsAfter = socket_counter_metrics(),
     ?equal([], outstanding_requests()),
     meck_validate(Config),
-    socket_counter_metrics_ok( Metrics_before, Metrics_after, create_pdp_context_request ),
-    socket_counter_metrics_ok( Metrics_before, Metrics_after, missing_or_unknown_apn ), % In response
+    socket_counter_metrics_ok( MetricsBefore, MetricsAfter, create_pdp_context_request ),
+    socket_counter_metrics_ok( MetricsBefore, MetricsAfter, missing_or_unknown_apn ), % In response
     ok.
 
 %%--------------------------------------------------------------------
@@ -669,16 +669,16 @@ path_restart_multi(Config) ->
 simple_pdp_context_request() ->
     [{doc, "Check simple Create PDP Context, Delete PDP Context sequence"}].
 simple_pdp_context_request(Config) ->
-    Metrics_before = socket_counter_metrics(),
+    MetricsBefore = socket_counter_metrics(),
     {GtpC, _, _} = create_pdp_context(Config),
-    Metrics_after = socket_counter_metrics(),
+    MetricsAfter = socket_counter_metrics(),
     delete_pdp_context(GtpC),
 
     ?equal([], outstanding_requests()),
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
-    socket_counter_metrics_ok( Metrics_before, Metrics_after, create_pdp_context_request ),
-    socket_counter_metrics_ok( Metrics_before, Metrics_after, request_accepted ), % In response
+    socket_counter_metrics_ok( MetricsBefore, MetricsAfter, create_pdp_context_request ),
+    socket_counter_metrics_ok( MetricsBefore, MetricsAfter, request_accepted ), % In response
     ok.
 
 %%--------------------------------------------------------------------
@@ -1049,15 +1049,15 @@ delete_pdp_context_requested_resend(Config) ->
 create_pdp_context_overload() ->
     [{doc, "Check that the overload protection works"}].
 create_pdp_context_overload(Config) ->
-    Metrics_before = socket_counter_metrics(),
+    MetricsBefore = socket_counter_metrics(),
 
     create_pdp_context(overload, Config),
 
-    Metrics_after = socket_counter_metrics(),
+    MetricsAfter = socket_counter_metrics(),
     ?equal([], outstanding_requests()),
     meck_validate(Config),
-    socket_counter_metrics_ok( Metrics_before, Metrics_after, create_pdp_context_request ),
-    socket_counter_metrics_ok( Metrics_before, Metrics_after, no_resources_available ), % In response
+    socket_counter_metrics_ok( MetricsBefore, MetricsAfter, create_pdp_context_request ),
+    socket_counter_metrics_ok( MetricsBefore, MetricsAfter, no_resources_available ), % In response
     ok.
 
 %%--------------------------------------------------------------------
@@ -1347,21 +1347,21 @@ load_ocs_config(Initial, Update) ->
 
 
 socket_counter_metrics() ->
-	Paths = [Path || {[socket | _]=Path, counter, enabled} <- exometer:find_entries([])],
-	No_echos = [X || X <- Paths, not lists:member(echo_request, X) andalso not lists:member(echo_response, X)],
-	[{X, socket_counter_metrics_exometer_value( exometer:get_value(X) )} || X <- No_echos].
+	Names = [Name || {[socket | _]=Name, counter, enabled} <- exometer:find_entries([])],
+	NoEchos = [X || X <- Names, not lists:member(echo_request, X) andalso not lists:member(echo_response, X)],
+	[{X, socket_counter_metrics_exometer_value( exometer:get_value(X) )} || X <- NoEchos].
 
 socket_counter_metrics_exometer_value( {ok, [{value,V} | _]} ) -> V;
 socket_counter_metrics_exometer_value( _ ) -> error.
 
-socket_counter_metrics_ok( Metrics_before, Metrics_after, Path_part ) ->
+socket_counter_metrics_ok( MetricsBefore, MetricsAfter, Part ) ->
 	%% Remove the ones that have not changed.
-	Value_before = socket_counter_metrics_ok_value( Metrics_before -- Metrics_after, Path_part ),
-	Value_after = socket_counter_metrics_ok_value( Metrics_after -- Metrics_before, Path_part ),
-	1 = Value_after - Value_before.
+	ValueBefore = socket_counter_metrics_ok_value( MetricsBefore -- MetricsAfter, Part ),
+	ValueAfter = socket_counter_metrics_ok_value( MetricsAfter -- MetricsBefore, Part ),
+	?equal( 1, ValueAfter - ValueBefore ).
 
-socket_counter_metrics_ok_value( Metrics, Path_part ) ->
-	socket_counter_metrics_ok_value_0( [Value || {Path, Value} <- Metrics, lists:member(Path_part, Path)] ).
+socket_counter_metrics_ok_value( Metrics, Part ) ->
+	socket_counter_metrics_ok_value_0( [Value || {Name, Value} <- Metrics, lists:member(Part, Name)] ).
 
 socket_counter_metrics_ok_value_0( [Value] ) -> Value;
 socket_counter_metrics_ok_value_0( [] ) -> 0.
