@@ -552,21 +552,54 @@ message_counter_apply(Name, RemoteIP, Direction, Version, MsgInfo) ->
 	    Other
     end.
 
+%% message_counter/3
 message_counter(Direction, GtpPort,
 		#send_req{address = RemoteIP, msg = Msg}) ->
     message_counter(Direction, GtpPort, RemoteIP, Msg).
 
+%% message_counter/4
 message_counter(Direction, GtpPort,
 		#send_req{address = RemoteIP, msg = Msg}, Verdict) ->
     message_counter(Direction, GtpPort, RemoteIP, Msg, Verdict);
 message_counter(Direction, #gtp_port{name = Name, type = 'gtp-c'},
-		RemoteIP, #gtp{version = Version, type = MsgType}) ->
-    message_counter_apply(Name, RemoteIP, Direction, Version, [MsgType, count]).
+               RemoteIP, #gtp{version = Version, type = MsgType, ie = IEs}) ->
+    message_counter_apply(Name, RemoteIP, Direction, Version, [MsgType, count]),
+    message_counter_reply(Name, RemoteIP, Direction, Version, MsgType, IEs).
 
+%% message_counter/5
 message_counter(Direction, #gtp_port{name = Name, type = 'gtp-c'},
 		RemoteIP, #gtp{version = Version, type = MsgType},
 		Verdict) ->
     message_counter_apply(Name, RemoteIP, Direction, Version, [MsgType, Verdict]).
+
+message_counter_reply(Name, _RemoteIP, Direction, Version, MsgType,
+                     #{cause := #cause{value = Cause}}) ->
+    message_counter_reply_update( Name, Direction, Version, MsgType, Cause );
+message_counter_reply(Name, _RemoteIP, Direction, Version, MsgType,
+                     #{v2_cause := #v2_cause{v2_cause = Cause}}) ->
+    message_counter_reply_update( Name, Direction, Version, MsgType, Cause );
+message_counter_reply(Name, _RemoteIP, Direction, Version, MsgType, IEs)
+  when is_list(IEs) ->
+    CauseIEs =
+       lists:filter(
+         fun(IE) when is_record(IE, cause) -> true;
+            (IE) when is_record(IE, v2_cause) -> true;
+            (_) -> false
+         end, IEs),
+    case CauseIEs of
+       [#cause{value = Cause} | _] ->
+           message_counter_reply_update( Name, Direction, Version, MsgType, Cause );
+       [#v2_cause{v2_cause = Cause} | _] ->
+           message_counter_reply_update( Name, Direction, Version, MsgType, Cause );
+       _ ->
+           ok
+    end;
+message_counter_reply(_Name, _RemoteIP, _Direction, _Version, _MsgType, _IEs) ->
+    ok.
+
+message_counter_reply_update( Name, Direction, Version, MsgType, Cause ) ->
+    exometer:update_or_create( [socket, 'gtp-c', Name, Direction, Version, MsgType, Cause, count], 1, counter, [] ).
+
 
 %% measure the time it takes us to generate a response to a request
 measure_response(#request{
