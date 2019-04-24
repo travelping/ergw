@@ -385,10 +385,9 @@ handle_cast({handle_response, ReqInfo, Request, Response0},
 	throw:#ctx_err{} = CtxErr ->
 	    handle_ctx_error(CtxErr, State0);
 
-	Class:Error ->
-	    Stack = erlang:get_stacktrace(),
-	    lager:error("GTP response failed with: ~p:~p (~p)", [Class, Error, Stack]),
-	    {noreply, State0}
+	Class:Reason:Stacktrace ->
+	    lager:error("GTP response failed with: ~p:~p (~p)", [Class, Reason, Stacktrace]),
+	    erlang:raise(Class, Reason, Stacktrace)
     end;
 
 handle_cast({triggered_offline_usage_report, {Reason, _} = ChargeEv, OldS, #pfcp{ie = IEs}},
@@ -491,8 +490,7 @@ handle_request(#request{gtp_port = GtpPort} = Request,
 	throw:#ctx_err{} = CtxErr ->
 	    handle_ctx_error(CtxErr, Handler, Request, Msg, State0);
 
-	Class:Error ->
-	    Stack = erlang:get_stacktrace(),
+	Class:Error:Stack ->
 	    lager:error("GTP~p failed with: ~p:~p (~p)", [Version, Class, Error, Stack]),
 	    {noreply, State0}
     end.
@@ -504,8 +502,7 @@ send_response(Request, #gtp{seq_no = SeqNo} = Msg) ->
 	request_finished(Request),
 	ergw_gtp_c_socket:send_response(Request, Msg, SeqNo /= 0)
     catch
-	Class:Error ->
-	    Stack = erlang:get_stacktrace(),
+	Class:Error:Stack ->
 	    lager:error("gtp send failed with ~p:~p (~p) for ~p",
 			[Class, Error, Stack, gtp_c_lib:fmt_gtp(Msg)])
     end.

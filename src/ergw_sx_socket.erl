@@ -367,8 +367,7 @@ handle_message(ArrivalTS, IP, Port, Data, State0) ->
 	State = handle_message_1(ArrivalTS, IP, Port, Msg, State0),
 	{noreply, State}
     catch
-	Class:Error ->
-	    Stack = erlang:get_stacktrace(),
+	Class:Error:Stack ->
 	    lager:debug("UDP invalid msg: ~p:~p @ ~p", [Class, Error, Stack]),
 	    {noreply, State0}
     end.

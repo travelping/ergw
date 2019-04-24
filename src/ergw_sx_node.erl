@@ -370,11 +370,9 @@ handle_event(cast, {handle_pdu, _Request, #gtp{type=g_pdu, ie = PDU}}, _, Data) 
     try
 	handle_ip_pdu(PDU, Data)
     catch
-	throw:{error, Error} ->
-	    ST = erlang:get_stacktrace(),
+	throw:{error, Error}:ST ->
 	    lager:error("handler for GTP-U failed with: ~p @ ~p", [Error, ST]);
-	Class:Error ->
-	    ST = erlang:get_stacktrace(),
+	Class:Error:ST ->
 	    lager:error("handler for GTP-U failed with: ~p:~p @ ~p", [Class, Error, ST])
     end,
     keep_state_and_data;
