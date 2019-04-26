@@ -9,6 +9,8 @@
 
 -behaviour(gen_server).
 
+-compile({parse_transform, cut}).
+
 %% API
 -export([start_link/0]).
 -export([register_new/1, register/1, update/2, unregister/1,
@@ -30,6 +32,8 @@
 
 -define(SERVER, ?MODULE).
 -record(state, {pids, await_unreg}).
+
+-define(MAX_TRIES, 32).
 
 %%%===================================================================
 %%% API
@@ -108,29 +112,9 @@ all() ->
 await_unreg(Key) ->
     gen_server:call(?SERVER, {await_unreg, Key}, 1000).
 
-%%====================================================================
-%% TEI registry
-%%====================================================================
-
--define(MAX_TRIES, 32).
-
-alloc_tei(Port) ->
-    alloc_tei(Port, ?MAX_TRIES).
-
-alloc_tei(_Port, 0) ->
-    {error, no_tei};
-alloc_tei(#gtp_port{name = Name} = Port, Cnt) ->
-    Key = {Name, tei},
-
-    %% 32bit maxint = 4294967295
-    TEI = ets:update_counter(?SERVER, Key, {2, 1, 4294967295, 1}, {Key, 0}),
-
-    case lookup_teid(Port, TEI) of
-	undefined ->
-	    {ok, TEI};
-	_ ->
-	    alloc_tei(Port, Cnt - 1)
-    end.
+%% alloc_tei/1
+alloc_tei(Port) when is_record(Port, gtp_port)->
+    gen_server:call(?SERVER, {alloc_tei, Port}).
 
 %%%===================================================================
 %%% regine callbacks
@@ -190,7 +174,13 @@ handle_call({await_unreg, Pid}, From, #state{pids = Pids, await_unreg = AWait} =
 	    {noreply, State};
 	_ ->
 	    {reply, ok, State0}
-    end.
+    end;
+
+handle_call({alloc_tei, #gtp_port{name = Name} = Port}, _From, State) ->
+    RndStateKey = {Name, tei},
+    RndState = maybe_init_rnd(ets:lookup(?SERVER, RndStateKey)),
+    Reply = alloc_tei(RndStateKey, RndState, Port, ?MAX_TRIES),
+    {reply, Reply, State}.
 
 handle_cast(_Msg, State) ->
     {noreply, State}.
@@ -270,3 +260,29 @@ context2keys(#context{
        {CntlPortName, {teid, 'gtp-c', RemoteCntlIP, RemoteCntlTEI}},
        {DataPortName, {teid, 'gtp-u', RemoteDataIP, RemoteDataTEI}}]
       ++ [{CntlPortName, ContextId} || ContextId /= undefined]).
+
+%%====================================================================
+%% TEI registry
+%%====================================================================
+
+maybe_init_rnd([]) ->
+    try
+	rand:seed_s(exrop)
+    catch
+	error:function_clause ->
+	    rand:seed_s(exsplus)
+    end;
+maybe_init_rnd([{_, RndState}]) ->
+    RndState.
+
+alloc_tei(_RndStateKey, _RndState, _Port, 0) ->
+    {error, no_tei};
+alloc_tei(RndStateKey, RndState0, Port, Cnt) ->
+    {TEI, RndState} = rand:uniform_s(16#fffffffe, RndState0),
+    case lookup_teid(Port, TEI) of
+	undefined ->
+	    true = ets:insert(?SERVER, {RndStateKey, RndState}),
+	    {ok, TEI};
+	_ ->
+	    alloc_tei(RndStateKey, RndState, Port, Cnt - 1)
+    end.
