@@ -490,9 +490,9 @@ handle_request(#request{gtp_port = GtpPort} = Request,
 	throw:#ctx_err{} = CtxErr ->
 	    handle_ctx_error(CtxErr, Handler, Request, Msg, State0);
 
-	Class:Error:Stack ->
-	    lager:error("GTP~p failed with: ~p:~p (~p)", [Version, Class, Error, Stack]),
-	    {noreply, State0}
+	Class:Reason:Stacktrace ->
+	    lager:error("GTP~p failed with: ~p:~p (~p)", [Version, Class, Reason, Stacktrace]),
+	    erlang:raise(Class, Reason, Stacktrace)
     end.
 
 
