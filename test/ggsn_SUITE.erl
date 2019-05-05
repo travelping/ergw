@@ -326,6 +326,7 @@ common() ->
      session_options,
      session_accounting,
      gy_validity_timer,
+     simple_ocs,
      volume_threshold].
 
 groups() ->
@@ -426,7 +427,9 @@ init_per_testcase(gy_validity_timer, Config) ->
     init_per_testcase(Config),
     load_ocs_config('Initial-OCS-VT', 'Update-OCS-VT'),
     Config;
-init_per_testcase(volume_threshold, Config) ->
+init_per_testcase(TestCase, Config)
+  when TestCase == simple_ocs;
+       TestCase == volume_threshold ->
     init_per_testcase(Config),
     load_ocs_config('Initial-OCS', 'Update-OCS'),
     Config;
@@ -1250,6 +1253,111 @@ gy_validity_timer(Config) ->
     ?equal([], outstanding_requests()),
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+
+simple_ocs() ->
+    [{doc, "Test Gy a simple interaction"}].
+simple_ocs(Config) ->
+    {GtpC, _, _} = create_pdp_context(Config),
+
+    ct:sleep({seconds, 1}),
+
+    delete_pdp_context(GtpC),
+
+    H = meck:history(ergw_aaa_session),
+    CCR =
+	lists:filter(
+	  fun({_, {ergw_aaa_session, invoke, [_, _, {gy,_}, _]}, _}) ->
+		  true;
+	     (_) ->
+		  false
+	  end, H),
+    ct:pal("CCR: ~p", [CCR]),
+    ?match(X when X == 2, length(CCR)),
+
+    {_, {_, _, [_, _, {gy,'CCR-Initial'}, _]},
+     {ok, Session, _Events}} = hd(CCR),
+
+    Expected0 =
+	case ?config(client_ip, Config) of
+	    IP = {_,_,_,_,_,_,_,_} ->
+		#{'3GPP-GGSN-IPv6-Address' => ?config(test_gsn, Config),
+		  '3GPP-SGSN-IPv6-Address' => IP};
+	    IP ->
+		#{'3GPP-GGSN-Address' => ?config(test_gsn, Config),
+		  '3GPP-SGSN-Address' => IP}
+	end,
+
+    %% TBD: the comment elements are present in the PGW handler,
+    %%      but not in the GGSN. Check if that is correct.
+    Expected =
+	Expected0
+	#{
+	  '3GPP-Allocation-Retention-Priority' => 2,
+	  %% '3GPP-Charging-Id' => '?????',
+	  '3GPP-GGSN-MCC-MNC' => <<"00101">>,
+	  '3GPP-GPRS-Negotiated-QoS-Profile' => '_',
+	  %% '3GPP-IMEISV' => '?????',
+	  '3GPP-IMEISV' => <<"1234567890123456">>,
+	  %% '3GPP-IMSI' => '?????',
+	  '3GPP-IMSI' => ?IMSI,
+	  '3GPP-IMSI-MCC-MNC' => <<"11111">>,
+	  %% '3GPP-MS-TimeZone' => '?????',
+	  '3GPP-MSISDN' => ?MSISDN,
+	  '3GPP-NSAPI' => 5,
+	  %% '3GPP-PDP-Type' => 'IPv4v6',
+	  '3GPP-PDP-Type' => 'IPv4',
+	  '3GPP-RAT-Type' => 1,
+	  '3GPP-Selection-Mode' => 0,
+	  %% '3GPP-SGSN-MCC-MNC' => '?????',
+	  '3GPP-User-Location-Info' => '_',
+	  'Acct-Interim-Interval' => 600,
+	  'Bearer-Operation' => '_',
+	  'Called-Station-Id' => unicode:characters_to_binary(lists:join($., ?'APN-EXAMPLE')),
+	  'Calling-Station-Id' => ?MSISDN,
+	  'Charging-Rule-Base-Name' => <<"m2m0001">>,
+	  'Diameter-Session-Id' => '_',
+	  %% 'ECGI' => '?????',
+	  %% 'Event-Trigger' => '?????',
+	  'Framed-IP-Address' => {10, 180, '_', '_'},
+	  %% 'Framed-IPv6-Prefix' => {{16#8001, 0, 1, '_', '_', '_', '_', '_'},64},
+	  'Framed-Protocol' => 'GPRS-PDP-Context',
+	  'Multi-Session-Id' => '_',
+	  'Multiple-Services-Credit-Control' => '_',
+	  'NAS-Identifier' => <<"NAS-Identifier">>,
+	  'Node-Id' => <<"PGW-001">>,
+	  'PCC-Rules' => '_',
+	  'PDP-Context-Type' => primary,
+	  'QoS-Information' =>
+	      #{
+		'QoS-Class-Identifier' => 6,
+		'Max-Requested-Bandwidth-DL' => '_',
+		'Max-Requested-Bandwidth-UL' => '_',
+		'Guaranteed-Bitrate-DL' => 0,
+		'Guaranteed-Bitrate-UL' => 0,
+		'Allocation-Retention-Priority' =>
+		    #{'Priority-Level' => 2,
+		      'Pre-emption-Capability' => 1,
+		      'Pre-emption-Vulnerability' => 0},
+		'APN-Aggregate-Max-Bitrate-UL' => '_',
+		'APN-Aggregate-Max-Bitrate-DL' => '_'
+	       },
+	  %% 'Requested-IP-Address' => '?????',
+	  'SAI' => '_',
+	  'Service-Type' => 'Framed-User',
+	  'Session-Id' => '_',
+	  'Session-Start' => '_',
+	  %% 'TAI' => '?????',
+	  'Username' => '_'
+	 },
+    ?match_map(Expected, Session),
+
+    ?equal([], outstanding_requests()),
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    meck_validate(Config),
+
     ok.
 
 %%--------------------------------------------------------------------
