@@ -300,6 +300,7 @@ common() ->
      create_pdp_context_request_gy_fail,
      create_pdp_context_request_rf_fail,
      create_pdp_context_request_invalid_apn,
+     create_pdp_context_request_pool_exhausted,
      create_pdp_context_request_dotted_apn,
      create_pdp_context_request_accept_new,
      path_restart, path_restart_recovery, path_restart_multi,
@@ -383,6 +384,10 @@ init_per_testcase(create_pdp_context_request_rf_fail, Config) ->
 			     meck:passthrough([Session, SessionOpts, Procedure, Opts])
 		     end),
     Config;
+init_per_testcase(create_pdp_context_request_pool_exhausted, Config) ->
+    init_per_testcase(Config),
+    ok = meck:new(vrf, [passthrough, no_link]),
+    Config;
 init_per_testcase(path_restart, Config) ->
     init_per_testcase(Config),
     ok = meck:new(gtp_path, [passthrough, no_link]),
@@ -446,6 +451,10 @@ end_per_testcase(TestCase, Config)
        TestCase == create_pdp_context_request_gy_fail;
        TestCase == create_pdp_context_request_rf_fail ->
     ok = meck:delete(ergw_aaa_session, invoke, 4),
+    end_per_testcase(Config),
+    Config;
+end_per_testcase(create_pdp_context_request_pool_exhausted, Config) ->
+    meck:unload(vrf),
     end_per_testcase(Config),
     Config;
 end_per_testcase(path_restart, Config) ->
@@ -583,6 +592,46 @@ create_pdp_context_request_invalid_apn(Config) ->
     meck_validate(Config),
     socket_counter_metrics_ok( MetricsBefore, MetricsAfter, create_pdp_context_request ),
     socket_counter_metrics_ok( MetricsBefore, MetricsAfter, missing_or_unknown_apn ), % In response
+    ok.
+
+%%--------------------------------------------------------------------
+
+create_pdp_context_request_pool_exhausted() ->
+    [{doc, "Dynamic IP pool exhausted"}].
+create_pdp_context_request_pool_exhausted(Config) ->
+    ok = meck:expect(vrf, allocate_pdp_ip,
+		     fun(VRF, TEI, ReqIPv4, ReqIPv6) ->
+			     {ok, _IPv4, IPv6} =
+				 meck:passthrough([VRF, TEI, ReqIPv4, ReqIPv6]),
+			     {ok, undefined, IPv6}
+		     end),
+
+    MetricsBefore = socket_counter_metrics(),
+
+    create_pdp_context(pool_exhausted, Config),
+
+    MetricsAfter = socket_counter_metrics(),
+    socket_counter_metrics_ok( MetricsBefore, MetricsAfter, create_pdp_context_request ),
+    socket_counter_metrics_ok( MetricsBefore, MetricsAfter, all_dynamic_pdp_addresses_are_occupied ), % In response
+
+    ok = meck:expect(vrf, allocate_pdp_ip,
+		     fun(VRF, TEI, ReqIPv4, ReqIPv6) ->
+			     {ok, IPv4, _IPv6} =
+				 meck:passthrough([VRF, TEI, ReqIPv4, ReqIPv6]),
+			     {ok, IPv4, undefined}
+		     end),
+    create_pdp_context(pool_exhausted, Config),
+
+    ok = meck:expect(vrf, allocate_pdp_ip,
+		     fun(VRF, TEI, ReqIPv4, ReqIPv6) ->
+			     {ok, _IPv4, _IPv6} =
+				 meck:passthrough([VRF, TEI, ReqIPv4, ReqIPv6]),
+			     {ok, undefined, undefined}
+		     end),
+    create_pdp_context(pool_exhausted, Config),
+
+    ?equal([], outstanding_requests()),
+    meck_validate(Config),
     ok.
 
 %%--------------------------------------------------------------------

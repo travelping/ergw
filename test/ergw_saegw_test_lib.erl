@@ -95,7 +95,9 @@ make_pdn_type(ipv6, IEs) ->
      #v2_protocol_configuration_options{
 	config = {0, [{1,<<>>}, {3,<<>>}, {10,<<>>}]}}
      | IEs];
-make_pdn_type(ipv4v6, IEs) ->
+make_pdn_type(SubType, IEs)
+  when SubType == ipv4v6;
+       SubType == pool_exhausted ->
     PrefixLen = 64,
     Prefix = ergw_inet:ip2bin({0,0,0,0,0,0,0,0}),
     RequestedIP = ergw_inet:ip2bin({0,0,0,0}),
@@ -413,6 +415,12 @@ validate_response(create_session_request, overload, Response, GtpC) ->
 validate_response(create_session_request, invalid_apn, Response, GtpC) ->
    ?match(#gtp{type = create_session_response,
 		ie = #{{v2_cause,0} := #v2_cause{v2_cause = missing_or_unknown_apn}}},
+	  Response),
+    GtpC;
+
+validate_response(create_session_request, pool_exhausted, Response, GtpC) ->
+   ?match(#gtp{type = create_session_response,
+		ie = #{{v2_cause,0} := #v2_cause{v2_cause = all_dynamic_addresses_are_occupied}}},
 	  Response),
     GtpC;
 
