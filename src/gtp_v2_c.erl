@@ -382,6 +382,8 @@ map_reply_ie(no_resources_available) ->
     #v2_cause{v2_cause = no_resources_available};
 map_reply_ie(rejected) ->
     #v2_cause{v2_cause = no_resources_available};
+map_reply_ie(all_dynamic_addresses_are_occupied) ->
+    #v2_cause{v2_cause = all_dynamic_addresses_are_occupied};
 map_reply_ie(IE)
   when is_tuple(IE) ->
     IE.

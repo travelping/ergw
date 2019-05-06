@@ -67,7 +67,9 @@ make_pdp_type(ipv6, IEs) ->
 		      {?'PCO-DNS-Server-IPv6-Address',<<>>},
 		      {?'PCO-IP-Address-Allocation-Via-NAS-Signalling',<<>>}]}}
      | IEs];
-make_pdp_type(ipv4v6, IEs) ->
+make_pdp_type(SubType, IEs)
+  when SubType == ipv4v6;
+       SubType == pool_exhausted ->
     [#end_user_address{pdp_type_organization = 1,
 		       pdp_type_number = 16#8d,
 		       pdp_address = <<>>},
@@ -339,6 +341,12 @@ validate_response(create_pdp_context_request, overload, Response, GtpC) ->
 validate_response(create_pdp_context_request, invalid_apn, Response, GtpC) ->
     ?match(#gtp{type = create_pdp_context_response,
 		ie = #{{cause,0} := #cause{value = missing_or_unknown_apn}}},
+	   Response),
+    GtpC;
+
+validate_response(create_pdp_context_request, pool_exhausted, Response, GtpC) ->
+    ?match(#gtp{type = create_pdp_context_response,
+		ie = #{{cause,0} := #cause{value = all_dynamic_pdp_addresses_are_occupied}}},
 	   Response),
     GtpC;
 

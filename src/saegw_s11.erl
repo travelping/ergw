@@ -559,13 +559,13 @@ match_context(Type, Context, IE) ->
 
 pdn_alloc(#v2_pdn_address_allocation{type = ipv4v6,
 				     address = << IP6PrefixLen:8, IP6Prefix:16/binary, IP4:4/binary>>}) ->
-    {ergw_inet:bin2ip(IP4), {ergw_inet:bin2ip(IP6Prefix), IP6PrefixLen}};
+    {ipv4v6, ergw_inet:bin2ip(IP4), {ergw_inet:bin2ip(IP6Prefix), IP6PrefixLen}};
 pdn_alloc(#v2_pdn_address_allocation{type = ipv4,
 				     address = << IP4:4/binary>>}) ->
-    {ergw_inet:bin2ip(IP4), undefined};
+    {ipv4, ergw_inet:bin2ip(IP4), undefined};
 pdn_alloc(#v2_pdn_address_allocation{type = ipv6,
 				     address = << IP6PrefixLen:8, IP6Prefix:16/binary>>}) ->
-    {undefined, {ergw_inet:bin2ip(IP6Prefix), IP6PrefixLen}}.
+    {ipv6, undefined, {ergw_inet:bin2ip(IP6Prefix), IP6PrefixLen}}.
 
 encode_paa({IPv4,_}, undefined) ->
     encode_paa(ipv4, ergw_inet:ip2bin(IPv4), <<>>);
@@ -1018,10 +1018,10 @@ session_ipv6_alloc(#{'Framed-IPv6-Prefix' := {{_,_,_,_,_,_,_,_}, _} = IPv6}, _Re
 session_ipv6_alloc(_SessionOpts, ReqMSv6) ->
     ReqMSv6.
 
-session_ip_alloc(SessionOpts, {ReqMSv4, ReqMSv6}) ->
+session_ip_alloc(SessionOpts, {PDNType, ReqMSv4, ReqMSv6}) ->
     MSv4 = session_ipv4_alloc(SessionOpts, ReqMSv4),
     MSv6 = session_ipv6_alloc(SessionOpts, ReqMSv6),
-    {MSv4, MSv6}.
+    {PDNType, MSv4, MSv6}.
 
 maybe_ip(Key, {{_,_,_,_} = IPv4, _}, SessionIP) ->
     SessionIP#{Key => IPv4};
@@ -1031,8 +1031,18 @@ maybe_ip(_, _, SessionIP) ->
     SessionIP.
 
 assign_ips(SessionOps, PAA, #context{vrf = VRF, local_control_tei = LocalTEI} = Context) ->
-    {ReqMSv4, ReqMSv6} = session_ip_alloc(SessionOps, pdn_alloc(PAA)),
+    {PDNType, ReqMSv4, ReqMSv6} = session_ip_alloc(SessionOps, pdn_alloc(PAA)),
     {ok, MSv4, MSv6} = vrf:allocate_pdp_ip(VRF, LocalTEI, ReqMSv4, ReqMSv6),
+    case PDNType of
+	ipv4v6 when MSv4 /= undefined, MSv6 /= undefined ->
+	    ok;
+	ipv4 when MSv4 /= undefined ->
+	    ok;
+	ipv6 when MSv6 /= undefined ->
+	    ok;
+	_ ->
+	    throw(?CTX_ERR(?FATAL, all_dynamic_addresses_are_occupied, Context))
+    end,
     SessionIP4 = maybe_ip('Framed-IP-Address', MSv4, #{}),
     SessionIP = maybe_ip('Framed-IPv6-Prefix', MSv6, SessionIP4),
     {SessionIP, Context#context{ms_v4 = MSv4, ms_v6 = MSv6}}.

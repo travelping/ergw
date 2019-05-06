@@ -408,7 +408,7 @@ pdp_alloc(#end_user_address{pdp_type_organization = 1,
 	      <<_:4/bytes>> ->
 		  ergw_inet:bin2ip(Address)
 	  end,
-    {IP4, undefined};
+    {ipv4, IP4, undefined};
 
 pdp_alloc(#end_user_address{pdp_type_organization = 1,
 			    pdp_type_number = 16#57,
@@ -419,19 +419,19 @@ pdp_alloc(#end_user_address{pdp_type_organization = 1,
 	      <<_:16/bytes>> ->
 		  {ergw_inet:bin2ip(Address),128}
 	  end,
-    {undefined, IP6};
+    {ipv6, undefined, IP6};
 pdp_alloc(#end_user_address{pdp_type_organization = 1,
 			    pdp_type_number = 16#8D,
 			    pdp_address = Address}) ->
     case Address of
 	<< IP4:4/bytes, IP6:16/bytes >> ->
-	    {ergw_inet:bin2ip(IP4), {ergw_inet:bin2ip(IP6), 128}};
+	    {ipv4v6, ergw_inet:bin2ip(IP4), {ergw_inet:bin2ip(IP6), 128}};
 	<< IP6:16/bytes >> ->
-	    {{0,0,0,0}, {ergw_inet:bin2ip(IP6), 128}};
+	    {ipv4v6, {0,0,0,0}, {ergw_inet:bin2ip(IP6), 128}};
 	<< IP4:4/bytes >> ->
-	    {ergw_inet:bin2ip(IP4), {{0,0,0,0,0,0,0,0},64}};
- 	<<  >> ->
-	    {{0,0,0,0}, {{0,0,0,0,0,0,0,0},64}}
+	    {ipv4v6, ergw_inet:bin2ip(IP4), {{0,0,0,0,0,0,0,0},64}};
+	<<  >> ->
+	    {ipv4v6, {0,0,0,0}, {{0,0,0,0,0,0,0,0},64}}
    end;
 
 pdp_alloc(_) ->
@@ -969,10 +969,10 @@ session_ipv6_alloc(#{'Framed-IPv6-Prefix' := {{_,_,_,_,_,_,_,_}, _} = IPv6}, _Re
 session_ipv6_alloc(_SessionOpts, ReqMSv6) ->
     ReqMSv6.
 
-session_ip_alloc(SessionOpts, {ReqMSv4, ReqMSv6}) ->
+session_ip_alloc(SessionOpts, {PDPType, ReqMSv4, ReqMSv6}) ->
     MSv4 = session_ipv4_alloc(SessionOpts, ReqMSv4),
     MSv6 = session_ipv6_alloc(SessionOpts, ReqMSv6),
-    {MSv4, MSv6}.
+    {PDPType, MSv4, MSv6}.
 
 maybe_ip(Key, {{_,_,_,_} = IPv4, _}, SessionIP) ->
     SessionIP#{Key => IPv4};
@@ -982,8 +982,19 @@ maybe_ip(_, _, SessionIP) ->
     SessionIP.
 
 assign_ips(SessionOps, EUA, #context{vrf = VRF, local_control_tei = LocalTEI} = Context) ->
-    {ReqMSv4, ReqMSv6} = session_ip_alloc(SessionOps, pdp_alloc(EUA)),
+    {PDPType, ReqMSv4, ReqMSv6} = session_ip_alloc(SessionOps, pdp_alloc(EUA)),
     {ok, MSv4, MSv6} = vrf:allocate_pdp_ip(VRF, LocalTEI, ReqMSv4, ReqMSv6),
+    case PDPType of
+	ipv4v6 when MSv4 /= undefined, MSv6 /= undefined ->
+	    ok;
+	ipv4 when MSv4 /= undefined ->
+	    ok;
+	ipv6 when MSv6 /= undefined ->
+	    ok;
+	_ ->
+	    throw(?CTX_ERR(?FATAL, all_dynamic_pdp_addresses_are_occupied, Context))
+    end,
+
     SessionIP4 = maybe_ip('Framed-IP-Address', MSv4, #{}),
     SessionIP = maybe_ip('Framed-IPv6-Prefix', MSv6, SessionIP4),
     {SessionIP, Context#context{ms_v4 = MSv4, ms_v6 = MSv6}}.

@@ -292,6 +292,7 @@ common() ->
      create_session_request_gy_fail,
      create_session_request_rf_fail,
      create_session_request_invalid_apn,
+     create_session_request_pool_exhausted,
      create_session_request_accept_new,
      simple_session_request,
      create_session_request_x2_handover,
@@ -367,6 +368,10 @@ init_per_testcase(create_session_request_rf_fail, Config) ->
 			     meck:passthrough([Session, SessionOpts, Procedure, Opts])
 		     end),
     Config;
+init_per_testcase(create_session_request_pool_exhausted, Config) ->
+    init_per_testcase(Config),
+    ok = meck:new(vrf, [passthrough, no_link]),
+    Config;
 init_per_testcase(TestCase, Config)
   when TestCase == delete_bearer_request_resend;
        TestCase == modify_bearer_command_timeout ->
@@ -409,6 +414,10 @@ end_per_testcase(TestCase, Config)
        TestCase == create_session_request_gy_fail;
        TestCase == create_session_request_rf_fail ->
     ok = meck:delete(ergw_aaa_session, invoke, 4),
+    end_per_testcase(Config),
+    Config;
+end_per_testcase(create_session_request_pool_exhausted, Config) ->
+    meck:unload(vrf),
     end_per_testcase(Config),
     Config;
 end_per_testcase(TestCase, Config)
@@ -494,6 +503,39 @@ create_session_request_invalid_apn() ->
 create_session_request_invalid_apn(Config) ->
     create_session(invalid_apn, Config),
 
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+create_session_request_pool_exhausted() ->
+    [{doc, "Dynamic IP pool exhausted"}].
+create_session_request_pool_exhausted(Config) ->
+    ok = meck:expect(vrf, allocate_pdp_ip,
+		     fun(VRF, TEI, ReqIPv4, ReqIPv6) ->
+			     {ok, _IPv4, IPv6} =
+				 meck:passthrough([VRF, TEI, ReqIPv4, ReqIPv6]),
+			     {ok, undefined, IPv6}
+		     end),
+    create_session(pool_exhausted, Config),
+
+    ok = meck:expect(vrf, allocate_pdp_ip,
+		     fun(VRF, TEI, ReqIPv4, ReqIPv6) ->
+			     {ok, IPv4, _IPv6} =
+				 meck:passthrough([VRF, TEI, ReqIPv4, ReqIPv6]),
+			     {ok, IPv4, undefined}
+		     end),
+    create_session(pool_exhausted, Config),
+
+    ok = meck:expect(vrf, allocate_pdp_ip,
+		     fun(VRF, TEI, ReqIPv4, ReqIPv6) ->
+			     {ok, _IPv4, _IPv6} =
+				 meck:passthrough([VRF, TEI, ReqIPv4, ReqIPv6]),
+			     {ok, undefined, undefined}
+		     end),
+    create_session(pool_exhausted, Config),
+
+    ?equal([], outstanding_requests()),
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
     ok.
 

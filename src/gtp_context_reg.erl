@@ -9,6 +9,8 @@
 
 -behaviour(gen_server).
 
+-compile({parse_transform, cut}).
+
 %% API
 -export([start_link/0]).
 -export([register/3, register_new/3, update/4, unregister/3,
@@ -28,6 +30,8 @@
 
 -define(SERVER, ?MODULE).
 -record(state, {pids, await_unreg}).
+
+-define(MAX_TRIES, 32).
 
 %%%===================================================================
 %%% API
@@ -80,42 +84,15 @@ all() ->
 await_unreg(Key) ->
     gen_server:call(?SERVER, {await_unreg, Key}, 1000).
 
-%%====================================================================
-%% TEI registry
-%% TODO: move this out of here
-%%====================================================================
+%% alloc_tei/1
+alloc_tei(#gtp_port{name = Name} = Port) ->
+    alloc_tei(Name, gtp_context:port_teid_key(Port, _));
+alloc_tei(#pfcp_ctx{name = Name} = PCtx) ->
+    alloc_tei(Name, ergw_pfcp:ctx_teid_key(PCtx, _)).
 
--define(MAX_TRIES, 32).
-
-alloc_tei(Port) ->
-    alloc_tei(Port, ?MAX_TRIES).
-
-alloc_tei(_Port, 0) ->
-    {error, no_tei};
-alloc_tei(#gtp_port{name = Name} = Port, Cnt) ->
-    Key = {Name, tei},
-
-    %% 32bit maxint = 4294967295
-    TEI = ets:update_counter(?SERVER, Key, {2, 1, 4294967295, 1}, {Key, 0}),
-
-    case lookup(gtp_context:port_teid_key(Port, TEI)) of
-	undefined ->
-	    {ok, TEI};
-	_ ->
-	    alloc_tei(Port, Cnt - 1)
-    end;
-alloc_tei(#pfcp_ctx{name = Name} = PCtx, Cnt) ->
-    Key = {Name, tei},
-
-    %% 32bit maxint = 4294967295
-    TEI = ets:update_counter(?SERVER, Key, {2, 1, 4294967295, 1}, {Key, 0}),
-
-    case lookup(ergw_pfcp:ctx_teid_key(PCtx, TEI)) of
-	undefined ->
-	    {ok, TEI};
-	_ ->
-	    alloc_tei(PCtx, Cnt - 1)
-    end.
+alloc_tei(Name, KeyFun)
+  when is_function(KeyFun, 1) ->
+    gen_server:call(?SERVER, {alloc_tei, Name, KeyFun}).
 
 %%%===================================================================
 %%% regine callbacks
@@ -156,7 +133,13 @@ handle_call({await_unreg, Pid}, From, #state{pids = Pids, await_unreg = AWait} =
 	    {noreply, State};
 	_ ->
 	    {reply, ok, State0}
-    end.
+    end;
+
+handle_call({alloc_tei, Name, KeyFun}, _From, State) ->
+    RndStateKey = {Name, tei},
+    RndState = maybe_init_rnd(ets:lookup(?SERVER, RndStateKey)),
+    Reply = alloc_tei(RndStateKey, RndState, KeyFun, ?MAX_TRIES),
+    {reply, Reply, State}.
 
 handle_cast(_Msg, State) ->
     {noreply, State}.
@@ -219,4 +202,25 @@ delete_key(Key, Pid) ->
 	    ets:take(?SERVER, Key);
 	Other ->
 	    Other
+    end.
+
+%%====================================================================
+%% TEI registry
+%%====================================================================
+
+maybe_init_rnd([]) ->
+    rand:seed_s(exrop);
+maybe_init_rnd([{_, RndState}]) ->
+    RndState.
+
+alloc_tei(_RndStateKey, _RndState, _KeyFun, 0) ->
+    {error, no_tei};
+alloc_tei(RndStateKey, RndState0, KeyFun, Cnt) ->
+    {TEI, RndState} = rand:uniform_s(16#fffffffe, RndState0),
+    case lookup(KeyFun(TEI)) of
+	undefined ->
+	    true = ets:insert(?SERVER, {RndStateKey, RndState}),
+	    {ok, TEI};
+	_ ->
+	    alloc_tei(RndStateKey, RndState, KeyFun, Cnt - 1)
     end.
