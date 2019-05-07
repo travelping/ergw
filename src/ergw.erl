@@ -17,7 +17,6 @@
 -export([load_config/1]).
 -export([get_plmn_id/0, get_accept_new/0]).
 -export([system_info/0, system_info/1, system_info/2]).
--export([delete/1]).
 -export([i/0, i/1, i/2]).
 
 %% gen_server callbacks
@@ -45,9 +44,6 @@ get_plmn_id() ->
 get_accept_new() ->
     [{config, accept_new, Value}] = ets:lookup(?SERVER, accept_new),
     Value.
-
-delete(Id) ->
-    ets:take(?SERVER, Id).
 
 system_info() ->
     [{K,system_info(K)} || K <- [plmn_id, accept_new]].

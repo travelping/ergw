@@ -8,7 +8,7 @@
 -module(ergw_api).
 
 %% API
--export([peer/1, tunnel/1]).
+-export([peer/1, tunnel/1, delete_random_peers/1]).
 
 %%%===================================================================
 %%% API
@@ -23,6 +23,11 @@ peer({_,_,_,_,_,_,_,_} = IP) ->
     collect_peer_info(gtp_path_reg:all(IP));
 peer(Port) when is_atom(Port) ->
     collect_peer_info(gtp_path_reg:all(Port)).
+
+delete_random_peers(Count) ->
+    Peers = gtp_path_reg:all(),
+    RPeers = shuffle(Peers),
+    delete_random_peers(RPeers, Count).
 
 tunnel(all) ->
     Contexts = lists:usort([Pid || {{_Socket, {teid, 'gtp-c', _TEID}}, {_, Pid}}
@@ -51,3 +56,14 @@ collect_contexts(Context, Tunnels) ->
     io:format("Context: ~p~n", [Context]),
     Info = gtp_context:info(Context),
     [Info#{'Process' => Context} | Tunnels].
+
+shuffle(List) ->
+    [Y || {_, Y} <- lists:sort([ {rand:uniform(), El} || El <- List])].
+
+delete_random_peers([], Count) -> {error, Count};
+delete_random_peers(_, 0) -> ok;
+delete_random_peers([{_, Peer} | Tail], Count) when is_pid(Peer) ->
+    ok = gen_server:call(Peer, {unbind, self()}),
+    delete_random_peers(Tail, Count - 1);
+delete_random_peers([_ | Tail], Count) ->
+    delete_random_peers(Tail, Count).

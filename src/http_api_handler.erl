@@ -96,8 +96,8 @@ handle_request(<<"POST">>, _, json, Req, State) ->
 handle_request(<<"DELETE">>, <<"/api/v1/sessions/", _/binary>>, json, Req, State) ->
     Value = cowboy_req:binding(count, Req),
     case catch binary_to_integer(Value) of
-              Val when is_integer(Val) ->
-                  Res = ergw:delete(Val),
+              Count when is_integer(Count), Count > 0 ->
+                  Res = ergw_api:delete_random_peers(Count),
                   Response = jsx:encode(#{sessions => Res}),
                   Req2 = cowboy_req:set_resp_body(Response, Req),
                   {true, Req2, State};
