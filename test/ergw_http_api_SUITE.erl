@@ -10,7 +10,19 @@
 -compile(export_all).
 
 -include("ergw_test_lib.hrl").
+-include("ergw_ggsn_test_lib.hrl").
+-include_lib("gtplib/include/gtp_packet.hrl").
 -include_lib("common_test/include/ct.hrl").
+
+-define(CONFIG_UPDATE,
+	[{[sockets, cp, ip], localhost},
+	 {[sockets, irx, ip], test_gsn},
+	 {[sx_socket, ip], localhost},
+	 {[node_selection, {default, 2}, 2, "topon.gn.ggsn.$ORIGIN"],
+	  {fun node_sel_update/2, final_gsn}},
+	 {[node_selection, {default, 2}, 2, "topon.sx.prox01.$ORIGIN"],
+	  {fun node_sel_update/2, pgw_u_sx}}
+	]).
 
 -define(TEST_CONFIG,
 	[
@@ -125,7 +137,27 @@ all() ->
      http_api_prometheus_metrics_req,
      http_api_prometheus_metrics_sub_req,
      http_api_metrics_req,
-     http_api_metrics_sub_req].
+     http_api_metrics_sub_req
+     % http_api_delete_sessions
+    ].
+
+init_per_testcase(Config) ->
+    meck_reset(Config).
+init_per_testcase(http_api_delete_sessions, Config) ->
+    ct:pal("Sockets: ~p", [ergw_gtp_socket_reg:all()]),
+    ergw_test_sx_up:reset('pgw-u'),
+    meck_reset(Config),
+    start_gtpc_server(Config),
+    Config;
+init_per_testcase(_, Config) ->
+    init_per_testcase(Config),
+    Config.
+
+end_per_testcase(http_api_session_delete, Config) ->
+    stop_gtpc_server(),
+    Config;
+end_per_testcase(_, Config) ->
+    Config.
 
 init_per_suite(Config0) ->
     inets:start(),
@@ -298,6 +330,17 @@ http_api_metrics_sub_req(_Config) ->
     ?match(#{<<"value">> := _}, Res2),
     ok.
 
+http_api_delete_sessions() ->
+    [{doc, "Check DELETE /contexts/count API"}].
+http_api_delete_sessions(Config) ->
+    Res1 = json_http_request(delete, "/contexts/0"),
+    ?match(#{<<"contexts">> := 0}, Res1),
+    
+    ok = meck:wait(ggsn_gn, terminate, '_', 2000),
+    wait4tunnels(2000),
+    meck_validate(Config),
+    ok.
+
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
@@ -305,6 +348,12 @@ http_api_metrics_sub_req(_Config) ->
 get_test_url(Path) ->
     Port = ranch:get_port(ergw_http_listener),
     lists:flatten(io_lib:format("http://localhost:~w~s", [Port, Path])).
+
+json_http_request(Method, Path) ->
+    URL = get_test_url(Path),
+    {ok, {_, _, Body}} = httpc:request(Method, {URL, []},
+                                        [], [{body_format, binary}]),
+    jsx:decode(Body, [return_maps]).
 
 exo_function(_) ->
     [{value, rand:uniform(1000)}].

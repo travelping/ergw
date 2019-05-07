@@ -29,6 +29,7 @@ start_http_listener(#{ip := IP, port := Port, acceptors_num := AcceptorsNum}) ->
 		    {"/api/v1/status", http_api_handler, []},
 		    {"/api/v1/status/accept-new", http_api_handler, []},
 		    {"/api/v1/status/accept-new/:value", http_api_handler, []},
+		    {"/api/v1/contexts/:count", http_api_handler, []},
 		    {"/metrics", http_api_handler, []},
 		    {"/metrics/[...]", http_api_handler, []},
 		    %% serves static files for swagger UI
