@@ -93,6 +93,17 @@ handle_request(<<"POST">>, _, json, Req, State) ->
             {true, Req2, State}
     end;
 
+handle_request(<<"DELETE">>, <<"/api/v1/sessions/", _/binary>>, json, Req, State) ->
+    Value = cowboy_req:binding(count, Req),
+    case catch binary_to_integer(Value) of
+              Val when is_integer(Val) ->
+                  Res = ergw:delete(Val),
+                  Response = jsx:encode(#{sessions => Res}),
+                  Req2 = cowboy_req:set_resp_body(Response, Req),
+                  {true, Req2, State};
+              _ ->
+                  {false, Req, State}
+    end;
 handle_request(_, _, Req, _, State) ->
     {false, Req, State}.
 
