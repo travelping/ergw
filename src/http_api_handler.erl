@@ -9,7 +9,7 @@
 
 -export([init/2, content_types_provided/2,
          handle_request_json/2, handle_request_text/2,
-         allowed_methods/2,
+         allowed_methods/2, delete_resource/2,
          content_types_accepted/2]).
 
 -define(FIELDS_MAPPING, [{accept_new, 'acceptNewRequests'},
@@ -19,7 +19,7 @@ init(Req, Opts) ->
     {cowboy_rest, Req, Opts}.
 
 allowed_methods(Req, State) ->
-    {[<<"GET">>, <<"POST">>], Req, State}.
+    {[<<"GET">>, <<"POST">>, <<"DELETE">>], Req, State}.
 
 content_types_provided(Req, State) ->
     {[{<<"application/json">>, handle_request_json},
@@ -28,6 +28,11 @@ content_types_provided(Req, State) ->
 
 content_types_accepted(Req, State) ->
     {[{'*', handle_request_json}], Req, State}.
+
+delete_resource(Req, State) ->
+    Path = cowboy_req:path(Req),
+    Method = cowboy_req:method(Req),
+    handle_request(Method, Path, json, Req, State).
 
 handle_request_json(Req, State) ->
     Path = cowboy_req:path(Req),
@@ -93,6 +98,21 @@ handle_request(<<"POST">>, _, json, Req, State) ->
             {true, Req2, State}
     end;
 
+handle_request(<<"DELETE">>, <<"/api/v1/contexts/", _/binary>>, json, Req, State) ->
+    Value = cowboy_req:binding(count, Req),
+    case catch binary_to_integer(Value) of
+	Count when is_integer(Count), Count > 0 ->
+	    ok = ergw_api:delete_contexts(Count),
+	    Contexts = ergw_api:contexts(all),
+
+	    Response = jsx:encode(#{contexts => erlang:length(Contexts)}),
+	    Req2 = cowboy_req:set_resp_body(Response, Req),
+	    {true, Req2, State};
+	_ ->
+	    Response = jsx:encode(#{contexts => 0}),
+	    Req3 = cowboy_req:set_resp_body(Response, Req),
+	    {true, Req3, State}
+    end;
 handle_request(_, _, Req, _, State) ->
     {false, Req, State}.
 
