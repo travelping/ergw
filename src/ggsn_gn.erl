@@ -103,7 +103,7 @@ handle_call(query_usage_report, _From,
     {reply, Reply, State};
 
 handle_call(delete_context, From, #{context := Context} = State) ->
-    delete_context(From, Context),
+    delete_context(From, administrative, Context),
     {noreply, State};
 
 handle_call(terminate_context, _From, State) ->
@@ -129,13 +129,13 @@ handle_info({'DOWN', _MonitorRef, Type, Pid, _Info} = _I,
     {noreply, State};
 
 handle_info(stop_from_session, #{context := Context} = State) ->
-    delete_context(undefined, Context),
+    delete_context(undefined, normal, Context),
     {noreply, State};
 
 handle_info(#aaa_request{procedure = {_, 'ASR'}},
 	    #{context := Context, 'Session' := Session} = State) ->
     ergw_aaa_session:response(Session, ok, #{}),
-    delete_context(undefined, Context),
+    delete_context(undefined, administrative, Context),
     {noreply, State};
 
 handle_info(#aaa_request{procedure = {gy, 'RAR'}, request = Request},
@@ -342,20 +342,20 @@ handle_request(ReqKey, _Msg, _Resent, State) ->
     gtp_context:request_finished(ReqKey),
     {noreply, State}.
 
-handle_response(From, timeout, #gtp{type = delete_pdp_context_request}, State) ->
-    close_pdp_context(normal, State),
+handle_response({From, TermCause}, timeout, #gtp{type = delete_pdp_context_request}, State) ->
+    close_pdp_context(TermCause, State),
     if is_tuple(From) -> gen_server:reply(From, {error, timeout});
        true -> ok
     end,
     {stop, State};
 
-handle_response(From,
+handle_response({From, TermCause},
 		#gtp{type = delete_pdp_context_response,
 		     ie = #{?'Cause' := #cause{value = Cause}}} = Response,
 		_Request,
 		#{context := Context0} = State) ->
     Context = gtp_path:bind(Response, Context0),
-    close_pdp_context(normal, State),
+    close_pdp_context(TermCause, State),
     if is_tuple(From) -> gen_server:reply(From, {ok, Cause});
        true -> ok
     end,
@@ -458,10 +458,12 @@ close_pdp_context(Reason, #{context := Context, pfcp := PCtx, 'Session' := Sessi
     %% ===========================================================================
 
     TermCause =
-	case Reason of
-	    upf_failure ->
+	if Reason =:= upf_failure;
+	   Reason =:= link_broken ->
 		?'DIAMETER_BASE_TERMINATION-CAUSE_LINK_BROKEN';
-	    _ ->
+	   Reason =:= administrative ->
+		?'DIAMETER_BASE_TERMINATION-CAUSE_ADMINISTRATIVE';
+	   true ->
 		?'DIAMETER_BASE_TERMINATION-CAUSE_LOGOUT'
 	end,
 
@@ -947,13 +949,13 @@ send_request(#context{control_port = GtpPort,
     gtp_context:send_request(GtpPort, RemoteCntlIP, ?GTP1c_PORT, T3, N3, Msg, ReqInfo).
 
 %% delete_context(From, #context_state{nsapi = NSAPI} = Context) ->
-delete_context(From, Context) ->
+delete_context(From, TermCause, Context) ->
     Type = delete_pdp_context_request,
     NSAPI = 5,
     RequestIEs0 = [#nsapi{nsapi = NSAPI},
 		   #teardown_ind{value = 1}],
     RequestIEs = gtp_v1_c:build_recovery(Type, Context, false, RequestIEs0),
-    send_request(Context, ?T3, ?N3, Type, RequestIEs, From).
+    send_request(Context, ?T3, ?N3, Type, RequestIEs, {From, TermCause}).
 
 session_ipv4_alloc(#{'Framed-IP-Address' := {255,255,255,255}}, ReqMSv4) ->
     ReqMSv4;
