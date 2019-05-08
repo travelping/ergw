@@ -10,7 +10,19 @@
 -compile(export_all).
 
 -include("ergw_test_lib.hrl").
+-include("ergw_ggsn_test_lib.hrl").
+-include_lib("gtplib/include/gtp_packet.hrl").
 -include_lib("common_test/include/ct.hrl").
+
+-define(CONFIG_UPDATE,
+	[{[sockets, cp, ip], localhost},
+	 {[sockets, irx, ip], test_gsn},
+	 {[sx_socket, ip], localhost},
+	 {[node_selection, {default, 2}, 2, "topon.gn.ggsn.$ORIGIN"],
+	  {fun node_sel_update/2, final_gsn}},
+	 {[node_selection, {default, 2}, 2, "topon.sx.prox01.$ORIGIN"],
+	  {fun node_sel_update/2, pgw_u_sx}}
+	]).
 
 -define(TEST_CONFIG,
 	[
@@ -125,8 +137,35 @@ all() ->
      http_api_prometheus_metrics_req,
      http_api_prometheus_metrics_sub_req,
      http_api_metrics_req,
-     http_api_metrics_sub_req].
+     http_api_metrics_sub_req,
+     http_api_delete_sessions
+    ].
 
+init_per_testcase(Config) ->
+    meck_reset(Config).
+init_per_testcase(http_api_delete_sessions, Config) ->
+    % ok = meck:expect(ergw_gtp_socket, send_request,
+		     % fun(GtpPort, DstIP, DstPort, _T3, _N3,
+			 % #gtp{type = delete_pdp_context_request} = Msg, CbInfo) ->
+			     % %% reduce timeout to 1 second and 2 resends
+			     % %% to speed up the test
+			     % meck:passthrough([GtpPort, DstIP, DstPort, 1000, 2, Msg, CbInfo]);
+			% (GtpPort, DstIP, DstPort, T3, N3, Msg, CbInfo) ->
+			     % meck:passthrough([GtpPort, DstIP, DstPort, T3, N3, Msg, CbInfo])
+		     % end),
+    ergw_test_sx_up:reset('pgw-u'),
+    meck_reset(Config),
+    start_gtpc_server(Config),
+    Config;
+init_per_testcase(_, Config) ->
+    init_per_testcase(Config),
+    Config.
+
+end_per_testcase(http_api_session_stop, Config) ->
+    ok = meck:delete(ergw_gtp_socket, send_request, 7),
+    Config;
+end_per_testcase(_, Config) ->
+    Config.
 init_per_suite(Config0) ->
     inets:start(),
     Config1 = [{app_cfg, ?TEST_CONFIG},
@@ -298,6 +337,37 @@ http_api_metrics_sub_req(_Config) ->
     ?match(#{<<"value">> := _}, Res2),
     ok.
 
+http_api_delete_sessions() ->
+    [{doc, "Check DELETE /sessions/count API"}].
+http_api_delete_sessions(Config) ->
+    % Create session and request it
+    lists:foreach(
+    fun(_) ->
+	lib_init_per_suite(Config),
+
+	ergw_test_sx_up:reset('pgw-u'),
+	meck_reset(Config),
+	S = start_gtpc_server(Config),
+	{_GtpC1, _, _} = create_pdp_context(S)
+      end, lists:duplicate(20, 1)),
+
+    Res1 = json_http_request(delete, "/sessions/0"),
+    ?match(#{<<"TotalCount">> := 1}, Res1),
+
+    Res2 = json_http_request(delete, "/sessions/5"),
+    ?match(#{<<"TotalCount">> := 1}, Res2),
+
+    Res3 = json_http_request(delete, "/sessions/15"),
+    ?match(#{<<"TotalCount">> := 1}, Res3),
+
+    Res4 = json_http_request(delete, "/sessions/2"),
+    ?match(#{<<"TotalCount">> := 1}, Res4),
+
+    ok = meck:wait(ggsn_gn, terminate, '_', 2000),
+    wait4tunnels(2000),
+    meck_validate(Config),
+    ok.
+
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
@@ -305,6 +375,12 @@ http_api_metrics_sub_req(_Config) ->
 get_test_url(Path) ->
     Port = ranch:get_port(ergw_http_listener),
     lists:flatten(io_lib:format("http://localhost:~w~s", [Port, Path])).
+
+json_http_request(Method, Path) ->
+    URL = get_test_url(Path),
+    {ok, {_, _, Body}} = httpc:request(Method, {URL, []},
+                                        [], [{body_format, binary}]),
+    jsx:decode(Body, [return_maps]).
 
 exo_function(_) ->
     [{value, rand:uniform(1000)}].
