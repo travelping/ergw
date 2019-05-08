@@ -111,7 +111,7 @@ handle_call(query_usage_report, _From,
     {reply, Reply, State};
 
 handle_call(delete_context, From, #{context := Context} = State) ->
-    delete_context(From, Context),
+    delete_context(From, administrative, Context),
     {noreply, State};
 
 handle_call(terminate_context, _From, State) ->
@@ -139,13 +139,13 @@ handle_info({'DOWN', _MonitorRef, Type, Pid, _Info},
     {noreply, State};
 
 handle_info(stop_from_session, #{context := Context} = State) ->
-    delete_context(undefined, Context),
+    delete_context(undefined, normal, Context),
     {noreply, State};
 
 handle_info(#aaa_request{procedure = {_, 'ASR'}},
 	    #{context := Context, 'Session' := Session} = State) ->
     ergw_aaa_session:response(Session, ok, #{}),
-    delete_context(undefined, Context),
+    delete_context(undefined, administrative, Context),
     {noreply, State};
 handle_info(#aaa_request{procedure = {gy, 'RAR'}, request = Request},
 	    #{'Session' := Session} = State) ->
@@ -513,31 +513,31 @@ handle_response(CommandReqKey,
        true ->
 	    lager:error("Update Bearer Request failed with ~p/~p",
 			[Cause, BearerCause]),
-	    delete_context(undefined, Context),
+	    delete_context(undefined, link_broken, Context),
 	    {noreply, State}
     end;
 
 handle_response(_, timeout, #gtp{type = update_bearer_request},
 		#{context := Context} = State) ->
     lager:error("Update Bearer Request failed with timeout"),
-    delete_context(undefined, Context),
+    delete_context(undefined, link_broken, Context),
     {noreply, State};
 
-handle_response(From, timeout, #gtp{type = delete_bearer_request}, State) ->
-    close_pdn_context(normal, State),
+handle_response({From, TermCause}, timeout, #gtp{type = delete_bearer_request}, State) ->
+    close_pdn_context(TermCause, State),
     if is_tuple(From) -> gen_server:reply(From, {error, timeout});
        true -> ok
     end,
     {stop, State};
 
-handle_response(From,
+handle_response({From, TermCause},
 		#gtp{type = delete_bearer_response,
-		     ie = #{?'Cause' := #v2_cause{v2_cause = Cause}}} = Response,
+		     ie = #{?'Cause' := #v2_cause{v2_cause = RespCause}}} = Response,
 		_Request,
 		#{context := Context0} = State) ->
     Context = gtp_path:bind(Response, Context0),
-    close_pdn_context(normal, State),
-    if is_tuple(From) -> gen_server:reply(From, {ok, Cause});
+    close_pdn_context(TermCause, State),
+    if is_tuple(From) -> gen_server:reply(From, {ok, RespCause});
        true -> ok
     end,
     {stop, State#{context := Context}}.
@@ -640,10 +640,12 @@ close_pdn_context(Reason, #{context := Context, pfcp := PCtx, 'Session' := Sessi
     %% ===========================================================================
 
     TermCause =
-	case Reason of
-	    upf_failure ->
+	if Reason =:= upf_failure;
+	   Reason =:= link_broken ->
 		?'DIAMETER_BASE_TERMINATION-CAUSE_LINK_BROKEN';
-	    _ ->
+	   Reason =:= administrative ->
+		?'DIAMETER_BASE_TERMINATION-CAUSE_ADMINISTRATIVE';
+	   true ->
 		?'DIAMETER_BASE_TERMINATION-CAUSE_LOGOUT'
 	end,
 
@@ -1049,13 +1051,13 @@ send_request(Context, T3, N3, Type, RequestIEs, ReqInfo) ->
     send_request(Context, T3, N3, msg(Context, Type, RequestIEs), ReqInfo).
 
 %% delete_context(From, #context_state{ebi = EBI} = Context) ->
-delete_context(From, Context) ->
+delete_context(From, TermCause, Context) ->
     Type = delete_bearer_request,
     EBI = 5,
     RequestIEs0 = [#v2_cause{v2_cause = reactivation_requested},
 		   #v2_eps_bearer_id{eps_bearer_id = EBI}],
     RequestIEs = gtp_v2_c:build_recovery(Type, Context, false, RequestIEs0),
-    send_request(Context, ?T3, ?N3, Type, RequestIEs, From).
+    send_request(Context, ?T3, ?N3, Type, RequestIEs, {From, TermCause}).
 
 session_ipv4_alloc(#{'Framed-IP-Address' := {255,255,255,255}}, ReqMSv4) ->
     ReqMSv4;
