@@ -604,12 +604,12 @@ match_context(Type,
 	_ ->
 	    lager:error("match_context: IP address mismatch, ~p, ~p, ~p",
 			[Type, lager:pr(Context, ?MODULE), lager:pr(IE, ?MODULE)]),
-	    error_m:fail([#v2_cause{v2_cause = context_not_found}])
+	    error_m:fail([#v2_cause{v2_cause = invalid_peer}])
     end;
 match_context(Type, Context, IE) ->
     lager:error("match_context: context not found, ~p, ~p, ~p",
 		[Type, lager:pr(Context, ?MODULE), lager:pr(IE, ?MODULE)]),
-    error_m:fail([#v2_cause{v2_cause = context_not_found}]).
+    error_m:fail([#v2_cause{v2_cause = invalid_peer}]).
 
 pdn_alloc(#v2_pdn_address_allocation{type = ipv4v6,
 				     address = << IP6PrefixLen:8, IP6Prefix:16/binary, IP4:4/binary>>}) ->
