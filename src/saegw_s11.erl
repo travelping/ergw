@@ -488,7 +488,8 @@ handle_response({From, TermCause},
     end,
     {stop, State#{context := Context}}.
 
-terminate(_Reason, _State) ->
+terminate(_Reason, #{context := Context}) ->
+    pdn_release_ip(Context),
     ok.
 
 %%%===================================================================
@@ -577,8 +578,12 @@ encode_paa({IPv4,_}, IPv6) ->
 encode_paa(Type, IPv4, IPv6) ->
     #v2_pdn_address_allocation{type = Type, address = <<IPv6/binary, IPv4/binary>>}.
 
-pdn_release_ip(#context{vrf = VRF, ms_v4 = MSv4, ms_v6 = MSv6}) ->
-    vrf:release_pdp_ip(VRF, MSv4, MSv6).
+pdn_release_ip(#context{vrf = VRF, ms_v4 = MSv4, ms_v6 = MSv6} = Context)
+  when MSv4 /= undefined; MSv6 /= undefined ->
+    vrf:release_pdp_ip(VRF, MSv4, MSv6),
+    Context#context{ms_v4 = undefined, ms_v6 = undefined};
+pdn_release_ip(Context) ->
+    Context.
 
 close_pdn_context(Reason, #{context := Context, pfcp := PCtx, 'Session' := Session}) ->
     URRs = ergw_gsn_lib:delete_sgi_session(Reason, Context, PCtx),
@@ -614,8 +619,7 @@ close_pdn_context(Reason, #{context := Context, pfcp := PCtx, 'Session' := Sessi
     ergw_gsn_lib:process_offline_charging_events(ChargeEv, Offline, Now, Session),
 
     %% ===========================================================================
-
-    pdn_release_ip(Context).
+    ok.
 
 query_usage_report(#{'Rating-Group' := [RatingGroup]}, Context, PCtx) ->
     ChargingKeys = [{online, RatingGroup}],
@@ -1030,9 +1034,10 @@ maybe_ip(Key, {{_,_,_,_,_,_,_,_},_} = IPv6, SessionIP) ->
 maybe_ip(_, _, SessionIP) ->
     SessionIP.
 
-assign_ips(SessionOps, PAA, #context{vrf = VRF, local_control_tei = LocalTEI} = Context) ->
+assign_ips(SessionOps, PAA, #context{vrf = VRF, local_control_tei = LocalTEI} = Context0) ->
     {PDNType, ReqMSv4, ReqMSv6} = session_ip_alloc(SessionOps, pdn_alloc(PAA)),
     {ok, MSv4, MSv6} = vrf:allocate_pdp_ip(VRF, LocalTEI, ReqMSv4, ReqMSv6),
+    Context = Context0#context{ms_v4 = MSv4, ms_v6 = MSv6},
     case PDNType of
 	ipv4v6 when MSv4 /= undefined, MSv6 /= undefined ->
 	    ok;
@@ -1045,7 +1050,7 @@ assign_ips(SessionOps, PAA, #context{vrf = VRF, local_control_tei = LocalTEI} = 
     end,
     SessionIP4 = maybe_ip('Framed-IP-Address', MSv4, #{}),
     SessionIP = maybe_ip('Framed-IPv6-Prefix', MSv6, SessionIP4),
-    {SessionIP, Context#context{ms_v4 = MSv4, ms_v6 = MSv6}}.
+    {SessionIP, Context}.
 
 session_to_context(SessionOpts, Context) ->
     %% RFC 6911

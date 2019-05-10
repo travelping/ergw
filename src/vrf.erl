@@ -130,6 +130,12 @@ normalize_name(Name)
   when is_binary(Name) ->
     Name.
 
+printable_name(Name) when is_binary(Name) ->
+    L = [ Part || <<Len:8, Part:Len/bytes>> <= Name ],
+    unicode:characters_to_binary(lists:join($., L));
+printable_name(Name) ->
+    unicode:characters_to_binary(io_lib:format("~p", [Name])).
+
 %%%===================================================================
 %%% gen_server callbacks
 %%%===================================================================
@@ -137,9 +143,12 @@ normalize_name(Name)
 init([Name, Opts]) ->
     vrf_reg:register(normalize_name(Name)),
 
+    VrfPoolName = printable_name(Name),
     Pools = maps:get(pools, Opts, []),
-    IPv4pools = [{PrefixLen, init_pool(X)} || {First, _Last, PrefixLen} = X <- Pools, size(First) == 4],
-    IPv6pools = [{PrefixLen, init_pool(X)} || {First, _Last, PrefixLen} = X <- Pools, size(First) == 8],
+    IPv4pools = [{PrefixLen, init_pool(VrfPoolName, X)} ||
+		    {First, _Last, PrefixLen} = X <- Pools, size(First) == 4],
+    IPv6pools = [{PrefixLen, init_pool(VrfPoolName, X)} ||
+		    {First, _Last, PrefixLen} = X <- Pools, size(First) == 8],
 
     lager:debug("IPv4Pools ~p", [IPv4pools]),
     lager:debug("IPv6Pools ~p", [IPv6pools]),
@@ -233,9 +242,9 @@ release_ipv6({IPv6, PrefixLen}, #state{ip6_pools = Pools}) ->
 release_ipv6(_IP, _State) ->
     ok.
 
-init_pool(X) ->
+init_pool(Name, X) ->
     %% TODO: to supervise or not to supervise??????
-    {ok, Pid} = gtp_ip_pool:start_link(X, []),
+    {ok, Pid} = gtp_ip_pool:start_link(Name, X, []),
     Pid.
 
 with_pool(Fun, PrefixLen, Pools) ->

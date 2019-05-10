@@ -10,14 +10,14 @@
 -behavior(gen_server).
 
 %% API
--export([start_link/2, start_link/3,
+-export([start_link/3, start_link/4,
 	 allocate/2, take/3, release/2]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
 	 terminate/2, code_change/3]).
 
--record(state, {type, first, last, shift, used, free, used_pool, free_pool}).
+-record(state, {name, type, id, first, last, shift, used, free, used_pool, free_pool}).
 -record(lease, {ip, client_id}).
 
 -include_lib("stdlib/include/ms_transform.hrl").
@@ -26,11 +26,11 @@
 %% API
 %%====================================================================
 
-start_link(Pool, Opts) ->
-    gen_server:start_link(?MODULE, Pool, Opts).
+start_link(PoolName, Pool, Opts) ->
+    gen_server:start_link(?MODULE, [PoolName, Pool], Opts).
 
-start_link(ServerName, Pool, Opts) ->
-    gen_server:start_link(ServerName, ?MODULE, Pool, Opts).
+start_link(ServerName, PoolName, Pool, Opts) ->
+    gen_server:start_link(ServerName, ?MODULE, [PoolName, Pool], Opts).
 
 allocate(Server, ClientId) ->
     gen_server:call(Server, {allocate, ClientId}).
@@ -45,25 +45,31 @@ release(Server, IP) ->
 %%% gen_server callbacks
 %%%===================================================================
 
-init({{_,_,_,_} = First, {_,_,_,_} = Last, PrefixLen})
+init([Name, {{_,_,_,_} = First, {_,_,_,_} = Last, PrefixLen}])
   when is_integer(PrefixLen),  PrefixLen =< 32 ->
-    init(ipv4, ip2int(First), ip2int(Last), 32 - PrefixLen);
+    init(Name, ipv4, ip2int(First), ip2int(Last), 32 - PrefixLen);
 
-init({{_,_,_,_,_,_,_,_} = First, {_,_,_,_,_,_,_,_} = Last, PrefixLen})
+init([Name, {{_,_,_,_,_,_,_,_} = First, {_,_,_,_,_,_,_,_} = Last, PrefixLen}])
   when is_integer(PrefixLen), PrefixLen =< 128 ->
-    init(ipv6, ip2int(First), ip2int(Last), 128 - PrefixLen).
+    init(Name, ipv6, ip2int(First), ip2int(Last), 128 - PrefixLen).
 
-init(Type, First, Last, Shift) when Last >= First ->
+init(Name, Type, First, Last, Shift) when Last >= First ->
     UsedTid = ets:new(used_pool, [set, {keypos, #lease.ip}]),
     FreeTid = ets:new(free_pool, [set, {keypos, #lease.ip}]),
 
+    Id = int2ip(Type, First),
     Start = First bsr Shift,
     End = Last bsr Shift,
     Size = End - Start + 1,
-    lager:debug("init Pool ~p - ~p (~p)", [Start, End, Size]),
+    lager:debug("init Pool ~w ~p - ~p (~p)", [Id, Start, End, Size]),
     init_table(FreeTid, Start, End),
 
-    State = #state{type = Type,
+    exometer_new([pool, Name, Type, Id, free], gauge),
+    exometer_new([pool, Name, Type, Id, used], gauge),
+
+    State = #state{name = Name,
+		   type = Type,
+		   id = Id,
 		   first = First,
 		   last = Last,
 		   shift = Shift,
@@ -71,6 +77,7 @@ init(Type, First, Last, Shift) when Last >= First ->
 		   free = Size,
 		   used_pool = UsedTid,
 		   free_pool = FreeTid},
+    exo_sync_gauges(State),
     lager:debug("init Pool state: ~p", [lager:pr(State, ?MODULE)]),
     {ok, State}.
 
@@ -82,16 +89,18 @@ init_table(Tid, Start, End) ->
     init_table(Tid, Start + 1, End).
 
 handle_call({allocate, ClientId} = Request, _From,
-	    #state{used = Used, free = Free, used_pool = UsedTid, free_pool = FreeTid} = State)
+	    #state{used = Used, free = Free, used_pool = UsedTid, free_pool = FreeTid} = State0)
   when Free =/= 0 ->
-    lager:debug("~w: Allocate: ~p, State: ~p", [self(), lager:pr(Request, ?MODULE), lager:pr(State, ?MODULE)]),
+    lager:debug("~w: Allocate: ~p, State: ~p",
+		[self(), lager:pr(Request, ?MODULE), lager:pr(State0, ?MODULE)]),
 
     Id = ets:first(FreeTid),
     ets:delete(FreeTid, Id),
     ets:insert(UsedTid, #lease{ip = Id, client_id = ClientId}),
-    IP = id2ip(Id, State),
-
-    {reply, {ok, IP}, State#state{used = Used + 1, free = Free - 1}};
+    IP = id2ip(Id, State0),
+    State = State0#state{used = Used + 1, free = Free - 1},
+    exo_sync_gauges(State),
+    {reply, {ok, IP}, State};
 
 handle_call({allocate, _ClientId}, _From, State) ->
     {reply, {error, full}, State};
@@ -102,21 +111,31 @@ handle_call({take, ClientId, ReqIP} = Request, _From, State0) ->
     {Reply, State} = take_ip(ClientId, ip2int(ReqIP), State0),
     {reply, Reply, State};
 
-handle_call({release, {_,_,_,_} = IPv4}, _From, State0) ->
-    State1 = release_ip(ip2int(IPv4), State0),
-    {reply, ok, State1};
-handle_call({release, {{_,_,_,_} = IPv4,_}}, _From, State0) ->
-    State1 = release_ip(ip2int(IPv4), State0),
-    {reply, ok, State1};
+handle_call({release, {_,_,_,_} = IPv4} = Request, _From, State0) ->
+    State = release_ip(ip2int(IPv4), State0),
+    lager:debug("~w: Release: ~p, State: ~p",
+		[self(), lager:pr(Request, ?MODULE), lager:pr(State, ?MODULE)]),
+    {reply, ok, State};
+handle_call({release, {{_,_,_,_} = IPv4,_}} = Request, _From, State0) ->
+    State = release_ip(ip2int(IPv4), State0),
+    lager:debug("~w: Release: ~p, State: ~p",
+		[self(), lager:pr(Request, ?MODULE), lager:pr(State, ?MODULE)]),
+    {reply, ok, State};
 
-handle_call({release, {_,_,_,_,_,_,_,_} = IPv6}, _From, State0) ->
-    State1 = release_ip(ip2int(IPv6), State0),
-    {reply, ok, State1};
-handle_call({release, {{_,_,_,_,_,_,_,_} = IPv6,_}}, _From, State0) ->
-    State1 = release_ip(ip2int(IPv6), State0),
-    {reply, ok, State1};
+handle_call({release, {_,_,_,_,_,_,_,_} = IPv6} = Request, _From, State0) ->
+    State = release_ip(ip2int(IPv6), State0),
+    lager:debug("~w: Release: ~p, State: ~p",
+		[self(), lager:pr(Request, ?MODULE), lager:pr(State, ?MODULE)]),
+    {reply, ok, State};
+handle_call({release, {{_,_,_,_,_,_,_,_} = IPv6,_}} = Request, _From, State0) ->
+    State = release_ip(ip2int(IPv6), State0),
+    lager:debug("~w: Release: ~p, State: ~p",
+		[self(), lager:pr(Request, ?MODULE), lager:pr(State0, ?MODULE)]),
+    {reply, ok, State};
 
-handle_call({release, IP}, _From, State) ->
+handle_call({release, IP} = Request, _From, State) ->
+    lager:error("~w: Release: ~p, State: ~p",
+		[self(), lager:pr(Request, ?MODULE), lager:pr(State, ?MODULE)]),
     Reply = {error, invalid, IP},
     {reply, Reply, State};
 
@@ -164,17 +183,19 @@ id2ip(Id, #state{type = ipv6, shift = Shift}) ->
 release_ip(IP, #state{first = First, last = Last,
 		      shift = Shift,
 		      used = Used, free = Free,
-		      used_pool = UsedTid, free_pool = FreeTid} = State)
+		      used_pool = UsedTid, free_pool = FreeTid} = State0)
   when IP >= First andalso IP =< Last ->
     Id = IP bsr Shift,
 
     case ets:take(UsedTid, Id) of
 	[_] ->
 	    ets:insert(FreeTid, #lease{ip = Id}),
-	    State#state{used = Used - 1, free = Free + 1};
+	    State = State0#state{used = Used - 1, free = Free + 1},
+	    exo_sync_gauges(State),
+	    State;
 	_ ->
-	    lager:warning("release of unallocated IP: ~p", [id2ip(Id, State)]),
-	    State
+	    lager:warning("release of unallocated IP: ~p", [id2ip(Id, State0)]),
+	    State0
     end;
 release_ip(IP, #state{type = Type, first = First, last = Last} = State) ->
     lager:warning("release of out-of-pool IP: ~w < ~w < ~w",
@@ -186,19 +207,42 @@ release_ip(IP, #state{type = Type, first = First, last = Last} = State) ->
 take_ip(ClientId, IP, #state{first = First, last = Last,
 			     shift = Shift,
 			     used = Used, free = Free,
-			     used_pool = UsedTid, free_pool = FreeTid} = State)
+			     used_pool = UsedTid, free_pool = FreeTid} = State0)
   when IP >= First andalso IP =< Last ->
     Id = IP bsr Shift,
 
     case ets:take(FreeTid, Id) of
 	[_] ->
 	    ets:insert(UsedTid, #lease{ip = Id, client_id = ClientId}),
-	    {{ok, id2ip(Id, State)}, State#state{used = Used + 1, free = Free - 1}};
+	    State = State0#state{used = Used + 1, free = Free - 1},
+	    exo_sync_gauges(State),
+	    {{ok, id2ip(Id, State)}, State};
 	_ ->
-	    lager:warning("attempt to take already allocated IP: ~p", [id2ip(Id, State)]),
-	    {{error, taken}, State}
+	    lager:warning("attempt to take already allocated IP: ~p", [id2ip(Id, State0)]),
+	    {{error, taken}, State0}
     end;
 take_ip(_ClientId, IP, #state{type = Type, first = First, last = Last} = State) ->
     lager:warning("attempt to take of out-of-pool IP: ~w < ~w < ~w",
 		  [int2ip(Type, First), int2ip(Type, IP), int2ip(Type, Last)]),
     {{error, out_of_pool}, State}.
+
+%%%===================================================================
+%%% exometer functions
+%%%===================================================================
+
+%% wrapper to reuse old entries when restarting
+exometer_new(Name, Type, Opts) ->
+    case exometer:ensure(Name, Type, Opts) of
+	ok ->
+	    ok;
+	_ ->
+	    exometer:re_register(Name, Type, Opts)
+    end.
+exometer_new(Name, Type) ->
+    exometer_new(Name, Type, []).
+
+exo_sync_gauges(#state{name = Name, type = Type, id = Id,
+		       used = Used, free = Free}) ->
+    exometer:update([pool, Name, Type, Id, free], Free),
+    exometer:update([pool, Name, Type, Id, used], Used),
+    ok.
