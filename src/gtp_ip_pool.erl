@@ -17,7 +17,7 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
 	 terminate/2, code_change/3]).
 
--record(state, {type, first, last, shift, used, free, used_pool, free_pool}).
+-record(state, {id, type, first, last, shift, used, free, used_pool, free_pool}).
 -record(lease, {ip, client_id}).
 
 -include_lib("stdlib/include/ms_transform.hrl").
@@ -63,7 +63,9 @@ init(Type, First, Last, Shift) when Last >= First ->
     lager:debug("init Pool ~p - ~p (~p)", [Start, End, Size]),
     init_table(FreeTid, Start, End),
 
-    State = #state{type = Type,
+    Id = inet:ntoa(int2ip(Type, First)),
+    State = #state{id = Id,
+		   type = Type,
 		   first = First,
 		   last = Last,
 		   shift = Shift,
@@ -71,6 +73,10 @@ init(Type, First, Last, Shift) when Last >= First ->
 		   free = Size,
 		   used_pool = UsedTid,
 		   free_pool = FreeTid},
+
+    exo_init_metrics(State),
+    exo_update_pool_size_gauge(State, Size),
+
     lager:debug("init Pool state: ~p", [lager:pr(State, ?MODULE)]),
     {ok, State}.
 
@@ -91,7 +97,10 @@ handle_call({allocate, ClientId} = Request, _From,
     ets:insert(UsedTid, #lease{ip = Id, client_id = ClientId}),
     IP = id2ip(Id, State),
 
-    {reply, {ok, IP}, State#state{used = Used + 1, free = Free - 1}};
+    NewState = State#state{used = Used + 1, free = Free - 1},
+    exo_update_currently_use_gauge(NewState),
+
+    {reply, {ok, IP}, NewState};
 
 handle_call({allocate, _ClientId}, _From, State) ->
     {reply, {error, full}, State};
@@ -171,7 +180,9 @@ release_ip(IP, #state{first = First, last = Last,
     case ets:take(UsedTid, Id) of
 	[_] ->
 	    ets:insert(FreeTid, #lease{ip = Id}),
-	    State#state{used = Used - 1, free = Free + 1};
+	    NewState = State#state{used = Used - 1, free = Free + 1},
+	    exo_update_currently_use_gauge(NewState),
+	    NewState;
 	_ ->
 	    lager:warning("release of unallocated IP: ~p", [id2ip(Id, State)]),
 	    State
@@ -202,3 +213,23 @@ take_ip(_ClientId, IP, #state{type = Type, first = First, last = Last} = State) 
     lager:warning("attempt to take of out-of-pool IP: ~w < ~w < ~w",
 		  [int2ip(Type, First), int2ip(Type, IP), int2ip(Type, Last)]),
     {{error, out_of_pool}, State}.
+
+exometer_new(Name, Type, Opts) ->
+    case exometer:ensure(Name, Type, Opts) of
+	ok ->
+	    ok;
+	_ ->
+	    exometer:re_register(Name, Type, Opts)
+    end.
+exometer_new(Name, Type) ->
+    exometer_new(Name, Type, []).
+
+exo_init_metrics(#state{id = Id, type = Type}) ->
+    exometer_new([pool, Type, Id, size], gauge),
+    exometer_new([pool, Type, Id, currently_in_use], gauge).
+
+exo_update_currently_use_gauge(#state{id = Id, type = Type, used = Used}) ->
+    exometer:update([pool, Type, Id, currently_in_use], Used).
+
+exo_update_pool_size_gauge(#state{id = Id, type = Type}, Size) ->
+    exometer:update([pool, Type, Id, size], Size).
