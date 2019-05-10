@@ -538,6 +538,9 @@ end_per_testcase(Config) ->
     stop_gtpc_server(),
     stop_all_sx_nodes(),
 
+    FreeP = [pool, <<"upstream">>, ipv4, {10,180,0,1}, free],
+    match_exo_value(FreeP, 65534),
+
     AppsCfg = proplists:get_value(aaa_cfg, Config),
     ok = application:set_env(ergw_aaa, apps, AppsCfg),
     ok.
@@ -651,7 +654,18 @@ create_session_request_gx_fail(Config) ->
 create_session_request_gy_fail() ->
     [{doc, "Check Gy failure on Create Session Request"}].
 create_session_request_gy_fail(Config) ->
+    FreeP = [pool, <<"upstream">>, ipv4, {10,180,0,1}, free],
+    UsedP = [pool, <<"upstream">>, ipv4, {10,180,0,1}, used],
+
+    match_exo_value(FreeP, 65534),
+    match_exo_value(UsedP, 0),
+
     create_session(gy_fail, Config),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+
+    match_exo_value(FreeP, 65534),
+    match_exo_value(UsedP, 0),
 
     meck_validate(Config),
     ok.
@@ -682,25 +696,19 @@ create_session_request_pool_exhausted() ->
     [{doc, "Dynamic IP pool exhausted"}].
 create_session_request_pool_exhausted(Config) ->
     ok = meck:expect(vrf, allocate_pdp_ip,
-		     fun(VRF, TEI, ReqIPv4, ReqIPv6) ->
-			     {ok, _IPv4, IPv6} =
-				 meck:passthrough([VRF, TEI, ReqIPv4, ReqIPv6]),
-			     {ok, undefined, IPv6}
+		     fun(VRF, TEI, ReqIPv4, _ReqIPv6) ->
+			     meck:passthrough([VRF, TEI, ReqIPv4, undefined])
 		     end),
     create_session(pool_exhausted, Config),
 
     ok = meck:expect(vrf, allocate_pdp_ip,
-		     fun(VRF, TEI, ReqIPv4, ReqIPv6) ->
-			     {ok, IPv4, _IPv6} =
-				 meck:passthrough([VRF, TEI, ReqIPv4, ReqIPv6]),
-			     {ok, IPv4, undefined}
+		     fun(VRF, TEI, _ReqIPv4, ReqIPv6) ->
+			     meck:passthrough([VRF, TEI, undefined, ReqIPv6])
 		     end),
     create_session(pool_exhausted, Config),
 
     ok = meck:expect(vrf, allocate_pdp_ip,
-		     fun(VRF, TEI, ReqIPv4, ReqIPv6) ->
-			     {ok, _IPv4, _IPv6} =
-				 meck:passthrough([VRF, TEI, ReqIPv4, ReqIPv6]),
+		     fun(_VRF, _TEI, _ReqIPv4, _ReqIPv6) ->
 			     {ok, undefined, undefined}
 		     end),
     create_session(pool_exhausted, Config),
@@ -797,11 +805,24 @@ path_restart_multi(Config) ->
 simple_session_request() ->
     [{doc, "Check simple Create Session, Delete Session sequence"}].
 simple_session_request(Config) ->
+    FreeP = [pool, <<"upstream">>, ipv4, {10,180,0,1}, free],
+    UsedP = [pool, <<"upstream">>, ipv4, {10,180,0,1}, used],
+
+    match_exo_value(FreeP, 65534),
+    match_exo_value(UsedP, 0),
+
     {GtpC, _, _} = create_session(Config),
+
+    match_exo_value(FreeP, 65533),
+    match_exo_value(UsedP, 1),
+
     delete_session(GtpC),
 
     ?equal([], outstanding_requests()),
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+
+    match_exo_value(FreeP, 65534),
+    match_exo_value(UsedP, 0),
 
     [_, SER|_] = lists:filter(
 		   fun(#pfcp{type = session_establishment_request}) -> true;

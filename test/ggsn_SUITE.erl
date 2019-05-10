@@ -443,7 +443,12 @@ init_per_testcase(_, Config) ->
     Config.
 
 end_per_testcase(_Config) ->
-    stop_gtpc_server().
+    stop_gtpc_server(),
+
+    FreeP = [pool, <<"upstream">>, ipv4, {10,180,0,1}, free],
+    match_exo_value(FreeP, 65534),
+
+    ok.
 
 end_per_testcase(TestCase, Config)
   when TestCase == create_pdp_context_request_aaa_reject;
@@ -557,15 +562,26 @@ create_pdp_context_request_gx_fail(Config) ->
 create_pdp_context_request_gy_fail() ->
     [{doc, "Check Gy failure on Create PDP Context Request"}].
 create_pdp_context_request_gy_fail(Config) ->
+    FreeP = [pool, <<"upstream">>, ipv4, {10,180,0,1}, free],
+    UsedP = [pool, <<"upstream">>, ipv4, {10,180,0,1}, used],
+
+    match_exo_value(FreeP, 65534),
+    match_exo_value(UsedP, 0),
+
     MetricsBefore = socket_counter_metrics(),
 
     create_pdp_context(gy_fail, Config),
 
     MetricsAfter = socket_counter_metrics(),
     ?equal([], outstanding_requests()),
-    meck_validate(Config),
+
+    match_exo_value(FreeP, 65534),
+    match_exo_value(UsedP, 0),
+
     socket_counter_metrics_ok( MetricsBefore, MetricsAfter, create_pdp_context_request ),
     socket_counter_metrics_ok( MetricsBefore, MetricsAfter, system_failure ), % In response
+
+    meck_validate(Config),
     ok.
 
 %%--------------------------------------------------------------------
@@ -600,12 +616,9 @@ create_pdp_context_request_pool_exhausted() ->
     [{doc, "Dynamic IP pool exhausted"}].
 create_pdp_context_request_pool_exhausted(Config) ->
     ok = meck:expect(vrf, allocate_pdp_ip,
-		     fun(VRF, TEI, ReqIPv4, ReqIPv6) ->
-			     {ok, _IPv4, IPv6} =
-				 meck:passthrough([VRF, TEI, ReqIPv4, ReqIPv6]),
-			     {ok, undefined, IPv6}
+		     fun(VRF, TEI, ReqIPv4, _ReqIPv6) ->
+			     meck:passthrough([VRF, TEI, ReqIPv4, undefined])
 		     end),
-
     MetricsBefore = socket_counter_metrics(),
 
     create_pdp_context(pool_exhausted, Config),
@@ -615,17 +628,13 @@ create_pdp_context_request_pool_exhausted(Config) ->
     socket_counter_metrics_ok( MetricsBefore, MetricsAfter, all_dynamic_pdp_addresses_are_occupied ), % In response
 
     ok = meck:expect(vrf, allocate_pdp_ip,
-		     fun(VRF, TEI, ReqIPv4, ReqIPv6) ->
-			     {ok, IPv4, _IPv6} =
-				 meck:passthrough([VRF, TEI, ReqIPv4, ReqIPv6]),
-			     {ok, IPv4, undefined}
+		     fun(VRF, TEI, _ReqIPv4, ReqIPv6) ->
+			     meck:passthrough([VRF, TEI, undefined, ReqIPv6])
 		     end),
     create_pdp_context(pool_exhausted, Config),
 
     ok = meck:expect(vrf, allocate_pdp_ip,
-		     fun(VRF, TEI, ReqIPv4, ReqIPv6) ->
-			     {ok, _IPv4, _IPv6} =
-				 meck:passthrough([VRF, TEI, ReqIPv4, ReqIPv6]),
+		     fun(_VRF, _TEI, _ReqIPv4, _ReqIPv6) ->
 			     {ok, undefined, undefined}
 		     end),
     create_pdp_context(pool_exhausted, Config),
@@ -721,16 +730,31 @@ path_restart_multi(Config) ->
 simple_pdp_context_request() ->
     [{doc, "Check simple Create PDP Context, Delete PDP Context sequence"}].
 simple_pdp_context_request(Config) ->
+    FreeP = [pool, <<"upstream">>, ipv4, {10,180,0,1}, free],
+    UsedP = [pool, <<"upstream">>, ipv4, {10,180,0,1}, used],
+
+    match_exo_value(FreeP, 65534),
+    match_exo_value(UsedP, 0),
+
     MetricsBefore = socket_counter_metrics(),
     {GtpC, _, _} = create_pdp_context(Config),
     MetricsAfter = socket_counter_metrics(),
+
+    match_exo_value(FreeP, 65533),
+    match_exo_value(UsedP, 1),
+
     delete_pdp_context(GtpC),
 
     ?equal([], outstanding_requests()),
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
-    meck_validate(Config),
+
     socket_counter_metrics_ok( MetricsBefore, MetricsAfter, create_pdp_context_request ),
     socket_counter_metrics_ok( MetricsBefore, MetricsAfter, request_accepted ), % In response
+
+    match_exo_value(FreeP, 65534),
+    match_exo_value(UsedP, 0),
+
+    meck_validate(Config),
     ok.
 
 %%--------------------------------------------------------------------
