@@ -298,6 +298,8 @@ common() ->
      create_session_request_x2_handover,
      create_session_request_resend,
      delete_session_request_resend,
+     delete_session_fq_teid,
+     delete_session_invalid_fq_teid,
      modify_bearer_request_ra_update,
      modify_bearer_request_tei_update,
      modify_bearer_command,
@@ -599,6 +601,37 @@ delete_session_request_resend(Config) ->
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     ?match(0, meck:num_calls(?HUT, handle_request, ['_', '_', true, '_'])),
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+delete_session_fq_teid() ->
+    [{doc, "Check that a Delete Session Request with Sender F-TEID works"}].
+delete_session_fq_teid(Config) ->
+    {GtpC, _, _} = create_session(Config),
+    delete_session(delete_fq_teid, GtpC),
+
+    ?equal([], outstanding_requests()),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+delete_session_invalid_fq_teid() ->
+    [{doc, "Check that a Delete Session Request with the wrong Sender F-TEID is rejected"}].
+delete_session_invalid_fq_teid(Config) ->
+    {GtpC, _, _} = create_session(Config),
+    delete_session(invalid_peer_teid, GtpC),
+    delete_session(invalid_peer_ip, GtpC),
+
+    ?equal([], outstanding_requests()),
+
+    delete_session(GtpC),
+
+    ?equal([], outstanding_requests()),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
     ok.
 

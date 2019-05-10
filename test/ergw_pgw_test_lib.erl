@@ -391,17 +391,49 @@ make_request(change_notification_request, invalid_imsi, GtpC) ->
 				#v2_international_mobile_subscriber_identity{
 				   imsi = <<"991111111111111">>})};
 
-make_request(delete_session_request, _SubType,
+make_request(delete_session_request, fq_teid,
 	     #gtpc{restart_counter = RCnt, seq_no = SeqNo,
 		   local_ip = LocalIP,
 		   local_control_tei = LocalCntlTEI,
 		   remote_control_tei = RemoteCntlTEI}) ->
-    IEs = [%%{170,0} => {170,0,<<220,126,139,67>>},
-	   #v2_recovery{restart_counter = RCnt},
+    IEs = [#v2_recovery{restart_counter = RCnt},
 	   #v2_eps_bearer_id{eps_bearer_id = 5},
 	   fq_teid(0, ?'S5/S8-C SGW', LocalCntlTEI, LocalIP),
 	   #v2_user_location_information{tai = <<3,2,22,214,217>>,
 					 ecgi = <<3,2,22,8,71,9,92>>}],
+
+    #gtp{version = v2, type = delete_session_request,
+	 tei = RemoteCntlTEI, seq_no = SeqNo, ie = IEs};
+
+make_request(delete_session_request, SubType,
+	     #gtpc{restart_counter = RCnt, seq_no = SeqNo,
+		   local_ip = LocalIP,
+		   local_control_tei = LocalCntlTEI,
+		   remote_control_tei = RemoteCntlTEI})
+  when SubType == invalid_peer_teid;
+       SubType == invalid_peer_ip ->
+    FqTEID =
+	case SubType of
+	      invalid_peer_teid ->
+		fq_teid(0, ?'S5/S8-C SGW', LocalCntlTEI + 1000, LocalIP);
+	    invalid_peer_ip ->
+		fq_teid(0, ?'S5/S8-C SGW', LocalCntlTEI, {1,1,1,1})
+	end,
+
+    IEs = [#v2_recovery{restart_counter = RCnt},
+	   #v2_eps_bearer_id{eps_bearer_id = 5},
+	   FqTEID,
+	   #v2_user_location_information{tai = <<3,2,22,214,217>>,
+					 ecgi = <<3,2,22,8,71,9,92>>}],
+
+    #gtp{version = v2, type = delete_session_request,
+	 tei = RemoteCntlTEI, seq_no = SeqNo, ie = IEs};
+
+make_request(delete_session_request, _SubType,
+	     #gtpc{restart_counter = RCnt, seq_no = SeqNo,
+		   remote_control_tei = RemoteCntlTEI}) ->
+    IEs = [#v2_recovery{restart_counter = RCnt},
+	   #v2_eps_bearer_id{eps_bearer_id = 5}],
 
     #gtp{version = v2, type = delete_session_request,
 	 tei = RemoteCntlTEI, seq_no = SeqNo, ie = IEs};
@@ -758,6 +790,17 @@ validate_response(delete_session_request, not_found, Response, GtpC) ->
        #gtp{type = delete_session_response,
 	    tei = 0,
 	    ie = #{{v2_cause,0} := #v2_cause{v2_cause = context_not_found}}
+	   }, Response),
+    GtpC;
+
+validate_response(delete_session_request, SubType, Response,
+		  #gtpc{local_control_tei = LocalCntlTEI} = GtpC)
+  when SubType == invalid_peer_teid;
+       SubType == invalid_peer_ip ->
+    ?match(
+       #gtp{type = delete_session_response,
+	    tei = LocalCntlTEI,
+	    ie = #{{v2_cause,0} := #v2_cause{v2_cause = invalid_peer}}
 	   }, Response),
     GtpC;
 
