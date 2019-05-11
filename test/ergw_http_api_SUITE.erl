@@ -136,6 +136,7 @@ all() ->
      http_api_status_accept_new_post_req,
      http_api_prometheus_metrics_req,
      http_api_prometheus_metrics_sub_req,
+     http_api_prometheus_metrics_pool_req,
      http_api_metrics_req,
      http_api_metrics_sub_req
      % http_api_delete_sessions
@@ -296,6 +297,29 @@ http_api_prometheus_metrics_sub_req(_Config) ->
     ?match({ok, _}, httpc:request(get, {URL2, [{"Accept", Accept}]},
 				  [], [{body_format, binary}])),
 
+    ok.
+
+http_api_prometheus_metrics_pool_req() ->
+    [{doc, "Check /metrics/pool/ Prometheus API endpoint"}].
+http_api_prometheus_metrics_pool_req(_Config) ->
+    Accept = "application/vnd.google.protobuf;proto=io.prometheus.client.MetricFamily;encoding=delimited;q=0.7,"
+             ++ "text/plain;version=0.0.4;q=0.3,*/*;q=0.1",
+    URL0 = get_test_url("/metrics/pool/"),
+    {ok, {_, _, Body}} = httpc:request(get, {URL0, [{"Accept", Accept}]},
+				       [], [{body_format, binary}]),
+    Lines = binary:split(Body, <<"\n">>, [global]),
+    ct:pal("Sockets: ~p", [Lines]),
+    Result0 =
+	lists:filter(fun(<<"pool_example_ipv4_10_180_0_1_free", _/binary>>) ->
+			    true;
+			(_) -> false
+		     end, Lines),
+    ?equal(1, length(Result0)),
+    Result1 = lists:filter(fun(<<"pool_example_ipv6_8001_0_1___free 65536", _/binary>>) ->
+			    true;
+			(_) -> false
+		     end, Lines),
+    ?equal(1, length(Result1)),
     ok.
 
 http_api_metrics_req() ->
