@@ -189,13 +189,15 @@ ioize({_,_,_,_} = IP) ->
     list_to_binary(inet:ntoa(IP));
 ioize({_,_,_,_,_,_,_,_} = IP) ->
     list_to_binary(inet:ntoa(IP));
+ioize(Bin) when is_binary(Bin) ->
+    Bin;
 ioize(Something) ->
     iolist_to_binary(io_lib:format("~p", [Something])).
 
 make_metric_name(Path) ->
     NameList = lists:join($_, lists:map(fun ioize/1, Path)),
     NameBin = iolist_to_binary(NameList),
-    re:replace(NameBin, "-|\\.", "_", [global, {return,binary}]).
+    re:replace(NameBin, "-|\\.|:", "_", [global, {return,binary}]).
 
 map_type(undefined)     -> <<"untyped">>;
 map_type(counter)       -> <<"counter">>;
