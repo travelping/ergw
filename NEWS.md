@@ -1,6 +1,13 @@
 erGW - 3GPP GGSN and PDN-GW in Erlang
 =====================================
 
+Version 1.19.1 - 12 May 2019
+----------------------------
+* Fix TEID generation: randomize the TEIDs
+* Fix Proxy-Mode: update context registration for local TEID change
+* Fix tracking GTPv2 commands
+* Fix most significant bit in SeqNo of GTPv2 commands
+
 Version 1.19.0 - 11 Dec 2018
 ----------------------------
 * Forward change of SGSN/SGW in proxy mode
