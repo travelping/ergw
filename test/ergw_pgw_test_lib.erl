@@ -11,6 +11,7 @@
 
 -export([make_request/3, make_response/3, validate_response/4,
 	 create_session/1, create_session/2,
+	 create_deterministic_session/3,
 	 delete_session/1, delete_session/2,
 	 modify_bearer/2,
 	 modify_bearer_command/2,
@@ -42,6 +43,13 @@ create_session(SubType, #gtpc{} = GtpC0) ->
 
 create_session(SubType, Config) ->
     execute_request(create_session_request, SubType, gtp_context(Config)).
+
+create_deterministic_session(Base, N, #gtpc{} = GtpC0) ->
+    GtpC1 = ergw_test_lib:gtp_context_new_teids(Base, N, GtpC0),
+    GtpC = gtp_context_inc_seq(GtpC1),
+    Msg = create_session_request(Base, N, GtpC),
+    Response = send_recv_pdu(GtpC, Msg, 20000),
+    {validate_response(create_session_request, simple, Response, GtpC), Msg, Response}.
 
 modify_bearer(SubType, GtpC0)
   when SubType == tei_update ->
@@ -218,6 +226,45 @@ validate_pdn_type(_SubType, IEs) ->
 				 {?'PCO-DNS-Server-IPv4-Address', _}]}}}, IEs).
 
 %%%-------------------------------------------------------------------
+
+create_session_request(Base, N,
+		       #gtpc{restart_counter = RCnt, seq_no = SeqNo,
+			     local_ip = LocalIP,
+			     local_control_tei = LocalCntlTEI,
+			     local_data_tei = LocalDataTEI,
+			     rat_type = RAT}) ->
+    IMSI = integer_to_binary(700000000000000 + Base + N),
+    IMEI = integer_to_binary(70000000 + Base + N),
+    MSISDN = integer_to_binary(440000000000 + Base + N),
+
+    IEs0 =
+	[#v2_recovery{restart_counter = RCnt},
+	 #v2_access_point_name{apn = apn(simple)},
+	 #v2_aggregate_maximum_bit_rate{uplink = 48128, downlink = 1704125},
+	 #v2_apn_restriction{restriction_type_value = 0},
+	 #v2_bearer_context{
+	    group = [#v2_bearer_level_quality_of_service{
+			pci = 1, pl = 10, pvi = 0, label = 8,
+			maximum_bit_rate_for_uplink      = 0,
+			maximum_bit_rate_for_downlink    = 0,
+			guaranteed_bit_rate_for_uplink   = 0,
+			guaranteed_bit_rate_for_downlink = 0},
+		     #v2_eps_bearer_id{eps_bearer_id = 5},
+		     fq_teid(2, ?'S5/S8-U SGW', LocalDataTEI, LocalIP)
+		    ]},
+	 fq_teid(0, ?'S5/S8-C SGW', LocalCntlTEI, LocalIP),
+	 #v2_international_mobile_subscriber_identity{imsi = IMSI},
+	 #v2_mobile_equipment_identity{mei = IMEI},
+	 #v2_msisdn{msisdn = MSISDN},
+	 #v2_rat_type{rat_type = RAT},
+	 #v2_selection_mode{mode = 0},
+	 #v2_serving_network{mcc = <<"001">>, mnc = <<"001">>},
+	 #v2_ue_time_zone{timezone = 10, dst = 0},
+	 #v2_user_location_information{tai = <<3,2,22,214,217>>,
+				       ecgi = <<3,2,22,8,71,9,92>>}],
+    IEs = make_pdn_type(simple, IEs0),
+    #gtp{version = v2, type = create_session_request, tei = 0,
+	 seq_no = SeqNo, ie = IEs}.
 
 make_request(Type, invalid_teid, GtpC) ->
     Msg = make_request(Type, simple, GtpC),
