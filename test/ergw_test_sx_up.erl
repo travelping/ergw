@@ -5,7 +5,8 @@
 %% API
 -export([start/2, stop/1, restart/1,
 	 send/2, usage_report/4,
-	 reset/1, history/1, accounting/2,
+	 reset/1, history/1, history/2,
+	 accounting/2,
 	 enable/1, disable/1]).
 
 %% gen_server callbacks
@@ -20,6 +21,7 @@
 -define(SERVER, ?MODULE).
 
 -record(state, {sx, gtp, accounting, enabled,
+		record,
 		cp_ip, cp_seid,
 		up_ip, up_seid,
 		cp_recovery_ts,
@@ -51,6 +53,9 @@ reset(Role) ->
 history(Role) ->
     gen_server:call(server_name(Role), history).
 
+history(Role, Record) ->
+    gen_server:call(server_name(Role), {history, Record}).
+
 accounting(Role, Acct) ->
     gen_server:call(server_name(Role), {accounting, Acct}).
 
@@ -75,6 +80,7 @@ init([IP]) ->
 	       gtp = GtpSocket,
 	       accounting = on,
 	       enabled = true,
+	       record = true,
 	       cp_seid = 0,
 	       up_ip = ergw_inet:ip2bin(IP),
 	       up_seid = ergw_sx_socket:seid(),
@@ -88,7 +94,7 @@ init([IP]) ->
 handle_call(reset, _From, State0) ->
     State = State0#state{
 	      accounting = on,
-	       enabled = true,
+	      enabled = true,
 	      cp_ip = undefined,
 	      cp_seid = 0,
 	      up_seid = ergw_sx_socket:seid(),
@@ -115,6 +121,8 @@ handle_call(restart, _From, State0) ->
 
 handle_call(history, _From, #state{history = Hist} = State) ->
     {reply, lists:reverse(Hist), State};
+handle_call({history, Record}, _From, State) ->
+    {reply, ok, State#state{record = Record, history = []}};
 
 handle_call({accounting, Acct}, _From, State) ->
     {reply, ok, State#state{accounting = Acct}};
@@ -151,11 +159,11 @@ handle_info({udp, _, _, _, _}, #state{enabled = false} = State) ->
     {noreply, State};
 
 handle_info({udp, SxSocket, IP, InPortNo, Packet},
-	    #state{sx = SxSocket, history = Hist} = State0) ->
+	    #state{sx = SxSocket} = State0) ->
     try
 	Msg = pfcp_packet:decode(Packet),
 	?match(ok, (catch pfcp_packet:validate('Sxb', Msg))),
-	{Reply, State} = handle_message(Msg, State0#state{history = [Msg|Hist]}),
+	{Reply, State} = handle_message(Msg, record(Msg, State0)),
 	case Reply of
 	    #pfcp{} ->
 		BinReply = pfcp_packet:encode(Reply#pfcp{seq_no = Msg#pfcp.seq_no}),
@@ -170,8 +178,8 @@ handle_info({udp, SxSocket, IP, InPortNo, Packet},
 	    {stop, error, State0}
     end;
 handle_info({udp, GtpSocket, IP, InPortNo, Packet} = Msg,
-	    #state{gtp = GtpSocket, history = Hist} = State) ->
-    {noreply, State#state{history = [Msg|Hist]}}.
+	    #state{gtp = GtpSocket} = State) ->
+    {noreply, record(Msg, State)}.
 
 terminate(_Reason, #state{sx = SxSocket}) ->
     catch gen_udp:close(SxSocket),
@@ -382,3 +390,8 @@ pfcp_response(session_establishment_request) -> session_establishment_response;
 pfcp_response(session_modification_request) -> session_modification_response;
 pfcp_response(session_deletion_request) -> session_deletion_response;
 pfcp_response(session_report_request) -> session_report_response.
+
+record(Msg, #state{record = true, history = Hist} = State) ->
+    State#state{history = [Msg|Hist]};
+record(_Msg, State) ->
+    State.

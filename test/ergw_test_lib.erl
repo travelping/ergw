@@ -21,7 +21,7 @@
 	 gtp_context/1, gtp_context/2,
 	 gtp_context_inc_seq/1,
 	 gtp_context_inc_restart_counter/1,
-	 gtp_context_new_teids/1,
+	 gtp_context_new_teids/1, gtp_context_new_teids/3,
 	 make_error_indication_report/1]).
 -export([start_gtpc_server/1, stop_gtpc_server/1, stop_gtpc_server/0,
 	 stop_all_sx_nodes/0,
@@ -37,6 +37,7 @@
 -export([has_ipv6_test_config/0]).
 -export([query_usage_report/2]).
 -export([match_map/4]).
+-export([init_ets/1]).
 
 -include("ergw_test_lib.hrl").
 -include_lib("common_test/include/ct.hrl").
@@ -227,6 +228,14 @@ gtp_context_new_teids(GtpC) ->
 	  ets:update_counter(?MODULE, teid, 1) band 16#ffffffff
      }.
 
+gtp_context_new_teids(Base, N, GtpC) ->
+    TEID = Base + N,
+    GtpC#gtpc{
+      local_control_tei = TEID band 16#ffffffff,
+      local_data_tei = TEID band 16#ffffffff
+     }.
+
+
 make_error_indication_report(#gtpc{local_data_tei = TEI, local_ip = IP}) ->
     make_error_indication_report(IP, TEI);
 make_error_indication_report(#context{local_data_endp = #gtp_endp{ip = IP},
@@ -379,7 +388,6 @@ update_timeout(Timeout, At) ->
     Timeout - (erlang:monotonic_time(millisecond) - At).
 
 recv_pdu_msg(Response, At, S, IP, SeqNo, Timeout, Fail) ->
-    ct:pal("Msg: ~s", [pretty_print((catch gtp_packet:decode(Response)))]),
     case gtp_packet:decode(Response) of
 	#gtp{type = echo_request} = Msg ->
 	    Resp = Msg#gtp{type = echo_response, ie = []},
