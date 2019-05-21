@@ -125,6 +125,10 @@ handle_call({path_restart, Path}, _From,
 handle_call({path_restart, _Path}, _From, State) ->
     {reply, ok, State}.
 
+handle_cast(delete_context, #{context := Context} = State) ->
+    delete_context(undefined, administrative, Context),
+    {noreply, State};
+
 handle_cast({packet_in, _GtpPort, _IP, _Port, _Msg}, State) ->
     lager:warning("packet_in not handled (yet): ~p", [_Msg]),
     {noreply, State}.
