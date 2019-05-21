@@ -124,3 +124,6 @@
 	  end)())).
 
 -define(match_map(Expected, Actual), ergw_test_lib:match_map(Expected, Actual, ?FILE, ?LINE)).
+
+-define(match_exo_value(Expected, Actual),
+	ergw_test_lib:match_exo_value(Expected, Actual, ?FILE, ?LINE, 10)).
