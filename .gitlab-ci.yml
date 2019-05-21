@@ -22,7 +22,11 @@ before_script:
 
 build:otp-21:
   <<: *build_otp
-  image: erlang:21.3.3-alpine
+  image: erlang:21.3.8.1-alpine
+
+build:otp-22:
+  <<: *build_otp
+  image: erlang:22.0-alpine
 
 .check:otp: &check_otp
   stage: test
@@ -38,13 +42,20 @@ build:otp-21:
 
 check:otp-21:
   <<: *check_otp
-  image: erlang:21.3.3-alpine
+  image: erlang:21.3.8.1-alpine
   dependencies:
     - build:otp-21
+
+check:otp-22:
+  <<: *check_otp
+  image: erlang:22.0-alpine
+  dependencies:
+    - build:otp-22
 
 docker:
   image: docker:git
   stage: container
+  dependencies: []
   services:
     - docker:dind
   script:

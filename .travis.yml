@@ -8,7 +8,8 @@ language: erlang
 otp_release:
  - 21.1.4
  - 21.2.7
- - 21.3.3
+ - 21.3.8.1
+ - 22.0
 
 install: "true"
 
@@ -42,7 +43,7 @@ script:
 jobs:
   include:
     - stage: docker
-      otp_release: 21.3.3
+      otp_release: 21.3.8.1
       script:
         - docker build -t $BUILD_IMAGE -f docker/Dockerfile .
       after_success:
