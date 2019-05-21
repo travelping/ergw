@@ -411,7 +411,7 @@ end_per_testcase(_Config) ->
     stop_gtpc_server(),
 
     FreeP = [pool, <<"upstream">>, ipv4, {10,180,0,1}, free],
-    match_exo_value(FreeP, 65534),
+    ?match_exo_value(FreeP, 65534),
 
     ok.
 
@@ -490,15 +490,15 @@ create_session_request_gy_fail(Config) ->
     FreeP = [pool, <<"upstream">>, ipv4, {10,180,0,1}, free],
     UsedP = [pool, <<"upstream">>, ipv4, {10,180,0,1}, used],
 
-    match_exo_value(FreeP, 65534),
-    match_exo_value(UsedP, 0),
+    ?match_exo_value(FreeP, 65534),
+    ?match_exo_value(UsedP, 0),
 
     create_session(gy_fail, Config),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
 
-    match_exo_value(FreeP, 65534),
-    match_exo_value(UsedP, 0),
+    ?match_exo_value(FreeP, 65534),
+    ?match_exo_value(UsedP, 0),
 
     meck_validate(Config),
     ok.
@@ -569,13 +569,13 @@ simple_session_request(Config) ->
     FreeP = [pool, <<"upstream">>, ipv4, {10,180,0,1}, free],
     UsedP = [pool, <<"upstream">>, ipv4, {10,180,0,1}, used],
 
-    match_exo_value(FreeP, 65534),
-    match_exo_value(UsedP, 0),
+    ?match_exo_value(FreeP, 65534),
+    ?match_exo_value(UsedP, 0),
 
     {GtpC1, _, _} = create_session(Config),
 
-    match_exo_value(FreeP, 65533),
-    match_exo_value(UsedP, 1),
+    ?match_exo_value(FreeP, 65533),
+    ?match_exo_value(UsedP, 1),
 
     {GtpC2, _, _} = modify_bearer(enb_u_tei, GtpC1),
     delete_session(GtpC2),
@@ -583,8 +583,8 @@ simple_session_request(Config) ->
     ?equal([], outstanding_requests()),
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
 
-    match_exo_value(FreeP, 65534),
-    match_exo_value(UsedP, 0),
+    ?match_exo_value(FreeP, 65534),
+    ?match_exo_value(UsedP, 0),
 
     meck_validate(Config),
     ok.

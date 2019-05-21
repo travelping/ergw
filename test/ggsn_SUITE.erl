@@ -446,7 +446,7 @@ end_per_testcase(_Config) ->
     stop_gtpc_server(),
 
     FreeP = [pool, <<"upstream">>, ipv4, {10,180,0,1}, free],
-    match_exo_value(FreeP, 65534),
+    ?match_exo_value(FreeP, 65534),
 
     ok.
 
@@ -565,8 +565,8 @@ create_pdp_context_request_gy_fail(Config) ->
     FreeP = [pool, <<"upstream">>, ipv4, {10,180,0,1}, free],
     UsedP = [pool, <<"upstream">>, ipv4, {10,180,0,1}, used],
 
-    match_exo_value(FreeP, 65534),
-    match_exo_value(UsedP, 0),
+    ?match_exo_value(FreeP, 65534),
+    ?match_exo_value(UsedP, 0),
 
     MetricsBefore = socket_counter_metrics(),
 
@@ -575,8 +575,10 @@ create_pdp_context_request_gy_fail(Config) ->
     MetricsAfter = socket_counter_metrics(),
     ?equal([], outstanding_requests()),
 
-    match_exo_value(FreeP, 65534),
-    match_exo_value(UsedP, 0),
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+
+    ?match_exo_value(FreeP, 65534),
+    ?match_exo_value(UsedP, 0),
 
     socket_counter_metrics_ok( MetricsBefore, MetricsAfter, create_pdp_context_request ),
     socket_counter_metrics_ok( MetricsBefore, MetricsAfter, system_failure ), % In response
@@ -733,15 +735,15 @@ simple_pdp_context_request(Config) ->
     FreeP = [pool, <<"upstream">>, ipv4, {10,180,0,1}, free],
     UsedP = [pool, <<"upstream">>, ipv4, {10,180,0,1}, used],
 
-    match_exo_value(FreeP, 65534),
-    match_exo_value(UsedP, 0),
+    ?match_exo_value(FreeP, 65534),
+    ?match_exo_value(UsedP, 0),
 
     MetricsBefore = socket_counter_metrics(),
     {GtpC, _, _} = create_pdp_context(Config),
     MetricsAfter = socket_counter_metrics(),
 
-    match_exo_value(FreeP, 65533),
-    match_exo_value(UsedP, 1),
+    ?match_exo_value(FreeP, 65533),
+    ?match_exo_value(UsedP, 1),
 
     delete_pdp_context(GtpC),
 
@@ -751,8 +753,8 @@ simple_pdp_context_request(Config) ->
     socket_counter_metrics_ok( MetricsBefore, MetricsAfter, create_pdp_context_request ),
     socket_counter_metrics_ok( MetricsBefore, MetricsAfter, request_accepted ), % In response
 
-    match_exo_value(FreeP, 65534),
-    match_exo_value(UsedP, 0),
+    ?match_exo_value(FreeP, 65534),
+    ?match_exo_value(UsedP, 0),
 
     meck_validate(Config),
     ok.
@@ -862,15 +864,16 @@ create_pdp_context_request_resend(Config) ->
     Dup0 = get_exo_value(DupId),
 
     {GtpC, Msg, Response} = create_pdp_context(Config),
-    match_exo_value(CntId, Cnt0 + 1),
+    ?match_exo_value(CntId, Cnt0 + 1),
     ?equal(Response, send_recv_pdu(GtpC, Msg)),
     ?equal([], outstanding_requests()),
 
     delete_pdp_context(GtpC),
-    match_exo_value(DupId, Dup0 + 1),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     ?match(0, meck:num_calls(?HUT, handle_request, ['_', '_', true, '_'])),
+
+    ?match_exo_value(DupId, Dup0 + 1),
     meck_validate(Config),
     ok.
 

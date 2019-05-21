@@ -539,7 +539,7 @@ end_per_testcase(Config) ->
     stop_all_sx_nodes(),
 
     FreeP = [pool, <<"upstream">>, ipv4, {10,180,0,1}, free],
-    match_exo_value(FreeP, 65534),
+    ?match_exo_value(FreeP, 65534),
 
     AppsCfg = proplists:get_value(aaa_cfg, Config),
     ok = application:set_env(ergw_aaa, apps, AppsCfg),
@@ -657,15 +657,15 @@ create_session_request_gy_fail(Config) ->
     FreeP = [pool, <<"upstream">>, ipv4, {10,180,0,1}, free],
     UsedP = [pool, <<"upstream">>, ipv4, {10,180,0,1}, used],
 
-    match_exo_value(FreeP, 65534),
-    match_exo_value(UsedP, 0),
+    ?match_exo_value(FreeP, 65534),
+    ?match_exo_value(UsedP, 0),
 
     create_session(gy_fail, Config),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
 
-    match_exo_value(FreeP, 65534),
-    match_exo_value(UsedP, 0),
+    ?match_exo_value(FreeP, 65534),
+    ?match_exo_value(UsedP, 0),
 
     meck_validate(Config),
     ok.
@@ -808,21 +808,21 @@ simple_session_request(Config) ->
     FreeP = [pool, <<"upstream">>, ipv4, {10,180,0,1}, free],
     UsedP = [pool, <<"upstream">>, ipv4, {10,180,0,1}, used],
 
-    match_exo_value(FreeP, 65534),
-    match_exo_value(UsedP, 0),
+    ?match_exo_value(FreeP, 65534),
+    ?match_exo_value(UsedP, 0),
 
     {GtpC, _, _} = create_session(Config),
 
-    match_exo_value(FreeP, 65533),
-    match_exo_value(UsedP, 1),
+    ?match_exo_value(FreeP, 65533),
+    ?match_exo_value(UsedP, 1),
 
     delete_session(GtpC),
 
     ?equal([], outstanding_requests()),
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
 
-    match_exo_value(FreeP, 65534),
-    match_exo_value(UsedP, 0),
+    ?match_exo_value(FreeP, 65534),
+    ?match_exo_value(UsedP, 0),
 
     [_, SER|_] = lists:filter(
 		   fun(#pfcp{type = session_establishment_request}) -> true;
@@ -1598,10 +1598,10 @@ interop_sgsn_to_sgw(Config) ->
     ClientIP = proplists:get_value(client_ip, Config),
 
     {GtpC1, _, _} = ergw_ggsn_test_lib:create_pdp_context(Config),
-    match_exo_value([path, 'irx-socket', ClientIP, contexts, v1], 1),
+    ?match_exo_value([path, 'irx-socket', ClientIP, contexts, v1], 1),
     {GtpC2, _, _} = modify_bearer(tei_update, GtpC1),
-    match_exo_value([path, 'irx-socket', ClientIP, contexts, v1], 0),
-    match_exo_value([path, 'irx-socket', ClientIP, contexts, v2], 1),
+    ?match_exo_value([path, 'irx-socket', ClientIP, contexts, v1], 0),
+    ?match_exo_value([path, 'irx-socket', ClientIP, contexts, v2], 1),
     delete_session(GtpC2),
 
     [SMR0|_] = lists:filter(
@@ -1621,8 +1621,8 @@ interop_sgsn_to_sgw(Config) ->
     meck_validate(Config),
     true = meck:validate(ggsn_gn),
 
-    match_exo_value([path, 'irx-socket', ClientIP, contexts, v1], 0),
-    match_exo_value([path, 'irx-socket', ClientIP, contexts, v2], 0),
+    ?match_exo_value([path, 'irx-socket', ClientIP, contexts, v1], 0),
+    ?match_exo_value([path, 'irx-socket', ClientIP, contexts, v2], 0),
     ok.
 
 %%--------------------------------------------------------------------
@@ -1645,10 +1645,10 @@ interop_sgw_to_sgsn(Config) ->
     ClientIP = proplists:get_value(client_ip, Config),
 
     {GtpC1, _, _} = create_session(Config),
-    match_exo_value([path, 'irx-socket', ClientIP, contexts, v2], 1),
+    ?match_exo_value([path, 'irx-socket', ClientIP, contexts, v2], 1),
     {GtpC2, _, _} = ergw_ggsn_test_lib:update_pdp_context(tei_update, GtpC1),
-    match_exo_value([path, 'irx-socket', ClientIP, contexts, v1], 1),
-    match_exo_value([path, 'irx-socket', ClientIP, contexts, v2], 0),
+    ?match_exo_value([path, 'irx-socket', ClientIP, contexts, v1], 1),
+    ?match_exo_value([path, 'irx-socket', ClientIP, contexts, v2], 0),
     ergw_ggsn_test_lib:delete_pdp_context(GtpC2),
 
     [SMR0|_] = lists:filter(
@@ -1668,8 +1668,8 @@ interop_sgw_to_sgsn(Config) ->
     meck_validate(Config),
     true = meck:validate(ggsn_gn),
 
-    match_exo_value([path, 'irx-socket', ClientIP, contexts, v1], 0),
-    match_exo_value([path, 'irx-socket', ClientIP, contexts, v2], 0),
+    ?match_exo_value([path, 'irx-socket', ClientIP, contexts, v1], 0),
+    ?match_exo_value([path, 'irx-socket', ClientIP, contexts, v2], 0),
     ok.
 
 %%--------------------------------------------------------------------
