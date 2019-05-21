@@ -40,8 +40,7 @@ contexts(all) ->
 				       <- gtp_context_reg:all(), is_pid(Pid)]).
 
 delete_contexts(Count) ->
-    Contexts = lists:sublist(contexts(all), Count),
-    lists:foreach(fun(Pid) -> gtp_context:delete_context(Pid) end, Contexts).
+    delete_contexts(contexts(all), Count).
 
 memory(Limit0) ->
     Limit = min(Limit0, 100),
@@ -67,6 +66,14 @@ collect_contexts(Context, Tunnels) ->
     io:format("Context: ~p~n", [Context]),
     Info = gtp_context:info(Context),
     [Info#{'Process' => Context} | Tunnels].
+
+delete_contexts(_Contexts, 0) ->
+    ok;
+delete_contexts(Contexts, Count) ->
+    Id = rand:uniform(length(Contexts)),
+    Context = lists:nth(Id, Contexts),
+    gtp_context:trigger_delete_context(Context),
+    delete_contexts(Contexts -- [Context], Count - 1).
 
 units(X) when X > 1024 * 1024 * 1024 ->
     io_lib:format("~.4f GB", [X / math:pow(2, 30)]);

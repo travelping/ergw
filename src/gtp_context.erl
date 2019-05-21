@@ -19,7 +19,8 @@
 	 send_request/6, resend_request/2,
 	 request_finished/1,
 	 path_restart/2,
-	 terminate_colliding_context/1, terminate_context/1, delete_context/1,
+	 terminate_colliding_context/1, terminate_context/1,
+	 delete_context/1, trigger_delete_context/1,
 	 remote_context_register/1, remote_context_register_new/1, remote_context_update/2,
 	 enforce_restrictions/2,
 	 info/1,
@@ -99,6 +100,9 @@ remote_context_update(OldContext, NewContext)
 
 delete_context(Context) ->
     gen_server:call(Context, delete_context).
+
+trigger_delete_context(Context) ->
+    gen_server:cast(Context, delete_context).
 
 triggered_offline_usage_report(Pid, ChargeEv, OldS, Response) ->
     gen_server:cast(Pid, {triggered_offline_usage_report, ChargeEv, OldS, Response}).

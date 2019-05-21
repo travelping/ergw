@@ -186,6 +186,10 @@ handle_call({path_restart, Path}, _From, #{proxy_context := #context{path = Path
 handle_call({path_restart, _Path}, _From, State) ->
     {reply, ok, State}.
 
+handle_cast(delete_context, State) ->
+    lager:warning("delete_context no handled(yet)"),
+    {reply, State};
+
 handle_cast({packet_in, _GtpPort, _IP, _Port, _Msg}, State) ->
     lager:warning("packet_in not handled (yet): ~p", [_Msg]),
     {noreply, State}.
