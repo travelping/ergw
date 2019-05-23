@@ -124,8 +124,8 @@
 		   }]
 		 },
 
-                 {http_api, [{port, 0}]}
-                ]},
+		 {http_api, [{port, 0}]}
+		]},
 	 {ergw_aaa, [{ergw_aaa_provider, {ergw_aaa_mock, [{shared_secret, <<"MySecret">>}]}}]}
 	]).
 
@@ -139,7 +139,7 @@ all() ->
      http_api_prometheus_metrics_pool_req,
      http_api_metrics_req,
      http_api_metrics_sub_req
-     % http_api_delete_sessions
+     %% http_api_delete_sessions
     ].
 
 init_per_testcase(Config) ->
@@ -164,7 +164,7 @@ init_per_suite(Config0) ->
     inets:start(),
     Config1 = [{app_cfg, ?TEST_CONFIG},
 	       {handler_under_test, ggsn_gn_proxy}
-	      | Config0],
+	       | Config0],
     Config2 = update_app_config(ipv4, [], Config1),
     Config = lib_init_per_suite(Config2),
 
@@ -261,15 +261,15 @@ http_api_prometheus_metrics_req() ->
 http_api_prometheus_metrics_req(_Config) ->
     URL = get_test_url("/metrics"),
     Accept = "application/vnd.google.protobuf;proto=io.prometheus.client.MetricFamily;encoding=delimited;q=0.7,"
-             ++ "text/plain;version=0.0.4;q=0.3,*/*;q=0.1",
+	++ "text/plain;version=0.0.4;q=0.3,*/*;q=0.1",
     {ok, {_, _, Body}} = httpc:request(get, {URL, [{"Accept", Accept}]},
 				       [], [{body_format, binary}]),
     Lines = binary:split(Body, <<"\n">>, [global]),
     Result =
-        lists:filter(fun(<<"socket_gtp_c_irx_tx_v2_mbms_session_start_response_count", _/binary>>) ->
-                             true;
-                        (_) -> false
-                     end, Lines),
+	lists:filter(fun(<<"socket_gtp_c_irx_tx_v2_mbms_session_start_response_count", _/binary>>) ->
+			     true;
+			(_) -> false
+		     end, Lines),
     ?equal(1, length(Result)),
     ok.
 
@@ -277,16 +277,16 @@ http_api_prometheus_metrics_sub_req() ->
     [{doc, "Check /metrics/... Prometheus API endpoint"}].
 http_api_prometheus_metrics_sub_req(_Config) ->
     Accept = "application/vnd.google.protobuf;proto=io.prometheus.client.MetricFamily;encoding=delimited;q=0.7,"
-             ++ "text/plain;version=0.0.4;q=0.3,*/*;q=0.1",
+	++ "text/plain;version=0.0.4;q=0.3,*/*;q=0.1",
     URL0 = get_test_url("/metrics/socket/gtp-c/irx/tx/v2/mbms_session_start_response"),
     {ok, {_, _, Body}} = httpc:request(get, {URL0, [{"Accept", Accept}]},
 				       [], [{body_format, binary}]),
     Lines = binary:split(Body, <<"\n">>, [global]),
     Result =
-        lists:filter(fun(<<"socket_gtp_c_irx_tx_v2_mbms_session_start_response_count", _/binary>>) ->
-                             true;
-                        (_) -> false
-                     end, Lines),
+	lists:filter(fun(<<"socket_gtp_c_irx_tx_v2_mbms_session_start_response_count", _/binary>>) ->
+			     true;
+			(_) -> false
+		     end, Lines),
     ?equal(1, length(Result)),
 
     URL1 = get_test_url("/metrics/path/irx/127.0.0.1/contexts"),
@@ -303,7 +303,7 @@ http_api_prometheus_metrics_pool_req() ->
     [{doc, "Check /metrics/pool/ Prometheus API endpoint"}].
 http_api_prometheus_metrics_pool_req(_Config) ->
     Accept = "application/vnd.google.protobuf;proto=io.prometheus.client.MetricFamily;encoding=delimited;q=0.7,"
-             ++ "text/plain;version=0.0.4;q=0.3,*/*;q=0.1",
+	++ "text/plain;version=0.0.4;q=0.3,*/*;q=0.1",
     URL0 = get_test_url("/metrics/pool/"),
     {ok, {_, _, Body}} = httpc:request(get, {URL0, [{"Accept", Accept}]},
 				       [], [{body_format, binary}]),
@@ -311,14 +311,14 @@ http_api_prometheus_metrics_pool_req(_Config) ->
     ct:pal("Sockets: ~p", [Lines]),
     Result0 =
 	lists:filter(fun(<<"pool_example_ipv4_10_180_0_1_free", _/binary>>) ->
-			    true;
+			     true;
 			(_) -> false
 		     end, Lines),
     ?equal(1, length(Result0)),
     Result1 = lists:filter(fun(<<"pool_example_ipv6_8001_0_1___free 65536", _/binary>>) ->
-			    true;
-			(_) -> false
-		     end, Lines),
+				   true;
+			      (_) -> false
+			   end, Lines),
     ?equal(1, length(Result1)),
     ok.
 
@@ -337,19 +337,19 @@ http_api_metrics_sub_req() ->
 http_api_metrics_sub_req(_Config) ->
     URL0 = get_test_url("/metrics/socket/gtp-c/irx/rx"),
     {ok, {_, _, Body0}} = httpc:request(get, {URL0, []},
-				       [], [{body_format, binary}]),
+					[], [{body_format, binary}]),
     Res0 = jsx:decode(Body0, [return_maps]),
     ?match(#{<<"v1">> := #{}}, Res0),
 
     URL1 = get_test_url("/metrics/path/irx/127.0.0.1/contexts"),
     {ok, {_, _, Body1}} = httpc:request(get, {URL1, []},
-				       [], [{body_format, binary}]),
+					[], [{body_format, binary}]),
     Res1 = jsx:decode(Body1, [return_maps]),
     ?match(#{<<"value">> := _}, Res1),
 
     URL2 = get_test_url("/metrics/path/irx/::1/contexts"),
     {ok, {_, _, Body2}} = httpc:request(get, {URL2, []},
-				       [], [{body_format, binary}]),
+					[], [{body_format, binary}]),
     Res2 = jsx:decode(Body2, [return_maps]),
     ?match(#{<<"value">> := _}, Res2),
     ok.
@@ -359,7 +359,7 @@ http_api_delete_sessions() ->
 http_api_delete_sessions(Config) ->
     Res1 = json_http_request(delete, "/contexts/0"),
     ?match(#{<<"contexts">> := 0}, Res1),
-    
+
     ok = meck:wait(ggsn_gn, terminate, '_', 2000),
     wait4tunnels(2000),
     meck_validate(Config),
@@ -376,7 +376,7 @@ get_test_url(Path) ->
 json_http_request(Method, Path) ->
     URL = get_test_url(Path),
     {ok, {_, _, Body}} = httpc:request(Method, {URL, []},
-                                        [], [{body_format, binary}]),
+				       [], [{body_format, binary}]),
     jsx:decode(Body, [return_maps]).
 
 exo_function(_) ->
