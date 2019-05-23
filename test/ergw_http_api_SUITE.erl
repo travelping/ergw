@@ -135,10 +135,10 @@ all() ->
      http_api_status_accept_new_get_req,
      http_api_status_accept_new_post_req,
      http_api_prometheus_metrics_req,
-     http_api_prometheus_metrics_sub_req,
-     http_api_prometheus_metrics_pool_req,
-     http_api_metrics_req,
-     http_api_metrics_sub_req
+     %% http_api_prometheus_metrics_sub_req,
+     http_api_prometheus_metrics_pool_req
+     %% http_api_metrics_req
+     %% http_api_metrics_sub_req
      %% http_api_delete_sessions
     ].
 
@@ -260,8 +260,7 @@ http_api_prometheus_metrics_req() ->
     [{doc, "Check Prometheus API Endpoint"}].
 http_api_prometheus_metrics_req(_Config) ->
     URL = get_test_url("/metrics"),
-    Accept = "application/vnd.google.protobuf;proto=io.prometheus.client.MetricFamily;encoding=delimited;q=0.7,"
-	++ "text/plain;version=0.0.4;q=0.3,*/*;q=0.1",
+    Accept = "text/plain;version=0.0.4;q=0.3,*/*;q=0.1",
     {ok, {_, _, Body}} = httpc:request(get, {URL, [{"Accept", Accept}]},
 				       [], [{body_format, binary}]),
     Lines = binary:split(Body, <<"\n">>, [global]),
@@ -276,9 +275,8 @@ http_api_prometheus_metrics_req(_Config) ->
 http_api_prometheus_metrics_sub_req() ->
     [{doc, "Check /metrics/... Prometheus API endpoint"}].
 http_api_prometheus_metrics_sub_req(_Config) ->
-    Accept = "application/vnd.google.protobuf;proto=io.prometheus.client.MetricFamily;encoding=delimited;q=0.7,"
-	++ "text/plain;version=0.0.4;q=0.3,*/*;q=0.1",
-    URL0 = get_test_url("/metrics/socket/gtp-c/irx/tx/v2/mbms_session_start_response"),
+    Accept = "text/plain;version=0.0.4;q=0.3,*/*;q=0.1",
+    URL0 = get_test_url("/metrics/default/socket/gtp-c/irx/tx/v2/mbms_session_start_response"),
     {ok, {_, _, Body}} = httpc:request(get, {URL0, [{"Accept", Accept}]},
 				       [], [{body_format, binary}]),
     Lines = binary:split(Body, <<"\n">>, [global]),
@@ -302,9 +300,8 @@ http_api_prometheus_metrics_sub_req(_Config) ->
 http_api_prometheus_metrics_pool_req() ->
     [{doc, "Check /metrics/pool/ Prometheus API endpoint"}].
 http_api_prometheus_metrics_pool_req(_Config) ->
-    Accept = "application/vnd.google.protobuf;proto=io.prometheus.client.MetricFamily;encoding=delimited;q=0.7,"
-	++ "text/plain;version=0.0.4;q=0.3,*/*;q=0.1",
-    URL0 = get_test_url("/metrics/pool/"),
+    Accept = "text/plain;version=0.0.4;q=0.3,*/*;q=0.1",
+    URL0 = get_test_url("/metrics/"),
     {ok, {_, _, Body}} = httpc:request(get, {URL0, [{"Accept", Accept}]},
 				       [], [{body_format, binary}]),
     Lines = binary:split(Body, <<"\n">>, [global]),
