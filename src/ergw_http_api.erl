@@ -30,15 +30,20 @@ start_http_listener(#{ip := IP, port := Port, acceptors_num := AcceptorsNum}) ->
 		    {"/api/v1/status/accept-new", http_api_handler, []},
 		    {"/api/v1/status/accept-new/:value", http_api_handler, []},
 		    {"/api/v1/contexts/:count", http_api_handler, []},
-		    {"/metrics", http_api_handler, []},
-		    {"/metrics/[...]", http_api_handler, []},
+		    {"/metrics/[:registry]", prometheus_cowboy2_handler, []},
 		    %% serves static files for swagger UI
 		    {"/api/v1/spec/ui", swagger_ui_handler, []},
 		    {"/api/v1/spec/ui/[...]", cowboy_static, {priv_dir, ergw, "static"}}]}
 		 ]),
     TransOpts = #{socket_opts => [{port, Port}, {ip, IP}, INet],
 		  num_acceptors => AcceptorsNum},
-    ProtoOpts = #{env => #{dispatch => Dispatch}},
+    ProtoOpts =
+	#{env =>
+	      #{
+		dispatch => Dispatch,
+		metrics_callback => fun prometheus_cowboy2_instrumenter:observe/1,
+		stream_handlers => [cowboy_metrics_h, cowboy_stream_h]
+	       }},
     cowboy:start_clear(ergw_http_listener, TransOpts, ProtoOpts).
 
 %%%===================================================================

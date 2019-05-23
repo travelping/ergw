@@ -1,5 +1,6 @@
 {"1.1.0",
-[{<<"bear">>,{pkg,<<"bear">>,<<"0.8.7">>},2},
+[{<<"accept">>,{pkg,<<"accept">>,<<"0.3.5">>},2},
+ {<<"bear">>,{pkg,<<"bear">>,<<"0.8.7">>},2},
  {<<"cowboy">>,{pkg,<<"cowboy">>,<<"2.6.3">>},0},
  {<<"cowlib">>,{pkg,<<"cowlib">>,<<"2.7.3">>},1},
  {<<"eradius">>,
@@ -46,6 +47,9 @@
   {git,"git://github.com/travelping/ppp",
        {ref,"b5e3aeff690a7bc70cd1ef9cfc046dfb4ea26e5e"}},
   1},
+ {<<"prometheus">>,{pkg,<<"prometheus">>,<<"4.3.0">>},0},
+ {<<"prometheus_cowboy">>,{pkg,<<"prometheus_cowboy">>,<<"0.1.7">>},0},
+ {<<"prometheus_httpd">>,{pkg,<<"prometheus_httpd">>,<<"2.1.11">>},1},
  {<<"ranch">>,{pkg,<<"ranch">>,<<"1.7.1">>},1},
  {<<"regine">>,
   {git,"https://github.com/travelping/regine.git",
@@ -55,6 +59,7 @@
  {<<"stacktrace_compat">>,{pkg,<<"stacktrace_compat">>,<<"1.0.2">>},0}]}.
 [
 {pkg_hash,[
+ {<<"accept">>, <<"B33B127ABCA7CC948BBE6CAA4C263369ABF1347CFA9D8E699C6D214660F10CD1">>},
  {<<"bear">>, <<"16264309AE5D005D03718A5C82641FCC259C9E8F09ADEB6FD79CA4271168656F">>},
  {<<"cowboy">>, <<"99AA50E94E685557CAD82E704457336A453D4ABCB77839AD22DBE71F311FCC06">>},
  {<<"cowlib">>, <<"A7FFCD0917E6D50B4D5FB28E9E2085A0CEB3C97DEA310505F7460FF5ED764CE9">>},
@@ -66,6 +71,9 @@
  {<<"jsx">>, <<"D2F6E5F069C00266CAD52FB15D87C428579EA4D7D73A33669E12679E203329DD">>},
  {<<"lager">>, <<"6172B43AB720AC33914CCD0AEB21FDBDF88213847707D4B91E6AF57B2AE5C4D2">>},
  {<<"parse_trans">>, <<"09765507A3C7590A784615CFD421D101AEC25098D50B89D7AA1D66646BC571C1">>},
+ {<<"prometheus">>, <<"FD4648ECE963904DF98EDC23FABFD5D1B7D791D4111259F0A4BBBAD50F50D57A">>},
+ {<<"prometheus_cowboy">>, <<"541E6D46E8C7B45F86ADB848D98C50E460CEE2CE4A83EFF21E2AD5A22BB5F2B2">>},
+ {<<"prometheus_httpd">>, <<"F616ED9B85B536B195D94104063025A91F904A4CFC20255363F49A197D96C896">>},
  {<<"ranch">>, <<"6B1FAB51B49196860B733A49C07604465A47BDB78AA10C1C16A3D199F7F8C881">>},
  {<<"setup">>, <<"1203F4CDA11306C2E34434244576DED0A7BBFB0908D9A572356C809BD0CDF085">>},
  {<<"stacktrace_compat">>, <<"8AD31C32C9A0EADB1EB298F04DC8B0C8D79BCC6233A638B02791FFCA4F331275">>}]}
