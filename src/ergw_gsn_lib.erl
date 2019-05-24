@@ -475,6 +475,44 @@ build_sx_redirect([#{'Redirect-Support' :=        [1],   %% ENABLED
 build_sx_redirect(_) ->
     [].
 
+%% The spec compliante FAR would set Destination Interface
+%% to Access. However, VPP can not deal with that right now.
+%%
+%% build_sx_sgi_fwd_far(FarId,
+%%		     [#{'Redirect-Support' :=        [1],   %% ENABLED
+%%			'Redirect-Address-Type' :=   [2],   %% URL
+%%			'Redirect-Server-Address' := [URL]}],
+%%		     #context{local_data_endp = LocalDataEndp}) ->
+%%     [#far_id{id = FarId},
+%%      #apply_action{forw = 1},
+%%      #forwarding_parameters{
+%%	group =
+%%	    [#destination_interface{interface = 'Access'},
+%%	     ergw_pfcp:network_instance(LocalDataEndp),
+%%	     #redirect_information{type = 'URL', address = to_binary(URL)}]
+%%        }];
+build_sx_sgi_fwd_far(FarId,
+		     [#{'Redirect-Support' :=        [1],   %% ENABLED
+			'Redirect-Address-Type' :=   [2],   %% URL
+			'Redirect-Server-Address' := [URL]}],
+		     Ctx) ->
+    [#far_id{id = FarId},
+     #apply_action{forw = 1},
+     #forwarding_parameters{
+	group =
+	    [#destination_interface{interface = 'SGi-LAN'},
+	     ergw_pfcp:network_instance(Ctx),
+	     #redirect_information{type = 'URL', address = to_binary(URL)}]
+       }];
+build_sx_sgi_fwd_far(FarId, _RedirInfo, Ctx) ->
+    [#far_id{id = FarId},
+     #apply_action{forw = 1},
+     #forwarding_parameters{
+	group =
+	    [#destination_interface{interface = 'SGi-LAN'},
+	     ergw_pfcp:network_instance(Ctx)]
+       }].
+
 build_sx_rule(Direction = downlink, Name, Definition, FilterInfo, URRs,
 	      #sx_upd{
 		 pctx = PCtx0,
@@ -535,15 +573,23 @@ build_sx_rule(Direction = uplink, Name, Definition, FilterInfo, URRs,
 	   ergw_pfcp:outer_header_removal(LocalDataEndp),
 	   #far_id{id = FarId}] ++
 	[#urr_id{id = X} || X <- URRs],
-    FAR = [#far_id{id = FarId},
-	    #apply_action{forw = 1},
-	    #forwarding_parameters{
-	       group =
-		   [#destination_interface{interface = 'SGi-LAN'},
-		    ergw_pfcp:network_instance(Ctx)]
-	       ++ build_sx_redirect(maps:get('Redirect-Information', Definition, undefined))
-	      }
-	  ],
+
+    RedirInfo = maps:get('Redirect-Information', Definition, undefined),
+    FAR = build_sx_sgi_fwd_far(FarId, RedirInfo, Ctx),
+
+
+    %% FAR = [#far_id{id = FarId},
+    %% 	    #apply_action{forw = 1},
+    %% 	    #forwarding_parameters{
+    %% 	       group =
+    %% 		   [#destination_interface{interface = 'SGi-LAN'},
+    %% 		    %% #redirect_information{type = 'URL',
+    %% 		    %% 			  address = <<"http://www.heise.de/">>},
+    %% 		    ergw_pfcp:network_instance(Ctx)]
+    %% 	       ++ build_sx_redirect(maps:get('Redirect-Information', Definition, undefined))
+    %% 	      }
+    %% 	  ],
+
     Update#sx_upd{
       pctx = ergw_pfcp:pfcp_rules_add(
 	       [{pdr, RuleName, PDR},
