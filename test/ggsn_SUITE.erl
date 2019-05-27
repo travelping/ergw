@@ -10,6 +10,7 @@
 -compile([export_all, nowarn_export_all]).
 
 -include_lib("ergw_aaa/include/diameter_3gpp_ts32_299.hrl").
+-include_lib("ergw_aaa/include/ergw_aaa_session.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include_lib("pfcplib/include/pfcp_packet.hrl").
@@ -328,7 +329,9 @@ common() ->
      session_accounting,
      gy_validity_timer,
      simple_ocs,
-     volume_threshold].
+     volume_threshold,
+     gx_asr,
+     gy_asr].
 
 groups() ->
     [{ipv4, [], common()},
@@ -1499,6 +1502,52 @@ volume_threshold(Config) ->
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
 
+    ok.
+
+%%--------------------------------------------------------------------
+gx_asr() ->
+    [{doc, "Check that ASR on Gx terminates the session"}].
+gx_asr(Config) ->
+    Cntl = whereis(gtpc_client_server),
+
+    {GtpC, _, _} = create_pdp_context(Config),
+
+    {_Handler, Server} = gtp_context_reg:lookup({'irx', {imsi, ?'IMSI', 5}}),
+    true = is_pid(Server),
+
+    Server ! #aaa_request{procedure = {gx, 'ASR'}, session = #{}, events = []},
+
+    Request = recv_pdu(Cntl, 5000),
+    ?match(#gtp{type = delete_pdp_context_request}, Request),
+    Response = make_response(Request, simple, GtpC),
+    send_pdu(Cntl, GtpC, Response),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    wait4tunnels(?TIMEOUT),
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+gy_asr() ->
+    [{doc, "Check that ASR on Gy terminates the session"}].
+gy_asr(Config) ->
+    Cntl = whereis(gtpc_client_server),
+
+    {GtpC, _, _} = create_pdp_context(Config),
+
+    {_Handler, Server} = gtp_context_reg:lookup({'irx', {imsi, ?'IMSI', 5}}),
+    true = is_pid(Server),
+
+    Server ! #aaa_request{procedure = {gy, 'ASR'}, session = #{}, events = []},
+
+    Request = recv_pdu(Cntl, 5000),
+    ?match(#gtp{type = delete_pdp_context_request}, Request),
+    Response = make_response(Request, simple, GtpC),
+    send_pdu(Cntl, GtpC, Response),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    wait4tunnels(?TIMEOUT),
+    meck_validate(Config),
     ok.
 
 %%%===================================================================
