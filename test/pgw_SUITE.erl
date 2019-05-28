@@ -615,11 +615,14 @@ invalid_gtp_pdu() ->
       " and that the GTP socket is not crashing"}].
 invalid_gtp_pdu(Config) ->
     TestGSN = proplists:get_value(test_gsn, Config),
+    MfrId = [socket, 'gtp-c', 'irx-socket', rx, 'malformed-requests'],
+    MfrCnt = get_exo_value(MfrId),
 
     S = make_gtp_socket(Config),
     gen_udp:send(S, TestGSN, ?GTP2c_PORT, <<"TESTDATA">>),
 
     ?equal({error,timeout}, gen_udp:recv(S, 4096, ?TIMEOUT)),
+    ?match_exo_value(MfrId, MfrCnt + 1),
     meck_validate(Config),
     ok.
 
