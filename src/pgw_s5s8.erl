@@ -146,18 +146,26 @@ handle_info(stop_from_session, #{context := Context} = State) ->
     delete_context(undefined, normal, Context),
     {noreply, State};
 
-handle_info(#aaa_request{procedure = {_, 'ASR'}},
-	    #{context := Context, 'Session' := Session} = State) ->
-    ergw_aaa_session:response(Session, ok, #{}),
+handle_info(#aaa_request{procedure = {_, 'ASR'}} = Request,
+	    #{context := Context} = State) ->
+    ergw_aaa_session:response(Request, ok, #{}, #{}),
     delete_context(undefined, administrative, Context),
     {noreply, State};
-handle_info(#aaa_request{procedure = {gy, 'RAR'}, request = Request},
-	    #{'Session' := Session} = State) ->
-    ergw_aaa_session:response(Session, ok, #{}),
+
+handle_info(#aaa_request{procedure = {gy, 'RAR'},
+			 events = Events} = Request, State) ->
+    ergw_aaa_session:response(Request, ok, #{}, #{}),
     Now = erlang:monotonic_time(),
 
     %% Triggered CCR.....
-    triggered_charging_event(interim, Now, Request, State),
+    ChargingKeys =
+	case proplists:get_value(report_rating_group, Events) of
+	    RatingGroups when is_list(RatingGroups) ->
+		[{online, RG} || RG <- RatingGroups];
+	    _ ->
+		undefined
+	end,
+    triggered_charging_event(interim, Now, ChargingKeys, State),
     {noreply, State};
 
 handle_info({pfcp_timer, #{validity_time := ChargingKeys}}, State) ->
@@ -680,9 +688,6 @@ close_pdn_context(Reason, #{context := Context, pfcp := PCtx, 'Session' := Sessi
     %% ===========================================================================
     ok.
 
-query_usage_report(#{'Rating-Group' := [RatingGroup]}, Context, PCtx) ->
-    ChargingKeys = [{online, RatingGroup}],
-    ergw_gsn_lib:query_usage_report(ChargingKeys, Context, PCtx);
 query_usage_report(ChargingKeys, Context, PCtx)
   when is_list(ChargingKeys) ->
     ergw_gsn_lib:query_usage_report(ChargingKeys, Context, PCtx);
