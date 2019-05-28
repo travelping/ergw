@@ -1515,7 +1515,9 @@ gx_asr(Config) ->
     {_Handler, Server} = gtp_context_reg:lookup({'irx', {imsi, ?'IMSI', 5}}),
     true = is_pid(Server),
 
-    Server ! #aaa_request{procedure = {gx, 'ASR'}, session = #{}, events = []},
+    ResponseFun = fun(_, _, _, _) -> ok end,
+    Server ! #aaa_request{from = ResponseFun, procedure = {gx, 'ASR'},
+			  session = #{}, events = []},
 
     Request = recv_pdu(Cntl, 5000),
     ?match(#gtp{type = delete_pdp_context_request}, Request),
@@ -1538,7 +1540,9 @@ gy_asr(Config) ->
     {_Handler, Server} = gtp_context_reg:lookup({'irx', {imsi, ?'IMSI', 5}}),
     true = is_pid(Server),
 
-    Server ! #aaa_request{procedure = {gy, 'ASR'}, session = #{}, events = []},
+    ResponseFun = fun(_, _, _, _) -> ok end,
+    Server ! #aaa_request{from = ResponseFun, procedure = {gy, 'ASR'},
+			  session = #{}, events = []},
 
     Request = recv_pdu(Cntl, 5000),
     ?match(#gtp{type = delete_pdp_context_request}, Request),
