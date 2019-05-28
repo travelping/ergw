@@ -490,11 +490,14 @@ invalid_gtp_pdu() ->
       " and that the GTP socket is not crashing"}].
 invalid_gtp_pdu(Config) ->
     TestGSN = proplists:get_value(test_gsn, Config),
+    MfrId = [socket, 'gtp-c', 'irx', rx, 'malformed-requests'],
+    MfrCnt = get_exo_value(MfrId),
 
     S = make_gtp_socket(Config),
     gen_udp:send(S, TestGSN, ?GTP1c_PORT, <<"TESTDATA">>),
 
     ?equal({error,timeout}, gen_udp:recv(S, 4096, ?TIMEOUT)),
+    ?match_exo_value(MfrId, MfrCnt + 1),
     meck_validate(Config),
     ok.
 
@@ -504,12 +507,16 @@ invalid_gtp_msg() ->
       " and that the GTP socket is not crashing"}].
 invalid_gtp_msg(Config) ->
     TestGSN = proplists:get_value(test_gsn, Config),
+    MfrId = [socket, 'gtp-c', 'irx', rx, 'malformed-requests'],
+    MfrCnt = get_exo_value(MfrId),
+
     Msg = hexstr2bin("320000040000000044000000"),
 
     S = make_gtp_socket(Config),
     gen_udp:send(S, TestGSN, ?GTP1c_PORT, Msg),
 
     ?equal({error,timeout}, gen_udp:recv(S, 4096, ?TIMEOUT)),
+    ?match_exo_value(MfrId, MfrCnt + 1),
     meck_validate(Config),
     ok.
 
