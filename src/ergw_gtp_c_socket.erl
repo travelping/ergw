@@ -383,6 +383,7 @@ handle_message(ArrivalTS, IP, Port, Data, #state{gtp_port = GtpPort} = State0) -
 	    {noreply, State}
     catch
 	Class:Error ->
+	    message_counter(rx, GtpPort, 'malformed-requests'),
 	    lager:error("GTP decoding failed with ~p:~p for ~p", [Class, Error, Data]),
 	    {noreply, State0}
     end.
@@ -530,14 +531,16 @@ exo_reg_timeout(Name, Version, MsgType) ->
     exometer_new([socket, 'gtp-c', Name, tx, Version, MsgType, timeout], counter).
 
 init_exometer(#gtp_port{name = Name, type = 'gtp-c'}) ->
-    exometer_new([socket, 'gtp-c', Name, rx, v1, unsupported], counter),
-    exometer_new([socket, 'gtp-c', Name, tx, v1, unsupported], counter),
+    [exometer_new([socket, 'gtp-c', Name | X], counter) ||
+	X <- [[rx, v1, unsupported],
+	      [tx, v1, unsupported],
+	      [rx, v2, unsupported],
+	      [tx, v2, unsupported],
+	      [rx, 'malformed-requests']]],
     lists:foreach(exo_reg_msg(Name, v1, _), gtp_v1_c:gtp_msg_types()),
     lists:foreach(exo_reg_msg(Name, v2, _), gtp_v2_c:gtp_msg_types()),
     foreach_request(gtp_v1_c, exo_reg_timeout(Name, v1, _)),
     foreach_request(gtp_v2_c, exo_reg_timeout(Name, v2, _)),
-    exometer_new([socket, 'gtp-c', Name, rx, v2, unsupported], counter),
-    exometer_new([socket, 'gtp-c', Name, tx, v2, unsupported], counter),
     ok;
 init_exometer(_) ->
     ok.
@@ -555,7 +558,10 @@ message_counter_apply(Name, RemoteIP, Direction, Version, MsgInfo) ->
 %% message_counter/3
 message_counter(Direction, GtpPort,
 		#send_req{address = RemoteIP, msg = Msg}) ->
-    message_counter(Direction, GtpPort, RemoteIP, Msg).
+    message_counter(Direction, GtpPort, RemoteIP, Msg);
+message_counter(Direction, #gtp_port{name = Name, type = 'gtp-c'}, Verdict)
+  when is_atom(Verdict) ->
+    exometer:update_or_create([socket, 'gtp-c', Name, Direction, Verdict], 1, counter, []).
 
 %% message_counter/4
 message_counter(Direction, GtpPort,
