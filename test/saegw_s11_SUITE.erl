@@ -122,7 +122,21 @@
 			  'Precedence' => [100],
 			  'Offline'  => [1]
 			 }},
-		       {<<"m2m0001">>, [<<"r-0001">>]}
+		       {<<"r-0002">>,
+			#{'Rating-Group' => [4000],
+			  'Flow-Information' =>
+			      [#{'Flow-Description' => [<<"permit out ip from any to assigned">>],
+				 'Flow-Direction'   => [1]    %% DownLink
+				},
+			       #{'Flow-Description' => [<<"permit out ip from any to assigned">>],
+				 'Flow-Direction'   => [2]    %% UpLink
+				}],
+			  'Metering-Method'  => [1],
+			  'Precedence' => [100],
+			  'Offline'  => [1]
+			 }},
+		       {<<"m2m0001">>, [<<"r-0001">>]},
+		       {<<"m2m0002">>, [<<"r-0002">>]}
 		      ]}
 		     ]}
 		  ]},
@@ -317,6 +331,7 @@ common() ->
      gy_validity_timer,
      volume_threshold,
      gx_asr,
+     gx_rar,
      gy_asr].
 
 groups() ->
@@ -1110,6 +1125,121 @@ gx_asr(Config) ->
     ?match(#gtp{type = delete_bearer_request}, Request),
     Response = make_response(Request, simple, GtpC),
     send_pdu(Cntl, GtpC, Response),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    wait4tunnels(?TIMEOUT),
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+gx_rar() ->
+    [{doc, "Check that RAR on Gx changes the session"}].
+gx_rar(Config) ->
+    {GtpC1, _, _} = create_session(Config),
+    {GtpC2, _, _} = modify_bearer(enb_u_tei, GtpC1),
+
+    {_Handler, Server} = gtp_context_reg:lookup({'irx', {imsi, ?'IMSI', 5}}),
+    true = is_pid(Server),
+
+    #{'Session' := Session} = gtp_context:info(Server),
+    SessionOpts = ergw_aaa_session:get(Session),
+
+    Self = self(),
+    ResponseFun =
+	fun(Request, Result, Avps, SOpts) ->
+		Self ! {'$response', Request, Result, Avps, SOpts} end,
+    AAAReq = #aaa_request{from = ResponseFun, procedure = {gx, 'RAR'},
+			  session = SessionOpts, events = []},
+
+    Server ! AAAReq,
+    {_, Resp0, _, SOpts0} =
+	receive {'$response', _, _, _, _} = R0 -> erlang:delete_element(1, R0) end,
+    ?equal(ok, Resp0),
+    ?match(#{'PCC-Rules' := _}, SOpts0),
+
+    InstCR =
+	[{pcc, install, [#{'Charging-Rule-Name' => [<<"r-0002">>]}]}],
+    Server ! AAAReq#aaa_request{events = InstCR},
+    {_, Resp1, _, SOpts1} =
+	receive {'$response', _, _, _, _} = R1 -> erlang:delete_element(1, R1) end,
+    ?equal(ok, Resp1),
+    ct:pal("SOpts1: ~p", [SOpts1]),
+    ?match(#{'PCC-Rules' := #{<<"r-0001">> := #{}, <<"r-0002">> := #{}}}, SOpts1),
+
+    RemoveCR =
+	[{pcc, remove, [#{'Charging-Rule-Name' => [<<"r-0002">>]}]}],
+    Server ! AAAReq#aaa_request{session = SOpts1, events = RemoveCR},
+    {_, Resp2, _, SOpts2} =
+	receive {'$response', _, _, _, _} = R2 -> erlang:delete_element(1, R2) end,
+    ?equal(ok, Resp2),
+    ct:pal("SOpts2: ~p", [SOpts2]),
+    ?match(#{'PCC-Rules' := #{<<"r-0001">> := #{}}}, SOpts2),
+    ?equal(false, maps:is_key(<<"r-0002">>, maps:get('PCC-Rules', SOpts2))),
+
+    InstCRB =
+	[{pcc, install, [#{'Charging-Rule-Base-Name' => [<<"m2m0002">>]}]}],
+    Server ! AAAReq#aaa_request{events = InstCRB},
+    {_, Resp3, _, SOpts3} =
+	receive {'$response', _, _, _, _} = R3 -> erlang:delete_element(1, R3) end,
+    ?equal(ok, Resp3),
+    ct:pal("SOpts3: ~p", [SOpts3]),
+    ?match(#{'PCC-Rules' :=
+		 #{<<"r-0001">> := #{},
+		   <<"r-0002">> := #{'Charging-Rule-Base-Name' := _}}}, SOpts3),
+
+    RemoveCRB =
+	[{pcc, remove, [#{'Charging-Rule-Base-Name' => [<<"m2m0002">>]}]}],
+    Server ! AAAReq#aaa_request{session = SOpts3, events = RemoveCRB},
+    {_, Resp4, _, SOpts4} =
+	receive {'$response', _, _, _, _} = R4 -> erlang:delete_element(1, R4) end,
+    ?equal(ok, Resp4),
+    ct:pal("SOpts4: ~p", [SOpts4]),
+    ?match(#{'PCC-Rules' := #{<<"r-0001">> := #{}}}, SOpts3),
+    ?equal(false, maps:is_key(<<"r-0002">>, maps:get('PCC-Rules', SOpts2))),
+
+    delete_session(GtpC2),
+
+    [_, _, Sx1, Sx2, Sx3, Sx4 | _] =
+	lists:filter(
+	  fun(#pfcp{type = session_modification_request}) -> true;
+	     (_) ->false
+	  end, ergw_test_sx_up:history('pgw-u')),
+
+    SxLength =
+	fun (Key, SxReq) ->
+		case maps:get(Key, SxReq, undefined) of
+		    X when is_list(X) -> length(X);
+		    X when is_tuple(X) -> 1;
+		    _ -> 0
+		end
+	end,
+    ct:pal("Sx1: ~p", [Sx1]),
+    ?equal([2, 2, 1, 0, 0, 0, 0, 0, 0],
+	   [SxLength(X1, Sx1#pfcp.ie) || X1 <-
+		[create_pdr, create_far, create_urr,
+		 update_pdr, update_far, update_urr,
+		 remove_pdr, remove_far, remove_urr]]),
+
+    ct:pal("Sx2: ~p", [Sx2]),
+    ?equal([0, 0, 0, 0, 0, 0, 2, 2, 1],
+	   [SxLength(X2, Sx2#pfcp.ie) || X2 <-
+		[create_pdr, create_far, create_urr,
+		 update_pdr, update_far, update_urr,
+		 remove_pdr, remove_far, remove_urr]]),
+
+    ct:pal("Sx3: ~p", [Sx3]),
+    ?equal([2, 2, 1, 0, 0, 0, 0, 0, 0],
+	   [SxLength(X3, Sx3#pfcp.ie) || X3 <-
+		[create_pdr, create_far, create_urr,
+		 update_pdr, update_far, update_urr,
+		 remove_pdr, remove_far, remove_urr]]),
+
+    ct:pal("Sx4: ~p", [Sx4]),
+    ?equal([0,0,0,0,0,0,2,2,1],
+	   [SxLength(X4, Sx4#pfcp.ie) || X4 <-
+		[create_pdr, create_far, create_urr,
+		 update_pdr, update_far, update_urr,
+		 remove_pdr, remove_far, remove_urr]]),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     wait4tunnels(?TIMEOUT),
