@@ -149,6 +149,29 @@ handle_info(#aaa_request{procedure = {_, 'ASR'}} = Request,
     delete_context(undefined, administrative, Context),
     {noreply, State};
 
+handle_info(#aaa_request{procedure = {gx, 'RAR'},
+			 session = Session,
+			 events = Events} = Request,
+	    #{context := Context, pfcp := PCtx0} = State) ->
+    RuleBase = ergw_charging:rulebase(),
+    PCCRules0 = maps:get('PCC-Rules', Session, #{}),
+    ct:pal("PCCRules0: ~p", [PCCRules0]),
+    {PCCRules, _PCCErrors} =
+	ergw_gsn_lib:gx_events_to_pcc_rules(Events, RuleBase, PCCRules0),
+    ct:pal("PCCRules: ~p", [PCCRules]),
+    ct:pal("PCCErrors: ~p", [_PCCErrors]),
+
+    URRActions = [],  %% TODO add gy/rf reporting
+    PCtx = ergw_gsn_lib:modify_sgi_session(Session#{'PCC-Rules' => PCCRules},
+					   URRActions, #{}, Context, PCtx0),
+
+    SessionOpts = #{'PCC-Rules' => PCCRules},
+    %% TODO translate PCCErrors to RAA
+    %% TODO Charging-Rule-Report
+    Avps = #{},
+    ergw_aaa_session:response(Request, ok, Avps, SessionOpts),
+    {noreply, State#{pfcp := PCtx}};
+
 handle_info(#aaa_request{procedure = {gy, 'RAR'},
 			 events = Events} = Request, State) ->
     ergw_aaa_session:response(Request, ok, #{}, #{}),
