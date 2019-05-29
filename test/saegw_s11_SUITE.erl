@@ -407,12 +407,14 @@ init_per_testcase(_, Config) ->
     init_per_testcase(Config),
     Config.
 
-end_per_testcase(_Config) ->
+end_per_testcase(Config) ->
     stop_gtpc_server(),
 
     FreeP = [pool, <<"upstream">>, ipv4, {10,180,0,1}, free],
     ?match_exo_value(FreeP, 65534),
 
+    AppsCfg = proplists:get_value(aaa_cfg, Config),
+    ok = application:set_env(ergw_aaa, apps, AppsCfg),
     ok.
 
 end_per_testcase(TestCase, Config)
