@@ -147,6 +147,8 @@ init([Node, InVRF, IP4, IP6, #{apn := APN} = _SxOpts]) ->
 
 handle_call({?TestCmdTag, pfcp_ctx}, _From, #state{pfcp = PCtx} = State) ->
     {reply, {ok, PCtx}, State};
+handle_call({?TestCmdTag, session}, _From, #state{session = Session} = State) ->
+    {reply, {ok, Session}, State};
 
 handle_call({sx, #pfcp{type = session_report_request,
 		       ie = #{report_type := #report_type{usar = 1},
@@ -181,6 +183,7 @@ handle_cast(init, State) ->
 	    lager:debug("TDF Init failed with ~p", [_Error]),
 	    {stop, normal, State}
     end;
+
 handle_cast(_Request, State) ->
     {noreply, State}.
 
@@ -198,6 +201,54 @@ handle_info(#aaa_request{procedure = {_, 'ASR'}} = Request, State) ->
     ergw_aaa_session:response(Request, ok, #{}, #{}),
     close_pdn_context(normal, State),
     {stop, normal, State};
+
+handle_info(#aaa_request{procedure = {gx, 'RAR'},
+			 session = SessionOpts,
+			 events = Events} = Request,
+	    #state{context = Context, pfcp = PCtx0, session = Session} = State) ->
+    Now = erlang:monotonic_time(),
+
+    RuleBase = ergw_charging:rulebase(),
+    PCCRules0 = maps:get('PCC-Rules', SessionOpts, #{}),
+    {PCCRules1, _PCCErrors1} =
+	ergw_gsn_lib:gx_events_to_pcc_rules(Events, remove, RuleBase, PCCRules0),
+
+    URRActions = [],
+    {PCtx1, UsageReport} =
+	ergw_gsn_lib:modify_sgi_session(SessionOpts#{'PCC-Rules' => PCCRules1}, [],
+					URRActions, #{}, Context, PCtx0),
+
+    {PCCRules2, _PCCErrors2} =
+	ergw_gsn_lib:gx_events_to_pcc_rules(Events, install, RuleBase, PCCRules1),
+    ergw_aaa_session:set(Session, 'PCC-Rules', PCCRules2),
+
+    CreditsOld = ergw_gsn_lib:pcc_rules_to_credit_request(PCCRules1),
+    CreditsNew = ergw_gsn_lib:pcc_rules_to_credit_request(PCCRules2),
+    Credits = maps:without(maps:keys(CreditsOld), CreditsNew),
+
+    GyReqServices =
+	if length(Credits) /= 0 -> #{credits => Credits};
+	   true                 -> #{}
+	end,
+    ReqOps = #{now => Now},
+
+    ChargeEv = {online, 'RAR'},   %% made up value, not use anywhere...
+    {Online, Offline, _} =
+	ergw_gsn_lib:usage_report_to_charging_events(UsageReport, ChargeEv, PCtx1),
+    {ok, FinalSessionOpts, GyEvs} =
+	ergw_gsn_lib:process_online_charging_events(ChargeEv, GyReqServices, Online, Session, ReqOps),
+    ergw_gsn_lib:process_offline_charging_events(ChargeEv, Offline, Now, Session),
+
+    {PCtx, _} =
+	ergw_gsn_lib:modify_sgi_session(FinalSessionOpts, GyEvs, URRActions, #{}, Context, PCtx1),
+
+    %% TODO translate PCCErrors to RAA
+    %% TODO Charging-Rule-Report
+
+    Avps = #{},
+    SOpts = #{'PCC-Rules' => PCCRules2},
+    ergw_aaa_session:response(Request, ok, Avps, SOpts),
+    {noreply, State#state{pfcp = PCtx}};
 
 handle_info(#aaa_request{procedure = {gy, 'RAR'},
 			 events = Events} = Request, State) ->

@@ -121,7 +121,21 @@
 			  'Precedence' => [100],
 			  'Offline'  => [1]
 			 }},
-		       {<<"m2m0001">>, [<<"r-0001">>]}
+		       {<<"r-0002">>,
+			#{'Rating-Group' => [4000],
+			  'Flow-Information' =>
+			      [#{'Flow-Description' => [<<"permit out ip from any to assigned">>],
+				 'Flow-Direction'   => [1]    %% DownLink
+				},
+			       #{'Flow-Description' => [<<"permit out ip from any to assigned">>],
+				 'Flow-Direction'   => [2]    %% UpLink
+				}],
+			  'Metering-Method'  => [1],
+			  'Precedence' => [100],
+			  'Offline'  => [1]
+			 }},
+		       {<<"m2m0001">>, [<<"r-0001">>]},
+		       {<<"m2m0002">>, [<<"r-0002">>]}
 		      ]}
 		     ]}
 		  ]},
@@ -331,6 +345,7 @@ common() ->
      gy_validity_timer,
      volume_threshold,
      gx_asr,
+     gx_rar,
      gy_asr,
      redirect_info,
      tdf_app_id
@@ -698,6 +713,119 @@ gx_asr(Config) ->
     meck_validate(Config),
     ok.
 
+%%--------------------------------------------------------------------
+gx_rar() ->
+    [{doc, "Check that RAR on Gx changes the session"}].
+gx_rar(Config) ->
+    packet_in(Config),
+    ct:sleep({seconds, 1}),
+
+    Server = tdf_session_pid(),
+    {ok, Session} = tdf:test_cmd(Server, session),
+    SessionOpts = ergw_aaa_session:get(Session),
+
+    Self = self(),
+    ResponseFun =
+	fun(Request, Result, Avps, SOpts) ->
+		Self ! {'$response', Request, Result, Avps, SOpts} end,
+    AAAReq = #aaa_request{from = ResponseFun, procedure = {gx, 'RAR'},
+			  session = SessionOpts, events = []},
+
+    Server ! AAAReq,
+    {_, Resp0, _, _} =
+	receive {'$response', _, _, _, _} = R0 -> erlang:delete_element(1, R0) end,
+    ?equal(ok, Resp0),
+    SOpts0 = ergw_aaa_session:get(Session),
+    ?match(#{'PCC-Rules' := _}, SOpts0),
+
+    InstCR =
+	[{pcc, install, [#{'Charging-Rule-Name' => [<<"r-0002">>]}]}],
+    Server ! AAAReq#aaa_request{events = InstCR},
+    {_, Resp1, _, _} =
+	receive {'$response', _, _, _, _} = R1 -> erlang:delete_element(1, R1) end,
+    ?equal(ok, Resp1),
+    SOpts1 = ergw_aaa_session:get(Session),
+    ?match(#{'PCC-Rules' := #{<<"r-0001">> := #{}, <<"r-0002">> := #{}}}, SOpts1),
+
+    RemoveCR =
+	[{pcc, remove, [#{'Charging-Rule-Name' => [<<"r-0002">>]}]}],
+    Server ! AAAReq#aaa_request{session = SOpts1, events = RemoveCR},
+    {_, Resp2, _, _} =
+	receive {'$response', _, _, _, _} = R2 -> erlang:delete_element(1, R2) end,
+    ?equal(ok, Resp2),
+    SOpts2 = ergw_aaa_session:get(Session),
+    ?match(#{'PCC-Rules' := #{<<"r-0001">> := #{}}}, SOpts2),
+    ?equal(false, maps:is_key(<<"r-0002">>, maps:get('PCC-Rules', SOpts2))),
+
+    InstCRB =
+	[{pcc, install, [#{'Charging-Rule-Base-Name' => [<<"m2m0002">>]}]}],
+    Server ! AAAReq#aaa_request{events = InstCRB},
+    {_, Resp3, _, _} =
+	receive {'$response', _, _, _, _} = R3 -> erlang:delete_element(1, R3) end,
+    ?equal(ok, Resp3),
+    SOpts3 = ergw_aaa_session:get(Session),
+    ?match(#{'PCC-Rules' :=
+		 #{<<"r-0001">> := #{},
+		   <<"r-0002">> := #{'Charging-Rule-Base-Name' := _}}}, SOpts3),
+
+    RemoveCRB =
+	[{pcc, remove, [#{'Charging-Rule-Base-Name' => [<<"m2m0002">>]}]}],
+    Server ! AAAReq#aaa_request{session = SOpts3, events = RemoveCRB},
+    {_, Resp4, _, _} =
+	receive {'$response', _, _, _, _} = R4 -> erlang:delete_element(1, R4) end,
+    ?equal(ok, Resp4),
+    SOpts4 = ergw_aaa_session:get(Session),
+    ?match(#{'PCC-Rules' := #{<<"r-0001">> := #{}}}, SOpts4),
+    ?equal(false, maps:is_key(<<"r-0002">>, maps:get('PCC-Rules', SOpts4))),
+
+    Server ! stop_from_session,
+
+    [Sx1, Sx2, Sx3, Sx4 | _] =
+	lists:filter(
+	  fun(#pfcp{type = session_modification_request}) -> true;
+	     (_) ->false
+	  end, ergw_test_sx_up:history('tdf-u')),
+
+    SxLength =
+	fun (Key, SxReq) ->
+		case maps:get(Key, SxReq, undefined) of
+		    X when is_list(X) -> length(X);
+		    X when is_tuple(X) -> 1;
+		    _ -> 0
+		end
+	end,
+    ct:pal("Sx1: ~p", [Sx1]),
+    ?equal([2, 2, 1, 0, 0, 0, 0, 0, 0],
+	   [SxLength(X1, Sx1#pfcp.ie) || X1 <-
+		[create_pdr, create_far, create_urr,
+		 update_pdr, update_far, update_urr,
+		 remove_pdr, remove_far, remove_urr]]),
+
+    ct:pal("Sx2: ~p", [Sx2]),
+    ?equal([0, 0, 0, 0, 0, 0, 2, 2, 1],
+	   [SxLength(X2, Sx2#pfcp.ie) || X2 <-
+		[create_pdr, create_far, create_urr,
+		 update_pdr, update_far, update_urr,
+		 remove_pdr, remove_far, remove_urr]]),
+
+    ct:pal("Sx3: ~p", [Sx3]),
+    ?equal([2, 2, 1, 0, 0, 0, 0, 0, 0],
+	   [SxLength(X3, Sx3#pfcp.ie) || X3 <-
+		[create_pdr, create_far, create_urr,
+		 update_pdr, update_far, update_urr,
+		 remove_pdr, remove_far, remove_urr]]),
+
+    ct:pal("Sx4: ~p", [Sx4]),
+    ?equal([0,0,0,0,0,0,2,2,1],
+	   [SxLength(X4, Sx4#pfcp.ie) || X4 <-
+		[create_pdr, create_far, create_urr,
+		 update_pdr, update_far, update_urr,
+		 remove_pdr, remove_far, remove_urr]]),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    wait4tunnels(?TIMEOUT),
+    meck_validate(Config),
+    ok.
 
 %%--------------------------------------------------------------------
 gy_asr() ->
@@ -717,6 +845,7 @@ gy_asr(Config) ->
     meck_validate(Config),
     ok.
 
+%%--------------------------------------------------------------------
 redirect_info() ->
     [{doc, "Check Session with Gx redirect info"}].
 redirect_info(Config) ->
@@ -863,6 +992,7 @@ redirect_info(Config) ->
     meck_validate(Config),
     ok.
 
+%%--------------------------------------------------------------------
 tdf_app_id() ->
     [{doc, "Check Session with Gx TDF-Application-Identifier"}].
 tdf_app_id(Config) ->
