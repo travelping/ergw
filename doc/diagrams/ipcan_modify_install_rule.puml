@@ -1,0 +1,17 @@
+@startuml
+
+title Installation of Charging Rule
+
+participant pgwU as "PCEF (PGW-U)"
+participant pgwC as "PGW-C"
+participant PCRF
+participant OCS
+
+PCRF -> pgwC : Policy and Charging Rules Provision (Gx RAR)
+pgwC -> OCS  : PCEF Initiated Credit Request (Gy CCR-U) [Request Credits]
+OCS -> pgwC  : Credit Response (Gy CCA) [Granted Credits]
+pgwC -> pgwU : Sx Session Modification Request [Create PDR/FAR/URR]
+pgwU -> pgwC : Sx Session Modification Response [Ack]
+pgwC -> PCRF : Acknowledgment session Modification (Gx RAA)
+
+@enduml
