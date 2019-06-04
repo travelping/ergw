@@ -19,7 +19,7 @@
 	 modify_sgi_session/5,
 	 delete_sgi_session/3,
 	 query_usage_report/2, query_usage_report/3,
-	 trigger_offline_usage_report/2,
+	 trigger_offline_usage_report/2, triggered_usage_report/2,
 	 choose_context_ip/3,
 	 ip_pdu/3]).
 -export([%%update_pcc_rules/2,
@@ -77,11 +77,25 @@ query_usage_report(ChargingKeys, Ctx, PCtx)
 	   Id <- ergw_pfcp:get_urr_ids(ChargingKeys, PCtx), is_integer(Id)],
     query_usage_report_3(PCtx, IEs, Ctx).
 
-trigger_offline_usage_report(PCtx, Cb)
+triggered_usage_report({M, F, A}, Response) ->
+    Result =
+	case Response of
+	    #pfcp{type = session_modification_response,
+		  ie = #{pfcp_cause := #pfcp_cause{cause = 'Request accepted'}} = RespIEs} ->
+		UsageReport = maps:get(usage_report_smr, RespIEs, undefined),
+		{ok, UsageReport};
+	    _ ->
+		error
+	end,
+    erlang:apply(M, F, A ++ [Result]),
+    ok.
+
+trigger_offline_usage_report(PCtx, {_, _, _} = Callback)
   when is_record(PCtx, pfcp_ctx) ->
     case build_query_usage_report(offline, PCtx) of
 	IEs when length(IEs) /= 0 ->
 	    Req = #pfcp{version = v1, type = session_modification_request, ie = IEs},
+	    Cb = {?MODULE, triggered_usage_report, [Callback]},
 	    ergw_sx_node:call_async(PCtx, Req, Cb);
 	_ ->
 	    undefined
@@ -740,20 +754,12 @@ create_sgi_session(Candidates, SessionOpts, Ctx0) ->
 	    throw(?CTX_ERR(?FATAL, system_failure, Ctx))
     end.
 
-modify_sgi_report_urrs(Response, URRActions) ->
-    lists:map(
-	  fun({offline, {M,F,A}}) ->
-		  (catch erlang:apply(M, F, A ++ [Response]));
-	     (_) ->
-		  ok
-	  end, URRActions).
-
 modify_sgi_session(SessionOpts, URRActions, Opts, Ctx, PCtx0) ->
-    {SxRules0, SxErrors, PCtx} = build_sx_rules(SessionOpts, Opts, PCtx0, Ctx),
+    {SxRules0, SxErrors, PCtx1} = build_sx_rules(SessionOpts, Opts, PCtx0, Ctx),
     SxRules1 =
 	lists:foldl(
 	  fun({offline, _}, SxR) ->
-		  SxR#{query_urr => build_query_usage_report(offline, PCtx)};
+		  SxR#{query_urr => build_query_usage_report(offline, PCtx1)};
 	     (_, SxR) ->
 		  SxR
 	  end, SxRules0, URRActions),
@@ -763,16 +769,17 @@ modify_sgi_session(SessionOpts, URRActions, Opts, Ctx, PCtx0) ->
 
     lager:info("SxRules: ~p~n", [SxRules]),
     lager:info("SxErrors: ~p~n", [SxErrors]),
-    lager:info("PCtx: ~p~n", [PCtx]),
+    lager:info("PCtx: ~p~n", [PCtx1]),
 
     Req = #pfcp{version = v1, type = session_modification_request, ie = SxRules},
-    case ergw_sx_node:call(PCtx, Req, Ctx) of
+    case ergw_sx_node:call(PCtx1, Req, Ctx) of
 	#pfcp{version = v1, type = session_modification_response,
 	      ie = #{
 		     pfcp_cause :=
-			 #pfcp_cause{cause = 'Request accepted'}} = RespIEs} = Response ->
-	    modify_sgi_report_urrs(Response, URRActions),
-	    ctx_update_dp_seid(RespIEs, PCtx);
+			 #pfcp_cause{cause = 'Request accepted'}} = RespIEs} ->
+	    UsageReport = maps:get(usage_report_smr, RespIEs, undefined),
+	    PCtx = ctx_update_dp_seid(RespIEs, PCtx1),
+	    {PCtx, UsageReport};
 	_ ->
 	    throw(?CTX_ERR(?FATAL, system_failure, Ctx))
     end.

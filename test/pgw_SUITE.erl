@@ -413,7 +413,7 @@ common() ->
      volume_threshold,
      redirect_info,
      gx_asr,
-     gx_rar,
+     %%gx_rar,
      gy_asr].
 
 groups() ->

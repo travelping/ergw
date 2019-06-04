@@ -105,17 +105,20 @@ trigger_delete_context(Context) ->
     gen_server:cast(Context, delete_context).
 
 triggered_offline_usage_report(Pid, ChargeEv, OldS, Response) ->
+    erlang:error(badarg),
     gen_server:cast(Pid, {triggered_offline_usage_report, ChargeEv, OldS, Response}).
 
 trigger_charging_events(URRActions, PCtx)
   when is_list(URRActions),
        is_record(PCtx, pfcp_ctx) ->
+    erlang:error(badarg),
     lists:map(fun({offline, Cb}) ->
 		      ergw_gsn_lib:trigger_offline_usage_report(PCtx, Cb);
 		 (_) ->
 		      ok
 	      end, URRActions);
 trigger_charging_events(_URRActions, _PCtx) ->
+    erlang:error(badarg),
     ok.
 
 %% TODO: add online charing events
@@ -153,7 +156,7 @@ collect_charging_events(OldS, NewS, _Context) ->
 	false ->
 	    [];
 	ChargeEv ->
-	    [{offline, {?MODULE, triggered_offline_usage_report, [self(), ChargeEv, OldS]}}]
+	    [{offline, {ChargeEv, OldS}}]
     end.
 
 %% 3GPP TS 29.060 (GTPv1-C) and TS 29.274 (GTPv2-C) have language that states
@@ -400,6 +403,7 @@ handle_cast({handle_response, ReqInfo, Request, Response0},
 handle_cast({triggered_offline_usage_report, {Reason, _} = ChargeEv, OldS, #pfcp{ie = IEs}},
 	    #{pfcp := PCtx, 'Session' := Session} = State)
   when ChargeEv =/= false ->
+    erlang:error(badarg),
     Now = erlang:monotonic_time(),
 
     UsageReport = maps:get(usage_report_smr, IEs, undefined),
@@ -410,6 +414,7 @@ handle_cast({triggered_offline_usage_report, {Reason, _} = ChargeEv, OldS, #pfcp
     {noreply, State};
 
 handle_cast({triggered_offline_usage_report, _ChargeEv, _OldS, _Response}, State) ->
+    erlang:error(badarg),
     {noreply, State};
 
 handle_cast(Msg, #{interface := Interface} = State) ->
