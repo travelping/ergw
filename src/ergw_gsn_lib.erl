@@ -64,28 +64,18 @@ build_query_usage_report(Type, PCtx) ->
 		 (_, _, A) -> A
 	      end, [], ergw_pfcp:get_urr_ids(PCtx)).
 
-%% query_usage_report/1
+%% query_usage_report/2
 query_usage_report(Ctx, PCtx)
   when is_record(PCtx, pfcp_ctx) ->
-    case build_query_usage_report(online, PCtx) of
-	IEs when length(IEs) /= 0 ->
-	    Req = #pfcp{version = v1, type = session_modification_request, ie = IEs},
-	    ergw_sx_node:call(PCtx, Req, Ctx);
-	_ ->
-	    undefined
-    end.
+    IEs = build_query_usage_report(online, PCtx),
+    query_usage_report_3(PCtx, IEs, Ctx).
 
-%% query_usage_report/2
+%% query_usage_report/3
 query_usage_report(ChargingKeys, Ctx, PCtx)
   when is_record(PCtx, pfcp_ctx) ->
     IEs = [#query_urr{group = [#urr_id{id = Id}]} ||
 	   Id <- ergw_pfcp:get_urr_ids(ChargingKeys, PCtx), is_integer(Id)],
-    if length(IEs) /= 0 ->
-	    Req = #pfcp{version = v1, type = session_modification_request, ie = IEs},
-	    ergw_sx_node:call(PCtx, Req, Ctx);
-       true ->
-	    undefined
-    end.
+    query_usage_report_3(PCtx, IEs, Ctx).
 
 trigger_offline_usage_report(PCtx, Cb)
   when is_record(PCtx, pfcp_ctx) ->
@@ -114,6 +104,21 @@ choose_context_ip(IP4, _IP6, _Context)
 choose_context_ip(_IP4, IP6, _Context)
   when is_binary(IP6) ->
     IP6.
+
+query_usage_report_3(PCtx, ReqIEs, Ctx)
+  when length(ReqIEs) /= 0 ->
+    Req = #pfcp{version = v1, type = session_modification_request, ie = ReqIEs},
+    case ergw_sx_node:call(PCtx, Req, Ctx) of
+	#pfcp{type = session_modification_response,
+	      ie = #{pfcp_cause := #pfcp_cause{cause = 'Request accepted'}} = RespIEs} ->
+	    UsageReport = maps:get(usage_report_smr, RespIEs, undefined),
+	    {ok, UsageReport};
+	_ ->
+	    error
+    end;
+query_usage_report_3(_PCtx, _ReqIEs, _Ctx) ->
+    %% nothing to query
+    {ok, undefined}.
 
 %%%===================================================================
 %%% Session Trigger functions
