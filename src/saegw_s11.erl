@@ -664,10 +664,7 @@ query_usage_report(_, Context, PCtx) ->
 triggered_charging_event(ChargeEv, Now, Request,
 			 #{context := Context, pfcp := PCtx, 'Session' := Session}) ->
     case query_usage_report(Request, Context, PCtx) of
-	#pfcp{type = session_modification_response,
-	      ie = #{pfcp_cause := #pfcp_cause{cause = 'Request accepted'}} = IEs} ->
-
-	    UsageReport = maps:get(usage_report_smr, IEs, undefined),
+	{ok, UsageReport} ->
 	    {Online, Offline, _} =
 		ergw_gsn_lib:usage_report_to_charging_events(UsageReport, ChargeEv, PCtx),
 	    ergw_gsn_lib:process_online_charging_events(ChargeEv, Online, Now, Session),
