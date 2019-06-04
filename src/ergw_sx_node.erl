@@ -14,7 +14,7 @@
 
 %% API
 -export([select_sx_node/2, select_sx_node/3]).
--export([start_link/3, send/4, call/3, call_async/3,
+-export([start_link/3, send/4, call/3,
 	 get_vrfs/2, handle_request/3, response/3]).
 -ifdef(TEST).
 -export([stop/1, seconds_to_sntp_time/1]).
@@ -84,10 +84,6 @@ call(#pfcp_ctx{node = Node, seid = #seid{dp = SEID}}, #pfcp{} = Request, OpaqueR
     call_3(Node, Request#pfcp{seid = SEID}, OpaqueRef);
 call(#pfcp_ctx{node = Node}, Request, OpaqueRef) ->
     call_3(Node, Request, OpaqueRef).
-
-call_async(#pfcp_ctx{node = Node, seid = #seid{dp = SEID}},
-	   #pfcp{} = Request, {_,_,_} = Cb) ->
-    gen_statem:cast(Node, {Request#pfcp{seid = SEID}, Cb}).
 
 get_vrfs(PCtx, Context) ->
     call(PCtx, get_vrfs, Context).
@@ -356,15 +352,6 @@ handle_event({call, _} = Evt, #pfcp{} = Request0, connected,
 handle_event({call, _}, Request, _, _Data)
   when is_record(Request, pfcp); Request == get_vrfs ->
     {keep_state_and_data, postpone};
-
-handle_event(cast, {#pfcp{} = Request0, Cb}, connected,
-	     #data{dp = #node{ip = IP}} = Data) ->
-    Request = augment_mandatory_ie(Request0, Data),
-    ergw_sx_socket:call(IP, Request, Cb),
-    keep_state_and_data;
-handle_event(cast, {#pfcp{}, Cb}, _, _Data) ->
-    (catch Cb({error, dead})),
-    keep_state_and_data;
 
 handle_event(cast, {handle_pdu, _Request, #gtp{type=g_pdu, ie = PDU}}, _, Data) ->
     try
