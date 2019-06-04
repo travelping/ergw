@@ -29,9 +29,7 @@
 	 generic_error/3,
 	 port_key/2, port_teid_key/2]).
 -export([usage_report_to_accounting/1,
-	 collect_charging_events/3,
-	 trigger_charging_events/2,
-	 triggered_offline_usage_report/4]).
+	 collect_charging_events/3]).
 
 %% ergw_context callbacks
 -export([sx_report/2, port_message/2, port_message/4]).
@@ -103,23 +101,6 @@ delete_context(Context) ->
 
 trigger_delete_context(Context) ->
     gen_server:cast(Context, delete_context).
-
-triggered_offline_usage_report(Pid, ChargeEv, OldS, Response) ->
-    erlang:error(badarg),
-    gen_server:cast(Pid, {triggered_offline_usage_report, ChargeEv, OldS, Response}).
-
-trigger_charging_events(URRActions, PCtx)
-  when is_list(URRActions),
-       is_record(PCtx, pfcp_ctx) ->
-    erlang:error(badarg),
-    lists:map(fun({offline, Cb}) ->
-		      ergw_gsn_lib:trigger_offline_usage_report(PCtx, Cb);
-		 (_) ->
-		      ok
-	      end, URRActions);
-trigger_charging_events(_URRActions, _PCtx) ->
-    erlang:error(badarg),
-    ok.
 
 %% TODO: add online charing events
 collect_charging_events(OldS, NewS, _Context) ->
@@ -399,23 +380,6 @@ handle_cast({handle_response, ReqInfo, Request, Response0},
 	    lager:error("GTP response failed with: ~p:~p (~p)", [Class, Reason, Stacktrace]),
 	    erlang:raise(Class, Reason, Stacktrace)
     end;
-
-handle_cast({triggered_offline_usage_report, {Reason, _} = ChargeEv, OldS, #pfcp{ie = IEs}},
-	    #{pfcp := PCtx, 'Session' := Session} = State)
-  when ChargeEv =/= false ->
-    erlang:error(badarg),
-    Now = erlang:monotonic_time(),
-
-    UsageReport = maps:get(usage_report_smr, IEs, undefined),
-    {_Online, Offline, _} =
-	ergw_gsn_lib:usage_report_to_charging_events(UsageReport, ChargeEv, PCtx),
-    ergw_gsn_lib:process_offline_charging_events(Reason, Offline, Now, OldS, Session),
-
-    {noreply, State};
-
-handle_cast({triggered_offline_usage_report, _ChargeEv, _OldS, _Response}, State) ->
-    erlang:error(badarg),
-    {noreply, State};
 
 handle_cast(Msg, #{interface := Interface} = State) ->
     lager:debug("~w: handle_cast: ~p", [?MODULE, lager:pr(Msg, ?MODULE)]),
