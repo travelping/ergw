@@ -1,11 +1,10 @@
- Translate Charging Rule to Sx Rules....
- - defined Gx (TODO)
- - defined at erGW and D/L to SX (TODO)
- - defined at UP
+# 3GPP TS 23.203 and 23.214 procedures
 
- Content:
-   Name       :: binary()
-   Definition :: 'UP' | definition()
+## PCRF initialted IP-CAN session modification
+
+![Remove Rule](diagrams/ipcan_modify_remove_rule.svg)
+![Install Rule](diagrams/ipcan_modify_install_rule.svg)
+![Remove and Install Rule](diagrams/ipcan_modify_remove_and_install_rule.svg)
 
 # Definition:
 
