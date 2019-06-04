@@ -158,11 +158,6 @@ init(#{proxy_sockets := ProxyPorts, node_selection := NodeSelect,
 		'Version' => v1, 'Session' => Session, contexts => Contexts,
 		node_selection => NodeSelect, proxy_ds => ProxyDS}}.
 
-handle_call(query_usage_report, _From,
-	    #{context := Context, pfcp := PCtx} = State) ->
-    Reply = ergw_proxy_lib:query_usage_report(Context, PCtx),
-    {reply, Reply, State};
-
 handle_call(delete_context, _From, State) ->
     lager:warning("delete_context no handled(yet)"),
     {reply, ok, State};
