@@ -363,10 +363,8 @@ handle_request(_ReqKey,
     State1 = if Context /= OldContext ->
 		     gtp_context:remote_context_update(OldContext, Context),
 		     apply_context_change(Context, OldContext, URRActions, State0);
-		URRActions /= [] ->
-		     gtp_context:trigger_charging_events(URRActions, PCtx),
-		     State0;
 		true ->
+		     gtp_context:trigger_charging_events(URRActions, PCtx),
 		     State0
 	     end,
 
@@ -383,12 +381,8 @@ handle_request(_ReqKey,
 			  'Session' := Session} = State) ->
 
     Context = update_context_from_gtp_req(Request, OldContext),
-    case update_session_from_gtp_req(IEs, Session, Context) of
-	URRActions when URRActions /= [] ->
-	    gtp_context:trigger_charging_events(URRActions, PCtx);
-	_ ->
-	    ok
-    end,
+    URRActions = update_session_from_gtp_req(IEs, Session, Context),
+    gtp_context:trigger_charging_events(URRActions, PCtx),
 
     ResponseIEs = [#v2_cause{v2_cause = request_accepted}],
     Response = response(modify_bearer_response, Context, ResponseIEs, Request),
@@ -404,12 +398,8 @@ handle_request(#request{gtp_port = GtpPort, ip = SrcIP, port = SrcPort} = ReqKey
 	       _Resent, #{context := Context, pfcp := PCtx,
 			  'Session' := Session} = State) ->
     gtp_context:request_finished(ReqKey),
-    case update_session_from_gtp_req(IEs, Session, Context) of
-	URRActions when URRActions /= [] ->
-	    gtp_context:trigger_charging_events(URRActions, PCtx);
-	_ ->
-	    ok
-    end,
+    URRActions = update_session_from_gtp_req(IEs, Session, Context),
+    gtp_context:trigger_charging_events(URRActions, PCtx),
 
     Type = update_bearer_request,
     RequestIEs0 = [AMBR,
@@ -478,12 +468,8 @@ handle_response(_,
     Context = gtp_path:bind(Response, Context0),
 
     if Cause =:= request_accepted andalso BearerCause =:= request_accepted ->
-	    case update_session_from_gtp_req(IEs, Session, Context) of
-		URRActions when URRActions /= [] ->
-		    gtp_context:trigger_charging_events(URRActions, PCtx);
-		_ ->
-		    ok
-	    end,
+	    URRActions = update_session_from_gtp_req(IEs, Session, Context),
+	    gtp_context:trigger_charging_events(URRActions, PCtx),
 	    {noreply, State};
        true ->
 	    lager:error("Update Bearer Request failed with ~p/~p",
