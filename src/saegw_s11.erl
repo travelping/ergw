@@ -678,9 +678,19 @@ triggered_charging_event(ChargeEv, Now, Request,
 	    ok
     end.
 
+defered_usage_report_fun(Owner, URRActions, PCtx) ->
+    try
+	Report = ergw_gsn_lib:query_usage_report(offline, undefined, PCtx),
+	defered_usage_report(Owner, URRActions, Report)
+    catch
+	throw:#ctx_err{} = CtxErr ->
+	    defered_usage_report(Owner, URRActions, {error, CtxErr})
+    end.
+
 trigger_defered_usage_report(URRActions, PCtx) ->
-    Cb = {?MODULE, defered_usage_report, [self(), URRActions]},
-    ergw_gsn_lib:trigger_offline_usage_report(PCtx, Cb).
+    Self = self(),
+    proc_lib:spawn(fun() -> defered_usage_report_fun(Self, URRActions, PCtx) end),
+    ok.
 
 defer_usage_report(URRActions, UsageReport) ->
     defered_usage_report(self(), URRActions, {ok, UsageReport}).
