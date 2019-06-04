@@ -18,6 +18,9 @@
 	 handle_call/3, handle_cast/2, handle_info/2,
 	 terminate/2]).
 
+%% PFCP context API's
+-export([defered_usage_report/3]).
+
 %% shared API's
 -export([init_session/3, init_session_from_gtp_req/3]).
 
@@ -120,6 +123,23 @@ handle_call({path_restart, Path}, _From,
 handle_call({path_restart, _Path}, _From, State) ->
     {reply, ok, State}.
 
+handle_cast({defered_usage_report, URRActions, {ok, UsageReport}},
+	    #{pfcp := PCtx, 'Session' := Session} = State) ->
+    Now = erlang:monotonic_time(),
+    case proplists:get_value(offline, URRActions) of
+	{{Reason, _} = ChargeEv, OldS} ->
+	    {_Online, Offline, _} =
+		ergw_gsn_lib:usage_report_to_charging_events(UsageReport, ChargeEv, PCtx),
+	    ergw_gsn_lib:process_offline_charging_events(Reason, Offline, Now, OldS, Session);
+	_ ->
+	    ok
+    end,
+    {noreply, State};
+
+handle_cast({defered_usage_report, _URRActions, Report}, State) ->
+    lager:error("Defered Usage Report failed with ~p", [Report]),
+    {noreply, State};
+
 handle_cast(delete_context, #{context := Context} = State) ->
     delete_context(undefined, administrative, Context),
     {noreply, State};
@@ -206,6 +226,9 @@ handle_sx_report(#pfcp{type = session_report_request,
 
 handle_sx_report(Report, From, State) ->
     ?GTP_v1_Interface:handle_sx_report(Report, From, State).
+
+defered_usage_report(Server, URRActions, Report) ->
+    gen_server:cast(Server, {defered_usage_report, URRActions, Report}).
 
 session_events(Session, Events, #{context := Context, pfcp := PCtx0} = State) ->
     PCtx = ergw_gsn_lib:session_events(Session, Events, Context, PCtx0),
@@ -376,7 +399,7 @@ handle_request(_ReqKey,
 		     gtp_context:remote_context_update(OldContext, Context),
 		     apply_context_change(Context, OldContext, URRActions, State0);
 		true ->
-		     gtp_context:trigger_charging_events(URRActions, PCtx),
+		     trigger_defered_usage_report(URRActions, PCtx),
 		     State0
 	     end,
 
@@ -412,7 +435,7 @@ handle_request(_ReqKey,
 
     Context = update_context_from_gtp_req(Request, OldContext),
     URRActions = update_session_from_gtp_req(IEs, Session, Context),
-    gtp_context:trigger_charging_events(URRActions, PCtx),
+    trigger_defered_usage_report(URRActions, PCtx),
 
     ResponseIEs = [#v2_cause{v2_cause = request_accepted}],
     Response = response(modify_bearer_response, Context, ResponseIEs, Request),
@@ -427,7 +450,7 @@ handle_request(#request{gtp_port = GtpPort, ip = SrcIP, port = SrcPort} = ReqKey
 				   group = #{?'EPS Bearer ID' := EBI} = Bearer}} = IEs},
 	       _Resent, #{context := Context, pfcp := PCtx, 'Session' := Session} = State) ->
     URRActions = update_session_from_gtp_req(IEs, Session, Context),
-    gtp_context:trigger_charging_events(URRActions, PCtx),
+    trigger_defered_usage_report(URRActions, PCtx),
 
     Type = update_bearer_request,
     RequestIEs0 = [AMBR,
@@ -446,7 +469,7 @@ handle_request(_ReqKey,
 
     Context = update_context_from_gtp_req(Request, OldContext),
     URRActions = update_session_from_gtp_req(IEs, Session, Context),
-    gtp_context:trigger_charging_events(URRActions, PCtx),
+    trigger_defered_usage_report(URRActions, PCtx),
 
     ResponseIEs0 = [#v2_cause{v2_cause = request_accepted}],
     ResponseIEs = copy_ies_to_response(IEs, ResponseIEs0, [?'IMSI', ?'ME Identity']),
@@ -517,7 +540,7 @@ handle_response(CommandReqKey,
 
     if Cause =:= request_accepted andalso BearerCause =:= request_accepted ->
 	    URRActions = update_session_from_gtp_req(IEs, Session, Context),
-	    gtp_context:trigger_charging_events(URRActions, PCtx),
+	    trigger_defered_usage_report(URRActions, PCtx),
 	    {noreply, State#{context => Context}};
        true ->
 	    lager:error("Update Bearer Request failed with ~p/~p",
@@ -704,6 +727,13 @@ triggered_charging_event(ChargeEv, Now, Request,
 	    ok
     end.
 
+trigger_defered_usage_report(URRActions, PCtx) ->
+    Cb = {?MODULE, defered_usage_report, [self(), URRActions]},
+    ergw_gsn_lib:trigger_offline_usage_report(PCtx, Cb).
+
+defer_usage_report(URRActions, UsageReport) ->
+    defered_usage_report(self(), URRActions, {ok, UsageReport}).
+
 apply_context_change(NewContext0, OldContext, URRActions,
 		     #{pfcp := PCtx0, 'Session' := Session} = State) ->
     ModifyOpts =
@@ -715,9 +745,11 @@ apply_context_change(NewContext0, OldContext, URRActions,
 	end,
     SessionOpts = ergw_aaa_session:get(Session),
     NewContext = gtp_path:bind(NewContext0),
-    PCtx = ergw_gsn_lib:modify_sgi_session(SessionOpts, URRActions,
-					   ModifyOpts, NewContext, PCtx0),
+    {PCtx, UsageReport} =
+	ergw_gsn_lib:modify_sgi_session(SessionOpts, URRActions,
+					ModifyOpts, NewContext, PCtx0),
     gtp_path:unbind(OldContext),
+    defer_usage_report(URRActions, UsageReport),
     State#{context => NewContext, pfcp => PCtx}.
 
 select_vrf(#context{apn = APN} = Context) ->

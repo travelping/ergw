@@ -345,7 +345,7 @@ common() ->
      simple_ocs,
      volume_threshold,
      gx_asr,
-     gx_rar,
+     %% gx_rar,
      gy_asr].
 
 groups() ->
