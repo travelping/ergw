@@ -108,12 +108,15 @@ triggered_offline_usage_report(Pid, ChargeEv, OldS, Response) ->
     gen_server:cast(Pid, {triggered_offline_usage_report, ChargeEv, OldS, Response}).
 
 trigger_charging_events(URRActions, PCtx)
-  when is_record(PCtx, pfcp_ctx) ->
+  when is_list(URRActions),
+       is_record(PCtx, pfcp_ctx) ->
     lists:map(fun({offline, Cb}) ->
 		      ergw_gsn_lib:trigger_offline_usage_report(PCtx, Cb);
 		 (_) ->
 		      ok
-	      end, URRActions).
+	      end, URRActions);
+trigger_charging_events(_URRActions, _PCtx) ->
+    ok.
 
 %% TODO: add online charing events
 collect_charging_events(OldS, NewS, _Context) ->

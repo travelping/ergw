@@ -325,10 +325,8 @@ handle_request(_ReqKey,
     State1 = if Context /= OldContext ->
 		     gtp_context:remote_context_update(OldContext, Context),
 		     apply_context_change(Context, OldContext, URRActions, State0);
-		URRActions /= [] ->
-		     gtp_context:trigger_charging_events(URRActions, PCtx),
-		     State0;
 		true ->
+		     gtp_context:trigger_charging_events(URRActions, PCtx),
 		     State0
 	     end,
 
@@ -345,12 +343,8 @@ handle_request(_ReqKey,
 			  'Session' := Session} = State) ->
 
     Context = update_context_from_gtp_req(Request, OldContext),
-    case update_session_from_gtp_req(IEs, Session, Context) of
-	URRActions when URRActions /= [] ->
-	    gtp_context:trigger_charging_events(URRActions, PCtx);
-	_ ->
-	    ok
-    end,
+    URRActions = update_session_from_gtp_req(IEs, Session, Context),
+    gtp_context:trigger_charging_events(URRActions, PCtx),
 
     ResponseIEs0 = [#cause{value = request_accepted}],
     ResponseIEs = copy_ies_to_response(IEs, ResponseIEs0, [?'IMSI', ?'IMEI']),
