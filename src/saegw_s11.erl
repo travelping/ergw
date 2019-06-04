@@ -105,11 +105,6 @@ init(_Opts, State) ->
     {ok, Session} = ergw_aaa_session_sup:new_session(self(), to_session([])),
     {ok, State#{'Session' => Session}}.
 
-handle_call(query_usage_report, _From,
-	    #{context := Context, pfcp := PCtx} = State) ->
-    Reply = ergw_gsn_lib:query_usage_report(Context, PCtx),
-    {reply, Reply, State};
-
 handle_call(delete_context, From, #{context := Context} = State) ->
     delete_context(From, administrative, Context),
     {noreply, State};
