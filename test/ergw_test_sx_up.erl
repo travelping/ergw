@@ -1,6 +1,7 @@
 -module(ergw_test_sx_up).
 
 -behaviour(gen_server).
+-compile({parse_transform, cut}).
 
 %% API
 -export([start/2, stop/1, restart/1,
@@ -174,7 +175,8 @@ handle_info({udp, SxSocket, IP, InPortNo, Packet},
 	{noreply, State}
     catch
 	Class:Error ->
-	    ct:fail("Sx Socket Error: ~p:~p~n~p", [Class, Error, erlang:get_stacktrace()]),
+	    ct:pal("Sx Socket Error: ~p:~p~n~p", [Class, Error, erlang:get_stacktrace()]),
+	    ct:fail("Sx Socket Error"),
 	    {stop, error, State0}
     end;
 handle_info({udp, GtpSocket, IP, InPortNo, Packet} = Msg,
@@ -307,37 +309,10 @@ handle_message(#pfcp{type = session_establishment_request, seid = 0,
     sx_reply(session_establishment_response, ControlPlaneSEID, RespIEs, State);
 
 handle_message(#pfcp{type = session_modification_request, seid = UserPlaneSEID, ie = ReqIEs},
-	      #state{accounting = Acct,
-		     cp_seid = ControlPlaneSEID,
+	      #state{cp_seid = ControlPlaneSEID,
 		     up_seid = UserPlaneSEID} = State) ->
-    RespIEs =
-	case {Acct, maps:get(query_urr, ReqIEs, [])} of
-	    {on, Query} ->
-		Response =
-		    fun Answer(#query_urr{group = #{urr_id := #urr_id{id = Id}}}) ->
-			    #usage_report_smr{
-			       group =
-				   [#urr_id{id = Id},
-				    #usage_report_trigger{immer = 1},
-				    #volume_measurement{
-				       total = 6,
-				       uplink = 4,
-				       downlink = 2
-				      },
-				    #tp_packet_measurement{
-				       total = 4,
-				       uplink = 3,
-				       downlink = 1
-				      }
-				   ]
-			      };
-			Answer([])  -> [];
-			Answer([H|T]) -> [Answer(H) | Answer(T)]
-		    end(Query),
-		lists:flatten([#pfcp_cause{cause = 'Request accepted'}, Response]);
-	    _ ->
-		[#pfcp_cause{cause = 'Request accepted'}]
-	end,
+    RespIEs = maps:fold(process_smr(_, _, State, _), [], ReqIEs) ++
+	[#pfcp_cause{cause = 'Request accepted'}],
     sx_reply(session_modification_response, ControlPlaneSEID, RespIEs, State);
 
 handle_message(#pfcp{type = session_deletion_request, seid = UserPlaneSEID},
@@ -395,3 +370,53 @@ record(Msg, #state{record = true, history = Hist} = State) ->
     State#state{history = [Msg|Hist]};
 record(_Msg, State) ->
     State.
+
+process_ies(Fun, IE) when is_tuple(IE) ->
+    [Fun(IE)];
+process_ies(_Fun, []) ->
+    [];
+process_ies(Fun, [H|T]) ->
+    [process_ies(Fun, H) | process_ies(Fun, T)].
+
+process_smr(query_urr, Query, #state{accounting = on}, IEs) ->
+    process_ies(
+      fun (#query_urr{group = #{urr_id := #urr_id{id = Id}}}) ->
+	      #usage_report_smr{
+		group =
+		    [#urr_id{id = Id},
+		     #usage_report_trigger{immer = 1},
+		     #volume_measurement{
+			total = 6,
+			uplink = 4,
+			downlink = 2
+		       },
+		     #tp_packet_measurement{
+			total = 4,
+			uplink = 3,
+			downlink = 1
+		       }
+		    ]
+		}
+      end, Query) ++ IEs;
+process_smr(remove_urr, Query, #state{accounting = on}, IEs) ->
+    process_ies(
+      fun (#remove_urr{group = #{urr_id := #urr_id{id = Id}}}) ->
+	      #usage_report_smr{
+		group =
+		    [#urr_id{id = Id},
+		     #usage_report_trigger{termr = 1},
+		     #volume_measurement{
+			total = 5,
+			uplink = 2,
+			downlink = 3
+		       },
+		     #tp_packet_measurement{
+			total = 12,
+			uplink = 5,
+			downlink = 7
+		       }
+		    ]
+		}
+      end, Query) ++ IEs;
+process_smr(_, _, _, IEs) ->
+    IEs.
