@@ -115,7 +115,7 @@ handle_call({path_restart, Path}, _From,
 handle_call({path_restart, _Path}, _From, State) ->
     {reply, ok, State}.
 
-handle_cast({defered_usage_report, URRActions, {ok, UsageReport}},
+handle_cast({defered_usage_report, URRActions, UsageReport},
 	    #{pfcp := PCtx, 'Session' := Session} = State) ->
     Now = erlang:monotonic_time(),
     case proplists:get_value(offline, URRActions) of
@@ -126,10 +126,6 @@ handle_cast({defered_usage_report, URRActions, {ok, UsageReport}},
 	_ ->
 	    ok
     end,
-    {noreply, State};
-
-handle_cast({defered_usage_report, _URRActions, Report}, State) ->
-    lager:error("Defered Usage Report failed with ~p", [Report]),
     {noreply, State};
 
 handle_cast(delete_context, #{context := Context} = State) ->
@@ -167,8 +163,9 @@ handle_info(#aaa_request{procedure = {gx, 'RAR'},
 	ergw_gsn_lib:gx_events_to_pcc_rules(Events, RuleBase, PCCRules0),
 
     URRActions = [],  %% TODO add gy/rf reporting
-    PCtx = ergw_gsn_lib:modify_sgi_session(Session#{'PCC-Rules' => PCCRules},
-					   URRActions, #{}, Context, PCtx0),
+    {PCtx, _} =
+	ergw_gsn_lib:modify_sgi_session(Session#{'PCC-Rules' => PCCRules},
+					URRActions, #{}, Context, PCtx0),
 
     SessionOpts = #{'PCC-Rules' => PCCRules},
     %% TODO translate PCCErrors to RAA
@@ -546,24 +543,26 @@ query_usage_report(_, Context, PCtx) ->
 
 triggered_charging_event(ChargeEv, Now, Request,
 			 #{context := Context, pfcp := PCtx, 'Session' := Session}) ->
-    case query_usage_report(Request, Context, PCtx) of
-	{ok, UsageReport} ->
-	    {Online, Offline, _} =
-		ergw_gsn_lib:usage_report_to_charging_events(UsageReport, ChargeEv, PCtx),
-	    ergw_gsn_lib:process_online_charging_events(ChargeEv, Online, Now, Session),
-	    ergw_gsn_lib:process_offline_charging_events(ChargeEv, Offline, Now, Session),
-	    ok;
-	_ ->
-	    ok
-    end.
+    try
+	{_, UsageReport} =
+	    query_usage_report(Request, Context, PCtx),
+	{Online, Offline, _} =
+	    ergw_gsn_lib:usage_report_to_charging_events(UsageReport, ChargeEv, PCtx),
+	ergw_gsn_lib:process_online_charging_events(ChargeEv, Online, Now, Session),
+	ergw_gsn_lib:process_offline_charging_events(ChargeEv, Offline, Now, Session)
+    catch
+	throw:#ctx_err{} = CtxErr ->
+	    lager:error("Triggered Charging Event failed with ~p", [CtxErr])
+    end,
+    ok.
 
 defered_usage_report_fun(Owner, URRActions, PCtx) ->
     try
-	Report = ergw_gsn_lib:query_usage_report(offline, undefined, PCtx),
+	{_, Report} = ergw_gsn_lib:query_usage_report(offline, undefined, PCtx),
 	defered_usage_report(Owner, URRActions, Report)
     catch
 	throw:#ctx_err{} = CtxErr ->
-	    defered_usage_report(Owner, URRActions, {error, CtxErr})
+	    lager:error("Defered Usage Report failed with ~p", [CtxErr])
     end.
 
 trigger_defered_usage_report(URRActions, PCtx) ->
@@ -572,7 +571,7 @@ trigger_defered_usage_report(URRActions, PCtx) ->
     ok.
 
 defer_usage_report(URRActions, UsageReport) ->
-    defered_usage_report(self(), URRActions, {ok, UsageReport}).
+    defered_usage_report(self(), URRActions, UsageReport).
 
 apply_context_change(NewContext0, OldContext, URRActions,
 		     #{pfcp := PCtx0, 'Session' := Session} = State) ->

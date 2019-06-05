@@ -1611,7 +1611,7 @@ gx_rar(Config) ->
 
     delete_pdp_context(GtpC),
 
-    [_, Sx1, Sx2, Sx3, Sx4 | _] =
+    [Sx1, Sx2, Sx3, Sx4 | _] =
 	lists:filter(
 	  fun(#pfcp{type = session_modification_request}) -> true;
 	     (_) ->false
