@@ -1482,6 +1482,24 @@ volume_threshold(Config) ->
 
     delete_pdp_context(GtpC),
 
+    [Sx1, Sx2 | _] =
+	lists:filter(
+	  fun(#pfcp{type = session_modification_request}) -> true;
+	     (_) ->false
+	  end, ergw_test_sx_up:history('pgw-u')),
+
+    ?equal([0, 0, 0, 0, 0, 1, 0, 0, 0],
+	   [maps_key_length(X1, Sx1#pfcp.ie)
+	    || X1 <- [create_pdr, create_far, create_urr,
+		      update_pdr, update_far, update_urr,
+		      remove_pdr, remove_far, remove_urr]]),
+
+    ?equal([0, 0, 0, 0, 0, 1, 0, 0, 0],
+	   [maps_key_length(X2, Sx2#pfcp.ie)
+	    || X2 <- [create_pdr, create_far, create_urr,
+		      update_pdr, update_far, update_urr,
+		      remove_pdr, remove_far, remove_urr]]),
+
     H = meck:history(ergw_aaa_session),
     CCRUvolth =
 	lists:filter(
@@ -1617,41 +1635,33 @@ gx_rar(Config) ->
 	     (_) ->false
 	  end, ergw_test_sx_up:history('pgw-u')),
 
-    SxLength =
-	fun (Key, SxReq) ->
-		case maps:get(Key, SxReq, undefined) of
-		    X when is_list(X) -> length(X);
-		    X when is_tuple(X) -> 1;
-		    _ -> 0
-		end
-	end,
     ct:pal("Sx1: ~p", [Sx1]),
     ?equal([2, 2, 1, 0, 0, 0, 0, 0, 0],
-	   [SxLength(X1, Sx1#pfcp.ie) || X1 <-
-		[create_pdr, create_far, create_urr,
-		 update_pdr, update_far, update_urr,
-		 remove_pdr, remove_far, remove_urr]]),
+	   [maps_key_length(X1, Sx1#pfcp.ie)
+	    || X1 <- [create_pdr, create_far, create_urr,
+		      update_pdr, update_far, update_urr,
+		      remove_pdr, remove_far, remove_urr]]),
 
     ct:pal("Sx2: ~p", [Sx2]),
     ?equal([0, 0, 0, 0, 0, 0, 2, 2, 1],
-	   [SxLength(X2, Sx2#pfcp.ie) || X2 <-
-		[create_pdr, create_far, create_urr,
-		 update_pdr, update_far, update_urr,
-		 remove_pdr, remove_far, remove_urr]]),
+	   [maps_key_length(X2, Sx2#pfcp.ie)
+	    || X2 <- [create_pdr, create_far, create_urr,
+		      update_pdr, update_far, update_urr,
+		      remove_pdr, remove_far, remove_urr]]),
 
     ct:pal("Sx3: ~p", [Sx3]),
     ?equal([2, 2, 1, 0, 0, 0, 0, 0, 0],
-	   [SxLength(X3, Sx3#pfcp.ie) || X3 <-
-		[create_pdr, create_far, create_urr,
-		 update_pdr, update_far, update_urr,
-		 remove_pdr, remove_far, remove_urr]]),
+	   [maps_key_length(X3, Sx3#pfcp.ie)
+	    || X3 <- [create_pdr, create_far, create_urr,
+		      update_pdr, update_far, update_urr,
+		      remove_pdr, remove_far, remove_urr]]),
 
     ct:pal("Sx4: ~p", [Sx4]),
     ?equal([0,0,0,0,0,0,2,2,1],
-	   [SxLength(X4, Sx4#pfcp.ie) || X4 <-
-		[create_pdr, create_far, create_urr,
-		 update_pdr, update_far, update_urr,
-		 remove_pdr, remove_far, remove_urr]]),
+	   [maps_key_length(X4, Sx4#pfcp.ie)
+	    || X4 <- [create_pdr, create_far, create_urr,
+		      update_pdr, update_far, update_urr,
+		      remove_pdr, remove_far, remove_urr]]),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     wait4tunnels(?TIMEOUT),
