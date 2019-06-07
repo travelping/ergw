@@ -61,6 +61,7 @@
 	  idmap = #{}		:: map(),
 	  urr_by_id = #{}	:: map(),
 	  urr_by_grp = #{}	:: map(),
+	  charging_keys = #{}	:: map(),
 	  sx_rules = #{}	:: map(),
 	  timers = #{}		:: map(),
 	  timer_by_tref = #{}	:: map()

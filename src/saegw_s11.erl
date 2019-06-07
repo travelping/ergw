@@ -19,7 +19,7 @@
 	 terminate/2]).
 
 %% PFCP context API's
--export([defered_usage_report/3]).
+%%-export([defered_usage_report/3]).
 
 %% shared API's
 -export([init_session/3, init_session_from_gtp_req/3]).
@@ -161,26 +161,51 @@ handle_info(#aaa_request{procedure = {_, 'ASR'}} = Request,
     {noreply, State};
 
 handle_info(#aaa_request{procedure = {gx, 'RAR'},
-			 session = Session,
+			 session = SessionOpts,
 			 events = Events} = Request,
-	    #{context := Context, pfcp := PCtx0} = State) ->
+	    #{context := Context, pfcp := PCtx0, 'Session' := Session} = State) ->
+    Now = erlang:monotonic_time(),
+
     RuleBase = ergw_charging:rulebase(),
-    PCCRules0 = maps:get('PCC-Rules', Session, #{}),
-    ct:pal("PCCRules0: ~p", [PCCRules0]),
-    {PCCRules, _PCCErrors} =
-	ergw_gsn_lib:gx_events_to_pcc_rules(Events, RuleBase, PCCRules0),
-    ct:pal("PCCRules: ~p", [PCCRules]),
-    ct:pal("PCCErrors: ~p", [_PCCErrors]),
+    PCCRules0 = maps:get('PCC-Rules', SessionOpts, #{}),
+    {PCCRules1, _PCCErrors1} =
+	ergw_gsn_lib:gx_events_to_pcc_rules(Events, remove, RuleBase, PCCRules0),
 
-    URRActions = [],  %% TODO add gy/rf reporting
-    {PCtx, _} = ergw_gsn_lib:modify_sgi_session(Session#{'PCC-Rules' => PCCRules},
-						URRActions, #{}, Context, PCtx0),
+    URRActions = [],
+    {PCtx1, UsageReport} =
+	ergw_gsn_lib:modify_sgi_session(SessionOpts#{'PCC-Rules' => PCCRules1}, [],
+					URRActions, #{}, Context, PCtx0),
 
-    SessionOpts = #{'PCC-Rules' => PCCRules},
+    {PCCRules2, _PCCErrors2} =
+	ergw_gsn_lib:gx_events_to_pcc_rules(Events, install, RuleBase, PCCRules1),
+    ergw_aaa_session:set(Session, 'PCC-Rules', PCCRules2),
+
+    CreditsOld = ergw_gsn_lib:pcc_rules_to_credit_request(PCCRules1),
+    CreditsNew = ergw_gsn_lib:pcc_rules_to_credit_request(PCCRules2),
+    Credits = maps:without(maps:keys(CreditsOld), CreditsNew),
+
+    GyReqServices =
+	if length(Credits) /= 0 -> #{credits => Credits};
+	   true                 -> #{}
+	end,
+    ReqOps = #{now => Now},
+
+    ChargeEv = {online, 'RAR'},   %% made up value, not use anywhere...
+    {Online, Offline, _} =
+	ergw_gsn_lib:usage_report_to_charging_events(UsageReport, ChargeEv, PCtx1),
+    {ok, FinalSessionOpts, GyEvs} =
+	ergw_gsn_lib:process_online_charging_events(ChargeEv, GyReqServices, Online, Session, ReqOps),
+    ergw_gsn_lib:process_offline_charging_events(ChargeEv, Offline, Now, Session),
+
+    {PCtx, _} =
+	ergw_gsn_lib:modify_sgi_session(FinalSessionOpts, GyEvs, URRActions, #{}, Context, PCtx1),
+
     %% TODO translate PCCErrors to RAA
     %% TODO Charging-Rule-Report
+
     Avps = #{},
-    ergw_aaa_session:response(Request, ok, Avps, SessionOpts),
+    SOpts = #{'PCC-Rules' => PCCRules2},
+    ergw_aaa_session:response(Request, ok, Avps, SOpts),
     {noreply, State#{pfcp := PCtx}};
 
 handle_info(#aaa_request{procedure = {gy, 'RAR'},
@@ -326,7 +351,7 @@ handle_request(_ReqKey,
 
     RuleBase = ergw_charging:rulebase(),
     {PCCRules, _PCCErrors} =
-	ergw_gsn_lib:gx_events_to_pcc_rules(GxEvents, RuleBase, #{}),
+	ergw_gsn_lib:gx_events_to_pcc_rules(GxEvents, '_', RuleBase, #{}),
 
     if PCCRules =:= #{} ->
 	    ?ABORT_CTX_REQUEST(ContextPending, Request, create_session_response,
@@ -338,9 +363,10 @@ handle_request(_ReqKey,
     Credits = ergw_gsn_lib:pcc_rules_to_credit_request(PCCRules),
     GyReqServices = #{'PCC-Rules' => PCCRules, credits => Credits},
 
-    {ok, GySessionOpts, _} =
+    {ok, GySessionOpts, GyEvs} =
 	ccr_initial(ContextPending, Session, gy, GyReqServices, SOpts, Request),
     lager:info("GySessionOpts: ~p", [GySessionOpts]),
+    lager:info("Initial GyEvs: ~p", [GyEvs]),
 
     ergw_aaa_session:invoke(Session, #{}, start, SOpts),
     ergw_aaa_session:invoke(Session, #{}, {rf, 'Initial'}, SOpts),
@@ -349,7 +375,7 @@ handle_request(_ReqKey,
     %% ===========================================================================
 
     {Context, PCtx} =
-	ergw_gsn_lib:create_sgi_session(Candidates, FinalSessionOpts, ContextPending),
+	ergw_gsn_lib:create_sgi_session(Candidates, FinalSessionOpts, GyEvs, ContextPending),
     gtp_context:remote_context_register_new(Context),
 
     ResponseIEs = create_session_response(ActiveSessionOpts, IEs, EBI, Context),
@@ -440,7 +466,7 @@ handle_request(_ReqKey,
 		  },
     gtp_context:remote_context_update(OldContext, NewContext),
     {PCtx, _} =
-	ergw_gsn_lib:modify_sgi_session(SessionOpts, [], ModifyOpts, NewContext, PCtx0),
+	ergw_gsn_lib:modify_sgi_session(SessionOpts, [], [], ModifyOpts, NewContext, PCtx0),
 
     ResponseIEs = [#v2_cause{v2_cause = request_accepted}],
     Response = response(release_access_bearers_response, NewContext, ResponseIEs, Request),
@@ -700,7 +726,7 @@ apply_context_change(NewContext0, OldContext, URRActions,
     SessionOpts = ergw_aaa_session:get(Session),
     NewContext = gtp_path:bind(NewContext0),
     {PCtx, UsageReport} =
-	ergw_gsn_lib:modify_sgi_session(SessionOpts, URRActions,
+	ergw_gsn_lib:modify_sgi_session(SessionOpts, [], URRActions,
 					ModifyOpts, NewContext, PCtx0),
     gtp_path:unbind(OldContext),
     defer_usage_report(URRActions, UsageReport),

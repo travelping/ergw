@@ -36,7 +36,7 @@
 -export([match_exo_value/5, get_exo_value/1]).
 -export([has_ipv6_test_config/0]).
 -export([query_usage_report/2]).
--export([match_map/4]).
+-export([match_map/4, maps_key_length/2]).
 -export([init_ets/1]).
 
 -include("ergw_test_lib.hrl").
@@ -580,3 +580,10 @@ match_map(Match, Map, File, Line) ->
 	      end
       end, true, Match) orelse error(badmatch),
     ok.
+
+maps_key_length(Key, Map) when is_map(Map) ->
+    case maps:get(Key, Map, undefined) of
+	X when is_list(X) -> length(X);
+	X when is_tuple(X) -> 1;
+	_ -> 0
+    end.
