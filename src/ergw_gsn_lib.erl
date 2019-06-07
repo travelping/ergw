@@ -9,20 +9,21 @@
 
 -compile({parse_transform, cut}).
 
--export([create_sgi_session/3,
+-export([create_sgi_session/4,
 	 usage_report_to_charging_events/3,
 	 process_online_charging_events/4,
+	 process_online_charging_events/5,
 	 process_offline_charging_events/4,
 	 process_offline_charging_events/5,
 	 pfcp_to_context_event/1,
 	 pcc_rules_to_credit_request/1,
-	 modify_sgi_session/5,
+	 modify_sgi_session/6,
 	 delete_sgi_session/3,
 	 query_usage_report/2, query_usage_report/3,
 	 choose_context_ip/3,
 	 ip_pdu/3]).
 -export([%%update_pcc_rules/2,
-	 gx_events_to_pcc_rules/3, session_events/4]).
+	 gx_events_to_pcc_rules/4, session_events/4]).
 
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include_lib("pfcplib/include/pfcp_packet.hrl").
@@ -123,9 +124,9 @@ session_events(_Session, [], _Ctx, PCtx) ->
 %% session_events(Session, [{Action, _} = H|_], Ctx, PCtx)
 %%   when Action =:= add; Action =:= del; Action =:= set ->
 %%     erlang:error(badarg, [Session, H, Ctx, PCtx]);
-session_events(Session, [{update_credits, Update} | T], Ctx, PCtx0) ->
-    lager:info("Session credit Update: ~p", [Update]),
-    PCtx = update_sx_usage_rules(Update, Ctx, PCtx0),
+session_events(Session, [{update_credits, CreditEvs} = H| T], Ctx, PCtx0) ->
+    lager:info("Session ~p~nCredit Update: ~p", [Session, CreditEvs]),
+    PCtx = update_sx_usage_rules(Session, [H], Ctx, PCtx0),
     session_events(Session, T, Ctx, PCtx);
 session_events(Session, [stop | T], Ctx, PCtx) ->
     self() ! stop_from_session,
@@ -142,16 +143,19 @@ session_events(Session, [H | T], Ctx, PCtx) ->
 
 %% convert Gx like Install/Remove interactions in PCC rule states
 
-gx_events_to_pcc_rules(Evs, RuleBase, Rules0) ->
+%% gx_events_to_pcc_rules/4
+gx_events_to_pcc_rules(Evs, Filter, RuleBase, Rules0) ->
     #pcc_upd{errors = Errors, rules = Rules} =
-	lists:foldl(update_pcc_rules(_, RuleBase, _), #pcc_upd{rules = Rules0}, Evs),
+	lists:foldl(update_pcc_rules(_, Filter, RuleBase, _), #pcc_upd{rules = Rules0}, Evs),
     {Rules, Errors}.
 
-update_pcc_rules({pcc, install, Ev}, RuleBase, Update) ->
+update_pcc_rules({pcc, install, Ev}, Filter, RuleBase, Update)
+  when Filter == install; Filter == '_' ->
     lists:foldl(install_pcc_rules(_, RuleBase, _), Update, Ev);
-update_pcc_rules({pcc, remove, Ev}, _RuleBase, Update) ->
+update_pcc_rules({pcc, remove, Ev}, Filter, _RuleBase, Update)
+  when Filter == remove; Filter == '_' ->
     lists:foldl(fun remove_pcc_rules/2, Update, Ev);
-update_pcc_rules(_, _, Update) ->
+update_pcc_rules(_, _, _, Update) ->
     Update.
 
 split_pcc_rule(Rule) ->
@@ -261,31 +265,50 @@ apply_charging_profile(_K, _V, URR) ->
 apply_charging_profile(URR, OCP) ->
     maps:fold(fun apply_charging_profile/3, URR, OCP).
 
-%% build_sx_rules/4
-build_sx_rules(SessionOpts, Opts, PCtx, SCtx) ->
-    InitPCtx = ergw_pfcp:reset_ctx(PCtx),
-    Init = #sx_upd{now = erlang:monotonic_time(millisecond),
-		   pctx = InitPCtx, sctx = SCtx},
-    #sx_upd{errors = Errors, pctx = NewPCtx0} =
-	build_sx_rules_3(SessionOpts, Opts, Init),
-    NewPCtx = ergw_pfcp:apply_timers(PCtx, NewPCtx0),
+%% build_sx_rules/5
+build_sx_rules(SessionOpts, Evs, Opts, PCtx0, SCtx) ->
+    CreditEvs = proplists:get_value(update_credits, Evs, []),
 
-    SxRuleReq = ergw_pfcp:update_pfcp_rules(PCtx, NewPCtx, Opts),
+    PCtx1 = ergw_pfcp:reset_ctx(PCtx0),
+    PCtx2 = apply_credit_events(CreditEvs, PCtx1),
+
+    Init = #sx_upd{now = erlang:monotonic_time(millisecond),
+		   pctx = PCtx2, sctx = SCtx},
+    #sx_upd{errors = Errors, pctx = NewPCtx0} =
+	build_sx_rules_3(SessionOpts, CreditEvs, Opts, Init),
+    NewPCtx = ergw_pfcp:apply_timers(PCtx0, NewPCtx0),
+
+    SxRuleReq = ergw_pfcp:update_pfcp_rules(PCtx0, NewPCtx, Opts),
 
     %% TODO:
     %% remove unused SxIds
 
     {SxRuleReq, Errors, NewPCtx}.
 
-build_sx_rules_3(SessionOpts, _Opts, Update0) ->
+%% add/remove URR Ids from PCtx
+apply_credit_events(CreditEvs, PCtx0) ->
+    PCtx1 =
+	lists:foldl(
+	  fun(#{'Rating-Group' := [RatingGroup],
+		'Result-Code' := [2001]}, PC) ->
+		  ergw_pfcp:charging_key_add({online, RatingGroup}, PC);
+	     (#{'Rating-Group' := [RatingGroup],
+		'Result-Code' := [_RC]}, PC) ->
+		  ergw_pfcp:charging_key_del({online, RatingGroup}, PC);
+	     (_, PC) ->
+		  PC
+	  end,
+	  PCtx0, CreditEvs),
+    ergw_pfcp:init_charging_group_urrs(PCtx1).
+
+build_sx_rules_3(SessionOpts, CreditEvs, _Opts, Update0) ->
     Monitors = maps:get(monitoring, SessionOpts, #{}),
     PolicyRules = maps:get('PCC-Rules', SessionOpts, #{}),
-    Credits = maps:get('Multiple-Services-Credit-Control', SessionOpts, []),
 
     Update1 = build_sx_ctx_rule(Update0),
     Update2 = maps:fold(fun build_sx_monitor_rule/3, Update1, Monitors),
     Update3 = maps:fold(build_sx_offline_charging_rule(_, _, SessionOpts, _), Update2, PolicyRules),
-    Update4 = lists:foldl(fun build_sx_usage_rule/2, Update3, Credits),
+    Update4 = lists:foldl(fun build_sx_usage_rule/2, Update3, CreditEvs),
     maps:fold(fun build_sx_rule/3, Update4, PolicyRules).
 
 build_sx_ctx_rule(#sx_upd{
@@ -371,6 +394,7 @@ build_sx_offline_charging_rule(_Name, _Definition, _SessionOpts, Update) ->
     Update.
 
 %% no need to split into dl and ul direction, URR contain DL, UL and Total
+%% build_sx_rule/3
 build_sx_rule(Name, #{'Flow-Information' := FlowInfo,
 		      'Metering-Method' := [_MeterM]} = Definition,
 	      #sx_upd{} = Update) ->
@@ -641,9 +665,8 @@ build_sx_usage_rule(#{'Result-Code' := [2001],
     Update#sx_upd{
       pctx = ergw_pfcp:pfcp_rules_add(
 	       [{urr, ChargingKey, URR}], PCtx)};
-build_sx_usage_rule(Definition, Update) ->
-    lager:error("URR: ~p", [Definition]),
-    sx_rule_error({system_error, Definition}, Update).
+build_sx_usage_rule(_, Update) ->
+    Update.
 
 build_sx_monitor_rule(Service, {'IP-CAN', periodic, Time} = _Definition,
 		      #sx_upd{monitors = Monitors0, pctx = PCtx0} = Update) ->
@@ -669,30 +692,16 @@ build_sx_monitor_rule(Service, Definition, Update) ->
     lager:error("Monitor URR: ~p:~p", [Service, Definition]),
     sx_rule_error({system_error, Definition}, Update).
 
-update_sx_usage_rules(Update, Ctx, PCtx0)
+update_sx_usage_rules(Session, Evs, SCtx, PCtx0)
   when is_record(PCtx0, pfcp_ctx) ->
-    Init = #sx_upd{now = erlang:monotonic_time(millisecond),
-		   pctx = ergw_pfcp:reset_ctx_timers(PCtx0), sctx = Ctx},
-    #sx_upd{errors = Errors, pctx = PCtx1} =
-	lists:foldl(fun build_sx_usage_rule/2, Init, Update),
-    PCtx = #pfcp_ctx{sx_rules = Rules} =
-	ergw_pfcp:apply_timers(PCtx0, PCtx1),
-
-    Add = [{urr, {online, RatingGroup}} ||
-	      #{'Result-Code' := [Code], 'Rating-Group' := [RatingGroup]} <- Update, Code == 2001],
-    UpdateURRs = [#update_urr{group = V} || V <- maps:values(maps:with(Add, Rules))],
-
-    if length(UpdateURRs) /= 0 ->
-	    lager:info("Sx Modify: ~p", [UpdateURRs]),
-
-	    Req = #pfcp{version = v1, type = session_modification_request, ie = UpdateURRs},
-	    R = ergw_sx_node:call(PCtx, Req, Ctx),
-	    lager:warning("R: ~p", [R]),
-	    ok;
-       true ->
-	    ok
-    end,
-    PCtx.
+    try
+	{PCtx, _} = modify_sgi_session(Session, Evs, [], #{}, SCtx, PCtx0),
+	PCtx
+    catch
+	throw:#ctx_err{} = CtxErr ->
+	    lager:error("update_sx_usage_rules ~p", [CtxErr]),
+	    PCtx0
+    end.
 
 update_m_key(Key, Value, Map) ->
     maps:update_with(Key, [Value | _], [Value], Map).
@@ -709,14 +718,14 @@ register_ctx_ids(Handler,
 		is_record(LocalDataEndp, gtp_endp)]],
     gtp_context_reg:register(Keys, Handler, self()).
 
-create_sgi_session(Candidates, SessionOpts, Ctx0) ->
+create_sgi_session(Candidates, SessionOpts, CreditEvs, Ctx0) ->
     PCtx0 = ergw_sx_node:select_sx_node(Candidates, Ctx0),
     Ctx = ergw_pfcp:assign_data_teid(PCtx0, Ctx0),
     register_ctx_ids(gtp_context, Ctx, PCtx0),
 
     {ok, CntlNode, _} = ergw_sx_socket:id(),
 
-    {SxRules, SxErrors, PCtx} = build_sx_rules(SessionOpts, #{}, PCtx0, Ctx),
+    {SxRules, SxErrors, PCtx} = build_sx_rules(SessionOpts, CreditEvs, #{}, PCtx0, Ctx),
     lager:info("SxRules: ~p~n", [SxRules]),
     lager:info("SxErrors: ~p~n", [SxErrors]),
     lager:info("CtxPending: ~p~n", [Ctx]),
@@ -734,18 +743,15 @@ create_sgi_session(Candidates, SessionOpts, Ctx0) ->
 	    throw(?CTX_ERR(?FATAL, system_failure, Ctx))
     end.
 
-modify_sgi_session(SessionOpts, URRActions, Opts, Ctx, PCtx0) ->
-    {SxRules0, SxErrors, PCtx} = build_sx_rules(SessionOpts, Opts, PCtx0, Ctx),
-    SxRules1 =
+modify_sgi_session(SessionOpts, Evs, URRActions, Opts, Ctx, PCtx0) ->
+    {SxRules0, SxErrors, PCtx} = build_sx_rules(SessionOpts, Evs, Opts, PCtx0, Ctx),
+    SxRules =
 	lists:foldl(
 	  fun({offline, _}, SxR) ->
 		  SxR#{query_urr => build_query_usage_report(offline, PCtx)};
 	     (_, SxR) ->
 		  SxR
 	  end, SxRules0, URRActions),
-
-    %% TODO: at the moment, modify_sgi_session is only used to change TEIDs,
-    SxRules = maps:without([update_urr], SxRules1),
 
     lager:info("SxRules: ~p~n", [SxRules]),
     lager:info("SxErrors: ~p~n", [SxErrors]),
@@ -1029,21 +1035,27 @@ usage_report_to_charging_events(URR, ChargeEv, PCtx)
       end,
       init_charging_events(), URR).
 
-process_online_charging_events(Reason, Ev, Now, Session) when is_list(Ev) ->
-    SOpts = #{now => Now, async => true},
+%% process_online_charging_events/4
+process_online_charging_events(Reason, Ev, Now, Session)
+  when is_list(Ev) ->
+    ReqOpts = #{now => Now, async => true},
+    process_online_charging_events(Reason, #{}, Ev, Session, ReqOpts).
 
+%% process_online_charging_events/5
+process_online_charging_events(Reason, Request0, Ev, Session, ReqOpts)
+  when is_list(Ev), is_map(Request0) ->
     Update = lists:map(fun charging_event_to_gy/1, Ev),
+    Request1 = Request0#{used_credits => Update},
 
     case Reason of
 	{terminate, Cause} ->
-	    Request = #{'Termination-Cause' => Cause,
-			used_credits => Update},
-	    ergw_aaa_session:invoke(Session, Request, {gy, 'CCR-Terminate'}, SOpts);
-	_ when length(Update) /= 0 ->
-	    Request = #{'used_credits' => Update},
-	    ergw_aaa_session:invoke(Session, Request, {gy, 'CCR-Update'}, SOpts);
+	    Request = Request1#{'Termination-Cause' => Cause},
+	    ergw_aaa_session:invoke(Session, Request, {gy, 'CCR-Terminate'}, ReqOpts);
+	_ when length(Update) /= 0 orelse map_size(Request0) /= 0 ->
+	    ergw_aaa_session:invoke(Session, Request1, {gy, 'CCR-Update'}, ReqOpts);
 	_ ->
-	    ok
+	    SOpts = ergw_aaa_session:get(Session),
+	    {ok, SOpts, []}
     end.
 
 
@@ -1086,6 +1098,7 @@ pcc_rules_to_credit_request(_K, V, Acc) ->
     lager:warning("No Rating Group: ~p", [V]),
     Acc.
 
+%% pcc_rules_to_credit_request/1
 pcc_rules_to_credit_request(Rules) when is_map(Rules) ->
     lager:debug("Rules: ~p", [Rules]),
     CreditReq = maps:fold(fun pcc_rules_to_credit_request/3, #{}, Rules),

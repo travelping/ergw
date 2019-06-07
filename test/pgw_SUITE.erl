@@ -413,7 +413,7 @@ common() ->
      volume_threshold,
      redirect_info,
      gx_asr,
-     %%gx_rar,
+     gx_rar,
      gy_asr].
 
 groups() ->
@@ -547,6 +547,12 @@ init_per_testcase(TestCase, Config)
 init_per_testcase(redirect_info, Config) ->
     init_per_testcase(Config),
     load_aaa_answer_config([{{gx, 'CCR-Initial'}, 'Initial-Gx-Redirect'}]),
+    Config;
+init_per_testcase(TestCase, Config)
+  when TestCase == gx_rar ->
+    init_per_testcase(Config),
+    load_aaa_answer_config([{{gy, 'CCR-Initial'}, 'Initial-OCS'},
+			    {{gy, 'CCR-Update'},  'Update-OCS'}]),
     Config;
 init_per_testcase(_, Config) ->
     init_per_testcase(Config),
@@ -1950,9 +1956,9 @@ sx_upf_restart() ->
     [{doc, "Test UPF restart behavior"}].
 sx_upf_restart(Config) ->
     ok = meck:expect(ergw_gsn_lib, create_sgi_session,
-		     fun(Candidates, SessionOpts, Ctx) ->
+		     fun(Candidates, SessionOpts, CreditEvs, Ctx) ->
 			     try
-				 meck:passthrough([Candidates, SessionOpts, Ctx])
+				 meck:passthrough([Candidates, SessionOpts, CreditEvs, Ctx])
 			     catch
 				 throw:#ctx_err{} = CtxErr ->
 				     meck:exception(throw, CtxErr)
@@ -2187,6 +2193,24 @@ volume_threshold(Config) ->
 
     delete_session(GtpC),
 
+    [Sx1, Sx2 | _] =
+	lists:filter(
+	  fun(#pfcp{type = session_modification_request}) -> true;
+	     (_) ->false
+	  end, ergw_test_sx_up:history('pgw-u')),
+
+    ?equal([0, 0, 0, 0, 0, 1, 0, 0, 0],
+	   [maps_key_length(X1, Sx1#pfcp.ie)
+	    || X1 <- [create_pdr, create_far, create_urr,
+		      update_pdr, update_far, update_urr,
+		      remove_pdr, remove_far, remove_urr]]),
+
+    ?equal([0, 0, 0, 0, 0, 1, 0, 0, 0],
+	   [maps_key_length(X2, Sx2#pfcp.ie)
+	    || X2 <- [create_pdr, create_far, create_urr,
+		      update_pdr, update_far, update_urr,
+		      remove_pdr, remove_far, remove_urr]]),
+
     H = meck:history(ergw_aaa_session),
     CCRUvolth =
 	lists:filter(
@@ -2396,9 +2420,10 @@ gx_rar(Config) ->
 			  session = SessionOpts, events = []},
 
     Server ! AAAReq,
-    {_, Resp0, _, SOpts0} =
+    {_, Resp0, _, _} =
 	receive {'$response', _, _, _, _} = R0 -> erlang:delete_element(1, R0) end,
     ?equal(ok, Resp0),
+    SOpts0 = ergw_aaa_session:get(Session),
     ?match(#{'PCC-Rules' := _}, SOpts0),
 
     InstCR =
@@ -2407,7 +2432,6 @@ gx_rar(Config) ->
     {_, Resp1, _, SOpts1} =
 	receive {'$response', _, _, _, _} = R1 -> erlang:delete_element(1, R1) end,
     ?equal(ok, Resp1),
-    ct:pal("SOpts1: ~p", [SOpts1]),
     ?match(#{'PCC-Rules' := #{<<"r-0001">> := #{}, <<"r-0002">> := #{}}}, SOpts1),
 
     RemoveCR =
@@ -2416,7 +2440,6 @@ gx_rar(Config) ->
     {_, Resp2, _, SOpts2} =
 	receive {'$response', _, _, _, _} = R2 -> erlang:delete_element(1, R2) end,
     ?equal(ok, Resp2),
-    ct:pal("SOpts2: ~p", [SOpts2]),
     ?match(#{'PCC-Rules' := #{<<"r-0001">> := #{}}}, SOpts2),
     ?equal(false, maps:is_key(<<"r-0002">>, maps:get('PCC-Rules', SOpts2))),
 
@@ -2426,7 +2449,6 @@ gx_rar(Config) ->
     {_, Resp3, _, SOpts3} =
 	receive {'$response', _, _, _, _} = R3 -> erlang:delete_element(1, R3) end,
     ?equal(ok, Resp3),
-    ct:pal("SOpts3: ~p", [SOpts3]),
     ?match(#{'PCC-Rules' :=
 		 #{<<"r-0001">> := #{},
 		   <<"r-0002">> := #{'Charging-Rule-Base-Name' := _}}}, SOpts3),
@@ -2437,11 +2459,14 @@ gx_rar(Config) ->
     {_, Resp4, _, SOpts4} =
 	receive {'$response', _, _, _, _} = R4 -> erlang:delete_element(1, R4) end,
     ?equal(ok, Resp4),
-    ct:pal("SOpts4: ~p", [SOpts4]),
-    ?match(#{'PCC-Rules' := #{<<"r-0001">> := #{}}}, SOpts3),
-    ?equal(false, maps:is_key(<<"r-0002">>, maps:get('PCC-Rules', SOpts2))),
+    ?match(#{'PCC-Rules' := #{<<"r-0001">> := #{}}}, SOpts4),
+    ?equal(false, maps:is_key(<<"r-0002">>, maps:get('PCC-Rules', SOpts4))),
 
     delete_session(GtpC),
+
+    H = ergw_test_sx_up:history('pgw-u'),
+    ct:pal("H: ~s~n",
+	   [[[pfcp_packet:pretty_print(X), "\n\n"] || X <- H]]),
 
     [Sx1, Sx2, Sx3, Sx4 | _] =
 	lists:filter(
@@ -2449,41 +2474,47 @@ gx_rar(Config) ->
 	     (_) ->false
 	  end, ergw_test_sx_up:history('pgw-u')),
 
-    SxLength =
-	fun (Key, SxReq) ->
-		case maps:get(Key, SxReq, undefined) of
-		    X when is_list(X) -> length(X);
-		    X when is_tuple(X) -> 1;
-		    _ -> 0
-		end
-	end,
     ct:pal("Sx1: ~p", [Sx1]),
     ?equal([2, 2, 1, 0, 0, 0, 0, 0, 0],
-	   [SxLength(X1, Sx1#pfcp.ie) || X1 <-
-		[create_pdr, create_far, create_urr,
-		 update_pdr, update_far, update_urr,
-		 remove_pdr, remove_far, remove_urr]]),
+	   [maps_key_length(X1, Sx1#pfcp.ie)
+	    || X1 <- [create_pdr, create_far, create_urr,
+		      update_pdr, update_far, update_urr,
+		      remove_pdr, remove_far, remove_urr]]),
 
     ct:pal("Sx2: ~p", [Sx2]),
     ?equal([0, 0, 0, 0, 0, 0, 2, 2, 1],
-	   [SxLength(X2, Sx2#pfcp.ie) || X2 <-
-		[create_pdr, create_far, create_urr,
-		 update_pdr, update_far, update_urr,
-		 remove_pdr, remove_far, remove_urr]]),
+	   [maps_key_length(X2, Sx2#pfcp.ie)
+	    || X2 <- [create_pdr, create_far, create_urr,
+		      update_pdr, update_far, update_urr,
+		      remove_pdr, remove_far, remove_urr]]),
 
     ct:pal("Sx3: ~p", [Sx3]),
     ?equal([2, 2, 1, 0, 0, 0, 0, 0, 0],
-	   [SxLength(X3, Sx3#pfcp.ie) || X3 <-
-		[create_pdr, create_far, create_urr,
-		 update_pdr, update_far, update_urr,
-		 remove_pdr, remove_far, remove_urr]]),
+	   [maps_key_length(X3, Sx3#pfcp.ie)
+	    || X3 <- [create_pdr, create_far, create_urr,
+		      update_pdr, update_far, update_urr,
+		      remove_pdr, remove_far, remove_urr]]),
 
     ct:pal("Sx4: ~p", [Sx4]),
     ?equal([0,0,0,0,0,0,2,2,1],
-	   [SxLength(X4, Sx4#pfcp.ie) || X4 <-
-		[create_pdr, create_far, create_urr,
-		 update_pdr, update_far, update_urr,
-		 remove_pdr, remove_far, remove_urr]]),
+	   [maps_key_length(X4, Sx4#pfcp.ie)
+	    || X4 <- [create_pdr, create_far, create_urr,
+		      update_pdr, update_far, update_urr,
+		      remove_pdr, remove_far, remove_urr]]),
+
+    %% TBD, should be 5
+    ?match(2, meck:num_calls(ergw_aaa_session, invoke,
+			     ['_', '_', {gy, 'CCR-Update'}, '_'])),
+
+    Hs = meck:history(ergw_aaa_session),
+    CCR =
+	lists:filter(
+	  fun({_, {ergw_aaa_session, invoke, [_, _, {gy,'CCR-Update'}, _]}, _}) ->
+		  true;
+	     (_) ->
+		  false
+	  end, Hs),
+    ct:pal("CCR: ~p", [[Call || {_, Call, _} <- CCR]]),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     wait4tunnels(?TIMEOUT),
