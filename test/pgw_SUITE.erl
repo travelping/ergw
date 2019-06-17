@@ -134,7 +134,23 @@
 
 		 {charging,
 		  [{default,
-		    [{rulebase,
+		    [{offline,
+		      [{triggers,
+			[{'cgi-sai-change',            'container'},
+			 {'ecgi-change',               'container'},
+			 {'max-cond-change',           'cdr'},
+			 {'ms-time-zone-change',       'cdr'},
+			 {'qos-change',                'container'},
+			 {'rai-change',                'container'},
+			 {'rat-change',                'cdr'},
+			 {'sgsn-sgw-change',           'cdr'},
+			 {'sgsn-sgw-plmn-id-change',   'cdr'},
+			 {'tai-change',                'container'},
+			 {'tariff-switch-change',      'container'},
+			 {'user-location-info-change', 'container'}
+			]}
+		      ]},
+		     {rulebase,
 		      [{<<"r-0001">>,
 			#{'Rating-Group' => [3000],
 			  'Flow-Information' =>
@@ -226,6 +242,19 @@
 		       },
 		  'Update-Gx' => #{'Result-Code' => 2001},
 		  'Final-Gx' => #{'Result-Code' => 2001},
+
+		  'Initial-Gx-Fail-1' =>
+		      #{'Result-Code' => 2001,
+			'Charging-Rule-Install' =>
+			    [#{'Charging-Rule-Base-Name' =>
+				   [<<"m2m0001">>, <<"unknown-rulebase">>]}]
+		       },
+		  'Initial-Gx-Fail-2' =>
+		      #{'Result-Code' => 2001,
+			'Charging-Rule-Install' =>
+			    [#{'Charging-Rule-Name' => [<<"r-0001">>, <<"unknown-rule">>]}]
+		       },
+
 		  'Initial-OCS' =>
 		      #{'Result-Code' => 2001,
 			'Multiple-Services-Credit-Control' =>
@@ -414,7 +443,10 @@ common() ->
      redirect_info,
      gx_asr,
      gx_rar,
-     gy_asr].
+     gy_asr,
+     gx_invalid_charging_rulebase,
+     gx_invalid_charging_rule].
+
 
 groups() ->
     [{ipv4, [], common()},
@@ -553,6 +585,14 @@ init_per_testcase(TestCase, Config)
     init_per_testcase(Config),
     load_aaa_answer_config([{{gy, 'CCR-Initial'}, 'Initial-OCS'},
 			    {{gy, 'CCR-Update'},  'Update-OCS'}]),
+    Config;
+init_per_testcase(gx_invalid_charging_rulebase, Config) ->
+    init_per_testcase(Config),
+    load_aaa_answer_config([{{gx, 'CCR-Initial'}, 'Initial-Gx-Fail-1'}]),
+    Config;
+init_per_testcase(gx_invalid_charging_rule, Config) ->
+    init_per_testcase(Config),
+    load_aaa_answer_config([{{gx, 'CCR-Initial'}, 'Initial-Gx-Fail-2'}]),
     Config;
 init_per_testcase(_, Config) ->
     init_per_testcase(Config),
@@ -2560,6 +2600,68 @@ apn_lookup(_Config) ->
     %% ?match({ok, {<<8, "wildcard">>, _}}, ergw:vrf([<<"APN3">>])),
     %% ?match({ok, {<<8, "wildcard">>, _}}, ergw:vrf([<<"APN3">>, <<"mnc001">>, <<"mcc001">>, <<"gprs">>])),
     %% ?match({ok, {<<8, "wildcard">>, _}}, ergw:vrf([<<"APN4">>, <<"mnc001">>, <<"mcc901">>, <<"gprs">>])),
+    ok.
+
+%%--------------------------------------------------------------------
+gx_invalid_charging_rulebase() ->
+    [{doc, "Check the reaction to a Gx CCA-I with an invalid Charging-Rule-Base-Name"}].
+gx_invalid_charging_rulebase(Config) ->
+    ClientIP = proplists:get_value(client_ip, Config),
+    {GtpC, _, _} = create_session(Config),
+
+    ?match([#{tunnels := 1}], [X || X = #{version := Version} <- ergw_api:peer(ClientIP),
+				    Version == v2]),
+
+    CCRU =
+	lists:filter(
+	  fun({_, {ergw_aaa_session, invoke,
+		   [_, R, {gx,'CCR-Update'}, _]}, _}) ->
+		  ?match(
+		     #{'Charging-Rule-Report' :=
+			   [#{'Charging-Rule-Base-Name' := [_]}]}, R),
+		  true;
+	     (_) ->
+		  false
+	  end, meck:history(ergw_aaa_session)),
+    ?match(X when X == 1, length(CCRU)),
+
+    delete_session(GtpC),
+
+    ?equal([], outstanding_requests()),
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    wait4tunnels(?TIMEOUT),
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+gx_invalid_charging_rule() ->
+    [{doc, "Check the reaction to a Gx CCA-I with an invalid Charging-Rule-Name"}].
+gx_invalid_charging_rule(Config) ->
+    ClientIP = proplists:get_value(client_ip, Config),
+    {GtpC, _, _} = create_session(Config),
+
+    ?match([#{tunnels := 1}], [X || X = #{version := Version} <- ergw_api:peer(ClientIP),
+				    Version == v2]),
+
+    CCRU =
+	lists:filter(
+	  fun({_, {ergw_aaa_session, invoke,
+		   [_, R, {gx,'CCR-Update'}, _]}, _}) ->
+		  ?match(
+		     #{'Charging-Rule-Report' :=
+			   [#{'Charging-Rule-Name' := [_]}]}, R),
+		  true;
+	     (_) ->
+		  false
+	  end, meck:history(ergw_aaa_session)),
+    ?match(X when X == 1, length(CCRU)),
+
+    delete_session(GtpC),
+
+    ?equal([], outstanding_requests()),
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    wait4tunnels(?TIMEOUT),
+    meck_validate(Config),
     ok.
 
 %%%===================================================================

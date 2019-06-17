@@ -161,7 +161,7 @@ handle_info(#aaa_request{procedure = {gx, 'RAR'},
 
     RuleBase = ergw_charging:rulebase(),
     PCCRules0 = maps:get('PCC-Rules', SessionOpts, #{}),
-    {PCCRules1, _PCCErrors1} =
+    {PCCRules1, PCCErrors1} =
 	ergw_gsn_lib:gx_events_to_pcc_rules(Events, remove, RuleBase, PCCRules0),
 
     URRActions = [],
@@ -169,7 +169,7 @@ handle_info(#aaa_request{procedure = {gx, 'RAR'},
 	ergw_gsn_lib:modify_sgi_session(SessionOpts#{'PCC-Rules' => PCCRules1}, [],
 					URRActions, #{}, Context, PCtx0),
 
-    {PCCRules2, _PCCErrors2} =
+    {PCCRules2, PCCErrors2} =
 	ergw_gsn_lib:gx_events_to_pcc_rules(Events, install, RuleBase, PCCRules1),
     ergw_aaa_session:set(Session, 'PCC-Rules', PCCRules2),
 
@@ -193,12 +193,11 @@ handle_info(#aaa_request{procedure = {gx, 'RAR'},
     {PCtx, _} =
 	ergw_gsn_lib:modify_sgi_session(FinalSessionOpts, GyEvs, URRActions, #{}, Context, PCtx1),
 
-    %% TODO translate PCCErrors to RAA
-    %% TODO Charging-Rule-Report
+    %% TODO Charging-Rule-Report for successfully installed/removed rules
 
-    Avps = #{},
+    GxReport = ergw_gsn_lib:pcc_events_to_charging_rule_report(PCCErrors1 ++ PCCErrors2),
     SOpts = #{'PCC-Rules' => PCCRules2},
-    ergw_aaa_session:response(Request, ok, Avps, SOpts),
+    ergw_aaa_session:response(Request, ok, GxReport, SOpts),
     {noreply, State#{pfcp := PCtx}};
 
 handle_info(#aaa_request{procedure = {gy, 'RAR'},
@@ -325,7 +324,7 @@ handle_request(_ReqKey,
 	ccr_initial(ContextPending, Session, gx, GxOpts, SOpts, Request),
 
     RuleBase = ergw_charging:rulebase(),
-    {PCCRules, _PCCErrors} =
+    {PCCRules, PCCErrors} =
 	ergw_gsn_lib:gx_events_to_pcc_rules(GxEvents, '_', RuleBase, #{}),
 
     if PCCRules =:= #{} ->
@@ -334,8 +333,6 @@ handle_request(_ReqKey,
        true ->
 	    ok
     end,
-
-    %% TODO: handle PCCErrors
 
     Credits = ergw_gsn_lib:pcc_rules_to_credit_request(PCCRules),
     GyReqServices = #{'PCC-Rules' => PCCRules, credits => Credits},
@@ -354,6 +351,14 @@ handle_request(_ReqKey,
     {Context, PCtx} =
 	ergw_gsn_lib:create_sgi_session(Candidates, FinalSessionOpts, GyEvs, ContextPending),
     gtp_context:remote_context_register_new(Context),
+
+    GxReport = ergw_gsn_lib:pcc_events_to_charging_rule_report(PCCErrors),
+    if map_size(GxReport) /= 0 ->
+	    ergw_aaa_session:invoke(Session, GxReport,
+				    {gx, 'CCR-Update'}, SOpts#{async => true});
+       true ->
+	    ok
+    end,
 
     ResponseIEs = create_pdp_context_response(ActiveSessionOpts, IEs, Context),
     Reply = response(create_pdp_context_response, Context, ResponseIEs, Request),
