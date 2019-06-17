@@ -161,7 +161,7 @@ handle_info(#aaa_request{procedure = {gx, 'RAR'},
 
     RuleBase = ergw_charging:rulebase(),
     PCCRules0 = maps:get('PCC-Rules', SessionOpts, #{}),
-    {PCCRules1, PCCErrors1} =
+    {PCCRules1, _} =
 	ergw_gsn_lib:gx_events_to_pcc_rules(Events, remove, RuleBase, PCCRules0),
 
     URRActions = [],
@@ -195,7 +195,7 @@ handle_info(#aaa_request{procedure = {gx, 'RAR'},
 
     %% TODO Charging-Rule-Report for successfully installed/removed rules
 
-    GxReport = ergw_gsn_lib:pcc_events_to_charging_rule_report(PCCErrors1 ++ PCCErrors2),
+    GxReport = ergw_gsn_lib:pcc_events_to_charging_rule_report(PCCErrors2),
     SOpts = #{'PCC-Rules' => PCCRules2},
     ergw_aaa_session:response(Request, ok, GxReport, SOpts),
     {noreply, State#{pfcp := PCtx}};
