@@ -242,7 +242,7 @@ remove_pcc_rule(Name, false, _Opts, #pcc_upd{rules = Rules} = Update) ->
 	#{Name := _} ->
 	    Update#pcc_upd{rules = maps:remove(Name, Rules)};
 	_ ->
-	    pcc_upd_error({not_found, Name}, Update)
+	    pcc_upd_error({not_found, {rule, Name}}, Update)
     end.
 remove_pcc_rules('Charging-Rule-Name', V, Opts, Update) ->
     lists:foldl(remove_pcc_rule(_, false, Opts, _), Update, V);
