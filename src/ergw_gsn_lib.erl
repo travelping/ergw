@@ -23,11 +23,14 @@
 	 choose_context_ip/3,
 	 ip_pdu/3]).
 -export([%%update_pcc_rules/2,
-	 gx_events_to_pcc_rules/4, session_events/4]).
+	 gx_events_to_pcc_rules/4,
+	 pcc_events_to_charging_rule_report/1,
+	 session_events/4]).
 
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include_lib("pfcplib/include/pfcp_packet.hrl").
 -include_lib("ergw_aaa/include/ergw_aaa_3gpp.hrl").
+-include_lib("ergw_aaa/include/diameter_3gpp_ts29_212.hrl").
 -include_lib("ergw_aaa/include/diameter_3gpp_ts32_299.hrl").
 -include("include/ergw.hrl").
 
@@ -183,8 +186,10 @@ install_preconf_rule(Name, IsRuleBase, Opts, RuleBase, Update) ->
 	    lists:foldl(install_preconf_rule(_, false, UpdOpts, RuleBase, _), Update, Rules);
 	#{Name := Rule} when (not IsRuleBase) andalso is_map(Rule) ->
 	    update_pcc_rule(Name, Rule, Opts, Update);
+	_ when IsRuleBase ->
+	    pcc_upd_error({not_found, {rulebase, Name}}, Update);
 	_ ->
-	    pcc_upd_error({not_found, Name}, Update)
+	    pcc_upd_error({not_found, {rule, Name}}, Update)
     end.
 
 install_pcc_rules(Install, RuleBase, Update) ->
@@ -822,8 +827,44 @@ charging_event_to_gy(#{'Rating-Group' := ChargingKey,
     {ChargingKey, Report}.
 
 %% ===========================================================================
+%% Gx Support - Charging-Rule-Report
+%% ===========================================================================
+
+pcc_events_to_charging_rule_report({not_found, {rulebase, Name}}, AVPs) ->
+    Report =
+	#{'Charging-Rule-Base-Name' => [Name],
+	  'PCC-Rule-Status'    => [?'DIAMETER_GX_PCC-RULE-STATUS_INACTIVE'],
+	  'Rule-Failure-Code'  => [?'DIAMETER_GX_RULE-FAILURE-CODE_RATING_GROUP_ERROR']
+	 },
+    repeated('Charging-Rule-Report', Report, AVPs);
+pcc_events_to_charging_rule_report({not_found, {rule, Name}}, AVPs) ->
+    Report =
+	#{'Charging-Rule-Name' => [Name],
+	  'PCC-Rule-Status'    => [?'DIAMETER_GX_PCC-RULE-STATUS_INACTIVE'],
+	  'Rule-Failure-Code'  => [?'DIAMETER_GX_RULE-FAILURE-CODE_RATING_GROUP_ERROR']
+	 },
+    repeated('Charging-Rule-Report', Report, AVPs);
+pcc_events_to_charging_rule_report(_Ev, AVPs) ->
+    AVPs.
+
+pcc_events_to_charging_rule_report(Events) ->
+    lists:foldl(fun pcc_events_to_charging_rule_report/2, #{}, Events).
+
+%% ===========================================================================
 %% Rf Support - Offline Charging
 %% ===========================================================================
+
+assign([Key], Fun, Avps) ->
+    Fun(Key, Avps);
+assign([Key | Next], Fun, Avps) ->
+    [V] = maps:get(Key, Avps, [#{}]),
+    Avps#{Key => [assign(Next, Fun, V)]}.
+
+repeated(Keys, Value, Avps) when is_list(Keys) ->
+    assign(Keys, repeated(_, Value, _), Avps);
+repeated(Key, Value, Avps)
+  when is_atom(Key) ->
+    maps:update_with(Key, fun(V) -> [Value|V] end, [Value], Avps).
 
 optional_if_unset(K, V, M) ->
     maps:update_with(K, fun(L) -> L end, [V], M).
