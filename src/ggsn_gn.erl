@@ -141,7 +141,7 @@ handle_info({'DOWN', _MonitorRef, Type, Pid, _Info} = _I,
   when Type == process; Type == pfcp ->
     lager:info("~p, handle_info(~p, ~p)", [?MODULE, _I, State]),
     close_pdp_context(upf_failure, State),
-    {noreply, State};
+    {stop, normal, State};
 
 handle_info(stop_from_session, #{context := Context} = State) ->
     delete_context(undefined, normal, Context),

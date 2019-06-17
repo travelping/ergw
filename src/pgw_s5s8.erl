@@ -105,6 +105,9 @@ init(_Opts, State) ->
     {ok, Session} = ergw_aaa_session_sup:new_session(self(), to_session([])),
     {ok, State#{'Version' => v2, 'Session' => Session}}.
 
+handle_call(Request, From, #{'Version' := v1} = State) ->
+    ?GTP_v1_Interface:handle_call(Request, From, State);
+
 handle_call(delete_context, From, #{context := Context} = State) ->
     delete_context(From, administrative, Context),
     {noreply, State};
@@ -119,6 +122,9 @@ handle_call({path_restart, Path}, _From,
     {stop, normal, ok, State};
 handle_call({path_restart, _Path}, _From, State) ->
     {reply, ok, State}.
+
+handle_cast(Request, #{'Version' := v1} = State) ->
+    ?GTP_v1_Interface:handle_cast(Request, State);
 
 handle_cast({defered_usage_report, URRActions, UsageReport},
 	    #{pfcp := PCtx, 'Session' := Session} = State) ->
@@ -148,7 +154,7 @@ handle_info({'DOWN', _MonitorRef, Type, Pid, _Info},
 	    #{pfcp := #pfcp_ctx{node = Pid}} = State)
   when Type == process; Type == pfcp ->
     close_pdn_context(upf_failure, State),
-    {noreply, State};
+    {stop, normal, State};
 
 handle_info(stop_from_session, #{context := Context} = State) ->
     delete_context(undefined, normal, Context),

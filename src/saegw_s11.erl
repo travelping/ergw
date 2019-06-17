@@ -148,7 +148,7 @@ handle_info({'DOWN', _MonitorRef, Type, Pid, _Info},
 	    #{pfcp := #pfcp_ctx{node = Pid}} = State)
   when Type == process; Type == pfcp ->
     close_pdn_context(upf_failure, State),
-    {noreply, State};
+    {stop, normal, State};
 
 handle_info(stop_from_session, #{context := Context} = State) ->
     delete_context(undefined, normal, Context),
