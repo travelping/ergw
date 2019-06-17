@@ -213,6 +213,19 @@
 		       },
 		  'Update-Gx' => #{'Result-Code' => 2001},
 		  'Final-Gx' => #{'Result-Code' => 2001},
+
+		  'Initial-Gx-Fail-1' =>
+		      #{'Result-Code' => 2001,
+			'Charging-Rule-Install' =>
+			    [#{'Charging-Rule-Base-Name' =>
+				   [<<"m2m0001">>, <<"unknown-rulebase">>]}]
+		       },
+		  'Initial-Gx-Fail-2' =>
+		      #{'Result-Code' => 2001,
+			'Charging-Rule-Install' =>
+			    [#{'Charging-Rule-Name' => [<<"r-0001">>, <<"unknown-rule">>]}]
+		       },
+
 		  'Initial-OCS' =>
 		      #{'Result-Code' => 2001,
 			'Multiple-Services-Credit-Control' =>
@@ -347,6 +360,8 @@ common() ->
      gx_asr,
      gx_rar,
      gy_asr,
+     gx_invalid_charging_rulebase,
+     gx_invalid_charging_rule,
      redirect_info,
      tdf_app_id
     ].
@@ -394,6 +409,14 @@ init_per_testcase(volume_threshold, Config0) ->
     Config = init_per_testcase(Config0),
     load_aaa_answer_config([{{gy, 'CCR-Initial'}, 'Initial-OCS'},
 			    {{gy, 'CCR-Update'},  'Update-OCS'}]),
+    Config;
+init_per_testcase(gx_invalid_charging_rulebase, Config0) ->
+    Config = init_per_testcase(Config0),
+    load_aaa_answer_config([{{gx, 'CCR-Initial'}, 'Initial-Gx-Fail-1'}]),
+    Config;
+init_per_testcase(gx_invalid_charging_rule, Config0) ->
+    Config = init_per_testcase(Config0),
+    load_aaa_answer_config([{{gx, 'CCR-Initial'}, 'Initial-Gx-Fail-2'}]),
     Config;
 init_per_testcase(redirect_info, Config0) ->
     Config = init_per_testcase(Config0),
@@ -839,6 +862,64 @@ gy_asr(Config) ->
     ResponseFun = fun(_, _, _, _) -> ok end,
     Server ! #aaa_request{from = ResponseFun, procedure = {gy, 'ASR'},
 			  session = #{}, events = []},
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    wait4tunnels(?TIMEOUT),
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+gx_invalid_charging_rulebase() ->
+    [{doc, "Check the reaction to a Gx CCA-I with an invalid Charging-Rule-Base-Name"}].
+gx_invalid_charging_rulebase(Config) ->
+    packet_in(Config),
+    ct:sleep({seconds, 1}),
+
+    Server = tdf_session_pid(),
+
+    CCRU =
+	lists:filter(
+	  fun({_, {ergw_aaa_session, invoke,
+		   [_, R, {gx,'CCR-Update'}, _]}, _}) ->
+		  ?match(
+		     #{'Charging-Rule-Report' :=
+			   [#{'Charging-Rule-Base-Name' := [_]}]}, R),
+		  true;
+	     (_) ->
+		  false
+	  end, meck:history(ergw_aaa_session)),
+    ?match(X when X == 1, length(CCRU)),
+
+    Server ! stop_from_session,
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    wait4tunnels(?TIMEOUT),
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+gx_invalid_charging_rule() ->
+    [{doc, "Check the reaction to a Gx CCA-I with an invalid Charging-Rule-Name"}].
+gx_invalid_charging_rule(Config) ->
+    packet_in(Config),
+    ct:sleep({seconds, 1}),
+
+    Server = tdf_session_pid(),
+
+    CCRU =
+	lists:filter(
+	  fun({_, {ergw_aaa_session, invoke,
+		   [_, R, {gx,'CCR-Update'}, _]}, _}) ->
+		  ?match(
+		     #{'Charging-Rule-Report' :=
+			   [#{'Charging-Rule-Name' := [_]}]}, R),
+		  true;
+	     (_) ->
+		  false
+	  end, meck:history(ergw_aaa_session)),
+    ?match(X when X == 1, length(CCRU)),
+
+    Server ! stop_from_session,
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     wait4tunnels(?TIMEOUT),
