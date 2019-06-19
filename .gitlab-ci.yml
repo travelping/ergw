@@ -59,10 +59,14 @@ docker:
   services:
     - docker:dind
   script:
+    - git tag -l
+    - git describe
+    - git describe --always --tags --dirty --first-parent --debug
+    - git reflog
+    - export CI_COMMIT_DESCRIBE=$(git describe)
     - docker login -u gitlab-ci-token -p $CI_BUILD_TOKEN $CI_REGISTRY
-    - docker build -t $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA -f docker/Dockerfile .
-    - docker tag $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG
+    - docker build -t $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA -t $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG\_$CI_COMMIT_DESCRIBE -f docker/Dockerfile .
     - docker push $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA
-    - docker push $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG
+    - docker push $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG\_$CI_COMMIT_DESCRIBE
     - if [ $CI_COMMIT_REF_NAME == "master" ] ; then docker tag $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA $CI_REGISTRY_IMAGE:latest ; docker push $CI_REGISTRY_IMAGE:latest ; fi
   when: always

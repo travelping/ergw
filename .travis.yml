@@ -2,6 +2,8 @@ sudo: required
 dist: xenial
 services:
   - docker
+git:
+  depth: false
 
 language: erlang
 
@@ -48,7 +50,8 @@ jobs:
         - docker build -t $BUILD_IMAGE -f docker/Dockerfile .
       after_success:
         - docker login -u="$DOCKER_USERNAME" -p="$DOCKER_PASSWORD"
-        - export TAG=`if [ "$TRAVIS_EVENT_TYPE" == "pull_request" ]; then echo PR-$TRAVIS_PULL_REQUEST_BRANCH\_$TRAVIS_PULL_REQUEST_SHA ; else echo $TRAVIS_BRANCH\_$TRAVIS_COMMIT ; fi`
+        - export GIT_DESCRIBE=`git describe`
+        - export TAG=`if [ "$TRAVIS_EVENT_TYPE" == "pull_request" ]; then echo PR-$TRAVIS_PULL_REQUEST_BRANCH\_$TRAVIS_PULL_REQUEST_SHA ; else echo $TRAVIS_BRANCH\_$GIT_DESCRIBE ; fi`
         - export TAG=`echo "$TAG" | sed -e 's,/,-,g'`
         - echo "Docker image $BUILD_IMAGE:$TAG"
         - if [ "$TAG" == "master" ]; then export TAG="latest"; fi
