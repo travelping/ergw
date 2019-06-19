@@ -78,8 +78,8 @@ start_link({Name, SocketOpts}) ->
 send(#gtp_port{type = 'gtp-c'} = GtpPort, IP, Port, Data) ->
     cast(GtpPort, {send, IP, Port, Data}).
 
-send_response(#request{gtp_port = GtpPort, ip = RemoteIP} = ReqKey, Msg, DoCache) ->
-    message_counter(tx, GtpPort, RemoteIP, Msg),
+send_response(#request{gtp_port = GtpPort} = ReqKey, Msg, DoCache) ->
+    message_counter(tx, ReqKey, Msg),
     Data = gtp_packet:encode(Msg),
     cast(GtpPort, {send_response, ReqKey, Data, DoCache}).
 
@@ -153,7 +153,6 @@ init([Name, #{ip := IP} = SocketOpts]) ->
 		 restart_counter = RCnt
 		},
 
-    init_exometer(GtpPort),
     ergw_gtp_socket_reg:register(Name, GtpPort),
 
     State = #state{
@@ -378,7 +377,7 @@ handle_message(ArrivalTS, IP, Port, Data, #state{gtp_port = GtpPort} = State0) -
 	    lager:debug("handle message: ~p", [{IP, Port,
 						lager:pr(State0#state.gtp_port, ?MODULE),
 						lager:pr(Msg, ?MODULE)}]),
-	    message_counter(rx, GtpPort, IP, Msg),
+	    ergw_prometheus:gtp(rx, GtpPort, IP, Msg),
 	    State = handle_message_1(ArrivalTS, IP, Port, Msg, State0),
 	    {noreply, State}
     catch
@@ -413,7 +412,7 @@ handle_response(ArrivalTS, IP, _Port, Msg, #state{gtp_port = GtpPort} = State0) 
     {Req, State} = take_request(SeqId, State0),
     case Req of
 	none -> %% duplicate, drop silently
-	    message_counter(rx, GtpPort, IP, Msg, duplicate),
+	    ergw_prometheus:gtp(rx, GtpPort, IP, Msg, duplicate),
 	    lager:debug("~p: duplicate response: ~p, ~p", [self(), SeqId, gtp_c_lib:fmt_gtp(Msg)]),
 	    State;
 
@@ -428,7 +427,7 @@ handle_request(#request{ip = IP, port = Port} = ReqKey, Msg,
 	       #state{gtp_port = GtpPort, responses = Responses} = State) ->
     case ergw_cache:get(cache_key(ReqKey), Responses) of
 	{value, Data} ->
-	    message_counter(rx, GtpPort, IP, Msg, duplicate),
+	    ergw_prometheus:gtp(rx, GtpPort, IP, Msg, duplicate),
 	    sendto(IP, Port, Data, State);
 
 	_Other ->
@@ -501,120 +500,30 @@ cache_key(Object) ->
     Object.
 
 %%%===================================================================
-%%% exometer functions
+%%% Metrics collections
 %%%===================================================================
 
-%% wrapper to reuse old entries when restarting
-exometer_new(Name, Type, Opts) ->
-    case exometer:ensure(Name, Type, Opts) of
-	ok ->
-	    ok;
-	_ ->
-	    exometer:re_register(Name, Type, Opts)
-    end.
-exometer_new(Name, Type) ->
-    exometer_new(Name, Type, []).
-
-foreach_request(Handler, Fun) ->
-    Requests = lists:filter(fun(X) -> Handler:gtp_msg_type(X) =:= request end,
-			    Handler:gtp_msg_types()),
-    lists:foreach(Fun, Requests).
-
-exo_reg_msg(Name, Version, MsgType) ->
-    exometer_new([socket, 'gtp-c', Name, rx, Version, MsgType, count], counter),
-    exometer_new([socket, 'gtp-c', Name, rx, Version, MsgType, duplicate], counter),
-    exometer_new([socket, 'gtp-c', Name, tx, Version, MsgType, count], counter),
-    exometer_new([socket, 'gtp-c', Name, tx, Version, MsgType, retransmit], counter).
-
-exo_reg_timeout(Name, Version, MsgType) ->
-    exometer_new([socket, 'gtp-c', Name, tx, Version, MsgType, timeout], counter).
-
-init_exometer(#gtp_port{name = Name, type = 'gtp-c'}) ->
-    exometer_new([socket, 'gtp-c', Name, rx, v1, unsupported], counter),
-    exometer_new([socket, 'gtp-c', Name, tx, v1, unsupported], counter),
-    lists:foreach(exo_reg_msg(Name, v1, _), gtp_v1_c:gtp_msg_types()),
-    lists:foreach(exo_reg_msg(Name, v2, _), gtp_v2_c:gtp_msg_types()),
-    foreach_request(gtp_v1_c, exo_reg_timeout(Name, v1, _)),
-    foreach_request(gtp_v2_c, exo_reg_timeout(Name, v2, _)),
-    exometer_new([socket, 'gtp-c', Name, rx, v2, unsupported], counter),
-    exometer_new([socket, 'gtp-c', Name, tx, v2, unsupported], counter),
-    ok;
-init_exometer(_) ->
-    ok.
-
-message_counter_apply(Name, RemoteIP, Direction, Version, MsgInfo) ->
-    case exometer:update([socket, 'gtp-c', Name, Direction, Version | MsgInfo], 1) of
-	{error, undefined} ->
-	    exometer:update([socket, 'gtp-c', Name, Direction, Version, unsupported], 1),
-	    exometer:update_or_create([path, Name, RemoteIP, Direction, Version, unsupported], 1, counter, []);
-	Other ->
-	    exometer:update_or_create([path, Name, RemoteIP, Direction, Version | MsgInfo], 1, counter, []),
-	    Other
-    end.
-
 %% message_counter/3
-message_counter(Direction, GtpPort,
-		#send_req{address = RemoteIP, msg = Msg}) ->
-    message_counter(Direction, GtpPort, RemoteIP, Msg).
+message_counter(Direction, GtpPort, #send_req{address = IP, msg = Msg}) ->
+    ergw_prometheus:gtp(Direction, GtpPort, IP, Msg);
+message_counter(Direction, #request{gtp_port = GtpPort, ip = IP}, Msg) ->
+    ergw_prometheus:gtp(Direction, GtpPort, IP, Msg).
 
 %% message_counter/4
-message_counter(Direction, GtpPort,
-		#send_req{address = RemoteIP, msg = Msg}, Verdict) ->
-    message_counter(Direction, GtpPort, RemoteIP, Msg, Verdict);
-message_counter(Direction, #gtp_port{name = Name, type = 'gtp-c'},
-               RemoteIP, #gtp{version = Version, type = MsgType, ie = IEs}) ->
-    message_counter_apply(Name, RemoteIP, Direction, Version, [MsgType, count]),
-    message_counter_reply(Name, RemoteIP, Direction, Version, MsgType, IEs).
+message_counter(Direction, GtpPort, #send_req{address = IP, msg = Msg}, Verdict) ->
+    ergw_prometheus:gtp(Direction, GtpPort, IP, Msg, Verdict).
 
-%% message_counter/5
-message_counter(Direction, #gtp_port{name = Name, type = 'gtp-c'},
-		RemoteIP, #gtp{version = Version, type = MsgType},
-		Verdict) ->
-    message_counter_apply(Name, RemoteIP, Direction, Version, [MsgType, Verdict]).
-
-message_counter_reply(Name, _RemoteIP, Direction, Version, MsgType,
-                     #{cause := #cause{value = Cause}}) ->
-    message_counter_reply_update( Name, Direction, Version, MsgType, Cause );
-message_counter_reply(Name, _RemoteIP, Direction, Version, MsgType,
-                     #{v2_cause := #v2_cause{v2_cause = Cause}}) ->
-    message_counter_reply_update( Name, Direction, Version, MsgType, Cause );
-message_counter_reply(Name, _RemoteIP, Direction, Version, MsgType, IEs)
-  when is_list(IEs) ->
-    CauseIEs =
-       lists:filter(
-         fun(IE) when is_record(IE, cause) -> true;
-            (IE) when is_record(IE, v2_cause) -> true;
-            (_) -> false
-         end, IEs),
-    case CauseIEs of
-       [#cause{value = Cause} | _] ->
-           message_counter_reply_update( Name, Direction, Version, MsgType, Cause );
-       [#v2_cause{v2_cause = Cause} | _] ->
-           message_counter_reply_update( Name, Direction, Version, MsgType, Cause );
-       _ ->
-           ok
-    end;
-message_counter_reply(_Name, _RemoteIP, _Direction, _Version, _MsgType, _IEs) ->
-    ok.
-
-message_counter_reply_update( Name, Direction, Version, MsgType, Cause ) ->
-    exometer:update_or_create( [socket, 'gtp-c', Name, Direction, Version, MsgType, Cause, count], 1, counter, [] ).
-
+%% measure the time it takes our peer to reply to a request
+measure_reply(GtpPort,
+	      #send_req{address = IP, msg = Msg, send_ts = SendTS},
+	      ArrivalTS) ->
+    RTT = erlang:convert_time_unit(ArrivalTS - SendTS, native, microsecond),
+    ergw_prometheus:gtp_path_rtt(GtpPort, IP, Msg, RTT).
 
 %% measure the time it takes us to generate a response to a request
 measure_response(#request{
-		    gtp_port = #gtp_port{name = Name},
+		    gtp_port = GtpPort,
 		    version = Version, type = MsgType,
 		    arrival_ts = ArrivalTS}) ->
-    Duration = erlang:convert_time_unit(erlang:monotonic_time() - ArrivalTS, native, microsecond),
-    DataPoint = [socket, 'gtp-c', Name, pt, Version, MsgType],
-    exometer:update_or_create(DataPoint, Duration, histogram, ?EXO_PERF_OPTS),
-    ok.
-
-%% measure the time it takes our peer to reply to a request
-measure_reply(GtpPort, #send_req{address = RemoteIP,
-				 msg = #gtp{version = Version, type = MsgType},
-				 send_ts = SendTS},
-	      ArrivalTS) ->
-    RTT = erlang:convert_time_unit(ArrivalTS - SendTS, native, microsecond),
-    gtp_path:exometer_update_rtt(GtpPort, RemoteIP, Version, MsgType, RTT).
+    Duration = erlang:convert_time_unit(erlang:monotonic_time() - ArrivalTS, native, millisecond),
+    ergw_prometheus:gtp_request_duration(GtpPort, Version, MsgType, Duration).

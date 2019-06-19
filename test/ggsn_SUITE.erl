@@ -445,8 +445,8 @@ init_per_testcase(_, Config) ->
 end_per_testcase(_Config) ->
     stop_gtpc_server(),
 
-    FreeP = [pool, <<"upstream">>, ipv4, {10,180,0,1}, free],
-    ?match_exo_value(FreeP, 65534),
+    PoolId = [<<"upstream">>, ipv4, "10.180.0.1"],
+    ?match_metric(prometheus_gauge, ergw_ip_pool_free, PoolId, 65534),
 
     ok.
 
@@ -524,8 +524,8 @@ create_pdp_context_request_missing_ie(Config) ->
     MetricsAfter = socket_counter_metrics(),
     ?equal([], outstanding_requests()),
     meck_validate(Config),
-    socket_counter_metrics_ok( MetricsBefore, MetricsAfter, create_pdp_context_request ),
-    socket_counter_metrics_ok( MetricsBefore, MetricsAfter, mandatory_ie_missing ), % In response
+    socket_counter_metrics_ok(MetricsBefore, MetricsAfter, create_pdp_context_request),
+    socket_counter_metrics_ok(MetricsBefore, MetricsAfter, mandatory_ie_missing), % In response
     ok.
 
 %%--------------------------------------------------------------------
@@ -539,8 +539,8 @@ create_pdp_context_request_aaa_reject(Config) ->
     MetricsAfter = socket_counter_metrics(),
     ?equal([], outstanding_requests()),
     meck_validate(Config),
-    socket_counter_metrics_ok( MetricsBefore, MetricsAfter, create_pdp_context_request ),
-    socket_counter_metrics_ok( MetricsBefore, MetricsAfter, user_authentication_failed ), % In response
+    socket_counter_metrics_ok(MetricsBefore, MetricsAfter, create_pdp_context_request),
+    socket_counter_metrics_ok(MetricsBefore, MetricsAfter, user_authentication_failed), % In response
     ok.
 
 %%--------------------------------------------------------------------
@@ -554,19 +554,18 @@ create_pdp_context_request_gx_fail(Config) ->
     MetricsAfter = socket_counter_metrics(),
     ?equal([], outstanding_requests()),
     meck_validate(Config),
-    socket_counter_metrics_ok( MetricsBefore, MetricsAfter, create_pdp_context_request ),
-    socket_counter_metrics_ok( MetricsBefore, MetricsAfter, system_failure ), % In response
+    socket_counter_metrics_ok(MetricsBefore, MetricsAfter, create_pdp_context_request),
+    socket_counter_metrics_ok(MetricsBefore, MetricsAfter, system_failure), % In response
     ok.
 
 %%--------------------------------------------------------------------
 create_pdp_context_request_gy_fail() ->
     [{doc, "Check Gy failure on Create PDP Context Request"}].
 create_pdp_context_request_gy_fail(Config) ->
-    FreeP = [pool, <<"upstream">>, ipv4, {10,180,0,1}, free],
-    UsedP = [pool, <<"upstream">>, ipv4, {10,180,0,1}, used],
+    PoolId = [<<"upstream">>, ipv4, "10.180.0.1"],
 
-    ?match_exo_value(FreeP, 65534),
-    ?match_exo_value(UsedP, 0),
+    ?match_metric(prometheus_gauge, ergw_ip_pool_free, PoolId, 65534),
+    ?match_metric(prometheus_gauge, ergw_ip_pool_used, PoolId, 0),
 
     MetricsBefore = socket_counter_metrics(),
 
@@ -577,11 +576,11 @@ create_pdp_context_request_gy_fail(Config) ->
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
 
-    ?match_exo_value(FreeP, 65534),
-    ?match_exo_value(UsedP, 0),
+    ?match_metric(prometheus_gauge, ergw_ip_pool_free, PoolId, 65534),
+    ?match_metric(prometheus_gauge, ergw_ip_pool_used, PoolId, 0),
 
-    socket_counter_metrics_ok( MetricsBefore, MetricsAfter, create_pdp_context_request ),
-    socket_counter_metrics_ok( MetricsBefore, MetricsAfter, system_failure ), % In response
+    socket_counter_metrics_ok(MetricsBefore, MetricsAfter, create_pdp_context_request),
+    socket_counter_metrics_ok(MetricsBefore, MetricsAfter, system_failure), % In response
 
     meck_validate(Config),
     ok.
@@ -608,8 +607,8 @@ create_pdp_context_request_invalid_apn(Config) ->
     MetricsAfter = socket_counter_metrics(),
     ?equal([], outstanding_requests()),
     meck_validate(Config),
-    socket_counter_metrics_ok( MetricsBefore, MetricsAfter, create_pdp_context_request ),
-    socket_counter_metrics_ok( MetricsBefore, MetricsAfter, missing_or_unknown_apn ), % In response
+    socket_counter_metrics_ok(MetricsBefore, MetricsAfter, create_pdp_context_request),
+    socket_counter_metrics_ok(MetricsBefore, MetricsAfter, missing_or_unknown_apn), % In response
     ok.
 
 %%--------------------------------------------------------------------
@@ -626,8 +625,8 @@ create_pdp_context_request_pool_exhausted(Config) ->
     create_pdp_context(pool_exhausted, Config),
 
     MetricsAfter = socket_counter_metrics(),
-    socket_counter_metrics_ok( MetricsBefore, MetricsAfter, create_pdp_context_request ),
-    socket_counter_metrics_ok( MetricsBefore, MetricsAfter, all_dynamic_pdp_addresses_are_occupied ), % In response
+    socket_counter_metrics_ok(MetricsBefore, MetricsAfter, create_pdp_context_request),
+    socket_counter_metrics_ok(MetricsBefore, MetricsAfter, all_dynamic_pdp_addresses_are_occupied), % In response
 
     ok = meck:expect(vrf, allocate_pdp_ip,
 		     fun(VRF, TEI, _ReqIPv4, ReqIPv6) ->
@@ -732,29 +731,28 @@ path_restart_multi(Config) ->
 simple_pdp_context_request() ->
     [{doc, "Check simple Create PDP Context, Delete PDP Context sequence"}].
 simple_pdp_context_request(Config) ->
-    FreeP = [pool, <<"upstream">>, ipv4, {10,180,0,1}, free],
-    UsedP = [pool, <<"upstream">>, ipv4, {10,180,0,1}, used],
+    PoolId = [<<"upstream">>, ipv4, "10.180.0.1"],
 
-    ?match_exo_value(FreeP, 65534),
-    ?match_exo_value(UsedP, 0),
+    ?match_metric(prometheus_gauge, ergw_ip_pool_free, PoolId, 65534),
+    ?match_metric(prometheus_gauge, ergw_ip_pool_used, PoolId, 0),
 
     MetricsBefore = socket_counter_metrics(),
     {GtpC, _, _} = create_pdp_context(Config),
     MetricsAfter = socket_counter_metrics(),
 
-    ?match_exo_value(FreeP, 65533),
-    ?match_exo_value(UsedP, 1),
+    ?match_metric(prometheus_gauge, ergw_ip_pool_free, PoolId, 65533),
+    ?match_metric(prometheus_gauge, ergw_ip_pool_used, PoolId, 1),
 
     delete_pdp_context(GtpC),
 
     ?equal([], outstanding_requests()),
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
 
-    socket_counter_metrics_ok( MetricsBefore, MetricsAfter, create_pdp_context_request ),
-    socket_counter_metrics_ok( MetricsBefore, MetricsAfter, request_accepted ), % In response
+    socket_counter_metrics_ok(MetricsBefore, MetricsAfter, create_pdp_context_request),
+    socket_counter_metrics_ok(MetricsBefore, MetricsAfter, request_accepted), % In response
 
-    ?match_exo_value(FreeP, 65534),
-    ?match_exo_value(UsedP, 0),
+    ?match_metric(prometheus_gauge, ergw_ip_pool_free, PoolId, 65534),
+    ?match_metric(prometheus_gauge, ergw_ip_pool_used, PoolId, 0),
 
     meck_validate(Config),
     ok.
@@ -858,13 +856,14 @@ request_fast_resend(Config) ->
 create_pdp_context_request_resend() ->
     [{doc, "Check that a retransmission of a Create PDP Context Request works"}].
 create_pdp_context_request_resend(Config) ->
-    CntId = [socket,'gtp-c',irx,rx,v1,create_pdp_context_request,count],
-    DupId = [socket,'gtp-c',irx,rx,v1,create_pdp_context_request,duplicate],
-    Cnt0 = get_exo_value(CntId),
-    Dup0 = get_exo_value(DupId),
+    CntId = [irx, rx, v1, create_pdp_context_request],
+    DupId = [irx, v1, create_pdp_context_request],
+
+    Cnt0 = get_metric(prometheus_counter, gtp_c_socket_messages_processed_total, CntId, 0),
+    Dup0 = get_metric(prometheus_counter, gtp_c_socket_messages_duplicates_total, DupId, 0),
 
     {GtpC, Msg, Response} = create_pdp_context(Config),
-    ?match_exo_value(CntId, Cnt0 + 1),
+    ?match_metric(prometheus_counter, gtp_c_socket_messages_processed_total, CntId, Cnt0 + 1),
     ?equal(Response, send_recv_pdu(GtpC, Msg)),
     ?equal([], outstanding_requests()),
 
@@ -873,7 +872,7 @@ create_pdp_context_request_resend(Config) ->
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     ?match(0, meck:num_calls(?HUT, handle_request, ['_', '_', true, '_'])),
 
-    ?match_exo_value(DupId, Dup0 + 1),
+    ?match_metric(prometheus_counter, gtp_c_socket_messages_duplicates_total, DupId, Dup0 + 1),
     meck_validate(Config),
     ok.
 
@@ -1135,8 +1134,8 @@ create_pdp_context_overload(Config) ->
     MetricsAfter = socket_counter_metrics(),
     ?equal([], outstanding_requests()),
     meck_validate(Config),
-    socket_counter_metrics_ok( MetricsBefore, MetricsAfter, create_pdp_context_request ),
-    socket_counter_metrics_ok( MetricsBefore, MetricsAfter, no_resources_available ), % In response
+    socket_counter_metrics_ok(MetricsBefore, MetricsAfter, create_pdp_context_request),
+    socket_counter_metrics_ok(MetricsBefore, MetricsAfter, no_resources_available), % In response
     ok.
 
 %%--------------------------------------------------------------------
@@ -1529,23 +1528,31 @@ load_ocs_config(Initial, Update) ->
     Cfg = maps_recusive_merge(Cfg0, UpdCfg),
     ok = application:set_env(ergw_aaa, apps, Cfg).
 
-
 socket_counter_metrics() ->
-	Names = [Name || {[socket | _]=Name, counter, enabled} <- exometer:find_entries([])],
-	NoEchos = [X || X <- Names, not lists:member(echo_request, X) andalso not lists:member(echo_response, X)],
-	[{X, socket_counter_metrics_exometer_value( exometer:get_value(X) )} || X <- NoEchos].
+    Metrics =
+	lists:foldl(
+	  fun(Key, M) ->
+		  V0 = prometheus_counter:values(default, Key),
+		  V1 = lists:map(
+			 fun({K, V}) -> {[Tag || {_, Tag} <- K], V} end, V0),
+		  M ++ V1
+	  end, [],
+	  [gtp_c_socket_messages_processed_total,
+	   gtp_c_socket_messages_duplicates_total,
+	   gtp_c_socket_messages_retransmits_total,
+	   gtp_c_socket_messages_timeouts_total,
+	   gtp_c_socket_messages_replies_total]),
+    [X || X = {Tag, _} <- Metrics,
+	  not lists:member(echo_request, Tag) andalso not lists:member(echo_response, Tag)].
 
-socket_counter_metrics_exometer_value( {ok, [{value,V} | _]} ) -> V;
-socket_counter_metrics_exometer_value( _ ) -> error.
-
-socket_counter_metrics_ok( MetricsBefore, MetricsAfter, Part ) ->
+socket_counter_metrics_ok(MetricsBefore, MetricsAfter, Part) ->
 	%% Remove the ones that have not changed.
-	ValueBefore = socket_counter_metrics_ok_value( MetricsBefore -- MetricsAfter, Part ),
-	ValueAfter = socket_counter_metrics_ok_value( MetricsAfter -- MetricsBefore, Part ),
-	?equal( 1, ValueAfter - ValueBefore ).
+	ValueBefore = socket_counter_metrics_ok_value(MetricsBefore -- MetricsAfter, Part),
+	ValueAfter = socket_counter_metrics_ok_value(MetricsAfter -- MetricsBefore, Part),
+	?equal(1, ValueAfter - ValueBefore).
 
-socket_counter_metrics_ok_value( Metrics, Part ) ->
-	socket_counter_metrics_ok_value_0( [Value || {Name, Value} <- Metrics, lists:member(Part, Name)] ).
+socket_counter_metrics_ok_value(Metrics, Part) ->
+	socket_counter_metrics_ok_value_0([Value || {Name, Value} <- Metrics, lists:member(Part, Name)]).
 
-socket_counter_metrics_ok_value_0( [Value] ) -> Value;
-socket_counter_metrics_ok_value_0( [] ) -> 0.
+socket_counter_metrics_ok_value_0([Value]) -> Value;
+socket_counter_metrics_ok_value_0([]) -> 0.
