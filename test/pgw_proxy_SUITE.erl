@@ -9,6 +9,7 @@
 
 -compile([export_all, nowarn_export_all]).
 
+-include_lib("prometheus/include/prometheus.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include_lib("pfcplib/include/pfcp_packet.hrl").
@@ -626,7 +627,7 @@ init_per_testcase(TestCase, Config)
        TestCase == interop_sgw_to_sgsn ->
     init_per_testcase(Config),
     ok = meck:new(ggsn_gn_proxy, [passthrough, no_link]),
-    [exometer:delete(Metric) || {Metric,_,_} <- exometer:find_entries([path, '_', '_', contexts])],
+    reset_path_metrics(),
     Config;
 init_per_testcase(update_bearer_request, Config) ->
     %% our PGW does not send update_bearer_request, so we have to fake them
@@ -1715,15 +1716,15 @@ interop_sgsn_to_sgw(Config) ->
     {_Handler, CtxPid} = gtp_context_reg:lookup({'remote-irx', {imsi, ?'PROXY-IMSI', 5}}),
     #{context := Ctx1} = gtp_context:info(CtxPid),
 
-    check_exo_contexts(v1, 3, 1),
-    check_exo_contexts(v2, 0, 0),
+    check_contexts_metric(v1, 3, 1),
+    check_contexts_metric(v2, 0, 0),
 
     {GtpC2, _, _} = modify_bearer(tei_update, GtpC1),
     #{context := Ctx2} = gtp_context:info(CtxPid),
 
     ?equal([], outstanding_requests()),
-    check_exo_contexts(v1, 3, 0),
-    check_exo_contexts(v2, 3, 1),
+    check_contexts_metric(v1, 3, 0),
+    check_contexts_metric(v2, 3, 1),
     delete_session(GtpC2),
 
     %% make sure the SGSN/SGW side TEID don't change
@@ -1752,8 +1753,8 @@ interop_sgsn_to_sgw(Config) ->
     true = meck:validate(ggsn_gn_proxy),
 
     ct:sleep(100),
-    check_exo_contexts(v1, 3, 0),
-    check_exo_contexts(v2, 3, 0),
+    check_contexts_metric(v1, 3, 0),
+    check_contexts_metric(v2, 3, 0),
     ok.
 
 %%--------------------------------------------------------------------
@@ -1764,13 +1765,13 @@ interop_sgw_to_sgsn(Config) ->
     {_Handler, CtxPid} = gtp_context_reg:lookup({'remote-irx', {imsi, ?'PROXY-IMSI', 5}}),
     #{context := Ctx1} = gtp_context:info(CtxPid),
 
-    check_exo_contexts(v1, 0, 0),
-    check_exo_contexts(v2, 3, 1),
+    check_contexts_metric(v1, 0, 0),
+    check_contexts_metric(v2, 3, 1),
     {GtpC2, _, _} = ergw_ggsn_test_lib:update_pdp_context(tei_update, GtpC1),
     #{context := Ctx2} = gtp_context:info(CtxPid),
 
-    check_exo_contexts(v1, 3, 1),
-    check_exo_contexts(v2, 3, 0),
+    check_contexts_metric(v1, 3, 1),
+    check_contexts_metric(v2, 3, 0),
     ergw_ggsn_test_lib:delete_pdp_context(GtpC2),
 
     %% make sure the SGSN/SGW side TEID don't change
@@ -1801,8 +1802,8 @@ interop_sgw_to_sgsn(Config) ->
     true = meck:validate(ggsn_gn_proxy),
 
     ct:sleep(100),
-    check_exo_contexts(v1, 3, 0),
-    check_exo_contexts(v2, 3, 0),
+    check_contexts_metric(v1, 3, 0),
+    check_contexts_metric(v2, 3, 0),
     ok.
 
 %%--------------------------------------------------------------------
@@ -1905,11 +1906,24 @@ proxy_context_selection_map(ProxyInfo, Context) ->
 	    Other
     end.
 
-check_exo_contexts(Version, Cnt, Expect) ->
-    Metrics = exometer:get_values([path, '_', '_', contexts, Version]),
+reset_path_metrics() ->
+    Name = gtp_path_contexts_total,
+    Metrics = prometheus_gauge:values(default, Name),
+    R = [prometheus_gauge:remove(Name, [V || {L,V} <- LabelValues])
+	 || {LabelValues, Value} <- Metrics],
+    ok.
+
+check_contexts_metric(Version, Cnt, Expect) ->
+    Metrics0 = prometheus_gauge:values(default, gtp_path_contexts_total),
+    Metrics = lists:foldl(fun({K, V}, Acc) ->
+				  Tags = [Tag || {_, Tag} <- K],
+				  case lists:member(Version, Tags) of
+				      true  -> [{Tags, V} | Acc];
+				      false -> Acc
+				  end
+			  end, [], Metrics0),
     ?equal(Cnt, length(Metrics)),
-    [?equal({Path, Expect}, {Path, proplists:get_value(value, Value)}) ||
-	{Path, Value} <- Metrics].
+    [?equal({Path, Expect}, M) || {Path, _} = M <- Metrics].
 
 pfcp_seids() ->
     lists:flatten(ets:match(gtp_context_reg, {{seid, '$1'},{ergw_sx_node, '_'}})).

@@ -223,8 +223,6 @@ This requires a suitable ergw.config, e.g.:
 	 }
 	]},
 
-%% {exometer_core, [{reporters, [{exometer_report_netdata, []}]}]},
-
  {ergw_aaa,
   [{handlers,
     [{ergw_aaa_static,
@@ -267,10 +265,6 @@ This requires a suitable ergw.config, e.g.:
       ]}
     ]}
   ]},
-
- {hackney, [
-	    {mod_metrics, exometer}
-	    ]},
 
  {jobs, [{samplers,
 	  [{cpu_feedback, jobs_sampler_cpu, []}

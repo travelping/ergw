@@ -620,8 +620,8 @@ end_per_testcase(Config) ->
     stop_gtpc_server(),
     stop_all_sx_nodes(),
 
-    FreeP = [pool, <<"upstream">>, ipv4, {10,180,0,1}, free],
-    ?match_exo_value(FreeP, 65534),
+    PoolId = [<<"upstream">>, ipv4, "10.180.0.1"],
+    ?match_metric(prometheus_gauge, ergw_ip_pool_free, PoolId, 65534),
 
     AppsCfg = proplists:get_value(aaa_cfg, Config),
     ok = application:set_env(ergw_aaa, apps, AppsCfg),
@@ -697,14 +697,14 @@ invalid_gtp_pdu() ->
       " and that the GTP socket is not crashing"}].
 invalid_gtp_pdu(Config) ->
     TestGSN = proplists:get_value(test_gsn, Config),
-    MfrId = [socket, 'gtp-c', 'irx-socket', rx, 'malformed-requests'],
-    MfrCnt = get_exo_value(MfrId),
+    MfrId = ['irx-socket', rx, 'malformed-requests'],
+    MfrCnt = get_metric(prometheus_counter, gtp_c_socket_errors_total, MfrId, 0),
 
     S = make_gtp_socket(Config),
     gen_udp:send(S, TestGSN, ?GTP2c_PORT, <<"TESTDATA">>),
 
     ?equal({error,timeout}, gen_udp:recv(S, 4096, ?TIMEOUT)),
-    ?match_exo_value(MfrId, MfrCnt + 1),
+    ?match_metric(prometheus_counter, gtp_c_socket_errors_total, MfrId, MfrCnt + 1),
     meck_validate(Config),
     ok.
 
@@ -739,18 +739,17 @@ create_session_request_gx_fail(Config) ->
 create_session_request_gy_fail() ->
     [{doc, "Check Gy failure on Create Session Request"}].
 create_session_request_gy_fail(Config) ->
-    FreeP = [pool, <<"upstream">>, ipv4, {10,180,0,1}, free],
-    UsedP = [pool, <<"upstream">>, ipv4, {10,180,0,1}, used],
+    PoolId = [<<"upstream">>, ipv4, "10.180.0.1"],
 
-    ?match_exo_value(FreeP, 65534),
-    ?match_exo_value(UsedP, 0),
+    ?match_metric(prometheus_gauge, ergw_ip_pool_free, PoolId, 65534),
+    ?match_metric(prometheus_gauge, ergw_ip_pool_used, PoolId, 0),
 
     create_session(gy_fail, Config),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
 
-    ?match_exo_value(FreeP, 65534),
-    ?match_exo_value(UsedP, 0),
+    ?match_metric(prometheus_gauge, ergw_ip_pool_free, PoolId, 65534),
+    ?match_metric(prometheus_gauge, ergw_ip_pool_used, PoolId, 0),
 
     meck_validate(Config),
     ok.
@@ -890,24 +889,23 @@ path_restart_multi(Config) ->
 simple_session_request() ->
     [{doc, "Check simple Create Session, Delete Session sequence"}].
 simple_session_request(Config) ->
-    FreeP = [pool, <<"upstream">>, ipv4, {10,180,0,1}, free],
-    UsedP = [pool, <<"upstream">>, ipv4, {10,180,0,1}, used],
+    PoolId = [<<"upstream">>, ipv4, "10.180.0.1"],
 
-    ?match_exo_value(FreeP, 65534),
-    ?match_exo_value(UsedP, 0),
+    ?match_metric(prometheus_gauge, ergw_ip_pool_free, PoolId, 65534),
+    ?match_metric(prometheus_gauge, ergw_ip_pool_used, PoolId, 0),
 
     {GtpC, _, _} = create_session(Config),
 
-    ?match_exo_value(FreeP, 65533),
-    ?match_exo_value(UsedP, 1),
+    ?match_metric(prometheus_gauge, ergw_ip_pool_free, PoolId, 65533),
+    ?match_metric(prometheus_gauge, ergw_ip_pool_used, PoolId, 1),
 
     delete_session(GtpC),
 
     ?equal([], outstanding_requests()),
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
 
-    ?match_exo_value(FreeP, 65534),
-    ?match_exo_value(UsedP, 0),
+    ?match_metric(prometheus_gauge, ergw_ip_pool_free, PoolId, 65534),
+    ?match_metric(prometheus_gauge, ergw_ip_pool_used, PoolId, 0),
 
     [_, SER|_] = lists:filter(
 		   fun(#pfcp{type = session_establishment_request}) -> true;
@@ -1681,12 +1679,14 @@ interop_sgsn_to_sgw() ->
     [{doc, "Check 3GPP T 23.401, Annex D, SGSN to SGW handover"}].
 interop_sgsn_to_sgw(Config) ->
     ClientIP = proplists:get_value(client_ip, Config),
+    CtxMetricV1 = ['irx-socket', ClientIP, v1],
+    CtxMetricV2 = ['irx-socket', ClientIP, v2],
 
     {GtpC1, _, _} = ergw_ggsn_test_lib:create_pdp_context(Config),
-    ?match_exo_value([path, 'irx-socket', ClientIP, contexts, v1], 1),
+    ?match_metric(prometheus_gauge, gtp_path_contexts_total, CtxMetricV1, 1),
     {GtpC2, _, _} = modify_bearer(tei_update, GtpC1),
-    ?match_exo_value([path, 'irx-socket', ClientIP, contexts, v1], 0),
-    ?match_exo_value([path, 'irx-socket', ClientIP, contexts, v2], 1),
+    ?match_metric(prometheus_gauge, gtp_path_contexts_total, CtxMetricV1, 0),
+    ?match_metric(prometheus_gauge, gtp_path_contexts_total, CtxMetricV2, 1),
     delete_session(GtpC2),
 
     [SMR0|_] = lists:filter(
@@ -1706,8 +1706,8 @@ interop_sgsn_to_sgw(Config) ->
     meck_validate(Config),
     true = meck:validate(ggsn_gn),
 
-    ?match_exo_value([path, 'irx-socket', ClientIP, contexts, v1], 0),
-    ?match_exo_value([path, 'irx-socket', ClientIP, contexts, v2], 0),
+    ?match_metric(prometheus_gauge, gtp_path_contexts_total, CtxMetricV1, 0),
+    ?match_metric(prometheus_gauge, gtp_path_contexts_total, CtxMetricV2, 0),
     ok.
 
 %%--------------------------------------------------------------------
@@ -1728,12 +1728,14 @@ interop_sgw_to_sgsn() ->
     [{doc, "Check 3GPP T 23.401, Annex D, SGW to SGSN handover"}].
 interop_sgw_to_sgsn(Config) ->
     ClientIP = proplists:get_value(client_ip, Config),
+    CtxMetricV1 = ['irx-socket', ClientIP, v1],
+    CtxMetricV2 = ['irx-socket', ClientIP, v2],
 
     {GtpC1, _, _} = create_session(Config),
-    ?match_exo_value([path, 'irx-socket', ClientIP, contexts, v2], 1),
+    ?match_metric(prometheus_gauge, gtp_path_contexts_total, CtxMetricV2, 1),
     {GtpC2, _, _} = ergw_ggsn_test_lib:update_pdp_context(tei_update, GtpC1),
-    ?match_exo_value([path, 'irx-socket', ClientIP, contexts, v1], 1),
-    ?match_exo_value([path, 'irx-socket', ClientIP, contexts, v2], 0),
+    ?match_metric(prometheus_gauge, gtp_path_contexts_total, CtxMetricV1, 1),
+    ?match_metric(prometheus_gauge, gtp_path_contexts_total, CtxMetricV2, 0),
     ergw_ggsn_test_lib:delete_pdp_context(GtpC2),
 
     [SMR0|_] = lists:filter(
@@ -1753,8 +1755,8 @@ interop_sgw_to_sgsn(Config) ->
     meck_validate(Config),
     true = meck:validate(ggsn_gn),
 
-    ?match_exo_value([path, 'irx-socket', ClientIP, contexts, v1], 0),
-    ?match_exo_value([path, 'irx-socket', ClientIP, contexts, v2], 0),
+    ?match_metric(prometheus_gauge, gtp_path_contexts_total, CtxMetricV1, 0),
+    ?match_metric(prometheus_gauge, gtp_path_contexts_total, CtxMetricV2, 0),
     ok.
 
 %%--------------------------------------------------------------------

@@ -30,7 +30,7 @@
 -import('ergw_test_lib', [set_cfg_value/3, add_cfg_value/3]).
 -import('ergw_test_lib', [outstanding_requests/0, wait4tunnels/1, hexstr2bin/1,
 			  maps_key_length/2]).
--import('ergw_test_lib', [match_exo_value/2, get_exo_value/1]).
+-import('ergw_test_lib', [get_metric/4]).
 
 -endif.
 
@@ -128,5 +128,5 @@
 
 -define(match_map(Expected, Actual), ergw_test_lib:match_map(Expected, Actual, ?FILE, ?LINE)).
 
--define(match_exo_value(Expected, Actual),
-	ergw_test_lib:match_exo_value(Expected, Actual, ?FILE, ?LINE, 10)).
+-define(match_metric(Type, Name, LabelValues, Expected),
+	ergw_test_lib:match_metric(Type, Name, LabelValues, Expected, ?FILE, ?LINE, 10)).

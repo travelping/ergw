@@ -33,7 +33,7 @@
 -export([pretty_print/1]).
 -export([set_cfg_value/3, add_cfg_value/3]).
 -export([outstanding_requests/0, wait4tunnels/1, hexstr2bin/1]).
--export([match_exo_value/5, get_exo_value/1]).
+-export([match_metric/7, get_metric/4]).
 -export([has_ipv6_test_config/0]).
 -export([query_usage_report/2]).
 -export([match_map/4, maps_key_length/2]).
@@ -507,26 +507,28 @@ mkint(C) when $a =< C, C =< $f ->
     C - $a + 10.
 
 %%%===================================================================
-%%% Exometer helpers
+%%% Metric helpers
 %%%===================================================================
 
 
-match_exo_value(Path, Expected, File, Line, Cnt) ->
-    case get_exo_value(Path) of
+match_metric(Type, Name, LabelValues, Expected, File, Line, Cnt) ->
+    case get_metric(Type, Name, LabelValues, undefined) of
 	Expected ->
 	    ok;
 	_ when Cnt > 0 ->
 	    ct:sleep(100),
-	    match_exo_value(Path, Expected, File, Line, Cnt - 1);
+	    match_metric(Type, Name, LabelValues, Expected, File, Line, Cnt - 1);
 	Actual ->
-	    ct:pal("EXOMETER VALUE MISMATCH(~s:~b)~nExpected: ~p~nActual:   ~p~n",
+	    ct:pal("METRIC VALUE MISMATCH(~s:~b)~nExpected: ~p~nActual:   ~p~n",
 		   [?FILE, ?LINE, Expected, Actual]),
 	    error(badmatch)
     end.
 
-get_exo_value(Path) ->
-    {ok, Value} = exometer:get_value(Path),
-    proplists:get_value(value, Value).
+get_metric(Type, Name, LabelValues, Default) ->
+    case Type:value(Name, LabelValues) of
+	undefined -> Default;
+	Value -> Value
+    end.
 
 %%%===================================================================
 %%% IPv6
