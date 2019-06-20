@@ -57,15 +57,19 @@ init(Name, Type, First, Last, Shift) when Last >= First ->
     UsedTid = ets:new(used_pool, [set, {keypos, #lease.ip}]),
     FreeTid = ets:new(free_pool, [set, {keypos, #lease.ip}]),
 
-    Id = int2ip(Type, First),
+    Id = inet:ntoa(int2ip(Type, First)),
     Start = First bsr Shift,
     End = Last bsr Shift,
     Size = End - Start + 1,
     lager:debug("init Pool ~w ~p - ~p (~p)", [Id, Start, End, Size]),
     init_table(FreeTid, Start, End),
 
-    exometer_new([pool, Name, Type, Id, free], gauge),
-    exometer_new([pool, Name, Type, Id, used], gauge),
+    prometheus_gauge:declare([{name, ergw_ip_pool_free},
+			      {labels, [name, type, id]},
+			      {help, "Free IP addresses in pool"}]),
+    prometheus_gauge:declare([{name, ergw_ip_pool_used},
+			      {labels, [name, type, id]},
+			      {help, "Used IP addresses in pool"}]),
 
     State = #state{name = Name,
 		   type = Type,
@@ -77,7 +81,7 @@ init(Name, Type, First, Last, Shift) when Last >= First ->
 		   free = Size,
 		   used_pool = UsedTid,
 		   free_pool = FreeTid},
-    exo_sync_gauges(State),
+    metrics_sync_gauges(State),
     lager:debug("init Pool state: ~p", [lager:pr(State, ?MODULE)]),
     {ok, State}.
 
@@ -99,7 +103,7 @@ handle_call({allocate, ClientId} = Request, _From,
     ets:insert(UsedTid, #lease{ip = Id, client_id = ClientId}),
     IP = id2ip(Id, State0),
     State = State0#state{used = Used + 1, free = Free - 1},
-    exo_sync_gauges(State),
+    metrics_sync_gauges(State),
     {reply, {ok, IP}, State};
 
 handle_call({allocate, _ClientId}, _From, State) ->
@@ -191,7 +195,7 @@ release_ip(IP, #state{first = First, last = Last,
 	[_] ->
 	    ets:insert(FreeTid, #lease{ip = Id}),
 	    State = State0#state{used = Used - 1, free = Free + 1},
-	    exo_sync_gauges(State),
+	    metrics_sync_gauges(State),
 	    State;
 	_ ->
 	    lager:warning("release of unallocated IP: ~p", [id2ip(Id, State0)]),
@@ -215,7 +219,7 @@ take_ip(ClientId, IP, #state{first = First, last = Last,
 	[_] ->
 	    ets:insert(UsedTid, #lease{ip = Id, client_id = ClientId}),
 	    State = State0#state{used = Used + 1, free = Free - 1},
-	    exo_sync_gauges(State),
+	    metrics_sync_gauges(State),
 	    {{ok, id2ip(Id, State)}, State};
 	_ ->
 	    lager:warning("attempt to take already allocated IP: ~p", [id2ip(Id, State0)]),
@@ -227,22 +231,11 @@ take_ip(_ClientId, IP, #state{type = Type, first = First, last = Last} = State) 
     {{error, out_of_pool}, State}.
 
 %%%===================================================================
-%%% exometer functions
+%%% metrics functions
 %%%===================================================================
 
-%% wrapper to reuse old entries when restarting
-exometer_new(Name, Type, Opts) ->
-    case exometer:ensure(Name, Type, Opts) of
-	ok ->
-	    ok;
-	_ ->
-	    exometer:re_register(Name, Type, Opts)
-    end.
-exometer_new(Name, Type) ->
-    exometer_new(Name, Type, []).
-
-exo_sync_gauges(#state{name = Name, type = Type, id = Id,
+metrics_sync_gauges(#state{name = Name, type = Type, id = Id,
 		       used = Used, free = Free}) ->
-    exometer:update([pool, Name, Type, Id, free], Free),
-    exometer:update([pool, Name, Type, Id, used], Used),
+    prometheus_gauge:set(ergw_ip_pool_free, [Name, Type, Id], Free),
+    prometheus_gauge:set(ergw_ip_pool_used, [Name, Type, Id], Used),
     ok.

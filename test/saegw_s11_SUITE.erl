@@ -467,8 +467,8 @@ init_per_testcase(_, Config) ->
 end_per_testcase(Config) ->
     stop_gtpc_server(),
 
-    FreeP = [pool, <<"upstream">>, ipv4, {10,180,0,1}, free],
-    ?match_exo_value(FreeP, 65534),
+    PoolId = [<<"upstream">>, ipv4, "10.180.0.1"],
+    ?match_metric(prometheus_gauge, ergw_ip_pool_free, PoolId, 65534),
 
     AppsCfg = proplists:get_value(aaa_cfg, Config),
     ok = application:set_env(ergw_aaa, apps, AppsCfg),
@@ -546,18 +546,17 @@ create_session_request_gx_fail(Config) ->
 create_session_request_gy_fail() ->
     [{doc, "Check Gy failure on Create Session Request"}].
 create_session_request_gy_fail(Config) ->
-    FreeP = [pool, <<"upstream">>, ipv4, {10,180,0,1}, free],
-    UsedP = [pool, <<"upstream">>, ipv4, {10,180,0,1}, used],
+    PoolId = [<<"upstream">>, ipv4, "10.180.0.1"],
 
-    ?match_exo_value(FreeP, 65534),
-    ?match_exo_value(UsedP, 0),
+    ?match_metric(prometheus_gauge, ergw_ip_pool_free, PoolId, 65534),
+    ?match_metric(prometheus_gauge, ergw_ip_pool_used, PoolId, 0),
 
     create_session(gy_fail, Config),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
 
-    ?match_exo_value(FreeP, 65534),
-    ?match_exo_value(UsedP, 0),
+    ?match_metric(prometheus_gauge, ergw_ip_pool_free, PoolId, 65534),
+    ?match_metric(prometheus_gauge, ergw_ip_pool_used, PoolId, 0),
 
     meck_validate(Config),
     ok.
@@ -625,16 +624,15 @@ create_session_request_accept_new(Config) ->
 simple_session_request() ->
     [{doc, "Check simple Create Session, Delete Session sequence"}].
 simple_session_request(Config) ->
-    FreeP = [pool, <<"upstream">>, ipv4, {10,180,0,1}, free],
-    UsedP = [pool, <<"upstream">>, ipv4, {10,180,0,1}, used],
+    PoolId = [<<"upstream">>, ipv4, "10.180.0.1"],
 
-    ?match_exo_value(FreeP, 65534),
-    ?match_exo_value(UsedP, 0),
+    ?match_metric(prometheus_gauge, ergw_ip_pool_free, PoolId, 65534),
+    ?match_metric(prometheus_gauge, ergw_ip_pool_used, PoolId, 0),
 
     {GtpC1, _, _} = create_session(Config),
 
-    ?match_exo_value(FreeP, 65533),
-    ?match_exo_value(UsedP, 1),
+    ?match_metric(prometheus_gauge, ergw_ip_pool_free, PoolId, 65533),
+    ?match_metric(prometheus_gauge, ergw_ip_pool_used, PoolId, 1),
 
     {GtpC2, _, _} = modify_bearer(enb_u_tei, GtpC1),
     delete_session(GtpC2),
@@ -642,8 +640,8 @@ simple_session_request(Config) ->
     ?equal([], outstanding_requests()),
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
 
-    ?match_exo_value(FreeP, 65534),
-    ?match_exo_value(UsedP, 0),
+    ?match_metric(prometheus_gauge, ergw_ip_pool_free, PoolId, 65534),
+    ?match_metric(prometheus_gauge, ergw_ip_pool_used, PoolId, 0),
 
     meck_validate(Config),
     ok.

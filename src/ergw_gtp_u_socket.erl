@@ -84,7 +84,6 @@ init([Name, #{ip := IP} = SocketOpts]) ->
 		 restart_counter = RCnt
 		},
 
-    init_exometer(GtpPort),
     ergw_gtp_socket_reg:register(Name, GtpPort),
 
     State = #state{
@@ -102,7 +101,7 @@ handle_call(Request, _From, State) ->
 
 handle_cast(#send_req{address = IP, port = Port, msg = Msg},
 	    #state{gtp_port = GtpPort} = State) ->
-    message_counter(tx, GtpPort, IP, Msg),
+    ergw_prometheus:gtp(tx, GtpPort, IP, Msg),
     Data = gtp_packet:encode(Msg),
     sendto(IP, Port, Data, State),
     {noreply, State};
@@ -199,7 +198,7 @@ handle_message(IP, Port, Data, #state{gtp_port = GtpPort} = State0) ->
 	    lager:debug("handle message: ~p", [{IP, Port,
 						lager:pr(State0#state.gtp_port, ?MODULE),
 						lager:pr(Msg, ?MODULE)}]),
-	    message_counter(rx, GtpPort, IP, Msg),
+	    ergw_prometheus:gtp(rx, GtpPort, IP, Msg),
 	    State = handle_message_1(IP, Port, Msg, State0),
 	    {noreply, State}
     catch
@@ -222,44 +221,3 @@ sendto({_,_,_,_} = RemoteIP, Port, Data, #state{socket = Socket}) ->
     gen_socket:sendto(Socket, {inet4, RemoteIP, Port}, Data);
 sendto({_,_,_,_,_,_,_,_} = RemoteIP, Port, Data, #state{socket = Socket}) ->
     gen_socket:sendto(Socket, {inet6, RemoteIP, Port}, Data).
-
-%%%===================================================================
-%%% exometer functions
-%%%===================================================================
-
-%% wrapper to reuse old entries when restarting
-exometer_new(Name, Type, Opts) ->
-    case exometer:ensure(Name, Type, Opts) of
-	ok ->
-	    ok;
-	_ ->
-	    exometer:re_register(Name, Type, Opts)
-    end.
-exometer_new(Name, Type) ->
-    exometer_new(Name, Type, []).
-
-exo_reg_msg(Name, Version, MsgType) ->
-    exometer_new([socket, 'gtp-u', Name, rx, Version, MsgType, count], counter),
-    exometer_new([socket, 'gtp-u', Name, tx, Version, MsgType, count], counter).
-
-init_exometer(#gtp_port{name = Name, type = 'gtp-u'}) ->
-    exometer_new([socket, 'gtp-u', Name, rx, v1, unsupported], counter),
-    exometer_new([socket, 'gtp-u', Name, tx, v1, unsupported], counter),
-    lists:foreach(exo_reg_msg(Name, v1, _), gtp_v1_u:gtp_msg_types()),
-    ok;
-init_exometer(_) ->
-    ok.
-
-message_counter_apply(Name, RemoteIP, Direction, Version, MsgInfo) ->
-    case exometer:update([socket, 'gtp-u', Name, Direction, Version | MsgInfo], 1) of
-	{error, undefined} ->
-	    exometer:update([socket, 'gtp-u', Name, Direction, Version, unsupported], 1),
-	    exometer:update_or_create([path, Name, RemoteIP, Direction, Version, unsupported], 1, counter, []);
-	Other ->
-	    exometer:update_or_create([path, Name, RemoteIP, Direction, Version | MsgInfo], 1, counter, []),
-	    Other
-    end.
-
-message_counter(Direction, #gtp_port{name = Name, type = 'gtp-u'},
-		RemoteIP, #gtp{version = Version, type = MsgType}) ->
-    message_counter_apply(Name, RemoteIP, Direction, Version, [MsgType, count]).
