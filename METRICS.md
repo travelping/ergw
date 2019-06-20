@@ -1,50 +1,47 @@
 erGW metrics
 ============
 
-erGW uses exometer core to implement various operation metrics.
+erGW uses prometheus.erl to implement various operation metrics.
 
 The following metrics exist:
 
-| Metric                                                               | Type      |
-| -------------------------------------------------------------------- | --------- |
-| path.\<SocketName\>.\<PeerIP\>.contexts                              | gauge     |
-| path.\<SocketName\>.\<PeerIP\>.rtt.v1.\<GTPv1-C-MessageName\>        | histogram |
-| path.\<SocketName\>.\<PeerIP\>.rtt.v2.\<GTPv2-C-MessageName\>        | histogram |
-| path.\<SocketName\>.\<PeerIP\>.rx.v1.create\_pdp\_context\_request   | counter   |
-| path.\<SocketName\>.\<PeerIP\>.tx.v1.create\_pdp\_context\_response  | counter   |
-| path.\<SocketName\>.\<PeerIP\>.rx.v1.echo_request                    | counter   |
-| path.\<SocketName\>.\<PeerIP\>.rx.v1.echo\_response                  | counter   |
-| path.\<SocketName\>.\<PeerIP\>.tx.v1.echo\_request                   | counter   |
-| path.\<SocketName\>.\<PeerIP\>.tx.v1.echo\_response                  | counter   |
-| socket.gtp-c.\<SocketName\>.rx.v1.\<GTPv1-C-MessageName\>.count      | counter   |
-| socket.gtp-c.\<SocketName\>.rx.v1.\<GTPv1-C-MessageName\>.duplicate  | counter   |
-| socket.gtp-c.\<SocketName\>.tx.v1.\<GTPv1-C-MessageName\>.count      | counter   |
-| socket.gtp-c.\<SocketName\>.tx.v1.\<GTPv1-C-MessageName\>.timeout    | counter   |
-| socket.gtp-c.\<SocketName\>.tx.v1.\<GTPv1-C-MessageName\>.retransmit | counter   |
-| socket.gtp-c.\<SocketName\>.rx.v2.\<GTPv2-C-MessageName\>.count      | counter   |
-| socket.gtp-c.\<SocketName\>.rx.v2.\<GTPv2-C-MessageName\>.duplicate  | counter   |
-| socket.gtp-c.\<SocketName\>.tx.v2.\<GTPv2-C-MessageName\>.count      | counter   |
-| socket.gtp-c.\<SocketName\>.tx.v2.\<GTPv2-C-MessageName\>.timeout    | counter   |
-| socket.gtp-c.\<SocketName\>.tx.v2.\<GTPv2-C-MessageName\>.retransmit | counter   |
-| socket.gtp-c.\<SocketName\>.pt.v1.\<GTPv1-C-MessageName\>            | histogram |
-| socket.gtp-c.\<SocketName\>.pt.v2.\<GTPv2-C-MessageName\>            | histogram |
 
-\<SocketName\> is taken from the configuration and PeerIP is the IP address of
+
+| Name                                            | Type      | Labels                                         | Metric                                                   |
+| ----------------------------------------------- | --------- | -----------------------------------------------| ---------------------------------------------------------|
+| gtp\_path\_messages\_processed\_total           | counter   | name, remote, direction, version, type         | Total number of GTP message processed on path            |
+| gtp\_path\_messages\_duplicates\_total          | counter   | name, remote, version, type                    | Total number of duplicate GTP message received on path   |
+| gtp\_path\_messages\_retransmits\_total         | counter   | name, remote, version, type                    | Total number of retransmited GTP message on path         |
+| gtp\_path\_messages\_timeouts\_total            | counter   | name, remote, version, type                    | Total number of timed out GTP message on path            |
+| gtp\_path\_messages\_replies\_total             | counter   | name, remote, direction, version, type, result | Total number of reply GTP message on path                |
+| gtp\_path\_rtt\_milliseconds                    | histogram | name, ip, version, type                        | GTP path round trip time                                 |
+| gtp\_path\_contexts\_total                      | gauge     | name, ip, version                              | Total number of GTP contexts on path                     |
+| gtp\_c\_socket\_messages\_processed\_total      | counter   | name, direction, version, type                 | Total number of GTP message processed on socket          |
+| gtp\_c\_socket\_messages\_duplicates\_total     | counter   | name, version, type                            | Total number of duplicate GTP message received on socket |
+| gtp\_c\_socket\_messages\_retransmits\_total    | counter   | name, version, type                            | Total number of retransmited GTP message on socket       |
+| gtp\_c\_socket\_messages\_timeouts\_total       | counter   | name, version, type                            | Total number of timed out GTP message on socket          |
+| gtp\_c\_socket\_messages\_replies\_total        | counter   | name, direction, version, type, result         | Total number of reply GTP message on socket              |
+| gtp\_c\_socket\_errors\_total                   | counter   | name, direction, error                         | Total number of GTP errors on socket                     |
+| gtp\_c\_socket\_request\_duration\_milliseconds | histogram | name, version, type                            | GTP Request execution time.                              |
+| gtp\_u\_socket\_messages\_processed\_total      | counter   | name, direction, version, type                 | Total number of GTP message processed on socket          |
+| ergw\_ip\_pool\_free                            | gauge     | name, type, id                                 | Number of free IPs                                       |
+| ergw\_ip\_pool\_used                            | gauge     | name, type, id                                 | Number of used IPs                                       |
+
+The label `name` is is taken from the configuration of the GTP socket and PeerIP is the IP address of
 the peer GSN.
 
 The path `rtt` is the round trip time histogram for each request/response
 message pair.
 
-The `tx` and `rx` metrics count the number of message of a given type
-transmitted and received. The `timeout` counter exists only for requests
-that require a response.
+The label `direction` has the value `tx` or `rx` for transmitted or received.
+The `timeout` counter exists only for requests that require a response.
 
-The `pt` metrics are a histogram of the total processing time for the last
+The `request_duration` metric is a histogram of the total processing time for the last
 incoming message of that type.
 
 All timing values in the histograms are in microseconds (µs).
 
-Counters for the following GTPv1-C Messages types exist:
+The label `type` is the GTP Messages types. For GTPv1-C messages the following types exist:
 
  * create\_mbms\_context\_request
  * create\_mbms\_context\_response
@@ -113,7 +110,7 @@ Counters for the following GTPv1-C Messages types exist:
  * update\_pdp\_context\_response
  * version\_not\_supported
 
-Counters for the following GTPv2-C Messages types exist:
+For GTPv2-C messages the following types exist:
 
  * alert\_mme\_acknowledge
  * alert\_mme\_notification
@@ -195,23 +192,8 @@ Counters for the following GTPv2-C Messages types exist:
  * update\_pdn\_connection\_set\_response
  * version\_not\_supported
 
-If the HTTP API has been enable the metrics can be read at `/metrics`.
-Stepping into the result is also possible, e.g.:
-
-    curl -X GET "http://localhost:8080/metrics/socket/gtp-c/irx/rx/v1" -H  "accept: application/json"
-
-Also, erGW can provide metrics in Prometheus format:
+The HTTP API exports the metrics in Prometheus format at `/metrics`:
 
     curl -X GET "http://localhost:8080/metrics" -H  "accept: text/plain;version=0.0.4"
 
-or more specific:
-
-    curl -X GET "http://localhost:8080/metrics/socket/" -H  "accept: text/plain;version=0.0.4"
-    # TYPE socket_gtp_c_irx_tx_v2_mbms_session_start_response_retransmit gauge
-    socket_gtp_c_irx_tx_v2_mbms_session_start_response_retransmit 0
-
-    # TYPE socket_gtp_c_irx_tx_v2_mbms_session_start_response_count gauge
-    socket_gtp_c_irx_tx_v2_mbms_session_start_response_count 0
-
-Please read Prometheus [Metric names and labels](https://prometheus.io/docs/concepts/data_model/#metric-names-and-labels)
-that means all '.' and '-' in metric names which presented above will be replaced by '_'.
+For further details check the Prometheus documentation on [Metric names and labels](https://prometheus.io/docs/concepts/data_model/#metric-names-and-labels).
