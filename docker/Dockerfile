@@ -1,7 +1,7 @@
 # -- build-environment --
 # see https://docs.docker.com/engine/userguide/eng-image/multistage-build/
 
-FROM erlang:21.3.8.1-alpine AS build-env
+FROM erlang:22.0.5-alpine AS build-env
 
 WORKDIR /build
 RUN     apk update && apk --no-cache upgrade && \
