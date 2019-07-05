@@ -93,16 +93,16 @@ ERLANG Version Support
 
 All minor version of the current major release and the highest minor version of the
 previous major release will be supported.
-At the moment this means OTP 20.3.8, OTP 21.1 and OTP 21.2 are supported. OTP versions
+At the moment this means OTP 21.3 and OTP 22.0 are supported. OTP versions
 greater than 20.1.7 could work, but are not tested or guaranteed to work. When in doubt
 check the `otp_release` section in [.travis.yml](.travis.yml) for tested versions.
 
 BUILDING
 --------
 
-*The minimum supported Erlang version is 21.0.*
+*The minimum supported Erlang version is 21.3.*
 
-Erlang 21.3.3 is the recommended version.
+Erlang 21.3.8.6 is the recommended version.
 
 Using rebar:
 
@@ -319,4 +319,4 @@ The configuration is documented in [CONFIG.md](CONFIG.md)
 [travis badge]: https://img.shields.io/travis/com/travelping/ergw/master.svg?style=flat-square
 [coveralls]: https://coveralls.io/github/travelping/ergw
 [coveralls badge]: https://img.shields.io/coveralls/travelping/ergw/master.svg?style=flat-square
-[erlang version badge]: https://img.shields.io/badge/erlang-R21.0%20to%2021.3-blue.svg?style=flat-square
+[erlang version badge]: https://img.shields.io/badge/erlang-R21.3%20to%2022.0-blue.svg?style=flat-square
