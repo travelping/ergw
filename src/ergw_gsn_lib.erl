@@ -41,7 +41,8 @@
 %%% Sx DP API
 %%%===================================================================
 
-delete_sgi_session(normal, Ctx, PCtx) ->
+delete_sgi_session(Reason, Ctx, PCtx)
+  when Reason /= upf_failure ->
     Req = #pfcp{version = v1, type = session_deletion_request, ie = []},
     case ergw_sx_node:call(PCtx, Req, Ctx) of
 	#pfcp{type = session_deletion_response,
