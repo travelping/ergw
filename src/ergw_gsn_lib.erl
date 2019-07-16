@@ -1222,7 +1222,11 @@ process_online_charging_events(Reason, Request0, Ev, Session, ReqOpts)
 	    Request = Request1#{'Termination-Cause' => Cause},
 	    ergw_aaa_session:invoke(Session, Request, {gy, 'CCR-Terminate'}, ReqOpts);
 	_ when length(Update) /= 0 orelse map_size(Request0) /= 0 ->
-	    ergw_aaa_session:invoke(Session, Request1, {gy, 'CCR-Update'}, ReqOpts);
+	    Credits0 = maps:get(credits, Request0, #{}),
+	    Credits = lists:foldl(
+			fun ({RG, _}, Crds) -> Crds#{RG => empty} end, Credits0, Update),
+	    Request = Request1#{credits => Credits},
+	    ergw_aaa_session:invoke(Session, Request, {gy, 'CCR-Update'}, ReqOpts);
 	_ ->
 	    SOpts = ergw_aaa_session:get(Session),
 	    {ok, SOpts, []}
