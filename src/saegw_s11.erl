@@ -185,7 +185,7 @@ handle_info(#aaa_request{procedure = {gx, 'RAR'},
     Credits = maps:without(maps:keys(CreditsOld), CreditsNew),
 
     GyReqServices =
-	if length(Credits) /= 0 -> #{credits => Credits};
+	if map_size(Credits) /= 0 -> #{credits => Credits};
 	   true                 -> #{}
 	end,
     ReqOps = #{now => Now},
