@@ -29,7 +29,7 @@
 	 {lager, [{colored, true},
 		  {error_logger_redirect, true},
 		  {async_threshold, undefined},
-		  {handlers, [{lager_console_backend, [{level, info}]}]}
+		  {handlers, [{lager_console_backend, [{level, critical}]}]}
 		 ]},
 
 	 {ergw, [{'$setup_vars',
