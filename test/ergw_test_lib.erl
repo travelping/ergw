@@ -75,7 +75,7 @@ lib_init_per_suite(Config0) ->
     meck_init(Config),
     load_config(AppCfg),
     {ok, _} = application:ensure_all_started(ergw),
-    lager_common_test_backend:bounce(debug),
+    %% lager_common_test_backend:bounce(debug),
     {ok, _} = ergw_test_sx_up:start('pgw-u', proplists:get_value(pgw_u_sx, Config)),
     {ok, _} = ergw_test_sx_up:start('sgw-u', proplists:get_value(sgw_u_sx, Config)),
     {ok, _} = ergw_test_sx_up:start('tdf-u', proplists:get_value(tdf_u_sx, Config)),

@@ -31,7 +31,7 @@
 		  %% force lager into async logging, otherwise
 		  %% the test will timeout randomly
 		  {async_threshold, undefined},
-		  {handlers, [{lager_console_backend, [{level, info}]}]}
+		  {handlers, [{lager_console_backend, [{level, critical}]}]}
 		 ]},
 
 	 {ergw, [{'$setup_vars',
@@ -216,7 +216,7 @@
 		  %% force lager into async logging, otherwise
 		  %% the test will timeout randomly
 		  {async_threshold, undefined},
-		  {handlers, [{lager_console_backend, [{level, info}]}]}
+		  {handlers, [{lager_console_backend, [{level, critical}]}]}
 		 ]},
 
 	 {ergw, [{'$setup_vars',
