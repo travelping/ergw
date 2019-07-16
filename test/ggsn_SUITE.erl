@@ -487,6 +487,12 @@ init_per_testcase(TestCase, Config)
     init_per_testcase(Config),
     load_ocs_config('Initial-OCS', 'Update-OCS'),
     Config;
+%% init_per_testcase(TestCase, Config)
+%%   when TestCase == gx_rar ->
+%%     init_per_testcase(Config),
+%%     load_aaa_answer_config([{{gy, 'CCR-Initial'}, 'Initial-OCS'},
+%%			    {{gy, 'CCR-Update'},  'Update-OCS'}]),
+%%     Config;
 init_per_testcase(gx_invalid_charging_rulebase, Config) ->
     init_per_testcase(Config),
     load_aaa_answer_config([{{gx, 'CCR-Initial'}, 'Initial-Gx-Fail-1'}]),
