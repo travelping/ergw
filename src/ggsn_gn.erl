@@ -268,11 +268,11 @@ session_events(Session, Events, _State, #{context := Context, pfcp := PCtx0} = D
     Data#{pfcp => PCtx}.
 
 %% resent request
-handle_request(_ReqKey, _Msg, true, _State, Data) ->
-%% resent request
-    {noreply, Data};
+handle_request(_ReqKey, _Msg, true, _State, _Data) ->
+    %% resent request
+    keep_state_and_data;
 
-handle_request(_ReqKey,
+handle_request(ReqKey,
 	       #gtp{type = create_pdp_context_request,
 		    ie = #{
 			   ?'Access Point Name' := #access_point_name{apn = APN}
@@ -362,11 +362,11 @@ handle_request(_ReqKey,
     end,
 
     ResponseIEs = create_pdp_context_response(ActiveSessionOpts, IEs, Context),
-    Reply = response(create_pdp_context_response, Context, ResponseIEs, Request),
+    Response = response(create_pdp_context_response, Context, ResponseIEs, Request),
+    gtp_context:send_response(ReqKey, Request, Response),
+    {keep_state, Data#{context => Context, pfcp => PCtx}};
 
-    {reply, Reply, Data#{context => Context, pfcp => PCtx}};
-
-handle_request(_ReqKey,
+handle_request(ReqKey,
 	       #gtp{type = update_pdp_context_request,
 		    ie = #{?'Quality of Service Profile' := ReqQoSProfile} = IEs} = Request,
 	       _Resent, _State,
@@ -389,10 +389,11 @@ handle_request(_ReqKey,
 		    context_charging_id(Context),
 		    ReqQoSProfile],
     ResponseIEs = tunnel_endpoint_elements(Context, ResponseIEs0),
-    Reply = response(update_pdp_context_response, Context, ResponseIEs, Request),
-    {reply, Reply, Data1};
+    Response = response(update_pdp_context_response, Context, ResponseIEs, Request),
+    gtp_context:send_response(ReqKey, Request, Response),
+    {keep_state, Data1};
 
-handle_request(_ReqKey,
+handle_request(ReqKey,
 	       #gtp{type = ms_info_change_notification_request, ie = IEs} = Request,
 	       _Resent, _State,
 	       #{context := OldContext, pfcp := PCtx,
@@ -405,19 +406,20 @@ handle_request(_ReqKey,
     ResponseIEs0 = [#cause{value = request_accepted}],
     ResponseIEs = copy_ies_to_response(IEs, ResponseIEs0, [?'IMSI', ?'IMEI']),
     Response = response(ms_info_change_notification_response, Context, ResponseIEs, Request),
-    {reply, Response, Data#{context => Context}};
+    gtp_context:send_response(ReqKey, Request, Response),
+    {keep_state, Data#{context => Context}};
 
-handle_request(_ReqKey,
-	       #gtp{type = delete_pdp_context_request, ie = _IEs},
-	       _Resent, _State,
-	       #{context := Context} = Data) ->
+handle_request(ReqKey,
+	       #gtp{type = delete_pdp_context_request, ie = _IEs} = Request,
+	       _Resent, _State, #{context := Context} = Data) ->
     close_pdp_context(normal, Data),
-    Reply = response(delete_pdp_context_response, Context, request_accepted),
-    {stop, Reply, Data};
+    Response = response(delete_pdp_context_response, Context, request_accepted),
+    gtp_context:send_response(ReqKey, Request, Response),
+    {stop, normal};
 
-handle_request(ReqKey, _Msg, _Resent, _State, Data) ->
+handle_request(ReqKey, _Msg, _Resent, _State, _Data) ->
     gtp_context:request_finished(ReqKey),
-    {noreply, Data}.
+    keep_state_and_data.
 
 handle_response({From, TermCause}, timeout, #gtp{type = delete_pdp_context_request},
 		_State, Data) ->

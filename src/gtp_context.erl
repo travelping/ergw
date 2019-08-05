@@ -15,7 +15,8 @@
 
 -export([handle_response/4,
 	 start_link/5,
-	 send_request/7, send_response/2,
+	 send_request/7,
+	 send_response/2, send_response/3,
 	 send_request/6, resend_request/2,
 	 request_finished/1,
 	 path_restart/2,
@@ -436,30 +437,17 @@ handle_ctx_error(#ctx_err{reply = Reply} = CtxErr, Handler,
     handle_ctx_error(CtxErr, State, Data).
 
 handle_request(#request{gtp_port = GtpPort} = Request,
-	       #gtp{version = Version, seq_no = SeqNo} = Msg,
+	       #gtp{version = Version} = Msg,
 	       Resent, State, #{interface := Interface} = Data0) ->
     lager:debug("GTP~s ~s:~w: ~p",
 		[Version, inet:ntoa(Request#request.ip), Request#request.port, gtp_c_lib:fmt_gtp(Msg)]),
 
-    Handler = gtp_path:get_handler(GtpPort, Version),
     try
 	validate_message(Msg, Data0),
 	Interface:handle_request(Request, Msg, Resent, State, Data0)
-    of
-	{reply, Reply, Data1} ->
-	    Response = Handler:build_response(Reply),
-	    send_response(Request, Response#gtp{seq_no = SeqNo}),
-	    {keep_state, Data1};
-
-	{stop, Reply, Data1} ->
-	    Response = Handler:build_response(Reply),
-	    send_response(Request, Response#gtp{seq_no = SeqNo}),
-	    {stop, normal, Data1};
-
-	{noreply, Data1} ->
-	    {keep_state, Data1}
     catch
 	throw:#ctx_err{} = CtxErr ->
+	    Handler = gtp_path:get_handler(GtpPort, Version),
 	    handle_ctx_error(CtxErr, Handler, Request, Msg, State, Data0);
 
 	Class:Reason:Stacktrace ->
@@ -467,7 +455,14 @@ handle_request(#request{gtp_port = GtpPort} = Request,
 	    erlang:raise(Class, Reason, Stacktrace)
     end.
 
+%% send_response/3
+send_response(#request{gtp_port = GtpPort, version = Version} = ReqKey,
+	      #gtp{seq_no = SeqNo}, Reply) ->
+    Handler = gtp_path:get_handler(GtpPort, Version),
+    Response = Handler:build_response(Reply),
+    send_response(ReqKey, Response#gtp{seq_no = SeqNo}).
 
+%% send_response/2
 send_response(Request, #gtp{seq_no = SeqNo} = Msg) ->
     %% TODO: handle encode errors
     try
