@@ -519,26 +519,24 @@ handle_response(_,
 				   group = #{?'Cause' := #v2_cause{v2_cause = BearerCause}}
 				  }} = IEs} = Response,
 		_Request, _State,
-		#{context := Context0, pfcp := PCtx,
-		  'Session' := Session} = Data) ->
+		#{context := Context0, pfcp := PCtx, 'Session' := Session}) ->
     Context = gtp_path:bind(Response, Context0),
 
     if Cause =:= request_accepted andalso BearerCause =:= request_accepted ->
 	    URRActions = update_session_from_gtp_req(IEs, Session, Context),
-	    trigger_defered_usage_report(URRActions, PCtx),
-	    {noreply, Data};
+	    trigger_defered_usage_report(URRActions, PCtx);
        true ->
 	    lager:error("Update Bearer Request failed with ~p/~p",
 			[Cause, BearerCause]),
-	    delete_context(undefined, link_broken, Context),
-	    {noreply, Data}
-    end;
+	    delete_context(undefined, link_broken, Context)
+    end,
+    keep_state_and_data;
 
 handle_response(_, timeout, #gtp{type = update_bearer_request},
-		 _State, #{context := Context} = Data) ->
+		 _State, #{context := Context}) ->
     lager:error("Update Bearer Request failed with timeout"),
     delete_context(undefined, link_broken, Context),
-    {noreply, Data};
+    keep_state_and_data;
 
 handle_response({From, TermCause}, timeout, #gtp{type = delete_bearer_request},
 		_State, Data) ->
@@ -546,7 +544,7 @@ handle_response({From, TermCause}, timeout, #gtp{type = delete_bearer_request},
     if is_tuple(From) -> gen_statem:reply(From, {error, timeout});
        true -> ok
     end,
-    {stop, Data};
+    {stop, normal};
 
 handle_response({From, TermCause},
 		#gtp{type = delete_bearer_response,
@@ -558,7 +556,7 @@ handle_response({From, TermCause},
     if is_tuple(From) -> gen_statem:reply(From, {ok, Cause});
        true -> ok
     end,
-    {stop, Data#{context := Context}}.
+    {stop, normal, Data#{context := Context}}.
 
 terminate(_Reason, _State, #{context := Context}) ->
     pdn_release_ip(Context),

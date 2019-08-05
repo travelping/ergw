@@ -409,11 +409,11 @@ handle_response(#proxy_request{direction = sgsn2ggsn} = ProxyRequest,
 		PCtx =
 		    ergw_proxy_lib:modify_forward_session(PendingContext, PendingContext,
 							  PrevProxyCtx, ProxyContext, PCtx0),
-		{noreply, Data#{proxy_context => ProxyContext, pfcp => PCtx}};
+		{keep_state, Data#{proxy_context => ProxyContext, pfcp => PCtx}};
 
 	   true ->
 		delete_forward_session(normal, Data),
-		{stop, Data}
+		{stop, normal}
 	end,
 
     forward_response(ProxyRequest, Response, PendingContext),
@@ -436,25 +436,23 @@ handle_response(#proxy_request{direction = sgsn2ggsn,
 						 PrevProxyCtx, ProxyContext, PCtx0),
     forward_response(ProxyRequest, Response, Context),
 
-    {noreply, Data#{proxy_context => ProxyContext, pfcp => PCtx}};
+    {keep_state, Data#{proxy_context => ProxyContext, pfcp => PCtx}};
 
 handle_response(#proxy_request{direction = ggsn2sgsn} = ProxyRequest,
 		#gtp{type = update_pdp_context_response} = Response,
-		_Request, _State,
-		#{proxy_context := ProxyContext} = Data) ->
+		_Request, _State, #{proxy_context := ProxyContext}) ->
     lager:warning("OK SGSN Response ~p", [lager:pr(Response, ?MODULE)]),
 
     forward_response(ProxyRequest, Response, ProxyContext),
-    {noreply, Data};
+    keep_state_and_data;
 
 handle_response(#proxy_request{direction = sgsn2ggsn} = ProxyRequest,
 		#gtp{type = ms_info_change_notification_response} = Response,
-		_Request, _State,
-		#{context := Context} = Data) ->
+		_Request, _State, #{context := Context}) ->
     lager:warning("OK Proxy Response ~p", [lager:pr(Response, ?MODULE)]),
 
     forward_response(ProxyRequest, Response, Context),
-    {noreply, Data};
+    keep_state_and_data;
 
 handle_response(#proxy_request{direction = sgsn2ggsn} = ProxyRequest,
 		#gtp{type = delete_pdp_context_response} = Response,
@@ -465,7 +463,7 @@ handle_response(#proxy_request{direction = sgsn2ggsn} = ProxyRequest,
     forward_response(ProxyRequest, Response, Context),
     Data = cancel_timeout(Data0),
     delete_forward_session(normal, Data),
-    {stop, Data};
+    {stop, normal, Data};
 
 
 handle_response(#proxy_request{direction = ggsn2sgsn} = ProxyRequest,
@@ -477,12 +475,12 @@ handle_response(#proxy_request{direction = ggsn2sgsn} = ProxyRequest,
     forward_response(ProxyRequest, Response, ProxyContext),
     Data = cancel_timeout(Data0),
     delete_forward_session(normal, Data),
-    {stop, Data};
+    {stop, normal, Data};
 
 
-handle_response(_ReqInfo, Response, _Req, _State, Data) ->
+handle_response(_ReqInfo, Response, _Req, _State, _Data) ->
     lager:warning("Unknown Proxy Response ~p", [lager:pr(Response, ?MODULE)]),
-    {noreply, Data}.
+    keep_state_and_data.
 
 terminate(_Reason, _State, _Data) ->
     ok.

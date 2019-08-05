@@ -427,7 +427,7 @@ handle_response({From, TermCause}, timeout, #gtp{type = delete_pdp_context_reque
     if is_tuple(From) -> gen_statem:reply(From, {error, timeout});
        true -> ok
     end,
-    {stop, Data};
+    {stop, normal};
 
 handle_response({From, TermCause},
 		#gtp{type = delete_pdp_context_response,
@@ -439,7 +439,7 @@ handle_response({From, TermCause},
     if is_tuple(From) -> gen_statem:reply(From, {ok, Cause});
        true -> ok
     end,
-    {stop, Data#{context := Context}}.
+    {stop, normal, Data#{context := Context}}.
 
 terminate(_Reason, _State, #{context := Context}) ->
     pdp_release_ip(Context),

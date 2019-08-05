@@ -447,10 +447,10 @@ handle_response(#proxy_request{direction = sgw2pgw} = ProxyRequest,
 		PCtx =
 		    ergw_proxy_lib:modify_forward_session(Context, Context,
 							  PrevProxyCtx, ProxyContext, PCtx0),
-		{noreply, Data#{proxy_context => ProxyContext, pfcp => PCtx}};
+		{keep_state, Data#{proxy_context => ProxyContext, pfcp => PCtx}};
 	   true ->
 		delete_forward_session(normal, Data),
-		{stop, Data}
+		{stop, normal}
 	end,
 
     forward_response(ProxyRequest, Response, Context),
@@ -473,33 +473,31 @@ handle_response(#proxy_request{direction = sgw2pgw,
 						 PrevProxyCtx, ProxyContext, PCtx0),
     forward_response(ProxyRequest, Response, Context),
 
-    {noreply, Data#{proxy_context => ProxyContext, pfcp => PCtx}};
+    {keep_state, Data#{proxy_context => ProxyContext, pfcp => PCtx}};
 
 %%
 %% PGW to SGW response without tunnel endpoint modification
 %%
 handle_response(#proxy_request{direction = sgw2pgw} = ProxyRequest,
 		#gtp{type = change_notification_response} = Response,
-		_Request, _State,
-		#{context := Context} = Data) ->
+		_Request, _State, #{context := Context}) ->
     lager:warning("OK Proxy Response ~p", [lager:pr(Response, ?MODULE)]),
 
     forward_response(ProxyRequest, Response, Context),
-    {noreply, Data};
+    keep_state_and_data;
 
 %%
 %% PGW to SGW acknowledge without tunnel endpoint modification
 %%
 handle_response(#proxy_request{direction = sgw2pgw} = ProxyRequest,
 		#gtp{type = Type} = Response,
-		_Request, _State,
-		#{context := Context} = Data)
+		_Request, _State, #{context := Context})
   when Type == suspend_acknowledge;
        Type == resume_acknowledge ->
     lager:warning("OK Proxy Acknowledge ~p", [lager:pr(Response, ?MODULE)]),
 
     forward_response(ProxyRequest, Response, Context),
-    {noreply, Data};
+    keep_state_and_data;
 
 %%
 %% SGW to PGW response without tunnel endpoint modification
@@ -513,7 +511,7 @@ handle_response(#proxy_request{direction = pgw2sgw} = ProxyRequest,
     forward_response(ProxyRequest, Response, ProxyContext),
     trigger_request_finished(Response, Data),
 
-    {noreply, Data};
+    keep_state_and_data;
 
 handle_response(#proxy_request{direction = sgw2pgw} = ProxyRequest,
 		Response0, #gtp{type = delete_session_request}, _State,
@@ -530,7 +528,7 @@ handle_response(#proxy_request{direction = sgw2pgw} = ProxyRequest,
 	end,
     forward_response(ProxyRequest, Response, Context),
     delete_forward_session(normal, Data),
-    {stop, Data};
+    {stop, normal};
 
 %%
 %% SGW to PGW delete bearer response
@@ -553,14 +551,14 @@ handle_response(#proxy_request{direction = pgw2sgw} = ProxyRequest,
 	end,
     forward_response(ProxyRequest, Response, ProxyContext),
     delete_forward_session(normal, Data),
-    {stop, Data};
+    {stop, normal};
 
 handle_response(#proxy_request{request = ReqKey} = _ReqInfo,
-		Response, _Request, _State, Data) ->
+		Response, _Request, _State, _Data) ->
     lager:warning("Unknown Proxy Response ~p", [lager:pr(Response, ?MODULE)]),
 
     gtp_context:request_finished(ReqKey),
-    {noreply, Data}.
+    keep_state_and_data.
 
 terminate(_Reason, _State, _Data) ->
     ok.
