@@ -7,7 +7,7 @@
 
 -module(gtp_context).
 
--behavior(gen_server).
+-behavior(gen_statem).
 -behavior(ergw_context).
 
 -compile({parse_transform, cut}).
@@ -34,9 +34,9 @@
 %% ergw_context callbacks
 -export([sx_report/2, port_message/2, port_message/4]).
 
-%% gen_server callbacks
--export([init/1, handle_call/3, handle_cast/2, handle_info/2,
-	 terminate/2, code_change/3]).
+%% gen_statem callbacks
+-export([callback_mode/0, init/1, handle_event/4,
+	 terminate/3, code_change/4]).
 
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include_lib("pfcplib/include/pfcp_packet.hrl").
@@ -51,7 +51,7 @@
 %%====================================================================
 
 handle_response(Context, ReqInfo, Request, Response) ->
-    gen_server:cast(Context, {handle_response, ReqInfo, Request, Response}).
+    gen_statem:cast(Context, {handle_response, ReqInfo, Request, Response}).
 
 %% send_request/7
 send_request(GtpPort, DstIP, DstPort, T3, N3, Msg, ReqInfo) ->
@@ -67,10 +67,10 @@ resend_request(GtpPort, ReqId) ->
     ergw_gtp_c_socket:resend_request(GtpPort, ReqId).
 
 start_link(GtpPort, Version, Interface, IfOpts, Opts) ->
-    gen_server:start_link(?MODULE, [GtpPort, Version, Interface, IfOpts], Opts).
+    gen_statem:start_link(?MODULE, [GtpPort, Version, Interface, IfOpts], Opts).
 
 path_restart(Context, Path) ->
-    jobs:run(path_restart, fun() -> gen_server:call(Context, {path_restart, Path}) end).
+    jobs:run(path_restart, fun() -> gen_statem:call(Context, {path_restart, Path}) end).
 
 remote_context_register(Context)
   when is_record(Context, context) ->
@@ -97,10 +97,10 @@ remote_context_update(OldContext, NewContext)
     gtp_context_reg:update(Delete, Insert, ?MODULE, self()).
 
 delete_context(Context) ->
-    gen_server:call(Context, delete_context).
+    gen_statem:call(Context, delete_context).
 
 trigger_delete_context(Context) ->
-    gen_server:cast(Context, delete_context).
+    gen_statem:cast(Context, delete_context).
 
 %% TODO: add online charing events
 collect_charging_events(OldS, NewS, _Context) ->
@@ -158,7 +158,7 @@ terminate_colliding_context(_) ->
 terminate_context(Context)
   when is_pid(Context) ->
     try
-	gen_server:call(Context, terminate_context)
+	gen_statem:call(Context, terminate_context)
     catch
 	exit:_ ->
 	    ok
@@ -166,7 +166,7 @@ terminate_context(Context)
     gtp_context_reg:await_unreg(Context).
 
 info(Context) ->
-    gen_server:call(Context, info).
+    gen_statem:call(Context, info).
 
 enforce_restrictions(Msg, #context{restrictions = Restrictions} = Context) ->
     lists:foreach(fun(R) -> enforce_restriction(Context, Msg, R) end, Restrictions).
@@ -245,7 +245,7 @@ validate_aaa_attr_option(Key, Setting, Value, _Attr) ->
 %%====================================================================
 
 sx_report(Server, Report) ->
-    gen_server:call(Server, {sx, Report}).
+    gen_statem:call(Server, {sx, Report}).
 
 %% TEID handling for GTPv1 is brain dead....
 port_message(Request, #gtp{version = v2, type = MsgType, tei = 0} = Msg)
@@ -281,16 +281,18 @@ port_message(_Request, _Msg) ->
     throw({error, not_found}).
 
 port_message(Server, Request, #gtp{type = g_pdu} = Msg, _Resent) ->
-    gen_server:cast(Server, {handle_pdu, Request, Msg});
+    gen_statem:cast(Server, {handle_pdu, Request, Msg});
 port_message(Server, Request, Msg, Resent) ->
     if not Resent -> register_request(?MODULE, Server, Request);
        true       -> ok
     end,
-    gen_server:cast(Server, {handle_message, Request, Msg, Resent}).
+    gen_statem:cast(Server, {handle_message, Request, Msg, Resent}).
 
 %%====================================================================
-%% gen_server API
+%% gen_statem API
 %%====================================================================
+
+callback_mode() -> handle_event_function.
 
 init([CntlPort, Version, Interface,
       #{node_selection := NodeSelect,
@@ -310,108 +312,98 @@ init([CntlPort, Version, Interface,
 		 local_control_tei = CntlTEI
 		},
 
-    State = #{
+    Data = #{
       context        => Context,
       version        => Version,
       interface      => Interface,
       node_selection => NodeSelect,
       aaa_opts       => AAAOpts},
 
-    Interface:init(Opts, State).
+    Interface:init(Opts, Data).
 
-handle_call(info, _From, State) ->
-    {reply, State, State};
+handle_event({call, From}, info, _, Data) ->
+    {keep_state_and_data, [{reply, From, Data}]};
 
-handle_call({sx, Report}, From,
-	    #{interface := Interface, pfcp := PCtx} = State0) ->
+handle_event({call, From}, {sx, Report}, State,
+	    #{interface := Interface, pfcp := PCtx} = Data0) ->
     lager:debug("~w: handle_call Sx: ~p", [?MODULE, lager:pr(Report, ?MODULE)]),
-    case Interface:handle_sx_report(Report, From, State0) of
-	{ok, State} ->
-	    {reply, {ok, PCtx}, State};
-	{reply, Reply, State} ->
-	    {reply, {ok, PCtx, Reply}, State};
-	{stop, State} ->
-	    {stop, normal, {ok, PCtx}, State};
-	{error, Reply, State} ->
-	    {reply, {ok, PCtx, Reply}, State};
-	{noreply, State} ->
-	    {noreply, State}
+    case Interface:handle_sx_report(Report, State, Data0) of
+	{ok, Data} ->
+	    {keep_state, Data, [{reply, From, {ok, PCtx}}]};
+	{reply, Reply, Data} ->
+	    {keep_state, Data, [{reply, From, {ok, PCtx, Reply}}]};
+	{stop, Data} ->
+	    {stop_and_reply, normal, [{reply, From, {ok, PCtx}}], Data};
+	{error, Reply, Data} ->
+	    {keep_state, Data, [{reply, From, {ok, PCtx, Reply}}]};
+	{noreply, Data} ->
+	    {keep_state, Data}
     end;
 
-handle_call(Request, From, #{interface := Interface} = State) ->
-    lager:debug("~w: handle_call: ~p", [?MODULE, Request]),
-    Interface:handle_call(Request, From, State).
-
-handle_cast({handle_message, Request, #gtp{} = Msg0, Resent}, State) ->
+handle_event(cast, {handle_message, Request, #gtp{} = Msg0, Resent}, State, Data) ->
     Msg = gtp_packet:decode_ies(Msg0),
     lager:debug("handle gtp request: ~w, ~p",
 		[Request#request.port, gtp_c_lib:fmt_gtp(Msg)]),
-    handle_request(Request, Msg, Resent, State);
+    handle_request(Request, Msg, Resent, State, Data);
 
-handle_cast({handle_pdu, Request, Msg}, #{interface := Interface} = State) ->
+handle_event(cast, {handle_pdu, Request, Msg}, State, #{interface := Interface} = Data) ->
     lager:debug("handle GTP-U PDU: ~w, ~p",
 		[Request#request.port, gtp_c_lib:fmt_gtp(Msg)]),
-    Interface:handle_pdu(Request, Msg, State);
+    Interface:handle_pdu(Request, Msg, State, Data);
 
-handle_cast({handle_response, ReqInfo, Request, Response0},
-	    #{interface := Interface} = State0) ->
+handle_event(cast, {handle_response, ReqInfo, Request, Response0}, State,
+	    #{interface := Interface} = Data0) ->
     try
 	Response = gtp_packet:decode_ies(Response0),
 	case Response of
 	    #gtp{} ->
 		lager:debug("handle gtp response: ~p", [gtp_c_lib:fmt_gtp(Response)]),
-		validate_message(Response, State0);
+		validate_message(Response, Data0);
 	    _ when is_atom(Response) ->
 		lager:debug("handle gtp response: ~p", [Response]),
 		ok
 	end,
-	Interface:handle_response(ReqInfo, Response, Request, State0)
+	Interface:handle_response(ReqInfo, Response, Request, State, Data0)
     of
-	{stop, State1} ->
-	    {stop, normal, State1};
+	{stop, Data1} ->
+	    {stop, normal, Data1};
 
-	{noreply, State1} ->
-	    {noreply, State1}
+	{noreply, Data1} ->
+	    {keep_state, Data1}
     catch
 	throw:#ctx_err{} = CtxErr ->
-	    handle_ctx_error(CtxErr, State0);
+	    handle_ctx_error(CtxErr, State, Data0);
 
 	Class:Reason:Stacktrace ->
 	    lager:error("GTP response failed with: ~p:~p (~p)", [Class, Reason, Stacktrace]),
 	    erlang:raise(Class, Reason, Stacktrace)
     end;
 
-handle_cast(Msg, #{interface := Interface} = State) ->
-    lager:debug("~w: handle_cast: ~p", [?MODULE, lager:pr(Msg, ?MODULE)]),
-    Interface:handle_cast(Msg, State).
-
-%%====================================================================
-
-handle_info({update_session, Session, Events} = Us, #{interface := Interface} = State0) ->
+handle_event(info, {update_session, Session, Events} = Us, State,
+	     #{interface := Interface} = Data0) ->
     lager:warning("UpdateSession: ~p", [Us]),
-    State = Interface:session_events(Session, Events, State0),
-    {noreply, State};
+    Data = Interface:session_events(Session, Events, State, Data0),
+    {keep_state, Data};
 
-%%====================================================================
-
-handle_info({timeout, TRef, pfcp_timer} = Info,
-	    #{interface := Interface, pfcp := PCtx0} = State) ->
+handle_event(info, {timeout, TRef, pfcp_timer} = Info, State,
+	    #{interface := Interface, pfcp := PCtx0} = Data) ->
     lager:debug("handle_info ~p:~p", [Interface, lager:pr(Info, ?MODULE)]),
     {Evs, PCtx} = ergw_pfcp:timer_expired(TRef, PCtx0),
     CtxEvs = ergw_gsn_lib:pfcp_to_context_event(Evs),
-    Interface:handle_info({pfcp_timer, CtxEvs}, State#{pfcp => PCtx});
+    Interface:handle_event(info, {pfcp_timer, CtxEvs}, State, Data#{pfcp => PCtx});
 
-handle_info(Info, #{interface := Interface} = State) ->
-    lager:debug("handle_info ~p:~p", [Interface, lager:pr(Info, ?MODULE)]),
-    Interface:handle_info(Info, State).
+handle_event(Type, Content, State, #{interface := Interface} = Data) ->
+    lager:debug("~w: handle_event: (~p, ~p, ~p)",
+		[?MODULE, Type, lager:pr(Content, ?MODULE), State]),
+    Interface:handle_event(Type, Content, State, Data).
 
-terminate(Reason, #{interface := Interface} = State) ->
-    Interface:terminate(Reason, State);
-terminate(_Reason, _State) ->
+terminate(Reason, State, #{interface := Interface} = Data) ->
+    Interface:terminate(Reason, State, Data);
+terminate(_Reason, _State, _Data) ->
     ok.
 
-code_change(_OldVsn, State, _Extra) ->
-    {ok, State}.
+code_change(_OldVsn, State, Data, _Extra) ->
+    {ok, State, Data}.
 
 %%%===================================================================
 %%% Message Handling functions
@@ -420,55 +412,55 @@ code_change(_OldVsn, State, _Extra) ->
 log_ctx_error(#ctx_err{level = Level, where = {File, Line}, reply = Reply}) ->
     lager:debug("CtxErr: ~w, at ~s:~w, ~p", [Level, File, Line, Reply]).
 
-handle_ctx_error(#ctx_err{level = Level, context = Context} = CtxErr, State) ->
+handle_ctx_error(#ctx_err{level = Level, context = Context} = CtxErr, _State, Data) ->
     log_ctx_error(CtxErr),
     case Level of
 	?FATAL when is_record(Context, context) ->
-	    {stop, normal, State#{context => Context}};
+	    {stop, normal, Data#{context => Context}};
 	?FATAL ->
-	    {stop, normal, State};
+	    {stop, normal, Data};
 	_ when is_record(Context, context) ->
-	    {noreply, State#{context => Context}};
+	    {keep_state, Data#{context => Context}};
 	_ ->
-	    {noreply, State}
+	    {keep_state, Data}
     end.
 
 handle_ctx_error(#ctx_err{reply = Reply} = CtxErr, Handler,
-		 Request, #gtp{type = MsgType, seq_no = SeqNo}, State) ->
+		 Request, #gtp{type = MsgType, seq_no = SeqNo}, State, Data) ->
     Response = if is_list(Reply) orelse is_atom(Reply) ->
 		       Handler:build_response({MsgType, Reply});
 		  true ->
 		       Handler:build_response(Reply)
 	       end,
     send_response(Request, Response#gtp{seq_no = SeqNo}),
-    handle_ctx_error(CtxErr, State).
+    handle_ctx_error(CtxErr, State, Data).
 
 handle_request(#request{gtp_port = GtpPort} = Request,
 	       #gtp{version = Version, seq_no = SeqNo} = Msg,
-	       Resent, #{interface := Interface} = State0) ->
+	       Resent, State, #{interface := Interface} = Data0) ->
     lager:debug("GTP~s ~s:~w: ~p",
 		[Version, inet:ntoa(Request#request.ip), Request#request.port, gtp_c_lib:fmt_gtp(Msg)]),
 
     Handler = gtp_path:get_handler(GtpPort, Version),
     try
-	validate_message(Msg, State0),
-	Interface:handle_request(Request, Msg, Resent, State0)
+	validate_message(Msg, Data0),
+	Interface:handle_request(Request, Msg, Resent, State, Data0)
     of
-	{reply, Reply, State1} ->
+	{reply, Reply, Data1} ->
 	    Response = Handler:build_response(Reply),
 	    send_response(Request, Response#gtp{seq_no = SeqNo}),
-	    {noreply, State1};
+	    {keep_state, Data1};
 
-	{stop, Reply, State1} ->
+	{stop, Reply, Data1} ->
 	    Response = Handler:build_response(Reply),
 	    send_response(Request, Response#gtp{seq_no = SeqNo}),
-	    {stop, normal, State1};
+	    {stop, normal, Data1};
 
-	{noreply, State1} ->
-	    {noreply, State1}
+	{noreply, Data1} ->
+	    {keep_state, Data1}
     catch
 	throw:#ctx_err{} = CtxErr ->
-	    handle_ctx_error(CtxErr, Handler, Request, Msg, State0);
+	    handle_ctx_error(CtxErr, Handler, Request, Msg, State, Data0);
 
 	Class:Reason:Stacktrace ->
 	    lager:error("GTP~p failed with: ~p:~p (~p)", [Version, Class, Reason, Stacktrace]),
@@ -531,12 +523,12 @@ validate_teid(#gtp{version = v1, type = MsgType, tei = TEID}) ->
 validate_teid(#gtp{version = v2, type = MsgType, tei = TEID}) ->
     gtp_v2_c:validate_teid(MsgType, TEID).
 
-validate_message(#gtp{version = Version, ie = IEs} = Msg, State) ->
+validate_message(#gtp{version = Version, ie = IEs} = Msg, Data) ->
     Cause = case Version of
 		v1 -> gtp_v1_c:get_cause(IEs);
 		v2 -> gtp_v2_c:get_cause(IEs)
 	    end,
-    case validate_ies(Msg, Cause, State) of
+    case validate_ies(Msg, Cause, Data) of
 	[] ->
 	    ok;
 	Missing ->

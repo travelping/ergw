@@ -8,7 +8,7 @@
 -module(tdf).
 
 %%-behaviour(gtp_api).
--behaviour(gen_server).
+-behavior(gen_statem).
 -behavior(ergw_context).
 
 -compile([{parse_transform, do},
@@ -23,9 +23,9 @@
 -export([test_cmd/2]).
 -endif.
 
-%% gen_server callbacks
--export([init/1, handle_call/3, handle_cast/2, handle_info/2,
-	 terminate/2, code_change/3]).
+%% gen_statem callbacks
+-export([callback_mode/0, init/1, handle_event/4,
+	 terminate/3, code_change/4]).
 
 -include_lib("pfcplib/include/pfcp_packet.hrl").
 -include_lib("diameter/include/diameter_gen_base_rfc6733.hrl").
@@ -38,7 +38,7 @@
 -define(SERVER, ?MODULE).
 -define(TestCmdTag, '$TestCmd').
 
--record(state, {dp_node :: pid(),
+-record(data, {dp_node :: pid(),
 		session :: pid(),
 
 		context,
@@ -49,7 +49,7 @@
 %%====================================================================
 
 start_link(Node, VRF, IP4, IP6, SxOpts, GenOpts) ->
-    gen_server:start_link(?MODULE, [Node, VRF, IP4, IP6, SxOpts], GenOpts).
+    gen_statem:start_link(?MODULE, [Node, VRF, IP4, IP6, SxOpts], GenOpts).
 
 unsolicited_report(Node, VRF, IP4, IP6, SxOpts) ->
     tdf_sup:new(Node, VRF, IP4, IP6, SxOpts).
@@ -57,7 +57,7 @@ unsolicited_report(Node, VRF, IP4, IP6, SxOpts) ->
 -ifdef(TEST).
 
 test_cmd(Pid, Cmd) when is_pid(Pid) ->
-    gen_server:call(Pid, {?TestCmdTag, Cmd}).
+    gen_statem:call(Pid, {?TestCmdTag, Cmd}).
 
 -endif.
 
@@ -94,7 +94,7 @@ validate_option(Opt, Value) ->
 %%====================================================================
 
 sx_report(Server, Report) ->
-    gen_server:call(Server, {sx, Report}).
+    gen_statem:call(Server, {sx, Report}).
 
 port_message(Request, Msg) ->
     %% we currently do not configure DP to CP forwards,
@@ -111,8 +111,10 @@ port_message(Server, Request, Msg, Resent) ->
     error(badarg, [Server, Request, Msg, Resent]).
 
 %%====================================================================
-%% gen_server API
+%% gen_statem API
 %%====================================================================
+
+callback_mode() -> handle_event_function.
 
 init([Node, InVRF, IP4, IP6, #{apn := APN} = _SxOpts]) ->
     process_flag(trap_exit, true),
@@ -135,25 +137,25 @@ init([Node, InVRF, IP4, IP6, #{apn := APN} = _SxOpts]) ->
 		 ms_v4 = {IP4, 32},
 		 ms_v6 = {IP6, 128}
 		},
-    State = #state{
+    Data = #data{
 	       context = Context,
 	       dp_node = Node,
 	       session = Session
 	      },
 
-    gen_server:cast(self(), init),
+    gen_statem:cast(self(), init),
     lager:info("TDF process started for ~p", [[Node, IP4, IP6]]),
-    {ok, State}.
+    {ok, run, Data}.
 
-handle_call({?TestCmdTag, pfcp_ctx}, _From, #state{pfcp = PCtx} = State) ->
-    {reply, {ok, PCtx}, State};
-handle_call({?TestCmdTag, session}, _From, #state{session = Session} = State) ->
-    {reply, {ok, Session}, State};
+handle_event({call, From}, {?TestCmdTag, pfcp_ctx}, _State, #data{pfcp = PCtx}) ->
+    {keep_state_and_data, [{reply, From, {ok, PCtx}}]};
+handle_event({call, From}, {?TestCmdTag, session}, _State, #data{session = Session}) ->
+    {keep_state_and_data, [{reply, From, {ok, Session}}]};
 
-handle_call({sx, #pfcp{type = session_report_request,
+handle_event({call, From}, {sx, #pfcp{type = session_report_request,
 		       ie = #{report_type := #report_type{usar = 1},
 			      usage_report_srr := UsageReport}} = Report},
-	    _From, #state{session = Session, pfcp = PCtx} = State) ->
+	    _State, #data{session = Session, pfcp = PCtx}) ->
     lager:debug("~w: handle_call Sx: ~p", [?MODULE, lager:pr(Report, ?MODULE)]),
 
     Now = erlang:monotonic_time(),
@@ -163,49 +165,49 @@ handle_call({sx, #pfcp{type = session_report_request,
     ergw_gsn_lib:process_online_charging_events(ChargeEv, Online, Now, Session),
     ergw_gsn_lib:process_offline_charging_events(ChargeEv, Offline, Now, Session),
 
-    {reply, {ok, PCtx}, State};
+    {keep_state_and_data, [{reply, From, {ok, PCtx}}]};
 
-handle_call({sx, Report}, _From, #state{pfcp = PCtx} = State) ->
+handle_event({call, From}, {sx, Report}, _State, #data{pfcp = PCtx}) ->
     lager:warning("~w: unhandled Sx report: ~p", [?MODULE, lager:pr(Report, ?MODULE)]),
-    {reply, {ok, PCtx, 'System failure'}, State};
+    {keep_state_and_data, [{reply, From, {ok, PCtx, 'System failure'}}]};
 
-handle_call(_Request, _From, State) ->
-    Reply = ok,
-    {reply, Reply, State}.
+handle_event({call, From}, _Request, _State, _Data) ->
+    {keep_state_and_data, [{reply, From, ok}]};
 
-handle_cast(init, State) ->
+handle_event(cast, init, _State, Data0) ->
     %% start Rf/Gx/Gy interaction
     try
-	State1 = start_session(State),
-	{noreply, State1}
+	Data = start_session(Data0),
+	{keep_state, Data}
     catch
 	throw:_Error ->
 	    lager:debug("TDF Init failed with ~p", [_Error]),
-	    {stop, normal, State}
+	    {stop, normal}
     end;
 
-handle_cast(_Request, State) ->
-    {noreply, State}.
+handle_event(cast, _Request, _State, _Data) ->
+    keep_state_and_data;
 
-handle_info({'DOWN', _MonitorRef, Type, Pid, _Info},
-	    #state{dp_node = Pid} = State)
+handle_event(info, {'DOWN', _MonitorRef, Type, Pid, _Info},
+	     _State, #data{dp_node = Pid} = Data)
   when Type == process; Type == pfcp ->
-    close_pdn_context(upf_failure, State),
-    {stop, normal, State};
+    close_pdn_context(upf_failure, Data),
+    {stop, normal};
 
-handle_info(stop_from_session, State) ->
-    close_pdn_context(normal, State),
-    {stop, normal, State};
+handle_event(info, stop_from_session, _State, Data) ->
+    close_pdn_context(normal, Data),
+    {stop, normal};
 
-handle_info(#aaa_request{procedure = {_, 'ASR'}} = Request, State) ->
+handle_event(info, #aaa_request{procedure = {_, 'ASR'}} = Request, _State, Data) ->
     ergw_aaa_session:response(Request, ok, #{}, #{}),
-    close_pdn_context(normal, State),
-    {stop, normal, State};
+    close_pdn_context(normal, Data),
+    {stop, normal};
 
-handle_info(#aaa_request{procedure = {gx, 'RAR'},
+handle_event(info, #aaa_request{procedure = {gx, 'RAR'},
 			 session = SessionOpts,
 			 events = Events} = Request,
-	    #state{context = Context, pfcp = PCtx0, session = Session} = State) ->
+	     _State,
+	     #data{context = Context, pfcp = PCtx0, session = Session} = Data) ->
     Now = erlang:monotonic_time(),
 
     RuleBase = ergw_charging:rulebase(),
@@ -247,10 +249,11 @@ handle_info(#aaa_request{procedure = {gx, 'RAR'},
     GxReport = ergw_gsn_lib:pcc_events_to_charging_rule_report(PCCErrors2),
     SOpts = #{'PCC-Rules' => PCCRules2},
     ergw_aaa_session:response(Request, ok, GxReport, SOpts),
-    {noreply, State#state{pfcp = PCtx}};
+    {keep_state, Data#data{pfcp = PCtx}};
 
-handle_info(#aaa_request{procedure = {gy, 'RAR'},
-			 events = Events} = Request, State) ->
+handle_event(info, #aaa_request{procedure = {gy, 'RAR'},
+				events = Events} = Request,
+	     _State, Data) ->
     ergw_aaa_session:response(Request, ok, #{}, #{}),
     Now = erlang:monotonic_time(),
 
@@ -262,42 +265,42 @@ handle_info(#aaa_request{procedure = {gy, 'RAR'},
 	    _ ->
 		undefined
 	end,
-    triggered_charging_event(interim, Now, ChargingKeys, State),
-    {noreply, State};
+    triggered_charging_event(interim, Now, ChargingKeys, Data),
+    keep_state_and_data;
 
-handle_info({update_session, Session, Events} = Us,
-	    #state{context = Context, pfcp = PCtx0} = State) ->
+handle_event(info, {update_session, Session, Events} = Us, _State,
+	     #data{context = Context, pfcp = PCtx0} = Data) ->
     lager:warning("UpdateSession: ~p", [Us]),
     PCtx =  ergw_gsn_lib:session_events(Session, Events, Context, PCtx0),
-    {noreply, State#state{pfcp = PCtx}};
+    {keep_state, Data#data{pfcp = PCtx}};
 
-handle_info({timeout, TRef, pfcp_timer} = Info,
-	    #state{pfcp = PCtx0} = State0) ->
+handle_event(info, {timeout, TRef, pfcp_timer} = Info, _State,
+	     #data{pfcp = PCtx0} = Data0) ->
     Now = erlang:monotonic_time(),
     lager:debug("handle_info TDF:~p", [lager:pr(Info, ?MODULE)]),
 
     {Evs, PCtx} = ergw_pfcp:timer_expired(TRef, PCtx0),
     CtxEvs = ergw_gsn_lib:pfcp_to_context_event(Evs),
-    State = maps:fold(handle_charging_event(_, _, Now, _), State0#state{pfcp = PCtx}, CtxEvs),
-    {noreply, State};
+    Data = maps:fold(handle_charging_event(_, _, Now, _), Data0#data{pfcp = PCtx}, CtxEvs),
+    {keep_state, Data};
 
-handle_info(_Info, State) ->
-    {noreply, State}.
+handle_event(info, _Info, _State, _Data) ->
+    keep_state_and_data.
 
-terminate(_Reason, _State) ->
+terminate(_Reason, _State, _Data) ->
     ok.
 
-code_change(_OldVsn, State, _Extra) ->
-    {ok, State}.
+code_change(_OldVsn, State, Data, _Extra) ->
+    {ok, State, Data}.
 
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
 
-start_session(#state{context = Context, dp_node = Node, session = Session} = State) ->
+start_session(#data{context = Context, dp_node = Node, session = Session} = Data) ->
     SOpts = #{now => erlang:monotonic_time()},
 
-    SessionOpts = init_session(State),
+    SessionOpts = init_session(Data),
     authenticate(Session, SessionOpts),
 
     GxOpts = #{'Event-Trigger' => ?'DIAMETER_GX_EVENT-TRIGGER_UE_IP_ADDRESS_ALLOCATE',
@@ -342,9 +345,9 @@ start_session(#state{context = Context, dp_node = Node, session = Session} = Sta
 	    ok
     end,
 
-    State#state{pfcp = PCtx}.
+    Data#data{pfcp = PCtx}.
 
-init_session(#state{context = Context}) ->
+init_session(#data{context = Context}) ->
     {MCC, MNC} = ergw:get_plmn_id(),
     Opts0 =
 	#{'Username'		=> <<"ergw">>,
@@ -393,7 +396,7 @@ ccr_initial(Session, API, SessionOpts, ReqOpts) ->
 	    throw({fail, 'CCR-Initial', Fail})
     end.
 
-close_pdn_context(Reason, #state{context = Context, pfcp = PCtx, session = Session}) ->
+close_pdn_context(Reason, #data{context = Context, pfcp = PCtx, session = Session}) ->
     URRs = ergw_gsn_lib:delete_sgi_session(Reason, Context, PCtx),
 
     TermCause =
@@ -433,7 +436,7 @@ query_usage_report(_, Context, PCtx) ->
     ergw_gsn_lib:query_usage_report(Context, PCtx).
 
 triggered_charging_event(ChargeEv, Now, Request,
-			 #state{context = Context, pfcp = PCtx, session = Session}) ->
+			 #data{context = Context, pfcp = PCtx, session = Session}) ->
     try
 	{_, UsageReport} =
 	    query_usage_report(Request, Context, PCtx),
@@ -447,12 +450,12 @@ triggered_charging_event(ChargeEv, Now, Request,
     end,
     ok.
 
-handle_charging_event(validity_time, ChargingKeys, Now, State) ->
-    triggered_charging_event(validity_time, Now, ChargingKeys, State),
-    State;
-handle_charging_event(Key, Ev, _Now, State) ->
+handle_charging_event(validity_time, ChargingKeys, Now, Data) ->
+    triggered_charging_event(validity_time, Now, ChargingKeys, Data),
+    Data;
+handle_charging_event(Key, Ev, _Now, Data) ->
     lager:debug("TDF: unhandled charging event ~p:~p",[Key, Ev]),
-    State.
+    Data.
 
 %%====================================================================
 %% context registry

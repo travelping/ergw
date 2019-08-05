@@ -457,11 +457,11 @@ init_per_testcase(TestCase, Config)
 init_per_testcase(request_fast_resend, Config) ->
     init_per_testcase(Config),
     ok = meck:expect(?HUT, handle_request,
-		     fun(Request, Msg, Resent, State) ->
+		     fun(Request, Msg, Resent, State, Data) ->
 			     if Resent -> ok;
 				true   -> ct:sleep(1000)
 			     end,
-			     meck:passthrough([Request, Msg, Resent, State])
+			     meck:passthrough([Request, Msg, Resent, State, Data])
 		     end),
     Config;
 init_per_testcase(create_pdp_context_overload, Config) ->
@@ -537,7 +537,7 @@ end_per_testcase(TestCase, Config)
     end_per_testcase(Config),
     Config;
 end_per_testcase(request_fast_resend, Config) ->
-    ok = meck:delete(?HUT, handle_request, 4),
+    ok = meck:delete(?HUT, handle_request, 5),
     end_per_testcase(Config),
     Config;
 end_per_testcase(create_pdp_context_overload, Config) ->
@@ -918,7 +918,7 @@ request_fast_resend(Config) ->
 
     delete_pdp_context(GtpC3),
 
-    ?match(3, meck:num_calls(?HUT, handle_request, ['_', '_', true, '_'])),
+    ?match(3, meck:num_calls(?HUT, handle_request, ['_', '_', true, '_', '_'])),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
@@ -942,7 +942,7 @@ create_pdp_context_request_resend(Config) ->
     delete_pdp_context(GtpC),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
-    ?match(0, meck:num_calls(?HUT, handle_request, ['_', '_', true, '_'])),
+    ?match(0, meck:num_calls(?HUT, handle_request, ['_', '_', true, '_', '_'])),
 
     ?match_metric(prometheus_counter, gtp_c_socket_messages_duplicates_total, DupId, Dup0 + 1),
     meck_validate(Config),
@@ -958,7 +958,7 @@ delete_pdp_context_request_resend(Config) ->
     ?equal([], outstanding_requests()),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
-    ?match(0, meck:num_calls(?HUT, handle_request, ['_', '_', true, '_'])),
+    ?match(0, meck:num_calls(?HUT, handle_request, ['_', '_', true, '_', '_'])),
     meck_validate(Config),
     ok.
 
@@ -1383,7 +1383,8 @@ gy_validity_timer(Config) ->
     ct:sleep({seconds, 10}),
     delete_pdp_context(GtpC),
 
-    ?match(X when X >= 3, meck:num_calls(?HUT, handle_info, [{pfcp_timer, '_'}, '_'])),
+    ?match(X when X >= 3,
+		  meck:num_calls(?HUT, handle_event, [info, {pfcp_timer, '_'}, '_', '_'])),
 
     CCRU = lists:filter(
 	     fun({_, {ergw_aaa_session, invoke, [_, S, {gy,'CCR-Update'}, _]}, _}) ->

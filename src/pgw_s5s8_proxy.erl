@@ -13,10 +13,9 @@
 -compile({parse_transform, do}).
 
 -export([validate_options/1, init/2, request_spec/3,
-	 handle_pdu/3, handle_sx_report/3, session_events/3,
-	 handle_request/4, handle_response/4,
-	 handle_call/3, handle_cast/2, handle_info/2,
-	 terminate/2]).
+	 handle_pdu/4, handle_sx_report/3, session_events/4,
+	 handle_request/5, handle_response/5,
+	 handle_event/4, terminate/3]).
 
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include_lib("pfcplib/include/pfcp_packet.hrl").
@@ -128,67 +127,71 @@ validate_option(Opt, Value) ->
 -record(context_state, {ebi}).
 
 init(#{proxy_sockets := ProxyPorts, node_selection := NodeSelect,
-       proxy_data_source := ProxyDS, contexts := Contexts}, State) ->
+       proxy_data_source := ProxyDS, contexts := Contexts}, Data) ->
 
     {ok, Session} = ergw_aaa_session_sup:new_session(self(), to_session([])),
 
-    {ok, State#{proxy_ports => ProxyPorts,
-		'Version' => v2, 'Session' => Session, contexts => Contexts,
-		node_selection => NodeSelect, proxy_ds => ProxyDS}}.
+    {ok, run, Data#{proxy_ports => ProxyPorts,
+		    'Version' => v2, 'Session' => Session, contexts => Contexts,
+		    node_selection => NodeSelect, proxy_ds => ProxyDS}}.
 
-handle_call(delete_context, _From, State) ->
+handle_event(Type, Content, State, #{'Version' := v1} = Data) ->
+    ?GTP_v1_Interface:handle_event(Type, Content, State, Data);
+
+handle_event({call, From}, delete_context, _State, _Data) ->
     lager:warning("delete_context no handled(yet)"),
-    {reply, ok, State};
+    {keep_state_and_data, [{reply, From, ok}]};
 
-handle_call(terminate_context, _From, State) ->
-    initiate_session_teardown(sgw2pgw, State),
-    delete_forward_session(normal, State),
-    {stop, normal, ok, State};
+handle_event({call, From}, terminate_context, _State, Data) ->
+    initiate_session_teardown(sgw2pgw, Data),
+    delete_forward_session(normal, Data),
+    {stop_and_reply, normal, [{reply, From, ok}]};
 
-handle_call({path_restart, Path}, _From, #{context := #context{path = Path}} = State) ->
-    initiate_session_teardown(sgw2pgw, State),
-    delete_forward_session(normal, State),
-    {stop, normal, ok, State};
+handle_event({call, From}, {path_restart, Path}, _State,
+	     #{context := #context{path = Path}} = Data) ->
+    initiate_session_teardown(sgw2pgw, Data),
+    delete_forward_session(normal, Data),
+    {stop_and_reply, normal, [{reply, From, ok}]};
 
-handle_call({path_restart, Path}, _From, #{proxy_context := #context{path = Path}} = State) ->
-    initiate_session_teardown(pgw2sgw, State),
-    delete_forward_session(normal, State),
-    {stop, normal, ok, State};
+handle_event({call, From}, {path_restart, Path}, _State,
+	     #{proxy_context := #context{path = Path}} = Data) ->
+    initiate_session_teardown(pgw2sgw, Data),
+    delete_forward_session(normal, Data),
+    {stop_and_reply, normal, [{reply, From, ok}]};
 
-handle_call({path_restart, _Path}, _From, State) ->
-    {reply, ok, State}.
+handle_event({call, From}, {path_restart, _Path}, _State, _Data) ->
+    {keep_state_and_data, [{reply, From, ok}]};
 
-handle_cast(delete_context, State) ->
+handle_event(cast, delete_context, _State, _Data) ->
     lager:warning("delete_context no handled(yet)"),
-    {reply, State};
+    keep_state_and_data;
 
-handle_cast({packet_in, _GtpPort, _IP, _Port, _Msg}, State) ->
+handle_event(cast, {packet_in, _GtpPort, _IP, _Port, _Msg}, _State, _Data) ->
     lager:warning("packet_in not handled (yet): ~p", [_Msg]),
-    {noreply, State}.
+    keep_state_and_data;
 
-handle_info(Info, #{'Version' := v1} = State) ->
-    ?GTP_v1_Interface:handle_info(Info, State);
-
-handle_info({timeout, _, {delete_session_request, Direction, _ReqKey, _Request}}, State) ->
+handle_event(info, {timeout, _, {delete_session_request, Direction, _ReqKey, _Request}},
+	     _State, Data) ->
     lager:warning("Proxy Delete Session Timeout ~p", [Direction]),
 
-    delete_forward_session(normal, State),
-    {stop, normal, State};
+    delete_forward_session(normal, Data),
+    {stop, normal};
 
-handle_info({timeout, _, {delete_bearer_request, Direction, _ReqKey, _Request}}, State) ->
+handle_event(info, {timeout, _, {delete_bearer_request, Direction, _ReqKey, _Request}},
+	     _State, Data) ->
     lager:warning("Proxy Delete Bearer Timeout ~p", [Direction]),
 
-    delete_forward_session(normal, State),
-    {stop, normal, State};
+    delete_forward_session(normal, Data),
+    {stop, normal};
 
-handle_info({'DOWN', _MonitorRef, Type, Pid, _Info},
-	    #{pfcp := #pfcp_ctx{node = Pid}} = State)
+handle_event(info, {'DOWN', _MonitorRef, Type, Pid, _Info}, _State,
+	     #{pfcp := #pfcp_ctx{node = Pid}} = Data)
   when Type == process; Type == pfcp ->
-    delete_forward_session(upf_failure, State),
-    {noreply, State};
+    delete_forward_session(upf_failure, Data),
+    keep_state_and_data;
 
-handle_info(_Info, State) ->
-    {noreply, State}.
+handle_event(info, _Info, _State, _Data) ->
+    keep_state_and_data.
 
 %% API Message Matrix:
 %%
@@ -206,10 +209,10 @@ handle_info(_Info, State) ->
 %%   Change Notification Request/Response
 %%   Resume Notification/Acknowledge
 
-handle_pdu(ReqKey, Msg, State) ->
+handle_pdu(ReqKey, Msg, _State, Data) ->
     lager:debug("GTP-U v2 Proxy: ~p, ~p",
 		[lager:pr(ReqKey, ?MODULE), gtp_c_lib:fmt_gtp(Msg)]),
-    {noreply, State}.
+    {keep_state, Data}.
 
 handle_sx_report(#pfcp{type = session_report_request,
 		       ie = #{report_type := #report_type{erir = 1},
@@ -218,62 +221,62 @@ handle_sx_report(#pfcp{type = session_report_request,
 				     group =
 					 #{f_teid :=
 					       #f_teid{ipv4 = IP4, ipv6 = IP6} = FTEID0}}}},
-		 _From, State) ->
+		 _State, Data) ->
     FTEID = FTEID0#f_teid{ipv4 = ergw_inet:bin2ip(IP4), ipv6 = ergw_inet:bin2ip(IP6)},
-    Direction = fteid_forward_context(FTEID, State),
-    initiate_session_teardown(Direction, State),
-    delete_forward_session(normal, State),
-    {stop, State};
+    Direction = fteid_forward_context(FTEID, Data),
+    initiate_session_teardown(Direction, Data),
+    delete_forward_session(normal, Data),
+    {stop, Data};
 
-handle_sx_report(_, _From, State) ->
-    {error, 'System failure', State}.
+handle_sx_report(_, _State, Data) ->
+    {error, 'System failure', Data}.
 
-session_events(_Session, _Events, State) ->
+session_events(_Session, _Events, _State, Data) ->
     %% TODO: implement Gx/Gy/Rf support
-    State.
+    Data.
 
-handle_request(ReqKey, #gtp{version = v1} = Msg, Resent, State) ->
-    ?GTP_v1_Interface:handle_request(ReqKey, Msg, Resent, State#{'Version' => v1});
-handle_request(ReqKey, #gtp{version = v2} = Msg, Resent, #{'Version' := v1} = State) ->
-    handle_request(ReqKey, Msg, Resent, State#{'Version' => v2});
+handle_request(ReqKey, #gtp{version = v1} = Msg, Resent, State, Data) ->
+    ?GTP_v1_Interface:handle_request(ReqKey, Msg, Resent, State, Data#{'Version' => v1});
+handle_request(ReqKey, #gtp{version = v2} = Msg, Resent, State, #{'Version' := v1} = Data) ->
+    handle_request(ReqKey, Msg, Resent, State, Data#{'Version' => v2});
 
 %%
 %% resend request
 %%
-handle_request(ReqKey, Request, true,
-	       #{context := Context, proxy_context := ProxyContext} = State)
+handle_request(ReqKey, Request, true, _State,
+	       #{context := Context, proxy_context := ProxyContext} = Data)
   when ?IS_REQUEST_CONTEXT(ReqKey, Request, Context) ->
     ergw_proxy_lib:forward_request(ProxyContext, ReqKey, Request),
-    {noreply, State};
-handle_request(ReqKey, Request, true,
-	       #{context := Context, proxy_context := ProxyContext} = State)
+    {noreply, Data};
+handle_request(ReqKey, Request, true, _State,
+	       #{context := Context, proxy_context := ProxyContext} = Data)
   when ?IS_REQUEST_CONTEXT(ReqKey, Request, ProxyContext) ->
     ergw_proxy_lib:forward_request(Context, ReqKey, Request),
-    {noreply, State};
+    {noreply, Data};
 
 %%
 %% some request type need special treatment for resends
 %%
 handle_request(ReqKey, #gtp{type = create_session_request} = Request, true,
-	       #{proxy_context := ProxyContext} = State) ->
+	       _State, #{proxy_context := ProxyContext} = Data) ->
     ergw_proxy_lib:forward_request(ProxyContext, ReqKey, Request),
-    {noreply, State};
+    {noreply, Data};
 handle_request(ReqKey, #gtp{type = change_notification_request} = Request, true,
-	       #{context := Context, proxy_context := ProxyContext} = State)
+	       _State, #{context := Context, proxy_context := ProxyContext} = Data)
   when ?IS_REQUEST_CONTEXT_OPTIONAL_TEI(ReqKey, Request, Context) ->
     ergw_proxy_lib:forward_request(ProxyContext, ReqKey, Request),
-    {noreply, State};
+    {noreply, Data};
 
-handle_request(_ReqKey, _Request, true, State) ->
+handle_request(_ReqKey, _Request, true, _State, Data) ->
     lager:error("resend of request not handled ~p, ~p",
 		[lager:pr(_ReqKey, ?MODULE), gtp_c_lib:fmt_gtp(_Request)]),
-    {noreply, State};
+    {noreply, Data};
 
 handle_request(ReqKey,
 	       #gtp{type = create_session_request, ie = IEs} = Request,
-	       _Resent,
+	       _Resent, _State,
 	       #{context := Context0, aaa_opts := AAAopts,
-		 'Session' := Session} = State) ->
+		 'Session' := Session} = Data) ->
 
     Context1 = update_context_from_gtp_req(Request, Context0#context{state = #context_state{}}),
     Context2 = gtp_path:bind(Request, Context1),
@@ -281,17 +284,17 @@ handle_request(ReqKey,
     gtp_context:terminate_colliding_context(Context2),
     gtp_context:remote_context_register_new(Context2),
 
-    ProxyInfo = handle_proxy_info(Request, Context2, State),
+    ProxyInfo = handle_proxy_info(Request, Context2, Data),
     #proxy_ggsn{restrictions = Restrictions} = ProxyGGSN0 = gtp_proxy_ds:lb(ProxyInfo),
 
     %% GTP v2 services only, we don't do v1 to v2 conversion (yet)
     Services = [{"x-3gpp-pgw", "x-s8-gtp"}, {"x-3gpp-pgw", "x-s5-gtp"}],
-    ProxyGGSN = ergw_proxy_lib:select_proxy_gsn(ProxyInfo, ProxyGGSN0, Services, State),
+    ProxyGGSN = ergw_proxy_lib:select_proxy_gsn(ProxyInfo, ProxyGGSN0, Services, Data),
 
     Context3 = Context2#context{restrictions = Restrictions},
     gtp_context:enforce_restrictions(Request, Context3),
 
-    {ProxyGtpPort, DPCandidates} = ergw_proxy_lib:select_proxy_sockets(ProxyGGSN, State),
+    {ProxyGtpPort, DPCandidates} = ergw_proxy_lib:select_proxy_sockets(ProxyGGSN, Data),
 
     SessionOpts0 = pgw_s5s8:init_session(IEs, Context3, AAAopts),
     SessionOpts = pgw_s5s8:init_session_from_gtp_req(IEs, AAAopts, SessionOpts0),
@@ -304,16 +307,16 @@ handle_request(ReqKey,
     {Context, ProxyContext, PCtx} =
 	ergw_proxy_lib:create_forward_session(DPCandidates, Context3, ProxyContext1),
 
-    StateNew = State#{context => Context, proxy_context => ProxyContext, pfcp => PCtx},
-    forward_request(sgw2pgw, ReqKey, Request, StateNew, State),
+    DataNew = Data#{context => Context, proxy_context => ProxyContext, pfcp => PCtx},
+    forward_request(sgw2pgw, ReqKey, Request, DataNew, Data),
 
-    {noreply, StateNew};
+    {noreply, DataNew};
 
 handle_request(ReqKey,
 	       #gtp{type = modify_bearer_request} = Request,
-	       _Resent,
+	       _Resent, _State,
 	       #{context := OldContext,
-		 proxy_context := OldProxyContext} = State)
+		 proxy_context := OldProxyContext} = Data)
   when ?IS_REQUEST_CONTEXT(ReqKey, Request, OldContext) ->
 
     Context0 = update_context_from_gtp_req(Request, OldContext),
@@ -327,109 +330,112 @@ handle_request(ReqKey,
     ProxyContext1 = handle_sgw_change(Context, OldContext, OldProxyContext#context{version = v2}),
     ProxyContext = update_path_bind(ProxyContext1, OldProxyContext),
 
-    StateNew = State#{context => Context, proxy_context => ProxyContext},
-    forward_request(sgw2pgw, ReqKey, Request, StateNew, State),
+    DataNew = Data#{context => Context, proxy_context => ProxyContext},
+    forward_request(sgw2pgw, ReqKey, Request, DataNew, Data),
 
-    {noreply, StateNew};
+    {noreply, DataNew};
 
 handle_request(ReqKey,
 	       #gtp{type = modify_bearer_command} = Request,
-	       _Resent,
-	       #{context := Context} = State0)
+	       _Resent, _State,
+	       #{context := Context} = Data0)
   when ?IS_REQUEST_CONTEXT(ReqKey, Request, Context) ->
 
-    State1 = bind_forward_path(sgw2pgw, Request, State0),
-    forward_request(sgw2pgw, ReqKey, Request, State1, State0),
+    Data1 = bind_forward_path(sgw2pgw, Request, Data0),
+    forward_request(sgw2pgw, ReqKey, Request, Data1, Data0),
 
-    State = trigger_request(sgw2pgw, ReqKey, Request, State1),
-    {noreply, State};
+    Data = trigger_request(sgw2pgw, ReqKey, Request, Data1),
+    {noreply, Data};
 
 %%
 %% SGW to PGW requests without tunnel endpoint modification
 %%
 handle_request(ReqKey,
 	       #gtp{type = change_notification_request} = Request,
-	       _Resent,
-	       #{context := Context} = State)
+	       _Resent, _State,
+	       #{context := Context} = Data)
   when ?IS_REQUEST_CONTEXT_OPTIONAL_TEI(ReqKey, Request, Context) ->
 
-    StateNew = bind_forward_path(sgw2pgw, Request, State),
-    forward_request(sgw2pgw, ReqKey, Request, StateNew, State),
+    DataNew = bind_forward_path(sgw2pgw, Request, Data),
+    forward_request(sgw2pgw, ReqKey, Request, DataNew, Data),
 
-    {noreply, StateNew};
+    {noreply, DataNew};
 
 %%
 %% SGW to PGW notifications without tunnel endpoint modification
 %%
 handle_request(ReqKey,
 	       #gtp{type = Type} = Request,
-	       _Resent,
-	       #{context := Context} = State)
+	       _Resent, _State,
+	       #{context := Context} = Data)
   when (Type == suspend_notification orelse
 	Type == resume_notification) andalso
        ?IS_REQUEST_CONTEXT(ReqKey, Request, Context) ->
 
-    StateNew = bind_forward_path(sgw2pgw, Request, State),
-    forward_request(sgw2pgw, ReqKey, Request, StateNew, State),
+    DataNew = bind_forward_path(sgw2pgw, Request, Data),
+    forward_request(sgw2pgw, ReqKey, Request, DataNew, Data),
 
-    {noreply, StateNew};
+    {noreply, DataNew};
 
 %%
 %% PGW to SGW requests without tunnel endpoint modification
 %%
 handle_request(ReqKey,
 	       #gtp{type = update_bearer_request} = Request,
-	       _Resent,
-	       #{proxy_context := ProxyContext} = State0)
+	       _Resent, _State,
+	       #{proxy_context := ProxyContext} = Data0)
   when ?IS_REQUEST_CONTEXT(ReqKey, Request, ProxyContext) ->
 
-    State = bind_forward_path(pgw2sgw, Request, State0),
-    forward_request(pgw2sgw, ReqKey, Request, State, State),
-    {noreply, State};
+    Data = bind_forward_path(pgw2sgw, Request, Data0),
+    forward_request(pgw2sgw, ReqKey, Request, Data, Data),
+    {noreply, Data};
 
 %%
 %% SGW to PGW delete session requests
 %%
 handle_request(ReqKey,
-	       #gtp{type = delete_session_request} = Request, _Resent,
-	       #{context := Context} = State0)
+	       #gtp{type = delete_session_request} = Request,
+	       _Resent, _State,
+	       #{context := Context} = Data0)
   when ?IS_REQUEST_CONTEXT(ReqKey, Request, Context) ->
 
-    forward_request(sgw2pgw, ReqKey, Request, State0, State0),
+    forward_request(sgw2pgw, ReqKey, Request, Data0, Data0),
 
     Msg = {delete_session_request, sgw2pgw, ReqKey, Request},
-    State = restart_timeout(?RESPONSE_TIMEOUT, Msg, State0),
+    Data = restart_timeout(?RESPONSE_TIMEOUT, Msg, Data0),
 
-    {noreply, State};
+    {noreply, Data};
 
 %%
 %% PGW to SGW delete bearer requests
 %%
 handle_request(ReqKey,
-	       #gtp{type = delete_bearer_request} = Request, _Resent,
-	       #{proxy_context := ProxyContext} = State0)
+	       #gtp{type = delete_bearer_request} = Request,
+	       _Resent, _State,
+	       #{proxy_context := ProxyContext} = Data0)
   when ?IS_REQUEST_CONTEXT(ReqKey, Request, ProxyContext) ->
 
-    forward_request(pgw2sgw, ReqKey, Request, State0, State0),
+    forward_request(pgw2sgw, ReqKey, Request, Data0, Data0),
 
     Msg = {delete_bearer_request, pgw2sgw, ReqKey, Request},
-    State = restart_timeout(?RESPONSE_TIMEOUT, Msg, State0),
+    Data = restart_timeout(?RESPONSE_TIMEOUT, Msg, Data0),
 
-    {noreply, State};
+    {noreply, Data};
 
-handle_request(ReqKey, _Request, _Resent, State) ->
+handle_request(ReqKey, _Request, _Resent, _State, Data) ->
     gtp_context:request_finished(ReqKey),
-    {noreply, State}.
+    {noreply, Data}.
 
-handle_response(ReqInfo, #gtp{version = v1} = Msg, Request, State) ->
-    ?GTP_v1_Interface:handle_response(ReqInfo, Msg, Request, State);
+handle_response(ReqInfo, #gtp{version = v1} = Msg, Request, State, Data) ->
+    ?GTP_v1_Interface:handle_response(ReqInfo, Msg, Request, State, Data);
 
 handle_response(#proxy_request{direction = sgw2pgw} = ProxyRequest,
 		#gtp{type = create_session_response,
-		     ie = #{?'Cause' := #v2_cause{v2_cause = Cause}}} = Response, _Request,
+		     ie = #{?'Cause' := #v2_cause{v2_cause = Cause}}} = Response,
+		_Request, _State,
 		#{context := Context,
 		  proxy_context := PrevProxyCtx,
-		  pfcp := PCtx0} = State) ->
+		  pfcp := PCtx0} = Data) ->
     lager:warning("OK Proxy Response ~p", [lager:pr(Response, ?MODULE)]),
 
     ProxyContext1 = update_context_from_gtp_req(Response, PrevProxyCtx),
@@ -441,10 +447,10 @@ handle_response(#proxy_request{direction = sgw2pgw} = ProxyRequest,
 		PCtx =
 		    ergw_proxy_lib:modify_forward_session(Context, Context,
 							  PrevProxyCtx, ProxyContext, PCtx0),
-		{noreply, State#{proxy_context => ProxyContext, pfcp => PCtx}};
+		{noreply, Data#{proxy_context => ProxyContext, pfcp => PCtx}};
 	   true ->
-		delete_forward_session(normal, State),
-		{stop, State}
+		delete_forward_session(normal, Data),
+		{stop, Data}
 	end,
 
     forward_response(ProxyRequest, Response, Context),
@@ -453,10 +459,11 @@ handle_response(#proxy_request{direction = sgw2pgw} = ProxyRequest,
 handle_response(#proxy_request{direction = sgw2pgw,
 			       context = PrevContext,
 			       proxy_ctx = PrevProxyCtx} = ProxyRequest,
-		#gtp{type = modify_bearer_response} = Response, _Request,
+		#gtp{type = modify_bearer_response} = Response,
+		_Request, _State,
 		#{context := Context,
 		  proxy_context := OldProxyContext,
-		  pfcp := PCtx0} = State) ->
+		  pfcp := PCtx0} = Data) ->
     lager:warning("OK Proxy Response ~p", [lager:pr(Response, ?MODULE)]),
 
     ProxyContext = update_context_from_gtp_req(Response, OldProxyContext),
@@ -466,48 +473,51 @@ handle_response(#proxy_request{direction = sgw2pgw,
 						 PrevProxyCtx, ProxyContext, PCtx0),
     forward_response(ProxyRequest, Response, Context),
 
-    {noreply, State#{proxy_context => ProxyContext, pfcp => PCtx}};
+    {noreply, Data#{proxy_context => ProxyContext, pfcp => PCtx}};
 
 %%
 %% PGW to SGW response without tunnel endpoint modification
 %%
 handle_response(#proxy_request{direction = sgw2pgw} = ProxyRequest,
-		#gtp{type = change_notification_response} = Response, _Request,
-		#{context := Context} = State) ->
+		#gtp{type = change_notification_response} = Response,
+		_Request, _State,
+		#{context := Context} = Data) ->
     lager:warning("OK Proxy Response ~p", [lager:pr(Response, ?MODULE)]),
 
     forward_response(ProxyRequest, Response, Context),
-    {noreply, State};
+    {noreply, Data};
 
 %%
 %% PGW to SGW acknowledge without tunnel endpoint modification
 %%
 handle_response(#proxy_request{direction = sgw2pgw} = ProxyRequest,
-		#gtp{type = Type} = Response, _Request,
-		#{context := Context} = State)
+		#gtp{type = Type} = Response,
+		_Request, _State,
+		#{context := Context} = Data)
   when Type == suspend_acknowledge;
        Type == resume_acknowledge ->
     lager:warning("OK Proxy Acknowledge ~p", [lager:pr(Response, ?MODULE)]),
 
     forward_response(ProxyRequest, Response, Context),
-    {noreply, State};
+    {noreply, Data};
 
 %%
 %% SGW to PGW response without tunnel endpoint modification
 %%
 handle_response(#proxy_request{direction = pgw2sgw} = ProxyRequest,
-		#gtp{type = update_bearer_response} = Response, _Request,
-		#{proxy_context := ProxyContext} = State) ->
+		#gtp{type = update_bearer_response} = Response,
+		_Request, _State,
+		#{proxy_context := ProxyContext} = Data) ->
     lager:warning("OK Response ~p", [lager:pr(Response, ?MODULE)]),
 
     forward_response(ProxyRequest, Response, ProxyContext),
-    trigger_request_finished(Response, State),
+    trigger_request_finished(Response, Data),
 
-    {noreply, State};
+    {noreply, Data};
 
 handle_response(#proxy_request{direction = sgw2pgw} = ProxyRequest,
-		Response0, #gtp{type = delete_session_request},
-		#{context := Context} = State) ->
+		Response0, #gtp{type = delete_session_request}, _State,
+		#{context := Context} = Data) ->
     lager:warning("Proxy Response ~p", [lager:pr(Response0, ?MODULE)]),
 
     Response =
@@ -519,15 +529,15 @@ handle_response(#proxy_request{direction = sgw2pgw} = ProxyRequest,
 		     ie = #{?'Cause' => #v2_cause{v2_cause = request_accepted}}}
 	end,
     forward_response(ProxyRequest, Response, Context),
-    delete_forward_session(normal, State),
-    {stop, State};
+    delete_forward_session(normal, Data),
+    {stop, Data};
 
 %%
 %% SGW to PGW delete bearer response
 %%
 handle_response(#proxy_request{direction = pgw2sgw} = ProxyRequest,
-		Response0, #gtp{type = delete_bearer_request},
-		#{proxy_context := ProxyContext} = State) ->
+		Response0, #gtp{type = delete_bearer_request}, _State,
+		#{proxy_context := ProxyContext} = Data) ->
     lager:warning("Proxy Response ~p", [lager:pr(Response0, ?MODULE)]),
 
     Response =
@@ -542,17 +552,17 @@ handle_response(#proxy_request{direction = pgw2sgw} = ProxyRequest,
 				#v2_eps_bearer_id{eps_bearer_id = EBI}}}
 	end,
     forward_response(ProxyRequest, Response, ProxyContext),
-    delete_forward_session(normal, State),
-    {stop, State};
+    delete_forward_session(normal, Data),
+    {stop, Data};
 
 handle_response(#proxy_request{request = ReqKey} = _ReqInfo,
-		Response, _Request, State) ->
+		Response, _Request, _State, Data) ->
     lager:warning("Unknown Proxy Response ~p", [lager:pr(Response, ?MODULE)]),
 
     gtp_context:request_finished(ReqKey),
-    {noreply, State}.
+    {noreply, Data}.
 
-terminate(_Reason, _State) ->
+terminate(_Reason, _State, _Data) ->
     ok.
 
 %%%===================================================================
@@ -611,7 +621,7 @@ update_path_bind(NewContext, _OldContext) ->
 
 init_proxy_context(CntlPort,
 		   #context{imei = IMEI, context_id = ContextId, version = Version,
-			    control_interface = Interface, state = State},
+			    control_interface = Interface, state = CState},
 		   #proxy_info{imsi = IMSI, msisdn = MSISDN},
 		   #proxy_ggsn{address = PGW, dst_apn = APN}) ->
 
@@ -629,7 +639,7 @@ init_proxy_context(CntlPort,
        local_control_tei = CntlTEI,
        remote_control_teid =
 	   #fq_teid{ip = PGW},
-       state             = State
+       state             = CState
       }.
 
 get_context_from_bearer(_, #v2_fully_qualified_tunnel_endpoint_identifier{
@@ -647,8 +657,8 @@ get_context_from_bearer(_, #v2_fully_qualified_tunnel_endpoint_identifier{
       remote_data_teid = #fq_teid{ip = ergw_inet:bin2ip(IP), teid = TEI}
      };
 get_context_from_bearer(?'EPS Bearer ID', #v2_eps_bearer_id{eps_bearer_id = EBI},
-			#context{state = State} = Context) ->
-    Context#context{state = State#context_state{ebi = EBI}};
+			#context{state = CState} = Context) ->
+    Context#context{state = CState#context_state{ebi = EBI}};
 get_context_from_bearer(_K, _, Context) ->
     Context.
 
@@ -769,14 +779,14 @@ initiate_session_teardown(pgw2sgw,
     send_request(Ctx, ?T3, ?N3, Type, RequestIEs).
 
 bind_forward_path(sgw2pgw, Request, #{context := Context,
-				      proxy_context := ProxyContext} = State) ->
-    State#{
+				      proxy_context := ProxyContext} = Data) ->
+    Data#{
       context => gtp_path:bind(Request, Context),
       proxy_context => gtp_path:bind(ProxyContext)
      };
 bind_forward_path(pgw2sgw, Request, #{context := Context,
-				      proxy_context := ProxyContext} = State) ->
-    State#{
+				      proxy_context := ProxyContext} = Data) ->
+    Data#{
       context => gtp_path:bind(Context),
       proxy_context => gtp_path:bind(Request, ProxyContext)
      }.
@@ -807,30 +817,30 @@ forward_request(Direction, ReqKey,
 		#gtp{seq_no = ReqSeqNo,
 		     ie = #{?'Recovery' := Recovery}} = Request,
 		#{last_trigger_id :=
-		      {ReqSeqNo, LastFwdSeqNo, GtpPort, SrcIP, SrcPort, _}} = State,
-	       StateOld) ->
+		      {ReqSeqNo, LastFwdSeqNo, GtpPort, SrcIP, SrcPort, _}} = Data,
+	       DataOld) ->
 
-    Context = forward_context(Direction, State),
+    Context = forward_context(Direction, Data),
     FwdReq = build_context_request(Context, false, LastFwdSeqNo, Request),
     ergw_proxy_lib:forward_request(Direction, GtpPort, SrcIP, SrcPort, FwdReq, ReqKey,
-				   ReqSeqNo, Recovery /= undefined, StateOld);
+				   ReqSeqNo, Recovery /= undefined, DataOld);
 forward_request(Direction, ReqKey,
 		#gtp{seq_no = ReqSeqNo,
 		     ie = #{?'Recovery' := Recovery}} = Request,
-		State, StateOld) ->
-    Context = forward_context(Direction, State),
+		Data, DataOld) ->
+    Context = forward_context(Direction, Data),
     FwdReq = build_context_request(Context, false, undefined, Request),
     ergw_proxy_lib:forward_request(Direction, Context, FwdReq, ReqKey,
-				   ReqSeqNo, Recovery /= undefined, StateOld).
+				   ReqSeqNo, Recovery /= undefined, DataOld).
 
 trigger_request(Direction, #request{gtp_port = GtpPort, ip = SrcIP, port = SrcPort} = ReqKey,
-		#gtp{seq_no = SeqNo} = Request, State) ->
-    Context = forward_context(Direction, State),
+		#gtp{seq_no = SeqNo} = Request, Data) ->
+    Context = forward_context(Direction, Data),
     case ergw_proxy_lib:get_seq_no(Context, ReqKey, Request) of
 	{ok, FwdSeqNo} ->
-	    State#{last_trigger_id => {FwdSeqNo, SeqNo, GtpPort, SrcIP, SrcPort, ReqKey}};
+	    Data#{last_trigger_id => {FwdSeqNo, SeqNo, GtpPort, SrcIP, SrcPort, ReqKey}};
 	_ ->
-	    State
+	    Data
     end.
 
 trigger_request_finished(#gtp{seq_no = SeqNo},
@@ -845,7 +855,7 @@ forward_response(#proxy_request{request = ReqKey, seq_no = SeqNo, new_peer = New
     GtpResp = build_context_request(Context, NewPeer, SeqNo, Response),
     gtp_context:send_response(ReqKey, GtpResp).
 
-cancel_timeout(#{timeout := TRef} = State) ->
+cancel_timeout(#{timeout := TRef} = Data) ->
     case erlang:cancel_timer(TRef) of
         false ->
             receive {timeout, TRef, _} -> ok
@@ -854,10 +864,10 @@ cancel_timeout(#{timeout := TRef} = State) ->
         _ ->
             ok
     end,
-    maps:remove(timeout, State);
-cancel_timeout(State) ->
-    State.
+    maps:remove(timeout, Data);
+cancel_timeout(Data) ->
+    Data.
 
-restart_timeout(Timeout, Msg, State) ->
-    cancel_timeout(State),
-    State#{timeout => erlang:start_timer(Timeout, self(), Msg)}.
+restart_timeout(Timeout, Msg, Data) ->
+    cancel_timeout(Data),
+    Data#{timeout => erlang:start_timer(Timeout, self(), Msg)}.

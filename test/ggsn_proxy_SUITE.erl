@@ -530,22 +530,22 @@ init_per_testcase(create_pdp_context_proxy_request_resend, Config) ->
     init_per_testcase(Config),
     ok = meck:new(ggsn_gn, [passthrough, no_link]),
     ok = meck:expect(ggsn_gn, handle_request,
-		     fun(ReqKey, #gtp{type = create_pdp_context_request}, _Resent, State) ->
+		     fun(ReqKey, #gtp{type = create_pdp_context_request}, _Resent, _State, Data) ->
 			     gtp_context:request_finished(ReqKey),
-			     {noreply, State};
-			(ReqKey, Msg, Resent, State) ->
-			     meck:passthrough([ReqKey, Msg, Resent, State])
+			     {noreply, Data};
+			(ReqKey, Msg, Resent, State, Data) ->
+			     meck:passthrough([ReqKey, Msg, Resent, State, Data])
 		     end),
     Config;
 init_per_testcase(delete_pdp_context_request_timeout, Config) ->
     init_per_testcase(Config),
     ok = meck:new(ggsn_gn, [passthrough, no_link]),
     ok = meck:expect(ggsn_gn, handle_request,
-		     fun(ReqKey, #gtp{type = delete_pdp_context_request}, _Resent, State) ->
+		     fun(ReqKey, #gtp{type = delete_pdp_context_request}, _Resent, _State, Data) ->
 			     gtp_context:request_finished(ReqKey),
-			     {noreply, State};
-			(ReqKey, Msg, Resent, State) ->
-			     meck:passthrough([ReqKey, Msg, Resent, State])
+			     {noreply, Data};
+			(ReqKey, Msg, Resent, State, Data) ->
+			     meck:passthrough([ReqKey, Msg, Resent, State, Data])
 		     end),
     Config;
 init_per_testcase(TestCase, Config)
@@ -567,11 +567,11 @@ init_per_testcase(request_fast_resend, Config) ->
     init_per_testcase(Config),
     ok = meck:new(ggsn_gn, [passthrough, no_link]),
     ok = meck:expect(ggsn_gn, handle_request,
-		     fun(Request, Msg, Resent, State) ->
+		     fun(Request, Msg, Resent, State, Data) ->
 			     if Resent -> ok;
 				true   -> ct:sleep(1000)
 			     end,
-			     meck:passthrough([Request, Msg, Resent, State])
+			     meck:passthrough([Request, Msg, Resent, State, Data])
 		     end),
     Config;
 init_per_testcase(simple_pdp_context_request, Config) ->
@@ -582,19 +582,19 @@ init_per_testcase(ggsn_update_pdp_context_request, Config) ->
     %% our GGSN does not send update_bearer_request, so we have to fake them
     init_per_testcase(Config),
     ok = meck:new(ggsn_gn, [passthrough, no_link]),
-    ok = meck:expect(ggsn_gn, handle_call,
-		     fun(update_context, From, #{context := Context} = State) ->
+    ok = meck:expect(ggsn_gn, handle_event,
+		     fun({call, From}, update_context, _State, #{context := Context}) ->
 			     ergw_ggsn_test_lib:ggsn_update_context(From, Context),
-			     {noreply, State};
-			(Request, From, State) ->
-			     meck:passthrough([Request, From, State])
+			     keep_state_and_data;
+			(Type, Content, State, Data) ->
+			     meck:passthrough([Type, Content, State, Data])
 		     end),
     ok = meck:expect(ggsn_gn, handle_response,
-		     fun(From, #gtp{type = update_pdp_context_response}, _Request, State) ->
+		     fun(From, #gtp{type = update_pdp_context_response}, _Request, _State, Data) ->
 			     gen_server:reply(From, ok),
-			     {noreply, State};
-			(From, Response, Request, State) ->
-			     meck:passthrough([From, Response, Request, State])
+			     {noreply, Data};
+			(From, Response, Request, State, Data) ->
+			     meck:passthrough([From, Response, Request, State, Data])
 		     end),
     Config;
 init_per_testcase(create_pdp_context_overload, Config) ->
@@ -744,10 +744,10 @@ simple_pdp_context_request(Config) ->
     meck_validate(Config),
 
     GtpRecMatch = #gtp{type = create_pdp_context_request, _ = '_'},
-    P = meck:capture(first, ?HUT, handle_request, ['_', GtpRecMatch, '_', '_'], 2),
+    P = meck:capture(first, ?HUT, handle_request, ['_', GtpRecMatch, '_', '_', '_'], 2),
     ?match(#gtp{seq_no = SeqNo} when SeqNo >= 16#8000, P),
 
-    V = meck:capture(first, ggsn_gn, handle_request, ['_', GtpRecMatch, '_', '_'], 2),
+    V = meck:capture(first, ggsn_gn, handle_request, ['_', GtpRecMatch, '_', '_', '_'], 2),
     %% ct:pal("V: ~s", [ergw_test_lib:pretty_print(V)]),
     ?match(
        #gtp{ie = #{
@@ -763,7 +763,7 @@ simple_pdp_context_request(Config) ->
     GtpDelMatch = #gtp{type = delete_pdp_context_request, _ = '_'},
     ?match(
        #gtp{ie = #{{recovery,0} := undefined}},
-       meck:capture(first, ggsn_gn, handle_request, ['_', GtpDelMatch, '_', '_'], 2)),
+       meck:capture(first, ggsn_gn, handle_request, ['_', GtpDelMatch, '_', '_', '_'], 2)),
 
     ?equal([], outstanding_requests()),
     ok.
@@ -799,7 +799,7 @@ create_pdp_context_request_resend(Config) ->
     delete_pdp_context(GtpC),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
-    ?match(0, meck:num_calls(?HUT, handle_request, ['_', '_', true, '_'])),
+    ?match(0, meck:num_calls(?HUT, handle_request, ['_', '_', true, '_', '_'])),
     meck_validate(Config),
     ok.
 
@@ -819,7 +819,7 @@ create_pdp_context_proxy_request_resend(Config) ->
     gtp_context:terminate_context(Server),
 
     ?match(1, meck:num_calls(ggsn_gn, handle_request,
-			     ['_', #gtp{type = create_pdp_context_request, _ = '_'}, '_', '_'])),
+			     ['_', #gtp{type = create_pdp_context_request, _ = '_'}, '_', '_', '_'])),
     meck_validate(Config),
     ok.
 
@@ -833,7 +833,7 @@ delete_pdp_context_request_resend(Config) ->
     ?equal([], outstanding_requests()),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
-    ?match(0, meck:num_calls(?HUT, handle_request, ['_', '_', true, '_'])),
+    ?match(0, meck:num_calls(?HUT, handle_request, ['_', '_', true, '_', '_'])),
     meck_validate(Config),
     ok.
 
@@ -940,8 +940,8 @@ request_fast_resend(Config) ->
     delete_pdp_context(GtpC3),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
-    ?match(3, meck:num_calls(?HUT, handle_request, ['_', '_', true, '_'])),
-    ?match(3, meck:num_calls(ggsn_gn, handle_request, ['_', '_', true, '_'])),
+    ?match(3, meck:num_calls(?HUT, handle_request, ['_', '_', true, '_', '_'])),
+    ?match(3, meck:num_calls(ggsn_gn, handle_request, ['_', '_', true, '_', '_'])),
     meck_validate(Config),
     ok.
 
