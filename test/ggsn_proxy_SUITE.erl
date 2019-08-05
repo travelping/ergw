@@ -590,9 +590,9 @@ init_per_testcase(ggsn_update_pdp_context_request, Config) ->
 			     meck:passthrough([Type, Content, State, Data])
 		     end),
     ok = meck:expect(ggsn_gn, handle_response,
-		     fun(From, #gtp{type = update_pdp_context_response}, _Request, _State, Data) ->
-			     gen_server:reply(From, ok),
-			     {noreply, Data};
+		     fun(From, #gtp{type = update_pdp_context_response}, _, _, _) ->
+			     gen_statem:reply(From, ok),
+			     keep_state_and_data;
 			(From, Response, Request, State, Data) ->
 			     meck:passthrough([From, Response, Request, State, Data])
 		     end),

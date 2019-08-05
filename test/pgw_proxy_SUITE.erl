@@ -643,8 +643,8 @@ init_per_testcase(update_bearer_request, Config) ->
 		     end),
     ok = meck:expect(pgw_s5s8, handle_response,
 		     fun(From, #gtp{type = update_bearer_response}, _Request, _State, Data) ->
-			     gen_server:reply(From, ok),
-			     {noreply, Data};
+			     gen_statem:reply(From, ok),
+			     keep_state_and_data;
 			(From, Response, Request, State, Data) ->
 			     meck:passthrough([From, Response, Request, State, Data])
 		     end),

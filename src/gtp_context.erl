@@ -353,27 +353,21 @@ handle_event(cast, {handle_pdu, Request, Msg}, State, #{interface := Interface} 
     Interface:handle_pdu(Request, Msg, State, Data);
 
 handle_event(cast, {handle_response, ReqInfo, Request, Response0}, State,
-	    #{interface := Interface} = Data0) ->
+	    #{interface := Interface} = Data) ->
     try
 	Response = gtp_packet:decode_ies(Response0),
 	case Response of
 	    #gtp{} ->
 		lager:debug("handle gtp response: ~p", [gtp_c_lib:fmt_gtp(Response)]),
-		validate_message(Response, Data0);
+		validate_message(Response, Data);
 	    _ when is_atom(Response) ->
 		lager:debug("handle gtp response: ~p", [Response]),
 		ok
 	end,
-	Interface:handle_response(ReqInfo, Response, Request, State, Data0)
-    of
-	{stop, Data1} ->
-	    {stop, normal, Data1};
-
-	{noreply, Data1} ->
-	    {keep_state, Data1}
+	Interface:handle_response(ReqInfo, Response, Request, State, Data)
     catch
 	throw:#ctx_err{} = CtxErr ->
-	    handle_ctx_error(CtxErr, State, Data0);
+	    handle_ctx_error(CtxErr, State, Data);
 
 	Class:Reason:Stacktrace ->
 	    lager:error("GTP response failed with: ~p:~p (~p)", [Class, Reason, Stacktrace]),
