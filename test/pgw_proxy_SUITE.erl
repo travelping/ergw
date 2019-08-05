@@ -558,9 +558,9 @@ init_per_testcase(create_session_proxy_request_resend, Config) ->
     init_per_testcase(Config),
     ok = meck:new(pgw_s5s8, [passthrough, no_link]),
     ok = meck:expect(pgw_s5s8, handle_request,
-		     fun(ReqKey, #gtp{type = create_session_request}, _Resent, _State, Data) ->
+		     fun(ReqKey, #gtp{type = create_session_request}, _, _, _) ->
 			     gtp_context:request_finished(ReqKey),
-			     {noreply, Data};
+			     keep_state_and_data;
 			(ReqKey, Msg, Resent, State, Data) ->
 			     meck:passthrough([ReqKey, Msg, Resent, State, Data])
 		     end),
@@ -569,9 +569,9 @@ init_per_testcase(delete_session_request_timeout, Config) ->
     init_per_testcase(Config),
     ok = meck:new(pgw_s5s8, [passthrough, no_link]),
     ok = meck:expect(pgw_s5s8, handle_request,
-		     fun(ReqKey, #gtp{type = delete_session_request}, _Resent, _State, Data) ->
+		     fun(ReqKey, #gtp{type = delete_session_request}, _, _, _) ->
 			     gtp_context:request_finished(ReqKey),
-			     {noreply, Data};
+			     keep_state_and_data;
 			(ReqKey, Msg, Resent, State, Data) ->
 			     meck:passthrough([ReqKey, Msg, Resent, State, Data])
 		     end),
@@ -617,9 +617,10 @@ init_per_testcase(create_session_overload_response, Config) ->
     init_per_testcase(Config),
     ok = meck:new(pgw_s5s8, [passthrough, no_link]),
     ok = meck:expect(pgw_s5s8, handle_request,
-		     fun(_ReqKey, Request, _Resent, _State, Data) ->
-			     Reply = make_response(Request, overload, undefined),
-			     {stop, Reply, Data}
+		     fun(ReqKey, Request, _Resent, _State, _Data) ->
+			     Response = make_response(Request, overload, undefined),
+			     gtp_context:send_response(ReqKey, Request, Response),
+			     {stop, normal}
 		     end),
     Config;
 init_per_testcase(TestCase, Config)

@@ -530,9 +530,9 @@ init_per_testcase(create_pdp_context_proxy_request_resend, Config) ->
     init_per_testcase(Config),
     ok = meck:new(ggsn_gn, [passthrough, no_link]),
     ok = meck:expect(ggsn_gn, handle_request,
-		     fun(ReqKey, #gtp{type = create_pdp_context_request}, _Resent, _State, Data) ->
+		     fun(ReqKey, #gtp{type = create_pdp_context_request}, _, _, _) ->
 			     gtp_context:request_finished(ReqKey),
-			     {noreply, Data};
+			     keep_state_and_data;
 			(ReqKey, Msg, Resent, State, Data) ->
 			     meck:passthrough([ReqKey, Msg, Resent, State, Data])
 		     end),
@@ -541,9 +541,9 @@ init_per_testcase(delete_pdp_context_request_timeout, Config) ->
     init_per_testcase(Config),
     ok = meck:new(ggsn_gn, [passthrough, no_link]),
     ok = meck:expect(ggsn_gn, handle_request,
-		     fun(ReqKey, #gtp{type = delete_pdp_context_request}, _Resent, _State, Data) ->
+		     fun(ReqKey, #gtp{type = delete_pdp_context_request}, _, _, _) ->
 			     gtp_context:request_finished(ReqKey),
-			     {noreply, Data};
+			     keep_state_and_data;
 			(ReqKey, Msg, Resent, State, Data) ->
 			     meck:passthrough([ReqKey, Msg, Resent, State, Data])
 		     end),

@@ -244,33 +244,33 @@ handle_request(ReqKey, #gtp{version = v2} = Msg, Resent, State, #{'Version' := v
 %% resend request
 %%
 handle_request(ReqKey, Request, true, _State,
-	       #{context := Context, proxy_context := ProxyContext} = Data)
+	       #{context := Context, proxy_context := ProxyContext})
   when ?IS_REQUEST_CONTEXT(ReqKey, Request, Context) ->
     ergw_proxy_lib:forward_request(ProxyContext, ReqKey, Request),
-    {noreply, Data};
+    keep_state_and_data;
 handle_request(ReqKey, Request, true, _State,
-	       #{context := Context, proxy_context := ProxyContext} = Data)
+	       #{context := Context, proxy_context := ProxyContext})
   when ?IS_REQUEST_CONTEXT(ReqKey, Request, ProxyContext) ->
     ergw_proxy_lib:forward_request(Context, ReqKey, Request),
-    {noreply, Data};
+    keep_state_and_data;
 
 %%
 %% some request type need special treatment for resends
 %%
 handle_request(ReqKey, #gtp{type = create_session_request} = Request, true,
-	       _State, #{proxy_context := ProxyContext} = Data) ->
+	       _State, #{proxy_context := ProxyContext}) ->
     ergw_proxy_lib:forward_request(ProxyContext, ReqKey, Request),
-    {noreply, Data};
+    keep_state_and_data;
 handle_request(ReqKey, #gtp{type = change_notification_request} = Request, true,
-	       _State, #{context := Context, proxy_context := ProxyContext} = Data)
+	       _State, #{context := Context, proxy_context := ProxyContext})
   when ?IS_REQUEST_CONTEXT_OPTIONAL_TEI(ReqKey, Request, Context) ->
     ergw_proxy_lib:forward_request(ProxyContext, ReqKey, Request),
-    {noreply, Data};
+    keep_state_and_data;
 
-handle_request(_ReqKey, _Request, true, _State, Data) ->
+handle_request(_ReqKey, _Request, true, _State, _Data) ->
     lager:error("resend of request not handled ~p, ~p",
 		[lager:pr(_ReqKey, ?MODULE), gtp_c_lib:fmt_gtp(_Request)]),
-    {noreply, Data};
+    keep_state_and_data;
 
 handle_request(ReqKey,
 	       #gtp{type = create_session_request, ie = IEs} = Request,
@@ -310,7 +310,7 @@ handle_request(ReqKey,
     DataNew = Data#{context => Context, proxy_context => ProxyContext, pfcp => PCtx},
     forward_request(sgw2pgw, ReqKey, Request, DataNew, Data),
 
-    {noreply, DataNew};
+    {keep_state, DataNew};
 
 handle_request(ReqKey,
 	       #gtp{type = modify_bearer_request} = Request,
@@ -333,7 +333,7 @@ handle_request(ReqKey,
     DataNew = Data#{context => Context, proxy_context => ProxyContext},
     forward_request(sgw2pgw, ReqKey, Request, DataNew, Data),
 
-    {noreply, DataNew};
+    {keep_state, DataNew};
 
 handle_request(ReqKey,
 	       #gtp{type = modify_bearer_command} = Request,
@@ -345,7 +345,7 @@ handle_request(ReqKey,
     forward_request(sgw2pgw, ReqKey, Request, Data1, Data0),
 
     Data = trigger_request(sgw2pgw, ReqKey, Request, Data1),
-    {noreply, Data};
+    {keep_state, Data};
 
 %%
 %% SGW to PGW requests without tunnel endpoint modification
@@ -359,7 +359,7 @@ handle_request(ReqKey,
     DataNew = bind_forward_path(sgw2pgw, Request, Data),
     forward_request(sgw2pgw, ReqKey, Request, DataNew, Data),
 
-    {noreply, DataNew};
+    {keep_state, DataNew};
 
 %%
 %% SGW to PGW notifications without tunnel endpoint modification
@@ -375,7 +375,7 @@ handle_request(ReqKey,
     DataNew = bind_forward_path(sgw2pgw, Request, Data),
     forward_request(sgw2pgw, ReqKey, Request, DataNew, Data),
 
-    {noreply, DataNew};
+    {keep_state, DataNew};
 
 %%
 %% PGW to SGW requests without tunnel endpoint modification
@@ -388,7 +388,7 @@ handle_request(ReqKey,
 
     Data = bind_forward_path(pgw2sgw, Request, Data0),
     forward_request(pgw2sgw, ReqKey, Request, Data, Data),
-    {noreply, Data};
+    {keep_state, Data};
 
 %%
 %% SGW to PGW delete session requests
@@ -404,7 +404,7 @@ handle_request(ReqKey,
     Msg = {delete_session_request, sgw2pgw, ReqKey, Request},
     Data = restart_timeout(?RESPONSE_TIMEOUT, Msg, Data0),
 
-    {noreply, Data};
+    {keep_state, Data};
 
 %%
 %% PGW to SGW delete bearer requests
@@ -420,11 +420,11 @@ handle_request(ReqKey,
     Msg = {delete_bearer_request, pgw2sgw, ReqKey, Request},
     Data = restart_timeout(?RESPONSE_TIMEOUT, Msg, Data0),
 
-    {noreply, Data};
+    {keep_state, Data};
 
-handle_request(ReqKey, _Request, _Resent, _State, Data) ->
+handle_request(ReqKey, _Request, _Resent, _State, _Data) ->
     gtp_context:request_finished(ReqKey),
-    {noreply, Data}.
+    keep_state_and_data.
 
 handle_response(ReqInfo, #gtp{version = v1} = Msg, Request, State, Data) ->
     ?GTP_v1_Interface:handle_response(ReqInfo, Msg, Request, State, Data);

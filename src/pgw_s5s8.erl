@@ -277,11 +277,11 @@ handle_request(ReqKey, #gtp{version = v1} = Msg, Resent, State, Data) ->
 handle_request(ReqKey, #gtp{version = v2} = Msg, Resent, State, #{'Version' := v1} = Data) ->
     handle_request(ReqKey, Msg, Resent, State, Data#{'Version' => v2});
 
-handle_request(_ReqKey, _Msg, true, _State, Data) ->
+handle_request(_ReqKey, _Msg, true, _State, _Data) ->
     %% resent request
-    {noreply, Data};
+    keep_state_and_data;
 
-handle_request(_ReqKey,
+handle_request(ReqKey,
 	       #gtp{type = create_session_request,
 		    ie = #{?'Sender F-TEID for Control Plane' := FqCntlTEID,
 			   ?'Access Point Name' := #v2_access_point_name{apn = APN},
@@ -399,10 +399,10 @@ handle_request(_ReqKey,
 
     ResponseIEs = create_session_response(ActiveSessionOpts, IEs, EBI, Context),
     Response = response(create_session_response, Context, ResponseIEs, Request),
+    gtp_context:send_response(ReqKey, Request, Response),
+    {keep_state, Data#{context => Context, pfcp => PCtx}};
 
-    {reply, Response, Data#{context => Context, pfcp => PCtx}};
-
-handle_request(_ReqKey,
+handle_request(ReqKey,
 	       #gtp{type = modify_bearer_request,
 		    ie = #{?'Bearer Contexts to be modified' :=
 			       #v2_bearer_context{
@@ -455,9 +455,10 @@ handle_request(_ReqKey,
 			     EBI]} |
 		   ResponseIEs0],
     Response = response(modify_bearer_response, Context, ResponseIEs, Request),
-    {reply, Response, Data1};
+    gtp_context:send_response(ReqKey, Request, Response),
+    {keep_state, Data1};
 
-handle_request(_ReqKey,
+handle_request(ReqKey,
 	       #gtp{type = modify_bearer_request, ie = IEs} = Request,
 	       _Resent, _State,
 	       #{context := OldContext, pfcp := PCtx,
@@ -469,7 +470,8 @@ handle_request(_ReqKey,
 
     ResponseIEs = [#v2_cause{v2_cause = request_accepted}],
     Response = response(modify_bearer_response, Context, ResponseIEs, Request),
-    {reply, Response, Data#{context => Context}};
+    gtp_context:send_response(ReqKey, Request, Response),
+    {keep_state, Data#{context => Context}};
 
 handle_request(#request{gtp_port = GtpPort, ip = SrcIP, port = SrcPort} = ReqKey,
 	       #gtp{type = modify_bearer_command,
@@ -479,7 +481,7 @@ handle_request(#request{gtp_port = GtpPort, ip = SrcIP, port = SrcPort} = ReqKey
 			       #v2_bearer_context{
 				   group = #{?'EPS Bearer ID' := EBI} = Bearer}} = IEs},
 	       _Resent, _State,
-	       #{context := Context, pfcp := PCtx, 'Session' := Session} = Data) ->
+	       #{context := Context, pfcp := PCtx, 'Session' := Session}) ->
     URRActions = update_session_from_gtp_req(IEs, Session, Context),
     trigger_defered_usage_report(URRActions, PCtx),
 
@@ -490,10 +492,9 @@ handle_request(#request{gtp_port = GtpPort, ip = SrcIP, port = SrcPort} = ReqKey
     RequestIEs = gtp_v2_c:build_recovery(Type, Context, false, RequestIEs0),
     Msg = msg(Context, Type, RequestIEs),
     send_request(GtpPort, SrcIP, SrcPort, ?T3, ?N3, Msg#gtp{seq_no = SeqNo}, ReqKey),
+    keep_state_and_data;
 
-    {noreply, Data};
-
-handle_request(_ReqKey,
+handle_request(ReqKey,
 	       #gtp{type = change_notification_request, ie = IEs} = Request,
 	       _Resent, _State,
 	       #{context := OldContext, pfcp := PCtx,
@@ -506,9 +507,10 @@ handle_request(_ReqKey,
     ResponseIEs0 = [#v2_cause{v2_cause = request_accepted}],
     ResponseIEs = copy_ies_to_response(IEs, ResponseIEs0, [?'IMSI', ?'ME Identity']),
     Response = response(change_notification_response, Context, ResponseIEs, Request),
-    {reply, Response, Data#{context => Context}};
+    gtp_context:send_response(ReqKey, Request, Response),
+    {keep_state, Data#{context => Context}};
 
-handle_request(_ReqKey,
+handle_request(ReqKey,
 	       #gtp{type = suspend_notification} = Request,
 	       _Resent, _State, #{context := Context} = Data) ->
 
@@ -516,9 +518,10 @@ handle_request(_ReqKey,
 
     ResponseIEs = [#v2_cause{v2_cause = request_accepted}],
     Response = response(suspend_acknowledge, Context, ResponseIEs, Request),
-    {reply, Response, Data#{context => Context}};
+    gtp_context:send_response(ReqKey, Request, Response),
+    {keep_state, Data#{context => Context}};
 
-handle_request(_ReqKey,
+handle_request(ReqKey,
 	       #gtp{type = resume_notification} = Request,
 	       _Resent, _State, #{context := Context} = Data) ->
 
@@ -526,10 +529,11 @@ handle_request(_ReqKey,
 
     ResponseIEs = [#v2_cause{v2_cause = request_accepted}],
     Response = response(resume_acknowledge, Context, ResponseIEs, Request),
-    {reply, Response, Data#{context => Context}};
+    gtp_context:send_response(ReqKey, Request, Response),
+    {keep_state, Data#{context => Context}};
 
-handle_request(_ReqKey,
-	       #gtp{type = delete_session_request, ie = IEs},
+handle_request(ReqKey,
+	       #gtp{type = delete_session_request, ie = IEs} = Request,
 	       _Resent, _State, #{context := Context} = Data0) ->
 
     FqTEI = maps:get(?'Sender F-TEID for Control Plane', IEs, undefined),
@@ -543,17 +547,19 @@ handle_request(_ReqKey,
     case Result of
 	{ok, {ReplyIEs, Data}} ->
 	    close_pdn_context(normal, Data),
-	    Reply = response(delete_session_response, Context, ReplyIEs),
-	    {stop, Reply, Data};
+	    Response = response(delete_session_response, Context, ReplyIEs),
+	    gtp_context:send_response(ReqKey, Request, Response),
+	    {stop, normal, Data};
 
 	{error, ReplyIEs} ->
 	    Response = response(delete_session_response, Context, ReplyIEs),
-	    {reply, Response, Data0}
+	    gtp_context:send_response(ReqKey, Request, Response),
+	    keep_state_and_data
     end;
 
-handle_request(ReqKey, _Msg, _Resent, _State, Data) ->
+handle_request(ReqKey, _Msg, _Resent, _State, _Data) ->
     gtp_context:request_finished(ReqKey),
-    {noreply, Data}.
+    keep_state_and_data.
 
 handle_response(ReqInfo, #gtp{version = v1} = Msg, Request, State, Data) ->
     ?GTP_v1_Interface:handle_response(ReqInfo, Msg, Request, State, Data);

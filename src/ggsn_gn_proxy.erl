@@ -235,34 +235,34 @@ session_events(_Session, _Events, _State, Data) ->
 %% resend request
 %%
 handle_request(ReqKey, Request, true, _State,
-	       #{context := Context, proxy_context := ProxyContext} = Data)
+	       #{context := Context, proxy_context := ProxyContext})
   when ?IS_REQUEST_CONTEXT(ReqKey, Request, Context) ->
     ergw_proxy_lib:forward_request(ProxyContext, ReqKey, Request),
-    {noreply, Data};
+    keep_state_and_data;
 
 handle_request(ReqKey, Request, true, _State,
-	       #{context := Context, proxy_context := ProxyContext} = Data)
+	       #{context := Context, proxy_context := ProxyContext})
   when ?IS_REQUEST_CONTEXT(ReqKey, Request, ProxyContext) ->
     ergw_proxy_lib:forward_request(Context, ReqKey, Request),
-    {noreply, Data};
+    keep_state_and_data;
 
 %%
 %% some request type need special treatment for resends
 %%
 handle_request(ReqKey, #gtp{type = create_pdp_context_request} = Request, true,
-	       _State, #{proxy_context := ProxyContext} = Data) ->
+	       _State, #{proxy_context := ProxyContext}) ->
     ergw_proxy_lib:forward_request(ProxyContext, ReqKey, Request),
-    {noreply, Data};
+    keep_state_and_data;
 handle_request(ReqKey, #gtp{type = ms_info_change_notification_request} = Request, true,
-	       _State, #{context := Context, proxy_context := ProxyContext} = Data)
+	       _State, #{context := Context, proxy_context := ProxyContext})
   when ?IS_REQUEST_CONTEXT_OPTIONAL_TEI(ReqKey, Request, Context) ->
     ergw_proxy_lib:forward_request(ProxyContext, ReqKey, Request),
-    {noreply, Data};
+    keep_state_and_data;
 
-handle_request(_ReqKey, _Request, true, _State, Data) ->
+handle_request(_ReqKey, _Request, true, _State, _Data) ->
     lager:error("resend of request not handled ~p, ~p",
 		[lager:pr(_ReqKey, ?MODULE), gtp_c_lib:fmt_gtp(_Request)]),
-    {noreply, Data};
+    keep_state_and_data;
 
 handle_request(ReqKey,
 	       #gtp{type = create_pdp_context_request,
@@ -303,7 +303,7 @@ handle_request(ReqKey,
     DataNew = Data#{context => Context, proxy_context => ProxyContext, pfcp => PCtx},
     forward_request(sgsn2ggsn, ReqKey, Request, DataNew, Data),
 
-    {noreply, DataNew};
+    {keep_state, DataNew};
 
 handle_request(ReqKey,
 	       #gtp{type = update_pdp_context_request} = Request,
@@ -326,7 +326,7 @@ handle_request(ReqKey,
     DataNew = Data#{context => Context, proxy_context => ProxyContext},
     forward_request(sgsn2ggsn, ReqKey, Request, DataNew, Data),
 
-    {noreply, DataNew};
+    {keep_state, DataNew};
 
 %%
 %% GGSN to SGW Update PDP Context Request
@@ -344,7 +344,7 @@ handle_request(ReqKey,
     DataNew = Data#{context => Context, proxy_context => ProxyContext},
     forward_request(ggsn2sgsn, ReqKey, Request, DataNew, Data),
 
-    {noreply, DataNew};
+    {keep_state, DataNew};
 
 handle_request(ReqKey,
 	       #gtp{type = ms_info_change_notification_request} = Request,
@@ -358,7 +358,7 @@ handle_request(ReqKey,
     DataNew = Data#{context => Context, proxy_context => ProxyContext},
     forward_request(sgsn2ggsn, ReqKey, Request, DataNew, Data),
 
-    {noreply, DataNew};
+    {keep_state, DataNew};
 
 handle_request(ReqKey,
 	       #gtp{type = delete_pdp_context_request} = Request,
@@ -371,7 +371,7 @@ handle_request(ReqKey,
     Msg = {delete_pdp_context_request, sgsn2ggsn, ReqKey, Request},
     Data = restart_timeout(?RESPONSE_TIMEOUT, Msg, Data0),
 
-    {noreply, Data};
+    {keep_state, Data};
 
 handle_request(ReqKey,
 	       #gtp{type = delete_pdp_context_request} = Request,
@@ -384,12 +384,12 @@ handle_request(ReqKey,
     Msg = {delete_pdp_context_request, ggsn2sgsn, ReqKey, Request},
     Data = restart_timeout(?RESPONSE_TIMEOUT, Msg, Data0),
 
-    {noreply, Data};
+    {keep_state, Data};
 
-handle_request(#request{gtp_port = GtpPort} = ReqKey, Msg, _Resent, _State, Data) ->
+handle_request(#request{gtp_port = GtpPort} = ReqKey, Msg, _Resent, _State, _Data) ->
     lager:warning("Unknown Proxy Message on ~p: ~p", [GtpPort, lager:pr(Msg, ?MODULE)]),
     gtp_context:request_finished(ReqKey),
-    {noreply, Data}.
+    keep_state_and_data.
 
 handle_response(#proxy_request{direction = sgsn2ggsn} = ProxyRequest,
 		#gtp{type = create_pdp_context_response,
