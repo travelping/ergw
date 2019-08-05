@@ -633,7 +633,8 @@ gy_validity_timer(Config) ->
     packet_in(Config),
     ct:sleep({seconds, 10}),
 
-    ?match(X when X >= 3, meck:num_calls(?HUT, handle_info, [{timeout, '_', pfcp_timer}, '_'])),
+    ?match(X when X >= 3,
+		  meck:num_calls(?HUT, handle_event, [info, {timeout, '_', pfcp_timer}, '_', '_'])),
 
     CCRU = lists:filter(
 	     fun({_, {ergw_aaa_session, invoke, [_, S, {gy,'CCR-Update'}, _]}, _}) ->

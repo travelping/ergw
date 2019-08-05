@@ -668,7 +668,7 @@ create_session_request_resend(Config) ->
     delete_session(GtpC),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
-    ?match(0, meck:num_calls(?HUT, handle_request, ['_', '_', true, '_'])),
+    ?match(0, meck:num_calls(?HUT, handle_request, ['_', '_', true, '_', '_'])),
     meck_validate(Config),
     ok.
 
@@ -681,7 +681,7 @@ delete_session_request_resend(Config) ->
     ?equal(Response, send_recv_pdu(GtpC, Msg)),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
-    ?match(0, meck:num_calls(?HUT, handle_request, ['_', '_', true, '_'])),
+    ?match(0, meck:num_calls(?HUT, handle_request, ['_', '_', true, '_', '_'])),
     meck_validate(Config),
     ok.
 
@@ -1068,7 +1068,8 @@ gy_validity_timer(Config) ->
     ct:sleep({seconds, 10}),
     delete_session(GtpC),
 
-    ?match(X when X >= 3, meck:num_calls(?HUT, handle_info, [{pfcp_timer, '_'}, '_'])),
+    ?match(X when X >= 3,
+		  meck:num_calls(?HUT, handle_event, [info, {pfcp_timer, '_'}, '_', '_'])),
 
     CCRU = lists:filter(
 	     fun({_, {ergw_aaa_session, invoke, [_, S, {gy,'CCR-Update'}, _]}, _}) ->

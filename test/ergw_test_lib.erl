@@ -162,9 +162,9 @@ meck_init(Config) ->
     {_, Hut} = lists:keyfind(handler_under_test, 1, Config),   %% let it crash if HUT is undefined
     ok = meck:new(Hut, [passthrough, no_link, non_strict]),
     ok = meck:expect(Hut, handle_request,
-		     fun(ReqKey, Request, Resent, State) ->
+		     fun(ReqKey, Request, Resent, State, Data) ->
 			     try
-				 meck:passthrough([ReqKey, Request, Resent, State])
+				 meck:passthrough([ReqKey, Request, Resent, State, Data])
 			     catch
 				 throw:#ctx_err{} = CtxErr ->
 				     meck:exception(throw, CtxErr)

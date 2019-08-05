@@ -526,15 +526,15 @@ init_per_testcase(path_restart, Config) ->
     Config;
 init_per_testcase(duplicate_session_slow, Config) ->
     init_per_testcase(Config),
-    ok = meck:expect(?HUT, handle_call,
-		     fun(terminate_context, From, StateIn) ->
-			     {stop, normal, Reply, StateOut} =
-				 meck:passthrough([terminate_context, From, StateIn]),
-			     gen_server:reply(From, Reply),
+    ok = meck:expect(?HUT, handle_event,
+		     fun({call, _} = Type, terminate_context, State, Data) ->
+			     {stop_and_reply, normal, [{reply, From, Reply}]} =
+				 meck:passthrough([Type, terminate_context, State, Data]),
+			     gen_statem:reply(From, Reply),
 			     ct:sleep(500),
-			     {stop,normal,StateOut};
-			(Request, From, State) ->
-			     meck:passthrough([Request, From, State])
+			     {stop, normal};
+			(Type, Content, State, Data) ->
+			     meck:passthrough([Type, Content, State, Data])
 		     end),
     Config;
 init_per_testcase(TestCase, Config)
@@ -559,11 +559,11 @@ init_per_testcase(delete_bearer_requests_multi, Config) ->
 init_per_testcase(request_fast_resend, Config) ->
     init_per_testcase(Config),
     ok = meck:expect(?HUT, handle_request,
-		     fun(Request, Msg, Resent, State) ->
+		     fun(Request, Msg, Resent, State, Data) ->
 			     if Resent -> ok;
 				true   -> ct:sleep(1000)
 			     end,
-			     meck:passthrough([Request, Msg, Resent, State])
+			     meck:passthrough([Request, Msg, Resent, State, Data])
 		     end),
     Config;
 init_per_testcase(TestCase, Config)
@@ -649,7 +649,7 @@ end_per_testcase(path_restart, Config) ->
     end_per_testcase(Config),
     Config;
 end_per_testcase(duplicate_session_slow, Config) ->
-    ok = meck:delete(?HUT, handle_call, 3),
+    ok = meck:delete(?HUT, handle_event, 4),
     end_per_testcase(Config),
     Config;
 end_per_testcase(TestCase, Config)
@@ -659,7 +659,7 @@ end_per_testcase(TestCase, Config)
     end_per_testcase(Config),
     Config;
 end_per_testcase(request_fast_resend, Config) ->
-    ok = meck:delete(?HUT, handle_request, 4),
+    ok = meck:delete(?HUT, handle_request, 5),
     end_per_testcase(Config),
     Config;
 end_per_testcase(TestCase, Config)
@@ -1188,7 +1188,7 @@ request_fast_resend(Config) ->
 
     delete_session(GtpC3),
 
-    ?match(3, meck:num_calls(?HUT, handle_request, ['_', '_', true, '_'])),
+    ?match(3, meck:num_calls(?HUT, handle_request, ['_', '_', true, '_', '_'])),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
@@ -1204,7 +1204,7 @@ create_session_request_resend(Config) ->
     delete_session(GtpC),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
-    ?match(0, meck:num_calls(?HUT, handle_request, ['_', '_', true, '_'])),
+    ?match(0, meck:num_calls(?HUT, handle_request, ['_', '_', true, '_', '_'])),
     meck_validate(Config),
     ok.
 
@@ -1217,7 +1217,7 @@ delete_session_request_resend(Config) ->
     ?equal(Response, send_recv_pdu(GtpC, Msg)),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
-    ?match(0, meck:num_calls(?HUT, handle_request, ['_', '_', true, '_'])),
+    ?match(0, meck:num_calls(?HUT, handle_request, ['_', '_', true, '_', '_'])),
     meck_validate(Config),
     ok.
 
@@ -1943,7 +1943,7 @@ sx_cp_to_up_forward(Config) ->
 		    }}, PDR),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
-    ?match(1, meck:num_calls(?HUT, handle_pdu, ['_', #gtp{type = g_pdu, _ = '_'}, '_'])),
+    ?match(1, meck:num_calls(?HUT, handle_pdu, ['_', #gtp{type = g_pdu, _ = '_'}, '_', '_'])),
     meck_validate(Config),
     ok.
 
@@ -1998,7 +1998,7 @@ sx_up_to_cp_forward(Config) ->
     delete_session(GtpC),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
-    ?match(1, meck:num_calls(?HUT, handle_pdu, ['_', #gtp{type = g_pdu, _ = '_'}, '_'])),
+    ?match(1, meck:num_calls(?HUT, handle_pdu, ['_', #gtp{type = g_pdu, _ = '_'}, '_', '_'])),
 
     UDP = lists:filter(
 	    fun({udp, _, _, ?GTP1u_PORT, _}) -> true;
@@ -2077,7 +2077,7 @@ sx_upf_restart(Config) ->
     delete_session(GtpC),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
-    ?match(1, meck:num_calls(?HUT, handle_pdu, ['_', #gtp{type = g_pdu, _ = '_'}, '_'])),
+    ?match(1, meck:num_calls(?HUT, handle_pdu, ['_', #gtp{type = g_pdu, _ = '_'}, '_', '_'])),
 
     UDP = lists:filter(
 	    fun({udp, _, _, ?GTP1u_PORT, _}) -> true;
@@ -2120,7 +2120,8 @@ gy_validity_timer(Config) ->
     ct:sleep({seconds, 10}),
     delete_session(GtpC),
 
-    ?match(X when X >= 3, meck:num_calls(?HUT, handle_info, [{pfcp_timer, '_'}, '_'])),
+    ?match(X when X >= 3,
+		  meck:num_calls(?HUT, handle_event, [info, {pfcp_timer, '_'}, '_', '_'])),
 
     CCRU = lists:filter(
 	     fun({_, {ergw_aaa_session, invoke, [_, S, {gy,'CCR-Update'}, _]}, _}) ->
