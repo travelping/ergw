@@ -465,7 +465,7 @@ make_send_req(Address, T1, N1, Msg, CbInfo) ->
       }.
 
 new_sequence_number(Msg, #state{seq_no = SeqNo} = State) ->
-    {Msg#pfcp{seq_no = SeqNo}, State#state{seq_no = SeqNo + 1}}.
+    {Msg#pfcp{seq_no = SeqNo}, State#state{seq_no = (SeqNo + 1) band 16#ffffff}}.
 
 start_request(#send_req{t1 = Timeout, msg = Msg} = SendReq, State) ->
     #pfcp{seq_no = SeqNo} = Msg,
