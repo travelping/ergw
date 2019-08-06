@@ -107,18 +107,21 @@ init(_Opts, Data) ->
 handle_event(Type, Content, State, #{'Version' := v1} = Data) ->
     ?GTP_v1_Interface:handle_event(Type, Content, State, Data);
 
+handle_event(enter, _OldState, _State, _Data) ->
+    keep_state_and_data;
+
 handle_event({call, From}, delete_context, _State, #{context := Context}) ->
     delete_context(From, administrative, Context),
     keep_state_and_data;
 
 handle_event({call, From}, terminate_context, _State, Data) ->
     close_pdn_context(normal, Data),
-    {stop_and_reply, normal, [{reply, From, ok}]};
+    {next_state, shutdown, Data, [{reply, From, ok}]};
 
 handle_event({call, From}, {path_restart, Path}, _State,
 	     #{context := #context{path = Path}} = Data) ->
     close_pdn_context(normal, Data),
-    {stop_and_reply, normal, [{reply, From, ok}]};
+    {next_state, shutdown, Data, [{reply, From, ok}]};
 
 handle_event({call, From}, {path_restart, _Path}, _State, _Data) ->
     {keep_state_and_data, [{reply, From, ok}]};
@@ -148,7 +151,7 @@ handle_event(info, {'DOWN', _MonitorRef, Type, Pid, _Info}, _State,
 	    #{pfcp := #pfcp_ctx{node = Pid}} = Data)
   when Type == process; Type == pfcp ->
     close_pdn_context(upf_failure, Data),
-    {stop, normal};
+    {next_state, shutdown, Data};
 
 handle_event(info, stop_from_session, _State, #{context := Context}) ->
     delete_context(undefined, normal, Context),
@@ -244,7 +247,7 @@ handle_sx_report(#pfcp{type = session_report_request,
 		       ie = #{report_type := #report_type{erir = 1}}},
 	    _State, Data) ->
     close_pdn_context(normal, Data),
-    {stop, Data};
+    {shutdown, Data};
 
 handle_sx_report(Report, State, Data) ->
     ?GTP_v1_Interface:handle_sx_report(Report, State, Data).
@@ -549,7 +552,7 @@ handle_request(ReqKey,
 	    close_pdn_context(normal, Data),
 	    Response = response(delete_session_response, Context, ReplyIEs),
 	    gtp_context:send_response(ReqKey, Request, Response),
-	    {stop, normal, Data};
+	    {next_state, shutdown, Data};
 
 	{error, ReplyIEs} ->
 	    Response = response(delete_session_response, Context, ReplyIEs),
@@ -600,7 +603,7 @@ handle_response({From, TermCause}, timeout, #gtp{type = delete_bearer_request},
     if is_tuple(From) -> gen_statem:reply(From, {error, timeout});
        true -> ok
     end,
-    {stop, normal};
+    {next_state, shutdown, Data};
 
 handle_response({From, TermCause},
 		#gtp{type = delete_bearer_response,
@@ -612,7 +615,7 @@ handle_response({From, TermCause},
     if is_tuple(From) -> gen_statem:reply(From, {ok, RespCause});
        true -> ok
     end,
-    {stop, normal, Data#{context := Context}}.
+    {next_state, shutdown, Data#{context := Context}}.
 
 terminate(_Reason, _State, #{context := Context}) ->
     pdn_release_ip(Context),

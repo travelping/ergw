@@ -138,6 +138,9 @@ init(#{proxy_sockets := ProxyPorts, node_selection := NodeSelect,
 handle_event(Type, Content, State, #{'Version' := v1} = Data) ->
     ?GTP_v1_Interface:handle_event(Type, Content, State, Data);
 
+handle_event(enter, _OldState, _State, _Data) ->
+    keep_state_and_data;
+
 handle_event({call, From}, delete_context, _State, _Data) ->
     lager:warning("delete_context no handled(yet)"),
     {keep_state_and_data, [{reply, From, ok}]};
@@ -145,19 +148,19 @@ handle_event({call, From}, delete_context, _State, _Data) ->
 handle_event({call, From}, terminate_context, _State, Data) ->
     initiate_session_teardown(sgw2pgw, Data),
     delete_forward_session(normal, Data),
-    {stop_and_reply, normal, [{reply, From, ok}]};
+    {next_state, shutdown, Data, [{reply, From, ok}]};
 
 handle_event({call, From}, {path_restart, Path}, _State,
 	     #{context := #context{path = Path}} = Data) ->
     initiate_session_teardown(sgw2pgw, Data),
     delete_forward_session(normal, Data),
-    {stop_and_reply, normal, [{reply, From, ok}]};
+    {next_state, shutdown, Data, [{reply, From, ok}]};
 
 handle_event({call, From}, {path_restart, Path}, _State,
 	     #{proxy_context := #context{path = Path}} = Data) ->
     initiate_session_teardown(pgw2sgw, Data),
     delete_forward_session(normal, Data),
-    {stop_and_reply, normal, [{reply, From, ok}]};
+    {next_state, shutdown, Data, [{reply, From, ok}]};
 
 handle_event({call, From}, {path_restart, _Path}, _State, _Data) ->
     {keep_state_and_data, [{reply, From, ok}]};
@@ -175,14 +178,14 @@ handle_event(info, {timeout, _, {delete_session_request, Direction, _ReqKey, _Re
     lager:warning("Proxy Delete Session Timeout ~p", [Direction]),
 
     delete_forward_session(normal, Data),
-    {stop, normal};
+    {next_state, shutdown, Data};
 
 handle_event(info, {timeout, _, {delete_bearer_request, Direction, _ReqKey, _Request}},
 	     _State, Data) ->
     lager:warning("Proxy Delete Bearer Timeout ~p", [Direction]),
 
     delete_forward_session(normal, Data),
-    {stop, normal};
+    {next_state, shutdown, Data};
 
 handle_event(info, {'DOWN', _MonitorRef, Type, Pid, _Info}, _State,
 	     #{pfcp := #pfcp_ctx{node = Pid}} = Data)
@@ -226,7 +229,7 @@ handle_sx_report(#pfcp{type = session_report_request,
     Direction = fteid_forward_context(FTEID, Data),
     initiate_session_teardown(Direction, Data),
     delete_forward_session(normal, Data),
-    {stop, Data};
+    {shutdown, Data};
 
 handle_sx_report(_, _State, Data) ->
     {error, 'System failure', Data}.
@@ -429,6 +432,9 @@ handle_request(ReqKey, _Request, _Resent, _State, _Data) ->
 handle_response(ReqInfo, #gtp{version = v1} = Msg, Request, State, Data) ->
     ?GTP_v1_Interface:handle_response(ReqInfo, Msg, Request, State, Data);
 
+handle_response(_, _Response, _Request, shutdown, _Data) ->
+    keep_state_and_data;
+
 handle_response(#proxy_request{direction = sgw2pgw} = ProxyRequest,
 		#gtp{type = create_session_response,
 		     ie = #{?'Cause' := #v2_cause{v2_cause = Cause}}} = Response,
@@ -450,7 +456,7 @@ handle_response(#proxy_request{direction = sgw2pgw} = ProxyRequest,
 		{keep_state, Data#{proxy_context => ProxyContext, pfcp => PCtx}};
 	   true ->
 		delete_forward_session(normal, Data),
-		{stop, normal}
+		{next_state, shutdown, Data}
 	end,
 
     forward_response(ProxyRequest, Response, Context),
@@ -528,7 +534,7 @@ handle_response(#proxy_request{direction = sgw2pgw} = ProxyRequest,
 	end,
     forward_response(ProxyRequest, Response, Context),
     delete_forward_session(normal, Data),
-    {stop, normal};
+    {next_state, shutdown, Data};
 
 %%
 %% SGW to PGW delete bearer response
@@ -551,7 +557,7 @@ handle_response(#proxy_request{direction = pgw2sgw} = ProxyRequest,
 	end,
     forward_response(ProxyRequest, Response, ProxyContext),
     delete_forward_session(normal, Data),
-    {stop, normal};
+    {next_state, shutdown, Data};
 
 handle_response(#proxy_request{request = ReqKey} = _ReqInfo,
 		Response, _Request, _State, _Data) ->

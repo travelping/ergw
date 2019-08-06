@@ -527,12 +527,10 @@ init_per_testcase(path_restart, Config) ->
 init_per_testcase(duplicate_session_slow, Config) ->
     init_per_testcase(Config),
     ok = meck:expect(?HUT, handle_event,
-		     fun({call, _} = Type, terminate_context, State, Data) ->
-			     {stop_and_reply, normal, [{reply, From, Reply}]} =
-				 meck:passthrough([Type, terminate_context, State, Data]),
-			     gen_statem:reply(From, Reply),
+		     fun({call, _} = Type, terminate_context = Content, run = State, Data) ->
+			     %% simulate a 500ms delay in terminating the context
 			     ct:sleep(500),
-			     {stop, normal};
+			     meck:passthrough([Type, Content, State, Data]);
 			(Type, Content, State, Data) ->
 			     meck:passthrough([Type, Content, State, Data])
 		     end),
