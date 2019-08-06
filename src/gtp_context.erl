@@ -293,7 +293,7 @@ port_message(Server, Request, Msg, Resent) ->
 %% gen_statem API
 %%====================================================================
 
-callback_mode() -> handle_event_function.
+callback_mode() -> [handle_event_function, state_enter].
 
 init([CntlPort, Version, Interface,
       #{node_selection := NodeSelect,
@@ -325,6 +325,20 @@ init([CntlPort, Version, Interface,
 handle_event({call, From}, info, _, Data) ->
     {keep_state_and_data, [{reply, From, Data}]};
 
+handle_event(enter, _OldState, shutdown, _Data) ->
+    % TODO unregsiter context ....
+
+    %% this makes stop the last message in the inbox and
+    %% guarantees that we process any left over messages first
+    gen_statem:cast(self(), stop),
+    keep_state_and_data;
+
+handle_event(cast, stop, shutdown, _Data) ->
+    {stop, normal};
+
+handle_event(enter, OldState, State, #{interface := Interface} = Data) ->
+    Interface:handle_event(enter, OldState, State, Data);
+
 handle_event({call, From}, {sx, Report}, State,
 	    #{interface := Interface, pfcp := PCtx} = Data0) ->
     lager:debug("~w: handle_call Sx: ~p", [?MODULE, lager:pr(Report, ?MODULE)]),
@@ -333,8 +347,8 @@ handle_event({call, From}, {sx, Report}, State,
 	    {keep_state, Data, [{reply, From, {ok, PCtx}}]};
 	{reply, Reply, Data} ->
 	    {keep_state, Data, [{reply, From, {ok, PCtx, Reply}}]};
-	{stop, Data} ->
-	    {stop_and_reply, normal, [{reply, From, {ok, PCtx}}], Data};
+	{shutdown, Data} ->
+	    {next_state, shutdown, Data, [{reply, From, {ok, PCtx}}]};
 	{error, Reply, Data} ->
 	    {keep_state, Data, [{reply, From, {ok, PCtx, Reply}}]};
 	{noreply, Data} ->

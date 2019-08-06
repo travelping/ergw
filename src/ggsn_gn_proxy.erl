@@ -157,6 +157,9 @@ init(#{proxy_sockets := ProxyPorts, node_selection := NodeSelect,
 		    'Version' => v1, 'Session' => Session, contexts => Contexts,
 		    node_selection => NodeSelect, proxy_ds => ProxyDS}}.
 
+handle_event(enter, _OldState, _State, _Data) ->
+    keep_state_and_data;
+
 handle_event({call, From}, delete_context, _State, _Data) ->
     lager:warning("delete_context no handled(yet)"),
     {keep_state_and_data, [{reply, From, ok}]};
@@ -164,19 +167,19 @@ handle_event({call, From}, delete_context, _State, _Data) ->
 handle_event({call, From}, terminate_context, _State, Data) ->
     initiate_pdp_context_teardown(sgsn2ggsn, Data),
     delete_forward_session(normal, Data),
-    {stop_and_reply, normal, [{reply, From, ok}]};
+    {next_state, shutdown, Data, [{reply, From, ok}]};
 
 handle_event({call, From}, {path_restart, Path}, _State,
 	     #{context := #context{path = Path}} = Data) ->
     initiate_pdp_context_teardown(sgsn2ggsn, Data),
     delete_forward_session(normal, Data),
-    {stop_and_reply, normal, [{reply, From, ok}]};
+    {next_state, shutdown, Data, [{reply, From, ok}]};
 
 handle_event({call, From}, {path_restart, Path}, _State,
 	     #{proxy_context := #context{path = Path}} = Data) ->
     initiate_pdp_context_teardown(ggsn2sgsn, Data),
     delete_forward_session(normal, Data),
-    {stop_and_reply, normal, [{reply, From, ok}]};
+    {next_state, shutdown, Data, [{reply, From, ok}]};
 
 handle_event({call, From}, {path_restart, _Path}, _State, _Data) ->
     {keep_state_and_data, [{reply, From, ok}]};
@@ -194,7 +197,7 @@ handle_event(info, {timeout, _, {delete_pdp_context_request, Direction, _ReqKey,
     lager:warning("Proxy Delete PDP Context Timeout ~p", [Direction]),
 
     delete_forward_session(normal, Data),
-    {stop, normal};
+    {next_state, shutdown, Data};
 
 handle_event(info, {'DOWN', _MonitorRef, Type, Pid, _Info}, _State,
 	     #{pfcp := #pfcp_ctx{node = Pid}} = Data)
@@ -222,7 +225,7 @@ handle_sx_report(#pfcp{type = session_report_request,
     Direction = fteid_forward_context(FTEID, Data),
     initiate_pdp_context_teardown(Direction, Data),
     delete_forward_session(normal, Data),
-    {stop, Data};
+    {next_state, shutdown, Data};
 
 handle_sx_report(_, _State, Data) ->
     {error, 'System failure', Data}.
@@ -413,7 +416,7 @@ handle_response(#proxy_request{direction = sgsn2ggsn} = ProxyRequest,
 
 	   true ->
 		delete_forward_session(normal, Data),
-		{stop, normal}
+		{next_state, shutdown, Data}
 	end,
 
     forward_response(ProxyRequest, Response, PendingContext),
@@ -463,8 +466,7 @@ handle_response(#proxy_request{direction = sgsn2ggsn} = ProxyRequest,
     forward_response(ProxyRequest, Response, Context),
     Data = cancel_timeout(Data0),
     delete_forward_session(normal, Data),
-    {stop, normal, Data};
-
+    {next_state, shutdown, Data};
 
 handle_response(#proxy_request{direction = ggsn2sgsn} = ProxyRequest,
 		#gtp{type = delete_pdp_context_response} = Response,
@@ -475,8 +477,7 @@ handle_response(#proxy_request{direction = ggsn2sgsn} = ProxyRequest,
     forward_response(ProxyRequest, Response, ProxyContext),
     Data = cancel_timeout(Data0),
     delete_forward_session(normal, Data),
-    {stop, normal, Data};
-
+    {next_state, shutdown, Data};
 
 handle_response(_ReqInfo, Response, _Req, _State, _Data) ->
     lager:warning("Unknown Proxy Response ~p", [lager:pr(Response, ?MODULE)]),

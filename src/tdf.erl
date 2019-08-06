@@ -114,7 +114,7 @@ port_message(Server, Request, Msg, Resent) ->
 %% gen_statem API
 %%====================================================================
 
-callback_mode() -> handle_event_function.
+callback_mode() -> [handle_event_function, state_enter].
 
 init([Node, InVRF, IP4, IP6, #{apn := APN} = _SxOpts]) ->
     process_flag(trap_exit, true),
@@ -143,9 +143,33 @@ init([Node, InVRF, IP4, IP6, #{apn := APN} = _SxOpts]) ->
 	       session = Session
 	      },
 
-    gen_statem:cast(self(), init),
     lager:info("TDF process started for ~p", [[Node, IP4, IP6]]),
-    {ok, run, Data}.
+    {ok, init, Data, [{next_event, internal, init}]}.
+
+handle_event(enter, _OldState, shutdown, _Data) ->
+    % TODO unregsiter context ....
+
+    %% this makes stop the last message in the inbox and
+    %% guarantees that we process any left over messages first
+    gen_statem:cast(self(), stop),
+    keep_state_and_data;
+
+handle_event(cast, stop, shutdown, _Data) ->
+    {stop, normal};
+
+handle_event(enter, _OldState, _State, _Data) ->
+    keep_state_and_data;
+
+handle_event(internal, init, init, Data0) ->
+    %% start Rf/Gx/Gy interaction
+    try
+	Data = start_session(Data0),
+	{next_state, run, Data}
+    catch
+	throw:_Error ->
+	    lager:debug("TDF Init failed with ~p", [_Error]),
+	    {stop, normal}
+    end;
 
 handle_event({call, From}, {?TestCmdTag, pfcp_ctx}, _State, #data{pfcp = PCtx}) ->
     {keep_state_and_data, [{reply, From, {ok, PCtx}}]};
@@ -174,34 +198,27 @@ handle_event({call, From}, {sx, Report}, _State, #data{pfcp = PCtx}) ->
 handle_event({call, From}, _Request, _State, _Data) ->
     {keep_state_and_data, [{reply, From, ok}]};
 
-handle_event(cast, init, _State, Data0) ->
-    %% start Rf/Gx/Gy interaction
-    try
-	Data = start_session(Data0),
-	{keep_state, Data}
-    catch
-	throw:_Error ->
-	    lager:debug("TDF Init failed with ~p", [_Error]),
-	    {stop, normal}
-    end;
-
 handle_event(cast, _Request, _State, _Data) ->
     keep_state_and_data;
 
 handle_event(info, {'DOWN', _MonitorRef, Type, Pid, _Info},
-	     _State, #data{dp_node = Pid} = Data)
+	     State, #data{dp_node = Pid} = Data)
   when Type == process; Type == pfcp ->
-    close_pdn_context(upf_failure, Data),
-    {stop, normal};
+    close_pdn_context(upf_failure, State, Data),
+    {next_state, shutdown, Data};
 
-handle_event(info, stop_from_session, _State, Data) ->
-    close_pdn_context(normal, Data),
-    {stop, normal};
+handle_event(info, stop_from_session, State, Data) ->
+    close_pdn_context(normal, State, Data),
+    {next_state, shutdown, Data};
 
-handle_event(info, #aaa_request{procedure = {_, 'ASR'}} = Request, _State, Data) ->
+handle_event(info, #aaa_request{procedure = {_, 'RAR'}} = Request, shutdown, _Data) ->
+    ergw_aaa_session:response(Request, {error, unknown_session}, #{}, #{}),
+    keep_state_and_data;
+
+handle_event(info, #aaa_request{procedure = {_, 'ASR'}} = Request, State, Data) ->
     ergw_aaa_session:response(Request, ok, #{}, #{}),
-    close_pdn_context(normal, Data),
-    {stop, normal};
+    close_pdn_context(normal, State, Data),
+    {next_state, shutdown, Data};
 
 handle_event(info, #aaa_request{procedure = {gx, 'RAR'},
 			 session = SessionOpts,
@@ -396,7 +413,7 @@ ccr_initial(Session, API, SessionOpts, ReqOpts) ->
 	    throw({fail, 'CCR-Initial', Fail})
     end.
 
-close_pdn_context(Reason, #data{context = Context, pfcp = PCtx, session = Session}) ->
+close_pdn_context(Reason, run, #data{context = Context, pfcp = PCtx, session = Session}) ->
     URRs = ergw_gsn_lib:delete_sgi_session(Reason, Context, PCtx),
 
     TermCause =
@@ -427,6 +444,8 @@ close_pdn_context(Reason, #data{context = Context, pfcp = PCtx, session = Sessio
     ergw_gsn_lib:process_online_charging_events(ChargeEv, Online, Now, Session),
     ergw_gsn_lib:process_offline_charging_events(ChargeEv, Offline, Now, Session),
 
+    ok;
+close_pdn_context(_Reason, _State, _Data) ->
     ok.
 
 query_usage_report(ChargingKeys, Context, PCtx)
