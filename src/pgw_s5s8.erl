@@ -110,9 +110,12 @@ handle_event(Type, Content, State, #{'Version' := v1} = Data) ->
 handle_event(enter, _OldState, _State, _Data) ->
     keep_state_and_data;
 
-handle_event({call, From}, delete_context, _State, #{context := Context}) ->
-    delete_context(From, administrative, Context),
-    keep_state_and_data;
+handle_event({call, From}, delete_context, run, Data) ->
+    delete_context(From, administrative, Data);
+handle_event({call, From}, delete_context, shutdown, _Data) ->
+    {keep_state_and_data, [{reply, From, {ok, ok}}]};
+handle_event({call, _From}, delete_context, _State, _Data) ->
+    {keep_state_and_data, [postpone]};
 
 handle_event({call, From}, terminate_context, _State, Data) ->
     close_pdn_context(normal, Data),
@@ -139,8 +142,9 @@ handle_event(cast, {defered_usage_report, URRActions, UsageReport}, _State,
     end,
     keep_state_and_data;
 
-handle_event(cast, delete_context, _State, #{context := Context}) ->
-    delete_context(undefined, administrative, Context),
+handle_event(cast, delete_context, run, Data) ->
+    delete_context(undefined, administrative, Data);
+handle_event(cast, delete_context, _State, _Data) ->
     keep_state_and_data;
 
 handle_event(cast, {packet_in, _GtpPort, _IP, _Port, _Msg}, _State, _Data) ->
@@ -153,21 +157,23 @@ handle_event(info, {'DOWN', _MonitorRef, Type, Pid, _Info}, _State,
     close_pdn_context(upf_failure, Data),
     {next_state, shutdown, Data};
 
-handle_event(info, stop_from_session, _State, #{context := Context}) ->
-    delete_context(undefined, normal, Context),
+handle_event(info, stop_from_session, run, Data) ->
+    delete_context(undefined, normal, Data);
+handle_event(info, stop_from_session, _State, _Data) ->
     keep_state_and_data;
 
-handle_event(info, #aaa_request{procedure = {_, 'ASR'}} = Request, _State,
-	     #{context := Context}) ->
+handle_event(info, #aaa_request{procedure = {_, 'ASR'}} = Request, run, Data) ->
     ergw_aaa_session:response(Request, ok, #{}, #{}),
-    delete_context(undefined, administrative, Context),
+    delete_context(undefined, administrative, Data);
+handle_event(info, #aaa_request{procedure = {_, 'ASR'}} = Request, _State, _Data) ->
+    ergw_aaa_session:response(Request, ok, #{}, #{}),
     keep_state_and_data;
 
 handle_event(info, #aaa_request{procedure = {gx, 'RAR'},
 				session = SessionOpts,
 				events = Events} = Request,
-	     _State,
-	    #{context := Context, pfcp := PCtx0, 'Session' := Session} = Data) ->
+	     run,
+	     #{context := Context, pfcp := PCtx0, 'Session' := Session} = Data) ->
     Now = erlang:monotonic_time(),
 
     RuleBase = ergw_charging:rulebase(),
@@ -213,7 +219,7 @@ handle_event(info, #aaa_request{procedure = {gx, 'RAR'},
 
 handle_event(info, #aaa_request{procedure = {gy, 'RAR'},
 				events = Events} = Request,
-	     _State, Data) ->
+	     run, Data) ->
     ergw_aaa_session:response(Request, ok, #{}, #{}),
     Now = erlang:monotonic_time(),
 
@@ -226,6 +232,10 @@ handle_event(info, #aaa_request{procedure = {gy, 'RAR'},
 		undefined
 	end,
     triggered_charging_event(interim, Now, ChargingKeys, Data),
+    keep_state_and_data;
+
+handle_event(info, #aaa_request{procedure = {_, 'RAR'}} = Request, _State, _Data) ->
+    ergw_aaa_session:response(Request, {error, unknown_session}, #{}, #{}),
     keep_state_and_data;
 
 handle_event(info, {pfcp_timer, #{validity_time := ChargingKeys}}, _State, Data) ->
@@ -574,28 +584,26 @@ handle_response(CommandReqKey,
 				#v2_bearer_context{
 				   group = #{?'Cause' := #v2_cause{v2_cause = BearerCause}}
 				  }} = IEs} = Response,
-		_Request, _State,
+		_Request, run,
 		#{context := Context0, pfcp := PCtx,
-		  'Session' := Session} = Data) ->
+		  'Session' := Session} = Data0) ->
     gtp_context:request_finished(CommandReqKey),
     Context = gtp_path:bind(Response, Context0),
+    Data = Data0#{context => Context},
 
     if Cause =:= request_accepted andalso BearerCause =:= request_accepted ->
 	    URRActions = update_session_from_gtp_req(IEs, Session, Context),
 	    trigger_defered_usage_report(URRActions, PCtx),
-	    {keep_state, Data#{context => Context}};
+	    {keep_state, Data};
        true ->
 	    lager:error("Update Bearer Request failed with ~p/~p",
 			[Cause, BearerCause]),
-	    delete_context(undefined, link_broken, Context),
-	    keep_state_and_data
+	    delete_context(undefined, link_broken, Data)
     end;
 
-handle_response(_, timeout, #gtp{type = update_bearer_request},
-		 _State, #{context := Context}) ->
+handle_response(_, timeout, #gtp{type = update_bearer_request}, run, Data) ->
     lager:error("Update Bearer Request failed with timeout"),
-    delete_context(undefined, link_broken, Context),
-    keep_state_and_data;
+    delete_context(undefined, link_broken, Data);
 
 handle_response({From, TermCause}, timeout, #gtp{type = delete_bearer_request},
 		_State, Data) ->
@@ -615,7 +623,11 @@ handle_response({From, TermCause},
     if is_tuple(From) -> gen_statem:reply(From, {ok, RespCause});
        true -> ok
     end,
-    {next_state, shutdown, Data#{context := Context}}.
+    {next_state, shutdown, Data#{context := Context}};
+
+handle_response(_CommandReqKey, _Response, _Request, State, _Data)
+  when State =/= run ->
+    keep_state_and_data.
 
 terminate(_Reason, _State, #{context := Context}) ->
     pdn_release_ip(Context),
@@ -1144,14 +1156,14 @@ send_request(#context{control_port = GtpPort,
 send_request(Context, T3, N3, Type, RequestIEs, ReqInfo) ->
     send_request(Context, T3, N3, msg(Context, Type, RequestIEs), ReqInfo).
 
-%% delete_context(From, #context_state{ebi = EBI} = Context) ->
-delete_context(From, TermCause, Context) ->
+delete_context(From, TermCause, #{context := Context} = Data) ->
     Type = delete_bearer_request,
     EBI = 5,
     RequestIEs0 = [#v2_cause{v2_cause = reactivation_requested},
 		   #v2_eps_bearer_id{eps_bearer_id = EBI}],
     RequestIEs = gtp_v2_c:build_recovery(Type, Context, false, RequestIEs0),
-    send_request(Context, ?T3, ?N3, Type, RequestIEs, {From, TermCause}).
+    send_request(Context, ?T3, ?N3, Type, RequestIEs, {From, TermCause}),
+    {next_state, shutdown_initiated, Data}.
 
 session_ipv4_alloc(#{'Framed-IP-Address' := {255,255,255,255}}, ReqMSv4) ->
     ReqMSv4;
