@@ -2249,6 +2249,8 @@ simple_ocs(Config) ->
 gy_ccr_asr_overlap() ->
     [{doc, "Test that ASR is answered when it arrives during CCR-T"}].
 gy_ccr_asr_overlap(Config) ->
+    Cntl = whereis(gtpc_client_server),
+
     {GtpC, _, _} = create_session(Config),
 
     {_Handler, Server} = gtp_context_reg:lookup({'irx-socket', {imsi, ?'IMSI', 5}}),
@@ -2275,6 +2277,8 @@ gy_ccr_asr_overlap(Config) ->
 
     ct:sleep({seconds, 1}),
     delete_session(GtpC),
+
+    ?equal(timeout, recv_pdu(Cntl, undefined, 100, fun(Why) -> Why end)),
 
     {_, Resp0, _, _} =
 	receive {'$response', _, _, _, _} = R0 -> erlang:delete_element(1, R0)

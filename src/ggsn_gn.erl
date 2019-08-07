@@ -102,9 +102,12 @@ init(_Opts, Data) ->
 handle_event(enter, _OldState, _State, _Data) ->
     keep_state_and_data;
 
-handle_event({call, From}, delete_context, _State, #{context := Context}) ->
-    delete_context(From, administrative, Context),
-    keep_state_and_data;
+handle_event({call, From}, delete_context, run, Data) ->
+    delete_context(From, administrative, Data);
+handle_event({call, From}, delete_context, shutdown, _Data) ->
+    {keep_state_and_data, [{reply, From, {ok, ok}}]};
+handle_event({call, _From}, delete_context, _State, _Data) ->
+    {keep_state_and_data, [postpone]};
 
 handle_event({call, From}, terminate_context, _State, Data) ->
     close_pdp_context(normal, Data),
@@ -131,8 +134,9 @@ handle_event(cast, {defered_usage_report, URRActions, UsageReport}, _State,
     end,
     keep_state_and_data;
 
-handle_event(cast, delete_context, _State, #{context := Context}) ->
-    delete_context(undefined, administrative, Context),
+handle_event(cast, delete_context, run, Data) ->
+    delete_context(undefined, administrative, Data);
+handle_event(cast, delete_context, _State, _Data) ->
     keep_state_and_data;
 
 handle_event(cast, {packet_in, _GtpPort, _IP, _Port, _Msg}, _State, _Data) ->
@@ -145,20 +149,22 @@ handle_event(info, {'DOWN', _MonitorRef, Type, Pid, _Info}, _State,
     close_pdp_context(upf_failure, Data),
     {next_state, shutdown, Data};
 
-handle_event(info, stop_from_session, _State, #{context := Context}) ->
-    delete_context(undefined, normal, Context),
+handle_event(info, stop_from_session, run, Data) ->
+    delete_context(undefined, normal, Data);
+handle_event(info, stop_from_session, _State, _Data) ->
     keep_state_and_data;
 
-handle_event(info, #aaa_request{procedure = {_, 'ASR'}} = Request, _State,
-	     #{context := Context}) ->
+handle_event(info, #aaa_request{procedure = {_, 'ASR'}} = Request, run, Data) ->
     ergw_aaa_session:response(Request, ok, #{}, #{}),
-    delete_context(undefined, administrative, Context),
+    delete_context(undefined, administrative, Data);
+handle_event(info, #aaa_request{procedure = {_, 'ASR'}} = Request, _State, _Data) ->
+    ergw_aaa_session:response(Request, ok, #{}, #{}),
     keep_state_and_data;
 
 handle_event(info, #aaa_request{procedure = {gx, 'RAR'},
 				session = SessionOpts,
 				events = Events} = Request,
-	     _State,
+	     run,
 	     #{context := Context, pfcp := PCtx0, 'Session' := Session} = Data) ->
     Now = erlang:monotonic_time(),
 
@@ -205,7 +211,7 @@ handle_event(info, #aaa_request{procedure = {gx, 'RAR'},
 
 handle_event(info, #aaa_request{procedure = {gy, 'RAR'},
 				events = Events} = Request,
-	     _State, Data) ->
+	     run, Data) ->
     ergw_aaa_session:response(Request, ok, #{}, #{}),
     Now = erlang:monotonic_time(),
 
@@ -218,6 +224,10 @@ handle_event(info, #aaa_request{procedure = {gy, 'RAR'},
 		undefined
 	end,
     triggered_charging_event(interim, Now, ChargingKeys, Data),
+    keep_state_and_data;
+
+handle_event(info, #aaa_request{procedure = {_, 'RAR'}} = Request, _State, _Data) ->
+    ergw_aaa_session:response(Request, {error, unknown_session}, #{}, #{}),
     keep_state_and_data;
 
 handle_event(info, {pfcp_timer, #{validity_time := ChargingKeys}}, _State, Data) ->
@@ -1050,14 +1060,14 @@ send_request(#context{control_port = GtpPort,
     Msg = #gtp{version = v1, type = Type, tei = RemoteCntlTEI, ie = RequestIEs},
     gtp_context:send_request(GtpPort, RemoteCntlIP, ?GTP1c_PORT, T3, N3, Msg, ReqInfo).
 
-%% delete_context(From, #context_state{nsapi = NSAPI} = Context) ->
-delete_context(From, TermCause, Context) ->
+delete_context(From, TermCause, #{context := Context} = Data) ->
     Type = delete_pdp_context_request,
     NSAPI = 5,
     RequestIEs0 = [#nsapi{nsapi = NSAPI},
 		   #teardown_ind{value = 1}],
     RequestIEs = gtp_v1_c:build_recovery(Type, Context, false, RequestIEs0),
-    send_request(Context, ?T3, ?N3, Type, RequestIEs, {From, TermCause}).
+    send_request(Context, ?T3, ?N3, Type, RequestIEs, {From, TermCause}),
+    {next_state, shutdown_initiated, Data}.
 
 session_ipv4_alloc(#{'Framed-IP-Address' := {255,255,255,255}}, ReqMSv4) ->
     ReqMSv4;
