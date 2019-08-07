@@ -356,6 +356,8 @@ common() ->
     [setup_upf,  %% <- keep this first
      simple_session,
      gy_validity_timer,
+     simple_ocs,
+     gy_ccr_asr_overlap,
      volume_threshold,
      gx_asr,
      gx_rar,
@@ -405,7 +407,10 @@ init_per_testcase(gy_validity_timer, Config0) ->
     load_aaa_answer_config([{{gy, 'CCR-Initial'}, 'Initial-OCS-VT'},
 			    {{gy, 'CCR-Update'},  'Update-OCS-VT'}]),
     Config;
-init_per_testcase(volume_threshold, Config0) ->
+init_per_testcase(TestCase, Config0)
+  when TestCase == simple_ocs;
+       TestCase == gy_ccr_asr_overlap;
+       TestCase == volume_threshold ->
     Config = init_per_testcase(Config0),
     load_aaa_answer_config([{{gy, 'CCR-Initial'}, 'Initial-OCS'},
 			    {{gy, 'CCR-Update'},  'Update-OCS'}]),
@@ -434,6 +439,11 @@ end_per_testcase(Config) ->
     ok = application:set_env(ergw_aaa, apps, AppsCfg),
     ok.
 
+end_per_testcase(TestCase, Config)
+  when TestCase == gy_ccr_asr_overlap ->
+    ok = meck:delete(ergw_aaa_session, invoke, 4),
+    end_per_testcase(Config),
+    Config;
 end_per_testcase(_, Config) ->
     end_per_testcase(Config),
     Config.
@@ -652,6 +662,144 @@ gy_validity_timer(Config) ->
     Pid ! stop_from_session,
 
     ct:sleep({seconds, 1}),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    meck_validate(Config),
+
+    ok.
+
+%%--------------------------------------------------------------------
+
+simple_ocs() ->
+    [{doc, "Test Gy a simple interaction"}].
+simple_ocs(Config) ->
+    UeIP = proplists:get_value(ue_ip, Config),
+
+    packet_in(Config),
+    ct:sleep({seconds, 1}),
+
+    {tdf, Pid} = gtp_context_reg:lookup({ue, <<3, "sgi">>, ergw_inet:ip2bin(UeIP)}),
+    Pid ! stop_from_session,
+
+    ct:sleep({seconds, 1}),
+
+    H = meck:history(ergw_aaa_session),
+    CCR =
+	lists:filter(
+	  fun({_, {ergw_aaa_session, invoke, [_, _, {gy,_}, _]}, _}) ->
+		  true;
+	     (_) ->
+		  false
+	  end, H),
+    ct:pal("CCR: ~p", [CCR]),
+    ?match(X when X == 2, length(CCR)),
+
+    {_, {_, _, [_, _, {gy,'CCR-Initial'}, _]},
+     {ok, Session, _Events}} = hd(CCR),
+
+    Expected0 =
+	case UeIP of
+	    {_,_,_,_,_,_,_,_} ->
+		#{'Framed-IPv6-Prefix' => UeIP,
+		  'Requested-IPv6-Prefix' => '_'};
+	    _ ->
+		#{'Framed-IP-Address' => UeIP,
+		  'Requested-IP-Address' => '_'}
+	end,
+
+    %% TBD: the comment elements are present in the PGW handler,
+    %%      but not in the GGSN. Check if that is correct.
+    Expected =
+	Expected0
+	#{
+	  %% '3GPP-Allocation-Retention-Priority' => '?????',
+	  %% '3GPP-Charging-Id' => '_',  ??????
+	  '3GPP-GGSN-MCC-MNC' => <<"00101">>,
+	  %% '3GPP-GPRS-Negotiated-QoS-Profile' => '?????',
+	  %% '3GPP-NSAPI' => 5,
+	  %% '3GPP-PDP-Type' => 'IPv4v6',
+	  %% '3GPP-RAT-Type' => 6,
+	  %% 'Acct-Interim-Interval' => '?????',
+	  %% 'Bearer-Operation' => '?????',
+	  %% 'Called-Station-Id' =>
+	  %%     unicode:characters_to_binary(lists:join($., ?'APN-ExAmPlE')),
+	  'Charging-Rule-Base-Name' => <<"m2m0001">>,
+	  'Diameter-Session-Id' => '_',
+	  'Event-Trigger' => '_',
+	  %% 'Framed-IPv6-Prefix' => {{16#8001, 0, 1, '_', '_', '_', '_', '_'},64},
+	  'Framed-Protocol' => 'PPP',
+	  'Multi-Session-Id' => '_',
+	  'Multiple-Services-Credit-Control' => '_',
+	  'NAS-Identifier' => '_',
+	  'Node-Id' => <<"PGW-001">>,
+	  'PCC-Rules' => '_',
+
+	  %% 'SAI' => '?????',
+	  'Service-Type' => 'Framed-User',
+	  'Session-Id' => '_',
+	  'Session-Start' => '_',
+	  'Username' => '_'
+	 },
+
+    ?match_map(Expected, Session),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    meck_validate(Config),
+
+    ok.
+
+%%--------------------------------------------------------------------
+
+gy_ccr_asr_overlap() ->
+    [{doc, "Test that ASR is answered when it arrives during CCR-T"}].
+gy_ccr_asr_overlap(Config) ->
+    UeIP = ergw_inet:ip2bin(proplists:get_value(ue_ip, Config)),
+
+    packet_in(Config),
+    ct:sleep({seconds, 1}),
+
+    {tdf, Server} = gtp_context_reg:lookup({ue, <<3, "sgi">>, UeIP}),
+    true = is_pid(Server),
+
+    {ok, Session} = tdf:test_cmd(Server, session),
+    SessionOpts = ergw_aaa_session:get(Session),
+
+    Self = self(),
+    ResponseFun =
+	fun(Request, Result, Avps, SOpts) ->
+		Self ! {'$response', Request, Result, Avps, SOpts} end,
+    AAAReq = #aaa_request{from = ResponseFun, procedure = {gy, 'ASR'},
+			  session = SessionOpts, events = []},
+
+    ok = meck:expect(ergw_aaa_session, invoke,
+		     fun(MSession, MSessionOpts, {gy, 'CCR-Terminate'} = Procedure, Opts) ->
+			     ct:pal("AAAReq: ~p", [AAAReq]),
+			     Server ! AAAReq,
+			     meck:passthrough([MSession, MSessionOpts, Procedure, Opts]);
+			(MSession, MSessionOpts, Procedure, Opts) ->
+			     meck:passthrough([MSession, MSessionOpts, Procedure, Opts])
+		     end),
+
+    Server ! stop_from_session,
+
+    ct:sleep({seconds, 1}),
+
+    {_, Resp0, _, _} =
+	receive {'$response', _, _, _, _} = R0 -> erlang:delete_element(1, R0)
+	after 1000 -> ct:fail(no_response)
+	end,
+    ?equal(ok, Resp0),
+
+    H = meck:history(ergw_aaa_session),
+    CCR =
+	lists:filter(
+	  fun({_, {ergw_aaa_session, invoke, [_, _, {gy,_}, _]}, _}) ->
+		  true;
+	     (_) ->
+		  false
+	  end, H),
+    ct:pal("CCR: ~p", [CCR]),
+    ?match(X when X == 2, length(CCR)),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),

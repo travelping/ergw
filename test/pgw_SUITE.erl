@@ -453,6 +453,7 @@ common() ->
      sx_timeout,
      gy_validity_timer,
      simple_ocs,
+     gy_ccr_asr_overlap,
      volume_threshold,
      redirect_info,
      gx_asr,
@@ -583,6 +584,7 @@ init_per_testcase(gy_validity_timer, Config) ->
     Config;
 init_per_testcase(TestCase, Config)
   when TestCase == simple_ocs;
+       TestCase == gy_ccr_asr_overlap;
        TestCase == volume_threshold ->
     init_per_testcase(Config),
     load_aaa_answer_config([{{gy, 'CCR-Initial'}, 'Initial-OCS'},
@@ -634,7 +636,8 @@ end_per_testcase(TestCase, Config)
   when TestCase == create_session_request_aaa_reject;
        TestCase == create_session_request_gx_fail;
        TestCase == create_session_request_gy_fail;
-       TestCase == create_session_request_rf_fail ->
+       TestCase == create_session_request_rf_fail;
+       TestCase == gy_ccr_asr_overlap ->
     ok = meck:delete(ergw_aaa_session, invoke, 4),
     end_per_testcase(Config),
     Config;
@@ -2172,7 +2175,6 @@ simple_ocs(Config) ->
 		#{'3GPP-GGSN-Address' => ?config(test_gsn, Config),
 		  '3GPP-SGSN-Address' => IP}
 	end,
-    Expected =
 
     %% TBD: the comment elements are present in the PGW handler,
     %%      but not in the GGSN. Check if that is correct.
@@ -2235,6 +2237,61 @@ simple_ocs(Config) ->
 	 },
 
     ?match_map(Expected, Session),
+
+    ?equal([], outstanding_requests()),
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    meck_validate(Config),
+
+    ok.
+
+%%--------------------------------------------------------------------
+
+gy_ccr_asr_overlap() ->
+    [{doc, "Test that ASR is answered when it arrives during CCR-T"}].
+gy_ccr_asr_overlap(Config) ->
+    {GtpC, _, _} = create_session(Config),
+
+    {_Handler, Server} = gtp_context_reg:lookup({'irx-socket', {imsi, ?'IMSI', 5}}),
+    true = is_pid(Server),
+
+    #{'Session' := Session} = gtp_context:info(Server),
+    SessionOpts = ergw_aaa_session:get(Session),
+
+    Self = self(),
+    ResponseFun =
+	fun(Request, Result, Avps, SOpts) ->
+		Self ! {'$response', Request, Result, Avps, SOpts} end,
+    AAAReq = #aaa_request{from = ResponseFun, procedure = {gy, 'ASR'},
+			  session = SessionOpts, events = []},
+
+    ok = meck:expect(ergw_aaa_session, invoke,
+		     fun(MSession, MSessionOpts, {gy, 'CCR-Terminate'} = Procedure, Opts) ->
+			     ct:pal("AAAReq: ~p", [AAAReq]),
+			     Server ! AAAReq,
+			     meck:passthrough([MSession, MSessionOpts, Procedure, Opts]);
+			(MSession, MSessionOpts, Procedure, Opts) ->
+			     meck:passthrough([MSession, MSessionOpts, Procedure, Opts])
+		     end),
+
+    ct:sleep({seconds, 1}),
+    delete_session(GtpC),
+
+    {_, Resp0, _, _} =
+	receive {'$response', _, _, _, _} = R0 -> erlang:delete_element(1, R0)
+	after 1000 -> ct:fail(no_response)
+	end,
+    ?equal(ok, Resp0),
+
+    H = meck:history(ergw_aaa_session),
+    CCR =
+	lists:filter(
+	  fun({_, {ergw_aaa_session, invoke, [_, _, {gy,_}, _]}, _}) ->
+		  true;
+	     (_) ->
+		  false
+	  end, H),
+    ct:pal("CCR: ~p", [CCR]),
+    ?match(X when X == 2, length(CCR)),
 
     ?equal([], outstanding_requests()),
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
