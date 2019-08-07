@@ -358,6 +358,8 @@ common() ->
      session_options,
      enb_connection_suspend,
      gy_validity_timer,
+     simple_ocs,
+     gy_ccr_asr_overlap,
      volume_threshold,
      gx_asr,
      %% gx_rar,
@@ -448,7 +450,10 @@ init_per_testcase(gy_validity_timer, Config) ->
     init_per_testcase(Config),
     load_ocs_config('Initial-OCS-VT', 'Update-OCS-VT'),
     Config;
-init_per_testcase(volume_threshold, Config) ->
+init_per_testcase(TestCase, Config)
+  when TestCase == simple_ocs;
+       TestCase == gy_ccr_asr_overlap;
+       TestCase == volume_threshold ->
     init_per_testcase(Config),
     load_ocs_config('Initial-OCS', 'Update-OCS'),
     Config;
@@ -478,7 +483,8 @@ end_per_testcase(TestCase, Config)
   when TestCase == create_session_request_aaa_reject;
        TestCase == create_session_request_gx_fail;
        TestCase == create_session_request_gy_fail;
-       TestCase == create_session_request_rf_fail ->
+       TestCase == create_session_request_rf_fail;
+       TestCase == gy_ccr_asr_overlap ->
     ok = meck:delete(ergw_aaa_session, invoke, 4),
     end_per_testcase(Config),
     Config;
@@ -1086,6 +1092,165 @@ gy_validity_timer(Config) ->
     ?equal([], outstanding_requests()),
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+
+simple_ocs() ->
+    [{doc, "Test Gy a simple interaction"}].
+simple_ocs(Config) ->
+    {GtpC, _, _} = create_session(Config),
+
+    ct:sleep({seconds, 1}),
+
+    delete_session(GtpC),
+
+    H = meck:history(ergw_aaa_session),
+    CCR =
+	lists:filter(
+	  fun({_, {ergw_aaa_session, invoke, [_, _, {gy,_}, _]}, _}) ->
+		  true;
+	     (_) ->
+		  false
+	  end, H),
+    ct:pal("CCR: ~p", [CCR]),
+    ?match(X when X == 2, length(CCR)),
+
+    {_, {_, _, [_, _, {gy,'CCR-Initial'}, _]},
+     {ok, Session, _Events}} = hd(CCR),
+
+    Expected0 =
+	case ?config(client_ip, Config) of
+	    IP = {_,_,_,_,_,_,_,_} ->
+		#{'3GPP-GGSN-IPv6-Address' => ?config(test_gsn, Config),
+		  '3GPP-SGSN-IPv6-Address' => IP};
+	    IP ->
+		#{'3GPP-GGSN-Address' => ?config(test_gsn, Config),
+		  '3GPP-SGSN-Address' => IP}
+	end,
+    Expected =
+
+    %% TBD: the comment elements are present in the PGW handler,
+    %%      but not in the GGSN. Check if that is correct.
+    Expected =
+	Expected0
+	#{
+	  %% '3GPP-Allocation-Retention-Priority' => '?????',
+	  '3GPP-Charging-Id' => '_',
+	  '3GPP-GGSN-MCC-MNC' => <<"00101">>,
+	  %% '3GPP-GPRS-Negotiated-QoS-Profile' => '?????',
+	  '3GPP-IMEISV' => <<"AAAAAAAA">>,
+	  '3GPP-IMSI' => ?IMSI,
+	  '3GPP-IMSI-MCC-MNC' => <<"11111">>,
+	  '3GPP-MS-TimeZone' => '_',
+	  '3GPP-MSISDN' => ?MSISDN,
+	  %% '3GPP-NSAPI' => 5,
+	  %% '3GPP-PDP-Type' => 'IPv4v6',
+	  '3GPP-RAT-Type' => 6,
+	  '3GPP-SGSN-MCC-MNC' => '_',
+	  '3GPP-User-Location-Info' => '_',
+	  %% 'Acct-Interim-Interval' => '?????',
+	  %% 'Bearer-Operation' => '?????',
+	  'Called-Station-Id' =>
+	      unicode:characters_to_binary(lists:join($., ?'APN-ExAmPlE')),
+	  'Calling-Station-Id' => ?MSISDN,
+	  'Charging-Rule-Base-Name' => <<"m2m0001">>,
+	  'Diameter-Session-Id' => '_',
+	  'ECGI' => '_',
+	  'Event-Trigger' => '_',
+	  'Framed-IP-Address' => {10, 180, '_', '_'},
+	  %% 'Framed-IPv6-Prefix' => {{16#8001, 0, 1, '_', '_', '_', '_', '_'},64},
+	  'Framed-Protocol' => 'GPRS-PDP-Context',
+	  'Multi-Session-Id' => '_',
+	  'Multiple-Services-Credit-Control' => '_',
+	  'NAS-Identifier' => '_',
+	  'Node-Id' => <<"PGW-001">>,
+	  'PCC-Rules' => '_',
+	  'QoS-Information' =>
+	      #{
+		'QoS-Class-Identifier' => 8,
+		'Max-Requested-Bandwidth-DL' => 0,
+		'Max-Requested-Bandwidth-UL' => 0,
+		'Guaranteed-Bitrate-DL' => 0,
+		'Guaranteed-Bitrate-UL' => 0,
+		'Allocation-Retention-Priority' =>
+		    #{'Priority-Level' => 10,
+		      'Pre-emption-Capability' => 1,
+		      'Pre-emption-Vulnerability' => 0},
+		'APN-Aggregate-Max-Bitrate-UL' => '_',
+		'APN-Aggregate-Max-Bitrate-DL' => '_'
+	       },
+
+	  'Requested-IP-Address' => '_',
+	  %% 'SAI' => '?????',
+	  'Service-Type' => 'Framed-User',
+	  'Session-Id' => '_',
+	  'Session-Start' => '_',
+	  'TAI' => '_',
+	  'Username' => '_'
+	 },
+
+    ?match_map(Expected, Session),
+
+    ?equal([], outstanding_requests()),
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    meck_validate(Config),
+
+    ok.
+
+%%--------------------------------------------------------------------
+
+gy_ccr_asr_overlap() ->
+    [{doc, "Test that ASR is answered when it arrives during CCR-T"}].
+gy_ccr_asr_overlap(Config) ->
+    {GtpC, _, _} = create_session(Config),
+
+    {_Handler, Server} = gtp_context_reg:lookup({'irx', {imsi, ?'IMSI', 5}}),
+    true = is_pid(Server),
+
+    #{'Session' := Session} = gtp_context:info(Server),
+    SessionOpts = ergw_aaa_session:get(Session),
+
+    Self = self(),
+    ResponseFun =
+	fun(Request, Result, Avps, SOpts) ->
+		Self ! {'$response', Request, Result, Avps, SOpts} end,
+    AAAReq = #aaa_request{from = ResponseFun, procedure = {gy, 'ASR'},
+			  session = SessionOpts, events = []},
+
+    ok = meck:expect(ergw_aaa_session, invoke,
+		     fun(MSession, MSessionOpts, {gy, 'CCR-Terminate'} = Procedure, Opts) ->
+			     ct:pal("AAAReq: ~p", [AAAReq]),
+			     Server ! AAAReq,
+			     meck:passthrough([MSession, MSessionOpts, Procedure, Opts]);
+			(MSession, MSessionOpts, Procedure, Opts) ->
+			     meck:passthrough([MSession, MSessionOpts, Procedure, Opts])
+		     end),
+
+    ct:sleep({seconds, 1}),
+    delete_session(GtpC),
+
+    {_, Resp0, _, _} =
+	receive {'$response', _, _, _, _} = R0 -> erlang:delete_element(1, R0)
+	after 1000 -> ct:fail(no_response)
+	end,
+    ?equal(ok, Resp0),
+
+    H = meck:history(ergw_aaa_session),
+    CCR =
+	lists:filter(
+	  fun({_, {ergw_aaa_session, invoke, [_, _, {gy,_}, _]}, _}) ->
+		  true;
+	     (_) ->
+		  false
+	  end, H),
+    ct:pal("CCR: ~p", [CCR]),
+    ?match(X when X == 2, length(CCR)),
+
+    ?equal([], outstanding_requests()),
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    meck_validate(Config),
+
     ok.
 
 %%--------------------------------------------------------------------
