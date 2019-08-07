@@ -908,13 +908,13 @@ request_fast_resend(Config) ->
     GtpC0 = gtp_context(Config),
 
     GtpC1 = Send(create_pdp_context_request, simple, GtpC0),
-    ?equal(timeout, recv_pdu(GtpC1, -1, 100, fun(Why) -> Why end)),
+    ?equal(timeout, recv_pdu(GtpC1, undefined, 100, fun(Why) -> Why end)),
 
     GtpC2 = Send(ms_info_change_notification_request, simple, GtpC1),
-    ?equal(timeout, recv_pdu(GtpC2, -1, 100, fun(Why) -> Why end)),
+    ?equal(timeout, recv_pdu(GtpC2, undefined, 100, fun(Why) -> Why end)),
 
     GtpC3 = Send(ms_info_change_notification_request, without_tei, GtpC2),
-    ?equal(timeout, recv_pdu(GtpC3, -1, 100, fun(Why) -> Why end)),
+    ?equal(timeout, recv_pdu(GtpC3, undefined, 100, fun(Why) -> Why end)),
 
     delete_pdp_context(GtpC3),
 
