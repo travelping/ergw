@@ -1476,7 +1476,6 @@ simple_ocs(Config) ->
 	  %% 'Framed-IPv6-Prefix' => {{16#8001, 0, 1, '_', '_', '_', '_', '_'},64},
 	  'Framed-Protocol' => 'GPRS-PDP-Context',
 	  'Multi-Session-Id' => '_',
-	  'Multiple-Services-Credit-Control' => '_',
 	  'NAS-Identifier' => <<"NAS-Identifier">>,
 	  'Node-Id' => <<"PGW-001">>,
 	  'PCC-Rules' => '_',
