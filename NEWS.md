@@ -1,6 +1,14 @@
 erGW - 3GPP GGSN and PDN-GW in Erlang
 =====================================
 
+Version 2.1.0 - 12 Aug 2019
+---------------------------
+
+* Support Erlang OTP 21.3 through 22.0
+* stabilize CUPS support
+* beta quality DIAMETER Gx, Gy and Rf support
+* many bug fixes (see git log)
+
 Version 2.0.0 - 02 Aug 2018
 ----------------------------
 

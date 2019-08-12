@@ -39,42 +39,41 @@ USER PLANE
 erGW usese the 3GPP control and user plane separation of EPC nodes architecture as layed out
 in [3GPP TS 23.214](http://www.3gpp.org/dynareport/23244.htm) and [3GPP TS 29.244](http://www.3gpp.org/dynareport/29244.htm).
 
-RADIUS over Gi/SGi
-------------------
+DIAMETER and RADIUS over Gi/SGi
+-------------------------------
 
-**Normal AAA integration is currently not working the feature/rf branch.**
-
-The GGSN Gn interface supports RADIUS over the Gi interface as specified by 3GPP TS 29.061 Section 16.
-At the moment, only the Authentication and Authorization is supported, Accounting is not supported.
+The SAE-GW, PGW and GGSN interfaces supports DIAMETER and RADIUS over the Gi/SGi interface
+as specified by 3GPP TS 29.061 Section 16.
+This support is experimental in this version and not all aspects are functional. For RADIUS
+only the Authentication and Authorization is full working, Accounting is experimental and
+not fully supported. For DIAMETER NASREQ only the Accounting is working.
 
 See [RADIUS.md](RADIUS.md) for a list of supported Attrbiutes.
 
 Many thanks to [On Waves](https://www.on-waves.com/) for sponsoring the RADIUS Authentication implementation.
 
+POLICY CONTROL
+--------------
+
+DIAMETER is Gx is supported as experimental feature. Only Credit-Control-Request/Answer
+(CCR/CCA) and Abort-Session-Request/Answer (ASR/ASA) procedures are supported.
+Re-Auth-Request/Re-Auth-Answer (RAR/RAA) procedures are not supported.
+
 ONLINE/OFFLINE CHARING
 ----------------------
 
-Online charging through Gy works with the following caveats:
+Online charging through Gy is in beta quality with the following known caveats:
 
  * When multiple rating groups are in use, CCR Update requests will contain unit
    reservation requests for all rating groups, however they should only contain the entries
    for the rating groups where new quotas, threshold and validity's are needed.
 
-Offline charging through Rf is somewhat functional in "independent online and offline
-charging" mode (tight interworking of online and offline charging is not supported).
-The following caveats apply:
+Offline charging through Rf is supported in beta quality in this version and works only in
+"independent online and offline charging" mode (tight interworking of online and offline
+charging is not supported).
 
- * only expiry of time limit is supported as trigger for addition to "List of Service Data",
-   most importantly, **none of the IP-CAN bearer modification triggers are supported**,
-   see 3GPP TS 32.251, Table 5.2.3.4.1.1 for the triggers that *should* be supported.
- * only a few fields in the Service-Data-Container are filed, those are:
-   * Accounting-Input-Octets
-   * Accounting-Output-Octets
-   * Local-Sequence-Number
-   * Rating-Group
-   * Time-First-Usage
-   * Time-Last-Usage
-   * Time-Usage
+Like on Gx only CCR/CCR and ASR/ASA procredures are supported.
+
 
 MISSING FEATURES
 ----------------
@@ -102,7 +101,7 @@ BUILDING
 
 *The minimum supported Erlang version is 21.3.*
 
-Erlang 21.3.8.6 is the recommended version.
+Erlang 22.0.7 is the recommended version.
 
 Using rebar:
 
