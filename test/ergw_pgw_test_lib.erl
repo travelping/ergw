@@ -421,7 +421,7 @@ make_request(change_notification_request, without_tei,
 	   #v2_rat_type{rat_type = RAT},
 	   #v2_international_mobile_subscriber_identity{
 	      imsi = ?'IMSI'},
-	   #v2_mobile_equipment_identity{mei = <<"AAAAAAAA">>},
+	   #v2_mobile_equipment_identity{mei = ?IMEISV},
 	   #v2_ue_time_zone{timezone = 10, dst = 0},
 	   #v2_user_location_information{tai = <<3,2,22,214,217>>,
 					 ecgi = <<3,2,22,8,71,9,92>>}
@@ -892,11 +892,11 @@ imsi(_, _) ->
     ?IMSI.
 
 imei('2nd', _) ->
-    <<"BBBBBBBB">>;
+    <<"490154203237518">>;
 imei(random, TEI) ->
-    integer_to_binary(70000000 + TEI);
+    integer_to_binary(700000000000000 + TEI);
 imei(_, _)     ->
-    <<"AAAAAAAA">>.
+    ?IMEISV.
 
 %%%===================================================================
 %%% PGW injected functions

@@ -66,6 +66,8 @@
 -define('PROXY-IMSI', <<"222222222222222">>).
 -define('PROXY-MSISDN', <<"491111111111">>).
 
+-define('IMEISV', <<"3520990017614823">>).			%% found on wikipedia
+
 -define(IPv4PoolStart, {10, 180, 0, 1}).
 -define(IPv4PoolEnd,   {10, 180, 255, 254}).
 -define(IPv4StaticIP,  {10, 180, 128, 128}).

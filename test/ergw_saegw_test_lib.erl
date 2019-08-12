@@ -614,8 +614,8 @@ imsi(_, _) ->
     ?IMSI.
 
 imei('2nd', _) ->
-    <<"BBBBBBBB">>;
+    <<"490154203237518">>;
 imei(random, TEI) ->
-    integer_to_binary(70000000 + TEI);
+    integer_to_binary(700000000000000 + TEI);
 imei(_, _)     ->
-    <<"AAAAAAAA">>.
+    ?IMEISV.
