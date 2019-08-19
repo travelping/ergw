@@ -338,6 +338,10 @@ init([CntlPort, Version, Interface,
 handle_event({call, From}, info, _, Data) ->
     {keep_state_and_data, [{reply, From, Data}]};
 
+handle_event({call, From}, {?TestCmdTag, pfcp_ctx}, _State, #{pfcp := PCtx}) ->
+    {keep_state_and_data, [{reply, From, {ok, PCtx}}]};
+handle_event({call, From}, {?TestCmdTag, session}, _State, #{'Session' := Session}) ->
+    {keep_state_and_data, [{reply, From, {ok, Session}}]};
 handle_event({call, From}, {?TestCmdTag, pcc_rules}, _State, #{pcc := PCC}) ->
     {keep_state_and_data, [{reply, From, {ok, PCC#pcc_ctx.rules}}]};
 
