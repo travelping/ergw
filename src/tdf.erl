@@ -132,17 +132,20 @@ init([Node, InVRF, IP4, IP6, #{apn := APN} = _SxOpts]) ->
 
     {ok, {OutVrf, _}} = ergw:vrf(APN),
     {ok, Session} = ergw_aaa_session_sup:new_session(self(), to_session([])),
+    SessionOpts = ergw_aaa_session:get(Session),
+    OCPcfg = maps:get('Offline-Charging-Profile', SessionOpts, #{}),
     Context = #tdf_ctx{
 		 in_vrf = InVRF,
 		 out_vrf = OutVrf,
 		 ms_v4 = {IP4, 32},
 		 ms_v6 = {IP6, 128}
 		},
+    PCC = #pcc_ctx{offline_charging_profile = OCPcfg},
     Data = #data{
 	       context = Context,
 	       dp_node = Node,
 	       session = Session,
-	       pcc = #pcc_ctx{}
+	       pcc = PCC
 	      },
 
     lager:info("TDF process started for ~p", [[Node, IP4, IP6]]),
@@ -382,15 +385,12 @@ start_session(#data{context = Context, dp_node = Node,
     lager:info("GySessionOpts: ~p", [GySessionOpts]),
 
     ergw_aaa_session:invoke(Session, #{}, start, SOpts),
-    ergw_aaa_session:invoke(Session, #{}, {rf, 'Initial'}, SOpts),
-    FinalSessionOpts = ergw_aaa_session:get(Session),
-
-    lager:info("FinalS: ~p", [FinalSessionOpts]),
+    {_, FinalSOpts, _} = ergw_aaa_session:invoke(Session, #{}, {rf, 'Initial'}, SOpts),
 
     {PCC2, PCCErrors2} = ergw_gsn_lib:gy_events_to_pcc_ctx(Now, GyEvs, PCC1),
-
+    PCC3 = ergw_gsn_lib:session_to_pcc_ctx(FinalSOpts, PCC2),
     {_, PCtx} =
-	ergw_gsn_lib:create_tdf_session(Node, PCC2, Context),
+	ergw_gsn_lib:create_tdf_session(Node, PCC3, Context),
 
     Keys = context2keys(Context),
     gtp_context_reg:register(Keys, ?MODULE, self()),
@@ -403,7 +403,7 @@ start_session(#data{context = Context, dp_node = Node,
 	    ok
     end,
 
-    Data#data{pfcp = PCtx, pcc = PCC2}.
+    Data#data{pfcp = PCtx, pcc = PCC3}.
 
 init_session(#data{context = Context}) ->
     {MCC, MNC} = ergw:get_plmn_id(),

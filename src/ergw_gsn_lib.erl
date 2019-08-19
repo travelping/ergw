@@ -22,6 +22,7 @@
 	 choose_context_ip/3,
 	 ip_pdu/3]).
 -export([%%update_pcc_rules/2,
+	 session_to_pcc_ctx/2,
 	 gx_events_to_pcc_ctx/4,
 	 gy_events_to_pcc_ctx/3,
 	 gy_events_to_pcc_rules/2,
@@ -155,6 +156,12 @@ pcc_ctx_has_rules(#pcc_ctx{rules = Rules}) ->
 %%%===================================================================
 
 -record(pcc_upd, {errors = [], rules = #{}}).
+
+session_to_pcc_ctx(#{'Acct-Interim-Interval' := Interim}, PCC)
+  when is_integer(Interim), Interim > 0 ->
+    PCC#pcc_ctx{acct_interim_interval = Interim};
+session_to_pcc_ctx(_, PCC) ->
+    PCC.
 
 %% convert Gx like Install/Remove interactions in PCC rule states
 
