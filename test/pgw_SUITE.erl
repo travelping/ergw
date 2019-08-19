@@ -2017,9 +2017,9 @@ sx_upf_restart() ->
     [{doc, "Test UPF restart behavior"}].
 sx_upf_restart(Config) ->
     ok = meck:expect(ergw_gsn_lib, create_sgi_session,
-		     fun(Candidates, SessionOpts, CreditEvs, Ctx) ->
+		     fun(Candidates, SessionOpts, Ctx) ->
 			     try
-				 meck:passthrough([Candidates, SessionOpts, CreditEvs, Ctx])
+				 meck:passthrough([Candidates, SessionOpts, Ctx])
 			     catch
 				 throw:#ctx_err{} = CtxErr ->
 				     meck:exception(throw, CtxErr)
@@ -2095,9 +2095,9 @@ sx_timeout() ->
     [{doc, "Check that a timeout on Sx leads to a proper error response"}].
 sx_timeout(Config) ->
     ok = meck:expect(ergw_gsn_lib, create_sgi_session,
-		     fun(Candidates, SessionOpts, CreditEvs, Ctx) ->
+		     fun(Candidates, SessionOpts, Ctx) ->
 			     try
-				 meck:passthrough([Candidates, SessionOpts, CreditEvs, Ctx])
+				 meck:passthrough([Candidates, SessionOpts, Ctx])
 			     catch
 				 throw:#ctx_err{} = CtxErr ->
 				     meck:exception(throw, CtxErr)

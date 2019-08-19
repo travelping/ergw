@@ -42,7 +42,8 @@
 		session :: pid(),
 
 		context,
-		pfcp}).
+		pfcp,
+		pcc :: #pcc_ctx{}}).
 
 %%====================================================================
 %% API
@@ -140,7 +141,8 @@ init([Node, InVRF, IP4, IP6, #{apn := APN} = _SxOpts]) ->
     Data = #data{
 	       context = Context,
 	       dp_node = Node,
-	       session = Session
+	       session = Session,
+	       pcc = #pcc_ctx{}
 	      },
 
     lager:info("TDF process started for ~p", [[Node, IP4, IP6]]),
@@ -175,22 +177,23 @@ handle_event({call, From}, {?TestCmdTag, pfcp_ctx}, _State, #data{pfcp = PCtx}) 
     {keep_state_and_data, [{reply, From, {ok, PCtx}}]};
 handle_event({call, From}, {?TestCmdTag, session}, _State, #data{session = Session}) ->
     {keep_state_and_data, [{reply, From, {ok, Session}}]};
-handle_event({call, From}, {?TestCmdTag, pcc_rules}, _State, #data{session = Session}) ->
-    SOpts = ergw_aaa_session:get(Session),
-    PCR = maps:get('PCC-Rules', SOpts, undefined),
-    {keep_state_and_data, [{reply, From, {ok, PCR}}]};
+handle_event({call, From}, {?TestCmdTag, pcc_rules}, _State, #data{pcc = PCC}) ->
+    {keep_state_and_data, [{reply, From, {ok, PCC#pcc_ctx.rules}}]};
 
 handle_event({call, From}, {sx, #pfcp{type = session_report_request,
 		       ie = #{report_type := #report_type{usar = 1},
 			      usage_report_srr := UsageReport}} = Report},
-	    _State, #data{session = Session, pfcp = PCtx}) ->
+	    _State, #data{session = Session, pfcp = PCtx, pcc = PCC}) ->
     lager:debug("~w: handle_call Sx: ~p", [?MODULE, lager:pr(Report, ?MODULE)]),
 
     Now = erlang:monotonic_time(),
+    ReqOpts = #{now => Now, async => true},
+
     ChargeEv = interim,
     {Online, Offline, _} =
 	ergw_gsn_lib:usage_report_to_charging_events(UsageReport, ChargeEv, PCtx),
-    ergw_gsn_lib:process_online_charging_events(ChargeEv, Online, Now, Session),
+    GyReqServices = ergw_gsn_lib:gy_credit_request(Online, PCC),
+    ergw_gsn_lib:process_online_charging_events(ChargeEv, GyReqServices, Session, ReqOpts),
     ergw_gsn_lib:process_offline_charging_events(ChargeEv, Offline, Now, Session),
 
     {keep_state_and_data, [{reply, From, {ok, PCtx}}]};
@@ -225,52 +228,63 @@ handle_event(info, #aaa_request{procedure = {_, 'ASR'}} = Request, State, Data) 
     {next_state, shutdown, Data};
 
 handle_event(info, #aaa_request{procedure = {gx, 'RAR'},
-			 session = SessionOpts,
-			 events = Events} = Request,
+				events = Events} = Request,
 	     _State,
-	     #data{context = Context, pfcp = PCtx0, session = Session} = Data) ->
+	     #data{context = Context, pfcp = PCtx0,
+		   session = Session, pcc = PCC0} = Data) ->
+%%% 1. update PCC
+%%%    a) calculate PCC rules to be removed
+%%%    b) calculate PCC rules to be installed
+%%% 2. figure out which Rating-Groups are new or which ones have to be removed
+%%%    based on updated PCC rules
+%%% 3. remove PCC rules and unsused Rating-Group URRs from UPF
+%%% 4. on Gy:
+%%%     - report removed URRs/RGs
+%%%     - request credits for new URRs/RGs
+%%% 5. apply granted quotas to PCC rules, remove PCC rules without quotas
+%%% 6. install new PCC rules which have granted quota
+%%% 7. report remove and not installed (lack of quota) PCC rules on Gx
+
     Now = erlang:monotonic_time(),
-
-    RuleBase = ergw_charging:rulebase(),
-    PCCRules0 = maps:get('PCC-Rules', SessionOpts, #{}),
-    {PCCRules1, _} =
-	ergw_gsn_lib:gx_events_to_pcc_rules(Events, remove, RuleBase, PCCRules0),
-
-    URRActions = [],
-    {PCtx1, UsageReport} =
-	ergw_gsn_lib:modify_sgi_session(SessionOpts#{'PCC-Rules' => PCCRules1}, [],
-					URRActions, #{}, Context, PCtx0),
-
-    {PCCRules2, PCCErrors2} =
-	ergw_gsn_lib:gx_events_to_pcc_rules(Events, install, RuleBase, PCCRules1),
-    ergw_aaa_session:set(Session, 'PCC-Rules', PCCRules2),
-
-    CreditsOld = ergw_gsn_lib:pcc_rules_to_credit_request(PCCRules1),
-    CreditsNew = ergw_gsn_lib:pcc_rules_to_credit_request(PCCRules2),
-    Credits = maps:without(maps:keys(CreditsOld), CreditsNew),
-
-    GyReqServices =
-	if length(Credits) /= 0 -> #{credits => Credits};
-	   true                 -> #{}
-	end,
     ReqOps = #{now => Now},
 
+    RuleBase = ergw_charging:rulebase(),
+
+%%% step 1a:
+    {PCC1, _} =
+	ergw_gsn_lib:gx_events_to_pcc_ctx(Events, remove, RuleBase, PCC0),
+%%% step 1b:
+    {PCC2, PCCErrors2} =
+	ergw_gsn_lib:gx_events_to_pcc_ctx(Events, install, RuleBase, PCC1),
+
+%%% step 2
+%%% step 3:
+    {PCtx1, UsageReport} =
+	ergw_gsn_lib:modify_sgi_session(PCC1, [], #{}, Context, PCtx0),
+
+%%% step 4:
     ChargeEv = {online, 'RAR'},   %% made up value, not use anywhere...
     {Online, Offline, _} =
 	ergw_gsn_lib:usage_report_to_charging_events(UsageReport, ChargeEv, PCtx1),
-    {ok, FinalSessionOpts, GyEvs} =
-	ergw_gsn_lib:process_online_charging_events(ChargeEv, GyReqServices, Online, Session, ReqOps),
+
+    GyReqServices = ergw_gsn_lib:gy_credit_request(Online, PCC0, PCC2),
+    {ok, _, GyEvs} =
+	ergw_gsn_lib:process_online_charging_events(ChargeEv, GyReqServices, Session, ReqOps),
     ergw_gsn_lib:process_offline_charging_events(ChargeEv, Offline, Now, Session),
 
-    {PCtx, _} =
-	ergw_gsn_lib:modify_sgi_session(FinalSessionOpts, GyEvs, URRActions, #{}, Context, PCtx1),
+%%% step 5:
+    {PCC4, PCCErrors4} = ergw_gsn_lib:gy_events_to_pcc_ctx(Now, GyEvs, PCC2),
 
+%%% step 6:
+    {PCtx, _} =
+	ergw_gsn_lib:modify_sgi_session(PCC4, [], #{}, Context, PCtx1),
+
+%%% step 7:
     %% TODO Charging-Rule-Report for successfully installed/removed rules
 
-    GxReport = ergw_gsn_lib:pcc_events_to_charging_rule_report(PCCErrors2),
-    SOpts = #{'PCC-Rules' => PCCRules2},
-    ergw_aaa_session:response(Request, ok, GxReport, SOpts),
-    {keep_state, Data#data{pfcp = PCtx}};
+    GxReport = ergw_gsn_lib:pcc_events_to_charging_rule_report(PCCErrors2 ++ PCCErrors4),
+    ergw_aaa_session:response(Request, ok, GxReport, #{}),
+    {keep_state, Data#data{pfcp = PCtx, pcc = PCC4}};
 
 handle_event(info, #aaa_request{procedure = {gy, 'RAR'},
 				events = Events} = Request,
@@ -289,11 +303,29 @@ handle_event(info, #aaa_request{procedure = {gy, 'RAR'},
     triggered_charging_event(interim, Now, ChargingKeys, Data),
     keep_state_and_data;
 
-handle_event(info, {update_session, Session, Events} = Us, _State,
-	     #data{context = Context, pfcp = PCtx0} = Data) ->
-    lager:warning("UpdateSession: ~p", [Us]),
-    PCtx =  ergw_gsn_lib:session_events(Session, Events, Context, PCtx0),
-    {keep_state, Data#data{pfcp = PCtx}};
+handle_event(internal, {session, stop, _Session}, State, Data) ->
+    close_pdn_context(normal, State, Data),
+    {next_state, shutdown, Data};
+
+handle_event(internal, {session, {update_credits, _} = CreditEv, _}, _State,
+	     #data{context = Context, pfcp = PCtx0, pcc = PCC0} = Data) ->
+    Now = erlang:monotonic_time(),
+
+    {PCC, _PCCErrors} = ergw_gsn_lib:gy_events_to_pcc_ctx(Now, [CreditEv], PCC0),
+
+    {PCtx, _} =
+	ergw_gsn_lib:modify_sgi_session(PCC, [], #{}, Context, PCtx0),
+
+    {keep_state, Data#data{pfcp = PCtx, pcc = PCC}};
+
+handle_event(internal, {session, Ev, _}, _State, _Data) ->
+    lager:error("unhandled session event: ~p", [Ev]),
+    keep_state_and_data;
+
+handle_event(info, {update_session, Session, Events}, _State, _Data) ->
+    lager:warning("SessionEvents: ~p~n       Events: ~p", [Session, Events]),
+    Actions = [{next_event, internal, {session, Ev, Session}} || Ev <- Events],
+    {keep_state_and_data, Actions};
 
 handle_event(info, {timeout, TRef, pfcp_timer} = Info, _State,
 	     #data{pfcp = PCtx0} = Data0) ->
@@ -318,8 +350,10 @@ code_change(_OldVsn, State, Data, _Extra) ->
 %%% Internal functions
 %%%===================================================================
 
-start_session(#data{context = Context, dp_node = Node, session = Session} = Data) ->
-    SOpts = #{now => erlang:monotonic_time()},
+start_session(#data{context = Context, dp_node = Node,
+		    session = Session, pcc = PCC0} = Data) ->
+    Now = erlang:monotonic_time(),
+    SOpts = #{now => Now},
 
     SessionOpts = init_session(Data),
     authenticate(Session, SessionOpts),
@@ -331,17 +365,17 @@ start_session(#data{context = Context, dp_node = Node, session = Session} = Data
 	ccr_initial(Session, gx, GxOpts, SOpts),
 
     RuleBase = ergw_charging:rulebase(),
-    {PCCRules, PCCErrors} =
-	ergw_gsn_lib:gx_events_to_pcc_rules(GxEvents, '_', RuleBase, #{}),
+    {PCC1, PCCErrors1} =
+	ergw_gsn_lib:gx_events_to_pcc_ctx(GxEvents, '_', RuleBase, PCC0),
 
-    if PCCRules =:= #{} ->
-	    throw({fail, authenticate, no_pcc_rules});
-       true ->
-	    ok
+    case ergw_gsn_lib:pcc_ctx_has_rules(PCC1) of
+	false -> throw({fail, authenticate, no_pcc_rules});
+	true ->  ok
     end,
 
-    Credits = ergw_gsn_lib:pcc_rules_to_credit_request(PCCRules),
-    GyReqServices = #{'PCC-Rules' => PCCRules, credits => Credits},
+    %% TBD............
+    CreditsAdd = ergw_gsn_lib:pcc_ctx_to_credit_request(PCC1),
+    GyReqServices = #{credits => CreditsAdd},
 
     {ok, GySessionOpts, GyEvs} =
 	ccr_initial(Session, gy, GyReqServices, SOpts),
@@ -353,12 +387,15 @@ start_session(#data{context = Context, dp_node = Node, session = Session} = Data
 
     lager:info("FinalS: ~p", [FinalSessionOpts]),
 
-    {_, PCtx} = ergw_gsn_lib:create_tdf_session(Node, FinalSessionOpts, GyEvs, Context),
+    {PCC2, PCCErrors2} = ergw_gsn_lib:gy_events_to_pcc_ctx(Now, GyEvs, PCC1),
+
+    {_, PCtx} =
+	ergw_gsn_lib:create_tdf_session(Node, PCC2, Context),
 
     Keys = context2keys(Context),
     gtp_context_reg:register(Keys, ?MODULE, self()),
 
-    GxReport = ergw_gsn_lib:pcc_events_to_charging_rule_report(PCCErrors),
+    GxReport = ergw_gsn_lib:pcc_events_to_charging_rule_report(PCCErrors1 ++ PCCErrors2),
     if map_size(GxReport) /= 0 ->
 	    ergw_aaa_session:invoke(Session, GxReport,
 				    {gx, 'CCR-Update'}, SOpts#{async => true});
@@ -366,7 +403,7 @@ start_session(#data{context = Context, dp_node = Node, session = Session} = Data
 	    ok
     end,
 
-    Data#data{pfcp = PCtx}.
+    Data#data{pfcp = PCtx, pcc = PCC2}.
 
 init_session(#data{context = Context}) ->
     {MCC, MNC} = ergw:get_plmn_id(),
@@ -417,7 +454,8 @@ ccr_initial(Session, API, SessionOpts, ReqOpts) ->
 	    throw({fail, 'CCR-Initial', Fail})
     end.
 
-close_pdn_context(Reason, run, #data{context = Context, pfcp = PCtx, session = Session}) ->
+close_pdn_context(Reason, run, #data{context = Context, pfcp = PCtx,
+				     session = Session}) ->
     URRs = ergw_gsn_lib:delete_sgi_session(Reason, Context, PCtx),
 
     TermCause =
@@ -432,20 +470,22 @@ close_pdn_context(Reason, run, #data{context = Context, pfcp = PCtx, session = S
 
     %%  1. CCR on Gx to get PCC rules
     Now = erlang:monotonic_time(),
-    SOpts = #{now => Now},
-    case ergw_aaa_session:invoke(Session, #{}, {gx, 'CCR-Terminate'}, SOpts) of
+    ReqOpts = #{now => Now, async => true},
+
+    case ergw_aaa_session:invoke(Session, #{}, {gx, 'CCR-Terminate'}, ReqOpts#{async => false}) of
 	{ok, _GxSessionOpts, _} ->
 	    lager:info("GxSessionOpts: ~p", [_GxSessionOpts]);
 	GxOther ->
 	    lager:warning("Gx terminate failed with: ~p", [GxOther])
     end,
 
-    ergw_aaa_session:invoke(Session, #{}, stop, SOpts#{async => true}),
+    ergw_aaa_session:invoke(Session, #{}, stop, ReqOpts#{async => true}),
 
     ChargeEv = {terminate, TermCause},
     {Online, Offline, _} =
 	ergw_gsn_lib:usage_report_to_charging_events(URRs, ChargeEv, PCtx),
-    ergw_gsn_lib:process_online_charging_events(ChargeEv, Online, Now, Session),
+    GyReqServices = ergw_gsn_lib:gy_credit_report(Online),
+    ergw_gsn_lib:process_online_charging_events(ChargeEv, GyReqServices, Session, ReqOpts),
     ergw_gsn_lib:process_offline_charging_events(ChargeEv, Offline, Now, Session),
 
     ok;
@@ -459,13 +499,17 @@ query_usage_report(_, Context, PCtx) ->
     ergw_gsn_lib:query_usage_report(Context, PCtx).
 
 triggered_charging_event(ChargeEv, Now, Request,
-			 #data{context = Context, pfcp = PCtx, session = Session}) ->
+			 #data{context = Context, pfcp = PCtx,
+			       session = Session, pcc = PCC}) ->
     try
+	ReqOpts = #{now => Now, async => true},
+
 	{_, UsageReport} =
 	    query_usage_report(Request, Context, PCtx),
 	{Online, Offline, _} =
 	    ergw_gsn_lib:usage_report_to_charging_events(UsageReport, ChargeEv, PCtx),
-	ergw_gsn_lib:process_online_charging_events(ChargeEv, Online, Now, Session),
+	GyReqServices = ergw_gsn_lib:gy_credit_request(Online, PCC),
+	ergw_gsn_lib:process_online_charging_events(ChargeEv, GyReqServices, Session, ReqOpts),
 	ergw_gsn_lib:process_offline_charging_events(ChargeEv, Offline, Now, Session)
     catch
 	throw:#ctx_err{} = CtxErr ->

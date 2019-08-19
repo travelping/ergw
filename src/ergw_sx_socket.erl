@@ -59,13 +59,9 @@
 -define(log_pfcp(Level, Fmt, Args, PFCP),
 	try
 	    #pfcp{version = Version, type = MsgType, seid = SEID, seq_no = SeqNo, ie = IE} = PFCP,
-	    IEList =
-		if is_map(IE) -> maps:values(IE);
-		   true -> IE
-		end,
-	    lager:Level(Fmt "~s(V: ~w, SEID: ~w, Seq: ~w): ~p", Args ++
+	    lager:Level(Fmt "~s(V: ~w, SEID: ~w, Seq: ~w):~n  ~s", Args ++
 			    [pfcp_packet:msg_description_v1(MsgType), Version, SEID, SeqNo,
-			     pfcp_packet:lager_pr(IEList)])
+			     pfcp_packet:pretty_print(IE)])
 	catch
 	    _:_ -> ok
 	end).

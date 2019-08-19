@@ -64,12 +64,6 @@
 	      {error, Reply :: term(), NewData :: map()} |
 	      {noreply, NewData :: map()}.
 
--callback session_events(Session :: list() | map(),
-			 Events :: list(),
-			 State :: gen_statem:state(), % Current state
-			 Data :: map()) ->
-    Data :: map().
-
 %% Clean up before the server terminates.
 -callback terminate(
 	    Reason :: 'normal' | 'shutdown' | {'shutdown', term()}

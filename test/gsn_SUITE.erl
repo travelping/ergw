@@ -12,6 +12,7 @@
 
 -include_lib("common_test/include/ct.hrl").
 
+-include("../include/ergw.hrl").
 -include("ergw_test_lib.hrl").
 
 %%%===================================================================
@@ -53,6 +54,11 @@ group(Id) ->
 
 rule_base(Id) ->
     bin_fmt("rb-~4.10.0B", [Id]).
+
+pcc_test_translate({PCC, Err}) ->
+    {PCC#pcc_ctx.rules, Err}.
+
+-define(match_pcc(M, R), ?match(M, pcc_test_translate(R))).
 
 gx_pcc_rules() ->
     [{doc, "Convert Gx DIAMETER Instal/Remove Avps into rules database"}].
@@ -104,31 +110,33 @@ gx_pcc_rules(_Config) ->
     Install3 = [{pcc, install, [CRM2, CRBM2]}],
     Install4 = [{pcc, install, [maps_merge([CRM2, CRBM2])]}],
 
-    ?match({#{<<"r-3001">> :=
+    PCC0 = #pcc_ctx{},
+
+    ?match_pcc({#{<<"r-3001">> :=
 		  #{'Charging-Rule-Name' := <<"r-3001">>,
 		    'Rating-Group' := [3001]}}, [_|_]},
-	   ergw_gsn_lib:gx_events_to_pcc_rules(Install1, '_', #{}, #{})),
-    {Rules1, _} = ergw_gsn_lib:gx_events_to_pcc_rules(Install1, '_', #{}, #{}),
+	   ergw_gsn_lib:gx_events_to_pcc_ctx(Install1, '_', #{}, PCC0)),
+    {PCC1, _} = ergw_gsn_lib:gx_events_to_pcc_ctx(Install1, '_', #{}, PCC0),
 
-    ?match({#{<<"r-3001">> :=
+    ?match_pcc({#{<<"r-3001">> :=
 		  #{'Charging-Rule-Name' := <<"r-3001">>,
 		    'Rating-Group' := [3001]}}, [_|_]},
-	   ergw_gsn_lib:gx_events_to_pcc_rules(Install2, '_', #{}, #{})),
+	   ergw_gsn_lib:gx_events_to_pcc_ctx(Install2, '_', #{}, PCC0)),
 
-    ?match({#{<<"r-3001">> :=
+    ?match_pcc({#{<<"r-3001">> :=
 		  #{'Charging-Rule-Name' := <<"r-3001">>,
 		    'Rating-Group' := [3001]}}, []},
-	   ergw_gsn_lib:gx_events_to_pcc_rules(Install1a, '_', RuleBase1, #{})),
+	   ergw_gsn_lib:gx_events_to_pcc_ctx(Install1a, '_', RuleBase1, PCC0)),
 
-    ?match({#{<<"r-3001">> :=
+    ?match_pcc({#{<<"r-3001">> :=
 		  #{'Charging-Rule-Name' := <<"r-3001">>,
 		    'Rating-Group' := [3001]}},
 	    [{not_found, {rulebase, <<"rb-0001">>}},
 	     {not_found, {rule, <<"r-3003">>}},
 	     {not_found, {rule, <<"r-3002">>}}]},
-	   ergw_gsn_lib:gx_events_to_pcc_rules(Install1, '_', RuleBase1, #{})),
+	   ergw_gsn_lib:gx_events_to_pcc_ctx(Install1, '_', RuleBase1, PCC0)),
 
-    ?match({#{<<"r-3001">> :=
+    ?match_pcc({#{<<"r-3001">> :=
 		  #{'Charging-Rule-Name' := <<"r-3001">>,
 		    'Rating-Group' := [3001]},
 	      <<"r-3002">> :=
@@ -136,18 +144,18 @@ gx_pcc_rules(_Config) ->
 	    [{not_found, {rulebase, <<"rb-0001">>}},
 	     {not_found, {rule, <<"r-3003">>}}]}
 	       when is_map_key('Charging-Rule-Name', RG) =:= false,
-	   ergw_gsn_lib:gx_events_to_pcc_rules(Install1, '_', RuleBase2, #{})),
-    {Rules2, _} = ergw_gsn_lib:gx_events_to_pcc_rules(Install1, '_', RuleBase2, #{}),
+	   ergw_gsn_lib:gx_events_to_pcc_ctx(Install1, '_', RuleBase2, PCC0)),
+    {PCC2, _} = ergw_gsn_lib:gx_events_to_pcc_ctx(Install1, '_', RuleBase2, PCC0),
 
-    ?match({#{<<"r-3001">> :=
+    ?match_pcc({#{<<"r-3001">> :=
 		  #{'Charging-Rule-Name' := <<"r-3001">>,
 		    'Rating-Group' := [3001]}},
 	    [{not_found, {rule, <<"r-3003">>}},
 	     {not_found, {rule, <<"r-3002">>}},
 	     {not_found, {rulebase, <<"rb-0001">>}}]},
-	   ergw_gsn_lib:gx_events_to_pcc_rules(Install2, '_', RuleBase1, #{})),
+	   ergw_gsn_lib:gx_events_to_pcc_ctx(Install2, '_', RuleBase1, PCC0)),
 
-    ?match({#{<<"r-3001">> :=
+    ?match_pcc({#{<<"r-3001">> :=
 		  #{'Charging-Rule-Name' := <<"r-3001">>,
 		    'Rating-Group' := [3001]},
 	      <<"r-3002">> :=
@@ -155,14 +163,14 @@ gx_pcc_rules(_Config) ->
 	    [{not_found, {rule, <<"r-3003">>}},
 	     {not_found, {rulebase, <<"rb-0001">>}}]}
 	       when is_map_key('Charging-Rule-Name', RG) =:= false,
-	   ergw_gsn_lib:gx_events_to_pcc_rules(Install2, '_', RuleBase2, #{})),
+	   ergw_gsn_lib:gx_events_to_pcc_ctx(Install2, '_', RuleBase2, PCC0)),
 
-    ?match({#{}, [_|_]}, ergw_gsn_lib:gx_events_to_pcc_rules(Install3, '_', RuleBase1, #{})),
-    ?match({#{}, [_|_]}, ergw_gsn_lib:gx_events_to_pcc_rules(Install3, '_', RuleBase2, #{})),
-    ?match({#{}, [_|_]}, ergw_gsn_lib:gx_events_to_pcc_rules(Install4, '_', RuleBase1, #{})),
-    ?match({#{}, [_|_]}, ergw_gsn_lib:gx_events_to_pcc_rules(Install4, '_', RuleBase2, #{})),
+    ?match_pcc({#{}, [_|_]}, ergw_gsn_lib:gx_events_to_pcc_ctx(Install3, '_', RuleBase1, PCC0)),
+    ?match_pcc({#{}, [_|_]}, ergw_gsn_lib:gx_events_to_pcc_ctx(Install3, '_', RuleBase2, PCC0)),
+    ?match_pcc({#{}, [_|_]}, ergw_gsn_lib:gx_events_to_pcc_ctx(Install4, '_', RuleBase1, PCC0)),
+    ?match_pcc({#{}, [_|_]}, ergw_gsn_lib:gx_events_to_pcc_ctx(Install4, '_', RuleBase2, PCC0)),
 
-    ?match({#{<<"r-3001">> :=
+    ?match_pcc({#{<<"r-3001">> :=
 		  #{'Charging-Rule-Name' := <<"r-3001">>,
 		    'Rating-Group' := [3001]},
 	      <<"r-3002">> :=
@@ -172,10 +180,10 @@ gx_pcc_rules(_Config) ->
 		    'Rating-Group' := [3003]} = RG3},
 	    []} when is_map_key('Charging-Rule-Name', RG2) =:= false andalso
 		     is_map_key('Charging-Rule-Name', RG3) =:= false,
-	   ergw_gsn_lib:gx_events_to_pcc_rules(Install1, '_', RuleBase3, #{})),
-    {Rules3, _} = ergw_gsn_lib:gx_events_to_pcc_rules(Install1, '_', RuleBase3, #{}),
+	   ergw_gsn_lib:gx_events_to_pcc_ctx(Install1, '_', RuleBase3, PCC0)),
+    {PCC3, _} = ergw_gsn_lib:gx_events_to_pcc_ctx(Install1, '_', RuleBase3, PCC0),
 
-    ?match({#{<<"r-3001">> :=
+    ?match_pcc({#{<<"r-3001">> :=
 		  #{'Charging-Rule-Name' := <<"r-3001">>,
 		    'Rating-Group' := [3001]},
 	      <<"r-3002">> :=
@@ -186,9 +194,9 @@ gx_pcc_rules(_Config) ->
 	   [{not_found, {rule, <<"r-3004">>}}]}
 	       when is_map_key('Charging-Rule-Name', RG2) =:= false andalso
 		    is_map_key('Charging-Rule-Name', RG3) =:= false,
-	   ergw_gsn_lib:gx_events_to_pcc_rules(Install1, '_', RuleBase4, #{})),
+	   ergw_gsn_lib:gx_events_to_pcc_ctx(Install1, '_', RuleBase4, PCC0)),
 
-    ?match({#{<<"r-3001">> :=
+    ?match_pcc({#{<<"r-3001">> :=
 		  #{'Charging-Rule-Name' := <<"r-3001">>,
 		    'Rating-Group' := [3001]},
 	      <<"r-3002">> :=
@@ -198,9 +206,9 @@ gx_pcc_rules(_Config) ->
 		    'Rating-Group' := [3003]} = RG3},
 	    []} when is_map_key('Charging-Rule-Name', RG2) =:= false andalso
 		     is_map_key('Charging-Rule-Name', RG3) =:= false,
-	   ergw_gsn_lib:gx_events_to_pcc_rules(Install2, '_', RuleBase3, #{})),
+	   ergw_gsn_lib:gx_events_to_pcc_ctx(Install2, '_', RuleBase3, PCC0)),
 
-    ?match({#{<<"r-3001">> :=
+    ?match_pcc({#{<<"r-3001">> :=
 		  #{'Charging-Rule-Name' := <<"r-3001">>,
 		    'Rating-Group' := [3001]},
 	      <<"r-3002">> :=
@@ -211,12 +219,12 @@ gx_pcc_rules(_Config) ->
 	   [{not_found, {rule, <<"r-3004">>}}]}
 	       when is_map_key('Charging-Rule-Name', RG2) =:= false andalso
 		    is_map_key('Charging-Rule-Name', RG3) =:= false,
-	   ergw_gsn_lib:gx_events_to_pcc_rules(Install2, '_', RuleBase4, #{})),
+	   ergw_gsn_lib:gx_events_to_pcc_ctx(Install2, '_', RuleBase4, PCC0)),
 
-    ?match({#{}, [_|_]}, ergw_gsn_lib:gx_events_to_pcc_rules(Install3, '_', RuleBase3, #{})),
-    ?match({#{}, [_|_]}, ergw_gsn_lib:gx_events_to_pcc_rules(Install3, '_', RuleBase4, #{})),
-    ?match({#{}, [_|_]}, ergw_gsn_lib:gx_events_to_pcc_rules(Install4, '_', RuleBase3, #{})),
-    ?match({#{}, [_|_]}, ergw_gsn_lib:gx_events_to_pcc_rules(Install4, '_', RuleBase4, #{})),
+    ?match_pcc({#{}, [_|_]}, ergw_gsn_lib:gx_events_to_pcc_ctx(Install3, '_', RuleBase3, PCC0)),
+    ?match_pcc({#{}, [_|_]}, ergw_gsn_lib:gx_events_to_pcc_ctx(Install3, '_', RuleBase4, PCC0)),
+    ?match_pcc({#{}, [_|_]}, ergw_gsn_lib:gx_events_to_pcc_ctx(Install4, '_', RuleBase3, PCC0)),
+    ?match_pcc({#{}, [_|_]}, ergw_gsn_lib:gx_events_to_pcc_ctx(Install4, '_', RuleBase4, PCC0)),
 
 
     %% simple update requests
@@ -224,12 +232,12 @@ gx_pcc_rules(_Config) ->
     Update1a = [{pcc, install, [CRM3]}],
     Update2 = [{pcc, install, [maps_merge([CRD2, CRM1, CRBM1])]}],
 
-    ?match({#{<<"r-3001">> :=
+    ?match_pcc({#{<<"r-3001">> :=
 		  #{'Charging-Rule-Name' := <<"r-3001">>,
 		    'Rating-Group' := [6001]}}, [_|_]},
-	   ergw_gsn_lib:gx_events_to_pcc_rules(Update1, '_', RuleBase1, Rules1)),
+	   ergw_gsn_lib:gx_events_to_pcc_ctx(Update1, '_', RuleBase1, PCC1)),
 
-    ?match({#{<<"r-3001">> :=
+    ?match_pcc({#{<<"r-3001">> :=
 		  #{'Charging-Rule-Name' := <<"r-3001">>,
 		    'Rating-Group' := [6001]},
 	      <<"r-3002">> :=
@@ -237,14 +245,14 @@ gx_pcc_rules(_Config) ->
 	    [{not_found, {rulebase, <<"rb-0001">>}},
 	     {not_found, {rule, <<"r-3003">>}}]}
 	       when is_map_key('Charging-Rule-Name', RG) =:= false,
-	   ergw_gsn_lib:gx_events_to_pcc_rules(Update1, '_', RuleBase2, Rules1)),
+	   ergw_gsn_lib:gx_events_to_pcc_ctx(Update1, '_', RuleBase2, PCC1)),
 
-    ?match({#{<<"r-3001">> :=
+    ?match_pcc({#{<<"r-3001">> :=
 		  #{'Charging-Rule-Name' := <<"r-3001">>,
 		    'Rating-Group' := [6001]}}, [_|_]},
-	   ergw_gsn_lib:gx_events_to_pcc_rules(Update2, '_', RuleBase1, Rules1)),
+	   ergw_gsn_lib:gx_events_to_pcc_ctx(Update2, '_', RuleBase1, PCC1)),
 
-    ?match({#{<<"r-3001">> :=
+    ?match_pcc({#{<<"r-3001">> :=
 		  #{'Charging-Rule-Name' := <<"r-3001">>,
 		    'Rating-Group' := [6001]},
 	      <<"r-3002">> :=
@@ -253,9 +261,9 @@ gx_pcc_rules(_Config) ->
 	     {not_found, {rule, <<"r-3003">>}},
 	     {not_found, {rule, <<"r-3002">>}}]}
 	       when is_map_key('Charging-Rule-Name', RG) =:= false,
-	   ergw_gsn_lib:gx_events_to_pcc_rules(Update1, '_', RuleBase1, Rules2)),
+	   ergw_gsn_lib:gx_events_to_pcc_ctx(Update1, '_', RuleBase1, PCC2)),
 
-    ?match({#{<<"r-3001">> :=
+    ?match_pcc({#{<<"r-3001">> :=
 		  #{'Charging-Rule-Name' := <<"r-3001">>,
 		    'Rating-Group' := [6001]},
 	      <<"r-3002">> :=
@@ -264,9 +272,9 @@ gx_pcc_rules(_Config) ->
 	     {not_found, {rule, <<"r-3002">>}},
 	     {not_found, {rulebase, <<"rb-0001">>}}]}
 	       when is_map_key('Charging-Rule-Name', RG) =:= false,
-	   ergw_gsn_lib:gx_events_to_pcc_rules(Update2, '_', RuleBase1, Rules2)),
+	   ergw_gsn_lib:gx_events_to_pcc_ctx(Update2, '_', RuleBase1, PCC2)),
 
-    ?match({#{<<"r-3001">> :=
+    ?match_pcc({#{<<"r-3001">> :=
 		  #{'Charging-Rule-Name' := <<"r-3001">>,
 		    'Rating-Group' := [6001]},
 	      <<"r-3002">> :=
@@ -274,9 +282,9 @@ gx_pcc_rules(_Config) ->
 	    [{not_found, {rulebase, <<"rb-0001">>}},
 	     {not_found, {rule, <<"r-3003">>}}]}
 	       when is_map_key('Charging-Rule-Name', RG) =:= false,
-	   ergw_gsn_lib:gx_events_to_pcc_rules(Update1, '_', RuleBase2, Rules2)),
+	   ergw_gsn_lib:gx_events_to_pcc_ctx(Update1, '_', RuleBase2, PCC2)),
 
-    ?match({#{<<"r-3001">> :=
+    ?match_pcc({#{<<"r-3001">> :=
 		  #{'Charging-Rule-Name' := <<"r-3001">>,
 		    'Rating-Group' := [6001]},
 	      <<"r-3002">> :=
@@ -284,19 +292,19 @@ gx_pcc_rules(_Config) ->
 	    [{not_found, {rule, <<"r-3003">>}},
 	     {not_found, {rulebase, <<"rb-0001">>}}]}
 	       when is_map_key('Charging-Rule-Name', RG) =:= false,
-	   ergw_gsn_lib:gx_events_to_pcc_rules(Update2, '_', RuleBase2, Rules2)),
+	   ergw_gsn_lib:gx_events_to_pcc_ctx(Update2, '_', RuleBase2, PCC2)),
 
-    ?match({#{<<"r-3001">> :=
+    ?match_pcc({#{<<"r-3001">> :=
 		  #{'Charging-Rule-Name' := <<"r-3001">>,
 		    'Rating-Group' := [6001]},
 	      <<"r-3002">> :=
 		  #{'Rating-Group' := [3002]} = RG}, []}
 	       when is_map_key('Charging-Rule-Name', RG) =:= false,
-	   ergw_gsn_lib:gx_events_to_pcc_rules(Update1a, '_', RuleBase1a, Rules2)),
+	   ergw_gsn_lib:gx_events_to_pcc_ctx(Update1a, '_', RuleBase1a, PCC2)),
 
     %% update with RuleBase requests
 
-    ?match({#{<<"r-3001">> :=
+    ?match_pcc({#{<<"r-3001">> :=
 		  #{'Charging-Rule-Name' := <<"r-3001">>,
 		    'Rating-Group' := [6001]},
 	      <<"r-3002">> :=
@@ -306,9 +314,9 @@ gx_pcc_rules(_Config) ->
 		    'Rating-Group' := [6003]} = RG3}, []}
 	       when is_map_key('Charging-Rule-Name', RG2) =:= false andalso
 		    is_map_key('Charging-Rule-Name', RG3) =:= false,
-	   ergw_gsn_lib:gx_events_to_pcc_rules(Update1, '_', RuleBase3a, Rules3)),
+	   ergw_gsn_lib:gx_events_to_pcc_ctx(Update1, '_', RuleBase3a, PCC3)),
 
-    ?match({#{<<"r-3001">> :=
+    ?match_pcc({#{<<"r-3001">> :=
 		  #{'Charging-Rule-Name' := <<"r-3001">>,
 		    'Rating-Group' := [6001]},
 	      <<"r-3002">> :=
@@ -318,9 +326,9 @@ gx_pcc_rules(_Config) ->
 		    'Rating-Group' := [3003]} = RG3}, []}
 	       when is_map_key('Charging-Rule-Name', RG2) =:= false andalso
 		    is_map_key('Charging-Rule-Name', RG3) =:= false,
-	   ergw_gsn_lib:gx_events_to_pcc_rules(Update1a, '_', RuleBase3a, Rules3)),
+	   ergw_gsn_lib:gx_events_to_pcc_ctx(Update1a, '_', RuleBase3a, PCC3)),
 
-    ?match({#{<<"r-3001">> :=
+    ?match_pcc({#{<<"r-3001">> :=
 		  #{'Charging-Rule-Name' := <<"r-3001">>,
 		    'Rating-Group' := [6001]},
 	      <<"r-3002">> :=
@@ -330,7 +338,7 @@ gx_pcc_rules(_Config) ->
 		    'Rating-Group' := [6003]} = RG3}, []}
 	       when is_map_key('Charging-Rule-Name', RG2) =:= false andalso
 		    is_map_key('Charging-Rule-Name', RG3) =:= false,
-	   ergw_gsn_lib:gx_events_to_pcc_rules(Update2, '_', RuleBase3a, Rules3)),
+	   ergw_gsn_lib:gx_events_to_pcc_ctx(Update2, '_', RuleBase3a, PCC3)),
 
     %% simple update requests
     Remove1 = [{pcc, remove, [CRM3]}],
@@ -338,25 +346,25 @@ gx_pcc_rules(_Config) ->
     Remove3 = [{pcc, remove, [CRM2, CRBM2]}],
     Remove4 = [{pcc, remove, [maps_merge([CRM2, CRBM2])]}],
 
-    ?match({#{<<"r-3002">> :=
+    ?match_pcc({#{<<"r-3002">> :=
 		  #{'Rating-Group' := [3002]} = RG2,
 	      <<"r-3003">> :=
 		  #{'Charging-Rule-Base-Name' := <<"rb-0001">>,
 		    'Rating-Group' := [3003]} = RG3}, []}
 	       when is_map_key('Charging-Rule-Name', RG2) =:= false andalso
 		    is_map_key('Charging-Rule-Name', RG3) =:= false,
-	   ergw_gsn_lib:gx_events_to_pcc_rules(Remove1, '_', #{}, Rules3)),
+	   ergw_gsn_lib:gx_events_to_pcc_ctx(Remove1, '_', #{}, PCC3)),
 
-    ?match({#{<<"r-3001">> :=
+    ?match_pcc({#{<<"r-3001">> :=
 		  #{'Charging-Rule-Name' := <<"r-3001">>,
 		    'Rating-Group' := [3001]}},
 	    [{not_found, {rule, <<"r-3003">>}}]},
-	   ergw_gsn_lib:gx_events_to_pcc_rules(Remove2, '_', #{}, Rules3)),
+	   ergw_gsn_lib:gx_events_to_pcc_ctx(Remove2, '_', #{}, PCC3)),
 
-    ?match({Rules3, [{not_found, {rule, <<"rb-0001">>}}]},
-	   ergw_gsn_lib:gx_events_to_pcc_rules(Remove3, '_', #{}, Rules3)),
+    ?match({PCC3, [{not_found, {rule, <<"rb-0001">>}}]},
+	   ergw_gsn_lib:gx_events_to_pcc_ctx(Remove3, '_', #{}, PCC3)),
 
-    ?match({Rules3, [{not_found, {rule, <<"rb-0001">>}}]},
-	   ergw_gsn_lib:gx_events_to_pcc_rules(Remove4, '_', #{}, Rules3)),
+    ?match({PCC3, [{not_found, {rule, <<"rb-0001">>}}]},
+	   ergw_gsn_lib:gx_events_to_pcc_ctx(Remove4, '_', #{}, PCC3)),
 
     ok.
