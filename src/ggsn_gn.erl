@@ -97,7 +97,10 @@ validate_option(Opt, Value) ->
 
 init(_Opts, Data) ->
     {ok, Session} = ergw_aaa_session_sup:new_session(self(), to_session([])),
-    {ok, run, Data#{'Version' => v1, 'Session' => Session, pcc => #pcc_ctx{}}}.
+    SessionOpts = ergw_aaa_session:get(Session),
+    OCPcfg = maps:get('Offline-Charging-Profile', SessionOpts, #{}),
+    PCC = #pcc_ctx{offline_charging_profile = OCPcfg},
+    {ok, run, Data#{'Version' => v1, 'Session' => Session, pcc => PCC}}.
 
 handle_event(enter, _OldState, _State, _Data) ->
     keep_state_and_data;
@@ -378,11 +381,12 @@ handle_request(ReqKey,
     lager:info("Initial GyEvs: ~p", [GyEvs]),
 
     ergw_aaa_session:invoke(Session, #{}, start, SOpts),
-    ergw_aaa_session:invoke(Session, #{}, {rf, 'Initial'}, SOpts),
+    {_, FinalSOpts, _} = ergw_aaa_session:invoke(Session, #{}, {rf, 'Initial'}, SOpts),
 
     {PCC2, PCCErrors2} = ergw_gsn_lib:gy_events_to_pcc_ctx(Now, GyEvs, PCC1),
+    PCC3 = ergw_gsn_lib:session_to_pcc_ctx(FinalSOpts, PCC2),
     {Context, PCtx} =
-	ergw_gsn_lib:create_sgi_session(Candidates, PCC2, ContextPending),
+	ergw_gsn_lib:create_sgi_session(Candidates, PCC3, ContextPending),
     gtp_context:remote_context_register_new(Context),
 
     GxReport = ergw_gsn_lib:pcc_events_to_charging_rule_report(PCCErrors1 ++ PCCErrors2),
@@ -396,7 +400,7 @@ handle_request(ReqKey,
     ResponseIEs = create_pdp_context_response(ActiveSessionOpts, IEs, Context),
     Response = response(create_pdp_context_response, Context, ResponseIEs, Request),
     gtp_context:send_response(ReqKey, Request, Response),
-    {keep_state, Data#{context => Context, pfcp => PCtx, pcc => PCC2}};
+    {keep_state, Data#{context => Context, pfcp => PCtx, pcc => PCC3}};
 
 handle_request(ReqKey,
 	       #gtp{type = update_pdp_context_request,
