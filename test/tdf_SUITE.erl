@@ -678,7 +678,7 @@ gy_validity_timer(Config) ->
     packet_in(Config),
     ct:sleep({seconds, 10}),
 
-    ?match(X when X >= 3,
+    ?match(X when X >= 3 andalso X < 10,
 		  meck:num_calls(?HUT, handle_event, [info, {timeout, '_', pfcp_timer}, '_', '_'])),
 
     CCRU = lists:filter(
@@ -691,7 +691,7 @@ gy_validity_timer(Config) ->
 		     true;
 		(_) -> false
 	     end, meck:history(ergw_aaa_session)),
-    ?match(X when X >= 3, length(CCRU)),
+    ?match(Y when Y >= 3 andalso Y < 10, length(CCRU)),
 
     {tdf, Pid} = gtp_context_reg:lookup({ue, <<3, "sgi">>, UeIP}),
     Pid ! stop_from_session,

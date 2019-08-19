@@ -1109,7 +1109,7 @@ gy_validity_timer(Config) ->
     ct:sleep({seconds, 10}),
     delete_session(GtpC),
 
-    ?match(X when X >= 3,
+    ?match(X when X >= 3 andalso X < 10,
 		  meck:num_calls(?HUT, handle_event, [info, {pfcp_timer, '_'}, '_', '_'])),
 
     CCRU = lists:filter(
@@ -1122,7 +1122,7 @@ gy_validity_timer(Config) ->
 		     true;
 		(_) -> false
 	     end, meck:history(ergw_aaa_session)),
-    ?match(X when X >= 3, length(CCRU)),
+    ?match(Y when Y >= 3 andalso Y < 10, length(CCRU)),
 
     ?equal([], outstanding_requests()),
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
