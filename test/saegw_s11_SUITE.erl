@@ -448,6 +448,7 @@ init_per_testcase(create_session_overload, Config) ->
     Config;
 init_per_testcase(gy_validity_timer, Config) ->
     init_per_testcase(Config),
+    set_online_charging(true),
     load_ocs_config('Initial-OCS-VT', 'Update-OCS-VT'),
     Config;
 init_per_testcase(TestCase, Config)
@@ -455,6 +456,7 @@ init_per_testcase(TestCase, Config)
        TestCase == gy_ccr_asr_overlap;
        TestCase == volume_threshold ->
     init_per_testcase(Config),
+    set_online_charging(true),
     load_ocs_config('Initial-OCS', 'Update-OCS'),
     Config;
 init_per_testcase(gx_invalid_charging_rulebase, Config) ->
@@ -477,6 +479,7 @@ end_per_testcase(Config) ->
 
     AppsCfg = proplists:get_value(aaa_cfg, Config),
     ok = application:set_env(ergw_aaa, apps, AppsCfg),
+    set_online_charging(false),
     ok.
 
 end_per_testcase(TestCase, Config)
@@ -1583,3 +1586,35 @@ load_aaa_answer_config(AnswerCfg) ->
 	      #{procedures => maps:from_list(Answers)}},
     Cfg = maps_recusive_merge(Cfg0, UpdCfg),
     ok = application:set_env(ergw_aaa, apps, Cfg).
+
+set_online_charging([], true, Cfg)
+  when is_map(Cfg) ->
+    maps:put('Online', [1], Cfg);
+set_online_charging([], _, Cfg)
+  when is_map(Cfg) ->
+    maps:remove('Online', Cfg);
+set_online_charging([], _, Cfg) ->
+    Cfg;
+
+set_online_charging([Key|Next], Set, [{_, _}|_] = Cfg)
+  when Key =:= '_' ->
+    lists:map(
+      fun({K, V}) -> {K, set_online_charging(Next, Set, V)} end, Cfg);
+set_online_charging([Key|Next], Set, [{_, _}|_] = Cfg) ->
+    New = {Key, set_online_charging(Next, Set, proplists:get_value(Key, Cfg))},
+    lists:keystore(Key, 1, Cfg, New);
+%% set_online_charging(_, _Set, Cfg) when is_list(Cfg) ->
+%%     Cfg;
+
+set_online_charging([Key|Next], Set, Cfg)
+  when Key =:= '_', is_map(Cfg) ->
+    maps:map(
+      fun(_, V) -> set_online_charging(Next, Set, V) end, Cfg);
+set_online_charging([Key|Next], Set, Cfg)
+  when is_map(Cfg) ->
+    Cfg#{Key => set_online_charging(Next, Set, maps:get(Key, Cfg))}.
+
+set_online_charging(Set) ->
+    {ok, Cfg0} = application:get_env(ergw, charging),
+    Cfg = set_online_charging(['_', rulebase, '_'], Set, Cfg0),
+    ok = application:set_env(ergw, charging, Cfg).
