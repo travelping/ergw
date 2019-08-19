@@ -61,10 +61,19 @@
 	  idmap = #{}		:: map(),
 	  urr_by_id = #{}	:: map(),
 	  urr_by_grp = #{}	:: map(),
-	  charging_keys = #{}	:: map(),
 	  sx_rules = #{}	:: map(),
 	  timers = #{}		:: map(),
 	  timer_by_tref = #{}	:: map()
+	 }).
+
+-record(pcc_ctx, {
+	  monitors = #{}	:: map(),
+	  rules = #{}		:: map(),
+	  credits = #{}		:: map(),
+
+	  %% TBD:
+	  acct_interim_interval = 600		:: integer(),
+	  offline_charging_profile = #{}	:: map()
 	 }).
 
 -record(gtp_endp, {

@@ -338,10 +338,8 @@ init([CntlPort, Version, Interface,
 handle_event({call, From}, info, _, Data) ->
     {keep_state_and_data, [{reply, From, Data}]};
 
-handle_event({call, From}, {?TestCmdTag, pcc_rules}, _State, #{'Session' := Session}) ->
-    SOpts = ergw_aaa_session:get(Session),
-    PCR = maps:get('PCC-Rules', SOpts, undefined),
-    {keep_state_and_data, [{reply, From, {ok, PCR}}]};
+handle_event({call, From}, {?TestCmdTag, pcc_rules}, _State, #{pcc := PCC}) ->
+    {keep_state_and_data, [{reply, From, {ok, PCC#pcc_ctx.rules}}]};
 
 handle_event(enter, _OldState, shutdown, _Data) ->
     % TODO unregsiter context ....
@@ -406,11 +404,10 @@ handle_event(cast, {handle_response, ReqInfo, Request, Response0}, State,
 	    erlang:raise(Class, Reason, Stacktrace)
     end;
 
-handle_event(info, {update_session, Session, Events} = Us, State,
-	     #{interface := Interface} = Data0) ->
-    lager:warning("UpdateSession: ~p", [Us]),
-    Data = Interface:session_events(Session, Events, State, Data0),
-    {keep_state, Data};
+handle_event(info, {update_session, Session, Events}, _State, _Data) ->
+    lager:warning("SessionEvents: ~p~n       Events: ~p", [Session, Events]),
+    Actions = [{next_event, internal, {session, Ev, Session}} || Ev <- Events],
+    {keep_state_and_data, Actions};
 
 handle_event(info, {timeout, TRef, pfcp_timer} = Info, State,
 	    #{interface := Interface, pfcp := PCtx0} = Data) ->

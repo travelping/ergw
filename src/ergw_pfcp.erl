@@ -18,17 +18,13 @@
 	 outer_header_removal/1,
 	 ctx_teid_key/2,
 	 assign_data_teid/2]).
--export([init_ctx/1, reset_ctx/1, reset_ctx_timers/1,
+-export([init_ctx/1, reset_ctx/1,
 	 get_id/2, get_id/3, update_pfcp_rules/3]).
 -export([get_urr_id/4, get_urr_group/2,
 	 get_urr_ids/1, get_urr_ids/2,
 	 find_urr_by_id/2]).
 -export([set_timer/3, apply_timers/2, timer_expired/2]).
 -export([pfcp_rules_add/2]).
--export([charging_key_add/2,
-	 charging_key_del/2,
-	 charging_key_exists/2,
-	 init_charging_group_urrs/1]).
 
 -ifdef(TEST).
 -export([pfcp_rule_diff/2]).
@@ -178,17 +174,7 @@ get_id(Type, Name, #pfcp_ctx{idcnt = Cnt, idmap = IdMap} = PCtx) ->
 			       idmap = IdMap#{Key => Id}}}
     end.
 
-get_urr_id({online, _} = Key, Groups, Info, PCtx) ->
-    case charging_key_exists(Key, PCtx) of
-	true ->
-	    get_urr_id_4(Key, Groups, Info, PCtx);
-	_Other ->
-	    {undefined, PCtx}
-    end;
-get_urr_id(Key, Groups, Info, PCtx) ->
-    get_urr_id_4(Key, Groups, Info, PCtx).
-
-get_urr_id_4(Key, Groups, Info, #pfcp_ctx{urr_by_id = M, urr_by_grp = Grp0} = PCtx0) ->
+get_urr_id(Key, Groups, Info, #pfcp_ctx{urr_by_id = M, urr_by_grp = Grp0} = PCtx0) ->
     {Id, PCtx1} = ergw_pfcp:get_id(urr, Key, PCtx0),
     UpdF = ordsets:add_element(Id, _),
     Grp = lists:foldl(maps:update_with(_, UpdF, [Id], _), Grp0, Groups),
@@ -222,15 +208,21 @@ apply_timers(#pfcp_ctx{timers = Old}, #pfcp_ctx{timers = New} = PCtx) ->
     lager:debug("Update Timers Old: ~p", [Old]),
     lager:debug("Update Timers New: ~p", [New]),
     maps:map(fun del_timers/2, maps:without(maps:keys(New), Old)),
-    maps:fold(fun upd_timers/3, reset_ctx_timers(PCtx), New).
+    R = maps:fold(upd_timers(_, _, Old, _), reset_ctx_timers(PCtx), New),
+    lager:debug("Update Timers Final: ~p", [R#pfcp_ctx.timers]),
+    R.
 
 del_timers(_, {TRef, _}) ->
     erlang:cancel_timer(TRef).
 
-upd_timers(Time, {TRef0, Evs}, #pfcp_ctx{timers = Ts, timer_by_tref = Ids} = PCtx) ->
-    TRef = if is_reference(TRef0) -> TRef0;
-	      true -> erlang:start_timer(Time, self(), pfcp_timer, [{abs, true}])
-	   end,
+upd_timers(Time, {_, Evs} = Timer, Old, #pfcp_ctx{timers = Ts, timer_by_tref = Ids} = PCtx) ->
+    TRef =
+	case maps:get(Time, Old, Timer) of
+	    {TRef0, _} when is_reference(TRef0) ->
+		TRef0;
+	    _ ->
+		erlang:start_timer(Time, self(), pfcp_timer, [{abs, true}])
+	end,
     PCtx#pfcp_ctx{
       timers = Ts#{Time => {TRef, Evs}},
       timer_by_tref = Ids#{TRef => Time}
@@ -249,59 +241,30 @@ timer_expired(TRef, #pfcp_ctx{timers = Ts, timer_by_tref = Ids} = PCtx0) ->
     end.
 
 %%%===================================================================
-%%% Rating Group
-%%%===================================================================
-
-charging_key_add(Key, #pfcp_ctx{charging_keys = Keys} = PCtx) ->
-    PCtx#pfcp_ctx{charging_keys = Keys#{Key => true}}.
-
-charging_key_del(Key, #pfcp_ctx{charging_keys = Keys} = PCtx) ->
-    PCtx#pfcp_ctx{charging_keys = maps:without([Key], Keys)}.
-
-charging_key_exists(Key, #pfcp_ctx{charging_keys = Keys}) ->
-    maps:get(Key, Keys, false).
-
-init_charging_group_urrs(#pfcp_ctx{charging_keys = Keys} = PCtx0) ->
-    ChargingKeys = maps:keys(Keys),
-    %% ensure that all URRs for online RatingGroups exists
-    PCtx = lists:foldl(
-	     fun({online, RatingGroup} = K, PC0) ->
-		     {_, PC} = get_urr_id_4(K, [RatingGroup], K, PC0),
-		     PC;
-		(_, PC0) ->
-		     PC0
-	     end, PCtx0, ChargingKeys),
-    %% preload new URRs so that later the diff works...
-    URRs =
-	maps:from_list([{{urr, Key}, exists} || Key <- ChargingKeys]),
-    PCtx#pfcp_ctx{sx_rules = URRs}.
-
-%%%===================================================================
 %%% Manage PFCP rules in context
 %%%===================================================================
 
+pfcp_rules_add(Type, Key, Rule, #pfcp_ctx{sx_rules = Rules} = PCtx) ->
+    PCtx#pfcp_ctx{sx_rules = Rules#{{Type, Key} => Rule}}.
+
 pfcp_rules_add([], PCtx) ->
     PCtx;
-pfcp_rules_add([{Type, Key, Rule}|T], #pfcp_ctx{sx_rules = Rules} = PCtx) ->
-    pfcp_rules_add(T, PCtx#pfcp_ctx{
-			sx_rules =
-			    Rules#{{Type, Key} => pfcp_packet:ies_to_map(Rule)}}).
+pfcp_rules_add([{Type, Key, Rule}|T], PCtx)
+  when is_atom(Rule) ->
+    pfcp_rules_add(T, pfcp_rules_add(Type, Key, Rule, PCtx));
+pfcp_rules_add([{Type, Key, Rule0}|T], PCtx) ->
+    Rule = pfcp_packet:ies_to_map(Rule0),
+    pfcp_rules_add(T, pfcp_rules_add(Type, Key, Rule, PCtx)).
 
 %%%===================================================================
 %%% Translate PFCP state into Create/Modify/Delete rules
 %%%===================================================================
-update_pfcp_rules(#pfcp_ctx{sx_rules = Old0}, #pfcp_ctx{sx_rules = New}, Opts) ->
-    %% replace all existing URR rules with `exists` so that we can know in
-    %% the diff that the new rules is indeed a update
-    Old1 = maps:map(
-	     fun({urr, {online,_}}, _) -> exists;
-		(_, V)        -> V
-	     end, Old0),
-    lager:debug("Update PFCP Rules Old0: ~p", [lager:pr(Old0, ?MODULE)]),
-    lager:debug("Update PFCP Rules Old1: ~p", [lager:pr(Old1, ?MODULE)]),
+update_pfcp_rules(#pfcp_ctx{sx_rules = Old},
+		  #pfcp_ctx{idmap = IdMap, sx_rules = New}, Opts) ->
+    lager:debug("Update PFCP Rules Old: ~p", [lager:pr(Old, ?MODULE)]),
     lager:debug("Update PFCP Rules New: ~p", [lager:pr(New, ?MODULE)]),
-    Del = maps:fold(fun del_pfcp_rules/3, #{}, maps:without(maps:keys(New), Old1)),
-    maps:fold(upd_pfcp_rules(_, _, Old1, _, Opts), Del, New).
+    Del = maps:fold(del_pfcp_rules(_, _, IdMap, _), #{}, maps:without(maps:keys(New), Old)),
+    maps:fold(upd_pfcp_rules(_, _, Old, _, Opts), Del, New).
 
 update_m_rec(Record, Map) when is_tuple(Record) ->
     maps:update_with(element(1, Record), [Record | _], [Record], Map).
@@ -309,16 +272,13 @@ update_m_rec(Record, Map) when is_tuple(Record) ->
 put_rec(Record, Map) when is_tuple(Record) ->
     maps:put(element(1, Record), Record, Map).
 
-del_pfcp_rules({pdr, _}, #{pdr_id := Id}, Acc) ->
+del_pfcp_rules({pdr, _}, #{pdr_id := Id}, _, Acc) ->
     update_m_rec(#remove_pdr{group = [Id]}, Acc);
-del_pfcp_rules({far, _}, #{far_id := Id}, Acc) ->
+del_pfcp_rules({far, _}, #{far_id := Id}, _, Acc) ->
     update_m_rec(#remove_far{group = [Id]}, Acc);
-del_pfcp_rules({urr, _}, #{urr_id := Id}, Acc) ->
+del_pfcp_rules({urr, _}, #{urr_id := Id}, _, Acc) ->
     update_m_rec(#remove_urr{group = [Id]}, Acc).
 
-upd_pfcp_rules(_K, exists, _Old, Acc, _Opts) ->
-    %% only used for URRs that are not changed
-    Acc;
 upd_pfcp_rules({Type, _} = K, V, Old, Acc, Opts) ->
     upd_pfcp_rules_1(Type, V, maps:get(K, Old, undefined), Acc, Opts).
 
@@ -326,7 +286,12 @@ upd_pfcp_rules_1(pdr, V, undefined, Acc, _Opts) ->
     update_m_rec(#create_pdr{group = V}, Acc);
 upd_pfcp_rules_1(far, V, undefined, Acc, _Opts) ->
     update_m_rec(#create_far{group = V}, Acc);
-upd_pfcp_rules_1(urr, V, undefined, Acc, _Opts) ->
+upd_pfcp_rules_1(urr, M, undefined, Acc, _Opts)
+  when is_map(M) ->
+    V = maps:remove('Update-Time-Stamp', M),
+    update_m_rec(#create_urr{group = V}, Acc);
+upd_pfcp_rules_1(urr, V, undefined, Acc, _Opts)
+  when is_list(V) ->
     update_m_rec(#create_urr{group = V}, Acc);
 
 upd_pfcp_rules_1(_Type, V, V, Acc, _Opts) ->
@@ -336,7 +301,20 @@ upd_pfcp_rules_1(pdr, V, OldV, Acc, Opts) ->
     update_m_rec(#update_pdr{group = update_pfcp_pdr(V, OldV, Opts)}, Acc);
 upd_pfcp_rules_1(far, V, OldV, Acc, Opts) ->
     update_m_rec(#update_far{group = update_pfcp_far(V, OldV, Opts)}, Acc);
-upd_pfcp_rules_1(urr, V, _OldV, Acc, _Opts) ->
+upd_pfcp_rules_1(urr, V, _OldV, Acc, _Opts)
+  when is_list(V) ->
+    update_m_rec(#update_urr{group = V}, Acc);
+
+upd_pfcp_rules_1(urr,
+		 #{'Update-Time-Stamp' := TS} = _M,
+		 #{'Update-Time-Stamp' := TS} = _OldV, Acc, _Opts) ->
+    Acc;
+upd_pfcp_rules_1(urr, M, _OldV, Acc, _Opts)
+  when is_map(M) ->
+    V = maps:remove('Update-Time-Stamp', M),
+    update_m_rec(#update_urr{group = V}, Acc);
+upd_pfcp_rules_1(urr, V, _OldV, Acc, _Opts)
+  when is_list(V) ->
     update_m_rec(#update_urr{group = V}, Acc).
 
 update_pfcp_simplify(New, Old)
