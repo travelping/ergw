@@ -175,6 +175,10 @@ handle_event({call, From}, {?TestCmdTag, pfcp_ctx}, _State, #data{pfcp = PCtx}) 
     {keep_state_and_data, [{reply, From, {ok, PCtx}}]};
 handle_event({call, From}, {?TestCmdTag, session}, _State, #data{session = Session}) ->
     {keep_state_and_data, [{reply, From, {ok, Session}}]};
+handle_event({call, From}, {?TestCmdTag, pcc_rules}, _State, #data{session = Session}) ->
+    SOpts = ergw_aaa_session:get(Session),
+    PCR = maps:get('PCC-Rules', SOpts, undefined),
+    {keep_state_and_data, [{reply, From, {ok, PCR}}]};
 
 handle_event({call, From}, {sx, #pfcp{type = session_report_request,
 		       ie = #{report_type := #report_type{usar = 1},

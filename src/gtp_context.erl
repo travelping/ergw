@@ -39,9 +39,15 @@
 -export([callback_mode/0, init/1, handle_event/4,
 	 terminate/3, code_change/4]).
 
+-ifdef(TEST).
+-export([test_cmd/2]).
+-endif.
+
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include_lib("pfcplib/include/pfcp_packet.hrl").
 -include("include/ergw.hrl").
+
+-define(TestCmdTag, '$TestCmd').
 
 -import(ergw_aaa_session, [to_session/1]).
 
@@ -168,6 +174,13 @@ terminate_context(Context)
 
 info(Context) ->
     gen_statem:call(Context, info).
+
+-ifdef(TEST).
+
+test_cmd(Pid, Cmd) when is_pid(Pid) ->
+    gen_statem:call(Pid, {?TestCmdTag, Cmd}).
+
+-endif.
 
 enforce_restrictions(Msg, #context{restrictions = Restrictions} = Context) ->
     lists:foreach(fun(R) -> enforce_restriction(Context, Msg, R) end, Restrictions).
@@ -324,6 +337,11 @@ init([CntlPort, Version, Interface,
 
 handle_event({call, From}, info, _, Data) ->
     {keep_state_and_data, [{reply, From, Data}]};
+
+handle_event({call, From}, {?TestCmdTag, pcc_rules}, _State, #{'Session' := Session}) ->
+    SOpts = ergw_aaa_session:get(Session),
+    PCR = maps:get('PCC-Rules', SOpts, undefined),
+    {keep_state_and_data, [{reply, From, {ok, PCR}}]};
 
 handle_event(enter, _OldState, shutdown, _Data) ->
     % TODO unregsiter context ....
