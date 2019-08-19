@@ -297,6 +297,30 @@
 			       'Volume-Quota-Threshold' => [10240]
 			      }]
 		       },
+		  'Update-OCS-GxGy' =>
+		      #{'Result-Code' => 2001,
+			'Multiple-Services-Credit-Control' =>
+			    [#{'Envelope-Reporting' => [0],
+			       'Granted-Service-Unit' =>
+				   [#{'CC-Time' => [3600],
+				      'CC-Total-Octets' => [102400]}],
+			       'Rating-Group' => [3000],
+			       'Validity-Time' => [3600],
+			       'Result-Code' => [2001],
+			       'Time-Quota-Threshold' => [60],
+			       'Volume-Quota-Threshold' => [10240]
+			      },
+			     #{'Envelope-Reporting' => [0],
+			       'Granted-Service-Unit' =>
+				   [#{'CC-Time' => [3600],
+				      'CC-Total-Octets' => [102400]}],
+			       'Rating-Group' => [4000],
+			       'Validity-Time' => [3600],
+			       'Result-Code' => [2001],
+			       'Time-Quota-Threshold' => [60],
+			       'Volume-Quota-Threshold' => [10240]
+			      }]
+		       },
 		  'Initial-OCS-VT' =>
 		      #{'Result-Code' => 2001,
 			'Multiple-Services-Credit-Control' =>
@@ -461,6 +485,7 @@ common() ->
      gy_asr,
      gx_invalid_charging_rulebase,
      gx_invalid_charging_rule,
+     gx_rar_gy_interaction,
      tdf_app_id].
 
 groups() ->
@@ -591,6 +616,13 @@ init_per_testcase(TestCase, Config)
     set_online_charging(true),
     load_aaa_answer_config([{{gy, 'CCR-Initial'}, 'Initial-OCS'},
 			    {{gy, 'CCR-Update'},  'Update-OCS'}]),
+    Config;
+init_per_testcase(TestCase, Config)
+  when TestCase == gx_rar_gy_interaction ->
+    init_per_testcase(Config),
+    set_online_charging(true),
+    load_aaa_answer_config([{{gy, 'CCR-Initial'}, 'Initial-OCS'},
+			    {{gy, 'CCR-Update'},  'Update-OCS-GxGy'}]),
     Config;
 init_per_testcase(redirect_info, Config) ->
     init_per_testcase(Config),
@@ -2376,6 +2408,63 @@ volume_threshold(Config) ->
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
 
+    ok.
+
+%%--------------------------------------------------------------------
+gx_rar_gy_interaction() ->
+    [{doc, "Check that a Gx RAR triggers a Gy request"}].
+gx_rar_gy_interaction(Config) ->
+    {GtpC, _, _} = create_session(Config),
+
+    {_Handler, Server} = gtp_context_reg:lookup({'irx-socket', {imsi, ?'IMSI', 5}}),
+    true = is_pid(Server),
+
+    {ok, Session} = gtp_context:test_cmd(Server, session),
+    SessionOpts = ergw_aaa_session:get(Session),
+
+    {ok, #pfcp_ctx{timers = T1}} = gtp_context:test_cmd(Server, pfcp_ctx),
+    ?equal(1, maps:size(T1)),
+
+    Self = self(),
+    ResponseFun =
+	fun(Request, Result, Avps, SOpts) ->
+		Self ! {'$response', Request, Result, Avps, SOpts} end,
+    AAAReq = #aaa_request{from = ResponseFun, procedure = {gx, 'RAR'},
+			  session = SessionOpts, events = []},
+
+    InstCR =
+	[{pcc, install, [#{'Charging-Rule-Name' => [<<"r-0002">>]}]}],
+    lager:debug("Sending RAR"),
+    Server ! AAAReq#aaa_request{events = InstCR},
+    {_, Resp1, _, _} =
+	receive {'$response', _, _, _, _} = R1 -> erlang:delete_element(1, R1) end,
+    ?equal(ok, Resp1),
+    {ok, PCR1} = gtp_context:test_cmd(Server, pcc_rules),
+    ?match(#{<<"r-0001">> := #{}, <<"r-0002">> := #{}}, PCR1),
+
+    {ok, #pfcp_ctx{timers = T2}} = gtp_context:test_cmd(Server, pfcp_ctx),
+    ?equal(2, maps:size(T2)),
+
+    SOpts1 = ergw_aaa_session:get(Session),
+    RemoveCR =
+	[{pcc, remove, [#{'Charging-Rule-Name' => [<<"r-0002">>]}]}],
+    Server ! AAAReq#aaa_request{session = SOpts1, events = RemoveCR},
+    {_, Resp2, _, _} =
+	receive {'$response', _, _, _, _} = R2 -> erlang:delete_element(1, R2) end,
+    ?equal(ok, Resp2),
+    {ok, PCR2} = gtp_context:test_cmd(Server, pcc_rules),
+    ?match(#{<<"r-0001">> := #{}}, PCR2),
+    ?equal(false, maps:is_key(<<"r-0002">>, PCR2)),
+
+    {ok, #pfcp_ctx{timers = T3}} = gtp_context:test_cmd(Server, pfcp_ctx),
+    ?equal(1, maps:size(T3)),
+    ?equal(maps:keys(T1), maps:keys(T3)),
+
+    delete_session(GtpC),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    wait4tunnels(?TIMEOUT),
+    meck_validate(Config),
     ok.
 
 %%--------------------------------------------------------------------
