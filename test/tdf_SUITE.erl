@@ -731,7 +731,6 @@ simple_ocs(Config) ->
 	  'Multi-Session-Id' => '_',
 	  'NAS-Identifier' => '_',
 	  'Node-Id' => <<"PGW-001">>,
-	  'PCC-Rules' => '_',
 
 	  %% 'SAI' => '?????',
 	  'Service-Type' => 'Framed-User',
@@ -906,8 +905,8 @@ gx_rar(Config) ->
     {_, Resp0, _, _} =
 	receive {'$response', _, _, _, _} = R0 -> erlang:delete_element(1, R0) end,
     ?equal(ok, Resp0),
-    SOpts0 = ergw_aaa_session:get(Session),
-    ?match(#{'PCC-Rules' := _}, SOpts0),
+    {ok, PCR0} = tdf:test_cmd(Server, pcc_rules),
+    ?match(#{<<"r-0001">> := #{}}, PCR0),
 
     InstCR =
 	[{pcc, install, [#{'Charging-Rule-Name' => [<<"r-0002">>]}]}],
@@ -915,18 +914,19 @@ gx_rar(Config) ->
     {_, Resp1, _, _} =
 	receive {'$response', _, _, _, _} = R1 -> erlang:delete_element(1, R1) end,
     ?equal(ok, Resp1),
-    SOpts1 = ergw_aaa_session:get(Session),
-    ?match(#{'PCC-Rules' := #{<<"r-0001">> := #{}, <<"r-0002">> := #{}}}, SOpts1),
+    {ok, PCR1} = tdf:test_cmd(Server, pcc_rules),
+    ?match(#{<<"r-0001">> := #{}, <<"r-0002">> := #{}}, PCR1),
 
+    SOpts1 = ergw_aaa_session:get(Session),
     RemoveCR =
 	[{pcc, remove, [#{'Charging-Rule-Name' => [<<"r-0002">>]}]}],
     Server ! AAAReq#aaa_request{session = SOpts1, events = RemoveCR},
     {_, Resp2, _, _} =
 	receive {'$response', _, _, _, _} = R2 -> erlang:delete_element(1, R2) end,
     ?equal(ok, Resp2),
-    SOpts2 = ergw_aaa_session:get(Session),
-    ?match(#{'PCC-Rules' := #{<<"r-0001">> := #{}}}, SOpts2),
-    ?equal(false, maps:is_key(<<"r-0002">>, maps:get('PCC-Rules', SOpts2))),
+    {ok, PCR2} = tdf:test_cmd(Server, pcc_rules),
+    ?match(#{<<"r-0001">> := #{}}, PCR2),
+    ?equal(false, maps:is_key(<<"r-0002">>, PCR2)),
 
     InstCRB =
 	[{pcc, install, [#{'Charging-Rule-Base-Name' => [<<"m2m0002">>]}]}],
@@ -934,20 +934,20 @@ gx_rar(Config) ->
     {_, Resp3, _, _} =
 	receive {'$response', _, _, _, _} = R3 -> erlang:delete_element(1, R3) end,
     ?equal(ok, Resp3),
-    SOpts3 = ergw_aaa_session:get(Session),
-    ?match(#{'PCC-Rules' :=
-		 #{<<"r-0001">> := #{},
-		   <<"r-0002">> := #{'Charging-Rule-Base-Name' := _}}}, SOpts3),
+    {ok, PCR3} = tdf:test_cmd(Server, pcc_rules),
+    ?match(#{<<"r-0001">> := #{},
+	     <<"r-0002">> := #{'Charging-Rule-Base-Name' := _}}, PCR3),
 
+    SOpts3 = ergw_aaa_session:get(Session),
     RemoveCRB =
 	[{pcc, remove, [#{'Charging-Rule-Base-Name' => [<<"m2m0002">>]}]}],
     Server ! AAAReq#aaa_request{session = SOpts3, events = RemoveCRB},
     {_, Resp4, _, _} =
 	receive {'$response', _, _, _, _} = R4 -> erlang:delete_element(1, R4) end,
     ?equal(ok, Resp4),
-    SOpts4 = ergw_aaa_session:get(Session),
-    ?match(#{'PCC-Rules' := #{<<"r-0001">> := #{}}}, SOpts4),
-    ?equal(false, maps:is_key(<<"r-0002">>, maps:get('PCC-Rules', SOpts4))),
+    {ok, PCR4} = tdf:test_cmd(Server, pcc_rules),
+    ?match(#{<<"r-0001">> := #{}}, PCR4),
+    ?equal(false, maps:is_key(<<"r-0002">>, PCR4)),
 
     Server ! stop_from_session,
 

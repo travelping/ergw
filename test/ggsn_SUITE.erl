@@ -1478,7 +1478,6 @@ simple_ocs(Config) ->
 	  'Multi-Session-Id' => '_',
 	  'NAS-Identifier' => <<"NAS-Identifier">>,
 	  'Node-Id' => <<"PGW-001">>,
-	  'PCC-Rules' => '_',
 	  'PDP-Context-Type' => primary,
 	  'QoS-Information' =>
 	      #{
@@ -1688,10 +1687,11 @@ gx_rar(Config) ->
 			  session = SessionOpts, events = []},
 
     Server ! AAAReq,
-    {_, Resp0, _, SOpts0} =
+    {_, Resp0, _, _} =
 	receive {'$response', _, _, _, _} = R0 -> erlang:delete_element(1, R0) end,
     ?equal(ok, Resp0),
-    ?match(#{'PCC-Rules' := _}, SOpts0),
+    {ok, PCR0} = gtp_context:test_cmd(Server, pcc_rules),
+    ?match(#{<<"r-0001">> := #{}}, PCR0),
 
     InstCR =
 	[{pcc, install, [#{'Charging-Rule-Name' => [<<"r-0002">>]}]}],
@@ -1699,18 +1699,18 @@ gx_rar(Config) ->
     {_, Resp1, _, SOpts1} =
 	receive {'$response', _, _, _, _} = R1 -> erlang:delete_element(1, R1) end,
     ?equal(ok, Resp1),
-    ct:pal("SOpts1: ~p", [SOpts1]),
-    ?match(#{'PCC-Rules' := #{<<"r-0001">> := #{}, <<"r-0002">> := #{}}}, SOpts1),
+    {ok, PCR1} = gtp_context:test_cmd(Server, pcc_rules),
+    ?match(#{<<"r-0001">> := #{}, <<"r-0002">> := #{}}, PCR1),
 
     RemoveCR =
 	[{pcc, remove, [#{'Charging-Rule-Name' => [<<"r-0002">>]}]}],
     Server ! AAAReq#aaa_request{session = SOpts1, events = RemoveCR},
-    {_, Resp2, _, SOpts2} =
+    {_, Resp2, _, _SOpts2} =
 	receive {'$response', _, _, _, _} = R2 -> erlang:delete_element(1, R2) end,
     ?equal(ok, Resp2),
-    ct:pal("SOpts2: ~p", [SOpts2]),
-    ?match(#{'PCC-Rules' := #{<<"r-0001">> := #{}}}, SOpts2),
-    ?equal(false, maps:is_key(<<"r-0002">>, maps:get('PCC-Rules', SOpts2))),
+    {ok, PCR2} = gtp_context:test_cmd(Server, pcc_rules),
+    ?match(#{<<"r-0001">> := #{}}, PCR2),
+    ?equal(false, maps:is_key(<<"r-0002">>, PCR2)),
 
     InstCRB =
 	[{pcc, install, [#{'Charging-Rule-Base-Name' => [<<"m2m0002">>]}]}],
@@ -1718,20 +1718,19 @@ gx_rar(Config) ->
     {_, Resp3, _, SOpts3} =
 	receive {'$response', _, _, _, _} = R3 -> erlang:delete_element(1, R3) end,
     ?equal(ok, Resp3),
-    ct:pal("SOpts3: ~p", [SOpts3]),
-    ?match(#{'PCC-Rules' :=
-		 #{<<"r-0001">> := #{},
-		   <<"r-0002">> := #{'Charging-Rule-Base-Name' := _}}}, SOpts3),
+    {ok, PCR3} = gtp_context:test_cmd(Server, pcc_rules),
+    ?match(#{<<"r-0001">> := #{},
+	     <<"r-0002">> := #{'Charging-Rule-Base-Name' := _}}, PCR3),
 
     RemoveCRB =
 	[{pcc, remove, [#{'Charging-Rule-Base-Name' => [<<"m2m0002">>]}]}],
     Server ! AAAReq#aaa_request{session = SOpts3, events = RemoveCRB},
-    {_, Resp4, _, SOpts4} =
+    {_, Resp4, _, _SOpts4} =
 	receive {'$response', _, _, _, _} = R4 -> erlang:delete_element(1, R4) end,
     ?equal(ok, Resp4),
-    ct:pal("SOpts4: ~p", [SOpts4]),
-    ?match(#{'PCC-Rules' := #{<<"r-0001">> := #{}}}, SOpts3),
-    ?equal(false, maps:is_key(<<"r-0002">>, maps:get('PCC-Rules', SOpts2))),
+    {ok, PCR4} = gtp_context:test_cmd(Server, pcc_rules),
+    ?match(#{<<"r-0001">> := #{}}, PCR4),
+    ?equal(false, maps:is_key(<<"r-0002">>, PCR4)),
 
     delete_pdp_context(GtpC),
 
