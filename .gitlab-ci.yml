@@ -36,6 +36,8 @@ build:otp-22:
     untracked: true
     paths:
       - _build
+    reports:
+      junit: _build/test/logs/report.xml
   script:
     - ./rebar3 do xref
     - ./rebar3 do ct
