@@ -27,7 +27,8 @@
 		up_ip, up_seid,
 		cp_recovery_ts,
 		dp_recovery_ts,
-		seq_no, history}).
+		seq_no, urrs,
+		history}).
 
 %%%===================================================================
 %%% API
@@ -91,6 +92,7 @@ init([IP]) ->
 	       cp_recovery_ts = undefined,
 	       dp_recovery_ts = erlang:system_time(seconds),
 	       seq_no = erlang:unique_integer([positive]) band 16#ffffff,
+	       urrs = #{},
 	       history = []
 	      },
     {ok, State}.
@@ -102,6 +104,7 @@ handle_call(reset, _From, State0) ->
 	      cp_ip = undefined,
 	      cp_seid = 0,
 	      up_seid = ergw_sx_socket:seid(),
+	      urrs = #{},
 	      history = []
 	     },
     {reply, ok, State};
@@ -119,6 +122,7 @@ handle_call(restart, _From, State0) ->
 	      cp_recovery_ts = undefined,
 	      dp_recovery_ts = erlang:system_time(seconds),
 	      seq_no = erlang:unique_integer([positive]) band 16#ffffff,
+	      urrs = #{},
 	      history = []
 	     },
     {reply, ok, State};
@@ -305,27 +309,31 @@ when Type =:= pfd_management_request;
 handle_message(#pfcp{type = session_establishment_request, seid = 0,
 		     ie = #{f_seid := #f_seid{seid = ControlPlaneSEID,
 					      ipv4 = ControlPlaneIP4,
-					      ipv6 = ControlPlaneIP6}}},
+					      ipv6 = ControlPlaneIP6}} = ReqIEs},
 	       #state{up_ip = IP, up_seid = UserPlaneSEID} = State0) ->
     ControlPlaneIP = choose_control_ip(ControlPlaneIP4, ControlPlaneIP6, State0),
     RespIEs =
 	[#pfcp_cause{cause = 'Request accepted'},
 	 f_seid(UserPlaneSEID, IP)],
-    State = State0#state{cp_ip = ergw_inet:bin2ip(ControlPlaneIP),
+    State1 = maps:fold(fun process_urrs/3, State0, ReqIEs),
+    State = State1#state{cp_ip = ergw_inet:bin2ip(ControlPlaneIP),
 			 cp_seid = ControlPlaneSEID},
     sx_reply(session_establishment_response, ControlPlaneSEID, RespIEs, State);
 
 handle_message(#pfcp{type = session_modification_request, seid = UserPlaneSEID, ie = ReqIEs},
 	      #state{cp_seid = ControlPlaneSEID,
-		     up_seid = UserPlaneSEID} = State) ->
-    RespIEs = maps:fold(process_smr(_, _, State, _), [], ReqIEs) ++
+		     up_seid = UserPlaneSEID} = State0) ->
+    RespIEs = maps:fold(process_smr(_, _, State0, _), [], ReqIEs) ++
 	[#pfcp_cause{cause = 'Request accepted'}],
+    State = maps:fold(fun process_urrs/3, State0, ReqIEs),
     sx_reply(session_modification_response, ControlPlaneSEID, RespIEs, State);
 
 handle_message(#pfcp{type = session_deletion_request, seid = UserPlaneSEID},
 	       #state{cp_seid = ControlPlaneSEID,
-		      up_seid = UserPlaneSEID} = State) ->
-    RespIEs = [#pfcp_cause{cause = 'Request accepted'}],
+		      up_seid = UserPlaneSEID} = State0) ->
+    RespIEs0 = [#pfcp_cause{cause = 'Request accepted'}],
+    RespIEs = report_urrs(State0, RespIEs0),
+    State = State0#state{urrs = #{}},
     sx_reply(session_deletion_response, ControlPlaneSEID, RespIEs, State);
 
 handle_message(#pfcp{type = ReqType, seid = SendingUserPlaneSEID},
@@ -385,6 +393,13 @@ process_ies(_Fun, []) ->
 process_ies(Fun, [H|T]) ->
     [process_ies(Fun, H) | process_ies(Fun, T)].
 
+fold_ies(Fun, Acc, IE) when is_tuple(IE) ->
+    Fun(IE, Acc);
+fold_ies(_Fun, Acc, []) ->
+    Acc;
+fold_ies(Fun, Acc, [H|T]) ->
+    fold_ies(Fun, Fun(H, Acc), T).
+
 process_smr(query_urr, Query, #state{accounting = on}, IEs) ->
     process_ies(
       fun (#query_urr{group = #{urr_id := #urr_id{id = Id}}}) ->
@@ -427,3 +442,38 @@ process_smr(remove_urr, Query, #state{accounting = on}, IEs) ->
       end, Query) ++ IEs;
 process_smr(_, _, _, IEs) ->
     IEs.
+
+process_urrs(_, Query, #state{urrs = URRs0} = State) ->
+    URRs =
+	fold_ies(
+	  fun(#remove_urr{group = #{urr_id := #urr_id{id = Id}}}, U) ->
+		  maps:remove(Id, U);
+	     (#create_urr{group = #{urr_id := #urr_id{id = Id}}}, U) ->
+		  maps:put(Id, on, U);
+	     (_, U) ->
+		  U
+	  end, URRs0, Query),
+    State#state{urrs = URRs}.
+
+report_urrs(#state{accounting = on, urrs = URRs}, RespIEs) ->
+    maps:fold(
+      fun(Id, _, IEs) ->
+	      [#usage_report_sdr{
+		  group =
+		      [#urr_id{id = Id},
+		       #usage_report_trigger{termr = 1},
+		       #volume_measurement{
+			  total = 5,
+			  uplink = 2,
+			  downlink = 3
+			 },
+		       #tp_packet_measurement{
+			  total = 12,
+			  uplink = 5,
+			  downlink = 7
+			 }
+		      ]
+		 } | IEs]
+      end, RespIEs, URRs);
+report_urrs(_, RespIEs) ->
+    RespIEs.
