@@ -14,6 +14,7 @@
 	 process_online_charging_events/4,
 	 process_offline_charging_events/4,
 	 process_offline_charging_events/5,
+	 process_accounting_monitor_events/4,
 	 pfcp_to_context_event/1,
 	 pcc_ctx_to_credit_request/1,
 	 modify_sgi_session/5,
@@ -22,7 +23,7 @@
 	 choose_context_ip/3,
 	 ip_pdu/3]).
 -export([%%update_pcc_rules/2,
-	 session_to_pcc_ctx/2,
+	 session_events_to_pcc_ctx/2,
 	 gx_events_to_pcc_ctx/4,
 	 gy_events_to_pcc_ctx/3,
 	 gy_events_to_pcc_rules/2,
@@ -157,10 +158,17 @@ pcc_ctx_has_rules(#pcc_ctx{rules = Rules}) ->
 
 -record(pcc_upd, {errors = [], rules = #{}}).
 
-session_to_pcc_ctx(#{'Acct-Interim-Interval' := Interim}, PCC)
-  when is_integer(Interim), Interim > 0 ->
-    PCC#pcc_ctx{acct_interim_interval = Interim};
-session_to_pcc_ctx(_, PCC) ->
+session_events_to_pcc_ctx(Evs, PCC) ->
+    lists:foldl(fun session_events_to_pcc_ctx_2/2, PCC, Evs).
+
+session_events_to_pcc_ctx_2({set, {Service, {Type, Level, Interval, Opts}}},
+			    #pcc_ctx{monitors = Monitors} = PCC) ->
+    Definition = {Type, Interval, Opts},
+    PCC#pcc_ctx{monitors =
+		    maps:update_with(Level, maps:put(Service, Definition, _),
+				     #{Service => Definition}, Monitors)};
+session_events_to_pcc_ctx_2(Ev, PCC) ->
+    lager:warning("unhandled Session Event ~p", [Ev]),
     PCC.
 
 %% convert Gx like Install/Remove interactions in PCC rule states
@@ -451,7 +459,7 @@ build_sx_charging_rule(PCC, PolicyRules, Update) ->
 build_sx_offline_charging_rule(_Name,
 			       #{'Rating-Group' := [RatingGroup],
 				 'Offline' := [1]} = Definition,
-			       #pcc_ctx{acct_interim_interval = AcctInterimInterval,
+			       #pcc_ctx{monitors = Monitors,
 					offline_charging_profile = OCPcfg},
 			       #sx_upd{pctx = PCtx0} = Update) ->
     ChargingKey = {offline, RatingGroup},
@@ -468,12 +476,20 @@ build_sx_offline_charging_rule(_Name,
     {UrrId, PCtx} = ergw_pfcp:get_urr_id(ChargingKey, [RatingGroup], ChargingKey, PCtx0),
     URR0 = #{urr_id => #urr_id{id = UrrId},
 	     measurement_method => MM,
-	     reporting_triggers => #reporting_triggers{periodic_reporting = 1},
-	     measurement_period => #measurement_period{period = AcctInterimInterval}
-	    },
+	     reporting_triggers => #reporting_triggers{}},
+
+    OfflineMonitorInfo = maps:get('Offline', Monitors, #{}),
+    URR1 =
+	case maps:to_list(OfflineMonitorInfo) of
+	    [{_Service, {periodic, Interim, _Opts}}|_] ->
+		URR0#{reporting_triggers => #reporting_triggers{periodic_reporting = 1},
+		      measurement_period => #measurement_period{period = Interim}};
+	    _ ->
+		URR0
+	end,
 
     OCP = maps:get('Default', OCPcfg, #{}),
-    URR = apply_charging_profile(URR0, OCP),
+    URR = apply_charging_profile(URR1, OCP),
 
     lager:warning("Offline URR: ~p", [URR]),
     Update#sx_upd{
@@ -889,7 +905,10 @@ build_sx_usage_rule(_K, #{'Rating-Group' := [RatingGroup],
 build_sx_usage_rule(_, _, Update) ->
     Update.
 
-build_sx_monitor_rule(Service, {'IP-CAN', periodic, Time} = _Definition,
+build_sx_monitor_rule(Level, Monitors, Update) ->
+    maps:fold(build_sx_monitor_rule(Level, _, _, _), Update, Monitors).
+
+build_sx_monitor_rule('IP-CAN', Service, {periodic, Time, _Opts} = _Definition,
 		      #sx_upd{monitors = Monitors0, pctx = PCtx0} = Update) ->
     lager:info("Sx Monitor Rule: ~p", [_Definition]),
 
@@ -909,8 +928,12 @@ build_sx_monitor_rule(Service, {'IP-CAN', periodic, Time} = _Definition,
 	       [{urr, RuleName, URR}], PCtx),
       monitors = Monitors};
 
-build_sx_monitor_rule(Service, Definition, Update) ->
-    lager:error("Monitor URR: ~p:~p", [Service, Definition]),
+build_sx_monitor_rule('Offline', Service, Definition, Update) ->
+    lager:debug("Sx Offline Monitor URR: ~p:~p", [Service, Definition]),
+    Update;
+
+build_sx_monitor_rule(Level, Service, Definition, Update) ->
+    lager:error("Sx Monitor URR: ~p:~p:~p", [Level, Service, Definition]),
     sx_rule_error({system_error, Definition}, Update).
 
 update_m_key(Key, Value, Map) ->
@@ -1256,10 +1279,12 @@ usage_report_to_charging_events({offline, RatingGroup}, Report,
   when is_integer(RatingGroup), is_map(Report) ->
     setelement(2, Ev, [Report#{'Rating-Group' => RatingGroup,
 			       'Charge-Event' => ChargeEv} | Off]);
-%% usage_report_to_charging_events({monitor, Level, Service}, Report,
-%% 				ChargeEv, {_, _, Mon} = Ev)
-%%   when is_map(Report) ->
-%%     Ev;
+usage_report_to_charging_events({monitor, Level, Service} = _K,
+				Report, ChargeEv, {_, _, Mon} = Ev)
+  when is_map(Report) ->
+    setelement(3, Ev, [Report#{'Service-Id' => Service,
+			       'Level' => Level,
+			       'Charge-Event' => ChargeEv} | Mon]);
 usage_report_to_charging_events(_K, _V, _ChargeEv, Ev) ->
     Ev.
 
@@ -1307,6 +1332,52 @@ process_offline_charging_events(Reason0, Ev, Now, SessionOpts, Session)
 	    ergw_aaa_session:invoke(Session, Request, {rf, 'Terminate'}, SOpts);
 	_ when length(Update) /= 0 ->
 	    ergw_aaa_session:invoke(Session, Request, {rf, 'Update'}, SOpts);
+	_ ->
+	    ok
+    end.
+
+accounting_session_time(Now, #{'Session-Start' := Start} = Update) ->
+    %% round Start and Now to full seconds, before calculating the duration
+    Duration =
+	erlang:convert_time_unit(Now, native, second) -
+	erlang:convert_time_unit(Start, native, second),
+    Update#{'Acct-Session-Time' => Duration};
+accounting_session_time(_, Update) ->
+    Update.
+
+monitor_event_to_accounting(Now, #{'Level'      := 'IP-CAN',
+				   'Service-Id' := {accounting, _, _}} = Report, Update0) ->
+    Update = accounting_session_time(Now, Update0),
+    maps:fold(
+      fun(_, #volume_measurement{uplink = In, downlink = Out}, Upd0) ->
+	      Upd = maps:update_with('InOctets', In + _, In, Upd0),
+	      maps:update_with('OutOctets', Out + _, Out, Upd);
+	 (_, #tp_packet_measurement{uplink = In, downlink = Out}, Upd0) ->
+	      Upd = maps:update_with('InPackets', In + _, In, Upd0),
+	      maps:update_with('OutPackets', Out + _, Out, Upd);
+	 (_, _, Upd) ->
+	      Upd
+      end, Update, Report);
+monitor_event_to_accounting(_Now, _Ev, Update) ->
+    Update.
+
+process_accounting_monitor_events(Reason, Ev, Now, Session)
+  when is_list(Ev) ->
+    Keys = ['InPackets', 'OutPackets',
+	    'InOctets',  'OutOctets',
+	    'Session-Start'],
+    Update0 = maps:with(Keys, ergw_aaa_session:get(Session)),
+    Update1 = lists:foldl(monitor_event_to_accounting(Now, _, _), Update0, Ev),
+    SOpts = #{now => Now, async => true},
+
+    case Reason of
+	{terminate, _} ->
+	    Update2 = maps:remove('Session-Start', Update1),
+	    Update = accounting_session_time(Now, Update2),
+	    ergw_aaa_session:invoke(Session, Update, stop, SOpts);
+	_ when Update0 /= Update1 ->
+	    Update = maps:remove('Session-Start', Update1),
+	    ergw_aaa_session:invoke(Session, Update, interim, SOpts);
 	_ ->
 	    ok
     end.

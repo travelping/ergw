@@ -193,11 +193,12 @@ handle_event({call, From}, {sx, #pfcp{type = session_report_request,
     ReqOpts = #{now => Now, async => true},
 
     ChargeEv = interim,
-    {Online, Offline, _} =
+    {Online, Offline, Monitor} =
 	ergw_gsn_lib:usage_report_to_charging_events(UsageReport, ChargeEv, PCtx),
     GyReqServices = ergw_gsn_lib:gy_credit_request(Online, PCC),
     ergw_gsn_lib:process_online_charging_events(ChargeEv, GyReqServices, Session, ReqOpts),
     ergw_gsn_lib:process_offline_charging_events(ChargeEv, Offline, Now, Session),
+    ergw_gsn_lib:process_accounting_monitor_events(ChargeEv, Monitor, Now, Session),
 
     {keep_state_and_data, [{reply, From, {ok, PCtx}}]};
 
@@ -267,13 +268,14 @@ handle_event(info, #aaa_request{procedure = {gx, 'RAR'},
 
 %%% step 4:
     ChargeEv = {online, 'RAR'},   %% made up value, not use anywhere...
-    {Online, Offline, _} =
+    {Online, Offline, Monitor} =
 	ergw_gsn_lib:usage_report_to_charging_events(UsageReport, ChargeEv, PCtx1),
 
     GyReqServices = ergw_gsn_lib:gy_credit_request(Online, PCC0, PCC2),
     {ok, _, GyEvs} =
 	ergw_gsn_lib:process_online_charging_events(ChargeEv, GyReqServices, Session, ReqOps),
     ergw_gsn_lib:process_offline_charging_events(ChargeEv, Offline, Now, Session),
+    ergw_gsn_lib:process_accounting_monitor_events(ChargeEv, Monitor, Now, Session),
 
 %%% step 5:
     {PCC4, PCCErrors4} = ergw_gsn_lib:gy_events_to_pcc_ctx(Now, GyEvs, PCC2),
@@ -359,7 +361,7 @@ start_session(#data{context = Context, dp_node = Node,
     SOpts = #{now => Now},
 
     SessionOpts = init_session(Data),
-    authenticate(Session, SessionOpts),
+    {ok, _, AuthSEvs} = authenticate(Session, SessionOpts),
 
     GxOpts = #{'Event-Trigger' => ?'DIAMETER_GX_EVENT-TRIGGER_UE_IP_ADDRESS_ALLOCATE',
 	       'Bearer-Operation' => ?'DIAMETER_GX_BEARER-OPERATION_ESTABLISHMENT'},
@@ -385,12 +387,14 @@ start_session(#data{context = Context, dp_node = Node,
     lager:info("GySessionOpts: ~p", [GySessionOpts]),
 
     ergw_aaa_session:invoke(Session, #{}, start, SOpts),
-    {_, FinalSOpts, _} = ergw_aaa_session:invoke(Session, #{}, {rf, 'Initial'}, SOpts),
+    {_, _, RfSEvs} = ergw_aaa_session:invoke(Session, #{}, {rf, 'Initial'}, SOpts),
 
     {PCC2, PCCErrors2} = ergw_gsn_lib:gy_events_to_pcc_ctx(Now, GyEvs, PCC1),
-    PCC3 = ergw_gsn_lib:session_to_pcc_ctx(FinalSOpts, PCC2),
+    PCC3 = ergw_gsn_lib:session_events_to_pcc_ctx(AuthSEvs, PCC2),
+    PCC4 = ergw_gsn_lib:session_events_to_pcc_ctx(RfSEvs, PCC3),
+
     {_, PCtx} =
-	ergw_gsn_lib:create_tdf_session(Node, PCC3, Context),
+	ergw_gsn_lib:create_tdf_session(Node, PCC4, Context),
 
     Keys = context2keys(Context),
     gtp_context_reg:register(Keys, ?MODULE, self()),
@@ -403,7 +407,7 @@ start_session(#data{context = Context, dp_node = Node,
 	    ok
     end,
 
-    Data#data{pfcp = PCtx, pcc = PCC3}.
+    Data#data{pfcp = PCtx, pcc = PCC4}.
 
 init_session(#data{context = Context}) ->
     {MCC, MNC} = ergw:get_plmn_id(),
@@ -439,8 +443,8 @@ init_session(#data{context = Context}) ->
 authenticate(Session, SessionOpts) ->
     lager:info("SessionOpts: ~p", [SessionOpts]),
     case ergw_aaa_session:invoke(Session, SessionOpts, authenticate, [inc_session_id]) of
-	{ok, NewSOpts, _Events} ->
-	    NewSOpts;
+	{ok, _, _} = Result ->
+	    Result;
 	Other ->
 	    lager:info("AuthResult: ~p", [Other]),
 	    throw({fail, authenticate, Other})
@@ -479,14 +483,13 @@ close_pdn_context(Reason, run, #data{context = Context, pfcp = PCtx,
 	    lager:warning("Gx terminate failed with: ~p", [GxOther])
     end,
 
-    ergw_aaa_session:invoke(Session, #{}, stop, ReqOpts#{async => true}),
-
     ChargeEv = {terminate, TermCause},
-    {Online, Offline, _} =
+    {Online, Offline, Monitor} =
 	ergw_gsn_lib:usage_report_to_charging_events(URRs, ChargeEv, PCtx),
     GyReqServices = ergw_gsn_lib:gy_credit_report(Online),
     ergw_gsn_lib:process_online_charging_events(ChargeEv, GyReqServices, Session, ReqOpts),
     ergw_gsn_lib:process_offline_charging_events(ChargeEv, Offline, Now, Session),
+    ergw_gsn_lib:process_accounting_monitor_events(ChargeEv, Monitor, Now, Session),
 
     ok;
 close_pdn_context(_Reason, _State, _Data) ->
@@ -506,11 +509,12 @@ triggered_charging_event(ChargeEv, Now, Request,
 
 	{_, UsageReport} =
 	    query_usage_report(Request, Context, PCtx),
-	{Online, Offline, _} =
+	{Online, Offline, Monitor} =
 	    ergw_gsn_lib:usage_report_to_charging_events(UsageReport, ChargeEv, PCtx),
 	GyReqServices = ergw_gsn_lib:gy_credit_request(Online, PCC),
 	ergw_gsn_lib:process_online_charging_events(ChargeEv, GyReqServices, Session, ReqOpts),
-	ergw_gsn_lib:process_offline_charging_events(ChargeEv, Offline, Now, Session)
+	ergw_gsn_lib:process_offline_charging_events(ChargeEv, Offline, Now, Session),
+	ergw_gsn_lib:process_accounting_monitor_events(ChargeEv, Monitor, Now, Session)
     catch
 	throw:#ctx_err{} = CtxErr ->
 	    lager:error("Triggered Charging Event failed with ~p", [CtxErr])

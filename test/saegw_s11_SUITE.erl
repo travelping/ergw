@@ -382,6 +382,8 @@ common() ->
      session_options,
      enb_connection_suspend,
      gy_validity_timer,
+     simple_aaa,
+     simple_ofcs,
      simple_ocs,
      gy_ccr_asr_overlap,
      volume_threshold,
@@ -505,6 +507,7 @@ init_per_testcase(_, Config) ->
 
 end_per_testcase(Config) ->
     stop_gtpc_server(),
+    stop_all_sx_nodes(),
 
     PoolId = [<<"upstream">>, ipv4, "10.180.0.1"],
     ?match_metric(prometheus_gauge, ergw_ip_pool_free, PoolId, 65534),
@@ -519,7 +522,9 @@ end_per_testcase(TestCase, Config)
        TestCase == create_session_request_gx_fail;
        TestCase == create_session_request_gy_fail;
        TestCase == create_session_request_rf_fail;
-       TestCase == gy_ccr_asr_overlap ->
+       TestCase == gy_ccr_asr_overlap;
+       TestCase == simple_aaa;
+       TestCase == simple_ofcs ->
     ok = meck:delete(ergw_aaa_session, invoke, 4),
     end_per_testcase(Config),
     Config;
@@ -1130,14 +1135,249 @@ gy_validity_timer(Config) ->
     ok.
 
 %%--------------------------------------------------------------------
+simple_aaa() ->
+    [{doc, "Check simple session with RADIOS/DIAMETER over (S)Gi"}].
+simple_aaa(Config) ->
+    Interim = rand:uniform(1800) + 1800,
+    AAAReply = #{'Acct-Interim-Interval' => Interim},
+
+    ok = meck:expect(ergw_aaa_session, invoke,
+		     fun (Session, SessionOpts, Procedure = authenticate, Opts) ->
+			     {_, SIn, EvIn} =
+				 meck:passthrough([Session, SessionOpts, Procedure, Opts]),
+			     {SOut, EvOut} = R =
+				 ergw_aaa_radius:to_session(authenticate, {SIn, EvIn}, AAAReply),
+			     ct:pal("R: ~p", [R]),
+			     {ok, SOut, EvOut};
+			 (Session, SessionOpts, Procedure, Opts) ->
+			     meck:passthrough([Session, SessionOpts, Procedure, Opts])
+		     end),
+
+    {GtpC, _, _} = create_session(Config),
+
+    {_Handler, Server} = gtp_context_reg:lookup({'irx', {imsi, ?'IMSI', 5}}),
+    true = is_pid(Server),
+    {ok, PCtx} = gtp_context:test_cmd(Server, pfcp_ctx),
+
+    [_, SER|_] = lists:filter(
+		   fun(#pfcp{type = session_establishment_request}) -> true;
+		      (_) ->false
+		   end, ergw_test_sx_up:history('pgw-u')),
+
+    URR = lists:sort(maps:get(create_urr, SER#pfcp.ie)),
+    ?match(
+       [%% offline charging URR
+	#create_urr{
+	   group =
+	       #{urr_id := #urr_id{id = _},
+		 measurement_method :=
+		     #measurement_method{volum = 1},
+		 reporting_triggers := #reporting_triggers{}
+		}
+	  },
+	%% AAA (RADIUS/DIAMETER) URR
+	#create_urr{
+	   group =
+	       #{urr_id := #urr_id{id = _},
+		 measurement_method :=
+		     #measurement_method{volum = 1, durat = 1},
+		 measurement_period :=
+		     #measurement_period{period = Interim},
+		 reporting_triggers :=
+		     #reporting_triggers{periodic_reporting = 1}
+		}
+	  }], URR),
+
+    MatchSpec = ets:fun2ms(fun({Id, {monitor, 'IP-CAN', _}}) -> Id end),
+    Report =
+	[#usage_report_trigger{perio = 1},
+	 #volume_measurement{total = 5, uplink = 2, downlink = 3},
+	 #tp_packet_measurement{total = 12, uplink = 5, downlink = 7}],
+    ergw_test_sx_up:usage_report('pgw-u', PCtx, MatchSpec, Report),
+
+    ct:sleep(100),
+    delete_session(GtpC),
+
+    H = meck:history(ergw_aaa_session),
+    SInv =
+	lists:filter(
+	  fun({_, {ergw_aaa_session, invoke, [_, _, Procedure, _]}, _})
+		when Procedure =:= start; Procedure =:= interim; Procedure =:= stop ->
+		  true;
+	     (_) ->
+		  false
+	  end, H),
+    ?match(X when X == 3, length(SInv)),
+
+    [Start, SInterim, Stop] =
+	lists:map(fun({_, {_, _, [_, SOpts, _, _]}, _}) -> SOpts end, SInv),
+
+    ?equal(false, maps:is_key('Acct-Session-Time', Start)),
+    ?equal(false, maps:is_key('InOctets', Start)),
+    ?equal(false, maps:is_key('OutOctets', Start)),
+    ?equal(false, maps:is_key('InPackets', Start)),
+    ?equal(false, maps:is_key('OutPackets', Start)),
+
+    ?match_map(
+       #{'Acct-Session-Time' => '_',
+	 'InOctets' => '_',  'OutOctets' => '_',
+	 'InPackets' => '_', 'OutPackets' => '_'}, SInterim),
+    ?match_map(
+       #{'Acct-Session-Time' => '_',
+	 'InOctets' => '_',  'OutOctets' => '_',
+	 'InPackets' => '_', 'OutPackets' => '_'}, Stop),
+
+    ?equal([], outstanding_requests()),
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+simple_ofcs() ->
+    [{doc, "Check simple session with DIAMETER Rf"}].
+simple_ofcs(Config) ->
+    Interim = rand:uniform(1800) + 1800,
+    AAAReply = #{'Acct-Interim-Interval' => [Interim]},
+
+    ok = meck:expect(ergw_aaa_session, invoke,
+		     fun (Session, SessionOpts, {rf, 'Initial'} = Procedure, Opts) ->
+			     {_, SIn, EvIn} =
+				 meck:passthrough([Session, SessionOpts, Procedure, Opts]),
+			     {SOut, EvOut} =
+				 ergw_aaa_rf:to_session({rf, 'ACA'}, {SIn, EvIn}, AAAReply),
+			     {ok, SOut, EvOut};
+			 (Session, SessionOpts, Procedure, Opts) ->
+			     meck:passthrough([Session, SessionOpts, Procedure, Opts])
+		     end),
+
+    {GtpC, _, _} = create_session(Config),
+
+    {_Handler, Server} = gtp_context_reg:lookup({'irx', {imsi, ?'IMSI', 5}}),
+    true = is_pid(Server),
+    {ok, PCtx} = gtp_context:test_cmd(Server, pfcp_ctx),
+
+    [_, SER|_] = lists:filter(
+		   fun(#pfcp{type = session_establishment_request}) -> true;
+		      (_) ->false
+		   end, ergw_test_sx_up:history('pgw-u')),
+
+    URR = maps:get(create_urr, SER#pfcp.ie),
+    ?match(
+       %% offline charging URR
+       #create_urr{
+	  group =
+	      #{urr_id := #urr_id{id = _},
+		measurement_method :=
+		    #measurement_method{volum = 1},
+		measurement_period :=
+		    #measurement_period{period = Interim},
+		reporting_triggers :=
+		    #reporting_triggers{periodic_reporting = 1}
+	       }
+	 }, URR),
+
+    MatchSpec = ets:fun2ms(fun({Id, {'offline', _}}) -> Id end),
+    Report =
+	[#usage_report_trigger{perio = 1},
+	 #volume_measurement{total = 5, uplink = 2, downlink = 3},
+	 #tp_packet_measurement{total = 12, uplink = 5, downlink = 7}],
+    ergw_test_sx_up:usage_report('pgw-u', PCtx, MatchSpec, Report),
+
+    ct:sleep(100),
+    delete_session(GtpC),
+
+    H = meck:history(ergw_aaa_session),
+    SInv =
+	lists:filter(
+	  fun({_, {ergw_aaa_session, invoke, [_, _, {rf, _}, _]}, _}) ->
+		  true;
+	     (_) ->
+		  false
+	  end, H),
+    ?match(X when X == 3, length(SInv)),
+
+    [Start, SInterim, Stop] =
+	lists:map(fun({_, {_, _, [_, SOpts, _, _]}, _}) -> SOpts end, SInv),
+
+    ?equal(false, maps:is_key('service_data', Start)),
+
+    ?match_map(
+       #{service_data =>
+	     [#{'Accounting-Input-Octets' => ['_'],
+		'Accounting-Output-Octets' => ['_'],
+		'Change-Condition' => [4]
+	       }]}, SInterim),
+
+    ?match_map(
+       #{service_data =>
+	     [#{'Accounting-Input-Octets' => ['_'],
+		'Accounting-Output-Octets' => ['_'],
+		'Change-Condition' => [0]}
+	     ]}, Stop),
+
+    ?equal([], outstanding_requests()),
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
 
 simple_ocs() ->
     [{doc, "Test Gy a simple interaction"}].
 simple_ocs(Config) ->
     {GtpC, _, _} = create_session(Config),
 
-    ct:sleep({seconds, 1}),
+    {_Handler, Server} = gtp_context_reg:lookup({'irx', {imsi, ?'IMSI', 5}}),
+    true = is_pid(Server),
+    {ok, PCtx} = gtp_context:test_cmd(Server, pfcp_ctx),
 
+    [_, SER|_] = lists:filter(
+		   fun(#pfcp{type = session_establishment_request}) -> true;
+		      (_) ->false
+		   end, ergw_test_sx_up:history('pgw-u')),
+
+    URR = lists:sort(maps:get(create_urr, SER#pfcp.ie)),
+    ?match(
+       [%% offline charging URR
+	#create_urr{
+	   group =
+	       #{urr_id := #urr_id{id = _},
+		 measurement_method :=
+		     #measurement_method{volum = 1},
+		 reporting_triggers := #reporting_triggers{}
+		}
+	  },
+	%% online charging URR
+	#create_urr{
+	   group =
+	       #{urr_id := #urr_id{id = _},
+		 measurement_method :=
+		     #measurement_method{volum = 1, durat = 1},
+		 reporting_triggers :=
+		     #reporting_triggers{
+			time_quota = 1,   time_threshold = 1,
+			volume_quota = 1, volume_threshold = 1},
+		 time_quota :=
+		     #time_quota{quota = 3600},
+		 time_threshold :=
+		     #time_threshold{threshold = 3540},
+		 volume_quota :=
+		     #volume_quota{total = 102400},
+		 volume_threshold :=
+		     #volume_threshold{total = 92160}
+		}
+	  }], URR),
+
+    MatchSpec = ets:fun2ms(fun({Id, {'online', _}}) -> Id end),
+    Report =
+	[#usage_report_trigger{volqu = 1},
+	 #volume_measurement{total = 5, uplink = 2, downlink = 3},
+	 #tp_packet_measurement{total = 12, uplink = 5, downlink = 7}],
+    ergw_test_sx_up:usage_report('pgw-u', PCtx, MatchSpec, Report),
+
+    ct:sleep(100),
     delete_session(GtpC),
 
     H = meck:history(ergw_aaa_session),
@@ -1148,8 +1388,7 @@ simple_ocs(Config) ->
 	     (_) ->
 		  false
 	  end, H),
-    ct:pal("CCR: ~p", [CCR]),
-    ?match(X when X == 2, length(CCR)),
+    ?match(X when X == 3, length(CCR)),
 
     {_, {_, _, [_, _, {gy,'CCR-Initial'}, _]},
      {ok, Session, _Events}} = hd(CCR),
@@ -1163,7 +1402,6 @@ simple_ocs(Config) ->
 		#{'3GPP-GGSN-Address' => ?config(test_gsn, Config),
 		  '3GPP-SGSN-Address' => IP}
 	end,
-    Expected =
 
     %% TBD: the comment elements are present in the PGW handler,
     %%      but not in the GGSN. Check if that is correct.
@@ -1222,8 +1460,35 @@ simple_ocs(Config) ->
 	  'TAI' => '_',
 	  'Username' => '_'
 	 },
-
     ?match_map(Expected, Session),
+
+    [Start, SInterim, Stop] =
+	lists:map(fun({_, {_, _, [_, SOpts, _, _]}, _}) -> SOpts end, CCR),
+
+    ?match_map(
+       #{credits => #{3000 => empty}}, Start),
+    ?equal(false, maps:is_key('used_credits', Start)),
+
+    ?match_map(
+       #{credits => #{3000 => empty},
+	 used_credits =>
+	     [{3000,
+	       #{'CC-Input-Octets'  => ['_'],
+		 'CC-Output-Octets' => ['_'],
+		 'CC-Total-Octets'  => ['_'],
+		 'Reporting-Reason' => [3]}}]
+	}, SInterim),
+
+    ?match_map(
+       #{'Termination-Cause' => 1,
+	 used_credits =>
+	     [{3000,
+	       #{'CC-Input-Octets'  => ['_'],
+		 'CC-Output-Octets' => ['_'],
+		 'CC-Total-Octets'  => ['_'],
+		 'Reporting-Reason' => [2]}}]
+	}, Stop),
+    ?equal(false, maps:is_key('credits', Stop)),
 
     ?equal([], outstanding_requests()),
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),

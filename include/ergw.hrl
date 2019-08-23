@@ -72,7 +72,6 @@
 	  credits = #{}		:: map(),
 
 	  %% TBD:
-	  acct_interim_interval = 600		:: integer(),
 	  offline_charging_profile = #{}	:: map()
 	 }).
 
