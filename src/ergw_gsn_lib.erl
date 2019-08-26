@@ -1175,7 +1175,7 @@ cev_to_rf_cc_kv(envcl, SDC) ->
     SDC;
 cev_to_rf_cc_kv(monit, SDC) ->
     %% Monitoring Time
-    optional_if_unset('Change-Condition', ?'DIAMETER_3GPP_CHARGING-CHANGE-CONDITION_TIME_LIMIT', SDC);
+    optional_if_unset('Change-Condition', ?'DIAMETER_3GPP_CHARGING-CHANGE-CONDITION_TARIFF_TIME_CHANGE', SDC);
 cev_to_rf_cc_kv(termr, SDC) ->
     %% Termination Report -> Normal Release
     optional_if_unset('Change-Condition', ?'DIAMETER_3GPP_CHARGING-CHANGE-CONDITION_NORMAL_RELEASE', SDC);
