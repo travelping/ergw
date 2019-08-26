@@ -10,6 +10,7 @@
 -compile([export_all, nowarn_export_all, {parse_transform, lager_transform}]).
 
 -include_lib("ergw_aaa/include/diameter_3gpp_ts32_299.hrl").
+-include_lib("ergw_aaa/include/ergw_aaa_3gpp.hrl").
 -include_lib("ergw_aaa/include/ergw_aaa_session.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("gtplib/include/gtp_packet.hrl").
@@ -350,6 +351,35 @@
 			       'Volume-Quota-Threshold' => [10240]
 			      }]
 		       },
+		  'Initial-OCS-TTC' =>
+		      #{'Result-Code' => 2001,
+			'Multiple-Services-Credit-Control' =>
+			    [#{'Envelope-Reporting' => [0],
+			       'Granted-Service-Unit' =>
+				   [#{'Tariff-Time-Change' => [{{2019, 8, 26}, {14, 14, 0}}],
+				      'CC-Time' => [3600],
+				      'CC-Total-Octets' => [102400]}],
+			       'Rating-Group' => [3000],
+			       'Tariff-Time-Change' => [{{2019, 8, 26}, {14, 14, 0}}],
+			       'Result-Code' => [2001],
+			       'Time-Quota-Threshold' => [60],
+			       'Volume-Quota-Threshold' => [10240]
+			      }]
+		       },
+		  'Update-OCS-TTC' =>
+		      #{'Result-Code' => 2001,
+			'Multiple-Services-Credit-Control' =>
+			    [#{'Envelope-Reporting' => [0],
+			       'Granted-Service-Unit' =>
+				   [#{'Tariff-Time-Change' => [{{2019, 8, 26}, {14, 14, 0}}],
+				      'CC-Time' => [3600],
+				      'CC-Total-Octets' => [102400]}],
+			       'Rating-Group' => [3000],
+			       'Result-Code' => [2001],
+			       'Time-Quota-Threshold' => [60],
+			       'Volume-Quota-Threshold' => [10240]
+			      }]
+		       },
 		  'Final-OCS' => #{'Result-Code' => 2001}
 		 }
 	       }
@@ -480,6 +510,7 @@ common() ->
      simple_aaa,
      simple_ofcs,
      simple_ocs,
+     tariff_time_change,
      gy_ccr_asr_overlap,
      volume_threshold,
      redirect_info,
@@ -621,6 +652,13 @@ init_per_testcase(TestCase, Config)
 			    {{gy, 'CCR-Update'},  'Update-OCS'}]),
     Config;
 init_per_testcase(TestCase, Config)
+  when TestCase == tariff_time_change ->
+    init_per_testcase(Config),
+    set_online_charging(true),
+    load_aaa_answer_config([{{gy, 'CCR-Initial'}, 'Initial-OCS-TTC'},
+			    {{gy, 'CCR-Update'},  'Update-OCS-TTC'}]),
+    Config;
+init_per_testcase(TestCase, Config)
   when TestCase == gx_rar_gy_interaction ->
     init_per_testcase(Config),
     set_online_charging(true),
@@ -677,7 +715,9 @@ end_per_testcase(TestCase, Config)
        TestCase == create_session_request_rf_fail;
        TestCase == gy_ccr_asr_overlap;
        TestCase == simple_aaa;
-       TestCase == simple_ofcs ->
+       TestCase == simple_ofcs;
+       TestCase == tariff_time_change ->
+    ok = meck:delete(ergw_aaa_session, start_link, 2),
     ok = meck:delete(ergw_aaa_session, invoke, 4),
     end_per_testcase(Config),
     Config;
@@ -2541,6 +2581,232 @@ simple_ocs(Config) ->
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
 
+    ok.
+
+%%--------------------------------------------------------------------
+tariff_time_change() ->
+    [{doc, "Check Rf and Gy action on Tariff-Time-Change"}].
+tariff_time_change(Config) ->
+    Interim = rand:uniform(1800) + 1800,
+    AAAReply = #{'Acct-Interim-Interval' => [Interim]},
+
+    ok = meck:expect(ergw_aaa_session, start_link,
+		     fun (Owner, SOpts0) ->
+			     OPC = #{'Default' => #{'Tariff-Time' => [{15, 4}]}},
+			     SOpts = SOpts0#{'Offline-Charging-Profile' => OPC},
+			     meck:passthrough([Owner, SOpts])
+		     end),
+    ok = meck:expect(ergw_aaa_session, invoke,
+		     fun (Session, SessionOpts, {rf, 'Initial'} = Procedure, Opts) ->
+			     {_, SIn, EvIn} =
+				 meck:passthrough([Session, SessionOpts, Procedure, Opts]),
+			     {SOut, EvOut} =
+				 ergw_aaa_rf:to_session({rf, 'ACA'}, {SIn, EvIn}, AAAReply),
+			     {ok, SOut, EvOut};
+			 (Session, SessionOpts, Procedure, Opts) ->
+			     meck:passthrough([Session, SessionOpts, Procedure, Opts])
+		     end),
+
+    {GtpC, _, _} = create_session(Config),
+
+    {_Handler, Server} = gtp_context_reg:lookup({'irx-socket', {imsi, ?'IMSI', 5}}),
+    true = is_pid(Server),
+    {ok, PCtx} = gtp_context:test_cmd(Server, pfcp_ctx),
+
+    [_, SER|_] = lists:filter(
+		   fun(#pfcp{type = session_establishment_request}) -> true;
+		      (_) ->false
+		   end, ergw_test_sx_up:history('pgw-u')),
+
+    URR = lists:sort(maps:get(create_urr, SER#pfcp.ie)),
+    ?match(
+       [%% offline charging URR
+       #create_urr{
+	  group =
+	      #{urr_id := #urr_id{id = _},
+		measurement_method :=
+		    #measurement_method{volum = 1},
+		measurement_period :=
+		    #measurement_period{period = Interim},
+		monitoring_time :=
+		    #monitoring_time{time = _},
+		reporting_triggers :=
+		    #reporting_triggers{periodic_reporting = 1}
+	       }
+	 },
+	%% online charging URR
+	#create_urr{
+	   group =
+	       #{urr_id := #urr_id{id = _},
+		 measurement_method :=
+		     #measurement_method{volum = 1, durat = 1},
+		 monitoring_time :=
+		     #monitoring_time{time = _},
+		 reporting_triggers :=
+		     #reporting_triggers{
+			time_quota = 1,   time_threshold = 1,
+			volume_quota = 1, volume_threshold = 1},
+		 time_quota :=
+		     #time_quota{quota = 3600},
+		 time_threshold :=
+		     #time_threshold{threshold = 3540},
+		 volume_quota :=
+		     #volume_quota{total = 102400},
+		 volume_threshold :=
+		     #volume_threshold{total = 92160}
+		}
+	  }], URR),
+
+    MatchSpec = ets:fun2ms(fun({Id, {Type, _}})
+				 when Type =:= offline; Type =:= online -> {Type, Id} end),
+    ReportFun =
+	fun({online, Id}, IEs) ->
+		IEbef =
+		    #usage_report_srr{
+		       group =
+			   [#urr_id{id = Id},
+			    #usage_report_trigger{monit = 1},
+			    #usage_information{bef = 1},
+			    #start_time{time = 3775809600},
+			    #end_time{time = 3775810200},
+			    #duration_measurement{duration = 600},
+			    #volume_measurement{total = 5, uplink = 2, downlink = 3},
+			    #tp_packet_measurement{total = 12, uplink = 5, downlink = 7}]},
+		IEaft =
+		    #usage_report_srr{
+		       group =
+			   [#urr_id{id = Id},
+			    #usage_report_trigger{perio = 1},
+			    #usage_information{aft = 1},
+			    #start_time{time = 3775810200},
+			    #end_time{time = 3775810800},
+			    #duration_measurement{duration = 600},
+			    #volume_measurement{total = 20, uplink = 9, downlink = 11},
+			    #tp_packet_measurement{total = 28, uplink = 13, downlink = 15}]},
+		[IEbef, IEaft | IEs];
+	   ({offline, Id}, IEs) ->
+		IEbef =
+		    #usage_report_srr{
+		       group =
+			   [#urr_id{id = Id},
+			    #usage_report_trigger{monit = 1},
+			    #usage_information{bef = 1},
+			    #start_time{time = 3775809600},
+			    #end_time{time = 3775810200},
+			    #duration_measurement{duration = 600},
+			    #volume_measurement{total = 5, uplink = 2, downlink = 3},
+			    #tp_packet_measurement{total = 12, uplink = 5, downlink = 7}]},
+		IEaft =
+		    #usage_report_srr{
+		       group =
+			   [#urr_id{id = Id},
+			    #usage_report_trigger{volqu = 1},
+			    #usage_information{aft = 1},
+			    #start_time{time = 3775810200},
+			    #end_time{time = 3775810800},
+			    #duration_measurement{duration = 600},
+			    #volume_measurement{total = 20, uplink = 9, downlink = 11},
+			    #tp_packet_measurement{total = 28, uplink = 13, downlink = 15}]},
+		[IEbef, IEaft | IEs]
+	end,
+    ergw_test_sx_up:usage_report('pgw-u', PCtx, MatchSpec, ReportFun),
+
+    ct:sleep(100),
+    delete_session(GtpC),
+
+    H = meck:history(ergw_aaa_session),
+    RfInv =
+	lists:filter(
+	  fun({_, {ergw_aaa_session, invoke, [_, _, {rf, _}, _]}, _}) ->
+		  true;
+	     (_) ->
+		  false
+	  end, H),
+    ?match(X when X == 3, length(RfInv)),
+
+    [RfStart, RfInterim, RfStop] =
+	lists:map(fun({_, {_, _, [_, SOpts, _, _]}, _}) -> SOpts end, RfInv),
+
+    ?equal(false, maps:is_key('service_data', RfStart)),
+
+    ?equal(true, maps:is_key('service_data', RfInterim)),
+    [SDI1, SDI2] = lists:sort(maps:get('service_data', RfInterim)),
+    ?match_map(
+       #{'Rating-Group' => [3000],
+	 'Accounting-Input-Octets' => [2],
+	 'Accounting-Output-Octets' => [3],
+	 'Change-Condition' => [?'DIAMETER_3GPP_CHARGING-CHANGE-CONDITION_TARIFF_TIME_CHANGE'],
+
+	 'Time-First-Usage' => [{{2019,8,26},{12,0,0}}],
+	 'Time-Last-Usage' => [{{2019,8,26},{12,10,0}}],
+	 'Time-Usage' => [600]
+	}, SDI1),
+    ?match_map(
+       #{'Rating-Group' => [3000],
+	 'Accounting-Input-Octets' => [9],
+	 'Accounting-Output-Octets' => [11],
+	 'Change-Condition' => [?'DIAMETER_3GPP_CHARGING-CHANGE-CONDITION_VOLUME_LIMIT'],
+
+	 'Time-First-Usage' => [{{2019,8,26},{12,10,0}}],
+	 'Time-Last-Usage' => [{{2019,8,26},{12,20,0}}],
+	 'Time-Usage' => [600]
+	}, SDI2),
+
+    ?match_map(
+       #{service_data =>
+	     [#{'Accounting-Input-Octets' => ['_'],
+		'Accounting-Output-Octets' => ['_'],
+		'Change-Condition' => [0]}
+	     ]}, RfStop),
+
+    GyInv =
+	lists:filter(
+	  fun({_, {ergw_aaa_session, invoke, [_, _, {gy,_}, _]}, _}) ->
+		  true;
+	     (_) ->
+		  false
+	  end, H),
+    ?match(X when X == 3, length(GyInv)),
+
+    [GyStart, GyInterim, GyStop] =
+	lists:map(fun({_, {_, _, [_, SOpts, _, _]}, _}) -> SOpts end, GyInv),
+
+    ?match_map(
+       #{credits => #{3000 => empty}}, GyStart),
+    ?equal(false, maps:is_key('used_credits', GyStart)),
+
+    ?equal(true, maps:is_key('used_credits', GyInterim)),
+    [UCI1, UCI2] = lists:sort([X || {3000, X} <- maps:get('used_credits', GyInterim)]),
+    ?match_map(
+       #{'CC-Input-Octets'  => [2],
+	 'CC-Output-Octets' => [3],
+	 'CC-Total-Octets'  => [5],
+	 'Tariff-Change-Usage' =>
+	     [?'DIAMETER_3GPP_CHARGING_TARIFF-CHANGE-USAGE_UNIT_BEFORE_TARIFF_CHANGE']
+	}, UCI1),
+    ?match_map(
+       #{'CC-Input-Octets'  => [9],
+	 'CC-Output-Octets' => [11],
+	 'CC-Total-Octets'  => [20],
+	 'Tariff-Change-Usage' =>
+	     [?'DIAMETER_3GPP_CHARGING_TARIFF-CHANGE-USAGE_UNIT_AFTER_TARIFF_CHANGE']
+	}, UCI2),
+
+    ?match_map(
+       #{'Termination-Cause' => 1,
+	 used_credits =>
+	     [{3000,
+	       #{'CC-Input-Octets'  => ['_'],
+		 'CC-Output-Octets' => ['_'],
+		 'CC-Total-Octets'  => ['_'],
+		 'Reporting-Reason' => [2]}}]
+	}, GyStop),
+    ?equal(false, maps:is_key('credits', GyStop)),
+
+    ?equal([], outstanding_requests()),
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+
+    meck_validate(Config),
     ok.
 
 %%--------------------------------------------------------------------

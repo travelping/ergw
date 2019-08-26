@@ -154,7 +154,12 @@ handle_call({send, Msg}, _From,
 handle_call({usage_report, #pfcp_ctx{seid = #seid{cp = SEID}, urr_by_id = Rules} = PCtx,
 	     MatchSpec, Report}, _From, State0) ->
     Ids = ets:match_spec_run(maps:to_list(Rules), ets:match_spec_compile(MatchSpec)),
-    URRs = [#usage_report_srr{group = [#urr_id{id = Id}|Report]} || Id <- Ids],
+    URRs =
+	if is_function(Report, 2) ->
+		lists:foldl(Report, [], Ids);
+	   true ->
+		[#usage_report_srr{group = [#urr_id{id = Id}|Report]} || Id <- Ids]
+	end,
     IEs = [#report_type{usar = 1}|URRs],
     SRreq = #pfcp{version = v1, type = session_report_request, ie = IEs},
     State = do_send(SEID, SRreq, State0),
