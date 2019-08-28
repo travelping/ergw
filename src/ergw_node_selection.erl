@@ -15,7 +15,8 @@
 
 -export([validate_options/2, apn_to_fqdn/1,
 	 lookup_dns/3, colocation_match/2, topology_match/2,
-	 candidates/3, lookup/2, lookup/3]).
+	 candidates/3, candidates_by_preference/1,
+	 lookup/2, lookup/3]).
 
 -include_lib("kernel/include/logger.hrl").
 
@@ -96,6 +97,20 @@ apn_to_fqdn(APN)
 		normalize_name_fqdn(["epc", "apn" | APN_NI])
 	end,
     {fqdn, FQDN}.
+
+candidates_by_preference(Candidates) ->
+    {_, L} =
+	lists:foldl(
+	  fun({Node, {Order, Preference}, _, IP4, IP6}, {Order, M}) ->
+		  E = {Node, IP4, IP6},
+		  {Order, maps:update_with(Preference, fun(Y) -> [E|Y] end, [E], M)};
+	     ({Node, {NOrder, Preference}, _, IP4, IP6}, {Order, _})
+		when NOrder < Order ->
+		  {NOrder, #{Preference => [{Node, IP4, IP6}]}};
+	     (_, Acc) ->
+		  Acc
+	  end, {65535, #{}}, Candidates),
+    [N || {_,N} <- lists:sort(maps:to_list(L))].
 
 %%%===================================================================
 %%% Options Validation
