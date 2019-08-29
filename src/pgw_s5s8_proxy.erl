@@ -588,10 +588,9 @@ handle_proxy_info(Request, Context, #{proxy_ds := ProxyDS}) ->
 	    ?LOG(debug, "OK Proxy Map: ~p", [ProxyInfo]),
 	    ProxyInfo;
 
-	Other ->
-	    ?LOG(warning, "Failed Proxy Map: ~p", [Other]),
+	{error, Cause} ->
+	    ?LOG(warning, "Failed Proxy Map: ~p", [{error, Cause}]),
 	    Type = create_session_response,
-	    Cause = user_authentication_failed,
 	    Reply = response(Type, Context, [#v2_cause{v2_cause = Cause}], Request),
 	    throw(?CTX_ERR(?FATAL, Reply, Context))
     end.
