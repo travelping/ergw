@@ -505,10 +505,9 @@ handle_proxy_info(Request, Context, #{proxy_ds := ProxyDS}) ->
 	    ?LOG(debug, "OK Proxy Map: ~p", [ProxyInfo]),
 	    ProxyInfo;
 
-	Other ->
-	    ?LOG(warning, "Failed Proxy Map: ~p", [Other]),
+	{error, Cause} ->
+	    ?LOG(warning, "Failed Proxy Map: ~p", [{error, Cause}]),
 	    Type = create_pdp_context_response,
-	    Cause = user_authentication_failed,
 	    Reply = response(Type, Context, [#cause{value = Cause}], Request),
 	    throw(?CTX_ERR(?FATAL, Reply, Context))
     end.
