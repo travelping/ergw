@@ -955,20 +955,27 @@ session_qos_info_arp(_ARP = 3, _IEs) ->
       'Pre-emption-Capability' => 1,         %% TODO operator policy
       'Pre-emption-Vulnerability' => 0}.     %% TODO operator policy
 
+%% the UE may send 'subscribed` as rate. There is nothing in specs that
+%% tells how to translate this to requested QoS in Session (Gx/Gy/Rf)
+session_qos_bitrate(Key, Value, Info) when is_integer(Value) ->
+    Info#{Key => Value * 1000};
+session_qos_bitrate(_, _, Info) ->
+    Info.
+
 session_qos_info_apn_ambr(_QoS,
 			  #{?'APN-AMBR' :=
 				#aggregate_maximum_bit_rate{
 				   uplink   = AMBR4ul,
 				   downlink = AMBR4dl
-				  }}, Info) ->
-    Info#{'APN-Aggregate-Max-Bitrate-UL' => AMBR4ul * 1000,
-	  'APN-Aggregate-Max-Bitrate-DL' => AMBR4dl * 1000};
+				  }}, Info0) ->
+    Info = session_qos_bitrate('APN-Aggregate-Max-Bitrate-UL', AMBR4ul, Info0),
+    session_qos_bitrate('APN-Aggregate-Max-Bitrate-DL', AMBR4dl, Info);
 session_qos_info_apn_ambr(#qos{
 			     max_bit_rate_uplink   = MBR4ul,
 			     max_bit_rate_downlink = MBR4dl},
-			  _IEs, Info) ->
-    Info#{'APN-Aggregate-Max-Bitrate-UL' => MBR4ul * 1000,
-	  'APN-Aggregate-Max-Bitrate-DL' => MBR4dl * 1000}.
+			  _IEs, Info0) ->
+    Info = session_qos_bitrate('APN-Aggregate-Max-Bitrate-UL', MBR4ul, Info0),
+    session_qos_bitrate('APN-Aggregate-Max-Bitrate-DL', MBR4dl, Info).
 
 %% see 3GPP TS 29.212 version 15.3.0, Appending B.3.3.3
 session_qos_info(#qos{
@@ -980,15 +987,14 @@ session_qos_info(#qos{
     Info0 = #{
 	      'QoS-Class-Identifier' =>
 		  session_qos_info_qci(QoS),
-	      'Max-Requested-Bandwidth-UL' => MBR4ul * 1000,
-	      'Max-Requested-Bandwidth-DL' => MBR4dl * 1000,
-	      'Guaranteed-Bitrate-UL' => GBR4ul * 1000,
-	      'Guaranteed-Bitrate-DL' => GBR4dl * 1000,
-
 	      'Allocation-Retention-Priority' =>
 		  session_qos_info_arp(ARP, IEs)
 	     },
-    Info = session_qos_info_apn_ambr(QoS, IEs, Info0),
+    Info1 = session_qos_bitrate('Max-Requested-Bandwidth-UL', MBR4ul, Info0),
+    Info2 = session_qos_bitrate('Max-Requested-Bandwidth-DL', MBR4dl, Info1),
+    Info3 = session_qos_bitrate('Guaranteed-Bitrate-UL', GBR4ul, Info2),
+    Info4 = session_qos_bitrate('Guaranteed-Bitrate-DL', GBR4dl, Info3),
+    Info = session_qos_info_apn_ambr(QoS, IEs, Info4),
     Session#{'QoS-Information' => Info};
 
 session_qos_info(_QoS, _ARP, _IEs, Session) ->
