@@ -302,7 +302,7 @@ handle_request(ReqKey,
     SessionOpts0 = pgw_s5s8:init_session(IEs, Context3, AAAopts),
     SessionOpts = pgw_s5s8:init_session_from_gtp_req(IEs, AAAopts, SessionOpts0),
 
-    ok = ergw_aaa_session:invoke(Session, SessionOpts, start, #{async =>true}),
+    {ok, _} = ergw_aaa_session:invoke(Session, SessionOpts, start, #{async =>true}),
 
     ProxyContext0 = init_proxy_context(ProxyGtpPort, Context3, ProxyInfo, ProxyGGSN),
     ProxyContext1 = gtp_path:bind(ProxyContext0),
