@@ -124,14 +124,12 @@ init([Node, InVRF, IP4, IP6, #{apn := APN} = _SxOpts]) ->
     monitor(process, Node),
     %% ?LOG(debug, "APN: ~p", [APN]),
 
-    %% {ok, {VRF, VRFOpts}} = ergw:vrf_lookup(APN),
-    %% ?LOG(debug, "VRF: ~p, Opts: ~p", [VRF, VRFOpts]),
-
     %% Services = [{"x-3gpp-upf", "x-sxc"}],
     %% {ok, SxPid} = ergw_sx_node:select_sx_node(APN, Services, NodeSelect),
     %% ?LOG(debug, "SxPid: ~p", [SxPid]),
 
-    {ok, {OutVrf, _}} = ergw:vrf(APN),
+    {ok, OutVrf, _} = ergw_gsn_lib:select_vrf(APN),
+
     {ok, Session} = ergw_aaa_session_sup:new_session(self(), to_session([])),
     SessionOpts = ergw_aaa_session:get(Session),
     OCPcfg = maps:get('Offline-Charging-Profile', SessionOpts, #{}),

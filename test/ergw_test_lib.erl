@@ -167,6 +167,15 @@ meck_init(Config) ->
     ok = meck:new(ergw_gtp_c_socket, [passthrough, no_link]),
     ok = meck:new(ergw_aaa_session, [passthrough, no_link]),
     ok = meck:new(ergw_gsn_lib, [passthrough, no_link]),
+    ok = meck:expect(ergw_gsn_lib, select_vrf,
+		     fun(APNorContext) ->
+			     try
+				 meck:passthrough([APNorContext])
+			     catch
+				 throw:#ctx_err{} = CtxErr ->
+				     meck:exception(throw, CtxErr)
+			     end
+		     end),
     ok = meck:new(ergw_proxy_lib, [passthrough, no_link]),
 
     {_, Hut} = lists:keyfind(handler_under_test, 1, Config),   %% let it crash if HUT is undefined

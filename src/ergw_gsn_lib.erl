@@ -32,6 +32,7 @@
 	 gy_credit_request/3,
 	 pcc_events_to_charging_rule_report/1]).
 -export([pcc_ctx_has_rules/1]).
+-export([select_vrf/1]).
 
 -include_lib("kernel/include/logger.hrl").
 -include_lib("gtplib/include/gtp_packet.hrl").
@@ -382,7 +383,7 @@ apply_charging_profile(_K, _V, URR) ->
 apply_charging_profile(URR, OCP) ->
     maps:fold(fun apply_charging_profile/3, URR, OCP).
 
-%% build_sx_rules/5
+%% build_sx_rules/4
 build_sx_rules(PCC, Opts, PCtx0, SCtx) ->
     PCtx2 = ergw_pfcp:reset_ctx(PCtx0),
 
@@ -880,7 +881,7 @@ handle_validity_time(ChargingKey, #{'Validity-Time' := {abs, AbsTime}}, PCtx, _)
 handle_validity_time(_, _, PCtx, _) ->
     PCtx.
 
-%% build_sx_usage_rule/2
+%% build_sx_usage_rule/3
 build_sx_usage_rule(_K, #{'Rating-Group' := [RatingGroup],
 			  'Granted-Service-Unit' := [GSU],
 			  'Update-Time-Stamp' := UpdateTS} = GCU,
@@ -1434,6 +1435,57 @@ pcc_ctx_to_credit_request(#pcc_ctx{rules = Rules}) ->
     CreditReq = maps:fold(fun pcc_rules_to_credit_request/3, #{}, Rules),
     ?LOG(debug, "CreditReq: ~p", [CreditReq]),
     CreditReq.
+
+%%%===================================================================
+%%% VRF selection
+%%%===================================================================
+
+expand_apn(<<"gprs">>, APN) when length(APN) > 3 ->
+    {ShortAPN, _} = lists:split(length(APN) - 3, APN),
+    ShortAPN;
+expand_apn(_, APN) ->
+    {MCC, MNC} = ergw:get_plmn_id(),
+    MNCpart = if (size(MNC) == 2) -> <<"mnc0", MNC/binary>>;
+		 true             -> <<"mnc",  MNC/binary>>
+	      end,
+    APN ++ [MNCpart, <<"mcc", MCC/binary>>, <<"gprs">>].
+
+apn(APN0) ->
+    APN = gtp_c_lib:normalize_labels(APN0),
+    {ok, APNs} = application:get_env(ergw, apns),
+    case maps:find(APN, APNs) of
+	{ok, _} = Result -> Result;
+	_ ->
+	    case maps:find(expand_apn(lists:last(APN), APN), APNs) of
+		{ok, _} = Result -> Result;
+		_ ->
+		    maps:find('_', APNs)
+	    end
+    end.
+
+%% select_vrf/2
+select_vrf(random, APN) ->
+    case apn(APN) of
+	{ok, #{vrfs := VRFs} = Opts} ->
+	    Index = rand:uniform(length(VRFs)),
+	    VRF = lists:nth(Index, VRFs),
+	    VRFOpts = maps:remove(vrfs, Opts),
+	    {ok, VRF, VRFOpts};
+	_ ->
+	    error
+    end.
+
+%% select_vrf/1
+select_vrf(#context{apn = APN} = Context) ->
+    try
+	{ok, VRF, Opts} = select_vrf(random, APN),
+	{ok, VOpts} = vrf:get_opts(VRF),
+	{Context#context{vrf = VRF}, maps:merge(VOpts, Opts)}
+    catch error:{badmatch, _} ->
+	    throw(?CTX_ERR(?FATAL, missing_or_unknown_apn, Context))
+    end;
+select_vrf(APN) ->
+    select_vrf(random, APN).
 
 %%%===================================================================
 %%% T-PDU functions

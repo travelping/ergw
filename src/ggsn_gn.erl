@@ -332,7 +332,7 @@ handle_request(ReqKey,
 
     {ok, ActiveSessionOpts0, AuthSEvs} =
 	authenticate(ContextPreAuth, Session, SessionOpts, Request),
-    {ContextVRF, VRFOpts} = select_vrf(ContextPreAuth),
+    {ContextVRF, VRFOpts} = ergw_gsn_lib:select_vrf(ContextPreAuth),
 
     ActiveSessionOpts = apply_vrf_session_defaults(VRFOpts, ActiveSessionOpts0),
     ?LOG(info, "ActiveSessionOpts: ~p", [ActiveSessionOpts]),
@@ -665,14 +665,6 @@ apply_context_change(NewContext0, OldContext, URRActions,
     gtp_path:unbind(OldContext),
     defer_usage_report(URRActions, UsageReport),
     Data#{context => NewContext, pfcp => PCtx}.
-
-select_vrf(#context{apn = APN} = Context) ->
-    case ergw:vrf(APN) of
-	{ok, {VRF, VRFOpts}} ->
-	    {Context#context{vrf = VRF}, VRFOpts};
-	_ ->
-	    throw(?CTX_ERR(?FATAL, missing_or_unknown_apn, Context))
-    end.
 
 copy_vrf_session_defaults(K, Value, Opts)
     when K =:= 'MS-Primary-DNS-Server';

@@ -13,8 +13,9 @@
 -compile({parse_transform, cut}).
 
 %% API
--export([select_sx_node/2, select_sx_node/3, connect_sx_node/4, attach/2]).
--export([start_link/4, send/4, call/3,
+-export([select_sx_node/2, select_sx_node/3, connect_sx_node/3,
+	 attach/2, attach_tdf/2]).
+-export([start_link/3, send/4, call/3,
 	 get_vrfs/2, handle_request/3, response/3]).
 -ifdef(TEST).
 -export([test_cmd/2, seconds_to_sntp_time/1]).
@@ -33,14 +34,15 @@
 -include_lib("pfcplib/include/pfcp_packet.hrl").
 -include("include/ergw.hrl").
 
--record(data, {retries = 0  :: non_neg_integer(),
+-record(data, {cfg,
+	       retries = 0  :: non_neg_integer(),
 	       recovery_ts       :: undefined | non_neg_integer(),
 	       pfcp_ctx          :: #pfcp_ctx{},
 	       upf_data_endp     :: #gtp_endp{},
 	       cp,
 	       dp,
 	       vrfs,
-	       opts}).
+	       tdf}).
 
 -define(AssocReqTimeout, 200).
 -define(AssocReqRetries, 5).
@@ -74,8 +76,11 @@ attach(Node, Context) when is_pid(Node) ->
     monitor(process, Node),
     call_3(Node, attach, Context).
 
-start_link(Node, IP4, IP6, Opts) ->
-    gen_statem:start_link(?MODULE, [Node, IP4, IP6, Opts], []).
+attach_tdf(Node, Tdf) when is_pid(Node) ->
+    gen_statem:call(Node, {attach_tdf, Tdf}).
+
+start_link(Node, IP4, IP6) ->
+    gen_statem:start_link(?MODULE, [Node, IP4, IP6], []).
 
 -ifdef(TEST).
 
@@ -170,7 +175,7 @@ port_message(_Server, Request, Msg, _Resent) ->
 
 callback_mode() -> [handle_event_function, state_enter].
 
-init([Node, IP4, IP6, Opts]) ->
+init([Node, IP4, IP6]) ->
     IP = if length(IP4) /= 0 -> hd(IP4);
 	    length(IP6) /= 0 -> hd(IP6)
 	 end,
@@ -195,12 +200,15 @@ init([Node, IP4, IP6, Opts]) ->
 	 {seid, SEID}],
     gtp_context_reg:register(RegKeys, ?MODULE, self()),
 
-    Data = #data{pfcp_ctx = PCtx,
-		 cp = CP,
-		 dp = #node{node = Node, ip = IP},
-		 vrfs = init_vrfs(Node),
-		 opts = Opts
-		},
+    Nodes = setup:get_env(ergw, nodes, #{}),
+    Cfg = maps:get(Node, Nodes, maps:get(default, Nodes, #{})),
+    Data0 = #data{cfg = Cfg,
+		  pfcp_ctx = PCtx,
+		  cp = CP,
+		  dp = #node{node = Node, ip = IP},
+		  tdf = #{}
+		 },
+    Data = init_vrfs(Data0),
     {ok, dead, Data}.
 
 handle_event(enter, OldState, dead, Data)
@@ -216,7 +224,7 @@ handle_event(enter, _OldState, State, Data) ->
 
 handle_event({call, From}, {?TestCmdTag, pfcp_ctx}, _, #data{pfcp_ctx = PCtx}) ->
     {keep_state_and_data, [{reply, From, PCtx}]};
-handle_event({call, From}, {?TestCmdTag, reconnect}, dead, Data) ->
+handle_event({call, From}, {?TestCmdTag, reconnect}, dead, _Data) ->
     {keep_state_and_data, [{reply, From, ok}, {state_timeout, 0, setup}]};
 handle_event({call, From}, {?TestCmdTag, reconnect}, connecting, _) ->
     {keep_state_and_data, [{reply, From, ok}]};
@@ -229,6 +237,9 @@ handle_event({call, _From}, {?TestCmdTag, wait4nodeup}, _, _) ->
 
 handle_event({call, From}, {?TestCmdTag, stop}, _, Data) ->
     {stop_and_reply, normal, [{reply, From, ok}], Data};
+
+handle_event({call, From}, {attach_tdf, Tdf}, _, Data) ->
+    {keep_state, Data#data{tdf = Tdf}, [{reply, From, ok}]};
 
 handle_event(_, setup, dead, #data{dp = #node{ip = IP}} = Data) ->
     Req0 = #pfcp{version = v1, type = association_setup_request, ie = []},
@@ -409,13 +420,13 @@ handle_event({call, From},
 		    }
 	     },
 	     _State,
-	     #data{pfcp_ctx = #pfcp_ctx{seid = #seid{dp = SEID}} = PCtx, opts = Opts}) ->
+	     #data{pfcp_ctx = #pfcp_ctx{seid = #seid{dp = SEID}} = PCtx, tdf = Tdf}) ->
     {ok, {tdf, VRF}} = ergw_pfcp:find_urr_by_id(Id, PCtx),
     ?LOG(error, "Sx Node TDF Report on ~p for UE IPv4 ~p IPv6 ~p", [VRF, IP4, IP6]),
 
-    Handler = maps:get(handler, Opts, tdf),
+    Handler = maps:get(handler, Tdf, tdf),
     try
-	Handler:unsolicited_report(self(), VRF, IP4, IP6, Opts)
+	Handler:unsolicited_report(self(), VRF, IP4, IP6, Tdf)
     catch
 	Class:Error ->
 	    ?LOG(error, "Unsolicited Report Handler '~p' failed with ~p:~p~n~p",
@@ -437,21 +448,6 @@ code_change(_OldVsn, Data, _Extra) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
-
-node_vrfs(Name, Nodes, Default) ->
-    Layout = maps:get(Name, Nodes, #{}),
-    maps:get(vrfs, Layout, Default).
-
-node_vrfs(Name) ->
-    {ok, Nodes} = setup:get_env(ergw, nodes),
-    Default = node_vrfs(default, Nodes, #{}),
-    node_vrfs(Name, Nodes, Default).
-
-init_vrfs(Node) ->
-    maps:map(
-      fun(Id, #{features := Features}) ->
-	      #vrf{name = Id, features = Features}
-      end, node_vrfs(Node)).
 
 pfcp_reply_actions({call, {Pid, Tag}}, Reply)
   when Pid =:= self() ->
@@ -517,19 +513,20 @@ connect_sx_candidates([], NextPrio) ->
     connect_sx_candidates(NextPrio);
 connect_sx_candidates(List, NextPrio) ->
     {{Node, IP4, IP6}, Next} = lb(random, List),
-    case connect_sx_node(Node, IP4, IP6, #{}) of
+    case connect_sx_node(Node, IP4, IP6) of
 	{ok, _Pid} = Result ->
 	    Result;
 	_ ->
 	    connect_sx_candidates(Next, NextPrio)
     end.
 
-connect_sx_node(Node, IP4, IP6, Opts) ->
+%% connect_sx_node/3
+connect_sx_node(Node, IP4, IP6) ->
     case ergw_sx_node_reg:lookup(Node) of
 	{ok, _} = Result ->
 	    Result;
 	_ ->
-	    ergw_sx_node_sup:new(Node, IP4, IP6, Opts)
+	    ergw_sx_node_sup:new(Node, IP4, IP6)
     end.
 
 lb(first, [H|T]) -> {H, T};
@@ -621,6 +618,13 @@ handle_nodeup(#{recovery_time_stamp := #recovery_time_stamp{time = RecoveryTS}} 
 	    },
     install_cp_rules(Data).
 
+init_vrfs(#data{cfg = Cfg} = Data) ->
+    Data#data{
+      vrfs = maps:map(
+	       fun(Id, #{features := Features}) ->
+		       #vrf{name = Id, features = Features}
+	       end, maps:get(vrfs, Cfg, #{}))}.
+
 init_vrfs(VRFs, UPIPResInfo)
   when is_list(UPIPResInfo) ->
     lists:foldl(fun(I, Acc) ->
@@ -640,12 +644,12 @@ init_vrfs(VRFs,
 	    VRFs
     end.
 
-handle_nodedown(#data{dp = #node{node = Node}} = Data) ->
+handle_nodedown(Data) ->
     Self = self(),
     {monitored_by, Notify} = process_info(Self, monitored_by),
     ?LOG(info, "Node Down Monitor Notify: ~p", [Notify]),
     lists:foreach(fun(Pid) -> Pid ! {'DOWN', undefined, pfcp, Self, undefined} end, Notify),
-    Data#data{vrfs = init_vrfs(Node)}.
+    init_vrfs(Data).
 
 %%%===================================================================
 %%% CP to Access Interface forwarding
