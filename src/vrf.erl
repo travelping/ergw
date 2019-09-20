@@ -62,6 +62,10 @@ with_vrf(VRF, Fun) when is_binary(VRF), is_function(Fun, 1) ->
 	    {error, not_found}
     end.
 
+%%%===================================================================
+%%% Options Validation
+%%%===================================================================
+
 validate_options(Options) ->
     ?LOG(debug, "VRF Options: ~p", [Options]),
     ergw_config:validate_options(fun validate_option/2, Options, [], map).

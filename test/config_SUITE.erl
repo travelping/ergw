@@ -73,7 +73,7 @@
 
 	 {apns,
 	  [{?'APN-EXAMPLE', [{vrf, upstream}]},
-	   {[<<"APN1">>], [{vrf, upstream}]}
+	   {[<<"APN1">>], [{vrfs, [upstream]}]}
 	  ]},
 
 	 {nodes,
@@ -644,6 +644,11 @@ config(_Config)  ->
 
     ?error_option(set_cfg_value([apns, '_'], [], ?GGSN_CONFIG)),
     ?ok_option(set_cfg_value([apns, '_', vrf], upstream, ?GGSN_CONFIG)),
+    ?ok_option(set_cfg_value([apns, '_', vrfs], [upstream], ?GGSN_CONFIG)),
+    ?error_option(set_cfg_value([apns, '_', vrfs], upstream, ?GGSN_CONFIG)),
+    ?ok_option(set_cfg_value([apns, '_', vrfs], [a, b], ?GGSN_CONFIG)),
+    ?error_option(set_cfg_value([apns, '_', vrfs], [a | b], ?GGSN_CONFIG)),
+    ?error_option(set_cfg_value([apns, '_', vrfs], [a, a], ?GGSN_CONFIG)),
     ?error_option(set_cfg_value([apns, ?'APN-EXAMPLE'], [], ?GGSN_CONFIG)),
     ?error_option(set_cfg_value([apns, ?'APN-EXAMPLE'], invalid, ?GGSN_CONFIG)),
     ?ok_option(add_cfg_value([apns, ?'APN-PROXY'], [{vrf, example}], ?GGSN_CONFIG)),
@@ -658,7 +663,7 @@ config(_Config)  ->
 		    add_cfg_value([apns, [<<"_">>]], [{vrf, example}], ?GGSN_CONFIG)))),
     APN0 = proplists:get_value(apns, (catch ergw_config:validate_config(?GGSN_CONFIG))),
     %% check that APN's are lower cased after validation
-    ?match(VRF when is_map(VRF), proplists:get_value([<<"apn1">>], APN0)),
+    ?match(VRF when is_map(VRF), maps:get([<<"apn1">>], APN0)),
 
     ?error_option(set_cfg_value([sx_socket, ip], invalid, ?GGSN_CONFIG)),
     ?error_option(set_cfg_value([sx_socket, ip], {1,1,1,1,1}, ?GGSN_CONFIG)),
@@ -730,6 +735,20 @@ config(_Config)  ->
     ?error_option(set_cfg_value([nodes, default, vrfs, cp, features], [], ?GGSN_PROXY_CONFIG)),
     ?error_option(set_cfg_value([nodes, default, vrfs, cp, features], invalid, ?GGSN_PROXY_CONFIG)),
     ?error_option(set_cfg_value([nodes, default, vrfs, cp, features], [invalid], ?GGSN_PROXY_CONFIG)),
+
+    ?error_option(set_cfg_value([nodes, test], [], ?GGSN_PROXY_CONFIG)),
+    ?ok_option(set_cfg_value([nodes, "test"], [], ?GGSN_PROXY_CONFIG)),
+    ?ok_option(set_cfg_value([nodes, "test", vrfs, cp, features], ['CP-Function'], ?GGSN_PROXY_CONFIG)),
+    ?ok_option(set_cfg_value([nodes, "test", vrfs, 'cp2', features], ['CP-Function'], ?GGSN_PROXY_CONFIG)),
+
+    ?ok_option(set_cfg_value([nodes, "test"], [connect], ?GGSN_PROXY_CONFIG)),
+    ?ok_option(set_cfg_value([nodes, "test"], [{connect, true}], ?GGSN_PROXY_CONFIG)),
+    ?ok_option(set_cfg_value([nodes, "test"], [{connect, false}], ?GGSN_PROXY_CONFIG)),
+    ?error_option(set_cfg_value([nodes, "test"], [{raddr, invalid}], ?GGSN_PROXY_CONFIG)),
+    ?ok_option(set_cfg_value([nodes, "test"], [{raddr, {1,1,1,1}}], ?GGSN_PROXY_CONFIG)),
+    ?ok_option(set_cfg_value([nodes, "test"], [{raddr, {1,1,1,1,2,2,2,2}}], ?GGSN_PROXY_CONFIG)),
+    ?error_option(set_cfg_value([nodes, "test"], [{port, invalid}], ?GGSN_PROXY_CONFIG)),
+    ?ok_option(set_cfg_value([nodes, "test"], [{rport, 1234}], ?GGSN_PROXY_CONFIG)),
 
     ?ok_option(?PGW_CONFIG),
     ?error_option(set_cfg_value([handlers, 'h1'], [{handler, pgw_s5s8},

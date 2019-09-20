@@ -2375,6 +2375,7 @@ simple_ofcs(Config) ->
 
     ct:sleep(100),
     delete_session(GtpC),
+    ct:sleep(10),
 
     H = meck:history(ergw_aaa_session),
     SInv =
@@ -3437,16 +3438,16 @@ tdf_app_id(Config) ->
 apn_lookup() ->
     [{doc, "Check that the APN and wildcard APN lookup works"}].
 apn_lookup(_Config) ->
-    ct:pal("VRF: ~p", [ergw:vrf(?'APN-EXAMPLE')]),
-    ?match({ok, {<<8, "upstream">>, _}}, ergw:vrf(?'APN-EXAMPLE')),
-    ?match({ok, {<<8, "upstream">>, _}}, ergw:vrf([<<"exa">>, <<"mple">>, <<"net">>])),
-    ?match({ok, {<<8, "upstream">>, _}}, ergw:vrf([<<"APN1">>])),
-    ?match({ok, {<<8, "upstream">>, _}}, ergw:vrf([<<"APN1">>, <<"mnc001">>, <<"mcc001">>, <<"gprs">>])),
-    ?match({ok, {<<8, "upstream">>, _}}, ergw:vrf([<<"APN2">>])),
-    ?match({ok, {<<8, "upstream">>, _}}, ergw:vrf([<<"APN2">>, <<"mnc001">>, <<"mcc001">>, <<"gprs">>])),
-    %% ?match({ok, {<<8, "wildcard">>, _}}, ergw:vrf([<<"APN3">>])),
-    %% ?match({ok, {<<8, "wildcard">>, _}}, ergw:vrf([<<"APN3">>, <<"mnc001">>, <<"mcc001">>, <<"gprs">>])),
-    %% ?match({ok, {<<8, "wildcard">>, _}}, ergw:vrf([<<"APN4">>, <<"mnc001">>, <<"mcc901">>, <<"gprs">>])),
+    ct:pal("VRF: ~p", [ergw_gsn_lib:select_vrf(?'APN-EXAMPLE')]),
+    ?match({ok, <<8, "upstream">>, _}, ergw_gsn_lib:select_vrf(?'APN-EXAMPLE')),
+    ?match({ok, <<8, "upstream">>, _}, ergw_gsn_lib:select_vrf([<<"exa">>, <<"mple">>, <<"net">>])),
+    ?match({ok, <<8, "upstream">>, _}, ergw_gsn_lib:select_vrf([<<"APN1">>])),
+    ?match({ok, <<8, "upstream">>, _}, ergw_gsn_lib:select_vrf([<<"APN1">>, <<"mnc001">>, <<"mcc001">>, <<"gprs">>])),
+    ?match({ok, <<8, "upstream">>, _}, ergw_gsn_lib:select_vrf([<<"APN2">>])),
+    ?match({ok, <<8, "upstream">>, _}, ergw_gsn_lib:select_vrf([<<"APN2">>, <<"mnc001">>, <<"mcc001">>, <<"gprs">>])),
+    %% ?match({ok, <<8, "wildcard">>, _}, ergw_gsn_lib:select_vrf([<<"APN3">>])),
+    %% ?match({ok, <<8, "wildcard">>, _}, ergw_gsn_lib:select_vrf([<<"APN3">>, <<"mnc001">>, <<"mcc001">>, <<"gprs">>])),
+    %% ?match({ok, <<8, "wildcard">>, _}, ergw_gsn_lib:select_vrf([<<"APN4">>, <<"mnc001">>, <<"mcc901">>, <<"gprs">>])),
     ok.
 
 %%--------------------------------------------------------------------
