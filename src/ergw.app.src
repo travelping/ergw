@@ -6,6 +6,7 @@
 		    regine, gen_socket, gtplib, pfcplib,
 		    ergw_aaa, setup, netdata,
 		    prometheus, cowboy, prometheus_cowboy,
+		    prometheus_diameter_collector,
 		    jsx, compiler, os_mon, jobs]},
     {mod, {ergw_app, []}},
     {registered, []}
