@@ -344,6 +344,24 @@ gy_events_to_pcc_ctx(Now, Evs, #pcc_ctx{rules = Rules0, credits = Credits0} = PC
 sx_rule_error(Error, #sx_upd{errors = Errors} = Update) ->
     Update#sx_upd{errors = [Error | Errors]}.
 
+datetime_to_gregorian_seconds(DateTime, TimeZone) ->
+    {ok, NaiveDateTime} = NaiveDateTime.from_erl(DateTime, {0,0}, Calendar.ISO),
+
+    DateTime = DateTime.from_naive(NaiveDateTime, "Etc/UTC", 'Elixir.Tzdata.TimeZoneDatabase'),
+    
+%%'Elixir.DateTime':now(<<"Europe/Copenhagen">>, 'Elixir.Tzdata.TimeZoneDatabase').
+
+apply_charing_tariff_time({H, M, TimeZone}, URR)
+  when is_integer(H), H >= 0, H < 24,
+       is_integer(M), M >= 0, M < 60,
+       is_binary(TimeZone) ->
+    {Today, _} = Now = calendar:universal_time(),
+    Tomorrow = calendar:gregorian_days_to_date(
+		 calendar:date_to_gregorian_days(Today) + 1),
+    TodaysTT = datetime_to_gregorian_seconds({Date, {H, M, 0}}, TimeZone),
+    TomorrowsTT = datetime_to_gregorian_seconds({Date, {H, M, 0}}, TimeZone),
+    
+
 apply_charing_tariff_time({H, M}, URR)
   when is_integer(H), H >= 0, H < 24,
        is_integer(M), M >= 0, M < 60 ->
