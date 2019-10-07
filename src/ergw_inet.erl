@@ -11,6 +11,7 @@
 -export([ip_csum/1, make_udp/5]).
 
 -define(IS_IPv6(X), (is_tuple(X) andalso tuple_size(X) == 8)).
+-define(IPPROTO_UDP, 17).
 
 %%====================================================================
 %% IP Address helpers
@@ -61,10 +62,11 @@ ip_csum(Bin) ->
     CSum1 = ((CSum0 band 16#ffff) + (CSum0 bsr 16)),
     ((CSum1 band 16#ffff) + (CSum1 bsr 16)) bxor 16#ffff.
 
+
 make_udp(NwSrc, NwDst, TpSrc, TpDst, PayLoad)
   when size(NwSrc) =:= 4, size(NwDst) =:= 4 ->
     Id = 0,
-    Proto = gen_socket:protocol(udp),
+    Proto = ?IPPROTO_UDP,
 
     UDPLength = 8 + size(PayLoad),
     UDPCSum = ip_csum(<<NwSrc:4/bytes-unit:8, NwDst:4/bytes-unit:8,
@@ -85,7 +87,7 @@ make_udp(NwSrc, NwDst, TpSrc, TpDst, PayLoad)
 make_udp(NwSrc, NwDst, TpSrc, TpDst, PayLoad)
   when size(NwSrc) =:= 16, size(NwDst) =:= 16 ->
     FlowLabel = rand:uniform(16#ffffff),
-    Proto = gen_socket:protocol(udp),
+    Proto = ?IPPROTO_UDP,
 
     UDPLength = 8 + size(PayLoad),
     UDPCSum = ip_csum(<<NwSrc:16/bytes-unit:8, NwDst:16/bytes-unit:8,
