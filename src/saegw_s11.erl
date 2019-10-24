@@ -160,11 +160,6 @@ handle_event(info, {'DOWN', _MonitorRef, Type, Pid, _Info}, _State,
     close_pdn_context(upf_failure, Data),
     {next_state, shutdown, Data};
 
-handle_event(info, stop_from_session, run, Data) ->
-    delete_context(undefined, normal, Data);
-handle_event(info, stop_from_session, _State, _Data) ->
-    keep_state_and_data;
-
 handle_event(info, #aaa_request{procedure = {_, 'ASR'}} = Request, run, Data) ->
     ergw_aaa_session:response(Request, ok, #{}, #{}),
     delete_context(undefined, administrative, Data);
@@ -261,9 +256,10 @@ handle_event(info, {pfcp_timer, #{validity_time := ChargingKeys}}, _State, Data)
 handle_event(info, _Info, _State, _Data) ->
     keep_state_and_data;
 
-handle_event(internal, {session, stop, _Session}, _State, Data) ->
-    close_pdn_context(normal, Data),
-    {next_state, shutdown, Data};
+handle_event(internal, {session, stop, _Session}, run, Data) ->
+    delete_context(undefined, normal, Data);
+handle_event(internal, {session, stop, _Session}, _, Data) ->
+    keep_state_and_data;
 
 handle_event(internal, {session, {update_credits, _} = CreditEv, _}, _State,
 	     #{context := Context, pfcp := PCtx0, pcc := PCC0} = Data) ->

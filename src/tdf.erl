@@ -218,10 +218,6 @@ handle_event(info, {'DOWN', _MonitorRef, Type, Pid, _Info},
     close_pdn_context(upf_failure, State, Data),
     {next_state, shutdown, Data};
 
-handle_event(info, stop_from_session, State, Data) ->
-    close_pdn_context(normal, State, Data),
-    {next_state, shutdown, Data};
-
 handle_event(info, #aaa_request{procedure = {_, 'RAR'}} = Request, shutdown, _Data) ->
     ergw_aaa_session:response(Request, {error, unknown_session}, #{}, #{}),
     keep_state_and_data;
