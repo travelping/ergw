@@ -661,7 +661,7 @@ simple_session(Config) ->
 	 }, URR),
 
     {tdf, Pid} = gtp_context_reg:lookup({ue, <<3, "sgi">>, UeIP}),
-    Pid ! stop_from_session,
+    stop_session(Pid),
 
     ct:sleep({seconds, 1}),
 
@@ -695,7 +695,7 @@ gy_validity_timer(Config) ->
     ?match(Y when Y >= 3 andalso Y < 10, length(CCRU)),
 
     {tdf, Pid} = gtp_context_reg:lookup({ue, <<3, "sgi">>, UeIP}),
-    Pid ! stop_from_session,
+    stop_session(Pid),
 
     ct:sleep({seconds, 1}),
 
@@ -771,7 +771,7 @@ simple_aaa(Config) ->
     ergw_test_sx_up:usage_report('tdf-u', PCtx, MatchSpec, Report),
 
     ct:sleep(100),
-    Server ! stop_from_session,
+    stop_session(Server),
     ct:sleep(100),
 
     H = meck:history(ergw_aaa_session),
@@ -865,7 +865,7 @@ simple_ofcs(Config) ->
     ergw_test_sx_up:usage_report('tdf-u', PCtx, MatchSpec, Report),
 
     ct:sleep(100),
-    Server ! stop_from_session,
+    stop_session(Server),
     ct:sleep(100),
 
     H = meck:history(ergw_aaa_session),
@@ -963,7 +963,7 @@ simple_ocs(Config) ->
     ergw_test_sx_up:usage_report('tdf-u', PCtx, MatchSpec, Report),
 
     ct:sleep(100),
-    Server ! stop_from_session,
+    stop_session(Server),
     ct:sleep(100),
 
     H = meck:history(ergw_aaa_session),
@@ -1087,7 +1087,7 @@ gy_ccr_asr_overlap(Config) ->
 			     meck:passthrough([MSession, MSessionOpts, Procedure, Opts])
 		     end),
 
-    Server ! stop_from_session,
+    stop_session(Server),
 
     ct:sleep({seconds, 1}),
 
@@ -1165,7 +1165,7 @@ volume_threshold(Config) ->
     ?match(X when X == 1, length(CCRUvolqu)),
 
     {tdf, Pid} = gtp_context_reg:lookup({ue, <<3, "sgi">>, UeIP}),
-    Pid ! stop_from_session,
+    stop_session(Pid),
 
     ct:sleep({seconds, 1}),
 
@@ -1258,7 +1258,7 @@ gx_rar(Config) ->
     ?match(#{<<"r-0001">> := #{}}, PCR4),
     ?equal(false, maps:is_key(<<"r-0002">>, PCR4)),
 
-    Server ! stop_from_session,
+    stop_session(Server),
 
     [Sx1, Sx2, Sx3, Sx4 | _] =
 	lists:filter(
@@ -1347,7 +1347,7 @@ gx_invalid_charging_rulebase(Config) ->
 	  end, meck:history(ergw_aaa_session)),
     ?match(X when X == 1, length(CCRU)),
 
-    Server ! stop_from_session,
+    stop_session(Server),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     wait4tunnels(?TIMEOUT),
@@ -1376,7 +1376,7 @@ gx_invalid_charging_rule(Config) ->
 	  end, meck:history(ergw_aaa_session)),
     ?match(X when X == 1, length(CCRU)),
 
-    Server ! stop_from_session,
+    stop_session(Server),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     wait4tunnels(?TIMEOUT),
@@ -1432,7 +1432,7 @@ gx_rar_gy_interaction(Config) ->
     ?equal(1, maps:size(T3)),
     ?equal(maps:keys(T1), maps:keys(T3)),
 
-    Server ! stop_from_session,
+    stop_session(Server),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     wait4tunnels(?TIMEOUT),
@@ -1574,7 +1574,7 @@ redirect_info(Config) ->
 	 }, URR),
 
     {tdf, Pid} = gtp_context_reg:lookup({ue, <<3, "sgi">>, UeIP}),
-    Pid ! stop_from_session,
+    stop_session(Pid),
 
     ct:sleep({seconds, 1}),
 
@@ -1710,7 +1710,7 @@ tdf_app_id(Config) ->
 	 }, URR),
 
     {tdf, Pid} = gtp_context_reg:lookup({ue, <<3, "sgi">>, UeIP}),
-    Pid ! stop_from_session,
+    stop_session(Pid),
 
     ct:sleep({seconds, 1}),
 
@@ -1811,3 +1811,6 @@ set_online_charging(Set) ->
     {ok, Cfg0} = application:get_env(ergw, charging),
     Cfg = set_online_charging(['_', rulebase, '_'], Set, Cfg0),
     ok = application:set_env(ergw, charging, Cfg).
+
+stop_session(Pid) when is_pid(Pid) ->
+    Pid ! {update_session, #{}, [stop]}.

@@ -222,6 +222,8 @@
 			       'Volume-Quota-Threshold' => [10240]
 			      }]
 		       },
+		  'Update-OCS-Fail' =>
+		      #{'Result-Code' => 3001},
 		  'Update-OCS' =>
 		      #{'Result-Code' => 2001,
 			'Multiple-Services-Credit-Control' =>
@@ -403,6 +405,7 @@ common() ->
      gx_asr,
      gx_rar,
      gy_asr,
+     gy_async_stop,
      gx_invalid_charging_rulebase,
      gx_invalid_charging_rule,
      gx_rar_gy_interaction].
@@ -509,6 +512,11 @@ init_per_testcase(gy_validity_timer, Config) ->
     init_per_testcase(Config),
     set_online_charging(true),
     load_ocs_config('Initial-OCS-VT', 'Update-OCS-VT'),
+    Config;
+init_per_testcase(gy_async_stop, Config) ->
+    init_per_testcase(Config),
+    set_online_charging(true),
+    load_ocs_config('Initial-OCS-VT', 'Update-OCS-Fail'),
     Config;
 init_per_testcase(TestCase, Config)
   when TestCase == simple_ocs;
@@ -2153,6 +2161,25 @@ gy_asr(Config) ->
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     wait4tunnels(?TIMEOUT),
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+gy_async_stop() ->
+    [{doc, "Check that a error/stop from async session call terminates the context"}].
+gy_async_stop(Config) ->
+    Cntl = whereis(gtpc_client_server),
+
+    {GtpC, _, _} = create_pdp_context(Config),
+
+    %% wait up to 10 secs for DPCR
+    Request = recv_pdu(Cntl, 5000),
+    ?match(#gtp{type = delete_pdp_context_request}, Request),
+    Response = make_response(Request, simple, GtpC),
+    send_pdu(Cntl, GtpC, Response),
+
+    ?equal([], outstanding_requests()),
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
     ok.
 
