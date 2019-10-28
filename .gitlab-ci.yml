@@ -58,6 +58,9 @@ docker:
   image: docker:git
   stage: container
   dependencies: []
+  variables:
+    REGISTRY: "quay.io"
+    BUILD_IMAGE: "travelping/ergw-c-node"
   services:
     - docker:dind
   script:
@@ -66,9 +69,9 @@ docker:
     - git describe --always --tags --dirty --first-parent --debug
     - git reflog
     - export CI_COMMIT_DESCRIBE=$(git describe)
-    - docker login -u gitlab-ci-token -p $CI_BUILD_TOKEN $CI_REGISTRY
-    - docker build -t $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA -t $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG\_$CI_COMMIT_DESCRIBE -f docker/Dockerfile .
-    - docker push $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA
-    - docker push $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG\_$CI_COMMIT_DESCRIBE
-    - if [ $CI_COMMIT_REF_NAME == "master" ] ; then docker tag $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA $CI_REGISTRY_IMAGE:latest ; docker push $CI_REGISTRY_IMAGE:latest ; fi
+    - docker login -u ${QUAY_USER_ID} -p ${QUAY_TOKEN} ${REGISTRY}
+    - docker build -t ${REGISTRY}/${BUILD_IMAGE}:$CI_COMMIT_SHA -t ${REGISTRY}/${BUILD_IMAGE}:$CI_COMMIT_REF_SLUG\_$CI_COMMIT_DESCRIBE -f docker/Dockerfile .
+    - docker push ${REGISTRY}/${BUILD_IMAGE}:$CI_COMMIT_SHA
+    - docker push ${REGISTRY}/${BUILD_IMAGE}:$CI_COMMIT_REF_SLUG\_$CI_COMMIT_DESCRIBE
+    - if [ $CI_COMMIT_REF_NAME == "master" ] ; then docker tag ${REGISTRY}/${BUILD_IMAGE}:$CI_COMMIT_SHA ${REGISTRY}/${BUILD_IMAGE}:latest ; docker push ${REGISTRY}/${BUILD_IMAGE}:latest ; fi
   when: always
