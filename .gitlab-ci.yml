@@ -74,13 +74,14 @@ docker:
   services:
     - docker:dind
   script:
-    - git tag -l
-    - git describe
-    - git describe --always --tags --dirty --first-parent --debug
-    - git reflog
     - export CI_COMMIT_DESCRIBE=$(git describe)
+    - |
+      case "$CI_COMMIT_REF_NAME" in
+        master | stable/*) export LABELS="";;
+        *)                 export LABELS="--label quay.expires-after=7d";;
+      esac
     - docker login -u ${QUAY_USER_ID} -p ${QUAY_TOKEN} ${REGISTRY}
-    - docker build -t ${REGISTRY}/${BUILD_IMAGE}:$CI_COMMIT_SHA -t ${REGISTRY}/${BUILD_IMAGE}:$CI_COMMIT_REF_SLUG\_$CI_COMMIT_DESCRIBE -f docker/Dockerfile .
+    - docker build ${LABELS} -t ${REGISTRY}/${BUILD_IMAGE}:$CI_COMMIT_SHA -t ${REGISTRY}/${BUILD_IMAGE}:$CI_COMMIT_REF_SLUG\_$CI_COMMIT_DESCRIBE -f docker/Dockerfile .
     - docker push ${REGISTRY}/${BUILD_IMAGE}:$CI_COMMIT_SHA
     - docker push ${REGISTRY}/${BUILD_IMAGE}:$CI_COMMIT_REF_SLUG\_$CI_COMMIT_DESCRIBE
     - if [ $CI_COMMIT_REF_NAME == "master" ] ; then docker tag ${REGISTRY}/${BUILD_IMAGE}:$CI_COMMIT_SHA ${REGISTRY}/${BUILD_IMAGE}:latest ; docker push ${REGISTRY}/${BUILD_IMAGE}:latest ; fi
