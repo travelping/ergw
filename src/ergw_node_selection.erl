@@ -1,4 +1,4 @@
-%% Copyright 2018, Travelping GmbH <info@travelping.com>
+%% Copyright 2018,2019 Travelping GmbH <info@travelping.com>
 
 %% This program is free software; you can redistribute it and/or
 %% modify it under the terms of the GNU General Public License
@@ -90,12 +90,11 @@ topology_select(FQDN, MatchPeers, Services, NodeSelect) ->
 candidates(Name, Services, NodeSelection) ->
     ServiceSet = ordsets:from_list(Services),
     Norm = normalize_name(Name),
-    case get_candidates(lists:flatten(lists:join($., Norm)), ServiceSet, NodeSelection) of
+    case lookup(lists:flatten(lists:join($., Norm)), ServiceSet, NodeSelection) of
 	[] ->
 	    %% no candidates, try with _default
 	    DefaultAPN = normalize_name(["_default", "apn", "epc"]),
-	    get_candidates(lists:flatten(lists:join($., DefaultAPN)),
-			   ServiceSet, NodeSelection);
+	    lookup(lists:flatten(lists:join($., DefaultAPN)), ServiceSet, NodeSelection);
 	L ->
 	    L
     end.
@@ -232,15 +231,28 @@ lookup_naptr_static({_, Order, Services, Host}, RR, Acc) ->
 lookup_naptr_static(_, _, Acc) ->
     Acc.
 
+do_lookup([], _DoFun, _NodeSelection) ->
+    [];
+do_lookup([Selection|Next], DoFun, NodeSelection) ->
+    case NodeSelection of
+	#{Selection := {Type, Opts}} ->
+	    case DoFun(Type, Opts) of
+		[] ->
+		    do_lookup(Next, DoFun, NodeSelection);
+		{error, _} = _Other ->
+		    do_lookup(Next, DoFun, NodeSelection);
+		Host ->
+		    Host
+	    end;
+	_ ->
+	    do_lookup(Next, DoFun, NodeSelection)
+    end;
+do_lookup(Selection, DoFun, NodeSelection) when is_atom(Selection) ->
+    do_lookup([Selection], DoFun, NodeSelection).
+
 do_lookup(Selection, DoFun) ->
     ?LOG(info, "Selection ~p in ~p", [Selection, application:get_env(ergw, node_selection, #{})]),
-    case application:get_env(ergw, node_selection, #{}) of
-	#{Selection := {Type, Opts}} ->
-	    ?LOG(info, "Type ~p, Opts ~p", [Type, Opts]),
-	    DoFun(Type, Opts);
-	_ ->
-	    []
-    end.
+    do_lookup(Selection, DoFun, application:get_env(ergw, node_selection, #{})).
 
 lookup(Name, Selection) ->
     do_lookup(Selection, lookup_host(Name, _, _)).
@@ -248,22 +260,14 @@ lookup(Name, Selection) ->
 lookup(Name, ServiceSet, Selection) ->
     do_lookup(Selection, lookup_naptr(Name, ServiceSet, _, _)).
 
-get_candidates(_Name, _ServiceSet, []) ->
-    [];
-get_candidates(Name, ServiceSet, [NodeSelection | NextSelection]) ->
-    case lookup(Name, ServiceSet, NodeSelection) of
-	[] ->
-	    get_candidates(Name, ServiceSet, NextSelection);
-	L ->
-	    L
-    end.
-
 normalize_name({fqdn, FQDN}) ->
     FQDN;
 normalize_name([H|_] = Name) when is_list(H) ->
     normalize_name_fqdn(lists:reverse(Name));
 normalize_name(Name) when is_list(Name) ->
-    normalize_name_fqdn(lists:reverse(string:tokens(Name, "."))).
+    normalize_name_fqdn(lists:reverse(string:tokens(Name, ".")));
+normalize_name(Name) when is_binary(Name) ->
+    normalize_name(binary_to_list(Name)).
 
 normalize_name_fqdn(["org", "3gppnetwork" | _] = Name) ->
     lists:reverse(Name);
