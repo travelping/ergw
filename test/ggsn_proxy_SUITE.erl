@@ -112,7 +112,9 @@
 		      %% A/AAAA record alternatives
 		      {"topon.gtp.ggsn.$ORIGIN", ?MUST_BE_UPDATED, []},
 		      {"topon.sx.sgw-u01.$ORIGIN", ?MUST_BE_UPDATED, []},
-		      {"topon.sx.pgw-u01.$ORIGIN", ?MUST_BE_UPDATED, []}
+		      {"topon.sx.pgw-u01.$ORIGIN", ?MUST_BE_UPDATED, []},
+		      {"topon.pgw-1.nodes.$ORIGIN", ?MUST_BE_UPDATED, []},
+		      {"topon.upf-1.nodes.$ORIGIN", ?MUST_BE_UPDATED, []}
 		     ]
 		    }
 		   }
@@ -171,7 +173,8 @@
 		     {ip_pools, ['pool-A']}]
 		   },
 		   {"topon.sx.sgw-u01.$ORIGIN", [connect]},
-		   {"topon.sx.pgw-u01.$ORIGIN", [connect]}
+		   {"topon.sx.pgw-u01.$ORIGIN", [connect]},
+		   {"topon.upf-1.nodes.$ORIGIN", [connect]}
 		  ]
 		 }
 		]},
@@ -304,7 +307,9 @@
 		      %% A/AAAA record alternatives
 		      {"topon.gtp.ggsn.$ORIGIN", ?MUST_BE_UPDATED, []},
 		      {"topon.sx.sgw-u01.$ORIGIN", ?MUST_BE_UPDATED, []},
-		      {"topon.sx.pgw-u01.$ORIGIN", ?MUST_BE_UPDATED, []}
+		      {"topon.sx.pgw-u01.$ORIGIN", ?MUST_BE_UPDATED, []},
+		      {"topon.pgw-1.nodes.$ORIGIN", ?MUST_BE_UPDATED, []},
+		      {"topon.upf-1.nodes.$ORIGIN", ?MUST_BE_UPDATED, []}
 		     ]
 		    }
 		   }
@@ -362,7 +367,8 @@
 		     {ip_pools, ['pool-A']}]
 		   },
 		   {"topon.sx.sgw-u01.$ORIGIN", [connect]},
-		   {"topon.sx.pgw-u01.$ORIGIN", [connect]}
+		   {"topon.sx.pgw-u01.$ORIGIN", [connect]},
+		   {"topon.upf-1.nodes.$ORIGIN", [connect]}
 		  ]
 		 }
 		]},
@@ -422,7 +428,11 @@
 	 {[node_selection, {default, 2}, 2, "topon.sx.sgw-u01.$ORIGIN"],
 	  {fun node_sel_update/2, sgw_u_sx}},
 	 {[node_selection, {default, 2}, 2, "topon.sx.pgw-u01.$ORIGIN"],
-	  {fun node_sel_update/2, pgw_u_sx}}
+	  {fun node_sel_update/2, pgw_u_sx}},
+	 {[node_selection, {default, 2}, 2, "topon.pgw-1.nodes.$ORIGIN"],
+	  {fun node_sel_update/2, final_gsn}},
+	 {[node_selection, {default, 2}, 2, "topon.upf-1.nodes.$ORIGIN"],
+	  {fun node_sel_update/2, sgw_u_sx}}
 	]).
 
 -define(CONFIG_UPDATE_SINGLE_PROXY_SOCKET,
@@ -435,7 +445,11 @@
 	 {[node_selection, {default, 2}, 2, "topon.sx.sgw-u01.$ORIGIN"],
 	  {fun node_sel_update/2, sgw_u_sx}},
 	 {[node_selection, {default, 2}, 2, "topon.sx.pgw-u01.$ORIGIN"],
-	  {fun node_sel_update/2, pgw_u_sx}}
+	  {fun node_sel_update/2, pgw_u_sx}},
+	 {[node_selection, {default, 2}, 2, "topon.pgw-1.nodes.$ORIGIN"],
+	  {fun node_sel_update/2, final_gsn}},
+	 {[node_selection, {default, 2}, 2, "topon.upf-1.nodes.$ORIGIN"],
+	  {fun node_sel_update/2, sgw_u_sx}}
 	]).
 
 node_sel_update(Node, {_,_,_,_} = IP) ->
@@ -509,6 +523,7 @@ common() ->
      proxy_context_invalid_selection,
      proxy_context_invalid_mapping,
      proxy_context_version_restricted,
+     proxy_api_v2,
      invalid_teid,
      delete_pdp_context_requested,
      delete_pdp_context_requested_resend,
@@ -1136,7 +1151,7 @@ proxy_context_invalid_mapping() ->
 proxy_context_invalid_mapping(Config) ->
     ok = meck:new(gtp_proxy_ds, [passthrough]),
     meck:expect(gtp_proxy_ds, map,
-		fun(_ProxyInfo) -> {error, not_found} end),
+		fun(_ProxyInfo) -> {error, user_authentication_failed} end),
 
     {_, _, _} = create_pdp_context(invalid_mapping, Config),
     ?equal([], outstanding_requests()),
@@ -1159,6 +1174,38 @@ proxy_context_version_restricted(Config) ->
 
     {_, _, _} = create_pdp_context(version_restricted, Config),
     ?equal([], outstanding_requests()),
+
+    meck:unload(gtp_proxy_ds),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+%% TDB: the test only checks that the API works, it does not verify that
+%%      the correct GGSN/PGW or UPF node is actually used
+proxy_api_v2() ->
+    [{doc, "Check that the proxy API v2 works"}].
+proxy_api_v2(Config) ->
+    ok = meck:new(gtp_proxy_ds, [passthrough]),
+    meck:expect(gtp_proxy_ds, map,
+		fun(PI) ->
+			ct:pal("PI: ~p", [PI]),
+			Context = <<"ams">>,
+			PGW = <<"topon.pgw-1.nodes.epc.mnc001.mcc001.3gppnetwork.org">>,
+			UPF = <<"topon.upf-1.nodes.epc.mnc001.mcc001.3gppnetwork.org">>,
+			{ok, PI#proxy_info{
+			       imsi = ?'PROXY-IMSI',
+			       msisdn = ?'PROXY-MSISDN',
+			       ggsns = [#proxy_ggsn{address = {host, PGW},
+						    context = Context,
+						    dst_apn = ?'APN-PROXY'}],
+			       upf = {UPF, Context}}}
+		end),
+
+    {GtpC, _, _} = create_pdp_context(Config),
+    ?equal([], outstanding_requests()),
+    delete_pdp_context(GtpC),
 
     meck:unload(gtp_proxy_ds),
 
