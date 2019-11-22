@@ -11,7 +11,7 @@
 
 %% API
 -export([start_link/0]).
--export([start_socket/2, start_vrf/2,
+-export([start_socket/2, start_ip_pool/2,
 	 connect_sx_node/2,
 	 attach_tdf/2, attach_protocol/5]).
 -export([handler/2]).
@@ -75,6 +75,7 @@ load_config([{accept_new, Value} | T]) ->
 load_config([{Key, Value} | T])
   when Key =:= node_selection;
        Key =:= nodes;
+       Key =:= ip_pools;
        Key =:= apns;
        Key =:= charging ->
     ok = application:set_env(ergw, Key, Value),
@@ -89,10 +90,10 @@ start_socket(Name, Options) ->
     ergw_gtp_socket:start_socket(Name, Options).
 
 %%
-%% start VRF instance
+%% start IP_POOL instance
 %%
-start_vrf(Name, Options) ->
-    vrf:start_vrf(Name, Options).
+start_ip_pool(Name, Options) ->
+    ergw_ip_pool:start_ip_pool(Name, Options).
 
 %%
 %% start a TDF instance
@@ -126,15 +127,20 @@ attach_tdf(SxNode, #{node_selection := NodeSelections} = Opts, _, true) ->
 %%
 %% connect UPF node
 %%
-connect_sx_node(_Node, #{defaults := false}) ->
+connect_sx_node(_Node, #{connect := false}) ->
     ok;
 connect_sx_node(Node, #{raddr := IP4} = _Opts) when tuple_size(IP4) =:= 4 ->
     ergw_sx_node:connect_sx_node(Node, [IP4], []);
 connect_sx_node(Node, #{raddr := IP6} = _Opts) when tuple_size(IP6) =:= 8 ->
     ergw_sx_node:connect_sx_node(Node, [], [IP6]);
-connect_sx_node(Node, Opts) ->
-    %% TODO: resolve name through node selection
-    erlang:error(badarg, [Node, Opts]).
+connect_sx_node(Node, #{node_selection := NodeSelect} = Opts) ->
+    case ergw_node_selection:lookup(Node, NodeSelect) of
+	{_, IP4, IP6} ->
+	    ergw_sx_node:connect_sx_node(Node, IP4, IP6);
+	_Other ->
+	    %% TBD:
+	    erlang:error(badarg, [Node, Opts])
+    end.
 
 %%
 %% attach a GTP protocol (Gn, S5, S2a...) to a socket

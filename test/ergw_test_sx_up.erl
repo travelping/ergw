@@ -12,7 +12,7 @@
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
-	 terminate/2, code_change/3]).
+	 terminate/2, format_status/2, code_change/3]).
 
 -include("include/ergw.hrl").
 -include("ergw_test_lib.hrl").
@@ -202,6 +202,11 @@ handle_info({udp, GtpSocket, IP, InPortNo, Packet} = Msg,
 terminate(_Reason, #state{sx = SxSocket}) ->
     catch gen_udp:close(SxSocket),
     ok.
+
+format_status(terminate, [_PDict, #state{history = H} = State]) ->
+    [{data, [{"State", State#state{history = length(H)}}]}];
+format_status(_Opts, [_PDict, State]) ->
+    [{data, [{"State", State}]}].
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.

@@ -61,18 +61,18 @@
 				  ]}
 		  ]},
 
-		 {vrfs,
-		  [{example, [{pools,  [{?IPv4PoolStart, ?IPv4PoolEnd, 32},
-					{?IPv6PoolStart, ?IPv6PoolEnd, 64}
-				       ]},
-			      {'MS-Primary-DNS-Server', {8,8,8,8}},
-			      {'MS-Secondary-DNS-Server', {8,8,4,4}},
-			      {'MS-Primary-NBNS-Server', {127,0,0,1}},
-			      {'MS-Secondary-NBNS-Server', {127,0,0,1}},
+		 {ip_pools,
+		  [{'pool-A', [{ranges,  [{?IPv4PoolStart, ?IPv4PoolEnd, 32},
+					  {?IPv6PoolStart, ?IPv6PoolEnd, 64},
+					  {?IPv6HostPoolStart, ?IPv6HostPoolEnd, 128}]},
+			       {'MS-Primary-DNS-Server', {8,8,8,8}},
+			       {'MS-Secondary-DNS-Server', {8,8,4,4}},
+			       {'MS-Primary-NBNS-Server', {127,0,0,1}},
+			       {'MS-Secondary-NBNS-Server', {127,0,0,1}},
 			       {'DNS-Server-IPv6-Address',
 				[{16#2001, 16#4860, 16#4860, 0, 0, 0, 0, 16#8888},
 				 {16#2001, 16#4860, 16#4860, 0, 0, 0, 0, 16#8844}]}
-			     ]}
+			      ]}
 		  ]},
 
 		 {handlers,
@@ -135,8 +135,11 @@
 		   {socket, cp},
 		   {ip, ?MUST_BE_UPDATED},
 		   {reuseaddr, true}]},
+
 		 {apns,
-		  [{?'APN-PROXY', [{vrf, example}]}
+		  [{?'APN-PROXY',
+		    [{vrf, example},
+		     {ip_pools, ['pool-A']}]}
 		  ]},
 
 		 {charging,
@@ -174,8 +177,12 @@
 		       {'proxy-irx', [{features, ['Core']}]},
 		       {'remote-irx', [{features, ['Access']}]},
 		       {example, [{features, ['SGi-LAN']}]}]
-		     }]
-		   }]
+		     },
+		     {ip_pools, ['pool-A']}]
+		   },
+		   {"topon.sx.sgw-u01.$ORIGIN", [connect]},
+		   {"topon.sx.pgw-u01.$ORIGIN", [connect]}
+		  ]
 		 }
 		]},
 
@@ -255,18 +262,18 @@
 				  ]}
 		  ]},
 
-		 {vrfs,
-		  [{example, [{pools,  [{?IPv4PoolStart, ?IPv4PoolEnd, 32},
-					{?IPv6PoolStart, ?IPv6PoolEnd, 64}
-				       ]},
-			      {'MS-Primary-DNS-Server', {8,8,8,8}},
-			      {'MS-Secondary-DNS-Server', {8,8,4,4}},
-			      {'MS-Primary-NBNS-Server', {127,0,0,1}},
-			      {'MS-Secondary-NBNS-Server', {127,0,0,1}},
+		 {ip_pools,
+		  [{'pool-A', [{ranges,  [{?IPv4PoolStart, ?IPv4PoolEnd, 32},
+					  {?IPv6PoolStart, ?IPv6PoolEnd, 64},
+					  {?IPv6HostPoolStart, ?IPv6HostPoolEnd, 128}]},
+			       {'MS-Primary-DNS-Server', {8,8,8,8}},
+			       {'MS-Secondary-DNS-Server', {8,8,4,4}},
+			       {'MS-Primary-NBNS-Server', {127,0,0,1}},
+			       {'MS-Secondary-NBNS-Server', {127,0,0,1}},
 			       {'DNS-Server-IPv6-Address',
 				[{16#2001, 16#4860, 16#4860, 0, 0, 0, 0, 16#8888},
 				 {16#2001, 16#4860, 16#4860, 0, 0, 0, 0, 16#8844}]}
-			     ]}
+			      ]}
 		  ]},
 
 		 {handlers,
@@ -331,7 +338,9 @@
 		   {reuseaddr, true}]},
 
 		 {apns,
-		  [{?'APN-PROXY', [{vrf, example}]}
+		  [{?'APN-PROXY',
+		    [{vrf, example},
+		     {ip_pools, ['pool-A']}]}
 		  ]},
 
 		 {charging,
@@ -365,11 +374,16 @@
 		  [{default,
 		    [{vrfs,
 		      [{cp, [{features, ['CP-Function']}]},
-		       {irx, [{features, ['Access', 'Core']}]},
+		       {irx, [{features, ['Access']}]},
+		       {'proxy-irx', [{features, ['Core']}]},
 		       {'remote-irx', [{features, ['Access']}]},
 		       {example, [{features, ['SGi-LAN']}]}]
-		     }]
-		   }]
+		     },
+		     {ip_pools, ['pool-A']}]
+		   },
+		   {"topon.sx.sgw-u01.$ORIGIN", [connect]},
+		   {"topon.sx.pgw-u01.$ORIGIN", [connect]}
+		  ]
 		 }
 		]},
 
@@ -554,18 +568,24 @@ all() ->
 %%% Tests
 %%%===================================================================
 
-init_per_testcase(Config) ->
+setup_per_testcase(Config) ->
+    setup_per_testcase(Config, true).
+
+setup_per_testcase(Config, ClearSxHist) ->
     ergw_test_sx_up:reset('pgw-u'),
     ergw_test_sx_up:reset('sgw-u'),
     meck_reset(Config),
-    start_gtpc_server(Config).
+    start_gtpc_server(Config),
+    reconnect_all_sx_nodes(),
+    ClearSxHist andalso ergw_test_sx_up:history('pgw-u', true),
+    ok.
 
 init_per_testcase(delete_session_request_resend, Config) ->
-    init_per_testcase(Config),
+    setup_per_testcase(Config),
     ok = meck:new(gtp_path, [passthrough, no_link]),
     Config;
 init_per_testcase(create_session_proxy_request_resend, Config) ->
-    init_per_testcase(Config),
+    setup_per_testcase(Config),
     ok = meck:new(pgw_s5s8, [passthrough, no_link]),
     ok = meck:expect(pgw_s5s8, handle_request,
 		     fun(ReqKey, #gtp{type = create_session_request}, _, _, _) ->
@@ -576,7 +596,7 @@ init_per_testcase(create_session_proxy_request_resend, Config) ->
 		     end),
     Config;
 init_per_testcase(delete_session_request_timeout, Config) ->
-    init_per_testcase(Config),
+    setup_per_testcase(Config),
     ok = meck:new(pgw_s5s8, [passthrough, no_link]),
     ok = meck:expect(pgw_s5s8, handle_request,
 		     fun(ReqKey, #gtp{type = delete_session_request}, _, _, _) ->
@@ -587,7 +607,7 @@ init_per_testcase(delete_session_request_timeout, Config) ->
 		     end),
     Config;
 init_per_testcase(modify_bearer_command, Config) ->
-    init_per_testcase(Config),
+    setup_per_testcase(Config),
     ok = meck:new(pgw_s5s8, [passthrough, no_link]),
     Config;
 init_per_testcase(TestCase, Config)
@@ -595,7 +615,7 @@ init_per_testcase(TestCase, Config)
        TestCase == delete_bearer_request_invalid_teid;
        TestCase == delete_bearer_request_late_response;
        TestCase == modify_bearer_command_timeout ->
-    init_per_testcase(Config),
+    setup_per_testcase(Config),
     ok = meck:expect(ergw_gtp_c_socket, send_request,
 		     fun(GtpPort, DstIP, DstPort, _T3, _N3,
 			 #gtp{type = Type} = Msg, CbInfo)
@@ -609,11 +629,11 @@ init_per_testcase(TestCase, Config)
 		     end),
     Config;
 init_per_testcase(simple_session, Config) ->
-    init_per_testcase(Config),
+    setup_per_testcase(Config),
     ok = meck:new(pgw_s5s8, [passthrough, no_link]),
     Config;
 init_per_testcase(request_fast_resend, Config) ->
-    init_per_testcase(Config),
+    setup_per_testcase(Config),
     ok = meck:new(pgw_s5s8, [passthrough, no_link]),
     ok = meck:expect(pgw_s5s8, handle_request,
 		     fun(Request, Msg, Resent, State, Data) ->
@@ -624,7 +644,7 @@ init_per_testcase(request_fast_resend, Config) ->
 		     end),
     Config;
 init_per_testcase(create_session_overload_response, Config) ->
-    init_per_testcase(Config),
+    setup_per_testcase(Config),
     ok = meck:new(pgw_s5s8, [passthrough, no_link]),
     ok = meck:expect(pgw_s5s8, handle_request,
 		     fun(ReqKey, Request, _Resent, _State, _Data) ->
@@ -636,13 +656,13 @@ init_per_testcase(create_session_overload_response, Config) ->
 init_per_testcase(TestCase, Config)
   when TestCase == interop_sgsn_to_sgw;
        TestCase == interop_sgw_to_sgsn ->
-    init_per_testcase(Config),
+    setup_per_testcase(Config),
     ok = meck:new(ggsn_gn_proxy, [passthrough, no_link]),
     reset_path_metrics(),
     Config;
 init_per_testcase(update_bearer_request, Config) ->
     %% our PGW does not send update_bearer_request, so we have to fake them
-    init_per_testcase(Config),
+    setup_per_testcase(Config),
     ok = meck:new(pgw_s5s8, [passthrough, no_link]),
     ok = meck:expect(pgw_s5s8, handle_event,
 		     fun({call, From}, update_context, _State, #{context := Context}) ->
@@ -661,12 +681,12 @@ init_per_testcase(update_bearer_request, Config) ->
     Config;
 
 init_per_testcase(create_session_overload, Config) ->
-    init_per_testcase(Config),
+    setup_per_testcase(Config),
     jobs:modify_queue(create, [{max_size, 0}]),
     jobs:modify_regulator(rate, create, {rate,create,1}, [{limit,1}]),
     Config;
 init_per_testcase(_, Config) ->
-    init_per_testcase(Config),
+    setup_per_testcase(Config),
     Config.
 
 end_per_testcase(_Config) ->

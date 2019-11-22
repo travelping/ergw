@@ -244,10 +244,10 @@ register_ctx_ids(#context{local_data_endp = LocalDataEndp},
     gtp_context_reg:register(Keys, gtp_context, self()).
 
 create_forward_session(Candidates, Left0, Right0) ->
-    PCtx0 = ergw_sx_node:select_sx_node(Candidates, Left0),
-    Left = ergw_pfcp:assign_data_teid(PCtx0, Left0),
+    {ok, PCtx0, NodeCaps} = ergw_sx_node:select_sx_node(Candidates, Left0),
+    Left = ergw_pfcp:assign_data_teid(PCtx0, NodeCaps, Left0),
     register_ctx_ids(Left, PCtx0),
-    Right = ergw_pfcp:assign_data_teid(PCtx0, Right0),
+    Right = ergw_pfcp:assign_data_teid(PCtx0, NodeCaps, Right0),
     register_ctx_ids(Left, PCtx0),
 
     {ok, CntlNode, _} = ergw_sx_socket:id(),

@@ -56,15 +56,17 @@
 				 ]}
 		  ]},
 
-		 {vrfs,
-		  [{example, [{pools,  [{?IPv4PoolStart, ?IPv4PoolEnd, 32},
-					{?IPv6PoolStart, ?IPv6PoolEnd, 64}
-				       ]},
-			      {'MS-Primary-DNS-Server', {8,8,8,8}},
-			      {'MS-Secondary-DNS-Server', {8,8,4,4}},
-			      {'MS-Primary-NBNS-Server', {127,0,0,1}},
-			      {'MS-Secondary-NBNS-Server', {127,0,0,1}}
-			     ]}
+		 {ip_pools,
+		  [{'pool-A', [{ranges,  [{?IPv4PoolStart, ?IPv4PoolEnd, 32},
+					  {?IPv6PoolStart, ?IPv6PoolEnd, 64}]},
+			       {'MS-Primary-DNS-Server', {8,8,8,8}},
+			       {'MS-Secondary-DNS-Server', {8,8,4,4}},
+			       {'MS-Primary-NBNS-Server', {127,0,0,1}},
+			       {'MS-Secondary-NBNS-Server', {127,0,0,1}},
+			       {'DNS-Server-IPv6-Address',
+				[{16#2001, 16#4860, 16#4860, 0, 0, 0, 0, 16#8888},
+				 {16#2001, 16#4860, 16#4860, 0, 0, 0, 0, 16#8844}]}
+			      ]}
 		  ]},
 
 		 {handlers,
@@ -87,7 +89,9 @@
 		   {reuseaddr, true}]},
 
 		 {apns,
-		  [{?'APN-PROXY', [{vrf, example}]}
+		  [{?'APN-EXAMPLE',
+		    [{vrf, sgi},
+		     {ip_pools, ['pool-A']}]}
 		  ]},
 
 		 {proxy_map,
@@ -126,8 +130,9 @@
 		    [{vrfs,
 		      [{cp, [{features, ['CP-Function']}]},
 		       {irx, [{features, ['Access']}]},
-		       {sgi, [{features, ['SGi-LAN']}]}]
-		     }]
+		       {sgi, [{features, ['SGi-LAN']}]}
+		      ]},
+		     {ip_pools, ['pool-A']}]
 		   }]
 		 },
 

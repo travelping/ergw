@@ -15,7 +15,7 @@
 
 -export([validate_options/2, apn_to_fqdn/1,
 	 lookup_dns/3, colocation_match/2, topology_match/2,
-	 candidates/3, candidates_by_preference/1,
+	 candidates/3, candidates_by_preference/1, topology_select/4,
 	 lookup/2, lookup/3]).
 
 -include_lib("kernel/include/logger.hrl").
@@ -66,6 +66,26 @@ topology_match(CandidatesA, CandidatesB) ->
 	L ->
 	    L
     end.
+
+%% topology_select/3
+topology_select(Candidates, Services, MatchPeers)
+  when is_list(MatchPeers), length(MatchPeers) /= 0 ->
+    TopoM = [{FQDN, 0, Services, [], []} || FQDN <- MatchPeers],
+    case ergw_node_selection:topology_match(Candidates, TopoM) of
+	{_, C} when is_list(C), length(C) /= 0 ->
+	    C;
+	{C, _} when is_list(C), length(C) /= 0 ->
+	    C;
+	_ ->
+	    %% neither colocation, nor topology matched
+	    Candidates
+    end;
+topology_select(Candidates, _, _) ->
+    Candidates.
+
+%% topology_select/4
+topology_select(FQDN, MatchPeers, Services, NodeSelect) ->
+    topology_select(candidates(FQDN, Services, NodeSelect), Services, MatchPeers).
 
 candidates(Name, Services, NodeSelection) ->
     ServiceSet = ordsets:from_list(Services),
