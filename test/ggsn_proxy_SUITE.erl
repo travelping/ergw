@@ -61,18 +61,18 @@
 				  ]}
 		  ]},
 
-		 {vrfs,
-		  [{example, [{pools,  [{?IPv4PoolStart, ?IPv4PoolEnd, 32},
-					{?IPv6PoolStart, ?IPv6PoolEnd, 64}
-				       ]},
-			      {'MS-Primary-DNS-Server', {8,8,8,8}},
-			      {'MS-Secondary-DNS-Server', {8,8,4,4}},
-			      {'MS-Primary-NBNS-Server', {127,0,0,1}},
-			      {'MS-Secondary-NBNS-Server', {127,0,0,1}},
+		 {ip_pools,
+		  [{'pool-A', [{ranges,  [{?IPv4PoolStart, ?IPv4PoolEnd, 32},
+					  {?IPv6PoolStart, ?IPv6PoolEnd, 64},
+					  {?IPv6HostPoolStart, ?IPv6HostPoolEnd, 128}]},
+			       {'MS-Primary-DNS-Server', {8,8,8,8}},
+			       {'MS-Secondary-DNS-Server', {8,8,4,4}},
+			       {'MS-Primary-NBNS-Server', {127,0,0,1}},
+			       {'MS-Secondary-NBNS-Server', {127,0,0,1}},
 			       {'DNS-Server-IPv6-Address',
 				[{16#2001, 16#4860, 16#4860, 0, 0, 0, 0, 16#8888},
 				 {16#2001, 16#4860, 16#4860, 0, 0, 0, 0, 16#8844}]}
-			     ]}
+			      ]}
 		  ]},
 
 		 {handlers,
@@ -127,7 +127,9 @@
 		   {reuseaddr, true}]},
 
 		 {apns,
-		  [{?'APN-PROXY', [{vrf, example}]}
+		  [{?'APN-PROXY',
+		    [{vrf, example},
+		     {ip_pools, ['pool-A']}]}
 		  ]},
 
 		 {charging,
@@ -165,8 +167,12 @@
 		       {'proxy-irx', [{features, ['Core']}]},
 		       {'remote-irx', [{features, ['Access']}]},
 		       {example, [{features, ['SGi-LAN']}]}]
-		     }]
-		   }]
+		     },
+		     {ip_pools, ['pool-A']}]
+		   },
+		   {"topon.sx.sgw-u01.$ORIGIN", [connect]},
+		   {"topon.sx.pgw-u01.$ORIGIN", [connect]}
+		  ]
 		 }
 		]},
 
@@ -247,18 +253,18 @@
 				  ]}
 		  ]},
 
-		 {vrfs,
-		  [{example, [{pools,  [{?IPv4PoolStart, ?IPv4PoolEnd, 32},
-					{?IPv6PoolStart, ?IPv6PoolEnd, 64}
-				       ]},
-			      {'MS-Primary-DNS-Server', {8,8,8,8}},
-			      {'MS-Secondary-DNS-Server', {8,8,4,4}},
-			      {'MS-Primary-NBNS-Server', {127,0,0,1}},
-			      {'MS-Secondary-NBNS-Server', {127,0,0,1}},
+		 {ip_pools,
+		  [{'pool-A', [{ranges,  [{?IPv4PoolStart, ?IPv4PoolEnd, 32},
+					  {?IPv6PoolStart, ?IPv6PoolEnd, 64},
+					  {?IPv6HostPoolStart, ?IPv6HostPoolEnd, 128}]},
+			       {'MS-Primary-DNS-Server', {8,8,8,8}},
+			       {'MS-Secondary-DNS-Server', {8,8,4,4}},
+			       {'MS-Primary-NBNS-Server', {127,0,0,1}},
+			       {'MS-Secondary-NBNS-Server', {127,0,0,1}},
 			       {'DNS-Server-IPv6-Address',
 				[{16#2001, 16#4860, 16#4860, 0, 0, 0, 0, 16#8888},
 				 {16#2001, 16#4860, 16#4860, 0, 0, 0, 0, 16#8844}]}
-			     ]}
+			      ]}
 		  ]},
 
 		 {handlers,
@@ -313,7 +319,9 @@
 		   {reuseaddr, true}]},
 
 		 {apns,
-		  [{?'APN-PROXY', [{vrf, example}]}
+		  [{?'APN-PROXY',
+		    [{vrf, example},
+		     {ip_pools, ['pool-A']}]}
 		  ]},
 
 		 {charging,
@@ -350,8 +358,12 @@
 		       {irx, [{features, ['Access', 'Core']}]},
 		       {'remote-irx', [{features, ['Access']}]},
 		       {example, [{features, ['SGi-LAN']}]}]
-		     }]
-		   }]
+		     },
+		     {ip_pools, ['pool-A']}]
+		   },
+		   {"topon.sx.sgw-u01.$ORIGIN", [connect]},
+		   {"topon.sx.pgw-u01.$ORIGIN", [connect]}
+		  ]
 		 }
 		]},
 
@@ -525,19 +537,25 @@ all() ->
 %%% Tests
 %%%===================================================================
 
-init_per_testcase(Config) ->
+setup_per_testcase(Config) ->
+    setup_per_testcase(Config, true).
+
+setup_per_testcase(Config, ClearSxHist) ->
     ct:pal("Sockets: ~p", [ergw_gtp_socket_reg:all()]),
     ergw_test_sx_up:reset('pgw-u'),
     ergw_test_sx_up:reset('sgw-u'),
     meck_reset(Config),
-    start_gtpc_server(Config).
+    start_gtpc_server(Config),
+    reconnect_all_sx_nodes(),
+    ClearSxHist andalso ergw_test_sx_up:history('pgw-u', true),
+    ok.
 
 init_per_testcase(path_restart, Config) ->
-    init_per_testcase(Config),
+    setup_per_testcase(Config),
     ok = meck:new(gtp_path, [passthrough, no_link]),
     Config;
 init_per_testcase(create_pdp_context_proxy_request_resend, Config) ->
-    init_per_testcase(Config),
+    setup_per_testcase(Config),
     ok = meck:new(ggsn_gn, [passthrough, no_link]),
     ok = meck:expect(ggsn_gn, handle_request,
 		     fun(ReqKey, #gtp{type = create_pdp_context_request}, _, _, _) ->
@@ -548,7 +566,7 @@ init_per_testcase(create_pdp_context_proxy_request_resend, Config) ->
 		     end),
     Config;
 init_per_testcase(delete_pdp_context_request_timeout, Config) ->
-    init_per_testcase(Config),
+    setup_per_testcase(Config),
     ok = meck:new(ggsn_gn, [passthrough, no_link]),
     ok = meck:expect(ggsn_gn, handle_request,
 		     fun(ReqKey, #gtp{type = delete_pdp_context_request}, _, _, _) ->
@@ -562,7 +580,7 @@ init_per_testcase(TestCase, Config)
   when TestCase == delete_pdp_context_requested_resend;
        TestCase == delete_pdp_context_requested_invalid_teid;
        TestCase == delete_pdp_context_requested_late_response ->
-    init_per_testcase(Config),
+    setup_per_testcase(Config),
     ok = meck:expect(ergw_gtp_c_socket, send_request,
 		     fun(GtpPort, DstIP, DstPort, _T3, _N3,
 			 #gtp{type = delete_pdp_context_request} = Msg, CbInfo) ->
@@ -574,7 +592,7 @@ init_per_testcase(TestCase, Config)
 		     end),
     Config;
 init_per_testcase(request_fast_resend, Config) ->
-    init_per_testcase(Config),
+    setup_per_testcase(Config),
     ok = meck:new(ggsn_gn, [passthrough, no_link]),
     ok = meck:expect(ggsn_gn, handle_request,
 		     fun(Request, Msg, Resent, State, Data) ->
@@ -585,12 +603,12 @@ init_per_testcase(request_fast_resend, Config) ->
 		     end),
     Config;
 init_per_testcase(simple_pdp_context_request, Config) ->
-    init_per_testcase(Config),
+    setup_per_testcase(Config),
     ok = meck:new(ggsn_gn, [passthrough, no_link]),
     Config;
 init_per_testcase(ggsn_update_pdp_context_request, Config) ->
     %% our GGSN does not send update_bearer_request, so we have to fake them
-    init_per_testcase(Config),
+    setup_per_testcase(Config),
     ok = meck:new(ggsn_gn, [passthrough, no_link]),
     ok = meck:expect(ggsn_gn, handle_event,
 		     fun({call, From}, update_context, _State, #{context := Context}) ->
@@ -608,20 +626,20 @@ init_per_testcase(ggsn_update_pdp_context_request, Config) ->
 		     end),
     Config;
 init_per_testcase(create_pdp_context_overload, Config) ->
-    init_per_testcase(Config),
+    setup_per_testcase(Config),
     jobs:modify_queue(create, [{max_size, 0}]),
     jobs:modify_regulator(rate, create, {rate,create,1}, [{limit,1}]),
     Config;
 init_per_testcase(cache_timeout, Config) ->
     case os:getenv("CI_RUN_SLOW_TESTS") of
 	"true" ->
-	    init_per_testcase(Config),
+	    setup_per_testcase(Config),
 	    Config;
 	_ ->
 	    {skip, "slow tests run only on CI"}
     end;
 init_per_testcase(_, Config) ->
-    init_per_testcase(Config),
+    setup_per_testcase(Config),
     Config.
 
 end_per_testcase(_Config) ->

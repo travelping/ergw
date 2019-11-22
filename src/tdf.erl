@@ -40,11 +40,12 @@
 -define(TestCmdTag, '$TestCmd').
 
 -record(data, {dp_node :: pid(),
-		session :: pid(),
+	       session :: pid(),
 
-		context,
-		pfcp,
-		pcc :: #pcc_ctx{}}).
+	       apn,
+	       context,
+	       pfcp,
+	       pcc :: #pcc_ctx{}}).
 
 %%====================================================================
 %% API
@@ -121,31 +122,24 @@ callback_mode() -> [handle_event_function, state_enter].
 init([Node, InVRF, IP4, IP6, #{apn := APN} = _SxOpts]) ->
     process_flag(trap_exit, true),
 
-    monitor(process, Node),
-    %% ?LOG(debug, "APN: ~p", [APN]),
-
-    %% Services = [{"x-3gpp-upf", "x-sxc"}],
-    %% {ok, SxPid} = ergw_sx_node:select_sx_node(APN, Services, NodeSelect),
-    %% ?LOG(debug, "SxPid: ~p", [SxPid]),
-
-    {ok, OutVrf, _} = ergw_gsn_lib:select_vrf(APN),
+    Context =
+	#tdf_ctx{
+	   in_vrf = InVRF,
+	   ms_v4 = {IP4, 32},
+	   ms_v6 = {IP6, 128}
+	  },
 
     {ok, Session} = ergw_aaa_session_sup:new_session(self(), to_session([])),
     SessionOpts = ergw_aaa_session:get(Session),
     OCPcfg = maps:get('Offline-Charging-Profile', SessionOpts, #{}),
-    Context = #tdf_ctx{
-		 in_vrf = InVRF,
-		 out_vrf = OutVrf,
-		 ms_v4 = {IP4, 32},
-		 ms_v6 = {IP6, 128}
-		},
     PCC = #pcc_ctx{offline_charging_profile = OCPcfg},
     Data = #data{
-	       context = Context,
-	       dp_node = Node,
-	       session = Session,
-	       pcc = PCC
-	      },
+	      apn     = APN,
+	      context = Context,
+	      dp_node = Node,
+	      session = Session,
+	      pcc     = PCC
+	     },
 
     ?LOG(info, "TDF process started for ~p", [[Node, IP4, IP6]]),
     {ok, init, Data, [{next_event, internal, init}]}.
@@ -350,13 +344,22 @@ code_change(_OldVsn, State, Data, _Extra) ->
 %%% Internal functions
 %%%===================================================================
 
-start_session(#data{context = Context, dp_node = Node,
+start_session(#data{apn = APN, context = Context0, dp_node = Node,
 		    session = Session, pcc = PCC0} = Data) ->
+
+    {ok, PendingPCtx, NodeCaps} = ergw_sx_node:attach(Node, Context0),
+    {ok, OutVrf, _APNOpts} = ergw_gsn_lib:select_vrf(NodeCaps, APN),
+    PendingContext = Context0#tdf_ctx{out_vrf = OutVrf},
+
     Now = erlang:monotonic_time(),
     SOpts = #{now => Now},
 
     SessionOpts = init_session(Data),
     {ok, _, AuthSEvs} = authenticate(Session, SessionOpts),
+
+    %% -----------------------------------------------------------
+    %% TBD: maybe reselect VRF based on outcome of authenticate ??
+    %% -----------------------------------------------------------
 
     GxOpts = #{'Event-Trigger' => ?'DIAMETER_GX_EVENT-TRIGGER_UE_IP_ADDRESS_ALLOCATE',
 	       'Bearer-Operation' => ?'DIAMETER_GX_BEARER-OPERATION_ESTABLISHMENT'},
@@ -388,8 +391,8 @@ start_session(#data{context = Context, dp_node = Node,
     PCC3 = ergw_gsn_lib:session_events_to_pcc_ctx(AuthSEvs, PCC2),
     PCC4 = ergw_gsn_lib:session_events_to_pcc_ctx(RfSEvs, PCC3),
 
-    {_, PCtx} =
-	ergw_gsn_lib:create_tdf_session(Node, PCC4, Context),
+    {Context, PCtx} =
+	ergw_gsn_lib:create_tdf_session(PendingPCtx, NodeCaps, PCC4, PendingContext),
 
     Keys = context2keys(Context),
     gtp_context_reg:register(Keys, ?MODULE, self()),
@@ -402,7 +405,7 @@ start_session(#data{context = Context, dp_node = Node,
 	    ok
     end,
 
-    Data#data{pfcp = PCtx, pcc = PCC4}.
+    Data#data{context = Context, pfcp = PCtx, pcc = PCC4}.
 
 init_session(#data{context = Context}) ->
     {MCC, MNC} = ergw:get_plmn_id(),

@@ -351,6 +351,8 @@ map_reply_ie(no_resources_available) ->
     #cause{value = no_resources_available};
 map_reply_ie(rejected) ->
     #cause{value = no_resources_available};
+map_reply_ie(all_dynamic_addresses_are_occupied) ->
+    #cause{value = all_dynamic_pdp_addresses_are_occupied};
 map_reply_ie(all_dynamic_pdp_addresses_are_occupied) ->
     #cause{value = all_dynamic_pdp_addresses_are_occupied};
 map_reply_ie(IE)

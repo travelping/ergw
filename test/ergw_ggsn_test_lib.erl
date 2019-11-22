@@ -94,37 +94,49 @@ make_pdp_type(_, IEs) ->
      | IEs].
 
 validate_pdp_type(ipv6, IEs) ->
-     ?match(#{{end_user_address,0} :=
-		 #end_user_address{pdp_type_organization = 1,
-				   pdp_type_number = 87},
-	      {protocol_configuration_options,0} :=
-		  #protocol_configuration_options{
-		     config = {0,[{?'PCO-DNS-Server-IPv6-Address', _},
-				  {?'PCO-DNS-Server-IPv6-Address', _}]}}}, IEs);
+    ?match_map(
+       #{{end_user_address,0} =>
+	     #end_user_address{pdp_type_organization = 1,
+			       pdp_type_number = 87,
+			       _ = '_'},
+	 {protocol_configuration_options,0} =>
+	     #protocol_configuration_options{
+		config = {0,[{?'PCO-DNS-Server-IPv6-Address', '_'},
+			     {?'PCO-DNS-Server-IPv6-Address', '_'}]},
+		_ = '_'}},
+       IEs);
 validate_pdp_type(ipv4v6, IEs) ->
-     ?match(#{{end_user_address,0} :=
-		 #end_user_address{pdp_type_organization = 1,
-				   pdp_type_number = 141},
-	      {protocol_configuration_options,0} :=
-		  #protocol_configuration_options{
-		     config = {0,[{ipcp,'CP-Configure-Nak',1,
-				   [{ms_dns1,_},
-				    {ms_dns2,_}]},
-				  {?'PCO-DNS-Server-IPv6-Address', _},
-				  {?'PCO-DNS-Server-IPv6-Address', _},
-				  {?'PCO-DNS-Server-IPv4-Address', _},
-				  {?'PCO-DNS-Server-IPv4-Address', _}]}}}, IEs);
+    ?match_map(
+       #{{end_user_address,0} =>
+	     #end_user_address{pdp_type_organization = 1,
+			       pdp_type_number = 141,
+			       _ = '_'},
+	 {protocol_configuration_options,0} =>
+	     #protocol_configuration_options{
+		config = {0,[{ipcp,'CP-Configure-Nak',1,
+			      [{ms_dns1, '_'},
+			       {ms_dns2, '_'}]},
+			     {?'PCO-DNS-Server-IPv6-Address', '_'},
+			     {?'PCO-DNS-Server-IPv6-Address', '_'},
+			     {?'PCO-DNS-Server-IPv4-Address', '_'},
+			     {?'PCO-DNS-Server-IPv4-Address', '_'}]},
+		_ = '_'}},
+       IEs);
 validate_pdp_type(_, IEs) ->
-    ?match(#{{end_user_address,0} :=
-		 #end_user_address{pdp_type_organization = 1,
-				   pdp_type_number = 33},
-	     {protocol_configuration_options,0} :=
-		 #protocol_configuration_options{
-		    config = {0,[{ipcp,'CP-Configure-Nak',1,
-				  [{ms_dns1,_},
-				   {ms_dns2,_}]},
-				 {?'PCO-DNS-Server-IPv4-Address', _},
-				 {?'PCO-DNS-Server-IPv4-Address', _}]}}}, IEs).
+    ?match_map(
+       #{{end_user_address,0} =>
+	     #end_user_address{pdp_type_organization = 1,
+			       pdp_type_number = 33,
+			       _ = '_'},
+	 {protocol_configuration_options,0} =>
+	     #protocol_configuration_options{
+		config = {0,[{ipcp,'CP-Configure-Nak',1,
+			      [{ms_dns1, '_'},
+			       {ms_dns2, '_'}]},
+			     {?'PCO-DNS-Server-IPv4-Address', '_'},
+			     {?'PCO-DNS-Server-IPv4-Address', '_'}]},
+		_ = '_'}},
+       IEs).
 
 %%%-------------------------------------------------------------------
 

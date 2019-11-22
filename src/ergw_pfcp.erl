@@ -17,7 +17,7 @@
 	 outer_header_creation/1,
 	 outer_header_removal/1,
 	 ctx_teid_key/2,
-	 assign_data_teid/2]).
+	 assign_data_teid/3]).
 -export([init_ctx/1, reset_ctx/1,
 	 get_id/2, get_id/3, update_pfcp_rules/3]).
 -export([get_urr_id/4, get_urr_group/2,
@@ -98,8 +98,8 @@ get_port_vrf(#gtp_port{vrf = VRF}, VRFs)
 ctx_teid_key(#pfcp_ctx{name = Name}, TEI) ->
     {Name, {teid, 'gtp-u', TEI}}.
 
-assign_data_teid(PCtx, #context{control_port = ControlPort} = Context) ->
-    {ok, VRFs} = ergw_sx_node:get_vrfs(PCtx, Context),
+assign_data_teid(PCtx, {VRFs, _} = _NodeCaps,
+		 #context{control_port = ControlPort} = Context) ->
     #vrf{name = Name, ipv4 = IP4, ipv6 = IP6} =
 	get_port_vrf(ControlPort, VRFs),
 
@@ -124,8 +124,7 @@ pfcp_rule_diff(Old, New) when is_map(Old), is_map(New) ->
     Del = maps:without(maps:keys(New), Old),
     OldUpd0 = maps:without(maps:keys(Del), Old),
     NewUpd0 = maps:without(maps:keys(Add), New),
-    Upd = pfcp_rule_diff(OldUpd0, maps:next(maps:iterator(NewUpd0)), #{}),
-    ct:pal("PFCP Rule Diff~nAdd: ~120p~nDel: ~120p~nUpd: ~120p", [Add, Del, Upd]).
+    pfcp_rule_diff(OldUpd0, maps:next(maps:iterator(NewUpd0)), #{}).
 
 pfcp_rule_diff(_Old, none, Diff) ->
     Diff;

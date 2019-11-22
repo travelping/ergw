@@ -98,6 +98,8 @@
 	  remote_control_teid    :: #fq_teid{},
 	  remote_restart_counter :: 0 .. 255,
 	  vrf                    :: atom(),
+	  ipv4_pool              :: 'undefined' | binary(),
+	  ipv6_pool              :: 'undefined' | binary(),
 	  local_data_endp        :: 'undefined' | #gtp_endp{},
 	  remote_data_teid       :: #fq_teid{},
 	  ms_v4                  :: inet:ip4_address(),
