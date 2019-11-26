@@ -1,6 +1,18 @@
 erGW - 3GPP GGSN and PDN-GW in Erlang
 =====================================
 
+Version 2.2.0 - 26 Nov 2019
+---------------------------
+
+* new load control framework in ergw_aaa
+* corrected OCS free behavior
+* NASREQ Authentication and Accounting
+* docker images moved to quay.io
+* TDF
+* (very) improved Gx PCC handling
+* Gx RAR support
+* replace exometer with prometheus.io exporter
+
 Version 2.1.0 - 12 Aug 2019
 ---------------------------
 
