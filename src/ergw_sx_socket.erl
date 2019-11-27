@@ -20,7 +20,6 @@
 	 terminate/2, code_change/3]).
 
 -include_lib("kernel/include/logger.hrl").
--include_lib("gen_socket/include/gen_socket.hrl").
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include_lib("pfcplib/include/pfcp_packet.hrl").
 -include("include/ergw.hrl").
@@ -30,7 +29,7 @@
 -record(state, {
 	  name,
 	  node,
-	  socket     :: gen_socket:socket(),
+	  socket     :: socket:socket(),
 	  gtp_port,
 
 	  seq_no = 1 :: sequence_number(),
@@ -52,6 +51,7 @@
 
 -define(SERVER, ?MODULE).
 
+-define(BURST_SIZE, 10).
 -define(T1, 10 * 1000).
 -define(N1, 5).
 -define(RESPONSE_TIMEOUT, (?T1 * ?N1 + (?T1 div 2))).
@@ -95,6 +95,7 @@ send_response(ReqKey, Msg, DoCache) ->
 id() ->
     gen_server:call(?SERVER, id).
 
+
 seid() ->
     %% 64bit unique id, inspired by https://github.com/fogfish/uid
     ((erlang:monotonic_time(millisecond) band 16#3ffffffffffff) bsl 14) bor
@@ -126,12 +127,14 @@ validate_option(ip, Value)
   when is_tuple(Value) andalso
        (tuple_size(Value) == 4 orelse tuple_size(Value) == 8) ->
     Value;
-validate_option(netdev, Value)
-  when is_list(Value); is_binary(Value) ->
+validate_option(netdev, Value) when is_list(Value) ->
     Value;
-validate_option(netns, Value)
-  when is_list(Value); is_binary(Value) ->
+validate_option(netdev, Value) when is_binary(Value) ->
+    unicode:characters_to_list(Value, latin1);
+validate_option(netns, Value) when is_list(Value) ->
     Value;
+validate_option(netns, Value) when is_binary(Value) ->
+    unicode:characters_to_list(Value, latin1);
 validate_option(freebind, Value) when is_boolean(Value) ->
     Value;
 validate_option(reuseaddr, Value) when is_boolean(Value) ->
@@ -168,10 +171,11 @@ init(#{name := Name, node := Node, ip := IP, socket := GtpSocket} = Opts) ->
 
 	       responses = ergw_cache:new(?CACHE_TIMEOUT, responses)
 	      },
+    self() ! {'$socket', Socket, select, undefined},
     {ok, State}.
 
 handle_call(id, _From, #state{socket = Socket, node = Node, gtp_port = GtpPort} = State) ->
-    {_, IP, _} = gen_socket:getsockname(Socket),
+    {ok, #{addr := IP}} = socket:sockname(Socket),
     Reply = {ok, #node{node = Node, ip = IP}, GtpPort},
     {reply, Reply, State};
 
@@ -224,15 +228,18 @@ handle_info(Info = {timeout, _TRef, {request, SeqNo}}, State0) ->
 handle_info({timeout, TRef, responses}, #state{responses = Responses} = State) ->
     {noreply, State#state{responses = ergw_cache:expire(TRef, Responses)}};
 
-handle_info({Socket, input_ready}, #state{socket = Socket} = State) ->
-    handle_input(Socket, State);
+handle_info({'$socket', Socket, select, Info}, #state{socket = Socket} = State) ->
+    handle_input(Socket, Info, ?BURST_SIZE, State);
+
+handle_info({'$socket', Socket, abort, Info}, #state{socket = Socket} = State) ->
+    handle_input(Socket, Info, ?BURST_SIZE, State);
 
 handle_info(Info, State) ->
     ?LOG(error, "handle_info: unknown ~p, ~p", [Info, State]),
     {noreply, State}.
 
 terminate(_Reason, #state{socket = Socket} = _State) ->
-    gen_socket:close(Socket),
+    socket:close(Socket),
     ok.
 
 code_change(_OldVsn, State, _Extra) ->
@@ -265,68 +272,72 @@ make_request(ArrivalTS, IP, Port, #pfcp{version = Version, seq_no = SeqNo, type 
 
 make_sx_socket(IP, Port, #{netns := NetNs} = Opts)
   when is_list(NetNs) ->
-    {ok, Socket} = gen_socket:socketat(NetNs, family(IP), dgram, udp),
+    {ok, Socket} = socket:open(family(IP), dgram, udp, #{netns => NetNs}),
     bind_sx_socket(Socket, IP, Port, Opts);
 make_sx_socket(IP, Port, Opts) ->
-    {ok, Socket} = gen_socket:socket(family(IP), dgram, udp),
+    {ok, Socket} = socket:open(family(IP), dgram, udp),
     bind_sx_socket(Socket, IP, Port, Opts).
 
 bind_sx_socket(Socket, {_,_,_,_} = IP, Port, Opts) ->
     ok = socket_ip_freebind(Socket, Opts),
     ok = socket_netdev(Socket, Opts),
-    ok = gen_socket:bind(Socket, {inet4, IP, Port}),
-    ok = gen_socket:setsockopt(Socket, sol_ip, recverr, true),
-    ok = gen_socket:setsockopt(Socket, sol_ip, mtu_discover, 0),
-    ok = gen_socket:input_event(Socket, true),
+    {ok, _} = socket:bind(Socket, #{family => inet, addr => IP, port => Port}),
+    ok = socket:setopt(Socket, ip, recverr, true),
+    ok = socket:setopt(Socket, ip, mtu_discover, dont),
     maps:fold(fun(K, V, ok) -> ok = socket_setopts(Socket, K, V) end, ok, Opts),
     {ok, Socket};
 
 bind_sx_socket(Socket, {_,_,_,_,_,_,_,_} = IP, Port, Opts) ->
-    %% ok = gen_socket:setsockopt(Socket, sol_ip, recverr, true),
-    ok = socket_ip_freebind(Socket, Opts),
+    ok = socket:setopt(Socket, ipv6, v6only, true),
     ok = socket_netdev(Socket, Opts),
-    ok = gen_socket:bind(Socket, {inet6, IP, Port}),
+    {ok, _} = socket:bind(Socket, #{family => inet6, addr => IP, port => Port}),
+    ok = socket:setopt(Socket, ipv6, recverr, true),
+    ok = socket:setopt(Socket, ipv6, mtu_discover, dont),
     maps:fold(fun(K, V, ok) -> ok = socket_setopts(Socket, K, V) end, ok, Opts),
-    ok = gen_socket:input_event(Socket, true),
     {ok, Socket}.
 
 socket_ip_freebind(Socket, #{freebind := true}) ->
-    gen_socket:setsockopt(Socket, sol_ip, freebind, true);
+    socket:setopt(Socket, ip, freebind, true);
 socket_ip_freebind(_, _) ->
     ok.
 
 socket_netdev(Socket, #{netdev := Device}) ->
-    BinDev = iolist_to_binary([Device, 0]),
-    gen_socket:setsockopt(Socket, sol_socket, bindtodevice, BinDev);
+    socket:setopt(Socket, socket, bindtodevice, Device);
 socket_netdev(_, _) ->
     ok.
 
 socket_setopts(Socket, rcvbuf, Size) when is_integer(Size) ->
-    case gen_socket:setsockopt(Socket, sol_socket, rcvbufforce, Size) of
+    case socket:setopt(Socket, socket, rcvbufforce, Size) of
 	ok -> ok;
-	_  -> gen_socket:setsockopt(Socket, sol_socket, rcvbuf, Size)
+	_  -> socket:setopt(Socket, socket, rcvbuf, Size)
     end;
 socket_setopts(Socket, reuseaddr, true) ->
-    ok = gen_socket:setsockopt(Socket, sol_socket, reuseaddr, true);
+    ok = socket:setopt(Socket, socket, reuseaddr, true);
 socket_setopts(_Socket, _, _) ->
     ok.
 
-handle_input(Socket, State) ->
-    case gen_socket:recvfrom(Socket) of
+handle_input(Socket, _Info, 0, State0) ->
+    %% break the loop and restart
+    self() ! {'$socket', Socket, select, undefined},
+    {noreply, State0};
+
+handle_input(Socket, Info, Cnt, State0) ->
+    case socket:recvfrom(Socket, 0, [], nowait) of
 	{error, _} ->
-	    handle_err_input(Socket, State);
+	    State = handle_err_input(Socket, State0),
+	    handle_input(Socket, Info, Cnt - 1, State);
 
-	{ok, {_, IP, Port}, Data} ->
+	{ok, {#{addr := IP, port := Port}, Data}} ->
 	    ArrivalTS = erlang:monotonic_time(),
-	    ok = gen_socket:input_event(Socket, true),
-	    handle_message(ArrivalTS, IP, Port, Data, State);
+	    State = handle_message(ArrivalTS, IP, Port, Data, State0),
+	    handle_input(Socket, Info, Cnt - 1, State);
 
-	Other ->
-	    ?LOG(error, "got unhandled input: ~p", [Other]),
-	    ok = gen_socket:input_event(Socket, true),
-	    {noreply, State}
+	{select, _SelectInfo} ->
+	    {noreply, State0}
     end.
 
+-define(IP_RECVERR,             11).
+-define(IPV6_RECVERR,           25).
 -define(SO_EE_ORIGIN_LOCAL,      1).
 -define(SO_EE_ORIGIN_ICMP,       2).
 -define(SO_EE_ORIGIN_ICMP6,      3).
@@ -335,13 +346,13 @@ handle_input(Socket, State) ->
 -define(ICMP_HOST_UNREACH,       1).       %% Host Unreachable
 -define(ICMP_PROT_UNREACH,       2).       %% Protocol Unreachable
 -define(ICMP_PORT_UNREACH,       3).       %% Port Unreachable
+-define(ICMP6_DST_UNREACH,       1).
+-define(ICMP6_DST_UNREACH_ADDR,  3).       %% address unreachable
+-define(ICMP6_DST_UNREACH_NOPORT,4).       %% bad port
 
-handle_socket_error({?SOL_IP, ?IP_RECVERR, {sock_err, _ErrNo, ?SO_EE_ORIGIN_ICMP, ?ICMP_DEST_UNREACH, Code, _, _}},
-		    IP, _Port, PayLoad, #state{name = Name} = State0)
-  when Code == ?ICMP_HOST_UNREACH; Code == ?ICMP_PORT_UNREACH ->
-    ?LOG(debug, "ICMP indication for ~s: ~p", [inet:ntoa(IP), Code]),
+handle_dest_unreach(IP, [Data|_], #state{name = Name} = State0) when is_binary(Data) ->
     ergw_prometheus:pfcp(tx, Name, IP, unreachable),
-    try pfcp_packet:decode(PayLoad) of
+    try pfcp_packet:decode(Data) of
 	#pfcp{seq_no = SeqNo} ->
 	    {Req, State} = take_request(SeqNo, State0),
 	    case Req of
@@ -356,22 +367,63 @@ handle_socket_error({?SOL_IP, ?IP_RECVERR, {sock_err, _ErrNo, ?SO_EE_ORIGIN_ICMP
 	    ?LOG(debug, "HandleSocketError: ~p:~p @ ~p", [Class, Error, Stack]),
 	    State0
     end;
+handle_dest_unreach(_, _, State) ->
+    State.
 
-handle_socket_error(Error, IP, _Port, _PayLoad, State) ->
+handle_socket_error(#{level := ip, type := ?IP_RECVERR,
+		      data := <<_ErrNo:32/native-integer,
+				Origin:8, Type:8, Code:8, _Pad:8,
+				_Info:32/native-integer, _Data:32/native-integer,
+				_/binary>>},
+		    IP, _Port, IOV, State)
+  when Origin == ?SO_EE_ORIGIN_ICMP, Type == ?ICMP_DEST_UNREACH,
+       (Code == ?ICMP_HOST_UNREACH orelse Code == ?ICMP_PORT_UNREACH) ->
+    ?LOG(debug, "ICMP indication for ~s: ~p", [inet:ntoa(IP), Code]),
+    handle_dest_unreach(IP, IOV, State);
+
+handle_socket_error(#{level := ip, type := recverr,
+		      data := #{origin := icmp, type := dest_unreach, code := Code}},
+		    IP, _Port, IOV, State)
+  when Code == host_unreach;
+       Code == port_unreach ->
+    ?LOG(debug, "ICMP indication for ~s: ~p", [inet:ntoa(IP), Code]),
+    handle_dest_unreach(IP, IOV, State);
+
+handle_socket_error(#{level := ipv6, type := ?IPV6_RECVERR,
+		      data := <<_ErrNo:32/native-integer,
+				Origin:8, Type:8, Code:8, _Pad:8,
+				_Info:32/native-integer, _Data:32/native-integer,
+				_/binary>>},
+		    IP, _Port, IOV, State)
+  when Origin == ?SO_EE_ORIGIN_ICMP6, Type == ?ICMP6_DST_UNREACH,
+       (Code == ?ICMP6_DST_UNREACH_ADDR orelse Code == ?ICMP6_DST_UNREACH_NOPORT) ->
+    ?LOG(debug, "ICMPv6 indication for ~s: ~p", [inet:ntoa(IP), Code]),
+    handle_dest_unreach(IP, IOV, State);
+
+handle_socket_error(#{level := ipv6, type := recverr,
+		      data := #{origin := icmp6, type := dest_unreach, code := Code}},
+		    IP, _Port, IOV, State)
+  when Code == addr_unreach;
+       Code == port_unreach ->
+    ?LOG(debug, "ICMPv6 indication for ~s: ~p", [inet:ntoa(IP), Code]),
+    handle_dest_unreach(IP, IOV, State);
+
+handle_socket_error(Error, IP, _Port, _IOV, State) ->
     ?LOG(debug, "got unhandled error info for ~s: ~p", [inet:ntoa(IP), Error]),
     State.
 
-handle_err_input(Socket, State0) ->
-    case gen_socket:recvmsg(Socket, ?MSG_DONTWAIT bor ?MSG_ERRQUEUE) of
-	{ok, {inet4, IP, Port}, Error, Data} ->
-	    State = lists:foldl(handle_socket_error(_, IP, Port, Data, _), State0, Error),
-	    ok = gen_socket:input_event(Socket, true),
-	    {noreply, State};
+handle_err_input(Socket, State) ->
+    case socket:recvmsg(Socket, [errqueue], nowait) of
+	{ok, #{addr := #{addr := IP, port := Port}, iov := IOV, ctrl := Ctrl}} ->
+	    lists:foldl(handle_socket_error(_, IP, Port, IOV, _), State, Ctrl);
+
+	{select, SelectInfo} ->
+	    socket:cancel(Socket, SelectInfo),
+	    State;
 
 	Other ->
 	    ?LOG(error, "got unhandled error input: ~p", [Other]),
-	    ok = gen_socket:input_event(Socket, true),
-	    {noreply, State0}
+	    State
     end.
 
 %%%===================================================================
@@ -383,13 +435,12 @@ handle_message(ArrivalTS, IP, Port, Data, #state{name = Name} = State0) ->
     try
 	Msg = pfcp_packet:decode(Data),
 	ergw_prometheus:pfcp(rx, Name, IP, Msg),
-	State = handle_message_1(ArrivalTS, IP, Port, Msg, State0),
-	{noreply, State}
+	handle_message_1(ArrivalTS, IP, Port, Msg, State0)
     catch
 	Class:Error:Stack ->
 	    ?LOG(debug, "UDP invalid msg: ~p:~p @ ~p", [Class, Error, Stack]),
 	    ergw_prometheus:pfcp(rx, Name, IP, 'malformed-message'),
-	    {noreply, State0}
+	    State0
     end.
 
 handle_message_1(ArrivalTS, IP, Port, #pfcp{type = MsgType} = Msg, State) ->
@@ -506,14 +557,15 @@ take_request(SeqNo, #state{pending = PendingIn} = State) ->
 	    {Req, State#state{pending = PendingOut}}
     end.
 
-sendto({_,_,_,_} = RemoteIP, Port, Data, #state{socket = Socket}) ->
-    gen_socket:sendto(Socket, {inet4, RemoteIP, Port}, Data);
-sendto({_,_,_,_,_,_,_,_} = RemoteIP, Port, Data, #state{socket = Socket}) ->
-    gen_socket:sendto(Socket, {inet6, RemoteIP, Port}, Data).
+sendto(RemoteIP, Port, Data, #state{socket = Socket}) ->
+    Dest = #{family => family(RemoteIP),
+	     addr => RemoteIP,
+	     port => Port},
+    socket:sendto(Socket, Data, Dest, nowait).
 
 send_request(#send_req{address = DstIP, data = Data} = SendReq, State) ->
     case sendto(DstIP, 8805, Data, State) of
-	{ok, _} ->
+	ok ->
 	    start_request(SendReq, State);
 	_ ->
 	    message_counter(tx, State, SendReq, unreachable),

@@ -23,7 +23,6 @@
 	 terminate/2, code_change/3]).
 
 -include_lib("kernel/include/logger.hrl").
--include_lib("gen_socket/include/gen_socket.hrl").
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include("include/ergw.hrl").
 
@@ -37,7 +36,7 @@
 -record(state, {
 	  gtp_port   :: #gtp_port{},
 	  ip         :: inet:ip_address(),
-	  socket     :: gen_socket:socket(),
+	  socket     :: socket:socket(),
 
 	  v1_seq_no = 0 :: v1_sequence_number(),
 	  v2_seq_no = 0 :: v2_sequence_number(),
@@ -60,12 +59,11 @@
 	  send_ts :: non_neg_integer()
 	 }).
 
+-define(BURST_SIZE, 10).
 -define(T3, 10 * 1000).
 -define(N3, 5).
 -define(RESPONSE_TIMEOUT, (?T3 * ?N3 + (?T3 div 2))).
 -define(CACHE_TIMEOUT, ?RESPONSE_TIMEOUT).
-
--define(EXO_PERF_OPTS, [{time_span, 300 * 1000}]).		%% 5 min histogram
 
 %%====================================================================
 %% API
@@ -137,7 +135,7 @@ call(#gtp_port{pid = Handler}, Request) ->
 init([Name, #{ip := IP} = SocketOpts]) ->
     process_flag(trap_exit, true),
 
-    {ok, S} = ergw_gtp_socket:make_gtp_socket(IP, ?GTP1c_PORT, SocketOpts),
+    {ok, Socket} = ergw_gtp_socket:make_gtp_socket(IP, ?GTP1c_PORT, SocketOpts),
     {ok, RCnt} = gtp_config:get_restart_counter(),
     VRF = case SocketOpts of
 	      #{vrf := VRF0} when is_binary(VRF0) ->
@@ -159,7 +157,7 @@ init([Name, #{ip := IP} = SocketOpts]) ->
     State = #state{
 	       gtp_port = GtpPort,
 	       ip = IP,
-	       socket = S,
+	       socket = Socket,
 
 	       v1_seq_no = 0,
 	       v2_seq_no = 0,
@@ -169,6 +167,7 @@ init([Name, #{ip := IP} = SocketOpts]) ->
 
 	       unique_id = rand:uniform(16#ffffffff),
 	       restart_counter = RCnt},
+    self() ! {'$socket', Socket, select, undefined},
     {ok, State}.
 
 handle_call(get_restart_counter, _From, #state{restart_counter = RCnt} = State) ->
@@ -254,8 +253,11 @@ handle_info({timeout, TRef, requests}, #state{requests = Requests} = State) ->
 handle_info({timeout, TRef, responses}, #state{responses = Responses} = State) ->
     {noreply, State#state{responses = ergw_cache:expire(TRef, Responses)}};
 
-handle_info({Socket, input_ready}, #state{socket = Socket} = State) ->
-    handle_input(Socket, State);
+handle_info({'$socket', Socket, select, Info}, #state{socket = Socket} = State) ->
+    handle_input(Socket, Info, ?BURST_SIZE, State);
+
+handle_info({'$socket', Socket, abort, Info}, #state{socket = Socket} = State) ->
+    handle_input(Socket, Info, ?BURST_SIZE, State);
 
 handle_info(Info, State) ->
     ?LOG(error, "~s:handle_info: unknown ~p, ~p",
@@ -263,7 +265,7 @@ handle_info(Info, State) ->
     {noreply, State}.
 
 terminate(_Reason, #state{socket = Socket} = _State) ->
-    gen_socket:close(Socket),
+    socket:close(Socket),
     ok.
 
 code_change(_OldVsn, State, _Extra) ->
@@ -308,6 +310,9 @@ new_sequence_number(#gtp{version = v2, type = Type} = Msg,
 	    {Msg#gtp{seq_no = SeqNo}, State}
     end.
 
+family({_,_,_,_}) -> inet;
+family({_,_,_,_,_,_,_,_}) -> inet6.
+
 make_send_req(ReqId, Address, Port, T3, N3, Msg, CbInfo) ->
     #send_req{
        req_id = ReqId,
@@ -323,22 +328,28 @@ make_send_req(ReqId, Address, Port, T3, N3, Msg, CbInfo) ->
 make_request(ArrivalTS, IP, Port, Msg, #state{gtp_port = GtpPort}) ->
     ergw_gtp_socket:make_request(ArrivalTS, IP, Port, Msg, GtpPort).
 
-handle_input(Socket, State) ->
-    case gen_socket:recvfrom(Socket) of
+handle_input(Socket, _Info, 0, State0) ->
+    %% break the loop and restart
+    self() ! {'$socket', Socket, select, undefined},
+    {noreply, State0};
+
+handle_input(Socket, Info, Cnt, State0) ->
+    case socket:recvfrom(Socket, 0, [], nowait) of
 	{error, _} ->
-	    handle_err_input(Socket, State);
+	    State = handle_err_input(Socket, State0),
+	    handle_input(Socket, Info, Cnt - 1, State);
 
-	{ok, {_, IP, Port}, Data} ->
+	{ok, {#{addr := IP, port := Port}, Data}} ->
 	    ArrivalTS = erlang:monotonic_time(),
-	    ok = gen_socket:input_event(Socket, true),
-	    handle_message(ArrivalTS, IP, Port, Data, State);
+	    State = handle_message(ArrivalTS, IP, Port, Data, State0),
+	    handle_input(Socket, Info, Cnt - 1, State);
 
-	Other ->
-	    ?LOG(error, "got unhandled input: ~p", [Other]),
-	    ok = gen_socket:input_event(Socket, true),
-	    {noreply, State}
+	{select, _SelectInfo} ->
+	    {noreply, State0}
     end.
 
+-define(IP_RECVERR,             11).
+-define(IPV6_RECVERR,           25).
 -define(SO_EE_ORIGIN_LOCAL,      1).
 -define(SO_EE_ORIGIN_ICMP,       2).
 -define(SO_EE_ORIGIN_ICMP6,      3).
@@ -347,10 +358,42 @@ handle_input(Socket, State) ->
 -define(ICMP_HOST_UNREACH,       1).       %% Host Unreachable
 -define(ICMP_PROT_UNREACH,       2).       %% Protocol Unreachable
 -define(ICMP_PORT_UNREACH,       3).       %% Port Unreachable
+-define(ICMP6_DST_UNREACH,       1).
+-define(ICMP6_DST_UNREACH_ADDR,  3).       %% address unreachable
+-define(ICMP6_DST_UNREACH_NOPORT,4).       %% bad port
 
-handle_socket_error({?SOL_IP, ?IP_RECVERR, {sock_err, _ErrNo, ?SO_EE_ORIGIN_ICMP, ?ICMP_DEST_UNREACH, Code, _Info, _Data}},
+handle_socket_error(#{level := ip, type := ?IP_RECVERR,
+		      data := <<_ErrNo:32/native-integer,
+				Origin:8, Type:8, Code:8, _Pad:8,
+				_Info:32/native-integer, _Data:32/native-integer,
+				_/binary>>},
 		    IP, _Port, #state{gtp_port = GtpPort})
-  when Code == ?ICMP_HOST_UNREACH; Code == ?ICMP_PORT_UNREACH ->
+  when Origin == ?SO_EE_ORIGIN_ICMP, Type == ?ICMP_DEST_UNREACH,
+       (Code == ?ICMP_HOST_UNREACH orelse Code == ?ICMP_PORT_UNREACH) ->
+    gtp_path:down(GtpPort, IP);
+
+handle_socket_error(#{level := ip, type := recverr,
+		      data := #{origin := icmp, type := dest_unreach, code := Code}},
+		    IP, _Port, #state{gtp_port = GtpPort})
+  when Code == host_unreach;
+       Code == port_unreach ->
+    gtp_path:down(GtpPort, IP);
+
+handle_socket_error(#{level := ipv6, type := ?IPV6_RECVERR,
+		      data := <<_ErrNo:32/native-integer,
+				Origin:8, Type:8, Code:8, _Pad:8,
+				_Info:32/native-integer, _Data:32/native-integer,
+				_/binary>>},
+		    IP, _Port, #state{gtp_port = GtpPort})
+  when Origin == ?SO_EE_ORIGIN_ICMP6, Type == ?ICMP6_DST_UNREACH,
+       (Code == ?ICMP6_DST_UNREACH_ADDR orelse Code == ?ICMP6_DST_UNREACH_NOPORT) ->
+    gtp_path:down(GtpPort, IP);
+
+handle_socket_error(#{level := ipv6, type := recverr,
+		      data := #{origin := icmp6, type := dst_unreach, code := Code}},
+		    IP, _Port, #state{gtp_port = GtpPort})
+  when Code == addr_unreach;
+       Code == port_unreach ->
     gtp_path:down(GtpPort, IP);
 
 handle_socket_error(Error, IP, _Port, _State) ->
@@ -358,17 +401,18 @@ handle_socket_error(Error, IP, _Port, _State) ->
     ok.
 
 handle_err_input(Socket, State) ->
-    case gen_socket:recvmsg(Socket, ?MSG_DONTWAIT bor ?MSG_ERRQUEUE) of
-	{ok, {inet4, IP, Port}, Error, _Data} ->
-	    lists:foreach(handle_socket_error(_, IP, Port, State), Error),
-	    ok = gen_socket:input_event(Socket, true),
-	    {noreply, State};
+    case socket:recvmsg(Socket, [errqueue], nowait) of
+	{ok, #{addr := #{addr := IP, port := Port}, ctrl := Ctrl}} ->
+	    lists:foreach(handle_socket_error(_, IP, Port, State), Ctrl),
+	    ok;
+
+	{select, SelectInfo} ->
+	    socket:cancel(Socket, SelectInfo);
 
 	Other ->
-	    ?LOG(error, "got unhandled error input: ~p", [Other]),
-	    ok = gen_socket:input_event(Socket, true),
-	    {noreply, State}
-    end.
+	    ?LOG(error, "got unhandled error input: ~p", [Other])
+    end,
+    State.
 
 handle_message(ArrivalTS, IP, Port, Data, #state{gtp_port = GtpPort} = State0) ->
     try gtp_packet:decode(Data, #{ies => binary}) of
@@ -379,13 +423,12 @@ handle_message(ArrivalTS, IP, Port, Data, #state{gtp_port = GtpPort} = State0) -
 						State0#state.gtp_port,
 						Msg}]),
 	    ergw_prometheus:gtp(rx, GtpPort, IP, Msg),
-	    State = handle_message_1(ArrivalTS, IP, Port, Msg, State0),
-	    {noreply, State}
+	    handle_message_1(ArrivalTS, IP, Port, Msg, State0)
     catch
 	Class:Error ->
 	    ergw_prometheus:gtp_error(rx, GtpPort, 'malformed-requests'),
 	    ?LOG(error, "GTP decoding failed with ~p:~p for ~p", [Class, Error, Data]),
-	    {noreply, State0}
+	    State0
     end.
 
 handle_message_1(_, _, _, #gtp{version = Version}, #state{gtp_port = GtpPort} = State)
@@ -464,10 +507,16 @@ take_request(SeqId, #state{pending = PendingIn} = State) ->
 	    {Req, State#state{pending = PendingOut}}
     end.
 
-sendto({_,_,_,_} = RemoteIP, Port, Data, #state{socket = Socket}) ->
-    gen_socket:sendto(Socket, {inet4, RemoteIP, Port}, Data);
-sendto({_,_,_,_,_,_,_,_} = RemoteIP, Port, Data, #state{socket = Socket}) ->
-    gen_socket:sendto(Socket, {inet6, RemoteIP, Port}, Data).
+sendto(RemoteIP, Port, Data, #state{socket = Socket}) ->
+    Dest = #{family => family(RemoteIP),
+	     addr => RemoteIP,
+	     port => Port},
+    case socket:sendto(Socket, Data, Dest, nowait) of
+	ok -> ok;
+	Other  ->
+	    ?LOG(error, "sendto(~p) failed with: ~p", [Dest, Other]),
+	    ok
+    end.
 
 send_request_reply(#send_req{cb_info = {M, F, A}}, Reply) ->
     apply(M, F, A ++ [Reply]).
