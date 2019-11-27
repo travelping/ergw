@@ -96,6 +96,12 @@ At the moment this means OTP 21.3 and OTP 22.0 are supported. OTP versions
 greater than 20.1.7 could work, but are not tested or guaranteed to work. When in doubt
 check the `otp_release` section in [.travis.yml](.travis.yml) for tested versions.
 
+DOCKER IMAGES
+-------------
+
+Docker images are build by travis-ci and pushed to [hub.docker.com](https://hub.docker.com/r/ergw/ergw-c-node/tags),
+and by gitlab.com and pushed to [quay.io](https://quay.io/repository/travelping/ergw-c-node?tab=tags).
+
 BUILDING
 --------
 
