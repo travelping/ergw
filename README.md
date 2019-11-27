@@ -92,9 +92,13 @@ ERLANG Version Support
 
 All minor version of the current major release and the highest minor version of the
 previous major release will be supported.
-At the moment this means OTP 21.3 and OTP 22.0 are supported. OTP versions
-greater than 20.1.7 could work, but are not tested or guaranteed to work. When in doubt
-check the `otp_release` section in [.travis.yml](.travis.yml) for tested versions.
+As an exception to the rule state in the previous paragraph is currently the minimum
+required version OTP 22.1.8, the latest released version at the time of writing. The
+reason is the move to the official OTP socket.erl module and the bug that has exposed
+in older versions.
+
+When in doubt check the `otp_release` section in [.travis.yml](.travis.yml) for tested
+versions.
 
 DOCKER IMAGES
 -------------
@@ -105,7 +109,7 @@ and by gitlab.com and pushed to [quay.io](https://quay.io/repository/travelping/
 BUILDING
 --------
 
-*The minimum supported Erlang version is 21.3.*
+*The minimum supported Erlang version is 22.1.8.*
 
 Erlang 22.2.7 is the recommended version.
 
@@ -318,4 +322,4 @@ The configuration is documented in [CONFIG.md](CONFIG.md)
 [travis badge]: https://img.shields.io/travis/com/travelping/ergw/master.svg?style=flat-square
 [coveralls]: https://coveralls.io/github/travelping/ergw
 [coveralls badge]: https://img.shields.io/coveralls/travelping/ergw/master.svg?style=flat-square
-[erlang version badge]: https://img.shields.io/badge/erlang-R21.3%20to%2022.2-blue.svg?style=flat-square
+[erlang version badge]: https://img.shields.io/badge/erlang-R22.1.8%20to%2022.2.7-blue.svg?style=flat-square

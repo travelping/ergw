@@ -90,6 +90,8 @@ start_link(Node, NodeSelect, IP4, IP6, NotifyUp) ->
 
 -ifdef(TEST).
 
+test_cmd(Pid, stop) when is_pid(Pid) ->
+    gen_statem:call(Pid, {?TestCmdTag, stop});
 test_cmd(Pid, Cmd) when is_pid(Pid) ->
     gen_statem:call(Pid, {?TestCmdTag, Cmd}).
 

@@ -20,14 +20,6 @@ before_script:
     - wget https://s3.amazonaws.com/rebar3/rebar3 && chmod a+x rebar3
     - ./rebar3 compile
 
-build:otp-21:
-  <<: *build_otp
-  image: erlang:21.3.8.14-alpine
-
-build:otp-22.0:
-  <<: *build_otp
-  image: erlang:22.0.7-alpine
-
 build:otp-22.1:
   <<: *build_otp
   image: erlang:22.1.8-alpine
@@ -58,18 +50,6 @@ build:otp-23.0:
   script:
     - ./rebar3 do xref
     - ./rebar3 do ct
-
-check:otp-21:
-  <<: *check_otp
-  image: erlang:21.3.8.14-alpine
-  dependencies:
-    - build:otp-21
-
-check:otp-22.0:
-  <<: *check_otp
-  image: erlang:22.0.7-alpine
-  dependencies:
-    - build:otp-22.0
 
 check:otp-22.1:
   <<: *check_otp

@@ -3,7 +3,7 @@
     {vsn,git},
     {description, "3GPP GGSN/PGW"},
     {applications, [kernel, stdlib, erlando, crypto,
-		    regine, gen_socket, gtplib, pfcplib,
+		    regine, gtplib, pfcplib,
 		    ergw_aaa, setup, netdata,
 		    prometheus, cowboy, prometheus_cowboy,
 		    prometheus_diameter_collector,
