@@ -135,123 +135,136 @@ This requires a suitable ergw.config, e.g.:
 ```erlang
 %-*-Erlang-*-
 [{setup, [{data_dir, "/var/lib/ergw"},
-	  {log_dir,  "/var/log/ergw-c-node"}				%% NOTE: lager is not using this
-	 ]},
+          {log_dir,  "/var/log/ergw-c-node"}
+         ]},
+
+ {kernel,
+  [{logger,
+    [{handler, default, logger_std_h,
+      #{level => info,
+        config =>
+            #{sync_mode_qlen => 10000,
+              drop_mode_qlen => 10000,
+              flush_qlen     => 10000}
+       }
+     }
+    ]}
+  ]},
 
  {ergw, [{'$setup_vars',
-	  [{"ORIGIN", {value, "epc.mnc001.mcc001.3gppnetwork.org"}}]},
-	 {plmn_id, {<<"001">>, <<"01">>}},
+          [{"ORIGIN", {value, "epc.mnc001.mcc001.3gppnetwork.org"}}]},
+         {plmn_id, {<<"001">>, <<"01">>}},
 
-	 {http_api,
-	  [{port, 8080},
-	   {ip, {0,0,0,0}}
-	  ]},
+         {http_api,
+          [{port, 8080},
+           {ip, {0,0,0,0}}
+          ]},
 
-	 {sockets,
-	  [{'cp-socket',
-	    [{type, 'gtp-u'},
-	     {vrf, cp},
-	     {ip,  {127,0,0,1}},
-	     freebind,
-	     {reuseaddr, true}
-	    ]},
-	   {irx, [{type, 'gtp-c'},
-		  {vrf, epc},
-		  {ip,  {127,0,0,1}},
-		  {reuseaddr, true}
-		 ]}
-	  ]},
+         {sockets,
+          [{'cp-socket',
+            [{type, 'gtp-u'},
+             {vrf, cp},
+             {ip,  {127,0,0,1}},
+             freebind,
+             {reuseaddr, true}
+            ]},
+           {irx, [{type, 'gtp-c'},
+                  {vrf, epc},
+                  {ip,  {127,0,0,1}},
+                  {reuseaddr, true}
+                 ]}
+          ]},
 
-	 {vrfs,
-	  [{sgi, [{pools,  [{{10, 106, 0, 1}, {10, 106, 255, 254}, 32},
-			    {{16#8001, 0, 0, 0, 0, 0, 0, 0},
-			     {16#8001, 0, 0, 16#FFFF, 0, 0, 0, 0}, 64}
-			   ]},
-		  {'MS-Primary-DNS-Server', {8,8,8,8}},
-		  {'MS-Secondary-DNS-Server', {8,8,4,4}},
-		  {'MS-Primary-NBNS-Server', {127,0,0,1}},
-		  {'MS-Secondary-NBNS-Server', {127,0,0,1}}
-		 ]}
-	  ]},
+         {vrfs,
+          [{sgi, [{pools,  [{{10, 106, 0, 1}, {10, 106, 255, 254}, 32},
+                            {{16#8001, 0, 0, 0, 0, 0, 0, 0},
+                             {16#8001, 0, 0, 16#FFFF, 0, 0, 0, 0}, 64}
+                           ]},
+                  {'MS-Primary-DNS-Server', {8,8,8,8}},
+                  {'MS-Secondary-DNS-Server', {8,8,4,4}},
+                  {'MS-Primary-NBNS-Server', {127,0,0,1}},
+                  {'MS-Secondary-NBNS-Server', {127,0,0,1}}
+                 ]}
+          ]},
 
-	 {sx_socket,
-	  [{node, 'ergw'},
-	   {name, 'ergw'},
-	   {socket, 'cp-socket'},
-	   {ip,  {127,0,0,1}},
-	   freebind
-	  ]},
+         {sx_socket,
+          [{node, 'ergw'},
+           {name, 'ergw'},
+           {socket, 'cp-socket'},
+           {ip,  {127,0,0,1}},
+           freebind
+          ]},
 
-	 {handlers,
-	  [{'h1', [{handler, pgw_s5s8},
-		   {protocol, gn},
-		   {sockets, [irx]},
-		   {node_selection, [default]}
-		  ]},
-	   {'h2', [{handler, pgw_s5s8},
-		   {protocol, s5s8},
-		   {sockets, [irx]},
-		   {node_selection, [default]}
-		  ]}
-	  ]},
+         {handlers,
+          [{'h1', [{handler, pgw_s5s8},
+                   {protocol, gn},
+                   {sockets, [irx]},
+                   {node_selection, [default]}
+                  ]},
+           {'h2', [{handler, pgw_s5s8},
+                   {protocol, s5s8},
+                   {sockets, [irx]},
+                   {node_selection, [default]}
+                  ]}
+          ]},
 
-	 {apns,
-	  [{[<<"tpip">>, <<"net">>], [{vrf, sgi}]},
-	   {[<<"APN1">>], [{vrf, sgi}]}
-	  ]},
+         {apns,
+          [{[<<"tpip">>, <<"net">>], [{vrf, sgi}]},
+           {[<<"APN1">>], [{vrf, sgi}]}
+          ]},
 
-	 {node_selection,
-	  [{default,
-	    {static,
-	     [
-	      %% APN NAPTR alternative
-	      {"_default.apn.$ORIGIN", {300,64536},
-	       [{"x-3gpp-upf","x-sxb"}],
-	       "topon.sx.prox01.$ORIGIN"},
+         {node_selection,
+          [{default,
+            {static,
+             [
+              %% APN NAPTR alternative
+              {"_default.apn.$ORIGIN", {300,64536},
+               [{"x-3gpp-upf","x-sxb"}],
+               "topon.sx.prox01.$ORIGIN"},
 
-	      %% A/AAAA record alternatives
-	      {"topon.sx.prox01.$ORIGIN", [{127,0,0,1}], []}
-	     ]
-	    }
-	   }
-	  ]
-	 },
+              %% A/AAAA record alternatives
+              {"topon.sx.prox01.$ORIGIN", [{127,0,0,1}], []}
+             ]
+            }
+           }
+          ]
+         },
 
-	 {nodes,
-	  [{default,
-	    [{vrfs,
-	      [{cp, [{features, ['CP-Function']}]},
-	       {epc, [{features, ['Access']}]},
-	       {sgi, [{features, ['SGi-LAN']}]}]
-	     }]
-	   }]
-	 }
-	]},
+         {nodes,
+          [{default,
+            [{vrfs,
+              [{cp, [{features, ['CP-Function']}]},
+               {epc, [{features, ['Access']}]},
+               {sgi, [{features, ['SGi-LAN']}]}]
+             }]
+           }]
+         }
+        ]},
 
  {ergw_aaa,
   [{handlers,
     [{ergw_aaa_static,
-	[{'NAS-Identifier',          <<"NAS-Identifier">>},
-	 {'Acct-Interim-Interval',   600},
-	 {'Framed-Protocol',         'PPP'},
-	 {'Service-Type',            'Framed-User'},
-	 {'Node-Id',                 <<"PGW-001">>},
-	 {'Charging-Rule-Base-Name', <<"cr-01">>},
-	 {rules, #{'Default' =>
-		       #{'Rating-Group' => [3000],
-			 'Flow-Information' =>
-			     [#{'Flow-Description' => [<<"permit out ip from any to assigned">>],
-				'Flow-Direction'   => [1]    %% DownLink
-			       },
-			      #{'Flow-Description' => [<<"permit out ip from any to assigned">>],
-				'Flow-Direction'   => [2]    %% UpLink
-			       }],
-			 'Metering-Method'  => [1],
-			 'Precedence' => [100]
-			}
-		  }
-	 }
-	]}
+        [{'NAS-Identifier',          <<"NAS-Identifier">>},
+         {'Acct-Interim-Interval',   600},
+         {'Framed-Protocol',         'PPP'},
+         {'Service-Type',            'Framed-User'},
+         {'Node-Id',                 <<"PGW-001">>},
+         {'Charging-Rule-Base-Name', <<"cr-01">>},
+         {rules, #{'Default' =>
+                       #{'Rating-Group' => [3000],
+                         'Flow-Information' =>
+                             [#{'Flow-Description' => [<<"permit out ip from any to assigned">>],
+                                'Flow-Direction'   => [1]    %% DownLink
+                               },
+                              #{'Flow-Description' => [<<"permit out ip from any to assigned">>],
+                                'Flow-Direction'   => [2]    %% UpLink
+                               }],
+                         'Metering-Method'  => [1],
+                         'Precedence' => [100]
+                        }
+                  }
+         }
+        ]}
     ]},
 
    {services,
@@ -262,52 +275,39 @@ This requires a suitable ergw.config, e.g.:
     [{default,
       [{session, ['Default']},
        {procedures, [{authenticate, []},
-		     {authorize, []},
-		     {start, []},
-		     {interim, []},
-		     {stop, []}
-		    ]}
+                     {authorize, []},
+                     {start, []},
+                     {interim, []},
+                     {stop, []}
+                    ]}
       ]}
     ]}
   ]},
 
  {jobs, [{samplers,
-	  [{cpu_feedback, jobs_sampler_cpu, []}
-	  ]},
-	 {queues,
-	  [{path_restart,
-	    [{regulators, [{counter, [{limit, 100}]}]},
-	     {modifiers,  [{cpu_feedback, 10}]} %% 10 = % increment by which to modify the limit
-	    ]},
-	   {create,
-	    [{max_time, 5000}, %% max 5 seconds
-	     {regulators, [{rate, [{limit, 100}]}]},
-	     {modifiers,  [{cpu_feedback, 10}]} %% 10 = % increment by which to modify the limit
-	    ]},
-	   {delete,
-	    [{regulators, [{counter, [{limit, 100}]}]},
-	     {modifiers,  [{cpu_feedback, 10}]} %% 10 = % increment by which to modify the limit
-	    ]},
-	   {other,
-	    [{max_time, 10000}, %% max 10 seconds
-	     {regulators, [{rate, [{limit, 1000}]}]},
-	     {modifiers,  [{cpu_feedback, 10}]} %% 10 = % increment by which to modify the limit
-	    ]}
-	  ]}
-	]},
-
- {lager, [
-	  {log_root, "/var/log/ergw-c-node"},
-	  {colored, true},
-	  {error_logger_redirect, true},
-	  {crash_log, "crash.log"},
-	  {error_logger_hwm, 5000},
-	  {handlers, [
-		      {lager_console_backend, [{level, debug}]},
-		      {lager_file_backend, [{file, "error.log"}, {level, error}]},
-		      {lager_file_backend, [{file, "console.log"}, {level, debug}]}
-		     ]}
-	 ]}
+          [{cpu_feedback, jobs_sampler_cpu, []}
+          ]},
+         {queues,
+          [{path_restart,
+            [{regulators, [{counter, [{limit, 100}]}]},
+             {modifiers,  [{cpu_feedback, 10}]} %% 10 = % increment by which to modify the limit
+            ]},
+           {create,
+            [{max_time, 5000}, %% max 5 seconds
+             {regulators, [{rate, [{limit, 100}]}]},
+             {modifiers,  [{cpu_feedback, 10}]} %% 10 = % increment by which to modify the limit
+            ]},
+           {delete,
+            [{regulators, [{counter, [{limit, 100}]}]},
+             {modifiers,  [{cpu_feedback, 10}]} %% 10 = % increment by which to modify the limit
+            ]},
+           {other,
+            [{max_time, 10000}, %% max 10 seconds
+             {regulators, [{rate, [{limit, 1000}]}]},
+             {modifiers,  [{cpu_feedback, 10}]} %% 10 = % increment by which to modify the limit
+            ]}
+          ]}
+        ]}
 ].
 ```
 

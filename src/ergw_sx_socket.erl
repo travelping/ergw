@@ -19,6 +19,7 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
 	 terminate/2, code_change/3]).
 
+-include_lib("kernel/include/logger.hrl").
 -include_lib("gen_socket/include/gen_socket.hrl").
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include_lib("pfcplib/include/pfcp_packet.hrl").
@@ -59,9 +60,13 @@
 -define(log_pfcp(Level, Fmt, Args, PFCP),
 	try
 	    #pfcp{version = Version, type = MsgType, seid = SEID, seq_no = SeqNo, ie = IE} = PFCP,
-	    lager:Level(Fmt "~s(V: ~w, SEID: ~w, Seq: ~w):~n  ~s", Args ++
+	    IEList =
+		if is_map(IE) -> maps:values(IE);
+		   true -> IE
+		end,
+	    ?LOG(Level, Fmt "~s(V: ~w, SEID: ~w, Seq: ~w): ~s", Args ++
 			    [pfcp_packet:msg_description_v1(MsgType), Version, SEID, SeqNo,
-			     pfcp_packet:pretty_print(IE)])
+			     pfcp_packet:pretty_print(IEList)])
 	catch
 	    _:_ -> ok
 	end).
@@ -180,7 +185,7 @@ handle_call({call, SendReq0}, From, State0) ->
     {noreply, State};
 
 handle_call(Request, _From, State) ->
-    lager:error("handle_call: unknown ~p", [lager:pr(Request, ?MODULE)]),
+    ?LOG(error, "handle_call: unknown ~p", [Request]),
     {reply, ok, State}.
 
 handle_cast({call, SendReq0}, State0) ->
@@ -194,11 +199,11 @@ handle_cast({send_response, ReqKey, Data, DoCache}, State0)
     {noreply, State};
 
 handle_cast(Msg, State) ->
-    lager:error("handle_cast: unknown ~p", [lager:pr(Msg, ?MODULE)]),
+    ?LOG(error, "handle_cast: unknown ~p", [Msg]),
     {noreply, State}.
 
 handle_info(Info = {timeout, _TRef, {request, SeqNo}}, State0) ->
-    lager:debug("handle_info: ~p", [lager:pr(Info, ?MODULE)]),
+    ?LOG(debug, "handle_info: ~p", [Info]),
     {Req, State1} = take_request(SeqNo, State0),
     case Req of
 	#send_req{n1 = 0} = SendReq ->
@@ -221,7 +226,7 @@ handle_info({Socket, input_ready}, #state{socket = Socket} = State) ->
     handle_input(Socket, State);
 
 handle_info(Info, State) ->
-    lager:error("handle_info: unknown ~p, ~p", [lager:pr(Info, ?MODULE), lager:pr(State, ?MODULE)]),
+    ?LOG(error, "handle_info: unknown ~p, ~p", [Info, State]),
     {noreply, State}.
 
 terminate(_Reason, #state{socket = Socket} = _State) ->
@@ -315,7 +320,7 @@ handle_input(Socket, State) ->
 	    handle_message(ArrivalTS, IP, Port, Data, State);
 
 	Other ->
-	    lager:error("got unhandled input: ~p", [Other]),
+	    ?LOG(error, "got unhandled input: ~p", [Other]),
 	    ok = gen_socket:input_event(Socket, true),
 	    {noreply, State}
     end.
@@ -332,11 +337,11 @@ handle_input(Socket, State) ->
 handle_socket_error({?SOL_IP, ?IP_RECVERR, {sock_err, _ErrNo, ?SO_EE_ORIGIN_ICMP, ?ICMP_DEST_UNREACH, Code, _Info, _Data}},
 		    IP, _Port, _State)
   when Code == ?ICMP_HOST_UNREACH; Code == ?ICMP_PORT_UNREACH ->
-    lager:debug("ICMP indication for ~s: ~p", [inet:ntoa(IP), Code]),
+    ?LOG(debug, "ICMP indication for ~s: ~p", [inet:ntoa(IP), Code]),
     ok;
 
 handle_socket_error(Error, IP, _Port, _State) ->
-    lager:debug("got unhandled error info for ~s: ~p", [inet:ntoa(IP), Error]),
+    ?LOG(debug, "got unhandled error info for ~s: ~p", [inet:ntoa(IP), Error]),
     ok.
 
 handle_err_input(Socket, State) ->
@@ -347,7 +352,7 @@ handle_err_input(Socket, State) ->
 	    {noreply, State};
 
 	Other ->
-	    lager:error("got unhandled error input: ~p", [Other]),
+	    ?LOG(error, "got unhandled error input: ~p", [Other]),
 	    ok = gen_socket:input_event(Socket, true),
 	    {noreply, State}
     end.
@@ -357,14 +362,14 @@ handle_err_input(Socket, State) ->
 %%%===================================================================
 
 handle_message(ArrivalTS, IP, Port, Data, State0) ->
-    lager:debug("handle message ~s:~w: ~p", [inet:ntoa(IP), Port, Data]),
+    ?LOG(debug, "handle message ~s:~w: ~p", [inet:ntoa(IP), Port, Data]),
     try
 	Msg = pfcp_packet:decode(Data),
 	State = handle_message_1(ArrivalTS, IP, Port, Msg, State0),
 	{noreply, State}
     catch
 	Class:Error:Stack ->
-	    lager:debug("UDP invalid msg: ~p:~p @ ~p", [Class, Error, Stack]),
+	    ?LOG(debug, "UDP invalid msg: ~p:~p @ ~p", [Class, Error, Stack]),
 	    {noreply, State0}
     end.
 
@@ -444,7 +449,7 @@ cancel_timer(Ref) ->
     end.
 
 prepare_send_req(#send_req{msg = Msg0} = SendReq, State0) ->
-    lager:info("PrepSend: ~p", [lager:pr(SendReq, ?MODULE)]),
+    ?LOG(info, "PrepSend: ~p", [SendReq]),
     {Msg, State} = new_sequence_number(Msg0, State0),
     ?log_pfcp(info, "PrepSend: ", [], Msg),
     BinMsg = pfcp_packet:encode(Msg),
@@ -488,10 +493,10 @@ send_request(#send_req{address = DstIP, data = Data} = SendReq, State0) ->
     start_request(SendReq, State0).
 
 send_request_reply(#send_req{cb_info = {M, F, A}} = SendReq, Reply) ->
-    lager:info("send_request_reply: ~p", [lager:pr(SendReq, ?MODULE)]),
+    ?LOG(info, "send_request_reply: ~p", [SendReq]),
     apply(M, F, A ++ [Reply]);
 send_request_reply(#send_req{from = {_, _} = From} = SendReq, Reply) ->
-    lager:info("send_request_reply: ~p", [lager:pr(SendReq, ?MODULE)]),
+    ?LOG(info, "send_request_reply: ~p", [SendReq]),
     gen_server:reply(From, Reply).
 
 enqueue_response(ReqKey, Data, DoCache,

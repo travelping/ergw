@@ -14,13 +14,18 @@
 
 -define(CONFIG,
 	[
-	 {lager, [{colored, true},
-		  {error_logger_redirect, true},
-		  %% force lager into async logging, otherwise
-		  %% the test will timeout randomly
-		  {async_threshold, undefined},
-		  {handlers, [{lager_console_backend, [{level, info}]}]}
-		 ]},
+	 {kernel,
+	  [{logger,
+	    [{handler, default, logger_std_h,
+	      #{level => info,
+		config =>
+		    #{sync_mode_qlen => 10000,
+		      drop_mode_qlen => 10000,
+		      flush_qlen     => 10000}
+	       }
+	     }
+	    ]}
+	  ]},
 
 	 {ergw, [{'$setup_vars',
 		  [{"ORIGIN", {value, "epc.mnc001.mcc001.3gppnetwork.org"}}]},

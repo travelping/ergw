@@ -2,7 +2,7 @@
 {application, ergw, [
     {vsn,git},
     {description, "3GPP GGSN/PGW"},
-    {applications, [kernel, stdlib, lager, erlando, crypto,
+    {applications, [kernel, stdlib, erlando, crypto,
 		    regine, gen_socket, gtplib, pfcplib,
 		    ergw_aaa, setup, netdata,
 		    prometheus, cowboy, prometheus_cowboy,

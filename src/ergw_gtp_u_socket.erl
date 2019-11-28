@@ -18,6 +18,7 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
 	 terminate/2, code_change/3]).
 
+-include_lib("kernel/include/logger.hrl").
 -include_lib("gen_socket/include/gen_socket.hrl").
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include("include/ergw.hrl").
@@ -96,7 +97,7 @@ init([Name, #{ip := IP} = SocketOpts]) ->
     {ok, State}.
 
 handle_call(Request, _From, State) ->
-    lager:error("handle_call: unknown ~p", [lager:pr(Request, ?MODULE)]),
+    ?LOG(error, "handle_call: unknown ~p", [Request]),
     {reply, ok, State}.
 
 handle_cast(#send_req{address = IP, port = Port, msg = Msg},
@@ -112,15 +113,15 @@ handle_cast({send, IP, Port, Data}, State)
     {noreply, State};
 
 handle_cast(Msg, State) ->
-    lager:error("handle_cast: unknown ~p", [lager:pr(Msg, ?MODULE)]),
+    ?LOG(error, "handle_cast: unknown ~p", [Msg]),
     {noreply, State}.
 
 handle_info({Socket, input_ready}, #state{socket = Socket} = State) ->
     handle_input(Socket, State);
 
 handle_info(Info, State) ->
-    lager:error("~s:handle_info: unknown ~p, ~p",
-		[?MODULE, lager:pr(Info, ?MODULE), lager:pr(State, ?MODULE)]),
+    ?LOG(error, "~s:handle_info: unknown ~p, ~p",
+		[?MODULE, Info, State]),
     {noreply, State}.
 
 terminate(_Reason, #state{socket = Socket} = _State) ->
@@ -154,7 +155,7 @@ handle_input(Socket, State) ->
 	    handle_message(IP, Port, Data, State);
 
 	Other ->
-	    lager:error("got unhandled input: ~p", [Other]),
+	    ?LOG(error, "got unhandled input: ~p", [Other]),
 	    ok = gen_socket:input_event(Socket, true),
 	    {noreply, State}
     end.
@@ -174,7 +175,7 @@ handle_socket_error({?SOL_IP, ?IP_RECVERR, {sock_err, _ErrNo, ?SO_EE_ORIGIN_ICMP
     gtp_path:down(GtpPort, IP);
 
 handle_socket_error(Error, IP, _Port, _State) ->
-    lager:debug("got unhandled error info for ~s: ~p", [inet:ntoa(IP), Error]),
+    ?LOG(debug, "got unhandled error info for ~s: ~p", [inet:ntoa(IP), Error]),
     ok.
 
 handle_err_input(Socket, State) ->
@@ -185,7 +186,7 @@ handle_err_input(Socket, State) ->
 	    {noreply, State};
 
 	Other ->
-	    lager:error("got unhandled error input: ~p", [Other]),
+	    ?LOG(error, "got unhandled error input: ~p", [Other]),
 	    ok = gen_socket:input_event(Socket, true),
 	    {noreply, State}
     end.
@@ -195,15 +196,15 @@ handle_message(IP, Port, Data, #state{gtp_port = GtpPort} = State0) ->
 	Msg = #gtp{} ->
 	    %% TODO: handle decode failures
 
-	    lager:debug("handle message: ~p", [{IP, Port,
-						lager:pr(State0#state.gtp_port, ?MODULE),
-						lager:pr(Msg, ?MODULE)}]),
+	    ?LOG(debug, "handle message: ~p", [{IP, Port,
+						State0#state.gtp_port,
+						Msg}]),
 	    ergw_prometheus:gtp(rx, GtpPort, IP, Msg),
 	    State = handle_message_1(IP, Port, Msg, State0),
 	    {noreply, State}
     catch
 	Class:Error ->
-	    lager:error("GTP decoding failed with ~p:~p for ~p", [Class, Error, Data]),
+	    ?LOG(error, "GTP decoding failed with ~p:~p for ~p", [Class, Error, Data]),
 	    {noreply, State0}
     end.
 
@@ -213,8 +214,8 @@ handle_message_1(IP, Port, #gtp{version = v1, type = g_pdu, tei = TEI} = Msg, St
     ergw_context:port_message(ReqKey, Msg),
     State;
 handle_message_1(IP, Port, Msg, State) ->
-    lager:warning("¨unhandled GTP-U from ~s:~w: ~p",
-		  [inet:ntoa(IP), Port, lager:pr(Msg, ?MODULE)]),
+    ?LOG(warning, "¨unhandled GTP-U from ~s:~w: ~p",
+		  [inet:ntoa(IP), Port, Msg]),
     State.
 
 sendto({_,_,_,_} = RemoteIP, Port, Data, #state{socket = Socket}) ->

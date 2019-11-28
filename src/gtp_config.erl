@@ -12,6 +12,8 @@
 
 -define(App, ergw).
 
+-include_lib("kernel/include/logger.hrl").
+
 %%====================================================================
 %% API
 %%====================================================================
@@ -57,10 +59,10 @@ read_term(FileName) ->
 	{ok, Terms} ->
 	    Terms;
 	{error, Reason} ->
-	    lager:error("Failed to read ~s with ~s", [FileName, file:format_error(Reason)]),
+	    ?LOG(error, "Failed to read ~s with ~s", [FileName, file:format_error(Reason)]),
 	    [];
 	Other ->
-	    lager:error("Failed to read ~s with ~w", [FileName, Other]),
+	    ?LOG(error, "Failed to read ~s with ~w", [FileName, Other]),
 	    []
     end.
 
@@ -72,9 +74,9 @@ write_terms(FileName, List) ->
 	ok ->
 	    ok;
 	{error, Reason} ->
-	    lager:error("Failed to write to ~s with ~s", [FileName, file:format_error(Reason)]),
+	    ?LOG(error, "Failed to write to ~s with ~s", [FileName, file:format_error(Reason)]),
 	    ok;
 	Other ->
-	    lager:error("Failed to write to ~s with ~w", [FileName, Other]),
+	    ?LOG(error, "Failed to write to ~s with ~w", [FileName, Other]),
 	    ok
     end.

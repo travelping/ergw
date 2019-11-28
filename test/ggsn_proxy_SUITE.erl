@@ -26,13 +26,18 @@
 
 -define(TEST_CONFIG_MULTIPLE_PROXY_SOCKETS,
 	[
-	 {lager, [{colored, true},
-		  {error_logger_redirect, true},
-		  %% force lager into async logging, otherwise
-		  %% the test will timeout randomly
-		  {async_threshold, undefined},
-		  {handlers, [{lager_console_backend, [{level, critical}]}]}
-		 ]},
+	 {kernel,
+	  [{logger,
+	    [%% force cth_log to async mode, never block the tests
+	     {handler, cth_log_redirect, cth_log_redirect,
+	      #{config =>
+		    #{sync_mode_qlen => 10000,
+		      drop_mode_qlen => 10000,
+		      flush_qlen     => 10000}
+	       }
+	     }
+	    ]}
+	  ]},
 
 	 {ergw, [{'$setup_vars',
 		  [{"ORIGIN", {value, "epc.mnc001.mcc001.3gppnetwork.org"}}]},
@@ -211,13 +216,18 @@
 
 -define(TEST_CONFIG_SINGLE_PROXY_SOCKET,
 	[
-	 {lager, [{colored, true},
-		  {error_logger_redirect, true},
-		  %% force lager into async logging, otherwise
-		  %% the test will timeout randomly
-		  {async_threshold, undefined},
-		  {handlers, [{lager_console_backend, [{level, critical}]}]}
-		 ]},
+	 {kernel,
+	  [{logger,
+	    [%% force cth_log to async mode, never block the tests
+	     {handler, cth_log_redirect, cth_log_redirect,
+	      #{config =>
+		    #{sync_mode_qlen => 10000,
+		      drop_mode_qlen => 10000,
+		      flush_qlen     => 10000}
+	       }
+	     }
+	    ]}
+	  ]},
 
 	 {ergw, [{'$setup_vars',
 		  [{"ORIGIN", {value, "epc.mnc001.mcc001.3gppnetwork.org"}}]},

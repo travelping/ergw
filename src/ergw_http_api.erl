@@ -10,11 +10,13 @@
 %% API
 -export([init/1, validate_options/1]).
 
+-include_lib("kernel/include/logger.hrl").
+
 init(undefined) ->
-    lager:debug("HTTP API will not be started because of lack of configuration~n"),
+    ?LOG(debug, "HTTP API will not be started because of lack of configuration~n"),
     ok;
 init(Opts) when is_map(Opts) ->
-    lager:debug("HTTP API listener options: ~p", [Opts]),
+    ?LOG(debug, "HTTP API listener options: ~p", [Opts]),
     %% HTTP API options should be already validated in the ergw_config,
     %% so it should be safe to run with it
     start_http_listener(Opts).
@@ -36,11 +38,13 @@ start_http_listener(#{ip := IP, port := Port, acceptors_num := AcceptorsNum}) ->
 		    {"/api/v1/spec/ui/[...]", cowboy_static, {priv_dir, ergw, "static"}}]}
 		 ]),
     TransOpts = #{socket_opts => [{port, Port}, {ip, IP}, INet],
-		  num_acceptors => AcceptorsNum},
+		  num_acceptors => AcceptorsNum,
+		  logger => logger},
     ProtoOpts =
 	#{env =>
 	      #{
 		dispatch => Dispatch,
+		logger => logger,
 		metrics_callback => fun prometheus_cowboy2_instrumenter:observe/1,
 		stream_handlers => [cowboy_metrics_h, cowboy_stream_h]
 	       }},

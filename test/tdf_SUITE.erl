@@ -7,8 +7,9 @@
 
 -module(tdf_SUITE).
 
--compile([export_all, nowarn_export_all, {parse_transform, lager_transform}]).
+-compile([export_all, nowarn_export_all]).
 
+-include_lib("kernel/include/logger.hrl").
 -include_lib("ergw_aaa/include/diameter_3gpp_ts32_299.hrl").
 -include_lib("ergw_aaa/include/ergw_aaa_session.hrl").
 -include_lib("common_test/include/ct.hrl").
@@ -28,13 +29,18 @@
 
 -define(TEST_CONFIG,
 	[
-	 {lager, [{colored, true},
-		  {error_logger_redirect, true},
-		  %% force lager into async logging, otherwise
-		  %% the test will timeout randomly
-		  {async_threshold, undefined},
-		  {handlers, [{lager_console_backend, [{level, critical}]}]}
-		 ]},
+	 {kernel,
+	  [{logger,
+	    [%% force cth_log to async mode, never block the tests
+	     {handler, cth_log_redirect, cth_log_redirect,
+	      #{config =>
+		    #{sync_mode_qlen => 10000,
+		      drop_mode_qlen => 10000,
+		      flush_qlen     => 10000}
+	       }
+	     }
+	    ]}
+	  ]},
 
 	 {ergw, [{'$setup_vars',
 		  [{"ORIGIN", {value, "epc.mnc001.mcc001.3gppnetwork.org"}}]},
@@ -566,9 +572,9 @@ simple_session(Config) ->
     PDRs = lists:sort(PDRs0),
     FARs = lists:sort(FARs0),
 
-    lager:debug("PDRs: ~p", [pfcp_packet:lager_pr(PDRs)]),
-    lager:debug("FARs: ~p", [pfcp_packet:lager_pr(FARs)]),
-    lager:debug("URR: ~p", [pfcp_packet:lager_pr([URR])]),
+    ?LOG(debug, "PDRs: ~p", [pfcp_packet:pretty_print(PDRs)]),
+    ?LOG(debug, "FARs: ~p", [pfcp_packet:pretty_print(FARs)]),
+    ?LOG(debug, "URR: ~p", [pfcp_packet:pretty_print([URR])]),
 
     ?match(
        [#create_pdr{
@@ -1406,7 +1412,7 @@ gx_rar_gy_interaction(Config) ->
 
     InstCR =
 	[{pcc, install, [#{'Charging-Rule-Name' => [<<"r-0002">>]}]}],
-    lager:debug("Sending RAR"),
+    ?LOG(debug, "Sending RAR"),
     Server ! AAAReq#aaa_request{events = InstCR},
     {_, Resp1, _, _} =
 	receive {'$response', _, _, _, _} = R1 -> erlang:delete_element(1, R1) end,
@@ -1476,9 +1482,9 @@ redirect_info(Config) ->
     PDRs = lists:sort(PDRs0),
     FARs = lists:sort(FARs0),
 
-    lager:debug("PDRs: ~p", [pfcp_packet:lager_pr(PDRs)]),
-    lager:debug("FARs: ~p", [pfcp_packet:lager_pr(FARs)]),
-    lager:debug("URR: ~p", [pfcp_packet:lager_pr([URR])]),
+    ?LOG(debug, "PDRs: ~p", [pfcp_packet:pretty_print(PDRs)]),
+    ?LOG(debug, "FARs: ~p", [pfcp_packet:pretty_print(FARs)]),
+    ?LOG(debug, "URR: ~p", [pfcp_packet:pretty_print([URR])]),
 
     ?match(
        [#create_pdr{
@@ -1619,9 +1625,9 @@ tdf_app_id(Config) ->
     PDRs = lists:sort(PDRs0),
     FARs = lists:sort(FARs0),
 
-    lager:debug("PDRs: ~p", [pfcp_packet:lager_pr(PDRs)]),
-    lager:debug("FARs: ~p", [pfcp_packet:lager_pr(FARs)]),
-    lager:debug("URR: ~p", [pfcp_packet:lager_pr([URR])]),
+    ?LOG(debug, "PDRs: ~p", [pfcp_packet:pretty_print(PDRs)]),
+    ?LOG(debug, "FARs: ~p", [pfcp_packet:pretty_print(FARs)]),
+    ?LOG(debug, "URR: ~p", [pfcp_packet:pretty_print([URR])]),
 
     ?match(
        [#create_pdr{

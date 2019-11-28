@@ -16,6 +16,7 @@
 	 handle_request/5, handle_response/5,
 	 handle_event/4, terminate/3]).
 
+-include_lib("kernel/include/logger.hrl").
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include_lib("pfcplib/include/pfcp_packet.hrl").
 -include("include/ergw.hrl").
@@ -140,7 +141,7 @@ request_spec(v1, _, _) ->
 -define(Defaults, []).
 
 validate_options(Opts) ->
-    lager:debug("GGSN Gn/Gp Options: ~p", [Opts]),
+    ?LOG(debug, "GGSN Gn/Gp Options: ~p", [Opts]),
     ergw_proxy_lib:validate_options(fun validate_option/2, Opts, ?Defaults).
 
 validate_option(Opt, Value) ->
@@ -161,7 +162,7 @@ handle_event(enter, _OldState, _State, _Data) ->
     keep_state_and_data;
 
 handle_event({call, From}, delete_context, _State, _Data) ->
-    lager:warning("delete_context no handled(yet)"),
+    ?LOG(warning, "delete_context no handled(yet)"),
     {keep_state_and_data, [{reply, From, ok}]};
 
 handle_event({call, From}, terminate_context, _State, Data) ->
@@ -185,16 +186,16 @@ handle_event({call, From}, {path_restart, _Path}, _State, _Data) ->
     {keep_state_and_data, [{reply, From, ok}]};
 
 handle_event(cast, delete_context, _State, _Data) ->
-    lager:warning("delete_context no handled(yet)"),
+    ?LOG(warning, "delete_context no handled(yet)"),
     keep_state_and_data;
 
 handle_event(cast, {packet_in, _GtpPort, _IP, _Port, _Msg}, _State, _Data) ->
-    lager:warning("packet_in not handled (yet): ~p", [_Msg]),
+    ?LOG(warning, "packet_in not handled (yet): ~p", [_Msg]),
     keep_state_and_data;
 
 handle_event(info, {timeout, _, {delete_pdp_context_request, Direction, _ReqKey, _Request}},
 	     _State, Data) ->
-    lager:warning("Proxy Delete PDP Context Timeout ~p", [Direction]),
+    ?LOG(warning, "Proxy Delete PDP Context Timeout ~p", [Direction]),
 
     delete_forward_session(normal, Data),
     {next_state, shutdown, Data};
@@ -209,8 +210,8 @@ handle_event(info, _Info, _State, _Data) ->
     keep_state_and_data.
 
 handle_pdu(ReqKey, Msg, _State, Data) ->
-    lager:debug("GTP-U v1 Proxy: ~p, ~p",
-		[lager:pr(ReqKey, ?MODULE), gtp_c_lib:fmt_gtp(Msg)]),
+    ?LOG(debug, "GTP-U v1 Proxy: ~p, ~p",
+		[ReqKey, gtp_c_lib:fmt_gtp(Msg)]),
     {keep_state, Data}.
 
 handle_sx_report(#pfcp{type = session_report_request,
@@ -263,8 +264,8 @@ handle_request(ReqKey, #gtp{type = ms_info_change_notification_request} = Reques
     keep_state_and_data;
 
 handle_request(_ReqKey, _Request, true, _State, _Data) ->
-    lager:error("resend of request not handled ~p, ~p",
-		[lager:pr(_ReqKey, ?MODULE), gtp_c_lib:fmt_gtp(_Request)]),
+    ?LOG(error, "resend of request not handled ~p, ~p",
+		[_ReqKey, gtp_c_lib:fmt_gtp(_Request)]),
     keep_state_and_data;
 
 handle_request(ReqKey,
@@ -390,7 +391,7 @@ handle_request(ReqKey,
     {keep_state, Data};
 
 handle_request(#request{gtp_port = GtpPort} = ReqKey, Msg, _Resent, _State, _Data) ->
-    lager:warning("Unknown Proxy Message on ~p: ~p", [GtpPort, lager:pr(Msg, ?MODULE)]),
+    ?LOG(warning, "Unknown Proxy Message on ~p: ~p", [GtpPort, Msg]),
     gtp_context:request_finished(ReqKey),
     keep_state_and_data.
 
@@ -401,7 +402,7 @@ handle_response(#proxy_request{direction = sgsn2ggsn} = ProxyRequest,
 		#{context := PendingContext,
 		  proxy_context := PrevProxyCtx,
 		  pfcp := PCtx0} = Data) ->
-    lager:warning("OK Proxy Response ~p", [lager:pr(Response, ?MODULE)]),
+    ?LOG(warning, "OK Proxy Response ~p", [Response]),
 
     ProxyContext1 = update_context_from_gtp_req(Response, PrevProxyCtx),
     ProxyContext = gtp_path:bind(Response, ProxyContext1),
@@ -430,7 +431,7 @@ handle_response(#proxy_request{direction = sgsn2ggsn,
 		#{context := Context,
 		  proxy_context := OldProxyContext,
 		  pfcp := PCtx0} = Data) ->
-    lager:warning("OK Proxy Response ~p", [lager:pr(Response, ?MODULE)]),
+    ?LOG(warning, "OK Proxy Response ~p", [Response]),
 
     ProxyContext = update_context_from_gtp_req(Response, OldProxyContext),
     gtp_context:remote_context_update(OldProxyContext, ProxyContext),
@@ -444,7 +445,7 @@ handle_response(#proxy_request{direction = sgsn2ggsn,
 handle_response(#proxy_request{direction = ggsn2sgsn} = ProxyRequest,
 		#gtp{type = update_pdp_context_response} = Response,
 		_Request, _State, #{proxy_context := ProxyContext}) ->
-    lager:warning("OK SGSN Response ~p", [lager:pr(Response, ?MODULE)]),
+    ?LOG(warning, "OK SGSN Response ~p", [Response]),
 
     forward_response(ProxyRequest, Response, ProxyContext),
     keep_state_and_data;
@@ -452,7 +453,7 @@ handle_response(#proxy_request{direction = ggsn2sgsn} = ProxyRequest,
 handle_response(#proxy_request{direction = sgsn2ggsn} = ProxyRequest,
 		#gtp{type = ms_info_change_notification_response} = Response,
 		_Request, _State, #{context := Context}) ->
-    lager:warning("OK Proxy Response ~p", [lager:pr(Response, ?MODULE)]),
+    ?LOG(warning, "OK Proxy Response ~p", [Response]),
 
     forward_response(ProxyRequest, Response, Context),
     keep_state_and_data;
@@ -461,7 +462,7 @@ handle_response(#proxy_request{direction = sgsn2ggsn} = ProxyRequest,
 		#gtp{type = delete_pdp_context_response} = Response,
 		_Request, _State,
 		#{context := Context} = Data0) ->
-    lager:warning("OK Proxy Response ~p", [lager:pr(Response, ?MODULE)]),
+    ?LOG(warning, "OK Proxy Response ~p", [Response]),
 
     forward_response(ProxyRequest, Response, Context),
     Data = cancel_timeout(Data0),
@@ -472,7 +473,7 @@ handle_response(#proxy_request{direction = ggsn2sgsn} = ProxyRequest,
 		#gtp{type = delete_pdp_context_response} = Response,
 		_Request, _State,
 		#{proxy_context := ProxyContext} = Data0) ->
-    lager:warning("OK SGSN Response ~p", [lager:pr(Response, ?MODULE)]),
+    ?LOG(warning, "OK SGSN Response ~p", [Response]),
 
     forward_response(ProxyRequest, Response, ProxyContext),
     Data = cancel_timeout(Data0),
@@ -480,7 +481,7 @@ handle_response(#proxy_request{direction = ggsn2sgsn} = ProxyRequest,
     {next_state, shutdown, Data};
 
 handle_response(_ReqInfo, Response, _Req, _State, _Data) ->
-    lager:warning("Unknown Proxy Response ~p", [lager:pr(Response, ?MODULE)]),
+    ?LOG(warning, "Unknown Proxy Response ~p", [Response]),
     keep_state_and_data.
 
 terminate(_Reason, _State, _Data) ->
@@ -501,11 +502,11 @@ handle_proxy_info(Request, Context, #{proxy_ds := ProxyDS}) ->
     ProxyInfo0 = proxy_info(Context),
     case ProxyDS:map(ProxyInfo0) of
 	{ok, #proxy_info{} = ProxyInfo} ->
-	    lager:debug("OK Proxy Map: ~p", [lager:pr(ProxyInfo, ?MODULE)]),
+	    ?LOG(debug, "OK Proxy Map: ~p", [ProxyInfo]),
 	    ProxyInfo;
 
 	Other ->
-	    lager:warning("Failed Proxy Map: ~p", [Other]),
+	    ?LOG(warning, "Failed Proxy Map: ~p", [Other]),
 	    Type = create_pdp_context_response,
 	    Cause = user_authentication_failed,
 	    Reply = response(Type, Context, [#cause{value = Cause}], Request),
@@ -518,7 +519,7 @@ delete_forward_session(Reason, #{context := Context,
 				 'Session' := Session}) ->
     URRs = ergw_proxy_lib:delete_forward_session(Reason, Context, ProxyContext, PCtx),
     SessionOpts = to_session(gtp_context:usage_report_to_accounting(URRs)),
-    lager:debug("Accounting Opts: ~p", [SessionOpts]),
+    ?LOG(debug, "Accounting Opts: ~p", [SessionOpts]),
     ergw_aaa_session:invoke(Session, SessionOpts, stop, #{async => true}).
 
 handle_sgsn_change(#context{remote_control_teid = NewFqTEID},

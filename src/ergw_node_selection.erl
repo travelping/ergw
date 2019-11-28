@@ -17,6 +17,8 @@
 	 lookup_dns/3, colocation_match/2, topology_match/2,
 	 candidates/3, lookup/2, lookup/3]).
 
+-include_lib("kernel/include/logger.hrl").
+
 -ifdef(TEST).
 -export([naptr/2]).
 -define(NAPTR, ?MODULE:naptr).
@@ -166,11 +168,11 @@ lookup_host(Name, dns, NameServers) ->
 		      end
 	      end, {Name, [], []}, inet_dns:msg(Msg, anlist));
 	{error, _} = Error ->
-	    lager:debug("DNS Error: ~p", [Error]),
+	    ?LOG(debug, "DNS Error: ~p", [Error]),
 	    Error
     end;
 lookup_host(Name, static, RR) ->
-    lager:info("Host ~p, RR ~p", [Name, RR]),
+    ?LOG(info, "Host ~p, RR ~p", [Name, RR]),
     case lists:keyfind(Name, 1, RR) of
 	{_, _, _} = R ->
 	    R;
@@ -196,10 +198,10 @@ lookup_naptr_static(_, _, Acc) ->
     Acc.
 
 do_lookup(Selection, DoFun) ->
-    lager:info("Selection ~p in ~p", [Selection, application:get_env(ergw, node_selection, #{})]),
+    ?LOG(info, "Selection ~p in ~p", [Selection, application:get_env(ergw, node_selection, #{})]),
     case application:get_env(ergw, node_selection, #{}) of
 	#{Selection := {Type, Opts}} ->
-	    lager:info("Type ~p, Opts ~p", [Type, Opts]),
+	    ?LOG(info, "Type ~p, Opts ~p", [Type, Opts]),
 	    DoFun(Type, Opts);
 	_ ->
 	    []

@@ -20,6 +20,7 @@
 %% shared API's
 -export([init_session/3, init_session_from_gtp_req/3]).
 
+-include_lib("kernel/include/logger.hrl").
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include_lib("pfcplib/include/pfcp_packet.hrl").
 -include_lib("diameter/include/diameter_gen_base_rfc6733.hrl").
@@ -94,7 +95,7 @@ request_spec(v2, _, _) ->
     [].
 
 validate_options(Options) ->
-    lager:debug("GGSN S5/S8 Options: ~p", [Options]),
+    ?LOG(debug, "GGSN S5/S8 Options: ~p", [Options]),
     gtp_context:validate_options(fun validate_option/2, Options, []).
 
 validate_option(Opt, Value) ->
@@ -151,7 +152,7 @@ handle_event(cast, delete_context, _State, _Data) ->
     keep_state_and_data;
 
 handle_event(cast, {packet_in, _GtpPort, _IP, _Port, _Msg}, _State, _Data) ->
-    lager:warning("packet_in not handled (yet): ~p", [_Msg]),
+    ?LOG(warning, "packet_in not handled (yet): ~p", [_Msg]),
     keep_state_and_data;
 
 handle_event(info, {'DOWN', _MonitorRef, Type, Pid, _Info}, _State,
@@ -272,12 +273,12 @@ handle_event(internal, {session, {update_credits, _} = CreditEv, _}, _State,
     {keep_state, Data#{pfcp := PCtx, pcc := PCC}};
 
 handle_event(internal, {session, Ev, _}, _State, _Data) ->
-    lager:error("unhandled session event: ~p", [Ev]),
+    ?LOG(error, "unhandled session event: ~p", [Ev]),
     keep_state_and_data.
 
 handle_pdu(ReqKey, #gtp{ie = PDU} = Msg, _State,
 	   #{context := Context, pfcp := PCtx} = Data) ->
-    lager:debug("GTP-U PGW: ~p, ~p", [lager:pr(ReqKey, ?MODULE), gtp_c_lib:fmt_gtp(Msg)]),
+    ?LOG(debug, "GTP-U PGW: ~p, ~p", [ReqKey, gtp_c_lib:fmt_gtp(Msg)]),
 
     ergw_gsn_lib:ip_pdu(PDU, Context, PCtx),
     {keep_state, Data}.
@@ -354,7 +355,7 @@ handle_request(ReqKey,
     {ContextVRF, VRFOpts} = select_vrf(ContextPreAuth),
 
     ActiveSessionOpts = apply_vrf_session_defaults(VRFOpts, ActiveSessionOpts0),
-    lager:info("ActiveSessionOpts: ~p", [ActiveSessionOpts]),
+    ?LOG(info, "ActiveSessionOpts: ~p", [ActiveSessionOpts]),
 
     {SessionIPs, ContextPending0} = assign_ips(ActiveSessionOpts, PAA, ContextVRF),
     ContextPending = session_to_context(ActiveSessionOpts, ContextPending0),
@@ -410,8 +411,8 @@ handle_request(ReqKey,
 
     {ok, GySessionOpts, GyEvs} =
 	ccr_initial(ContextPending, Session, gy, GyReqServices, SOpts, Request),
-    lager:info("GySessionOpts: ~p", [GySessionOpts]),
-    lager:info("Initial GyEvs: ~p", [GyEvs]),
+    ?LOG(info, "GySessionOpts: ~p", [GySessionOpts]),
+    ?LOG(info, "Initial GyEvs: ~p", [GyEvs]),
 
     ergw_aaa_session:invoke(Session, #{}, start, SOpts),
     {_, _, RfSEvs} = ergw_aaa_session:invoke(Session, #{}, {rf, 'Initial'}, SOpts),
@@ -618,13 +619,13 @@ handle_response(CommandReqKey,
 	    trigger_defered_usage_report(URRActions, PCtx),
 	    {keep_state, Data};
        true ->
-	    lager:error("Update Bearer Request failed with ~p/~p",
+	    ?LOG(error, "Update Bearer Request failed with ~p/~p",
 			[Cause, BearerCause]),
 	    delete_context(undefined, link_broken, Data)
     end;
 
 handle_response(_, timeout, #gtp{type = update_bearer_request}, run, Data) ->
-    lager:error("Update Bearer Request failed with timeout"),
+    ?LOG(error, "Update Bearer Request failed with timeout"),
     delete_context(undefined, link_broken, Data);
 
 handle_response({From, TermCause}, timeout, #gtp{type = delete_bearer_request},
@@ -672,12 +673,12 @@ session_failure_to_gtp_cause(_) ->
     system_failure.
 
 authenticate(Context, Session, SessionOpts, Request) ->
-    lager:info("SessionOpts: ~p", [SessionOpts]),
+    ?LOG(info, "SessionOpts: ~p", [SessionOpts]),
     case ergw_aaa_session:invoke(Session, SessionOpts, authenticate, [inc_session_id]) of
 	{ok, _, _} = Result ->
 	    Result;
 	Other ->
-	    lager:info("AuthResult: ~p", [Other]),
+	    ?LOG(info, "AuthResult: ~p", [Other]),
 	    ?ABORT_CTX_REQUEST(Context, Request, create_session_response,
 			       user_authentication_failed)
     end.
@@ -712,13 +713,13 @@ match_context(Type,
 	RemoteCntlIP6 ->
 	    error_m:return(ok);
 	_ ->
-	    lager:error("match_context: IP address mismatch, ~p, ~p, ~p",
-			[Type, lager:pr(Context, ?MODULE), lager:pr(IE, ?MODULE)]),
+	    ?LOG(error, "match_context: IP address mismatch, ~p, ~p, ~p",
+			[Type, Context, IE]),
 	    error_m:fail([#v2_cause{v2_cause = invalid_peer}])
     end;
 match_context(Type, Context, IE) ->
-    lager:error("match_context: context not found, ~p, ~p, ~p",
-		[Type, lager:pr(Context, ?MODULE), lager:pr(IE, ?MODULE)]),
+    ?LOG(error, "match_context: context not found, ~p, ~p, ~p",
+		[Type, Context, IE]),
     error_m:fail([#v2_cause{v2_cause = invalid_peer}]).
 
 pdn_alloc(#v2_pdn_address_allocation{type = ipv4v6,
@@ -770,9 +771,9 @@ close_pdn_context(Reason, #{context := Context, pfcp := PCtx, 'Session' := Sessi
     ReqOpts = #{now => Now, async => true},
     case ergw_aaa_session:invoke(Session, #{}, {gx, 'CCR-Terminate'}, ReqOpts#{async => false}) of
 	{ok, _GxSessionOpts, _} ->
-	    lager:info("GxSessionOpts: ~p", [_GxSessionOpts]);
+	    ?LOG(info, "GxSessionOpts: ~p", [_GxSessionOpts]);
 	GxOther ->
-	    lager:warning("Gx terminate failed with: ~p", [GxOther])
+	    ?LOG(warning, "Gx terminate failed with: ~p", [GxOther])
     end,
 
     ChargeEv = {terminate, TermCause},
@@ -807,7 +808,7 @@ triggered_charging_event(ChargeEv, Now, Request,
 	ergw_gsn_lib:process_accounting_monitor_events(ChargeEv, Monitor, Now, Session)
     catch
 	throw:#ctx_err{} = CtxErr ->
-	    lager:error("Triggered Charging Event failed with ~p", [CtxErr])
+	    ?LOG(error, "Triggered Charging Event failed with ~p", [CtxErr])
     end,
     ok.
 
@@ -817,7 +818,7 @@ defered_usage_report_fun(Owner, URRActions, PCtx) ->
 	defered_usage_report(Owner, URRActions, Report)
     catch
 	throw:#ctx_err{} = CtxErr ->
-	    lager:error("Defered Usage Report failed with ~p", [CtxErr])
+	    ?LOG(error, "Defered Usage Report failed with ~p", [CtxErr])
     end.
 
 trigger_defered_usage_report(URRActions, PCtx) ->
@@ -1281,7 +1282,7 @@ pdn_ppp_pco(SessionOpts, {?'PCO-DNS-Server-IPv4-Address', <<>>}, Opts) ->
 			end
 		end, Opts, ['MS-Secondary-DNS-Server', 'MS-Primary-DNS-Server']);
 pdn_ppp_pco(_SessionOpts, PPPReqOpt, Opts) ->
-    lager:info("Apply PPP Opt: ~p", [PPPReqOpt]),
+    ?LOG(info, "Apply PPP Opt: ~p", [PPPReqOpt]),
     Opts.
 
 pdn_pco(SessionOpts, #{?'Protocol Configuration Options' :=

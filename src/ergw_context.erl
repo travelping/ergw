@@ -7,14 +7,13 @@
 
 -module(ergw_context).
 
--compile({no_auto_import, [apply/3]}).
-
 %% API
--export([apply/3, sx_report/1, port_message/2, port_message/3, port_message/4]).
+-export([sx_report/1, port_message/2, port_message/3, port_message/4]).
 
 %%-type ctx_ref() :: {Handler :: atom(), Server :: pid()}.
 -type seid() :: 0..16#ffffffffffffffff.
 
+-include_lib("kernel/include/logger.hrl").
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include_lib("pfcplib/include/pfcp_packet.hrl").
 -include("include/ergw.hrl").
@@ -36,7 +35,7 @@
 %%% -----------------------------------------------------------------
 
 sx_report(#pfcp{type = session_report_request, seid = SEID} = Report) ->
-    apply({seid, SEID}, sx_report, [Report]).
+    apply2context({seid, SEID}, sx_report, [Report]).
 
 %% port_message/2
 port_message(Request, Msg) ->
@@ -51,18 +50,18 @@ port_message(Keys, #request{gtp_port = GtpPort} = Request, Msg)
 
 %% port_message/4
 port_message(Key, Request, Msg, Resent) ->
-    apply(Key, port_message, [Request, Msg, Resent]).
+    apply2context(Key, port_message, [Request, Msg, Resent]).
 
 %%%=========================================================================
 %%%  internal functions
 %%%=========================================================================
 
-apply(Key, F, A) ->
+apply2context(Key, F, A) ->
     case gtp_context_reg:lookup(Key) of
 	{Handler, Server} when is_atom(Handler), is_pid(Server) ->
-	    erlang:apply(Handler, F, [Server | A]);
+	    apply(Handler, F, [Server | A]);
 	_Other ->
-	    lager:error("unable to find context ~p", [Key]),
+	    ?LOG(error, "unable to find context ~p", [Key]),
 	    {error, not_found}
     end.
 
@@ -80,7 +79,7 @@ port_message_h(Request, #gtp{} = Msg) ->
 		port_message_run(Request, Msg)
 	    catch
 		throw:{error, Error} ->
-		    lager:error("handler failed with: ~p", [Error]),
+		    ?LOG(error, "handler failed with: ~p", [Error]),
 		    gtp_context:generic_error(Request, Msg, Error)
 	    after
 		jobs:done(Opaque)

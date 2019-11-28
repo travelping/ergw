@@ -16,6 +16,7 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
 	 terminate/2, code_change/3]).
 
+-include_lib("kernel/include/logger.hrl").
 -include_lib("gen_socket/include/gen_socket.hrl").
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include("include/ergw.hrl").
@@ -114,7 +115,7 @@ sendto({_,_,_,_,_,_,_,_} = RemoteIP, Port, Data, #state{socket = Socket}) ->
 handle_input(Socket, State) ->
     case gen_socket:recvfrom(Socket) of
 	{error, _} = Err ->
-	    lager:error("got error from UP socket: ~p", [Err]),
+	    ?LOG(error, "got error from UP socket: ~p", [Err]),
 	    {noreply, State};
 
 	{ok, {_, IP, Port}, Data} ->
@@ -122,7 +123,7 @@ handle_input(Socket, State) ->
 	    handle_message(IP, Port, Data, State);
 
 	Other ->
-	    lager:error("got unhandled input: ~p", [Other]),
+	    ?LOG(error, "got unhandled input: ~p", [Other]),
 	    ok = gen_socket:input_event(Socket, true),
 	    {noreply, State}
     end.
@@ -134,7 +135,7 @@ handle_message(IP, Port, Data, State0) ->
 	    {noreply, State}
     catch
 	Class:Error ->
-	    lager:error("GTP decoding failed with ~p:~p for ~p", [Class, Error, Data]),
+	    ?LOG(error, "GTP decoding failed with ~p:~p for ~p", [Class, Error, Data]),
 	    {noreply, State0}
     end.
 
@@ -146,5 +147,5 @@ handle_message_1(IP, Port, #gtp{type = echo_request} = Msg, State) ->
     State;
 
 handle_message_1(IP, Port, Msg, State) ->
-    lager:debug("UP from ~s:~w: ~p", [inet:ntoa(IP), Port, Msg]),
+    ?LOG(debug, "UP from ~s:~w: ~p", [inet:ntoa(IP), Port, Msg]),
     State.

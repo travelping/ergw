@@ -15,6 +15,8 @@
 %% Supervisor callbacks
 -export([init/1]).
 
+-include_lib("kernel/include/logger.hrl").
+
 -define(SERVER, ?MODULE).
 
 %% ===================================================================
@@ -30,7 +32,7 @@ new(Node, VRF, IP4, IP6, SxOpts) ->
     new(Node, VRF, IP4, IP6, SxOpts, Opts).
 
 new(Node, VRF, IP4, IP6, SxOpts, Opts) ->
-    lager:debug("new(~p)", [[Node, VRF, IP4, IP6, SxOpts, Opts]]),
+    ?LOG(debug, "new(~p)", [[Node, VRF, IP4, IP6, SxOpts, Opts]]),
     supervisor:start_child(?SERVER, [Node, VRF, IP4, IP6, SxOpts, Opts]).
 
 %% ===================================================================

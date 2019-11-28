@@ -52,11 +52,11 @@ apn_strip_oi(APN) ->
 %%%===================================================================
 
 fmt_ie(#v2_bearer_context{group = Group}) ->
-    lager:pr(#v2_bearer_context{group = fmt_ies(Group)}, ?MODULE);
+    #v2_bearer_context{group = fmt_ies(Group)};
 fmt_ie(V) when is_list(V) ->
     lists:map(fun fmt_ie/1, V);
 fmt_ie(V) ->
-    lager:pr(V, ?MODULE).
+    V.
 
 fmt_ies(IEs) when is_map(IEs) ->
     maps:map(fun(_K, V) -> fmt_ie(V) end, IEs);
@@ -65,4 +65,4 @@ fmt_ies(IEs) when is_list(IEs) ->
 fmt_ies(IEs) -> IEs.
 
 fmt_gtp(#gtp{ie = IEs} = Msg) ->
-    lager:pr(Msg#gtp{ie = fmt_ies(IEs)}, ?MODULE).
+    Msg#gtp{ie = fmt_ies(IEs)}.

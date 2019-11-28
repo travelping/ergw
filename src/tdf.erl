@@ -27,6 +27,7 @@
 -export([callback_mode/0, init/1, handle_event/4,
 	 terminate/3, code_change/4]).
 
+-include_lib("kernel/include/logger.hrl").
 -include_lib("pfcplib/include/pfcp_packet.hrl").
 -include_lib("diameter/include/diameter_gen_base_rfc6733.hrl").
 -include_lib("ergw_aaa/include/diameter_3gpp_ts29_212.hrl").
@@ -71,7 +72,7 @@ test_cmd(Pid, Cmd) when is_pid(Pid) ->
 			  {apn, undefined}]).
 
 validate_options(Options) ->
-    lager:debug("TDF Options: ~p", [Options]),
+    ?LOG(debug, "TDF Options: ~p", [Options]),
     ergw_config:validate_options(fun validate_option/2, Options, ?HandlerDefaults, map).
 
 validate_option(protocol, ip) ->
@@ -101,14 +102,14 @@ port_message(Request, Msg) ->
     %% we currently do not configure DP to CP forwards,
     %% so this should not happen
 
-    lager:error("Port Message ~p, ~p", [Request, Msg]),
+    ?LOG(error, "Port Message ~p, ~p", [Request, Msg]),
     error(badarg, [Request, Msg]).
 
 port_message(Server, Request, Msg, Resent) ->
     %% we currently do not configure DP to CP forwards,
     %% so this should not happen
 
-    lager:error("Port Message ~p, ~p", [Server, Request, Msg, Resent]),
+    ?LOG(error, "Port Message ~p, ~p", [Server, Request, Msg, Resent]),
     error(badarg, [Server, Request, Msg, Resent]).
 
 %%====================================================================
@@ -121,14 +122,14 @@ init([Node, InVRF, IP4, IP6, #{apn := APN} = _SxOpts]) ->
     process_flag(trap_exit, true),
 
     monitor(process, Node),
-    %% lager:debug("APN: ~p", [APN]),
+    %% ?LOG(debug, "APN: ~p", [APN]),
 
     %% {ok, {VRF, VRFOpts}} = ergw:vrf_lookup(APN),
-    %% lager:debug("VRF: ~p, Opts: ~p", [VRF, VRFOpts]),
+    %% ?LOG(debug, "VRF: ~p, Opts: ~p", [VRF, VRFOpts]),
 
     %% Services = [{"x-3gpp-upf", "x-sxc"}],
     %% {ok, SxPid} = ergw_sx_node:select_sx_node(APN, Services, NodeSelect),
-    %% lager:debug("SxPid: ~p", [SxPid]),
+    %% ?LOG(debug, "SxPid: ~p", [SxPid]),
 
     {ok, {OutVrf, _}} = ergw:vrf(APN),
     {ok, Session} = ergw_aaa_session_sup:new_session(self(), to_session([])),
@@ -148,7 +149,7 @@ init([Node, InVRF, IP4, IP6, #{apn := APN} = _SxOpts]) ->
 	       pcc = PCC
 	      },
 
-    lager:info("TDF process started for ~p", [[Node, IP4, IP6]]),
+    ?LOG(info, "TDF process started for ~p", [[Node, IP4, IP6]]),
     {ok, init, Data, [{next_event, internal, init}]}.
 
 handle_event(enter, _OldState, shutdown, _Data) ->
@@ -172,7 +173,7 @@ handle_event(internal, init, init, Data0) ->
 	{next_state, run, Data}
     catch
 	throw:_Error ->
-	    lager:debug("TDF Init failed with ~p", [_Error]),
+	    ?LOG(debug, "TDF Init failed with ~p", [_Error]),
 	    {stop, normal}
     end;
 
@@ -187,7 +188,7 @@ handle_event({call, From}, {sx, #pfcp{type = session_report_request,
 		       ie = #{report_type := #report_type{usar = 1},
 			      usage_report_srr := UsageReport}} = Report},
 	    _State, #data{session = Session, pfcp = PCtx, pcc = PCC}) ->
-    lager:debug("~w: handle_call Sx: ~p", [?MODULE, lager:pr(Report, ?MODULE)]),
+    ?LOG(debug, "~w: handle_call Sx: ~p", [?MODULE, Report]),
 
     Now = erlang:monotonic_time(),
     ReqOpts = #{now => Now, async => true},
@@ -203,7 +204,7 @@ handle_event({call, From}, {sx, #pfcp{type = session_report_request,
     {keep_state_and_data, [{reply, From, {ok, PCtx}}]};
 
 handle_event({call, From}, {sx, Report}, _State, #data{pfcp = PCtx}) ->
-    lager:warning("~w: unhandled Sx report: ~p", [?MODULE, lager:pr(Report, ?MODULE)]),
+    ?LOG(warning, "~w: unhandled Sx report: ~p", [?MODULE, Report]),
     {keep_state_and_data, [{reply, From, {ok, PCtx, 'System failure'}}]};
 
 handle_event({call, From}, _Request, _State, _Data) ->
@@ -320,18 +321,18 @@ handle_event(internal, {session, {update_credits, _} = CreditEv, _}, _State,
     {keep_state, Data#data{pfcp = PCtx, pcc = PCC}};
 
 handle_event(internal, {session, Ev, _}, _State, _Data) ->
-    lager:error("unhandled session event: ~p", [Ev]),
+    ?LOG(error, "unhandled session event: ~p", [Ev]),
     keep_state_and_data;
 
 handle_event(info, {update_session, Session, Events}, _State, _Data) ->
-    lager:warning("SessionEvents: ~p~n       Events: ~p", [Session, Events]),
+    ?LOG(warning, "SessionEvents: ~p~n       Events: ~p", [Session, Events]),
     Actions = [{next_event, internal, {session, Ev, Session}} || Ev <- Events],
     {keep_state_and_data, Actions};
 
 handle_event(info, {timeout, TRef, pfcp_timer} = Info, _State,
 	     #data{pfcp = PCtx0} = Data0) ->
     Now = erlang:monotonic_time(),
-    lager:debug("handle_info TDF:~p", [lager:pr(Info, ?MODULE)]),
+    ?LOG(debug, "handle_info TDF:~p", [Info]),
 
     {Evs, PCtx} = ergw_pfcp:timer_expired(TRef, PCtx0),
     CtxEvs = ergw_gsn_lib:pfcp_to_context_event(Evs),
@@ -380,7 +381,7 @@ start_session(#data{context = Context, dp_node = Node,
 
     {ok, GySessionOpts, GyEvs} =
 	ccr_initial(Session, gy, GyReqServices, SOpts),
-    lager:info("GySessionOpts: ~p", [GySessionOpts]),
+    ?LOG(info, "GySessionOpts: ~p", [GySessionOpts]),
 
     ergw_aaa_session:invoke(Session, #{}, start, SOpts),
     {_, _, RfSEvs} = ergw_aaa_session:invoke(Session, #{}, {rf, 'Initial'}, SOpts),
@@ -437,12 +438,12 @@ init_session(#data{context = Context}) ->
 
 
 authenticate(Session, SessionOpts) ->
-    lager:info("SessionOpts: ~p", [SessionOpts]),
+    ?LOG(info, "SessionOpts: ~p", [SessionOpts]),
     case ergw_aaa_session:invoke(Session, SessionOpts, authenticate, [inc_session_id]) of
 	{ok, _, _} = Result ->
 	    Result;
 	Other ->
-	    lager:info("AuthResult: ~p", [Other]),
+	    ?LOG(info, "AuthResult: ~p", [Other]),
 	    throw({fail, authenticate, Other})
     end.
 
@@ -474,9 +475,9 @@ close_pdn_context(Reason, run, #data{context = Context, pfcp = PCtx,
 
     case ergw_aaa_session:invoke(Session, #{}, {gx, 'CCR-Terminate'}, ReqOpts#{async => false}) of
 	{ok, _GxSessionOpts, _} ->
-	    lager:info("GxSessionOpts: ~p", [_GxSessionOpts]);
+	    ?LOG(info, "GxSessionOpts: ~p", [_GxSessionOpts]);
 	GxOther ->
-	    lager:warning("Gx terminate failed with: ~p", [GxOther])
+	    ?LOG(warning, "Gx terminate failed with: ~p", [GxOther])
     end,
 
     ChargeEv = {terminate, TermCause},
@@ -513,7 +514,7 @@ triggered_charging_event(ChargeEv, Now, Request,
 	ergw_gsn_lib:process_accounting_monitor_events(ChargeEv, Monitor, Now, Session)
     catch
 	throw:#ctx_err{} = CtxErr ->
-	    lager:error("Triggered Charging Event failed with ~p", [CtxErr])
+	    ?LOG(error, "Triggered Charging Event failed with ~p", [CtxErr])
     end,
     ok.
 
@@ -521,7 +522,7 @@ handle_charging_event(validity_time, ChargingKeys, Now, Data) ->
     triggered_charging_event(validity_time, Now, ChargingKeys, Data),
     Data;
 handle_charging_event(Key, Ev, _Now, Data) ->
-    lager:debug("TDF: unhandled charging event ~p:~p",[Key, Ev]),
+    ?LOG(debug, "TDF: unhandled charging event ~p:~p",[Key, Ev]),
     Data.
 
 %%====================================================================

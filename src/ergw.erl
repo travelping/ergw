@@ -23,6 +23,8 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
 	 terminate/2, code_change/3]).
 
+-include_lib("kernel/include/logger.hrl").
+
 -define(SERVER, ?MODULE).
 -record(state, {tid :: ets:tid()}).
 
@@ -99,7 +101,7 @@ attach_tdf(SxNode, #{node_selection := NodeSelections} = Opts) ->
 		{Node, IP4, IP6} ->
 		    ergw_sx_node:connect_sx_node(Node, IP4, IP6, Opts);
 		_Other ->
-		    lager:warning("TDF lookup for ~p failed ~p", [SxNode, _Other]),
+		    ?LOG(warning, "TDF lookup for ~p failed ~p", [SxNode, _Other]),
 		    NodeLookup(NextSelection)
 	    end
     end)(NodeSelections).

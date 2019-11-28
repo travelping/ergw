@@ -40,6 +40,7 @@
 -export([init_ets/1]).
 
 -include("ergw_test_lib.hrl").
+-include_lib("kernel/include/logger.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include_lib("pfcplib/include/pfcp_packet.hrl").
@@ -71,11 +72,10 @@ lib_init_per_suite(Config0) ->
     {_, AppCfg} = lists:keyfind(app_cfg, 1, Config0),   %% let it crash if undefined
 
     Config = init_ets(Config0),
-    [application:load(App) || App <- [lager, cowboy, ergw, ergw_aaa]],
+    [application:load(App) || App <- [cowboy, ergw, ergw_aaa]],
     meck_init(Config),
     load_config(AppCfg),
     {ok, _} = application:ensure_all_started(ergw),
-    %% lager_common_test_backend:bounce(debug),
     {ok, _} = ergw_test_sx_up:start('pgw-u', proplists:get_value(pgw_u_sx, Config)),
     {ok, _} = ergw_test_sx_up:start('sgw-u', proplists:get_value(sgw_u_sx, Config)),
     {ok, _} = ergw_test_sx_up:start('tdf-u', proplists:get_value(tdf_u_sx, Config)),
@@ -88,17 +88,27 @@ lib_end_per_suite(Config) ->
     ok = ergw_test_sx_up:stop('sgw-u'),
     ok = ergw_test_sx_up:stop('tdf-u'),
     ?config(table_owner, Config) ! stop,
-    [application:stop(App) || App <- [lager, ranch, cowboy, ergw, ergw_aaa]],
+    [application:stop(App) || App <- [ranch, cowboy, ergw, ergw_aaa]],
     ok.
 
 load_config(AppCfg) ->
-    lists:foreach(fun({App, Settings}) ->
-			  ct:pal("App: ~p, S: ~p", [App, Settings]),
-			  lists:foreach(fun({K,V}) ->
-						ct:pal("App: ~p, K: ~p, V: ~p", [App, K, V]),
-						application:set_env(App, K, V)
-					end, Settings)
-		  end, AppCfg),
+    lists:foreach(
+      fun({App, Settings}) ->
+	      lists:foreach(
+		fun({logger, V})
+		      when App =:= kernel, is_list(V) ->
+			lists:foreach(
+			  fun({handler, HandlerId, _Module, HandlerConfig})
+				when is_map(HandlerConfig)->
+				  logger:update_handler_config(HandlerId, HandlerConfig);
+			     (Cfg) ->
+				  ct:fail("unknown logger config  ~p", [Cfg])
+			  end, V),
+			ok;
+		   ({K,V}) ->
+			application:set_env(App, K, V)
+		end, Settings)
+      end, AppCfg),
     ok.
 
 merge_config(Opts, Config) ->
@@ -559,14 +569,14 @@ query_usage_report(Context, PCtx) ->
     case ergw_sx_node:call(PCtx, Req, Context) of
 	#pfcp{type = session_modification_response,
 	      ie = #{pfcp_cause := #pfcp_cause{cause = 'Request accepted'}} = IEs} ->
-	    lager:warning("Gn/Gp: got OK Query response: ~p",
-			  [pfcp_packet:lager_pr(IEs)]),
+	    ?LOG(warning, "Gn/Gp: got OK Query response: ~s",
+			  [pfcp_packet:pretty_print(IEs)]),
 	    ergw_aaa_session:to_session(
 	      gtp_context:usage_report_to_accounting(
 		maps:get(usage_report_smr, IEs, undefined)));
 	_Other ->
-	    lager:warning("Gn/Gp: got unexpected Query response: ~p",
-			  [lager:pr(_Other, ?MODULE)]),
+	    ?LOG(warning, "Gn/Gp: got unexpected Query response: ~p",
+			  [_Other]),
 	    #{}
     end.
 

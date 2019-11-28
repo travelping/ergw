@@ -18,6 +18,7 @@
 	 delete_forward_session/4,
 	 query_usage_report/2]).
 
+-include_lib("kernel/include/logger.hrl").
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include_lib("pfcplib/include/pfcp_packet.hrl").
 -include("include/ergw.hrl").
@@ -30,7 +31,7 @@
 forward_request(Direction, GtpPort, DstIP, DstPort,
 		Request, ReqKey, SeqNo, NewPeer, OldState) ->
     {ReqId, ReqInfo} = make_proxy_request(Direction, ReqKey, SeqNo, NewPeer, OldState),
-    lager:debug("Invoking Context Send Request: ~p", [Request]),
+    ?LOG(debug, "Invoking Context Send Request: ~p", [Request]),
     gtp_context:send_request(GtpPort, DstIP, DstPort, ReqId, Request, ReqInfo).
 
 forward_request(Direction,
@@ -68,7 +69,7 @@ select_proxy_gsn_fqdn(FQDN, ProxyGSN, Services, #{node_selection := NodeSelect} 
 	[{Node, _, _, _, IP6}|_] when length(IP6) /= 0 ->
 	    ProxyGSN#proxy_ggsn{node = Node, address = hd(IP6)};
 	_Other ->
-	    lager:error("proxy GSN for ~p not found, rejecting request, got ~p", [FQDN, _Other]),
+	    ?LOG(error, "proxy GSN for ~p not found, rejecting request, got ~p", [FQDN, _Other]),
 	    throw(?CTX_ERR(?FATAL, system_failure, maps:get(context, State)))
     end.
 
@@ -77,7 +78,7 @@ select_proxy_sockets(#proxy_ggsn{node = Node, dst_apn = DstAPN, context = Contex
 		       node_selection := ProxyNodeSelect}) ->
     Ctx = maps:get(Context, Contexts, #{}),
     if Ctx =:= #{} ->
-	    lager:warning("proxy context ~p not found, using default", [Context]);
+	    ?LOG(warning, "proxy context ~p not found, using default", [Context]);
        true -> ok
     end,
     Cntl = maps:get(proxy_sockets, Ctx, ProxyPorts),
@@ -299,8 +300,8 @@ delete_forward_session(normal, Left, _Right, PCtx) ->
 	      ie = #{pfcp_cause := #pfcp_cause{cause = 'Request accepted'}} = IEs} ->
 	    maps:get(usage_report_sdr, IEs, undefined);
 	_Other ->
-	    lager:warning("PFCP (proxy): Session Deletion failed with ~p",
-			  [lager:pr(_Other, ?MODULE)]),
+	    ?LOG(warning, "PFCP (proxy): Session Deletion failed with ~p",
+			  [_Other]),
 	    undefined
     end;
 delete_forward_session(_Reason, _Left, _Right, _PCtx) ->
