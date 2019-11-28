@@ -33,6 +33,7 @@
 	 pcc_events_to_charging_rule_report/1]).
 -export([pcc_ctx_has_rules/1]).
 
+-include_lib("kernel/include/logger.hrl").
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include_lib("pfcplib/include/pfcp_packet.hrl").
 -include_lib("ergw_aaa/include/ergw_aaa_3gpp.hrl").
@@ -59,8 +60,8 @@ delete_sgi_session(Reason, Ctx, PCtx)
 	    maps:get(usage_report_sdr, IEs, undefined);
 
 	_Other ->
-	    lager:warning("PFCP: Session Deletion failed with ~p",
-			  [lager:pr(_Other, ?MODULE)]),
+	    ?LOG(warning, "PFCP: Session Deletion failed with ~p",
+			  [_Other]),
 	    undefined
     end;
 delete_sgi_session(_Reason, _Context, _PCtx) ->
@@ -112,12 +113,12 @@ session_establishment_request(PCC, PCtx0, Ctx) ->
     {ok, CntlNode, _} = ergw_sx_socket:id(),
 
     {SxRules, SxErrors, PCtx} = build_sx_rules(PCC, #{}, PCtx0, Ctx),
-    lager:info("SxRules: ~p~n", [SxRules]),
-    lager:info("SxErrors: ~p~n", [SxErrors]),
-    lager:info("CtxPending: ~p~n", [Ctx]),
+    ?LOG(info, "SxRules: ~p~n", [SxRules]),
+    ?LOG(info, "SxErrors: ~p~n", [SxErrors]),
+    ?LOG(info, "CtxPending: ~p~n", [Ctx]),
 
     IEs = update_m_rec(ergw_pfcp:f_seid(PCtx, CntlNode), SxRules),
-    lager:info("IEs: ~p~n", [IEs]),
+    ?LOG(info, "IEs: ~p~n", [IEs]),
 
     Req = #pfcp{version = v1, type = session_establishment_request, ie = IEs},
     case ergw_sx_node:call(PCtx, Req, Ctx) of
@@ -168,7 +169,7 @@ session_events_to_pcc_ctx_2({set, {Service, {Type, Level, Interval, Opts}}},
 		    maps:update_with(Level, maps:put(Service, Definition, _),
 				     #{Service => Definition}, Monitors)};
 session_events_to_pcc_ctx_2(Ev, PCC) ->
-    lager:warning("unhandled Session Event ~p", [Ev]),
+    ?LOG(warning, "unhandled Session Event ~p", [Ev]),
     PCC.
 
 %% convert Gx like Install/Remove interactions in PCC rule states
@@ -366,7 +367,7 @@ apply_charing_tariff_time({H, M}, URR)
 	    URR#{monitoring_time => #monitoring_time{time = TCTime}}
     end;
 apply_charing_tariff_time(Time, URR) ->
-    lager:error("Invalid Tariff-Time \"~p\"", [Time]),
+    ?LOG(error, "Invalid Tariff-Time \"~p\"", [Time]),
     URR.
 
 apply_charging_profile('Tariff-Time', Value, URR)
@@ -491,7 +492,7 @@ build_sx_offline_charging_rule(_Name,
     OCP = maps:get('Default', OCPcfg, #{}),
     URR = apply_charging_profile(URR1, OCP),
 
-    lager:warning("Offline URR: ~p", [URR]),
+    ?LOG(warning, "Offline URR: ~p", [URR]),
     Update#sx_upd{
       pctx = ergw_pfcp:pfcp_rules_add(
 	       [{urr, ChargingKey, URR}], PCtx)};
@@ -861,7 +862,7 @@ build_sx_usage_rule(monitoring_time, #{'Tariff-Time-Change' := [TTC]}, _, URR) -
     URR#{monitoring_time => #monitoring_time{time = Time}};
 
 build_sx_usage_rule(Type, _, _, URR) ->
-    lager:warning("build_sx_usage_rule: not handling ~p", [Type]),
+    ?LOG(warning, "build_sx_usage_rule: not handling ~p", [Type]),
     URR.
 
 pfcp_to_context_event([], M) ->
@@ -898,7 +899,7 @@ build_sx_usage_rule(_K, #{'Rating-Group' := [RatingGroup],
 		       total_quota_threshold, input_quota_threshold, output_quota_threshold,
 		       monitoring_time]),
 
-    lager:warning("URR: ~p", [URR]),
+    ?LOG(warning, "URR: ~p", [URR]),
     Update#sx_upd{
       pctx = ergw_pfcp:pfcp_rules_add(
 	       [{urr, ChargingKey, URR}], PCtx)};
@@ -910,7 +911,7 @@ build_sx_monitor_rule(Level, Monitors, Update) ->
 
 build_sx_monitor_rule('IP-CAN', Service, {periodic, Time, _Opts} = _Definition,
 		      #sx_upd{monitors = Monitors0, pctx = PCtx0} = Update) ->
-    lager:info("Sx Monitor Rule: ~p", [_Definition]),
+    ?LOG(info, "Sx Monitor Rule: ~p", [_Definition]),
 
     RuleName = {monitor, 'IP-CAN', Service},
     {UrrId, PCtx} = ergw_pfcp:get_urr_id(RuleName, ['IP-CAN'], RuleName, PCtx0),
@@ -920,7 +921,7 @@ build_sx_monitor_rule('IP-CAN', Service, {periodic, Time, _Opts} = _Definition,
 	   #reporting_triggers{periodic_reporting = 1},
 	   #measurement_period{period = Time}],
 
-    lager:warning("URR: ~p", [URR]),
+    ?LOG(warning, "URR: ~p", [URR]),
     Monitors1 = update_m_key('IP-CAN', UrrId, Monitors0),
     Monitors = Monitors1#{{urr, UrrId}  => Service},
     Update#sx_upd{
@@ -929,11 +930,11 @@ build_sx_monitor_rule('IP-CAN', Service, {periodic, Time, _Opts} = _Definition,
       monitors = Monitors};
 
 build_sx_monitor_rule('Offline', Service, Definition, Update) ->
-    lager:debug("Sx Offline Monitor URR: ~p:~p", [Service, Definition]),
+    ?LOG(debug, "Sx Offline Monitor URR: ~p:~p", [Service, Definition]),
     Update;
 
 build_sx_monitor_rule(Level, Service, Definition, Update) ->
-    lager:error("Sx Monitor URR: ~p:~p:~p", [Level, Service, Definition]),
+    ?LOG(error, "Sx Monitor URR: ~p:~p:~p", [Level, Service, Definition]),
     sx_rule_error({system_error, Definition}, Update).
 
 update_m_key(Key, Value, Map) ->
@@ -973,9 +974,9 @@ modify_sgi_session(PCC, URRActions, Opts, Ctx, PCtx0)
 		  SxR
 	  end, SxRules0, URRActions),
 
-    lager:info("SxRules: ~p~n", [SxRules]),
-    lager:info("SxErrors: ~p~n", [SxErrors]),
-    lager:info("PCtx: ~p~n", [PCtx]),
+    ?LOG(info, "SxRules: ~p~n", [SxRules]),
+    ?LOG(info, "SxErrors: ~p~n", [SxErrors]),
+    ?LOG(info, "PCtx: ~p~n", [PCtx]),
     session_modification_request(PCtx, SxRules, Ctx).
 
 create_tdf_session(Node, PCC, Ctx)
@@ -1424,14 +1425,14 @@ pcc_rules_to_credit_request(_K, #{'Rating-Group' := [RatingGroup], 'Online' := [
     RG = empty,
     maps:update_with(RatingGroup, fun(V) -> V end, RG, Acc);
 pcc_rules_to_credit_request(_K, V, Acc) ->
-    lager:warning("No Rating Group: ~p", [V]),
+    ?LOG(warning, "No Rating Group: ~p", [V]),
     Acc.
 
 %% pcc_ctx_to_credit_request/1
 pcc_ctx_to_credit_request(#pcc_ctx{rules = Rules}) ->
-    lager:debug("Rules: ~p", [Rules]),
+    ?LOG(debug, "Rules: ~p", [Rules]),
     CreditReq = maps:fold(fun pcc_rules_to_credit_request/3, #{}, Rules),
-    lager:debug("CreditReq: ~p", [CreditReq]),
+    ?LOG(debug, "CreditReq: ~p", [CreditReq]),
     CreditReq.
 
 %%%===================================================================
@@ -1466,7 +1467,7 @@ ip_pdu(<<6:4, TC:8, FlowLabel:20, Length:16, ?ICMPv6:8,
 	     PayLoad:Length/bytes, _/binary>>, Context, PCtx) ->
     icmpv6(TC, FlowLabel, SrcAddr, DstAddr, PayLoad, Context, PCtx);
 ip_pdu(Data, _Context, _PCtx) ->
-    lager:warning("unhandled T-PDU: ~p", [Data]),
+    ?LOG(warning, "unhandled T-PDU: ~p", [Data]),
     ok.
 
 %% IPv6 Router Solicitation
@@ -1519,7 +1520,7 @@ icmpv6(TC, FlowLabel, _SrcAddr, ?'IPv6 All Routers LL',
     send_g_pdu(PCtx, LocalDataEndp, RemoteDataTEID, ICMPv6);
 
 icmpv6(_TC, _FlowLabel, _SrcAddr, _DstAddr, _PayLoad, _Context, _PCtx) ->
-    lager:warning("unhandeld ICMPv6 from ~p to ~p: ~p", [_SrcAddr, _DstAddr, _PayLoad]),
+    ?LOG(warning, "unhandeld ICMPv6 from ~p to ~p: ~p", [_SrcAddr, _DstAddr, _PayLoad]),
     ok.
 
 %%

@@ -26,11 +26,18 @@
 
 -define(TEST_CONFIG,
 	[
-	 {lager, [{colored, true},
-		  {error_logger_redirect, true},
-		  {async_threshold, undefined},
-		  {handlers, [{lager_console_backend, [{level, critical}]}]}
-		 ]},
+	 {kernel,
+	  [{logger,
+	    [{handler, default, logger_std_h,
+	      #{level => info,
+		config =>
+		    #{sync_mode_qlen => 10000,
+		      drop_mode_qlen => 10000,
+		      flush_qlen     => 10000}
+	       }
+	     }
+	    ]}
+	  ]},
 
 	 {ergw, [{'$setup_vars',
 		  [{"ORIGIN", {value, "epc.mnc001.mcc001.3gppnetwork.org"}}]},

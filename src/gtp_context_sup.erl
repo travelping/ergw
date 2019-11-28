@@ -15,6 +15,8 @@
 %% Supervisor callbacks
 -export([init/1]).
 
+-include_lib("kernel/include/logger.hrl").
+
 -define(SERVER, ?MODULE).
 
 %% ===================================================================
@@ -30,7 +32,7 @@ new(GtpPort, Version, Interface, IfOpts) ->
     new(GtpPort, Version, Interface, IfOpts, Opts).
 
 new(GtpPort, Version, Interface, IfOpts, Opts) ->
-    lager:debug("new(~p)", [[GtpPort, Version, Interface, IfOpts, Opts]]),
+    ?LOG(debug, "new(~p)", [[GtpPort, Version, Interface, IfOpts, Opts]]),
     supervisor:start_child(?SERVER, [GtpPort, Version, Interface, IfOpts, Opts]).
 
 %% ===================================================================

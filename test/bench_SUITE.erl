@@ -7,7 +7,7 @@
 
 -module(bench_SUITE).
 
--compile([export_all, nowarn_export_all, {parse_transform, lager_transform}]).
+-compile([export_all, nowarn_export_all]).
 -compile([{parse_transform, cut}]).
 
 -include_lib("ergw_aaa/include/diameter_3gpp_ts32_299.hrl").
@@ -27,13 +27,18 @@
 
 -define(TEST_CONFIG,
 	[
-	 {lager, [{colored, true},
-		  {error_logger_redirect, true},
-		  %% force lager into async logging, otherwise
-		  %% the test will timeout randomly
-		  {async_threshold, undefined},
-		  {handlers, [{lager_console_backend, [{level, critical}]}]}
-		 ]},
+	 {kernel,
+	  [{logger,
+	    [%% force cth_log to async mode, never block the tests
+	     {handler, cth_log_redirect, cth_log_redirect,
+	      #{config =>
+		    #{sync_mode_qlen => 10000,
+		      drop_mode_qlen => 10000,
+		      flush_qlen     => 10000}
+	       }
+	     }
+	    ]}
+	  ]},
 
 	 {jobs, [{samplers,
 		  [{cpu_feedback, jobs_sampler_cpu, []}
@@ -359,10 +364,9 @@ bench_init_per_group(Config0) ->
     {_, AppCfg} = lists:keyfind(app_cfg, 1, Config0),   %% let it crash if undefined
 
     Config = ergw_test_lib:init_ets(Config0),
-    [application:load(App) || App <- [lager, cowboy, ergw, ergw_aaa]],
+    [application:load(App) || App <- [cowboy, ergw, ergw_aaa]],
     load_config(AppCfg),
     {ok, _} = application:ensure_all_started(ergw),
-    lager_common_test_backend:bounce(critical),
     {ok, _} = ergw_test_sx_up:start('pgw-u', proplists:get_value(pgw_u_sx, Config)),
     {ok, _} = ergw_test_sx_up:start('sgw-u', proplists:get_value(sgw_u_sx, Config)),
     {ok, AppsCfg} = application:get_env(ergw_aaa, apps),
@@ -384,7 +388,7 @@ bench_end_per_group(Config) ->
     ok = ergw_test_sx_up:stop('pgw-u'),
     ok = ergw_test_sx_up:stop('sgw-u'),
     ?config(table_owner, Config) ! stop,
-    [application:stop(App) || App <- [lager, ranch, cowboy, ergw, ergw_aaa]],
+    [application:stop(App) || App <- [ranch, cowboy, ergw, ergw_aaa]],
     ok.
 
 end_per_group(Group, Config)

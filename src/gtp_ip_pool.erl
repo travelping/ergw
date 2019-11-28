@@ -20,6 +20,7 @@
 -record(state, {name, type, id, first, last, shift, used, free, used_pool, free_pool}).
 -record(lease, {ip, client_id}).
 
+-include_lib("kernel/include/logger.hrl").
 -include_lib("stdlib/include/ms_transform.hrl").
 
 %%====================================================================
@@ -61,7 +62,7 @@ init(Name, Type, First, Last, Shift) when Last >= First ->
     Start = First bsr Shift,
     End = Last bsr Shift,
     Size = End - Start + 1,
-    lager:debug("init Pool ~w ~p - ~p (~p)", [Id, Start, End, Size]),
+    ?LOG(debug, "init Pool ~w ~p - ~p (~p)", [Id, Start, End, Size]),
     init_table(FreeTid, Start, End),
 
     prometheus_gauge:declare([{name, ergw_ip_pool_free},
@@ -82,7 +83,7 @@ init(Name, Type, First, Last, Shift) when Last >= First ->
 		   used_pool = UsedTid,
 		   free_pool = FreeTid},
     metrics_sync_gauges(State),
-    lager:debug("init Pool state: ~p", [lager:pr(State, ?MODULE)]),
+    ?LOG(debug, "init Pool state: ~p", [State]),
     {ok, State}.
 
 init_table(_tetTid, Start, End)
@@ -95,8 +96,8 @@ init_table(Tid, Start, End) ->
 handle_call({allocate, ClientId} = Request, _From,
 	    #state{used = Used, free = Free, used_pool = UsedTid, free_pool = FreeTid} = State0)
   when Free =/= 0 ->
-    lager:debug("~w: Allocate: ~p, State: ~p",
-		[self(), lager:pr(Request, ?MODULE), lager:pr(State0, ?MODULE)]),
+    ?LOG(debug, "~w: Allocate: ~p, State: ~p",
+		[self(), Request, State0]),
 
     Id = ets:first(FreeTid),
     ets:delete(FreeTid, Id),
@@ -110,49 +111,49 @@ handle_call({allocate, _ClientId}, _From, State) ->
     {reply, {error, full}, State};
 
 handle_call({take, ClientId, ReqIP} = Request, _From, State0) ->
-    lager:debug("~w: Allocate: ~p, State: ~p",
-		[self(), lager:pr(Request, ?MODULE), lager:pr(State0, ?MODULE)]),
+    ?LOG(debug, "~w: Allocate: ~p, State: ~p",
+		[self(), Request, State0]),
     {Reply, State} = take_ip(ClientId, ip2int(ReqIP), State0),
     {reply, Reply, State};
 
 handle_call({release, {_,_,_,_} = IPv4} = Request, _From, State0) ->
     State = release_ip(ip2int(IPv4), State0),
-    lager:debug("~w: Release: ~p, State: ~p",
-		[self(), lager:pr(Request, ?MODULE), lager:pr(State, ?MODULE)]),
+    ?LOG(debug, "~w: Release: ~p, State: ~p",
+		[self(), Request, State]),
     {reply, ok, State};
 handle_call({release, {{_,_,_,_} = IPv4,_}} = Request, _From, State0) ->
     State = release_ip(ip2int(IPv4), State0),
-    lager:debug("~w: Release: ~p, State: ~p",
-		[self(), lager:pr(Request, ?MODULE), lager:pr(State, ?MODULE)]),
+    ?LOG(debug, "~w: Release: ~p, State: ~p",
+		[self(), Request, State]),
     {reply, ok, State};
 
 handle_call({release, {_,_,_,_,_,_,_,_} = IPv6} = Request, _From, State0) ->
     State = release_ip(ip2int(IPv6), State0),
-    lager:debug("~w: Release: ~p, State: ~p",
-		[self(), lager:pr(Request, ?MODULE), lager:pr(State, ?MODULE)]),
+    ?LOG(debug, "~w: Release: ~p, State: ~p",
+		[self(), Request, State]),
     {reply, ok, State};
 handle_call({release, {{_,_,_,_,_,_,_,_} = IPv6,_}} = Request, _From, State0) ->
     State = release_ip(ip2int(IPv6), State0),
-    lager:debug("~w: Release: ~p, State: ~p",
-		[self(), lager:pr(Request, ?MODULE), lager:pr(State0, ?MODULE)]),
+    ?LOG(debug, "~w: Release: ~p, State: ~p",
+		[self(), Request, State0]),
     {reply, ok, State};
 
 handle_call({release, IP} = Request, _From, State) ->
-    lager:error("~w: Release: ~p, State: ~p",
-		[self(), lager:pr(Request, ?MODULE), lager:pr(State, ?MODULE)]),
+    ?LOG(error, "~w: Release: ~p, State: ~p",
+		[self(), Request, State]),
     Reply = {error, invalid, IP},
     {reply, Reply, State};
 
 handle_call(Request, _From, State) ->
-    lager:warning("handle_call: ~p", [lager:pr(Request, ?MODULE)]),
+    ?LOG(warning, "handle_call: ~p", [Request]),
     {reply, ok, State}.
 
 handle_cast(Msg, State) ->
-    lager:debug("handle_cast: ~p", [lager:pr(Msg, ?MODULE)]),
+    ?LOG(debug, "handle_cast: ~p", [Msg]),
     {noreply, State}.
 
 handle_info(Info, State) ->
-    lager:debug("handle_info: ~p", [lager:pr(Info, ?MODULE)]),
+    ?LOG(debug, "handle_info: ~p", [Info]),
     {noreply, State}.
 
 terminate(_Reason, _State) ->
@@ -198,11 +199,11 @@ release_ip(IP, #state{first = First, last = Last,
 	    metrics_sync_gauges(State),
 	    State;
 	_ ->
-	    lager:warning("release of unallocated IP: ~p", [id2ip(Id, State0)]),
+	    ?LOG(warning, "release of unallocated IP: ~p", [id2ip(Id, State0)]),
 	    State0
     end;
 release_ip(IP, #state{type = Type, first = First, last = Last} = State) ->
-    lager:warning("release of out-of-pool IP: ~w < ~w < ~w",
+    ?LOG(warning, "release of out-of-pool IP: ~w < ~w < ~w",
 		  [int2ip(Type, First), int2ip(Type, IP), int2ip(Type, Last)]),
     State.
 
@@ -222,11 +223,11 @@ take_ip(ClientId, IP, #state{first = First, last = Last,
 	    metrics_sync_gauges(State),
 	    {{ok, id2ip(Id, State)}, State};
 	_ ->
-	    lager:warning("attempt to take already allocated IP: ~p", [id2ip(Id, State0)]),
+	    ?LOG(warning, "attempt to take already allocated IP: ~p", [id2ip(Id, State0)]),
 	    {{error, taken}, State0}
     end;
 take_ip(_ClientId, IP, #state{type = Type, first = First, last = Last} = State) ->
-    lager:warning("attempt to take of out-of-pool IP: ~w < ~w < ~w",
+    ?LOG(warning, "attempt to take of out-of-pool IP: ~w < ~w < ~w",
 		  [int2ip(Type, First), int2ip(Type, IP), int2ip(Type, Last)]),
     {{error, out_of_pool}, State}.
 

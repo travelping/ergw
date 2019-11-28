@@ -23,6 +23,7 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
 	 code_change/3, terminate/2]).
 
+-include_lib("kernel/include/logger.hrl").
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include("include/ergw.hrl").
 
@@ -137,7 +138,7 @@ init([#gtp_port{name = PortName} = GtpPort, Version, RemoteIP, Args]) ->
 		state        = 'UP'},
     State = ets_new(State0),
 
-    lager:debug("State: ~p", [State]),
+    ?LOG(debug, "State: ~p", [State]),
     {ok, State}.
 
 handle_call(all, _From, #state{table = TID} = State) ->
@@ -168,12 +169,12 @@ handle_call(info, _From, #state{
     {reply, Reply, State};
 
 handle_call(Request, _From, State) ->
-    lager:warning("handle_call: ~p", [lager:pr(Request, ?MODULE)]),
+    ?LOG(warning, "handle_call: ~p", [Request]),
     {reply, ok, State}.
 
 handle_cast({handle_request, ReqKey, #gtp{type = echo_request} = Msg0},
 	    #state{gtp_port = GtpPort, handler = Handler} = State0) ->
-    lager:debug("echo_request: ~p", [Msg0]),
+    ?LOG(debug, "echo_request: ~p", [Msg0]),
     try gtp_packet:decode_ies(Msg0) of
 	Msg = #gtp{} ->
 
@@ -185,7 +186,7 @@ handle_cast({handle_request, ReqKey, #gtp{type = echo_request} = Msg0},
 	    {noreply, State}
     catch
 	Class:Error ->
-	    lager:error("GTP decoding failed with ~p:~p for ~p", [Class, Error, Msg0]),
+	    ?LOG(error, "GTP decoding failed with ~p:~p for ~p", [Class, Error, Msg0]),
 	    {noreply, State0}
     end;
 
@@ -200,13 +201,13 @@ handle_cast(down, #state{table = TID} = State0) ->
     {noreply, State};
 
 handle_cast({handle_response, #gtp{} = Msg}, State0)->
-    lager:debug("echo_response: ~p", [Msg]),
+    ?LOG(debug, "echo_response: ~p", [Msg]),
     State1 = handle_recovery_ie(Msg, State0),
     State = echo_response(Msg, State1),
     {noreply, State};
 
 handle_cast(Msg, State) ->
-    lager:error("~p: ~w: handle_cast: ~p", [self(), ?MODULE, lager:pr(Msg, ?MODULE)]),
+    ?LOG(error, "~p: ~w: handle_cast: ~p", [self(), ?MODULE, Msg]),
     {noreply, State}.
 
 handle_info({'DOWN', _MonitorRef, process, Pid, _Info}, State0) ->
@@ -214,16 +215,16 @@ handle_info({'DOWN', _MonitorRef, process, Pid, _Info}, State0) ->
     {noreply, State};
 
 handle_info(Info = {timeout, TRef, echo}, #state{echo_timer = TRef} = State0) ->
-    lager:debug("handle_info: ~p", [lager:pr(Info, ?MODULE)]),
+    ?LOG(debug, "handle_info: ~p", [Info]),
     State1 = send_echo_request(State0),
     {noreply, State1};
 
 handle_info(Info = {timeout, _TRef, echo}, State) ->
-    lager:debug("handle_info: ~p", [lager:pr(Info, ?MODULE)]),
+    ?LOG(debug, "handle_info: ~p", [Info]),
     {noreply, State};
 
 handle_info(Info, State) ->
-    lager:error("~p: ~w: handle_info: ~p", [self(), ?MODULE, lager:pr(Info, ?MODULE)]),
+    ?LOG(error, "~p: ~w: handle_info: ~p", [self(), ?MODULE, Info]),
     {noreply, State}.
 
 terminate(_Reason, _State) ->
@@ -268,7 +269,7 @@ update_restart_counter(RestartCounter, #state{recovery = RestartCounter} = State
 update_restart_counter(NewRestartCounter, #state{table = TID, ip = IP,
 						 recovery = OldRestartCounter} = State0)
   when ?SMALLER(OldRestartCounter, NewRestartCounter) ->
-    lager:warning("GSN ~s restarted (~w != ~w)",
+    ?LOG(warning, "GSN ~s restarted (~w != ~w)",
 		  [inet:ntoa(IP), OldRestartCounter, NewRestartCounter]),
     Path = self(),
     proc_lib:spawn(fun() ->
@@ -280,7 +281,7 @@ update_restart_counter(NewRestartCounter, #state{table = TID, ip = IP,
 
 update_restart_counter(NewRestartCounter, #state{ip = IP, recovery = OldRestartCounter} = State)
   when not ?SMALLER(OldRestartCounter, NewRestartCounter) ->
-    lager:warning("possible race on message with restart counter for GSN ~s (old: ~w, new: ~w)",
+    ?LOG(warning, "possible race on message with restart counter for GSN ~s (old: ~w, new: ~w)",
 		  [inet:ntoa(IP), OldRestartCounter, NewRestartCounter]),
     State.
 
@@ -313,7 +314,7 @@ ets_foreach(TID, Fun, {Pids, Continuation})
     ets_foreach(TID, Fun, ets:match_object(Continuation)).
 
 register(Pid, #state{table = TID} = State) ->
-    lager:debug("~s: register(~p)", [?MODULE, Pid]),
+    ?LOG(debug, "~s: register(~p)", [?MODULE, Pid]),
     erlang:monitor(process, Pid),
     ets:insert(TID, {Pid}),
     update_path_counter(ets:info(TID, size), State).

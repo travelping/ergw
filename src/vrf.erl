@@ -20,6 +20,7 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
 	 get_opts/1, terminate/2, code_change/3]).
 
+-include_lib("kernel/include/logger.hrl").
 -include("include/ergw.hrl").
 
 -record(state, {ip4_pools, ip6_pools, opts}).
@@ -62,7 +63,7 @@ with_vrf(VRF, Fun) when is_binary(VRF), is_function(Fun, 1) ->
     end.
 
 validate_options(Options) ->
-    lager:debug("VRF Options: ~p", [Options]),
+    ?LOG(debug, "VRF Options: ~p", [Options]),
     ergw_config:validate_options(fun validate_option/2, Options, [], map).
 
 validate_ip_pool({Start, End, PrefixLen} = Pool)
@@ -73,10 +74,10 @@ validate_ip_pool({Start, End, PrefixLen} = Pool)
   when ?IS_IPv6(Start), ?IS_IPv6(End), End > Start,
        is_integer(PrefixLen), PrefixLen > 0, PrefixLen =< 128 ->
     if PrefixLen =:= 127 ->
-	    lager:warning("a /127 IPv6 prefix is not supported"),
+	    ?LOG(warning, "a /127 IPv6 prefix is not supported"),
 	    throw({error, {options, {pool, Pool}}});
        PrefixLen =/= 64 ->
-	    lager:warning("3GPP only supports /64 IPv6 prefix assigment, "
+	    ?LOG(warning, "3GPP only supports /64 IPv6 prefix assigment, "
 			  "/~w might not work, USE AT YOUR OWN RISK!", [PrefixLen]),
 	    Pool;
        true ->
@@ -150,8 +151,8 @@ init([Name, Opts]) ->
     IPv6pools = [{PrefixLen, init_pool(VrfPoolName, X)} ||
 		    {First, _Last, PrefixLen} = X <- Pools, size(First) == 8],
 
-    lager:debug("IPv4Pools ~p", [IPv4pools]),
-    lager:debug("IPv6Pools ~p", [IPv6pools]),
+    ?LOG(debug, "IPv4Pools ~p", [IPv4pools]),
+    ?LOG(debug, "IPv6Pools ~p", [IPv6pools]),
 
     VrfOpts = maps:without([pools], Opts),
     State = #state{ip4_pools = IPv4pools, ip6_pools = IPv6pools, opts = VrfOpts},
@@ -161,27 +162,27 @@ handle_call(get_opts, _From, #state{opts = Opts} = State) ->
     {reply, {ok, Opts}, State};
 
 handle_call({allocate_pdp_ip, TEI, ReqIPv4, ReqIPv6} = Request, _From, State) ->
-    lager:debug("handle_call: ~p", [Request]),
+    ?LOG(debug, "handle_call: ~p", [Request]),
     IPv4 = alloc_ipv4(TEI, ReqIPv4, State),
     IPv6 = alloc_ipv6(TEI, ReqIPv6, State),
     {reply, {ok, IPv4, IPv6}, State};
 
 handle_call({release_pdp_ip, IPv4, IPv6} = Request, _From, State) ->
-    lager:debug("handle_call: ~p", [Request]),
+    ?LOG(debug, "handle_call: ~p", [Request]),
     release_ipv4(IPv4, State),
     release_ipv6(IPv6, State),
     {reply, ok, State};
 
 handle_call(Request, _From, State) ->
-    lager:error("handle_call: unknown ~p", [lager:pr(Request, ?MODULE)]),
+    ?LOG(error, "handle_call: unknown ~p", [Request]),
     {reply, ok, State}.
 
 handle_cast(Msg, State) ->
-    lager:error("handle_cast: unknown ~p", [lager:pr(Msg, ?MODULE)]),
+    ?LOG(error, "handle_cast: unknown ~p", [Msg]),
     {noreply, State}.
 
 handle_info(Info, State) ->
-    lager:error("handle_info: unknown ~p, ~p", [lager:pr(Info, ?MODULE), lager:pr(State, ?MODULE)]),
+    ?LOG(error, "handle_info: unknown ~p, ~p", [Info, State]),
     {noreply, State}.
 
 terminate(_Reason, _State) ->
@@ -257,7 +258,7 @@ with_pool(Fun, PrefixLen, Pools) ->
 		    undefined
 	    end;
 	_ ->
-	    lager:error("no pool"),
+	    ?LOG(error, "no pool"),
 	    undefined
     end.
 

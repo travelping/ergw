@@ -27,6 +27,7 @@
 -export([init/1, callback_mode/0, handle_event/4,
 	 terminate/2, code_change/3]).
 
+-include_lib("kernel/include/logger.hrl").
 -include_lib("kernel/include/inet.hrl").
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include_lib("pfcplib/include/pfcp_packet.hrl").
@@ -65,7 +66,7 @@ select_sx_node(APN, Services, NodeSelect) ->
 	Nodes when is_list(Nodes), length(Nodes) /= 0 ->
 	    connect_sx_node(Nodes);
 	Other ->
-	    lager:error("No Sx node for APN '~w', got ~p", [APN, Other]),
+	    ?LOG(error, "No Sx node for APN '~w', got ~p", [APN, Other]),
 	    {error, not_found}
     end.
 
@@ -102,10 +103,10 @@ response(Pid, CbData, Response) ->
 handle_request(ReqKey, IP, #pfcp{type = heartbeat_request} = Request) ->
     case ergw_sx_node_reg:lookup(IP) of
 	{ok, Pid} when is_pid(Pid) ->
-	    lager:debug("cast HB request to ~p", [Pid]),
+	    ?LOG(debug, "cast HB request to ~p", [Pid]),
 	    gen_statem:cast(Pid, {request, ReqKey, Request});
 	_Other ->
-	    lager:error("lookup for ~p failed with ~p", [IP, _Other]),
+	    ?LOG(error, "lookup for ~p failed with ~p", [IP, _Other]),
 	    heartbeat_response(ReqKey, Request)
     end,
     ok;
@@ -138,7 +139,7 @@ handle_request_fun(ReqKey, #pfcp{type = session_report_request} = Report) ->
 
 call_3(Pid, Request, OpaqueRef)
   when is_pid(Pid) ->
-    lager:debug("DP Server Call ~p: ~p", [Pid, lager:pr(Request, ?MODULE)]),
+    ?LOG(debug, "DP Server Call ~p: ~p", [Pid, Request]),
     case gen_statem:call(Pid, Request) of
 	{error, dead} ->
 	    throw(?CTX_ERR(?FATAL, system_failure, OpaqueRef));
@@ -154,13 +155,13 @@ sx_report(Server, Report) ->
     gen_statem:call(Server, {sx, Report}).
 
 port_message(Request, Msg) ->
-    lager:error("unhandled port message (~p, ~p)", [Request, Msg]),
+    ?LOG(error, "unhandled port message (~p, ~p)", [Request, Msg]),
     erlang:error(badarg, [Request, Msg]).
 
 port_message(Server, Request, #gtp{type = g_pdu} = Msg, _Resent) ->
     gen_server:cast(Server, {handle_pdu, Request, Msg});
 port_message(_Server, Request, Msg, _Resent) ->
-    lager:error("unhandled port message (~p, ~p)", [Request, Msg]),
+    ?LOG(error, "unhandled port message (~p, ~p)", [Request, Msg]),
     erlang:error(badarg, [Request, Msg]).
 
 %%%===================================================================
@@ -208,7 +209,7 @@ handle_event(enter, OldState, dead, Data)
     {next_state, dead, Data#data{retries = 0, recovery_ts = undefined}, [{state_timeout, 0, setup}]};
 handle_event(enter, _, dead, #data{retries = Retries} = Data) ->
     Timeout = (2 bsl Retries) * ?AssocTimeout,
-    lager:debug("Timeout: ~w/~w", [Retries, Timeout]),
+    ?LOG(debug, "Timeout: ~w/~w", [Retries, Timeout]),
     {next_state, dead, Data, [{state_timeout, Timeout, setup}]};
 handle_event(enter, _OldState, State, Data) ->
     {next_state, State, Data};
@@ -237,12 +238,12 @@ handle_event(_, setup, dead, #data{dp = #node{ip = IP}} = Data) ->
     {next_state, connecting, Data};
 
 handle_event({call, From}, _Evt, dead, _Data) ->
-    lager:warning("Call from ~p, ~p failed with {error, dead}", [From, _Evt]),
+    ?LOG(warning, "Call from ~p, ~p failed with {error, dead}", [From, _Evt]),
     {keep_state_and_data, [{reply, From, {error, dead}}]};
 
 handle_event(cast, {response, association_setup_request, timeout},
 	     connecting, #data{retries = Retries, dp = #node{ip = IP}} = Data) ->
-    lager:debug("~p:~s Timeout @ Retry: ~w", [self(), inet:ntoa(IP), Retries]),
+    ?LOG(debug, "~p:~s Timeout @ Retry: ~w", [self(), inet:ntoa(IP), Retries]),
     if Retries >= ?AssocRetries ->
 	    {stop, normal};
        true ->
@@ -256,7 +257,7 @@ handle_event(cast, {response, _, #pfcp{version = v1, type = association_setup_re
 	    Data = handle_nodeup(IEs, Data0),
 	    {next_state, connected, Data, [next_heartbeat(Data)]};
 	Other ->
-	    lager:warning("Other: ~p", [lager:pr(Other, ?MODULE)]),
+	    ?LOG(warning, "Other: ~p", [Other]),
 	    {next_state, dead, Data0}
     end;
 
@@ -275,7 +276,7 @@ handle_event(cast, {send, 'Access', _VRF, Data}, connected,
 %% heartbeat logic
 %%
 handle_event(state_timeout, heartbeat, connected, Data) ->
-    lager:warning("sending heartbeat"),
+    ?LOG(warning, "sending heartbeat"),
     send_heartbeat(Data),
     keep_state_and_data;
 
@@ -314,11 +315,11 @@ handle_event(cast, {response, _, #pfcp{version = v1, type = heartbeat_response,
 				       ie = #{recovery_time_stamp :=
 						  #recovery_time_stamp{time = RecoveryTS}} = IEs}},
 		    connected, #data{recovery_ts = RecoveryTS} = Data) ->
-    lager:info("PFCP OK Response: ~p", [pfcp_packet:lager_pr(IEs)]),
+    ?LOG(info, "PFCP OK Response: ~s", [pfcp_packet:pretty_print(IEs)]),
     {next_state, connected, Data, [next_heartbeat(Data)]};
 handle_event(cast, {response, _, #pfcp{version = v1, type = heartbeat_response, ie = _IEs}},
 	     connected, Data) ->
-    lager:warning("PFCP Fail Response: ~p", [pfcp_packet:lager_pr(_IEs)]),
+    ?LOG(warning, "PFCP Fail Response: ~s", [pfcp_packet:pretty_print(_IEs)]),
     {next_state, dead, handle_nodedown(Data)};
 
 handle_event(cast, {response, from_cp_rule,
@@ -326,7 +327,7 @@ handle_event(cast, {response, from_cp_rule,
 			  ie = #{pfcp_cause := #pfcp_cause{cause = 'Request accepted'},
 				 f_seid := #f_seid{seid = DP}}}} = R,
 	     connected, #data{pfcp_ctx = #pfcp_ctx{seid = SEID} = PCtx} = Data) ->
-    lager:warning("Response: ~p", [R]),
+    ?LOG(warning, "Response: ~p", [R]),
     {keep_state, Data#data{pfcp_ctx = PCtx#pfcp_ctx{seid = SEID#seid{dp = DP}}}};
 
 handle_event({call, From}, attach, _, #data{pfcp_ctx = PNodeCtx}) ->
@@ -357,17 +358,17 @@ handle_event(cast, {response, {call, _} = Evt, Reply}, _, _Data) ->
     {keep_state_and_data, Actions};
 
 handle_event(cast, {response, heartbeat, timeout} = R, _, Data) ->
-    lager:warning("PFCP Timeout: ~p", [R]),
+    ?LOG(warning, "PFCP Timeout: ~p", [R]),
     {next_state, dead, handle_nodedown(Data)};
 
 handle_event(cast, {response, _, _} = R, _, _Data) ->
-    lager:warning("Response: ~p", [R]),
+    ?LOG(warning, "Response: ~p", [R]),
     keep_state_and_data;
 
 handle_event({call, _} = Evt, #pfcp{} = Request0, connected,
 	     #data{dp = #node{ip = IP}} = Data) ->
     Request = augment_mandatory_ie(Request0, Data),
-    lager:debug("DP Call ~p", [lager:pr(Request, ?MODULE)]),
+    ?LOG(debug, "DP Call ~p", [Request]),
     ergw_sx_socket:call(IP, Request, response_cb(Evt)),
     keep_state_and_data;
 
@@ -380,9 +381,9 @@ handle_event(cast, {handle_pdu, _Request, #gtp{type=g_pdu, ie = PDU}}, _, Data) 
 	handle_ip_pdu(PDU, Data)
     catch
 	throw:{error, Error}:ST ->
-	    lager:error("handler for GTP-U failed with: ~p @ ~p", [Error, ST]);
+	    ?LOG(error, "handler for GTP-U failed with: ~p @ ~p", [Error, ST]);
 	Class:Error:ST ->
-	    lager:error("handler for GTP-U failed with: ~p:~p @ ~p", [Class, Error, ST])
+	    ?LOG(error, "handler for GTP-U failed with: ~p:~p @ ~p", [Class, Error, ST])
     end,
     keep_state_and_data;
 
@@ -410,21 +411,21 @@ handle_event({call, From},
 	     _State,
 	     #data{pfcp_ctx = #pfcp_ctx{seid = #seid{dp = SEID}} = PCtx, opts = Opts}) ->
     {ok, {tdf, VRF}} = ergw_pfcp:find_urr_by_id(Id, PCtx),
-    lager:error("Sx Node TDF Report on ~p for UE IPv4 ~p IPv6 ~p", [VRF, IP4, IP6]),
+    ?LOG(error, "Sx Node TDF Report on ~p for UE IPv4 ~p IPv6 ~p", [VRF, IP4, IP6]),
 
     Handler = maps:get(handler, Opts, tdf),
     try
 	Handler:unsolicited_report(self(), VRF, IP4, IP6, Opts)
     catch
 	Class:Error ->
-	    lager:error("Unsolicited Report Handler '~p' failed with ~p:~p~n~p",
+	    ?LOG(error, "Unsolicited Report Handler '~p' failed with ~p:~p~n~p",
 			[Handler, Class, Error, erlang:get_stacktrace()])
     end,
 
     {keep_state_and_data, [{reply, From, {ok, SEID}}]};
 handle_event({call, From}, {sx, Report}, _State,
 	     #data{pfcp_ctx = #pfcp_ctx{seid = #seid{dp = SEID}}}) ->
-    lager:error("Sx Node Session Report unexpected: ~p", [Report]),
+    ?LOG(error, "Sx Node Session Report unexpected: ~p", [Report]),
     {keep_state_and_data, [{reply, From, {ok, SEID}}]}.
 
 terminate(_Reason, _Data) ->
@@ -469,33 +470,33 @@ handle_ip_pdu(<<Version:4, IHL:4, _TOS:8, TotLen:16, _Id:16, _:2, 0:1, 0:13,
     HeaderLen = IHL * 4,
     UDPLen = TotLen - HeaderLen,
     <<_:HeaderLen/bytes, UDP:UDPLen/bytes, _/binary>> = PDU,
-    lager:debug("IPv4 UDP: ~p", [UDP]),
+    ?LOG(debug, "IPv4 UDP: ~p", [UDP]),
     handle_udp_gtp(SrcIP, DstIP, UDP, Data);
 %% IPv6, non fragmented, UDP packet
 handle_ip_pdu(<<Version:4, _TC:8, _Label:20, PayloadLen:16, NextHeader:8, _TTL:8,
 		SrcIP:16/bytes, DstIP:16/bytes, UDP:PayloadLen/bytes, _/binary>>, Data)
   when Version == 6, NextHeader == 17  ->
-    lager:debug("IPv6 UDP: ~p", [UDP]),
+    ?LOG(debug, "IPv6 UDP: ~p", [UDP]),
     handle_udp_gtp(SrcIP, DstIP, UDP, Data);
 handle_ip_pdu(PDU, _Data) ->
-    lager:debug("unexpected GTP-U payload: ~p", [PDU]),
+    ?LOG(debug, "unexpected GTP-U payload: ~p", [PDU]),
     ok.
 
 handle_udp_gtp(SrcIP, DstIP, <<SrcPort:16, DstPort:16, _:16, _:16, PayLoad/binary>>,
 	       #data{dp = #node{node = Node}} = Data)
   when DstPort =:= ?GTP1u_PORT ->
     Msg = gtp_packet:decode(PayLoad),
-    lager:debug("GTP-U ~s:~w -> ~s:~w: ~p",
+    ?LOG(debug, "GTP-U ~s:~w -> ~s:~w: ~p",
 		[inet:ntoa(ergw_inet:bin2ip(SrcIP)), SrcPort,
 		 inet:ntoa(ergw_inet:bin2ip(DstIP)), DstPort,
-		 lager:pr(Msg, ?MODULE)]),
+		 Msg]),
     ReqKey = make_request(SrcIP, SrcPort, Msg, Data),
     GtpPort = #gtp_port{name = Node, type = 'gtp-u'},
     TEID = #fq_teid{ip = ergw_inet:bin2ip(DstIP), teid = Msg#gtp.tei},
     ergw_context:port_message(gtp_context:port_teid_key(GtpPort, TEID), ReqKey, Msg, false),
     ok;
 handle_udp_gtp(SrcIP, DstIP, <<SrcPort:16, DstPort:16, _:16, _:16, PayLoad/binary>>, _Data) ->
-    lager:debug("unexpected UDP ~s:~w -> ~s:~w: ~p",
+    ?LOG(debug, "unexpected UDP ~s:~w -> ~s:~w: ~p",
 		[inet:ntoa(ergw_inet:bin2ip(SrcIP)), SrcPort,
 		 inet:ntoa(ergw_inet:bin2ip(DstIP)), DstPort, PayLoad]),
     ok.
@@ -590,8 +591,8 @@ heartbeat_response(ReqKey, #pfcp{type = heartbeat_request} = Request) ->
 handle_nodeup(#{recovery_time_stamp := #recovery_time_stamp{time = RecoveryTS}} = IEs,
 	      #data{dp = #node{node = Node, ip = IP},
 		    vrfs = VRFs} = Data0) ->
-    lager:warning("Node ~s (~s) is up", [Node, inet:ntoa(IP)]),
-    lager:warning("Node IEs: ~p", [pfcp_packet:lager_pr(IEs)]),
+    ?LOG(warning, "Node ~s (~s) is up", [Node, inet:ntoa(IP)]),
+    ?LOG(warning, "Node IEs: ~s", [pfcp_packet:pretty_print(IEs)]),
 
     UPIPResInfo = maps:get(user_plane_ip_resource_information, IEs, []),
     Data = Data0#data{
@@ -615,14 +616,14 @@ init_vrfs(VRFs,
 	    VRF = VRF0#vrf{teid_range = Range, ipv4 = IP4, ipv6 = IP6},
 	    VRFs#{Name => VRF};
 	_ ->
-	    lager:warning("UP Nodes reported unknown Network Instance '~p'", [Name]),
+	    ?LOG(warning, "UP Nodes reported unknown Network Instance '~p'", [Name]),
 	    VRFs
     end.
 
 handle_nodedown(#data{dp = #node{node = Node}} = Data) ->
     Self = self(),
     {monitored_by, Notify} = process_info(Self, monitored_by),
-    lager:info("Node Down Monitor Notify: ~p", [Notify]),
+    ?LOG(info, "Node Down Monitor Notify: ~p", [Notify]),
     lists:foreach(fun(Pid) -> Pid ! {'DOWN', undefined, pfcp, Self, undefined} end, Notify),
     Data#data{vrfs = init_vrfs(Node)}.
 

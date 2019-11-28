@@ -22,6 +22,7 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
 	 terminate/2, code_change/3]).
 
+-include_lib("kernel/include/logger.hrl").
 -include_lib("gen_socket/include/gen_socket.hrl").
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include("include/ergw.hrl").
@@ -86,7 +87,7 @@ send_response(#request{gtp_port = GtpPort} = ReqKey, Msg, DoCache) ->
 %% send_request/7
 send_request(#gtp_port{type = 'gtp-c'} = GtpPort, DstIP, DstPort, T3, N3,
 	     Msg = #gtp{version = Version}, CbInfo) ->
-    lager:debug("~p: gtp_socket send_request to ~s(~p):~w: ~p",
+    ?LOG(debug, "~p: gtp_socket send_request to ~s(~p):~w: ~p",
 		[self(), inet:ntoa(DstIP), DstIP, DstPort, Msg]),
 
     cast(GtpPort, make_send_req(undefined, DstIP, DstPort, T3, N3, Msg, CbInfo)),
@@ -95,7 +96,7 @@ send_request(#gtp_port{type = 'gtp-c'} = GtpPort, DstIP, DstPort, T3, N3,
 %% send_request/6
 send_request(#gtp_port{type = 'gtp-c'} = GtpPort, DstIP, DstPort, ReqId,
 	     Msg = #gtp{version = Version}, CbInfo) ->
-    lager:debug("~p: gtp_socket send_request ~p to ~s:~w: ~p",
+    ?LOG(debug, "~p: gtp_socket send_request ~p to ~s:~w: ~p",
 		[self(), ReqId, inet:ntoa(DstIP), DstPort, Msg]),
 
     cast(GtpPort, make_send_req(ReqId, DstIP, DstPort, ?T3 * 2, 0, Msg, CbInfo)),
@@ -191,7 +192,7 @@ handle_call({get_seq_no, ReqId}, _From, State) ->
     end;
 
 handle_call(Request, _From, State) ->
-    lager:error("handle_call: unknown ~p", [lager:pr(Request, ?MODULE)]),
+    ?LOG(error, "handle_call: unknown ~p", [Request]),
     {reply, ok, State}.
 
 handle_cast({send, IP, Port, Data}, State)
@@ -212,7 +213,7 @@ handle_cast(#send_req{} = SendReq0, #state{gtp_port = GtpPort} = State0) ->
 
 handle_cast({resend_request, ReqId},
 	    #state{gtp_port = GtpPort} = State0) ->
-    lager:debug("~p: gtp_socket resend_request ~p", [self(), ReqId]),
+    ?LOG(debug, "~p: gtp_socket resend_request ~p", [self(), ReqId]),
 
     case request_q_peek(ReqId, State0) of
 	{value, SendReq} ->
@@ -225,11 +226,11 @@ handle_cast({resend_request, ReqId},
     end;
 
 handle_cast(Msg, State) ->
-    lager:error("handle_cast: unknown ~p", [lager:pr(Msg, ?MODULE)]),
+    ?LOG(error, "handle_cast: unknown ~p", [Msg]),
     {noreply, State}.
 
 handle_info(Info = {timeout, _TRef, {request, SeqId}}, #state{gtp_port = GtpPort} = State0) ->
-    lager:debug("handle_info: ~p", [lager:pr(Info, ?MODULE)]),
+    ?LOG(debug, "handle_info: ~p", [Info]),
     {Req, State1} = take_request(SeqId, State0),
     case Req of
 	#send_req{n3 = 0} = SendReq ->
@@ -257,8 +258,8 @@ handle_info({Socket, input_ready}, #state{socket = Socket} = State) ->
     handle_input(Socket, State);
 
 handle_info(Info, State) ->
-    lager:error("~s:handle_info: unknown ~p, ~p",
-		[?MODULE, lager:pr(Info, ?MODULE), lager:pr(State, ?MODULE)]),
+    ?LOG(error, "~s:handle_info: unknown ~p, ~p",
+		[?MODULE, Info, State]),
     {noreply, State}.
 
 terminate(_Reason, #state{socket = Socket} = _State) ->
@@ -333,7 +334,7 @@ handle_input(Socket, State) ->
 	    handle_message(ArrivalTS, IP, Port, Data, State);
 
 	Other ->
-	    lager:error("got unhandled input: ~p", [Other]),
+	    ?LOG(error, "got unhandled input: ~p", [Other]),
 	    ok = gen_socket:input_event(Socket, true),
 	    {noreply, State}
     end.
@@ -353,7 +354,7 @@ handle_socket_error({?SOL_IP, ?IP_RECVERR, {sock_err, _ErrNo, ?SO_EE_ORIGIN_ICMP
     gtp_path:down(GtpPort, IP);
 
 handle_socket_error(Error, IP, _Port, _State) ->
-    lager:debug("got unhandled error info for ~s: ~p", [inet:ntoa(IP), Error]),
+    ?LOG(debug, "got unhandled error info for ~s: ~p", [inet:ntoa(IP), Error]),
     ok.
 
 handle_err_input(Socket, State) ->
@@ -364,7 +365,7 @@ handle_err_input(Socket, State) ->
 	    {noreply, State};
 
 	Other ->
-	    lager:error("got unhandled error input: ~p", [Other]),
+	    ?LOG(error, "got unhandled error input: ~p", [Other]),
 	    ok = gen_socket:input_event(Socket, true),
 	    {noreply, State}
     end.
@@ -374,16 +375,16 @@ handle_message(ArrivalTS, IP, Port, Data, #state{gtp_port = GtpPort} = State0) -
 	Msg = #gtp{} ->
 	    %% TODO: handle decode failures
 
-	    lager:debug("handle message: ~p", [{IP, Port,
-						lager:pr(State0#state.gtp_port, ?MODULE),
-						lager:pr(Msg, ?MODULE)}]),
+	    ?LOG(debug, "handle message: ~p", [{IP, Port,
+						State0#state.gtp_port,
+						Msg}]),
 	    ergw_prometheus:gtp(rx, GtpPort, IP, Msg),
 	    State = handle_message_1(ArrivalTS, IP, Port, Msg, State0),
 	    {noreply, State}
     catch
 	Class:Error ->
 	    ergw_prometheus:gtp_error(rx, GtpPort, 'malformed-requests'),
-	    lager:error("GTP decoding failed with ~p:~p for ~p", [Class, Error, Data]),
+	    ?LOG(error, "GTP decoding failed with ~p:~p for ~p", [Class, Error, Data]),
 	    {noreply, State0}
     end.
 
@@ -414,11 +415,11 @@ handle_response(ArrivalTS, IP, _Port, Msg, #state{gtp_port = GtpPort} = State0) 
     case Req of
 	none -> %% duplicate, drop silently
 	    ergw_prometheus:gtp(rx, GtpPort, IP, Msg, duplicate),
-	    lager:debug("~p: duplicate response: ~p, ~p", [self(), SeqId, gtp_c_lib:fmt_gtp(Msg)]),
+	    ?LOG(debug, "~p: duplicate response: ~p, ~p", [self(), SeqId, gtp_c_lib:fmt_gtp(Msg)]),
 	    State;
 
 	#send_req{} = SendReq ->
-	    lager:info("~p: found response: ~p", [self(), SeqId]),
+	    ?LOG(info, "~p: found response: ~p", [self(), SeqId]),
 	    measure_reply(GtpPort, SendReq, ArrivalTS),
 	    send_request_reply(SendReq, Msg),
 	    State
@@ -432,7 +433,7 @@ handle_request(#request{ip = IP, port = Port} = ReqKey, Msg,
 	    sendto(IP, Port, Data, State);
 
 	_Other ->
-	    lager:debug("HandleRequest: ~p", [_Other]),
+	    ?LOG(debug, "HandleRequest: ~p", [_Other]),
 	    ergw_context:port_message(ReqKey, Msg)
     end,
     State.

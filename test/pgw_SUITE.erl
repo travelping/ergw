@@ -7,8 +7,9 @@
 
 -module(pgw_SUITE).
 
--compile([export_all, nowarn_export_all, {parse_transform, lager_transform}]).
+-compile([export_all, nowarn_export_all]).
 
+-include_lib("kernel/include/logger.hrl").
 -include_lib("ergw_aaa/include/diameter_3gpp_ts32_299.hrl").
 -include_lib("ergw_aaa/include/ergw_aaa_3gpp.hrl").
 -include_lib("ergw_aaa/include/ergw_aaa_session.hrl").
@@ -29,13 +30,18 @@
 
 -define(TEST_CONFIG,
 	[
-	 {lager, [{colored, true},
-		  {error_logger_redirect, true},
-		  %% force lager into async logging, otherwise
-		  %% the test will timeout randomly
-		  {async_threshold, undefined},
-		  {handlers, [{lager_console_backend, [{level, critical}]}]}
-		 ]},
+	 {kernel,
+	  [{logger,
+	    [%% force cth_log to async mode, never block the tests
+	     {handler, cth_log_redirect, cth_log_redirect,
+	      #{config =>
+		    #{sync_mode_qlen => 10000,
+		      drop_mode_qlen => 10000,
+		      flush_qlen     => 10000}
+	       }
+	     }
+	    ]}
+	  ]},
 
 	 {ergw, [{'$setup_vars',
 		  [{"ORIGIN", {value, "epc.mnc001.mcc001.3gppnetwork.org"}}]},
@@ -454,8 +460,7 @@ end_per_group(Group, Config)
     ok = lib_end_per_suite(Config).
 
 common() ->
-    [lager_format_ies,
-     invalid_gtp_pdu,
+    [invalid_gtp_pdu,
      apn_lookup,
      create_session_request_missing_ie,
      create_session_request_aaa_reject,
@@ -539,6 +544,7 @@ all() ->
 
 init_per_testcase(Config) ->
     ct:pal("Sockets: ~p", [ergw_gtp_socket_reg:all()]),
+    ct:pal("Logger: ~p", [logger:get_handler_config()]),
     ergw_test_sx_up:reset('pgw-u'),
     meck_reset(Config),
     start_gtpc_server(Config).
@@ -769,19 +775,6 @@ end_per_testcase(_, Config) ->
     Config.
 
 %%--------------------------------------------------------------------
-lager_format_ies() ->
-    [{doc, "Check the lager formater for GTP IE's"}].
-lager_format_ies(Config) ->
-    GtpC = gtp_context(Config),
-    Request = make_request(create_session_request, simple, GtpC),
-    Response = make_response(Request, simple, GtpC),
-
-    lager:info("Request: ~p, Response: ~p",
-	       [gtp_c_lib:fmt_gtp(Request), gtp_c_lib:fmt_gtp(Response)]),
-
-    ok.
-
-%%--------------------------------------------------------------------
 invalid_gtp_pdu() ->
     [{doc, "Test that an invalid PDU is silently ignored"
       " and that the GTP socket is not crashing"}].
@@ -1010,9 +1003,9 @@ simple_session_request(Config) ->
     PDRs = lists:sort(PDRs0),
     FARs = lists:sort(FARs0),
 
-    lager:debug("PDRs: ~p", [pfcp_packet:lager_pr(PDRs)]),
-    lager:debug("FARs: ~p", [pfcp_packet:lager_pr(FARs)]),
-    lager:debug("URR: ~p", [pfcp_packet:lager_pr([URR])]),
+    ?LOG(debug, "PDRs: ~s", [pfcp_packet:pretty_print(PDRs)]),
+    ?LOG(debug, "FARs: ~s", [pfcp_packet:pretty_print(FARs)]),
+    ?LOG(debug, "URR: ~s", [pfcp_packet:pretty_print([URR])]),
 
     ?match(
        [#create_pdr{
@@ -2975,7 +2968,7 @@ gx_rar_gy_interaction(Config) ->
 
     InstCR =
 	[{pcc, install, [#{'Charging-Rule-Name' => [<<"r-0002">>]}]}],
-    lager:debug("Sending RAR"),
+    ?LOG(debug, "Sending RAR"),
     Server ! AAAReq#aaa_request{events = InstCR},
     {_, Resp1, _, _} =
 	receive {'$response', _, _, _, _} = R1 -> erlang:delete_element(1, R1) end,
@@ -3031,9 +3024,9 @@ redirect_info(Config) ->
     PDRs = lists:sort(PDRs0),
     FARs = lists:sort(FARs0),
 
-    lager:debug("PDRs: ~p", [pfcp_packet:lager_pr(PDRs)]),
-    lager:debug("FARs: ~p", [pfcp_packet:lager_pr(FARs)]),
-    lager:debug("URR: ~p", [pfcp_packet:lager_pr([URR])]),
+    ?LOG(debug, "PDRs: ~p", [pfcp_packet:pretty_print(PDRs)]),
+    ?LOG(debug, "FARs: ~p", [pfcp_packet:pretty_print(FARs)]),
+    ?LOG(debug, "URR: ~p", [pfcp_packet:pretty_print([URR])]),
 
     ?match(
        [#create_pdr{
@@ -3347,9 +3340,9 @@ tdf_app_id(Config) ->
     PDRs = lists:sort(PDRs0),
     FARs = lists:sort(FARs0),
 
-    lager:debug("PDRs: ~p", [pfcp_packet:lager_pr(PDRs)]),
-    lager:debug("FARs: ~p", [pfcp_packet:lager_pr(FARs)]),
-    lager:debug("URR: ~p", [pfcp_packet:lager_pr([URR])]),
+    ?LOG(debug, "PDRs: ~p", [pfcp_packet:pretty_print(PDRs)]),
+    ?LOG(debug, "FARs: ~p", [pfcp_packet:pretty_print(FARs)]),
+    ?LOG(debug, "URR: ~p", [pfcp_packet:pretty_print([URR])]),
 
     ?match(
        [#create_pdr{

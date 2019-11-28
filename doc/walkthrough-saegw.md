@@ -102,8 +102,21 @@ erGW Installation
 
        %% -*-Erlang-*-
        [{setup, [{data_dir, "/var/lib/ergw"},
-                 {log_dir,  "/var/log/ergw-c-node"}             %% NOTE: lager is not using this
+                 {log_dir,  "/var/log/ergw-c-node"}
                 ]},
+
+        {kernel,
+         [{logger,
+           [{handler, default, logger_std_h,
+             #{level => debug,
+           config =>
+               #{sync_mode_qlen => 10000,
+                 drop_mode_qlen => 10000,
+                 flush_qlen     => 10000}
+              }
+            }
+           ]}
+         ]},
 
         {ergw, [{'$setup_vars',
                  [{"ORIGIN", {value, "epc.mnc001.mcc001.3gppnetwork.org"}}]},
@@ -201,18 +214,6 @@ erGW Installation
                     {modifiers,  [{cpu_feedback, 10}]} %% 10 = % increment by which to modify the limit
                    ]}
                  ]}
-               ]},
-
-        {lager, [
-                 {log_root, "/var/log/ergw-c-node"},
-                 {colored, true},
-                 {error_logger_redirect, true},
-                 {crash_log, "crash.log"},
-                 {handlers, [
-                             {lager_console_backend, [{level, debug}]},
-                             {lager_file_backend, [{file, "error.log"}, {level, error}]},
-                             {lager_file_backend, [{file, "console.log"}, {level, debug}]}
-                            ]}
                 ]}
        ].
 
@@ -365,7 +366,7 @@ erGW with debug logging will produce a lot of error messages if the
 PFCP requests are not answered by VPP.
 
 If you've followed the setup procedure above, the log level should 
-be `debug` (see the "lager" section of the ergw-c-node.config).
+be `debug` (see the "logger" section of the ergw-c-node.config).
 
 #### VPP Session Status
 

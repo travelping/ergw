@@ -43,6 +43,7 @@
 -export([test_cmd/2]).
 -endif.
 
+-include_lib("kernel/include/logger.hrl").
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include_lib("pfcplib/include/pfcp_packet.hrl").
 -include("include/ergw.hrl").
@@ -312,7 +313,7 @@ init([CntlPort, Version, Interface,
       #{node_selection := NodeSelect,
 	aaa := AAAOpts} = Opts]) ->
 
-    lager:debug("init(~p)", [[lager:pr(CntlPort, ?MODULE), Interface]]),
+    ?LOG(debug, "init(~p)", [[CntlPort, Interface]]),
     process_flag(trap_exit, true),
 
     {ok, CntlTEI} = gtp_context_reg:alloc_tei(CntlPort),
@@ -361,7 +362,7 @@ handle_event(enter, OldState, State, #{interface := Interface} = Data) ->
 
 handle_event({call, From}, {sx, Report}, State,
 	    #{interface := Interface, pfcp := PCtx} = Data0) ->
-    lager:debug("~w: handle_call Sx: ~p", [?MODULE, lager:pr(Report, ?MODULE)]),
+    ?LOG(debug, "~w: handle_call Sx: ~p", [?MODULE, Report]),
     case Interface:handle_sx_report(Report, State, Data0) of
 	{ok, Data} ->
 	    {keep_state, Data, [{reply, From, {ok, PCtx}}]};
@@ -377,12 +378,12 @@ handle_event({call, From}, {sx, Report}, State,
 
 handle_event(cast, {handle_message, Request, #gtp{} = Msg0, Resent}, State, Data) ->
     Msg = gtp_packet:decode_ies(Msg0),
-    lager:debug("handle gtp request: ~w, ~p",
+    ?LOG(debug, "handle gtp request: ~w, ~p",
 		[Request#request.port, gtp_c_lib:fmt_gtp(Msg)]),
     handle_request(Request, Msg, Resent, State, Data);
 
 handle_event(cast, {handle_pdu, Request, Msg}, State, #{interface := Interface} = Data) ->
-    lager:debug("handle GTP-U PDU: ~w, ~p",
+    ?LOG(debug, "handle GTP-U PDU: ~w, ~p",
 		[Request#request.port, gtp_c_lib:fmt_gtp(Msg)]),
     Interface:handle_pdu(Request, Msg, State, Data);
 
@@ -392,10 +393,10 @@ handle_event(cast, {handle_response, ReqInfo, Request, Response0}, State,
 	Response = gtp_packet:decode_ies(Response0),
 	case Response of
 	    #gtp{} ->
-		lager:debug("handle gtp response: ~p", [gtp_c_lib:fmt_gtp(Response)]),
+		?LOG(debug, "handle gtp response: ~p", [gtp_c_lib:fmt_gtp(Response)]),
 		validate_message(Response, Data);
 	    _ when is_atom(Response) ->
-		lager:debug("handle gtp response: ~p", [Response]),
+		?LOG(debug, "handle gtp response: ~p", [Response]),
 		ok
 	end,
 	Interface:handle_response(ReqInfo, Response, Request, State, Data)
@@ -404,25 +405,25 @@ handle_event(cast, {handle_response, ReqInfo, Request, Response0}, State,
 	    handle_ctx_error(CtxErr, State, Data);
 
 	Class:Reason:Stacktrace ->
-	    lager:error("GTP response failed with: ~p:~p (~p)", [Class, Reason, Stacktrace]),
+	    ?LOG(error, "GTP response failed with: ~p:~p (~p)", [Class, Reason, Stacktrace]),
 	    erlang:raise(Class, Reason, Stacktrace)
     end;
 
 handle_event(info, {update_session, Session, Events}, _State, _Data) ->
-    lager:warning("SessionEvents: ~p~n       Events: ~p", [Session, Events]),
+    ?LOG(warning, "SessionEvents: ~p~n       Events: ~p", [Session, Events]),
     Actions = [{next_event, internal, {session, Ev, Session}} || Ev <- Events],
     {keep_state_and_data, Actions};
 
 handle_event(info, {timeout, TRef, pfcp_timer} = Info, State,
 	    #{interface := Interface, pfcp := PCtx0} = Data) ->
-    lager:debug("handle_info ~p:~p", [Interface, lager:pr(Info, ?MODULE)]),
+    ?LOG(debug, "handle_info ~p:~p", [Interface,Info]),
     {Evs, PCtx} = ergw_pfcp:timer_expired(TRef, PCtx0),
     CtxEvs = ergw_gsn_lib:pfcp_to_context_event(Evs),
     Interface:handle_event(info, {pfcp_timer, CtxEvs}, State, Data#{pfcp => PCtx});
 
 handle_event(Type, Content, State, #{interface := Interface} = Data) ->
-    lager:debug("~w: handle_event: (~p, ~p, ~p)",
-		[?MODULE, Type, lager:pr(Content, ?MODULE), State]),
+    ?LOG(debug, "~w: handle_event: (~p, ~p, ~p)",
+		[?MODULE, Type, Content, State]),
     Interface:handle_event(Type, Content, State, Data).
 
 terminate(Reason, State, #{interface := Interface} = Data) ->
@@ -438,7 +439,7 @@ code_change(_OldVsn, State, Data, _Extra) ->
 %%%===================================================================
 
 log_ctx_error(#ctx_err{level = Level, where = {File, Line}, reply = Reply}) ->
-    lager:debug("CtxErr: ~w, at ~s:~w, ~p", [Level, File, Line, Reply]).
+    ?LOG(debug, "CtxErr: ~w, at ~s:~w, ~p", [Level, File, Line, Reply]).
 
 handle_ctx_error(#ctx_err{level = Level, context = Context} = CtxErr, _State, Data) ->
     log_ctx_error(CtxErr),
@@ -466,7 +467,7 @@ handle_ctx_error(#ctx_err{reply = Reply} = CtxErr, Handler,
 handle_request(#request{gtp_port = GtpPort} = Request,
 	       #gtp{version = Version} = Msg,
 	       Resent, State, #{interface := Interface} = Data0) ->
-    lager:debug("GTP~s ~s:~w: ~p",
+    ?LOG(debug, "GTP~s ~s:~w: ~p",
 		[Version, inet:ntoa(Request#request.ip), Request#request.port, gtp_c_lib:fmt_gtp(Msg)]),
 
     try
@@ -478,7 +479,7 @@ handle_request(#request{gtp_port = GtpPort} = Request,
 	    handle_ctx_error(CtxErr, Handler, Request, Msg, State, Data0);
 
 	Class:Reason:Stacktrace ->
-	    lager:error("GTP~p failed with: ~p:~p (~p)", [Version, Class, Reason, Stacktrace]),
+	    ?LOG(error, "GTP~p failed with: ~p:~p (~p)", [Version, Class, Reason, Stacktrace]),
 	    erlang:raise(Class, Reason, Stacktrace)
     end.
 
@@ -497,7 +498,7 @@ send_response(Request, #gtp{seq_no = SeqNo} = Msg) ->
 	ergw_gtp_c_socket:send_response(Request, Msg, SeqNo /= 0)
     catch
 	Class:Error:Stack ->
-	    lager:error("gtp send failed with ~p:~p (~p) for ~p",
+	    ?LOG(error, "gtp send failed with ~p:~p (~p) for ~p",
 			[Class, Error, Stack, gtp_c_lib:fmt_gtp(Msg)])
     end.
 
@@ -554,7 +555,7 @@ validate_message(#gtp{version = Version, ie = IEs} = Msg, Data) ->
 	[] ->
 	    ok;
 	Missing ->
-	    lager:debug("Missing IEs: ~p", [Missing]),
+	    ?LOG(debug, "Missing IEs: ~p", [Missing]),
 	    throw(?CTX_ERR(?WARNING, [{mandatory_ie_missing, hd(Missing)}]))
     end.
 

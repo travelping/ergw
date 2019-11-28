@@ -30,6 +30,7 @@
 -export([pfcp_rule_diff/2]).
 -endif.
 
+-include_lib("kernel/include/logger.hrl").
 -include_lib("pfcplib/include/pfcp_packet.hrl").
 -include("include/ergw.hrl").
 
@@ -205,11 +206,11 @@ set_timer(Time, Ev, #pfcp_ctx{timers = T0} = PCtx) ->
     PCtx#pfcp_ctx{timers = T}.
 
 apply_timers(#pfcp_ctx{timers = Old}, #pfcp_ctx{timers = New} = PCtx) ->
-    lager:debug("Update Timers Old: ~p", [Old]),
-    lager:debug("Update Timers New: ~p", [New]),
+    ?LOG(debug, "Update Timers Old: ~p", [Old]),
+    ?LOG(debug, "Update Timers New: ~p", [New]),
     maps:map(fun del_timers/2, maps:without(maps:keys(New), Old)),
     R = maps:fold(upd_timers(_, _, Old, _), reset_ctx_timers(PCtx), New),
-    lager:debug("Update Timers Final: ~p", [R#pfcp_ctx.timers]),
+    ?LOG(debug, "Update Timers Final: ~p", [R#pfcp_ctx.timers]),
     R.
 
 del_timers(_, {TRef, _}) ->
@@ -261,8 +262,8 @@ pfcp_rules_add([{Type, Key, Rule0}|T], PCtx) ->
 %%%===================================================================
 update_pfcp_rules(#pfcp_ctx{sx_rules = Old},
 		  #pfcp_ctx{idmap = IdMap, sx_rules = New}, Opts) ->
-    lager:debug("Update PFCP Rules Old: ~p", [lager:pr(Old, ?MODULE)]),
-    lager:debug("Update PFCP Rules New: ~p", [lager:pr(New, ?MODULE)]),
+    ?LOG(debug, "Update PFCP Rules Old: ~p", [Old]),
+    ?LOG(debug, "Update PFCP Rules New: ~p", [New]),
     Del = maps:fold(del_pfcp_rules(_, _, IdMap, _), #{}, maps:without(maps:keys(New), Old)),
     maps:fold(upd_pfcp_rules(_, _, Old, _, Opts), Del, New).
 
@@ -335,10 +336,10 @@ update_pfcp_pdr(#{pdr_id := Id} = New, Old, _Opts) ->
     put_rec(Id, Update).
 
 update_pfcp_far(#{far_id := Id} = New, Old, Opts) ->
-    lager:debug("Update PFCP Far Old: ~p", [pfcp_packet:lager_pr(Old)]),
-    lager:debug("Update PFCP Far New: ~p", [pfcp_packet:lager_pr(New)]),
+    ?LOG(debug, "Update PFCP Far Old: ~s", [pfcp_packet:pretty_print(Old)]),
+    ?LOG(debug, "Update PFCP Far New: ~s", [pfcp_packet:pretty_print(New)]),
     Update = update_pfcp_simplify(New, Old),
-    lager:debug("Update PFCP Far Update: ~p", [pfcp_packet:lager_pr(Update)]),
+    ?LOG(debug, "Update PFCP Far Update: ~s", [pfcp_packet:pretty_print(Update)]),
     maps:fold(update_pfcp_far(_, _, Old, _, Opts), #{}, put_rec(Id, Update)).
 
 update_pfcp_far(_, #forwarding_parameters{
@@ -347,12 +348,12 @@ update_pfcp_far(_, #forwarding_parameters{
 			      #destination_interface{interface = Interface}} = New},
 	      #{forwarding_parameters := #forwarding_parameters{group = Old}},
 	      Far, Opts) ->
-    lager:debug("Update PFCP Forward Old: ~p", [lager:pr(Old, ?MODULE)]),
-    lager:debug("Update PFCP Forward P0: ~p", [lager:pr(New, ?MODULE)]),
+    ?LOG(debug, "Update PFCP Forward Old: ~p", [Old]),
+    ?LOG(debug, "Update PFCP Forward P0: ~p", [New]),
 
     SendEM = maps:get(send_end_marker, Opts, false),
     Update0 = update_pfcp_simplify(New, Old),
-    lager:debug("Update PFCP Forward Update: ~p", [lager:pr(Update0, ?MODULE)]),
+    ?LOG(debug, "Update PFCP Forward Update: ~p", [Update0]),
     Update =
 	case Update0 of
 	    #{outer_header_creation := _}
@@ -367,5 +368,5 @@ update_pfcp_far(_, #forwarding_parameters{group = P}, _Old, Far, _Opts) ->
 update_pfcp_far(_, #duplicating_parameters{group = P}, _Old, Far, _Opts) ->
     put_rec(#update_duplicating_parameters{group = P}, Far);
 update_pfcp_far(K, V, _Old, Far, _Opts) ->
-    lager:debug("Update PFCP Far: ~p, ~p", [K, lager:pr(V, ?MODULE)]),
+    ?LOG(debug, "Update PFCP Far: ~p, ~p", [K, V]),
     Far#{K => V}.
