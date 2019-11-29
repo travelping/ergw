@@ -1,4 +1,4 @@
-%% Copyright 2015, Travelping GmbH <info@travelping.com>
+%% Copyright 2015-2019, Travelping GmbH <info@travelping.com>
 
 %% This program is free software; you can redistribute it and/or
 %% modify it under the terms of the GNU General Public License
@@ -10,7 +10,7 @@
 -compile({parse_transform, cut}).
 
 -export([fmt_gtp/1]).
--export([normalize_labels/1, apn_strip_oi/1]).
+-export([normalize_labels/1]).
 
 -include_lib("gtplib/include/gtp_packet.hrl").
 
@@ -37,15 +37,6 @@ dns_char(C) when C >= $a andalso C =< $z ->
     C;
 dns_char(C) ->
     error(badarg, [C]).
-
-%% strip Operator Identity from APN
-apn_strip_oi(APN) ->
-    case lists:suffix([<<"gprs">>], APN) of
-	true ->
-	    lists:sublist(APN, length(APN) - 3);
-	_ ->
-	    APN
-    end.
 
 %%%===================================================================
 %%% Helper functions

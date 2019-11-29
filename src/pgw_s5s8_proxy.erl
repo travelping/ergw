@@ -628,8 +628,8 @@ init_proxy_context(CntlPort,
 		   #context{imei = IMEI, context_id = ContextId, version = Version,
 			    control_interface = Interface, state = CState},
 		   #proxy_info{imsi = IMSI, msisdn = MSISDN},
-		   #proxy_ggsn{address = PGW, dst_apn = APN}) ->
-
+		   #proxy_ggsn{address = PGW, dst_apn = DstAPN}) ->
+    APN = ergw_node_selection:expand_apn(DstAPN, IMSI),
     {ok, CntlTEI} = gtp_context_reg:alloc_tei(CntlPort),
     #context{
        apn               = APN,
@@ -696,7 +696,9 @@ get_context_from_req(_K, _, Context) ->
 
 update_context_from_gtp_req(#gtp{ie = IEs} = Req, Context0) ->
     Context1 = gtp_v2_c:update_context_id(Req, Context0),
-    maps:fold(fun get_context_from_req/3, Context1, IEs).
+    Context = #context{imsi = IMSI, apn = APN} =
+	maps:fold(fun get_context_from_req/3, Context1, IEs),
+    Context#context{apn = ergw_node_selection:expand_apn(APN, IMSI)}.
 
 fq_teid(TEI, {_,_,_,_} = IP, IE) ->
     IE#v2_fully_qualified_tunnel_endpoint_identifier{
