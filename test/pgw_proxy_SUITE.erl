@@ -865,9 +865,11 @@ simple_session(Config) ->
 
     FirstHR = meck:capture(first, pgw_s5s8, handle_request, ['_', GtpRecMatch, '_', '_', '_'], 2),
     %% ct:pal("FirstHR: ~s", [ergw_test_lib:pretty_print(FirstHR)]),
+    ProxyAPN = ?'APN-PROXY' ++ [<<"mnc022">>,<<"mcc222">>,<<"gprs">>],
     ?match(
        #gtp{ie = #{
-	      {v2_access_point_name, 0} := #v2_access_point_name{apn = ?'APN-PROXY'},
+	      {v2_access_point_name, 0} :=
+		       #v2_access_point_name{apn = ProxyAPN},
 	      {v2_international_mobile_subscriber_identity, 0} :=
 		   #v2_international_mobile_subscriber_identity{imsi = ?'PROXY-IMSI'},
 	      {v2_msisdn, 0} := #v2_msisdn{msisdn = ?'PROXY-MSISDN'}

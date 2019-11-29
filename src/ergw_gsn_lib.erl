@@ -32,7 +32,7 @@
 	 gy_credit_request/3,
 	 pcc_events_to_charging_rule_report/1]).
 -export([pcc_ctx_has_rules/1]).
--export([select_vrf/2, select_vrf_and_pool/2,
+-export([apn/2, select_vrf/2, select_vrf_and_pool/2,
 	 allocate_ips/4, release_context_ips/1]).
 
 -include_lib("kernel/include/logger.hrl").
@@ -1446,28 +1446,24 @@ pcc_ctx_to_credit_request(#pcc_ctx{rules = Rules}) ->
 %%% VRF selection
 %%%===================================================================
 
-expand_apn(<<"gprs">>, APN) when length(APN) > 3 ->
-    {ShortAPN, _} = lists:split(length(APN) - 3, APN),
-    ShortAPN;
-expand_apn(_, APN) ->
-    {MCC, MNC} = ergw:get_plmn_id(),
-    MNCpart = if (size(MNC) == 2) -> <<"mnc0", MNC/binary>>;
-		 true             -> <<"mnc",  MNC/binary>>
-	      end,
-    APN ++ [MNCpart, <<"mcc", MCC/binary>>, <<"gprs">>].
-
-apn(APN0) ->
-    APN = gtp_c_lib:normalize_labels(APN0),
+apn(APN) ->
     {ok, APNs} = application:get_env(ergw, apns),
-    case maps:find(APN, APNs) of
-	{ok, _} = Result -> Result;
-	_ ->
-	    case maps:find(expand_apn(lists:last(APN), APN), APNs) of
-		{ok, _} = Result -> Result;
-		_ ->
-		    maps:find('_', APNs)
-	    end
-    end.
+    apn(APN, APNs).
+
+apn([H|_] = APN0, APNs) when is_binary(H) ->
+    APN = gtp_c_lib:normalize_labels(APN0),
+    {NI, OI} = ergw_node_selection:split_apn(APN),
+    FqAPN = NI ++ OI,
+    ct:pal("NI: ~p~nOI: ~p~nFqAPN: ~p~nAPNs: ~p~n",
+	   [NI, OI, FqAPN, APNs]),
+    case APNs of
+	#{FqAPN := A} -> {ok, A};
+	#{NI :=    A} -> {ok, A};
+	#{'_' :=   A} -> {ok, A};
+	_ -> false
+    end;
+apn(_, _) ->
+    false.
 
 select(_, []) -> undefined;
 select(first, L) -> hd(L);

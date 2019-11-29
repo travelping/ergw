@@ -239,6 +239,8 @@ validate_option(charging, Opts)
   when ?non_empty_opts(Opts) ->
     check_unique_keys(charging, Opts),
     validate_options(fun ergw_charging:validate_options/1, Opts, [], map);
+validate_option(proxy_map, Opts) ->
+    gtp_proxy_ds:validate_options(Opts);
 
 validate_option(Opt, Value)
   when Opt == plmn_id;
@@ -251,7 +253,8 @@ validate_option(Opt, Value)
        Opt == ip_pools;
        Opt == apns;
        Opt == http_api;
-       Opt == charging ->
+       Opt == charging;
+       Opt == proxy_map ->
     throw({error, {options, {Opt, Value}}});
 validate_option(_Opt, Value) ->
     Value.

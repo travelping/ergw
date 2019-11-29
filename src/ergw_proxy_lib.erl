@@ -49,13 +49,13 @@ get_seq_no(#context{control_port = GtpPort}, ReqKey, Request) ->
     ReqId = make_request_id(ReqKey, Request),
     ergw_gtp_c_socket:get_seq_no(GtpPort, ReqId).
 
-select_proxy_gsn(#proxy_info{src_apn = SrcAPN},
+select_proxy_gsn(#proxy_info{imsi = IMSI, src_apn = SrcAPN},
 		 #proxy_ggsn{address = undefined, dst_apn = DstAPN} = ProxyGSN,
 		 Services, State) ->
     APN = if is_list(DstAPN) -> DstAPN;
 	     true            -> SrcAPN
 	  end,
-    FQDN = ergw_node_selection:apn_to_fqdn(APN),
+    FQDN = ergw_node_selection:apn_to_fqdn(APN, IMSI),
     select_proxy_gsn_fqdn(FQDN, ProxyGSN, Services, State);
 select_proxy_gsn(_, #proxy_ggsn{address = {host, FQDN}} = ProxyGSN, _Services,
 		 #{node_selection := NodeSelect} = State)
@@ -116,7 +116,8 @@ select_proxy_sockets(#proxy_ggsn{node = Node, dst_apn = DstAPN, context = Contex
     Cntl = maps:get(proxy_sockets, Ctx, ProxyPorts),
     NodeSelect = maps:get(node_selection, Ctx, ProxyNodeSelect),
 
-    APN_FQDN = ergw_node_selection:apn_to_fqdn(DstAPN),
+    {APN_NI, _APN_OI} = ergw_node_selection:split_apn(DstAPN),
+    APN_FQDN = ergw_node_selection:apn_to_fqdn(APN_NI),
     Services = [{"x-3gpp-upf", "x-sxa"}],
     Candidates0 = ergw_node_selection:candidates(APN_FQDN, Services, NodeSelect),
     PGWCandidate = [{Node, 0, Services, [], []}],

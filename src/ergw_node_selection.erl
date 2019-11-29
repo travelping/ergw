@@ -13,7 +13,8 @@
 
 -module(ergw_node_selection).
 
--export([validate_options/2, apn_to_fqdn/1,
+-export([validate_options/2, expand_apn/2, split_apn/1,
+	 apn_to_fqdn/2, apn_to_fqdn/1,
 	 lookup_dns/3, colocation_match/2, topology_match/2,
 	 candidates/3, candidates_by_preference/1, topology_select/4,
 	 lookup/2, lookup/3]).
@@ -98,6 +99,33 @@ candidates(Name, Services, NodeSelection) ->
 	L ->
 	    L
     end.
+
+expand_apn_plmn(IMSI) when is_binary(IMSI) ->
+    {MCC, MNC, _} = itu_e212:split_imsi(IMSI),
+    {MCC, MNC};
+expand_apn_plmn(_) ->
+    ergw:get_plmn_id().
+
+expand_apn([H|_] = APN, IMSI)
+  when is_binary(H) ->
+    case lists:last(APN) of
+	<<"gprs">> -> APN;
+	_ ->
+	    {MCC, MNC} = expand_apn_plmn(IMSI),
+	    APN ++
+		[iolist_to_binary(io_lib:format("mnc~3..0s", [MNC])),
+		 iolist_to_binary(io_lib:format("mcc~3..0s", [MCC])),
+		 <<"gprs">>]
+    end.
+
+split_apn([H|_] = APN)
+  when is_binary(H) ->
+    L = expand_apn(APN, undefined),
+    lists:split(length(L) - 3, L).
+
+apn_to_fqdn([H|_] = APN, IMSI)
+  when is_binary(H) ->
+    apn_to_fqdn(expand_apn(APN, IMSI)).
 
 apn_to_fqdn({fqdn, _} = FQDN) ->
     FQDN;
