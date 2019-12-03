@@ -21,6 +21,7 @@
 
 -define(DefaultOptions, [{plmn_id, {<<"001">>, <<"01">>}},
 			 {accept_new, true},
+			 {gtp_idle_timer_secs, 21600}, %% def value = 6 hours
 			 {sx_socket, undefined},
 			 {sockets, []},
 			 {handlers, []},
@@ -207,6 +208,9 @@ validate_option(plmn_id, {MCC, MNC} = Value) ->
        ok -> Value;
        _  -> throw({error, {options, {plmn_id, Value}}})
     end;
+
+validate_option(gtp_idle_timer_secs, Value) when is_integer(Value) ->
+    Value;
 validate_option(accept_new, Value) when is_boolean(Value) ->
     Value;
 validate_option(sx_socket, Value) when is_list(Value); is_map(Value) ->
