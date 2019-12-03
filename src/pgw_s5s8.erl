@@ -106,7 +106,10 @@ init(_Opts, Data) ->
     SessionOpts = ergw_aaa_session:get(Session),
     OCPcfg = maps:get('Offline-Charging-Profile', SessionOpts, #{}),
     PCC = #pcc_ctx{offline_charging_profile = OCPcfg},
-    {ok, run, Data#{'Version' => v2, 'Session' => Session, pcc => PCC}}.
+    %% Get GTP idle timer and store in Data
+    Timeout = ergw:get_gtp_idle_timer_secs() * 1000, % to msecs
+    {ok, run, Data#{'Version' => v2, 'Session' => Session, pcc => PCC,
+                    timeout => Timeout}}.
 
 handle_event(Type, Content, State, #{'Version' := v1} = Data) ->
     ?GTP_v1_Interface:handle_event(Type, Content, State, Data);
@@ -257,9 +260,12 @@ handle_event(info, {pfcp_timer, #{validity_time := ChargingKeys}}, _State, Data)
 handle_event(info, _Info, _State, _Data) ->
     keep_state_and_data;
 
+handle_event({timeout, gtp_idle_timer}, session_stop, _state, Data) ->
+    delete_context(undefined, normal, Data);
+
 handle_event(internal, {session, stop, _Session}, run, Data) ->
     delete_context(undefined, normal, Data);
-handle_event(internal, {session, stop, _Session}, _, Data) ->
+handle_event(internal, {session, stop, _Session}, _, _Data) ->
     keep_state_and_data;
 
 handle_event(internal, {session, {update_credits, _} = CreditEv, _}, _State,
@@ -310,6 +316,8 @@ defered_usage_report(Server, URRActions, Report) ->
 %%
 %%   Change Notification Request/Response
 %%   Resume Notification/Acknowledge
+%% The gen_statem Generic Time-Out feature is used monitor time gap between 
+%% GTP-C v2 messages received from the SGW. 
 
 handle_request(ReqKey, #gtp{version = v1} = Msg, Resent, State, Data) ->
     ?GTP_v1_Interface:handle_request(ReqKey, Msg, Resent, State, Data#{'Version' => v1});
@@ -336,7 +344,7 @@ handle_request(ReqKey,
 			  } = IEs} = Request,
 	       _Resent, _State,
 	       #{context := Context0, aaa_opts := AAAopts, node_selection := NodeSelect,
-		 'Session' := Session, pcc := PCC0} = Data) ->
+		 'Session' := Session, pcc := PCC0, timeout := Timeout} = Data) ->
 
     PAA = maps:get(?'PDN Address Allocation', IEs, undefined),
 
@@ -436,7 +444,8 @@ handle_request(ReqKey,
     ResponseIEs = create_session_response(ActiveSessionOpts, IEs, EBI, Context),
     Response = response(create_session_response, Context, ResponseIEs, Request),
     gtp_context:send_response(ReqKey, Request, Response),
-    {keep_state, Data#{context => Context, pfcp => PCtx, pcc => PCC4}};
+    {keep_state, Data#{context => Context, pfcp => PCtx, pcc => PCC4},
+     [{{timeout, gtp_idle_timer}, Timeout, stop_session}]};
 
 handle_request(ReqKey,
 	       #gtp{type = modify_bearer_request,
@@ -451,7 +460,8 @@ handle_request(ReqKey,
 				   }}
 			  } = IEs} = Request,
 	       _Resent, _State,
-	       #{context := OldContext, pfcp := PCtx, 'Session' := Session} = Data0) ->
+	       #{context := OldContext, pfcp := PCtx, 'Session' := Session,
+		 timeout := Timeout} = Data0) ->
 
     FqCntlTEID = maps:get(?'Sender F-TEID for Control Plane', IEs, undefined),
 
@@ -492,13 +502,13 @@ handle_request(ReqKey,
 		   ResponseIEs0],
     Response = response(modify_bearer_response, Context, ResponseIEs, Request),
     gtp_context:send_response(ReqKey, Request, Response),
-    {keep_state, Data1};
+    {keep_state, Data1, [{{timeout, gtp_idle_timer}, Timeout, stop_session}]};
 
 handle_request(ReqKey,
 	       #gtp{type = modify_bearer_request, ie = IEs} = Request,
 	       _Resent, _State,
 	       #{context := OldContext, pfcp := PCtx,
-		 'Session' := Session} = Data) ->
+		 'Session' := Session, timeout := Timeout} = Data) ->
 
     Context = update_context_from_gtp_req(Request, OldContext),
     URRActions = update_session_from_gtp_req(IEs, Session, Context),
@@ -507,7 +517,8 @@ handle_request(ReqKey,
     ResponseIEs = [#v2_cause{v2_cause = request_accepted}],
     Response = response(modify_bearer_response, Context, ResponseIEs, Request),
     gtp_context:send_response(ReqKey, Request, Response),
-    {keep_state, Data#{context => Context}};
+    {keep_state, Data#{context => Context},
+     [{{timeout, gtp_idle_timer}, Timeout, stop_session}]};
 
 handle_request(#request{gtp_port = GtpPort, ip = SrcIP, port = SrcPort} = ReqKey,
 	       #gtp{type = modify_bearer_command,
@@ -517,7 +528,8 @@ handle_request(#request{gtp_port = GtpPort, ip = SrcIP, port = SrcPort} = ReqKey
 			       #v2_bearer_context{
 				   group = #{?'EPS Bearer ID' := EBI} = Bearer}} = IEs},
 	       _Resent, _State,
-	       #{context := Context, pfcp := PCtx, 'Session' := Session}) ->
+	       #{context := Context, pfcp := PCtx, 'Session' := Session,
+		 timeout := Timeout}) ->
     URRActions = update_session_from_gtp_req(IEs, Session, Context),
     trigger_defered_usage_report(URRActions, PCtx),
 
@@ -528,13 +540,13 @@ handle_request(#request{gtp_port = GtpPort, ip = SrcIP, port = SrcPort} = ReqKey
     RequestIEs = gtp_v2_c:build_recovery(Type, Context, false, RequestIEs0),
     Msg = msg(Context, Type, RequestIEs),
     send_request(GtpPort, SrcIP, SrcPort, ?T3, ?N3, Msg#gtp{seq_no = SeqNo}, ReqKey),
-    keep_state_and_data;
+    {keep_state_and_data, [{{timeout, gtp_idle_timer}, Timeout, stop_session}]};
 
 handle_request(ReqKey,
 	       #gtp{type = change_notification_request, ie = IEs} = Request,
 	       _Resent, _State,
 	       #{context := OldContext, pfcp := PCtx,
-		 'Session' := Session} = Data) ->
+		 'Session' := Session, timeout := Timeout} = Data) ->
 
     Context = update_context_from_gtp_req(Request, OldContext),
     URRActions = update_session_from_gtp_req(IEs, Session, Context),
@@ -544,29 +556,32 @@ handle_request(ReqKey,
     ResponseIEs = copy_ies_to_response(IEs, ResponseIEs0, [?'IMSI', ?'ME Identity']),
     Response = response(change_notification_response, Context, ResponseIEs, Request),
     gtp_context:send_response(ReqKey, Request, Response),
-    {keep_state, Data#{context => Context}};
+    {keep_state, Data#{context => Context},
+     [{{timeout, gtp_idle_timer}, Timeout, stop_session}]};
 
 handle_request(ReqKey,
 	       #gtp{type = suspend_notification} = Request,
-	       _Resent, _State, #{context := Context} = Data) ->
+	       _Resent, _State, #{context := Context, timeout := Timeout} = Data) ->
 
     %% don't do anything special for now
 
     ResponseIEs = [#v2_cause{v2_cause = request_accepted}],
     Response = response(suspend_acknowledge, Context, ResponseIEs, Request),
     gtp_context:send_response(ReqKey, Request, Response),
-    {keep_state, Data#{context => Context}};
+    {keep_state, Data#{context => Context},
+     [{{timeout, gtp_idle_timer}, Timeout, stop_session}]};
 
 handle_request(ReqKey,
 	       #gtp{type = resume_notification} = Request,
-	       _Resent, _State, #{context := Context} = Data) ->
+	       _Resent, _State, #{context := Context, timeout := Timeout} = Data) ->
 
     %% don't do anything special for now
 
     ResponseIEs = [#v2_cause{v2_cause = request_accepted}],
     Response = response(resume_acknowledge, Context, ResponseIEs, Request),
     gtp_context:send_response(ReqKey, Request, Response),
-    {keep_state, Data#{context => Context}};
+    {keep_state, Data#{context => Context},
+     [{{timeout, gtp_idle_timer}, Timeout, stop_session}]};
 
 handle_request(ReqKey,
 	       #gtp{type = delete_session_request, ie = IEs} = Request,
@@ -590,7 +605,7 @@ handle_request(ReqKey,
 	{error, ReplyIEs} ->
 	    Response = response(delete_session_response, Context, ReplyIEs),
 	    gtp_context:send_response(ReqKey, Request, Response),
-	    keep_state_and_data
+        keep_state_and_data
     end;
 
 handle_request(ReqKey, _Msg, _Resent, _State, _Data) ->

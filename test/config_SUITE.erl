@@ -22,6 +22,7 @@
 
 -define(GGSN_CONFIG,
 	[accept_new,
+	 {gtp_idle_timer_secs, 21600},
 	 {sockets,
 	  [{cp, [{type, 'gtp-u'},
 		 {ip,  ?LOCALHOST_IPv4},
@@ -499,6 +500,7 @@ config() ->
 config(_Config)  ->
     ?ok_option(?GGSN_CONFIG),
     ?ok_option(ergw_config:validate_config(?GGSN_CONFIG)),
+	?ok_option(set_cfg_value([gtp_idle_timer_secs], 21600, ?GGSN_CONFIG)),
     ?error_option(set_cfg_value([plmn_id], {undefined, undefined}, ?GGSN_CONFIG)),
     ?error_option(set_cfg_value([plmn_id], {<<"abc">>, <<"ab">>}, ?GGSN_CONFIG)),
     ?error_option(set_cfg_value([sockets], undefined, ?GGSN_CONFIG)),
