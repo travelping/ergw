@@ -101,7 +101,10 @@ init(_Opts, Data) ->
     SessionOpts = ergw_aaa_session:get(Session),
     OCPcfg = maps:get('Offline-Charging-Profile', SessionOpts, #{}),
     PCC = #pcc_ctx{offline_charging_profile = OCPcfg},
-    {ok, run, Data#{'Version' => v1, 'Session' => Session, pcc => PCC}}.
+    %% Get GTP idle timer and store in Data
+    Timeout = ergw:get_gtp_idle_timer_secs() * 1000, % to msecs
+    {ok, run, Data#{'Version' => v1, 'Session' => Session, pcc => PCC,
+                    timeout => Timeout}}.
 
 handle_event(enter, _OldState, _State, _Data) ->
     keep_state_and_data;
@@ -249,6 +252,9 @@ handle_event(info, {pfcp_timer, #{validity_time := ChargingKeys}}, _State, Data)
 handle_event(info, _Info, _State, Data) ->
     ?LOG(warning, "~p, handle_info(~p, ~p)", [?MODULE, _Info, Data]),
     keep_state_and_data;
+
+handle_event({timeout, context_idle}, stop_session, _state, Data) ->
+    delete_context(undefined, normal, Data);
 
 handle_event(internal, {session, stop, _Session}, run, Data) ->
     delete_context(undefined, normal, Data);
@@ -402,7 +408,8 @@ handle_request(ReqKey,
     ResponseIEs = create_pdp_context_response(ActiveSessionOpts, IEs, Context),
     Response = response(create_pdp_context_response, Context, ResponseIEs, Request),
     gtp_context:send_response(ReqKey, Request, Response),
-    {keep_state, Data#{context => Context, pfcp => PCtx, pcc => PCC4}};
+    Actions = context_idle_action([], Data),
+    {keep_state, Data#{context => Context, pfcp => PCtx, pcc => PCC4}, Actions};
 
 handle_request(ReqKey,
 	       #gtp{type = update_pdp_context_request,
@@ -429,7 +436,8 @@ handle_request(ReqKey,
     ResponseIEs = tunnel_endpoint_elements(Context, ResponseIEs0),
     Response = response(update_pdp_context_response, Context, ResponseIEs, Request),
     gtp_context:send_response(ReqKey, Request, Response),
-    {keep_state, Data1};
+    Actions = context_idle_action([], Data1),
+    {keep_state, Data1, Actions};
 
 handle_request(ReqKey,
 	       #gtp{type = ms_info_change_notification_request, ie = IEs} = Request,
@@ -445,7 +453,8 @@ handle_request(ReqKey,
     ResponseIEs = copy_ies_to_response(IEs, ResponseIEs0, [?'IMSI', ?'IMEI']),
     Response = response(ms_info_change_notification_response, Context, ResponseIEs, Request),
     gtp_context:send_response(ReqKey, Request, Response),
-    {keep_state, Data#{context => Context}};
+    Actions = context_idle_action([], Data), 
+    {keep_state, Data#{context => Context}, Actions};
 
 handle_request(ReqKey,
 	       #gtp{type = delete_pdp_context_request, ie = _IEs} = Request,
@@ -1190,3 +1199,11 @@ create_pdp_context_response(SessionOpts, RequestIEs,
     IE1 = pdp_qos_profile(SessionOpts, IE0),
     IE2 = pdp_pco(SessionOpts, RequestIEs, IE1),
     tunnel_endpoint_elements(Context, IE2).
+
+%% Wrapper for gen_statem state_callback_result Actions argument
+%% Timeout set in the context of a prolonged idle gtp session
+context_idle_action(Actions, #{timeout := Timeout})
+  when is_integer(Timeout) ->
+    [{{timeout, context_idle}, Timeout, stop_session} | Actions];
+context_idle_action(Actions, _) ->
+    Actions.
