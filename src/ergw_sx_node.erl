@@ -14,8 +14,9 @@
 
 %% API
 -export([select_sx_node/2, select_sx_node/3,
-	 attach/2, attach_tdf/2]).
--export([start_link/3, send/4, call/3,
+	 request_connect/2, request_connect/4, wait_connect/1,
+	 attach/2, attach_tdf/2, notify_up/2]).
+-export([start_link/4, send/4, call/3,
 	 get_vrfs/2, handle_request/3, response/3]).
 -ifdef(TEST).
 -export([test_cmd/2, seconds_to_sntp_time/1]).
@@ -43,7 +44,8 @@
 	       dp,
 	       ip_pools,
 	       vrfs,
-	       tdf}).
+	       tdf,
+	       notify_up = []    :: [{pid(), reference()}]}).
 
 -define(AssocReqTimeout, 200).
 -define(AssocReqRetries, 5).
@@ -81,8 +83,8 @@ attach(Node, Context) when is_pid(Node) ->
 attach_tdf(Node, Tdf) when is_pid(Node) ->
     gen_statem:call(Node, {attach_tdf, Tdf}).
 
-start_link(Node, IP4, IP6) ->
-    gen_statem:start_link(?MODULE, [Node, IP4, IP6], []).
+start_link(Node, IP4, IP6, NotifyUp) ->
+    gen_statem:start_link(?MODULE, [Node, IP4, IP6, NotifyUp], []).
 
 -ifdef(TEST).
 
@@ -177,7 +179,7 @@ port_message(_Server, Request, Msg, _Resent) ->
 
 callback_mode() -> [handle_event_function, state_enter].
 
-init([Node, IP4, IP6]) ->
+init([Node, IP4, IP6, NotifyUp]) ->
     IP = if length(IP4) /= 0 -> hd(IP4);
 	    length(IP6) /= 0 -> hd(IP6)
 	 end,
@@ -208,20 +210,24 @@ init([Node, IP4, IP6]) ->
 		  pfcp_ctx = PCtx,
 		  cp = CP,
 		  dp = #node{node = Node, ip = IP},
-		  tdf = #{}
+		  tdf = #{},
+		  notify_up = NotifyUp
 		 },
     Data = init_node_cfg(Data0),
     {ok, dead, Data}.
 
-handle_event(enter, _OldState, {connected, ready}, #data{dp = #node{node = Node}}) ->
+handle_event(enter, _OldState, {connected, ready},
+	     #data{dp = #node{node = Node}} = Data0) ->
     ergw_sx_node_reg:up(Node),
-    keep_state_and_data;
+    Data = send_notify_up(up, Data0),
+    {keep_state, Data};
 handle_event(enter, {connected, _}, dead, #data{dp = #node{node = Node}} = Data) ->
     ergw_sx_node_reg:down(Node),
     {next_state, dead, Data#data{retries = 0, recovery_ts = undefined}, [{state_timeout, 0, setup}]};
 %% handle_event(enter, dead, dead, Data) ->
 %%     {next_state, dead, Data#data{retries = 0, recovery_ts = undefined}, [{state_timeout, 0, setup}]};
-handle_event(enter, _, dead, #data{retries = Retries} = Data) ->
+handle_event(enter, _, dead, #data{retries = Retries} = Data0) ->
+    Data = send_notify_up(dead, Data0),
     Timeout = (2 bsl Retries) * ?AssocTimeout,
     ?LOG(debug, "Timeout: ~w/~w", [Retries, Timeout]),
     {next_state, dead, Data, [{state_timeout, Timeout, setup}]};
@@ -365,6 +371,12 @@ handle_event({call, From}, get_vrfs, {connected, _},
 	     #data{vrfs = VRFs}) ->
     {keep_state_and_data, [{reply, From, {ok, VRFs}}]};
 
+handle_event(cast, {notify_up, NotifyUp}, {connected, ready}, _Data) ->
+    send_notify_up(up, NotifyUp),
+    keep_state_and_data;
+handle_event(cast, {notify_up, NotifyUp}, _, #data{notify_up = Up} = Data) ->
+    {keep_state, Data#data{notify_up = Up ++ NotifyUp}};
+
 handle_event(cast, {response, {call, _} = Evt,
 		    #pfcp{
 		       ie = #{pfcp_cause :=
@@ -448,7 +460,8 @@ handle_event({call, From}, {sx, Report}, _State,
     ?LOG(error, "Sx Node Session Report unexpected: ~p", [Report]),
     {keep_state_and_data, [{reply, From, {ok, SEID}}]}.
 
-terminate(_Reason, _Data) ->
+terminate(_Reason, Data) ->
+    send_notify_up(terminate, Data),
     ok.
 
 code_change(_OldVsn, Data, _Extra) ->
@@ -506,6 +519,52 @@ handle_udp_gtp(SrcIP, DstIP, <<SrcPort:16, DstPort:16, _:16, _:16, PayLoad/binar
 		 inet:ntoa(ergw_inet:bin2ip(DstIP)), DstPort, PayLoad]),
     ok.
 
+%% request_connect/2
+request_connect(Candidates, Timeout) ->
+    AbsTimeout = erlang:monotonic_time()
+	+ erlang:convert_time_unit(Timeout, millisecond, native),
+    Ref = make_ref(),
+    Pid = proc_lib:spawn(?MODULE, ?FUNCTION_NAME, [Candidates, AbsTimeout, Ref, self()]),
+    {Pid, Ref, AbsTimeout}.
+
+%% request_connect/4
+request_connect(Candidates, AbsTimeout, Ref, Owner) ->
+    Available = ergw_sx_node_reg:available(),
+    Expects = connect_nodes(Candidates, Available, []),
+    Result =
+	fun ExpectFun([], _) ->
+		ok;
+	    ExpectFun(_More, Now) when Now >= AbsTimeout ->
+		timeout;
+	    ExpectFun([{_, Tag}|More], Now) ->
+		Timeout = erlang:convert_time_unit(AbsTimeout - Now, native, millisecond),
+		receive {Tag, _} -> ExpectFun(More, erlang:monotonic_time())
+		after Timeout -> timeout
+		end
+	end(Expects, erlang:monotonic_time()),
+    Owner ! {'$', Ref, Result}.
+
+wait_connect({Pid, Ref, AbsTimeout}) ->
+    Timeout = erlang:convert_time_unit(
+		AbsTimeout - erlang:monotonic_time(), native, millisecond),
+    receive
+	{'$', Ref, Result} -> Result;
+	{'EXIT', Pid, Reason} -> Reason
+    after Timeout -> timeout
+    end.
+
+connect_nodes([], _Available, Expects) -> Expects;
+connect_nodes([H|T], Available, Expects) ->
+    connect_nodes(T,  Available, connect_node(H, Available, Expects)).
+
+connect_node({Name, _, _, _, _}, Available, Expects)
+  when is_map_key(Name, Available) ->
+    Expects;
+connect_node({Node, _, _, IP4, IP6}, _Available, Expects) ->
+    NotifyUp = {self(), make_ref()},
+    ergw_sx_node_mngr:connect(Node, IP4, IP6, [NotifyUp]),
+    [NotifyUp | Expects].
+
 %% connect_sx_candidates/1
 connect_sx_candidates(Candidates) ->
     PrefC = ergw_node_selection:candidates_by_preference(Candidates),
@@ -529,6 +588,10 @@ connect_sx_candidates(List, NextPrio, Available) ->
 	    connect_sx_candidates(Next, NextPrio, Available)
     end.
 
+notify_up(Server, NotifyUp) when length(NotifyUp) /= 0 ->
+    gen_statem:cast(Server, {notify_up, NotifyUp});
+notify_up(_, _) ->
+    ok.
 
 lb(first, [H|T]) -> {H, T};
 lb(random, [H]) -> {H, []};
@@ -769,3 +832,9 @@ install_cp_rules(#data{pfcp_ctx = PCtx0,
     ergw_sx_socket:call(DpNodeIP, Req, response_cb(from_cp_rule)),
 
     Data#data{pfcp_ctx = PCtx, upf_data_endp = DataEndP}.
+
+send_notify_up(Notify, NotifyUp) when is_list(NotifyUp) ->
+    [Pid ! {Tag, Notify} || {Pid, Tag} <- NotifyUp, is_pid(Pid), is_reference(Tag)];
+send_notify_up(Notify, #data{notify_up = NotifyUp} = Data) ->
+    send_notify_up(Notify, NotifyUp),
+    Data#data{notify_up = []}.

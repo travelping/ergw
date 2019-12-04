@@ -95,10 +95,17 @@
 		      {"_default.apn.$ORIGIN", {300,64536},
 		       [{"x-3gpp-upf","x-sxb"}],
 		       "topon.sx.prox01.$ORIGIN"},
+		      {"async-sx.apn.$ORIGIN", {300,64536},
+		       [{"x-3gpp-upf","x-sxb"}],
+		       "topon.sx.prox01.$ORIGIN"},
+		      {"async-sx.apn.$ORIGIN", {300,64536},
+		       [{"x-3gpp-upf","x-sxb"}],
+		       "topon.sx.prox02.$ORIGIN"},
 
 		      %% A/AAAA record alternatives
 		      {"topon.gn.ggsn.$ORIGIN", ?MUST_BE_UPDATED, []},
-		      {"topon.sx.prox01.$ORIGIN", ?MUST_BE_UPDATED, []}
+		      {"topon.sx.prox01.$ORIGIN", ?MUST_BE_UPDATED, []},
+		      {"topon.sx.prox02.$ORIGIN", ?MUST_BE_UPDATED, []}
 		     ]
 		    }
 		   }
@@ -120,6 +127,9 @@
 		    [{vrf, sgi},
 		     {ip_pools, ['pool-A']}]},
 		   {[<<"APN1">>],
+		    [{vrf, sgi},
+		     {ip_pools, ['pool-A']}]},
+		   {[<<"async-sx">>],
 		    [{vrf, sgi},
 		     {ip_pools, ['pool-A']}]}
 		  ]},
@@ -338,7 +348,9 @@
 	 {[node_selection, {default, 2}, 2, "topon.gn.ggsn.$ORIGIN"],
 	  {fun node_sel_update/2, final_gsn}},
 	 {[node_selection, {default, 2}, 2, "topon.sx.prox01.$ORIGIN"],
-	  {fun node_sel_update/2, pgw_u_sx}}
+	  {fun node_sel_update/2, pgw_u_sx}},
+	 {[node_selection, {default, 2}, 2, "topon.sx.prox02.$ORIGIN"],
+	  {fun node_sel_update/2, sgw_u_sx}}
 	]).
 
 node_sel_update(Node, {_,_,_,_} = IP) ->
@@ -411,6 +423,7 @@ common() ->
      cache_timeout,
      session_options,
      session_accounting,
+     sx_ondemand,
      gy_validity_timer,
      simple_aaa,
      simple_ofcs,
@@ -1457,6 +1470,19 @@ session_accounting(Config) ->
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
     ok.
+
+%%--------------------------------------------------------------------
+sx_ondemand() ->
+    [{doc, "Connect to Sx Node on demand"}].
+sx_ondemand(Config) ->
+    ?equal(1, maps:size(ergw_sx_node_reg:available())),
+
+    {GtpC, _, _} = create_pdp_context(async_sx, Config),
+    delete_pdp_context(GtpC),
+
+    ?equal(2, maps:size(ergw_sx_node_reg:available())),
+    ?equal([], outstanding_requests()),
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT).
 
 %%--------------------------------------------------------------------
 

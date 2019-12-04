@@ -892,6 +892,7 @@ execute_request(MsgType, SubType, GtpC0) ->
 
 apn(invalid_apn) -> [<<"IN", "VA", "LID">>];
 apn(dotted_apn)  -> ?'APN-EXA.MPLE';
+apn(async_sx)    -> [<<"async-sx">>];
 apn(_)           -> ?'APN-ExAmPlE'.
 
 imsi('2nd', _) ->

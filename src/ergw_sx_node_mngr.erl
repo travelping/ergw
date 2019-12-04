@@ -10,7 +10,7 @@
 -behaviour(gen_server).
 
 %% API
--export([start_link/0, connect/3]).
+-export([start_link/0, connect/3, connect/4]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -28,11 +28,16 @@ start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
 connect(Node, IP4, IP6) ->
+    connect(Node, IP4, IP6, []).
+
+connect(Node, IP4, IP6, NotifyUp)
+  when is_list(NotifyUp) ->
     case ergw_sx_node_reg:lookup(Node) of
-	{ok, _Pid} = Result ->
+	{ok, Pid} = Result ->
+	    ergw_sx_node:notify_up(Pid, NotifyUp),
 	    Result;
 	_ ->
-	    gen_server:call(?SERVER, {connect, Node, IP4, IP6})
+	    gen_server:call(?SERVER, {connect, Node, IP4, IP6, NotifyUp})
     end.
 
 %%%===================================================================
@@ -44,12 +49,13 @@ init([]) ->
     {ok, #state{}}.
 
 %% serialize lockup/new
-handle_call({connect, Node, IP4, IP6}, _From, State) ->
+handle_call({connect, Node, IP4, IP6, NotifyUp}, _From, State) ->
     case ergw_sx_node_reg:lookup(Node) of
-	{ok, _Pid} = Result ->
+	{ok, Pid} = Result ->
+	    ergw_sx_node:notify_up(Pid, NotifyUp),
 	    {reply, Result, State};
 	_ ->
-	    Result = ergw_sx_node_sup:new(Node, IP4, IP6),
+	    Result = ergw_sx_node_sup:new(Node, IP4, IP6, NotifyUp),
 	    {reply, Result, State}
     end;
 handle_call(_Request, _From, State) ->

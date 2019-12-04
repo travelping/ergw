@@ -303,12 +303,14 @@ handle_request(ReqKey,
 
     {ProxyGtpPort, DPCandidates} =
 	ergw_proxy_lib:select_proxy_sockets(ProxyGGSN, ProxyInfo, Data),
+    SxConnectId = ergw_sx_node:request_connect(DPCandidates, 1000),
 
     {ok, _} = ergw_aaa_session:invoke(Session, SessionOpts, start, #{async =>true}),
 
     ProxyContext0 = init_proxy_context(ProxyGtpPort, Context3, ProxyInfo, ProxyGGSN),
     ProxyContext1 = gtp_path:bind(ProxyContext0),
 
+    ergw_sx_node:wait_connect(SxConnectId),
     {Context, ProxyContext, PCtx} =
 	ergw_proxy_lib:create_forward_session(DPCandidates, Context3, ProxyContext1),
 

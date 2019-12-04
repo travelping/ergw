@@ -274,6 +274,12 @@ handle_event(internal, {session, {update_credits, _} = CreditEv, _}, _State,
 
 handle_event(internal, {session, Ev, _}, _State, _Data) ->
     ?LOG(error, "unhandled session event: ~p", [Ev]),
+    keep_state_and_data;
+
+handle_event(cast, Ev, _State, _Data)
+  when is_tuple(Ev), element(1, Ev) =:= '$' ->
+    %% late async events, just ignore them...
+    ?LOG(debug, "late event: ~p", [Ev]),
     keep_state_and_data.
 
 handle_pdu(ReqKey, #gtp{ie = PDU} = Msg, _State,
@@ -338,18 +344,6 @@ handle_request(ReqKey,
 	       #{context := Context0, aaa_opts := AAAopts, node_selection := NodeSelect,
 		 'Session' := Session, pcc := PCC0} = Data) ->
 
-    PAA = maps:get(?'PDN Address Allocation', IEs, undefined),
-
-    Context1 = update_context_tunnel_ids(FqCntlTEID, FqDataTEID, Context0),
-    Context2 = update_context_from_gtp_req(Request, Context1),
-    ContextPreAuth = gtp_path:bind(Request, Context2),
-
-    gtp_context:terminate_colliding_context(ContextPreAuth),
-
-    SessionOpts0 = init_session(IEs, ContextPreAuth, AAAopts),
-    SessionOpts = init_session_from_gtp_req(IEs, AAAopts, SessionOpts0),
-    %% SessionOpts = init_session_qos(ReqQoSProfile, SessionOpts1),
-
     APN_FQDN = ergw_node_selection:apn_to_fqdn(APN),
     Services = [{"x-3gpp-upf", "x-sxb"}],
     SGWuNode =
@@ -359,6 +353,21 @@ handle_request(ReqKey,
 	    _ -> []
 	end,
     Candidates = ergw_node_selection:topology_select(APN_FQDN, SGWuNode, Services, NodeSelect),
+    SxConnectId = ergw_sx_node:request_connect(Candidates, 1000),
+
+    Context1 = update_context_tunnel_ids(FqCntlTEID, FqDataTEID, Context0),
+    Context2 = update_context_from_gtp_req(Request, Context1),
+    ContextPreAuth = gtp_path:bind(Request, Context2),
+
+    gtp_context:terminate_colliding_context(ContextPreAuth),
+
+    PAA = maps:get(?'PDN Address Allocation', IEs, undefined),
+
+    SessionOpts0 = init_session(IEs, ContextPreAuth, AAAopts),
+    SessionOpts = init_session_from_gtp_req(IEs, AAAopts, SessionOpts0),
+    %% SessionOpts = init_session_qos(ReqQoSProfile, SessionOpts1),
+
+    ergw_sx_node:wait_connect(SxConnectId),
     {ok, PendingPCtx, NodeCaps} = ergw_sx_node:select_sx_node(Candidates, ContextPreAuth),
 
     {ContextVRF, APNOpts} = ergw_gsn_lib:select_vrf_and_pool(NodeCaps, ContextPreAuth),
