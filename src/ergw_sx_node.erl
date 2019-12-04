@@ -535,7 +535,7 @@ lb(random, [H]) -> {H, []};
 lb(random, L) when is_list(L) ->
     Index = rand:uniform(length(L)),
     Item = lists:nth(Index, L),
-    {Item, L -- Item}.
+    {Item, lists:delete(Item, L)}.
 
 response_cb(CbData) ->
     {?MODULE, response, [self(), CbData]}.
