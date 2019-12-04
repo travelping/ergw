@@ -13,7 +13,7 @@
 -compile({parse_transform, cut}).
 
 %% API
--export([select_sx_node/2, select_sx_node/3, connect_sx_node/3,
+-export([select_sx_node/2, select_sx_node/3,
 	 attach/2, attach_tdf/2]).
 -export([start_link/3, send/4, call/3,
 	 get_vrfs/2, handle_request/3, response/3]).
@@ -529,14 +529,6 @@ connect_sx_candidates(List, NextPrio, Available) ->
 	    connect_sx_candidates(Next, NextPrio, Available)
     end.
 
-%% connect_sx_node/3
-connect_sx_node(Node, IP4, IP6) ->
-    case ergw_sx_node_reg:lookup(Node) of
-	{ok, _} = Result ->
-	    Result;
-	_ ->
-	    ergw_sx_node_sup:new(Node, IP4, IP6)
-    end.
 
 lb(first, [H|T]) -> {H, T};
 lb(random, [H]) -> {H, []};

@@ -42,6 +42,7 @@ init([]) ->
 				 ?CHILD(ergw_gtp_socket_sup, supervisor, []),
 				 ?CHILD(ergw_sx_node_reg, worker, []),
 				 ?CHILD(ergw_sx_node_sup, supervisor, []),
+				 ?CHILD(ergw_sx_node_mngr, worker, []),
 				 ?CHILD(gtp_proxy_ds, worker, []),
 				 ?CHILD(ergw_ip_pool_reg, worker, []),
 				 ?CHILD(ergw_ip_pool_sup, supervisor, []),
