@@ -109,7 +109,9 @@ init(_Opts, Data) ->
     SessionOpts = ergw_aaa_session:get(Session),
     OCPcfg = maps:get('Offline-Charging-Profile', SessionOpts, #{}),
     PCC = #pcc_ctx{offline_charging_profile = OCPcfg},
-    {ok, run, Data#{'Session' => Session, pcc => PCC}}.
+    Timeout = ergw:get_gtp_idle_timer_secs() * 1000, % to msecs
+    {ok, run, Data#{'Session' => Session, pcc => PCC,
+                    timeout => Timeout}}.
 
 handle_event(enter, _OldState, _State, _Data) ->
     keep_state_and_data;
@@ -256,6 +258,9 @@ handle_event(info, {pfcp_timer, #{validity_time := ChargingKeys}}, _State, Data)
 
 handle_event(info, _Info, _State, _Data) ->
     keep_state_and_data;
+
+handle_event({timeout, context_idle}, stop_session, _state, Data) ->
+    delete_context(undefined, normal, Data);
 
 handle_event(internal, {session, stop, _Session}, run, Data) ->
     delete_context(undefined, normal, Data);
@@ -422,7 +427,8 @@ handle_request(ReqKey,
     ResponseIEs = create_session_response(ActiveSessionOpts, IEs, EBI, Context),
     Response = response(create_session_response, Context, ResponseIEs, Request),
     gtp_context:send_response(ReqKey, Request, Response),
-    {keep_state, Data#{context => Context, pfcp => PCtx, pcc => PCC4}};
+    Actions = context_idle_action([], Data),
+    {keep_state, Data#{context => Context, pfcp => PCtx, pcc => PCC4}, Actions};
 
 handle_request(ReqKey,
 	       #gtp{type = modify_bearer_request,
@@ -460,7 +466,8 @@ handle_request(ReqKey,
 			      EBI]}],
     Response = response(modify_bearer_response, Context, ResponseIEs, Request),
     gtp_context:send_response(ReqKey, Request, Response),
-    {keep_state, Data1};
+    Actions = context_idle_action([], Data1),
+    {keep_state, Data1, Actions};
 
 handle_request(ReqKey,
 	       #gtp{type = modify_bearer_request, ie = IEs} = Request,
@@ -475,7 +482,8 @@ handle_request(ReqKey,
     ResponseIEs = [#v2_cause{v2_cause = request_accepted}],
     Response = response(modify_bearer_response, Context, ResponseIEs, Request),
     gtp_context:send_response(ReqKey, Request, Response),
-    {keep_state, Data#{context => Context}};
+    Actions = context_idle_action([], Data),
+    {keep_state, Data#{context => Context}, Actions};
 
 handle_request(#request{gtp_port = GtpPort, ip = SrcIP, port = SrcPort} = ReqKey,
 	       #gtp{type = modify_bearer_command,
@@ -486,7 +494,7 @@ handle_request(#request{gtp_port = GtpPort, ip = SrcIP, port = SrcPort} = ReqKey
 				  group = #{?'EPS Bearer ID' := EBI} = Bearer}} = IEs},
 	       _Resent, _State,
 	       #{context := Context, pfcp := PCtx,
-		 'Session' := Session}) ->
+		 'Session' := Session} = Data) ->
     gtp_context:request_finished(ReqKey),
     URRActions = update_session_from_gtp_req(IEs, Session, Context),
     trigger_defered_usage_report(URRActions, PCtx),
@@ -498,7 +506,8 @@ handle_request(#request{gtp_port = GtpPort, ip = SrcIP, port = SrcPort} = ReqKey
     RequestIEs = gtp_v2_c:build_recovery(Type, Context, false, RequestIEs0),
     Msg = msg(Context, Type, RequestIEs),
     send_request(GtpPort, SrcIP, SrcPort, ?T3, ?N3, Msg#gtp{seq_no = SeqNo}, undefined),
-    keep_state_and_data;
+    Actions = context_idle_action([], Data),
+    {keep_state_and_data, Actions};
 
 handle_request(ReqKey,
 	       #gtp{type = release_access_bearers_request} = Request, _Resent, _State,
@@ -514,7 +523,8 @@ handle_request(ReqKey,
     ResponseIEs = [#v2_cause{v2_cause = request_accepted}],
     Response = response(release_access_bearers_response, NewContext, ResponseIEs, Request),
     gtp_context:send_response(ReqKey, Request, Response),
-    {keep_state, Data#{context => NewContext, pfcp => PCtx}};
+    Actions = context_idle_action([], Data),
+    {keep_state, Data#{context => NewContext, pfcp => PCtx}, Actions};
 
 handle_request(ReqKey,
 	       #gtp{type = delete_session_request, ie = IEs} = Request,
@@ -1290,3 +1300,11 @@ create_session_response(SessionOpts, RequestIEs, EBI,
      s5s8_pgw_gtp_c_tei(Context),
      #v2_apn_restriction{restriction_type_value = 0},
      encode_paa(MSv4, MSv6) | IE1].
+
+%% Wrapper for gen_statem state_callback_result Actions argument
+%% Timeout set in the context of a prolonged idle gtpv2 session
+context_idle_action(Actions, #{timeout := Timeout})
+  when is_integer(Timeout) ->
+    [{{timeout, context_idle}, Timeout, stop_session} | Actions];
+context_idle_action(Actions, _) ->
+    Actions.
