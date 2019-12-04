@@ -207,6 +207,8 @@ init([Node, IP4, IP6, NotifyUp]) ->
     Nodes = setup:get_env(ergw, nodes, #{}),
     Cfg = maps:get(Node, Nodes, maps:get(default, Nodes, #{})),
     Data0 = #data{cfg = Cfg,
+		  retries = 0,
+		  recovery_ts = undefined,
 		  pfcp_ctx = PCtx,
 		  cp = CP,
 		  dp = #node{node = Node, ip = IP},
@@ -214,7 +216,7 @@ init([Node, IP4, IP6, NotifyUp]) ->
 		  notify_up = NotifyUp
 		 },
     Data = init_node_cfg(Data0),
-    {ok, dead, Data}.
+    {ok, dead, Data, [{next_event, internal, setup}]}.
 
 handle_event(enter, _OldState, {connected, ready},
 	     #data{dp = #node{node = Node}} = Data0) ->
@@ -224,8 +226,6 @@ handle_event(enter, _OldState, {connected, ready},
 handle_event(enter, {connected, _}, dead, #data{dp = #node{node = Node}} = Data) ->
     ergw_sx_node_reg:down(Node),
     {next_state, dead, Data#data{retries = 0, recovery_ts = undefined}, [{state_timeout, 0, setup}]};
-%% handle_event(enter, dead, dead, Data) ->
-%%     {next_state, dead, Data#data{retries = 0, recovery_ts = undefined}, [{state_timeout, 0, setup}]};
 handle_event(enter, _, dead, #data{retries = Retries} = Data0) ->
     Data = send_notify_up(dead, Data0),
     Timeout = (2 bsl Retries) * ?AssocTimeout,
