@@ -319,6 +319,11 @@ handle_request(ReqKey,
 	       #{context := Context0, aaa_opts := AAAopts, node_selection := NodeSelect,
 		 'Session' := Session, pcc := PCC0} = Data) ->
 
+    APN_FQDN = ergw_node_selection:apn_to_fqdn(APN),
+    Services = [{"x-3gpp-upf", "x-sxb"}],
+    Candidates = ergw_node_selection:topology_select(APN_FQDN, [], Services, NodeSelect),
+    SxConnectId = ergw_sx_node:request_connect(Candidates, 1000),
+
     EUA = maps:get(?'End User Address', IEs, undefined),
 
     Context1 = update_context_from_gtp_req(Request, Context0),
@@ -330,9 +335,7 @@ handle_request(ReqKey,
     SessionOpts1 = init_session_from_gtp_req(IEs, AAAopts, SessionOpts0),
     SessionOpts = init_session_qos(IEs, SessionOpts1),
 
-    APN_FQDN = ergw_node_selection:apn_to_fqdn(APN),
-    Services = [{"x-3gpp-upf", "x-sxb"}],
-    Candidates = ergw_node_selection:topology_select(APN_FQDN, [], Services, NodeSelect),
+    ergw_sx_node:wait_connect(SxConnectId),
     {ok, PendingPCtx, NodeCaps} = ergw_sx_node:select_sx_node(Candidates, ContextPreAuth),
 
     {ContextVRF, APNOpts} = ergw_gsn_lib:select_vrf_and_pool(NodeCaps, ContextPreAuth),

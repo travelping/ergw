@@ -89,10 +89,17 @@
 		      {"_default.apn.$ORIGIN", {300,64536},
 		       [{"x-3gpp-upf","x-sxb"}],
 		       "topon.sx.prox01.$ORIGIN"},
+		      {"async-sx.apn.$ORIGIN", {300,64536},
+		       [{"x-3gpp-upf","x-sxb"}],
+		       "topon.sx.prox01.$ORIGIN"},
+		      {"async-sx.apn.$ORIGIN", {300,64536},
+		       [{"x-3gpp-upf","x-sxb"}],
+		       "topon.sx.prox02.$ORIGIN"},
 
 		      %% A/AAAA record alternatives
 		      {"topon.s5s8.pgw.$ORIGIN", ?MUST_BE_UPDATED, []},
-		      {"topon.sx.prox01.$ORIGIN", ?MUST_BE_UPDATED, []}
+		      {"topon.sx.prox01.$ORIGIN", ?MUST_BE_UPDATED, []},
+		      {"topon.sx.prox02.$ORIGIN", ?MUST_BE_UPDATED, []}
 		     ]
 		    }
 		   }
@@ -111,6 +118,9 @@
 		    [{vrf, sgi},
 		     {ip_pools, ['pool-A']}]},
 		   {[<<"APN1">>],
+		    [{vrf, sgi},
+		     {ip_pools, ['pool-A']}]},
+		   {[<<"async-sx">>],
 		    [{vrf, sgi},
 		     {ip_pools, ['pool-A']}]}
 		  ]},
@@ -328,7 +338,9 @@
 	 {[node_selection, {default, 2}, 2, "topon.s5s8.pgw.$ORIGIN"],
 	  {fun node_sel_update/2, final_gsn}},
 	 {[node_selection, {default, 2}, 2, "topon.sx.prox01.$ORIGIN"],
-	  {fun node_sel_update/2, pgw_u_sx}}
+	  {fun node_sel_update/2, pgw_u_sx}},
+	 {[node_selection, {default, 2}, 2, "topon.sx.prox02.$ORIGIN"],
+	  {fun node_sel_update/2, sgw_u_sx}}
 	]).
 
 node_sel_update(Node, {_,_,_,_} = IP) ->
@@ -395,6 +407,7 @@ common() ->
      create_session_overload,
      session_options,
      enb_connection_suspend,
+     sx_ondemand,
      gy_validity_timer,
      simple_aaa,
      simple_ofcs,
@@ -1145,7 +1158,19 @@ enb_connection_suspend(Config) ->
     ok.
 
 %%--------------------------------------------------------------------
+sx_ondemand() ->
+    [{doc, "Connect to Sx Node on demand"}].
+sx_ondemand(Config) ->
+    ?equal(1, maps:size(ergw_sx_node_reg:available())),
 
+    {GtpC, _, _} = create_session(async_sx, Config),
+    delete_session(GtpC),
+
+    ?equal(2, maps:size(ergw_sx_node_reg:available())),
+    ?equal([], outstanding_requests()),
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT).
+
+%%--------------------------------------------------------------------
 gy_validity_timer() ->
     [{doc, "Check Validity-Timer attached to MSCC"}].
 gy_validity_timer(Config) ->

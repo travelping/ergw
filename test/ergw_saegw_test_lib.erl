@@ -604,6 +604,7 @@ execute_request(MsgType, SubType, GtpC0) ->
     {validate_response(MsgType, SubType, Response, GtpC), Msg, Response}.
 
 apn(invalid_apn) -> [<<"IN", "VA", "LID">>];
+apn(async_sx)    -> [<<"async-sx">>];
 apn(_)           -> ?'APN-ExAmPlE'.
 
 imsi('2nd', _) ->
