@@ -22,7 +22,7 @@ The following metrics exist:
 | gtp\_c\_socket\_messages\_timeouts\_total       | counter   | name, version, type                            | Total number of timed out GTP message on socket          |
 | gtp\_c\_socket\_messages\_replies\_total        | counter   | name, direction, version, type, result         | Total number of reply GTP message on socket              |
 | gtp\_c\_socket\_errors\_total                   | counter   | name, direction, error                         | Total number of GTP errors on socket                     |
-| gtp\_c\_socket\_request\_duration\_milliseconds | histogram | name, version, type                            | GTP Request execution time.                              |
+| gtp\_c\_socket\_request\_duration\_microseconds | histogram | name, version, type                            | GTP Request execution time.                              |
 | gtp\_u\_socket\_messages\_processed\_total      | counter   | name, direction, version, type                 | Total number of GTP message processed on socket          |
 | ergw\_ip\_pool\_free                            | gauge     | name, type, id                                 | Number of free IPs                                       |
 | ergw\_ip\_pool\_used                            | gauge     | name, type, id                                 | Number of used IPs                                       |
@@ -38,8 +38,6 @@ The `timeout` counter exists only for requests that require a response.
 
 The `request_duration` metric is a histogram of the total processing time for the last
 incoming message of that type.
-
-All timing values in the histograms are in microseconds (µs).
 
 The label `type` is the GTP Messages types. For GTPv1-C messages the following types exist:
 
