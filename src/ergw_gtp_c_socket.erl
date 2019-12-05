@@ -516,16 +516,13 @@ message_counter(Direction, GtpPort, #send_req{address = IP, msg = Msg}, Verdict)
     ergw_prometheus:gtp(Direction, GtpPort, IP, Msg, Verdict).
 
 %% measure the time it takes our peer to reply to a request
-measure_reply(GtpPort,
-	      #send_req{address = IP, msg = Msg, send_ts = SendTS},
-	      ArrivalTS) ->
-    RTT = erlang:convert_time_unit(ArrivalTS - SendTS, native, microsecond),
-    ergw_prometheus:gtp_path_rtt(GtpPort, IP, Msg, RTT).
+measure_reply(GtpPort, #send_req{address = IP, msg = Msg, send_ts = SendTS}, ArrivalTS) ->
+    ergw_prometheus:gtp_path_rtt(GtpPort, IP, Msg, ArrivalTS - SendTS).
 
 %% measure the time it takes us to generate a response to a request
 measure_response(#request{
 		    gtp_port = GtpPort,
 		    version = Version, type = MsgType,
 		    arrival_ts = ArrivalTS}) ->
-    Duration = erlang:convert_time_unit(erlang:monotonic_time() - ArrivalTS, native, millisecond),
+    Duration = erlang:monotonic_time() - ArrivalTS,
     ergw_prometheus:gtp_request_duration(GtpPort, Version, MsgType, Duration).

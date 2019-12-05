@@ -65,7 +65,7 @@ declare() ->
     prometheus_counter:declare([{name, gtp_c_socket_errors_total},
 				{labels, [name, direction, error]},
 				{help, "Total number of GTP errors on socket"}]),
-    prometheus_histogram:declare([{name, gtp_c_socket_request_duration_milliseconds},
+    prometheus_histogram:declare([{name, gtp_c_socket_request_duration_microseconds},
 				  {labels, [name, version, type]},
 				  {buckets, [100, 300, 500, 750, 1000]},
 				  {help, "GTP Request execution time."}]),
@@ -149,11 +149,12 @@ gtp_reply_update(Name, Direction, Version, MsgType, Cause) ->
 			   [Name, Direction, Version, MsgType, Cause]).
 
 gtp_request_duration(#gtp_port{name = Name}, Version, MsgType, Duration) ->
-    prometheus_histogram:observe(gtp_c_socket_request_duration_milliseconds,
-				 [Name, Version, MsgType], Duration).
+    prometheus_histogram:observe(
+      gtp_c_socket_request_duration_microseconds, [Name, Version, MsgType], Duration).
 
 gtp_path_rtt(#gtp_port{name = Name}, RemoteIP, #gtp{version = Version, type = MsgType}, RTT) ->
-    prometheus_histogram:observe(gtp_path_rtt_milliseconds, [Name, RemoteIP, Version, MsgType], RTT).
+    prometheus_histogram:observe(
+      gtp_path_rtt_milliseconds, [Name, RemoteIP, Version, MsgType], RTT).
 
 gtp_path_contexts(#gtp_port{name = Name}, RemoteIP, Version, Counter) ->
     prometheus_gauge:set(gtp_path_contexts_total, [Name, RemoteIP, Version], Counter).
