@@ -1808,8 +1808,8 @@ interop_sgsn_to_sgw() ->
     [{doc, "Check 3GPP T 23.401, Annex D, SGSN to SGW handover"}].
 interop_sgsn_to_sgw(Config) ->
     ClientIP = proplists:get_value(client_ip, Config),
-    CtxMetricV1 = ['irx-socket', ClientIP, v1],
-    CtxMetricV2 = ['irx-socket', ClientIP, v2],
+    CtxMetricV1 = ['irx-socket', inet:ntoa(ClientIP), v1],
+    CtxMetricV2 = ['irx-socket', inet:ntoa(ClientIP), v2],
 
     {GtpC1, _, _} = ergw_ggsn_test_lib:create_pdp_context(Config),
     ?match_metric(prometheus_gauge, gtp_path_contexts_total, CtxMetricV1, 1),
@@ -1857,8 +1857,8 @@ interop_sgw_to_sgsn() ->
     [{doc, "Check 3GPP T 23.401, Annex D, SGW to SGSN handover"}].
 interop_sgw_to_sgsn(Config) ->
     ClientIP = proplists:get_value(client_ip, Config),
-    CtxMetricV1 = ['irx-socket', ClientIP, v1],
-    CtxMetricV2 = ['irx-socket', ClientIP, v2],
+    CtxMetricV1 = ['irx-socket', inet:ntoa(ClientIP), v1],
+    CtxMetricV2 = ['irx-socket', inet:ntoa(ClientIP), v2],
 
     {GtpC1, _, _} = create_session(Config),
     ?match_metric(prometheus_gauge, gtp_path_contexts_total, CtxMetricV2, 1),
