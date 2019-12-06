@@ -1954,6 +1954,8 @@ session_options(Config) ->
 		   %% TODO check 'PDP-Context-Type' => primary,
 		   'Framed-IP-Address' => {10, 180, '_', '_'},
 		   'Framed-IPv6-Prefix' => {{16#8001, 0, 1, '_', '_', '_', '_', '_'},64},
+		   'Framed-Pool' => <<"pool-A">>,
+		   'Framed-IPv6-Pool' => <<"pool-A">>,
 
 		   'Charging-Rule-Base-Name' => <<"m2m0001">>,
 

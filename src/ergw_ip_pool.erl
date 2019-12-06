@@ -12,7 +12,7 @@
 %% API
 -export([start_ip_pool/2, get/4, release/3, opts/2]).
 -export([start_link/3, start_link/4]).
--export([validate_options/1, validate_option/2, validate_name/1]).
+-export([validate_options/1, validate_option/2, validate_name/2]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -33,11 +33,13 @@
 -define(UE_INTERFACE_ID, {0,0,0,0,0,0,0,1}).
 
 -define(DefaultOptions, [{ranges, []}]).
--define(IPv4Opts, ['MS-Primary-DNS-Server',
+-define(IPv4Opts, ['Framed-Pool',
+		   'MS-Primary-DNS-Server',
 		   'MS-Secondary-DNS-Server',
 		   'MS-Primary-NBNS-Server',
 		   'MS-Secondary-NBNS-Server']).
--define(IPv6Opts, ['DNS-Server-IPv6-Address',
+-define(IPv6Opts, ['Framed-IPv6-Pool',
+		   'DNS-Server-IPv6-Address',
 		   '3GPP-IPv6-DNS-Servers']).
 
 %%====================================================================
@@ -131,15 +133,21 @@ validate_option(Opt, DNS)
        (Opt == 'DNS-Server-IPv6-Address' orelse
 	Opt == '3GPP-IPv6-DNS-Servers') ->
     [validate_ip6(Opt, IP) || IP <- DNS];
+validate_option(Opt, Pool)
+  when Opt =:= 'Framed-Pool';
+       Opt =:= 'Framed-IPv6-Pool' ->
+    validate_name(Opt, Pool);
 validate_option(Opt, Value) ->
     throw({error, {options, {Opt, Value}}}).
 
-validate_name(Name) when is_binary(Name) ->
+validate_name(_, Name) when is_binary(Name) ->
     Name;
-validate_name(Name) when is_list(Name) ->
+validate_name(_, Name) when is_list(Name) ->
     unicode:characters_to_binary(Name, utf8);
-validate_name(Name) when is_atom(Name) ->
-    atom_to_binary(Name, utf8).
+validate_name(_, Name) when is_atom(Name) ->
+    atom_to_binary(Name, utf8);
+validate_name(Opt, Name) ->
+   throw({error, {options, {Opt, Name}}}).
 
 %%%===================================================================
 %%% gen_server callbacks
