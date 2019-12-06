@@ -329,7 +329,7 @@ validate_node_default_option(vrfs, VRFs)
     validate_options(fun validate_node_vrfs/1, VRFs, [], map);
 validate_node_default_option(ip_pools, Pools)
   when is_list(Pools) ->
-    V = [ergw_ip_pool:validate_name(Name) || Name <- Pools],
+    V = [ergw_ip_pool:validate_name(ip_pools, Name) || Name <- Pools],
     check_unique_elements(ip_pools, V),
     V;
 validate_node_default_option(node_selection, Value) ->
@@ -363,7 +363,7 @@ validate_nodes(Opt, Values, _) ->
 
 validate_ip_pools({Name, Values})
   when ?is_opts(Values) ->
-    {ergw_ip_pool:validate_name(Name), ergw_ip_pool:validate_options(Values)};
+    {ergw_ip_pool:validate_name(ip_pools, Name), ergw_ip_pool:validate_options(Values)};
 validate_ip_pools({Opt, Value}) ->
     throw({error, {options, {Opt, Value}}}).
 
@@ -397,7 +397,7 @@ validate_apn_option({vrfs = Opt, VRFs})
     {Opt, V};
 validate_apn_option({ip_pools = Opt, Pools})
   when is_list(Pools) ->
-    V = [ergw_ip_pool:validate_name(Name) || Name <- Pools],
+    V = [ergw_ip_pool:validate_name(Opt, Name) || Name <- Pools],
     check_unique_elements(Opt, V),
     {Opt, V};
 validate_apn_option({Opt, Value}) ->

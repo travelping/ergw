@@ -1520,7 +1520,8 @@ normalize_ipv6(undefined) ->
     undefined.
 
 alloc_ipv4({ReqIPv4, PrefixLen}, #context{local_control_tei = TEI, ipv4_pool = Pool}) ->
-    PoolOpts = ergw_ip_pool:opts(ipv4, Pool),
+    PoolOpts0 = ergw_ip_pool:opts(ipv4, Pool),
+    PoolOpts = maps:update_with('Framed-Pool', fun(X) -> X end, Pool, PoolOpts0),
     Request = case ReqIPv4 of
 		  ?ZERO_IPv4 -> ipv4;
 		  _          -> ReqIPv4
@@ -1535,7 +1536,8 @@ alloc_ipv4(_ReqIPv4, _Context) ->
     {undefined, #{}}.
 
 alloc_ipv6({ReqIPv6, PrefixLen}, #context{local_control_tei = TEI, ipv6_pool = Pool}) ->
-    PoolOpts = ergw_ip_pool:opts(ipv6, Pool),
+    PoolOpts0 = ergw_ip_pool:opts(ipv6, Pool),
+    PoolOpts = maps:update_with('Framed-IPv6-Pool', fun(X) -> X end, Pool, PoolOpts0),
     {Request, IfId} = case ReqIPv6 of
 			  ?ZERO_IPv6 -> {ipv6, ?UE_INTERFACE_ID};
 			  _          -> {ReqIPv6, ReqIPv6}
