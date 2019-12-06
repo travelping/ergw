@@ -94,14 +94,14 @@ gtp(Direction, #gtp_port{name = Name, type = 'gtp-c'},
 gtp(Direction, #gtp_port{name = Name, type = 'gtp-u'}, IP,
     #gtp{version = Version, type = MsgType}) ->
     prometheus_counter:inc(gtp_path_messages_processed_total,
-			   [Name, IP, Direction, Version, MsgType]),
+			   [Name, inet:ntoa(IP), Direction, Version, MsgType]),
     prometheus_counter:inc(gtp_u_socket_messages_processed_total,
 			   [Name, Direction, Version, MsgType]).
 
 gtp_c_msg_counter(PathMetric, SocketMetric,
 		  #gtp_port{name = Name, type = 'gtp-c'}, IP,
 		  #gtp{version = Version, type = MsgType}) ->
-    prometheus_counter:inc(PathMetric, [Name, IP, Version, MsgType]),
+    prometheus_counter:inc(PathMetric, [Name, inet:ntoa(IP), Version, MsgType]),
     prometheus_counter:inc(SocketMetric, [Name, Version, MsgType]).
 
 %% gtp/5
@@ -154,7 +154,8 @@ gtp_request_duration(#gtp_port{name = Name}, Version, MsgType, Duration) ->
 
 gtp_path_rtt(#gtp_port{name = Name}, RemoteIP, #gtp{version = Version, type = MsgType}, RTT) ->
     prometheus_histogram:observe(
-      gtp_path_rtt_milliseconds, [Name, RemoteIP, Version, MsgType], RTT).
+      gtp_path_rtt_milliseconds, [Name, inet:ntoa(RemoteIP), Version, MsgType], RTT).
 
 gtp_path_contexts(#gtp_port{name = Name}, RemoteIP, Version, Counter) ->
-    prometheus_gauge:set(gtp_path_contexts_total, [Name, RemoteIP, Version], Counter).
+    prometheus_gauge:set(
+      gtp_path_contexts_total, [Name, inet:ntoa(RemoteIP), Version], Counter).
