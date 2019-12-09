@@ -101,8 +101,13 @@ init(_Opts, Data) ->
     SessionOpts = ergw_aaa_session:get(Session),
     OCPcfg = maps:get('Offline-Charging-Profile', SessionOpts, #{}),
     PCC = #pcc_ctx{offline_charging_profile = OCPcfg},
-    %% Get GTP idle timer and store in Data
-    Timeout = ergw:get_gtp_idle_timer_secs() * 1000, % to msecs
+    %% Get default GTP idle timer if present and store in Data
+    Timeout = case get_gtp_idle_timer([<<"default">>]) of
+		  no_timer_specified ->
+		      infinity;
+		  Value ->
+		      Value
+	      end,
     {ok, run, Data#{'Version' => v1, 'Session' => Session, pcc => PCC,
                     timeout => Timeout}}.
 
@@ -323,7 +328,7 @@ handle_request(ReqKey,
 			   ?'Access Point Name' := #access_point_name{apn = APN}
 			  } = IEs} = Request, _Resent, _State,
 	       #{context := Context0, aaa_opts := AAAopts, node_selection := NodeSelect,
-		 'Session' := Session, pcc := PCC0} = Data) ->
+		 'Session' := Session, pcc := PCC0} = Data0) ->
 
     APN_FQDN = ergw_node_selection:apn_to_fqdn(APN),
     Services = [{"x-3gpp-upf", "x-sxb"}],
@@ -408,6 +413,13 @@ handle_request(ReqKey,
     ResponseIEs = create_pdp_context_response(ActiveSessionOpts, IEs, Context),
     Response = response(create_pdp_context_response, Context, ResponseIEs, Request),
     gtp_context:send_response(ReqKey, Request, Response),
+
+    Data = case get_gtp_idle_timer(APN) of
+	       no_timer_specified ->
+		   Data0; % Ignore, stick to default value loaded at init
+	       Timeout ->
+		   Data0#{timeout => Timeout}
+           end,
     Actions = context_idle_action([], Data),
     {keep_state, Data#{context => Context, pfcp => PCtx, pcc => PCC4}, Actions};
 
@@ -1200,10 +1212,22 @@ create_pdp_context_response(SessionOpts, RequestIEs,
     IE2 = pdp_pco(SessionOpts, RequestIEs, IE1),
     tunnel_endpoint_elements(Context, IE2).
 
+%% Timeout infinity(don't start timer) supported
+get_gtp_idle_timer(Key) ->
+    Idle_timers = ergw:get_gtp_idle_timer_secs(),
+    case lists:keyfind([Key], 1, Idle_timers) of
+	{_, Timeout} when is_integer(Timeout) -> 
+	    Timeout * 1000; % to milliseconds
+	{_, Timeout} when Timeout =:= infinity ->
+	    infinity;
+	_ ->
+	    no_timer_specified
+    end.
+
 %% Wrapper for gen_statem state_callback_result Actions argument
 %% Timeout set in the context of a prolonged idle gtp session
 context_idle_action(Actions, #{timeout := Timeout})
-  when is_integer(Timeout) ->
+  when is_integer(Timeout) orelse Timeout =:= infinity ->
     [{{timeout, context_idle}, Timeout, stop_session} | Actions];
 context_idle_action(Actions, _) ->
     Actions.

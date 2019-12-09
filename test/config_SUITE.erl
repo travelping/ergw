@@ -22,7 +22,11 @@
 
 -define(GGSN_CONFIG,
 	[accept_new,
-	 {gtp_idle_timer_secs, 21600},
+	 % default APN shall be configured if specified
+	 {gtp_idle_timer_secs,
+		 [{[<<"default">>], 21600},
+		  {[<<"APN1">>], 28800},
+		  {[<<"APN2">>], infinity}]},
 	 {sockets,
 	  [{cp, [{type, 'gtp-u'},
 		 {ip,  ?LOCALHOST_IPv4},
