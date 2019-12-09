@@ -36,7 +36,8 @@
 -include("include/ergw.hrl").
 
 -record(data, {cfg,
-	       retries = 0  :: non_neg_integer(),
+	       mode = transient  :: 'transient' | 'persistent',
+	       retries = 0       :: non_neg_integer(),
 	       recovery_ts       :: undefined | non_neg_integer(),
 	       pfcp_ctx          :: #pfcp_ctx{},
 	       upf_data_endp     :: #gtp_endp{},
@@ -50,7 +51,8 @@
 -define(AssocReqTimeout, 200).
 -define(AssocReqRetries, 5).
 -define(AssocTimeout, 500).
--define(AssocRetries, 5).
+-define(AssocRetries, 10).
+-define(MaxRetriesScale, 5).
 
 -define(TestCmdTag, '$TestCmd').
 
@@ -207,6 +209,7 @@ init([Node, IP4, IP6, NotifyUp]) ->
     Nodes = setup:get_env(ergw, nodes, #{}),
     Cfg = maps:get(Node, Nodes, maps:get(default, Nodes, #{})),
     Data0 = #data{cfg = Cfg,
+		  mode = mode(Cfg),
 		  retries = 0,
 		  recovery_ts = undefined,
 		  pfcp_ctx = PCtx,
@@ -216,28 +219,41 @@ init([Node, IP4, IP6, NotifyUp]) ->
 		  notify_up = NotifyUp
 		 },
     Data = init_node_cfg(Data0),
-    {ok, dead, Data, [{next_event, internal, setup}]}.
+    {ok, connecting, Data}.
 
 handle_event(enter, _OldState, {connected, ready},
 	     #data{dp = #node{node = Node}} = Data0) ->
     ergw_sx_node_reg:up(Node),
-    Data = send_notify_up(up, Data0),
+    Data = send_notify_up(up, Data0#data{retries = 0}),
     {keep_state, Data};
+
 handle_event(enter, {connected, _}, dead, #data{dp = #node{node = Node}} = Data) ->
     ergw_sx_node_reg:down(Node),
-    {next_state, dead, Data#data{retries = 0, recovery_ts = undefined}, [{state_timeout, 0, setup}]};
+    {keep_state, Data#data{recovery_ts = undefined}, [{state_timeout, 0, connect}]};
+
 handle_event(enter, _, dead, #data{retries = Retries} = Data0) ->
     Data = send_notify_up(dead, Data0),
-    Timeout = (2 bsl Retries) * ?AssocTimeout,
+    Timeout = (1 bsl min(Retries, ?MaxRetriesScale)) * ?AssocTimeout,
     ?LOG(debug, "Timeout: ~w/~w", [Retries, Timeout]),
-    {next_state, dead, Data, [{state_timeout, Timeout, setup}]};
-handle_event(enter, _OldState, State, Data) ->
-    {next_state, State, Data};
+    {keep_state, Data, [{state_timeout, Timeout, connect}]};
+
+handle_event(state_timeout, connect, dead, Data) ->
+    {next_state, connecting, Data};
+
+handle_event(enter, _, connecting, #data{dp = #node{ip = IP}} = Data) ->
+    Req0 = #pfcp{version = v1, type = association_setup_request, ie = []},
+    Req = augment_mandatory_ie(Req0, Data),
+    ergw_sx_socket:call(IP, ?AssocReqTimeout, ?AssocReqRetries, Req,
+			response_cb(association_setup_request)),
+    {keep_state, Data};
+
+handle_event(enter, _OldState, _State, _Data) ->
+    keep_state_and_data;
 
 handle_event({call, From}, {?TestCmdTag, pfcp_ctx}, _, #data{pfcp_ctx = PCtx}) ->
     {keep_state_and_data, [{reply, From, PCtx}]};
-handle_event({call, From}, {?TestCmdTag, reconnect}, dead, _Data) ->
-    {keep_state_and_data, [{reply, From, ok}, {state_timeout, 0, setup}]};
+handle_event({call, From}, {?TestCmdTag, reconnect}, dead, Data) ->
+    {next_state, connecting, Data, [{reply, From, ok}]};
 handle_event({call, From}, {?TestCmdTag, reconnect}, connecting, _) ->
     {keep_state_and_data, [{reply, From, ok}]};
 handle_event({call, From}, {?TestCmdTag, reconnect}, {connected, _}, Data) ->
@@ -253,25 +269,20 @@ handle_event({call, From}, {?TestCmdTag, stop}, _, Data) ->
 handle_event({call, From}, {attach_tdf, Tdf}, _, Data) ->
     {keep_state, Data#data{tdf = Tdf}, [{reply, From, ok}]};
 
-handle_event(_, setup, dead, #data{dp = #node{ip = IP}} = Data) ->
-    Req0 = #pfcp{version = v1, type = association_setup_request, ie = []},
-    Req = augment_mandatory_ie(Req0, Data),
-    ergw_sx_socket:call(IP, ?AssocReqTimeout, ?AssocReqRetries, Req,
-			response_cb(association_setup_request)),
-    {next_state, connecting, Data};
-
 handle_event({call, From}, _Evt, dead, _Data) ->
     ?LOG(warning, "Call from ~p, ~p failed with {error, dead}", [From, _Evt]),
     {keep_state_and_data, [{reply, From, {error, dead}}]};
 
 handle_event(cast, {response, association_setup_request, timeout},
+	     connecting, #data{mode = transient, retries = Retries, dp = #node{ip = IP}})
+  when Retries >= ?AssocRetries ->
+    ?LOG(debug, "~s Association Setup timeout, ~w tries, shutdown", [inet:ntoa(IP), Retries]),
+    {stop, normal};
+
+handle_event(cast, {response, association_setup_request, timeout},
 	     connecting, #data{retries = Retries, dp = #node{ip = IP}} = Data) ->
-    ?LOG(debug, "~p:~s Timeout @ Retry: ~w", [self(), inet:ntoa(IP), Retries]),
-    if Retries >= ?AssocRetries ->
-	    {stop, normal};
-       true ->
-	    {next_state, dead, Data#data{retries = Retries + 1}}
-    end;
+    ?LOG(debug, "~s Association Setup timeout, ~w tries", [inet:ntoa(IP), Retries]),
+    {next_state, dead, Data#data{retries = Retries + 1}};
 
 handle_event(cast, {response, _, #pfcp{version = v1, type = association_setup_response, ie = IEs}},
 	     connecting, Data0) ->
@@ -371,11 +382,19 @@ handle_event({call, From}, get_vrfs, {connected, _},
 	     #data{vrfs = VRFs}) ->
     {keep_state_and_data, [{reply, From, {ok, VRFs}}]};
 
+%% send 'up' when we are ready, only wait if this is the first connect attempt
+%% or if we are already connected and just waiting for some rules to get installed
 handle_event(cast, {notify_up, NotifyUp}, {connected, ready}, _Data) ->
     send_notify_up(up, NotifyUp),
     keep_state_and_data;
-handle_event(cast, {notify_up, NotifyUp}, _, #data{notify_up = Up} = Data) ->
+handle_event(cast, {notify_up, NotifyUp}, {connected, _}, #data{notify_up = Up} = Data) ->
     {keep_state, Data#data{notify_up = Up ++ NotifyUp}};
+handle_event(cast, {notify_up, NotifyUp}, connecting,
+	     #data{retries = 0, notify_up = Up} = Data) ->
+    {keep_state, Data#data{notify_up = Up ++ NotifyUp}};
+handle_event(cast, {notify_up, NotifyUp}, _State, _Data) ->
+    send_notify_up(dead, NotifyUp),
+    keep_state_and_data;
 
 handle_event(cast, {response, {call, _} = Evt,
 		    #pfcp{
@@ -708,6 +727,9 @@ init_vrfs(VRFs,
 	    ?LOG(warning, "UP Nodes reported unknown Network Instance '~p'", [Name]),
 	    VRFs
     end.
+
+mode(#{connect := true}) -> persistent;
+mode(_) -> transient.
 
 handle_nodedown(Data) ->
     Self = self(),
