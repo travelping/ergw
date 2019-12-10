@@ -273,15 +273,16 @@ handle_event({call, From}, _Evt, dead, _Data) ->
     ?LOG(warning, "Call from ~p, ~p failed with {error, dead}", [From, _Evt]),
     {keep_state_and_data, [{reply, From, {error, dead}}]};
 
-handle_event(cast, {response, association_setup_request, timeout},
+handle_event(cast, {response, association_setup_request, Error},
 	     connecting, #data{mode = transient, retries = Retries, dp = #node{ip = IP}})
-  when Retries >= ?AssocRetries ->
-    ?LOG(debug, "~s Association Setup timeout, ~w tries, shutdown", [inet:ntoa(IP), Retries]),
+  when is_atom(Error), Retries >= ?AssocRetries ->
+    ?LOG(debug, "~s Association Setup ~p, ~w tries, shutdown", [inet:ntoa(IP), Error, Retries]),
     {stop, normal};
 
-handle_event(cast, {response, association_setup_request, timeout},
-	     connecting, #data{retries = Retries, dp = #node{ip = IP}} = Data) ->
-    ?LOG(debug, "~s Association Setup timeout, ~w tries", [inet:ntoa(IP), Retries]),
+handle_event(cast, {response, association_setup_request, Error},
+	     connecting, #data{retries = Retries, dp = #node{ip = IP}} = Data)
+  when is_atom(Error) ->
+    ?LOG(debug, "~s Association Setup ~p, ~w tries", [inet:ntoa(IP), Error, Retries]),
     {next_state, dead, Data#data{retries = Retries + 1}};
 
 handle_event(cast, {response, _, #pfcp{version = v1, type = association_setup_response, ie = IEs}},
