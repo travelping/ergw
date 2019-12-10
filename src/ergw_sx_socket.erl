@@ -336,27 +336,42 @@ handle_input(Socket, State) ->
 -define(ICMP_PROT_UNREACH,       2).       %% Protocol Unreachable
 -define(ICMP_PORT_UNREACH,       3).       %% Port Unreachable
 
-handle_socket_error({?SOL_IP, ?IP_RECVERR, {sock_err, _ErrNo, ?SO_EE_ORIGIN_ICMP, ?ICMP_DEST_UNREACH, Code, _Info, _Data}},
-		    IP, _Port, _State)
+handle_socket_error({?SOL_IP, ?IP_RECVERR, {sock_err, _ErrNo, ?SO_EE_ORIGIN_ICMP, ?ICMP_DEST_UNREACH, Code, _, _}},
+		    IP, _Port, PayLoad, #state{name = Name} = State0)
   when Code == ?ICMP_HOST_UNREACH; Code == ?ICMP_PORT_UNREACH ->
     ?LOG(debug, "ICMP indication for ~s: ~p", [inet:ntoa(IP), Code]),
-    ok;
+    ergw_prometheus:pfcp(tx, Name, IP, unreachable),
+    try pfcp_packet:decode(PayLoad) of
+	#pfcp{seq_no = SeqNo} ->
+	    {Req, State} = take_request(SeqNo, State0),
+	    case Req of
+		none ->
+		    ok;
+		#send_req{} = SendReq ->
+		    send_request_reply(SendReq, unreachable)
+	    end,
+	    State
+    catch
+	Class:Error:Stack ->
+	    ?LOG(debug, "HandleSocketError: ~p:~p @ ~p", [Class, Error, Stack]),
+	    State0
+    end;
 
-handle_socket_error(Error, IP, _Port, _State) ->
+handle_socket_error(Error, IP, _Port, _PayLoad, State) ->
     ?LOG(debug, "got unhandled error info for ~s: ~p", [inet:ntoa(IP), Error]),
-    ok.
+    State.
 
-handle_err_input(Socket, State) ->
+handle_err_input(Socket, State0) ->
     case gen_socket:recvmsg(Socket, ?MSG_DONTWAIT bor ?MSG_ERRQUEUE) of
-	{ok, {inet4, IP, Port}, Error, _Data} ->
-	    lists:foreach(handle_socket_error(_, IP, Port, State), Error),
+	{ok, {inet4, IP, Port}, Error, Data} ->
+	    State = lists:foldl(handle_socket_error(_, IP, Port, Data, _), State0, Error),
 	    ok = gen_socket:input_event(Socket, true),
 	    {noreply, State};
 
 	Other ->
 	    ?LOG(error, "got unhandled error input: ~p", [Other]),
 	    ok = gen_socket:input_event(Socket, true),
-	    {noreply, State}
+	    {noreply, State0}
     end.
 
 %%%===================================================================
@@ -492,13 +507,19 @@ take_request(SeqNo, #state{pending = PendingIn} = State) ->
     end.
 
 sendto({_,_,_,_} = RemoteIP, Port, Data, #state{socket = Socket}) ->
-    {ok, _} = gen_socket:sendto(Socket, {inet4, RemoteIP, Port}, Data);
+    gen_socket:sendto(Socket, {inet4, RemoteIP, Port}, Data);
 sendto({_,_,_,_,_,_,_,_} = RemoteIP, Port, Data, #state{socket = Socket}) ->
-    {ok, _} = gen_socket:sendto(Socket, {inet6, RemoteIP, Port}, Data).
+    gen_socket:sendto(Socket, {inet6, RemoteIP, Port}, Data).
 
-send_request(#send_req{address = DstIP, data = Data} = SendReq, State0) ->
-    sendto(DstIP, 8805, Data, State0),
-    start_request(SendReq, State0).
+send_request(#send_req{address = DstIP, data = Data} = SendReq, State) ->
+    case sendto(DstIP, 8805, Data, State) of
+	{ok, _} ->
+	    start_request(SendReq, State);
+	_ ->
+	    message_counter(tx, State, SendReq, unreachable),
+	    send_request_reply(SendReq, unreachable),
+	    State
+    end.
 
 send_request_reply(#send_req{cb_info = {M, F, A}} = SendReq, Reply) ->
     ?LOG(info, "send_request_reply: ~p", [SendReq]),
