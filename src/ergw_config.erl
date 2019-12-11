@@ -21,7 +21,6 @@
 
 -define(DefaultOptions, [{plmn_id, {<<"001">>, <<"01">>}},
 			 {accept_new, true},
-			 {gtp_idle_timer_secs, [{[<<"default">>], 21600}]}, %% def = 6 hours
 			 {sx_socket, undefined},
 			 {sockets, []},
 			 {handlers, []},
@@ -208,10 +207,6 @@ validate_option(plmn_id, {MCC, MNC} = Value) ->
        ok -> Value;
        _  -> throw({error, {options, {plmn_id, Value}}})
     end;
-
-validate_option(gtp_idle_timer_secs, Value) when is_list(Value) ->
-    check_unique_keys(gtp_idle_timer_secs, Value),
-    validate_options(fun validate_gtp_idle_timer_secs/1, Value);
 validate_option(accept_new, Value) when is_boolean(Value) ->
     Value;
 validate_option(sx_socket, Value) when is_list(Value); is_map(Value) ->
@@ -263,13 +258,6 @@ validate_option(Opt, Value)
     throw({error, {options, {Opt, Value}}});
 validate_option(_Opt, Value) ->
     Value.
-
-validate_gtp_idle_timer_secs({APN, Value}) 
-  when is_integer(Value) orelse Value =:= infinity ->
-    {validate_apn_name(APN), Value};
-validate_gtp_idle_timer_secs({_APN, _Value}) ->
-    error.
-
 
 validate_mcc_mcn(MCC, MNC)
   when is_binary(MCC) andalso size(MCC) == 3 andalso
