@@ -37,6 +37,7 @@
 	  gtp_port   :: #gtp_port{},
 	  ip         :: inet:ip_address(),
 	  socket     :: socket:socket(),
+	  burst_size = 1 :: non_neg_integer(),
 
 	  v1_seq_no = 0 :: v1_sequence_number(),
 	  v2_seq_no = 0 :: v2_sequence_number(),
@@ -59,7 +60,6 @@
 	  send_ts :: non_neg_integer()
 	 }).
 
--define(BURST_SIZE, 10).
 -define(T3, 10 * 1000).
 -define(N3, 5).
 -define(RESPONSE_TIMEOUT, (?T3 * ?N3 + (?T3 div 2))).
@@ -132,7 +132,7 @@ call(#gtp_port{pid = Handler}, Request) ->
 %%% gen_server callbacks
 %%%===================================================================
 
-init([Name, #{ip := IP} = SocketOpts]) ->
+init([Name, #{ip := IP, burst_size := BurstSize} = SocketOpts]) ->
     process_flag(trap_exit, true),
 
     {ok, Socket} = ergw_gtp_socket:make_gtp_socket(IP, ?GTP1c_PORT, SocketOpts),
@@ -158,6 +158,7 @@ init([Name, #{ip := IP} = SocketOpts]) ->
 	       gtp_port = GtpPort,
 	       ip = IP,
 	       socket = Socket,
+	       burst_size = BurstSize,
 
 	       v1_seq_no = 0,
 	       v2_seq_no = 0,
@@ -254,10 +255,10 @@ handle_info({timeout, TRef, responses}, #state{responses = Responses} = State) -
     {noreply, State#state{responses = ergw_cache:expire(TRef, Responses)}};
 
 handle_info({'$socket', Socket, select, Info}, #state{socket = Socket} = State) ->
-    handle_input(Socket, Info, ?BURST_SIZE, State);
+    handle_input(Socket, Info, State);
 
 handle_info({'$socket', Socket, abort, Info}, #state{socket = Socket} = State) ->
-    handle_input(Socket, Info, ?BURST_SIZE, State);
+    handle_input(Socket, Info, State);
 
 handle_info(Info, State) ->
     ?LOG(error, "~s:handle_info: unknown ~p, ~p",
@@ -327,6 +328,9 @@ make_send_req(ReqId, Address, Port, T3, N3, Msg, CbInfo) ->
 
 make_request(ArrivalTS, IP, Port, Msg, #state{gtp_port = GtpPort}) ->
     ergw_gtp_socket:make_request(ArrivalTS, IP, Port, Msg, GtpPort).
+
+handle_input(Socket, Info, #state{burst_size = BurstSize} = State) ->
+    handle_input(Socket, Info, BurstSize, State).
 
 handle_input(Socket, _Info, 0, State0) ->
     %% break the loop and restart

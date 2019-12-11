@@ -27,6 +27,7 @@
 
 	  ip         :: inet:ip_address(),
 	  socket     :: socket:socket(),
+	  burst_size = 1 :: non_neg_integer(),
 
 	  restart_counter}).
 
@@ -36,8 +37,6 @@
 	  data    :: binary(),
 	  msg     :: #gtp{}
 	 }).
-
--define(BURST_SIZE, 10).
 
 %%====================================================================
 %% API
@@ -64,7 +63,7 @@ cast(#gtp_port{pid = Handler}, Request) ->
 %%% gen_server callbacks
 %%%===================================================================
 
-init([Name, #{ip := IP} = SocketOpts]) ->
+init([Name, #{ip := IP, burst_size := BurstSize} = SocketOpts]) ->
     process_flag(trap_exit, true),
 
     {ok, Socket} = ergw_gtp_socket:make_gtp_socket(IP, ?GTP1u_PORT, SocketOpts),
@@ -91,6 +90,7 @@ init([Name, #{ip := IP} = SocketOpts]) ->
 
 	       ip = IP,
 	       socket = Socket,
+	       burst_size = BurstSize,
 
 	       restart_counter = RCnt},
     self() ! {'$socket', Socket, select, undefined},
@@ -117,10 +117,10 @@ handle_cast(Msg, State) ->
     {noreply, State}.
 
 handle_info({'$socket', Socket, select, Info}, #state{socket = Socket} = State) ->
-    handle_input(Socket, Info, ?BURST_SIZE, State);
+    handle_input(Socket, Info, State);
 
 handle_info({'$socket', Socket, abort, Info}, #state{socket = Socket} = State) ->
-    handle_input(Socket, Info, ?BURST_SIZE, State);
+    handle_input(Socket, Info, State);
 
 handle_info(Info, State) ->
     ?LOG(error, "~s:handle_info: unknown ~p, ~p",
@@ -150,6 +150,9 @@ make_send_req(Address, Port, Msg) ->
 
 make_request(IP, Port, Msg, #state{gtp_port = GtpPort}) ->
     ergw_gtp_socket:make_request(0, IP, Port, Msg, GtpPort).
+
+handle_input(Socket, Info, #state{burst_size = BurstSize} = State) ->
+    handle_input(Socket, Info, BurstSize, State).
 
 handle_input(Socket, _Info, 0, State0) ->
     %% break the loop and restart
