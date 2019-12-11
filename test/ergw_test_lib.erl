@@ -24,7 +24,7 @@
 	 gtp_context_new_teids/1, gtp_context_new_teids/3,
 	 make_error_indication_report/1]).
 -export([start_gtpc_server/1, stop_gtpc_server/1, stop_gtpc_server/0,
-	 stop_all_sx_nodes/0,
+	 wait_for_all_sx_nodes/0, reconnect_all_sx_nodes/0, stop_all_sx_nodes/0,
 	 make_gtp_socket/1, make_gtp_socket/2,
 	 send_pdu/2, send_pdu/3,
 	 send_recv_pdu/2, send_recv_pdu/3, send_recv_pdu/4,
@@ -167,6 +167,24 @@ meck_init(Config) ->
     ok = meck:new(ergw_gtp_c_socket, [passthrough, no_link]),
     ok = meck:new(ergw_aaa_session, [passthrough, no_link]),
     ok = meck:new(ergw_gsn_lib, [passthrough, no_link]),
+    ok = meck:expect(ergw_gsn_lib, select_vrf,
+		     fun(NodeCaps, APN) ->
+			     try
+				 meck:passthrough([NodeCaps, APN])
+			     catch
+				 throw:#ctx_err{} = CtxErr ->
+				     meck:exception(throw, CtxErr)
+			     end
+		     end),
+    ok = meck:expect(ergw_gsn_lib, select_vrf_and_pool,
+		     fun(NodeCaps, Context) ->
+			     try
+				 meck:passthrough([NodeCaps, Context])
+			     catch
+				 throw:#ctx_err{} = CtxErr ->
+				     meck:exception(throw, CtxErr)
+			     end
+		     end),
     ok = meck:new(ergw_proxy_lib, [passthrough, no_link]),
 
     {_, Hut} = lists:keyfind(handler_under_test, 1, Config),   %% let it crash if HUT is undefined
@@ -312,6 +330,18 @@ start_gtpc_server(Config) ->
     register(gtpc_client_server, Pid),
     Pid.
 
+wait_for_all_sx_nodes() ->
+    SxNodes = supervisor:which_children(ergw_sx_node_sup),
+    sx_nodes_up(length(SxNodes), 20),
+    ok.
+
+reconnect_all_sx_nodes() ->
+    SxNodes = supervisor:which_children(ergw_sx_node_sup),
+    [ergw_sx_node:test_cmd(Pid, reconnect) || {_, Pid, _, _} <- SxNodes, is_pid(Pid)],
+    timer:sleep(10),
+    sx_nodes_up(length(SxNodes), 20),
+    ok.
+
 stop_all_sx_nodes() ->
     SxNodes = supervisor:which_children(ergw_sx_node_sup),
     [ergw_sx_node:test_cmd(Pid, stop) || {_, Pid, _, _} <- SxNodes, is_pid(Pid)],
@@ -333,6 +363,17 @@ stop_gtpc_server() ->
 	    exit(Pid, shutdown);
 	_ ->
 	    ok
+    end.
+
+sx_nodes_up(_N, 0) ->
+    ct:fail("Sx nodes failed to come up");
+sx_nodes_up(N, Cnt) ->
+    case ergw_sx_node_reg:available() of
+	Nodes when map_size(Nodes) =:= N ->
+	    ok;
+	_Nodes ->
+	    ct:sleep(50),
+	    sx_nodes_up(N, Cnt - 1)
     end.
 
 make_gtp_socket(Config) ->
@@ -530,7 +571,7 @@ match_metric(Type, Name, LabelValues, Expected, File, Line, Cnt) ->
 	    match_metric(Type, Name, LabelValues, Expected, File, Line, Cnt - 1);
 	Actual ->
 	    ct:pal("METRIC VALUE MISMATCH(~s:~b)~nExpected: ~p~nActual:   ~p~n",
-		   [?FILE, ?LINE, Expected, Actual]),
+		   [File, Line, Expected, Actual]),
 	    error(badmatch)
     end.
 
@@ -594,12 +635,12 @@ match_map(Match, Map, File, Line) ->
 			  {ok, ok, _, _} ->
 			      R andalso true;
 			  {ok, false, _, _} ->
-			      ct:pal("MISMATCH(~s:~b, ~s)~nExpected: ~p~nActual:   ~p~n",
+			      ct:pal("MISMATCH(~s:~b, ~p)~nExpected: ~p~nActual:   ~p~n",
 				     [File, Line, Key, Expected, Actual]),
 			      false
 		      end;
 		  _ ->
-		      ct:pal("MAP KEY MISSING(~s:~b, ~s)~n", [File, Line, Key]),
+		      ct:pal("MAP KEY MISSING(~s:~b, ~p)~n", [File, Line, Key]),
 		      false
 	      end
       end, true, Match) orelse error(badmatch),

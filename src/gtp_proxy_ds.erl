@@ -10,7 +10,7 @@
 -behaviour(gen_server).
 
 %% API
--export([start_link/0, map/1, lb/1]).
+-export([start_link/0, map/1, lb/1, validate_options/1]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -20,8 +20,6 @@
 
 -define(SERVER, ?MODULE).
 -define(App, ergw).
-
--record(state, {imsi, apn}).
 
 %%%===================================================================
 %%% API
@@ -38,29 +36,65 @@ lb(ProxyInfo) ->
     lb(ProxyInfo, LBType).
 
 %%%===================================================================
+%%% Options Validation
+%%%===================================================================
+
+-define(is_opts(X), (is_list(X) orelse is_map(X))).
+-define(non_empty_opts(X), ((is_list(X) andalso length(X) /= 0) orelse
+			    (is_map(X) andalso map_size(X) /= 0))).
+
+validate_options(Values) ->
+    ergw_config:validate_options(fun validate_option/2, Values, [], map).
+
+validate_imsi(From, To) when is_binary(From), is_binary(To) ->
+    To;
+validate_imsi(From, {IMSI, MSISDN} = To)
+  when is_binary(From), is_binary(IMSI), is_binary(MSISDN) ->
+    To;
+validate_imsi(From, To) ->
+    throw({error, {options, {From, To}}}).
+
+validate_apn([From|_], [To|_] = APN) when is_binary(From), is_binary(To) ->
+    APN;
+validate_apn(From, To) ->
+    throw({error, {options, {From, To}}}).
+
+validate_option(imsi, Opts) when ?non_empty_opts(Opts) ->
+    ergw_config:check_unique_keys(imsi, Opts),
+    ergw_config:validate_options(fun validate_imsi/2, Opts, [], map);
+validate_option(apn, Opts) when ?non_empty_opts(Opts) ->
+    ergw_config:check_unique_keys(apn, Opts),
+    ergw_config:validate_options(fun validate_apn/2, Opts, [], map);
+validate_option(Opt, Value) ->
+    throw({error, {options, {Opt, Value}}}).
+
+%%%===================================================================
 %%% gen_server callbacks
 %%%===================================================================
 
 init([]) ->
-    State = load_config(),
+    State = validate_options(application:get_env(?App, proxy_map, #{})),
     {ok, State}.
 
 handle_call({map, #proxy_info{ggsns = GGSNs0, imsi = IMSI, src_apn = APN} = ProxyInfo0},
-	    _From, #state{apn = APNMap, imsi = IMSIMap} = State) ->
-    GGSNs = [GGSN#proxy_ggsn{dst_apn = proplists:get_value(APN, APNMap, APN)}
-             || GGSN <- GGSNs0],
+	    _From, #{apn := APNMap, imsi := IMSIMap} = State) ->
+    ProxyInfo1 =
+	case IMSIMap of
+	    #{IMSI := MappedIMSI} when is_binary(MappedIMSI) ->
+		ProxyInfo0#proxy_info{imsi = MappedIMSI};
+	    #{IMSI := {MappedIMSI, MappedMSISDN}} ->
+		ProxyInfo0#proxy_info{imsi = MappedIMSI, msisdn = MappedMSISDN};
+	    _ ->
+		ProxyInfo0
+	end,
     ProxyInfo =
-        case proplists:get_value(IMSI, IMSIMap, IMSI) of
-            {MappedIMSI, MappedMSISDN} ->
-            ProxyInfo0#proxy_info{
-              ggsns = GGSNs,
-              imsi = MappedIMSI,
-              msisdn = MappedMSISDN};
-             MappedIMSI ->
-            ProxyInfo0#proxy_info{
-              ggsns = GGSNs,
-              imsi = MappedIMSI}
-        end,
+	case ergw_gsn_lib:apn(APN, APNMap) of
+	    {ok, DstAPN} ->
+		ProxyInfo1#proxy_info{
+		  ggsns = [GGSN#proxy_ggsn{dst_apn = DstAPN} || GGSN <- GGSNs0]};
+	    _ ->
+		ProxyInfo1
+	end,
     {reply, {ok, ProxyInfo}, State}.
 
 handle_cast(_Msg, State) ->
@@ -83,12 +117,5 @@ lb(#proxy_info{ggsns = [GGSN | _]}, first) -> GGSN;
 lb(#proxy_info{ggsns = [GGSN]}, random) -> GGSN;
 lb(#proxy_info{ggsns = GGSNs}, random) when is_list(GGSNs) ->
     Index = rand:uniform(length(GGSNs)),
-	lists:nth(Index, GGSNs);
+    lists:nth(Index, GGSNs);
 lb(#proxy_info{ggsns = [GGSN | _]}, _) -> GGSN.
-
-load_config() ->
-    ProxyMap = application:get_env(?App, proxy_map, []),
-    #state{
-       imsi = proplists:get_value(imsi, ProxyMap, []),
-       apn  = proplists:get_value(apn,  ProxyMap, [])
-      }.

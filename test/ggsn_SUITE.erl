@@ -55,10 +55,10 @@
 			 ]}
 		  ]},
 
-		 {vrfs,
-		  [{upstream, [{pools,  [{?IPv4PoolStart, ?IPv4PoolEnd, 32},
-					 {?IPv6PoolStart, ?IPv6PoolEnd, 64}
-					]},
+		 {ip_pools,
+		  [{'pool-A', [{ranges,  [{?IPv4PoolStart, ?IPv4PoolEnd, 32},
+					  {?IPv6PoolStart, ?IPv6PoolEnd, 64},
+					  {?IPv6HostPoolStart, ?IPv6HostPoolEnd, 128}]},
 			       {'MS-Primary-DNS-Server', {8,8,8,8}},
 			       {'MS-Secondary-DNS-Server', {8,8,4,4}},
 			       {'MS-Primary-NBNS-Server', {127,0,0,1}},
@@ -95,10 +95,17 @@
 		      {"_default.apn.$ORIGIN", {300,64536},
 		       [{"x-3gpp-upf","x-sxb"}],
 		       "topon.sx.prox01.$ORIGIN"},
+		      {"async-sx.apn.$ORIGIN", {300,64536},
+		       [{"x-3gpp-upf","x-sxb"}],
+		       "topon.sx.prox01.$ORIGIN"},
+		      {"async-sx.apn.$ORIGIN", {300,64536},
+		       [{"x-3gpp-upf","x-sxb"}],
+		       "topon.sx.prox02.$ORIGIN"},
 
 		      %% A/AAAA record alternatives
 		      {"topon.gn.ggsn.$ORIGIN", ?MUST_BE_UPDATED, []},
-		      {"topon.sx.prox01.$ORIGIN", ?MUST_BE_UPDATED, []}
+		      {"topon.sx.prox01.$ORIGIN", ?MUST_BE_UPDATED, []},
+		      {"topon.sx.prox02.$ORIGIN", ?MUST_BE_UPDATED, []}
 		     ]
 		    }
 		   }
@@ -113,9 +120,18 @@
 		   {reuseaddr, true}]},
 
 		 {apns,
-		  [{?'APN-EXAMPLE', [{vrf, upstream}]},
-		   {[<<"exa">>, <<"mple">>, <<"net">>], [{vrf, upstream}]},
-		   {[<<"APN1">>], [{vrf, upstream}]}
+		  [{?'APN-EXAMPLE',
+		    [{vrf, sgi},
+		     {ip_pools, ['pool-A']}]},
+		   {[<<"exa">>, <<"mple">>, <<"net">>],
+		    [{vrf, sgi},
+		     {ip_pools, ['pool-A']}]},
+		   {[<<"APN1">>],
+		    [{vrf, sgi},
+		     {ip_pools, ['pool-A']}]},
+		   {[<<"async-sx">>],
+		    [{vrf, sgi},
+		     {ip_pools, ['pool-A']}]}
 		  ]},
 
 		 {charging,
@@ -174,9 +190,12 @@
 		    [{vrfs,
 		      [{cp, [{features, ['CP-Function']}]},
 		       {irx, [{features, ['Access']}]},
-		       {upstream, [{features, ['SGi-LAN']}]}]
-		     }]
-		   }]
+		       {sgi, [{features, ['SGi-LAN']}]}
+		      ]},
+		     {ip_pools, ['pool-A']}]
+		   },
+		   {"topon.sx.prox01.$ORIGIN", [connect]}
+		  ]
 		 }
 		]},
 
@@ -329,7 +348,9 @@
 	 {[node_selection, {default, 2}, 2, "topon.gn.ggsn.$ORIGIN"],
 	  {fun node_sel_update/2, final_gsn}},
 	 {[node_selection, {default, 2}, 2, "topon.sx.prox01.$ORIGIN"],
-	  {fun node_sel_update/2, pgw_u_sx}}
+	  {fun node_sel_update/2, pgw_u_sx}},
+	 {[node_selection, {default, 2}, 2, "topon.sx.prox02.$ORIGIN"],
+	  {fun node_sel_update/2, sgw_u_sx}}
 	]).
 
 node_sel_update(Node, {_,_,_,_} = IP) ->
@@ -402,6 +423,7 @@ common() ->
      cache_timeout,
      session_options,
      session_accounting,
+     sx_ondemand,
      gy_validity_timer,
      simple_aaa,
      simple_ofcs,
@@ -428,14 +450,20 @@ all() ->
 %%% Tests
 %%%===================================================================
 
-init_per_testcase(Config) ->
+setup_per_testcase(Config) ->
+    setup_per_testcase(Config, true).
+
+setup_per_testcase(Config, ClearSxHist) ->
     ct:pal("Sockets: ~p", [ergw_gtp_socket_reg:all()]),
     ergw_test_sx_up:reset('pgw-u'),
     meck_reset(Config),
-    start_gtpc_server(Config).
+    start_gtpc_server(Config),
+    reconnect_all_sx_nodes(),
+    ClearSxHist andalso ergw_test_sx_up:history('pgw-u', true),
+    ok.
 
 init_per_testcase(create_pdp_context_request_aaa_reject, Config) ->
-    init_per_testcase(Config),
+    setup_per_testcase(Config),
     ok = meck:expect(ergw_aaa_session, invoke,
 		     fun(_, _, authenticate, _) ->
 			     {fail, #{}, []};
@@ -444,7 +472,7 @@ init_per_testcase(create_pdp_context_request_aaa_reject, Config) ->
 		     end),
     Config;
 init_per_testcase(create_pdp_context_request_gx_fail, Config) ->
-    init_per_testcase(Config),
+    setup_per_testcase(Config),
     ok = meck:expect(ergw_aaa_session, invoke,
 		     fun(_, _, {gx, 'CCR-Initial'}, _) ->
 			     {fail, #{}, []};
@@ -453,7 +481,7 @@ init_per_testcase(create_pdp_context_request_gx_fail, Config) ->
 		     end),
     Config;
 init_per_testcase(create_pdp_context_request_gy_fail, Config) ->
-    init_per_testcase(Config),
+    setup_per_testcase(Config),
     ok = meck:expect(ergw_aaa_session, invoke,
 		     fun(_, _, {gy, 'CCR-Initial'}, _) ->
 			     {fail, #{}, []};
@@ -462,7 +490,7 @@ init_per_testcase(create_pdp_context_request_gy_fail, Config) ->
 		     end),
     Config;
 init_per_testcase(create_pdp_context_request_rf_fail, Config) ->
-    init_per_testcase(Config),
+    setup_per_testcase(Config),
     ok = meck:expect(ergw_aaa_session, invoke,
 		     fun(_, _, start, _) ->
 			     {fail, #{}, []};
@@ -471,16 +499,16 @@ init_per_testcase(create_pdp_context_request_rf_fail, Config) ->
 		     end),
     Config;
 init_per_testcase(create_pdp_context_request_pool_exhausted, Config) ->
-    init_per_testcase(Config),
-    ok = meck:new(vrf, [passthrough, no_link]),
+    setup_per_testcase(Config),
+    ok = meck:new(ergw_ip_pool, [passthrough, no_link]),
     Config;
 init_per_testcase(path_restart, Config) ->
-    init_per_testcase(Config),
+    setup_per_testcase(Config),
     ok = meck:new(gtp_path, [passthrough, no_link]),
     Config;
 init_per_testcase(TestCase, Config)
   when TestCase == delete_pdp_context_requested_resend ->
-    init_per_testcase(Config),
+    setup_per_testcase(Config),
     ok = meck:expect(ergw_gtp_c_socket, send_request,
 		     fun(GtpPort, DstIP, DstPort, _T3, _N3,
 			 #gtp{type = delete_pdp_context_request} = Msg, CbInfo) ->
@@ -492,7 +520,7 @@ init_per_testcase(TestCase, Config)
 		     end),
     Config;
 init_per_testcase(request_fast_resend, Config) ->
-    init_per_testcase(Config),
+    setup_per_testcase(Config),
     ok = meck:expect(?HUT, handle_request,
 		     fun(Request, Msg, Resent, State, Data) ->
 			     if Resent -> ok;
@@ -502,25 +530,25 @@ init_per_testcase(request_fast_resend, Config) ->
 		     end),
     Config;
 init_per_testcase(create_pdp_context_overload, Config) ->
-    init_per_testcase(Config),
+    setup_per_testcase(Config),
     jobs:modify_queue(create, [{max_size, 0}]),
     jobs:modify_regulator(rate, create, {rate,create,1}, [{limit,1}]),
     Config;
 init_per_testcase(cache_timeout, Config) ->
     case os:getenv("CI_RUN_SLOW_TESTS") of
 	"true" ->
-	    init_per_testcase(Config),
+	    setup_per_testcase(Config),
 	    Config;
 	_ ->
 	    {skip, "slow tests run only on CI"}
     end;
 init_per_testcase(gy_validity_timer, Config) ->
-    init_per_testcase(Config),
+    setup_per_testcase(Config),
     set_online_charging(true),
     load_ocs_config('Initial-OCS-VT', 'Update-OCS-VT'),
     Config;
 init_per_testcase(gy_async_stop, Config) ->
-    init_per_testcase(Config),
+    setup_per_testcase(Config),
     set_online_charging(true),
     load_ocs_config('Initial-OCS-VT', 'Update-OCS-Fail'),
     Config;
@@ -528,40 +556,39 @@ init_per_testcase(TestCase, Config)
   when TestCase == simple_ocs;
        TestCase == gy_ccr_asr_overlap;
        TestCase == volume_threshold ->
-    init_per_testcase(Config),
+    setup_per_testcase(Config),
     set_online_charging(true),
     load_ocs_config('Initial-OCS', 'Update-OCS'),
     Config;
 init_per_testcase(TestCase, Config)
   when TestCase == gx_rar_gy_interaction ->
-    init_per_testcase(Config),
+    setup_per_testcase(Config),
     set_online_charging(true),
     load_aaa_answer_config([{{gy, 'CCR-Initial'}, 'Initial-OCS'},
 			    {{gy, 'CCR-Update'},  'Update-OCS-GxGy'}]),
     Config;
 %% init_per_testcase(TestCase, Config)
 %%   when TestCase == gx_rar ->
-%%     init_per_testcase(Config),
+%%     setup_per_testcase(Config),
 %%     load_aaa_answer_config([{{gy, 'CCR-Initial'}, 'Initial-OCS'},
 %%			    {{gy, 'CCR-Update'},  'Update-OCS'}]),
 %%     Config;
 init_per_testcase(gx_invalid_charging_rulebase, Config) ->
-    init_per_testcase(Config),
+    setup_per_testcase(Config),
     load_aaa_answer_config([{{gx, 'CCR-Initial'}, 'Initial-Gx-Fail-1'}]),
     Config;
 init_per_testcase(gx_invalid_charging_rule, Config) ->
-    init_per_testcase(Config),
+    setup_per_testcase(Config),
     load_aaa_answer_config([{{gx, 'CCR-Initial'}, 'Initial-Gx-Fail-2'}]),
     Config;
 init_per_testcase(_, Config) ->
-    init_per_testcase(Config),
+    setup_per_testcase(Config),
     Config.
 
 end_per_testcase(Config) ->
     stop_gtpc_server(),
-    stop_all_sx_nodes(),
 
-    PoolId = [<<"upstream">>, ipv4, "10.180.0.1"],
+    PoolId = [<<"pool-A">>, ipv4, "10.180.0.1"],
     ?match_metric(prometheus_gauge, ergw_ip_pool_free, PoolId, 65534),
 
     AppsCfg = proplists:get_value(aaa_cfg, Config),
@@ -581,7 +608,7 @@ end_per_testcase(TestCase, Config)
     end_per_testcase(Config),
     Config;
 end_per_testcase(create_pdp_context_request_pool_exhausted, Config) ->
-    meck:unload(vrf),
+    meck:unload(ergw_ip_pool),
     end_per_testcase(Config),
     Config;
 end_per_testcase(path_restart, Config) ->
@@ -691,7 +718,7 @@ create_pdp_context_request_gx_fail(Config) ->
 create_pdp_context_request_gy_fail() ->
     [{doc, "Check Gy failure on Create PDP Context Request"}].
 create_pdp_context_request_gy_fail(Config) ->
-    PoolId = [<<"upstream">>, ipv4, "10.180.0.1"],
+    PoolId = [<<"pool-A">>, ipv4, "10.180.0.1"],
 
     ?match_metric(prometheus_gauge, ergw_ip_pool_free, PoolId, 65534),
     ?match_metric(prometheus_gauge, ergw_ip_pool_used, PoolId, 0),
@@ -745,27 +772,40 @@ create_pdp_context_request_invalid_apn(Config) ->
 create_pdp_context_request_pool_exhausted() ->
     [{doc, "Dynamic IP pool exhausted"}].
 create_pdp_context_request_pool_exhausted(Config) ->
-    ok = meck:expect(vrf, allocate_pdp_ip,
-		     fun(VRF, TEI, ReqIPv4, _ReqIPv6) ->
-			     meck:passthrough([VRF, TEI, ReqIPv4, undefined])
+    ok = meck:expect(ergw_gsn_lib, allocate_ips,
+		     fun(PDNType, ReqMSv4, ReqMSv6, Context) ->
+			     try
+				 meck:passthrough([PDNType, ReqMSv4, ReqMSv6, Context])
+			     catch
+				 throw:#ctx_err{} = CtxErr ->
+				     meck:exception(throw, CtxErr)
+			     end
 		     end),
     MetricsBefore = socket_counter_metrics(),
 
+    ok = meck:expect(ergw_ip_pool, get,
+		     fun(_Pool, _TEI, ipv6, _PrefixLen) ->
+			     {ok, undefined};
+			(Pool, TEI, Request, PrefixLen) ->
+			     meck:passthrough([Pool, TEI, Request, PrefixLen])
+		     end),
     create_pdp_context(pool_exhausted, Config),
 
     MetricsAfter = socket_counter_metrics(),
     socket_counter_metrics_ok(MetricsBefore, MetricsAfter, create_pdp_context_request),
     socket_counter_metrics_ok(MetricsBefore, MetricsAfter, all_dynamic_pdp_addresses_are_occupied), % In response
 
-    ok = meck:expect(vrf, allocate_pdp_ip,
-		     fun(VRF, TEI, _ReqIPv4, ReqIPv6) ->
-			     meck:passthrough([VRF, TEI, undefined, ReqIPv6])
+    ok = meck:expect(ergw_ip_pool, get,
+		     fun(_Pool, _TEI, ipv4, _PrefixLen) ->
+			     {ok, undefined};
+			(Pool, TEI, Request, PrefixLen) ->
+			     meck:passthrough([Pool, TEI, Request, PrefixLen])
 		     end),
     create_pdp_context(pool_exhausted, Config),
 
-    ok = meck:expect(vrf, allocate_pdp_ip,
-		     fun(_VRF, _TEI, _ReqIPv4, _ReqIPv6) ->
-			     {ok, undefined, undefined}
+    ok = meck:expect(ergw_ip_pool, get,
+		     fun(_Pool, _TEI, _Type, _PrefixLen) ->
+			     {ok, undefined}
 		     end),
     create_pdp_context(pool_exhausted, Config),
 
@@ -860,7 +900,7 @@ path_restart_multi(Config) ->
 simple_pdp_context_request() ->
     [{doc, "Check simple Create PDP Context, Delete PDP Context sequence"}].
 simple_pdp_context_request(Config) ->
-    PoolId = [<<"upstream">>, ipv4, "10.180.0.1"],
+    PoolId = [<<"pool-A">>, ipv4, "10.180.0.1"],
 
     ?match_metric(prometheus_gauge, ergw_ip_pool_free, PoolId, 65534),
     ?match_metric(prometheus_gauge, ergw_ip_pool_used, PoolId, 0),
@@ -1432,6 +1472,19 @@ session_accounting(Config) ->
     ok.
 
 %%--------------------------------------------------------------------
+sx_ondemand() ->
+    [{doc, "Connect to Sx Node on demand"}].
+sx_ondemand(Config) ->
+    ?equal(1, maps:size(ergw_sx_node_reg:available())),
+
+    {GtpC, _, _} = create_pdp_context(async_sx, Config),
+    delete_pdp_context(GtpC),
+
+    ?equal(2, maps:size(ergw_sx_node_reg:available())),
+    ?equal([], outstanding_requests()),
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT).
+
+%%--------------------------------------------------------------------
 
 gy_validity_timer() ->
     [{doc, "Check Validity-Timer attached to MSCC"}].
@@ -1484,10 +1537,10 @@ simple_aaa(Config) ->
     true = is_pid(Server),
     {ok, PCtx} = gtp_context:test_cmd(Server, pfcp_ctx),
 
-    [_, SER|_] = lists:filter(
-		   fun(#pfcp{type = session_establishment_request}) -> true;
-		      (_) ->false
-		   end, ergw_test_sx_up:history('pgw-u')),
+    [SER|_] = lists:filter(
+		fun(#pfcp{type = session_establishment_request}) -> true;
+		   (_) ->false
+		end, ergw_test_sx_up:history('pgw-u')),
 
     URR = lists:sort(maps:get(create_urr, SER#pfcp.ie)),
     ?match(
@@ -1582,10 +1635,10 @@ simple_ofcs(Config) ->
     true = is_pid(Server),
     {ok, PCtx} = gtp_context:test_cmd(Server, pfcp_ctx),
 
-    [_, SER|_] = lists:filter(
-		   fun(#pfcp{type = session_establishment_request}) -> true;
-		      (_) ->false
-		   end, ergw_test_sx_up:history('pgw-u')),
+    [SER|_] = lists:filter(
+		fun(#pfcp{type = session_establishment_request}) -> true;
+		   (_) ->false
+		end, ergw_test_sx_up:history('pgw-u')),
 
     URR = maps:get(create_urr, SER#pfcp.ie),
     ?match(
@@ -1658,10 +1711,10 @@ simple_ocs(Config) ->
     true = is_pid(Server),
     {ok, PCtx} = gtp_context:test_cmd(Server, pfcp_ctx),
 
-    [_, SER|_] = lists:filter(
-		   fun(#pfcp{type = session_establishment_request}) -> true;
-		      (_) ->false
-		   end, ergw_test_sx_up:history('pgw-u')),
+    [SER|_] = lists:filter(
+		fun(#pfcp{type = session_establishment_request}) -> true;
+		   (_) ->false
+		end, ergw_test_sx_up:history('pgw-u')),
 
     URR = lists:sort(maps:get(create_urr, SER#pfcp.ie)),
     ?match(

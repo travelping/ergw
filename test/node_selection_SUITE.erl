@@ -142,9 +142,21 @@
 		 [{"x-3gpp-upf","x-sxa"}],
 		 "topon.sx.prox01.epc.mnc001.mcc001.3gppnetwork.org"},
 
+		{"lb.apn.epc.mnc001.mcc001.3gppnetwork.org", {300,64536},
+		 [{"x-3gpp-upf","x-sxa"}],
+		 "topon.sx.prox01.epc.mnc001.mcc001.3gppnetwork.org"},
+		{"lb.apn.epc.mnc001.mcc001.3gppnetwork.org", {300,64536},
+		 [{"x-3gpp-upf","x-sxa"}],
+		 "topon.sx.prox02.epc.mnc001.mcc001.3gppnetwork.org"},
+		{"lb.apn.epc.mnc001.mcc001.3gppnetwork.org", {300,10},
+		 [{"x-3gpp-upf","x-sxa"}],
+		 "topon.sx.prox03.epc.mnc001.mcc001.3gppnetwork.org"},
+
 		%% A/AAAA record alternatives
 		{"topon.s5s8.pgw.epc.mnc001.mcc001.3gppnetwork.org",  [?ERGW1], []},
-		{"topon.sx.prox01.epc.mnc001.mcc001.3gppnetwork.org", [?UP1], []}
+		{"topon.sx.prox01.epc.mnc001.mcc001.3gppnetwork.org", [?UP1], []},
+		{"topon.sx.prox02.epc.mnc001.mcc001.3gppnetwork.org", [?UP1], []},
+		{"topon.sx.prox03.epc.mnc001.mcc001.3gppnetwork.org", [?UP1], []}
 	       ]
 	      }
 	 }
@@ -156,7 +168,7 @@
 
 all() ->
     [srv_lookup, a_lookup, topology_match, colocation_match,
-     static_lookup, apn_to_fqdn].
+     static_lookup, apn_to_fqdn, lb_entry_lookup].
 
 suite() ->
     [{timetrap, {seconds, 30}}].
@@ -274,4 +286,20 @@ apn_to_fqdn(_Config) ->
     ?match({'EXIT', {badarg, _}},
 	   (catch ergw_node_selection:apn_to_fqdn([<<"example">>,"com"]))),
 
+    ok.
+
+lb_entry_lookup() ->
+    [{doc, "Load balancing entry from config"}].
+lb_entry_lookup(_Config) ->
+    application:set_env(ergw, node_selection, ?ERGW_NODE_SELECTION),
+
+    R = ergw_node_selection:candidates("lb.apn.epc", [{"x-3gpp-upf","x-sxa"}], [default]),
+    ?match([{"topon.sx.prox03.epc.mnc001.mcc001.3gppnetwork.org", _, _, [_|_], []},
+	    {"topon.sx.prox02.epc.mnc001.mcc001.3gppnetwork.org", _, _, [_|_], []},
+	    {"topon.sx.prox01.epc.mnc001.mcc001.3gppnetwork.org", _, _, [_|_], []}], R),
+
+    S = ergw_node_selection:candidates_by_preference(R),
+    ?match([[{"topon.sx.prox03.epc.mnc001.mcc001.3gppnetwork.org", _, _}],
+	    [{"topon.sx.prox01.epc.mnc001.mcc001.3gppnetwork.org", _, _},
+	     {"topon.sx.prox02.epc.mnc001.mcc001.3gppnetwork.org", _, _}]], S),
     ok.

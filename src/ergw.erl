@@ -11,9 +11,10 @@
 
 %% API
 -export([start_link/0]).
--export([start_socket/2, start_vrf/2,
-	 attach_tdf/2, attach_protocol/5, attach_vrf/3]).
--export([handler/2, vrf/1]).
+-export([start_socket/2, start_ip_pool/2,
+	 connect_sx_node/2,
+	 attach_tdf/2, attach_protocol/5]).
+-export([handler/2]).
 -export([load_config/1]).
 -export([get_plmn_id/0, get_accept_new/0, get_gtp_idle_timer_secs/0]).
 -export([system_info/0, system_info/1, system_info/2]).
@@ -30,7 +31,6 @@
 
 -record(protocol_key, {socket, protocol}).
 -record(protocol, {key, name, handler, options}).
--record(route, {key, vrf, options}).
 
 %%====================================================================
 %% API
@@ -85,7 +85,10 @@ load_config([{gtp_idle_timer_secs, Value} | T]) ->
 load_config([{Key, Value} | T])
   when Key =:= node_selection;
        Key =:= nodes;
-       Key =:= charging ->
+       Key =:= ip_pools;
+       Key =:= apns;
+       Key =:= charging;
+       Key =:= proxy_map ->
     ok = application:set_env(ergw, Key, Value),
     load_config(T);
 load_config([_ | T]) ->
@@ -98,23 +101,57 @@ start_socket(Name, Options) ->
     ergw_gtp_socket:start_socket(Name, Options).
 
 %%
-%% start VRF instance
+%% start IP_POOL instance
 %%
-start_vrf(Name, Options) ->
-    vrf:start_vrf(Name, Options).
+start_ip_pool(Name, Options) ->
+    ergw_ip_pool:start_ip_pool(Name, Options).
 
-attach_tdf(SxNode, #{node_selection := NodeSelections} = Opts) ->
-    (fun NodeLookup([]) ->
-	    {error, not_found};
-	 NodeLookup([NodeSelection | NextSelection]) ->
-	    case ergw_node_selection:lookup(SxNode, NodeSelection) of
-		{Node, IP4, IP6} ->
-		    ergw_sx_node:connect_sx_node(Node, IP4, IP6, Opts);
-		_Other ->
-		    ?LOG(warning, "TDF lookup for ~p failed ~p", [SxNode, _Other]),
-		    NodeLookup(NextSelection)
-	    end
-    end)(NodeSelections).
+%%
+%% start a TDF instance
+%%
+%% attach_tdf/2
+attach_tdf(SxNode, Opts) ->
+    Result = ergw_sx_node_reg:lookup(SxNode),
+    attach_tdf(SxNode, Opts, Result, true).
+
+%% attach_tdf/4
+attach_tdf(_SxNode, Opts, {ok, Pid} = Result, _) when is_pid(Pid) ->
+    ergw_sx_node:attach_tdf(Pid, Opts),
+    Result;
+attach_tdf(_SxNode, _Opts, Result, false) ->
+    Result;
+attach_tdf(SxNode, #{node_selection := NodeSelections} = Opts, _, true) ->
+    Result =
+	(fun NodeLookup([]) ->
+		 {error, not_found};
+	     NodeLookup([NodeSelection | NextSelection]) ->
+		 case ergw_node_selection:lookup(SxNode, NodeSelection) of
+		     {Node, IP4, IP6} ->
+			 ergw_sx_node_mngr:connect(Node, IP4, IP6);
+		     _Other ->
+			 ?LOG(warning, "TDF lookup for ~p failed ~p", [SxNode, _Other]),
+			 NodeLookup(NextSelection)
+		 end
+	 end)(NodeSelections),
+    attach_tdf(SxNode, Opts, Result, false).
+
+%%
+%% connect UPF node
+%%
+connect_sx_node(_Node, #{connect := false}) ->
+    ok;
+connect_sx_node(Node, #{raddr := IP4} = _Opts) when tuple_size(IP4) =:= 4 ->
+    ergw_sx_node_mngr:connect(Node, [IP4], []);
+connect_sx_node(Node, #{raddr := IP6} = _Opts) when tuple_size(IP6) =:= 8 ->
+    ergw_sx_node_mngr:connect(Node, [], [IP6]);
+connect_sx_node(Node, #{node_selection := NodeSelect} = Opts) ->
+    case ergw_node_selection:lookup(Node, NodeSelect) of
+	{_, IP4, IP6} ->
+	    ergw_sx_node_mngr:connect(Node, IP4, IP6);
+	_Other ->
+	    %% TBD:
+	    erlang:error(badarg, [Node, Opts])
+    end.
 
 %%
 %% attach a GTP protocol (Gn, S5, S2a...) to a socket
@@ -139,22 +176,6 @@ attach_protocol(Socket, Name, Protocol, Handler, Opts0) ->
 	    throw({error, {invalid_handler, Handler}})
     end.
 
-attach_vrf(APN, VRF, Options0)
-  when is_binary(VRF) ->
-    Options =
-	case vrf:get_opts(VRF) of
-	    {ok, Opts} when is_map(Opts) ->
-		maps:merge(Opts, Options0);
-	    _Other ->
-		Options0
-	end,
-    Route = #route{key = APN, vrf = VRF, options = Options},
-    case ets:insert_new(?SERVER, Route) of
-	true -> ok;
-	false ->
-	    throw({error, duplicate})
-    end.
-
 handler(Socket, Protocol) ->
     Key = #protocol_key{socket = Socket, protocol = Protocol},
     case ets:lookup(?SERVER, Key) of
@@ -162,38 +183,6 @@ handler(Socket, Protocol) ->
 	    {ok, Handler, Opts};
 	_ ->
 	    {error, not_found}
-    end.
-
-vrf_lookup(APN) ->
-    case ets:lookup(?SERVER, APN) of
-	[#route{vrf = VRF, options = Options}] ->
-	    {ok, {VRF, Options}};
-	_ ->
-	    {error, not_found}
-    end.
-
-expand_apn(<<"gprs">>, APN) when length(APN) > 3 ->
-    {ShortAPN, _} = lists:split(length(APN) - 3, APN),
-    ShortAPN;
-expand_apn(_, APN) ->
-    {MCC, MNC} = get_plmn_id(),
-    MNCpart = if (size(MNC) == 2) -> <<"mnc0", MNC/binary>>;
-		 true             -> <<"mnc",  MNC/binary>>
-	      end,
-    APN ++ [MNCpart, <<"mcc", MCC/binary>>, <<"gprs">>].
-
-vrf(APN0) ->
-    APN = gtp_c_lib:normalize_labels(APN0),
-    case vrf_lookup(APN) of
-	{ok, _} = Result ->
-	    Result;
-	_ ->
-	    case vrf_lookup(expand_apn(lists:last(APN), APN)) of
-		{ok, _} = Result ->
-		    Result;
-		_ ->
-		    vrf_lookup('_')
-	    end
     end.
 
 i() ->

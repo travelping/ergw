@@ -196,34 +196,44 @@ validate_pdn_type(SubType, IEs)
   when SubType == ipv6;
        SubType == {default, static_ipv6};
        SubType == {default, static_host_ipv6} ->
-    ?match(#{{v2_pdn_address_allocation,0} :=
-		 #v2_pdn_address_allocation{type = ipv6},
-	     {v2_protocol_configuration_options,0} :=
-		 #v2_protocol_configuration_options{
-		    config = {0,[{?'PCO-DNS-Server-IPv6-Address', _},
-				 {?'PCO-DNS-Server-IPv6-Address', _}]}}}, IEs);
+    ?match_map(
+       #{{v2_pdn_address_allocation,0} =>
+	     #v2_pdn_address_allocation{type = ipv6, _ = '_'},
+	 {v2_protocol_configuration_options,0} =>
+	     #v2_protocol_configuration_options{
+		config = {0,[{?'PCO-DNS-Server-IPv6-Address', '_'},
+			     {?'PCO-DNS-Server-IPv6-Address', '_'}]},
+		_ = '_'}},
+       IEs);
 validate_pdn_type(ipv4v6, IEs) ->
-    ?match(#{{v2_pdn_address_allocation,0} :=
-		 #v2_pdn_address_allocation{type = ipv4v6},
-	     {v2_protocol_configuration_options,0} :=
-		 #v2_protocol_configuration_options{
-		    config = {0,[{ipcp,'CP-Configure-Nak',0,
-				  [{ms_dns1,_},
-				   {ms_dns2,_}]},
-				 {?'PCO-DNS-Server-IPv4-Address', _},
-				 {?'PCO-DNS-Server-IPv4-Address', _},
-				 {?'PCO-DNS-Server-IPv6-Address', _},
-				 {?'PCO-DNS-Server-IPv6-Address', _}]}}}, IEs);
+    ?match_map(
+       #{{v2_pdn_address_allocation,0} =>
+	     #v2_pdn_address_allocation{type = ipv4v6, _ = '_'},
+	 {v2_protocol_configuration_options,0} =>
+	     #v2_protocol_configuration_options{
+		config = {0,[{ipcp,'CP-Configure-Nak',0,
+			      [{ms_dns1, '_'},
+			       {ms_dns2, '_'}]},
+			     {?'PCO-DNS-Server-IPv4-Address', '_'},
+			     {?'PCO-DNS-Server-IPv4-Address', '_'},
+			     {?'PCO-DNS-Server-IPv6-Address', '_'},
+			     {?'PCO-DNS-Server-IPv6-Address', '_'}]},
+		_ = '_'}},
+       IEs);
 validate_pdn_type(_SubType, IEs) ->
-    ?match(#{{v2_pdn_address_allocation,0} :=
-		 #v2_pdn_address_allocation{type = ipv4},
-	     {v2_protocol_configuration_options,0} :=
-		 #v2_protocol_configuration_options{
-		    config = {0,[{ipcp,'CP-Configure-Nak',0,
-				  [{ms_dns1,_},
-				   {ms_dns2,_}]},
-				 {?'PCO-DNS-Server-IPv4-Address', _},
-				 {?'PCO-DNS-Server-IPv4-Address', _}]}}}, IEs).
+    ?match_map(
+       #{{v2_pdn_address_allocation,0} =>
+	     #v2_pdn_address_allocation{type = ipv4, _ = '_'},
+	 {v2_protocol_configuration_options,0} =>
+	     #v2_protocol_configuration_options{
+		config = {0,[{ipcp,'CP-Configure-Nak',0,
+			      [{ms_dns1, '_'},
+			       {ms_dns2, '_'}]},
+			     {?'PCO-DNS-Server-IPv4-Address', '_'},
+			     {?'PCO-DNS-Server-IPv4-Address', '_'}]},
+		_ = '_'
+	       }},
+       IEs).
 
 %%%-------------------------------------------------------------------
 
@@ -882,6 +892,7 @@ execute_request(MsgType, SubType, GtpC0) ->
 
 apn(invalid_apn) -> [<<"IN", "VA", "LID">>];
 apn(dotted_apn)  -> ?'APN-EXA.MPLE';
+apn(async_sx)    -> [<<"async-sx">>];
 apn(_)           -> ?'APN-ExAmPlE'.
 
 imsi('2nd', _) ->

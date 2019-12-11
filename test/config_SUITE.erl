@@ -39,10 +39,9 @@
 		 ]}
 	  ]},
 
-	 {vrfs,
-	  [{upstream, [{pools,  [{?IPv4PoolStart, ?IPv4PoolEnd, 32},
-				 {?IPv6PoolStart, ?IPv6PoolEnd, 64}
-				]},
+	 {ip_pools,
+	  [{'pool-A', [{ranges,  [{?IPv4PoolStart, ?IPv4PoolEnd, 32},
+				  {?IPv6PoolStart, ?IPv6PoolEnd, 64}]},
 		       {'MS-Primary-DNS-Server', {8,8,8,8}},
 		       {'MS-Secondary-DNS-Server', {8,8,4,4}},
 		       {'MS-Primary-NBNS-Server', {127,0,0,1}},
@@ -77,8 +76,14 @@
 	  ]},
 
 	 {apns,
-	  [{?'APN-EXAMPLE', [{vrf, upstream}]},
-	   {[<<"APN1">>], [{vrf, upstream}]}
+	  [{?'APN-EXAMPLE',
+	    [{vrf, upstream},
+	     {ip_pools, ['pool-A', 'pool-B']}
+	    ]},
+	   {[<<"APN1">>],
+	    [{vrfs, [upstream]},
+	     {ip_pools, ['pool-A', 'pool-B']}
+	    ]}
 	  ]},
 
 	 {nodes,
@@ -86,9 +91,11 @@
 	    [{vrfs,
 	      [{cp, [{features, ['CP-Function']}]},
 	       {irx, [{features, ['Access']}]},
-	       {sgi, [{features, ['SGi-LAN']}]}]
-	     }]
-	   }]
+	       {sgi, [{features, ['SGi-LAN']}]}
+	      ]},
+	     {ip_pools, ['pool-A']}]
+	   },
+	   {"node-A", [connect]}]
 	 }
 	]).
 
@@ -107,20 +114,6 @@
 			   {ip,  ?FINAL_GSN_IPv4},
 			   {reuseaddr, true}
 			  ]}
-	  ]},
-
-	 {vrfs,
-	  [{example, [{pools,  [{?IPv4PoolStart, ?IPv4PoolEnd, 32},
-				{?IPv6PoolStart, ?IPv6PoolEnd, 64}
-			       ]},
-		      {'MS-Primary-DNS-Server', {8,8,8,8}},
-		      {'MS-Secondary-DNS-Server', {8,8,4,4}},
-		      {'MS-Primary-NBNS-Server', {127,0,0,1}},
-		      {'MS-Secondary-NBNS-Server', {127,0,0,1}},
-		      {'DNS-Server-IPv6-Address',
-		       [{16#2001, 16#4860, 16#4860, 0, 0, 0, 0, 16#8888},
-			{16#2001, 16#4860, 16#4860, 0, 0, 0, 0, 16#8844}]}
-		     ]}
 	  ]},
 
 	 {handlers,
@@ -216,10 +209,9 @@
 		 ]}
 	  ]},
 
-	 {vrfs,
-	  [{upstream, [{pools,  [{?IPv4PoolStart, ?IPv4PoolEnd, 32},
-				 {?IPv6PoolStart, ?IPv6PoolEnd, 64}
-				]},
+	 {ip_pools,
+	  [{'pool-A', [{ranges,  [{?IPv4PoolStart, ?IPv4PoolEnd, 32},
+				  {?IPv6PoolStart, ?IPv6PoolEnd, 64}]},
 		       {'MS-Primary-DNS-Server', {8,8,8,8}},
 		       {'MS-Secondary-DNS-Server', {8,8,4,4}},
 		       {'MS-Primary-NBNS-Server', {127,0,0,1}},
@@ -268,8 +260,14 @@
 	  ]},
 
 	 {apns,
-	  [{?'APN-EXAMPLE', [{vrf, upstream}]},
-	   {[<<"APN1">>], [{vrf, upstream}]}
+	  [{?'APN-EXAMPLE',
+	    [{vrf, upstream},
+	     {ip_pools, ['pool-A', 'pool-B']}
+	    ]},
+	   {[<<"APN1">>],
+	    [{vrfs, [upstream]},
+	     {ip_pools, ['pool-A', 'pool-B']}
+	    ]}
 	  ]},
 
 	 {nodes,
@@ -300,20 +298,6 @@
 			   {ip,  ?FINAL_GSN_IPv4},
 			   {reuseaddr, true}
 			  ]}
-	  ]},
-
-	 {vrfs,
-	  [{example, [{pools,  [{?IPv4PoolStart, ?IPv4PoolEnd, 32},
-				{?IPv6PoolStart, ?IPv6PoolEnd, 64}
-			       ]},
-		      {'MS-Primary-DNS-Server', {8,8,8,8}},
-		      {'MS-Secondary-DNS-Server', {8,8,4,4}},
-		      {'MS-Primary-NBNS-Server', {127,0,0,1}},
-		      {'MS-Secondary-NBNS-Server', {127,0,0,1}},
-		      {'DNS-Server-IPv6-Address',
-		       [{16#2001, 16#4860, 16#4860, 0, 0, 0, 0, 16#8888},
-			{16#2001, 16#4860, 16#4860, 0, 0, 0, 0, 16#8844}]}
-		     ]}
 	  ]},
 
 	 {handlers,
@@ -414,17 +398,6 @@
 			  freebind,
 			  {reuseaddr, true}
 			 ]}
-	  ]},
-
-	 {vrfs,
-	  [{sgi, [{pools,  [{?IPv4PoolStart, ?IPv4PoolEnd, 32},
-			    {?IPv6PoolStart, ?IPv6PoolEnd, 64}
-			   ]},
-		  {'MS-Primary-DNS-Server', {8,8,8,8}},
-		  {'MS-Secondary-DNS-Server', {8,8,4,4}},
-		  {'MS-Primary-NBNS-Server', {127,0,0,1}},
-		  {'MS-Secondary-NBNS-Server', {127,0,0,1}}
-		 ]}
 	  ]},
 
 	 {sx_socket,
@@ -580,76 +553,81 @@ config(_Config)  ->
     ?match(X when is_binary(X), (catch vrf:validate_name(<<"1st.2nd">>))),
     ?match(X when is_binary(X), (catch vrf:validate_name([<<"1st">>, <<"2nd">>]))),
 
-    ?error_option(set_cfg_value([vrfs, upstream], invalid, ?GGSN_CONFIG)),
-    ?error_option(add_cfg_value([vrfs, upstream], [], ?GGSN_CONFIG)),
-    ?error_option(set_cfg_value([vrfs], invalid, ?GGSN_CONFIG)),
+    ?error_option(set_cfg_value([ip_pools, 'pool-A'], invalid, ?GGSN_CONFIG)),
+    ?error_option(add_cfg_value([ip_pools, 'pool-A'], [], ?GGSN_CONFIG)),
+    ?error_option(set_cfg_value([ip_pools], invalid, ?GGSN_CONFIG)),
 
-    ?error_option(set_cfg_value([vrfs, upstream, pools], invalid, ?GGSN_CONFIG)),
-    ?error_option(set_cfg_value([vrfs, upstream, pools], [], ?GGSN_CONFIG)),
-    ?error_option(set_cfg_value([vrfs, upstream, pools],
-				[{?IPv4PoolStart, ?IPv4PoolEnd, 0}], ?GGSN_CONFIG)),
-    ?error_option(set_cfg_value([vrfs, upstream, pools],
-				[{?IPv4PoolStart, ?IPv4PoolEnd, 33}], ?GGSN_CONFIG)),
-    ?error_option(set_cfg_value([vrfs, upstream, pools],
-				[{?IPv4PoolStart, ?IPv4PoolEnd, invalid}], ?GGSN_CONFIG)),
-    ?error_option(set_cfg_value([vrfs, upstream, pools],
-				[{?IPv4PoolStart, invalid, 32}], ?GGSN_CONFIG)),
-    ?error_option(set_cfg_value([vrfs, upstream, pools],
-				[{invalid, ?IPv4PoolEnd, 32}], ?GGSN_CONFIG)),
-    ?error_option(set_cfg_value([vrfs, upstream, pools],
-				[{?IPv4PoolEnd, ?IPv4PoolStart, 32}], ?GGSN_CONFIG)),
-    ?error_option(set_cfg_value([vrfs, upstream, pools],
-				[{?IPv6PoolStart, ?IPv6PoolEnd, 0}], ?GGSN_CONFIG)),
-    ?error_option(set_cfg_value([vrfs, upstream, pools],
-				[{?IPv6PoolStart, ?IPv6PoolEnd, 129}], ?GGSN_CONFIG)),
-    ?error_option(set_cfg_value([vrfs, upstream, pools],
-				[{?IPv6PoolStart, ?IPv6PoolEnd, 127}], ?GGSN_CONFIG)),
-    ?ok_option(set_cfg_value([vrfs, upstream, pools],
-			     [{?IPv6PoolStart, ?IPv6PoolEnd, 128}], ?GGSN_CONFIG)),
-    ?error_option(set_cfg_value([vrfs, upstream, pools],
-				[{?IPv6PoolStart, ?IPv6PoolEnd, invalid}], ?GGSN_CONFIG)),
-    ?error_option(set_cfg_value([vrfs, upstream, pools],
-				[{?IPv6PoolStart, invalid, 64}], ?GGSN_CONFIG)),
-    ?error_option(set_cfg_value([vrfs, upstream, pools],
-				[{invalid, ?IPv6PoolEnd, 64}], ?GGSN_CONFIG)),
-    ?error_option(set_cfg_value([vrfs, upstream, pools],
-				[{?IPv6PoolEnd, ?IPv6PoolStart, 64}], ?GGSN_CONFIG)),
+    ?error_option(set_cfg_value([ip_pools, 'pool-A', ranges], invalid, ?GGSN_CONFIG)),
+    ?error_option(set_cfg_value([ip_pools, 'pool-A', ranges], [], ?GGSN_CONFIG)),
+    ?error_option(set_cfg_value([ip_pools, 'pool-A', ranges],
+			       [{?IPv4PoolStart, ?IPv4PoolEnd, 0}], ?GGSN_CONFIG)),
+    ?error_option(set_cfg_value([ip_pools, 'pool-A', ranges],
+			       [{?IPv4PoolStart, ?IPv4PoolEnd, 33}], ?GGSN_CONFIG)),
+    ?error_option(set_cfg_value([ip_pools, 'pool-A', ranges],
+			       [{?IPv4PoolStart, ?IPv4PoolEnd, invalid}], ?GGSN_CONFIG)),
+    ?error_option(set_cfg_value([ip_pools, 'pool-A', ranges],
+			       [{?IPv4PoolStart, invalid, 32}], ?GGSN_CONFIG)),
+    ?error_option(set_cfg_value([ip_pools, 'pool-A', ranges],
+			       [{invalid, ?IPv4PoolEnd, 32}], ?GGSN_CONFIG)),
+    ?error_option(set_cfg_value([ip_pools, 'pool-A', ranges],
+			       [{?IPv4PoolEnd, ?IPv4PoolStart, 32}], ?GGSN_CONFIG)),
+    ?error_option(set_cfg_value([ip_pools, 'pool-A', ranges],
+			       [{?IPv6PoolStart, ?IPv6PoolEnd, 0}], ?GGSN_CONFIG)),
+    ?error_option(set_cfg_value([ip_pools, 'pool-A', ranges],
+			       [{?IPv6PoolStart, ?IPv6PoolEnd, 129}], ?GGSN_CONFIG)),
+    ?error_option(set_cfg_value([ip_pools, 'pool-A', ranges],
+			       [{?IPv6PoolStart, ?IPv6PoolEnd, 127}], ?GGSN_CONFIG)),
+    ?ok_option(set_cfg_value([ip_pools, 'pool-A', ranges],
+			    [{?IPv6PoolStart, ?IPv6PoolEnd, 128}], ?GGSN_CONFIG)),
+    ?error_option(set_cfg_value([ip_pools, 'pool-A', ranges],
+			       [{?IPv6PoolStart, ?IPv6PoolEnd, invalid}], ?GGSN_CONFIG)),
+    ?error_option(set_cfg_value([ip_pools, 'pool-A', ranges],
+			       [{?IPv6PoolStart, invalid, 64}], ?GGSN_CONFIG)),
+    ?error_option(set_cfg_value([ip_pools, 'pool-A', ranges],
+			       [{invalid, ?IPv6PoolEnd, 64}], ?GGSN_CONFIG)),
+    ?error_option(set_cfg_value([ip_pools, 'pool-A', ranges],
+			       [{?IPv6PoolEnd, ?IPv6PoolStart, 64}], ?GGSN_CONFIG)),
 
-    ?error_option(set_cfg_value([vrfs, upstream, 'MS-Primary-DNS-Server'],
+    ?error_option(set_cfg_value([ip_pools, 'pool-A', 'MS-Primary-DNS-Server'],
 				invalid, ?GGSN_CONFIG)),
-    ?error_option(set_cfg_value([vrfs, upstream, 'MS-Primary-DNS-Server'],
+    ?error_option(set_cfg_value([ip_pools, 'pool-A', 'MS-Primary-DNS-Server'],
 				?LOCALHOST_IPv6, ?GGSN_CONFIG)),
-    ?error_option(set_cfg_value([vrfs, upstream, 'MS-Secondary-DNS-Server'],
+    ?error_option(set_cfg_value([ip_pools, 'pool-A', 'MS-Secondary-DNS-Server'],
 				invalid, ?GGSN_CONFIG)),
-    ?error_option(set_cfg_value([vrfs, upstream, 'MS-Secondary-DNS-Server'],
+    ?error_option(set_cfg_value([ip_pools, 'pool-A', 'MS-Secondary-DNS-Server'],
 				?LOCALHOST_IPv6, ?GGSN_CONFIG)),
-    ?error_option(set_cfg_value([vrfs, upstream, 'MS-Primary-NBNS-Server'],
+    ?error_option(set_cfg_value([ip_pools, 'pool-A', 'MS-Primary-NBNS-Server'],
 				invalid, ?GGSN_CONFIG)),
-    ?error_option(set_cfg_value([vrfs, upstream, 'MS-Primary-NBNS-Server'],
+    ?error_option(set_cfg_value([ip_pools, 'pool-A', 'MS-Primary-NBNS-Server'],
 				?LOCALHOST_IPv6, ?GGSN_CONFIG)),
-    ?error_option(set_cfg_value([vrfs, upstream, 'MS-Secondary-NBNS-Server'],
+    ?error_option(set_cfg_value([ip_pools, 'pool-A', 'MS-Secondary-NBNS-Server'],
 				invalid, ?GGSN_CONFIG)),
-    ?error_option(set_cfg_value([vrfs, upstream, 'MS-Secondary-NBNS-Server'],
+    ?error_option(set_cfg_value([ip_pools, 'pool-A', 'MS-Secondary-NBNS-Server'],
 				?LOCALHOST_IPv6, ?GGSN_CONFIG)),
-    ?error_option(set_cfg_value([vrfs, upstream, 'DNS-Server-IPv6-Address'],
+    ?error_option(set_cfg_value([ip_pools, 'pool-A', 'DNS-Server-IPv6-Address'],
 				invalid, ?GGSN_CONFIG)),
-    ?error_option(set_cfg_value([vrfs, upstream, 'DNS-Server-IPv6-Address'],
+    ?error_option(set_cfg_value([ip_pools, 'pool-A', 'DNS-Server-IPv6-Address'],
 				?LOCALHOST_IPv4, ?GGSN_CONFIG)),
-    ?error_option(set_cfg_value([vrfs, upstream, '3GPP-IPv6-DNS-Servers'],
+    ?error_option(set_cfg_value([ip_pools, 'pool-A', '3GPP-IPv6-DNS-Servers'],
 				invalid, ?GGSN_CONFIG)),
-    ?error_option(set_cfg_value([vrfs, upstream, '3GPP-IPv6-DNS-Servers'],
+    ?error_option(set_cfg_value([ip_pools, 'pool-A', '3GPP-IPv6-DNS-Servers'],
 				?LOCALHOST_IPv4, ?GGSN_CONFIG)),
-    ?ok_option(set_cfg_value([vrfs, upstream, '3GPP-IPv6-DNS-Servers'],
+    ?ok_option(set_cfg_value([ip_pools, 'pool-A', '3GPP-IPv6-DNS-Servers'],
 			     [?LOCALHOST_IPv6], ?GGSN_CONFIG)),
-    ?error_option(set_cfg_value([vrfs, upstream, '3GPP-IPv6-DNS-Servers'],
+    ?error_option(set_cfg_value([ip_pools, 'pool-A', '3GPP-IPv6-DNS-Servers'],
 				?LOCALHOST_IPv6, ?GGSN_CONFIG)),
-    ?ok_option(set_cfg_value([vrfs, upstream, '3GPP-IPv6-DNS-Servers'],
+    ?ok_option(set_cfg_value([ip_pools, 'pool-A', '3GPP-IPv6-DNS-Servers'],
 			     [?LOCALHOST_IPv6], ?GGSN_CONFIG)),
-    ?error_option(set_cfg_value([vrfs, upstream, '3GPP-IPv6-DNS-Servers'],
+    ?error_option(set_cfg_value([ip_pools, 'pool-A', '3GPP-IPv6-DNS-Servers'],
 				?LOCALHOST_IPv6, ?GGSN_CONFIG)),
 
     ?error_option(set_cfg_value([apns, '_'], [], ?GGSN_CONFIG)),
     ?ok_option(set_cfg_value([apns, '_', vrf], upstream, ?GGSN_CONFIG)),
+    ?ok_option(set_cfg_value([apns, '_', vrfs], [upstream], ?GGSN_CONFIG)),
+    ?error_option(set_cfg_value([apns, '_', vrfs], upstream, ?GGSN_CONFIG)),
+    ?ok_option(set_cfg_value([apns, '_', vrfs], [a, b], ?GGSN_CONFIG)),
+    ?error_option(set_cfg_value([apns, '_', vrfs], [a | b], ?GGSN_CONFIG)),
+    ?error_option(set_cfg_value([apns, '_', vrfs], [a, a], ?GGSN_CONFIG)),
     ?error_option(set_cfg_value([apns, ?'APN-EXAMPLE'], [], ?GGSN_CONFIG)),
     ?error_option(set_cfg_value([apns, ?'APN-EXAMPLE'], invalid, ?GGSN_CONFIG)),
     ?ok_option(add_cfg_value([apns, ?'APN-PROXY'], [{vrf, example}], ?GGSN_CONFIG)),
@@ -664,7 +642,12 @@ config(_Config)  ->
 		    add_cfg_value([apns, [<<"_">>]], [{vrf, example}], ?GGSN_CONFIG)))),
     APN0 = proplists:get_value(apns, (catch ergw_config:validate_config(?GGSN_CONFIG))),
     %% check that APN's are lower cased after validation
-    ?match(VRF when is_map(VRF), proplists:get_value([<<"apn1">>], APN0)),
+    ?match(VRF when is_map(VRF), maps:get([<<"apn1">>], APN0)),
+
+    ?ok_option(set_cfg_value([apns, ?'APN-EXAMPLE', ip_pools], [], ?GGSN_CONFIG)),
+    ?error_option(set_cfg_value([apns, ?'APN-EXAMPLE', ip_pools], a, ?GGSN_CONFIG)),
+    ?ok_option(set_cfg_value([apns, ?'APN-EXAMPLE', ip_pools], [a, b], ?GGSN_CONFIG)),
+    ?error_option(set_cfg_value([apns, ?'APN-EXAMPLE', ip_pools], [a, a], ?GGSN_CONFIG)),
 
     ?error_option(set_cfg_value([sx_socket, ip], invalid, ?GGSN_CONFIG)),
     ?error_option(set_cfg_value([sx_socket, ip], {1,1,1,1,1}, ?GGSN_CONFIG)),
@@ -736,6 +719,25 @@ config(_Config)  ->
     ?error_option(set_cfg_value([nodes, default, vrfs, cp, features], [], ?GGSN_PROXY_CONFIG)),
     ?error_option(set_cfg_value([nodes, default, vrfs, cp, features], invalid, ?GGSN_PROXY_CONFIG)),
     ?error_option(set_cfg_value([nodes, default, vrfs, cp, features], [invalid], ?GGSN_PROXY_CONFIG)),
+
+    ?ok_option(set_cfg_value([nodes, default, ip_pools], [], ?GGSN_CONFIG)),
+    ?error_option(set_cfg_value([nodes, default, ip_pools], a, ?GGSN_CONFIG)),
+    ?ok_option(set_cfg_value([nodes, default, ip_pools], [a, b], ?GGSN_CONFIG)),
+    ?error_option(set_cfg_value([nodes, default, ip_pools], [a, a], ?GGSN_CONFIG)),
+
+    ?error_option(set_cfg_value([nodes, test], [], ?GGSN_PROXY_CONFIG)),
+    ?ok_option(set_cfg_value([nodes, "test"], [], ?GGSN_PROXY_CONFIG)),
+    ?ok_option(set_cfg_value([nodes, "test", vrfs, cp, features], ['CP-Function'], ?GGSN_PROXY_CONFIG)),
+    ?ok_option(set_cfg_value([nodes, "test", vrfs, 'cp2', features], ['CP-Function'], ?GGSN_PROXY_CONFIG)),
+
+    ?ok_option(set_cfg_value([nodes, "test"], [connect], ?GGSN_PROXY_CONFIG)),
+    ?ok_option(set_cfg_value([nodes, "test"], [{connect, true}], ?GGSN_PROXY_CONFIG)),
+    ?ok_option(set_cfg_value([nodes, "test"], [{connect, false}], ?GGSN_PROXY_CONFIG)),
+    ?error_option(set_cfg_value([nodes, "test"], [{raddr, invalid}], ?GGSN_PROXY_CONFIG)),
+    ?ok_option(set_cfg_value([nodes, "test"], [{raddr, {1,1,1,1}}], ?GGSN_PROXY_CONFIG)),
+    ?ok_option(set_cfg_value([nodes, "test"], [{raddr, {1,1,1,1,2,2,2,2}}], ?GGSN_PROXY_CONFIG)),
+    ?error_option(set_cfg_value([nodes, "test"], [{port, invalid}], ?GGSN_PROXY_CONFIG)),
+    ?ok_option(set_cfg_value([nodes, "test"], [{rport, 1234}], ?GGSN_PROXY_CONFIG)),
 
     ?ok_option(?PGW_CONFIG),
     ?error_option(set_cfg_value([handlers, 'h1'], [{handler, pgw_s5s8},

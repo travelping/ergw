@@ -13,7 +13,9 @@
 -compile({parse_transform, cut}).
 
 %% API
--export([select_sx_node/2, select_sx_node/3, connect_sx_node/4, attach/2]).
+-export([select_sx_node/2, select_sx_node/3,
+	 request_connect/2, request_connect/4, wait_connect/1,
+	 attach/2, attach_tdf/2, notify_up/2]).
 -export([start_link/4, send/4, call/3,
 	 get_vrfs/2, handle_request/3, response/3]).
 -ifdef(TEST).
@@ -33,19 +35,24 @@
 -include_lib("pfcplib/include/pfcp_packet.hrl").
 -include("include/ergw.hrl").
 
--record(data, {retries = 0  :: non_neg_integer(),
+-record(data, {cfg,
+	       mode = transient  :: 'transient' | 'persistent',
+	       retries = 0       :: non_neg_integer(),
 	       recovery_ts       :: undefined | non_neg_integer(),
 	       pfcp_ctx          :: #pfcp_ctx{},
 	       upf_data_endp     :: #gtp_endp{},
 	       cp,
 	       dp,
+	       ip_pools,
 	       vrfs,
-	       opts}).
+	       tdf,
+	       notify_up = []    :: [{pid(), reference()}]}).
 
 -define(AssocReqTimeout, 200).
 -define(AssocReqRetries, 5).
 -define(AssocTimeout, 500).
--define(AssocRetries, 5).
+-define(AssocRetries, 10).
+-define(MaxRetriesScale, 5).
 
 -define(TestCmdTag, '$TestCmd').
 
@@ -54,17 +61,18 @@
 %%====================================================================
 
 select_sx_node(Candidates, Context) ->
-    case connect_sx_node(Candidates) of
-	{ok, Pid} ->
-	    attach(Pid, Context);
-	_ ->
+    try
+	{ok, Pid} = connect_sx_candidates(Candidates),
+	{ok, _PCtx, _NodeCaps} = attach(Pid, Context)
+    catch
+	error:{badmatch, _} ->
 	    throw(?CTX_ERR(?FATAL, system_failure, Context))
     end.
 
 select_sx_node(APN, Services, NodeSelect) ->
     case ergw_node_selection:candidates(APN, Services, NodeSelect) of
-	Nodes when is_list(Nodes), length(Nodes) /= 0 ->
-	    connect_sx_node(Nodes);
+	Candidates when is_list(Candidates), length(Candidates) /= 0 ->
+	    connect_sx_candidates(Candidates);
 	Other ->
 	    ?LOG(error, "No Sx node for APN '~w', got ~p", [APN, Other]),
 	    {error, not_found}
@@ -74,8 +82,11 @@ attach(Node, Context) when is_pid(Node) ->
     monitor(process, Node),
     call_3(Node, attach, Context).
 
-start_link(Node, IP4, IP6, Opts) ->
-    gen_statem:start_link(?MODULE, [Node, IP4, IP6, Opts], []).
+attach_tdf(Node, Tdf) when is_pid(Node) ->
+    gen_statem:call(Node, {attach_tdf, Tdf}).
+
+start_link(Node, IP4, IP6, NotifyUp) ->
+    gen_statem:start_link(?MODULE, [Node, IP4, IP6, NotifyUp], []).
 
 -ifdef(TEST).
 
@@ -170,7 +181,7 @@ port_message(_Server, Request, Msg, _Resent) ->
 
 callback_mode() -> [handle_event_function, state_enter].
 
-init([Node, IP4, IP6, Opts]) ->
+init([Node, IP4, IP6, NotifyUp]) ->
     IP = if length(IP4) /= 0 -> hd(IP4);
 	    length(IP6) /= 0 -> hd(IP6)
 	 end,
@@ -195,73 +206,96 @@ init([Node, IP4, IP6, Opts]) ->
 	 {seid, SEID}],
     gtp_context_reg:register(RegKeys, ?MODULE, self()),
 
-    Data = #data{pfcp_ctx = PCtx,
-		 cp = CP,
-		 dp = #node{node = Node, ip = IP},
-		 vrfs = init_vrfs(Node),
-		 opts = Opts
-		},
-    {ok, dead, Data}.
+    Nodes = setup:get_env(ergw, nodes, #{}),
+    Cfg = maps:get(Node, Nodes, maps:get(default, Nodes, #{})),
+    Data0 = #data{cfg = Cfg,
+		  mode = mode(Cfg),
+		  retries = 0,
+		  recovery_ts = undefined,
+		  pfcp_ctx = PCtx,
+		  cp = CP,
+		  dp = #node{node = Node, ip = IP},
+		  tdf = #{},
+		  notify_up = NotifyUp
+		 },
+    Data = init_node_cfg(Data0),
+    {ok, connecting, Data}.
 
-handle_event(enter, OldState, dead, Data)
-  when OldState =:= connected;
-       OldState =:= dead ->
-    {next_state, dead, Data#data{retries = 0, recovery_ts = undefined}, [{state_timeout, 0, setup}]};
-handle_event(enter, _, dead, #data{retries = Retries} = Data) ->
-    Timeout = (2 bsl Retries) * ?AssocTimeout,
+handle_event(enter, _OldState, {connected, ready},
+	     #data{dp = #node{node = Node}} = Data0) ->
+    ergw_sx_node_reg:up(Node),
+    Data = send_notify_up(up, Data0#data{retries = 0}),
+    {keep_state, Data};
+
+handle_event(enter, {connected, _}, dead, #data{dp = #node{node = Node}} = Data) ->
+    ergw_sx_node_reg:down(Node),
+    {keep_state, Data#data{recovery_ts = undefined}, [{state_timeout, 0, connect}]};
+
+handle_event(enter, _, dead, #data{retries = Retries} = Data0) ->
+    Data = send_notify_up(dead, Data0),
+    Timeout = (1 bsl min(Retries, ?MaxRetriesScale)) * ?AssocTimeout,
     ?LOG(debug, "Timeout: ~w/~w", [Retries, Timeout]),
-    {next_state, dead, Data, [{state_timeout, Timeout, setup}]};
-handle_event(enter, _OldState, State, Data) ->
-    {next_state, State, Data};
+    {keep_state, Data, [{state_timeout, Timeout, connect}]};
+
+handle_event(state_timeout, connect, dead, Data) ->
+    {next_state, connecting, Data};
+
+handle_event(enter, _, connecting, #data{dp = #node{ip = IP}} = Data) ->
+    Req0 = #pfcp{version = v1, type = association_setup_request, ie = []},
+    Req = augment_mandatory_ie(Req0, Data),
+    ergw_sx_socket:call(IP, ?AssocReqTimeout, ?AssocReqRetries, Req,
+			response_cb(association_setup_request)),
+    {keep_state, Data};
+
+handle_event(enter, _OldState, _State, _Data) ->
+    keep_state_and_data;
 
 handle_event({call, From}, {?TestCmdTag, pfcp_ctx}, _, #data{pfcp_ctx = PCtx}) ->
     {keep_state_and_data, [{reply, From, PCtx}]};
 handle_event({call, From}, {?TestCmdTag, reconnect}, dead, Data) ->
-    {keep_state_and_data, [{reply, From, ok}, {state_timeout, 0, setup}]};
+    {next_state, connecting, Data, [{reply, From, ok}]};
 handle_event({call, From}, {?TestCmdTag, reconnect}, connecting, _) ->
     {keep_state_and_data, [{reply, From, ok}]};
-handle_event({call, From}, {?TestCmdTag, reconnect}, connected, Data) ->
+handle_event({call, From}, {?TestCmdTag, reconnect}, {connected, _}, Data) ->
     {next_state, dead, handle_nodedown(Data), [{reply, From, ok}]};
-handle_event({call, From}, {?TestCmdTag, wait4nodeup}, connected, _) ->
-   {keep_state_and_data, [{reply, From, ok}]};
+handle_event({call, From}, {?TestCmdTag, wait4nodeup}, {connected, _}, _) ->
+    {keep_state_and_data, [{reply, From, ok}]};
 handle_event({call, _From}, {?TestCmdTag, wait4nodeup}, _, _) ->
     {keep_state_and_data, [postpone]};
 
 handle_event({call, From}, {?TestCmdTag, stop}, _, Data) ->
     {stop_and_reply, normal, [{reply, From, ok}], Data};
 
-handle_event(_, setup, dead, #data{dp = #node{ip = IP}} = Data) ->
-    Req0 = #pfcp{version = v1, type = association_setup_request, ie = []},
-    Req = augment_mandatory_ie(Req0, Data),
-    ergw_sx_socket:call(IP, ?AssocReqTimeout, ?AssocReqRetries, Req,
-			response_cb(association_setup_request)),
-    {next_state, connecting, Data};
+handle_event({call, From}, {attach_tdf, Tdf}, _, Data) ->
+    {keep_state, Data#data{tdf = Tdf}, [{reply, From, ok}]};
 
 handle_event({call, From}, _Evt, dead, _Data) ->
     ?LOG(warning, "Call from ~p, ~p failed with {error, dead}", [From, _Evt]),
     {keep_state_and_data, [{reply, From, {error, dead}}]};
 
 handle_event(cast, {response, association_setup_request, timeout},
+	     connecting, #data{mode = transient, retries = Retries, dp = #node{ip = IP}})
+  when Retries >= ?AssocRetries ->
+    ?LOG(debug, "~s Association Setup timeout, ~w tries, shutdown", [inet:ntoa(IP), Retries]),
+    {stop, normal};
+
+handle_event(cast, {response, association_setup_request, timeout},
 	     connecting, #data{retries = Retries, dp = #node{ip = IP}} = Data) ->
-    ?LOG(debug, "~p:~s Timeout @ Retry: ~w", [self(), inet:ntoa(IP), Retries]),
-    if Retries >= ?AssocRetries ->
-	    {stop, normal};
-       true ->
-	    {next_state, dead, Data#data{retries = Retries + 1}}
-    end;
+    ?LOG(debug, "~s Association Setup timeout, ~w tries", [inet:ntoa(IP), Retries]),
+    {next_state, dead, Data#data{retries = Retries + 1}};
 
 handle_event(cast, {response, _, #pfcp{version = v1, type = association_setup_response, ie = IEs}},
 	     connecting, Data0) ->
     case IEs of
 	#{pfcp_cause := #pfcp_cause{cause = 'Request accepted'}} ->
 	    Data = handle_nodeup(IEs, Data0),
-	    {next_state, connected, Data, [next_heartbeat(Data)]};
+	    {next_state, {connected, init}, Data, [next_heartbeat(Data)]};
 	Other ->
 	    ?LOG(warning, "Other: ~p", [Other]),
 	    {next_state, dead, Data0}
     end;
 
-handle_event(cast, {send, 'Access', _VRF, Data}, connected,
+handle_event(cast, {send, 'Access', _VRF, Data}, {connected, _},
 	     #data{pfcp_ctx = #pfcp_ctx{cp_port = Port},
 		   dp = #node{ip = IP},
 		   upf_data_endp = #gtp_endp{teid = TEI}}) ->
@@ -275,12 +309,12 @@ handle_event(cast, {send, 'Access', _VRF, Data}, connected,
 %%
 %% heartbeat logic
 %%
-handle_event(state_timeout, heartbeat, connected, Data) ->
+handle_event(state_timeout, heartbeat, {connected, _}, Data) ->
     ?LOG(warning, "sending heartbeat"),
     send_heartbeat(Data),
     keep_state_and_data;
 
-handle_event(cast, {heartbeat, timeout}, connected, Data) ->
+handle_event(cast, {heartbeat, timeout}, {connected, _}, Data) ->
     {next_state, dead, handle_nodedown(Data)};
 
 handle_event(cast, {request, ReqKey,
@@ -314,11 +348,11 @@ handle_event(cast, {request, ReqKey, #pfcp{type = heartbeat_request} = Request},
 handle_event(cast, {response, _, #pfcp{version = v1, type = heartbeat_response,
 				       ie = #{recovery_time_stamp :=
 						  #recovery_time_stamp{time = RecoveryTS}} = IEs}},
-		    connected, #data{recovery_ts = RecoveryTS} = Data) ->
+	     {connected, _}, #data{recovery_ts = RecoveryTS} = Data) ->
     ?LOG(info, "PFCP OK Response: ~s", [pfcp_packet:pretty_print(IEs)]),
-    {next_state, connected, Data, [next_heartbeat(Data)]};
+    {keep_state, Data, [next_heartbeat(Data)]};
 handle_event(cast, {response, _, #pfcp{version = v1, type = heartbeat_response, ie = _IEs}},
-	     connected, Data) ->
+	     {connected, _}, Data) ->
     ?LOG(warning, "PFCP Fail Response: ~s", [pfcp_packet:pretty_print(_IEs)]),
     {next_state, dead, handle_nodedown(Data)};
 
@@ -326,11 +360,12 @@ handle_event(cast, {response, from_cp_rule,
 		    #pfcp{version = v1, type = session_establishment_response,
 			  ie = #{pfcp_cause := #pfcp_cause{cause = 'Request accepted'},
 				 f_seid := #f_seid{seid = DP}}}} = R,
-	     connected, #data{pfcp_ctx = #pfcp_ctx{seid = SEID} = PCtx} = Data) ->
+	     {connected, init}, #data{pfcp_ctx = #pfcp_ctx{seid = SEID} = PCtx} = Data) ->
     ?LOG(warning, "Response: ~p", [R]),
-    {keep_state, Data#data{pfcp_ctx = PCtx#pfcp_ctx{seid = SEID#seid{dp = DP}}}};
+    {next_state, {connected, ready}, Data#data{pfcp_ctx = PCtx#pfcp_ctx{seid = SEID#seid{dp = DP}}}};
 
-handle_event({call, From}, attach, _, #data{pfcp_ctx = PNodeCtx}) ->
+handle_event({call, From}, attach, _, #data{pfcp_ctx = PNodeCtx,
+					    ip_pools = Pools, vrfs = Vrfs}) ->
     PCtx = #pfcp_ctx{
 	      name = PNodeCtx#pfcp_ctx.name,
 	      node = PNodeCtx#pfcp_ctx.node,
@@ -339,11 +374,27 @@ handle_event({call, From}, attach, _, #data{pfcp_ctx = PNodeCtx}) ->
 	      cp_port = PNodeCtx#pfcp_ctx.cp_port,
 	      cp_tei = PNodeCtx#pfcp_ctx.cp_tei
 	     },
-    {keep_state_and_data, [{reply, From, PCtx}]};
+    NodeCaps = {Vrfs, Pools},
+    Reply = {ok, PCtx, NodeCaps},
+    {keep_state_and_data, [{reply, From, Reply}]};
 
-handle_event({call, From}, get_vrfs, connected,
+handle_event({call, From}, get_vrfs, {connected, _},
 	     #data{vrfs = VRFs}) ->
     {keep_state_and_data, [{reply, From, {ok, VRFs}}]};
+
+%% send 'up' when we are ready, only wait if this is the first connect attempt
+%% or if we are already connected and just waiting for some rules to get installed
+handle_event(cast, {notify_up, NotifyUp}, {connected, ready}, _Data) ->
+    send_notify_up(up, NotifyUp),
+    keep_state_and_data;
+handle_event(cast, {notify_up, NotifyUp}, {connected, _}, #data{notify_up = Up} = Data) ->
+    {keep_state, Data#data{notify_up = Up ++ NotifyUp}};
+handle_event(cast, {notify_up, NotifyUp}, connecting,
+	     #data{retries = 0, notify_up = Up} = Data) ->
+    {keep_state, Data#data{notify_up = Up ++ NotifyUp}};
+handle_event(cast, {notify_up, NotifyUp}, _State, _Data) ->
+    send_notify_up(dead, NotifyUp),
+    keep_state_and_data;
 
 handle_event(cast, {response, {call, _} = Evt,
 		    #pfcp{
@@ -365,7 +416,7 @@ handle_event(cast, {response, _, _} = R, _, _Data) ->
     ?LOG(warning, "Response: ~p", [R]),
     keep_state_and_data;
 
-handle_event({call, _} = Evt, #pfcp{} = Request0, connected,
+handle_event({call, _} = Evt, #pfcp{} = Request0, {connected, _},
 	     #data{dp = #node{ip = IP}} = Data) ->
     Request = augment_mandatory_ie(Request0, Data),
     ?LOG(debug, "DP Call ~p", [Request]),
@@ -409,13 +460,13 @@ handle_event({call, From},
 		    }
 	     },
 	     _State,
-	     #data{pfcp_ctx = #pfcp_ctx{seid = #seid{dp = SEID}} = PCtx, opts = Opts}) ->
+	     #data{pfcp_ctx = #pfcp_ctx{seid = #seid{dp = SEID}} = PCtx, tdf = Tdf}) ->
     {ok, {tdf, VRF}} = ergw_pfcp:find_urr_by_id(Id, PCtx),
     ?LOG(error, "Sx Node TDF Report on ~p for UE IPv4 ~p IPv6 ~p", [VRF, IP4, IP6]),
 
-    Handler = maps:get(handler, Opts, tdf),
+    Handler = maps:get(handler, Tdf, tdf),
     try
-	Handler:unsolicited_report(self(), VRF, IP4, IP6, Opts)
+	Handler:unsolicited_report(self(), VRF, IP4, IP6, Tdf)
     catch
 	Class:Error ->
 	    ?LOG(error, "Unsolicited Report Handler '~p' failed with ~p:~p~n~p",
@@ -428,7 +479,8 @@ handle_event({call, From}, {sx, Report}, _State,
     ?LOG(error, "Sx Node Session Report unexpected: ~p", [Report]),
     {keep_state_and_data, [{reply, From, {ok, SEID}}]}.
 
-terminate(_Reason, _Data) ->
+terminate(_Reason, Data) ->
+    send_notify_up(terminate, Data),
     ok.
 
 code_change(_OldVsn, Data, _Extra) ->
@@ -437,21 +489,6 @@ code_change(_OldVsn, Data, _Extra) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
-
-node_vrfs(Name, Nodes, Default) ->
-    Layout = maps:get(Name, Nodes, #{}),
-    maps:get(vrfs, Layout, Default).
-
-node_vrfs(Name) ->
-    {ok, Nodes} = setup:get_env(ergw, nodes),
-    Default = node_vrfs(default, Nodes, #{}),
-    node_vrfs(Name, Nodes, Default).
-
-init_vrfs(Node) ->
-    maps:map(
-      fun(Id, #{features := Features}) ->
-	      #vrf{name = Id, features = Features}
-      end, node_vrfs(Node)).
 
 pfcp_reply_actions({call, {Pid, Tag}}, Reply)
   when Pid =:= self() ->
@@ -501,23 +538,86 @@ handle_udp_gtp(SrcIP, DstIP, <<SrcPort:16, DstPort:16, _:16, _:16, PayLoad/binar
 		 inet:ntoa(ergw_inet:bin2ip(DstIP)), DstPort, PayLoad]),
     ok.
 
-connect_sx_node([]) ->
-    {error, not_found};
-connect_sx_node([{Node, _, _, IP4, IP6}|Next]) ->
-    case connect_sx_node(Node, IP4, IP6, #{}) of
-	{ok, _Pid} = Result ->
-	    Result;
-	_ ->
-	    connect_sx_node(Next)
+%% request_connect/2
+request_connect(Candidates, Timeout) ->
+    AbsTimeout = erlang:monotonic_time()
+	+ erlang:convert_time_unit(Timeout, millisecond, native),
+    Ref = make_ref(),
+    Pid = proc_lib:spawn(?MODULE, ?FUNCTION_NAME, [Candidates, AbsTimeout, Ref, self()]),
+    {Pid, Ref, AbsTimeout}.
+
+%% request_connect/4
+request_connect(Candidates, AbsTimeout, Ref, Owner) ->
+    Available = ergw_sx_node_reg:available(),
+    Expects = connect_nodes(Candidates, Available, []),
+    Result =
+	fun ExpectFun([], _) ->
+		ok;
+	    ExpectFun(_More, Now) when Now >= AbsTimeout ->
+		timeout;
+	    ExpectFun([{_, Tag}|More], Now) ->
+		Timeout = erlang:convert_time_unit(AbsTimeout - Now, native, millisecond),
+		receive {Tag, _} -> ExpectFun(More, erlang:monotonic_time())
+		after Timeout -> timeout
+		end
+	end(Expects, erlang:monotonic_time()),
+    Owner ! {'$', Ref, Result}.
+
+wait_connect({Pid, Ref, AbsTimeout}) ->
+    Timeout = erlang:convert_time_unit(
+		AbsTimeout - erlang:monotonic_time(), native, millisecond),
+    receive
+	{'$', Ref, Result} -> Result;
+	{'EXIT', Pid, Reason} -> Reason
+    after Timeout -> timeout
     end.
 
-connect_sx_node(Node, IP4, IP6, Opts) ->
-    case ergw_sx_node_reg:lookup(Node) of
-	{ok, _} = Result ->
-	    Result;
-	_ ->
-	    ergw_sx_node_sup:new(Node, IP4, IP6, Opts)
+connect_nodes([], _Available, Expects) -> Expects;
+connect_nodes([H|T], Available, Expects) ->
+    connect_nodes(T,  Available, connect_node(H, Available, Expects)).
+
+connect_node({Name, _, _, _, _}, Available, Expects)
+  when is_map_key(Name, Available) ->
+    Expects;
+connect_node({Node, _, _, IP4, IP6}, _Available, Expects) ->
+    NotifyUp = {self(), make_ref()},
+    ergw_sx_node_mngr:connect(Node, IP4, IP6, [NotifyUp]),
+    [NotifyUp | Expects].
+
+%% connect_sx_candidates/1
+connect_sx_candidates(Candidates) ->
+    PrefC = ergw_node_selection:candidates_by_preference(Candidates),
+    Available = ergw_sx_node_reg:available(),
+    connect_sx_candidates(PrefC, Available).
+
+%% connect_sx_candidates/2
+connect_sx_candidates([], _Available) ->
+    {error, not_found};
+connect_sx_candidates([H|T], Available) ->
+    connect_sx_candidates(H, T, Available).
+
+%% connect_sx_candidates/3
+connect_sx_candidates([], NextPrio, Available) ->
+    connect_sx_candidates(NextPrio, Available);
+connect_sx_candidates(List, NextPrio, Available) ->
+    case lb(random, List) of
+	{{Node, _, _}, _} when is_map_key(Node, Available) ->
+	    ergw_sx_node_reg:lookup(Node);
+	{_, Next} ->
+	    connect_sx_candidates(Next, NextPrio, Available)
     end.
+
+notify_up(Server, NotifyUp) when length(NotifyUp) /= 0 ->
+    gen_statem:cast(Server, {notify_up, NotifyUp});
+notify_up(_, _) ->
+    ok.
+
+lb(first, [H|T]) -> {H, T};
+lb(random, [H]) -> {H, []};
+lb(random, L) when is_list(L) ->
+    Index = rand:uniform(length(L)),
+    Item = lists:nth(Index, L),
+    {Item, lists:delete(Item, L)}.
 
 response_cb(CbData) ->
     {?MODULE, response, [self(), CbData]}.
@@ -601,6 +701,14 @@ handle_nodeup(#{recovery_time_stamp := #recovery_time_stamp{time = RecoveryTS}} 
 	    },
     install_cp_rules(Data).
 
+init_node_cfg(#data{cfg = Cfg} = Data) ->
+    Data#data{
+      ip_pools = maps:get(ip_pools, Cfg, []),
+      vrfs = maps:map(
+	       fun(Id, #{features := Features}) ->
+		       #vrf{name = Id, features = Features}
+	       end, maps:get(vrfs, Cfg, #{}))}.
+
 init_vrfs(VRFs, UPIPResInfo)
   when is_list(UPIPResInfo) ->
     lists:foldl(fun(I, Acc) ->
@@ -620,12 +728,15 @@ init_vrfs(VRFs,
 	    VRFs
     end.
 
-handle_nodedown(#data{dp = #node{node = Node}} = Data) ->
+mode(#{connect := true}) -> persistent;
+mode(_) -> transient.
+
+handle_nodedown(Data) ->
     Self = self(),
     {monitored_by, Notify} = process_info(Self, monitored_by),
     ?LOG(info, "Node Down Monitor Notify: ~p", [Notify]),
     lists:foreach(fun(Pid) -> Pid ! {'DOWN', undefined, pfcp, Self, undefined} end, Notify),
-    Data#data{vrfs = init_vrfs(Node)}.
+    init_node_cfg(Data).
 
 %%%===================================================================
 %%% CP to Access Interface forwarding
@@ -743,3 +854,9 @@ install_cp_rules(#data{pfcp_ctx = PCtx0,
     ergw_sx_socket:call(DpNodeIP, Req, response_cb(from_cp_rule)),
 
     Data#data{pfcp_ctx = PCtx, upf_data_endp = DataEndP}.
+
+send_notify_up(Notify, NotifyUp) when is_list(NotifyUp) ->
+    [Pid ! {Tag, Notify} || {Pid, Tag} <- NotifyUp, is_pid(Pid), is_reference(Tag)];
+send_notify_up(Notify, #data{notify_up = NotifyUp} = Data) ->
+    send_notify_up(Notify, NotifyUp),
+    Data#data{notify_up = []}.

@@ -52,11 +52,10 @@
 				 ]}
 		  ]},
 
-		 {vrfs,
-		  [{sgi, [{pools,  [{?IPv4PoolStart, ?IPv4PoolEnd, 32},
-					 {?IPv6PoolStart, ?IPv6PoolEnd, 64},
-					 {?IPv6HostPoolStart, ?IPv6HostPoolEnd, 128}
-					]},
+		 {ip_pools,
+		  [{'pool-A', [{ranges,  [{?IPv4PoolStart, ?IPv4PoolEnd, 32},
+					  {?IPv6PoolStart, ?IPv6PoolEnd, 64},
+					  {?IPv6HostPoolStart, ?IPv6HostPoolEnd, 128}]},
 			       {'MS-Primary-DNS-Server', {8,8,8,8}},
 			       {'MS-Secondary-DNS-Server', {8,8,4,4}},
 			       {'MS-Primary-NBNS-Server', {127,0,0,1}},
@@ -106,9 +105,15 @@
 		   {reuseaddr, true}]},
 
 		 {apns,
-		  [{?'APN-EXAMPLE', [{vrf, sgi}]},
-		   {[<<"exa">>, <<"mple">>, <<"net">>], [{vrf, sgi}]},
-		   {[<<"APN1">>], [{vrf, sgi}]}
+		  [{?'APN-EXAMPLE',
+		    [{vrf, sgi},
+		     {ip_pools, ['pool-A']}]},
+		   {[<<"exa">>, <<"mple">>, <<"net">>],
+		    [{vrf, sgi},
+		     {ip_pools, ['pool-A']}]},
+		   {[<<"APN1">>],
+		    [{vrf, sgi},
+		     {ip_pools, ['pool-A']}]}
 		  ]},
 
 		 {charging,
@@ -151,9 +156,12 @@
 		    [{vrfs,
 		      [{cp, [{features, ['CP-Function']}]},
 		       {epc, [{features, ['TDF-Source', 'Access']}]},
-		       {sgi, [{features, ['SGi-LAN']}]}]
-		     }]
-		   }]
+		       {sgi, [{features, ['SGi-LAN']}]}
+		      ]},
+		     {ip_pools, ['pool-A']}]
+		   },
+		   {"topon.sx.prox01.$ORIGIN", [connect]}
+		  ]
 		 }
 		]},
 
@@ -414,17 +422,18 @@ all() ->
 %%% Tests
 %%%===================================================================
 
-init_per_testcase(Config) ->
+setup_per_testcase(Config) ->
+    setup_per_testcase(Config, true).
+
+setup_per_testcase(Config, ClearSxHist) ->
     ct:pal("Sockets: ~p", [ergw_gtp_socket_reg:all()]),
     {ok, AppsCfg} = application:get_env(ergw_aaa, apps),
     ergw_test_sx_up:reset('tdf-u'),
     meck_reset(Config),
-
-    Node = tdf_node_pid(),
-    ok = ergw_sx_node:test_cmd(Node, reconnect),
-    ok = ergw_sx_node:test_cmd(Node, wait4nodeup),
-    ct:sleep(500),
-    [{seid, tdf_seid()}, {tdf_node, Node},
+    reconnect_all_sx_nodes(),
+    ClearSxHist andalso ergw_test_sx_up:history('pgw-u', true),
+    [{seid, tdf_seid()},
+     {tdf_node, tdf_node_pid()},
      {aaa_cfg, AppsCfg} | Config].
 
 init_per_testcase(setup_upf, Config) ->
@@ -437,7 +446,7 @@ init_per_testcase(setup_upf, Config) ->
     [{seid, tdf_seid()}, {tdf_node, Node},
      {aaa_cfg, AppsCfg} | Config];
 init_per_testcase(gy_validity_timer, Config0) ->
-    Config = init_per_testcase(Config0),
+    Config = setup_per_testcase(Config0),
     set_online_charging(true),
     load_aaa_answer_config([{{gy, 'CCR-Initial'}, 'Initial-OCS-VT'},
 			    {{gy, 'CCR-Update'},  'Update-OCS-VT'}]),
@@ -446,36 +455,36 @@ init_per_testcase(TestCase, Config0)
   when TestCase == simple_ocs;
        TestCase == gy_ccr_asr_overlap;
        TestCase == volume_threshold ->
-    Config = init_per_testcase(Config0),
+    Config = setup_per_testcase(Config0),
     set_online_charging(true),
     load_aaa_answer_config([{{gy, 'CCR-Initial'}, 'Initial-OCS'},
 			    {{gy, 'CCR-Update'},  'Update-OCS'}]),
     Config;
 init_per_testcase(TestCase, Config0)
   when TestCase == gx_rar_gy_interaction ->
-    Config = init_per_testcase(Config0),
+    Config = setup_per_testcase(Config0),
     set_online_charging(true),
     load_aaa_answer_config([{{gy, 'CCR-Initial'}, 'Initial-OCS'},
 			    {{gy, 'CCR-Update'},  'Update-OCS-GxGy'}]),
     Config;
 init_per_testcase(gx_invalid_charging_rulebase, Config0) ->
-    Config = init_per_testcase(Config0),
+    Config = setup_per_testcase(Config0),
     load_aaa_answer_config([{{gx, 'CCR-Initial'}, 'Initial-Gx-Fail-1'}]),
     Config;
 init_per_testcase(gx_invalid_charging_rule, Config0) ->
-    Config = init_per_testcase(Config0),
+    Config = setup_per_testcase(Config0),
     load_aaa_answer_config([{{gx, 'CCR-Initial'}, 'Initial-Gx-Fail-2'}]),
     Config;
 init_per_testcase(redirect_info, Config0) ->
-    Config = init_per_testcase(Config0),
+    Config = setup_per_testcase(Config0),
     load_aaa_answer_config([{{gx, 'CCR-Initial'}, 'Initial-Gx-Redirect'}]),
     Config;
 init_per_testcase(tdf_app_id, Config0) ->
-    Config = init_per_testcase(Config0),
+    Config = setup_per_testcase(Config0),
     load_aaa_answer_config([{{gx, 'CCR-Initial'}, 'Initial-Gx-TDF-App'}]),
     Config;
 init_per_testcase(_, Config) ->
-    init_per_testcase(Config).
+    setup_per_testcase(Config).
 
 end_per_testcase(Config) ->
     AppsCfg = proplists:get_value(aaa_cfg, Config),

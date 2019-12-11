@@ -9,7 +9,7 @@
 
 -compile({parse_transform, cut}).
 
--export([create_sgi_session/3, create_tdf_session/3,
+-export([create_sgi_session/4, create_tdf_session/4,
 	 usage_report_to_charging_events/3,
 	 process_online_charging_events/4,
 	 process_offline_charging_events/4,
@@ -32,6 +32,8 @@
 	 gy_credit_request/3,
 	 pcc_events_to_charging_rule_report/1]).
 -export([pcc_ctx_has_rules/1]).
+-export([apn/2, select_vrf/2, select_vrf_and_pool/2,
+	 allocate_ips/4, release_context_ips/1]).
 
 -include_lib("kernel/include/logger.hrl").
 -include_lib("gtplib/include/gtp_packet.hrl").
@@ -46,6 +48,13 @@
 -define(SECONDS_PER_DAY, 86400).
 -define(DAYS_FROM_0_TO_1970, 719528).
 -define(SECONDS_FROM_0_TO_1970, (?DAYS_FROM_0_TO_1970*?SECONDS_PER_DAY)).
+
+-define(IS_IPv4(X), (is_tuple(X) andalso tuple_size(X) == 4)).
+-define(IS_IPv6(X), (is_tuple(X) andalso tuple_size(X) == 8)).
+
+-define(ZERO_IPv4, {0,0,0,0}).
+-define(ZERO_IPv6, {0,0,0,0,0,0,0,0}).
+-define(UE_INTERFACE_ID, {0,0,0,0,0,0,0,1}).
 
 %%%===================================================================
 %%% Sx DP API
@@ -382,7 +391,7 @@ apply_charging_profile(_K, _V, URR) ->
 apply_charging_profile(URR, OCP) ->
     maps:fold(fun apply_charging_profile/3, URR, OCP).
 
-%% build_sx_rules/5
+%% build_sx_rules/4
 build_sx_rules(PCC, Opts, PCtx0, SCtx) ->
     PCtx2 = ergw_pfcp:reset_ctx(PCtx0),
 
@@ -880,7 +889,7 @@ handle_validity_time(ChargingKey, #{'Validity-Time' := {abs, AbsTime}}, PCtx, _)
 handle_validity_time(_, _, PCtx, _) ->
     PCtx.
 
-%% build_sx_usage_rule/2
+%% build_sx_usage_rule/3
 build_sx_usage_rule(_K, #{'Rating-Group' := [RatingGroup],
 			  'Granted-Service-Unit' := [GSU],
 			  'Update-Time-Stamp' := UpdateTS} = GCU,
@@ -956,10 +965,9 @@ register_ctx_ids(Handler,
 		is_record(LocalDataEndp, gtp_endp)]],
     gtp_context_reg:register(Keys, Handler, self()).
 
-create_sgi_session(Candidates, PCC, Ctx0)
+create_sgi_session(PCtx, NodeCaps, PCC, Ctx0)
   when is_record(PCC, pcc_ctx) ->
-    PCtx = ergw_sx_node:select_sx_node(Candidates, Ctx0),
-    Ctx = ergw_pfcp:assign_data_teid(PCtx, Ctx0),
+    Ctx = ergw_pfcp:assign_data_teid(PCtx, NodeCaps, Ctx0),
     register_ctx_ids(gtp_context, Ctx, PCtx),
     session_establishment_request(PCC, PCtx, Ctx).
 
@@ -979,9 +987,8 @@ modify_sgi_session(PCC, URRActions, Opts, Ctx, PCtx0)
     ?LOG(info, "PCtx: ~p~n", [PCtx]),
     session_modification_request(PCtx, SxRules, Ctx).
 
-create_tdf_session(Node, PCC, Ctx)
+create_tdf_session(PCtx, _NodeCaps, PCC, Ctx)
   when is_record(PCC, pcc_ctx), is_record(Ctx, tdf_ctx) ->
-    PCtx = ergw_sx_node:attach(Node, Ctx),
     register_ctx_ids(tdf, PCtx),
     session_establishment_request(PCC, PCtx, Ctx).
 
@@ -1434,6 +1441,167 @@ pcc_ctx_to_credit_request(#pcc_ctx{rules = Rules}) ->
     CreditReq = maps:fold(fun pcc_rules_to_credit_request/3, #{}, Rules),
     ?LOG(debug, "CreditReq: ~p", [CreditReq]),
     CreditReq.
+
+%%%===================================================================
+%%% VRF selection
+%%%===================================================================
+
+apn(APN) ->
+    {ok, APNs} = application:get_env(ergw, apns),
+    apn(APN, APNs).
+
+apn([H|_] = APN0, APNs) when is_binary(H) ->
+    APN = gtp_c_lib:normalize_labels(APN0),
+    {NI, OI} = ergw_node_selection:split_apn(APN),
+    FqAPN = NI ++ OI,
+    ct:pal("NI: ~p~nOI: ~p~nFqAPN: ~p~nAPNs: ~p~n",
+	   [NI, OI, FqAPN, APNs]),
+    case APNs of
+	#{FqAPN := A} -> {ok, A};
+	#{NI :=    A} -> {ok, A};
+	#{'_' :=   A} -> {ok, A};
+	_ -> false
+    end;
+apn(_, _) ->
+    false.
+
+select(_, []) -> undefined;
+select(first, L) -> hd(L);
+select(random, L) when is_list(L) ->
+    lists:nth(rand:uniform(length(L)), L).
+
+%% select/3
+select(Method, L1, L2) when is_map(L2) ->
+    select(Method, L1, maps:keys(L2));
+select(Method, L1, L2) when is_list(L1), is_list(L2) ->
+    {L,_} = lists:partition(fun(A) -> lists:member(A, L2) end, L1),
+    select(Method, L).
+
+%% select_vrf/2
+select_vrf({AvaVRFs, _AvaPools}, APN) ->
+    {ok, #{vrfs := VRFs} = Opts} = apn(APN),
+    VRF = select(random, VRFs, AvaVRFs),
+    {ok, VRF, maps:without([vrfs, ip_pools], Opts)}.
+
+%% select_vrf_and_pool/2
+select_vrf_and_pool({AvaVRFs, AvaPools}, #context{apn = APN} = Context) ->
+    try
+	{ok, #{vrfs := VRFs, ip_pools := Pools} = Opts} = apn(APN),
+	VRF = maps:get(select(random, VRFs, AvaVRFs), AvaVRFs),
+	Pool = select(random, Pools, AvaPools),
+	{Context#context{vrf = VRF, ipv4_pool = Pool, ipv6_pool = Pool},
+	 maps:without([vrfs, ip_pools], Opts)}
+    catch
+	error:{badmatch, _} ->
+	    throw(?CTX_ERR(?FATAL, missing_or_unknown_apn, Context));
+	error:{badkey, _} ->
+	    ?LOG(error, "no common VRF or IP pools for session ~p", [Context]),
+	    throw(?CTX_ERR(?FATAL, system_failure, Context))
+    end.
+
+%%%===================================================================
+
+normalize_ipv4({IP, PLen} = Addr)
+  when ?IS_IPv4(IP), is_integer(PLen), PLen > 0, PLen =< 32 ->
+    Addr;
+normalize_ipv4(IP) when ?IS_IPv4(IP) ->
+    {IP, 32};
+normalize_ipv4(undefined) ->
+    undefined.
+
+normalize_ipv6({?ZERO_IPv6, 0}) ->
+    {?ZERO_IPv6, 64};
+normalize_ipv6({IP, PLen} = Addr)
+  when ?IS_IPv6(IP), is_integer(PLen), PLen > 0, PLen =< 128 ->
+    Addr;
+normalize_ipv6(IP) when ?IS_IPv6(IP) ->
+    {IP, 64};
+normalize_ipv6(undefined) ->
+    undefined.
+
+alloc_ipv4({ReqIPv4, PrefixLen}, #context{local_control_tei = TEI, ipv4_pool = Pool}) ->
+    PoolOpts0 = ergw_ip_pool:opts(ipv4, Pool),
+    PoolOpts = maps:update_with('Framed-Pool', fun(X) -> X end, Pool, PoolOpts0),
+    Request = case ReqIPv4 of
+		  ?ZERO_IPv4 -> ipv4;
+		  _          -> ReqIPv4
+	      end,
+    case ergw_ip_pool:get(Pool, TEI, Request, PrefixLen) of
+	{ok, IP} ->
+	    {IP, PoolOpts};
+	{error, _Error} ->
+	    {undefined, #{}}
+    end;
+alloc_ipv4(_ReqIPv4, _Context) ->
+    {undefined, #{}}.
+
+alloc_ipv6({ReqIPv6, PrefixLen}, #context{local_control_tei = TEI, ipv6_pool = Pool}) ->
+    PoolOpts0 = ergw_ip_pool:opts(ipv6, Pool),
+    PoolOpts = maps:update_with('Framed-IPv6-Pool', fun(X) -> X end, Pool, PoolOpts0),
+    {Request, IfId} = case ReqIPv6 of
+			  ?ZERO_IPv6 -> {ipv6, ?UE_INTERFACE_ID};
+			  _          -> {ReqIPv6, ReqIPv6}
+		      end,
+    case ergw_ip_pool:get(Pool, TEI, Request, PrefixLen) of
+	{ok, IP} ->
+	    {ergw_inet:ipv6_interface_id(IP, IfId), PoolOpts};
+	{error, _Error} ->
+	    {undefined, #{}}
+    end;
+alloc_ipv6(_ReqIPv6, _State) ->
+    {undefined, #{}}.
+
+release_ipv4({IPv4, PrefixLen}, #context{ipv4_pool = Pool}) ->
+    ergw_ip_pool:release(Pool, IPv4, PrefixLen);
+release_ipv4(_IP, _State) ->
+    ok.
+
+release_ipv6({IPv6, PrefixLen}, #context{ipv6_pool = Pool}) ->
+    ergw_ip_pool:release(Pool, IPv6, PrefixLen);
+release_ipv6(_IP, _State) ->
+    ok.
+
+maybe_ip(Key, {{_,_,_,_} = IPv4, _}, Opts) ->
+    Opts#{Key => IPv4};
+maybe_ip(Key, {{_,_,_,_,_,_,_,_},_} = IPv6, Opts) ->
+    Opts#{Key => IPv6};
+maybe_ip(_, _, Opts) ->
+    Opts.
+
+%% allocate_ips/4
+allocate_ips(PDNType, ReqMSv4, ReqMSv6, Context0) ->
+    {MSv4, IPv4PoolOpts} = alloc_ipv4(normalize_ipv4(ReqMSv4), Context0),
+    {MSv6, IPv6PoolOpts} = alloc_ipv6(normalize_ipv6(ReqMSv6), Context0),
+    PoolOpts = maps:merge(IPv4PoolOpts, IPv6PoolOpts),
+
+    Context = Context0#context{ms_v4 = MSv4, ms_v6 = MSv6},
+    case PDNType of
+	ipv4v6 when MSv4 /= undefined, MSv6 /= undefined ->
+	    ok;
+	ipv4 when MSv4 /= undefined ->
+	    ok;
+	ipv6 when MSv6 /= undefined ->
+	    ok;
+	_ ->
+	    throw(?CTX_ERR(?FATAL, all_dynamic_addresses_are_occupied, Context))
+    end,
+    IPOpts0 = maybe_ip('Framed-IP-Address', MSv4, PoolOpts),
+    IPOpts = maybe_ip('Framed-IPv6-Prefix', MSv6, IPOpts0),
+
+    %% RFC 6911
+    DNS0 = maps:get('DNS-Server-IPv6-Address', IPOpts, []),
+    %% 3GPP
+    DNS1 = maps:get('3GPP-IPv6-DNS-Servers', IPOpts, []),
+    {IPOpts, Context#context{dns_v6 = DNS0 ++ DNS1}}.
+
+%% release_context_ips/1
+release_context_ips(#context{ms_v4 = MSv4, ms_v6 = MSv6} = Context)
+  when MSv4 /= undefined; MSv6 /= undefined ->
+    release_ipv4(normalize_ipv4(MSv4), Context),
+    release_ipv6(normalize_ipv6(MSv6), Context),
+    Context#context{ms_v4 = undefined, ms_v6 = undefined};
+release_context_ips(Context) ->
+    Context.
 
 %%%===================================================================
 %%% T-PDU functions

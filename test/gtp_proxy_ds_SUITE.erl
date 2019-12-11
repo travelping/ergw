@@ -23,17 +23,21 @@ init_per_suite(Config) ->
 	{imsi, [{<<"111111111111111">>, {<<"111111111111111">>, <<"16477141111">>}},
 		{<<"222222222222222">>, {<<"333333333333333">>, <<"16477141222">>}} ]},
 	{apn, [{[<<"apn1">>], [<<"example1">>, <<"com">>]},
-	       {[<<"apn2">>], [<<"example2">>, <<"com">>]},
-	       {[<<"apn3">>], ["example3", "com"]} ]}
+	       {[<<"apn2">>], [<<"example2">>, <<"com">>]}
+	      ]}
     ],
-    application:set_env(ergw, proxy_map, ProxyMap),
+    {ok, Pid} = gen_server:start(ergw, [], []),
+    ergw:load_config([{plmn_id, {<<"001">>, <<"01">>}},
+		      {proxy_map, ProxyMap}]),
     gen_server:start({local, gtp_proxy_ds_test}, gtp_proxy_ds, [], []),
-    Config.
+    [{ergw, Pid}|Config].
 
-end_per_suite(_Config) ->
+end_per_suite(Config) ->
     ProxyMap = [],
+    Pid = proplists:get_value(ergw, Config),
     application:set_env(ergw, proxy_map, ProxyMap),
     gen_server:stop(gtp_proxy_ds_test),
+    gen_server:stop(Pid),
     ok.
 
 
@@ -76,14 +80,4 @@ map(_Config) ->
 			    imsi = <<"333333333333333">>,
 			    msisdn = <<"16477141222">>}},
 	   gen_server:call(gtp_proxy_ds_test, {map, ProxyInfo2})),
-
-    ProxyInfo3 = #proxy_info{ggsns = [#proxy_ggsn{dst_apn = [<<"apn3">>]}],
-			     src_apn = [<<"apn3">>],
-			     imsi = <<"222222222222222">>,
-			     msisdn = <<"unknown">>},
-    ?match({ok, #proxy_info{ggsns = [#proxy_ggsn{dst_apn = ["example3", "com"]}],
-			    src_apn = [<<"apn3">>],
-			    imsi = <<"333333333333333">>,
-			    msisdn = <<"16477141222">>}},
-	   gen_server:call(gtp_proxy_ds_test, {map, ProxyInfo3})),
     ok.

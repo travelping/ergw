@@ -61,18 +61,18 @@
 				  ]}
 		  ]},
 
-		 {vrfs,
-		  [{example, [{pools,  [{?IPv4PoolStart, ?IPv4PoolEnd, 32},
-					{?IPv6PoolStart, ?IPv6PoolEnd, 64}
-				       ]},
-			      {'MS-Primary-DNS-Server', {8,8,8,8}},
-			      {'MS-Secondary-DNS-Server', {8,8,4,4}},
-			      {'MS-Primary-NBNS-Server', {127,0,0,1}},
-			      {'MS-Secondary-NBNS-Server', {127,0,0,1}},
+		 {ip_pools,
+		  [{'pool-A', [{ranges,  [{?IPv4PoolStart, ?IPv4PoolEnd, 32},
+					  {?IPv6PoolStart, ?IPv6PoolEnd, 64},
+					  {?IPv6HostPoolStart, ?IPv6HostPoolEnd, 128}]},
+			       {'MS-Primary-DNS-Server', {8,8,8,8}},
+			       {'MS-Secondary-DNS-Server', {8,8,4,4}},
+			       {'MS-Primary-NBNS-Server', {127,0,0,1}},
+			       {'MS-Secondary-NBNS-Server', {127,0,0,1}},
 			       {'DNS-Server-IPv6-Address',
 				[{16#2001, 16#4860, 16#4860, 0, 0, 0, 0, 16#8888},
 				 {16#2001, 16#4860, 16#4860, 0, 0, 0, 0, 16#8844}]}
-			     ]}
+			      ]}
 		  ]},
 
 		 {handlers,
@@ -112,7 +112,9 @@
 		      %% A/AAAA record alternatives
 		      {"topon.gtp.ggsn.$ORIGIN", ?MUST_BE_UPDATED, []},
 		      {"topon.sx.sgw-u01.$ORIGIN", ?MUST_BE_UPDATED, []},
-		      {"topon.sx.pgw-u01.$ORIGIN", ?MUST_BE_UPDATED, []}
+		      {"topon.sx.pgw-u01.$ORIGIN", ?MUST_BE_UPDATED, []},
+		      {"topon.pgw-1.nodes.$ORIGIN", ?MUST_BE_UPDATED, []},
+		      {"topon.upf-1.nodes.$ORIGIN", ?MUST_BE_UPDATED, []}
 		     ]
 		    }
 		   }
@@ -127,7 +129,9 @@
 		   {reuseaddr, true}]},
 
 		 {apns,
-		  [{?'APN-PROXY', [{vrf, example}]}
+		  [{?'APN-PROXY',
+		    [{vrf, example},
+		     {ip_pools, ['pool-A']}]}
 		  ]},
 
 		 {charging,
@@ -165,8 +169,13 @@
 		       {'proxy-irx', [{features, ['Core']}]},
 		       {'remote-irx', [{features, ['Access']}]},
 		       {example, [{features, ['SGi-LAN']}]}]
-		     }]
-		   }]
+		     },
+		     {ip_pools, ['pool-A']}]
+		   },
+		   {"topon.sx.sgw-u01.$ORIGIN", [connect]},
+		   {"topon.sx.pgw-u01.$ORIGIN", [connect]},
+		   {"topon.upf-1.nodes.$ORIGIN", [connect]}
+		  ]
 		 }
 		]},
 
@@ -247,18 +256,18 @@
 				  ]}
 		  ]},
 
-		 {vrfs,
-		  [{example, [{pools,  [{?IPv4PoolStart, ?IPv4PoolEnd, 32},
-					{?IPv6PoolStart, ?IPv6PoolEnd, 64}
-				       ]},
-			      {'MS-Primary-DNS-Server', {8,8,8,8}},
-			      {'MS-Secondary-DNS-Server', {8,8,4,4}},
-			      {'MS-Primary-NBNS-Server', {127,0,0,1}},
-			      {'MS-Secondary-NBNS-Server', {127,0,0,1}},
+		 {ip_pools,
+		  [{'pool-A', [{ranges,  [{?IPv4PoolStart, ?IPv4PoolEnd, 32},
+					  {?IPv6PoolStart, ?IPv6PoolEnd, 64},
+					  {?IPv6HostPoolStart, ?IPv6HostPoolEnd, 128}]},
+			       {'MS-Primary-DNS-Server', {8,8,8,8}},
+			       {'MS-Secondary-DNS-Server', {8,8,4,4}},
+			       {'MS-Primary-NBNS-Server', {127,0,0,1}},
+			       {'MS-Secondary-NBNS-Server', {127,0,0,1}},
 			       {'DNS-Server-IPv6-Address',
 				[{16#2001, 16#4860, 16#4860, 0, 0, 0, 0, 16#8888},
 				 {16#2001, 16#4860, 16#4860, 0, 0, 0, 0, 16#8844}]}
-			     ]}
+			      ]}
 		  ]},
 
 		 {handlers,
@@ -298,7 +307,9 @@
 		      %% A/AAAA record alternatives
 		      {"topon.gtp.ggsn.$ORIGIN", ?MUST_BE_UPDATED, []},
 		      {"topon.sx.sgw-u01.$ORIGIN", ?MUST_BE_UPDATED, []},
-		      {"topon.sx.pgw-u01.$ORIGIN", ?MUST_BE_UPDATED, []}
+		      {"topon.sx.pgw-u01.$ORIGIN", ?MUST_BE_UPDATED, []},
+		      {"topon.pgw-1.nodes.$ORIGIN", ?MUST_BE_UPDATED, []},
+		      {"topon.upf-1.nodes.$ORIGIN", ?MUST_BE_UPDATED, []}
 		     ]
 		    }
 		   }
@@ -313,7 +324,9 @@
 		   {reuseaddr, true}]},
 
 		 {apns,
-		  [{?'APN-PROXY', [{vrf, example}]}
+		  [{?'APN-PROXY',
+		    [{vrf, example},
+		     {ip_pools, ['pool-A']}]}
 		  ]},
 
 		 {charging,
@@ -350,8 +363,13 @@
 		       {irx, [{features, ['Access', 'Core']}]},
 		       {'remote-irx', [{features, ['Access']}]},
 		       {example, [{features, ['SGi-LAN']}]}]
-		     }]
-		   }]
+		     },
+		     {ip_pools, ['pool-A']}]
+		   },
+		   {"topon.sx.sgw-u01.$ORIGIN", [connect]},
+		   {"topon.sx.pgw-u01.$ORIGIN", [connect]},
+		   {"topon.upf-1.nodes.$ORIGIN", [connect]}
+		  ]
 		 }
 		]},
 
@@ -410,7 +428,11 @@
 	 {[node_selection, {default, 2}, 2, "topon.sx.sgw-u01.$ORIGIN"],
 	  {fun node_sel_update/2, sgw_u_sx}},
 	 {[node_selection, {default, 2}, 2, "topon.sx.pgw-u01.$ORIGIN"],
-	  {fun node_sel_update/2, pgw_u_sx}}
+	  {fun node_sel_update/2, pgw_u_sx}},
+	 {[node_selection, {default, 2}, 2, "topon.pgw-1.nodes.$ORIGIN"],
+	  {fun node_sel_update/2, final_gsn}},
+	 {[node_selection, {default, 2}, 2, "topon.upf-1.nodes.$ORIGIN"],
+	  {fun node_sel_update/2, sgw_u_sx}}
 	]).
 
 -define(CONFIG_UPDATE_SINGLE_PROXY_SOCKET,
@@ -423,7 +445,11 @@
 	 {[node_selection, {default, 2}, 2, "topon.sx.sgw-u01.$ORIGIN"],
 	  {fun node_sel_update/2, sgw_u_sx}},
 	 {[node_selection, {default, 2}, 2, "topon.sx.pgw-u01.$ORIGIN"],
-	  {fun node_sel_update/2, pgw_u_sx}}
+	  {fun node_sel_update/2, pgw_u_sx}},
+	 {[node_selection, {default, 2}, 2, "topon.pgw-1.nodes.$ORIGIN"],
+	  {fun node_sel_update/2, final_gsn}},
+	 {[node_selection, {default, 2}, 2, "topon.upf-1.nodes.$ORIGIN"],
+	  {fun node_sel_update/2, sgw_u_sx}}
 	]).
 
 node_sel_update(Node, {_,_,_,_} = IP) ->
@@ -497,6 +523,7 @@ common() ->
      proxy_context_invalid_selection,
      proxy_context_invalid_mapping,
      proxy_context_version_restricted,
+     proxy_api_v2,
      invalid_teid,
      delete_pdp_context_requested,
      delete_pdp_context_requested_resend,
@@ -525,19 +552,25 @@ all() ->
 %%% Tests
 %%%===================================================================
 
-init_per_testcase(Config) ->
+setup_per_testcase(Config) ->
+    setup_per_testcase(Config, true).
+
+setup_per_testcase(Config, ClearSxHist) ->
     ct:pal("Sockets: ~p", [ergw_gtp_socket_reg:all()]),
     ergw_test_sx_up:reset('pgw-u'),
     ergw_test_sx_up:reset('sgw-u'),
     meck_reset(Config),
-    start_gtpc_server(Config).
+    start_gtpc_server(Config),
+    reconnect_all_sx_nodes(),
+    ClearSxHist andalso ergw_test_sx_up:history('pgw-u', true),
+    ok.
 
 init_per_testcase(path_restart, Config) ->
-    init_per_testcase(Config),
+    setup_per_testcase(Config),
     ok = meck:new(gtp_path, [passthrough, no_link]),
     Config;
 init_per_testcase(create_pdp_context_proxy_request_resend, Config) ->
-    init_per_testcase(Config),
+    setup_per_testcase(Config),
     ok = meck:new(ggsn_gn, [passthrough, no_link]),
     ok = meck:expect(ggsn_gn, handle_request,
 		     fun(ReqKey, #gtp{type = create_pdp_context_request}, _, _, _) ->
@@ -548,7 +581,7 @@ init_per_testcase(create_pdp_context_proxy_request_resend, Config) ->
 		     end),
     Config;
 init_per_testcase(delete_pdp_context_request_timeout, Config) ->
-    init_per_testcase(Config),
+    setup_per_testcase(Config),
     ok = meck:new(ggsn_gn, [passthrough, no_link]),
     ok = meck:expect(ggsn_gn, handle_request,
 		     fun(ReqKey, #gtp{type = delete_pdp_context_request}, _, _, _) ->
@@ -562,7 +595,7 @@ init_per_testcase(TestCase, Config)
   when TestCase == delete_pdp_context_requested_resend;
        TestCase == delete_pdp_context_requested_invalid_teid;
        TestCase == delete_pdp_context_requested_late_response ->
-    init_per_testcase(Config),
+    setup_per_testcase(Config),
     ok = meck:expect(ergw_gtp_c_socket, send_request,
 		     fun(GtpPort, DstIP, DstPort, _T3, _N3,
 			 #gtp{type = delete_pdp_context_request} = Msg, CbInfo) ->
@@ -574,7 +607,7 @@ init_per_testcase(TestCase, Config)
 		     end),
     Config;
 init_per_testcase(request_fast_resend, Config) ->
-    init_per_testcase(Config),
+    setup_per_testcase(Config),
     ok = meck:new(ggsn_gn, [passthrough, no_link]),
     ok = meck:expect(ggsn_gn, handle_request,
 		     fun(Request, Msg, Resent, State, Data) ->
@@ -585,12 +618,12 @@ init_per_testcase(request_fast_resend, Config) ->
 		     end),
     Config;
 init_per_testcase(simple_pdp_context_request, Config) ->
-    init_per_testcase(Config),
+    setup_per_testcase(Config),
     ok = meck:new(ggsn_gn, [passthrough, no_link]),
     Config;
 init_per_testcase(ggsn_update_pdp_context_request, Config) ->
     %% our GGSN does not send update_bearer_request, so we have to fake them
-    init_per_testcase(Config),
+    setup_per_testcase(Config),
     ok = meck:new(ggsn_gn, [passthrough, no_link]),
     ok = meck:expect(ggsn_gn, handle_event,
 		     fun({call, From}, update_context, _State, #{context := Context}) ->
@@ -608,20 +641,20 @@ init_per_testcase(ggsn_update_pdp_context_request, Config) ->
 		     end),
     Config;
 init_per_testcase(create_pdp_context_overload, Config) ->
-    init_per_testcase(Config),
+    setup_per_testcase(Config),
     jobs:modify_queue(create, [{max_size, 0}]),
     jobs:modify_regulator(rate, create, {rate,create,1}, [{limit,1}]),
     Config;
 init_per_testcase(cache_timeout, Config) ->
     case os:getenv("CI_RUN_SLOW_TESTS") of
 	"true" ->
-	    init_per_testcase(Config),
+	    setup_per_testcase(Config),
 	    Config;
 	_ ->
 	    {skip, "slow tests run only on CI"}
     end;
 init_per_testcase(_, Config) ->
-    init_per_testcase(Config),
+    setup_per_testcase(Config),
     Config.
 
 end_per_testcase(_Config) ->
@@ -1118,7 +1151,7 @@ proxy_context_invalid_mapping() ->
 proxy_context_invalid_mapping(Config) ->
     ok = meck:new(gtp_proxy_ds, [passthrough]),
     meck:expect(gtp_proxy_ds, map,
-		fun(_ProxyInfo) -> {error, not_found} end),
+		fun(_ProxyInfo) -> {error, user_authentication_failed} end),
 
     {_, _, _} = create_pdp_context(invalid_mapping, Config),
     ?equal([], outstanding_requests()),
@@ -1141,6 +1174,38 @@ proxy_context_version_restricted(Config) ->
 
     {_, _, _} = create_pdp_context(version_restricted, Config),
     ?equal([], outstanding_requests()),
+
+    meck:unload(gtp_proxy_ds),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+%% TDB: the test only checks that the API works, it does not verify that
+%%      the correct GGSN/PGW or UPF node is actually used
+proxy_api_v2() ->
+    [{doc, "Check that the proxy API v2 works"}].
+proxy_api_v2(Config) ->
+    ok = meck:new(gtp_proxy_ds, [passthrough]),
+    meck:expect(gtp_proxy_ds, map,
+		fun(PI) ->
+			ct:pal("PI: ~p", [PI]),
+			Context = <<"ams">>,
+			PGW = <<"topon.pgw-1.nodes.epc.mnc001.mcc001.3gppnetwork.org">>,
+			UPF = <<"topon.upf-1.nodes.epc.mnc001.mcc001.3gppnetwork.org">>,
+			{ok, PI#proxy_info{
+			       imsi = ?'PROXY-IMSI',
+			       msisdn = ?'PROXY-MSISDN',
+			       ggsns = [#proxy_ggsn{address = {host, PGW},
+						    context = Context,
+						    dst_apn = ?'APN-PROXY'}],
+			       upf = {UPF, Context}}}
+		end),
+
+    {GtpC, _, _} = create_pdp_context(Config),
+    ?equal([], outstanding_requests()),
+    delete_pdp_context(GtpC),
 
     meck:unload(gtp_proxy_ds),
 

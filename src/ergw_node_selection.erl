@@ -1,4 +1,4 @@
-%% Copyright 2018, Travelping GmbH <info@travelping.com>
+%% Copyright 2018,2019 Travelping GmbH <info@travelping.com>
 
 %% This program is free software; you can redistribute it and/or
 %% modify it under the terms of the GNU General Public License
@@ -13,9 +13,11 @@
 
 -module(ergw_node_selection).
 
--export([validate_options/2, apn_to_fqdn/1,
+-export([validate_options/2, expand_apn/2, split_apn/1,
+	 apn_to_fqdn/2, apn_to_fqdn/1,
 	 lookup_dns/3, colocation_match/2, topology_match/2,
-	 candidates/3, lookup/2, lookup/3]).
+	 candidates/3, candidates_by_preference/1, topology_select/4,
+	 lookup/2, lookup/3]).
 
 -include_lib("kernel/include/logger.hrl").
 
@@ -66,18 +68,64 @@ topology_match(CandidatesA, CandidatesB) ->
 	    L
     end.
 
+%% topology_select/3
+topology_select(Candidates, Services, MatchPeers)
+  when is_list(MatchPeers), length(MatchPeers) /= 0 ->
+    TopoM = [{FQDN, 0, Services, [], []} || FQDN <- MatchPeers],
+    case ergw_node_selection:topology_match(Candidates, TopoM) of
+	{_, C} when is_list(C), length(C) /= 0 ->
+	    C;
+	{C, _} when is_list(C), length(C) /= 0 ->
+	    C;
+	_ ->
+	    %% neither colocation, nor topology matched
+	    Candidates
+    end;
+topology_select(Candidates, _, _) ->
+    Candidates.
+
+%% topology_select/4
+topology_select(FQDN, MatchPeers, Services, NodeSelect) ->
+    topology_select(candidates(FQDN, Services, NodeSelect), Services, MatchPeers).
+
 candidates(Name, Services, NodeSelection) ->
     ServiceSet = ordsets:from_list(Services),
     Norm = normalize_name(Name),
-    case get_candidates(lists:flatten(lists:join($., Norm)), ServiceSet, NodeSelection) of
+    case lookup(lists:flatten(lists:join($., Norm)), ServiceSet, NodeSelection) of
 	[] ->
 	    %% no candidates, try with _default
 	    DefaultAPN = normalize_name(["_default", "apn", "epc"]),
-	    get_candidates(lists:flatten(lists:join($., DefaultAPN)),
-			   ServiceSet, NodeSelection);
+	    lookup(lists:flatten(lists:join($., DefaultAPN)), ServiceSet, NodeSelection);
 	L ->
 	    L
     end.
+
+expand_apn_plmn(IMSI) when is_binary(IMSI) ->
+    {MCC, MNC, _} = itu_e212:split_imsi(IMSI),
+    {MCC, MNC};
+expand_apn_plmn(_) ->
+    ergw:get_plmn_id().
+
+expand_apn([H|_] = APN, IMSI)
+  when is_binary(H) ->
+    case lists:last(APN) of
+	<<"gprs">> -> APN;
+	_ ->
+	    {MCC, MNC} = expand_apn_plmn(IMSI),
+	    APN ++
+		[iolist_to_binary(io_lib:format("mnc~3..0s", [MNC])),
+		 iolist_to_binary(io_lib:format("mcc~3..0s", [MCC])),
+		 <<"gprs">>]
+    end.
+
+split_apn([H|_] = APN)
+  when is_binary(H) ->
+    L = expand_apn(APN, undefined),
+    lists:split(length(L) - 3, L).
+
+apn_to_fqdn([H|_] = APN, IMSI)
+  when is_binary(H) ->
+    apn_to_fqdn(expand_apn(APN, IMSI)).
 
 apn_to_fqdn({fqdn, _} = FQDN) ->
     FQDN;
@@ -96,6 +144,20 @@ apn_to_fqdn(APN)
 		normalize_name_fqdn(["epc", "apn" | APN_NI])
 	end,
     {fqdn, FQDN}.
+
+candidates_by_preference(Candidates) ->
+    {_, L} =
+	lists:foldl(
+	  fun({Node, {Order, Preference}, _, IP4, IP6}, {Order, M}) ->
+		  E = {Node, IP4, IP6},
+		  {Order, maps:update_with(Preference, fun(Y) -> [E|Y] end, [E], M)};
+	     ({Node, {NOrder, Preference}, _, IP4, IP6}, {Order, _})
+		when NOrder < Order ->
+		  {NOrder, #{Preference => [{Node, IP4, IP6}]}};
+	     (_, Acc) ->
+		  Acc
+	  end, {65535, #{}}, Candidates),
+    [N || {_,N} <- lists:sort(maps:to_list(L))].
 
 %%%===================================================================
 %%% Options Validation
@@ -197,15 +259,28 @@ lookup_naptr_static({_, Order, Services, Host}, RR, Acc) ->
 lookup_naptr_static(_, _, Acc) ->
     Acc.
 
+do_lookup([], _DoFun, _NodeSelection) ->
+    [];
+do_lookup([Selection|Next], DoFun, NodeSelection) ->
+    case NodeSelection of
+	#{Selection := {Type, Opts}} ->
+	    case DoFun(Type, Opts) of
+		[] ->
+		    do_lookup(Next, DoFun, NodeSelection);
+		{error, _} = _Other ->
+		    do_lookup(Next, DoFun, NodeSelection);
+		Host ->
+		    Host
+	    end;
+	_ ->
+	    do_lookup(Next, DoFun, NodeSelection)
+    end;
+do_lookup(Selection, DoFun, NodeSelection) when is_atom(Selection) ->
+    do_lookup([Selection], DoFun, NodeSelection).
+
 do_lookup(Selection, DoFun) ->
     ?LOG(info, "Selection ~p in ~p", [Selection, application:get_env(ergw, node_selection, #{})]),
-    case application:get_env(ergw, node_selection, #{}) of
-	#{Selection := {Type, Opts}} ->
-	    ?LOG(info, "Type ~p, Opts ~p", [Type, Opts]),
-	    DoFun(Type, Opts);
-	_ ->
-	    []
-    end.
+    do_lookup(Selection, DoFun, application:get_env(ergw, node_selection, #{})).
 
 lookup(Name, Selection) ->
     do_lookup(Selection, lookup_host(Name, _, _)).
@@ -213,22 +288,14 @@ lookup(Name, Selection) ->
 lookup(Name, ServiceSet, Selection) ->
     do_lookup(Selection, lookup_naptr(Name, ServiceSet, _, _)).
 
-get_candidates(_Name, _ServiceSet, []) ->
-    [];
-get_candidates(Name, ServiceSet, [NodeSelection | NextSelection]) ->
-    case lookup(Name, ServiceSet, NodeSelection) of
-	[] ->
-	    get_candidates(Name, ServiceSet, NextSelection);
-	L ->
-	    L
-    end.
-
 normalize_name({fqdn, FQDN}) ->
     FQDN;
 normalize_name([H|_] = Name) when is_list(H) ->
     normalize_name_fqdn(lists:reverse(Name));
 normalize_name(Name) when is_list(Name) ->
-    normalize_name_fqdn(lists:reverse(string:tokens(Name, "."))).
+    normalize_name_fqdn(lists:reverse(string:tokens(Name, ".")));
+normalize_name(Name) when is_binary(Name) ->
+    normalize_name(binary_to_list(Name)).
 
 normalize_name_fqdn(["org", "3gppnetwork" | _] = Name) ->
     lists:reverse(Name);

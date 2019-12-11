@@ -27,10 +27,12 @@
 			 {handlers, []},
 			 {node_selection, [{default, {dns, undefined}}]},
 			 {nodes, []},
-			 {vrfs, []},
+			 {ip_pools, []},
 			 {apns, []},
 			 {charging, [{default, []}]}]).
 -define(VrfDefaults, [{features, invalid}]).
+-define(ApnDefaults, [{ip_pools, []}]).
+-define(DefaultsNodesDefaults, [{vrfs, invalid}, {node_selection, default}]).
 
 -define(is_opts(X), (is_list(X) orelse is_map(X))).
 -define(non_empty_opts(X), ((is_list(X) andalso length(X) /= 0) orelse
@@ -45,9 +47,9 @@ load_config(Config0) ->
     ergw:load_config(Config),
     lists:foreach(fun load_socket/1, proplists:get_value(sockets, Config)),
     {ok, _} = ergw_sx_socket:start_sx_socket(proplists:get_value(sx_socket, Config)),
+    maps:map(fun load_sx_node/2, proplists:get_value(nodes, Config)),
     lists:foreach(fun load_handler/1, proplists:get_value(handlers, Config)),
-    lists:foreach(fun load_vrf/1, proplists:get_value(vrfs, Config)),
-    lists:foreach(fun load_apn/1, proplists:get_value(apns, Config)),
+    maps:map(fun ergw:start_ip_pool/2, proplists:get_value(ip_pools, Config)),
     ergw_http_api:init(proplists:get_value(http_api, Config)),
     ok.
 
@@ -86,6 +88,16 @@ without_opts(Keys, List) when is_list(List) ->
 without_opts(Keys, Map) when is_map(Map) ->
     maps:without(Keys, Map).
 
+take_opt(Key, List, Default) when is_list(List) ->
+    case lists:keytake(Key, 1, List) of
+	{value, {_, Value}, List2} ->
+	    {Value, List2};
+	false ->
+	    {Default, List}
+    end;
+take_opt(Key, Map, Default) when is_map(Map) ->
+    {maps:get(Key, Map, Default), maps:remove(Key, Map)}.
+
 validate_node_name(Name)
   when is_list(Name) ->
     validate_node_name_list(lists:reverse(string:tokens(Name, "."))),
@@ -123,6 +135,28 @@ check_unique_keys(Key, List) when is_list(List) ->
 	    throw({error, {options, {Key, Duplicate}}})
     end.
 
+check_unique_elements(Key, List) when is_list(List) ->
+    UList = lists:usort(List),
+    if length(UList) == length(List) ->
+	    ok;
+       true ->
+	    Duplicate = proplists:get_keys(List) -- proplists:get_keys(UList),
+	    throw({error, {options, {Key, Duplicate}}})
+    end.
+
+mandatory_keys(Keys, Map) when is_map(Map) ->
+    lists:foreach(
+      fun(K) ->
+	      V = maps:get(K, Map, undefined),
+	      if V =:= [] orelse
+		 (is_map(V) andalso map_size(V) == 0) orelse
+		 V =:= undefined ->
+			 throw({error, {options, {missing, K}}});
+		 true ->
+		      ok
+	      end
+      end, Keys).
+
 validate_node_name_list(["org", "3gppnetwork" | _]) ->
     ok;
 validate_node_name_list(["epc" | _]) ->
@@ -159,6 +193,12 @@ validate_options(Fun, Options, Defaults, ReturnType)
     Opts = lists:ukeymerge(1, lists:keysort(1, Opts0), lists:keysort(1, Defaults)),
     return_type(validate_options(Fun, Opts), ReturnType);
 validate_options(Fun, Options, Defaults, ReturnType)
+  when is_list(Options), is_map(Defaults) ->
+    Opts0 = proplists:unfold(Options),
+    Opts = lists:ukeymerge(1, lists:keysort(1, Opts0),
+			   lists:keysort(1, maps:to_list(Defaults))),
+    return_type(validate_options(Fun, Opts), ReturnType);
+validate_options(Fun, Options, Defaults, ReturnType)
   when is_map(Options) andalso ?is_opts(Defaults) ->
     Opts = maps:to_list(maps:merge(to_map(Defaults), Options)),
     return_type(validate_options(Fun, Opts), ReturnType).
@@ -187,19 +227,25 @@ validate_option(node_selection, Value) when ?is_opts(Value) ->
     validate_options(fun validate_node_selection_option/2, Value, [], map);
 validate_option(nodes, Value) when ?non_empty_opts(Value) ->
     check_unique_keys(nodes, Value),
-    validate_options(fun validate_nodes/2, Value, [], map);
-validate_option(vrfs, Value) when is_list(Value) ->
-    check_unique_keys(vrfs, Value),
-    validate_options(fun validate_vrfs/1, Value);
-validate_option(apns, Value) when is_list(Value) ->
+    {Defaults0, Value1} = take_opt(default, Value, []),
+    Defaults = validate_default_node(Defaults0),
+    NodeDefaults = Defaults#{connect => false},
+    Opts = validate_options(validate_nodes(_, _, NodeDefaults), Value1, [], map),
+    Opts#{default => Defaults};
+validate_option(ip_pools, Value) when ?is_opts(Value) ->
+    check_unique_keys(ip_pools, Value),
+    validate_options(fun validate_ip_pools/1, Value, [], map);
+validate_option(apns, Value) when ?is_opts(Value) ->
     check_unique_keys(apns, Value),
-    validate_options(fun validate_apns/1, Value);
+    validate_options(fun validate_apns/1, Value, [], map);
 validate_option(http_api, Value) when ?is_opts(Value) ->
     ergw_http_api:validate_options(Value);
 validate_option(charging, Opts)
   when ?non_empty_opts(Opts) ->
     check_unique_keys(charging, Opts),
     validate_options(fun ergw_charging:validate_options/1, Opts, [], map);
+validate_option(proxy_map, Opts) ->
+    gtp_proxy_ds:validate_options(Opts);
 
 validate_option(Opt, Value)
   when Opt == plmn_id;
@@ -209,10 +255,11 @@ validate_option(Opt, Value)
        Opt == handlers;
        Opt == node_selection;
        Opt == nodes;
-       Opt == vrfs;
+       Opt == ip_pools;
        Opt == apns;
        Opt == http_api;
-       Opt == charging ->
+       Opt == charging;
+       Opt == proxy_map ->
     throw({error, {options, {Opt, Value}}});
 validate_option(_Opt, Value) ->
     Value.
@@ -288,23 +335,48 @@ validate_node_vrfs({Name, Opts})
 validate_node_vrfs({Name, Opts}) ->
     throw({error, {options, {Name, Opts}}}).
 
-validate_node_option(vrfs, VRFs)
+validate_node_default_option(vrfs, VRFs)
   when ?non_empty_opts(VRFs) ->
     check_unique_keys(vrfs, VRFs),
     validate_options(fun validate_node_vrfs/1, VRFs, [], map);
+validate_node_default_option(ip_pools, Pools)
+  when is_list(Pools) ->
+    V = [ergw_ip_pool:validate_name(ip_pools, Name) || Name <- Pools],
+    check_unique_elements(ip_pools, V),
+    V;
+validate_node_default_option(node_selection, Value) ->
+    Value;
+validate_node_default_option(Opt, Values) ->
+    throw({error, {options, {Opt, Values}}}).
+
+validate_node_option(connect, Value) when is_boolean(Value) ->
+    Value;
+validate_node_option(node_selection, Value) ->
+    Value;
+validate_node_option(raddr, {_,_,_,_} = RAddr) ->
+    RAddr;
+validate_node_option(raddr, {_,_,_,_,_,_,_,_} = RAddr) ->
+    RAddr;
+validate_node_option(rport, Port) when is_integer(Port) ->
+    Port;
 validate_node_option(Opt, Values) ->
+    validate_node_default_option(Opt, Values).
+
+validate_default_node(Opts) when ?is_opts(Opts) ->
+    validate_options(fun validate_node_default_option/2, Opts, ?DefaultsNodesDefaults, map);
+validate_default_node(Opts) ->
+    throw({error, {options, {nodes, default, Opts}}}).
+
+validate_nodes(Name, Opts, Defaults)
+  when is_list(Name), ?is_opts(Opts) ->
+    validate_options(fun validate_node_option/2, Opts, Defaults, map);
+validate_nodes(Opt, Values, _) ->
     throw({error, {options, {Opt, Values}}}).
 
-validate_nodes(Name, Opts)
-  when is_atom(Name), ?is_opts(Opts) ->
-    validate_options(fun validate_node_option/2, Opts, [{vrfs, invalid}], map);
-validate_nodes(Opt, Values) ->
-    throw({error, {options, {Opt, Values}}}).
-
-validate_vrfs({Name, Values})
+validate_ip_pools({Name, Values})
   when ?is_opts(Values) ->
-    {vrf:validate_name(Name), vrf:validate_options(Values)};
-validate_vrfs({Opt, Value}) ->
+    {ergw_ip_pool:validate_name(ip_pools, Name), ergw_ip_pool:validate_options(Values)};
+validate_ip_pools({Opt, Value}) ->
     throw({error, {options, {Opt, Value}}}).
 
 validate_apns({APN0, Value}) when ?is_opts(Value) ->
@@ -312,7 +384,9 @@ validate_apns({APN0, Value}) when ?is_opts(Value) ->
 	if APN0 =:= '_' -> APN0;
 	   true         -> validate_apn_name(APN0)
 	end,
-    {APN, validate_options(fun validate_apn_option/2, Value, [{vrf, {invalid}}], map)};
+    Opts = validate_options(fun validate_apn_option/1, Value, ?ApnDefaults, map),
+    mandatory_keys([vrfs], Opts),
+    {APN, Opts};
 validate_apns({Opt, Value}) ->
     throw({error, {options, {Opt, Value}}}).
 
@@ -326,10 +400,20 @@ validate_apn_name(APN) when is_list(APN) ->
 validate_apn_name(APN) ->
     throw({error, {apn, APN}}).
 
-validate_apn_option(vrf, Name) ->
-    vrf:validate_name(Name);
-validate_apn_option(Opt, Value) ->
-    vrf:validate_option(Opt, Value).
+validate_apn_option({vrf, Name}) ->
+    {vrfs, [vrf:validate_name(Name)]};
+validate_apn_option({vrfs = Opt, VRFs})
+  when is_list(VRFs), length(VRFs) /= 0 ->
+    V = [vrf:validate_name(Name) || Name <- VRFs],
+    check_unique_elements(Opt, V),
+    {Opt, V};
+validate_apn_option({ip_pools = Opt, Pools})
+  when is_list(Pools) ->
+    V = [ergw_ip_pool:validate_name(Opt, Name) || Name <- Pools],
+    check_unique_elements(Opt, V),
+    {Opt, V};
+validate_apn_option({Opt, Value}) ->
+    throw({error, {options, {Opt, Value}}}).
 
 load_socket({Name, Options}) ->
     ergw:start_socket(Name, Options).
@@ -344,9 +428,7 @@ load_handler({Name, #{handler  := Handler,
     Opts = maps:to_list(maps:without([handler, protocol, sockets], Opts0)),
     lists:foreach(ergw:attach_protocol(_, Name, Protocol, Handler, Opts), Sockets).
 
-load_vrf({Name, Options}) ->
-    ergw:start_vrf(Name, Options).
-
-load_apn({APN, #{vrf := VRF} = Opts0}) ->
-    Opts = maps:without([vrf], Opts0),
-    ergw:attach_vrf(APN, VRF, Opts).
+load_sx_node(default, _) ->
+    ok;
+load_sx_node(Name, Opts) ->
+    ergw:connect_sx_node(Name, Opts).

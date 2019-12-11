@@ -330,6 +330,11 @@ handle_request(ReqKey,
 	       #{context := Context0, aaa_opts := AAAopts, node_selection := NodeSelect,
 		 'Session' := Session, pcc := PCC0} = Data0) ->
 
+    APN_FQDN = ergw_node_selection:apn_to_fqdn(APN),
+    Services = [{"x-3gpp-upf", "x-sxb"}],
+    Candidates = ergw_node_selection:topology_select(APN_FQDN, [], Services, NodeSelect),
+    SxConnectId = ergw_sx_node:request_connect(Candidates, 1000),
+
     EUA = maps:get(?'End User Address', IEs, undefined),
 
     Context1 = update_context_from_gtp_req(Request, Context0),
@@ -341,25 +346,21 @@ handle_request(ReqKey,
     SessionOpts1 = init_session_from_gtp_req(IEs, AAAopts, SessionOpts0),
     SessionOpts = init_session_qos(IEs, SessionOpts1),
 
+    ergw_sx_node:wait_connect(SxConnectId),
+    {ok, PendingPCtx, NodeCaps} = ergw_sx_node:select_sx_node(Candidates, ContextPreAuth),
+
+    {ContextVRF, APNOpts} = ergw_gsn_lib:select_vrf_and_pool(NodeCaps, ContextPreAuth),
     {ok, ActiveSessionOpts0, AuthSEvs} =
-	authenticate(ContextPreAuth, Session, SessionOpts, Request),
-    {ContextVRF, VRFOpts} = select_vrf(ContextPreAuth),
+       authenticate(ContextVRF, Session, SessionOpts, Request),
 
-    ActiveSessionOpts = apply_vrf_session_defaults(VRFOpts, ActiveSessionOpts0),
-    ?LOG(info, "ActiveSessionOpts: ~p", [ActiveSessionOpts]),
+    %% -----------------------------------------------------------
+    %% TBD: reselect VRF and Pool based on outcome of authenticate
+    %% -----------------------------------------------------------
 
-    {SessionIPs, ContextPending0} = assign_ips(ActiveSessionOpts, EUA, ContextVRF),
-    ContextPending = session_to_context(ActiveSessionOpts, ContextPending0),
-
-    APN_FQDN = ergw_node_selection:apn_to_fqdn(APN),
-    Services = [{"x-3gpp-upf", "x-sxb"}],
-    Candidates = ergw_node_selection:candidates(APN_FQDN, Services, NodeSelect),
-
-    %% ContextPending = ergw_gsn_lib:session_events(SessionEvents, ContextPending1),
-
-    %% ===========================================================================
-
-    ergw_aaa_session:set(Session, SessionIPs),
+    ActiveSessionOpts1 = apply_session_opts(APNOpts, ActiveSessionOpts0),
+    {IPOpts, ContextPending} = assign_ips(ActiveSessionOpts1, EUA, ContextVRF),
+    ergw_aaa_session:set(Session, IPOpts),
+    ActiveSessionOpts = maps:merge(ActiveSessionOpts1, IPOpts),
 
     Now = erlang:monotonic_time(),
     SOpts = #{now => Now},
@@ -398,7 +399,7 @@ handle_request(ReqKey,
     PCC3 = ergw_gsn_lib:session_events_to_pcc_ctx(AuthSEvs, PCC2),
     PCC4 = ergw_gsn_lib:session_events_to_pcc_ctx(RfSEvs, PCC3),
     {Context, PCtx} =
-	ergw_gsn_lib:create_sgi_session(Candidates, PCC4, ContextPending),
+	ergw_gsn_lib:create_sgi_session(PendingPCtx, NodeCaps, PCC4, ContextPending),
     gtp_context:remote_context_register_new(Context),
 
     GxReport = ergw_gsn_lib:pcc_events_to_charging_rule_report(PCCErrors1 ++ PCCErrors2),
@@ -500,7 +501,7 @@ handle_response({From, TermCause},
     {next_state, shutdown, Data#{context := Context}}.
 
 terminate(_Reason, _State, #{context := Context}) ->
-    pdp_release_ip(Context),
+    ergw_gsn_lib:release_context_ips(Context),
     ok.
 
 %%%===================================================================
@@ -587,13 +588,6 @@ encode_eua(Org, Number, IPv4, IPv6) ->
     #end_user_address{pdp_type_organization = Org,
 		      pdp_type_number = Number,
 		      pdp_address = <<IPv4/binary, IPv6/binary >>}.
-
-pdp_release_ip(#context{vrf = VRF, ms_v4 = MSv4, ms_v6 = MSv6} = Context)
-  when MSv4 /= undefined; MSv6 /= undefined ->
-    vrf:release_pdp_ip(VRF, MSv4, MSv6),
-    Context#context{ms_v4 = undefined, ms_v6 = undefined};
-pdp_release_ip(Context) ->
-    Context.
 
 close_pdp_context(Reason, #{context := Context, pfcp := PCtx, 'Session' := Session}) ->
     URRs = ergw_gsn_lib:delete_sgi_session(Reason, Context, PCtx),
@@ -687,29 +681,21 @@ apply_context_change(NewContext0, OldContext, URRActions,
     defer_usage_report(URRActions, UsageReport),
     Data#{context => NewContext, pfcp => PCtx}.
 
-select_vrf(#context{apn = APN} = Context) ->
-    case ergw:vrf(APN) of
-	{ok, {VRF, VRFOpts}} ->
-	    {Context#context{vrf = VRF}, VRFOpts};
-	_ ->
-	    throw(?CTX_ERR(?FATAL, missing_or_unknown_apn, Context))
-    end.
-
-copy_vrf_session_defaults(K, Value, Opts)
+copy_session_opts(K, Value, Opts)
     when K =:= 'MS-Primary-DNS-Server';
 	 K =:= 'MS-Secondary-DNS-Server';
 	 K =:= 'MS-Primary-NBNS-Server';
 	 K =:= 'MS-Secondary-NBNS-Server' ->
     Opts#{K => ergw_inet:ip2bin(Value)};
-copy_vrf_session_defaults(K, Value, Opts)
+copy_session_opts(K, Value, Opts)
   when K =:= 'DNS-Server-IPv6-Address';
        K =:= '3GPP-IPv6-DNS-Servers' ->
     Opts#{K => Value};
-copy_vrf_session_defaults(_K, _V, Opts) ->
+copy_session_opts(_K, _V, Opts) ->
     Opts.
 
-apply_vrf_session_defaults(VRFOpts, Session) ->
-    Defaults = maps:fold(fun copy_vrf_session_defaults/3, #{}, VRFOpts),
+apply_session_opts(Opts, Session) ->
+    Defaults = maps:fold(fun copy_session_opts/3, #{}, Opts),
     maps:merge(Defaults, Session).
 
 map_attr('APN', #{?'Access Point Name' := #access_point_name{apn = APN}}) ->
@@ -779,11 +765,9 @@ copy_to_session(_, #protocol_configuration_options{config = {0, Options}},
 		#{'Username' := #{from_protocol_opts := true}}, Session) ->
     lists:foldr(fun copy_ppp_to_session/2, Session, Options);
 copy_to_session(_, #access_point_name{apn = APN}, _AAAopts, Session) ->
-    Session#{
-      'Called-Station-Id' =>
-	  unicode:characters_to_binary(
-	    lists:join($., gtp_c_lib:apn_strip_oi(APN)))
-     };
+    {NI, _OI} = ergw_node_selection:split_apn(APN),
+    Session#{'Called-Station-Id' =>
+		 iolist_to_binary(lists:join($., NI))};
 copy_to_session(_, #ms_international_pstn_isdn_number{
 		   msisdn = {isdn_address, _, _, 1, MSISDN}}, _AAAopts, Session) ->
     Session#{'Calling-Station-Id' => MSISDN, '3GPP-MSISDN' => MSISDN};
@@ -1144,38 +1128,9 @@ session_ip_alloc(SessionOpts, {PDPType, ReqMSv4, ReqMSv6}) ->
     MSv6 = session_ipv6_alloc(SessionOpts, ReqMSv6),
     {PDPType, MSv4, MSv6}.
 
-maybe_ip(Key, {{_,_,_,_} = IPv4, _}, SessionIP) ->
-    SessionIP#{Key => IPv4};
-maybe_ip(Key, {{_,_,_,_,_,_,_,_},_} = IPv6, SessionIP) ->
-    SessionIP#{Key => IPv6};
-maybe_ip(_, _, SessionIP) ->
-    SessionIP.
-
-assign_ips(SessionOps, EUA, #context{vrf = VRF, local_control_tei = LocalTEI} = Context0) ->
-    {PDPType, ReqMSv4, ReqMSv6} = session_ip_alloc(SessionOps, pdp_alloc(EUA)),
-    {ok, MSv4, MSv6} = vrf:allocate_pdp_ip(VRF, LocalTEI, ReqMSv4, ReqMSv6),
-    Context = Context0#context{ms_v4 = MSv4, ms_v6 = MSv6},
-    case PDPType of
-	ipv4v6 when MSv4 /= undefined, MSv6 /= undefined ->
-	    ok;
-	ipv4 when MSv4 /= undefined ->
-	    ok;
-	ipv6 when MSv6 /= undefined ->
-	    ok;
-	_ ->
-	    throw(?CTX_ERR(?FATAL, all_dynamic_pdp_addresses_are_occupied, Context))
-    end,
-
-    SessionIP4 = maybe_ip('Framed-IP-Address', MSv4, #{}),
-    SessionIP = maybe_ip('Framed-IPv6-Prefix', MSv6, SessionIP4),
-    {SessionIP, Context}.
-
-session_to_context(SessionOpts, Context) ->
-    %% RFC 6911
-    DNS0 = maps:get('DNS-Server-IPv6-Address', SessionOpts, []),
-    %% 3GPP
-    DNS1 = maps:get('3GPP-IPv6-DNS-Servers', SessionOpts, []),
-    Context#context{dns_v6 = DNS0 ++ DNS1}.
+assign_ips(SessionOps, EUA, Context) ->
+    {PDNType, ReqMSv4, ReqMSv6} = session_ip_alloc(SessionOps, pdp_alloc(EUA)),
+    ergw_gsn_lib:allocate_ips(PDNType, ReqMSv4, ReqMSv6, Context).
 
 ppp_ipcp_conf_resp(Verdict, Opt, IPCP) ->
     maps:update_with(Verdict, fun(O) -> [Opt|O] end, [Opt], IPCP).

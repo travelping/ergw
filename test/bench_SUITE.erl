@@ -86,11 +86,10 @@
 			 ]}
 		  ]},
 
-		 {vrfs,
-		  [{upstream, [{pools,  [{{10, 180, 0, 1}, {10, 200, 255, 254}, 32},
-					 {{16#8001, 0,  1, 0, 0, 0, 0, 0},
-					  {16#8001, 0, 21, 16#FFFF, 16#FFFF, 16#FFFF, 16#FFFF, 16#FFFF}, 64}
-					]},
+		 {ip_pools,
+		  [{'pool-A', [{ranges,  [{?IPv4PoolStart, ?IPv4PoolEnd, 32},
+					  {?IPv6PoolStart, ?IPv6PoolEnd, 64},
+					  {?IPv6HostPoolStart, ?IPv6HostPoolEnd, 128}]},
 			       {'MS-Primary-DNS-Server', {8,8,8,8}},
 			       {'MS-Secondary-DNS-Server', {8,8,4,4}},
 			       {'MS-Primary-NBNS-Server', {127,0,0,1}},
@@ -158,10 +157,18 @@
 		   {reuseaddr, true}]},
 
 		 {apns,
-		  [{?'APN-EXAMPLE', [{vrf, upstream}]},
-		   {[<<"exa">>, <<"mple">>, <<"net">>], [{vrf, upstream}]},
-		   {[<<"APN1">>], [{vrf, upstream}]},
-		   {[<<"APN2">>, <<"mnc001">>, <<"mcc001">>, <<"gprs">>], [{vrf, upstream}]}
+		  [{?'APN-EXAMPLE',
+		    [{vrf, sgi},
+		     {ip_pools, ['pool-A']}]},
+		   {[<<"exa">>, <<"mple">>, <<"net">>],
+		    [{vrf, sgi},
+		     {ip_pools, ['pool-A']}]},
+		   {[<<"APN1">>],
+		    [{vrf, sgi},
+		     {ip_pools, ['pool-A']}]},
+		   {[<<"APN2">>, <<"mnc001">>, <<"mcc001">>, <<"gprs">>],
+		    [{vrf, sgi},
+		     {ip_pools, ['pool-A']}]}
 		   %% {'_', [{vrf, wildcard}]}
 		  ]},
 
@@ -191,9 +198,12 @@
 		    [{vrfs,
 		      [{cp, [{features, ['CP-Function']}]},
 		       {irx, [{features, ['Access']}]},
-		       {upstream, [{features, ['SGi-LAN']}]}]
-		     }]
-		   }]
+		       {sgi, [{features, ['SGi-LAN']}]}
+		      ]},
+		     {ip_pools, ['pool-A']}]
+		   },
+		   {"topon.sx.prox01.$ORIGIN", [connect]}
+		  ]
 		 }
 		]},
 
@@ -413,7 +423,9 @@ all() ->
 init_per_testcase(Config) ->
     ergw_test_sx_up:reset('pgw-u'),
     ergw_test_sx_up:history('pgw-u', false),
-    start_gtpc_server(Config).
+    start_gtpc_server(Config),
+    reconnect_all_sx_nodes(),
+    ok.
 
 init_per_testcase(contexts_at_scale, Config) ->
     init_per_testcase(Config),
@@ -424,9 +436,8 @@ init_per_testcase(_, Config) ->
 
 end_per_testcase(Config) ->
     stop_gtpc_server(),
-    stop_all_sx_nodes(),
 
-    FreeP = [pool, <<"upstream">>, ipv4, {10,180,0,1}, free],
+    FreeP = [pool, <<"pool-A">>, ipv4, {10,180,0,1}, free],
     %% match_metric(FreeP, 1376254),
 
     AppsCfg = proplists:get_value(aaa_cfg, Config),
@@ -508,7 +519,7 @@ contexts_at_scale(Config) ->
     wait4tunnels(?TIMEOUT),
     ct:sleep({seconds, 30}),
 
-    FreeP = [pool, <<"upstream">>, ipv4, {10,180,0,1}, free],
+    FreeP = [pool, <<"pool-A">>, ipv4, {10,180,0,1}, free],
     %% match_metric(FreeP, 1376254),
 
     ok.

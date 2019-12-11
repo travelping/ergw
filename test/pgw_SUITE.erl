@@ -60,11 +60,10 @@
 			 ]}
 		  ]},
 
-		 {vrfs,
-		  [{upstream, [{pools,  [{?IPv4PoolStart, ?IPv4PoolEnd, 32},
-					 {?IPv6PoolStart, ?IPv6PoolEnd, 64},
-					 {?IPv6HostPoolStart, ?IPv6HostPoolEnd, 128}
-					]},
+		 {ip_pools,
+		  [{'pool-A', [{ranges,  [{?IPv4PoolStart, ?IPv4PoolEnd, 32},
+					  {?IPv6PoolStart, ?IPv6PoolEnd, 64},
+					  {?IPv6HostPoolStart, ?IPv6HostPoolEnd, 128}]},
 			       {'MS-Primary-DNS-Server', {8,8,8,8}},
 			       {'MS-Secondary-DNS-Server', {8,8,4,4}},
 			       {'MS-Primary-NBNS-Server', {127,0,0,1}},
@@ -114,10 +113,17 @@
 		      {"_default.apn.$ORIGIN", {300,64536},
 		       [{"x-3gpp-upf","x-sxb"}],
 		       "topon.sx.prox01.$ORIGIN"},
+		      {"async-sx.apn.$ORIGIN", {300,64536},
+		       [{"x-3gpp-upf","x-sxb"}],
+		       "topon.sx.prox01.$ORIGIN"},
+		      {"async-sx.apn.$ORIGIN", {300,64536},
+		       [{"x-3gpp-upf","x-sxb"}],
+		       "topon.sx.prox02.$ORIGIN"},
 
 		      %% A/AAAA record alternatives
 		      {"topon.s5s8.pgw.$ORIGIN", ?MUST_BE_UPDATED, []},
-		      {"topon.sx.prox01.$ORIGIN", ?MUST_BE_UPDATED, []}
+		      {"topon.sx.prox01.$ORIGIN", ?MUST_BE_UPDATED, []},
+		      {"topon.sx.prox02.$ORIGIN", ?MUST_BE_UPDATED, []}
 		     ]
 		    }
 		   }
@@ -132,10 +138,21 @@
 		   {reuseaddr, true}]},
 
 		 {apns,
-		  [{?'APN-EXAMPLE', [{vrf, upstream}]},
-		   {[<<"exa">>, <<"mple">>, <<"net">>], [{vrf, upstream}]},
-		   {[<<"APN1">>], [{vrf, upstream}]},
-		   {[<<"APN2">>, <<"mnc001">>, <<"mcc001">>, <<"gprs">>], [{vrf, upstream}]}
+		  [{?'APN-EXAMPLE',
+		    [{vrf, sgi},
+		     {ip_pools, ['pool-A']}]},
+		   {[<<"exa">>, <<"mple">>, <<"net">>],
+		    [{vrf, sgi},
+		     {ip_pools, ['pool-A']}]},
+		   {[<<"APN1">>],
+		    [{vrf, sgi},
+		     {ip_pools, ['pool-A']}]},
+		   {[<<"APN2">>, <<"mnc001">>, <<"mcc001">>, <<"gprs">>],
+		    [{vrf, sgi},
+		     {ip_pools, ['pool-A']}]},
+		   {[<<"async-sx">>],
+		    [{vrf, sgi},
+		     {ip_pools, ['pool-A']}]}
 		   %% {'_', [{vrf, wildcard}]}
 		  ]},
 
@@ -195,9 +212,12 @@
 		    [{vrfs,
 		      [{cp, [{features, ['CP-Function']}]},
 		       {irx, [{features, ['Access']}]},
-		       {upstream, [{features, ['SGi-LAN']}]}]
-		     }]
-		   }]
+		       {sgi, [{features, ['SGi-LAN']}]}
+		      ]},
+		     {ip_pools, ['pool-A']}]
+		   },
+		   {"topon.sx.prox01.$ORIGIN", [connect]}
+		  ]
 		 }
 		]},
 
@@ -421,7 +441,9 @@
 	 {[node_selection, {default, 2}, 2, "topon.s5s8.pgw.$ORIGIN"],
 	  {fun node_sel_update/2, final_gsn}},
 	 {[node_selection, {default, 2}, 2, "topon.sx.prox01.$ORIGIN"],
-	  {fun node_sel_update/2, pgw_u_sx}}
+	  {fun node_sel_update/2, pgw_u_sx}},
+	 {[node_selection, {default, 2}, 2, "topon.sx.prox02.$ORIGIN"],
+	  {fun node_sel_update/2, sgw_u_sx}}
 	]).
 
 node_sel_update(Node, {_,_,_,_} = IP) ->
@@ -513,6 +535,7 @@ common() ->
      sx_up_to_cp_forward,
      sx_upf_restart,
      sx_timeout,
+     sx_ondemand,
      gy_validity_timer,
      simple_aaa,
      simple_ofcs,
@@ -542,15 +565,21 @@ all() ->
 %%% Tests
 %%%===================================================================
 
-init_per_testcase(Config) ->
+setup_per_testcase(Config) ->
+    setup_per_testcase(Config, true).
+
+setup_per_testcase(Config, ClearSxHist) ->
     ct:pal("Sockets: ~p", [ergw_gtp_socket_reg:all()]),
     ct:pal("Logger: ~p", [logger:get_handler_config()]),
     ergw_test_sx_up:reset('pgw-u'),
     meck_reset(Config),
-    start_gtpc_server(Config).
+    start_gtpc_server(Config),
+    reconnect_all_sx_nodes(),
+    ClearSxHist andalso ergw_test_sx_up:history('pgw-u', true),
+    ok.
 
 init_per_testcase(create_session_request_aaa_reject, Config) ->
-    init_per_testcase(Config),
+    setup_per_testcase(Config),
     ok = meck:expect(ergw_aaa_session, invoke,
 		     fun(_, _, authenticate, _) ->
 			     {fail, #{}, []};
@@ -559,7 +588,7 @@ init_per_testcase(create_session_request_aaa_reject, Config) ->
 		     end),
     Config;
 init_per_testcase(create_session_request_gx_fail, Config) ->
-    init_per_testcase(Config),
+    setup_per_testcase(Config),
     ok = meck:expect(ergw_aaa_session, invoke,
 		     fun(_, _, {gx, 'CCR-Initial'}, _) ->
 			     {fail, #{}, []};
@@ -568,7 +597,7 @@ init_per_testcase(create_session_request_gx_fail, Config) ->
 		     end),
     Config;
 init_per_testcase(create_session_request_gy_fail, Config) ->
-    init_per_testcase(Config),
+    setup_per_testcase(Config),
     ok = meck:expect(ergw_aaa_session, invoke,
 		     fun(_, _, {gy, 'CCR-Initial'}, _) ->
 			     {fail, #{}, []};
@@ -577,7 +606,7 @@ init_per_testcase(create_session_request_gy_fail, Config) ->
 		     end),
     Config;
 init_per_testcase(create_session_request_rf_fail, Config) ->
-    init_per_testcase(Config),
+    setup_per_testcase(Config),
     ok = meck:expect(ergw_aaa_session, invoke,
 		     fun(_, _, start, _) ->
 			     {fail, #{}, []};
@@ -586,15 +615,15 @@ init_per_testcase(create_session_request_rf_fail, Config) ->
 		     end),
     Config;
 init_per_testcase(create_session_request_pool_exhausted, Config) ->
-    init_per_testcase(Config),
-    ok = meck:new(vrf, [passthrough, no_link]),
+    setup_per_testcase(Config),
+    ok = meck:new(ergw_ip_pool, [passthrough, no_link]),
     Config;
 init_per_testcase(path_restart, Config) ->
-    init_per_testcase(Config),
+    setup_per_testcase(Config),
     ok = meck:new(gtp_path, [passthrough, no_link]),
     Config;
 init_per_testcase(duplicate_session_slow, Config) ->
-    init_per_testcase(Config),
+    setup_per_testcase(Config),
     ok = meck:expect(?HUT, handle_event,
 		     fun({call, _} = Type, terminate_context = Content, run = State, Data) ->
 			     %% simulate a 500ms delay in terminating the context
@@ -607,7 +636,7 @@ init_per_testcase(duplicate_session_slow, Config) ->
 init_per_testcase(TestCase, Config)
   when TestCase == delete_bearer_request_resend;
        TestCase == modify_bearer_command_timeout ->
-    init_per_testcase(Config),
+    setup_per_testcase(Config),
     ok = meck:expect(ergw_gtp_c_socket, send_request,
 		     fun(GtpPort, DstIP, DstPort, _T3, _N3,
 			 #gtp{type = Type} = Msg, CbInfo)
@@ -621,10 +650,10 @@ init_per_testcase(TestCase, Config)
 		     end),
     Config;
 init_per_testcase(delete_bearer_requests_multi, Config) ->
-    init_per_testcase(Config),
+    setup_per_testcase(Config),
     Config;
 init_per_testcase(request_fast_resend, Config) ->
-    init_per_testcase(Config),
+    setup_per_testcase(Config),
     ok = meck:expect(?HUT, handle_request,
 		     fun(Request, Msg, Resent, State, Data) ->
 			     if Resent -> ok;
@@ -637,22 +666,25 @@ init_per_testcase(TestCase, Config)
   when TestCase == interop_sgsn_to_sgw;
        TestCase == interop_sgsn_to_sgw_const_tei;
        TestCase == interop_sgw_to_sgsn ->
-    init_per_testcase(Config),
+    setup_per_testcase(Config),
     ok = meck:new(ggsn_gn, [passthrough, no_link]),
     Config;
 init_per_testcase(create_session_overload, Config) ->
-    init_per_testcase(Config),
+    setup_per_testcase(Config),
     jobs:modify_queue(create, [{max_size, 0}]),
     jobs:modify_regulator(rate, create, {rate,create,1}, [{limit,1}]),
     Config;
+init_per_testcase(sx_cp_to_up_forward, Config) ->
+    setup_per_testcase(Config, false),
+    Config;
 init_per_testcase(gy_validity_timer, Config) ->
-    init_per_testcase(Config),
+    setup_per_testcase(Config),
     set_online_charging(true),
     load_aaa_answer_config([{{gy, 'CCR-Initial'}, 'Initial-OCS-VT'},
 			    {{gy, 'CCR-Update'},  'Update-OCS-VT'}]),
     Config;
 init_per_testcase(gy_async_stop, Config) ->
-    init_per_testcase(Config),
+    setup_per_testcase(Config),
     set_online_charging(true),
     load_aaa_answer_config([{{gy, 'CCR-Initial'}, 'Initial-OCS-VT'},
 			    {{gy, 'CCR-Update'},  'Update-OCS-Fail'}]),
@@ -661,56 +693,55 @@ init_per_testcase(TestCase, Config)
   when TestCase == simple_ocs;
        TestCase == gy_ccr_asr_overlap;
        TestCase == volume_threshold ->
-    init_per_testcase(Config),
+    setup_per_testcase(Config),
     set_online_charging(true),
     load_aaa_answer_config([{{gy, 'CCR-Initial'}, 'Initial-OCS'},
 			    {{gy, 'CCR-Update'},  'Update-OCS'}]),
     Config;
 init_per_testcase(TestCase, Config)
   when TestCase == tariff_time_change ->
-    init_per_testcase(Config),
+    setup_per_testcase(Config),
     set_online_charging(true),
     load_aaa_answer_config([{{gy, 'CCR-Initial'}, 'Initial-OCS-TTC'},
 			    {{gy, 'CCR-Update'},  'Update-OCS-TTC'}]),
     Config;
 init_per_testcase(TestCase, Config)
   when TestCase == gx_rar_gy_interaction ->
-    init_per_testcase(Config),
+    setup_per_testcase(Config),
     set_online_charging(true),
     load_aaa_answer_config([{{gy, 'CCR-Initial'}, 'Initial-OCS'},
 			    {{gy, 'CCR-Update'},  'Update-OCS-GxGy'}]),
     Config;
 init_per_testcase(redirect_info, Config) ->
-    init_per_testcase(Config),
+    setup_per_testcase(Config),
     load_aaa_answer_config([{{gx, 'CCR-Initial'}, 'Initial-Gx-Redirect'}]),
     Config;
 %% init_per_testcase(TestCase, Config)
 %%   when TestCase == gx_rar ->
-%%     init_per_testcase(Config),
+%%     setup_per_testcase(Config),
 %%     load_aaa_answer_config([{{gy, 'CCR-Initial'}, 'Initial-OCS'},
 %%			    {{gy, 'CCR-Update'},  'Update-OCS'}]),
 %%     Config;
 init_per_testcase(gx_invalid_charging_rulebase, Config) ->
-    init_per_testcase(Config),
+    setup_per_testcase(Config),
     load_aaa_answer_config([{{gx, 'CCR-Initial'}, 'Initial-Gx-Fail-1'}]),
     Config;
 init_per_testcase(gx_invalid_charging_rule, Config) ->
-    init_per_testcase(Config),
+    setup_per_testcase(Config),
     load_aaa_answer_config([{{gx, 'CCR-Initial'}, 'Initial-Gx-Fail-2'}]),
     Config;
 init_per_testcase(tdf_app_id, Config) ->
-    init_per_testcase(Config),
+    setup_per_testcase(Config),
     load_aaa_answer_config([{{gx, 'CCR-Initial'}, 'Initial-Gx-TDF-App'}]),
     Config;
 init_per_testcase(_, Config) ->
-    init_per_testcase(Config),
+    setup_per_testcase(Config),
     Config.
 
 end_per_testcase(Config) ->
     stop_gtpc_server(),
-    stop_all_sx_nodes(),
 
-    PoolId = [<<"upstream">>, ipv4, "10.180.0.1"],
+    PoolId = [<<"pool-A">>, ipv4, "10.180.0.1"],
     ?match_metric(prometheus_gauge, ergw_ip_pool_free, PoolId, 65534),
 
     AppsCfg = proplists:get_value(aaa_cfg, Config),
@@ -737,7 +768,7 @@ end_per_testcase(TestCase, Config)
     end_per_testcase(Config),
     Config;
 end_per_testcase(create_session_request_pool_exhausted, Config) ->
-    meck:unload(vrf),
+    meck:unload(ergw_ip_pool),
     end_per_testcase(Config),
     Config;
 end_per_testcase(path_restart, Config) ->
@@ -822,7 +853,7 @@ create_session_request_gx_fail(Config) ->
 create_session_request_gy_fail() ->
     [{doc, "Check Gy failure on Create Session Request"}].
 create_session_request_gy_fail(Config) ->
-    PoolId = [<<"upstream">>, ipv4, "10.180.0.1"],
+    PoolId = [<<"pool-A">>, ipv4, "10.180.0.1"],
 
     ?match_metric(prometheus_gauge, ergw_ip_pool_free, PoolId, 65534),
     ?match_metric(prometheus_gauge, ergw_ip_pool_used, PoolId, 0),
@@ -862,21 +893,34 @@ create_session_request_invalid_apn(Config) ->
 create_session_request_pool_exhausted() ->
     [{doc, "Dynamic IP pool exhausted"}].
 create_session_request_pool_exhausted(Config) ->
-    ok = meck:expect(vrf, allocate_pdp_ip,
-		     fun(VRF, TEI, ReqIPv4, _ReqIPv6) ->
-			     meck:passthrough([VRF, TEI, ReqIPv4, undefined])
+    ok = meck:expect(ergw_gsn_lib, allocate_ips,
+		     fun(PDNType, ReqMSv4, ReqMSv6, Context) ->
+			     try
+				 meck:passthrough([PDNType, ReqMSv4, ReqMSv6, Context])
+			     catch
+				 throw:#ctx_err{} = CtxErr ->
+				     meck:exception(throw, CtxErr)
+			     end
+		     end),
+    ok = meck:expect(ergw_ip_pool, get,
+		     fun(_Pool, _TEI, ipv6, _PrefixLen) ->
+			     {ok, undefined};
+			(Pool, TEI, Request, PrefixLen) ->
+			     meck:passthrough([Pool, TEI, Request, PrefixLen])
 		     end),
     create_session(pool_exhausted, Config),
 
-    ok = meck:expect(vrf, allocate_pdp_ip,
-		     fun(VRF, TEI, _ReqIPv4, ReqIPv6) ->
-			     meck:passthrough([VRF, TEI, undefined, ReqIPv6])
+    ok = meck:expect(ergw_ip_pool, get,
+		     fun(_Pool, _TEI, ipv4, _PrefixLen) ->
+			     {ok, undefined};
+			(Pool, TEI, Request, PrefixLen) ->
+			     meck:passthrough([Pool, TEI, Request, PrefixLen])
 		     end),
     create_session(pool_exhausted, Config),
 
-    ok = meck:expect(vrf, allocate_pdp_ip,
-		     fun(_VRF, _TEI, _ReqIPv4, _ReqIPv6) ->
-			     {ok, undefined, undefined}
+    ok = meck:expect(ergw_ip_pool, get,
+		     fun(_Pool, _TEI, _Type, _PrefixLen) ->
+			     {ok, undefined}
 		     end),
     create_session(pool_exhausted, Config),
 
@@ -972,7 +1016,7 @@ path_restart_multi(Config) ->
 simple_session_request() ->
     [{doc, "Check simple Create Session, Delete Session sequence"}].
 simple_session_request(Config) ->
-    PoolId = [<<"upstream">>, ipv4, "10.180.0.1"],
+    PoolId = [<<"pool-A">>, ipv4, "10.180.0.1"],
 
     ?match_metric(prometheus_gauge, ergw_ip_pool_free, PoolId, 65534),
     ?match_metric(prometheus_gauge, ergw_ip_pool_used, PoolId, 0),
@@ -990,11 +1034,12 @@ simple_session_request(Config) ->
     ?match_metric(prometheus_gauge, ergw_ip_pool_free, PoolId, 65534),
     ?match_metric(prometheus_gauge, ergw_ip_pool_used, PoolId, 0),
 
-    [_, SER|_] = lists:filter(
-		   fun(#pfcp{type = session_establishment_request}) -> true;
-		      (_) ->false
-		   end, ergw_test_sx_up:history('pgw-u')),
+    [SER|_] = lists:filter(
+		fun(#pfcp{type = session_establishment_request}) -> true;
+		   (_) ->false
+		end, ergw_test_sx_up:history('pgw-u')),
 
+    ?match_map(#{create_pdr => '_', create_far => '_',  create_urr => '_'}, SER#pfcp.ie),
     #{create_pdr := PDRs0,
       create_far := FARs0,
       create_urr := URR
@@ -1016,7 +1061,7 @@ simple_session_request(Config) ->
 		     #pdi{
 			group =
 			    #{network_instance :=
-				  #network_instance{instance = <<8, "upstream">>},
+				  #network_instance{instance = <<3, "sgi">>},
 			      sdf_filter :=
 				  #sdf_filter{
 				     flow_description =
@@ -1082,7 +1127,7 @@ simple_session_request(Config) ->
 			    #{destination_interface :=
 				  #destination_interface{interface='SGi-LAN'},
 			      network_instance :=
-				  #network_instance{instance = <<8, "upstream">>}
+				  #network_instance{instance = <<3, "sgi">>}
 			     }
 		       }
 		}
@@ -1166,10 +1211,10 @@ ipv6_bearer_request(Config) ->
     delete_session(GtpC),
 
     %% check that the wildcard PDR and FAR are present
-    [_, SER0|_] = lists:filter(
-		    fun(#pfcp{type = session_establishment_request}) -> true;
-		       (_) -> false
-		    end, ergw_test_sx_up:history('pgw-u')),
+    [SER0|_] = lists:filter(
+		 fun(#pfcp{type = session_establishment_request}) -> true;
+		    (_) -> false
+		 end, ergw_test_sx_up:history('pgw-u')),
     SER = pfcp_packet:to_map(SER0),
     #{create_far := FAR0,
       create_pdr := PDR0} = SER#pfcp.ie,
@@ -1680,8 +1725,9 @@ delete_bearer_requests_multi(Config) ->
     {GtpC0, _, _} = create_session(Config),
     {GtpC1, _, _} = create_session(random, GtpC0),
 
+    Ref = make_ref(),
     Self = self(),
-    spawn(fun() -> Self ! {req, ergw_api:delete_contexts(2)} end),
+    spawn(fun() -> Self ! {req, Ref, ergw_api:delete_contexts(2)} end),
 
     Request0 = recv_pdu(Cntl, 5000),
     ?match(#gtp{type = delete_bearer_request}, Request0),
@@ -1694,13 +1740,13 @@ delete_bearer_requests_multi(Config) ->
     send_pdu(Cntl, GtpC1, Response1),
 
     receive
-	{req, ok} ->
+	{req, Ref, ok} ->
 	    ok;
-	Other ->
+	{req, Ref, Other} ->
 	    ct:fail({receive_other, Other})
-	after ?TIMEOUT ->
+    after ?TIMEOUT ->
 	    ct:fail(timeout)
-	end,
+    end,
 
     wait4tunnels(?TIMEOUT),
     ?equal([], outstanding_requests()),
@@ -1921,6 +1967,8 @@ session_options(Config) ->
 		   %% TODO check 'PDP-Context-Type' => primary,
 		   'Framed-IP-Address' => {10, 180, '_', '_'},
 		   'Framed-IPv6-Prefix' => {{16#8001, 0, 1, '_', '_', '_', '_', '_'},64},
+		   'Framed-Pool' => <<"pool-A">>,
+		   'Framed-IPv6-Pool' => <<"pool-A">>,
 
 		   'Charging-Rule-Base-Name' => <<"m2m0001">>,
 
@@ -2099,9 +2147,9 @@ sx_upf_restart() ->
     [{doc, "Test UPF restart behavior"}].
 sx_upf_restart(Config) ->
     ok = meck:expect(ergw_gsn_lib, create_sgi_session,
-		     fun(Candidates, SessionOpts, Ctx) ->
+		     fun(PCtx, NodeCaps, SessionOpts, Ctx) ->
 			     try
-				 meck:passthrough([Candidates, SessionOpts, Ctx])
+				 meck:passthrough([PCtx, NodeCaps, SessionOpts, Ctx])
 			     catch
 				 throw:#ctx_err{} = CtxErr ->
 				     meck:exception(throw, CtxErr)
@@ -2115,9 +2163,14 @@ sx_upf_restart(Config) ->
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
 
     ergw_test_sx_up:restart('pgw-u'),
+    ct:pal("R1: ~p", [ergw_sx_node_reg:available()]),
 
     %% expect the first request to fail
     create_session(system_failure, Config),
+    ct:pal("R2: ~p", [ergw_sx_node_reg:available()]),
+
+    wait_for_all_sx_nodes(),
+    ct:pal("R3: ~p", [ergw_sx_node_reg:available()]),
 
     %% the next should work
     {GtpC2nd, _, _} = create_session(Config),
@@ -2170,16 +2223,22 @@ sx_upf_restart(Config) ->
     ?match([{_, _, _, _, <<_/binary>>}|_], UDP),
 
     meck_validate(Config),
+    ok = meck:delete(ergw_gsn_lib, create_sgi_session, 4),
     ok.
 
 %%--------------------------------------------------------------------
 sx_timeout() ->
     [{doc, "Check that a timeout on Sx leads to a proper error response"}].
 sx_timeout(Config) ->
+    %% reduce Sx timeout to speed up test
+    ok = meck:expect(ergw_sx_socket, call,
+		     fun(Peer, _T1, _N1, Msg, CbInfo) ->
+			     meck:passthrough([Peer, 100, 2, Msg, CbInfo])
+		     end),
     ok = meck:expect(ergw_gsn_lib, create_sgi_session,
-		     fun(Candidates, SessionOpts, Ctx) ->
+		     fun(PCtx, NodeCaps, SessionOpts, Ctx) ->
 			     try
-				 meck:passthrough([Candidates, SessionOpts, Ctx])
+				 meck:passthrough([PCtx, NodeCaps, SessionOpts, Ctx])
 			     catch
 				 throw:#ctx_err{} = CtxErr ->
 				     meck:exception(throw, CtxErr)
@@ -2192,7 +2251,23 @@ sx_timeout(Config) ->
     ?equal([], outstanding_requests()),
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
+
+    ok = meck:delete(ergw_sx_socket, call, 5),
+    ok = meck:delete(ergw_gsn_lib, create_sgi_session, 4),
     ok.
+
+%%--------------------------------------------------------------------
+sx_ondemand() ->
+    [{doc, "Connect to Sx Node on demand"}].
+sx_ondemand(Config) ->
+    ?equal(1, maps:size(ergw_sx_node_reg:available())),
+
+    {GtpC, _, _} = create_session(async_sx, Config),
+    delete_session(GtpC),
+
+    ?equal(2, maps:size(ergw_sx_node_reg:available())),
+    ?equal([], outstanding_requests()),
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT).
 
 %%--------------------------------------------------------------------
 
@@ -2247,10 +2322,10 @@ simple_aaa(Config) ->
     true = is_pid(Server),
     {ok, PCtx} = gtp_context:test_cmd(Server, pfcp_ctx),
 
-    [_, SER|_] = lists:filter(
-		   fun(#pfcp{type = session_establishment_request}) -> true;
-		      (_) ->false
-		   end, ergw_test_sx_up:history('pgw-u')),
+    [SER|_] = lists:filter(
+		fun(#pfcp{type = session_establishment_request}) -> true;
+		   (_) ->false
+		end, ergw_test_sx_up:history('pgw-u')),
 
     URR = lists:sort(maps:get(create_urr, SER#pfcp.ie)),
 
@@ -2346,10 +2421,10 @@ simple_ofcs(Config) ->
     true = is_pid(Server),
     {ok, PCtx} = gtp_context:test_cmd(Server, pfcp_ctx),
 
-    [_, SER|_] = lists:filter(
-		   fun(#pfcp{type = session_establishment_request}) -> true;
-		      (_) ->false
-		   end, ergw_test_sx_up:history('pgw-u')),
+    [SER|_] = lists:filter(
+		fun(#pfcp{type = session_establishment_request}) -> true;
+		   (_) ->false
+		end, ergw_test_sx_up:history('pgw-u')),
 
     URR = maps:get(create_urr, SER#pfcp.ie),
     ?match(
@@ -2375,6 +2450,7 @@ simple_ofcs(Config) ->
 
     ct:sleep(100),
     delete_session(GtpC),
+    ct:sleep(10),
 
     H = meck:history(ergw_aaa_session),
     SInv =
@@ -2422,10 +2498,10 @@ simple_ocs(Config) ->
     true = is_pid(Server),
     {ok, PCtx} = gtp_context:test_cmd(Server, pfcp_ctx),
 
-    [_, SER|_] = lists:filter(
-		   fun(#pfcp{type = session_establishment_request}) -> true;
-		      (_) ->false
-		   end, ergw_test_sx_up:history('pgw-u')),
+    [SER|_] = lists:filter(
+		fun(#pfcp{type = session_establishment_request}) -> true;
+		   (_) ->false
+		end, ergw_test_sx_up:history('pgw-u')),
 
     URR = lists:sort(maps:get(create_urr, SER#pfcp.ie)),
     ?match(
@@ -2615,10 +2691,10 @@ tariff_time_change(Config) ->
     true = is_pid(Server),
     {ok, PCtx} = gtp_context:test_cmd(Server, pfcp_ctx),
 
-    [_, SER|_] = lists:filter(
-		   fun(#pfcp{type = session_establishment_request}) -> true;
-		      (_) ->false
-		   end, ergw_test_sx_up:history('pgw-u')),
+    [SER|_] = lists:filter(
+		fun(#pfcp{type = session_establishment_request}) -> true;
+		   (_) ->false
+		end, ergw_test_sx_up:history('pgw-u')),
 
     URR = lists:sort(maps:get(create_urr, SER#pfcp.ie)),
     ?match(
@@ -3011,10 +3087,10 @@ redirect_info(Config) ->
     ?equal([], outstanding_requests()),
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
 
-    [_, SER|_] = lists:filter(
-		   fun(#pfcp{type = session_establishment_request}) -> true;
-		      (_) ->false
-		   end, ergw_test_sx_up:history('pgw-u')),
+    [SER|_] = lists:filter(
+		fun(#pfcp{type = session_establishment_request}) -> true;
+		   (_) ->false
+		end, ergw_test_sx_up:history('pgw-u')),
 
     #{create_pdr := PDRs0,
       create_far := FARs0,
@@ -3037,7 +3113,7 @@ redirect_info(Config) ->
 		     #pdi{
 			group =
 			    #{network_instance :=
-				  #network_instance{instance = <<8, "upstream">>},
+				  #network_instance{instance = <<3, "sgi">>},
 			      sdf_filter :=
 				  #sdf_filter{
 				     flow_description =
@@ -3106,7 +3182,7 @@ redirect_info(Config) ->
 				  #redirect_information{type = 'URL',
 							address = <<"http://www.heise.de/">>},
 			      network_instance :=
-				  #network_instance{instance = <<8, "upstream">>}
+				  #network_instance{instance = <<3, "sgi">>}
 			     }
 		       }
 		}
@@ -3327,10 +3403,10 @@ tdf_app_id(Config) ->
     ?equal([], outstanding_requests()),
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
 
-    [_, SER|_] = lists:filter(
-		   fun(#pfcp{type = session_establishment_request}) -> true;
-		      (_) ->false
-		   end, ergw_test_sx_up:history('pgw-u')),
+    [SER|_] = lists:filter(
+		fun(#pfcp{type = session_establishment_request}) -> true;
+		   (_) ->false
+		end, ergw_test_sx_up:history('pgw-u')),
 
     #{create_pdr := PDRs0,
       create_far := FARs0,
@@ -3353,7 +3429,7 @@ tdf_app_id(Config) ->
 		     #pdi{
 			group =
 			    #{network_instance :=
-				  #network_instance{instance = <<8, "upstream">>},
+				  #network_instance{instance = <<3, "sgi">>},
 			      application_id :=
 				  #application_id{id = <<"Gold">>},
 			      source_interface :=
@@ -3415,7 +3491,7 @@ tdf_app_id(Config) ->
 			    #{destination_interface :=
 				  #destination_interface{interface='SGi-LAN'},
 			      network_instance :=
-				  #network_instance{instance = <<8, "upstream">>}
+				  #network_instance{instance = <<3, "sgi">>}
 			     }
 		       }
 		}
@@ -3437,16 +3513,34 @@ tdf_app_id(Config) ->
 apn_lookup() ->
     [{doc, "Check that the APN and wildcard APN lookup works"}].
 apn_lookup(_Config) ->
-    ct:pal("VRF: ~p", [ergw:vrf(?'APN-EXAMPLE')]),
-    ?match({ok, {<<8, "upstream">>, _}}, ergw:vrf(?'APN-EXAMPLE')),
-    ?match({ok, {<<8, "upstream">>, _}}, ergw:vrf([<<"exa">>, <<"mple">>, <<"net">>])),
-    ?match({ok, {<<8, "upstream">>, _}}, ergw:vrf([<<"APN1">>])),
-    ?match({ok, {<<8, "upstream">>, _}}, ergw:vrf([<<"APN1">>, <<"mnc001">>, <<"mcc001">>, <<"gprs">>])),
-    ?match({ok, {<<8, "upstream">>, _}}, ergw:vrf([<<"APN2">>])),
-    ?match({ok, {<<8, "upstream">>, _}}, ergw:vrf([<<"APN2">>, <<"mnc001">>, <<"mcc001">>, <<"gprs">>])),
-    %% ?match({ok, {<<8, "wildcard">>, _}}, ergw:vrf([<<"APN3">>])),
-    %% ?match({ok, {<<8, "wildcard">>, _}}, ergw:vrf([<<"APN3">>, <<"mnc001">>, <<"mcc001">>, <<"gprs">>])),
-    %% ?match({ok, {<<8, "wildcard">>, _}}, ergw:vrf([<<"APN4">>, <<"mnc001">>, <<"mcc901">>, <<"gprs">>])),
+    NodeCaps = {#{<<3, "sgi">>      => #vrf{name = <<3, "sgi">>},
+		  <<8, "wildcard">> => #vrf{name = <<8, "wildcard">>}},
+		[]},
+
+    ct:pal("VRF: ~p", [ergw_gsn_lib:select_vrf(NodeCaps, ?'APN-EXAMPLE')]),
+    ?match({ok, <<3, "sgi">>, _}, ergw_gsn_lib:select_vrf(NodeCaps, ?'APN-EXAMPLE')),
+    ?match({ok, <<3, "sgi">>, _}, ergw_gsn_lib:select_vrf(NodeCaps, [<<"exa">>, <<"mple">>, <<"net">>])),
+    ?match({ok, <<3, "sgi">>, _}, ergw_gsn_lib:select_vrf(NodeCaps, [<<"APN1">>])),
+    ?match({ok, <<3, "sgi">>, _}, ergw_gsn_lib:select_vrf(NodeCaps, [<<"APN1">>, <<"mnc001">>, <<"mcc001">>, <<"gprs">>])),
+    ?match({ok, <<3, "sgi">>, _}, ergw_gsn_lib:select_vrf(NodeCaps, [<<"APN2">>])),
+    ?match({ok, <<3, "sgi">>, _}, ergw_gsn_lib:select_vrf(NodeCaps, [<<"APN2">>, <<"mnc001">>, <<"mcc001">>, <<"gprs">>])),
+    %% ?match({ok, <<8, "wildcard">>, _}, ergw_gsn_lib:select_vrf(NodeCaps, [<<"APN3">>])),
+    %% ?match({ok, <<8, "wildcard">>, _}, ergw_gsn_lib:select_vrf(NodeCaps, [<<"APN3">>, <<"mnc001">>, <<"mcc001">>, <<"gprs">>])),
+    %% ?match({ok, <<8, "wildcard">>, _}, ergw_gsn_lib:select_vrf(NodeCaps, [<<"APN4">>, <<"mnc001">>, <<"mcc901">>, <<"gprs">>])),
+
+    ct:pal("VRF: ~p", [ergw_gsn_lib:select_vrf_and_pool(NodeCaps, #context{apn = ?'APN-EXAMPLE'})]),
+    ?match({#context{vrf = #vrf{name = <<3, "sgi">>}}, _},
+	   ergw_gsn_lib:select_vrf_and_pool(NodeCaps, #context{apn = ?'APN-EXAMPLE'})),
+    ?match({#context{vrf = #vrf{name = <<3, "sgi">>}}, _},
+	   ergw_gsn_lib:select_vrf_and_pool(NodeCaps, #context{apn = [<<"exa">>, <<"mple">>, <<"net">>]})),
+    ?match({#context{vrf = #vrf{name = <<3, "sgi">>}}, _},
+	   ergw_gsn_lib:select_vrf_and_pool(NodeCaps, #context{apn = [<<"APN1">>]})),
+    ?match({#context{vrf = #vrf{name = <<3, "sgi">>}}, _},
+	   ergw_gsn_lib:select_vrf_and_pool(NodeCaps, #context{apn = [<<"APN1">>, <<"mnc001">>, <<"mcc001">>, <<"gprs">>]})),
+    ?match({#context{vrf = #vrf{name = <<3, "sgi">>}}, _},
+	   ergw_gsn_lib:select_vrf_and_pool(NodeCaps, #context{apn = [<<"APN2">>]})),
+    ?match({#context{vrf = #vrf{name = <<3, "sgi">>}}, _},
+	   ergw_gsn_lib:select_vrf_and_pool(NodeCaps, #context{apn = [<<"APN2">>, <<"mnc001">>, <<"mcc001">>, <<"gprs">>]})),
     ok.
 
 %%--------------------------------------------------------------------
