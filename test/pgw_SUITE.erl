@@ -465,6 +465,8 @@ init_per_suite(Config0) ->
 end_per_suite(_Config) ->
     ok.
 
+init_per_group(sx_fail, Config) ->
+    [{upf, false} | Config];
 init_per_group(ipv6, Config0) ->
     case ergw_test_lib:has_ipv6_test_config() of
 	true ->
@@ -479,7 +481,9 @@ init_per_group(ipv4, Config0) ->
 
 end_per_group(Group, Config)
   when Group == ipv4; Group == ipv6 ->
-    ok = lib_end_per_suite(Config).
+    ok = lib_end_per_suite(Config);
+end_per_group(sx_fail, _Config) ->
+    ok.
 
 common() ->
     [invalid_gtp_pdu,
@@ -553,13 +557,21 @@ common() ->
      gx_rar_gy_interaction,
      tdf_app_id].
 
+sx_fail() ->
+    [sx_connect_fail].
+
 groups() ->
     [{ipv4, [], common()},
-     {ipv6, [], common()}].
+     {ipv6, [], common()},
+     {sx_fail, [{ipv4, [], sx_fail()},
+		{ipv6, [], sx_fail()}]
+     }
+    ].
 
 all() ->
     [{group, ipv4},
-     {group, ipv6}].
+     {group, ipv6},
+     {group, sx_fail}].
 
 %%%===================================================================
 %%% Tests
@@ -676,6 +688,10 @@ init_per_testcase(create_session_overload, Config) ->
     Config;
 init_per_testcase(sx_cp_to_up_forward, Config) ->
     setup_per_testcase(Config, false),
+    Config;
+init_per_testcase(sx_connect_fail, Config) ->
+    meck_reset(Config),
+    start_gtpc_server(Config),
     Config;
 init_per_testcase(gy_validity_timer, Config) ->
     setup_per_testcase(Config),
@@ -2251,6 +2267,63 @@ sx_timeout(Config) ->
     ?equal([], outstanding_requests()),
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
+
+    ok = meck:delete(ergw_sx_socket, call, 5),
+    ok = meck:delete(ergw_gsn_lib, create_sgi_session, 4),
+    ok.
+
+%%--------------------------------------------------------------------
+sx_connect_fail() ->
+    [{doc, "Check that a unreachable UPF leads to a proper error response"}].
+sx_connect_fail(Config) ->
+    ok = meck:new(ergw_sx_node, [passthrough]),
+    ok = meck:expect(ergw_sx_node,select_sx_node,
+		     fun(Candidates, Context) ->
+			     try
+				 meck:passthrough([Candidates, Context])
+			     catch
+				 throw:#ctx_err{} = CtxErr ->
+				     meck:exception(throw, CtxErr)
+			     end
+		     end),
+
+    %% reduce Sx timeout to speed up test
+    ok = meck:expect(ergw_sx_socket, call,
+		     fun(Peer, _T1, _N1, Msg, CbInfo) ->
+			     meck:passthrough([Peer, 100, 2, Msg, CbInfo])
+		     end),
+    ok = meck:expect(ergw_gsn_lib, create_sgi_session,
+		     fun(PCtx, NodeCaps, SessionOpts, Ctx) ->
+			     try
+				 meck:passthrough([PCtx, NodeCaps, SessionOpts, Ctx])
+			     catch
+				 throw:#ctx_err{} = CtxErr ->
+				     meck:exception(throw, CtxErr)
+			     end
+		     end),
+
+    Self = self(),
+    SxNodes = supervisor:which_children(ergw_sx_node_sup),
+    ?match([_], SxNodes),
+    ct:pal("SxNodes: ~p", [SxNodes]),
+    Expect =
+	[begin
+	     Ref = make_ref(),
+	     ergw_sx_node:notify_up(Pid, {Self, Ref}),
+	     ergw_sx_node:test_cmd(Pid, reconnect),
+	     Ref
+	 end || {_, Pid, _, _} <- SxNodes, is_pid(Pid)],
+    Result =
+	[receive {Ref, Notify} -> Notify; Other -> Other after 2000 -> timeout end ||
+	    Ref <- Expect],
+    [?equal(dead, R) || R <- Result],
+
+    create_session(system_failure, Config),
+
+    ?equal([], outstanding_requests()),
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    meck_validate(Config),
+    true = meck:validate(ergw_sx_node),
 
     ok = meck:delete(ergw_sx_socket, call, 5),
     ok = meck:delete(ergw_gsn_lib, create_sgi_session, 4),
