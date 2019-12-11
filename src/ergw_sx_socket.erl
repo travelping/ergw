@@ -30,6 +30,7 @@
 	  name,
 	  node,
 	  socket     :: socket:socket(),
+	  burst_size = 1 :: non_neg_integer(),
 	  gtp_port,
 
 	  seq_no = 1 :: sequence_number(),
@@ -51,7 +52,6 @@
 
 -define(SERVER, ?MODULE).
 
--define(BURST_SIZE, 10).
 -define(T1, 10 * 1000).
 -define(N1, 5).
 -define(RESPONSE_TIMEOUT, (?T1 * ?N1 + (?T1 div 2))).
@@ -109,7 +109,8 @@ seid() ->
 -define(SocketDefaults, [{node, "invalid"},
 			 {name, "invalid"},
 			 {socket, "invalid"},
-			 {ip, invalid}]).
+			 {ip, invalid},
+			 {burst_size, 10}]).
 
 validate_options(Values0) ->
     Values = if is_list(Values0) ->
@@ -145,6 +146,9 @@ validate_option(rcvbuf, Value)
 validate_option(socket, Value)
   when is_atom(Value) ->
     Value;
+validate_option(burst_size, Value)
+  when is_integer(Value) andalso Value > 0 ->
+    Value;
 validate_option(Opt, Value) ->
     throw({error, {options, {Opt, Value}}}).
 
@@ -152,7 +156,8 @@ validate_option(Opt, Value) ->
 %%% gen_server callbacks
 %%%===================================================================
 
-init(#{name := Name, node := Node, ip := IP, socket := GtpSocket} = Opts) ->
+init(#{name := Name, node := Node, ip := IP,
+       socket := GtpSocket, burst_size := BurstSize} = Opts) ->
     process_flag(trap_exit, true),
 
     SocketOpts = maps:with(?SOCKET_OPTS, Opts),
@@ -164,6 +169,7 @@ init(#{name := Name, node := Node, ip := IP, socket := GtpSocket} = Opts) ->
 	       socket = Socket,
 	       name = Name,
 	       node = Node,
+	       burst_size = BurstSize,
 	       gtp_port = GtpPort,
 
 	       seq_no = 1,
@@ -229,10 +235,10 @@ handle_info({timeout, TRef, responses}, #state{responses = Responses} = State) -
     {noreply, State#state{responses = ergw_cache:expire(TRef, Responses)}};
 
 handle_info({'$socket', Socket, select, Info}, #state{socket = Socket} = State) ->
-    handle_input(Socket, Info, ?BURST_SIZE, State);
+    handle_input(Socket, Info, State);
 
 handle_info({'$socket', Socket, abort, Info}, #state{socket = Socket} = State) ->
-    handle_input(Socket, Info, ?BURST_SIZE, State);
+    handle_input(Socket, Info, State);
 
 handle_info(Info, State) ->
     ?LOG(error, "handle_info: unknown ~p, ~p", [Info, State]),
@@ -315,6 +321,9 @@ socket_setopts(Socket, reuseaddr, true) ->
     ok = socket:setopt(Socket, socket, reuseaddr, true);
 socket_setopts(_Socket, _, _) ->
     ok.
+
+handle_input(Socket, Info, #state{burst_size = BurstSize} = State) ->
+    handle_input(Socket, Info, BurstSize, State).
 
 handle_input(Socket, _Info, 0, State0) ->
     %% break the loop and restart

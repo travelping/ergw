@@ -50,7 +50,7 @@ get_restart_counter(GtpPort) ->
 %%% Options Validation
 %%%===================================================================
 
--define(SocketDefaults, [{ip, invalid}]).
+-define(SocketDefaults, [{ip, invalid}, {burst_size, 10}]).
 
 validate_options(Values0) ->
     Values = if is_list(Values0) ->
@@ -85,6 +85,9 @@ validate_option(freebind, Value) when is_boolean(Value) ->
 validate_option(reuseaddr, Value) when is_boolean(Value) ->
     Value;
 validate_option(rcvbuf, Value)
+  when is_integer(Value) andalso Value > 0 ->
+    Value;
+validate_option(burst_size, Value)
   when is_integer(Value) andalso Value > 0 ->
     Value;
 validate_option(Opt, Value) ->
