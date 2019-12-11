@@ -16,7 +16,7 @@
 	 attach_tdf/2, attach_protocol/5]).
 -export([handler/2]).
 -export([load_config/1]).
--export([get_plmn_id/0, get_accept_new/0, get_gtp_idle_timer_secs/0]).
+-export([get_plmn_id/0, get_accept_new/0]).
 -export([system_info/0, system_info/1, system_info/2]).
 -export([i/0, i/1, i/2]).
 
@@ -47,12 +47,6 @@ get_accept_new() ->
     [{config, accept_new, Value}] = ets:lookup(?SERVER, accept_new),
     Value.
 
-%% get gtp_idle_timer_secs
-get_gtp_idle_timer_secs() ->
-    [{config, gtp_idle_timer_secs, Value}] = 
-	ets:lookup(?SERVER, gtp_idle_timer_secs),
-    Value.
-
 system_info() ->
     [{K,system_info(K)} || K <- [plmn_id, accept_new]].
 
@@ -78,10 +72,6 @@ load_config([{plmn_id, {MCC, MNC}} | T]) ->
 load_config([{accept_new, Value} | T]) ->
     true = ets:insert(?SERVER, {config, accept_new, Value}),
     load_config(T);
-%load gtp_idle_timer (secs)
-load_config([{gtp_idle_timer_secs, Value} | T]) ->
-    true = ets:insert(?SERVER, {config, gtp_idle_timer_secs, Value}),
-    load_config(T);    
 load_config([{Key, Value} | T])
   when Key =:= node_selection;
        Key =:= nodes;
