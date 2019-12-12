@@ -74,12 +74,12 @@
 	  [{?'APN-EXAMPLE',
 	    [{vrf, upstream},
 	     {ip_pools, ['pool-A', 'pool-B']},
-	     {gtp_idle_timer, 16200000}  %% in millisecs (e.g 6 hours)
+	     {'Idle-Timeout', 16200000}  %% in millisecs (e.g 6 hours)
 	    ]},
 	   {[<<"APN1">>],
 	    [{vrfs, [upstream]},
 	     {ip_pools, ['pool-A', 'pool-B']},
-	     {gtp_idle_timer, 'infinity'}
+	     {'Idle-Timeout', 'infinity'}
 	    ]}
 	  ]},
 
@@ -260,12 +260,12 @@
 	  [{?'APN-EXAMPLE',
 	    [{vrf, upstream},
 	     {ip_pools, ['pool-A', 'pool-B']},
-	     {gtp_idle_timer, 16200000}
+	     {'Idle-Timeout', 16200000}
 	    ]},
 	   {[<<"APN1">>],
 	    [{vrfs, [upstream]},
 	     {ip_pools, ['pool-A', 'pool-B']},
-	     {gtp_idle_timer, 'infinity'}
+	     {'Idle-Timeout', 'infinity'}
 	    ]}
 	  ]},
 
@@ -626,7 +626,7 @@ config(_Config)  ->
     ?ok_option(set_cfg_value([apns, '_', vrfs], [a, b], ?GGSN_CONFIG)),
     ?error_option(set_cfg_value([apns, '_', vrfs], [a | b], ?GGSN_CONFIG)),
     ?error_option(set_cfg_value([apns, '_', vrfs], [a, a], ?GGSN_CONFIG)),
-    ?error_option(set_cfg_value([apns, '_', gtp_idle_timer], infinity, ?GGSN_CONFIG)),
+    ?error_option(set_cfg_value([apns, '_', 'Idle-Timeout'], infinity, ?GGSN_CONFIG)),
     ?error_option(set_cfg_value([apns, ?'APN-EXAMPLE'], [], ?GGSN_CONFIG)),
     ?error_option(set_cfg_value([apns, ?'APN-EXAMPLE'], invalid, ?GGSN_CONFIG)),
     ?ok_option(add_cfg_value([apns, ?'APN-PROXY'], [{vrf, example}], ?GGSN_CONFIG)),
