@@ -349,7 +349,7 @@ handle_request(ReqKey,
     %% TBD: reselect VRF and Pool based on outcome of authenticate
     %% -----------------------------------------------------------
 
-    ActiveSessionOpts1 = apply_session_opts(APNOpts, ActiveSessionOpts0),
+    ActiveSessionOpts1 = apply_apn_defaults(APNOpts, ActiveSessionOpts0),
     {IPOpts, ContextPending} = assign_ips(ActiveSessionOpts1, EUA, ContextVRF),
     ergw_aaa_session:set(Session, IPOpts),
     ActiveSessionOpts = maps:merge(ActiveSessionOpts1, IPOpts),
@@ -406,8 +406,8 @@ handle_request(ReqKey,
     Response = response(create_pdp_context_response, Context, ResponseIEs, Request),
     gtp_context:send_response(ReqKey, Request, Response),
 
-    #{gtp_idle_timer := Gtp_Idle_Timer} = APNOpts,
-    Data = Data0#{timeout => Gtp_Idle_Timer},
+    #{'Idle-Timeout' := Timeout} = APNOpts,
+    Data = Data0#{timeout => Timeout},
     Actions = context_idle_action([], Data),
     {keep_state, Data#{context => Context, pfcp => PCtx, pcc => PCC4}, Actions};
 
@@ -682,7 +682,7 @@ copy_session_opts(K, Value, Opts)
 copy_session_opts(_K, _V, Opts) ->
     Opts.
 
-apply_session_opts(Opts, Session) ->
+apply_apn_defaults(Opts, Session) ->
     Defaults = maps:fold(fun copy_session_opts/3, #{}, Opts),
     maps:merge(Defaults, Session).
 
@@ -1203,7 +1203,7 @@ create_pdp_context_response(SessionOpts, RequestIEs,
 %% Wrapper for gen_statem state_callback_result Actions argument
 %% Timeout set in the context of a prolonged idle gtp session
 context_idle_action(Actions, #{timeout := Timeout})
-  when is_integer(Timeout) ->
+  when is_integer(Timeout) orelse Timeout =:= infinity ->
     [{{timeout, context_idle}, Timeout, stop_session} | Actions];
 context_idle_action(Actions, _) ->
     Actions.
