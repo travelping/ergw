@@ -109,14 +109,7 @@ init(_Opts, Data) ->
     SessionOpts = ergw_aaa_session:get(Session),
     OCPcfg = maps:get('Offline-Charging-Profile', SessionOpts, #{}),
     PCC = #pcc_ctx{offline_charging_profile = OCPcfg},
-    Timeout = case get_gtp_idle_timer([<<"default">>]) of
-		  no_timer_specified ->
-		      infinity;
-		  Value ->
-		      Value
-	      end,
-    {ok, run, Data#{'Session' => Session, pcc => PCC,
-                    timeout => Timeout}}.
+    {ok, run, Data#{'Session' => Session, pcc => PCC}}.
 
 handle_event(enter, _OldState, _State, _Data) ->
     keep_state_and_data;
@@ -437,12 +430,8 @@ handle_request(ReqKey,
     Response = response(create_session_response, Context, ResponseIEs, Request),
     gtp_context:send_response(ReqKey, Request, Response),
 
-    Data = case get_gtp_idle_timer(APN) of
-	       no_timer_specified ->
-		   Data0; % Ignore, stick to default value loaded at init
-	       Timeout ->
-		   Data0#{timeout => Timeout}
-           end,
+    #{gtp_idle_timer := Gtp_Idle_Timer} = APNOpts,
+    Data = Data0#{timeout => Gtp_Idle_Timer},
     Actions = context_idle_action([], Data),
     {keep_state, Data#{context => Context, pfcp => PCtx, pcc => PCC4}, Actions};
 
@@ -1272,22 +1261,10 @@ create_session_response(SessionOpts, RequestIEs, EBI,
      #v2_apn_restriction{restriction_type_value = 0},
      encode_paa(MSv4, MSv6) | IE1].
 
-%% Timeout infinity (don't start timer) supported
-get_gtp_idle_timer(Key) ->
-    Idle_timers = ergw:get_gtp_idle_timer_secs(),
-    case lists:keyfind([Key], 1, Idle_timers) of
-	{_, Timeout} when is_integer(Timeout) ->
-	    Timeout * 1000; % to milliseconds
-	{_, Timeout} when Timeout =:= infinity ->
-	    infinity;
-	_ ->
-	    no_timer_specified
-    end.
-
 %% Wrapper for gen_statem state_callback_result Actions argument
 %% Timeout set in the context of a prolonged idle gtpv2 session
 context_idle_action(Actions, #{timeout := Timeout})
-  when is_integer(Timeout) orelse Timeout =:= infinity ->
+  when is_integer(Timeout) ->
     [{{timeout, context_idle}, Timeout, stop_session} | Actions];
 context_idle_action(Actions, _) ->
     Actions.

@@ -30,7 +30,7 @@
 			 {apns, []},
 			 {charging, [{default, []}]}]).
 -define(VrfDefaults, [{features, invalid}]).
--define(ApnDefaults, [{ip_pools, []}]).
+-define(ApnDefaults, [{ip_pools, []},{gtp_idle_timer, 28800000}]). %% 8hrs timer in msecs
 -define(DefaultsNodesDefaults, [{vrfs, invalid}, {node_selection, default}]).
 
 -define(is_opts(X), (is_list(X) orelse is_map(X))).
@@ -400,6 +400,10 @@ validate_apn_option({ip_pools = Opt, Pools})
     V = [ergw_ip_pool:validate_name(Opt, Name) || Name <- Pools],
     check_unique_elements(Opt, V),
     {Opt, V};
+%% Timer value of infinity changed to Default time of 8hrs in msecs
+validate_apn_option({gtp_idle_timer, Timer}) ->
+    {_, Def_timer} = lists:keyfind(gtp_idle_timer, 1, ?ApnDefaults),
+    {gtp_idle_timer, min(Timer, Def_timer)};
 validate_apn_option({Opt, Value}) ->
     throw({error, {options, {Opt, Value}}}).
 
