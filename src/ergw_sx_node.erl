@@ -13,7 +13,7 @@
 -compile({parse_transform, cut}).
 
 %% API
--export([select_sx_node/2, select_sx_node/3,
+-export([select_sx_node/2,
 	 request_connect/2, request_connect/4, wait_connect/1,
 	 attach/2, attach_tdf/2, notify_up/2]).
 -export([start_link/4, send/4, call/3,
@@ -75,15 +75,6 @@ select_sx_node(Candidates, Context) ->
     catch
 	error:{badmatch, _} ->
 	    throw(?CTX_ERR(?FATAL, system_failure, Context))
-    end.
-
-select_sx_node(APN, Services, NodeSelect) ->
-    case ergw_node_selection:candidates(APN, Services, NodeSelect) of
-	Candidates when is_list(Candidates), length(Candidates) /= 0 ->
-	    connect_sx_candidates(Candidates);
-	Other ->
-	    ?LOG(error, "No Sx node for APN '~w', got ~p", [APN, Other]),
-	    {error, not_found}
     end.
 
 attach(Node, Context) when is_pid(Node) ->
@@ -231,7 +222,8 @@ init([Node, IP4, IP6, NotifyUp]) ->
 
 handle_event(enter, _OldState, {connected, ready},
 	     #data{dp = #node{node = Node}} = Data0) ->
-    ergw_sx_node_reg:up(Node),
+    NodeCaps = node_caps(Data0),
+    ok = ergw_sx_node_reg:up(Node, NodeCaps),
     Data = send_notify_up(up, Data0#data{retries = 0}),
     {keep_state, Data};
 
@@ -373,8 +365,7 @@ handle_event(cast, {response, from_cp_rule,
     ?LOG(warning, "Response: ~p", [R]),
     {next_state, {connected, ready}, Data#data{pfcp_ctx = PCtx#pfcp_ctx{seid = SEID#seid{dp = DP}}}};
 
-handle_event({call, From}, attach, _, #data{pfcp_ctx = PNodeCtx,
-					    ip_pools = Pools, vrfs = Vrfs}) ->
+handle_event({call, From}, attach, _, #data{pfcp_ctx = PNodeCtx} = Data) ->
     PCtx = #pfcp_ctx{
 	      name = PNodeCtx#pfcp_ctx.name,
 	      node = PNodeCtx#pfcp_ctx.node,
@@ -383,7 +374,7 @@ handle_event({call, From}, attach, _, #data{pfcp_ctx = PNodeCtx,
 	      cp_port = PNodeCtx#pfcp_ctx.cp_port,
 	      cp_tei = PNodeCtx#pfcp_ctx.cp_tei
 	     },
-    NodeCaps = {Vrfs, Pools},
+    NodeCaps = node_caps(Data),
     Reply = {ok, PCtx, NodeCaps},
     {keep_state_and_data, [{reply, From, Reply}]};
 
@@ -611,7 +602,8 @@ connect_sx_candidates([], NextPrio, Available) ->
 connect_sx_candidates(List, NextPrio, Available) ->
     case lb(random, List) of
 	{{Node, _, _}, _} when is_map_key(Node, Available) ->
-	    ergw_sx_node_reg:lookup(Node);
+	    {Pid, _} = maps:get(Node, Available),
+	    {ok, Pid};
 	{_, Next} ->
 	    connect_sx_candidates(Next, NextPrio, Available)
     end.
@@ -869,3 +861,6 @@ send_notify_up(Notify, NotifyUp) when is_list(NotifyUp) ->
 send_notify_up(Notify, #data{notify_up = NotifyUp} = Data) ->
     send_notify_up(Notify, NotifyUp),
     Data#data{notify_up = []}.
+
+node_caps(#data{ip_pools = Pools, vrfs = VRFs}) ->
+    {VRFs, ordsets:from_list(Pools)}.

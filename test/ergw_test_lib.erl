@@ -184,10 +184,10 @@ meck_init(Config) ->
 				     meck:exception(throw, CtxErr)
 			     end
 		     end),
-    ok = meck:expect(ergw_gsn_lib, select_vrf_and_pool,
-		     fun(NodeCaps, Context) ->
+    ok = meck:expect(ergw_gsn_lib, select_upf,
+		     fun(Candidates, Context) ->
 			     try
-				 meck:passthrough([NodeCaps, Context])
+				 meck:passthrough([Candidates, Context])
 			     catch
 				 throw:#ctx_err{} = CtxErr ->
 				     meck:exception(throw, CtxErr)
