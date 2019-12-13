@@ -439,11 +439,11 @@ setup_per_testcase(Config) ->
 
 setup_per_testcase(Config, ClearSxHist) ->
     ct:pal("Sockets: ~p", [ergw_gtp_socket_reg:all()]),
-    ergw_test_sx_up:reset('pgw-u'),
+    ergw_test_sx_up:reset('pgw-u01'),
     meck_reset(Config),
     start_gtpc_server(Config),
     reconnect_all_sx_nodes(),
-    ClearSxHist andalso ergw_test_sx_up:history('pgw-u', true),
+    ClearSxHist andalso ergw_test_sx_up:history('pgw-u01', true),
     ok.
 
 init_per_testcase(create_session_request_aaa_reject, Config) ->
@@ -839,7 +839,7 @@ modify_bearer_request_tei_update(Config) ->
     [_, SMR0|_] = lists:filter(
 		    fun(#pfcp{type = session_modification_request}) -> true;
 		       (_) -> false
-		    end, ergw_test_sx_up:history('pgw-u')),
+		    end, ergw_test_sx_up:history('pgw-u01')),
 
     SMR = pfcp_packet:to_map(SMR0),
     #{update_far :=
@@ -1149,7 +1149,7 @@ enb_connection_suspend(Config) ->
     [_, SMR0|_] = lists:filter(
 		    fun(#pfcp{type = session_modification_request}) -> true;
 		       (_) -> false
-		    end, ergw_test_sx_up:history('pgw-u')),
+		    end, ergw_test_sx_up:history('pgw-u01')),
     SMR = pfcp_packet:to_map(SMR0),
     ?match(#{remove_far := #remove_far{}}, SMR#pfcp.ie),
 
@@ -1226,7 +1226,7 @@ simple_aaa(Config) ->
     [SER|_] = lists:filter(
 		fun(#pfcp{type = session_establishment_request}) -> true;
 		   (_) ->false
-		end, ergw_test_sx_up:history('pgw-u')),
+		end, ergw_test_sx_up:history('pgw-u01')),
 
     URR = lists:sort(maps:get(create_urr, SER#pfcp.ie)),
     ?match(
@@ -1257,7 +1257,7 @@ simple_aaa(Config) ->
 	[#usage_report_trigger{perio = 1},
 	 #volume_measurement{total = 5, uplink = 2, downlink = 3},
 	 #tp_packet_measurement{total = 12, uplink = 5, downlink = 7}],
-    ergw_test_sx_up:usage_report('pgw-u', PCtx, MatchSpec, Report),
+    ergw_test_sx_up:usage_report('pgw-u01', PCtx, MatchSpec, Report),
 
     ct:sleep(100),
     delete_session(GtpC),
@@ -1324,7 +1324,7 @@ simple_ofcs(Config) ->
     [SER|_] = lists:filter(
 		fun(#pfcp{type = session_establishment_request}) -> true;
 		   (_) ->false
-		end, ergw_test_sx_up:history('pgw-u')),
+		end, ergw_test_sx_up:history('pgw-u01')),
 
     URR = maps:get(create_urr, SER#pfcp.ie),
     ?match(
@@ -1346,7 +1346,7 @@ simple_ofcs(Config) ->
 	[#usage_report_trigger{perio = 1},
 	 #volume_measurement{total = 5, uplink = 2, downlink = 3},
 	 #tp_packet_measurement{total = 12, uplink = 5, downlink = 7}],
-    ergw_test_sx_up:usage_report('pgw-u', PCtx, MatchSpec, Report),
+    ergw_test_sx_up:usage_report('pgw-u01', PCtx, MatchSpec, Report),
 
     ct:sleep(100),
     delete_session(GtpC),
@@ -1400,7 +1400,7 @@ simple_ocs(Config) ->
     [SER|_] = lists:filter(
 		fun(#pfcp{type = session_establishment_request}) -> true;
 		   (_) ->false
-		end, ergw_test_sx_up:history('pgw-u')),
+		end, ergw_test_sx_up:history('pgw-u01')),
 
     URR = lists:sort(maps:get(create_urr, SER#pfcp.ie)),
     ?match(
@@ -1439,7 +1439,7 @@ simple_ocs(Config) ->
 	[#usage_report_trigger{volqu = 1},
 	 #volume_measurement{total = 5, uplink = 2, downlink = 3},
 	 #tp_packet_measurement{total = 12, uplink = 5, downlink = 7}],
-    ergw_test_sx_up:usage_report('pgw-u', PCtx, MatchSpec, Report),
+    ergw_test_sx_up:usage_report('pgw-u01', PCtx, MatchSpec, Report),
 
     ct:sleep(100),
     delete_session(GtpC),
@@ -1631,8 +1631,8 @@ volume_threshold(Config) ->
 
     MatchSpec = ets:fun2ms(fun({Id, {'online', _}}) -> Id end),
 
-    ergw_test_sx_up:usage_report('pgw-u', PCtx, MatchSpec, [#usage_report_trigger{volth = 1}]),
-    ergw_test_sx_up:usage_report('pgw-u', PCtx, MatchSpec, [#usage_report_trigger{volqu = 1}]),
+    ergw_test_sx_up:usage_report('pgw-u01', PCtx, MatchSpec, [#usage_report_trigger{volth = 1}]),
+    ergw_test_sx_up:usage_report('pgw-u01', PCtx, MatchSpec, [#usage_report_trigger{volqu = 1}]),
 
     ct:sleep({seconds, 1}),
 
@@ -1642,7 +1642,7 @@ volume_threshold(Config) ->
 	lists:filter(
 	  fun(#pfcp{type = session_modification_request}) -> true;
 	     (_) ->false
-	  end, ergw_test_sx_up:history('pgw-u')),
+	  end, ergw_test_sx_up:history('pgw-u01')),
 
     ?equal([0, 0, 0, 0, 0, 1, 0, 0, 0],
 	   [maps_key_length(X1, Sx1#pfcp.ie)
@@ -1847,7 +1847,7 @@ gx_rar(Config) ->
 	lists:filter(
 	  fun(#pfcp{type = session_modification_request}) -> true;
 	     (_) ->false
-	  end, ergw_test_sx_up:history('pgw-u')),
+	  end, ergw_test_sx_up:history('pgw-u01')),
 
     ct:pal("Sx1: ~p", [Sx1]),
     ?equal([2, 2, 1, 0, 0, 0, 0, 0, 0],

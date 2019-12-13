@@ -2318,7 +2318,7 @@ sx_connect_fail(Config) ->
 	    Ref <- Expect],
     [?equal(dead, R) || R <- Result],
 
-    create_session(system_failure, Config),
+    create_session(overload , Config),
 
     ?equal([], outstanding_requests()),
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
@@ -3591,29 +3591,15 @@ apn_lookup(_Config) ->
 		[]},
 
     ct:pal("VRF: ~p", [ergw_gsn_lib:select_vrf(NodeCaps, ?'APN-EXAMPLE')]),
-    ?match({ok, <<3, "sgi">>, _}, ergw_gsn_lib:select_vrf(NodeCaps, ?'APN-EXAMPLE')),
-    ?match({ok, <<3, "sgi">>, _}, ergw_gsn_lib:select_vrf(NodeCaps, [<<"exa">>, <<"mple">>, <<"net">>])),
-    ?match({ok, <<3, "sgi">>, _}, ergw_gsn_lib:select_vrf(NodeCaps, [<<"APN1">>])),
-    ?match({ok, <<3, "sgi">>, _}, ergw_gsn_lib:select_vrf(NodeCaps, [<<"APN1">>, <<"mnc001">>, <<"mcc001">>, <<"gprs">>])),
-    ?match({ok, <<3, "sgi">>, _}, ergw_gsn_lib:select_vrf(NodeCaps, [<<"APN2">>])),
-    ?match({ok, <<3, "sgi">>, _}, ergw_gsn_lib:select_vrf(NodeCaps, [<<"APN2">>, <<"mnc001">>, <<"mcc001">>, <<"gprs">>])),
-    %% ?match({ok, <<8, "wildcard">>, _}, ergw_gsn_lib:select_vrf(NodeCaps, [<<"APN3">>])),
-    %% ?match({ok, <<8, "wildcard">>, _}, ergw_gsn_lib:select_vrf(NodeCaps, [<<"APN3">>, <<"mnc001">>, <<"mcc001">>, <<"gprs">>])),
-    %% ?match({ok, <<8, "wildcard">>, _}, ergw_gsn_lib:select_vrf(NodeCaps, [<<"APN4">>, <<"mnc001">>, <<"mcc901">>, <<"gprs">>])),
-
-    ct:pal("VRF: ~p", [ergw_gsn_lib:select_vrf_and_pool(NodeCaps, #context{apn = ?'APN-EXAMPLE'})]),
-    ?match({#context{vrf = #vrf{name = <<3, "sgi">>}}, _},
-	   ergw_gsn_lib:select_vrf_and_pool(NodeCaps, #context{apn = ?'APN-EXAMPLE'})),
-    ?match({#context{vrf = #vrf{name = <<3, "sgi">>}}, _},
-	   ergw_gsn_lib:select_vrf_and_pool(NodeCaps, #context{apn = [<<"exa">>, <<"mple">>, <<"net">>]})),
-    ?match({#context{vrf = #vrf{name = <<3, "sgi">>}}, _},
-	   ergw_gsn_lib:select_vrf_and_pool(NodeCaps, #context{apn = [<<"APN1">>]})),
-    ?match({#context{vrf = #vrf{name = <<3, "sgi">>}}, _},
-	   ergw_gsn_lib:select_vrf_and_pool(NodeCaps, #context{apn = [<<"APN1">>, <<"mnc001">>, <<"mcc001">>, <<"gprs">>]})),
-    ?match({#context{vrf = #vrf{name = <<3, "sgi">>}}, _},
-	   ergw_gsn_lib:select_vrf_and_pool(NodeCaps, #context{apn = [<<"APN2">>]})),
-    ?match({#context{vrf = #vrf{name = <<3, "sgi">>}}, _},
-	   ergw_gsn_lib:select_vrf_and_pool(NodeCaps, #context{apn = [<<"APN2">>, <<"mnc001">>, <<"mcc001">>, <<"gprs">>]})),
+    ?match(<<3, "sgi">>, ergw_gsn_lib:select_vrf(NodeCaps, ?'APN-EXAMPLE')),
+    ?match(<<3, "sgi">>, ergw_gsn_lib:select_vrf(NodeCaps, [<<"exa">>, <<"mple">>, <<"net">>])),
+    ?match(<<3, "sgi">>, ergw_gsn_lib:select_vrf(NodeCaps, [<<"APN1">>])),
+    ?match(<<3, "sgi">>, ergw_gsn_lib:select_vrf(NodeCaps, [<<"APN1">>, <<"mnc001">>, <<"mcc001">>, <<"gprs">>])),
+    ?match(<<3, "sgi">>, ergw_gsn_lib:select_vrf(NodeCaps, [<<"APN2">>])),
+    ?match(<<3, "sgi">>, ergw_gsn_lib:select_vrf(NodeCaps, [<<"APN2">>, <<"mnc001">>, <<"mcc001">>, <<"gprs">>])),
+    %% ?match(<<8, "wildcard">>, ergw_gsn_lib:select_vrf(NodeCaps, [<<"APN3">>])),
+    %% ?match(<<8, "wildcard">>, ergw_gsn_lib:select_vrf(NodeCaps, [<<"APN3">>, <<"mnc001">>, <<"mcc001">>, <<"gprs">>])),
+    %% ?match(<<8, "wildcard">>, ergw_gsn_lib:select_vrf(NodeCaps, [<<"APN4">>, <<"mnc001">>, <<"mcc901">>, <<"gprs">>])),
     ok.
 
 %%--------------------------------------------------------------------

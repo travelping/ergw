@@ -431,7 +431,7 @@ setup_per_testcase(Config, ClearSxHist) ->
     ergw_test_sx_up:reset('tdf-u'),
     meck_reset(Config),
     reconnect_all_sx_nodes(),
-    ClearSxHist andalso ergw_test_sx_up:history('pgw-u', true),
+    ClearSxHist andalso ergw_test_sx_up:history('pgw-u01', true),
     [{seid, tdf_seid()},
      {tdf_node, tdf_node_pid()},
      {aaa_cfg, AppsCfg} | Config].

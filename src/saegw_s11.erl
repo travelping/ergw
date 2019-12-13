@@ -359,15 +359,13 @@ handle_request(ReqKey,
     %% SessionOpts = init_session_qos(ReqQoSProfile, SessionOpts1),
 
     ergw_sx_node:wait_connect(SxConnectId),
-    {ok, PendingPCtx, NodeCaps} = ergw_sx_node:select_sx_node(Candidates, ContextPreAuth),
+    {UPinfo0, ContextUP} = ergw_gsn_lib:select_upf(Candidates, ContextPreAuth),
 
-    {ContextVRF, APNOpts} = ergw_gsn_lib:select_vrf_and_pool(NodeCaps, ContextPreAuth),
     {ok, ActiveSessionOpts0, AuthSEvs} =
-	authenticate(ContextVRF, Session, SessionOpts, Request),
+	authenticate(ContextUP, Session, SessionOpts, Request),
 
-    %% -----------------------------------------------------------
-    %% TBD: reselect VRF and Pool based on outcome of authenticate
-    %% -----------------------------------------------------------
+    {PendingPCtx, NodeCaps, APNOpts, ContextVRF} =
+	ergw_gsn_lib:reselect_upf(Candidates, ActiveSessionOpts0, ContextUP, UPinfo0),
 
     ActiveSessionOpts1 = apply_session_opts(APNOpts, ActiveSessionOpts0),
     {IPOpts, ContextPending} = assign_ips(ActiveSessionOpts1, PAA, ContextVRF),
