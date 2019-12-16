@@ -38,7 +38,12 @@ start(Role, IP) ->
     gen_server:start({local, server_name(Role)}, ?MODULE, [IP], []).
 
 stop(Role) ->
-    gen_server:call(server_name(Role), stop).
+    try
+	gen_server:call(server_name(Role), stop)
+    catch
+	exit:{noproc,_} ->
+	    ok
+    end.
 
 restart(Role) ->
     gen_server:call(server_name(Role), restart).

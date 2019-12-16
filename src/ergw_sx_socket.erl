@@ -90,7 +90,7 @@ call(Peer, T1, N1, Msg, {_,_,_} = CbInfo) ->
 
 send_response(ReqKey, Msg, DoCache) ->
     Data = pfcp_packet:encode(Msg),
-    gen_server:cast(?SERVER, {send_response, ReqKey, Data, DoCache}).
+    gen_server:cast(?SERVER, {send_response, ReqKey, Msg, Data, DoCache}).
 
 id() ->
     gen_server:call(?SERVER, id).
@@ -177,6 +177,7 @@ handle_call(id, _From, #state{socket = Socket, node = Node, gtp_port = GtpPort} 
 
 handle_call({call, SendReq0}, From, State0) ->
     {SendReq, State1} = prepare_send_req(SendReq0#send_req{from = From}, State0),
+    message_counter(tx, State0, SendReq),
     State = send_request(SendReq, State1),
     {noreply, State};
 
@@ -186,11 +187,14 @@ handle_call(Request, _From, State) ->
 
 handle_cast({call, SendReq0}, State0) ->
     {SendReq, State1} = prepare_send_req(SendReq0, State0),
+    message_counter(tx, State0, SendReq),
     State = send_request(SendReq, State1),
     {noreply, State};
 
-handle_cast({send_response, ReqKey, Data, DoCache}, State0)
+handle_cast({send_response, ReqKey, Msg, Data, DoCache}, State0)
   when is_binary(Data) ->
+    message_counter(tx, State0, ReqKey, Msg),
+    measure_request(State0, ReqKey),
     State = do_send_response(ReqKey, Data, DoCache, State0),
     {noreply, State};
 
@@ -203,11 +207,13 @@ handle_info(Info = {timeout, _TRef, {request, SeqNo}}, State0) ->
     {Req, State1} = take_request(SeqNo, State0),
     case Req of
 	#send_req{n1 = 0} = SendReq ->
+	    message_counter(tx, State1, SendReq, timeout),
 	    send_request_reply(SendReq, timeout),
 	    {noreply, State1};
 
 	#send_req{n1 = N1} = SendReq ->
 	    %% resend....
+	    message_counter(tx, State1, SendReq, retransmit),
 	    State = send_request(SendReq#send_req{n1 = N1 - 1}, State1),
 	    {noreply, State};
 
@@ -330,42 +336,59 @@ handle_input(Socket, State) ->
 -define(ICMP_PROT_UNREACH,       2).       %% Protocol Unreachable
 -define(ICMP_PORT_UNREACH,       3).       %% Port Unreachable
 
-handle_socket_error({?SOL_IP, ?IP_RECVERR, {sock_err, _ErrNo, ?SO_EE_ORIGIN_ICMP, ?ICMP_DEST_UNREACH, Code, _Info, _Data}},
-		    IP, _Port, _State)
+handle_socket_error({?SOL_IP, ?IP_RECVERR, {sock_err, _ErrNo, ?SO_EE_ORIGIN_ICMP, ?ICMP_DEST_UNREACH, Code, _, _}},
+		    IP, _Port, PayLoad, #state{name = Name} = State0)
   when Code == ?ICMP_HOST_UNREACH; Code == ?ICMP_PORT_UNREACH ->
     ?LOG(debug, "ICMP indication for ~s: ~p", [inet:ntoa(IP), Code]),
-    ok;
+    ergw_prometheus:pfcp(tx, Name, IP, unreachable),
+    try pfcp_packet:decode(PayLoad) of
+	#pfcp{seq_no = SeqNo} ->
+	    {Req, State} = take_request(SeqNo, State0),
+	    case Req of
+		none ->
+		    ok;
+		#send_req{} = SendReq ->
+		    send_request_reply(SendReq, unreachable)
+	    end,
+	    State
+    catch
+	Class:Error:Stack ->
+	    ?LOG(debug, "HandleSocketError: ~p:~p @ ~p", [Class, Error, Stack]),
+	    State0
+    end;
 
-handle_socket_error(Error, IP, _Port, _State) ->
+handle_socket_error(Error, IP, _Port, _PayLoad, State) ->
     ?LOG(debug, "got unhandled error info for ~s: ~p", [inet:ntoa(IP), Error]),
-    ok.
+    State.
 
-handle_err_input(Socket, State) ->
+handle_err_input(Socket, State0) ->
     case gen_socket:recvmsg(Socket, ?MSG_DONTWAIT bor ?MSG_ERRQUEUE) of
-	{ok, {inet4, IP, Port}, Error, _Data} ->
-	    lists:foreach(handle_socket_error(_, IP, Port, State), Error),
+	{ok, {inet4, IP, Port}, Error, Data} ->
+	    State = lists:foldl(handle_socket_error(_, IP, Port, Data, _), State0, Error),
 	    ok = gen_socket:input_event(Socket, true),
 	    {noreply, State};
 
 	Other ->
 	    ?LOG(error, "got unhandled error input: ~p", [Other]),
 	    ok = gen_socket:input_event(Socket, true),
-	    {noreply, State}
+	    {noreply, State0}
     end.
 
 %%%===================================================================
 %%% Sx Message functions
 %%%===================================================================
 
-handle_message(ArrivalTS, IP, Port, Data, State0) ->
+handle_message(ArrivalTS, IP, Port, Data, #state{name = Name} = State0) ->
     ?LOG(debug, "handle message ~s:~w: ~p", [inet:ntoa(IP), Port, Data]),
     try
 	Msg = pfcp_packet:decode(Data),
+	ergw_prometheus:pfcp(rx, Name, IP, Msg),
 	State = handle_message_1(ArrivalTS, IP, Port, Msg, State0),
 	{noreply, State}
     catch
 	Class:Error:Stack ->
 	    ?LOG(debug, "UDP invalid msg: ~p:~p @ ~p", [Class, Error, Stack]),
+	    ergw_prometheus:pfcp(rx, Name, IP, 'malformed-message'),
 	    {noreply, State0}
     end.
 
@@ -381,23 +404,27 @@ handle_message_1(ArrivalTS, IP, Port, #pfcp{type = MsgType} = Msg, State) ->
 	    State
     end.
 
-handle_response(_ArrivalTS, _IP, _Port, #pfcp{seq_no = SeqNo} = Msg, State0) ->
+handle_response(ArrivalTS, IP, _Port, #pfcp{seq_no = SeqNo} = Msg,
+		#state{name = Name} = State0) ->
     {Req, State} = take_request(SeqNo, State0),
     case Req of
 	none -> %% duplicate, drop silently
+	    ergw_prometheus:pfcp(rx, Name, IP, Msg, duplicate),
 	    ?log_pfcp(debug, "~p: duplicate response: ~p: ", [self(), SeqNo], Msg),
 	    State;
 
 	#send_req{} = SendReq ->
 	    ?log_pfcp(info, "~p: found response: ~p: ", [self(), SeqNo], Msg),
+	    measure_response(State0, SendReq, ArrivalTS),
 	    send_request_reply(SendReq, Msg),
 	    State
     end.
 
 handle_request(#sx_request{ip = IP, port = Port} = ReqKey, Msg,
-	       #state{responses = Responses} = State) ->
+	       #state{name = Name, responses = Responses} = State) ->
     case ergw_cache:get(cache_key(ReqKey), Responses) of
 	{value, Data} ->
+	    ergw_prometheus:pfcp(rx, Name, IP, Msg, duplicate),
 	    sendto(IP, Port, Data, State);
 
 	_Other ->
@@ -480,13 +507,19 @@ take_request(SeqNo, #state{pending = PendingIn} = State) ->
     end.
 
 sendto({_,_,_,_} = RemoteIP, Port, Data, #state{socket = Socket}) ->
-    {ok, _} = gen_socket:sendto(Socket, {inet4, RemoteIP, Port}, Data);
+    gen_socket:sendto(Socket, {inet4, RemoteIP, Port}, Data);
 sendto({_,_,_,_,_,_,_,_} = RemoteIP, Port, Data, #state{socket = Socket}) ->
-    {ok, _} = gen_socket:sendto(Socket, {inet6, RemoteIP, Port}, Data).
+    gen_socket:sendto(Socket, {inet6, RemoteIP, Port}, Data).
 
-send_request(#send_req{address = DstIP, data = Data} = SendReq, State0) ->
-    sendto(DstIP, 8805, Data, State0),
-    start_request(SendReq, State0).
+send_request(#send_req{address = DstIP, data = Data} = SendReq, State) ->
+    case sendto(DstIP, 8805, Data, State) of
+	{ok, _} ->
+	    start_request(SendReq, State);
+	_ ->
+	    message_counter(tx, State, SendReq, unreachable),
+	    send_request_reply(SendReq, unreachable),
+	    State
+    end.
 
 send_request_reply(#send_req{cb_info = {M, F, A}} = SendReq, Reply) ->
     ?LOG(info, "send_request_reply: ~p", [SendReq]),
@@ -505,7 +538,6 @@ enqueue_response(_ReqKey, _Data, _DoCache, State) ->
 
 do_send_response(#sx_request{ip = IP, port = Port} = ReqKey, Data, DoCache, State) ->
     sendto(IP, Port, Data, State),
-    %% TODO: measure_response(ReqKey),
     enqueue_response(ReqKey, Data, DoCache, State).
 
 %%%===================================================================
@@ -516,3 +548,29 @@ cache_key(#sx_request{key = Key}) ->
     Key;
 cache_key(Object) ->
     Object.
+
+%%%===================================================================
+%%% Metrics collections
+%%%===================================================================
+
+%% message_counter/3
+message_counter(Direction, #state{name = Name}, #send_req{address = IP, msg = Msg}) ->
+    ergw_prometheus:pfcp(Direction, Name, IP, Msg).
+
+%% message_counter/4
+message_counter(Direction, #state{name = Name}, #sx_request{ip = IP}, #pfcp{} = Msg) ->
+    ergw_prometheus:pfcp(Direction, Name, IP, Msg);
+message_counter(Direction, #state{name = Name}, #send_req{address = IP, msg = Msg}, Verdict)
+  when is_atom(Verdict) ->
+    ergw_prometheus:pfcp(Direction, Name, IP, Verdict).
+
+%% measure the time it takes our peer to reply to a request
+measure_response(#state{name = Name},
+		 #send_req{address = IP, msg = Msg, send_ts = SendTS}, ArrivalTS) ->
+    ergw_prometheus:pfcp_peer_response(Name, IP, Msg, SendTS - ArrivalTS).
+
+%% measure the time it takes us to generate a response to a request
+measure_request(#state{name = Name},
+		#sx_request{type = MsgType, arrival_ts = ArrivalTS}) ->
+    Duration = erlang:monotonic_time() - ArrivalTS,
+    ergw_prometheus:pfcp_request_duration(Name, MsgType, Duration).

@@ -76,9 +76,17 @@ lib_init_per_suite(Config0) ->
     meck_init(Config),
     load_config(AppCfg),
     {ok, _} = application:ensure_all_started(ergw),
-    {ok, _} = ergw_test_sx_up:start('pgw-u', proplists:get_value(pgw_u_sx, Config)),
-    {ok, _} = ergw_test_sx_up:start('sgw-u', proplists:get_value(sgw_u_sx, Config)),
-    {ok, _} = ergw_test_sx_up:start('tdf-u', proplists:get_value(tdf_u_sx, Config)),
+
+    case proplists:get_value(upf, Config, true) of
+	true ->
+	    {ok, _} = ergw_test_sx_up:start('pgw-u', proplists:get_value(pgw_u_sx, Config)),
+	    {ok, _} = ergw_test_sx_up:start('sgw-u', proplists:get_value(sgw_u_sx, Config)),
+	    {ok, _} = ergw_test_sx_up:start('tdf-u', proplists:get_value(tdf_u_sx, Config));
+	_ ->
+	    ok = ergw_test_sx_up:stop('pgw-u'),
+	    ok = ergw_test_sx_up:stop('sgw-u'),
+	    ok = ergw_test_sx_up:stop('tdf-u')
+    end,
     {ok, AppsCfg} = application:get_env(ergw_aaa, apps),
     [{aaa_cfg, AppsCfg} |Config].
 

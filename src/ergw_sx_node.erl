@@ -48,11 +48,19 @@
 	       tdf,
 	       notify_up = []    :: [{pid(), reference()}]}).
 
+-ifdef(TEST).
+-define(AssocReqTimeout, 2).
+-define(AssocReqRetries, 5).
+-define(AssocTimeout, 5).
+-define(AssocRetries, 10).
+-define(MaxRetriesScale, 5).
+-else.
 -define(AssocReqTimeout, 200).
 -define(AssocReqRetries, 5).
 -define(AssocTimeout, 500).
 -define(AssocRetries, 10).
 -define(MaxRetriesScale, 5).
+-endif.
 
 -define(TestCmdTag, '$TestCmd').
 
@@ -253,11 +261,11 @@ handle_event(enter, _OldState, _State, _Data) ->
 handle_event({call, From}, {?TestCmdTag, pfcp_ctx}, _, #data{pfcp_ctx = PCtx}) ->
     {keep_state_and_data, [{reply, From, PCtx}]};
 handle_event({call, From}, {?TestCmdTag, reconnect}, dead, Data) ->
-    {next_state, connecting, Data, [{reply, From, ok}]};
+    {next_state, connecting, Data#data{retries = 0}, [{reply, From, ok}]};
 handle_event({call, From}, {?TestCmdTag, reconnect}, connecting, _) ->
     {keep_state_and_data, [{reply, From, ok}]};
-handle_event({call, From}, {?TestCmdTag, reconnect}, {connected, _}, Data) ->
-    {next_state, dead, handle_nodedown(Data), [{reply, From, ok}]};
+handle_event({call, From}, {?TestCmdTag, reconnect}, {connected, _} = State, Data) ->
+    {next_state, dead, handle_nodedown(Data#data{retries = 0}), [{reply, From, ok}]};
 handle_event({call, From}, {?TestCmdTag, wait4nodeup}, {connected, _}, _) ->
     {keep_state_and_data, [{reply, From, ok}]};
 handle_event({call, _From}, {?TestCmdTag, wait4nodeup}, _, _) ->
@@ -273,15 +281,16 @@ handle_event({call, From}, _Evt, dead, _Data) ->
     ?LOG(warning, "Call from ~p, ~p failed with {error, dead}", [From, _Evt]),
     {keep_state_and_data, [{reply, From, {error, dead}}]};
 
-handle_event(cast, {response, association_setup_request, timeout},
+handle_event(cast, {response, association_setup_request, Error},
 	     connecting, #data{mode = transient, retries = Retries, dp = #node{ip = IP}})
-  when Retries >= ?AssocRetries ->
-    ?LOG(debug, "~s Association Setup timeout, ~w tries, shutdown", [inet:ntoa(IP), Retries]),
+  when is_atom(Error), Retries >= ?AssocRetries ->
+    ?LOG(debug, "~s Association Setup ~p, ~w tries, shutdown", [inet:ntoa(IP), Error, Retries]),
     {stop, normal};
 
-handle_event(cast, {response, association_setup_request, timeout},
-	     connecting, #data{retries = Retries, dp = #node{ip = IP}} = Data) ->
-    ?LOG(debug, "~s Association Setup timeout, ~w tries", [inet:ntoa(IP), Retries]),
+handle_event(cast, {response, association_setup_request, Error},
+	     connecting, #data{retries = Retries, dp = #node{ip = IP}} = Data)
+  when is_atom(Error) ->
+    ?LOG(debug, "~s Association Setup ~p, ~w tries", [inet:ntoa(IP), Error, Retries]),
     {next_state, dead, Data#data{retries = Retries + 1}};
 
 handle_event(cast, {response, _, #pfcp{version = v1, type = association_setup_response, ie = IEs}},
@@ -607,10 +616,10 @@ connect_sx_candidates(List, NextPrio, Available) ->
 	    connect_sx_candidates(Next, NextPrio, Available)
     end.
 
-notify_up(Server, NotifyUp) when length(NotifyUp) /= 0 ->
+notify_up(Server, [{Pid, Ref}|_] = NotifyUp) when is_pid(Pid), is_reference(Ref) ->
     gen_statem:cast(Server, {notify_up, NotifyUp});
-notify_up(_, _) ->
-    ok.
+notify_up(Server, {Pid, Ref} = NotifyUp) when is_pid(Pid), is_reference(Ref) ->
+    gen_statem:cast(Server, {notify_up, [NotifyUp]}).
 
 lb(first, [H|T]) -> {H, T};
 lb(random, [H]) -> {H, []};

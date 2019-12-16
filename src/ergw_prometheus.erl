@@ -13,9 +13,12 @@
 	 gtp_path_rtt/4,
 	 gtp_path_contexts/4
 	]).
+-export([pfcp/4, pfcp/5,
+	 pfcp_request_duration/3, pfcp_peer_response/4]).
 
 -include("include/ergw.hrl").
 -include_lib("gtplib/include/gtp_packet.hrl").
+-include_lib("pfcplib/include/pfcp_packet.hrl").
 
 %%%===================================================================
 %%% API
@@ -65,7 +68,7 @@ declare() ->
     prometheus_counter:declare([{name, gtp_c_socket_errors_total},
 				{labels, [name, direction, error]},
 				{help, "Total number of GTP errors on socket"}]),
-    prometheus_histogram:declare([{name, gtp_c_socket_request_duration_milliseconds},
+    prometheus_histogram:declare([{name, gtp_c_socket_request_duration_microseconds},
 				  {labels, [name, version, type]},
 				  {buckets, [100, 300, 500, 750, 1000]},
 				  {help, "GTP Request execution time."}]),
@@ -74,10 +77,38 @@ declare() ->
     prometheus_counter:declare([{name, gtp_u_socket_messages_processed_total},
 				{labels, [name, direction, version, type]},
 				{help, "Total number of GTP message processed on socket"}]),
-   ok.
+
+    %% PFCP metrics
+    prometheus_counter:declare([{name, pfcp_messages_processed_total},
+				{labels, [name, direction, remote, type]},
+				{help, "Total number of PFCP message processed"}]),
+    prometheus_counter:declare([{name, pfcp_messages_duplicates_total},
+				{labels, [name, remote, type]},
+				{help, "Total number of duplicate PFCP message received"}]),
+    prometheus_counter:declare([{name, pfcp_messages_retransmits_total},
+				{labels, [name, remote, type]},
+				{help, "Total number of retransmited PFCP message"}]),
+    prometheus_counter:declare([{name, pfcp_messages_timeouts_total},
+				{labels, [name, remote, type]},
+				{help, "Total number of timed out PFCP message"}]),
+    prometheus_counter:declare([{name, pfcp_messages_replies_total},
+				{labels, [name, direction, remote, type, result]},
+				{help, "Total number of reply PFCP message"}]),
+    prometheus_counter:declare([{name, pfcp_errors_total},
+				{labels, [name, direction, remote, type]},
+				{help, "Total number of PFCP errors"}]),
+    prometheus_histogram:declare([{name, pfcp_peer_response_milliseconds},
+				  {labels, [name, remote, type]},
+				  {buckets, [100, 300, 500, 750, 1000]},
+				  {help, "PFCP round trip time"}]),
+    prometheus_histogram:declare([{name, pfcp_request_duration_microseconds},
+				  {labels, [name, type]},
+				  {buckets, [100, 300, 500, 750, 1000]},
+				  {help, "PFCP Request execution time."}]),
+    ok.
 
 %%%===================================================================
-%%% Metrics collections
+%%% GTP Metrics collections
 %%%===================================================================
 
 %% gtp_error/3
@@ -94,14 +125,14 @@ gtp(Direction, #gtp_port{name = Name, type = 'gtp-c'},
 gtp(Direction, #gtp_port{name = Name, type = 'gtp-u'}, IP,
     #gtp{version = Version, type = MsgType}) ->
     prometheus_counter:inc(gtp_path_messages_processed_total,
-			   [Name, IP, Direction, Version, MsgType]),
+			   [Name, inet:ntoa(IP), Direction, Version, MsgType]),
     prometheus_counter:inc(gtp_u_socket_messages_processed_total,
 			   [Name, Direction, Version, MsgType]).
 
 gtp_c_msg_counter(PathMetric, SocketMetric,
 		  #gtp_port{name = Name, type = 'gtp-c'}, IP,
 		  #gtp{version = Version, type = MsgType}) ->
-    prometheus_counter:inc(PathMetric, [Name, IP, Version, MsgType]),
+    prometheus_counter:inc(PathMetric, [Name, inet:ntoa(IP), Version, MsgType]),
     prometheus_counter:inc(SocketMetric, [Name, Version, MsgType]).
 
 %% gtp/5
@@ -149,11 +180,57 @@ gtp_reply_update(Name, Direction, Version, MsgType, Cause) ->
 			   [Name, Direction, Version, MsgType, Cause]).
 
 gtp_request_duration(#gtp_port{name = Name}, Version, MsgType, Duration) ->
-    prometheus_histogram:observe(gtp_c_socket_request_duration_milliseconds,
-				 [Name, Version, MsgType], Duration).
+    prometheus_histogram:observe(
+      gtp_c_socket_request_duration_microseconds, [Name, Version, MsgType], Duration).
 
 gtp_path_rtt(#gtp_port{name = Name}, RemoteIP, #gtp{version = Version, type = MsgType}, RTT) ->
-    prometheus_histogram:observe(gtp_path_rtt_milliseconds, [Name, RemoteIP, Version, MsgType], RTT).
+    prometheus_histogram:observe(
+      gtp_path_rtt_milliseconds, [Name, inet:ntoa(RemoteIP), Version, MsgType], RTT).
 
 gtp_path_contexts(#gtp_port{name = Name}, RemoteIP, Version, Counter) ->
-    prometheus_gauge:set(gtp_path_contexts_total, [Name, RemoteIP, Version], Counter).
+    prometheus_gauge:set(
+      gtp_path_contexts_total, [Name, inet:ntoa(RemoteIP), Version], Counter).
+
+%%%===================================================================
+%%% PFCP Metrics collections
+%%%===================================================================
+
+%% pfcp_msg_counter/4
+pfcp_msg_counter(Metric, Name, IP, #pfcp{type = MsgType}) ->
+    prometheus_counter:inc(Metric, [Name, inet:ntoa(IP), MsgType]).
+
+%% pfcp_msg_counter/5
+pfcp_msg_counter(Metric, Name, Direction, IP, Type) ->
+    prometheus_counter:inc(Metric, [Name, Direction, inet:ntoa(IP), Type]).
+
+%% pfcp/4
+pfcp(Direction, Name, RemoteIP, #pfcp{type = MsgType, ie = IEs}) ->
+    pfcp_msg_counter(pfcp_messages_processed_total, Name, Direction, RemoteIP, MsgType),
+    pfcp_reply(Name, RemoteIP, Direction, MsgType, IEs);
+pfcp(Direction, Name, RemoteIP, Error)
+  when is_atom(Error) ->
+    pfcp_msg_counter(pfcp_errors_total, Name, Direction, RemoteIP, Error).
+
+%% pfcp/5
+pfcp(tx, Name, RemoteIP, Msg, retransmit) ->
+    pfcp_msg_counter(pfcp_messages_retransmits_total, Name, RemoteIP, Msg);
+pfcp(tx, Name, RemoteIP, Msg, timeout) ->
+    pfcp_msg_counter(pfcp_messages_timeouts_total, Name, RemoteIP, Msg);
+pfcp(rx, Name, RemoteIP, Msg, duplicate) ->
+    pfcp_msg_counter(pfcp_messages_duplicates_total, Name, RemoteIP, Msg).
+
+%% pfcp_reply/5
+pfcp_reply(Name, IP, Direction, MsgType, #{pfcp_cause := #pfcp_cause{cause = Cause}}) ->
+    prometheus_counter:inc(pfcp_messages_replies_total, [Name, Direction, inet:ntoa(IP), MsgType, Cause]);
+pfcp_reply(_Name, _IP, _Direction, _MsgType, _IEs) ->
+    ok.
+
+%% pfcp_request_duration/3
+pfcp_request_duration(Name, MsgType, Duration) ->
+    prometheus_histogram:observe(
+      pfcp_request_duration_microseconds, [Name, MsgType], Duration).
+
+%% pfcp_peer_response/4
+pfcp_peer_response(Name, RemoteIP, #pfcp{type = MsgType}, RTT) ->
+    prometheus_histogram:observe(
+      pfcp_peer_response_milliseconds, [Name, inet:ntoa(RemoteIP), MsgType], RTT).
