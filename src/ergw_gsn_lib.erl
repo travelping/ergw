@@ -1454,8 +1454,6 @@ apn([H|_] = APN0, APNs) when is_binary(H) ->
     APN = gtp_c_lib:normalize_labels(APN0),
     {NI, OI} = ergw_node_selection:split_apn(APN),
     FqAPN = NI ++ OI,
-    ct:pal("NI: ~p~nOI: ~p~nFqAPN: ~p~nAPNs: ~p~n",
-	   [NI, OI, FqAPN, APNs]),
     case APNs of
 	#{FqAPN := A} -> {ok, A};
 	#{NI :=    A} -> {ok, A};
