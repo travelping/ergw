@@ -517,6 +517,12 @@ handle_message(ArrivalTS, IP, Port, Data, #state{gtp_port = GtpPort} = State0) -
 	    {noreply, State0}
     end.
 
+handle_message_1(ArrivalTS, IP, Port, #gtp{version = Version}, _Data,
+		 #state{gtp_port = #gtp_port{name = Name}} = State)
+  when Version /= v1 andalso Version /= v2 ->
+    exometer:update([socket, 'gtp-c', Name, rx, version_not_supported], 1),
+    State;
+
 handle_message_1(_ArrivalTS, IP, Port, 
                  #gtp{type = Type} = Msg, Packet, 
                  #state{gtp_port = GtpPort,
@@ -672,6 +678,7 @@ exo_reg_timeout(Name, Version, MsgType) ->
     exometer_new([socket, 'gtp-c', Name, tx, Version, MsgType, timeout], counter).
 
 init_exometer(#gtp_port{name = Name, type = 'gtp-c'}) ->
+    exometer_new([socket, 'gtp-c', Name, rx, version_not_supported], counter),
     exometer_new([socket, 'gtp-c', Name, rx, v1, unsupported], counter),
     exometer_new([socket, 'gtp-c', Name, tx, v1, unsupported], counter),
     lists:foreach(exo_reg_msg(Name, v1, _), gtp_v1_c:gtp_msg_types()),
