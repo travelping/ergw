@@ -119,19 +119,25 @@
 		   {ip, ?MUST_BE_UPDATED},
 		   {reuseaddr, true}]},
 
+% timeout value of 11000 ms set to maintian consistency with 
+% pgw_SUITE nd saegw_s11_SUITE
 		 {apns,
 		  [{?'APN-EXAMPLE',
 		    [{vrf, sgi},
-		     {ip_pools, ['pool-A']}]},
+             {ip_pools, ['pool-A']},
+             {'Idle-Timeout', 11000}]},
 		   {[<<"exa">>, <<"mple">>, <<"net">>],
 		    [{vrf, sgi},
-		     {ip_pools, ['pool-A']}]},
+             {ip_pools, ['pool-A']},
+             {'Idle-Timeout', 11000}]},
 		   {[<<"APN1">>],
 		    [{vrf, sgi},
-		     {ip_pools, ['pool-A']}]},
+             {ip_pools, ['pool-A']},
+             {'Idle-Timeout', 11000}]},
 		   {[<<"async-sx">>],
 		    [{vrf, sgi},
-		     {ip_pools, ['pool-A']}]}
+             {ip_pools, ['pool-A']},
+             {'Idle-Timeout', 11000}]}
 		  ]},
 
 		 {charging,
@@ -436,7 +442,8 @@ common() ->
      gy_async_stop,
      gx_invalid_charging_rulebase,
      gx_invalid_charging_rule,
-     gx_rar_gy_interaction].
+     gx_rar_gy_interaction,
+     gtp_idle_timeout].
 
 groups() ->
     [{ipv4, [], common()},
@@ -2299,6 +2306,23 @@ gx_invalid_charging_rule(Config) ->
     delete_pdp_context(GtpC),
 
     ?equal([], outstanding_requests()),
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    wait4tunnels(?TIMEOUT),
+    meck_validate(Config),
+    ok.
+
+
+%%--------------------------------------------------------------------
+gtp_idle_timeout() ->
+    [{doc, "Checks if the gtp idle timeout is triggered"}].
+gtp_idle_timeout(Config) ->
+	{GtpC1, _, _} = create_pdp_context(Config),
+% The meck wait timeout (12000) has to be more than then the Idle-Timeout
+	ok = meck:wait(?HUT, handle_event, 
+		[{timeout, context_idle}, stop_session, '_', '_'], 12000),	
+	
+    delete_pdp_context(GtpC1),
+
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     wait4tunnels(?TIMEOUT),
     meck_validate(Config),
