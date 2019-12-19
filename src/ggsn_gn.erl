@@ -320,7 +320,7 @@ handle_request(ReqKey,
 			   ?'Access Point Name' := #access_point_name{apn = APN}
 			  } = IEs} = Request, _Resent, _State,
 	       #{context := Context0, aaa_opts := AAAopts, node_selection := NodeSelect,
-		 'Session' := Session, pcc := PCC0} = Data0) ->
+		 'Session' := Session, pcc := PCC0} = Data) ->
 
     APN_FQDN = ergw_node_selection:apn_to_fqdn(APN),
     Services = [{"x-3gpp-upf", "x-sxb"}],
@@ -350,7 +350,8 @@ handle_request(ReqKey,
     %% -----------------------------------------------------------
 
     ActiveSessionOpts1 = apply_apn_defaults(APNOpts, ActiveSessionOpts0),
-    {IPOpts, ContextPending} = assign_ips(ActiveSessionOpts1, EUA, ContextVRF),
+    ContextAddTimeout = add_apn_timeout(APNOpts, ContextVRF),
+    {IPOpts, ContextPending} = assign_ips(ActiveSessionOpts1, EUA, ContextAddTimeout),
     ergw_aaa_session:set(Session, IPOpts),
     ActiveSessionOpts = maps:merge(ActiveSessionOpts1, IPOpts),
 
@@ -406,9 +407,7 @@ handle_request(ReqKey,
     Response = response(create_pdp_context_response, Context, ResponseIEs, Request),
     gtp_context:send_response(ReqKey, Request, Response),
 
-    #{'Idle-Timeout' := Timeout} = APNOpts,
-    Data = Data0#{timeout => Timeout},
-    Actions = context_idle_action([], Data),
+    Actions = context_idle_action([], Context),
     {keep_state, Data#{context => Context, pfcp => PCtx, pcc => PCC4}, Actions};
 
 handle_request(ReqKey,
@@ -436,7 +435,8 @@ handle_request(ReqKey,
     ResponseIEs = tunnel_endpoint_elements(Context, ResponseIEs0),
     Response = response(update_pdp_context_response, Context, ResponseIEs, Request),
     gtp_context:send_response(ReqKey, Request, Response),
-    Actions = context_idle_action([], Data1),
+
+    Actions = context_idle_action([], Context),
     {keep_state, Data1, Actions};
 
 handle_request(ReqKey,
@@ -453,7 +453,8 @@ handle_request(ReqKey,
     ResponseIEs = copy_ies_to_response(IEs, ResponseIEs0, [?'IMSI', ?'IMEI']),
     Response = response(ms_info_change_notification_response, Context, ResponseIEs, Request),
     gtp_context:send_response(ReqKey, Request, Response),
-    Actions = context_idle_action([], Data), 
+
+    Actions = context_idle_action([], Context), 
     {keep_state, Data#{context => Context}, Actions};
 
 handle_request(ReqKey,
@@ -1200,9 +1201,12 @@ create_pdp_context_response(SessionOpts, RequestIEs,
     IE2 = pdp_pco(SessionOpts, RequestIEs, IE1),
     tunnel_endpoint_elements(Context, IE2).
 
+add_apn_timeout(#{'Idle-Timeout' := Timeout}, Context) ->
+    Context#context{'Idle-Timeout' = Timeout}.
+
 %% Wrapper for gen_statem state_callback_result Actions argument
 %% Timeout set in the context of a prolonged idle gtp session
-context_idle_action(Actions, #{timeout := Timeout})
+context_idle_action(Actions, #context{'Idle-Timeout' = Timeout})
   when is_integer(Timeout) orelse Timeout =:= infinity ->
     [{{timeout, context_idle}, Timeout, stop_session} | Actions];
 context_idle_action(Actions, _) ->

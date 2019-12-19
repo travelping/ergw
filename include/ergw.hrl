@@ -90,6 +90,8 @@
 	  context_id             :: term(),
 	  charging_identifier    :: non_neg_integer(),
 
+	  'Idle-Timeout'  :: non_neg_integer() | infinity,
+
 	  version                :: 'v1' | 'v2',
 	  control_interface      :: atom(),
 	  control_port           :: #gtp_port{},
