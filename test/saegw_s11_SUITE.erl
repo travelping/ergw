@@ -113,16 +113,21 @@
 		   {ip, ?MUST_BE_UPDATED},
 		   {reuseaddr, true}]},
 
+% For test purposes an Idle-Timeout of >= 11000 is used to avoid
+% clashing with other timeout tests like "gy_async_stop"
 		 {apns,
 		  [{?'APN-EXAMPLE',
 		    [{vrf, sgi},
-		     {ip_pools, ['pool-A']}]},
+             {ip_pools, ['pool-A']},
+             {'Idle-Timeout', 11000}]},
 		   {[<<"APN1">>],
 		    [{vrf, sgi},
-		     {ip_pools, ['pool-A']}]},
+             {ip_pools, ['pool-A']},
+             {'Idle-Timeout', 11000}]},
 		   {[<<"async-sx">>],
 		    [{vrf, sgi},
-		     {ip_pools, ['pool-A']}]}
+             {ip_pools, ['pool-A']},
+             {'Idle-Timeout', 11000}]}
 		  ]},
 
 		 {charging,
@@ -420,7 +425,8 @@ common() ->
      gy_async_stop,
      gx_invalid_charging_rulebase,
      gx_invalid_charging_rule,
-     gx_rar_gy_interaction].
+     gx_rar_gy_interaction,
+     gtp_idle_timeout].
 
 groups() ->
     [{ipv4, [], common()},
@@ -1983,6 +1989,22 @@ gx_invalid_charging_rule(Config) ->
     delete_session(GtpC),
 
     ?equal([], outstanding_requests()),
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    wait4tunnels(?TIMEOUT),
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+gtp_idle_timeout() ->
+    [{doc, "Checks if the gtp idle timeout is triggered"}].
+gtp_idle_timeout(Config) ->
+	{GtpC1, _, _} = create_session(Config),
+% The meck wait timeout (12000) has to be more than then the Idle-Timeout
+	ok = meck:wait(?HUT, handle_event, 
+		[{timeout, context_idle}, stop_session, '_', '_'], 12000),	
+	
+    delete_session(GtpC1),
+
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     wait4tunnels(?TIMEOUT),
     meck_validate(Config),
