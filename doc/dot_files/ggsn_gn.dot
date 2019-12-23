@@ -1,0 +1,46 @@
+﻿/* Version: 0.0.1, Date:2019-12-19, Status: Always Draft */
+/* Diagram of ggsn_gn.erl connections */
+/* Download graphwiz & run in dot file directory the cmd (without quotes)-> */
+/* 'dot -Tpng ggsn_gn.dot -o ggsn_gn.png'  */
+digraph ggsn_gn {
+ratio="fill"
+/* size="8,2\!" */
+{ 
+node [shape=oval style=filled]
+"3gpp_qos"[fillcolor=violet]
+ergw [fillcolor=cornsilk]
+ergw_charging [fillcolor=lightcyan]
+ergw_config [fillcolor=lightcyan]
+ergw_gsn_lib [fillcolor=cornsilk]
+ergw_gtp_c_socket [fillcolor=lightcyan]
+ergw_inet [fillcolor=cornsilk]
+ergw_node_selection [fillcolor=cornsilk]
+ergw_pfcp [fillcolor=lightcyan]
+ergw_sx_node [fillcolor=lightcyan]
+ergw_sx_node_reg [fillcolor=lightcyan]
+ggsn_gn [fillcolor=rosybrown]
+gtp_api [fillcolor=lightsalmon]
+gtp_c_lib [fillcolor=burlywood1]
+gtp_context [fillcolor=burlywood1]
+gtp_context_reg [fillcolor=lightcyan]
+gtp_packet [fillcolor=burlywood1]
+gtp_path [fillcolor=burlywood1]
+gtp_v1_c [fillcolor=burlywood1]
+itu_e212 [fillcolor=lightpink]
+ergw_aaa_session_sup [fillcolor=beige]
+ergw_aaa_session [fillcolor=bisque]
+ergw_aaa_diameter [fillcolor=bisque]
+}
+edge [color=black style=dotted]
+ergw_charging -> {ergw_config}
+ergw_gsn_lib -> {ergw_sx_node ergw_pfcp}
+ergw_gsn_lib -> {ergw_aaa_diameter ergw_aaa_session}
+ergw_sx_node -> {ergw_sx_node_reg ergw_node_selection}
+gtp_context -> {ergw_charging ergw_config ergw_gtp_c_socket gtp_context_reg gtp_path}
+edge [color=crimson style=solid]
+ggsn_gn -> {"3gpp_qos" ergw ergw_gsn_lib ergw_charging ergw_node_selection ergw_inet ergw_sx_node gtp_context gtp_c_lib gtp_path gtp_v1_c gtp_packet itu_e212}
+edge [color=darkolivegreen]
+ggsn_gn -> {ergw_aaa_session_sup ergw_aaa_session}
+edge [color=blue]
+ggsn_gn -> gtp_api [style="dashed" color="blue"]
+}

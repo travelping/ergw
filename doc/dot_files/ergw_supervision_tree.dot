@@ -1,0 +1,38 @@
+digraph ergw_supervision_tree {
+{ 
+node [shape=oval style=filled]
+ergw_app [fillcolor=beige] 
+ergw_sup [fillcolor=azure]
+ergw [fillcolor=greenyellow]
+ergw_sx_socket [fillcolor=bisque]
+ergw_gtp_c_socket [fillcolor=greenyellow]
+ergw_gtp_socket_reg [fillcolor=greenyellow]
+ergw_gtp_socket_sup [fillcolor=azure]
+ergw_gtp_socket [fillcolor=greenyellow]
+ergw_ip_pool_sup [fillcolor=azure]
+ergw_ip_pool_reg [fillcolor = greenyellow]
+ergw_ip_pool [fillcolor = greenyellow]
+ergw_sx_node_reg [fillcolor=greenyellow]
+ergw_sx_node_sup [fillcolor=azure]
+ergw_sx_node_mngr [fillcolor=greenyellow]
+ergw_sx_node [fillcolor=greenyellow]
+gtp_path_reg [fillcolor=greenyellow]
+gtp_path_sup [fillcolor=azure] 
+gtp_path [fillcolor=greenyellow]
+gtp_context_reg [fillcolor=greenyellow]
+gtp_context_sup [fillcolor=azure]
+gtp_context [fillcolor=greenyellow]
+gtp_proxy_ds [fillcolor=greenyellow]
+tdf_sup [fillcolor=azure]
+tdf [fillcolor=greenyellow]
+}
+ergw_app -> ergw_sup
+ergw_sup -> {gtp_path_reg gtp_path_sup gtp_context_reg gtp_context_sup tdf_sup ergw_gtp_socket_reg ergw_gtp_socket_sup ergw_sx_node_reg ergw_sx_node_sup ergw_sx_node_mngr  gtp_proxy_ds ergw_ip_pool_reg ergw_ip_pool_sup ergw} 
+ergw_sup -> ergw_sx_socket
+ergw_gtp_socket_sup -> {ergw_gtp_socket ergw_gtp_c_socket}
+ergw_ip_pool_sup -> ergw_ip_pool
+ergw_sx_node_sup -> ergw_sx_node
+gtp_context_sup -> gtp_context
+gtp_path_sup -> gtp_path
+tdf_sup -> tdf
+}
