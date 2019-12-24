@@ -1,32 +1,32 @@
-/* Version: 0.0.1, Date:2019-12-19, Status: Always Draft */
+/* Version: 0.0.1, Date:2019-12-23, Status: Always Draft */
 /* Not that readable, but good master file to produce smaller feature diagrams */
 /* Download graphwiz, and run dot cmd -> */
-/* 'dot -Tpng filename.dot -o outfile.png'  */
+/* 'dot -Tsvg ergw_flow_syntax.dot -o ergw_flow_syntax.svg' */
 digraph ergw_flow_syntax {
 { 
 node [shape=oval style=filled]
 "3gpp_qos" [fillcolor=yellow]
-ergw
-ergw_api
-ergw_app
+ergw [fillcolor=lavenderblush]
+ergw_api [fillcolor=lavenderblush]
+ergw_app [fillcolor=lavenderblush]
 ergw_cache  [fillcolor=yellow]
-ergw_charging
-ergw_config
-ergw_context
-ergw_control  [fillcolor=yellow]
+ergw_charging [fillcolor=lavenderblush]
+ergw_config [fillcolor=lavenderblush]
+ergw_context [fillcolor=lavenderblush]
+ergw_control  [fillcolor=beige]
 ergw_gsn_lib [fillcolor=yellowgreen]
 ergw_gtp_c_socket [fillcolor=plum]
 ergw_gtp_socket [fillcolor=plum]
 ergw_gtp_socket_reg  [fillcolor=yellow]
 ergw_gtp_socket_sup [fillcolor=azure]
 ergw_gtp_u_socket [fillcolor=plum]
-ergw_http_api
+ergw_http_api [fillcolor=lavenderblush]
 ergw_inet  [fillcolor=yellow]
 ergw_ip_pool [fillcolor=brown]
 ergw_ip_pool_reg [fillcolor=brown]
 ergw_ip_pool_sup [fillcolor=azure]
 ergw_node_selection[fillcolor=brown]
-ergw_pfcp
+ergw_pfcp [fillcolor=lavenderblush]
 ergw_prometheus  [fillcolor=yellow]
 ergw_proxy_lib [fillcolor=yellowgreen]
 ergw_sup [fillcolor=azure]
@@ -42,23 +42,23 @@ gtp_config  [fillcolor=yellow]
 gtp_context [fillcolor=moccasin]
 gtp_context_reg  [fillcolor=moccasin]
 gtp_context_sup [fillcolor=azure]
-gtp_path
+gtp_path [fillcolor=thistle]
 gtp_path_reg  [fillcolor=yellow]
 gtp_path_sup [fillcolor=azure]
 gtp_proxy_ds  [fillcolor=yellow]
 gtp_v1_c [fillcolor=lightpink]
 gtp_v1_u [fillcolor=lightpink]
 gtp_v2_c [fillcolor=lightpink]
-http_api_handler
+http_api_handler [fillcolor=khaki]
 itu_e212  [fillcolor=yellow]
 pgw_s5s8  [fillcolor=bisque]
 pgw_s5s8_proxy [fillcolor=bisque3]
 saegw_s11 [fillcolor=bisque]
-swagger_ui_handler  [fillcolor=yellow]
+swagger_ui_handler  [fillcolor=beige]
 tdf_sup [fillcolor=azure]
-tdf
-vrf
-/* gehaviours */
+tdf [fillcolor=lightsalmon]
+vrf [fillcolor=lightsalmon]
+/* behaviours */
 ergw_context [fillcolor=cyan2]
 gtp_api  [fillcolor=cyan2]
 gtp_protocol  [fillcolor=cyan2]
@@ -67,6 +67,12 @@ application [fillcolor=cyan4]
 supervisor [fillcolor=cyan4]
 gen_server [fillcolor=cyan4]
 gen_statem [fillcolor=cyan4]
+/* ergw_aaa modules */
+ergw_aaa_diameter [fillcolor=darkslategray fontcolor=white] 
+ergw_aaa_session [fillcolor=darkslategray fontcolor=white]
+ergw_aaa_session_sup [fillcolor=darkslategray fontcolor=white]
+/* gtplib */
+gtp_packet [fillcolor=midnightblue fontcolor=white]
 }
 /* No outgoing calls for 3gpp_qos */
 ergw -> {ergw_gtp_socket ergw_node_selection ergw_sx_node ergw_sx_node_mngr ergw_sx_node_reg ergw_gtp_socket_reg ergw_ip_pool gtp_path_reg gtp_context_reg}

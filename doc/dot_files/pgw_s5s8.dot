@@ -1,7 +1,7 @@
-﻿/* Version: 0.0.1, Date:2019-12-19, Status: Always Draft */
+﻿/* Version: 0.0.1, Date:2019-12-23, Status: Always Draft */
 /* Diagram of pgw_s5s8 connections */
 /* Download graphwiz & run in dot file directory the cmd (without quotes)-> */
-/* 'dot -Tpng pgw_s5s8.dot -o pgw_s5s8.png'  */
+/* 'dot -Tsvg pgw_s5s8.dot -o pgw_s5s8.svg' */
 digraph pgw_s5s8 {
 ratio="fill"
 /* size="8,2\!" */

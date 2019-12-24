@@ -1,3 +1,7 @@
+/* Version: 0.0.1, Date:2019-12-23, Status: Always Draft */
+/* ErGW supervision tree */
+/* Download graphwiz, and run dot cmd -> */
+/* 'dot -Tsvg ergw_supervision_tree.dot -o ergw_supervision_tree.svg' */
 digraph ergw_supervision_tree {
 { 
 node [shape=oval style=filled]
