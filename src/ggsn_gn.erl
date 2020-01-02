@@ -333,11 +333,12 @@ handle_request(ReqKey,
 
     SessionOpts0 = init_session(IEs, ContextPreAuth, AAAopts),
     SessionOpts1 = init_session_from_gtp_req(IEs, AAAopts, SessionOpts0),
-    SessionOpts = init_session_qos(IEs, SessionOpts1),
+    SessionOpts2 = init_session_qos(IEs, SessionOpts1),
 
     ergw_sx_node:wait_connect(SxConnectId),
     {UPinfo0, ContextUP} = ergw_gsn_lib:select_upf(Candidates, ContextPreAuth),
 
+    SessionOpts  = init_session_pool(ContextUP, SessionOpts2),
     {ok, ActiveSessionOpts0, AuthSEvs} =
 	authenticate(ContextUP, Session, SessionOpts, Request),
 
@@ -864,6 +865,15 @@ init_session_qos(#{?'Quality of Service Profile' :=
     session_qos_info(QoS, NegotiatedARP, IEs, Session);
 init_session_qos(_IEs, Session) ->
     Session.
+
+init_session_pool(#context{ipv4_pool = undefined, ipv6_pool = undefined}, Session) ->
+    Session;
+init_session_pool(#context{ipv4_pool = IPv4Pool, ipv6_pool = undefined}, Session) ->
+    Session#{'Framed-Pool' => IPv4Pool};
+init_session_pool(#context{ipv4_pool = undefined, ipv6_pool = IPv6Pool}, Session) ->
+    Session#{'Framed-IPv6-Pool' => IPv6Pool};
+init_session_pool(#context{ipv4_pool = IPv4Pool, ipv6_pool = IPv6Pool}, Session) ->
+    Session#{'Framed-Pool' => IPv4Pool, 'Framed-IPv6-Pool' => IPv6Pool}.
 
 update_session_from_gtp_req(IEs, Session, Context) ->
     OldSOpts = ergw_aaa_session:get(Session),
