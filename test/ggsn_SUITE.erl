@@ -354,7 +354,7 @@
 	 {[node_selection, {default, 2}, 2, "topon.gn.ggsn.$ORIGIN"],
 	  {fun node_sel_update/2, final_gsn}},
 	 {[node_selection, {default, 2}, 2, "topon.sx.prox01.$ORIGIN"],
-	  {fun node_sel_update/2, pgw_u_sx}},
+	  {fun node_sel_update/2, pgw_u01_sx}},
 	 {[node_selection, {default, 2}, 2, "topon.sx.prox02.$ORIGIN"],
 	  {fun node_sel_update/2, sgw_u_sx}}
 	]).
@@ -462,11 +462,11 @@ setup_per_testcase(Config) ->
 
 setup_per_testcase(Config, ClearSxHist) ->
     ct:pal("Sockets: ~p", [ergw_gtp_socket_reg:all()]),
-    ergw_test_sx_up:reset('pgw-u'),
+    ergw_test_sx_up:reset('pgw-u01'),
     meck_reset(Config),
     start_gtpc_server(Config),
     reconnect_all_sx_nodes(),
-    ClearSxHist andalso ergw_test_sx_up:history('pgw-u', true),
+    ClearSxHist andalso ergw_test_sx_up:history('pgw-u01', true),
     ok.
 
 init_per_testcase(create_pdp_context_request_aaa_reject, Config) ->
@@ -958,7 +958,7 @@ error_indication() ->
 error_indication(Config) ->
     {GtpC, _, _} = create_pdp_context(Config),
 
-    ergw_test_sx_up:send('pgw-u', make_error_indication_report(GtpC)),
+    ergw_test_sx_up:send('pgw-u01', make_error_indication_report(GtpC)),
 
     ct:sleep(100),
     delete_pdp_context(not_found, GtpC),
@@ -1153,7 +1153,7 @@ update_pdp_context_request_tei_update(Config) ->
     [SMR0|_] = lists:filter(
 		 fun(#pfcp{type = session_modification_request}) -> true;
 		    (_) -> false
-		 end, ergw_test_sx_up:history('pgw-u')),
+		 end, ergw_test_sx_up:history('pgw-u01')),
     SMR = pfcp_packet:to_map(SMR0),
     #{update_far :=
 	  #update_far{
@@ -1455,14 +1455,14 @@ session_accounting(Config) ->
     #{context := Context, pfcp:= PCtx} = gtp_context:info(Pid),
 
     %% make sure we handle that the Sx node is not returning any accounting
-    ergw_test_sx_up:accounting('pgw-u', off),
+    ergw_test_sx_up:accounting('pgw-u01', off),
 
     SessionOpts1 = ergw_test_lib:query_usage_report(Context, PCtx),
     ?equal(false, maps:is_key('InPackets', SessionOpts1)),
     ?equal(false, maps:is_key('InOctets', SessionOpts1)),
 
     %% enable accouting again....
-    ergw_test_sx_up:accounting('pgw-u', on),
+    ergw_test_sx_up:accounting('pgw-u01', on),
 
     SessionOpts2 = ergw_test_lib:query_usage_report(Context, PCtx),
     ?match(#{'InPackets' := 3, 'OutPackets' := 1,
@@ -1547,7 +1547,7 @@ simple_aaa(Config) ->
     [SER|_] = lists:filter(
 		fun(#pfcp{type = session_establishment_request}) -> true;
 		   (_) ->false
-		end, ergw_test_sx_up:history('pgw-u')),
+		end, ergw_test_sx_up:history('pgw-u01')),
 
     URR = lists:sort(maps:get(create_urr, SER#pfcp.ie)),
     ?match(
@@ -1578,7 +1578,7 @@ simple_aaa(Config) ->
 	[#usage_report_trigger{perio = 1},
 	 #volume_measurement{total = 5, uplink = 2, downlink = 3},
 	 #tp_packet_measurement{total = 12, uplink = 5, downlink = 7}],
-    ergw_test_sx_up:usage_report('pgw-u', PCtx, MatchSpec, Report),
+    ergw_test_sx_up:usage_report('pgw-u01', PCtx, MatchSpec, Report),
 
     ct:sleep(100),
     delete_pdp_context(GtpC),
@@ -1645,7 +1645,7 @@ simple_ofcs(Config) ->
     [SER|_] = lists:filter(
 		fun(#pfcp{type = session_establishment_request}) -> true;
 		   (_) ->false
-		end, ergw_test_sx_up:history('pgw-u')),
+		end, ergw_test_sx_up:history('pgw-u01')),
 
     URR = maps:get(create_urr, SER#pfcp.ie),
     ?match(
@@ -1667,7 +1667,7 @@ simple_ofcs(Config) ->
 	[#usage_report_trigger{perio = 1},
 	 #volume_measurement{total = 5, uplink = 2, downlink = 3},
 	 #tp_packet_measurement{total = 12, uplink = 5, downlink = 7}],
-    ergw_test_sx_up:usage_report('pgw-u', PCtx, MatchSpec, Report),
+    ergw_test_sx_up:usage_report('pgw-u01', PCtx, MatchSpec, Report),
 
     ct:sleep(100),
     delete_pdp_context(GtpC),
@@ -1721,7 +1721,7 @@ simple_ocs(Config) ->
     [SER|_] = lists:filter(
 		fun(#pfcp{type = session_establishment_request}) -> true;
 		   (_) ->false
-		end, ergw_test_sx_up:history('pgw-u')),
+		end, ergw_test_sx_up:history('pgw-u01')),
 
     URR = lists:sort(maps:get(create_urr, SER#pfcp.ie)),
     ?match(
@@ -1760,7 +1760,7 @@ simple_ocs(Config) ->
 	[#usage_report_trigger{volqu = 1},
 	 #volume_measurement{total = 5, uplink = 2, downlink = 3},
 	 #tp_packet_measurement{total = 12, uplink = 5, downlink = 7}],
-    ergw_test_sx_up:usage_report('pgw-u', PCtx, MatchSpec, Report),
+    ergw_test_sx_up:usage_report('pgw-u01', PCtx, MatchSpec, Report),
 
     ct:sleep(100),
     delete_pdp_context(GtpC),
@@ -1955,8 +1955,8 @@ volume_threshold(Config) ->
 
     MatchSpec = ets:fun2ms(fun({Id, {'online', _}}) -> Id end),
 
-    ergw_test_sx_up:usage_report('pgw-u', PCtx, MatchSpec, [#usage_report_trigger{volth = 1}]),
-    ergw_test_sx_up:usage_report('pgw-u', PCtx, MatchSpec, [#usage_report_trigger{volqu = 1}]),
+    ergw_test_sx_up:usage_report('pgw-u01', PCtx, MatchSpec, [#usage_report_trigger{volth = 1}]),
+    ergw_test_sx_up:usage_report('pgw-u01', PCtx, MatchSpec, [#usage_report_trigger{volqu = 1}]),
 
     ct:sleep({seconds, 1}),
 
@@ -1966,7 +1966,7 @@ volume_threshold(Config) ->
 	lists:filter(
 	  fun(#pfcp{type = session_modification_request}) -> true;
 	     (_) ->false
-	  end, ergw_test_sx_up:history('pgw-u')),
+	  end, ergw_test_sx_up:history('pgw-u01')),
 
     ?equal([0, 0, 0, 0, 0, 1, 0, 0, 0],
 	   [maps_key_length(X1, Sx1#pfcp.ie)
@@ -2170,7 +2170,7 @@ gx_rar(Config) ->
 	lists:filter(
 	  fun(#pfcp{type = session_modification_request}) -> true;
 	     (_) ->false
-	  end, ergw_test_sx_up:history('pgw-u')),
+	  end, ergw_test_sx_up:history('pgw-u01')),
 
     ct:pal("Sx1: ~p", [Sx1]),
     ?equal([2, 2, 1, 0, 0, 0, 0, 0, 0],

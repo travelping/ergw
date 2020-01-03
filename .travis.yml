@@ -31,6 +31,7 @@ before_script:
       sudo ip addr add fd96:dcd2:efdb:41c3::20/64 dev lo;
       sudo ip addr add fd96:dcd2:efdb:41c3::30/64 dev lo;
       sudo ip addr add fd96:dcd2:efdb:41c3::40/64 dev lo;
+      sudo ip addr add fd96:dcd2:efdb:41c3::50/64 dev lo;
     fi
 
 script:

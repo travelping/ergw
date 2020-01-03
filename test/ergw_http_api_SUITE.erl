@@ -21,7 +21,7 @@
 	 {[node_selection, {default, 2}, 2, "topon.gn.ggsn.$ORIGIN"],
 	  {fun node_sel_update/2, final_gsn}},
 	 {[node_selection, {default, 2}, 2, "topon.sx.prox01.$ORIGIN"],
-	  {fun node_sel_update/2, pgw_u_sx}}
+	  {fun node_sel_update/2, pgw_u01_sx}}
 	]).
 
 -define(TEST_CONFIG,
@@ -154,7 +154,7 @@ init_per_testcase(Config) ->
     meck_reset(Config).
 init_per_testcase(http_api_delete_sessions, Config) ->
     ct:pal("Sockets: ~p", [ergw_gtp_socket_reg:all()]),
-    ergw_test_sx_up:reset('pgw-u'),
+    ergw_test_sx_up:reset('pgw-u01'),
     meck_reset(Config),
     start_gtpc_server(Config),
     Config;

@@ -89,11 +89,11 @@ handle_call({map, #proxy_info{ggsns = GGSNs0, imsi = IMSI, src_apn = APN} = Prox
 	end,
     ProxyInfo =
 	case ergw_gsn_lib:apn(APN, APNMap) of
-	    {ok, DstAPN} ->
+	    false ->
+		ProxyInfo1;
+	    DstAPN ->
 		ProxyInfo1#proxy_info{
-		  ggsns = [GGSN#proxy_ggsn{dst_apn = DstAPN} || GGSN <- GGSNs0]};
-	    _ ->
-		ProxyInfo1
+		  ggsns = [GGSN#proxy_ggsn{dst_apn = DstAPN} || GGSN <- GGSNs0]}
 	end,
     {reply, {ok, ProxyInfo}, State}.
 

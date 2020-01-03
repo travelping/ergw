@@ -348,8 +348,7 @@ start_session(#data{apn = APN, context = Context0, dp_node = Node,
 		    session = Session, pcc = PCC0} = Data) ->
 
     {ok, PendingPCtx, NodeCaps} = ergw_sx_node:attach(Node, Context0),
-    {ok, OutVrf, _APNOpts} = ergw_gsn_lib:select_vrf(NodeCaps, APN),
-    PendingContext = Context0#tdf_ctx{out_vrf = OutVrf},
+    PendingContext = Context0#tdf_ctx{out_vrf = ergw_gsn_lib:select_vrf(NodeCaps, APN)},
 
     Now = erlang:monotonic_time(),
     SOpts = #{now => Now},

@@ -11,7 +11,7 @@
 
 %% API
 -export([start_link/0]).
--export([register/2, unregister/1, lookup/1, up/1, down/1, available/0]).
+-export([register/2, unregister/1, lookup/1, up/2, down/1, available/0]).
 -export([all/0]).
 
 %% regine_server callbacks
@@ -44,8 +44,8 @@ lookup(Key) ->
 	    {error, not_found}
     end.
 
-up(Key) ->
-    regine_server:call(?SERVER, {up, Key}).
+up(Key, Caps) ->
+    regine_server:call(?SERVER, {up, Key, Caps}).
 
 down(Key) ->
     regine_server:call(?SERVER, {down, Key}).
@@ -80,8 +80,13 @@ handle_pid_remove(_Pid, Keys, State) ->
 handle_death(_Pid, _Reason, State) ->
     State.
 
-handle_call({up, Key}, _From, State) ->
-    {reply, ok, maps:put(Key, make_ref(), State)};
+handle_call({up, Key, Caps}, _From, State) ->
+    case lookup(Key) of
+	{ok, Pid} ->
+	    {reply, ok, maps:put(Key, {Pid, Caps}, State)};
+	Other ->
+	    {reply, Other, State}
+    end;
 
 handle_call({down, Key}, _From, State) ->
     {reply, ok, maps:remove(Key, State)};

@@ -32,8 +32,10 @@
 	 gy_credit_request/3,
 	 pcc_events_to_charging_rule_report/1]).
 -export([pcc_ctx_has_rules/1]).
--export([apn/2, select_vrf/2, select_vrf_and_pool/2,
+-export([apn/2, select_vrf/2,
 	 allocate_ips/4, release_context_ips/1]).
+
+-export([select_upf/2, reselect_upf/4]).
 
 -include_lib("kernel/include/logger.hrl").
 -include_lib("gtplib/include/gtp_packet.hrl").
@@ -1447,21 +1449,26 @@ pcc_ctx_to_credit_request(#pcc_ctx{rules = Rules}) ->
 %%%===================================================================
 
 apn(APN) ->
-    {ok, APNs} = application:get_env(ergw, apns),
-    apn(APN, APNs).
+    apn(APN, application:get_env(ergw, apns, #{})).
 
 apn([H|_] = APN0, APNs) when is_binary(H) ->
     APN = gtp_c_lib:normalize_labels(APN0),
     {NI, OI} = ergw_node_selection:split_apn(APN),
     FqAPN = NI ++ OI,
     case APNs of
-	#{FqAPN := A} -> {ok, A};
-	#{NI :=    A} -> {ok, A};
-	#{'_' :=   A} -> {ok, A};
+	#{FqAPN := A} -> A;
+	#{NI :=    A} -> A;
+	#{'_' :=   A} -> A;
 	_ -> false
     end;
 apn(_, _) ->
     false.
+
+apn_opts(APN, Context) ->
+    case apn(APN) of
+	false -> throw(?CTX_ERR(?FATAL, missing_or_unknown_apn, Context));
+	Other -> Other
+    end.
 
 select(_, []) -> undefined;
 select(first, L) -> hd(L);
@@ -1477,25 +1484,83 @@ select(Method, L1, L2) when is_list(L1), is_list(L2) ->
 
 %% select_vrf/2
 select_vrf({AvaVRFs, _AvaPools}, APN) ->
-    {ok, #{vrfs := VRFs} = Opts} = apn(APN),
-    VRF = select(random, VRFs, AvaVRFs),
-    {ok, VRF, maps:without([vrfs, ip_pools], Opts)}.
+    select(random, maps:get(vrfs, apn(APN)), AvaVRFs).
 
-%% select_vrf_and_pool/2
-select_vrf_and_pool({AvaVRFs, AvaPools}, #context{apn = APN} = Context) ->
-    try
-	{ok, #{vrfs := VRFs, ip_pools := Pools} = Opts} = apn(APN),
-	VRF = maps:get(select(random, VRFs, AvaVRFs), AvaVRFs),
-	Pool = select(random, Pools, AvaPools),
-	{Context#context{vrf = VRF, ipv4_pool = Pool, ipv6_pool = Pool},
-	 maps:without([vrfs, ip_pools], Opts)}
-    catch
-	error:{badmatch, _} ->
-	    throw(?CTX_ERR(?FATAL, missing_or_unknown_apn, Context));
-	error:{badkey, _} ->
-	    ?LOG(error, "no common VRF or IP pools for session ~p", [Context]),
-	    throw(?CTX_ERR(?FATAL, system_failure, Context))
-    end.
+%% select_upf/2
+select_upf(Candidates, #context{apn = APN} = Ctx) ->
+    Opts = apn_opts(APN, Ctx),
+    {Pid, NodeCaps, VRF, Pools} =
+	select_by_caps(Candidates, Opts, [], Ctx),
+
+    %% TBD: smarter v4/v6 pool select
+    Pool = select(random, Pools),
+
+    {{Pid, NodeCaps, Opts}, Ctx#context{vrf = VRF, ipv4_pool = Pool, ipv6_pool = Pool}}.
+
+%% reselect_upf/4
+reselect_upf(Candidates, SOpts, Ctx, UPinfo0) ->
+    IP4 = maps:get('Framed-Pool', SOpts, Ctx#context.ipv4_pool),
+    IP6 = maps:get('Framed-IPv6-Pool', SOpts, Ctx#context.ipv6_pool),
+    reselect_upf_(Candidates, Ctx, Ctx#context{ipv4_pool = IP4, ipv6_pool = IP6}, UPinfo0).
+
+reselect_upf_(_, Ctx, Ctx, {Pid, NodeCaps, APNOpts}) ->
+    {ok, PCtx, _} = ergw_sx_node:attach(Pid, Ctx),
+    {PCtx, NodeCaps, APNOpts, Ctx};
+
+reselect_upf_(Candidates, _, #context{ipv4_pool = IP4, ipv6_pool = IP6} = Ctx, {_, _, Opts}) ->
+    Pools = ordsets:from_list([IP4 || is_binary(IP4)] ++ [IP6 || is_binary(IP6)]),
+    {Pid, NodeCaps, VRF, _} =
+	select_by_caps(Candidates, Opts, Pools, Ctx),
+    {ok, PCtx, _} = ergw_sx_node:attach(Pid, Ctx),
+    {PCtx, NodeCaps, Opts, Ctx#context{vrf = VRF}}.
+
+%% common_caps/3
+common_caps({WVRFs, WPools}, {HVRFs, HPools}, true) ->
+    VRFs = maps:with(WVRFs, HVRFs),
+    Pools = ordsets:intersection(WPools, HPools),
+    {maps:size(VRFs) /= 0 andalso length(Pools) /=0, VRFs, Pools};
+common_caps({WVRFs, WPools}, {HVRFs, HPools}, false) ->
+    VRFs = maps:with(WVRFs, HVRFs),
+    {maps:size(VRFs) /= 0 andalso ordsets:is_subset(WPools, HPools), VRFs, WPools}.
+
+%% common_caps/5
+common_caps(_, [], _Available, _AnyPool, Candidates) ->
+    Candidates;
+common_caps(Wanted, [{Node, _, _, _, _} = UPF|Next], Available, AnyPool, Candidates)
+  when is_map_key(Node, Available) ->
+    {_, NodeCaps} = maps:get(Node, Available),
+    case common_caps(Wanted, NodeCaps, AnyPool) of
+	{true, _, _} ->
+	    [UPF|common_caps(Wanted, Next, Available, AnyPool,Candidates)];
+	{false, _, _} ->
+	    common_caps(Wanted, Next, Available, AnyPool, Candidates)
+    end;
+common_caps(Wanted, [_|Next], Available, AnyPool, Candidates) ->
+    common_caps(Wanted, Next, Available, AnyPool, Candidates).
+
+select_by_caps(Candidates, #{vrfs := VRFs, ip_pools := Pools}, [], Context) ->
+    Wanted = {VRFs, ordsets:from_list(Pools)},
+    filter_by_caps(Candidates, Wanted, true, Context);
+
+select_by_caps(Candidates, #{vrfs := VRFs, ip_pools := Pools}, WantPools, Context) ->
+    ordsets:is_subset(WantPools, Pools) orelse
+	    %% pool not available
+	throw(?CTX_ERR(?FATAL, no_resources_available, Context)),
+
+    Wanted = {VRFs, WantPools},
+    filter_by_caps(Candidates, Wanted, false, Context).
+
+filter_by_caps(Candidates, Wanted, AnyPool, Context) ->
+    Available = ergw_sx_node_reg:available(),
+    Eligible = common_caps(Wanted, Candidates, Available, AnyPool, []),
+    length(Eligible) /= 0 orelse
+	throw(?CTX_ERR(?FATAL, no_resources_available, Context)),
+    Prio1 = hd(ergw_node_selection:candidates_by_preference(Eligible)),
+    {Node, _, _} = select(random, Prio1),
+    {Pid, NodeCaps} = maps:get(Node, Available),
+    {_, SVRFs, SPools} = common_caps(Wanted, NodeCaps, AnyPool),
+    VRF = maps:get(select(random, maps:keys(SVRFs)), SVRFs),
+    {Pid, NodeCaps, VRF, SPools}.
 
 %%%===================================================================
 
