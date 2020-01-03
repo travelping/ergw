@@ -338,7 +338,7 @@
 	 {[node_selection, {default, 2}, 2, "topon.s5s8.pgw.$ORIGIN"],
 	  {fun node_sel_update/2, final_gsn}},
 	 {[node_selection, {default, 2}, 2, "topon.sx.prox01.$ORIGIN"],
-	  {fun node_sel_update/2, pgw_u_sx}},
+	  {fun node_sel_update/2, pgw_u01_sx}},
 	 {[node_selection, {default, 2}, 2, "topon.sx.prox02.$ORIGIN"],
 	  {fun node_sel_update/2, sgw_u_sx}}
 	]).

@@ -344,7 +344,7 @@
 	 {[node_selection, {default, 2}, 2, "topon.s5s8.pgw.$ORIGIN"],
 	  {fun node_sel_update/2, final_gsn}},
 	 {[node_selection, {default, 2}, 2, "topon.sx.prox01.$ORIGIN"],
-	  {fun node_sel_update/2, pgw_u_sx}}
+	  {fun node_sel_update/2, pgw_u01_sx}}
 	]).
 
 node_sel_update(Node, {_,_,_,_} = IP) ->
@@ -377,7 +377,7 @@ bench_init_per_group(Config0) ->
     [application:load(App) || App <- [cowboy, ergw, ergw_aaa]],
     load_config(AppCfg),
     {ok, _} = application:ensure_all_started(ergw),
-    {ok, _} = ergw_test_sx_up:start('pgw-u', proplists:get_value(pgw_u_sx, Config)),
+    {ok, _} = ergw_test_sx_up:start('pgw-u01', proplists:get_value(pgw_u01_sx, Config)),
     {ok, _} = ergw_test_sx_up:start('sgw-u', proplists:get_value(sgw_u_sx, Config)),
     {ok, AppsCfg} = application:get_env(ergw_aaa, apps),
     [{aaa_cfg, AppsCfg} |Config].
@@ -395,7 +395,7 @@ init_per_group(ipv4, Config0) ->
     bench_init_per_group(Config).
 
 bench_end_per_group(Config) ->
-    ok = ergw_test_sx_up:stop('pgw-u'),
+    ok = ergw_test_sx_up:stop('pgw-u01'),
     ok = ergw_test_sx_up:stop('sgw-u'),
     ?config(table_owner, Config) ! stop,
     [application:stop(App) || App <- [ranch, cowboy, ergw, ergw_aaa]],
@@ -421,8 +421,8 @@ all() ->
 %%%===================================================================
 
 init_per_testcase(Config) ->
-    ergw_test_sx_up:reset('pgw-u'),
-    ergw_test_sx_up:history('pgw-u', false),
+    ergw_test_sx_up:reset('pgw-u01'),
+    ergw_test_sx_up:history('pgw-u01', false),
     start_gtpc_server(Config),
     reconnect_all_sx_nodes(),
     ok.

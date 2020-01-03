@@ -34,8 +34,10 @@
 %%% API
 %%%===================================================================
 
-start(Role, IP) ->
-    gen_server:start({local, server_name(Role)}, ?MODULE, [IP], []).
+start(Role, IP) when is_tuple(IP) ->
+    gen_server:start({local, server_name(Role)}, ?MODULE, [IP], []);
+start(_, undefined) ->
+    {ok, ignored}.
 
 stop(Role) ->
     try
@@ -149,9 +151,10 @@ handle_call({send, SEID, #pfcp{} = Msg}, _From, State0) ->
     {reply, ok, State};
 
 handle_call({send, Msg}, _From,
-	    #state{gtp = GtpSocket, cp_ip = IP} = State)
+	    #state{gtp = GtpSocket, cp_ip = IP, up_ip = UpIP} = State)
   when is_binary(Msg) ->
-    [[SxTEI, _SxPid]] = ets:match(gtp_context_reg, {{'cp-socket',{teid,'gtp-u','$1'}},'$2'}),
+    {ok, SxPid} = ergw_sx_node_reg:lookup(ergw_inet:bin2ip(UpIP)),
+    [[SxTEI]] = ets:match(gtp_context_reg, {{'cp-socket',{teid,'gtp-u','$1'}},{'_',SxPid}}),
     BinMsg = gtp_packet:encode(#gtp{version = v1, type = g_pdu, tei = SxTEI, ie = Msg}),
     ok = gen_udp:send(GtpSocket, IP, ?GTP1u_PORT, BinMsg),
     {reply, ok, State};

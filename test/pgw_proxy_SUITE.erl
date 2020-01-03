@@ -448,7 +448,7 @@
 	 {[node_selection, {default, 2}, 2, "topon.sx.sgw-u01.$ORIGIN"],
 	  {fun node_sel_update/2, sgw_u_sx}},
 	 {[node_selection, {default, 2}, 2, "topon.sx.pgw-u01.$ORIGIN"],
-	  {fun node_sel_update/2, pgw_u_sx}},
+	  {fun node_sel_update/2, pgw_u01_sx}},
 	 {[node_selection, {default, 2}, 2, "topon.pgw-1.nodes.$ORIGIN"],
 	  {fun node_sel_update/2, final_gsn}},
 	 {[node_selection, {default, 2}, 2, "topon.upf-1.nodes.$ORIGIN"],
@@ -465,7 +465,7 @@
 	 {[node_selection, {default, 2}, 2, "topon.sx.sgw-u01.$ORIGIN"],
 	  {fun node_sel_update/2, sgw_u_sx}},
 	 {[node_selection, {default, 2}, 2, "topon.sx.pgw-u01.$ORIGIN"],
-	  {fun node_sel_update/2, pgw_u_sx}},
+	  {fun node_sel_update/2, pgw_u01_sx}},
 	 {[node_selection, {default, 2}, 2, "topon.pgw-1.nodes.$ORIGIN"],
 	  {fun node_sel_update/2, final_gsn}},
 	 {[node_selection, {default, 2}, 2, "topon.upf-1.nodes.$ORIGIN"],
@@ -587,12 +587,12 @@ setup_per_testcase(Config) ->
     setup_per_testcase(Config, true).
 
 setup_per_testcase(Config, ClearSxHist) ->
-    ergw_test_sx_up:reset('pgw-u'),
+    ergw_test_sx_up:reset('pgw-u01'),
     ergw_test_sx_up:reset('sgw-u'),
     meck_reset(Config),
     start_gtpc_server(Config),
     reconnect_all_sx_nodes(),
-    ClearSxHist andalso ergw_test_sx_up:history('pgw-u', true),
+    ClearSxHist andalso ergw_test_sx_up:history('pgw-u01', true),
     ok.
 
 init_per_testcase(delete_session_request_resend, Config) ->
