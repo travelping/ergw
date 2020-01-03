@@ -79,11 +79,13 @@ lib_init_per_suite(Config0) ->
 
     case proplists:get_value(upf, Config, true) of
 	true ->
-	    {ok, _} = ergw_test_sx_up:start('pgw-u', proplists:get_value(pgw_u_sx, Config)),
+	    {ok, _} = ergw_test_sx_up:start('pgw-u01', proplists:get_value(pgw_u01_sx, Config)),
+	    {ok, _} = ergw_test_sx_up:start('pgw-u02', proplists:get_value(pgw_u02_sx, Config)),
 	    {ok, _} = ergw_test_sx_up:start('sgw-u', proplists:get_value(sgw_u_sx, Config)),
 	    {ok, _} = ergw_test_sx_up:start('tdf-u', proplists:get_value(tdf_u_sx, Config));
 	_ ->
-	    ok = ergw_test_sx_up:stop('pgw-u'),
+	    ok = ergw_test_sx_up:stop('pgw-u01'),
+	    ok = ergw_test_sx_up:stop('pgw-u02'),
 	    ok = ergw_test_sx_up:stop('sgw-u'),
 	    ok = ergw_test_sx_up:stop('tdf-u')
     end,
@@ -92,7 +94,8 @@ lib_init_per_suite(Config0) ->
 
 lib_end_per_suite(Config) ->
     meck_unload(Config),
-    ok = ergw_test_sx_up:stop('pgw-u'),
+    ok = ergw_test_sx_up:stop('pgw-u01'),
+    ok = ergw_test_sx_up:stop('pgw-u02'),
     ok = ergw_test_sx_up:stop('sgw-u'),
     ok = ergw_test_sx_up:stop('tdf-u'),
     ?config(table_owner, Config) ! stop,
@@ -130,7 +133,8 @@ group_config(ipv4, Config) ->
 	    {proxy_gsn, ?PROXY_GSN_IPv4},
 	    {final_gsn, ?FINAL_GSN_IPv4},
 	    {sgw_u_sx, ?SGW_U_SX_IPv4},
-	    {pgw_u_sx, ?PGW_U_SX_IPv4},
+	    {pgw_u01_sx, ?PGW_U01_SX_IPv4},
+	    {pgw_u02_sx, ?PGW_U02_SX_IPv4},
 	    {tdf_u_sx, ?TDF_U_SX_IPv4}],
     merge_config(Opts, Config);
 group_config(ipv6, Config) ->
@@ -141,7 +145,8 @@ group_config(ipv6, Config) ->
 	    {proxy_gsn, ?PROXY_GSN_IPv6},
 	    {final_gsn, ?FINAL_GSN_IPv6},
 	    {sgw_u_sx, ?SGW_U_SX_IPv6},
-	    {pgw_u_sx, ?PGW_U_SX_IPv6},
+	    {pgw_u01_sx, ?PGW_U01_SX_IPv6},
+	    {pgw_u02_sx, ?PGW_U02_SX_IPv6},
 	    {tdf_u_sx, ?TDF_U_SX_IPv6}],
     merge_config(Opts, Config).
 
@@ -374,7 +379,10 @@ stop_gtpc_server() ->
     end.
 
 sx_nodes_up(_N, 0) ->
-    ct:fail("Sx nodes failed to come up");
+    Got = ergw_sx_node_reg:available(),
+    Expected = supervisor:which_children(ergw_sx_node_sup),
+    ct:fail("Sx nodes failed to come up~nExpected ~p~nGot ~p",
+	    [Expected, Got]);
 sx_nodes_up(N, Cnt) ->
     case ergw_sx_node_reg:available() of
 	Nodes when map_size(Nodes) =:= N ->
