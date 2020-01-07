@@ -154,6 +154,7 @@ make_pdn_type(SubType, IEs)
 	type = ipv4v6,
 	address = <<PrefixLen, Prefix/binary, RequestedIP/binary>>},
      #v2_pdn_type{pdn_type = ipv4v6},
+     #v2_indication{flags = ['DAF']},
      #v2_protocol_configuration_options{
 	config = {0, [{ipcp,'CP-Configure-Request',0,
 		       [{ms_dns1, <<0,0,0,0>>},

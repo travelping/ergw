@@ -98,6 +98,7 @@
 	  remote_control_teid    :: #fq_teid{},
 	  remote_restart_counter :: 0 .. 255,
 	  vrf                    :: atom(),
+	  pdn_type               :: 'undefined' | 'IPv4' | 'IPv6' | 'IPv4v6' | 'Non-IP',
 	  ipv4_pool              :: 'undefined' | binary(),
 	  ipv6_pool              :: 'undefined' | binary(),
 	  local_data_endp        :: 'undefined' | #gtp_endp{},

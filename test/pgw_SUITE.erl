@@ -941,9 +941,9 @@ create_session_request_pool_exhausted() ->
     [{doc, "Dynamic IP pool exhausted"}].
 create_session_request_pool_exhausted(Config) ->
     ok = meck:expect(ergw_gsn_lib, allocate_ips,
-		     fun(PDNType, ReqMSv4, ReqMSv6, Context) ->
+		     fun(AllocInfo, APNOpts, SOpts, DualAddressBearerFlag, Context) ->
 			     try
-				 meck:passthrough([PDNType, ReqMSv4, ReqMSv6, Context])
+				 meck:passthrough([AllocInfo, APNOpts, SOpts, DualAddressBearerFlag, Context])
 			     catch
 				 throw:#ctx_err{} = CtxErr ->
 				     meck:exception(throw, CtxErr)
@@ -951,23 +951,27 @@ create_session_request_pool_exhausted(Config) ->
 		     end),
     ok = meck:expect(ergw_ip_pool, get,
 		     fun(_Pool, _TEI, ipv6, _PrefixLen) ->
-			     {ok, undefined};
+			     {error, empty};
 			(Pool, TEI, Request, PrefixLen) ->
 			     meck:passthrough([Pool, TEI, Request, PrefixLen])
 		     end),
     create_session(pool_exhausted, Config),
+    %% {GtpC1, _, _} = create_session({partial, ipv6}, Config),
+    %% delete_session(GtpC1),
 
     ok = meck:expect(ergw_ip_pool, get,
 		     fun(_Pool, _TEI, ipv4, _PrefixLen) ->
-			     {ok, undefined};
+			     {error, empty};
 			(Pool, TEI, Request, PrefixLen) ->
 			     meck:passthrough([Pool, TEI, Request, PrefixLen])
 		     end),
     create_session(pool_exhausted, Config),
+    %% {GtpC2, _, _} = create_session({partial, ipv4}, Config),
+    %% delete_session(GtpC2),
 
     ok = meck:expect(ergw_ip_pool, get,
 		     fun(_Pool, _TEI, _Type, _PrefixLen) ->
-			     {ok, undefined}
+			     {error, empty}
 		     end),
     create_session(pool_exhausted, Config),
 
@@ -2720,7 +2724,7 @@ simple_ocs(Config) ->
 		'APN-Aggregate-Max-Bitrate-DL' => '_'
 	       },
 
-	  'Requested-IP-Address' => '_',
+	  %% 'Requested-IP-Address' => '_',
 	  %% 'SAI' => '?????',
 	  'Service-Type' => 'Framed-User',
 	  'Session-Id' => '_',

@@ -73,6 +73,7 @@ make_pdp_type(SubType, IEs)
     [#end_user_address{pdp_type_organization = 1,
 		       pdp_type_number = 16#8d,
 		       pdp_address = <<>>},
+     #common_flags{flags = ['Dual Address Bearer Flag']},
      #protocol_configuration_options{
 	config = {0, [{ipcp,'CP-Configure-Request',1,
 		       [{ms_dns1,<<0,0,0,0>>},
