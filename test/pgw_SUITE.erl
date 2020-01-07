@@ -176,6 +176,22 @@
 		   {[<<"APN2">>, <<"mnc001">>, <<"mcc001">>, <<"gprs">>],
 		    [{vrf, sgi},
 		     {ip_pools, ['pool-A']}]},
+		   {[<<"v6only">>],
+		    [{vrf, sgi},
+		     {ip_pools, ['pool-A']},
+		     {bearer_type, 'IPv6'}]},
+		   {[<<"v4only">>],
+		    [{vrf, sgi},
+		     {ip_pools, ['pool-A']},
+		     {bearer_type, 'IPv4'}]},
+		   {[<<"prefV6">>],
+		    [{vrf, sgi},
+		     {ip_pools, ['pool-A']},
+		     {prefered_bearer_type, 'IPv6'}]},
+		   {[<<"prefV4">>],
+		    [{vrf, sgi},
+		     {ip_pools, ['pool-A']},
+		     {prefered_bearer_type, 'IPv4'}]},
 		   {[<<"async-sx">>],
 		    [{vrf, sgi},
 		     {ip_pools, ['pool-A']}]}
@@ -531,10 +547,10 @@ common() ->
      duplicate_session_request,
      duplicate_session_slow,
      error_indication,
+     pdn_session_request_bearer_types,
      ipv6_bearer_request,
      static_ipv6_bearer_request,
      static_ipv6_host_bearer_request,
-     ipv4v6_bearer_request,
      %% request_fast_resend, TODO, FIXME
      create_session_request_resend,
      delete_session_request_resend,
@@ -1072,7 +1088,7 @@ simple_session_request(Config) ->
     ?match_metric(prometheus_gauge, ergw_ip_pool_free, PoolId, 65534),
     ?match_metric(prometheus_gauge, ergw_ip_pool_used, PoolId, 0),
 
-    {GtpC, _, _} = create_session(Config),
+    {GtpC, _, _} = create_session(ipv4, Config),
 
     ?match_metric(prometheus_gauge, ergw_ip_pool_free, PoolId, 65533),
     ?match_metric(prometheus_gauge, ergw_ip_pool_used, PoolId, 1),
@@ -1255,6 +1271,67 @@ error_indication(Config) ->
     ok.
 
 %%--------------------------------------------------------------------
+pdn_session_request_bearer_types() ->
+    [{doc, "Create different IP bearers against APNs with restrictions/preferences"}].
+pdn_session_request_bearer_types(Config) ->
+    ok = meck:expect(ergw_gsn_lib, allocate_ips,
+		     fun(AllocInfo, APNOpts, SOpts, DualAddressBearerFlag, Context) ->
+			     try
+				 meck:passthrough([AllocInfo, APNOpts, SOpts, DualAddressBearerFlag, Context])
+			     catch
+				 throw:#ctx_err{} = CtxErr ->
+				     meck:exception(throw, CtxErr)
+			     end
+		     end),
+
+    {GtpC1, _, _} = create_session({ipv4, false, default}, Config),
+    delete_session(GtpC1),
+
+    {GtpC2, _, _} = create_session({ipv6, false, default}, Config),
+    delete_session(GtpC2),
+
+    {GtpC3, _, _} = create_session({ipv4v6, true, default}, Config),
+    delete_session(GtpC3),
+
+    {GtpC4, _, _} = create_session({ipv4v6, true, v4only}, Config),
+    delete_session(GtpC4),
+
+    {GtpC5, _, _} = create_session({ipv4v6, true, v6only}, Config),
+    delete_session(GtpC5),
+
+    {GtpC6, _, _} = create_session({ipv4,   false, prefV4}, Config),
+    delete_session(GtpC6),
+
+    {GtpC7, _, _} = create_session({ipv4,   false, prefV6}, Config),
+    delete_session(GtpC7),
+
+    {GtpC8, _, _} = create_session({ipv6,   false, prefV4}, Config),
+    delete_session(GtpC8),
+
+    {GtpC9, _, _} = create_session({ipv6,   false, prefV6}, Config),
+    delete_session(GtpC9),
+
+    {GtpC10, _, _} = create_session({ipv4v6, false, v4only}, Config),
+    delete_session(GtpC10),
+
+    {GtpC11, _, _} = create_session({ipv4v6, false, v6only}, Config),
+    delete_session(GtpC11),
+
+    {GtpC12, _, _} = create_session({ipv4v6, false, prefV4}, Config),
+    delete_session(GtpC12),
+
+    {GtpC13, _, _} = create_session({ipv4v6, false, prefV6}, Config),
+    delete_session(GtpC13),
+
+    create_session({ipv4, false, v6only}, Config),
+    create_session({ipv6, false, v4only}, Config),
+
+    ?equal([], outstanding_requests()),
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
 ipv6_bearer_request() ->
     [{doc, "Check Create Session, Delete Session sequence for IPv6 bearer"}].
 ipv6_bearer_request(Config) ->
@@ -1324,17 +1401,6 @@ static_ipv6_host_bearer_request() ->
       "IPv6 bearer with non-standard /128 static IP"}].
 static_ipv6_host_bearer_request(Config) ->
     {GtpC, _, _} = create_session(static_host_ipv6, Config),
-    delete_session(GtpC),
-
-    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
-    meck_validate(Config),
-    ok.
-%%--------------------------------------------------------------------
-ipv4v6_bearer_request() ->
-    [{doc, "Check Create Session, Delete Session sequence for dual stack "
-           "IPv4/IPv6 bearer"}].
-ipv4v6_bearer_request(Config) ->
-    {GtpC, _, _} = create_session(ipv4v6, Config),
     delete_session(GtpC),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
@@ -3248,7 +3314,7 @@ gx_rar_gy_interaction(Config) ->
 redirect_info() ->
     [{doc, "Check Session with Gx redirect info"}].
 redirect_info(Config) ->
-    {GtpC, _, _} = create_session(Config),
+    {GtpC, _, _} = create_session(ipv4, Config),
     delete_session(GtpC),
 
     ?equal([], outstanding_requests()),
@@ -3564,7 +3630,7 @@ gy_async_stop(Config) ->
 tdf_app_id() ->
     [{doc, "Check Session with Gx TDF-Application-Identifier"}].
 tdf_app_id(Config) ->
-    {GtpC, _, _} = create_session(Config),
+    {GtpC, _, _} = create_session(ipv4, Config),
     delete_session(GtpC),
 
     ?equal([], outstanding_requests()),

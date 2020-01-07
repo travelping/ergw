@@ -108,65 +108,18 @@ paa({{_,_,_,_,_,_,_,_} = IP, PrefixLen}) ->
        address = <<PrefixLen:8, (ergw_inet:ip2bin(IP))/binary>>
       }.
 
-make_pdn_type(ipv6, IEs) ->
-    PrefixLen = 0,
-    Prefix = ergw_inet:ip2bin({0,0,0,0,0,0,0,0}),
-    [#v2_pdn_address_allocation{
-	type = ipv6,
-	address = <<PrefixLen, Prefix/binary>>},
-     #v2_pdn_type{pdn_type = ipv6},
-     #v2_protocol_configuration_options{
-	config = {0, [{?'PCO-P-CSCF-IPv6-Address', <<>>},
-		      {?'PCO-DNS-Server-IPv6-Address', <<>>},
-		      {?'PCO-IP-Address-Allocation-Via-NAS-Signalling',<<>>}]}}
-     | IEs];
-make_pdn_type(static_ipv6, IEs) ->
-    PrefixLen = 64,
-    Prefix = ergw_inet:ip2bin(?IPv6StaticIP),
-    [#v2_pdn_address_allocation{
-	type = ipv6,
-	address = <<PrefixLen, Prefix/binary>>},
-     #v2_pdn_type{pdn_type = ipv6},
-     #v2_protocol_configuration_options{
-	config = {0, [{?'PCO-P-CSCF-IPv6-Address', <<>>},
-		      {?'PCO-DNS-Server-IPv6-Address', <<>>},
-		      {?'PCO-IP-Address-Allocation-Via-NAS-Signalling',<<>>}]}}
-     | IEs];
-make_pdn_type(static_host_ipv6, IEs) ->
-    PrefixLen = 128,
-    Prefix = ergw_inet:ip2bin(?IPv6StaticHostIP),
-    [#v2_pdn_address_allocation{
-	type = ipv6,
-	address = <<PrefixLen, Prefix/binary>>},
-     #v2_pdn_type{pdn_type = ipv6},
-     #v2_protocol_configuration_options{
-	config = {0, [{?'PCO-P-CSCF-IPv6-Address', <<>>},
-		      {?'PCO-DNS-Server-IPv6-Address', <<>>},
-		      {?'PCO-IP-Address-Allocation-Via-NAS-Signalling',<<>>}]}}
-     | IEs];
-make_pdn_type(SubType, IEs)
-  when SubType == ipv4v6;
-       SubType == pool_exhausted ->
-    PrefixLen = 0,
-    Prefix = ergw_inet:ip2bin({0,0,0,0,0,0,0,0}),
-    RequestedIP = ergw_inet:ip2bin({0,0,0,0}),
-    [#v2_pdn_address_allocation{
-	type = ipv4v6,
-	address = <<PrefixLen, Prefix/binary, RequestedIP/binary>>},
-     #v2_pdn_type{pdn_type = ipv4v6},
-     #v2_indication{flags = ['DAF']},
-     #v2_protocol_configuration_options{
-	config = {0, [{ipcp,'CP-Configure-Request',0,
-		       [{ms_dns1, <<0,0,0,0>>},
-			{ms_dns2, <<0,0,0,0>>}]},
-		      {?'PCO-DNS-Server-IPv4-Address', <<>>},
-		      {?'PCO-IP-Address-Allocation-Via-NAS-Signalling', <<>>},
-		      {?'PCO-Bearer-Control-Mode', <<>>},
-		      {?'PCO-P-CSCF-IPv6-Address', <<>>},
-		      {?'PCO-DNS-Server-IPv6-Address', <<>>},
-		      {?'PCO-IP-Address-Allocation-Via-NAS-Signalling', <<>>}]}}
-     | IEs];
-make_pdn_type(static_ipv4, IEs) ->
+make_pdn_type({Type, DABF, _}, IEs) ->
+    [#v2_indication{flags = ['DAF']} || DABF] ++
+	make_pdn_addr_cfg(Type, IEs);
+make_pdn_type(Type, IEs)
+  when Type =:= ipv4; Type =:= static_ipv4;
+       Type =:= ipv6; Type =:= static_ipv6;
+       Type =:= static_host_ipv6 ->
+    make_pdn_addr_cfg(Type, IEs);
+make_pdn_type(_, IEs) ->
+    make_pdn_type({ipv4v6, true, default}, IEs).
+
+make_pdn_addr_cfg(static_ipv4, IEs) ->
     RequestedIP = ergw_inet:ip2bin(?IPv4StaticIP),
     [#v2_pdn_address_allocation{type = ipv4,
 				address = RequestedIP},
@@ -179,7 +132,34 @@ make_pdn_type(static_ipv4, IEs) ->
 		      {?'PCO-IP-Address-Allocation-Via-NAS-Signalling', <<>>},
 		      {?'PCO-Bearer-Control-Mode', <<>>}]}}
      | IEs];
-make_pdn_type(_, IEs) ->
+
+make_pdn_addr_cfg(static_ipv6, IEs) ->
+    PrefixLen = 64,
+    Prefix = ergw_inet:ip2bin(?IPv6StaticIP),
+    [#v2_pdn_address_allocation{
+	type = ipv6,
+	address = <<PrefixLen, Prefix/binary>>},
+     #v2_pdn_type{pdn_type = ipv6},
+     #v2_protocol_configuration_options{
+	config = {0, [{?'PCO-P-CSCF-IPv6-Address', <<>>},
+		      {?'PCO-DNS-Server-IPv6-Address', <<>>},
+		      {?'PCO-IP-Address-Allocation-Via-NAS-Signalling',<<>>}]}}
+     | IEs];
+
+make_pdn_addr_cfg(static_host_ipv6, IEs) ->
+    PrefixLen = 128,
+    Prefix = ergw_inet:ip2bin(?IPv6StaticHostIP),
+    [#v2_pdn_address_allocation{
+	type = ipv6,
+	address = <<PrefixLen, Prefix/binary>>},
+     #v2_pdn_type{pdn_type = ipv6},
+     #v2_protocol_configuration_options{
+	config = {0, [{?'PCO-P-CSCF-IPv6-Address', <<>>},
+		      {?'PCO-DNS-Server-IPv6-Address', <<>>},
+		      {?'PCO-IP-Address-Allocation-Via-NAS-Signalling',<<>>}]}}
+     | IEs];
+
+make_pdn_addr_cfg(ipv4, IEs) ->
     RequestedIP = ergw_inet:ip2bin({0,0,0,0}),
     [#v2_pdn_address_allocation{type = ipv4,
 				address = RequestedIP},
@@ -191,26 +171,89 @@ make_pdn_type(_, IEs) ->
 		      {?'PCO-DNS-Server-IPv4-Address', <<>>},
 		      {?'PCO-IP-Address-Allocation-Via-NAS-Signalling', <<>>},
 		      {?'PCO-Bearer-Control-Mode', <<>>}]}}
+     | IEs];
+make_pdn_addr_cfg(ipv6, IEs) ->
+    PrefixLen = 0,
+    Prefix = ergw_inet:ip2bin({0,0,0,0,0,0,0,0}),
+    [#v2_pdn_address_allocation{
+	type = ipv6,
+	address = <<PrefixLen, Prefix/binary>>},
+     #v2_pdn_type{pdn_type = ipv6},
+     #v2_protocol_configuration_options{
+	config = {0, [{?'PCO-P-CSCF-IPv6-Address', <<>>},
+		      {?'PCO-DNS-Server-IPv6-Address', <<>>},
+		      {?'PCO-IP-Address-Allocation-Via-NAS-Signalling',<<>>}]}}
+     | IEs];
+make_pdn_addr_cfg(ipv4v6, IEs) ->
+    PrefixLen = 0,
+    Prefix = ergw_inet:ip2bin({0,0,0,0,0,0,0,0}),
+    RequestedIP = ergw_inet:ip2bin({0,0,0,0}),
+    [#v2_pdn_address_allocation{
+	type = ipv4v6,
+	address = <<PrefixLen, Prefix/binary, RequestedIP/binary>>},
+     #v2_pdn_type{pdn_type = ipv4v6},
+     #v2_protocol_configuration_options{
+	config = {0, [{ipcp,'CP-Configure-Request',0,
+		       [{ms_dns1, <<0,0,0,0>>},
+			{ms_dns2, <<0,0,0,0>>}]},
+		      {?'PCO-DNS-Server-IPv4-Address', <<>>},
+		      {?'PCO-IP-Address-Allocation-Via-NAS-Signalling', <<>>},
+		      {?'PCO-Bearer-Control-Mode', <<>>},
+		      {?'PCO-P-CSCF-IPv6-Address', <<>>},
+		      {?'PCO-DNS-Server-IPv6-Address', <<>>},
+		      {?'PCO-IP-Address-Allocation-Via-NAS-Signalling', <<>>}]}}
      | IEs].
 
-validate_pdn_type(SubType, IEs)
-  when SubType == ipv6;
-       SubType == {default, static_ipv6};
-       SubType == {default, static_host_ipv6} ->
+validate_pdn_addr_cfg(Type, IEs) ->
     ?match_map(
        #{{v2_pdn_address_allocation,0} =>
-	     #v2_pdn_address_allocation{type = ipv6, _ = '_'},
-	 {v2_protocol_configuration_options,0} =>
+	     #v2_pdn_address_allocation{type = Type, _ = '_'}},
+       IEs).
+
+validate_pdn_protocol_opts(ipv4, ipv4, IEs) ->
+    ?match_map(
+       #{{v2_protocol_configuration_options,0} =>
+	     #v2_protocol_configuration_options{
+		config = {0,[{ipcp,'CP-Configure-Nak',0,
+			      [{ms_dns1, '_'},
+			       {ms_dns2, '_'}]},
+			     {?'PCO-DNS-Server-IPv4-Address', '_'},
+			     {?'PCO-DNS-Server-IPv4-Address', '_'}]},
+		_ = '_'}},
+       IEs);
+validate_pdn_protocol_opts(ipv6, ipv6, IEs) ->
+    ?match_map(
+       #{{v2_protocol_configuration_options,0} =>
 	     #v2_protocol_configuration_options{
 		config = {0,[{?'PCO-DNS-Server-IPv6-Address', '_'},
 			     {?'PCO-DNS-Server-IPv6-Address', '_'}]},
 		_ = '_'}},
        IEs);
-validate_pdn_type(ipv4v6, IEs) ->
+validate_pdn_protocol_opts(ipv4v6, ipv4, IEs) ->
     ?match_map(
-       #{{v2_pdn_address_allocation,0} =>
-	     #v2_pdn_address_allocation{type = ipv4v6, _ = '_'},
-	 {v2_protocol_configuration_options,0} =>
+       #{{v2_protocol_configuration_options,0} =>
+	     #v2_protocol_configuration_options{
+		config = {0,[{ipcp,'CP-Configure-Nak',0,
+			      [{ms_dns1, '_'},
+			       {ms_dns2, '_'}]},
+			     {?'PCO-DNS-Server-IPv4-Address', '_'},
+			     {?'PCO-DNS-Server-IPv4-Address', '_'}]},
+		_ = '_'}},
+       IEs);
+validate_pdn_protocol_opts(ipv4v6, ipv6, IEs) ->
+    ?match_map(
+       #{{v2_protocol_configuration_options,0} =>
+	     #v2_protocol_configuration_options{
+		config = {0,[{ipcp,'CP-Configure-Reject',0,
+			      [{ms_dns1, '_'},
+			       {ms_dns2, '_'}]},
+			     {?'PCO-DNS-Server-IPv6-Address', '_'},
+			     {?'PCO-DNS-Server-IPv6-Address', '_'}]},
+		_ = '_'}},
+       IEs);
+validate_pdn_protocol_opts(ipv4v6, ipv4v6, IEs) ->
+    ?match_map(
+       #{{v2_protocol_configuration_options,0} =>
 	     #v2_protocol_configuration_options{
 		config = {0,[{ipcp,'CP-Configure-Nak',0,
 			      [{ms_dns1, '_'},
@@ -220,21 +263,33 @@ validate_pdn_type(ipv4v6, IEs) ->
 			     {?'PCO-DNS-Server-IPv6-Address', '_'},
 			     {?'PCO-DNS-Server-IPv6-Address', '_'}]},
 		_ = '_'}},
-       IEs);
-validate_pdn_type(_SubType, IEs) ->
-    ?match_map(
-       #{{v2_pdn_address_allocation,0} =>
-	     #v2_pdn_address_allocation{type = ipv4, _ = '_'},
-	 {v2_protocol_configuration_options,0} =>
-	     #v2_protocol_configuration_options{
-		config = {0,[{ipcp,'CP-Configure-Nak',0,
-			      [{ms_dns1, '_'},
-			       {ms_dns2, '_'}]},
-			     {?'PCO-DNS-Server-IPv4-Address', '_'},
-			     {?'PCO-DNS-Server-IPv4-Address', '_'}]},
-		_ = '_'
-	       }},
        IEs).
+
+validate_pdn_cfg(Requested, Expected, IEs) ->
+    validate_pdn_addr_cfg(Expected, IEs),
+    validate_pdn_protocol_opts(Requested, Expected, IEs).
+
+validate_pdn_type({Req = ipv4,   false, default}, IEs) -> validate_pdn_cfg(Req, Req, IEs);
+validate_pdn_type({Req = ipv6,   false, default}, IEs) -> validate_pdn_cfg(Req, Req, IEs);
+validate_pdn_type({Req = ipv4v6, true,  default}, IEs) -> validate_pdn_cfg(Req, Req, IEs);
+validate_pdn_type({Req = ipv4v6, true,  v4only},  IEs) -> validate_pdn_cfg(Req, ipv4, IEs);
+validate_pdn_type({Req = ipv4v6, true,  v6only},  IEs) -> validate_pdn_cfg(Req, ipv6, IEs);
+validate_pdn_type({Req = ipv4,   false, prefV4},  IEs) -> validate_pdn_cfg(Req, Req, IEs);
+validate_pdn_type({Req = ipv4,   false, prefV6},  IEs) -> validate_pdn_cfg(Req, Req, IEs);
+validate_pdn_type({Req = ipv6,   false, prefV4},  IEs) -> validate_pdn_cfg(Req, Req, IEs);
+validate_pdn_type({Req = ipv6,   false, prefV6},  IEs) -> validate_pdn_cfg(Req, Req, IEs);
+validate_pdn_type({Req = ipv4v6, false, v4only},  IEs) -> validate_pdn_cfg(Req, ipv4, IEs);
+validate_pdn_type({Req = ipv4v6, false, v6only},  IEs) -> validate_pdn_cfg(Req, ipv6, IEs);
+validate_pdn_type({Req = ipv4v6, false, prefV4},  IEs) -> validate_pdn_cfg(Req, ipv4, IEs);
+validate_pdn_type({Req = ipv4v6, false, prefV6},  IEs) -> validate_pdn_cfg(Req, ipv6, IEs);
+
+validate_pdn_type(ipv4, IEs)                        -> validate_pdn_cfg(ipv4, ipv4, IEs);
+validate_pdn_type(ipv6, IEs)                        -> validate_pdn_cfg(ipv6, ipv6, IEs);
+validate_pdn_type({default, static_ipv6}, IEs)      -> validate_pdn_cfg(ipv6, ipv6, IEs);
+validate_pdn_type({default, static_host_ipv6}, IEs) -> validate_pdn_cfg(ipv6, ipv6, IEs);
+
+validate_pdn_type(_Type, IEs) ->
+    validate_pdn_cfg(ipv4v6, ipv4v6, IEs).
 
 %%%-------------------------------------------------------------------
 
@@ -599,6 +654,29 @@ make_response(#gtp{type = delete_bearer_request, seq_no = SeqNo},
 
 %%%-------------------------------------------------------------------
 
+validate_cause(_Type, {_, _, _} = SubType,
+	       #gtp{ie = #{{v2_cause,0} := #v2_cause{v2_cause = Cause}}}) ->
+    CauseList =
+	[{{ipv4,   false, default}, request_accepted},
+	 {{ipv6,   false, default}, request_accepted},
+	 {{ipv4v6, true,  default}, request_accepted},
+	 {{ipv4v6, true,  v4only},  new_pdn_type_due_to_network_preference},
+	 {{ipv4v6, true,  v6only},  new_pdn_type_due_to_network_preference},
+	 {{ipv4,   false, prefV4},  request_accepted},
+	 {{ipv4,   false, prefV6},  request_accepted},
+	 {{ipv6,   false, prefV4},  request_accepted},
+	 {{ipv6,   false, prefV6},  request_accepted},
+	 {{ipv4v6, false, v4only},  new_pdn_type_due_to_network_preference},
+	 {{ipv4v6, false, v6only},  new_pdn_type_due_to_network_preference},
+	 {{ipv4v6, false, prefV4},  new_pdn_type_due_to_single_address_bearer_only},
+	 {{ipv4v6, false, prefV6},  new_pdn_type_due_to_single_address_bearer_only}
+	 ],
+    ExpectedCause = proplists:get_value(SubType, CauseList),
+    ?equal(ExpectedCause, Cause);
+
+validate_cause(_Type, _SubType, Response) ->
+    ?match(#gtp{ie = #{{v2_cause,0} := #v2_cause{v2_cause = request_accepted}}}, Response).
+
 validate_response(_Type, system_failure, Response, GtpC) ->
     ?match(
        #gtp{ie = #{{v2_cause,0} := #v2_cause{v2_cause = system_failure}}
@@ -683,14 +761,25 @@ validate_response(create_session_request, static_host_ipv6, Response, GtpC0) ->
     ?equal(?IPv6StaticHostIP, ergw_inet:bin2ip(IPv6)),
     GtpC;
 
+validate_response(create_session_request, {ipv4, _, v6only}, Response, GtpC) ->
+    ?match(#gtp{type = create_session_response,
+		ie = #{{v2_cause,0} := #v2_cause{v2_cause = preferred_pdn_type_not_supported}}},
+	   Response),
+    GtpC;
+validate_response(create_session_request, {ipv6, _, v4only}, Response, GtpC) ->
+    ?match(#gtp{type = create_session_response,
+		ie = #{{v2_cause,0} := #v2_cause{v2_cause = preferred_pdn_type_not_supported}}},
+	   Response),
+    GtpC;
+
 validate_response(create_session_request, SubType, Response,
 		  #gtpc{local_ip = LocalIP,
 			local_control_tei = LocalCntlTEI} = GtpC) ->
+    validate_cause(create_session_request, SubType, Response),
     ?match(
        #gtp{type = create_session_response,
 	    tei = LocalCntlTEI,
-	    ie = #{{v2_cause,0} := #v2_cause{v2_cause = request_accepted},
-		   {v2_fully_qualified_tunnel_endpoint_identifier,1} :=
+	    ie = #{{v2_fully_qualified_tunnel_endpoint_identifier,1} :=
 		       #v2_fully_qualified_tunnel_endpoint_identifier{
 			  interface_type = ?'S5/S8-C PGW'},
 		   {v2_bearer_context,0} :=
@@ -894,6 +983,10 @@ execute_request(MsgType, SubType, GtpC0) ->
 apn(invalid_apn) -> [<<"IN", "VA", "LID">>];
 apn(dotted_apn)  -> ?'APN-EXA.MPLE';
 apn(async_sx)    -> [<<"async-sx">>];
+apn({_, _, APN})
+  when APN =:= v4only; APN =:= prefV4;
+       APN =:= v6only; APN =:= prefV6 ->
+    [atom_to_binary(APN, latin1)];
 apn(_)           -> ?'APN-ExAmPlE'.
 
 imsi('2nd', _) ->

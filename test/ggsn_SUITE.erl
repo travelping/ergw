@@ -129,6 +129,22 @@
 		   {[<<"APN1">>],
 		    [{vrf, sgi},
 		     {ip_pools, ['pool-A']}]},
+		   {[<<"v6only">>],
+		    [{vrf, sgi},
+		     {ip_pools, ['pool-A']},
+		     {bearer_type, 'IPv6'}]},
+		   {[<<"v4only">>],
+		    [{vrf, sgi},
+		     {ip_pools, ['pool-A']},
+		     {bearer_type, 'IPv4'}]},
+		   {[<<"prefV6">>],
+		    [{vrf, sgi},
+		     {ip_pools, ['pool-A']},
+		     {prefered_bearer_type, 'IPv6'}]},
+		   {[<<"prefV4">>],
+		    [{vrf, sgi},
+		     {ip_pools, ['pool-A']},
+		     {prefered_bearer_type, 'IPv4'}]},
 		   {[<<"async-sx">>],
 		    [{vrf, sgi},
 		     {ip_pools, ['pool-A']}]}
@@ -404,8 +420,7 @@ common() ->
      simple_pdp_context_request,
      duplicate_pdp_context_request,
      error_indication,
-     ipv6_pdp_context_request,
-     ipv4v6_pdp_context_request,
+     pdp_context_request_bearer_types,
      %% request_fast_resend, TODO, FIXME
      create_pdp_context_request_resend,
      delete_pdp_context_request_resend,
@@ -963,25 +978,61 @@ error_indication(Config) ->
     ok.
 
 %%--------------------------------------------------------------------
-ipv6_pdp_context_request() ->
-    [{doc, "Check Create PDP Context, Delete PDP Context sequence "
-           "for IPv6 contexts"}].
-ipv6_pdp_context_request(Config) ->
-    {GtpC, _, _} = create_pdp_context(ipv6, Config),
-    delete_pdp_context(GtpC),
+pdp_context_request_bearer_types() ->
+    [{doc, "Create different IP bearers against APNs with restrictions/preferences"}].
 
-    ?equal([], outstanding_requests()),
-    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
-    meck_validate(Config),
-    ok.
+pdp_context_request_bearer_types(Config) ->
+    ok = meck:expect(ergw_gsn_lib, allocate_ips,
+		     fun(AllocInfo, APNOpts, SOpts, DualAddressBearerFlag, Context) ->
+			     try
+				 meck:passthrough([AllocInfo, APNOpts, SOpts, DualAddressBearerFlag, Context])
+			     catch
+				 throw:#ctx_err{} = CtxErr ->
+				     meck:exception(throw, CtxErr)
+			     end
+		     end),
 
-%%--------------------------------------------------------------------
-ipv4v6_pdp_context_request() ->
-    [{doc, "Check Create PDP Context, Delete PDP Context sequence "
-           "for dual stack IPv4/IPv6 contexts"}].
-ipv4v6_pdp_context_request(Config) ->
-    {GtpC, _, _} = create_pdp_context(ipv4v6, Config),
-    delete_pdp_context(GtpC),
+    {GtpC1, _, _} = create_pdp_context({ipv4, false, default}, Config),
+    delete_pdp_context(GtpC1),
+
+    {GtpC2, _, _} = create_pdp_context({ipv6, false, default}, Config),
+    delete_pdp_context(GtpC2),
+
+    {GtpC3, _, _} = create_pdp_context({ipv4v6, true, default}, Config),
+    delete_pdp_context(GtpC3),
+
+    {GtpC4, _, _} = create_pdp_context({ipv4v6, true, v4only}, Config),
+    delete_pdp_context(GtpC4),
+
+    {GtpC5, _, _} = create_pdp_context({ipv4v6, true, v6only}, Config),
+    delete_pdp_context(GtpC5),
+
+    {GtpC6, _, _} = create_pdp_context({ipv4,   false, prefV4}, Config),
+    delete_pdp_context(GtpC6),
+
+    {GtpC7, _, _} = create_pdp_context({ipv4,   false, prefV6}, Config),
+    delete_pdp_context(GtpC7),
+
+    {GtpC8, _, _} = create_pdp_context({ipv6,   false, prefV4}, Config),
+    delete_pdp_context(GtpC8),
+
+    {GtpC9, _, _} = create_pdp_context({ipv6,   false, prefV6}, Config),
+    delete_pdp_context(GtpC9),
+
+    {GtpC10, _, _} = create_pdp_context({ipv4v6, false, v4only}, Config),
+    delete_pdp_context(GtpC10),
+
+    {GtpC11, _, _} = create_pdp_context({ipv4v6, false, v6only}, Config),
+    delete_pdp_context(GtpC11),
+
+    {GtpC12, _, _} = create_pdp_context({ipv4v6, false, prefV4}, Config),
+    delete_pdp_context(GtpC12),
+
+    {GtpC13, _, _} = create_pdp_context({ipv4v6, false, prefV6}, Config),
+    delete_pdp_context(GtpC13),
+
+    create_pdp_context({ipv4, false, v6only}, Config),
+    create_pdp_context({ipv6, false, v4only}, Config),
 
     ?equal([], outstanding_requests()),
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
@@ -1798,8 +1849,7 @@ simple_ocs(Config) ->
 	  %% '3GPP-MS-TimeZone' => '?????',
 	  '3GPP-MSISDN' => ?MSISDN,
 	  '3GPP-NSAPI' => 5,
-	  %% '3GPP-PDP-Type' => 'IPv4v6',
-	  '3GPP-PDP-Type' => 'IPv4',
+	  '3GPP-PDP-Type' => 'IPv4v6',
 	  '3GPP-RAT-Type' => 1,
 	  '3GPP-Selection-Mode' => 0,
 	  %% '3GPP-SGSN-MCC-MNC' => '?????',
@@ -1813,7 +1863,7 @@ simple_ocs(Config) ->
 	  %% 'ECGI' => '?????',
 	  %% 'Event-Trigger' => '?????',
 	  'Framed-IP-Address' => {10, 180, '_', '_'},
-	  %% 'Framed-IPv6-Prefix' => {{16#8001, 0, 1, '_', '_', '_', '_', '_'},64},
+	  'Framed-IPv6-Prefix' => {{16#8001, 0, 1, '_', '_', '_', '_', '_'},64},
 	  'Framed-Protocol' => 'GPRS-PDP-Context',
 	  'Multi-Session-Id' => '_',
 	  'NAS-Identifier' => <<"NAS-Identifier">>,

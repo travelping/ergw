@@ -58,7 +58,13 @@ delete_pdp_context(SubType, GtpC) ->
 %%% Create GTPv1-C messages
 %%%===================================================================
 
-make_pdp_type(ipv6, IEs) ->
+make_pdp_type({Type, DABF, _}, IEs) ->
+    [#common_flags{flags = ['Dual Address Bearer Flag']} || DABF] ++
+	make_pdp_addr_cfg(Type, IEs);
+make_pdp_type(_, IEs) ->
+    make_pdp_type({ipv4v6, true, default}, IEs).
+
+make_pdp_addr_cfg(ipv6, IEs) ->
     [#end_user_address{pdp_type_organization = 1,
 		       pdp_type_number = 16#57,
 		       pdp_address = <<>>},
@@ -67,13 +73,10 @@ make_pdp_type(ipv6, IEs) ->
 		      {?'PCO-DNS-Server-IPv6-Address',<<>>},
 		      {?'PCO-IP-Address-Allocation-Via-NAS-Signalling',<<>>}]}}
      | IEs];
-make_pdp_type(SubType, IEs)
-  when SubType == ipv4v6;
-       SubType == pool_exhausted ->
+make_pdp_addr_cfg(ipv4v6, IEs) ->
     [#end_user_address{pdp_type_organization = 1,
 		       pdp_type_number = 16#8d,
 		       pdp_address = <<>>},
-     #common_flags{flags = ['Dual Address Bearer Flag']},
      #protocol_configuration_options{
 	config = {0, [{ipcp,'CP-Configure-Request',1,
 		       [{ms_dns1,<<0,0,0,0>>},
@@ -83,7 +86,7 @@ make_pdp_type(SubType, IEs)
 		      {?'PCO-IP-Address-Allocation-Via-NAS-Signalling',<<>>},
 		      {?'PCO-DNS-Server-IPv4-Address',<<>>}]}}
      | IEs];
-make_pdp_type(_, IEs) ->
+make_pdp_addr_cfg(ipv4, IEs) ->
     [#end_user_address{pdp_type_organization = 1,
 		       pdp_type_number = 16#21,
 		       pdp_address = <<>>},
@@ -94,50 +97,97 @@ make_pdp_type(_, IEs) ->
 		      {?'PCO-DNS-Server-IPv4-Address',<<>>}]}}
      | IEs].
 
-validate_pdp_type(ipv6, IEs) ->
+validate_pdp_addr_cfg(ipv4, IEs) ->
     ?match_map(
        #{{end_user_address,0} =>
-	     #end_user_address{pdp_type_organization = 1,
-			       pdp_type_number = 87,
-			       _ = '_'},
-	 {protocol_configuration_options,0} =>
+	     #end_user_address{pdp_type_organization = 1, pdp_type_number = 33, _ = '_'}},
+       IEs);
+validate_pdp_addr_cfg(ipv6, IEs) ->
+    ?match_map(
+       #{{end_user_address,0} =>
+	     #end_user_address{pdp_type_organization = 1, pdp_type_number = 87, _ = '_'}},
+       IEs);
+validate_pdp_addr_cfg(ipv4v6, IEs) ->
+    ?match_map(
+       #{{end_user_address,0} =>
+	     #end_user_address{pdp_type_organization = 1, pdp_type_number = 141, _ = '_'}},
+       IEs).
+
+validate_pdp_protocol_opts(ipv4, ipv4, IEs) ->
+    ?match_map(
+       #{{protocol_configuration_options,0} =>
+	     #protocol_configuration_options{
+		config = {0,[{ipcp,'CP-Configure-Nak',1,
+			      [{ms_dns1, '_'},
+			       {ms_dns2, '_'}]},
+			     {?'PCO-DNS-Server-IPv4-Address', '_'},
+			     {?'PCO-DNS-Server-IPv4-Address', '_'}]},
+		_ = '_'}},
+       IEs);
+validate_pdp_protocol_opts(ipv6, ipv6, IEs) ->
+    ?match_map(
+       #{{protocol_configuration_options,0} =>
 	     #protocol_configuration_options{
 		config = {0,[{?'PCO-DNS-Server-IPv6-Address', '_'},
 			     {?'PCO-DNS-Server-IPv6-Address', '_'}]},
 		_ = '_'}},
        IEs);
-validate_pdp_type(ipv4v6, IEs) ->
+validate_pdp_protocol_opts(ipv4v6, ipv4, IEs) ->
     ?match_map(
-       #{{end_user_address,0} =>
-	     #end_user_address{pdp_type_organization = 1,
-			       pdp_type_number = 141,
-			       _ = '_'},
-	 {protocol_configuration_options,0} =>
+       #{{protocol_configuration_options,0} =>
 	     #protocol_configuration_options{
 		config = {0,[{ipcp,'CP-Configure-Nak',1,
 			      [{ms_dns1, '_'},
 			       {ms_dns2, '_'}]},
-			     {?'PCO-DNS-Server-IPv6-Address', '_'},
-			     {?'PCO-DNS-Server-IPv6-Address', '_'},
 			     {?'PCO-DNS-Server-IPv4-Address', '_'},
 			     {?'PCO-DNS-Server-IPv4-Address', '_'}]},
 		_ = '_'}},
        IEs);
-validate_pdp_type(_, IEs) ->
+validate_pdp_protocol_opts(ipv4v6, ipv6, IEs) ->
     ?match_map(
-       #{{end_user_address,0} =>
-	     #end_user_address{pdp_type_organization = 1,
-			       pdp_type_number = 33,
-			       _ = '_'},
-	 {protocol_configuration_options,0} =>
+       #{{protocol_configuration_options,0} =>
+	     #protocol_configuration_options{
+		config = {0,[{ipcp,'CP-Configure-Reject',1,
+			      [{ms_dns1, '_'},
+			       {ms_dns2, '_'}]},
+			     {?'PCO-DNS-Server-IPv6-Address', '_'},
+			     {?'PCO-DNS-Server-IPv6-Address', '_'}]},
+		_ = '_'}},
+       IEs);
+validate_pdp_protocol_opts(ipv4v6, ipv4v6, IEs) ->
+    ?match_map(
+       #{{protocol_configuration_options,0} =>
 	     #protocol_configuration_options{
 		config = {0,[{ipcp,'CP-Configure-Nak',1,
 			      [{ms_dns1, '_'},
 			       {ms_dns2, '_'}]},
+			     {?'PCO-DNS-Server-IPv6-Address', '_'},
+			     {?'PCO-DNS-Server-IPv6-Address', '_'},
 			     {?'PCO-DNS-Server-IPv4-Address', '_'},
 			     {?'PCO-DNS-Server-IPv4-Address', '_'}]},
 		_ = '_'}},
        IEs).
+
+validate_pdp_cfg(Requested, Expected, IEs) ->
+    validate_pdp_addr_cfg(Expected, IEs),
+    validate_pdp_protocol_opts(Requested, Expected, IEs).
+
+validate_pdp_type({Req = ipv4,   false, default}, IEs) -> validate_pdp_cfg(Req, Req, IEs);
+validate_pdp_type({Req = ipv6,   false, default}, IEs) -> validate_pdp_cfg(Req, Req, IEs);
+validate_pdp_type({Req = ipv4v6, true,  default}, IEs) -> validate_pdp_cfg(Req, Req, IEs);
+validate_pdp_type({Req = ipv4v6, true,  v4only},  IEs) -> validate_pdp_cfg(Req, ipv4, IEs);
+validate_pdp_type({Req = ipv4v6, true,  v6only},  IEs) -> validate_pdp_cfg(Req, ipv6, IEs);
+validate_pdp_type({Req = ipv4,   false, prefV4},  IEs) -> validate_pdp_cfg(Req, Req, IEs);
+validate_pdp_type({Req = ipv4,   false, prefV6},  IEs) -> validate_pdp_cfg(Req, Req, IEs);
+validate_pdp_type({Req = ipv6,   false, prefV4},  IEs) -> validate_pdp_cfg(Req, Req, IEs);
+validate_pdp_type({Req = ipv6,   false, prefV6},  IEs) -> validate_pdp_cfg(Req, Req, IEs);
+validate_pdp_type({Req = ipv4v6, false, v4only},  IEs) -> validate_pdp_cfg(Req, ipv4, IEs);
+validate_pdp_type({Req = ipv4v6, false, v6only},  IEs) -> validate_pdp_cfg(Req, ipv6, IEs);
+validate_pdp_type({Req = ipv4v6, false, prefV4},  IEs) -> validate_pdp_cfg(Req, ipv4, IEs);
+validate_pdp_type({Req = ipv4v6, false, prefV6},  IEs) -> validate_pdp_cfg(Req, ipv6, IEs);
+
+validate_pdp_type(_Type, IEs) ->
+    validate_pdp_cfg(ipv4v6, ipv4v6, IEs).
 
 %%%-------------------------------------------------------------------
 
@@ -322,6 +372,28 @@ make_response(#gtp{type = delete_pdp_context_request, seq_no = SeqNo},
 
 %%%-------------------------------------------------------------------
 
+validate_cause(_Type, {_, _, _} = SubType, #gtp{ie = #{{cause,0} := #cause{value = Cause}}}) ->
+    CauseList =
+	[{{ipv4,   false, default}, request_accepted},
+	 {{ipv6,   false, default}, request_accepted},
+	 {{ipv4v6, true,  default}, request_accepted},
+	 {{ipv4v6, true,  v4only},  new_pdp_type_due_to_network_preference},
+	 {{ipv4v6, true,  v6only},  new_pdp_type_due_to_network_preference},
+	 {{ipv4,   false, prefV4},  request_accepted},
+	 {{ipv4,   false, prefV6},  request_accepted},
+	 {{ipv6,   false, prefV4},  request_accepted},
+	 {{ipv6,   false, prefV6},  request_accepted},
+	 {{ipv4v6, false, v4only},  new_pdp_type_due_to_network_preference},
+	 {{ipv4v6, false, v6only},  new_pdp_type_due_to_network_preference},
+	 {{ipv4v6, false, prefV4},  new_pdp_type_due_to_single_address_bearer_only},
+	 {{ipv4v6, false, prefV6},  new_pdp_type_due_to_single_address_bearer_only}
+	 ],
+    ExpectedCause = proplists:get_value(SubType, CauseList),
+    ?equal(ExpectedCause, Cause);
+
+validate_cause(_Type, _SubType, Response) ->
+    ?match(#gtp{ie = #{{cause,0} := #cause{value = request_accepted}}}, Response).
+
 validate_response(_Type, invalid_teid, Response, GtpC) ->
     ?match(
        #gtp{ie = #{{cause,0} := #cause{value = non_existent}}
@@ -379,12 +451,23 @@ validate_response(create_pdp_context_request, version_restricted, Response, GtpC
     ?match(#gtp{type = version_not_supported}, Response),
     GtpC;
 
+validate_response(create_pdp_context_request, {ipv4, _, v6only}, Response, GtpC) ->
+    ?match(#gtp{type = create_pdp_context_response,
+		ie = #{{cause,0} := #cause{value = unknown_pdp_address_or_pdp_type}}},
+	   Response),
+    GtpC;
+validate_response(create_pdp_context_request, {ipv6, _, v4only}, Response, GtpC) ->
+    ?match(#gtp{type = create_pdp_context_response,
+		ie = #{{cause,0} := #cause{value = unknown_pdp_address_or_pdp_type}}},
+	   Response),
+    GtpC;
+
 validate_response(create_pdp_context_request, SubType, Response,
 		  #gtpc{local_control_tei = LocalCntlTEI} = GtpC) ->
+    validate_cause(create_pdp_context_request, SubType, Response),
     ?match(#gtp{type = create_pdp_context_response,
 		tei = LocalCntlTEI,
-		ie = #{{cause,0} := #cause{value = request_accepted},
-		       {charging_id,0} := #charging_id{},
+		ie = #{{charging_id,0} := #charging_id{},
 		       {gsn_address,0} := #gsn_address{},
 		       {gsn_address,1} := #gsn_address{},
 		       {quality_of_service_profile,0} :=
@@ -501,6 +584,10 @@ execute_request(MsgType, SubType, GtpC0) ->
 apn(invalid_apn) -> [<<"IN", "VA", "LID">>];
 apn(dotted_apn)  -> ?'APN-EXA.MPLE';
 apn(async_sx)    -> [<<"async-sx">>];
+apn({_, _, APN})
+  when APN =:= v4only; APN =:= prefV4;
+       APN =:= v6only; APN =:= prefV6 ->
+    [atom_to_binary(APN, latin1)];
 apn(_)           -> ?'APN-EXAMPLE'.
 
 imsi('2nd', _) ->
