@@ -17,7 +17,7 @@
 	 validate_teid/2,
 	 type/0, port/0,
 	 get_msg_keys/1, update_context_id/2,
-	 get_cause/1,
+	 get_cause/1, get_common_flags/1,
 	 load_class/1]).
 
 %% support functions
@@ -32,6 +32,7 @@
 -define('IMSI',						{international_mobile_subscriber_identity, 0}).
 -define('IMEI',						{imei, 0}).
 -define('NSAPI',					{nsapi, 0}).
+-define('Common Flags',                                 {common_flags, 0}).
 -define('Extended Common Flags',			{extended_common_flags, 0}).
 
 %%====================================================================
@@ -266,6 +267,9 @@ get_element(Key, IEs, Pos, Default) ->
 	    Default
     end.
 
+get_common_flags(IEs) ->
+    get_element(?'Common Flags', IEs, #common_flags.flags, []).
+
 get_ext_common_flags(IEs) ->
     get_element(?'Extended Common Flags', IEs, #extended_common_flags.flags, []).
 
@@ -355,6 +359,12 @@ map_reply_ie(all_dynamic_addresses_are_occupied) ->
     #cause{value = all_dynamic_pdp_addresses_are_occupied};
 map_reply_ie(all_dynamic_pdp_addresses_are_occupied) ->
     #cause{value = all_dynamic_pdp_addresses_are_occupied};
+map_reply_ie(new_pdn_type_due_to_network_preference) ->
+    #cause{value = new_pdp_type_due_to_network_preference};
+map_reply_ie(new_pdn_type_due_to_single_address_bearer_only) ->
+    #cause{value = new_pdp_type_due_to_single_address_bearer_only};
+map_reply_ie(preferred_pdn_type_not_supported) ->
+    #cause{value = unknown_pdp_address_or_pdp_type};
 map_reply_ie(IE)
   when is_tuple(IE) ->
     IE.

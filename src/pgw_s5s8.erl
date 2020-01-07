@@ -362,6 +362,7 @@ handle_request(ReqKey,
     gtp_context:terminate_colliding_context(ContextPreAuth),
 
     PAA = maps:get(?'PDN Address Allocation', IEs, undefined),
+    DAF = proplists:get_bool('DAF', gtp_v2_c:get_indication_flags(IEs)),
 
     SessionOpts0 = init_session(IEs, ContextPreAuth, AAAopts),
     SessionOpts1 = init_session_from_gtp_req(IEs, AAAopts, SessionOpts0),
@@ -377,10 +378,9 @@ handle_request(ReqKey,
     {PendingPCtx, NodeCaps, APNOpts, ContextVRF} =
 	ergw_gsn_lib:reselect_upf(Candidates, ActiveSessionOpts0, ContextUP, UPinfo0),
 
-    ActiveSessionOpts1 = apply_session_opts(APNOpts, ActiveSessionOpts0),
-    {IPOpts, ContextPending} = assign_ips(ActiveSessionOpts1, PAA, ContextVRF),
-    ergw_aaa_session:set(Session, IPOpts),
-    ActiveSessionOpts = maps:merge(ActiveSessionOpts1, IPOpts),
+    {Result, ActiveSessionOpts, ContextPending} =
+	allocate_ips(APNOpts, ActiveSessionOpts0, PAA, DAF, ContextVRF),
+    ergw_aaa_session:set(Session, ActiveSessionOpts),
 
     Now = erlang:monotonic_time(),
     SOpts = #{now => Now},
@@ -431,7 +431,7 @@ handle_request(ReqKey,
 	    ok
     end,
 
-    ResponseIEs = create_session_response(ActiveSessionOpts, IEs, EBI, Context),
+    ResponseIEs = create_session_response(Result, ActiveSessionOpts, IEs, EBI, Context),
     Response = response(create_session_response, Context, ResponseIEs, Request),
     gtp_context:send_response(ReqKey, Request, Response),
     {keep_state, Data#{context => Context, pfcp => PCtx, pcc => PCC4}};
@@ -720,15 +720,17 @@ match_context(Type, Context, IE) ->
 		[Type, Context, IE]),
     error_m:fail([#v2_cause{v2_cause = invalid_peer}]).
 
+pdn_alloc(#v2_pdn_address_allocation{type = non_ip}) ->
+    {'Non-IP', undefined, undefined};
 pdn_alloc(#v2_pdn_address_allocation{type = ipv4v6,
 				     address = << IP6PrefixLen:8, IP6Prefix:16/binary, IP4:4/binary>>}) ->
-    {ipv4v6, ergw_inet:bin2ip(IP4), {ergw_inet:bin2ip(IP6Prefix), IP6PrefixLen}};
+    {'IPv4v6', ergw_inet:bin2ip(IP4), {ergw_inet:bin2ip(IP6Prefix), IP6PrefixLen}};
 pdn_alloc(#v2_pdn_address_allocation{type = ipv4,
 				     address = << IP4:4/binary>>}) ->
-    {ipv4, ergw_inet:bin2ip(IP4), undefined};
+    {'IPv4', ergw_inet:bin2ip(IP4), undefined};
 pdn_alloc(#v2_pdn_address_allocation{type = ipv6,
 				     address = << IP6PrefixLen:8, IP6Prefix:16/binary>>}) ->
-    {ipv6, undefined, {ergw_inet:bin2ip(IP6Prefix), IP6PrefixLen}}.
+    {'IPv6', undefined, {ergw_inet:bin2ip(IP6Prefix), IP6PrefixLen}}.
 
 encode_paa({IPv4,_}, undefined) ->
     encode_paa(ipv4, ergw_inet:ip2bin(IPv4), <<>>);
@@ -837,23 +839,6 @@ apply_context_change(NewContext0, OldContext, URRActions,
     defer_usage_report(URRActions, UsageReport),
     Data#{context => NewContext, pfcp => PCtx}.
 
-copy_session_opts(K, Value, Opts)
-    when K =:= 'MS-Primary-DNS-Server';
-	 K =:= 'MS-Secondary-DNS-Server';
-	 K =:= 'MS-Primary-NBNS-Server';
-	 K =:= 'MS-Secondary-NBNS-Server' ->
-    Opts#{K => ergw_inet:ip2bin(Value)};
-copy_session_opts(K, Value, Opts)
-  when K =:= 'DNS-Server-IPv6-Address';
-       K =:= '3GPP-IPv6-DNS-Servers' ->
-    Opts#{K => Value};
-copy_session_opts(_K, _V, Opts) ->
-    Opts.
-
-apply_session_opts(Opts, Session) ->
-    Defaults = maps:fold(fun copy_session_opts/3, #{}, Opts),
-    maps:merge(Defaults, Session).
-
 map_attr('APN', #{?'Access Point Name' := #v2_access_point_name{apn = APN}}) ->
     unicode:characters_to_binary(lists:join($., APN));
 map_attr('IMSI', #{?'IMSI' := #v2_international_mobile_subscriber_identity{imsi = IMSI}}) ->
@@ -876,6 +861,7 @@ map_username(_IEs, [], Acc) ->
 map_username(IEs, [H | Rest], Acc) ->
     Part = map_attr(H, IEs),
     map_username(IEs, Rest, [Part | Acc]).
+
 
 init_session(IEs,
 	     #context{control_port = #gtp_port{ip = LocalIP},
@@ -921,6 +907,13 @@ copy_ppp_to_session({chap, 'CHAP-Response', _Id, Value, Name}, Session0) ->
 copy_ppp_to_session(_, Session) ->
     Session.
 
+non_empty_ip(_, {0,0,0,0}, Opts) ->
+    Opts;
+non_empty_ip(_, {{0,0,0,0,0,0,0,0}, _}, Opts) ->
+    Opts;
+non_empty_ip(Key, IP, Opts) ->
+    maps:put(Key, IP, Opts).
+
 copy_to_session(_, #v2_protocol_configuration_options{config = {0, Options}},
 		#{'Username' := #{from_protocol_opts := true}}, Session) ->
     lists:foldr(fun copy_ppp_to_session/2, Session, Options);
@@ -942,17 +935,17 @@ copy_to_session(_, #v2_international_mobile_subscriber_identity{imsi = IMSI}, _A
 copy_to_session(_, #v2_pdn_address_allocation{type = ipv4,
 					      address = IP4}, _AAAopts, Session) ->
     IP4addr = ergw_inet:bin2ip(IP4),
-    Session#{'3GPP-PDP-Type' => 'IPv4',
-	     'Framed-IP-Address' => IP4addr,
-	     'Requested-IP-Address' => IP4addr};
+    S0 = Session#{'3GPP-PDP-Type' => 'IPv4'},
+    S1 = non_empty_ip('Framed-IP-Address', IP4addr, S0),
+    _S = non_empty_ip('Requested-IP-Address', IP4addr, S1);
 copy_to_session(_, #v2_pdn_address_allocation{type = ipv6,
 					      address = <<IP6PrefixLen:8,
 							  IP6Prefix:16/binary>>},
 		_AAAopts, Session) ->
     IP6addr = {ergw_inet:bin2ip(IP6Prefix), IP6PrefixLen},
-    Session#{'3GPP-PDP-Type' => 'IPv6',
-	     'Framed-IPv6-Prefix' => IP6addr,
-	     'Requested-IPv6-Prefix' => IP6addr};
+    S0 = Session#{'3GPP-PDP-Type' => 'IPv6'},
+    S1 = non_empty_ip('Framed-IPv6-Prefix', IP6addr, S0),
+    _S = non_empty_ip('Requested-IPv6-Prefix', IP6addr, S1);
 copy_to_session(_, #v2_pdn_address_allocation{type = ipv4v6,
 					      address = <<IP6PrefixLen:8,
 							  IP6Prefix:16/binary,
@@ -960,21 +953,18 @@ copy_to_session(_, #v2_pdn_address_allocation{type = ipv4v6,
 		_AAAopts, Session) ->
     IP4addr = ergw_inet:bin2ip(IP4),
     IP6addr = {ergw_inet:bin2ip(IP6Prefix), IP6PrefixLen},
-    Session#{'3GPP-PDP-Type' => 'IPv4v6',
-	     'Framed-IP-Address' => IP4addr,
-	     'Framed-IPv6-Prefix' => IP6addr,
-	     'Requested-IP-Address' => IP4addr,
-	     'Requested-IPv6-Prefix' => IP6addr};
-
-%% let pdn_type overwrite PAA
-copy_to_session(_, #v2_pdn_type{pdn_type = ipv4}, _AAAopts, Session) ->
-    Session#{'3GPP-PDP-Type' => 'IPv4'};
-copy_to_session(_, #v2_pdn_type{pdn_type = ipv6}, _AAAopts, Session) ->
-    Session#{'3GPP-PDP-Type' => 'IPv6'};
-copy_to_session(_, #v2_pdn_type{pdn_type = ipv4v6}, _AAAopts, Session) ->
-    Session#{'3GPP-PDP-Type' => 'IPv4v6'};
-copy_to_session(_, #v2_pdn_type{pdn_type = non_ip}, _AAAopts, Session) ->
+    S0 = Session#{'3GPP-PDP-Type' => 'IPv4v6'},
+    S1 = non_empty_ip('Framed-IP-Address', IP4addr, S0),
+    S2 = non_empty_ip('Requested-IP-Address', IP4addr, S1),
+    S3 = non_empty_ip('Framed-IPv6-Prefix', IP6addr, S2),
+    _S = non_empty_ip('Requested-IPv6-Prefix', IP6addr, S3);
+copy_to_session(_, #v2_pdn_address_allocation{type = non_ip}, _AAAopts, Session) ->
     Session#{'3GPP-PDP-Type' => 'Non-IP'};
+
+%% 3GPP TS 29.274, Rel 15, Table 7.2.1-1, Note 1:
+%%   The conditional PDN Type IE is redundant on the S4/S11 and S5/S8 interfaces
+%%   (as the PAA IE contains exactly the same field). The receiver may ignore it.
+%%
 
 copy_to_session(?'Sender F-TEID for Control Plane',
 		#v2_fully_qualified_tunnel_endpoint_identifier{ipv4 = IP4, ipv6 = IP6},
@@ -1131,6 +1121,8 @@ get_context_from_req(?'ME Identity', #v2_mobile_equipment_identity{mei = IMEI}, 
     Context#context{imei = IMEI};
 get_context_from_req(?'MSISDN', #v2_msisdn{msisdn = MSISDN}, Context) ->
     Context#context{msisdn = MSISDN};
+get_context_from_req(?'PDN Address Allocation', #v2_pdn_address_allocation{type = Type}, Context) ->
+    Context#context{pdn_type = Type};
 get_context_from_req(_, _, Context) ->
     Context.
 
@@ -1182,28 +1174,8 @@ delete_context(From, TermCause, #{context := Context} = Data) ->
     send_request(Context, ?T3, ?N3, Type, RequestIEs, {From, TermCause}),
     {next_state, shutdown_initiated, Data}.
 
-session_ipv4_alloc(#{'Framed-IP-Address' := {255,255,255,255}}, ReqMSv4) ->
-    ReqMSv4;
-session_ipv4_alloc(#{'Framed-IP-Address' := {255,255,255,254}}, _ReqMSv4) ->
-    {0,0,0,0};
-session_ipv4_alloc(#{'Framed-IP-Address' := {_,_,_,_} = IPv4}, _ReqMSv4) ->
-    IPv4;
-session_ipv4_alloc(_SessionOpts, ReqMSv4) ->
-    ReqMSv4.
-
-session_ipv6_alloc(#{'Framed-IPv6-Prefix' := {{_,_,_,_,_,_,_,_}, _} = IPv6}, _ReqMSv6) ->
-    IPv6;
-session_ipv6_alloc(_SessionOpts, ReqMSv6) ->
-    ReqMSv6.
-
-session_ip_alloc(SessionOpts, {PDNType, ReqMSv4, ReqMSv6}) ->
-    MSv4 = session_ipv4_alloc(SessionOpts, ReqMSv4),
-    MSv6 = session_ipv6_alloc(SessionOpts, ReqMSv6),
-    {PDNType, MSv4, MSv6}.
-
-assign_ips(SessionOps, PAA, Context) ->
-    {PDNType, ReqMSv4, ReqMSv6} = session_ip_alloc(SessionOps, pdn_alloc(PAA)),
-    ergw_gsn_lib:allocate_ips(PDNType, ReqMSv4, ReqMSv6, Context).
+allocate_ips(APNOpts, SOpts, PAA, DAF, Context) ->
+    ergw_gsn_lib:allocate_ips(pdn_alloc(PAA), APNOpts, SOpts, DAF, Context).
 
 ppp_ipcp_conf_resp(Verdict, Opt, IPCP) ->
     maps:update_with(Verdict, fun(O) -> [Opt|O] end, [Opt], IPCP).
@@ -1291,13 +1263,13 @@ s5s8_pgw_gtp_c_tei(#context{control_port = #gtp_port{ip = IP}, local_control_tei
 s5s8_pgw_gtp_u_tei(#context{local_data_endp = #gtp_endp{ip = IP, teid = TEI}}) ->
     fq_teid(2,  ?'S5/S8-U PGW', TEI, IP).
 
-create_session_response(SessionOpts, RequestIEs, EBI,
+create_session_response(Result, SessionOpts, RequestIEs, EBI,
 			#context{ms_v4 = MSv4, ms_v6 = MSv6} = Context) ->
 
     IE0 = bearer_context(EBI, Context, []),
     IE1 = pdn_pco(SessionOpts, RequestIEs, IE0),
 
-    [#v2_cause{v2_cause = request_accepted},
+    [Result,
      #v2_change_reporting_action{action = start_reporting_tai_and_ecgi},
      #v2_apn_restriction{restriction_type_value = 0},
      context_charging_id(Context),

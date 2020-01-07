@@ -33,7 +33,7 @@
 	 pcc_events_to_charging_rule_report/1]).
 -export([pcc_ctx_has_rules/1]).
 -export([apn/2, select_vrf/2,
-	 allocate_ips/4, release_context_ips/1]).
+	 allocate_ips/5, release_context_ips/1]).
 
 -export([select_upf/2, reselect_upf/4]).
 
@@ -57,6 +57,10 @@
 -define(ZERO_IPv4, {0,0,0,0}).
 -define(ZERO_IPv6, {0,0,0,0,0,0,0,0}).
 -define(UE_INTERFACE_ID, {0,0,0,0,0,0,0,1}).
+
+-define(APNOpts, ['MS-Primary-DNS-Server', 'MS-Secondary-DNS-Server',
+		  'MS-Primary-NBNS-Server', 'MS-Secondary-NBNS-Server',
+		  'DNS-Server-IPv6-Address', '3GPP-IPv6-DNS-Servers']).
 
 %%%===================================================================
 %%% Sx DP API
@@ -1582,7 +1586,9 @@ normalize_ipv6(IP) when ?IS_IPv6(IP) ->
 normalize_ipv6(undefined) ->
     undefined.
 
-alloc_ipv4({ReqIPv4, PrefixLen}, #context{local_control_tei = TEI, ipv4_pool = Pool}) ->
+alloc_ipv4({ReqIPv4, PrefixLen}, #context{local_control_tei = TEI,
+					  ipv4_pool = Pool} = Context)
+  when ?IS_IPv4(ReqIPv4) ->
     PoolOpts0 = ergw_ip_pool:opts(ipv4, Pool),
     PoolOpts = maps:update_with('Framed-Pool', fun(X) -> X end, Pool, PoolOpts0),
     Request = case ReqIPv4 of
@@ -1591,14 +1597,21 @@ alloc_ipv4({ReqIPv4, PrefixLen}, #context{local_control_tei = TEI, ipv4_pool = P
 	      end,
     case ergw_ip_pool:get(Pool, TEI, Request, PrefixLen) of
 	{ok, IP} ->
-	    {IP, PoolOpts};
-	{error, _Error} ->
-	    {undefined, #{}}
+	    {IP, PoolOpts, Context#context{ms_v4 = IP}};
+	{error, empty} ->
+	    throw(?CTX_ERR(?FATAL, all_dynamic_addresses_are_occupied, Context));
+	{error, taken} ->
+	    throw(?CTX_ERR(?FATAL, system_error, Context));
+	{error, undefined = Result} ->
+	    %% pool not defined
+	    {Result, #{}}
     end;
-alloc_ipv4(_ReqIPv4, _Context) ->
-    {undefined, #{}}.
+alloc_ipv4(_ReqIPv4, Context) ->
+    {undefined, #{}, Context}.
 
-alloc_ipv6({ReqIPv6, PrefixLen}, #context{local_control_tei = TEI, ipv6_pool = Pool}) ->
+alloc_ipv6({ReqIPv6, PrefixLen}, #context{local_control_tei = TEI,
+					  ipv6_pool = Pool} = Context)
+  when ?IS_IPv6(ReqIPv6) ->
     PoolOpts0 = ergw_ip_pool:opts(ipv6, Pool),
     PoolOpts = maps:update_with('Framed-IPv6-Pool', fun(X) -> X end, Pool, PoolOpts0),
     {Request, IfId} = case ReqIPv6 of
@@ -1607,12 +1620,18 @@ alloc_ipv6({ReqIPv6, PrefixLen}, #context{local_control_tei = TEI, ipv6_pool = P
 		      end,
     case ergw_ip_pool:get(Pool, TEI, Request, PrefixLen) of
 	{ok, IP} ->
-	    {ergw_inet:ipv6_interface_id(IP, IfId), PoolOpts};
-	{error, _Error} ->
-	    {undefined, #{}}
+	    MSv6 = ergw_inet:ipv6_interface_id(IP, IfId),
+	    {MSv6, PoolOpts, Context#context{ms_v6 = MSv6}};
+	{error, empty} ->
+	    throw(?CTX_ERR(?FATAL, all_dynamic_addresses_are_occupied, Context));
+	{error, taken} ->
+	    throw(?CTX_ERR(?FATAL, system_error, Context));
+	{error, undefined = Result} ->
+	    %% pool not defined
+	    {Result, #{}, Context}
     end;
-alloc_ipv6(_ReqIPv6, _State) ->
-    {undefined, #{}}.
+alloc_ipv6(_ReqIPv6, Context) ->
+    {undefined, #{}, Context}.
 
 release_ipv4({IPv4, PrefixLen}, #context{ipv4_pool = Pool}) ->
     ergw_ip_pool:release(Pool, IPv4, PrefixLen);
@@ -1625,37 +1644,97 @@ release_ipv6(_IP, _State) ->
     ok.
 
 maybe_ip(Key, {{_,_,_,_} = IPv4, _}, Opts) ->
-    Opts#{Key => IPv4};
+    maps:put(Key, IPv4, Opts);
 maybe_ip(Key, {{_,_,_,_,_,_,_,_},_} = IPv6, Opts) ->
-    Opts#{Key => IPv6};
-maybe_ip(_, _, Opts) ->
-    Opts.
+    maps:put(Key, IPv6, Opts);
+maybe_ip(Key, _, Opts) ->
+    maps:remove(Key, Opts).
 
-%% allocate_ips/4
-allocate_ips(PDNType, ReqMSv4, ReqMSv6, Context0) ->
-    {MSv4, IPv4PoolOpts} = alloc_ipv4(normalize_ipv4(ReqMSv4), Context0),
-    {MSv6, IPv6PoolOpts} = alloc_ipv6(normalize_ipv6(ReqMSv6), Context0),
+session_ipv4_alloc(#{'Framed-IP-Address' := {255,255,255,255}}, ReqMSv4) ->
+    ReqMSv4;
+session_ipv4_alloc(#{'Framed-IP-Address' := {255,255,255,254}}, _ReqMSv4) ->
+    {0,0,0,0};
+session_ipv4_alloc(#{'Framed-IP-Address' := {_,_,_,_} = IPv4}, _ReqMSv4) ->
+    IPv4;
+session_ipv4_alloc(_SessionOpts, ReqMSv4) ->
+    ReqMSv4.
+
+session_ipv6_alloc(#{'Framed-IPv6-Prefix' := {{_,_,_,_,_,_,_,_}, _} = IPv6}, _ReqMSv6) ->
+    IPv6;
+session_ipv6_alloc(_SessionOpts, ReqMSv6) ->
+    ReqMSv6.
+
+session_ip_alloc('IPv4', _, _, _, {'IPv6', _, _}) ->
+    {'IPv4', undefined, undefined};
+session_ip_alloc('IPv6', _, _, _, {'IPv4', _, _}) ->
+    {'IPv6', undefined, undefined};
+
+session_ip_alloc('IPv4', _, SessionOpts, _, {'IPv4v6', ReqMSv4, _}) ->
+    MSv4 = session_ipv4_alloc(SessionOpts, ReqMSv4),
+    {'IPv4v6', MSv4, undefined};
+
+session_ip_alloc('IPv6', _, SessionOpts, _, {'IPv4v6', _, ReqMSv6}) ->
+    MSv6 = session_ipv6_alloc(SessionOpts, ReqMSv6),
+    {'IPv4v6', undefined, MSv6};
+
+session_ip_alloc('IPv4v6', 'IPv4', SessionOpts, false, {'IPv4v6', ReqMSv4, _}) ->
+    MSv4 = session_ipv4_alloc(SessionOpts, ReqMSv4),
+    {'IPv4v6', MSv4, undefined};
+
+session_ip_alloc('IPv4v6', 'IPv6', SessionOpts, false, {'IPv4v6', _, ReqMSv6}) ->
+    MSv6 = session_ipv6_alloc(SessionOpts, ReqMSv6),
+    {'IPv4v6', undefined, MSv6};
+
+session_ip_alloc(_, _, SessionOpts, _, {PDNType, ReqMSv4, ReqMSv6}) ->
+    MSv4 = session_ipv4_alloc(SessionOpts, ReqMSv4),
+    MSv6 = session_ipv6_alloc(SessionOpts, ReqMSv6),
+    {PDNType, MSv4, MSv6}.
+
+allocate_ips_result('Non-IP', _, _, _, _) -> {request_accepted, 'Non-IP'};
+allocate_ips_result('IPv4', _, IPv4, _, _) when IPv4 /= undefined ->
+    {request_accepted, 'IPv4'};
+allocate_ips_result('IPv6', _, _, IPv6, _) when IPv6 /= undefined ->
+    {request_accepted, 'IPv6'};
+allocate_ips_result('IPv4v6', _, IPv4, IPv6, _)
+  when IPv4 /= undefined, IPv6 /= undefined ->
+    {request_accepted, 'IPv4v6'};
+allocate_ips_result('IPv4v6', 'IPv4', IPv4, undefined, _) when IPv4 /= undefined ->
+    {new_pdn_type_due_to_network_preference, 'IPv4'};
+allocate_ips_result('IPv4v6', _, IPv4, undefined, _) when IPv4 /= undefined ->
+    {'new_pdn_type_due_to_single_address_bearer_only', 'IPv4'};
+allocate_ips_result('IPv4v6', 'IPv6', undefined, IPv6, _) when IPv6 /= undefined ->
+    {new_pdn_type_due_to_network_preference, 'IPv6'};
+allocate_ips_result('IPv4v6', _, undefined, IPv6, _) when IPv6 /= undefined ->
+    {'new_pdn_type_due_to_single_address_bearer_only', 'IPv6'};
+allocate_ips_result(_, _, _, _, Context) ->
+    throw(?CTX_ERR(?FATAL, preferred_pdn_type_not_supported, Context)).
+
+%% allocate_ips/5
+allocate_ips(AllocInfo,
+	     #{bearer_type := Bearer, prefered_bearer_type := PrefBearer} = APNOpts0,
+	     SOpts0, DualAddressBearerFlag, Context0) ->
+    {ReqPDNType, ReqMSv4, ReqMSv6} =
+	session_ip_alloc(Bearer, PrefBearer, SOpts0, DualAddressBearerFlag, AllocInfo),
+    {MSv4, IPv4PoolOpts, Context1} = alloc_ipv4(normalize_ipv4(ReqMSv4), Context0),
+    {MSv6, IPv6PoolOpts, Context}  = alloc_ipv6(normalize_ipv6(ReqMSv6), Context1),
     PoolOpts = maps:merge(IPv4PoolOpts, IPv6PoolOpts),
 
-    Context = Context0#context{ms_v4 = MSv4, ms_v6 = MSv6},
-    case PDNType of
-	ipv4v6 when MSv4 /= undefined, MSv6 /= undefined ->
-	    ok;
-	ipv4 when MSv4 /= undefined ->
-	    ok;
-	ipv6 when MSv6 /= undefined ->
-	    ok;
-	_ ->
-	    throw(?CTX_ERR(?FATAL, all_dynamic_addresses_are_occupied, Context))
-    end,
-    IPOpts0 = maybe_ip('Framed-IP-Address', MSv4, PoolOpts),
-    IPOpts = maybe_ip('Framed-IPv6-Prefix', MSv6, IPOpts0),
+    {Result, PDNType} = allocate_ips_result(ReqPDNType, Bearer, MSv4, MSv6, Context0),
 
-    %% RFC 6911
-    DNS0 = maps:get('DNS-Server-IPv6-Address', IPOpts, []),
-    %% 3GPP
-    DNS1 = maps:get('3GPP-IPv6-DNS-Servers', IPOpts, []),
-    {IPOpts, Context#context{dns_v6 = DNS0 ++ DNS1}}.
+    APNOpts = maps:with(?APNOpts, APNOpts0),
+    SOpts1 = maps:merge(APNOpts, SOpts0),
+    SOpts2 = maps:merge(PoolOpts, SOpts1),
+    SOpts3 = maps:put('3GPP-PDP-Type', PDNType, SOpts2),
+    SOpts4 = maybe_ip('Framed-IP-Address', MSv4, SOpts3),
+    SOpts  = maybe_ip('Framed-IPv6-Prefix', MSv6, SOpts4),
+
+    DNS = if PDNType =:= 'IPv6' orelse PDNType =:= 'IPv4v6' ->
+		  maps:get('DNS-Server-IPv6-Address', SOpts, []) ++          %% RFC 6911
+		      maps:get('3GPP-IPv6-DNS-Servers', SOpts, []);          %% 3GPP
+	     true ->
+		  []
+	  end,
+    {Result, SOpts, Context#context{pdn_type = PDNType, dns_v6 = DNS}}.
 
 %% release_context_ips/1
 release_context_ips(#context{ms_v4 = MSv4, ms_v6 = MSv6} = Context)

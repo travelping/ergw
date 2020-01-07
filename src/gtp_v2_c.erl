@@ -17,7 +17,7 @@
 	 validate_teid/2,
 	 type/0, port/0,
 	 get_msg_keys/1, update_context_id/2,
-	 get_cause/1,
+	 get_cause/1, get_indication_flags/1,
 	 load_class/1]).
 
 %% support functions
@@ -384,6 +384,12 @@ map_reply_ie(rejected) ->
     #v2_cause{v2_cause = no_resources_available};
 map_reply_ie(all_dynamic_addresses_are_occupied) ->
     #v2_cause{v2_cause = all_dynamic_addresses_are_occupied};
+map_reply_ie(new_pdn_type_due_to_network_preference) ->
+    #v2_cause{v2_cause = new_pdn_type_due_to_network_preference};
+map_reply_ie(new_pdn_type_due_to_single_address_bearer_only) ->
+    #v2_cause{v2_cause = new_pdn_type_due_to_single_address_bearer_only};
+map_reply_ie(preferred_pdn_type_not_supported) ->
+    #v2_cause{v2_cause = preferred_pdn_type_not_supported};
 map_reply_ie(IE)
   when is_tuple(IE) ->
     IE.

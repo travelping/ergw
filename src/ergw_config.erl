@@ -16,6 +16,7 @@
 	 validate_options/4,
 	 validate_apn_name/1,
 	 check_unique_keys/2,
+	 validate_ip_cfg_opt/2,
 	 opts_fold/3,
 	 to_map/1]).
 
@@ -30,12 +31,15 @@
 			 {apns, []},
 			 {charging, [{default, []}]}]).
 -define(VrfDefaults, [{features, invalid}]).
--define(ApnDefaults, [{ip_pools, []}]).
+-define(ApnDefaults, [{ip_pools, []}, {bearer_type, 'IPv4v6'}, {prefered_bearer_type, 'IPv6'}]).
 -define(DefaultsNodesDefaults, [{vrfs, invalid}, {node_selection, default}]).
 
 -define(is_opts(X), (is_list(X) orelse is_map(X))).
 -define(non_empty_opts(X), ((is_list(X) andalso length(X) /= 0) orelse
 			    (is_map(X) andalso map_size(X) /= 0))).
+
+-define(IS_IPv4(X), (is_tuple(X) andalso tuple_size(X) == 4)).
+-define(IS_IPv6(X), (is_tuple(X) andalso tuple_size(X) == 8)).
 
 %%%===================================================================
 %%% API
@@ -400,7 +404,43 @@ validate_apn_option({ip_pools = Opt, Pools})
     V = [ergw_ip_pool:validate_name(Opt, Name) || Name <- Pools],
     check_unique_elements(Opt, V),
     {Opt, V};
+validate_apn_option({bearer_type = Opt, Type})
+  when Type =:= 'IPv4'; Type =:= 'IPv6'; Type =:= 'IPv4v6' ->
+    {Opt, Type};
+validate_apn_option({prefered_bearer_type = Opt, Type})
+  when Type =:= 'IPv4'; Type =:= 'IPv6' ->
+    {Opt, Type};
+validate_apn_option({Opt, Value})
+  when Opt == 'MS-Primary-DNS-Server';   Opt == 'MS-Secondary-DNS-Server';
+       Opt == 'MS-Primary-NBNS-Server';  Opt == 'MS-Secondary-NBNS-Server';
+       Opt == 'DNS-Server-IPv6-Address'; Opt == '3GPP-IPv6-DNS-Servers' ->
+    {Opt, validate_ip_cfg_opt(Opt, Value)};
 validate_apn_option({Opt, Value}) ->
+    throw({error, {options, {Opt, Value}}}).
+
+validate_ip6(_Opt, IP) when ?IS_IPv6(IP) ->
+    IP;
+validate_ip6(Opt, Value) ->
+    throw({error, {options, {Opt, Value}}}).
+
+validate_ip_cfg_opt(Opt, {_,_,_,_} = IP)
+  when Opt == 'MS-Primary-DNS-Server';
+       Opt == 'MS-Secondary-DNS-Server';
+       Opt == 'MS-Primary-NBNS-Server';
+       Opt == 'MS-Secondary-NBNS-Server' ->
+    ergw_inet:ip2bin(IP);
+validate_ip_cfg_opt(Opt, <<_:32/bits>> = IP)
+  when Opt == 'MS-Primary-DNS-Server';
+       Opt == 'MS-Secondary-DNS-Server';
+       Opt == 'MS-Primary-NBNS-Server';
+       Opt == 'MS-Secondary-NBNS-Server' ->
+    IP;
+validate_ip_cfg_opt(Opt, DNS)
+  when is_list(DNS) andalso
+       (Opt == 'DNS-Server-IPv6-Address' orelse
+	Opt == '3GPP-IPv6-DNS-Servers') ->
+    [validate_ip6(Opt, IP) || IP <- DNS];
+validate_ip_cfg_opt(Opt, Value) ->
     throw({error, {options, {Opt, Value}}}).
 
 load_socket({Name, Options}) ->

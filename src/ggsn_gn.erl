@@ -325,6 +325,7 @@ handle_request(ReqKey,
     SxConnectId = ergw_sx_node:request_connect(Candidates, 1000),
 
     EUA = maps:get(?'End User Address', IEs, undefined),
+    DAF = proplists:get_bool('Dual Address Bearer Flag', gtp_v1_c:get_common_flags(IEs)),
 
     Context1 = update_context_from_gtp_req(Request, Context0),
     ContextPreAuth = gtp_path:bind(Request, Context1),
@@ -345,10 +346,9 @@ handle_request(ReqKey,
     {PendingPCtx, NodeCaps, APNOpts, ContextVRF} =
 	ergw_gsn_lib:reselect_upf(Candidates, ActiveSessionOpts0, ContextUP, UPinfo0),
 
-    ActiveSessionOpts1 = apply_session_opts(APNOpts, ActiveSessionOpts0),
-    {IPOpts, ContextPending} = assign_ips(ActiveSessionOpts1, EUA, ContextVRF),
-    ergw_aaa_session:set(Session, IPOpts),
-    ActiveSessionOpts = maps:merge(ActiveSessionOpts1, IPOpts),
+    {Result, ActiveSessionOpts, ContextPending} =
+	allocate_ips(APNOpts, ActiveSessionOpts0, EUA, DAF, ContextVRF),
+    ergw_aaa_session:set(Session, ActiveSessionOpts),
 
     Now = erlang:monotonic_time(),
     SOpts = #{now => Now},
@@ -398,7 +398,7 @@ handle_request(ReqKey,
 	    ok
     end,
 
-    ResponseIEs = create_pdp_context_response(ActiveSessionOpts, IEs, Context),
+    ResponseIEs = create_pdp_context_response(Result, ActiveSessionOpts, IEs, Context),
     Response = response(create_pdp_context_response, Context, ResponseIEs, Request),
     gtp_context:send_response(ReqKey, Request, Response),
     {keep_state, Data#{context => Context, pfcp => PCtx, pcc => PCC4}};
@@ -517,6 +517,10 @@ ccr_initial(Context, Session, API, SessionOpts, ReqOpts, Request) ->
 			       session_failure_to_gtp_cause(Fail))
     end.
 
+pdp_alloc(#end_user_address{pdp_type_organization = 0,
+			    pdp_type_number = 2}) ->
+    {'Non-IP', undefined, undefined};
+
 pdp_alloc(#end_user_address{pdp_type_organization = 1,
 			    pdp_type_number = 16#21,
 			    pdp_address = Address}) ->
@@ -526,7 +530,7 @@ pdp_alloc(#end_user_address{pdp_type_organization = 1,
 	      <<_:4/bytes>> ->
 		  ergw_inet:bin2ip(Address)
 	  end,
-    {ipv4, IP4, undefined};
+    {'IPv4', IP4, undefined};
 
 pdp_alloc(#end_user_address{pdp_type_organization = 1,
 			    pdp_type_number = 16#57,
@@ -537,19 +541,20 @@ pdp_alloc(#end_user_address{pdp_type_organization = 1,
 	      <<_:16/bytes>> ->
 		  {ergw_inet:bin2ip(Address),128}
 	  end,
-    {ipv6, undefined, IP6};
+    {'IPv6', undefined, IP6};
+
 pdp_alloc(#end_user_address{pdp_type_organization = 1,
 			    pdp_type_number = 16#8D,
 			    pdp_address = Address}) ->
     case Address of
 	<< IP4:4/bytes, IP6:16/bytes >> ->
-	    {ipv4v6, ergw_inet:bin2ip(IP4), {ergw_inet:bin2ip(IP6), 128}};
+	    {'IPv4v6', ergw_inet:bin2ip(IP4), {ergw_inet:bin2ip(IP6), 128}};
 	<< IP6:16/bytes >> ->
-	    {ipv4v6, {0,0,0,0}, {ergw_inet:bin2ip(IP6), 128}};
+	    {'IPv4v6', {0,0,0,0}, {ergw_inet:bin2ip(IP6), 128}};
 	<< IP4:4/bytes >> ->
-	    {ipv4v6, ergw_inet:bin2ip(IP4), {{0,0,0,0,0,0,0,0},64}};
+	    {'IPv4v6', ergw_inet:bin2ip(IP4), {{0,0,0,0,0,0,0,0},64}};
 	<<  >> ->
-	    {ipv4v6, {0,0,0,0}, {{0,0,0,0,0,0,0,0},64}}
+	    {'IPv4v6', {0,0,0,0}, {{0,0,0,0,0,0,0,0},64}}
    end;
 
 pdp_alloc(_) ->
@@ -658,23 +663,6 @@ apply_context_change(NewContext0, OldContext, URRActions,
     gtp_path:unbind(OldContext),
     defer_usage_report(URRActions, UsageReport),
     Data#{context => NewContext, pfcp => PCtx}.
-
-copy_session_opts(K, Value, Opts)
-    when K =:= 'MS-Primary-DNS-Server';
-	 K =:= 'MS-Secondary-DNS-Server';
-	 K =:= 'MS-Primary-NBNS-Server';
-	 K =:= 'MS-Secondary-NBNS-Server' ->
-    Opts#{K => ergw_inet:ip2bin(Value)};
-copy_session_opts(K, Value, Opts)
-  when K =:= 'DNS-Server-IPv6-Address';
-       K =:= '3GPP-IPv6-DNS-Servers' ->
-    Opts#{K => Value};
-copy_session_opts(_K, _V, Opts) ->
-    Opts.
-
-apply_session_opts(Opts, Session) ->
-    Defaults = maps:fold(fun copy_session_opts/3, #{}, Opts),
-    maps:merge(Defaults, Session).
 
 map_attr('APN', #{?'Access Point Name' := #access_point_name{apn = APN}}) ->
     unicode:characters_to_binary(lists:join($., APN));
@@ -1096,28 +1084,8 @@ delete_context(From, TermCause, #{context := Context} = Data) ->
     send_request(Context, ?T3, ?N3, Type, RequestIEs, {From, TermCause}),
     {next_state, shutdown_initiated, Data}.
 
-session_ipv4_alloc(#{'Framed-IP-Address' := {255,255,255,255}}, ReqMSv4) ->
-    ReqMSv4;
-session_ipv4_alloc(#{'Framed-IP-Address' := {255,255,255,254}}, _ReqMSv4) ->
-    {0,0,0,0};
-session_ipv4_alloc(#{'Framed-IP-Address' := {_,_,_,_} = IPv4}, _ReqMSv4) ->
-    IPv4;
-session_ipv4_alloc(_SessionOpts, ReqMSv4) ->
-    ReqMSv4.
-
-session_ipv6_alloc(#{'Framed-IPv6-Prefix' := {{_,_,_,_,_,_,_,_}, _} = IPv6}, _ReqMSv6) ->
-    IPv6;
-session_ipv6_alloc(_SessionOpts, ReqMSv6) ->
-    ReqMSv6.
-
-session_ip_alloc(SessionOpts, {PDPType, ReqMSv4, ReqMSv6}) ->
-    MSv4 = session_ipv4_alloc(SessionOpts, ReqMSv4),
-    MSv6 = session_ipv6_alloc(SessionOpts, ReqMSv6),
-    {PDPType, MSv4, MSv6}.
-
-assign_ips(SessionOps, EUA, Context) ->
-    {PDNType, ReqMSv4, ReqMSv6} = session_ip_alloc(SessionOps, pdp_alloc(EUA)),
-    ergw_gsn_lib:allocate_ips(PDNType, ReqMSv4, ReqMSv6, Context).
+allocate_ips(APNOpts, SOpts, EUA, DAF, Context) ->
+    ergw_gsn_lib:allocate_ips(pdp_alloc(EUA), APNOpts, SOpts, DAF, Context).
 
 ppp_ipcp_conf_resp(Verdict, Opt, IPCP) ->
     maps:update_with(Verdict, fun(O) -> [Opt|O] end, [Opt], IPCP).
@@ -1189,9 +1157,9 @@ tunnel_endpoint_elements(#context{control_port = #gtp_port{ip = CntlIP},
 context_charging_id(#context{charging_identifier = ChargingId}) ->
     #charging_id{id = <<ChargingId:32>>}.
 
-create_pdp_context_response(SessionOpts, RequestIEs,
+create_pdp_context_response(Result, SessionOpts, RequestIEs,
 			    #context{ms_v4 = MSv4, ms_v6 = MSv6} = Context) ->
-    IE0 = [#cause{value = request_accepted},
+    IE0 = [Result,
 	   #reordering_required{required = no},
 	   context_charging_id(Context),
 	   encode_eua(MSv4, MSv6)],

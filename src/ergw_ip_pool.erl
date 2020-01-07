@@ -60,7 +60,7 @@ start_link(ServerName, PoolName, Pool, Opts) ->
 get(Server, ClientId, IP, PrefixLen) when is_pid(Server) ->
     gen_server:call(Server, {get, ClientId, IP, PrefixLen});
 get(Pool, ClientId, IP, PrefixLen) ->
-    call(ergw_ip_pool_reg:lookup(Pool), {get, ClientId, IP, PrefixLen}, error).
+    call(ergw_ip_pool_reg:lookup(Pool), {get, ClientId, IP, PrefixLen}, {error, undefined}).
 
 release(Server, IP, PrefixLen) when is_pid(Server) ->
     gen_server:call(Server, {release, IP, PrefixLen});
@@ -94,11 +94,6 @@ validate_options(Options) ->
     ?LOG(debug, "IP Pool Options: ~p", [Options]),
     ergw_config:validate_options(fun validate_option/2, Options, ?DefaultOptions, map).
 
-validate_ip6(_Opt, IP) when ?IS_IPv6(IP) ->
-    IP;
-validate_ip6(Opt, Value) ->
-    throw({error, {options, {Opt, Value}}}).
-
 validate_ip_range({Start, End, PrefixLen} = Range)
   when ?IS_IPv4(Start), ?IS_IPv4(End), End > Start,
        is_integer(PrefixLen), PrefixLen > 0, PrefixLen =< 32 ->
@@ -122,17 +117,11 @@ validate_ip_range(Range) ->
 validate_option(ranges, Ranges)
   when is_list(Ranges), length(Ranges) /= 0 ->
     [validate_ip_range(X) || X <- Ranges];
-validate_option(Opt, {_,_,_,_} = IP)
-  when Opt == 'MS-Primary-DNS-Server';
-       Opt == 'MS-Secondary-DNS-Server';
-       Opt == 'MS-Primary-NBNS-Server';
-       Opt == 'MS-Secondary-NBNS-Server' ->
-    IP;
-validate_option(Opt, DNS)
-  when is_list(DNS) andalso
-       (Opt == 'DNS-Server-IPv6-Address' orelse
-	Opt == '3GPP-IPv6-DNS-Servers') ->
-    [validate_ip6(Opt, IP) || IP <- DNS];
+validate_option(Opt, Value)
+  when Opt == 'MS-Primary-DNS-Server';   Opt == 'MS-Secondary-DNS-Server';
+       Opt == 'MS-Primary-NBNS-Server';  Opt == 'MS-Secondary-NBNS-Server';
+       Opt == 'DNS-Server-IPv6-Address'; Opt == '3GPP-IPv6-DNS-Servers' ->
+    ergw_config:validate_ip_cfg_opt(Opt, Value);
 validate_option(Opt, Pool)
   when Opt =:= 'Framed-Pool';
        Opt =:= 'Framed-IPv6-Pool' ->
@@ -187,9 +176,9 @@ init_table(Tid, Start, End) ->
 handle_call({get, ClientId, Type, PrefixLen}, _From, #state{pools = Pools} = State)
   when is_atom(Type), is_map_key({Type, PrefixLen}, Pools) ->
     Key = {Type, PrefixLen},
-    {IP, Pool} = allocate_ip(ClientId, maps:get(Key, Pools)),
-    ?LOG(debug, "~w: Allocate IPv: ~p -> ~p, Pool: ~p", [self(), ClientId, IP, Pool]),
-    {reply, {ok, IP}, State#state{pools = maps:put(Key, Pool, Pools)}};
+    {Response, Pool} = allocate_ip(ClientId, maps:get(Key, Pools)),
+    ?LOG(debug, "~w: Allocate IPv: ~p -> ~p, Pool: ~p", [self(), ClientId, Response, Pool]),
+    {reply, Response, State#state{pools = maps:put(Key, Pool, Pools)}};
 
 handle_call({get, ClientId, ReqIP, PrefixLen}, _From, #state{pools = Pools} = State)
   when is_tuple(ReqIP) ->
@@ -197,8 +186,9 @@ handle_call({get, ClientId, ReqIP, PrefixLen}, _From, #state{pools = Pools} = St
     {Reply, Pool} = take_ip(ClientId, ip2int(ReqIP), maps:get(Key, Pools, undefined)),
     {reply, Reply, State#state{pools = maps:put(Key, Pool, Pools)}};
 
-handle_call({get, _ClientId, _Type, _PrefixLen}, _From, State) ->
-    {reply, {ok, undefined}, State};
+%% WTF???
+%% handle_call({get, _ClientId, _Type, _PrefixLen}, _From, State) ->
+%%     {reply, {error, invalid}, State};
 
 handle_call({release, IP, PrefixLen}, _From, #state{pools = Pools} = State) ->
     Key = {type(IP), PrefixLen},
@@ -289,9 +279,9 @@ allocate_ip(ClientId, #pool{used = Used, free = Free,
     IP = id2ip(Id, Pool0),
     Pool = Pool0#pool{used = Used + 1, free = Free - 1},
     metrics_sync_gauges(Pool),
-    {IP, Pool};
+    {{ok, IP}, Pool};
 allocate_ip(_ClientId, Pool) ->
-    {undefined, Pool}.
+    {{error, empty}, Pool}.
 
 release_ip(IP, #pool{first = First, last = Last,
 		      shift = Shift,
