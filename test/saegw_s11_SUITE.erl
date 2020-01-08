@@ -116,16 +116,16 @@
 		 {apns,
 		  [{?'APN-EXAMPLE',
 		    [{vrf, sgi},
-             {ip_pools, ['pool-A']},
-             {'Idle-Timeout', 21600000}]}, % Idle timeout 6 hours
+		     {ip_pools, ['pool-A']},
+		     {'Idle-Timeout', 21600000}]}, % Idle timeout 6 hours
 		   {[<<"APN1">>],
 		    [{vrf, sgi},
-             {ip_pools, ['pool-A']},
-             {'Idle-Timeout', 8800000}]}, % Idle timeout 8 hours
+		     {ip_pools, ['pool-A']},
+		     {'Idle-Timeout', 8800000}]}, % Idle timeout 8 hours
 		   {[<<"async-sx">>],
 		    [{vrf, sgi},
-             {ip_pools, ['pool-A']},
-             {'Idle-Timeout', infinity}]}
+		     {ip_pools, ['pool-A']},
+		     {'Idle-Timeout', infinity}]}
 		  ]},
 
 		 {charging,
@@ -547,8 +547,8 @@ init_per_testcase(gx_invalid_charging_rule, Config) ->
     Config;
 %% gtp 'Idle-Timeout' reduced to 2000ms for test purposes
 init_per_testcase(gtp_idle_timeout, Config) ->
-	set_idle_timeout(short),
-	setup_per_testcase(Config),
+    set_idle_timeout(short),
+    setup_per_testcase(Config),
     Config;
 init_per_testcase(_, Config) ->
     setup_per_testcase(Config),
@@ -592,9 +592,9 @@ end_per_testcase(create_session_overload, Config) ->
     end_per_testcase(Config),
     Config;
 end_per_testcase(gtp_idle_timeout, Config) ->
-	set_idle_timeout(default),
-	end_per_testcase(Config),
-	Config;
+    set_idle_timeout(default),
+    end_per_testcase(Config),
+    Config;
 end_per_testcase(_, Config) ->
     end_per_testcase(Config),
     Config.
@@ -2005,11 +2005,11 @@ gx_invalid_charging_rule(Config) ->
 gtp_idle_timeout() ->
     [{doc, "Checks if the gtp idle timeout is triggered"}].
 gtp_idle_timeout(Config) ->
-	{GtpC1, _, _} = create_session(Config),
-% The meck wait timeout (3000) has to be more than then the Idle-Timeout
-	ok = meck:wait(?HUT, handle_event, 
-		[{timeout, context_idle}, stop_session, '_', '_'], 3000),	
-	
+    {GtpC1, _, _} = create_session(Config),
+    % The meck wait timeout (3000) has to be more than then the Idle-Timeout
+    ok = meck:wait(?HUT, handle_event,
+		   [{timeout, context_idle}, stop_session, '_', '_'], 3000),
+
     delete_session(GtpC1),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
@@ -2094,13 +2094,13 @@ set_def_timeout(K, Value, APNs) ->
 set_new_timeout(K, Value, APNs) ->
     Value2  = maps:put('Idle-Timeout', 2000, Value),
     APNs#{K => Value2}.
-    
+
 set_idle_timeout(Tmr_lth) ->
     {ok, APNs0} = application:get_env(ergw, apns),
     case Tmr_lth of
         default ->
             APNs = maps:fold(fun set_def_timeout/3, #{}, APNs0);
-            _ ->
+	_ ->
             APNs = maps:fold(fun set_new_timeout/3, #{}, APNs0)
     end,
-    ok = application:set_env(ergw, apns, APNs).	
+    ok = application:set_env(ergw, apns, APNs).
