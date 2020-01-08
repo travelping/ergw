@@ -262,7 +262,7 @@ handle_event({timeout, context_idle}, stop_session, _state, Data) ->
 
 handle_event(internal, {session, stop, _Session}, run, Data) ->
     delete_context(undefined, normal, Data);
-handle_event(internal, {session, stop, _Session}, _, Data) ->
+handle_event(internal, {session, stop, _Session}, _, _Data) ->
     keep_state_and_data;
 
 handle_event(internal, {session, {update_credits, _} = CreditEv, _}, _State,
@@ -608,7 +608,7 @@ handle_request(ReqKey,
 	{error, ReplyIEs} ->
 	    Response = response(delete_session_response, Context, ReplyIEs),
 	    gtp_context:send_response(ReqKey, Request, Response),
-	    keep_state_and_data
+        keep_state_and_data
     end;
 
 handle_request(ReqKey, _Msg, _Resent, _State, _Data) ->
@@ -872,7 +872,7 @@ copy_session_opts('Idle-Timeout', Value, Opts) ->
 copy_session_opts(_K, _V, Opts) ->
     Opts.
 
-%% Idle-Timeout value rom ergw_aaa session will overwrite default
+%% Idle-Timeout value from ergw_aaa session will overwrite default
 apply_apn_defaults(Opts, Session) ->
     Defaults = maps:fold(fun copy_session_opts/3, #{}, Opts),
     maps:merge(Defaults, Session).

@@ -684,7 +684,7 @@ copy_session_opts('Idle-Timeout', Value, Opts) ->
 copy_session_opts(_K, _V, Opts) ->
     Opts.
 
-%% Idle-Timeout value from ergw_aaa session will overwrite default
+%% Idle-Timeout value from ergw_aaa session will overwrite the default
 apply_apn_defaults(Opts, Session) ->
     Defaults = maps:fold(fun copy_session_opts/3, #{}, Opts),
     maps:merge(Defaults, Session).
