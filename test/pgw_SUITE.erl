@@ -516,6 +516,7 @@ end_per_group(sx_fail, _Config) ->
 
 common() ->
     [invalid_gtp_pdu,
+     invalid_gtp_version,
      apn_lookup,
      create_session_request_missing_ie,
      create_session_request_aaa_reject,
@@ -866,6 +867,29 @@ invalid_gtp_pdu(Config) ->
 
     ?equal({error,timeout}, gen_udp:recv(S, 4096, ?TIMEOUT)),
     ?match_metric(prometheus_counter, gtp_c_socket_errors_total, MfrId, MfrCnt + 1),
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+invalid_gtp_version() ->
+    [{doc, "Test that an invalid version is silently ignored"
+      " and that the GTP socket is not crashing"}].
+invalid_gtp_version(Config) ->
+    TestGSN = proplists:get_value(test_gsn, Config),
+
+    S = make_gtp_socket(Config),
+
+    %% broken GTP' echo request, observed in the "wild"
+    BrokenPrime = <<16#2a, 16#01, 16#00, 16#02, 16#00, 16#00, 16#0e, 16#00>>,
+    gen_udp:send(S, TestGSN, ?GTP2c_PORT, BrokenPrime),
+    ?equal({error,timeout}, gen_udp:recv(S, 4096, ?TIMEOUT)),
+
+    Prime =
+	#gtp{version = prime_v1, type = echo_request,
+	     seq_no = 0, ie = [#recovery{instance = 0,restart_counter = 0}]},
+    gen_udp:send(S, TestGSN, ?GTP2c_PORT, gtp_packet:encode(Prime)),
+    ?equal({error,timeout}, gen_udp:recv(S, 4096, ?TIMEOUT)),
+
     meck_validate(Config),
     ok.
 

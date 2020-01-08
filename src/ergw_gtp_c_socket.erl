@@ -388,6 +388,11 @@ handle_message(ArrivalTS, IP, Port, Data, #state{gtp_port = GtpPort} = State0) -
 	    {noreply, State0}
     end.
 
+handle_message_1(_, _, _, #gtp{version = Version}, #state{gtp_port = GtpPort} = State)
+  when Version /= v1 andalso Version /= v2 ->
+    ergw_prometheus:gtp_error(rx, GtpPort, 'version-not-supported'),
+    State;
+
 handle_message_1(ArrivalTS, IP, Port, #gtp{type = echo_request} = Msg, State) ->
     ReqKey = make_request(ArrivalTS, IP, Port, Msg, State),
     gtp_path:handle_request(ReqKey, Msg),
