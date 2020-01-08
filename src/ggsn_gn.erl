@@ -349,9 +349,9 @@ handle_request(ReqKey,
 	ergw_gsn_lib:reselect_upf(Candidates, ActiveSessionOpts0, ContextUP, UPinfo0),
 
     ActiveSessionOpts1 = apply_apn_defaults(APNOpts, ActiveSessionOpts0),
-    ContextAddTimeout = add_apn_timeout(APNOpts, ContextVRF),
-    {IPOpts, ContextPending} = assign_ips(ActiveSessionOpts1, EUA, ContextAddTimeout),
-    ergw_aaa_session:set(Session, IPOpts),
+    {IPOpts, ContextAddTimeout} = assign_ips(ActiveSessionOpts1, EUA, ContextVRF), 
+    ContextPending = add_apn_timeout(ActiveSessionOpts1, ContextAddTimeout),
+     ergw_aaa_session:set(Session, IPOpts),
     ActiveSessionOpts = maps:merge(ActiveSessionOpts1, IPOpts),
 
     Now = erlang:monotonic_time(),
@@ -679,9 +679,12 @@ copy_session_opts(K, Value, Opts)
   when K =:= 'DNS-Server-IPv6-Address';
        K =:= '3GPP-IPv6-DNS-Servers' ->
     Opts#{K => Value};
+copy_session_opts('Idle-Timeout', Value, Opts) ->
+    Opts#{'Idle-Timeout' => Value};
 copy_session_opts(_K, _V, Opts) ->
     Opts.
 
+%% Idle-Timeout value from ergw_aaa session will overwrite default
 apply_apn_defaults(Opts, Session) ->
     Defaults = maps:fold(fun copy_session_opts/3, #{}, Opts),
     maps:merge(Defaults, Session).

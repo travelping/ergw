@@ -262,7 +262,7 @@ handle_event({timeout, context_idle}, stop_session, _state, Data) ->
 
 handle_event(internal, {session, stop, _Session}, run, Data) ->
     delete_context(undefined, normal, Data);
-handle_event(internal, {session, stop, _Session}, _, _Data) ->
+handle_event(internal, {session, stop, _Session}, _, Data) ->
     keep_state_and_data;
 
 handle_event(internal, {session, {update_credits, _} = CreditEv, _}, _State,
@@ -383,8 +383,8 @@ handle_request(ReqKey,
 	ergw_gsn_lib:reselect_upf(Candidates, ActiveSessionOpts0, ContextUP, UPinfo0),
 
     ActiveSessionOpts1 = apply_apn_defaults(APNOpts, ActiveSessionOpts0),
-    ContextAddTimeout = add_apn_timeout(APNOpts, ContextVRF),
-    {IPOpts, ContextPending} = assign_ips(ActiveSessionOpts1, PAA, ContextAddTimeout),
+    {IPOpts, ContextAddTimeout} = assign_ips(ActiveSessionOpts1, PAA, ContextVRF), 
+    ContextPending = add_apn_timeout(ActiveSessionOpts1, ContextAddTimeout),
     ergw_aaa_session:set(Session, IPOpts),
     ActiveSessionOpts = maps:merge(ActiveSessionOpts1, IPOpts),
 
@@ -458,7 +458,7 @@ handle_request(ReqKey,
 			  } = IEs} = Request,
 	       _Resent, _State,
 	       #{context := OldContext, pfcp := PCtx, 'Session' := Session} = Data0) ->
-    
+
     FqCntlTEID = maps:get(?'Sender F-TEID for Control Plane', IEs, undefined),
 
     Context0 = update_context_tunnel_ids(FqCntlTEID, FqDataTEID, OldContext),
@@ -608,7 +608,7 @@ handle_request(ReqKey,
 	{error, ReplyIEs} ->
 	    Response = response(delete_session_response, Context, ReplyIEs),
 	    gtp_context:send_response(ReqKey, Request, Response),
-        keep_state_and_data
+	    keep_state_and_data
     end;
 
 handle_request(ReqKey, _Msg, _Resent, _State, _Data) ->
@@ -867,9 +867,12 @@ copy_session_opts(K, Value, Opts)
   when K =:= 'DNS-Server-IPv6-Address';
        K =:= '3GPP-IPv6-DNS-Servers' ->
     Opts#{K => Value};
+copy_session_opts('Idle-Timeout', Value, Opts) ->
+    Opts#{'Idle-Timeout' => Value};
 copy_session_opts(_K, _V, Opts) ->
     Opts.
 
+%% Idle-Timeout value rom ergw_aaa session will overwrite default
 apply_apn_defaults(Opts, Session) ->
     Defaults = maps:fold(fun copy_session_opts/3, #{}, Opts),
     maps:merge(Defaults, Session).
