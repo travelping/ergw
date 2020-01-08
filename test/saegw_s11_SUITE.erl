@@ -113,21 +113,19 @@
 		   {ip, ?MUST_BE_UPDATED},
 		   {reuseaddr, true}]},
 
-% For test purposes an Idle-Timeout of >= 11000 is used to avoid
-% clashing with other timeout tests like "gy_async_stop"
 		 {apns,
 		  [{?'APN-EXAMPLE',
 		    [{vrf, sgi},
              {ip_pools, ['pool-A']},
-             {'Idle-Timeout', 11000}]},
+             {'Idle-Timeout', 21600000}]}, % Idle timeout 6 hours
 		   {[<<"APN1">>],
 		    [{vrf, sgi},
              {ip_pools, ['pool-A']},
-             {'Idle-Timeout', 11000}]},
+             {'Idle-Timeout', 8800000}]}, % Idle timeout 8 hours
 		   {[<<"async-sx">>],
 		    [{vrf, sgi},
              {ip_pools, ['pool-A']},
-             {'Idle-Timeout', 11000}]}
+             {'Idle-Timeout', infinity}]}
 		  ]},
 
 		 {charging,
@@ -547,6 +545,11 @@ init_per_testcase(gx_invalid_charging_rule, Config) ->
     setup_per_testcase(Config),
     load_aaa_answer_config([{{gx, 'CCR-Initial'}, 'Initial-Gx-Fail-2'}]),
     Config;
+%% gtp 'Idle-Timeout' reduced to 2000ms for test purposes
+init_per_testcase(gtp_idle_timeout, Config) ->
+	set_idle_timeout(short),
+	setup_per_testcase(Config),
+    Config;
 init_per_testcase(_, Config) ->
     setup_per_testcase(Config),
     Config.
@@ -588,6 +591,10 @@ end_per_testcase(create_session_overload, Config) ->
     jobs:modify_regulator(rate, create, {rate,create,1}, [{limit,100}]),
     end_per_testcase(Config),
     Config;
+end_per_testcase(gtp_idle_timeout, Config) ->
+	set_idle_timeout(default),
+	end_per_testcase(Config),
+	Config;
 end_per_testcase(_, Config) ->
     end_per_testcase(Config),
     Config.
@@ -1999,9 +2006,9 @@ gtp_idle_timeout() ->
     [{doc, "Checks if the gtp idle timeout is triggered"}].
 gtp_idle_timeout(Config) ->
 	{GtpC1, _, _} = create_session(Config),
-% The meck wait timeout (12000) has to be more than then the Idle-Timeout
+% The meck wait timeout (3000) has to be more than then the Idle-Timeout
 	ok = meck:wait(?HUT, handle_event, 
-		[{timeout, context_idle}, stop_session, '_', '_'], 12000),	
+		[{timeout, context_idle}, stop_session, '_', '_'], 3000),	
 	
     delete_session(GtpC1),
 
@@ -2077,3 +2084,23 @@ set_online_charging(Set) ->
     {ok, Cfg0} = application:get_env(ergw, charging),
     Cfg = set_online_charging(['_', rulebase, '_'], Set, Cfg0),
     ok = application:set_env(ergw, charging, Cfg).
+
+%% Set to default of 8 hours (28800000 ms) after Idle-Timeout
+set_def_timeout(K, Value, APNs) ->
+    Value2  = maps:put('Idle-Timeout', 28800000, Value), % 8 hours
+    APNs#{K => Value2}.
+
+%% Set shorter timeout of 2000 ms for test purposes.        
+set_new_timeout(K, Value, APNs) ->
+    Value2  = maps:put('Idle-Timeout', 2000, Value),
+    APNs#{K => Value2}.
+    
+set_idle_timeout(Tmr_lth) ->
+    {ok, APNs0} = application:get_env(ergw, apns),
+    case Tmr_lth of
+        default ->
+            APNs = maps:fold(fun set_def_timeout/3, #{}, APNs0);
+            _ ->
+            APNs = maps:fold(fun set_new_timeout/3, #{}, APNs0)
+    end,
+    ok = application:set_env(ergw, apns, APNs).	
