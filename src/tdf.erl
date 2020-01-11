@@ -119,14 +119,17 @@ port_message(Server, Request, Msg, Resent) ->
 
 callback_mode() -> [handle_event_function, state_enter].
 
+maybe_ip(IP, Len) when is_binary(IP) -> {IP, Len};
+maybe_ip(_,_) -> undefined.
+
 init([Node, InVRF, IP4, IP6, #{apn := APN} = _SxOpts]) ->
     process_flag(trap_exit, true),
 
     Context =
 	#tdf_ctx{
 	   in_vrf = InVRF,
-	   ms_v4 = {IP4, 32},
-	   ms_v6 = {IP6, 128}
+	   ms_v4 = maybe_ip(IP4, 32),
+	   ms_v6 = maybe_ip(IP6, 128)
 	  },
 
     {ok, Session} = ergw_aaa_session_sup:new_session(self(), to_session([])),
