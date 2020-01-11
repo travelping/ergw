@@ -10,8 +10,7 @@
 %%-compile({parse_transform, cut}).
 
 %% API
--export([validate_options/1, validate_option/2,
-	 validate_name/1, normalize_name/1]).
+-export([validate_name/1, normalize_name/1]).
 
 -include_lib("kernel/include/logger.hrl").
 -include("include/ergw.hrl").
@@ -19,13 +18,6 @@
 %%%===================================================================
 %%% Options Validation
 %%%===================================================================
-
-validate_options(Options) ->
-    ?LOG(debug, "VRF Options: ~p", [Options]),
-    ergw_config:validate_options(fun validate_option/2, Options, [], map).
-
-validate_option(Opt, Value) ->
-    throw({error, {options, {Opt, Value}}}).
 
 validate_name(Name) ->
     try
