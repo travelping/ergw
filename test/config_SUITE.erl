@@ -22,6 +22,7 @@
 
 -define(GGSN_CONFIG,
 	[accept_new,
+	 {http_api, [{port, 0}]},
 	 {sockets,
 	  [{cp, [{type, 'gtp-u'},
 		 {ip,  ?LOCALHOST_IPv4},
@@ -276,7 +277,6 @@
 	 }
 	]).
 
-
 -define(PGW_PROXY_CONFIG,
 	[
 	 {sockets,
@@ -384,6 +384,78 @@
 	 }
 	]).
 
+-define(SAE_S11_CONFIG,
+	[{sockets,
+	  [{cp, [{type, 'gtp-u'},
+		 {ip,  ?LOCALHOST_IPv4},
+		 {reuseaddr, true},
+		 freebind
+		]},
+	   {irx, [{type, 'gtp-c'},
+		  {ip,  ?TEST_GSN_IPv4},
+		  {reuseaddr, true}
+		 ]}
+	  ]},
+
+	 {ip_pools,
+	  [{'pool-A', [{ranges,  [{?IPv4PoolStart, ?IPv4PoolEnd, 32},
+				  {?IPv6PoolStart, ?IPv6PoolEnd, 64}]},
+		       {'MS-Primary-DNS-Server', {8,8,8,8}},
+		       {'MS-Secondary-DNS-Server', {8,8,4,4}},
+		       {'MS-Primary-NBNS-Server', {127,0,0,1}},
+		       {'MS-Secondary-NBNS-Server', {127,0,0,1}},
+		       {'DNS-Server-IPv6-Address',
+			[{16#2001, 16#4860, 16#4860, 0, 0, 0, 0, 16#8888},
+			 {16#2001, 16#4860, 16#4860, 0, 0, 0, 0, 16#8844}]}
+		      ]}
+	  ]},
+
+	 {handlers,
+	  [{'h1', [{handler, saegw_s11},
+		   {protocol, s11},
+		   {sockets, [irx]},
+		   {node_selection, [static]},
+		   {aaa, [{'Username',
+			   [{default, ['IMSI',   <<"/">>,
+				       'IMEI',   <<"/">>,
+				       'MSISDN', <<"/">>,
+				       'ATOM',   <<"/">>,
+				       "TEXT",   <<"/">>,
+				       12345,
+				       <<"@">>, 'APN']}]}]}
+		  ]}
+	  ]},
+
+	 {sx_socket,
+	  [{node, 'ergw'},
+	   {name, 'ergw'},
+	   {socket, cp},
+	   {ip, ?LOCALHOST_IPv4},
+	   {reuseaddr, true}
+	  ]},
+
+	 {apns,
+	  [{?'APN-EXAMPLE',
+	    [{vrf, upstream},
+	     {ip_pools, ['pool-A', 'pool-B']}
+	    ]},
+	   {[<<"APN1">>],
+	    [{vrfs, [upstream]},
+	     {ip_pools, ['pool-A', 'pool-B']}
+	    ]}
+	  ]},
+
+	 {nodes,
+	  [{default,
+	    [{vrfs,
+	      [{cp, [{features, ['CP-Function']}]},
+	       {irx, [{features, ['Access']}]},
+	       {sgi, [{features, ['SGi-LAN']}]}]
+	     }]
+	   }]
+	 }
+	]).
+
 -define(TDF_CONFIG,
 	[
 	 {sockets,
@@ -476,6 +548,9 @@ config(_Config)  ->
     ?error_option(set_cfg_value([plmn_id], {<<"abc">>, <<"ab">>}, ?GGSN_CONFIG)),
     ?error_option(set_cfg_value([sockets], undefined, ?GGSN_CONFIG)),
 
+    %% pass-through of unexpected options
+    ?ok_option(set_cfg_value([invalid], [], ?GGSN_CONFIG)),
+
     ?error_option(set_cfg_value([accept_new], invalid, ?GGSN_CONFIG)),
     Accept0 = (catch ergw_config:validate_config(?GGSN_CONFIG)),
     ?equal(true, proplists:get_value(accept_new, Accept0)),
@@ -483,6 +558,15 @@ config(_Config)  ->
     ?equal(true, proplists:get_value(accept_new, Accept1)),
     Accept2 = (catch ergw_config:validate_config(set_cfg_value([accept_new], false, ?GGSN_CONFIG))),
     ?equal(false, proplists:get_value(accept_new, Accept2)),
+
+    ?ok_option(set_cfg_value([http_api, port], 1234, ?GGSN_CONFIG)),
+    ?ok_option(set_cfg_value([http_api, acceptors_num], 5, ?GGSN_CONFIG)),
+    ?ok_option(set_cfg_value([http_api, ip], ?LOCALHOST_IPv4, ?GGSN_CONFIG)),
+    ?ok_option(set_cfg_value([http_api, ip], ?LOCALHOST_IPv6, ?GGSN_CONFIG)),
+    ?error_option(set_cfg_value([http_api, invalid], [], ?GGSN_CONFIG)),
+    ?error_option(set_cfg_value([http_api, port], invalid, ?GGSN_CONFIG)),
+    ?error_option(set_cfg_value([http_api, acceptors_num], invalid, ?GGSN_CONFIG)),
+    ?error_option(set_cfg_value([http_api, ip], invalid, ?GGSN_CONFIG)),
 
     ?error_option(set_cfg_value([sockets, irx, type], invalid, ?GGSN_CONFIG)),
     ?error_option(set_cfg_value([sockets, irx, ip], invalid, ?GGSN_CONFIG)),
@@ -602,10 +686,20 @@ config(_Config)  ->
 				invalid, ?GGSN_CONFIG)),
     ?error_option(set_cfg_value([ip_pools, 'pool-A', 'DNS-Server-IPv6-Address'],
 				?LOCALHOST_IPv4, ?GGSN_CONFIG)),
+    ?error_option(set_cfg_value([ip_pools, 'pool-A', 'DNS-Server-IPv6-Address'],
+				[?LOCALHOST_IPv4], ?GGSN_CONFIG)),
+    ?error_option(set_cfg_value([ip_pools, 'pool-A', 'DNS-Server-IPv6-Address'],
+				?LOCALHOST_IPv6, ?GGSN_CONFIG)),
+    ?ok_option(set_cfg_value([ip_pools, 'pool-A', 'DNS-Server-IPv6-Address'],
+				[?LOCALHOST_IPv6], ?GGSN_CONFIG)),
     ?error_option(set_cfg_value([ip_pools, 'pool-A', '3GPP-IPv6-DNS-Servers'],
 				invalid, ?GGSN_CONFIG)),
     ?error_option(set_cfg_value([ip_pools, 'pool-A', '3GPP-IPv6-DNS-Servers'],
+				[invalid], ?GGSN_CONFIG)),
+    ?error_option(set_cfg_value([ip_pools, 'pool-A', '3GPP-IPv6-DNS-Servers'],
 				?LOCALHOST_IPv4, ?GGSN_CONFIG)),
+    ?error_option(set_cfg_value([ip_pools, 'pool-A', '3GPP-IPv6-DNS-Servers'],
+				[?LOCALHOST_IPv4], ?GGSN_CONFIG)),
     ?ok_option(set_cfg_value([ip_pools, 'pool-A', '3GPP-IPv6-DNS-Servers'],
 			     [?LOCALHOST_IPv6], ?GGSN_CONFIG)),
     ?error_option(set_cfg_value([ip_pools, 'pool-A', '3GPP-IPv6-DNS-Servers'],
@@ -622,6 +716,9 @@ config(_Config)  ->
     ?ok_option(set_cfg_value([apns, '_', vrfs], [a, b], ?GGSN_CONFIG)),
     ?error_option(set_cfg_value([apns, '_', vrfs], [a | b], ?GGSN_CONFIG)),
     ?error_option(set_cfg_value([apns, '_', vrfs], [a, a], ?GGSN_CONFIG)),
+    ?match({error, {apn, _}},
+	   (catch ergw_config:validate_config(
+		    set_cfg_value([apns, invalid], [], ?GGSN_CONFIG)))),
     ?error_option(set_cfg_value([apns, ?'APN-EXAMPLE'], [], ?GGSN_CONFIG)),
     ?error_option(set_cfg_value([apns, ?'APN-EXAMPLE'], invalid, ?GGSN_CONFIG)),
     ?ok_option(add_cfg_value([apns, ?'APN-PROXY'], [{vrf, example}], ?GGSN_CONFIG)),
@@ -668,6 +765,9 @@ config(_Config)  ->
     ?error_option(set_cfg_value([handlers, gn, contexts, invalid], [], ?GGSN_PROXY_CONFIG)),
     ?error_option(set_cfg_value([handlers, gn, contexts, <<"ams">>], invalid, ?GGSN_PROXY_CONFIG)),
     ?error_option(set_cfg_value([handlers, gn, contexts, <<"ams">>, proxy_sockets], invalid, ?GGSN_PROXY_CONFIG)),
+    ?ok_option(set_cfg_value([handlers, gn, proxy_data_source], gtp_proxy_ds, ?GGSN_PROXY_CONFIG)),
+    ?error_option(set_cfg_value([handlers, gn, proxy_data_source], invalid, ?GGSN_PROXY_CONFIG)),
+
     ?error_option(set_cfg_value([handlers, gn, contexts, <<"ams">>, node_selection],
 				invalid, ?GGSN_PROXY_CONFIG)),
     ?error_option(set_cfg_value([handlers, gn, contexts, <<"ams">>, node_selection],
@@ -697,8 +797,17 @@ config(_Config)  ->
     ?error_option(set_cfg_value([node_selection, default],
 			     {static, [{"Host", [], []}]},
 			     ?GGSN_PROXY_CONFIG)),
+    ?error_option(set_cfg_value([node_selection, default],
+			     {static, [{"Host", [invalid], []}]},
+			     ?GGSN_PROXY_CONFIG)),
+    ?error_option(set_cfg_value([node_selection, default],
+			     {static, [{"Host", [], [invalid]}]},
+			     ?GGSN_PROXY_CONFIG)),
     ?ok_option(set_cfg_value([node_selection, default],
-			     {static, [{"Host", [{1,1,1,1}], []}]},
+			     {static, [{"Host", [?LOCALHOST_IPv4], []}]},
+			     ?GGSN_PROXY_CONFIG)),
+    ?ok_option(set_cfg_value([node_selection, default],
+			     {static, [{"Host", [], [?LOCALHOST_IPv6]}]},
 			     ?GGSN_PROXY_CONFIG)),
 
     ?error_option(set_cfg_value([nodes], invalid, ?GGSN_PROXY_CONFIG)),
@@ -733,6 +842,22 @@ config(_Config)  ->
     ?error_option(set_cfg_value([nodes, "test"], [{port, invalid}], ?GGSN_PROXY_CONFIG)),
     ?ok_option(set_cfg_value([nodes, "test"], [{rport, 1234}], ?GGSN_PROXY_CONFIG)),
 
+    ?error_option(set_cfg_value([proxy_map, invalid], [], ?GGSN_PROXY_CONFIG)),
+    ?ok_option(set_cfg_value([proxy_map, imsi],
+			     [{<<"222222222222222">>, <<"333333333333333">>}], ?GGSN_PROXY_CONFIG)),
+    ?error_option(set_cfg_value([proxy_map, imsi],
+				[{invalid, <<"333333333333333">>}], ?GGSN_PROXY_CONFIG)),
+    ?error_option(set_cfg_value([proxy_map, imsi],
+				[{<<"222222222222222">>, invalid}], ?GGSN_PROXY_CONFIG)),
+    ?error_option(set_cfg_value([proxy_map, apn],
+			     [{[invalid, <<"label">>], [<<"test">>]}], ?GGSN_PROXY_CONFIG)),
+    ?error_option(set_cfg_value([proxy_map, apn],
+			     [{[<<"label">>], [invalid, <<"test">>]}], ?GGSN_PROXY_CONFIG)),
+    ?error_option(set_cfg_value([proxy_map, apn],
+			     [{invalid, [<<"test">>]}], ?GGSN_PROXY_CONFIG)),
+    ?error_option(set_cfg_value([proxy_map, apn],
+			     [{[<<"test">>], invalid}], ?GGSN_PROXY_CONFIG)),
+
     ?ok_option(?PGW_CONFIG),
     ?error_option(set_cfg_value([handlers, 'h1'], [{handler, pgw_s5s8},
 						   {sockets, [irx]}], ?PGW_CONFIG)),
@@ -765,6 +890,9 @@ config(_Config)  ->
 			     {static, [{"Host", [{1,1,1,1}], []}]},
 			     ?PGW_PROXY_CONFIG)),
 
+    ?ok_option(?SAE_S11_CONFIG),
+    ?error_option(set_cfg_value([handlers, 'h1'], [{handler, saegw_s11},
+						   {sockets, [irx]}], ?SAE_S11_CONFIG)),
     %% Charging Config
     ?error_option(set_cfg_value([charging], [], ?GGSN_CONFIG)),
     ?ok_option(set_cfg_value([charging, default], [], ?GGSN_CONFIG)),
@@ -773,6 +901,9 @@ config(_Config)  ->
     ?ok_option(set_cfg_value([charging, default, offline, triggers], [], ?GGSN_CONFIG)),
     ?error_option(set_cfg_value([charging, default, offline, triggers, invalid], cdr, ?GGSN_CONFIG)),
     ?ok_option(set_cfg_value([charging, default, offline, triggers], [{'ecgi-change', off}], ?GGSN_CONFIG)),
+    ?error_option(set_cfg_value([charging, default, invalid], [], ?GGSN_CONFIG)),
+    ?error_option(set_cfg_value([charging, default, online, invalid], [], ?GGSN_CONFIG)),
+    ?error_option(set_cfg_value([charging, default, offline, invalid], [], ?GGSN_CONFIG)),
 
     ?ok_option(?TDF_CONFIG),
     ?error_option(set_cfg_value([handlers, tdf], invalid, ?TDF_CONFIG)),
