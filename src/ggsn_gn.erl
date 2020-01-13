@@ -351,7 +351,7 @@ handle_request(ReqKey,
     ActiveSessionOpts1 = apply_apn_defaults(APNOpts, ActiveSessionOpts0),
     {IPOpts, ContextAddTimeout} = assign_ips(ActiveSessionOpts1, EUA, ContextVRF), 
     ContextPending = add_apn_timeout(ActiveSessionOpts1, ContextAddTimeout),
-     ergw_aaa_session:set(Session, IPOpts),
+    ergw_aaa_session:set(Session, IPOpts),
     ActiveSessionOpts = maps:merge(ActiveSessionOpts1, IPOpts),
 
     Now = erlang:monotonic_time(),
