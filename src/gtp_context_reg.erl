@@ -14,7 +14,7 @@
 %% API
 -export([start_link/0]).
 -export([register/3, register_new/3, update/4, unregister/3,
-	 lookup/1,
+	 lookup/1, select/1,
 	 match_key/2, match_keys/2,
 	 await_unreg/1]).
 -export([all/0]).
@@ -48,9 +48,11 @@ lookup(Key) when is_tuple(Key) ->
 	    undefined
     end.
 
+select(Key) ->
+    ets:select(?SERVER, [{{Key, '$1'},[],['$1']}]).
+
 match_key(#gtp_port{name = Name}, Key) ->
-    RegKey = {Name, Key},
-    ets:select(?SERVER, [{{RegKey, '$1'},[],['$1']}]).
+    select({Name, Key}).
 
 match_keys(_, []) ->
     throw({error, not_found});

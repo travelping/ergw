@@ -150,3 +150,12 @@
 	  rx :: {Bytes :: integer(), Packets :: integer()},
 	  tx :: {Bytes :: integer(), Packets :: integer()}
 	 }).
+
+%% nBsf registration record
+-record(bsf, {
+	  dnn                       :: [binary()],
+	  snssai = {1, 16#ffffff}   :: {0..255, 0..16#ffffff},
+	  ip_domain                 :: atom(),
+	  ip                        :: {inet:ip4_address(),1..32}|
+				       {inet:ip6_address(),1..128}
+	}).

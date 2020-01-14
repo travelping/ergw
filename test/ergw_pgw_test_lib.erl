@@ -291,6 +291,22 @@ validate_pdn_type({default, static_host_ipv6}, IEs) -> validate_pdn_cfg(ipv6, ip
 validate_pdn_type(_Type, IEs) ->
     validate_pdn_cfg(ipv4v6, ipv4v6, IEs).
 
+update_ue_ip(#{{v2_pdn_address_allocation,0} :=
+		    #v2_pdn_address_allocation{
+		       type = ipv4, address = <<IP4:4/binary>>}}, GtpC) ->
+     GtpC#gtpc{ue_ip = {{IP4, 32}, undefined}};
+update_ue_ip(#{{v2_pdn_address_allocation,0} :=
+		    #v2_pdn_address_allocation{
+		       type = ipv6,
+		       address = <<IP6PrefixLen:8, IP6Prefix:16/binary>>}}, GtpC) ->
+    GtpC#gtpc{ue_ip = {undefined, {IP6Prefix, IP6PrefixLen}}};
+update_ue_ip(#{{v2_pdn_address_allocation,0} :=
+		    #v2_pdn_address_allocation{
+		       type = ipv4v6,
+		       address = <<IP6PrefixLen:8, IP6Prefix:16/binary,
+				   IP4:4/binary>>}}, GtpC) ->
+    GtpC#gtpc{ue_ip = {{IP4, 32}, {IP6Prefix, IP6PrefixLen}}}.
+
 %%%-------------------------------------------------------------------
 
 create_session_request(Base, N,
@@ -774,7 +790,7 @@ validate_response(create_session_request, {ipv6, _, v4only}, Response, GtpC) ->
 
 validate_response(create_session_request, SubType, Response,
 		  #gtpc{local_ip = LocalIP,
-			local_control_tei = LocalCntlTEI} = GtpC) ->
+			local_control_tei = LocalCntlTEI} = GtpC0) ->
     validate_cause(create_session_request, SubType, Response),
     ?match(
        #gtp{type = create_session_response,
@@ -792,6 +808,7 @@ validate_response(create_session_request, SubType, Response,
 				   interface_type = ?'S5/S8-U PGW'}}}
 		  }}, Response),
     validate_pdn_type(SubType, Response#gtp.ie),
+    GtpC = update_ue_ip(Response#gtp.ie, GtpC0),
 
     #gtp{ie = #{{v2_fully_qualified_tunnel_endpoint_identifier,1} :=
 		    #v2_fully_qualified_tunnel_endpoint_identifier{

@@ -256,7 +256,7 @@ gtp_context(Counter, Config) ->
 
 	      socket = make_gtp_socket(0, Config),
 
-	      ue_ip = proplists:get_value(ue_ip, Config),
+	      ue_ip = {undefined, undefined},
 
 	      local_ip = proplists:get_value(client_ip, Config),
 	      remote_ip = proplists:get_value(test_gsn, Config),

@@ -575,9 +575,26 @@ validate_ies(#gtp{version = Version, type = MsgType, ie = IEs}, Cause, #{interfa
 %%====================================================================
 
 context2keys(#context{
-		context_id         = ContextId,
-		control_port       = CntlPort,
-		local_control_tei  = LocalCntlTEI,
+		apn                 = APN,
+		context_id          = ContextId,
+		control_port        = CntlPort,
+		local_control_tei   = LocalCntlTEI,
+		remote_control_teid = RemoteCntlTEID,
+		vrf                 = #vrf{name = VRF},
+		ms_v4               = MSv4,
+		ms_v6               = MSv6
+	       }) ->
+    ordsets:from_list(
+      [port_teid_key(CntlPort, 'gtp-c', LocalCntlTEI),
+       port_teid_key(CntlPort, 'gtp-c', RemoteCntlTEID)]
+      ++ [port_key(CntlPort, ContextId) || ContextId /= undefined]
+      ++ [#bsf{dnn = APN, ip_domain = VRF, ip = MSv4} || MSv4 /= undefined]
+      ++ [#bsf{dnn = APN, ip_domain = VRF,
+	       ip = ergw_inet:ipv6_prefix(MSv6)} || MSv6 /= undefined]);
+context2keys(#context{
+		context_id          = ContextId,
+		control_port        = CntlPort,
+		local_control_tei   = LocalCntlTEI,
 		remote_control_teid = RemoteCntlTEID
 	       }) ->
     ordsets:from_list(
