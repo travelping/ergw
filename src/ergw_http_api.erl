@@ -32,6 +32,8 @@ start_http_listener(Opts) ->
 		    {"/api/v1/status/accept-new/:value", http_api_handler, []},
 		    {"/api/v1/contexts/:count", http_api_handler, []},
 		    {"/metrics/[:registry]", prometheus_cowboy2_handler, []},
+		    %% 5G SBI APIs
+		    {"/sbi/nbsf-management/v1/pcfBindings", sbi_nbsf_handler, []},
 		    %% serves static files for swagger UI
 		    {"/api/v1/spec/ui", swagger_ui_handler, []},
 		    {"/api/v1/spec/ui/[...]", cowboy_static, {priv_dir, ergw, "static"}}]}
@@ -56,7 +58,7 @@ start_http_listener(Opts) ->
 
 -define(Defaults, [{ip, {127, 0, 0, 1}},
 		   {port, 8000},
-		   {acceptors_num, 100}]).
+		   {num_acceptors, 100}]).
 
 validate_options(Values) ->
     ergw_config:validate_options(fun validate_option/1, Values, ?Defaults, map).
