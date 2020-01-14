@@ -1,5 +1,5 @@
 sudo: required
-dist: xenial
+dist: bionic
 services:
   - docker
 git:
@@ -32,10 +32,11 @@ before_script:
       sudo ip addr add fd96:dcd2:efdb:41c3::30/64 dev lo;
       sudo ip addr add fd96:dcd2:efdb:41c3::40/64 dev lo;
       sudo ip addr add fd96:dcd2:efdb:41c3::50/64 dev lo;
+      sudo sh -c 'echo "::1     localhost ip6-localhost ip6-loopback" >> /etc/hosts';
     fi
 
 script:
-  - ip addr
+  - ip -br addr
   - source test/env.sh
   - ./rebar3 compile
   - ./rebar3 do xref, ct
