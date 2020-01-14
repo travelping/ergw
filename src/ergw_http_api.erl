@@ -21,8 +21,7 @@ init(Opts) when is_map(Opts) ->
     %% so it should be safe to run with it
     start_http_listener(Opts).
 
-start_http_listener(#{ip := IP, port := Port, acceptors_num := AcceptorsNum}) ->
-    INet = get_inet(IP),
+start_http_listener(Opts) ->
     Dispatch = cowboy_router:compile(
 		 [{'_',
 		   [
@@ -37,9 +36,10 @@ start_http_listener(#{ip := IP, port := Port, acceptors_num := AcceptorsNum}) ->
 		    {"/api/v1/spec/ui", swagger_ui_handler, []},
 		    {"/api/v1/spec/ui/[...]", cowboy_static, {priv_dir, ergw, "static"}}]}
 		 ]),
-    TransOpts = #{socket_opts => [{port, Port}, {ip, IP}, INet],
-		  num_acceptors => AcceptorsNum,
-		  logger => logger},
+    SocketOpts = [get_inet(Opts) | maps:to_list(maps:with([port, ip, ipv6_v6only], Opts))],
+    TransOpts0 = maps:with([num_acceptors], Opts),
+    TransOpts = TransOpts0#{socket_opts => SocketOpts,
+			    logger => logger},
     ProtoOpts =
 	#{env =>
 	      #{
@@ -59,22 +59,29 @@ start_http_listener(#{ip := IP, port := Port, acceptors_num := AcceptorsNum}) ->
 		   {acceptors_num, 100}]).
 
 validate_options(Values) ->
-    ergw_config:validate_options(fun validate_option/2, Values, ?Defaults, map).
+    ergw_config:validate_options(fun validate_option/1, Values, ?Defaults, map).
 
-validate_option(port, Port)
-  when is_integer(Port) ->
-    Port;
-validate_option(acceptors_num, Acceptors)
+validate_option({port, Port} = Opt)
+  when is_integer(Port), Port >= 0, Port =< 65535 ->
+    Opt;
+validate_option({acceptors_num, Acceptors})
   when is_integer(Acceptors) ->
-    Acceptors;
-validate_option(ip, Value)
+    ?LOG(warning, "HTTP config option 'acceptors_num' is depreciated, "
+	 "please use 'num_acceptors'."),
+    {num_acceptors, Acceptors};
+validate_option({num_acceptors, Acceptors} = Opt)
+  when is_integer(Acceptors) ->
+    Opt;
+validate_option({ip, Value} = Opt)
   when is_tuple(Value) andalso
        (tuple_size(Value) == 4 orelse tuple_size(Value) == 8) ->
-    Value;
-validate_option(Opt, Value) ->
-    throw({error, {options, {Opt, Value}}}).
+    Opt;
+validate_option({ipv6_v6only, Value} = Opt) when is_boolean(Value) ->
+    Opt;
+validate_option(Opt) ->
+    throw({error, {options, Opt}}).
 
-get_inet({_, _, _, _}) ->
+get_inet(#{ip := {_, _, _, _}}) ->
     inet;
-get_inet({_, _, _, _, _, _, _, _}) ->
+get_inet(#{ip := {_, _, _, _, _, _, _, _}}) ->
     inet6.

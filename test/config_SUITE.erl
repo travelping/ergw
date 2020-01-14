@@ -560,13 +560,17 @@ config(_Config)  ->
     ?equal(false, proplists:get_value(accept_new, Accept2)),
 
     ?ok_option(set_cfg_value([http_api, port], 1234, ?GGSN_CONFIG)),
-    ?ok_option(set_cfg_value([http_api, acceptors_num], 5, ?GGSN_CONFIG)),
+    ?ok_option(set_cfg_value([http_api, num_acceptors], 5, ?GGSN_CONFIG)),
     ?ok_option(set_cfg_value([http_api, ip], ?LOCALHOST_IPv4, ?GGSN_CONFIG)),
     ?ok_option(set_cfg_value([http_api, ip], ?LOCALHOST_IPv6, ?GGSN_CONFIG)),
+    ?ok_option(set_cfg_value([http_api, ipv6_v6only], true, ?GGSN_CONFIG)),
+    ?ok_option(set_cfg_value([http_api], [ipv6_v6only], ?GGSN_CONFIG)),
     ?error_option(set_cfg_value([http_api, invalid], [], ?GGSN_CONFIG)),
     ?error_option(set_cfg_value([http_api, port], invalid, ?GGSN_CONFIG)),
     ?error_option(set_cfg_value([http_api, acceptors_num], invalid, ?GGSN_CONFIG)),
+    ?error_option(set_cfg_value([http_api, num_acceptors], invalid, ?GGSN_CONFIG)),
     ?error_option(set_cfg_value([http_api, ip], invalid, ?GGSN_CONFIG)),
+    ?error_option(set_cfg_value([http_api, ipv6_v6only], invalid, ?GGSN_CONFIG)),
 
     ?error_option(set_cfg_value([sockets, irx, type], invalid, ?GGSN_CONFIG)),
     ?error_option(set_cfg_value([sockets, irx, ip], invalid, ?GGSN_CONFIG)),
