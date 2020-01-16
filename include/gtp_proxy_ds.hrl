@@ -29,6 +29,7 @@
       location   :: binary(),
       qos        :: binary(),
       src_apn    :: [binary()],
+      gtp_version :: undefined | {'v1' | 'v2' | undefined},
       gsn_c      :: inet:ip_address(),
       gsn_u      :: inet:ip_address(),
       uli        :: binary(),
