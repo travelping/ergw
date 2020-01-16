@@ -428,10 +428,9 @@ setup_per_testcase(Config) ->
 setup_per_testcase(Config, ClearSxHist) ->
     ct:pal("Sockets: ~p", [ergw_gtp_socket_reg:all()]),
     {ok, AppsCfg} = application:get_env(ergw_aaa, apps),
-    ergw_test_sx_up:reset('tdf-u'),
     meck_reset(Config),
     reconnect_all_sx_nodes(),
-    ClearSxHist andalso ergw_test_sx_up:history('pgw-u01', true),
+    ClearSxHist andalso ergw_test_sx_up:history('tdf-u', true),
     [{seid, tdf_seid()},
      {tdf_node, tdf_node_pid()},
      {aaa_cfg, AppsCfg} | Config].
@@ -439,11 +438,11 @@ setup_per_testcase(Config, ClearSxHist) ->
 init_per_testcase(setup_upf, Config) ->
     {ok, AppsCfg} = application:get_env(ergw_aaa, apps),
     meck_reset(Config),
+    ergw_test_sx_up:history('tdf-u', true),
+    reconnect_all_sx_nodes(),
 
-    Node = tdf_node_pid(),
-    ok = ergw_sx_node:test_cmd(Node, wait4nodeup),
-    ct:sleep(500),
-    [{seid, tdf_seid()}, {tdf_node, Node},
+    [{seid, tdf_seid()},
+     {tdf_node, tdf_node_pid()},
      {aaa_cfg, AppsCfg} | Config];
 init_per_testcase(gy_validity_timer, Config0) ->
     Config = setup_per_testcase(Config0),
