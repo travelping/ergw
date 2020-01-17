@@ -20,7 +20,6 @@
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include_lib("pfcplib/include/pfcp_packet.hrl").
 -include("include/ergw.hrl").
--include("gtp_proxy_ds.hrl").
 
 -import(ergw_aaa_session, [to_session/1]).
 
@@ -271,7 +270,7 @@ handle_request(_ReqKey, _Request, true, _State, _Data) ->
 handle_request(ReqKey,
 	       #gtp{type = create_pdp_context_request,
 		    ie = IEs} = Request, _Resent, _State,
-	       #{context := Context0, aaa_opts := AAAopts,
+	       #{context := Context0, aaa_opts := AAAopts, node_selection := NodeSelect,
 		 'Session' := Session} = Data) ->
 
     Context1 = update_context_from_gtp_req(Request, Context0#context{state = #context_state{}}),
@@ -284,15 +283,11 @@ handle_request(ReqKey,
     SessionOpts = ggsn_gn:init_session_from_gtp_req(IEs, AAAopts, SessionOpts0),
 
     ProxyInfo = handle_proxy_info(Request, SessionOpts, Context2, Data),
-    #proxy_ggsn{restrictions = Restrictions} = ProxyGGSN0 = gtp_proxy_ds:lb(ProxyInfo),
 
     %% GTP v1 services only, we don't do v1 to v2 conversion (yet)
     Services = [{"x-3gpp-ggsn", "x-gn"}, {"x-3gpp-ggsn", "x-gp"},
 		{"x-3gpp-pgw", "x-gn"}, {"x-3gpp-pgw", "x-gp"}],
-    ProxyGGSN = ergw_proxy_lib:select_proxy_gsn(ProxyInfo, ProxyGGSN0, Services, Data),
-
-    Context3 = Context2#context{restrictions = Restrictions},
-    gtp_context:enforce_restrictions(Request, Context3),
+    ProxyGGSN = ergw_proxy_lib:select_gw(ProxyInfo, Services, NodeSelect, Context2),
 
     {ProxyGtpPort, DPCandidates} =
 	ergw_proxy_lib:select_proxy_sockets(ProxyGGSN, ProxyInfo, Data),
@@ -300,12 +295,12 @@ handle_request(ReqKey,
 
     {ok, _} = ergw_aaa_session:invoke(Session, SessionOpts, start, #{async => true}),
 
-    ProxyContext0 = init_proxy_context(ProxyGtpPort, Context3, ProxyInfo, ProxyGGSN),
+    ProxyContext0 = init_proxy_context(ProxyGtpPort, Context2, ProxyInfo, ProxyGGSN),
     ProxyContext1 = gtp_path:bind(ProxyContext0),
 
     ergw_sx_node:wait_connect(SxConnectId),
     {Context, ProxyContext, PCtx} =
-	ergw_proxy_lib:create_forward_session(DPCandidates, Context3, ProxyContext1),
+	ergw_proxy_lib:create_forward_session(DPCandidates, Context2, ProxyContext1),
 
     DataNew = Data#{context => Context, proxy_context => ProxyContext, pfcp => PCtx},
     forward_request(sgsn2ggsn, ReqKey, Request, DataNew, Data),
@@ -322,7 +317,6 @@ handle_request(ReqKey,
     Context0 = update_context_from_gtp_req(Request, OldContext),
     Context1 = gtp_path:bind(Request, Context0),
 
-    gtp_context:enforce_restrictions(Request, Context1),
     gtp_context:remote_context_update(OldContext, Context1),
 
     Context = update_path_bind(Context1, OldContext),
@@ -502,14 +496,13 @@ response(Cmd, Context, IEs0, #gtp{ie = #{?'Recovery' := Recovery}}) ->
     response(Cmd, Context, IEs).
 
 handle_proxy_info(Request, Session, Context, #{proxy_ds := ProxyDS}) ->
-    ProxyInfo0 = proxy_info(Session, Context),
-    case ProxyDS:map(ProxyInfo0) of
-	{ok, #proxy_info{} = ProxyInfo} ->
+    PI = proxy_info(Session, Context),
+    case gtp_proxy_ds:map(ProxyDS, PI) of
+	ProxyInfo when is_map(ProxyInfo) ->
 	    ?LOG(debug, "OK Proxy Map: ~p", [ProxyInfo]),
 	    ProxyInfo;
 
 	{error, Cause} ->
-	    ?LOG(warning, "Failed Proxy Map: ~p", [{error, Cause}]),
 	    Type = create_pdp_context_response,
 	    Reply = response(Type, Context, [#cause{value = Cause}], Request),
 	    throw(?CTX_ERR(?FATAL, Reply, Context))
@@ -546,8 +539,7 @@ update_path_bind(NewContext, _OldContext) ->
 init_proxy_context(CntlPort,
 		   #context{imei = IMEI, context_id = ContextId, version = Version,
 			    control_interface = Interface, state = CState},
-		   #proxy_info{imsi = IMSI, msisdn = MSISDN},
-		   #proxy_ggsn{address = GGSN, dst_apn = DstAPN}) ->
+		   #{imsi := IMSI, msisdn := MSISDN, apn := DstAPN}, {_GwNode, GGSN}) ->
     {APN, _OI} = ergw_node_selection:split_apn(DstAPN),
     {ok, CntlTEI} = gtp_context_reg:alloc_tei(CntlPort),
     #context{
@@ -637,22 +629,23 @@ update_gtp_req_from_context(Context, GtpReqIEs) ->
 proxy_info(Session,
 	   #context{apn = APN, imsi = IMSI, imei = IMEI, msisdn = MSISDN,
 		    remote_control_teid = #fq_teid{ip = GsnC},
-		    remote_data_teid = #fq_teid{ip = GsnU},
-		    restrictions = Restrictions}) ->
-    GGSNs = [#proxy_ggsn{dst_apn = APN, restrictions = Restrictions}],
-    LookupAPN = (catch gtp_c_lib:normalize_labels(APN)),
-    #proxy_info{
-       ggsns = GGSNs,
-       imsi = IMSI,
-       imei = IMEI,
-       msisdn = MSISDN,
-       rat = maps:get('3GPP-RAT-Type', Session, undefined),
-       src_apn = LookupAPN,
-       gsn_c = GsnC,
-       gsn_u = GsnU,
-       uli = maps:get('3GPP-User-Location-Info', Session, undefined),
-       rai = maps:get('RAI', Session, undefined)
-      }.
+		    remote_data_teid = #fq_teid{ip = GsnU}}) ->
+    Keys = [{'3GPP-RAT-Type', 'ratType'},
+	    {'3GPP-User-Location-Info', 'userLocationInfo'},
+	    {'RAI', rai}],
+    PI = lists:foldl(
+	   fun({Key, MapTo}, P) when is_map_key(Key, Session) ->
+		   P#{MapTo => maps:get(Key, Session)};
+	      (_, P) -> P
+	   end, #{}, Keys),
+    PI#{version => v1,
+	imsi    => IMSI,
+	imei    => IMEI,
+	msisdn  => MSISDN,
+	apn     => APN,
+	servingGwCip => GsnC,
+	servingGwUip => GsnU
+     }.
 
 build_context_request(#context{remote_control_teid = #fq_teid{teid = TEI}} = Context,
 		      NewPeer, #gtp{type = Type, ie = RequestIEs} = Request) ->
