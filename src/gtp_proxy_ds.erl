@@ -10,16 +10,18 @@
 -behaviour(gen_server).
 
 %% API
--export([start_link/0, map/1, lb/1, validate_options/1]).
+-export([start_link/0, map/1, map/2, validate_options/1]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
 	 terminate/2, code_change/3]).
 
--include("gtp_proxy_ds.hrl").
+-include_lib("kernel/include/logger.hrl").
 
 -define(SERVER, ?MODULE).
 -define(App, ergw).
+
+-define(ResponsKeys, [imsi, msisdn, apn, gwSelectionAPN, upfSelectionAPN]).
 
 %%%===================================================================
 %%% API
@@ -31,9 +33,17 @@ start_link() ->
 map(ProxyInfo) ->
     gen_server:call(?SERVER, {map, ProxyInfo}).
 
-lb(ProxyInfo) ->
-    LBType = application:get_env(?App, proxy_lb_type, first),
-    lb(ProxyInfo, LBType).
+map(Handler, ProxyInfo) ->
+    try apply(Handler, map, [ProxyInfo]) of
+	Response when is_map(Response) ->
+	    normalize_response(Response);
+	Other ->
+	    Other
+    catch
+	Error:Cause ->
+	    ?LOG(warning, "Failed Proxy Map: ~p", [{Error, Cause}]),
+	    {error, system_failure}
+    end.
 
 %%%===================================================================
 %%% Options Validation
@@ -76,26 +86,25 @@ init([]) ->
     State = validate_options(application:get_env(?App, proxy_map, #{})),
     {ok, State}.
 
-handle_call({map, #proxy_info{ggsns = GGSNs0, imsi = IMSI, src_apn = APN} = ProxyInfo0},
+handle_call({map, #{imsi := IMSI, apn := APN} = PI0},
 	    _From, #{apn := APNMap, imsi := IMSIMap} = State) ->
-    ProxyInfo1 =
+    PI1 =
 	case IMSIMap of
 	    #{IMSI := MappedIMSI} when is_binary(MappedIMSI) ->
-		ProxyInfo0#proxy_info{imsi = MappedIMSI};
+		PI0#{imsi => MappedIMSI};
 	    #{IMSI := {MappedIMSI, MappedMSISDN}} ->
-		ProxyInfo0#proxy_info{imsi = MappedIMSI, msisdn = MappedMSISDN};
+		PI0#{imsi => MappedIMSI, msisdn => MappedMSISDN};
 	    _ ->
-		ProxyInfo0
+		PI0
 	end,
-    ProxyInfo =
-	case ergw_gsn_lib:apn(APN, APNMap) of
-	    false ->
-		ProxyInfo1;
-	    DstAPN ->
-		ProxyInfo1#proxy_info{
-		  ggsns = [GGSN#proxy_ggsn{dst_apn = DstAPN} || GGSN <- GGSNs0]}
-	end,
-    {reply, {ok, ProxyInfo}, State}.
+    PI = case ergw_gsn_lib:apn(APN, APNMap) of
+		 false  -> PI1;
+		 DstAPN -> PI1#{apn => DstAPN}
+	 end,
+    {reply, normalize_response(PI), State};
+
+handle_call({map, PI}, _From, State) ->
+    {reply, {error, {badarg, PI}}, State}.
 
 handle_cast(_Msg, State) ->
     {noreply, State}.
@@ -113,9 +122,8 @@ code_change(_OldVsn, State, _Extra) ->
 %%% Internal functions
 %%%===================================================================
 
-lb(#proxy_info{ggsns = [GGSN | _]}, first) -> GGSN;
-lb(#proxy_info{ggsns = [GGSN]}, random) -> GGSN;
-lb(#proxy_info{ggsns = GGSNs}, random) when is_list(GGSNs) ->
-    Index = rand:uniform(length(GGSNs)),
-    lists:nth(Index, GGSNs);
-lb(#proxy_info{ggsns = [GGSN | _]}, _) -> GGSN.
+normalize_response(#{apn := APN} = Response0) ->
+    Response = maps:with(?ResponsKeys, Response0),
+    maps:merge(#{gwSelectionAPN => APN, upfSelectionAPN => APN}, Response);
+normalize_response(_) ->
+    {error, system_failure}.

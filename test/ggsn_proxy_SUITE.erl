@@ -13,7 +13,6 @@
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include_lib("pfcplib/include/pfcp_packet.hrl").
 -include("../include/ergw.hrl").
--include("../include/gtp_proxy_ds.hrl").
 -include("ergw_test_lib.hrl").
 -include("ergw_ggsn_test_lib.hrl").
 
@@ -108,6 +107,13 @@
 		      {"_default.apn.$ORIGIN", {300,64536},
 		       [{"x-3gpp-upf","x-sxb"}],
 		       "topon.sx.pgw-u01.$ORIGIN"},
+
+		      {"pgw-1.apn.$ORIGIN", {300,64536},
+		       [{"x-3gpp-ggsn","x-gn"},{"x-3gpp-ggsn","x-gp"}],
+		       "topon.pgw-1.nodes.$ORIGIN"},
+		      {"upf-1.apn.$ORIGIN", {300,64536},
+		       [{"x-3gpp-upf","x-sxb"}],
+		       "topon.pgw-1.nodes.$ORIGIN"},
 
 		      %% A/AAAA record alternatives
 		      {"topon.gtp.ggsn.$ORIGIN", ?MUST_BE_UPDATED, []},
@@ -303,6 +309,13 @@
 		      {"_default.apn.$ORIGIN", {300,64536},
 		       [{"x-3gpp-upf","x-sxb"}],
 		       "topon.sx.pgw-u01.$ORIGIN"},
+
+		      {"pgw-1.apn.$ORIGIN", {300,64536},
+		       [{"x-3gpp-ggsn","x-gn"},{"x-3gpp-ggsn","x-gp"}],
+		       "topon.pgw-1.nodes.$ORIGIN"},
+		      {"upf-1.apn.$ORIGIN", {300,64536},
+		       [{"x-3gpp-upf","x-sxb"}],
+		       "topon.pgw-1.nodes.$ORIGIN"},
 
 		      %% A/AAAA record alternatives
 		      {"topon.gtp.ggsn.$ORIGIN", ?MUST_BE_UPDATED, []},
@@ -522,7 +535,6 @@ common() ->
      proxy_context_selection,
      proxy_context_invalid_selection,
      proxy_context_invalid_mapping,
-     proxy_context_version_restricted,
      proxy_api_v2,
      invalid_teid,
      delete_pdp_context_requested,
@@ -1163,44 +1175,25 @@ proxy_context_invalid_mapping(Config) ->
     ok.
 
 %%--------------------------------------------------------------------
-proxy_context_version_restricted() ->
-    [{doc, "Check GTP version restriction on proxy contexts"}].
-proxy_context_version_restricted(Config) ->
-    ok = meck:new(gtp_proxy_ds, [passthrough]),
-    meck:expect(gtp_proxy_ds, map,
-		fun(ProxyInfo) ->
-			{ok, ProxyInfo#proxy_info{ggsns = [#proxy_ggsn{restrictions = [{v1, false}]}]}}
-		end),
-
-    {_, _, _} = create_pdp_context(version_restricted, Config),
-    ?equal([], outstanding_requests()),
-
-    meck:unload(gtp_proxy_ds),
-
-    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
-    meck_validate(Config),
-    ok.
-
-%%--------------------------------------------------------------------
 %% TDB: the test only checks that the API works, it does not verify that
 %%      the correct GGSN/PGW or UPF node is actually used
 proxy_api_v2() ->
     [{doc, "Check that the proxy API v2 works"}].
 proxy_api_v2(Config) ->
+    APN = fun(Bin) -> binary:split(Bin, <<".">>, [global, trim_all]) end,
     ok = meck:new(gtp_proxy_ds, [passthrough]),
     meck:expect(gtp_proxy_ds, map,
 		fun(PI) ->
 			ct:pal("PI: ~p", [PI]),
 			Context = <<"ams">>,
-			PGW = <<"topon.pgw-1.nodes.epc.mnc001.mcc001.3gppnetwork.org">>,
-			UPF = <<"topon.upf-1.nodes.epc.mnc001.mcc001.3gppnetwork.org">>,
-			{ok, PI#proxy_info{
-			       imsi = ?'PROXY-IMSI',
-			       msisdn = ?'PROXY-MSISDN',
-			       ggsns = [#proxy_ggsn{address = {host, PGW},
-						    context = Context,
-						    dst_apn = ?'APN-PROXY'}],
-			       upf = {UPF, Context}}}
+			PGW = APN(<<"pgw-1.mnc001.mcc001.gprs">>),
+			UPF = APN(<<"upf-1.mnc001.mcc001.gprs">>),
+			PI#{imsi   => ?'PROXY-IMSI',
+			    msisdn => ?'PROXY-MSISDN',
+			    apn    => ?'APN-PROXY',
+			    context => Context,
+			    gwSelectionAPN  => PGW,
+			    upfSelectionAPN => UPF}
 		end),
 
     {GtpC, _, _} = create_pdp_context(Config),
@@ -1505,8 +1498,8 @@ session_accounting(Config) ->
 
 proxy_context_selection_map(ProxyInfo, Context) ->
     case meck:passthrough([ProxyInfo]) of
-	{ok, #proxy_info{ggsns = GGSNs} = P} ->
-		{ok, P#proxy_info{ggsns = [GGSN#proxy_ggsn{context = Context} || GGSN <- GGSNs]}};
+	{ok, PI} ->
+	    {ok, PI#{context => Context}};
 	Other ->
 	    Other
     end.

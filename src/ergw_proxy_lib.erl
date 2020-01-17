@@ -12,7 +12,7 @@
 -export([validate_options/3, validate_option/2,
 	 forward_request/3, forward_request/7, forward_request/9,
 	 get_seq_no/3,
-	 select_proxy_gsn/4, select_proxy_sockets/3]).
+	 select_gw/4, select_proxy_sockets/3]).
 -export([create_forward_session/3,
 	 modify_forward_session/5,
 	 delete_forward_session/4,
@@ -22,7 +22,6 @@
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include_lib("pfcplib/include/pfcp_packet.hrl").
 -include("include/ergw.hrl").
--include("gtp_proxy_ds.hrl").
 
 %%%===================================================================
 %%% API
@@ -49,65 +48,32 @@ get_seq_no(#context{control_port = GtpPort}, ReqKey, Request) ->
     ReqId = make_request_id(ReqKey, Request),
     ergw_gtp_c_socket:get_seq_no(GtpPort, ReqId).
 
-select_proxy_gsn(#proxy_info{imsi = IMSI, src_apn = SrcAPN},
-		 #proxy_ggsn{address = undefined, dst_apn = DstAPN} = ProxyGSN,
-		 Services, State) ->
-    APN = if is_list(DstAPN) -> DstAPN;
-	     true            -> SrcAPN
-	  end,
+select_gw(#{imsi := IMSI, gwSelectionAPN := APN}, Services, NodeSelect, Context) ->
     FQDN = ergw_node_selection:apn_to_fqdn(APN, IMSI),
-    select_proxy_gsn_fqdn(FQDN, ProxyGSN, Services, State);
-select_proxy_gsn(_, #proxy_ggsn{address = {host, FQDN}} = ProxyGSN, _Services,
-		 #{node_selection := NodeSelect} = State)
-  when is_binary(FQDN) ->
-    select_proxy_gsn([ergw_node_selection:lookup(binary_to_list(FQDN), NodeSelect)],
-		     ProxyGSN, State);
-select_proxy_gsn(_, #proxy_ggsn{address = {fqdn, _} = FQDN} = ProxyGSN, Services, State) ->
-    select_proxy_gsn_fqdn(FQDN, ProxyGSN, Services, State);
-select_proxy_gsn(_ProxyInfo, _ProxyGSN, _Services, State) ->
-    throw(?CTX_ERR(?FATAL, system_failure, maps:get(context, State))).
+    select_gw(ergw_node_selection:candidates(FQDN, Services, NodeSelect), Context);
+select_gw(_ProxyInfo, _Services, _NodeSelect, Context) ->
+    throw(?CTX_ERR(?FATAL, system_failure, Context)).
 
-select_proxy_gsn_fqdn(FQDN, ProxyGSN, Services, #{node_selection := NodeSelect} = State) ->
-    select_proxy_gsn(ergw_node_selection:candidates(FQDN, Services, NodeSelect),
-		     ProxyGSN, State).
+lb(L) when is_list(L) ->
+    lists:nth(rand:uniform(length(L)), L).
 
 %% NAPTR select
-select_proxy_gsn([{Node, _, _, IP4, _}|_], ProxyGSN, _State) when length(IP4) /= 0 ->
-    ProxyGSN#proxy_ggsn{node = Node, address = hd(IP4)};
-select_proxy_gsn([{Node, _, _, _, IP6}|_], ProxyGSN, _State) when length(IP6) /= 0 ->
-    ProxyGSN#proxy_ggsn{node = Node, address = hd(IP6)};
+select_gw([{Node, _, _, IP4, _}|_], _Context) when length(IP4) /= 0 ->
+    {Node, lb(IP4)};
+select_gw([{Node, _, _, _, IP6}|_], _Context) when length(IP6) /= 0 ->
+    {Node, lb(IP6)};
 %% plain A/AAA record
-select_proxy_gsn([{Node, IP4, _}|_], ProxyGSN, _State) when length(IP4) /= 0 ->
-    ProxyGSN#proxy_ggsn{node = Node, address = hd(IP4)};
-select_proxy_gsn([{Node, _, IP6}|_], ProxyGSN, _State) when length(IP6) /= 0 ->
-    ProxyGSN#proxy_ggsn{node = Node, address = hd(IP6)};
-select_proxy_gsn(_Result, _ProxyGSN, State) ->
-    throw(?CTX_ERR(?FATAL, system_failure, maps:get(context, State))).
+select_gw([{Node, IP4, _}|_], _Context) when length(IP4) /= 0 ->
+    {Node, lb(IP4)};
+select_gw([{Node, _, IP6}|_], _Context) when length(IP6) /= 0 ->
+    {Node, lb(IP6)};
+select_gw(_Result, Context) ->
+    throw(?CTX_ERR(?FATAL, system_failure, Context)).
 
-select_proxy_sockets(_ProxyGGSN,
-		     #proxy_info{upf = {UPF, Context}},
+select_proxy_sockets({GwNode, _}, #{upfSelectionAPN := APN} = ProxyInfo,
 		     #{contexts := Contexts, proxy_ports := ProxyPorts,
 		       node_selection := ProxyNodeSelect}) ->
-    Ctx = maps:get(Context, Contexts, #{}),
-    if Ctx =:= #{} ->
-	    ?LOG(warning, "proxy context ~p not found, using default", [Context]);
-       true -> ok
-    end,
-    Cntl = maps:get(proxy_sockets, Ctx, ProxyPorts),
-
-    Candidates =
-	case ergw_node_selection:lookup(binary_to_list(UPF), ProxyNodeSelect) of
-	    {Node, IP4, IP6} ->
-		[{Node, {100, 100}, [], IP4, IP6}];
-	    _ ->
-		[]
-	end,
-    {ergw_gtp_socket_reg:lookup(hd(Cntl)), Candidates};
-
-select_proxy_sockets(#proxy_ggsn{node = Node, dst_apn = DstAPN, context = Context},
-		     _ProxyInfo,
-		     #{contexts := Contexts, proxy_ports := ProxyPorts,
-		       node_selection := ProxyNodeSelect}) ->
+    Context = maps:get(context, ProxyInfo, default),
     Ctx = maps:get(Context, Contexts, #{}),
     if Ctx =:= #{} ->
 	    ?LOG(warning, "proxy context ~p not found, using default", [Context]);
@@ -116,11 +82,10 @@ select_proxy_sockets(#proxy_ggsn{node = Node, dst_apn = DstAPN, context = Contex
     Cntl = maps:get(proxy_sockets, Ctx, ProxyPorts),
     NodeSelect = maps:get(node_selection, Ctx, ProxyNodeSelect),
 
-    {APN_NI, _APN_OI} = ergw_node_selection:split_apn(DstAPN),
-    APN_FQDN = ergw_node_selection:apn_to_fqdn(APN_NI),
+    APN_FQDN = ergw_node_selection:apn_to_fqdn(APN),
     Services = [{"x-3gpp-upf", "x-sxa"}],
     Candidates0 = ergw_node_selection:candidates(APN_FQDN, Services, NodeSelect),
-    PGWCandidate = [{Node, 0, Services, [], []}],
+    PGWCandidate = [{GwNode, 0, Services, [], []}],
     Candidates =
 	case ergw_node_selection:topology_match(Candidates0, PGWCandidate) of
 	    {_, C} when is_list(C), length(C) /= 0 ->
@@ -131,7 +96,7 @@ select_proxy_sockets(#proxy_ggsn{node = Node, dst_apn = DstAPN, context = Contex
 		%% neither colocation, not topology matched
 		Candidates0
 	end,
-    {ergw_gtp_socket_reg:lookup(hd(Cntl)), Candidates}.
+    {ergw_gtp_socket_reg:lookup(lb(Cntl)), Candidates}.
 
 %%%===================================================================
 %%% Options Validation

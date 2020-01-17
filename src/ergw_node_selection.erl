@@ -108,8 +108,9 @@ expand_apn_plmn(_) ->
 
 expand_apn([H|_] = APN, IMSI)
   when is_binary(H) ->
-    case lists:last(APN) of
-	<<"gprs">> -> APN;
+    case lists:reverse(APN) of
+	[<<"gprs">> | _] -> APN;
+	[<<"org">>, <<"3gppnetwork">> | _] -> APN;
 	_ ->
 	    {MCC, MNC} = expand_apn_plmn(IMSI),
 	    APN ++
@@ -127,8 +128,6 @@ apn_to_fqdn([H|_] = APN, IMSI)
   when is_binary(H) ->
     apn_to_fqdn(expand_apn(APN, IMSI)).
 
-apn_to_fqdn({fqdn, _} = FQDN) ->
-    FQDN;
 apn_to_fqdn([H|_] = APN)
   when is_binary(H) ->
     apn_to_fqdn([binary_to_list(X) || X <- APN]);

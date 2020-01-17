@@ -11,7 +11,6 @@
 
 -include_lib("common_test/include/ct.hrl").
 -include("../include/ergw.hrl").
--include("../include/gtp_proxy_ds.hrl").
 -include("ergw_test_lib.hrl").
 
 -define('CP-Node', "topon.s5s8.pgw.epc.mnc001.mcc001.3gppnetwork.org").
@@ -94,73 +93,41 @@ end_per_suite(_Config) ->
 proxy_lookup() ->
     [{doc, "lookup from config"}].
 proxy_lookup(_Config) ->
-    State = #{node_selection => [default], context => "TEST"},
-    ProxyInfo =
-	#proxy_info{
-	   imsi = <<"001010000000002">>,
-	   msisdn = <<"444444400008502">>,
-	   ggsns = undefined
-	  },
+    NodeSelect = [default],
+    Context = "TEST",
+    PI =
+	#{imsi    => <<"001010000000002">>,
+	  msisdn  => <<"444444400008502">>,
+	  apn     => apn(<<"web">>),
+	  context => <<"GRX2">>
+	 },
 
-    ProxyGGSN1 =
-	#proxy_ggsn{
-	   address =
-	       {fqdn, ["web", "apn", "epc", "mnc001", "mcc001", "3gppnetwork", "org"]},
-	   context = <<"GRX2">>,
-	   dst_apn = [<<"web">>],
-	   restrictions = [{v1,false},{v2,true}]},
-    Proxy1 = ergw_proxy_lib:select_proxy_gsn(ProxyInfo, ProxyGGSN1, ?SERVICES, State),
-    ?match(#proxy_ggsn{node = ?'CP-Node', address = ?'CP-IP'}, Proxy1),
+    PI1 =
+	PI#{gwSelectionAPN => apn(<<"web.apn.epc.mnc001.mcc001.3gppnetwork.org">>)},
+    Proxy1 = (catch ergw_proxy_lib:select_gw(PI1, ?SERVICES, NodeSelect, Context)),
+    ?match({?'CP-Node', ?'CP-IP'}, Proxy1),
 
-    ProxyGGSN2 =
-	#proxy_ggsn{
-	   address =
-	       {fqdn, ["web", "apn", "epc", "mnc123", "mcc001", "3gppnetwork", "org"]},
-	   context = <<"GRX2">>,
-	   dst_apn = [<<"web">>],
-	   restrictions = [{v1,false},{v2,true}]},
-    Proxy2 = ergw_proxy_lib:select_proxy_gsn(ProxyInfo, ProxyGGSN2, ?SERVICES, State),
-    ?match(#proxy_ggsn{node = ?'CP-Node', address = ?'CP-IP'}, Proxy2),
+    PI2 =
+	PI#{gwSelectionAPN => apn(<<"web.apn.epc.mnc123.mcc001.3gppnetwork.org">>)},
+    Proxy2 = (catch ergw_proxy_lib:select_gw(PI2, ?SERVICES, NodeSelect, Context)),
+    ?match({?'CP-Node', ?'CP-IP'}, Proxy2),
 
-    ProxyGGSN3 =
-	#proxy_ggsn{
-	   address =
-	       {fqdn, ["web", "apn", "epc", "mnc123", "mcc001", "example", "org"]},
-	   context = <<"GRX2">>,
-	   dst_apn = [<<"web">>],
-	   restrictions = [{v1,false},{v2,true}]},
-    Proxy3 = ergw_proxy_lib:select_proxy_gsn(ProxyInfo, ProxyGGSN3, ?SERVICES, State),
-    ?match(#proxy_ggsn{node = ?'CP-Node', address = ?'CP-IP'}, Proxy3),
+    PI4 = PI#{gwSelectionAPN => apn(<<"web">>)},
+    Proxy4 = (catch ergw_proxy_lib:select_gw(PI4, ?SERVICES, NodeSelect, Context)),
+    ?match({?'CP-Node', ?'CP-IP'}, Proxy4),
 
-    ProxyGGSN4 =
-	#proxy_ggsn{
-	   context = <<"GRX2">>,
-	   dst_apn = [<<"web">>],
-	   restrictions = [{v1,false},{v2,true}]},
-    Proxy4 = ergw_proxy_lib:select_proxy_gsn(ProxyInfo, ProxyGGSN4, ?SERVICES, State),
-    ?match(#proxy_ggsn{node = ?'CP-Node', address = ?'CP-IP'}, Proxy4),
+    PI5 = PI#{gwSelectionAPN => apn(<<"web.mnc001.mcc001.gprs">>)},
+    Proxy5 = (catch ergw_proxy_lib:select_gw(PI5, ?SERVICES, NodeSelect, Context)),
+    ?match({?'CP-Node', ?'CP-IP'}, Proxy5),
 
-    ProxyGGSN5 =
-	#proxy_ggsn{
-	   context = <<"GRX2">>,
-	   dst_apn = [<<"web">>, <<"mnc001">>, <<"mcc001">>, <<"gprs">>],
-	   restrictions = [{v1,false},{v2,true}]},
-    Proxy5 = ergw_proxy_lib:select_proxy_gsn(ProxyInfo, ProxyGGSN5, ?SERVICES, State),
-    ?match(#proxy_ggsn{node = ?'CP-Node', address = ?'CP-IP'}, Proxy5),
+    PI6 = PI#{gwSelectionAPN => apn(<<"web.mnc123.mcc001.gprs">>)},
+    Proxy6 = (catch ergw_proxy_lib:select_gw(PI6, ?SERVICES, NodeSelect, Context)),
+    ?match({?'CP-Node', ?'CP-IP'}, Proxy6),
 
-    ProxyGGSN6 =
-	#proxy_ggsn{
-	   context = <<"GRX2">>,
-	   dst_apn = [<<"web">>, <<"mnc123">>, <<"mcc001">>, <<"gprs">>],
-	   restrictions = [{v1,false},{v2,true}]},
-    Proxy6 = ergw_proxy_lib:select_proxy_gsn(ProxyInfo, ProxyGGSN6, ?SERVICES, State),
-    ?match(#proxy_ggsn{node = ?'CP-Node', address = ?'CP-IP'}, Proxy6),
-
-    ProxyGGSN7 =
-	#proxy_ggsn{
-	   context = <<"GRX2">>,
-	   dst_apn = [<<"web">>, <<"mnc567">>, <<"mcc001">>, <<"gprs">>],
-	   restrictions = [{v1,false},{v2,true}]},
-    Proxy7 = (catch ergw_proxy_lib:select_proxy_gsn(ProxyInfo, ProxyGGSN7, ?SERVICES, State)),
+    PI7 = PI#{gwSelectionAPN => apn(<<"web.mnc567.mcc001.gprs">>)},
+    Proxy7 = (catch ergw_proxy_lib:select_gw(PI7, ?SERVICES, NodeSelect, Context)),
     ?match(#ctx_err{level = ?FATAL, reply = system_failure, context = "TEST"}, Proxy7),
     ok.
+
+apn(Bin) ->
+    binary:split(Bin, <<".">>, [global, trim_all]).
