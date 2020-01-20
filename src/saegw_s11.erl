@@ -258,6 +258,9 @@ handle_event(info, {pfcp_timer, #{validity_time := ChargingKeys}}, _State, Data)
 handle_event(info, _Info, _State, _Data) ->
     keep_state_and_data;
 
+handle_event({timeout, context_idle}, stop_session, _state, Data) ->
+    delete_context(undefined, normal, Data);
+
 handle_event(internal, {session, stop, _Session}, run, Data) ->
     delete_context(undefined, normal, Data);
 handle_event(internal, {session, stop, _Session}, _, Data) ->
@@ -370,8 +373,10 @@ handle_request(ReqKey,
     {PendingPCtx, NodeCaps, APNOpts, ContextVRF} =
 	ergw_gsn_lib:reselect_upf(Candidates, ActiveSessionOpts0, ContextUP, UPinfo0),
 
-    {Result, ActiveSessionOpts, ContextPending} =
+    {Result, ActiveSessionOpts1, ContextPending1} =
 	allocate_ips(APNOpts, ActiveSessionOpts0, PAA, DAF, ContextVRF),
+    {ContextPending, ActiveSessionOpts} = 
+	add_apn_timeout(APNOpts, ActiveSessionOpts1, ContextPending1),
     ergw_aaa_session:set(Session, ActiveSessionOpts),
 
     Now = erlang:monotonic_time(),
@@ -426,7 +431,9 @@ handle_request(ReqKey,
     ResponseIEs = create_session_response(Result, ActiveSessionOpts, IEs, EBI, Context),
     Response = response(create_session_response, Context, ResponseIEs, Request),
     gtp_context:send_response(ReqKey, Request, Response),
-    {keep_state, Data#{context => Context, pfcp => PCtx, pcc => PCC4}};
+
+    Actions = context_idle_action([], Context),
+    {keep_state, Data#{context => Context, pfcp => PCtx, pcc => PCC4}, Actions};
 
 handle_request(ReqKey,
 	       #gtp{type = modify_bearer_request,
@@ -464,7 +471,9 @@ handle_request(ReqKey,
 			      EBI]}],
     Response = response(modify_bearer_response, Context, ResponseIEs, Request),
     gtp_context:send_response(ReqKey, Request, Response),
-    {keep_state, Data1};
+
+    Actions = context_idle_action([], Context),
+    {keep_state, Data1, Actions};
 
 handle_request(ReqKey,
 	       #gtp{type = modify_bearer_request, ie = IEs} = Request,
@@ -479,7 +488,9 @@ handle_request(ReqKey,
     ResponseIEs = [#v2_cause{v2_cause = request_accepted}],
     Response = response(modify_bearer_response, Context, ResponseIEs, Request),
     gtp_context:send_response(ReqKey, Request, Response),
-    {keep_state, Data#{context => Context}};
+
+    Actions = context_idle_action([], Context),
+    {keep_state, Data#{context => Context}, Actions};
 
 handle_request(#request{gtp_port = GtpPort, ip = SrcIP, port = SrcPort} = ReqKey,
 	       #gtp{type = modify_bearer_command,
@@ -502,7 +513,9 @@ handle_request(#request{gtp_port = GtpPort, ip = SrcIP, port = SrcPort} = ReqKey
     RequestIEs = gtp_v2_c:build_recovery(Type, Context, false, RequestIEs0),
     Msg = msg(Context, Type, RequestIEs),
     send_request(GtpPort, SrcIP, SrcPort, ?T3, ?N3, Msg#gtp{seq_no = SeqNo}, undefined),
-    keep_state_and_data;
+
+    Actions = context_idle_action([], Context),
+    {keep_state_and_data, Actions};
 
 handle_request(ReqKey,
 	       #gtp{type = release_access_bearers_request} = Request, _Resent, _State,
@@ -518,7 +531,9 @@ handle_request(ReqKey,
     ResponseIEs = [#v2_cause{v2_cause = request_accepted}],
     Response = response(release_access_bearers_response, NewContext, ResponseIEs, Request),
     gtp_context:send_response(ReqKey, Request, Response),
-    {keep_state, Data#{context => NewContext, pfcp => PCtx}};
+
+    Actions = context_idle_action([], NewContext),
+    {keep_state, Data#{context => NewContext, pfcp => PCtx}, Actions};
 
 handle_request(ReqKey,
 	       #gtp{type = delete_session_request, ie = IEs} = Request,
@@ -781,6 +796,13 @@ apply_context_change(NewContext0, OldContext, URRActions,
     gtp_path:unbind(OldContext),
     defer_usage_report(URRActions, UsageReport),
     Data#{context => NewContext, pfcp => PCtx}.
+
+%% 'Idle-Timeout' received from ergw_aaa Session takes precedence over configured one
+add_apn_timeout(Opts, Session, Context) ->
+    SessionWithTimeout = maps:merge(maps:with(['Idle-Timeout'],Opts), Session),
+    Timeout = maps:get('Idle-Timeout', SessionWithTimeout),
+    ContextWithTimeout = Context#context{'Idle-Timeout' = Timeout},
+    {ContextWithTimeout, SessionWithTimeout}.
 
 map_attr('APN', #{?'Access Point Name' := #v2_access_point_name{apn = APN}}) ->
     unicode:characters_to_binary(lists:join($., APN));
@@ -1220,3 +1242,11 @@ create_session_response(Result, SessionOpts, RequestIEs, EBI,
      s5s8_pgw_gtp_c_tei(Context),
      #v2_apn_restriction{restriction_type_value = 0},
      encode_paa(MSv4, MSv6) | IE1].
+
+%% Wrapper for gen_statem state_callback_result Actions argument
+%% Timeout set in the context of a prolonged idle gtpv2 session
+context_idle_action(Actions, #context{'Idle-Timeout' = Timeout})
+  when is_integer(Timeout) orelse Timeout =:= infinity ->
+    [{{timeout, context_idle}, Timeout, stop_session} | Actions];
+context_idle_action(Actions, _) ->
+    Actions.

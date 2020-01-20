@@ -122,17 +122,20 @@
 		 {apns,
 		  [{?'APN-EXAMPLE',
 		    [{vrf, sgi},
-		     {ip_pools, ['pool-A']}]},
+		     {ip_pools, ['pool-A']},
+		     {'Idle-Timeout', 21600000}]}, % Idle timeout 6 hours
 		   {[<<"exa">>, <<"mple">>, <<"net">>],
 		    [{vrf, sgi},
 		     {ip_pools, ['pool-A']}]},
 		   {[<<"APN1">>],
 		    [{vrf, sgi},
-		     {ip_pools, ['pool-A']}]},
+		     {ip_pools, ['pool-A']},
+		     {'Idle-Timeout', 28800000}]}, % Idle timeout 8 hours
 		   {[<<"v6only">>],
 		    [{vrf, sgi},
 		     {ip_pools, ['pool-A']},
-		     {bearer_type, 'IPv6'}]},
+		     {bearer_type, 'IPv6'},
+		     {'Idle-Timeout', infinity}]},
 		   {[<<"v4only">>],
 		    [{vrf, sgi},
 		     {ip_pools, ['pool-A']},
@@ -458,7 +461,8 @@ common() ->
      gy_async_stop,
      gx_invalid_charging_rulebase,
      gx_invalid_charging_rule,
-     gx_rar_gy_interaction].
+     gx_rar_gy_interaction,
+     gtp_idle_timeout].
 
 groups() ->
     [{ipv4, [], common()},
@@ -603,6 +607,11 @@ init_per_testcase(gx_invalid_charging_rule, Config) ->
     setup_per_testcase(Config),
     load_aaa_answer_config([{{gx, 'CCR-Initial'}, 'Initial-Gx-Fail-2'}]),
     Config;
+%% gtp 'Idle-Timeout' reduced to 300ms for test purposes
+init_per_testcase(gtp_idle_timeout, Config) ->
+    set_apn_key('Idle-Timeout', 300),
+    setup_per_testcase(Config),
+    Config;
 init_per_testcase(_, Config) ->
     setup_per_testcase(Config),
     Config.
@@ -649,6 +658,11 @@ end_per_testcase(request_fast_resend, Config) ->
 end_per_testcase(create_pdp_context_overload, Config) ->
     jobs:modify_queue(create, [{max_size, 10}]),
     jobs:modify_regulator(rate, create, {rate,create,1}, [{limit,100}]),
+    end_per_testcase(Config),
+    Config;
+%% gtp 'Idle-Timeout' reset to default 28800000ms ~8 hrs
+end_per_testcase(gtp_idle_timeout, Config) ->
+    set_apn_key('Idle-Timeout', 28800000),
     end_per_testcase(Config),
     Config;
 end_per_testcase(_, Config) ->
@@ -2378,6 +2392,27 @@ gx_invalid_charging_rule(Config) ->
     meck_validate(Config),
     ok.
 
+%%--------------------------------------------------------------------
+gtp_idle_timeout() ->
+    [{doc, "Checks if the gtp idle timeout is triggered"}].
+gtp_idle_timeout(Config) ->
+    Cntl = whereis(gtpc_client_server),
+    {GtpC, _, _} = create_pdp_context(Config),
+    %% The meck wait timeout (400 ms) has to be more than then the Idle-Timeout
+    ok = meck:wait(?HUT, handle_event,
+		   [{timeout, context_idle}, stop_session, '_', '_'], 3000),
+
+    %% Timeout triggers a delete_pdp_context_request towards the SGSN
+    Request = recv_pdu(Cntl, 5000),
+    ?match(#gtp{type = delete_pdp_context_request}, Request),
+    Response = make_response(Request, simple, GtpC),
+    send_pdu(Cntl, GtpC, Response),
+
+    ?equal([], outstanding_requests()),
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    meck_validate(Config),
+    ok.
+
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
@@ -2474,3 +2509,10 @@ socket_counter_metrics_ok_value(Metrics, Part) ->
 
 socket_counter_metrics_ok_value_0([Value]) -> Value;
 socket_counter_metrics_ok_value_0([]) -> 0.
+
+%% Set APN key data
+set_apn_key(Key, Value) ->
+    {ok, APNs0} = application:get_env(ergw, apns),
+    Upd = fun(_APN, Val_map) -> maps:put(Key, Value, Val_map) end,
+    APNs = maps:map(Upd, APNs0),
+    ok = application:set_env(ergw, apns, APNs).

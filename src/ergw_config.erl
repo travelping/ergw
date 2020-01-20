@@ -34,7 +34,9 @@
 -define(ApnDefaults, [{ip_pools, []},
 		      {bearer_type, 'IPv4v6'},
 		      {prefered_bearer_type, 'IPv6'},
-		      {ipv6_ue_interface_id, default}]).
+		      {ipv6_ue_interface_id, default},
+		      {'Idle-Timeout', 28800000}         %% 8hrs timer in msecs
+		     ]).
 -define(DefaultsNodesDefaults, [{vrfs, invalid}, {node_selection, default}]).
 
 -define(is_opts(X), (is_list(X) orelse is_map(X))).
@@ -428,6 +430,10 @@ validate_apn_option({Opt, Value})
        Opt == 'MS-Primary-NBNS-Server';  Opt == 'MS-Secondary-NBNS-Server';
        Opt == 'DNS-Server-IPv6-Address'; Opt == '3GPP-IPv6-DNS-Servers' ->
     {Opt, validate_ip_cfg_opt(Opt, Value)};
+validate_apn_option({'Idle-Timeout', Timer})
+  when (is_integer(Timer) andalso Timer > 0)
+       orelse Timer =:= infinity->
+    {'Idle-Timeout', Timer};
 validate_apn_option({Opt, Value}) ->
     throw({error, {options, {Opt, Value}}}).
 
