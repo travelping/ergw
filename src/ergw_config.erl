@@ -31,7 +31,10 @@
 			 {apns, []},
 			 {charging, [{default, []}]}]).
 -define(VrfDefaults, [{features, invalid}]).
--define(ApnDefaults, [{ip_pools, []}, {bearer_type, 'IPv4v6'}, {prefered_bearer_type, 'IPv6'}]).
+-define(ApnDefaults, [{ip_pools, []},
+		      {bearer_type, 'IPv4v6'},
+		      {prefered_bearer_type, 'IPv6'},
+		      {ipv6_ue_interface_id, default}]).
 -define(DefaultsNodesDefaults, [{vrfs, invalid}, {node_selection, default}]).
 
 -define(is_opts(X), (is_list(X) orelse is_map(X))).
@@ -410,6 +413,16 @@ validate_apn_option({bearer_type = Opt, Type})
 validate_apn_option({prefered_bearer_type = Opt, Type})
   when Type =:= 'IPv4'; Type =:= 'IPv6' ->
     {Opt, Type};
+validate_apn_option({ipv6_ue_interface_id = Opt, Type})
+  when Type =:= default;
+       Type =:= random;
+       Type =:= sgsnemu ->
+    {Opt, Type};
+validate_apn_option({ipv6_ue_interface_id, {0,0,0,0,E,F,G,H}} = Opt)
+  when E >= 0, E < 65536, F >= 0, F < 65536,
+       G >= 0, G < 65536, H >= 0, H < 65536,
+       (E + F + G + H) =/= 0 ->
+    Opt;
 validate_apn_option({Opt, Value})
   when Opt == 'MS-Primary-DNS-Server';   Opt == 'MS-Secondary-DNS-Server';
        Opt == 'MS-Primary-NBNS-Server';  Opt == 'MS-Secondary-NBNS-Server';

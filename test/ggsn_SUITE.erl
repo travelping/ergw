@@ -145,6 +145,12 @@
 		    [{vrf, sgi},
 		     {ip_pools, ['pool-A']},
 		     {prefered_bearer_type, 'IPv4'}]},
+		   {[<<"sgsnemu">>],
+		    [{vrf, sgi},
+		     {ip_pools, ['pool-A']},
+		     {ipv6_ue_interface_id, sgsnemu},
+		     {bearer_type, 'IPv6'},
+		     {prefered_bearer_type, 'IPv6'}]},
 		   {[<<"async-sx">>],
 		    [{vrf, sgi},
 		     {ip_pools, ['pool-A']}]}
@@ -418,6 +424,7 @@ common() ->
      create_pdp_context_request_accept_new,
      path_restart, path_restart_recovery, path_restart_multi,
      simple_pdp_context_request,
+     sgsnemu_pdp_context_request,
      duplicate_pdp_context_request,
      error_indication,
      pdp_context_request_bearer_types,
@@ -929,6 +936,8 @@ simple_pdp_context_request(Config) ->
 
     delete_pdp_context(GtpC),
 
+    ?match({_, {<<_:64, 1:64>>, _}}, GtpC#gtpc.ue_ip),
+
     ?equal([], outstanding_requests()),
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
 
@@ -937,6 +946,21 @@ simple_pdp_context_request(Config) ->
 
     ?match_metric(prometheus_gauge, ergw_ip_pool_free, PoolId, 65534),
     ?match_metric(prometheus_gauge, ergw_ip_pool_used, PoolId, 0),
+
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+sgsnemu_pdp_context_request() ->
+    [{doc, "Check simple Create PDP Context, Delete PDP Context sequence"}].
+sgsnemu_pdp_context_request(Config) ->
+    {GtpC, _, _} = create_pdp_context({ipv6, false, sgsnemu}, Config),
+    delete_pdp_context(GtpC),
+
+    ?match({_, {<<Id:64, Id:64>>, _}}, GtpC#gtpc.ue_ip),
+
+    ?equal([], outstanding_requests()),
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
 
     meck_validate(Config),
     ok.

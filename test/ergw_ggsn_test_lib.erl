@@ -185,9 +185,27 @@ validate_pdp_type({Req = ipv4v6, false, v4only},  IEs) -> validate_pdp_cfg(Req, 
 validate_pdp_type({Req = ipv4v6, false, v6only},  IEs) -> validate_pdp_cfg(Req, ipv6, IEs);
 validate_pdp_type({Req = ipv4v6, false, prefV4},  IEs) -> validate_pdp_cfg(Req, ipv4, IEs);
 validate_pdp_type({Req = ipv4v6, false, prefV6},  IEs) -> validate_pdp_cfg(Req, ipv6, IEs);
+validate_pdp_type({Req = ipv4,   false, _},       IEs) -> validate_pdp_cfg(Req, ipv4, IEs);
+validate_pdp_type({Req = ipv6,   false, _},       IEs) -> validate_pdp_cfg(Req, ipv6, IEs);
 
 validate_pdp_type(_Type, IEs) ->
     validate_pdp_cfg(ipv4v6, ipv4v6, IEs).
+
+update_ue_ip(#{{end_user_address, 0} :=
+		   #end_user_address{pdp_type_organization = 1,
+				     pdp_type_number = 16#21,
+				     pdp_address = <<IP4:4/bytes>>}}, GtpC) ->
+    GtpC#gtpc{ue_ip = {{IP4, 32}, undefined}};
+update_ue_ip(#{{end_user_address, 0} :=
+		   #end_user_address{pdp_type_organization = 1,
+				     pdp_type_number = 16#57,
+				     pdp_address = <<IP6:16/bytes>>}}, GtpC) ->
+    GtpC#gtpc{ue_ip = {undefined, {IP6, 64}}};
+update_ue_ip(#{{end_user_address, 0} :=
+		   #end_user_address{pdp_type_organization = 1,
+				     pdp_type_number = 16#8D,
+				     pdp_address = <<IP4:4/bytes, IP6:16/bytes>>}}, GtpC) ->
+    GtpC#gtpc{ue_ip = {{IP4, 32}, {IP6, 64}}}.
 
 %%%-------------------------------------------------------------------
 
@@ -386,7 +404,8 @@ validate_cause(_Type, {_, _, _} = SubType, #gtp{ie = #{{cause,0} := #cause{value
 	 {{ipv4v6, false, v4only},  new_pdp_type_due_to_network_preference},
 	 {{ipv4v6, false, v6only},  new_pdp_type_due_to_network_preference},
 	 {{ipv4v6, false, prefV4},  new_pdp_type_due_to_single_address_bearer_only},
-	 {{ipv4v6, false, prefV6},  new_pdp_type_due_to_single_address_bearer_only}
+	 {{ipv4v6, false, prefV6},  new_pdp_type_due_to_single_address_bearer_only},
+	 {{ipv6,   false, sgsnemu}, request_accepted}
 	 ],
     ExpectedCause = proplists:get_value(SubType, CauseList),
     ?equal(ExpectedCause, Cause);
@@ -463,7 +482,7 @@ validate_response(create_pdp_context_request, {ipv6, _, v4only}, Response, GtpC)
     GtpC;
 
 validate_response(create_pdp_context_request, SubType, Response,
-		  #gtpc{local_control_tei = LocalCntlTEI} = GtpC) ->
+		  #gtpc{local_control_tei = LocalCntlTEI} = GtpC0) ->
     validate_cause(create_pdp_context_request, SubType, Response),
     ?match(#gtp{type = create_pdp_context_response,
 		tei = LocalCntlTEI,
@@ -480,6 +499,7 @@ validate_response(create_pdp_context_request, SubType, Response,
 			   #tunnel_endpoint_identifier_data_i{}
 		      }}, Response),
     validate_pdp_type(SubType, Response#gtp.ie),
+    GtpC = update_ue_ip(Response#gtp.ie, GtpC0),
 
     #gtp{ie = #{{tunnel_endpoint_identifier_control_plane,0} :=
 		    #tunnel_endpoint_identifier_control_plane{
@@ -586,7 +606,8 @@ apn(dotted_apn)  -> ?'APN-EXA.MPLE';
 apn(async_sx)    -> [<<"async-sx">>];
 apn({_, _, APN})
   when APN =:= v4only; APN =:= prefV4;
-       APN =:= v6only; APN =:= prefV6 ->
+       APN =:= v6only; APN =:= prefV6;
+       APN =:= sgsnemu ->
     [atom_to_binary(APN, latin1)];
 apn(_)           -> ?'APN-EXAMPLE'.
 

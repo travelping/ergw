@@ -1609,17 +1609,35 @@ alloc_ipv4({ReqIPv4, PrefixLen}, #context{local_control_tei = TEI,
 alloc_ipv4(_ReqIPv4, Context) ->
     {undefined, #{}, Context}.
 
-alloc_ipv6({ReqIPv6, PrefixLen}, #context{local_control_tei = TEI,
-					  ipv6_pool = Pool} = Context)
+ue_interface_id(ReqIP, _, _) when ReqIP =/= ?ZERO_IPv6 ->
+    ReqIP;
+ue_interface_id(_, _, #{ipv6_ue_interface_id := default}) ->
+    ?UE_INTERFACE_ID;
+ue_interface_id(_, {{A,B,C,D,_,_,_,_}, _}, #{ipv6_ue_interface_id := sgsnemu}) ->
+    {0,0,0,0,A,B,C,D};
+ue_interface_id(_, _, #{ipv6_ue_interface_id := random}) ->
+    E = rand:uniform(65536) - 1,
+    F = rand:uniform(65536) - 1,
+    G = rand:uniform(65536) - 1,
+    H = rand:uniform(65534),
+    {0,0,0,0,E,F,G,H};
+ue_interface_id(_, _, #{ipv6_ue_interface_id := IfId})
+  when is_tuple(IfId) ->
+    IfId.
+
+
+alloc_ipv6({ReqIPv6, PrefixLen}, Opts,
+	   #context{local_control_tei = TEI, ipv6_pool = Pool} = Context)
   when ?IS_IPv6(ReqIPv6) ->
     PoolOpts0 = ergw_ip_pool:opts(ipv6, Pool),
     PoolOpts = maps:update_with('Framed-IPv6-Pool', fun(X) -> X end, Pool, PoolOpts0),
-    {Request, IfId} = case ReqIPv6 of
-			  ?ZERO_IPv6 -> {ipv6, ?UE_INTERFACE_ID};
-			  _          -> {ReqIPv6, ReqIPv6}
-		      end,
+    Request = case ReqIPv6 of
+		  ?ZERO_IPv6 -> ipv6;
+		  _          -> ReqIPv6
+	      end,
     case ergw_ip_pool:get(Pool, TEI, Request, PrefixLen) of
 	{ok, IP} ->
+	    IfId = ue_interface_id(ReqIPv6, IP, Opts),
 	    MSv6 = ergw_inet:ipv6_interface_id(IP, IfId),
 	    {MSv6, PoolOpts, Context#context{ms_v6 = MSv6}};
 	{error, empty} ->
@@ -1630,7 +1648,7 @@ alloc_ipv6({ReqIPv6, PrefixLen}, #context{local_control_tei = TEI,
 	    %% pool not defined
 	    {Result, #{}, Context}
     end;
-alloc_ipv6(_ReqIPv6, Context) ->
+alloc_ipv6(_ReqIPv6, _Opts, Context) ->
     {undefined, #{}, Context}.
 
 release_ipv4({IPv4, PrefixLen}, #context{ipv4_pool = Pool}) ->
@@ -1716,7 +1734,7 @@ allocate_ips(AllocInfo,
     {ReqPDNType, ReqMSv4, ReqMSv6} =
 	session_ip_alloc(Bearer, PrefBearer, SOpts0, DualAddressBearerFlag, AllocInfo),
     {MSv4, IPv4PoolOpts, Context1} = alloc_ipv4(normalize_ipv4(ReqMSv4), Context0),
-    {MSv6, IPv6PoolOpts, Context}  = alloc_ipv6(normalize_ipv6(ReqMSv6), Context1),
+    {MSv6, IPv6PoolOpts, Context}  = alloc_ipv6(normalize_ipv6(ReqMSv6), APNOpts0, Context1),
     PoolOpts = maps:merge(IPv4PoolOpts, IPv6PoolOpts),
 
     {Result, PDNType} = allocate_ips_result(ReqPDNType, Bearer, MSv4, MSv6, Context0),
