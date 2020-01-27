@@ -250,6 +250,9 @@ handle_event(info, _Info, _State, Data) ->
     ?LOG(warning, "~p, handle_info(~p, ~p)", [?MODULE, _Info, Data]),
     keep_state_and_data;
 
+handle_event({timeout, context_idle}, stop_session, _state, Data) ->
+    delete_context(undefined, normal, Data);
+
 handle_event(internal, {session, stop, _Session}, run, Data) ->
     delete_context(undefined, normal, Data);
 handle_event(internal, {session, stop, _Session}, _, Data) ->
@@ -346,8 +349,10 @@ handle_request(ReqKey,
     {PendingPCtx, NodeCaps, APNOpts, ContextVRF} =
 	ergw_gsn_lib:reselect_upf(Candidates, ActiveSessionOpts0, ContextUP, UPinfo0),
 
-    {Result, ActiveSessionOpts, ContextPending} =
+    {Result, ActiveSessionOpts1, ContextPending1} =
 	allocate_ips(APNOpts, ActiveSessionOpts0, EUA, DAF, ContextVRF),
+    {ContextPending, ActiveSessionOpts} =
+	add_apn_timeout(APNOpts, ActiveSessionOpts1, ContextPending1),
     ergw_aaa_session:set(Session, ActiveSessionOpts),
 
     Now = erlang:monotonic_time(),
@@ -401,7 +406,9 @@ handle_request(ReqKey,
     ResponseIEs = create_pdp_context_response(Result, ActiveSessionOpts, IEs, Context),
     Response = response(create_pdp_context_response, Context, ResponseIEs, Request),
     gtp_context:send_response(ReqKey, Request, Response),
-    {keep_state, Data#{context => Context, pfcp => PCtx, pcc => PCC4}};
+
+    Actions = context_idle_action([], Context),
+    {keep_state, Data#{context => Context, pfcp => PCtx, pcc => PCC4}, Actions};
 
 handle_request(ReqKey,
 	       #gtp{type = update_pdp_context_request,
@@ -428,7 +435,9 @@ handle_request(ReqKey,
     ResponseIEs = tunnel_endpoint_elements(Context, ResponseIEs0),
     Response = response(update_pdp_context_response, Context, ResponseIEs, Request),
     gtp_context:send_response(ReqKey, Request, Response),
-    {keep_state, Data1};
+
+    Actions = context_idle_action([], Context),
+    {keep_state, Data1, Actions};
 
 handle_request(ReqKey,
 	       #gtp{type = ms_info_change_notification_request, ie = IEs} = Request,
@@ -444,7 +453,9 @@ handle_request(ReqKey,
     ResponseIEs = copy_ies_to_response(IEs, ResponseIEs0, [?'IMSI', ?'IMEI']),
     Response = response(ms_info_change_notification_response, Context, ResponseIEs, Request),
     gtp_context:send_response(ReqKey, Request, Response),
-    {keep_state, Data#{context => Context}};
+
+    Actions = context_idle_action([], Context),
+    {keep_state, Data#{context => Context}, Actions};
 
 handle_request(ReqKey,
 	       #gtp{type = delete_pdp_context_request, ie = _IEs} = Request,
@@ -663,6 +674,13 @@ apply_context_change(NewContext0, OldContext, URRActions,
     gtp_path:unbind(OldContext),
     defer_usage_report(URRActions, UsageReport),
     Data#{context => NewContext, pfcp => PCtx}.
+
+%% 'Idle-Timeout' received from ergw_aaa Session takes precedence over configured one
+add_apn_timeout(Opts, Session, Context) ->
+    SessionWithTimeout = maps:merge(maps:with(['Idle-Timeout'],Opts), Session),
+    Timeout = maps:get('Idle-Timeout', SessionWithTimeout),
+    ContextWithTimeout = Context#context{'Idle-Timeout' = Timeout},
+    {ContextWithTimeout, SessionWithTimeout}.
 
 map_attr('APN', #{?'Access Point Name' := #access_point_name{apn = APN}}) ->
     unicode:characters_to_binary(lists:join($., APN));
@@ -1166,3 +1184,11 @@ create_pdp_context_response(Result, SessionOpts, RequestIEs,
     IE1 = pdp_qos_profile(SessionOpts, IE0),
     IE2 = pdp_pco(SessionOpts, RequestIEs, IE1),
     tunnel_endpoint_elements(Context, IE2).
+
+%% Wrapper for gen_statem state_callback_result Actions argument
+%% Timeout set in the context of a prolonged idle gtp session
+context_idle_action(Actions, #context{'Idle-Timeout' = Timeout})
+  when is_integer(Timeout) orelse Timeout =:= infinity ->
+    [{{timeout, context_idle}, Timeout, stop_session} | Actions];
+context_idle_action(Actions, _) ->
+    Actions.
