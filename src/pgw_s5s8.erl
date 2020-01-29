@@ -1035,7 +1035,7 @@ copy_to_session(_, #v2_user_location_information{ecgi = ECGI}, _AAAopts, Session
     Session#{'ECGI' => ECGI, '3GPP-User-Location-Info' => Value};
 copy_to_session(_, #v2_user_location_information{tai = TAI}, _AAAopts, Session)
   when is_binary(TAI) ->
-    Value = <<129, TAI/binary>>,
+    Value = <<128, TAI/binary>>,
     Session#{'TAI' => TAI, '3GPP-User-Location-Info' => Value};
 copy_to_session(_, #v2_user_location_information{rai = RAI}, _AAAopts, Session)
   when is_binary(RAI) ->
