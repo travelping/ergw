@@ -574,8 +574,8 @@ terminate(_Reason, _State, _Data) ->
 response(Cmd, #context{remote_control_teid = #fq_teid{teid = TEID}}, Response) ->
     {Cmd, TEID, Response}.
 
-response(Cmd, Context, IEs0, #gtp{ie = #{?'Recovery' := Recovery}}) ->
-    IEs = gtp_v2_c:build_recovery(Cmd, Context, Recovery /= undefined, IEs0),
+response(Cmd, Context, IEs0, #gtp{ie = ReqIEs}) ->
+    IEs = gtp_v2_c:build_recovery(Cmd, Context, is_map_key(?'Recovery', ReqIEs), IEs0),
     response(Cmd, Context, IEs).
 
 handle_proxy_info(Request, Session, Context, #{proxy_ds := ProxyDS}) ->
@@ -832,8 +832,7 @@ forward_context(pgw2sgw, #{context := Context}) ->
     Context.
 
 forward_request(Direction, ReqKey,
-		#gtp{seq_no = ReqSeqNo,
-		     ie = #{?'Recovery' := Recovery}} = Request,
+		#gtp{seq_no = ReqSeqNo, ie = ReqIEs} = Request,
 		#{last_trigger_id :=
 		      {ReqSeqNo, LastFwdSeqNo, GtpPort, SrcIP, SrcPort, _}} = Data,
 	       DataOld) ->
@@ -841,15 +840,14 @@ forward_request(Direction, ReqKey,
     Context = forward_context(Direction, Data),
     FwdReq = build_context_request(Context, false, LastFwdSeqNo, Request),
     ergw_proxy_lib:forward_request(Direction, GtpPort, SrcIP, SrcPort, FwdReq, ReqKey,
-				   ReqSeqNo, Recovery /= undefined, DataOld);
+				   ReqSeqNo, is_map_key(?'Recovery', ReqIEs), DataOld);
 forward_request(Direction, ReqKey,
-		#gtp{seq_no = ReqSeqNo,
-		     ie = #{?'Recovery' := Recovery}} = Request,
+		#gtp{seq_no = ReqSeqNo, ie = ReqIEs} = Request,
 		Data, DataOld) ->
     Context = forward_context(Direction, Data),
     FwdReq = build_context_request(Context, false, undefined, Request),
     ergw_proxy_lib:forward_request(Direction, Context, FwdReq, ReqKey,
-				   ReqSeqNo, Recovery /= undefined, DataOld).
+				   ReqSeqNo, is_map_key(?'Recovery', ReqIEs), DataOld).
 
 trigger_request(Direction, #request{gtp_port = GtpPort, ip = SrcIP, port = SrcPort} = ReqKey,
 		#gtp{seq_no = SeqNo} = Request, Data) ->

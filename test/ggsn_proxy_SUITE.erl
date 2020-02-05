@@ -816,9 +816,9 @@ simple_pdp_context_request(Config) ->
     ?match(#gtp{seq_no = SeqNo} when SeqNo < 16#8000, V),
 
     GtpDelMatch = #gtp{type = delete_pdp_context_request, _ = '_'},
-    ?match(
-       #gtp{ie = #{{recovery,0} := undefined}},
-       meck:capture(first, ggsn_gn, handle_request, ['_', GtpDelMatch, '_', '_', '_'], 2)),
+    #gtp{ie = DelIEs} =
+	meck:capture(first, ggsn_gn, handle_request, ['_', GtpDelMatch, '_', '_', '_'], 2),
+    ?equal(false, maps:is_key({recovery, 0}, DelIEs)),
 
     ?equal([], outstanding_requests()),
     ok.

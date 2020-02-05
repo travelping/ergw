@@ -500,8 +500,8 @@ terminate(_Reason, _State, #{context := Context}) ->
 response(Cmd, #context{remote_control_teid = #fq_teid{teid = TEID}}, Response) ->
     {Cmd, TEID, Response}.
 
-response(Cmd, Context, IEs0, #gtp{ie = #{?'Recovery' := Recovery}}) ->
-    IEs = gtp_v1_c:build_recovery(Cmd, Context, Recovery /= undefined, IEs0),
+response(Cmd, Context, IEs0, #gtp{ie = ReqIEs}) ->
+    IEs = gtp_v1_c:build_recovery(Cmd, Context, is_map_key(?'Recovery', ReqIEs), IEs0),
     response(Cmd, Context, IEs).
 
 session_failure_to_gtp_cause(_) ->
