@@ -54,6 +54,7 @@
 -define('Bearer Level QoS',				{v2_bearer_level_quality_of_service, 0}).
 -define('EPS Bearer ID',                                {v2_eps_bearer_id, 0}).
 -define('SGW-U node name',                              {v2_fully_qualified_domain_name, 0}).
+-define('Secondary RAT Usage Data Report',              {v2_secondary_rat_usage_data_report, 0}).
 
 -define('S5/S8-U SGW',  4).
 -define('S5/S8-U PGW',  5).
@@ -458,6 +459,8 @@ handle_request(ReqKey,
 	       _Resent, _State,
 	       #{context := OldContext, pfcp := PCtx, 'Session' := Session} = Data0) ->
 
+    process_secondary_rat_usage_data_reports(IEs, OldContext, Session),
+
     FqCntlTEID = maps:get(?'Sender F-TEID for Control Plane', IEs, undefined),
 
     Context0 = update_context_tunnel_ids(FqCntlTEID, FqDataTEID, OldContext),
@@ -506,6 +509,7 @@ handle_request(ReqKey,
 	       _Resent, _State,
 	       #{context := OldContext, pfcp := PCtx,
 		 'Session' := Session} = Data) ->
+    process_secondary_rat_usage_data_reports(IEs, OldContext, Session),
 
     Context = update_context_from_gtp_req(Request, OldContext),
     URRActions = update_session_from_gtp_req(IEs, Session, Context),
@@ -546,6 +550,7 @@ handle_request(ReqKey,
 	       _Resent, _State,
 	       #{context := OldContext, pfcp := PCtx,
 		 'Session' := Session} = Data) ->
+    process_secondary_rat_usage_data_reports(IEs, OldContext, Session),
 
     Context = update_context_from_gtp_req(Request, OldContext),
     URRActions = update_session_from_gtp_req(IEs, Session, Context),
@@ -587,7 +592,7 @@ handle_request(ReqKey,
 
 handle_request(ReqKey,
 	       #gtp{type = delete_session_request, ie = IEs} = Request,
-	       _Resent, _State, #{context := Context} = Data0) ->
+	       _Resent, _State, #{context := Context, 'Session' := Session} = Data0) ->
 
     FqTEI = maps:get(?'Sender F-TEID for Control Plane', IEs, undefined),
 
@@ -599,6 +604,7 @@ handle_request(ReqKey,
 
     case Result of
 	{ok, {ReplyIEs, Data}} ->
+	    process_secondary_rat_usage_data_reports(IEs, Context, Session),
 	    close_pdn_context(normal, Data),
 	    Response = response(delete_session_response, Context, ReplyIEs),
 	    gtp_context:send_response(ReqKey, Request, Response),
@@ -655,10 +661,11 @@ handle_response({From, TermCause}, timeout, #gtp{type = delete_bearer_request},
 
 handle_response({From, TermCause},
 		#gtp{type = delete_bearer_response,
-		     ie = #{?'Cause' := #v2_cause{v2_cause = RespCause}}} = Response,
+		     ie = #{?'Cause' := #v2_cause{v2_cause = RespCause}} = IEs} = Response,
 		_Request, _State,
-		#{context := Context0} = Data) ->
+		#{context := Context0, 'Session' := Session} = Data) ->
     Context = gtp_path:bind(Response, Context0),
+    process_secondary_rat_usage_data_reports(IEs, Context, Session),
     close_pdn_context(TermCause, Data),
     if is_tuple(From) -> gen_statem:reply(From, {ok, RespCause});
        true -> ok
@@ -1087,6 +1094,26 @@ copy_qos_to_session(#{?'Bearer Contexts to be created' :=
     Session#{'QoS-Information' => Info};
 copy_qos_to_session(_, Session) ->
     Session.
+
+sec_rat_udr_to_report([], _, Reports) ->
+    Reports;
+sec_rat_udr_to_report(#v2_secondary_rat_usage_data_report{irpgw = false}, _, Reports) ->
+    Reports;
+sec_rat_udr_to_report(#v2_secondary_rat_usage_data_report{irpgw = true} = Report,
+		      #context{charging_identifier = ChargingId}, Reports) ->
+    [ergw_gsn_lib:secondary_rat_usage_data_report_to_rf(ChargingId, Report)|Reports];
+sec_rat_udr_to_report([H|T], Ctx, Reports) ->
+    sec_rat_udr_to_report(H, Ctx, sec_rat_udr_to_report(T, Ctx, Reports)).
+
+process_secondary_rat_usage_data_reports(#{?'Secondary RAT Usage Data Report' := SecRatUDR},
+					 Context, Session) ->
+    Report =
+	#{'RAN-Secondary-RAT-Usage-Report' =>
+	      sec_rat_udr_to_report(SecRatUDR, Context, [])},
+    ergw_aaa_session:invoke(Session, Report, {rf, 'Update'}, #{async => false}),
+    ok;
+process_secondary_rat_usage_data_reports(_, _, _) ->
+    ok.
 
 init_session_from_gtp_req(IEs, AAAopts, Context, Session0) ->
     Session = copy_qos_to_session(IEs, Session0),

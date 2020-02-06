@@ -593,6 +593,7 @@ common() ->
      gy_validity_timer,
      simple_aaa,
      simple_ofcs,
+     secondary_rat_usage_data_report,
      simple_ocs,
      aa_pool_select,
      aa_pool_select_fail,
@@ -2692,6 +2693,66 @@ simple_ofcs(Config) ->
 		'Accounting-Output-Octets' => ['_'],
 		'Change-Condition' => [0]}
 	     ]}, Stop),
+
+    ?equal([], outstanding_requests()),
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+secondary_rat_usage_data_report() ->
+    [{doc, "Secondary RAT Usage Data Report in DIAMETER Rf"}].
+secondary_rat_usage_data_report(Config) ->
+    {GtpC1, _, _} = create_session(Config),
+    ct:sleep(100),
+
+    {GtpC2, _, _} = modify_bearer(secondary_rat_usage_data_report, GtpC1),
+    ct:sleep(100),
+
+    delete_session(secondary_rat_usage_data_report, GtpC2),
+    ct:sleep(10),
+
+    H = meck:history(ergw_aaa_session),
+    SInv =
+	lists:filter(
+	  fun({_, {ergw_aaa_session, invoke, [_, _, {rf, _}, _]}, _}) ->
+		  true;
+	     (_) ->
+		  false
+	  end, H),
+    ?match(X when X == 5, length(SInv)),
+
+    [Start, SecRat1, _Interim, SecRat2, _Stop] =
+	lists:map(fun({_, {_, _, [_, SOpts, _, _]}, _}) -> SOpts end, SInv),
+
+    ?equal(false, maps:is_key('RAN-Secondary-RAT-Usage-Report', Start)),
+
+    SecRatExpected =
+	#{'RAN-Secondary-RAT-Usage-Report' =>
+	      [#{'3GPP-Charging-Id' => ['_'],
+		 'Accounting-Input-Octets' => ['_'],
+		 'Accounting-Output-Octets' => ['_'],
+		 'RAN-End-Timestamp' => ['_'],
+		 'RAN-Start-Timestamp' => ['_'],
+		 'Secondary-RAT-Type' => ['_']
+		},
+	       #{'3GPP-Charging-Id' => ['_'],
+		 'Accounting-Input-Octets' => ['_'],
+		 'Accounting-Output-Octets' => ['_'],
+		 'RAN-End-Timestamp' => ['_'],
+		 'RAN-Start-Timestamp' => ['_'],
+		 'Secondary-RAT-Type' => ['_']
+		},
+	       #{'3GPP-Charging-Id' => ['_'],
+		 'Accounting-Input-Octets' => ['_'],
+		 'Accounting-Output-Octets' => ['_'],
+		 'RAN-End-Timestamp' => ['_'],
+		 'RAN-Start-Timestamp' => ['_'],
+		 'Secondary-RAT-Type' => ['_']
+		}]},
+    ?match_map(SecRatExpected, SecRat1),
+    ?match_map(SecRatExpected, SecRat2),
 
     ?equal([], outstanding_requests()),
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),

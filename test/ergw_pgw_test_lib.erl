@@ -418,6 +418,40 @@ make_request(modify_bearer_request, SubType,
     #gtp{version = v2, type = modify_bearer_request, tei = RemoteCntlTEI,
 	 seq_no = SeqNo, ie = IEs};
 
+make_request(modify_bearer_request, secondary_rat_usage_data_report,
+	     #gtpc{restart_counter = RCnt, seq_no = SeqNo,
+		   local_ip = LocalIP,
+		   local_control_tei = LocalCntlTEI,
+		   remote_control_tei = RemoteCntlTEI,
+		   rat_type = RAT}) ->
+    MCCMNC = <<16#00, 16#11, 16#00>>,       %% MCC => 001, MNC => 001
+    ULI = #v2_user_location_information{
+	     tai  = <<MCCMNC/binary, 20263:16>>,
+	     ecgi = <<MCCMNC/binary, 0:4, 138873180:28>>},
+    IEs = [#v2_recovery{restart_counter = RCnt},
+	   #v2_ue_time_zone{timezone = 10, dst = 0},
+	   ULI,
+	   #v2_rat_type{rat_type = RAT},
+	   fq_teid(0, ?'S5/S8-C SGW', LocalCntlTEI, LocalIP),
+	   #v2_secondary_rat_usage_data_report{
+	      irpgw = true, rat_type = 0, ebi = 5,
+	      start_time = 101234, end_time = 104567,
+	      dl = 10, ul = 11
+	     },
+	   #v2_secondary_rat_usage_data_report{
+	      irpgw = true, rat_type = 0, ebi = 5,
+	      start_time = 201234, end_time = 204567,
+	      dl = 20, ul = 21
+	     },
+	   #v2_secondary_rat_usage_data_report{
+	      irpgw = true, rat_type = 0, ebi = 5,
+	      start_time = 301234, end_time = 304567,
+	      dl = 30, ul = 31
+	     }
+	  ],
+    #gtp{version = v2, type = modify_bearer_request, tei = RemoteCntlTEI,
+	 seq_no = SeqNo, ie = IEs};
+
 make_request(modify_bearer_request, SubType,
 	     #gtpc{restart_counter = RCnt, seq_no = SeqNo,
 		   local_ip = LocalIP,
@@ -554,6 +588,31 @@ make_request(delete_session_request, SubType,
 	   FqTEID,
 	   #v2_user_location_information{tai = <<3,2,22,214,217>>,
 					 ecgi = <<3,2,22,8,71,9,92>>}],
+
+    #gtp{version = v2, type = delete_session_request,
+	 tei = RemoteCntlTEI, seq_no = SeqNo, ie = IEs};
+
+make_request(delete_session_request, secondary_rat_usage_data_report,
+	     #gtpc{restart_counter = RCnt, seq_no = SeqNo,
+		   remote_control_tei = RemoteCntlTEI}) ->
+    IEs = [#v2_recovery{restart_counter = RCnt},
+	   #v2_eps_bearer_id{eps_bearer_id = 5},
+	   #v2_secondary_rat_usage_data_report{
+	      irpgw = true, rat_type = 0, ebi = 5,
+	      start_time = 101234, end_time = 104567,
+	      dl = 10, ul = 11
+	     },
+	   #v2_secondary_rat_usage_data_report{
+	      irpgw = true, rat_type = 0, ebi = 5,
+	      start_time = 201234, end_time = 204567,
+	      dl = 20, ul = 21
+	     },
+	   #v2_secondary_rat_usage_data_report{
+	      irpgw = true, rat_type = 0, ebi = 5,
+	      start_time = 301234, end_time = 304567,
+	      dl = 30, ul = 31
+	     }
+	  ],
 
     #gtp{version = v2, type = delete_session_request,
 	 tei = RemoteCntlTEI, seq_no = SeqNo, ie = IEs};
@@ -874,7 +933,7 @@ validate_response(modify_bearer_request, SubType, Response,
 
 validate_response(modify_bearer_request, SubType, Response,
 		  #gtpc{local_control_tei = LocalCntlTEI} = GtpC)
-  when SubType == simple; SubType == ra_update ->
+  when SubType == simple; SubType == ra_update; SubType == secondary_rat_usage_data_report ->
     ?match(
        #gtp{type = modify_bearer_response,
 	    tei = LocalCntlTEI,
