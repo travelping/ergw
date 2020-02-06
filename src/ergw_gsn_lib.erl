@@ -15,6 +15,7 @@
 	 process_offline_charging_events/4,
 	 process_offline_charging_events/5,
 	 process_accounting_monitor_events/4,
+	 secondary_rat_usage_data_report_to_rf/2,
 	 pfcp_to_context_event/1,
 	 pcc_ctx_to_credit_request/1,
 	 modify_sgi_session/5,
@@ -1256,6 +1257,22 @@ cev_to_rf(_, #duration_measurement{duration = Duration}, SDC) ->
     SDC#{'Time-Usage' => opt_int(Duration)};
 cev_to_rf(_, _, SDC) ->
     SDC.
+
+secondary_rat_usage_data_report_to_rf(ChargingId,
+				      #v2_secondary_rat_usage_data_report{
+					 rat_type = RAT, ebi = _EBI,
+					 start_time = Start, end_time = End,
+					 dl = DL, ul = UL}) ->
+    #{'Secondary-RAT-Type' => [binary:encode_unsigned(RAT)],
+      'RAN-Start-Timestamp' =>
+	  [calendar:gregorian_seconds_to_datetime(sntp_time_to_seconds(Start)
+						  + ?SECONDS_FROM_0_TO_1970)],
+      'RAN-End-Timestamp' =>
+	  [calendar:gregorian_seconds_to_datetime(sntp_time_to_seconds(End)
+						  + ?SECONDS_FROM_0_TO_1970)],
+      'Accounting-Input-Octets' => [UL],
+      'Accounting-Output-Octets' => [DL],
+      '3GPP-Charging-Id' => [ChargingId]}.
 
 %% charging_event_to_rf/2
 charging_event_to_rf(#{usage_report_trigger :=
