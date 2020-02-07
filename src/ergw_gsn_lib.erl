@@ -117,12 +117,15 @@ ctx_update_dp_seid(_, PCtx) ->
     PCtx.
 
 %% use additional information from the Context to prefre V4 or V6....
-choose_context_ip(IP4, _IP6, _Context)
-  when is_binary(IP4) ->
+choose_context_ip(IP4, _IP6, #context{control_port = #gtp_port{ip = LocalIP}})
+  when is_binary(IP4), byte_size(IP4) =:= 4, ?IS_IPv4(LocalIP) ->
     IP4;
-choose_context_ip(_IP4, IP6, _Context)
-  when is_binary(IP6) ->
-    IP6.
+choose_context_ip(_IP4, IP6, #context{control_port = #gtp_port{ip = LocalIP}})
+  when is_binary(IP6), byte_size(IP6) =:= 16, ?IS_IPv6(LocalIP) ->
+    IP6;
+choose_context_ip(_IP4, _IP6, Context) ->
+    %% IP version mismatch, broken peer GSN or misconfiguration
+    throw(?CTX_ERR(?FATAL, system_failure, Context)).
 
 session_establishment_request(PCC, PCtx0, Ctx) ->
     {ok, CntlNode, _} = ergw_sx_socket:id(),

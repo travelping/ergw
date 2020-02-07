@@ -21,7 +21,7 @@
 %%-export([defered_usage_report/3]).
 
 %% shared API's
--export([init_session/3, init_session_from_gtp_req/3]).
+-export([init_session/3, init_session_from_gtp_req/4]).
 
 -include_lib("kernel/include/logger.hrl").
 -include_lib("gtplib/include/gtp_packet.hrl").
@@ -361,7 +361,7 @@ handle_request(ReqKey,
     gtp_context:terminate_colliding_context(ContextPreAuth),
 
     SessionOpts0 = init_session(IEs, ContextPreAuth, AAAopts),
-    SessionOpts = init_session_from_gtp_req(IEs, AAAopts, SessionOpts0),
+    SessionOpts = init_session_from_gtp_req(IEs, AAAopts, ContextPreAuth, SessionOpts0),
     %% SessionOpts = init_session_qos(ReqQoSProfile, SessionOpts1),
 
     ergw_sx_node:wait_connect(SxConnectId),
@@ -849,17 +849,6 @@ init_session(IEs,
 	  '3GPP-Charging-Id'	=> ChargingId
      }.
 
-copy_optional_binary_ie('3GPP-SGSN-Address' = Key, IP, Session) 
-  when IP /= undefined ->
-    Session#{Key => ergw_inet:bin2ip(IP)};
-copy_optional_binary_ie('3GPP-SGSN-IPv6-Address' = Key, IP, Session) 
-  when IP /= undefined ->
-    Session#{Key => ergw_inet:bin2ip(IP)};
-copy_optional_binary_ie(Key, Value, Session) when is_binary(Value) ->
-    Session#{Key => Value};
-copy_optional_binary_ie(_Key, _Value, Session) ->
-    Session.
-
 copy_ppp_to_session({pap, 'PAP-Authentication-Request', _Id, Username, Password}, Session0) ->
     Session = Session0#{'Username' => Username, 'Password' => Password},
     maps:without(['CHAP-Challenge', 'CHAP_Password'], Session);
@@ -879,15 +868,15 @@ non_empty_ip(Key, IP, Opts) ->
     maps:put(Key, IP, Opts).
 
 copy_to_session(_, #v2_protocol_configuration_options{config = {0, Options}},
-		#{'Username' := #{from_protocol_opts := true}}, Session) ->
+		#{'Username' := #{from_protocol_opts := true}}, _, Session) ->
     lists:foldr(fun copy_ppp_to_session/2, Session, Options);
-copy_to_session(_, #v2_access_point_name{apn = APN}, _AAAopts, Session) ->
+copy_to_session(_, #v2_access_point_name{apn = APN}, _AAAopts, _, Session) ->
     {NI, _OI} = ergw_node_selection:split_apn(APN),
     Session#{'Called-Station-Id' =>
 		 iolist_to_binary(lists:join($., NI))};
-copy_to_session(_, #v2_msisdn{msisdn = MSISDN}, _AAAopts, Session) ->
+copy_to_session(_, #v2_msisdn{msisdn = MSISDN}, _AAAopts, _, Session) ->
     Session#{'Calling-Station-Id' => MSISDN, '3GPP-MSISDN' => MSISDN};
-copy_to_session(_, #v2_international_mobile_subscriber_identity{imsi = IMSI}, _AAAopts, Session) ->
+copy_to_session(_, #v2_international_mobile_subscriber_identity{imsi = IMSI}, _AAAopts, _, Session) ->
     case itu_e212:split_imsi(IMSI) of
 	{MCC, MNC, _} ->
 	    Session#{'3GPP-IMSI' => IMSI,
@@ -897,7 +886,7 @@ copy_to_session(_, #v2_international_mobile_subscriber_identity{imsi = IMSI}, _A
     end;
 
 copy_to_session(_, #v2_pdn_address_allocation{type = ipv4,
-					      address = IP4}, _AAAopts, Session) ->
+					      address = IP4}, _AAAopts, _, Session) ->
     IP4addr = ergw_inet:bin2ip(IP4),
     S0 = Session#{'3GPP-PDP-Type' => 'IPv4'},
     S1 = non_empty_ip('Framed-IP-Address', IP4addr, S0),
@@ -905,7 +894,7 @@ copy_to_session(_, #v2_pdn_address_allocation{type = ipv4,
 copy_to_session(_, #v2_pdn_address_allocation{type = ipv6,
 					      address = <<IP6PrefixLen:8,
 							  IP6Prefix:16/binary>>},
-		_AAAopts, Session) ->
+		_AAAopts, _, Session) ->
     IP6addr = {ergw_inet:bin2ip(IP6Prefix), IP6PrefixLen},
     S0 = Session#{'3GPP-PDP-Type' => 'IPv6'},
     S1 = non_empty_ip('Framed-IPv6-Prefix', IP6addr, S0),
@@ -914,7 +903,7 @@ copy_to_session(_, #v2_pdn_address_allocation{type = ipv4v6,
 					      address = <<IP6PrefixLen:8,
 							  IP6Prefix:16/binary,
 							  IP4:4/binary>>},
-		_AAAopts, Session) ->
+		_AAAopts, _, Session) ->
     IP4addr = ergw_inet:bin2ip(IP4),
     IP6addr = {ergw_inet:bin2ip(IP6Prefix), IP6PrefixLen},
     S0 = Session#{'3GPP-PDP-Type' => 'IPv4v6'},
@@ -922,7 +911,7 @@ copy_to_session(_, #v2_pdn_address_allocation{type = ipv4v6,
     S2 = non_empty_ip('Requested-IP-Address', IP4addr, S1),
     S3 = non_empty_ip('Framed-IPv6-Prefix', IP6addr, S2),
     _S = non_empty_ip('Requested-IPv6-Prefix', IP6addr, S3);
-copy_to_session(_, #v2_pdn_address_allocation{type = non_ip}, _AAAopts, Session) ->
+copy_to_session(_, #v2_pdn_address_allocation{type = non_ip}, _AAAopts, _, Session) ->
     Session#{'3GPP-PDP-Type' => 'Non-IP'};
 
 %% 3GPP TS 29.274, Rel 15, Table 7.2.1-1, Note 1:
@@ -931,26 +920,29 @@ copy_to_session(_, #v2_pdn_address_allocation{type = non_ip}, _AAAopts, Session)
 %%
 
 copy_to_session(?'Sender F-TEID for Control Plane',
-		#v2_fully_qualified_tunnel_endpoint_identifier{ipv4 = IP4, ipv6 = IP6},
-		_AAAopts, Session0) ->
-    Session1 = copy_optional_binary_ie('3GPP-SGSN-Address', IP4, Session0),
-    copy_optional_binary_ie('3GPP-SGSN-IPv6-Address', IP6, Session1);
+		#v2_fully_qualified_tunnel_endpoint_identifier{ipv4 = IP4}, _AAAopts,
+		#context{remote_control_teid = #fq_teid{ip = {_,_,_,_}}}, Session) ->
+    Session#{'3GPP-SGSN-Address' => ergw_inet:bin2ip(IP4)};
+copy_to_session(?'Sender F-TEID for Control Plane',
+		#v2_fully_qualified_tunnel_endpoint_identifier{ipv6 = IP6}, _AAAopts,
+		#context{remote_control_teid = #fq_teid{ip = {_,_,_,_,_,_,_,_}}}, Session) ->
+    Session#{'3GPP-SGSN-IPv6-Address' => ergw_inet:bin2ip(IP6)};
 
 copy_to_session(?'Bearer Contexts to be created',
 		#v2_bearer_context{group = #{?'EPS Bearer ID' :=
 						 #v2_eps_bearer_id{eps_bearer_id = EBI}}},
-		_AAAopts, Session) ->
+		_AAAopts, _, Session) ->
     Session#{'3GPP-NSAPI' => EBI};
-copy_to_session(_, #v2_selection_mode{mode = Mode}, _AAAopts, Session) ->
+copy_to_session(_, #v2_selection_mode{mode = Mode}, _AAAopts, _, Session) ->
     Session#{'3GPP-Selection-Mode' => Mode};
-copy_to_session(_, #v2_charging_characteristics{value = Value}, _AAAopts, Session) ->
+copy_to_session(_, #v2_charging_characteristics{value = Value}, _AAAopts, _, Session) ->
     Session#{'3GPP-Charging-Characteristics' => Value};
 
-copy_to_session(_, #v2_serving_network{mcc = MCC, mnc = MNC}, _AAAopts, Session) ->
+copy_to_session(_, #v2_serving_network{mcc = MCC, mnc = MNC}, _AAAopts, _, Session) ->
     Session#{'3GPP-SGSN-MCC-MNC' => <<MCC/binary, MNC/binary>>};
-copy_to_session(_, #v2_mobile_equipment_identity{mei = IMEI}, _AAAopts, Session) ->
+copy_to_session(_, #v2_mobile_equipment_identity{mei = IMEI}, _AAAopts, _, Session) ->
     Session#{'3GPP-IMEISV' => IMEI};
-copy_to_session(_, #v2_rat_type{rat_type = Type}, _AAAopts, Session) ->
+copy_to_session(_, #v2_rat_type{rat_type = Type}, _AAAopts, _, Session) ->
     Session#{'3GPP-RAT-Type' => Type};
 
 %% 0        CGI
@@ -962,36 +954,36 @@ copy_to_session(_, #v2_rat_type{rat_type = Type}, _AAAopts, Session) ->
 %% 130      TAI and ECGI
 %% 131-255  Spare for future use
 
-copy_to_session(_, #v2_user_location_information{tai = TAI, ecgi = ECGI}, _AAAopts, Session)
+copy_to_session(_, #v2_user_location_information{tai = TAI, ecgi = ECGI}, _AAAopts, _, Session)
   when is_binary(TAI), is_binary(ECGI) ->
     Value = <<130, TAI/binary, ECGI/binary>>,
     Session#{'TAI' => TAI, 'ECGI' => ECGI, '3GPP-User-Location-Info' => Value};
-copy_to_session(_, #v2_user_location_information{ecgi = ECGI}, _AAAopts, Session)
+copy_to_session(_, #v2_user_location_information{ecgi = ECGI}, _AAAopts, _, Session)
   when is_binary(ECGI) ->
     Value = <<129, ECGI/binary>>,
     Session#{'ECGI' => ECGI, '3GPP-User-Location-Info' => Value};
-copy_to_session(_, #v2_user_location_information{tai = TAI}, _AAAopts, Session)
+copy_to_session(_, #v2_user_location_information{tai = TAI}, _AAAopts, _, Session)
   when is_binary(TAI) ->
     Value = <<128, TAI/binary>>,
     Session#{'TAI' => TAI, '3GPP-User-Location-Info' => Value};
-copy_to_session(_, #v2_user_location_information{rai = RAI}, _AAAopts, Session)
+copy_to_session(_, #v2_user_location_information{rai = RAI}, _AAAopts, _, Session)
   when is_binary(RAI) ->
     Value = <<2, RAI/binary>>,
     Session#{'RAI' => RAI, '3GPP-User-Location-Info' => Value};
-copy_to_session(_, #v2_user_location_information{sai = SAI}, _AAAopts, Session0)
+copy_to_session(_, #v2_user_location_information{sai = SAI}, _AAAopts, _, Session0)
   when is_binary(SAI) ->
     Session = maps:without(['CGI'], Session0#{'SAI' => SAI}),
     Value = <<1, SAI/binary>>,
     Session#{'3GPP-User-Location-Info' => Value};
-copy_to_session(_, #v2_user_location_information{cgi = CGI}, _AAAopts, Session0)
+copy_to_session(_, #v2_user_location_information{cgi = CGI}, _AAAopts, _, Session0)
   when is_binary(CGI) ->
     Session = maps:without(['SAI'], Session0#{'CGI' => CGI}),
     Value = <<0, CGI/binary>>,
     Session#{'3GPP-User-Location-Info' => Value};
 
-copy_to_session(_, #v2_ue_time_zone{timezone = TZ, dst = DST}, _AAAopts, Session) ->
+copy_to_session(_, #v2_ue_time_zone{timezone = TZ, dst = DST}, _AAAopts, _, Session) ->
     Session#{'3GPP-MS-TimeZone' => {TZ, DST}};
-copy_to_session(_, _, _AAAopts, Session) ->
+copy_to_session(_, _, _AAAopts, _, Session) ->
     Session.
 
 copy_qos_to_session(#{?'Bearer Contexts to be created' :=
@@ -1032,29 +1024,21 @@ copy_qos_to_session(#{?'Bearer Contexts to be created' :=
 copy_qos_to_session(_, Session) ->
     Session.
 
-init_session_from_gtp_req(IEs, AAAopts, Session0) ->
+init_session_from_gtp_req(IEs, AAAopts, Context, Session0) ->
     Session = copy_qos_to_session(IEs, Session0),
-    maps:fold(copy_to_session(_, _, AAAopts, _), Session, IEs).
+    maps:fold(copy_to_session(_, _, AAAopts, Context, _), Session, IEs).
 
 update_session_from_gtp_req(IEs, Session, Context) ->
     OldSOpts = ergw_aaa_session:get(Session),
     NewSOpts0 = copy_qos_to_session(IEs, OldSOpts),
     NewSOpts =
-	maps:fold(copy_to_session(_, _, undefined, _), NewSOpts0, IEs),
+	maps:fold(copy_to_session(_, _, undefined, Context, _), NewSOpts0, IEs),
     ergw_aaa_session:set(Session, NewSOpts),
     gtp_context:collect_charging_events(OldSOpts, NewSOpts, Context).
 
-%% use additional information from the Context to prefre V4 or V6....
-choose_context_ip(IP4, _IP6, _Context)
-  when is_binary(IP4) ->
-    IP4;
-choose_context_ip(_IP4, IP6, _Context)
-  when is_binary(IP6) ->
-    IP6.
-
 update_context_cntl_ids(#v2_fully_qualified_tunnel_endpoint_identifier{
 			   key = TEI, ipv4 = IP4, ipv6 = IP6}, Context) ->
-    IP = choose_context_ip(IP4, IP6, Context),
+    IP = ergw_gsn_lib:choose_context_ip(IP4, IP6, Context),
     Context#context{
       remote_control_teid = #fq_teid{ip = ergw_inet:bin2ip(IP), teid = TEI}
      };
@@ -1063,7 +1047,7 @@ update_context_cntl_ids(_ , Context) ->
 
 update_context_data_ids(#v2_fully_qualified_tunnel_endpoint_identifier{
 			   key = TEI, ipv4 = IP4, ipv6 = IP6}, Context) ->
-    IP = choose_context_ip(IP4, IP6, Context),
+    IP = ergw_gsn_lib:choose_context_ip(IP4, IP6, Context),
     Context#context{
       remote_data_teid = #fq_teid{ip = ergw_inet:bin2ip(IP), teid = TEI}
      };

@@ -569,9 +569,11 @@ set_fq_teid(Id, Field, Context, Value) ->
     setelement(Field, Context, set_fq_teid(Id, element(Field, Context), Value)).
 
 get_context_from_req(_, #gsn_address{instance = 0, address = CntlIP}, Context) ->
-    set_fq_teid(ip, #context.remote_control_teid, Context, CntlIP);
+    IP = ergw_gsn_lib:choose_context_ip(CntlIP, CntlIP, Context),
+    set_fq_teid(ip, #context.remote_control_teid, Context, IP);
 get_context_from_req(_, #gsn_address{instance = 1, address = DataIP}, Context) ->
-    set_fq_teid(ip, #context.remote_data_teid, Context, DataIP);
+    IP = ergw_gsn_lib:choose_context_ip(DataIP, DataIP, Context),
+    set_fq_teid(ip, #context.remote_data_teid, Context, IP);
 get_context_from_req(_, #tunnel_endpoint_identifier_data_i{instance = 0, tei = DataTEI}, Context) ->
     set_fq_teid(teid, #context.remote_data_teid, Context, DataTEI);
 get_context_from_req(_, #tunnel_endpoint_identifier_control_plane{instance = 0, tei = CntlTEI}, Context) ->
