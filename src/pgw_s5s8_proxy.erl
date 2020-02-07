@@ -288,7 +288,7 @@ handle_request(ReqKey,
     gtp_context:remote_context_register_new(Context2),
 
     SessionOpts0 = pgw_s5s8:init_session(IEs, Context2, AAAopts),
-    SessionOpts = pgw_s5s8:init_session_from_gtp_req(IEs, AAAopts, SessionOpts0),
+    SessionOpts = pgw_s5s8:init_session_from_gtp_req(IEs, AAAopts, Context2, SessionOpts0),
 
     ProxyInfo = handle_proxy_info(Request, SessionOpts, Context2, Data),
 
