@@ -285,6 +285,13 @@ handle_sx_report(#pfcp{type = session_report_request,
     close_pdp_context(normal, Data),
     {shutdown, Data};
 
+%% User Plane Inactivity Timer expired
+handle_sx_report(#pfcp{type = session_report_request,
+		       ie = #{report_type := #report_type{upir = 1}}},
+		 _State, Data) ->
+    close_pdp_context(normal, Data),
+    {shutdown, Data};
+
 handle_sx_report(#pfcp{type = session_report_request,
 		       ie = #{report_type := #report_type{usar = 1},
 			      usage_report_srr := UsageReport}},
@@ -346,13 +353,13 @@ handle_request(ReqKey,
     {ok, ActiveSessionOpts0, AuthSEvs} =
 	authenticate(ContextUP, Session, SessionOpts, Request),
 
-    {PendingPCtx, NodeCaps, APNOpts, ContextVRF} =
+    {PendingPCtx1, NodeCaps, APNOpts, ContextVRF} =
 	ergw_gsn_lib:reselect_upf(Candidates, ActiveSessionOpts0, ContextUP, UPinfo0),
 
     {Result, ActiveSessionOpts1, ContextPending1} =
 	allocate_ips(APNOpts, ActiveSessionOpts0, EUA, DAF, ContextVRF),
-    {ContextPending, ActiveSessionOpts} =
-	add_apn_timeout(APNOpts, ActiveSessionOpts1, ContextPending1),
+    {ContextPending, ActiveSessionOpts, PendingPCtx} =
+	add_apn_timeout(APNOpts, ActiveSessionOpts1, ContextPending1, PendingPCtx1),
     ergw_aaa_session:set(Session, ActiveSessionOpts),
 
     Now = erlang:monotonic_time(),
@@ -675,12 +682,19 @@ apply_context_change(NewContext0, OldContext, URRActions,
     defer_usage_report(URRActions, UsageReport),
     Data#{context => NewContext, pfcp => PCtx}.
 
+map_to_up_inactivity_timer(SessionTimeout) when is_integer(SessionTimeout) ->
+    SessionTimeout div 1000; % UP timer measured in seconds
+map_to_up_inactivity_timer(_SessionTimeout) -> % CP Idle-Timeout infinty = 0 on UP
+    0. % Zero means no UP inactivity timer is activated
+
 %% 'Idle-Timeout' received from ergw_aaa Session takes precedence over configured one
-add_apn_timeout(Opts, Session, Context) ->
+add_apn_timeout(Opts, Session, Context, PCtx) ->
     SessionWithTimeout = maps:merge(maps:with(['Idle-Timeout'],Opts), Session),
     Timeout = maps:get('Idle-Timeout', SessionWithTimeout),
     ContextWithTimeout = Context#context{'Idle-Timeout' = Timeout},
-    {ContextWithTimeout, SessionWithTimeout}.
+    PCtxTimeout = map_to_up_inactivity_timer(Timeout),
+    PctxWithTimeout = PCtx#pfcp_ctx{up_inactivity_timer = PCtxTimeout},
+    {ContextWithTimeout, SessionWithTimeout, PctxWithTimeout}.
 
 map_attr('APN', #{?'Access Point Name' := #access_point_name{apn = APN}}) ->
     unicode:characters_to_binary(lists:join($., APN));

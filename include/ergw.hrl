@@ -63,7 +63,9 @@
 	  urr_by_grp = #{}	:: map(),
 	  sx_rules = #{}	:: map(),
 	  timers = #{}		:: map(),
-	  timer_by_tref = #{}	:: map()
+	  timer_by_tref = #{}	:: map(),
+
+	  up_inactivity_timer = 0   :: non_neg_integer()
 	 }).
 
 -record(pcc_ctx, {

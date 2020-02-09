@@ -135,7 +135,8 @@ session_establishment_request(PCC, PCtx0, Ctx) ->
     ?LOG(info, "SxErrors: ~p~n", [SxErrors]),
     ?LOG(info, "CtxPending: ~p~n", [Ctx]),
 
-    IEs = update_m_rec(ergw_pfcp:f_seid(PCtx, CntlNode), SxRules),
+    IEs1 = update_m_rec(ergw_pfcp:f_seid(PCtx, CntlNode), SxRules),
+    IEs = update_m_rec(ergw_pfcp:up_inactivity_timer(PCtx), IEs1),
     ?LOG(info, "IEs: ~p~n", [IEs]),
 
     Req = #pfcp{version = v1, type = session_establishment_request, ie = IEs},
