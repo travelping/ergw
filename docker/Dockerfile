@@ -33,7 +33,7 @@ FROM alpine:3.10
 WORKDIR /
 RUN     apk update && \
 		apk --no-cache upgrade && \
-		apk --no-cache add zlib ncurses-libs libcrypto1.1 lksctp-tools
+		apk --no-cache add zlib ncurses-libs libcrypto1.1 lksctp-tools tini
 COPY    docker/docker-entrypoint.sh /
 COPY    config/ergw-c-node.config /etc/ergw-c-node/
 
@@ -42,5 +42,5 @@ RUN     mkdir -p /var/lib/ergw/ && \
 
 COPY    --from=build-env /build/_build/prod/rel/ /opt/
 
-ENTRYPOINT ["/docker-entrypoint.sh"]
+ENTRYPOINT ["tini", "--", "/docker-entrypoint.sh"]
 CMD     ["/opt/ergw-c-node/bin/ergw-c-node", "foreground"]
