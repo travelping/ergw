@@ -1370,15 +1370,19 @@ simple_ofcs(Config) ->
 	lists:filter(
 	  fun({_, {ergw_aaa_session, invoke, [_, _, {rf, _}, _]}, _}) ->
 		  true;
+	     ({_, {ergw_aaa_session, invoke, [_, _, stop, _]}, _}) ->
+		  true;
 	     (_) ->
 		  false
 	  end, H),
-    ?match(X when X == 3, length(SInv)),
+    ?match(X when X == 4, length(SInv)),
 
-    [Start, SInterim, Stop] =
+    [Start, SInterim, AcctStop, Stop] =
 	lists:map(fun({_, {_, _, [_, SOpts, _, _]}, _}) -> SOpts end, SInv),
 
     ?equal(false, maps:is_key('service_data', Start)),
+    ?equal(false, maps:is_key('service_data', AcctStop)),
+    ?equal(true, maps:is_key('service_data', Stop)),
 
     ?match_map(
        #{service_data =>
@@ -1463,10 +1467,12 @@ simple_ocs(Config) ->
 	lists:filter(
 	  fun({_, {ergw_aaa_session, invoke, [_, _, {gy,_}, _]}, _}) ->
 		  true;
+	     ({_, {ergw_aaa_session, invoke, [_, _, stop, _]}, _}) ->
+		  true;
 	     (_) ->
 		  false
 	  end, H),
-    ?match(X when X == 3, length(CCR)),
+    ?match(X when X == 4, length(CCR)),
 
     {_, {_, _, [_, _, {gy,'CCR-Initial'}, _]},
      {ok, Session, _Events}} = hd(CCR),
@@ -1540,8 +1546,11 @@ simple_ocs(Config) ->
 	 },
     ?match_map(Expected, Session),
 
-    [Start, SInterim, Stop] =
+    [Start, SInterim, AcctStop, Stop] =
 	lists:map(fun({_, {_, _, [_, SOpts, _, _]}, _}) -> SOpts end, CCR),
+
+    ?equal(false, maps:is_key('credits', AcctStop)),
+    ?equal(false, maps:is_key('used_credits', AcctStop)),
 
     ?match_map(
        #{credits => #{3000 => empty}}, Start),

@@ -209,11 +209,11 @@ handle_event(info, #aaa_request{procedure = {gx, 'RAR'},
     {Online, Offline, Monitor} =
 	ergw_gsn_lib:usage_report_to_charging_events(UsageReport, ChargeEv, PCtx1),
 
+    ergw_gsn_lib:process_accounting_monitor_events(ChargeEv, Monitor, Now, Session),
     GyReqServices = ergw_gsn_lib:gy_credit_request(Online, PCC0, PCC2),
     {ok, _, GyEvs} =
 	ergw_gsn_lib:process_online_charging_events(ChargeEv, GyReqServices, Session, ReqOps),
     ergw_gsn_lib:process_offline_charging_events(ChargeEv, Offline, Now, Session),
-    ergw_gsn_lib:process_accounting_monitor_events(ChargeEv, Monitor, Now, Session),
 
 %%% step 5:
     {PCC4, PCCErrors4} = ergw_gsn_lib:gy_events_to_pcc_ctx(Now, GyEvs, PCC2),
@@ -297,10 +297,10 @@ handle_sx_report(#pfcp{type = session_report_request,
     ChargeEv = interim,
     {Online, Offline, Monitor} =
 	ergw_gsn_lib:usage_report_to_charging_events(UsageReport, ChargeEv, PCtx),
+    ergw_gsn_lib:process_accounting_monitor_events(ChargeEv, Monitor, Now, Session),
     GyReqServices = ergw_gsn_lib:gy_credit_request(Online, PCC),
     ergw_gsn_lib:process_online_charging_events(ChargeEv, GyReqServices, Session, ReqOpts),
     ergw_gsn_lib:process_offline_charging_events(ChargeEv, Offline, Now, Session),
-    ergw_gsn_lib:process_accounting_monitor_events(ChargeEv, Monitor, Now, Session),
 
     {ok, Data};
 
@@ -734,10 +734,10 @@ close_pdn_context(Reason, #{context := Context, pfcp := PCtx, 'Session' := Sessi
     ChargeEv = {terminate, TermCause},
     {Online, Offline, Monitor} =
 	ergw_gsn_lib:usage_report_to_charging_events(URRs, ChargeEv, PCtx),
+    ergw_gsn_lib:process_accounting_monitor_events(ChargeEv, Monitor, Now, Session),
     GyReqServices = ergw_gsn_lib:gy_credit_report(Online),
     ergw_gsn_lib:process_online_charging_events(ChargeEv, GyReqServices, Session, ReqOpts),
     ergw_gsn_lib:process_offline_charging_events(ChargeEv, Offline, Now, Session),
-    ergw_gsn_lib:process_accounting_monitor_events(ChargeEv, Monitor, Now, Session),
 
     %% ===========================================================================
     ok.
@@ -759,10 +759,10 @@ triggered_charging_event(ChargeEv, Now, Request,
 	{Online, Offline, Monitor} =
 	    ergw_gsn_lib:usage_report_to_charging_events(UsageReport, ChargeEv, PCtx),
 
+	ergw_gsn_lib:process_accounting_monitor_events(ChargeEv, Monitor, Now, Session),
 	GyReqServices = ergw_gsn_lib:gy_credit_request(Online, PCC),
 	ergw_gsn_lib:process_online_charging_events(ChargeEv, GyReqServices, Session, ReqOpts),
-	ergw_gsn_lib:process_offline_charging_events(ChargeEv, Offline, Now, Session),
-	ergw_gsn_lib:process_accounting_monitor_events(ChargeEv, Monitor, Now, Session)
+	ergw_gsn_lib:process_offline_charging_events(ChargeEv, Offline, Now, Session)
     catch
 	throw:#ctx_err{} = CtxErr ->
 	    ?LOG(error, "Triggered Charging Event failed with ~p", [CtxErr])
