@@ -15,8 +15,8 @@
 	 process_offline_charging_events/4,
 	 process_offline_charging_events/5,
 	 process_accounting_monitor_events/4,
-     pfcp_to_context_event/1,
-     session_timeout_to_pctx/2,
+	 pfcp_to_context_event/1,
+	 session_timeout_to_pctx/2,
 	 pcc_ctx_to_credit_request/1,
 	 modify_sgi_session/5,
 	 delete_sgi_session/3,
@@ -895,11 +895,10 @@ pfcp_to_context_event([{ChargingKey, Ev}|T], M) ->
 pfcp_to_context_event(Evs) ->
     pfcp_to_context_event(Evs, #{}).
 
-session_timeout_to_pctx(#context{'Idle-Timeout' = IdleTimeout}, PCtx) 
-    when is_integer(IdleTimeout) ->
+session_timeout_to_pctx(#context{'Idle-Timeout' = IdleTimeout}, PCtx)
+  when is_integer(IdleTimeout) ->
     PCtxTimeout = IdleTimeout div 1000, %% UP timer is measured in seconds
     PCtx#pfcp_ctx{up_inactivity_timer = PCtxTimeout};
-
 session_timeout_to_pctx(_, PCtx) -> 
     PCtx. %% if 'Idle-Timeout' /= integer, it is not set
 
