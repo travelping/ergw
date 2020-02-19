@@ -1616,7 +1616,10 @@ modify_bearer_request_tei_update() ->
     [{doc, "Check Modify Bearer with TEID update (e.g. SGW change)"}].
 modify_bearer_request_tei_update(Config) ->
     {GtpC1, _, _} = create_session(Config),
-    {GtpC2, _, _} = modify_bearer(tei_update, GtpC1#gtpc{local_ip = {1,1,1,1}}),
+    #gtpc{local_ip = IP} = GtpC1,
+    {GtpC2, _, _} = modify_bearer(tei_update,
+				       GtpC1#gtpc{
+					 local_ip = setelement(1, IP, element(1, IP) + 1)}),
     ct:sleep(1000),
     delete_session(GtpC2),
 

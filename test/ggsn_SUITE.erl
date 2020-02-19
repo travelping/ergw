@@ -1227,7 +1227,10 @@ update_pdp_context_request_tei_update() ->
     [{doc, "Check Update PDP Context with TEID update (e.g. SGSN change)"}].
 update_pdp_context_request_tei_update(Config) ->
     {GtpC1, _, _} = create_pdp_context(Config),
-    {GtpC2, _, _} = update_pdp_context(tei_update, GtpC1#gtpc{local_ip = {1,1,1,1}}),
+    #gtpc{local_ip = IP} = GtpC1,
+    {GtpC2, _, _} = update_pdp_context(tei_update,
+				       GtpC1#gtpc{
+					 local_ip = setelement(1, IP, element(1, IP) + 1)}),
     ?equal([], outstanding_requests()),
     ct:sleep(1000),
     delete_pdp_context(GtpC2),
