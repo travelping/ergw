@@ -6,6 +6,7 @@
 %% API
 -export([start/2, stop/1, restart/1,
 	 send/2, send/3, usage_report/4,
+	 up_inactivity_timer_expiry/2,
 	 reset/1, history/1, history/2,
 	 accounting/2,
 	 enable/1, disable/1]).
@@ -58,6 +59,9 @@ send(Role, SEID, Msg) ->
 
 usage_report(Role, PCtx, MatchSpec, Report) ->
     gen_server:call(server_name(Role), {usage_report, PCtx, MatchSpec, Report}).
+
+up_inactivity_timer_expiry(Role, PCtx) ->
+    gen_server:call(server_name(Role), {up_inactivity_timer_expiry, PCtx}).
 
 reset(Role) ->
     gen_server:call(server_name(Role), reset).
@@ -173,6 +177,16 @@ handle_call({usage_report, #pfcp_ctx{seid = #seid{cp = SEID}, urr_by_id = Rules}
     State = do_send(SEID, SRreq, State0),
     {reply, ok, State};
 
+%% only one mandatory 'Report Type' IE is present in this scenario
+handle_call({up_inactivity_timer_expiry,
+	     #pfcp_ctx{seid = #seid{cp = SEID},
+		       up_inactivity_timer = _UP_Inactivity_Timer} = PCtx},
+	    _From, State0) ->
+    %% Ignore the up inactivity timer, fire an 'upir' session report request
+    IE = [#report_type{upir = 1}],
+    SRreq = #pfcp{version = v1, type = session_report_request, ie = IE},
+    State = do_send(SEID, SRreq, State0),
+    {reply, ok, State};
 
 handle_call(stop, _From, State) ->
     {stop, normal, ok, State}.

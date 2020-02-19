@@ -285,6 +285,13 @@ handle_sx_report(#pfcp{type = session_report_request,
     close_pdp_context(normal, Data),
     {shutdown, Data};
 
+%% User Plane Inactivity Timer expired
+handle_sx_report(#pfcp{type = session_report_request,
+		       ie = #{report_type := #report_type{upir = 1}}},
+		 _State, Data) ->
+    close_pdp_context(normal, Data),
+    {shutdown, Data};
+
 handle_sx_report(#pfcp{type = session_report_request,
 		       ie = #{report_type := #report_type{usar = 1},
 			      usage_report_srr := UsageReport}},
