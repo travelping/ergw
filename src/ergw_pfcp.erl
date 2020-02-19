@@ -17,7 +17,8 @@
 	 outer_header_creation/1,
 	 outer_header_removal/1,
 	 ctx_teid_key/2,
-	 assign_data_teid/3]).
+	 assign_data_teid/3,
+	 up_inactivity_timer/1]).
 -export([init_ctx/1, reset_ctx/1,
 	 get_id/2, get_id/3, update_pfcp_rules/3]).
 -export([get_urr_id/4, get_urr_group/2,
@@ -108,6 +109,12 @@ assign_data_teid(PCtx, {VRFs, _} = _NodeCaps,
     Context#context{
       local_data_endp = #gtp_endp{vrf = Name, ip = ergw_inet:bin2ip(IP), teid = DataTEI}
      }.
+
+up_inactivity_timer(#pfcp_ctx{up_inactivity_timer = Timer})
+  when is_integer(Timer) ->
+    #user_plane_inactivity_timer{timer = Timer};
+up_inactivity_timer(_) ->
+    #user_plane_inactivity_timer{timer = 0}.
 
 %%%===================================================================
 %%% Test Helper

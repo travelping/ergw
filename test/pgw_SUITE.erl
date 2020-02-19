@@ -608,8 +608,9 @@ common() ->
      gx_invalid_charging_rulebase,
      gx_invalid_charging_rule,
      gx_rar_gy_interaction,
-	 tdf_app_id,
-	 gtp_idle_timeout].
+     tdf_app_id,
+     gtp_idle_timeout,
+     up_inactivity_timer].
 
 sx_fail() ->
     [sx_connect_fail].
@@ -3954,6 +3955,46 @@ gtp_idle_timeout(Config) ->
 
     ?equal([], outstanding_requests()),
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+up_inactivity_timer() ->
+    [{doc, "Test expiry of the User Plane Inactivity Timer"}].
+up_inactivity_timer(Config) ->
+    Interim = rand:uniform(1800) + 1800,
+    AAAReply = #{'Acct-Interim-Interval' => Interim},
+
+    ok = meck:expect(
+	   ergw_aaa_session, invoke,
+	   fun (Session, SessionOpts, Procedure = authenticate, Opts) ->
+		   {_, SIn, EvIn} =
+		       meck:passthrough([Session, SessionOpts, Procedure, Opts]),
+		   {SOut, EvOut} =
+		       ergw_aaa_radius:to_session(authenticate, {SIn, EvIn},
+						  AAAReply),
+		   {ok, SOut, EvOut};
+	       (Session, SessionOpts, Procedure, Opts) ->
+		   meck:passthrough([Session, SessionOpts, Procedure, Opts])
+	   end),
+
+    create_session(Config),
+    {_Handler, Server} = gtp_context_reg:lookup({'irx-socket', {imsi, ?'IMSI', 5}}),
+    true = is_pid(Server),
+    {ok, PCtx} = gtp_context:test_cmd(Server, pfcp_ctx),
+    [SER|_] = lists:filter(
+		fun(#pfcp{type = session_establishment_request}) -> true;
+		   (_) ->false
+		end, ergw_test_sx_up:history('pgw-u01')),
+
+    ?match(#user_plane_inactivity_timer{},
+	   maps:get(user_plane_inactivity_timer, SER#pfcp.ie)),
+
+    ergw_test_sx_up:up_inactivity_timer_expiry('pgw-u01', PCtx),
+
+    ?equal([], outstanding_requests()),
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+
     meck_validate(Config),
     ok.
 

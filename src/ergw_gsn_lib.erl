@@ -131,12 +131,14 @@ choose_context_ip(_IP4, _IP6, Context) ->
 session_establishment_request(PCC, PCtx0, Ctx) ->
     {ok, CntlNode, _} = ergw_sx_socket:id(),
 
-    {SxRules, SxErrors, PCtx} = build_sx_rules(PCC, #{}, PCtx0, Ctx),
+    PCtx1 = pctx_update_from_ctx(PCtx0, Ctx),
+    {SxRules, SxErrors, PCtx} = build_sx_rules(PCC, #{}, PCtx1, Ctx),
     ?LOG(info, "SxRules: ~p~n", [SxRules]),
     ?LOG(info, "SxErrors: ~p~n", [SxErrors]),
     ?LOG(info, "CtxPending: ~p~n", [Ctx]),
 
-    IEs = update_m_rec(ergw_pfcp:f_seid(PCtx, CntlNode), SxRules),
+    IEs0 = pfcp_pctx_update(PCtx, PCtx0, SxRules),
+    IEs = update_m_rec(ergw_pfcp:f_seid(PCtx, CntlNode), IEs0),
     ?LOG(info, "IEs: ~p~n", [IEs]),
 
     Req = #pfcp{version = v1, type = session_establishment_request, ie = IEs},
@@ -893,6 +895,21 @@ pfcp_to_context_event([{ChargingKey, Ev}|T], M) ->
 %% pfcp_to_context_event/1
 pfcp_to_context_event(Evs) ->
     pfcp_to_context_event(Evs, #{}).
+
+pctx_update_from_ctx(PCtx, #context{'Idle-Timeout' = IdleTimeout})
+  when is_integer(IdleTimeout) ->
+    %% UP timer is measured in seconds
+    PCtx#pfcp_ctx{up_inactivity_timer = IdleTimeout div 1000};
+pctx_update_from_ctx(PCtx, _) ->
+    %% if 'Idle-Timeout' /= integer, it is not set
+    PCtx#pfcp_ctx{up_inactivity_timer = undefined}.
+
+pfcp_pctx_update(#pfcp_ctx{up_inactivity_timer = UPiTnew} = PCtx,
+		 #pfcp_ctx{up_inactivity_timer = UPiTold}, IEs)
+  when UPiTold /= UPiTnew ->
+    update_m_rec(ergw_pfcp:up_inactivity_timer(PCtx), IEs);
+pfcp_pctx_update(_, _, IEs) ->
+    IEs.
 
 handle_validity_time(ChargingKey, #{'Validity-Time' := {abs, AbsTime}}, PCtx, _) ->
     ergw_pfcp:set_timer(AbsTime, {ChargingKey, validity_time}, PCtx);
