@@ -358,8 +358,9 @@ handle_request(ReqKey,
 
     {Result, ActiveSessionOpts1, ContextPending1} =
 	allocate_ips(APNOpts, ActiveSessionOpts0, EUA, DAF, ContextVRF),
-    {ContextPending, ActiveSessionOpts, PendingPCtx} =
-	add_apn_timeout(APNOpts, ActiveSessionOpts1, ContextPending1, PendingPCtx1),
+    {ContextPending, ActiveSessionOpts} =
+    add_apn_timeout(APNOpts, ActiveSessionOpts1, ContextPending1),
+    PendingPCtx = ergw_gsn_lib:session_timeout_to_pctx(ContextPending, PendingPCtx1),
     ergw_aaa_session:set(Session, ActiveSessionOpts),
 
     Now = erlang:monotonic_time(),
@@ -682,20 +683,13 @@ apply_context_change(NewContext0, OldContext, URRActions,
     defer_usage_report(URRActions, UsageReport),
     Data#{context => NewContext, pfcp => PCtx}.
 
-map_to_up_inactivity_timer(SessionTimeout) when is_integer(SessionTimeout) ->
-    SessionTimeout div 1000; % UP timer measured in seconds
-map_to_up_inactivity_timer(_SessionTimeout) -> % CP Idle-Timeout infinty = 0 on UP
-    0. % Zero means no UP inactivity timer is activated
-
 %% 'Idle-Timeout' received from ergw_aaa Session takes precedence over configured one
-add_apn_timeout(Opts, Session, Context, PCtx) ->
+add_apn_timeout(Opts, Session, Context) ->
     SessionWithTimeout = maps:merge(maps:with(['Idle-Timeout'],Opts), Session),
     Timeout = maps:get('Idle-Timeout', SessionWithTimeout),
     ContextWithTimeout = Context#context{'Idle-Timeout' = Timeout},
-    PCtxTimeout = map_to_up_inactivity_timer(Timeout),
-    PctxWithTimeout = PCtx#pfcp_ctx{up_inactivity_timer = PCtxTimeout},
-    {ContextWithTimeout, SessionWithTimeout, PctxWithTimeout}.
-
+    {ContextWithTimeout, SessionWithTimeout}.
+ 
 map_attr('APN', #{?'Access Point Name' := #access_point_name{apn = APN}}) ->
     unicode:characters_to_binary(lists:join($., APN));
 map_attr('IMSI', #{?'IMSI' := #international_mobile_subscriber_identity{imsi = IMSI}}) ->
