@@ -24,6 +24,10 @@
 -define(TIMEOUT, 2000).
 -define(HUT, pgw_s5s8).				%% Handler Under Test
 
+-define(SECONDS_PER_DAY, 86400).
+-define(DAYS_FROM_0_TO_1970, 719528).
+-define(SECONDS_FROM_0_TO_1970, (?DAYS_FROM_0_TO_1970*?SECONDS_PER_DAY)).
+
 %%%===================================================================
 %%% Config
 %%%===================================================================
@@ -2658,10 +2662,16 @@ simple_ofcs(Config) ->
 	       }
 	 }, URR),
 
+    StartTS = calendar:datetime_to_gregorian_seconds({{2020,2,20},{13,24,00}})
+	- ?SECONDS_FROM_0_TO_1970,
     MatchSpec = ets:fun2ms(fun({Id, {'offline', _}}) -> Id end),
     Report =
 	[#usage_report_trigger{perio = 1},
 	 #volume_measurement{total = 5, uplink = 2, downlink = 3},
+	 #time_of_first_packet{time = ergw_sx_node:seconds_to_sntp_time(StartTS + 24)},
+	 #time_of_last_packet{time = ergw_sx_node:seconds_to_sntp_time(StartTS + 180)},
+	 #start_time{time = ergw_sx_node:seconds_to_sntp_time(StartTS)},
+	 #end_time{time = ergw_sx_node:seconds_to_sntp_time(StartTS + 600)},
 	 #tp_packet_measurement{total = 12, uplink = 5, downlink = 7}],
     ergw_test_sx_up:usage_report('pgw-u01', PCtx, MatchSpec, Report),
 
@@ -2692,7 +2702,10 @@ simple_ofcs(Config) ->
        #{service_data =>
 	     [#{'Accounting-Input-Octets' => ['_'],
 		'Accounting-Output-Octets' => ['_'],
-		'Change-Condition' => [4]
+		'Change-Condition' => [4],
+		'Change-Time'      => [{{2020,2,20},{13,34,00}}],  %% StartTS + 600s
+		'Time-First-Usage' => [{{2020,2,20},{13,24,24}}],  %% StartTS +  24s
+		'Time-Last-Usage'  => [{{2020,2,20},{13,27,00}}]   %% StartTS + 180s
 	       }]}, SInterim),
 
     ?match_map(
@@ -3093,6 +3106,8 @@ tariff_time_change(Config) ->
 			    #usage_information{bef = 1},
 			    #start_time{time = 3775809600},
 			    #end_time{time = 3775810200},
+			    #time_of_first_packet{time = 3775809600 + 30},
+			    #time_of_last_packet{time = 3775810200 - 30},
 			    #duration_measurement{duration = 600},
 			    #volume_measurement{total = 5, uplink = 2, downlink = 3},
 			    #tp_packet_measurement{total = 12, uplink = 5, downlink = 7}]},
@@ -3104,6 +3119,8 @@ tariff_time_change(Config) ->
 			    #usage_information{aft = 1},
 			    #start_time{time = 3775810200},
 			    #end_time{time = 3775810800},
+			    #time_of_first_packet{time = 3775810200 + 30},
+			    #time_of_last_packet{time = 3775810800 - 30},
 			    #duration_measurement{duration = 600},
 			    #volume_measurement{total = 20, uplink = 9, downlink = 11},
 			    #tp_packet_measurement{total = 28, uplink = 13, downlink = 15}]},
@@ -3117,6 +3134,8 @@ tariff_time_change(Config) ->
 			    #usage_information{bef = 1},
 			    #start_time{time = 3775809600},
 			    #end_time{time = 3775810200},
+			    #time_of_first_packet{time = 3775809600 + 30},
+			    #time_of_last_packet{time = 3775810200 - 30},
 			    #duration_measurement{duration = 600},
 			    #volume_measurement{total = 5, uplink = 2, downlink = 3},
 			    #tp_packet_measurement{total = 12, uplink = 5, downlink = 7}]},
@@ -3128,6 +3147,8 @@ tariff_time_change(Config) ->
 			    #usage_information{aft = 1},
 			    #start_time{time = 3775810200},
 			    #end_time{time = 3775810800},
+			    #time_of_first_packet{time = 3775810200 + 30},
+			    #time_of_last_packet{time = 3775810800 - 30},
 			    #duration_measurement{duration = 600},
 			    #volume_measurement{total = 20, uplink = 9, downlink = 11},
 			    #tp_packet_measurement{total = 28, uplink = 13, downlink = 15}]},
@@ -3161,8 +3182,8 @@ tariff_time_change(Config) ->
 	 'Accounting-Output-Octets' => [3],
 	 'Change-Condition' => [?'DIAMETER_3GPP_CHARGING-CHANGE-CONDITION_TARIFF_TIME_CHANGE'],
 
-	 'Time-First-Usage' => [{{2019,8,26},{12,0,0}}],
-	 'Time-Last-Usage' => [{{2019,8,26},{12,10,0}}],
+	 'Time-First-Usage' => [{{2019,8,26},{12,0,30}}],
+	 'Time-Last-Usage'  => [{{2019,8,26},{12,9,30}}],
 	 'Time-Usage' => [600]
 	}, SDI1),
     ?match_map(
@@ -3171,8 +3192,8 @@ tariff_time_change(Config) ->
 	 'Accounting-Output-Octets' => [11],
 	 'Change-Condition' => [?'DIAMETER_3GPP_CHARGING-CHANGE-CONDITION_VOLUME_LIMIT'],
 
-	 'Time-First-Usage' => [{{2019,8,26},{12,10,0}}],
-	 'Time-Last-Usage' => [{{2019,8,26},{12,20,0}}],
+	 'Time-First-Usage' => [{{2019,8,26},{12,10,30}}],
+	 'Time-Last-Usage'  => [{{2019,8,26},{12,19,30}}],
 	 'Time-Usage' => [600]
 	}, SDI2),
 
