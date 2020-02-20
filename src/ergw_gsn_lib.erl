@@ -1256,12 +1256,16 @@ cev_to_rf('Charge-Event', {_, 'tai-change'}, SDC) ->
 
 cev_to_rf('Rating-Group' = Key, RatingGroup, SDC) ->
     SDC#{Key => [RatingGroup]};
-cev_to_rf(_, #start_time{time = TS}, SDC) ->
+cev_to_rf(_, #time_of_first_packet{time = TS}, SDC) ->
     SDC#{'Time-First-Usage' =>
 	     [calendar:gregorian_seconds_to_datetime(sntp_time_to_seconds(TS)
 						     + ?SECONDS_FROM_0_TO_1970)]};
-cev_to_rf(_, #end_time{time = TS}, SDC) ->
+cev_to_rf(_, #time_of_last_packet{time = TS}, SDC) ->
     SDC#{'Time-Last-Usage' =>
+	     [calendar:gregorian_seconds_to_datetime(sntp_time_to_seconds(TS)
+						     + ?SECONDS_FROM_0_TO_1970)]};
+cev_to_rf(_, #end_time{time = TS}, SDC) ->
+    SDC#{'Change-Time' =>
 	     [calendar:gregorian_seconds_to_datetime(sntp_time_to_seconds(TS)
 						     + ?SECONDS_FROM_0_TO_1970)]};
 cev_to_rf(usage_report_trigger, #usage_report_trigger{} = Trigger, SDC) ->
