@@ -107,7 +107,7 @@ BUILDING
 
 *The minimum supported Erlang version is 21.3.*
 
-Erlang 22.0.7 is the recommended version.
+Erlang 22.2.7 is the recommended version.
 
 Using rebar:
 
@@ -318,4 +318,4 @@ The configuration is documented in [CONFIG.md](CONFIG.md)
 [travis badge]: https://img.shields.io/travis/com/travelping/ergw/master.svg?style=flat-square
 [coveralls]: https://coveralls.io/github/travelping/ergw
 [coveralls badge]: https://img.shields.io/coveralls/travelping/ergw/master.svg?style=flat-square
-[erlang version badge]: https://img.shields.io/badge/erlang-R21.3%20to%2022.0-blue.svg?style=flat-square
+[erlang version badge]: https://img.shields.io/badge/erlang-R21.3%20to%2022.2-blue.svg?style=flat-square
