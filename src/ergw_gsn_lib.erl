@@ -111,6 +111,9 @@ query_usage_report(ChargingKeys, Ctx, PCtx)
 %%% Helper functions
 %%%===================================================================
 
+get_rating_group(Key, M) when is_map(M) ->
+    hd(maps:get(Key, M, maps:get('Rating-Group', M, [undefined]))).
+
 ctx_update_dp_seid(#{f_seid := #f_seid{seid = DP}},
 		   #pfcp_ctx{seid = SEID} = PCtx) ->
     PCtx#pfcp_ctx{seid = SEID#seid{dp = DP}};
@@ -212,8 +215,8 @@ update_pcc_rules({pcc, remove, Ev}, Filter, _RuleBase, Update)
 update_pcc_rules(_, _, _, Update) ->
     Update.
 
-pcc_rules_to_credits(_K, #{'Rating-Group' := [RatingGroup], 'Online' := [1]},
-			    Granted, Acc) ->
+pcc_rules_to_credits(_K, #{'Online' := [1]} = Definition, Granted, Acc) ->
+    RatingGroup = get_rating_group('Online-Rating-Group', Definition),
     RG = maps:get(RatingGroup, Granted, empty),
     maps:update_with(RatingGroup, fun(V) -> V end, RG, Acc);
 pcc_rules_to_credits(_K, _V, _Granted, Acc) ->
@@ -312,7 +315,7 @@ gy_events_to_pcc_rules(K, V, EvsMap, {Removals, Rules}) ->
     case maps:get('Online', V, [0]) of
 	[0] -> {Removals, Rules#{K => V}};
 	[1] ->
-	    [RatingGroup] = maps:get('Rating-Group', V, [undefined]),
+	    RatingGroup = get_rating_group('Online-Rating-Group', V),
 	    case maps:get(RatingGroup, EvsMap, undefined) of
 		#{'Result-Code' := [2001]} ->
 		    {Removals, Rules#{K => V}};
@@ -342,8 +345,8 @@ gy_events_to_credits(Now, #{'Rating-Group' := [RatingGroup],
 gy_events_to_credits(_, #{'Rating-Group' := [RatingGroup]}, Credits) ->
     maps:remove(RatingGroup, Credits).
 
-credits_to_pcc_rules(K, #{'Rating-Group' := [RatingGroup], 'Online' := [1]} = V,
-			  Pools, {Rules, Removed}) ->
+credits_to_pcc_rules(K, #{'Online' := [1]} = V, Pools, {Rules, Removed}) ->
+    RatingGroup = get_rating_group('Online-Rating-Group', V),
     case is_map_key(RatingGroup, Pools) of
 	true ->
 	    {maps:put(K, V, Rules), Removed};
@@ -478,12 +481,18 @@ build_sx_charging_rule(PCC, PolicyRules, Update) ->
 	      build_sx_online_charging_rule(Name, Definition, PCC, Upd)
       end, Update, PolicyRules).
 
-build_sx_offline_charging_rule(_Name,
-			       #{'Rating-Group' := [RatingGroup],
-				 'Offline' := [1]} = Definition,
+build_sx_offline_charging_rule(Name,
+			       #{'Offline' := [1]} = Definition,
 			       #pcc_ctx{monitors = Monitors,
 					offline_charging_profile = OCPcfg},
 			       #sx_upd{pctx = PCtx0} = Update) ->
+    RatingGroup =
+	case get_rating_group('Offline-Rating-Group', Definition) of
+	    RG when is_integer(RG) -> RG;
+	    _ ->
+		%% Offline without Rating-Group ???
+		sx_rule_error({system_error, Name}, Update)
+	end,
     ChargingKey = {offline, RatingGroup},
     MM = case maps:get('Metering-Method', Definition,
 		       [?'DIAMETER_3GPP_CHARGING_METERING-METHOD_DURATION_VOLUME']) of
@@ -518,15 +527,18 @@ build_sx_offline_charging_rule(_Name,
       pctx = ergw_pfcp:pfcp_rules_add(
 	       [{urr, ChargingKey, URR}], PCtx)};
 
-build_sx_offline_charging_rule(Name, #{'Offline' := [1]}, _PCC, Update) ->
-    %% Offline without Rating-Group ???
-    sx_rule_error({system_error, Name}, Update);
 build_sx_offline_charging_rule(_Name, _Definition, _PCC, Update) ->
     Update.
 
-build_sx_online_charging_rule(_Name,
-			       #{'Rating-Group' := [RatingGroup], 'Online' := [1]},
+build_sx_online_charging_rule(Name, #{'Online' := [1]} = Definition,
 			      _PCC, #sx_upd{pctx = PCtx} = Update) ->
+    RatingGroup =
+	case get_rating_group('Online-Rating-Group', Definition) of
+	    RG when is_integer(RG) -> RG;
+	    _ ->
+		%% Online without Rating-Group ???
+		sx_rule_error({system_error, Name}, Update)
+	end,
     ChargingKey = {online, RatingGroup},
     Update#sx_upd{
       pctx = ergw_pfcp:pfcp_rules_add(
@@ -564,6 +576,7 @@ build_sx_rule(Name, #{'TDF-Application-Identifier' := [AppId],
 build_sx_rule(Name, _Definition, Update) ->
     sx_rule_error({system_error, Name}, Update).
 
+%% build_sx_rule/5
 build_sx_rule(Name, Definition, DL, UL, Update0) ->
     URRs = get_rule_urrs(Definition, Update0),
     Update = build_sx_rule(downlink, Name, Definition, DL, URRs, Update0),
@@ -628,6 +641,7 @@ build_sx_sgi_fwd_far(FarId, _RedirInfo, Ctx) ->
 	     ergw_pfcp:network_instance(Ctx)]
        }].
 
+%% build_sx_rule/6
 build_sx_rule(Direction = downlink, Name, Definition, FilterInfo, URRs,
 	      #sx_upd{
 		 pctx = PCtx0,
@@ -786,11 +800,18 @@ build_sx_rule(Direction = uplink, Name, Definition, FilterInfo, URRs,
 build_sx_rule(_Direction, Name, _Definition, _FlowInfo, _URRs, Update) ->
     sx_rule_error({system_error, Name}, Update).
 
-get_rule_urrs(#{'Rating-Group' := [RatingGroup]}, #sx_upd{pctx = PCtx}) ->
-    ergw_pfcp:get_urr_group(RatingGroup, PCtx) ++
-	ergw_pfcp:get_urr_group('IP-CAN', PCtx);
-get_rule_urrs(_Definition, _Update) ->
-    [].
+get_rule_urrs(D, #sx_upd{pctx = PCtx}) ->
+    RGs =
+	lists:foldl(
+	  fun({K, RG}, Acc) ->
+		  case maps:get(K, D, undefined) of
+		      [1] -> ergw_pfcp:get_urr_group(get_rating_group(RG, D), PCtx) ++ Acc;
+		      _   -> Acc
+		  end
+	  end, ergw_pfcp:get_urr_group('IP-CAN', PCtx),
+	  [{'Online',  'Online-Rating-Group'},
+	   {'Offline', 'Offline-Rating-Group'}]),
+    lists:usort(RGs).
 
 %% 'Granted-Service-Unit' => [#{'CC-Time' => [14400],'CC-Total-Octets' => [10485760]}],
 %% 'Rating-Group' => [3000],'Result-Code' => ?'DIAMETER_BASE_RESULT-CODE_SUCCESS',
@@ -1475,11 +1496,16 @@ gy_credit_request(Ev, #pcc_ctx{credits = CreditsOld},
 %%
 %% also see RFC 4006, https://tools.ietf.org/html/rfc4006#section-5.1.2
 %%
-pcc_rules_to_credit_request(_K, #{'Rating-Group' := [RatingGroup], 'Online' := [1]}, Acc) ->
-    RG = empty,
-    maps:update_with(RatingGroup, fun(V) -> V end, RG, Acc);
-pcc_rules_to_credit_request(_K, V, Acc) ->
-    ?LOG(warning, "No Rating Group: ~p", [V]),
+pcc_rules_to_credit_request(_K, #{'Online' := [1]} = Definition, Acc) ->
+    case get_rating_group('Online-Rating-Group', Definition) of
+	RatingGroup when is_integer(RatingGroup) ->
+	    RG = empty,
+	    maps:update_with(RatingGroup, fun(V) -> V end, RG, Acc);
+	_ ->
+	    ?LOG(warning, "Online Charging requested, but no Rating Group: ~p", [Definition]),
+	    Acc
+    end;
+pcc_rules_to_credit_request(_K, _V, Acc) ->
     Acc.
 
 %% pcc_ctx_to_credit_request/1

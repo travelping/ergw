@@ -38,7 +38,8 @@
 	  [{logger,
 	    [%% force cth_log to async mode, never block the tests
 	     {handler, cth_log_redirect, cth_log_redirect,
-	      #{config =>
+	      #{level => all,
+		config =>
 		    #{sync_mode_qlen => 10000,
 		      drop_mode_qlen => 10000,
 		      flush_qlen     => 10000}
@@ -251,8 +252,24 @@
 			  'Precedence' => [100],
 			  'Offline'  => [1]
 			 }},
+		       {<<"r-0001-split">>,
+			#{'Online-Rating-Group' => [3000],
+			  'Offline-Rating-Group' => [3001],
+			  'Flow-Information' =>
+			      [#{'Flow-Description' => [<<"permit out ip from any to assigned">>],
+				 'Flow-Direction'   => [1]    %% DownLink
+				},
+			       #{'Flow-Description' => [<<"permit out ip from any to assigned">>],
+				 'Flow-Direction'   => [2]    %% UpLink
+				}],
+			  'Metering-Method'  => [1],
+			  'Precedence' => [100],
+			  'Online'  => [1],
+			  'Offline'  => [1]
+			 }},
 		       {<<"m2m0001">>, [<<"r-0001">>]},
-		       {<<"m2m0002">>, [<<"r-0002">>]}
+		       {<<"m2m0002">>, [<<"r-0002">>]},
+		       {<<"m2m0001-split">>, [<<"r-0001-split">>]}
 		      ]}
 		     ]}
 		  ]},
@@ -290,6 +307,11 @@
 		      #{'Result-Code' => 2001,
 			'Charging-Rule-Install' =>
 			    [#{'Charging-Rule-Base-Name' => [<<"m2m0001">>]}]
+		       },
+		  'Initial-Gx-Split' =>
+		      #{'Result-Code' => 2001,
+			'Charging-Rule-Install' =>
+			    [#{'Charging-Rule-Base-Name' => [<<"m2m0001-split">>]}]
 		       },
 		  'Initial-Gx-Redirect' =>
 		      #{'Result-Code' => 2001,
@@ -599,6 +621,7 @@ common() ->
      simple_ofcs,
      secondary_rat_usage_data_report,
      simple_ocs,
+     split_charging,
      aa_pool_select,
      aa_pool_select_fail,
      tariff_time_change,
@@ -771,6 +794,14 @@ init_per_testcase(TestCase, Config)
     setup_per_testcase(Config),
     set_online_charging(true),
     load_aaa_answer_config([{{gy, 'CCR-Initial'}, 'Initial-OCS'},
+			    {{gy, 'CCR-Update'},  'Update-OCS'}]),
+    Config;
+init_per_testcase(TestCase, Config)
+  when TestCase == split_charging ->
+    setup_per_testcase(Config),
+    set_online_charging(true),
+    load_aaa_answer_config([{{gx, 'CCR-Initial'}, 'Initial-Gx-Split'},
+			    {{gy, 'CCR-Initial'}, 'Initial-OCS'},
 			    {{gy, 'CCR-Update'},  'Update-OCS'}]),
     Config;
 init_per_testcase(TestCase, Config)
@@ -2958,6 +2989,186 @@ simple_ocs(Config) ->
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
 
+    ok.
+
+%%--------------------------------------------------------------------
+split_charging() ->
+    [{doc, "Used different Rating-Groups for Online and Offline charging"}].
+split_charging(Config) ->
+    Interim = rand:uniform(1800) + 1800,
+    AAAReply = #{'Acct-Interim-Interval' => [Interim]},
+
+    ok = meck:expect(ergw_aaa_session, invoke,
+		     fun (Session, SessionOpts, {rf, 'Initial'} = Procedure, Opts) ->
+			     {_, SIn, EvIn} =
+				 meck:passthrough([Session, SessionOpts, Procedure, Opts]),
+			     {SOut, EvOut} =
+				 ergw_aaa_rf:to_session({rf, 'ACA'}, {SIn, EvIn}, AAAReply),
+			     {ok, SOut, EvOut};
+			 (Session, SessionOpts, Procedure, Opts) ->
+			     meck:passthrough([Session, SessionOpts, Procedure, Opts])
+		     end),
+
+    {GtpC, _, _} = create_session(Config),
+
+    {_Handler, Server} = gtp_context_reg:lookup({'irx-socket', {imsi, ?'IMSI', 5}}),
+    true = is_pid(Server),
+    {ok, PCtx} = gtp_context:test_cmd(Server, pfcp_ctx),
+
+    [SER|_] = lists:filter(
+		fun(#pfcp{type = session_establishment_request}) -> true;
+		   (_) ->false
+		end, ergw_test_sx_up:history('pgw-u01')),
+
+    PDRs = lists:filter(
+	     fun(#create_pdr{group = #{urr_id := UIds}}) ->
+		     is_list(UIds) andalso length(UIds) > 1;
+		(_) -> false end,
+	     maps:get(create_pdr, SER#pfcp.ie)),
+    ?equal(2, length(PDRs)),
+
+    URRs = lists:sort(maps:get(create_urr, SER#pfcp.ie)),
+    ?match(
+       [%% offline charging URR
+	#create_urr{
+	   group =
+	       #{urr_id := #urr_id{id = _},
+		 measurement_method :=
+		     #measurement_method{volum = 1},
+		 reporting_triggers := #reporting_triggers{}
+		}
+	  },
+	%% online charging URR
+	#create_urr{
+	   group =
+	       #{urr_id := #urr_id{id = _},
+		 measurement_method :=
+		     #measurement_method{volum = 1, durat = 1},
+		 reporting_triggers :=
+		     #reporting_triggers{
+			time_quota = 1,   time_threshold = 1,
+			volume_quota = 1, volume_threshold = 1},
+		 time_quota :=
+		     #time_quota{quota = 3600},
+		 time_threshold :=
+		     #time_threshold{threshold = 3540},
+		 volume_quota :=
+		     #volume_quota{total = 102400},
+		 volume_threshold :=
+		     #volume_threshold{total = 92160}
+		}
+	  }], URRs),
+
+    StartTS = calendar:datetime_to_gregorian_seconds({{2020,2,20},{13,24,00}})
+	- ?SECONDS_FROM_0_TO_1970,
+
+    OffReport =
+	[#usage_report_trigger{perio = 1},
+	 #volume_measurement{total = 5, uplink = 2, downlink = 3},
+	 #time_of_first_packet{time = ergw_sx_node:seconds_to_sntp_time(StartTS + 24)},
+	 #time_of_last_packet{time = ergw_sx_node:seconds_to_sntp_time(StartTS + 180)},
+	 #start_time{time = ergw_sx_node:seconds_to_sntp_time(StartTS)},
+	 #end_time{time = ergw_sx_node:seconds_to_sntp_time(StartTS + 600)},
+	 #tp_packet_measurement{total = 12, uplink = 5, downlink = 7}],
+
+    OffMatchSpec = ets:fun2ms(fun({Id, {'offline', _}}) -> Id end),
+    ergw_test_sx_up:usage_report('pgw-u01', PCtx, OffMatchSpec, OffReport),
+
+    OnReport =
+	[#usage_report_trigger{volqu = 1},
+	 #volume_measurement{total = 8, uplink = 13, downlink = 21},
+	 #time_of_first_packet{time = ergw_sx_node:seconds_to_sntp_time(StartTS + 24)},
+	 #time_of_last_packet{time = ergw_sx_node:seconds_to_sntp_time(StartTS + 180)},
+	 #start_time{time = ergw_sx_node:seconds_to_sntp_time(StartTS)},
+	 #end_time{time = ergw_sx_node:seconds_to_sntp_time(StartTS + 600)},
+	 #tp_packet_measurement{total = 24, uplink = 55, downlink = 89}],
+
+    OnMatchSpec = ets:fun2ms(fun({Id, {'online', _}}) -> Id end),
+    ergw_test_sx_up:usage_report('pgw-u01', PCtx, OnMatchSpec, OnReport),
+
+    ct:sleep(100),
+    delete_session(GtpC),
+    ct:sleep(10),
+
+    H = meck:history(ergw_aaa_session),
+    SInv =
+	lists:filter(
+	  fun({_, {ergw_aaa_session, invoke, [_, _, {rf, _}, _]}, _}) ->
+		  true;
+	     ({_, {ergw_aaa_session, invoke, [_, _, stop, _]}, _}) ->
+		  true;
+	     (_) ->
+		  false
+	  end, H),
+    ?match(X when X == 4, length(SInv)),
+
+    [Start, SInterim, AcctStop, Stop] =
+	lists:map(fun({_, {_, _, [_, SOpts, _, _]}, _}) -> SOpts end, SInv),
+
+    ?equal(false, maps:is_key('service_data', Start)),
+    ?equal(false, maps:is_key('service_data', AcctStop)),
+    ?equal(true, maps:is_key('service_data', Stop)),
+
+    ?match_map(
+       #{service_data =>
+	     [#{'Rating-Group' => [3001],
+		'Accounting-Input-Octets' => ['_'],
+		'Accounting-Output-Octets' => ['_'],
+		'Change-Condition' => [4],
+		'Change-Time'      => [{{2020,2,20},{13,34,00}}],  %% StartTS + 600s
+		'Time-First-Usage' => [{{2020,2,20},{13,24,24}}],  %% StartTS +  24s
+		'Time-Last-Usage'  => [{{2020,2,20},{13,27,00}}]   %% StartTS + 180s
+	       }]}, SInterim),
+
+    ?match_map(
+       #{service_data =>
+	     [#{'Rating-Group' => [3001],
+		'Accounting-Input-Octets' => ['_'],
+		'Accounting-Output-Octets' => ['_'],
+		'Change-Condition' => [0]}
+	     ]}, Stop),
+
+    CCR =
+	lists:filter(
+	  fun({_, {ergw_aaa_session, invoke, [_, _, {gy,_}, _]}, _}) ->
+		  true;
+	     (_) ->
+		  false
+	  end, H),
+    ?match(X when X == 3, length(CCR)),
+
+    [GyStart, GyInterim, GyStop] =
+	lists:map(fun({_, {_, _, [_, SOpts, _, _]}, _}) -> SOpts end, CCR),
+
+    ?match_map(
+       #{credits => #{3000 => empty}}, GyStart),
+    ?equal(false, maps:is_key('used_credits', GyStart)),
+
+    ?match_map(
+       #{credits => #{3000 => empty},
+	 used_credits =>
+	     [{3000,
+	       #{'CC-Input-Octets'  => ['_'],
+		 'CC-Output-Octets' => ['_'],
+		 'CC-Total-Octets'  => ['_'],
+		 'Reporting-Reason' => [3]}}]
+	}, GyInterim),
+
+    ?match_map(
+       #{'Termination-Cause' => 1,
+	 used_credits =>
+	     [{3000,
+	       #{'CC-Input-Octets'  => ['_'],
+		 'CC-Output-Octets' => ['_'],
+		 'CC-Total-Octets'  => ['_'],
+		 'Reporting-Reason' => [2]}}]
+	}, GyStop),
+    ?equal(false, maps:is_key('credits', GyStop)),
+
+    ?equal([], outstanding_requests()),
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+
+    meck_validate(Config),
     ok.
 
 %%--------------------------------------------------------------------
