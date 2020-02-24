@@ -1,6 +1,20 @@
 erGW - 3GPP GGSN and PDN-GW in Erlang
 =====================================
 
+Version 2.3.0 - 24 Feb 2020
+---------------------------
+
+* RADIUS is fixed and under CI
+* UP Inactviity Timer feature add, use for session idle timeout
+* Support 5G (and WiFi offload) Secondary RAT Usage Data Reporting
+* rework dual address bearer support to actually conform to the specs
+* implemented 5G Nsbf_Management API
+* reselect UPF node based on outcome of authentication
+* added PFCP metrics
+* better support permanent Sx nodes (config change)
+* multi UPF support
+* switch from lager to Erlang logger
+
 Version 2.2.0 - 26 Nov 2019
 ---------------------------
 
