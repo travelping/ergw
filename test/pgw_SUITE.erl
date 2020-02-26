@@ -2678,33 +2678,55 @@ simple_ofcs(Config) ->
 		   (_) ->false
 		end, ergw_test_sx_up:history('pgw-u01')),
 
-    URR = maps:get(create_urr, SER#pfcp.ie),
-    ?match(
+    {[URR], [Linked]} =
+	lists:partition(fun(X) -> not maps:is_key(linked_urr_id, X#create_urr.group) end,
+			maps:get(create_urr, SER#pfcp.ie)),
+    ?match_map(
        %% offline charging URR
-       #create_urr{
-	  group =
-	      #{urr_id := #urr_id{id = _},
-		measurement_method :=
-		    #measurement_method{volum = 1},
-		measurement_period :=
-		    #measurement_period{period = Interim},
-		reporting_triggers :=
-		    #reporting_triggers{periodic_reporting = 1}
-	       }
-	 }, URR),
+       #{urr_id => #urr_id{id = '_'},
+	 measurement_method =>
+	     #measurement_method{volum = 1, durat = 1},
+	 measurement_period =>
+	     #measurement_period{period = Interim},
+	 reporting_triggers =>
+	     #reporting_triggers{periodic_reporting = 1}
+	}, URR#create_urr.group),
+
+    ?match_map(
+       %% offline charging URR
+       #{urr_id => #urr_id{id = '_'},
+	 linked_urr_id => #linked_urr_id{id = '_'},
+	 measurement_method =>
+	     #measurement_method{volum = 1},
+	 reporting_triggers =>
+	     #reporting_triggers{linked_usage_reporting = 1}
+	}, Linked#create_urr.group),
+    ?equal(false, maps:is_key(measurement_period, Linked#create_urr.group)),
 
     StartTS = calendar:datetime_to_gregorian_seconds({{2020,2,20},{13,24,00}})
 	- ?SECONDS_FROM_0_TO_1970,
-    MatchSpec = ets:fun2ms(fun({Id, {'offline', _}}) -> Id end),
+
     Report =
-	[#usage_report_trigger{perio = 1},
+	[
 	 #volume_measurement{total = 5, uplink = 2, downlink = 3},
 	 #time_of_first_packet{time = ergw_sx_node:seconds_to_sntp_time(StartTS + 24)},
 	 #time_of_last_packet{time = ergw_sx_node:seconds_to_sntp_time(StartTS + 180)},
 	 #start_time{time = ergw_sx_node:seconds_to_sntp_time(StartTS)},
 	 #end_time{time = ergw_sx_node:seconds_to_sntp_time(StartTS + 600)},
 	 #tp_packet_measurement{total = 12, uplink = 5, downlink = 7}],
-    ergw_test_sx_up:usage_report('pgw-u01', PCtx, MatchSpec, Report),
+    ReportFun =
+	fun({Id, Type} = K, Reports) ->
+		Trigger =
+		    case Type of
+			{offline, RG} when is_integer(RG) ->
+			    #usage_report_trigger{liusa = 1};
+			{offline, 'IP-CAN'} ->
+			    #usage_report_trigger{perio = 1}
+		    end,
+		[#usage_report_srr{group = [#urr_id{id = Id}, Trigger|Report]}|Reports]
+	end,
+    MatchSpec = ets:fun2ms(fun(Id) -> Id end),
+    ergw_test_sx_up:usage_report('pgw-u01', PCtx, MatchSpec, ReportFun),
 
     ct:sleep(100),
     delete_session(GtpC),
@@ -2729,22 +2751,45 @@ simple_ofcs(Config) ->
     ?equal(false, maps:is_key('service_data', AcctStop)),
     ?equal(true, maps:is_key('service_data', Stop)),
 
-    ?match_map(
-       #{service_data =>
-	     [#{'Accounting-Input-Octets' => ['_'],
-		'Accounting-Output-Octets' => ['_'],
-		'Change-Condition' => [4],
-		'Change-Time'      => [{{2020,2,20},{13,34,00}}],  %% StartTS + 600s
-		'Time-First-Usage' => [{{2020,2,20},{13,24,24}}],  %% StartTS +  24s
-		'Time-Last-Usage'  => [{{2020,2,20},{13,27,00}}]   %% StartTS + 180s
-	       }]}, SInterim),
+    ?equal(false, maps:is_key('traffic_data', Start)),
+    ?equal(false, maps:is_key('traffic_data', AcctStop)),
+    ?equal(true, maps:is_key('traffic_data', Stop)),
 
+    SInterimSD = maps:get(service_data, SInterim),
+    ?match([_], SInterimSD),
     ?match_map(
-       #{service_data =>
-	     [#{'Accounting-Input-Octets' => ['_'],
-		'Accounting-Output-Octets' => ['_'],
-		'Change-Condition' => [0]}
-	     ]}, Stop),
+       #{'Accounting-Input-Octets' => ['_'],
+	 'Accounting-Output-Octets' => ['_'],
+	 'Change-Condition' => [4],
+	 'Change-Time'      => [{{2020,2,20},{13,34,00}}],  %% StartTS + 600s
+	 'Time-First-Usage' => [{{2020,2,20},{13,24,24}}],  %% StartTS +  24s
+	 'Time-Last-Usage'  => [{{2020,2,20},{13,27,00}}]   %% StartTS + 180s
+	}, hd(SInterimSD)),
+    SInterimTD = maps:get(traffic_data, SInterim),
+    ?match([_], SInterimSD),
+    ?match_map(
+       #{'3GPP-Charging-Id' => ['_'],
+	 'Accounting-Input-Octets' => ['_'],
+	 'Accounting-Output-Octets' => ['_'],
+	 'Change-Condition' => [4],
+	 'Change-Time'      => [{{2020,2,20},{13,34,00}}]   %% StartTS + 600s
+	}, hd(SInterimTD)),
+
+    StopSD = maps:get(service_data, Stop),
+    ?match([_], StopSD),
+    ?match_map(
+       #{'Accounting-Input-Octets' => ['_'],
+	 'Accounting-Output-Octets' => ['_'],
+	 'Change-Condition' => [0]
+	}, hd(StopSD)),
+    StopTD = maps:get(traffic_data, Stop),
+    ?match([_], StopTD),
+    ?match_map(
+       #{'3GPP-Charging-Id' => ['_'],
+	 'Accounting-Input-Octets' => ['_'],
+	 'Accounting-Output-Octets' => ['_'],
+	 'Change-Condition' => [0]
+	}, hd(StopTD)),
 
     ?equal([], outstanding_requests()),
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
@@ -2828,37 +2873,33 @@ simple_ocs(Config) ->
 		   (_) ->false
 		end, ergw_test_sx_up:history('pgw-u01')),
 
-    URR = lists:sort(maps:get(create_urr, SER#pfcp.ie)),
-    ?match(
-       [%% offline charging URR
-	#create_urr{
-	   group =
-	       #{urr_id := #urr_id{id = _},
-		 measurement_method :=
-		     #measurement_method{volum = 1},
-		 reporting_triggers := #reporting_triggers{}
-		}
-	  },
-	%% online charging URR
-	#create_urr{
-	   group =
-	       #{urr_id := #urr_id{id = _},
-		 measurement_method :=
-		     #measurement_method{volum = 1, durat = 1},
-		 reporting_triggers :=
-		     #reporting_triggers{
-			time_quota = 1,   time_threshold = 1,
-			volume_quota = 1, volume_threshold = 1},
-		 time_quota :=
-		     #time_quota{quota = 3600},
-		 time_threshold :=
-		     #time_threshold{threshold = 3540},
-		 volume_quota :=
-		     #volume_quota{total = 102400},
-		 volume_threshold :=
-		     #volume_threshold{total = 92160}
-		}
-	  }], URR),
+    [URR1, URR2] = lists:sort(maps:get(create_urr, SER#pfcp.ie)),
+    ?match_map(
+       %% offline charging URR
+       #{urr_id => #urr_id{id = '_'},
+	 measurement_method =>
+	     #measurement_method{volum = 1},
+	 reporting_triggers => #reporting_triggers{}
+	}, URR1#create_urr.group),
+
+    %% online charging URR
+    ?match_map(
+       #{urr_id => #urr_id{id = '_'},
+	 measurement_method =>
+	     #measurement_method{volum = 1, durat = 1},
+	 reporting_triggers =>
+	     #reporting_triggers{
+		time_quota = 1,   time_threshold = 1,
+		volume_quota = 1, volume_threshold = 1},
+	 time_quota =>
+	     #time_quota{quota = 3600},
+	 time_threshold =>
+	     #time_threshold{threshold = 3540},
+	 volume_quota =>
+	     #volume_quota{total = 102400},
+	 volume_threshold =>
+	     #volume_threshold{total = 92160}
+	}, URR2#create_urr.group),
 
     MatchSpec = ets:fun2ms(fun({Id, {'online', _}}) -> Id end),
     Report =
@@ -3027,37 +3068,51 @@ split_charging(Config) ->
 	     maps:get(create_pdr, SER#pfcp.ie)),
     ?equal(2, length(PDRs)),
 
-    URRs = lists:sort(maps:get(create_urr, SER#pfcp.ie)),
-    ?match(
-       [%% offline charging URR
-	#create_urr{
-	   group =
-	       #{urr_id := #urr_id{id = _},
-		 measurement_method :=
-		     #measurement_method{volum = 1},
-		 reporting_triggers := #reporting_triggers{}
-		}
-	  },
-	%% online charging URR
-	#create_urr{
-	   group =
-	       #{urr_id := #urr_id{id = _},
-		 measurement_method :=
-		     #measurement_method{volum = 1, durat = 1},
-		 reporting_triggers :=
-		     #reporting_triggers{
-			time_quota = 1,   time_threshold = 1,
-			volume_quota = 1, volume_threshold = 1},
-		 time_quota :=
-		     #time_quota{quota = 3600},
-		 time_threshold :=
-		     #time_threshold{threshold = 3540},
-		 volume_quota :=
-		     #volume_quota{total = 102400},
-		 volume_threshold :=
-		     #volume_threshold{total = 92160}
-		}
-	  }], URRs),
+    {[URR], Linked} =
+	lists:partition(fun(X) -> not maps:is_key(linked_urr_id, X#create_urr.group) end,
+			maps:get(create_urr, SER#pfcp.ie)),
+    ?match_map(
+       %% offline charging URR for Traffic Volume Container
+       #{urr_id => #urr_id{id = '_'},
+	 measurement_method =>
+	     #measurement_method{volum = 1, durat = 1},
+	 measurement_period =>
+	     #measurement_period{period = Interim},
+	 reporting_triggers =>
+	     #reporting_triggers{periodic_reporting = 1}
+	}, URR#create_urr.group),
+
+    [L1, L2] = lists:sort(Linked),
+    ?match_map(
+       %% offline charging URR for Rating Group
+       #{urr_id => #urr_id{id = '_'},
+	 linked_urr_id => #linked_urr_id{id = '_'},
+	 measurement_method =>
+	     #measurement_method{volum = 1},
+	 reporting_triggers =>
+	     #reporting_triggers{linked_usage_reporting = 1}
+	}, L1#create_urr.group),
+
+    ?match_map(
+       %% online charging URR
+       #{urr_id => #urr_id{id = '_'},
+	 linked_urr_id => #linked_urr_id{id = '_'},
+	 measurement_method =>
+	     #measurement_method{volum = 1, durat = 1},
+	 reporting_triggers =>
+	     #reporting_triggers{
+		linked_usage_reporting = 1,
+		time_quota = 1,   time_threshold = 1,
+		volume_quota = 1, volume_threshold = 1},
+	 time_quota =>
+	     #time_quota{quota = 3600},
+	 time_threshold =>
+	     #time_threshold{threshold = 3540},
+	 volume_quota =>
+	     #volume_quota{total = 102400},
+	 volume_threshold =>
+	     #volume_threshold{total = 92160}
+	}, L2#create_urr.group),
 
     StartTS = calendar:datetime_to_gregorian_seconds({{2020,2,20},{13,24,00}})
 	- ?SECONDS_FROM_0_TO_1970,
@@ -3266,44 +3321,51 @@ tariff_time_change(Config) ->
 		   (_) ->false
 		end, ergw_test_sx_up:history('pgw-u01')),
 
-    URR = lists:sort(maps:get(create_urr, SER#pfcp.ie)),
-    ?match(
-       [%% offline charging URR
-       #create_urr{
-	  group =
-	      #{urr_id := #urr_id{id = _},
-		measurement_method :=
-		    #measurement_method{volum = 1},
-		measurement_period :=
-		    #measurement_period{period = Interim},
-		monitoring_time :=
-		    #monitoring_time{time = _},
-		reporting_triggers :=
-		    #reporting_triggers{periodic_reporting = 1}
-	       }
-	 },
-	%% online charging URR
-	#create_urr{
-	   group =
-	       #{urr_id := #urr_id{id = _},
-		 measurement_method :=
-		     #measurement_method{volum = 1, durat = 1},
-		 monitoring_time :=
-		     #monitoring_time{time = _},
-		 reporting_triggers :=
-		     #reporting_triggers{
-			time_quota = 1,   time_threshold = 1,
-			volume_quota = 1, volume_threshold = 1},
-		 time_quota :=
-		     #time_quota{quota = 3600},
-		 time_threshold :=
-		     #time_threshold{threshold = 3540},
-		 volume_quota :=
-		     #volume_quota{total = 102400},
-		 volume_threshold :=
-		     #volume_threshold{total = 92160}
-		}
-	  }], URR),
+    {[URR], Linked} =
+	lists:partition(fun(X) -> not maps:is_key(linked_urr_id, X#create_urr.group) end,
+			maps:get(create_urr, SER#pfcp.ie)),
+    ?match_map(
+       %% offline charging URR for Traffic Volume Container
+       #{urr_id => #urr_id{id = '_'},
+	 measurement_method =>
+	     #measurement_method{volum = 1, durat = 1},
+	 measurement_period =>
+	     #measurement_period{period = Interim},
+	 reporting_triggers =>
+	     #reporting_triggers{periodic_reporting = 1}
+	}, URR#create_urr.group),
+
+    [L1, L2] = lists:sort(Linked),
+    ?match_map(
+       %% offline charging URR for Rating Group
+       #{urr_id => #urr_id{id = '_'},
+	 linked_urr_id => #linked_urr_id{id = '_'},
+	 measurement_method =>
+	     #measurement_method{volum = 1},
+	 reporting_triggers =>
+	     #reporting_triggers{linked_usage_reporting = 1}
+	}, L1#create_urr.group),
+
+    ?match_map(
+       %% online charging URR
+       #{urr_id => #urr_id{id = '_'},
+	 linked_urr_id => #linked_urr_id{id = '_'},
+	 measurement_method =>
+	     #measurement_method{volum = 1, durat = 1},
+	 reporting_triggers =>
+	     #reporting_triggers{
+		linked_usage_reporting = 1,
+		time_quota = 1,   time_threshold = 1,
+		volume_quota = 1, volume_threshold = 1},
+	 time_quota =>
+	     #time_quota{quota = 3600},
+	 time_threshold =>
+	     #time_threshold{threshold = 3540},
+	 volume_quota =>
+	     #volume_quota{total = 102400},
+	 volume_threshold =>
+	     #volume_threshold{total = 92160}
+	}, L2#create_urr.group),
 
     MatchSpec = ets:fun2ms(fun({Id, {Type, _}})
 				 when Type =:= offline; Type =:= online -> {Type, Id} end),

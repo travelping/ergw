@@ -1733,20 +1733,30 @@ simple_ofcs(Config) ->
 		   (_) ->false
 		end, ergw_test_sx_up:history('pgw-u01')),
 
-    URR = maps:get(create_urr, SER#pfcp.ie),
-    ?match(
+    {[URR], [Linked]} =
+	lists:partition(fun(X) -> not maps:is_key(linked_urr_id, X#create_urr.group) end,
+			maps:get(create_urr, SER#pfcp.ie)),
+    ?match_map(
        %% offline charging URR
-       #create_urr{
-	  group =
-	      #{urr_id := #urr_id{id = _},
-		measurement_method :=
-		    #measurement_method{volum = 1},
-		measurement_period :=
-		    #measurement_period{period = Interim},
-		reporting_triggers :=
-		    #reporting_triggers{periodic_reporting = 1}
-	       }
-	 }, URR),
+       #{urr_id => #urr_id{id = '_'},
+	 measurement_method =>
+	     #measurement_method{volum = 1, durat = 1},
+	 measurement_period =>
+	     #measurement_period{period = Interim},
+	 reporting_triggers =>
+	     #reporting_triggers{periodic_reporting = 1}
+	}, URR#create_urr.group),
+
+    ?match_map(
+       %% offline charging URR
+       #{urr_id => #urr_id{id = '_'},
+	 linked_urr_id => #linked_urr_id{id = '_'},
+	 measurement_method =>
+	     #measurement_method{volum = 1},
+	 reporting_triggers =>
+	     #reporting_triggers{linked_usage_reporting = 1}
+	}, Linked#create_urr.group),
+    ?equal(false, maps:is_key(measurement_period, Linked#create_urr.group)),
 
     MatchSpec = ets:fun2ms(fun({Id, {'offline', _}}) -> Id end),
     Report =
@@ -1813,37 +1823,33 @@ simple_ocs(Config) ->
 		   (_) ->false
 		end, ergw_test_sx_up:history('pgw-u01')),
 
-    URR = lists:sort(maps:get(create_urr, SER#pfcp.ie)),
-    ?match(
-       [%% offline charging URR
-	#create_urr{
-	   group =
-	       #{urr_id := #urr_id{id = _},
-		 measurement_method :=
-		     #measurement_method{volum = 1},
-		 reporting_triggers := #reporting_triggers{}
-		}
-	  },
-	%% online charging URR
-	#create_urr{
-	   group =
-	       #{urr_id := #urr_id{id = _},
-		 measurement_method :=
-		     #measurement_method{volum = 1, durat = 1},
-		 reporting_triggers :=
-		     #reporting_triggers{
-			time_quota = 1,   time_threshold = 1,
-			volume_quota = 1, volume_threshold = 1},
-		 time_quota :=
-		     #time_quota{quota = 3600},
-		 time_threshold :=
-		     #time_threshold{threshold = 3540},
-		 volume_quota :=
-		     #volume_quota{total = 102400},
-		 volume_threshold :=
-		     #volume_threshold{total = 92160}
-		}
-	  }], URR),
+    [URR1, URR2] = lists:sort(maps:get(create_urr, SER#pfcp.ie)),
+    ?match_map(
+       %% offline charging URR
+       #{urr_id => #urr_id{id = '_'},
+	 measurement_method =>
+	     #measurement_method{volum = 1},
+	 reporting_triggers => #reporting_triggers{}
+	}, URR1#create_urr.group),
+
+    %% online charging URR
+    ?match_map(
+       #{urr_id => #urr_id{id = '_'},
+	 measurement_method =>
+	     #measurement_method{volum = 1, durat = 1},
+	 reporting_triggers =>
+	     #reporting_triggers{
+		time_quota = 1,   time_threshold = 1,
+		volume_quota = 1, volume_threshold = 1},
+	 time_quota =>
+	     #time_quota{quota = 3600},
+	 time_threshold =>
+	     #time_threshold{threshold = 3540},
+	 volume_quota =>
+	     #volume_quota{total = 102400},
+	 volume_threshold =>
+	     #volume_threshold{total = 92160}
+	}, URR2#create_urr.group),
 
     MatchSpec = ets:fun2ms(fun({Id, {'online', _}}) -> Id end),
     Report =
