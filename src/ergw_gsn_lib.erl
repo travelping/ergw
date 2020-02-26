@@ -428,7 +428,7 @@ build_sx_rules_3(#pcc_ctx{monitors = Monitors, rules = PolicyRules,
     Update1 = build_sx_ctx_rule(Update0),
     Update2 = maps:fold(fun build_sx_monitor_rule/3, Update1, Monitors),
     Update3 = build_sx_charging_rule(PCC, PolicyRules, Update2),
-    Update4 = maps:fold(fun build_sx_usage_rule/3, Update3, GrantedCredits),
+    Update4 = maps:fold(build_sx_usage_rule(_, _, PCC, _), Update3, GrantedCredits),
     maps:fold(fun build_sx_rule/3, Update4, PolicyRules).
 
 build_sx_ctx_rule(#sx_upd{
@@ -481,10 +481,24 @@ build_sx_charging_rule(PCC, PolicyRules, Update) ->
 	      build_sx_online_charging_rule(Name, Definition, PCC, Upd)
       end, Update, PolicyRules).
 
+%% TBD: handle offline charging config, only link URR if trigger closes CDR...
+build_sx_linked_rule(URR, #pcc_ctx{monitors = Monitors}, PCtx) ->
+    build_sx_linked_rule_3(URR, maps:to_list(maps:get('Offline', Monitors, #{})), PCtx).
+
+build_sx_linked_rule_3(URR0, [{_Service, {periodic, _Interim, _Opts}}|_] = M, PCtx0) ->
+    RuleName = {offline, 'IP-CAN'},
+    {LinkedUrrId, PCtx} =
+	ergw_pfcp:get_urr_id(RuleName, ['IP-CAN'], RuleName, PCtx0),
+    URR = maps:update_with(reporting_triggers,
+			   fun(T) -> T#reporting_triggers{linked_usage_reporting = 1} end,
+			   URR0#{linked_urr_id => #linked_urr_id{id = LinkedUrrId}}),
+    {URR, PCtx};
+build_sx_linked_rule_3(URR, _, PCtx) ->
+    {URR, PCtx}.
+
 build_sx_offline_charging_rule(Name,
 			       #{'Offline' := [1]} = Definition,
-			       #pcc_ctx{monitors = Monitors,
-					offline_charging_profile = OCPcfg},
+			       #pcc_ctx{offline_charging_profile = OCPcfg} = PCC,
 			       #sx_upd{pctx = PCtx0} = Update) ->
     RatingGroup =
 	case get_rating_group('Offline-Rating-Group', Definition) of
@@ -504,20 +518,11 @@ build_sx_offline_charging_rule(Name,
 		 #measurement_method{volum = 1, durat = 1}
 	 end,
 
-    {UrrId, PCtx} = ergw_pfcp:get_urr_id(ChargingKey, [RatingGroup], ChargingKey, PCtx0),
+    {UrrId, PCtx1} = ergw_pfcp:get_urr_id(ChargingKey, [RatingGroup], ChargingKey, PCtx0),
     URR0 = #{urr_id => #urr_id{id = UrrId},
 	     measurement_method => MM,
 	     reporting_triggers => #reporting_triggers{}},
-
-    OfflineMonitorInfo = maps:get('Offline', Monitors, #{}),
-    URR1 =
-	case maps:to_list(OfflineMonitorInfo) of
-	    [{_Service, {periodic, Interim, _Opts}}|_] ->
-		URR0#{reporting_triggers => #reporting_triggers{periodic_reporting = 1},
-		      measurement_period => #measurement_period{period = Interim}};
-	    _ ->
-		URR0
-	end,
+    {URR1, PCtx} = build_sx_linked_rule(URR0, PCC, PCtx1),
 
     OCP = maps:get('Default', OCPcfg, #{}),
     URR = apply_charging_profile(URR1, OCP),
@@ -833,36 +838,36 @@ sntp_time_to_seconds(SNTP) ->
 	    SNTP + 2085978496
     end.
 
-%% build_sx_usage_rule/4
-build_sx_usage_rule(time, #{'CC-Time' := [Time]}, _,
+%% build_sx_usage_rule_4/4
+build_sx_usage_rule_4(time, #{'CC-Time' := [Time]}, _,
 		    #{measurement_method := MM,
 		      reporting_triggers := RT} = URR) ->
     URR#{measurement_method => MM#measurement_method{durat = 1},
 	 reporting_triggers => RT#reporting_triggers{time_quota = 1},
 	 time_quota => #time_quota{quota = Time}};
 
-build_sx_usage_rule(time_quota_threshold,
+build_sx_usage_rule_4(time_quota_threshold,
 		    #{'CC-Time' := [Time]}, #{'Time-Quota-Threshold' := [TimeThreshold]},
 		    #{reporting_triggers := RT} = URR)
   when Time > TimeThreshold ->
     URR#{reporting_triggers => RT#reporting_triggers{time_threshold = 1},
 	 time_threshold => #time_threshold{threshold = Time - TimeThreshold}};
 
-build_sx_usage_rule(total_octets, #{'CC-Total-Octets' := [Volume]}, _,
+build_sx_usage_rule_4(total_octets, #{'CC-Total-Octets' := [Volume]}, _,
 		    #{measurement_method := MM,
 		      reporting_triggers := RT} = URR) ->
     maps:update_with(volume_quota, fun(V) -> V#volume_quota{total = Volume} end,
 		     #volume_quota{total = Volume},
 		     URR#{measurement_method => MM#measurement_method{volum = 1},
 			  reporting_triggers => RT#reporting_triggers{volume_quota = 1}});
-build_sx_usage_rule(input_octets, #{'CC-Input-Octets' := [Volume]}, _,
+build_sx_usage_rule_4(input_octets, #{'CC-Input-Octets' := [Volume]}, _,
 		    #{measurement_method := MM,
 		      reporting_triggers := RT} = URR) ->
     maps:update_with(volume_quota, fun(V) -> V#volume_quota{uplink = Volume} end,
 		     #volume_quota{uplink = Volume},
 		     URR#{measurement_method => MM#measurement_method{volum = 1},
 			  reporting_triggers => RT#reporting_triggers{volume_quota = 1}});
-build_sx_usage_rule(output_octets, #{'CC-Output-Octets' := [Volume]}, _,
+build_sx_usage_rule_4(output_octets, #{'CC-Output-Octets' := [Volume]}, _,
 		    #{measurement_method := MM,
 		      reporting_triggers := RT} = URR) ->
     maps:update_with(volume_quota, fun(V) -> V#volume_quota{downlink = Volume} end,
@@ -870,7 +875,7 @@ build_sx_usage_rule(output_octets, #{'CC-Output-Octets' := [Volume]}, _,
 		     URR#{measurement_method => MM#measurement_method{volum = 1},
 			  reporting_triggers => RT#reporting_triggers{volume_quota = 1}});
 
-build_sx_usage_rule(total_quota_threshold,
+build_sx_usage_rule_4(total_quota_threshold,
 		    #{'CC-Total-Octets' := [Volume]},
 		    #{'Volume-Quota-Threshold' := [Threshold]},
 		    #{reporting_triggers := RT} = URR)
@@ -879,7 +884,7 @@ build_sx_usage_rule(total_quota_threshold,
     maps:update_with(volume_threshold, fun(V) -> V#volume_threshold{total = VolumeThreshold} end,
 		     #volume_threshold{total = VolumeThreshold},
 		     URR#{reporting_triggers => RT#reporting_triggers{volume_threshold = 1}});
-build_sx_usage_rule(input_quota_threshold,
+build_sx_usage_rule_4(input_quota_threshold,
 		    #{'CC-Input-Octets' := [Volume]},
 		    #{'Volume-Quota-Threshold' := [Threshold]},
 		    #{reporting_triggers := RT} = URR)
@@ -888,7 +893,7 @@ build_sx_usage_rule(input_quota_threshold,
     maps:update_with(volume_threshold, fun(V) -> V#volume_threshold{uplink = VolumeThreshold} end,
 		     #volume_threshold{uplink = VolumeThreshold},
 		     URR#{reporting_triggers => RT#reporting_triggers{volume_threshold = 1}});
-build_sx_usage_rule(output_quota_threshold,
+build_sx_usage_rule_4(output_quota_threshold,
 		    #{'CC-Output-Octets' := [Volume]},
 		    #{'Volume-Quota-Threshold' := [Threshold]},
 		    #{reporting_triggers := RT} = URR)
@@ -898,13 +903,13 @@ build_sx_usage_rule(output_quota_threshold,
 		     #volume_threshold{downlink = VolumeThreshold},
 		     URR#{reporting_triggers => RT#reporting_triggers{volume_threshold = 1}});
 
-build_sx_usage_rule(monitoring_time, #{'Tariff-Time-Change' := [TTC]}, _, URR) ->
+build_sx_usage_rule_4(monitoring_time, #{'Tariff-Time-Change' := [TTC]}, _, URR) ->
     Time = seconds_to_sntp_time(
 	     calendar:datetime_to_gregorian_seconds(TTC) - ?SECONDS_FROM_0_TO_1970),   %% 1970
     URR#{monitoring_time => #monitoring_time{time = Time}};
 
-build_sx_usage_rule(Type, _, _, URR) ->
-    ?LOG(warning, "build_sx_usage_rule: not handling ~p", [Type]),
+build_sx_usage_rule_4(Type, _, _, URR) ->
+    ?LOG(warning, "build_sx_usage_rule_4: not handling ~p", [Type]),
     URR.
 
 pfcp_to_context_event([], M) ->
@@ -937,20 +942,21 @@ handle_validity_time(ChargingKey, #{'Validity-Time' := {abs, AbsTime}}, PCtx, _)
 handle_validity_time(_, _, PCtx, _) ->
     PCtx.
 
-%% build_sx_usage_rule/3
+%% build_sx_usage_rule/4
 build_sx_usage_rule(_K, #{'Rating-Group' := [RatingGroup],
 			  'Granted-Service-Unit' := [GSU],
 			  'Update-Time-Stamp' := UpdateTS} = GCU,
-		    #sx_upd{pctx = PCtx0} = Update) ->
+		    PCC, #sx_upd{pctx = PCtx0} = Update) ->
     ChargingKey = {online, RatingGroup},
     {UrrId, PCtx1} = ergw_pfcp:get_urr_id(ChargingKey, [RatingGroup], ChargingKey, PCtx0),
-    PCtx = handle_validity_time(ChargingKey, GCU, PCtx1, Update),
+    PCtx2 = handle_validity_time(ChargingKey, GCU, PCtx1, Update),
 
     URR0 = #{urr_id => #urr_id{id = UrrId},
 	     measurement_method => #measurement_method{},
 	     reporting_triggers => #reporting_triggers{},
 	     'Update-Time-Stamp' => UpdateTS},
-    URR = lists:foldl(build_sx_usage_rule(_, GSU, GCU, _), URR0,
+    {URR1, PCtx} = build_sx_linked_rule(URR0, PCC, PCtx2),
+    URR = lists:foldl(build_sx_usage_rule_4(_, GSU, GCU, _), URR1,
 		      [time, time_quota_threshold,
 		       total_octets, input_octets, output_octets,
 		       total_quota_threshold, input_quota_threshold, output_quota_threshold,
@@ -960,12 +966,13 @@ build_sx_usage_rule(_K, #{'Rating-Group' := [RatingGroup],
     Update#sx_upd{
       pctx = ergw_pfcp:pfcp_rules_add(
 	       [{urr, ChargingKey, URR}], PCtx)};
-build_sx_usage_rule(_, _, Update) ->
+build_sx_usage_rule(_, _, _, Update) ->
     Update.
 
 build_sx_monitor_rule(Level, Monitors, Update) ->
     maps:fold(build_sx_monitor_rule(Level, _, _, _), Update, Monitors).
 
+%% TBD: merging offline rules with identical timeout.... maybe
 build_sx_monitor_rule('IP-CAN', Service, {periodic, Time, _Opts} = _Definition,
 		      #sx_upd{monitors = Monitors0, pctx = PCtx0} = Update) ->
     ?LOG(info, "Sx Monitor Rule: ~p", [_Definition]),
@@ -986,9 +993,27 @@ build_sx_monitor_rule('IP-CAN', Service, {periodic, Time, _Opts} = _Definition,
 	       [{urr, RuleName, URR}], PCtx),
       monitors = Monitors};
 
-build_sx_monitor_rule('Offline', Service, Definition, Update) ->
+build_sx_monitor_rule('Offline', Service, {periodic, Time, _Opts} = Definition,
+		      #sx_upd{monitors = Monitors0, pctx = PCtx0} = Update) ->
     ?LOG(debug, "Sx Offline Monitor URR: ~p:~p", [Service, Definition]),
-    Update;
+
+    RuleName = {offline, 'IP-CAN'},
+    %% TBD: Offline Charging Rules at the IP-CAL level need to be seperated
+    %%      by Charging-Id (maps to ARP/QCI combi)
+    {UrrId, PCtx} = ergw_pfcp:get_urr_id(RuleName, ['IP-CAN'], RuleName, PCtx0),
+
+    URR = [#urr_id{id = UrrId},
+	   #measurement_method{volum = 1, durat = 1},
+	   #reporting_triggers{periodic_reporting = 1},
+	   #measurement_period{period = Time}],
+
+    ?LOG(warning, "URR: ~p", [URR]),
+    Monitors1 = update_m_key('Offline', UrrId, Monitors0),
+    Monitors = Monitors1#{{urr, UrrId}  => Service},
+    Update#sx_upd{
+      pctx = ergw_pfcp:pfcp_rules_add(
+	       [{urr, RuleName, URR}], PCtx),
+      monitors = Monitors};
 
 build_sx_monitor_rule(Level, Service, Definition, Update) ->
     ?LOG(error, "Sx Monitor URR: ~p:~p:~p", [Level, Service, Definition]),
@@ -1179,22 +1204,36 @@ optional_if_unset(K, V, M) ->
 %%   [ Traffic-Steering-Policy-Identifier-DL ]
 %%   [ Traffic-Steering-Policy-Identifier-UL ]
 
-init_sdc_from_session(Now, SessionOpts) ->
+init_cev_from_session(Now, SessionOpts) ->
     Keys = ['Charging-Rule-Base-Name', 'QoS-Information',
 	    '3GPP-User-Location-Info', '3GPP-RAT-Type',
+	    '3GPP-Charging-Id',
 	    '3GPP-SGSN-Address', '3GPP-SGSN-IPv6-Address'],
-    SDC =
+    Init = #{'Change-Time' =>
+		 [calendar:system_time_to_universal_time(Now + erlang:time_offset(), native)]},
+    Container =
 	maps:fold(fun(K, V, M) when K == '3GPP-User-Location-Info';
-				    K == '3GPP-RAT-Type' ->
+				    K == '3GPP-RAT-Type';
+				    K == '3GPP-Charging-Id' ->
 			  M#{K => [ergw_aaa_diameter:'3gpp_from_session'(K, V)]};
 		     (K, V, M) when K == '3GPP-SGSN-Address';
 				    K == '3GPP-SGSN-IPv6-Address' ->
 			  M#{'SGSN-Address' => [V]};
 		     (K, V, M) -> M#{K => [V]}
-		 end,
-		 #{}, maps:with(Keys, SessionOpts)),
-    SDC#{'Change-Time' =>
-	     [calendar:system_time_to_universal_time(Now + erlang:time_offset(), native)]}.
+		  end,
+		  Init, maps:with(Keys, SessionOpts)),
+
+    TDVKeys = ['Charging-Rule-Base-Name', 'QoS-Information',
+	       '3GPP-User-Location-Info', '3GPP-RAT-Type',
+	       '3GPP-Charging-Id'],
+    TDV = maps:with(TDVKeys, Container),
+
+    SDCKeys = ['Charging-Rule-Base-Name', 'QoS-Information',
+	       '3GPP-User-Location-Info', '3GPP-RAT-Type',
+	       '3GPP-SGSN-Address', '3GPP-SGSN-IPv6-Address'],
+    SDC = maps:with(SDCKeys, Container),
+
+    {SDC, TDV}.
 
 cev_to_rf_cc_kv(immer, SDC) ->
     %% Immediate Reporting means something has triggered a Report Request,
@@ -1254,51 +1293,58 @@ cev_to_rf_change_condition([K|Fields], [1|Values], SDC) ->
 cev_to_rf_change_condition([_|Fields], [_|Values], SDC) ->
     cev_to_rf_change_condition(Fields, Values, SDC).
 
-cev_to_rf('Charge-Event', {_, 'qos-change'}, SDC) ->
-    SDC#{'Change-Condition' => ?'DIAMETER_3GPP_CHARGING-CHANGE-CONDITION_QOS_CHANGE'};
-cev_to_rf('Charge-Event', {_, 'sgsn-sgw-change'}, SDC) ->
-    SDC#{'Change-Condition' => ?'DIAMETER_3GPP_CHARGING-CHANGE-CONDITION_SERVING_NODE_CHANGE'};
-cev_to_rf('Charge-Event', {_, 'sgsn-sgw-plmn-id-change'}, SDC) ->
-    SDC#{'Change-Condition' => ?'DIAMETER_3GPP_CHARGING-CHANGE-CONDITION_SERVING_NODE_PLMN_CHANGE'};
-cev_to_rf('Charge-Event', {_, 'user-location-info-change'}, SDC) ->
-    SDC#{'Change-Condition' => ?'DIAMETER_3GPP_CHARGING-CHANGE-CONDITION_USER_LOCATION_CHANGE'};
-cev_to_rf('Charge-Event', {_, 'rat-change'}, SDC) ->
-    SDC#{'Change-Condition' => ?'DIAMETER_3GPP_CHARGING-CHANGE-CONDITION_RAT_CHANGE'};
-cev_to_rf('Charge-Event', {_, 'ms-time-zone-change'}, SDC) ->
-    SDC#{'Change-Condition' => ?'DIAMETER_3GPP_CHARGING-CHANGE-CONDITION_UE_TIMEZONE_CHANGE'};
-cev_to_rf('Charge-Event', {_, 'cgi-sai-change'}, SDC) ->
-    SDC#{'Change-Condition' => ?'DIAMETER_3GPP_CHARGING-CHANGE-CONDITION_CGI_SAI_CHANGE'};
-cev_to_rf('Charge-Event', {_, 'rai-change'}, SDC) ->
-    SDC#{'Change-Condition' => ?'DIAMETER_3GPP_CHARGING-CHANGE-CONDITION_RAI_CHANGE'};
-cev_to_rf('Charge-Event', {_, 'ecgi-change'}, SDC) ->
-    SDC#{'Change-Condition' => ?'DIAMETER_3GPP_CHARGING-CHANGE-CONDITION_ECGI_CHANGE'};
-cev_to_rf('Charge-Event', {_, 'tai-change'}, SDC) ->
-    SDC#{'Change-Condition' => ?'DIAMETER_3GPP_CHARGING-CHANGE-CONDITION_TAI_CHANGE'};
+cev_to_rf('Charge-Event', {_, 'qos-change'}, _, C) ->
+    C#{'Change-Condition' => ?'DIAMETER_3GPP_CHARGING-CHANGE-CONDITION_QOS_CHANGE'};
+cev_to_rf('Charge-Event', {_, 'sgsn-sgw-change'}, _, C) ->
+    C#{'Change-Condition' => ?'DIAMETER_3GPP_CHARGING-CHANGE-CONDITION_SERVING_NODE_CHANGE'};
+cev_to_rf('Charge-Event', {_, 'sgsn-sgw-plmn-id-change'}, _, C) ->
+    C#{'Change-Condition' => ?'DIAMETER_3GPP_CHARGING-CHANGE-CONDITION_SERVING_NODE_PLMN_CHANGE'};
+cev_to_rf('Charge-Event', {_, 'user-location-info-change'}, _, C) ->
+    C#{'Change-Condition' => ?'DIAMETER_3GPP_CHARGING-CHANGE-CONDITION_USER_LOCATION_CHANGE'};
+cev_to_rf('Charge-Event', {_, 'rat-change'}, _, C) ->
+    C#{'Change-Condition' => ?'DIAMETER_3GPP_CHARGING-CHANGE-CONDITION_RAT_CHANGE'};
+cev_to_rf('Charge-Event', {_, 'ms-time-zone-change'}, _, C) ->
+    C#{'Change-Condition' => ?'DIAMETER_3GPP_CHARGING-CHANGE-CONDITION_UE_TIMEZONE_CHANGE'};
+cev_to_rf('Charge-Event', {_, 'cgi-sai-change'}, _, C) ->
+    C#{'Change-Condition' => ?'DIAMETER_3GPP_CHARGING-CHANGE-CONDITION_CGI_SAI_CHANGE'};
+cev_to_rf('Charge-Event', {_, 'rai-change'}, _, C) ->
+    C#{'Change-Condition' => ?'DIAMETER_3GPP_CHARGING-CHANGE-CONDITION_RAI_CHANGE'};
+cev_to_rf('Charge-Event', {_, 'ecgi-change'}, _, C) ->
+    C#{'Change-Condition' => ?'DIAMETER_3GPP_CHARGING-CHANGE-CONDITION_ECGI_CHANGE'};
+cev_to_rf('Charge-Event', {_, 'tai-change'}, _, C) ->
+    C#{'Change-Condition' => ?'DIAMETER_3GPP_CHARGING-CHANGE-CONDITION_TAI_CHANGE'};
 
-cev_to_rf('Rating-Group' = Key, RatingGroup, SDC) ->
-    SDC#{Key => [RatingGroup]};
-cev_to_rf(_, #time_of_first_packet{time = TS}, SDC) ->
-    SDC#{'Time-First-Usage' =>
+cev_to_rf('Rating-Group' = Key, RatingGroup, service_data, C) ->
+    C#{Key => [RatingGroup]};
+cev_to_rf(_, #time_of_first_packet{time = TS}, service_data, C) ->
+    C#{'Time-First-Usage' =>
 	     [calendar:gregorian_seconds_to_datetime(sntp_time_to_seconds(TS)
 						     + ?SECONDS_FROM_0_TO_1970)]};
-cev_to_rf(_, #time_of_last_packet{time = TS}, SDC) ->
-    SDC#{'Time-Last-Usage' =>
+cev_to_rf(_, #time_of_last_packet{time = TS}, service_data, C) ->
+    C#{'Time-Last-Usage' =>
 	     [calendar:gregorian_seconds_to_datetime(sntp_time_to_seconds(TS)
 						     + ?SECONDS_FROM_0_TO_1970)]};
-cev_to_rf(_, #end_time{time = TS}, SDC) ->
-    SDC#{'Change-Time' =>
+cev_to_rf(_, #end_time{time = TS}, _, C) ->
+    C#{'Change-Time' =>
 	     [calendar:gregorian_seconds_to_datetime(sntp_time_to_seconds(TS)
 						     + ?SECONDS_FROM_0_TO_1970)]};
-cev_to_rf(usage_report_trigger, #usage_report_trigger{} = Trigger, SDC) ->
+cev_to_rf(usage_report_trigger, #usage_report_trigger{} = Trigger, _, C) ->
     cev_to_rf_change_condition(record_info(fields, usage_report_trigger),
-			       tl(tuple_to_list(Trigger)), SDC);
-cev_to_rf(_, #volume_measurement{uplink = UL, downlink = DL}, SDC) ->
-    SDC#{'Accounting-Input-Octets'  => opt_int(UL),
+			       tl(tuple_to_list(Trigger)), C);
+cev_to_rf(_, #volume_measurement{uplink = UL, downlink = DL}, _, C) ->
+    C#{'Accounting-Input-Octets'  => opt_int(UL),
 	 'Accounting-Output-Octets' => opt_int(DL)};
-cev_to_rf(_, #duration_measurement{duration = Duration}, SDC) ->
-    SDC#{'Time-Usage' => opt_int(Duration)};
-cev_to_rf(_, _, SDC) ->
-    SDC.
+cev_to_rf(_, #duration_measurement{duration = Duration}, service_data, C) ->
+    C#{'Time-Usage' => opt_int(Duration)};
+cev_to_rf(_K, _V, _, C) ->
+    C.
+
+cev_reason({cdr_closure, time}, C) ->
+    optional_if_unset('Change-Condition', ?'DIAMETER_3GPP_CHARGING-CHANGE-CONDITION_TIME_LIMIT', C);
+cev_reason({terminate, _}, C) ->
+    optional_if_unset('Change-Condition', ?'DIAMETER_3GPP_CHARGING-CHANGE-CONDITION_NORMAL_RELEASE', C);
+cev_reason(_, C) ->
+    C.
 
 secondary_rat_usage_data_report_to_rf(ChargingId,
 				      #v2_secondary_rat_usage_data_report{
@@ -1316,14 +1362,24 @@ secondary_rat_usage_data_report_to_rf(ChargingId,
       'Accounting-Output-Octets' => [DL],
       '3GPP-Charging-Id' => [ChargingId]}.
 
-%% charging_event_to_rf/2
-charging_event_to_rf(#{usage_report_trigger :=
-			   #usage_report_trigger{perio = Periodic}} = URR, SDCInit, Reason0) ->
-    Reason = if Periodic == 1 -> cdr_closure;
-		true          -> Reason0
-	     end,
-    SDC = maps:fold(fun cev_to_rf/3, SDCInit, URR),
-    {SDC, Reason}.
+%% find_offline_charging_reason/2
+update_offline_charging_reason(#{'Rating-Group' := RG,
+				 usage_report_trigger := #usage_report_trigger{perio = 1}}, _)
+  when not is_integer(RG) ->
+    {cdr_closure, time};
+update_offline_charging_reason(_, Reason) ->
+    Reason.
+
+%% charging_event_to_rf/3
+charging_event_to_rf(#{'Rating-Group' := RG} = URR, {Init, _}, Reason, {SDCs, TDVs})
+  when is_integer(RG) ->
+    SDC0 = maps:fold(cev_to_rf(_, _, service_data, _), Init, URR),
+    SDC = cev_reason(Reason, SDC0),
+    {[SDC|SDCs], TDVs};
+charging_event_to_rf(URR, {_, Init}, Reason, {SDCs, TDVs}) ->
+    TDV0 = maps:fold(cev_to_rf(_, _, traffic_data, _), Init, URR),
+    TDV = cev_reason(Reason, TDV0),
+    {SDCs, [TDV|TDVs]}.
 
 fold_usage_report_1(Fun, #usage_report_smr{group = UR}, Acc) ->
     Fun(UR, Acc);
@@ -1352,7 +1408,7 @@ usage_report_to_charging_events({online, RatingGroup}, Report,
 			       'Charge-Event' => ChargeEv} | On]);
 usage_report_to_charging_events({offline, RatingGroup}, Report,
 				ChargeEv, {_, Off, _} = Ev)
-  when is_integer(RatingGroup), is_map(Report) ->
+  when is_map(Report) ->
     setelement(2, Ev, [Report#{'Rating-Group' => RatingGroup,
 			       'Charge-Event' => ChargeEv} | Off]);
 usage_report_to_charging_events({monitor, Level, Service} = _K,
@@ -1398,15 +1454,16 @@ process_offline_charging_events(Reason, Ev, Now, Session)
 
 process_offline_charging_events(Reason0, Ev, Now, SessionOpts, Session)
   when is_list(Ev) ->
-    SDCInit = init_sdc_from_session(Now, SessionOpts),
-    {Update, Reason} = lists:mapfoldl(charging_event_to_rf(_, SDCInit, _), Reason0, Ev),
+    Reason = lists:foldl(fun update_offline_charging_reason/2, Reason0, Ev),
+    Init = init_cev_from_session(Now, SessionOpts),
+    {SDCs, TDVs} = lists:foldl(charging_event_to_rf(_, Init, Reason, _), {[], []}, Ev),
 
     SOpts = #{now => Now, async => true, 'gy_event' => Reason},
-    Request = #{'service_data' => Update},
+    Request = #{'service_data' => SDCs, 'traffic_data' => TDVs},
     case Reason of
 	{terminate, _} ->
 	    ergw_aaa_session:invoke(Session, Request, {rf, 'Terminate'}, SOpts);
-	_ when length(Update) /= 0 ->
+	_ when length(SDCs) /= 0; length(TDVs) /= 0 ->
 	    ergw_aaa_session:invoke(Session, Request, {rf, 'Update'}, SOpts);
 	_ ->
 	    ok
