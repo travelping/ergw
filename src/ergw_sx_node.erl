@@ -653,6 +653,14 @@ put_node_id(R = #pfcp{ie = IEs}, #data{cp = #node{node = Node}}) ->
     NodeId = #node_id{id = string:split(atom_to_binary(Node, utf8), ".", all)},
     R#pfcp{ie = put_ie(NodeId, IEs)}.
 
+put_build_id(R = #pfcp{ie = IEs}) ->
+    {ok, Version} = application:get_key(ergw, vsn),
+    VStr = io_lib:format("erGW ~s on Erlang/OTP ~s [erts ~s]",
+			 [Version, erlang:system_info(otp_release),
+			  erlang:system_info(version)]),
+    Id = #tp_build_identifier{id = iolist_to_binary(VStr)},
+    R#pfcp{ie = put_ie(Id, IEs)}.
+
 put_recovery_time_stamp(R = #pfcp{ie = IEs}) ->
     TS = #recovery_time_stamp{
 	    time = seconds_to_sntp_time(gtp_config:get_start_time())},
@@ -673,11 +681,11 @@ augment_mandatory_ie(R = #pfcp{type = Type}, Data)
        Type == session_set_deletion_response orelse
        Type == session_establishment_request orelse
        Type == session_establishment_response ->
-    put_node_id(R, Data);
+    put_build_id(put_node_id(R, Data));
 augment_mandatory_ie(R = #pfcp{type = Type}, Data)
   when Type == association_setup_request orelse
        Type == association_setup_response ->
-    put_recovery_time_stamp(put_node_id(R, Data));
+    put_recovery_time_stamp(put_build_id(put_node_id(R, Data)));
 augment_mandatory_ie(Request, _Data) ->
     Request.
 
