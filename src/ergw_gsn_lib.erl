@@ -1363,12 +1363,19 @@ secondary_rat_usage_data_report_to_rf(ChargingId,
       '3GPP-Charging-Id' => [ChargingId]}.
 
 %% find_offline_charging_reason/2
-update_offline_charging_reason(#{'Rating-Group' := RG,
-				 usage_report_trigger := #usage_report_trigger{perio = 1}}, _)
+update_offline_charging_event(Ev, ChargeEv) when is_atom(ChargeEv) ->
+    update_offline_charging_event(Ev, {ChargeEv, ChargeEv});
+update_offline_charging_event(_, {terminate, _} = ChargeEv) ->
+    ChargeEv;
+update_offline_charging_event([], ChargeEv) ->
+    ChargeEv;
+update_offline_charging_event([#{'Rating-Group' := RG,
+				 usage_report_trigger :=
+				     #usage_report_trigger{perio = 1}}|T], _)
   when not is_integer(RG) ->
-    {cdr_closure, time};
-update_offline_charging_reason(_, Reason) ->
-    Reason.
+    update_offline_charging_event(T, {cdr_closure, time});
+update_offline_charging_event([_|T], ChargeEv) ->
+    update_offline_charging_event(T, ChargeEv).
 
 %% charging_event_to_rf/3
 charging_event_to_rf(#{'Rating-Group' := RG} = URR, {Init, _}, Reason, {SDCs, TDVs})
@@ -1448,20 +1455,20 @@ process_online_charging_events(Reason, Request, Session, ReqOpts)
     end.
 
 
-process_offline_charging_events(Reason, Ev, Now, Session)
+process_offline_charging_events(ChargeEv, Ev, Now, Session)
   when is_list(Ev) ->
-    process_offline_charging_events(Reason, Ev, Now, ergw_aaa_session:get(Session), Session).
+    process_offline_charging_events(ChargeEv, Ev, Now, ergw_aaa_session:get(Session), Session).
 
-process_offline_charging_events(Reason0, Ev, Now, SessionOpts, Session)
+process_offline_charging_events(ChargeEv0, Ev, Now, SessionOpts, Session)
   when is_list(Ev) ->
-    Reason = lists:foldl(fun update_offline_charging_reason/2, Reason0, Ev),
+    {Reason, _} = ChargeEv = update_offline_charging_event(Ev, ChargeEv0),
     Init = init_cev_from_session(Now, SessionOpts),
-    {SDCs, TDVs} = lists:foldl(charging_event_to_rf(_, Init, Reason, _), {[], []}, Ev),
+    {SDCs, TDVs} = lists:foldl(charging_event_to_rf(_, Init, ChargeEv, _), {[], []}, Ev),
 
     SOpts = #{now => Now, async => true, 'gy_event' => Reason},
     Request = #{'service_data' => SDCs, 'traffic_data' => TDVs},
     case Reason of
-	{terminate, _} ->
+	terminate ->
 	    ergw_aaa_session:invoke(Session, Request, {rf, 'Terminate'}, SOpts);
 	_ when length(SDCs) /= 0; length(TDVs) /= 0 ->
 	    ergw_aaa_session:invoke(Session, Request, {rf, 'Update'}, SOpts);

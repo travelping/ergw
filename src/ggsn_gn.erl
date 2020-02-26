@@ -129,10 +129,10 @@ handle_event(cast, {defered_usage_report, URRActions, UsageReport}, _State,
 	    #{pfcp := PCtx, 'Session' := Session}) ->
     Now = erlang:monotonic_time(),
     case proplists:get_value(offline, URRActions) of
-	{{Reason, _} = ChargeEv, OldS} ->
+	{ChargeEv, OldS} ->
 	    {_Online, Offline, _} =
 		ergw_gsn_lib:usage_report_to_charging_events(UsageReport, ChargeEv, PCtx),
-	    ergw_gsn_lib:process_offline_charging_events(Reason, Offline, Now, OldS, Session);
+	    ergw_gsn_lib:process_offline_charging_events(ChargeEv, Offline, Now, OldS, Session);
 	_ ->
 	    ok
     end,
