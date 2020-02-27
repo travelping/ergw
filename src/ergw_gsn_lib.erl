@@ -955,7 +955,15 @@ build_sx_usage_rule(_K, #{'Rating-Group' := [RatingGroup],
 	     measurement_method => #measurement_method{},
 	     reporting_triggers => #reporting_triggers{},
 	     'Update-Time-Stamp' => UpdateTS},
-    {URR1, PCtx} = build_sx_linked_rule(URR0, PCC, PCtx2),
+    {URR1, PCtx} =
+	case ergw_pfcp:get_urr_ids([{offline, RatingGroup}], PCtx2) of
+	    [undefined] ->
+		%% if this is an online only rule, do nothing
+		{URR0, PCtx2};
+	    [OffId] when is_integer(OffId)->
+		%% if the same rule is use for offline and online reporting add a link
+		build_sx_linked_rule(URR0, PCC, PCtx2)
+	end,
     URR = lists:foldl(build_sx_usage_rule_4(_, GSU, GCU, _), URR1,
 		      [time, time_quota_threshold,
 		       total_octets, input_octets, output_octets,

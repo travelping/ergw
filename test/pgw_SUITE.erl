@@ -263,9 +263,24 @@
 			  'Online'  => [1],
 			  'Offline'  => [1]
 			 }},
+		       {<<"r-0002-split">>,
+			#{'Online-Rating-Group' => [3000],
+			  'Offline-Rating-Group' => [3002],
+			  'Flow-Information' =>
+			      [#{'Flow-Description' => [<<"permit out ip from any to assigned">>],
+				 'Flow-Direction'   => [1]    %% DownLink
+				},
+			       #{'Flow-Description' => [<<"permit out ip from any to assigned">>],
+				 'Flow-Direction'   => [2]    %% UpLink
+				}],
+			  'Metering-Method'  => [1],
+			  'Precedence' => [100],
+			  'Online'  => [1],
+			  'Offline'  => [1]
+			 }},
 		       {<<"m2m0001">>, [<<"r-0001">>]},
 		       {<<"m2m0002">>, [<<"r-0002">>]},
-		       {<<"m2m0001-split">>, [<<"r-0001-split">>]}
+		       {<<"m2m0001-split">>, [<<"r-0001-split">>, <<"r-0002-split">>]}
 		      ]}
 		     ]}
 		  ]},
@@ -3062,11 +3077,15 @@ split_charging(Config) ->
 		     is_list(UIds) andalso length(UIds) > 1;
 		(_) -> false end,
 	     maps:get(create_pdr, SER#pfcp.ie)),
-    ?equal(2, length(PDRs)),
+    ?equal(4, length(PDRs)),
 
-    {[URR], Linked} =
+    {URRs, Linked} =
 	lists:partition(fun(X) -> not maps:is_key(linked_urr_id, X#create_urr.group) end,
 			maps:get(create_urr, SER#pfcp.ie)),
+    ?equal(2, length(URRs)),
+    ?equal(2, length(Linked)),
+
+    [URR1, URR2] = lists:sort(URRs),
     ?match_map(
        %% offline charging URR for Traffic Volume Container
        #{urr_id => #urr_id{id = '_'},
@@ -3076,7 +3095,26 @@ split_charging(Config) ->
 	     #measurement_period{period = Interim},
 	 reporting_triggers =>
 	     #reporting_triggers{periodic_reporting = 1}
-	}, URR#create_urr.group),
+	}, URR1#create_urr.group),
+
+    ?match_map(
+       %% online only charging URR
+       #{urr_id => #urr_id{id = '_'},
+	 measurement_method =>
+	     #measurement_method{volum = 1, durat = 1},
+	 reporting_triggers =>
+	     #reporting_triggers{
+		time_quota = 1,   time_threshold = 1,
+		volume_quota = 1, volume_threshold = 1},
+	 time_quota =>
+	     #time_quota{quota = 3600},
+	 time_threshold =>
+	     #time_threshold{threshold = 3540},
+	 volume_quota =>
+	     #volume_quota{total = 102400},
+	 volume_threshold =>
+	     #volume_threshold{total = 92160}
+	}, URR2#create_urr.group),
 
     [L1, L2] = lists:sort(Linked),
     ?match_map(
@@ -3090,40 +3128,41 @@ split_charging(Config) ->
 	}, L1#create_urr.group),
 
     ?match_map(
-       %% online charging URR
+       %% offline charging URR for Rating Group
        #{urr_id => #urr_id{id = '_'},
 	 linked_urr_id => #linked_urr_id{id = '_'},
 	 measurement_method =>
-	     #measurement_method{volum = 1, durat = 1},
+	     #measurement_method{volum = 1},
 	 reporting_triggers =>
-	     #reporting_triggers{
-		linked_usage_reporting = 1,
-		time_quota = 1,   time_threshold = 1,
-		volume_quota = 1, volume_threshold = 1},
-	 time_quota =>
-	     #time_quota{quota = 3600},
-	 time_threshold =>
-	     #time_threshold{threshold = 3540},
-	 volume_quota =>
-	     #volume_quota{total = 102400},
-	 volume_threshold =>
-	     #volume_threshold{total = 92160}
+	     #reporting_triggers{linked_usage_reporting = 1}
 	}, L2#create_urr.group),
 
     StartTS = calendar:datetime_to_gregorian_seconds({{2020,2,20},{13,24,00}})
 	- ?SECONDS_FROM_0_TO_1970,
 
     OffReport =
-	[#usage_report_trigger{perio = 1},
-	 #volume_measurement{total = 5, uplink = 2, downlink = 3},
+	[#volume_measurement{total = 5, uplink = 2, downlink = 3},
 	 #time_of_first_packet{time = ergw_sx_node:seconds_to_sntp_time(StartTS + 24)},
 	 #time_of_last_packet{time = ergw_sx_node:seconds_to_sntp_time(StartTS + 180)},
 	 #start_time{time = ergw_sx_node:seconds_to_sntp_time(StartTS)},
 	 #end_time{time = ergw_sx_node:seconds_to_sntp_time(StartTS + 600)},
 	 #tp_packet_measurement{total = 12, uplink = 5, downlink = 7}],
 
-    OffMatchSpec = ets:fun2ms(fun({Id, {'offline', _}}) -> Id end),
-    ergw_test_sx_up:usage_report('pgw-u01', PCtx, OffMatchSpec, OffReport),
+    ReportFun =
+	fun({Id, {offline, Type}}, Reports) ->
+		Trigger =
+		    case Type of
+			RG when is_integer(RG) ->
+			    #usage_report_trigger{liusa = 1};
+			'IP-CAN' ->
+			    #usage_report_trigger{perio = 1}
+		    end,
+		[#usage_report_srr{group = [#urr_id{id = Id}, Trigger|OffReport]}|Reports];
+	   (_, Reports) ->
+		Reports
+	end,
+    MatchSpec = ets:fun2ms(fun(Id) -> Id end),
+    ergw_test_sx_up:usage_report('pgw-u01', PCtx, MatchSpec, ReportFun),
 
     OnReport =
 	[#usage_report_trigger{volqu = 1},
@@ -3160,24 +3199,47 @@ split_charging(Config) ->
     ?equal(false, maps:is_key('service_data', AcctStop)),
     ?equal(true, maps:is_key('service_data', Stop)),
 
-    ?match_map(
-       #{service_data =>
-	     [#{'Rating-Group' => [3001],
-		'Accounting-Input-Octets' => ['_'],
-		'Accounting-Output-Octets' => ['_'],
-		'Change-Condition' => [4],
-		'Change-Time'      => [{{2020,2,20},{13,34,00}}],  %% StartTS + 600s
-		'Time-First-Usage' => [{{2020,2,20},{13,24,24}}],  %% StartTS +  24s
-		'Time-Last-Usage'  => [{{2020,2,20},{13,27,00}}]   %% StartTS + 180s
-	       }]}, SInterim),
+    ?equal(false, maps:is_key('traffic_data', Start)),
+    ?equal(false, maps:is_key('traffic_data', AcctStop)),
+    ?equal(true, maps:is_key('traffic_data', Stop)),
 
+    SInterimSD = lists:sort(maps:get(service_data, SInterim)),
+    ?equal(2, length(SInterimSD)),
+    [SiSD1, SiSD2] = SInterimSD,
     ?match_map(
-       #{service_data =>
-	     [#{'Rating-Group' => [3001],
-		'Accounting-Input-Octets' => ['_'],
-		'Accounting-Output-Octets' => ['_'],
-		'Change-Condition' => [0]}
-	     ]}, Stop),
+       #{'Rating-Group' => [3001],
+	 'Accounting-Input-Octets' => ['_'],
+	 'Accounting-Output-Octets' => ['_'],
+	 'Change-Condition' => [4],
+	 'Change-Time'      => [{{2020,2,20},{13,34,00}}],  %% StartTS + 600s
+	 'Time-First-Usage' => [{{2020,2,20},{13,24,24}}],  %% StartTS +  24s
+	 'Time-Last-Usage'  => [{{2020,2,20},{13,27,00}}]   %% StartTS + 180s
+	}, SiSD1),
+    ?match_map(
+       #{'Rating-Group' => [3002],
+	 'Accounting-Input-Octets' => ['_'],
+	 'Accounting-Output-Octets' => ['_'],
+	 'Change-Condition' => [4],
+	 'Change-Time'      => [{{2020,2,20},{13,34,00}}],  %% StartTS + 600s
+	 'Time-First-Usage' => [{{2020,2,20},{13,24,24}}],  %% StartTS +  24s
+	 'Time-Last-Usage'  => [{{2020,2,20},{13,27,00}}]   %% StartTS + 180s
+	}, SiSD2),
+
+    StopSD = lists:sort(maps:get(service_data, Stop)),
+    ?equal(2, length(StopSD)),
+    [SSD1, SSD2] = StopSD,
+    ?match_map(
+       #{'Rating-Group' => [3001],
+	 'Accounting-Input-Octets' => ['_'],
+	 'Accounting-Output-Octets' => ['_'],
+	 'Change-Condition' => [0]
+	}, SSD1),
+    ?match_map(
+       #{'Rating-Group' => [3002],
+	 'Accounting-Input-Octets' => ['_'],
+	 'Accounting-Output-Octets' => ['_'],
+	 'Change-Condition' => [0]
+	}, SSD2),
 
     CCR =
 	lists:filter(
