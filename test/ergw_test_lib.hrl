@@ -35,6 +35,10 @@
 
 -endif.
 
+-define(SECONDS_PER_DAY, 86400).
+-define(DAYS_FROM_0_TO_1970, 719528).
+-define(SECONDS_FROM_0_TO_1970, (?DAYS_FROM_0_TO_1970*?SECONDS_PER_DAY)).
+
 -define(MUST_BE_UPDATED, 'must be updated').
 
 -define(LOCALHOST_IPv4, {127,0,0,1}).
