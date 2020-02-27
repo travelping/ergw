@@ -24,10 +24,6 @@
 -define(TIMEOUT, 2000).
 -define(HUT, pgw_s5s8).				%% Handler Under Test
 
--define(SECONDS_PER_DAY, 86400).
--define(DAYS_FROM_0_TO_1970, 719528).
--define(SECONDS_FROM_0_TO_1970, (?DAYS_FROM_0_TO_1970*?SECONDS_PER_DAY)).
-
 %%%===================================================================
 %%% Config
 %%%===================================================================
@@ -2715,7 +2711,7 @@ simple_ofcs(Config) ->
 	 #end_time{time = ergw_sx_node:seconds_to_sntp_time(StartTS + 600)},
 	 #tp_packet_measurement{total = 12, uplink = 5, downlink = 7}],
     ReportFun =
-	fun({Id, Type} = K, Reports) ->
+	fun({Id, Type}, Reports) ->
 		Trigger =
 		    case Type of
 			{offline, RG} when is_integer(RG) ->

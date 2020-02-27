@@ -1758,12 +1758,30 @@ simple_ofcs(Config) ->
 	}, Linked#create_urr.group),
     ?equal(false, maps:is_key(measurement_period, Linked#create_urr.group)),
 
-    MatchSpec = ets:fun2ms(fun({Id, {'offline', _}}) -> Id end),
+    StartTS = calendar:datetime_to_gregorian_seconds({{2020,2,20},{13,24,00}})
+	- ?SECONDS_FROM_0_TO_1970,
+
     Report =
-	[#usage_report_trigger{perio = 1},
+	[
 	 #volume_measurement{total = 5, uplink = 2, downlink = 3},
+	 #time_of_first_packet{time = ergw_sx_node:seconds_to_sntp_time(StartTS + 24)},
+	 #time_of_last_packet{time = ergw_sx_node:seconds_to_sntp_time(StartTS + 180)},
+	 #start_time{time = ergw_sx_node:seconds_to_sntp_time(StartTS)},
+	 #end_time{time = ergw_sx_node:seconds_to_sntp_time(StartTS + 600)},
 	 #tp_packet_measurement{total = 12, uplink = 5, downlink = 7}],
-    ergw_test_sx_up:usage_report('pgw-u01', PCtx, MatchSpec, Report),
+    ReportFun =
+	fun({Id, Type}, Reports) ->
+		Trigger =
+		    case Type of
+			{offline, RG} when is_integer(RG) ->
+			    #usage_report_trigger{liusa = 1};
+			{offline, 'IP-CAN'} ->
+			    #usage_report_trigger{perio = 1}
+		    end,
+		[#usage_report_srr{group = [#urr_id{id = Id}, Trigger|Report]}|Reports]
+	end,
+    MatchSpec = ets:fun2ms(fun(Id) -> Id end),
+    ergw_test_sx_up:usage_report('pgw-u01', PCtx, MatchSpec, ReportFun),
 
     ct:sleep(100),
     delete_pdp_context(GtpC),
@@ -1787,19 +1805,45 @@ simple_ofcs(Config) ->
     ?equal(false, maps:is_key('service_data', AcctStop)),
     ?equal(true, maps:is_key('service_data', Stop)),
 
-    ?match_map(
-       #{service_data =>
-	     [#{'Accounting-Input-Octets' => ['_'],
-		'Accounting-Output-Octets' => ['_'],
-		'Change-Condition' => [4]
-	       }]}, SInterim),
+    ?equal(false, maps:is_key('traffic_data', Start)),
+    ?equal(false, maps:is_key('traffic_data', AcctStop)),
+    ?equal(true, maps:is_key('traffic_data', Stop)),
 
+    SInterimSD = maps:get(service_data, SInterim),
+    ?match([_], SInterimSD),
     ?match_map(
-       #{service_data =>
-	     [#{'Accounting-Input-Octets' => ['_'],
-		'Accounting-Output-Octets' => ['_'],
-		'Change-Condition' => [0]}
-	     ]}, Stop),
+       #{'Accounting-Input-Octets' => ['_'],
+	 'Accounting-Output-Octets' => ['_'],
+	 'Change-Condition' => [4],
+	 'Change-Time'      => [{{2020,2,20},{13,34,00}}],  %% StartTS + 600s
+	 'Time-First-Usage' => [{{2020,2,20},{13,24,24}}],  %% StartTS +  24s
+	 'Time-Last-Usage'  => [{{2020,2,20},{13,27,00}}]   %% StartTS + 180s
+	}, hd(SInterimSD)),
+    SInterimTD = maps:get(traffic_data, SInterim),
+    ?match([_], SInterimSD),
+    ?match_map(
+       #{'3GPP-Charging-Id' => ['_'],
+	 'Accounting-Input-Octets' => ['_'],
+	 'Accounting-Output-Octets' => ['_'],
+	 'Change-Condition' => [4],
+	 'Change-Time'      => [{{2020,2,20},{13,34,00}}]   %% StartTS + 600s
+	}, hd(SInterimTD)),
+
+    StopSD = maps:get(service_data, Stop),
+    ?match([_], StopSD),
+    ?match_map(
+       #{'Accounting-Input-Octets' => ['_'],
+	 'Accounting-Output-Octets' => ['_'],
+	 'Change-Condition' => [0]
+	}, hd(StopSD)),
+    StopTD = maps:get(traffic_data, Stop),
+    ?match([_], StopTD),
+    ?match_map(
+       #{'3GPP-Charging-Id' => ['_'],
+	 'Accounting-Input-Octets' => ['_'],
+	 'Accounting-Output-Octets' => ['_'],
+	 'Change-Condition' => [0]
+	}, hd(StopTD)),
 
     ?equal([], outstanding_requests()),
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
