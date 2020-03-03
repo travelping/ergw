@@ -86,10 +86,9 @@ init([]) ->
     State = validate_options(application:get_env(?App, proxy_map, #{})),
     {ok, State}.
 
-handle_call({map, #{imsi := IMSI, apn := APN} = PI0},
-	    _From, #{apn := APNMap, imsi := IMSIMap} = State) ->
+handle_call({map, #{imsi := IMSI, apn := APN} = PI0}, _From, State) ->
     PI1 =
-	case IMSIMap of
+	case maps:get(imsi, State, undefined) of
 	    #{IMSI := MappedIMSI} when is_binary(MappedIMSI) ->
 		PI0#{imsi => MappedIMSI};
 	    #{IMSI := {MappedIMSI, MappedMSISDN}} ->
@@ -97,7 +96,7 @@ handle_call({map, #{imsi := IMSI, apn := APN} = PI0},
 	    _ ->
 		PI0
 	end,
-    PI = case ergw_gsn_lib:apn(APN, APNMap) of
+    PI = case ergw_gsn_lib:apn(APN, maps:get(apn, State, undefined)) of
 		 false  -> PI1;
 		 DstAPN -> PI1#{apn => DstAPN}
 	 end,

@@ -519,6 +519,14 @@ init_per_group(single_proxy_interface, Config0) ->
     Config = update_app_config(proplists:get_value(ip_group, Config1),
 			       ?CONFIG_UPDATE_SINGLE_PROXY_SOCKET, Config1),
     lib_init_per_suite(Config);
+init_per_group(no_proxy_map, Config0) ->
+    Cf0 = proplists:get_value(ergw, ?TEST_CONFIG_SINGLE_PROXY_SOCKET),
+    Cf1 = proplists:delete(proxy_map, Cf0),
+    Cf = lists:keystore(ergw, 1, ?TEST_CONFIG_SINGLE_PROXY_SOCKET, {ergw, Cf1}),
+    Config1 = lists:keystore(app_cfg, 1, Config0, {app_cfg, Cf}),
+    Config = update_app_config(proplists:get_value(ip_group, Config1),
+			       ?CONFIG_UPDATE_SINGLE_PROXY_SOCKET, Config1),
+    lib_init_per_suite(Config);
 init_per_group(_Group, Config0) ->
     Config1 = lists:keystore(app_cfg, 1, Config0,
 			    {app_cfg, ?TEST_CONFIG_MULTIPLE_PROXY_SOCKETS}),
@@ -579,11 +587,13 @@ common() ->
 
 common_groups() ->
     [{group, single_proxy_interface},
-     {group, multiple_proxy_interface}].
+     {group, multiple_proxy_interface},
+     {group, no_proxy_map}].
 
 groups() ->
     [{single_proxy_interface, [], common()},
      {multiple_proxy_interface, [], common()},
+     {no_proxy_map, [], [simple_session_no_proxy_map]},
      {ipv4, [], common_groups()},
      {ipv6, [], common_groups()}].
 
@@ -1069,6 +1079,26 @@ simple_session_random_port(Config) ->
     GtpC0 = gtp_context(?MODULE, Config),
 
     {GtpC1, _, _} = create_session(GtpC0),
+    delete_session(GtpC1),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    meck_validate(Config),
+
+    GtpRecMatch = #gtp{type = create_session_request, _ = '_'},
+    P = meck:capture(first, ?HUT, handle_request, ['_', GtpRecMatch, '_', '_', '_'], 2),
+    ?match(#gtp{seq_no = SeqNo} when SeqNo >= 16#80000, P),
+
+    ?equal([], outstanding_requests()),
+    ok.
+
+%%--------------------------------------------------------------------
+simple_session_no_proxy_map() ->
+    [{doc, "Check simple Create Session, Delete Session sequence without proxy_map config"}].
+simple_session_no_proxy_map(Config) ->
+    init_seq_no(?MODULE, 16#80000),
+    GtpC0 = gtp_context(?MODULE, Config),
+
+    {GtpC1, _, _} = create_session(proxy_apn, GtpC0),
     delete_session(GtpC1),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
