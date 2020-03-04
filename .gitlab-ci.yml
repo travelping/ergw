@@ -34,7 +34,7 @@ build:otp-22.1:
 
 build:otp-22.2:
   <<: *build_otp
-  image: erlang:22.2.7-alpine
+  image: erlang:22.2.8-alpine
 
 .check:otp: &check_otp
   stage: test
@@ -70,7 +70,7 @@ check:otp-22.1:
 
 check:otp-22.2:
   <<: *check_otp
-  image: erlang:22.2.7-alpine
+  image: erlang:22.2.8-alpine
   dependencies:
     - build:otp-22.2
 

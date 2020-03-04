@@ -1,4 +1,5 @@
 sudo: required
+arch: amd64
 dist: bionic
 services:
   - docker
@@ -8,10 +9,9 @@ git:
 language: erlang
 
 otp_release:
- - 21.3.8.1
  - 22.0.7
  - 22.1.8.1
- - 22.2.7
+ - 22.2.8
 
 install: "true"
 
@@ -46,8 +46,15 @@ script:
 
 jobs:
   include:
+    -
+    - dist: xenial
+      otp_release: 21.3.8.1
+    # this fails, disable it for the moment
+    # - dist: xenial
+    #   arch: arm64
+    #   otp_release: 22.0.5
     - stage: docker
-      otp_release: 22.2.7
+      otp_release: 22.2.8
       script:
         - docker build -t $BUILD_IMAGE -f docker/Dockerfile .
       after_success:
