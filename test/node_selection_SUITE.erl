@@ -189,7 +189,7 @@
 all() ->
     [srv_lookup, srv_lookup_no_ar, a_lookup, a_lookup_no_ar,
      topology_match, colocation_match,
-     static_lookup, apn_to_fqdn, lb_entry_lookup].
+     static_lookup, apn_to_fqdn, lb_entry_lookup, lb_entry_stats].
 
 suite() ->
     [{timetrap, {seconds, 30}}].
@@ -339,8 +339,29 @@ lb_entry_lookup(_Config) ->
 	    {"topon.sx.prox02.epc.mnc001.mcc001.3gppnetwork.org", _, _, [_|_], []},
 	    {"topon.sx.prox01.epc.mnc001.mcc001.3gppnetwork.org", _, _, [_|_], []}], R),
 
-    S = ergw_node_selection:candidates_by_preference(R),
-    ?match([[{"topon.sx.prox03.epc.mnc001.mcc001.3gppnetwork.org", _, _}],
-	    [{"topon.sx.prox01.epc.mnc001.mcc001.3gppnetwork.org", _, _},
-	     {"topon.sx.prox02.epc.mnc001.mcc001.3gppnetwork.org", _, _}]], S),
+    {N1, R1} = ergw_node_selection:snaptr_candidate(R),
+    ?match({_, _, _}, N1),
+    ?equal(lists:keydelete(element(1, N1), 1, R), R1),
+
+    ok.
+
+lb_entry_stats() ->
+    [{doc, "Check that load balancing if indeed fair"}].
+lb_entry_stats(_Config) ->
+    NEntries = 20,
+    NTries = 50000,
+    Expected = NTries / NEntries,
+    Entries =
+	[{I, {1,100}, 'N', ['IP4'], ['IP6']} || I <- lists:seq(1, NEntries)],
+    Stats =
+	fun SFun(0,   S) -> S;
+	    SFun(Cnt, S) ->
+		{{E, _, _}, _} = ergw_node_selection:snaptr_candidate(Entries),
+		SFun(Cnt - 1, maps:update_with(E, fun(X) -> X + 1 end, 1, S))
+	end(NTries, #{}),
+    Max = hd(lists:sort(fun(A,B) -> B > A end,
+			[abs(Expected - V)/Expected ||
+			    {_, V} <- maps:to_list(Stats)])),
+    %% lets be gratious and accept a 10% deviantion from the expected mean
+    Max > 0.1 andalso ct:fail("SNAPTR selection unbalanced"),
     ok.

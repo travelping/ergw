@@ -16,7 +16,7 @@
 -export([validate_options/2, expand_apn/2, split_apn/1,
 	 apn_to_fqdn/2, apn_to_fqdn/1,
 	 lookup_dns/3, colocation_match/2, topology_match/2,
-	 candidates/3, candidates_by_preference/1, topology_select/4,
+	 candidates/3, snaptr_candidate/1, topology_select/4,
 	 lookup/2, lookup/3]).
 
 -include_lib("kernel/include/logger.hrl").
@@ -144,19 +144,43 @@ apn_to_fqdn(APN)
 	end,
     {fqdn, FQDN}.
 
-candidates_by_preference(Candidates) ->
+%% select_by_preference/1
+select_by_preference(L) ->
+    %% number between 0 <= Rnd <= Max
+    Total = lists:foldl(
+	      fun({Pref, _}, Sum) -> Sum + Pref end, 0, L),
+    Rnd = rand:uniform() * Total,
+    fun F([{_, Node}], _) ->
+	    Node;
+	F([{Pref, Node}|_], Weight)
+	  when Weight - Pref < 0 ->
+	    Node;
+	F([{Pref, _}|T], Weight) ->
+	    F(T, Weight - Pref)
+    end(L, Rnd).
+
+%% see 3GPP TS 29.303, Annex B.2 and RFC 2782
+snaptr_candidate(Candidates) ->
+    PrefAddFun = fun(0, Node, L) ->
+			 [{0, {0, Node}}|L];
+		    (Preference, Node, L) ->
+			 [{rand:uniform(), {Preference, Node}}|L]
+		 end,
     {_, L} =
 	lists:foldl(
-	  fun({Node, {Order, Preference}, _, IP4, IP6}, {Order, M}) ->
+	  fun({Node, {Order, Preference}, _, IP4, IP6}, {Order, L}) ->
 		  E = {Node, IP4, IP6},
-		  {Order, maps:update_with(Preference, fun(Y) -> [E|Y] end, [E], M)};
+		  {Order, PrefAddFun(Preference, E, L)};
 	     ({Node, {NOrder, Preference}, _, IP4, IP6}, {Order, _})
 		when NOrder < Order ->
-		  {NOrder, #{Preference => [{Node, IP4, IP6}]}};
+		  E = {Node, IP4, IP6},
+		  {NOrder, PrefAddFun(Preference, E, [])};
 	     (_, Acc) ->
 		  Acc
-	  end, {65535, #{}}, Candidates),
-    [N || {_,N} <- lists:sort(maps:to_list(L))].
+	  end, {65535, []}, Candidates),
+    PrefL = [N || {_,N} <- lists:sort(L)],
+    N = {Name, _, _} = select_by_preference(PrefL),
+    {N, lists:keydelete(Name, 1, Candidates)}.
 
 %%%===================================================================
 %%% Options Validation

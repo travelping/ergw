@@ -1511,6 +1511,7 @@ apn_opts(APN, Context) ->
 	Other -> Other
     end.
 
+%% select/2
 select(_, []) -> undefined;
 select(first, L) -> hd(L);
 select(random, L) when is_list(L) ->
@@ -1596,8 +1597,7 @@ filter_by_caps(Candidates, Wanted, AnyPool, Context) ->
     Eligible = common_caps(Wanted, Candidates, Available, AnyPool, []),
     length(Eligible) /= 0 orelse
 	throw(?CTX_ERR(?FATAL, no_resources_available, Context)),
-    Prio1 = hd(ergw_node_selection:candidates_by_preference(Eligible)),
-    {Node, _, _} = select(random, Prio1),
+    {{Node, _, _}, _} = ergw_node_selection:snaptr_candidate(Eligible),
     {Pid, NodeCaps} = maps:get(Node, Available),
     {_, SVRFs, SPools} = common_caps(Wanted, NodeCaps, AnyPool),
     VRF = maps:get(select(random, maps:keys(SVRFs)), SVRFs),
