@@ -602,26 +602,19 @@ connect_node({Node, _, _, IP4, IP6}, NodeSelect, _Available, Expects) ->
 
 %% connect_sx_candidates/1
 connect_sx_candidates(Candidates) ->
-    PrefC = ergw_node_selection:candidates_by_preference(Candidates),
     Available = ergw_sx_node_reg:available(),
-    connect_sx_candidates(PrefC, Available).
+    connect_sx_candidates(Candidates, Available).
 
 %% connect_sx_candidates/2
 connect_sx_candidates([], _Available) ->
     {error, not_found};
-connect_sx_candidates([H|T], Available) ->
-    connect_sx_candidates(H, T, Available).
-
-%% connect_sx_candidates/3
-connect_sx_candidates([], NextPrio, Available) ->
-    connect_sx_candidates(NextPrio, Available);
-connect_sx_candidates(List, NextPrio, Available) ->
-    case lb(random, List) of
+connect_sx_candidates(Candidates0, Available) ->
+    case ergw_node_selection:snaptr_candidate(Candidates0) of
 	{{Node, _, _}, _} when is_map_key(Node, Available) ->
 	    {Pid, _} = maps:get(Node, Available),
 	    {ok, Pid};
 	{_, Next} ->
-	    connect_sx_candidates(Next, NextPrio, Available)
+	    connect_sx_candidates(Next, Available)
     end.
 
 notify_up(Server, [{Pid, Ref}|_] = NotifyUp) when is_pid(Pid), is_reference(Ref) ->
