@@ -298,7 +298,7 @@ handle_request(ReqKey,
 
     {ProxyGtpPort, DPCandidates} =
 	ergw_proxy_lib:select_proxy_sockets(ProxyGGSN, ProxyInfo, Data),
-    SxConnectId = ergw_sx_node:request_connect(DPCandidates, 1000),
+    SxConnectId = ergw_sx_node:request_connect(DPCandidates, NodeSelect, 1000),
 
     {ok, _} = ergw_aaa_session:invoke(Session, SessionOpts, start, #{async =>true}),
 

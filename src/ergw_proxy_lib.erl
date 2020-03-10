@@ -50,25 +50,42 @@ get_seq_no(#context{control_port = GtpPort}, ReqKey, Request) ->
 
 select_gw(#{imsi := IMSI, gwSelectionAPN := APN}, Services, NodeSelect, Context) ->
     FQDN = ergw_node_selection:apn_to_fqdn(APN, IMSI),
-    select_gw(ergw_node_selection:candidates(FQDN, Services, NodeSelect), Context);
+    case ergw_node_selection:candidates(FQDN, Services, NodeSelect) of
+	[Node|_] ->
+	    resolve_gw(Node, NodeSelect, Context);
+	_ ->
+	    throw(?CTX_ERR(?FATAL, system_failure, Context))
+    end;
 select_gw(_ProxyInfo, _Services, _NodeSelect, Context) ->
     throw(?CTX_ERR(?FATAL, system_failure, Context)).
 
 lb(L) when is_list(L) ->
     lists:nth(rand:uniform(length(L)), L).
 
-%% NAPTR select
-select_gw([{Node, _, _, IP4, _}|_], _Context) when length(IP4) /= 0 ->
-    {Node, lb(IP4)};
-select_gw([{Node, _, _, _, IP6}|_], _Context) when length(IP6) /= 0 ->
-    {Node, lb(IP6)};
+%% NAPTR record
+resolve_gw({Node, _, _, IP4, IP6}, _NodeSelect, _Context)
+  when length(IP4) /= 0; length(IP6) /= 0 ->
+    {Node, select_gw_ip(IP4, IP6)};
 %% plain A/AAA record
-select_gw([{Node, IP4, _}|_], _Context) when length(IP4) /= 0 ->
-    {Node, lb(IP4)};
-select_gw([{Node, _, IP6}|_], _Context) when length(IP6) /= 0 ->
-    {Node, lb(IP6)};
-select_gw(_Result, Context) ->
-    throw(?CTX_ERR(?FATAL, system_failure, Context)).
+resolve_gw({Node, IP4, IP6}, _NodeSelect, _Context)
+  when length(IP4) /= 0; length(IP6) /= 0 ->
+    {Node, select_gw_ip(IP4, IP6)};
+resolve_gw(Node, NodeSelect, Context) when is_tuple(Node) ->
+    NodeName = element(1, Node),
+    case ergw_node_selection:lookup(NodeName, NodeSelect) of
+	{_, IP4, IP6}
+	  when length(IP4) /= 0, length(IP6) /= 0 ->
+	    {Node, select_gw_ip(IP4, IP6)};
+	{error, _} ->
+	    throw(?CTX_ERR(?FATAL, system_failure, Context))
+    end.
+
+select_gw_ip(IP4, _IP6) when length(IP4) /= 0 ->
+    lb(IP4);
+select_gw_ip(_IP4, IP6) when length(IP6) /= 0 ->
+    lb(IP6);
+select_gw_ip(_IP4, _IP6) ->
+    undefined.
 
 select_proxy_sockets({GwNode, _}, #{upfSelectionAPN := APN} = ProxyInfo,
 		     #{contexts := Contexts, proxy_ports := ProxyPorts,

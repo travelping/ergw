@@ -364,7 +364,7 @@ handle_request(ReqKey,
 	    _ -> []
 	end,
     Candidates = ergw_node_selection:topology_select(APN_FQDN, SGWuNode, Services, NodeSelect),
-    SxConnectId = ergw_sx_node:request_connect(Candidates, 1000),
+    SxConnectId = ergw_sx_node:request_connect(Candidates, NodeSelect, 1000),
 
     Context1 = update_context_tunnel_ids(FqCntlTEID, FqDataTEID, Context0),
     Context2 = update_context_from_gtp_req(Request, Context1),

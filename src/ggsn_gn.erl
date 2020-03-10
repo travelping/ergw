@@ -332,7 +332,7 @@ handle_request(ReqKey,
     APN_FQDN = ergw_node_selection:apn_to_fqdn(APN),
     Services = [{"x-3gpp-upf", "x-sxb"}],
     Candidates = ergw_node_selection:topology_select(APN_FQDN, [], Services, NodeSelect),
-    SxConnectId = ergw_sx_node:request_connect(Candidates, 1000),
+    SxConnectId = ergw_sx_node:request_connect(Candidates, NodeSelect, 1000),
 
     EUA = maps:get(?'End User Address', IEs, undefined),
     DAF = proplists:get_bool('Dual Address Bearer Flag', gtp_v1_c:get_common_flags(IEs)),
