@@ -117,7 +117,7 @@ attach_tdf(SxNode, #{node_selection := NodeSelections} = Opts, _, true) ->
 	     NodeLookup([NodeSelection | NextSelection]) ->
 		 case ergw_node_selection:lookup(SxNode, NodeSelection) of
 		     {Node, IP4, IP6} ->
-			 ergw_sx_node_mngr:connect(Node, IP4, IP6);
+			 ergw_sx_node_mngr:connect(Node, NodeSelection, IP4, IP6);
 		     _Other ->
 			 ?LOG(warning, "TDF lookup for ~p failed ~p", [SxNode, _Other]),
 			 NodeLookup(NextSelection)
@@ -131,13 +131,13 @@ attach_tdf(SxNode, #{node_selection := NodeSelections} = Opts, _, true) ->
 connect_sx_node(_Node, #{connect := false}) ->
     ok;
 connect_sx_node(Node, #{raddr := IP4} = _Opts) when tuple_size(IP4) =:= 4 ->
-    ergw_sx_node_mngr:connect(Node, [IP4], []);
+    ergw_sx_node_mngr:connect(Node, default, [IP4], []);
 connect_sx_node(Node, #{raddr := IP6} = _Opts) when tuple_size(IP6) =:= 8 ->
-    ergw_sx_node_mngr:connect(Node, [], [IP6]);
+    ergw_sx_node_mngr:connect(Node, default, [], [IP6]);
 connect_sx_node(Node, #{node_selection := NodeSelect} = Opts) ->
     case ergw_node_selection:lookup(Node, NodeSelect) of
 	{_, IP4, IP6} ->
-	    ergw_sx_node_mngr:connect(Node, IP4, IP6);
+	    ergw_sx_node_mngr:connect(Node, NodeSelect, IP4, IP6);
 	_Other ->
 	    %% TBD:
 	    erlang:error(badarg, [Node, Opts])

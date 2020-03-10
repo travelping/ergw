@@ -345,7 +345,7 @@ handle_request(ReqKey,
     APN_FQDN = ergw_node_selection:apn_to_fqdn(APN),
     Services = [{"x-3gpp-upf", "x-sxb"}],
     Candidates = ergw_node_selection:topology_select(APN_FQDN, [], Services, NodeSelect),
-    SxConnectId = ergw_sx_node:request_connect(Candidates, 1000),
+    SxConnectId = ergw_sx_node:request_connect(Candidates, NodeSelect, 1000),
 
     PAA = maps:get(?'PDN Address Allocation', IEs, undefined),
     IndF = maps:get(?'Indication', IEs, #v2_indication{flags = []}),

@@ -50,6 +50,16 @@
 				     "ergw.ovh.node.epc.mnc123.mcc310.3gppnetwork.org"}}]
 	  }).
 
+-define(SRV_q_no_ar,
+	#dns_rec{
+	   anlist = [#dns_rr{domain = "example.apn.epc.mnc124.mcc310.3gppnetwork.org",
+			     type = naptr,
+			     data = % order pref flags service                regexp
+				    { 100,  100, "s",  "x-3gpp-pgw:x-s8-gtp", [],
+				    % replacement
+				      "pgw-list-2.node.epc.mnc124.mcc310.3gppnetwork.org"}}]
+	  }).
+
 -define(A_q,
 	#dns_rec{
 	   anlist = [#dns_rr{domain = "example.apn.epc.mnc001.mcc456.3gppnetwork.org",
@@ -64,6 +74,16 @@
 		     #dns_rr{domain = "hub.node.epc.mnc001.mcc456.3gppnetwork.org",
 			     type = a,
 			     data = ?HUB2}]
+	  }).
+
+-define(A_q_no_ar,
+	#dns_rec{
+	   anlist = [#dns_rr{domain = "example.apn.epc.mnc002.mcc456.3gppnetwork.org",
+			     type = naptr,
+			     data = % order pref flags service
+				    { 20,   20, "a",   "x-3gpp-pgw:x-s5-gtp:x-s8-gtp:x-gn",
+				    % regexp replacement
+				      [],     "hub.node.epc.mnc002.mcc456.3gppnetwork.org"}}]
 	  }).
 
 -define(L1, [{"topon.gngp.pgw.north.epc.mnc990.mcc311.3gppnetwork.org",
@@ -167,7 +187,8 @@
 %%%===================================================================
 
 all() ->
-    [srv_lookup, a_lookup, topology_match, colocation_match,
+    [srv_lookup, srv_lookup_no_ar, a_lookup, a_lookup_no_ar,
+     topology_match, colocation_match,
      static_lookup, apn_to_fqdn, lb_entry_lookup].
 
 suite() ->
@@ -181,8 +202,12 @@ init_per_suite(Config) ->
     ok = meck:expect(ergw_node_selection, naptr,
 		     fun("example.apn.epc.mnc123.mcc310.3gppnetwork.org.", _) ->
 			     {ok, ?SRV_q};
+			("example.apn.epc.mnc124.mcc310.3gppnetwork.org.", _) ->
+			     {ok, ?SRV_q_no_ar};
 			("example.apn.epc.mnc001.mcc456.3gppnetwork.org.", _) ->
-			     {ok, ?A_q}
+			     {ok, ?A_q};
+			("example.apn.epc.mnc002.mcc456.3gppnetwork.org.", _) ->
+			     {ok, ?A_q_no_ar}
 		     end),
     ok = meck:new(ergw, [passthrough, no_link]),
     ok = meck:expect(ergw, get_plmn_id, fun() -> {<<"001">>, <<"01">>} end),
@@ -208,6 +233,14 @@ srv_lookup(_Config) ->
 
     ok.
 
+srv_lookup_no_ar() ->
+    [{doc, "NPTR lookup with following SRV (no AR section in DNS response)"}].
+srv_lookup_no_ar(_Config) ->
+    R = ergw_node_selection:lookup_dns("example.apn.epc.mnc124.mcc310.3gppnetwork.org.",
+				       ?SERVICES, undefined),
+    ?match([{"pgw-list-2.node.epc.mnc124.mcc310.3gppnetwork.org", _, _, [], []}], R),
+    ok.
+
 a_lookup() ->
     [{doc, "NPTR lookup with following A"}].
 a_lookup(_Config) ->
@@ -216,6 +249,14 @@ a_lookup(_Config) ->
     ?match([{"hub.node.epc.mnc001.mcc456.3gppnetwork.org", _, _, [_|_], []}], R),
     [{_, _, _, IP4, _}] = R,
     ?equal(lists:sort([?HUB1, ?HUB2]), lists:sort(IP4)),
+    ok.
+
+a_lookup_no_ar() ->
+    [{doc, "NPTR lookup with following A"}].
+a_lookup_no_ar(_Config) ->
+    R = ergw_node_selection:lookup_dns("example.apn.epc.mnc002.mcc456.3gppnetwork.org.",
+				       ?SERVICES, undefined),
+    ?match([{"hub.node.epc.mnc002.mcc456.3gppnetwork.org", _, _, [], []}], R),
     ok.
 
 static_lookup() ->

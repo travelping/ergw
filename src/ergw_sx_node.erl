@@ -14,9 +14,9 @@
 
 %% API
 -export([select_sx_node/2,
-	 request_connect/2, request_connect/4, wait_connect/1,
+	 request_connect/3, request_connect/5, wait_connect/1,
 	 attach/2, attach_tdf/2, notify_up/2]).
--export([start_link/4, send/4, call/3,
+-export([start_link/5, send/4, call/3,
 	 get_vrfs/2, handle_request/3, response/3]).
 -ifdef(TEST).
 -export([test_cmd/2, seconds_to_sntp_time/1]).
@@ -37,6 +37,7 @@
 
 -record(data, {cfg,
 	       mode = transient  :: 'transient' | 'persistent',
+	       node_select       :: atom(),
 	       retries = 0       :: non_neg_integer(),
 	       recovery_ts       :: undefined | non_neg_integer(),
 	       pfcp_ctx          :: #pfcp_ctx{},
@@ -84,8 +85,8 @@ attach(Node, Context) when is_pid(Node) ->
 attach_tdf(Node, Tdf) when is_pid(Node) ->
     gen_statem:call(Node, {attach_tdf, Tdf}).
 
-start_link(Node, IP4, IP6, NotifyUp) ->
-    gen_statem:start_link(?MODULE, [Node, IP4, IP6, NotifyUp], []).
+start_link(Node, NodeSelect, IP4, IP6, NotifyUp) ->
+    gen_statem:start_link(?MODULE, [Node, NodeSelect, IP4, IP6, NotifyUp], []).
 
 -ifdef(TEST).
 
@@ -180,13 +181,8 @@ port_message(_Server, Request, Msg, _Resent) ->
 
 callback_mode() -> [handle_event_function, state_enter].
 
-init([Node, IP4, IP6, NotifyUp]) ->
-    IP = if length(IP4) /= 0 -> hd(IP4);
-	    length(IP6) /= 0 -> hd(IP6)
-	 end,
-
+init([Node, NodeSelect, IP4, IP6, NotifyUp]) ->
     ergw_sx_node_reg:register(Node, self()),
-    ergw_sx_node_reg:register(IP, self()),
 
     {ok, CP, GtpPort} = ergw_sx_socket:id(),
     #gtp_port{name = CntlPortName} = GtpPort,
@@ -207,8 +203,10 @@ init([Node, IP4, IP6, NotifyUp]) ->
 
     Nodes = setup:get_env(ergw, nodes, #{}),
     Cfg = maps:get(Node, Nodes, maps:get(default, Nodes, #{})),
+    IP = select_node_ip(IP4, IP6),
     Data0 = #data{cfg = Cfg,
 		  mode = mode(Cfg),
+		  node_select = NodeSelect,
 		  retries = 0,
 		  recovery_ts = undefined,
 		  pfcp_ctx = PCtx,
@@ -218,7 +216,12 @@ init([Node, IP4, IP6, NotifyUp]) ->
 		  notify_up = NotifyUp
 		 },
     Data = init_node_cfg(Data0),
-    {ok, connecting, Data}.
+    case IP of
+	_ when is_tuple(IP) ->
+	    {ok, connecting, Data};
+	undefined ->
+	    {ok, resolving, Data}
+    end.
 
 handle_event(enter, _OldState, {connected, ready},
 	     #data{dp = #node{node = Node}} = Data0) ->
@@ -240,7 +243,20 @@ handle_event(enter, _, dead, #data{retries = Retries} = Data0) ->
 handle_event(state_timeout, connect, dead, Data) ->
     {next_state, connecting, Data};
 
+handle_event(enter, _, resolving, #data{node_select = NodeSelect,
+					dp = #node{node = Node}} = Data) ->
+    case ergw_node_selection:lookup(Node, NodeSelect) of
+	{_, IP4, IP6}
+	  when length(IP4) /= 0, length(IP6) /= 0 ->
+	    IP = select_node_ip(IP4, IP6),
+	    {next_state, connecting, Data#data{dp = #node{node = Node, ip = IP}}};
+	{error, _} ->
+	    {stop, normal, Data}
+    end;
+
 handle_event(enter, _, connecting, #data{dp = #node{ip = IP}} = Data) ->
+    ergw_sx_node_reg:register(IP, self()),
+
     Req0 = #pfcp{version = v1, type = association_setup_request, ie = []},
     Req = augment_mandatory_ie(Req0, Data),
     ergw_sx_socket:call(IP, ?AssocReqTimeout, ?AssocReqRetries, Req,
@@ -539,17 +555,17 @@ handle_udp_gtp(SrcIP, DstIP, <<SrcPort:16, DstPort:16, _:16, _:16, PayLoad/binar
     ok.
 
 %% request_connect/2
-request_connect(Candidates, Timeout) ->
+request_connect(Candidates, NodeSelect, Timeout) ->
     AbsTimeout = erlang:monotonic_time()
 	+ erlang:convert_time_unit(Timeout, millisecond, native),
     Ref = make_ref(),
-    Pid = proc_lib:spawn(?MODULE, ?FUNCTION_NAME, [Candidates, AbsTimeout, Ref, self()]),
+    Pid = proc_lib:spawn(?MODULE, ?FUNCTION_NAME, [Candidates, NodeSelect, AbsTimeout, Ref, self()]),
     {Pid, Ref, AbsTimeout}.
 
-%% request_connect/4
-request_connect(Candidates, AbsTimeout, Ref, Owner) ->
+%% request_connect/5
+request_connect(Candidates, NodeSelect, AbsTimeout, Ref, Owner) ->
     Available = ergw_sx_node_reg:available(),
-    Expects = connect_nodes(Candidates, Available, []),
+    Expects = connect_nodes(Candidates, NodeSelect, Available, []),
     Result =
 	fun ExpectFun([], _) ->
 		ok;
@@ -572,16 +588,16 @@ wait_connect({Pid, Ref, AbsTimeout}) ->
     after Timeout -> timeout
     end.
 
-connect_nodes([], _Available, Expects) -> Expects;
-connect_nodes([H|T], Available, Expects) ->
-    connect_nodes(T,  Available, connect_node(H, Available, Expects)).
+connect_nodes([], _NodeSelect, _Available, Expects) -> Expects;
+connect_nodes([H|T], NodeSelect, Available, Expects) ->
+    connect_nodes(T, NodeSelect, Available, connect_node(H, NodeSelect, Available, Expects)).
 
-connect_node({Name, _, _, _, _}, Available, Expects)
+connect_node({Name, _, _, _, _}, _NodeSelect, Available, Expects)
   when is_map_key(Name, Available) ->
     Expects;
-connect_node({Node, _, _, IP4, IP6}, _Available, Expects) ->
+connect_node({Node, _, _, IP4, IP6}, NodeSelect, _Available, Expects) ->
     NotifyUp = {self(), make_ref()},
-    ergw_sx_node_mngr:connect(Node, IP4, IP6, [NotifyUp]),
+    ergw_sx_node_mngr:connect(Node, NodeSelect, IP4, IP6, [NotifyUp]),
     [NotifyUp | Expects].
 
 %% connect_sx_candidates/1
@@ -864,3 +880,12 @@ send_notify_up(Notify, #data{notify_up = NotifyUp} = Data) ->
 
 node_caps(#data{ip_pools = Pools, vrfs = VRFs}) ->
     {VRFs, ordsets:from_list(Pools)}.
+
+select_node_ip(IP4, _IP6) when length(IP4) /= 0 ->
+    {IP, _} = lb(random, IP4),
+    IP;
+select_node_ip(_IP4, IP6) when length(IP6) /= 0 ->
+    {IP, _} = lb(random, IP6),
+    IP;
+select_node_ip(_IP4, _IP6) ->
+    undefined.
