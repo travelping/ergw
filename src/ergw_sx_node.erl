@@ -228,7 +228,7 @@ handle_event(enter, _OldState, {connected, ready},
     NodeCaps = node_caps(Data0),
     ok = ergw_sx_node_reg:up(Node, NodeCaps),
     Data = send_notify_up(up, Data0#data{retries = 0}),
-    {keep_state, Data};
+    {keep_state, Data, [next_heartbeat(Data)]};
 
 handle_event(enter, {connected, _}, dead, #data{dp = #node{node = Node}} = Data) ->
     ergw_sx_node_reg:down(Node),
@@ -306,7 +306,7 @@ handle_event(cast, {response, _, #pfcp{version = v1, type = association_setup_re
     case IEs of
 	#{pfcp_cause := #pfcp_cause{cause = 'Request accepted'}} ->
 	    Data = handle_nodeup(IEs, Data0),
-	    {next_state, {connected, init}, Data, [next_heartbeat(Data)]};
+	    {next_state, {connected, init}, Data};
 	Other ->
 	    ?LOG(warning, "Other: ~p", [Other]),
 	    {next_state, dead, Data0}
