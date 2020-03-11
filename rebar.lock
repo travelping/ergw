@@ -35,7 +35,7 @@
  {<<"parse_trans">>,{pkg,<<"parse_trans">>,<<"3.3.0">>},1},
  {<<"pfcplib">>,
   {git,"https://github.com/travelping/pfcplib.git",
-       {ref,"86cfcc1b74b0b206ef568362d5c5e60ac0a417b0"}},
+       {ref,"4129bd08343eafc7f2125becfd23ae84ea707de7"}},
   0},
  {<<"pmod_transform">>,
   {git,"git://github.com/erlang/pmod_transform.git",
