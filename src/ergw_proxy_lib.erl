@@ -51,7 +51,8 @@ get_seq_no(#context{control_port = GtpPort}, ReqKey, Request) ->
 select_gw(#{imsi := IMSI, gwSelectionAPN := APN}, Services, NodeSelect, Context) ->
     FQDN = ergw_node_selection:apn_to_fqdn(APN, IMSI),
     case ergw_node_selection:candidates(FQDN, Services, NodeSelect) of
-	[Node|_] ->
+	Nodes when is_list(Nodes), length(Nodes) /= 0 ->
+	    {Node, _} = ergw_node_selection:snaptr_candidate(Nodes),
 	    resolve_gw(Node, NodeSelect, Context);
 	_ ->
 	    throw(?CTX_ERR(?FATAL, system_failure, Context))
@@ -62,17 +63,12 @@ select_gw(_ProxyInfo, _Services, _NodeSelect, Context) ->
 lb(L) when is_list(L) ->
     lists:nth(rand:uniform(length(L)), L).
 
-%% NAPTR record
-resolve_gw({Node, _, _, IP4, IP6}, _NodeSelect, _Context)
-  when length(IP4) /= 0; length(IP6) /= 0 ->
-    {Node, select_gw_ip(IP4, IP6)};
 %% plain A/AAA record
 resolve_gw({Node, IP4, IP6}, _NodeSelect, _Context)
   when length(IP4) /= 0; length(IP6) /= 0 ->
     {Node, select_gw_ip(IP4, IP6)};
-resolve_gw(Node, NodeSelect, Context) when is_tuple(Node) ->
-    NodeName = element(1, Node),
-    case ergw_node_selection:lookup(NodeName, NodeSelect) of
+resolve_gw({Node, _, _}, NodeSelect, Context) when is_tuple(Node) ->
+    case ergw_node_selection:lookup(Node, NodeSelect) of
 	{_, IP4, IP6}
 	  when length(IP4) /= 0, length(IP6) /= 0 ->
 	    {Node, select_gw_ip(IP4, IP6)};
