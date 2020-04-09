@@ -12,6 +12,7 @@ otp_release:
  - 22.0.7
  - 22.1.8.1
  - 22.2.8
+ - 22.3.1
 
 install: "true"
 
@@ -54,7 +55,7 @@ jobs:
     #   arch: arm64
     #   otp_release: 22.0.5
     - stage: docker
-      otp_release: 22.2.8
+      otp_release: 22.3.1
       script:
         - docker build -t $BUILD_IMAGE -f docker/Dockerfile .
       after_success:
