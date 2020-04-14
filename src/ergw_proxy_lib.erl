@@ -67,10 +67,10 @@ lb(L) when is_list(L) ->
 resolve_gw({Node, IP4, IP6}, _NodeSelect, _Context)
   when length(IP4) /= 0; length(IP6) /= 0 ->
     {Node, select_gw_ip(IP4, IP6)};
-resolve_gw({Node, _, _}, NodeSelect, Context) when is_tuple(Node) ->
+resolve_gw({Node, _, _}, NodeSelect, Context) ->
     case ergw_node_selection:lookup(Node, NodeSelect) of
 	{_, IP4, IP6}
-	  when length(IP4) /= 0, length(IP6) /= 0 ->
+	  when length(IP4) /= 0; length(IP6) /= 0 ->
 	    {Node, select_gw_ip(IP4, IP6)};
 	{error, _} ->
 	    throw(?CTX_ERR(?FATAL, system_failure, Context))
