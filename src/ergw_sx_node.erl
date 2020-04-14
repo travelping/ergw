@@ -86,7 +86,7 @@ attach_tdf(Node, Tdf) when is_pid(Node) ->
     gen_statem:call(Node, {attach_tdf, Tdf}).
 
 start_link(Node, NodeSelect, IP4, IP6, NotifyUp) ->
-    gen_statem:start_link(?MODULE, [Node, NodeSelect, IP4, IP6, NotifyUp], []).
+    proc_lib:start_link(?MODULE, init, [[self(), Node, NodeSelect, IP4, IP6, NotifyUp]]).
 
 -ifdef(TEST).
 
@@ -181,7 +181,7 @@ port_message(_Server, Request, Msg, _Resent) ->
 
 callback_mode() -> [handle_event_function, state_enter].
 
-init([Node, NodeSelect, IP4, IP6, NotifyUp]) ->
+init([Parent, Node, NodeSelect, IP4, IP6, NotifyUp]) ->
     ergw_sx_node_reg:register(Node, self()),
 
     {ok, CP, GtpPort} = ergw_sx_socket:id(),
@@ -211,17 +211,13 @@ init([Node, NodeSelect, IP4, IP6, NotifyUp]) ->
 		  recovery_ts = undefined,
 		  pfcp_ctx = PCtx,
 		  cp = CP,
-		  dp = #node{node = Node, ip = IP},
 		  tdf = #{},
 		  notify_up = NotifyUp
 		 },
     Data = init_node_cfg(Data0),
-    case IP of
-	_ when is_tuple(IP) ->
-	    {ok, connecting, Data};
-	undefined ->
-	    {ok, resolving, Data}
-    end.
+    proc_lib:init_ack(Parent, {ok, self()}),
+
+    resolve_and_enter_loop(Node, IP, Data).
 
 handle_event(enter, _OldState, {connected, ready},
 	     #data{dp = #node{node = Node}} = Data0) ->
@@ -242,17 +238,6 @@ handle_event(enter, _, dead, #data{retries = Retries} = Data0) ->
 
 handle_event(state_timeout, connect, dead, Data) ->
     {next_state, connecting, Data};
-
-handle_event(enter, _, resolving, #data{node_select = NodeSelect,
-					dp = #node{node = Node}} = Data) ->
-    case ergw_node_selection:lookup(Node, NodeSelect) of
-	{_, IP4, IP6}
-	  when length(IP4) /= 0, length(IP6) /= 0 ->
-	    IP = select_node_ip(IP4, IP6),
-	    {next_state, connecting, Data#data{dp = #node{node = Node, ip = IP}}};
-	{error, _} ->
-	    {stop, normal, Data}
-    end;
 
 handle_event(enter, _, connecting, #data{dp = #node{ip = IP}} = Data) ->
     ergw_sx_node_reg:register(IP, self()),
@@ -890,3 +875,19 @@ select_node_ip(_IP4, IP6) when length(IP6) /= 0 ->
     IP;
 select_node_ip(_IP4, _IP6) ->
     undefined.
+
+resolve_and_enter_loop(Node, IP, Data)
+  when is_tuple(IP) ->
+    gen_statem:enter_loop(
+      ?MODULE, [], connecting, Data#data{dp = #node{node = Node, ip = IP}});
+resolve_and_enter_loop(Node, _, #data{node_select = NodeSelect} = Data) ->
+    case ergw_node_selection:lookup(Node, NodeSelect) of
+	{_, IP4, IP6}
+	  when length(IP4) /= 0; length(IP6) /= 0 ->
+	    IP = select_node_ip(IP4, IP6),
+	    gen_statem:enter_loop(
+	      ?MODULE, [], connecting, Data#data{dp = #node{node = Node, ip = IP}});
+	{error, _} ->
+	    terminate(normal, Data),
+	    ok
+    end.

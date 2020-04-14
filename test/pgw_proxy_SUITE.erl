@@ -133,7 +133,9 @@
 		      {"topon.upf-1.nodes.$ORIGIN", ?MUST_BE_UPDATED, []}
 		     ]
 		    }
-		   }
+		   },
+		   {mydns,
+		    {dns, {{127,0,0,1}, 53}}}
 		  ]
 		 },
 
@@ -344,7 +346,9 @@
 		      {"topon.upf-1.nodes.$ORIGIN", ?MUST_BE_UPDATED, []}
 		     ]
 		    }
-		   }
+		   },
+		   {mydns,
+		    {dns, {{127,0,0,1}, 53}}}
 		  ]
 		 },
 
@@ -583,7 +587,9 @@ common() ->
      interop_sgsn_to_sgw,
      interop_sgw_to_sgsn,
      create_session_overload,
-     session_accounting].
+     session_accounting,
+     dns_node_selection
+    ].
 
 common_groups() ->
     [{group, single_proxy_interface},
@@ -722,6 +728,10 @@ init_per_testcase(create_session_overload, Config) ->
     jobs:modify_queue(create, [{max_size, 0}]),
     jobs:modify_regulator(rate, create, {rate,create,1}, [{limit,1}]),
     Config;
+init_per_testcase(dns_node_selection, Config) ->
+    setup_per_testcase(Config),
+    ok = meck:new(inet_res, [passthrough, no_link, unstick]),
+    Config;
 init_per_testcase(_, Config) ->
     setup_per_testcase(Config),
     Config.
@@ -778,6 +788,10 @@ end_per_testcase(update_bearer_request, Config) ->
 end_per_testcase(create_session_overload, Config) ->
     jobs:modify_queue(create, [{max_size, 10}]),
     jobs:modify_regulator(rate, create, {rate,create,1}, [{limit,100}]),
+    end_per_testcase(Config),
+    Config;
+end_per_testcase(dns_node_selection, Config) ->
+    ok = meck:unload(inet_res),
     end_per_testcase(Config),
     Config;
 end_per_testcase(_, Config) ->
@@ -1996,6 +2010,77 @@ session_accounting(Config) ->
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
     ok.
+
+%%--------------------------------------------------------------------
+-define(ProxyV, "proxy.example.net.apn.epc.mnc022.mcc222.3gppnetwork.org").
+-define(ProxyH, "proxy.example.net.apn.epc.mnc001.mcc001.3gppnetwork.org").
+-define(PGW, "topon.s5s8.pgw.epc.mnc001.mcc001.3gppnetwork.org").
+-define(UPF, "topon.sx.pgw-u02.epc.mnc001.mcc001.3gppnetwork.org").
+
+dns_node_selection() ->
+    [{doc, "Check simple Create Session, Delete Session sequence"}].
+dns_node_selection(Config) ->
+    %% overwrite the node selection
+    meck:expect(?HUT, init,
+		fun (Opts, Data) ->
+			meck:passthrough([Opts#{node_selection => [mydns]}, Data])
+		end),
+
+    DNSrr = fun (Name, IP) when tuple_size (IP) == 4 ->
+		    {dns_rec, {dns_header, 1, true, query, false, false, true, true, false, 0},
+		     [{dns_query, Name, any, in}],
+		     [{dns_rr, Name, a, in, 0, 8595, IP, undefined, [], false}],
+		     [], []};
+		(Name, IP) when tuple_size (IP) == 8 ->
+		    {dns_rec, {dns_header, 1, true, query, false, false, true, true, false, 0},
+		     [{dns_query, Name, any, in}],
+		     [{dns_rr, Name, aaaa, in, 0, 8595, IP, undefined, [], false}],
+		     [], []}
+	    end,
+
+    meck:expect(
+      inet_res, resolve,
+      fun (?ProxyV, in, naptr, _Opts) ->
+	      {ok, {dns_rec, {dns_header, 7509, true, query, false, false, true, true, false, 0},
+		    [{dns_query, ?ProxyV, naptr, in}],
+		    [{dns_rr, ?ProxyV, naptr, in, 0, 593,
+		      {100, 100, "a", "x-3gpp-pgw:x-s8-gtp:x-gn-gtp:x-gp", [], ?PGW},
+		      undefined, [], false}],
+		    [{dns_rr, "epc.mnc022.mcc222.3gppnetwork.org", ns, in, 0, 593,
+		      "dns1.mnc022.mcc222.3gppnetwork.org", undefined, [], false},
+		     {dns_rr, "epc.mnc022.mcc222.3gppnetwork.org", ns, in, 0, 593,
+		      "dns0.mnc022.mcc222.3gppnetwork.org", undefined, [], false}],
+		    []}};
+	  (?PGW, in, any, _Opts) ->
+	      {ok, DNSrr(?PGW, proplists:get_value(final_gsn, Config))};
+	  (?ProxyH, in, naptr, _Opts) ->
+	      {ok, {dns_rec, {dns_header, 7509, true, query, false, false, true, true, false, 0},
+		    [{dns_query, ?ProxyH, naptr, in}],
+		    [{dns_rr, ?ProxyH, naptr, in, 0, 593,
+		      {100, 100, "a", "x-3gpp-upf:x-sxa:x-sxb", [], ?UPF},
+		      undefined, [], false}],
+		    [{dns_rr, "epc.mnc001.mcc001.3gppnetwork.org", ns, in, 0, 593,
+		      "dns1.mnc001.mcc001.3gppnetwork.org", undefined, [], false},
+		     {dns_rr, "epc.mnc001.mcc001.3gppnetwork.org", ns, in, 0, 593,
+		      "dns0.mnc001.mcc001.3gppnetwork.org", undefined, [], false}],
+		    []}};
+	  (?UPF, in, any, _Opts) ->
+	      {ok, DNSrr(?UPF, proplists:get_value(pgw_u02_sx, Config))};
+	  (Name, Class, Type, Opts) ->
+	      meck:passthrough([Name, Class, Type, Opts])
+      end),
+
+    {GtpC1, _, _} = create_session(Config),
+    delete_session(GtpC1),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    meck_validate(Config),
+
+    ?equal([], outstanding_requests()),
+
+    ok = meck:delete(?HUT, init, 2),
+    ok.
+
 
 %%%===================================================================
 %%% Internal functions
