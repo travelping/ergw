@@ -23,7 +23,7 @@
   0},
  {<<"gtplib">>,
   {git,"https://github.com/travelping/gtplib.git",
-       {ref,"a8725b73ee4d749188d1f3cf45b7f3127eaf8f90"}},
+       {ref,"f3702b2dd10cca01430ef217eab916f950d9d310"}},
   0},
  {<<"hut">>,{pkg,<<"hut">>,<<"1.2.1">>},3},
  {<<"jobs">>,{pkg,<<"jobs">>,<<"0.9.0">>},0},
