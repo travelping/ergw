@@ -1,6 +1,23 @@
 erGW - 3GPP GGSN and PDN-GW in Erlang
 =====================================
 
+Version 2.4.0 - 17 Apr 2020
+---------------------------
+
+* Offline Charging (Rf):
+  * include Traffic-Data-Volumes
+  * add Time of First/Last packet
+* support different rating groups for online and offline charging
+  in the same PCC rule (split charging)
+* implemented RFC/3GPP compliant selection of NAPTR records by preference
+* added late A/AAAA resolution of NAPTR/SRV pointers
+* update gtplib to fix a few corner cases in GTP encoding
+* fix GTPv1 cause code encoding
+* switch from gen_socket to Erlang native socket.erl for GTP-C and PFCP
+* upgrade eradius (through ergw_aaa) for async, retries and timeout option
+* proxy mode config fixes
+* experimental support for Erlang/OTP 23.0
+
 Version 2.3.0 - 24 Feb 2020
 ---------------------------
 
