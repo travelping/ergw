@@ -190,8 +190,10 @@ handle_event(info, {timeout, _, {delete_bearer_request, Direction, _ReqKey, _Req
 handle_event(info, {'DOWN', _MonitorRef, Type, Pid, _Info}, _State,
 	     #{pfcp := #pfcp_ctx{node = Pid}} = Data)
   when Type == process; Type == pfcp ->
+    initiate_session_teardown(sgw2pgw, Data),
+    initiate_session_teardown(pgw2sgw, Data),
     delete_forward_session(upf_failure, Data),
-    keep_state_and_data;
+    {next_state, shutdown, Data};
 
 handle_event(info, _Info, _State, _Data) ->
     keep_state_and_data.
