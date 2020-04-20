@@ -202,8 +202,10 @@ handle_event(info, {timeout, _, {delete_pdp_context_request, Direction, _ReqKey,
 handle_event(info, {'DOWN', _MonitorRef, Type, Pid, _Info}, _State,
 	     #{pfcp := #pfcp_ctx{node = Pid}} = Data)
   when Type == process; Type == pfcp ->
+    initiate_pdp_context_teardown(sgsn2ggsn, Data),
+    initiate_pdp_context_teardown(ggsn2sgsn, Data),
     delete_forward_session(upf_failure, Data),
-    keep_state_and_data;
+    {next_state, shutdown, Data};
 
 handle_event(info, _Info, _State, _Data) ->
     keep_state_and_data.

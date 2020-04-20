@@ -419,6 +419,12 @@ validate_response(_Type, invalid_teid, Response, GtpC) ->
 	   }, Response),
     GtpC;
 
+validate_response(create_pdp_context_request, system_failure, Response, GtpC) ->
+    ?match(#gtp{type = create_pdp_context_response,
+		ie = #{{cause,0} := #cause{value = system_failure}}},
+	   Response),
+    GtpC;
+
 validate_response(create_pdp_context_request, aaa_reject, Response, GtpC) ->
     ?match(#gtp{type = create_pdp_context_response,
 		ie = #{{cause,0} := #cause{value = user_authentication_failed}}},

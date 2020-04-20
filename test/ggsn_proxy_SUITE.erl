@@ -553,7 +553,11 @@ common() ->
      create_pdp_context_overload,
      unsupported_request,
      cache_timeout,
-     session_accounting].
+     session_accounting,
+     sx_upf_reconnect,
+     sx_upf_removal,
+     sx_timeout
+    ].
 
 common_groups() ->
     [{group, single_proxy_interface},
@@ -1521,6 +1525,108 @@ session_accounting(Config) ->
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+sx_upf_reconnect() ->
+    [{doc, "Test UPF reconnect behavior"}].
+sx_upf_reconnect(Config) ->
+    ok = meck:expect(ergw_proxy_lib, create_forward_session,
+		     fun(Candidates, Left, Right) ->
+			     try
+				 meck:passthrough([Candidates, Left, Right])
+			     catch
+				 throw:#ctx_err{} = CtxErr ->
+				     meck:exception(throw, CtxErr)
+			     end
+		     end),
+
+    {GtpCinit, _, _} = create_pdp_context(Config),
+    delete_pdp_context(GtpCinit),
+
+    ?equal([], outstanding_requests()),
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+
+    ergw_test_sx_up:restart('sgw-u'),
+    ct:pal("R1: ~p", [ergw_sx_node_reg:available()]),
+
+    %% expect the first request to fail
+    create_pdp_context(system_failure, Config),
+    ct:pal("R2: ~p", [ergw_sx_node_reg:available()]),
+
+    wait_for_all_sx_nodes(),
+    ct:pal("R3: ~p", [ergw_sx_node_reg:available()]),
+
+    %% the next should work
+    {GtpC2nd, _, _} = create_pdp_context(Config),
+    delete_pdp_context(GtpC2nd),
+
+    ?equal([], outstanding_requests()),
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+
+    meck_validate(Config),
+    ok = meck:delete(ergw_proxy_lib, create_forward_session, 3),
+    ok.
+
+%%--------------------------------------------------------------------
+sx_upf_removal() ->
+    [{doc, "Test UPF removal mid session"}].
+sx_upf_removal(Config) ->
+    Cntl = whereis(gtpc_client_server),
+
+    ok = meck:new(ergw_sx_node, [passthrough]),
+    %% reduce Sx timeout to speed up test
+    ok = meck:expect(ergw_sx_socket, call,
+		     fun(Peer, _T1, _N1, Msg, CbInfo) ->
+			     meck:passthrough([Peer, 100, 2, Msg, CbInfo])
+		     end),
+
+    {GtpC, _, _} = create_pdp_context(Config),
+
+    ergw_test_sx_up:disable('sgw-u'),
+
+    Req = recv_pdu(Cntl, 5000),
+    ?match(#gtp{type = delete_pdp_context_request}, Req),
+    Resp = make_response(Req, simple, GtpC),
+    send_pdu(Cntl, GtpC, Resp),
+
+    %% make sure the PGW -> SGW response doesn't bleed through
+    ?equal({error,timeout}, recv_pdu(Cntl, undefined, ?TIMEOUT, error)),
+
+    ?equal([], outstanding_requests()),
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+sx_timeout() ->
+    [{doc, "Check that a timeout on Sx leads to a proper error response"}].
+sx_timeout(Config) ->
+    %% reduce Sx timeout to speed up test
+    ok = meck:expect(ergw_sx_socket, call,
+		     fun(Peer, _T1, _N1, Msg, CbInfo) ->
+			     meck:passthrough([Peer, 100, 2, Msg, CbInfo])
+		     end),
+    ok = meck:expect(ergw_proxy_lib, create_forward_session,
+		     fun(Candidates, Left, Right) ->
+			     try
+				 meck:passthrough([Candidates, Left, Right])
+			     catch
+				 throw:#ctx_err{} = CtxErr ->
+				     meck:exception(throw, CtxErr)
+			     end
+		     end),
+    ergw_test_sx_up:disable('sgw-u'),
+
+    create_pdp_context(system_failure, Config),
+
+    ?equal([], outstanding_requests()),
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    meck_validate(Config),
+
+    ok = meck:delete(ergw_sx_socket, call, 5),
+    ok = meck:delete(ergw_proxy_lib, create_forward_session, 3),
     ok.
 
 %%%===================================================================

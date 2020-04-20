@@ -588,7 +588,10 @@ common() ->
      interop_sgw_to_sgsn,
      create_session_overload,
      session_accounting,
-     dns_node_selection
+     dns_node_selection,
+     sx_upf_reconnect,
+     sx_upf_removal,
+     sx_timeout
     ].
 
 common_groups() ->
@@ -2081,6 +2084,107 @@ dns_node_selection(Config) ->
     ok = meck:delete(?HUT, init, 2),
     ok.
 
+%%--------------------------------------------------------------------
+sx_upf_reconnect() ->
+    [{doc, "Test UPF reconnect behavior"}].
+sx_upf_reconnect(Config) ->
+    ok = meck:expect(ergw_proxy_lib, create_forward_session,
+		     fun(Candidates, Left, Right) ->
+			     try
+				 meck:passthrough([Candidates, Left, Right])
+			     catch
+				 throw:#ctx_err{} = CtxErr ->
+				     meck:exception(throw, CtxErr)
+			     end
+		     end),
+
+    {GtpCinit, _, _} = create_session(Config),
+    delete_session(GtpCinit),
+
+    ?equal([], outstanding_requests()),
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+
+    ergw_test_sx_up:restart('sgw-u'),
+    ct:pal("R1: ~p", [ergw_sx_node_reg:available()]),
+
+    %% expect the first request to fail
+    create_session(system_failure, Config),
+    ct:pal("R2: ~p", [ergw_sx_node_reg:available()]),
+
+    wait_for_all_sx_nodes(),
+    ct:pal("R3: ~p", [ergw_sx_node_reg:available()]),
+
+    %% the next should work
+    {GtpC2nd, _, _} = create_session(Config),
+    delete_session(GtpC2nd),
+
+    ?equal([], outstanding_requests()),
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+
+    meck_validate(Config),
+    ok = meck:delete(ergw_proxy_lib, create_forward_session, 3),
+    ok.
+
+%%--------------------------------------------------------------------
+sx_upf_removal() ->
+    [{doc, "Test UPF removal mid session"}].
+sx_upf_removal(Config) ->
+    Cntl = whereis(gtpc_client_server),
+
+    ok = meck:new(ergw_sx_node, [passthrough]),
+    %% reduce Sx timeout to speed up test
+    ok = meck:expect(ergw_sx_socket, call,
+		     fun(Peer, _T1, _N1, Msg, CbInfo) ->
+			     meck:passthrough([Peer, 100, 2, Msg, CbInfo])
+		     end),
+
+    {GtpC, _, _} = create_session(Config),
+
+    ergw_test_sx_up:disable('sgw-u'),
+
+    Req = recv_pdu(Cntl, 5000),
+    ?match(#gtp{type = delete_bearer_request}, Req),
+    Resp = make_response(Req, simple, GtpC),
+    send_pdu(Cntl, GtpC, Resp),
+
+    %% make sure the PGW -> SGW response doesn't bleed through
+    ?equal({error,timeout}, recv_pdu(Cntl, undefined, ?TIMEOUT, error)),
+
+    ?equal([], outstanding_requests()),
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+sx_timeout() ->
+    [{doc, "Check that a timeout on Sx leads to a proper error response"}].
+sx_timeout(Config) ->
+    %% reduce Sx timeout to speed up test
+    ok = meck:expect(ergw_sx_socket, call,
+		     fun(Peer, _T1, _N1, Msg, CbInfo) ->
+			     meck:passthrough([Peer, 100, 2, Msg, CbInfo])
+		     end),
+    ok = meck:expect(ergw_proxy_lib, create_forward_session,
+		     fun(Candidates, Left, Right) ->
+			     try
+				 meck:passthrough([Candidates, Left, Right])
+			     catch
+				 throw:#ctx_err{} = CtxErr ->
+				     meck:exception(throw, CtxErr)
+			     end
+		     end),
+    ergw_test_sx_up:disable('sgw-u'),
+
+    create_session(system_failure, Config),
+
+    ?equal([], outstanding_requests()),
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    meck_validate(Config),
+
+    ok = meck:delete(ergw_sx_socket, call, 5),
+    ok = meck:delete(ergw_proxy_lib, create_forward_session, 3),
+    ok.
 
 %%%===================================================================
 %%% Internal functions
