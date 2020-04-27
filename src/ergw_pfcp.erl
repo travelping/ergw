@@ -25,7 +25,6 @@
 	 get_urr_ids/1, get_urr_ids/2,
 	 find_urr_by_id/2]).
 -export([set_timer/3, apply_timers/2, timer_expired/2]).
--export([pfcp_rules_add/2]).
 
 -ifdef(TEST).
 -export([pfcp_rule_diff/2]).
@@ -246,22 +245,6 @@ timer_expired(TRef, #pfcp_ctx{timers = Ts, timer_by_tref = Ids} = PCtx0) ->
 	_ ->
 	    {[], PCtx0}
     end.
-
-%%%===================================================================
-%%% Manage PFCP rules in context
-%%%===================================================================
-
-pfcp_rules_add(Type, Key, Rule, #pfcp_ctx{sx_rules = Rules} = PCtx) ->
-    PCtx#pfcp_ctx{sx_rules = Rules#{{Type, Key} => Rule}}.
-
-pfcp_rules_add([], PCtx) ->
-    PCtx;
-pfcp_rules_add([{Type, Key, Rule}|T], PCtx)
-  when is_atom(Rule) ->
-    pfcp_rules_add(T, pfcp_rules_add(Type, Key, Rule, PCtx));
-pfcp_rules_add([{Type, Key, Rule0}|T], PCtx) ->
-    Rule = pfcp_packet:ies_to_map(Rule0),
-    pfcp_rules_add(T, pfcp_rules_add(Type, Key, Rule, PCtx)).
 
 %%%===================================================================
 %%% Translate PFCP state into Create/Modify/Delete rules

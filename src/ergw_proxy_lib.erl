@@ -211,7 +211,7 @@ proxy_pdr({SrcIntf, #context{local_data_endp = LocalDataEndp},
 	   ergw_pfcp:outer_header_removal(LocalDataEndp),
 	   #far_id{id = FarId},
 	   #urr_id{id = UrrId}],
-    ergw_pfcp:pfcp_rules_add([{pdr, PdrId, PDR}], PCtx).
+    ergw_pfcp_rules:add(pdr, PdrId, PDR, PCtx).
 
 proxy_far({_SrcIntf, _Left, DstIntf,
 	   #context{
@@ -230,13 +230,13 @@ proxy_far({_SrcIntf, _Left, DstIntf,
 		  ]
 	     }
 	  ],
-    ergw_pfcp:pfcp_rules_add([{far, FarId, FAR}], PCtx);
+    ergw_pfcp_rules:add(far, FarId, FAR, PCtx);
 proxy_far({_SrcIntf, _Left, DstIntf, _Right}, PCtx0) ->
     {FarId, PCtx} = ergw_pfcp:get_id(far, DstIntf, PCtx0),
     FAR = [#far_id{id = FarId},
 	   #apply_action{drop = 1}
 	  ],
-    ergw_pfcp:pfcp_rules_add([{far, FarId, FAR}], PCtx).
+    ergw_pfcp_rules:add(far, FarId, FAR, PCtx).
 
 proxy_urr(PCtx0) ->
     {UrrId, PCtx} = ergw_pfcp:get_id(urr, proxy, PCtx0),
@@ -244,7 +244,7 @@ proxy_urr(PCtx0) ->
 	   #measurement_method{volum = 1},
 	   #reporting_triggers{periodic_reporting = 1}
 	  ],
-    ergw_pfcp:pfcp_rules_add([{urr, UrrId, URR}], PCtx).
+    ergw_pfcp_rules:add(urr, UrrId, URR, PCtx).
 
 register_ctx_ids(#context{local_data_endp = LocalDataEndp},
 		 #pfcp_ctx{seid = #seid{cp = SEID}} = PCtx) ->
