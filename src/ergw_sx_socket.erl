@@ -112,12 +112,7 @@ seid() ->
 			 {ip, invalid},
 			 {burst_size, 10}]).
 
-validate_options(Values0) ->
-    Values = if is_list(Values0) ->
-		     proplists:unfold(Values0);
-		true ->
-		     Values0
-	     end,
+validate_options(Values) ->
      ergw_config:validate_options(fun validate_option/2, Values, ?SocketDefaults, map).
 
 validate_option(node, Value) when is_atom(Value) ->
