@@ -468,7 +468,7 @@ build_sx_ctx_rule(#sx_upd{
 	     }
 	  ],
     Update#sx_upd{
-      pctx = ergw_pfcp:pfcp_rules_add(
+      pctx = ergw_pfcp_rules:add(
 	       [{pdr, ipv6_mcast_pdr, PDR},
 		{far, dp_to_cp_far, FAR}], PCtx)};
 build_sx_ctx_rule(Update) ->
@@ -529,8 +529,7 @@ build_sx_offline_charging_rule(Name,
 
     ?LOG(warning, "Offline URR: ~p", [URR]),
     Update#sx_upd{
-      pctx = ergw_pfcp:pfcp_rules_add(
-	       [{urr, ChargingKey, URR}], PCtx)};
+      pctx = ergw_pfcp_rules:add(urr, ChargingKey, URR, PCtx)};
 
 build_sx_offline_charging_rule(_Name, _Definition, _PCC, Update) ->
     Update.
@@ -546,8 +545,7 @@ build_sx_online_charging_rule(Name, #{'Online' := [1]} = Definition,
 	end,
     ChargingKey = {online, RatingGroup},
     Update#sx_upd{
-      pctx = ergw_pfcp:pfcp_rules_add(
-	       [{urr, ChargingKey, needed}], PCtx)};
+      pctx = ergw_pfcp_rules:add(urr, ChargingKey, needed, PCtx)};
 build_sx_online_charging_rule(_Name, _Definition, _PCC, Update) ->
     Update.
 
@@ -681,7 +679,7 @@ build_sx_rule(Direction = downlink, Name, Definition, FilterInfo, URRs,
 	     }
 	  ],
     Update#sx_upd{
-      pctx = ergw_pfcp:pfcp_rules_add(
+      pctx = ergw_pfcp_rules:add(
 	       [{pdr, RuleName, PDR},
 		{far, RuleName, FAR}], PCtx)};
 
@@ -725,7 +723,7 @@ build_sx_rule(Direction = uplink, Name, Definition, FilterInfo, URRs,
     %% 	  ],
 
     Update#sx_upd{
-      pctx = ergw_pfcp:pfcp_rules_add(
+      pctx = ergw_pfcp_rules:add(
 	       [{pdr, RuleName, PDR},
 		{far, RuleName, FAR}], PCtx)};
 
@@ -761,7 +759,7 @@ build_sx_rule(Direction = downlink, Name, Definition, FilterInfo, URRs,
 	     }
 	  ],
     Update#sx_upd{
-      pctx = ergw_pfcp:pfcp_rules_add(
+      pctx = ergw_pfcp_rules:add(
 	       [{pdr, RuleName, PDR},
 		{far, RuleName, FAR}], PCtx)};
 
@@ -796,7 +794,7 @@ build_sx_rule(Direction = uplink, Name, Definition, FilterInfo, URRs,
 	      }
 	  ],
     Update#sx_upd{
-      pctx = ergw_pfcp:pfcp_rules_add(
+      pctx = ergw_pfcp_rules:add(
 	       [{pdr, RuleName, PDR},
 		{far, RuleName, FAR}], PCtx)};
 
@@ -972,8 +970,7 @@ build_sx_usage_rule(_K, #{'Rating-Group' := [RatingGroup],
 
     ?LOG(warning, "URR: ~p", [URR]),
     Update#sx_upd{
-      pctx = ergw_pfcp:pfcp_rules_add(
-	       [{urr, ChargingKey, URR}], PCtx)};
+      pctx = ergw_pfcp_rules:add(urr, ChargingKey, URR, PCtx)};
 build_sx_usage_rule(_, _, _, Update) ->
     Update.
 
@@ -997,8 +994,7 @@ build_sx_monitor_rule('IP-CAN', Service, {periodic, Time, _Opts} = _Definition,
     Monitors1 = update_m_key('IP-CAN', UrrId, Monitors0),
     Monitors = Monitors1#{{urr, UrrId}  => Service},
     Update#sx_upd{
-      pctx = ergw_pfcp:pfcp_rules_add(
-	       [{urr, RuleName, URR}], PCtx),
+      pctx = ergw_pfcp_rules:add(urr, RuleName, URR, PCtx),
       monitors = Monitors};
 
 build_sx_monitor_rule('Offline', Service, {periodic, Time, _Opts} = Definition,

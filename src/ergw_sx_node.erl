@@ -802,7 +802,7 @@ gen_per_feature_pfcp_rule('Access', #vrf{name = Name} = VRF,
 	     }
 	  ],
 
-    ergw_pfcp:pfcp_rules_add(
+    ergw_pfcp_rules:add(
       [{pdr, PdrId, PDR},
        {far, FarId, FAR}], PCtx);
 gen_per_feature_pfcp_rule('TDF-Source', #vrf{name = Name} = VRF,
@@ -836,7 +836,7 @@ gen_per_feature_pfcp_rule('TDF-Source', #vrf{name = Name} = VRF,
 	   #reporting_triggers{start_of_traffic = 1},
 	   #time_quota{quota = 60}],
 
-    ergw_pfcp:pfcp_rules_add(
+    ergw_pfcp_rules:add(
       [{pdr, PdrId, PDR},
        {far, FarId, FAR},
        {urr, UrrId, URR}], PCtx);
