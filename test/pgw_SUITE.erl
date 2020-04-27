@@ -1243,7 +1243,7 @@ simple_session_request(Config) ->
 			     }
 		       },
 		 far_id := #far_id{id = _},
-		 urr_id := #urr_id{id = _}
+		 urr_id := [#urr_id{id = _}|_]
 		}
 	  },
 	#create_pdr{
@@ -1266,7 +1266,7 @@ simple_session_request(Config) ->
 			     }
 		       },
 		 far_id := #far_id{id = _},
-		 urr_id := #urr_id{id = _}
+		 urr_id := [#urr_id{id = _}|_]
 		}
 	  }], PDRs),
 
@@ -1305,17 +1305,27 @@ simple_session_request(Config) ->
 	  }], FARs),
 
     ?match(
-       #create_urr{
-	  group =
-	      #{urr_id := #urr_id{id = _},
-		measurement_method :=
-		    #measurement_method{volum = 1}
-		%% measurement_period :=
-		%%     #measurement_period{period = 600},
-		%% reporting_triggers :=
-		%%     #reporting_triggers{periodic_reporting=1}
+       [#create_urr{
+	   group =
+	       #{urr_id := #urr_id{id = _},
+		 measurement_method :=
+		     #measurement_method{volum = 1, durat = 1},
+		reporting_triggers :=
+		    #reporting_triggers{}
 	       }
-	 }, URR),
+	  },
+	#create_urr{
+	   group =
+	       #{urr_id := #urr_id{id = _},
+		 measurement_method :=
+		     #measurement_method{volum = 1}
+		 %% measurement_period :=
+		 %%     #measurement_period{period = 600},
+		 %% reporting_triggers :=
+		 %%     #reporting_triggers{periodic_reporting=1}
+		}
+	  }
+       ], URR),
 
     meck_validate(Config),
     ok.
@@ -2610,7 +2620,16 @@ simple_aaa(Config) ->
     URR = lists:sort(maps:get(create_urr, SER#pfcp.ie)),
 
     ?match(
-       [%% offline charging URR
+       [%% IP-CAN offline URR
+	#create_urr{
+	   group =
+	       #{urr_id := #urr_id{id = _},
+		 measurement_method :=
+		     #measurement_method{volum = 1, durat = 1},
+		 reporting_triggers := #reporting_triggers{}
+		}
+	  },
+	%% offline charging URR
 	#create_urr{
 	   group =
 	       #{urr_id := #urr_id{id = _},
@@ -3003,14 +3022,23 @@ simple_ocs(Config) ->
 		   (_) ->false
 		end, ergw_test_sx_up:history('pgw-u01')),
 
-    [URR1, URR2] = lists:sort(maps:get(create_urr, SER#pfcp.ie)),
+    [URR1, URR2, URR3] = lists:sort(maps:get(create_urr, SER#pfcp.ie)),
+    ?match_map(
+       %% IP-CAN offline URR
+       #{urr_id => #urr_id{id = '_'},
+	 measurement_method =>
+	     #measurement_method{volum = 1, durat = 1},
+	 reporting_triggers => #reporting_triggers{}
+	}, URR1#create_urr.group),
+
     ?match_map(
        %% offline charging URR
        #{urr_id => #urr_id{id = '_'},
 	 measurement_method =>
 	     #measurement_method{volum = 1},
-	 reporting_triggers => #reporting_triggers{}
-	}, URR1#create_urr.group),
+	 reporting_triggers =>
+	     #reporting_triggers{linked_usage_reporting = 1}
+	}, URR2#create_urr.group),
 
     %% online charging URR
     ?match_map(
@@ -3019,6 +3047,7 @@ simple_ocs(Config) ->
 	     #measurement_method{volum = 1, durat = 1},
 	 reporting_triggers =>
 	     #reporting_triggers{
+		linked_usage_reporting = 1,
 		time_quota = 1,   time_threshold = 1,
 		volume_quota = 1, volume_threshold = 1},
 	 time_quota =>
@@ -3029,7 +3058,7 @@ simple_ocs(Config) ->
 	     #volume_quota{total = 102400},
 	 volume_threshold =>
 	     #volume_threshold{total = 92160}
-	}, URR2#create_urr.group),
+	}, URR3#create_urr.group),
 
     MatchSpec = ets:fun2ms(fun({Id, {'online', _}}) -> Id end),
     Report =
@@ -4360,7 +4389,7 @@ redirect_info(Config) ->
 			     }
 		       },
 		 far_id := #far_id{id = _},
-		 urr_id := #urr_id{id = _}
+		 urr_id := [#urr_id{id = _}|_]
 		}
 	  },
 	#create_pdr{
@@ -4383,7 +4412,7 @@ redirect_info(Config) ->
 			     }
 		       },
 		 far_id := #far_id{id = _},
-		 urr_id := #urr_id{id = _}
+		 urr_id := [#urr_id{id = _}|_]
 		}
 	  }], PDRs),
 
@@ -4425,13 +4454,23 @@ redirect_info(Config) ->
 	  }], FARs),
 
     ?match(
-       #create_urr{
-	  group =
-	      #{urr_id := #urr_id{id = _},
-		measurement_method :=
-		    #measurement_method{volum = 1}
-	       }
-	 }, URR),
+       [#create_urr{
+	   group =
+	       #{urr_id := #urr_id{id = _},
+		 measurement_method :=
+		    #measurement_method{volum = 1, durat = 1},
+		 reporting_triggers :=
+		     #reporting_triggers{}
+		}
+	  },
+	#create_urr{
+	   group =
+	       #{urr_id := #urr_id{id = _},
+		 measurement_method :=
+		     #measurement_method{volum = 1}
+		}
+	  }
+       ], URR),
 
     meck_validate(Config),
     ok.
@@ -4674,7 +4713,7 @@ tdf_app_id(Config) ->
 			     }
 		       },
 		 far_id := #far_id{id = _},
-		 urr_id := #urr_id{id = _}
+		 urr_id := [#urr_id{id = _}|_]
 		}
 	  },
 	#create_pdr{
@@ -4695,7 +4734,7 @@ tdf_app_id(Config) ->
 			     }
 		       },
 		 far_id := #far_id{id = _},
-		 urr_id := #urr_id{id = _}
+		 urr_id := [#urr_id{id = _}|_]
 		}
 	  }], PDRs),
 
@@ -4734,13 +4773,23 @@ tdf_app_id(Config) ->
 	  }], FARs),
 
     ?match(
-       #create_urr{
-	  group =
-	      #{urr_id := #urr_id{id = _},
-		measurement_method :=
-		    #measurement_method{volum = 1}
-	       }
-	 }, URR),
+       [#create_urr{
+	   group =
+	       #{urr_id := #urr_id{id = _},
+		 measurement_method :=
+		     #measurement_method{volum = 1, durat = 1},
+		 reporting_triggers :=
+		     #reporting_triggers{}
+		}
+	  },
+	#create_urr{
+	   group =
+	       #{urr_id := #urr_id{id = _},
+		 measurement_method :=
+		     #measurement_method{volum = 1}
+		}
+	  }
+       ], URR),
 
     meck_validate(Config),
     ok.
