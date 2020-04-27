@@ -280,7 +280,8 @@
 			 }},
 		       {<<"m2m0001">>, [<<"r-0001">>]},
 		       {<<"m2m0002">>, [<<"r-0002">>]},
-		       {<<"m2m0001-split">>, [<<"r-0001-split">>, <<"r-0002-split">>]}
+		       {<<"m2m0001-split1">>, [<<"r-0001-split">>, <<"r-0002-split">>]},
+		       {<<"m2m0001-split2">>, [<<"r-0001">>, <<"r-0001-split">>, <<"r-0002-split">>]}
 		      ]}
 		     ]}
 		  ]},
@@ -319,10 +320,15 @@
 			'Charging-Rule-Install' =>
 			    [#{'Charging-Rule-Base-Name' => [<<"m2m0001">>]}]
 		       },
-		  'Initial-Gx-Split' =>
+		  'Initial-Gx-Split1' =>
 		      #{'Result-Code' => 2001,
 			'Charging-Rule-Install' =>
-			    [#{'Charging-Rule-Base-Name' => [<<"m2m0001-split">>]}]
+			    [#{'Charging-Rule-Base-Name' => [<<"m2m0001-split1">>]}]
+		       },
+		  'Initial-Gx-Split2' =>
+		      #{'Result-Code' => 2001,
+			'Charging-Rule-Install' =>
+			    [#{'Charging-Rule-Base-Name' => [<<"m2m0001-split2">>]}]
 		       },
 		  'Initial-Gx-Redirect' =>
 		      #{'Result-Code' => 2001,
@@ -632,7 +638,8 @@ common() ->
      simple_ofcs,
      secondary_rat_usage_data_report,
      simple_ocs,
-     split_charging,
+     split_charging1,
+     split_charging2,
      aa_pool_select,
      aa_pool_select_fail,
      tariff_time_change,
@@ -808,10 +815,18 @@ init_per_testcase(TestCase, Config)
 			    {{gy, 'CCR-Update'},  'Update-OCS'}]),
     Config;
 init_per_testcase(TestCase, Config)
-  when TestCase == split_charging ->
+  when TestCase == split_charging1 ->
     setup_per_testcase(Config),
     set_online_charging(true),
-    load_aaa_answer_config([{{gx, 'CCR-Initial'}, 'Initial-Gx-Split'},
+    load_aaa_answer_config([{{gx, 'CCR-Initial'}, 'Initial-Gx-Split1'},
+			    {{gy, 'CCR-Initial'}, 'Initial-OCS'},
+			    {{gy, 'CCR-Update'},  'Update-OCS'}]),
+    Config;
+init_per_testcase(TestCase, Config)
+  when TestCase == split_charging2 ->
+    setup_per_testcase(Config),
+    set_online_charging(true),
+    load_aaa_answer_config([{{gx, 'CCR-Initial'}, 'Initial-Gx-Split2'},
 			    {{gy, 'CCR-Initial'}, 'Initial-OCS'},
 			    {{gy, 'CCR-Update'},  'Update-OCS'}]),
     Config;
@@ -3044,9 +3059,10 @@ simple_ocs(Config) ->
     ok.
 
 %%--------------------------------------------------------------------
-split_charging() ->
-    [{doc, "Used different Rating-Groups for Online and Offline charging"}].
-split_charging(Config) ->
+split_charging1() ->
+    [{doc, "Used different Rating-Groups for Online and Offline charging, "
+      "without catch all PCC rules/RG"}].
+split_charging1(Config) ->
     Interim = rand:uniform(1800) + 1800,
     AAAReply = #{'Acct-Interim-Interval' => [Interim]},
 
@@ -3137,19 +3153,37 @@ split_charging(Config) ->
 	     #reporting_triggers{linked_usage_reporting = 1}
 	}, L2#create_urr.group),
 
+    %% Session Report Sequence
+    %% - Start
+    %% - 3 volume threshold exhaused
+    %% - periodic reporting
+    %% - 3 volume threshold exhaused
+    %% - Stop
+
     StartTS = calendar:datetime_to_gregorian_seconds({{2020,2,20},{13,24,00}})
 	- ?SECONDS_FROM_0_TO_1970,
 
-    OffReport =
-	[#volume_measurement{total = 5, uplink = 2, downlink = 3},
-	 #time_of_first_packet{time = ergw_sx_node:seconds_to_sntp_time(StartTS + 24)},
-	 #time_of_last_packet{time = ergw_sx_node:seconds_to_sntp_time(StartTS + 180)},
-	 #start_time{time = ergw_sx_node:seconds_to_sntp_time(StartTS)},
-	 #end_time{time = ergw_sx_node:seconds_to_sntp_time(StartTS + 600)},
-	 #tp_packet_measurement{total = 12, uplink = 5, downlink = 7}],
+    MakeReportFun =
+	fun(ReportFun, GenFun, BaseTS, Duration, Slot) ->
+		fun(Id, Report) ->
+			ReportFun(fun () -> GenFun(BaseTS, Duration, Slot) end, Id, Report)
+		end
+	end,
 
-    ReportFun =
-	fun({Id, {offline, Type}}, Reports) ->
+    OffReportGen =
+	fun(BaseTS, Duration, Slot) ->
+		[#volume_measurement{total = Slot, uplink = 2 * Slot, downlink = 3 * Slot},
+		 #time_of_first_packet{
+		    time = ergw_sx_node:seconds_to_sntp_time(BaseTS + Slot)},
+		 #time_of_last_packet{
+		    time = ergw_sx_node:seconds_to_sntp_time(BaseTS + Duration - Slot)},
+		 #start_time{time = ergw_sx_node:seconds_to_sntp_time(BaseTS)},
+		 #end_time{time = ergw_sx_node:seconds_to_sntp_time(BaseTS + Duration)},
+		 #tp_packet_measurement{total = Slot, uplink = 2 * Slot, downlink = 3 * Slot}]
+	end,
+
+    OffReportFun =
+	fun(Gen, {Id, {offline, Type}}, Reports) ->
 		Trigger =
 		    case Type of
 			RG when is_integer(RG) ->
@@ -3157,24 +3191,69 @@ split_charging(Config) ->
 			'IP-CAN' ->
 			    #usage_report_trigger{perio = 1}
 		    end,
-		[#usage_report_srr{group = [#urr_id{id = Id}, Trigger|OffReport]}|Reports];
-	   (_, Reports) ->
+		[#usage_report_srr{group = [#urr_id{id = Id}, Trigger
+					   | Gen()]}|Reports];
+	   (_, _, Reports) ->
 		Reports
 	end,
-    MatchSpec = ets:fun2ms(fun(Id) -> Id end),
-    ergw_test_sx_up:usage_report('pgw-u01', PCtx, MatchSpec, ReportFun),
+    OffMatchSpec = ets:fun2ms(fun(Id) -> Id end),
+    OffReport =
+	fun(BaseTS, Duration, Slot) ->
+		MakeReportFun(OffReportFun, OffReportGen, BaseTS, Duration, Slot)
+	end,
 
-    OnReport =
-	[#usage_report_trigger{volqu = 1},
-	 #volume_measurement{total = 8, uplink = 13, downlink = 21},
-	 #time_of_first_packet{time = ergw_sx_node:seconds_to_sntp_time(StartTS + 24)},
-	 #time_of_last_packet{time = ergw_sx_node:seconds_to_sntp_time(StartTS + 180)},
-	 #start_time{time = ergw_sx_node:seconds_to_sntp_time(StartTS)},
-	 #end_time{time = ergw_sx_node:seconds_to_sntp_time(StartTS + 600)},
-	 #tp_packet_measurement{total = 24, uplink = 55, downlink = 89}],
-
+    OnReportGen =
+	fun (BaseTS, Duration, Slot) ->
+		[#usage_report_trigger{volqu = 1},
+		 #volume_measurement{
+		    total = Slot, uplink = 2 * Slot, downlink = 3 * Slot},
+		 #time_of_first_packet{
+		    time = ergw_sx_node:seconds_to_sntp_time(BaseTS + Slot)},
+		 #time_of_last_packet{
+		    time = ergw_sx_node:seconds_to_sntp_time(BaseTS + Duration - Slot)},
+		 #start_time{time = ergw_sx_node:seconds_to_sntp_time(BaseTS)},
+		 #end_time{time = ergw_sx_node:seconds_to_sntp_time(BaseTS + Duration)},
+		 #tp_packet_measurement{
+		    total = Slot, uplink = 2 * Slot, downlink = 3 * Slot}]
+	end,
+    OnReportFun =
+	fun(Gen, Id, Reports) ->
+		[#usage_report_srr{group = [#urr_id{id = Id}
+					   | Gen()]}|Reports]
+	end,
     OnMatchSpec = ets:fun2ms(fun({Id, {'online', _}}) -> Id end),
-    ergw_test_sx_up:usage_report('pgw-u01', PCtx, OnMatchSpec, OnReport),
+    OnReport =
+	fun(BaseTS, Duration, Slot) ->
+		MakeReportFun(OnReportFun, OnReportGen, BaseTS, Duration, Slot)
+	end,
+
+
+    %% volume threshold exhaused
+    ergw_test_sx_up:usage_report('pgw-u01', PCtx, OnMatchSpec,
+				 OnReport(StartTS, 30, 1)),
+    ct:sleep(10),
+    ergw_test_sx_up:usage_report('pgw-u01', PCtx, OnMatchSpec,
+				 OnReport(StartTS + 30, 30, 2)),
+    ct:sleep(10),
+    ergw_test_sx_up:usage_report('pgw-u01', PCtx, OnMatchSpec,
+				 OnReport(StartTS + 60, 30, 3)),
+    ct:sleep(10),
+
+    %% periodic reporting
+    ergw_test_sx_up:usage_report('pgw-u01', PCtx, OffMatchSpec,
+				 OffReport(StartTS, 90, 4)),
+    ct:sleep(10),
+
+    %% volume threshold exhaused
+    ergw_test_sx_up:usage_report('pgw-u01', PCtx, OnMatchSpec,
+				 OnReport(StartTS, 90, 5)),
+    ct:sleep(10),
+    ergw_test_sx_up:usage_report('pgw-u01', PCtx, OnMatchSpec,
+				 OnReport(StartTS + 120, 30, 6)),
+    ct:sleep(10),
+    ergw_test_sx_up:usage_report('pgw-u01', PCtx, OnMatchSpec,
+				 OnReport(StartTS + 150, 30, 7)),
+    ct:sleep(10),
 
     ct:sleep(100),
     delete_session(GtpC),
@@ -3211,18 +3290,18 @@ split_charging(Config) ->
 	 'Accounting-Input-Octets' => ['_'],
 	 'Accounting-Output-Octets' => ['_'],
 	 'Change-Condition' => [4],
-	 'Change-Time'      => [{{2020,2,20},{13,34,00}}],  %% StartTS + 600s
-	 'Time-First-Usage' => [{{2020,2,20},{13,24,24}}],  %% StartTS +  24s
-	 'Time-Last-Usage'  => [{{2020,2,20},{13,27,00}}]   %% StartTS + 180s
+	 'Change-Time'      => [{{2020,2,20},{13,25,30}}],  %% StartTS +  90s
+	 'Time-First-Usage' => [{{2020,2,20},{13,24,04}}],  %% StartTS +   4s
+	 'Time-Last-Usage'  => [{{2020,2,20},{13,25,26}}]   %% StartTS +  86s
 	}, SiSD1),
     ?match_map(
        #{'Rating-Group' => [3002],
 	 'Accounting-Input-Octets' => ['_'],
 	 'Accounting-Output-Octets' => ['_'],
 	 'Change-Condition' => [4],
-	 'Change-Time'      => [{{2020,2,20},{13,34,00}}],  %% StartTS + 600s
-	 'Time-First-Usage' => [{{2020,2,20},{13,24,24}}],  %% StartTS +  24s
-	 'Time-Last-Usage'  => [{{2020,2,20},{13,27,00}}]   %% StartTS + 180s
+	 'Change-Time'      => [{{2020,2,20},{13,25,30}}],  %% StartTS +  90s
+	 'Time-First-Usage' => [{{2020,2,20},{13,24,04}}],  %% StartTS +   4s
+	 'Time-Last-Usage'  => [{{2020,2,20},{13,25,26}}]   %% StartTS +  86s
 	}, SiSD2),
 
     StopSD = lists:sort(maps:get(service_data, Stop)),
@@ -3241,6 +3320,15 @@ split_charging(Config) ->
 	 'Change-Condition' => [0]
 	}, SSD2),
 
+    StopTD = lists:sort(maps:get(traffic_data, Stop)),
+    ?equal(1, length(StopTD)),
+    [STD] = StopTD,
+    ?match_map(
+       #{'Accounting-Input-Octets' => ['_'],
+	 'Accounting-Output-Octets' => ['_'],
+	 'Change-Condition' => [0]
+	}, STD),
+
     CCR =
 	lists:filter(
 	  fun({_, {ergw_aaa_session, invoke, [_, _, {gy,_}, _]}, _}) ->
@@ -3248,9 +3336,355 @@ split_charging(Config) ->
 	     (_) ->
 		  false
 	  end, H),
-    ?match(X when X == 3, length(CCR)),
+    ?match(X when X == 8, length(CCR)),
 
-    [GyStart, GyInterim, GyStop] =
+    [GyStart, GyInterim, _, _, _, _, _, GyStop] =
+	lists:map(fun({_, {_, _, [_, SOpts, _, _]}, _}) -> SOpts end, CCR),
+
+    ?match_map(
+       #{credits => #{3000 => empty}}, GyStart),
+    ?equal(false, maps:is_key('used_credits', GyStart)),
+
+    ?match_map(
+       #{credits => #{3000 => empty},
+	 used_credits =>
+	     [{3000,
+	       #{'CC-Input-Octets'  => ['_'],
+		 'CC-Output-Octets' => ['_'],
+		 'CC-Total-Octets'  => ['_'],
+		 'Reporting-Reason' => [3]}}]
+	}, GyInterim),
+
+    ?match_map(
+       #{'Termination-Cause' => 1,
+	 used_credits =>
+	     [{3000,
+	       #{'CC-Input-Octets'  => ['_'],
+		 'CC-Output-Octets' => ['_'],
+		 'CC-Total-Octets'  => ['_'],
+		 'Reporting-Reason' => [2]}}]
+	}, GyStop),
+    ?equal(false, maps:is_key('credits', GyStop)),
+
+    ?equal([], outstanding_requests()),
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+split_charging2() ->
+    [{doc, "Used different Rating-Groups for Online and Offline charging, "
+      "with catch all PCC rules/RG"}].
+split_charging2(Config) ->
+    Interim = rand:uniform(1800) + 1800,
+    AAAReply = #{'Acct-Interim-Interval' => [Interim]},
+
+    ok = meck:expect(ergw_aaa_session, invoke,
+		     fun (Session, SessionOpts, {rf, 'Initial'} = Procedure, Opts) ->
+			     {_, SIn, EvIn} =
+				 meck:passthrough([Session, SessionOpts, Procedure, Opts]),
+			     {SOut, EvOut} =
+				 ergw_aaa_rf:to_session({rf, 'ACA'}, {SIn, EvIn}, AAAReply),
+			     {ok, SOut, EvOut};
+			 (Session, SessionOpts, Procedure, Opts) ->
+			     meck:passthrough([Session, SessionOpts, Procedure, Opts])
+		     end),
+
+    {GtpC, _, _} = create_session(Config),
+
+    {_Handler, Server} = gtp_context_reg:lookup({'irx-socket', {imsi, ?'IMSI', 5}}),
+    true = is_pid(Server),
+    {ok, PCtx} = gtp_context:test_cmd(Server, pfcp_ctx),
+
+    [SER|_] = lists:filter(
+		fun(#pfcp{type = session_establishment_request}) -> true;
+		   (_) ->false
+		end, ergw_test_sx_up:history('pgw-u01')),
+
+    PDRs = lists:filter(
+	     fun(#create_pdr{group = #{urr_id := UIds}}) ->
+		     is_list(UIds) andalso length(UIds) > 1;
+		(_) -> false end,
+	     maps:get(create_pdr, SER#pfcp.ie)),
+    ?equal(6, length(PDRs)),
+
+    {URRs, Linked} =
+	lists:partition(fun(X) -> not maps:is_key(linked_urr_id, X#create_urr.group) end,
+			maps:get(create_urr, SER#pfcp.ie)),
+    ?equal(1, length(URRs)),
+    ?equal(4, length(Linked)),
+
+    URR1 = hd(URRs),
+    ?match_map(
+       %% offline charging URR for Traffic Volume Container
+       #{urr_id => #urr_id{id = '_'},
+	 measurement_method =>
+	     #measurement_method{volum = 1, durat = 1},
+	 measurement_period =>
+	     #measurement_period{period = Interim},
+	 reporting_triggers =>
+	     #reporting_triggers{periodic_reporting = 1}
+	}, URR1#create_urr.group),
+
+    [L1, L2, L3, L4] = lists:sort(Linked),
+    ?match_map(
+       %% offline charging URR for Rating Group
+       #{urr_id => #urr_id{id = '_'},
+	 linked_urr_id => #linked_urr_id{id = '_'},
+	 measurement_method =>
+	     #measurement_method{volum = 1},
+	 reporting_triggers =>
+	     #reporting_triggers{linked_usage_reporting = 1}
+	}, L1#create_urr.group),
+
+    ?match_map(
+       %% offline charging URR for Rating Group
+       #{urr_id => #urr_id{id = '_'},
+	 linked_urr_id => #linked_urr_id{id = '_'},
+	 measurement_method =>
+	     #measurement_method{volum = 1},
+	 reporting_triggers =>
+	     #reporting_triggers{linked_usage_reporting = 1}
+	}, L2#create_urr.group),
+
+    ct:pal("L3: ~p", [L3]),
+    ct:pal("L4: ~p", [L4]),
+    ?match_map(
+       %% offline charging URR for Rating Group
+       #{urr_id => #urr_id{id = '_'},
+	 linked_urr_id => #linked_urr_id{id = '_'},
+	 measurement_method =>
+	     #measurement_method{volum = 1},
+	 reporting_triggers =>
+	     #reporting_triggers{linked_usage_reporting = 1}
+	}, L3#create_urr.group),
+
+    ?match_map(
+       %% online only charging URR
+       #{urr_id => #urr_id{id = '_'},
+	 linked_urr_id => #linked_urr_id{id = '_'},
+	 measurement_method =>
+	     #measurement_method{volum = 1, durat = 1},
+	 reporting_triggers =>
+	     #reporting_triggers{
+		time_quota = 1, time_threshold = 1,
+		volume_quota = 1, volume_threshold = 1,
+		linked_usage_reporting = 1},
+	 time_quota =>
+	     #time_quota{quota = 3600},
+	 time_threshold =>
+	     #time_threshold{threshold = 3540},
+	 volume_quota =>
+	     #volume_quota{total = 102400},
+	 volume_threshold =>
+	     #volume_threshold{total = 92160}
+	}, L4#create_urr.group),
+
+    %% Session Report Sequence
+    %% - Start
+    %% - 3 volume threshold exhaused
+    %% - periodic reporting
+    %% - 3 volume threshold exhaused
+    %% - Stop
+
+    StartTS = calendar:datetime_to_gregorian_seconds({{2020,2,20},{13,24,00}})
+	- ?SECONDS_FROM_0_TO_1970,
+
+    MakeReportFun =
+	fun(ReportFun, GenFun, BaseTS, Duration, Slot) ->
+		fun(Id, Report) ->
+			ReportFun(fun () -> GenFun(BaseTS, Duration, Slot) end, Id, Report)
+		end
+	end,
+
+    OffReportGen =
+	fun(BaseTS, Duration, Slot) ->
+		[#volume_measurement{total = Slot, uplink = 2 * Slot, downlink = 3 * Slot},
+		 #time_of_first_packet{
+		    time = ergw_sx_node:seconds_to_sntp_time(BaseTS + Slot)},
+		 #time_of_last_packet{
+		    time = ergw_sx_node:seconds_to_sntp_time(BaseTS + Duration - Slot)},
+		 #start_time{time = ergw_sx_node:seconds_to_sntp_time(BaseTS)},
+		 #end_time{time = ergw_sx_node:seconds_to_sntp_time(BaseTS + Duration)},
+		 #tp_packet_measurement{total = Slot, uplink = 2 * Slot, downlink = 3 * Slot}]
+	end,
+
+    OffReportFun =
+	fun(Gen, {Id, {offline, Type}}, Reports) ->
+		Trigger =
+		    case Type of
+			RG when is_integer(RG) ->
+			    #usage_report_trigger{liusa = 1};
+			'IP-CAN' ->
+			    #usage_report_trigger{perio = 1}
+		    end,
+		[#usage_report_srr{group = [#urr_id{id = Id}, Trigger
+					   | Gen()]}|Reports];
+	   (_, _, Reports) ->
+		Reports
+	end,
+    OffMatchSpec = ets:fun2ms(fun(Id) -> Id end),
+    OffReport =
+	fun(BaseTS, Duration, Slot) ->
+		MakeReportFun(OffReportFun, OffReportGen, BaseTS, Duration, Slot)
+	end,
+
+    OnReportGen =
+	fun (BaseTS, Duration, Slot) ->
+		[#usage_report_trigger{volqu = 1},
+		 #volume_measurement{
+		    total = Slot, uplink = 2 * Slot, downlink = 3 * Slot},
+		 #time_of_first_packet{
+		    time = ergw_sx_node:seconds_to_sntp_time(BaseTS + Slot)},
+		 #time_of_last_packet{
+		    time = ergw_sx_node:seconds_to_sntp_time(BaseTS + Duration - Slot)},
+		 #start_time{time = ergw_sx_node:seconds_to_sntp_time(BaseTS)},
+		 #end_time{time = ergw_sx_node:seconds_to_sntp_time(BaseTS + Duration)},
+		 #tp_packet_measurement{
+		    total = Slot, uplink = 2 * Slot, downlink = 3 * Slot}]
+	end,
+    OnReportFun =
+	fun(Gen, Id, Reports) ->
+		[#usage_report_srr{group = [#urr_id{id = Id}
+					   | Gen()]}|Reports]
+	end,
+    OnMatchSpec = ets:fun2ms(fun({Id, {'online', _}}) -> Id end),
+    OnReport =
+	fun(BaseTS, Duration, Slot) ->
+		MakeReportFun(OnReportFun, OnReportGen, BaseTS, Duration, Slot)
+	end,
+
+
+    %% volume threshold exhaused
+    ergw_test_sx_up:usage_report('pgw-u01', PCtx, OnMatchSpec,
+				 OnReport(StartTS, 30, 1)),
+    ct:sleep(10),
+    ergw_test_sx_up:usage_report('pgw-u01', PCtx, OnMatchSpec,
+				 OnReport(StartTS + 30, 30, 2)),
+    ct:sleep(10),
+    ergw_test_sx_up:usage_report('pgw-u01', PCtx, OnMatchSpec,
+				 OnReport(StartTS + 60, 30, 3)),
+    ct:sleep(10),
+
+    %% periodic reporting
+    ergw_test_sx_up:usage_report('pgw-u01', PCtx, OffMatchSpec,
+				 OffReport(StartTS, 90, 4)),
+    ct:sleep(10),
+
+    %% volume threshold exhaused
+    ergw_test_sx_up:usage_report('pgw-u01', PCtx, OnMatchSpec,
+				 OnReport(StartTS, 90, 5)),
+    ct:sleep(10),
+    ergw_test_sx_up:usage_report('pgw-u01', PCtx, OnMatchSpec,
+				 OnReport(StartTS + 120, 30, 6)),
+    ct:sleep(10),
+    ergw_test_sx_up:usage_report('pgw-u01', PCtx, OnMatchSpec,
+				 OnReport(StartTS + 150, 30, 7)),
+    ct:sleep(10),
+
+    ct:sleep(100),
+    delete_session(GtpC),
+    ct:sleep(10),
+
+    H = meck:history(ergw_aaa_session),
+    SInv =
+	lists:filter(
+	  fun({_, {ergw_aaa_session, invoke, [_, _, {rf, _}, _]}, _}) ->
+		  true;
+	     ({_, {ergw_aaa_session, invoke, [_, _, stop, _]}, _}) ->
+		  true;
+	     (_) ->
+		  false
+	  end, H),
+    ?match(X when X == 4, length(SInv)),
+
+    [Start, SInterim, AcctStop, Stop] =
+	lists:map(fun({_, {_, _, [_, SOpts, _, _]}, _}) -> SOpts end, SInv),
+
+    ?equal(false, maps:is_key('service_data', Start)),
+    ?equal(false, maps:is_key('service_data', AcctStop)),
+    ?equal(true, maps:is_key('service_data', Stop)),
+
+    ?equal(false, maps:is_key('traffic_data', Start)),
+    ?equal(false, maps:is_key('traffic_data', AcctStop)),
+    ?equal(true, maps:is_key('traffic_data', Stop)),
+
+    SInterimSD = lists:sort(maps:get(service_data, SInterim)),
+    ct:pal("SInterimSD: ~p", [SInterimSD]),
+    ?equal(3, length(SInterimSD)),
+    [SiSD1, SiSD2, SiSD3] = SInterimSD,
+    ?match_map(
+       #{'Rating-Group' => [3000],
+	 'Accounting-Input-Octets' => ['_'],
+	 'Accounting-Output-Octets' => ['_'],
+	 'Change-Condition' => [4],
+	 'Change-Time'      => [{{2020,2,20},{13,25,30}}],  %% StartTS +  90s
+	 'Time-First-Usage' => [{{2020,2,20},{13,24,04}}],  %% StartTS +   4s
+	 'Time-Last-Usage'  => [{{2020,2,20},{13,25,26}}]   %% StartTS +  86s
+	}, SiSD1),
+    ?match_map(
+       #{'Rating-Group' => [3001],
+	 'Accounting-Input-Octets' => ['_'],
+	 'Accounting-Output-Octets' => ['_'],
+	 'Change-Condition' => [4],
+	 'Change-Time'      => [{{2020,2,20},{13,25,30}}],  %% StartTS +  90s
+	 'Time-First-Usage' => [{{2020,2,20},{13,24,04}}],  %% StartTS +   4s
+	 'Time-Last-Usage'  => [{{2020,2,20},{13,25,26}}]   %% StartTS +  86s
+	}, SiSD2),
+    ?match_map(
+       #{'Rating-Group' => [3002],
+	 'Accounting-Input-Octets' => ['_'],
+	 'Accounting-Output-Octets' => ['_'],
+	 'Change-Condition' => [4],
+	 'Change-Time'      => [{{2020,2,20},{13,25,30}}],  %% StartTS +  90s
+	 'Time-First-Usage' => [{{2020,2,20},{13,24,04}}],  %% StartTS +   4s
+	 'Time-Last-Usage'  => [{{2020,2,20},{13,25,26}}]   %% StartTS +  86s
+	}, SiSD3),
+
+    StopSD = lists:sort(maps:get(service_data, Stop)),
+    ct:pal("StopSD: ~p", [StopSD]),
+   ?equal(3, length(StopSD)),
+    [SSD1, SSD2, SSD3] = StopSD,
+    ?match_map(
+       #{'Rating-Group' => [3000],
+	 'Accounting-Input-Octets' => ['_'],
+	 'Accounting-Output-Octets' => ['_'],
+	 'Change-Condition' => [0]
+	}, SSD1),
+    ?match_map(
+       #{'Rating-Group' => [3001],
+	 'Accounting-Input-Octets' => ['_'],
+	 'Accounting-Output-Octets' => ['_'],
+	 'Change-Condition' => [0]
+	}, SSD2),
+    ?match_map(
+       #{'Rating-Group' => [3002],
+	 'Accounting-Input-Octets' => ['_'],
+	 'Accounting-Output-Octets' => ['_'],
+	 'Change-Condition' => [0]
+	}, SSD3),
+
+    StopTD = lists:sort(maps:get(traffic_data, Stop)),
+    ct:pal("StopTD: ~p", [StopTD]),
+    ?equal(1, length(StopTD)),
+    [STD] = StopTD,
+    ?match_map(
+       #{'Accounting-Input-Octets' => ['_'],
+	 'Accounting-Output-Octets' => ['_'],
+	 'Change-Condition' => [0]
+	}, STD),
+
+    CCR =
+	lists:filter(
+	  fun({_, {ergw_aaa_session, invoke, [_, _, {gy,_}, _]}, _}) ->
+		  true;
+	     (_) ->
+		  false
+	  end, H),
+    ?match(X when X == 8, length(CCR)),
+
+    [GyStart, GyInterim, _, _, _, _, _, GyStop] =
 	lists:map(fun({_, {_, _, [_, SOpts, _, _]}, _}) -> SOpts end, CCR),
 
     ?match_map(
