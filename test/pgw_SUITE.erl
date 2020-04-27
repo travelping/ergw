@@ -636,6 +636,7 @@ common() ->
      gy_validity_timer,
      simple_aaa,
      simple_ofcs,
+     ofcs_no_interim,
      secondary_rat_usage_data_report,
      simple_ocs,
      split_charging1,
@@ -899,6 +900,7 @@ end_per_testcase(TestCase, Config)
        TestCase == gy_ccr_asr_overlap;
        TestCase == simple_aaa;
        TestCase == simple_ofcs;
+       TestCase == ofcs_no_interim;
        TestCase == tariff_time_change ->
     ok = meck:delete(ergw_aaa_session, start_link, 2),
     ok = meck:delete(ergw_aaa_session, invoke, 4),
@@ -2703,6 +2705,7 @@ simple_ofcs(Config) ->
 		fun(#pfcp{type = session_establishment_request}) -> true;
 		   (_) ->false
 		end, ergw_test_sx_up:history('pgw-u01')),
+    ?equal(2, length(maps:get(create_urr, SER#pfcp.ie))),
 
     {[URR], [Linked]} =
 	lists:partition(fun(X) -> not maps:is_key(linked_urr_id, X#create_urr.group) end,
@@ -2800,6 +2803,107 @@ simple_ofcs(Config) ->
 	 'Change-Condition' => [4],
 	 'Change-Time'      => [{{2020,2,20},{13,34,00}}]   %% StartTS + 600s
 	}, hd(SInterimTD)),
+
+    StopSD = maps:get(service_data, Stop),
+    ?match([_], StopSD),
+    ?match_map(
+       #{'Accounting-Input-Octets' => ['_'],
+	 'Accounting-Output-Octets' => ['_'],
+	 'Change-Condition' => [0]
+	}, hd(StopSD)),
+    StopTD = maps:get(traffic_data, Stop),
+    ?match([_], StopTD),
+    ?match_map(
+       #{'3GPP-Charging-Id' => ['_'],
+	 'Accounting-Input-Octets' => ['_'],
+	 'Accounting-Output-Octets' => ['_'],
+	 'Change-Condition' => [0]
+	}, hd(StopTD)),
+
+    ?equal([], outstanding_requests()),
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+ofcs_no_interim() ->
+    [{doc, "Check that OFCS reporting also works without Acct-Interim-Interval"}].
+ofcs_no_interim(Config) ->
+    AAAReply = #{},
+
+    ok = meck:expect(ergw_aaa_session, invoke,
+		     fun (Session, SessionOpts, {rf, 'Initial'} = Procedure, Opts) ->
+			     {_, SIn, EvIn} =
+				 meck:passthrough([Session, SessionOpts, Procedure, Opts]),
+			     {SOut, EvOut} =
+				 ergw_aaa_rf:to_session({rf, 'ACA'}, {SIn, EvIn}, AAAReply),
+			     {ok, SOut, EvOut};
+			 (Session, SessionOpts, Procedure, Opts) ->
+			     meck:passthrough([Session, SessionOpts, Procedure, Opts])
+		     end),
+
+    {GtpC, _, _} = create_session(Config),
+
+    {_Handler, Server} = gtp_context_reg:lookup({'irx-socket', {imsi, ?'IMSI', 5}}),
+    true = is_pid(Server),
+    {ok, PCtx} = gtp_context:test_cmd(Server, pfcp_ctx),
+
+    [SER|_] = lists:filter(
+		fun(#pfcp{type = session_establishment_request}) -> true;
+		   (_) ->false
+		end, ergw_test_sx_up:history('pgw-u01')),
+    ?equal(2, length(maps:get(create_urr, SER#pfcp.ie))),
+
+    {[URR], [Linked]} =
+	lists:partition(fun(X) -> not maps:is_key(linked_urr_id, X#create_urr.group) end,
+			maps:get(create_urr, SER#pfcp.ie)),
+    ?match_map(
+       %% offline charging URR
+       #{urr_id => #urr_id{id = '_'},
+	 measurement_method =>
+	     #measurement_method{volum = 1, durat = 1},
+	 reporting_triggers =>
+	     #reporting_triggers{}
+	}, URR#create_urr.group),
+
+    ?match_map(
+       %% offline charging URR
+       #{urr_id => #urr_id{id = '_'},
+	 linked_urr_id => #linked_urr_id{id = '_'},
+	 measurement_method =>
+	     #measurement_method{volum = 1},
+	 reporting_triggers =>
+	     #reporting_triggers{linked_usage_reporting = 1}
+	}, Linked#create_urr.group),
+    ?equal(false, maps:is_key(measurement_period, Linked#create_urr.group)),
+
+    ct:sleep(100),
+    delete_session(GtpC),
+    ct:sleep(10),
+
+    H = meck:history(ergw_aaa_session),
+    SInv =
+	lists:filter(
+	  fun({_, {ergw_aaa_session, invoke, [_, _, {rf, _}, _]}, _}) ->
+		  true;
+	     ({_, {ergw_aaa_session, invoke, [_, _, stop, _]}, _}) ->
+		  true;
+	     (_) ->
+		  false
+	  end, H),
+    ?match(X when X == 3, length(SInv)),
+
+    [Start, AcctStop, Stop] =
+	lists:map(fun({_, {_, _, [_, SOpts, _, _]}, _}) -> SOpts end, SInv),
+
+    ?equal(false, maps:is_key('service_data', Start)),
+    ?equal(false, maps:is_key('service_data', AcctStop)),
+    ?equal(true, maps:is_key('service_data', Stop)),
+
+    ?equal(false, maps:is_key('traffic_data', Start)),
+    ?equal(false, maps:is_key('traffic_data', AcctStop)),
+    ?equal(true, maps:is_key('traffic_data', Stop)),
 
     StopSD = maps:get(service_data, Stop),
     ?match([_], StopSD),

@@ -9,6 +9,7 @@
 
 -export([validate_options/1,
 	 is_charging_event/2,
+	 is_enabled/1,
 	 rulebase/0]).
 
 %%%===================================================================
@@ -23,7 +24,7 @@
 -define(DefaultRulebase, []).
 -define(DefaultRuleDef, []).
 -define(DefaultOnlineChargingOpts, []).
--define(DefaultOfflineChargingOpts, [{triggers, []}]).
+-define(DefaultOfflineChargingOpts, [{enable, true}, {triggers, []}]).
 -define(DefaultOfflineChargingTriggers,
 	[{'cgi-sai-change',		'container'},
 	 {'ecgi-change',		'container'},
@@ -129,6 +130,8 @@ validate_offline_charging_triggers(Key, Opt)
 validate_offline_charging_triggers(Key, Opts) ->
     throw({error, {options, {{offline, charging, triggers}, {Key, Opts}}}}).
 
+validate_offline_charging_options(enable, Opt) when is_boolean(Opt) ->
+    Opt;
 validate_offline_charging_options(triggers, Opts) ->
     ergw_config:validate_options(fun validate_offline_charging_triggers/2,
 				 Opts, ?DefaultOfflineChargingTriggers, map);
@@ -167,6 +170,9 @@ is_charging_event(offline, Evs) ->
     is_offline_charging_event(Evs, Filter);
 is_charging_event(online, _) ->
     true.
+
+is_enabled(Type = offline) ->
+    maps:get(enable, maps:get(Type, config(), #{}), true).
 
 rulebase() ->
     maps:get(rulebase, config(), #{}).

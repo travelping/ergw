@@ -426,10 +426,11 @@ build_sx_rules(PCC, Opts, PCtx0, SCtx) ->
 build_sx_rules_3(#pcc_ctx{monitors = Monitors, rules = PolicyRules,
 			  credits = GrantedCredits} = PCC, _Opts, Update0) ->
     Update1 = build_sx_ctx_rule(Update0),
-    Update2 = maps:fold(fun build_sx_monitor_rule/3, Update1, Monitors),
-    Update3 = build_sx_charging_rule(PCC, PolicyRules, Update2),
-    Update4 = maps:fold(build_sx_usage_rule(_, _, PCC, _), Update3, GrantedCredits),
-    maps:fold(fun build_sx_rule/3, Update4, PolicyRules).
+    Update2 = build_ipcan_rule(Update1),
+    Update3 = maps:fold(fun build_sx_monitor_rule/3, Update2, Monitors),
+    Update4 = build_sx_charging_rule(PCC, PolicyRules, Update3),
+    Update5 = maps:fold(fun build_sx_usage_rule/3, Update4, GrantedCredits),
+    maps:fold(fun build_sx_rule/3, Update5, PolicyRules).
 
 build_sx_ctx_rule(#sx_upd{
 		     pctx =
@@ -482,10 +483,10 @@ build_sx_charging_rule(PCC, PolicyRules, Update) ->
       end, Update, PolicyRules).
 
 %% TBD: handle offline charging config, only link URR if trigger closes CDR...
-build_sx_linked_rule(URR, #pcc_ctx{monitors = Monitors}, PCtx) ->
-    build_sx_linked_rule_3(URR, maps:to_list(maps:get('Offline', Monitors, #{})), PCtx).
+build_sx_linked_rule(URR, PCtx) ->
+    build_sx_linked_offline_rule(ergw_charging:is_enabled(offline), URR, PCtx).
 
-build_sx_linked_rule_3(URR0, [{_Service, {periodic, _Interim, _Opts}}|_] = M, PCtx0) ->
+build_sx_linked_offline_rule(true, URR0, PCtx0) ->
     RuleName = {offline, 'IP-CAN'},
     {LinkedUrrId, PCtx} =
 	ergw_pfcp:get_urr_id(RuleName, ['IP-CAN'], RuleName, PCtx0),
@@ -493,12 +494,12 @@ build_sx_linked_rule_3(URR0, [{_Service, {periodic, _Interim, _Opts}}|_] = M, PC
 			   fun(T) -> T#reporting_triggers{linked_usage_reporting = 1} end,
 			   URR0#{linked_urr_id => #linked_urr_id{id = LinkedUrrId}}),
     {URR, PCtx};
-build_sx_linked_rule_3(URR, _, PCtx) ->
+build_sx_linked_offline_rule(_, URR, PCtx) ->
     {URR, PCtx}.
 
 build_sx_offline_charging_rule(Name,
 			       #{'Offline' := [1]} = Definition,
-			       #pcc_ctx{offline_charging_profile = OCPcfg} = PCC,
+			       #pcc_ctx{offline_charging_profile = OCPcfg},
 			       #sx_upd{pctx = PCtx0} = Update) ->
     RatingGroup =
 	case get_rating_group('Offline-Rating-Group', Definition) of
@@ -522,7 +523,7 @@ build_sx_offline_charging_rule(Name,
     URR0 = #{urr_id => #urr_id{id = UrrId},
 	     measurement_method => MM,
 	     reporting_triggers => #reporting_triggers{}},
-    {URR1, PCtx} = build_sx_linked_rule(URR0, PCC, PCtx1),
+    {URR1, PCtx} = build_sx_linked_rule(URR0, PCtx1),
 
     OCP = maps:get('Default', OCPcfg, #{}),
     URR = apply_charging_profile(URR1, OCP),
@@ -940,11 +941,11 @@ handle_validity_time(ChargingKey, #{'Validity-Time' := {abs, AbsTime}}, PCtx, _)
 handle_validity_time(_, _, PCtx, _) ->
     PCtx.
 
-%% build_sx_usage_rule/4
+%% build_sx_usage_rule/3
 build_sx_usage_rule(_K, #{'Rating-Group' := [RatingGroup],
 			  'Granted-Service-Unit' := [GSU],
 			  'Update-Time-Stamp' := UpdateTS} = GCU,
-		    PCC, #sx_upd{pctx = PCtx0} = Update) ->
+		    #sx_upd{pctx = PCtx0} = Update) ->
     ChargingKey = {online, RatingGroup},
     {UrrId, PCtx1} = ergw_pfcp:get_urr_id(ChargingKey, [RatingGroup], ChargingKey, PCtx0),
     PCtx2 = handle_validity_time(ChargingKey, GCU, PCtx1, Update),
@@ -960,7 +961,7 @@ build_sx_usage_rule(_K, #{'Rating-Group' := [RatingGroup],
 		{URR0, PCtx2};
 	    [OffId] when is_integer(OffId)->
 		%% if the same rule is use for offline and online reporting add a link
-		build_sx_linked_rule(URR0, PCC, PCtx2)
+		build_sx_linked_rule(URR0, PCtx2)
 	end,
     URR = lists:foldl(build_sx_usage_rule_4(_, GSU, GCU, _), URR1,
 		      [time, time_quota_threshold,
@@ -971,7 +972,26 @@ build_sx_usage_rule(_K, #{'Rating-Group' := [RatingGroup],
     ?LOG(warning, "URR: ~p", [URR]),
     Update#sx_upd{
       pctx = ergw_pfcp_rules:add(urr, ChargingKey, URR, PCtx)};
-build_sx_usage_rule(_, _, _, Update) ->
+build_sx_usage_rule(_, _, Update) ->
+    Update.
+
+build_ipcan_rule(Update) ->
+    build_ipcan_rule(ergw_charging:is_enabled(offline), Update).
+
+%% build IP-CAN rule for offline charging
+build_ipcan_rule(true, #sx_upd{pctx = PCtx0} = Update) ->
+    RuleName = {offline, 'IP-CAN'},
+    %% TBD: Offline Charging Rules at the IP-CAL level need to be seperated
+    %%      by Charging-Id (maps to ARP/QCI combi)
+    {UrrId, PCtx} = ergw_pfcp:get_urr_id(RuleName, ['IP-CAN'], RuleName, PCtx0),
+
+    URR = [#urr_id{id = UrrId},
+	   #measurement_method{volum = 1, durat = 1},
+	   #reporting_triggers{}],
+
+    ?LOG(warning, "URR: ~p", [URR]),
+    Update#sx_upd{pctx = ergw_pfcp_rules:add(urr, RuleName, URR, PCtx)};
+build_ipcan_rule(_, Update) ->
     Update.
 
 build_sx_monitor_rule(Level, Monitors, Update) ->
@@ -1004,20 +1024,25 @@ build_sx_monitor_rule('Offline', Service, {periodic, Time, _Opts} = Definition,
     RuleName = {offline, 'IP-CAN'},
     %% TBD: Offline Charging Rules at the IP-CAL level need to be seperated
     %%      by Charging-Id (maps to ARP/QCI combi)
-    {UrrId, PCtx} = ergw_pfcp:get_urr_id(RuleName, ['IP-CAN'], RuleName, PCtx0),
+    {UrrId, PCtx1} = ergw_pfcp:get_urr_id(RuleName, ['IP-CAN'], RuleName, PCtx0),
 
     URR = [#urr_id{id = UrrId},
 	   #measurement_method{volum = 1, durat = 1},
 	   #reporting_triggers{periodic_reporting = 1},
 	   #measurement_period{period = Time}],
-
     ?LOG(warning, "URR: ~p", [URR]),
+    URRUpd =
+	fun (X0) ->
+		X = X0#{measurement_period => #measurement_period{period = Time}},
+		maps:update_with(
+		  reporting_triggers,
+		  fun (T) -> T#reporting_triggers{periodic_reporting = 1} end, X)
+	end,
+    PCtx = ergw_pfcp_rules:update_with(urr, RuleName, URRUpd, URR, PCtx1),
+
     Monitors1 = update_m_key('Offline', UrrId, Monitors0),
     Monitors = Monitors1#{{urr, UrrId}  => Service},
-    Update#sx_upd{
-      pctx = ergw_pfcp:pfcp_rules_add(
-	       [{urr, RuleName, URR}], PCtx),
-      monitors = Monitors};
+    Update#sx_upd{pctx = PCtx, monitors = Monitors};
 
 build_sx_monitor_rule(Level, Service, Definition, Update) ->
     ?LOG(error, "Sx Monitor URR: ~p:~p:~p", [Level, Service, Definition]),
