@@ -195,14 +195,19 @@ validate_options(_Fun, []) ->
 validate_options(Fun, [{Opt, Value} | Tail]) ->
     [validate_option(Fun, Opt, Value) | validate_options(Fun, Tail)].
 
+normalize_proplists(L0) ->
+    L = proplists:unfold(L0),
+    proplists:substitute_negations([{disable, enable}], L).
+
+%% validate_options/4
 validate_options(Fun, Options, Defaults, ReturnType)
   when is_list(Options), is_list(Defaults) ->
-    Opts0 = proplists:unfold(Options),
+    Opts0 = normalize_proplists(Options),
     Opts = lists:ukeymerge(1, lists:keysort(1, Opts0), lists:keysort(1, Defaults)),
     return_type(validate_options(Fun, Opts), ReturnType);
 validate_options(Fun, Options, Defaults, ReturnType)
   when is_list(Options), is_map(Defaults) ->
-    Opts0 = proplists:unfold(Options),
+    Opts0 = normalize_proplists(Options),
     Opts = lists:ukeymerge(1, lists:keysort(1, Opts0),
 			   lists:keysort(1, maps:to_list(Defaults))),
     return_type(validate_options(Fun, Opts), ReturnType);
