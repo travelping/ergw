@@ -19,17 +19,15 @@
 %%% Manage PFCP rules in context
 %%%===================================================================
 
-add(Type, Key, Rule, #pfcp_ctx{sx_rules = Rules} = PCtx) ->
-    PCtx#pfcp_ctx{
-      sx_rules = Rules#{{Type, Key} => pfcp_packet:ies_to_map(Rule)}}.
+add(Type, Key, Rule, #pfcp_ctx{sx_rules = Rules} = PCtx)
+  when is_atom(Rule); is_map(Rule) ->
+    PCtx#pfcp_ctx{sx_rules = maps:put({Type, Key}, Rule, Rules)};
+add(Type, Key, Rule, PCtx) when is_list(Rule) ->
+    add(Type, Key, pfcp_packet:ies_to_map(Rule), PCtx).
 
 add([], PCtx) ->
     PCtx;
-add([{Type, Key, Rule}|T], PCtx)
-  when is_atom(Rule) ->
-    add(T, add(Type, Key, Rule, PCtx));
-add([{Type, Key, Rule0}|T], PCtx) ->
-    Rule = pfcp_packet:ies_to_map(Rule0),
+add([{Type, Key, Rule}|T], PCtx) ->
     add(T, add(Type, Key, Rule, PCtx)).
 
 update_with(Type, Key, Fun, Init, #pfcp_ctx{sx_rules = Rules} = PCtx) ->
