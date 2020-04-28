@@ -88,7 +88,7 @@ disable(Role) ->
 init([IP]) ->
     process_flag(trap_exit, true),
 
-    SockOpts = [binary, {ip, IP}, {active, true}, {reuseaddr, true}],
+    SockOpts = [binary, {ip, IP}, {active, true}, {reuseaddr, true}, {buffer, 65536}],
     {ok, GtpSocket} = gen_udp:open(?GTP1u_PORT, SockOpts),
     {ok, SxSocket} = gen_udp:open(8805, SockOpts),
     State = #state{
