@@ -29,7 +29,8 @@
 -record(state, {
 	  name,
 	  node,
-	  socket     :: socket:socket(),
+	  send_socket    :: socket:socket(),
+	  recv_socket    :: socket:socket(),
 	  burst_size = 1 :: non_neg_integer(),
 	  gtp_port,
 
@@ -156,12 +157,14 @@ init(#{name := Name, node := Node, ip := IP,
     process_flag(trap_exit, true),
 
     SocketOpts = maps:with(?SOCKET_OPTS, Opts),
-    {ok, Socket} = make_sx_socket(IP, 8805, SocketOpts),
+    {ok, SendSocket} = make_sx_socket(IP, 0, SocketOpts),
+    {ok, RecvSocket} = make_sx_socket(IP, 8805, SocketOpts),
 
     GtpPort = #gtp_port{} = ergw_gtp_socket_reg:lookup(GtpSocket),
 
     State = #state{
-	       socket = Socket,
+	       send_socket = SendSocket,
+	       recv_socket = RecvSocket,
 	       name = Name,
 	       node = Node,
 	       burst_size = BurstSize,
@@ -172,10 +175,12 @@ init(#{name := Name, node := Node, ip := IP,
 
 	       responses = ergw_cache:new(?CACHE_TIMEOUT, responses)
 	      },
-    self() ! {'$socket', Socket, select, undefined},
+    self() ! {'$socket', SendSocket, select, undefined},
+    self() ! {'$socket', RecvSocket, select, undefined},
     {ok, State}.
 
-handle_call(id, _From, #state{socket = Socket, node = Node, gtp_port = GtpPort} = State) ->
+handle_call(id, _From, #state{send_socket = Socket, node = Node,
+			      gtp_port = GtpPort} = State) ->
     {ok, #{addr := IP}} = socket:sockname(Socket),
     Reply = {ok, #node{node = Node, ip = IP}, GtpPort},
     {reply, Reply, State};
@@ -229,18 +234,23 @@ handle_info(Info = {timeout, _TRef, {request, SeqNo}}, State0) ->
 handle_info({timeout, TRef, responses}, #state{responses = Responses} = State) ->
     {noreply, State#state{responses = ergw_cache:expire(TRef, Responses)}};
 
-handle_info({'$socket', Socket, select, Info}, #state{socket = Socket} = State) ->
+handle_info({'$socket', Socket, select, Info}, #state{send_socket = Socket} = State) ->
+    handle_input(Socket, Info, State);
+handle_info({'$socket', Socket, select, Info}, #state{recv_socket = Socket} = State) ->
     handle_input(Socket, Info, State);
 
-handle_info({'$socket', Socket, abort, Info}, #state{socket = Socket} = State) ->
+handle_info({'$socket', Socket, abort, Info}, #state{send_socket = Socket} = State) ->
+    handle_input(Socket, Info, State);
+handle_info({'$socket', Socket, abort, Info}, #state{recv_socket = Socket} = State) ->
     handle_input(Socket, Info, State);
 
 handle_info(Info, State) ->
     ?LOG(error, "handle_info: unknown ~p, ~p", [Info, State]),
     {noreply, State}.
 
-terminate(_Reason, #state{socket = Socket} = _State) ->
-    socket:close(Socket),
+terminate(_Reason, #state{send_socket = SendSocket, recv_socket = RecvSocket} = _State) ->
+    socket:close(SendSocket),
+    socket:close(RecvSocket),
     ok.
 
 code_change(_OldVsn, State, _Extra) ->
@@ -480,7 +490,7 @@ handle_request(#sx_request{ip = IP, port = Port} = ReqKey, Msg,
     case ergw_cache:get(cache_key(ReqKey), Responses) of
 	{value, Data} ->
 	    ergw_prometheus:pfcp(rx, Name, IP, Msg, duplicate),
-	    sendto(IP, Port, Data, State);
+	    sendto(response, IP, Port, Data, State);
 
 	_Other ->
 	    ergw_sx_node:handle_request(ReqKey, IP, Msg)
@@ -561,14 +571,20 @@ take_request(SeqNo, #state{pending = PendingIn} = State) ->
 	    {Req, State#state{pending = PendingOut}}
     end.
 
-sendto(RemoteIP, Port, Data, #state{socket = Socket}) ->
+sendto(Socket, RemoteIP, Port, Data) ->
     Dest = #{family => family(RemoteIP),
 	     addr => RemoteIP,
 	     port => Port},
     socket:sendto(Socket, Data, Dest, nowait).
 
+sendto(request, IP, Port, Data, #state{send_socket = Socket}) ->
+    sendto(Socket, IP, Port, Data);
+sendto(response, IP, Port, Data, #state{recv_socket = Socket}) ->
+    sendto(Socket, IP, Port, Data).
+
+
 send_request(#send_req{address = DstIP, data = Data} = SendReq, State) ->
-    case sendto(DstIP, 8805, Data, State) of
+    case sendto(request, DstIP, 8805, Data, State) of
 	ok ->
 	    start_request(SendReq, State);
 	_ ->
@@ -593,7 +609,7 @@ enqueue_response(_ReqKey, _Data, _DoCache, State) ->
     State.
 
 do_send_response(#sx_request{ip = IP, port = Port} = ReqKey, Data, DoCache, State) ->
-    sendto(IP, Port, Data, State),
+    sendto(response, IP, Port, Data, State),
     enqueue_response(ReqKey, Data, DoCache, State).
 
 %%%===================================================================
