@@ -35,7 +35,7 @@ build:otp-22.3:
 build:otp-23.0:
   <<: *build_otp
   allow_failure: true
-  image: erlang:23.0-rc2-alpine
+  image: erlang:23.0-rc3-alpine
 
 .check:otp: &check_otp
   stage: test
@@ -48,6 +48,12 @@ build:otp-23.0:
     reports:
       junit: _build/test/logs/report.xml
   script:
+    - sh -c 'echo 0 > /proc/sys/net/ipv6/conf/all/disable_ipv6'
+    - ip addr add fd96:dcd2:efdb:41c3::10/64 dev lo
+    - ip addr add fd96:dcd2:efdb:41c3::20/64 dev lo
+    - ip addr add fd96:dcd2:efdb:41c3::30/64 dev lo
+    - ip addr add fd96:dcd2:efdb:41c3::40/64 dev lo
+    - ip addr add fd96:dcd2:efdb:41c3::50/64 dev lo
     - ./rebar3 do xref
     - ./rebar3 do ct
 
@@ -71,7 +77,7 @@ check:otp-22.3:
 
 check:otp-23.0:
   <<: *check_otp
-  image: erlang:23.0-rc2-alpine
+  image: erlang:23.0-rc3-alpine
   allow_failure: true
   dependencies:
     - build:otp-23.0
