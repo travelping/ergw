@@ -1,6 +1,14 @@
 erGW - 3GPP GGSN and PDN-GW in Erlang
 =====================================
 
+Version 2.4.1 - 30 Apr 2020
+---------------------------
+
+* test enhancements
+* handle UPF removal/failure in proxy case
+* make offline URR generation dependent on global setting
+* use seperate socket in PFCP server of send and recv
+
 Version 2.4.0 - 17 Apr 2020
 ---------------------------
 
