@@ -30,7 +30,7 @@ build:otp-22.2:
 
 build:otp-22.3:
   <<: *build_otp
-  image: erlang:22.3.1-alpine
+  image: erlang:22.3.3-alpine
 
 build:otp-23.0:
   <<: *build_otp
@@ -71,14 +71,13 @@ check:otp-22.2:
 
 check:otp-22.3:
   <<: *check_otp
-  image: erlang:22.3.1-alpine
+  image: erlang:22.3.3-alpine
   dependencies:
     - build:otp-22.3
 
 check:otp-23.0:
   <<: *check_otp
   image: erlang:23.0-rc3-alpine
-  allow_failure: true
   dependencies:
     - build:otp-23.0
 
