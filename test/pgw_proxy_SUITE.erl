@@ -550,6 +550,8 @@ common() ->
      create_session_request_missing_ie,
      create_session_request_accept_new,
      path_restart, path_restart_recovery,
+     path_failure_to_pgw,
+     path_failure_to_sgw,
      simple_session,
      simple_session_random_port,
      duplicate_session_request,
@@ -883,6 +885,89 @@ path_restart_recovery(Config) ->
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+path_failure_to_pgw() ->
+    [{doc, "Check that Create Session Request works and "
+      "that a path failure (Echo timeout) terminates the session"}].
+path_failure_to_pgw(Config) ->
+    Cntl = whereis(gtpc_client_server),
+
+    {GtpC, _, _} = create_session(Config),
+
+    {_Handler, CtxPid} = gtp_context_reg:lookup({'irx', {imsi, ?'IMSI', 5}}),
+    #{proxy_context := Ctx1} = gtp_context:info(CtxPid),
+    #context{control_port = CPort} = Ctx1,
+
+    FinalGSN = proplists:get_value(final_gsn, Config),
+    ok = meck:expect(ergw_gtp_c_socket, send_request,
+		     fun (_, IP, _, _, _, #gtp{type = echo_request}, CbInfo)
+			   when IP =:= FinalGSN ->
+			     %% simulate a Echo timeout
+			     ergw_gtp_c_socket:send_reply(CbInfo, timeout);
+			 (GtpPort, IP, Port, T3, N3, Msg, CbInfo) ->
+			     meck:passthrough([GtpPort, IP, Port, T3, N3, Msg, CbInfo])
+		     end),
+
+    gtp_path:ping(CPort, v2, FinalGSN),
+
+    %% echo timeout should trigger a DBR to SGW...
+    Request = recv_pdu(Cntl, 5000),
+    ?match(#gtp{type = delete_bearer_request}, Request),
+    Response = make_response(Request, simple, GtpC),
+    send_pdu(Cntl, GtpC, Response),
+
+    %% wait for session cleanup
+    ct:sleep(100),
+    delete_session(not_found, GtpC),
+
+    {_Handler, Server} = gtp_context_reg:lookup({'remote-irx', {imsi, ?'PROXY-IMSI', 5}}),
+    true = is_pid(Server),
+    %% killing the PGW context
+    exit(Server, kill),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    wait4tunnels(?TIMEOUT),
+    meck_validate(Config),
+
+    ok = meck:delete(ergw_gtp_c_socket, send_request, 7),
+    ok.
+
+%%--------------------------------------------------------------------
+path_failure_to_sgw() ->
+    [{doc, "Check that Create Session Request works and "
+      "that a path failure (Echo timeout) terminates the session"}].
+path_failure_to_sgw(Config) ->
+    {GtpC, _, _} = create_session(Config),
+
+    {_Handler, CtxPid} = gtp_context_reg:lookup({'irx', {imsi, ?'IMSI', 5}}),
+    #{context := Ctx1} = gtp_context:info(CtxPid),
+    #context{control_port = CPort} = Ctx1,
+
+    ClientIP = proplists:get_value(client_ip, Config),
+    ok = meck:expect(ergw_gtp_c_socket, send_request,
+		     fun (_, IP, _, _, _, #gtp{type = echo_request}, CbInfo)
+			   when IP =:= ClientIP ->
+			     %% simulate a Echo timeout
+			     ergw_gtp_c_socket:send_reply(CbInfo, timeout);
+			 (GtpPort, IP, Port, T3, N3, Msg, CbInfo) ->
+			     meck:passthrough([GtpPort, IP, Port, T3, N3, Msg, CbInfo])
+		     end),
+
+    gtp_path:ping(CPort, v2, ClientIP),
+
+    %% wait for session cleanup
+    ct:sleep(100),
+    delete_session(not_found, GtpC),
+
+    [?match(#{tunnels := 0}, X) || X <- ergw_api:peer(all)],
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    wait4tunnels(?TIMEOUT),
+    meck_validate(Config),
+
+    ok = meck:delete(ergw_gtp_c_socket, send_request, 7),
     ok.
 
 %%--------------------------------------------------------------------

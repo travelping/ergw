@@ -526,6 +526,8 @@ common() ->
      create_pdp_context_request_missing_ie,
      create_pdp_context_request_accept_new,
      path_restart, path_restart_recovery,
+     path_failure_to_ggsn,
+     path_failure_to_sgsn,
      simple_pdp_context_request,
      simple_pdp_context_request_no_proxy_map,
      create_pdp_context_request_resend,
@@ -798,6 +800,89 @@ path_restart_recovery(Config) ->
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     wait4tunnels(?TIMEOUT),
     meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+path_failure_to_ggsn() ->
+    [{doc, "Check that Create PDP Context works and "
+      "that a path failure (Echo timeout) terminates the session"}].
+path_failure_to_ggsn(Config) ->
+    Cntl = whereis(gtpc_client_server),
+
+    {GtpC, _, _} = create_pdp_context(Config),
+
+    {_Handler, CtxPid} = gtp_context_reg:lookup({'irx', {imsi, ?'IMSI', 5}}),
+    #{proxy_context := Ctx1} = gtp_context:info(CtxPid),
+    #context{control_port = CPort} = Ctx1,
+
+    FinalGSN = proplists:get_value(final_gsn, Config),
+    ok = meck:expect(ergw_gtp_c_socket, send_request,
+		     fun (_, IP, _, _, _, #gtp{type = echo_request}, CbInfo)
+			   when IP =:= FinalGSN ->
+			     %% simulate a Echo timeout
+			     ergw_gtp_c_socket:send_reply(CbInfo, timeout);
+			 (GtpPort, IP, Port, T3, N3, Msg, CbInfo) ->
+			     meck:passthrough([GtpPort, IP, Port, T3, N3, Msg, CbInfo])
+		     end),
+
+    gtp_path:ping(CPort, v1, FinalGSN),
+
+    %% echo timeout should trigger a Delete PDP Context Request to SGSN.
+    Request = recv_pdu(Cntl, 5000),
+    ?match(#gtp{type = delete_pdp_context_request}, Request),
+    Response = make_response(Request, simple, GtpC),
+    send_pdu(Cntl, GtpC, Response),
+
+    %% wait for session cleanup
+    ct:sleep(100),
+    delete_pdp_context(not_found, GtpC),
+
+    {_Handler, Server} = gtp_context_reg:lookup({'remote-irx', {imsi, ?'PROXY-IMSI', 5}}),
+    true = is_pid(Server),
+    %% killing the GGSN context
+    exit(Server, kill),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    wait4tunnels(?TIMEOUT),
+    meck_validate(Config),
+
+    ok = meck:delete(ergw_gtp_c_socket, send_request, 7),
+    ok.
+
+%%--------------------------------------------------------------------
+path_failure_to_sgsn() ->
+    [{doc, "Check that Create PDP Context works and "
+      "that a path failure (Echo timeout) terminates the session"}].
+path_failure_to_sgsn(Config) ->
+    {GtpC, _, _} = create_pdp_context(Config),
+
+    {_Handler, CtxPid} = gtp_context_reg:lookup({'irx', {imsi, ?'IMSI', 5}}),
+    #{context := Ctx1} = gtp_context:info(CtxPid),
+    #context{control_port = CPort} = Ctx1,
+
+    ClientIP = proplists:get_value(client_ip, Config),
+    ok = meck:expect(ergw_gtp_c_socket, send_request,
+		     fun (_, IP, _, _, _, #gtp{type = echo_request}, CbInfo)
+			   when IP =:= ClientIP ->
+			     %% simulate a Echo timeout
+			     ergw_gtp_c_socket:send_reply(CbInfo, timeout);
+			 (GtpPort, IP, Port, T3, N3, Msg, CbInfo) ->
+			     meck:passthrough([GtpPort, IP, Port, T3, N3, Msg, CbInfo])
+		     end),
+
+    gtp_path:ping(CPort, v1, ClientIP),
+
+    %% wait for session cleanup
+    ct:sleep(100),
+    delete_pdp_context(not_found, GtpC),
+
+    [?match(#{tunnels := 0}, X) || X <- ergw_api:peer(all)],
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    wait4tunnels(?TIMEOUT),
+    meck_validate(Config),
+
+    ok = meck:delete(ergw_gtp_c_socket, send_request, 7),
     ok.
 
 %%--------------------------------------------------------------------

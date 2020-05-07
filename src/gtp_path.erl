@@ -15,13 +15,17 @@
 %% API
 -export([start_link/4, all/1,
 	 maybe_new_path/3,
-	 handle_request/2, handle_response/2,
+	 handle_request/2, handle_response/3,
 	 bind/1, bind/2, unbind/1, down/2,
 	 get_handler/2, info/1]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
 	 code_change/3, terminate/2]).
+
+-ifdef(TEST).
+-export([ping/3]).
+-endif.
 
 -include_lib("kernel/include/logger.hrl").
 -include_lib("gtplib/include/gtp_packet.hrl").
@@ -61,8 +65,8 @@ handle_request(#request{gtp_port = GtpPort, ip = IP} = ReqKey, #gtp{version = Ve
     Path = maybe_new_path(GtpPort, Version, IP),
     gen_server:cast(Path, {handle_request, ReqKey, Msg}).
 
-handle_response(Path, Response) ->
-    gen_server:cast(Path, {handle_response, Response}).
+handle_response(Path, Request, Response) ->
+    gen_server:cast(Path, {handle_response, Request, Response}).
 
 bind(#context{remote_restart_counter = RestartCounter} = Context) ->
     path_recovery(RestartCounter, bind_path(Context)).
@@ -114,6 +118,17 @@ get_handler(#gtp_port{type = 'gtp-c'}, v1) ->
     gtp_v1_c;
 get_handler(#gtp_port{type = 'gtp-c'}, v2) ->
     gtp_v2_c.
+
+-ifdef(TEST).
+ping(GtpPort, Version, IP) ->
+    case get(GtpPort, Version, IP) of
+	Path when is_pid(Path) ->
+	    gen_server:cast(Path, '$ping');
+	_ ->
+	    ok
+    end.
+-endif.
+
 
 %%%===================================================================
 %%% Protocol Module API
@@ -190,20 +205,28 @@ handle_cast({handle_request, ReqKey, #gtp{type = echo_request} = Msg0},
 	    {noreply, State0}
     end;
 
-handle_cast(down, #state{table = TID} = State0) ->
-    Path = self(),
-    proc_lib:spawn(fun() ->
-			   ets_foreach(TID, gtp_context:path_restart(_, Path)),
-			   ets:delete(TID)
-		   end),
-    State1 = ets_new(State0#state{recovery = undefined}),
-    State = update_path_counter(0, State1),
+handle_cast(down, State0) ->
+    State = path_down(undefined, State0),
     {noreply, State};
 
-handle_cast({handle_response, #gtp{} = Msg}, State0)->
+handle_cast({handle_response, echo_request, #gtp{type = echo_response} = Msg}, State0)->
     ?LOG(debug, "echo_response: ~p", [Msg]),
     State1 = handle_recovery_ie(Msg, State0),
     State = echo_response(Msg, State1),
+    {noreply, State};
+
+handle_cast({handle_response, echo_request, timeout = Msg}, State0)->
+    ?LOG(debug, "echo_response: ~p", [Msg]),
+    State = echo_response(Msg, State0),
+    {noreply, State};
+
+%% test support
+handle_cast('$ping', #state{echo_timer = awaiting_response} = State) ->
+    {noreply, State};
+handle_cast('$ping', #state{echo_timer = TRef} = State0)
+  when is_reference(TRef) ->
+    cancel_timer(TRef),
+    State = send_echo_request(State0),
     {noreply, State};
 
 handle_cast(Msg, State) ->
@@ -266,18 +289,12 @@ update_restart_counter(RestartCounter, #state{recovery = undefined} = State) ->
     State#state{recovery = RestartCounter};
 update_restart_counter(RestartCounter, #state{recovery = RestartCounter} = State) ->
     State;
-update_restart_counter(NewRestartCounter, #state{table = TID, ip = IP,
-						 recovery = OldRestartCounter} = State0)
+update_restart_counter(NewRestartCounter,
+		       #state{ip = IP, recovery = OldRestartCounter} = State)
   when ?SMALLER(OldRestartCounter, NewRestartCounter) ->
     ?LOG(warning, "GSN ~s restarted (~w != ~w)",
 		  [inet:ntoa(IP), OldRestartCounter, NewRestartCounter]),
-    Path = self(),
-    proc_lib:spawn(fun() ->
-			   ets_foreach(TID, gtp_context:path_restart(_, Path)),
-			   ets:delete(TID)
-		   end),
-    State1 = ets_new(State0#state{recovery = NewRestartCounter}),
-    update_path_counter(0, State1);
+    path_down(NewRestartCounter, State);
 
 update_restart_counter(NewRestartCounter, #state{ip = IP, recovery = OldRestartCounter} = State)
   when not ?SMALLER(OldRestartCounter, NewRestartCounter) ->
@@ -374,9 +391,9 @@ stop_echo_request(#state{echo_timer = EchoTRef} = State) ->
 send_echo_request(#state{gtp_port = GtpPort, handler = Handler, ip = DstIP,
 			 t3 = T3, n3 = N3} = State) ->
     Msg = Handler:build_echo_request(GtpPort),
-    CbInfo = {?MODULE, handle_response, [self()]},
+    CbInfo = {?MODULE, handle_response, [self(), echo_request]},
     ergw_gtp_c_socket:send_request(GtpPort, DstIP, ?GTP1c_PORT, T3, N3, Msg, CbInfo),
-    State#state{echo_timer = awaiting_response} .
+    State#state{echo_timer = awaiting_response}.
 
 echo_response(Msg, #state{echo = EchoInterval,
 			  echo_timer = awaiting_response} = State0) ->
@@ -389,4 +406,13 @@ echo_response(Msg, State0) ->
 update_path_state(#gtp{}, State) ->
     State#state{state = 'UP'};
 update_path_state(_, State) ->
-    State#state{state = 'DOWN'}.
+    path_down(undefined, State#state{state = 'DOWN'}).
+
+path_down(RestartCounter, #state{table = TID} = State0) ->
+    Path = self(),
+    proc_lib:spawn(fun() ->
+			   ets_foreach(TID, gtp_context:path_restart(_, Path)),
+			   ets:delete(TID)
+		   end),
+    State = ets_new(State0#state{recovery = RestartCounter}),
+    update_path_counter(0, State).

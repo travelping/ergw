@@ -22,6 +22,10 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
 	 terminate/2, code_change/3]).
 
+-ifdef(TEST).
+-export([send_reply/2]).
+-endif.
+
 -include_lib("kernel/include/logger.hrl").
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include("include/ergw.hrl").
@@ -522,8 +526,11 @@ sendto(RemoteIP, Port, Data, #state{socket = Socket}) ->
 	    ok
     end.
 
-send_request_reply(#send_req{cb_info = {M, F, A}}, Reply) ->
+send_reply({M, F, A}, Reply) ->
     apply(M, F, A ++ [Reply]).
+
+send_request_reply(#send_req{cb_info = CbInfo}, Reply) ->
+    send_reply(CbInfo, Reply).
 
 send_request(#send_req{address = DstIP, port = DstPort, data = Data} = SendReq, State0) ->
     sendto(DstIP, DstPort, Data, State0),
