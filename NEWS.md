@@ -1,6 +1,12 @@
 erGW - 3GPP GGSN and PDN-GW in Erlang
 =====================================
 
+Version 2.4.2 - 11 May 2020
+---------------------------
+
+* bump ergw_aaa for request tracking changes, fixes accounting of
+  outstanding requests
+
 Version 2.4.1 - 30 Apr 2020
 ---------------------------
 
