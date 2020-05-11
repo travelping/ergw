@@ -6,6 +6,7 @@ Version 2.4.2 - 11 May 2020
 
 * bump ergw_aaa for request tracking changes, fixes accounting of
   outstanding requests
+* fix GTP path failure detection
 
 Version 2.4.1 - 30 Apr 2020
 ---------------------------
