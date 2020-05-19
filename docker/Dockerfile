@@ -1,27 +1,28 @@
 # -- build-environment --
 # see https://docs.docker.com/engine/userguide/eng-image/multistage-build/
 
-FROM erlang:23.0-rc3-alpine AS build-env
+FROM erlang:23.0-alpine AS build-env
+
+ARG     REBAR3_URL="https://github.com/erlang/rebar3/releases/download/3.13.1/rebar3"
 
 WORKDIR /build
 RUN     apk update && apk --no-cache upgrade && \
 		apk --no-cache add \
-		gcc \
-		git \
-		libc-dev libc-utils \
-		libgcc \
-		linux-headers \
-		make bash \
-		musl-dev musl-utils \
-		ncurses-dev \
-		pcre2 \
-		pkgconf \
-		scanelf \
-		wget \
-		zlib
+			gcc \
+			git \
+			libc-dev libc-utils \
+			libgcc \
+			linux-headers \
+			make bash \
+			musl-dev musl-utils \
+			ncurses-dev \
+			pcre2 \
+			pkgconf \
+			scanelf \
+			zlib
 
-RUN     wget -O /usr/local/bin/rebar3 https://s3.amazonaws.com/rebar3/rebar3 && \
-		chmod a+x /usr/local/bin/rebar3
+ADD     "$REBAR3_URL" /usr/local/bin/rebar3
+RUN     chmod a+x /usr/local/bin/rebar3
 
 ADD     . /build
 RUN     rebar3 as prod release
