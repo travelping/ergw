@@ -21,7 +21,7 @@
 -define(SERVER, ?MODULE).
 -define(App, ergw).
 
--define(ResponsKeys, [imsi, msisdn, apn, gwSelectionAPN, upfSelectionAPN]).
+-define(ResponseKeys, [imsi, msisdn, apn, context, gwSelectionAPN, upfSelectionAPN]).
 
 %%%===================================================================
 %%% API
@@ -122,7 +122,7 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 
 normalize_response(#{apn := APN} = Response0) ->
-    Response = maps:with(?ResponsKeys, Response0),
+    Response = maps:with(?ResponseKeys, Response0),
     maps:merge(#{gwSelectionAPN => APN, upfSelectionAPN => APN}, Response);
 normalize_response(_) ->
     {error, system_failure}.
