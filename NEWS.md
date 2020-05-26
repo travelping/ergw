@@ -1,6 +1,12 @@
 erGW - 3GPP GGSN and PDN-GW in Erlang
 =====================================
 
+Version 2.4.3 - 26 May 2020
+---------------------------
+* fix handling `context` attribute of ProxyMap response
+* fix `netdev` configuration option
+* switch to Erlang/OTP 23.0 as base runtime
+
 Version 2.4.2 - 11 May 2020
 ---------------------------
 
