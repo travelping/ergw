@@ -36,8 +36,9 @@ for them are not guaranteed to work across versions. Check [CONFIG.md](CONFIG.md
 USER PLANE
 ----------
 
-erGW usese the 3GPP control and user plane separation of EPC nodes architecture as layed out
-in [3GPP TS 23.214](http://www.3gpp.org/dynareport/23244.htm) and [3GPP TS 29.244](http://www.3gpp.org/dynareport/29244.htm).
+*erGW* uses the 3GPP control and user plane separation (CUPS) of EPC nodes
+architecture as layed out in [3GPP TS 23.214](http://www.3gpp.org/dynareport/23244.htm)
+and [3GPP TS 29.244](http://www.3gpp.org/dynareport/29244.htm).
 
 DIAMETER and RADIUS over Gi/SGi
 -------------------------------
@@ -74,7 +75,6 @@ charging is not supported).
 
 Like on Gx only CCR/CCR and ASR/ASA procredures are supported.
 
-
 MISSING FEATURES
 ----------------
 
@@ -90,12 +90,13 @@ Other shortcomings:
 ERLANG Version Support
 ----------------------
 
-All minor version of the current major release and the highest minor version of the
-previous major release will be supported.
-As an exception to the rule state in the previous paragraph is currently the minimum
-required version OTP 22.1.8, the latest released version at the time of writing. The
-reason is the move to the official OTP socket.erl module and the bug that has exposed
-in older versions.
+All minor version of the current major release and the highest minor version of
+the previous major release will be supported. As an exception to the rule stated
+in the previous paragraph is currently the minimum required version OTP 22.1.8.
+The reason is the move to the official OTP socket.erl module and the bug that
+has exposed in older versions. However, due to a bug in OTP 22.x, the `netdev`
+configuration option of *erGW* is broken ([see](https://github.com/erlang/otp/pull/2600)).
+If you need this feature, you must use OTP 23.x.
 
 When in doubt check the `otp_release` section in [.travis.yml](.travis.yml) for tested
 versions.
@@ -111,7 +112,7 @@ BUILDING
 
 *The minimum supported Erlang version is 22.1.8.*
 
-Erlang 22.2.7 is the recommended version.
+Erlang 23.0.1 is the recommended version.
 
 Using rebar:
 
@@ -120,17 +121,18 @@ Using rebar:
 RUNNING
 -------
 
-A erGW installation needs a user plane provider to handle the GTP-U path. This instance can be installed on the same host or a different host.
+An *erGW* installation needs a user plane provider to handle the GTP-U path. This
+instance can be installed on the same or different host.
 
 A suitable user plane node based on [VPP](https://wiki.fd.io/view/VPP) can be found at [VPP-UFP](https://github.com/travelping/vpp/tree/feature/upf).
 
-erGW can be started with the normal Erlang command line tools, e.g.:
+*erGW* can be started with the normal Erlang command line tools, e.g.:
 
 ```
 erl -setcookie secret -sname ergw -config ergw.config
-Erlang/OTP 19 [erts-8.0.3] [source] [64-bit] [async-threads:10] [kernel-poll:false]
+Erlang/OTP 19 [erts-11.0.1] [source] [64-bit] [async-threads:10] [kernel-poll:false]
 
-Eshell V8.0.3  (abort with ^G)
+Eshell V11.0.1  (abort with ^G)
 (ergw@localhost)1> application:ensure_all_started(ergw).
 ```
 
@@ -322,4 +324,4 @@ The configuration is documented in [CONFIG.md](CONFIG.md)
 [travis badge]: https://img.shields.io/travis/com/travelping/ergw/master.svg?style=flat-square
 [coveralls]: https://coveralls.io/github/travelping/ergw
 [coveralls badge]: https://img.shields.io/coveralls/travelping/ergw/master.svg?style=flat-square
-[erlang version badge]: https://img.shields.io/badge/erlang-R22.1.8%20to%2022.2.7-blue.svg?style=flat-square
+[erlang version badge]: https://img.shields.io/badge/erlang-R22.1.8%20to%2023.0.1-blue.svg?style=flat-square
