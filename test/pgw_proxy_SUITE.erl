@@ -18,6 +18,8 @@
 -include("ergw_pgw_test_lib.hrl").
 
 -define(TIMEOUT, 2000).
+-define(NO_OF_CLIENTS, 6). %% No of IP clients for multi session tests
+
 -define(HUT, pgw_s5s8_proxy).			%% Handler Under Test
 
 %%%===================================================================
@@ -57,7 +59,11 @@
 		   {'remote-irx', [{type, 'gtp-c'},
 				   {ip, ?MUST_BE_UPDATED},
 				   {reuseaddr, true}
-				  ]}
+				  ]},
+		   {'remote-irx2', [{type, 'gtp-c'},
+				    {ip, ?MUST_BE_UPDATED},
+				    {reuseaddr, true}
+				   ]}            
 		  ]},
 
 		 {ip_pools,
@@ -91,13 +97,13 @@
 			  ]},
 		   %% remote PGW handler
 		   {gn, [{handler, pgw_s5s8},
-			 {sockets, ['remote-irx']},
+			 {sockets, ['remote-irx','remote-irx2']},
 			 {node_selection, [default]},
 			 {aaa, [{'Username',
 				 [{default, ['IMSI', <<"@">>, 'APN']}]}]}
 			]},
 		   {s5s8, [{handler, pgw_s5s8},
-			   {sockets, ['remote-irx']},
+			   {sockets, ['remote-irx', 'remote-irx2']},
 			   {node_selection, [default]}
 			  ]}
 		  ]},
@@ -186,6 +192,7 @@
 		       {irx, [{features, ['Access']}]},
 		       {'proxy-irx', [{features, ['Core']}]},
 		       {'remote-irx', [{features, ['Access']}]},
+		       {'remote-irx2', [{features, ['Access']}]},
 		       {example, [{features, ['SGi-LAN']}]}]
 		     },
 		     {ip_pools, ['pool-A']}]
@@ -270,7 +277,11 @@
 		   {'remote-irx', [{type, 'gtp-c'},
 				   {ip, ?MUST_BE_UPDATED},
 				   {reuseaddr, true}
-				  ]}
+				  ]},
+		   {'remote-irx2', [{type, 'gtp-c'},
+				    {ip, ?MUST_BE_UPDATED},
+				    {reuseaddr, true}
+				   ]}
 		  ]},
 
 		 {ip_pools,
@@ -304,13 +315,13 @@
 			  ]},
 		   %% remote PGW handler
 		   {gn, [{handler, pgw_s5s8},
-			 {sockets, ['remote-irx']},
+			 {sockets, ['remote-irx', 'remote-irx2']},
 			 {node_selection, [default]},
 			 {aaa, [{'Username',
 				 [{default, ['IMSI', <<"@">>, 'APN']}]}]}
 			]},
 		   {s5s8, [{handler, pgw_s5s8},
-			   {sockets, ['remote-irx']},
+			   {sockets, ['remote-irx', 'remote-irx2']},
 			   {node_selection, [default]}
 			  ]}
 		  ]},
@@ -399,6 +410,7 @@
 		       {irx, [{features, ['Access']}]},
 		       {'proxy-irx', [{features, ['Core']}]},
 		       {'remote-irx', [{features, ['Access']}]},
+		       {'remote-irx2', [{features, ['Access']}]},
 		       {example, [{features, ['SGi-LAN']}]}]
 		     },
 		     {ip_pools, ['pool-A']}]
@@ -459,6 +471,7 @@
 	 {[sockets, irx, ip], test_gsn},
 	 {[sockets, 'proxy-irx', ip], proxy_gsn},
 	 {[sockets, 'remote-irx', ip], final_gsn},
+	 {[sockets, 'remote-irx2', ip], final_gsn2},
 	 {[sx_socket, ip], localhost},
 	 {[node_selection, {default, 2}, 2, "topon.s5s8.pgw.$ORIGIN"],
 	  {fun node_sel_update/2, final_gsn}},
@@ -476,6 +489,7 @@
 	[{[sockets, cp, ip], localhost},
 	 {[sockets, irx, ip], test_gsn},
 	 {[sockets, 'remote-irx', ip], final_gsn},
+	 {[sockets, 'remote-irx2', ip], final_gsn2},
 	 {[sx_socket, ip], localhost},
 	 {[node_selection, {default, 2}, 2, "topon.s5s8.pgw.$ORIGIN"],
 	  {fun node_sel_update/2, final_gsn}},
@@ -558,6 +572,7 @@ common() ->
      create_session_overload_response,
      create_session_request_resend,
      create_session_proxy_request_resend,
+     create_lb_multi_session,
      delete_session_request_resend,
      delete_session_request_timeout,
      error_indication_sgw2pgw,
@@ -628,6 +643,15 @@ setup_per_testcase(Config, ClearSxHist) ->
     ClearSxHist andalso ergw_test_sx_up:history('pgw-u01', true),
     ok.
 
+setup_per_testcase(Config, Name, ClearSxHist) ->
+    ergw_test_sx_up:reset('pgw-u01'),
+    ergw_test_sx_up:reset('sgw-u'),
+    meck_reset(Config),
+    start_gtpc_server(Config, Name),
+    reconnect_all_sx_nodes(),
+    ClearSxHist andalso ergw_test_sx_up:history('pgw-u01', true),
+    ok.
+
 init_per_testcase(delete_session_request_resend, Config) ->
     setup_per_testcase(Config),
     ok = meck:new(gtp_path, [passthrough, no_link]),
@@ -678,6 +702,10 @@ init_per_testcase(TestCase, Config)
     Config;
 init_per_testcase(simple_session, Config) ->
     setup_per_testcase(Config),
+    ok = meck:new(pgw_s5s8, [passthrough, no_link]),
+    Config;
+init_per_testcase(create_lb_multi_session, Config) ->
+    set_up_clients(?NO_OF_CLIENTS, Config),
     ok = meck:new(pgw_s5s8, [passthrough, no_link]),
     Config;
 init_per_testcase(request_fast_resend, Config) ->
@@ -771,6 +799,10 @@ end_per_testcase(TestCase, Config)
 end_per_testcase(simple_session, Config) ->
     ok = meck:unload(pgw_s5s8),
     end_per_testcase(Config),
+    Config;
+end_per_testcase(create_lb_multi_session, Config) ->
+    ok = meck:unload(pgw_s5s8),
+    stop_gtpc_servers(?NO_OF_CLIENTS),
     Config;
 end_per_testcase(request_fast_resend, Config) ->
     ok = meck:unload(pgw_s5s8),
@@ -1211,6 +1243,25 @@ simple_session_no_proxy_map(Config) ->
     ?match(#gtp{seq_no = SeqNo} when SeqNo >= 16#80000, P),
 
     ?equal([], outstanding_requests()),
+    ok.
+
+%%--------------------------------------------------------------------
+create_lb_multi_session() ->
+    [{doc, "Create multi sessions across the 2 Load Balancers"}].
+create_lb_multi_session(Config) ->
+    NSMap = set_lb_envs(),
+    init_seq_no(?MODULE, 16#80000),
+    %% for 6 clients cumulative nCr for at least 1 hit on both lb = 0.984
+    %% for 10 clients it is = 0.999. 1 < No of clients =< 10
+    GtpCtxs = make_gtp_contexts(?NO_OF_CLIENTS, Config),
+    Sessions = lists:map(fun(Ctx) -> create_session(random, Ctx) end, GtpCtxs),
+
+    lists:foreach(fun({Session,_,_}) -> delete_session(Session) end, Sessions),
+
+    ok = meck:wait(?NO_OF_CLIENTS, ?HUT, terminate, '_', ?TIMEOUT),
+    wait4tunnels(?TIMEOUT),
+    application:set_env(ergw, node_selection, NSMap),
+    meck_validate(Config),
     ok.
 
 %%--------------------------------------------------------------------
@@ -2304,3 +2355,70 @@ check_contexts_metric(Version, Cnt, Expect) ->
 
 pfcp_seids() ->
     lists:flatten(ets:match(gtp_context_reg, {{seid, '$1'},{ergw_sx_node, '_'}})).
+
+% PID registered naming convention is gtp_client_server_x
+% Clients IP_address from {127,127,127,128} 10 max.
+set_up_clients(Max, Config)
+  when is_integer(Max), Max > 1, Max =< 10 ->
+    set_up_clients(1, Max, Config);
+set_up_clients(_Max, Config) ->
+    set_up_clients(1, 10, Config).
+
+set_up_clients(Cnt, Max, _Config) when Cnt > Max ->
+    ok;
+set_up_clients(Cnt, Max, Config) ->
+    Name = list_to_atom("gtpc_client_server" ++ "_" ++ integer_to_list(Cnt)),
+    Config1 = lists:keyreplace(client_ip, 1, Config, 
+			       {client_ip, {127,127,127,127+Cnt}}),
+    setup_per_testcase(Config1, Name, true),
+    set_up_clients(Cnt+1, Max, Config).
+
+%Stop Gtpc servers
+stop_gtpc_servers(Max)
+  when is_integer(Max), Max > 1, Max =< 10 ->
+    stop_gtpc_servers(1, Max);
+stop_gtpc_servers(_Max) ->
+    stop_gtpc_servers(1, 10).
+
+stop_gtpc_servers(Cnt, Max) when Cnt > Max ->
+    ok;
+stop_gtpc_servers(Cnt, Max) ->
+    Name = list_to_atom("gtpc_client_server" ++ "_" ++ integer_to_list(Cnt)),
+    stop_gtpc_server_node(Name),
+    stop_gtpc_servers(Cnt+1, Max).
+
+% Make multi gtp contexts range 2 to 10
+% Start allocating Clients IP_address from {127,127,127,128}
+make_gtp_contexts(Max, Config)
+  when is_integer(Max), Max > 1, Max =< 10 ->
+    make_gtp_contexts(1, Max, Config, []);
+make_gtp_contexts(_Max, Config) ->
+    make_gtp_contexts(1, 10, Config, []).
+
+make_gtp_contexts(Cnt, Max, _Config, GtpCtxs) when Cnt > Max ->
+    lists:reverse(GtpCtxs);
+make_gtp_contexts(Cnt, Max, Config, GtpCtxs) ->
+    Config1 = lists:keyreplace(client_ip, 1, Config, 
+			       {client_ip, {127,127,127,127+Cnt}}),
+    GtpCtx = gtp_context(?MODULE, Config1),
+    make_gtp_contexts(Cnt+1, Max, Config, [GtpCtx | GtpCtxs]).
+
+% Add 2nd dest PGW
+set_lb_envs() ->
+    NewLBNode = [{"_default.apn.epc.mnc001.mcc001.3gppnetwork.org",
+		  {300,64536},
+		  [{"x-3gpp-pgw","x-gn"},
+		   {"x-3gpp-pgw","x-gp"},
+		   {"x-3gpp-pgw","x-s5-gtp"},
+		   {"x-3gpp-pgw","x-s8-gtp"}],
+		  "topon.s5s8.pgw-1.epc.mnc001.mcc001.3gppnetwork.org"}, 
+		 {"topon.s5s8.pgw-1.epc.mnc001.mcc001.3gppnetwork.org",
+		  [{127,0,200,2}],
+		  []}],
+    {_, NSMap} = application:get_env(ergw, node_selection),
+    NNSMap = add_static_data(NSMap, NewLBNode),
+    application:set_env(ergw, node_selection, NNSMap),
+    NSMap.
+
+add_static_data(#{default := {static, Nodes}} = NSMap, NewLBNode) ->
+    maps:put(default, {static,lists:sort(lists:append(NewLBNode, Nodes))}, NSMap).
