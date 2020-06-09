@@ -16,6 +16,7 @@
 -export([register/3, register_new/3, update/4, unregister/3,
 	 lookup/1, select/1, global_lookup/1,
 	 await_unreg/1]).
+-export([register_name/2, unregister_name/1, whereis_name/1]).
 -export([all/0]).
 
 -ignore_xref([start_link/0]).
@@ -55,6 +56,20 @@ lookup(Key) when is_tuple(Key) ->
 
 select(Key) ->
     ets:select(?SERVER, [{{Key, '$1'},[],['$1']}]).
+
+register_name(Name, Pid) ->
+    register_new([Name], undefined, Pid).
+
+unregister_name(Name) ->
+    unregister([Name], undefined, self()).
+
+whereis_name(Name) ->
+    case select(Name) of
+	[{_, Pid}] when is_pid(Pid) ->
+	    Pid;
+	_Other ->
+	    undefined
+    end.
 
 register(Keys, Handler, Pid)
   when is_list(Keys), is_atom(Handler), is_pid(Pid) ->

@@ -10,7 +10,7 @@
 -behaviour(supervisor).
 
 %% API
--export([start_link/0, new/5]).
+-export([start_link/0, new/5, run/1]).
 
 -ignore_xref([start_link/0]).
 
@@ -36,6 +36,17 @@ new(Socket, Info, Version, Interface, IfOpts) ->
 new(Socket, Info, Version, Interface, IfOpts, Opts) ->
     ?LOG(debug, "new(~p)", [[Socket, Info, Version, Interface, IfOpts, Opts]]),
     supervisor:start_child(?SERVER, [Socket, Info, Version, Interface, IfOpts, Opts]).
+
+run(RecordId) ->
+    Opts = [{hibernate_after, 500},
+	    {spawn_opt,[{fullsweep_after, 0}]},
+	    {debug, [log]}
+	   ],
+    run(RecordId, Opts).
+
+run(RecordId, Opts) ->
+    ?LOG(debug, "run(~p)", [[RecordId, Opts]]),
+    supervisor:start_child(?SERVER, [RecordId, Opts]).
 
 %% ===================================================================
 %% Supervisor callbacks

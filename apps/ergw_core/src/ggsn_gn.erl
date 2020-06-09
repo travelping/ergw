@@ -201,9 +201,9 @@ handle_request(ReqKey,
     case Verdict of
 	ok ->
 	    Actions = context_idle_action([], Context),
-	    {next_state, State#{session := connected}, FinalData, Actions};
+	    {next_state, State#{session := connected, fsm := idle}, FinalData, Actions};
 	_ ->
-	    {next_state, State#{session := shutdown}, FinalData}
+	    {next_state, State#{session := shutdown, fsm := busy}, FinalData}
     end;
 
 handle_request(ReqKey,
@@ -273,7 +273,7 @@ handle_request(ReqKey,
     Data = ergw_gtp_gsn_lib:close_context(?API, normal, Data0),
     Response = response(delete_pdp_context_response, LeftTunnel, request_accepted),
     gtp_context:send_response(ReqKey, Request, Response),
-    {next_state, State#{session := shutdown}, Data};
+    {next_state, State#{session := shutdown, fsm := busy}, Data};
 
 handle_request(ReqKey, _Msg, _Resent, _State, _Data) ->
     gtp_context:request_finished(ReqKey),
@@ -303,7 +303,7 @@ handle_response({From, TermCause}, timeout, #gtp{type = delete_pdp_context_reque
     if is_tuple(From) -> gen_statem:reply(From, {error, timeout});
        true -> ok
     end,
-    {next_state, State#{session := shutdown}, Data};
+    {next_state, State#{session := shutdown, fsm := busy}, Data};
 
 handle_response({From, TermCause},
 		#gtp{type = delete_pdp_context_response,
@@ -316,14 +316,24 @@ handle_response({From, TermCause},
     if is_tuple(From) -> gen_statem:reply(From, {ok, Cause});
        true -> ok
     end,
-    {next_state, State#{session := shutdown}, Data}.
+    {next_state, State#{session := shutdown, fsm := busy}, Data};
 
-terminate(_Reason, _State, #{pfcp := PCtx, context := Context}) ->
+handle_response(_CommandReqKey, _Response, _Request, #{session := SState}, _Data)
+  when SState =/= connected ->
+    keep_state_and_data.
+
+terminate(_Reason, #{session := SState}, #{pfcp := PCtx, context := Context} = Data)
+  when SState =/= connected ->
     ergw_pfcp_context:delete_session(terminate, PCtx),
     ergw_gsn_lib:release_context_ips(Context),
+    ergw_gsn_lib:release_local_teids(Data),
     ok;
-terminate(_Reason, _State, #{context := Context}) ->
+terminate(_Reason, #{session := SState}, #{context := Context} = Data)
+  when SState =/= connected ->
     ergw_gsn_lib:release_context_ips(Context),
+    ergw_gsn_lib:release_local_teids(Data),
+    ok;
+terminate(_Reason, _State, _Data) ->
     ok.
 
 %%%===================================================================
@@ -871,7 +881,7 @@ delete_context(From, TermCause, #{session := connected} = State,
 	 #teardown_ind{value = 1}],
     RequestIEs = gtp_v1_c:build_recovery(Type, Tunnel, false, RequestIEs0),
     send_request(Tunnel, ?T3, ?N3, Type, RequestIEs, {From, TermCause}),
-    {next_state, State#{session := shutdown_initiated}, Data};
+    {next_state, State#{session := shutdown_initiated, fsm := busy}, Data};
 delete_context(undefined, _, _, _) ->
     keep_state_and_data;
 delete_context(From, _, _, _) ->

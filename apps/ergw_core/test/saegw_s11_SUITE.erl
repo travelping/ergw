@@ -478,7 +478,7 @@ common() ->
      gx_invalid_charging_rulebase,
      gx_invalid_charging_rule,
      gx_rar_gy_interaction,
-     gtp_idle_timeout_pfcp_session_loss,
+     gtp_idle_timeout_pfcp_session_loss,		% does not work (yet) with stateless
      up_inactivity_timer].
 
 groups() ->
@@ -611,6 +611,8 @@ init_per_testcase(_, Config) ->
     Config.
 
 end_per_testcase(Config) ->
+    wait4contexts(?TIMEOUT),
+
     stop_gtpc_server(),
 
     PoolId = [<<"pool-A">>, ipv4, "10.180.0.1"],
@@ -1265,8 +1267,7 @@ gy_validity_timer(Config) ->
     delete_session(GtpC),
 
     ?match(X when X >= 3 andalso X < 10,
-		  meck:num_calls(
-		    gtp_context, handle_event, [info, {timeout, '_', pfcp_timer}, '_', '_'])),
+		  meck:num_calls(gtp_context, ctx_pfcp_timer, ['_', '_', '_'])),
 
     CCRU = lists:filter(
 	     fun({_, {ergw_aaa_session, invoke, [_, S, {gy,'CCR-Update'}, _]}, _}) ->

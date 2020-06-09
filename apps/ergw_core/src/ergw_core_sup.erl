@@ -30,6 +30,10 @@ start_link() ->
 %% ===================================================================
 
 init([]) ->
+    %% this is not optimal...
+    Nudsf0 = application:get_env(ergw_core, nudsf, [{handler, ergw_nudsf_ets}]),
+    Nudsf = ergw_nudsf_api:validate_options(Nudsf0),
+
     VContextRegMaster =
 	#{id       => gtp_context_reg_vnode_master,
 	  start    => {riak_core_vnode_master, start_link, [gtp_context_reg_vnode]},
@@ -44,21 +48,24 @@ init([]) ->
 	  shutdown => 5000,
 	  type     => worker,
 	  modules  => [riak_core_vnode_master]},
-    {ok, {{one_for_one, 5, 10}, [?CHILD(ergw_inet_res, worker, []),
-				 ?CHILD(gtp_path_reg, worker, []),
-				 ?CHILD(ergw_tei_mngr, worker, []),
-				 ?CHILD(gtp_path_sup, supervisor, []),
-				 VContextRegMaster,
-				 VPathDbMaster,
-				 ?CHILD(gtp_context_reg, worker, []),
-				 ?CHILD(gtp_context_sup, supervisor, []),
-				 ?CHILD(tdf_sup, supervisor, []),
-				 ?CHILD(ergw_socket_reg, worker, []),
-				 ?CHILD(ergw_socket_sup, supervisor, []),
-				 ?CHILD(ergw_sx_node_reg, worker, []),
-				 ?CHILD(ergw_sx_node_sup, supervisor, []),
-				 ?CHILD(ergw_sx_node_mngr, worker, []),
-				 ?CHILD(gtp_proxy_ds, worker, []),
-				 ?CHILD(ergw_ip_pool_sup, supervisor, []),
-				 ?CHILD(ergw_core, worker, [])
-				]} }.
+    {ok, {{one_for_one, 5, 10},
+	  ergw_nudsf:get_childspecs(Nudsf) ++
+	      [?CHILD(ergw_inet_res, worker, []),
+	       ?CHILD(gtp_path_reg, worker, []),
+	       ?CHILD(ergw_tei_mngr, worker, []),
+	       ?CHILD(ergw_timer_service, worker, []),
+	       ?CHILD(gtp_path_sup, supervisor, []),
+	       VContextRegMaster,
+	       VPathDbMaster,
+	       ?CHILD(gtp_context_reg, worker, []),
+	       ?CHILD(gtp_context_sup, supervisor, []),
+	       ?CHILD(tdf_sup, supervisor, []),
+	       ?CHILD(ergw_socket_reg, worker, []),
+	       ?CHILD(ergw_socket_sup, supervisor, []),
+	       ?CHILD(ergw_sx_node_reg, worker, []),
+	       ?CHILD(ergw_sx_node_sup, supervisor, []),
+	       ?CHILD(ergw_sx_node_mngr, worker, []),
+	       ?CHILD(gtp_proxy_ds, worker, []),
+	       ?CHILD(ergw_ip_pool_sup, supervisor, []),
+	       ?CHILD(ergw_core, worker, [])
+	      ]} }.

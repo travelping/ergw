@@ -87,7 +87,6 @@
 	  chid_by_pdr = #{}	:: map(),
 	  sx_rules = #{}	:: map(),
 	  timers = #{}		:: map(),
-	  timer_by_tref = #{}	:: map(),
 
 	  up_inactivity_timer   :: 'undefined' | non_neg_integer()
 	 }).
