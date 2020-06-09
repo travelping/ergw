@@ -60,11 +60,22 @@
     {ok, NewState :: map(), NewData :: map()} |
     (Reason :: term()).
 
+-callback get_record_meta(
+	    Data :: map()) ->
+    map().
+
+-callback restore_session_state(
+	    Data :: map()) ->
+    map().
+
 %%% -----------------------------------------------------------------
 
 start_link(Handler, Args, SpawnOpts) when is_atom(Handler) ->
     LoopOpts = [{debug, ?DEBUG_OPTS}],
-    start_link(Handler, Args, SpawnOpts, LoopOpts).
+    start_link(Handler, Args, SpawnOpts, LoopOpts);
+
+start_link(RecordId, SpawnOpts, LoopOpts) when is_binary(RecordId) ->
+    proc_lib:start_link(?MODULE, init, [[self(), RecordId, LoopOpts]], infinity, SpawnOpts).
 
 start_link(Handler, Args, SpawnOpts, LoopOpts) when is_atom(Handler) ->
     proc_lib:start_link(?MODULE, init, [[self(), Handler, Args, LoopOpts]], infinity, SpawnOpts).
@@ -73,7 +84,12 @@ call(Server, Request) ->
     call(Server, Request, infinity).
 
 call(Server, Request, Timeout) ->
-    with_context(Server, gen_statem:call(_, Request, Timeout)).
+    with_context(Server,
+		 fun(Pid) ->
+			 try gen_statem:call(Pid, Request, Timeout)
+			 catch exit:{Reason, _} -> {'EXIT', Reason}
+			 end
+		 end).
 
 cast(Server, Msg) ->
     with_context(Server, gen_statem:cast(_, Msg)).
@@ -81,8 +97,30 @@ cast(Server, Msg) ->
 send(Server, Msg) ->
     with_context(Server, erlang:send(_, Msg)).
 
+with_context_run(RecordId, Fun) ->
+    case ergw_context_sup:run(RecordId) of
+	{ok, Pid2} ->
+	    Fun(Pid2);
+	{already_started, Pid3} ->
+	    Fun(Pid3);
+	Other ->
+	    Other
+    end.
+
 with_context(Pid, Fun) when is_pid(Pid), is_function(Fun, 1) ->
-    Fun(Pid).
+    Fun(Pid);
+with_context(RecordId, Fun) when is_binary(RecordId), is_function(Fun, 1) ->
+    case gtp_context_reg:whereis_name(RecordId) of
+	Pid when is_pid(Pid) ->
+	    case Fun(Pid) of
+		{'EXIT', normal} ->
+		    with_context_run(RecordId, Fun);
+		Other ->
+		    Other
+	    end;
+	_ ->
+	    with_context_run(RecordId, Fun)
+    end.
 
 %%====================================================================
 %% gen_statem API
@@ -92,15 +130,31 @@ with_context(Pid, Fun) when is_pid(Pid), is_function(Fun, 1) ->
 
 callback_mode() -> [handle_event_function, state_enter].
 
+init([Parent, RecordId, LoopOpts]) ->
+    case gtp_context_reg:register_name(RecordId, undefined, self()) of
+	ok ->
+	    proc_lib:init_ack(Parent, {ok, self()}),
+	    case ergw_context:get_context_record(RecordId) of
+		{ok, SState, Data} ->
+		    State = ergw_context:init_state(SState),
+		    enter_loop(LoopOpts, State#{fsm := idle}, Data, []);
+		Other ->
+		    erlang:exit(Other)
+	    end;
+	{error, duplicate} ->
+	    Pid = gtp_context_reg:whereis_name(RecordId),
+	    proc_lib:init_ack(Parent, {error, {already_started, Pid}})
+    end;
+
 init([Parent, Handler, Args, LoopOpts]) ->
     process_flag(trap_exit, true),
     proc_lib:init_ack(Parent, {ok, self()}),
 
     case Handler:init(Args, #{?HANDLER => Handler}) of
 	{ok, State, Data} ->
-	    enter_loop(LoopOpts, State, Data, []);
+	    init_new(LoopOpts, State, Data, []);
 	{ok, State, Data, Actions} ->
-	    enter_loop(LoopOpts, State, Data, Actions);
+	    init_new(LoopOpts, State, Data, Actions);
 	InitR ->
 	    case InitR of
 		{stop, Reason} ->
@@ -114,11 +168,20 @@ init([Parent, Handler, Args, LoopOpts]) ->
 	    end
     end.
 
-enter_loop(LoopOpts, State, Data, Actions) ->
+init_new(LoopOpts, #{session := SState} = State, #{?HANDLER := Handler} = Data, Actions) ->
+    Meta = Handler:get_record_meta(Data),
+    ergw_context:create_context_record(SState, Meta, Data),
+    enter_loop(LoopOpts, State, Data, Actions).
+
+enter_loop(LoopOpts, State, #{?HANDLER := Handler} = Data0, Actions) ->
+    Data = Handler:restore_session_state(Data0),
     gen_statem:enter_loop(?MODULE, LoopOpts, State, Data, Actions).
 
 handle_event(enter, OldState, State, #{?HANDLER := Handler} = Data) ->
     Handler:handle_event(enter, OldState, State, Data);
+
+handle_event({call, From}, handler, _State, #{?HANDLER := Handler}) ->
+    {keep_state_and_data, [{reply, From, {ok, {Handler, self()}}}]};
 
 handle_event(info, {{'DOWN', ReqId}, _, _, _, Info}, #{async := Async} = State, Data)
   when is_map_key(ReqId, Async) ->

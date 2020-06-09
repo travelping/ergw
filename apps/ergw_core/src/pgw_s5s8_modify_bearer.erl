@@ -31,7 +31,7 @@ modify_bearer(ReqKey, Request, _Resent, State, Data) ->
       modify_bearer_fun(Request, _, _),
       modify_bearer_ok(ReqKey, Request, _, _, _),
       modify_bearer_fail(ReqKey, Request, _, _, _),
-      State, Data).
+      State#{fsm := busy}, Data).
 
 modify_bearer_ok(ReqKey,
 		 #gtp{type = modify_bearer_request,
@@ -72,7 +72,7 @@ modify_bearer_ok(ReqKey,
 
     Actions = pgw_s5s8:context_idle_action([], Context),
     ?LOG(debug, "MBR data: ~p", [Data]),
-    {next_state, State, Data, Actions};
+    {next_state, State#{fsm := idle}, Data, Actions};
 
 modify_bearer_ok(ReqKey, #gtp{type = modify_bearer_request, ie = IEs} = Request,
 		 _, State, #{context := Context, left_tunnel := LeftTunnel} = Data)
@@ -82,7 +82,7 @@ modify_bearer_ok(ReqKey, #gtp{type = modify_bearer_request, ie = IEs} = Request,
     gtp_context:send_response(ReqKey, Request, Response),
 
     Actions = pgw_s5s8:context_idle_action([], Context),
-    {next_state, State, Data, Actions}.
+    {next_state, State#{fsm := idle}, Data, Actions}.
 
 modify_bearer_fail(ReqKey, #gtp{type = MsgType, seq_no = SeqNo} = Request,
 		    #ctx_err{reply = Reply} = Error,

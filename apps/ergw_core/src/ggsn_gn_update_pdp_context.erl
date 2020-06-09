@@ -31,7 +31,7 @@ update_pdp_context(ReqKey, Request, _Resent, State, Data) ->
       update_pdp_context_fun(Request, _, _),
       update_pdp_context_ok(ReqKey, Request, _, _, _),
       update_pdp_context_fail(ReqKey, Request, _, _, _),
-      State, Data).
+      State#{fsm := busy}, Data).
 
 update_pdp_context_ok(ReqKey,
 		      #gtp{type = update_pdp_context_request,
@@ -51,7 +51,7 @@ update_pdp_context_ok(ReqKey,
     gtp_context:send_response(ReqKey, Request, Response),
 
     Actions = ggsn_gn:context_idle_action([], Context),
-    {next_state, State, Data, Actions}.
+    {next_state, State#{fsm := idle}, Data, Actions}.
 
 update_pdp_context_fail(ReqKey, #gtp{type = MsgType, seq_no = SeqNo} = Request,
 		    #ctx_err{reply = Reply} = Error,

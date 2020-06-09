@@ -10,7 +10,7 @@
 -behaviour(supervisor).
 
 %% API
--export([start_link/0, new/2, new/3]).
+-export([start_link/0, new/2, new/3, run/1, run/2]).
 
 -ignore_xref([start_link/0, new/3, run/2]).
 
@@ -20,6 +20,7 @@
 -include_lib("kernel/include/logger.hrl").
 
 -define(SERVER, ?MODULE).
+-define(DEBUG_OPTS, []).
 
 %% ===================================================================
 %% API functions
@@ -37,6 +38,17 @@ new(Handler, Args, Opts) ->
     ?LOG(debug, "new(~p)", [[Handler, Args, Opts]]),
     SpawnOpts = proplists:get_value(spawn_opt, Opts, []),
     supervisor:start_child(?SERVER, [Handler, Args, SpawnOpts, Opts]).
+
+run(RecordId) ->
+    Opts = [{hibernate_after, 500},
+	    {spawn_opt,[{fullsweep_after, 0}]},
+	    {debug, ?DEBUG_OPTS}],
+    run(RecordId, Opts).
+
+run(RecordId, Opts) ->
+    ?LOG(debug, "run(~p)", [[RecordId, Opts]]),
+    SpawnOpts = proplists:get_value(spawn_opt, Opts, []),
+    supervisor:start_child(?SERVER, [RecordId, SpawnOpts, Opts]).
 
 %% ===================================================================
 %% Supervisor callbacks

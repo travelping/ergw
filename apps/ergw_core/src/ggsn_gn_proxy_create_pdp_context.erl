@@ -35,7 +35,7 @@ create_pdp_context(ReqKey, Request, _Resent, State, Data) ->
       create_pdp_context_fun(Request, _, _),
       create_pdp_context_ok(ReqKey, Request, _, _, _),
       create_pdp_context_fail(ReqKey, Request, _, _, _),
-      State, Data).
+      State#{fsm := busy}, Data).
 
 create_pdp_context_ok(ReqKey, Request, Lease,
 		  State, #{proxy_context := ProxyContext,
@@ -116,7 +116,7 @@ create_pdp_context_fun(#gtp{ie = IEs} = Request,
 	     return(Lease)
 	 ]), State, Data).
 
-create_pdp_context_response(ProxyRequest, Response, Request, State, Data) ->
+create_pdp_context_response(ProxyRequest, Response, Request, #{fsm := busy} = State, Data) ->
     ?LOG(debug, "OK Proxy Response ~p", [Response]),
     ergw_context_statem:next(
       create_pdp_context_response_fun(Response, _, _),
@@ -130,7 +130,12 @@ create_pdp_context_response_ok(ProxyRequest, Response, NextState,
     _ = ?LOG(debug, "~s: -> ~p", [?FUNCTION_NAME, NextState]),
 
     ggsn_gn_proxy:forward_response(ProxyRequest, Response, LeftTunnel, LeftBearer, Context),
-    {next_state, State#{session := NextState}, Data}.
+    case NextState of
+	connected ->
+	    {next_state, State#{session := NextState, fsm := idle}, Data};
+	shutdown ->
+	    {next_state, State#{session := NextState, fsm := busy}, Data}
+    end.
 
 create_pdp_context_response_fail(ProxyRequest, Response, Request, Error, State, Data) ->
     _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),

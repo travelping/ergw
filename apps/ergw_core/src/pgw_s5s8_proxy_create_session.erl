@@ -36,7 +36,7 @@ create_session(ReqKey, Request, _Resent, State, Data) ->
       create_session_fun(Request, _, _),
       create_session_ok(ReqKey, Request, Data, _, _, _),
       create_session_fail(ReqKey, Request, _, _, _),
-      State, Data).
+      State#{fsm := busy}, Data).
 
 create_session_ok(ReqKey, Request, DataOld, Lease,
 		  State, #{proxy_context := ProxyContext,
@@ -117,7 +117,7 @@ create_session_fun(#gtp{ie = IEs} = Request,
 	 ]), State, Data).
 
 
-create_session_response(ProxyRequest, Response, Request, State, Data) ->
+create_session_response(ProxyRequest, Response, Request, #{fsm := busy} = State, Data) ->
     ?LOG(debug, "OK Proxy Response ~p", [Response]),
     ergw_context_statem:next(
       create_session_response_fun(Response, _, _),
@@ -131,7 +131,12 @@ create_session_response_ok(ProxyRequest, Response, NextState,
     _ = ?LOG(debug, "~s: -> ~p", [?FUNCTION_NAME, NextState]),
 
     pgw_s5s8_proxy:forward_response(ProxyRequest, Response, LeftTunnel, LeftBearer, Context),
-    {next_state, State#{session := NextState}, Data}.
+    case NextState of
+	connected ->
+	    {next_state, State#{session := NextState, fsm := idle}, Data};
+	shutdown ->
+	    {next_state, State#{session := NextState, fsm := busy}, Data}
+    end.
 
 create_session_response_fail(ProxyRequest, Response, Request, Error, State, Data) ->
     _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),

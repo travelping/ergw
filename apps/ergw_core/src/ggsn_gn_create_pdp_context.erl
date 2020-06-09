@@ -31,7 +31,7 @@ create_pdp_context(ReqKey, Request, _Resent, State, Data) ->
       create_pdp_context_fun(Request, _, _),
       create_pdp_context_ok(ReqKey, Request, _, _, _),
       create_pdp_context_fail(ReqKey, Request, _, _, _),
-      State, Data).
+      State#{fsm := busy}, Data).
 
 create_pdp_context_ok(ReqKey, Request, {Cause, SessionOpts},
 		      State, #{context := Context, left_tunnel := LeftTunnel,
@@ -45,7 +45,7 @@ create_pdp_context_ok(ReqKey, Request, {Cause, SessionOpts},
 
     Actions = ggsn_gn:context_idle_action([], Context),
     ?LOG(debug, "C-PDP-CR data: ~p", [Data]),
-    {next_state, State#{session := connected}, Data, Actions}.
+    {next_state, State#{session := connected, fsm := idle}, Data, Actions}.
 
 create_pdp_context_fail(ReqKey, #gtp{type = MsgType, seq_no = SeqNo} = Request,
 		    #ctx_err{reply = Reply} = Error,

@@ -31,7 +31,7 @@ ms_info_change_notification(ReqKey, Request, _Resent, State, Data) ->
       ms_info_change_notification_fun(Request, _, _),
       ms_info_change_notification_ok(ReqKey, Request, _, _, _),
       ms_info_change_notification_fail(ReqKey, Request, _, _, _),
-      State, Data).
+      State#{fsm := busy}, Data).
 
 ms_info_change_notification_ok(ReqKey, #gtp{ie = IEs} = Request, _, State,
 			       #{context := Context, left_tunnel := LeftTunnel} = Data) ->
@@ -41,7 +41,7 @@ ms_info_change_notification_ok(ReqKey, #gtp{ie = IEs} = Request, _, State,
     gtp_context:send_response(ReqKey, Request, Response),
 
     Actions = ggsn_gn:context_idle_action([], Context),
-    {next_state, State, Data, Actions}.
+    {next_state, State#{fsm := idle}, Data, Actions}.
 
 ms_info_change_notification_fail(ReqKey, #gtp{type = MsgType, seq_no = SeqNo} = Request,
 		    #ctx_err{reply = Reply} = Error,

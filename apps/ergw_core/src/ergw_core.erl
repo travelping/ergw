@@ -110,6 +110,10 @@ system_info(accept_new, New) when is_boolean(New) ->
 system_info(Key, Value) ->
     error(badarg, [Key, Value]).
 
+setopts(udsf = _What, Opts) ->
+    %% TODO: the sideeffects of this call are not nice
+    ergw_nudsf_api:validate_options(Opts),
+    ok;
 setopts(node_selection = What, Opts0) ->
     Opts = ergw_node_selection:validate_options(Opts0),
     gen_statem:call(?SERVER, {setopts, What, Opts});

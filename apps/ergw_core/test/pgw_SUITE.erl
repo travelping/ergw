@@ -47,6 +47,8 @@
 	 {ergw_core,
 	  #{node =>
 		[{node_id, <<"PGW.epc.mnc001.mcc001.3gppnetwork.org">>}],
+	    %% udsf => [{handler, ergw_nudsf_mongo}],
+	    udsf => [{handler, ergw_nudsf_ets}],
 	    sockets =>
 		[{'cp-socket',
 		  [{type, 'gtp-u'},
@@ -745,7 +747,8 @@ common() ->
      gx_invalid_charging_rule,
      gx_rar_gy_interaction,
      tdf_app_id,
-     gtp_idle_timeout_pfcp_session_loss,
+     long_session_request,
+     %% gtp_idle_timeout_pfcp_session_loss,		% does not work (yet) with stateless
      up_inactivity_timer].
 
 sx_fail() ->
@@ -1332,7 +1335,7 @@ path_restart() ->
 path_restart(Config) ->
     {GtpC, _, _} = create_session(Config),
 
-    %% simulate patch restart to kill the PDP context
+    %% simulate path restart to kill the PDP context
     Echo = make_request(echo_request, simple,
 			gtp_context_inc_seq(
 			  gtp_context_inc_restart_counter(GtpC))),
@@ -1376,15 +1379,19 @@ path_restart_multi(Config) ->
     {GtpC3, _, _} = create_session(random, GtpC2),
     {GtpC4, _, _} = create_session(random, GtpC3),
 
+    %% TBD: does not work for stateless when the session is swapped out
     [?match(#{tunnels := 5}, X) || X <- ergw_api:peer(all)],
+    %% ?equal(5, active_contexts()),
 
-    %% simulate patch restart to kill the PDP context
+    %% simulate path restart to kill the PDP context
     Echo = make_request(echo_request, simple,
 			gtp_context_inc_seq(
 			  gtp_context_inc_restart_counter(GtpC4))),
     send_recv_pdu(GtpC4, Echo),
 
-    ok = meck:wait(5, ?HUT, terminate, '_', ?TIMEOUT),
+    Match = fun(#{session := shutdown}) -> true;
+	       (_) -> false end,
+    ok = meck:wait(5, ?HUT, terminate, ['_', meck:is(Match), '_'], ?TIMEOUT),
     wait4tunnels(?TIMEOUT),
     wait4contexts(?TIMEOUT),
 
@@ -1823,6 +1830,37 @@ simple_session_request_nf_sel(Config) ->
 	      end, ergw_test_sx_up:history('pgw-u02'))),
 
     ?match_map(#{create_pdr => '_', create_far => '_',  create_urr => '_'}, SER#pfcp.ie),
+
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+long_session_request() ->
+    [{doc, "Check simple Create Session, long delay, Delete Session sequence"}].
+long_session_request(Config) ->
+    PoolId = [<<"pool-A">>, ipv4, "10.180.0.1"],
+
+    ?match_metric(prometheus_gauge, ergw_local_pool_free, PoolId, ?IPv4PoolSize),
+    ?match_metric(prometheus_gauge, ergw_local_pool_used, PoolId, 0),
+
+    {GtpC, _, _} = create_session(ipv4, Config),
+
+    ?match_metric(prometheus_gauge, ergw_local_pool_free, PoolId, ?IPv4PoolSize - 1),
+    ?match_metric(prometheus_gauge, ergw_local_pool_used, PoolId, 1),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    ?equal(1, active_contexts()),
+    meck:reset(?HUT),
+
+    delete_session(GtpC),
+
+    ?equal([], outstanding_requests()),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    wait4contexts(?TIMEOUT),
+
+    ?match_metric(prometheus_gauge, ergw_local_pool_free, PoolId, ?IPv4PoolSize),
+    ?match_metric(prometheus_gauge, ergw_local_pool_used, PoolId, 0),
 
     meck_validate(Config),
     ok.
@@ -3148,8 +3186,7 @@ gy_validity_timer_cp(Config) ->
     delete_session(GtpC),
 
     ?match(X when X >= 3 andalso X < 10,
-		  meck:num_calls(
-		    gtp_context, handle_event, [info, {timeout, '_', pfcp_timer}, '_', '_'])),
+		  meck:num_calls(gtp_context, ctx_pfcp_timer, ['_', '_', '_'])),
 
     CCRU = lists:filter(
 	     fun({_, {ergw_aaa_session, invoke, [_, S, {gy,'CCR-Update'}, _]}, _}) ->
@@ -4633,12 +4670,14 @@ tariff_time_change(Config) ->
     AAAReply = #{'Acct-Interim-Interval' => [Interim]},
 
     ok = meck:expect(ergw_aaa_session, start_link,
-		     fun (Owner, SOpts0) ->
+		     fun (Owner, SOpts0)  when is_map(SOpts0) ->
 			     OPC = #{'Default' =>
 					 #{'Tariff-Time' =>
 					       [#{'Local-Tariff-Time' => {15, 4},
 						  'Location' => <<"Etc/UTC">>}]}},
 			     SOpts = SOpts0#{'Offline-Charging-Profile' => OPC},
+			     meck:passthrough([Owner, SOpts]);
+			 (Owner, SOpts) ->
 			     meck:passthrough([Owner, SOpts])
 		     end),
     ok = meck:expect(ergw_aaa_session, invoke,

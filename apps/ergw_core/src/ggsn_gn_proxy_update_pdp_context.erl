@@ -31,7 +31,7 @@ update_pdp_context(ReqKey, Request, _Resent, State, Data) ->
       update_pdp_context_fun(Request, _, _),
       update_pdp_context_ok(ReqKey, Request, _, _, _),
       update_pdp_context_fail(ReqKey, Request, _, _, _),
-      State, Data).
+      State#{fsm := busy}, Data).
 
 update_pdp_context_ok(ReqKey, Request, Lease,
 		 State, #{proxy_context := ProxyContext, right_tunnel := RightTunnel,
@@ -60,7 +60,7 @@ update_pdp_context_fun(Request, State, Data) ->
 	     statem_m:return(Lease)
 	 ]), State, Data).
 
-update_pdp_context_response(ProxyRequest, Response, Request, State, Data) ->
+update_pdp_context_response(ProxyRequest, Response, Request, #{fsm := busy} = State, Data) ->
     _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
     ?LOG(debug, "OK Proxy Response ~p", [Response]),
     ergw_context_statem:next(
@@ -75,7 +75,7 @@ update_pdp_context_response_ok(ProxyRequest, Response, _,
     _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
 
     ggsn_gn_proxy:forward_response(ProxyRequest, Response, LeftTunnel, LeftBearer, Context),
-    {next_state, State, Data}.
+    {next_state, State#{fsm := idle}, Data}.
 
 update_pdp_context_response_fail(ProxyRequest, Response, Request, Error, State, Data) ->
     _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),

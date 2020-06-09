@@ -31,7 +31,7 @@ create_session(ReqKey, Request, _Resent, State, Data) ->
       create_session_fun(Request, _, _),
       create_session_ok(ReqKey, Request, _, _, _),
       create_session_fail(ReqKey, Request, _, _, _),
-      State, Data).
+      State#{fsm := busy}, Data).
 
 create_session_ok(ReqKey,
 		 #gtp{ie = #{?'Bearer Contexts to be created' :=
@@ -49,7 +49,7 @@ create_session_ok(ReqKey,
 
     Actions = saegw_s11:context_idle_action([], Context),
     ?LOG(debug, "CSR data: ~p", [Data]),
-    {next_state, State#{session := connected}, Data, Actions}.
+    {next_state, State#{session := connected, fsm := idle}, Data, Actions}.
 
 create_session_fail(ReqKey, #gtp{type = MsgType, seq_no = SeqNo} = Request,
 		    #ctx_err{reply = Reply} = Error,

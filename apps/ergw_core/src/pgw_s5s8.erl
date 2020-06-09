@@ -111,14 +111,14 @@ handle_event({timeout, context_idle}, check_session_liveness, State, Data) ->
       statem_m:run(ergw_gtp_gsn_lib:pfcp_session_liveness_check(), _, _),
       fun check_pfcp_session_liveness_ok/3,
       fun check_pfcp_session_liveness_fail/3,
-      State, Data);
+      State#{fsm := busy}, Data);
 
 handle_event(info, _Info, _State, _Data) ->
     keep_state_and_data.
 
 check_pfcp_session_liveness_ok(_, State, #{context := Context} = Data) ->
     Actions = context_idle_action([], Context),
-    {next_state, State, Data, Actions}.
+    {next_state, State#{fsm := idle}, Data, Actions}.
 
 check_pfcp_session_liveness_fail(_, State, Data) ->
     delete_context(undefined, cp_inactivity_timeout, State, Data).
@@ -169,7 +169,7 @@ handle_request(#request{src = Src, ip = IP, port = Port} = ReqKey,
 			   ?'Bearer Contexts to be modified' :=
 			       #v2_bearer_context{
 				   group = #{?'EPS Bearer ID' := EBI} = Bearer}} = IEs},
-	       _Resent, #{session := connected},
+	       _Resent, #{session := connected} = State,
 	       #{context := Context, left_tunnel := LeftTunnel,
 		 bearer := #{left := LeftBearer}, 'Session' := Session} = Data) ->
     {OldSOpts, _} = update_session_from_gtp_req(IEs, Session, LeftTunnel, LeftBearer),
@@ -185,7 +185,7 @@ handle_request(#request{src = Src, ip = IP, port = Port} = ReqKey,
       LeftTunnel, Src, IP, Port, ?T3, ?N3, Msg#gtp{seq_no = SeqNo}, {ReqKey, OldSOpts}),
 
     Actions = context_idle_action([], Context),
-    {keep_state, Data, Actions};
+    {next_state, State#{fsm := busy}, Data, Actions};
 
 handle_request(ReqKey, #gtp{type = change_notification_request} = Request,
 	       Resent, #{session := connected} = State, Data) ->
@@ -225,7 +225,7 @@ handle_request(ReqKey,
 	      delete_session_request(Request),
 	      delete_session_resp(ReqKey, Request, _, _, _),
 	      delete_session_resp(ReqKey, Request, _, _, _),
-	      State, Data);
+	      State#{fsm := busy}, Data);
 	{error, ReplyIEs} ->
 	    Response = response(delete_session_response, LeftTunnel, ReplyIEs),
 	    gtp_context:send_response(ReqKey, Request, Response),
@@ -285,7 +285,7 @@ handle_response({From, TermCause}, timeout, #gtp{type = delete_bearer_request},
     if is_tuple(From) -> gen_statem:reply(From, {error, timeout});
        true -> ok
     end,
-    {next_state, State#{session := shutdown}, Data};
+    {next_state, State#{session := shutdown, fsm := busy}, Data};
 
 handle_response({From, TermCause},
 		#gtp{type = delete_bearer_response,
@@ -297,20 +297,27 @@ handle_response({From, TermCause},
     if is_tuple(From) -> gen_statem:reply(From, {ok, RespCause});
        true -> ok
     end,
-    {next_state, State#{session := shutdown}, Data};
+    {next_state, State#{session := shutdown, fsm := busy}, Data};
 
 handle_response(_CommandReqKey, _Response, _Request, #{session := SState}, _Data)
   when SState =/= connected ->
     keep_state_and_data.
 
-terminate(_Reason, _State, #{pfcp := PCtx, context := Context}) ->
+terminate(_Reason, #{session := SState}, #{pfcp := PCtx, context := Context} = Data)
+  when SState =/= connected ->
     ?LOG(debug, "Terminate #1"),
     ergw_pfcp_context:delete_session(terminate, PCtx),
     ergw_gsn_lib:release_context_ips(Context),
+    ergw_gsn_lib:release_local_teids(Data),
     ok;
-terminate(_Reason, _State, #{context := Context} = Data) ->
+terminate(_Reason, #{session := SState}, #{context := Context} = Data)
+  when SState =/= connected ->
     ?LOG(debug, "Terminate #2: ~p~n", [Data]),
     ergw_gsn_lib:release_context_ips(Context),
+    ergw_gsn_lib:release_local_teids(Data),
+    ok;
+terminate(_Reason, _State, Data) ->
+    ?LOG(debug, "Terminate #2: ~p~n", [Data]),
     ok.
 
 %%%===================================================================
@@ -802,7 +809,7 @@ delete_context(From, TermCause, #{session := connected} = State,
 		   #v2_eps_bearer_id{eps_bearer_id = EBI}],
     RequestIEs = gtp_v2_c:build_recovery(Type, Tunnel, false, RequestIEs0),
     send_request(Tunnel, ?T3, ?N3, Type, RequestIEs, {From, TermCause}),
-    {next_state, State#{session := shutdown_initiated}, Data};
+    {next_state, State#{session := shutdown_initiated, fsm := busy}, Data};
 delete_context(undefined, _, _, _) ->
     keep_state_and_data;
 delete_context(From, _, _, _) ->

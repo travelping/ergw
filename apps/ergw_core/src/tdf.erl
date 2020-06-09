@@ -20,14 +20,15 @@
 -ignore_xref([validate_options/1, unsolicited_report/5]).
 
 %% ergw_context callbacks
--export([sx_report/2, port_message/2, port_message/4]).
+-export([ctx_sx_report/2, ctx_pfcp_timer/3, port_message/2, ctx_port_message/4]).
 
 -ifdef(TEST).
 -export([ctx_test_cmd/2]).
 -endif.
 
 %% ergw_context_statem callbacks
--export([init/2, handle_event/4, terminate/3, code_change/4]).
+-export([get_record_meta/1, restore_session_state/1,
+	 init/2, handle_event/4, terminate/3, code_change/4]).
 
 -include_lib("kernel/include/logger.hrl").
 -include_lib("pfcplib/include/pfcp_packet.hrl").
@@ -91,8 +92,11 @@ validate_option(Opt, Value) ->
 %% ergw_context API
 %%====================================================================
 
-sx_report(Server, Report) ->
+ctx_sx_report(Server, Report) ->
     ergw_context_statem:call(Server, {sx, Report}).
+
+ctx_pfcp_timer(Server, Time, Evs) ->
+    ergw_context_statem:call(Server, {pfcp_timer, Time, Evs}).
 
 port_message(Request, Msg) ->
     %% we currently do not configure DP to CP forwards,
@@ -101,7 +105,7 @@ port_message(Request, Msg) ->
     ?LOG(error, "Port Message ~p, ~p", [Request, Msg]),
     error(badarg, [Request, Msg]).
 
-port_message(Server, Request, Msg, Resent) ->
+ctx_port_message(Server, Request, Msg, Resent) ->
     %% we currently do not configure DP to CP forwards,
     %% so this should not happen
 
@@ -116,6 +120,11 @@ maybe_ip(IP, Len) when is_binary(IP) -> ergw_ip_pool:static_ip(IP, Len);
 maybe_ip(_,_) -> undefined.
 
 init([Node, InVRF, IP4, IP6, #{apn := APN} = _SxOpts], Data0) ->
+    Id =  erlang:unique_integer([positive]),
+    RecordId = iolist_to_binary(["TDF-", integer_to_list(Id)]),
+
+    gtp_context_reg:register_name(RecordId, ?MODULE, self()),
+
     UeIP = #ue_ip{v4 = maybe_ip(IP4, 32), v6 = maybe_ip(IP6, 128)},
     Context = #tdf_ctx{
 		  ms_ip = UeIP
@@ -138,6 +147,7 @@ init([Node, InVRF, IP4, IP6, #{apn := APN} = _SxOpts], Data0) ->
     Bearer = #{left => LeftBearer, right => RightBearer},
     Data = Data0#{
       apn       => APN,
+      record_id => RecordId,
       context   => Context,
       dp_node   => Node,
       'Session' => Session,
@@ -145,6 +155,7 @@ init([Node, InVRF, IP4, IP6, #{apn := APN} = _SxOpts], Data0) ->
       bearer    => Bearer},
 
     ?LOG(info, "TDF process started for ~p", [[Node, IP4, IP6]]),
+    %% {ok, ergw_context:init_state(), Data, [{next_event, internal, init}]}.
     {ok, ergw_context:init_state(), Data, [{next_event, internal, init}]}.
 
 %%
@@ -165,6 +176,18 @@ handle_event(enter, _OldState, #{session := shutdown} = _State, _Data) ->
     %% guarantees that we process any left over messages first
     ergw_context_statem:cast(self(), stop),
     keep_state_and_data;
+
+handle_event(state_timeout, idle, #{fsm := init}, Data) ->
+    {stop, normal, Data};
+handle_event(state_timeout, idle, #{session := SState, fsm := idle}, Data0) ->
+    Data = save_session_state(Data0),
+    Meta = get_record_meta(Data),
+    ergw_context:put_context_record(SState, Meta, Data),
+    {stop, normal, Data};
+
+%% TBD:
+%% handle_event(state_timeout, stop, #{session := shutdown_initiated} = State, Data) ->
+%%     {next_state, State#{session := shutdown, fsm := busy}, Data};
 
 handle_event(enter, _OldState, _State, _Data) ->
     keep_state_and_data;
@@ -204,6 +227,19 @@ handle_event({call, From}, {sx, Report}, _State, #{pfcp := PCtx}) ->
     ?LOG(warning, "~w: unhandled Sx report: ~p", [?MODULE, Report]),
     {keep_state_and_data, [{reply, From, {ok, PCtx, 'System failure'}}]};
 
+handle_event({call, From}, {pfcp_timer, Time, Evs} = Info, State, #{pfcp := PCtx0} = Data0) ->
+    ?LOG(debug, "handle_info TDF:~p", [Info]),
+    gen_statem:reply(From, ok),
+    PCtx = ergw_pfcp:timer_expired(Time, PCtx0),
+    Data = Data0#{pfcp => PCtx},
+    #{validity_time := ChargingKeys} = ergw_gsn_lib:pfcp_to_context_event(Evs),
+
+    ergw_context_statem:next(
+      triggered_charging_event_fun(validity_time, ChargingKeys, _, _),
+      triggered_charging_event_ok(_, _, _),
+      triggered_charging_event_fail(_, _, _),
+      State#{fsm := busy}, Data);
+
 handle_event({call, From}, _Request, _State, _Data) ->
     {keep_state_and_data, [{reply, From, ok}]};
 
@@ -230,7 +266,7 @@ handle_event(info, #aaa_request{procedure = {gx, 'RAR'}} = Request, State, Data)
       gx_rar_fun(Request, _, _),
       gx_rar_ok(Request, _, _, _),
       gx_rar_fail(Request, _, _, _),
-      State, Data);
+      State#{fsm := busy}, Data);
 
 handle_event(info, #aaa_request{procedure = {gy, 'RAR'},
 				events = Events} = Request,
@@ -249,7 +285,7 @@ handle_event(info, #aaa_request{procedure = {gy, 'RAR'},
       triggered_charging_event_fun(interim, ChargingKeys, _, _),
       triggered_charging_event_ok(_, _, _),
       triggered_charging_event_fail(_, _, _),
-      State, Data);
+      State#{fsm := busy}, Data);
 
 %% Enable AAA to provide reason for session stop
 handle_event(internal, {session, {stop, Reason}, _Session}, State, Data) ->
@@ -265,7 +301,7 @@ handle_event(internal, {session, {update_credits, _} = CreditEv, _}, State, Data
       update_credits_fun(CreditEv, _, _),
       update_credits_ok(_, _, _),
       update_credits_fail(_, _, _),
-      State, Data);
+      State#{fsm := busy}, Data);
 
 handle_event(internal, {session, Ev, _}, _State, _Data) ->
     ?LOG(error, "unhandled session event: ~p", [Ev]),
@@ -275,18 +311,6 @@ handle_event(info, {update_session, Session, Events}, _State, _Data) ->
     ?LOG(debug, "SessionEvents: ~p~n       Events: ~p", [Session, Events]),
     Actions = [{next_event, internal, {session, Ev, Session}} || Ev <- Events],
     {keep_state_and_data, Actions};
-
-handle_event(info, {timeout, TRef, pfcp_timer} = Info, State, #{pfcp := PCtx0} = Data0) ->
-    ?LOG(debug, "handle_info TDF:~p", [Info]),
-    {Evs, PCtx} = ergw_pfcp:timer_expired(TRef, PCtx0),
-    Data = Data0#{pfcp => PCtx},
-    #{validity_time := ChargingKeys} = ergw_gsn_lib:pfcp_to_context_event(Evs),
-
-    ergw_context_statem:next(
-      triggered_charging_event_fun(validity_time, ChargingKeys, _, _),
-      triggered_charging_event_ok(_, _, _),
-      triggered_charging_event_fail(_, _, _),
-      State, Data);
 
 handle_event(info, _Info, _State, _Data) ->
     keep_state_and_data.
@@ -358,7 +382,7 @@ session_report_fun(UsageReport, State, Data) ->
 
 session_report_ok(From, _, State, #{pfcp := PCtx} = Data) ->
     _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
-    {next_state, State, Data, [{reply, From, {ok, PCtx}}]}.
+    {next_state, State#{fsm := idle}, Data, [{reply, From, {ok, PCtx}}]}.
 
 session_report_fail(From, Reason, State, #{pfcp := PCtx} = Data) ->
     _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
@@ -377,7 +401,7 @@ triggered_charging_event_fun(ChargeEv, ChargingKeys, State, Data) ->
 
 triggered_charging_event_ok(_, State, Data) ->
     _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
-    {next_state, State, Data}.
+    {next_state, State#{fsm := idle}, Data}.
 
 triggered_charging_event_fail(Reason, State, Data) ->
     _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
@@ -480,13 +504,13 @@ gx_rar_ok(Request, Errors, State, Data) ->
 
     GxReport = ergw_gsn_lib:pcc_events_to_charging_rule_report(Errors),
     ergw_aaa_session:response(Request, ok, GxReport, #{}),
-    {next_state, State, Data}.
+    {next_state, State#{fsm := idle}, Data}.
 
 gx_rar_fail(_Request, Error, State, Data) ->
     ?LOG(error, "gx_rar failed with ~p", [Error]),
 
     %% TBD: Gx RAR Error reply
-    {next_state, State, Data}.
+    {next_state, State#{fsm := idle}, Data}.
 
 update_credits_fun(CreditEv, State, Data) ->
     statem_m:run(
@@ -499,10 +523,53 @@ update_credits_fun(CreditEv, State, Data) ->
 
 update_credits_ok(_Res, State, Data) ->
     ?LOG(debug, "~s: ~p", [?FUNCTION_NAME, _Res]),
-    {next_state, State, Data}.
+    {next_state, State#{fsm := idle}, Data}.
 update_credits_fail(Error, State, Data) ->
     ?LOG(error, "update_credits failed with ~p", [Error]),
     {next_state, State#{fsm := idle}, Data}.
+
+%%====================================================================
+%% context registry
+%%====================================================================
+
+get_record_meta(#{apn := APN, bearer := Bearer} = Data) ->
+    Meta0 = #{type => 'tdf', dnn => APN},
+    Meta1 = pfcp2tags(maps:get(pfcp, Data, undefined), Meta0),
+    Meta = bearer2tags(Bearer, Meta1),
+    #{tags => Meta}.
+
+bearer2tags(#{right := #bearer{vrf = VRF, local = Local}}, Meta0) ->
+    Meta1 = Meta0#{ip_domain => VRF},
+    _Meta = ue_ip2tags(Local, Meta1);
+bearer2tags(_, Meta) ->
+    Meta.
+
+ue_ip2tags(#ue_ip{v4 = V4, v6 = V6}, Meta0) ->
+    Meta1 = ip2tags(ipv4, V4, Meta0),
+    _Meta = ip2tags(ipv6, V6, Meta1);
+ue_ip2tags(_, Meta) ->
+    Meta.
+
+ip2tags(Tag, IP, Meta) ->
+    Meta#{Tag => IP}.
+
+pfcp2tags(#pfcp_ctx{seid = #seid{cp = SEID}}, Meta) ->
+    Meta#{seid => SEID};
+pfcp2tags(_, Meta) ->
+    Meta.
+
+save_session_state(#{'Session' := Session} = Data)
+  when is_pid(Session) ->
+    Data#{'Session' => ergw_aaa_session:save(Session)};
+save_session_state(Data) ->
+    Data.
+
+restore_session_state(#{'Session' := Session} = Data)
+  when not is_pid(Session) ->
+    {ok, SessionPid} = ergw_aaa_session_sup:new_session(self(), Session),
+    Data#{'Session' => SessionPid};
+restore_session_state(Data) ->
+    Data.
 
 %%%===================================================================
 %%% Monadic Function Helpers and Wrappers

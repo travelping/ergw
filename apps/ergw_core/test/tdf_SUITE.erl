@@ -756,7 +756,7 @@ gy_validity_timer(Config) ->
     ct:sleep({seconds, 10}),
 
     ?match(X when X >= 3 andalso X < 10,
-		  meck:num_calls(?HUT, handle_event, [info, {timeout, '_', pfcp_timer}, '_', '_'])),
+		  meck:num_calls(?HUT, ctx_pfcp_timer, ['_', '_', '_'])),
 
     CCRU = lists:filter(
 	     fun({_, {ergw_aaa_session, invoke, [_, S, {gy,'CCR-Update'}, _]}, _}) ->

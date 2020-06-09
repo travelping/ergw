@@ -18,7 +18,7 @@
 	 handle_request/2, handle_response/4,
 	 activity/2, activity/5,
 	 aquire_lease/1, release_lease/2,
-	 bind_tunnel/1, unbind_tunnel/1,
+	 bind_tunnel/2, unbind_tunnel/2,
 	 icmp_error/2, path_restart/2,
 	 get_handler/2, info/1, sync_state/3]).
 
@@ -131,11 +131,11 @@ activity(Socket, IP, Version, TS, Event) ->
 	    ok
     end.
 
-bind_tunnel(Tunnel) ->
-    safe_bind_tunnel(get_path(Tunnel, bind)).
+bind_tunnel(Tunnel, RecordId) ->
+    safe_bind_tunnel(get_path(Tunnel, bind), RecordId).
 
-unbind_tunnel(#tunnel{path = Path}) ->
-    gen_statem:cast(Path, {unbind_tunnel, self()}).
+unbind_tunnel(#tunnel{path = Path}, RecordId) ->
+    gen_statem:cast(Path, {unbind_tunnel, RecordId}).
 
 icmp_error(Socket, IP) ->
     icmp_error(Socket, v1, IP),
@@ -506,10 +506,6 @@ handle_event(info, {'DOWN', MRef, process, _Pid, _Info}, #state{leases = Leases}
   when is_map_key(MRef, Leases) ->
     {next_state, State#state{leases = maps:remove(MRef, Leases)}, Data};
 
-handle_event(info, {'DOWN', _MRef, process, Pid, _Info}, #state{contexts = CtxS} = State, Data)
-  when is_map_key(Pid, CtxS) ->
-    update_contexts(State#state{contexts = maps:remove(Pid, CtxS)}, Data, []);
-
 handle_event(info,{'DOWN', _MRef, process, _Pid, _Info}, _State, _Data) ->
     keep_state_and_data;
 
@@ -608,9 +604,9 @@ enter_state_echo_action(_, _) ->
 
 foreach_context(_, none, _Fun) ->
     ok;
-foreach_context(NewCnt, {Pid, {OldCnt, _}, Iter}, Fun) ->
-    if OldCnt =/= NewCnt -> Fun(Pid);
-       NewCnt =:= undefined -> Fun(Pid);
+foreach_context(NewCnt, {RecordId, OldCnt, Iter}, Fun) ->
+    if OldCnt =/= NewCnt -> Fun(RecordId);
+       NewCnt =:= undefined -> Fun(RecordId);
        true -> ok
     end,
     foreach_context(NewCnt, maps:next(Iter), Fun).
@@ -719,30 +715,27 @@ release_lease(MRef, #state{leases = Leases} = State, Data) ->
     {next_state, State#state{leases = maps:remove(MRef, Leases)}, Data}.
 
 %% bind_tunnel/4
-bind_tunnel(Pid, #state{recovery = RstCnt, contexts = CtxS} = State0, Data, Actions)
-  when is_map_key(Pid, CtxS) ->
-    case maps:get(Pid, CtxS) of
-	{undefined, MRef} ->
+bind_tunnel(RecordId, #state{recovery = RstCnt, contexts = CtxS} = State0, Data, Actions)
+  when is_map_key(RecordId, CtxS) ->
+    case maps:get(RecordId, CtxS) of
+	undefined ->
 	    ?LOG(emergency, "Switching tunnel bind from unknown to new restart counter ~w. "
 		 "Despite the log level is this not a ciritical problem. However it is "
 		 "not expected that this occurs outside of unit tests and should be "
 		 "reported (but only once, please).", [RstCnt]),
-	    State = State0#state{contexts = maps:put(Pid, {RstCnt, MRef}, CtxS)},
+	    State = State0#state{contexts = maps:put(RecordId, RstCnt, CtxS)},
 	    {next_state, State, Data, Actions};
 	_ ->
 	    {keep_state_and_data, Actions}
     end;
-bind_tunnel(Pid, #state{recovery = RstCnt, contexts = CtxS} = State, Data, Actions) ->
-    ?LOG(debug, "~s: register(~p)", [?MODULE, Pid]),
-    MRef = erlang:monitor(process, Pid),
-    update_contexts(State#state{contexts = maps:put(Pid, {RstCnt, MRef}, CtxS)}, Data, Actions).
+bind_tunnel(RecordId, #state{recovery = RstCnt, contexts = CtxS} = State, Data, Actions) ->
+    ?LOG(debug, "~s: register(~p)", [?MODULE, RecordId]),
+    update_contexts(State#state{contexts = maps:put(RecordId, RstCnt, CtxS)}, Data, Actions).
 
-unbind_tunnel(Pid, #state{contexts = CtxS} = State, Data)
-  when is_map_key(Pid, CtxS) ->
-    {_, MRef} = maps:get(Pid, CtxS),
-    erlang:demonitor(MRef),
-    update_contexts(State#state{contexts = maps:remove(Pid, CtxS)}, Data, []);
-unbind_tunnel(_Pid, _State, _Data) ->
+unbind_tunnel(RecordId, #state{contexts = CtxS} = State, Data)
+  when is_map_key(RecordId, CtxS) ->
+    update_contexts(State#state{contexts = maps:remove(RecordId, CtxS)}, Data, []);
+unbind_tunnel(_RecordId, _State, _Data) ->
     keep_state_and_data.
 
 %% assign_path/1
@@ -764,8 +757,8 @@ safe_aquire_lease(#tunnel{path = Path} = Tunnel) ->
     end.
 
 %% path might have died, returned a sensible error regardless
-safe_bind_tunnel(#tunnel{path = Path} = Tunnel) ->
-    try gen_statem:call(Path, {bind_tunnel, self()}) of
+safe_bind_tunnel(#tunnel{path = Path} = Tunnel, RecordId) ->
+    try gen_statem:call(Path, {bind_tunnel, RecordId}) of
 	{ok, PathRestartCounter} ->
 	    {ok, Tunnel#tunnel{remote_restart_counter = PathRestartCounter}};
 	{error, _} = Error ->

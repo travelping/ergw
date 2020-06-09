@@ -315,6 +315,8 @@ validate_option(node, Value) when ?is_opts(Value) ->
     ergw_core:validate_options(Value);
 validate_option(sockets, Value) when ?is_opts(Value) ->
     ergw_core_config:validate_options(fun ergw_socket:validate_options/2, Value, []);
+validate_option(udsf, Value) when is_list(Value); is_map(Value) ->
+    ergw_nudsf_api:validate_options(Value);
 validate_option(handlers, Value) when ?non_empty_opts(Value) ->
     ergw_core_config:validate_options(fun ergw_context:validate_options/2, Value, []);
 validate_option(node_selection, Values) when ?is_opts(Values) ->

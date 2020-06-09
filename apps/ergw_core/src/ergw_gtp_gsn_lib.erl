@@ -496,12 +496,12 @@ update_tunnel_from_gtp_req(Interface, Version, right, Request) ->
 	     end)
        ]).
 
-apply_update_tunnel_endpoint(TunnelOld, Tunnel0) ->
+apply_update_tunnel_endpoint(RecordId, TunnelOld, Tunnel0) ->
     %% TBD: handle errors
-    {ok, Tunnel} = gtp_path:bind_tunnel(Tunnel0),
+    {ok, Tunnel} = gtp_path:bind_tunnel(Tunnel0, RecordId),
     gtp_context:tunnel_reg_update(TunnelOld, Tunnel),
     if Tunnel#tunnel.path /= TunnelOld#tunnel.path ->
-	    gtp_path:unbind_tunnel(TunnelOld);
+	    gtp_path:unbind_tunnel(TunnelOld, RecordId);
        true ->
 	    ok
     end,
@@ -510,32 +510,36 @@ apply_update_tunnel_endpoint(TunnelOld, Tunnel0) ->
 update_tunnel_endpoint(left, #{left_tunnel := LeftTunnelOld}) ->
     do([statem_m ||
 	   _ = ?LOG(debug, "~s, left", [?FUNCTION_NAME]),
+	   RecordId <- statem_m:get_data(maps:get(record_id, _)),
 	   LeftTunnel0 <- statem_m:get_data(maps:get(left_tunnel, _)),
 	   LeftTunnel <- statem_m:return(apply_update_tunnel_endpoint(
-					   LeftTunnelOld, LeftTunnel0)),
+					   RecordId, LeftTunnelOld, LeftTunnel0)),
 	   statem_m:modify_data(_#{left_tunnel => LeftTunnel})
        ]);
 update_tunnel_endpoint(right, #{right_tunnel := RightTunnelOld}) ->
     do([statem_m ||
 	   _ = ?LOG(debug, "~s/~p, right", [?FUNCTION_NAME, ?FUNCTION_ARITY]),
+	   RecordId <- statem_m:get_data(maps:get(record_id, _)),
 	   RightTunnel0 <- statem_m:get_data(maps:get(right_tunnel, _)),
 	   RightTunnel <- statem_m:return(apply_update_tunnel_endpoint(
-					    RightTunnelOld, RightTunnel0)),
+					    RecordId, RightTunnelOld, RightTunnel0)),
 	   statem_m:modify_data(_#{right_tunnel => RightTunnel})
        ]).
 
 bind_tunnel(left) ->
     do([statem_m ||
 	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+	   RecordId <- statem_m:get_data(maps:get(record_id, _)),
 	   LeftTunnel0 <- statem_m:get_data(maps:get(left_tunnel, _)),
-	   LeftTunnel <- statem_m:lift(gtp_path:bind_tunnel(LeftTunnel0)),
+	   LeftTunnel <- statem_m:lift(gtp_path:bind_tunnel(LeftTunnel0, RecordId)),
 	   statem_m:modify_data(_#{left_tunnel => LeftTunnel})
        ]);
 bind_tunnel(right) ->
     do([statem_m ||
 	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+	   RecordId <- statem_m:get_data(maps:get(record_id, _)),
 	   RightTunnel0 <- statem_m:get_data(maps:get(right_tunnel, _)),
-	   RightTunnel <- statem_m:lift(gtp_path:bind_tunnel(RightTunnel0)),
+	   RightTunnel <- statem_m:lift(gtp_path:bind_tunnel(RightTunnel0, RecordId)),
 	   statem_m:modify_data(_#{right_tunnel => RightTunnel})
        ]).
 

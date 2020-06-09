@@ -232,10 +232,12 @@ session_deletion_request(Reason, PCtx) ->
 %% send_session_deletion_request/2
 send_session_deletion_request(Reason, PCtx)
   when Reason /= upf_failure ->
+    ergw_pfcp:cancel_timers(PCtx),
     Req = #pfcp{version = v1, type = session_deletion_request, ie = []},
     ergw_sx_node:send_request(PCtx, Req);
-send_session_deletion_request(_Reason, _PCtx) ->
+send_session_deletion_request(_Reason, PCtx) ->
     ?LOG(debug, "SDR: skip"),
+    ergw_pfcp:cancel_timers(PCtx),
     skip.
 
 %% receive_session_deletion_response/1

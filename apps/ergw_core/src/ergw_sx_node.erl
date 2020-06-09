@@ -25,7 +25,7 @@
 -endif.
 
 %% ergw_context callbacks
--export([sx_report/2, port_message/2, port_message/4]).
+-export([ctx_sx_report/2, ctx_pfcp_timer/3, port_message/2, ctx_port_message/4]).
 
 
 -ignore_xref([start_link/5,
@@ -332,16 +332,20 @@ validate_options(Opt, Values) ->
 %% ergw_context API
 %%====================================================================
 
-sx_report(Server, Report) ->
-    gen_statem:call(Server, {sx, Report}).
+ctx_sx_report(Server, Report) ->
+    ReqId = gen_statem:send_request(Server, {sx, Report}),
+    gen_statem:wait_response(ReqId, infinity).
+
+ctx_pfcp_timer(_, _, _) ->
+    ok.
 
 port_message(Request, Msg) ->
     ?LOG(error, "unhandled port message (~p, ~p)", [Request, Msg]),
     erlang:error(badarg, [Request, Msg]).
 
-port_message(Server, Request, #gtp{type = g_pdu} = Msg, _Resent) ->
+ctx_port_message(Server, Request, #gtp{type = g_pdu} = Msg, _Resent) ->
     gen_server:cast(Server, {handle_pdu, Request, Msg});
-port_message(_Server, Request, Msg, _Resent) ->
+ctx_port_message(_Server, Request, Msg, _Resent) ->
     ?LOG(error, "unhandled port message (~p, ~p)", [Request, Msg]),
     erlang:error(badarg, [Request, Msg]).
 
