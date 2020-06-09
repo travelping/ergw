@@ -72,6 +72,7 @@
 	 {ergw, [{'$setup_vars',
 		  [{"ORIGIN", {value, "epc.mnc001.mcc001.3gppnetwork.org"}}]},
 		 {node_id, <<"PGW">>},
+		 %%{udsf, [{handler, ergw_nudsf_mongo}]},
 		 {sockets,
 		  [{'cp-socket',
 			[{type, 'gtp-u'},
@@ -534,6 +535,7 @@ contexts_at_scale(TargetRate, NProcs, NCtx, Config) ->
 
     wait4tunnels(?TIMEOUT),
     ct:sleep({seconds, 30}),
+    ergw_nudsf:wipe(),
 
     ok.
 

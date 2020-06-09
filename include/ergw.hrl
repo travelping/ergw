@@ -86,7 +86,6 @@
 	  chid_by_pdr = #{}	:: map(),
 	  sx_rules = #{}	:: map(),
 	  timers = #{}		:: map(),
-	  timer_by_tref = #{}	:: map(),
 
 	  up_inactivity_timer   :: 'undefined' | non_neg_integer()
 	 }).
@@ -98,6 +97,11 @@
 
 	  %% TBD:
 	  offline_charging_profile = #{}	:: map()
+	 }).
+
+-record(c_state, {
+	  fsm                   :: atom(),
+	  session               :: atom()
 	 }).
 
 -record(context, {
@@ -172,3 +176,7 @@
 	  ip                        :: {inet:ip4_address(),1..32}|
 				       {inet:ip6_address(),1..128}
 	}).
+
+-record(seid_key, {seid}).
+-record(socket_key, {name, key}).
+-record(socket_teid_key, {name, type, teid}).

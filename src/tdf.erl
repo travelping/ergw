@@ -22,7 +22,7 @@
 -ignore_xref([start_link/6, validate_options/1, unsolicited_report/5]).
 
 %% ergw_context callbacks
--export([sx_report/2, port_message/2, port_message/4]).
+-export([ctx_sx_report/2, ctx_pfcp_timer/3, port_message/2, ctx_port_message/4]).
 
 -ifdef(TEST).
 -export([test_cmd/2]).
@@ -103,8 +103,11 @@ validate_option(Opt, Value) ->
 %% ergw_context API
 %%====================================================================
 
-sx_report(Server, Report) ->
+ctx_sx_report(Server, Report) ->
     gen_statem:call(Server, {sx, Report}).
+
+ctx_pfcp_timer(Server, Time, Evs) ->
+    gen_statem:call(Server, {pfcp_timer, Time, Evs}).
 
 port_message(Request, Msg) ->
     %% we currently do not configure DP to CP forwards,
@@ -113,7 +116,7 @@ port_message(Request, Msg) ->
     ?LOG(error, "Port Message ~p, ~p", [Request, Msg]),
     error(badarg, [Request, Msg]).
 
-port_message(Server, Request, Msg, Resent) ->
+ctx_port_message(Server, Request, Msg, Resent) ->
     %% we currently do not configure DP to CP forwards,
     %% so this should not happen
 
@@ -218,6 +221,16 @@ handle_event({call, From}, {sx, #pfcp{type = session_report_request,
 handle_event({call, From}, {sx, Report}, _State, #data{pfcp = PCtx}) ->
     ?LOG(warning, "~w: unhandled Sx report: ~p", [?MODULE, Report]),
     {keep_state_and_data, [{reply, From, {ok, PCtx, 'System failure'}}]};
+
+handle_event({call, From}, {pfcp_timer, Time, Evs} = Info, _State,
+	    #{interface := Interface, pfcp := PCtx0} = Data0) ->
+    ?LOG(debug, "handle_event ~p:~p", [Interface, Info]),
+    gen_statem:reply(From, ok),
+    Now = erlang:monotonic_time(),
+    PCtx = ergw_pfcp:timer_expired(Time, PCtx0),
+    CtxEvs = ergw_gsn_lib:pfcp_to_context_event(Evs),
+    Data = maps:fold(handle_charging_event(_, _, Now, _), Data0#data{pfcp = PCtx}, CtxEvs),
+    {keep_state, Data};
 
 handle_event({call, From}, _Request, _State, _Data) ->
     {keep_state_and_data, [{reply, From, ok}]};
@@ -349,16 +362,6 @@ handle_event(info, {update_session, Session, Events}, _State, _Data) ->
     ?LOG(debug, "SessionEvents: ~p~n       Events: ~p", [Session, Events]),
     Actions = [{next_event, internal, {session, Ev, Session}} || Ev <- Events],
     {keep_state_and_data, Actions};
-
-handle_event(info, {timeout, TRef, pfcp_timer} = Info, _State,
-	     #data{pfcp = PCtx0} = Data0) ->
-    Now = erlang:monotonic_time(),
-    ?LOG(debug, "handle_info TDF:~p", [Info]),
-
-    {Evs, PCtx} = ergw_pfcp:timer_expired(TRef, PCtx0),
-    CtxEvs = ergw_gsn_lib:pfcp_to_context_event(Evs),
-    Data = maps:fold(handle_charging_event(_, _, Now, _), Data0#data{pfcp = PCtx}, CtxEvs),
-    {keep_state, Data};
 
 handle_event(info, _Info, _State, _Data) ->
     keep_state_and_data.

@@ -15,8 +15,8 @@
 -export([start_link/0]).
 -export([register/3, register_new/3, update/4, unregister/3,
 	 lookup/1, select/1,
-	 match_keys/2,
 	 await_unreg/1]).
+-export([register_name/2, unregister_name/1, whereis_name/1]).
 -export([all/0]).
 
 -ignore_xref([start_link/0]).
@@ -50,18 +50,14 @@ lookup(Key) when is_tuple(Key) ->
 select(Key) ->
     ets:select(?SERVER, [{{Key, '$1'},[],['$1']}]).
 
-match_key(#socket{name = Name}, Key) ->
-    select({Name, Key}).
+register_name(Name, Pid) ->
+    gen_server:call(?SERVER, {register_name, Name, Pid}).
 
-match_keys(_, []) ->
-    throw({error, not_found});
-match_keys(Socket, [H|T]) ->
-    case match_key(Socket, H) of
-	[_|_] = Match ->
-	    Match;
-	_ ->
-	    match_keys(Socket, T)
-    end.
+unregister_name(Name) ->
+    gen_server:call(?SERVER, {unregister_name, Name}).
+
+whereis_name(Name) ->
+    gen_server:call(?SERVER, {whereis_name, Name}).
 
 register(Keys, Handler, Pid)
   when is_list(Keys), is_atom(Handler), is_pid(Pid) ->
@@ -98,6 +94,33 @@ init([]) ->
 	       await_unreg = #{}
 	      },
     {ok, State}.
+
+handle_call({register_name, Name, Pid}, _From, State) ->
+    case ets:insert_new(?SERVER, {Name, Pid}) of
+	true ->
+	    link(Pid),
+	    Keys = ordsets:add_element(Name, get_pid(Pid, State)),
+	    {reply, yes, update_pid(Pid, Keys, State)};
+	_ ->
+	    {reply, no, State}
+    end;
+
+handle_call({unregister_name, Name}, _From, State) ->
+    case ets:take(?SERVER, Name) of
+	[{Name, Pid}] ->
+	    unlink(Pid),
+	    {reply, ok, delete_pid(Pid, State)};
+	_ ->
+	    {reply, ok, State}
+    end;
+
+handle_call({whereis_name, Name}, _From, State) ->
+    case ets:lookup(?SERVER, Name) of
+	[{Name, Pid}] ->
+	    {reply, Pid, State};
+	_ ->
+	    {reply, undefined, State}
+    end;
 
 handle_call({register, Keys, Handler, Pid}, _From, State) ->
     handle_add_keys(fun ets:insert/2, Keys, Handler, Pid, State);
@@ -184,6 +207,8 @@ delete_keys(Keys, Pid, State) ->
 delete_key(Key, Pid) ->
     case ets:lookup(?SERVER, Key) of
 	[{Key, {_, Pid}}] ->
+	    ets:take(?SERVER, Key);
+	[{Key, Pid}] ->
 	    ets:take(?SERVER, Key);
 	Other ->
 	    Other

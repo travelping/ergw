@@ -172,7 +172,8 @@ handle_call({send, Msg}, _From,
 	    #state{gtp = GtpSocket, cp_ip = IP, up_ip = UpIP} = State)
   when is_binary(Msg) ->
     {ok, SxPid} = ergw_sx_node_reg:lookup(ergw_inet:bin2ip(UpIP)),
-    [[SxTEI]] = ets:match(gtp_context_reg, {{'cp-socket',{teid,'gtp-u','$1'}},{'_',SxPid}}),
+    TEIDMatch = #socket_teid_key{name = 'cp-socket', type = 'gtp-u', teid = '$1', _ = '_'},
+    [[SxTEI]] = ets:match(gtp_context_reg, {TEIDMatch, {'_',SxPid}}),
     BinMsg = gtp_packet:encode(#gtp{version = v1, type = g_pdu, tei = SxTEI, ie = Msg}),
     ok = gen_udp:send(GtpSocket, IP, ?GTP1u_PORT, BinMsg),
     {reply, ok, State};

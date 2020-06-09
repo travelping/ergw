@@ -14,31 +14,34 @@
 -compile({parse_transform, do}).
 
 -export([handle_response/4,
-	 start_link/6,
+	 start_link/2, start_link/4, start_link/6,
 	 send_request/8,
 	 send_response/2, send_response/3,
 	 send_request/7, resend_request/2,
 	 request_finished/1,
 	 path_restart/2,
-	 terminate_colliding_context/2, terminate_context/1,
-	 delete_context/1, trigger_delete_context/1,
+	 terminate_colliding_context/2,
+	 trigger_delete_context/1,
 	 remote_context_register/3, remote_context_register_new/3,
 	 tunnel_reg_update/2,
 	 info/1,
 	 validate_options/3,
 	 validate_option/2,
 	 generic_error/3,
-	 socket_key/2, socket_teid_key/2]).
+	 socket_key/2, socket_teid_key/2,
+	 socket_teid_filter/2
+	]).
 -export([usage_report_to_accounting/1,
 	 collect_charging_events/2]).
 
 -export([usage_report/3, trigger_usage_report/3]).
 
 %% ergw_context callbacks
--export([sx_report/2, port_message/2, port_message/4]).
+-export([ctx_sx_report/2, ctx_pfcp_timer/3, port_message/2, ctx_port_message/4]).
 
--ignore_xref([start_link/6,
-	      delete_context/1,			% used by Ops through Erlang CLI
+-ignore_xref([start_link/2,
+	      start_link/4,
+	      start_link/6,
 	      handle_response/4			% used from callback handler
 	      ]).
 
@@ -47,7 +50,7 @@
 	 terminate/3, code_change/4]).
 
 -ifdef(TEST).
--export([tunnel_key/2, test_cmd/2]).
+-export([tunnel_key/2, ctx_test_cmd/2]).
 -endif.
 
 -include_lib("kernel/include/logger.hrl").
@@ -59,6 +62,10 @@
 -define(TestCmdTag, '$TestCmd').
 
 -import(ergw_aaa_session, [to_session/1]).
+
+-define(IDLE_TIMEOUT, 100).
+-define(IDLE_INIT_TIMEOUT, 5000).
+-define(SHUTDOWN_TIMEOUT, 5000).
 
 -define('Tunnel Endpoint Identifier Data I',	{tunnel_endpoint_identifier_data_i, 0}).
 
@@ -84,6 +91,12 @@ send_request(#tunnel{socket = Socket}, Src, DstIP, DstPort, ReqId, Msg, ReqInfo)
 
 resend_request(#tunnel{socket = Socket}, ReqId) ->
     ergw_gtp_c_socket:resend_request(Socket, ReqId).
+
+start_link(RecordId, Opts) ->
+    gen_statem:start_link(?MODULE, [RecordId], Opts).
+
+start_link(RecordId, State, Data, Opts) ->
+    gen_statem:start_link(?MODULE, [RecordId, State, Data], Opts).
 
 start_link(Socket, Info, Version, Interface, IfOpts, Opts) ->
     gen_statem:start_link(?MODULE, [Socket, Info, Version, Interface, IfOpts], Opts).
@@ -114,9 +127,6 @@ tunnel_reg_update(TunnelOld, TunnelNew) ->
     Delete = ordsets:subtract(OldKeys, NewKeys),
     Insert = ordsets:subtract(NewKeys, OldKeys),
     gtp_context_reg:update(Delete, Insert, ?MODULE, self()).
-
-delete_context(Context) ->
-    gen_statem:call(Context, delete_context).
 
 trigger_delete_context(Context) ->
     gen_statem:cast(Context, delete_context).
@@ -167,7 +177,7 @@ terminate_colliding_context(#tunnel{socket = Socket}, #context{context_id = Id})
   when Id /= undefined ->
     case gtp_context_reg:lookup(socket_key(Socket, Id)) of
 	{?MODULE, Server} when is_pid(Server) ->
-	    gtp_context:terminate_context(Server);
+	    terminate_context(Server);
 	_ ->
 	    ok
     end;
@@ -189,8 +199,18 @@ info(Context) ->
 
 -ifdef(TEST).
 
-test_cmd(Pid, Cmd) when is_pid(Pid) ->
-    gen_statem:call(Pid, {?TestCmdTag, Cmd}).
+ctx_test_cmd(_RecordIdOrPid, is_alive) ->
+    true;
+ctx_test_cmd(RecordIdOrPid, whereis) ->
+    context_run(RecordIdOrPid, fun(Pid, _) -> {?MODULE, Pid} end, undefined);
+ctx_test_cmd(RecordIdOrPid, update_context) ->
+    context_run(RecordIdOrPid, call, update_context);
+ctx_test_cmd(RecordIdOrPid, delete_context) ->
+    context_run(RecordIdOrPid, call, delete_context);
+ctx_test_cmd(RecordIdOrPid, terminate_context) ->
+    context_run(RecordIdOrPid, fun(Pid, _) -> terminate_context(Pid) end, undefined);
+ctx_test_cmd(RecordIdOrPid, Cmd) ->
+    context_run(RecordIdOrPid, call, {?TestCmdTag, Cmd}).
 
 -endif.
 
@@ -267,8 +287,11 @@ validate_aaa_attr_option(Key, Setting, Value, _Attr) ->
 %% ergw_context API
 %%====================================================================
 
-sx_report(Server, Report) ->
-    gen_statem:call(Server, {sx, Report}).
+ctx_sx_report(RecordIdOrPid, Report) ->
+    context_run(RecordIdOrPid, call, {sx, Report}).
+
+ctx_pfcp_timer(RecordIdOrPid, Time, Evs) ->
+    context_run(RecordIdOrPid, call, {pfcp_timer, Time, Evs}).
 
 %% TEID handling for GTPv1 is brain dead....
 port_message(Request, #gtp{version = v2, type = MsgType, tei = 0} = Msg)
@@ -295,7 +318,7 @@ port_message(#request{socket = Socket, info = Info} = Request,
 	    end,
 	    validate_teid(Msg),
 	    Server = context_new(Socket, Info, Version, Interface, InterfaceOpts),
-	    port_message(Server, Request, Msg, false);
+	    handle_port_message(Server, Request, Msg, false);
 
 	{error, _} = Error ->
 	    throw(Error)
@@ -303,19 +326,41 @@ port_message(#request{socket = Socket, info = Info} = Request,
 port_message(_Request, _Msg) ->
     throw({error, not_found}).
 
-port_message(Server, Request, #gtp{type = g_pdu} = Msg, _Resent) ->
-    gen_statem:cast(Server, {handle_pdu, Request, Msg});
-port_message(Server, Request, Msg, Resent) ->
+handle_port_message(Server, Request, Msg, Resent) when is_pid(Server) ->
     if not Resent -> register_request(?MODULE, Server, Request);
        true       -> ok
     end,
-    gen_statem:cast(Server, {handle_message, Request, Msg, Resent}).
+    context_run(Server, call, {handle_message, Request, Msg, Resent}).
+
+%% ctx_port_message/4
+ctx_port_message(RecordIdOrPid, Request, #gtp{type = g_pdu} = Msg, _Resent) ->
+    context_run(RecordIdOrPid, cast, {handle_pdu, Request, Msg});
+ctx_port_message(RecordIdOrPid, Request, Msg, Resent) ->
+    EvFun = fun(Server, _) -> handle_port_message(Server, Request, Msg, Resent) end,
+    context_run(RecordIdOrPid, EvFun, undefined).
 
 %%====================================================================
 %% gen_statem API
 %%====================================================================
 
 callback_mode() -> [handle_event_function, state_enter].
+
+init([RecordId]) ->
+    process_flag(trap_exit, true),
+
+    case gtp_context_reg:register_name(RecordId, self()) of
+	yes ->
+	    case ergw_context:get_context_record(RecordId) of
+		{ok, State, Data0} ->
+		    Data = restore_session_state(Data0),
+		    {ok, #c_state{session = State, fsm = init}, Data};
+		Other ->
+		    {stop, Other}
+	    end;
+	no ->
+	    Pid = gtp_context_reg:whereis_name(RecordId),
+	    {stop, {error, {already_started, Pid}}}
+    end;
 
 init([Socket, Info, Version, Interface,
       #{node_selection := NodeSelect,
@@ -327,14 +372,21 @@ init([Socket, Info, Version, Interface,
     LeftTunnel =
 	ergw_gsn_lib:assign_tunnel_teid(
 	  local, Info, ergw_gsn_lib:init_tunnel('Access', Info, Socket, Version)),
+
+    Id = ergw_gtp_c_socket:get_uniq_id(Socket),
+    RecordId = iolist_to_binary(["GTP-", integer_to_list(Id)]),
+
+    gtp_context_reg:register_name(RecordId, self()),
+
     Context = #context{
-		 charging_identifier = ergw_gtp_c_socket:get_uniq_id(Socket),
+		 charging_identifier = Id,
 
 		 version           = Version
 		},
     Bearer = #{left => #bearer{interface = 'Access'},
 	       right => #bearer{interface = 'SGi-LAN'}},
     Data = #{
+      record_id      => RecordId,
       context        => Context,
       version        => Version,
       interface      => Interface,
@@ -343,7 +395,32 @@ init([Socket, Info, Version, Interface,
       left_tunnel    => LeftTunnel,
       bearer         => Bearer},
 
-    Interface:init(Opts, Data).
+    case init_it(Interface, Opts, Data) of
+	{ok, {ok, #c_state{session = SState} = State, FinalData}} ->
+	    Meta = get_record_meta(Data),
+	    ergw_context:create_context_record(SState, Meta, FinalData),
+	    {ok, State, FinalData};
+	InitR ->
+	    gtp_context_reg:unregister_name(RecordId),
+	    case InitR of
+		{ok, {stop, _} = R} ->
+		    R;
+		{ok, ignore} ->
+		    ignore;
+		{ok, Else} ->
+		    exit({bad_return_value, Else});
+		{'EXIT', Class, Reason, Stacktrace} ->
+		    erlang:raise(Class, Reason, Stacktrace)
+	    end
+    end.
+
+init_it(Mod, Opts, Data) ->
+    try
+	{ok, Mod:init(Opts, Data)}
+    catch
+	throw:R -> {ok, R};
+	Class:R:S -> {'EXIT', Class, R, S}
+    end.
 
 handle_event({call, From}, info, _, Data) ->
     {keep_state_and_data, [{reply, From, Data}]};
@@ -354,22 +431,43 @@ handle_event({call, From}, {?TestCmdTag, session}, _State, #{'Session' := Sessio
     {keep_state_and_data, [{reply, From, {ok, Session}}]};
 handle_event({call, From}, {?TestCmdTag, pcc_rules}, _State, #{pcc := PCC}) ->
     {keep_state_and_data, [{reply, From, {ok, PCC#pcc_ctx.rules}}]};
+handle_event({call, From}, {?TestCmdTag, kill}, State, Data) ->
+    {next_state, State#c_state{session = shutdown, fsm = busy}, Data, [{reply, From, ok}]};
+handle_event({call, From}, {?TestCmdTag, info}, _State, Data) ->
+    {keep_state_and_data, [{reply, From, Data}]};
 
-handle_event(enter, _OldState, shutdown, _Data) ->
-    % TODO unregsiter context ....
+handle_event(state_timeout, idle, #c_state{fsm = init}, Data) ->
+    {stop, normal, Data};
+handle_event(state_timeout, idle, #c_state{session = SState, fsm = idle}, Data0) ->
+    Data = save_session_state(Data0),
+    Meta = get_record_meta(Data),
+    ergw_context:put_context_record(SState, Meta, Data),
+    {stop, normal, Data};
+
+handle_event(state_timeout, stop, #c_state{session = shutdown_initiated} = State, Data) ->
+    {next_state, State#c_state{session = shutdown, fsm = busy}, Data};
+handle_event(cast, stop, #c_state{session = shutdown}, _Data) ->
+    {stop, normal};
+
+handle_event(enter, _OldState, #c_state{fsm = init}, _Data) ->
+    {keep_state_and_data, [{state_timeout, ?IDLE_INIT_TIMEOUT, idle}]};
+handle_event(enter, _OldState, #c_state{fsm = idle}, _Data) ->
+    {keep_state_and_data, [{state_timeout, ?IDLE_TIMEOUT, idle}]};
+
+handle_event(enter, _OldState, #c_state{session = shutdown_initiated}, _Data) ->
+    {keep_state_and_data, [{state_timeout, ?SHUTDOWN_TIMEOUT, stop}]};
+
+handle_event(enter, _OldState, #c_state{session = shutdown}, _Data) ->
+    %% TODO unregister context ....
 
     %% this makes stop the last message in the inbox and
     %% guarantees that we process any left over messages first
     gen_statem:cast(self(), stop),
     keep_state_and_data;
 
-handle_event(cast, stop, shutdown, _Data) ->
-    {stop, normal};
-
 handle_event(enter, OldState, State, #{interface := Interface} = Data) ->
     Interface:handle_event(enter, OldState, State, Data);
 
-%% Error Indication Report
 handle_event({call, From},
 	     {sx, #pfcp{type = session_report_request,
 			ie = #{report_type := #report_type{erir = 1},
@@ -387,7 +485,8 @@ handle_event({call, From},
 
 	Side ->
 	    close_context(Side, remote_failure, State, Data),
-	    {next_state, shutdown, Data, [{reply, From, {ok, PCtx}}]}
+	    Actions = [{reply, From, {ok, PCtx}}],
+	    {next_state, State#c_state{session = shutdown, fsm = busy}, Data, Actions}
     end;
 
 %% User Plane Inactivity Timer expired
@@ -396,7 +495,8 @@ handle_event({call, From},
 			ie = #{report_type := #report_type{upir = 1}}}},
 	     State, #{pfcp := PCtx} = Data) ->
     close_context(both, inactivity_timeout, State, Data),
-    {next_state, shutdown, Data, [{reply, From, {ok, PCtx}}]};
+    Actions = [{reply, From, {ok, PCtx}}],
+    {next_state, State#c_state{session = shutdown, fsm = busy}, Data, Actions};
 
 %% Usage Report
 handle_event({call, From},
@@ -410,7 +510,8 @@ handle_event({call, From},
     ergw_gtp_gsn_session:usage_report_request(ChargeEv, Now, UsageReport, PCtx, PCC, Session),
     {keep_state_and_data, [{reply, From, {ok, PCtx}}]};
 
-handle_event(cast, {handle_message, Request, #gtp{} = Msg0, Resent}, State, Data) ->
+handle_event({call, From}, {handle_message, Request, #gtp{} = Msg0, Resent}, State, Data) ->
+    gen_statem:reply(From, ok),
     Msg = gtp_packet:decode_ies(Msg0),
     ?LOG(debug, "handle gtp request: ~w, ~p",
 		[Request#request.port, gtp_c_lib:fmt_gtp(Msg)]),
@@ -449,7 +550,7 @@ handle_event(info, #aaa_request{procedure = {_, 'ASR'}} = Request, State, Data) 
 
 handle_event(info, #aaa_request{procedure = {gx, 'RAR'},
 				events = Events} = Request,
-	     connected,
+	     #c_state{session = connected} = _State,
 	     #{context := Context, pfcp := PCtx0,
 	       left_tunnel := LeftTunnel, bearer := Bearer,
 	       'Session' := Session, pcc := PCC0} = Data) ->
@@ -515,7 +616,7 @@ handle_event(info, #aaa_request{procedure = {gx, 'RAR'},
 
 handle_event(info, #aaa_request{procedure = {gy, 'RAR'},
 				events = Events} = Request,
-	     connected, Data) ->
+	     #c_state{session = connected} = _State, Data) ->
     ergw_aaa_session:response(Request, ok, #{}, #{}),
     Now = erlang:monotonic_time(),
 
@@ -560,36 +661,39 @@ handle_event(internal, {session, Ev, _}, _State, _Data) ->
     ?LOG(error, "unhandled session event: ~p", [Ev]),
     keep_state_and_data;
 
-handle_event(info, {timeout, TRef, pfcp_timer} = Info, _State, #{pfcp := PCtx0} = Data0) ->
-    ?LOG(debug, "handle_info: ~p", [Info]),
+handle_event({call, From}, {pfcp_timer, Time, Evs} = Info, _State,
+	    #{interface := Interface, pfcp := PCtx0} = Data0) ->
+    ?LOG(debug, "handle_event ~p:~p", [Interface, Info]),
+    gen_statem:reply(From, ok),
     Now = erlang:monotonic_time(),
-    {Evs, PCtx} = ergw_pfcp:timer_expired(TRef, PCtx0),
+    PCtx = ergw_pfcp:timer_expired(Time, PCtx0),
     Data = Data0#{pfcp => PCtx},
     #{validity_time := ChargingKeys} = ergw_gsn_lib:pfcp_to_context_event(Evs),
     ergw_gtp_gsn_lib:triggered_charging_event(validity_time, Now, ChargingKeys, Data),
     {keep_state, Data};
 
-handle_event({call, From}, delete_context, State, Data)
-  when State == connected; State == connecting ->
+handle_event({call, From}, delete_context, #c_state{session = SState} = State, Data)
+  when SState == connected; SState == connecting ->
     delete_context(From, administrative, State, Data);
-handle_event({call, From}, delete_context, shutdown, _Data) ->
+handle_event({call, From}, delete_context, #c_state{session = SState}, _Data)
+  when SState =:= shutdown; SState =:= shutdown_initiated ->
     {keep_state_and_data, [{reply, From, {ok, ok}}]};
 handle_event({call, _From}, delete_context, _State, _Data) ->
     {keep_state_and_data, [postpone]};
 
 handle_event({call, From}, terminate_context, State, Data) ->
     close_context(left, normal, State, Data),
-    {next_state, shutdown, Data, [{reply, From, ok}]};
+    {next_state, State#c_state{session = shutdown, fsm = busy}, Data, [{reply, From, ok}]};
 
 handle_event({call, From}, {path_restart, Path}, State,
 	     #{left_tunnel := #tunnel{path = Path}} = Data) ->
     close_context(left, peer_restart, State, Data),
-    {next_state, shutdown, Data, [{reply, From, ok}]};
+    {next_state, State#c_state{session = shutdown, fsm = busy}, Data, [{reply, From, ok}]};
 
 handle_event({call, From}, {path_restart, Path}, State,
 	     #{right_tunnel := #tunnel{path = Path}} = Data) ->
     close_context(right, peer_restart, State, Data),
-    {next_state, shutdown, Data, [{reply, From, ok}]};
+    {next_state, State#c_state{session = shutdown, fsm = busy}, Data, [{reply, From, ok}]};
 
 handle_event({call, From}, {path_restart, _Path}, _State, _Data) ->
     {keep_state_and_data, [{reply, From, ok}]};
@@ -605,7 +709,7 @@ handle_event(info, {'DOWN', _MonitorRef, Type, Pid, _Info}, State,
 	     #{pfcp := #pfcp_ctx{node = Pid}} = Data)
   when Type == process; Type == pfcp ->
     close_context(both, upf_failure, State, Data),
-    {next_state, shutdown, Data};
+    {next_state, State#c_state{session = shutdown, fsm = busy}, Data};
 
 handle_event({timeout, context_idle}, stop_session, State, Data) ->
     delete_context(undefined, normal, State, Data);
@@ -616,8 +720,13 @@ handle_event(Type, Content, State, #{interface := Interface} = Data) ->
     Interface:handle_event(Type, Content, State, Data).
 
 terminate(Reason, State, #{interface := Interface} = Data) ->
-    Interface:terminate(Reason, State, Data);
-terminate(_Reason, _State, _Data) ->
+    try
+	Interface:terminate(Reason, State, Data)
+    after
+	terminate_cleanup(State, Data)
+    end;
+terminate(_Reason, State, Data) ->
+    terminate_cleanup(State, Data),
     ok.
 
 code_change(_OldVsn, State, Data, _Extra) ->
@@ -631,16 +740,17 @@ log_ctx_error(#ctx_err{level = Level, where = {File, Line}, reply = Reply}, St) 
     ?LOG(debug, #{type => ctx_err, level => Level, file => File,
 		  line => Line, reply => Reply, stack => St}).
 
-handle_ctx_error(#ctx_err{level = Level, context = Context} = CtxErr, St, _State, Data) ->
+handle_ctx_error(#ctx_err{level = Level, context = Context} = CtxErr, St,
+		 #c_state{session = SState}, Data0) ->
     log_ctx_error(CtxErr, St),
-    case Level of
-	?FATAL when is_record(Context, context) ->
-	    {stop, normal, Data#{context => Context}};
-	?FATAL ->
+    Data = if is_record(Context, context) ->
+		   Data0#{context => Context};
+	      true ->
+		   Data0
+	   end,
+    if Level =:= ?FATAL orelse SState =:= init ->
 	    {stop, normal, Data};
-	_ when is_record(Context, context) ->
-	    {keep_state, Data#{context => Context}};
-	_ ->
+       true ->
 	    {keep_state, Data}
     end.
 
@@ -724,6 +834,11 @@ generic_error(#request{socket = Socket} = Request,
 %%% Internal functions
 %%%===================================================================
 
+terminate_cleanup(#c_state{session = State}, Data) when State =/= connected ->
+    ergw_context:delete_context_record(Data);
+terminate_cleanup(_State, _) ->
+    ok.
+
 register_request(Handler, Server, #request{key = ReqKey, socket = Socket}) ->
     gtp_context_reg:register([socket_key(Socket, ReqKey)], Handler, Server).
 
@@ -748,6 +863,33 @@ context_new(Socket, Info, Version, Interface, InterfaceOpts) ->
 	    throw({error, Error})
     end.
 
+context_run(Pid, EventType, EventContent) when is_pid(Pid) ->
+    context_run_do(Pid, EventType, EventContent);
+context_run(RecordId, EventType, EventContent) when is_binary(RecordId) ->
+    case gtp_context_reg:whereis_name(RecordId) of
+	Pid when is_pid(Pid) ->
+	    context_run_do(Pid, EventType, EventContent);
+	_ ->
+	    case gtp_context_sup:run(RecordId) of
+		{ok, Pid2} ->
+		    context_run_do(Pid2, EventType, EventContent);
+		{already_started, Pid3} ->
+		    context_run_do(Pid3, EventType, EventContent);
+		Other ->
+		    Other
+	    end
+    end.
+
+context_run_do(Server, cast, EventContent) ->
+    gen_statem:cast(Server, EventContent);
+context_run_do(Server, call, EventContent) ->
+    ReqId = gen_statem:send_request(Server, EventContent),
+    gen_statem:wait_response(ReqId, infinity);
+context_run_do(Server, info, EventContent) ->
+    Server ! EventContent;
+context_run_do(Server, Fun, EventContent) when is_function(Fun) ->
+    Fun(Server, EventContent).
+
 validate_teid(#gtp{version = v1, type = MsgType, tei = TEID}) ->
     gtp_v1_c:validate_teid(MsgType, TEID);
 validate_teid(#gtp{version = v2, type = MsgType, tei = TEID}) ->
@@ -763,6 +905,7 @@ validate_message(#gtp{version = Version, ie = IEs} = Msg, Data) ->
 	    ok;
 	Missing ->
 	    ?LOG(debug, "Missing IEs: ~p", [Missing]),
+	    ?LOG(error, "Missing IEs: ~p", [Missing]),
 	    throw(?CTX_ERR(?WARNING, [{mandatory_ie_missing, hd(Missing)}]))
     end.
 
@@ -780,6 +923,63 @@ validate_ies(#gtp{version = Version, type = MsgType, ie = IEs}, Cause, #{interfa
 %%====================================================================
 %% context registry
 %%====================================================================
+
+get_record_meta(#{left_tunnel := LeftTunnel, bearer := Bearer, context := Context} = Data) ->
+    Meta0 = context2tags(Context),
+    Meta1 = pfcp2tags(maps:get(pfcp, Data, undefined), Meta0),
+    Meta2 = tunnel2tags(LeftTunnel, Meta1),
+    Meta = bearer2tags(Bearer, Meta2),
+    #{tags => Meta}.
+
+context2tags(#context{apn = APN, context_id = ContextId})
+  when APN /= undefined ->
+    #{type => 'gtp-c', context_id => ContextId, dnn => APN};
+context2tags(#context{context_id = ContextId}) ->
+    #{type => 'gtp-c', context_id => ContextId}.
+
+tunnel2tags(#tunnel{socket = #socket{name = Name}} = Tunnel, Meta0) ->
+    Meta1 = Meta0#{socket => Name},
+    Meta2 = teid2tag(local_control_tei, local_control_ip, Tunnel#tunnel.local, Meta1),
+    _Meta = teid2tag(remote_control_tei, remote_control_ip, Tunnel#tunnel.remote, Meta2);
+tunnel2tags(_, Meta) ->
+    Meta.
+
+teid2tag(TagTEI, TagIP, #fq_teid{ip = IP, teid = TEID}, Meta) ->
+    Meta#{TagTEI => TEID, TagIP => IP};
+teid2tag(_, _, _, Meta) ->
+    Meta.
+
+bearer2tags(#{right := #bearer{vrf = VRF, local = Local}}, Meta0) ->
+    Meta1 = Meta0#{ip_domain => VRF},
+    _Meta = ue_ip2tags(Local, Meta1);
+bearer2tags(_, Meta) ->
+    Meta.
+
+ue_ip2tags(#ue_ip{v4 = V4, v6 = V6}, Meta0) ->
+    Meta1 = ip2tags(ipv4, V4, Meta0),
+    _Meta = ip2tags(ipv6, V6, Meta1);
+ue_ip2tags(_, Meta) ->
+    Meta.
+
+ip2tags(Tag, IP, Meta) ->
+    Meta#{Tag => IP}.
+
+pfcp2tags(#pfcp_ctx{seid = #seid{cp = SEID}}, Meta) ->
+    Meta#{seid => SEID};
+pfcp2tags(_, Meta) ->
+    Meta.
+
+socket_teid_filter(#socket{type = Type} = Socket, TEI) ->
+    socket_teid_filter(Socket, Type, TEI).
+
+socket_teid_filter(#socket{name = Name}, Type, TEI) ->
+    #{'cond' => 'AND',
+      units =>
+	  [
+	   #{tag => type, value => Type},
+	   #{tag => socket, value => Name},
+	   #{tag => local_control_tei, value => TEI}
+	  ]}.
 
 context2keys(#tunnel{socket = Socket} = LeftTunnel, Bearer,
 	     #context{apn = APN, context_id = ContextId}) ->
@@ -800,9 +1000,9 @@ bsf_keys(_, _, _, Keys) ->
     Keys.
 
 socket_key(#socket{name = Name}, Key) ->
-    {Name, Key};
+    #socket_key{name = Name, key = Key};
 socket_key({Name, _}, Key) ->
-    {Name, Key}.
+    #socket_key{name = Name, key = Key}.
 
 tunnel_key(local, #tunnel{socket = Socket, local = #fq_teid{teid = TEID}}) ->
     socket_teid_key(Socket, TEID);
@@ -814,7 +1014,20 @@ socket_teid_key(#socket{type = Type} = Socket, TEI) ->
     socket_teid_key(Socket, Type, TEI).
 
 socket_teid_key(#socket{name = Name}, Type, TEI) ->
-    {Name, {teid, Type, TEI}}.
+    #socket_teid_key{name = Name, type = Type, teid = TEI}.
+
+save_session_state(#{'Session' := Session} = Data)
+  when is_pid(Session) ->
+    Data#{'Session' => ergw_aaa_session:save(Session)};
+save_session_state(Data) ->
+    Data.
+
+restore_session_state(#{'Session' := Session} = Data)
+  when not is_pid(Session) ->
+    {ok, SessionPid} = ergw_aaa_session_sup:new_session(self(), Session),
+    Data#{'Session' => SessionPid};
+restore_session_state(Data) ->
+    Data.
 
 %%====================================================================
 %% Experimental Trigger Support

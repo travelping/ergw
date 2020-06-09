@@ -7,7 +7,7 @@
 		    ergw_aaa, setup, netdata,
 		    prometheus, cowboy, prometheus_cowboy,
 		    prometheus_diameter_collector,
-		    jsx, compiler, os_mon, jobs]},
+		    jsx, compiler, os_mon, jobs, mongodb]},
     {mod, {ergw_app, []}},
     {registered, []}
 ]}.

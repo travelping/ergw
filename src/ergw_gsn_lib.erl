@@ -37,7 +37,8 @@
 -export([init_tunnel/4,
 	 assign_tunnel_teid/3,
 	 reassign_tunnel_teid/1,
-	 assign_local_data_teid/5
+	 assign_local_data_teid/5,
+	 release_local_teids/1
 	]).
 
 -include_lib("kernel/include/logger.hrl").
@@ -76,7 +77,6 @@ seconds_to_sntp_time(Sec) ->
        true ->
 	    Sec + 2208988800
     end.
-
 gregorian_seconds_to_sntp_time(Sec) ->
     seconds_to_sntp_time(Sec - ?SECONDS_FROM_0_TO_1970).
 
@@ -958,3 +958,24 @@ assign_local_data_teid_5(_Key, #pfcp_ctx{
 	   FqTEID = #fq_teid{ip = ergw_inet:to_ip(IP), teid = DataTEI},
 	   return(Bearer#bearer{vrf = VRF, local = FqTEID})
        ]).
+
+release_local_teid(_, #tunnel{socket = Socket, local = #fq_teid{teid = TEID}}) ->
+    ergw_tei_mngr:release_tei(Socket, TEID);
+release_local_teid(PCtx, #bearer{local = #fq_teid{teid = TEID}}) ->
+    ergw_tei_mngr:release_tei(PCtx, TEID);
+release_local_teid(PCtx, M) when is_map(M) ->
+    lists:foreach(release_local_teid(PCtx, _), maps:values(M));
+release_local_teid(_, _) ->
+    ok.
+
+release_local_teids(#{pfcp := PCtx} = Data) ->
+    Keys = [left_tunnel, right_tunnel, bearer],
+    lists:foreach(
+      fun(K) when is_map_key(K, Data) ->
+	      release_local_teid(PCtx, maps:get(K, Data));
+	 (_) ->
+	      ok
+      end, Keys),
+    ok;
+release_local_teids(_) ->
+    ok.

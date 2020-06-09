@@ -63,6 +63,7 @@ modify_session(PCC, URRActions, Opts, #{left := Left, right := Right} = _Bearer,
 %% delete_session/2
 delete_session(Reason, PCtx)
   when Reason /= upf_failure ->
+    ergw_pfcp:cancel_timers(PCtx),
     Req = #pfcp{version = v1, type = session_deletion_request, ie = []},
     case ergw_sx_node:call(PCtx, Req) of
 	#pfcp{type = session_deletion_response,
@@ -74,7 +75,8 @@ delete_session(Reason, PCtx)
 			  [_Other]),
 	    undefined
     end;
-delete_session(_Reason, _PCtx) ->
+delete_session(_Reason, PCtx) ->
+    ergw_pfcp:cancel_timers(PCtx),
     undefined.
 
 build_query_usage_report(Type, PCtx) ->
@@ -755,7 +757,7 @@ make_pctx_bearer_key(_, _, _, Keys) ->
     Keys.
 
 make_pctx_keys(Bearer, #pfcp_ctx{seid = #seid{cp = SEID}} = PCtx) ->
-    maps:fold(make_pctx_bearer_key(_, _, PCtx, _), [{seid, SEID}], Bearer).
+    maps:fold(make_pctx_bearer_key(_, _, PCtx, _), [#seid_key{seid = SEID}], Bearer).
 
 register_ctx_ids(Handler, Bearer, PCtx) ->
     Keys = make_pctx_keys(Bearer, PCtx),

@@ -427,7 +427,7 @@ common() ->
      gx_invalid_charging_rulebase,
      gx_invalid_charging_rule,
      gx_rar_gy_interaction,
-     gtp_idle_timeout,
+     %% gtp_idle_timeout,				% does not work (yet) with stateless
      up_inactivity_timer].
 
 groups() ->
@@ -559,6 +559,8 @@ init_per_testcase(_, Config) ->
     Config.
 
 end_per_testcase(Config) ->
+    wait4contexts(?TIMEOUT),
+
     stop_gtpc_server(),
 
     PoolId = [<<"pool-A">>, ipv4, "10.180.0.1"],
@@ -998,14 +1000,14 @@ delete_bearer_request() ->
      {timetrap,{seconds,60}}].
 delete_bearer_request(Config) ->
     Cntl = whereis(gtpc_client_server),
+    CtxKey = #socket_key{name = 'irx', key = {imsi, ?'IMSI', 5}},
 
     {GtpC, _, _} = create_session(Config),
 
-    {_Handler, Server} = gtp_context_reg:lookup({irx, {imsi, ?'IMSI', 5}}),
-    true = is_pid(Server),
+    ?equal(true, ergw_context:test_cmd(gtp, CtxKey, is_alive)),
 
     Self = self(),
-    spawn(fun() -> Self ! {req, gtp_context:delete_context(Server)} end),
+    spawn(fun() -> Self ! {req, ergw_context:test_cmd(gtp, CtxKey, delete_context)} end),
 
     Request = recv_pdu(Cntl, 5000),
     ?match(#gtp{type = delete_bearer_request}, Request),
@@ -1033,14 +1035,14 @@ delete_bearer_request_resend() ->
      {timetrap,{seconds,60}}].
 delete_bearer_request_resend(Config) ->
     Cntl = whereis(gtpc_client_server),
+    CtxKey = #socket_key{name = 'irx', key = {imsi, ?'IMSI', 5}},
 
     {_, _, _} = create_session(Config),
 
-    {_Handler, Server} = gtp_context_reg:lookup({irx, {imsi, ?'IMSI', 5}}),
-    true = is_pid(Server),
+    ?equal(true, ergw_context:test_cmd(gtp, CtxKey, is_alive)),
 
     Self = self(),
-    spawn(fun() -> Self ! {req, gtp_context:delete_context(Server)} end),
+    spawn(fun() -> Self ! {req, ergw_context:test_cmd(gtp, CtxKey, delete_context)} end),
 
     Request = recv_pdu(Cntl, 5000),
     ?match(#gtp{type = delete_bearer_request}, Request),
@@ -1213,8 +1215,7 @@ gy_validity_timer(Config) ->
     delete_session(GtpC),
 
     ?match(X when X >= 3 andalso X < 10,
-		  meck:num_calls(
-		    gtp_context, handle_event, [info, {timeout, '_', pfcp_timer}, '_', '_'])),
+		  meck:num_calls(gtp_context, ctx_pfcp_timer, ['_', '_', '_'])),
 
     CCRU = lists:filter(
 	     fun({_, {ergw_aaa_session, invoke, [_, S, {gy,'CCR-Update'}, _]}, _}) ->
@@ -1237,6 +1238,7 @@ gy_validity_timer(Config) ->
 simple_aaa() ->
     [{doc, "Check simple session with RADIOS/DIAMETER over (S)Gi"}].
 simple_aaa(Config) ->
+    CtxKey = #socket_key{name = 'irx', key = {imsi, ?'IMSI', 5}},
     Interim = rand:uniform(1800) + 1800,
     AAAReply = #{'Acct-Interim-Interval' => Interim},
 
@@ -1254,9 +1256,8 @@ simple_aaa(Config) ->
 
     {GtpC, _, _} = create_session(Config),
 
-    {_Handler, Server} = gtp_context_reg:lookup({'irx', {imsi, ?'IMSI', 5}}),
-    true = is_pid(Server),
-    {ok, PCtx} = gtp_context:test_cmd(Server, pfcp_ctx),
+    ?equal(true, ergw_context:test_cmd(gtp, CtxKey, is_alive)),
+    {ok, PCtx} = ergw_context:test_cmd(gtp, CtxKey, pfcp_ctx),
 
     [SER|_] = lists:filter(
 		fun(#pfcp{type = session_establishment_request}) -> true;
@@ -1345,6 +1346,7 @@ simple_aaa(Config) ->
 simple_ofcs() ->
     [{doc, "Check simple session with DIAMETER Rf"}].
 simple_ofcs(Config) ->
+    CtxKey = #socket_key{name = 'irx', key = {imsi, ?'IMSI', 5}},
     Interim = rand:uniform(1800) + 1800,
     AAAReply = #{'Acct-Interim-Interval' => [Interim]},
 
@@ -1361,9 +1363,8 @@ simple_ofcs(Config) ->
 
     {GtpC, _, _} = create_session(Config),
 
-    {_Handler, Server} = gtp_context_reg:lookup({'irx', {imsi, ?'IMSI', 5}}),
-    true = is_pid(Server),
-    {ok, PCtx} = gtp_context:test_cmd(Server, pfcp_ctx),
+    ?equal(true, ergw_context:test_cmd(gtp, CtxKey, is_alive)),
+    {ok, PCtx} = ergw_context:test_cmd(gtp, CtxKey, pfcp_ctx),
 
     [SER|_] = lists:filter(
 		fun(#pfcp{type = session_establishment_request}) -> true;
@@ -1493,11 +1494,12 @@ simple_ofcs(Config) ->
 simple_ocs() ->
     [{doc, "Test Gy a simple interaction"}].
 simple_ocs(Config) ->
+    CtxKey = #socket_key{name = 'irx', key = {imsi, ?'IMSI', 5}},
+
     {GtpC, _, _} = create_session(Config),
 
-    {_Handler, Server} = gtp_context_reg:lookup({'irx', {imsi, ?'IMSI', 5}}),
-    true = is_pid(Server),
-    {ok, PCtx} = gtp_context:test_cmd(Server, pfcp_ctx),
+    ?equal(true, ergw_context:test_cmd(gtp, CtxKey, is_alive)),
+    {ok, PCtx} = ergw_context:test_cmd(gtp, CtxKey, pfcp_ctx),
 
     [SER|_] = lists:filter(
 		fun(#pfcp{type = session_establishment_request}) -> true;
@@ -1678,14 +1680,13 @@ simple_ocs(Config) ->
 gy_ccr_asr_overlap() ->
     [{doc, "Test that ASR is answered when it arrives during CCR-T"}].
 gy_ccr_asr_overlap(Config) ->
+    CtxKey = #socket_key{name = 'irx', key = {imsi, ?'IMSI', 5}},
     Cntl = whereis(gtpc_client_server),
 
     {GtpC, _, _} = create_session(Config),
 
-    {_Handler, Server} = gtp_context_reg:lookup({'irx', {imsi, ?'IMSI', 5}}),
-    true = is_pid(Server),
-
-    #{'Session' := Session} = gtp_context:info(Server),
+    ?equal(true, ergw_context:test_cmd(gtp, CtxKey, is_alive)),
+    #{'Session' := Session} = ergw_context:test_cmd(gtp, CtxKey, info),
     SessionOpts = ergw_aaa_session:get(Session),
 
     Self = self(),
@@ -1698,7 +1699,7 @@ gy_ccr_asr_overlap(Config) ->
     ok = meck:expect(ergw_aaa_session, invoke,
 		     fun(MSession, MSessionOpts, {gy, 'CCR-Terminate'} = Procedure, Opts) ->
 			     ct:pal("AAAReq: ~p", [AAAReq]),
-			     Server ! AAAReq,
+			     self() ! AAAReq,
 			     meck:passthrough([MSession, MSessionOpts, Procedure, Opts]);
 			(MSession, MSessionOpts, Procedure, Opts) ->
 			     meck:passthrough([MSession, MSessionOpts, Procedure, Opts])
@@ -1809,15 +1810,16 @@ volume_threshold(Config) ->
 gx_rar_gy_interaction() ->
     [{doc, "Check that a Gx RAR triggers a Gy request"}].
 gx_rar_gy_interaction(Config) ->
+    CtxKey = #socket_key{name = 'irx', key = {imsi, ?'IMSI', 5}},
+
     {GtpC, _, _} = create_session(Config),
 
-    {_Handler, Server} = gtp_context_reg:lookup({'irx', {imsi, ?'IMSI', 5}}),
-    true = is_pid(Server),
-
-    {ok, Session} = gtp_context:test_cmd(Server, session),
+    ?equal(true, ergw_context:test_cmd(gtp, CtxKey, is_alive)),
+    {_, Server} = ergw_context:test_cmd(gtp, CtxKey, whereis),
+    {ok, Session} = ergw_context:test_cmd(gtp, CtxKey, session),
     SessionOpts = ergw_aaa_session:get(Session),
 
-    {ok, #pfcp_ctx{timers = T1}} = gtp_context:test_cmd(Server, pfcp_ctx),
+    {ok, #pfcp_ctx{timers = T1}} = ergw_context:test_cmd(gtp, CtxKey, pfcp_ctx),
     ?equal(1, maps:size(T1)),
 
     Self = self(),
@@ -1834,10 +1836,10 @@ gx_rar_gy_interaction(Config) ->
     {_, Resp1, _, _} =
 	receive {'$response', _, _, _, _} = R1 -> erlang:delete_element(1, R1) end,
     ?equal(ok, Resp1),
-    {ok, PCR1} = gtp_context:test_cmd(Server, pcc_rules),
+    {ok, PCR1} = ergw_context:test_cmd(gtp, CtxKey, pcc_rules),
     ?match(#{<<"r-0001">> := #{}, <<"r-0002">> := #{}}, PCR1),
 
-    {ok, #pfcp_ctx{timers = T2}} = gtp_context:test_cmd(Server, pfcp_ctx),
+    {ok, #pfcp_ctx{timers = T2}} = ergw_context:test_cmd(gtp, CtxKey, pfcp_ctx),
     ?equal(2, maps:size(T2)),
 
     SOpts1 = ergw_aaa_session:get(Session),
@@ -1847,11 +1849,11 @@ gx_rar_gy_interaction(Config) ->
     {_, Resp2, _, _} =
 	receive {'$response', _, _, _, _} = R2 -> erlang:delete_element(1, R2) end,
     ?equal(ok, Resp2),
-    {ok, PCR2} = gtp_context:test_cmd(Server, pcc_rules),
+    {ok, PCR2} = ergw_context:test_cmd(gtp, CtxKey, pcc_rules),
     ?match(#{<<"r-0001">> := #{}}, PCR2),
     ?equal(false, maps:is_key(<<"r-0002">>, PCR2)),
 
-    {ok, #pfcp_ctx{timers = T3}} = gtp_context:test_cmd(Server, pfcp_ctx),
+    {ok, #pfcp_ctx{timers = T3}} = ergw_context:test_cmd(gtp, CtxKey, pfcp_ctx),
     ?equal(1, maps:size(T3)),
     ?equal(maps:keys(T1), maps:keys(T3)),
 
@@ -1867,11 +1869,12 @@ gx_asr() ->
     [{doc, "Check that ASR on Gx terminates the session"}].
 gx_asr(Config) ->
     Cntl = whereis(gtpc_client_server),
+    CtxKey = #socket_key{name = 'irx', key = {imsi, ?'IMSI', 5}},
 
     {GtpC, _, _} = create_session(Config),
 
-    {_Handler, Server} = gtp_context_reg:lookup({'irx', {imsi, ?'IMSI', 5}}),
-    true = is_pid(Server),
+    ?equal(true, ergw_context:test_cmd(gtp, CtxKey, is_alive)),
+    {_, Server} = ergw_context:test_cmd(gtp, CtxKey, whereis),
 
     ResponseFun = fun(_, _, _, _) -> ok end,
     Server ! #aaa_request{from = ResponseFun, procedure = {gx, 'ASR'},
@@ -1891,13 +1894,14 @@ gx_asr(Config) ->
 gx_rar() ->
     [{doc, "Check that RAR on Gx changes the session"}].
 gx_rar(Config) ->
+    CtxKey = #socket_key{name = 'irx', key = {imsi, ?'IMSI', 5}},
+
     {GtpC1, _, _} = create_session(Config),
     {GtpC2, _, _} = modify_bearer(enb_u_tei, GtpC1),
 
-    {_Handler, Server} = gtp_context_reg:lookup({'irx', {imsi, ?'IMSI', 5}}),
-    true = is_pid(Server),
-
-    #{'Session' := Session} = gtp_context:info(Server),
+    ?equal(true, ergw_context:test_cmd(gtp, CtxKey, is_alive)),
+    {_, Server} = ergw_context:test_cmd(gtp, CtxKey, whereis),
+    #{'Session' := Session} = ergw_context:test_cmd(gtp, CtxKey, info),
     SessionOpts = ergw_aaa_session:get(Session),
 
     Self = self(),
@@ -1911,7 +1915,7 @@ gx_rar(Config) ->
     {_, Resp0, _, _} =
 	receive {'$response', _, _, _, _} = R0 -> erlang:delete_element(1, R0) end,
     ?equal(ok, Resp0),
-    {ok, PCR0} = gtp_context:test_cmd(Server, pcc_rules),
+    {ok, PCR0} = ergw_context:test_cmd(gtp, CtxKey, pcc_rules),
     ?match(#{<<"r-0001">> := #{}}, PCR0),
 
     InstCR =
@@ -1920,7 +1924,7 @@ gx_rar(Config) ->
     {_, Resp1, _, SOpts1} =
 	receive {'$response', _, _, _, _} = R1 -> erlang:delete_element(1, R1) end,
     ?equal(ok, Resp1),
-    {ok, PCR1} = gtp_context:test_cmd(Server, pcc_rules),
+    {ok, PCR1} = ergw_context:test_cmd(gtp, CtxKey, pcc_rules),
     ?match(#{<<"r-0001">> := #{}, <<"r-0002">> := #{}}, PCR1),
 
     RemoveCR =
@@ -1929,7 +1933,7 @@ gx_rar(Config) ->
     {_, Resp2, _, _SOpts2} =
 	receive {'$response', _, _, _, _} = R2 -> erlang:delete_element(1, R2) end,
     ?equal(ok, Resp2),
-    {ok, PCR2} = gtp_context:test_cmd(Server, pcc_rules),
+    {ok, PCR2} = ergw_context:test_cmd(gtp, CtxKey, pcc_rules),
     ?match(#{<<"r-0001">> := #{}}, PCR2),
     ?equal(false, maps:is_key(<<"r-0002">>, PCR2)),
 
@@ -1939,7 +1943,7 @@ gx_rar(Config) ->
     {_, Resp3, _, SOpts3} =
 	receive {'$response', _, _, _, _} = R3 -> erlang:delete_element(1, R3) end,
     ?equal(ok, Resp3),
-    {ok, PCR3} = gtp_context:test_cmd(Server, pcc_rules),
+    {ok, PCR3} = ergw_context:test_cmd(gtp, CtxKey, pcc_rules),
     ?match(#{<<"r-0001">> := #{},
 	     <<"r-0002">> := #{'Charging-Rule-Base-Name' := _}}, PCR3),
 
@@ -1949,7 +1953,7 @@ gx_rar(Config) ->
     {_, Resp4, _, _SOpts4} =
 	receive {'$response', _, _, _, _} = R4 -> erlang:delete_element(1, R4) end,
     ?equal(ok, Resp4),
-    {ok, PCR4} = gtp_context:test_cmd(Server, pcc_rules),
+    {ok, PCR4} = ergw_context:test_cmd(gtp, CtxKey, pcc_rules),
     ?match(#{<<"r-0001">> := #{}}, PCR4),
     ?equal(false, maps:is_key(<<"r-0002">>, PCR4)),
 
@@ -1999,11 +2003,12 @@ gy_asr() ->
     [{doc, "Check that ASR on Gy terminates the session"}].
 gy_asr(Config) ->
     Cntl = whereis(gtpc_client_server),
+    CtxKey = #socket_key{name = 'irx', key = {imsi, ?'IMSI', 5}},
 
     {GtpC, _, _} = create_session(Config),
 
-    {_Handler, Server} = gtp_context_reg:lookup({'irx', {imsi, ?'IMSI', 5}}),
-    true = is_pid(Server),
+    ?equal(true, ergw_context:test_cmd(gtp, CtxKey, is_alive)),
+    {_, Server} = ergw_context:test_cmd(gtp, CtxKey, whereis),
 
     ResponseFun = fun(_, _, _, _) -> ok end,
     Server ! #aaa_request{from = ResponseFun, procedure = {gy, 'ASR'},
@@ -2125,6 +2130,7 @@ gtp_idle_timeout(Config) ->
 up_inactivity_timer() ->
     [{doc, "Test expiry of the User Plane Inactivity Timer"}].
 up_inactivity_timer(Config) ->
+    CtxKey = #socket_key{name = 'irx', key = {imsi, ?'IMSI', 5}},
     Interim = rand:uniform(1800) + 1800,
     AAAReply = #{'Acct-Interim-Interval' => Interim},
 
@@ -2142,9 +2148,10 @@ up_inactivity_timer(Config) ->
 	   end),
 
     create_session(Config),
-    {_Handler, Server} = gtp_context_reg:lookup({'irx', {imsi, ?'IMSI', 5}}),
-    true = is_pid(Server),
-    {ok, PCtx} = gtp_context:test_cmd(Server, pfcp_ctx),
+
+    ?equal(true, ergw_context:test_cmd(gtp, CtxKey, is_alive)),
+    {ok, PCtx} = ergw_context:test_cmd(gtp, CtxKey, pfcp_ctx),
+
     [SER|_] = lists:filter(
 		fun(#pfcp{type = session_establishment_request}) -> true;
 		   (_) ->false

@@ -27,7 +27,7 @@
 -export([get_urr_id/4, get_urr_group/2,
 	 get_urr_ids/1, get_urr_ids/2,
 	 find_urr_by_id/2]).
--export([set_timer/3, apply_timers/2, timer_expired/2]).
+-export([set_timer/3, apply_timers/2, cancel_timers/1, timer_expired/2]).
 
 -ifdef(TEST).
 -export([pfcp_rule_diff/2]).
@@ -158,7 +158,7 @@ outer_header_removal(v6) ->
     #outer_header_removal{header = 'GTP-U/UDP/IPv6'}.
 
 ctx_teid_key(#pfcp_ctx{name = Name}, TEI) ->
-    {Name, {teid, 'gtp-u', TEI}}.
+    #socket_teid_key{name = Name, type = 'gtp-u', teid = TEI}.
 
 up_inactivity_timer(#pfcp_ctx{up_inactivity_timer = Timer})
   when is_integer(Timer) ->
@@ -209,13 +209,10 @@ pfcp_rule_diff(K, Old, New, Diff) ->
 
 init_ctx(PCtx) ->
     PCtx#pfcp_ctx{idcnt = #{}, idmap = #{}, urr_by_id = #{}, urr_by_grp = #{},
-		  sx_rules = #{}, timers = #{}, timer_by_tref = #{}}.
+		  sx_rules = #{}, timers = #{}}.
 
 reset_ctx(PCtx) ->
-    PCtx#pfcp_ctx{urr_by_grp = #{}, sx_rules = #{}, timers = #{}, timer_by_tref = #{}}.
-
-reset_ctx_timers(PCtx) ->
-    PCtx#pfcp_ctx{timers = #{}, timer_by_tref = #{}}.
+    PCtx#pfcp_ctx{urr_by_grp = #{}, sx_rules = #{}, timers = #{}}.
 
 get_id(Type, Name, #pfcp_ctx{idcnt = Cnt, idmap = IdMap} = PCtx) ->
     Key = {Type, Name},
@@ -263,44 +260,22 @@ find_urr_by_id(Id, #pfcp_ctx{urr_by_id = M}) ->
 %%%===================================================================
 
 set_timer(Time, Ev, #pfcp_ctx{timers = T0} = PCtx) ->
-    T = maps:update_with(Time, fun({K, Evs}) -> {K, [Ev|Evs]} end, {undefined, [Ev]}, T0),
+    T = maps:update_with(Time, fun(Evs) -> [Ev|Evs] end, [Ev], T0),
     PCtx#pfcp_ctx{timers = T}.
 
-apply_timers(#pfcp_ctx{timers = Old}, #pfcp_ctx{timers = New} = PCtx) ->
+apply_timers(#pfcp_ctx{seid = #seid{cp = SEID}, timers = Old},
+	     #pfcp_ctx{seid = #seid{cp = SEID}, timers = New} = PCtx) ->
     ?LOG(debug, "Update Timers Old: ~p", [Old]),
     ?LOG(debug, "Update Timers New: ~p", [New]),
-    maps:map(fun del_timers/2, maps:without(maps:keys(New), Old)),
-    R = maps:fold(upd_timers(_, _, Old, _), reset_ctx_timers(PCtx), New),
-    ?LOG(debug, "Update Timers Final: ~p", [R#pfcp_ctx.timers]),
-    R.
+    ok = ergw_timer_service:apply(
+	   #seid_key{seid = SEID}, {ergw_context, pfcp_timer}, Old, New),
+    PCtx.
 
-del_timers(_, {TRef, _}) ->
-    erlang:cancel_timer(TRef).
+cancel_timers(#pfcp_ctx{seid = #seid{cp = SEID}}) ->
+    ergw_timer_service:cancel(#seid_key{seid = SEID}).
 
-upd_timers(Time, {_, Evs} = Timer, Old, #pfcp_ctx{timers = Ts, timer_by_tref = Ids} = PCtx) ->
-    TRef =
-	case maps:get(Time, Old, Timer) of
-	    {TRef0, _} when is_reference(TRef0) ->
-		TRef0;
-	    _ ->
-		erlang:start_timer(Time, self(), pfcp_timer, [{abs, true}])
-	end,
-    PCtx#pfcp_ctx{
-      timers = Ts#{Time => {TRef, Evs}},
-      timer_by_tref = Ids#{TRef => Time}
-     }.
-
-timer_expired(TRef, #pfcp_ctx{timers = Ts, timer_by_tref = Ids} = PCtx0) ->
-    case Ids of
-	#{TRef := Time} ->
-	    {_, Evs} = maps:get(Time, Ts, {undefined, []}),
-	    PCtx = PCtx0#pfcp_ctx{
-		     timers = maps:remove(Time, Ts),
-		     timer_by_tref = maps:remove(TRef, Ids)},
-	    {Evs, PCtx};
-	_ ->
-	    {[], PCtx0}
-    end.
+timer_expired(Time, #pfcp_ctx{timers = Ts} = PCtx) ->
+    PCtx#pfcp_ctx{timers = maps:remove(Time, Ts)}.
 
 %%%===================================================================
 %%% Update UPF assigned TEIDs in rules

@@ -97,12 +97,13 @@ validate_options(Options) ->
 validate_option(Opt, Value) ->
     gtp_context:validate_option(Opt, Value).
 
-init(_Opts, Data) ->
+init(_Opts, Data0) ->
     {ok, Session} = ergw_aaa_session_sup:new_session(self(), to_session([])),
     SessionOpts = ergw_aaa_session:get(Session),
     OCPcfg = maps:get('Offline-Charging-Profile', SessionOpts, #{}),
     PCC = #pcc_ctx{offline_charging_profile = OCPcfg},
-    {ok, run, Data#{'Version' => v1, 'Session' => Session, pcc => PCC}}.
+    Data = Data0#{'Version' => v1, 'Session' => Session, pcc => PCC},
+    {ok, #c_state{session = init, fsm = init}, Data}.
 
 handle_event(enter, _OldState, _State, _Data) ->
     keep_state_and_data;
@@ -132,7 +133,7 @@ handle_request(ReqKey,
 	       #gtp{type = create_pdp_context_request,
 		    ie = #{
 			   ?'Access Point Name' := #access_point_name{apn = APN}
-			  } = IEs} = Request, _Resent, _State,
+			  } = IEs} = Request, _Resent, #c_state{session = init} = State,
 	       #{context := Context0, aaa_opts := AAAopts, node_selection := NodeSelect,
 		 left_tunnel := LeftTunnel0, bearer := #{left := LeftBearer0},
 		 'Session' := Session, pcc := PCC0} = Data) ->
@@ -175,12 +176,12 @@ handle_request(ReqKey,
 	Data#{context => Context, pfcp => PCtx, pcc => PCC4,
 	      left_tunnel => LeftTunnel, bearer => Bearer},
     Actions = context_idle_action([], Context),
-    {next_state, connected, FinalData, Actions};
+    {next_state, State#c_state{session = connected, fsm = idle}, FinalData, Actions};
 
 handle_request(ReqKey,
 	       #gtp{type = update_pdp_context_request,
 		    ie = #{?'Quality of Service Profile' := ReqQoSProfile} = IEs} = Request,
-	       _Resent, _State,
+	       _Resent, #c_state{session = connected} = _State,
 	       #{context := Context, pfcp := PCtx0,
 		 left_tunnel := LeftTunnelOld,
 		 bearer := #{left := LeftBearerOld} = Bearer0,
@@ -221,7 +222,7 @@ handle_request(ReqKey,
 
 handle_request(ReqKey,
 	       #gtp{type = ms_info_change_notification_request, ie = IEs} = Request,
-	       _Resent, _State,
+	       _Resent, #c_state{session = connected} = _State,
 	       #{context := Context, pfcp := PCtx, left_tunnel := LeftTunnel, 'Session' := Session}) ->
     URRActions = update_session_from_gtp_req(IEs, Session, LeftTunnel),
     gtp_context:trigger_usage_report(self(), URRActions, PCtx),
@@ -236,28 +237,29 @@ handle_request(ReqKey,
 
 handle_request(ReqKey,
 	       #gtp{type = delete_pdp_context_request, ie = _IEs} = Request,
-	       _Resent, _State, #{left_tunnel := LeftTunnel} = Data) ->
+	       _Resent, #c_state{session = connected} = State,
+	       #{left_tunnel := LeftTunnel} = Data) ->
     ergw_gtp_gsn_lib:close_context(normal, Data),
     Response = response(delete_pdp_context_response, LeftTunnel, request_accepted),
     gtp_context:send_response(ReqKey, Request, Response),
-    {next_state, shutdown, Data};
+    {next_state, State#c_state{session = shutdown, fsm = busy}, Data};
 
 handle_request(ReqKey, _Msg, _Resent, _State, _Data) ->
     gtp_context:request_finished(ReqKey),
     keep_state_and_data.
 
 handle_response({From, TermCause}, timeout, #gtp{type = delete_pdp_context_request},
-		_State, Data) ->
+		State, Data) ->
     ergw_gtp_gsn_lib:close_context(TermCause, Data),
     if is_tuple(From) -> gen_statem:reply(From, {error, timeout});
        true -> ok
     end,
-    {next_state, shutdown, Data};
+    {next_state, State#c_state{session = shutdown, fsm = busy}, Data};
 
 handle_response({From, TermCause},
 		#gtp{type = delete_pdp_context_response,
 		     ie = #{?'Cause' := #cause{value = Cause}}} = Response,
-		_Request, _State,
+		_Request, State,
 		#{left_tunnel := LeftTunnel0} = Data) ->
     LeftTunnel = gtp_path:bind(Response, LeftTunnel0),
     DataNew = Data#{left_tunnel := LeftTunnel},
@@ -266,10 +268,17 @@ handle_response({From, TermCause},
     if is_tuple(From) -> gen_statem:reply(From, {ok, Cause});
        true -> ok
     end,
-    {next_state, shutdown, DataNew}.
+    {next_state, State#c_state{session = shutdown, fsm = busy}, DataNew};
 
-terminate(_Reason, _State, #{context := Context}) ->
+handle_response(_CommandReqKey, _Response, _Request, #c_state{session = SState}, _Data)
+  when SState =/= connected ->
+    keep_state_and_data.
+
+terminate(_Reason, #c_state{session = SState}, #{context := Context} = Data)
+  when SState =/= connected ->
     ergw_gsn_lib:release_context_ips(Context),
+    ergw_gsn_lib:release_local_teids(Data);
+terminate(_Reason, _State, _Data) ->
     ok.
 
 %%%===================================================================
@@ -777,7 +786,7 @@ send_request(#tunnel{remote = #fq_teid{ip = RemoteCntlIP}} = Tunnel, T3, N3, Msg
 send_request(Tunnel, T3, N3, Type, RequestIEs, ReqInfo) ->
     send_request(Tunnel, T3, N3, msg(Tunnel, Type, RequestIEs), ReqInfo).
 
-delete_context(From, TermCause, connected,
+delete_context(From, TermCause, #c_state{session = connected} = State,
 	       #{left_tunnel := Tunnel, context :=
 		     #context{default_bearer_id = NSAPI}} = Data) ->
     Type = delete_pdp_context_request,
@@ -785,7 +794,7 @@ delete_context(From, TermCause, connected,
 		   #teardown_ind{value = 1}],
     RequestIEs = gtp_v1_c:build_recovery(Type, Tunnel, false, RequestIEs0),
     send_request(Tunnel, ?T3, ?N3, Type, RequestIEs, {From, TermCause}),
-    {next_state, shutdown_initiated, Data};
+    {next_state, State#c_state{session = shutdown_initiated, fsm = busy}, Data};
 delete_context(undefined, _, _, _) ->
     keep_state_and_data;
 delete_context(From, _, _, _) ->

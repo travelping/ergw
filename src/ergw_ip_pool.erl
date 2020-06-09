@@ -122,4 +122,5 @@ wait_pool_response({Handler, ReqId}) ->
     Handler:wait_pool_response(ReqId).
 
 pool_release(AI) ->
+    ct:pal("PoolRelease: ~p", [AI]),
     alloc_info(AI, release).
