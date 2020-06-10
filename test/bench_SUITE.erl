@@ -71,6 +71,7 @@
 
 	 {ergw, [{'$setup_vars',
 		  [{"ORIGIN", {value, "epc.mnc001.mcc001.3gppnetwork.org"}}]},
+		 {node_id, <<"PGW">>},
 		 {sockets,
 		  [{'cp-socket',
 			[{type, 'gtp-u'},
@@ -86,8 +87,6 @@
 			 ]},
 
 		   {sx, [{type, 'pfcp'},
-			 {node, 'ergw'},
-			 {name, 'ergw'},
 			 {socket, cp},
 			 {ip, ?MUST_BE_UPDATED},
 			 {reuseaddr, true}

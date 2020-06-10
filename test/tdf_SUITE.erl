@@ -44,6 +44,7 @@
 
 	 {ergw, [{'$setup_vars',
 		  [{"ORIGIN", {value, "epc.mnc001.mcc001.3gppnetwork.org"}}]},
+		 {node_id, "TDF.$ORIGIN"},
 		 {sockets,
 		  [{'cp-socket', [{type, 'gtp-u'},
 				  {vrf, cp},
@@ -52,8 +53,6 @@
 				 ]},
 
 		   {sx, [{type, 'pfcp'},
-			 {node, 'ergw'},
-			 {name, 'ergw'},
 			 {socket, 'cp-socket'},
 			 {ip, ?MUST_BE_UPDATED},
 			 {reuseaddr, true}

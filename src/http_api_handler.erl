@@ -17,9 +17,6 @@
 %% cowboy handler methods, used in routes
 -ignore_xref([handle_request_json/2, handle_request_text/2]).
 
--define(FIELDS_MAPPING, [{accept_new, 'acceptNewRequests'},
-			 {plmn_id, 'plmnId'}]).
-
 init(Req, Opts) ->
     {cowboy_rest, Req, Opts}.
 
@@ -55,19 +52,19 @@ handle_request(<<"GET">>, <<"/api/v1/version">>, json, Req, State) ->
     {Response, Req, State};
 
 handle_request(<<"GET">>, <<"/api/v1/status">>, json, Req, State) ->
-    Response = ergw:system_info(),
-    MappedResponse = lists:map(fun({Key, Value}) ->
-					  {_, K} = lists:keyfind(Key, 1, ?FIELDS_MAPPING),
-					  {K, Value}
-			       end, Response),
-    ResponseMap = maps:from_list(MappedResponse),
-    Result = case maps:find('plmnId', ResponseMap) of
-        {ok, {Mcc, Mnc}} ->
-            maps:update('plmnId', [{mcc, Mcc}, {mnc, Mnc}], ResponseMap);
-        _ ->
-            ResponseMap
-    end,
-    {jsx:encode(Result), Req, State};
+    FieldMap = #{accept_new => 'acceptNewRequests',
+		 node_id    => 'nodeId'},
+    Response =
+	lists:foldl(
+	  fun({plmn_id, {MCC, MNC}}, M) ->
+		  M#{'plmnId' => [{mcc, MCC}, {mnc, MNC}]};
+	     ({Key, Value}, M)
+		when is_map_key(Key, FieldMap) ->
+		  M#{maps:get(Key, FieldMap) => Value};
+	     (_, M) ->
+		  M
+	  end, #{}, ergw:system_info()),
+    {jsx:encode(Response), Req, State};
 
 handle_request(<<"GET">>, <<"/api/v1/status/accept-new">>, json, Req, State) ->
     AcceptNew = ergw:system_info(accept_new),

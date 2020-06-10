@@ -21,7 +21,8 @@
 	?match([_|_], (catch ergw_config:validate_config(Config)))).
 
 -define(GGSN_CONFIG,
-	[accept_new,
+	[{node_id, <<"GGSN">>},
+	 accept_new,
 	 {http_api, [{port, 0}]},
 	 {sockets,
 	  [{cp, [{type, 'gtp-u'},
@@ -35,8 +36,6 @@
 		 ]},
 
 	   {sx, [{type, 'pfcp'},
-		 {node, 'ergw'},
-		 {name, 'ergw'},
 		 {socket, cp},
 		 {ip, ?LOCALHOST_IPv4},
 		 {reuseaddr, true}
@@ -102,7 +101,8 @@
 	]).
 
 -define(GGSN_PROXY_CONFIG,
-	[{sockets,
+	[{node_id, <<"GGSN-PROXY">>},
+	 {sockets,
 	  [{cp, [{type, 'gtp-u'},
 		 {ip,  ?LOCALHOST_IPv4},
 		 {reuseaddr, true},
@@ -122,8 +122,6 @@
 			   ]},
 
 	   {sx, [{type, 'pfcp'},
-		 {node, 'ergw'},
-		 {name, 'ergw'},
 		 {socket, cp},
 		 {ip, ?LOCALHOST_IPv4},
 		 {reuseaddr, true}
@@ -213,7 +211,8 @@
 	]).
 
 -define(PGW_CONFIG,
-	[{sockets,
+	[{node_id, <<"PGW">>},
+	 {sockets,
 	  [{cp, [{type, 'gtp-u'},
 		 {ip,  ?LOCALHOST_IPv4},
 		 {reuseaddr, true},
@@ -225,8 +224,6 @@
 		 ]},
 
 	   {sx, [{type, 'pfcp'},
-		 {node, 'ergw'},
-		 {name, 'ergw'},
 		 {socket, cp},
 		 {ip, ?LOCALHOST_IPv4},
 		 {reuseaddr, true}
@@ -298,7 +295,7 @@
 	]).
 
 -define(PGW_PROXY_CONFIG,
-	[
+	[{node_id, <<"PGW-PROXY">>},
 	 {sockets,
 	  [{cp, [{type, 'gtp-u'},
 		 {ip,  ?LOCALHOST_IPv4},
@@ -319,8 +316,6 @@
 			   ]},
 
 	   {sx, [{type, 'pfcp'},
-		 {node, 'ergw'},
-		 {name, 'ergw'},
 		 {socket, cp},
 		 {ip, ?LOCALHOST_IPv4},
 		 {reuseaddr, true}
@@ -409,7 +404,8 @@
 	]).
 
 -define(SAE_S11_CONFIG,
-	[{sockets,
+	[{node_id, <<"SAE-GW">>},
+	 {sockets,
 	  [{cp, [{type, 'gtp-u'},
 		 {ip,  ?LOCALHOST_IPv4},
 		 {reuseaddr, true},
@@ -421,8 +417,6 @@
 		 ]},
 
 	   {sx, [{type, 'pfcp'},
-		 {node, 'ergw'},
-		 {name, 'ergw'},
 		 {socket, cp},
 		 {ip, ?LOCALHOST_IPv4},
 		 {reuseaddr, true}
@@ -481,7 +475,7 @@
 	]).
 
 -define(TDF_CONFIG,
-	[
+	[{node_id, <<"TDF">>},
 	 {sockets,
 	  [{'cp-socket', [{type, 'gtp-u'},
 			  {vrf, cp},
@@ -491,8 +485,6 @@
 			 ]},
 
 	   {sx, [{type, 'pfcp'},
-		 {node, 'ergw'},
-		 {name, 'ergw'},
 		 {socket, 'cp-socket'},
 		 {ip, ?LOCALHOST_IPv4},
 		 {reuseaddr, true}
@@ -569,6 +561,9 @@ config(_Config)  ->
     ?ok_option(ergw_config:validate_config(?GGSN_CONFIG)),
     ?error_option(set_cfg_value([plmn_id], {undefined, undefined}, ?GGSN_CONFIG)),
     ?error_option(set_cfg_value([plmn_id], {<<"abc">>, <<"ab">>}, ?GGSN_CONFIG)),
+    ?error_option(set_cfg_value([node_id], undefined, ?GGSN_CONFIG)),
+    ?ok_option(set_cfg_value([node_id], "GGSN", ?GGSN_CONFIG)),
+    ?ok_option(set_cfg_value([node_id], ["GGSN", <<"-proxy">>], ?GGSN_CONFIG)),
     ?error_option(set_cfg_value([sockets], undefined, ?GGSN_CONFIG)),
 
     ?ok_option(set_cfg_value([teid], {2, 4}, ?GGSN_CONFIG)),

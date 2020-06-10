@@ -28,7 +28,7 @@
 
 -record(state, {
 	  name,
-	  node,
+	  node           :: binary(),
 	  send_socket    :: socket:socket(),
 	  recv_socket    :: socket:socket(),
 	  burst_size = 1 :: non_neg_integer(),
@@ -105,8 +105,7 @@ seid() ->
 %%%===================================================================
 
 -define(SOCKET_OPTS, [netdev, netns, freebind, reuseaddr, rcvbuf]).
--define(SocketDefaults, [{node, "invalid"},
-			 {socket, "invalid"},
+-define(SocketDefaults, [{socket, "invalid"},
 			 {ip, invalid},
 			 {burst_size, 10}]).
 
@@ -116,7 +115,8 @@ validate_options(Name, Values) ->
 
 validate_option(type, pfcp = Value) ->
     Value;
-validate_option(node, Value) when is_atom(Value) ->
+validate_option(node, Value) ->
+    ?LOG(warning, "depreciated config key 'node' in Sx socket configuration"),
     Value;
 validate_option(name, Value) when is_atom(Value) ->
     Value;
@@ -152,8 +152,7 @@ validate_option(Opt, Value) ->
 %%% gen_server callbacks
 %%%===================================================================
 
-init(#{name := Name, node := Node, ip := IP,
-       socket := GtpSocketName, burst_size := BurstSize} = Opts) ->
+init(#{name := Name, ip := IP, socket := GtpSocketName, burst_size := BurstSize} = Opts) ->
     process_flag(trap_exit, true),
 
     SocketOpts = maps:with(?SOCKET_OPTS, Opts),
@@ -171,7 +170,7 @@ init(#{name := Name, node := Node, ip := IP,
 	       send_socket = SendSocket,
 	       recv_socket = RecvSocket,
 	       name = Name,
-	       node = Node,
+	       node = ergw:get_node_id(),
 	       burst_size = BurstSize,
 	       gtp_socket = GtpSocket,
 	       gtp_info = GtpSockInfo,

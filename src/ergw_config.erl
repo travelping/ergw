@@ -24,6 +24,7 @@
 -endif.
 
 -define(DefaultOptions, [{plmn_id, {<<"001">>, <<"01">>}},
+			 {node_id, undefined},
 			 {teid, {0, 0}},
 			 {accept_new, true},
 			 {sockets, []},
@@ -204,6 +205,10 @@ validate_option(plmn_id, {MCC, MNC} = Value) ->
        ok -> Value;
        _  -> throw({error, {options, {plmn_id, Value}}})
     end;
+validate_option(node_id, Value) when is_binary(Value) ->
+    Value;
+validate_option(node_id, Value) when is_list(Value) ->
+    iolist_to_binary(Value);
 validate_option(accept_new, Value) when is_boolean(Value) ->
     Value;
 validate_option(sockets, Value) when ?is_opts(Value) ->
@@ -241,6 +246,7 @@ validate_option(teid, Value) ->
     ergw_tei_mngr:validate_option(Value);
 validate_option(Opt, Value)
   when Opt == plmn_id;
+       Opt == node_id;
        Opt == accept_new;
        Opt == sockets;
        Opt == handlers;

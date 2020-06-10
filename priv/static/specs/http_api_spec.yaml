@@ -81,6 +81,9 @@ definitions:
       acceptNewRequests:
         type: "boolean"
         default: true
+      nodeId:
+        $ref:
+          "#/definitions/Fqdn"
       plmnId:
         $ref:
           "#/definitions/PLMN"
@@ -107,3 +110,6 @@ definitions:
     properties:
       version:
         type: "string"
+  Fqdn:
+    description: Fully Qualified Domain Name
+    type: "string"

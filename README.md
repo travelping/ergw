@@ -302,6 +302,7 @@ Then fill just created **ergw.config** file with content like described below pr
            {ip, {0,0,0,0}}
           ]},
 
+         {node_id, <<"pgw.$ORIGIN">>},
          {sockets,
           [{cp, [{type, 'gtp-u'},
              {vrf, cp},
@@ -314,9 +315,7 @@ Then fill just created **ergw.config** file with content like described below pr
                   {ip,  {127,0,0,1}},
                   {reuseaddr, true}
                  ]},
-           {sx, [{node, 'ergw'},
-                 {name, 'ergw'},
-                 {type, 'pfcp'},
+           {sx, [{type, 'pfcp'},
                  {socket, cp},
                  {ip,  {172,21,16,2}}
            ]}
