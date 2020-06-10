@@ -34,6 +34,7 @@
 
 	 {ergw, [{'$setup_vars',
 		  [{"ORIGIN", {value, "epc.mnc001.mcc001.3gppnetwork.org"}}]},
+		 {node_id, <<"GGSN">>},
 		 {sockets,
 		  [{cp, [{type, 'gtp-u'},
 			 {ip, ?LOCALHOST_IPv4},
@@ -334,6 +335,7 @@ http_api_status_req(_Config) ->
 				       [], [{body_format, binary}]),
     Response = jsx:decode(Body, [return_maps]),
     ?equal(maps:get(accept_new, SysInfo), maps:get(<<"acceptNewRequests">>, Response)),
+    ?equal(maps:get(node_id, SysInfo), maps:get(<<"nodeId">>, Response)),
     {Mcc, Mnc} = maps:get(plmn_id, SysInfo),
     PlmnIdFromResponse = maps:get(<<"plmnId">>, Response),
     MccFromResponse = maps:get(<<"mcc">>, PlmnIdFromResponse),

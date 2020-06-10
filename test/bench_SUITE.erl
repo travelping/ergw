@@ -71,6 +71,7 @@
 
 	 {ergw, [{'$setup_vars',
 		  [{"ORIGIN", {value, "epc.mnc001.mcc001.3gppnetwork.org"}}]},
+		 {node_id, <<"PGW">>},
 		 {sockets,
 		  [{'cp-socket',
 			[{type, 'gtp-u'},

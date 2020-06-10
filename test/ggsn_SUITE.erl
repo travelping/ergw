@@ -44,6 +44,7 @@
 
 	 {ergw, [{'$setup_vars',
 		  [{"ORIGIN", {value, "epc.mnc001.mcc001.3gppnetwork.org"}}]},
+		 {node_id, <<"GGSN">>},
 		 {sockets,
 		  [{cp, [{type, 'gtp-u'},
 			 {ip, ?MUST_BE_UPDATED},

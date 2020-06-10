@@ -16,7 +16,7 @@
 	 attach_tdf/2, attach_protocol/5]).
 -export([handler/2]).
 -export([load_config/1]).
--export([get_plmn_id/0, get_accept_new/0]).
+-export([get_plmn_id/0, get_node_id/0, get_accept_new/0]).
 -export([system_info/0, system_info/1, system_info/2]).
 -export([i/0, i/1, i/2]).
 
@@ -45,15 +45,20 @@ start_link() ->
 get_plmn_id() ->
     [{config, plmn_id, MCC, MNC}] = ets:lookup(?SERVER, plmn_id),
     {MCC, MNC}.
+get_node_id() ->
+    {ok, Id} = application:get_env(ergw, node_id),
+    Id.
 get_accept_new() ->
     [{config, accept_new, Value}] = ets:lookup(?SERVER, accept_new),
     Value.
 
 system_info() ->
-    [{K,system_info(K)} || K <- [plmn_id, accept_new]].
+    [{K,system_info(K)} || K <- [plmn_id, node_id, accept_new]].
 
 system_info(accept_new) ->
     get_accept_new();
+system_info(node_id) ->
+    get_node_id();
 system_info(plmn_id) ->
     get_plmn_id();
 system_info(Arg) ->
@@ -70,6 +75,9 @@ load_config([]) ->
     ok;
 load_config([{plmn_id, {MCC, MNC}} | T]) ->
     true = ets:insert(?SERVER, {config, plmn_id, MCC, MNC}),
+    load_config(T);
+load_config([{node_id, Value} | T]) ->
+    true = ets:insert(?SERVER, {config, node_id, Value}),
     load_config(T);
 load_config([{accept_new, Value} | T]) ->
     true = ets:insert(?SERVER, {config, accept_new, Value}),
