@@ -595,7 +595,7 @@ put_ie(IE, _IEs) ->
     [IE].
 
 put_node_id(R = #pfcp{ie = IEs}, #data{cp = #node{node = Node}}) ->
-    NodeId = #node_id{id = string:split(atom_to_binary(Node, utf8), ".", all)},
+    NodeId = #node_id{id = string:split(Node, ".", all)},
     R#pfcp{ie = put_ie(NodeId, IEs)}.
 
 put_build_id(R = #pfcp{ie = IEs}) ->

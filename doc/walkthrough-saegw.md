@@ -125,6 +125,7 @@ erGW Installation
                   {ip, {0,0,0,0}}
                  ]},
 
+                {node_id, <<"saegw">>},
                 {sockets,
                  [{cp, [{type, 'gtp-u'},
                     {vrf, cp},
@@ -136,9 +137,7 @@ erGW Installation
                          {ip,  {172,20,16,1}},
                          {netdev, "vrf-irx"}
                         ]},
-                        {sx, [{node, 'ergw'},
-                           {name, 'ergw'},
-                           {type, 'pfcp'},
+                        {sx, [{type, 'pfcp'},
                            {socket, cp},
                            {ip,  {172,21,16,2}}
                         ]}
