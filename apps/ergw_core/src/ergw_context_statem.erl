@@ -29,7 +29,7 @@
 
 -include_lib("kernel/include/logger.hrl").
 
--define(DEBUG_OPTS, []).
+-define(DEBUG_OPTS, [{install, {fun logger_sys_debug:logger_gen_statem_trace/3, ?MODULE}}]).
 
 %%%=========================================================================
 %%%  API

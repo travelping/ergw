@@ -22,6 +22,8 @@
 -define(SERVER, ?MODULE).
 -define(DEBUG_OPTS, []).
 
+-define(DEBUG_OPTS, [{install, {fun logger_sys_debug:logger_gen_statem_trace/3, ?MODULE}}]).
+
 %% ===================================================================
 %% API functions
 %% ===================================================================
@@ -31,7 +33,8 @@ start_link() ->
 
 new(Handler, Args) ->
     Opts = [{hibernate_after, 500},
-	    {spawn_opt,[{fullsweep_after, 0}]}],
+	    {spawn_opt,[{fullsweep_after, 0}]},
+	    {debug, ?DEBUG_OPTS}],
     new(Handler, Args, Opts).
 
 new(Handler, Args, Opts) ->

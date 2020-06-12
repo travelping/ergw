@@ -619,6 +619,7 @@ suite() ->
     [{timetrap,{seconds,30}}].
 
 init_per_suite(Config) ->
+    %% ok = logger:set_primary_config(level, debug),
     [{handler_under_test, ?HUT},
      {app_cfg, ?TEST_CONFIG} | Config].
 
