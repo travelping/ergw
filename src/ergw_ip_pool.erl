@@ -180,15 +180,15 @@ handle_call({get, ClientId, Type, PrefixLen}, _From, #state{pools = Pools} = Sta
     ?LOG(debug, "~w: Allocate IPv: ~p -> ~p, Pool: ~p", [self(), ClientId, Response, Pool]),
     {reply, Response, State#state{pools = maps:put(Key, Pool, Pools)}};
 
+handle_call({get, _ClientId, Type, _PrefixLen}, _From, State)
+  when is_atom(Type) ->
+    {reply, {error, undefined}, State};
+
 handle_call({get, ClientId, ReqIP, PrefixLen}, _From, #state{pools = Pools} = State)
   when is_tuple(ReqIP) ->
     Key = {type(ReqIP), PrefixLen},
     {Reply, Pool} = take_ip(ClientId, ip2int(ReqIP), maps:get(Key, Pools, undefined)),
     {reply, Reply, State#state{pools = maps:put(Key, Pool, Pools)}};
-
-%% WTF???
-%% handle_call({get, _ClientId, _Type, _PrefixLen}, _From, State) ->
-%%     {reply, {error, invalid}, State};
 
 handle_call({release, IP, PrefixLen}, _From, #state{pools = Pools} = State) ->
     Key = {type(IP), PrefixLen},
