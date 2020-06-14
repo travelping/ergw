@@ -18,7 +18,7 @@
 -include("ergw_pgw_test_lib.hrl").
 
 -define(TIMEOUT, 2000).
--define(NO_OF_CLIENTS, 6). %% No of IP clients for multi session tests
+-define(NUM_OF_CLIENTS, 6). %% Num of IP clients for multi session tests
 
 -define(HUT, pgw_s5s8_proxy).			%% Handler Under Test
 
@@ -705,7 +705,7 @@ init_per_testcase(simple_session, Config) ->
     ok = meck:new(pgw_s5s8, [passthrough, no_link]),
     Config;
 init_per_testcase(create_lb_multi_session, Config) ->
-    set_up_clients(?NO_OF_CLIENTS, Config),
+    set_up_clients(?NUM_OF_CLIENTS, Config),
     ok = meck:new(pgw_s5s8, [passthrough, no_link]),
     Config;
 init_per_testcase(request_fast_resend, Config) ->
@@ -802,7 +802,7 @@ end_per_testcase(simple_session, Config) ->
     Config;
 end_per_testcase(create_lb_multi_session, Config) ->
     ok = meck:unload(pgw_s5s8),
-    stop_gtpc_servers(?NO_OF_CLIENTS),
+    stop_gtpc_servers(?NUM_OF_CLIENTS),
     Config;
 end_per_testcase(request_fast_resend, Config) ->
     ok = meck:unload(pgw_s5s8),
@@ -1253,12 +1253,12 @@ create_lb_multi_session(Config) ->
     init_seq_no(?MODULE, 16#80000),
     %% for 6 clients cumulative nCr for at least 1 hit on both lb = 0.984
     %% for 10 clients it is = 0.999. 1 < No of clients =< 10
-    GtpCtxs = make_gtp_contexts(?NO_OF_CLIENTS, Config),
+    GtpCtxs = make_gtp_contexts(?NUM_OF_CLIENTS, Config),
     Sessions = lists:map(fun(Ctx) -> create_session(random, Ctx) end, GtpCtxs),
 
     lists:foreach(fun({Session,_,_}) -> delete_session(Session) end, Sessions),
 
-    ok = meck:wait(?NO_OF_CLIENTS, ?HUT, terminate, '_', ?TIMEOUT),
+    ok = meck:wait(?NUM_OF_CLIENTS, ?HUT, terminate, '_', ?TIMEOUT),
     wait4tunnels(?TIMEOUT),
     application:set_env(ergw, node_selection, NSMap),
     meck_validate(Config),
@@ -2384,7 +2384,7 @@ stop_gtpc_servers(Cnt, Max) when Cnt > Max ->
     ok;
 stop_gtpc_servers(Cnt, Max) ->
     Name = list_to_atom("gtpc_client_server" ++ "_" ++ integer_to_list(Cnt)),
-    stop_gtpc_server_node(Name),
+    stop_gtpc_server(Name),
     stop_gtpc_servers(Cnt+1, Max).
 
 % Make multi gtp contexts range 2 to 10

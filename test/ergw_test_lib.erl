@@ -24,7 +24,7 @@
 	 gtp_context_new_teids/1, gtp_context_new_teids/3,
 	 make_error_indication_report/1]).
 -export([start_gtpc_server/1, start_gtpc_server/2,
-	 stop_gtpc_server/1, stop_gtpc_server/0, stop_gtpc_server_node/1,
+	 stop_gtpc_server/1, stop_gtpc_server/0,
 	 wait_for_all_sx_nodes/0, reconnect_all_sx_nodes/0, stop_all_sx_nodes/0,
 	 make_gtp_socket/1, make_gtp_socket/2,
 	 send_pdu/2, send_pdu/3,
@@ -372,13 +372,10 @@ stop_all_sx_nodes(_) ->
     timer:sleep(10),
     stop_all_sx_nodes(supervisor:which_children(ergw_sx_node_sup)).
 
-stop_gtpc_server(_) ->
-    stop_gtpc_server().
-
 stop_gtpc_server() ->
-    stop_gtpc_server_node(gtpc_client_server).
+    stop_gtpc_server(gtpc_client_server).
 
-stop_gtpc_server_node(Name) ->
+stop_gtpc_server(Name) ->
     case whereis(Name) of
 	Pid when is_pid(Pid) ->
 	    unlink(Pid),
