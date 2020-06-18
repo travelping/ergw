@@ -31,8 +31,8 @@
 			  send_recv_pdu/2, send_recv_pdu/3, send_recv_pdu/4,
 			  recv_pdu/2, recv_pdu/3, recv_pdu/4]).
 -import('ergw_test_lib', [set_cfg_value/3, add_cfg_value/3]).
--import('ergw_test_lib', [outstanding_requests/0, wait4tunnels/1, hexstr2bin/1,
-			  maps_key_length/2]).
+-import('ergw_test_lib', [outstanding_requests/0, wait4tunnels/1, wait4contexts/1,
+			  active_contexts/0, hexstr2bin/1, maps_key_length/2]).
 -import('ergw_test_lib', [get_metric/4]).
 
 -endif.
