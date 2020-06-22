@@ -359,7 +359,7 @@ node_sel_update(Node, {_,_,_,_,_,_,_,_} = IP) ->
 %%%===================================================================
 
 suite() ->
-    [{timetrap, {minutes, 10}}].
+    [{timetrap, {minutes, 120}}].
 
 init_per_suite(Config0) ->
     case os:getenv("BENCHMARK") of
@@ -408,7 +408,7 @@ end_per_group(Group, Config)
     ok = bench_end_per_group(Config).
 
 common() ->
-    [contexts_at_scale].
+    [contexts_at_scale, bench_all].
 
 groups() ->
     [{ipv4, [], common()},
@@ -451,25 +451,41 @@ end_per_testcase(_, Config) ->
 create_nsess(_Base, _GtpC, Ctxs, _Delay, 0) ->
     Ctxs;
 create_nsess(Base, GtpC0, Ctxs, Delay, N) ->
-    {Time, {GtpC1, _, _}} =
-	timer:tc(ergw_pgw_test_lib, create_deterministic_session, [Base, N, GtpC0]),
-    erlang:garbage_collect(),
-    case floor((Delay - Time) / 1.0e3) of
-	Sleep when Sleep > 0 ->
-	    ct:sleep(Sleep);
-	_ ->
-	    ok
-    end,
+    %% {Time, {GtpC1, _, _}} =
+    %% 	timer:tc(ergw_pgw_test_lib, create_deterministic_session, [Base, N, GtpC0]),
+    %erlang:garbage_collect(),
+    %% case floor((Delay - Time) / 1.0e3) of
+    %% 	Sleep when Sleep > 0 ->
+    %% 	    ct:sleep(Sleep);
+    %% 	_ ->
+    %% 	    erlang:yield(),
+    %% 	    ok
+    %% end,
+    {GtpC1, _, _} = ergw_pgw_test_lib:create_deterministic_session(Base, N, GtpC0),
+    erlang:yield(),
     create_nsess(Base, GtpC1, [GtpC1|Ctxs], Delay, N - 1).
 
 contexts_at_scale() ->
     [{doc, "Check that a Path Restart terminates multiple session"}].
 contexts_at_scale(Config) ->
-    {GtpC0, _, _} = create_session(Config),
-
     TargetRate = 1000,
-    NProcs = 10,
-    NCtx = 15000,
+    NProcs = 1,
+    %NCtx = 15,
+    NCtx = 16,
+    contexts_at_scale(TargetRate, NProcs, NCtx, Config).
+
+bench_all() ->
+    [{doc, "Check that a Path Restart terminates multiple session"}].
+bench_all(Config) ->
+    Spec = [{1000, 1 bsl X, 64 bsl Y} || X <- lists:seq(0, 3), Y <- lists:seq(0, 8)],
+    lists:foreach(
+      fun({TargetRate, NProcs, NCtx}) ->
+	      contexts_at_scale(TargetRate, NProcs, NCtx, Config)
+      end, Spec),
+    ok.
+
+contexts_at_scale(TargetRate, NProcs, NCtx, Config) ->
+    {GtpC0, _, _} = create_session(Config),
 
     Delay = 1.0e6 * NProcs / TargetRate,
     Order = ceil(math:log2(NCtx)),
