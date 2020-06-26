@@ -7,7 +7,7 @@
 
 -module(gtp_path).
 
--behaviour(gen_server).
+-behaviour(gen_statem).
 
 -compile({parse_transform, cut}).
 -compile({no_auto_import,[register/2]}).
@@ -19,9 +19,9 @@
 	 bind/1, bind/2, unbind/1, down/2,
 	 get_handler/2, info/1]).
 
-%% gen_server callbacks
--export([init/1, handle_call/3, handle_cast/2, handle_info/2,
-	 code_change/3, terminate/2]).
+%% gen_statem callbacks
+-export([callback_mode/0, init/1, handle_event/4,
+	 terminate/3, code_change/4]).
 
 -ifdef(TEST).
 -export([ping/3]).
@@ -31,26 +31,14 @@
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include("include/ergw.hrl").
 
--record(state, {table		:: ets:tid(),
-		gtp_port	:: #gtp_port{},
-		version		:: 'v1' | 'v2',
-		handler		:: atom(),
-		ip		:: inet:ip_address(),
-		t3		:: non_neg_integer(),
-		n3		:: non_neg_integer(),
-		recovery	:: 'undefined' | non_neg_integer(),
-		echo		:: non_neg_integer(),
-		echo_timer	:: 'stopped' | 'awaiting_response' | reference(),
-		state		:: 'UP' | 'DOWN' }).
-
 %%%===================================================================
 %%% API
 %%%===================================================================
 
 start_link(GtpPort, Version, RemoteIP, Args) ->
-    Opts = [{hibernate_after, 5000},
+    Opts = [{hibernate_after, 5000}, 
 	    {spawn_opt,[{fullsweep_after, 0}]}],
-    gen_server:start_link(?MODULE, [GtpPort, Version, RemoteIP, Args], Opts).
+    gen_statem:start_link(?MODULE, [GtpPort, Version, RemoteIP, Args], Opts).
 
 maybe_new_path(GtpPort, Version, RemoteIP) ->
     case get(GtpPort, Version, RemoteIP) of
@@ -61,33 +49,32 @@ maybe_new_path(GtpPort, Version, RemoteIP) ->
 	    Path
     end.
 
-handle_request(#request{gtp_port = GtpPort, ip = IP} = ReqKey, #gtp{version = Version} = Msg) ->
+handle_request(#request{gtp_port = GtpPort, ip = IP} = ReqKey, 
+	       #gtp{version = Version} = Msg) ->
     Path = maybe_new_path(GtpPort, Version, IP),
-    gen_server:cast(Path, {handle_request, ReqKey, Msg}).
+    gen_statem:cast(Path, {handle_request, ReqKey, Msg}).
 
 handle_response(Path, Request, Response) ->
-    gen_server:cast(Path, {handle_response, Request, Response}).
+    gen_statem:cast(Path, {handle_response, Request, Response}).
 
 bind(#context{remote_restart_counter = RestartCounter} = Context) ->
     path_recovery(RestartCounter, bind_path(Context)).
 
-bind(#gtp{ie = #{{recovery, 0} :=
-		     #recovery{restart_counter = RestartCounter}}
+bind(#gtp{ie = #{{recovery, 0} := #recovery{restart_counter = RestartCounter}}
 	 } = Request, Context) ->
     path_recovery(RestartCounter, bind_path(Request, Context));
-bind(#gtp{ie = #{{v2_recovery, 0} :=
-		     #v2_recovery{restart_counter = RestartCounter}}
+bind(#gtp{ie = #{{v2_recovery, 0} := #v2_recovery{restart_counter = RestartCounter}}
 	 } = Request, Context) ->
     path_recovery(RestartCounter, bind_path(Request, Context));
 bind(Request, Context) ->
     path_recovery(undefined, bind_path(Request, Context)).
 
-unbind(#context{version = Version, control_port = GtpPort,
+unbind(#context{version = Version, control_port = GtpPort, 
 		remote_control_teid = #fq_teid{ip = RemoteIP}}) ->
     case get(GtpPort, Version, RemoteIP) of
 	Path when is_pid(Path) ->
-	    gen_server:call(Path, {unbind, self()});
-       _ ->
+	    gen_statem:call(Path, {unbind, self()});
+	_ ->
 	    ok
     end.
 
@@ -98,7 +85,7 @@ down(GtpPort, IP) ->
 down(GtpPort, Version, IP) ->
     case get(GtpPort, Version, IP) of
 	Path when is_pid(Path) ->
-	    gen_server:cast(Path, down);
+	    gen_statem:cast(Path, down);
 	_ ->
 	    ok
     end.
@@ -107,10 +94,10 @@ get(#gtp_port{name = PortName}, Version, IP) ->
     gtp_path_reg:lookup({PortName, Version, IP}).
 
 all(Path) ->
-    gen_server:call(Path, all).
+    gen_statem:call(Path, all).
 
 info(Path) ->
-    gen_server:call(Path, info).
+    gen_statem:call(Path, info).
 
 get_handler(#gtp_port{type = 'gtp-u'}, _) ->
     gtp_v1_u;
@@ -123,7 +110,7 @@ get_handler(#gtp_port{type = 'gtp-c'}, v2) ->
 ping(GtpPort, Version, IP) ->
     case get(GtpPort, Version, IP) of
 	Path when is_pid(Path) ->
-	    gen_server:cast(Path, '$ping');
+	    gen_statem:cast(Path, '$ping');
 	_ ->
 	    ok
     end.
@@ -135,127 +122,137 @@ ping(GtpPort, Version, IP) ->
 %%%===================================================================
 
 %%%===================================================================
-%%% gen_server callbacks
+%%% gen_statem callbacks
 %%%===================================================================
+
+callback_mode() -> [handle_event_function, state_enter].
+
+% State =  'UP' | 'DOWN'
 init([#gtp_port{name = PortName} = GtpPort, Version, RemoteIP, Args]) ->
     gtp_path_reg:register({PortName, Version, RemoteIP}),
 
-    State0 = #state{
-		gtp_port     = GtpPort,
-		version      = Version,
-		handler      = get_handler(GtpPort, Version),
-		ip           = RemoteIP,
-		t3           = proplists:get_value(t3, Args, 10 * 1000), %% 10sec
-		n3           = proplists:get_value(n3, Args, 5),
-		recovery     = undefined,
-		echo         = proplists:get_value(ping, Args, 60 * 1000), %% 60sec
-		echo_timer   = stopped,
-		state        = 'UP'},
-    State = ets_new(State0),
+    Data = #{
+             % Path Info Keys
+	     gtp_port   => GtpPort,
+	     version    => Version,
+	     handler    => get_handler(GtpPort, Version),
+	     ip         => RemoteIP,
+	     recovery   => undefined,
+	     % Echo Info Keys
+	     t3         => proplists:get_value(t3, Args, 10 * 1000), %% 10sec
+	     n3         => proplists:get_value(n3, Args, 5),
+	     echo       => proplists:get_value(ping, Args, 60 * 1000),
+	     echo_timer => stopped,
+	     % Table Info Keys
+	     table      => ets_new()  % tid
+	    },
 
-    ?LOG(debug, "State: ~p", [State]),
-    {ok, State}.
+    ?LOG(debug, "State = UP, Data: ~p", [Data]),
+    {ok, 'UP', Data}.
 
-handle_call(all, _From, #state{table = TID} = State) ->
+handle_event(enter, _OldState, _State, _Data) ->
+    keep_state_and_data;
+
+handle_event({call, From}, all, _State, #{table := TID}) ->
     Reply = ets:tab2list(TID),
-    {reply, Reply, State};
+    {keep_state_and_data, [{reply, From, Reply}]};
 
-handle_call({bind, Pid}, _From, #state{recovery = RestartCounter} = State0) ->
-    State = register(Pid, State0),
-    {reply, {ok, RestartCounter}, State};
+handle_event({call, From}, {bind, Pid}, _State, #{recovery := RestartCounter} = Data0) ->
+    Data = register(Pid, Data0),
+    {keep_state, Data, [{reply, From, {ok, RestartCounter}}]};
 
-handle_call({bind, Pid, RestartCounter}, _From, State0) ->
-    State1 = update_restart_counter(RestartCounter, State0),
-    State = register(Pid, State1),
-    {reply, ok, State};
+handle_event({call, From}, {bind, Pid, RestartCounter}, _State, Data0) ->
+    Data1 = update_restart_counter(RestartCounter, Data0),
+    Data = register(Pid, Data1),
+    {keep_state, Data, [{reply, From, ok}]};
 
-handle_call({unbind, Pid}, _From, State0) ->
-    State = unregister(Pid, State0),
-    {reply, ok, State};
+handle_event({call, From}, {unbind, Pid}, _State, Data0) ->
+    Data = unregister(Pid, Data0),
+    {keep_state, Data, [{reply, From, ok}]};
 
-handle_call(info, _From, #state{
-			    table = TID,
-			    gtp_port = #gtp_port{name = Name},
-			    version = Version,
-			    ip = IP, state = S} = State) ->
+handle_event({call, From}, info, State, 
+	     #{table := TID, gtp_port := #gtp_port{name = Name}, 
+	       version := Version, ip := IP}) ->
     Cnt = ets:info(TID, size),
     Reply = #{path => self(), port => Name, tunnels => Cnt,
-	      version => Version, ip => IP, state => S},
-    {reply, Reply, State};
+	      version => Version, ip => IP, state => State},
+    {keep_state_and_data, [{reply, From, Reply}]};
 
-handle_call(Request, _From, State) ->
-    ?LOG(warning, "handle_call: ~p", [Request]),
-    {reply, ok, State}.
+handle_event({call, _From}, Request, _State, Data) ->
+    ?LOG(warning, "handle_event(call,...): ~p", [Request]),
+    {keep_state_and_data, [{reply, ok, Data}]};
 
-handle_cast({handle_request, ReqKey, #gtp{type = echo_request} = Msg0},
-	    #state{gtp_port = GtpPort, handler = Handler} = State0) ->
+handle_event(cast, {handle_request, ReqKey, #gtp{type = echo_request} = Msg0},
+	     _State, #{gtp_port := GtpPort, handler := Handler} = Data0) ->
     ?LOG(debug, "echo_request: ~p", [Msg0]),
     try gtp_packet:decode_ies(Msg0) of
 	Msg = #gtp{} ->
 
-	    State = handle_recovery_ie(Msg, State0),
+	    Data = handle_recovery_ie(Msg, Data0),
 
 	    ResponseIEs = Handler:build_recovery(echo_response, GtpPort, true, []),
 	    Response = Msg#gtp{type = echo_response, ie = ResponseIEs},
 	    ergw_gtp_c_socket:send_response(ReqKey, Response, false),
-	    {noreply, State}
+	    {keep_state, Data}
     catch
 	Class:Error ->
-	    ?LOG(error, "GTP decoding failed with ~p:~p for ~p", [Class, Error, Msg0]),
-	    {noreply, State0}
+	    ?LOG(error, "GTP decoding failed with ~p:~p for ~p",
+		 [Class, Error, Msg0]),
+	    {keep_state, Data0}
     end;
 
-handle_cast(down, State0) ->
-    State = path_down(undefined, State0),
-    {noreply, State};
+handle_event(cast, down, _State, Data0) ->
+    Data = path_down(undefined, Data0),
+    {keep_state, Data};
 
-handle_cast({handle_response, echo_request, #gtp{type = echo_response} = Msg}, State0)->
+handle_event(cast,{handle_response, echo_request, 
+		   #gtp{type = echo_response} = Msg}, State0, Data0) ->
     ?LOG(debug, "echo_response: ~p", [Msg]),
-    State1 = handle_recovery_ie(Msg, State0),
-    State = echo_response(Msg, State1),
-    {noreply, State};
+    Data1 = handle_recovery_ie(Msg, Data0),
+    {State, Data} = echo_response(Msg, State0, Data1),
+    {next_state, State, Data};
 
-handle_cast({handle_response, echo_request, timeout = Msg}, State0)->
+handle_event(cast,{handle_response, echo_request, timeout = Msg}, State0, Data0) ->
     ?LOG(debug, "echo_response: ~p", [Msg]),
-    State = echo_response(Msg, State0),
-    {noreply, State};
+    {State, Data} = echo_response(Msg, State0, Data0),
+    {next_state, State, Data};
 
 %% test support
-handle_cast('$ping', #state{echo_timer = awaiting_response} = State) ->
-    {noreply, State};
-handle_cast('$ping', #state{echo_timer = TRef} = State0)
+handle_event(cast, '$ping', _State, #{echo_timer := awaiting_response}) ->
+    keep_state_and_data;
+handle_event(cast, '$ping', _State, #{echo_timer := TRef} = Data0)
   when is_reference(TRef) ->
     cancel_timer(TRef),
-    State = send_echo_request(State0),
-    {noreply, State};
+    Data = send_echo_request(Data0),
+    {keep_state, Data};
 
-handle_cast(Msg, State) ->
-    ?LOG(error, "~p: ~w: handle_cast: ~p", [self(), ?MODULE, Msg]),
-    {noreply, State}.
+handle_event(cast, Msg, _State, _Data) ->
+    ?LOG(error, "~p: ~w: handle_event(cast, ...): ~p", [self(), ?MODULE, Msg]),
+    keep_state_and_data;
 
-handle_info({'DOWN', _MonitorRef, process, Pid, _Info}, State0) ->
-    State = unregister(Pid, State0),
-    {noreply, State};
+handle_event(info,{'DOWN', _MonitorRef, process, Pid, _Info}, _State, Data0) ->
+    Data = unregister(Pid, Data0),
+    {keep_state, Data};
 
-handle_info(Info = {timeout, TRef, echo}, #state{echo_timer = TRef} = State0) ->
-    ?LOG(debug, "handle_info: ~p", [Info]),
-    State1 = send_echo_request(State0),
-    {noreply, State1};
+handle_event(info, Info = {timeout, TRef, echo}, _State, #{echo_timer := TRef} = Data0) ->
+    ?LOG(debug, "handle_event(info, ...): ~p", [Info]),
+    Data = send_echo_request(Data0),
+    {keep_state, Data};
 
-handle_info(Info = {timeout, _TRef, echo}, State) ->
-    ?LOG(debug, "handle_info: ~p", [Info]),
-    {noreply, State};
+handle_event(info, Info = {timeout, _TRef, echo}, _State, Data) ->
+    ?LOG(debug, "handle_event(info, ...): ~p", [Info]),
+    {keep_state, Data};
 
-handle_info(Info, State) ->
-    ?LOG(error, "~p: ~w: handle_info: ~p", [self(), ?MODULE, Info]),
-    {noreply, State}.
+handle_event(info, Info, _State, Data) ->
+    ?LOG(error, "~p: ~w: handle_event(info, ...): ~p", [self(), ?MODULE, Info]),
+    {keep_state, Data}.
 
-terminate(_Reason, _State) ->
+terminate(_Reason, _State, _Data) ->
     %% TODO: kill all PDP Context on this path
     ok.
 
-code_change(_OldVsn, State, _Extra) ->
-    {ok, State}.
+code_change(_OldVsn, State, Data, _Extra) ->
+    {ok, State, Data}.
 
 %%%===================================================================
 %%% Internal functions
@@ -285,40 +282,38 @@ code_change(_OldVsn, State, _Extra) ->
 
 -define(SMALLER(S1, S2), ((S1 < S2 andalso (S2 - S1) < 128) orelse (S1 > S2 andalso (S1 - S2) > 128))).
 
-update_restart_counter(RestartCounter, #state{recovery = undefined} = State) ->
-    State#state{recovery = RestartCounter};
-update_restart_counter(RestartCounter, #state{recovery = RestartCounter} = State) ->
-    State;
-update_restart_counter(NewRestartCounter,
-		       #state{ip = IP, recovery = OldRestartCounter} = State)
+update_restart_counter(RestartCounter, #{recovery := undefined} = Data) ->
+    Data#{recovery => RestartCounter};
+update_restart_counter(RestartCounter, #{recovery := RestartCounter} = Data) ->
+    Data;
+update_restart_counter(NewRestartCounter, #{ip := IP, recovery := OldRestartCounter} = Data)
   when ?SMALLER(OldRestartCounter, NewRestartCounter) ->
     ?LOG(warning, "GSN ~s restarted (~w != ~w)",
-		  [inet:ntoa(IP), OldRestartCounter, NewRestartCounter]),
-    path_down(NewRestartCounter, State);
+	 [inet:ntoa(IP), OldRestartCounter, NewRestartCounter]),
+    path_down(NewRestartCounter, Data);
 
-update_restart_counter(NewRestartCounter, #state{ip = IP, recovery = OldRestartCounter} = State)
+update_restart_counter(NewRestartCounter, #{ip := IP, recovery := OldRestartCounter} = Data)
   when not ?SMALLER(OldRestartCounter, NewRestartCounter) ->
     ?LOG(warning, "possible race on message with restart counter for GSN ~s (old: ~w, new: ~w)",
-		  [inet:ntoa(IP), OldRestartCounter, NewRestartCounter]),
-    State.
+	 [inet:ntoa(IP), OldRestartCounter, NewRestartCounter]),
+    Data.
 
 handle_recovery_ie(#gtp{version = v1,
 			ie = #{{recovery, 0} :=
 				   #recovery{restart_counter =
-						 RestartCounter}}}, State) ->
-    update_restart_counter(RestartCounter, State);
+						 RestartCounter}}}, Data) ->
+    update_restart_counter(RestartCounter, Data);
 
 handle_recovery_ie(#gtp{version = v2,
 			ie = #{{v2_recovery, 0} :=
 				   #v2_recovery{restart_counter =
-						    RestartCounter}}}, State) ->
-    update_restart_counter(RestartCounter, State);
-handle_recovery_ie(_Msg, State) ->
-    State.
+						    RestartCounter}}}, Data) ->
+    update_restart_counter(RestartCounter, Data);
+handle_recovery_ie(_Msg, Data) ->
+    Data.
 
-ets_new(State) ->
-    TID = ets:new(?MODULE, [public, ordered_set, {keypos, 1}]),
-    State#state{table = TID}.
+ets_new() ->
+    ets:new(?MODULE, [public, ordered_set, {keypos, 1}]).
 
 ets_foreach(TID, Fun) ->
     ets_foreach(TID, Fun, ets:match(TID, {'$1'}, 100)).
@@ -330,23 +325,22 @@ ets_foreach(TID, Fun, {Pids, Continuation})
     lists:foreach(fun([Pid]) -> Fun(Pid) end, Pids),
     ets_foreach(TID, Fun, ets:match_object(Continuation)).
 
-register(Pid, #state{table = TID} = State) ->
+register(Pid, #{table := TID} = Data) ->
     ?LOG(debug, "~s: register(~p)", [?MODULE, Pid]),
     erlang:monitor(process, Pid),
     ets:insert(TID, {Pid}),
-    update_path_counter(ets:info(TID, size), State).
+    update_path_counter(ets:info(TID, size), Data).
 
-unregister(Pid, #state{table = TID} = State) ->
+unregister(Pid, #{table := TID} = Data) ->
     ets:delete(TID, Pid),
-    update_path_counter(ets:info(TID, size), State).
+    update_path_counter(ets:info(TID, size), Data).
 
-update_path_counter(PathCounter,
-		    #state{gtp_port = GtpPort, version = Version, ip = IP} = State) ->
+update_path_counter(PathCounter, #{gtp_port := GtpPort, version := Version, ip := IP} = Data) ->
     ergw_prometheus:gtp_path_contexts(GtpPort, IP, Version, PathCounter),
     if PathCounter =:= 0 ->
-	    stop_echo_request(State);
+	    stop_echo_request(Data);
        true ->
-	    start_echo_request(State)
+	    start_echo_request(Data)
     end.
 
 bind_path(#gtp{version = Version}, Context) ->
@@ -359,10 +353,10 @@ bind_path(#context{version = Version, control_port = CntlGtpPort,
 
 path_recovery(RestartCounter, #context{path = Path} = Context)
   when is_integer(RestartCounter) ->
-    ok = gen_server:call(Path, {bind, self(), RestartCounter}),
+    ok = gen_statem:call(Path, {bind, self(), RestartCounter}),
     Context#context{remote_restart_counter = RestartCounter};
 path_recovery(_RestartCounter, #context{path = Path} = Context) ->
-    {ok, PathRestartCounter} = gen_server:call(Path, {bind, self()}),
+    {ok, PathRestartCounter} = gen_statem:call(Path, {bind, self()}),
     Context#context{remote_restart_counter = PathRestartCounter}.
 
 cancel_timer(Ref) ->
@@ -375,44 +369,44 @@ cancel_timer(Ref) ->
             RemainingTime
     end.
 
-start_echo_request(#state{echo_timer = stopped} = State) ->
-    send_echo_request(State);
-start_echo_request(State) ->
-    State.
+start_echo_request(#{echo_timer := stopped} = Data) ->
+    send_echo_request(Data);
+start_echo_request(Data) ->
+    Data.
 
-stop_echo_request(#state{echo_timer = EchoTRef} = State) ->
+stop_echo_request(#{echo_timer := EchoTRef} = Data) ->
     if is_reference(EchoTRef) ->
 	    cancel_timer(EchoTRef);
        true ->
 	    ok
     end,
-    State#state{echo_timer = stopped}.
+    Data#{echo_timer => stopped}.
 
-send_echo_request(#state{gtp_port = GtpPort, handler = Handler, ip = DstIP,
-			 t3 = T3, n3 = N3} = State) ->
+send_echo_request(#{gtp_port := GtpPort, handler := Handler, ip := DstIP,
+		    t3 := T3, n3 := N3} = Data) ->
     Msg = Handler:build_echo_request(GtpPort),
     CbInfo = {?MODULE, handle_response, [self(), echo_request]},
     ergw_gtp_c_socket:send_request(GtpPort, DstIP, ?GTP1c_PORT, T3, N3, Msg, CbInfo),
-    State#state{echo_timer = awaiting_response}.
+    Data#{echo_timer => awaiting_response}.
 
-echo_response(Msg, #state{echo = EchoInterval,
-			  echo_timer = awaiting_response} = State0) ->
-    State = update_path_state(Msg, State0),
+echo_response(Msg, State0, #{echo := EchoInterval, 
+			     echo_timer := awaiting_response} = Data0) ->
+    {State, Data} = update_path_state(Msg, State0, Data0),
     TRef = erlang:start_timer(EchoInterval, self(), echo),
-    State#state{echo_timer = TRef} ;
-echo_response(Msg, State0) ->
-    update_path_state(Msg, State0).
+    {State, Data#{echo_timer => TRef}};
+echo_response(Msg, State, Data) ->
+    update_path_state(Msg, State, Data).
 
-update_path_state(#gtp{}, State) ->
-    State#state{state = 'UP'};
-update_path_state(_, State) ->
-    path_down(undefined, State#state{state = 'DOWN'}).
+update_path_state(#gtp{}, _State, Data) ->
+    {'UP', Data};
+update_path_state(_, _State, Data) ->
+    {'DOWN', path_down(undefined, Data)}.
 
-path_down(RestartCounter, #state{table = TID} = State0) ->
+path_down(RestartCounter, #{table := TID} = Data0) ->
     Path = self(),
     proc_lib:spawn(fun() ->
 			   ets_foreach(TID, gtp_context:path_restart(_, Path)),
 			   ets:delete(TID)
 		   end),
-    State = ets_new(State0#state{recovery = RestartCounter}),
-    update_path_counter(0, State).
+    Data = Data0#{table => ets_new(), recovery => RestartCounter},
+    update_path_counter(0, Data).
