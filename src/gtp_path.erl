@@ -133,16 +133,16 @@ init([#gtp_port{name = PortName} = GtpPort, Version, RemoteIP, Args]) ->
 
     Data = #{
              % Path Info Keys
-	     gtp_port   => GtpPort,
-	     version    => Version,
+	     gtp_port   => GtpPort, % #gtp_port{}
+	     version    => Version, % v1 | v2
 	     handler    => get_handler(GtpPort, Version),
 	     ip         => RemoteIP,
-	     recovery   => undefined,
+	     recovery   => undefined, % Undefined | non_neg_integer
 	     % Echo Info Keys
 	     t3         => proplists:get_value(t3, Args, 10 * 1000), %% 10sec
 	     n3         => proplists:get_value(n3, Args, 5),
 	     echo       => proplists:get_value(ping, Args, 60 * 1000),
-	     echo_timer => stopped,
+	     echo_timer => stopped, % stopped | echo_to_send | awaiting_response
 	     % Table Info Keys
 	     table      => ets_new()  % tid
 	    },
@@ -168,10 +168,16 @@ handle_event({call, From}, {bind, Pid, RestartCounter}, _State, Data0) ->
 
 handle_event({call, From}, {unbind, Pid}, _State, Data0) ->
     Data = unregister(Pid, Data0),
-    {keep_state, Data, [{reply, From, ok}]};
+    case Data of
+	#{echo_timer := stopped} ->
+	    Actions = echo_timeout_action([{reply, From, ok}], infinity, send_echo),
+	    {keep_state, Data, Actions};
+	_ ->
+	    {keep_state, Data, [{reply, From, ok}]}
+    end;
 
-handle_event({call, From}, info, State, 
-	     #{table := TID, gtp_port := #gtp_port{name = Name}, 
+handle_event({call, From}, info, State,
+	     #{table := TID, gtp_port := #gtp_port{name = Name},
 	       version := Version, ip := IP}) ->
     Cnt = ets:info(TID, size),
     Reply = #{path => self(), port => Name, tunnels => Cnt,
@@ -205,26 +211,27 @@ handle_event(cast, down, _State, Data0) ->
     Data = path_down(undefined, Data0),
     {keep_state, Data};
 
-handle_event(cast,{handle_response, echo_request, 
-		   #gtp{type = echo_response} = Msg}, State0, Data0) ->
+handle_event(cast,{handle_response, echo_request, #gtp{type = echo_response} = Msg}, 
+	     State0, #{echo := EchoInterval} =Data0) ->
     ?LOG(debug, "echo_response: ~p", [Msg]),
     Data1 = handle_recovery_ie(Msg, Data0),
     {State, Data} = echo_response(Msg, State0, Data1),
-    {next_state, State, Data};
+    Actions = echo_timeout_action([], EchoInterval, send_echo),
+    {next_state, State, Data, Actions};
 
 handle_event(cast,{handle_response, echo_request, timeout = Msg}, State0, Data0) ->
     ?LOG(debug, "echo_response: ~p", [Msg]),
+    Actions = echo_timeout_action([], infinity, send_echo),
     {State, Data} = echo_response(Msg, State0, Data0),
-    {next_state, State, Data};
+    {next_state, State, Data, Actions};
 
 %% test support
 handle_event(cast, '$ping', _State, #{echo_timer := awaiting_response}) ->
     keep_state_and_data;
-handle_event(cast, '$ping', _State, #{echo_timer := TRef} = Data0)
-  when is_reference(TRef) ->
-    cancel_timer(TRef),
+handle_event(cast, '$ping', _State, #{echo_timer := echo_to_send} = Data0) ->
     Data = send_echo_request(Data0),
-    {keep_state, Data};
+    Actions = echo_timeout_action([], infinity, send_echo),
+    {keep_state, Data, Actions};
 
 handle_event(cast, Msg, _State, _Data) ->
     ?LOG(error, "~p: ~w: handle_event(cast, ...): ~p", [self(), ?MODULE, Msg]),
@@ -232,15 +239,23 @@ handle_event(cast, Msg, _State, _Data) ->
 
 handle_event(info,{'DOWN', _MonitorRef, process, Pid, _Info}, _State, Data0) ->
     Data = unregister(Pid, Data0),
-    {keep_state, Data};
+    case Data of
+	#{echo_timer := echo_Stopped} ->
+	    Actions = echo_timeout_action([], infinity, send_echo),
+	    {keep_state, Data, Actions};
+	_ ->
+	    {keep_state, Data}
+    end;
 
-handle_event(info, Info = {timeout, TRef, echo}, _State, #{echo_timer := TRef} = Data0) ->
-    ?LOG(debug, "handle_event(info, ...): ~p", [Info]),
+handle_event({timeout, echo_timer}, send_echo, _state,
+	     #{echo_timer := echo_to_send} = Data0) ->
+    ?LOG(debug, "handle_event timeout: ~p", [Data0]),
     Data = send_echo_request(Data0),
-    {keep_state, Data};
+    Actions = echo_timeout_action([], infinity, send_echo),
+    {keep_state, Data, Actions};
 
-handle_event(info, Info = {timeout, _TRef, echo}, _State, Data) ->
-    ?LOG(debug, "handle_event(info, ...): ~p", [Info]),
+handle_event({timeout, echo_timer}, send_echo, _State, Data) ->
+    ?LOG(debug, "handle_event timeout: ~p", [Data]),
     {keep_state, Data};
 
 handle_event(info, Info, _State, Data) ->
@@ -359,27 +374,12 @@ path_recovery(_RestartCounter, #context{path = Path} = Context) ->
     {ok, PathRestartCounter} = gen_statem:call(Path, {bind, self()}),
     Context#context{remote_restart_counter = PathRestartCounter}.
 
-cancel_timer(Ref) ->
-    case erlang:cancel_timer(Ref) of
-        false ->
-            receive {timeout, Ref, _} -> 0
-            after 0 -> false
-            end;
-        RemainingTime ->
-            RemainingTime
-    end.
-
 start_echo_request(#{echo_timer := stopped} = Data) ->
     send_echo_request(Data);
 start_echo_request(Data) ->
     Data.
 
-stop_echo_request(#{echo_timer := EchoTRef} = Data) ->
-    if is_reference(EchoTRef) ->
-	    cancel_timer(EchoTRef);
-       true ->
-	    ok
-    end,
+stop_echo_request(Data) ->
     Data#{echo_timer => stopped}.
 
 send_echo_request(#{gtp_port := GtpPort, handler := Handler, ip := DstIP,
@@ -389,11 +389,9 @@ send_echo_request(#{gtp_port := GtpPort, handler := Handler, ip := DstIP,
     ergw_gtp_c_socket:send_request(GtpPort, DstIP, ?GTP1c_PORT, T3, N3, Msg, CbInfo),
     Data#{echo_timer => awaiting_response}.
 
-echo_response(Msg, State0, #{echo := EchoInterval, 
-			     echo_timer := awaiting_response} = Data0) ->
+echo_response(Msg, State0, #{echo_timer := awaiting_response} = Data0) ->
     {State, Data} = update_path_state(Msg, State0, Data0),
-    TRef = erlang:start_timer(EchoInterval, self(), echo),
-    {State, Data#{echo_timer => TRef}};
+    {State, Data#{echo_timer => echo_to_send}};
 echo_response(Msg, State, Data) ->
     update_path_state(Msg, State, Data).
 
@@ -410,3 +408,10 @@ path_down(RestartCounter, #{table := TID} = Data0) ->
 		   end),
     Data = Data0#{table => ets_new(), recovery => RestartCounter},
     update_path_counter(0, Data).
+
+echo_timeout_action(Actions, Timeout, Ref)
+  when is_integer(Timeout) orelse Timeout =:= infinity;
+       is_atom(Ref) ->
+    [{{timeout, echo_timer}, Timeout, Ref} | Actions];
+echo_timeout_action(Actions, _, _) ->
+    Actions.
