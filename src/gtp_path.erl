@@ -250,7 +250,7 @@ handle_event(cast, Msg, _State, _Data) ->
 handle_event(info,{'DOWN', _MonitorRef, process, Pid, _Info}, State0, Data) ->
     State = unregister(Pid, State0, Data),
     case State of
-	#state{echo_timer = 'echo_Stopped'} ->
+	#state{echo_timer = 'stopped'} ->
 	    Actions = echo_timeout_action([], infinity, 'send_echo'),
 	    {next_state, State, Data, Actions};
 	_ ->
