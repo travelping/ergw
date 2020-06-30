@@ -32,7 +32,7 @@
 -include("include/ergw.hrl").
 
 % echo_timer is the status of the echo send to the remote peer 
--record(state, {peer :: 'UP' | 'DOWN' % State of remote peer
+-record(state, {peer :: 'UP' | 'DOWN', % State of remote peer
                 echo_timer :: 'stopped' | 'echo_to_send' | 'awaiting_response'}).
 
 %%%===================================================================
