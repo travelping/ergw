@@ -32,7 +32,7 @@
 -include("include/ergw.hrl").
 
 % echo_timer is the status of the echo send to the remote peer 
--record(state, {peer :: 'UP' | 'DOWN', % State of remote peer
+-record(state, {peer :: 'UP' | 'DOWN' % State of remote peer
                 echo_timer :: 'stopped' | 'echo_to_send' | 'awaiting_response'}).
 
 %%%===================================================================
@@ -175,7 +175,7 @@ handle_event({call, From}, {unbind, Pid}, State0, Data) ->
     State = unregister(Pid, State0, Data),
     case State of
 	#state{echo_timer = 'stopped'} ->
-	    Actions = echo_timeout_action([{reply, From, ok}], infinity, 'send_echo'),
+	    Actions = echo_timeout_action([{reply, From, ok}], infinity, 'echo'),
 	    {next_state, State, Data, Actions};
 	_ ->
 	    {keep_state, Data, [{reply, From, ok}]}
@@ -223,7 +223,7 @@ handle_event(cast,{handle_response, echo_request, #gtp{type = echo_response} = M
     {State, Data} = echo_response(Msg, State1, Data1),
     case State of 
         #state{echo_timer = 'echo_to_send'} ->
-            Actions = echo_timeout_action([], EchoInterval, 'send_echo'),
+            Actions = echo_timeout_action([], EchoInterval, 'echo'),
             {next_state, State, Data, Actions};
         _ ->
             {next_state, State, Data}
@@ -231,7 +231,7 @@ handle_event(cast,{handle_response, echo_request, #gtp{type = echo_response} = M
 
 handle_event(cast,{handle_response, echo_request, timeout = Msg}, State0, Data0) ->
     ?LOG(debug, "echo_response: ~p", [Msg]),
-    Actions = echo_timeout_action([], infinity, 'send_echo'),
+    Actions = echo_timeout_action([], infinity, 'echo'),
     {State, Data} = echo_response(Msg, State0, Data0),
     {next_state, State, Data, Actions};
 
@@ -240,7 +240,7 @@ handle_event(cast, '$ping', #state{echo_timer = 'awaiting_response'}, _Data) ->
     keep_state_and_data;
 handle_event(cast, '$ping', #state{echo_timer = 'echo_to_send'} = State0, Data) ->
     State = send_echo_request(State0, Data),
-    Actions = echo_timeout_action([], infinity, 'send_echo'),
+    Actions = echo_timeout_action([], infinity, 'echo'),
     {next_state, State, Data, Actions};
 
 handle_event(cast, Msg, _State, _Data) ->
@@ -251,20 +251,20 @@ handle_event(info,{'DOWN', _MonitorRef, process, Pid, _Info}, State0, Data) ->
     State = unregister(Pid, State0, Data),
     case State of
 	#state{echo_timer = 'stopped'} ->
-	    Actions = echo_timeout_action([], infinity, 'send_echo'),
+	    Actions = echo_timeout_action([], infinity, 'echo'),
 	    {next_state, State, Data, Actions};
 	_ ->
 	    {keep_state, Data}
     end;
 
-handle_event({timeout, 'echo_create'}, 'send_echo', 
+handle_event({timeout, 'echo'}, _,
 	     #state{echo_timer = 'echo_to_send'} = State0, Data) ->
     ?LOG(debug, "handle_event timeout: ~p", [Data]),
     State = send_echo_request(State0, Data),
-    Actions = echo_timeout_action([], infinity, 'send_echo'),
+    Actions = echo_timeout_action([], infinity, 'echo'),
     {next_state, State, Data, Actions};
 
-handle_event({timeout, 'echo_create'}, 'send_echo', _State, Data) ->
+handle_event({timeout, 'echo'}, _, _State, Data) ->
     ?LOG(debug, "handle_event timeout: ~p", [Data]),
     {keep_state, Data};
 
@@ -423,9 +423,10 @@ path_down(RestartCounter, State, #{table := TID} = Data0) ->
     Data = Data0#{table => ets_new(), recovery => RestartCounter},
     {update_path_counter(0, State, Data), Data}.
 
-echo_timeout_action(Actions, Timeout, Ref)
+% Event Content field is not used, set to same value as timer name.
+echo_timeout_action(Actions, Timeout, Name)
   when is_integer(Timeout) orelse Timeout =:= infinity;
-       is_atom(Ref) ->
-    [{{timeout, 'echo_create'}, Timeout, Ref} | Actions];
+       is_atom(Name) ->
+    [{{timeout, Name}, Timeout, Name} | Actions];
 echo_timeout_action(Actions, _, _) ->
     Actions.
