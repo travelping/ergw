@@ -343,10 +343,10 @@ handle_message(#pfcp{type = session_establishment_request, seid = 0,
 					      ipv6 = ControlPlaneIP6}} = ReqIEs},
 	       #state{up_ip = IP, up_seid = UserPlaneSEID} = State0) ->
     ControlPlaneIP = choose_control_ip(ControlPlaneIP4, ControlPlaneIP6, State0),
-    RespIEs =
+    RespIEs0 =
 	[#pfcp_cause{cause = 'Request accepted'},
 	 f_seid(UserPlaneSEID, IP)],
-    State1 = maps:fold(fun process_urrs/3, State0, ReqIEs),
+    {RespIEs, State1} = process_request(ReqIEs, RespIEs0, State0),
     State = State1#state{cp_ip = ergw_inet:bin2ip(ControlPlaneIP),
 			 cp_seid = ControlPlaneSEID},
     sx_reply(session_establishment_response, ControlPlaneSEID, RespIEs, State);
@@ -354,9 +354,8 @@ handle_message(#pfcp{type = session_establishment_request, seid = 0,
 handle_message(#pfcp{type = session_modification_request, seid = UserPlaneSEID, ie = ReqIEs},
 	      #state{cp_seid = ControlPlaneSEID,
 		     up_seid = UserPlaneSEID} = State0) ->
-    RespIEs = maps:fold(process_smr(_, _, State0, _), [], ReqIEs) ++
-	[#pfcp_cause{cause = 'Request accepted'}],
-    State = maps:fold(fun process_urrs/3, State0, ReqIEs),
+    RespIEs0 = [#pfcp_cause{cause = 'Request accepted'}],
+    {RespIEs, State} = process_request(ReqIEs, RespIEs0, State0),
     sx_reply(session_modification_response, ControlPlaneSEID, RespIEs, State);
 
 handle_message(#pfcp{type = session_deletion_request, seid = UserPlaneSEID},
@@ -417,74 +416,74 @@ record(Msg, #state{record = true, history = Hist} = State) ->
 record(_Msg, State) ->
     State.
 
-process_ies(Fun, IE) when is_tuple(IE) ->
-    [Fun(IE)];
-process_ies(_Fun, []) ->
-    [];
-process_ies(Fun, [H|T]) ->
-    [process_ies(Fun, H) | process_ies(Fun, T)].
-
-fold_ies(Fun, Acc, IE) when is_tuple(IE) ->
+process_ies(Fun, Acc, IE) when is_tuple(IE) ->
     Fun(IE, Acc);
-fold_ies(_Fun, Acc, []) ->
+process_ies(_Fun, Acc, []) ->
     Acc;
-fold_ies(Fun, Acc, [H|T]) ->
-    fold_ies(Fun, Fun(H, Acc), T).
+process_ies(Fun, Acc, [H|T]) ->
+    process_ies(Fun, Fun(H, Acc), T).
 
-process_smr(query_urr, Query, #state{accounting = on}, IEs) ->
-    process_ies(
-      fun (#query_urr{group = #{urr_id := #urr_id{id = Id}}}) ->
-	      #usage_report_smr{
-		group =
-		    [#urr_id{id = Id},
-		     #usage_report_trigger{immer = 1},
-		     #volume_measurement{
-			total = 6,
-			uplink = 4,
-			downlink = 2
-		       },
-		     #tp_packet_measurement{
-			total = 4,
-			uplink = 3,
-			downlink = 1
-		       }
-		    ]
-		}
-      end, Query) ++ IEs;
-process_smr(remove_urr, Query, #state{accounting = on}, IEs) ->
-    process_ies(
-      fun (#remove_urr{group = #{urr_id := #urr_id{id = Id}}}) ->
-	      #usage_report_smr{
-		group =
-		    [#urr_id{id = Id},
-		     #usage_report_trigger{termr = 1},
-		     #volume_measurement{
-			total = 5,
-			uplink = 2,
-			downlink = 3
-		       },
-		     #tp_packet_measurement{
-			total = 12,
-			uplink = 5,
-			downlink = 7
-		       }
-		    ]
-		}
-      end, Query) ++ IEs;
-process_smr(_, _, _, IEs) ->
-    IEs.
+%% process_request_ie/3
+process_request_ie(#query_urr{group = #{urr_id := #urr_id{id = Id}}},
+	   {RespIEs, #state{accounting = on} = State}) ->
+    Report =
+	#usage_report_smr{
+	   group =
+	       [#urr_id{id = Id},
+		#usage_report_trigger{immer = 1},
+		#volume_measurement{
+		   total = 6,
+		   uplink = 4,
+		   downlink = 2
+		  },
+		#tp_packet_measurement{
+		   total = 4,
+		   uplink = 3,
+		   downlink = 1
+		  }
+	       ]
+	  },
+    {[Report | RespIEs], State};
 
-process_urrs(_, Query, #state{urrs = URRs0} = State) ->
-    URRs =
-	fold_ies(
-	  fun(#remove_urr{group = #{urr_id := #urr_id{id = Id}}}, U) ->
-		  maps:remove(Id, U);
-	     (#create_urr{group = #{urr_id := #urr_id{id = Id}}}, U) ->
-		  maps:put(Id, on, U);
-	     (_, U) ->
-		  U
-	  end, URRs0, Query),
-    State#state{urrs = URRs}.
+process_request_ie(#remove_urr{group = #{urr_id := #urr_id{id = Id}}},
+	   {RespIEs, #state{accounting = on} = State}) ->
+    Report =
+	#usage_report_smr{
+	   group =
+	       [#urr_id{id = Id},
+		#usage_report_trigger{termr = 1},
+		#volume_measurement{
+		   total = 5,
+		   uplink = 2,
+		   downlink = 3
+		  },
+		#tp_packet_measurement{
+		   total = 12,
+		   uplink = 5,
+		   downlink = 7
+		  }
+	       ]
+	  },
+    {[Report | RespIEs], State};
+
+process_request_ie(#remove_urr{group = #{urr_id := #urr_id{id = Id}}},
+	   {RespIEs, #state{urrs = URRs} = State}) ->
+    {RespIEs, State#state{urrs = maps:remove(Id, URRs)}};
+
+process_request_ie(#create_urr{group = #{urr_id := #urr_id{id = Id}}},
+	   {RespIEs, #state{urrs = URRs} = State}) ->
+    {RespIEs, State#state{urrs = maps:put(Id, on, URRs)}};
+
+process_request_ie(_IE, Acc) ->
+    Acc.
+
+%% process_request_ies/3
+process_request_ies(_, IEs, Acc) ->
+    process_ies(fun process_request_ie/2, Acc, IEs).
+
+%% process_request/3
+process_request(ReqIEs, RespIEs, State) ->
+    maps:fold(fun process_request_ies/3, {RespIEs, State}, ReqIEs).
 
 report_urrs(#state{accounting = on, urrs = URRs}, RespIEs) ->
     maps:fold(
