@@ -443,7 +443,7 @@ choose_up_ip(choose, _, #state{up_ip = IP})
     {ergw_inet:ip2bin(?LOCALHOST_IPv4), undefined};
 choose_up_ip(_, choose, #state{up_ip = IP})
   when size(IP) == 16 ->
-    {ergw_inet:ip2bin(?LOCALHOST_IPv6), IP}.
+    {undefined, ergw_inet:ip2bin(?LOCALHOST_IPv6)}.
 
 process_f_teid(Id, #{f_teid := #f_teid{teid = choose, choose_id = ChId}},
 	       {RespIEs, #state{teids = TEIDs} = State})
