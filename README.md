@@ -124,7 +124,7 @@ RUNNING
 An *erGW* installation needs a user plane provider to handle the GTP-U path. This
 instance can be installed on the same or different host.
 
-A suitable user plane node based on [VPP](https://wiki.fd.io/view/VPP) can be found at [VPP-UFP](https://github.com/travelping/vpp/tree/feature/upf).
+A suitable user plane node based on [VPP](https://wiki.fd.io/view/VPP) can be found at [VPP-UFP](https://github.com/travelping/vpp/).
 
 *erGW* can be started with the normal Erlang command line tools, e.g.:
 
