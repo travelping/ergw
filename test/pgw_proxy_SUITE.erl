@@ -615,6 +615,7 @@ common() ->
      path_failure_to_pgw_and_restore,
      path_failure_to_sgw,
      simple_session,
+     simple_session_cp_teid,
      simple_session_random_port,
      duplicate_session_request,
      create_session_overload_response,
@@ -759,6 +760,11 @@ init_per_testcase(TestCase, Config)
     setup_per_testcase(Config),
     ok = meck:new(pgw_s5s8, [passthrough, no_link]),
     Config;
+init_per_testcase(simple_session_cp_teid, Config) ->
+    {ok, _} = ergw_test_sx_up:feature('sgw-u', ftup, 0),
+    setup_per_testcase(Config),
+    ok = meck:new(pgw_s5s8, [passthrough, no_link]),
+    Config;
 init_per_testcase(request_fast_resend, Config) ->
     setup_per_testcase(Config),
     ok = meck:new(pgw_s5s8, [passthrough, no_link]),
@@ -882,6 +888,11 @@ end_per_testcase(simple_session, Config) ->
 end_per_testcase(TestCase, Config)
   when TestCase == create_lb_multi_session;
        TestCase == one_lb_node_down ->
+    ok = meck:unload(pgw_s5s8),
+    end_per_testcase(Config),
+    Config;
+end_per_testcase(simple_session_cp_teid, Config) ->
+    {ok, _} = ergw_test_sx_up:feature('sgw-u', ftup, 1),
     ok = meck:unload(pgw_s5s8),
     end_per_testcase(Config),
     Config;
@@ -1343,7 +1354,7 @@ simple_session(Config) ->
 			#pdi{
 			   group =
 			       #{f_teid :=
-				     #f_teid{},
+				     #f_teid{teid = choose},
 				 network_instance :=
 				     #network_instance{},
 				 source_interface :=
@@ -1362,7 +1373,7 @@ simple_session(Config) ->
 			#pdi{
 			   group =
 			       #{f_teid :=
-				     #f_teid{},
+				     #f_teid{teid = choose},
 				 network_instance :=
 				     #network_instance{},
 				 source_interface :=
@@ -1386,6 +1397,8 @@ simple_session(Config) ->
 			} = FAR,
 		      Acc) ->
 		Acc#{{far, id, Intf} => Id, {far, Intf} => FAR};
+	    SMRFilter(#update_pdr{} = PDR, Acc) ->
+		maps:update_with(pdr, fun(V) -> [PDR|V] end, [PDR], Acc);
 	    SMRFilter(_, Acc) ->
 		Acc
 	end(maps:values(SMR#pfcp.ie), #{}),
@@ -1413,6 +1426,89 @@ simple_session(Config) ->
 			  }
 		   }
 	     }, FarCore),
+    ?equal(false, is_map_key(pdr, SMRMap)),
+
+    ok.
+
+%%--------------------------------------------------------------------
+simple_session_cp_teid() ->
+    [{doc, "Check simple Create Session, Delete Session sequence"}].
+simple_session_cp_teid(Config) ->
+    init_seq_no(?MODULE, 16#80000),
+    GtpC0 = gtp_context(?MODULE, Config),
+
+    {GtpC1, _, _} = create_session(GtpC0),
+    delete_session(GtpC1),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    meck_validate(Config),
+
+    GtpRecMatch = #gtp{type = create_session_request, _ = '_'},
+    P = meck:capture(first, ?HUT, handle_request, ['_', GtpRecMatch, '_', '_', '_'], 2),
+    ?match(#gtp{seq_no = SeqNo} when SeqNo >= 16#80000, P),
+
+    FirstHR = meck:capture(first, pgw_s5s8, handle_request, ['_', GtpRecMatch, '_', '_', '_'], 2),
+    ct:pal("FirstHR: ~s", [ergw_test_lib:pretty_print(FirstHR)]),
+    ProxyAPN = ?'APN-PROXY' ++ [<<"mnc022">>,<<"mcc222">>,<<"gprs">>],
+    ?match(
+       #gtp{ie = #{
+	      {v2_access_point_name, 0} :=
+		       #v2_access_point_name{apn = ProxyAPN},
+	      {v2_international_mobile_subscriber_identity, 0} :=
+		   #v2_international_mobile_subscriber_identity{imsi = ?'PROXY-IMSI'},
+	      {v2_msisdn, 0} := #v2_msisdn{msisdn = ?'PROXY-MSISDN'}
+	     }}, FirstHR),
+    ?match(#gtp{seq_no = SeqNo} when SeqNo < 16#80000, FirstHR),
+
+    ?equal([], outstanding_requests()),
+
+    PSeids = pfcp_seids(),
+    History = ergw_test_sx_up:history('sgw-u'),
+    [SER, SMR|_] =
+	lists:filter(
+	  fun(#pfcp{type = session_establishment_request,
+		    ie = #{f_seid := #f_seid{seid = FSeid}}}) ->
+		  not lists:member(FSeid, PSeids);
+	     (#pfcp{type = session_modification_request, seid = FSeid}) ->
+		  not lists:member(FSeid, PSeids);
+	     (_) -> false
+	  end, History),
+
+    SERMap =
+	fun SERFilter(Value, Acc) when is_list(Value) ->
+		lists:foldl(SERFilter, Acc, Value);
+	    SERFilter(#create_pdr{
+			 group =
+			     #{pdi :=
+				   #pdi{group =
+					    #{source_interface :=
+						  #source_interface{interface = Intf}}}}
+			} = PDR,
+		      Acc) ->
+		Acc#{{pdr, Intf} => PDR};
+	    SERFilter(_, Acc) ->
+		Acc
+	end(maps:values(SER#pfcp.ie), #{}),
+
+    #{{pdr,'Access'} := PdrAccess,
+      {pdr,'Core'} := PdrCore
+     } = SERMap,
+
+    ?match(#create_pdr{
+	      group = #{pdi := #pdi{group = #{f_teid := #f_teid{choose_id = undefined}}}}},
+	   PdrAccess),
+    ?match(#create_pdr{
+	      group = #{pdi := #pdi{group = #{f_teid := #f_teid{choose_id = undefined}}}}},
+	   PdrCore),
+    SMRList =
+	fun SMRFilter(Value, Acc) when is_list(Value) ->
+		lists:foldl(SMRFilter, Acc, Value);
+	    SMRFilter(#update_pdr{} = PDR, Acc) ->
+		[PDR | Acc];
+	    SMRFilter(_, Acc) ->
+		Acc
+	end(maps:values(SMR#pfcp.ie), []),
+    ?equal([], SMRList),
 
     ok.
 
