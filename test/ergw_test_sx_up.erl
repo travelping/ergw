@@ -445,8 +445,16 @@ choose_up_ip(_, choose, #state{up_ip = IP})
   when size(IP) == 16 ->
     {undefined, ergw_inet:ip2bin(?LOCALHOST_IPv6)}.
 
-process_f_teid(Id, #{f_teid := #f_teid{teid = choose, choose_id = ChId}},
-	       {RespIEs, #state{teids = TEIDs} = State})
+process_f_teid(_, #f_teid{teid = choose},
+	       _, {RespIEs0, #state{features = #up_function_features{ftup = FTUP}}} = State)
+  when FTUP =/= 1 ->
+    %% choose when FTUP is not set is not allowed
+    Cause = #pfcp_cause{cause = 'Invalid F-TEID allocation option'},
+    RespIEs = lists:keystore(pfcp_cause, 1, RespIEs0, Cause),
+    {RespIEs, State};
+
+process_f_teid(Id, #f_teid{teid = choose, choose_id = ChId},
+	       _, {RespIEs, #state{teids = TEIDs} = State})
   when is_map_key(ChId, TEIDs) ->
     {TEID, IP4, IP6} = maps:get(ChId, TEIDs),
     FqTEID = #f_teid{teid = TEID, ipv4 = IP4, ipv6 = IP6},
@@ -454,22 +462,22 @@ process_f_teid(Id, #{f_teid := #f_teid{teid = choose, choose_id = ChId}},
     {[Create | RespIEs], State};
 
 process_f_teid(Id, #f_teid{teid = choose, choose_id = ChId, ipv4 = IPv4, ipv6 = IPv6},
-	       {RespIEs, #state{teids = TEIDs} = State}) ->
+	       _, {RespIEs, #state{teids = TEIDs} = State}) ->
     {IP4, IP6} = choose_up_ip(IPv4, IPv6, State),
     TEID = rand:uniform(16#fffffffe),
     FqTEID = #f_teid{teid = TEID, ipv4 = IP4, ipv6 = IP6},
     Create = #created_pdr{group = [Id, FqTEID]},
     {[Create | RespIEs], State#state{teids = maps:put(ChId, {TEID, IP4, IP6}, TEIDs)}};
 
-process_f_teid(_, _, Acc) ->
+process_f_teid(_, _, _, Acc) ->
     Acc.
 
 %% process_request_ie/3
-process_request_ie(#create_pdr{group = #{pdr_id := Id, pdi := #pdi{group = PDI}}}, Acc) ->
-    process_f_teid(Id, maps:get(f_teid, PDI, undefined), Acc);
+process_request_ie(#create_pdr{group = #{pdr_id := Id, pdi := #pdi{group = PDI}}}, RESTI, Acc) ->
+    process_f_teid(Id, maps:get(f_teid, PDI, undefined), RESTI, Acc);
 
 process_request_ie(#query_urr{group = #{urr_id := #urr_id{id = Id}}},
-	   {RespIEs, #state{accounting = on} = State}) ->
+		   _, {RespIEs, #state{accounting = on} = State}) ->
     Report =
 	#usage_report_smr{
 	   group =
@@ -490,7 +498,7 @@ process_request_ie(#query_urr{group = #{urr_id := #urr_id{id = Id}}},
     {[Report | RespIEs], State};
 
 process_request_ie(#remove_urr{group = #{urr_id := #urr_id{id = Id}}},
-	   {RespIEs, #state{accounting = on} = State}) ->
+		   _, {RespIEs, #state{accounting = on} = State}) ->
     Report =
 	#usage_report_smr{
 	   group =
@@ -511,25 +519,28 @@ process_request_ie(#remove_urr{group = #{urr_id := #urr_id{id = Id}}},
     {[Report | RespIEs], State};
 
 process_request_ie(#remove_urr{group = #{urr_id := #urr_id{id = Id}}},
-	   {RespIEs, #state{urrs = URRs} = State}) ->
+		   _, {RespIEs, #state{urrs = URRs} = State}) ->
     {RespIEs, State#state{urrs = maps:remove(Id, URRs)}};
 
 process_request_ie(#create_urr{group = #{urr_id := #urr_id{id = Id}}},
-	   {RespIEs, #state{urrs = URRs} = State}) ->
+		   _, {RespIEs, #state{urrs = URRs} = State}) ->
     {RespIEs, State#state{urrs = maps:put(Id, on, URRs)}};
 
-process_request_ie(_IE, Acc) ->
+process_request_ie(_IE, _, Acc) ->
     Acc.
 
 %% process_request_ies/3
-process_request_ies(_, IEs, Acc) ->
-    process_ies(fun process_request_ie/2, Acc, IEs).
+process_request_ies(IEs, RESTI, Acc) ->
+    process_ies(process_request_ie(_, RESTI, _), Acc, IEs).
 
 %% process_request/3
 process_request(ReqIEs, RespIEs, State0) ->
     ct:pal("Process Req: ~p", [ReqIEs]),
     State = State0#state{teids = #{}},
-    maps:fold(fun process_request_ies/3, {RespIEs, State}, ReqIEs).
+    #pfcpsereq_flags{resti = RESTI} =
+	maps:get(pfcpsereq_flags, ReqIEs, #pfcpsereq_flags{resti = 0}),
+    maps:fold(fun(_K,V,Acc) -> process_request_ies(V, RESTI, Acc) end,
+	      {RespIEs, State}, ReqIEs).
 
 report_urrs(#state{accounting = on, urrs = URRs}, RespIEs) ->
     maps:fold(
