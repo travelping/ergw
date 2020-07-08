@@ -1540,9 +1540,10 @@ process_accounting_monitor_events(Reason, Ev, Now, Session)
     SOpts = #{now => Now, async => true},
 
     case Reason of
-	{terminate, _} ->
-	    Update2 = maps:remove('Session-Start', Update1),
-	    Update = accounting_session_time(Now, Update2),
+	{terminate, Cause} ->
+	    Update2 = Update1#{'Termination-Cause' => Cause},
+	    Update3 = maps:remove('Session-Start', Update2),
+	    Update = accounting_session_time(Now, Update3),
 	    ergw_aaa_session:invoke(Session, Update, stop, SOpts);
 	_ when Update0 /= Update1 ->
 	    Update = maps:remove('Session-Start', Update1),
