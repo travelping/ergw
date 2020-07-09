@@ -91,12 +91,10 @@ ERLANG Version Support
 ----------------------
 
 All minor version of the current major release and the highest minor version of
-the previous major release will be supported. As an exception to the rule stated
-in the previous paragraph is currently the minimum required version OTP 22.1.8.
-The reason is the move to the official OTP socket.erl module and the bug that
-has exposed in older versions. However, due to a bug in OTP 22.x, the `netdev`
-configuration option of *erGW* is broken ([see](https://github.com/erlang/otp/pull/2600)).
-If you need this feature, you must use OTP 23.x.
+the previous major release will be supported.
+Due to a bug in OTP 22.x, the `netdev` configuration option of *erGW* is broken
+([see](https://github.com/erlang/otp/pull/2600)). If you need this feature, you
+must use OTP 23.x.
 
 When in doubt check the `otp_release` section in [.travis.yml](.travis.yml) for tested
 versions.
@@ -110,9 +108,9 @@ and by gitlab.com and pushed to [quay.io](https://quay.io/repository/travelping/
 BUILDING
 --------
 
-*The minimum supported Erlang version is 22.1.8.*
+*The minimum supported Erlang version is 22.3.4.*
 
-Erlang 23.0.1 is the recommended version.
+Erlang 23.0.3 is the recommended version.
 
 Using rebar:
 
@@ -324,4 +322,4 @@ The configuration is documented in [CONFIG.md](CONFIG.md)
 [travis badge]: https://img.shields.io/travis/com/travelping/ergw/master.svg?style=flat-square
 [coveralls]: https://coveralls.io/github/travelping/ergw
 [coveralls badge]: https://img.shields.io/coveralls/travelping/ergw/master.svg?style=flat-square
-[erlang version badge]: https://img.shields.io/badge/erlang-R22.1.8%20to%2023.0.1-blue.svg?style=flat-square
+[erlang version badge]: https://img.shields.io/badge/erlang-R22.3.4%20to%2023.0.2-blue.svg?style=flat-square
