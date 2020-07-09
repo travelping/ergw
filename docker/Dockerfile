@@ -1,9 +1,7 @@
 # -- build-environment --
 # see https://docs.docker.com/engine/userguide/eng-image/multistage-build/
 
-FROM erlang:23.0.1-alpine AS build-env
-
-ARG     REBAR3_URL="https://github.com/erlang/rebar3/releases/download/3.13.1/rebar3"
+FROM erlang:23.0.3-alpine AS build-env
 
 WORKDIR /build
 RUN     apk update && apk --no-cache upgrade && \
@@ -20,9 +18,6 @@ RUN     apk update && apk --no-cache upgrade && \
 			pkgconf \
 			scanelf \
 			zlib
-
-ADD     "$REBAR3_URL" /usr/local/bin/rebar3
-RUN     chmod a+x /usr/local/bin/rebar3
 
 ADD     . /build
 RUN     rebar3 as prod release
