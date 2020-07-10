@@ -2770,6 +2770,7 @@ simple_aaa(Config) ->
 	 'InPackets' => '_', 'OutPackets' => '_'}, SInterim),
     ?match_map(
        #{'Acct-Session-Time' => '_',
+	 'Termination-Cause' => '_',
 	 'InOctets' => '_',  'OutOctets' => '_',
 	 'InPackets' => '_', 'OutPackets' => '_'}, Stop),
 
