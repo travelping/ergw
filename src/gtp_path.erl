@@ -10,7 +10,6 @@
 -behaviour(gen_statem).
 
 -compile({parse_transform, cut}).
-% -compile({no_auto_import,[register/2]}).
 
 %% API
 -export([start_link/4, all/1,
@@ -31,16 +30,16 @@
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include("include/ergw.hrl").
 
-% echo_timer is the status of the echo send to the remote peer 
+%% echo_timer is the status of the echo send to the remote peer
 -record(state, {peer :: 'UP' | 'DOWN', % State of remote peer
-                echo_timer :: 'stopped' | 'echo_to_send' | 'awaiting_response'}).
+		echo_timer :: 'stopped' | 'echo_to_send' | 'awaiting_response'}).
 
 %%%===================================================================
 %%% API
 %%%===================================================================
 
 start_link(GtpPort, Version, RemoteIP, Args) ->
-    Opts = [{hibernate_after, 5000}, 
+    Opts = [{hibernate_after, 5000},
 	    {spawn_opt,[{fullsweep_after, 0}]}],
     gen_statem:start_link(?MODULE, [GtpPort, Version, RemoteIP, Args], Opts).
 
@@ -53,8 +52,7 @@ maybe_new_path(GtpPort, Version, RemoteIP) ->
 	    Path
     end.
 
-handle_request(#request{gtp_port = GtpPort, ip = IP} = ReqKey, 
-	       #gtp{version = Version} = Msg) ->
+handle_request(#request{gtp_port = GtpPort, ip = IP} = ReqKey, #gtp{version = Version} = Msg) ->
     Path = maybe_new_path(GtpPort, Version, IP),
     gen_statem:cast(Path, {handle_request, ReqKey, Msg}).
 
@@ -64,10 +62,12 @@ handle_response(Path, Request, Response) ->
 bind(#context{remote_restart_counter = RestartCounter} = Context) ->
     path_recovery(RestartCounter, bind_path(Context)).
 
-bind(#gtp{ie = #{{recovery, 0} := #recovery{restart_counter = RestartCounter}}
+bind(#gtp{ie = #{{recovery, 0} :=
+		     #recovery{restart_counter = RestartCounter}}
 	 } = Request, Context) ->
     path_recovery(RestartCounter, bind_path(Request, Context));
-bind(#gtp{ie = #{{v2_recovery, 0} := #v2_recovery{restart_counter = RestartCounter}}
+bind(#gtp{ie = #{{v2_recovery, 0} :=
+		     #v2_recovery{restart_counter = RestartCounter}}
 	 } = Request, Context) ->
     path_recovery(RestartCounter, bind_path(Request, Context));
 bind(Request, Context) ->
@@ -135,22 +135,22 @@ init([#gtp_port{name = PortName} = GtpPort, Version, RemoteIP, Args]) ->
     gtp_path_reg:register({PortName, Version, RemoteIP}),
 
     State = #state{peer       = 'UP',
-                   echo_timer = 'stopped'},
+		   echo_timer = 'stopped'},
 
     Data = #{
-             % Path Info Keys
+	     %% Path Info Keys
 	     gtp_port   => GtpPort, % #gtp_port{}
 	     version    => Version, % v1 | v2
 	     handler    => get_handler(GtpPort, Version),
 	     ip         => RemoteIP,
 	     recovery   => undefined, % undefined | non_neg_integer
-	     % Echo Info values
+	     %% Echo Info values
 	     t3         => proplists:get_value(t3, Args, 10 * 1000), %% 10sec
 	     n3         => proplists:get_value(n3, Args, 5),
 	     echo       => proplists:get_value(ping, Args, 60 * 1000),
-	     % Table Info Keys
+	     %% Table Info Keys
 	     table      => ets_new()  % tid
-        },
+	},
 
     ?LOG(debug, "State: ~p Data: ~p", [State, Data]),
     {ok, State, Data}.
@@ -221,12 +221,12 @@ handle_event(cast,{handle_response, echo_request, #gtp{type = echo_response} = M
     ?LOG(debug, "echo_response: ~p", [Msg]),
     {State1, Data1} = handle_recovery_ie(Msg, State0, Data0),
     {State, Data} = echo_response(Msg, State1, Data1),
-    case State of 
-        #state{echo_timer = 'echo_to_send'} ->
-            Actions = echo_timeout_action([], EchoInterval, 'echo'),
-            {next_state, State, Data, Actions};
-        _ ->
-            {next_state, State, Data}
+    case State of
+	#state{echo_timer = 'echo_to_send'} ->
+	    Actions = echo_timeout_action([], EchoInterval, 'echo'),
+	    {next_state, State, Data, Actions};
+	_ ->
+	    {next_state, State, Data}
     end;
 
 handle_event(cast,{handle_response, echo_request, timeout = Msg}, State0, Data0) ->
@@ -318,7 +318,7 @@ update_restart_counter(NewRestartCounter, State,
 	 [inet:ntoa(IP), OldRestartCounter, NewRestartCounter]),
     path_down(NewRestartCounter, State, Data);
 
-update_restart_counter(NewRestartCounter, State, 
+update_restart_counter(NewRestartCounter, State,
 		       #{ip := IP, recovery := OldRestartCounter} = Data)
   when not ?SMALLER(OldRestartCounter, NewRestartCounter) ->
     ?LOG(warning, "possible race on message with restart counter for GSN ~s (old: ~w, new: ~w)",
@@ -362,8 +362,8 @@ unregister(Pid, State, #{table := TID} = Data) ->
     ets:delete(TID, Pid),
     update_path_counter(ets:info(TID, size), State, Data).
 
-update_path_counter(PathCounter, State, #{gtp_port := GtpPort, version := Version, ip := IP} = 
-                    Data) ->
+update_path_counter(PathCounter, State, #{gtp_port := GtpPort, version := Version, ip := IP} =
+		    Data) ->
     ergw_prometheus:gtp_path_contexts(GtpPort, IP, Version, PathCounter),
     if PathCounter =:= 0 ->
 	    stop_echo_request(State);
