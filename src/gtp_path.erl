@@ -31,7 +31,8 @@
 -include("include/ergw.hrl").
 
 %% echo_timer is the status of the echo send to the remote peer
--record(state, {peer :: 'UP' | 'DOWN', % State of remote peer
+-record(state, {peer       :: 'UP' | 'DOWN',                     %% State of remote peer
+		contexts   :: gb_sets:set(pid()),                %% set of context pids
 		echo_timer :: 'stopped' | 'echo_to_send' | 'awaiting_response'}).
 
 %%%===================================================================
@@ -135,6 +136,7 @@ init([#gtp_port{name = PortName} = GtpPort, Version, RemoteIP, Args]) ->
     gtp_path_reg:register({PortName, Version, RemoteIP}),
 
     State = #state{peer       = 'UP',
+		   contexts   = gb_sets:empty(),
 		   echo_timer = 'stopped'},
 
     Data = #{
@@ -147,9 +149,7 @@ init([#gtp_port{name = PortName} = GtpPort, Version, RemoteIP, Args]) ->
 	     %% Echo Info values
 	     t3         => proplists:get_value(t3, Args, 10 * 1000), %% 10sec
 	     n3         => proplists:get_value(n3, Args, 5),
-	     echo       => proplists:get_value(ping, Args, 60 * 1000),
-	     %% Table Info Keys
-	     table      => ets_new()  % tid
+	     echo       => proplists:get_value(ping, Args, 60 * 1000)
 	},
 
     ?LOG(debug, "State: ~p Data: ~p", [State, Data]),
@@ -158,8 +158,8 @@ init([#gtp_port{name = PortName} = GtpPort, Version, RemoteIP, Args]) ->
 handle_event(enter, _OldState, _State, _Data) ->
     keep_state_and_data;
 
-handle_event({call, From}, all, _State, #{table := TID}) ->
-    Reply = ets:tab2list(TID),
+handle_event({call, From}, all, #state{contexts = CtxS}, _Data) ->
+    Reply = gb_sets:to_list(CtxS),
     {keep_state_and_data, [{reply, From, Reply}]};
 
 handle_event({call, From}, {bind, Pid}, State0, #{recovery := RestartCounter} = Data) ->
@@ -178,13 +178,13 @@ handle_event({call, From}, {unbind, Pid}, State0, Data) ->
 	    Actions = echo_timeout_action([{reply, From, ok}], infinity, 'echo'),
 	    {next_state, State, Data, Actions};
 	_ ->
-	    {keep_state, Data, [{reply, From, ok}]}
+	    {next_state, State, Data, [{reply, From, ok}]}
     end;
 
-handle_event({call, From}, info, State,
-	     #{table := TID, gtp_port := #gtp_port{name = Name},
+handle_event({call, From}, info, #state{contexts = CtxS} = State,
+	     #{gtp_port := #gtp_port{name = Name},
 	       version := Version, ip := IP}) ->
-    Cnt = ets:info(TID, size),
+    Cnt = gb_sets:size(CtxS),
     Reply = #{path => self(), port => Name, tunnels => Cnt,
 	      version => Version, ip => IP, state => State},
     {keep_state_and_data, [{reply, From, Reply}]};
@@ -254,7 +254,7 @@ handle_event(info,{'DOWN', _MonitorRef, process, Pid, _Info}, State0, Data) ->
 	    Actions = echo_timeout_action([], infinity, 'echo'),
 	    {next_state, State, Data, Actions};
 	_ ->
-	    {keep_state, Data}
+	    {next_state, State, Data}
     end;
 
 handle_event({timeout, 'echo'}, _,
@@ -339,28 +339,23 @@ handle_recovery_ie(#gtp{version = v2,
 handle_recovery_ie(_Msg, State, Data) ->
     {State, Data}.
 
-ets_new() ->
-    ets:new(?MODULE, [public, ordered_set, {keypos, 1}]).
-
-ets_foreach(TID, Fun) ->
-    ets_foreach(TID, Fun, ets:match(TID, {'$1'}, 100)).
-
-ets_foreach(_TID, _Fun, '$end_of_table') ->
+foreach_context(none, _Fun) ->
     ok;
-ets_foreach(TID, Fun, {Pids, Continuation})
-  when is_list(Pids) ->
-    lists:foreach(fun([Pid]) -> Fun(Pid) end, Pids),
-    ets_foreach(TID, Fun, ets:match_object(Continuation)).
+foreach_context({Pid, Iter}, Fun) ->
+    Fun(Pid),
+    foreach_context(gb_sets:next(Iter), Fun).
 
-register(Pid, State, #{table := TID} = Data) ->
+register(Pid, #state{contexts = CtxS0} = State0, Data) ->
     ?LOG(debug, "~s: register(~p)", [?MODULE, Pid]),
     erlang:monitor(process, Pid),
-    ets:insert(TID, {Pid}),
-    update_path_counter(ets:info(TID, size), State, Data).
+    CtxS = gb_sets:add_element(Pid, CtxS0),
+    State = State0#state{contexts = CtxS},
+    update_path_counter(gb_sets:size(CtxS), State, Data).
 
-unregister(Pid, State, #{table := TID} = Data) ->
-    ets:delete(TID, Pid),
-    update_path_counter(ets:info(TID, size), State, Data).
+unregister(Pid, #state{contexts = CtxS0} = State0, Data) ->
+    CtxS = gb_sets:del_element(Pid, CtxS0),
+    State = State0#state{contexts = CtxS},
+    update_path_counter(gb_sets:size(CtxS), State, Data).
 
 update_path_counter(PathCounter, State, #{gtp_port := GtpPort, version := Version, ip := IP} =
 		    Data) ->
@@ -414,13 +409,15 @@ update_path_state(_, State0, Data) ->
     State = State0#state{peer = 'DOWN'},
     path_down(undefined, State, Data).
 
-path_down(RestartCounter, State, #{table := TID} = Data0) ->
+path_down(RestartCounter, #state{contexts = CtxS} = State0, Data0) ->
     Path = self(),
-    proc_lib:spawn(fun() ->
-			   ets_foreach(TID, gtp_context:path_restart(_, Path)),
-			   ets:delete(TID)
-		   end),
-    Data = Data0#{table => ets_new(), recovery => RestartCounter},
+    proc_lib:spawn(
+      fun() ->
+	      foreach_context(gb_sets:next(gb_sets:iterator(CtxS)),
+			      gtp_context:path_restart(_, Path))
+      end),
+    Data = Data0#{recovery => RestartCounter},
+    State = State0#state{contexts = gb_sets:empty()},
     {update_path_counter(0, State, Data), Data}.
 
 % Event Content field is not used, set to same value as timer name.
