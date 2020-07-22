@@ -102,6 +102,7 @@ proxy_lookup(_Config) ->
 	  context => <<"GRX2">>
 	 },
 
+	gtp_path_reg:start_link(),
     PI1 =
 	PI#{gwSelectionAPN => apn(<<"web.apn.epc.mnc001.mcc001.3gppnetwork.org">>)},
     Proxy1 = (catch ergw_proxy_lib:select_gw(PI1, ?SERVICES, NodeSelect, Context)),

@@ -21,7 +21,8 @@
 			  gtp_context_inc_restart_counter/1,
 			  gtp_context_new_teids/1,
 			  make_error_indication_report/1]).
--import('ergw_test_lib', [start_gtpc_server/1, stop_gtpc_server/1, stop_gtpc_server/0,
+-import('ergw_test_lib', [start_gtpc_server/1, start_gtpc_server/2,
+			  stop_gtpc_server/1, stop_gtpc_server/0,
 			  wait_for_all_sx_nodes/0, reconnect_all_sx_nodes/0,
 			  stop_all_sx_nodes/0,
 			  make_gtp_socket/1, make_gtp_socket/2,
@@ -46,6 +47,7 @@
 -define(TEST_GSN_IPv4, ?LOCALHOST_IPv4).
 -define(PROXY_GSN_IPv4, {127,0,100,1}).
 -define(FINAL_GSN_IPv4, {127,0,200,1}).
+-define(FINAL_GSN2_IPv4, {127,0,200,2}).
 
 -define(SGW_U_SX_IPv4, {127,0,100,1}).
 -define(PGW_U01_SX_IPv4, {127,0,200,1}).
@@ -57,6 +59,7 @@
 -define(TEST_GSN_IPv6, ?LOCALHOST_IPv6).
 -define(PROXY_GSN_IPv6, {16#fd96, 16#dcd2, 16#efdb, 16#41c3, 0, 0, 0, 16#20}).
 -define(FINAL_GSN_IPv6, {16#fd96, 16#dcd2, 16#efdb, 16#41c3, 0, 0, 0, 16#30}).
+-define(FINAL_GSN2_IPv6, {16#fd96, 16#dcd2, 16#efdb, 16#41c3, 0, 0, 0, 16#40}).
 
 -define(SGW_U_SX_IPv6, {16#fd96, 16#dcd2, 16#efdb, 16#41c3, 0, 0, 0, 16#20}).
 -define(PGW_U01_SX_IPv6, {16#fd96, 16#dcd2, 16#efdb, 16#41c3, 0, 0, 0, 16#30}).

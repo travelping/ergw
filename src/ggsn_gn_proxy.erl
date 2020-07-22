@@ -290,6 +290,11 @@ handle_request(ReqKey,
     Services = [{"x-3gpp-ggsn", "x-gn"}, {"x-3gpp-ggsn", "x-gp"},
 		{"x-3gpp-pgw", "x-gn"}, {"x-3gpp-pgw", "x-gp"}],
     ProxyGGSN = ergw_proxy_lib:select_gw(ProxyInfo, Services, NodeSelect, Context2),
+    if ProxyGGSN =:= no_dests_available ->
+	    no_gw_available(Request, Context2);
+       true ->
+	    ok
+    end,
 
     {ProxyGtpPort, DPCandidates} =
 	ergw_proxy_lib:select_proxy_sockets(ProxyGGSN, ProxyInfo, Data),
@@ -298,7 +303,7 @@ handle_request(ReqKey,
     {ok, _} = ergw_aaa_session:invoke(Session, SessionOpts, start, #{async => true}),
 
     ProxyContext0 = init_proxy_context(ProxyGtpPort, Context2, ProxyInfo, ProxyGGSN),
-    ProxyContext1 = gtp_path:bind(ProxyContext0),
+    ProxyContext1 = gtp_path:bind_with_pm(ProxyContext0), % bind with path maintenance
 
     ergw_sx_node:wait_connect(SxConnectId),
     {Context, ProxyContext, PCtx} =
@@ -509,6 +514,11 @@ handle_proxy_info(Request, Session, Context, #{proxy_ds := ProxyDS}) ->
 	    Reply = response(Type, Context, [#cause{value = Cause}], Request),
 	    throw(?CTX_ERR(?FATAL, Reply, Context))
     end.
+
+no_gw_available(Request, Context) ->
+    Type = create_pdp_context_response,
+    Reply = response(Type, Context, [#cause{value = no_resources_available}], Request),
+    throw(?CTX_ERR(?FATAL, Reply, Context)).
 
 delete_forward_session(Reason, #{context := Context,
 				 proxy_context := ProxyContext,

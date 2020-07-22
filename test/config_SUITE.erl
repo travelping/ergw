@@ -92,7 +92,13 @@
 	     {ip_pools, ['pool-A']}]
 	   },
 	   {"node-A", [connect]}]
-	 }
+	 },
+
+	 {path_management,
+	  [{t3, 10},  % echo retry interval timeout (Seconds > 0)
+	   {n3, 5},   % echo retries per ping (Integer > 0)
+	   {ping, 60}] % echo interval between successul message pings (Seconds, >= 60)
+  	 }
 	]).
 
 -define(GGSN_PROXY_CONFIG,
@@ -109,7 +115,11 @@
 	   {'remote-irx', [{type, 'gtp-c'},
 			   {ip,  ?FINAL_GSN_IPv4},
 			   {reuseaddr, true}
-			  ]}
+			  ]},
+	   {'remote-irx2', [{type, 'gtp-c'},
+			    {ip,  ?FINAL_GSN2_IPv4},
+			    {reuseaddr, true}
+			   ]}
 	  ]},
 
 	 {handlers,
@@ -124,7 +134,7 @@
 		]},
 	   %% remote GGSN handler
 	   {gn, [{handler, ggsn_gn},
-		 {sockets, ['remote-irx']},
+		 {sockets, ['remote-irx', 'remote-irx2']},
 		 {node_selection, [static]},
 		 {aaa, [{'Username',
 			 [{default, ['IMSI', <<"@">>, 'APN']}]}]}
@@ -189,6 +199,14 @@
 	       {sgi, [{features, ['SGi-LAN']}]}]
 	     }]
 	   }]
+	 },
+
+	 {path_management,
+	  [{t3, 10},  % echo retry interval timeout (Seconds > 0)
+	   {n3, 5},   % echo retries per ping (Integer > 0)
+	   {ping, 60}, % echo interval between successul message pings (Seconds, >= 60)
+	   {pd_mon_t, 300}, % echo interval monitoring of down peer (Seconds >= 60)
+	   {pd_mon_dur, 7200}] % echo sending duration to egress down peer (Seconds >= 60)
 	 }
 	]).
 
@@ -292,7 +310,11 @@
 	   {'remote-irx', [{type, 'gtp-c'},
 			   {ip,  ?FINAL_GSN_IPv4},
 			   {reuseaddr, true}
-			  ]}
+			  ]},
+	   {'remote-irx2', [{type, 'gtp-c'},
+			    {ip, ?FINAL_GSN2_IPv4},
+			    {reuseaddr, true}
+			   ]}
 	  ]},
 
 	 {handlers,
@@ -312,13 +334,13 @@
 		  ]},
 	   %% remote PGW handler
 	   {gn, [{handler, pgw_s5s8},
-		 {sockets, ['remote-irx']},
+		 {sockets, ['remote-irx', 'remote-irx2']},
 		 {node_selection, [static]},
 		 {aaa, [{'Username',
 			 [{default, ['IMSI', <<"@">>, 'APN']}]}]}
 		]},
 	   {s5s8, [{handler, pgw_s5s8},
-		   {sockets, ['remote-irx']},
+		   {sockets, ['remote-irx', 'remote-irx2']},
 		   {node_selection, [static]}
 		  ]}
 	  ]},
@@ -1030,4 +1052,20 @@ config(_Config)  ->
     ?error_option(set_cfg_value(RB ++ [<<"rb-0001">>],
 				[{'Rating-Group', 3000}], ?GGSN_CONFIG)),
 
+    %% Path Management configuration (Optional)
+    ?ok_option(set_cfg_value([path_management, t3], 10, ?PGW_PROXY_CONFIG)),
+    ?ok_option(set_cfg_value([path_management, n3], 5, ?PGW_PROXY_CONFIG)),
+    ?ok_option(set_cfg_value([path_management, ping], 60, ?PGW_PROXY_CONFIG)),
+    ?ok_option(set_cfg_value([path_management, pd_mon_t], 300, ?PGW_PROXY_CONFIG)),
+    ?ok_option(set_cfg_value([path_management, pd_mon_dur], 7200, ?PGW_PROXY_CONFIG)),
+
+    ?error_option(set_cfg_value([path_management, t3], invalid, ?PGW_PROXY_CONFIG)),
+    ?error_option(set_cfg_value([path_management, n3], invalid, ?PGW_PROXY_CONFIG)),
+    %% ping, pd_mon_t, pd_mon_dur should be >= 60 Seconds
+	?error_option(set_cfg_value([path_management, ping], 59, ?PGW_PROXY_CONFIG)),
+	?error_option(set_cfg_value([path_management, ping], invalid, ?PGW_PROXY_CONFIG)),
+	?error_option(set_cfg_value([path_management, pd_mon_t], 59, ?PGW_PROXY_CONFIG)),
+	?error_option(set_cfg_value([path_management, pd_mon_t], invalid, ?PGW_PROXY_CONFIG)),
+	?error_option(set_cfg_value([path_management, pd_mon_dur], 59, ?PGW_PROXY_CONFIG)),
+    ?error_option(set_cfg_value([path_management, pd_mon_dur], invalid, ?PGW_PROXY_CONFIG)),
     ok.

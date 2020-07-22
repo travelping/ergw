@@ -255,7 +255,8 @@ validate_option(charging, Opts)
     validate_options(fun ergw_charging:validate_options/1, Opts, [], map);
 validate_option(proxy_map, Opts) ->
     gtp_proxy_ds:validate_options(Opts);
-
+validate_option(path_management, Opts) when ?is_opts(Opts) ->
+    gtp_path:validate_options(Opts);
 validate_option(Opt, Value)
   when Opt == plmn_id;
        Opt == accept_new;
@@ -268,7 +269,8 @@ validate_option(Opt, Value)
        Opt == apns;
        Opt == http_api;
        Opt == charging;
-       Opt == proxy_map ->
+       Opt == proxy_map;
+       Opt == path_management ->
     throw({error, {options, {Opt, Value}}});
 validate_option(_Opt, Value) ->
     Value.

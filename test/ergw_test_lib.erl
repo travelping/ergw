@@ -23,7 +23,8 @@
 	 gtp_context_inc_restart_counter/1,
 	 gtp_context_new_teids/1, gtp_context_new_teids/3,
 	 make_error_indication_report/1]).
--export([start_gtpc_server/1, stop_gtpc_server/1, stop_gtpc_server/0,
+-export([start_gtpc_server/1, start_gtpc_server/2,
+	 stop_gtpc_server/1, stop_gtpc_server/0,
 	 wait_for_all_sx_nodes/0, reconnect_all_sx_nodes/0, stop_all_sx_nodes/0,
 	 make_gtp_socket/1, make_gtp_socket/2,
 	 send_pdu/2, send_pdu/3,
@@ -131,7 +132,8 @@ group_config(ipv4, Config) ->
 	    {client_ip, ?CLIENT_IP_IPv4},
 	    {test_gsn, ?TEST_GSN_IPv4},
 	    {proxy_gsn, ?PROXY_GSN_IPv4},
-	    {final_gsn, ?FINAL_GSN_IPv4},
+		{final_gsn, ?FINAL_GSN_IPv4},
+		{final_gsn2, ?FINAL_GSN2_IPv4},
 	    {sgw_u_sx, ?SGW_U_SX_IPv4},
 	    {pgw_u01_sx, ?PGW_U01_SX_IPv4},
 	    {pgw_u02_sx, ?PGW_U02_SX_IPv4},
@@ -143,7 +145,8 @@ group_config(ipv6, Config) ->
 	    {client_ip, ?CLIENT_IP_IPv6},
 	    {test_gsn, ?TEST_GSN_IPv6},
 	    {proxy_gsn, ?PROXY_GSN_IPv6},
-	    {final_gsn, ?FINAL_GSN_IPv6},
+		{final_gsn, ?FINAL_GSN_IPv6},
+		{final_gsn2, ?FINAL_GSN2_IPv6},
 	    {sgw_u_sx, ?SGW_U_SX_IPv6},
 	    {pgw_u01_sx, ?PGW_U01_SX_IPv6},
 	    {pgw_u02_sx, ?PGW_U02_SX_IPv6},
@@ -339,8 +342,11 @@ gtpc_server_loop(Owner, CntlS) ->
     end.
 
 start_gtpc_server(Config) ->
+    start_gtpc_server(Config, gtpc_client_server).
+		
+start_gtpc_server(Config, Name) ->
     {ok, Pid} = proc_lib:start_link(?MODULE, gtpc_server_init, [self(), Config]),
-    register(gtpc_client_server, Pid),
+    register(Name, Pid),
     Pid.
 
 wait_for_all_sx_nodes() ->
@@ -366,11 +372,11 @@ stop_all_sx_nodes(_) ->
     timer:sleep(10),
     stop_all_sx_nodes(supervisor:which_children(ergw_sx_node_sup)).
 
-stop_gtpc_server(_) ->
-    stop_gtpc_server().
-
 stop_gtpc_server() ->
-    case whereis(gtpc_client_server) of
+    stop_gtpc_server(gtp_client_server).
+
+stop_gtpc_server(Name) ->
+    case whereis(Name) of
 	Pid when is_pid(Pid) ->
 	    unlink(Pid),
 	    exit(Pid, shutdown);

@@ -52,8 +52,14 @@ select_gw(#{imsi := IMSI, gwSelectionAPN := APN}, Services, NodeSelect, Context)
     FQDN = ergw_node_selection:apn_to_fqdn(APN, IMSI),
     case ergw_node_selection:candidates(FQDN, Services, NodeSelect) of
 	Nodes when is_list(Nodes), length(Nodes) /= 0 ->
-	    {Node, _} = ergw_node_selection:snaptr_candidate(Nodes),
-	    resolve_gw(Node, NodeSelect, Context);
+	    {ok, DownPeers} = gtp_path_reg:get_down_peers(),
+	    case remove_inactive_ips(Nodes, DownPeers, []) of
+		[] ->
+		    no_dests_available;
+		ActiveNodes ->
+		    {Node, _} = ergw_node_selection:snaptr_candidate(ActiveNodes),
+		    resolve_gw(Node, NodeSelect, DownPeers, Context)
+	    end;
 	_ ->
 	    throw(?CTX_ERR(?FATAL, system_failure, Context))
     end;
@@ -64,16 +70,25 @@ lb(L) when is_list(L) ->
     lists:nth(rand:uniform(length(L)), L).
 
 %% plain A/AAA record
-resolve_gw({Node, IP4, IP6}, _NodeSelect, _Context)
+resolve_gw({Node, IP4, IP6}, _NodeSelect, _DownPeers, _Context)
   when length(IP4) /= 0; length(IP6) /= 0 ->
     {Node, select_gw_ip(IP4, IP6)};
-resolve_gw({Node, _, _}, NodeSelect, Context) ->
+resolve_gw({Node, _, _}, NodeSelect, DownPeers, Context) ->
     case ergw_node_selection:lookup(Node, NodeSelect) of
 	{_, IP4, IP6}
 	  when length(IP4) /= 0; length(IP6) /= 0 ->
-	    {Node, select_gw_ip(IP4, IP6)};
+	    check_gw_ips(Node, IP4, IP6, DownPeers);
 	{error, _} ->
 	    throw(?CTX_ERR(?FATAL, system_failure, Context))
+    end.
+
+check_gw_ips(Node, IP4, IP6, DownPeers) ->
+    {ActiveIP4, ActiveIP6} = scan_ips(IP4, IP6, DownPeers),
+    case select_gw_ip(ActiveIP4, ActiveIP6) of
+	undefined ->
+	    no_dests_available;
+	IPAddr ->
+	    {Node, IPAddr}
     end.
 
 select_gw_ip(IP4, _IP6) when length(IP4) /= 0 ->
@@ -323,3 +338,24 @@ query_usage_report(Ctx, PCtx)
     IEs = [#query_urr{group = [#urr_id{id = 1}]}],
     Req = #pfcp{version = v1, type = session_modification_request, ie = IEs},
     ergw_sx_node:call(PCtx, Req, Ctx).
+
+remove_inactive_ips([], _, ActiveList) ->
+    ActiveList;
+% likely a DNS lookup entry
+remove_inactive_ips([{_Name, _OrdPrior, _Services, [], []} = Node | Rest],
+		    DownPeers, ActiveList) ->
+    remove_inactive_ips(Rest, DownPeers, [Node | ActiveList]);
+remove_inactive_ips([{Name, OrdPrior, Services, IP4s, IP6s} | Rest],
+		    DownPeers, ActiveList0) ->
+    ActiveList =  case scan_ips(IP4s, IP6s, DownPeers) of
+		      {[], []} ->
+			  ActiveList0;
+		      {ActiveIP4s, ActiveIP6s} ->
+			  [{Name, OrdPrior, Services, ActiveIP4s, ActiveIP6s} |
+			   ActiveList0]
+		  end,
+    remove_inactive_ips(Rest, DownPeers, ActiveList).
+
+% Scan and remove down IPs
+scan_ips(IP4s, IP6s, DownPeers) ->
+    {lists:subtract(IP4s, DownPeers), lists:subtract(IP6s, DownPeers)}.

@@ -318,7 +318,8 @@ handle_message(#pfcp{type = association_setup_request,
 	 user_plane_ip_resource_information([<<"cp">>], State0),
 	 user_plane_ip_resource_information([<<"irx">>], State0),
 	 user_plane_ip_resource_information([<<"proxy-irx">>], State0),
-	 user_plane_ip_resource_information([<<"remote-irx">>], State0)
+	 user_plane_ip_resource_information([<<"remote-irx">>], State0),
+	 user_plane_ip_resource_information([<<"remote-irx2">>], State0)
 	],
     State = State0#state{cp_recovery_ts = CpRecoveryTS},
     sx_reply(association_setup_response, RespIEs, State);
