@@ -58,7 +58,7 @@ collect_peer_info(Peers) ->
     lists:map(fun gtp_path:info/1, Peers).
 
 collext_path_contexts(Path, Tunnels) ->
-    lists:foldl(fun({Pid}, TunIn) ->
+    lists:foldl(fun(Pid, TunIn) ->
 			collect_contexts(Pid, TunIn)
 		end, Tunnels, gtp_path:all(Path)).
 
