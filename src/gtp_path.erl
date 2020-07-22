@@ -10,11 +10,12 @@
 -behaviour(gen_statem).
 
 -compile({parse_transform, cut}).
+-compile({no_auto_import,[register/2]}).
 
 %% API
 -export([start_link/4, all/1,
 	 maybe_new_path/3,
-	 handle_request/2, handle_response/3,
+	 handle_request/2, handle_response/4,
 	 bind/1, bind/2, unbind/1, down/2,
 	 get_handler/2, info/1]).
 
@@ -32,6 +33,7 @@
 
 %% echo_timer is the status of the echo send to the remote peer
 -record(state, {peer       :: 'UP' | 'DOWN',                     %% State of remote peer
+		recovery   :: 'undefined' | non_neg_integer(),
 		contexts   :: gb_sets:set(pid()),                %% set of context pids
 		echo_timer :: 'stopped' | 'echo_to_send' | 'awaiting_response'}).
 
@@ -57,8 +59,8 @@ handle_request(#request{gtp_port = GtpPort, ip = IP} = ReqKey, #gtp{version = Ve
     Path = maybe_new_path(GtpPort, Version, IP),
     gen_statem:cast(Path, {handle_request, ReqKey, Msg}).
 
-handle_response(Path, Request, Response) ->
-    gen_statem:cast(Path, {handle_response, Request, Response}).
+handle_response(Path, Request, Ref, Response) ->
+    gen_statem:cast(Path, {handle_response, Request, Ref, Response}).
 
 bind(#context{remote_restart_counter = RestartCounter} = Context) ->
     path_recovery(RestartCounter, bind_path(Context)).
@@ -137,7 +139,7 @@ init([#gtp_port{name = PortName} = GtpPort, Version, RemoteIP, Args]) ->
 
     State = #state{peer       = 'UP',
 		   contexts   = gb_sets:empty(),
-		   echo_timer = 'stopped'},
+		   echo_timer = stopped},
 
     Data = #{
 	     %% Path Info Keys
@@ -145,7 +147,6 @@ init([#gtp_port{name = PortName} = GtpPort, Version, RemoteIP, Args]) ->
 	     version    => Version, % v1 | v2
 	     handler    => get_handler(GtpPort, Version),
 	     ip         => RemoteIP,
-	     recovery   => undefined, % undefined | non_neg_integer
 	     %% Echo Info values
 	     t3         => proplists:get_value(t3, Args, 10 * 1000), %% 10sec
 	     n3         => proplists:get_value(n3, Args, 5),
@@ -155,31 +156,38 @@ init([#gtp_port{name = PortName} = GtpPort, Version, RemoteIP, Args]) ->
     ?LOG(debug, "State: ~p Data: ~p", [State, Data]),
     {ok, State, Data}.
 
+handle_event(enter, #state{contexts = OldCtxS}, #state{contexts = CtxS}, Data)
+  when OldCtxS =/= CtxS ->
+    Actions = update_path_counter(gb_sets:size(CtxS), Data),
+    {keep_state_and_data, Actions};
 handle_event(enter, _OldState, _State, _Data) ->
+   keep_state_and_data;
+
+handle_event({timeout, echo}, stop_echo, State, Data) ->
+    {next_state, State#state{echo_timer = stopped}, Data, [{{timeout, echo}, cancel}]};
+
+handle_event({timeout, echo}, start_echo, #state{echo_timer = stopped} = State0, Data) ->
+    State = send_echo_request(State0, Data),
+    {next_state, State, Data};
+handle_event({timeout, echo}, start_echo, _State, _Data) ->
     keep_state_and_data;
 
 handle_event({call, From}, all, #state{contexts = CtxS}, _Data) ->
     Reply = gb_sets:to_list(CtxS),
     {keep_state_and_data, [{reply, From, Reply}]};
 
-handle_event({call, From}, {bind, Pid}, State0, #{recovery := RestartCounter} = Data) ->
-    State = register(Pid, State0, Data),
+handle_event({call, From}, {bind, Pid}, #state{recovery = RestartCounter} = State0, Data) ->
+    State = register(Pid, State0),
     {next_state, State, Data, [{reply, From, {ok, RestartCounter}}]};
 
-handle_event({call, From}, {bind, Pid, RestartCounter}, State0, Data0) ->
-    {State1, Data} = update_restart_counter(RestartCounter, State0, Data0),
-    State = register(Pid, State1, Data),
+handle_event({call, From}, {bind, Pid, RestartCounter}, State0, Data) ->
+    State1 = update_restart_counter(RestartCounter, State0, Data),
+    State = register(Pid, State1),
     {next_state, State, Data, [{reply, From, ok}]};
 
 handle_event({call, From}, {unbind, Pid}, State0, Data) ->
-    State = unregister(Pid, State0, Data),
-    case State of
-	#state{echo_timer = 'stopped'} ->
-	    Actions = echo_timeout_action([{reply, From, ok}], infinity, 'echo'),
-	    {next_state, State, Data, Actions};
-	_ ->
-	    {next_state, State, Data, [{reply, From, ok}]}
-    end;
+    State = unregister(Pid, State0),
+    {next_state, State, Data, [{reply, From, ok}]};
 
 handle_event({call, From}, info, #state{contexts = CtxS} = State,
 	     #{gtp_port := #gtp_port{name = Name},
@@ -194,12 +202,11 @@ handle_event({call, _From}, Request, _State, Data) ->
     {keep_state_and_data, [{reply, ok, Data}]};
 
 handle_event(cast, {handle_request, ReqKey, #gtp{type = echo_request} = Msg0},
-	     State0, #{gtp_port := GtpPort, handler := Handler} = Data0) ->
+	     State0, #{gtp_port := GtpPort, handler := Handler} = Data) ->
     ?LOG(debug, "echo_request: ~p", [Msg0]),
     try gtp_packet:decode_ies(Msg0) of
 	Msg = #gtp{} ->
-
-	    {State, Data} = handle_recovery_ie(Msg, State0, Data0),
+	    State = handle_recovery_ie(Msg, State0, Data),
 
 	    ResponseIEs = Handler:build_recovery(echo_response, GtpPort, true, []),
 	    Response = Msg#gtp{type = echo_response, ie = ResponseIEs},
@@ -209,68 +216,50 @@ handle_event(cast, {handle_request, ReqKey, #gtp{type = echo_request} = Msg0},
 	Class:Error ->
 	    ?LOG(error, "GTP decoding failed with ~p:~p for ~p",
 		 [Class, Error, Msg0]),
-	    {keep_state, Data0}
+	    keep_state_and_data
     end;
 
-handle_event(cast, down, State, Data0) ->
-    {State, Data} = path_down(undefined, State, Data0),
+handle_event(cast, down, State, Data) ->
+    {next_state, path_down(undefined, State), Data};
+
+handle_event(cast, {handle_response, echo_request, ReqRef, _Msg}, #state{echo_timer = SRef}, _)
+  when ReqRef /= SRef ->
+    keep_state_and_data;
+
+handle_event(cast,{handle_response, echo_request, _, Msg}, State0, Data) ->
+    ?LOG(debug, "echo_response: ~p", [Msg]),
+    State1 = handle_recovery_ie(Msg, State0, Data),
+    State = echo_response(Msg, State1),
     {next_state, State, Data};
 
-handle_event(cast,{handle_response, echo_request, #gtp{type = echo_response} = Msg},
-	     State0, #{echo := EchoInterval} = Data0) ->
-    ?LOG(debug, "echo_response: ~p", [Msg]),
-    {State1, Data1} = handle_recovery_ie(Msg, State0, Data0),
-    {State, Data} = echo_response(Msg, State1, Data1),
-    case State of
-	#state{echo_timer = 'echo_to_send'} ->
-	    Actions = echo_timeout_action([], EchoInterval, 'echo'),
-	    {next_state, State, Data, Actions};
-	_ ->
-	    {next_state, State, Data}
-    end;
-
-handle_event(cast,{handle_response, echo_request, timeout = Msg}, State0, Data0) ->
-    ?LOG(debug, "echo_response: ~p", [Msg]),
-    Actions = echo_timeout_action([], infinity, 'echo'),
-    {State, Data} = echo_response(Msg, State0, Data0),
-    {next_state, State, Data, Actions};
-
 %% test support
-handle_event(cast, '$ping', #state{echo_timer = 'awaiting_response'}, _Data) ->
+handle_event(cast, '$ping', #state{echo_timer = Ref}, _Data)
+  when is_reference(Ref) ->
     keep_state_and_data;
-handle_event(cast, '$ping', #state{echo_timer = 'echo_to_send'} = State0, Data) ->
+handle_event(cast, '$ping', #state{echo_timer = idle} = State0, Data) ->
     State = send_echo_request(State0, Data),
-    Actions = echo_timeout_action([], infinity, 'echo'),
-    {next_state, State, Data, Actions};
+    {next_state, State, Data, [{{timeout, echo}, cancel}]};
 
 handle_event(cast, Msg, _State, _Data) ->
     ?LOG(error, "~p: ~w: handle_event(cast, ...): ~p", [self(), ?MODULE, Msg]),
     keep_state_and_data;
 
 handle_event(info,{'DOWN', _MonitorRef, process, Pid, _Info}, State0, Data) ->
-    State = unregister(Pid, State0, Data),
-    case State of
-	#state{echo_timer = 'stopped'} ->
-	    Actions = echo_timeout_action([], infinity, 'echo'),
-	    {next_state, State, Data, Actions};
-	_ ->
-	    {next_state, State, Data}
-    end;
+    State = unregister(Pid, State0),
+    {next_state, State, Data};
 
-handle_event({timeout, 'echo'}, _,
-	     #state{echo_timer = 'echo_to_send'} = State0, Data) ->
+handle_event({timeout, 'echo'}, _, #state{echo_timer = idle} = State0, Data) ->
     ?LOG(debug, "handle_event timeout: ~p", [Data]),
     State = send_echo_request(State0, Data),
-    Actions = echo_timeout_action([], infinity, 'echo'),
-    {next_state, State, Data, Actions};
+    {next_state, State, Data};
 
-handle_event({timeout, 'echo'}, _, _State, Data) ->
-    ?LOG(debug, "handle_event timeout: ~p", [Data]),
-    {keep_state, Data};
+handle_event({timeout, 'echo'}, _, _State, _Data) ->
+    ?LOG(debug, "handle_event timeout: ~p", [_Data]),
+    keep_state_and_data;
 
-handle_event(info, Info, _State, Data) ->
+handle_event(info, Info, _State, _Data) ->
     ?LOG(error, "~p: ~w: handle_event(info, ...): ~p", [self(), ?MODULE, Info]),
-    {keep_state, Data}.
+    keep_state_and_data.
 
 terminate(_Reason, _State, _Data) ->
     %% TODO: kill all PDP Context on this path
@@ -307,23 +296,21 @@ code_change(_OldVsn, State, Data, _Extra) ->
 
 -define(SMALLER(S1, S2), ((S1 < S2 andalso (S2 - S1) < 128) orelse (S1 > S2 andalso (S1 - S2) > 128))).
 
-update_restart_counter(RestartCounter, State, #{recovery := undefined} = Data) ->
-    {State, Data#{recovery => RestartCounter}};
-update_restart_counter(RestartCounter, State, #{recovery := RestartCounter} = Data) ->
-    {State, Data};
-update_restart_counter(NewRestartCounter, State,
-		       #{ip := IP, recovery := OldRestartCounter} = Data)
-  when ?SMALLER(OldRestartCounter, NewRestartCounter) ->
+update_restart_counter(Counter, #state{recovery = undefined} = State, _Data) ->
+    State#state{recovery = Counter};
+update_restart_counter(Counter, #state{recovery = Counter} = State, _Data) ->
+    State;
+update_restart_counter(New, #state{recovery = Old} = State, #{ip := IP})
+  when ?SMALLER(Old, New) ->
     ?LOG(warning, "GSN ~s restarted (~w != ~w)",
-	 [inet:ntoa(IP), OldRestartCounter, NewRestartCounter]),
-    path_down(NewRestartCounter, State, Data);
+	 [inet:ntoa(IP), Old, New]),
+    path_down(New, State);
 
-update_restart_counter(NewRestartCounter, State,
-		       #{ip := IP, recovery := OldRestartCounter} = Data)
-  when not ?SMALLER(OldRestartCounter, NewRestartCounter) ->
+update_restart_counter(New, #state{recovery = Old} = State, #{ip := IP})
+  when not ?SMALLER(Old, New) ->
     ?LOG(warning, "possible race on message with restart counter for GSN ~s (old: ~w, new: ~w)",
-	 [inet:ntoa(IP), OldRestartCounter, NewRestartCounter]),
-    {State, Data}.
+	 [inet:ntoa(IP), Old, New]),
+    State.
 
 handle_recovery_ie(#gtp{version = v1,
 			ie = #{{recovery, 0} :=
@@ -336,8 +323,8 @@ handle_recovery_ie(#gtp{version = v2,
 				   #v2_recovery{restart_counter =
 						    RestartCounter}}}, State, Data) ->
     update_restart_counter(RestartCounter, State, Data);
-handle_recovery_ie(_Msg, State, Data) ->
-    {State, Data}.
+handle_recovery_ie(_Msg, State, _Data) ->
+    State.
 
 foreach_context(none, _Fun) ->
     ok;
@@ -345,25 +332,20 @@ foreach_context({Pid, Iter}, Fun) ->
     Fun(Pid),
     foreach_context(gb_sets:next(Iter), Fun).
 
-register(Pid, #state{contexts = CtxS0} = State0, Data) ->
+register(Pid, #state{contexts = CtxS} = State) ->
     ?LOG(debug, "~s: register(~p)", [?MODULE, Pid]),
     erlang:monitor(process, Pid),
-    CtxS = gb_sets:add_element(Pid, CtxS0),
-    State = State0#state{contexts = CtxS},
-    update_path_counter(gb_sets:size(CtxS), State, Data).
+    State#state{contexts = gb_sets:add_element(Pid, CtxS)}.
 
-unregister(Pid, #state{contexts = CtxS0} = State0, Data) ->
-    CtxS = gb_sets:del_element(Pid, CtxS0),
-    State = State0#state{contexts = CtxS},
-    update_path_counter(gb_sets:size(CtxS), State, Data).
+unregister(Pid, #state{contexts = CtxS} = State) ->
+    State#state{contexts = gb_sets:del_element(Pid, CtxS)}.
 
-update_path_counter(PathCounter, State, #{gtp_port := GtpPort, version := Version, ip := IP} =
-		    Data) ->
+update_path_counter(PathCounter, #{gtp_port := GtpPort, version := Version, ip := IP}) ->
     ergw_prometheus:gtp_path_contexts(GtpPort, IP, Version, PathCounter),
     if PathCounter =:= 0 ->
-	    stop_echo_request(State);
+	    [{{timeout, echo}, 0, stop_echo}];
        true ->
-	    start_echo_request(State, Data)
+	    [{{timeout, echo}, 0, start_echo}]
     end.
 
 bind_path(#gtp{version = Version}, Context) ->
@@ -382,48 +364,30 @@ path_recovery(_RestartCounter, #context{path = Path} = Context) ->
     {ok, PathRestartCounter} = gen_statem:call(Path, {bind, self()}),
     Context#context{remote_restart_counter = PathRestartCounter}.
 
-start_echo_request(#state{echo_timer = 'stopped'} = State, Data) ->
-    send_echo_request(State, Data);
-start_echo_request(State, _Data) ->
-    State.
-
-stop_echo_request(State) ->
-    State#state{echo_timer = 'stopped'}.
-
 send_echo_request(State, #{gtp_port := GtpPort, handler := Handler, ip := DstIP,
 		    t3 := T3, n3 := N3}) ->
     Msg = Handler:build_echo_request(GtpPort),
-    CbInfo = {?MODULE, handle_response, [self(), echo_request]},
+    Ref = erlang:make_ref(),
+    CbInfo = {?MODULE, handle_response, [self(), echo_request, Ref]},
     ergw_gtp_c_socket:send_request(GtpPort, DstIP, ?GTP1c_PORT, T3, N3, Msg, CbInfo),
-    State#state{echo_timer = 'awaiting_response'}.
+    State#state{echo_timer = Ref}.
 
-echo_response(Msg, #state{echo_timer = 'awaiting_response'} = State0, Data0) ->
-    {State, Data} = update_path_state(Msg, State0, Data0),
-    {State#state{echo_timer = 'echo_to_send'}, Data};
-echo_response(Msg, State, Data) ->
-    update_path_state(Msg, State, Data).
+echo_response(Msg, State) ->
+    update_path_state(Msg, State#state{echo_timer = idle}).
 
-update_path_state(#gtp{}, State, Data) ->
-    {State#state{peer = 'UP'}, Data};
-update_path_state(_, State0, Data) ->
-    State = State0#state{peer = 'DOWN'},
-    path_down(undefined, State, Data).
+update_path_state(#gtp{}, State) ->
+    State#state{peer = 'UP'};
+update_path_state(_, State) ->
+    path_down(undefined, State#state{peer = 'DOWN'}).
 
-path_down(RestartCounter, #state{contexts = CtxS} = State0, Data0) ->
+path_down(RestartCounter, #state{contexts = CtxS} = State) ->
     Path = self(),
     proc_lib:spawn(
       fun() ->
 	      foreach_context(gb_sets:next(gb_sets:iterator(CtxS)),
 			      gtp_context:path_restart(_, Path))
       end),
-    Data = Data0#{recovery => RestartCounter},
-    State = State0#state{contexts = gb_sets:empty()},
-    {update_path_counter(0, State, Data), Data}.
-
-% Event Content field is not used, set to same value as timer name.
-echo_timeout_action(Actions, Timeout, Name)
-  when is_integer(Timeout) orelse Timeout =:= infinity;
-       is_atom(Name) ->
-    [{{timeout, Name}, Timeout, Name} | Actions];
-echo_timeout_action(Actions, _, _) ->
-    Actions.
+    State#state{
+      recovery = RestartCounter,
+      contexts = gb_sets:empty()
+     }.
