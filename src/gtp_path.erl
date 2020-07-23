@@ -24,7 +24,7 @@
 	 terminate/3, code_change/4]).
 
 -ifdef(TEST).
--export([ping/3]).
+-export([ping/3, stop/1]).
 -endif.
 
 -include_lib("kernel/include/logger.hrl").
@@ -121,6 +121,10 @@ ping(GtpPort, Version, IP) ->
 	_ ->
 	    ok
     end.
+
+stop(Path) ->
+    gen_statem:call(Path, '$stop').
+
 -endif.
 
 
@@ -160,13 +164,18 @@ handle_event(enter, #state{contexts = OldCtxS}, #state{contexts = CtxS}, Data)
   when OldCtxS =/= CtxS ->
     Actions = update_path_counter(gb_sets:size(CtxS), Data),
     {keep_state_and_data, Actions};
+handle_event(enter, #state{echo_timer = OldEchoT}, #state{echo_timer = idle},
+	     #{echo := EchoInterval}) when OldEchoT =/= idle ->
+    {keep_state_and_data, [{{timeout, echo}, EchoInterval, start_echo}]};
 handle_event(enter, _OldState, _State, _Data) ->
-   keep_state_and_data;
+    keep_state_and_data;
 
 handle_event({timeout, echo}, stop_echo, State, Data) ->
     {next_state, State#state{echo_timer = stopped}, Data, [{{timeout, echo}, cancel}]};
 
-handle_event({timeout, echo}, start_echo, #state{echo_timer = stopped} = State0, Data) ->
+handle_event({timeout, echo}, start_echo, #state{echo_timer = EchoT} = State0, Data)
+  when EchoT =:= stopped;
+       EchoT =:= idle ->
     State = send_echo_request(State0, Data),
     {next_state, State, Data};
 handle_event({timeout, echo}, start_echo, _State, _Data) ->
@@ -197,9 +206,13 @@ handle_event({call, From}, info, #state{contexts = CtxS} = State,
 	      version => Version, ip => IP, state => State},
     {keep_state_and_data, [{reply, From, Reply}]};
 
-handle_event({call, _From}, Request, _State, Data) ->
+%% test support
+handle_event({call, From}, '$stop', _State, _Data) ->
+    {stop_and_reply, normal, [{reply, From, ok}]};
+
+handle_event({call, From}, Request, _State, Data) ->
     ?LOG(warning, "handle_event(call,...): ~p", [Request]),
-    {keep_state_and_data, [{reply, ok, Data}]};
+    {keep_state_and_data, [{reply, From, ok}]};
 
 handle_event(cast, {handle_request, ReqKey, #gtp{type = echo_request} = Msg0},
 	     State0, #{gtp_port := GtpPort, handler := Handler} = Data) ->
