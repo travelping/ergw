@@ -592,6 +592,7 @@ common() ->
      create_session_request_accept_new,
      path_restart, path_restart_recovery, path_restart_multi,
      path_failure,
+     path_maintenance,
      simple_session_request,
      duplicate_session_request,
      duplicate_session_slow,
@@ -733,6 +734,10 @@ init_per_testcase(create_session_request_pool_exhausted, Config) ->
     ok = meck:new(ergw_ip_pool, [passthrough, no_link]),
     Config;
 init_per_testcase(path_restart, Config) ->
+    setup_per_testcase(Config),
+    ok = meck:new(gtp_path, [passthrough, no_link]),
+    Config;
+init_per_testcase(path_maintenance, Config) ->
     setup_per_testcase(Config),
     ok = meck:new(gtp_path, [passthrough, no_link]),
     Config;
@@ -912,6 +917,10 @@ end_per_testcase(create_session_request_pool_exhausted, Config) ->
     end_per_testcase(Config),
     Config;
 end_per_testcase(path_restart, Config) ->
+    meck:unload(gtp_path),
+    end_per_testcase(Config),
+    Config;
+end_per_testcase(path_maintenance, Config) ->
     meck:unload(gtp_path),
     end_per_testcase(Config),
     Config;
@@ -1218,6 +1227,43 @@ path_failure(Config) ->
     meck_validate(Config),
 
     ok = meck:delete(ergw_gtp_c_socket, send_request, 7),
+    ok.
+
+%%--------------------------------------------------------------------
+path_maintenance() ->
+    [{doc, "Check that Create Session Request works and "
+      "that we run GTP Echo Request on that peer continusly"}].
+path_maintenance(Config) ->
+    ok = meck:expect(gtp_path, init,
+		     fun ([GtpPort, Version, RemoteIP, Args0]) ->
+			     %% overwrite ping interval
+			     Args = [{ping, 10}|Args0],
+			     meck:passthrough([[GtpPort, Version, RemoteIP, Args]])
+		     end),
+
+    %% kill all path to ensure the meck override is used
+    [gtp_path:stop(Pid) || {_, Pid} <- gtp_path_reg:all()],
+
+    {GtpC, _, _} = create_session(Config),
+
+    %% wait for 100ms
+    ?equal(timeout, recv_pdu(GtpC, undefined, 100, fun(Why) -> Why end)),
+    delete_session(GtpC),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    wait4tunnels(?TIMEOUT),
+
+    EchoMs = ['_', echo_request, '_', #gtp{type = echo_response, _ = '_'}],
+    ?match(X when X > 8, meck:num_calls(gtp_path, handle_response, EchoMs)),
+
+    meck:reset(gtp_path),
+    %% wait for 100ms
+    ?equal(timeout, recv_pdu(GtpC, undefined, 100, fun(Why) -> Why end)),
+    ?match(0, meck:num_calls(gtp_path, handle_response, EchoMs)),
+
+    meck_validate(Config),
+
+    [gtp_path:stop(Pid) || {_, Pid} <- gtp_path_reg:all()],
     ok.
 
 %%--------------------------------------------------------------------
