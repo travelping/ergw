@@ -991,6 +991,7 @@ path_failure_to_pgw(Config) ->
     wait4tunnels(?TIMEOUT),
     {ok, [RestartPeerIP]} = gtp_path_reg:get_down_peers(),
     gtp_path_reg:remove_down_peer(RestartPeerIP),
+    ct:pal("~nrestartpeerIP ~p ~n",[RestartPeerIP]),
     meck_validate(Config),
 
     ok = meck:delete(ergw_gtp_c_socket, send_request, 7),
@@ -1013,6 +1014,7 @@ path_failure_to_pgw_and_restore(Config) ->
     {_Handler, CtxPid} = gtp_context_reg:lookup({'irx', {imsi, ?'IMSI', 5}}),
     #{proxy_context := Ctx1} = gtp_context:info(CtxPid),
     #context{control_port = CPort} = Ctx1,
+    
     FinalGSN = proplists:get_value(final_gsn, Config),
     ok = meck:expect(ergw_gtp_c_socket, send_request,
 		     fun (_, IP, _, _, _, #gtp{type = echo_request}, CbInfo)
@@ -1048,8 +1050,7 @@ path_failure_to_pgw_and_restore(Config) ->
 		       #v2_cause{v2_cause = no_resources_available}
 		  }}, NRResp),
     
-    ct:sleep(1000),
-    gtp_path:ping(CPort, v2, FinalGSN),
+    ct:sleep(100),
     ok = meck:expect(ergw_gtp_c_socket, send_request,
 		     fun (_, IP, _, _, _, #gtp{type = echo_request}, CbInfo)
 			   when IP =:= FinalGSN ->
@@ -1061,8 +1062,10 @@ path_failure_to_pgw_and_restore(Config) ->
 			     ergw_gtp_c_socket:send_reply(CbInfo, EchoResp);
 			 (GtpPort, IP, Port, T3, N3, Msg, CbInfo) ->
 			     meck:passthrough([GtpPort, IP, Port, T3, N3, Msg, CbInfo])
-		     end),
+             end),
+    gtp_path:ping(CPort, v2, FinalGSN),
     %% Successful echo, clears down marked IP.
+    ct:sleep(100),
     {ok, Res} = gtp_path_reg:get_down_peers(),
     ?match([], Res),
 
@@ -1076,6 +1079,7 @@ path_failure_to_pgw_and_restore(Config) ->
     wait4tunnels(?TIMEOUT),
     meck_validate(Config),
 
+    ok = meck:delete(ergw_gtp_c_socket, send_request, 7),
     ok.
 
 %%--------------------------------------------------------------------

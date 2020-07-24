@@ -971,7 +971,7 @@ path_failure_to_ggsn_and_restore(Config) ->
 		       #cause{value = no_resources_available}
 		  }}, NRResp),
     
-    ct:sleep(1000),
+    ct:sleep(100),
     gtp_path:ping(CPort, v1, FinalGSN),
     ok = meck:expect(ergw_gtp_c_socket, send_request,
 		     fun (_, IP, _, _, _, #gtp{type = echo_request}, CbInfo)
@@ -984,8 +984,10 @@ path_failure_to_ggsn_and_restore(Config) ->
 			     ergw_gtp_c_socket:send_reply(CbInfo, EchoResp);
 			 (GtpPort, IP, Port, T3, N3, Msg, CbInfo) ->
 			     meck:passthrough([GtpPort, IP, Port, T3, N3, Msg, CbInfo])
-		     end),
+             end),
+             gtp_path:ping(CPort, v2, FinalGSN),
     %% Successful echo, clears down marked IP.
+    ct:sleep(100),
     {ok, Res} = gtp_path_reg:get_down_peers(),
     ?match([], Res),
 
@@ -998,7 +1000,8 @@ path_failure_to_ggsn_and_restore(Config) ->
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     wait4tunnels(?TIMEOUT),
     meck_validate(Config),
-
+    
+    ok = meck:delete(ergw_gtp_c_socket, send_request, 7),
     ok.
 
 %%--------------------------------------------------------------------
