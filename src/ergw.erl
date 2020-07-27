@@ -73,7 +73,8 @@ load_config([{accept_new, Value} | T]) ->
     true = ets:insert(?SERVER, {config, accept_new, Value}),
     load_config(T);
 load_config([{Key, Value} | T])
-  when Key =:= node_selection;
+  when Key =:= path_management;
+       Key =:= node_selection;
        Key =:= nodes;
        Key =:= ip_pools;
        Key =:= apns;

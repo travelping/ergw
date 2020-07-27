@@ -19,6 +19,9 @@
 	 bind/1, bind/2, unbind/1, down/2,
 	 get_handler/2, info/1]).
 
+%% Validate environment Variables
+-export([validate_options/1]).
+
 %% gen_statem callbacks
 -export([callback_mode/0, init/1, handle_event/4,
 	 terminate/3, code_change/4]).
@@ -51,7 +54,8 @@ maybe_new_path(GtpPort, Version, RemoteIP) ->
 	Path when is_pid(Path) ->
 	    Path;
 	_ ->
-	    {ok, Path} = gtp_path_sup:new_path(GtpPort, Version, RemoteIP, []),
+	    {ok, Args} = application:get_env(path_management),
+	    {ok, Path} = gtp_path_sup:new_path(GtpPort, Version, RemoteIP, Args),
 	    Path
     end.
 
@@ -127,6 +131,30 @@ stop(Path) ->
 
 -endif.
 
+%%%===================================================================
+%%% Options Validation
+%%%===================================================================
+
+%% Timer value: echo    = echo interval when peer is up.
+
+-define(Defaults, [{t3, 10 * 1000},             % echo retry interval timeout
+		   {n3,  5},                    % echo retry count
+		   {echo, 60 * 1000}]).         % echo ping interval
+
+validate_options(Values) ->
+    ergw_config:validate_options(fun validate_option/2, Values, ?Defaults, map).
+
+validate_option(t3, Value)
+  when is_integer(Value) andalso Value > 0 ->
+    Value;
+validate_option(n3, Value)
+  when is_integer(Value) andalso Value > 0 ->
+    Value;
+validate_option(echo, Value)
+  when is_integer(Value) andalso Value >= 60 * 1000 ->
+    Value;
+validate_option(Opt, Value) ->
+    throw({error, {options, {Opt, Value}}}).
 
 %%%===================================================================
 %%% Protocol Module API
@@ -145,16 +173,13 @@ init([#gtp_port{name = PortName} = GtpPort, Version, RemoteIP, Args]) ->
 		   contexts   = gb_sets:empty(),
 		   echo_timer = stopped},
 
-    Data = #{
+    Data0 = maps:with([t3, n3, echo], Args),
+    Data = Data0#{
 	     %% Path Info Keys
 	     gtp_port   => GtpPort, % #gtp_port{}
 	     version    => Version, % v1 | v2
 	     handler    => get_handler(GtpPort, Version),
-	     ip         => RemoteIP,
-	     %% Echo Info values
-	     t3         => proplists:get_value(t3, Args, 10 * 1000), %% 10sec
-	     n3         => proplists:get_value(n3, Args, 5),
-	     echo       => proplists:get_value(ping, Args, 60 * 1000)
+	     ip         => RemoteIP
 	},
 
     ?LOG(debug, "State: ~p Data: ~p", [State, Data]),

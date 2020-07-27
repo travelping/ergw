@@ -92,6 +92,12 @@
 	     {ip_pools, ['pool-A']}]
 	   },
 	   {"node-A", [connect]}]
+	 },
+
+	 {path_management,
+	  [{t3, 10 * 1000},
+	   {n3, 5},
+	   {echo, 60 * 1000}]
 	 }
 	]).
 
@@ -189,6 +195,12 @@
 	       {sgi, [{features, ['SGi-LAN']}]}]
 	     }]
 	   }]
+	 },
+
+	 {path_management,
+	  [{t3, 10 * 1000},
+	   {n3, 5},
+	   {echo, 60 * 1000}]
 	 }
 	]).
 
@@ -1030,4 +1042,16 @@ config(_Config)  ->
     ?error_option(set_cfg_value(RB ++ [<<"rb-0001">>],
 				[{'Rating-Group', 3000}], ?GGSN_CONFIG)),
 
+    %% path management configuration
+    ?ok_option(set_cfg_value([path_management, t3], 10 * 1000, ?PGW_PROXY_CONFIG)),
+    ?ok_option(set_cfg_value([path_management, n3], 5, ?PGW_PROXY_CONFIG)),
+    ?ok_option(set_cfg_value([path_management, echo], 60 * 1000, ?PGW_PROXY_CONFIG)),
+
+    ?error_option(set_cfg_value([path_management, t3], -1, ?PGW_PROXY_CONFIG)),
+    ?error_option(set_cfg_value([path_management, n3], -1, ?PGW_PROXY_CONFIG)),
+    ?error_option(set_cfg_value([path_management, t3], invalid, ?PGW_PROXY_CONFIG)),
+    ?error_option(set_cfg_value([path_management, n3], invalid, ?PGW_PROXY_CONFIG)),
+
+    ?error_option(set_cfg_value([path_management, echo], 59 * 1000, ?PGW_PROXY_CONFIG)),
+    ?error_option(set_cfg_value([path_management, echo], invalid, ?PGW_PROXY_CONFIG)),
     ok.
