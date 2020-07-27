@@ -251,7 +251,7 @@ http_api_prometheus_metrics_req(_Config) ->
     Lines = binary:split(Body, <<"\n">>, [global]),
     ct:pal("Lines: ~p", [Lines]),
     Result =
-	lists:filter(fun(<<"ergw_ip_pool_free", _/binary>>) ->
+	lists:filter(fun(<<"ergw_local_pool_free", _/binary>>) ->
 			     true;
 			(_) -> false
 		     end, Lines),

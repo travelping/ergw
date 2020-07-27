@@ -34,6 +34,7 @@
 	 pcc_events_to_charging_rule_report/1]).
 -export([pcc_ctx_has_rules/1]).
 -export([apn/2, select_vrf/2,
+	 init_session_ip_opts/3,
 	 allocate_ips/5, release_context_ips/1]).
 
 -export([select_upf/2, reselect_upf/4]).
@@ -438,8 +439,9 @@ build_sx_ctx_rule(#sx_upd{
 				   cp_tei = CpTEI} = PCtx0,
 		     sctx = #context{
 			       local_data_endp = LocalDataEndp,
-			       ms_v6 = {{_,_,_,_,_,_,_,_},_}}
-		    } = Update) ->
+			       ms_v6 = MSv6}
+		    } = Update)
+  when MSv6 /= undefined ->
     {PdrId, PCtx1} = ergw_pfcp:get_id(pdr, ipv6_mcast_pdr, PCtx0),
     {FarId, PCtx} = ergw_pfcp:get_id(far, dp_to_cp_far, PCtx1),
 
@@ -1747,87 +1749,91 @@ normalize_ipv6(IP) when ?IS_IPv6(IP) ->
 normalize_ipv6(undefined) ->
     undefined.
 
-alloc_ipv4({ReqIPv4, PrefixLen}, #context{local_control_tei = TEI,
-					  ipv4_pool = Pool} = Context)
+init_session_pool(#context{ipv4_pool = undefined, ipv6_pool = undefined}, Session) ->
+    Session;
+init_session_pool(#context{ipv4_pool = IPv4Pool, ipv6_pool = undefined}, Session) ->
+    Session#{'Framed-Pool' => IPv4Pool};
+init_session_pool(#context{ipv4_pool = undefined, ipv6_pool = IPv6Pool}, Session) ->
+    Session#{'Framed-IPv6-Pool' => IPv6Pool};
+init_session_pool(#context{ipv4_pool = IPv4Pool, ipv6_pool = IPv6Pool}, Session) ->
+    Session#{'Framed-Pool' => IPv4Pool, 'Framed-IPv6-Pool' => IPv6Pool}.
+
+init_session_ue_ifid({_, _, APNOpts}, #{'3GPP-PDP-Type' := Type} = Session)
+  when Type =:= 'IPv6'; Type =:= 'IPv4v6' ->
+    ReqIPv6 = maps:get('Requested-IPv6-Prefix', Session, {?ZERO_IPv6, 64}),
+    IfId = ue_interface_id(ReqIPv6, APNOpts),
+    Session#{'Framed-Interface-Id' => IfId};
+init_session_ue_ifid(_UPinfo, Session) ->
+    Session.
+
+init_session_ip_opts(UPinfo, Context, Session0) ->
+    Session = init_session_pool(Context, Session0),
+    init_session_ue_ifid(UPinfo, Session).
+
+request_alloc({ReqIPv4, PrefixLen}, Opts, #context{ipv4_pool = Pool})
   when ?IS_IPv4(ReqIPv4) ->
-    PoolOpts0 = ergw_ip_pool:opts(ipv4, Pool),
-    PoolOpts = maps:update_with('Framed-Pool', fun(X) -> X end, Pool, PoolOpts0),
     Request = case ReqIPv4 of
 		  ?ZERO_IPv4 -> ipv4;
 		  _          -> ReqIPv4
 	      end,
-    case ergw_ip_pool:get(Pool, TEI, Request, PrefixLen) of
-	{ok, IP} ->
-	    {IP, PoolOpts, Context#context{ms_v4 = IP}};
-	{error, empty} ->
-	    throw(?CTX_ERR(?FATAL, all_dynamic_addresses_are_occupied, Context));
-	{error, taken} ->
-	    throw(?CTX_ERR(?FATAL, system_error, Context));
-	{error, undefined = Result} ->
-	    %% pool not defined
-	    {Result, #{}}
-    end;
-alloc_ipv4(_ReqIPv4, Context) ->
-    {undefined, #{}, Context}.
+    {Pool, Request, PrefixLen, Opts};
+request_alloc({ReqIPv6, PrefixLen}, Opts, #context{ipv6_pool = Pool})
+  when ?IS_IPv6(ReqIPv6) ->
+    Request = case ReqIPv6 of
+		  ?ZERO_IPv6 -> ipv6;
+		  _          -> ReqIPv6
+	      end,
+    {Pool, Request, PrefixLen, Opts};
+request_alloc(_ReqIP, _Opts, _Context) ->
+    skip.
 
-ue_interface_id(ReqIP, _, _) when ReqIP =/= ?ZERO_IPv6 ->
-    ReqIP;
-ue_interface_id(_, _, #{ipv6_ue_interface_id := default}) ->
-    ?UE_INTERFACE_ID;
-ue_interface_id(_, {{A,B,C,D,_,_,_,_}, _}, #{ipv6_ue_interface_id := sgsnemu}) ->
+request_ip_alloc(ReqIPs, Opts, #context{local_control_tei = TEI} = Context) ->
+    Req = [request_alloc(IP, Opts, Context) || IP <- ReqIPs],
+    ergw_ip_pool:send_request(TEI, Req).
+
+ip_alloc_result(skip, Acc) ->
+    Acc;
+ip_alloc_result({error, empty}, {Context, _}) ->
+    throw(?CTX_ERR(?FATAL, all_dynamic_addresses_are_occupied, Context));
+ip_alloc_result({error, taken}, {Context, _}) ->
+    throw(?CTX_ERR(?FATAL, system_error, Context));
+ip_alloc_result({error, undefined}, Acc) ->
+    %% pool not defined
+    Acc;
+ip_alloc_result({error, Result}, Acc) ->
+    ?LOG(error, "IP alloc failed with ~p", [Result]),
+    Acc;
+ip_alloc_result(AI, {Context, Opts0}) ->
+    case ergw_ip_pool:ip(AI) of
+	{IP, _} when ?IS_IPv4(IP) ->
+	    Opts1 = maps:merge(Opts0, ergw_ip_pool:opts(AI)),
+	    Opts = maps:put('Framed-IP-Address', IP, Opts1),
+	    {Context#context{ms_v4 = AI}, Opts};
+	{IP, _} = IPv6 when ?IS_IPv6(IP) ->
+	    Opts1 = maps:merge(Opts0, ergw_ip_pool:opts(AI)),
+	    Opts = Opts1#{'Framed-IPv6-Prefix' => ergw_inet:ipv6_prefix(IPv6),
+			  'Framed-Interface-Id' => ergw_inet:ipv6_interface_id(IPv6)},
+	    {Context#context{ms_v6 = AI}, Opts}
+    end.
+
+wait_ip_alloc_results(ReqIds, Opts0, Context) ->
+    IPOpts = ['Framed-IP-Address', 'Framed-IPv6-Prefix', 'Framed-Interface-Id'],
+    Opts = maps:without(IPOpts, Opts0),
+    lists:foldl(fun ip_alloc_result/2, {Context, Opts}, ergw_ip_pool:wait_response(ReqIds)).
+
+ue_interface_id({{_,_,_,_,A,B,C,D} = ReqIP, _}, _) when ReqIP =/= ?ZERO_IPv6 ->
     {0,0,0,0,A,B,C,D};
-ue_interface_id(_, _, #{ipv6_ue_interface_id := random}) ->
+ue_interface_id(_ReqIP, #{ipv6_ue_interface_id := default}) ->
+    ?UE_INTERFACE_ID;
+ue_interface_id(_, #{ipv6_ue_interface_id := random}) ->
     E = rand:uniform(65536) - 1,
     F = rand:uniform(65536) - 1,
     G = rand:uniform(65536) - 1,
     H = rand:uniform(65534),
     {0,0,0,0,E,F,G,H};
-ue_interface_id(_, _, #{ipv6_ue_interface_id := IfId})
+ue_interface_id(_, #{ipv6_ue_interface_id := IfId})
   when is_tuple(IfId) ->
     IfId.
-
-
-alloc_ipv6({ReqIPv6, PrefixLen}, Opts,
-	   #context{local_control_tei = TEI, ipv6_pool = Pool} = Context)
-  when ?IS_IPv6(ReqIPv6) ->
-    PoolOpts0 = ergw_ip_pool:opts(ipv6, Pool),
-    PoolOpts = maps:update_with('Framed-IPv6-Pool', fun(X) -> X end, Pool, PoolOpts0),
-    Request = case ReqIPv6 of
-		  ?ZERO_IPv6 -> ipv6;
-		  _          -> ReqIPv6
-	      end,
-    case ergw_ip_pool:get(Pool, TEI, Request, PrefixLen) of
-	{ok, IP} ->
-	    IfId = ue_interface_id(ReqIPv6, IP, Opts),
-	    MSv6 = ergw_inet:ipv6_interface_id(IP, IfId),
-	    {MSv6, PoolOpts, Context#context{ms_v6 = MSv6}};
-	{error, empty} ->
-	    throw(?CTX_ERR(?FATAL, all_dynamic_addresses_are_occupied, Context));
-	{error, taken} ->
-	    throw(?CTX_ERR(?FATAL, system_error, Context));
-	{error, undefined = Result} ->
-	    %% pool not defined
-	    {Result, #{}, Context}
-    end;
-alloc_ipv6(_ReqIPv6, _Opts, Context) ->
-    {undefined, #{}, Context}.
-
-release_ipv4({IPv4, PrefixLen}, #context{ipv4_pool = Pool}) ->
-    ergw_ip_pool:release(Pool, IPv4, PrefixLen);
-release_ipv4(_IP, _State) ->
-    ok.
-
-release_ipv6({IPv6, PrefixLen}, #context{ipv6_pool = Pool}) ->
-    ergw_ip_pool:release(Pool, IPv6, PrefixLen);
-release_ipv6(_IP, _State) ->
-    ok.
-
-maybe_ip(Key, {{_,_,_,_} = IPv4, _}, Opts) ->
-    maps:put(Key, IPv4, Opts);
-maybe_ip(Key, {{_,_,_,_,_,_,_,_},_} = IPv6, Opts) ->
-    maps:put(Key, IPv6, Opts);
-maybe_ip(Key, _, Opts) ->
-    maps:remove(Key, Opts).
 
 session_ipv4_alloc(#{'Framed-IP-Address' := {255,255,255,255}}, ReqMSv4) ->
     ReqMSv4;
@@ -1869,6 +1875,10 @@ session_ip_alloc(_, _, SessionOpts, _, {PDNType, ReqMSv4, ReqMSv6}) ->
     MSv6 = session_ipv6_alloc(SessionOpts, ReqMSv6),
     {PDNType, MSv4, MSv6}.
 
+allocate_ips_result(ReqPDNType, Bearer, #context{ms_v4 = MSv4, ms_v6 = MSv6} = Context) ->
+    allocate_ips_result(ReqPDNType, Bearer, ergw_ip_pool:ip(MSv4),
+			ergw_ip_pool:ip(MSv6), Context).
+
 allocate_ips_result('Non-IP', _, _, _, _) -> {request_accepted, 'Non-IP'};
 allocate_ips_result('IPv4', _, IPv4, _, _) when IPv4 /= undefined ->
     {request_accepted, 'IPv4'};
@@ -1890,22 +1900,20 @@ allocate_ips_result(_, _, _, _, Context) ->
 
 %% allocate_ips/5
 allocate_ips(AllocInfo,
-	     #{bearer_type := Bearer, prefered_bearer_type := PrefBearer} = APNOpts0,
+	     #{bearer_type := Bearer, prefered_bearer_type := PrefBearer} = APNOpts,
 	     SOpts0, DualAddressBearerFlag, Context0) ->
     {ReqPDNType, ReqMSv4, ReqMSv6} =
 	session_ip_alloc(Bearer, PrefBearer, SOpts0, DualAddressBearerFlag, AllocInfo),
-    {MSv4, IPv4PoolOpts, Context1} = alloc_ipv4(normalize_ipv4(ReqMSv4), Context0),
-    {MSv6, IPv6PoolOpts, Context}  = alloc_ipv6(normalize_ipv6(ReqMSv6), APNOpts0, Context1),
-    PoolOpts = maps:merge(IPv4PoolOpts, IPv6PoolOpts),
 
-    {Result, PDNType} = allocate_ips_result(ReqPDNType, Bearer, MSv4, MSv6, Context0),
+    SOpts1 = maps:merge(SOpts0, maps:with(?APNOpts, APNOpts)),
 
-    APNOpts = maps:with(?APNOpts, APNOpts0),
-    SOpts1 = maps:merge(APNOpts, SOpts0),
-    SOpts2 = maps:merge(PoolOpts, SOpts1),
-    SOpts3 = maps:put('3GPP-PDP-Type', PDNType, SOpts2),
-    SOpts4 = maybe_ip('Framed-IP-Address', MSv4, SOpts3),
-    SOpts  = maybe_ip('Framed-IPv6-Prefix', MSv6, SOpts4),
+    ReqIPs = [normalize_ipv4(ReqMSv4),
+	      normalize_ipv6(ReqMSv6)],
+    ReqIds = request_ip_alloc(ReqIPs, SOpts1, Context0),
+    {Context, SOpts2} = wait_ip_alloc_results(ReqIds, SOpts1, Context0),
+
+    {Result, PDNType} = allocate_ips_result(ReqPDNType, Bearer, Context),
+    SOpts = maps:put('3GPP-PDP-Type', PDNType, SOpts2),
 
     DNS = if PDNType =:= 'IPv6' orelse PDNType =:= 'IPv4v6' ->
 		  maps:get('DNS-Server-IPv6-Address', SOpts, []) ++          %% RFC 6911
@@ -1916,13 +1924,9 @@ allocate_ips(AllocInfo,
     {Result, SOpts, Context#context{pdn_type = PDNType, dns_v6 = DNS}}.
 
 %% release_context_ips/1
-release_context_ips(#context{ms_v4 = MSv4, ms_v6 = MSv6} = Context)
-  when MSv4 /= undefined; MSv6 /= undefined ->
-    release_ipv4(normalize_ipv4(MSv4), Context),
-    release_ipv6(normalize_ipv6(MSv6), Context),
-    Context#context{ms_v4 = undefined, ms_v6 = undefined};
-release_context_ips(Context) ->
-    Context.
+release_context_ips(#context{ms_v4 = MSv4, ms_v6 = MSv6} = Context) ->
+    ergw_ip_pool:release([MSv4, MSv6]),
+    Context#context{ms_v4 = undefined, ms_v6 = undefined}.
 
 %%%===================================================================
 %%% T-PDU functions
@@ -1964,7 +1968,8 @@ icmpv6(TC, FlowLabel, _SrcAddr, ?'IPv6 All Routers LL',
        <<?'ICMPv6 Router Solicitation':8, _Code:8, _CSum:16, _/binary>>,
        #context{local_data_endp = LocalDataEndp, remote_data_teid = RemoteDataTEID,
 		ms_v6 = MSv6, dns_v6 = DNSv6}, PCtx) ->
-    {Prefix, PLen} = ergw_inet:ipv6_interface_id(MSv6, ?NULL_INTERFACE_ID),
+    IPv6 = ergw_ip_pool:ip(MSv6),
+    {Prefix, PLen} = ergw_inet:ipv6_interface_id(IPv6, ?NULL_INTERFACE_ID),
 
     OnLink = 1,
     AutoAddrCnf = 1,

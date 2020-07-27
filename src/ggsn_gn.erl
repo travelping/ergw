@@ -349,7 +349,8 @@ handle_request(ReqKey,
     ergw_sx_node:wait_connect(SxConnectId),
     {UPinfo0, ContextUP} = ergw_gsn_lib:select_upf(Candidates, ContextPreAuth),
 
-    SessionOpts  = init_session_pool(ContextUP, SessionOpts2),
+    SessionOpts  = ergw_gsn_lib:init_session_ip_opts(UPinfo0, ContextUP, SessionOpts2),
+
     {ok, ActiveSessionOpts0, AuthSEvs} =
 	authenticate(ContextUP, Session, SessionOpts, Request),
 
@@ -578,12 +579,13 @@ pdp_alloc(#end_user_address{pdp_type_organization = 1,
 pdp_alloc(_) ->
     {undefined, undefined}.
 
-encode_eua({IPv4,_}, undefined) ->
-    encode_eua(1, 16#21, ergw_inet:ip2bin(IPv4), <<>>);
-encode_eua(undefined, {IPv6,_}) ->
-    encode_eua(1, 16#57, <<>>, ergw_inet:ip2bin(IPv6));
-encode_eua({IPv4,_}, {IPv6,_}) ->
-    encode_eua(1, 16#8D, ergw_inet:ip2bin(IPv4), ergw_inet:ip2bin(IPv6)).
+encode_eua(IPv4, undefined) when IPv4 /= undefined ->
+    encode_eua(1, 16#21, ergw_inet:ip2bin(ergw_ip_pool:addr(IPv4)), <<>>);
+encode_eua(undefined, IPv6) when IPv6 /= undefined ->
+    encode_eua(1, 16#57, <<>>, ergw_inet:ip2bin(ergw_ip_pool:addr(IPv6)));
+encode_eua(IPv4, IPv6) when IPv4 /= undefined, IPv6 /= undefined ->
+    encode_eua(1, 16#8D, ergw_inet:ip2bin(ergw_ip_pool:addr(IPv4)),
+	       ergw_inet:ip2bin(ergw_ip_pool:addr(IPv6))).
 
 encode_eua(Org, Number, IPv4, IPv6) ->
     #end_user_address{pdp_type_organization = Org,
@@ -878,15 +880,6 @@ init_session_qos(#{?'Quality of Service Profile' :=
     session_qos_info(QoS, NegotiatedARP, IEs, Session);
 init_session_qos(_IEs, Session) ->
     Session.
-
-init_session_pool(#context{ipv4_pool = undefined, ipv6_pool = undefined}, Session) ->
-    Session;
-init_session_pool(#context{ipv4_pool = IPv4Pool, ipv6_pool = undefined}, Session) ->
-    Session#{'Framed-Pool' => IPv4Pool};
-init_session_pool(#context{ipv4_pool = undefined, ipv6_pool = IPv6Pool}, Session) ->
-    Session#{'Framed-IPv6-Pool' => IPv6Pool};
-init_session_pool(#context{ipv4_pool = IPv4Pool, ipv6_pool = IPv6Pool}, Session) ->
-    Session#{'Framed-Pool' => IPv4Pool, 'Framed-IPv6-Pool' => IPv6Pool}.
 
 update_session_from_gtp_req(IEs, Session, Context) ->
     OldSOpts = ergw_aaa_session:get(Session),

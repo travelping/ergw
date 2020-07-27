@@ -7,7 +7,8 @@
 
 -module(ergw_inet).
 
--export([ip2bin/1, bin2ip/1, ipv6_interface_id/2, ipv6_interface_id/3,
+-export([ip2bin/1, bin2ip/1,
+	 ipv6_interface_id/1, ipv6_interface_id/2, ipv6_interface_id/3,
 	 ipv6_prefix/1, ipv6_prefix/2]).
 -export([ip_csum/1, make_udp/5]).
 
@@ -47,10 +48,13 @@ ipv6_interface_id(Prefix, PrefixLen, InterfaceId)
     <<_:PrefixLen/bits, IntIdPart/bits>> = InterfaceId,
     <<PrefixPart/bits, IntIdPart/bits>>.
 
+ipv6_interface_id({{_,_,_,_,A,B,C,D}, _}) ->
+    {0,0,0,0,A,B,C,D}.
+
 ipv6_prefix({_, Len} = Prefix) when Len =:= 0, Len =:= 128 ->
     Prefix;
 ipv6_prefix({Prefix, Len}) ->
-    <<IP:Len/bits, _/binary>> = ergw_inet:ip2bin(Prefix),
+    <<IP:Len/bits, _/bitstring>> = ergw_inet:ip2bin(Prefix),
     {ergw_inet:bin2ip(<<IP/bitstring, 0:(128 - Len)>>), Len}.
 
 ipv6_prefix({Prefix, _}, Len) ->

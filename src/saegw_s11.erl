@@ -368,11 +368,13 @@ handle_request(ReqKey,
     gtp_context:terminate_colliding_context(ContextPreAuth),
 
     SessionOpts0 = init_session(IEs, ContextPreAuth, AAAopts),
-    SessionOpts = init_session_from_gtp_req(IEs, AAAopts, ContextPreAuth, SessionOpts0),
+    SessionOpts1 = init_session_from_gtp_req(IEs, AAAopts, ContextPreAuth, SessionOpts0),
     %% SessionOpts = init_session_qos(ReqQoSProfile, SessionOpts1),
 
     ergw_sx_node:wait_connect(SxConnectId),
     {UPinfo0, ContextUP} = ergw_gsn_lib:select_upf(Candidates, ContextPreAuth),
+
+    SessionOpts  = ergw_gsn_lib:init_session_ip_opts(UPinfo0, ContextUP, SessionOpts1),
 
     {ok, ActiveSessionOpts0, AuthSEvs} =
 	authenticate(ContextUP, Session, SessionOpts, Request),
@@ -703,12 +705,13 @@ pdn_alloc(#v2_pdn_address_allocation{type = ipv6,
 				     address = << IP6PrefixLen:8, IP6Prefix:16/binary>>}) ->
     {'IPv6', undefined, {ergw_inet:bin2ip(IP6Prefix), IP6PrefixLen}}.
 
-encode_paa({IPv4,_}, undefined) ->
-    encode_paa(ipv4, ergw_inet:ip2bin(IPv4), <<>>);
-encode_paa(undefined, IPv6) ->
-    encode_paa(ipv6, <<>>, ip2prefix(IPv6));
-encode_paa({IPv4,_}, IPv6) ->
-    encode_paa(ipv4v6, ergw_inet:ip2bin(IPv4), ip2prefix(IPv6)).
+encode_paa(IPv4, undefined) when IPv4 /= undefined ->
+    encode_paa(ipv4, ergw_inet:ip2bin(ergw_ip_pool:addr(IPv4)), <<>>);
+encode_paa(undefined, IPv6) when IPv6 /= undefined ->
+    encode_paa(ipv6, <<>>, ip2prefix(ergw_ip_pool:ip(IPv6)));
+encode_paa(IPv4, IPv6) when IPv4 /= undefined, IPv6 /= undefined ->
+    encode_paa(ipv4v6, ergw_inet:ip2bin(ergw_ip_pool:addr(IPv4)),
+	       ip2prefix(ergw_ip_pool:ip(IPv6))).
 
 encode_paa(Type, IPv4, IPv6) ->
     #v2_pdn_address_allocation{type = Type, address = <<IPv6/binary, IPv4/binary>>}.

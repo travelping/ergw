@@ -38,21 +38,24 @@
 %%% Helper functions
 %%%===================================================================
 
-ue_ip_address(Direction, #context{ms_v4 = {MSv4,_}, ms_v6 = {MSv6,_}}) ->
-    #ue_ip_address{type = Direction, ipv4 = ergw_inet:ip2bin(MSv4),
-		   ipv6 = ergw_inet:ip2bin(MSv6)};
-ue_ip_address(Direction, #context{ms_v4 = {MSv4,_}}) ->
-    #ue_ip_address{type = Direction, ipv4 = ergw_inet:ip2bin(MSv4)};
-ue_ip_address(Direction, #context{ms_v6 = {MSv6,_}}) ->
-    #ue_ip_address{type = Direction, ipv6 = ergw_inet:ip2bin(MSv6)};
+alloc_info_addr(AI) ->
+    ergw_inet:ip2bin(ergw_ip_pool:addr(AI)).
 
-%% ue_ip_address(Direction, #tdf_ctx{ms_v4 = {MSv4,_}, ms_v6 = {MSv6,_}}) ->
-%%     #ue_ip_address{type = Direction, ipv4 = ergw_inet:ip2bin(MSv4),
-%%		   ipv6 = ergw_inet:ip2bin(MSv6)};
-ue_ip_address(Direction, #tdf_ctx{ms_v4 = {MSv4,_}}) ->
-    #ue_ip_address{type = Direction, ipv4 = ergw_inet:ip2bin(MSv4)};
-ue_ip_address(Direction, #tdf_ctx{ms_v6 = {MSv6,_}}) ->
-    #ue_ip_address{type = Direction, ipv6 = ergw_inet:ip2bin(MSv6)}.
+ue_ip_address(Direction, #context{ms_v4 = MSv4, ms_v6 = undefined})
+  when MSv4 /= undefined ->
+    #ue_ip_address{type = Direction, ipv4 = alloc_info_addr(MSv4)};
+ue_ip_address(Direction, #context{ms_v4 = undefined, ms_v6 = MSv6})
+  when MSv6 /= undefined ->
+    #ue_ip_address{type = Direction, ipv6 = alloc_info_addr(MSv6)};
+ue_ip_address(Direction, #context{ms_v4 = MSv4, ms_v6 = MSv6})
+  when MSv4 /= undefined, MSv6 /= undefined ->
+    #ue_ip_address{type = Direction, ipv4 = alloc_info_addr(MSv4),
+		   ipv6 = alloc_info_addr(MSv6)};
+
+ue_ip_address(Direction, #tdf_ctx{ms_v4 = MSv4}) when MSv4 /= undefined ->
+    #ue_ip_address{type = Direction, ipv4 = alloc_info_addr(MSv4)};
+ue_ip_address(Direction, #tdf_ctx{ms_v6 = MSv6}) when MSv6 /= undefined ->
+    #ue_ip_address{type = Direction, ipv6 = alloc_info_addr(MSv6)}.
 
 network_instance(Name)
   when is_binary(Name) ->

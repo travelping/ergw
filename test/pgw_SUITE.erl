@@ -731,7 +731,7 @@ init_per_testcase(create_session_request_rf_fail, Config) ->
     Config;
 init_per_testcase(create_session_request_pool_exhausted, Config) ->
     setup_per_testcase(Config),
-    ok = meck:new(ergw_ip_pool, [passthrough, no_link]),
+    ok = meck:new(ergw_local_pool, [passthrough, no_link]),
     Config;
 init_per_testcase(path_restart, Config) ->
     setup_per_testcase(Config),
@@ -886,7 +886,7 @@ end_per_testcase(Config) ->
     stop_gtpc_server(),
 
     PoolId = [<<"pool-A">>, ipv4, "10.180.0.1"],
-    ?match_metric(prometheus_gauge, ergw_ip_pool_free, PoolId, 65534),
+    ?match_metric(prometheus_gauge, ergw_local_pool_free, PoolId, 65534),
 
     AppsCfg = proplists:get_value(aaa_cfg, Config),
     ok = application:set_env(ergw_aaa, apps, AppsCfg),
@@ -913,7 +913,7 @@ end_per_testcase(TestCase, Config)
     end_per_testcase(Config),
     Config;
 end_per_testcase(create_session_request_pool_exhausted, Config) ->
-    meck:unload(ergw_ip_pool),
+    meck:unload(ergw_local_pool),
     end_per_testcase(Config),
     Config;
 end_per_testcase(path_restart, Config) ->
@@ -1032,15 +1032,15 @@ create_session_request_gy_fail() ->
 create_session_request_gy_fail(Config) ->
     PoolId = [<<"pool-A">>, ipv4, "10.180.0.1"],
 
-    ?match_metric(prometheus_gauge, ergw_ip_pool_free, PoolId, 65534),
-    ?match_metric(prometheus_gauge, ergw_ip_pool_used, PoolId, 0),
+    ?match_metric(prometheus_gauge, ergw_local_pool_free, PoolId, 65534),
+    ?match_metric(prometheus_gauge, ergw_local_pool_used, PoolId, 0),
 
     create_session(gy_fail, Config),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
 
-    ?match_metric(prometheus_gauge, ergw_ip_pool_free, PoolId, 65534),
-    ?match_metric(prometheus_gauge, ergw_ip_pool_used, PoolId, 0),
+    ?match_metric(prometheus_gauge, ergw_local_pool_free, PoolId, 65534),
+    ?match_metric(prometheus_gauge, ergw_local_pool_used, PoolId, 0),
 
     meck_validate(Config),
     ok.
@@ -1079,28 +1079,37 @@ create_session_request_pool_exhausted(Config) ->
 				     meck:exception(throw, CtxErr)
 			     end
 		     end),
-    ok = meck:expect(ergw_ip_pool, get,
-		     fun(_Pool, _TEI, ipv6, _PrefixLen) ->
-			     {error, empty};
-			(Pool, TEI, Request, PrefixLen) ->
-			     meck:passthrough([Pool, TEI, Request, PrefixLen])
+    ok = meck:expect(ergw_local_pool, wait_pool_response,
+		     fun({error, empty} = Error) ->
+			     Error;
+			(ReqId) ->
+			     meck:passthrough([ReqId])
 		     end),
+
+    ok = meck:expect(ergw_local_pool, send_pool_request,
+		     fun(_ClientId, {_, ipv6, _, _} = Req) ->
+			     {error, empty};
+			(ClientId, Req) ->
+			     meck:passthrough([ClientId, Req])
+		     end),
+
     create_session(pool_exhausted, Config),
     %% {GtpC1, _, _} = create_session({partial, ipv6}, Config),
     %% delete_session(GtpC1),
 
-    ok = meck:expect(ergw_ip_pool, get,
-		     fun(_Pool, _TEI, ipv4, _PrefixLen) ->
+    ok = meck:expect(ergw_local_pool, send_pool_request,
+		     fun(_ClientId, {_, ipv4, _, _} = Req) ->
 			     {error, empty};
-			(Pool, TEI, Request, PrefixLen) ->
-			     meck:passthrough([Pool, TEI, Request, PrefixLen])
+			(ClientId, Req) ->
+			     meck:passthrough([ClientId, Req])
 		     end),
+
     create_session(pool_exhausted, Config),
     %% {GtpC2, _, _} = create_session({partial, ipv4}, Config),
     %% delete_session(GtpC2),
 
-    ok = meck:expect(ergw_ip_pool, get,
-		     fun(_Pool, _TEI, _Type, _PrefixLen) ->
+    ok = meck:expect(ergw_local_pool, send_pool_request,
+		     fun(_ClientId, _Req) ->
 			     {error, empty}
 		     end),
     create_session(pool_exhausted, Config),
@@ -1272,21 +1281,21 @@ simple_session_request() ->
 simple_session_request(Config) ->
     PoolId = [<<"pool-A">>, ipv4, "10.180.0.1"],
 
-    ?match_metric(prometheus_gauge, ergw_ip_pool_free, PoolId, 65534),
-    ?match_metric(prometheus_gauge, ergw_ip_pool_used, PoolId, 0),
+    ?match_metric(prometheus_gauge, ergw_local_pool_free, PoolId, 65534),
+    ?match_metric(prometheus_gauge, ergw_local_pool_used, PoolId, 0),
 
     {GtpC, _, _} = create_session(ipv4, Config),
 
-    ?match_metric(prometheus_gauge, ergw_ip_pool_free, PoolId, 65533),
-    ?match_metric(prometheus_gauge, ergw_ip_pool_used, PoolId, 1),
+    ?match_metric(prometheus_gauge, ergw_local_pool_free, PoolId, 65533),
+    ?match_metric(prometheus_gauge, ergw_local_pool_used, PoolId, 1),
 
     delete_session(GtpC),
 
     ?equal([], outstanding_requests()),
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
 
-    ?match_metric(prometheus_gauge, ergw_ip_pool_free, PoolId, 65534),
-    ?match_metric(prometheus_gauge, ergw_ip_pool_used, PoolId, 0),
+    ?match_metric(prometheus_gauge, ergw_local_pool_free, PoolId, 65534),
+    ?match_metric(prometheus_gauge, ergw_local_pool_used, PoolId, 0),
 
     [SER|_] = lists:filter(
 		fun(#pfcp{type = session_establishment_request}) -> true;
