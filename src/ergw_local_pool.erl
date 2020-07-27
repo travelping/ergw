@@ -59,12 +59,12 @@ start_link(ServerName, PoolName, Pool, Opts) ->
     gen_server:start_link(ServerName, ?MODULE, [PoolName, Pool], Opts).
 
 send_pool_request(ClientId, {Pool, IP, PrefixLen, Opts}) when is_pid(Pool) ->
-    gen_server:send_request(Pool, {get, ClientId, IP, PrefixLen, Opts});
+    send_request(Pool, {get, ClientId, IP, PrefixLen, Opts});
 send_pool_request(ClientId, {Pool, IP, PrefixLen, Opts}) ->
     send_request(ergw_local_pool_reg:lookup(Pool), {get, ClientId, IP, PrefixLen, Opts}).
 
 wait_pool_response(ReqId) ->
-    case gen_server:wait_response(ReqId, 1000) of
+    case wait_response(ReqId, 1000) of
 	%% {reply, {error, _}} ->
 	%%     undefined;
 	{reply, Reply} ->
@@ -79,8 +79,35 @@ release({_, Server, {IP, _}, Pool, _Opts}) ->
     %% see alloc_reply
     gen_server:cast(Server, {release, IP, Pool}).
 
+-if(OTP_RELEASE >= 23).
 send_request(Server, Request) ->
     gen_server:send_request(Server, Request).
+
+wait_response(Mref, Timeout) ->
+    gen_server:wait_response(Mref, Timeout).
+-else.
+send_request(Server, Request) ->
+    ReqF = fun() -> exit({reply, gen_server:call(Server, Request)}) end,
+    try spawn_monitor(ReqF) of
+	{_, Mref} -> Mref
+    catch
+	error: system_limit = E ->
+	    %% Make send_request async and fake a down message
+	    Ref = erlang:make_ref(),
+	    self() ! {'DOWN', Ref, process, Server, {error, E}},
+	    Ref
+    end.
+
+wait_response(Mref, Timeout)
+  when is_reference(Mref) ->
+    receive
+	{'DOWN', Mref, _, _, Reason} ->
+	    Reason
+    after Timeout ->
+	    timeout
+    end.
+
+-endif.
 
 ip({?MODULE, _, IP, _, _}) -> IP.
 opts({?MODULE, _, _, _, Opts}) -> Opts.
