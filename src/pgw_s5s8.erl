@@ -263,7 +263,7 @@ handle_event({timeout, context_idle}, stop_session, _state, Data) ->
 
 handle_event(internal, {session, stop, _Session}, run, Data) ->
     delete_context(undefined, normal, Data);
-handle_event(internal, {session, stop, _Session}, _, Data) ->
+handle_event(internal, {session, stop, _Session}, _, _) ->
     keep_state_and_data;
 
 handle_event(internal, {session, {update_credits, _} = CreditEv, _}, _State,
@@ -382,7 +382,8 @@ handle_request(ReqKey,
     ergw_sx_node:wait_connect(SxConnectId),
     {UPinfo0, ContextUP} = ergw_gsn_lib:select_upf(Candidates, ContextPreAuth),
 
-    SessionOpts  = init_session_pool(ContextUP, SessionOpts1),
+    SessionOpts  = ergw_gsn_lib:init_session_ip_opts(UPinfo0, ContextUP, SessionOpts1),
+
     {ok, ActiveSessionOpts0, AuthSEvs} =
 	authenticate(ContextUP, Session, SessionOpts, Request),
 
@@ -765,12 +766,13 @@ pdn_alloc(#v2_pdn_address_allocation{type = ipv6,
 				     address = << IP6PrefixLen:8, IP6Prefix:16/binary>>}) ->
     {'IPv6', undefined, {ergw_inet:bin2ip(IP6Prefix), IP6PrefixLen}}.
 
-encode_paa({IPv4,_}, undefined) ->
-    encode_paa(ipv4, ergw_inet:ip2bin(IPv4), <<>>);
-encode_paa(undefined, IPv6) ->
-    encode_paa(ipv6, <<>>, ip2prefix(IPv6));
-encode_paa({IPv4,_}, IPv6) ->
-    encode_paa(ipv4v6, ergw_inet:ip2bin(IPv4), ip2prefix(IPv6)).
+encode_paa(IPv4, undefined) when IPv4 /= undefined ->
+    encode_paa(ipv4, ergw_inet:ip2bin(ergw_ip_pool:addr(IPv4)), <<>>);
+encode_paa(undefined, IPv6) when IPv6 /= undefined ->
+    encode_paa(ipv6, <<>>, ip2prefix(ergw_ip_pool:ip(IPv6)));
+encode_paa(IPv4, IPv6) when IPv4 /= undefined, IPv6 /= undefined ->
+    encode_paa(ipv4v6, ergw_inet:ip2bin(ergw_ip_pool:addr(IPv4)),
+	       ip2prefix(ergw_ip_pool:ip(IPv6))).
 
 encode_paa(Type, IPv4, IPv6) ->
     #v2_pdn_address_allocation{type = Type, address = <<IPv6/binary, IPv4/binary>>}.
@@ -1125,15 +1127,6 @@ process_secondary_rat_usage_data_reports(_, _, _) ->
 init_session_from_gtp_req(IEs, AAAopts, Context, Session0) ->
     Session = copy_qos_to_session(IEs, Session0),
     maps:fold(copy_to_session(_, _, AAAopts, Context, _), Session, IEs).
-
-init_session_pool(#context{ipv4_pool = undefined, ipv6_pool = undefined}, Session) ->
-    Session;
-init_session_pool(#context{ipv4_pool = IPv4Pool, ipv6_pool = undefined}, Session) ->
-    Session#{'Framed-Pool' => IPv4Pool};
-init_session_pool(#context{ipv4_pool = undefined, ipv6_pool = IPv6Pool}, Session) ->
-    Session#{'Framed-IPv6-Pool' => IPv6Pool};
-init_session_pool(#context{ipv4_pool = IPv4Pool, ipv6_pool = IPv6Pool}, Session) ->
-    Session#{'Framed-Pool' => IPv4Pool, 'Framed-IPv6-Pool' => IPv6Pool}.
 
 update_session_from_gtp_req(IEs, Session, Context) ->
     OldSOpts = ergw_aaa_session:get(Session),

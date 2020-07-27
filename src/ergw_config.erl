@@ -18,6 +18,7 @@
 	 check_unique_keys/2,
 	 validate_ip_cfg_opt/2,
 	 opts_fold/3,
+	 get_opt/3,
 	 to_map/1]).
 
 -define(DefaultOptions, [{plmn_id, {<<"001">>, <<"01">>}},
@@ -425,8 +426,7 @@ validate_apn_option({prefered_bearer_type = Opt, Type})
     {Opt, Type};
 validate_apn_option({ipv6_ue_interface_id = Opt, Type})
   when Type =:= default;
-       Type =:= random;
-       Type =:= sgsnemu ->
+       Type =:= random ->
     {Opt, Type};
 validate_apn_option({ipv6_ue_interface_id, {0,0,0,0,E,F,G,H}} = Opt)
   when E >= 0, E < 65536, F >= 0, F < 65536,

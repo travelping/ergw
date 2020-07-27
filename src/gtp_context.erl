@@ -588,9 +588,9 @@ context2keys(#context{
       [port_teid_key(CntlPort, 'gtp-c', LocalCntlTEI),
        port_teid_key(CntlPort, 'gtp-c', RemoteCntlTEID)]
       ++ [port_key(CntlPort, ContextId) || ContextId /= undefined]
-      ++ [#bsf{dnn = APN, ip_domain = VRF, ip = MSv4} || MSv4 /= undefined]
+      ++ [#bsf{dnn = APN, ip_domain = VRF, ip = ergw_ip_pool:ip(MSv4)} || MSv4 /= undefined]
       ++ [#bsf{dnn = APN, ip_domain = VRF,
-	       ip = ergw_inet:ipv6_prefix(MSv6)} || MSv6 /= undefined]);
+	       ip = ergw_inet:ipv6_prefix(ergw_ip_pool:ip(MSv6))} || MSv6 /= undefined]);
 context2keys(#context{
 		context_id          = ContextId,
 		control_port        = CntlPort,

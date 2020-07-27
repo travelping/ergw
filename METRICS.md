@@ -24,8 +24,8 @@ The following metrics exist:
 | gtp\_c\_socket\_errors\_total                   | counter   | name, direction, error                         | Total number of GTP errors on socket                     |
 | gtp\_c\_socket\_request\_duration\_microseconds | histogram | name, version, type                            | GTP Request execution time.                              |
 | gtp\_u\_socket\_messages\_processed\_total      | counter   | name, direction, version, type                 | Total number of GTP message processed on socket          |
-| ergw\_ip\_pool\_free                            | gauge     | name, type, id                                 | Number of free IPs                                       |
-| ergw\_ip\_pool\_used                            | gauge     | name, type, id                                 | Number of used IPs                                       |
+| ergw\_local\_pool\_free                         | gauge     | name, type, id                                 | Number of free IPs                                       |
+| ergw\_local\_pool\_used                         | gauge     | name, type, id                                 | Number of used IPs                                       |
 
 The label `name` is is taken from the configuration of the GTP socket and PeerIP is the IP address of
 the peer GSN.

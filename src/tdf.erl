@@ -119,7 +119,7 @@ port_message(Server, Request, Msg, Resent) ->
 
 callback_mode() -> [handle_event_function, state_enter].
 
-maybe_ip(IP, Len) when is_binary(IP) -> {IP, Len};
+maybe_ip(IP, Len) when is_binary(IP) -> ergw_ip_pool:static_ip(IP, Len);
 maybe_ip(_,_) -> undefined.
 
 init([Node, InVRF, IP4, IP6, #{apn := APN} = _SxOpts]) ->
@@ -420,9 +420,8 @@ init_session(#data{context = Context}) ->
 	 },
     Opts1 =
 	case Context of
-	    #tdf_ctx{ms_v4 = {IP4, _}}
-	      when is_binary(IP4) ->
-		IP4addr = ergw_inet:bin2ip(IP4),
+	    #tdf_ctx{ms_v4 = IP4} when IP4 /= undefined ->
+		IP4addr = ergw_inet:bin2ip(ergw_ip_pool:addr(IP4)),
 		Opts0#{
 		       'Framed-IP-Address' => IP4addr,
 		       'Requested-IP-Address' => IP4addr};
@@ -430,9 +429,8 @@ init_session(#data{context = Context}) ->
 		Opts0
 	end,
     case Context of
-	#tdf_ctx{ms_v6 = {IP6, _}}
-	  when is_binary(IP6) ->
-	    IP6addr = ergw_inet:bin2ip(IP6),
+	#tdf_ctx{ms_v6 = IP6} when IP6 /= undefined ->
+	    IP6addr = ergw_inet:bin2ip(ergw_ip_pool:addr(IP6)),
 	    Opts1#{'Framed-IPv6-Prefix' => IP6addr,
 		   'Requested-IPv6-Prefix' => IP6addr};
 	_ ->
@@ -532,10 +530,10 @@ handle_charging_event(Key, Ev, _Now, Data) ->
 %% context registry
 %%====================================================================
 
-vrf_keys(#tdf_ctx{in_vrf = InVrf, out_vrf = OutVrf}, {IP, _})
-  when is_binary(InVrf) andalso is_binary(OutVrf) andalso
-       is_binary(IP) andalso (size(IP) == 4 orelse size(IP) == 16) ->
-    [{ue, InVrf, IP}, {ue, OutVrf, IP}];
+vrf_keys(#tdf_ctx{in_vrf = InVrf, out_vrf = OutVrf}, IP)
+  when is_binary(InVrf), is_binary(OutVrf), IP /= undefined ->
+    Addr = ergw_ip_pool:addr(IP),
+    [{ue, InVrf, Addr}, {ue, OutVrf, Addr}];
 vrf_keys(_, _) ->
     [].
 

@@ -781,7 +781,6 @@ config(_Config)  ->
     ?error_option(set_cfg_value([apns, ?'APN-EXAMPLE', prefered_bearer_type], undefined, ?GGSN_CONFIG)),
 
     ?ok_option(set_cfg_value([apns, ?'APN-EXAMPLE', ipv6_ue_interface_id], default, ?GGSN_CONFIG)),
-    ?ok_option(set_cfg_value([apns, ?'APN-EXAMPLE', ipv6_ue_interface_id], sgsnemu, ?GGSN_CONFIG)),
     ?ok_option(set_cfg_value([apns, ?'APN-EXAMPLE', ipv6_ue_interface_id], random, ?GGSN_CONFIG)),
     ?ok_option(set_cfg_value([apns, ?'APN-EXAMPLE', ipv6_ue_interface_id], {0,0,0,0,0,0,0,2}, ?GGSN_CONFIG)),
     ?error_option(set_cfg_value([apns, ?'APN-EXAMPLE', ipv6_ue_interface_id], undefined, ?GGSN_CONFIG)),

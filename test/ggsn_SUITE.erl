@@ -148,12 +148,6 @@
 		    [{vrf, sgi},
 		     {ip_pools, ['pool-A']},
 		     {prefered_bearer_type, 'IPv4'}]},
-		   {[<<"sgsnemu">>],
-		    [{vrf, sgi},
-		     {ip_pools, ['pool-A']},
-		     {ipv6_ue_interface_id, sgsnemu},
-		     {bearer_type, 'IPv6'},
-		     {prefered_bearer_type, 'IPv6'}]},
 		   {[<<"async-sx">>],
 		    [{vrf, sgi},
 		     {ip_pools, ['pool-A']}]}
@@ -428,7 +422,6 @@ common() ->
      path_restart, path_restart_recovery, path_restart_multi,
      path_failure,
      simple_pdp_context_request,
-     sgsnemu_pdp_context_request,
      duplicate_pdp_context_request,
      error_indication,
      pdp_context_request_bearer_types,
@@ -528,7 +521,7 @@ init_per_testcase(create_pdp_context_request_rf_fail, Config) ->
     Config;
 init_per_testcase(create_pdp_context_request_pool_exhausted, Config) ->
     setup_per_testcase(Config),
-    ok = meck:new(ergw_ip_pool, [passthrough, no_link]),
+    ok = meck:new(ergw_local_pool, [passthrough, no_link]),
     Config;
 init_per_testcase(path_restart, Config) ->
     setup_per_testcase(Config),
@@ -622,7 +615,7 @@ end_per_testcase(Config) ->
     stop_gtpc_server(),
 
     PoolId = [<<"pool-A">>, ipv4, "10.180.0.1"],
-    ?match_metric(prometheus_gauge, ergw_ip_pool_free, PoolId, 65534),
+    ?match_metric(prometheus_gauge, ergw_local_pool_free, PoolId, 65534),
 
     AppsCfg = proplists:get_value(aaa_cfg, Config),
     ok = application:set_env(ergw_aaa, apps, AppsCfg),
@@ -641,7 +634,7 @@ end_per_testcase(TestCase, Config)
     end_per_testcase(Config),
     Config;
 end_per_testcase(create_pdp_context_request_pool_exhausted, Config) ->
-    meck:unload(ergw_ip_pool),
+    meck:unload(ergw_local_pool),
     end_per_testcase(Config),
     Config;
 end_per_testcase(path_restart, Config) ->
@@ -758,8 +751,8 @@ create_pdp_context_request_gy_fail() ->
 create_pdp_context_request_gy_fail(Config) ->
     PoolId = [<<"pool-A">>, ipv4, "10.180.0.1"],
 
-    ?match_metric(prometheus_gauge, ergw_ip_pool_free, PoolId, 65534),
-    ?match_metric(prometheus_gauge, ergw_ip_pool_used, PoolId, 0),
+    ?match_metric(prometheus_gauge, ergw_local_pool_free, PoolId, 65534),
+    ?match_metric(prometheus_gauge, ergw_local_pool_used, PoolId, 0),
 
     MetricsBefore = socket_counter_metrics(),
 
@@ -770,8 +763,8 @@ create_pdp_context_request_gy_fail(Config) ->
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
 
-    ?match_metric(prometheus_gauge, ergw_ip_pool_free, PoolId, 65534),
-    ?match_metric(prometheus_gauge, ergw_ip_pool_used, PoolId, 0),
+    ?match_metric(prometheus_gauge, ergw_local_pool_free, PoolId, 65534),
+    ?match_metric(prometheus_gauge, ergw_local_pool_used, PoolId, 0),
 
     socket_counter_metrics_ok(MetricsBefore, MetricsAfter, create_pdp_context_request),
     socket_counter_metrics_ok(MetricsBefore, MetricsAfter, system_failure), % In response
@@ -819,13 +812,20 @@ create_pdp_context_request_pool_exhausted(Config) ->
 				     meck:exception(throw, CtxErr)
 			     end
 		     end),
+    ok = meck:expect(ergw_local_pool, wait_pool_response,
+		     fun({error, empty} = Error) ->
+			     Error;
+			(ReqId) ->
+			     meck:passthrough([ReqId])
+		     end),
+
     MetricsBefore = socket_counter_metrics(),
 
-    ok = meck:expect(ergw_ip_pool, get,
-		     fun(_Pool, _TEI, ipv6, _PrefixLen) ->
+    ok = meck:expect(ergw_local_pool, send_pool_request,
+		     fun(_ClientId, {_, ipv6, _, _} = Req) ->
 			     {error, empty};
-			(Pool, TEI, Request, PrefixLen) ->
-			     meck:passthrough([Pool, TEI, Request, PrefixLen])
+			(ClientId, Req) ->
+			     meck:passthrough([ClientId, Req])
 		     end),
     create_pdp_context(pool_exhausted, Config),
 
@@ -833,16 +833,16 @@ create_pdp_context_request_pool_exhausted(Config) ->
     socket_counter_metrics_ok(MetricsBefore, MetricsAfter, create_pdp_context_request),
     socket_counter_metrics_ok(MetricsBefore, MetricsAfter, all_dynamic_pdp_addresses_are_occupied), % In response
 
-    ok = meck:expect(ergw_ip_pool, get,
-		     fun(_Pool, _TEI, ipv4, _PrefixLen) ->
+    ok = meck:expect(ergw_local_pool, send_pool_request,
+		     fun(_ClientId, {_, ipv4, _, _} = Req) ->
 			     {error, empty};
-			(Pool, TEI, Request, PrefixLen) ->
-			     meck:passthrough([Pool, TEI, Request, PrefixLen])
+			(ClientId, Req) ->
+			     meck:passthrough([ClientId, Req])
 		     end),
     create_pdp_context(pool_exhausted, Config),
 
-    ok = meck:expect(ergw_ip_pool, get,
-		     fun(_Pool, _TEI, _Type, _PrefixLen) ->
+    ok = meck:expect(ergw_local_pool, send_pool_request,
+		     fun(_ClientId, _Req) ->
 			     {error, empty}
 		     end),
     create_pdp_context(pool_exhausted, Config),
@@ -976,15 +976,15 @@ simple_pdp_context_request() ->
 simple_pdp_context_request(Config) ->
     PoolId = [<<"pool-A">>, ipv4, "10.180.0.1"],
 
-    ?match_metric(prometheus_gauge, ergw_ip_pool_free, PoolId, 65534),
-    ?match_metric(prometheus_gauge, ergw_ip_pool_used, PoolId, 0),
+    ?match_metric(prometheus_gauge, ergw_local_pool_free, PoolId, 65534),
+    ?match_metric(prometheus_gauge, ergw_local_pool_used, PoolId, 0),
 
     MetricsBefore = socket_counter_metrics(),
     {GtpC, _, _} = create_pdp_context(Config),
     MetricsAfter = socket_counter_metrics(),
 
-    ?match_metric(prometheus_gauge, ergw_ip_pool_free, PoolId, 65533),
-    ?match_metric(prometheus_gauge, ergw_ip_pool_used, PoolId, 1),
+    ?match_metric(prometheus_gauge, ergw_local_pool_free, PoolId, 65533),
+    ?match_metric(prometheus_gauge, ergw_local_pool_used, PoolId, 1),
 
     delete_pdp_context(GtpC),
 
@@ -996,23 +996,8 @@ simple_pdp_context_request(Config) ->
     socket_counter_metrics_ok(MetricsBefore, MetricsAfter, create_pdp_context_request),
     socket_counter_metrics_ok(MetricsBefore, MetricsAfter, request_accepted), % In response
 
-    ?match_metric(prometheus_gauge, ergw_ip_pool_free, PoolId, 65534),
-    ?match_metric(prometheus_gauge, ergw_ip_pool_used, PoolId, 0),
-
-    meck_validate(Config),
-    ok.
-
-%%--------------------------------------------------------------------
-sgsnemu_pdp_context_request() ->
-    [{doc, "Check simple Create PDP Context, Delete PDP Context sequence"}].
-sgsnemu_pdp_context_request(Config) ->
-    {GtpC, _, _} = create_pdp_context({ipv6, false, sgsnemu}, Config),
-    delete_pdp_context(GtpC),
-
-    ?match({_, {<<Id:64, Id:64>>, _}}, GtpC#gtpc.ue_ip),
-
-    ?equal([], outstanding_requests()),
-    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    ?match_metric(prometheus_gauge, ergw_local_pool_free, PoolId, 65534),
+    ?match_metric(prometheus_gauge, ergw_local_pool_used, PoolId, 0),
 
     meck_validate(Config),
     ok.
