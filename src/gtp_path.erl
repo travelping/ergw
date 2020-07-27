@@ -359,7 +359,7 @@ handle_event(cast, {handle_request, ReqKey, #gtp{type = echo_request} = Msg0},
 	    ergw_gtp_c_socket:send_response(ReqKey, Response, false),
 	    if EchoState =:= peer_down ->
 		    gtp_path_reg:remove_down_peer(IP),
-		    {next_state, State#state{peer ='down', echo_state = stopped}, Data,
+		    {next_state, State#state{peer = 'DOWN', echo_state = stopped}, Data,
 		     [{{timeout, echo}, cancel}, {{timeout, pd_dur}, cancel}]};
 	       true ->
 		    {next_state, State, Data}
