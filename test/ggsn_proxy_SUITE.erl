@@ -905,14 +905,9 @@ path_failure_to_ggsn(Config) ->
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     wait4tunnels(?TIMEOUT),
-    IPGroup = proplists:get_value(ip_group, Config, ipv4),
-    RestartPeerIP = case IPGroup of
-			ipv4 ->
-			    ?FINAL_GSN_IPv4;
-			ipv6 ->
-			    ?FINAL_GSN_IPv6
-		    end,
+    {ok, [RestartPeerIP]} = gtp_path_reg:get_down_peers(),
     gtp_path_reg:remove_down_peer(RestartPeerIP),
+
     meck_validate(Config),
 
     ok = meck:delete(ergw_gtp_c_socket, send_request, 7),
@@ -977,16 +972,16 @@ path_failure_to_ggsn_and_restore(Config) ->
 		     fun (_, IP, _, _, _, #gtp{type = echo_request}, CbInfo)
 			   when IP =:= FinalGSN ->
 			     %% simulate a Echo success
-			     EchoResp = #gtp{version = v2, type = echo_response,
+			     EchoResp = #gtp{version = v1, type = echo_response,
 					     seq_no = 0,
 					     ie = [#recovery{instance = 0,
-							     restart_counter = 3}]},
+                                restart_counter = 3}]},
 			     ergw_gtp_c_socket:send_reply(CbInfo, EchoResp);
 			 (GtpPort, IP, Port, T3, N3, Msg, CbInfo) ->
 			     meck:passthrough([GtpPort, IP, Port, T3, N3, Msg, CbInfo])
              end),
-             gtp_path:ping(CPort, v2, FinalGSN),
     %% Successful echo, clears down marked IP.
+    gtp_path:ping(CPort, v1, FinalGSN),
     ct:sleep(100),
     {ok, Res} = gtp_path_reg:get_down_peers(),
     ?match([], Res),

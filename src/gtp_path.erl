@@ -206,18 +206,10 @@ init([#gtp_port{name = PortName} = GtpPort, Version, RemoteIP, Args]) ->
     ?LOG(debug, "State: ~p Data: ~p", [State, Data]),
     {ok, State, Data}.
 
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
->>>>>>> rebased on latest master
 handle_event(enter, #state{contexts = OldCtxS}, #state{contexts = CtxS}, Data)
   when OldCtxS =/= CtxS ->
     Actions = update_path_counter(gb_sets:size(CtxS), Data),
     {keep_state_and_data, Actions};
-<<<<<<< HEAD
-handle_event(enter, #state{echo_timer = OldEchoT}, #state{echo_timer = idle},
-	     #{echo := EchoInterval}) when OldEchoT =/= idle ->
-=======
 handle_event(enter, #state{echo_state = stopped}, #state{echo_state = active},
 	     #{echo := EchoInterval}) ->
     {keep_state_and_data, [{{timeout, echo}, EchoInterval, start_echo}]};
@@ -226,29 +218,10 @@ handle_event(enter, #state{echo_ref = Ref}, #state{echo_state = active},
     {keep_state_and_data, [{{timeout, echo}, EchoInterval, start_echo}]};
 handle_event(enter, #state{echo_ref = Ref}, #state{echo_state = peer_down},
 	     #{pd_echo := EchoInterval}) when is_reference(Ref) ->
->>>>>>> rebased on latest master
     {keep_state_and_data, [{{timeout, echo}, EchoInterval, start_echo}]};
 handle_event(enter, _OldState, _State, _Data) ->
     keep_state_and_data;
 
-<<<<<<< HEAD
-handle_event({timeout, echo}, stop_echo, State, Data) ->
-    {next_state, State#state{echo_timer = stopped}, Data, [{{timeout, echo}, cancel}]};
-
-handle_event({timeout, echo}, start_echo, #state{echo_timer = EchoT} = State0, Data)
-  when EchoT =:= stopped;
-       EchoT =:= idle ->
-    State = send_echo_request(State0, Data),
-    {next_state, State, Data};
-handle_event({timeout, echo}, start_echo, _State, _Data) ->
-=======
-handle_event(enter, _OldState, _State, _Data) ->
->>>>>>> rebasing on master changes 22-July-2020
-    keep_state_and_data;
-
-handle_event({call, From}, all, _State, #{table := TID}) ->
-    Reply = ets:tab2list(TID),
-=======
 %% If monitoring  down_peer, don't stop sending monitor echos 
 %% just because there are no sessionss
 handle_event({timeout, echo}, stop_echo, #state{echo_state = peer_down} = State0, Data) ->
@@ -282,7 +255,6 @@ handle_event({timeout, pd_dur}, _, _State,
 
 handle_event({call, From}, all, #state{contexts = CtxS}, _Data) ->
     Reply = gb_sets:to_list(CtxS),
->>>>>>> rebased on latest master
     {keep_state_and_data, [{reply, From, Reply}]};
 
 handle_event({call, From}, {bind, Pid}, #state{recovery = RestartCounter} = State0, Data) ->
@@ -310,40 +282,9 @@ handle_event({call, From}, info, #state{contexts = CtxS} = State,
 handle_event({call, From}, '$stop', _State, _Data) ->
     {stop_and_reply, normal, [{reply, From, ok}]};
 
-<<<<<<< HEAD
-handle_event({call, From}, Request, _State, Data) ->
-    ?LOG(warning, "handle_event(call,...): ~p", [Request]),
-    {keep_state_and_data, [{reply, From, ok}]};
-
-%% If an echo request received from down peer i.e state = 'INACTIVE', then
-%% cancel peer down duration timer, Peer down echo timer.
-%% wait for first GTP Msg to start sending normal echos again. 
-handle_event(cast, {handle_request, ReqKey, #gtp{type = echo_request} = Msg0}, 
-	     #state{peer = 'INACTIVE'} = State0,
-	     #{gtp_port := GtpPort, ip := RemoteIP, handler := Handler} = Data0) ->
-    ?LOG(debug, "echo_request from inactive peer: ~p", [Msg0]),
-    try gtp_packet:decode_ies(Msg0) of
-        Msg = #gtp{} ->
-            {State, Data} = handle_recovery_ie(Msg, State0, Data0),
-
-            ResponseIEs = Handler:build_recovery(echo_response, GtpPort, true, []),
-            Response = Msg#gtp{type = echo_response, ie = ResponseIEs},
-            ergw_gtp_c_socket:send_response(ReqKey, Response, false),
-            gtp_path_reg:remove_down_peer(RemoteIP),
-            Actions0 = timeout_action([], infinity, 'pd_echo'),
-            Actions = timeout_action(Actions0, infinity, 'pd_dur'),
-            {next_state, State#state{peer ='DOWN', echo_timer = 'stopped'}, Data, 
-             Actions}
-    catch
-	Class:Error ->
-	    ?LOG(error, "GTP decoding failed with ~p:~p for ~p", [Class, Error, Msg0]),
-	    {noreply, State0}
-    end;
-=======
 handle_event({call, From}, Request, _State, _Data) ->
     ?LOG(warning, "handle_event(call,...): ~p", [Request]),
     {keep_state_and_data, [{reply, From, ok}]};
->>>>>>> rebased on latest master
 
 %% If an echo request received from down peer i.e echo_state = 'peer_down', then
 %% cancel peer down duration timer, Peer down echo timer. Reset
