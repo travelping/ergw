@@ -1237,7 +1237,7 @@ path_maintenance(Config) ->
     ok = meck:expect(gtp_path, init,
 		     fun ([GtpPort, Version, RemoteIP, Args0]) ->
 			     %% overwrite ping interval
-			     Args = [{ping, 10}|Args0],
+			     Args = Args0#{echo => 10},
 			     meck:passthrough([[GtpPort, Version, RemoteIP, Args]])
 		     end),
 
@@ -1254,7 +1254,7 @@ path_maintenance(Config) ->
     wait4tunnels(?TIMEOUT),
 
     EchoMs = ['_', echo_request, '_', #gtp{type = echo_response, _ = '_'}],
-    ?match(X when X > 8, meck:num_calls(gtp_path, handle_response, EchoMs)),
+    ?match(X when X >= 8, meck:num_calls(gtp_path, handle_response, EchoMs)),
 
     meck:reset(gtp_path),
     %% wait for 100ms
