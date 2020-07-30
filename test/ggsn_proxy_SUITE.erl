@@ -1,4 +1,4 @@
-%% Copyright 2017, Travelping GmbH <info@travelping.com>
+%% Copyright 2017-2020, Travelping GmbH <info@travelping.com>
 
 %% This program is free software; you can redistribute it and/or
 %% modify it under the terms of the GNU General Public License
@@ -17,6 +17,8 @@
 -include("ergw_ggsn_test_lib.hrl").
 
 -define(TIMEOUT, 2000).
+-define(NUM_OF_CLIENTS, 6). %% Num of IP clients for multi contexts
+
 -define(HUT, ggsn_gn_proxy).			%% Handler Under Test
 
 %%%===================================================================
@@ -39,7 +41,8 @@
 	  ]},
 
 	 {ergw, [{'$setup_vars',
-		  [{"ORIGIN", {value, "epc.mnc001.mcc001.3gppnetwork.org"}}]},
+		  [{"ORIGIN", {value, "epc.mnc001.mcc001.3gppnetwork.org"}},
+		   {"HOMECC", {value, "epc.mnc000.mcc700.3gppnetwork.org"}}]},
 		 {dp_handler, '$meck'},
 		 {sockets,
 		  [{cp, [{type, 'gtp-u'},
@@ -57,7 +60,11 @@
 		   {'remote-irx', [{type, 'gtp-c'},
 				   {ip,  ?MUST_BE_UPDATED},
 				   {reuseaddr, true}
-				  ]}
+				  ]},
+		   {'remote-irx2', [{type, 'gtp-c'},
+				    {ip, ?MUST_BE_UPDATED},
+				    {reuseaddr, true}
+				   ]}
 		  ]},
 
 		 {ip_pools,
@@ -86,7 +93,7 @@
 			]},
 		   %% remote GGSN handler
 		   {gn, [{handler, ggsn_gn},
-			 {sockets, ['remote-irx']},
+			 {sockets, ['remote-irx', 'remote-irx2']},
 			 {node_selection, [default]},
 			 {aaa, [{'Username',
 				 [{default, ['IMSI', <<"@">>, 'APN']}]}]}
@@ -115,8 +122,16 @@
 		       [{"x-3gpp-upf","x-sxb"}],
 		       "topon.pgw-1.nodes.$ORIGIN"},
 
+		      {"lb-1.apn.$HOMECC", {300,64536},
+		       [{"x-3gpp-ggsn","x-gn"},{"x-3gpp-ggsn","x-gp"}],
+		       "topon.gtp.ggsn.$ORIGIN"},
+		      {"lb-1.apn.$HOMECC", {300,64536},
+		       [{"x-3gpp-ggsn","x-gn"},{"x-3gpp-ggsn","x-gp"}],
+		       "topon.gtp.ggsn-2.$ORIGIN"},
+
 		      %% A/AAAA record alternatives
 		      {"topon.gtp.ggsn.$ORIGIN", ?MUST_BE_UPDATED, []},
+		      {"topon.gtp.ggsn-2.$ORIGIN", ?MUST_BE_UPDATED, []},
 		      {"topon.sx.sgw-u01.$ORIGIN", ?MUST_BE_UPDATED, []},
 		      {"topon.sx.pgw-u01.$ORIGIN", ?MUST_BE_UPDATED, []},
 		      {"topon.pgw-1.nodes.$ORIGIN", ?MUST_BE_UPDATED, []},
@@ -137,7 +152,8 @@
 		 {apns,
 		  [{?'APN-PROXY',
 		    [{vrf, example},
-		     {ip_pools, ['pool-A']}]}
+		     {ip_pools, ['pool-A']}]},
+		   {?'APN-LB-1', [{vrf, example}, {ip_pools, ['pool-A']}]}
 		  ]},
 
 		 {charging,
@@ -174,6 +190,7 @@
 		       {irx, [{features, ['Access']}]},
 		       {'proxy-irx', [{features, ['Core']}]},
 		       {'remote-irx', [{features, ['Access']}]},
+		       {'remote-irx2', [{features, ['Access']}]},
 		       {example, [{features, ['SGi-LAN']}]}]
 		     },
 		     {ip_pools, ['pool-A']}]
@@ -182,7 +199,16 @@
 		   {"topon.sx.pgw-u01.$ORIGIN", [connect]},
 		   {"topon.upf-1.nodes.$ORIGIN", [connect]}
 		  ]
-		 }
+		 },
+
+		 {path_management, [{active, false},
+				    {t3, 10 * 1000},
+				    {n3,  5},
+				    {echo, 60 * 1000},
+				    {idle_timeout, 1800 * 1000},
+				    {idle_echo,     600 * 1000},
+				    {down_timeout, 3600 * 1000},
+				    {down_echo,     600 * 1000}]}
 		]},
 
 	 {ergw_aaa,
@@ -245,7 +271,8 @@
 	  ]},
 
 	 {ergw, [{'$setup_vars',
-		  [{"ORIGIN", {value, "epc.mnc001.mcc001.3gppnetwork.org"}}]},
+		  [{"ORIGIN", {value, "epc.mnc001.mcc001.3gppnetwork.org"}},
+		   {"HOMECC", {value, "epc.mnc000.mcc700.3gppnetwork.org"}}]},
 		 {dp_handler, '$meck'},
 		 {sockets,
 		  [{cp, [{type, 'gtp-u'},
@@ -259,7 +286,11 @@
 		   {'remote-irx', [{type, 'gtp-c'},
 				   {ip,  ?FINAL_GSN_IPv4},
 				   {reuseaddr, true}
-				  ]}
+				  ]},
+		   {'remote-irx2', [{type, 'gtp-c'},
+				    {ip, ?MUST_BE_UPDATED},
+				    {reuseaddr, true}
+				   ]}
 		  ]},
 
 		 {ip_pools,
@@ -288,7 +319,7 @@
 			]},
 		   %% remote GGSN handler
 		   {gn, [{handler, ggsn_gn},
-			 {sockets, ['remote-irx']},
+			 {sockets, ['remote-irx', 'remote-irx2']},
 			 {node_selection, [default]},
 			 {aaa, [{'Username',
 				 [{default, ['IMSI', <<"@">>, 'APN']}]}]}
@@ -317,8 +348,16 @@
 		       [{"x-3gpp-upf","x-sxb"}],
 		       "topon.pgw-1.nodes.$ORIGIN"},
 
+		      {"lb-1.apn.$HOMECC", {300,64536},
+		       [{"x-3gpp-ggsn","x-gn"},{"x-3gpp-ggsn","x-gp"}],
+		       "topon.gtp.ggsn.$ORIGIN"},
+		      {"lb-1.apn.$HOMECC", {300,64536},
+		       [{"x-3gpp-ggsn","x-gn"},{"x-3gpp-ggsn","x-gp"}],
+		       "topon.gtp.ggsn-2.$ORIGIN"},
+
 		      %% A/AAAA record alternatives
 		      {"topon.gtp.ggsn.$ORIGIN", ?MUST_BE_UPDATED, []},
+		      {"topon.gtp.ggsn-2.$ORIGIN", ?MUST_BE_UPDATED, []},
 		      {"topon.sx.sgw-u01.$ORIGIN", ?MUST_BE_UPDATED, []},
 		      {"topon.sx.pgw-u01.$ORIGIN", ?MUST_BE_UPDATED, []},
 		      {"topon.pgw-1.nodes.$ORIGIN", ?MUST_BE_UPDATED, []},
@@ -339,7 +378,8 @@
 		 {apns,
 		  [{?'APN-PROXY',
 		    [{vrf, example},
-		     {ip_pools, ['pool-A']}]}
+		     {ip_pools, ['pool-A']}]},
+		   {?'APN-LB-1', [{vrf, example}, {ip_pools, ['pool-A']}]}
 		  ]},
 
 		 {charging,
@@ -375,6 +415,7 @@
 		      [{cp, [{features, ['CP-Function']}]},
 		       {irx, [{features, ['Access', 'Core']}]},
 		       {'remote-irx', [{features, ['Access']}]},
+		       {'remote-irx2', [{features, ['Access']}]},
 		       {example, [{features, ['SGi-LAN']}]}]
 		     },
 		     {ip_pools, ['pool-A']}]
@@ -383,7 +424,16 @@
 		   {"topon.sx.pgw-u01.$ORIGIN", [connect]},
 		   {"topon.upf-1.nodes.$ORIGIN", [connect]}
 		  ]
-		 }
+		 },
+
+		 {path_management, [{active, false},
+				    {t3, 10 * 1000},
+				    {n3,  5},
+				    {echo, 60 * 1000},
+				    {idle_timeout, 1800 * 1000},
+				    {idle_echo,     600 * 1000},
+				    {down_timeout, 3600 * 1000},
+				    {down_echo,     600 * 1000}]}
 		]},
 
 	 {ergw_aaa,
@@ -435,9 +485,12 @@
 	 {[sockets, irx, ip], test_gsn},
 	 {[sockets, 'proxy-irx', ip], proxy_gsn},
 	 {[sockets, 'remote-irx', ip], final_gsn},
+	 {[sockets, 'remote-irx2', ip], final_gsn_2},
 	 {[sx_socket, ip], localhost},
 	 {[node_selection, {default, 2}, 2, "topon.gtp.ggsn.$ORIGIN"],
 	  {fun node_sel_update/2, final_gsn}},
+	 {[node_selection, {default, 2}, 2, "topon.gtp.ggsn-2.$ORIGIN"],
+	  {fun node_sel_update/2, final_gsn_2}},
 	 {[node_selection, {default, 2}, 2, "topon.sx.sgw-u01.$ORIGIN"],
 	  {fun node_sel_update/2, sgw_u_sx}},
 	 {[node_selection, {default, 2}, 2, "topon.sx.pgw-u01.$ORIGIN"],
@@ -452,9 +505,12 @@
 	[{[sockets, cp, ip], localhost},
 	 {[sockets, irx, ip], test_gsn},
 	 {[sockets, 'remote-irx', ip], final_gsn},
+	 {[sockets, 'remote-irx2', ip], final_gsn_2},
 	 {[sx_socket, ip], localhost},
 	 {[node_selection, {default, 2}, 2, "topon.gtp.ggsn.$ORIGIN"],
 	  {fun node_sel_update/2, final_gsn}},
+	 {[node_selection, {default, 2}, 2, "topon.gtp.ggsn-2.$ORIGIN"],
+	  {fun node_sel_update/2, final_gsn_2}},
 	 {[node_selection, {default, 2}, 2, "topon.sx.sgw-u01.$ORIGIN"],
 	  {fun node_sel_update/2, sgw_u_sx}},
 	 {[node_selection, {default, 2}, 2, "topon.sx.pgw-u01.$ORIGIN"],
@@ -527,11 +583,14 @@ common() ->
      create_pdp_context_request_accept_new,
      path_restart, path_restart_recovery,
      path_failure_to_ggsn,
+     path_failure_to_ggsn_and_restore,
      path_failure_to_sgsn,
      simple_pdp_context_request,
      simple_pdp_context_request_no_proxy_map,
      create_pdp_context_request_resend,
      create_pdp_context_proxy_request_resend,
+     create_lb_multi_context,
+     one_lb_node_down,
      delete_pdp_context_request_resend,
      delete_pdp_context_request_timeout,
      error_indication_sgsn2ggsn,
@@ -646,7 +705,17 @@ init_per_testcase(request_fast_resend, Config) ->
 			     meck:passthrough([Request, Msg, Resent, State, Data])
 		     end),
     Config;
+init_per_testcase(path_failure_to_ggsn_and_restore, Config) ->
+    set_path_timers(#{'down_echo' => 1}),
+    setup_per_testcase(Config),
+    Config;
 init_per_testcase(simple_pdp_context_request, Config) ->
+    setup_per_testcase(Config),
+    ok = meck:new(ggsn_gn, [passthrough, no_link]),
+    Config;
+init_per_testcase(TestCase, Config)
+  when TestCase == create_lb_multi_context;
+       TestCase == one_lb_node_down ->
     setup_per_testcase(Config),
     ok = meck:new(ggsn_gn, [passthrough, no_link]),
     Config;
@@ -693,6 +762,12 @@ end_per_testcase(path_restart, Config) ->
     meck:unload(gtp_path),
     end_per_testcase(Config),
     Config;
+end_per_testcase(TestCase, Config)
+  when TestCase == create_lb_multi_context;
+       TestCase == one_lb_node_down->
+    ok = meck:unload(ggsn_gn),
+    end_per_testcase(Config),
+    Config;
 end_per_testcase(create_pdp_context_proxy_request_resend, Config) ->
     ok = meck:unload(ggsn_gn),
     end_per_testcase(Config),
@@ -712,6 +787,9 @@ end_per_testcase(request_fast_resend, Config) ->
     ok = meck:unload(ggsn_gn),
     end_per_testcase(Config),
     Config;
+end_per_testcase(path_failure_to_ggsn_and_restore, Config) ->
+    set_path_timers(#{'down_echo' => 600 * 1000}),
+    end_per_testcase(Config);
 end_per_testcase(simple_pdp_context_request, Config) ->
     meck:unload(ggsn_gn),
     end_per_testcase(Config),
@@ -844,9 +922,94 @@ path_failure_to_ggsn(Config) ->
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     wait4tunnels(?TIMEOUT),
+
+    DownPeers = lists:filter(
+		  fun({_, State}) -> State =:= down end, gtp_path_reg:all(FinalGSN)),
+    ?equal(1, length(DownPeers)),
+    [{PeerPid, _}] = DownPeers,
+    gtp_path:stop(PeerPid),
+
     meck_validate(Config),
 
     ok = meck:delete(ergw_gtp_c_socket, send_request, 7),
+    ok.
+
+%%--------------------------------------------------------------------
+path_failure_to_ggsn_and_restore() ->
+    [{doc, "Check that Create Session Request works and "
+      "that a path failure (Echo timeout) terminates the session "
+      "and is later restored with a valid echo"}].
+path_failure_to_ggsn_and_restore(Config) ->
+    Cntl = whereis(gtpc_client_server),
+
+    ok = meck:expect(ergw_proxy_lib, select_gw,
+		     fun (ProxyInfo, Services, NodeSelect, Port, Context) ->
+			     try
+				 meck:passthrough([ProxyInfo, Services, NodeSelect, Port, Context])
+			     catch
+				 throw:#ctx_err{} = CtxErr ->
+				     meck:exception(throw, CtxErr)
+			     end
+		     end),
+
+    lists:foreach(fun({_, Pid, _}) -> gtp_path:stop(Pid) end, gtp_path_reg:all()),
+
+    {GtpC, _, _} = create_pdp_context(Config),
+
+    {_Handler, CtxPid} = gtp_context_reg:lookup({'irx', {imsi, ?'IMSI', 5}}),
+    #{proxy_context := Ctx1} = gtp_context:info(CtxPid),
+    #context{control_port = CPort} = Ctx1,
+
+    FinalGSN = proplists:get_value(final_gsn, Config),
+    ok = meck:expect(ergw_gtp_c_socket, send_request,
+		     fun (_, IP, _, _, _, #gtp{type = echo_request}, CbInfo)
+			   when IP =:= FinalGSN ->
+			     %% simulate a Echo timeout
+			     ergw_gtp_c_socket:send_reply(CbInfo, timeout);
+			 (GtpPort, IP, Port, T3, N3, Msg, CbInfo) ->
+			     meck:passthrough([GtpPort, IP, Port, T3, N3, Msg, CbInfo])
+		     end),
+
+    gtp_path:ping(CPort, v1, FinalGSN),
+
+    %% echo timeout should trigger a Delete PDP Context Request to SGSN.
+    Request = recv_pdu(Cntl, 5000),
+    ?match(#gtp{type = delete_pdp_context_request}, Request),
+    Response = make_response(Request, simple, GtpC),
+    send_pdu(Cntl, GtpC, Response),
+
+    %% wait for session cleanup
+    ct:sleep(100),
+    delete_pdp_context(not_found, GtpC),
+
+    % Check that IP is marked down
+    ?match([_], lists:filter(
+		  fun({_, State}) -> State =:= down end, gtp_path_reg:all(FinalGSN))),
+
+    create_pdp_context(overload, Config),
+    ct:sleep(100),
+
+    ok = meck:delete(ergw_gtp_c_socket, send_request, 7),
+
+    %% Successful echo, clears down marked IP.
+    gtp_path:ping(CPort, v1, FinalGSN),
+
+    %% wait for 100ms
+    ?equal(timeout, recv_pdu(GtpC, undefined, 100, fun(Why) -> Why end)),
+
+    ?match([], lists:filter(
+		 fun({_, _, State}) -> State =:= down end, gtp_path_reg:all())),
+
+    %% Check that new session now successfully created
+    {GtpC1, _, _} = create_pdp_context(Config),
+    delete_pdp_context(GtpC1),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    wait4tunnels(?TIMEOUT),
+    lists:foreach(fun({_, Pid, _}) -> gtp_path:stop(Pid) end, gtp_path_reg:all()),
+
+    meck_validate(Config),
+    ok = meck:delete(ergw_proxy_lib, select_gw, 5),
     ok.
 
 %%--------------------------------------------------------------------
@@ -941,6 +1104,88 @@ simple_pdp_context_request_no_proxy_map(Config) ->
     ?match(#gtp{seq_no = SeqNo} when SeqNo >= 16#8000, P),
 
     ?equal([], outstanding_requests()),
+    ok.
+
+%%--------------------------------------------------------------------
+create_lb_multi_context() ->
+    [{doc, "Create multi contexts across the 2 Load Balancers"}].
+create_lb_multi_context(Config) ->
+    init_seq_no(?MODULE, 16#8000),
+
+    %% for 6 clients cumulative nCr for at least 1 hit on both lb = 0.984
+    %% for 10 clients it is = 0.999. 1 < No of clients =< 10
+
+    GtpCs0 = make_gtp_contexts(?NUM_OF_CLIENTS, Config),
+    GtpCs1 = lists:map(fun(GtpC0) -> create_pdp_context(#{apn => ?'APN-LB-1'}, GtpC0) end, GtpCs0),
+
+    GSNs = [proplists:get_value(K, Config) || K <- [final_gsn, final_gsn_2]],
+    CntS0 = lists:foldl(fun(K, M) ->
+				maps:put(proplists:get_value(K, Config), 0, M)
+			end, #{}, GSNs),
+    CntS = lists:foldl(
+	     fun({{_,{teid,'gtp-c',{fq_teid, PeerIP,_}}},_}, M) ->
+		     maps:update_with(PeerIP, fun(C) -> C + 1 end, 1, M);
+		(_, M) -> M
+	     end, CntS0, gtp_context_reg:all()),
+
+    [?match(X when X > 0, maps:get(K, CntS)) || K <- GSNs],
+
+    lists:foreach(fun({GtpC1,_,_}) -> delete_pdp_context(GtpC1) end, GtpCs1),
+
+    ok = meck:wait(?NUM_OF_CLIENTS, ?HUT, terminate, '_', ?TIMEOUT),
+    wait4tunnels(?TIMEOUT),
+    meck_validate(Config),
+    ok.
+
+%%----------------------------------------------------------------------
+one_lb_node_down() ->
+    [{doc, "One lb PGW peer node is down"}].
+one_lb_node_down(Config) ->
+    %% set one peer node as down gtp_path_req and ensure that it is not chosen
+    init_seq_no(?MODULE, 16#8000),
+
+    %% stop all existing paths
+    lists:foreach(fun({_, Pid, _}) -> gtp_path:stop(Pid) end, gtp_path_reg:all()),
+
+    DownGSN = proplists:get_value(final_gsn_2, Config),
+    CPort = ergw_gtp_socket_reg:lookup('irx'),
+
+    ok = meck:expect(ergw_gtp_c_socket, send_request,
+		     fun (_, IP, _, _, _, #gtp{type = echo_request}, CbInfo)
+			   when IP =:= DownGSN ->
+			     %% simulate a Echo timeout
+			     ergw_gtp_c_socket:send_reply(CbInfo, timeout);
+			 (GtpPort, IP, Port, T3, N3, Msg, CbInfo) ->
+			     meck:passthrough([GtpPort, IP, Port, T3, N3, Msg, CbInfo])
+		     end),
+
+    %% create the path
+    CPid = gtp_path:maybe_new_path(CPort, v1, DownGSN),
+    gtp_path:set(CPid, active, true),
+
+    %% down the path by forcing a echo
+    ok = gtp_path:ping(CPid),
+    ct:sleep(100),
+
+    % make sure that worked
+    DownPeers = lists:filter(
+		  fun({_, State}) -> State =:= down end, gtp_path_reg:all(DownGSN)),
+    ?equal(1, length(DownPeers)),
+
+    GtpCs0 = make_gtp_contexts(?NUM_OF_CLIENTS, Config),
+    GtpCs1 = lists:map(fun(GtpC0) -> create_pdp_context(random, GtpC0) end, GtpCs0),
+
+    PgwFqTeids = [X || {{_,{teid,'gtp-c',{fq_teid, PeerIP,_}}},_} =
+			   X <- gtp_context_reg:all(), PeerIP == DownGSN],
+    ?match(0, length(PgwFqTeids)), % Check no connection to down peer
+
+    lists:foreach(fun({GtpC1,_,_}) -> delete_pdp_context(GtpC1) end, GtpCs1),
+
+    ok = meck:wait(?NUM_OF_CLIENTS, ?HUT, terminate, '_', ?TIMEOUT),
+    wait4tunnels(?TIMEOUT),
+    lists:foreach(fun({_, Pid, _}) -> gtp_path:stop(Pid) end, gtp_path_reg:all()),
+
+    meck_validate(Config),
     ok.
 
 %%--------------------------------------------------------------------
@@ -1725,3 +1970,24 @@ proxy_context_selection_map(ProxyInfo, Context) ->
 	Other ->
 	    Other
     end.
+
+% Set Timers for Path management
+set_path_timers(SetTimers) ->
+    {ok, Timers} = application:get_env(ergw, path_management),
+    NewTimers = maps:merge(Timers, SetTimers),
+    application:set_env(ergw, path_management, NewTimers).
+
+make_gtp_contexts(Cnt, Config) ->
+    BaseIP = proplists:get_value(client_ip, Config),
+    make_gtp_contexts(Cnt, BaseIP, Config).
+
+make_gtp_context_ip(Id, {A,B,C,D}) ->
+    {A,B,C,D + Id};
+make_gtp_context_ip(Id, {A,B,C,D,E,F,G,H}) ->
+    {A,B,C,D,E,F,G,H + Id}.
+
+make_gtp_contexts(0, _BaseIP, _Config) ->
+    [];
+make_gtp_contexts(Id, BaseIP, Config) ->
+    IP = make_gtp_context_ip(Id, BaseIP),
+    [gtp_context(?MODULE, IP, Config) | make_gtp_contexts(Id - 1, BaseIP, Config)].

@@ -115,7 +115,11 @@
 	   {'remote-irx', [{type, 'gtp-c'},
 			   {ip,  ?FINAL_GSN_IPv4},
 			   {reuseaddr, true}
-			  ]}
+			  ]},
+	   {'remote-irx2', [{type, 'gtp-c'},
+			    {ip,  ?FINAL_GSN2_IPv4},
+			    {reuseaddr, true}
+			   ]}
 	  ]},
 
 	 {handlers,
@@ -130,7 +134,7 @@
 		]},
 	   %% remote GGSN handler
 	   {gn, [{handler, ggsn_gn},
-		 {sockets, ['remote-irx']},
+		 {sockets, ['remote-irx', 'remote-irx2']},
 		 {node_selection, [static]},
 		 {aaa, [{'Username',
 			 [{default, ['IMSI', <<"@">>, 'APN']}]}]}
@@ -200,7 +204,11 @@
 	 {path_management,
 	  [{t3, 10 * 1000},
 	   {n3, 5},
-	   {echo, 60 * 1000}]
+	   {echo, 60 * 1000},
+	   {idle_timeout, 1800 * 1000},
+	   {idle_echo,     600 * 1000},
+	   {down_timeout, 3600 * 1000},
+	   {down_echo,     600 * 1000}]
 	 }
 	]).
 
@@ -304,7 +312,11 @@
 	   {'remote-irx', [{type, 'gtp-c'},
 			   {ip,  ?FINAL_GSN_IPv4},
 			   {reuseaddr, true}
-			  ]}
+			  ]},
+	   {'remote-irx2', [{type, 'gtp-c'},
+			    {ip, ?FINAL_GSN2_IPv4},
+			    {reuseaddr, true}
+			   ]}
 	  ]},
 
 	 {handlers,
@@ -324,13 +336,13 @@
 		  ]},
 	   %% remote PGW handler
 	   {gn, [{handler, pgw_s5s8},
-		 {sockets, ['remote-irx']},
+		 {sockets, ['remote-irx', 'remote-irx2']},
 		 {node_selection, [static]},
 		 {aaa, [{'Username',
 			 [{default, ['IMSI', <<"@">>, 'APN']}]}]}
 		]},
 	   {s5s8, [{handler, pgw_s5s8},
-		   {sockets, ['remote-irx']},
+		   {sockets, ['remote-irx', 'remote-irx2']},
 		   {node_selection, [static]}
 		  ]}
 	  ]},
@@ -1046,6 +1058,12 @@ config(_Config)  ->
     ?ok_option(set_cfg_value([path_management, t3], 10 * 1000, ?PGW_PROXY_CONFIG)),
     ?ok_option(set_cfg_value([path_management, n3], 5, ?PGW_PROXY_CONFIG)),
     ?ok_option(set_cfg_value([path_management, echo], 60 * 1000, ?PGW_PROXY_CONFIG)),
+    ?ok_option(set_cfg_value([path_management, idle_echo], 60 * 1000, ?PGW_PROXY_CONFIG)),
+    ?ok_option(set_cfg_value([path_management, down_echo], 60 * 1000, ?PGW_PROXY_CONFIG)),
+    ?ok_option(set_cfg_value([path_management, idle_timeout], 300 * 1000, ?PGW_PROXY_CONFIG)),
+    ?ok_option(set_cfg_value([path_management, down_timeout], 7200 * 1000, ?PGW_PROXY_CONFIG)),
+    ?ok_option(set_cfg_value([path_management, idle_timeout], 0, ?PGW_PROXY_CONFIG)),
+    ?ok_option(set_cfg_value([path_management, down_timeout], 0, ?PGW_PROXY_CONFIG)),
 
     ?error_option(set_cfg_value([path_management, t3], -1, ?PGW_PROXY_CONFIG)),
     ?error_option(set_cfg_value([path_management, n3], -1, ?PGW_PROXY_CONFIG)),
@@ -1054,4 +1072,11 @@ config(_Config)  ->
 
     ?error_option(set_cfg_value([path_management, echo], 59 * 1000, ?PGW_PROXY_CONFIG)),
     ?error_option(set_cfg_value([path_management, echo], invalid, ?PGW_PROXY_CONFIG)),
+    ?error_option(set_cfg_value([path_management, idle_echo], 59 * 1000, ?PGW_PROXY_CONFIG)),
+    ?error_option(set_cfg_value([path_management, down_echo], 59 * 1000, ?PGW_PROXY_CONFIG)),
+
+    ?error_option(set_cfg_value([path_management, idle_timeout], -1, ?PGW_PROXY_CONFIG)),
+    ?error_option(set_cfg_value([path_management, down_timeout], -1, ?PGW_PROXY_CONFIG)),
+    ?error_option(set_cfg_value([path_management, idle_timeout], invalid, ?PGW_PROXY_CONFIG)),
+    ?error_option(set_cfg_value([path_management, down_timeout], invalid, ?PGW_PROXY_CONFIG)),
     ok.

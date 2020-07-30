@@ -1056,6 +1056,8 @@ execute_request(MsgType, SubType, GtpC0) ->
 
     {validate_response(MsgType, SubType, Response, GtpC), Msg, Response}.
 
+apn(M) when is_map(M) ->
+    apn(maps:get(apn, M, default));
 apn(invalid_apn) -> [<<"IN", "VA", "LID">>];
 apn(dotted_apn)  -> ?'APN-EXA.MPLE';
 apn(proxy_apn)   -> ?'APN-PROXY';
@@ -1064,8 +1066,11 @@ apn({_, _, APN})
   when APN =:= v4only; APN =:= prefV4;
        APN =:= v6only; APN =:= prefV6 ->
     [atom_to_binary(APN, latin1)];
+apn([Label|_] = APN) when is_binary(Label) -> APN;
 apn(_)           -> ?'APN-ExAmPlE'.
 
+imsi(M, TEI) when is_map(M) ->
+    imsi(maps:get(imsi, M, random), TEI);
 imsi('2nd', _) ->
     <<"454545454545452">>;
 imsi(random, TEI) ->
@@ -1073,6 +1078,8 @@ imsi(random, TEI) ->
 imsi(_, _) ->
     ?IMSI.
 
+imei(M, TEI) when is_map(M) ->
+    imei(maps:get(imei, M, random), TEI);
 imei('2nd', _) ->
     <<"490154203237518">>;
 imei(random, TEI) ->

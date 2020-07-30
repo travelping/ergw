@@ -1242,7 +1242,7 @@ path_maintenance(Config) ->
 		     end),
 
     %% kill all path to ensure the meck override is used
-    [gtp_path:stop(Pid) || {_, Pid} <- gtp_path_reg:all()],
+    [gtp_path:stop(Pid) || {_, Pid, _} <- gtp_path_reg:all()],
 
     {GtpC, _, _} = create_session(Config),
 
@@ -1263,7 +1263,7 @@ path_maintenance(Config) ->
 
     meck_validate(Config),
 
-    [gtp_path:stop(Pid) || {_, Pid} <- gtp_path_reg:all()],
+    [gtp_path:stop(Pid) || {_, Pid, _} <- gtp_path_reg:all()],
     ok.
 
 %%--------------------------------------------------------------------
