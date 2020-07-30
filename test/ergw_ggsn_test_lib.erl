@@ -607,6 +607,8 @@ execute_request(MsgType, SubType, GtpC0) ->
 
     {validate_response(MsgType, SubType, Response, GtpC), Msg, Response}.
 
+apn(M) when is_map(M) ->
+    apn(maps:get(apn, M, default));
 apn(invalid_apn) -> [<<"IN", "VA", "LID">>];
 apn(dotted_apn)  -> ?'APN-EXA.MPLE';
 apn(proxy_apn)   -> ?'APN-PROXY';
@@ -616,8 +618,11 @@ apn({_, _, APN})
        APN =:= v6only; APN =:= prefV6;
        APN =:= sgsnemu ->
     [atom_to_binary(APN, latin1)];
+apn([Label|_] = APN) when is_binary(Label) -> APN;
 apn(_)           -> ?'APN-EXAMPLE'.
 
+imsi(M, TEI) when is_map(M) ->
+    imsi(maps:get(imsi, M, random), TEI);
 imsi('2nd', _) ->
     <<"454545454545452">>;
 imsi(random, TEI) ->
@@ -625,12 +630,14 @@ imsi(random, TEI) ->
 imsi(_, _) ->
     ?IMSI.
 
+imei(M, TEI) when is_map(M) ->
+    imei(maps:get(imei, M, random), TEI);
 imei('2nd', _) ->
     <<"6543210987654321">>;
 imei(random, TEI) ->
     integer_to_binary(7000000000000000 + TEI);
 imei(_, _) ->
- <<"1234567890123456">>.
+    <<"1234567890123456">>.
 
 %%%===================================================================
 %%% GGSN injected functions

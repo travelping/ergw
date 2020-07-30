@@ -16,7 +16,7 @@
 -export([start_link/4, all/1,
 	 maybe_new_path/3,
 	 handle_request/2, handle_response/4,
-	 bind/1, bind/2, unbind/1, down/2,
+	 bind/2, bind/3, unbind/1, down/2,
 	 get_handler/2, info/1]).
 
 %% Validate environment Variables
@@ -27,7 +27,7 @@
 	 terminate/3, code_change/4]).
 
 -ifdef(TEST).
--export([ping/3, stop/1]).
+-export([ping/1, ping/3, set/3, stop/1]).
 -endif.
 
 -include_lib("kernel/include/logger.hrl").
@@ -69,19 +69,19 @@ handle_request(#request{gtp_port = GtpPort, ip = IP} = ReqKey, #gtp{version = Ve
 handle_response(Path, Request, Ref, Response) ->
     gen_statem:cast(Path, {handle_response, Request, Ref, Response}).
 
-bind(#context{remote_restart_counter = RestartCounter} = Context) ->
-    path_recovery(RestartCounter, bind_path(Context)).
+bind(Active, #context{remote_restart_counter = RestartCounter} = Context) ->
+    bind_path_recovery(RestartCounter, Active, bind_path(Context)).
 
 bind(#gtp{ie = #{{recovery, 0} :=
 		     #recovery{restart_counter = RestartCounter}}
-	 } = Request, Context) ->
-    path_recovery(RestartCounter, bind_path(Request, Context));
+	 } = Request, Active, Context) ->
+    bind_path_recovery(RestartCounter, Active, bind_path(Request, Context));
 bind(#gtp{ie = #{{v2_recovery, 0} :=
 		     #v2_recovery{restart_counter = RestartCounter}}
-	 } = Request, Context) ->
-    path_recovery(RestartCounter, bind_path(Request, Context));
-bind(Request, Context) ->
-    path_recovery(undefined, bind_path(Request, Context)).
+	 } = Request, Active, Context) ->
+    bind_path_recovery(RestartCounter, Active, bind_path(Request, Context));
+bind(Request, Active, Context) ->
+    bind_path_recovery(undefined, Active, bind_path(Request, Context)).
 
 unbind(#context{version = Version, control_port = GtpPort,
 		remote_control_teid = #fq_teid{ip = RemoteIP}}) ->
@@ -121,13 +121,19 @@ get_handler(#gtp_port{type = 'gtp-c'}, v2) ->
     gtp_v2_c.
 
 -ifdef(TEST).
+ping(Path) ->
+    gen_statem:call(Path, '$ping').
+
 ping(GtpPort, Version, IP) ->
     case get(GtpPort, Version, IP) of
 	Path when is_pid(Path) ->
-	    gen_statem:call(Path, '$ping');
+	    ping(Path);
 	_ ->
-	    ok
+	    {error, no_found}
     end.
+
+set(Path, Opt, Value) ->
+    gen_statem:call(Path, {'$set', Opt, Value}).
 
 stop(Path) ->
     gen_statem:call(Path, '$stop').
@@ -140,22 +146,46 @@ stop(Path) ->
 
 %% Timer value: echo    = echo interval when peer is up.
 
--define(Defaults, [{t3, 10 * 1000},             % echo retry interval timeout
-		   {n3,  5},                    % echo retry count
-		   {echo, 60 * 1000}]).         % echo ping interval
+-define(Defaults, [{active, false},              % keep probing path even when idle/down
+		   {t3, 10 * 1000},              % echo retry interval
+		   {n3,  5},                     % echo retry count
+		   {echo, 60 * 1000},            % echo ping interval
+		   {idle_timeout, 1800 * 1000},  % time to keep the path entry when idle
+		   {idle_echo,     600 * 1000},  % echo retry interval when idle
+		   {down_timeout, 3600 * 1000},  % time to keep the path entry when down
+		   {down_echo,     600 * 1000}]).% echo retry interval when down
 
 validate_options(Values) ->
     ergw_config:validate_options(fun validate_option/2, Values, ?Defaults, map).
 
+validate_echo(_Opt, Value) when is_integer(Value), Value >= 60 * 1000 ->
+    Value;
+validate_echo(_Opt, off = Value) ->
+    Value;
+validate_echo(Opt, Value) ->
+    throw({error, {options, {Opt, Value}}}).
+
+validate_timeout(_Opt, Value) when is_integer(Value), Value >= 0 ->
+    Value;
+validate_timeout(_Opt, infinity = Value) ->
+    Value;
+validate_timeout(Opt, Value) ->
+    throw({error, {options, {Opt, Value}}}).
+
+validate_option(active, Value) when is_boolean(Value) ->
+    Value;
 validate_option(t3, Value)
   when is_integer(Value) andalso Value > 0 ->
     Value;
 validate_option(n3, Value)
   when is_integer(Value) andalso Value > 0 ->
     Value;
-validate_option(echo, Value)
-  when is_integer(Value) andalso Value >= 60 * 1000 ->
-    Value;
+validate_option(Opt, Value)
+  when Opt =:= echo; Opt =:= idle_echo; Opt =:= down_echo ->
+    validate_echo(Opt, Value);
+validate_option(Opt, Value)
+  when Opt =:= idle_timeout; Opt =:= down_timeout ->
+    validate_timeout(Opt, Value);
 validate_option(Opt, Value) ->
     throw({error, {options, {Opt, Value}}}).
 
@@ -171,12 +201,14 @@ callback_mode() -> [handle_event_function, state_enter].
 
 init([#gtp_port{name = PortName} = GtpPort, Version, RemoteIP, Args]) ->
     RegKey = {PortName, Version, RemoteIP},
-    gtp_path_reg:register(RegKey),
+    gtp_path_reg:register(RegKey, up),
 
     State = #state{peer = #peer{state = up, contexts = 0},
 		   echo = stopped},
 
-    Data0 = maps:with([t3, n3, echo], Args),
+    Data0 = maps:with([active, t3, n3, echo,
+		       idle_timeout, idle_echo,
+		       down_timeout, down_echo], Args),
     Data = Data0#{
 	     %% Path Info Keys
 	     gtp_port   => GtpPort, % #gtp_port{}
@@ -193,6 +225,7 @@ init([#gtp_port{name = PortName} = GtpPort, Version, RemoteIP, Args]) ->
 
 handle_event(enter, #state{peer = Old}, #state{peer = Peer}, Data)
   when Old /= Peer ->
+    peer_state_change(Old, Peer, Data),
     State = peer_state(Peer),
     {keep_state_and_data, enter_peer_state_action(State, Data)};
 
@@ -215,22 +248,26 @@ handle_event({timeout, echo}, start_echo, #state{echo = EchoT} = State0, Data)
 handle_event({timeout, echo}, start_echo, _State, _Data) ->
     keep_state_and_data;
 
+handle_event({timeout, peer}, stop, _State, #{reg_key := RegKey}) ->
+    gtp_path_reg:unregister(RegKey),
+    {stop, normal};
+
 handle_event({call, From}, all, _State, #{contexts := CtxS} = _Data) ->
     Reply = maps:keys(CtxS),
     {keep_state_and_data, [{reply, From, Reply}]};
 
-handle_event({call, From}, {bind, Pid}, #state{recovery = RstCnt} = State, Data) ->
-    register(Pid, State, Data, [{reply, From, {ok, RstCnt}}]);
+handle_event({call, From}, {bind, Pid, Active}, #state{recovery = RstCnt} = State, Data) ->
+    register(Pid, Active, State, Data, [{reply, From, {ok, RstCnt}}]);
 
-handle_event({call, From}, {bind, Pid, RstCnt}, State, Data) ->
+handle_event({call, From}, {bind, Pid, Active, RstCnt}, State, Data) ->
     case update_restart_counter(RstCnt, State, Data) of
 	initial  ->
-	    register(Pid, State#state{recovery = RstCnt}, Data, [{reply, From, ok}]);
+	    register(Pid, Active, State#state{recovery = RstCnt}, Data, [{reply, From, ok}]);
 	peer_restart  ->
 	    %% try again after state change
 	    path_restart(RstCnt, State, Data, [postpone]);
 	no ->
-	    register(Pid, State, Data, [{reply, From, ok}])
+	    register(Pid, Active, State, Data, [{reply, From, ok}])
     end;
 
 handle_event({call, From}, {unbind, Pid}, State, Data) ->
@@ -290,6 +327,9 @@ handle_event({call, From}, '$ping', State0, Data) ->
     State = send_echo_request(State0, Data),
     {next_state, State, Data, [{{timeout, echo}, cancel}, {reply, From, ok}]};
 
+handle_event({call, From}, {'$set', Opt, Value}, _State, Data) ->
+    {keep_state, maps:put(Opt, Value, Data), {reply, From, maps:get(Opt, Data, undefined)}};
+
 handle_event({call, From}, '$stop', _State, #{reg_key := RegKey}) ->
     gtp_path_reg:unregister(RegKey),
     {stop_and_reply, normal, [{reply, From, ok}]};
@@ -321,6 +361,11 @@ peer_state(#peer{state = down}) -> down;
 peer_state(#peer{state = up, contexts = 0}) -> idle;
 peer_state(#peer{state = up}) -> busy.
 
+peer_state_change(#peer{state = State}, #peer{state = State}, _) ->
+    ok;
+peer_state_change(_, #peer{state = State}, #{reg_key := RegKey}) ->
+    gtp_path_reg:state(RegKey, State).
+
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
@@ -329,10 +374,20 @@ enter_peer_state_action(State, Data) ->
     [enter_state_timeout_action(State, Data),
      enter_state_echo_action(State, Data)].
 
+enter_state_timeout_action(idle, #{idle_timeout := Timeout}) when is_integer(Timeout) ->
+    {{timeout, peer}, Timeout, stop};
+enter_state_timeout_action(down, #{down_timeout := Timeout}) when is_integer(Timeout) ->
+    {{timeout, peer}, Timeout, stop};
 enter_state_timeout_action(_State, _Data) ->
     {{timeout, peer}, cancel}.
 
 enter_state_echo_action(busy, #{echo := EchoInterval}) when is_integer(EchoInterval) ->
+    {{timeout, echo}, EchoInterval, start_echo};
+enter_state_echo_action(idle, #{active := true, idle_echo := EchoInterval})
+  when is_integer(EchoInterval) ->
+    {{timeout, echo}, EchoInterval, start_echo};
+enter_state_echo_action(down, #{active := true, down_echo := EchoInterval})
+  when is_integer(EchoInterval) ->
     {{timeout, echo}, EchoInterval, start_echo};
 enter_state_echo_action(_, _) ->
     {{timeout, stop_echo}, 0, stop_echo}.
@@ -420,9 +475,10 @@ update_contexts(State0, #{gtp_port := GtpPort, version := Version, ip := IP} = D
     Data = Data0#{contexts => CtxS},
     {next_state, State, Data, Actions}.
 
-register(Pid, State, #{contexts := CtxS} = Data, Actions) ->
+register(Pid, Active, State, #{contexts := CtxS} = Data0, Actions) ->
     ?LOG(debug, "~s: register(~p)", [?MODULE, Pid]),
     MRef = erlang:monitor(process, Pid),
+    Data = maps:update_with(active, fun(V) -> V or Active end, Data0),
     update_contexts(State, Data, maps:put(Pid, MRef, CtxS), Actions).
 
 unregister(Pid, State, #{contexts := CtxS} = Data, Actions)
@@ -441,12 +497,12 @@ bind_path(#context{version = Version, control_port = CntlGtpPort,
     Path = maybe_new_path(CntlGtpPort, Version, RemoteCntlIP),
     Context#context{path = Path}.
 
-path_recovery(RestartCounter, #context{path = Path} = Context)
+bind_path_recovery(RestartCounter, Active, #context{path = Path} = Context)
   when is_integer(RestartCounter) ->
-    ok = gen_statem:call(Path, {bind, self(), RestartCounter}),
+    ok = gen_statem:call(Path, {bind, self(), Active, RestartCounter}),
     Context#context{remote_restart_counter = RestartCounter};
-path_recovery(_RestartCounter, #context{path = Path} = Context) ->
-    {ok, PathRestartCounter} = gen_statem:call(Path, {bind, self()}),
+bind_path_recovery(_RestartCounter, Active, #context{path = Path} = Context) ->
+    {ok, PathRestartCounter} = gen_statem:call(Path, {bind, self(), Active}),
     Context#context{remote_restart_counter = PathRestartCounter}.
 
 send_echo_request(State, #{gtp_port := GtpPort, handler := Handler, ip := DstIP,

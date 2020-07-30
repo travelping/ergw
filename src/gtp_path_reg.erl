@@ -11,11 +11,13 @@
 
 %% API
 -export([start_link/0]).
--export([register/1, unregister/1, lookup/1]).
+-export([register/2, unregister/1, lookup/1]).
 -export([all/0, all/1]).
+-export([state/1, state/2]).
 
 %% regine_server callbacks
--export([init/1, handle_register/4, handle_unregister/3, handle_pid_remove/3, handle_death/3, terminate/2]).
+-export([init/1, handle_register/4, handle_unregister/3, handle_pid_remove/3,
+	 handle_death/3, terminate/2, handle_call/3]).
 
 %% --------------------------------------------------------------------
 %% Include files
@@ -33,15 +35,26 @@
 start_link() ->
     regine_server:start_link({local, ?SERVER}, ?MODULE, []).
 
-register(Key) ->
-    regine_server:register(?SERVER, self(), Key, undefined).
+register(Key, State) ->
+    regine_server:register(?SERVER, self(), Key, State).
 unregister(Key) ->
     regine_server:unregister(?SERVER, Key, undefined).
 
 lookup(Key) ->
     case ets:lookup(?SERVER, Key) of
-	[{Key, Pid}] ->
+	[{Key, Pid, _}] ->
 	    Pid;
+	_ ->
+	    undefined
+    end.
+
+state(Key, State) ->
+    regine_server:call(?SERVER, {state, Key, State}).
+
+state(Key) ->
+    case ets:lookup(?SERVER, Key) of
+	[{Key, _, State}] ->
+	    State;
 	_ ->
 	    undefined
     end.
@@ -54,12 +67,12 @@ all({_,_,_,_} = IP) ->
 all({_,_,_,_,_,_,_,_} = IP) ->
     all_ip(IP);
 all(Port) when is_atom(Port) ->
-    Ms = ets:fun2ms(fun({{Name, _, _}, Pid}) when Name =:= Port -> Pid end),
+    Ms = ets:fun2ms(fun({{Name, _, _}, Pid, State}) when Name =:= Port -> {Pid, State} end),
     ets:select(?SERVER, Ms).
 
 all_ip(IP) ->
     %%ets:select(Tab,[{{'$1','$2','$3'},[],['$$']}])
-    Ms = ets:fun2ms(fun({{_, _, PeerIP}, Pid}) when PeerIP =:= IP -> Pid end),
+    Ms = ets:fun2ms(fun({{_, _, PeerIP}, Pid, State}) when PeerIP =:= IP -> {Pid, State} end),
     ets:select(?SERVER, Ms).
 
 %%%===================================================================
@@ -70,8 +83,8 @@ init([]) ->
     ets:new(?SERVER, [ordered_set, named_table, public, {keypos, 1}]),
     {ok, #state{}}.
 
-handle_register(Pid, Key, _Value, State) ->
-    ets:insert(?SERVER, {Key, Pid}),
+handle_register(Pid, Key, Value, State) ->
+    ets:insert(?SERVER, {Key, Pid, Value}),
     {ok, [Key], State}.
 
 handle_unregister(Key, _Value, State) ->
@@ -81,11 +94,15 @@ handle_pid_remove(_Pid, Keys, State) ->
     lists:foreach(fun(Key) -> ets:delete(?SERVER, Key) end, Keys),
     State.
 
+handle_call({state, Key, PeerState}, _From, State) ->
+    Result = ets:update_element(?SERVER, Key, {3, PeerState}),
+    {reply, Result, State}.
+
 handle_death(_Pid, _Reason, State) ->
     State.
 
 terminate(_Reason, _State) ->
-	ok.
+    ok.
 
 %%%===================================================================
 %%% Internal functions

@@ -42,6 +42,16 @@ build:otp-23.0:
   script:
     - sh -c 'echo 0 > /proc/sys/net/ipv6/conf/all/disable_ipv6'
     - ip addr add fd96:dcd2:efdb:41c3::10/64 dev lo
+    - ip addr add fd96:dcd2:efdb:41c3::11/64 dev lo
+    - ip addr add fd96:dcd2:efdb:41c3::12/64 dev lo
+    - ip addr add fd96:dcd2:efdb:41c3::13/64 dev lo
+    - ip addr add fd96:dcd2:efdb:41c3::14/64 dev lo
+    - ip addr add fd96:dcd2:efdb:41c3::15/64 dev lo
+    - ip addr add fd96:dcd2:efdb:41c3::16/64 dev lo
+    - ip addr add fd96:dcd2:efdb:41c3::17/64 dev lo
+    - ip addr add fd96:dcd2:efdb:41c3::18/64 dev lo
+    - ip addr add fd96:dcd2:efdb:41c3::19/64 dev lo
+    - ip addr add fd96:dcd2:efdb:41c3::1a/64 dev lo
     - ip addr add fd96:dcd2:efdb:41c3::20/64 dev lo
     - ip addr add fd96:dcd2:efdb:41c3::30/64 dev lo
     - ip addr add fd96:dcd2:efdb:41c3::40/64 dev lo

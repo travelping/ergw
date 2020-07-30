@@ -191,7 +191,7 @@ i(memory, socket) ->
     {socket, MemUsage};
 i(memory, path) ->
     MemUsage =
-	lists:foldl(fun({_, Pid}, Mem) ->
+	lists:foldl(fun({_, Pid, _}, Mem) ->
 			    {memory, M} = erlang:process_info(Pid, memory),
 			    Mem + M
 		    end, 0, gtp_path_reg:all()),

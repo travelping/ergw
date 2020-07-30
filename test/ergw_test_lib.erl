@@ -18,12 +18,13 @@
 	 meck_unload/1,
 	 meck_validate/1]).
 -export([init_seq_no/2,
-	 gtp_context/1, gtp_context/2,
+	 gtp_context/1, gtp_context/2, gtp_context/3,
 	 gtp_context_inc_seq/1,
 	 gtp_context_inc_restart_counter/1,
 	 gtp_context_new_teids/1, gtp_context_new_teids/3,
 	 make_error_indication_report/1]).
--export([start_gtpc_server/1, stop_gtpc_server/1, stop_gtpc_server/0,
+-export([start_gtpc_server/1, start_gtpc_server/2,
+	 stop_gtpc_server/1, stop_gtpc_server/0,
 	 wait_for_all_sx_nodes/0, reconnect_all_sx_nodes/0, stop_all_sx_nodes/0,
 	 make_gtp_socket/1, make_gtp_socket/2,
 	 send_pdu/2, send_pdu/3,
@@ -132,6 +133,7 @@ group_config(ipv4, Config) ->
 	    {test_gsn, ?TEST_GSN_IPv4},
 	    {proxy_gsn, ?PROXY_GSN_IPv4},
 	    {final_gsn, ?FINAL_GSN_IPv4},
+	    {final_gsn_2, ?FINAL_GSN2_IPv4},
 	    {sgw_u_sx, ?SGW_U_SX_IPv4},
 	    {pgw_u01_sx, ?PGW_U01_SX_IPv4},
 	    {pgw_u02_sx, ?PGW_U02_SX_IPv4},
@@ -144,6 +146,7 @@ group_config(ipv6, Config) ->
 	    {test_gsn, ?TEST_GSN_IPv6},
 	    {proxy_gsn, ?PROXY_GSN_IPv6},
 	    {final_gsn, ?FINAL_GSN_IPv6},
+	    {final_gsn_2, ?FINAL_GSN2_IPv6},
 	    {sgw_u_sx, ?SGW_U_SX_IPv6},
 	    {pgw_u01_sx, ?PGW_U01_SX_IPv6},
 	    {pgw_u02_sx, ?PGW_U02_SX_IPv6},
@@ -247,6 +250,9 @@ gtp_context(Config) ->
     gtp_context(?MODULE, Config).
 
 gtp_context(Counter, Config) ->
+    gtp_context(Counter, proplists:get_value(client_ip, Config), Config).
+
+gtp_context(Counter, ClientIP, Config) ->
     GtpC = #gtpc{
 	      counter = Counter,
 	      restart_counter =
@@ -254,11 +260,11 @@ gtp_context(Counter, Config) ->
 	      seq_no =
 		  ets:update_counter(?MODULE, {Counter, seq_no}, 1) band 16#7fffff,
 
-	      socket = make_gtp_socket(0, Config),
+	      socket = make_gtp_socket(0, ClientIP),
 
 	      ue_ip = {undefined, undefined},
 
-	      local_ip = proplists:get_value(client_ip, Config),
+	      local_ip = ClientIP,
 	      remote_ip = proplists:get_value(test_gsn, Config),
 
 	      rat_type = 1
@@ -314,10 +320,13 @@ make_error_indication_report(IP, TEI) ->
 %%%===================================================================
 
 %% GTP-C default port (2123) handler
-gtpc_server_init(Owner, Config) ->
+gtpc_server_init(Owner, Config) when is_list(Config) ->
+    gtpc_server_init(Owner, proplists:get_value(client_ip, Config));
+
+gtpc_server_init(Owner, IP) when is_tuple(IP) ->
     process_flag(trap_exit, true),
 
-    CntlS = make_gtp_socket(?GTP2c_PORT, Config),
+    CntlS = make_gtp_socket(?GTP2c_PORT, IP),
 
     proc_lib:init_ack(Owner, {ok, self()}),
     gtpc_server_loop(Owner, CntlS).
@@ -339,8 +348,11 @@ gtpc_server_loop(Owner, CntlS) ->
     end.
 
 start_gtpc_server(Config) ->
+    start_gtpc_server(Config, gtpc_client_server).
+
+start_gtpc_server(Config, Name) ->
     {ok, Pid} = proc_lib:start_link(?MODULE, gtpc_server_init, [self(), Config]),
-    register(gtpc_client_server, Pid),
+    register(Name, Pid),
     Pid.
 
 wait_for_all_sx_nodes() ->
@@ -366,11 +378,11 @@ stop_all_sx_nodes(_) ->
     timer:sleep(10),
     stop_all_sx_nodes(supervisor:which_children(ergw_sx_node_sup)).
 
-stop_gtpc_server(_) ->
-    stop_gtpc_server().
-
 stop_gtpc_server() ->
-    case whereis(gtpc_client_server) of
+    stop_gtpc_server(gtp_client_server).
+
+stop_gtpc_server(Name) ->
+    case whereis(Name) of
 	Pid when is_pid(Pid) ->
 	    unlink(Pid),
 	    exit(Pid, shutdown);
@@ -395,10 +407,11 @@ sx_nodes_up(N, Cnt) ->
 make_gtp_socket(Config) ->
     make_gtp_socket(?GTP2c_PORT, Config).
 
-make_gtp_socket(Port, Config) ->
-    {ok, S} = gen_udp:open(Port, [{ip, proplists:get_value(client_ip, Config)}, {active, false},
-				  binary, {reuseaddr, true}]),
-    S.
+make_gtp_socket(Port, IP) when is_tuple(IP) ->
+    {ok, S} = gen_udp:open(Port, [{ip, IP}, {active, false}, binary, {reuseaddr, true}]),
+    S;
+make_gtp_socket(Port, Config) when is_list(Config) ->
+    make_gtp_socket(Port, proplists:get_value(client_ip, Config)).
 
 send_pdu(#gtpc{socket = S, remote_ip = IP}, Msg) ->
     send_pdu(S, IP, Msg).

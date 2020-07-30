@@ -18,7 +18,7 @@
 
 peer(all) ->
     Peers = gtp_path_reg:all(),
-    lists:map(fun({_, Pid}) -> gtp_path:info(Pid) end, Peers);
+    lists:map(fun({_, Pid, _}) -> gtp_path:info(Pid) end, Peers);
 peer({_,_,_,_} = IP) ->
     collect_peer_info(gtp_path_reg:all(IP));
 peer({_,_,_,_,_,_,_,_} = IP) ->
@@ -55,9 +55,9 @@ memory(Limit0) ->
 %%%===================================================================
 
 collect_peer_info(Peers) ->
-    lists:map(fun gtp_path:info/1, Peers).
+    lists:map(fun({Pid, _}) -> gtp_path:info(Pid) end, Peers).
 
-collext_path_contexts(Path, Tunnels) ->
+collext_path_contexts({Path, _State}, Tunnels) ->
     lists:foldl(fun(Pid, TunIn) ->
 			collect_contexts(Pid, TunIn)
 		end, Tunnels, gtp_path:all(Path)).
