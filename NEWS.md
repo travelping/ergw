@@ -1,6 +1,15 @@
 erGW - 3GPP GGSN and PDN-GW in Erlang
 =====================================
 
+Version 2.5.0 - 04 August 2020
+----------------------------
+* implement path monitoring profiles for outgoing (active) paths
+* bump ergw_aaa dependency to 3.5.0 to support  
+  [state stats](https://github.com/travelping/ergw_aaa/blob/3.5.0/doc/aaa_session_metrics.md) and
+  diameter [avp filters](https://github.com/travelping/ergw_aaa/blob/3.5.0/doc/diameter_avp_filter.md)
+* bump [prometheus_diameter_collector](https://github.com/travelping/prometheus_diameter_collector) to report internal plain error counters in the same manner as the diameter result codes.
+* upgrade to OTP-23.0.3
+
 Version 2.4.3 - 26 May 2020
 ---------------------------
 * fix handling `context` attribute of ProxyMap response
