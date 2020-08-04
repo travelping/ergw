@@ -402,7 +402,7 @@ handle_response(#proxy_request{direction = sgsn2ggsn} = ProxyRequest,
 		#{context := PendingContext,
 		  proxy_context := PrevProxyCtx,
 		  pfcp := PCtx0} = Data) ->
-    ?LOG(warning, "OK Proxy Response ~p", [Response]),
+    ?LOG(debug, "OK Proxy Response ~p", [Response]),
 
     ProxyContext1 = update_context_from_gtp_req(Response, PrevProxyCtx),
     ProxyContext = gtp_path:bind(Response, true, ProxyContext1),
@@ -431,7 +431,7 @@ handle_response(#proxy_request{direction = sgsn2ggsn,
 		#{context := Context,
 		  proxy_context := OldProxyContext,
 		  pfcp := PCtx0} = Data) ->
-    ?LOG(warning, "OK Proxy Response ~p", [Response]),
+    ?LOG(debug, "OK Proxy Response ~p", [Response]),
 
     ProxyContext = update_context_from_gtp_req(Response, OldProxyContext),
     gtp_context:remote_context_update(OldProxyContext, ProxyContext),
@@ -445,7 +445,7 @@ handle_response(#proxy_request{direction = sgsn2ggsn,
 handle_response(#proxy_request{direction = ggsn2sgsn} = ProxyRequest,
 		#gtp{type = update_pdp_context_response} = Response,
 		_Request, _State, #{proxy_context := ProxyContext}) ->
-    ?LOG(warning, "OK SGSN Response ~p", [Response]),
+    ?LOG(debug, "OK SGSN Response ~p", [Response]),
 
     forward_response(ProxyRequest, Response, ProxyContext),
     keep_state_and_data;
@@ -453,7 +453,7 @@ handle_response(#proxy_request{direction = ggsn2sgsn} = ProxyRequest,
 handle_response(#proxy_request{direction = sgsn2ggsn} = ProxyRequest,
 		#gtp{type = ms_info_change_notification_response} = Response,
 		_Request, _State, #{context := Context}) ->
-    ?LOG(warning, "OK Proxy Response ~p", [Response]),
+    ?LOG(debug, "OK Proxy Response ~p", [Response]),
 
     forward_response(ProxyRequest, Response, Context),
     keep_state_and_data;
@@ -462,7 +462,7 @@ handle_response(#proxy_request{direction = sgsn2ggsn} = ProxyRequest,
 		#gtp{type = delete_pdp_context_response} = Response,
 		_Request, _State,
 		#{context := Context} = Data0) ->
-    ?LOG(warning, "OK Proxy Response ~p", [Response]),
+    ?LOG(debug, "OK Proxy Response ~p", [Response]),
 
     forward_response(ProxyRequest, Response, Context),
     Data = cancel_timeout(Data0),
@@ -473,7 +473,7 @@ handle_response(#proxy_request{direction = ggsn2sgsn} = ProxyRequest,
 		#gtp{type = delete_pdp_context_response} = Response,
 		_Request, _State,
 		#{proxy_context := ProxyContext} = Data0) ->
-    ?LOG(warning, "OK SGSN Response ~p", [Response]),
+    ?LOG(debug, "OK SGSN Response ~p", [Response]),
 
     forward_response(ProxyRequest, Response, ProxyContext),
     Data = cancel_timeout(Data0),

@@ -61,7 +61,7 @@ apply2context(Key, F, A) ->
 	{Handler, Server} when is_atom(Handler), is_pid(Server) ->
 	    apply(Handler, F, [Server | A]);
 	_Other ->
-	    ?LOG(error, "unable to find context ~p", [Key]),
+	    ?LOG(debug, "unable to find context ~p", [Key]),
 	    {error, not_found}
     end.
 

@@ -537,7 +537,7 @@ cancel_timer(Ref) ->
     end.
 
 prepare_send_req(#send_req{msg = Msg0} = SendReq, State0) ->
-    ?LOG(info, "PrepSend: ~p", [SendReq]),
+    ?LOG(debug, "PrepSend: ~p", [SendReq]),
     {Msg, State} = new_sequence_number(Msg0, State0),
     ?log_pfcp(info, "PrepSend: ", [], Msg),
     BinMsg = pfcp_packet:encode(Msg),
@@ -594,10 +594,10 @@ send_request(#send_req{address = DstIP, data = Data} = SendReq, State) ->
     end.
 
 send_request_reply(#send_req{cb_info = {M, F, A}} = SendReq, Reply) ->
-    ?LOG(info, "send_request_reply: ~p", [SendReq]),
+    ?LOG(debug, "send_request_reply: ~p", [SendReq]),
     apply(M, F, A ++ [Reply]);
 send_request_reply(#send_req{from = {_, _} = From} = SendReq, Reply) ->
-    ?LOG(info, "send_request_reply: ~p", [SendReq]),
+    ?LOG(debug, "send_request_reply: ~p", [SendReq]),
     gen_server:reply(From, Reply).
 
 enqueue_response(ReqKey, Data, DoCache,

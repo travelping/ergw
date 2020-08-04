@@ -475,7 +475,7 @@ handle_response(ArrivalTS, IP, _Port, Msg, #state{gtp_port = GtpPort} = State0) 
 	    State;
 
 	#send_req{} = SendReq ->
-	    ?LOG(info, "~p: found response: ~p", [self(), SeqId]),
+	    ?LOG(debug, "~p: found response: ~p", [self(), SeqId]),
 	    measure_reply(GtpPort, SendReq, ArrivalTS),
 	    send_request_reply(SendReq, Msg),
 	    State

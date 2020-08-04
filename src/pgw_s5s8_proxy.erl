@@ -443,7 +443,7 @@ handle_response(#proxy_request{direction = sgw2pgw} = ProxyRequest,
 		#{context := Context,
 		  proxy_context := PrevProxyCtx,
 		  pfcp := PCtx0} = Data) ->
-    ?LOG(warning, "OK Proxy Response ~p", [Response]),
+    ?LOG(debug, "OK Proxy Response ~p", [Response]),
 
     ProxyContext1 = update_context_from_gtp_req(Response, PrevProxyCtx),
     ProxyContext = gtp_path:bind(Response, true, ProxyContext1),
@@ -471,7 +471,7 @@ handle_response(#proxy_request{direction = sgw2pgw,
 		#{context := Context,
 		  proxy_context := OldProxyContext,
 		  pfcp := PCtx0} = Data) ->
-    ?LOG(warning, "OK Proxy Response ~p", [Response]),
+    ?LOG(debug, "OK Proxy Response ~p", [Response]),
 
     ProxyContext = update_context_from_gtp_req(Response, OldProxyContext),
     gtp_context:remote_context_update(OldProxyContext, ProxyContext),
@@ -488,7 +488,7 @@ handle_response(#proxy_request{direction = sgw2pgw,
 handle_response(#proxy_request{direction = sgw2pgw} = ProxyRequest,
 		#gtp{type = change_notification_response} = Response,
 		_Request, _State, #{context := Context}) ->
-    ?LOG(warning, "OK Proxy Response ~p", [Response]),
+    ?LOG(debug, "OK Proxy Response ~p", [Response]),
 
     forward_response(ProxyRequest, Response, Context),
     keep_state_and_data;
@@ -501,7 +501,7 @@ handle_response(#proxy_request{direction = sgw2pgw} = ProxyRequest,
 		_Request, _State, #{context := Context})
   when Type == suspend_acknowledge;
        Type == resume_acknowledge ->
-    ?LOG(warning, "OK Proxy Acknowledge ~p", [Response]),
+    ?LOG(debug, "OK Proxy Acknowledge ~p", [Response]),
 
     forward_response(ProxyRequest, Response, Context),
     keep_state_and_data;
@@ -513,7 +513,7 @@ handle_response(#proxy_request{direction = pgw2sgw} = ProxyRequest,
 		#gtp{type = update_bearer_response} = Response,
 		_Request, _State,
 		#{proxy_context := ProxyContext} = Data) ->
-    ?LOG(warning, "OK Response ~p", [Response]),
+    ?LOG(debug, "OK Response ~p", [Response]),
 
     forward_response(ProxyRequest, Response, ProxyContext),
     trigger_request_finished(Response, Data),
@@ -523,7 +523,7 @@ handle_response(#proxy_request{direction = pgw2sgw} = ProxyRequest,
 handle_response(#proxy_request{direction = sgw2pgw} = ProxyRequest,
 		Response0, #gtp{type = delete_session_request}, _State,
 		#{context := Context} = Data) ->
-    ?LOG(warning, "Proxy Response ~p", [Response0]),
+    ?LOG(debug, "Proxy Response ~p", [Response0]),
 
     Response =
 	if is_record(Response0, gtp) ->
@@ -543,7 +543,7 @@ handle_response(#proxy_request{direction = sgw2pgw} = ProxyRequest,
 handle_response(#proxy_request{direction = pgw2sgw} = ProxyRequest,
 		Response0, #gtp{type = delete_bearer_request}, _State,
 		#{proxy_context := ProxyContext} = Data) ->
-    ?LOG(warning, "Proxy Response ~p", [Response0]),
+    ?LOG(debug, "Proxy Response ~p", [Response0]),
 
     Response =
 	if is_record(Response0, gtp) ->

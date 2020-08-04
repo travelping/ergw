@@ -257,7 +257,7 @@ lookup_host(Name, dns, NameServers) ->
 	    Error
     end;
 lookup_host(Name, static, RR) ->
-    ?LOG(info, "Host ~p, RR ~p", [Name, RR]),
+    ?LOG(debug, "Host ~p, RR ~p", [Name, RR]),
     case lists:keyfind(Name, 1, RR) of
 	{_, _, _} = R ->
 	    R;
@@ -302,7 +302,7 @@ do_lookup(Selection, DoFun, NodeSelection) when is_atom(Selection) ->
     do_lookup([Selection], DoFun, NodeSelection).
 
 do_lookup(Selection, DoFun) ->
-    ?LOG(info, "Selection ~p in ~p", [Selection, application:get_env(ergw, node_selection, #{})]),
+    ?LOG(debug, "Selection ~p in ~p", [Selection, application:get_env(ergw, node_selection, #{})]),
     do_lookup(Selection, DoFun, application:get_env(ergw, node_selection, #{})).
 
 lookup(Name, Selection) ->

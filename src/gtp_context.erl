@@ -410,7 +410,7 @@ handle_event(cast, {handle_response, ReqInfo, Request, Response0}, State,
     end;
 
 handle_event(info, {update_session, Session, Events}, _State, _Data) ->
-    ?LOG(warning, "SessionEvents: ~p~n       Events: ~p", [Session, Events]),
+    ?LOG(debug, "SessionEvents: ~p~n       Events: ~p", [Session, Events]),
     Actions = [{next_event, internal, {session, Ev, Session}} || Ev <- Events],
     {keep_state_and_data, Actions};
 
