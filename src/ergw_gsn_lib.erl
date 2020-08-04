@@ -136,13 +136,13 @@ session_establishment_request(PCC, PCtx0, Ctx) ->
 
     PCtx1 = pctx_update_from_ctx(PCtx0, Ctx),
     {SxRules, SxErrors, PCtx} = build_sx_rules(PCC, #{}, PCtx1, Ctx),
-    ?LOG(info, "SxRules: ~p~n", [SxRules]),
-    ?LOG(info, "SxErrors: ~p~n", [SxErrors]),
-    ?LOG(info, "CtxPending: ~p~n", [Ctx]),
+    ?LOG(debug, "SxRules: ~p~n", [SxRules]),
+    ?LOG(debug, "SxErrors: ~p~n", [SxErrors]),
+    ?LOG(debug, "CtxPending: ~p~n", [Ctx]),
 
     IEs0 = pfcp_pctx_update(PCtx, PCtx0, SxRules),
     IEs = update_m_rec(ergw_pfcp:f_seid(PCtx, CntlNode), IEs0),
-    ?LOG(info, "IEs: ~p~n", [IEs]),
+    ?LOG(debug, "IEs: ~p~n", [IEs]),
 
     Req = #pfcp{version = v1, type = session_establishment_request, ie = IEs},
     case ergw_sx_node:call(PCtx, Req, Ctx) of
@@ -528,7 +528,7 @@ build_sx_offline_charging_rule(Name,
     OCP = maps:get('Default', OCPcfg, #{}),
     URR = apply_charging_profile(URR1, OCP),
 
-    ?LOG(warning, "Offline URR: ~p", [URR]),
+    ?LOG(debug, "Offline URR: ~p", [URR]),
     Update#sx_upd{
       pctx = ergw_pfcp_rules:add(urr, ChargingKey, URR, PCtx)};
 
@@ -969,7 +969,7 @@ build_sx_usage_rule(_K, #{'Rating-Group' := [RatingGroup],
 		       total_quota_threshold, input_quota_threshold, output_quota_threshold,
 		       monitoring_time]),
 
-    ?LOG(warning, "URR: ~p", [URR]),
+    ?LOG(debug, "URR: ~p", [URR]),
     Update#sx_upd{
       pctx = ergw_pfcp_rules:add(urr, ChargingKey, URR, PCtx)};
 build_sx_usage_rule(_, _, Update) ->
@@ -989,7 +989,7 @@ build_ipcan_rule(true, #sx_upd{pctx = PCtx0} = Update) ->
 	   #measurement_method{volum = 1, durat = 1},
 	   #reporting_triggers{}],
 
-    ?LOG(warning, "URR: ~p", [URR]),
+    ?LOG(debug, "URR: ~p", [URR]),
     Update#sx_upd{pctx = ergw_pfcp_rules:add(urr, RuleName, URR, PCtx)};
 build_ipcan_rule(_, Update) ->
     Update.
@@ -1000,7 +1000,7 @@ build_sx_monitor_rule(Level, Monitors, Update) ->
 %% TBD: merging offline rules with identical timeout.... maybe
 build_sx_monitor_rule('IP-CAN', Service, {periodic, Time, _Opts} = _Definition,
 		      #sx_upd{monitors = Monitors0, pctx = PCtx0} = Update) ->
-    ?LOG(info, "Sx Monitor Rule: ~p", [_Definition]),
+    ?LOG(debug, "Sx Monitor Rule: ~p", [_Definition]),
 
     RuleName = {monitor, 'IP-CAN', Service},
     {UrrId, PCtx} = ergw_pfcp:get_urr_id(RuleName, ['IP-CAN'], RuleName, PCtx0),
@@ -1010,7 +1010,7 @@ build_sx_monitor_rule('IP-CAN', Service, {periodic, Time, _Opts} = _Definition,
 	   #reporting_triggers{periodic_reporting = 1},
 	   #measurement_period{period = Time}],
 
-    ?LOG(warning, "URR: ~p", [URR]),
+    ?LOG(debug, "URR: ~p", [URR]),
     Monitors1 = update_m_key('IP-CAN', UrrId, Monitors0),
     Monitors = Monitors1#{{urr, UrrId}  => Service},
     Update#sx_upd{
@@ -1030,7 +1030,7 @@ build_sx_monitor_rule('Offline', Service, {periodic, Time, _Opts} = Definition,
 	   #measurement_method{volum = 1, durat = 1},
 	   #reporting_triggers{periodic_reporting = 1},
 	   #measurement_period{period = Time}],
-    ?LOG(warning, "URR: ~p", [URR]),
+    ?LOG(debug, "URR: ~p", [URR]),
     URRUpd =
 	fun (X0) ->
 		X = X0#{measurement_period => #measurement_period{period = Time}},
@@ -1084,9 +1084,9 @@ modify_sgi_session(PCC, URRActions, Opts, Ctx, PCtx0)
 		  SxR
 	  end, SxRules0, URRActions),
 
-    ?LOG(info, "SxRules: ~p~n", [SxRules]),
-    ?LOG(info, "SxErrors: ~p~n", [SxErrors]),
-    ?LOG(info, "PCtx: ~p~n", [PCtx]),
+    ?LOG(debug, "SxRules: ~p~n", [SxRules]),
+    ?LOG(debug, "SxErrors: ~p~n", [SxErrors]),
+    ?LOG(debug, "PCtx: ~p~n", [PCtx]),
     session_modification_request(PCtx, SxRules, Ctx).
 
 create_tdf_session(PCtx, _NodeCaps, PCC, Ctx)

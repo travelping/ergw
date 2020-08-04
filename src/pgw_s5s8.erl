@@ -422,8 +422,8 @@ handle_request(ReqKey,
 
     {ok, GySessionOpts, GyEvs} =
 	ccr_initial(ContextPending, Session, gy, GyReqServices, SOpts, Request),
-    ?LOG(info, "GySessionOpts: ~p", [GySessionOpts]),
-    ?LOG(info, "Initial GyEvs: ~p", [GyEvs]),
+    ?LOG(debug, "GySessionOpts: ~p", [GySessionOpts]),
+    ?LOG(debug, "Initial GyEvs: ~p", [GyEvs]),
 
     ergw_aaa_session:invoke(Session, #{}, start, SOpts),
     {_, _, RfSEvs} = ergw_aaa_session:invoke(Session, #{}, {rf, 'Initial'}, SOpts),
@@ -704,12 +704,12 @@ session_failure_to_gtp_cause(_) ->
     system_failure.
 
 authenticate(Context, Session, SessionOpts, Request) ->
-    ?LOG(info, "SessionOpts: ~p", [SessionOpts]),
+    ?LOG(debug, "SessionOpts: ~p", [SessionOpts]),
     case ergw_aaa_session:invoke(Session, SessionOpts, authenticate, [inc_session_id]) of
 	{ok, _, _} = Result ->
 	    Result;
 	Other ->
-	    ?LOG(info, "AuthResult: ~p", [Other]),
+	    ?LOG(debug, "AuthResult: ~p", [Other]),
 	    ?ABORT_CTX_REQUEST(Context, Request, create_session_response,
 			       user_authentication_failed)
     end.
@@ -797,7 +797,7 @@ close_pdn_context(Reason, #{context := Context, pfcp := PCtx, 'Session' := Sessi
     ReqOpts = #{now => Now, async => true},
     case ergw_aaa_session:invoke(Session, #{}, {gx, 'CCR-Terminate'}, ReqOpts#{async => false}) of
 	{ok, _GxSessionOpts, _} ->
-	    ?LOG(info, "GxSessionOpts: ~p", [_GxSessionOpts]);
+	    ?LOG(debug, "GxSessionOpts: ~p", [_GxSessionOpts]);
 	GxOther ->
 	    ?LOG(warning, "Gx terminate failed with: ~p", [GxOther])
     end,
@@ -1268,7 +1268,7 @@ pdn_ppp_pco(SessionOpts, {?'PCO-DNS-Server-IPv4-Address', <<>>}, Opts) ->
 			end
 		end, Opts, ['MS-Secondary-DNS-Server', 'MS-Primary-DNS-Server']);
 pdn_ppp_pco(_SessionOpts, PPPReqOpt, Opts) ->
-    ?LOG(info, "Apply PPP Opt: ~p", [PPPReqOpt]),
+    ?LOG(debug, "Apply PPP Opt: ~p", [PPPReqOpt]),
     Opts.
 
 pdn_pco(SessionOpts, #{?'Protocol Configuration Options' :=

@@ -295,7 +295,7 @@ handle_event(cast, {response, _, #pfcp{version = v1, type = association_setup_re
 	    Data = handle_nodeup(IEs, Data0),
 	    {next_state, {connected, init}, Data};
 	Other ->
-	    ?LOG(warning, "Other: ~p", [Other]),
+	    ?LOG(debug, "Other: ~p", [Other]),
 	    {next_state, dead, Data0}
     end;
 
@@ -314,7 +314,7 @@ handle_event(cast, {send, 'Access', _VRF, Data}, {connected, _},
 %% heartbeat logic
 %%
 handle_event(state_timeout, heartbeat, {connected, _}, Data) ->
-    ?LOG(warning, "sending heartbeat"),
+    ?LOG(debug, "sending heartbeat"),
     send_heartbeat(Data),
     keep_state_and_data;
 
@@ -353,7 +353,7 @@ handle_event(cast, {response, _, #pfcp{version = v1, type = heartbeat_response,
 				       ie = #{recovery_time_stamp :=
 						  #recovery_time_stamp{time = RecoveryTS}} = IEs}},
 	     {connected, _}, #data{recovery_ts = RecoveryTS} = Data) ->
-    ?LOG(info, "PFCP OK Response: ~s", [pfcp_packet:pretty_print(IEs)]),
+    ?LOG(debug, "PFCP OK Response: ~s", [pfcp_packet:pretty_print(IEs)]),
     {keep_state, Data, [next_heartbeat(Data)]};
 handle_event(cast, {response, _, #pfcp{version = v1, type = heartbeat_response, ie = _IEs}},
 	     {connected, _}, Data) ->
@@ -365,7 +365,7 @@ handle_event(cast, {response, from_cp_rule,
 			  ie = #{pfcp_cause := #pfcp_cause{cause = 'Request accepted'},
 				 f_seid := #f_seid{seid = DP}}}} = R,
 	     {connected, init}, #data{pfcp_ctx = #pfcp_ctx{seid = SEID} = PCtx} = Data) ->
-    ?LOG(warning, "Response: ~p", [R]),
+    ?LOG(debug, "Response: ~p", [R]),
     {next_state, {connected, ready}, Data#data{pfcp_ctx = PCtx#pfcp_ctx{seid = SEID#seid{dp = DP}}}};
 
 handle_event({call, From}, attach, _, #data{pfcp_ctx = PNodeCtx} = Data) ->
@@ -416,7 +416,7 @@ handle_event(cast, {response, heartbeat, timeout} = R, _, Data) ->
     {next_state, dead, handle_nodedown(Data)};
 
 handle_event(cast, {response, _, _} = R, _, _Data) ->
-    ?LOG(warning, "Response: ~p", [R]),
+    ?LOG(debug, "Response: ~p", [R]),
     keep_state_and_data;
 
 handle_event({call, _} = Evt, #pfcp{} = Request0, {connected, _},
@@ -465,7 +465,7 @@ handle_event({call, From},
 	     _State,
 	     #data{pfcp_ctx = #pfcp_ctx{seid = #seid{dp = SEID}} = PCtx, tdf = Tdf}) ->
     {ok, {tdf, VRF}} = ergw_pfcp:find_urr_by_id(Id, PCtx),
-    ?LOG(error, "Sx Node TDF Report on ~p for UE IPv4 ~p IPv6 ~p", [VRF, IP4, IP6]),
+    ?LOG(debug, "Sx Node TDF Report on ~p for UE IPv4 ~p IPv6 ~p", [VRF, IP4, IP6]),
 
     Handler = maps:get(handler, Tdf, tdf),
     try
@@ -696,8 +696,8 @@ heartbeat_response(ReqKey, #pfcp{type = heartbeat_request} = Request) ->
 handle_nodeup(#{recovery_time_stamp := #recovery_time_stamp{time = RecoveryTS}} = IEs,
 	      #data{dp = #node{node = Node, ip = IP},
 		    vrfs = VRFs} = Data0) ->
-    ?LOG(warning, "Node ~s (~s) is up", [Node, inet:ntoa(IP)]),
-    ?LOG(warning, "Node IEs: ~s", [pfcp_packet:pretty_print(IEs)]),
+    ?LOG(debug, "Node ~s (~s) is up", [Node, inet:ntoa(IP)]),
+    ?LOG(debug, "Node IEs: ~s", [pfcp_packet:pretty_print(IEs)]),
 
     UPIPResInfo = maps:get(user_plane_ip_resource_information, IEs, []),
     Data = Data0#data{
@@ -739,7 +739,7 @@ mode(_) -> transient.
 handle_nodedown(Data) ->
     Self = self(),
     {monitored_by, Notify} = process_info(Self, monitored_by),
-    ?LOG(info, "Node Down Monitor Notify: ~p", [Notify]),
+    ?LOG(debug, "Node Down Monitor Notify: ~p", [Notify]),
     lists:foreach(fun(Pid) -> Pid ! {'DOWN', undefined, pfcp, Self, undefined} end, Notify),
     init_node_cfg(Data).
 

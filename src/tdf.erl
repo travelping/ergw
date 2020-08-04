@@ -320,7 +320,7 @@ handle_event(internal, {session, Ev, _}, _State, _Data) ->
     keep_state_and_data;
 
 handle_event(info, {update_session, Session, Events}, _State, _Data) ->
-    ?LOG(warning, "SessionEvents: ~p~n       Events: ~p", [Session, Events]),
+    ?LOG(debug, "SessionEvents: ~p~n       Events: ~p", [Session, Events]),
     Actions = [{next_event, internal, {session, Ev, Session}} || Ev <- Events],
     {keep_state_and_data, Actions};
 
@@ -384,7 +384,7 @@ start_session(#data{apn = APN, context = Context0, dp_node = Node,
 
     {ok, GySessionOpts, GyEvs} =
 	ccr_initial(Session, gy, GyReqServices, SOpts),
-    ?LOG(info, "GySessionOpts: ~p", [GySessionOpts]),
+    ?LOG(debug, "GySessionOpts: ~p", [GySessionOpts]),
 
     ergw_aaa_session:invoke(Session, #{}, start, SOpts),
     {_, _, RfSEvs} = ergw_aaa_session:invoke(Session, #{}, {rf, 'Initial'}, SOpts),
@@ -441,12 +441,12 @@ init_session(#data{context = Context}) ->
 
 
 authenticate(Session, SessionOpts) ->
-    ?LOG(info, "SessionOpts: ~p", [SessionOpts]),
+    ?LOG(debug, "SessionOpts: ~p", [SessionOpts]),
     case ergw_aaa_session:invoke(Session, SessionOpts, authenticate, [inc_session_id]) of
 	{ok, _, _} = Result ->
 	    Result;
 	Other ->
-	    ?LOG(info, "AuthResult: ~p", [Other]),
+	    ?LOG(debug, "AuthResult: ~p", [Other]),
 	    throw({fail, authenticate, Other})
     end.
 
@@ -478,7 +478,7 @@ close_pdn_context(Reason, run, #data{context = Context, pfcp = PCtx,
 
     case ergw_aaa_session:invoke(Session, #{}, {gx, 'CCR-Terminate'}, ReqOpts#{async => false}) of
 	{ok, _GxSessionOpts, _} ->
-	    ?LOG(info, "GxSessionOpts: ~p", [_GxSessionOpts]);
+	    ?LOG(debug, "GxSessionOpts: ~p", [_GxSessionOpts]);
 	GxOther ->
 	    ?LOG(warning, "Gx terminate failed with: ~p", [GxOther])
     end,
