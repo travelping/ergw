@@ -689,9 +689,9 @@ create_session_request_pool_exhausted() ->
     [{doc, "Dynamic IP pool exhausted"}].
 create_session_request_pool_exhausted(Config) ->
     ok = meck:expect(ergw_gsn_lib, allocate_ips,
-		     fun(AllocInfo, APNOpts, SOpts, DualAddressBearerFlag, Context) ->
+		     fun(AllocInfo, APNOpts, SOpts, DAB, PCO, Context) ->
 			     try
-				 meck:passthrough([AllocInfo, APNOpts, SOpts, DualAddressBearerFlag, Context])
+				 meck:passthrough([AllocInfo, APNOpts, SOpts, DAB, PCO, Context])
 			     catch
 				 throw:#ctx_err{} = CtxErr ->
 				     meck:exception(throw, CtxErr)

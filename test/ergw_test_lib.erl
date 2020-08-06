@@ -73,7 +73,7 @@ lib_init_per_suite(Config0) ->
     {_, AppCfg} = lists:keyfind(app_cfg, 1, Config0),   %% let it crash if undefined
 
     Config = init_ets(Config0),
-    [application:load(App) || App <- [cowboy, ergw, ergw_aaa]],
+    [application:load(App) || App <- [cowboy, ergw, ergw_aaa, dhcp]],
     meck_init(Config),
     load_config(AppCfg),
     {ok, _} = application:ensure_all_started(ergw),
@@ -100,7 +100,7 @@ lib_end_per_suite(Config) ->
     ok = ergw_test_sx_up:stop('sgw-u'),
     ok = ergw_test_sx_up:stop('tdf-u'),
     ?config(table_owner, Config) ! stop,
-    [application:stop(App) || App <- [ranch, cowboy, ergw, ergw_aaa]],
+    [application:stop(App) || App <- [ranch, cowboy, ergw, ergw_aaa, dhcp]],
     ok.
 
 load_config(AppCfg) ->

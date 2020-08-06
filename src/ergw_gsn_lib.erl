@@ -32,10 +32,11 @@
 	 gy_credit_request/2,
 	 gy_credit_request/3,
 	 pcc_events_to_charging_rule_report/1]).
+-export([session_to_pco/2, pco_requested_opts/2]).
 -export([pcc_ctx_has_rules/1]).
 -export([apn/2, select_vrf/2,
 	 init_session_ip_opts/3,
-	 allocate_ips/5, release_context_ips/1]).
+	 allocate_ips/6, release_context_ips/1]).
 
 -export([select_upf/2, reselect_upf/4]).
 
@@ -1898,10 +1899,10 @@ allocate_ips_result('IPv4v6', _, undefined, IPv6, _) when IPv6 /= undefined ->
 allocate_ips_result(_, _, _, _, Context) ->
     throw(?CTX_ERR(?FATAL, preferred_pdn_type_not_supported, Context)).
 
-%% allocate_ips/5
+%% allocate_ips/6
 allocate_ips(AllocInfo,
 	     #{bearer_type := Bearer, prefered_bearer_type := PrefBearer} = APNOpts,
-	     SOpts0, DualAddressBearerFlag, Context0) ->
+	     SOpts0, DualAddressBearerFlag, PCOReqOpts, Context0) ->
     {ReqPDNType, ReqMSv4, ReqMSv6} =
 	session_ip_alloc(Bearer, PrefBearer, SOpts0, DualAddressBearerFlag, AllocInfo),
 
@@ -1909,7 +1910,7 @@ allocate_ips(AllocInfo,
 
     ReqIPs = [normalize_ipv4(ReqMSv4),
 	      normalize_ipv6(ReqMSv6)],
-    ReqIds = request_ip_alloc(ReqIPs, SOpts1, Context0),
+    ReqIds = request_ip_alloc(ReqIPs, PCOReqOpts, Context0),
     {Context, SOpts2} = wait_ip_alloc_results(ReqIds, SOpts1, Context0),
 
     {Result, PDNType} = allocate_ips_result(ReqPDNType, Bearer, Context),
@@ -1927,6 +1928,99 @@ allocate_ips(AllocInfo,
 release_context_ips(#context{ms_v4 = MSv4, ms_v6 = MSv6} = Context) ->
     ergw_ip_pool:release([MSv4, MSv6]),
     Context#context{ms_v4 = undefined, ms_v6 = undefined}.
+
+%%%===================================================================
+%%% Protocol Configuation Options
+%%%===================================================================
+
+pco_ppp_ipcp_requested_opts({ms_dns1, <<0,0,0,0>>}, Opts) ->
+    Opts#{'MS-Primary-DNS-Server' => true};
+pco_ppp_ipcp_requested_opts({ms_dns2, <<0,0,0,0>>}, Opts) ->
+    Opts#{'MS-Secondary-DNS-Server' => true};
+pco_ppp_ipcp_requested_opts({ms_wins1, <<0,0,0,0>>}, Opts) ->
+    Opts#{'MS-Primary-NBNS-Server' => true};
+pco_ppp_ipcp_requested_opts({ms_wins2, <<0,0,0,0>>}, Opts) ->
+    Opts#{'MS-Secondary-NBNS-Server' => true};
+pco_ppp_ipcp_requested_opts(_, Opts) ->
+    Opts.
+
+pco_ppp_requested_opts({ipcp,'CP-Configure-Request', _Id, CpReqOpts}, Opts) ->
+    lists:foldr(fun pco_ppp_ipcp_requested_opts/2, Opts, CpReqOpts);
+pco_ppp_requested_opts({?'PCO-DNS-Server-IPv4-Address', <<>>}, Opts) ->
+    Opts#{'MS-Primary-DNS-Server' => true,
+	  'MS-Secondary-DNS-Server' => true};
+pco_ppp_requested_opts({?'PCO-DNS-Server-IPv6-Address', <<>>}, Opts) ->
+    Opts#{'DNS-Server-IPv6-Address' => true};
+pco_ppp_requested_opts({?'PCO-P-CSCF-IPv4-Address', <<>>}, Opts) ->
+    Opts#{'SIP-Servers-IPv4-Address-List' => true};
+pco_ppp_requested_opts({?'PCO-P-CSCF-IPv6-Address', <<>>}, Opts) ->
+    Opts#{'SIP-Servers-IPv6-Address-List' => true};
+pco_ppp_requested_opts(_, Opts) ->
+    Opts.
+
+pco_requested_opts({0, Requested}, SOpts) ->
+    Init = maps:with(['Framed-Interface-Id'], SOpts),
+    lists:foldr(fun pco_ppp_requested_opts/2, Init, Requested);
+pco_requested_opts(_, _) ->
+    [].
+
+session_to_ppp_ipcp_conf_resp(Verdict, Opt, IPCP) ->
+    maps:update_with(Verdict, fun(O) -> [Opt|O] end, [Opt], IPCP).
+
+session_to_ppp_ipcp_conf(#{'MS-Primary-DNS-Server' := DNS}, {ms_dns1, <<0,0,0,0>>}, IPCP) ->
+    session_to_ppp_ipcp_conf_resp('CP-Configure-Nak', {ms_dns1, ergw_inet:ip2bin(DNS)}, IPCP);
+session_to_ppp_ipcp_conf(#{'MS-Secondary-DNS-Server' := DNS}, {ms_dns2, <<0,0,0,0>>}, IPCP) ->
+    session_to_ppp_ipcp_conf_resp('CP-Configure-Nak', {ms_dns2, ergw_inet:ip2bin(DNS)}, IPCP);
+session_to_ppp_ipcp_conf(#{'MS-Primary-NBNS-Server' := DNS}, {ms_wins1, <<0,0,0,0>>}, IPCP) ->
+    session_to_ppp_ipcp_conf_resp('CP-Configure-Nak', {ms_wins1, ergw_inet:ip2bin(DNS)}, IPCP);
+session_to_ppp_ipcp_conf(#{'MS-Secondary-NBNS-Server' := DNS}, {ms_wins2, <<0,0,0,0>>}, IPCP) ->
+    session_to_ppp_ipcp_conf_resp('CP-Configure-Nak', {ms_wins2, ergw_inet:ip2bin(DNS)}, IPCP);
+
+session_to_ppp_ipcp_conf(_SessionOpts, Opt, IPCP) ->
+    session_to_ppp_ipcp_conf_resp('CP-Configure-Reject', Opt, IPCP).
+
+session_to_ppp_pco(SessionOpts, {pap, 'PAP-Authentication-Request', Id, _Username, _Password}, Opts) ->
+    [{pap, 'PAP-Authenticate-Ack', Id, maps:get('Reply-Message', SessionOpts, <<>>)}|Opts];
+session_to_ppp_pco(SessionOpts, {chap, 'CHAP-Response', Id, _Value, _Name}, Opts) ->
+    [{chap, 'CHAP-Success', Id, maps:get('Reply-Message', SessionOpts, <<>>)}|Opts];
+session_to_ppp_pco(SessionOpts, {ipcp,'CP-Configure-Request', Id, CpReqOpts}, Opts) ->
+    CpRespOpts = lists:foldr(session_to_ppp_ipcp_conf(SessionOpts, _, _), #{}, CpReqOpts),
+    maps:fold(fun(K, V, O) -> [{ipcp, K, Id, V} | O] end, Opts, CpRespOpts);
+
+session_to_ppp_pco(SessionOpts, {?'PCO-DNS-Server-IPv6-Address', <<>>}, Opts) ->
+    [{?'PCO-DNS-Server-IPv6-Address', ergw_inet:ip2bin(DNS)}
+     || DNS <- maps:get('DNS-Server-IPv6-Address', SessionOpts, [])]
+	++ [{?'PCO-DNS-Server-IPv6-Address', ergw_inet:ip2bin(DNS)}
+	    || DNS <- maps:get('3GPP-IPv6-DNS-Servers', SessionOpts, [])]
+	++ Opts;
+session_to_ppp_pco(SessionOpts, {?'PCO-DNS-Server-IPv4-Address', <<>>}, Opts) ->
+    lists:foldr(fun(Key, O) ->
+			case maps:find(Key, SessionOpts) of
+			    {ok, DNS} ->
+				[{?'PCO-DNS-Server-IPv4-Address', ergw_inet:ip2bin(DNS)} | O];
+			    _ ->
+				O
+			end
+		end, Opts, ['MS-Secondary-DNS-Server', 'MS-Primary-DNS-Server']);
+session_to_ppp_pco(SessionOpts, {?'PCO-P-CSCF-IPv4-Address', <<>>}, Opts) ->
+    [{?'PCO-P-CSCF-IPv4-Address', ergw_inet:ip2bin(IP)}
+     || IP <- maps:get('SIP-Servers-IPv4-Address-List', SessionOpts, [])]
+	++ Opts;
+session_to_ppp_pco(SessionOpts, {?'PCO-P-CSCF-IPv6-Address', <<>>}, Opts) ->
+    [{?'PCO-P-CSCF-IPv6-Address', ergw_inet:ip2bin(IP)}
+     || IP <- maps:get('SIP-Servers-IPv6-Address-List', SessionOpts, [])]
+	++ Opts;
+session_to_ppp_pco(_SessionOpts, PPPReqOpt, Opts) ->
+    ?LOG(debug, "Apply PPP Opt: ~p", [PPPReqOpt]),
+    Opts.
+
+session_to_pco(SessionOpts, {0, Requested}) ->
+    case lists:foldr(session_to_ppp_pco(SessionOpts, _, _), [], Requested) of
+	[] -> undefined;
+	Opts -> {0, Opts}
+    end;
+session_to_pco(_, _) ->
+    undefined.
 
 %%%===================================================================
 %%% T-PDU functions

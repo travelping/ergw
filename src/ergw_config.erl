@@ -16,6 +16,7 @@
 	 validate_options/4,
 	 validate_apn_name/1,
 	 check_unique_keys/2,
+	 check_unique_elements/2,
 	 validate_ip_cfg_opt/2,
 	 opts_fold/3,
 	 get_opt/3,

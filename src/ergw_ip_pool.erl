@@ -68,6 +68,8 @@ validate_options(Options) ->
     case ergw_config:get_opt(handler, Options, ergw_local_pool) of
 	ergw_local_pool ->
 	    ergw_local_pool:validate_options(Options);
+	ergw_dhcp_pool ->
+	    ergw_dhcp_pool:validate_options(Options);
 	Handler ->
 	    throw({error, {options, {handler, Handler}}})
     end.
@@ -97,7 +99,7 @@ static_ip_info(opts,   _) -> #{};
 static_ip_info(release, _) -> ok.
 
 with_pool(Pool, Fun) ->
-    case application:get_env(ip_pools) of
+    case application:get_env(ergw, ip_pools) of
 	{ok, #{Pool := #{handler := Handler}}} ->
 	    Fun(Handler);
 	_ ->
@@ -107,7 +109,7 @@ with_pool(Pool, Fun) ->
 send_pool_request(_ClientId, skip) ->
     skip;
 send_pool_request(ClientId, {Pool, _, _, _} = Req) ->
-    with_pool(Pool, fun(Handler) -> {Handler, apply(Handler, ?FUNCTION_NAME, [ClientId, Req])} end).
+    with_pool(Pool, fun(Handler) -> {Handler, (catch apply(Handler, ?FUNCTION_NAME, [ClientId, Req]))} end).
 
 wait_pool_response(skip) ->
     skip;

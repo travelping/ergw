@@ -10,7 +10,7 @@
 -behaviour(supervisor).
 
 %% API
--export([start_link/0, start_local_pool_sup/0]).
+-export([start_link/0, start_local_pool_sup/0, start_dhcp_pool_sup/0]).
 
 %% Supervisor callbacks
 -export([init/1]).
@@ -36,6 +36,26 @@ start_local_pool_sup() ->
 	   restart => permanent,
 	   type    => supervisor,
 	   modules => [ergw_local_pool_sup]}],
+    [supervisor:start_child(?SERVER, Cs) || Cs <- ChildSpecs],
+    ok.
+
+start_dhcp_pool_sup() ->
+    ChildSpecs =
+	[#{id      => ergw_dhcp_socket,
+	   start   => {ergw_dhcp_socket, start_link, []},
+	   restart => permanent,
+	   type    => worker,
+	   modules => [ergw_dhcp_pool_reg]},
+	 #{id      => ergw_dhcp_pool_reg,
+	   start   => {ergw_dhcp_pool_reg, start_link, []},
+	   restart => permanent,
+	   type    => worker,
+	   modules => [ergw_dhcp_pool_reg]},
+	 #{id      => ergw_dhcp_pool_sup,
+	   start   => {ergw_dhcp_pool_sup, start_link, []},
+	   restart => permanent,
+	   type    => supervisor,
+	   modules => [ergw_dhcp_pool_sup]}],
     [supervisor:start_child(?SERVER, Cs) || Cs <- ChildSpecs],
     ok.
 

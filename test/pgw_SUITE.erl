@@ -44,6 +44,26 @@
 	    ]}
 	  ]},
 
+	 {dhcp,
+	  [{server_id, {127,0,0,1}},
+	   {next_server, {127,0,0,1}},
+	   {interface, <<"lo">>},
+	   {authoritative, true},
+	   {lease_file, "/var/run/dhcp_leases.dets"},
+	   {subnets,
+	    [{subnet,
+	      {172,20,48,0},                       %% Network,
+	      {255,255,255,0},                     %% Netmask,
+	      {{172,20,48,5},{172,20,48,100}},     %% Range,
+	      [{1,  {255,255,255,0}},              %% Subnet Mask,
+	       {28, {172,20,48,255}},              %% Broadcast Address,
+	       {3,  [{172,20,48,1}]},              %% Router,
+	       {15, "wlan"},                       %% Domain Name,
+	       {6,  [{172,20,48,1}, {172,20,48,1}]},              %% Domain Name Server,
+	       {51, 3600}]}                        %% Address Lease Time,
+	    ]}
+	  ]},
+
 	 {ergw, [{'$setup_vars',
 		  [{"ORIGIN", {value, "epc.mnc001.mcc001.3gppnetwork.org"}}]},
 		 {sockets,
@@ -66,7 +86,15 @@
 			 {socket, 'cp-socket'},
 			 {ip, ?MUST_BE_UPDATED},
 			 {reuseaddr, true}
-			]}
+			]},
+
+		   {'dhcp-v4',
+		    [{type, dhcp},
+		     %%{ip, ?MUST_BE_UPDATED},
+		     {ip, {127,100,0,1}},
+		     {port, random},
+		     {reuseaddr, true}
+		    ]}
 		  ]},
 
 		 {ip_pools,
@@ -102,7 +130,13 @@
 			       {'DNS-Server-IPv6-Address',
 				[{16#2001, 16#4860, 16#4860, 0, 0, 0, 0, 16#8888},
 				 {16#2001, 16#4860, 16#4860, 0, 0, 0, 0, 16#8844}]}
-			      ]}
+			      ]},
+
+		   {'pool-DHCP', [{handler, ergw_dhcp_pool},
+				  {ipv4, [{socket, 'dhcp-v4'},
+					  {id, {172,20,48,1}},
+					  {servers, [broadcast]}]}
+				 ]}
 		  ]},
 
 		 {handlers,
@@ -200,7 +234,10 @@
 		     {prefered_bearer_type, 'IPv4'}]},
 		   {[<<"async-sx">>],
 		    [{vrf, sgi},
-		     {ip_pools, ['pool-A']}]}
+		     {ip_pools, ['pool-A']}]},
+		   {[<<"dhcp">>],
+		    [{vrf, sgi},
+		     {ip_pools, ['pool-DHCP']}]}
 		   %% {'_', [{vrf, wildcard}]}
 		  ]},
 
@@ -294,7 +331,7 @@
 		       {irx, [{features, ['Access']}]},
 		       {sgi, [{features, ['SGi-LAN']}]}
 		      ]},
-		     {ip_pools, ['pool-A']}]
+		     {ip_pools, ['pool-A', 'pool-DHCP']}]
 		   },
 		   {"topon.sx.prox01.$ORIGIN", [connect]},
 		   {"topon.sx.prox03.$ORIGIN", [connect, {ip_pools, ['pool-B', 'pool-C']}]}
@@ -665,8 +702,11 @@ common() ->
 sx_fail() ->
     [sx_connect_fail].
 
+ipv4_only() ->
+    [dhcp_ipv4_pool].
+
 groups() ->
-    [{ipv4, [], common()},
+    [{ipv4, [], common() ++ ipv4_only()},
      {ipv6, [], common()},
      {sx_fail, [{ipv4, [], sx_fail()},
 		{ipv6, [], sx_fail()}]
@@ -880,6 +920,10 @@ init_per_testcase(gtp_idle_timeout, Config) ->
     set_apn_key('Idle-Timeout', 300),
     setup_per_testcase(Config),
     Config;
+init_per_testcase(dhcp_ipv4_pool, Config) ->
+    setup_per_testcase(Config),
+    {ok, _} = application:ensure_all_started(dhcp),
+    Config;
 init_per_testcase(_, Config) ->
     setup_per_testcase(Config),
     Config.
@@ -1073,9 +1117,9 @@ create_session_request_pool_exhausted() ->
     [{doc, "Dynamic IP pool exhausted"}].
 create_session_request_pool_exhausted(Config) ->
     ok = meck:expect(ergw_gsn_lib, allocate_ips,
-		     fun(AllocInfo, APNOpts, SOpts, DualAddressBearerFlag, Context) ->
+		     fun(AllocInfo, APNOpts, SOpts, DAB, PCO, Context) ->
 			     try
-				 meck:passthrough([AllocInfo, APNOpts, SOpts, DualAddressBearerFlag, Context])
+				 meck:passthrough([AllocInfo, APNOpts, SOpts, DAB, PCO, Context])
 			     catch
 				 throw:#ctx_err{} = CtxErr ->
 				     meck:exception(throw, CtxErr)
@@ -1497,9 +1541,9 @@ pdn_session_request_bearer_types() ->
     [{doc, "Create different IP bearers against APNs with restrictions/preferences"}].
 pdn_session_request_bearer_types(Config) ->
     ok = meck:expect(ergw_gsn_lib, allocate_ips,
-		     fun(AllocInfo, APNOpts, SOpts, DualAddressBearerFlag, Context) ->
+		     fun(AllocInfo, APNOpts, SOpts, DAB, PCO, Context) ->
 			     try
-				 meck:passthrough([AllocInfo, APNOpts, SOpts, DualAddressBearerFlag, Context])
+				 meck:passthrough([AllocInfo, APNOpts, SOpts, DAB, PCO, Context])
 			     catch
 				 throw:#ctx_err{} = CtxErr ->
 				     meck:exception(throw, CtxErr)
@@ -5042,6 +5086,23 @@ up_inactivity_timer(Config) ->
 
     ?equal([], outstanding_requests()),
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+dhcp_ipv4_pool() ->
+    [{doc, "Check simple Create Session, Delete Session sequence with DHCP IPv4 pool"}].
+dhcp_ipv4_pool(Config) ->
+    {GtpC, _, _} = create_session({ipv4, false, dhcp}, Config),
+
+    ct:sleep({seconds, 10}),
+
+    delete_session(GtpC),
+
+    ?equal([], outstanding_requests()),
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+
 
     meck_validate(Config),
     ok.

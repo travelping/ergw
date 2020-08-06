@@ -87,7 +87,7 @@ load_config([_ | T]) ->
     load_config(T).
 
 %%
-%% Initialize a new PFCP, GTPv1/v2-c or GTPv1-u socket
+%% Initialize a new PFCP, DHCP, GTPv1/v2-c or GTPv1-u socket
 %%
 start_socket({_Name, #{type := Type} = Opts}) ->
     ergw_socket_sup:new(Type, Opts).

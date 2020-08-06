@@ -390,9 +390,10 @@ handle_request(ReqKey,
     {PendingPCtx, NodeCaps, APNOpts, ContextVRF} =
 	ergw_gsn_lib:reselect_upf(Candidates, ActiveSessionOpts0, ContextUP, UPinfo0),
 
+    PCO = maps:get(?'Protocol Configuration Options', IEs, undefined),
     {Result, ActiveSessionOpts1, ContextPending1} =
-	allocate_ips(APNOpts, ActiveSessionOpts0, PAA, DAF, ContextVRF),
-    {ContextPending, ActiveSessionOpts} = 
+	allocate_ips(APNOpts, ActiveSessionOpts0, PAA, DAF, PCO, ContextVRF),
+    {ContextPending, ActiveSessionOpts} =
 	add_apn_timeout(APNOpts, ActiveSessionOpts1, ContextPending1),
     ergw_aaa_session:set(Session, ActiveSessionOpts),
 
@@ -1221,56 +1222,22 @@ delete_context(From, TermCause, #{context := Context} = Data) ->
     send_request(Context, ?T3, ?N3, Type, RequestIEs, {From, TermCause}),
     {next_state, shutdown_initiated, Data}.
 
-allocate_ips(APNOpts, SOpts, PAA, DAF, Context) ->
-    ergw_gsn_lib:allocate_ips(pdn_alloc(PAA), APNOpts, SOpts, DAF, Context).
+pco_requested_opts(#v2_protocol_configuration_options{config = Requested}, SOpts) ->
+    ergw_gsn_lib:pco_requested_opts(Requested, SOpts);
+pco_requested_opts(_, _) ->
+    [].
 
-ppp_ipcp_conf_resp(Verdict, Opt, IPCP) ->
-    maps:update_with(Verdict, fun(O) -> [Opt|O] end, [Opt], IPCP).
-
-ppp_ipcp_conf(#{'MS-Primary-DNS-Server' := DNS}, {ms_dns1, <<0,0,0,0>>}, IPCP) ->
-    ppp_ipcp_conf_resp('CP-Configure-Nak', {ms_dns1, ergw_inet:ip2bin(DNS)}, IPCP);
-ppp_ipcp_conf(#{'MS-Secondary-DNS-Server' := DNS}, {ms_dns2, <<0,0,0,0>>}, IPCP) ->
-    ppp_ipcp_conf_resp('CP-Configure-Nak', {ms_dns2, ergw_inet:ip2bin(DNS)}, IPCP);
-ppp_ipcp_conf(#{'MS-Primary-NBNS-Server' := DNS}, {ms_wins1, <<0,0,0,0>>}, IPCP) ->
-    ppp_ipcp_conf_resp('CP-Configure-Nak', {ms_wins1, ergw_inet:ip2bin(DNS)}, IPCP);
-ppp_ipcp_conf(#{'MS-Secondary-NBNS-Server' := DNS}, {ms_wins2, <<0,0,0,0>>}, IPCP) ->
-    ppp_ipcp_conf_resp('CP-Configure-Nak', {ms_wins2, ergw_inet:ip2bin(DNS)}, IPCP);
-
-ppp_ipcp_conf(_SessionOpts, Opt, IPCP) ->
-    ppp_ipcp_conf_resp('CP-Configure-Reject', Opt, IPCP).
-
-pdn_ppp_pco(SessionOpts, {pap, 'PAP-Authentication-Request', Id, _Username, _Password}, Opts) ->
-    [{pap, 'PAP-Authenticate-Ack', Id, maps:get('Reply-Message', SessionOpts, <<>>)}|Opts];
-pdn_ppp_pco(SessionOpts, {chap, 'CHAP-Response', Id, _Value, _Name}, Opts) ->
-    [{chap, 'CHAP-Success', Id, maps:get('Reply-Message', SessionOpts, <<>>)}|Opts];
-pdn_ppp_pco(SessionOpts, {ipcp,'CP-Configure-Request', Id, CpReqOpts}, Opts) ->
-    CpRespOpts = lists:foldr(ppp_ipcp_conf(SessionOpts, _, _), #{}, CpReqOpts),
-    maps:fold(fun(K, V, O) -> [{ipcp, K, Id, V} | O] end, Opts, CpRespOpts);
-
-pdn_ppp_pco(SessionOpts, {?'PCO-DNS-Server-IPv6-Address', <<>>}, Opts) ->
-    [{?'PCO-DNS-Server-IPv6-Address', ergw_inet:ip2bin(DNS)}
-     || DNS <- maps:get('DNS-Server-IPv6-Address', SessionOpts, [])]
-	++ [{?'PCO-DNS-Server-IPv6-Address', ergw_inet:ip2bin(DNS)}
-	    || DNS <- maps:get('3GPP-IPv6-DNS-Servers', SessionOpts, [])]
-	++ Opts;
-pdn_ppp_pco(SessionOpts, {?'PCO-DNS-Server-IPv4-Address', <<>>}, Opts) ->
-    lists:foldr(fun(Key, O) ->
-			case maps:find(Key, SessionOpts) of
-			    {ok, DNS} ->
-				[{?'PCO-DNS-Server-IPv4-Address', ergw_inet:ip2bin(DNS)} | O];
-			    _ ->
-				O
-			end
-		end, Opts, ['MS-Secondary-DNS-Server', 'MS-Primary-DNS-Server']);
-pdn_ppp_pco(_SessionOpts, PPPReqOpt, Opts) ->
-    ?LOG(debug, "Apply PPP Opt: ~p", [PPPReqOpt]),
-    Opts.
+allocate_ips(APNOpts, SOpts, PAA, DAF, PCO, Context) ->
+    PCOReqOpts = pco_requested_opts(PCO, SOpts),
+    ergw_gsn_lib:allocate_ips(pdn_alloc(PAA), APNOpts, SOpts, DAF, PCOReqOpts, Context).
 
 pdn_pco(SessionOpts, #{?'Protocol Configuration Options' :=
-			   #v2_protocol_configuration_options{config = {0, PPPReqOpts}}}, IE) ->
-    case lists:foldr(pdn_ppp_pco(SessionOpts, _, _), [], PPPReqOpts) of
-	[]   -> IE;
-	Opts -> [#v2_protocol_configuration_options{config = {0, Opts}} | IE]
+			   #v2_protocol_configuration_options{config = Requested}}, IE) ->
+    case ergw_gsn_lib:session_to_pco(SessionOpts, Requested) of
+	undefined ->
+	    IE;
+	Opts ->
+	    [#v2_protocol_configuration_options{config = Opts} | IE]
     end;
 pdn_pco(_SessionOpts, _RequestIEs, IE) ->
     IE.

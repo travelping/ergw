@@ -310,6 +310,8 @@ validate_pdn_type(ipv6, IEs)                        -> validate_pdn_cfg(ipv6, ip
 validate_pdn_type({default, static_ipv6}, IEs)      -> validate_pdn_cfg(ipv6, ipv6, IEs);
 validate_pdn_type({default, static_host_ipv6}, IEs) -> validate_pdn_cfg(ipv6, ipv6, IEs);
 
+validate_pdn_type({Req, false, _},  IEs) -> validate_pdn_cfg(Req, Req, IEs);
+
 validate_pdn_type(_Type, IEs) ->
     validate_pdn_cfg(ipv4v6, ipv4v6, IEs).
 
@@ -770,7 +772,7 @@ validate_cause(_Type, {_, _, _} = SubType,
 	 {{ipv4v6, false, prefV4},  new_pdn_type_due_to_single_address_bearer_only},
 	 {{ipv4v6, false, prefV6},  new_pdn_type_due_to_single_address_bearer_only}
 	 ],
-    ExpectedCause = proplists:get_value(SubType, CauseList),
+    ExpectedCause = proplists:get_value(SubType, CauseList, request_accepted),
     ?equal(ExpectedCause, Cause);
 
 validate_cause(_Type, _SubType, Response) ->
@@ -1090,7 +1092,8 @@ apn(proxy_apn)   -> ?'APN-PROXY';
 apn(async_sx)    -> [<<"async-sx">>];
 apn({_, _, APN})
   when APN =:= v4only; APN =:= prefV4;
-       APN =:= v6only; APN =:= prefV6 ->
+       APN =:= v6only; APN =:= prefV6;
+       APN =:= dhcp ->
     [atom_to_binary(APN, latin1)];
 apn([Label|_] = APN) when is_binary(Label) -> APN;
 apn(_)           -> ?'APN-ExAmPlE'.
