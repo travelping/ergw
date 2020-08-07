@@ -21,6 +21,7 @@ env:
     - secure: "JpJScMSO4Sqj4odjSFEpshqFk93ZyVkhMNNc9xh2yfRpkHFNXXnhLYhKLA/nr1gcd1f9jnWz++1cqa4MQXRGanDT3+iGNO12R/M3ZVT26ywV0QEmj6z/acsv5wC34hje8/zWAgKWBsIxswFVT+RRPzNOQNVq6JPLZSp014qX5P+ChwmPeCG2kY/od9fsftp7ZjqyhqOOlXGJeEInvF5SD1RqnVMYP2OEQnGQyAHg9aoczO1cZnpZSRQFTqtDzwG1lp21oqsk2IVSCTqXdD1+GNSZCV4oHddXwGJICN9klSHUnxKb7/rFwbVh090+wP7PA+4eqCOOCGIIePFRMDiux6wX07p4wFhtt6/ZGmOs+1kV9ZR4W9FP+rv/0LUlMpmd52WoWkn1kGA/fEr/Jff3n+PjcXd25W/ASeKciahhvXLudeoauP3/wB/3gfFBSnaVR1FvU10rAdL9X+W13z+UiL5C+1qDRjs/6OFpq0T4KfWkxxy1+9eG5J5u8gsKQ+1THvSerddGX77ZvnHu1m1A8z8fGF6toMUvR7EJvr/wpeVwRO/SOB03JYUYdeRnGYXYbOt4UE2ovh/g34mnxQptKW3Pk9aqT2x/Uamsn661tRJL7kVCGOnIUohh4Ynf2tniLbWsRorZlltcIxK4kaKuNfsV/gpvAaguDkeY0ul5AqM="
 
 before_script:
+  - sudo sed -i '/^Defaults\tsecure_path.*$/ d' /etc/sudoers
   - wget https://s3.amazonaws.com/rebar3/rebar3
   - chmod u+x ./rebar3
   # Add an IPv6 config - see the corresponding Travis issue
@@ -49,7 +50,8 @@ script:
   - ip -br addr
   - source test/env.sh
   - ./rebar3 compile
-  - ./rebar3 do xref, ct
+  - ./rebar3 xref
+  - sudo -E ./rebar3 ct
   - (./rebar3 as test do coveralls send || /bin/true)
   - (cd _build/test/logs/; zip -1r ../../../ct-logs.zip . )
 
