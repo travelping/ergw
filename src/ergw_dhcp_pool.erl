@@ -12,7 +12,8 @@
 -compile([{parse_transform, cut}]).
 
 %% API
--export([start_ip_pool/2, send_pool_request/2, wait_pool_response/1, release/1, ip/1, opts/1]).
+-export([start_ip_pool/2, send_pool_request/2, wait_pool_response/1, release/1,
+	 ip/1, opts/1, timeouts/1, handle_event/2]).
 -export([start_link/3, start_link/4]).
 -export([validate_options/1, validate_option/2]).
 
@@ -113,6 +114,14 @@ wait_response(Mref, Timeout)
 ip({?MODULE, _, IP, _, _}) -> IP.
 opts({?MODULE, _, _, _, Opts}) -> Opts.
 
+timeouts({?MODULE, _, _, _, Opts}) ->
+    {maps:get('Renewal-Time', Opts, infinity),
+     maps:get('Rebinding-Time', Opts, infinity),
+     maps:get('Lease-Time', Opts, infinity)}.
+
+handle_event({?MODULE, Server, _, _, _} = AI, Ev) ->
+    gen_server:call(Server, {handle_event, AI, Ev}).
+
 %%====================================================================
 %%% Options Validation
 %%%===================================================================
@@ -178,6 +187,18 @@ handle_call({get, _ClientId, IP, PrefixLen, _ReqOpts}, _From, State) ->
     Error = {unsupported, {IP, PrefixLen}},
     {reply, {error, Error}, State};
 
+handle_call({handle_event, {_, _, {IP, PrefixLen}, {Srv, ClientId}, Opts}, renewal},
+	    From, State) ->
+    dhcpv4_renew(ClientId, IP, PrefixLen, Opts, Srv, From, State);
+
+handle_call({handle_event, {_, _, {IP, PrefixLen}, {_Srv, ClientId}, Opts}, rebinding},
+	    From, State) ->
+    dhcpv4_rebind(ClientId, IP, PrefixLen, Opts, From, State);
+
+handle_call({handle_event, {_, _, IP, SrvId, Opts}, Ev}, _From, State) ->
+    ?LOG(error, "unhandled DHCP event: ~p, (~p, ~p, ~p)", [Ev, IP, SrvId, Opts]),
+    {reply, ok, State};
+
 handle_call(Request, _From, State) ->
     ?LOG(warning, "handle_call: ~p", [Request]),
     {reply, error, State}.
@@ -238,6 +259,16 @@ dhcpv4_init(ClientId, IP, PrefixLen, ReqOpts, From, #state{ipv4 = Pool} = State)
     ReqF = fun() -> dhcpv4_init_f(ClientId, IP, PrefixLen, ReqOpts, Pool) end,
     dhcpv4_spawn(ReqF, From, State).
 
+%% dhcpv4_renew/6
+dhcpv4_renew(ClientId, IP, PrefixLen, Opts, Srv, From, #state{ipv4 = Pool} = State) ->
+    ReqF = fun() -> dhcpv4_renew_f(ClientId, IP, PrefixLen, Opts, Srv, Pool) end,
+    dhcpv4_spawn(ReqF, From, State).
+
+%% dhcpv4_rebind/6
+dhcpv4_rebind(ClientId, IP, PrefixLen, Opts, From, #state{ipv4 = Pool} = State) ->
+    ReqF = fun() -> dhcpv4_rebind_f(ClientId, IP, PrefixLen, Opts, Pool) end,
+    dhcpv4_spawn(ReqF, From, State).
+
 dhcpv4_init_f(ClientId, ReqIP, PrefixLen, ReqOpts, #pool{servers = Srvs} = Pool) ->
     Srv = choose_server(Srvs),
     Opts = dhcpv4_opts(ClientId, ReqIP, PrefixLen, ReqOpts),
@@ -247,6 +278,15 @@ dhcpv4_init_f(ClientId, ReqIP, PrefixLen, ReqOpts, #pool{servers = Srvs} = Pool)
 	Other ->
 	    Other
     end.
+
+dhcpv4_renew_f(ClientId, IP, PrefixLen, ReqOpts, Srv, Pool) ->
+    Opts = dhcpv4_opts(ClientId, IP, PrefixLen, ReqOpts),
+    dhcpv4_renew(Pool, Srv, ClientId, IP, Opts).
+
+dhcpv4_rebind_f(ClientId, IP, PrefixLen, ReqOpts, #pool{servers = Srvs} = Pool) ->
+    Srv = choose_server(Srvs),
+    Opts = dhcpv4_opts(ClientId, IP, PrefixLen, ReqOpts),
+    dhcpv4_rebind(Pool, Srv, ClientId, IP, Opts).
 
 dhcpv4_discover(Pool, Srv, Opts) ->
     DHCP = #dhcp{
@@ -290,6 +330,51 @@ dhcpv4_request(Pool, ClientId, Opts, #dhcp{siaddr = SiAddr0} = Offer) ->
 	#dhcp{yiaddr = IP,
 	      options = #{?DHO_DHCP_MESSAGE_TYPE := ?DHCPACK} = RespOpts} = Answer ->
 	    SrvId = choose_next(Answer, SiAddr),
+	    {ok, {IP, 32}, {SrvId, ClientId}, dhcpv4_resp_opts(RespOpts)};
+	#dhcp{} ->
+	    {error, failed};
+	{error, _} = Error ->
+	    Error
+    end.
+
+dhcpv4_renew(Pool, Srv, ClientId, IP, Opts) ->
+    DHCP = #dhcp{
+	     op = ?BOOTREQUEST,
+	     ciaddr = IP,
+	     yiaddr = {0, 0, 0, 0},
+	     siaddr = {0, 0, 0, 0},
+	     options = Opts#{?DHO_DHCP_MESSAGE_TYPE => ?DHCPREQUEST}
+	    },
+    ReqId = dhcpv4_send_request(Pool, Srv, DHCP),
+
+    ReqTimeOut = erlang:monotonic_time(millisecond) + 1000,  %% 1 sec
+    case dhcpv4_answer(ReqId, {abs, ReqTimeOut}) of
+	#dhcp{yiaddr = IP,
+	      options = #{?DHO_DHCP_MESSAGE_TYPE := ?DHCPACK} = RespOpts} = Answer ->
+	    SrvId = choose_next(Answer, Srv),
+	    {ok, {IP, 32}, {SrvId, ClientId}, dhcpv4_resp_opts(RespOpts)};
+	#dhcp{} ->
+	    {error, failed};
+	{error, _} = Error ->
+	    Error
+    end.
+
+%% TBD: in REBIND we should broadcast the request (or send to all configured servers)
+dhcpv4_rebind(Pool, Srv, ClientId, IP, Opts) ->
+    DHCP = #dhcp{
+	     op = ?BOOTREQUEST,
+	     ciaddr = IP,
+	     yiaddr = {0, 0, 0, 0},
+	     siaddr = {0, 0, 0, 0},
+	     options = Opts#{?DHO_DHCP_MESSAGE_TYPE => ?DHCPREQUEST}
+	    },
+    ReqId = dhcpv4_send_request(Pool, Srv, DHCP),
+
+    ReqTimeOut = erlang:monotonic_time(millisecond) + 1000,  %% 1 sec
+    case dhcpv4_answer(ReqId, {abs, ReqTimeOut}) of
+	#dhcp{yiaddr = IP,
+	      options = #{?DHO_DHCP_MESSAGE_TYPE := ?DHCPACK} = RespOpts} = Answer ->
+	    SrvId = choose_next(Answer, Srv),
 	    {ok, {IP, 32}, {SrvId, ClientId}, dhcpv4_resp_opts(RespOpts)};
 	#dhcp{} ->
 	    {error, failed};
@@ -364,6 +449,14 @@ client_id(ClientId) when is_integer(ClientId) ->
 client_id(ClientId) when is_list(ClientId) ->
     iolist_to_binary(ClientId).
 
+set_time(K, V, #{'Base-Time' := Now} = Opts) ->
+    Opts#{K => Now + V}.
+
+maybe_set_time(K, V, Opts) when not is_map_key(K, Opts) ->
+    set_time(K, V, Opts);
+maybe_set_time(_, _, Opts) ->
+    Opts.
+
 dhcpv4_resp_opts(?DHO_DOMAIN_NAME_SERVERS, [Prim, Sec | _], Opts) ->
     Opts#{'MS-Primary-DNS-Server' => Prim, 'MS-Secondary-DNS-Server' => Sec};
 dhcpv4_resp_opts(?DHO_DOMAIN_NAME_SERVERS, [Prim | _], Opts) ->
@@ -374,8 +467,17 @@ dhcpv4_resp_opts(?DHO_NETBIOS_NAME_SERVERS, [Prim, Sec | _], Opts) ->
     Opts#{'MS-Primary-NBNS-Server' => Prim};
 dhcpv4_resp_opts(?DHO_SIP_SERVERS, V, Opts) ->
     Opts#{'SIP-Servers-IPv4-Address-List' => V};
+dhcpv4_resp_opts(?DHO_DHCP_LEASE_TIME, V, Opts0) ->
+    Opts1 = set_time('Lease-Time', V, Opts0),
+    Opts2 = maybe_set_time('Renewal-Time', round(V * 0.5), Opts1),
+    _Opts = maybe_set_time('Rebinding-Time', round(V * 0.875), Opts2);
+dhcpv4_resp_opts(?DHO_DHCP_RENEWAL_TIME, V, Opts) ->
+    set_time('Renewal-Time', V, Opts);
+dhcpv4_resp_opts(?DHO_DHCP_REBINDING_TIME, V, Opts) ->
+    set_time('Rebinding-Time', V, Opts);
 dhcpv4_resp_opts(_K, _V, Opts) ->
     Opts.
 
 dhcpv4_resp_opts(Opts) ->
-    maps:fold(fun dhcpv4_resp_opts/3, #{}, Opts).
+    Now = erlang:system_time(second),
+    maps:fold(fun dhcpv4_resp_opts/3, #{'Base-Time' => Now}, Opts).

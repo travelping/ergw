@@ -60,7 +60,8 @@
 	       {3,  [{172,20,48,1}]},              %% Router,
 	       {15, "wlan"},                       %% Domain Name,
 	       {6,  [{172,20,48,1}, {172,20,48,1}]},              %% Domain Name Server,
-	       {51, 3600}]}                        %% Address Lease Time,
+	       {51, 3600},                         %% Address Lease Time,
+	       {58, 5}]}                          %% DHCP Renewal Time,
 	    ]}
 	  ]},
 

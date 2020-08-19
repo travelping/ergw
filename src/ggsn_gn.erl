@@ -246,6 +246,31 @@ handle_event(info, {pfcp_timer, #{validity_time := ChargingKeys}}, _State, Data)
     triggered_charging_event(validity_time, Now, ChargingKeys, Data),
     keep_state_and_data;
 
+handle_event(info, {timeout, _, {{Key, Ev}, timeout}}, _State,
+		    #{context := Context} = Data) ->
+    {keep_state, Data#{context := ergw_gsn_lib:handle_ip_timer(Key, Ev, Context)}};
+
+handle_event(info, {timeout, lease, _}, run, Data) ->
+    delete_context(undefined, normal, Data);
+
+handle_event(info, {alloc_info, ms_v4, AI, {ok, NewAI}}, run,
+	     #{context := #context{ms_v4 = AI} = Context} = Data) ->
+    {keep_state, Data#{context => Context#context{ms_v4 = NewAI}}};
+
+handle_event(info, {alloc_info, ms_v6, AI, {ok, NewAI}}, run,
+	     #{context := #context{ms_v6 = AI} = Context} = Data) ->
+    {keep_state, Data#{context => Context#context{ms_v6 = NewAI}}};
+
+handle_event(info, {alloc_info, _Key, _AI, {ok, _}}, _State, _Data) ->
+    %% overlaping or late ok result
+    keep_state_and_data;
+
+handle_event(info, {alloc_info, _Key, _AI, _Result}, run, Data) ->
+    delete_context(undefined, normal, Data);
+
+handle_event(info, {alloc_info, _Key, _AI, _Result}, _State, _Data) ->
+    keep_state_and_data;
+
 handle_event(info, _Info, _State, Data) ->
     ?LOG(warning, "~p, handle_info(~p, ~p)", [?MODULE, _Info, Data]),
     keep_state_and_data;

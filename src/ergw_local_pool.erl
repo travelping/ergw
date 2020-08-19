@@ -10,7 +10,8 @@
 -behavior(gen_server).
 
 %% API
--export([start_ip_pool/2, send_pool_request/2, wait_pool_response/1, release/1, ip/1, opts/1]).
+-export([start_ip_pool/2, send_pool_request/2, wait_pool_response/1, release/1,
+	 ip/1, opts/1, timeouts/1]).
 -export([start_link/3, start_link/4]).
 -export([validate_options/1, validate_option/2]).
 
@@ -111,6 +112,8 @@ wait_response(Mref, Timeout)
 
 ip({?MODULE, _, IP, _, _}) -> IP.
 opts({?MODULE, _, _, _, Opts}) -> Opts.
+timeouts({?MODULE, _, _, _, _}) ->
+    {infinity, infinity, infinity}.
 
 %%====================================================================
 %%% Options Validation

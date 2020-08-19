@@ -55,10 +55,10 @@
 	       {3,  [{172,20,48,1}]},              %% Router,
 	       {15, "wlan"},                       %% Domain Name,
 	       {6,  [{172,20,48,1}]},              %% Domain Name Server,
-	       {51, 3600}]}                        %% Address Lease Time,
+	       {51, 3600},                         %% Address Lease Time,
+	       {58, 5}]}                          %% DHCP Renewal Time,
 	    ]}
 	  ]},
-
 
 	 {ergw, [{'$setup_vars',
 		  [{"ORIGIN", {value, "epc.mnc001.mcc001.3gppnetwork.org"}}]},
@@ -195,7 +195,7 @@ end_per_group(Group, Config)
     ok = dhcp_end_per_suite(Config).
 
 groups() ->
-    [{ipv4, [], [dhcpv4]}].
+    [{ipv4, [], [dhcpv4, v4_renew]}].
 
 all() ->
     [{group, ipv4}].
@@ -225,6 +225,29 @@ dhcpv4(_Config) ->
     [AllocInfo] = ergw_ip_pool:wait_response(ReqId),
     ?match({ergw_dhcp_pool, _, {{_,_,_,_}, 32}, _, #{'MS-Primary-DNS-Server' := {_,_,_,_}}},
 	   AllocInfo),
+
+    ergw_ip_pool:release([AllocInfo]),
+    ct:sleep(100),
+    ok.
+
+%--------------------------------------------------------------------
+v4_renew() ->
+    [{doc, "Test simple dhcpv4 requests"}].
+v4_renew(_Config) ->
+    ClientId = <<"aaaaa">>,
+    Pool = <<"pool-A">>,
+    IP = ipv4,
+    PrefixLen = 32,
+    Opts = #{'MS-Primary-DNS-Server' => true,
+	     'MS-Secondary-DNS-Server' => true},
+
+    ReqId = ergw_ip_pool:send_request(ClientId, [{Pool, IP, PrefixLen, Opts}]),
+    [AllocInfo] = ergw_ip_pool:wait_response(ReqId),
+    ?match({ergw_dhcp_pool, _, {{_,_,_,_}, 32}, _, #{'MS-Primary-DNS-Server' := {_,_,_,_}}},
+	   AllocInfo),
+
+    ergw_ip_pool:handle_event(AllocInfo, renewal),
+    ct:sleep({seconds, 1}),
 
     ergw_ip_pool:release([AllocInfo]),
     ct:sleep(100),

@@ -36,7 +36,8 @@
 -export([pcc_ctx_has_rules/1]).
 -export([apn/2, select_vrf/2,
 	 init_session_ip_opts/3,
-	 allocate_ips/6, release_context_ips/1]).
+	 allocate_ips/6, release_context_ips/1,
+	 handle_ip_timer/3]).
 
 -export([select_upf/2, reselect_upf/4]).
 
@@ -1792,6 +1793,20 @@ request_ip_alloc(ReqIPs, Opts, #context{local_control_tei = TEI} = Context) ->
     Req = [request_alloc(IP, Opts, Context) || IP <- ReqIPs],
     ergw_ip_pool:send_request(TEI, Req).
 
+start_ip_timer(Time, Key, Msg, Timers) ->
+    To = erlang:convert_time_unit(
+	   erlang:convert_time_unit(Time, seconds, native) - erlang:time_offset(),
+	   native, millisecond),
+    ergw_context:start_timer(To, Key, Msg, [{abs, true}], Timers).
+
+start_ip_timers(_Key, {infinity, _, _} , Context) ->
+    Context;
+start_ip_timers(Key, {Renewal, Rebinding, Lease}, #context{timers = Timers0} = Context) ->
+    Timers1 = start_ip_timer(Renewal, {Key, renewal}, timeout, Timers0),
+    Timers2 = start_ip_timer(Rebinding, {Key, rebinding}, timeout, Timers1),
+    Timers = start_ip_timer(Lease, {Key, lease}, timeout, Timers2),
+    Context#context{timers = Timers}.
+
 ip_alloc_result(skip, Acc) ->
     Acc;
 ip_alloc_result({error, empty}, {Context, _}) ->
@@ -1804,16 +1819,18 @@ ip_alloc_result({error, undefined}, Acc) ->
 ip_alloc_result({error, Result}, Acc) ->
     ?LOG(error, "IP alloc failed with ~p", [Result]),
     Acc;
-ip_alloc_result(AI, {Context, Opts0}) ->
+ip_alloc_result(AI, {Context0, Opts0}) ->
     case ergw_ip_pool:ip(AI) of
 	{IP, _} when ?IS_IPv4(IP) ->
 	    Opts1 = maps:merge(Opts0, ergw_ip_pool:opts(AI)),
 	    Opts = maps:put('Framed-IP-Address', IP, Opts1),
+	    Context = start_ip_timers(ms_v4,  ergw_ip_pool:timeouts(AI), Context0),
 	    {Context#context{ms_v4 = AI}, Opts};
 	{IP, _} = IPv6 when ?IS_IPv6(IP) ->
 	    Opts1 = maps:merge(Opts0, ergw_ip_pool:opts(AI)),
 	    Opts = Opts1#{'Framed-IPv6-Prefix' => ergw_inet:ipv6_prefix(IPv6),
 			  'Framed-Interface-Id' => ergw_inet:ipv6_interface_id(IPv6)},
+	    Context = start_ip_timers(ms_v6, ergw_ip_pool:timeouts(AI), Context0),
 	    {Context#context{ms_v6 = AI}, Opts}
     end.
 
@@ -1928,6 +1945,21 @@ allocate_ips(AllocInfo,
 release_context_ips(#context{ms_v4 = MSv4, ms_v6 = MSv6} = Context) ->
     ergw_ip_pool:release([MSv4, MSv6]),
     Context#context{ms_v4 = undefined, ms_v6 = undefined}.
+
+%% handle_ip_timer/3
+handle_ip_timer(ms_v4 = Key, Ev, #context{ms_v4 = AI, timers = Timers} = Context) ->
+    handle_alloc_info_timer(self(), Key, Ev, AI),
+    Context#context{timers = ergw_context:stop_timer({Key, Ev}, Timers)}.
+
+handle_alloc_info_timer(Server, Key, lease, _AI) ->
+    Server ! {timeout, lease, Key};
+handle_alloc_info_timer(Server, Key, Ev, AI) ->
+    Fun =
+	fun() ->
+		Result = ergw_ip_pool:handle_event(AI, Ev),
+		Server ! {alloc_info, Key, AI, Result}
+	end,
+    spawn(Fun).
 
 %%%===================================================================
 %%% Protocol Configuation Options

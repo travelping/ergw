@@ -112,7 +112,8 @@
 	  dns_v6                 :: [inet:ip6_address()],
 	  state                  :: term(),
 	  restrictions = []      :: [{'v1', boolean()} |
-				     {'v2', boolean()}]
+				     {'v2', boolean()}],
+	  timers = #{}           :: map()
 	 }).
 
 -record(tdf_ctx, {

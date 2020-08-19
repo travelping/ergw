@@ -9,6 +9,7 @@
 
 %% API
 -export([sx_report/1, port_message/2, port_message/3, port_message/4]).
+-export([start_timer/5, stop_timer/2, handle_timer/2]).
 
 %%-type ctx_ref() :: {Handler :: atom(), Server :: pid()}.
 -type seid() :: 0..16#ffffffffffffffff.
@@ -51,6 +52,26 @@ port_message(Keys, #request{gtp_port = GtpPort} = Request, Msg)
 %% port_message/4
 port_message(Key, Request, Msg, Resent) ->
     apply2context(Key, port_message, [Request, Msg, Resent]).
+
+%%%=========================================================================
+%%%  timer API
+%%%=========================================================================
+
+start_timer(Time, Key, Msg, Options, Data) when is_map(Data) ->
+    stop_timer(Key, Data),
+    TRef = erlang:start_timer(Time, self(), {Key, Msg}, Options),
+    maps:put(Key, TRef, Data).
+
+stop_timer(Key, Data) when is_map_key(Key, Data) ->
+    erlang:cancel_timer(maps:get(Key, Data), [{async, true}]),
+    maps:remove(Key, Data);
+stop_timer(_, Data) ->
+    Data.
+
+handle_timer({Key, Msg}, Data) when is_map_key(Key, Data) ->
+    {Msg, maps:remove(Key, Data)};
+handle_timer(_, Data) ->
+    {undefined, Data}.
 
 %%%=========================================================================
 %%%  internal functions

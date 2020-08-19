@@ -9,7 +9,7 @@
 
 %% API
 -export([start_ip_pool/2, send_request/2, wait_response/1, release/1,
-	 requested/1, addr/1, ip/1, opts/1]).
+	 requested/1, addr/1, ip/1, opts/1, timeouts/1, handle_event/2]).
 -export([static_ip/2]).
 -export([get/5]).
 -export([validate_options/1, validate_name/2]).
@@ -45,10 +45,16 @@ addr(AllocInfo) ->
     end.
 
 ip(AllocInfo) ->
-    alloc_info(AllocInfo, ip).
+    alloc_info(AllocInfo, ip, []).
 
 opts(AllocInfo) ->
-    alloc_info(AllocInfo, opts).
+    alloc_info(AllocInfo, opts, []).
+
+timeouts(AllocInfo) ->
+    alloc_info(AllocInfo, timeouts, []).
+
+handle_event(AllocInfo, Ev) ->
+    alloc_info(AllocInfo, handle_event, [Ev]).
 
 %% compat wrapper
 get(Pool, ClientId, IP, PrefixLen, Opts) ->
@@ -87,16 +93,17 @@ validate_name(Opt, Name) ->
 %%% Internal functions
 %%%===================================================================
 
-alloc_info(Info, F) when element(1, Info) =:= '$static' ->
+alloc_info(Info, F, _) when element(1, Info) =:= '$static' ->
     static_ip_info(F, Info);
-alloc_info(Tuple, F) when is_tuple(Tuple) ->
-    apply(element(1, Tuple), F, [Tuple]);
-alloc_info(_, _) ->
+alloc_info(Tuple, F, A) when is_tuple(Tuple) ->
+    apply(element(1, Tuple), F, [Tuple | A]);
+alloc_info(_, _, _) ->
     undefined.
 
 static_ip_info(ip, {_, Addr}) -> Addr;
 static_ip_info(opts,   _) -> #{};
-static_ip_info(release, _) -> ok.
+static_ip_info(release, _) -> ok;
+static_ip_info(timeouts, _) -> {infinity, infinity, infinity}.
 
 with_pool(Pool, Fun) ->
     case application:get_env(ergw, ip_pools) of
@@ -119,4 +126,4 @@ wait_pool_response({Handler, ReqId}) ->
     Handler:wait_pool_response(ReqId).
 
 pool_release(AI) ->
-    alloc_info(AI, release).
+    alloc_info(AI, release, []).
