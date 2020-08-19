@@ -49,7 +49,15 @@
 				  {vrf, cp},
 				  {ip, ?MUST_BE_UPDATED},
 				  {reuseaddr, true}
-				 ]}
+				 ]},
+
+		   {sx, [{type, 'pfcp'},
+			 {node, 'ergw'},
+			 {name, 'ergw'},
+			 {socket, 'cp-socket'},
+			 {ip, ?MUST_BE_UPDATED},
+			 {reuseaddr, true}
+			]}
 		  ]},
 
 		 {ip_pools,
@@ -96,13 +104,6 @@
 		   }
 		  ]
 		 },
-
-		 {sx_socket,
-		  [{node, 'ergw'},
-		   {name, 'ergw'},
-		   {socket, 'cp-socket'},
-		   {ip, ?MUST_BE_UPDATED},
-		   {reuseaddr, true}]},
 
 		 {apns,
 		  [{?'APN-EXAMPLE',
@@ -349,7 +350,7 @@
 
 -define(CONFIG_UPDATE,
 	[{[sockets, 'cp-socket', ip], localhost},
-	 {[sx_socket, ip], localhost},
+	 {[sockets, sx, ip], localhost},
 	 {[node_selection, {default, 2}, 2, "topon.tdf.$ORIGIN"],
 	  {fun node_sel_update/2, final_gsn}},
 	 {[node_selection, {default, 2}, 2, "topon.sx.prox01.$ORIGIN"],
@@ -426,7 +427,7 @@ setup_per_testcase(Config) ->
     setup_per_testcase(Config, true).
 
 setup_per_testcase(Config, ClearSxHist) ->
-    ct:pal("Sockets: ~p", [ergw_gtp_socket_reg:all()]),
+    ct:pal("Sockets: ~p", [ergw_socket_reg:all()]),
     {ok, AppsCfg} = application:get_env(ergw_aaa, apps),
     meck_reset(Config),
     reconnect_all_sx_nodes(),

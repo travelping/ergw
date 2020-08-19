@@ -42,10 +42,10 @@
 %% API
 %%====================================================================
 
-start_link({Name, SocketOpts}) ->
+start_link(SocketOpts) ->
     Opts = [{hibernate_after, 5000},
 	    {spawn_opt,[{fullsweep_after, 16}]}],
-    gen_server:start_link(?MODULE, [Name, SocketOpts], Opts).
+    gen_server:start_link(?MODULE, SocketOpts, Opts).
 
 send(#gtp_port{type = 'gtp-u'} = GtpPort, IP, Port, #gtp{} = Msg) ->
     cast(GtpPort, make_send_req(IP, Port, Msg));
@@ -63,7 +63,7 @@ cast(#gtp_port{pid = Handler}, Request) ->
 %%% gen_server callbacks
 %%%===================================================================
 
-init([Name, #{ip := IP, burst_size := BurstSize} = SocketOpts]) ->
+init(#{name := Name, ip := IP, burst_size := BurstSize} = SocketOpts) ->
     process_flag(trap_exit, true),
 
     {ok, Socket} = ergw_gtp_socket:make_gtp_socket(IP, ?GTP1u_PORT, SocketOpts),
@@ -83,7 +83,7 @@ init([Name, #{ip := IP, burst_size := BurstSize} = SocketOpts]) ->
 		 restart_counter = RCnt
 		},
 
-    ergw_gtp_socket_reg:register(Name, GtpPort),
+    ergw_socket_reg:register('gtp-u', Name, GtpPort),
 
     State = #state{
 	       gtp_port = GtpPort,

@@ -51,7 +51,7 @@
  {<<"ranch">>,{pkg,<<"ranch">>,<<"1.7.1">>},1},
  {<<"regine">>,
   {git,"https://github.com/travelping/regine.git",
-       {ref,"f4d7c94ef27ddc5db40b949fd05b32f47188c367"}},
+       {ref,"617900e1426514813a6ae40527e8dd5f572ac026"}},
   1},
  {<<"setup">>,{pkg,<<"setup">>,<<"2.0.2">>},0},
  {<<"stacktrace_compat">>,{pkg,<<"stacktrace_compat">>,<<"1.0.2">>},0}]}.

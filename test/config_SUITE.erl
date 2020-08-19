@@ -32,7 +32,15 @@
 	   {irx, [{type, 'gtp-c'},
 		  {ip,  ?TEST_GSN_IPv4},
 		  {reuseaddr, true}
-		 ]}
+		 ]},
+
+	   {sx, [{type, 'pfcp'},
+		 {node, 'ergw'},
+		 {name, 'ergw'},
+		 {socket, cp},
+		 {ip, ?LOCALHOST_IPv4},
+		 {reuseaddr, true}
+		]}
 	  ]},
 
 	 {ip_pools,
@@ -61,14 +69,6 @@
 				     12345,
 				     <<"@">>, 'APN']}]}]}
 		]}
-	  ]},
-
-	 {sx_socket,
-	  [{node, 'ergw'},
-	   {name, 'ergw'},
-	   {socket, cp},
-	   {ip, ?LOCALHOST_IPv4},
-	   {reuseaddr, true}
 	  ]},
 
 	 {apns,
@@ -119,7 +119,15 @@
 	   {'remote-irx2', [{type, 'gtp-c'},
 			    {ip,  ?FINAL_GSN2_IPv4},
 			    {reuseaddr, true}
-			   ]}
+			   ]},
+
+	   {sx, [{type, 'pfcp'},
+		 {node, 'ergw'},
+		 {name, 'ergw'},
+		 {socket, cp},
+		 {ip, ?LOCALHOST_IPv4},
+		 {reuseaddr, true}
+		]}
 	  ]},
 
 	 {handlers,
@@ -139,14 +147,6 @@
 		 {aaa, [{'Username',
 			 [{default, ['IMSI', <<"@">>, 'APN']}]}]}
 		]}
-	  ]},
-
-	 {sx_socket,
-	  [{node, 'ergw'},
-	   {name, 'ergw'},
-	   {socket, cp},
-	   {ip, ?LOCALHOST_IPv4},
-	   {reuseaddr, true}
 	  ]},
 
 	 {apns,
@@ -222,7 +222,15 @@
 	   {irx, [{type, 'gtp-c'},
 		  {ip,  ?TEST_GSN_IPv4},
 		  {reuseaddr, true}
-		 ]}
+		 ]},
+
+	   {sx, [{type, 'pfcp'},
+		 {node, 'ergw'},
+		 {name, 'ergw'},
+		 {socket, cp},
+		 {ip, ?LOCALHOST_IPv4},
+		 {reuseaddr, true}
+		]}
 	  ]},
 
 	 {ip_pools,
@@ -267,14 +275,6 @@
 		  ]}
 	  ]},
 
-	 {sx_socket,
-	  [{node, 'ergw'},
-	   {name, 'ergw'},
-	   {socket, cp},
-	   {ip, ?LOCALHOST_IPv4},
-	   {reuseaddr, true}
-	  ]},
-
 	 {apns,
 	  [{?'APN-EXAMPLE',
 	    [{vrf, upstream},
@@ -316,7 +316,15 @@
 	   {'remote-irx2', [{type, 'gtp-c'},
 			    {ip, ?FINAL_GSN2_IPv4},
 			    {reuseaddr, true}
-			   ]}
+			   ]},
+
+	   {sx, [{type, 'pfcp'},
+		 {node, 'ergw'},
+		 {name, 'ergw'},
+		 {socket, cp},
+		 {ip, ?LOCALHOST_IPv4},
+		 {reuseaddr, true}
+		]}
 	  ]},
 
 	 {handlers,
@@ -345,14 +353,6 @@
 		   {sockets, ['remote-irx', 'remote-irx2']},
 		   {node_selection, [static]}
 		  ]}
-	  ]},
-
-	 {sx_socket,
-	  [{node, 'ergw'},
-	   {name, 'ergw'},
-	   {socket, cp},
-	   {ip, ?LOCALHOST_IPv4},
-	   {reuseaddr, true}
 	  ]},
 
 	 {apns,
@@ -418,7 +418,15 @@
 	   {irx, [{type, 'gtp-c'},
 		  {ip,  ?TEST_GSN_IPv4},
 		  {reuseaddr, true}
-		 ]}
+		 ]},
+
+	   {sx, [{type, 'pfcp'},
+		 {node, 'ergw'},
+		 {name, 'ergw'},
+		 {socket, cp},
+		 {ip, ?LOCALHOST_IPv4},
+		 {reuseaddr, true}
+		]}
 	  ]},
 
 	 {ip_pools,
@@ -448,14 +456,6 @@
 				       12345,
 				       <<"@">>, 'APN']}]}]}
 		  ]}
-	  ]},
-
-	 {sx_socket,
-	  [{node, 'ergw'},
-	   {name, 'ergw'},
-	   {socket, cp},
-	   {ip, ?LOCALHOST_IPv4},
-	   {reuseaddr, true}
 	  ]},
 
 	 {apns,
@@ -488,16 +488,15 @@
 			  {ip,  ?LOCALHOST_IPv4},
 			  freebind,
 			  {reuseaddr, true}
-			 ]}
-	  ]},
+			 ]},
 
-	 {sx_socket,
-	  [{node, 'ergw'},
-	   {name, 'ergw'},
-	   {socket, 'cp-socket'},
-	   {ip, ?LOCALHOST_IPv4},
-	   {reuseaddr, true},
-	   freebind
+	   {sx, [{type, 'pfcp'},
+		 {node, 'ergw'},
+		 {name, 'ergw'},
+		 {socket, 'cp-socket'},
+		 {ip, ?LOCALHOST_IPv4},
+		 {reuseaddr, true}
+		]}
 	  ]},
 
 	 {handlers,
@@ -632,6 +631,27 @@ config(_Config)  ->
 	     freebind  := true,
 	     reuseaddr := true},
 	   proplists:get_value('irx-2', proplists:get_value(sockets, SockCfg))),
+
+    ?error_option(set_cfg_value([sockets, sx, ip], invalid, ?GGSN_CONFIG)),
+    ?error_option(set_cfg_value([sockets, sx, ip], {1,1,1,1,1}, ?GGSN_CONFIG)),
+    ?ok_option(set_cfg_value([sockets, sx, ip], ?LOCALHOST_IPv6, ?GGSN_CONFIG)),
+    ?ok_option(set_cfg_value([sockets, sx, netdev], <<"netdev">>, ?GGSN_CONFIG)),
+    ?ok_option(set_cfg_value([sockets, sx, netdev], "netdev", ?GGSN_CONFIG)),
+    ?error_option(set_cfg_value([sockets, sx, netdev], invalid, ?GGSN_CONFIG)),
+    ?ok_option(set_cfg_value([sockets, sx, netns], <<"netns">>, ?GGSN_CONFIG)),
+    ?ok_option(set_cfg_value([sockets, sx, netns], "netns", ?GGSN_CONFIG)),
+    ?error_option(set_cfg_value([sockets, sx, netns], invalid, ?GGSN_CONFIG)),
+    ?ok_option(set_cfg_value([sockets, sx, freebind], true, ?GGSN_CONFIG)),
+    ?ok_option(set_cfg_value([sockets, sx, freebind], false, ?GGSN_CONFIG)),
+    ?error_option(set_cfg_value([sockets, sx, freebind], invalid, ?GGSN_CONFIG)),
+    ?ok_option(set_cfg_value([sockets, sx, rcvbuf], 1, ?GGSN_CONFIG)),
+    ?error_option(set_cfg_value([sockets, sx, rcvbuf], -1, ?GGSN_CONFIG)),
+    ?error_option(set_cfg_value([sockets, sx, rcvbuf], invalid, ?GGSN_CONFIG)),
+    ?error_option(add_cfg_value([sockets, sx, socket], [], ?GGSN_CONFIG)),
+    ?error_option(add_cfg_value([sockets, sx, socket], "dp", ?GGSN_CONFIG)),
+    ?error_option(set_cfg_value([sockets, sx, invalid], true, ?GGSN_CONFIG)),
+    ?error_option(set_cfg_value([sockets, sx], invalid, ?GGSN_CONFIG)),
+    ?error_option(add_cfg_value([sockets, sx], [], ?GGSN_CONFIG)),
 
     ?error_option(set_cfg_value([handlers, gn], invalid, ?GGSN_CONFIG)),
     ?error_option(set_cfg_value([handlers, gn, handler], invalid, ?GGSN_CONFIG)),
@@ -820,27 +840,6 @@ config(_Config)  ->
 			     [?LOCALHOST_IPv6], ?GGSN_CONFIG)),
     ?error_option(set_cfg_value([apns, ?'APN-EXAMPLE', '3GPP-IPv6-DNS-Servers'],
 				?LOCALHOST_IPv6, ?GGSN_CONFIG)),
-
-    ?error_option(set_cfg_value([sx_socket, ip], invalid, ?GGSN_CONFIG)),
-    ?error_option(set_cfg_value([sx_socket, ip], {1,1,1,1,1}, ?GGSN_CONFIG)),
-    ?ok_option(set_cfg_value([sx_socket, ip], ?LOCALHOST_IPv6, ?GGSN_CONFIG)),
-    ?ok_option(set_cfg_value([sx_socket, netdev], <<"netdev">>, ?GGSN_CONFIG)),
-    ?ok_option(set_cfg_value([sx_socket, netdev], "netdev", ?GGSN_CONFIG)),
-    ?error_option(set_cfg_value([sx_socket, netdev], invalid, ?GGSN_CONFIG)),
-    ?ok_option(set_cfg_value([sx_socket, netns], <<"netns">>, ?GGSN_CONFIG)),
-    ?ok_option(set_cfg_value([sx_socket, netns], "netns", ?GGSN_CONFIG)),
-    ?error_option(set_cfg_value([sx_socket, netns], invalid, ?GGSN_CONFIG)),
-    ?ok_option(set_cfg_value([sx_socket, freebind], true, ?GGSN_CONFIG)),
-    ?ok_option(set_cfg_value([sx_socket, freebind], false, ?GGSN_CONFIG)),
-    ?error_option(set_cfg_value([sx_socket, freebind], invalid, ?GGSN_CONFIG)),
-    ?ok_option(set_cfg_value([sx_socket, rcvbuf], 1, ?GGSN_CONFIG)),
-    ?error_option(set_cfg_value([sx_socket, rcvbuf], -1, ?GGSN_CONFIG)),
-    ?error_option(set_cfg_value([sx_socket, rcvbuf], invalid, ?GGSN_CONFIG)),
-    ?error_option(add_cfg_value([sx_socket, socket], [], ?GGSN_CONFIG)),
-    ?error_option(add_cfg_value([sx_socket, socket], "dp", ?GGSN_CONFIG)),
-    ?error_option(set_cfg_value([sx_socket, invalid], true, ?GGSN_CONFIG)),
-    ?error_option(set_cfg_value([sx_socket], invalid, ?GGSN_CONFIG)),
-    ?error_option(add_cfg_value([sx_socket], [], ?GGSN_CONFIG)),
 
     ?ok_option(?GGSN_PROXY_CONFIG),
     ?error_option(set_cfg_value([handlers, gn, contexts, invalid], [], ?GGSN_PROXY_CONFIG)),

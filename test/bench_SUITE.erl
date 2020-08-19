@@ -83,7 +83,15 @@
 			  {vrf, irx},
 			  {ip, ?MUST_BE_UPDATED},
 			  {reuseaddr, true}
-			 ]}
+			 ]},
+
+		   {sx, [{type, 'pfcp'},
+			 {node, 'ergw'},
+			 {name, 'ergw'},
+			 {socket, cp},
+			 {ip, ?MUST_BE_UPDATED},
+			 {reuseaddr, true}
+			]}
 		  ]},
 
 		 {ip_pools,
@@ -148,13 +156,6 @@
 		   }
 		  ]
 		 },
-
-		 {sx_socket,
-		  [{node, 'ergw'},
-		   {name, 'ergw'},
-		   {socket, 'cp-socket'},
-		   {ip, ?MUST_BE_UPDATED},
-		   {reuseaddr, true}]},
 
 		 {apns,
 		  [{?'APN-EXAMPLE',
@@ -340,7 +341,7 @@
 -define(CONFIG_UPDATE,
 	[{[sockets, 'cp-socket', ip], localhost},
 	 {[sockets, 'irx-socket', ip], test_gsn},
-	 {[sx_socket, ip], localhost},
+	 {[sockets, sx, ip], localhost},
 	 {[node_selection, {default, 2}, 2, "topon.s5s8.pgw.$ORIGIN"],
 	  {fun node_sel_update/2, final_gsn}},
 	 {[node_selection, {default, 2}, 2, "topon.sx.prox01.$ORIGIN"],

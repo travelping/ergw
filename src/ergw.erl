@@ -11,7 +11,7 @@
 
 %% API
 -export([start_link/0]).
--export([start_socket/2, start_ip_pool/2,
+-export([start_socket/1, start_ip_pool/2,
 	 connect_sx_node/2,
 	 attach_tdf/2, attach_protocol/5]).
 -export([handler/2]).
@@ -86,10 +86,10 @@ load_config([_ | T]) ->
     load_config(T).
 
 %%
-%% Initialize a new GTPv1/v2-c or GTPv1-u socket
+%% Initialize a new PFCP, GTPv1/v2-c or GTPv1-u socket
 %%
-start_socket(Name, Options) ->
-    ergw_gtp_socket:start_socket(Name, Options).
+start_socket({_Name, #{type := Type} = Opts}) ->
+    ergw_socket_sup:new(Type, Opts).
 
 %%
 %% start IP_POOL instance
@@ -187,7 +187,7 @@ i(memory, socket) ->
 	lists:foldl(fun({_, Pid, _}, Mem) ->
 			    {memory, M} = erlang:process_info(Pid, memory),
 			    Mem + M
-		    end, 0, ergw_gtp_socket_reg:all()),
+		    end, 0, ergw_socket_reg:all()),
     {socket, MemUsage};
 i(memory, path) ->
     MemUsage =

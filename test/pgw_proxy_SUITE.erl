@@ -64,7 +64,15 @@
 		   {'remote-irx2', [{type, 'gtp-c'},
 				    {ip, ?MUST_BE_UPDATED},
 				    {reuseaddr, true}
-				   ]}
+				   ]},
+
+		   {sx, [{type, 'pfcp'},
+			 {node, 'ergw'},
+			 {name, 'ergw'},
+			 {socket, cp},
+			 {ip, ?MUST_BE_UPDATED},
+			 {reuseaddr, true}
+			]}
 		  ]},
 
 		 {ip_pools,
@@ -155,13 +163,6 @@
 		    {dns, {{127,0,0,1}, 53}}}
 		  ]
 		 },
-
-		 {sx_socket,
-		  [{node, 'ergw'},
-		   {name, 'ergw'},
-		   {socket, cp},
-		   {ip, ?MUST_BE_UPDATED},
-		   {reuseaddr, true}]},
 
 		 {apns,
 		  [{?'APN-PROXY',
@@ -303,7 +304,15 @@
 		   {'remote-irx2', [{type, 'gtp-c'},
 				    {ip, ?MUST_BE_UPDATED},
 				    {reuseaddr, true}
-				   ]}
+				   ]},
+
+		   {sx, [{type, 'pfcp'},
+			 {node, 'ergw'},
+			 {name, 'ergw'},
+			 {socket, cp},
+			 {ip, ?MUST_BE_UPDATED},
+			 {reuseaddr, true}
+			]}
 		  ]},
 
 		 {ip_pools,
@@ -394,13 +403,6 @@
 		    {dns, {{127,0,0,1}, 53}}}
 		  ]
 		 },
-
-		 {sx_socket,
-		  [{node, 'ergw'},
-		   {name, 'ergw'},
-		   {socket, cp},
-		   {ip, ?MUST_BE_UPDATED},
-		   {reuseaddr, true}]},
 
 		 {apns,
 		  [{?'APN-PROXY',
@@ -514,7 +516,7 @@
 	 {[sockets, 'proxy-irx', ip], proxy_gsn},
 	 {[sockets, 'remote-irx', ip], final_gsn},
 	 {[sockets, 'remote-irx2', ip], final_gsn_2},
-	 {[sx_socket, ip], localhost},
+	 {[sockets, sx, ip], localhost},
 	 {[node_selection, {default, 2}, 2, "topon.s5s8.pgw.$ORIGIN"],
 	  {fun node_sel_update/2, final_gsn}},
 	 {[node_selection, {default, 2}, 2, "topon.s5s8.pgw-2.$ORIGIN"],
@@ -534,7 +536,7 @@
 	 {[sockets, irx, ip], test_gsn},
 	 {[sockets, 'remote-irx', ip], final_gsn},
 	 {[sockets, 'remote-irx2', ip], final_gsn_2},
-	 {[sx_socket, ip], localhost},
+	 {[sockets, sx, ip], localhost},
 	 {[node_selection, {default, 2}, 2, "topon.s5s8.pgw.$ORIGIN"],
 	  {fun node_sel_update/2, final_gsn}},
 	 {[node_selection, {default, 2}, 2, "topon.s5s8.pgw-2.$ORIGIN"],
@@ -1422,7 +1424,7 @@ one_lb_node_down(Config) ->
     lists:foreach(fun({_, Pid, _}) -> gtp_path:stop(Pid) end, gtp_path_reg:all()),
 
     DownGSN = proplists:get_value(final_gsn_2, Config),
-    CPort = ergw_gtp_socket_reg:lookup('irx'),
+    CPort = ergw_socket_reg:lookup('gtp-c', 'irx'),
 
     ok = meck:expect(ergw_gtp_c_socket, send_request,
 		     fun (_, IP, _, _, _, #gtp{type = echo_request}, CbInfo)
