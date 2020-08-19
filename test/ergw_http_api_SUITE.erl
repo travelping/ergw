@@ -17,7 +17,7 @@
 -define(CONFIG_UPDATE,
 	[{[sockets, cp, ip], localhost},
 	 {[sockets, irx, ip], test_gsn},
-	 {[sx_socket, ip], localhost},
+	 {[sockets, sx, ip], localhost},
 	 {[node_selection, {default, 2}, 2, "topon.gn.ggsn.$ORIGIN"],
 	  {fun node_sel_update/2, final_gsn}},
 	 {[node_selection, {default, 2}, 2, "topon.sx.prox01.$ORIGIN"],
@@ -53,7 +53,15 @@
 		   {'proxy-irx', [{type, 'gtp-c'},
 				  {ip,  ?PROXY_GSN_IPv4},
 				  {reuseaddr, true}
-				 ]}
+				 ]},
+
+		   {sx, [{type, 'pfcp'},
+			 {node, 'ergw'},
+			 {name, 'ergw'},
+			 {socket, cp},
+			 {ip, ?LOCALHOST_IPv4},
+			 {reuseaddr, true}
+			]}
 		  ]},
 
 		 {ip_pools,
@@ -80,13 +88,6 @@
 			    [{proxy_sockets, ['proxy-irx']}]}]}
 			]}
 		  ]},
-
-		 {sx_socket,
-		  [{node, 'ergw'},
-		   {name, 'ergw'},
-		   {socket, cp},
-		   {ip, {127,0,0,1}},
-		   {reuseaddr, true}]},
 
 		 {apns,
 		  [{?'APN-EXAMPLE',
@@ -153,7 +154,7 @@ all() ->
 init_per_testcase(Config) ->
     meck_reset(Config).
 init_per_testcase(http_api_delete_sessions, Config) ->
-    ct:pal("Sockets: ~p", [ergw_gtp_socket_reg:all()]),
+    ct:pal("Sockets: ~p", [ergw_socket_reg:all()]),
     ergw_test_sx_up:reset('pgw-u01'),
     meck_reset(Config),
     start_gtpc_server(Config),

@@ -10,7 +10,7 @@
 -compile({parse_transform, cut}).
 
 %% API
--export([validate_options/1, start_socket/2, start_link/1,
+-export([validate_options/2,
 	 send/4, get_restart_counter/1]).
 -export([make_seq_id/1, make_request/5]).
 -export([make_gtp_socket/3]).
@@ -24,22 +24,6 @@
 %% API
 %%====================================================================
 
-start_socket(Name, Opts)
-  when is_atom(Name) ->
-    ergw_gtp_socket_sup:new({Name, Opts}).
-
-start_link('gtp-c', Opts) ->
-    ergw_gtp_c_socket:start_link(Opts);
-start_link('gtp-u', Opts) ->
-    ergw_gtp_u_socket:start_link(Opts).
-
-start_link(Socket = {_Name, #{type := Type}}) ->
-    start_link(Type, Socket);
-start_link(Socket = {_Name, SocketOpts})
-  when is_list(SocketOpts) ->
-    Type = proplists:get_value(type, SocketOpts, 'gtp-c'),
-    start_link(Type, Socket).
-
 send(GtpPort, IP, Port, Data) ->
     invoke_handler(GtpPort, send, [IP, Port, Data]).
 
@@ -52,15 +36,16 @@ get_restart_counter(GtpPort) ->
 
 -define(SocketDefaults, [{ip, invalid}, {burst_size, 10}]).
 
-validate_options(Values) ->
-    ergw_config:validate_options(fun validate_option/2, Values, ?SocketDefaults, map).
+validate_options(Name, Values) ->
+    ergw_config:validate_options(fun validate_option/2, Values,
+				 [{name, Name}|?SocketDefaults], map).
 
 validate_option(name, Value) when is_atom(Value) ->
     Value;
-validate_option(type, 'gtp-c') ->
-    'gtp-c';
-validate_option(type, 'gtp-u') ->
-    'gtp-u';
+validate_option(type, 'gtp-c' = Value) ->
+    Value;
+validate_option(type, 'gtp-u' = Value) ->
+    Value;
 validate_option(ip, Value)
   when is_tuple(Value) andalso
        (tuple_size(Value) == 4 orelse tuple_size(Value) == 8) ->

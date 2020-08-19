@@ -12,7 +12,7 @@
 -compile({parse_transform, cut}).
 
 %% API
--export([validate_options/1, start_link/1, start_sx_socket/1]).
+-export([validate_options/2, start_link/1]).
 -export([call/3, call/5, send_response/3, id/0, seid/0]).
 
 %% gen_server callbacks
@@ -76,11 +76,8 @@
 %% API
 %%====================================================================
 
-start_sx_socket(Opts) ->
-    ergw_sup:start_sx_socket(Opts).
-
 start_link(Opts) ->
-    gen_server:start_link({local, ?SERVER}, ?MODULE, Opts, []).
+    proc_lib:start_link(?MODULE, init, [Opts]).
 
 call(Peer, Msg, {_,_,_} = CbInfo) ->
     ?MODULE:call(Peer, ?T1, ?N1, Msg, CbInfo).
@@ -108,14 +105,16 @@ seid() ->
 
 -define(SOCKET_OPTS, [netdev, netns, freebind, reuseaddr, rcvbuf]).
 -define(SocketDefaults, [{node, "invalid"},
-			 {name, "invalid"},
 			 {socket, "invalid"},
 			 {ip, invalid},
 			 {burst_size, 10}]).
 
-validate_options(Values) ->
-     ergw_config:validate_options(fun validate_option/2, Values, ?SocketDefaults, map).
+validate_options(Name, Values) ->
+     ergw_config:validate_options(fun validate_option/2, Values,
+				  [{name, Name}|?SocketDefaults], map).
 
+validate_option(type, pfcp = Value) ->
+    Value;
 validate_option(node, Value) when is_atom(Value) ->
     Value;
 validate_option(name, Value) when is_atom(Value) ->
@@ -160,7 +159,12 @@ init(#{name := Name, node := Node, ip := IP,
     {ok, SendSocket} = make_sx_socket(IP, 0, SocketOpts),
     {ok, RecvSocket} = make_sx_socket(IP, 8805, SocketOpts),
 
-    GtpPort = #gtp_port{} = ergw_gtp_socket_reg:lookup(GtpSocket),
+    register(?SERVER, self()),
+
+    proc_lib:init_ack({ok, self()}),
+
+    GtpPort = #gtp_port{} =
+	ergw_socket_reg:waitfor('gtp-u', GtpSocket),
 
     State = #state{
 	       send_socket = SendSocket,
@@ -177,7 +181,8 @@ init(#{name := Name, node := Node, ip := IP,
 	      },
     self() ! {'$socket', SendSocket, select, undefined},
     self() ! {'$socket', RecvSocket, select, undefined},
-    {ok, State}.
+
+    gen_server:enter_loop(?MODULE, [], State, ?SERVER).
 
 handle_call(id, _From, #state{send_socket = Socket, node = Node,
 			      gtp_port = GtpPort} = State) ->

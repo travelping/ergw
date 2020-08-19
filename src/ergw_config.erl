@@ -23,7 +23,6 @@
 
 -define(DefaultOptions, [{plmn_id, {<<"001">>, <<"01">>}},
 			 {accept_new, true},
-			 {sx_socket, undefined},
 			 {sockets, []},
 			 {handlers, []},
 			 {path_management, []},
@@ -55,8 +54,7 @@
 load_config(Config0) ->
     Config = validate_config(Config0),
     ergw:load_config(Config),
-    lists:foreach(fun load_socket/1, proplists:get_value(sockets, Config)),
-    {ok, _} = ergw_sx_socket:start_sx_socket(proplists:get_value(sx_socket, Config)),
+    lists:foreach(fun ergw:start_socket/1, proplists:get_value(sockets, Config)),
     maps:map(fun load_sx_node/2, proplists:get_value(nodes, Config)),
     lists:foreach(fun load_handler/1, proplists:get_value(handlers, Config)),
     maps:map(fun ergw:start_ip_pool/2, proplists:get_value(ip_pools, Config)),
@@ -225,11 +223,8 @@ validate_option(plmn_id, {MCC, MNC} = Value) ->
     end;
 validate_option(accept_new, Value) when is_boolean(Value) ->
     Value;
-validate_option(sx_socket, Value) when is_list(Value); is_map(Value) ->
-    ergw_sx_socket:validate_options(Value);
-validate_option(sockets, Value) when is_list(Value), length(Value) >= 1 ->
-    check_unique_keys(sockets, Value),
-    validate_options(fun validate_sockets_option/2, Value);
+validate_option(sockets, Value) when ?is_opts(Value) ->
+    ergw_socket:validate_options(Value);
 validate_option(handlers, Value) when is_list(Value), length(Value) >= 1 ->
     check_unique_keys(handlers, without_opts(['gn', 's5s8'], Value)),
     validate_options(fun validate_handlers_option/2, Value);
@@ -262,7 +257,6 @@ validate_option(path_management, Opts) when ?is_opts(Opts) ->
 validate_option(Opt, Value)
   when Opt == plmn_id;
        Opt == accept_new;
-       Opt == sx_socket;
        Opt == sockets;
        Opt == handlers;
        Opt == node_selection;
@@ -287,19 +281,6 @@ validate_mcc_mcn(MCC, MNC)
     end;
 validate_mcc_mcn(_, _) ->
     error.
-
-validate_sockets_option(Opt, Values)
-  when is_atom(Opt), ?is_opts(Values) ->
-    case get_opt(type, Values) of
-	'gtp-c' ->
-	    ergw_gtp_socket:validate_options(Values);
-	'gtp-u' ->
-	    ergw_gtp_socket:validate_options(Values);
-	_ ->
-	    throw({error, {options, {Opt, Values}}})
-    end;
-validate_sockets_option(Opt, Values) ->
-    throw({error, {options, {Opt, Values}}}).
 
 validate_handlers_option(Opt, Values0)
   when ?is_opts(Values0) ->
@@ -469,9 +450,6 @@ validate_ip_cfg_opt(Opt, DNS)
     [validate_ip6(Opt, IP) || IP <- DNS];
 validate_ip_cfg_opt(Opt, Value) ->
     throw({error, {options, {Opt, Value}}}).
-
-load_socket({Name, Options}) ->
-    ergw:start_socket(Name, Options).
 
 load_handler({_Name, #{protocol := ip, nodes := Nodes} = Opts0}) ->
     Opts = maps:without([protocol, nodes], Opts0),

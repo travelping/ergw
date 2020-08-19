@@ -105,7 +105,7 @@ select_gtp_proxy_sockets(ProxyInfo, #{contexts := Contexts, proxy_ports := Proxy
        true -> ok
     end,
     Cntl = maps:get(proxy_sockets, Ctx, ProxyPorts),
-    ergw_gtp_socket_reg:lookup(lb(Cntl)).
+    ergw_socket_reg:lookup('gtp-c', lb(Cntl)).
 
 select_sx_proxy_candidate({GwNode, _}, #{upfSelectionAPN := APN} = ProxyInfo,
 			  #{contexts := Contexts, node_selection := ProxyNodeSelect}) ->
