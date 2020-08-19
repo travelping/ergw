@@ -17,7 +17,7 @@
 -include("ergw_ggsn_test_lib.hrl").
 
 -define(TIMEOUT, 2000).
--define(NUM_OF_CLIENTS, 6). %% Num of IP clients for multi contexts
+-define(NUM_OF_CLIENTS, 8). %% Num of IP clients for multi contexts
 
 -define(HUT, ggsn_gn_proxy).			%% Handler Under Test
 
@@ -1119,15 +1119,14 @@ create_lb_multi_context(Config) ->
     GtpCs1 = lists:map(fun(GtpC0) -> create_pdp_context(#{apn => ?'APN-LB-1'}, GtpC0) end, GtpCs0),
 
     GSNs = [proplists:get_value(K, Config) || K <- [final_gsn, final_gsn_2]],
-    CntS0 = lists:foldl(fun(K, M) ->
-				maps:put(proplists:get_value(K, Config), 0, M)
-			end, #{}, GSNs),
+    CntS0 = lists:foldl(fun(K, M) -> M#{K => 0} end, #{}, GSNs),
     CntS = lists:foldl(
 	     fun({{_,{teid,'gtp-c',{fq_teid, PeerIP,_}}},_}, M) ->
 		     maps:update_with(PeerIP, fun(C) -> C + 1 end, 1, M);
 		(_, M) -> M
 	     end, CntS0, gtp_context_reg:all()),
 
+    ct:pal("CntS: ~p~n", [CntS]),
     [?match(X when X > 0, maps:get(K, CntS)) || K <- GSNs],
 
     lists:foreach(fun({GtpC1,_,_}) -> delete_pdp_context(GtpC1) end, GtpCs1),
