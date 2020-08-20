@@ -11,14 +11,30 @@
 
 -export([init/2,
 	 allowed_methods/2,
+	 api_v1alpha_routes/0,
 	 malformed_request/2,
 	 content_types_provided/2,
 	 content_types_accepted/2,
 	 to_json/2]).
-%test
--export([get_apn_par/1]).
+
+-ifdef(TEST). % Defined by 'rebar3 ct'
+-export([
+	api_v1alpha_status/0,
+	api_v1alpha_update/0,
+	get_apn_par/1
+]).
+-endif.
 
 -include("include/ergw.hrl").
+
+-define( API_V1ALPHA_STATUS, <<"/oam/management/api/v1alpha/status">> ).
+-define( API_V1ALPHA_UPDATE, <<"/oam/management/api/v1alpha/update">> ).
+
+
+api_v1alpha_routes() ->
+	Status = {api_v1alpha_status(), ?MODULE, []},
+	Update = {api_v1alpha_update(), ?MODULE, []},
+	[Status, Update].
 
 init(Req0, State) ->
     case cowboy_req:version(Req0) of
@@ -53,7 +69,8 @@ content_types_provided(Req, State) ->
 
 content_types_accepted(Req, State) ->
     {[{'*', to_json}], Req, State}.
-		
+
+%% Sample Req0 for Method = "GET": "?ergwPars=Idle-Timeout"
 to_json(Req0, State0) ->
     Path = cowboy_req:path(Req0),
     Method = cowboy_req:method(Req0),
@@ -63,6 +80,10 @@ to_json(Req0, State0) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
+
+api_v1alpha_status() -> binary:bin_to_list( ?API_V1ALPHA_STATUS ).
+api_v1alpha_update() -> binary:bin_to_list( ?API_V1ALPHA_UPDATE ).
+
 
 problem(Code, Details, Req) ->
     cowboy_req:reply(
@@ -92,7 +113,8 @@ check_malformed_request_status(Req0) ->
 
 
 %% The get HTTP request will get the apn names and their 'Idle-Timeout' values
-handle_json_request(<<"GET">>, <<"/oam/management/api/status">>, Req, _State0) ->
+%% JSON Response body (sample): "{\"Idle-Timeout\":{\"apn1\":\"288000\",\"apn2\":\"288000\"}}"
+handle_json_request(<<"GET">>, ?API_V1ALPHA_STATUS, Req, _State0) ->
 	Qs = cowboy_req:qs(Req),
 	Qs_str = binary_to_list(Qs),
 	["ergwPars", ParStr] = string:split(Qs_str, "="),
@@ -101,13 +123,14 @@ handle_json_request(<<"GET">>, <<"/oam/management/api/status">>, Req, _State0) -
 	Response = jsx:encode(#{Par => Map}),
 	{Response, Req, done};
 
-%% The Req qs for the post (create) command, the 'Idle-Timeout' for a particular apn
-%%<<" apn=APN&'Idle-Timeout'=Milliseconds>>
-handle_json_request(<<"POST">>, <<"/oam/management/api/update">>, Req, State) ->
+%% The post HTTP request will set the 'Idle-Timeout' values for all APN
+%% JSON Request body (sample): "{\"ergwPars\":{\"Idle-Timeout\":100000}}"
+%% JSON Response body (sample): "{\"Idle-Timeout\":{\"apn1\":\"100000\",\"apn2\":\"100000\"}}"
+handle_json_request(<<"POST">>, ?API_V1ALPHA_UPDATE, Req, State) ->
 	update(Req, State);
 
 %% The Req qs for the put command (update) command is as for the post command
-handle_json_request(<<"PUT">>, <<"/oam/management/api/update">>, Req, State) ->
+handle_json_request(<<"PUT">>, ?API_V1ALPHA_UPDATE, Req, State) ->
 	update(Req, State).
 
 update(Req0, State) ->

@@ -33,10 +33,10 @@ start_http_listener(Opts) ->
 		    {"/api/v1/contexts/:count", http_api_handler, []},
 		    {"/metrics/[:registry]", prometheus_cowboy2_handler, []},
 		    %% 5G SBI APIs
-		    {"/sbi/nbsf-management/v1/pcfBindings", sbi_nbsf_handler, []},
+		    {"/sbi/nbsf-management/v1/pcfBindings", sbi_nbsf_handler, []}]
 		    %% OAM API
-		    {"/oam/management/api/status", ergw_oam_handler, []},
-		    {"/oam/management/api/update", ergw_oam_handler, []},	    
+		    ++ ergw_oam_handler:api_v1alpha_routes()
+		    ++ [
 		    %% serves static files for swagger UI
 		    {"/api/v1/spec/ui", swagger_ui_handler, []},
 		    {"/api/v1/spec/ui/[...]", cowboy_static, {priv_dir, ergw, "static"}}]}

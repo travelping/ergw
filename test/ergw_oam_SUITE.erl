@@ -381,10 +381,10 @@ end_per_testcase(_, Config) ->
     Config.
 
 oam_get() ->
-    [{doc, "Check /oam/management/api/status GET API"}].
+    [{doc, "Check v1alpha status GET API"}].
 oam_get(Config) ->
     % URI to dispatch when start http listener
-    URI = get_test_uri("/oam/management/api/status"),
+    URI = get_test_uri( ergw_oam_handler:api_v1alpha_status() ),
     % Address type inet (IPV4) or inetv6 (IPv6).
     Protocol = protocol(Config),
     % Start Http2 client using gun app
@@ -409,9 +409,9 @@ oam_get(Config) ->
     ok.
 
 oam_post() ->
-    [{doc, "Check /oam/management/api/update GET API"}].
+    [{doc, "Check v1alpha update POST API"}].
 oam_post(Config) ->
-    URI = get_test_uri("/oam/management/api/update"),
+    URI = get_test_uri( ergw_oam_handler:api_v1alpha_update() ),
     Protocol = protocol(Config),
     H2C = h2_connect(Protocol),
     
