@@ -32,6 +32,7 @@
 
   <body>
     <div id="swagger-ui"></div>
+    <div id="swagger-uioam"></div>
 
     <script src="./swagger-ui-bundle.js"> </script>
     <script src="./swagger-ui-standalone-preset.js"> </script>
@@ -51,9 +52,23 @@
         ],
         layout: "StandaloneLayout"
       })
+      const uioam = SwaggerUIBundle({
+        url: "specs/oam.yaml",
+        dom_id: '#swagger-uioam',
+        deepLinking: true,
+        presets: [
+          SwaggerUIBundle.presets.apis,
+          SwaggerUIStandalonePreset
+        ],
+        plugins: [
+          SwaggerUIBundle.plugins.DownloadUrl
+        ],
+        layout: "StandaloneLayout"
+      })
       // End Swagger UI call region
 
       window.ui = ui
+      window.uioam = uioam
     }
   </script>
   </body>

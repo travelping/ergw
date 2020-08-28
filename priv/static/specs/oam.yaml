@@ -1,0 +1,98 @@
+openapi: 3.0.1
+info:
+  title: erGW OAM API
+  description: API to interact with erGW OAM
+  license:
+    name: GPL 2.0
+    url: https://www.gnu.org/licenses/#GPL
+  version: 0.1.0
+servers:
+- url: '{apiroot}/oam/v1alpha1'
+  variables:
+    apiroot:
+      default: /
+      description: API root as configured
+paths:
+  /apns:
+    get:
+      summary: get all APN
+      responses:
+        200:
+          description: returns all APN in erGW
+          content:
+            '*/*':
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Name'
+  /apns/{name}:
+    get:
+      summary: get one APN values
+      parameters:
+      - name: name
+        in: path
+        description: name of APN
+        required: true
+        schema:
+          $ref: '#/components/schemas/Name'
+      responses:
+        200:
+          description: returns configuration for APN
+          content:
+            "application/json":
+              schema:
+                $ref: '#/components/schemas/APN'
+    post:
+      summary: set one APN configuration
+      parameters:
+      - name: name
+        in: path
+        description: name of APN
+        required: true
+        schema:
+          $ref: '#/components/schemas/Name'
+      requestBody:
+        description: new configuration for APN
+        required: true
+        content:
+            "application/json":
+              schema:
+                $ref: '#/components/schemas/APN'
+      responses:
+        204:
+          description: new APN configuration set ok
+    patch:
+      summary: modify one APN configuration
+      parameters:
+      - name: name
+        in: path
+        description: name of APN
+        required: true
+        schema:
+          $ref: '#/components/schemas/Name'
+      requestBody:
+        description: parts of configuration to modify APN
+        required: true
+        content:
+            "application/merge+json":
+              schema:
+                $ref: '#/components/schemas/APN'
+      responses:
+        200:
+          description: returns the current APN configuration
+          content:
+            "application/json":
+              schema:
+                $ref: '#/components/schemas/APN'
+
+components:
+  schemas:
+    APN:
+      type: object
+      properties:
+        Idle-Timeout:
+          description: Milliseconds to wait before destroying idle session
+          type: integer
+          nullable: true
+    Name:
+      type: string
