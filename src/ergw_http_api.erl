@@ -35,7 +35,7 @@ start_http_listener(Opts) ->
 		    %% 5G SBI APIs
 		    {"/sbi/nbsf-management/v1/pcfBindings", sbi_nbsf_handler, []},
 		    %% serves static files for swagger UI
-		    {"/api/v1/spec/ui", swagger_ui_handler, []},
+		    {"/api/v1/spec/ui", cowboy_static, {priv_file, ergw, "static/index.html"}},
 		    {"/api/v1/spec/ui/[...]", cowboy_static, {priv_dir, ergw, "static"}}]}
 		 ]),
     SocketOpts = [get_inet(Opts) | maps:to_list(maps:with([port, ip, ipv6_v6only], Opts))],
