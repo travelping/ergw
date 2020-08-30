@@ -30,6 +30,7 @@
 	 send_pdu/2, send_pdu/3,
 	 send_recv_pdu/2, send_recv_pdu/3, send_recv_pdu/4,
 	 recv_pdu/2, recv_pdu/3, recv_pdu/4]).
+-export([gun_open/1, gun_request/4]).
 -export([gtpc_server_init/2]).
 -export([pretty_print/1]).
 -export([set_cfg_value/3, add_cfg_value/3]).
@@ -318,6 +319,34 @@ make_error_indication_report(IP, TEI) ->
 %%%===================================================================
 %%% I/O and socket functions
 %%%===================================================================
+
+gun_open(Protocol) ->
+    Port = ranch:get_port(ergw_http_listener),
+    Opts = #{protocols => [http2], transport => tcp, tcp_opts => [Protocol]},
+    {ok, Pid} = gun:open("localhost", Port, Opts),
+    {ok, _Protocol} = gun:await_up(Pid),
+    Pid.
+
+gun_request(H2C, Method, URL, Content) ->
+    ct:pal("URL: ~p", [URL]),
+    Headers = [{<<"accept">>, <<"application/json, application/problem+json">>}],
+    case Content of
+	empty ->
+	    StreamRef = gun:Method(H2C, URL, Headers);
+	_ ->
+	    StreamRef = gun:Method(H2C, URL, Headers, Content)
+    end,
+    case gun:await(H2C, StreamRef) of
+	{response, fin, Code, _Headers} ->
+	    {Code, empty};
+	{response, nofin, Code, _Headers} ->
+	    {data, fin, Body} = gun:await(H2C, StreamRef),
+	    JSON = case Body of
+		       <<>> -> empty;
+		       _    -> jsx:decode(Body, [return_maps, {labels, attempt_atom}])
+		   end,
+	    {Code, JSON}
+    end.
 
 %% GTP-C default port (2123) handler
 gtpc_server_init(Owner, Config) when is_list(Config) ->
