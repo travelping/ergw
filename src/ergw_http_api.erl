@@ -34,6 +34,7 @@ start_http_listener(Opts) ->
 		    {"/metrics/[:registry]", prometheus_cowboy2_handler, []},
 		    %% OAM API, APN
 		    {"/oam/v1alpha1/apns", ergw_oam_handler, []},
+		    {"/oam/v1alpha1/apns/:name", ergw_oam_handler, []},
 		    %% 5G SBI APIs
 		    {"/sbi/nbsf-management/v1/pcfBindings", sbi_nbsf_handler, []},
 		    %% serves static files for swagger UI

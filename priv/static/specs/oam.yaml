@@ -96,3 +96,8 @@ components:
           nullable: true
     Name:
       type: string
+      description: >-
+        APN name.
+        A reserved name, $DEFAULT$, indicate config used when APN does not exist.
+        No APN may be called $DEFAULT$.
+
