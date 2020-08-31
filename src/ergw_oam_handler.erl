@@ -21,5 +21,11 @@ init( Request, _Options ) ->
 
 request_json( #{method := <<"GET">>}=Request, _State ) ->
 	APNs = application:get_env( ergw, apns, #{} ),
-	JSON = jsx:encode( maps:keys(APNs) ),
+	JSON = jsx:encode( apn_join(APNs) ),
 	{JSON, Request, done}.
+
+%%====================================================================
+%% Internal functions
+%%====================================================================
+
+apn_join( APN_map ) -> [binary:list_to_bin(lists:join(<<".">>, X)) || X <- maps:keys(APN_map), X =/= '_'].
