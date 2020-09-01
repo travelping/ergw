@@ -18,8 +18,8 @@
 	get_apn_default/1,
 	get_apn_not_exist/0,
 	get_apn_not_exist/1,
-	get_names_exist/0,
-	get_names_exist/1,
+	get_names/0,
+	get_names/1,
 	get_no_names/0,
 	get_no_names/1
 ] ).
@@ -28,7 +28,7 @@
 -export( [all/0, init_per_suite/1, end_per_suite/1] ).
 
 
-all() -> [documentation, get_1, get_no_names, get_names_exist, get_apn, get_apn_not_exist, get_apn_default].
+all() -> [documentation, get_1, get_no_names, get_names, get_apn, get_apn_not_exist, get_apn_default].
 
 init_per_suite( Config ) ->
 	inets:start(),
@@ -68,7 +68,7 @@ get_1( Config ) ->
 
 	{{_, 400, _}, _, _Body} = Result.
 
-get_apn() -> [{doc, "HTTP/2 GET OAM API, specific APN"}].
+get_apn() -> [{doc, "GET OAM API, specific APN"}].
 get_apn( Config ) ->
 	APN1 = [<<"an">>, <<"apn">>],
 	APN1_values = #{'Idle-Timeout' => 28800000},
@@ -82,7 +82,7 @@ get_apn( Config ) ->
 	gun:close( Gun ),
 	APN1_values = APN_values.
 
-get_apn_default() -> [{doc, "HTTP/2 GET OAM API, default APN name"}].
+get_apn_default() -> [{doc, "GET OAM API, default APN name"}].
 get_apn_default( Config ) ->
 	Default_value = #{'Idle-Timeout' => 200000},
 	application:set_env( ergw, apns, #{'_' => Default_value} ),
@@ -94,7 +94,7 @@ get_apn_default( Config ) ->
 	gun:close( Gun ),
 	Default_value = APN_values.
 
-get_apn_not_exist() -> [{doc, "HTTP/2 GET OAM API, specific APN that does not exist"}].
+get_apn_not_exist() -> [{doc, "GET OAM API APN that does not exist"}].
 get_apn_not_exist( Config ) ->
 	application:unset_env( ergw, apns ),
 	URL = proplists:get_value( api_root, Config ),
@@ -104,8 +104,8 @@ get_apn_not_exist( Config ) ->
 
 	gun:close( Gun ).
 
-get_names_exist() -> [{doc, "HTTP/2 GET OAM API when APN names exist"}].
-get_names_exist( Config ) ->
+get_names() -> [{doc, "GET OAM API APN names"}].
+get_names( Config ) ->
 	APN1 = [<<"an">>, <<"apn">>],
 	APN2 = [<<"another">>, <<"apn">>],
 	application:set_env( ergw, apns, #{APN1 => value1, APN2 => value2, '_' => default} ),
@@ -117,7 +117,7 @@ get_names_exist( Config ) ->
 	gun:close( Gun ),
 	[<<"$DEFAULT$">>, <<"an.apn">>, <<"another.apn">>] = lists:sort( APNs ).
 
-get_no_names() -> [{doc, "HTTP/2 GET OAM API when no APN names"}].
+get_no_names() -> [{doc, "GET OAM API when no APN names"}].
 get_no_names( Config ) ->
 	application:unset_env( ergw, apns ),
 	URL = proplists:get_value( api_root, Config ),
