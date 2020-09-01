@@ -22,6 +22,10 @@
 	get_names/1,
 	get_no_names/0,
 	get_no_names/1,
+	patch/0,
+	patch/1,
+	patch_remove/0,
+	patch_remove/1,
 	post/0,
 	post/1,
 	post_fail/0,
@@ -42,6 +46,8 @@ all() -> [
 	get_apn_default,
 	post,
 	post_fail
+	, patch
+	, patch_remove
 ].
 
 init_per_suite( Config ) ->
@@ -78,7 +84,7 @@ get_1() -> [{doc, "HTTP/1 GET OAM API fail"}].
 get_1( Config ) ->
 	URL = proplists:get_value( api_url, Config ),
 
-	{ok, Result} = httpc:request( URL ++ "/apns"  ),
+	{ok, Result} = httpc:request( URL ++ "/apns" ),
 
 	{{_, 400, _}, _, _Body} = Result.
 
@@ -91,7 +97,7 @@ get_apn( Config ) ->
 	URL = proplists:get_value( api_root, Config ),
 	Gun = ergw_test_lib:gun_open( inet ),
 
-	{200, APN_values} = ergw_test_lib:gun_request( Gun, get, URL ++ "/apns/an.apn", empty  ),
+	{200, APN_values} = ergw_test_lib:gun_request( Gun, get, URL ++ "/apns/an.apn", empty ),
 
 	gun:close( Gun ),
 	APN1_values = APN_values.
@@ -103,7 +109,7 @@ get_apn_default( Config ) ->
 	URL = proplists:get_value( api_root, Config ),
 	Gun = ergw_test_lib:gun_open( inet ),
 
-	{200, APN_values} = ergw_test_lib:gun_request( Gun, get, URL ++ "/apns/$DEFAULT$", empty  ),
+	{200, APN_values} = ergw_test_lib:gun_request( Gun, get, URL ++ "/apns/$DEFAULT$", empty ),
 
 	gun:close( Gun ),
 	Default_value = APN_values.
@@ -114,7 +120,7 @@ get_apn_not_exist( Config ) ->
 	URL = proplists:get_value( api_root, Config ),
 	Gun = ergw_test_lib:gun_open( inet ),
 
-	{404, _} = ergw_test_lib:gun_request( Gun, get, URL ++ "/apns/an.apn", empty  ),
+	{404, _} = ergw_test_lib:gun_request( Gun, get, URL ++ "/apns/an.apn", empty ),
 
 	gun:close( Gun ).
 
@@ -126,7 +132,7 @@ get_names( Config ) ->
 	URL = proplists:get_value( api_root, Config ),
 	Gun = ergw_test_lib:gun_open( inet ),
 
-	{200, APNs} = ergw_test_lib:gun_request( Gun, get, URL ++ "/apns", empty  ),
+	{200, APNs} = ergw_test_lib:gun_request( Gun, get, URL ++ "/apns", empty ),
 
 	gun:close( Gun ),
 	[<<"$DEFAULT$">>, <<"an.apn">>, <<"another.apn">>] = lists:sort( APNs ).
@@ -137,10 +143,42 @@ get_no_names( Config ) ->
 	URL = proplists:get_value( api_root, Config ),
 	Gun = ergw_test_lib:gun_open( inet ),
 
-	{200, Body} = ergw_test_lib:gun_request( Gun, get, URL ++ "/apns", empty  ),
+	{200, Body} = ergw_test_lib:gun_request( Gun, get, URL ++ "/apns", empty ),
 
 	gun:close( Gun ),
 	[] = Body.
+
+patch() -> [{doc, "PATCH OAM API"}].
+patch( Config ) ->
+	APN = [<<"an">>, <<"apn">>],
+	application:set_env( ergw, apns, #{APN => #{'Idle-Timeout' => value, vrfs => [<<"mandatory">>]}} ),
+	Values = #{'Idle-Timeout' => 200},
+	Expected = #{'Idle-Timeout' => 200, vrfs => [<<"mandatory">>]},
+	JSON = jsx:encode( Values ),
+	URL = proplists:get_value( api_root, Config ),
+	Gun = ergw_test_lib:gun_open( inet ),
+
+	{200, Expected} = ergw_test_lib:gun_request( Gun, patch, URL ++ "/apns/an.apn", JSON ),
+
+	gun:close( Gun ),
+	{ok, APNs} = application:get_env( ergw, apns ),
+	Expected = maps:get( APN, APNs ).
+
+patch_remove() -> [{doc, "PATCH OAM API removing item"}].
+patch_remove( Config ) ->
+	APN = [<<"an">>, <<"apn">>],
+	application:set_env( ergw, apns, #{APN => #{'Idle-Timeout' => 200, vrfs => [<<"mandatory">>]}} ),
+	Values = #{'Idle-Timeout' => null},
+	Expected = #{vrfs => [<<"mandatory">>]},
+	JSON = jsx:encode( Values ),
+	URL = proplists:get_value( api_root, Config ),
+	Gun = ergw_test_lib:gun_open( inet ),
+
+	{200, Expected} = ergw_test_lib:gun_request( Gun, patch, URL ++ "/apns/an.apn", JSON ),
+
+	gun:close( Gun ),
+	{ok, APNs} = application:get_env( ergw, apns ),
+	Expected = maps:get( APN, APNs ).
 
 post() -> [{doc, "POST OAM API"}].
 post( Config ) ->
@@ -151,7 +189,7 @@ post( Config ) ->
 	URL = proplists:get_value( api_root, Config ),
 	Gun = ergw_test_lib:gun_open( inet ),
 
-	{204, _} = ergw_test_lib:gun_request( Gun, post, URL ++ "/apns/an.apn", JSON  ),
+	{204, _} = ergw_test_lib:gun_request( Gun, post, URL ++ "/apns/an.apn", JSON ),
 
 	gun:close( Gun ),
 	{ok, APNs} = application:get_env( ergw, apns ),
@@ -166,7 +204,7 @@ post_fail( Config ) ->
 	URL = proplists:get_value( api_root, Config ),
 	Gun = ergw_test_lib:gun_open( inet ),
 
-	{400, _} = ergw_test_lib:gun_request( Gun, post, URL ++ "/apns/an.apn", JSON  ),
+	{400, _} = ergw_test_lib:gun_request( Gun, post, URL ++ "/apns/an.apn", JSON ),
 
 	gun:close( Gun ).
 
