@@ -21,14 +21,28 @@
 	get_names/0,
 	get_names/1,
 	get_no_names/0,
-	get_no_names/1
+	get_no_names/1,
+	post/0,
+	post/1,
+	post_fail/0,
+	post_fail/1
 ] ).
 
 %% Common test callbacks
 -export( [all/0, init_per_suite/1, end_per_suite/1] ).
 
 
-all() -> [documentation, get_1, get_no_names, get_names, get_apn, get_apn_not_exist, get_apn_default].
+all() -> [
+	documentation,
+	get_1,
+	get_no_names,
+	get_names,
+	get_apn,
+	get_apn_not_exist,
+	get_apn_default,
+	post,
+	post_fail
+].
 
 init_per_suite( Config ) ->
 	inets:start(),
@@ -127,6 +141,34 @@ get_no_names( Config ) ->
 
 	gun:close( Gun ),
 	[] = Body.
+
+post() -> [{doc, "POST OAM API"}].
+post( Config ) ->
+	APN = [<<"an">>, <<"apn">>],
+	application:set_env( ergw, apns, #{APN => #{key => value}} ),
+	Values = #{'Idle-Timeout' => 2000, vrfs => [<<"mandatory">>]},
+	JSON = jsx:encode( Values ),
+	URL = proplists:get_value( api_root, Config ),
+	Gun = ergw_test_lib:gun_open( inet ),
+
+	{204, _} = ergw_test_lib:gun_request( Gun, post, URL ++ "/apns/an.apn", JSON  ),
+
+	gun:close( Gun ),
+	{ok, APNs} = application:get_env( ergw, apns ),
+	Values = maps:get( APN, APNs ).
+
+post_fail() -> [{doc, "POST OAM API failure"}].
+post_fail( Config ) ->
+	APN = [<<"an">>, <<"apn">>],
+	application:set_env( ergw, apns, #{APN => #{key => value}} ),
+	Values = #{'Idle-Timeout' => 2000},
+	JSON = jsx:encode( Values ),
+	URL = proplists:get_value( api_root, Config ),
+	Gun = ergw_test_lib:gun_open( inet ),
+
+	{400, _} = ergw_test_lib:gun_request( Gun, post, URL ++ "/apns/an.apn", JSON  ),
+
+	gun:close( Gun ).
 
 %%====================================================================
 %% Internal functions

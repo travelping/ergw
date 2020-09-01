@@ -11,6 +11,7 @@
 
 %% API
 -export([load_config/1,
+	 validate_apns/1,
 	 validate_node_name/1,
 	 validate_config/1,
 	 validate_options/4,
