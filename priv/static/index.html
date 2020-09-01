@@ -39,9 +39,7 @@
     <script>
     window.onload = function() {
       // Begin Swagger UI call region
-      const ui = SwaggerUIBundle({
-        url: "specs/http_api_spec.yaml",
-        dom_id: '#swagger-ui',
+      let common = {
         deepLinking: true,
         presets: [
           SwaggerUIBundle.presets.apis,
@@ -51,20 +49,13 @@
           SwaggerUIBundle.plugins.DownloadUrl
         ],
         layout: "StandaloneLayout"
-      })
-      const uioam = SwaggerUIBundle({
-        url: "specs/oam.yaml",
-        dom_id: '#swagger-uioam',
-        deepLinking: true,
-        presets: [
-          SwaggerUIBundle.presets.apis,
-          SwaggerUIStandalonePreset
-        ],
-        plugins: [
-          SwaggerUIBundle.plugins.DownloadUrl
-        ],
-        layout: "StandaloneLayout"
-      })
+      }
+      common.url = "specs/http_api_spec.yaml"
+      common.dom_id = '#swagger-ui'
+      const ui = SwaggerUIBundle(common)
+      common.url = "specs/oam.yaml"
+      common.dom_id = '#swagger-uioam'
+      const uioam = SwaggerUIBundle(common)
       // End Swagger UI call region
 
       window.ui = ui
