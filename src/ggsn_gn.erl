@@ -411,7 +411,7 @@ handle_request(ReqKey,
 	    ok
     end,
 
-    ResponseIEs = create_pdp_context_response(Result, ActiveSessionOpts, IEs, Context),
+    ResponseIEs = create_pdp_context_response(Result, ActiveSessionOpts, Request, Context),
     Response = response(create_pdp_context_response, Context, ResponseIEs, Request),
     gtp_context:send_response(ReqKey, Request, Response),
 
@@ -1177,7 +1177,22 @@ tunnel_endpoint_elements(#context{control_port = #gtp_port{ip = CntlIP},
 context_charging_id(#context{charging_identifier = ChargingId}) ->
     #charging_id{id = <<ChargingId:32>>}.
 
-create_pdp_context_response(Result, SessionOpts, RequestIEs,
+change_reporting_action(true, #{'user-location-info-change' := true}, IE) ->
+    [#ms_info_change_reporting_action{action = start_reporting_cgi_sai}|IE];
+change_reporting_action(true, #{'cgi-sai-change' := true}, IE) ->
+    [#ms_info_change_reporting_action{action = start_reporting_cgi_sai}|IE];
+change_reporting_action(true, #{'rai-change' := true}, IE) ->
+    [#ms_info_change_reporting_action{action = start_reporting_rai}|IE];
+change_reporting_action(_, _Triggers, IE) ->
+    IE.
+
+change_reporting_actions(#gtp{ext_hdr = ExtHdr}, IEs) ->
+    Triggers = ergw_charging:reporting_triggers(),
+
+    CRSI = proplists:get_bool(ms_info_change_reporting_support_indication, ExtHdr),
+    _IE = change_reporting_action(CRSI, Triggers, IEs).
+
+create_pdp_context_response(Result, SessionOpts, #gtp{ie = RequestIEs} = Request,
 			    #context{ms_v4 = MSv4, ms_v6 = MSv6} = Context) ->
     IE0 = [Result,
 	   #reordering_required{required = no},
@@ -1185,7 +1200,8 @@ create_pdp_context_response(Result, SessionOpts, RequestIEs,
 	   encode_eua(MSv4, MSv6)],
     IE1 = pdp_qos_profile(SessionOpts, IE0),
     IE2 = pdp_pco(SessionOpts, RequestIEs, IE1),
-    tunnel_endpoint_elements(Context, IE2).
+    IE3 = tunnel_endpoint_elements(Context, IE2),
+    _IE = change_reporting_actions(Request, IE3).
 
 %% Wrapper for gen_statem state_callback_result Actions argument
 %% Timeout set in the context of a prolonged idle gtp session

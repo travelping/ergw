@@ -8,6 +8,7 @@
 -module(ergw_charging).
 
 -export([validate_options/1,
+	 reporting_triggers/0,
 	 is_charging_event/2,
 	 is_enabled/1,
 	 rulebase/0]).
@@ -162,6 +163,13 @@ config() ->
 	{ok, #{default := Cfg}} -> Cfg;
 	_ -> #{}
     end.
+
+reporting_triggers() ->
+    Triggers =
+	maps:get(triggers,
+		 maps:get(offline, config(), #{}), #{}),
+    maps:map(
+      fun(_Key, Cond) -> Cond /= 'off' end, Triggers).
 
 is_charging_event(offline, Evs) ->
     Filter =

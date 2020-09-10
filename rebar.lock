@@ -53,7 +53,7 @@
   {git,"https://github.com/uwiger/setup.git",
        {ref,"b8fd827e7e9e0f5aeec2f26a2f3a31bb06407686"}},
   0},
- {<<"stacktrace_compat">>,{pkg,<<"stacktrace_compat">>,<<"1.0.2">>},2}]}.
+ {<<"stacktrace_compat">>,{pkg,<<"stacktrace_compat">>,<<"1.0.2">>},1}]}.
 [
 {pkg_hash,[
  {<<"accept">>, <<"B33B127ABCA7CC948BBE6CAA4C263369ABF1347CFA9D8E699C6D214660F10CD1">>},

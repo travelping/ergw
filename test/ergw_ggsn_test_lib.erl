@@ -58,6 +58,16 @@ delete_pdp_context(SubType, GtpC) ->
 %%% Create GTPv1-C messages
 %%%===================================================================
 
+make_ms_info_change_reporting_indication(crsi, #gtp{ext_hdr = Hdr} = Req) ->
+    Req#gtp{ext_hdr = [ms_info_change_reporting_support_indication|Hdr]};
+make_ms_info_change_reporting_indication(_SubType, Req) ->
+    Req.
+
+validate_ms_info_change_reporting(crsi, IEs) ->
+    ?equal(true, maps:is_key({ms_info_change_reporting_action,0}, IEs));
+validate_ms_info_change_reporting(_SubType, IEs) ->
+    ?equal(false, maps:is_key({ms_info_change_reporting_action,0}, IEs)).
+
 make_pdp_type({Type, DABF, _}, IEs) ->
     [#common_flags{flags = ['Dual Address Bearer Flag']} || DABF] ++
 	make_pdp_addr_cfg(Type, IEs);
@@ -256,8 +266,9 @@ make_request(create_pdp_context_request, SubType,
 				    rac = 0}],
     IEs = make_pdp_type(SubType, IEs0),
 
-    #gtp{version = v1, type = create_pdp_context_request, tei = 0,
-	 seq_no = SeqNo, ie = IEs};
+    Req = #gtp{version = v1, type = create_pdp_context_request, tei = 0,
+	       seq_no = SeqNo, ie = IEs},
+    make_ms_info_change_reporting_indication(SubType, Req);
 
 make_request(update_pdp_context_request, SubType,
 	     #gtpc{restart_counter = RCnt, seq_no = SeqNo,
@@ -505,6 +516,7 @@ validate_response(create_pdp_context_request, SubType, Response,
 			   #tunnel_endpoint_identifier_data_i{}
 		      }}, Response),
     validate_pdp_type(SubType, Response#gtp.ie),
+    validate_ms_info_change_reporting(SubType, Response#gtp.ie),
     GtpC = update_ue_ip(Response#gtp.ie, GtpC0),
 
     #gtp{ie = #{{tunnel_endpoint_identifier_control_plane,0} :=

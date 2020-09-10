@@ -85,6 +85,26 @@ paa({{_,_,_,_,_,_,_,_} = IP, PrefixLen}) ->
        address = <<PrefixLen:8, (ergw_inet:ip2bin(IP))/binary>>
       }.
 
+set_indication_flag(Flag, IEs) ->
+    Fs =
+	case lists:keyfind(v2_indication, 1, IEs) of
+	    #v2_indication{flags = Flags} ->
+		Flags;
+	    _ ->
+		[]
+	end,
+    lists:keystore(v2_indication, 1, IEs, #v2_indication{flags = [Flag|Fs]}).
+
+make_indication(crsi, IEs) ->
+    set_indication_flag('CRSI', IEs);
+make_indication(_SubType, IEs) ->
+    IEs.
+
+validate_indication(crsi, IEs) ->
+    ?equal(true, maps:is_key({v2_change_reporting_action,0}, IEs));
+validate_indication(_SubType, IEs) ->
+    ?equal(false, maps:is_key({v2_change_reporting_action,0}, IEs)).
+
 make_pdn_type(ipv6, IEs) ->
     PrefixLen = 64,
     Prefix = ergw_inet:ip2bin({0,0,0,0,0,0,0,0}),
@@ -95,17 +115,17 @@ make_pdn_type(ipv6, IEs) ->
      #v2_protocol_configuration_options{
 	config = {0, [{1,<<>>}, {3,<<>>}, {10,<<>>}]}}
      | IEs];
-make_pdn_type(SubType, IEs)
+make_pdn_type(SubType, IEs0)
   when SubType == ipv4v6;
        SubType == pool_exhausted ->
     PrefixLen = 64,
     Prefix = ergw_inet:ip2bin({0,0,0,0,0,0,0,0}),
     RequestedIP = ergw_inet:ip2bin({0,0,0,0}),
+    IEs = set_indication_flag('DAF', IEs0),
     [#v2_pdn_address_allocation{
 	type = ipv4v6,
 	address = <<PrefixLen, Prefix/binary, RequestedIP/binary>>},
      #v2_pdn_type{pdn_type = ipv4v6},
-     #v2_indication{flags = ['DAF']},
      #v2_protocol_configuration_options{
 	config = {0, [{ipcp,'CP-Configure-Request',0,
 		       [{ms_dns1, <<0,0,0,0>>},
@@ -183,7 +203,8 @@ make_request(create_session_request, SubType,
 	 #v2_ue_time_zone{timezone = 10, dst = 0},
 	 #v2_user_location_information{tai = <<3,2,22,214,217>>,
 				       ecgi = <<3,2,22,8,71,9,92>>}],
-    IEs = make_pdn_type(SubType, IEs0),
+    IEs1 = make_pdn_type(SubType, IEs0),
+    IEs = make_indication(SubType, IEs1),
     #gtp{version = v2, type = create_session_request, tei = 0,
 	 seq_no = SeqNo, ie = IEs};
 
@@ -466,7 +487,7 @@ validate_response(create_session_request, version_restricted, Response, GtpC) ->
     ?match(#gtp{type = version_not_supported}, Response),
     GtpC;
 
-validate_response(create_session_request, _SubType, Response,
+validate_response(create_session_request, SubType, Response,
 		  #gtpc{local_control_tei = LocalCntlTEI} = GtpC) ->
     ?match(
        #gtp{type = create_session_response,
@@ -498,6 +519,8 @@ validate_response(create_session_request, _SubType, Response,
 			     #v2_fully_qualified_tunnel_endpoint_identifier{
 				key = RemoteDataTEI}}}
 	       }} = Response,
+
+    validate_indication(SubType, Response#gtp.ie),
 
     GtpC#gtpc{
 	  remote_control_tei = RemoteCntlTEI,

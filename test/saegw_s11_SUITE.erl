@@ -393,6 +393,7 @@ common() ->
      create_session_request_pool_exhausted,
      create_session_request_accept_new,
      simple_session_request,
+     change_reporting_indication,
      create_session_request_x2_handover,
      create_session_request_resend,
      delete_session_request_resend,
@@ -763,6 +764,20 @@ simple_session_request(Config) ->
 
     ?match_metric(prometheus_gauge, ergw_local_pool_free, PoolId, 65534),
     ?match_metric(prometheus_gauge, ergw_local_pool_used, PoolId, 0),
+
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+change_reporting_indication() ->
+    [{doc, "Check CRSI flag in Create Session"}].
+change_reporting_indication(Config) ->
+    {GtpC, _, _} = create_session(crsi, Config),
+    delete_session(GtpC),
+
+    ?equal([], outstanding_requests()),
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+
 
     meck_validate(Config),
     ok.
