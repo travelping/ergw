@@ -788,6 +788,8 @@ defered_usage_report_fun(Owner, URRActions, PCtx) ->
 	    ?LOG(error, "Defered Usage Report failed with ~p", [CtxErr])
     end.
 
+trigger_defered_usage_report([], _PCtx) ->
+    ok;
 trigger_defered_usage_report(URRActions, PCtx) ->
     Self = self(),
     proc_lib:spawn(fun() -> defered_usage_report_fun(Self, URRActions, PCtx) end),
