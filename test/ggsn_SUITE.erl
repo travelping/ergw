@@ -423,6 +423,7 @@ common() ->
      path_restart, path_restart_recovery, path_restart_multi,
      path_failure,
      simple_pdp_context_request,
+     change_reporting_indication,
      duplicate_pdp_context_request,
      error_indication,
      pdp_context_request_bearer_types,
@@ -999,6 +1000,19 @@ simple_pdp_context_request(Config) ->
 
     ?match_metric(prometheus_gauge, ergw_local_pool_free, PoolId, 65534),
     ?match_metric(prometheus_gauge, ergw_local_pool_used, PoolId, 0),
+
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+change_reporting_indication() ->
+    [{doc, "Check MS Info Change Reporting support indication in Create PDP Context"}].
+change_reporting_indication(Config) ->
+    {GtpC, _, _} = create_pdp_context(crsi, Config),
+    delete_pdp_context(GtpC),
+
+    ?equal([], outstanding_requests()),
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
 
     meck_validate(Config),
     ok.

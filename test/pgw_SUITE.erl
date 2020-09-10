@@ -595,6 +595,7 @@ common() ->
      path_failure,
      path_maintenance,
      simple_session_request,
+     change_reporting_indication,
      duplicate_session_request,
      duplicate_session_slow,
      error_indication,
@@ -1419,6 +1420,20 @@ simple_session_request(Config) ->
 		}
 	  }
        ], URR),
+
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+change_reporting_indication() ->
+    [{doc, "Check CRSI flag in Create Session"}].
+change_reporting_indication(Config) ->
+    {GtpC, _, _} = create_session(crsi, Config),
+    delete_session(GtpC),
+
+    ?equal([], outstanding_requests()),
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+
 
     meck_validate(Config),
     ok.

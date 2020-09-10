@@ -108,9 +108,31 @@ paa({{_,_,_,_,_,_,_,_} = IP, PrefixLen}) ->
        address = <<PrefixLen:8, (ergw_inet:ip2bin(IP))/binary>>
       }.
 
+set_indication_flag(Flag, IEs) ->
+    Fs =
+	case lists:keyfind(v2_indication, 1, IEs) of
+	    #v2_indication{flags = Flags} ->
+		Flags;
+	    _ ->
+		[]
+	end,
+    lists:keystore(v2_indication, 1, IEs, #v2_indication{flags = [Flag|Fs]}).
+
+make_indication(crsi, IEs) ->
+    set_indication_flag('CRSI', IEs);
+make_indication(_SubType, IEs) ->
+    IEs.
+
+validate_indication(crsi, IEs) ->
+    ?equal(true, maps:is_key({v2_change_reporting_action,0}, IEs));
+validate_indication(_SubType, IEs) ->
+    ?equal(false, maps:is_key({v2_change_reporting_action,0}, IEs)).
+
 make_pdn_type({Type, DABF, _}, IEs) ->
-    [#v2_indication{flags = ['DAF']} || DABF] ++
-	make_pdn_addr_cfg(Type, IEs);
+    case DABF of
+	true  -> make_pdn_addr_cfg(Type, set_indication_flag('DAF', IEs));
+	false -> make_pdn_addr_cfg(Type, IEs)
+    end;
 make_pdn_type(Type, IEs)
   when Type =:= ipv4; Type =:= static_ipv4;
        Type =:= ipv6; Type =:= static_ipv6;
@@ -386,6 +408,7 @@ make_request(create_session_request, SubType,
 		     fq_teid(2, ?'S5/S8-U SGW', LocalDataTEI, LocalIP)
 		    ]},
 	 fq_teid(0, ?'S5/S8-C SGW', LocalCntlTEI, LocalIP),
+	 #v2_indication{flags = []},
 	 #v2_international_mobile_subscriber_identity{
 	    imsi = imsi(SubType, LocalCntlTEI)},
 	 #v2_mobile_equipment_identity{mei = imei(SubType, LocalCntlTEI)},
@@ -396,7 +419,8 @@ make_request(create_session_request, SubType,
 	 #v2_ue_time_zone{timezone = 10, dst = 0},
 	 #v2_user_location_information{tai = <<3,2,22,214,217>>,
 				       ecgi = <<3,2,22,8,71,9,92>>}],
-    IEs = make_pdn_type(SubType, IEs0),
+    IEs1 = make_pdn_type(SubType, IEs0),
+    IEs = make_indication(SubType, IEs1),
     #gtp{version = v2, type = create_session_request, tei = 0,
 	 seq_no = SeqNo, ie = IEs};
 
@@ -867,6 +891,7 @@ validate_response(create_session_request, SubType, Response,
 				   interface_type = ?'S5/S8-U PGW'}}}
 		  }}, Response),
     validate_pdn_type(SubType, Response#gtp.ie),
+    validate_indication(SubType, Response#gtp.ie),
     GtpC = update_ue_ip(Response#gtp.ie, GtpC0),
 
     #gtp{ie = #{{v2_fully_qualified_tunnel_endpoint_identifier,1} :=
@@ -941,6 +966,7 @@ validate_response(modify_bearer_request, SubType, Response,
 	   }, Response),
     #gtp{ie = IEs} = Response,
     ?equal(false, maps:is_key({v2_bearer_context,0}, IEs)),
+    ?equal(false, maps:is_key({v2_change_reporting_action,0}, IEs)),
     GtpC;
 
 validate_response(modify_bearer_command, _SubType, Response,

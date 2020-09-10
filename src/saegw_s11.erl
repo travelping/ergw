@@ -1223,19 +1223,72 @@ s5s8_pgw_gtp_u_tei(#context{local_data_endp = #gtp_endp{ip = IP, teid = TEI}}) -
     %% S5/S8 F-TEI Instance
     fq_teid(2, ?'S5/S8-U PGW', TEI, IP).
 
+cr_ran_type(1)  -> 'UTRAN';
+cr_ran_type(2)  -> 'UTRAN';
+cr_ran_type(6)  -> 'EUTRAN';
+cr_ran_type(8)  -> 'EUTRAN';
+cr_ran_type(9)  -> 'EUTRAN';
+cr_ran_type(10) -> 'NR';
+cr_ran_type(_)  -> undefined.
+
+%% it is unclear from TS 29.274 if the CRA IE can only be included when the
+%% SGSN/MME has indicated support for it in the Indication IE.
+%% Some comments in Modify Bearer Request suggest that it might be possbile
+%% to unconditionally set it, other places state that is should only be sent
+%% when the SGSN/MME indicated support for it.
+%% For the moment only include it when the CRSI flag was set.
+
+change_reporting_action(true, ENBCRSI, #{?'RAT Type' :=
+					     #v2_rat_type{rat_type = Type}}, Trigger, IE) ->
+    change_reporting_action(ENBCRSI, cr_ran_type(Type), Trigger, IE);
+change_reporting_action(_, _, _, _, IE) ->
+    IE.
+
+change_reporting_action(true, 'EUTRAN', #{'tai-change' := true,
+					  'user-location-info-change' := true}, IE) ->
+    [#v2_change_reporting_action{
+	action = start_reporting_tai__macro_enodeb_id_and_extended_macro_enodeb_id}|IE];
+change_reporting_action(true, 'EUTRAN', #{'user-location-info-change' := true}, IE) ->
+    [#v2_change_reporting_action{
+	action = start_reporting_macro_enodeb_id_and_extended_macro_enodeb_id}|IE];
+change_reporting_action(_, 'EUTRAN', #{'tai-change' := true, 'ecgi-change' := true}, IE) ->
+    [#v2_change_reporting_action{action = start_reporting_tai_and_ecgi}|IE];
+change_reporting_action(_, 'EUTRAN', #{'tai-change' := true}, IE) ->
+    [#v2_change_reporting_action{action = start_reporting_tai}|IE];
+change_reporting_action(_, 'EUTRAN', #{'ecgi-change' := true}, IE) ->
+    [#v2_change_reporting_action{action = start_reporting_ecgi}|IE];
+change_reporting_action(_, 'UTRAN', #{'user-location-info-change' := true}, IE) ->
+    [#v2_change_reporting_action{action = start_reporting_cgi_sai_and_rai}|IE];
+change_reporting_action(_, 'UTRAN', #{'cgi-sai-change' := true, 'rai-change' := true}, IE) ->
+    [#v2_change_reporting_action{action = start_reporting_cgi_sai_and_rai}|IE];
+change_reporting_action(_, 'UTRAN', #{'cgi-sai-change' := true}, IE) ->
+    [#v2_change_reporting_action{action = start_reporting_cgi_sai}|IE];
+change_reporting_action(_, 'UTRAN', #{'rai-change' := true}, IE) ->
+    [#v2_change_reporting_action{action = start_reporting_rai}|IE];
+change_reporting_action(_, _, _Triggers, IE) ->
+    IE.
+
+change_reporting_actions(RequestIEs, IE0) ->
+    Indications = gtp_v2_c:get_indication_flags(RequestIEs),
+    Triggers = ergw_charging:reporting_triggers(),
+
+    CRSI = proplists:get_bool('CRSI', Indications),
+    ENBCRSI = proplists:get_bool('ENBCRSI', Indications),
+    _IE = change_reporting_action(CRSI, ENBCRSI, RequestIEs, Triggers, IE0).
+
 create_session_response(Result, SessionOpts, RequestIEs, EBI,
 			#context{ms_v4 = MSv4, ms_v6 = MSv6} = Context) ->
 
     IE0 = bearer_context(EBI, Context, []),
     IE1 = pdn_pco(SessionOpts, RequestIEs, IE0),
+    IE2 = change_reporting_actions(RequestIEs, IE1),
 
     [Result,
-     #v2_change_reporting_action{action = start_reporting_tai_and_ecgi},
      %% Sender F-TEID for Control Plane
      s11_sender_f_teid(Context),
      s5s8_pgw_gtp_c_tei(Context),
      #v2_apn_restriction{restriction_type_value = 0},
-     encode_paa(MSv4, MSv6) | IE1].
+     encode_paa(MSv4, MSv6) | IE2].
 
 %% Wrapper for gen_statem state_callback_result Actions argument
 %% Timeout set in the context of a prolonged idle gtpv2 session
