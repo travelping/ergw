@@ -238,8 +238,7 @@ lookup_host(Name, dns, NameServers) ->
 	    _ ->
 		[]
 	end,
-    %% 3GPP DNS answers are almost always large, use TCP by default....
-    case inet_res:resolve(Name, in, any, [{usevc, true} | NsOpts]) of
+    case ergw_node_selection_cache:resolve(Name, any, NsOpts) of
 	{ok, Msg} ->
 	    lists:foldl(
 	      fun(RR, R) ->
@@ -400,8 +399,7 @@ naptr(Name, NameServers) ->
 	    _ ->
 		[]
 	end,
-    %% 3GPP DNS answers are almost always large, use TCP by default....
-    inet_res:resolve(Name, in, naptr, [{usevc, true} | NsOpts]).
+    ergw_node_selection_cache:resolve(Name, naptr, NsOpts).
 
 naptr_service_filter({Order, Pref, Flag, Services, _RegExp, Host}, OrdSPSet, Acc) ->
     [Service | Protocols] = string:tokens(Services, ":"),
