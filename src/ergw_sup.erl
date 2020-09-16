@@ -30,6 +30,7 @@ start_link() ->
 %% ===================================================================
 
 init([]) ->
+    ok = ergw_node_selection_cache:init(),
     {ok, {{one_for_one, 5, 10}, [?CHILD(gtp_path_reg, worker, []),
 				 ?CHILD(ergw_tei_mngr, worker, []),
 				 ?CHILD(gtp_path_sup, supervisor, []),
