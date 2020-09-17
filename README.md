@@ -217,6 +217,8 @@ This requires a suitable ergw.config, e.g.:
            {[<<"APN1">>], [{vrf, sgi}]}
           ]},
 
+         {teid, {3, 6}}, % {teid, {Prefix, Length}}
+
          {node_selection,
           [{default,
             {static,

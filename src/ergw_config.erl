@@ -22,6 +22,7 @@
 	 to_map/1]).
 
 -define(DefaultOptions, [{plmn_id, {<<"001">>, <<"01">>}},
+			 {teid, {0, 0}},
 			 {accept_new, true},
 			 {sockets, []},
 			 {handlers, []},
@@ -254,6 +255,8 @@ validate_option(proxy_map, Opts) ->
     gtp_proxy_ds:validate_options(Opts);
 validate_option(path_management, Opts) when ?is_opts(Opts) ->
     gtp_path:validate_options(Opts);
+validate_option(teid, Value) ->
+    ergw_tei_mngr:validate_option(Value);
 validate_option(Opt, Value)
   when Opt == plmn_id;
        Opt == accept_new;

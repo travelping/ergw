@@ -571,6 +571,11 @@ config(_Config)  ->
     ?error_option(set_cfg_value([plmn_id], {<<"abc">>, <<"ab">>}, ?GGSN_CONFIG)),
     ?error_option(set_cfg_value([sockets], undefined, ?GGSN_CONFIG)),
 
+    ?ok_option(set_cfg_value([teid], {2, 4}, ?GGSN_CONFIG)),
+    ?error_option(set_cfg_value([teid], 1, ?GGSN_CONFIG)),
+    ?error_option(set_cfg_value([teid], {8, 2}, ?GGSN_CONFIG)),
+    ?error_option(set_cfg_value([teid], {atom, 8}, ?GGSN_CONFIG)),
+
     %% pass-through of unexpected options
     ?ok_option(set_cfg_value([invalid], [], ?GGSN_CONFIG)),
 

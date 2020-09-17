@@ -98,8 +98,8 @@ s11(IP, modify_bearer, RemoteCntlTEI, DpTEI) ->
 
 s11(IP, initial_attachment, APN, IMEI, IMSI, MSISDN, PdnType) ->
     CntlPort = #gtp_port{ip = LocalIP} = gtp_socket_reg:lookup('gtp-c'),
-    {ok, CpTEI} = gtp_context_reg:alloc_tei(CntlPort),
-    {ok, DpTEI} = gtp_context_reg:alloc_tei(CntlPort),
+    {ok, CpTEI} = ergw_tei_mngr:alloc_tei(CntlPort),
+    {ok, DpTEI} = ergw_tei_mngr:alloc_tei(CntlPort),
     Peer = parse_ip(IP),
     SeqNo = 1,
 
