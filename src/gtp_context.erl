@@ -316,7 +316,7 @@ init([CntlPort, Version, Interface,
     ?LOG(debug, "init(~p)", [[CntlPort, Interface]]),
     process_flag(trap_exit, true),
 
-    {ok, CntlTEI} = gtp_context_reg:alloc_tei(CntlPort),
+    {ok, CntlTEI} = ergw_tei_mngr:alloc_tei(CntlPort),
 
     Context = #context{
 		 charging_identifier = ergw_gtp_c_socket:get_uniq_id(CntlPort),

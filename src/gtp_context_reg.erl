@@ -18,7 +18,6 @@
 	 match_key/2, match_keys/2,
 	 await_unreg/1]).
 -export([all/0]).
--export([alloc_tei/1]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
@@ -30,8 +29,6 @@
 
 -define(SERVER, ?MODULE).
 -record(state, {pids, await_unreg}).
-
--define(MAX_TRIES, 32).
 
 %%%===================================================================
 %%% API
@@ -86,16 +83,6 @@ all() ->
 await_unreg(Key) ->
     gen_server:call(?SERVER, {await_unreg, Key}, 1000).
 
-%% alloc_tei/1
-alloc_tei(#gtp_port{name = Name} = Port) ->
-    alloc_tei(Name, gtp_context:port_teid_key(Port, _));
-alloc_tei(#pfcp_ctx{name = Name} = PCtx) ->
-    alloc_tei(Name, ergw_pfcp:ctx_teid_key(PCtx, _)).
-
-alloc_tei(Name, KeyFun)
-  when is_function(KeyFun, 1) ->
-    gen_server:call(?SERVER, {alloc_tei, Name, KeyFun}).
-
 %%%===================================================================
 %%% regine callbacks
 %%%===================================================================
@@ -135,13 +122,7 @@ handle_call({await_unreg, Pid}, From, #state{pids = Pids, await_unreg = AWait} =
 	    {noreply, State};
 	_ ->
 	    {reply, ok, State0}
-    end;
-
-handle_call({alloc_tei, Name, KeyFun}, _From, State) ->
-    RndStateKey = {Name, tei},
-    RndState = maybe_init_rnd(ets:lookup(?SERVER, RndStateKey)),
-    Reply = alloc_tei(RndStateKey, RndState, KeyFun, ?MAX_TRIES),
-    {reply, Reply, State}.
+    end.
 
 handle_cast(_Msg, State) ->
     {noreply, State}.
@@ -204,25 +185,4 @@ delete_key(Key, Pid) ->
 	    ets:take(?SERVER, Key);
 	Other ->
 	    Other
-    end.
-
-%%====================================================================
-%% TEI registry
-%%====================================================================
-
-maybe_init_rnd([]) ->
-    rand:seed_s(exrop);
-maybe_init_rnd([{_, RndState}]) ->
-    RndState.
-
-alloc_tei(_RndStateKey, _RndState, _KeyFun, 0) ->
-    {error, no_tei};
-alloc_tei(RndStateKey, RndState0, KeyFun, Cnt) ->
-    {TEI, RndState} = rand:uniform_s(16#fffffffe, RndState0),
-    case lookup(KeyFun(TEI)) of
-	undefined ->
-	    true = ets:insert(?SERVER, {RndStateKey, RndState}),
-	    {ok, TEI};
-	_ ->
-	    alloc_tei(RndStateKey, RndState, KeyFun, Cnt - 1)
     end.

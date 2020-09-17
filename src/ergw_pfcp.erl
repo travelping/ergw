@@ -107,7 +107,7 @@ assign_data_teid(PCtx, {VRFs, _} = _NodeCaps,
 	get_port_vrf(ControlPort, VRFs),
 
     IP = ergw_gsn_lib:choose_context_ip(IP4, IP6, Context),
-    {ok, DataTEI} = gtp_context_reg:alloc_tei(PCtx),
+    {ok, DataTEI} = ergw_tei_mngr:alloc_tei(PCtx),
     Context#context{
       local_data_endp = #gtp_endp{vrf = Name, ip = ergw_inet:bin2ip(IP), teid = DataTEI}
      }.

@@ -524,7 +524,7 @@ handle_sgsn_change(#context{remote_control_teid = NewFqTEID},
 		  #context{remote_control_teid = OldFqTEID},
 		  #context{control_port = CntlPort} = ProxyContext0)
   when OldFqTEID /= NewFqTEID ->
-    {ok, CntlTEI} = gtp_context_reg:alloc_tei(CntlPort),
+    {ok, CntlTEI} = ergw_tei_mngr:alloc_tei(CntlPort),
     ProxyContext = ProxyContext0#context{local_control_tei = CntlTEI},
     gtp_context:remote_context_update(ProxyContext0, ProxyContext),
     ProxyContext;
@@ -544,7 +544,7 @@ init_proxy_context(CntlPort,
 			    control_interface = Interface, state = CState},
 		   #{imsi := IMSI, msisdn := MSISDN, apn := DstAPN}, {_GwNode, GGSN}) ->
     {APN, _OI} = ergw_node_selection:split_apn(DstAPN),
-    {ok, CntlTEI} = gtp_context_reg:alloc_tei(CntlPort),
+    {ok, CntlTEI} = ergw_tei_mngr:alloc_tei(CntlPort),
     #context{
        apn               = APN,
        imsi              = IMSI,

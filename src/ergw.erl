@@ -79,7 +79,8 @@ load_config([{Key, Value} | T])
        Key =:= ip_pools;
        Key =:= apns;
        Key =:= charging;
-       Key =:= proxy_map ->
+       Key =:= proxy_map;
+       Key =:= teid ->
     ok = application:set_env(ergw, Key, Value),
     load_config(T);
 load_config([_ | T]) ->
