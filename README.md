@@ -1,14 +1,27 @@
-erGW - 3GPP GGSN and PDN-GW in Erlang
-=====================================
+# erGW - 3GPP GGSN and PDN-GW in Erlang
 [![Build Status][travis badge]][travis]
 [![Coverage Status][coveralls badge]][coveralls]
 [![Erlang Versions][erlang version badge]][travis]
 
 This is a 3GPP GGSN and PDN-GW implemented in Erlang. It strives to eventually support all the functionality as defined by [3GPP TS 23.002](http://www.3gpp.org/dynareport/23002.htm) Section 4.1.3.1 for the GGSN and Section 4.1.4.2.2 for the PDN-GW.
 
-IMPLEMENTED FEATURES
---------------------
+# CONTENTS
+* [IMPLEMENTED FEATURES](#implemented-features)
+* [EXPERIMENTAL FEATURES](#experimental-features)
+* [USER PLANE](#user-plane)
+* [DIAMETER and RADIUS over Gi/SGi](#diameter-and-radius-over-gisgi)
+* [POLICY CONTROL](#policy-control)
+* [ONLINE/OFFLINE CHARING](#onlineoffline-charing)
+* [MISSING FEATURES](#missing-features)
+* [ERLANG Version Support](#erlang-version-support)
+* [DOCKER IMAGES](#docker-images)
+   * [BUILDING DOCKER IMAGE](#building-docker-image)
+* [BUILDING & RUNNING](#building--running)
+   * [REQUIRED](#required)
+   * [CONFIGURATION](#configuration)
+   * [COMPILE & RUN](#compile--run)
 
+# IMPLEMENTED FEATURES
 Messages:
 
  * GTPv1 Create/Update/Delete PDP Context Request on Gn
@@ -23,9 +36,7 @@ From the above the following procedures as defined by 3GPP T 23.060 should work:
    * Sect. 5.4.2.2, HSS Initiated Subscribed QoS Modification (without PCRF)
    * Annex D, Interoperation with Gn/Gp SGSNs procedures (see [CONFIG.md](CONFIG.md))
 
-EXPERIMENTAL FEATURES
----------------------
-
+# EXPERIMENTAL FEATURES
 Experimental features may change or be removed at any moment. Configuration settings
 for them are not guaranteed to work across versions. Check [CONFIG.md](CONFIG.md) and
 [NEWS.md](NEWS.md) on version upgrades.
@@ -33,16 +44,12 @@ for them are not guaranteed to work across versions. Check [CONFIG.md](CONFIG.md
  * rate limiting, defaults to 100 requests/second
  * metrics, see [METRICS.md](METRICS.md)
 
-USER PLANE
-----------
-
+# USER PLANE
 *erGW* uses the 3GPP control and user plane separation (CUPS) of EPC nodes
 architecture as layed out in [3GPP TS 23.214](http://www.3gpp.org/dynareport/23244.htm)
 and [3GPP TS 29.244](http://www.3gpp.org/dynareport/29244.htm).
 
-DIAMETER and RADIUS over Gi/SGi
--------------------------------
-
+# DIAMETER and RADIUS over Gi/SGi
 The SAE-GW, PGW and GGSN interfaces supports DIAMETER and RADIUS over the Gi/SGi interface
 as specified by 3GPP TS 29.061 Section 16.
 This support is experimental in this version and not all aspects are functional. For RADIUS
@@ -53,16 +60,12 @@ See [RADIUS.md](RADIUS.md) for a list of supported Attrbiutes.
 
 Many thanks to [On Waves](https://www.on-waves.com/) for sponsoring the RADIUS Authentication implementation.
 
-POLICY CONTROL
---------------
-
+# POLICY CONTROL
 DIAMETER is Gx is supported as experimental feature. Only Credit-Control-Request/Answer
 (CCR/CCA) and Abort-Session-Request/Answer (ASR/ASA) procedures are supported.
 Re-Auth-Request/Re-Auth-Answer (RAR/RAA) procedures are not supported.
 
-ONLINE/OFFLINE CHARING
-----------------------
-
+# ONLINE/OFFLINE CHARING
 Online charging through Gy is in beta quality with the following known caveats:
 
  * When multiple rating groups are in use, CCR Update requests will contain unit
@@ -75,9 +78,7 @@ charging is not supported).
 
 Like on Gx only CCR/CCR and ASR/ASA procredures are supported.
 
-MISSING FEATURES
-----------------
-
+# MISSING FEATURES
 The following procedures are assumed/known to be *NOT* working:
 
  * Secondary PDP Context Activation Procedure
@@ -87,9 +88,7 @@ Other shortcomings:
 
  * QoS parameters are hard-coded
 
-ERLANG Version Support
-----------------------
-
+# ERLANG Version Support
 All minor version of the current major release and the highest minor version of
 the previous major release will be supported.
 Due to a bug in OTP 22.x, the `netdev` configuration option of *erGW* is broken
@@ -99,42 +98,41 @@ must use OTP 23.x.
 When in doubt check the `otp_release` section in [.travis.yml](.travis.yml) for tested
 versions.
 
-DOCKER IMAGES
--------------
-
+# DOCKER IMAGES
 Docker images are build by travis-ci and pushed to [hub.docker.com](https://hub.docker.com/r/ergw/ergw-c-node/tags),
 and by gitlab.com and pushed to [quay.io](https://quay.io/repository/travelping/ergw-c-node?tab=tags).
 
-BUILDING
---------
+## BUILDING DOCKER IMAGE
+**erGW** Docker image can be get from [quay.io](https://quay.io/repository/travelping/ergw-c-node?tab=tags). For create a new image based on `ergw-c-node` from `quay.io` need run second command:
 
-*The minimum supported Erlang version is 22.3.4.*
+```sh
+$ docker run -t -i --rm quay.io/travelping/ergw-c-node:2.4.2 -- /bin/sh
+/ # cd opt
+/opt # ls
+ergw-c-node
+```
 
-Erlang 23.0.3 is the recommended version.
-
-Using rebar:
-
-    # rebar3 compile
-
-RUNNING
--------
-
+# BUILDING & RUNNING
+## REQUIRED
+* The minimum supported Erlang version is **22.3.4** (*Erlang 23.0.3 is the recommended version.*).
+* [Rebar3](https://www.rebar3.org/)
 An *erGW* installation needs a user plane provider to handle the GTP-U path. This
 instance can be installed on the same or different host.
 
 A suitable user plane node based on [VPP](https://wiki.fd.io/view/VPP) can be found at [VPP-UFP](https://github.com/travelping/vpp/).
 
-*erGW* can be started with the normal Erlang command line tools, e.g.:
+## CONFIGURATION
+**erGW** can be started with [rebar3](https://s3.amazonaws.com/rebar3/rebar3) command line tools, and build with run can looks like:
 
+```sh
+$ git clone https://github.com/travelping/ergw.git
+$ cd ergw
+$ wget https://s3.amazonaws.com/rebar3/rebar3
+$ chmod u+x ./rebar3
+$ touch ergw.config
 ```
-erl -setcookie secret -sname ergw -config ergw.config
-Erlang/OTP 19 [erts-11.0.1] [source] [64-bit] [async-threads:10] [kernel-poll:false]
 
-Eshell V11.0.1  (abort with ^G)
-(ergw@localhost)1> application:ensure_all_started(ergw).
-```
-
-This requires a suitable ergw.config, e.g.:
+Then fill just created **ergw.config** file with content like described below providing a suitable configuration, e.g.:
 
 ```erlang
 %-*-Erlang-*-
@@ -315,6 +313,19 @@ This requires a suitable ergw.config, e.g.:
           ]}
         ]}
 ].
+```
+## COMPILE & RUN
+```sh
+$ ./rebar3 compile
+$ sudo ./rebar3 shell --setcookie secret --sname ergw --config ergw.config --apps ergw
+===> Verifying dependencies...
+CONFIG: enabling persistent_term support
+===> Analyzing applications...
+===> Compiling ergw
+Erlang/OTP 23 [erts-11.0.3] [source] [64-bit] [smp:8:8] [ds:8:8:10] [async-threads:1] [hipe]
+
+Eshell V11.0.3  (abort with ^G)
+(ergw@localhost)1> application:info().
 ```
 
 The configuration is documented in [CONFIG.md](CONFIG.md)
