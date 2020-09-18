@@ -11,3 +11,7 @@ rel/example_project
 tetrapak/.local.cache
 *~
 _build
+rebar3
+ergw.config
+data.ergw*
+log.ergw*
