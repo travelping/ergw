@@ -248,7 +248,7 @@ lookup_host(Name, dns, NameServers) ->
 			      setelement(2, R, [inet_dns:rr(RR, data) | element(2, R)]);
 			  {in, aaaa} ->
 			      setelement(3, R, [inet_dns:rr(RR, data) | element(3, R)]);
-			  Other ->
+			  _ ->
 			      R
 		      end
 	      end, {Name, [], []}, inet_dns:msg(Msg, anlist));

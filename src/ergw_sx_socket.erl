@@ -637,7 +637,7 @@ message_counter(Direction, #state{name = Name}, #send_req{address = IP, msg = Ms
 %% message_counter/4
 message_counter(Direction, #state{name = Name}, #sx_request{ip = IP}, #pfcp{} = Msg) ->
     ergw_prometheus:pfcp(Direction, Name, IP, Msg);
-message_counter(Direction, #state{name = Name}, #send_req{address = IP, msg = Msg}, Verdict)
+message_counter(Direction, #state{name = Name}, #send_req{address = IP}, Verdict)
   when is_atom(Verdict) ->
     ergw_prometheus:pfcp(Direction, Name, IP, Verdict).
 

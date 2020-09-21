@@ -259,7 +259,7 @@ handle_event({call, From}, {?TestCmdTag, reconnect}, dead, Data) ->
     {next_state, connecting, Data#data{retries = 0}, [{reply, From, ok}]};
 handle_event({call, From}, {?TestCmdTag, reconnect}, connecting, _) ->
     {keep_state_and_data, [{reply, From, ok}]};
-handle_event({call, From}, {?TestCmdTag, reconnect}, {connected, _} = State, Data) ->
+handle_event({call, From}, {?TestCmdTag, reconnect}, {connected, _}, Data) ->
     {next_state, dead, handle_nodedown(Data#data{retries = 0}), [{reply, From, ok}]};
 handle_event({call, From}, {?TestCmdTag, wait4nodeup}, {connected, _}, _) ->
     {keep_state_and_data, [{reply, From, ok}]};
