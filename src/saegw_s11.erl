@@ -263,7 +263,7 @@ handle_event({timeout, context_idle}, stop_session, _state, Data) ->
 
 handle_event(internal, {session, stop, _Session}, run, Data) ->
     delete_context(undefined, normal, Data);
-handle_event(internal, {session, stop, _Session}, _, Data) ->
+handle_event(internal, {session, stop, _Session}, _, _) ->
     keep_state_and_data;
 
 handle_event(internal, {session, {update_credits, _} = CreditEv, _}, _State,
