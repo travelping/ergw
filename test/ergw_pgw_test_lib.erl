@@ -712,7 +712,7 @@ make_response(#gtp{type = update_bearer_request, seq_no = SeqNo},
 make_response(#gtp{type = delete_bearer_request, seq_no = SeqNo},
 	      invalid_teid,
 	      #gtpc{restart_counter = RCnt,
-		    remote_control_tei = RemoteCntlTEI}) ->
+		    remote_control_tei = _}) ->
     IEs = [#v2_recovery{restart_counter = RCnt},
 	   #v2_cause{v2_cause = context_not_found}],
     #gtp{version = v2, type = delete_bearer_response,

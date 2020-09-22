@@ -795,7 +795,7 @@ init_per_testcase(update_bearer_request, Config) ->
 			     meck:passthrough([Type, Content, State, Data])
 		     end),
     ok = meck:expect(pgw_s5s8, handle_response,
-		     fun(From, #gtp{type = update_bearer_response}, _Request, _State, Data) ->
+		     fun(From, #gtp{type = update_bearer_response}, _, _, _) ->
 			     gen_statem:reply(From, ok),
 			     keep_state_and_data;
 			(From, Response, Request, State, Data) ->
@@ -1222,7 +1222,7 @@ simple_session(Config) ->
 				      periodic_reporting = 1}
 			      }}, Acc) ->
 		Acc#{{urr, id} => Id};
-	    SERFilter(Value, Acc) ->
+	    SERFilter(_, Acc) ->
 		Acc
 	end(maps:values(SER#pfcp.ie), #{}),
     ct:pal("SER Map:~n~s", [pfcp_packet:pretty_print(SERMap)]),
@@ -1313,7 +1313,7 @@ simple_session(Config) ->
 			} = FAR,
 		      Acc) ->
 		Acc#{{far, id, Intf} => Id, {far, Intf} => FAR};
-	    SMRFilter(Value, Acc) ->
+	    SMRFilter(_, Acc) ->
 		Acc
 	end(maps:values(SMR#pfcp.ie), #{}),
     ct:pal("SMR Map:~n~s", [pfcp_packet:pretty_print(SMRMap)]),
@@ -2537,8 +2537,8 @@ proxy_context_selection_map(ProxyInfo, Context) ->
 reset_path_metrics() ->
     Name = gtp_path_contexts_total,
     Metrics = prometheus_gauge:values(default, Name),
-    R = [prometheus_gauge:remove(Name, [V || {L,V} <- LabelValues])
-	 || {LabelValues, Value} <- Metrics],
+    _ = [prometheus_gauge:remove(Name, [V || {_,V} <- LabelValues])
+	 || {LabelValues, _} <- Metrics],
     ok.
 
 check_contexts_metric(Version, Cnt, Expect) ->

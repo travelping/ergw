@@ -163,7 +163,7 @@ handle_call({send, Msg}, _From,
     ok = gen_udp:send(GtpSocket, IP, ?GTP1u_PORT, BinMsg),
     {reply, ok, State};
 
-handle_call({usage_report, #pfcp_ctx{seid = #seid{cp = SEID}, urr_by_id = Rules} = PCtx,
+handle_call({usage_report, #pfcp_ctx{seid = #seid{cp = SEID}, urr_by_id = Rules},
 	     MatchSpec, Report}, _From, State0) ->
     Ids = ets:match_spec_run(maps:to_list(Rules), ets:match_spec_compile(MatchSpec)),
     URRs =
@@ -180,7 +180,7 @@ handle_call({usage_report, #pfcp_ctx{seid = #seid{cp = SEID}, urr_by_id = Rules}
 %% only one mandatory 'Report Type' IE is present in this scenario
 handle_call({up_inactivity_timer_expiry,
 	     #pfcp_ctx{seid = #seid{cp = SEID},
-		       up_inactivity_timer = _UP_Inactivity_Timer} = PCtx},
+		       up_inactivity_timer = _UP_Inactivity_Timer}},
 	    _From, State0) ->
     %% Ignore the up inactivity timer, fire an 'upir' session report request
     IE = [#report_type{upir = 1}],
@@ -217,7 +217,7 @@ handle_info({udp, SxSocket, IP, InPortNo, Packet},
 	    ct:fail("Sx Socket Error"),
 	    {stop, error, State0}
     end;
-handle_info({udp, GtpSocket, IP, InPortNo, Packet} = Msg,
+handle_info({udp, GtpSocket, _, _, _} = Msg,
 	    #state{gtp = GtpSocket} = State) ->
     {noreply, record(Msg, State)}.
 
@@ -279,8 +279,6 @@ user_plane_ip_resource_information(VRF, #state{up_ip = IP})
        ipv6 = ergw_inet:ip2bin(?LOCALHOST_IPv6)
       }.
 
-sx_reply(Type, State) ->
-    sx_reply(Type, undefined, [], State).
 sx_reply(Type, IEs, State) ->
     sx_reply(Type, undefined, IEs, State).
 sx_reply(Type, SEID, IEs, State) ->
