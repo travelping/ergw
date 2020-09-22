@@ -437,10 +437,6 @@ init_per_testcase(_, Config) ->
 
 end_per_testcase(Config) ->
     stop_gtpc_server(),
-
-    FreeP = [pool, <<"pool-A">>, ipv4, {10,180,0,1}, free],
-    %% match_metric(FreeP, 1376254),
-
     AppsCfg = proplists:get_value(aaa_cfg, Config),
     ok = application:set_env(ergw_aaa, apps, AppsCfg),
     ok.
@@ -519,9 +515,6 @@ contexts_at_scale(Config) ->
 
     wait4tunnels(?TIMEOUT),
     ct:sleep({seconds, 30}),
-
-    FreeP = [pool, <<"pool-A">>, ipv4, {10,180,0,1}, free],
-    %% match_metric(FreeP, 1376254),
 
     ok.
 

@@ -376,7 +376,7 @@ make_response(#gtp{type = update_pdp_context_request, seq_no = SeqNo},
 
 make_response(#gtp{type = delete_pdp_context_request, seq_no = SeqNo},
 	      invalid_teid,
-	      #gtpc{remote_control_tei = RemoteCntlTEI}) ->
+	      #gtpc{remote_control_tei = _}) ->
     IEs = [#cause{value = context_not_found}],
     #gtp{version = v1, type = delete_pdp_context_response,
 	 tei = 0, seq_no = SeqNo, ie = IEs};

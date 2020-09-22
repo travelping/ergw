@@ -704,7 +704,7 @@ create_session_request_pool_exhausted(Config) ->
 		     end),
 
     ok = meck:expect(ergw_local_pool, send_pool_request,
-		     fun(_ClientId, {_, ipv6, _, _} = Req) ->
+		     fun(_ClientId, {_, ipv6, _, _}) ->
 			     {error, empty};
 			(ClientId, Req) ->
 			     meck:passthrough([ClientId, Req])
@@ -712,7 +712,7 @@ create_session_request_pool_exhausted(Config) ->
     create_session(pool_exhausted, Config),
 
     ok = meck:expect(ergw_local_pool, send_pool_request,
-		     fun(_ClientId, {_, ipv4, _, _} = Req) ->
+		     fun(_ClientId, {_, ipv4, _, _}) ->
 			     {error, empty};
 			(ClientId, Req) ->
 			     meck:passthrough([ClientId, Req])
