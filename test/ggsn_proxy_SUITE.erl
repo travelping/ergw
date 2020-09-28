@@ -584,6 +584,7 @@ common() ->
      create_pdp_context_request_missing_ie,
      create_pdp_context_request_accept_new,
      path_restart, path_restart_recovery,
+     ggsn_broken_recovery,
      path_failure_to_ggsn,
      path_failure_to_ggsn_and_restore,
      path_failure_to_sgsn,
@@ -601,6 +602,7 @@ common() ->
      update_pdp_context_request_ra_update,
      update_pdp_context_request_tei_update,
      ggsn_update_pdp_context_request,
+     update_pdp_context_request_broken_recovery,
      ms_info_change_notification_request_with_tei,
      ms_info_change_notification_request_without_tei,
      ms_info_change_notification_request_invalid_imsi,
@@ -655,7 +657,9 @@ setup_per_testcase(Config, ClearSxHist) ->
     ClearSxHist andalso ergw_test_sx_up:history('pgw-u01', true),
     ok.
 
-init_per_testcase(path_restart, Config) ->
+init_per_testcase(TestCase, Config)
+  when TestCase == path_restart;
+       TestCase == ggsn_broken_recovery ->
     setup_per_testcase(Config),
     ok = meck:new(gtp_path, [passthrough, no_link]),
     Config;
@@ -740,6 +744,10 @@ init_per_testcase(ggsn_update_pdp_context_request, Config) ->
 			     meck:passthrough([From, Response, Request, State, Data])
 		     end),
     Config;
+init_per_testcase(update_pdp_context_request_broken_recovery, Config) ->
+    setup_per_testcase(Config),
+    ok = meck:new(gtp_context, [passthrough, no_link]),
+    Config;
 init_per_testcase(create_pdp_context_overload, Config) ->
     setup_per_testcase(Config),
     jobs:modify_queue(create, [{max_size, 0}]),
@@ -760,7 +768,9 @@ init_per_testcase(_, Config) ->
 end_per_testcase(_Config) ->
     stop_gtpc_server().
 
-end_per_testcase(path_restart, Config) ->
+end_per_testcase(TestCase, Config)
+  when TestCase == path_restart;
+       TestCase == ggsn_broken_recovery ->
     meck:unload(gtp_path),
     end_per_testcase(Config),
     Config;
@@ -798,6 +808,10 @@ end_per_testcase(simple_pdp_context_request, Config) ->
     Config;
 end_per_testcase(ggsn_update_pdp_context_request, Config) ->
     meck:unload(ggsn_gn),
+    end_per_testcase(Config),
+    Config;
+end_per_testcase(update_pdp_context_request_broken_recovery, Config) ->
+    meck:unload(gtp_context),
     end_per_testcase(Config),
     Config;
 end_per_testcase(create_pdp_context_overload, Config) ->
@@ -876,6 +890,42 @@ path_restart_recovery(Config) ->
     [?match(#{tunnels := 1}, X) || X <- ergw_api:peer(all)],
 
     delete_pdp_context(GtpC2),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    wait4tunnels(?TIMEOUT),
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+ggsn_broken_recovery() ->
+    [{doc, "Check that Create PDP Context Request works and "
+           "that a GGSN Restart terminates the session"}].
+ggsn_broken_recovery(Config) ->
+    {GtpC, _, _} = create_pdp_context(Config),
+
+    {_Handler, CtxPid} = gtp_context_reg:lookup({'irx', {imsi, ?'IMSI', 5}}),
+    #{proxy_context := Ctx1} = gtp_context:info(CtxPid),
+    #context{control_port = CPort} = Ctx1,
+
+    FinalGSN = proplists:get_value(final_gsn, Config),
+    ok = meck:expect(ergw_gtp_c_socket, send_request,
+		     fun (_, IP, _, _, _, #gtp{type = echo_request} = Req, CbInfo)
+			   when IP =:= FinalGSN ->
+			     IEs = #{{recovery,0} => #recovery{restart_counter = 0}},
+			     Resp = Req#gtp{type = echo_response, ie = IEs},
+			     ct:pal("Req: ~p~nResp: ~p~n", [Req, Resp]),
+			     ergw_gtp_c_socket:send_reply(CbInfo, Resp);
+			 (GtpPort, IP, Port, T3, N3, Msg, CbInfo) ->
+			     meck:passthrough([GtpPort, IP, Port, T3, N3, Msg, CbInfo])
+		     end),
+
+    %% send a ping from GGSN, should trigger a race warning
+    ok = gtp_path:ping(CPort, v1, FinalGSN),
+
+    ct:sleep(1000),
+    [?match(#{tunnels := 1}, X) || X <- ergw_api:peer(all)],
+
+    delete_pdp_context(GtpC),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     wait4tunnels(?TIMEOUT),
@@ -1441,6 +1491,50 @@ update_pdp_context_request_tei_update(Config) ->
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
     ok.
+
+%%--------------------------------------------------------------------
+update_pdp_context_request_broken_recovery() ->
+    [{doc, "Check Update PDP Context where the response includes an invalid recovery"}].
+update_pdp_context_request_broken_recovery(Config) ->
+    ok = meck:expect(gtp_context, send_response,
+		     fun(ReqKey, Request, {update_pdp_context_response, TEID, IEs0})->
+			     IEs = [#recovery{restart_counter = 0},
+				     #protocol_configuration_options{
+					config = {0,
+						  [{13,<<"\b\b\b\b">>},
+						   {13,<<8,8,4,4>>},
+						   {17,<<>>},
+						   {16,<<5,80>>}]}},
+				    #aggregate_maximum_bit_rate{
+				       uplink = 8640, downlink = 8640}
+				    | IEs0],
+			     Response = {update_pdp_context_response, TEID, IEs},
+			     meck:passthrough([ReqKey, Request, Response]);
+			(ReqKey, Request, Response)->
+			     meck:passthrough([ReqKey, Request, Response])
+		     end),
+    {GtpC1, _, _} = create_pdp_context(Config),
+    {_Handler, CtxPid} = gtp_context_reg:lookup({'remote-irx', {imsi, ?'PROXY-IMSI', 5}}),
+    #{context := Ctx1} = gtp_context:info(CtxPid),
+
+    {GtpC2, _, _} = update_pdp_context(simple, GtpC1),
+    #{context := Ctx2} = gtp_context:info(CtxPid),
+
+    ?equal([], outstanding_requests()),
+    delete_pdp_context(GtpC2),
+
+    %% make sure the SGSN side TEID don't change
+    ?equal(GtpC1#gtpc.remote_control_tei, GtpC2#gtpc.remote_control_tei),
+    ?equal(GtpC1#gtpc.remote_data_tei,    GtpC2#gtpc.remote_data_tei),
+
+    %% make sure the GGSN side control TEID don't change
+    ?equal(Ctx1#context.remote_control_teid, Ctx2#context.remote_control_teid),
+    ?equal(Ctx1#context.remote_data_teid,    Ctx2#context.remote_data_teid),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    meck_validate(Config),
+    ok.
+
 
 %%--------------------------------------------------------------------
 ms_info_change_notification_request_with_tei() ->
