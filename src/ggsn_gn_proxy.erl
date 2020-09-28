@@ -160,9 +160,9 @@ init(#{proxy_sockets := ProxyPorts, node_selection := NodeSelect,
 handle_event(enter, _OldState, _State, _Data) ->
     keep_state_and_data;
 
-handle_event({call, From}, delete_context, _State, _Data) ->
-    ?LOG(warning, "delete_context no handled(yet)"),
-    {keep_state_and_data, [{reply, From, ok}]};
+handle_event({call, From}, delete_context, _State, Data) ->
+    delete_context(administrative, Data),
+    {next_state, shutdown, Data, [{reply, From, ok}]};
 
 handle_event({call, From}, terminate_context, _State, Data) ->
     initiate_pdp_context_teardown(sgsn2ggsn, Data),
@@ -184,9 +184,9 @@ handle_event({call, From}, {path_restart, Path}, _State,
 handle_event({call, From}, {path_restart, _Path}, _State, _Data) ->
     {keep_state_and_data, [{reply, From, ok}]};
 
-handle_event(cast, delete_context, _State, _Data) ->
-    ?LOG(warning, "delete_context no handled(yet)"),
-    keep_state_and_data;
+handle_event(cast, delete_context, _State, Data) ->
+    delete_context(administrative, Data),
+    {next_state, shutdown, Data};
 
 handle_event(cast, {packet_in, _GtpPort, _IP, _Port, _Msg}, _State, _Data) ->
     ?LOG(warning, "packet_in not handled (yet): ~p", [_Msg]),
@@ -202,9 +202,7 @@ handle_event(info, {timeout, _, {delete_pdp_context_request, Direction, _ReqKey,
 handle_event(info, {'DOWN', _MonitorRef, Type, Pid, _Info}, _State,
 	     #{pfcp := #pfcp_ctx{node = Pid}} = Data)
   when Type == process; Type == pfcp ->
-    initiate_pdp_context_teardown(sgsn2ggsn, Data),
-    initiate_pdp_context_teardown(ggsn2sgsn, Data),
-    delete_forward_session(upf_failure, Data),
+    delete_context(upf_failure, Data),
     {next_state, shutdown, Data};
 
 handle_event(info, _Info, _State, _Data) ->
@@ -731,3 +729,8 @@ cancel_timeout(Data) ->
 restart_timeout(Timeout, Msg, Data) ->
     cancel_timeout(Data),
     Data#{timeout => erlang:start_timer(Timeout, self(), Msg)}.
+
+delete_context(Reason, Data) ->
+    initiate_pdp_context_teardown(sgsn2ggsn, Data),
+    initiate_pdp_context_teardown(ggsn2sgsn, Data),
+    delete_forward_session(Reason, Data).

@@ -621,7 +621,8 @@ common() ->
      session_accounting,
      sx_upf_reconnect,
      sx_upf_removal,
-     sx_timeout
+     sx_timeout,
+     delete_bearer_requests_multi
     ].
 
 common_groups() ->
@@ -761,6 +762,9 @@ init_per_testcase(cache_timeout, Config) ->
 	_ ->
 	    {skip, "slow tests run only on CI"}
     end;
+init_per_testcase(delete_bearer_requests_multi, Config) ->
+    setup_per_testcase(Config),
+    Config;
 init_per_testcase(_, Config) ->
     setup_per_testcase(Config),
     Config.
@@ -817,6 +821,10 @@ end_per_testcase(update_pdp_context_request_broken_recovery, Config) ->
 end_per_testcase(create_pdp_context_overload, Config) ->
     jobs:modify_queue(create, [{max_size, 10}]),
     jobs:modify_regulator(rate, create, {rate,create,1}, [{limit,100}]),
+    end_per_testcase(Config),
+    Config;
+end_per_testcase(delete_bearer_requests_multi, Config) ->
+    ok = meck:delete(ergw_gtp_c_socket, send_request, 7),
     end_per_testcase(Config),
     Config;
 end_per_testcase(_, Config) ->
@@ -2052,6 +2060,45 @@ sx_timeout(Config) ->
 
     ok = meck:delete(ergw_sx_socket, call, 5),
     ok = meck:delete(ergw_proxy_lib, create_forward_session, 3),
+    ok.
+
+%%--------------------------------------------------------------------
+delete_bearer_requests_multi() ->
+    [{doc, "Check ergw_api deletes multiple contexts"}].
+delete_bearer_requests_multi(Config) ->
+    Cntl = whereis(gtpc_client_server),
+
+    {GtpC0, _, _} = create_pdp_context(Config),
+    {GtpC1, _, _} = create_pdp_context(random, GtpC0),
+
+    Ref = make_ref(),
+    Self = self(),
+    spawn(fun() -> Self ! {req, Ref, ergw_api:delete_contexts(3)} end),
+
+    Request0 = recv_pdu(Cntl, 5000),
+    ?match(#gtp{type = delete_pdp_context_request}, Request0),
+    Response0 = make_response(Request0, simple, GtpC0),
+    send_pdu(Cntl, GtpC0, Response0),
+
+    Request1 = recv_pdu(Cntl, 5000),
+    ?match(#gtp{type = delete_pdp_context_request}, Request1),
+    Response1 = make_response(Request1, simple, GtpC1),
+    send_pdu(Cntl, GtpC1, Response1),
+
+    receive
+	{req, Ref, ok} ->
+	    ok;
+	{req, Ref, Other} ->
+	    ct:fail({receive_other, Other})
+    after ?TIMEOUT ->
+	    ct:fail(timeout)
+    end,
+
+    wait4tunnels(?TIMEOUT),
+    ?equal([], outstanding_requests()),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    meck_validate(Config),
     ok.
 
 %%%===================================================================
