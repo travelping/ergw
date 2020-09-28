@@ -323,7 +323,7 @@ modify_forward_session(#context{version = OldVersion} = OldLeft,
     end.
 
 
-delete_forward_session(normal, Left, _Right, PCtx) ->
+delete_forward_session(Reason, Left, _Right, PCtx) when Reason =:= normal; Reason =:= administrative ->
     Req = #pfcp{version = v1, type = session_deletion_request, ie = []},
     case ergw_sx_node:call(PCtx, Req, Left) of
 	#pfcp{type = session_deletion_response,
