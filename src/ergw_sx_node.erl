@@ -471,9 +471,9 @@ handle_event({call, From},
     try
 	Handler:unsolicited_report(self(), VRF, IP4, IP6, Tdf)
     catch
-	Class:Error ->
+	Class:Error:ST ->
 	    ?LOG(error, "Unsolicited Report Handler '~p' failed with ~p:~p~n~p",
-			[Handler, Class, Error, erlang:get_stacktrace()])
+			[Handler, Class, Error, ST])
     end,
 
     {keep_state_and_data, [{reply, From, {ok, SEID}}]};
