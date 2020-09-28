@@ -889,6 +889,8 @@ resolve_and_enter_loop(Node, _, #data{node_select = NodeSelect} = Data) ->
 	    IP = select_node_ip(IP4, IP6),
 	    gen_statem:enter_loop(
 	      ?MODULE, [], connecting, Data#data{dp = #node{node = Node, ip = IP}});
+	{_, [], []} ->
+	    terminate(normal, Data);
 	{error, _} ->
 	    terminate(normal, Data),
 	    ok
