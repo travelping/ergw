@@ -10,7 +10,7 @@
 -compile([{parse_transform, cut}]).
 
 %% API
--export([peer/1, tunnel/1, contexts/1, delete_contexts/1, memory/1]).
+-export([peer/1, tunnel/1, contexts/1, delete_contexts/1, memory/1, delete_request/1]).
 
 %%%===================================================================
 %%% API
@@ -50,6 +50,8 @@ memory(Limit0) ->
     io:format("~s~n", [fmt_process_summary("ProcessSummary", LProcS)]),
     ok.
 
+delete_request(Pid) ->
+    exit(Pid, kill).
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
