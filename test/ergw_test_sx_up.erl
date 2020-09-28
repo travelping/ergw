@@ -212,8 +212,8 @@ handle_info({udp, SxSocket, IP, InPortNo, Packet},
 	end,
 	{noreply, State}
     catch
-	Class:Error ->
-	    ct:pal("Sx Socket Error: ~p:~p~n~p", [Class, Error, erlang:get_stacktrace()]),
+	Class:Error:ST ->
+	    ct:pal("Sx Socket Error: ~p:~p~n~p", [Class, Error, ST]),
 	    ct:fail("Sx Socket Error"),
 	    {stop, error, State0}
     end;
