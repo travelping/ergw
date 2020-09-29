@@ -10,7 +10,7 @@ language: erlang
 
 otp_release:
  - 22.3.4
- - 23.0.2
+ - 23.0.4
 
 install: "true"
 

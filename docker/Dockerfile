@@ -1,7 +1,7 @@
 # -- build-environment --
 # see https://docs.docker.com/engine/userguide/eng-image/multistage-build/
 
-FROM erlang:23.0.3-alpine AS build-env
+FROM erlang:23.1.0-alpine AS build-env
 
 WORKDIR /build
 RUN     apk update && apk --no-cache upgrade && \
@@ -24,7 +24,7 @@ RUN     rebar3 as prod release
 
 # -- runtime image --
 
-FROM alpine:3.11
+FROM alpine:3.12
 
 WORKDIR /
 RUN     apk update && \

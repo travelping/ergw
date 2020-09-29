@@ -22,12 +22,17 @@ before_script:
 
 build:otp-22.3:
   <<: *build_otp
-  image: erlang:22.3.4-alpine
+  image: erlang:22.3.4.10-alpine
 
 build:otp-23.0:
   <<: *build_otp
   allow_failure: true
-  image: erlang:23.0.3-alpine
+  image: erlang:23.0.4-alpine
+
+build:otp-23.1:
+  <<: *build_otp
+  allow_failure: true
+  image: erlang:23.1.0-alpine
 
 .check:otp: &check_otp
   stage: test
@@ -61,15 +66,21 @@ build:otp-23.0:
 
 check:otp-22.3:
   <<: *check_otp
-  image: erlang:22.3.4-alpine
+  image: erlang:22.3.4.10-alpine
   dependencies:
     - build:otp-22.3
 
 check:otp-23.0:
   <<: *check_otp
-  image: erlang:23.0.3-alpine
+  image: erlang:23.0.4-alpine
   dependencies:
     - build:otp-23.0
+
+check:otp-23.1:
+  <<: *check_otp
+  image: erlang:23.1.0-alpine
+  dependencies:
+    - build:otp-23.1
 
 docker:
   image: docker:git

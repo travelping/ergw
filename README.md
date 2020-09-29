@@ -324,4 +324,4 @@ The configuration is documented in [CONFIG.md](CONFIG.md)
 [travis badge]: https://img.shields.io/travis/com/travelping/ergw/master.svg?style=flat-square
 [coveralls]: https://coveralls.io/github/travelping/ergw
 [coveralls badge]: https://img.shields.io/coveralls/travelping/ergw/master.svg?style=flat-square
-[erlang version badge]: https://img.shields.io/badge/erlang-R22.3.4%20to%2023.0.2-blue.svg?style=flat-square
+[erlang version badge]: https://img.shields.io/badge/erlang-R22.3.4%20to%2023.1-blue.svg?style=flat-square
