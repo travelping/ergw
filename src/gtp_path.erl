@@ -226,8 +226,9 @@ init([#gtp_port{name = PortName} = GtpPort, Version, RemoteIP, Args]) ->
 handle_event(enter, #state{peer = Old}, #state{peer = Peer}, Data)
   when Old /= Peer ->
     peer_state_change(Old, Peer, Data),
-    State = peer_state(Peer),
-    {keep_state_and_data, enter_peer_state_action(State, Data)};
+    OldState = peer_state(Old),
+    NewState = peer_state(Peer),
+    {keep_state_and_data, enter_peer_state_action(OldState, NewState, Data)};
 
 handle_event(enter, #state{echo = Old}, #state{peer = Peer, echo = Echo}, Data)
   when Old /= Echo ->
@@ -370,7 +371,9 @@ peer_state_change(_, #peer{state = State}, #{reg_key := RegKey}) ->
 %%% Internal functions
 %%%===================================================================
 
-enter_peer_state_action(State, Data) ->
+enter_peer_state_action(State, State, _Data) ->
+    [];
+enter_peer_state_action(_, State, Data) ->
     [enter_state_timeout_action(State, Data),
      enter_state_echo_action(State, Data)].
 
