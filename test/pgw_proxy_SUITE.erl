@@ -611,6 +611,7 @@ common() ->
     [invalid_gtp_pdu,
      create_session_request_missing_ie,
      create_session_request_accept_new,
+     path_maint,
      path_restart, path_restart_recovery,
      path_failure_to_pgw,
      path_failure_to_pgw_and_restore,
@@ -741,6 +742,10 @@ init_per_testcase(TestCase, Config)
 			     meck:passthrough([GtpPort, DstIP, DstPort, T3, N3, Msg, CbInfo])
 		     end),
     Config;
+init_per_testcase(path_maint, Config) ->
+    set_path_timers(#{'echo' => 700}),
+    setup_per_testcase(Config),
+    Config;
 init_per_testcase(path_failure_to_pgw_and_restore, Config) ->
     set_path_timers(#{'down_echo' => 1}),
     setup_per_testcase(Config),
@@ -843,6 +848,9 @@ end_per_testcase(TestCase, Config)
     ok = meck:delete(ergw_gtp_c_socket, send_request, 7),
     end_per_testcase(Config),
     Config;
+end_per_testcase(path_maint, Config) ->
+    set_path_timers(#{'echo' => 60 * 1000}),
+    end_per_testcase(Config);
 end_per_testcase(path_failure_to_pgw_and_restore, Config) ->
     set_path_timers(#{'down_echo' => 600 * 1000}),
     end_per_testcase(Config);
@@ -933,6 +941,45 @@ create_session_overload_response(Config) ->
     meck_validate(Config),
     ok.
 
+
+%%--------------------------------------------------------------------
+path_maint() ->
+    [{doc, "Check that Echo requests are sent"}].
+path_maint(Config) ->
+    GSNs = lists:foldl(
+	     fun(X, M) -> maps:put(proplists:get_value(X, Config), X, M) end,
+	     #{}, [client_ip, test_gsn, proxy_gsn, final_gsn]),
+
+    {GtpC0, _, _} = create_session(random, Config),
+    ct:sleep(500),
+
+    {GtpC1, _, _} = create_session(random, GtpC0),
+    ct:sleep(500),
+
+    {GtpC2, _, _} = create_session(random, GtpC1),
+    ct:sleep(500),
+
+    Pings = lists:foldl(
+	      fun({_, {ergw_gtp_c_socket, send_request, [_, IP, _, _, _, #gtp{type = echo_request}, _]}, _}, M) ->
+		      Key = maps:get(IP, GSNs),
+		      maps:update_with(Key, fun(Cnt) -> Cnt + 1 end, 1, M);
+		 (_, M) ->
+		      M
+	      end, #{}, meck:history(ergw_gtp_c_socket)),
+
+    delete_session(GtpC0),
+    delete_session(GtpC1),
+    delete_session(GtpC2),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    wait4tunnels(?TIMEOUT),
+
+    meck_validate(Config),
+
+    ?equal(3, map_size(Pings)),
+    maps:map(fun(K, V) -> ?match({_, X} when X >= 2, {K, V}) end, Pings),
+
+    ok.
 
 %%--------------------------------------------------------------------
 path_restart() ->
