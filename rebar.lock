@@ -7,6 +7,10 @@
   {git,"https://github.com/travelping/eradius.git",
        {ref,"4e76c435aee6350c772f424b35d2ed0d344d0706"}},
   1},
+ {<<"ergw_aaa">>,
+  {git,"git://github.com/travelping/ergw_aaa",
+       {ref,"3292ffa2edf606f8101f594cfdb5180b4082eaef"}},
+  0},
  {<<"erlando">>,
   {git,"https://github.com/travelping/erlando.git",
        {ref,"b61948d0a377d0f02d2a70d93a4e31feca6e95d9"}},
@@ -53,7 +57,7 @@
   {git,"https://github.com/uwiger/setup.git",
        {ref,"b8fd827e7e9e0f5aeec2f26a2f3a31bb06407686"}},
   0},
- {<<"stacktrace_compat">>,{pkg,<<"stacktrace_compat">>,<<"1.0.2">>},1}]}.
+ {<<"stacktrace_compat">>,{pkg,<<"stacktrace_compat">>,<<"1.0.2">>},2}]}.
 [
 {pkg_hash,[
  {<<"accept">>, <<"B33B127ABCA7CC948BBE6CAA4C263369ABF1347CFA9D8E699C6D214660F10CD1">>},
