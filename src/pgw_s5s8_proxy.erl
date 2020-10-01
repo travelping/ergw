@@ -282,7 +282,7 @@ handle_request(ReqKey,
 		 'Session' := Session} = Data) ->
 
     Context1 = update_context_from_gtp_req(Request, Context0#context{state = #context_state{}}),
-    Context2 = gtp_path:bind(Request, false, Context1),
+    Context2 = gtp_path:bind(Request, Context1),
 
     gtp_context:terminate_colliding_context(Context2),
     gtp_context:remote_context_register_new(Context2),
@@ -304,7 +304,7 @@ handle_request(ReqKey,
     {ok, _} = ergw_aaa_session:invoke(Session, SessionOpts, start, #{async =>true}),
 
     ProxyContext0 = init_proxy_context(ProxyGtpPort, Context2, ProxyInfo, ProxyGGSN),
-    ProxyContext1 = gtp_path:bind(true, ProxyContext0),
+    ProxyContext1 = gtp_path:bind(ProxyContext0),
 
     ergw_sx_node:wait_connect(SxConnectId),
     {Context, ProxyContext, PCtx} =
@@ -323,7 +323,7 @@ handle_request(ReqKey,
   when ?IS_REQUEST_CONTEXT(ReqKey, Request, OldContext) ->
 
     Context0 = update_context_from_gtp_req(Request, OldContext),
-    Context1 = gtp_path:bind(Request, false, Context0),
+    Context1 = gtp_path:bind(Request, Context0),
 
     gtp_context:remote_context_update(OldContext, Context1),
 
@@ -444,7 +444,7 @@ handle_response(#proxy_request{direction = sgw2pgw} = ProxyRequest,
     ?LOG(debug, "OK Proxy Response ~p", [Response]),
 
     ProxyContext1 = update_context_from_gtp_req(Response, PrevProxyCtx),
-    ProxyContext = gtp_path:bind(Response, true, ProxyContext1),
+    ProxyContext = gtp_path:bind(Response, ProxyContext1),
     gtp_context:remote_context_register(ProxyContext),
 
     Return =
@@ -615,7 +615,7 @@ handle_sgw_change(_, _, ProxyContext) ->
 
 update_path_bind(NewContext0, OldContext)
   when NewContext0 /= OldContext ->
-    NewContext = gtp_path:bind(false, NewContext0),
+    NewContext = gtp_path:bind(NewContext0),
     gtp_path:unbind(OldContext),
     NewContext;
 update_path_bind(NewContext, _OldContext) ->
@@ -800,14 +800,14 @@ initiate_session_teardown(pgw2sgw,
 bind_forward_path(sgw2pgw, Request, #{context := Context,
 				      proxy_context := ProxyContext} = Data) ->
     Data#{
-      context => gtp_path:bind(Request, false, Context),
-      proxy_context => gtp_path:bind(true, ProxyContext)
+      context => gtp_path:bind(Request, Context),
+      proxy_context => gtp_path:bind(ProxyContext)
      };
 bind_forward_path(pgw2sgw, Request, #{context := Context,
 				      proxy_context := ProxyContext} = Data) ->
     Data#{
-      context => gtp_path:bind(false, Context),
-      proxy_context => gtp_path:bind(Request, true, ProxyContext)
+      context => gtp_path:bind(Context),
+      proxy_context => gtp_path:bind(Request, ProxyContext)
      }.
 
 fteid_forward_context(#f_teid{ipv4 = IPv4, ipv6 = IPv6, teid = TEID},
