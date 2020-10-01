@@ -1,6 +1,37 @@
 erGW - 3GPP GGSN and PDN-GW in Erlang
 =====================================
 
+Version 2.6.0 - 01 October 2020
+-------------------------------
+
+* feature: provide implementation for `DELETE /api/v1/contexts/:count` for
+  GTP-Proxy setups ("drain")
+* feature: configurable TEID prefix to use
+* feature: async IP assignment for IPv4 and IPv6
+* feature: simple cache for Node Selection results based upon DNS queries
+
+* fix handling DNS responses without IP in Sx node selection
+  (would shutdown of *ergw*)
+* fix Change Reporting Indication/Action (Offline Charging)
+* fix encoding of IE 'Indication'
+* improve GTP Path Maintenance procedures.
+  NOTE: In GTP proxy use of *ergw* the path maintenance now stops forwarding
+        traffic to a non-responsive target PGW after it detects, based on GTP echo
+        probes, that it is not reachable. The PGW path is blocked for a configurable
+        duration (default 1 hour) for forwarding. The configuration of the duration
+        is done with the `down_timeout` parameter of the `path_management` section
+        in the node config (see: `config/ergw-c-node.config` for example)
+
+
+* unify socket definition. 
+  NOTE: this requires changes to the configuration
+  of *ergw*: `sx_socket` is removed from the *ergw* configuration, `sx` socket
+  is now handled in the `sockets` section of *ergw*. See
+  config/ergw-c-node.config for an example.
+
+* switch to Erlang/OTP 23.1
+* increase test coverage
+
 Version 2.5.0 - 04 August 2020
 ----------------------------
 * implement path monitoring profiles for outgoing (active) paths
