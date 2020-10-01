@@ -216,8 +216,7 @@
 		  ]
 		 },
 
-		 {path_management, [{active, false},
-				    {t3, 10 * 1000},
+		 {path_management, [{t3, 10 * 1000},
 				    {n3,  5},
 				    {echo, 60 * 1000},
 				    {idle_timeout, 1800 * 1000},
@@ -456,8 +455,7 @@
 		  ]
 		 },
 
-		 {path_management, [{active, false},
-				    {t3, 10 * 1000},
+		 {path_management, [{t3, 10 * 1000},
 				    {n3,  5},
 				    {echo, 60 * 1000},
 				    {idle_timeout, 1800 * 1000},
@@ -1492,7 +1490,6 @@ one_lb_node_down(Config) ->
 
     %% create the path
     CPid = gtp_path:maybe_new_path(CPort, v2, DownGSN),
-    gtp_path:set(CPid, active, true),
 
     %% down the path by forcing a echo
     ok = gtp_path:ping(CPid),

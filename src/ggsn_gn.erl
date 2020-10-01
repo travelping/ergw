@@ -338,7 +338,7 @@ handle_request(ReqKey,
     DAF = proplists:get_bool('Dual Address Bearer Flag', gtp_v1_c:get_common_flags(IEs)),
 
     Context1 = update_context_from_gtp_req(Request, Context0),
-    ContextPreAuth = gtp_path:bind(Request, false, Context1),
+    ContextPreAuth = gtp_path:bind(Request, Context1),
 
     gtp_context:terminate_colliding_context(ContextPreAuth),
 
@@ -426,7 +426,7 @@ handle_request(ReqKey,
 		 'Session' := Session} = Data0) ->
 
     Context0 = update_context_from_gtp_req(Request, OldContext),
-    Context = gtp_path:bind(Request, false, Context0),
+    Context = gtp_path:bind(Request, Context0),
     URRActions = update_session_from_gtp_req(IEs, Session, Context),
 
     Data1 = if Context /= OldContext ->
@@ -490,7 +490,7 @@ handle_response({From, TermCause},
 		     ie = #{?'Cause' := #cause{value = Cause}}} = Response,
 		_Request, _State,
 		#{context := Context0} = Data) ->
-    Context = gtp_path:bind(Response, false, Context0),
+    Context = gtp_path:bind(Response, Context0),
     close_pdp_context(TermCause, Data),
     if is_tuple(From) -> gen_statem:reply(From, {ok, Cause});
        true -> ok
@@ -678,7 +678,7 @@ defer_usage_report(URRActions, UsageReport) ->
 
 apply_context_change(NewContext0, OldContext, URRActions,
 		     #{pfcp := PCtx0, pcc := PCC} = Data) ->
-    NewContext = gtp_path:bind(false, NewContext0),
+    NewContext = gtp_path:bind(NewContext0),
     {PCtx, UsageReport} =
 	ergw_gsn_lib:modify_sgi_session(PCC, URRActions,
 					#{}, NewContext, PCtx0),

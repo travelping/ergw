@@ -363,7 +363,7 @@ handle_request(ReqKey,
 
     Context1 = update_context_tunnel_ids(FqCntlTEID, FqDataTEID, Context0),
     Context2 = update_context_from_gtp_req(Request, Context1),
-    ContextPreAuth = gtp_path:bind(Request, false, Context2),
+    ContextPreAuth = gtp_path:bind(Request, Context2),
 
     gtp_context:terminate_colliding_context(ContextPreAuth),
 
@@ -463,7 +463,7 @@ handle_request(ReqKey,
 
     Context0 = update_context_tunnel_ids(FqCntlTEID, FqDataTEID, OldContext),
     Context1 = update_context_from_gtp_req(Request, Context0),
-    Context = gtp_path:bind(Request, false, Context1),
+    Context = gtp_path:bind(Request, Context1),
     URRActions = update_session_from_gtp_req(IEs, Session, Context),
 
     Data1 = if Context /= OldContext ->
@@ -582,7 +582,7 @@ handle_response(_,
 				  }} = IEs} = Response,
 		_Request, run,
 		#{context := Context0, pfcp := PCtx, 'Session' := Session} = Data0) ->
-    Context = gtp_path:bind(Response, false, Context0),
+    Context = gtp_path:bind(Response, Context0),
     Data = Data0#{context => Context},
 
     if Cause =:= request_accepted andalso BearerCause =:= request_accepted ->
@@ -612,7 +612,7 @@ handle_response({From, TermCause},
 		     ie = #{?'Cause' := #v2_cause{v2_cause = Cause}}} = Response,
 		_Request, _State,
 		#{context := Context0} = Data) ->
-    Context = gtp_path:bind(Response, false, Context0),
+    Context = gtp_path:bind(Response, Context0),
     close_pdn_context(TermCause, Data),
     if is_tuple(From) -> gen_statem:reply(From, {ok, Cause});
        true -> ok
@@ -801,7 +801,7 @@ defer_usage_report(URRActions, UsageReport) ->
 apply_context_change(NewContext0, OldContext, URRActions,
 		     #{pfcp := PCtx0, pcc := PCC} = Data) ->
     ModifyOpts = #{send_end_marker => true},
-    NewContext = gtp_path:bind(false, NewContext0),
+    NewContext = gtp_path:bind(NewContext0),
     {PCtx, UsageReport} =
 	ergw_gsn_lib:modify_sgi_session(PCC, URRActions,
 					ModifyOpts, NewContext, PCtx0),
