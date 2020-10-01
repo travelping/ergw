@@ -69,8 +69,8 @@ handle_request(#request{gtp_port = GtpPort, ip = IP} = ReqKey, #gtp{version = Ve
 handle_response(Path, Request, Ref, Response) ->
     gen_statem:cast(Path, {handle_response, Request, Ref, Response}).
 
-bind(#context{remote_restart_counter = RestartCounter} = Context) ->
-    bind_path_recovery(RestartCounter, bind_path(Context)).
+bind(Context) ->
+    monitor_path_recovery(bind_path(Context)).
 
 bind(#gtp{ie = #{{recovery, 0} :=
 		     #recovery{restart_counter = RestartCounter}}
@@ -214,7 +214,8 @@ init([#gtp_port{name = PortName} = GtpPort, Version, RemoteIP, Args]) ->
 	     ip         => RemoteIP,
 	     reg_key    => RegKey,
 
-	     contexts   => #{}
+	     contexts   => #{},
+	     monitors   => #{}
 	},
 
     ?LOG(debug, "State: ~p Data: ~p", [State, Data]),
@@ -254,18 +255,27 @@ handle_event({call, From}, all, _State, #{contexts := CtxS} = _Data) ->
     Reply = maps:keys(CtxS),
     {keep_state_and_data, [{reply, From, Reply}]};
 
+handle_event({call, From}, {MonOrBind, Pid}, #state{peer = #peer{state = down}}, _Data)
+  when MonOrBind == monitor; MonOrBind == bind ->
+    Path = self(),
+    proc_lib:spawn(fun() -> gtp_context:path_restart(Pid, Path) end),
+    {keep_state_and_data, [{reply, From, {ok, undefined}}]};
+
+handle_event({call, From}, {monitor, Pid}, #state{recovery = RstCnt} = State, Data) ->
+    register_monitor(Pid, State, Data, [{reply, From, {ok, RstCnt}}]);
+
 handle_event({call, From}, {bind, Pid}, #state{recovery = RstCnt} = State, Data) ->
-    register(Pid, State, Data, [{reply, From, {ok, RstCnt}}]);
+    register_bind(Pid, State, Data, [{reply, From, {ok, RstCnt}}]);
 
 handle_event({call, From}, {bind, Pid, RstCnt}, State, Data) ->
     case update_restart_counter(RstCnt, State, Data) of
 	initial  ->
-	    register(Pid, State#state{recovery = RstCnt}, Data, [{reply, From, ok}]);
+	    register_bind(Pid, State#state{recovery = RstCnt}, Data, [{reply, From, ok}]);
 	peer_restart  ->
 	    %% try again after state change
 	    path_restart(RstCnt, State, Data, [postpone]);
 	no ->
-	    register(Pid, State, Data, [{reply, From, ok}])
+	    register_bind(Pid, State, Data, [{reply, From, ok}])
     end;
 
 handle_event({call, From}, {unbind, Pid}, State, Data) ->
@@ -475,16 +485,43 @@ update_contexts(State0, #{gtp_port := GtpPort, version := Version, ip := IP} = D
     Data = Data0#{contexts => CtxS},
     {next_state, State, Data, Actions}.
 
-register(Pid, State, #{contexts := CtxS} = Data, Actions) ->
+register_monitor(Pid, State, #{contexts := CtxS, monitors := Mons} = Data, Actions)
+  when is_map_key(Pid, CtxS), is_map_key(Pid, Mons) ->
+    ?LOG(debug, "~s: monitor(~p)", [?MODULE, Pid]),
+    {next_state, State, Data, Actions};
+register_monitor(Pid, State, #{monitors := Mons} = Data, Actions) ->
+    ?LOG(debug, "~s: monitor(~p)", [?MODULE, Pid]),
+    MRef = erlang:monitor(process, Pid),
+    {next_state, State, Data#{monitors => maps:put(Pid, MRef, Mons)}, Actions}.
+
+%% register_bind/5
+register_bind(Pid, MRef, State, #{contexts := CtxS} = Data, Actions) ->
+    update_contexts(State, Data, maps:put(Pid, MRef, CtxS), Actions).
+
+%% register_bind/4
+register_bind(Pid, State, #{monitors := Mons} = Data, Actions)
+  when is_map_key(Pid, Mons)  ->
+    ?LOG(debug, "~s: register(~p)", [?MODULE, Pid]),
+    MRef = maps:get(Pid, Mons),
+    register_bind(Pid, MRef, State, Data#{monitors => maps:remove(Pid, Mons)}, Actions);
+register_bind(Pid, State, #{contexts := CtxS} = Data, Actions)
+  when is_map_key(Pid, CtxS) ->
+    {next_state, State, Data, Actions};
+register_bind(Pid, State, Data, Actions) ->
     ?LOG(debug, "~s: register(~p)", [?MODULE, Pid]),
     MRef = erlang:monitor(process, Pid),
-    update_contexts(State, Data, maps:put(Pid, MRef, CtxS), Actions).
+    register_bind(Pid, MRef, State, Data, Actions).
 
 unregister(Pid, State, #{contexts := CtxS} = Data, Actions)
   when is_map_key(Pid, CtxS) ->
     MRef = maps:get(Pid, CtxS),
-    demonitor(MRef, [flush]),
+    erlang:demonitor(MRef, [flush]),
     update_contexts(State, Data, maps:remove(Pid, CtxS), Actions);
+unregister(Pid, State, #{monitors := Mons} = Data, Actions)
+  when is_map_key(Pid, Mons) ->
+    MRef = maps:get(Pid, Mons),
+    erlang:demonitor(MRef, [flush]),
+    {next_state, State, Data#{monitors => maps:remove(Pid, Mons)}, Actions};
 unregister(_Pid, _, _Data, Actions) ->
     {keep_state_and_data, Actions}.
 
@@ -495,6 +532,10 @@ bind_path(#context{version = Version, control_port = CntlGtpPort,
 		   remote_control_teid = #fq_teid{ip = RemoteCntlIP}} = Context) ->
     Path = maybe_new_path(CntlGtpPort, Version, RemoteCntlIP),
     Context#context{path = Path}.
+
+monitor_path_recovery(#context{path = Path} = Context) ->
+    {ok, PathRestartCounter} = gen_statem:call(Path, {monitor, self()}),
+    Context#context{remote_restart_counter = PathRestartCounter}.
 
 bind_path_recovery(RestartCounter, #context{path = Path} = Context)
   when is_integer(RestartCounter) ->
