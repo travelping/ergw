@@ -471,7 +471,8 @@ handle_response(#proxy_request{direction = sgw2pgw,
 		  pfcp := PCtx0} = Data) ->
     ?LOG(debug, "OK Proxy Response ~p", [Response]),
 
-    ProxyContext = update_context_from_gtp_req(Response, OldProxyContext),
+    ProxyContext1 = update_context_from_gtp_req(Response, OldProxyContext),
+    ProxyContext = gtp_path:bind(Response, ProxyContext1),
     gtp_context:remote_context_update(OldProxyContext, ProxyContext),
 
     PCtx = ergw_proxy_lib:modify_forward_session(PrevContext, Context,
