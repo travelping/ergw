@@ -1,7 +1,7 @@
 erGW - 3GPP GGSN and PDN-GW in Erlang
 =====================================
 
-Version 2.6.0 - 01 October 2020
+Version 2.6.0 - 02 October 2020
 -------------------------------
 
 * feature: provide implementation for `DELETE /api/v1/contexts/:count` for
