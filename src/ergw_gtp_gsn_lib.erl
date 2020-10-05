@@ -226,7 +226,9 @@ usage_report(URRActions, UsageReport, #{pfcp := PCtx, 'Session' := Session}) ->
 
 close_context(Reason, #{pfcp := PCtx, 'Session' := Session}) ->
     UsageReport = ergw_pfcp_context:delete_pfcp_session(Reason, PCtx),
-    ergw_gtp_gsn_session:close_context(Reason, UsageReport, PCtx, Session).
+    ergw_gtp_gsn_session:close_context(Reason, UsageReport, PCtx, Session),
+    ergw_prometheus:termination_cause(?FUNCTION_NAME, Reason),
+    ok.
 
 %%====================================================================
 %% Helper

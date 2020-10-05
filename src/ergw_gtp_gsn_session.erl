@@ -66,16 +66,6 @@ usage_report(URRActions, UsageReport, PCtx, Session) ->
     end.
 
 close_context(Reason, UsageReport, PCtx, Session) ->
-    TermCause =
-	if Reason =:= upf_failure;
-	   Reason =:= link_broken ->
-		?'DIAMETER_BASE_TERMINATION-CAUSE_LINK_BROKEN';
-	   Reason =:= administrative ->
-		?'DIAMETER_BASE_TERMINATION-CAUSE_ADMINISTRATIVE';
-	   true ->
-		?'DIAMETER_BASE_TERMINATION-CAUSE_LOGOUT'
-	end,
-
     %% TODO: Monitors, AAA over SGi
 
     %%  1. CCR on Gx to get PCC rules
@@ -88,7 +78,7 @@ close_context(Reason, UsageReport, PCtx, Session) ->
 	    ?LOG(warning, "Gx terminate failed with: ~p", [GxOther])
     end,
 
-    ChargeEv = {terminate, TermCause},
+    ChargeEv = {terminate, Reason},
     {Online, Offline, Monitor} =
 	ergw_pfcp_context:usage_report_to_charging_events(UsageReport, ChargeEv, PCtx),
     ergw_gsn_lib:process_accounting_monitor_events(ChargeEv, Monitor, Now, Session),
