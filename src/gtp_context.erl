@@ -384,7 +384,7 @@ handle_event({call, From},
 	    {keep_state_and_data, [{reply, From, {ok, PCtx}}]};
 
 	Side ->
-	    close_context(Side, normal, Data),
+	    close_context(Side, remote_failure, Data),
 	    {next_state, shutdown, Data, [{reply, From, {ok, PCtx}}]}
     end;
 
@@ -393,7 +393,7 @@ handle_event({call, From},
 	     {sx, #pfcp{type = session_report_request,
 			ie = #{report_type := #report_type{upir = 1}}}},
 	     _State, #{pfcp := PCtx} = Data) ->
-    close_context(both, normal, Data),
+    close_context(both, inactivity_timeout, Data),
     {next_state, shutdown, Data, [{reply, From, {ok, PCtx}}]};
 
 %% Usage Report
@@ -591,12 +591,12 @@ handle_event({call, From}, terminate_context, _State, Data) ->
 
 handle_event({call, From}, {path_restart, Path}, _State,
 	     #{left_tunnel := #tunnel{path = Path}} = Data) ->
-    close_context(left, normal, Data),
+    close_context(left, peer_restart, Data),
     {next_state, shutdown, Data, [{reply, From, ok}]};
 
 handle_event({call, From}, {path_restart, Path}, _State,
 	     #{right_tunnel := #tunnel{path = Path}} = Data) ->
-    close_context(right, normal, Data),
+    close_context(right, peer_restart, Data),
     {next_state, shutdown, Data, [{reply, From, ok}]};
 
 handle_event({call, From}, {path_restart, _Path}, _State, _Data) ->
