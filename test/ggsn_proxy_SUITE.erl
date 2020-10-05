@@ -770,6 +770,14 @@ init_per_testcase(cache_timeout, Config) ->
 init_per_testcase(delete_bearer_requests_multi, Config) ->
     setup_per_testcase(Config),
     Config;
+init_per_testcase(TestCase, Config)
+  when TestCase == proxy_context_selection;
+       TestCase == proxy_context_invalid_selection;
+       TestCase == proxy_context_invalid_mapping;
+       TestCase == proxy_api_v2 ->
+    setup_per_testcase(Config),
+    ok = meck:new(gtp_proxy_ds, [passthrough, no_link]),
+    Config;
 init_per_testcase(_, Config) ->
     setup_per_testcase(Config),
     Config.
@@ -833,6 +841,14 @@ end_per_testcase(create_pdp_context_overload, Config) ->
     Config;
 end_per_testcase(delete_bearer_requests_multi, Config) ->
     ok = meck:delete(ergw_gtp_c_socket, send_request, 7),
+    end_per_testcase(Config),
+    Config;
+end_per_testcase(TestCase, Config)
+  when TestCase == proxy_context_selection;
+       TestCase == proxy_context_invalid_selection;
+       TestCase == proxy_context_invalid_mapping;
+       TestCase == proxy_api_v2 ->
+    ok = meck:unload(gtp_proxy_ds),
     end_per_testcase(Config),
     Config;
 end_per_testcase(_, Config) ->
@@ -1636,7 +1652,6 @@ ms_info_change_notification_request_invalid_imsi(Config) ->
 proxy_context_selection() ->
     [{doc, "Check that the proxy context selection works"}].
 proxy_context_selection(Config) ->
-    ok = meck:new(gtp_proxy_ds, [passthrough]),
     meck:expect(gtp_proxy_ds, map,
 		fun(ProxyInfo) ->
 			proxy_context_selection_map(ProxyInfo, <<"ams">>)
@@ -1646,8 +1661,6 @@ proxy_context_selection(Config) ->
     ?equal([], outstanding_requests()),
     delete_pdp_context(GtpC),
 
-    meck:unload(gtp_proxy_ds),
-
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
     ok.
@@ -1656,7 +1669,6 @@ proxy_context_selection(Config) ->
 proxy_context_invalid_selection() ->
     [{doc, "Check that the proxy context selection works"}].
 proxy_context_invalid_selection(Config) ->
-    ok = meck:new(gtp_proxy_ds, [passthrough]),
     meck:expect(gtp_proxy_ds, map,
 		fun(ProxyInfo) ->
 			proxy_context_selection_map(ProxyInfo, <<"undefined">>)
@@ -1666,8 +1678,6 @@ proxy_context_invalid_selection(Config) ->
     ?equal([], outstanding_requests()),
     delete_pdp_context(GtpC),
 
-    meck:unload(gtp_proxy_ds),
-
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
     ok.
@@ -1676,14 +1686,11 @@ proxy_context_invalid_selection(Config) ->
 proxy_context_invalid_mapping() ->
     [{doc, "Check rejection of a session when the proxy selects failes"}].
 proxy_context_invalid_mapping(Config) ->
-    ok = meck:new(gtp_proxy_ds, [passthrough]),
     meck:expect(gtp_proxy_ds, map,
 		fun(_ProxyInfo) -> {error, user_authentication_failed} end),
 
     {_, _, _} = create_pdp_context(invalid_mapping, Config),
     ?equal([], outstanding_requests()),
-
-    meck:unload(gtp_proxy_ds),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
@@ -1696,7 +1703,6 @@ proxy_api_v2() ->
     [{doc, "Check that the proxy API v2 works"}].
 proxy_api_v2(Config) ->
     APN = fun(Bin) -> binary:split(Bin, <<".">>, [global, trim_all]) end,
-    ok = meck:new(gtp_proxy_ds, [passthrough]),
     meck:expect(gtp_proxy_ds, map,
 		fun(PI) ->
 			ct:pal("PI: ~p", [PI]),
@@ -1714,8 +1720,6 @@ proxy_api_v2(Config) ->
     {GtpC, _, _} = create_pdp_context(Config),
     ?equal([], outstanding_requests()),
     delete_pdp_context(GtpC),
-
-    meck:unload(gtp_proxy_ds),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),

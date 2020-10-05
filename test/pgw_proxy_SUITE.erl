@@ -818,8 +818,20 @@ init_per_testcase(dns_node_selection, Config) ->
     setup_per_testcase(Config),
     ok = meck:new(inet_res, [passthrough, no_link, unstick]),
     Config;
+init_per_testcase(sx_upf_removal, Config) ->
+    setup_per_testcase(Config),
+    ok = meck:new(ergw_sx_node, [passthrough, no_link]),
+    Config;
 init_per_testcase(delete_bearer_requests_multi, Config) ->
     setup_per_testcase(Config),
+    Config;
+init_per_testcase(TestCase, Config)
+  when TestCase == proxy_context_selection;
+     TestCase == proxy_context_invalid_selection;
+     TestCase == proxy_context_invalid_mapping;
+     TestCase == proxy_api_v2 ->
+    setup_per_testcase(Config),
+    ok = meck:new(gtp_proxy_ds, [passthrough, no_link]),
     Config;
 init_per_testcase(_, Config) ->
     setup_per_testcase(Config),
@@ -895,8 +907,20 @@ end_per_testcase(dns_node_selection, Config) ->
     ok = meck:unload(inet_res),
     end_per_testcase(Config),
     Config;
+end_per_testcase(sx_upf_removal, Config) ->
+    ok = meck:unload(ergw_sx_node),
+    end_per_testcase(Config),
+    Config;
 end_per_testcase(delete_bearer_requests_multi, Config) ->
     ok = meck:delete(ergw_gtp_c_socket, send_request, 7),
+    end_per_testcase(Config),
+    Config;
+end_per_testcase(TestCase, Config)
+  when TestCase == proxy_context_selection;
+     TestCase == proxy_context_invalid_selection;
+     TestCase == proxy_context_invalid_mapping;
+     TestCase == proxy_api_v2 ->
+    ok = meck:unload(gtp_proxy_ds),
     end_per_testcase(Config),
     Config;
 end_per_testcase(_, Config) ->
@@ -1947,7 +1971,6 @@ resume_notification_request(Config) ->
 proxy_context_selection() ->
     [{doc, "Check that the proxy context selection works"}].
 proxy_context_selection(Config) ->
-    ok = meck:new(gtp_proxy_ds, [passthrough]),
     meck:expect(gtp_proxy_ds, map,
 		fun(ProxyInfo) ->
 			proxy_context_selection_map(ProxyInfo, <<"ams">>)
@@ -1957,8 +1980,6 @@ proxy_context_selection(Config) ->
     ?equal([], outstanding_requests()),
     delete_session(GtpC),
 
-    meck:unload(gtp_proxy_ds),
-
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
     ok.
@@ -1967,7 +1988,6 @@ proxy_context_selection(Config) ->
 proxy_context_invalid_selection() ->
     [{doc, "Check that the proxy context selection works"}].
 proxy_context_invalid_selection(Config) ->
-    ok = meck:new(gtp_proxy_ds, [passthrough]),
     meck:expect(gtp_proxy_ds, map,
 		fun(ProxyInfo) ->
 			proxy_context_selection_map(ProxyInfo, <<"undefined">>)
@@ -1977,8 +1997,6 @@ proxy_context_invalid_selection(Config) ->
     ?equal([], outstanding_requests()),
     delete_session(GtpC),
 
-    meck:unload(gtp_proxy_ds),
-
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
     ok.
@@ -1987,14 +2005,11 @@ proxy_context_invalid_selection(Config) ->
 proxy_context_invalid_mapping() ->
     [{doc, "Check rejection of a session when the proxy selects failes"}].
 proxy_context_invalid_mapping(Config) ->
-    ok = meck:new(gtp_proxy_ds, [passthrough]),
     meck:expect(gtp_proxy_ds, map,
 		fun(_ProxyInfo) -> {error, user_authentication_failed} end),
 
     {_, _, _} = create_session(invalid_mapping, Config),
     ?equal([], outstanding_requests()),
-
-    meck:unload(gtp_proxy_ds),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
@@ -2007,7 +2022,6 @@ proxy_api_v2() ->
     [{doc, "Check that the proxy API v2 works"}].
 proxy_api_v2(Config) ->
     APN = fun(Bin) -> binary:split(Bin, <<".">>, [global, trim_all]) end,
-    ok = meck:new(gtp_proxy_ds, [passthrough]),
     meck:expect(gtp_proxy_ds, map,
 		fun(PI) ->
 			ct:pal("PI: ~p", [PI]),
@@ -2025,8 +2039,6 @@ proxy_api_v2(Config) ->
     {GtpC, _, _} = create_session(Config),
     ?equal([], outstanding_requests()),
     delete_session(GtpC),
-
-    meck:unload(gtp_proxy_ds),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
@@ -2540,7 +2552,6 @@ sx_upf_removal() ->
 sx_upf_removal(Config) ->
     Cntl = whereis(gtpc_client_server),
 
-    ok = meck:new(ergw_sx_node, [passthrough]),
     %% reduce Sx timeout to speed up test
     ok = meck:expect(ergw_sx_socket, call,
 		     fun(Peer, _T1, _N1, Msg, CbInfo) ->
