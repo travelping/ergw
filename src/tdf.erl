@@ -220,7 +220,7 @@ handle_event(info, #aaa_request{procedure = {_, 'RAR'}} = Request, shutdown, _Da
 
 handle_event(info, #aaa_request{procedure = {_, 'ASR'}} = Request, State, Data) ->
     ergw_aaa_session:response(Request, ok, #{}, #{}),
-    close_pdn_context(normal, State, Data),
+    close_pdn_context(administrative, State, Data),
     {next_state, shutdown, Data};
 
 handle_event(info, #aaa_request{procedure = {gx, 'RAR'},
@@ -460,14 +460,6 @@ close_pdn_context(Reason, run, #data{context = Context, pfcp = PCtx,
 				     session = Session}) ->
     URRs = ergw_gsn_lib:delete_sgi_session(Reason, Context, PCtx),
 
-    TermCause =
-	case Reason of
-	    upf_failure ->
-		?'DIAMETER_BASE_TERMINATION-CAUSE_LINK_BROKEN';
-	    _ ->
-		?'DIAMETER_BASE_TERMINATION-CAUSE_LOGOUT'
-	end,
-
     %% TODO: Monitors, AAA over SGi
 
     %%  1. CCR on Gx to get PCC rules
@@ -481,13 +473,14 @@ close_pdn_context(Reason, run, #data{context = Context, pfcp = PCtx,
 	    ?LOG(warning, "Gx terminate failed with: ~p", [GxOther])
     end,
 
-    ChargeEv = {terminate, TermCause},
+    ChargeEv = {terminate, Reason},
     {Online, Offline, Monitor} =
 	ergw_gsn_lib:usage_report_to_charging_events(URRs, ChargeEv, PCtx),
     ergw_gsn_lib:process_accounting_monitor_events(ChargeEv, Monitor, Now, Session),
     GyReqServices = ergw_gsn_lib:gy_credit_report(Online),
     ergw_gsn_lib:process_online_charging_events(ChargeEv, GyReqServices, Session, ReqOpts),
     ergw_gsn_lib:process_offline_charging_events(ChargeEv, Offline, Now, Session),
+    ergw_prometheus:termination_cause(?FUNCTION_NAME, Reason),
 
     ok;
 close_pdn_context(_Reason, _State, _Data) ->
