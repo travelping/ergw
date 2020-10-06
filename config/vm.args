@@ -20,3 +20,6 @@
 
 # Start a pool of asynchronous IO threads
 +A30
+
+# carrier pool config, OTP-16856
++Mucp :
