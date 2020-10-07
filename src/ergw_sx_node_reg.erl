@@ -38,7 +38,7 @@ unregister(Key) ->
 
 lookup(Key) ->
     case ets:lookup(?SERVER, Key) of
-	[{Key, Pid, _}] ->
+	[{Key, Pid}] ->
 	    {ok, Pid};
 	_ ->
 	    {error, not_found}
@@ -65,7 +65,7 @@ init([]) ->
     {ok, #{}}.
 
 handle_register(Pid, Id, _Value, State) ->
-    case ets:insert_new(?SERVER, {Id, Pid, down}) of
+    case ets:insert_new(?SERVER, {Id, Pid}) of
 	true ->  {ok, [Id], State};
 	false -> {error, duplicate}
     end.
@@ -102,5 +102,5 @@ terminate(_Reason, _State) ->
 %%%===================================================================
 
 unregister(Key, State) ->
-    Pids = [Pid || {_, Pid, _} <- ets:take(?SERVER, Key)],
+    Pids = [Pid || {_, Pid} <- ets:take(?SERVER, Key)],
     {Pids, maps:remove(Key, State)}.
