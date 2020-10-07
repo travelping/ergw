@@ -27,7 +27,7 @@
 
 %% gen_statem callbacks
 -export([init/1, callback_mode/0, handle_event/4,
-	 terminate/2, code_change/3]).
+	 terminate/3, code_change/4]).
 
 -include_lib("kernel/include/logger.hrl").
 -include_lib("kernel/include/inet.hrl").
@@ -482,12 +482,12 @@ handle_event({call, From}, {sx, Report}, _State,
     ?LOG(error, "Sx Node Session Report unexpected: ~p", [Report]),
     {keep_state_and_data, [{reply, From, {ok, SEID}}]}.
 
-terminate(_Reason, Data) ->
+terminate(_Reason, _State, Data) ->
     send_notify_up(terminate, Data),
     ok.
 
-code_change(_OldVsn, Data, _Extra) ->
-    {ok, Data}.
+code_change(_OldVsn, State, Data, _Extra) ->
+    {ok, State, Data}.
 
 %%%===================================================================
 %%% Internal functions
@@ -878,20 +878,22 @@ select_node_ip(_IP4, IP6) when length(IP6) /= 0 ->
 select_node_ip(_IP4, _IP6) ->
     undefined.
 
+enter_loop(Node, IP, Data) ->
+    gen_statem:enter_loop(
+      ?MODULE, [], connecting, Data#data{dp = #node{node = Node, ip = IP}}).
+
 resolve_and_enter_loop(Node, IP, Data)
   when is_tuple(IP) ->
-    gen_statem:enter_loop(
-      ?MODULE, [], connecting, Data#data{dp = #node{node = Node, ip = IP}});
+    enter_loop(Node, IP, Data);
 resolve_and_enter_loop(Node, _, #data{node_select = NodeSelect} = Data) ->
     case ergw_node_selection:lookup(Node, NodeSelect) of
 	{_, IP4, IP6}
 	  when length(IP4) /= 0; length(IP6) /= 0 ->
 	    IP = select_node_ip(IP4, IP6),
-	    gen_statem:enter_loop(
-	      ?MODULE, [], connecting, Data#data{dp = #node{node = Node, ip = IP}});
+	    enter_loop(Node, IP, Data);
 	{_, [], []} ->
-	    terminate(normal, Data);
+	    terminate(normal, init, Data);
 	{error, _} ->
-	    terminate(normal, Data),
+	    terminate(normal, init, Data),
 	    ok
     end.
