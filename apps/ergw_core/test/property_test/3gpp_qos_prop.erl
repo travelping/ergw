@@ -7,8 +7,7 @@
 
 -module('3gpp_qos_prop').
 
--compile(export_all).
-
+-compile([export_all, nowarn_export_all]).
 
 -proptest(proper).
 -proptest([triq,eqc]).
@@ -56,7 +55,7 @@
 %%%===================================================================
 
 %%--------------------------------------------------------------------
-enc_dec_prop(Config) ->
+enc_dec_prop(_Config) ->
     numtests(1000,
 	     ?FORALL(Msg, qos_gen(),
 		     begin
