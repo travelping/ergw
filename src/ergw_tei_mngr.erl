@@ -5,9 +5,9 @@
 %% as published by the Free Software Foundation; either version
 %% 2 of the License, or (at your option) any later version.
 
-%% simple implementation of 3GPP TS 29.598 Nudsf service
-%% - functional API according to TS
-%% - not optimized for anything
+%% Note: the TEI manager does not need to be a gen_statem in this
+%%       version. Most of the code here is in preparation for using
+%%       external storage for the teid state...
 
 -module(ergw_tei_mngr).
 
@@ -16,7 +16,7 @@
 -compile({parse_transform, cut}).
 
 %% API
--export([start_link/0, alloc_tei/1, release_tei/2]).
+-export([start_link/0, alloc_tei/1]).
 
 %% gen_statem callbacks
 -export([callback_mode/0, init/1, handle_event/4, terminate/3, code_change/4]).
@@ -30,7 +30,7 @@
 -define(MAX_TRIES, 10).
 -define(POW(X, Y), trunc(math:pow(X, Y))).
 
--record(data, {node_id, block_id, prefix, prefix_len, tid, save_cnt}).
+-record(data, {prefix, prefix_len}).
 
 %%%=========================================================================
 %%%  API
@@ -55,14 +55,6 @@ alloc_tei(Port) ->
 alloc_tei(Name, KeyFun) ->
     gen_server:call(?SERVER, {alloc_tei, Name, KeyFun}).
 
-%% release_tei/2
-release_tei(Port, TEI) ->
-    with_keyfun(Port, release_tei(_, TEI, _)).
-
-%% release_tei/3
-release_tei(Name, TEI, KeyFun) ->
-    gen_server:call(?SERVER, {release_tei, Name, TEI, KeyFun}).
-
 %%%===================================================================
 %%% Options Validation
 %%%===================================================================
@@ -85,20 +77,11 @@ validate_option(Value) ->
 callback_mode() -> handle_event_function.
 
 init([]) ->
-    TID = ets:new(?SERVER, [ordered_set, {keypos, 1}]),
-
-    Data = #data{tid = TID},
-
-    {ok, #{}, Data}.
+    {ok, #{}, #data{}}.
 
 handle_event({call, From}, {alloc_tei, Name, KeyFun}, State, Data) ->
     RndState = maybe_init_rnd(Name, State),
     alloc_tei(From, Name, KeyFun, ?MAX_TRIES, RndState, State, Data);
-
-handle_event({call, From}, {release_tei, _Name, TEI, KeyFun}, _State, #data{tid = TID}) ->
-    ets:delete(TID, KeyFun(TEI)),
-    Actions = [{reply, From, ok}],
-    {keep_state_and_data, Actions};
 
 handle_event({call, From}, Request, _State, _Data) ->
     Reply = {error, {badarg, Request}},
@@ -128,16 +111,16 @@ alloc_tei_reply(From, Reply, Name, RndState, State, Data) ->
 
 alloc_tei(From, Name, _KeyFun, 0, RndState, State, Data) ->
     alloc_tei_reply(From, {error, no_tei}, Name, RndState, State, Data);
-alloc_tei(From, Name, KeyFun, Cnt, RndState0, State, #data{tid = TID} = Data0) ->
+alloc_tei(From, Name, KeyFun, Cnt, RndState0, State, Data0) ->
     Data = #data{prefix = Prefix0, prefix_len = PrefixLen} = maybe_update_data(Data0),
     Prefix = Prefix0 bsl (32 - PrefixLen),
     Mask = 16#ffffffff bsr PrefixLen,
     {TEI0, RndState} = rand:uniform_s(16#fffffffe, RndState0),
     TEI = Prefix + (TEI0 band Mask),
-    case ets:insert_new(TID, {KeyFun(TEI), Name}) of
-	true ->
+    case gtp_context_reg:lookup(KeyFun(TEI)) of
+	undefined ->
 	    alloc_tei_reply(From, {ok, TEI}, Name, RndState, State, Data);
-	false ->
+	_ ->
 	    alloc_tei(From, Name, KeyFun, Cnt - 1, RndState, State, Data)
     end.
 
