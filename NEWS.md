@@ -1,6 +1,13 @@
 erGW - 3GPP GGSN and PDN-GW in Erlang
 =====================================
 
+Version 2.6.1 - 08 October 2020
+-------------------------------
+
+* fix resource leak in TEI mngr
+* fix path maintenace, attempts to contact a peer where resetting that peer
+  state to UP
+
 Version 2.6.0 - 02 October 2020
 -------------------------------
 
