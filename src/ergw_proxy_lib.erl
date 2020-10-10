@@ -233,9 +233,7 @@ proxy_far({_SrcIntf, _Left, DstIntf, #context{left = LeftBearer}}, PCtx0)
     FAR = [#far_id{id = FarId},
 	   #apply_action{forw = 1},
 	   #forwarding_parameters{
-	      group =
-		  [ergw_pfcp:outer_header_creation(LeftBearer)
-		  | ergw_pfcp:traffic_forward(LeftBearer, [])]
+	      group = ergw_pfcp:traffic_forward(LeftBearer, [])
 	     }
 	  ],
     ergw_pfcp_rules:add(far, FarId, FAR, PCtx);

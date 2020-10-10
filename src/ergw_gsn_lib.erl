@@ -463,11 +463,7 @@ build_sx_ctx_rule(#sx_upd{
     FAR = [#far_id{id = FarId},
 	   #apply_action{forw = 1},
 	   #forwarding_parameters{
-	      group =
-		  [#destination_interface{interface = 'CP-function'},
-		   ergw_pfcp:network_instance(CpBearer),
-		   ergw_pfcp:outer_header_creation(CpBearer)
-		  ]
+	      group = ergw_pfcp:traffic_forward(CpBearer, [])
 	     }
 	  ],
     Update#sx_upd{
@@ -672,9 +668,7 @@ build_sx_rule(Direction = downlink, Name, Definition, FilterInfo, URRs,
     FAR = [#far_id{id = FarId},
 	   #apply_action{forw = 1},
 	   #forwarding_parameters{
-	      group =
-		  [ergw_pfcp:outer_header_creation(LeftBearer)
-		  | ergw_pfcp:traffic_forward(LeftBearer, [])]
+	      group = ergw_pfcp:traffic_forward(LeftBearer, [])
 	     }
 	  ],
     Update#sx_upd{
