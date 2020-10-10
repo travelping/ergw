@@ -1923,23 +1923,57 @@ release_context_ips(#context{ms_v4 = MSv4, ms_v6 = MSv6} = Context) ->
 %%% Bearer helpers
 %%%===================================================================
 
-assign_local_data_teid(PCtx, {VRFs, _} = _NodeCaps,
-		 #context{control_port = ControlPort, left = Bearer} = Context) ->
-    #vrf{name = Name, ipv4 = IP4, ipv6 = IP6} = maps:get(ControlPort#gtp_port.vrf, VRFs),
+update_element_with(Field, Tuple, Fun) ->
+    setelement(Field, Tuple, Fun(element(Field, Tuple))).
 
-    IP = choose_context_ip(IP4, IP6, Context),
+context_field(left) -> #context.left.
+
+bearer_field(local) -> #bearer.local;
+bearer_field(remote) -> #bearer.remote.
+
+%% assign_local_data_teid/3
+assign_local_data_teid(PCtx, NodeCaps, Context) ->
+    assign_local_data_teid(left, PCtx, NodeCaps, Context).
+
+%% assign_local_data_teid/4
+assign_local_data_teid(CtxSide, PCtx, NodeCaps, Context) ->
+    update_element_with(
+      context_field(CtxSide), Context, assign_local_data_teid_f(PCtx, NodeCaps, Context, _)).
+
+%% assign_local_data_teid_f/4
+assign_local_data_teid_f(PCtx, {VRFs, _} = _NodeCaps,
+			 #context{control_port = ControlPort} = Context, Bearer) ->
+    #vrf{name = Name, ipv4 = IP4, ipv6 = IP6} = maps:get(ControlPort#gtp_port.vrf, VRFs),
+    IP = ergw_gsn_lib:choose_context_ip(IP4, IP6, Context),
     {ok, DataTEI} = ergw_tei_mngr:alloc_tei(PCtx),
     FqTEID = #fq_teid{
 		     ip = ergw_inet:bin2ip(IP),
 		     teid = DataTEI},
-    Context#context{left = Bearer#bearer{vrf = Name, local = FqTEID}}.
+    Bearer#bearer{vrf = Name, local = FqTEID}.
 
-set_remote_data_teid(IP, TEI, #context{left = Bearer} = Context) ->
-    FqTEID = #fq_teid{ip = ergw_inet:bin2ip(IP), teid = TEI},
-    Context#context{left = Bearer#bearer{remote = FqTEID}}.
+%% set_remote_data_teid/3
+set_remote_data_teid(IP, TEI, Context) ->
+    set_remote_data_teid(left, remote, IP, TEI, Context).
 
-unset_remote_data_teid(#context{left = Bearer} = Context) ->
-    Context#context{left = Bearer#bearer{remote = undefined}}.
+%% set_remote_data_teid_f/5
+set_remote_data_teid(CtxSide, BearerSide, IP, TEI, Context) ->
+   update_element_with(
+     context_field(CtxSide), Context,
+     setelement(bearer_field(BearerSide), _, set_remote_data_teid_f(IP, TEI))).
+
+%% set_remote_data_teid_f/3
+set_remote_data_teid_f(IP, TEI) ->
+    #fq_teid{ip = ergw_inet:bin2ip(IP), teid = TEI}.
+
+%% unset_remote_data_teid/1
+unset_remote_data_teid(Context) ->
+    unset_remote_data_teid(left, remote, Context).
+
+%% unset_remote_data_teid_f/3
+unset_remote_data_teid(CtxSide, BearerSide, Context) ->
+   update_element_with(
+     context_field(CtxSide), Context,
+     setelement(bearer_field(BearerSide), _, undefined)).
 
 %%%===================================================================
 %%% T-PDU functions
