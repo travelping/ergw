@@ -42,6 +42,7 @@
 	       recovery_ts       :: undefined | non_neg_integer(),
 	       pfcp_ctx          :: #pfcp_ctx{},
 	       bearer            :: #bearer{},
+	       cp_port           :: #gtp_port{},
 	       cp,
 	       dp,
 	       ip_pools,
@@ -190,12 +191,12 @@ init([Parent, Node, NodeSelect, IP4, IP6, NotifyUp]) ->
     #gtp_port{name = CntlPortName} = GtpPort,
     {ok, TEI} = ergw_tei_mngr:alloc_tei(GtpPort),
     SEID = ergw_sx_socket:seid(),
+
     PCtx = #pfcp_ctx{
 	      name = Node,
 	      node = self(),
 	      seid = #seid{cp = SEID},
-	      cp_port = GtpPort,
-	      cp_tei = TEI
+	      cp_bearer = make_cp_bearer(TEI, GtpPort)
 	     },
 
     RegKeys =
@@ -213,6 +214,7 @@ init([Parent, Node, NodeSelect, IP4, IP6, NotifyUp]) ->
 		  recovery_ts = undefined,
 		  pfcp_ctx = PCtx,
 		  bearer = #bearer{interface = 'CP-function'},
+		  cp_port = GtpPort,
 		  cp = CP,
 		  tdf = #{},
 		  notify_up = NotifyUp
@@ -301,8 +303,7 @@ handle_event(cast, {response, _, #pfcp{version = v1, type = association_setup_re
     end;
 
 handle_event(cast, {send, 'Access', _VRF, Data}, {connected, _},
-	     #data{pfcp_ctx = #pfcp_ctx{cp_port = Port},
-		   dp = #node{ip = IP},
+	     #data{cp_port = Port, dp = #node{ip = IP},
 		   bearer = #bearer{local = #fq_teid{teid = TEI}}}) ->
 
     Msg = #gtp{version = v1, type = g_pdu, tei = TEI, ie = Data},
@@ -375,8 +376,7 @@ handle_event({call, From}, attach, _, #data{pfcp_ctx = PNodeCtx} = Data) ->
 	      node = PNodeCtx#pfcp_ctx.node,
 	      seid = #seid{cp = ergw_sx_socket:seid()},
 
-	      cp_port = PNodeCtx#pfcp_ctx.cp_port,
-	      cp_tei = PNodeCtx#pfcp_ctx.cp_tei
+	      cp_bearer = PNodeCtx#pfcp_ctx.cp_bearer
 	     },
     NodeCaps = node_caps(Data),
     Reply = {ok, PCtx, NodeCaps},
@@ -500,7 +500,7 @@ pfcp_reply_actions({call, {Pid, Tag}}, Reply)
 pfcp_reply_actions({call, From}, Reply) ->
     [{reply, From, Reply}].
 
-make_request(IP, Port, Msg, #data{pfcp_ctx = #pfcp_ctx{cp_port = GtpPort}}) ->
+make_request(IP, Port, Msg, #data{cp_port = GtpPort}) ->
     ergw_gtp_socket:make_request(0, IP, Port, Msg, GtpPort).
 
 %% IPv4, non fragmented, UDP packet
@@ -760,6 +760,10 @@ choose_up_ip(#node{ip = {_,_,_,_,_,_,_,_}}, #vrf{ipv4 = IP6})
     ergw_inet:bin2ip(IP6);
 choose_up_ip(#node{ip = IP}, _VRF) ->
     IP.
+
+make_cp_bearer(TEI,  #gtp_port{vrf = VRF, ip = IP}) ->
+    FqTEID = #fq_teid{ip = IP, teid = TEI},
+    #bearer{interface = 'CP-function', vrf = VRF, remote = FqTEID}.
 
 assign_local_data_teid(PCtx, Node, VRFs, Bearer) ->
     [VRF|_] =
