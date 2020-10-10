@@ -108,7 +108,6 @@
 	  ipv4_pool              :: 'undefined' | binary(),
 	  ipv6_pool              :: 'undefined' | binary(),
 
-	  remote_data_teid       :: #fq_teid{},
 	  left                   :: 'undefined' | #bearer{},
 
 	  ms_v4                  :: inet:ip4_address(),

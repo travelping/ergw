@@ -1736,7 +1736,7 @@ modify_bearer_request_ra_update(Config) ->
 
     %% make sure the PDN-GW side control TEID don't change
     ?equal(Ctx1#context.remote_control_teid, Ctx2#context.remote_control_teid),
-    ?equal(Ctx1#context.remote_data_teid,    Ctx2#context.remote_data_teid),
+    ?equal(Ctx1#context.left#bearer.remote,    Ctx2#context.left#bearer.remote),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
@@ -1773,7 +1773,7 @@ modify_bearer_request_tei_update(Config) ->
 
     %% make sure the PDN-GW side control TEID DOES change
     ?not_equal(Ctx1#context.remote_control_teid, Ctx2#context.remote_control_teid),
-    ?equal(Ctx1#context.remote_data_teid, Ctx2#context.remote_data_teid),
+    ?equal(Ctx1#context.left#bearer.remote,        Ctx2#context.left#bearer.remote),
 
     [_, SMR0|_] = lists:filter(
 		    fun(#pfcp{type = session_modification_request}) -> true;
@@ -2253,7 +2253,7 @@ interop_sgsn_to_sgw(Config) ->
 
     %% make sure the GGSN/PDN-GW side control TEID DOES change
     ?not_equal(Ctx1#context.remote_control_teid, Ctx2#context.remote_control_teid),
-    ?equal(Ctx1#context.remote_data_teid,    Ctx2#context.remote_data_teid),
+    ?equal(Ctx1#context.left#bearer.remote,        Ctx2#context.left#bearer.remote),
 
     [_, SMR0|_] = lists:filter(
 		    fun(#pfcp{type = session_modification_request}) -> true;
@@ -2300,7 +2300,7 @@ interop_sgw_to_sgsn(Config) ->
 
     %% make sure the GGSN/PDN-GW side control TEID DOES change
     ?not_equal(Ctx1#context.remote_control_teid, Ctx2#context.remote_control_teid),
-    ?equal(Ctx1#context.remote_data_teid,    Ctx2#context.remote_data_teid),
+    ?equal(Ctx1#context.left#bearer.remote,        Ctx2#context.left#bearer.remote),
 
     [_, SMR0|_] = lists:filter(
 		    fun(#pfcp{type = session_modification_request}) -> true;

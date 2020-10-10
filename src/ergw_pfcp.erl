@@ -21,6 +21,8 @@
 	 outer_header_removal/1,
 	 ctx_teid_key/2,
 	 assign_local_data_teid/3,
+	 set_remote_data_teid/3,
+	 unset_remote_data_teid/1,
 	 up_inactivity_timer/1]).
 -export([init_ctx/1, reset_ctx/1,
 	 get_id/2, get_id/3, update_pfcp_rules/3]).
@@ -108,6 +110,8 @@ f_teid(TEID, {_,_,_,_} = IP) ->
 f_teid(TEID, {_,_,_,_,_,_,_,_} = IP) ->
     #f_teid{teid = TEID, ipv6 = ergw_inet:ip2bin(IP)}.
 
+outer_header_creation(#bearer{remote = FqTEID}) ->
+    outer_header_creation(FqTEID);
 outer_header_creation(#fq_teid{ip = {_,_,_,_} = IP, teid = TEID}) ->
     #outer_header_creation{type = 'GTP-U', teid = TEID, ipv4 = ergw_inet:ip2bin(IP)};
 outer_header_creation(#fq_teid{ip = {_,_,_,_,_,_,_,_} = IP, teid = TEID}) ->
@@ -140,6 +144,13 @@ assign_local_data_teid(PCtx, {VRFs, _} = _NodeCaps,
 		     ip = ergw_inet:bin2ip(IP),
 		     teid = DataTEI},
     Context#context{left = Bearer#bearer{vrf = Name, local = FqTEID}}.
+
+set_remote_data_teid(IP, TEI, #context{left = Bearer} = Context) ->
+    FqTEID = #fq_teid{ip = ergw_inet:bin2ip(IP), teid = TEI},
+    Context#context{left = Bearer#bearer{remote = FqTEID}}.
+
+unset_remote_data_teid(#context{left = Bearer} = Context) ->
+    Context#context{left = Bearer#bearer{remote = undefined}}.
 
 up_inactivity_timer(#pfcp_ctx{up_inactivity_timer = Timer})
   when is_integer(Timer) ->
