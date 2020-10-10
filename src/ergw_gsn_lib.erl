@@ -39,7 +39,9 @@
 -export([assign_local_data_teid/3,
 	 set_remote_data_teid/3,
 	 update_remote_data_teid/2,
-	 unset_remote_data_teid/1]).
+	 unset_remote_data_teid/1,
+	 set_ue_ip/1,
+	 unset_ue_ip/1]).
 
 -export([select_upf/2, reselect_upf/4]).
 
@@ -439,11 +441,9 @@ build_sx_rules_3(#pcc_ctx{monitors = Monitors, rules = PolicyRules,
 
 build_sx_ctx_rule(#sx_upd{
 		     pctx = #pfcp_ctx{cp_bearer = CpBearer} = PCtx0,
-		     sctx = #context{
-			       left = LeftBearer,
-			       ms_v6 = MSv6}
+		     sctx = #context{left = LeftBearer, right = RightBearer}
 		    } = Update)
-  when MSv6 /= undefined ->
+  when RightBearer#bearer.local#ue_ip.v6 /= undefined ->
     {PdrId, PCtx1} = ergw_pfcp:get_id(pdr, ipv6_mcast_pdr, PCtx0),
     {FarId, PCtx} = ergw_pfcp:get_id(far, dp_to_cp_far, PCtx1),
 
@@ -612,54 +612,44 @@ build_sx_redirect(_) ->
 %%		     [#{'Redirect-Support' :=        [1],   %% ENABLED
 %%			'Redirect-Address-Type' :=   [2],   %% URL
 %%			'Redirect-Server-Address' := [URL]}],
-%%		     #context{left = LeftBearer}) ->
+%%		     LeftBearer, _RightBearer) ->
+%%     RedirInfo = #redirect_information{type = 'URL', address = to_binary(URL)},
 %%     [#far_id{id = FarId},
 %%      #apply_action{forw = 1},
 %%      #forwarding_parameters{
-%%	group =
-%%	    [#redirect_information{type = 'URL', address = to_binary(URL)}
-%%	    | ergw_pfcp:traffic_forward(LeftBearer, [])]
+%%	group = ergw_pfcp:traffic_forward(LeftBearer, [RedirInfo])
 %%        }];
 build_sx_sgi_fwd_far(FarId,
 		     [#{'Redirect-Support' :=        [1],   %% ENABLED
 			'Redirect-Address-Type' :=   [2],   %% URL
 			'Redirect-Server-Address' := [URL]}],
-		     Ctx) ->
+		     _LeftBearer, RightBearer) ->
+    RedirInfo = #redirect_information{type = 'URL', address = to_binary(URL)},
     [#far_id{id = FarId},
      #apply_action{forw = 1},
      #forwarding_parameters{
-	group =
-	    [#destination_interface{interface = 'SGi-LAN'},
-	     ergw_pfcp:network_instance(Ctx),
-	     #redirect_information{type = 'URL', address = to_binary(URL)}]
+	group = ergw_pfcp:traffic_forward(RightBearer, [RedirInfo])
        }];
-build_sx_sgi_fwd_far(FarId, _RedirInfo, Ctx) ->
+build_sx_sgi_fwd_far(FarId, _RedirInfo, _LeftBearer, RightBearer) ->
     [#far_id{id = FarId},
      #apply_action{forw = 1},
      #forwarding_parameters{
-	group =
-	    [#destination_interface{interface = 'SGi-LAN'},
-	     ergw_pfcp:network_instance(Ctx)]
+	group = ergw_pfcp:traffic_forward(RightBearer, [])
        }].
 
 %% build_sx_rule/6
 build_sx_rule(Direction = downlink, Name, Definition, FilterInfo, URRs,
 	      #sx_upd{
 		 pctx = PCtx0,
-		 sctx = #context{left = LeftBearer} = Ctx
+		 sctx = #context{left = LeftBearer, right = RightBearer}
 		} = Update)
   when LeftBearer#bearer.remote /= undefined ->
     [Precedence] = maps:get('Precedence', Definition, [1000]),
     RuleName = {Direction, Name},
     {PdrId, PCtx1} = ergw_pfcp:get_id(pdr, RuleName, PCtx0),
     {FarId, PCtx} = ergw_pfcp:get_id(far, RuleName, PCtx1),
-    PDI = #pdi{
-	     group =
-		 [#source_interface{interface = 'SGi-LAN'},
-		  ergw_pfcp:network_instance(Ctx),
-		  ergw_pfcp:ue_ip_address(dst, Ctx)] ++
-		 build_sx_filter(FilterInfo)
-	     },
+    SxFilter = build_sx_filter(FilterInfo),
+    PDI = #pdi{group = ergw_pfcp:traffic_endp(RightBearer, SxFilter)},
     PDR = [#pdr_id{id = PdrId},
 	   #precedence{precedence = Precedence},
 	   PDI,
@@ -678,7 +668,7 @@ build_sx_rule(Direction = downlink, Name, Definition, FilterInfo, URRs,
 
 build_sx_rule(Direction = uplink, Name, Definition, FilterInfo, URRs,
 	      #sx_upd{pctx = PCtx0,
-		      sctx = #context{left = LeftBearer} = Ctx
+		      sctx = #context{left = LeftBearer, right = RightBearer}
 		     } = Update) ->
     [Precedence] = maps:get('Precedence', Definition, [1000]),
     RuleName = {Direction, Name},
@@ -687,9 +677,10 @@ build_sx_rule(Direction = uplink, Name, Definition, FilterInfo, URRs,
     SxFilter = build_sx_filter(FilterInfo),
     PDI = #pdi{
 	     group =
-		 [ergw_pfcp:ue_ip_address(src, Ctx)
+		 [ergw_pfcp:ue_ip_address(src, RightBearer)
 		 | ergw_pfcp:traffic_endp(LeftBearer, SxFilter)]
 	    },
+
     PDR = [#pdr_id{id = PdrId},
 	   #precedence{precedence = Precedence},
 	   PDI,
@@ -698,20 +689,7 @@ build_sx_rule(Direction = uplink, Name, Definition, FilterInfo, URRs,
 	[#urr_id{id = X} || X <- URRs],
 
     RedirInfo = maps:get('Redirect-Information', Definition, undefined),
-    FAR = build_sx_sgi_fwd_far(FarId, RedirInfo, Ctx),
-
-
-    %% FAR = [#far_id{id = FarId},
-    %% 	    #apply_action{forw = 1},
-    %% 	    #forwarding_parameters{
-    %% 	       group =
-    %% 		   [#destination_interface{interface = 'SGi-LAN'},
-    %% 		    %% #redirect_information{type = 'URL',
-    %% 		    %% 			  address = <<"http://www.heise.de/">>},
-    %% 		    ergw_pfcp:network_instance(Ctx)]
-    %% 	       ++ build_sx_redirect(maps:get('Redirect-Information', Definition, undefined))
-    %% 	      }
-    %% 	  ],
+    FAR = build_sx_sgi_fwd_far(FarId, RedirInfo, LeftBearer, RightBearer),
 
     Update#sx_upd{
       pctx = ergw_pfcp_rules:add(
@@ -1794,12 +1772,12 @@ ip_alloc_result(AI, {Context, Opts0}) ->
 	{IP, _} when ?IS_IPv4(IP) ->
 	    Opts1 = maps:merge(Opts0, ergw_ip_pool:opts(AI)),
 	    Opts = maps:put('Framed-IP-Address', IP, Opts1),
-	    {Context#context{ms_v4 = AI}, Opts};
+	    {set_ue_ip(Context#context{ms_v4 = AI}), Opts};
 	{IP, _} = IPv6 when ?IS_IPv6(IP) ->
 	    Opts1 = maps:merge(Opts0, ergw_ip_pool:opts(AI)),
 	    Opts = Opts1#{'Framed-IPv6-Prefix' => ergw_inet:ipv6_prefix(IPv6),
 			  'Framed-Interface-Id' => ergw_inet:ipv6_interface_id(IPv6)},
-	    {Context#context{ms_v6 = AI}, Opts}
+	    {set_ue_ip(Context#context{ms_v6 = AI}), Opts}
     end.
 
 wait_ip_alloc_results(ReqIds, Opts0, Context) ->
@@ -1912,7 +1890,7 @@ allocate_ips(AllocInfo,
 %% release_context_ips/1
 release_context_ips(#context{ms_v4 = MSv4, ms_v6 = MSv6} = Context) ->
     ergw_ip_pool:release([MSv4, MSv6]),
-    Context#context{ms_v4 = undefined, ms_v6 = undefined}.
+    unset_ue_ip(Context#context{ms_v4 = undefined, ms_v6 = undefined}).
 
 %%%===================================================================
 %%% Bearer helpers
@@ -1921,7 +1899,8 @@ release_context_ips(#context{ms_v4 = MSv4, ms_v6 = MSv6} = Context) ->
 update_element_with(Field, Tuple, Fun) ->
     setelement(Field, Tuple, Fun(element(Field, Tuple))).
 
-context_field(left) -> #context.left.
+context_field(left) -> #context.left;
+context_field(right) -> #context.right.
 
 bearer_field(local) -> #bearer.local;
 bearer_field(remote) -> #bearer.remote.
@@ -1979,6 +1958,32 @@ unset_remote_data_teid(CtxSide, BearerSide, Context) ->
    update_element_with(
      context_field(CtxSide), Context,
      setelement(bearer_field(BearerSide), _, undefined)).
+
+%% set_ue_ip/1
+set_ue_ip(Context) ->
+    set_ue_ip(right, local, Context).
+
+%% set_ue_ip/3
+set_ue_ip(CtxSide, BearerSide, #context{vrf = #vrf{name = Name}} = Context) ->
+    update_element_with(
+      context_field(CtxSide), Context,
+      fun(Bearer) ->
+	      setelement(bearer_field(BearerSide), Bearer#bearer{vrf = Name}, set_ue_ip_f(Context))
+      end).
+
+%% set_ue_ip_f/1
+set_ue_ip_f(#context{ms_v4 = IPv4, ms_v6 = IPv6}) ->
+    #ue_ip{v4 = IPv4, v6 = IPv6}.
+
+%% unset_ue_ip/1
+unset_ue_ip(Context) ->
+    unset_ue_ip(right, local, Context).
+
+%% unset_ue_ip/3
+unset_ue_ip(CtxSide, BearerSide, Context) ->
+    update_element_with(
+      context_field(CtxSide), Context,
+      setelement(bearer_field(BearerSide), _, undefined)).
 
 %%%===================================================================
 %%% T-PDU functions

@@ -35,6 +35,11 @@
 	  teid = 0 :: non_neg_integer()
 	 }).
 
+-record(ue_ip, {
+	  v4               :: inet:ip4_address(),
+	  v6               :: inet:ip6_address()
+	 }).
+
 -record(gtp_port, {
 	  name             :: term(),
 	  vrf              :: term(),
@@ -53,7 +58,7 @@
 	  interface             :: 'Access' | 'Core' | 'SGi-LAN' |
 				   'CP-Function' | 'LI Function',
 	  vrf			:: term(),
-	  local			:: 'undefined' | #fq_teid{},
+	  local			:: 'undefined' | #fq_teid{} | #ue_ip{},
 	  remote		:: 'undefined' | #fq_teid{}
 	 }).
 
@@ -108,6 +113,7 @@
 	  ipv6_pool              :: 'undefined' | binary(),
 
 	  left                   :: 'undefined' | #bearer{},
+	  right                  :: 'undefined' | #bearer{},
 
 	  ms_v4                  :: inet:ip4_address(),
 	  ms_v6                  :: inet:ip6_address(),

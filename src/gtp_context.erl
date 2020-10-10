@@ -326,7 +326,8 @@ init([CntlPort, Version, Interface,
 		 control_port      = CntlPort,
 		 local_control_tei = CntlTEI,
 
-		 left              = #bearer{interface = 'Access'}
+		 left              = #bearer{interface = 'Access'},
+		 right             = #bearer{interface = 'SGi-LAN'}
 		},
 
     Data = #{

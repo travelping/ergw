@@ -43,27 +43,36 @@
 alloc_info_addr(AI) ->
     ergw_inet:ip2bin(ergw_ip_pool:addr(AI)).
 
-traffic_endp(#bearer{local = FqTEID} = Bearer, Group) ->
+traffic_endp(#bearer{local = FqTEID} = Bearer, Group)
+  when is_record(FqTEID, fq_teid) ->
     [source_interface(Bearer),
      ergw_pfcp:network_instance(Bearer),
      ergw_pfcp:f_teid(FqTEID)
-     | Group].
+     | Group];
+traffic_endp(#bearer{local = UeIP} = Bearer, Group)
+  when is_record(UeIP, ue_ip) ->
+    [source_interface(Bearer),
+     ergw_pfcp:network_instance(Bearer),
+     ergw_pfcp:ue_ip_address(dst, Bearer)
+    | Group];
+traffic_endp(_, Group) ->
+    Group.
 
 traffic_forward(#bearer{} = Bearer, Group) ->
     [destination_interface(Bearer),
      ergw_pfcp:network_instance(Bearer)
     | outer_header_creation(Bearer, Group)].
 
-ue_ip_address(Direction, #context{ms_v4 = MSv4, ms_v6 = undefined})
-  when MSv4 /= undefined ->
-    #ue_ip_address{type = Direction, ipv4 = alloc_info_addr(MSv4)};
-ue_ip_address(Direction, #context{ms_v4 = undefined, ms_v6 = MSv6})
-  when MSv6 /= undefined ->
-    #ue_ip_address{type = Direction, ipv6 = alloc_info_addr(MSv6)};
-ue_ip_address(Direction, #context{ms_v4 = MSv4, ms_v6 = MSv6})
-  when MSv4 /= undefined, MSv6 /= undefined ->
-    #ue_ip_address{type = Direction, ipv4 = alloc_info_addr(MSv4),
-		   ipv6 = alloc_info_addr(MSv6)};
+ue_ip_address(Direction, #bearer{local = #ue_ip{v4 = IPv4, v6 = undefined}})
+  when IPv4 /= undefined ->
+    #ue_ip_address{type = Direction, ipv4 = alloc_info_addr(IPv4)};
+ue_ip_address(Direction, #bearer{local = #ue_ip{v4 = undefined, v6 = IPv6}})
+  when IPv6 /= undefined ->
+    #ue_ip_address{type = Direction, ipv6 = alloc_info_addr(IPv6)};
+ue_ip_address(Direction, #bearer{local = #ue_ip{v4 = IPv4, v6 = IPv6}})
+  when IPv4 /= undefined, IPv6 /= undefined ->
+    #ue_ip_address{type = Direction, ipv4 = alloc_info_addr(IPv4),
+		   ipv6 = alloc_info_addr(IPv6)};
 
 ue_ip_address(Direction, #tdf_ctx{ms_v4 = MSv4}) when MSv4 /= undefined ->
     #ue_ip_address{type = Direction, ipv4 = alloc_info_addr(MSv4)};
@@ -88,8 +97,6 @@ network_instance(Name)
 network_instance(#gtp_port{vrf = VRF}) ->
     network_instance(VRF);
 network_instance(#bearer{vrf = VRF}) ->
-    network_instance(VRF);
-network_instance(#context{vrf = VRF}) ->
     network_instance(VRF);
 network_instance(#vrf{name = Name}) ->
     network_instance(Name).
