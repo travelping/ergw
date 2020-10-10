@@ -227,18 +227,14 @@ proxy_pdr({SrcIntf, #context{left = LeftBearer},
 	   #urr_id{id = UrrId}],
     ergw_pfcp_rules:add(pdr, PdrId, PDR, PCtx).
 
-proxy_far({_SrcIntf, _Left, DstIntf,
-	   #context{
-	      left = LeftBearer,
-	      remote_data_teid = PeerTEID}
-	  }, PCtx0)
-  when PeerTEID /= undefined ->
+proxy_far({_SrcIntf, _Left, DstIntf, #context{left = LeftBearer}}, PCtx0)
+  when LeftBearer#bearer.remote /= undefined ->
     {FarId, PCtx} = ergw_pfcp:get_id(far, DstIntf, PCtx0),
     FAR = [#far_id{id = FarId},
 	   #apply_action{forw = 1},
 	   #forwarding_parameters{
 	      group =
-		  [ergw_pfcp:outer_header_creation(PeerTEID)
+		  [ergw_pfcp:outer_header_creation(LeftBearer)
 		  | ergw_pfcp:traffic_forward(LeftBearer, [])]
 	     }
 	  ],

@@ -562,6 +562,9 @@ init_proxy_context(CntlPort,
        state             = CState
       }.
 
+update_element_with(Field, Tuple, Fun) ->
+    setelement(Field, Tuple, Fun(element(Field, Tuple))).
+
 set_fq_teid(Id, undefined, Value) ->
     set_fq_teid(Id, #fq_teid{}, Value);
 set_fq_teid(ip, TEID, Value) ->
@@ -570,16 +573,20 @@ set_fq_teid(teid, TEID, Value) ->
     TEID#fq_teid{teid = Value}.
 
 set_fq_teid(Id, Field, Context, Value) ->
-    setelement(Field, Context, set_fq_teid(Id, element(Field, Context), Value)).
+    update_element_with(Field, Context, set_fq_teid(Id, _, Value)).
+
+set_bearer_fq_teid(Id, Field, Context, Value) ->
+    update_element_with(#context.left, Context,
+			update_element_with(Field, _, set_fq_teid(Id, _, Value))).
 
 get_context_from_req(_, #gsn_address{instance = 0, address = CntlIP}, Context) ->
     IP = ergw_gsn_lib:choose_context_ip(CntlIP, CntlIP, Context),
     set_fq_teid(ip, #context.remote_control_teid, Context, IP);
 get_context_from_req(_, #gsn_address{instance = 1, address = DataIP}, Context) ->
     IP = ergw_gsn_lib:choose_context_ip(DataIP, DataIP, Context),
-    set_fq_teid(ip, #context.remote_data_teid, Context, IP);
+    set_bearer_fq_teid(ip, #bearer.remote, Context, IP);
 get_context_from_req(_, #tunnel_endpoint_identifier_data_i{instance = 0, tei = DataTEI}, Context) ->
-    set_fq_teid(teid, #context.remote_data_teid, Context, DataTEI);
+    set_bearer_fq_teid(teid, #bearer.remote, Context, DataTEI);
 get_context_from_req(_, #tunnel_endpoint_identifier_control_plane{instance = 0, tei = CntlTEI}, Context) ->
     set_fq_teid(teid, #context.remote_control_teid, Context, CntlTEI);
 get_context_from_req(?'Access Point Name', #access_point_name{apn = APN}, Context) ->
@@ -635,7 +642,7 @@ update_gtp_req_from_context(Context, GtpReqIEs) ->
 proxy_info(Session,
 	   #context{apn = APN, imsi = IMSI, imei = IMEI, msisdn = MSISDN,
 		    remote_control_teid = #fq_teid{ip = GsnC},
-		    remote_data_teid = #fq_teid{ip = GsnU}}) ->
+		    left = #bearer{remote = #fq_teid{ip = GsnU}}}) ->
     Keys = [{'3GPP-RAT-Type', 'ratType'},
 	    {'3GPP-User-Location-Info', 'userLocationInfo'},
 	    {'RAI', rai}],
@@ -683,17 +690,21 @@ initiate_pdp_context_teardown(Direction, Data) ->
 fteid_forward_context(#f_teid{ipv4 = IPv4, ipv6 = IPv6, teid = TEID},
 		      #{proxy_context :=
 			    #context{
-			       remote_data_teid =
-				   #fq_teid{ip = IP,
-					    teid = TEID}}})
+			       left =
+				   #bearer{
+				      remote =
+					  #fq_teid{ip = IP,
+						   teid = TEID}}}})
   when IP =:= IPv4; IP =:= IPv6 ->
     ggsn2sgsn;
 fteid_forward_context(#f_teid{ipv4 = IPv4, ipv6 = IPv6, teid = TEID},
 		      #{context :=
 			    #context{
-			       remote_data_teid =
-				   #fq_teid{ip = IP,
-					    teid = TEID}}})
+			       left =
+				   #bearer{
+				      remote =
+					  #fq_teid{ip = IP,
+						   teid = TEID}}}})
   when IP =:= IPv4; IP =:= IPv6 ->
     sgsn2ggsn.
 

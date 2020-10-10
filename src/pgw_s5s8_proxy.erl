@@ -650,16 +650,12 @@ get_context_from_bearer(_, #v2_fully_qualified_tunnel_endpoint_identifier{
 			      interface_type = ?'S5/S8-U SGW',
 			      key = TEI, ipv4 = IP4, ipv6 = IP6}, Context) ->
     IP = ergw_gsn_lib:choose_context_ip(IP4, IP6, Context),
-    Context#context{
-      remote_data_teid = #fq_teid{ip = ergw_inet:bin2ip(IP), teid = TEI}
-     };
+    ergw_pfcp:set_remote_data_teid(IP, TEI, Context);
 get_context_from_bearer(_, #v2_fully_qualified_tunnel_endpoint_identifier{
 			      interface_type = ?'S5/S8-U PGW',
 			      key = TEI, ipv4 = IP4, ipv6 = IP6}, Context) ->
     IP = ergw_gsn_lib:choose_context_ip(IP4, IP6, Context),
-    Context#context{
-      remote_data_teid = #fq_teid{ip = ergw_inet:bin2ip(IP), teid = TEI}
-     };
+    ergw_pfcp:set_remote_data_teid(IP, TEI, Context);
 get_context_from_bearer(?'EPS Bearer ID', #v2_eps_bearer_id{eps_bearer_id = EBI},
 			#context{state = CState} = Context) ->
     Context#context{state = CState#context_state{ebi = EBI}};
@@ -748,7 +744,7 @@ update_gtp_req_from_context(Context, GtpReqIEs) ->
 proxy_info(Session,
 	   #context{apn = APN, imsi = IMSI, imei = IMEI, msisdn = MSISDN,
 		    remote_control_teid = #fq_teid{ip = GsnC},
-		    remote_data_teid = #fq_teid{ip = GsnU}}) ->
+		    left = #bearer{remote = #fq_teid{ip = GsnU}}}) ->
     Keys = [{'3GPP-RAT-Type', 'ratType'},
 	    {'3GPP-User-Location-Info', 'userLocationInfo'},
 	    {'RAI', rai}],
@@ -816,17 +812,21 @@ bind_forward_path(pgw2sgw, Request, #{context := Context,
 fteid_forward_context(#f_teid{ipv4 = IPv4, ipv6 = IPv6, teid = TEID},
 		      #{proxy_context :=
 			    #context{
-			       remote_data_teid =
-				   #fq_teid{ip = IP,
-					    teid = TEID}}})
+			       left =
+				   #bearer{
+				      remote =
+					  #fq_teid{ip = IP,
+						   teid = TEID}}}})
   when IP =:= IPv4; IP =:= IPv6 ->
     pgw2sgw;
 fteid_forward_context(#f_teid{ipv4 = IPv4, ipv6 = IPv6, teid = TEID},
 		      #{context :=
 			    #context{
-			       remote_data_teid =
-				   #fq_teid{ip = IP,
-					    teid = TEID}}})
+			       left =
+				   #bearer{
+				      remote =
+					  #fq_teid{ip = IP,
+						   teid = TEID}}}})
   when IP =:= IPv4; IP =:= IPv6 ->
     sgw2pgw.
 

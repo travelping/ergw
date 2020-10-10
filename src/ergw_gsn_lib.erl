@@ -648,10 +648,9 @@ build_sx_sgi_fwd_far(FarId, _RedirInfo, Ctx) ->
 build_sx_rule(Direction = downlink, Name, Definition, FilterInfo, URRs,
 	      #sx_upd{
 		 pctx = PCtx0,
-		 sctx = #context{left = LeftBearer,
-				 remote_data_teid = PeerTEID} = Ctx
+		 sctx = #context{left = LeftBearer} = Ctx
 		} = Update)
-  when PeerTEID /= undefined ->
+  when LeftBearer#bearer.remote /= undefined ->
     [Precedence] = maps:get('Precedence', Definition, [1000]),
     RuleName = {Direction, Name},
     {PdrId, PCtx1} = ergw_pfcp:get_id(pdr, RuleName, PCtx0),
@@ -672,7 +671,7 @@ build_sx_rule(Direction = downlink, Name, Definition, FilterInfo, URRs,
 	   #apply_action{forw = 1},
 	   #forwarding_parameters{
 	      group =
-		  [ergw_pfcp:outer_header_creation(PeerTEID)
+		  [ergw_pfcp:outer_header_creation(LeftBearer)
 		  | ergw_pfcp:traffic_forward(LeftBearer, [])]
 	     }
 	  ],
@@ -1923,8 +1922,9 @@ release_context_ips(#context{ms_v4 = MSv4, ms_v6 = MSv6} = Context) ->
 %%% T-PDU functions
 %%%===================================================================
 
-send_g_pdu(PCtx, #bearer{vrf = VRF, local = #fq_teid{ip = SrcIP}},
-	   #fq_teid{ip = DstIP, teid = TEID}, Data) ->
+send_g_pdu(PCtx, #bearer{vrf = VRF,
+		       local = #fq_teid{ip = SrcIP},
+		       remote = #fq_teid{ip = DstIP, teid = TEID}}, Data) ->
     GTP = #gtp{version =v1, type = g_pdu, tei = TEID, ie = Data},
     PayLoad = gtp_packet:encode(GTP),
     UDP = ergw_inet:make_udp(
@@ -1958,8 +1958,7 @@ ip_pdu(Data, _Context, _PCtx) ->
 %% IPv6 Router Solicitation
 icmpv6(TC, FlowLabel, _SrcAddr, ?'IPv6 All Routers LL',
        <<?'ICMPv6 Router Solicitation':8, _Code:8, _CSum:16, _/binary>>,
-       #context{left = Bearer, remote_data_teid = RemoteDataTEID,
-		ms_v6 = MSv6, dns_v6 = DNSv6}, PCtx) ->
+       #context{left = Bearer, ms_v6 = MSv6, dns_v6 = DNSv6}, PCtx) ->
     IPv6 = ergw_ip_pool:ip(MSv6),
     {Prefix, PLen} = ergw_inet:ipv6_interface_id(IPv6, ?NULL_INTERFACE_ID),
 
@@ -2003,7 +2002,7 @@ icmpv6(TC, FlowLabel, _SrcAddr, ?'IPv6 All Routers LL',
     ICMPv6 = <<6:4, TC:8, FlowLabel:20, ICMPLength:16, ?ICMPv6:8, TTL:8,
 	       NwSrc:16/bytes, NwDst:16/bytes,
 	       ?'ICMPv6 Router Advertisement':8, 0:8, CSum:16, RAOpts/binary>>,
-    send_g_pdu(PCtx, Bearer, RemoteDataTEID, ICMPv6);
+    send_g_pdu(PCtx, Bearer, ICMPv6);
 
 icmpv6(_TC, _FlowLabel, _SrcAddr, _DstAddr, _PayLoad, _Context, _PCtx) ->
     ?LOG(warning, "unhandeld ICMPv6 from ~p to ~p: ~p", [_SrcAddr, _DstAddr, _PayLoad]),
