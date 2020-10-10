@@ -52,7 +52,7 @@ traffic_endp(#bearer{local = FqTEID} = Bearer, Group) ->
 traffic_forward(#bearer{} = Bearer, Group) ->
     [destination_interface(Bearer),
      ergw_pfcp:network_instance(Bearer)
-    | Group].
+    | outer_header_creation(Bearer, Group)].
 
 ue_ip_address(Direction, #context{ms_v4 = MSv4, ms_v6 = undefined})
   when MSv4 /= undefined ->
@@ -107,8 +107,12 @@ f_teid(TEID, {_,_,_,_} = IP) ->
 f_teid(TEID, {_,_,_,_,_,_,_,_} = IP) ->
     #f_teid{teid = TEID, ipv6 = ergw_inet:ip2bin(IP)}.
 
-outer_header_creation(#bearer{remote = FqTEID}) ->
-    outer_header_creation(FqTEID);
+outer_header_creation(#bearer{remote = FqTEID}, Group)
+  when is_record(FqTEID, fq_teid) ->
+    [outer_header_creation(FqTEID) | Group];
+outer_header_creation(_, Group) ->
+    Group.
+
 outer_header_creation(#fq_teid{ip = {_,_,_,_} = IP, teid = TEID}) ->
     #outer_header_creation{type = 'GTP-U', teid = TEID, ipv4 = ergw_inet:ip2bin(IP)};
 outer_header_creation(#fq_teid{ip = {_,_,_,_,_,_,_,_} = IP, teid = TEID}) ->
