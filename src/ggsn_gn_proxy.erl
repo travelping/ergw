@@ -557,6 +557,8 @@ init_proxy_context(CntlPort,
        local_control_tei = CntlTEI,
        remote_control_teid =
 	   #fq_teid{ip = GGSN},
+       left              = #bearer{interface = 'Core'},
+
        state             = CState
       }.
 
@@ -615,10 +617,10 @@ set_req_from_context(#context{msisdn = MSISDN},
 set_req_from_context(#context{control_port = #gtp_port{ip = CntlIP}},
 		     _K, #gsn_address{instance = 0} = IE) ->
     IE#gsn_address{address = ergw_inet:ip2bin(CntlIP)};
-set_req_from_context(#context{local_data_endp = #gtp_endp{ip = IP}},
+set_req_from_context(#context{left = #bearer{local = #fq_teid{ip = IP}}},
 		     _K, #gsn_address{instance = 1} = IE) ->
     IE#gsn_address{address = ergw_inet:ip2bin(IP)};
-set_req_from_context(#context{local_data_endp = #gtp_endp{teid = TEI}},
+set_req_from_context(#context{left = #bearer{local = #fq_teid{teid = TEI}}},
 		     _K, #tunnel_endpoint_identifier_data_i{instance = 0} = IE) ->
     IE#tunnel_endpoint_identifier_data_i{tei = TEI};
 set_req_from_context(#context{local_control_tei = CntlTEI},

@@ -41,7 +41,7 @@
 	       retries = 0       :: non_neg_integer(),
 	       recovery_ts       :: undefined | non_neg_integer(),
 	       pfcp_ctx          :: #pfcp_ctx{},
-	       upf_data_endp     :: #gtp_endp{},
+	       bearer            :: #bearer{},
 	       cp,
 	       dp,
 	       ip_pools,
@@ -212,6 +212,7 @@ init([Parent, Node, NodeSelect, IP4, IP6, NotifyUp]) ->
 		  retries = 0,
 		  recovery_ts = undefined,
 		  pfcp_ctx = PCtx,
+		  bearer = #bearer{interface = 'CP-function'},
 		  cp = CP,
 		  tdf = #{},
 		  notify_up = NotifyUp
@@ -302,7 +303,7 @@ handle_event(cast, {response, _, #pfcp{version = v1, type = association_setup_re
 handle_event(cast, {send, 'Access', _VRF, Data}, {connected, _},
 	     #data{pfcp_ctx = #pfcp_ctx{cp_port = Port},
 		   dp = #node{ip = IP},
-		   upf_data_endp = #gtp_endp{teid = TEI}}) ->
+		   bearer = #bearer{local = #fq_teid{teid = TEI}}}) ->
 
     Msg = #gtp{version = v1, type = g_pdu, tei = TEI, ie = Data},
     Bin = gtp_packet:encode(Msg),
@@ -760,37 +761,32 @@ choose_up_ip(#node{ip = {_,_,_,_,_,_,_,_}}, #vrf{ipv4 = IP6})
 choose_up_ip(#node{ip = IP}, _VRF) ->
     IP.
 
-create_data_endp(PCtx, Node, VRFs) ->
+assign_local_data_teid(PCtx, Node, VRFs, Bearer) ->
     [VRF|_] =
 	lists:filter(fun(#vrf{features = Features}) ->
 			     lists:member('CP-Function', Features)
 		     end, maps:values(VRFs)),
     {ok, DataTEI} = ergw_tei_mngr:alloc_tei(PCtx),
-    #gtp_endp{
-       vrf = VRF#vrf.name,
-       ip = choose_up_ip(Node, VRF),
-       teid = DataTEI}.
+    FqTEID = #fq_teid{
+		ip = choose_up_ip(Node, VRF),
+		teid = DataTEI
+	       },
+    Bearer#bearer{vrf = VRF#vrf.name, local = FqTEID}.
 
-gen_pfcp_rules(_Key, #vrf{features = Features} = VRF, DataEndP, Acc) ->
-    lists:foldl(gen_per_feature_pfcp_rule(_, VRF, DataEndP, _), Acc, Features).
+gen_pfcp_rules(_Key, #vrf{features = Features} = VRF, Bearer, Acc) ->
+    lists:foldl(gen_per_feature_pfcp_rule(_, VRF, Bearer, _), Acc, Features).
 
-gen_per_feature_pfcp_rule('Access', #vrf{name = Name} = VRF,
-			  DataEndP, PCtx0) ->
+gen_per_feature_pfcp_rule('Access', #vrf{name = Name} = VRF, Bearer, PCtx0) ->
     Key = {Name, 'Access'},
     {PdrId, PCtx1} = ergw_pfcp:get_id(pdr, Key, PCtx0),
     {FarId, PCtx} = ergw_pfcp:get_id(far, Key, PCtx1),
 
     %% GTP-U encapsulated packet from CP
-    PDI = #pdi{
-	     group =
-		 [#source_interface{interface = 'CP-function'},
-		  ergw_pfcp:network_instance(DataEndP),
-		  ergw_pfcp:f_teid(DataEndP)]
-	    },
+    PDI = #pdi{group = ergw_pfcp:traffic_endp(Bearer, [])},
     PDR = [#pdr_id{id = PdrId},
 	   #precedence{precedence = 100},
 	   PDI,
-	   ergw_pfcp:outer_header_removal(DataEndP),
+	   ergw_pfcp:outer_header_removal(Bearer),
 	   #far_id{id = FarId}],
     %% forward to Access intefaces
     FAR = [#far_id{id = FarId},
@@ -805,8 +801,7 @@ gen_per_feature_pfcp_rule('Access', #vrf{name = Name} = VRF,
     ergw_pfcp_rules:add(
       [{pdr, PdrId, PDR},
        {far, FarId, FAR}], PCtx);
-gen_per_feature_pfcp_rule('TDF-Source', #vrf{name = Name} = VRF,
-			  _DataEndP, PCtx0) ->
+gen_per_feature_pfcp_rule('TDF-Source', #vrf{name = Name} = VRF, _Bearer, PCtx0) ->
     Key = {tdf, Name},
     {PdrId, PCtx1} = ergw_pfcp:get_id(pdr, Key, PCtx0),
     {FarId, PCtx2} = ergw_pfcp:get_id(far, Key, PCtx1),
@@ -844,13 +839,14 @@ gen_per_feature_pfcp_rule(_, _VRF, _DpGtpIP, Acc) ->
     Acc.
 
 install_cp_rules(#data{pfcp_ctx = PCtx0,
+		       bearer = Bearer0,
 		       cp = CntlNode,
 		       dp = #node{ip = DpNodeIP} = DpNode,
 		       vrfs = VRFs} = Data) ->
-    DataEndP = create_data_endp(PCtx0, DpNode, VRFs),
+    Bearer = assign_local_data_teid(PCtx0, DpNode, VRFs, Bearer0),
 
     PCtx1 = ergw_pfcp:init_ctx(PCtx0),
-    PCtx = maps:fold(gen_pfcp_rules(_, _, DataEndP, _), PCtx1, VRFs),
+    PCtx = maps:fold(gen_pfcp_rules(_, _, Bearer, _), PCtx1, VRFs),
     Rules = ergw_pfcp:update_pfcp_rules(PCtx1, PCtx, #{}),
     IEs = update_m_rec(ergw_pfcp:f_seid(PCtx, CntlNode), Rules),
 
@@ -858,7 +854,7 @@ install_cp_rules(#data{pfcp_ctx = PCtx0,
     Req = augment_mandatory_ie(Req0, Data),
     ergw_sx_socket:call(DpNodeIP, Req, response_cb(from_cp_rule)),
 
-    Data#data{pfcp_ctx = PCtx, upf_data_endp = DataEndP}.
+    Data#data{pfcp_ctx = PCtx, bearer = Bearer}.
 
 send_notify_up(Notify, NotifyUp) when is_list(NotifyUp) ->
     [Pid ! {Tag, Notify} || {Pid, Tag} <- NotifyUp, is_pid(Pid), is_reference(Tag)];

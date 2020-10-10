@@ -10,6 +10,9 @@
 -compile({parse_transform, cut}).
 
 -export([
+	 traffic_endp/2,
+	 traffic_forward/2,
+
 	 f_seid/2,
 	 f_teid/1, f_teid/2,
 	 ue_ip_address/2,
@@ -17,7 +20,7 @@
 	 outer_header_creation/1,
 	 outer_header_removal/1,
 	 ctx_teid_key/2,
-	 assign_data_teid/3,
+	 assign_local_data_teid/3,
 	 up_inactivity_timer/1]).
 -export([init_ctx/1, reset_ctx/1,
 	 get_id/2, get_id/3, update_pfcp_rules/3]).
@@ -41,6 +44,17 @@
 alloc_info_addr(AI) ->
     ergw_inet:ip2bin(ergw_ip_pool:addr(AI)).
 
+traffic_endp(#bearer{local = FqTEID} = Bearer, Group) ->
+    [source_interface(Bearer),
+     ergw_pfcp:network_instance(Bearer),
+     ergw_pfcp:f_teid(FqTEID)
+     | Group].
+
+traffic_forward(#bearer{} = Bearer, Group) ->
+    [destination_interface(Bearer),
+     ergw_pfcp:network_instance(Bearer)
+    | Group].
+
 ue_ip_address(Direction, #context{ms_v4 = MSv4, ms_v6 = undefined})
   when MSv4 /= undefined ->
     #ue_ip_address{type = Direction, ipv4 = alloc_info_addr(MSv4)};
@@ -57,12 +71,24 @@ ue_ip_address(Direction, #tdf_ctx{ms_v4 = MSv4}) when MSv4 /= undefined ->
 ue_ip_address(Direction, #tdf_ctx{ms_v6 = MSv6}) when MSv6 /= undefined ->
     #ue_ip_address{type = Direction, ipv6 = alloc_info_addr(MSv6)}.
 
+source_interface(Name)
+  when is_atom(Name) ->
+    #source_interface{interface = Name};
+source_interface(#bearer{interface = VRF}) ->
+    source_interface(VRF).
+
+destination_interface(Name)
+  when is_atom(Name) ->
+    #destination_interface{interface = Name};
+destination_interface(#bearer{interface = VRF}) ->
+    destination_interface(VRF).
+
 network_instance(Name)
   when is_binary(Name) ->
     #network_instance{instance = Name};
 network_instance(#gtp_port{vrf = VRF}) ->
     network_instance(VRF);
-network_instance(#gtp_endp{vrf = VRF}) ->
+network_instance(#bearer{vrf = VRF}) ->
     network_instance(VRF);
 network_instance(#context{vrf = VRF}) ->
     network_instance(VRF);
@@ -74,7 +100,7 @@ f_seid(#pfcp_ctx{seid = #seid{cp = SEID}}, #node{ip = {_,_,_,_} = IP}) ->
 f_seid(#pfcp_ctx{seid = #seid{cp = SEID}}, #node{ip = {_,_,_,_,_,_,_,_} = IP}) ->
     #f_seid{seid = SEID, ipv6 = ergw_inet:ip2bin(IP)}.
 
-f_teid(#gtp_endp{ip = IP, teid = TEID}) ->
+f_teid(#fq_teid{ip = IP, teid = TEID}) ->
     f_teid(TEID, IP).
 
 f_teid(TEID, {_,_,_,_} = IP) ->
@@ -87,7 +113,9 @@ outer_header_creation(#fq_teid{ip = {_,_,_,_} = IP, teid = TEID}) ->
 outer_header_creation(#fq_teid{ip = {_,_,_,_,_,_,_,_} = IP, teid = TEID}) ->
     #outer_header_creation{type = 'GTP-U', teid = TEID, ipv6 = ergw_inet:ip2bin(IP)}.
 
-outer_header_removal(#gtp_endp{ip = IP}) ->
+outer_header_removal(#bearer{local = #fq_teid{ip = IP}}) ->
+    outer_header_removal(IP);
+outer_header_removal(#fq_teid{ip = IP}) ->
     outer_header_removal(IP);
 outer_header_removal({_,_,_,_}) ->
     #outer_header_removal{header = 'GTP-U/UDP/IPv4'};
@@ -101,16 +129,17 @@ get_port_vrf(#gtp_port{vrf = VRF}, VRFs)
 ctx_teid_key(#pfcp_ctx{name = Name}, TEI) ->
     {Name, {teid, 'gtp-u', TEI}}.
 
-assign_data_teid(PCtx, {VRFs, _} = _NodeCaps,
-		 #context{control_port = ControlPort} = Context) ->
+assign_local_data_teid(PCtx, {VRFs, _} = _NodeCaps,
+		 #context{control_port = ControlPort, left = Bearer} = Context) ->
     #vrf{name = Name, ipv4 = IP4, ipv6 = IP6} =
 	get_port_vrf(ControlPort, VRFs),
 
     IP = ergw_gsn_lib:choose_context_ip(IP4, IP6, Context),
     {ok, DataTEI} = ergw_tei_mngr:alloc_tei(PCtx),
-    Context#context{
-      local_data_endp = #gtp_endp{vrf = Name, ip = ergw_inet:bin2ip(IP), teid = DataTEI}
-     }.
+    FqTEID = #fq_teid{
+		     ip = ergw_inet:bin2ip(IP),
+		     teid = DataTEI},
+    Context#context{left = Bearer#bearer{vrf = Name, local = FqTEID}}.
 
 up_inactivity_timer(#pfcp_ctx{up_inactivity_timer = Timer})
   when is_integer(Timer) ->
