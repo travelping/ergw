@@ -36,6 +36,9 @@
 -export([apn/2, select_vrf/2,
 	 init_session_ip_opts/3,
 	 allocate_ips/5, release_context_ips/1]).
+-export([assign_local_data_teid/3,
+	 set_remote_data_teid/3,
+	 unset_remote_data_teid/1]).
 
 -export([select_upf/2, reselect_upf/4]).
 
@@ -1059,7 +1062,7 @@ register_ctx_ids(Handler,
 
 create_sgi_session(PCtx, NodeCaps, PCC, Ctx0)
   when is_record(PCC, pcc_ctx) ->
-    Ctx = ergw_pfcp:assign_local_data_teid(PCtx, NodeCaps, Ctx0),
+    Ctx = assign_local_data_teid(PCtx, NodeCaps, Ctx0),
     register_ctx_ids(gtp_context, Ctx, PCtx),
     session_establishment_request(PCC, PCtx, Ctx).
 
@@ -1915,6 +1918,28 @@ allocate_ips(AllocInfo,
 release_context_ips(#context{ms_v4 = MSv4, ms_v6 = MSv6} = Context) ->
     ergw_ip_pool:release([MSv4, MSv6]),
     Context#context{ms_v4 = undefined, ms_v6 = undefined}.
+
+%%%===================================================================
+%%% Bearer helpers
+%%%===================================================================
+
+assign_local_data_teid(PCtx, {VRFs, _} = _NodeCaps,
+		 #context{control_port = ControlPort, left = Bearer} = Context) ->
+    #vrf{name = Name, ipv4 = IP4, ipv6 = IP6} = maps:get(ControlPort#gtp_port.vrf, VRFs),
+
+    IP = choose_context_ip(IP4, IP6, Context),
+    {ok, DataTEI} = ergw_tei_mngr:alloc_tei(PCtx),
+    FqTEID = #fq_teid{
+		     ip = ergw_inet:bin2ip(IP),
+		     teid = DataTEI},
+    Context#context{left = Bearer#bearer{vrf = Name, local = FqTEID}}.
+
+set_remote_data_teid(IP, TEI, #context{left = Bearer} = Context) ->
+    FqTEID = #fq_teid{ip = ergw_inet:bin2ip(IP), teid = TEI},
+    Context#context{left = Bearer#bearer{remote = FqTEID}}.
+
+unset_remote_data_teid(#context{left = Bearer} = Context) ->
+    Context#context{left = Bearer#bearer{remote = undefined}}.
 
 %%%===================================================================
 %%% T-PDU functions

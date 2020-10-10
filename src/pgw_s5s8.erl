@@ -1150,7 +1150,7 @@ update_context_cntl_ids(_ , Context) ->
 update_context_data_ids(#v2_fully_qualified_tunnel_endpoint_identifier{
 			     key = TEI, ipv4 = IP4, ipv6 = IP6}, Context) ->
     IP = ergw_gsn_lib:choose_context_ip(IP4, IP6, Context),
-    ergw_pfcp:set_remote_data_teid(IP, TEI, Context);
+    ergw_gsn_lib:set_remote_data_teid(IP, TEI, Context);
 update_context_data_ids(_ , Context) ->
     Context.
 

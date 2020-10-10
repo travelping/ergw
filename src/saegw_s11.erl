@@ -530,7 +530,7 @@ handle_request(ReqKey,
 	       #gtp{type = release_access_bearers_request} = Request, _Resent, _State,
 	       #{context := OldContext, pfcp := PCtx0, pcc := PCC} = Data) ->
     ModifyOpts = #{send_end_marker => true},
-    NewContext = ergw_pfcp:unset_remote_data_teid(OldContext),
+    NewContext = ergw_gsn_lib:unset_remote_data_teid(OldContext),
     gtp_context:remote_context_update(OldContext, NewContext),
     {PCtx, _} =
 	ergw_gsn_lib:modify_sgi_session(PCC, [], ModifyOpts, NewContext, PCtx0),
@@ -1058,7 +1058,7 @@ update_context_cntl_ids(_ , Context) ->
 update_context_data_ids(#v2_fully_qualified_tunnel_endpoint_identifier{
 			   key = TEI, ipv4 = IP4, ipv6 = IP6}, Context) ->
     IP = ergw_gsn_lib:choose_context_ip(IP4, IP6, Context),
-    ergw_pfcp:set_remote_data_teid(IP, TEI, Context);
+    ergw_gsn_lib:set_remote_data_teid(IP, TEI, Context);
 update_context_data_ids(_ , Context) ->
     Context.
 
