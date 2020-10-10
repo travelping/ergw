@@ -49,13 +49,20 @@
 	  dp = 0           :: non_neg_integer()
 	 }).
 
+-record(bearer, {
+	  interface             :: 'Access' | 'Core' | 'SGi-LAN' |
+				   'CP-Function' | 'LI Function',
+	  vrf			:: term(),
+	  local			:: 'undefined' | #fq_teid{},
+	  remote		:: 'undefined' | #fq_teid{}
+	 }).
+
 -record(pfcp_ctx, {
 	  name			:: term(),
 	  node			:: pid(),
 	  seid			:: #seid{},
 
-	  cp_port		:: #gtp_port{},
-	  cp_tei		:: non_neg_integer(),
+	  cp_bearer		:: #bearer{},
 
 	  idcnt = #{}		:: map(),
 	  idmap = #{}		:: map(),
@@ -75,14 +82,6 @@
 
 	  %% TBD:
 	  offline_charging_profile = #{}	:: map()
-	 }).
-
--record(bearer, {
-	  interface             :: 'Access' | 'Core' | 'SGi-LAN' |
-				   'CP-Function' | 'LI Function',
-	  vrf			:: term(),
-	  local			:: 'undefined' | #fq_teid{},
-	  remote		:: 'undefined' | #fq_teid{}
 	 }).
 
 -record(context, {

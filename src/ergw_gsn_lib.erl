@@ -434,9 +434,7 @@ build_sx_rules_3(#pcc_ctx{monitors = Monitors, rules = PolicyRules,
     maps:fold(fun build_sx_rule/3, Update5, PolicyRules).
 
 build_sx_ctx_rule(#sx_upd{
-		     pctx =
-			 #pfcp_ctx{cp_port = #gtp_port{ip = CpIP} = CpPort,
-				   cp_tei = CpTEI} = PCtx0,
+		     pctx = #pfcp_ctx{cp_bearer = CpBearer} = PCtx0,
 		     sctx = #context{
 			       left = LeftBearer,
 			       ms_v6 = MSv6}
@@ -463,8 +461,8 @@ build_sx_ctx_rule(#sx_upd{
 	   #forwarding_parameters{
 	      group =
 		  [#destination_interface{interface = 'CP-function'},
-		   ergw_pfcp:network_instance(CpPort),
-		   ergw_pfcp:outer_header_creation(#fq_teid{ip = CpIP, teid = CpTEI})
+		   ergw_pfcp:network_instance(CpBearer),
+		   ergw_pfcp:outer_header_creation(CpBearer)
 		  ]
 	     }
 	  ],
