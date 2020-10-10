@@ -1307,7 +1307,7 @@ s5s8_pgw_gtp_c_tei(#context{control_port = #gtp_port{ip = IP}, local_control_tei
     %% or for GTP based Control Plane interface
     fq_teid(1, ?'S5/S8-C PGW', TEI, IP).
 
-s5s8_pgw_gtp_u_tei(#context{local_data_endp = #gtp_endp{ip = IP, teid = TEI}}) ->
+s5s8_pgw_gtp_u_tei(#context{left = #bearer{local = #fq_teid{ip = IP, teid = TEI}}}) ->
     fq_teid(2,  ?'S5/S8-U PGW', TEI, IP).
 
 cr_ran_type(1)  -> 'UTRAN';

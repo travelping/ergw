@@ -1168,7 +1168,7 @@ pdp_qos_profile(_SessionOpts, IE) ->
 
 tunnel_endpoint_elements(#context{control_port = #gtp_port{ip = CntlIP},
 				  local_control_tei = CntlTEI,
-				  local_data_endp = #gtp_endp{ip = DataIP, teid = DataTEI}
+				  left = #bearer{local = #fq_teid{ip = DataIP, teid = DataTEI}}
 				 }, IEs) ->
     [#tunnel_endpoint_identifier_data_i{tei = DataTEI},
      #tunnel_endpoint_identifier_control_plane{tei = CntlTEI},

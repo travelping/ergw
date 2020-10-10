@@ -324,7 +324,9 @@ init([CntlPort, Version, Interface,
 		 version           = Version,
 		 control_interface = Interface,
 		 control_port      = CntlPort,
-		 local_control_tei = CntlTEI
+		 local_control_tei = CntlTEI,
+
+		 left              = #bearer{interface = 'Access'}
 		},
 
     Data = #{

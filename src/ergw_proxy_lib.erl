@@ -213,28 +213,23 @@ update_m_rec(Record, Map) when is_tuple(Record) ->
 %%% Sx DP API
 %%%===================================================================
 
-proxy_pdr({SrcIntf, #context{local_data_endp = LocalDataEndp},
+proxy_pdr({SrcIntf, #context{left = LeftBearer},
 	  DstIntf, _Right}, PCtx0) ->
 
     {[PdrId, FarId, UrrId], PCtx} =
 	ergw_pfcp:get_id([{pdr, SrcIntf}, {far, DstIntf}, {urr, proxy}], PCtx0),
-    PDI = #pdi{
-	     group =
-		 [#source_interface{interface = SrcIntf},
-		  ergw_pfcp:network_instance(LocalDataEndp),
-		  ergw_pfcp:f_teid(LocalDataEndp)]
-	    },
+    PDI = #pdi{group = ergw_pfcp:traffic_endp(LeftBearer, [])},
     PDR = [#pdr_id{id = PdrId},
 	   #precedence{precedence = 100},
 	   PDI,
-	   ergw_pfcp:outer_header_removal(LocalDataEndp),
+	   ergw_pfcp:outer_header_removal(LeftBearer),
 	   #far_id{id = FarId},
 	   #urr_id{id = UrrId}],
     ergw_pfcp_rules:add(pdr, PdrId, PDR, PCtx).
 
 proxy_far({_SrcIntf, _Left, DstIntf,
 	   #context{
-	      local_data_endp = LocalDataEndp,
+	      left = LeftBearer,
 	      remote_data_teid = PeerTEID}
 	  }, PCtx0)
   when PeerTEID /= undefined ->
@@ -243,10 +238,8 @@ proxy_far({_SrcIntf, _Left, DstIntf,
 	   #apply_action{forw = 1},
 	   #forwarding_parameters{
 	      group =
-		  [#destination_interface{interface = DstIntf},
-		   ergw_pfcp:network_instance(LocalDataEndp),
-		   ergw_pfcp:outer_header_creation(PeerTEID)
-		  ]
+		  [ergw_pfcp:outer_header_creation(PeerTEID)
+		  | ergw_pfcp:traffic_forward(LeftBearer, [])]
 	     }
 	  ],
     ergw_pfcp_rules:add(far, FarId, FAR, PCtx);
@@ -265,19 +258,17 @@ proxy_urr(PCtx0) ->
 	  ],
     ergw_pfcp_rules:add(urr, UrrId, URR, PCtx).
 
-register_ctx_ids(#context{local_data_endp = LocalDataEndp},
+register_ctx_ids(#context{left = #bearer{local = FqTEID}},
 		 #pfcp_ctx{seid = #seid{cp = SEID}} = PCtx) ->
     Keys = [{seid, SEID} |
-	    [ergw_pfcp:ctx_teid_key(PCtx, #fq_teid{ip = LocalDataEndp#gtp_endp.ip,
-						   teid = LocalDataEndp#gtp_endp.teid}) ||
-		is_record(LocalDataEndp, gtp_endp)]],
+	    [ergw_pfcp:ctx_teid_key(PCtx, FqTEID) || is_record(FqTEID, fq_teid)]],
     gtp_context_reg:register(Keys, gtp_context, self()).
 
 create_forward_session(Candidates, Left0, Right0) ->
     {ok, PCtx0, NodeCaps} = ergw_sx_node:select_sx_node(Candidates, Left0),
-    Left = ergw_pfcp:assign_data_teid(PCtx0, NodeCaps, Left0),
+    Left = ergw_pfcp:assign_local_data_teid(PCtx0, NodeCaps, Left0),
     register_ctx_ids(Left, PCtx0),
-    Right = ergw_pfcp:assign_data_teid(PCtx0, NodeCaps, Right0),
+    Right = ergw_pfcp:assign_local_data_teid(PCtx0, NodeCaps, Right0),
     register_ctx_ids(Left, PCtx0),
 
     {ok, CntlNode, _} = ergw_sx_socket:id(),

@@ -438,7 +438,7 @@ build_sx_ctx_rule(#sx_upd{
 			 #pfcp_ctx{cp_port = #gtp_port{ip = CpIP} = CpPort,
 				   cp_tei = CpTEI} = PCtx0,
 		     sctx = #context{
-			       local_data_endp = LocalDataEndp,
+			       left = LeftBearer,
 			       ms_v6 = MSv6}
 		    } = Update)
   when MSv6 /= undefined ->
@@ -447,12 +447,10 @@ build_sx_ctx_rule(#sx_upd{
 
     PDI = #pdi{
 	     group =
-		 [#source_interface{interface = 'Access'},
-		  ergw_pfcp:network_instance(LocalDataEndp),
-		  ergw_pfcp:f_teid(LocalDataEndp),
-		  #sdf_filter{
+		 [#sdf_filter{
 		     flow_description =
-			 <<"permit out 58 from ff00::/8 to assigned">>}]
+			 <<"permit out 58 from ff00::/8 to assigned">>}
+		 | ergw_pfcp:traffic_endp(LeftBearer, [])]
 	    },
     PDR = [#pdr_id{id = PdrId},
 	   #precedence{precedence = 100},
@@ -616,14 +614,13 @@ build_sx_redirect(_) ->
 %%		     [#{'Redirect-Support' :=        [1],   %% ENABLED
 %%			'Redirect-Address-Type' :=   [2],   %% URL
 %%			'Redirect-Server-Address' := [URL]}],
-%%		     #context{local_data_endp = LocalDataEndp}) ->
+%%		     #context{left = LeftBearer}) ->
 %%     [#far_id{id = FarId},
 %%      #apply_action{forw = 1},
 %%      #forwarding_parameters{
 %%	group =
-%%	    [#destination_interface{interface = 'Access'},
-%%	     ergw_pfcp:network_instance(LocalDataEndp),
-%%	     #redirect_information{type = 'URL', address = to_binary(URL)}]
+%%	    [#redirect_information{type = 'URL', address = to_binary(URL)}
+%%	    | ergw_pfcp:traffic_forward(LeftBearer, [])]
 %%        }];
 build_sx_sgi_fwd_far(FarId,
 		     [#{'Redirect-Support' :=        [1],   %% ENABLED
@@ -651,7 +648,7 @@ build_sx_sgi_fwd_far(FarId, _RedirInfo, Ctx) ->
 build_sx_rule(Direction = downlink, Name, Definition, FilterInfo, URRs,
 	      #sx_upd{
 		 pctx = PCtx0,
-		 sctx = #context{local_data_endp = LocalDataEndp,
+		 sctx = #context{left = LeftBearer,
 				 remote_data_teid = PeerTEID} = Ctx
 		} = Update)
   when PeerTEID /= undefined ->
@@ -675,10 +672,8 @@ build_sx_rule(Direction = downlink, Name, Definition, FilterInfo, URRs,
 	   #apply_action{forw = 1},
 	   #forwarding_parameters{
 	      group =
-		  [#destination_interface{interface = 'Access'},
-		   ergw_pfcp:network_instance(LocalDataEndp),
-		   ergw_pfcp:outer_header_creation(PeerTEID)
-		  ]
+		  [ergw_pfcp:outer_header_creation(PeerTEID)
+		  | ergw_pfcp:traffic_forward(LeftBearer, [])]
 	     }
 	  ],
     Update#sx_upd{
@@ -688,24 +683,22 @@ build_sx_rule(Direction = downlink, Name, Definition, FilterInfo, URRs,
 
 build_sx_rule(Direction = uplink, Name, Definition, FilterInfo, URRs,
 	      #sx_upd{pctx = PCtx0,
-		      sctx = #context{local_data_endp = LocalDataEndp} = Ctx
+		      sctx = #context{left = LeftBearer} = Ctx
 		     } = Update) ->
     [Precedence] = maps:get('Precedence', Definition, [1000]),
     RuleName = {Direction, Name},
     {PdrId, PCtx1} = ergw_pfcp:get_id(pdr, RuleName, PCtx0),
     {FarId, PCtx} = ergw_pfcp:get_id(far, RuleName, PCtx1),
+    SxFilter = build_sx_filter(FilterInfo),
     PDI = #pdi{
 	     group =
-		 [#source_interface{interface = 'Access'},
-		  ergw_pfcp:network_instance(LocalDataEndp),
-		  ergw_pfcp:f_teid(LocalDataEndp),
-		  ergw_pfcp:ue_ip_address(src, Ctx)] ++
-		 build_sx_filter(FilterInfo)
+		 [ergw_pfcp:ue_ip_address(src, Ctx)
+		 | ergw_pfcp:traffic_endp(LeftBearer, SxFilter)]
 	    },
     PDR = [#pdr_id{id = PdrId},
 	   #precedence{precedence = Precedence},
 	   PDI,
-	   ergw_pfcp:outer_header_removal(LocalDataEndp),
+	   ergw_pfcp:outer_header_removal(LeftBearer),
 	   #far_id{id = FarId}] ++
 	[#urr_id{id = X} || X <- URRs],
 
@@ -1061,17 +1054,15 @@ register_ctx_ids(Handler, #pfcp_ctx{seid = #seid{cp = SEID}}) ->
     gtp_context_reg:register(Keys, Handler, self()).
 
 register_ctx_ids(Handler,
-		 #context{local_data_endp = LocalDataEndp},
+		 #context{left = #bearer{local = FqTEID}},
 		 #pfcp_ctx{seid = #seid{cp = SEID}} = PCtx) ->
     Keys = [{seid, SEID} |
-	    [ergw_pfcp:ctx_teid_key(PCtx, #fq_teid{ip = LocalDataEndp#gtp_endp.ip,
-						   teid = LocalDataEndp#gtp_endp.teid}) ||
-		is_record(LocalDataEndp, gtp_endp)]],
+	    [ergw_pfcp:ctx_teid_key(PCtx, FqTEID) || is_record(FqTEID, fq_teid)]],
     gtp_context_reg:register(Keys, Handler, self()).
 
 create_sgi_session(PCtx, NodeCaps, PCC, Ctx0)
   when is_record(PCC, pcc_ctx) ->
-    Ctx = ergw_pfcp:assign_data_teid(PCtx, NodeCaps, Ctx0),
+    Ctx = ergw_pfcp:assign_local_data_teid(PCtx, NodeCaps, Ctx0),
     register_ctx_ids(gtp_context, Ctx, PCtx),
     session_establishment_request(PCC, PCtx, Ctx).
 
@@ -1932,7 +1923,8 @@ release_context_ips(#context{ms_v4 = MSv4, ms_v6 = MSv6} = Context) ->
 %%% T-PDU functions
 %%%===================================================================
 
-send_g_pdu(PCtx, #gtp_endp{vrf = VRF, ip = SrcIP}, #fq_teid{ip = DstIP, teid = TEID}, Data) ->
+send_g_pdu(PCtx, #bearer{vrf = VRF, local = #fq_teid{ip = SrcIP}},
+	   #fq_teid{ip = DstIP, teid = TEID}, Data) ->
     GTP = #gtp{version =v1, type = g_pdu, tei = TEID, ie = Data},
     PayLoad = gtp_packet:encode(GTP),
     UDP = ergw_inet:make_udp(
@@ -1966,7 +1958,7 @@ ip_pdu(Data, _Context, _PCtx) ->
 %% IPv6 Router Solicitation
 icmpv6(TC, FlowLabel, _SrcAddr, ?'IPv6 All Routers LL',
        <<?'ICMPv6 Router Solicitation':8, _Code:8, _CSum:16, _/binary>>,
-       #context{local_data_endp = LocalDataEndp, remote_data_teid = RemoteDataTEID,
+       #context{left = Bearer, remote_data_teid = RemoteDataTEID,
 		ms_v6 = MSv6, dns_v6 = DNSv6}, PCtx) ->
     IPv6 = ergw_ip_pool:ip(MSv6),
     {Prefix, PLen} = ergw_inet:ipv6_interface_id(IPv6, ?NULL_INTERFACE_ID),
@@ -2011,7 +2003,7 @@ icmpv6(TC, FlowLabel, _SrcAddr, ?'IPv6 All Routers LL',
     ICMPv6 = <<6:4, TC:8, FlowLabel:20, ICMPLength:16, ?ICMPv6:8, TTL:8,
 	       NwSrc:16/bytes, NwDst:16/bytes,
 	       ?'ICMPv6 Router Advertisement':8, 0:8, CSum:16, RAOpts/binary>>,
-    send_g_pdu(PCtx, LocalDataEndp, RemoteDataTEID, ICMPv6);
+    send_g_pdu(PCtx, Bearer, RemoteDataTEID, ICMPv6);
 
 icmpv6(_TC, _FlowLabel, _SrcAddr, _DstAddr, _PayLoad, _Context, _PCtx) ->
     ?LOG(warning, "unhandeld ICMPv6 from ~p to ~p: ~p", [_SrcAddr, _DstAddr, _PayLoad]),

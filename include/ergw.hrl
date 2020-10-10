@@ -77,10 +77,12 @@
 	  offline_charging_profile = #{}	:: map()
 	 }).
 
--record(gtp_endp, {
+-record(bearer, {
+	  interface             :: 'Access' | 'Core' | 'SGi-LAN' |
+				   'CP-Function' | 'LI Function',
 	  vrf			:: term(),
-	  ip			:: inet:ip_address(),
-	  teid			:: non_neg_integer()
+	  local			:: 'undefined' | #fq_teid{},
+	  remote		:: 'undefined' | #fq_teid{}
 	 }).
 
 -record(context, {
@@ -105,8 +107,10 @@
 	  pdn_type               :: 'undefined' | 'IPv4' | 'IPv6' | 'IPv4v6' | 'Non-IP',
 	  ipv4_pool              :: 'undefined' | binary(),
 	  ipv6_pool              :: 'undefined' | binary(),
-	  local_data_endp        :: 'undefined' | #gtp_endp{},
+
 	  remote_data_teid       :: #fq_teid{},
+	  left                   :: 'undefined' | #bearer{},
+
 	  ms_v4                  :: inet:ip4_address(),
 	  ms_v6                  :: inet:ip6_address(),
 	  dns_v6                 :: [inet:ip6_address()],
