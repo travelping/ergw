@@ -262,9 +262,9 @@ register_ctx_ids(#context{left = #bearer{local = FqTEID}},
 
 create_forward_session(Candidates, Left0, Right0) ->
     {ok, PCtx0, NodeCaps} = ergw_sx_node:select_sx_node(Candidates, Left0),
-    Left = ergw_pfcp:assign_local_data_teid(PCtx0, NodeCaps, Left0),
+    Left = ergw_gsn_lib:assign_local_data_teid(PCtx0, NodeCaps, Left0),
     register_ctx_ids(Left, PCtx0),
-    Right = ergw_pfcp:assign_local_data_teid(PCtx0, NodeCaps, Right0),
+    Right = ergw_gsn_lib:assign_local_data_teid(PCtx0, NodeCaps, Right0),
     register_ctx_ids(Left, PCtx0),
 
     {ok, CntlNode, _} = ergw_sx_socket:id(),

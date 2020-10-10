@@ -650,12 +650,12 @@ get_context_from_bearer(_, #v2_fully_qualified_tunnel_endpoint_identifier{
 			      interface_type = ?'S5/S8-U SGW',
 			      key = TEI, ipv4 = IP4, ipv6 = IP6}, Context) ->
     IP = ergw_gsn_lib:choose_context_ip(IP4, IP6, Context),
-    ergw_pfcp:set_remote_data_teid(IP, TEI, Context);
+    ergw_gsn_lib:set_remote_data_teid(IP, TEI, Context);
 get_context_from_bearer(_, #v2_fully_qualified_tunnel_endpoint_identifier{
 			      interface_type = ?'S5/S8-U PGW',
 			      key = TEI, ipv4 = IP4, ipv6 = IP6}, Context) ->
     IP = ergw_gsn_lib:choose_context_ip(IP4, IP6, Context),
-    ergw_pfcp:set_remote_data_teid(IP, TEI, Context);
+    ergw_gsn_lib:set_remote_data_teid(IP, TEI, Context);
 get_context_from_bearer(?'EPS Bearer ID', #v2_eps_bearer_id{eps_bearer_id = EBI},
 			#context{state = CState} = Context) ->
     Context#context{state = CState#context_state{ebi = EBI}};

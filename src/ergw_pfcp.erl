@@ -20,9 +20,6 @@
 	 outer_header_creation/1,
 	 outer_header_removal/1,
 	 ctx_teid_key/2,
-	 assign_local_data_teid/3,
-	 set_remote_data_teid/3,
-	 unset_remote_data_teid/1,
 	 up_inactivity_timer/1]).
 -export([init_ctx/1, reset_ctx/1,
 	 get_id/2, get_id/3, update_pfcp_rules/3]).
@@ -126,31 +123,8 @@ outer_header_removal({_,_,_,_}) ->
 outer_header_removal({_,_,_,_,_,_,_,_}) ->
     #outer_header_removal{header = 'GTP-U/UDP/IPv6'}.
 
-get_port_vrf(#gtp_port{vrf = VRF}, VRFs)
-  when is_map(VRFs) ->
-    maps:get(VRF, VRFs).
-
 ctx_teid_key(#pfcp_ctx{name = Name}, TEI) ->
     {Name, {teid, 'gtp-u', TEI}}.
-
-assign_local_data_teid(PCtx, {VRFs, _} = _NodeCaps,
-		 #context{control_port = ControlPort, left = Bearer} = Context) ->
-    #vrf{name = Name, ipv4 = IP4, ipv6 = IP6} =
-	get_port_vrf(ControlPort, VRFs),
-
-    IP = ergw_gsn_lib:choose_context_ip(IP4, IP6, Context),
-    {ok, DataTEI} = ergw_tei_mngr:alloc_tei(PCtx),
-    FqTEID = #fq_teid{
-		     ip = ergw_inet:bin2ip(IP),
-		     teid = DataTEI},
-    Context#context{left = Bearer#bearer{vrf = Name, local = FqTEID}}.
-
-set_remote_data_teid(IP, TEI, #context{left = Bearer} = Context) ->
-    FqTEID = #fq_teid{ip = ergw_inet:bin2ip(IP), teid = TEI},
-    Context#context{left = Bearer#bearer{remote = FqTEID}}.
-
-unset_remote_data_teid(#context{left = Bearer} = Context) ->
-    Context#context{left = Bearer#bearer{remote = undefined}}.
 
 up_inactivity_timer(#pfcp_ctx{up_inactivity_timer = Timer})
   when is_integer(Timer) ->
