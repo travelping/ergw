@@ -560,7 +560,8 @@
 %%%===================================================================
 
 all() ->
-    [config].
+    [config,
+     ergw_c_node_config].
 
 config() ->
     [{doc, "Test the config validation"}].
@@ -1086,3 +1087,14 @@ config(_Config)  ->
     ?error_option(set_cfg_value([path_management, idle_timeout], invalid, ?PGW_PROXY_CONFIG)),
     ?error_option(set_cfg_value([path_management, down_timeout], invalid, ?PGW_PROXY_CONFIG)),
     ok.
+
+ergw_c_node_config() ->
+    [{doc, "Test for integrity of the configuration file ergw/config/ergw-c-node.config"}].
+ergw_c_node_config(_Config) ->
+    case file:consult("../../../../config/ergw-c-node.config") of
+        {ok, [Configs]} ->
+            ?ok_option(proplists:get_value(ergw, Configs)),
+            ct:pal("ergw-c-node.config: ~p", [Configs]);
+        Error ->
+            ct:fail("ergw-c-node.config error: ~p~n", [Error])
+	end.
