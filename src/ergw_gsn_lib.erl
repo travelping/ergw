@@ -38,6 +38,7 @@
 	 allocate_ips/5, release_context_ips/1]).
 -export([assign_local_data_teid/3,
 	 set_remote_data_teid/3,
+	 update_remote_data_teid/2,
 	 unset_remote_data_teid/1]).
 
 -export([select_upf/2, reselect_upf/4]).
@@ -1964,6 +1965,16 @@ set_remote_data_teid(CtxSide, BearerSide, IP, TEI, Context) ->
 %% set_remote_data_teid_f/3
 set_remote_data_teid_f(IP, TEI) ->
     #fq_teid{ip = ergw_inet:bin2ip(IP), teid = TEI}.
+
+%% update_remote_data_teid/2
+update_remote_data_teid(Fun, Context) ->
+    update_remote_data_teid(left, remote, Fun, Context).
+
+%% update_remote_data_teid_f/4
+update_remote_data_teid(CtxSide, BearerSide, Fun, Context) ->
+   update_element_with(
+     context_field(CtxSide), Context,
+     update_element_with(bearer_field(BearerSide), _, Fun)).
 
 %% unset_remote_data_teid/1
 unset_remote_data_teid(Context) ->
