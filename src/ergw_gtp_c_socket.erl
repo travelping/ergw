@@ -14,8 +14,7 @@
 %% API
 -export([start_link/1,
 	 send/4, send_response/3,
-	 send_request/6, send_request/7, resend_request/2,
-	 get_restart_counter/1]).
+	 send_request/6, send_request/7, resend_request/2]).
 -export([get_request_q/1, get_response_q/1, get_seq_no/2, get_uniq_id/1]).
 
 %% gen_server callbacks
@@ -49,8 +48,8 @@
 	  requests,
 	  responses,
 
-	  unique_id,
-	  restart_counter}).
+	  unique_id
+	 }).
 
 -record(send_req, {
 	  req_id  :: term(),
@@ -107,9 +106,6 @@ send_request(#gtp_port{type = 'gtp-c'} = GtpPort, DstIP, DstPort, ReqId,
 resend_request(#gtp_port{type = 'gtp-c'} = GtpPort, ReqId) ->
     cast(GtpPort, {resend_request, ReqId}).
 
-get_restart_counter(GtpPort) ->
-    call(GtpPort, get_restart_counter).
-
 get_request_q(GtpPort) ->
     call(GtpPort, get_request_q).
 
@@ -140,7 +136,6 @@ init(#{name := Name, ip := IP, burst_size := BurstSize} = SocketOpts) ->
     process_flag(trap_exit, true),
 
     {ok, Socket} = ergw_gtp_socket:make_gtp_socket(IP, ?GTP1c_PORT, SocketOpts),
-    {ok, RCnt} = gtp_config:get_restart_counter(),
     VRF = case SocketOpts of
 	      #{vrf := VRF0} when is_binary(VRF0) ->
 		  VRF0;
@@ -152,8 +147,7 @@ init(#{name := Name, ip := IP, burst_size := BurstSize} = SocketOpts) ->
 		 vrf = VRF,
 		 type = maps:get(type, SocketOpts, 'gtp-c'),
 		 pid = self(),
-		 ip = IP,
-		 restart_counter = RCnt
+		 ip = IP
 		},
 
     ergw_socket_reg:register('gtp-c', Name, GtpPort),
@@ -170,13 +164,10 @@ init(#{name := Name, ip := IP, burst_size := BurstSize} = SocketOpts) ->
 	       requests = ergw_cache:new(?T3 * 4, requests),
 	       responses = ergw_cache:new(?CACHE_TIMEOUT, responses),
 
-	       unique_id = rand:uniform(16#ffffffff),
-	       restart_counter = RCnt},
+	       unique_id = rand:uniform(16#ffffffff)
+	      },
     self() ! {'$socket', Socket, select, undefined},
     {ok, State}.
-
-handle_call(get_restart_counter, _From, #state{restart_counter = RCnt} = State) ->
-    {reply, RCnt, State};
 
 handle_call(get_uniq_id, _From, #state{unique_id = Id} = State) ->
     {reply, Id, State#state{unique_id = galois_lfsr_32(Id)}};

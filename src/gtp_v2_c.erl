@@ -13,7 +13,7 @@
 -export([gtp_msg_type/1,
 	 get_handler/2,
 	 build_response/1,
-	 build_echo_request/1,
+	 build_echo_request/0,
 	 validate_teid/2,
 	 type/0, port/0,
 	 get_msg_keys/1, update_context_id/2,
@@ -83,23 +83,20 @@ build_recovery(_Cmd, _CtxOrPort, _NewPeer, IEs) ->
 
 
 %% build_recovery/3
-build_recovery(GtpPort = #gtp_port{}, NewPeer, IEs) when NewPeer == true ->
-    add_recovery(GtpPort, IEs);
-build_recovery(#context{
-		  remote_restart_counter = RemoteRestartCounter,
-		  control_port = GtpPort}, NewPeer, IEs)
+build_recovery(#gtp_port{}, NewPeer, IEs) when NewPeer == true ->
+    add_recovery(IEs);
+build_recovery(#context{remote_restart_counter = RemoteRestartCounter}, NewPeer, IEs)
   when NewPeer == true orelse
        RemoteRestartCounter == undefined ->
-    add_recovery(GtpPort, IEs);
+    add_recovery(IEs);
 build_recovery(_, _, IEs) ->
     IEs.
 
 type() -> 'gtp-c'.
 port() -> ?GTP2c_PORT.
 
-build_echo_request(GtpPort) ->
-    IEs = add_recovery(GtpPort, []),
-    #gtp{version = v2, type = echo_request, tei = undefined, ie = IEs}.
+build_echo_request() ->
+    #gtp{version = v2, type = echo_request, tei = undefined, ie = add_recovery([])}.
 
 build_response({Type, TEI, IEs}) ->
     #gtp{version = v2, type = gtp_msg_response(Type), tei = TEI, ie = map_reply_ies(IEs)};
@@ -311,10 +308,12 @@ load_class(_) ->
 %%% Internal functions
 %%%===================================================================
 
-add_recovery(#gtp_port{restart_counter = RCnt}, IEs) when is_list(IEs) ->
-    [#v2_recovery{restart_counter = RCnt} | IEs];
-add_recovery(#gtp_port{restart_counter = RCnt}, IEs) when is_map(IEs) ->
-    IEs#{'Recovery' => #v2_recovery{restart_counter = RCnt}}.
+add_ie(_Key, IE, IEs) when is_list(IEs) -> [IE|IEs];
+add_ie(Key, IE, IEs) when is_map(IEs) -> maps:put(Key, IE, IEs).
+
+add_recovery(IEs) ->
+    {ok, RCnt} = gtp_config:get_restart_counter(),
+    add_ie('Recovery', #v2_recovery{restart_counter = RCnt}, IEs).
 
 map_reply_ies(IEs) when is_list(IEs) ->
     [map_reply_ie(IE) || IE <- IEs];
