@@ -13,7 +13,7 @@
 -export([gtp_msg_type/1,
 	 get_handler/2,
 	 build_response/1,
-	 build_echo_request/1,
+	 build_echo_request/0,
 	 validate_teid/2,
 	 type/0, port/0,
 	 get_msg_keys/1, update_context_id/2,
@@ -71,21 +71,19 @@ build_recovery(_Cmd, _CtxOrPort, _NewPeer, IEs) ->
     IEs.
 
 %% build_recovery/3
-build_recovery(#gtp_port{} = GtpPort, NewPeer, IEs) when NewPeer == true ->
-    add_recovery(GtpPort, IEs);
-build_recovery(#context{
-		  remote_restart_counter = RemoteRestartCounter,
-		  control_port = GtpPort}, NewPeer, IEs)
+build_recovery(#gtp_port{}, NewPeer, IEs) when NewPeer == true ->
+    add_recovery(IEs);
+build_recovery(#context{remote_restart_counter = RemoteRestartCounter}, NewPeer, IEs)
   when NewPeer == true orelse
        RemoteRestartCounter == undefined ->
-    add_recovery(GtpPort, IEs);
+    add_recovery(IEs);
 build_recovery(_, _, IEs) ->
     IEs.
 
 type() -> 'gtp-c'.
 port() -> ?GTP1c_PORT.
 
-build_echo_request(_GtpPort) ->
+build_echo_request() ->
     #gtp{version = v1, type = echo_request, tei = 0, ie = []}.
 
 build_response({Type, TEI, IEs}) ->
@@ -290,10 +288,12 @@ load_class(_) ->
 %%% Internal functions
 %%%===================================================================
 
-add_recovery(#gtp_port{restart_counter = RCnt}, IEs) when is_list(IEs) ->
-    [#recovery{restart_counter = RCnt} | IEs];
-add_recovery(#gtp_port{restart_counter = RCnt}, IEs) when is_map(IEs) ->
-    IEs#{'Recovery' => #recovery{restart_counter = RCnt}}.
+add_ie(_Key, IE, IEs) when is_list(IEs) -> [IE|IEs];
+add_ie(Key, IE, IEs) when is_map(IEs) -> maps:put(Key, IE, IEs).
+
+add_recovery(IEs) ->
+    {ok, RCnt} = gtp_config:get_restart_counter(),
+    add_ie('Recovery', #recovery{restart_counter = RCnt}, IEs).
 
 map_reply_ies(IEs) when is_list(IEs) ->
     [map_reply_ie(IE) || IE <- IEs];

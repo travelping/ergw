@@ -10,8 +10,7 @@
 -compile({parse_transform, cut}).
 
 %% API
--export([validate_options/2,
-	 send/4, get_restart_counter/1]).
+-export([validate_options/2, send/4]).
 -export([make_seq_id/1, make_request/5]).
 -export([make_gtp_socket/3]).
 
@@ -26,9 +25,6 @@
 
 send(GtpPort, IP, Port, Data) ->
     invoke_handler(GtpPort, send, [IP, Port, Data]).
-
-get_restart_counter(GtpPort) ->
-    invoke_handler(GtpPort, get_restart_counter, []).
 
 %%%===================================================================
 %%% Options Validation

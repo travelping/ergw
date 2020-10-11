@@ -547,7 +547,7 @@ bind_path_recovery(_RestartCounter, #context{path = Path} = Context) ->
 
 send_echo_request(State, #{gtp_port := GtpPort, handler := Handler, ip := DstIP,
 			   t3 := T3, n3 := N3}) ->
-    Msg = Handler:build_echo_request(GtpPort),
+    Msg = Handler:build_echo_request(),
     Ref = erlang:make_ref(),
     CbInfo = {?MODULE, handle_response, [self(), echo_request, Ref]},
     ergw_gtp_c_socket:send_request(GtpPort, DstIP, ?GTP1c_PORT, T3, N3, Msg, CbInfo),

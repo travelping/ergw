@@ -27,9 +27,8 @@
 
 	  ip         :: inet:ip_address(),
 	  socket     :: socket:socket(),
-	  burst_size = 1 :: non_neg_integer(),
-
-	  restart_counter}).
+	  burst_size = 1 :: non_neg_integer()
+	 }).
 
 -record(send_req, {
 	  address :: inet:ip_address(),
@@ -67,7 +66,6 @@ init(#{name := Name, ip := IP, burst_size := BurstSize} = SocketOpts) ->
     process_flag(trap_exit, true),
 
     {ok, Socket} = ergw_gtp_socket:make_gtp_socket(IP, ?GTP1u_PORT, SocketOpts),
-    {ok, RCnt} = gtp_config:get_restart_counter(),
     VRF = case SocketOpts of
 	      #{vrf := VRF0} when is_binary(VRF0) ->
 		  VRF0;
@@ -79,8 +77,7 @@ init(#{name := Name, ip := IP, burst_size := BurstSize} = SocketOpts) ->
 		 vrf = VRF,
 		 type = maps:get(type, SocketOpts, 'gtp-u'),
 		 pid = self(),
-		 ip = IP,
-		 restart_counter = RCnt
+		 ip = IP
 		},
 
     ergw_socket_reg:register('gtp-u', Name, GtpPort),
@@ -90,9 +87,7 @@ init(#{name := Name, ip := IP, burst_size := BurstSize} = SocketOpts) ->
 
 	       ip = IP,
 	       socket = Socket,
-	       burst_size = BurstSize,
-
-	       restart_counter = RCnt},
+	       burst_size = BurstSize},
     self() ! {'$socket', Socket, select, undefined},
     {ok, State}.
 
