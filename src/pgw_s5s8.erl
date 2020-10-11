@@ -1300,7 +1300,7 @@ fq_teid(Instance, Type, TEI, {_,_,_,_,_,_,_,_} = IP) ->
        instance = Instance, interface_type = Type,
        key = TEI, ipv6 = ergw_inet:ip2bin(IP)}.
 
-s5s8_pgw_gtp_c_tei(#context{control_port = #gtp_port{ip = IP}, local_control_tei = TEI}) ->
+s5s8_pgw_gtp_c_tei(#context{left_tnl = #tunnel{local = #fq_teid{ip = IP, teid = TEI}}}) ->
     %% PGW S5/S8/ S2a/S2b F-TEID for PMIP based interface
     %% or for GTP based Control Plane interface
     fq_teid(1, ?'S5/S8-C PGW', TEI, IP).

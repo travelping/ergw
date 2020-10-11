@@ -53,6 +53,14 @@
 	  dp = 0           :: non_neg_integer()
 	 }).
 
+-record(tunnel, {
+	  interface             :: 'Access' | 'Core',
+	  vrf			:: term(),
+	  socket		:: {term(), pid()},
+	  local			:: 'undefined' | #fq_teid{},
+	  remote		:: 'undefined' | #fq_teid{}
+	 }).
+
 -record(bearer, {
 	  interface             :: 'Access' | 'Core' | 'SGi-LAN' |
 				   'CP-Function' | 'LI Function',
@@ -103,13 +111,14 @@
 	  control_interface      :: atom(),
 	  control_port           :: #gtp_port{},
 	  path                   :: 'undefined' | pid(),
-	  local_control_tei      :: non_neg_integer(),
 	  remote_control_teid    :: #fq_teid{},
 	  remote_restart_counter :: 0 .. 255,
 	  vrf                    :: atom(),
 	  pdn_type               :: 'undefined' | 'IPv4' | 'IPv6' | 'IPv4v6' | 'Non-IP',
 	  ipv4_pool              :: 'undefined' | binary(),
 	  ipv6_pool              :: 'undefined' | binary(),
+
+	  left_tnl               :: 'undefined' | #tunnel{},
 
 	  left                   :: 'undefined' | #bearer{},
 	  right                  :: 'undefined' | #bearer{},

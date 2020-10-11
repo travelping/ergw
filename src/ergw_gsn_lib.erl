@@ -36,7 +36,8 @@
 -export([apn/2, select_vrf/2,
 	 init_session_ip_opts/3,
 	 allocate_ips/5, release_context_ips/1]).
--export([assign_local_data_teid/3,
+-export([assign_tunnel_teid/3,
+	 assign_local_data_teid/3,
 	 set_remote_data_teid/3,
 	 update_remote_data_teid/2,
 	 unset_remote_data_teid/1,
@@ -1682,7 +1683,8 @@ request_alloc({ReqIPv6, PrefixLen}, Opts, #context{ipv6_pool = Pool})
 request_alloc(_ReqIP, _Opts, _Context) ->
     skip.
 
-request_ip_alloc(ReqIPs, Opts, #context{local_control_tei = TEI} = Context) ->
+request_ip_alloc(ReqIPs, Opts,
+		 #context{left_tnl = #tunnel{local = #fq_teid{teid = TEI}}} = Context) ->
     Req = [request_alloc(IP, Opts, Context) || IP <- ReqIPs],
     ergw_ip_pool:send_request(TEI, Req).
 
@@ -1830,6 +1832,9 @@ release_context_ips(#context{ms_v4 = MSv4, ms_v6 = MSv6} = Context) ->
 update_element_with(Field, Tuple, Fun) ->
     setelement(Field, Tuple, Fun(element(Field, Tuple))).
 
+tunnel_side(local) -> #tunnel.local;
+tunnel_side(remote) -> #tunnel.remote.
+
 context_field(left, #context{})  -> #context.left;
 context_field(right, #context{}) -> #context.right;
 context_field(left, #tdf_ctx{})  -> #tdf_ctx.left;
@@ -1837,6 +1842,20 @@ context_field(right, #tdf_ctx{}) -> #tdf_ctx.right.
 
 bearer_field(local) -> #bearer.local;
 bearer_field(remote) -> #bearer.remote.
+
+%% assign_tunnel_teid/3
+assign_tunnel_teid(TunnelSide, #gtp_port{
+				  name = Name, vrf = VRF,
+				  type = 'gtp-c', pid = Pid} = Port, Tunnel) ->
+    setelement(
+      tunnel_side(TunnelSide),
+      Tunnel#tunnel{socket = {Name, Pid}, vrf = VRF},
+      assign_tunnel_teid_f(Port)).
+
+%% assign_tunnel_teid_f/1
+assign_tunnel_teid_f(#gtp_port{ip = IP} = Port) ->
+    {ok, TEI} = ergw_tei_mngr:alloc_tei(Port),
+    #fq_teid{ip = IP, teid = TEI}.
 
 %% assign_local_data_teid/3
 assign_local_data_teid(PCtx, NodeCaps, Ctx) ->
