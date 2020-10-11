@@ -326,6 +326,8 @@ map_reply_ie(new_pdn_type_due_to_single_address_bearer_only) ->
     #cause{value = new_pdp_type_due_to_single_address_bearer_only};
 map_reply_ie(preferred_pdn_type_not_supported) ->
     #cause{value = unknown_pdp_address_or_pdp_type};
+map_reply_ie(user_authentication_failed) ->
+    #cause{value = user_authentication_failed};
 map_reply_ie(IE)
   when is_tuple(IE) ->
     IE.

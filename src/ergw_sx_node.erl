@@ -13,10 +13,10 @@
 -compile({parse_transform, cut}).
 
 %% API
--export([select_sx_node/2,
+-export([select_sx_node/1,
 	 request_connect/3, request_connect/5, wait_connect/1,
-	 attach/2, attach_tdf/2, notify_up/2]).
--export([start_link/5, send/4, call/3,
+	 attach/1, attach_tdf/2, notify_up/2]).
+-export([start_link/5, send/4, call/2,
 	 handle_request/3, response/3]).
 -ifdef(TEST).
 -export([test_cmd/2]).
@@ -77,19 +77,17 @@
 %% API
 %%====================================================================
 
-select_sx_node(Candidates, Context) ->
-    try
-	{ok, Pid} = connect_sx_candidates(Candidates),
-	{ok, _PCtx, _NodeCaps} = attach(Pid, Context)
-    catch
-	error:{badmatch, _}:St ->
-	    erlang:raise(throw, ?CTX_ERR(?FATAL, system_failure, Context), St)
-    end.
+%% select_sx_node/1
+select_sx_node(Candidates) ->
+    {ok, Pid} = connect_sx_candidates(Candidates),
+    attach(Pid).
 
-attach(Node, Context) when is_pid(Node) ->
+%% attach/1
+attach(Node) when is_pid(Node) ->
     monitor(process, Node),
-    call_3(Node, attach, Context).
+    gen_statem:call(Node, attach).
 
+%% attach_tdf/2
 attach_tdf(Node, Tdf) when is_pid(Node) ->
     gen_statem:call(Node, {attach_tdf, Tdf}).
 
@@ -109,11 +107,11 @@ send(#pfcp_ctx{node = Handler}, Intf, VRF, Data)
   when is_pid(Handler), is_atom(Intf), is_binary(Data) ->
     gen_statem:cast(Handler, {send, Intf, VRF, Data}).
 
-%% call/3
-call(#pfcp_ctx{node = Node, seid = #seid{dp = SEID}}, #pfcp{} = Request, OpaqueRef) ->
-    call_3(Node, Request#pfcp{seid = SEID}, OpaqueRef);
-call(#pfcp_ctx{node = Node}, Request, OpaqueRef) ->
-    call_3(Node, Request, OpaqueRef).
+%% call/2
+call(#pfcp_ctx{node = Node, seid = #seid{dp = SEID}}, #pfcp{} = Request) ->
+    gen_statem:call(Node, Request#pfcp{seid = SEID});
+call(#pfcp_ctx{node = Node}, Request) ->
+    gen_statem:call(Node, Request).
 
 response(Pid, CbData, Response) ->
     gen_statem:cast(Pid, {response, CbData, Response}).
@@ -150,20 +148,6 @@ handle_request_fun(ReqKey, #pfcp{type = session_report_request} = Report) ->
     Response = make_response(session_report_response, Ctx, Report, IEs),
     ergw_sx_socket:send_response(ReqKey, Response, true),
     ok.
-
-%%%===================================================================
-%%% call/cast wrapper
-%%%===================================================================
-
-call_3(Pid, Request, OpaqueRef)
-  when is_pid(Pid) ->
-    ?LOG(debug, "DP Server Call ~p: ~p", [Pid, Request]),
-    case gen_statem:call(Pid, Request) of
-	{error, dead} ->
-	    throw(?CTX_ERR(?FATAL, system_failure, OpaqueRef));
-	Other ->
-	    Other
-    end.
 
 %%====================================================================
 %% ergw_context API
@@ -383,7 +367,7 @@ handle_event({call, From}, attach, _, #data{pfcp_ctx = PNodeCtx} = Data) ->
 	      cp_bearer = PNodeCtx#pfcp_ctx.cp_bearer
 	     },
     NodeCaps = node_caps(Data),
-    Reply = {ok, PCtx, NodeCaps},
+    Reply = {ok, {PCtx, NodeCaps}},
     {keep_state_and_data, [{reply, From, Reply}]};
 
 %% send 'up' when we are ready, only wait if this is the first connect attempt

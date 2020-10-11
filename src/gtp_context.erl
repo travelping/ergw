@@ -99,7 +99,7 @@ remote_context_register_new(Context)
 	ok ->
 	    ok;
 	_ ->
-	    throw(?CTX_ERR(?FATAL, system_failure, Context))
+	    {error, ?CTX_ERR(?FATAL, system_failure)}
     end.
 
 tunnel_reg_update(TunnelOld, TunnelNew) ->

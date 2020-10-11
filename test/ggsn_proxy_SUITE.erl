@@ -1984,23 +1984,23 @@ session_accounting(Config) ->
     {GtpC, _, _} = create_pdp_context(Config),
 
     [#{'Process' := Pid}|_] = ergw_api:tunnel(ClientIP),
-    #{context := Context, pfcp:= PCtx} = gtp_context:info(Pid),
+    #{pfcp:= PCtx} = gtp_context:info(Pid),
 
     %% make sure we handle that the Sx node is not returning any accounting
     ergw_test_sx_up:accounting('sgw-u', off),
 
-    SessionOpts1 = ergw_test_lib:query_usage_report(Context, PCtx),
+    SessionOpts1 = ergw_test_lib:query_usage_report(PCtx),
     ?equal(false, maps:is_key('InPackets', SessionOpts1)),
     ?equal(false, maps:is_key('InOctets', SessionOpts1)),
 
     %% enable accouting again....
     ergw_test_sx_up:accounting('sgw-u', on),
 
-    SessionOpts2 = ergw_test_lib:query_usage_report(Context, PCtx),
+    SessionOpts2 = ergw_test_lib:query_usage_report(PCtx),
     ?match(#{'InPackets' := 3, 'OutPackets' := 1,
 	     'InOctets' := 4, 'OutOctets' := 2}, SessionOpts2),
 
-    SessionOpts3 = ergw_test_lib:query_usage_report(Context, PCtx),
+    SessionOpts3 = ergw_test_lib:query_usage_report(PCtx),
     ?match(#{'InPackets' := 3, 'OutPackets' := 1,
 	     'InOctets' := 4, 'OutOctets' := 2}, SessionOpts3),
 
@@ -2014,16 +2014,6 @@ session_accounting(Config) ->
 sx_upf_reconnect() ->
     [{doc, "Test UPF reconnect behavior"}].
 sx_upf_reconnect(Config) ->
-    ok = meck:expect(ergw_pfcp_context, create_pfcp_session,
-		     fun(PCtx0, PCC, Left, Right, Ctx) ->
-			     try
-				 meck:passthrough([PCtx0, PCC, Left, Right, Ctx])
-			     catch
-				 throw:#ctx_err{} = CtxErr ->
-				     meck:exception(throw, CtxErr)
-			     end
-		     end),
-
     {GtpCinit, _, _} = create_pdp_context(Config),
     delete_pdp_context(GtpCinit),
 
@@ -2048,7 +2038,6 @@ sx_upf_reconnect(Config) ->
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
 
     meck_validate(Config),
-    ok = meck:delete(ergw_pfcp_context, create_pfcp_session, 5),
     ok.
 
 %%--------------------------------------------------------------------
@@ -2091,15 +2080,6 @@ sx_timeout(Config) ->
 		     fun(Peer, _T1, _N1, Msg, CbInfo) ->
 			     meck:passthrough([Peer, 100, 2, Msg, CbInfo])
 		     end),
-    ok = meck:expect(ergw_pfcp_context, create_pfcp_session,
-		     fun(PCtx0, PCC, Left, Right, Ctx) ->
-			     try
-				 meck:passthrough([PCtx0, PCC, Left, Right, Ctx])
-			     catch
-				 throw:#ctx_err{} = CtxErr ->
-				     meck:exception(throw, CtxErr)
-			     end
-		     end),
     ergw_test_sx_up:disable('sgw-u'),
 
     create_pdp_context(system_failure, Config),
@@ -2109,7 +2089,6 @@ sx_timeout(Config) ->
     meck_validate(Config),
 
     ok = meck:delete(ergw_sx_socket, call, 5),
-    ok = meck:delete(ergw_pfcp_context, create_pfcp_session, 5),
     ok.
 
 %%--------------------------------------------------------------------

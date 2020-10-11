@@ -805,18 +805,6 @@ create_pdp_context_request_invalid_apn(Config) ->
 create_pdp_context_request_pool_exhausted() ->
     [{doc, "Dynamic IP pool exhausted"}].
 create_pdp_context_request_pool_exhausted(Config) ->
-    ok = meck:expect(ergw_gsn_lib, allocate_ips,
-		     fun(AllocInfo, APNOpts, SOpts, DualAddressBearerFlag,
-			 Tunnel, Bearer, Context) ->
-			     try
-				 meck:passthrough([AllocInfo, APNOpts, SOpts,
-						   DualAddressBearerFlag,
-						   Tunnel, Bearer, Context])
-			     catch
-				 throw:#ctx_err{} = CtxErr ->
-				     meck:exception(throw, CtxErr)
-			     end
-		     end),
     ok = meck:expect(ergw_local_pool, wait_pool_response,
 		     fun({error, empty} = Error) ->
 			     Error;
@@ -1061,19 +1049,6 @@ pdp_context_request_bearer_types() ->
     [{doc, "Create different IP bearers against APNs with restrictions/preferences"}].
 
 pdp_context_request_bearer_types(Config) ->
-    ok = meck:expect(ergw_gsn_lib, allocate_ips,
-		     fun(AllocInfo, APNOpts, SOpts, DualAddressBearerFlag,
-			 Tunnel, Bearer, Context) ->
-			     try
-				 meck:passthrough([AllocInfo, APNOpts, SOpts,
-						   DualAddressBearerFlag,
-						   Tunnel, Bearer, Context])
-			     catch
-				 throw:#ctx_err{} = CtxErr ->
-				     meck:exception(throw, CtxErr)
-			     end
-		     end),
-
     {GtpC1, _, _} = create_pdp_context({ipv4, false, default}, Config),
     delete_pdp_context(GtpC1),
 
@@ -1581,23 +1556,23 @@ session_accounting(Config) ->
     {GtpC, _, _} = create_pdp_context(Config),
 
     [#{'Process' := Pid}|_] = ergw_api:tunnel(all),
-    #{context := Context, pfcp:= PCtx} = gtp_context:info(Pid),
+    #{pfcp:= PCtx} = gtp_context:info(Pid),
 
     %% make sure we handle that the Sx node is not returning any accounting
     ergw_test_sx_up:accounting('pgw-u01', off),
 
-    SessionOpts1 = ergw_test_lib:query_usage_report(Context, PCtx),
+    SessionOpts1 = ergw_test_lib:query_usage_report(PCtx),
     ?equal(false, maps:is_key('InPackets', SessionOpts1)),
     ?equal(false, maps:is_key('InOctets', SessionOpts1)),
 
     %% enable accouting again....
     ergw_test_sx_up:accounting('pgw-u01', on),
 
-    SessionOpts2 = ergw_test_lib:query_usage_report(Context, PCtx),
+    SessionOpts2 = ergw_test_lib:query_usage_report(PCtx),
     ?match(#{'InPackets' := 3, 'OutPackets' := 1,
 	     'InOctets' := 4, 'OutOctets' := 2}, SessionOpts2),
 
-    SessionOpts3 = ergw_test_lib:query_usage_report(Context, PCtx),
+    SessionOpts3 = ergw_test_lib:query_usage_report(PCtx),
     ?match(#{'InPackets' := 3, 'OutPackets' := 1,
 	     'InOctets' := 4, 'OutOctets' := 2}, SessionOpts3),
 

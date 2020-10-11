@@ -9,7 +9,8 @@
 
 -behaviour(gtp_api).
 
--compile({parse_transform, cut}).
+-compile([{parse_transform, do},
+	  {parse_transform, cut}]).
 
 -export([validate_options/1, init/2, request_spec/3,
 	 handle_pdu/4, handle_sx_report/3,
@@ -22,7 +23,7 @@
 %% shared API's
 -export([init_session/4,
 	 init_session_from_gtp_req/4,
-	 update_tunnel_from_gtp_req/4
+	 update_tunnel_from_gtp_req/3
 	]).
 
 -include_lib("kernel/include/logger.hrl").
@@ -60,13 +61,6 @@
 -define('IMEI',						{imei, 0}).
 -define('APN-AMBR',					{aggregate_maximum_bit_rate, 0}).
 -define('Evolved ARP I',				{evolved_allocation_retention_priority_i, 0}).
-
--define(ABORT_CTX_REQUEST(Context, Request, Type, Cause),
-	begin
-	    LeftTunnel = ergw_gsn_lib:tunnel(left, Context),
-	    AbortReply = response(Type, LeftTunnel, [#cause{value = Cause}], Request),
-	    throw(?CTX_ERR(?FATAL, AbortReply, Context))
-	end).
 
 -define(CAUSE_OK(Cause), (Cause =:= request_accepted orelse
 			  Cause =:= new_pdp_type_due_to_network_preference orelse
@@ -198,7 +192,10 @@ handle_event(info, #aaa_request{procedure = {gx, 'RAR'},
 %%% step 2
 %%% step 3:
     {PCtx1, UsageReport} =
-	ergw_pfcp_context:modify_pfcp_session(PCC1, [], #{}, Left, Right, Context, PCtx0),
+	case ergw_pfcp_context:modify_pfcp_session(PCC1, [], #{}, Left, Right, PCtx0) of
+	    {ok, Result1} -> Result1;
+	    {error, Err1} -> throw(Err1#ctx_err{context = Context})
+	end,
 
 %%% step 4:
     ChargeEv = {online, 'RAR'},   %% made up value, not use anywhere...
@@ -216,7 +213,10 @@ handle_event(info, #aaa_request{procedure = {gx, 'RAR'},
 
 %%% step 6:
     {PCtx, _} =
-	ergw_pfcp_context:modify_pfcp_session(PCC4, [], #{}, Left, Right, Context, PCtx1),
+	case ergw_pfcp_context:modify_pfcp_session(PCC4, [], #{}, Left, Right, PCtx1) of
+	    {ok, Result2} -> Result2;
+	    {error, Err2} -> throw(Err2#ctx_err{context = Context})
+	end,
 
 %%% step 7:
     %% TODO Charging-Rule-Report for successfully installed/removed rules
@@ -270,8 +270,10 @@ handle_event(internal, {session, {update_credits, _} = CreditEv, _}, _State,
 
     {PCC, _PCCErrors} = ergw_pcc_context:gy_events_to_pcc_ctx(Now, [CreditEv], PCC0),
     {PCtx, _} =
-	ergw_pfcp_context:modify_pfcp_session(PCC, [], #{}, Left, Right, Context, PCtx0),
-
+	case ergw_pfcp_context:modify_pfcp_session(PCC, [], #{}, Left, Right, PCtx0) of
+	    {ok, Result1} -> Result1;
+	    {error, Err1} -> throw(Err1#ctx_err{context = Context})
+	end,
     {keep_state, Data#{pfcp := PCtx, pcc := PCC}};
 
 handle_event(internal, {session, Ev, _}, _State, _Data) ->
@@ -345,7 +347,10 @@ handle_request(ReqKey,
     LeftTunnel0 = ergw_gsn_lib:tunnel(left, Context0),
     LeftBearer0 = ergw_gsn_lib:bearer(left, Context0),
     {LeftTunnel1, LeftBearer1} =
-	update_tunnel_from_gtp_req(Request, LeftTunnel0, LeftBearer0, Context1),
+	case update_tunnel_from_gtp_req(Request, LeftTunnel0, LeftBearer0) of
+	    {ok, Result1} -> Result1;
+	    {error, Err1} -> throw(Err1#ctx_err{context = Context1})
+	end,
 
     LeftTunnel = gtp_path:bind(Request, LeftTunnel1),
 
@@ -363,26 +368,48 @@ handle_request(ReqKey,
 
     ergw_sx_node:wait_connect(SxConnectId),
 
-    APNOpts = ergw_gsn_lib:apn_opts(APN, ContextPreAuth),
-    {UPinfo, SessionOpts} =
-	ergw_pfcp_context:select_upf(Candidates, SessionOpts2, APNOpts, ContextPreAuth),
+    APNOpts =
+	case ergw_gsn_lib:apn(APN) of
+	    {ok, Result2} -> Result2;
+	    {error, Err2} -> throw(Err2#ctx_err{context = ContextPreAuth})
+	end,
 
-    {ok, ActiveSessionOpts0, AuthSEvs} =
-	authenticate(Session, SessionOpts, Request, ContextPreAuth),
+    {UPinfo, SessionOpts} =
+	case ergw_pfcp_context:select_upf(Candidates, SessionOpts2, APNOpts) of
+	    {ok, Result3} -> Result3;
+	    {error, Err3} -> throw(Err3#ctx_err{context = ContextPreAuth})
+	end,
+
+    {ActiveSessionOpts0, AuthSEvs} =
+	case authenticate(Session, SessionOpts) of
+	    {ok, Result4} -> Result4;
+	    {error, Err4} -> throw(Err4#ctx_err{context = ContextPreAuth})
+	end,
 
     {PendingPCtx, NodeCaps, RightBearer0} =
-	ergw_pfcp_context:reselect_upf(
-	  Candidates, ActiveSessionOpts0, APNOpts, UPinfo, ContextPreAuth),
+	case ergw_pfcp_context:reselect_upf(
+	       Candidates, ActiveSessionOpts0, APNOpts, UPinfo) of
+	    {ok, Result5} -> Result5;
+	    {error, Err5} -> throw(Err5#ctx_err{context = ContextPreAuth})
+	end,
 
-    {Result, ActiveSessionOpts1, RightBearer, ContextPending1} =
+    {Result6, {Cause, ActiveSessionOpts1, RightBearer, ContextPending1}} =
 	allocate_ips(
 	  APNOpts, ActiveSessionOpts0, EUA, DAF, LeftTunnel, RightBearer0, ContextPreAuth),
+    case Result6 of
+	ok -> ok;
+	{error, Err6} -> throw(Err6#ctx_err{context = ContextPending1})
+    end,
+
     {Context, ActiveSessionOpts} =
 	add_apn_timeout(APNOpts, ActiveSessionOpts1, ContextPending1),
 
     LeftBearer =
-	ergw_gsn_lib:assign_local_data_teid(
-	  PendingPCtx, NodeCaps, LeftTunnel, LeftBearer1, Context),
+	case ergw_gsn_lib:assign_local_data_teid(
+	  PendingPCtx, NodeCaps, LeftTunnel, LeftBearer1) of
+	    {ok, Result7} -> Result7;
+	    {error, Err7} -> throw(Err7#ctx_err{context = Context})
+	end,
 
     ergw_aaa_session:set(Session, ActiveSessionOpts),
 
@@ -392,26 +419,33 @@ handle_request(ReqKey,
     GxOpts = #{'Event-Trigger' => ?'DIAMETER_GX_EVENT-TRIGGER_UE_IP_ADDRESS_ALLOCATE',
 	       'Bearer-Operation' => ?'DIAMETER_GX_BEARER-OPERATION_ESTABLISHMENT'},
 
-    {ok, _, GxEvents} = ccr_initial(Session, gx, GxOpts, SOpts, Request, Context),
+    {_, GxEvents} =
+	case ccr_initial(Session, gx, GxOpts, SOpts) of
+	    {ok, Result8} -> Result8;
+	    {error, Err8} -> throw(Err8#ctx_err{context = Context})
+	end,
 
     RuleBase = ergw_charging:rulebase(),
     {PCC1, PCCErrors1} =
 	ergw_pcc_context:gx_events_to_pcc_ctx(GxEvents, '_', RuleBase, PCC0),
 
     case ergw_pcc_context:pcc_ctx_has_rules(PCC1) of
-	false ->
-	    ?ABORT_CTX_REQUEST(Context, Request, create_pdp_context_response,
-			       user_authentication_failed);
 	true ->
-	    ok
+	    ok;
+	_ ->
+	    throw(?CTX_ERR(?FATAL, user_authentication_failed))
     end,
 
     %% TBD............
     CreditsAdd = ergw_pcc_context:pcc_ctx_to_credit_request(PCC1),
     GyReqServices = #{credits => CreditsAdd},
 
-    {ok, GySessionOpts, GyEvs} =
-	ccr_initial(Session, gy, GyReqServices, SOpts, Request, Context),
+    {GySessionOpts, GyEvs} =
+	case ccr_initial(Session, gy, GyReqServices, SOpts) of
+	    {ok, Result9} -> Result9;
+	    {error, Err9} -> throw(Err9#ctx_err{context = Context})
+	end,
+
     ?LOG(debug, "GySessionOpts: ~p", [GySessionOpts]),
     ?LOG(debug,"Initial GyEvs: ~p", [GyEvs]),
 
@@ -423,7 +457,11 @@ handle_request(ReqKey,
     PCC4 = ergw_pcc_context:session_events_to_pcc_ctx(RfSEvs, PCC3),
 
     PCtx =
-	ergw_pfcp_context:create_pfcp_session(PendingPCtx, PCC4, LeftBearer, RightBearer, Context),
+	case ergw_pfcp_context:create_pfcp_session(
+	       PendingPCtx, PCC4, LeftBearer, RightBearer, Context) of
+	    {ok, Result10} -> Result10;
+	    {error, Err10} -> throw(Err10#ctx_err{context = Context})
+	end,
 
     GxReport = ergw_gsn_lib:pcc_events_to_charging_rule_report(PCCErrors1 ++ PCCErrors2),
     if map_size(GxReport) /= 0 ->
@@ -436,9 +474,13 @@ handle_request(ReqKey,
     FinalContext =
 	ergw_gsn_lib:'#set-'(
 	  [{left, LeftBearer}, {right, RightBearer}], Context),
-    gtp_context:remote_context_register_new(FinalContext),
 
-    ResponseIEs = create_pdp_context_response(Result, ActiveSessionOpts, Request,
+    case gtp_context:remote_context_register_new(FinalContext) of
+	ok -> ok;
+	{error, Err11} -> throw(Err11#ctx_err{context = FinalContext})
+    end,
+
+    ResponseIEs = create_pdp_context_response(Cause, ActiveSessionOpts, Request,
 					      LeftTunnel, LeftBearer, FinalContext),
     Response = response(create_pdp_context_response, LeftTunnel, ResponseIEs, Request),
     gtp_context:send_response(ReqKey, Request, Response),
@@ -456,8 +498,11 @@ handle_request(ReqKey,
     LeftTunnelOld = ergw_gsn_lib:tunnel(left, Context),
     LeftBearerOld = ergw_gsn_lib:bearer(left, Context),
     {LeftTunnel0, LeftBearer} =
-	update_tunnel_from_gtp_req(
-	  Request, LeftTunnelOld#tunnel{version = v1}, LeftBearerOld, Context),
+	case update_tunnel_from_gtp_req(
+	       Request, LeftTunnelOld#tunnel{version = v1}, LeftBearerOld) of
+	    {ok, Result1} -> Result1;
+	    {error, Err1} -> throw(Err1#ctx_err{context = Context})
+	end,
 
     LeftTunnel1 = gtp_path:bind(Request, LeftTunnel0),
     gtp_context:tunnel_reg_update(LeftTunnelOld, LeftTunnel1),
@@ -467,8 +512,11 @@ handle_request(ReqKey,
 
     PCtx =
 	if LeftBearer /= LeftBearerOld ->
-		apply_bearer_change(
-		  LeftBearer, RightBearer, URRActions, PCtx0, PCC, Context);
+		case apply_bearer_change(
+		       LeftBearer, RightBearer, URRActions, PCtx0, PCC) of
+		    {ok, Result2} -> Result2;
+		    {error, Err2} -> throw(Err2#ctx_err{context = Context})
+		end;
 	   true ->
 		trigger_defered_usage_report(URRActions, PCtx0),
 		PCtx0
@@ -565,28 +613,23 @@ response(Cmd, Tunnel, IEs0, #gtp{ie = ReqIEs})
     IEs = gtp_v1_c:build_recovery(Cmd, Tunnel, is_map_key(?'Recovery', ReqIEs), IEs0),
     response(Cmd, Tunnel, IEs).
 
-session_failure_to_gtp_cause(_) ->
-    system_failure.
-
-authenticate(Session, SessionOpts, Request, Ctx) ->
+authenticate(Session, SessionOpts) ->
     ?LOG(debug, "SessionOpts: ~p", [SessionOpts]),
     case ergw_aaa_session:invoke(Session, SessionOpts, authenticate, [inc_session_id]) of
-	{ok, _, _} = Result ->
-	    ?LOG(debug, "AuthResult: success"),
-	    Result;
+	{ok, SOpts, SEvs} ->
+	    {ok, {SOpts, SEvs}};
 	Other ->
 	    ?LOG(debug, "AuthResult: ~p", [Other]),
-	    ?ABORT_CTX_REQUEST(Ctx, Request, create_pdp_context_response,
-			       user_authentication_failed)
+	    {error, ?CTX_ERR(?FATAL, user_authentication_failed)}
     end.
 
-ccr_initial(Session, API, SessionOpts, ReqOpts, Request, Ctx) ->
+ccr_initial(Session, API, SessionOpts, ReqOpts) ->
     case ergw_aaa_session:invoke(Session, SessionOpts, {API, 'CCR-Initial'}, ReqOpts) of
-	{ok, _, _} = Result ->
-	    Result;
-	{Fail, _, _} ->
-	    ?ABORT_CTX_REQUEST(Ctx, Request, create_pdp_context_response,
-			       session_failure_to_gtp_cause(Fail))
+	{ok, SOpts, SEvs} ->
+	    {ok, {SOpts, SEvs}};
+	{_Fail, _, _} ->
+	    %% TBD: replace with sensible mapping
+	    {error, ?CTX_ERR(?FATAL, system_failure)}
     end.
 
 pdp_alloc(#end_user_address{pdp_type_organization = 0,
@@ -645,8 +688,8 @@ encode_eua(Org, Number, IPv4, IPv6) ->
 		      pdp_type_number = Number,
 		      pdp_address = <<IPv4/binary, IPv6/binary >>}.
 
-close_pdp_context(Reason, #{context := Context, pfcp := PCtx, 'Session' := Session}) ->
-    URRs = ergw_pfcp_context:delete_pfcp_session(Reason, Context, PCtx),
+close_pdp_context(Reason, #{pfcp := PCtx, 'Session' := Session}) ->
+    URRs = ergw_pfcp_context:delete_pfcp_session(Reason, PCtx),
 
     %% ===========================================================================
 
@@ -683,39 +726,34 @@ close_pdp_context(Reason, #{context := Context, pfcp := PCtx, 'Session' := Sessi
     %% ===========================================================================
     ok.
 
-query_usage_report(ChargingKeys, Context, PCtx)
+query_usage_report(ChargingKeys, PCtx)
   when is_list(ChargingKeys) ->
-    ergw_pfcp_context:query_usage_report(ChargingKeys, Context, PCtx);
-query_usage_report(_, Context, PCtx) ->
-    ergw_pfcp_context:query_usage_report(Context, PCtx).
+    ergw_pfcp_context:query_usage_report(ChargingKeys, PCtx);
+query_usage_report(_, PCtx) ->
+    ergw_pfcp_context:query_usage_report(PCtx).
 
 triggered_charging_event(ChargeEv, Now, Request,
-			 #{context := Context, pfcp := PCtx,
-			   'Session' := Session, pcc := PCC}) ->
-    try
-	ReqOpts = #{now => Now, async => true},
+			 #{pfcp := PCtx, 'Session' := Session, pcc := PCC}) ->
+    ReqOpts = #{now => Now, async => true},
 
-	{_, UsageReport} =
-	    query_usage_report(Request, Context, PCtx),
-	{Online, Offline, Monitor} =
-	    ergw_pfcp_context:usage_report_to_charging_events(UsageReport, ChargeEv, PCtx),
-
-	ergw_gsn_lib:process_accounting_monitor_events(ChargeEv, Monitor, Now, Session),
-	GyReqServices = ergw_pcc_context:gy_credit_request(Online, PCC),
-	ergw_gsn_lib:process_online_charging_events(ChargeEv, GyReqServices, Session, ReqOpts),
-	ergw_gsn_lib:process_offline_charging_events(ChargeEv, Offline, Now, Session)
-    catch
-	throw:#ctx_err{} = CtxErr ->
+    case query_usage_report(Request, PCtx) of
+	{ok, {_, UsageReport}} ->
+	    {Online, Offline, Monitor} =
+		ergw_pfcp_context:usage_report_to_charging_events(UsageReport, ChargeEv, PCtx),
+	    ergw_gsn_lib:process_accounting_monitor_events(ChargeEv, Monitor, Now, Session),
+	    GyReqServices = ergw_pcc_context:gy_credit_request(Online, PCC),
+	    ergw_gsn_lib:process_online_charging_events(ChargeEv, GyReqServices, Session, ReqOpts),
+	    ergw_gsn_lib:process_offline_charging_events(ChargeEv, Offline, Now, Session);
+	{error, CtxErr} ->
 	    ?LOG(error, "Triggered Charging Event failed with ~p", [CtxErr])
     end,
     ok.
 
 defered_usage_report_fun(Owner, URRActions, PCtx) ->
-    try
-	{_, Report} = ergw_pfcp_context:query_usage_report(offline, undefined, PCtx),
-	defered_usage_report(Owner, URRActions, Report)
-    catch
-	throw:#ctx_err{} = CtxErr ->
+    case ergw_pfcp_context:query_usage_report(offline, PCtx) of
+	{ok, {_, Report}} ->
+	    defered_usage_report(Owner, URRActions, Report);
+	{error, CtxErr} ->
 	    ?LOG(error, "Defered Usage Report failed with ~p", [CtxErr])
     end.
 
@@ -729,12 +767,15 @@ trigger_defered_usage_report(URRActions, PCtx) ->
 defer_usage_report(URRActions, UsageReport) ->
     defered_usage_report(self(), URRActions, UsageReport).
 
-apply_bearer_change(LeftBearer, RightBearer, URRActions, PCtx0, PCC, Ctx) ->
-    {PCtx, UsageReport} =
-	ergw_pfcp_context:modify_pfcp_session(PCC, URRActions,
-					#{}, LeftBearer, RightBearer, Ctx, PCtx0),
-    defer_usage_report(URRActions, UsageReport),
-    PCtx.
+apply_bearer_change(LeftBearer, RightBearer, URRActions, PCtx0, PCC) ->
+    case ergw_pfcp_context:modify_pfcp_session(
+	   PCC, URRActions, #{}, LeftBearer, RightBearer, PCtx0) of
+	{ok, {PCtx, UsageReport}} ->
+	    defer_usage_report(URRActions, UsageReport),
+	    {ok, PCtx};
+	{error, _} = Error ->
+	    Error
+    end.
 
 update_path_bind(NewTunnel0, OldTunnel)
   when NewTunnel0 /= OldTunnel ->
@@ -1123,21 +1164,34 @@ update_fq_teid(Side, Field, Value, Rec) ->
      ergw_gsn_lib:'#set-'(
        [{Side, update_fq_teid(Field, Value, ergw_gsn_lib:'#get-'(Side, Rec))}], Rec).
 
-get_tunnel_from_req(_, #gsn_address{instance = 0, address = IP}, {Tunnel, Bearer}, Ctx) ->
-    IP = ergw_gsn_lib:choose_ip_by_tunnel(Tunnel, IP, IP, Ctx),
-    {update_fq_teid(remote, ip, ergw_inet:bin2ip(IP), Tunnel), Bearer};
-get_tunnel_from_req(_, #gsn_address{instance = 1, address = IP}, {Tunnel, Bearer}, Ctx) ->
-    IP = ergw_gsn_lib:choose_ip_by_tunnel(Tunnel, IP, IP, Ctx),
-    {Tunnel, update_fq_teid(remote, ip, ergw_inet:bin2ip(IP), Bearer)};
-get_tunnel_from_req(_, #tunnel_endpoint_identifier_data_i{instance = 0, tei = TEI}, {Tunnel, Bearer}, _) ->
-    {Tunnel, update_fq_teid(remote, teid, TEI, Bearer)};
-get_tunnel_from_req(_, #tunnel_endpoint_identifier_control_plane{instance = 0, tei = TEI}, {Tunnel, Bearer}, _) ->
-    {update_fq_teid(remote, teid, TEI, Tunnel), Bearer};
-get_tunnel_from_req(_, _, Acc, _) ->
-    Acc.
+get_tunnel_from_req(none, Tunnel, Bearer) ->
+    {ok, {Tunnel, Bearer}};
+get_tunnel_from_req({_, #gsn_address{instance = 0, address = IP}, Next}, Tunnel0, Bearer) ->
+    do([error_m ||
+	   PeerIP <- ergw_gsn_lib:choose_ip_by_tunnel(Tunnel0, IP, IP),
+	   begin
+	       Tunnel = update_fq_teid(remote, ip, ergw_inet:bin2ip(PeerIP), Tunnel0),
+	       get_tunnel_from_req(maps:next(Next), Tunnel, Bearer)
+	   end]);
+get_tunnel_from_req({_, #gsn_address{instance = 1, address = IP}, Next}, Tunnel, Bearer0) ->
+    do([error_m ||
+	   PeerIP <- ergw_gsn_lib:choose_ip_by_tunnel(Tunnel, IP, IP),
+	   begin
+	       Bearer = update_fq_teid(remote, ip, ergw_inet:bin2ip(PeerIP), Bearer0),
+	       get_tunnel_from_req(maps:next(Next), Tunnel, Bearer)
+	   end]);
+get_tunnel_from_req({_, #tunnel_endpoint_identifier_data_i{instance = 0, tei = TEI}, Next},
+		    Tunnel, Bearer) ->
+    get_tunnel_from_req(maps:next(Next), Tunnel, update_fq_teid(remote, teid, TEI, Bearer));
+get_tunnel_from_req({_, #tunnel_endpoint_identifier_control_plane{instance = 0, tei = TEI}, Next},
+		    Tunnel, Bearer) ->
+    get_tunnel_from_req(maps:next(Next), update_fq_teid(remote, teid, TEI, Tunnel), Bearer);
+get_tunnel_from_req({_, _, Next}, Tunnel, Bearer) ->
+   get_tunnel_from_req(maps:next(Next), Tunnel, Bearer).
 
-update_tunnel_from_gtp_req(#gtp{ie = IEs}, Tunnel, Bearer, Ctx) ->
-    maps:fold(get_tunnel_from_req(_, _, _, Ctx), {Tunnel, Bearer}, IEs).
+%% update_tunnel_from_gtp_req/3
+update_tunnel_from_gtp_req(#gtp{ie = IEs}, Tunnel, Bearer) ->
+    get_tunnel_from_req(maps:next(maps:iterator(IEs)), Tunnel, Bearer).
 
 enter_ie(_Key, Value, IEs)
   when is_list(IEs) ->
@@ -1267,10 +1321,10 @@ change_reporting_actions(#gtp{ext_hdr = ExtHdr}, IEs) ->
     CRSI = proplists:get_bool(ms_info_change_reporting_support_indication, ExtHdr),
     _IE = change_reporting_action(CRSI, Triggers, IEs).
 
-create_pdp_context_response(Result, SessionOpts, #gtp{ie = RequestIEs} = Request,
+create_pdp_context_response(Cause, SessionOpts, #gtp{ie = RequestIEs} = Request,
 			    Tunnel, Bearer,
 			    #context{ms_ip = #ue_ip{v4 = MSv4, v6 = MSv6}} = Context) ->
-    IE0 = [Result,
+    IE0 = [Cause,
 	   #reordering_required{required = no},
 	   context_charging_id(Context),
 	   encode_eua(MSv4, MSv6)],
