@@ -19,6 +19,7 @@
 	 network_instance/1,
 	 outer_header_creation/1,
 	 outer_header_removal/1,
+	 outer_header_removal/2,
 	 ctx_teid_key/2,
 	 up_inactivity_timer/1]).
 -export([init_ctx/1, reset_ctx/1,
@@ -48,12 +49,17 @@ traffic_endp(#bearer{local = FqTEID} = Bearer, Group)
     [source_interface(Bearer),
      ergw_pfcp:network_instance(Bearer),
      ergw_pfcp:f_teid(FqTEID)
-     | Group];
+    | Group];
 traffic_endp(#bearer{local = UeIP} = Bearer, Group)
   when is_record(UeIP, ue_ip) ->
     [source_interface(Bearer),
      ergw_pfcp:network_instance(Bearer),
-     ergw_pfcp:ue_ip_address(dst, Bearer)
+     ergw_pfcp:ue_ip_address(dst, UeIP)
+    | Group];
+traffic_endp(#bearer{local = undefined, remote = UeIP} = Bearer, Group)
+  when is_record(UeIP, ue_ip) ->
+    [source_interface(Bearer),
+     ergw_pfcp:network_instance(Bearer)
     | Group];
 traffic_endp(_, Group) ->
     Group.
@@ -63,13 +69,17 @@ traffic_forward(#bearer{} = Bearer, Group) ->
      ergw_pfcp:network_instance(Bearer)
     | outer_header_creation(Bearer, Group)].
 
-ue_ip_address(Direction, #bearer{local = #ue_ip{v4 = IPv4, v6 = undefined}})
+ue_ip_address(Direction, #bearer{local = UeIP})
+  when is_record(UeIP, ue_ip) ->
+    ue_ip_address(Direction, UeIP);
+
+ue_ip_address(Direction, #ue_ip{v4 = IPv4, v6 = undefined})
   when IPv4 /= undefined ->
     #ue_ip_address{type = Direction, ipv4 = alloc_info_addr(IPv4)};
-ue_ip_address(Direction, #bearer{local = #ue_ip{v4 = undefined, v6 = IPv6}})
+ue_ip_address(Direction, #ue_ip{v4 = undefined, v6 = IPv6})
   when IPv6 /= undefined ->
     #ue_ip_address{type = Direction, ipv6 = alloc_info_addr(IPv6)};
-ue_ip_address(Direction, #bearer{local = #ue_ip{v4 = IPv4, v6 = IPv6}})
+ue_ip_address(Direction, #ue_ip{v4 = IPv4, v6 = IPv6})
   when IPv4 /= undefined, IPv6 /= undefined ->
     #ue_ip_address{type = Direction, ipv4 = alloc_info_addr(IPv4),
 		   ipv6 = alloc_info_addr(IPv6)};
@@ -124,6 +134,12 @@ outer_header_creation(#fq_teid{ip = {_,_,_,_} = IP, teid = TEID}) ->
     #outer_header_creation{type = 'GTP-U', teid = TEID, ipv4 = ergw_inet:ip2bin(IP)};
 outer_header_creation(#fq_teid{ip = {_,_,_,_,_,_,_,_} = IP, teid = TEID}) ->
     #outer_header_creation{type = 'GTP-U', teid = TEID, ipv6 = ergw_inet:ip2bin(IP)}.
+
+outer_header_removal(#bearer{local = FqTEID}, Group)
+  when is_record(FqTEID, fq_teid) ->
+    [outer_header_removal(FqTEID) | Group];
+outer_header_removal(_, Group) ->
+    Group.
 
 outer_header_removal(#bearer{local = #fq_teid{ip = IP}}) ->
     outer_header_removal(IP);
