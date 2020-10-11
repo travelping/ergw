@@ -1169,10 +1169,10 @@ pdp_qos_profile(#{'3GPP-Allocation-Retention-Priority' := NegotiatedPriority,
 pdp_qos_profile(_SessionOpts, IE) ->
     IE.
 
-tunnel_endpoint_elements(#context{control_port = #gtp_port{ip = CntlIP},
-				  local_control_tei = CntlTEI,
-				  left = #bearer{local = #fq_teid{ip = DataIP, teid = DataTEI}}
-				 }, IEs) ->
+tunnel_endpoint_elements(#context{
+			    left_tnl = #tunnel{local = #fq_teid{ip = CntlIP, teid = CntlTEI}},
+			    left = #bearer{local = #fq_teid{ip = DataIP, teid = DataTEI}}
+			   }, IEs) ->
     [#tunnel_endpoint_identifier_data_i{tei = DataTEI},
      #tunnel_endpoint_identifier_control_plane{tei = CntlTEI},
      #gsn_address{instance = 0, address = ergw_inet:ip2bin(CntlIP)},   %% for Control Plane

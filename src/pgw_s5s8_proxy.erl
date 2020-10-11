@@ -33,14 +33,14 @@
 	(is_record(Key, request) andalso
 	 is_record(Msg, gtp) andalso
 	 Key#request.gtp_port =:= Context#context.control_port andalso
-	 Msg#gtp.tei =:= Context#context.local_control_tei)).
+	 Msg#gtp.tei =:= Context#context.left_tnl#tunnel.local#fq_teid.teid)).
 
 -define(IS_REQUEST_CONTEXT_OPTIONAL_TEI(Key, Msg, Context),
 	(is_record(Key, request) andalso
 	 is_record(Msg, gtp) andalso
 	 Key#request.gtp_port =:= Context#context.control_port andalso
 	 (Msg#gtp.tei =:= 0 orelse
-	  Msg#gtp.tei =:= Context#context.local_control_tei))).
+	  Msg#gtp.tei =:= Context#context.left_tnl#tunnel.local#fq_teid.teid))).
 
 %====================================================================
 %% API
@@ -607,8 +607,10 @@ handle_sgw_change(#context{remote_control_teid = NewFqTEID},
 		  #context{remote_control_teid = OldFqTEID},
 		  #context{control_port = CntlPort} = ProxyContext0)
   when OldFqTEID /= NewFqTEID ->
-    {ok, CntlTEI} = ergw_tei_mngr:alloc_tei(CntlPort),
-    ProxyContext = ProxyContext0#context{local_control_tei = CntlTEI},
+    ProxyTnl =
+	ergw_gsn_lib:assign_tunnel_teid(
+	  local, CntlPort, #tunnel{interface = 'Core'}),
+    ProxyContext = ProxyContext0#context{left_tnl = ProxyTnl},
     gtp_context:remote_context_update(ProxyContext0, ProxyContext),
     ProxyContext;
 handle_sgw_change(_, _, ProxyContext) ->
@@ -627,7 +629,9 @@ init_proxy_context(CntlPort,
 			    control_interface = Interface, state = CState},
 		   #{imsi := IMSI, msisdn := MSISDN, apn := DstAPN}, {_GwNode, PGW}) ->
     APN = ergw_node_selection:expand_apn(DstAPN, IMSI),
-    {ok, CntlTEI} = ergw_tei_mngr:alloc_tei(CntlPort),
+    ProxyTnl =
+	ergw_gsn_lib:assign_tunnel_teid(
+	  local, CntlPort, #tunnel{interface = 'Core'}),
     #context{
        apn               = APN,
        imsi              = IMSI,
@@ -638,7 +642,7 @@ init_proxy_context(CntlPort,
        version           = Version,
        control_interface = Interface,
        control_port      = CntlPort,
-       local_control_tei = CntlTEI,
+       left_tnl          = ProxyTnl,
        remote_control_teid =
 	   #fq_teid{ip = PGW},
        left              = #bearer{interface = 'Core'},
@@ -695,21 +699,23 @@ update_context_from_gtp_req(#gtp{ie = IEs} = Req, Context0) ->
 	maps:fold(fun get_context_from_req/3, Context1, IEs),
     Context#context{apn = ergw_node_selection:expand_apn(APN, IMSI)}.
 
-fq_teid(TEI, {_,_,_,_} = IP, IE) ->
+fq_teid(#fq_teid{ip = {_,_,_,_} = IP, teid = TEI}, IE) ->
     IE#v2_fully_qualified_tunnel_endpoint_identifier{
        key = TEI, ipv4 = ergw_inet:ip2bin(IP)};
-fq_teid(TEI, {_,_,_,_,_,_,_,_} = IP, IE) ->
+fq_teid(#fq_teid{ip = {_,_,_,_,_,_,_,_} = IP, teid = TEI}, IE) ->
     IE#v2_fully_qualified_tunnel_endpoint_identifier{
       key = TEI, ipv6 = ergw_inet:ip2bin(IP)}.
 
-set_bearer_from_context(#context{left = #bearer{local = #fq_teid{ip = IP, teid = TEI}}},
+set_bearer_from_context(#context{left = #bearer{local = FqTEID}},
 			_, #v2_fully_qualified_tunnel_endpoint_identifier{
-			      interface_type = ?'S5/S8-U SGW'} = IE) ->
-    fq_teid(TEI, IP, IE);
-set_bearer_from_context(#context{left = #bearer{local = #fq_teid{ip = IP, teid = TEI}}},
+			      interface_type = ?'S5/S8-U SGW'} = IE)
+  when is_record(FqTEID, fq_teid) ->
+    fq_teid(FqTEID, IE);
+set_bearer_from_context(#context{left = #bearer{local = FqTEID}},
 			_, #v2_fully_qualified_tunnel_endpoint_identifier{
-			      interface_type = ?'S5/S8-U PGW'} = IE) ->
-    fq_teid(TEI, IP, IE);
+			      interface_type = ?'S5/S8-U PGW'} = IE)
+  when is_record(FqTEID, fq_teid) ->
+    fq_teid(FqTEID, IE);
 set_bearer_from_context(_, _K, IE) ->
     IE.
 
@@ -725,14 +731,16 @@ set_req_from_context(#context{msisdn = MSISDN},
 		     _K, #v2_msisdn{instance = 0} = IE)
   when is_binary(MSISDN) ->
     IE#v2_msisdn{msisdn = MSISDN};
-set_req_from_context(#context{control_port = #gtp_port{ip = CntlIP}, local_control_tei = CntlTEI},
+set_req_from_context(#context{left_tnl = #tunnel{local = FqTEID}},
 		     _K, #v2_fully_qualified_tunnel_endpoint_identifier{
-			    interface_type = ?'S5/S8-C SGW'} = IE) ->
-    fq_teid(CntlTEI, CntlIP, IE);
-set_req_from_context(#context{control_port = #gtp_port{ip = CntlIP}, local_control_tei = CntlTEI},
+			    interface_type = ?'S5/S8-C SGW'} = IE)
+  when is_record(FqTEID, fq_teid) ->
+    fq_teid(FqTEID, IE);
+set_req_from_context(#context{left_tnl = #tunnel{local = FqTEID}},
 		     _K, #v2_fully_qualified_tunnel_endpoint_identifier{
-			    interface_type = ?'S5/S8-C PGW'} = IE) ->
-    fq_teid(CntlTEI, CntlIP, IE);
+			    interface_type = ?'S5/S8-C PGW'} = IE)
+  when is_record(FqTEID, fq_teid) ->
+    fq_teid(FqTEID, IE);
 set_req_from_context(Context, _K, #v2_bearer_context{instance = 0, group = Bearer} = IE) ->
     IE#v2_bearer_context{group = maps:map(set_bearer_from_context(Context, _, _), Bearer)};
 set_req_from_context(_, _K, IE) ->

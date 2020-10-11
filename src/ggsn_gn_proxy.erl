@@ -33,14 +33,14 @@
 	(is_record(Key, request) andalso
 	 is_record(Msg, gtp) andalso
 	 Key#request.gtp_port =:= Context#context.control_port andalso
-	 Msg#gtp.tei =:= Context#context.local_control_tei)).
+	 Msg#gtp.tei =:= Context#context.left_tnl#tunnel.local#fq_teid.teid)).
 
 -define(IS_REQUEST_CONTEXT_OPTIONAL_TEI(Key, Msg, Context),
 	(is_record(Key, request) andalso
 	 is_record(Msg, gtp) andalso
 	 Key#request.gtp_port =:= Context#context.control_port andalso
 	 (Msg#gtp.tei =:= 0 orelse
-	  Msg#gtp.tei =:= Context#context.local_control_tei))).
+	  Msg#gtp.tei =:= Context#context.left_tnl#tunnel.local#fq_teid.teid))).
 
 %%====================================================================
 %% API
@@ -523,8 +523,10 @@ handle_sgsn_change(#context{remote_control_teid = NewFqTEID},
 		  #context{remote_control_teid = OldFqTEID},
 		  #context{control_port = CntlPort} = ProxyContext0)
   when OldFqTEID /= NewFqTEID ->
-    {ok, CntlTEI} = ergw_tei_mngr:alloc_tei(CntlPort),
-    ProxyContext = ProxyContext0#context{local_control_tei = CntlTEI},
+    ProxyTnl =
+	ergw_gsn_lib:assign_tunnel_teid(
+	  local, CntlPort, #tunnel{interface = 'Core'}),
+    ProxyContext = ProxyContext0#context{left_tnl = ProxyTnl},
     gtp_context:remote_context_update(ProxyContext0, ProxyContext),
     ProxyContext;
 handle_sgsn_change(_, _, ProxyContext) ->
@@ -543,7 +545,9 @@ init_proxy_context(CntlPort,
 			    control_interface = Interface, state = CState},
 		   #{imsi := IMSI, msisdn := MSISDN, apn := DstAPN}, {_GwNode, GGSN}) ->
     {APN, _OI} = ergw_node_selection:split_apn(DstAPN),
-    {ok, CntlTEI} = ergw_tei_mngr:alloc_tei(CntlPort),
+    ProxyTnl =
+	ergw_gsn_lib:assign_tunnel_teid(
+	  local, CntlPort, #tunnel{interface = 'Core'}),
     #context{
        apn               = APN,
        imsi              = IMSI,
@@ -554,7 +558,7 @@ init_proxy_context(CntlPort,
        version           = Version,
        control_interface = Interface,
        control_port      = CntlPort,
-       local_control_tei = CntlTEI,
+       left_tnl          = ProxyTnl,
        remote_control_teid =
 	   #fq_teid{ip = GGSN},
        left              = #bearer{interface = 'Core'},
@@ -617,18 +621,18 @@ set_req_from_context(#context{msisdn = MSISDN},
 		  _K, #ms_international_pstn_isdn_number{instance = 0} = IE)
   when is_binary(MSISDN) ->
     IE#ms_international_pstn_isdn_number{msisdn = {isdn_address, 1, 1, 1, MSISDN}};
-set_req_from_context(#context{control_port = #gtp_port{ip = CntlIP}},
+set_req_from_context(#context{left_tnl = #tunnel{local = #fq_teid{ip = IP}}},
 		     _K, #gsn_address{instance = 0} = IE) ->
-    IE#gsn_address{address = ergw_inet:ip2bin(CntlIP)};
+    IE#gsn_address{address = ergw_inet:ip2bin(IP)};
 set_req_from_context(#context{left = #bearer{local = #fq_teid{ip = IP}}},
 		     _K, #gsn_address{instance = 1} = IE) ->
     IE#gsn_address{address = ergw_inet:ip2bin(IP)};
 set_req_from_context(#context{left = #bearer{local = #fq_teid{teid = TEI}}},
 		     _K, #tunnel_endpoint_identifier_data_i{instance = 0} = IE) ->
     IE#tunnel_endpoint_identifier_data_i{tei = TEI};
-set_req_from_context(#context{local_control_tei = CntlTEI},
+set_req_from_context(#context{left_tnl = #tunnel{local = #fq_teid{teid = TEI}}},
 		     _K, #tunnel_endpoint_identifier_control_plane{instance = 0} = IE) ->
-    IE#tunnel_endpoint_identifier_control_plane{tei = CntlTEI};
+    IE#tunnel_endpoint_identifier_control_plane{tei = TEI};
 set_req_from_context(_, _K, IE) ->
     IE.
 

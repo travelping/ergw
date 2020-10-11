@@ -1752,15 +1752,14 @@ modify_bearer_request_tei_update(Config) ->
 
     {_Handler, ProxyCtxPid} = gtp_context_reg:lookup({'irx', {imsi, ?'IMSI', 5}}),
     #{proxy_context := PrxCtx1} = gtp_context:info(ProxyCtxPid),
-    #context{control_port = #gtp_port{name = ProxySocket}} = PrxCtx1,
-    ProxyRegKey1 = {ProxySocket, {teid, 'gtp-c', PrxCtx1#context.local_control_tei}},
+    ProxyRegKey1 = gtp_context:tunnel_key(local, PrxCtx1#context.left_tnl),
     ?match({gtp_context, ProxyCtxPid}, gtp_context_reg:lookup(ProxyRegKey1)),
 
     {GtpC2, _, _} = modify_bearer(tei_update, GtpC1),
     #{context := Ctx2} = gtp_context:info(CtxPid),
 
     #{proxy_context := PrxCtx2} = gtp_context:info(ProxyCtxPid),
-    ProxyRegKey2 = {ProxySocket, {teid, 'gtp-c', PrxCtx2#context.local_control_tei}},
+    ProxyRegKey2 = gtp_context:tunnel_key(local, PrxCtx2#context.left_tnl),
     ?match(undefined, gtp_context_reg:lookup(ProxyRegKey1)),
     ?match({gtp_context, ProxyCtxPid}, gtp_context_reg:lookup(ProxyRegKey2)),
 

@@ -1206,13 +1206,13 @@ fq_teid(Instance, Type, TEI, {_,_,_,_,_,_,_,_} = IP) ->
        instance = Instance, interface_type = Type,
        key = TEI, ipv6 = ergw_inet:ip2bin(IP)}.
 
-s11_sender_f_teid(#context{control_port = #gtp_port{ip = IP}, local_control_tei = TEI}) ->
+s11_sender_f_teid(#context{left_tnl = #tunnel{local = #fq_teid{ip = IP, teid = TEI}}}) ->
     fq_teid(0, ?'S11/S4-C SGW', TEI, IP).
 
 s1_sgw_gtp_u_tei(#context{left = #bearer{local = #fq_teid{ip = IP, teid = TEI}}}) ->
     fq_teid(0, ?'S1-U SGW', TEI, IP).
 
-s5s8_pgw_gtp_c_tei(#context{control_port = #gtp_port{ip = IP}, local_control_tei = TEI}) ->
+s5s8_pgw_gtp_c_tei(#context{left_tnl = #tunnel{local = #fq_teid{ip = IP, teid = TEI}}}) ->
     %% PGW S5/S8/ S2a/S2b F-TEID for PMIP based interface
     %% or for GTP based Control Plane interface
     fq_teid(1, ?'S5/S8-C PGW', TEI, IP).

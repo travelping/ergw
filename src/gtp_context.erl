@@ -40,7 +40,7 @@
 	 terminate/3, code_change/4]).
 
 -ifdef(TEST).
--export([test_cmd/2]).
+-export([tunnel_key/2, test_cmd/2]).
 -endif.
 
 -include_lib("kernel/include/logger.hrl").
@@ -316,16 +316,16 @@ init([CntlPort, Version, Interface,
     ?LOG(debug, "init(~p)", [[CntlPort, Interface]]),
     process_flag(trap_exit, true),
 
-    {ok, CntlTEI} = ergw_tei_mngr:alloc_tei(CntlPort),
-
+    LeftTnl =
+	ergw_gsn_lib:assign_tunnel_teid(
+	  local, CntlPort, #tunnel{interface = 'Access'}),
     Context = #context{
 		 charging_identifier = ergw_gtp_c_socket:get_uniq_id(CntlPort),
 
 		 version           = Version,
 		 control_interface = Interface,
 		 control_port      = CntlPort,
-		 local_control_tei = CntlTEI,
-
+		 left_tnl          = LeftTnl,
 		 left              = #bearer{interface = 'Access'},
 		 right             = #bearer{interface = 'SGi-LAN'}
 		},
@@ -581,14 +581,14 @@ context2keys(#context{
 		apn                 = APN,
 		context_id          = ContextId,
 		control_port        = CntlPort,
-		local_control_tei   = LocalCntlTEI,
+		left_tnl            = LeftTnl,
 		remote_control_teid = RemoteCntlTEID,
 		vrf                 = #vrf{name = VRF},
 		ms_v4               = MSv4,
 		ms_v6               = MSv6
 	       }) ->
     ordsets:from_list(
-      [port_teid_key(CntlPort, 'gtp-c', LocalCntlTEI),
+      [tunnel_key(local, LeftTnl),
        port_teid_key(CntlPort, 'gtp-c', RemoteCntlTEID)]
       ++ [port_key(CntlPort, ContextId) || ContextId /= undefined]
       ++ [#bsf{dnn = APN, ip_domain = VRF, ip = ergw_ip_pool:ip(MSv4)} || MSv4 /= undefined]
@@ -597,16 +597,21 @@ context2keys(#context{
 context2keys(#context{
 		context_id          = ContextId,
 		control_port        = CntlPort,
-		local_control_tei   = LocalCntlTEI,
+		left_tnl            = LeftTnl,
 		remote_control_teid = RemoteCntlTEID
 	       }) ->
     ordsets:from_list(
-      [port_teid_key(CntlPort, 'gtp-c', LocalCntlTEI),
+      [tunnel_key(local, LeftTnl),
        port_teid_key(CntlPort, 'gtp-c', RemoteCntlTEID)]
       ++ [port_key(CntlPort, ContextId) || ContextId /= undefined]).
 
 port_key(#gtp_port{name = Name}, Key) ->
     {Name, Key}.
+
+tunnel_key(local, #tunnel{socket = {Name, _}, local = #fq_teid{teid = TEID}}) ->
+    {Name, {teid, 'gtp-c', TEID}};
+tunnel_key(remote, #tunnel{socket = {Name, _}, remote = #fq_teid{teid = TEID}}) ->
+    {Name, {teid, 'gtp-c', TEID}}.
 
 port_teid_key(#gtp_port{type = Type} = Port, TEI) ->
     port_teid_key(Port, Type, TEI).
