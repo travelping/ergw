@@ -125,12 +125,15 @@ maybe_ip(_,_) -> undefined.
 init([Node, InVRF, IP4, IP6, #{apn := APN} = _SxOpts]) ->
     process_flag(trap_exit, true),
 
-    Context =
+    Context0 =
 	#tdf_ctx{
-	   in_vrf = InVRF,
+	   left = #bearer{interface = 'Access'},
+	   right = #bearer{interface = 'SGi-LAN'},
+
 	   ms_v4 = maybe_ip(IP4, 32),
 	   ms_v6 = maybe_ip(IP6, 128)
 	  },
+    Context = ergw_gsn_lib:set_ue_ip(left, remote, InVRF, Context0),
 
     {ok, Session} = ergw_aaa_session_sup:new_session(self(), to_session([])),
     SessionOpts = ergw_aaa_session:get(Session),
@@ -351,7 +354,8 @@ start_session(#data{apn = APN, context = Context0, dp_node = Node,
 		    session = Session, pcc = PCC0} = Data) ->
 
     {ok, PendingPCtx, NodeCaps} = ergw_sx_node:attach(Node, Context0),
-    PendingContext = Context0#tdf_ctx{out_vrf = ergw_gsn_lib:select_vrf(NodeCaps, APN)},
+    VRF = ergw_gsn_lib:select_vrf(NodeCaps, APN),
+    PendingContext = ergw_gsn_lib:set_ue_ip(right, local, VRF, Context0),
 
     Now = erlang:monotonic_time(),
     SOpts = #{now => Now},
@@ -530,7 +534,7 @@ handle_charging_event(Key, Ev, _Now, Data) ->
 %% context registry
 %%====================================================================
 
-vrf_keys(#tdf_ctx{in_vrf = InVrf, out_vrf = OutVrf}, IP)
+vrf_keys(#tdf_ctx{left = #bearer{vrf = InVrf}, right = #bearer{vrf = OutVrf}}, IP)
   when is_binary(InVrf), is_binary(OutVrf), IP /= undefined ->
     Addr = ergw_ip_pool:addr(IP),
     [{ue, InVrf, Addr}, {ue, OutVrf, Addr}];

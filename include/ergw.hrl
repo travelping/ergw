@@ -124,8 +124,9 @@
 	 }).
 
 -record(tdf_ctx, {
-	  in_vrf                 :: atom(),
-	  out_vrf                :: atom(),
+	  left                   :: 'undefined' | #bearer{},
+	  right                  :: 'undefined' | #bearer{},
+
 	  ms_v4                  :: inet:ip4_address(),
 	  ms_v6                  :: inet:ip6_address()
 	 }).

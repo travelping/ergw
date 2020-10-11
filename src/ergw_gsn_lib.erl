@@ -41,6 +41,8 @@
 	 update_remote_data_teid/2,
 	 unset_remote_data_teid/1,
 	 set_ue_ip/1,
+	 set_ue_ip/3,
+	 set_ue_ip/4,
 	 unset_ue_ip/1]).
 
 -export([select_upf/2, reselect_upf/4]).
@@ -598,13 +600,6 @@ to_binary(List) when is_list(List) ->
 to_binary(Bin) when is_binary(Bin) ->
     Bin.
 
-build_sx_redirect([#{'Redirect-Support' :=        [1],   %% ENABLED
-		     'Redirect-Address-Type' :=   [2],   %% URL
-		     'Redirect-Server-Address' := [URL]}]) ->
-    [#redirect_information{type = 'URL', address = to_binary(URL)}];
-build_sx_redirect(_) ->
-    [].
-
 %% The spec compliante FAR would set Destination Interface
 %% to Access. However, VPP can not deal with that right now.
 %%
@@ -638,16 +633,22 @@ build_sx_sgi_fwd_far(FarId, _RedirInfo, _LeftBearer, RightBearer) ->
        }].
 
 %% build_sx_rule/6
+build_sx_rule(Direction, Name, Definition, FilterInfo, URRs,
+	      #sx_upd{sctx = #context{left = LeftBearer, right = RightBearer}} = Update) ->
+    build_sx_rule(Direction, Name, Definition, FilterInfo, URRs, LeftBearer, RightBearer, Update);
+build_sx_rule(Direction, Name, Definition, FilterInfo, URRs,
+	      #sx_upd{sctx = #tdf_ctx{left = LeftBearer, right = RightBearer}} = Update) ->
+    build_sx_rule(Direction, Name, Definition, FilterInfo, URRs, LeftBearer, RightBearer, Update).
+
+%% build_sx_rule/8
 build_sx_rule(Direction = downlink, Name, Definition, FilterInfo, URRs,
-	      #sx_upd{
-		 pctx = PCtx0,
-		 sctx = #context{left = LeftBearer, right = RightBearer}
-		} = Update)
+	      LeftBearer, RightBearer, #sx_upd{pctx = PCtx0} = Update)
   when LeftBearer#bearer.remote /= undefined ->
     [Precedence] = maps:get('Precedence', Definition, [1000]),
     RuleName = {Direction, Name},
     {PdrId, PCtx1} = ergw_pfcp:get_id(pdr, RuleName, PCtx0),
     {FarId, PCtx} = ergw_pfcp:get_id(far, RuleName, PCtx1),
+
     SxFilter = build_sx_filter(FilterInfo),
     PDI = #pdi{group = ergw_pfcp:traffic_endp(RightBearer, SxFilter)},
     PDR = [#pdr_id{id = PdrId},
@@ -655,37 +656,37 @@ build_sx_rule(Direction = downlink, Name, Definition, FilterInfo, URRs,
 	   PDI,
 	   #far_id{id = FarId}] ++
 	[#urr_id{id = X} || X <- URRs],
+
     FAR = [#far_id{id = FarId},
 	   #apply_action{forw = 1},
 	   #forwarding_parameters{
 	      group = ergw_pfcp:traffic_forward(LeftBearer, [])
 	     }
 	  ],
+
     Update#sx_upd{
       pctx = ergw_pfcp_rules:add(
 	       [{pdr, RuleName, PDR},
 		{far, RuleName, FAR}], PCtx)};
 
 build_sx_rule(Direction = uplink, Name, Definition, FilterInfo, URRs,
-	      #sx_upd{pctx = PCtx0,
-		      sctx = #context{left = LeftBearer, right = RightBearer}
-		     } = Update) ->
+	      LeftBearer, RightBearer, #sx_upd{pctx = PCtx0} = Update) ->
     [Precedence] = maps:get('Precedence', Definition, [1000]),
     RuleName = {Direction, Name},
     {PdrId, PCtx1} = ergw_pfcp:get_id(pdr, RuleName, PCtx0),
     {FarId, PCtx} = ergw_pfcp:get_id(far, RuleName, PCtx1),
-    SxFilter = build_sx_filter(FilterInfo),
-    PDI = #pdi{
-	     group =
-		 [ergw_pfcp:ue_ip_address(src, RightBearer)
-		 | ergw_pfcp:traffic_endp(LeftBearer, SxFilter)]
-	    },
 
-    PDR = [#pdr_id{id = PdrId},
+    SxFilter = build_sx_filter(FilterInfo),
+    PDI = #pdi{group =
+		   [ergw_pfcp:ue_ip_address(src, RightBearer)
+		   | ergw_pfcp:traffic_endp(LeftBearer, SxFilter)]},
+    PDR =
+	ergw_pfcp:outer_header_removal(
+	  LeftBearer,
+	  [#pdr_id{id = PdrId},
 	   #precedence{precedence = Precedence},
 	   PDI,
-	   ergw_pfcp:outer_header_removal(LeftBearer),
-	   #far_id{id = FarId}] ++
+	   #far_id{id = FarId}]) ++
 	[#urr_id{id = X} || X <- URRs],
 
     RedirInfo = maps:get('Redirect-Information', Definition, undefined),
@@ -696,81 +697,11 @@ build_sx_rule(Direction = uplink, Name, Definition, FilterInfo, URRs,
 	       [{pdr, RuleName, PDR},
 		{far, RuleName, FAR}], PCtx)};
 
-%% ===========================================================================
-
-build_sx_rule(Direction = downlink, Name, Definition, FilterInfo, URRs,
-	      #sx_upd{pctx = PCtx0,
-		      sctx = #tdf_ctx{in_vrf = InVrf, out_vrf = OutVrf} = SCtx
-		     } = Update) ->
-    [Precedence] = maps:get('Precedence', Definition, [1000]),
-    RuleName = {Direction, Name},
-    {PdrId, PCtx1} = ergw_pfcp:get_id(pdr, RuleName, PCtx0),
-    {FarId, PCtx} = ergw_pfcp:get_id(far, RuleName, PCtx1),
-    PDI = #pdi{
-	     group =
-		 [#source_interface{interface = 'SGi-LAN'},
-		  ergw_pfcp:network_instance(OutVrf),
-		  ergw_pfcp:ue_ip_address(dst, SCtx)] ++
-		 build_sx_filter(FilterInfo)
-	     },
-    PDR = [#pdr_id{id = PdrId},
-	   #precedence{precedence = Precedence},
-	   PDI,
-	   #far_id{id = FarId}] ++
-	[#urr_id{id = X} || X <- URRs],
-    FAR = [#far_id{id = FarId},
-	   #apply_action{forw = 1},
-	   #forwarding_parameters{
-	      group =
-		  [#destination_interface{interface = 'Access'},
-		   ergw_pfcp:network_instance(InVrf)
-		  ]
-	     }
-	  ],
-    Update#sx_upd{
-      pctx = ergw_pfcp_rules:add(
-	       [{pdr, RuleName, PDR},
-		{far, RuleName, FAR}], PCtx)};
-
-build_sx_rule(Direction = uplink, Name, Definition, FilterInfo, URRs,
-	      #sx_upd{pctx = PCtx0,
-		      sctx = #tdf_ctx{in_vrf = InVrf, out_vrf = OutVrf} = SCtx
-		     } = Update) ->
-    [Precedence] = maps:get('Precedence', Definition, [1000]),
-    RuleName = {Direction, Name},
-    {PdrId, PCtx1} = ergw_pfcp:get_id(pdr, RuleName, PCtx0),
-    {FarId, PCtx} = ergw_pfcp:get_id(far, RuleName, PCtx1),
-    PDI = #pdi{
-	     group =
-		 [#source_interface{interface = 'Access'},
-		  ergw_pfcp:network_instance(InVrf),
-		  ergw_pfcp:ue_ip_address(src, SCtx)] ++
-		 build_sx_filter(FilterInfo)
-	    },
-    PDR = [#pdr_id{id = PdrId},
-	   #precedence{precedence = Precedence},
-	   PDI,
-	   #far_id{id = FarId}] ++
-	[#urr_id{id = X} || X <- URRs],
-    FAR = [#far_id{id = FarId},
-	    #apply_action{forw = 1},
-	    #forwarding_parameters{
-	       group =
-		   [#destination_interface{interface = 'SGi-LAN'},
-		    ergw_pfcp:network_instance(OutVrf)
-		   ]
-	       ++ build_sx_redirect(maps:get('Redirect-Information', Definition, undefined))
-	      }
-	  ],
-    Update#sx_upd{
-      pctx = ergw_pfcp_rules:add(
-	       [{pdr, RuleName, PDR},
-		{far, RuleName, FAR}], PCtx)};
-
-%% ===========================================================================
-
-build_sx_rule(_Direction, Name, _Definition, _FlowInfo, _URRs, Update) ->
+build_sx_rule(_Direction, Name, _Definition, _FilterInfo, _URRs,
+	      _LeftBearer, _RightBearer, Update) ->
     sx_rule_error({system_error, Name}, Update).
+
+%% ===========================================================================
 
 get_rule_urrs(D, #sx_upd{pctx = PCtx}) ->
     RGs =
@@ -1899,26 +1830,28 @@ release_context_ips(#context{ms_v4 = MSv4, ms_v6 = MSv6} = Context) ->
 update_element_with(Field, Tuple, Fun) ->
     setelement(Field, Tuple, Fun(element(Field, Tuple))).
 
-context_field(left) -> #context.left;
-context_field(right) -> #context.right.
+context_field(left, #context{})  -> #context.left;
+context_field(right, #context{}) -> #context.right;
+context_field(left, #tdf_ctx{})  -> #tdf_ctx.left;
+context_field(right, #tdf_ctx{}) -> #tdf_ctx.right.
 
 bearer_field(local) -> #bearer.local;
 bearer_field(remote) -> #bearer.remote.
 
 %% assign_local_data_teid/3
-assign_local_data_teid(PCtx, NodeCaps, Context) ->
-    assign_local_data_teid(left, PCtx, NodeCaps, Context).
+assign_local_data_teid(PCtx, NodeCaps, Ctx) ->
+    assign_local_data_teid(left, PCtx, NodeCaps, Ctx).
 
 %% assign_local_data_teid/4
-assign_local_data_teid(CtxSide, PCtx, NodeCaps, Context) ->
+assign_local_data_teid(CtxSide, PCtx, NodeCaps, Ctx) ->
     update_element_with(
-      context_field(CtxSide), Context, assign_local_data_teid_f(PCtx, NodeCaps, Context, _)).
+      context_field(CtxSide, Ctx), Ctx, assign_local_data_teid_f(PCtx, NodeCaps, Ctx, _)).
 
 %% assign_local_data_teid_f/4
 assign_local_data_teid_f(PCtx, {VRFs, _} = _NodeCaps,
-			 #context{control_port = ControlPort} = Context, Bearer) ->
+			 #context{control_port = ControlPort} = Ctx, Bearer) ->
     #vrf{name = Name, ipv4 = IP4, ipv6 = IP6} = maps:get(ControlPort#gtp_port.vrf, VRFs),
-    IP = ergw_gsn_lib:choose_context_ip(IP4, IP6, Context),
+    IP = ergw_gsn_lib:choose_context_ip(IP4, IP6, Ctx),
     {ok, DataTEI} = ergw_tei_mngr:alloc_tei(PCtx),
     FqTEID = #fq_teid{
 		     ip = ergw_inet:bin2ip(IP),
@@ -1926,13 +1859,13 @@ assign_local_data_teid_f(PCtx, {VRFs, _} = _NodeCaps,
     Bearer#bearer{vrf = Name, local = FqTEID}.
 
 %% set_remote_data_teid/3
-set_remote_data_teid(IP, TEI, Context) ->
-    set_remote_data_teid(left, remote, IP, TEI, Context).
+set_remote_data_teid(IP, TEI, Ctx) ->
+    set_remote_data_teid(left, remote, IP, TEI, Ctx).
 
 %% set_remote_data_teid_f/5
-set_remote_data_teid(CtxSide, BearerSide, IP, TEI, Context) ->
+set_remote_data_teid(CtxSide, BearerSide, IP, TEI, Ctx) ->
    update_element_with(
-     context_field(CtxSide), Context,
+     context_field(CtxSide, Ctx), Ctx,
      setelement(bearer_field(BearerSide), _, set_remote_data_teid_f(IP, TEI))).
 
 %% set_remote_data_teid_f/3
@@ -1940,49 +1873,55 @@ set_remote_data_teid_f(IP, TEI) ->
     #fq_teid{ip = ergw_inet:bin2ip(IP), teid = TEI}.
 
 %% update_remote_data_teid/2
-update_remote_data_teid(Fun, Context) ->
-    update_remote_data_teid(left, remote, Fun, Context).
+update_remote_data_teid(Fun, Ctx) ->
+    update_remote_data_teid(left, remote, Fun, Ctx).
 
 %% update_remote_data_teid_f/4
-update_remote_data_teid(CtxSide, BearerSide, Fun, Context) ->
+update_remote_data_teid(CtxSide, BearerSide, Fun, Ctx) ->
    update_element_with(
-     context_field(CtxSide), Context,
+     context_field(CtxSide, Ctx), Ctx,
      update_element_with(bearer_field(BearerSide), _, Fun)).
 
 %% unset_remote_data_teid/1
-unset_remote_data_teid(Context) ->
-    unset_remote_data_teid(left, remote, Context).
+unset_remote_data_teid(Ctx) ->
+    unset_remote_data_teid(left, remote, Ctx).
 
 %% unset_remote_data_teid_f/3
-unset_remote_data_teid(CtxSide, BearerSide, Context) ->
+unset_remote_data_teid(CtxSide, BearerSide, Ctx) ->
    update_element_with(
-     context_field(CtxSide), Context,
+     context_field(CtxSide, Ctx), Ctx,
      setelement(bearer_field(BearerSide), _, undefined)).
 
 %% set_ue_ip/1
-set_ue_ip(Context) ->
-    set_ue_ip(right, local, Context).
+set_ue_ip(Ctx) ->
+    set_ue_ip(right, local, Ctx).
 
 %% set_ue_ip/3
-set_ue_ip(CtxSide, BearerSide, #context{vrf = #vrf{name = Name}} = Context) ->
+set_ue_ip(CtxSide, BearerSide, #context{vrf = #vrf{name = Name}} = Ctx) ->
+    set_ue_ip(CtxSide, BearerSide, Name, Ctx).
+
+%% set_ue_ip/4
+set_ue_ip(CtxSide, BearerSide, Name, Ctx) ->
     update_element_with(
-      context_field(CtxSide), Context,
+      context_field(CtxSide, Ctx), Ctx,
       fun(Bearer) ->
-	      setelement(bearer_field(BearerSide), Bearer#bearer{vrf = Name}, set_ue_ip_f(Context))
+	      setelement(bearer_field(BearerSide), Bearer#bearer{vrf = Name}, set_ue_ip_f(Ctx))
       end).
 
 %% set_ue_ip_f/1
 set_ue_ip_f(#context{ms_v4 = IPv4, ms_v6 = IPv6}) ->
+    #ue_ip{v4 = IPv4, v6 = IPv6};
+set_ue_ip_f(#tdf_ctx{ms_v4 = IPv4, ms_v6 = IPv6}) ->
     #ue_ip{v4 = IPv4, v6 = IPv6}.
 
 %% unset_ue_ip/1
-unset_ue_ip(Context) ->
-    unset_ue_ip(right, local, Context).
+unset_ue_ip(Ctx) ->
+    unset_ue_ip(right, local, Ctx).
 
 %% unset_ue_ip/3
-unset_ue_ip(CtxSide, BearerSide, Context) ->
+unset_ue_ip(CtxSide, BearerSide, Ctx) ->
     update_element_with(
-      context_field(CtxSide), Context,
+      context_field(CtxSide, Ctx), Ctx,
       setelement(bearer_field(BearerSide), _, undefined)).
 
 %%%===================================================================
