@@ -1072,18 +1072,6 @@ create_session_request_invalid_apn(Config) ->
 create_session_request_pool_exhausted() ->
     [{doc, "Dynamic IP pool exhausted"}].
 create_session_request_pool_exhausted(Config) ->
-    ok = meck:expect(ergw_gsn_lib, allocate_ips,
-		     fun(AllocInfo, APNOpts, SOpts, DualAddressBearerFlag,
-			 Tunnel, Bearer, Context) ->
-			     try
-				 meck:passthrough([AllocInfo, APNOpts, SOpts,
-						   DualAddressBearerFlag,
-						   Tunnel, Bearer, Context])
-			     catch
-				 throw:#ctx_err{} = CtxErr ->
-				     meck:exception(throw, CtxErr)
-			     end
-		     end),
     ok = meck:expect(ergw_local_pool, wait_pool_response,
 		     fun({error, empty} = Error) ->
 			     Error;
@@ -1499,19 +1487,6 @@ error_indication(Config) ->
 pdn_session_request_bearer_types() ->
     [{doc, "Create different IP bearers against APNs with restrictions/preferences"}].
 pdn_session_request_bearer_types(Config) ->
-    ok = meck:expect(ergw_gsn_lib, allocate_ips,
-		     fun(AllocInfo, APNOpts, SOpts, DualAddressBearerFlag,
-			 Tunnel, Bearer, Context) ->
-			     try
-				 meck:passthrough([AllocInfo, APNOpts, SOpts,
-						   DualAddressBearerFlag,
-						   Tunnel, Bearer, Context])
-			     catch
-				 throw:#ctx_err{} = CtxErr ->
-				     meck:exception(throw, CtxErr)
-			     end
-		     end),
-
     {GtpC1, _, _} = create_session({ipv4, false, default}, Config),
     delete_session(GtpC1),
 
@@ -2345,23 +2320,23 @@ session_accounting(Config) ->
     {GtpC, _, _} = create_session(Config),
 
     [#{'Process' := Pid}|_] = ergw_api:tunnel(all),
-    #{context := Context, pfcp:= PCtx} = gtp_context:info(Pid),
+    #{pfcp:= PCtx} = gtp_context:info(Pid),
 
     %% make sure we handle that the Sx node is not returning any accounting
     ergw_test_sx_up:accounting('pgw-u01', off),
 
-    SessionOpts1 = ergw_test_lib:query_usage_report(Context, PCtx),
+    SessionOpts1 = ergw_test_lib:query_usage_report(PCtx),
     ?equal(false, maps:is_key('InPackets', SessionOpts1)),
     ?equal(false, maps:is_key('InOctets', SessionOpts1)),
 
     %% enable accouting again....
     ergw_test_sx_up:accounting('pgw-u01', on),
 
-    SessionOpts2 = ergw_test_lib:query_usage_report(Context, PCtx),
+    SessionOpts2 = ergw_test_lib:query_usage_report(PCtx),
     ?match(#{'InPackets' := 3, 'OutPackets' := 1,
 	     'InOctets' := 4, 'OutOctets' := 2}, SessionOpts2),
 
-    SessionOpts3 = ergw_test_lib:query_usage_report(Context, PCtx),
+    SessionOpts3 = ergw_test_lib:query_usage_report(PCtx),
     ?match(#{'InPackets' := 3, 'OutPackets' := 1,
 	     'InOctets' := 4, 'OutOctets' := 2}, SessionOpts3),
 
@@ -2494,16 +2469,6 @@ sx_up_to_cp_forward(Config) ->
 sx_upf_restart() ->
     [{doc, "Test UPF restart behavior"}].
 sx_upf_restart(Config) ->
-    ok = meck:expect(ergw_pfcp_context, create_pfcp_session,
-		     fun(PCtx, PCC, Left, Right, Ctx) ->
-			     try
-				 meck:passthrough([PCtx, PCC, Left, Right, Ctx])
-			     catch
-				 throw:#ctx_err{} = CtxErr ->
-				     meck:exception(throw, CtxErr)
-			     end
-		     end),
-
     {GtpCinit, _, _} = create_session(Config),
     delete_session(GtpCinit),
 
@@ -2571,7 +2536,6 @@ sx_upf_restart(Config) ->
     ?match([{_, _, _, _, <<_/binary>>}|_], UDP),
 
     meck_validate(Config),
-    ok = meck:delete(ergw_pfcp_context, create_pfcp_session, 5),
     ok.
 
 %%--------------------------------------------------------------------
@@ -2583,15 +2547,6 @@ sx_timeout(Config) ->
 		     fun(Peer, _T1, _N1, Msg, CbInfo) ->
 			     meck:passthrough([Peer, 100, 2, Msg, CbInfo])
 		     end),
-    ok = meck:expect(ergw_pfcp_context, create_pfcp_session,
-		     fun(PCtx, PCC, Left, Right, Ctx) ->
-			     try
-				 meck:passthrough([PCtx, PCC, Left, Right, Ctx])
-			     catch
-				 throw:#ctx_err{} = CtxErr ->
-				     meck:exception(throw, CtxErr)
-			     end
-		     end),
     ergw_test_sx_up:disable('pgw-u01'),
 
     create_session(system_failure, Config),
@@ -2601,7 +2556,6 @@ sx_timeout(Config) ->
     meck_validate(Config),
 
     ok = meck:delete(ergw_sx_socket, call, 5),
-    ok = meck:delete(ergw_pfcp_context, create_pfcp_session, 5),
     ok.
 
 %%--------------------------------------------------------------------
@@ -2609,29 +2563,11 @@ sx_connect_fail() ->
     [{doc, "Check that a unreachable UPF leads to a proper error response"}].
 sx_connect_fail(Config) ->
     ok = meck:new(ergw_sx_node, [passthrough]),
-    ok = meck:expect(ergw_sx_node,select_sx_node,
-		     fun(Candidates, Context) ->
-			     try
-				 meck:passthrough([Candidates, Context])
-			     catch
-				 throw:#ctx_err{} = CtxErr ->
-				     meck:exception(throw, CtxErr)
-			     end
-		     end),
 
     %% reduce Sx timeout to speed up test
     ok = meck:expect(ergw_sx_socket, call,
 		     fun(Peer, _T1, _N1, Msg, CbInfo) ->
 			     meck:passthrough([Peer, 100, 2, Msg, CbInfo])
-		     end),
-    ok = meck:expect(ergw_pfcp_context, create_pfcp_session,
-		     fun(PCtx, PCC, Left, Right, Ctx) ->
-			     try
-				 meck:passthrough([PCtx, PCC, Left, Right, Ctx])
-			     catch
-				 throw:#ctx_err{} = CtxErr ->
-				     meck:exception(throw, CtxErr)
-			     end
 		     end),
 
     Self = self(),
@@ -2656,8 +2592,6 @@ sx_connect_fail(Config) ->
     meck_validate(Config),
     true = meck:validate(ergw_sx_node),
 
-    ok = meck:delete(ergw_sx_socket, call, 5),
-    ok = meck:delete(ergw_pfcp_context, create_pfcp_session, 5),
     ok.
 
 %%--------------------------------------------------------------------
@@ -3999,15 +3933,6 @@ aa_pool_select_fail(Config) ->
     AAAReply = #{'Framed-Pool'      => <<"pool-C">>,
 		 'Framed-IPv6-Pool' => <<"pool-C">>},
 
-    ok = meck:expect(ergw_pfcp_context, reselect_upf,
-		     fun(Candidates, Session, APNOpts, UPinfo, Ctx) ->
-			     try
-				 meck:passthrough([Candidates, Session, APNOpts, UPinfo, Ctx])
-			     catch
-				 throw:#ctx_err{} = CtxErr ->
-				     meck:exception(throw, CtxErr)
-			     end
-		     end),
     ok = meck:expect(ergw_aaa_session, invoke,
 		     fun (Session, SessionOpts, Procedure = authenticate, Opts) ->
 			     {_, SIn, Ev} =

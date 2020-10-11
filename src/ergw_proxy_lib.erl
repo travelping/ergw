@@ -7,7 +7,8 @@
 
 -module(ergw_proxy_lib).
 
--compile({parse_transform, cut}).
+-compile([{parse_transform, do},
+	  {parse_transform, cut}]).
 
 -export([validate_options/3, validate_option/2,
 	 forward_request/3, forward_request/7, forward_request/9,
@@ -57,44 +58,48 @@ get_seq_no(#context{left_tnl = #tunnel{socket = Socket}}, ReqKey, Request) ->
     ReqId = make_request_id(ReqKey, Request),
     ergw_gtp_c_socket:get_seq_no(Socket, ReqId).
 
-choose_gw([], _NodeSelect, _Socket, Context) ->
-    throw(?CTX_ERR(?FATAL, no_resources_available, Context));
-choose_gw(Nodes, NodeSelect, #socket{name = Name} = Socket,
-	  #context{version = Version} = Context) ->
+%% choose_gw/4
+choose_gw([], _NodeSelect, _Version, _Socket) ->
+    {error, ?CTX_ERR(?FATAL, no_resources_available)};
+choose_gw(Nodes, NodeSelect, Version, #socket{name = Name} = Socket) ->
     {Candidate, Next} = ergw_node_selection:snaptr_candidate(Nodes),
-    {Node, IP} = resolve_gw(Candidate, NodeSelect, Context),
-    case gtp_path_reg:state({Name, Version, IP}) of
-	down ->
-	    choose_gw(Next, NodeSelect, Socket, Context);
-	State when State =:= undefined; State =:= up ->
-	    {Node, IP}
-    end.
+    do([error_m ||
+	   {Node, IP} <- resolve_gw(Candidate, NodeSelect),
+	   begin
+	       case gtp_path_reg:state({Name, Version, IP}) of
+		   down ->
+		       choose_gw(Next, NodeSelect, Socket, Version);
+		   State when State =:= undefined; State =:= up ->
+		       return({Node, IP})
+	       end
+	   end]).
 
-select_gw(#{imsi := IMSI, gwSelectionAPN := APN}, Services, NodeSelect, Socket, Context) ->
+%% select_gw/5
+select_gw(#{imsi := IMSI, gwSelectionAPN := APN}, Version, Services, NodeSelect, Socket) ->
     FQDN = ergw_node_selection:apn_to_fqdn(APN, IMSI),
     case ergw_node_selection:candidates(FQDN, Services, NodeSelect) of
 	Nodes when is_list(Nodes), length(Nodes) /= 0 ->
-	    choose_gw(Nodes, NodeSelect, Socket, Context);
+	    choose_gw(Nodes, NodeSelect, Version, Socket);
 	_ ->
-	    throw(?CTX_ERR(?FATAL, system_failure, Context))
+	    {error, ?CTX_ERR(?FATAL, system_failure)}
     end;
-select_gw(_ProxyInfo, _Services, _NodeSelect, _Socket, Context) ->
-    throw(?CTX_ERR(?FATAL, system_failure, Context)).
+select_gw(_ProxyInfo, _Version, _Services, _NodeSelect, _Socket) ->
+    {error, ?CTX_ERR(?FATAL, system_failure)}.
 
 lb(L) when is_list(L) ->
     lists:nth(rand:uniform(length(L)), L).
 
 %% plain A/AAA record
-resolve_gw({Node, IP4, IP6}, _NodeSelect, _Context)
+resolve_gw({Node, IP4, IP6}, _NodeSelect)
   when length(IP4) /= 0; length(IP6) /= 0 ->
-    {Node, select_gw_ip(IP4, IP6)};
-resolve_gw({Node, _, _}, NodeSelect, Context) ->
+    {ok, {Node, select_gw_ip(IP4, IP6)}};
+resolve_gw({Node, _, _}, NodeSelect) ->
     case ergw_node_selection:lookup(Node, NodeSelect) of
 	{_, IP4, IP6}
 	  when length(IP4) /= 0; length(IP6) /= 0 ->
-	    {Node, select_gw_ip(IP4, IP6)};
+	    {ok, {Node, select_gw_ip(IP4, IP6)}};
 	{error, _} ->
-	    throw(?CTX_ERR(?FATAL, system_failure, Context))
+	    {error, ?CTX_ERR(?FATAL, system_failure)}
     end.
 
 select_gw_ip(IP4, _IP6) when length(IP4) /= 0 ->

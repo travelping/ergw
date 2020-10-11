@@ -7,7 +7,8 @@
 
 -module(ergw_gsn_lib).
 
--compile({parse_transform, cut}).
+-compile([{parse_transform, do},
+	  {parse_transform, cut}]).
 
 -export([seconds_to_sntp_time/1,
 	 gregorian_seconds_to_sntp_time/1,
@@ -23,7 +24,7 @@
 	 process_accounting_monitor_events/4,
 	 secondary_rat_usage_data_report_to_rf/2,
 	 pfcp_to_context_event/1,
-	 choose_ip_by_tunnel/4,
+	 choose_ip_by_tunnel/3,
 	 ip_pdu/3
 	]).
 -export([
@@ -31,7 +32,7 @@
 	 gy_events_to_credits/3,
 	 pcc_events_to_charging_rule_report/1,
 	 make_gy_credit_request/3]).
--export([apn/2, apn_opts/2, select_vrf/2,
+-export([apn/1, apn/2, select_vrf/2,
 	 allocate_ips/7, release_context_ips/1]).
 -export([tunnel/2,
 	 bearer/2,
@@ -39,7 +40,7 @@
 	 init_bearer/2,
 	 assign_tunnel_teid/3,
 	 reassign_tunnel_teid/1,
-	 assign_local_data_teid/5,
+	 assign_local_data_teid/4,
 	 set_bearer_vrf/3,
 	 set_ue_ip/4,
 	 set_ue_ip/5
@@ -101,20 +102,20 @@ sntp_time_to_gregorian_seconds(SNTP) ->
 sntp_time_to_datetime(SNTP) ->
     calendar:gregorian_seconds_to_datetime(sntp_time_to_gregorian_seconds(SNTP)).
 
-%% choose_ip_by_tunnel/4
-choose_ip_by_tunnel(#tunnel{local = FqTEID}, IP4, IP6, Ctx) ->
-    choose_ip_by_tunnel_f(FqTEID, IP4, IP6, Ctx).
+%% choose_ip_by_tunnel/3
+choose_ip_by_tunnel(#tunnel{local = FqTEID}, IP4, IP6) ->
+    choose_ip_by_tunnel_f(FqTEID, IP4, IP6).
 
 %% use additional information from the context or config to prefer V4 or V6....
-choose_ip_by_tunnel_f(#fq_teid{ip = LocalIP}, IP4, _IP6, _)
+choose_ip_by_tunnel_f(#fq_teid{ip = LocalIP}, IP4, _IP6)
   when is_binary(IP4), byte_size(IP4) =:= 4, ?IS_IPv4(LocalIP) ->
-    IP4;
-choose_ip_by_tunnel_f(#fq_teid{ip = LocalIP}, _IP4, IP6, _)
+    {ok, IP4};
+choose_ip_by_tunnel_f(#fq_teid{ip = LocalIP}, _IP4, IP6)
   when is_binary(IP6), byte_size(IP6) =:= 16, ?IS_IPv6(LocalIP) ->
-    IP6;
-choose_ip_by_tunnel_f(_, _IP4, _IP6, Ctx) ->
+    {ok, IP6};
+choose_ip_by_tunnel_f(_, _IP4, _IP6) ->
     %% IP version mismatch, broken peer GSN or misconfiguration
-    throw(?CTX_ERR(?FATAL, system_failure, Ctx)).
+    {error, ?CTX_ERR(?FATAL, system_failure)}.
 
 %%%===================================================================
 %%% context helper
@@ -577,19 +578,13 @@ apn([H|_] = APN0, APNs) when is_binary(H) ->
     {NI, OI} = ergw_node_selection:split_apn(APN),
     FqAPN = NI ++ OI,
     case APNs of
-	#{FqAPN := A} -> A;
-	#{NI :=    A} -> A;
-	#{'_' :=   A} -> A;
-	_ -> false
+	#{FqAPN := A} -> {ok, A};
+	#{NI :=    A} -> {ok, A};
+	#{'_' :=   A} -> {ok, A};
+	_ -> {error, ?CTX_ERR(?FATAL, missing_or_unknown_apn)}
     end;
 apn(_, _) ->
-    false.
-
-apn_opts(APN, Ctx) ->
-    case apn(APN) of
-	false -> throw(?CTX_ERR(?FATAL, missing_or_unknown_apn, Ctx));
-	Other -> Other
-    end.
+    {error, ?CTX_ERR(?FATAL, missing_or_unknown_apn)}.
 
 %% select/2
 select(_, []) -> undefined;
@@ -606,7 +601,8 @@ select(Method, L1, L2) when is_list(L1), is_list(L2) ->
 
 %% select_vrf/2
 select_vrf({AvaVRFs, _AvaPools}, APN) ->
-    select(random, maps:get(vrfs, apn(APN)), AvaVRFs).
+    {ok, APNOpts} = apn(APN),
+    select(random, maps:get(vrfs, APNOpts), AvaVRFs).
 
 %%%===================================================================
 
@@ -659,32 +655,33 @@ request_ip_alloc(ReqIPs, Opts,# tunnel{local = #fq_teid{teid = TEI}}) ->
 
 ip_alloc_result(skip, Acc) ->
     Acc;
-ip_alloc_result({error, empty}, {UeIP, _}) ->
-    throw(?CTX_ERR(?FATAL, all_dynamic_addresses_are_occupied, UeIP));
-ip_alloc_result({error, taken}, {UeIP, _}) ->
-    throw(?CTX_ERR(?FATAL, system_error, UeIP));
+ip_alloc_result({error, empty}, {_, Info}) ->
+    {{error, ?CTX_ERR(?FATAL, all_dynamic_addresses_are_occupied)}, Info};
+ip_alloc_result({error, taken}, {_, Info}) ->
+    {{error, ?CTX_ERR(?FATAL, system_error)}, Info};
 ip_alloc_result({error, undefined}, Acc) ->
     %% pool not defined
     Acc;
 ip_alloc_result({error, Result}, Acc) ->
     ?LOG(error, "IP alloc failed with ~p", [Result]),
     Acc;
-ip_alloc_result(AI, {UeIP, Opts0}) ->
+ip_alloc_result(AI, {Result, {UeIP, Opts0}}) ->
     case ergw_ip_pool:ip(AI) of
 	{IP, _} when ?IS_IPv4(IP) ->
 	    Opts1 = maps:merge(Opts0, ergw_ip_pool:opts(AI)),
 	    Opts = maps:put('Framed-IP-Address', IP, Opts1),
-	    {UeIP#ue_ip{v4 = AI}, Opts};
+	    {Result, {UeIP#ue_ip{v4 = AI}, Opts}};
 	{IP, _} = IPv6 when ?IS_IPv6(IP) ->
 	    Opts1 = maps:merge(Opts0, ergw_ip_pool:opts(AI)),
 	    Opts = Opts1#{'Framed-IPv6-Prefix' => ergw_inet:ipv6_prefix(IPv6)},
-	    {UeIP#ue_ip{v6 = AI}, Opts}
+	    {Result, {UeIP#ue_ip{v6 = AI}, Opts}}
     end.
 
 wait_ip_alloc_results(ReqIds, Opts0) ->
     IPOpts = ['Framed-IP-Address', 'Framed-IPv6-Prefix', 'Framed-Interface-Id'],
     Opts = maps:without(IPOpts, Opts0),
-    lists:foldl(fun ip_alloc_result/2, {#ue_ip{}, Opts}, ergw_ip_pool:wait_response(ReqIds)).
+    lists:foldl(
+      fun ip_alloc_result/2, {ok, {#ue_ip{}, Opts}}, ergw_ip_pool:wait_response(ReqIds)).
 
 ue_interface_id({{_,_,_,_,A,B,C,D} = ReqIP, _}, _) when ReqIP =/= ?ZERO_IPv6 ->
     {0,0,0,0,A,B,C,D};
@@ -740,45 +737,39 @@ session_ip_alloc(_, _, SessionOpts, _, {PDNType, ReqMSv4, ReqMSv6}) ->
     MSv6 = session_ipv6_alloc(SessionOpts, ReqMSv6),
     {PDNType, MSv4, MSv6}.
 
-%% allocate_ips/4
-allocate_ips(ReqIPs, SOpts0, Tunnel, Context) ->
+%% allocate_ips/3
+allocate_ips(ReqIPs, SOpts0, Tunnel) ->
     ReqIds = request_ip_alloc(ReqIPs, SOpts0, Tunnel),
-    try
-	{UeIP, SOpts} = wait_ip_alloc_results(ReqIds, SOpts0),
-	{UeIP, SOpts, Context#context{ms_ip = UeIP}}
-    catch
-	throw:#ctx_err{context = CtxUeIP} = CtxErr ->
-	    ErrCtx = Context#context{ms_ip = CtxUeIP},
-	    throw(CtxErr#ctx_err{context = ErrCtx})
-    end.
+    wait_ip_alloc_results(ReqIds, SOpts0).
 
-allocate_ips_result(ReqPDNType, BearerType, #ue_ip{v4 = MSv4, v6 = MSv6}, Context) ->
+allocate_ips_result(ReqPDNType, BearerType, #ue_ip{v4 = MSv4, v6 = MSv6}) ->
     allocate_ips_result(ReqPDNType, BearerType, ergw_ip_pool:ip(MSv4),
-			ergw_ip_pool:ip(MSv6), Context).
+			ergw_ip_pool:ip(MSv6)).
 
-allocate_ips_result('Non-IP', _, _, _, _) -> {request_accepted, 'Non-IP'};
-allocate_ips_result('IPv4', _, IPv4, _, _) when IPv4 /= undefined ->
-    {request_accepted, 'IPv4'};
-allocate_ips_result('IPv6', _, _, IPv6, _) when IPv6 /= undefined ->
-    {request_accepted, 'IPv6'};
-allocate_ips_result('IPv4v6', _, IPv4, IPv6, _)
+allocate_ips_result('Non-IP', _, _, _) ->
+    {ok, {request_accepted, 'Non-IP'}};
+allocate_ips_result('IPv4', _, IPv4, _) when IPv4 /= undefined ->
+    {ok, {request_accepted, 'IPv4'}};
+allocate_ips_result('IPv6', _, _, IPv6) when IPv6 /= undefined ->
+    {ok, {request_accepted, 'IPv6'}};
+allocate_ips_result('IPv4v6', _, IPv4, IPv6)
   when IPv4 /= undefined, IPv6 /= undefined ->
-    {request_accepted, 'IPv4v6'};
-allocate_ips_result('IPv4v6', 'IPv4', IPv4, undefined, _) when IPv4 /= undefined ->
-    {new_pdn_type_due_to_network_preference, 'IPv4'};
-allocate_ips_result('IPv4v6', _, IPv4, undefined, _) when IPv4 /= undefined ->
-    {'new_pdn_type_due_to_single_address_bearer_only', 'IPv4'};
-allocate_ips_result('IPv4v6', 'IPv6', undefined, IPv6, _) when IPv6 /= undefined ->
-    {new_pdn_type_due_to_network_preference, 'IPv6'};
-allocate_ips_result('IPv4v6', _, undefined, IPv6, _) when IPv6 /= undefined ->
-    {'new_pdn_type_due_to_single_address_bearer_only', 'IPv6'};
-allocate_ips_result(_, _, _, _, Context) ->
-    throw(?CTX_ERR(?FATAL, preferred_pdn_type_not_supported, Context)).
+    {ok, {request_accepted, 'IPv4v6'}};
+allocate_ips_result('IPv4v6', 'IPv4', IPv4, undefined) when IPv4 /= undefined ->
+    {ok, {new_pdn_type_due_to_network_preference, 'IPv4'}};
+allocate_ips_result('IPv4v6', _, IPv4, undefined) when IPv4 /= undefined ->
+    {ok, {'new_pdn_type_due_to_single_address_bearer_only', 'IPv4'}};
+allocate_ips_result('IPv4v6', 'IPv6', undefined, IPv6) when IPv6 /= undefined ->
+    {ok, {new_pdn_type_due_to_network_preference, 'IPv6'}};
+allocate_ips_result('IPv4v6', _, undefined, IPv6) when IPv6 /= undefined ->
+    {ok, {'new_pdn_type_due_to_single_address_bearer_only', 'IPv6'}};
+allocate_ips_result(_, _, _, _) ->
+    {error, ?CTX_ERR(?FATAL, preferred_pdn_type_not_supported)}.
 
 %% allocate_ips/7
 allocate_ips(AllocInfo,
 	     #{bearer_type := BearerType, prefered_bearer_type := PrefBearer} = APNOpts,
-	     SOpts0, DualAddressBearerFlag, Tunnel, Bearer, Context0) ->
+	     SOpts0, DualAddressBearerFlag, Tunnel, Bearer, Context) ->
     {ReqPDNType, ReqMSv4, ReqMSv6} =
 	session_ip_alloc(BearerType, PrefBearer, SOpts0, DualAddressBearerFlag, AllocInfo),
 
@@ -786,21 +777,30 @@ allocate_ips(AllocInfo,
     SOpts2 = init_session_ue_ifid(APNOpts, SOpts1),
 
     ReqIPs = [normalize_ipv4(ReqMSv4), normalize_ipv6(ReqMSv6)],
-    {UeIP, SOpts3, Context} = allocate_ips(ReqIPs, SOpts2, Tunnel, Context0),
+    {Result0, {UeIP, SOpts3}} = allocate_ips(ReqIPs, SOpts2, Tunnel),
+    case Result0 of
+	ok ->
+	    case allocate_ips_result(ReqPDNType, BearerType, UeIP) of
+		{ok, {Response, PDNType}} ->
+		    SOpts = init_session_ue_ifid(APNOpts, SOpts3),
 
-    {Result, PDNType} = allocate_ips_result(ReqPDNType, BearerType, UeIP, Context),
-    SOpts = init_session_ue_ifid(APNOpts, SOpts3),
-
-    DNS = if PDNType =:= 'IPv6' orelse PDNType =:= 'IPv4v6' ->
-		  maps:get('DNS-Server-IPv6-Address', SOpts, []) ++          %% RFC 6911
-		      maps:get('3GPP-IPv6-DNS-Servers', SOpts, []);          %% 3GPP
-	     true ->
-		  []
-	  end,
-    {Result, SOpts,
-     Bearer#bearer{local = UeIP, remote = default},		% set remote to default for now
-								% (as in default route)
-     Context#context{pdn_type = PDNType, dns_v6 = DNS}}.
+		    DNS = if PDNType =:= 'IPv6' orelse PDNType =:= 'IPv4v6' ->
+				  maps:get('DNS-Server-IPv6-Address', SOpts, []) ++          %% RFC 6911
+				      maps:get('3GPP-IPv6-DNS-Servers', SOpts, []);          %% 3GPP
+			     true ->
+				  []
+			  end,
+		    {ok, {Response, SOpts,
+			  Bearer#bearer{local = UeIP, remote = default},
+						% set remote to default for now
+						% (as in default route)
+			  Context#context{pdn_type = PDNType, ms_ip = UeIP, dns_v6 = DNS}}};
+		{error, Err} = Result ->
+		    {Result, {Err, SOpts3, Bearer, Context#context{ms_ip = UeIP}}}
+	    end;
+	{error, _} ->
+	    {Result0, {system_failure, SOpts3, Bearer, Context#context{ms_ip = UeIP}}}
+    end.
 
 %% release_context_ips/1
 release_context_ips(#context{ms_ip = #ue_ip{v4 = MSv4, v6 = MSv6}} = Context) ->
@@ -938,21 +938,19 @@ init_bearer(Interface, #vrf{name = VRF}) ->
 bearer(CtxSide, Ctx) ->
     '#get-'(context_field(bearer, CtxSide), Ctx).
 
-%% assign_local_data_teid/5
-assign_local_data_teid(PCtx, NodeCaps, Tunnel, Bearer, Ctx)
+%% assign_local_data_teid/4
+assign_local_data_teid(PCtx, {VRFs, _} = _NodeCaps, #tunnel{vrf = VRF} = Tunnel, Bearer)
   when is_record(Bearer, bearer) ->
-    assign_local_data_teid_f(PCtx, NodeCaps, Tunnel, Bearer, Ctx).
-
-%% assign_local_data_teid_f/5
-assign_local_data_teid_f(PCtx, {VRFs, _} = _NodeCaps,
-			 #tunnel{vrf = VRF} = Tunnel, Bearer, Ctx) ->
     #vrf{name = Name, ipv4 = IP4, ipv6 = IP6} = maps:get(VRF, VRFs),
-    IP = choose_ip_by_tunnel(Tunnel, IP4, IP6, Ctx),
-    {ok, DataTEI} = ergw_tei_mngr:alloc_tei(PCtx),
-    FqTEID = #fq_teid{
-		     ip = ergw_inet:bin2ip(IP),
-		     teid = DataTEI},
-    Bearer#bearer{vrf = Name, local = FqTEID}.
+    do([error_m ||
+	   IP <- choose_ip_by_tunnel(Tunnel, IP4, IP6),
+	   DataTEI <- ergw_tei_mngr:alloc_tei(PCtx),
+	   begin
+	       FqTEID = #fq_teid{
+			   ip = ergw_inet:bin2ip(IP),
+			   teid = DataTEI},
+	       return(Bearer#bearer{vrf = Name, local = FqTEID})
+	   end]).
 
 %% update_ue_ip/5
 update_ue_ip(CtxSide, BearerSide, VRF, Fun, Ctx) ->

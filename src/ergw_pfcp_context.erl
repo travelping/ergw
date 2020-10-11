@@ -7,15 +7,16 @@
 
 -module(ergw_pfcp_context).
 
+-compile({parse_transform, do}).
 -compile({parse_transform, cut}).
 
 -export([create_pfcp_session/5, create_tdf_session/5,
 	 usage_report_to_charging_events/3,
-	 modify_pfcp_session/7,
-	 delete_pfcp_session/3,
-	 query_usage_report/2, query_usage_report/3
+	 modify_pfcp_session/6,
+	 delete_pfcp_session/2,
+	 query_usage_report/1, query_usage_report/2
 	]).
--export([select_upf/4, reselect_upf/5]).
+-export([select_upf/3, reselect_upf/4]).
 -export([send_g_pdu/3]).
 
 -include_lib("kernel/include/logger.hrl").
@@ -24,7 +25,7 @@
 -include_lib("ergw_aaa/include/diameter_3gpp_ts32_299.hrl").
 -include("include/ergw.hrl").
 
--record(sx_upd, {now, errors = [], monitors = #{}, pctx = #pfcp_ctx{}, left, right, sctx}).
+-record(sx_upd, {now, errors = [], monitors = #{}, pctx = #pfcp_ctx{}, left, right}).
 
 -define(SECONDS_PER_DAY, 86400).
 
@@ -35,10 +36,10 @@
 %%% PFCP Sx/N6 API
 %%%===================================================================
 
-delete_pfcp_session(Reason, Ctx, PCtx)
+delete_pfcp_session(Reason, PCtx)
   when Reason /= upf_failure ->
     Req = #pfcp{version = v1, type = session_deletion_request, ie = []},
-    case ergw_sx_node:call(PCtx, Req, Ctx) of
+    case ergw_sx_node:call(PCtx, Req) of
 	#pfcp{type = session_deletion_response,
 	      ie = #{pfcp_cause := #pfcp_cause{cause = 'Request accepted'}} = IEs} ->
 	    maps:get(usage_report_sdr, IEs, undefined);
@@ -48,7 +49,7 @@ delete_pfcp_session(Reason, Ctx, PCtx)
 			  [_Other]),
 	    undefined
     end;
-delete_pfcp_session(_Reason, _Ctx, _PCtx) ->
+delete_pfcp_session(_Reason, _PCtx) ->
     undefined.
 
 build_query_usage_report(Type, PCtx) ->
@@ -58,22 +59,22 @@ build_query_usage_report(Type, PCtx) ->
 		 (_, _, A) -> A
 	      end, [], ergw_pfcp:get_urr_ids(PCtx)).
 
-%% query_usage_report/2
-query_usage_report(Ctx, PCtx) ->
-    query_usage_report(online, Ctx, PCtx).
+%% query_usage_report/1
+query_usage_report(PCtx) ->
+    query_usage_report(online, PCtx).
 
-%% query_usage_report/3
-query_usage_report(Type, Ctx, PCtx)
+%% query_usage_report/2
+query_usage_report(Type, PCtx)
   when is_record(PCtx, pfcp_ctx) andalso
        (Type == offline orelse Type == online) ->
     IEs = build_query_usage_report(Type, PCtx),
-    session_modification_request(PCtx, IEs, Ctx);
+    session_modification_request(PCtx, IEs);
 
-query_usage_report(ChargingKeys, Ctx, PCtx)
+query_usage_report(ChargingKeys, PCtx)
   when is_record(PCtx, pfcp_ctx) ->
     IEs = [#query_urr{group = [#urr_id{id = Id}]} ||
 	   Id <- ergw_pfcp:get_urr_ids(ChargingKeys, PCtx), is_integer(Id)],
-    session_modification_request(PCtx, IEs, Ctx).
+    session_modification_request(PCtx, IEs).
 
 %%%===================================================================
 %%% Helper functions
@@ -88,11 +89,12 @@ ctx_update_dp_seid(#{f_seid := #f_seid{seid = DP}},
 ctx_update_dp_seid(_, PCtx) ->
     PCtx.
 
+%% session_establishment_request/5
 session_establishment_request(PCC, PCtx0, Left, Right, Ctx) ->
     {ok, CntlNode, _, _} = ergw_sx_socket:id(),
 
     PCtx1 = pctx_update_from_ctx(PCtx0, Ctx),
-    {SxRules, SxErrors, PCtx} = build_sx_rules(PCC, #{}, PCtx1, Left, Right, Ctx),
+    {SxRules, SxErrors, PCtx} = build_sx_rules(PCC, #{}, PCtx1, Left, Right),
     ?LOG(debug, "SxRules: ~p~n", [SxRules]),
     ?LOG(debug, "SxErrors: ~p~n", [SxErrors]),
     ?LOG(debug, "CtxPending: ~p~n", [Ctx]),
@@ -102,30 +104,31 @@ session_establishment_request(PCC, PCtx0, Left, Right, Ctx) ->
     ?LOG(debug, "IEs: ~p~n", [IEs]),
 
     Req = #pfcp{version = v1, type = session_establishment_request, ie = IEs},
-    case ergw_sx_node:call(PCtx, Req, Ctx) of
+    case ergw_sx_node:call(PCtx, Req) of
 	#pfcp{version = v1, type = session_establishment_response,
 	      ie = #{pfcp_cause := #pfcp_cause{cause = 'Request accepted'},
 		     f_seid := #f_seid{}} = RespIEs} ->
-	    ctx_update_dp_seid(RespIEs, PCtx);
+	    {ok, ctx_update_dp_seid(RespIEs, PCtx)};
 	_ ->
-	    throw(?CTX_ERR(?FATAL, system_failure, Ctx))
+	    {error, ?CTX_ERR(?FATAL, system_failure)}
     end.
 
-session_modification_request(PCtx, ReqIEs, Ctx)
+%% session_modification_request/2
+session_modification_request(PCtx, ReqIEs)
   when (is_list(ReqIEs) andalso length(ReqIEs) /= 0) orelse
        (is_map(ReqIEs) andalso map_size(ReqIEs) /= 0) ->
     Req = #pfcp{version = v1, type = session_modification_request, ie = ReqIEs},
-    case ergw_sx_node:call(PCtx, Req, Ctx) of
+    case ergw_sx_node:call(PCtx, Req) of
 	#pfcp{type = session_modification_response,
 	      ie = #{pfcp_cause := #pfcp_cause{cause = 'Request accepted'}} = RespIEs} ->
 	    UsageReport = maps:get(usage_report_smr, RespIEs, undefined),
-	    {PCtx, UsageReport};
+	    {ok, {PCtx, UsageReport}};
 	_ ->
-	    throw(?CTX_ERR(?FATAL, system_failure, Ctx))
+	    {error, ?CTX_ERR(?FATAL, system_failure)}
     end;
-session_modification_request(PCtx, _ReqIEs, _Ctx) ->
+session_modification_request(PCtx, _ReqIEs) ->
     %% nothing to do
-    {PCtx, undefined}.
+    {ok, {PCtx, undefined}}.
 
 %%%===================================================================
 %%% PCC to Sx translation functions
@@ -173,12 +176,12 @@ apply_charging_profile(_K, _V, URR) ->
 apply_charging_profile(URR, OCP) ->
     maps:fold(fun apply_charging_profile/3, URR, OCP).
 
-%% build_sx_rules/4
-build_sx_rules(PCC, Opts, PCtx0, Left, Right, SCtx) ->
+%% build_sx_rules/5
+build_sx_rules(PCC, Opts, PCtx0, Left, Right) ->
     PCtx2 = ergw_pfcp:reset_ctx(PCtx0),
 
     Init = #sx_upd{now = erlang:monotonic_time(millisecond),
-		   pctx = PCtx2, left = Left, right = Right, sctx = SCtx},
+		   pctx = PCtx2, left = Left, right = Right},
     #sx_upd{errors = Errors, pctx = NewPCtx0} =
 	build_sx_rules_3(PCC, Opts, Init),
     NewPCtx = ergw_pfcp:apply_timers(PCtx0, NewPCtx0),
@@ -700,9 +703,9 @@ create_pfcp_session(PCtx, PCC, Left, Right, Ctx)
     register_ctx_ids(gtp_context, Left, PCtx),
     session_establishment_request(PCC, PCtx, Left, Right, Ctx).
 
-modify_pfcp_session(PCC, URRActions, Opts, Left, Right, Ctx, PCtx0)
+modify_pfcp_session(PCC, URRActions, Opts, Left, Right, PCtx0)
   when is_record(PCC, pcc_ctx), is_record(PCtx0, pfcp_ctx) ->
-    {SxRules0, SxErrors, PCtx} = build_sx_rules(PCC, Opts, PCtx0, Left, Right, Ctx),
+    {SxRules0, SxErrors, PCtx} = build_sx_rules(PCC, Opts, PCtx0, Left, Right),
     SxRules =
 	lists:foldl(
 	  fun({offline, _}, SxR) ->
@@ -714,7 +717,7 @@ modify_pfcp_session(PCC, URRActions, Opts, Left, Right, Ctx, PCtx0)
     ?LOG(debug, "SxRules: ~p~n", [SxRules]),
     ?LOG(debug, "SxErrors: ~p~n", [SxErrors]),
     ?LOG(debug, "PCtx: ~p~n", [PCtx]),
-    session_modification_request(PCtx, SxRules, Ctx).
+    session_modification_request(PCtx, SxRules).
 
 create_tdf_session(PCtx, PCC, Left, Right, Ctx)
   when is_record(PCC, pcc_ctx) ->
@@ -784,35 +787,40 @@ select(first, L) -> hd(L);
 select(random, L) when is_list(L) ->
     lists:nth(rand:uniform(length(L)), L).
 
-%% select_upf/4
-select_upf(Candidates, Session0, APNOpts, Ctx) ->
-    {_, _, _, Pools} = Node =
-	select_by_caps(Candidates, APNOpts, [], Ctx),
+%% select_upf/3
+select_upf(Candidates, Session0, APNOpts) ->
+    do([error_m ||
+	   {_, _, _, Pools} = Node <- select_by_caps(Candidates, APNOpts, []),
+	   begin
+	       %% TBD: smarter v4/v6 pool select
+	       Pool = select(random, Pools),
+	       Session =
+		   init_session_ue_ifid(
+		     APNOpts, Session0#{'Framed-Pool' => Pool, 'Framed-IPv6-Pool' => Pool}),
 
-    %% TBD: smarter v4/v6 pool select
-    Pool = select(random, Pools),
-    Session =
-	init_session_ue_ifid(
-	  APNOpts, Session0#{'Framed-Pool' => Pool, 'Framed-IPv6-Pool' => Pool}),
+	       return({{Node, Pool}, Session})
+	   end
+       ]).
 
-    {{Node, Pool}, Session}.
-
-%% reselect_upf/5
-reselect_upf(Candidates, Session, APNOpts, {Node, Pool}, Ctx) ->
+%% reselect_upf/4
+reselect_upf(Candidates, Session, APNOpts, {Node, Pool}) ->
     IP4 = maps:get('Framed-Pool', Session, undefined),
     IP6 = maps:get('Framed-IPv6-Pool', Session, undefined),
 
-    {Pid, NodeCaps, VRF, _} =
-	if (IP4 /= Pool orelse IP6 /= Pool) ->
-		Pools = ordsets:from_list([IP4 || is_binary(IP4)]
-					  ++ [IP6 || is_binary(IP6)]),
-		select_by_caps(Candidates, APNOpts, Pools, Ctx);
-	   true ->
-		Node
-	end,
-    Bearer = ergw_gsn_lib:init_bearer('SGi-LAN', VRF),
-    {ok, PCtx, _} = ergw_sx_node:attach(Pid, Ctx),
-    {PCtx, NodeCaps, Bearer}.
+    do([error_m ||
+	   {Pid, NodeCaps, VRF, _} <-
+	       begin
+		   if (IP4 /= Pool orelse IP6 /= Pool) ->
+			   Pools = ordsets:from_list([IP4 || is_binary(IP4)]
+						     ++ [IP6 || is_binary(IP6)]),
+			   select_by_caps(Candidates, APNOpts, Pools);
+		      true ->
+			   return(Node)
+		   end
+	       end,
+	   {PCtx, _} <- ergw_sx_node:attach(Pid),
+	   return({PCtx, NodeCaps, ergw_gsn_lib:init_bearer('SGi-LAN', VRF)})
+       ]).
 
 %% common_caps/3
 common_caps({WVRFs, WPools}, {HVRFs, HPools}, true) ->
@@ -838,28 +846,37 @@ common_caps(Wanted, [{Node, _, _, _, _} = UPF|Next], Available, AnyPool, Candida
 common_caps(Wanted, [_|Next], Available, AnyPool, Candidates) ->
     common_caps(Wanted, Next, Available, AnyPool, Candidates).
 
-select_by_caps(Candidates, #{vrfs := VRFs, ip_pools := Pools}, [], Context) ->
+%% select_by_caps/3
+select_by_caps(Candidates, #{vrfs := VRFs, ip_pools := Pools}, []) ->
     Wanted = {VRFs, ordsets:from_list(Pools)},
-    filter_by_caps(Candidates, Wanted, true, Context);
+    filter_by_caps(Candidates, Wanted, true);
 
-select_by_caps(Candidates, #{vrfs := VRFs, ip_pools := Pools}, WantPools, Context) ->
-    ordsets:is_subset(WantPools, Pools) orelse
+select_by_caps(Candidates, #{vrfs := VRFs, ip_pools := Pools}, WantPools) ->
+    case ordsets:is_subset(WantPools, Pools) of
+	true ->
+	    Wanted = {VRFs, WantPools},
+	    filter_by_caps(Candidates, Wanted, false);
+	_ ->
 	    %% pool not available
-	throw(?CTX_ERR(?FATAL, no_resources_available, Context)),
+	    {error, ?CTX_ERR(?FATAL, no_resources_available)}
+    end.
 
-    Wanted = {VRFs, WantPools},
-    filter_by_caps(Candidates, Wanted, false, Context).
-
-filter_by_caps(Candidates, Wanted, AnyPool, Context) ->
+%% filter_by_caps/3
+filter_by_caps(Candidates, Wanted, AnyPool) ->
     Available = ergw_sx_node_reg:available(),
     Eligible = common_caps(Wanted, Candidates, Available, AnyPool, []),
-    length(Eligible) /= 0 orelse
-	throw(?CTX_ERR(?FATAL, no_resources_available, Context)),
+    filter_by_caps_f(Wanted, AnyPool, Available, Eligible).
+
+%% filter_by_caps_f/4
+filter_by_caps_f(Wanted, AnyPool, Available, Eligible)
+  when length(Eligible) /= 0 ->
     {{Node, _, _}, _} = ergw_node_selection:snaptr_candidate(Eligible),
     {Pid, NodeCaps} = maps:get(Node, Available),
     {_, SVRFs, SPools} = common_caps(Wanted, NodeCaps, AnyPool),
     VRF = maps:get(select(random, maps:keys(SVRFs)), SVRFs),
-    {Pid, NodeCaps, VRF, SPools}.
+    {ok, {Pid, NodeCaps, VRF, SPools}};
+filter_by_caps_f(_, _, _, _) ->
+    {error, ?CTX_ERR(?FATAL, no_resources_available)}.
 
 %%%===================================================================
 

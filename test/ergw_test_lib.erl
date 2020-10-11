@@ -36,7 +36,7 @@
 -export([outstanding_requests/0, wait4tunnels/1, hexstr2bin/1]).
 -export([match_metric/7, get_metric/4]).
 -export([has_ipv6_test_config/0]).
--export([query_usage_report/2]).
+-export([query_usage_report/1]).
 -export([match_map/4, maps_key_length/2]).
 -export([init_ets/1]).
 
@@ -184,33 +184,6 @@ meck_init(Config) ->
     ok = meck:new(ergw_aaa_session, [passthrough, no_link]),
     ok = meck:new(ergw_gsn_lib, [passthrough, no_link]),
     ok = meck:new(ergw_pfcp_context, [passthrough, no_link]),
-    ok = meck:expect(ergw_gsn_lib, select_vrf,
-		     fun(NodeCaps, APN) ->
-			     try
-				 meck:passthrough([NodeCaps, APN])
-			     catch
-				 throw:#ctx_err{} = CtxErr ->
-				     meck:exception(throw, CtxErr)
-			     end
-		     end),
-    ok = meck:expect(ergw_gsn_lib, apn_opts,
-		     fun(APN, Ctx) ->
-			     try
-				 meck:passthrough([APN, Ctx])
-			     catch
-				 throw:#ctx_err{} = CtxErr ->
-				     meck:exception(throw, CtxErr)
-			     end
-		     end),
-    ok = meck:expect(ergw_pfcp_context, select_upf,
-		     fun(Candidates, Session, APN, Ctx) ->
-			     try
-				 meck:passthrough([Candidates, Session, APN, Ctx])
-			     catch
-				 throw:#ctx_err{} = CtxErr ->
-				     meck:exception(throw, CtxErr)
-			     end
-		     end),
     ok = meck:new(ergw_proxy_lib, [passthrough, no_link]),
 
     {_, Hut} = lists:keyfind(handler_under_test, 1, Config),   %% let it crash if HUT is undefined
@@ -643,13 +616,13 @@ has_ipv6_test_config() ->
 %%% PFCP
 %%%===================================================================
 
-query_usage_report(Context, PCtx) ->
+query_usage_report(PCtx) ->
     Req = #pfcp{
 	     version = v1,
 	     type = session_modification_request,
 	     ie = [#query_urr{group = [#urr_id{id = 1}]}]
 	    },
-    case ergw_sx_node:call(PCtx, Req, Context) of
+    case ergw_sx_node:call(PCtx, Req) of
 	#pfcp{type = session_modification_response,
 	      ie = #{pfcp_cause := #pfcp_cause{cause = 'Request accepted'}} = IEs} ->
 	    ?LOG(warning, "Gn/Gp: got OK Query response: ~s",

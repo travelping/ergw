@@ -98,10 +98,11 @@ handle_call({map, #{imsi := IMSI, apn := APN} = PI0}, _From, State) ->
 	    _ ->
 		PI0
 	end,
-    PI = case ergw_gsn_lib:apn(APN, maps:get(apn, State, undefined)) of
-		 false  -> PI1;
-		 DstAPN -> PI1#{apn => DstAPN}
-	 end,
+    PI =
+	case ergw_gsn_lib:apn(APN, maps:get(apn, State, undefined)) of
+	    {ok, DstAPN} -> PI1#{apn => DstAPN};
+	    {error, _}   -> PI1
+	end,
     {reply, normalize_response(PI), State};
 
 handle_call({map, PI}, _From, State) ->

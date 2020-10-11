@@ -267,7 +267,10 @@ handle_event(info, #aaa_request{procedure = {gx, 'RAR'},
 %%% step 2
 %%% step 3:
     {PCtx1, UsageReport} =
-	ergw_pfcp_context:modify_pfcp_session(PCC1, [], #{}, Left, Right, Context, PCtx0),
+	case ergw_pfcp_context:modify_pfcp_session(PCC1, [], #{}, Left, Right, PCtx0) of
+	    {ok, Result1} -> Result1;
+	    {error, Err1} -> throw(Err1#ctx_err{context = Context})
+	end,
 
 %%% step 4:
     ChargeEv = {online, 'RAR'},   %% made up value, not use anywhere...
@@ -285,7 +288,10 @@ handle_event(info, #aaa_request{procedure = {gx, 'RAR'},
 
 %%% step 6:
     {PCtx, _} =
-	ergw_pfcp_context:modify_pfcp_session(PCC4, [], #{}, Left, Right, Context, PCtx1),
+	case ergw_pfcp_context:modify_pfcp_session(PCC4, [], #{}, Left, Right, PCtx1) of
+	    {ok, Result2} -> Result2;
+	    {error, Err2} -> throw(Err2#ctx_err{context = Context})
+	end,
 
 %%% step 7:
     %% TODO Charging-Rule-Report for successfully installed/removed rules
@@ -321,9 +327,11 @@ handle_event(internal, {session, {update_credits, _} = CreditEv, _}, _State,
     #tdf_ctx{left = Left, right = Right} = Context,
 
     {PCC, _PCCErrors} = ergw_pcc_context:gy_events_to_pcc_ctx(Now, [CreditEv], PCC0),
-
     {PCtx, _} =
-	ergw_pfcp_context:modify_pfcp_session(PCC, [], #{}, Left, Right, Context, PCtx0),
+	case ergw_pfcp_context:modify_pfcp_session(PCC, [], #{}, Left, Right, PCtx0) of
+	    {ok, Result1} -> Result1;
+	    {error, Err1} -> throw(Err1#ctx_err{context = Context})
+	end,
 
     {keep_state, Data#data{pfcp = PCtx, pcc = PCC}};
 
@@ -362,7 +370,12 @@ code_change(_OldVsn, State, Data, _Extra) ->
 start_session(#data{apn = APN, context = Context0, dp_node = Node,
 		    session = Session, pcc = PCC0} = Data) ->
 
-    {ok, PendingPCtx, NodeCaps} = ergw_sx_node:attach(Node, Context0),
+    {PendingPCtx, NodeCaps} =
+	case ergw_sx_node:attach(Node) of
+	    {ok, Result1} -> Result1;
+	    {error, Err1} -> throw(Err1#ctx_err{context = Context0})
+	end,
+
     VRF = ergw_gsn_lib:select_vrf(NodeCaps, APN),
     Context = ergw_gsn_lib:set_bearer_vrf(right, VRF, Context0),
 
@@ -370,7 +383,11 @@ start_session(#data{apn = APN, context = Context0, dp_node = Node,
     SOpts = #{now => Now},
 
     SessionOpts = init_session(Data),
-    {ok, _, AuthSEvs} = authenticate(Session, SessionOpts),
+    {_, AuthSEvs} =
+	case authenticate(Session, SessionOpts) of
+	    {ok, Result2} -> Result2;
+	    {error, Err2} -> throw({fail, Err2})
+	end,
 
     %% -----------------------------------------------------------
     %% TBD: maybe reselect VRF based on outcome of authenticate ??
@@ -379,24 +396,31 @@ start_session(#data{apn = APN, context = Context0, dp_node = Node,
     GxOpts = #{'Event-Trigger' => ?'DIAMETER_GX_EVENT-TRIGGER_UE_IP_ADDRESS_ALLOCATE',
 	       'Bearer-Operation' => ?'DIAMETER_GX_BEARER-OPERATION_ESTABLISHMENT'},
 
-    {ok, _, GxEvents} =
-	ccr_initial(Session, gx, GxOpts, SOpts),
+    {_, GxEvents} =
+	case ccr_initial(Session, gx, GxOpts, SOpts) of
+	    {ok, Result3} -> Result3;
+	    {error, Err3} -> throw({fail, Err3})
+	end,
 
     RuleBase = ergw_charging:rulebase(),
     {PCC1, PCCErrors1} =
 	ergw_pcc_context:gx_events_to_pcc_ctx(GxEvents, '_', RuleBase, PCC0),
 
     case ergw_pcc_context:pcc_ctx_has_rules(PCC1) of
-	false -> throw({fail, authenticate, no_pcc_rules});
-	true ->  ok
+	true -> ok;
+	_    -> throw({fail, {authenticate, no_pcc_rules}})
     end,
 
     %% TBD............
     CreditsAdd = ergw_pcc_context:pcc_ctx_to_credit_request(PCC1),
     GyReqServices = #{credits => CreditsAdd},
 
-    {ok, GySessionOpts, GyEvs} =
-	ccr_initial(Session, gy, GyReqServices, SOpts),
+    {GySessionOpts, GyEvs} =
+	case ccr_initial(Session, gy, GyReqServices, SOpts) of
+	    {ok, Result4} -> Result4;
+	    {error, Err4} -> throw({fail, Err4})
+	end,
+
     ?LOG(debug, "GySessionOpts: ~p", [GySessionOpts]),
 
     ergw_aaa_session:invoke(Session, #{}, start, SOpts),
@@ -406,8 +430,13 @@ start_session(#data{apn = APN, context = Context0, dp_node = Node,
     PCC3 = ergw_pcc_context:session_events_to_pcc_ctx(AuthSEvs, PCC2),
     PCC4 = ergw_pcc_context:session_events_to_pcc_ctx(RfSEvs, PCC3),
 
-    #tdf_ctx{left = Left, right = Right} = Context,
-    PCtx = ergw_pfcp_context:create_tdf_session(PendingPCtx, PCC4, Left, Right, Context),
+    #tdf_ctx{left = LeftBearer, right = RightBearer} = Context,
+    PCtx =
+	case ergw_pfcp_context:create_tdf_session(
+	       PendingPCtx, PCC4, LeftBearer, RightBearer, Context) of
+	    {ok, Result5} -> Result5;
+	    {error, Err5} -> throw({fail, Err5})
+	end,
 
     Keys = context2keys(Context),
     gtp_context_reg:register(Keys, ?MODULE, self()),
@@ -454,24 +483,24 @@ init_session(#data{context = #tdf_ctx{ms_ip = UeIP}}) ->
 authenticate(Session, SessionOpts) ->
     ?LOG(debug, "SessionOpts: ~p", [SessionOpts]),
     case ergw_aaa_session:invoke(Session, SessionOpts, authenticate, [inc_session_id]) of
-	{ok, _, _} = Result ->
-	    Result;
+	{ok, SOpts, SEvs} ->
+	    {ok, {SOpts, SEvs}};
 	Other ->
 	    ?LOG(debug, "AuthResult: ~p", [Other]),
-	    throw({fail, authenticate, Other})
+	    {error, {authenticate, Other}}
     end.
 
 ccr_initial(Session, API, SessionOpts, ReqOpts) ->
     case ergw_aaa_session:invoke(Session, SessionOpts, {API, 'CCR-Initial'}, ReqOpts) of
-	{ok, _, _} = Result ->
-	    Result;
+	{ok, SOpts, SEvs} ->
+	    {ok, {SOpts, SEvs}};
 	{Fail, _, _} ->
-	    throw({fail, 'CCR-Initial', Fail})
+	    %% TBD: replace with sensible mapping
+	    {error, {'CCR-Initial', Fail}}
     end.
 
-close_pdn_context(Reason, run, #data{context = Context, pfcp = PCtx,
-				     session = Session}) ->
-    URRs = ergw_pfcp_context:delete_pfcp_session(Reason, Context, PCtx),
+close_pdn_context(Reason, run, #data{pfcp = PCtx, session = Session}) ->
+    URRs = ergw_pfcp_context:delete_pfcp_session(Reason, PCtx),
 
     TermCause =
 	case Reason of
@@ -506,28 +535,25 @@ close_pdn_context(Reason, run, #data{context = Context, pfcp = PCtx,
 close_pdn_context(_Reason, _State, _Data) ->
     ok.
 
-query_usage_report(ChargingKeys, Context, PCtx)
+query_usage_report(ChargingKeys, PCtx)
   when is_list(ChargingKeys) ->
-    ergw_pfcp_context:query_usage_report(ChargingKeys, Context, PCtx);
-query_usage_report(_, Context, PCtx) ->
-    ergw_pfcp_context:query_usage_report(Context, PCtx).
+    ergw_pfcp_context:query_usage_report(ChargingKeys, PCtx);
+query_usage_report(_, PCtx) ->
+    ergw_pfcp_context:query_usage_report(PCtx).
 
 triggered_charging_event(ChargeEv, Now, Request,
-			 #data{context = Context, pfcp = PCtx,
-			       session = Session, pcc = PCC}) ->
-    try
-	ReqOpts = #{now => Now, async => true},
+			 #data{pfcp = PCtx, session = Session, pcc = PCC}) ->
+    ReqOpts = #{now => Now, async => true},
 
-	{_, UsageReport} =
-	    query_usage_report(Request, Context, PCtx),
-	{Online, Offline, Monitor} =
-	    ergw_pfcp_context:usage_report_to_charging_events(UsageReport, ChargeEv, PCtx),
-	ergw_gsn_lib:process_accounting_monitor_events(ChargeEv, Monitor, Now, Session),
-	GyReqServices = ergw_pcc_context:gy_credit_request(Online, PCC),
-	ergw_gsn_lib:process_online_charging_events(ChargeEv, GyReqServices, Session, ReqOpts),
-	ergw_gsn_lib:process_offline_charging_events(ChargeEv, Offline, Now, Session)
-    catch
-	throw:#ctx_err{} = CtxErr ->
+    case query_usage_report(Request, PCtx) of
+	{ok, {_, UsageReport}} ->
+	    {Online, Offline, Monitor} =
+		ergw_pfcp_context:usage_report_to_charging_events(UsageReport, ChargeEv, PCtx),
+	    ergw_gsn_lib:process_accounting_monitor_events(ChargeEv, Monitor, Now, Session),
+	    GyReqServices = ergw_pcc_context:gy_credit_request(Online, PCC),
+	    ergw_gsn_lib:process_online_charging_events(ChargeEv, GyReqServices, Session, ReqOpts),
+	    ergw_gsn_lib:process_offline_charging_events(ChargeEv, Offline, Now, Session);
+	{error, CtxErr} ->
 	    ?LOG(error, "Triggered Charging Event failed with ~p", [CtxErr])
     end,
     ok.

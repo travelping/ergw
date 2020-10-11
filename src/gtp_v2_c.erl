@@ -344,6 +344,8 @@ map_reply_ie(new_pdn_type_due_to_single_address_bearer_only) ->
     #v2_cause{v2_cause = new_pdn_type_due_to_single_address_bearer_only};
 map_reply_ie(preferred_pdn_type_not_supported) ->
     #v2_cause{v2_cause = preferred_pdn_type_not_supported};
+map_reply_ie(user_authentication_failed) ->
+    #v2_cause{v2_cause = user_authentication_failed};
 map_reply_ie(IE)
   when is_tuple(IE) ->
     IE.
