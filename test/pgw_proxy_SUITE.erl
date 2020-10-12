@@ -1466,6 +1466,9 @@ create_lb_multi_session() ->
 create_lb_multi_session(Config) ->
     init_seq_no(?MODULE, 16#80000),
 
+    %% stop all existing paths
+    lists:foreach(fun({_, Pid, _}) -> gtp_path:stop(Pid) end, gtp_path_reg:all()),
+
     %% for 6 clients cumulative nCr for at least 1 hit on both lb = 0.984
     %% for 10 clients it is = 0.999. 1 < No of clients =< 10
 
