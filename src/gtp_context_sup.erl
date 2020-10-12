@@ -10,7 +10,7 @@
 -behaviour(supervisor).
 
 %% API
--export([start_link/0, new/4, new/5]).
+-export([start_link/0, new/5, new/6]).
 
 %% Supervisor callbacks
 -export([init/1]).
@@ -26,14 +26,14 @@
 start_link() ->
     supervisor:start_link({local, ?SERVER}, ?MODULE, []).
 
-new(GtpPort, Version, Interface, IfOpts) ->
+new(Socket, Info, Version, Interface, IfOpts) ->
     Opts = [{hibernate_after, 500},
 	    {spawn_opt,[{fullsweep_after, 0}]}],
-    new(GtpPort, Version, Interface, IfOpts, Opts).
+    new(Socket, Info, Version, Interface, IfOpts, Opts).
 
-new(GtpPort, Version, Interface, IfOpts, Opts) ->
-    ?LOG(debug, "new(~p)", [[GtpPort, Version, Interface, IfOpts, Opts]]),
-    supervisor:start_child(?SERVER, [GtpPort, Version, Interface, IfOpts, Opts]).
+new(Socket, Info, Version, Interface, IfOpts, Opts) ->
+    ?LOG(debug, "new(~p)", [[Socket, Info, Version, Interface, IfOpts, Opts]]),
+    supervisor:start_child(?SERVER, [Socket, Info, Version, Interface, IfOpts, Opts]).
 
 %% ===================================================================
 %% Supervisor callbacks

@@ -104,7 +104,7 @@ destination_interface(#bearer{interface = VRF}) ->
 network_instance(Name)
   when is_binary(Name) ->
     #network_instance{instance = Name};
-network_instance(#gtp_port{vrf = VRF}) ->
+network_instance(#tunnel{vrf = VRF}) ->
     network_instance(VRF);
 network_instance(#bearer{vrf = VRF}) ->
     network_instance(VRF);

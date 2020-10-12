@@ -32,7 +32,8 @@
 	  send_socket    :: socket:socket(),
 	  recv_socket    :: socket:socket(),
 	  burst_size = 1 :: non_neg_integer(),
-	  gtp_port,
+	  gtp_socket     :: #socket{},
+	  gtp_info       :: #gtp_socket_info{},
 
 	  seq_no = 1 :: sequence_number(),
 	  pending    :: gb_trees:tree(sequence_number(), term()),
@@ -152,7 +153,7 @@ validate_option(Opt, Value) ->
 %%%===================================================================
 
 init(#{name := Name, node := Node, ip := IP,
-       socket := GtpSocket, burst_size := BurstSize} = Opts) ->
+       socket := GtpSocketName, burst_size := BurstSize} = Opts) ->
     process_flag(trap_exit, true),
 
     SocketOpts = maps:with(?SOCKET_OPTS, Opts),
@@ -163,8 +164,8 @@ init(#{name := Name, node := Node, ip := IP,
 
     proc_lib:init_ack({ok, self()}),
 
-    GtpPort = #gtp_port{} =
-	ergw_socket_reg:waitfor('gtp-u', GtpSocket),
+    GtpSocket = ergw_socket_reg:waitfor('gtp-u', GtpSocketName),
+    GtpSockInfo = ergw_gtp_socket:info(GtpSocket),
 
     State = #state{
 	       send_socket = SendSocket,
@@ -172,7 +173,8 @@ init(#{name := Name, node := Node, ip := IP,
 	       name = Name,
 	       node = Node,
 	       burst_size = BurstSize,
-	       gtp_port = GtpPort,
+	       gtp_socket = GtpSocket,
+	       gtp_info = GtpSockInfo,
 
 	       seq_no = 1,
 	       pending = gb_trees:empty(),
@@ -185,9 +187,10 @@ init(#{name := Name, node := Node, ip := IP,
     gen_server:enter_loop(?MODULE, [], State, ?SERVER).
 
 handle_call(id, _From, #state{send_socket = Socket, node = Node,
-			      gtp_port = GtpPort} = State) ->
+			      gtp_socket = GtpSocket,
+			      gtp_info = GtpSocketInfo} = State) ->
     {ok, #{addr := IP}} = socket:sockname(Socket),
-    Reply = {ok, #node{node = Node, ip = IP}, GtpPort},
+    Reply = {ok, #node{node = Node, ip = IP}, GtpSocket, GtpSocketInfo},
     {reply, Reply, State};
 
 handle_call({call, SendReq0}, From, State0) ->

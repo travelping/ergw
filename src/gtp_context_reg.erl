@@ -48,17 +48,17 @@ lookup(Key) when is_tuple(Key) ->
 select(Key) ->
     ets:select(?SERVER, [{{Key, '$1'},[],['$1']}]).
 
-match_key(#gtp_port{name = Name}, Key) ->
+match_key(#socket{name = Name}, Key) ->
     select({Name, Key}).
 
 match_keys(_, []) ->
     throw({error, not_found});
-match_keys(Port, [H|T]) ->
-    case match_key(Port, H) of
+match_keys(Socket, [H|T]) ->
+    case match_key(Socket, H) of
 	[_|_] = Match ->
 	    Match;
 	_ ->
-	    match_keys(Port, T)
+	    match_keys(Socket, T)
     end.
 
 register(Keys, Handler, Pid)

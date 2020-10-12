@@ -10,8 +10,8 @@
 -compile({parse_transform, cut}).
 
 %% API
--export([validate_options/2, send/4]).
--export([make_seq_id/1, make_request/5]).
+-export([validate_options/2, info/1, send/4]).
+-export([make_seq_id/1, make_request/6]).
 -export([make_gtp_socket/3]).
 
 -include_lib("gtplib/include/gtp_packet.hrl").
@@ -23,8 +23,11 @@
 %% API
 %%====================================================================
 
-send(GtpPort, IP, Port, Data) ->
-    invoke_handler(GtpPort, send, [IP, Port, Data]).
+info(Socket) ->
+    invoke_handler(Socket, info, []).
+
+send(Socket, IP, Port, Data) ->
+    invoke_handler(Socket, send, [IP, Port, Data]).
 
 %%%===================================================================
 %%% Options Validation
@@ -73,10 +76,10 @@ validate_option(Opt, Value) ->
 %%% Internal functions
 %%%===================================================================
 
-invoke_handler(#gtp_port{type = 'gtp-c'} = GtpPort, F, A) ->
-    erlang:apply(ergw_gtp_c_socket, F, [GtpPort | A]);
-invoke_handler(#gtp_port{type = 'gtp-u'} = GtpPort, F, A) ->
-    erlang:apply(ergw_gtp_u_socket, F, [GtpPort | A]).
+invoke_handler(#socket{type = 'gtp-c'} = Socket, F, A) ->
+    erlang:apply(ergw_gtp_c_socket, F, [Socket | A]);
+invoke_handler(#socket{type = 'gtp-u'} = Socket, F, A) ->
+    erlang:apply(ergw_gtp_u_socket, F, [Socket | A]).
 
 %%%===================================================================
 %%% Socket Helper
@@ -141,11 +144,12 @@ make_seq_id(#gtp{version = Version, seq_no = SeqNo})
 make_seq_id(_) ->
     undefined.
 
-make_request(ArrivalTS, IP, Port, Msg = #gtp{version = Version, type = Type}, GtpPort) ->
+make_request(ArrivalTS, IP, Port, Msg = #gtp{version = Version, type = Type}, Socket, Info) ->
     SeqId = make_seq_id(Msg),
     #request{
-       key = {GtpPort, IP, Port, Type, SeqId},
-       gtp_port = GtpPort,
+       key = {Socket, IP, Port, Type, SeqId},
+       socket = Socket,
+       info = Info,
        ip = IP,
        port = Port,
        version = Version,

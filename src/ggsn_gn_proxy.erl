@@ -32,13 +32,13 @@
 -define(IS_REQUEST_CONTEXT(Key, Msg, Context),
 	(is_record(Key, request) andalso
 	 is_record(Msg, gtp) andalso
-	 Key#request.gtp_port =:= Context#context.control_port andalso
+	 Key#request.socket =:= Context#context.left_tnl#tunnel.socket andalso
 	 Msg#gtp.tei =:= Context#context.left_tnl#tunnel.local#fq_teid.teid)).
 
 -define(IS_REQUEST_CONTEXT_OPTIONAL_TEI(Key, Msg, Context),
 	(is_record(Key, request) andalso
 	 is_record(Msg, gtp) andalso
-	 Key#request.gtp_port =:= Context#context.control_port andalso
+	 Key#request.socket =:= Context#context.left_tnl#tunnel.socket andalso
 	 (Msg#gtp.tei =:= 0 orelse
 	  Msg#gtp.tei =:= Context#context.left_tnl#tunnel.local#fq_teid.teid))).
 
@@ -148,12 +148,12 @@ validate_option(Opt, Value) ->
 
 -record(context_state, {nsapi}).
 
-init(#{proxy_sockets := ProxyPorts, node_selection := NodeSelect,
+init(#{proxy_sockets := ProxySockets, node_selection := NodeSelect,
        proxy_data_source := ProxyDS, contexts := Contexts}, Data) ->
 
     {ok, Session} = ergw_aaa_session_sup:new_session(self(), to_session([])),
 
-    {ok, run, Data#{proxy_ports => ProxyPorts,
+    {ok, run, Data#{proxy_sockets => ProxySockets,
 		    'Version' => v1, 'Session' => Session, contexts => Contexts,
 		    node_selection => NodeSelect, proxy_ds => ProxyDS}}.
 
@@ -188,7 +188,7 @@ handle_event(cast, delete_context, _State, Data) ->
     delete_context(administrative, Data),
     {next_state, shutdown, Data};
 
-handle_event(cast, {packet_in, _GtpPort, _IP, _Port, _Msg}, _State, _Data) ->
+handle_event(cast, {packet_in, _Socket, _IP, _Port, _Msg}, _State, _Data) ->
     ?LOG(warning, "packet_in not handled (yet): ~p", [_Msg]),
     keep_state_and_data;
 
@@ -283,12 +283,12 @@ handle_request(ReqKey,
     SessionOpts = ggsn_gn:init_session_from_gtp_req(IEs, AAAopts, SessionOpts0),
 
     ProxyInfo = handle_proxy_info(Request, SessionOpts, Context2, Data),
-    ProxyGtpPort = ergw_proxy_lib:select_gtp_proxy_sockets(ProxyInfo, Data),
+    ProxySocket = ergw_proxy_lib:select_gtp_proxy_sockets(ProxyInfo, Data),
 
     %% GTP v1 services only, we don't do v1 to v2 conversion (yet)
     Services = [{"x-3gpp-ggsn", "x-gn"}, {"x-3gpp-ggsn", "x-gp"},
 		{"x-3gpp-pgw", "x-gn"}, {"x-3gpp-pgw", "x-gp"}],
-    ProxyGGSN = ergw_proxy_lib:select_gw(ProxyInfo, Services, NodeSelect, ProxyGtpPort, Context2),
+    ProxyGGSN = ergw_proxy_lib:select_gw(ProxyInfo, Services, NodeSelect, ProxySocket, Context2),
 
     DPCandidates = ergw_proxy_lib:select_sx_proxy_candidate(ProxyGGSN, ProxyInfo, Data),
 
@@ -296,7 +296,7 @@ handle_request(ReqKey,
 
     {ok, _} = ergw_aaa_session:invoke(Session, SessionOpts, start, #{async => true}),
 
-    ProxyContext0 = init_proxy_context(ProxyGtpPort, Context2, ProxyInfo, ProxyGGSN),
+    ProxyContext0 = init_proxy_context(ProxySocket, Context2, ProxyInfo, ProxyGGSN),
     ProxyContext1 = gtp_path:bind(ProxyContext0),
 
     ergw_sx_node:wait_connect(SxConnectId),
@@ -388,8 +388,8 @@ handle_request(ReqKey,
 
     {keep_state, Data};
 
-handle_request(#request{gtp_port = GtpPort} = ReqKey, Msg, _Resent, _State, _Data) ->
-    ?LOG(warning, "Unknown Proxy Message on ~p: ~p", [GtpPort, Msg]),
+handle_request(#request{socket = Socket} = ReqKey, Msg, _Resent, _State, _Data) ->
+    ?LOG(warning, "Unknown Proxy Message on ~p: ~p", [Socket, Msg]),
     gtp_context:request_finished(ReqKey),
     keep_state_and_data.
 
@@ -520,13 +520,9 @@ delete_forward_session(Reason, #{context := Context,
     ergw_aaa_session:invoke(Session, SessionOpts, stop, #{async => true}).
 
 handle_sgsn_change(#context{remote_control_teid = NewFqTEID},
-		  #context{remote_control_teid = OldFqTEID},
-		  #context{control_port = CntlPort} = ProxyContext0)
+		   #context{remote_control_teid = OldFqTEID}, ProxyContext0)
   when OldFqTEID /= NewFqTEID ->
-    ProxyTnl =
-	ergw_gsn_lib:assign_tunnel_teid(
-	  local, CntlPort, #tunnel{interface = 'Core'}),
-    ProxyContext = ProxyContext0#context{left_tnl = ProxyTnl},
+    ProxyContext = ergw_gsn_lib:reassign_tunnel_teid(left, local, ProxyContext0),
     gtp_context:remote_context_update(ProxyContext0, ProxyContext),
     ProxyContext;
 handle_sgsn_change(_, _, ProxyContext) ->
@@ -540,14 +536,15 @@ update_path_bind(NewContext0, OldContext)
 update_path_bind(NewContext, _OldContext) ->
     NewContext.
 
-init_proxy_context(CntlPort,
+init_proxy_context(Socket,
 		   #context{imei = IMEI, context_id = ContextId, version = Version,
 			    control_interface = Interface, state = CState},
 		   #{imsi := IMSI, msisdn := MSISDN, apn := DstAPN}, {_GwNode, GGSN}) ->
     {APN, _OI} = ergw_node_selection:split_apn(DstAPN),
+    Info = ergw_gtp_socket:info(Socket),
     ProxyTnl =
 	ergw_gsn_lib:assign_tunnel_teid(
-	  local, CntlPort, #tunnel{interface = 'Core'}),
+	  local, Info, ergw_gsn_lib:init_tunnel('Core', Info, Socket)),
     #context{
        apn               = APN,
        imsi              = IMSI,
@@ -557,7 +554,6 @@ init_proxy_context(CntlPort,
 
        version           = Version,
        control_interface = Interface,
-       control_port      = CntlPort,
        left_tnl          = ProxyTnl,
        remote_control_teid =
 	   #fq_teid{ip = GGSN},
@@ -580,10 +576,10 @@ set_fq_teid(Id, Field, Context, Value) ->
     update_element_with(Field, Context, set_fq_teid(Id, _, Value)).
 
 get_context_from_req(_, #gsn_address{instance = 0, address = CntlIP}, Context) ->
-    IP = ergw_gsn_lib:choose_context_ip(CntlIP, CntlIP, Context),
+    IP = ergw_gsn_lib:choose_context_ip(left, local, CntlIP, CntlIP, Context),
     set_fq_teid(ip, #context.remote_control_teid, Context, IP);
 get_context_from_req(_, #gsn_address{instance = 1, address = DataIP}, Context) ->
-    IP = ergw_gsn_lib:choose_context_ip(DataIP, DataIP, Context),
+    IP = ergw_gsn_lib:choose_context_ip(left, local, DataIP, DataIP, Context),
     ergw_gsn_lib:update_remote_data_teid(set_fq_teid(ip, _, IP), Context);
 get_context_from_req(_, #tunnel_endpoint_identifier_data_i{instance = 0, tei = DataTEI}, Context) ->
     ergw_gsn_lib:update_remote_data_teid(set_fq_teid(teid, _, DataTEI), Context);
@@ -667,7 +663,7 @@ build_context_request(#context{remote_control_teid = #fq_teid{teid = TEI}} = Con
     ProxyIEs = gtp_v1_c:build_recovery(Type, Context, NewPeer, ProxyIEs1),
     Request#gtp{tei = TEI, seq_no = undefined, ie = ProxyIEs}.
 
-send_request(#context{control_port = GtpPort,
+send_request(#context{left_tnl = Tunnel,
 		      remote_control_teid =
 			  #fq_teid{
 			     ip = RemoteCntlIP,
@@ -675,7 +671,7 @@ send_request(#context{control_port = GtpPort,
 		     },
 	     T3, N3, Type, RequestIEs) ->
     Msg = #gtp{version = v1, type = Type, tei = RemoteCntlTEI, ie = RequestIEs},
-    gtp_context:send_request(GtpPort, RemoteCntlIP, ?GTP1c_PORT, T3, N3, Msg, undefined).
+    gtp_context:send_request(Tunnel, RemoteCntlIP, ?GTP1c_PORT, T3, N3, Msg, undefined).
 
 initiate_pdp_context_teardown(Direction, Data) ->
     #context{state = #context_state{nsapi = NSAPI}} =

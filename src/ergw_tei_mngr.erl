@@ -40,16 +40,16 @@ start_link() ->
     gen_statem:start_link({local, ?SERVER}, ?MODULE, [], []).
 
 %% with_keyfun/2
-with_keyfun(#request{gtp_port = Port}, Fun) ->
-    with_keyfun(Port, Fun);
-with_keyfun(#gtp_port{name = Name} = Port, Fun) ->
-    Fun(Name, gtp_context:port_teid_key(Port, _));
+with_keyfun(#request{socket = Socket}, Fun) ->
+    with_keyfun(Socket, Fun);
+with_keyfun(#socket{name = Name} = Socket, Fun) ->
+    Fun(Name, gtp_context:socket_teid_key(Socket, _));
 with_keyfun(#pfcp_ctx{name = Name} = PCtx, Fun) ->
     Fun(Name, ergw_pfcp:ctx_teid_key(PCtx, _)).
 
 %% alloc_tei/1
-alloc_tei(Port) ->
-    with_keyfun(Port, fun alloc_tei/2).
+alloc_tei(Key) ->
+    with_keyfun(Key, fun alloc_tei/2).
 
 %% alloc_tei/2
 alloc_tei(Name, KeyFun) ->

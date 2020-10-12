@@ -498,15 +498,15 @@ init_per_testcase(TestCase, Config)
        TestCase == modify_bearer_command_timeout ->
     setup_per_testcase(Config),
     ok = meck:expect(ergw_gtp_c_socket, send_request,
-		     fun(GtpPort, DstIP, DstPort, _T3, _N3,
+		     fun(Socket, DstIP, DstPort, _T3, _N3,
 			 #gtp{type = Type} = Msg, CbInfo)
 			   when Type == delete_bearer_request;
 				Type == update_bearer_request ->
 			     %% reduce timeout to 1 second and 2 resends
 			     %% to speed up the test
-			     meck:passthrough([GtpPort, DstIP, DstPort, 1000, 2, Msg, CbInfo]);
-			(GtpPort, DstIP, DstPort, T3, N3, Msg, CbInfo) ->
-			     meck:passthrough([GtpPort, DstIP, DstPort, T3, N3, Msg, CbInfo])
+			     meck:passthrough([Socket, DstIP, DstPort, 1000, 2, Msg, CbInfo]);
+			(Socket, DstIP, DstPort, T3, N3, Msg, CbInfo) ->
+			     meck:passthrough([Socket, DstIP, DstPort, T3, N3, Msg, CbInfo])
 		     end),
     Config;
 init_per_testcase(create_session_overload, Config) ->

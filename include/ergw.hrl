@@ -40,23 +40,21 @@
 	  v6               :: inet:ip6_address()
 	 }).
 
--record(gtp_port, {
-	  name             :: term(),
-	  vrf              :: term(),
-	  type             :: 'gtp-c' | 'gtp-u',
-	  pid              :: pid(),
-	  ip               :: inet:ip_address()
-	 }).
-
 -record(seid, {
 	  cp = 0           :: non_neg_integer(),
 	  dp = 0           :: non_neg_integer()
 	 }).
 
+-record(socket, {
+	  name             :: term(),
+	  type             :: 'gtp-c' | 'gtp-u',
+	  pid              :: pid()
+	 }).
+
 -record(tunnel, {
 	  interface             :: 'Access' | 'Core',
 	  vrf			:: term(),
-	  socket		:: {term(), pid()},
+	  socket		:: #socket{},
 	  local			:: 'undefined' | #fq_teid{},
 	  remote		:: 'undefined' | #fq_teid{}
 	 }).
@@ -109,7 +107,6 @@
 
 	  version                :: 'v1' | 'v2',
 	  control_interface      :: atom(),
-	  control_port           :: #gtp_port{},
 	  path                   :: 'undefined' | pid(),
 	  remote_control_teid    :: #fq_teid{},
 	  remote_restart_counter :: 0 .. 255,
@@ -139,9 +136,15 @@
 	  ms_v6                  :: inet:ip6_address()
 	 }).
 
+-record(gtp_socket_info, {
+	  vrf              :: term(),
+	  ip               :: inet:ip_address()
+	 }).
+
 -record(request, {
 	  key		:: term(),
-	  gtp_port	:: #gtp_port{},
+	  socket	:: #socket{},
+	  info          :: #gtp_socket_info{},
 	  ip		:: inet:ip_address(),
 	  port		:: 0 .. 65535,
 	  version	:: 'v1' | 'v2',

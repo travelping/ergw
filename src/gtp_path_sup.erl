@@ -24,8 +24,8 @@
 start_link() ->
     supervisor:start_link({local, ?SERVER}, ?MODULE, []).
 
-new_path(GtpPort, Version, RemoteIP, Args) ->
-    supervisor:start_child(?SERVER, [GtpPort, Version, RemoteIP, Args]).
+new_path(Socket, Version, RemoteIP, Args) ->
+    supervisor:start_child(?SERVER, [Socket, Version, RemoteIP, Args]).
 
 %% ===================================================================
 %% Supervisor callbacks

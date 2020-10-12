@@ -759,15 +759,15 @@ init_per_testcase(TestCase, Config)
        TestCase == modify_bearer_command_timeout ->
     setup_per_testcase(Config),
     ok = meck:expect(ergw_gtp_c_socket, send_request,
-		     fun(GtpPort, DstIP, DstPort, _T3, _N3,
+		     fun(Socket, DstIP, DstPort, _T3, _N3,
 			 #gtp{type = Type} = Msg, CbInfo)
 			   when Type == delete_bearer_request;
 				Type == update_bearer_request ->
 			     %% reduce timeout to 1 second and 2 resends
 			     %% to speed up the test
-			     meck:passthrough([GtpPort, DstIP, DstPort, 1000, 2, Msg, CbInfo]);
-			(GtpPort, DstIP, DstPort, T3, N3, Msg, CbInfo) ->
-			     meck:passthrough([GtpPort, DstIP, DstPort, T3, N3, Msg, CbInfo])
+			     meck:passthrough([Socket, DstIP, DstPort, 1000, 2, Msg, CbInfo]);
+			(Socket, DstIP, DstPort, T3, N3, Msg, CbInfo) ->
+			     meck:passthrough([Socket, DstIP, DstPort, T3, N3, Msg, CbInfo])
 		     end),
     Config;
 init_per_testcase(delete_bearer_requests_multi, Config) ->
@@ -1213,7 +1213,7 @@ path_failure(Config) ->
 
     {_Handler, CtxPid} = gtp_context_reg:lookup({'irx-socket', {imsi, ?'IMSI', 5}}),
     #{context := Ctx1} = gtp_context:info(CtxPid),
-    #context{control_port = CPort} = Ctx1,
+    #context{left_tnl = #tunnel{socket = CSocket}} = Ctx1,
 
     ClientIP = proplists:get_value(client_ip, Config),
     ok = meck:expect(ergw_gtp_c_socket, send_request,
@@ -1221,11 +1221,11 @@ path_failure(Config) ->
 			   when IP =:= ClientIP ->
 			     %% simulate a Echo timeout
 			     ergw_gtp_c_socket:send_reply(CbInfo, timeout);
-			 (GtpPort, IP, Port, T3, N3, Msg, CbInfo) ->
-			     meck:passthrough([GtpPort, IP, Port, T3, N3, Msg, CbInfo])
+			 (Socket, IP, Port, T3, N3, Msg, CbInfo) ->
+			     meck:passthrough([Socket, IP, Port, T3, N3, Msg, CbInfo])
 		     end),
 
-    gtp_path:ping(CPort, v2, ClientIP),
+    gtp_path:ping(CSocket, v2, ClientIP),
 
     %% wait for session cleanup
     ct:sleep(100),
@@ -1246,10 +1246,10 @@ path_maintenance() ->
       "that we run GTP Echo Request on that peer continusly"}].
 path_maintenance(Config) ->
     ok = meck:expect(gtp_path, init,
-		     fun ([GtpPort, Version, RemoteIP, Args0]) ->
+		     fun ([Socket, Version, RemoteIP, Args0]) ->
 			     %% overwrite ping interval
 			     Args = Args0#{echo => 10},
-			     meck:passthrough([[GtpPort, Version, RemoteIP, Args]])
+			     meck:passthrough([[Socket, Version, RemoteIP, Args]])
 		     end),
 
     %% kill all path to ensure the meck override is used

@@ -44,7 +44,7 @@
 %%
 %% set gtp_v1_c:build_recovery/4
 %%
-build_recovery(Cmd, CtxOrPort, NewPeer, IEs)
+build_recovery(Cmd, CtxOrSock, NewPeer, IEs)
   when
       %% Path Management Messages
       Cmd =:= echo_request;
@@ -77,13 +77,13 @@ build_recovery(Cmd, CtxOrPort, NewPeer, IEs)
       Cmd =:= mbms_session_start_response;
       Cmd =:= mbms_session_update_response;
       Cmd =:= mbms_session_stop_response ->
-    build_recovery(CtxOrPort, NewPeer, IEs);
-build_recovery(_Cmd, _CtxOrPort, _NewPeer, IEs) ->
+    build_recovery(CtxOrSock, NewPeer, IEs);
+build_recovery(_Cmd, _CtxOrSock, _NewPeer, IEs) ->
     IEs.
 
 
 %% build_recovery/3
-build_recovery(#gtp_port{}, NewPeer, IEs) when NewPeer == true ->
+build_recovery(#socket{}, NewPeer, IEs) when NewPeer == true ->
     add_recovery(IEs);
 build_recovery(#context{remote_restart_counter = RemoteRestartCounter}, NewPeer, IEs)
   when NewPeer == true orelse
@@ -209,17 +209,17 @@ gtp_msg_response(mbms_session_update_request)				-> mbms_session_update_response
 gtp_msg_response(mbms_session_stop_request)				-> mbms_session_stop_response;
 gtp_msg_response(Response)						-> Response.
 
-get_handler(#gtp_port{name = PortName},
+get_handler(#socket{name = SocketName},
 	    #gtp{ie = #{?'Sender F-TEID for Control Plane' :=
 			    #v2_fully_qualified_tunnel_endpoint_identifier{interface_type = IfType}}}) ->
     case map_v2_iftype(IfType) of
 	{ok, Protocol} ->
-	    ergw:handler(PortName, Protocol);
+	    ergw:handler(SocketName, Protocol);
 	_ ->
 	    %% TODO: correct error message
 	    {error, not_found}
     end;
-get_handler(_Port, _Msg) ->
+get_handler(_Socket, _Msg) ->
     {error, {mandatory_ie_missing, ?'Sender F-TEID for Control Plane'}}.
 
 validate_teid(MsgType, 0)

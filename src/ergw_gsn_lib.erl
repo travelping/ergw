@@ -21,7 +21,7 @@
 	 modify_sgi_session/5,
 	 delete_sgi_session/3,
 	 query_usage_report/2, query_usage_report/3,
-	 choose_context_ip/3,
+	 choose_context_ip/5,
 	 ip_pdu/3]).
 -export([%%update_pcc_rules/2,
 	 session_events_to_pcc_ctx/2,
@@ -36,7 +36,9 @@
 -export([apn/2, select_vrf/2,
 	 init_session_ip_opts/3,
 	 allocate_ips/5, release_context_ips/1]).
--export([assign_tunnel_teid/3,
+-export([init_tunnel/3,
+	 assign_tunnel_teid/3,
+	 reassign_tunnel_teid/3,
 	 assign_local_data_teid/3,
 	 set_remote_data_teid/3,
 	 update_remote_data_teid/2,
@@ -130,19 +132,25 @@ ctx_update_dp_seid(#{f_seid := #f_seid{seid = DP}},
 ctx_update_dp_seid(_, PCtx) ->
     PCtx.
 
+%% choose_context_ip/5
+choose_context_ip(CtxSide, TunnelSide, IP4, IP6, Ctx) ->
+    FqTEID =
+	element(tunnel_side(TunnelSide), element(context_tunnel(CtxSide, Ctx), Ctx)),
+    choose_context_ip(IP4, IP6, FqTEID, Ctx).
+
 %% use additional information from the Context to prefre V4 or V6....
-choose_context_ip(IP4, _IP6, #context{control_port = #gtp_port{ip = LocalIP}})
+choose_context_ip(IP4, _IP6, #fq_teid{ip = LocalIP}, _)
   when is_binary(IP4), byte_size(IP4) =:= 4, ?IS_IPv4(LocalIP) ->
     IP4;
-choose_context_ip(_IP4, IP6, #context{control_port = #gtp_port{ip = LocalIP}})
+choose_context_ip(_IP4, IP6, #fq_teid{ip = LocalIP}, _)
   when is_binary(IP6), byte_size(IP6) =:= 16, ?IS_IPv6(LocalIP) ->
     IP6;
-choose_context_ip(_IP4, _IP6, Context) ->
+choose_context_ip(_IP4, _IP6, _, Context) ->
     %% IP version mismatch, broken peer GSN or misconfiguration
     throw(?CTX_ERR(?FATAL, system_failure, Context)).
 
 session_establishment_request(PCC, PCtx0, Ctx) ->
-    {ok, CntlNode, _} = ergw_sx_socket:id(),
+    {ok, CntlNode, _, _} = ergw_sx_socket:id(),
 
     PCtx1 = pctx_update_from_ctx(PCtx0, Ctx),
     {SxRules, SxErrors, PCtx} = build_sx_rules(PCC, #{}, PCtx1, Ctx),
@@ -1832,6 +1840,9 @@ release_context_ips(#context{ms_v4 = MSv4, ms_v6 = MSv6} = Context) ->
 update_element_with(Field, Tuple, Fun) ->
     setelement(Field, Tuple, Fun(element(Field, Tuple))).
 
+context_tunnel(left, #context{})  -> #context.left_tnl.
+%context_tunnel(right, #context{}) -> #context.right_tnl.
+
 tunnel_side(local) -> #tunnel.local;
 tunnel_side(remote) -> #tunnel.remote.
 
@@ -1843,19 +1854,40 @@ context_field(right, #tdf_ctx{}) -> #tdf_ctx.right.
 bearer_field(local) -> #bearer.local;
 bearer_field(remote) -> #bearer.remote.
 
-%% assign_tunnel_teid/3
-assign_tunnel_teid(TunnelSide, #gtp_port{
-				  name = Name, vrf = VRF,
-				  type = 'gtp-c', pid = Pid} = Port, Tunnel) ->
-    setelement(
-      tunnel_side(TunnelSide),
-      Tunnel#tunnel{socket = {Name, Pid}, vrf = VRF},
-      assign_tunnel_teid_f(Port)).
+tunnel(CtxSide, Ctx) ->
+    element(context_tunnel(CtxSide, Ctx), Ctx).
 
-%% assign_tunnel_teid_f/1
-assign_tunnel_teid_f(#gtp_port{ip = IP} = Port) ->
-    {ok, TEI} = ergw_tei_mngr:alloc_tei(Port),
+%% tunnel(CtxSide, TunnelSide, Ctx) ->
+%%     element(tunnel_side(TunnelSide), tunnel(CtxSide, Ctx)).
+
+%% init_tunnel/3
+init_tunnel(Interface, #gtp_socket_info{vrf = VRF}, Socket) ->
+    #tunnel{interface = Interface, vrf = VRF, socket = Socket}.
+
+%% assign_tunnel_teid/3
+assign_tunnel_teid(TunnelSide, #gtp_socket_info{vrf = VRF} = Info, Tunnel) ->
+    setelement(
+      tunnel_side(TunnelSide), Tunnel#tunnel{vrf = VRF},
+      assign_tunnel_teid_f(Info, Tunnel)).
+
+%% assign_tunnel_teid_f/2
+assign_tunnel_teid_f(#gtp_socket_info{ip = IP}, #tunnel{socket = Socket}) ->
+    {ok, TEI} = ergw_tei_mngr:alloc_tei(Socket),
     #fq_teid{ip = IP, teid = TEI}.
+
+%% assign_tunnel_teid/3
+reassign_tunnel_teid(CtxSide, TunnelSide, Ctx) ->
+    update_element_with(
+      context_tunnel(CtxSide, Ctx), Ctx,
+      fun(Tunnel) ->
+	      update_element_with(
+		tunnel_side(TunnelSide), Tunnel, reassign_tunnel_teid_f(Tunnel, _))
+      end).
+
+%% reassign_tunnel_teid_f/2
+reassign_tunnel_teid_f(#tunnel{socket = Socket}, FqTEID) ->
+    {ok, TEI} = ergw_tei_mngr:alloc_tei(Socket),
+    FqTEID#fq_teid{teid = TEI}.
 
 %% assign_local_data_teid/3
 assign_local_data_teid(PCtx, NodeCaps, Ctx) ->
@@ -1863,14 +1895,16 @@ assign_local_data_teid(PCtx, NodeCaps, Ctx) ->
 
 %% assign_local_data_teid/4
 assign_local_data_teid(CtxSide, PCtx, NodeCaps, Ctx) ->
+    Tunnel = tunnel(CtxSide, Ctx),
     update_element_with(
-      context_field(CtxSide, Ctx), Ctx, assign_local_data_teid_f(PCtx, NodeCaps, Ctx, _)).
+      context_field(CtxSide, Ctx), Ctx,
+      assign_local_data_teid_f(PCtx, NodeCaps, Tunnel, _, Ctx)).
 
 %% assign_local_data_teid_f/4
 assign_local_data_teid_f(PCtx, {VRFs, _} = _NodeCaps,
-			 #context{control_port = ControlPort} = Ctx, Bearer) ->
-    #vrf{name = Name, ipv4 = IP4, ipv6 = IP6} = maps:get(ControlPort#gtp_port.vrf, VRFs),
-    IP = ergw_gsn_lib:choose_context_ip(IP4, IP6, Ctx),
+			 #tunnel{vrf = VRF, local = Tunnel}, Bearer, Ctx) ->
+    #vrf{name = Name, ipv4 = IP4, ipv6 = IP6} = maps:get(VRF, VRFs),
+    IP = choose_context_ip(IP4, IP6, Tunnel, Ctx),
     {ok, DataTEI} = ergw_tei_mngr:alloc_tei(PCtx),
     FqTEID = #fq_teid{
 		     ip = ergw_inet:bin2ip(IP),

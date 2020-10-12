@@ -665,10 +665,10 @@ ggsn_update_context(From, Context) ->
     RequestIEs = gtp_v1_c:build_recovery(Type, Context, false, RequestIEs0),
     ggsn_send_request(Context, ?T3, ?N3, Type, RequestIEs, From).
 
-ggsn_send_request(#context{control_port = GtpPort,
+ggsn_send_request(#context{left_tnl = Tunnel,
 			   remote_control_teid =
 			       #fq_teid{ip = RemoteCntlIP, teid = RemoteCntlTEI}
 			  },
 		  T3, N3, Type, RequestIEs, From) ->
     Msg = #gtp{version = v1, type = Type, tei = RemoteCntlTEI, ie = RequestIEs},
-    gtp_context:send_request(GtpPort, RemoteCntlIP, ?GTP1c_PORT, T3, N3, Msg, From).
+    gtp_context:send_request(Tunnel, RemoteCntlIP, ?GTP1c_PORT, T3, N3, Msg, From).

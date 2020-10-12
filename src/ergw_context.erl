@@ -43,9 +43,9 @@ port_message(Request, Msg) ->
     ok.
 
 %% port_message/3
-port_message(Keys, #request{gtp_port = GtpPort} = Request, Msg)
+port_message(Keys, #request{socket = Socket} = Request, Msg)
   when is_list(Keys) ->
-    Contexts = gtp_context_reg:match_keys(GtpPort, Keys),
+    Contexts = gtp_context_reg:match_keys(Socket, Keys),
     port_message_ctx(Contexts, Request, Msg).
 
 %% port_message/4
@@ -65,8 +65,8 @@ apply2context(Key, F, A) ->
 	    {error, not_found}
     end.
 
-port_request_key(#request{key = ReqKey, gtp_port = GtpPort}) ->
-    gtp_context:port_key(GtpPort, ReqKey).
+port_request_key(#request{key = ReqKey, socket = Socket}) ->
+    gtp_context:socket_key(Socket, ReqKey).
 
 %% TODO - MAYBE
 %%  it might be benificial to first perform the lookup and then enqueue
@@ -101,8 +101,8 @@ port_message_run(Request, Msg0) ->
 
 port_message_p(#request{} = Request, #gtp{tei = 0} = Msg) ->
     gtp_context:port_message(Request, Msg);
-port_message_p(#request{gtp_port = GtpPort} = Request, #gtp{tei = TEI} = Msg) ->
-    case port_message(gtp_context:port_teid_key(GtpPort, TEI), Request, Msg, false) of
+port_message_p(#request{socket = Socket} = Request, #gtp{tei = TEI} = Msg) ->
+    case port_message(gtp_context:socket_teid_key(Socket, TEI), Request, Msg, false) of
 	{error, _} = Error ->
 	    throw(Error);
 	Result ->

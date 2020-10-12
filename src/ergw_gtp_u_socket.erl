@@ -12,7 +12,7 @@
 -compile({parse_transform, cut}).
 
 %% API
--export([start_link/1, send/4]).
+-export([start_link/1, info/1, send/4]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -23,9 +23,9 @@
 -include("include/ergw.hrl").
 
 -record(state, {
-	  gtp_port   :: #gtp_port{},
+	  gtp_socket :: #socket{},
+	  info       :: #gtp_socket_info{},
 
-	  ip         :: inet:ip_address(),
 	  socket     :: socket:socket(),
 	  burst_size = 1 :: non_neg_integer()
 	 }).
@@ -46,17 +46,23 @@ start_link(SocketOpts) ->
 	    {spawn_opt,[{fullsweep_after, 16}]}],
     gen_server:start_link(?MODULE, SocketOpts, Opts).
 
-send(#gtp_port{type = 'gtp-u'} = GtpPort, IP, Port, #gtp{} = Msg) ->
-    cast(GtpPort, make_send_req(IP, Port, Msg));
-send(#gtp_port{type = 'gtp-u'} = GtpPort, IP, Port, Data) ->
-    cast(GtpPort, {send, IP, Port, Data}).
+info(Socket) ->
+    call(Socket, info).
+
+send(#socket{type = 'gtp-u'} = Socket, IP, Port, #gtp{} = Msg) ->
+    cast(Socket, make_send_req(IP, Port, Msg));
+send(#socket{type = 'gtp-u'} = Socket, IP, Port, Data) ->
+    cast(Socket, {send, IP, Port, Data}).
 
 %%%===================================================================
-%%% call/cast wrapper for gtp_port
+%%% call/cast wrapper for #socket
 %%%===================================================================
 
-cast(#gtp_port{pid = Handler}, Request) ->
+cast(#socket{pid = Handler}, Request) ->
     gen_server:cast(Handler, Request).
+
+call(#socket{pid = Handler}, Request) ->
+    gen_server:call(Handler, Request).
 
 %%%===================================================================
 %%% gen_server callbacks
@@ -72,32 +78,33 @@ init(#{name := Name, ip := IP, burst_size := BurstSize} = SocketOpts) ->
 	      _ -> vrf:normalize_name(Name)
 	  end,
 
-    GtpPort = #gtp_port{
-		 name = Name,
-		 vrf = VRF,
-		 type = maps:get(type, SocketOpts, 'gtp-u'),
-		 pid = self(),
-		 ip = IP
-		},
-
-    ergw_socket_reg:register('gtp-u', Name, GtpPort),
+    GtpSocket =
+	#socket{
+	   name = Name,
+	   type = maps:get(type, SocketOpts, 'gtp-u'),
+	   pid = self()
+	  },
+    ergw_socket_reg:register('gtp-u', Name, GtpSocket),
 
     State = #state{
-	       gtp_port = GtpPort,
+	       gtp_socket = GtpSocket,
+	       info = #gtp_socket_info{vrf = VRF, ip = IP},
 
-	       ip = IP,
 	       socket = Socket,
 	       burst_size = BurstSize},
     self() ! {'$socket', Socket, select, undefined},
     {ok, State}.
+
+handle_call(info, _From, #state{info = Info} = State) ->
+    {reply, Info, State};
 
 handle_call(Request, _From, State) ->
     ?LOG(error, "handle_call: unknown ~p", [Request]),
     {reply, ok, State}.
 
 handle_cast(#send_req{address = IP, port = Port, msg = Msg},
-	    #state{gtp_port = GtpPort} = State) ->
-    ergw_prometheus:gtp(tx, GtpPort, IP, Msg),
+	    #state{gtp_socket = Socket} = State) ->
+    ergw_prometheus:gtp(tx, Socket, IP, Msg),
     Data = gtp_packet:encode(Msg),
     sendto(IP, Port, Data, State),
     {noreply, State};
@@ -143,8 +150,8 @@ make_send_req(Address, Port, Msg) ->
        msg = gtp_packet:encode_ies(Msg)
       }.
 
-make_request(IP, Port, Msg, #state{gtp_port = GtpPort}) ->
-    ergw_gtp_socket:make_request(0, IP, Port, Msg, GtpPort).
+make_request(IP, Port, Msg, #state{gtp_socket = Socket, info = Info}) ->
+    ergw_gtp_socket:make_request(0, IP, Port, Msg, Socket, Info).
 
 handle_input(Socket, Info, #state{burst_size = BurstSize} = State) ->
     handle_input(Socket, Info, BurstSize, State).
@@ -187,34 +194,34 @@ handle_socket_error(#{level := ip, type := ?IP_RECVERR,
 				Origin:8, Type:8, Code:8, _Pad:8,
 				_Info:32/native-integer, _Data:32/native-integer,
 				_/binary>>},
-		    IP, _Port, #state{gtp_port = GtpPort})
+		    IP, _Port, #state{gtp_socket = Socket})
   when Origin == ?SO_EE_ORIGIN_ICMP, Type == ?ICMP_DEST_UNREACH,
        (Code == ?ICMP_HOST_UNREACH orelse Code == ?ICMP_PORT_UNREACH) ->
-    gtp_path:down(GtpPort, IP);
+    gtp_path:down(Socket, IP);
 
 handle_socket_error(#{level := ip, type := recverr,
 		      data := #{origin := icmp, type := dest_unreach, code := Code}},
-		    IP, _Port, #state{gtp_port = GtpPort})
+		    IP, _Port, #state{gtp_socket = Socket})
   when Code == host_unreach;
        Code == port_unreach ->
-    gtp_path:down(GtpPort, IP);
+    gtp_path:down(Socket, IP);
 
 handle_socket_error(#{level := ipv6, type := ?IPV6_RECVERR,
 		      data := <<_ErrNo:32/native-integer,
 				Origin:8, Type:8, Code:8, _Pad:8,
 				_Info:32/native-integer, _Data:32/native-integer,
 				_/binary>>},
-		    IP, _Port, #state{gtp_port = GtpPort})
+		    IP, _Port, #state{gtp_socket = Socket})
   when Origin == ?SO_EE_ORIGIN_ICMP6, Type == ?ICMP6_DST_UNREACH,
        (Code == ?ICMP6_DST_UNREACH_ADDR orelse Code == ?ICMP6_DST_UNREACH_NOPORT) ->
-    gtp_path:down(GtpPort, IP);
+    gtp_path:down(Socket, IP);
 
 handle_socket_error(#{level := ipv6, type := recverr,
 		      data := #{origin := icmp6, type := dst_unreach, code := Code}},
-		    IP, _Port, #state{gtp_port = GtpPort})
+		    IP, _Port, #state{gtp_socket = Socket})
   when Code == addr_unreach;
        Code == port_unreach ->
-    gtp_path:down(GtpPort, IP);
+    gtp_path:down(Socket, IP);
 
 handle_socket_error(Error, IP, _Port, _State) ->
     ?LOG(debug, "got unhandled error info for ~s: ~p", [inet:ntoa(IP), Error]),
@@ -234,15 +241,15 @@ handle_err_input(Socket, State) ->
     end,
     State.
 
-handle_message(IP, Port, Data, #state{gtp_port = GtpPort} = State0) ->
+handle_message(IP, Port, Data, #state{gtp_socket = Socket} = State0) ->
     try gtp_packet:decode(Data, #{ies => binary}) of
 	Msg = #gtp{} ->
 	    %% TODO: handle decode failures
 
 	    ?LOG(debug, "handle message: ~p", [{IP, Port,
-						State0#state.gtp_port,
+						State0#state.socket,
 						Msg}]),
-	    ergw_prometheus:gtp(rx, GtpPort, IP, Msg),
+	    ergw_prometheus:gtp(rx, Socket, IP, Msg),
 	    handle_message_1(IP, Port, Msg, State0)
     catch
 	Class:Error ->

@@ -94,7 +94,7 @@ proxy_lookup() ->
     [{doc, "lookup from config"}].
 proxy_lookup(_Config) ->
     NodeSelect = [default],
-    Port = #gtp_port{name = <<"TEST">>},
+    Socket = #socket{name = <<"TEST">>},
     Context = #context{version = v1},
     PI =
 	#{imsi    => <<"001010000000002">>,
@@ -106,28 +106,28 @@ proxy_lookup(_Config) ->
 	gtp_path_reg:start_link(),
     PI1 =
 	PI#{gwSelectionAPN => apn(<<"web.apn.epc.mnc001.mcc001.3gppnetwork.org">>)},
-    Proxy1 = (catch ergw_proxy_lib:select_gw(PI1, ?SERVICES, NodeSelect, Port, Context)),
+    Proxy1 = (catch ergw_proxy_lib:select_gw(PI1, ?SERVICES, NodeSelect, Socket, Context)),
     ?match({?'CP-Node', ?'CP-IP'}, Proxy1),
 
     PI2 =
 	PI#{gwSelectionAPN => apn(<<"web.apn.epc.mnc123.mcc001.3gppnetwork.org">>)},
-    Proxy2 = (catch ergw_proxy_lib:select_gw(PI2, ?SERVICES, NodeSelect, Port, Context)),
+    Proxy2 = (catch ergw_proxy_lib:select_gw(PI2, ?SERVICES, NodeSelect, Socket, Context)),
     ?match({?'CP-Node', ?'CP-IP'}, Proxy2),
 
     PI4 = PI#{gwSelectionAPN => apn(<<"web">>)},
-    Proxy4 = (catch ergw_proxy_lib:select_gw(PI4, ?SERVICES, NodeSelect, Port, Context)),
+    Proxy4 = (catch ergw_proxy_lib:select_gw(PI4, ?SERVICES, NodeSelect, Socket, Context)),
     ?match({?'CP-Node', ?'CP-IP'}, Proxy4),
 
     PI5 = PI#{gwSelectionAPN => apn(<<"web.mnc001.mcc001.gprs">>)},
-    Proxy5 = (catch ergw_proxy_lib:select_gw(PI5, ?SERVICES, NodeSelect, Port, Context)),
+    Proxy5 = (catch ergw_proxy_lib:select_gw(PI5, ?SERVICES, NodeSelect, Socket, Context)),
     ?match({?'CP-Node', ?'CP-IP'}, Proxy5),
 
     PI6 = PI#{gwSelectionAPN => apn(<<"web.mnc123.mcc001.gprs">>)},
-    Proxy6 = (catch ergw_proxy_lib:select_gw(PI6, ?SERVICES, NodeSelect, Port, Context)),
+    Proxy6 = (catch ergw_proxy_lib:select_gw(PI6, ?SERVICES, NodeSelect, Socket, Context)),
     ?match({?'CP-Node', ?'CP-IP'}, Proxy6),
 
     PI7 = PI#{gwSelectionAPN => apn(<<"web.mnc567.mcc001.gprs">>)},
-    Proxy7 = (catch ergw_proxy_lib:select_gw(PI7, ?SERVICES, NodeSelect, Port, Context)),
+    Proxy7 = (catch ergw_proxy_lib:select_gw(PI7, ?SERVICES, NodeSelect, Socket, Context)),
     ?match(#ctx_err{level = ?FATAL, reply = system_failure, context = Context}, Proxy7),
     ok.
 
