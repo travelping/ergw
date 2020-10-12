@@ -51,12 +51,15 @@
 -export([select_upf/2, reselect_upf/4]).
 
 -include_lib("kernel/include/logger.hrl").
+-include_lib("parse_trans/include/exprecs.hrl").
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include_lib("pfcplib/include/pfcp_packet.hrl").
 -include_lib("ergw_aaa/include/ergw_aaa_3gpp.hrl").
 -include_lib("ergw_aaa/include/diameter_3gpp_ts29_212.hrl").
 -include_lib("ergw_aaa/include/diameter_3gpp_ts32_299.hrl").
 -include("include/ergw.hrl").
+
+-export_records([context, tdf_ctx, tunnel, bearer]).
 
 -record(sx_upd, {now, errors = [], monitors = #{}, pctx = #pfcp_ctx{}, sctx}).
 
@@ -1836,45 +1839,34 @@ release_context_ips(#context{ms_v4 = MSv4, ms_v6 = MSv6} = Context) ->
 %%% Bearer helpers
 %%%===================================================================
 
-update_element_with(Field, Tuple, Fun) ->
-    setelement(Field, Tuple, Fun(element(Field, Tuple))).
+update_field_with(Field, Rec, Fun) ->
+    '#set-'([{Field, Fun('#get-'(Field, Rec))}], Rec).
+    %% {Get, Set} = '#lens-'(Field, element(1, Rec)),
+    %% Set(Fun(Get(Rec)), Rec).
 
-context_field(tunnel, left, #context{})  -> #context.left_tnl;
-%% context_field(tunnel, right, #context{}) -> #context.right_tnl;
-context_field(bearer, left, #context{})  -> #context.left;
-context_field(bearer, right, #context{}) -> #context.right;
-context_field(bearer, left, #tdf_ctx{})  -> #tdf_ctx.left;
-context_field(bearer, right, #tdf_ctx{}) -> #tdf_ctx.right.
-
-info_field(local, #tunnel{}) -> #tunnel.local;
-info_field(remote, #tunnel{}) -> #tunnel.remote;
-info_field(local, #bearer{}) -> #bearer.local;
-info_field(remote, #bearer{}) -> #bearer.remote.
+context_field(tunnel, left)  -> left_tnl;
+context_field(tunnel, right) -> right_tnl;
+context_field(bearer, left)  -> left;
+context_field(bearer, right) -> right.
 
 %% update_teid/5
 update_teid(Type, CtxSide, InfoSide, Fun, Ctx) ->
-    update_element_with(
-      context_field(Type, CtxSide, Ctx), Ctx,
-      fun(Info) ->
-	      update_element_with(info_field(InfoSide, Info), Info, Fun)
-      end).
+    update_field_with(context_field(Type, CtxSide), Ctx, update_field_with(InfoSide, _, Fun)).
 
 %% set_teid/5
 set_teid(Type, CtxSide, InfoSide, IP, TEI, Ctx) ->
-    Fun = fun(_) -> #fq_teid{ip = ergw_inet:bin2ip(IP), teid = TEI} end,
-    update_teid(Type, CtxSide, InfoSide, Fun, Ctx).
+    FqTEID = #fq_teid{ip = ergw_inet:bin2ip(IP), teid = TEI},
+    update_field_with(context_field(Type, CtxSide), Ctx, '#set-'([{InfoSide, FqTEID}], _)).
 
 %% unset_teid/3
 unset_teid(Type, CtxSide, InfoSide, Ctx) ->
-    update_teid(Type, CtxSide, InfoSide, fun(_) -> undefined end, Ctx).
-
+    update_field_with(context_field(Type, CtxSide), Ctx, '#set-'([{InfoSide, undefined}], _)).
 
 tunnel(CtxSide, Ctx) ->
-    element(context_field(tunnel, CtxSide, Ctx), Ctx).
+    '#get-'(context_field(tunnel, CtxSide), Ctx).
 
 tunnel(CtxSide, TunnelSide, Ctx) ->
-    Tunnel = tunnel(CtxSide, Ctx),
-    element(info_field(TunnelSide, Tunnel), Tunnel).
+    '#get-'(TunnelSide, tunnel(CtxSide, Ctx)).
 
 %% init_tunnel/3
 init_tunnel(Interface, #gtp_socket_info{vrf = VRF}, Socket) ->
@@ -1882,9 +1874,7 @@ init_tunnel(Interface, #gtp_socket_info{vrf = VRF}, Socket) ->
 
 %% assign_tunnel_teid/3
 assign_tunnel_teid(TunnelSide, #gtp_socket_info{vrf = VRF} = Info, Tunnel) ->
-    setelement(
-      info_field(TunnelSide, Tunnel), Tunnel#tunnel{vrf = VRF},
-      assign_tunnel_teid_f(Info, Tunnel)).
+    '#set-'([{TunnelSide, assign_tunnel_teid_f(Info, Tunnel)}], Tunnel#tunnel{vrf = VRF}).
 
 %% assign_tunnel_teid_f/2
 assign_tunnel_teid_f(#gtp_socket_info{ip = IP}, #tunnel{socket = Socket}) ->
@@ -1893,11 +1883,11 @@ assign_tunnel_teid_f(#gtp_socket_info{ip = IP}, #tunnel{socket = Socket}) ->
 
 %% assign_tunnel_teid/3
 reassign_tunnel_teid(CtxSide, TunnelSide, Ctx) ->
-    update_element_with(
-      context_field(tunnel, CtxSide, Ctx), Ctx,
+    update_field_with(
+      context_field(tunnel, CtxSide), Ctx,
       fun(Tunnel) ->
-	      update_element_with(
-		info_field(TunnelSide, Tunnel), Tunnel, reassign_tunnel_teid_f(Tunnel, _))
+	      update_field_with(
+		TunnelSide, Tunnel, reassign_tunnel_teid_f(Tunnel, _))
       end).
 
 %% reassign_tunnel_teid_f/2
@@ -1912,8 +1902,8 @@ assign_local_data_teid(PCtx, NodeCaps, Ctx) ->
 %% assign_local_data_teid/4
 assign_local_data_teid(CtxSide, PCtx, NodeCaps, Ctx) ->
     Tunnel = tunnel(CtxSide, Ctx),
-    update_element_with(
-      context_field(bearer, CtxSide, Ctx), Ctx,
+    update_field_with(
+      context_field(bearer, CtxSide), Ctx,
       assign_local_data_teid_f(PCtx, NodeCaps, Tunnel, _, Ctx)).
 
 %% assign_local_data_teid_f/4
@@ -1953,11 +1943,10 @@ unset_remote_data_teid(Ctx) ->
 
 %% update_ue_ip/5
 update_ue_ip(CtxSide, BearerSide, VRF, Fun, Ctx) ->
-    update_element_with(
-      context_field(bearer, CtxSide, Ctx), Ctx,
+    update_field_with(
+      context_field(bearer, CtxSide), Ctx,
       fun(Bearer) ->
-	      update_element_with(
-		info_field(BearerSide, Bearer), Bearer#bearer{vrf = VRF}, Fun)
+	      update_field_with(BearerSide, Bearer#bearer{vrf = VRF}, Fun)
       end).
 
 %% set_ue_ip/1
