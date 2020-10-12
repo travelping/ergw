@@ -134,8 +134,7 @@ ctx_update_dp_seid(_, PCtx) ->
 
 %% choose_context_ip/5
 choose_context_ip(CtxSide, TunnelSide, IP4, IP6, Ctx) ->
-    FqTEID =
-	element(tunnel_side(TunnelSide), element(context_tunnel(CtxSide, Ctx), Ctx)),
+    FqTEID = tunnel(CtxSide, TunnelSide, Ctx),
     choose_context_ip(IP4, IP6, FqTEID, Ctx).
 
 %% use additional information from the Context to prefre V4 or V6....
@@ -1840,25 +1839,42 @@ release_context_ips(#context{ms_v4 = MSv4, ms_v6 = MSv6} = Context) ->
 update_element_with(Field, Tuple, Fun) ->
     setelement(Field, Tuple, Fun(element(Field, Tuple))).
 
-context_tunnel(left, #context{})  -> #context.left_tnl.
-%context_tunnel(right, #context{}) -> #context.right_tnl.
+context_field(tunnel, left, #context{})  -> #context.left_tnl;
+%% context_field(tunnel, right, #context{}) -> #context.right_tnl;
+context_field(bearer, left, #context{})  -> #context.left;
+context_field(bearer, right, #context{}) -> #context.right;
+context_field(bearer, left, #tdf_ctx{})  -> #tdf_ctx.left;
+context_field(bearer, right, #tdf_ctx{}) -> #tdf_ctx.right.
 
-tunnel_side(local) -> #tunnel.local;
-tunnel_side(remote) -> #tunnel.remote.
+info_field(local, #tunnel{}) -> #tunnel.local;
+info_field(remote, #tunnel{}) -> #tunnel.remote;
+info_field(local, #bearer{}) -> #bearer.local;
+info_field(remote, #bearer{}) -> #bearer.remote.
 
-context_field(left, #context{})  -> #context.left;
-context_field(right, #context{}) -> #context.right;
-context_field(left, #tdf_ctx{})  -> #tdf_ctx.left;
-context_field(right, #tdf_ctx{}) -> #tdf_ctx.right.
+%% update_teid/5
+update_teid(Type, CtxSide, InfoSide, Fun, Ctx) ->
+    update_element_with(
+      context_field(Type, CtxSide, Ctx), Ctx,
+      fun(Info) ->
+	      update_element_with(info_field(InfoSide, Info), Info, Fun)
+      end).
 
-bearer_field(local) -> #bearer.local;
-bearer_field(remote) -> #bearer.remote.
+%% set_teid/5
+set_teid(Type, CtxSide, InfoSide, IP, TEI, Ctx) ->
+    Fun = fun(_) -> #fq_teid{ip = ergw_inet:bin2ip(IP), teid = TEI} end,
+    update_teid(Type, CtxSide, InfoSide, Fun, Ctx).
+
+%% unset_teid/3
+unset_teid(Type, CtxSide, InfoSide, Ctx) ->
+    update_teid(Type, CtxSide, InfoSide, fun(_) -> undefined end, Ctx).
+
 
 tunnel(CtxSide, Ctx) ->
-    element(context_tunnel(CtxSide, Ctx), Ctx).
+    element(context_field(tunnel, CtxSide, Ctx), Ctx).
 
-%% tunnel(CtxSide, TunnelSide, Ctx) ->
-%%     element(tunnel_side(TunnelSide), tunnel(CtxSide, Ctx)).
+tunnel(CtxSide, TunnelSide, Ctx) ->
+    Tunnel = tunnel(CtxSide, Ctx),
+    element(info_field(TunnelSide, Tunnel), Tunnel).
 
 %% init_tunnel/3
 init_tunnel(Interface, #gtp_socket_info{vrf = VRF}, Socket) ->
@@ -1867,7 +1883,7 @@ init_tunnel(Interface, #gtp_socket_info{vrf = VRF}, Socket) ->
 %% assign_tunnel_teid/3
 assign_tunnel_teid(TunnelSide, #gtp_socket_info{vrf = VRF} = Info, Tunnel) ->
     setelement(
-      tunnel_side(TunnelSide), Tunnel#tunnel{vrf = VRF},
+      info_field(TunnelSide, Tunnel), Tunnel#tunnel{vrf = VRF},
       assign_tunnel_teid_f(Info, Tunnel)).
 
 %% assign_tunnel_teid_f/2
@@ -1878,10 +1894,10 @@ assign_tunnel_teid_f(#gtp_socket_info{ip = IP}, #tunnel{socket = Socket}) ->
 %% assign_tunnel_teid/3
 reassign_tunnel_teid(CtxSide, TunnelSide, Ctx) ->
     update_element_with(
-      context_tunnel(CtxSide, Ctx), Ctx,
+      context_field(tunnel, CtxSide, Ctx), Ctx,
       fun(Tunnel) ->
 	      update_element_with(
-		tunnel_side(TunnelSide), Tunnel, reassign_tunnel_teid_f(Tunnel, _))
+		info_field(TunnelSide, Tunnel), Tunnel, reassign_tunnel_teid_f(Tunnel, _))
       end).
 
 %% reassign_tunnel_teid_f/2
@@ -1897,7 +1913,7 @@ assign_local_data_teid(PCtx, NodeCaps, Ctx) ->
 assign_local_data_teid(CtxSide, PCtx, NodeCaps, Ctx) ->
     Tunnel = tunnel(CtxSide, Ctx),
     update_element_with(
-      context_field(CtxSide, Ctx), Ctx,
+      context_field(bearer, CtxSide, Ctx), Ctx,
       assign_local_data_teid_f(PCtx, NodeCaps, Tunnel, _, Ctx)).
 
 %% assign_local_data_teid_f/4
@@ -1913,53 +1929,48 @@ assign_local_data_teid_f(PCtx, {VRFs, _} = _NodeCaps,
 
 %% set_remote_data_teid/3
 set_remote_data_teid(IP, TEI, Ctx) ->
-    set_remote_data_teid(left, remote, IP, TEI, Ctx).
+    set_teid(bearer, left, remote, IP, TEI, Ctx).
 
-%% set_remote_data_teid_f/5
-set_remote_data_teid(CtxSide, BearerSide, IP, TEI, Ctx) ->
-   update_element_with(
-     context_field(CtxSide, Ctx), Ctx,
-     setelement(bearer_field(BearerSide), _, set_remote_data_teid_f(IP, TEI))).
-
-%% set_remote_data_teid_f/3
-set_remote_data_teid_f(IP, TEI) ->
-    #fq_teid{ip = ergw_inet:bin2ip(IP), teid = TEI}.
+%% set_remote_data_teid/5
+%% set_remote_data_teid(CtxSide, BearerSide, IP, TEI, Ctx) ->
+%%     set_teid(bearer, CtxSide, BearerSide, IP, TEI, Ctx).
 
 %% update_remote_data_teid/2
 update_remote_data_teid(Fun, Ctx) ->
-    update_remote_data_teid(left, remote, Fun, Ctx).
+    update_teid(bearer, left, remote, Fun, Ctx).
 
-%% update_remote_data_teid_f/4
-update_remote_data_teid(CtxSide, BearerSide, Fun, Ctx) ->
-   update_element_with(
-     context_field(CtxSide, Ctx), Ctx,
-     update_element_with(bearer_field(BearerSide), _, Fun)).
+%% update_remote_data_teid/4
+%% update_remote_data_teid(CtxSide, BearerSide, Fun, Ctx) ->
+%%     update_teid(bearer, CtxSide, BearerSide, Fun, Ctx).
 
 %% unset_remote_data_teid/1
 unset_remote_data_teid(Ctx) ->
-    unset_remote_data_teid(left, remote, Ctx).
+    unset_teid(bearer, left, remote, Ctx).
 
-%% unset_remote_data_teid_f/3
-unset_remote_data_teid(CtxSide, BearerSide, Ctx) ->
-   update_element_with(
-     context_field(CtxSide, Ctx), Ctx,
-     setelement(bearer_field(BearerSide), _, undefined)).
+%% unset_remote_data_teid/3
+%% unset_remote_data_teid(CtxSide, BearerSide, Ctx) ->
+%%     unset_teid(bearer, CtxSide, BearerSide, Ctx).
+
+%% update_ue_ip/5
+update_ue_ip(CtxSide, BearerSide, VRF, Fun, Ctx) ->
+    update_element_with(
+      context_field(bearer, CtxSide, Ctx), Ctx,
+      fun(Bearer) ->
+	      update_element_with(
+		info_field(BearerSide, Bearer), Bearer#bearer{vrf = VRF}, Fun)
+      end).
 
 %% set_ue_ip/1
 set_ue_ip(Ctx) ->
     set_ue_ip(right, local, Ctx).
 
 %% set_ue_ip/3
-set_ue_ip(CtxSide, BearerSide, #context{vrf = #vrf{name = Name}} = Ctx) ->
-    set_ue_ip(CtxSide, BearerSide, Name, Ctx).
+set_ue_ip(CtxSide, BearerSide, #context{vrf = #vrf{name = VRF}} = Ctx) ->
+    set_ue_ip(CtxSide, BearerSide, VRF, Ctx).
 
 %% set_ue_ip/4
-set_ue_ip(CtxSide, BearerSide, Name, Ctx) ->
-    update_element_with(
-      context_field(CtxSide, Ctx), Ctx,
-      fun(Bearer) ->
-	      setelement(bearer_field(BearerSide), Bearer#bearer{vrf = Name}, set_ue_ip_f(Ctx))
-      end).
+set_ue_ip(CtxSide, BearerSide, VRF, Ctx) ->
+    update_ue_ip(CtxSide, BearerSide, VRF, fun(_) -> set_ue_ip_f(Ctx) end, Ctx).
 
 %% set_ue_ip_f/1
 set_ue_ip_f(#context{ms_v4 = IPv4, ms_v6 = IPv6}) ->
@@ -1973,9 +1984,7 @@ unset_ue_ip(Ctx) ->
 
 %% unset_ue_ip/3
 unset_ue_ip(CtxSide, BearerSide, Ctx) ->
-    update_element_with(
-      context_field(CtxSide, Ctx), Ctx,
-      setelement(bearer_field(BearerSide), _, undefined)).
+    update_ue_ip(CtxSide, BearerSide, undefined, fun(_) -> undefined end, Ctx).
 
 %%%===================================================================
 %%% T-PDU functions
