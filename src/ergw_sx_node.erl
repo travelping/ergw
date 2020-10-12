@@ -42,7 +42,8 @@
 	       recovery_ts       :: undefined | non_neg_integer(),
 	       pfcp_ctx          :: #pfcp_ctx{},
 	       bearer            :: #bearer{},
-	       cp_port           :: #gtp_port{},
+	       cp_socket         :: #socket{},
+	       cp_info           :: #gtp_socket_info{},
 	       cp,
 	       dp,
 	       ip_pools,
@@ -148,7 +149,7 @@ handle_request_fun(ReqKey, #pfcp{type = session_report_request} = Report) ->
     ok.
 
 %%%===================================================================
-%%% call/cast wrapper for gtp_port
+%%% call/cast wrapper
 %%%===================================================================
 
 call_3(Pid, Request, OpaqueRef)
@@ -187,20 +188,19 @@ callback_mode() -> [handle_event_function, state_enter].
 init([Parent, Node, NodeSelect, IP4, IP6, NotifyUp]) ->
     ergw_sx_node_reg:register(Node, self()),
 
-    {ok, CP, GtpPort} = ergw_sx_socket:id(),
-    #gtp_port{name = CntlPortName} = GtpPort,
-    {ok, TEI} = ergw_tei_mngr:alloc_tei(GtpPort),
+    {ok, CP, Socket, SockInfo} = ergw_sx_socket:id(),
+    {ok, TEI} = ergw_tei_mngr:alloc_tei(Socket),
     SEID = ergw_sx_socket:seid(),
 
     PCtx = #pfcp_ctx{
 	      name = Node,
 	      node = self(),
 	      seid = #seid{cp = SEID},
-	      cp_bearer = make_cp_bearer(TEI, GtpPort)
+	      cp_bearer = make_cp_bearer(TEI, SockInfo)
 	     },
 
     RegKeys =
-	[{CntlPortName, {teid, 'gtp-u', TEI}},
+	[gtp_context:socket_teid_key(Socket, TEI),
 	 {seid, SEID}],
     gtp_context_reg:register(RegKeys, ?MODULE, self()),
 
@@ -214,7 +214,8 @@ init([Parent, Node, NodeSelect, IP4, IP6, NotifyUp]) ->
 		  recovery_ts = undefined,
 		  pfcp_ctx = PCtx,
 		  bearer = #bearer{interface = 'CP-function'},
-		  cp_port = GtpPort,
+		  cp_socket = Socket,
+		  cp_info = SockInfo,
 		  cp = CP,
 		  tdf = #{},
 		  notify_up = NotifyUp
@@ -303,12 +304,12 @@ handle_event(cast, {response, _, #pfcp{version = v1, type = association_setup_re
     end;
 
 handle_event(cast, {send, 'Access', _VRF, Data}, {connected, _},
-	     #data{cp_port = Port, dp = #node{ip = IP},
+	     #data{cp_socket = Socket, dp = #node{ip = IP},
 		   bearer = #bearer{local = #fq_teid{teid = TEI}}}) ->
 
     Msg = #gtp{version = v1, type = g_pdu, tei = TEI, ie = Data},
     Bin = gtp_packet:encode(Msg),
-    ergw_gtp_u_socket:send(Port, IP, ?GTP1u_PORT, Bin),
+    ergw_gtp_u_socket:send(Socket, IP, ?GTP1u_PORT, Bin),
 
     keep_state_and_data;
 
@@ -500,8 +501,8 @@ pfcp_reply_actions({call, {Pid, Tag}}, Reply)
 pfcp_reply_actions({call, From}, Reply) ->
     [{reply, From, Reply}].
 
-make_request(IP, Port, Msg, #data{cp_port = GtpPort}) ->
-    ergw_gtp_socket:make_request(0, IP, Port, Msg, GtpPort).
+make_request(IP, Port, Msg, #data{cp_socket = Socket, cp_info = Info}) ->
+    ergw_gtp_socket:make_request(0, IP, Port, Msg, Socket, Info).
 
 %% IPv4, non fragmented, UDP packet
 handle_ip_pdu(<<Version:4, IHL:4, _TOS:8, TotLen:16, _Id:16, _:2, 0:1, 0:13,
@@ -532,9 +533,9 @@ handle_udp_gtp(SrcIP, DstIP, <<SrcPort:16, DstPort:16, _:16, _:16, PayLoad/binar
 		 inet:ntoa(ergw_inet:bin2ip(DstIP)), DstPort,
 		 Msg]),
     ReqKey = make_request(SrcIP, SrcPort, Msg, Data),
-    GtpPort = #gtp_port{name = Node, type = 'gtp-u'},
+    Socket = #socket{name = Node, type = 'gtp-u'},
     TEID = #fq_teid{ip = ergw_inet:bin2ip(DstIP), teid = Msg#gtp.tei},
-    ergw_context:port_message(gtp_context:port_teid_key(GtpPort, TEID), ReqKey, Msg, false),
+    ergw_context:port_message(gtp_context:socket_teid_key(Socket, TEID), ReqKey, Msg, false),
     ok;
 handle_udp_gtp(SrcIP, DstIP, <<SrcPort:16, DstPort:16, _:16, _:16, PayLoad/binary>>, _Data) ->
     ?LOG(debug, "unexpected UDP ~s:~w -> ~s:~w: ~p",
@@ -761,7 +762,7 @@ choose_up_ip(#node{ip = {_,_,_,_,_,_,_,_}}, #vrf{ipv4 = IP6})
 choose_up_ip(#node{ip = IP}, _VRF) ->
     IP.
 
-make_cp_bearer(TEI,  #gtp_port{vrf = VRF, ip = IP}) ->
+make_cp_bearer(TEI,  #gtp_socket_info{vrf = VRF, ip = IP}) ->
     FqTEID = #fq_teid{ip = IP, teid = TEI},
     #bearer{interface = 'CP-function', vrf = VRF, remote = FqTEID}.
 

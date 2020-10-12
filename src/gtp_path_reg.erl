@@ -66,8 +66,8 @@ all({_,_,_,_} = IP) ->
     all_ip(IP);
 all({_,_,_,_,_,_,_,_} = IP) ->
     all_ip(IP);
-all(Port) when is_atom(Port) ->
-    Ms = ets:fun2ms(fun({{Name, _, _}, Pid, State}) when Name =:= Port -> {Pid, State} end),
+all(Socket) when is_atom(Socket) ->
+    Ms = ets:fun2ms(fun({{Name, _, _}, Pid, State}) when Name =:= Socket -> {Pid, State} end),
     ets:select(?SERVER, Ms).
 
 all_ip(IP) ->

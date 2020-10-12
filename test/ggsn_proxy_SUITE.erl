@@ -691,13 +691,13 @@ init_per_testcase(TestCase, Config)
        TestCase == delete_pdp_context_requested_late_response ->
     setup_per_testcase(Config),
     ok = meck:expect(ergw_gtp_c_socket, send_request,
-		     fun(GtpPort, DstIP, DstPort, _T3, _N3,
+		     fun(Socket, DstIP, DstPort, _T3, _N3,
 			 #gtp{type = delete_pdp_context_request} = Msg, CbInfo) ->
 			     %% reduce timeout to 1 second and 2 resends
 			     %% to speed up the test
-			     meck:passthrough([GtpPort, DstIP, DstPort, 1000, 2, Msg, CbInfo]);
-			(GtpPort, DstIP, DstPort, T3, N3, Msg, CbInfo) ->
-			     meck:passthrough([GtpPort, DstIP, DstPort, T3, N3, Msg, CbInfo])
+			     meck:passthrough([Socket, DstIP, DstPort, 1000, 2, Msg, CbInfo]);
+			(Socket, DstIP, DstPort, T3, N3, Msg, CbInfo) ->
+			     meck:passthrough([Socket, DstIP, DstPort, T3, N3, Msg, CbInfo])
 		     end),
     Config;
 init_per_testcase(request_fast_resend, Config) ->
@@ -974,7 +974,7 @@ ggsn_broken_recovery(Config) ->
 
     {_Handler, CtxPid} = gtp_context_reg:lookup({'irx', {imsi, ?'IMSI', 5}}),
     #{proxy_context := Ctx1} = gtp_context:info(CtxPid),
-    #context{control_port = CPort} = Ctx1,
+    #context{left_tnl = #tunnel{socket = CSocket}} = Ctx1,
 
     FinalGSN = proplists:get_value(final_gsn, Config),
     ok = meck:expect(ergw_gtp_c_socket, send_request,
@@ -984,12 +984,12 @@ ggsn_broken_recovery(Config) ->
 			     Resp = Req#gtp{type = echo_response, ie = IEs},
 			     ct:pal("Req: ~p~nResp: ~p~n", [Req, Resp]),
 			     ergw_gtp_c_socket:send_reply(CbInfo, Resp);
-			 (GtpPort, IP, Port, T3, N3, Msg, CbInfo) ->
-			     meck:passthrough([GtpPort, IP, Port, T3, N3, Msg, CbInfo])
+			 (Socket, IP, Port, T3, N3, Msg, CbInfo) ->
+			     meck:passthrough([Socket, IP, Port, T3, N3, Msg, CbInfo])
 		     end),
 
     %% send a ping from GGSN, should trigger a race warning
-    ok = gtp_path:ping(CPort, v1, FinalGSN),
+    ok = gtp_path:ping(CSocket, v1, FinalGSN),
 
     ct:sleep(1000),
     [?match(#{tunnels := 1}, X) || X <- ergw_api:peer(all)],
@@ -1012,7 +1012,7 @@ path_failure_to_ggsn(Config) ->
 
     {_Handler, CtxPid} = gtp_context_reg:lookup({'irx', {imsi, ?'IMSI', 5}}),
     #{proxy_context := Ctx1} = gtp_context:info(CtxPid),
-    #context{control_port = CPort} = Ctx1,
+    #context{left_tnl = #tunnel{socket = CSocket}} = Ctx1,
 
     FinalGSN = proplists:get_value(final_gsn, Config),
     ok = meck:expect(ergw_gtp_c_socket, send_request,
@@ -1020,11 +1020,11 @@ path_failure_to_ggsn(Config) ->
 			   when IP =:= FinalGSN ->
 			     %% simulate a Echo timeout
 			     ergw_gtp_c_socket:send_reply(CbInfo, timeout);
-			 (GtpPort, IP, Port, T3, N3, Msg, CbInfo) ->
-			     meck:passthrough([GtpPort, IP, Port, T3, N3, Msg, CbInfo])
+			 (Socket, IP, Port, T3, N3, Msg, CbInfo) ->
+			     meck:passthrough([Socket, IP, Port, T3, N3, Msg, CbInfo])
 		     end),
 
-    gtp_path:ping(CPort, v1, FinalGSN),
+    gtp_path:ping(CSocket, v1, FinalGSN),
 
     %% echo timeout should trigger a Delete PDP Context Request to SGSN.
     Request = recv_pdu(Cntl, 5000),
@@ -1079,7 +1079,7 @@ path_failure_to_ggsn_and_restore(Config) ->
 
     {_Handler, CtxPid} = gtp_context_reg:lookup({'irx', {imsi, ?'IMSI', 5}}),
     #{proxy_context := Ctx1} = gtp_context:info(CtxPid),
-    #context{control_port = CPort} = Ctx1,
+    #context{left_tnl = #tunnel{socket = CSocket}} = Ctx1,
 
     FinalGSN = proplists:get_value(final_gsn, Config),
     ok = meck:expect(ergw_gtp_c_socket, send_request,
@@ -1087,11 +1087,11 @@ path_failure_to_ggsn_and_restore(Config) ->
 			   when IP =:= FinalGSN ->
 			     %% simulate a Echo timeout
 			     ergw_gtp_c_socket:send_reply(CbInfo, timeout);
-			 (GtpPort, IP, Port, T3, N3, Msg, CbInfo) ->
-			     meck:passthrough([GtpPort, IP, Port, T3, N3, Msg, CbInfo])
+			 (Socket, IP, Port, T3, N3, Msg, CbInfo) ->
+			     meck:passthrough([Socket, IP, Port, T3, N3, Msg, CbInfo])
 		     end),
 
-    gtp_path:ping(CPort, v1, FinalGSN),
+    gtp_path:ping(CSocket, v1, FinalGSN),
 
     %% echo timeout should trigger a Delete PDP Context Request to SGSN.
     Request = recv_pdu(Cntl, 5000),
@@ -1113,7 +1113,7 @@ path_failure_to_ggsn_and_restore(Config) ->
     ok = meck:delete(ergw_gtp_c_socket, send_request, 7),
 
     %% Successful echo, clears down marked IP.
-    gtp_path:ping(CPort, v1, FinalGSN),
+    gtp_path:ping(CSocket, v1, FinalGSN),
 
     %% wait for 100ms
     ?equal(timeout, recv_pdu(GtpC, undefined, 100, fun(Why) -> Why end)),
@@ -1142,7 +1142,7 @@ path_failure_to_sgsn(Config) ->
 
     {_Handler, CtxPid} = gtp_context_reg:lookup({'irx', {imsi, ?'IMSI', 5}}),
     #{context := Ctx1} = gtp_context:info(CtxPid),
-    #context{control_port = CPort} = Ctx1,
+    #context{left_tnl = #tunnel{socket = CSocket}} = Ctx1,
 
     ClientIP = proplists:get_value(client_ip, Config),
     ok = meck:expect(ergw_gtp_c_socket, send_request,
@@ -1150,11 +1150,11 @@ path_failure_to_sgsn(Config) ->
 			   when IP =:= ClientIP ->
 			     %% simulate a Echo timeout
 			     ergw_gtp_c_socket:send_reply(CbInfo, timeout);
-			 (GtpPort, IP, Port, T3, N3, Msg, CbInfo) ->
-			     meck:passthrough([GtpPort, IP, Port, T3, N3, Msg, CbInfo])
+			 (Socket, IP, Port, T3, N3, Msg, CbInfo) ->
+			     meck:passthrough([Socket, IP, Port, T3, N3, Msg, CbInfo])
 		     end),
 
-    gtp_path:ping(CPort, v1, ClientIP),
+    gtp_path:ping(CSocket, v1, ClientIP),
 
     %% wait for session cleanup
     ct:sleep(100),
@@ -1268,19 +1268,19 @@ one_lb_node_down(Config) ->
     lists:foreach(fun({_, Pid, _}) -> gtp_path:stop(Pid) end, gtp_path_reg:all()),
 
     DownGSN = proplists:get_value(final_gsn_2, Config),
-    CPort = ergw_socket_reg:lookup('gtp-c', 'irx'),
+    CSocket = ergw_socket_reg:lookup('gtp-c', 'irx'),
 
     ok = meck:expect(ergw_gtp_c_socket, send_request,
 		     fun (_, IP, _, _, _, #gtp{type = echo_request}, CbInfo)
 			   when IP =:= DownGSN ->
 			     %% simulate a Echo timeout
 			     ergw_gtp_c_socket:send_reply(CbInfo, timeout);
-			 (GtpPort, IP, Port, T3, N3, Msg, CbInfo) ->
-			     meck:passthrough([GtpPort, IP, Port, T3, N3, Msg, CbInfo])
+			 (Socket, IP, Port, T3, N3, Msg, CbInfo) ->
+			     meck:passthrough([Socket, IP, Port, T3, N3, Msg, CbInfo])
 		     end),
 
     %% create the path
-    CPid = gtp_path:maybe_new_path(CPort, v1, DownGSN),
+    CPid = gtp_path:maybe_new_path(CSocket, v1, DownGSN),
 
     %% down the path by forcing a echo
     ok = gtp_path:ping(CPid),
@@ -1940,7 +1940,7 @@ unsupported_request(Config) ->
 cache_timeout() ->
     [{doc, "Check GTP socket queue timeout"}, {timetrap, {seconds, 150}}].
 cache_timeout(Config) ->
-    GtpPort =
+    Socket =
 	case ergw_socket_reg:lookup('gtp-c', 'proxy-irx') of
 	    undefined ->
 		ergw_socket_reg:lookup('gtp-c', 'irx');
@@ -1952,13 +1952,13 @@ cache_timeout(Config) ->
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
 
-    {T0, Q0} = ergw_gtp_c_socket:get_request_q(GtpPort),
+    {T0, Q0} = ergw_gtp_c_socket:get_request_q(Socket),
     ?match(X when X /= 0, length(T0)),
     ?match(X when X /= 0, length(Q0)),
 
     ct:sleep({seconds, 120}),
 
-    {T1, Q1} = ergw_gtp_c_socket:get_request_q(GtpPort),
+    {T1, Q1} = ergw_gtp_c_socket:get_request_q(Socket),
     ?equal(0, length(T1)),
     ?equal(0, length(Q1)),
 

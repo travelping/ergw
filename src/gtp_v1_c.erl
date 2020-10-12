@@ -47,7 +47,7 @@
 %% Make sure that only message that are explicitely expected to
 %% contain a Recovery IE to have one.
 %%
-build_recovery(Cmd, CtxOrPort, NewPeer, IEs)
+build_recovery(Cmd, CtxOrSock, NewPeer, IEs)
   when
       %% Path Management Messages
       %% Cmd =:= echo_request;
@@ -66,12 +66,12 @@ build_recovery(Cmd, CtxOrPort, NewPeer, IEs)
       Cmd =:= delete_mbms_context_response;
       Cmd =:= mbms_session_start_request;
       Cmd =:= mbms_session_start_response ->
-    build_recovery(CtxOrPort, NewPeer, IEs);
-build_recovery(_Cmd, _CtxOrPort, _NewPeer, IEs) ->
+    build_recovery(CtxOrSock, NewPeer, IEs);
+build_recovery(_Cmd, _CtxOrSock, _NewPeer, IEs) ->
     IEs.
 
 %% build_recovery/3
-build_recovery(#gtp_port{}, NewPeer, IEs) when NewPeer == true ->
+build_recovery(#socket{}, NewPeer, IEs) when NewPeer == true ->
     add_recovery(IEs);
 build_recovery(#context{remote_restart_counter = RemoteRestartCounter}, NewPeer, IEs)
   when NewPeer == true orelse
@@ -188,9 +188,9 @@ gtp_msg_response(ms_info_change_notification_request)		-> ms_info_change_notific
 gtp_msg_response(data_record_transfer_request)			-> data_record_transfer_response;
 gtp_msg_response(Response)					-> Response.
 
-get_handler(#gtp_port{name = PortName}, _Msg) ->
-    ergw:handler(PortName, gn);
-get_handler(_Port, _Msg) ->
+get_handler(#socket{name = SocketName}, _Msg) ->
+    ergw:handler(SocketName, gn);
+get_handler(_Socket, _Msg) ->
     {error, {mandatory_ie_missing, ?'Access Point Name'}}.
 
 validate_teid(MsgType, 0)

@@ -14,7 +14,7 @@
 -compile({parse_transform, do}).
 
 -export([handle_response/4,
-	 start_link/5,
+	 start_link/6,
 	 send_request/7,
 	 send_response/2, send_response/3,
 	 send_request/6, resend_request/2,
@@ -28,7 +28,7 @@
 	 validate_options/3,
 	 validate_option/2,
 	 generic_error/3,
-	 port_key/2, port_teid_key/2]).
+	 socket_key/2, socket_teid_key/2]).
 -export([usage_report_to_accounting/1,
 	 collect_charging_events/3]).
 
@@ -62,20 +62,22 @@ handle_response(Context, ReqInfo, Request, Response) ->
     gen_statem:cast(Context, {handle_response, ReqInfo, Request, Response}).
 
 %% send_request/7
-send_request(GtpPort, DstIP, DstPort, T3, N3, Msg, ReqInfo) ->
+send_request(#tunnel{socket = Socket}, DstIP, DstPort, T3, N3, Msg, ReqInfo) ->
     CbInfo = {?MODULE, handle_response, [self(), ReqInfo, Msg]},
-    ergw_gtp_c_socket:send_request(GtpPort, DstIP, DstPort, T3, N3, Msg, CbInfo).
+    ergw_gtp_c_socket:send_request(Socket, DstIP, DstPort, T3, N3, Msg, CbInfo).
 
 %% send_request/6
-send_request(GtpPort, DstIP, DstPort, ReqId, Msg, ReqInfo) ->
+send_request(Socket, DstIP, DstPort, ReqId, Msg, ReqInfo) when is_record(Socket, socket) ->
     CbInfo = {?MODULE, handle_response, [self(), ReqInfo, Msg]},
-    ergw_gtp_c_socket:send_request(GtpPort, DstIP, DstPort, ReqId, Msg, CbInfo).
+    ergw_gtp_c_socket:send_request(Socket, DstIP, DstPort, ReqId, Msg, CbInfo);
+send_request(#tunnel{socket = Socket}, DstIP, DstPort, ReqId, Msg, ReqInfo) ->
+    send_request(Socket, DstIP, DstPort, ReqId, Msg, ReqInfo).
 
-resend_request(GtpPort, ReqId) ->
-    ergw_gtp_c_socket:resend_request(GtpPort, ReqId).
+resend_request(#tunnel{socket = Socket}, ReqId) ->
+    ergw_gtp_c_socket:resend_request(Socket, ReqId).
 
-start_link(GtpPort, Version, Interface, IfOpts, Opts) ->
-    gen_statem:start_link(?MODULE, [GtpPort, Version, Interface, IfOpts], Opts).
+start_link(Socket, Info, Version, Interface, IfOpts, Opts) ->
+    gen_statem:start_link(?MODULE, [Socket, Info, Version, Interface, IfOpts], Opts).
 
 path_restart(Context, Path) ->
     jobs:run(path_restart, fun() -> gen_statem:call(Context, {path_restart, Path}) end).
@@ -152,9 +154,9 @@ collect_charging_events(OldS, NewS, _Context) ->
 %% that when an incomming Create PDP Context/Create Session requests collides
 %% with an existing context based on a IMSI, Bearer, Protocol tuple, that the
 %% preexisting context should be deleted locally. This function does that.
-terminate_colliding_context(#context{control_port = GtpPort, context_id = Id})
+terminate_colliding_context(#context{left_tnl = #tunnel{socket = Socket}, context_id = Id})
   when Id /= undefined ->
-    case gtp_context_reg:lookup(port_key(GtpPort, Id)) of
+    case gtp_context_reg:lookup(socket_key(Socket, Id)) of
 	{?MODULE, Server} when is_pid(Server) ->
 	    gtp_context:terminate_context(Server);
 	_ ->
@@ -276,9 +278,9 @@ port_message(Request, #gtp{version = v1, type = MsgType, tei = 0} = Msg)
     Keys = gtp_v1_c:get_msg_keys(Msg),
     ergw_context:port_message(Keys, Request, Msg);
 
-port_message(#request{gtp_port = GtpPort} = Request,
+port_message(#request{socket = Socket, info = Info} = Request,
 		 #gtp{version = Version, tei = 0} = Msg) ->
-    case get_handler_if(GtpPort, Msg) of
+    case get_handler_if(Socket, Msg) of
 	{ok, Interface, InterfaceOpts} ->
 	    case ergw:get_accept_new() of
 		true -> ok;
@@ -286,7 +288,7 @@ port_message(#request{gtp_port = GtpPort} = Request,
 		    throw({error, no_resources_available})
 	    end,
 	    validate_teid(Msg),
-	    Server = context_new(GtpPort, Version, Interface, InterfaceOpts),
+	    Server = context_new(Socket, Info, Version, Interface, InterfaceOpts),
 	    port_message(Server, Request, Msg, false);
 
 	{error, _} = Error ->
@@ -309,22 +311,21 @@ port_message(Server, Request, Msg, Resent) ->
 
 callback_mode() -> [handle_event_function, state_enter].
 
-init([CntlPort, Version, Interface,
+init([Socket, Info, Version, Interface,
       #{node_selection := NodeSelect,
 	aaa := AAAOpts} = Opts]) ->
 
-    ?LOG(debug, "init(~p)", [[CntlPort, Interface]]),
+    ?LOG(debug, "init(~p)", [[Socket, Info, Interface]]),
     process_flag(trap_exit, true),
 
     LeftTnl =
 	ergw_gsn_lib:assign_tunnel_teid(
-	  local, CntlPort, #tunnel{interface = 'Access'}),
+	  local, Info, ergw_gsn_lib:init_tunnel('Access', Info, Socket)),
     Context = #context{
-		 charging_identifier = ergw_gtp_c_socket:get_uniq_id(CntlPort),
+		 charging_identifier = ergw_gtp_c_socket:get_uniq_id(Socket),
 
 		 version           = Version,
 		 control_interface = Interface,
-		 control_port      = CntlPort,
 		 left_tnl          = LeftTnl,
 		 left              = #bearer{interface = 'Access'},
 		 right             = #bearer{interface = 'SGi-LAN'}
@@ -467,7 +468,7 @@ handle_ctx_error(#ctx_err{reply = Reply} = CtxErr, Handler,
     send_response(Request, Response#gtp{seq_no = SeqNo}),
     handle_ctx_error(CtxErr, State, Data).
 
-handle_request(#request{gtp_port = GtpPort} = Request,
+handle_request(#request{socket = Socket} = Request,
 	       #gtp{version = Version} = Msg,
 	       Resent, State, #{interface := Interface} = Data0) ->
     ?LOG(debug, "GTP~s ~s:~w: ~p",
@@ -478,7 +479,7 @@ handle_request(#request{gtp_port = GtpPort} = Request,
 	Interface:handle_request(Request, Msg, Resent, State, Data0)
     catch
 	throw:#ctx_err{} = CtxErr ->
-	    Handler = gtp_path:get_handler(GtpPort, Version),
+	    Handler = gtp_path:get_handler(Socket, Version),
 	    handle_ctx_error(CtxErr, Handler, Request, Msg, State, Data0);
 
 	Class:Reason:Stacktrace ->
@@ -487,9 +488,9 @@ handle_request(#request{gtp_port = GtpPort} = Request,
     end.
 
 %% send_response/3
-send_response(#request{gtp_port = GtpPort, version = Version} = ReqKey,
+send_response(#request{socket = Socket, version = Version} = ReqKey,
 	      #gtp{seq_no = SeqNo}, Reply) ->
-    Handler = gtp_path:get_handler(GtpPort, Version),
+    Handler = gtp_path:get_handler(Socket, Version),
     Response = Handler:build_response(Reply),
     send_response(ReqKey, Response#gtp{seq_no = SeqNo}).
 
@@ -510,9 +511,9 @@ request_finished(Request) ->
 
 generic_error(_Request, #gtp{type = g_pdu}, _Error) ->
     ok;
-generic_error(#request{gtp_port = GtpPort} = Request,
+generic_error(#request{socket = Socket} = Request,
 	      #gtp{version = Version, type = MsgType, seq_no = SeqNo}, Error) ->
-    Handler = gtp_path:get_handler(GtpPort, Version),
+    Handler = gtp_path:get_handler(Socket, Version),
     Reply = Handler:build_response({MsgType, 0, Error}),
     ergw_gtp_c_socket:send_response(Request, Reply#gtp{seq_no = SeqNo}, SeqNo /= 0).
 
@@ -520,24 +521,24 @@ generic_error(#request{gtp_port = GtpPort} = Request,
 %%% Internal functions
 %%%===================================================================
 
-register_request(Handler, Server, #request{key = ReqKey, gtp_port = GtpPort}) ->
-    gtp_context_reg:register([port_key(GtpPort, ReqKey)], Handler, Server).
+register_request(Handler, Server, #request{key = ReqKey, socket = Socket}) ->
+    gtp_context_reg:register([socket_key(Socket, ReqKey)], Handler, Server).
 
-unregister_request(#request{key = ReqKey, gtp_port = GtpPort}) ->
-    gtp_context_reg:unregister([port_key(GtpPort, ReqKey)], ?MODULE, self()).
+unregister_request(#request{key = ReqKey, socket = Socket}) ->
+    gtp_context_reg:unregister([socket_key(Socket, ReqKey)], ?MODULE, self()).
 
 enforce_restriction(Context, #gtp{version = Version}, {Version, false}) ->
     throw(?CTX_ERR(?FATAL, {version_not_supported, []}, Context));
 enforce_restriction(_Context, _Msg, _Restriction) ->
     ok.
 
-get_handler_if(GtpPort, #gtp{version = v1} = Msg) ->
-    gtp_v1_c:get_handler(GtpPort, Msg);
-get_handler_if(GtpPort, #gtp{version = v2} = Msg) ->
-    gtp_v2_c:get_handler(GtpPort, Msg).
+get_handler_if(Socket, #gtp{version = v1} = Msg) ->
+    gtp_v1_c:get_handler(Socket, Msg);
+get_handler_if(Socket, #gtp{version = v2} = Msg) ->
+    gtp_v2_c:get_handler(Socket, Msg).
 
-context_new(GtpPort, Version, Interface, InterfaceOpts) ->
-    case gtp_context_sup:new(GtpPort, Version, Interface, InterfaceOpts) of
+context_new(Socket, Info, Version, Interface, InterfaceOpts) ->
+    case gtp_context_sup:new(Socket, Info, Version, Interface, InterfaceOpts) of
 	{ok, Server} when is_pid(Server) ->
 	    Server;
 	{error, Error} ->
@@ -580,8 +581,7 @@ validate_ies(#gtp{version = Version, type = MsgType, ie = IEs}, Cause, #{interfa
 context2keys(#context{
 		apn                 = APN,
 		context_id          = ContextId,
-		control_port        = CntlPort,
-		left_tnl            = LeftTnl,
+		left_tnl            = #tunnel{socket = Socket} = LeftTnl,
 		remote_control_teid = RemoteCntlTEID,
 		vrf                 = #vrf{name = VRF},
 		ms_v4               = MSv4,
@@ -589,34 +589,35 @@ context2keys(#context{
 	       }) ->
     ordsets:from_list(
       [tunnel_key(local, LeftTnl),
-       port_teid_key(CntlPort, 'gtp-c', RemoteCntlTEID)]
-      ++ [port_key(CntlPort, ContextId) || ContextId /= undefined]
+       socket_teid_key(Socket, 'gtp-c', RemoteCntlTEID)]
+      ++ [socket_key(Socket, ContextId) || ContextId /= undefined]
       ++ [#bsf{dnn = APN, ip_domain = VRF, ip = ergw_ip_pool:ip(MSv4)} || MSv4 /= undefined]
       ++ [#bsf{dnn = APN, ip_domain = VRF,
 	       ip = ergw_inet:ipv6_prefix(ergw_ip_pool:ip(MSv6))} || MSv6 /= undefined]);
 context2keys(#context{
 		context_id          = ContextId,
-		control_port        = CntlPort,
-		left_tnl            = LeftTnl,
+		left_tnl            = #tunnel{socket = Socket} = LeftTnl,
 		remote_control_teid = RemoteCntlTEID
 	       }) ->
     ordsets:from_list(
       [tunnel_key(local, LeftTnl),
-       port_teid_key(CntlPort, 'gtp-c', RemoteCntlTEID)]
-      ++ [port_key(CntlPort, ContextId) || ContextId /= undefined]).
+       socket_teid_key(Socket, 'gtp-c', RemoteCntlTEID)]
+      ++ [socket_key(Socket, ContextId) || ContextId /= undefined]).
 
-port_key(#gtp_port{name = Name}, Key) ->
+socket_key(#socket{name = Name}, Key) ->
+    {Name, Key};
+socket_key({Name, _}, Key) ->
     {Name, Key}.
 
-tunnel_key(local, #tunnel{socket = {Name, _}, local = #fq_teid{teid = TEID}}) ->
-    {Name, {teid, 'gtp-c', TEID}};
-tunnel_key(remote, #tunnel{socket = {Name, _}, remote = #fq_teid{teid = TEID}}) ->
-    {Name, {teid, 'gtp-c', TEID}}.
+tunnel_key(local, #tunnel{socket = Socket, local = #fq_teid{teid = TEID}}) ->
+    socket_teid_key(Socket, TEID);
+tunnel_key(remote, #tunnel{socket = Socket, remote = #fq_teid{teid = TEID}}) ->
+    socket_teid_key(Socket, TEID).
 
-port_teid_key(#gtp_port{type = Type} = Port, TEI) ->
-    port_teid_key(Port, Type, TEI).
+socket_teid_key(#socket{type = Type} = Socket, TEI) ->
+    socket_teid_key(Socket, Type, TEI).
 
-port_teid_key(#gtp_port{name = Name}, Type, TEI) ->
+socket_teid_key(#socket{name = Name}, Type, TEI) ->
     {Name, {teid, Type, TEI}}.
 
 %%====================================================================

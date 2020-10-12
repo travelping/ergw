@@ -152,7 +152,7 @@ handle_event(cast, delete_context, run, Data) ->
 handle_event(cast, delete_context, _State, _Data) ->
     keep_state_and_data;
 
-handle_event(cast, {packet_in, _GtpPort, _IP, _Port, _Msg}, _State, _Data) ->
+handle_event(cast, {packet_in, _Socket, _IP, _Port, _Msg}, _State, _Data) ->
     ?LOG(warning, "packet_in not handled (yet): ~p", [_Msg]),
     keep_state_and_data;
 
@@ -530,7 +530,7 @@ handle_request(ReqKey,
     Actions = context_idle_action([], Context),
     {keep_state, Data#{context => Context}, Actions};
 
-handle_request(#request{gtp_port = GtpPort, ip = SrcIP, port = SrcPort} = ReqKey,
+handle_request(#request{ip = SrcIP, port = SrcPort} = ReqKey,
 	       #gtp{type = modify_bearer_command,
 		    seq_no = SeqNo,
 		    ie = #{?'APN-AMBR' := AMBR,
@@ -538,7 +538,8 @@ handle_request(#request{gtp_port = GtpPort, ip = SrcIP, port = SrcPort} = ReqKey
 			       #v2_bearer_context{
 				   group = #{?'EPS Bearer ID' := EBI} = Bearer}} = IEs},
 	       _Resent, _State,
-	       #{context := Context, pfcp := PCtx, 'Session' := Session}) ->
+	       #{context := #context{left_tnl = Tunnel} = Context,
+		 pfcp := PCtx, 'Session' := Session}) ->
     URRActions = update_session_from_gtp_req(IEs, Session, Context),
     trigger_defered_usage_report(URRActions, PCtx),
 
@@ -548,7 +549,7 @@ handle_request(#request{gtp_port = GtpPort, ip = SrcIP, port = SrcPort} = ReqKey
 		      group = copy_ies_to_response(Bearer, [EBI], [?'Bearer Level QoS'])}],
     RequestIEs = gtp_v2_c:build_recovery(Type, Context, false, RequestIEs0),
     Msg = msg(Context, Type, RequestIEs),
-    send_request(GtpPort, SrcIP, SrcPort, ?T3, ?N3, Msg#gtp{seq_no = SeqNo}, ReqKey),
+    send_request(Tunnel, SrcIP, SrcPort, ?T3, ?N3, Msg#gtp{seq_no = SeqNo}, ReqKey),
 
     Actions = context_idle_action([], Context),
     {keep_state_and_data, Actions};
@@ -908,7 +909,7 @@ map_username(IEs, [H | Rest], Acc) ->
 
 
 init_session(IEs,
-	     #context{control_port = #gtp_port{ip = LocalIP},
+	     #context{left_tnl = #tunnel{local = #fq_teid{ip = LocalIP}},
 		      charging_identifier = ChargingId},
 	     #{'Username' := #{default := Username},
 	       'Password' := #{default := Password}}) ->
@@ -1140,7 +1141,7 @@ update_session_from_gtp_req(IEs, Session, Context) ->
 
 update_context_cntl_ids(#v2_fully_qualified_tunnel_endpoint_identifier{
 			   key = TEI, ipv4 = IP4, ipv6 = IP6}, Context) ->
-    IP = ergw_gsn_lib:choose_context_ip(IP4, IP6, Context),
+    IP = ergw_gsn_lib:choose_context_ip(left, local, IP4, IP6, Context),
     Context#context{
       remote_control_teid = #fq_teid{ip = ergw_inet:bin2ip(IP), teid = TEI}
      };
@@ -1149,7 +1150,7 @@ update_context_cntl_ids(_ , Context) ->
 
 update_context_data_ids(#v2_fully_qualified_tunnel_endpoint_identifier{
 			     key = TEI, ipv4 = IP4, ipv6 = IP6}, Context) ->
-    IP = ergw_gsn_lib:choose_context_ip(IP4, IP6, Context),
+    IP = ergw_gsn_lib:choose_context_ip(left, local, IP4, IP6, Context),
     ergw_gsn_lib:set_remote_data_teid(IP, TEI, Context);
 update_context_data_ids(_ , Context) ->
     Context.
@@ -1198,14 +1199,13 @@ copy_ies_to_response(RequestIEs, ResponseIEs0, [H|T]) ->
 msg(#context{remote_control_teid = #fq_teid{teid = RemoteCntlTEI}}, Type, RequestIEs) ->
     #gtp{version = v2, type = Type, tei = RemoteCntlTEI, ie = RequestIEs}.
 
+send_request(Tunnel, DstIP, DstPort, T3, N3, Msg, ReqInfo) ->
+    gtp_context:send_request(Tunnel, DstIP, DstPort, T3, N3, Msg, ReqInfo).
 
-send_request(GtpPort, DstIP, DstPort, T3, N3, Msg, ReqInfo) ->
-    gtp_context:send_request(GtpPort, DstIP, DstPort, T3, N3, Msg, ReqInfo).
-
-send_request(#context{control_port = GtpPort,
+send_request(#context{left_tnl = Tunnel,
 		      remote_control_teid = #fq_teid{ip = RemoteCntlIP}},
 	     T3, N3, Msg, ReqInfo) ->
-    send_request(GtpPort, RemoteCntlIP, ?GTP2c_PORT, T3, N3, Msg, ReqInfo).
+    send_request(Tunnel, RemoteCntlIP, ?GTP2c_PORT, T3, N3, Msg, ReqInfo).
 
 send_request(Context, T3, N3, Type, RequestIEs, ReqInfo) ->
     send_request(Context, T3, N3, msg(Context, Type, RequestIEs), ReqInfo).

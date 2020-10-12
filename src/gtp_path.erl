@@ -47,23 +47,23 @@
 %%% API
 %%%===================================================================
 
-start_link(GtpPort, Version, RemoteIP, Args) ->
+start_link(Socket, Version, RemoteIP, Args) ->
     Opts = [{hibernate_after, 5000},
 	    {spawn_opt,[{fullsweep_after, 0}]}],
-    gen_statem:start_link(?MODULE, [GtpPort, Version, RemoteIP, Args], Opts).
+    gen_statem:start_link(?MODULE, [Socket, Version, RemoteIP, Args], Opts).
 
-maybe_new_path(GtpPort, Version, RemoteIP) ->
-    case get(GtpPort, Version, RemoteIP) of
+maybe_new_path(Socket, Version, RemoteIP) ->
+    case get(Socket, Version, RemoteIP) of
 	Path when is_pid(Path) ->
 	    Path;
 	_ ->
 	    {ok, Args} = application:get_env(ergw, path_management),
-	    {ok, Path} = gtp_path_sup:new_path(GtpPort, Version, RemoteIP, Args),
+	    {ok, Path} = gtp_path_sup:new_path(Socket, Version, RemoteIP, Args),
 	    Path
     end.
 
-handle_request(#request{gtp_port = GtpPort, ip = IP} = ReqKey, #gtp{version = Version} = Msg) ->
-    Path = maybe_new_path(GtpPort, Version, IP),
+handle_request(#request{socket = Socket, ip = IP} = ReqKey, #gtp{version = Version} = Msg) ->
+    Path = maybe_new_path(Socket, Version, IP),
     gen_statem:cast(Path, {handle_request, ReqKey, Msg}).
 
 handle_response(Path, Request, Ref, Response) ->
@@ -83,29 +83,29 @@ bind(#gtp{ie = #{{v2_recovery, 0} :=
 bind(Request, Context) ->
     bind_path_recovery(undefined, bind_path(Request, Context)).
 
-unbind(#context{version = Version, control_port = GtpPort,
+unbind(#context{version = Version, left_tnl = #tunnel{socket = Socket},
 		remote_control_teid = #fq_teid{ip = RemoteIP}}) ->
-    case get(GtpPort, Version, RemoteIP) of
+    case get(Socket, Version, RemoteIP) of
 	Path when is_pid(Path) ->
 	    gen_statem:call(Path, {unbind, self()});
 	_ ->
 	    ok
     end.
 
-down(GtpPort, IP) ->
-    down(GtpPort, v1, IP),
-    down(GtpPort, v2, IP).
+down(Socket, IP) ->
+    down(Socket, v1, IP),
+    down(Socket, v2, IP).
 
-down(GtpPort, Version, IP) ->
-    case get(GtpPort, Version, IP) of
+down(Socket, Version, IP) ->
+    case get(Socket, Version, IP) of
 	Path when is_pid(Path) ->
 	    gen_statem:cast(Path, down);
 	_ ->
 	    ok
     end.
 
-get(#gtp_port{name = PortName}, Version, IP) ->
-    gtp_path_reg:lookup({PortName, Version, IP}).
+get(#socket{name = SocketName}, Version, IP) ->
+    gtp_path_reg:lookup({SocketName, Version, IP}).
 
 all(Path) ->
     gen_statem:call(Path, all).
@@ -113,19 +113,19 @@ all(Path) ->
 info(Path) ->
     gen_statem:call(Path, info).
 
-get_handler(#gtp_port{type = 'gtp-u'}, _) ->
+get_handler(#socket{type = 'gtp-u'}, _) ->
     gtp_v1_u;
-get_handler(#gtp_port{type = 'gtp-c'}, v1) ->
+get_handler(#socket{type = 'gtp-c'}, v1) ->
     gtp_v1_c;
-get_handler(#gtp_port{type = 'gtp-c'}, v2) ->
+get_handler(#socket{type = 'gtp-c'}, v2) ->
     gtp_v2_c.
 
 -ifdef(TEST).
 ping(Path) ->
     gen_statem:call(Path, '$ping').
 
-ping(GtpPort, Version, IP) ->
-    case get(GtpPort, Version, IP) of
+ping(Socket, Version, IP) ->
+    case get(Socket, Version, IP) of
 	Path when is_pid(Path) ->
 	    ping(Path);
 	_ ->
@@ -196,8 +196,8 @@ validate_option(Opt, Value) ->
 
 callback_mode() -> [handle_event_function, state_enter].
 
-init([#gtp_port{name = PortName} = GtpPort, Version, RemoteIP, Args]) ->
-    RegKey = {PortName, Version, RemoteIP},
+init([#socket{name = SocketName} = Socket, Version, RemoteIP, Args]) ->
+    RegKey = {SocketName, Version, RemoteIP},
     gtp_path_reg:register(RegKey, up),
 
     State = #state{peer = #peer{state = up, contexts = 0},
@@ -208,9 +208,9 @@ init([#gtp_port{name = PortName} = GtpPort, Version, RemoteIP, Args]) ->
 		       down_timeout, down_echo], Args),
     Data = Data0#{
 	     %% Path Info Keys
-	     gtp_port   => GtpPort, % #gtp_port{}
+	     socket     => Socket, % #socket{}
 	     version    => Version, % v1 | v2
-	     handler    => get_handler(GtpPort, Version),
+	     handler    => get_handler(Socket, Version),
 	     ip         => RemoteIP,
 	     reg_key    => RegKey,
 
@@ -282,18 +282,18 @@ handle_event({call, From}, {unbind, Pid}, State, Data) ->
     unregister(Pid, State, Data, [{reply, From, ok}]);
 
 handle_event({call, From}, info, #state{peer = #peer{contexts = CtxCnt}} = State,
-	     #{gtp_port := #gtp_port{name = Name},
+	     #{socket := #socket{name = SocketName},
 	       version := Version, ip := IP} = Data) ->
-    Reply = #{path => self(), port => Name, tunnels => CtxCnt,
+    Reply = #{path => self(), socket => SocketName, tunnels => CtxCnt,
 	      version => Version, ip => IP, state => State, data => Data},
     {keep_state_and_data, [{reply, From, Reply}]};
 
 handle_event(cast, {handle_request, ReqKey, #gtp{type = echo_request} = Msg0},
-	     State, #{gtp_port := GtpPort, handler := Handler} = Data) ->
+	     State, #{socket := Socket, handler := Handler} = Data) ->
     ?LOG(debug, "echo_request: ~p", [Msg0]),
     try gtp_packet:decode_ies(Msg0) of
 	Msg = #gtp{} ->
-	    ResponseIEs = Handler:build_recovery(echo_response, GtpPort, true, []),
+	    ResponseIEs = Handler:build_recovery(echo_response, Socket, true, []),
 	    Response = Msg#gtp{type = echo_response, ie = ResponseIEs},
 	    ergw_gtp_c_socket:send_response(ReqKey, Response, false),
 
@@ -477,10 +477,10 @@ handle_recovery_ie(#gtp{version = v2,
 handle_recovery_ie(#gtp{}, State, Data) ->
     {next_state, peer_state(up, State), Data}.
 
-update_contexts(State0, #{gtp_port := GtpPort, version := Version, ip := IP} = Data0,
+update_contexts(State0, #{socket := Socket, version := Version, ip := IP} = Data0,
 		CtxS, Actions) ->
     Cnt = maps:size(CtxS),
-    ergw_prometheus:gtp_path_contexts(GtpPort, IP, Version, Cnt),
+    ergw_prometheus:gtp_path_contexts(Socket, IP, Version, Cnt),
     State = peer_contexts(Cnt, State0),
     Data = Data0#{contexts => CtxS},
     {next_state, State, Data, Actions}.
@@ -528,9 +528,9 @@ unregister(_Pid, _, _Data, Actions) ->
 bind_path(#gtp{version = Version}, Context) ->
     bind_path(Context#context{version = Version}).
 
-bind_path(#context{version = Version, control_port = CntlGtpPort,
+bind_path(#context{version = Version, left_tnl = #tunnel{socket = Socket},
 		   remote_control_teid = #fq_teid{ip = RemoteCntlIP}} = Context) ->
-    Path = maybe_new_path(CntlGtpPort, Version, RemoteCntlIP),
+    Path = maybe_new_path(Socket, Version, RemoteCntlIP),
     Context#context{path = Path}.
 
 monitor_path_recovery(#context{path = Path} = Context) ->
@@ -545,12 +545,12 @@ bind_path_recovery(_RestartCounter, #context{path = Path} = Context) ->
     {ok, PathRestartCounter} = gen_statem:call(Path, {bind, self()}),
     Context#context{remote_restart_counter = PathRestartCounter}.
 
-send_echo_request(State, #{gtp_port := GtpPort, handler := Handler, ip := DstIP,
+send_echo_request(State, #{socket := Socket, handler := Handler, ip := DstIP,
 			   t3 := T3, n3 := N3}) ->
     Msg = Handler:build_echo_request(),
     Ref = erlang:make_ref(),
     CbInfo = {?MODULE, handle_response, [self(), echo_request, Ref]},
-    ergw_gtp_c_socket:send_request(GtpPort, DstIP, ?GTP1c_PORT, T3, N3, Msg, CbInfo),
+    ergw_gtp_c_socket:send_request(Socket, DstIP, ?GTP1c_PORT, T3, N3, Msg, CbInfo),
     State#state{echo = Ref}.
 
 path_restart(RestartCounter, State, #{contexts := CtxS} = Data, Actions) ->

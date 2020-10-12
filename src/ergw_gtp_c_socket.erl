@@ -13,7 +13,7 @@
 
 %% API
 -export([start_link/1,
-	 send/4, send_response/3,
+	 info/1, send/4, send_response/3,
 	 send_request/6, send_request/7, resend_request/2]).
 -export([get_request_q/1, get_response_q/1, get_seq_no/2, get_uniq_id/1]).
 
@@ -37,8 +37,9 @@
 -export_type([sequence_id/0]).
 
 -record(state, {
-	  gtp_port   :: #gtp_port{},
-	  ip         :: inet:ip_address(),
+	  gtp_socket :: #socket{},
+	  info       :: #gtp_socket_info{},
+
 	  socket     :: socket:socket(),
 	  burst_size = 1 :: non_neg_integer(),
 
@@ -77,55 +78,60 @@ start_link(SocketOpts) ->
 	    {spawn_opt,[{fullsweep_after, 16}]}],
     gen_server:start_link(?MODULE, SocketOpts, Opts).
 
-send(#gtp_port{type = 'gtp-c'} = GtpPort, IP, Port, Data) ->
-    cast(GtpPort, {send, IP, Port, Data}).
+info(Socket) ->
+    call(Socket, info).
 
-send_response(#request{gtp_port = GtpPort} = ReqKey, Msg, DoCache) ->
+send(Socket, IP, Port, Data) ->
+    cast(Socket, {send, IP, Port, Data}).
+
+send_response(#request{socket = Socket} = ReqKey, Msg, DoCache) ->
     message_counter(tx, ReqKey, Msg),
     Data = gtp_packet:encode(Msg),
-    cast(GtpPort, {send_response, ReqKey, Data, DoCache}).
+    cast(Socket, {send_response, ReqKey, Data, DoCache}).
 
 %% send_request/7
-send_request(#gtp_port{type = 'gtp-c'} = GtpPort, DstIP, DstPort, T3, N3,
+send_request(Socket, DstIP, DstPort, T3, N3,
 	     Msg = #gtp{version = Version}, CbInfo) ->
     ?LOG(debug, "~p: gtp_socket send_request to ~s(~p):~w: ~p",
 		[self(), inet:ntoa(DstIP), DstIP, DstPort, Msg]),
 
-    cast(GtpPort, make_send_req(undefined, DstIP, DstPort, T3, N3, Msg, CbInfo)),
-    gtp_path:maybe_new_path(GtpPort, Version, DstIP).
+    cast(Socket,
+		    make_send_req(undefined, DstIP, DstPort, T3, N3, Msg, CbInfo)),
+    gtp_path:maybe_new_path(Socket, Version, DstIP).
 
 %% send_request/6
-send_request(#gtp_port{type = 'gtp-c'} = GtpPort, DstIP, DstPort, ReqId,
+send_request(Socket, DstIP, DstPort, ReqId,
 	     Msg = #gtp{version = Version}, CbInfo) ->
     ?LOG(debug, "~p: gtp_socket send_request ~p to ~s:~w: ~p",
 		[self(), ReqId, inet:ntoa(DstIP), DstPort, Msg]),
 
-    cast(GtpPort, make_send_req(ReqId, DstIP, DstPort, ?T3 * 2, 0, Msg, CbInfo)),
-    gtp_path:maybe_new_path(GtpPort, Version, DstIP).
+    cast(Socket,
+		    make_send_req(ReqId, DstIP, DstPort, ?T3 * 2, 0, Msg, CbInfo)),
+    gtp_path:maybe_new_path(Socket, Version, DstIP).
 
-resend_request(#gtp_port{type = 'gtp-c'} = GtpPort, ReqId) ->
-    cast(GtpPort, {resend_request, ReqId}).
+resend_request(Socket, ReqId) ->
+    cast(Socket, {resend_request, ReqId}).
 
-get_request_q(GtpPort) ->
-    call(GtpPort, get_request_q).
+get_request_q(Socket) ->
+    call(Socket, get_request_q).
 
-get_response_q(GtpPort) ->
-    call(GtpPort, get_response_q).
+get_response_q(Socket) ->
+    call(Socket, get_response_q).
 
-get_seq_no(GtpPort, ReqId) ->
-    call(GtpPort, {get_seq_no, ReqId}).
+get_seq_no(Socket, ReqId) ->
+    call(Socket, {get_seq_no, ReqId}).
 
-get_uniq_id(GtpPort) ->
-    call(GtpPort, get_uniq_id).
+get_uniq_id(Socket) ->
+    call(Socket, get_uniq_id).
 
 %%%===================================================================
-%%% call/cast wrapper for gtp_port
+%%% call/cast wrapper for #socket
 %%%===================================================================
 
-cast(#gtp_port{pid = Handler}, Request) ->
+cast(#socket{pid = Handler}, Request) ->
     gen_server:cast(Handler, Request).
 
-call(#gtp_port{pid = Handler}, Request) ->
+call(#socket{pid = Handler}, Request) ->
     gen_server:call(Handler, Request).
 
 %%%===================================================================
@@ -142,19 +148,18 @@ init(#{name := Name, ip := IP, burst_size := BurstSize} = SocketOpts) ->
 	      _ -> vrf:normalize_name(Name)
 	  end,
 
-    GtpPort = #gtp_port{
-		 name = Name,
-		 vrf = VRF,
-		 type = maps:get(type, SocketOpts, 'gtp-c'),
-		 pid = self(),
-		 ip = IP
-		},
-
-    ergw_socket_reg:register('gtp-c', Name, GtpPort),
+    GtpSocket =
+	#socket{
+	   name = Name,
+	   type = maps:get(type, SocketOpts, 'gtp-c'),
+	   pid = self()
+	  },
+    ergw_socket_reg:register('gtp-c', Name, GtpSocket),
 
     State = #state{
-	       gtp_port = GtpPort,
-	       ip = IP,
+	       gtp_socket = GtpSocket,
+	       info = #gtp_socket_info{vrf = VRF, ip = IP},
+
 	       socket = Socket,
 	       burst_size = BurstSize,
 
@@ -168,6 +173,9 @@ init(#{name := Name, ip := IP, burst_size := BurstSize} = SocketOpts) ->
 	      },
     self() ! {'$socket', Socket, select, undefined},
     {ok, State}.
+
+handle_call(info, _From, #state{info = Info} = State) ->
+    {reply, Info, State};
 
 handle_call(get_uniq_id, _From, #state{unique_id = Id} = State) ->
     {reply, Id, State#state{unique_id = galois_lfsr_32(Id)}};
@@ -200,19 +208,18 @@ handle_cast({send_response, ReqKey, Data, DoCache}, State0)
     State = do_send_response(ReqKey, Data, DoCache, State0),
     {noreply, State};
 
-handle_cast(#send_req{} = SendReq0, #state{gtp_port = GtpPort} = State0) ->
+handle_cast(#send_req{} = SendReq0, #state{gtp_socket = Socket} = State0) ->
     {SendReq, State1} = prepare_send_req(SendReq0, State0),
-    message_counter(tx, GtpPort, SendReq),
+    message_counter(tx, Socket, SendReq),
     State = send_request(SendReq, State1),
     {noreply, State};
 
-handle_cast({resend_request, ReqId},
-	    #state{gtp_port = GtpPort} = State0) ->
+handle_cast({resend_request, ReqId}, #state{gtp_socket = Socket} = State0) ->
     ?LOG(debug, "~p: gtp_socket resend_request ~p", [self(), ReqId]),
 
     case request_q_peek(ReqId, State0) of
 	{value, SendReq} ->
-	    message_counter(tx, GtpPort, SendReq, retransmit),
+	    message_counter(tx, Socket, SendReq, retransmit),
 	    State = send_request(SendReq, State0),
 	    {noreply, State};
 
@@ -224,18 +231,18 @@ handle_cast(Msg, State) ->
     ?LOG(error, "handle_cast: unknown ~p", [Msg]),
     {noreply, State}.
 
-handle_info(Info = {timeout, _TRef, {request, SeqId}}, #state{gtp_port = GtpPort} = State0) ->
+handle_info(Info = {timeout, _TRef, {request, SeqId}}, #state{gtp_socket = Socket} = State0) ->
     ?LOG(debug, "handle_info: ~p", [Info]),
     {Req, State1} = take_request(SeqId, State0),
     case Req of
 	#send_req{n3 = 0} = SendReq ->
 	    send_request_reply(SendReq, timeout),
-	    message_counter(tx, GtpPort, SendReq, timeout),
+	    message_counter(tx, Socket, SendReq, timeout),
 	    {noreply, State1};
 
 	#send_req{n3 = N3} = SendReq ->
 	    %% resend....
-	    message_counter(tx, GtpPort, SendReq, retransmit),
+	    message_counter(tx, Socket, SendReq, retransmit),
 	    State = send_request(SendReq#send_req{n3 = N3 - 1}, State1),
 	    {noreply, State};
 
@@ -321,8 +328,8 @@ make_send_req(ReqId, Address, Port, T3, N3, Msg, CbInfo) ->
        send_ts = erlang:monotonic_time()
       }.
 
-make_request(ArrivalTS, IP, Port, Msg, #state{gtp_port = GtpPort}) ->
-    ergw_gtp_socket:make_request(ArrivalTS, IP, Port, Msg, GtpPort).
+make_request(ArrivalTS, IP, Port, Msg, #state{gtp_socket = Socket, info = Info}) ->
+    ergw_gtp_socket:make_request(ArrivalTS, IP, Port, Msg, Socket, Info).
 
 handle_input(Socket, Info, #state{burst_size = BurstSize} = State) ->
     handle_input(Socket, Info, BurstSize, State).
@@ -366,34 +373,34 @@ handle_socket_error(#{level := ip, type := ?IP_RECVERR,
 				Origin:8, Type:8, Code:8, _Pad:8,
 				_Info:32/native-integer, _Data:32/native-integer,
 				_/binary>>},
-		    IP, _Port, #state{gtp_port = GtpPort})
+		    IP, _Port, #state{gtp_socket = Socket})
   when Origin == ?SO_EE_ORIGIN_ICMP, Type == ?ICMP_DEST_UNREACH,
        (Code == ?ICMP_HOST_UNREACH orelse Code == ?ICMP_PORT_UNREACH) ->
-    gtp_path:down(GtpPort, IP);
+    gtp_path:down(Socket, IP);
 
 handle_socket_error(#{level := ip, type := recverr,
 		      data := #{origin := icmp, type := dest_unreach, code := Code}},
-		    IP, _Port, #state{gtp_port = GtpPort})
+		    IP, _Port, #state{gtp_socket = Socket})
   when Code == host_unreach;
        Code == port_unreach ->
-    gtp_path:down(GtpPort, IP);
+    gtp_path:down(Socket, IP);
 
 handle_socket_error(#{level := ipv6, type := ?IPV6_RECVERR,
 		      data := <<_ErrNo:32/native-integer,
 				Origin:8, Type:8, Code:8, _Pad:8,
 				_Info:32/native-integer, _Data:32/native-integer,
 				_/binary>>},
-		    IP, _Port, #state{gtp_port = GtpPort})
+		    IP, _Port, #state{gtp_socket = Socket})
   when Origin == ?SO_EE_ORIGIN_ICMP6, Type == ?ICMP6_DST_UNREACH,
        (Code == ?ICMP6_DST_UNREACH_ADDR orelse Code == ?ICMP6_DST_UNREACH_NOPORT) ->
-    gtp_path:down(GtpPort, IP);
+    gtp_path:down(Socket, IP);
 
 handle_socket_error(#{level := ipv6, type := recverr,
 		      data := #{origin := icmp6, type := dst_unreach, code := Code}},
-		    IP, _Port, #state{gtp_port = GtpPort})
+		    IP, _Port, #state{gtp_socket = Socket})
   when Code == addr_unreach;
        Code == port_unreach ->
-    gtp_path:down(GtpPort, IP);
+    gtp_path:down(Socket, IP);
 
 handle_socket_error(Error, IP, _Port, _State) ->
     ?LOG(debug, "got unhandled error info for ~s: ~p", [inet:ntoa(IP), Error]),
@@ -413,26 +420,26 @@ handle_err_input(Socket, State) ->
     end,
     State.
 
-handle_message(ArrivalTS, IP, Port, Data, #state{gtp_port = GtpPort} = State0) ->
+handle_message(ArrivalTS, IP, Port, Data, #state{gtp_socket = Socket} = State0) ->
     try gtp_packet:decode(Data, #{ies => binary}) of
 	Msg = #gtp{} ->
 	    %% TODO: handle decode failures
 
 	    ?LOG(debug, "handle message: ~p", [{IP, Port,
-						State0#state.gtp_port,
+						State0#state.gtp_socket,
 						Msg}]),
-	    ergw_prometheus:gtp(rx, GtpPort, IP, Msg),
+	    ergw_prometheus:gtp(rx, Socket, IP, Msg),
 	    handle_message_1(ArrivalTS, IP, Port, Msg, State0)
     catch
 	Class:Error ->
-	    ergw_prometheus:gtp_error(rx, GtpPort, 'malformed-requests'),
+	    ergw_prometheus:gtp_error(rx, Socket, 'malformed-requests'),
 	    ?LOG(error, "GTP decoding failed with ~p:~p for ~p", [Class, Error, Data]),
 	    State0
     end.
 
-handle_message_1(_, _, _, #gtp{version = Version}, #state{gtp_port = GtpPort} = State)
+handle_message_1(_, _, _, #gtp{version = Version}, #state{gtp_socket = Socket} = State)
   when Version /= v1 andalso Version /= v2 ->
-    ergw_prometheus:gtp_error(rx, GtpPort, 'version-not-supported'),
+    ergw_prometheus:gtp_error(rx, Socket, 'version-not-supported'),
     State;
 
 handle_message_1(ArrivalTS, IP, Port, #gtp{type = echo_request} = Msg, State) ->
@@ -456,27 +463,27 @@ handle_message_1(ArrivalTS, IP, Port, #gtp{version = Version, type = MsgType} = 
 	    State
     end.
 
-handle_response(ArrivalTS, IP, _Port, Msg, #state{gtp_port = GtpPort} = State0) ->
+handle_response(ArrivalTS, IP, _Port, Msg, #state{gtp_socket = Socket} = State0) ->
     SeqId = ergw_gtp_socket:make_seq_id(Msg),
     {Req, State} = take_request(SeqId, State0),
     case Req of
 	none -> %% duplicate, drop silently
-	    ergw_prometheus:gtp(rx, GtpPort, IP, Msg, duplicate),
+	    ergw_prometheus:gtp(rx, Socket, IP, Msg, duplicate),
 	    ?LOG(debug, "~p: duplicate response: ~p, ~p", [self(), SeqId, gtp_c_lib:fmt_gtp(Msg)]),
 	    State;
 
 	#send_req{} = SendReq ->
 	    ?LOG(debug, "~p: found response: ~p", [self(), SeqId]),
-	    measure_reply(GtpPort, SendReq, ArrivalTS),
+	    measure_reply(Socket, SendReq, ArrivalTS),
 	    send_request_reply(SendReq, Msg),
 	    State
     end.
 
 handle_request(#request{ip = IP, port = Port} = ReqKey, Msg,
-	       #state{gtp_port = GtpPort, responses = Responses} = State) ->
+	       #state{gtp_socket = Socket, responses = Responses} = State) ->
     case ergw_cache:get(cache_key(ReqKey), Responses) of
 	{value, Data} ->
-	    ergw_prometheus:gtp(rx, GtpPort, IP, Msg, duplicate),
+	    ergw_prometheus:gtp(rx, Socket, IP, Msg, duplicate),
 	    sendto(IP, Port, Data, State);
 
 	_Other ->
@@ -562,23 +569,23 @@ cache_key(Object) ->
 %%%===================================================================
 
 %% message_counter/3
-message_counter(Direction, GtpPort, #send_req{address = IP, msg = Msg}) ->
-    ergw_prometheus:gtp(Direction, GtpPort, IP, Msg);
-message_counter(Direction, #request{gtp_port = GtpPort, ip = IP}, Msg) ->
-    ergw_prometheus:gtp(Direction, GtpPort, IP, Msg).
+message_counter(Direction, Socket, #send_req{address = IP, msg = Msg}) ->
+    ergw_prometheus:gtp(Direction, Socket, IP, Msg);
+message_counter(Direction, #request{socket = Socket, ip = IP}, Msg) ->
+    ergw_prometheus:gtp(Direction, Socket, IP, Msg).
 
 %% message_counter/4
-message_counter(Direction, GtpPort, #send_req{address = IP, msg = Msg}, Verdict) ->
-    ergw_prometheus:gtp(Direction, GtpPort, IP, Msg, Verdict).
+message_counter(Direction, Socket, #send_req{address = IP, msg = Msg}, Verdict) ->
+    ergw_prometheus:gtp(Direction, Socket, IP, Msg, Verdict).
 
 %% measure the time it takes our peer to reply to a request
-measure_reply(GtpPort, #send_req{address = IP, msg = Msg, send_ts = SendTS}, ArrivalTS) ->
-    ergw_prometheus:gtp_path_rtt(GtpPort, IP, Msg, ArrivalTS - SendTS).
+measure_reply(Socket, #send_req{address = IP, msg = Msg, send_ts = SendTS}, ArrivalTS) ->
+    ergw_prometheus:gtp_path_rtt(Socket, IP, Msg, ArrivalTS - SendTS).
 
 %% measure the time it takes us to generate a response to a request
 measure_response(#request{
-		    gtp_port = GtpPort,
+		    socket = Socket,
 		    version = Version, type = MsgType,
 		    arrival_ts = ArrivalTS}) ->
     Duration = erlang:monotonic_time() - ArrivalTS,
-    ergw_prometheus:gtp_request_duration(GtpPort, Version, MsgType, Duration).
+    ergw_prometheus:gtp_request_duration(Socket, Version, MsgType, Duration).

@@ -23,8 +23,8 @@ peer({_,_,_,_} = IP) ->
     collect_peer_info(gtp_path_reg:all(IP));
 peer({_,_,_,_,_,_,_,_} = IP) ->
     collect_peer_info(gtp_path_reg:all(IP));
-peer(Port) when is_atom(Port) ->
-    collect_peer_info(gtp_path_reg:all(Port)).
+peer(Socket) when is_atom(Socket) ->
+    collect_peer_info(gtp_path_reg:all(Socket)).
 
 tunnel(all) ->
     lists:foldl(fun collect_contexts/2, [], contexts(all));
@@ -32,8 +32,8 @@ tunnel({_,_,_,_} = IP) ->
     lists:foldl(fun collext_path_contexts/2, [], gtp_path_reg:all(IP));
 tunnel({_,_,_,_,_,_,_,_} = IP) ->
     lists:foldl(fun collext_path_contexts/2, [], gtp_path_reg:all(IP));
-tunnel(Port) when is_atom(Port) ->
-    lists:foldl(fun collext_path_contexts/2, [], gtp_path_reg:all(Port)).
+tunnel(Socket) when is_atom(Socket) ->
+    lists:foldl(fun collext_path_contexts/2, [], gtp_path_reg:all(Socket)).
 
 contexts(all) ->
     lists:usort([Pid || {{_Socket, {teid, 'gtp-c', _TEID}}, {_, Pid}}

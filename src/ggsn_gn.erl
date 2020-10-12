@@ -143,7 +143,7 @@ handle_event(cast, delete_context, run, Data) ->
 handle_event(cast, delete_context, _State, _Data) ->
     keep_state_and_data;
 
-handle_event(cast, {packet_in, _GtpPort, _IP, _Port, _Msg}, _State, _Data) ->
+handle_event(cast, {packet_in, _Socket, _IP, _Port, _Msg}, _State, _Data) ->
     ?LOG(warning, "packet_in not handled (yet): ~p", [_Msg]),
     keep_state_and_data;
 
@@ -723,17 +723,16 @@ hexstr(Value, Width) when is_integer(Value) ->
      erlang:iolist_to_binary(io_lib:format("~*.16.0B", [Width, Value])).
 
 init_session(IEs,
-	     #context{control_port = #gtp_port{ip = LocalIP},
-		      charging_identifier = ChargingId},
+	     #context{left_tnl = Tunnel, charging_identifier = ChargingId},
 	     #{'Username' := #{default := Username},
 	       'Password' := #{default := Password}}) ->
     MappedUsername = map_username(IEs, Username, []),
     {MCC, MNC} = ergw:get_plmn_id(),
     Opts =
-	case LocalIP of
-	    {_,_,_,_,_,_,_,_} ->
+	case Tunnel#tunnel.local#fq_teid.ip of
+	    {_,_,_,_,_,_,_,_} = LocalIP ->
 		#{'3GPP-GGSN-IPv6-Address' => LocalIP};
-	    _ ->
+	    LocalIP ->
 		#{'3GPP-GGSN-Address' => LocalIP}
 	end,
     Opts#{'Username'		=> MappedUsername,
@@ -1044,10 +1043,10 @@ set_fq_teid(Id, Field, Context, Value) ->
     update_element_with(Field, Context, set_fq_teid(Id, _, Value)).
 
 get_context_from_req(_, #gsn_address{instance = 0, address = CntlIP}, Context) ->
-    IP = ergw_gsn_lib:choose_context_ip(CntlIP, CntlIP, Context),
+    IP = ergw_gsn_lib:choose_context_ip(left, local, CntlIP, CntlIP, Context),
     set_fq_teid(ip, #context.remote_control_teid, Context, IP);
 get_context_from_req(_, #gsn_address{instance = 1, address = DataIP}, Context) ->
-    IP = ergw_gsn_lib:choose_context_ip(DataIP, DataIP, Context),
+    IP = ergw_gsn_lib:choose_context_ip(left, local, DataIP, DataIP, Context),
     ergw_gsn_lib:update_remote_data_teid(set_fq_teid(ip, _, IP), Context);
 get_context_from_req(_, #tunnel_endpoint_identifier_data_i{instance = 0, tei = DataTEI}, Context) ->
     ergw_gsn_lib:update_remote_data_teid(set_fq_teid(teid, _, DataTEI), Context);
@@ -1090,7 +1089,7 @@ copy_ies_to_response(RequestIEs, ResponseIEs0, [H|T]) ->
 	end,
     copy_ies_to_response(RequestIEs, ResponseIEs, T).
 
-send_request(#context{control_port = GtpPort,
+send_request(#context{left_tnl = Tunnel,
 		      remote_control_teid =
 			  #fq_teid{
 			     ip = RemoteCntlIP,
@@ -1098,7 +1097,7 @@ send_request(#context{control_port = GtpPort,
 		     },
 	     T3, N3, Type, RequestIEs, ReqInfo) ->
     Msg = #gtp{version = v1, type = Type, tei = RemoteCntlTEI, ie = RequestIEs},
-    gtp_context:send_request(GtpPort, RemoteCntlIP, ?GTP1c_PORT, T3, N3, Msg, ReqInfo).
+    gtp_context:send_request(Tunnel, RemoteCntlIP, ?GTP1c_PORT, T3, N3, Msg, ReqInfo).
 
 delete_context(From, TermCause, #{context := Context} = Data) ->
     Type = delete_pdp_context_request,

@@ -1132,10 +1132,10 @@ pgw_update_context(From, Context) ->
     RequestIEs = gtp_v2_c:build_recovery(Type, Context, false, RequestIEs0),
     pgw_send_request(Context, ?T3, ?N3, Type, RequestIEs, From).
 
-pgw_send_request(#context{control_port = GtpPort,
+pgw_send_request(#context{left_tnl = Tunnel,
 			  remote_control_teid =
 			      #fq_teid{ip = RemoteCntlIP, teid = RemoteCntlTEI}
 			 },
 		 T3, N3, Type, RequestIEs, From) ->
     Msg = #gtp{version = v2, type = Type, tei = RemoteCntlTEI, ie = RequestIEs},
-    gtp_context:send_request(GtpPort, RemoteCntlIP, ?GTP2c_PORT, T3, N3, Msg, From).
+    gtp_context:send_request(Tunnel, RemoteCntlIP, ?GTP2c_PORT, T3, N3, Msg, From).

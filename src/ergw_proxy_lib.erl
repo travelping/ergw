@@ -29,49 +29,49 @@
 %%% API
 %%%===================================================================
 
-forward_request(Direction, GtpPort, DstIP, DstPort,
+forward_request(Direction, Socket, DstIP, DstPort,
 		Request, ReqKey, SeqNo, NewPeer, OldState) ->
     {ReqId, ReqInfo} = make_proxy_request(Direction, ReqKey, SeqNo, NewPeer, OldState),
     ?LOG(debug, "Invoking Context Send Request: ~p", [Request]),
-    gtp_context:send_request(GtpPort, DstIP, DstPort, ReqId, Request, ReqInfo).
+    gtp_context:send_request(Socket, DstIP, DstPort, ReqId, Request, ReqInfo).
 
 forward_request(Direction,
-		#context{control_port = GtpPort,
+		#context{left_tnl = Tunnel,
 			 remote_control_teid = #fq_teid{ip = RemoteCntlIP}},
 		Request, ReqKey, SeqNo, NewPeer, OldState) ->
-    forward_request(Direction, GtpPort, RemoteCntlIP, ?GTP1c_PORT,
+    forward_request(Direction, Tunnel, RemoteCntlIP, ?GTP1c_PORT,
 		    Request, ReqKey, SeqNo, NewPeer, OldState).
 
-forward_request(#context{control_port = GtpPort}, ReqKey, Request) ->
+forward_request(#context{left_tnl = Tunnel}, ReqKey, Request) ->
     ReqId = make_request_id(ReqKey, Request),
-    gtp_context:resend_request(GtpPort, ReqId).
+    gtp_context:resend_request(Tunnel, ReqId).
 
-get_seq_no(#context{control_port = GtpPort}, ReqKey, Request) ->
+get_seq_no(#context{left_tnl = #tunnel{socket = Socket}}, ReqKey, Request) ->
     ReqId = make_request_id(ReqKey, Request),
-    ergw_gtp_c_socket:get_seq_no(GtpPort, ReqId).
+    ergw_gtp_c_socket:get_seq_no(Socket, ReqId).
 
-choose_gw([], _NodeSelect, _Port, Context) ->
+choose_gw([], _NodeSelect, _Socket, Context) ->
     throw(?CTX_ERR(?FATAL, no_resources_available, Context));
-choose_gw(Nodes, NodeSelect, #gtp_port{name = Name} = Port,
+choose_gw(Nodes, NodeSelect, #socket{name = Name} = Socket,
 	  #context{version = Version} = Context) ->
     {Candidate, Next} = ergw_node_selection:snaptr_candidate(Nodes),
     {Node, IP} = resolve_gw(Candidate, NodeSelect, Context),
     case gtp_path_reg:state({Name, Version, IP}) of
 	down ->
-	    choose_gw(Next, NodeSelect, Port, Context);
+	    choose_gw(Next, NodeSelect, Socket, Context);
 	State when State =:= undefined; State =:= up ->
 	    {Node, IP}
     end.
 
-select_gw(#{imsi := IMSI, gwSelectionAPN := APN}, Services, NodeSelect, Port, Context) ->
+select_gw(#{imsi := IMSI, gwSelectionAPN := APN}, Services, NodeSelect, Socket, Context) ->
     FQDN = ergw_node_selection:apn_to_fqdn(APN, IMSI),
     case ergw_node_selection:candidates(FQDN, Services, NodeSelect) of
 	Nodes when is_list(Nodes), length(Nodes) /= 0 ->
-	    choose_gw(Nodes, NodeSelect, Port, Context);
+	    choose_gw(Nodes, NodeSelect, Socket, Context);
 	_ ->
 	    throw(?CTX_ERR(?FATAL, system_failure, Context))
     end;
-select_gw(_ProxyInfo, _Services, _NodeSelect, _Port, Context) ->
+select_gw(_ProxyInfo, _Services, _NodeSelect, _Socket, Context) ->
     throw(?CTX_ERR(?FATAL, system_failure, Context)).
 
 lb(L) when is_list(L) ->
@@ -97,14 +97,14 @@ select_gw_ip(_IP4, IP6) when length(IP6) /= 0 ->
 select_gw_ip(_IP4, _IP6) ->
     undefined.
 
-select_gtp_proxy_sockets(ProxyInfo, #{contexts := Contexts, proxy_ports := ProxyPorts}) ->
+select_gtp_proxy_sockets(ProxyInfo, #{contexts := Contexts, proxy_sockets := ProxySockets}) ->
     Context = maps:get(context, ProxyInfo, default),
     Ctx = maps:get(Context, Contexts, #{}),
     if Ctx =:= #{} ->
 	    ?LOG(warning, "proxy context ~p not found, using default", [Context]);
        true -> ok
     end,
-    Cntl = maps:get(proxy_sockets, Ctx, ProxyPorts),
+    Cntl = maps:get(proxy_sockets, Ctx, ProxySockets),
     ergw_socket_reg:lookup('gtp-c', lb(Cntl)).
 
 select_sx_proxy_candidate({GwNode, _}, #{upfSelectionAPN := APN} = ProxyInfo,
@@ -265,7 +265,7 @@ create_forward_session(Candidates, Left0, Right0) ->
     Right = ergw_gsn_lib:assign_local_data_teid(PCtx0, NodeCaps, Right0),
     register_ctx_ids(Left, PCtx0),
 
-    {ok, CntlNode, _} = ergw_sx_socket:id(),
+    {ok, CntlNode, _, _} = ergw_sx_socket:id(),
 
     MakeRules = [{'Access', Left, 'Core', Right}, {'Core', Right, 'Access', Left}],
     PCtx1 = lists:foldl(fun proxy_pdr/2, PCtx0, MakeRules),

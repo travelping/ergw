@@ -32,13 +32,13 @@
 -define(IS_REQUEST_CONTEXT(Key, Msg, Context),
 	(is_record(Key, request) andalso
 	 is_record(Msg, gtp) andalso
-	 Key#request.gtp_port =:= Context#context.control_port andalso
+	 Key#request.socket =:= Context#context.left_tnl#tunnel.socket andalso
 	 Msg#gtp.tei =:= Context#context.left_tnl#tunnel.local#fq_teid.teid)).
 
 -define(IS_REQUEST_CONTEXT_OPTIONAL_TEI(Key, Msg, Context),
 	(is_record(Key, request) andalso
 	 is_record(Msg, gtp) andalso
-	 Key#request.gtp_port =:= Context#context.control_port andalso
+	 Key#request.socket =:= Context#context.left_tnl#tunnel.socket andalso
 	 (Msg#gtp.tei =:= 0 orelse
 	  Msg#gtp.tei =:= Context#context.left_tnl#tunnel.local#fq_teid.teid))).
 
@@ -126,12 +126,12 @@ validate_option(Opt, Value) ->
 
 -record(context_state, {ebi}).
 
-init(#{proxy_sockets := ProxyPorts, node_selection := NodeSelect,
+init(#{proxy_sockets := ProxySockets, node_selection := NodeSelect,
        proxy_data_source := ProxyDS, contexts := Contexts}, Data) ->
 
     {ok, Session} = ergw_aaa_session_sup:new_session(self(), to_session([])),
 
-    {ok, run, Data#{proxy_ports => ProxyPorts,
+    {ok, run, Data#{proxy_sockets => ProxySockets,
 		    'Version' => v2, 'Session' => Session, contexts => Contexts,
 		    node_selection => NodeSelect, proxy_ds => ProxyDS}}.
 
@@ -169,7 +169,7 @@ handle_event(cast, delete_context, _State, Data) ->
     delete_context(administrative, Data),
     {next_state, shutdown, Data};
 
-handle_event(cast, {packet_in, _GtpPort, _IP, _Port, _Msg}, _State, _Data) ->
+handle_event(cast, {packet_in, _Socket, _IP, _Port, _Msg}, _State, _Data) ->
     ?LOG(warning, "packet_in not handled (yet): ~p", [_Msg]),
     keep_state_and_data;
 
@@ -291,11 +291,11 @@ handle_request(ReqKey,
     SessionOpts = pgw_s5s8:init_session_from_gtp_req(IEs, AAAopts, Context2, SessionOpts0),
 
     ProxyInfo = handle_proxy_info(Request, SessionOpts, Context2, Data),
-    ProxyGtpPort = ergw_proxy_lib:select_gtp_proxy_sockets(ProxyInfo, Data),
+    ProxySocket = ergw_proxy_lib:select_gtp_proxy_sockets(ProxyInfo, Data),
 
     %% GTP v2 services only, we don't do v1 to v2 conversion (yet)
     Services = [{"x-3gpp-pgw", "x-s8-gtp"}, {"x-3gpp-pgw", "x-s5-gtp"}],
-    ProxyGGSN = ergw_proxy_lib:select_gw(ProxyInfo, Services, NodeSelect, ProxyGtpPort, Context2),
+    ProxyGGSN = ergw_proxy_lib:select_gw(ProxyInfo, Services, NodeSelect, ProxySocket, Context2),
 
     DPCandidates = ergw_proxy_lib:select_sx_proxy_candidate(ProxyGGSN, ProxyInfo, Data),
 
@@ -303,7 +303,7 @@ handle_request(ReqKey,
 
     {ok, _} = ergw_aaa_session:invoke(Session, SessionOpts, start, #{async =>true}),
 
-    ProxyContext0 = init_proxy_context(ProxyGtpPort, Context2, ProxyInfo, ProxyGGSN),
+    ProxyContext0 = init_proxy_context(ProxySocket, Context2, ProxyInfo, ProxyGGSN),
     ProxyContext1 = gtp_path:bind(ProxyContext0),
 
     ergw_sx_node:wait_connect(SxConnectId),
@@ -604,13 +604,9 @@ delete_forward_session(Reason, #{context := Context,
     ergw_aaa_session:invoke(Session, SessionOpts, stop, #{async => true}).
 
 handle_sgw_change(#context{remote_control_teid = NewFqTEID},
-		  #context{remote_control_teid = OldFqTEID},
-		  #context{control_port = CntlPort} = ProxyContext0)
+		  #context{remote_control_teid = OldFqTEID}, ProxyContext0)
   when OldFqTEID /= NewFqTEID ->
-    ProxyTnl =
-	ergw_gsn_lib:assign_tunnel_teid(
-	  local, CntlPort, #tunnel{interface = 'Core'}),
-    ProxyContext = ProxyContext0#context{left_tnl = ProxyTnl},
+    ProxyContext = ergw_gsn_lib:reassign_tunnel_teid(left, local, ProxyContext0),
     gtp_context:remote_context_update(ProxyContext0, ProxyContext),
     ProxyContext;
 handle_sgw_change(_, _, ProxyContext) ->
@@ -624,14 +620,15 @@ update_path_bind(NewContext0, OldContext)
 update_path_bind(NewContext, _OldContext) ->
     NewContext.
 
-init_proxy_context(CntlPort,
+init_proxy_context(Socket,
 		   #context{imei = IMEI, context_id = ContextId, version = Version,
 			    control_interface = Interface, state = CState},
 		   #{imsi := IMSI, msisdn := MSISDN, apn := DstAPN}, {_GwNode, PGW}) ->
     APN = ergw_node_selection:expand_apn(DstAPN, IMSI),
+    Info = ergw_gtp_socket:info(Socket),
     ProxyTnl =
 	ergw_gsn_lib:assign_tunnel_teid(
-	  local, CntlPort, #tunnel{interface = 'Core'}),
+	  local, Info, ergw_gsn_lib:init_tunnel('Core', Info, Socket)),
     #context{
        apn               = APN,
        imsi              = IMSI,
@@ -641,7 +638,6 @@ init_proxy_context(CntlPort,
 
        version           = Version,
        control_interface = Interface,
-       control_port      = CntlPort,
        left_tnl          = ProxyTnl,
        remote_control_teid =
 	   #fq_teid{ip = PGW},
@@ -653,12 +649,12 @@ init_proxy_context(CntlPort,
 get_context_from_bearer(_, #v2_fully_qualified_tunnel_endpoint_identifier{
 			      interface_type = ?'S5/S8-U SGW',
 			      key = TEI, ipv4 = IP4, ipv6 = IP6}, Context) ->
-    IP = ergw_gsn_lib:choose_context_ip(IP4, IP6, Context),
+    IP = ergw_gsn_lib:choose_context_ip(left, local, IP4, IP6, Context),
     ergw_gsn_lib:set_remote_data_teid(IP, TEI, Context);
 get_context_from_bearer(_, #v2_fully_qualified_tunnel_endpoint_identifier{
 			      interface_type = ?'S5/S8-U PGW',
 			      key = TEI, ipv4 = IP4, ipv6 = IP6}, Context) ->
-    IP = ergw_gsn_lib:choose_context_ip(IP4, IP6, Context),
+    IP = ergw_gsn_lib:choose_context_ip(left, local, IP4, IP6, Context),
     ergw_gsn_lib:set_remote_data_teid(IP, TEI, Context);
 get_context_from_bearer(?'EPS Bearer ID', #v2_eps_bearer_id{eps_bearer_id = EBI},
 			#context{state = CState} = Context) ->
@@ -669,14 +665,14 @@ get_context_from_bearer(_K, _, Context) ->
 get_context_from_req(_, #v2_fully_qualified_tunnel_endpoint_identifier{
 			   interface_type = ?'S5/S8-C SGW',
 			   key = TEI, ipv4 = IP4, ipv6 = IP6}, Context) ->
-    IP = ergw_gsn_lib:choose_context_ip(IP4, IP6, Context),
+    IP = ergw_gsn_lib:choose_context_ip(left, local, IP4, IP6, Context),
     Context#context{
       remote_control_teid = #fq_teid{ip = ergw_inet:bin2ip(IP), teid = TEI}
      };
 get_context_from_req(_, #v2_fully_qualified_tunnel_endpoint_identifier{
 			   interface_type = ?'S5/S8-C PGW',
 			   key = TEI, ipv4 = IP4, ipv6 = IP6}, Context) ->
-    IP = ergw_gsn_lib:choose_context_ip(IP4, IP6, Context),
+    IP = ergw_gsn_lib:choose_context_ip(left, local, IP4, IP6, Context),
     Context#context{
       remote_control_teid = #fq_teid{ip = ergw_inet:bin2ip(IP), teid = TEI}
      };
@@ -777,7 +773,7 @@ build_context_request(#context{remote_control_teid = #fq_teid{teid = TEI}} = Con
     ProxyIEs = gtp_v2_c:build_recovery(Type, Context, NewPeer, ProxyIEs1),
     Request#gtp{tei = TEI, seq_no = SeqNo, ie = ProxyIEs}.
 
-send_request(#context{control_port = GtpPort,
+send_request(#context{left_tnl = Tunnel,
 		      remote_control_teid =
 			  #fq_teid{
 			     ip = RemoteCntlIP,
@@ -785,7 +781,7 @@ send_request(#context{control_port = GtpPort,
 		     },
 	     T3, N3, Type, RequestIEs) ->
     Msg = #gtp{version = v2, type = Type, tei = RemoteCntlTEI, ie = RequestIEs},
-    gtp_context:send_request(GtpPort, RemoteCntlIP, ?GTP2c_PORT, T3, N3, Msg, undefined).
+    gtp_context:send_request(Tunnel, RemoteCntlIP, ?GTP2c_PORT, T3, N3, Msg, undefined).
 
 initiate_session_teardown(sgw2pgw,
 			  #{proxy_context :=
@@ -846,12 +842,12 @@ forward_context(pgw2sgw, #{context := Context}) ->
 forward_request(Direction, ReqKey,
 		#gtp{seq_no = ReqSeqNo, ie = ReqIEs} = Request,
 		#{last_trigger_id :=
-		      {ReqSeqNo, LastFwdSeqNo, GtpPort, SrcIP, SrcPort, _}} = Data,
+		      {ReqSeqNo, LastFwdSeqNo, Socket, SrcIP, SrcPort, _}} = Data,
 	       DataOld) ->
 
     Context = forward_context(Direction, Data),
     FwdReq = build_context_request(Context, false, LastFwdSeqNo, Request),
-    ergw_proxy_lib:forward_request(Direction, GtpPort, SrcIP, SrcPort, FwdReq, ReqKey,
+    ergw_proxy_lib:forward_request(Direction, Socket, SrcIP, SrcPort, FwdReq, ReqKey,
 				   ReqSeqNo, is_map_key(?'Recovery', ReqIEs), DataOld);
 forward_request(Direction, ReqKey,
 		#gtp{seq_no = ReqSeqNo, ie = ReqIEs} = Request,
@@ -861,12 +857,12 @@ forward_request(Direction, ReqKey,
     ergw_proxy_lib:forward_request(Direction, Context, FwdReq, ReqKey,
 				   ReqSeqNo, is_map_key(?'Recovery', ReqIEs), DataOld).
 
-trigger_request(Direction, #request{gtp_port = GtpPort, ip = SrcIP, port = SrcPort} = ReqKey,
+trigger_request(Direction, #request{socket = Socket, ip = SrcIP, port = SrcPort} = ReqKey,
 		#gtp{seq_no = SeqNo} = Request, Data) ->
     Context = forward_context(Direction, Data),
     case ergw_proxy_lib:get_seq_no(Context, ReqKey, Request) of
 	{ok, FwdSeqNo} ->
-	    Data#{last_trigger_id => {FwdSeqNo, SeqNo, GtpPort, SrcIP, SrcPort, ReqKey}};
+	    Data#{last_trigger_id => {FwdSeqNo, SeqNo, Socket, SrcIP, SrcPort, ReqKey}};
 	_ ->
 	    Data
     end.
