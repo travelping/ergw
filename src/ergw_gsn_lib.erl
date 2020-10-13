@@ -43,6 +43,7 @@
 	 set_remote_tunnel_teid/3,
 	 update_remote_tunnel_teid/2,
 	 unset_remote_tunnel_teid/1,
+	 set_remote_restart_counter/2,
 	 assign_local_data_teid/3,
 	 set_remote_data_teid/3,
 	 update_remote_data_teid/2,
@@ -1922,6 +1923,16 @@ unset_remote_tunnel_teid(Ctx) ->
 %% unset_remote_tunnel_teid/3
 %% unset_remote_tunnel_teid(CtxSide, TunnelSide, Ctx) ->
 %%     unset_teid(tunnel, CtxSide, TunnelSide, Ctx).
+
+%% set_remote_restart_counter/2
+set_remote_restart_counter(RestartCounter, Ctx) ->
+    set_remote_restart_counter(left, RestartCounter, Ctx).
+
+%% set_remote_restart_counter/3
+set_remote_restart_counter(CtxSide, RestartCounter, Ctx) ->
+    update_field_with(
+      context_field(tunnel, CtxSide), Ctx,
+      '#set-'([{remote_restart_counter, RestartCounter}], _)).
 
 %% assign_local_data_teid/3
 assign_local_data_teid(PCtx, NodeCaps, Ctx) ->

@@ -44,7 +44,7 @@
 %%
 %% set gtp_v1_c:build_recovery/4
 %%
-build_recovery(Cmd, CtxOrSock, NewPeer, IEs)
+build_recovery(Cmd, TnlOrSock, NewPeer, IEs)
   when
       %% Path Management Messages
       Cmd =:= echo_request;
@@ -77,15 +77,15 @@ build_recovery(Cmd, CtxOrSock, NewPeer, IEs)
       Cmd =:= mbms_session_start_response;
       Cmd =:= mbms_session_update_response;
       Cmd =:= mbms_session_stop_response ->
-    build_recovery(CtxOrSock, NewPeer, IEs);
-build_recovery(_Cmd, _CtxOrSock, _NewPeer, IEs) ->
+    build_recovery(TnlOrSock, NewPeer, IEs);
+build_recovery(_Cmd, _TnlOrSock, _NewPeer, IEs) ->
     IEs.
 
 
 %% build_recovery/3
 build_recovery(#socket{}, NewPeer, IEs) when NewPeer == true ->
     add_recovery(IEs);
-build_recovery(#context{remote_restart_counter = RemoteRestartCounter}, NewPeer, IEs)
+build_recovery(#tunnel{remote_restart_counter = RemoteRestartCounter}, NewPeer, IEs)
   when NewPeer == true orelse
        RemoteRestartCounter == undefined ->
     add_recovery(IEs);

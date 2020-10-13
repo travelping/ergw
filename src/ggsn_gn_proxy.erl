@@ -494,8 +494,8 @@ response(Cmd, Context, Response) ->
     #fq_teid{teid = TEID} = ergw_gsn_lib:tunnel(left, remote, Context),
     {Cmd, TEID, Response}.
 
-response(Cmd, Context, IEs0, #gtp{ie = ReqIEs}) ->
-    IEs = gtp_v1_c:build_recovery(Cmd, Context, is_map_key(?'Recovery', ReqIEs), IEs0),
+response(Cmd, #context{left_tnl = Tunnel} = Context, IEs0, #gtp{ie = ReqIEs}) ->
+    IEs = gtp_v1_c:build_recovery(Cmd, Tunnel, is_map_key(?'Recovery', ReqIEs), IEs0),
     response(Cmd, Context, IEs).
 
 handle_proxy_info(Request, Session, Context, #{proxy_ds := ProxyDS}) ->
@@ -652,10 +652,11 @@ proxy_info(Session,
      }.
 
 build_context_request(Context, NewPeer, #gtp{type = Type, ie = RequestIEs} = Request) ->
+    Tunnel = ergw_gsn_lib:tunnel(left, Context),
     #fq_teid{teid = TEI} = ergw_gsn_lib:tunnel(left, remote, Context),
     ProxyIEs0 = maps:without([?'Recovery'], RequestIEs),
     ProxyIEs1 = update_gtp_req_from_context(Context, ProxyIEs0),
-    ProxyIEs = gtp_v1_c:build_recovery(Type, Context, NewPeer, ProxyIEs1),
+    ProxyIEs = gtp_v1_c:build_recovery(Type, Tunnel, NewPeer, ProxyIEs1),
     Request#gtp{tei = TEI, seq_no = undefined, ie = ProxyIEs}.
 
 msg(#tunnel{remote = #fq_teid{teid = RemoteCntlTEI}}, Type, RequestIEs) ->
@@ -673,12 +674,12 @@ send_request(Tunnel, T3, N3, Type, RequestIEs) ->
 initiate_pdp_context_teardown(Direction, Data) ->
     #context{left_tnl = Tunnel,
 	     state = #context_state{nsapi = NSAPI}} =
-	Ctx = forward_context(Direction, Data),
+	forward_context(Direction, Data),
     Type = delete_pdp_context_request,
     RequestIEs0 = [#cause{value = request_accepted},
 		   #teardown_ind{value = 1},
 		   #nsapi{nsapi = NSAPI}],
-    RequestIEs = gtp_v1_c:build_recovery(Type, Ctx, false, RequestIEs0),
+    RequestIEs = gtp_v1_c:build_recovery(Type, Tunnel, false, RequestIEs0),
     send_request(Tunnel, ?T3, ?N3, Type, RequestIEs).
 
 fteid_forward_context(#f_teid{ipv4 = IPv4, ipv6 = IPv6, teid = TEID},

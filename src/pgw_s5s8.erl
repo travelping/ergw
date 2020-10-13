@@ -547,7 +547,7 @@ handle_request(#request{ip = SrcIP, port = SrcPort} = ReqKey,
     RequestIEs0 = [AMBR,
 		   #v2_bearer_context{
 		      group = copy_ies_to_response(Bearer, [EBI], [?'Bearer Level QoS'])}],
-    RequestIEs = gtp_v2_c:build_recovery(Type, Context, false, RequestIEs0),
+    RequestIEs = gtp_v2_c:build_recovery(Type, Tunnel, false, RequestIEs0),
     Msg = msg(Tunnel, Type, RequestIEs),
     send_request(Tunnel, SrcIP, SrcPort, ?T3, ?N3, Msg#gtp{seq_no = SeqNo}, ReqKey),
 
@@ -700,8 +700,8 @@ response(Cmd, Context, Response) ->
     #fq_teid{teid = TEID} = ergw_gsn_lib:tunnel(left, remote, Context),
     {Cmd, TEID, Response}.
 
-response(Cmd, Context, IEs0, #gtp{ie = ReqIEs}) ->
-    IEs = gtp_v2_c:build_recovery(Cmd, Context, is_map_key(?'Recovery', ReqIEs), IEs0),
+response(Cmd, #context{left_tnl = Tunnel} = Context, IEs0, #gtp{ie = ReqIEs}) ->
+    IEs = gtp_v2_c:build_recovery(Cmd, Tunnel, is_map_key(?'Recovery', ReqIEs), IEs0),
     response(Cmd, Context, IEs).
 
 session_failure_to_gtp_cause(_) ->
@@ -1205,12 +1205,12 @@ send_request(#tunnel{remote = #fq_teid{ip = RemoteCntlIP}} = Tunnel, T3, N3, Msg
 send_request(Tunnel, T3, N3, Type, RequestIEs, ReqInfo) ->
     send_request(Tunnel, T3, N3, msg(Tunnel, Type, RequestIEs), ReqInfo).
 
-delete_context(From, TermCause, #{context := #context{left_tnl = Tunnel} = Context} = Data) ->
+delete_context(From, TermCause, #{context := #context{left_tnl = Tunnel}} = Data) ->
     Type = delete_bearer_request,
     EBI = 5,
     RequestIEs0 = [#v2_cause{v2_cause = reactivation_requested},
 		   #v2_eps_bearer_id{eps_bearer_id = EBI}],
-    RequestIEs = gtp_v2_c:build_recovery(Type, Context, false, RequestIEs0),
+    RequestIEs = gtp_v2_c:build_recovery(Type, Tunnel, false, RequestIEs0),
     send_request(Tunnel, ?T3, ?N3, Type, RequestIEs, {From, TermCause}),
     {next_state, shutdown_initiated, Data}.
 

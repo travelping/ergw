@@ -537,15 +537,15 @@ bind_path(#context{version = Version} = Context) ->
 
 monitor_path_recovery(#context{path = Path} = Context) ->
     {ok, PathRestartCounter} = gen_statem:call(Path, {monitor, self()}),
-    Context#context{remote_restart_counter = PathRestartCounter}.
+    ergw_gsn_lib:set_remote_restart_counter(PathRestartCounter, Context).
 
 bind_path_recovery(RestartCounter, #context{path = Path} = Context)
   when is_integer(RestartCounter) ->
     ok = gen_statem:call(Path, {bind, self(), RestartCounter}),
-    Context#context{remote_restart_counter = RestartCounter};
+    ergw_gsn_lib:set_remote_restart_counter(RestartCounter, Context);
 bind_path_recovery(_RestartCounter, #context{path = Path} = Context) ->
     {ok, PathRestartCounter} = gen_statem:call(Path, {bind, self()}),
-    Context#context{remote_restart_counter = PathRestartCounter}.
+    ergw_gsn_lib:set_remote_restart_counter(PathRestartCounter, Context).
 
 send_echo_request(State, #{socket := Socket, handler := Handler, ip := DstIP,
 			   t3 := T3, n3 := N3}) ->
