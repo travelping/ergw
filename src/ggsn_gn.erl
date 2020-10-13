@@ -118,7 +118,7 @@ handle_event({call, From}, terminate_context, _State, Data) ->
     {next_state, shutdown, Data, [{reply, From, ok}]};
 
 handle_event({call, From}, {path_restart, Path}, _State,
-	     #{context := #context{path = Path}} = Data) ->
+	     #{context := #context{left_tnl = #tunnel{path = Path}}} = Data) ->
     close_pdp_context(normal, Data),
     {next_state, shutdown, Data, [{reply, From, ok}]};
 

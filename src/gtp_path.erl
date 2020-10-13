@@ -533,17 +533,20 @@ bind_path(#context{version = Version} = Context) ->
     #tunnel{socket = Socket, remote = #fq_teid{ip = RemoteCntlIP}} =
 	ergw_gsn_lib:tunnel(left, Context),
     Path = maybe_new_path(Socket, Version, RemoteCntlIP),
-    Context#context{path = Path}.
+    ergw_gsn_lib:set_tunnel_path(left, Path, Context).
 
-monitor_path_recovery(#context{path = Path} = Context) ->
+monitor_path_recovery(Context) ->
+    #tunnel{path = Path} = ergw_gsn_lib:tunnel(left, Context),
     {ok, PathRestartCounter} = gen_statem:call(Path, {monitor, self()}),
     ergw_gsn_lib:set_remote_restart_counter(PathRestartCounter, Context).
 
-bind_path_recovery(RestartCounter, #context{path = Path} = Context)
+bind_path_recovery(RestartCounter, Context)
   when is_integer(RestartCounter) ->
+    #tunnel{path = Path} = ergw_gsn_lib:tunnel(left, Context),
     ok = gen_statem:call(Path, {bind, self(), RestartCounter}),
     ergw_gsn_lib:set_remote_restart_counter(RestartCounter, Context);
-bind_path_recovery(_RestartCounter, #context{path = Path} = Context) ->
+bind_path_recovery(_RestartCounter, Context) ->
+    #tunnel{path = Path} = ergw_gsn_lib:tunnel(left, Context),
     {ok, PathRestartCounter} = gen_statem:call(Path, {bind, self()}),
     ergw_gsn_lib:set_remote_restart_counter(PathRestartCounter, Context).
 

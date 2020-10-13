@@ -52,9 +52,10 @@
 	 }).
 
 -record(tunnel, {
-	  interface             :: 'Access' | 'Core',
+	  interface		:: 'Access' | 'Core',
 	  vrf			:: term(),
 	  socket		:: #socket{},
+	  path			:: 'undefined' | pid(),
 	  local			:: 'undefined' | #fq_teid{},
 	  remote		:: 'undefined' | #fq_teid{},
 	  remote_restart_counter :: 0 .. 255
@@ -107,7 +108,6 @@
 	  'Idle-Timeout'  :: non_neg_integer() | infinity,
 
 	  version                :: 'v1' | 'v2',
-	  path                   :: 'undefined' | pid(),
 	  vrf                    :: atom(),
 	  pdn_type               :: 'undefined' | 'IPv4' | 'IPv6' | 'IPv4v6' | 'Non-IP',
 	  ipv4_pool              :: 'undefined' | binary(),
