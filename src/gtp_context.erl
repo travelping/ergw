@@ -325,7 +325,6 @@ init([Socket, Info, Version, Interface,
 		 charging_identifier = ergw_gtp_c_socket:get_uniq_id(Socket),
 
 		 version           = Version,
-		 control_interface = Interface,
 		 left_tnl          = LeftTnl,
 		 left              = #bearer{interface = 'Access'},
 		 right             = #bearer{interface = 'SGi-LAN'}

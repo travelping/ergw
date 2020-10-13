@@ -107,7 +107,6 @@
 	  'Idle-Timeout'  :: non_neg_integer() | infinity,
 
 	  version                :: 'v1' | 'v2',
-	  control_interface      :: atom(),
 	  path                   :: 'undefined' | pid(),
 	  vrf                    :: atom(),
 	  pdn_type               :: 'undefined' | 'IPv4' | 'IPv6' | 'IPv4v6' | 'Non-IP',
