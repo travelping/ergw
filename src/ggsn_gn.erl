@@ -509,8 +509,8 @@ response(Cmd, Context, Response) ->
     #fq_teid{teid = TEID} = ergw_gsn_lib:tunnel(left, remote, Context),
     {Cmd, TEID, Response}.
 
-response(Cmd, Context, IEs0, #gtp{ie = ReqIEs}) ->
-    IEs = gtp_v1_c:build_recovery(Cmd, Context, is_map_key(?'Recovery', ReqIEs), IEs0),
+response(Cmd, #context{left_tnl = Tunnel} = Context, IEs0, #gtp{ie = ReqIEs}) ->
+    IEs = gtp_v1_c:build_recovery(Cmd, Tunnel, is_map_key(?'Recovery', ReqIEs), IEs0),
     response(Cmd, Context, IEs).
 
 session_failure_to_gtp_cause(_) ->
@@ -1096,12 +1096,12 @@ send_request(#tunnel{remote = #fq_teid{ip = RemoteCntlIP}} = Tunnel, T3, N3, Msg
 send_request(Tunnel, T3, N3, Type, RequestIEs, ReqInfo) ->
     send_request(Tunnel, T3, N3, msg(Tunnel, Type, RequestIEs), ReqInfo).
 
-delete_context(From, TermCause, #{context := #context{left_tnl = Tunnel} = Context} = Data) ->
+delete_context(From, TermCause, #{context := #context{left_tnl = Tunnel}} = Data) ->
     Type = delete_pdp_context_request,
     NSAPI = 5,
     RequestIEs0 = [#nsapi{nsapi = NSAPI},
 		   #teardown_ind{value = 1}],
-    RequestIEs = gtp_v1_c:build_recovery(Type, Context, false, RequestIEs0),
+    RequestIEs = gtp_v1_c:build_recovery(Type, Tunnel, false, RequestIEs0),
     send_request(Tunnel, ?T3, ?N3, Type, RequestIEs, {From, TermCause}),
     {next_state, shutdown_initiated, Data}.
 

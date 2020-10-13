@@ -577,8 +577,8 @@ response(Cmd, Context, Response) ->
     #fq_teid{teid = TEID} = ergw_gsn_lib:tunnel(left, remote, Context),
     {Cmd, TEID, Response}.
 
-response(Cmd, Context, IEs0, #gtp{ie = ReqIEs}) ->
-    IEs = gtp_v2_c:build_recovery(Cmd, Context, is_map_key(?'Recovery', ReqIEs), IEs0),
+response(Cmd, #context{left_tnl = Tunnel} = Context, IEs0, #gtp{ie = ReqIEs}) ->
+    IEs = gtp_v2_c:build_recovery(Cmd, Tunnel, is_map_key(?'Recovery', ReqIEs), IEs0),
     response(Cmd, Context, IEs).
 
 handle_proxy_info(Request, Session, Context, #{proxy_ds := ProxyDS}) ->
@@ -764,10 +764,11 @@ proxy_info(Session,
        }.
 
 build_context_request(Context, NewPeer, SeqNo, #gtp{type = Type, ie = RequestIEs} = Request) ->
+    Tunnel = ergw_gsn_lib:tunnel(left, Context),
     #fq_teid{teid = TEI} = ergw_gsn_lib:tunnel(left, remote, Context),
     ProxyIEs0 = maps:without([?'Recovery'], RequestIEs),
     ProxyIEs1 = update_gtp_req_from_context(Context, ProxyIEs0),
-    ProxyIEs = gtp_v2_c:build_recovery(Type, Context, NewPeer, ProxyIEs1),
+    ProxyIEs = gtp_v2_c:build_recovery(Type, Tunnel, NewPeer, ProxyIEs1),
     Request#gtp{tei = TEI, seq_no = SeqNo, ie = ProxyIEs}.
 
 
@@ -786,20 +787,20 @@ send_request(Tunnel, T3, N3, Type, RequestIEs) ->
 initiate_session_teardown(sgw2pgw,
 			  #{proxy_context :=
 				#context{left_tnl = Tunnel,
-					 state = #context_state{ebi = EBI}} = Ctx}) ->
+					 state = #context_state{ebi = EBI}}}) ->
     Type = delete_session_request,
     RequestIEs0 = [#v2_cause{v2_cause = network_failure},
 		   #v2_eps_bearer_id{eps_bearer_id = EBI}],
-    RequestIEs = gtp_v2_c:build_recovery(Type, Ctx, false, RequestIEs0),
+    RequestIEs = gtp_v2_c:build_recovery(Type, Tunnel, false, RequestIEs0),
     send_request(Tunnel, ?T3, ?N3, Type, RequestIEs);
 initiate_session_teardown(pgw2sgw,
 			  #{context :=
 				#context{left_tnl = Tunnel,
-					 state = #context_state{ebi = EBI}} = Ctx}) ->
+					 state = #context_state{ebi = EBI}}}) ->
     Type = delete_bearer_request,
     RequestIEs0 = [#v2_cause{v2_cause = reactivation_requested},
 		   #v2_eps_bearer_id{eps_bearer_id = EBI}],
-    RequestIEs = gtp_v2_c:build_recovery(Type, Ctx, false, RequestIEs0),
+    RequestIEs = gtp_v2_c:build_recovery(Type, Tunnel, false, RequestIEs0),
     send_request(Tunnel, ?T3, ?N3, Type, RequestIEs).
 
 bind_forward_path(sgw2pgw, Request, #{context := Context,
