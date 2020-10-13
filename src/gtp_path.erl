@@ -83,8 +83,9 @@ bind(#gtp{ie = #{{v2_recovery, 0} :=
 bind(Request, Context) ->
     bind_path_recovery(undefined, bind_path(Request, Context)).
 
-unbind(#context{version = Version, left_tnl = #tunnel{socket = Socket},
-		remote_control_teid = #fq_teid{ip = RemoteIP}}) ->
+unbind(#context{version = Version} = Context) ->
+    #tunnel{socket = Socket, remote = #fq_teid{ip = RemoteIP}} =
+	ergw_gsn_lib:tunnel(left, Context),
     case get(Socket, Version, RemoteIP) of
 	Path when is_pid(Path) ->
 	    gen_statem:call(Path, {unbind, self()});
@@ -528,8 +529,9 @@ unregister(_Pid, _, _Data, Actions) ->
 bind_path(#gtp{version = Version}, Context) ->
     bind_path(Context#context{version = Version}).
 
-bind_path(#context{version = Version, left_tnl = #tunnel{socket = Socket},
-		   remote_control_teid = #fq_teid{ip = RemoteCntlIP}} = Context) ->
+bind_path(#context{version = Version} = Context) ->
+    #tunnel{socket = Socket, remote = #fq_teid{ip = RemoteCntlIP}} =
+	ergw_gsn_lib:tunnel(left, Context),
     Path = maybe_new_path(Socket, Version, RemoteCntlIP),
     Context#context{path = Path}.
 

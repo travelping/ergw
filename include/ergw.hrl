@@ -108,7 +108,6 @@
 	  version                :: 'v1' | 'v2',
 	  control_interface      :: atom(),
 	  path                   :: 'undefined' | pid(),
-	  remote_control_teid    :: #fq_teid{},
 	  remote_restart_counter :: 0 .. 255,
 	  vrf                    :: atom(),
 	  pdn_type               :: 'undefined' | 'IPv4' | 'IPv6' | 'IPv4v6' | 'Non-IP',

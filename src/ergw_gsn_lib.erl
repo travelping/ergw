@@ -36,9 +36,13 @@
 -export([apn/2, select_vrf/2,
 	 init_session_ip_opts/3,
 	 allocate_ips/5, release_context_ips/1]).
--export([init_tunnel/3,
+-export([tunnel/2, tunnel/3,
+	 init_tunnel/3,
 	 assign_tunnel_teid/3,
 	 reassign_tunnel_teid/3,
+	 set_remote_tunnel_teid/3,
+	 update_remote_tunnel_teid/2,
+	 unset_remote_tunnel_teid/1,
 	 assign_local_data_teid/3,
 	 set_remote_data_teid/3,
 	 update_remote_data_teid/2,
@@ -1894,6 +1898,30 @@ reassign_tunnel_teid(CtxSide, TunnelSide, Ctx) ->
 reassign_tunnel_teid_f(#tunnel{socket = Socket}, FqTEID) ->
     {ok, TEI} = ergw_tei_mngr:alloc_tei(Socket),
     FqTEID#fq_teid{teid = TEI}.
+
+%% set_remote_tunnel_teid/3
+set_remote_tunnel_teid(IP, TEI, Ctx) ->
+    set_teid(tunnel, left, remote, IP, TEI, Ctx).
+
+%% set_remote_tunnel_teid/5
+%% set_remote_tunnel_teid(CtxSide, TunnelSide, IP, TEI, Ctx) ->
+%%     set_teid(tunnel, CtxSide, TunnelSide, IP, TEI, Ctx).
+
+%% update_remote_tunnel_teid/2
+update_remote_tunnel_teid(Fun, Ctx) ->
+    update_teid(tunnel, left, remote, Fun, Ctx).
+
+%% update_remote_tunnel_teid/4
+%% update_remote_tunnel_teid(CtxSide, TunnelSide, Fun, Ctx) ->
+%%     update_teid(tunnel, CtxSide, TunnelSide, Fun, Ctx).
+
+%% unset_remote_tunnel_teid/1
+unset_remote_tunnel_teid(Ctx) ->
+    unset_teid(tunnel, left, remote, Ctx).
+
+%% unset_remote_tunnel_teid/3
+%% unset_remote_tunnel_teid(CtxSide, TunnelSide, Ctx) ->
+%%     unset_teid(tunnel, CtxSide, TunnelSide, Ctx).
 
 %% assign_local_data_teid/3
 assign_local_data_teid(PCtx, NodeCaps, Ctx) ->

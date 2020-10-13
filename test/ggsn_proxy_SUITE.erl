@@ -1503,8 +1503,8 @@ update_pdp_context_request_ra_update(Config) ->
     ?equal(GtpC1#gtpc.remote_data_tei,    GtpC2#gtpc.remote_data_tei),
 
     %% make sure the GGSN side control TEID don't change
-    ?equal(Ctx1#context.remote_control_teid, Ctx2#context.remote_control_teid),
-    ?equal(Ctx1#context.left#bearer.remote,    Ctx2#context.left#bearer.remote),
+    ?equal(Ctx1#context.left_tnl#tunnel.remote, Ctx2#context.left_tnl#tunnel.remote),
+    ?equal(Ctx1#context.left#bearer.remote,     Ctx2#context.left#bearer.remote),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
@@ -1539,8 +1539,8 @@ update_pdp_context_request_tei_update(Config) ->
     ?equal(GtpC1#gtpc.remote_data_tei,    GtpC2#gtpc.remote_data_tei),
 
     %% make sure the GGSN side control TEID DOES change
-    ?not_equal(Ctx1#context.remote_control_teid, Ctx2#context.remote_control_teid),
-    ?equal(Ctx1#context.left#bearer.remote,        Ctx2#context.left#bearer.remote),
+    ?not_equal(Ctx1#context.left_tnl#tunnel.remote, Ctx2#context.left_tnl#tunnel.remote),
+    ?equal(Ctx1#context.left#bearer.remote,         Ctx2#context.left#bearer.remote),
 
     [_, SMR0|_] = lists:filter(
 		    fun(#pfcp{type = session_modification_request}) -> true;
@@ -1595,8 +1595,8 @@ update_pdp_context_request_broken_recovery(Config) ->
     ?equal(GtpC1#gtpc.remote_data_tei,    GtpC2#gtpc.remote_data_tei),
 
     %% make sure the GGSN side control TEID don't change
-    ?equal(Ctx1#context.remote_control_teid, Ctx2#context.remote_control_teid),
-    ?equal(Ctx1#context.left#bearer.remote,    Ctx2#context.left#bearer.remote),
+    ?equal(Ctx1#context.left_tnl#tunnel.remote, Ctx2#context.left_tnl#tunnel.remote),
+    ?equal(Ctx1#context.left#bearer.remote,     Ctx2#context.left#bearer.remote),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
