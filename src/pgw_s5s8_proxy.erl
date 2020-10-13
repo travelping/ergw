@@ -151,13 +151,13 @@ handle_event({call, From}, terminate_context, _State, Data) ->
     {next_state, shutdown, Data, [{reply, From, ok}]};
 
 handle_event({call, From}, {path_restart, Path}, _State,
-	     #{context := #context{path = Path}} = Data) ->
+	     #{context := #context{left_tnl = #tunnel{path = Path}}} = Data) ->
     initiate_session_teardown(sgw2pgw, Data),
     delete_forward_session(normal, Data),
     {next_state, shutdown, Data, [{reply, From, ok}]};
 
 handle_event({call, From}, {path_restart, Path}, _State,
-	     #{proxy_context := #context{path = Path}} = Data) ->
+	     #{proxy_context := #context{left_tnl = #tunnel{path = Path}}} = Data) ->
     initiate_session_teardown(pgw2sgw, Data),
     delete_forward_session(normal, Data),
     {next_state, shutdown, Data, [{reply, From, ok}]};
