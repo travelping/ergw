@@ -490,7 +490,8 @@ terminate(_Reason, _State, _Data) ->
 %%% Internal functions
 %%%===================================================================
 
-response(Cmd, #context{remote_control_teid = #fq_teid{teid = TEID}}, Response) ->
+response(Cmd, Context, Response) ->
+    #fq_teid{teid = TEID} = ergw_gsn_lib:tunnel(left, remote, Context),
     {Cmd, TEID, Response}.
 
 response(Cmd, Context, IEs0, #gtp{ie = ReqIEs}) ->
@@ -519,8 +520,8 @@ delete_forward_session(Reason, #{context := Context,
     ?LOG(debug, "Accounting Opts: ~p", [SessionOpts]),
     ergw_aaa_session:invoke(Session, SessionOpts, stop, #{async => true}).
 
-handle_sgsn_change(#context{remote_control_teid = NewFqTEID},
-		   #context{remote_control_teid = OldFqTEID}, ProxyContext0)
+handle_sgsn_change(#context{left_tnl = #tunnel{remote = NewFqTEID}},
+		   #context{left_tnl = #tunnel{remote = OldFqTEID}}, ProxyContext0)
   when OldFqTEID /= NewFqTEID ->
     ProxyContext = ergw_gsn_lib:reassign_tunnel_teid(left, local, ProxyContext0),
     gtp_context:remote_context_update(ProxyContext0, ProxyContext),
@@ -542,9 +543,11 @@ init_proxy_context(Socket,
 		   #{imsi := IMSI, msisdn := MSISDN, apn := DstAPN}, {_GwNode, GGSN}) ->
     {APN, _OI} = ergw_node_selection:split_apn(DstAPN),
     Info = ergw_gtp_socket:info(Socket),
-    ProxyTnl =
+    ProxyTnl0 =
 	ergw_gsn_lib:assign_tunnel_teid(
 	  local, Info, ergw_gsn_lib:init_tunnel('Core', Info, Socket)),
+    ProxyTnl = ProxyTnl0#tunnel{remote = #fq_teid{ip = GGSN}},
+
     #context{
        apn               = APN,
        imsi              = IMSI,
@@ -555,15 +558,10 @@ init_proxy_context(Socket,
        version           = Version,
        control_interface = Interface,
        left_tnl          = ProxyTnl,
-       remote_control_teid =
-	   #fq_teid{ip = GGSN},
        left              = #bearer{interface = 'Core'},
 
        state             = CState
       }.
-
-update_element_with(Field, Tuple, Fun) ->
-    setelement(Field, Tuple, Fun(element(Field, Tuple))).
 
 set_fq_teid(Id, undefined, Value) ->
     set_fq_teid(Id, #fq_teid{}, Value);
@@ -572,19 +570,16 @@ set_fq_teid(ip, TEID, Value) ->
 set_fq_teid(teid, TEID, Value) ->
     TEID#fq_teid{teid = Value}.
 
-set_fq_teid(Id, Field, Context, Value) ->
-    update_element_with(Field, Context, set_fq_teid(Id, _, Value)).
-
 get_context_from_req(_, #gsn_address{instance = 0, address = CntlIP}, Context) ->
     IP = ergw_gsn_lib:choose_context_ip(left, local, CntlIP, CntlIP, Context),
-    set_fq_teid(ip, #context.remote_control_teid, Context, IP);
+    ergw_gsn_lib:update_remote_tunnel_teid(set_fq_teid(ip, _, IP), Context);
 get_context_from_req(_, #gsn_address{instance = 1, address = DataIP}, Context) ->
     IP = ergw_gsn_lib:choose_context_ip(left, local, DataIP, DataIP, Context),
     ergw_gsn_lib:update_remote_data_teid(set_fq_teid(ip, _, IP), Context);
 get_context_from_req(_, #tunnel_endpoint_identifier_data_i{instance = 0, tei = DataTEI}, Context) ->
     ergw_gsn_lib:update_remote_data_teid(set_fq_teid(teid, _, DataTEI), Context);
 get_context_from_req(_, #tunnel_endpoint_identifier_control_plane{instance = 0, tei = CntlTEI}, Context) ->
-    set_fq_teid(teid, #context.remote_control_teid, Context, CntlTEI);
+    ergw_gsn_lib:update_remote_tunnel_teid(set_fq_teid(teid, _, CntlTEI), Context);
 get_context_from_req(?'Access Point Name', #access_point_name{apn = APN}, Context) ->
     Context#context{apn = APN};
 get_context_from_req(?'IMSI', #international_mobile_subscriber_identity{imsi = IMSI}, Context) ->
@@ -637,7 +632,7 @@ update_gtp_req_from_context(Context, GtpReqIEs) ->
 
 proxy_info(Session,
 	   #context{apn = APN, imsi = IMSI, imei = IMEI, msisdn = MSISDN,
-		    remote_control_teid = #fq_teid{ip = GsnC},
+		    left_tnl = #tunnel{remote = #fq_teid{ip = GsnC}},
 		    left = #bearer{remote = #fq_teid{ip = GsnU}}}) ->
     Keys = [{'3GPP-RAT-Type', 'ratType'},
 	    {'3GPP-User-Location-Info', 'userLocationInfo'},
@@ -656,32 +651,35 @@ proxy_info(Session,
 	servingGwUip => GsnU
      }.
 
-build_context_request(#context{remote_control_teid = #fq_teid{teid = TEI}} = Context,
-		      NewPeer, #gtp{type = Type, ie = RequestIEs} = Request) ->
+build_context_request(Context, NewPeer, #gtp{type = Type, ie = RequestIEs} = Request) ->
+    #fq_teid{teid = TEI} = ergw_gsn_lib:tunnel(left, remote, Context),
     ProxyIEs0 = maps:without([?'Recovery'], RequestIEs),
     ProxyIEs1 = update_gtp_req_from_context(Context, ProxyIEs0),
     ProxyIEs = gtp_v1_c:build_recovery(Type, Context, NewPeer, ProxyIEs1),
     Request#gtp{tei = TEI, seq_no = undefined, ie = ProxyIEs}.
 
-send_request(#context{left_tnl = Tunnel,
-		      remote_control_teid =
-			  #fq_teid{
-			     ip = RemoteCntlIP,
-			     teid = RemoteCntlTEI}
-		     },
-	     T3, N3, Type, RequestIEs) ->
-    Msg = #gtp{version = v1, type = Type, tei = RemoteCntlTEI, ie = RequestIEs},
-    gtp_context:send_request(Tunnel, RemoteCntlIP, ?GTP1c_PORT, T3, N3, Msg, undefined).
+msg(#tunnel{remote = #fq_teid{teid = RemoteCntlTEI}}, Type, RequestIEs) ->
+    #gtp{version = v1, type = Type, tei = RemoteCntlTEI, ie = RequestIEs}.
+
+send_request(Tunnel, DstIP, DstPort, T3, N3, Msg) ->
+    gtp_context:send_request(Tunnel, DstIP, DstPort, T3, N3, Msg, undefined).
+
+send_request(#tunnel{remote = #fq_teid{ip = RemoteCntlIP}} = Tunnel, T3, N3, Msg) ->
+    send_request(Tunnel, RemoteCntlIP, ?GTP1c_PORT, T3, N3, Msg).
+
+send_request(Tunnel, T3, N3, Type, RequestIEs) ->
+    send_request(Tunnel, T3, N3, msg(Tunnel, Type, RequestIEs)).
 
 initiate_pdp_context_teardown(Direction, Data) ->
-    #context{state = #context_state{nsapi = NSAPI}} =
+    #context{left_tnl = Tunnel,
+	     state = #context_state{nsapi = NSAPI}} =
 	Ctx = forward_context(Direction, Data),
     Type = delete_pdp_context_request,
     RequestIEs0 = [#cause{value = request_accepted},
 		   #teardown_ind{value = 1},
 		   #nsapi{nsapi = NSAPI}],
     RequestIEs = gtp_v1_c:build_recovery(Type, Ctx, false, RequestIEs0),
-    send_request(Ctx, ?T3, ?N3, Type, RequestIEs).
+    send_request(Tunnel, ?T3, ?N3, Type, RequestIEs).
 
 fteid_forward_context(#f_teid{ipv4 = IPv4, ipv6 = IPv6, teid = TEID},
 		      #{proxy_context :=

@@ -548,7 +548,7 @@ handle_request(#request{ip = SrcIP, port = SrcPort} = ReqKey,
 		   #v2_bearer_context{
 		      group = copy_ies_to_response(Bearer, [EBI], [?'Bearer Level QoS'])}],
     RequestIEs = gtp_v2_c:build_recovery(Type, Context, false, RequestIEs0),
-    Msg = msg(Context, Type, RequestIEs),
+    Msg = msg(Tunnel, Type, RequestIEs),
     send_request(Tunnel, SrcIP, SrcPort, ?T3, ?N3, Msg#gtp{seq_no = SeqNo}, ReqKey),
 
     Actions = context_idle_action([], Context),
@@ -603,11 +603,12 @@ handle_request(ReqKey,
 	       #gtp{type = delete_session_request, ie = IEs} = Request,
 	       _Resent, _State, #{context := Context, 'Session' := Session} = Data0) ->
 
-    FqTEI = maps:get(?'Sender F-TEID for Control Plane', IEs, undefined),
+    FqTEID = maps:get(?'Sender F-TEID for Control Plane', IEs, undefined),
+    Expected = ergw_gsn_lib:tunnel(left, remote, Context),
 
     Result =
 	do([error_m ||
-	       match_context(?'S5/S8-C SGW', Context, FqTEI),
+	       match_tunnel(?'S5/S8-C SGW', Expected, FqTEID),
 	       return({request_accepted, Data0})
 	   ]),
 
@@ -695,7 +696,8 @@ terminate(_Reason, _State, #{context := Context}) ->
 ip2prefix({IP, Prefix}) ->
     <<Prefix:8, (ergw_inet:ip2bin(IP))/binary>>.
 
-response(Cmd, #context{remote_control_teid = #fq_teid{teid = TEID}}, Response) ->
+response(Cmd, Context, Response) ->
+    #fq_teid{teid = TEID} = ergw_gsn_lib:tunnel(left, remote, Context),
     {Cmd, TEID, Response}.
 
 response(Cmd, Context, IEs0, #gtp{ie = ReqIEs}) ->
@@ -725,34 +727,28 @@ ccr_initial(Context, Session, API, SessionOpts, ReqOpts, Request) ->
 			       session_failure_to_gtp_cause(Fail))
     end.
 
-match_context(_Type, _Context, undefined) ->
+match_tunnel(_Type, _Expected, undefined) ->
     error_m:return(ok);
-match_context(Type,
-	      #context{
-		 remote_control_teid =
-		     #fq_teid{
-			ip = RemoteCntlIP,
-			teid = RemoteCntlTEI
-		       }} = Context,
-	      #v2_fully_qualified_tunnel_endpoint_identifier{
-		 instance       = 0,
-		 interface_type = Type,
-		 key            = RemoteCntlTEI,
-		 ipv4           = RemoteCntlIP4,
-		 ipv6           = RemoteCntlIP6} = IE) ->
+match_tunnel(Type, #fq_teid{ip = RemoteCntlIP, teid = RemoteCntlTEI} = Expected,
+	     #v2_fully_qualified_tunnel_endpoint_identifier{
+		instance       = 0,
+		interface_type = Type,
+		key            = RemoteCntlTEI,
+		ipv4           = RemoteCntlIP4,
+		ipv6           = RemoteCntlIP6} = IE) ->
     case ergw_inet:ip2bin(RemoteCntlIP) of
 	RemoteCntlIP4 ->
 	    error_m:return(ok);
 	RemoteCntlIP6 ->
 	    error_m:return(ok);
 	_ ->
-	    ?LOG(error, "match_context: IP address mismatch, ~p, ~p, ~p",
-			[Type, Context, IE]),
+	    ?LOG(error, "match_tunnel: IP address mismatch, ~p, ~p, ~p",
+			[Type, Expected, IE]),
 	    error_m:fail([#v2_cause{v2_cause = invalid_peer}])
     end;
-match_context(Type, Context, IE) ->
-    ?LOG(error, "match_context: context not found, ~p, ~p, ~p",
-		[Type, Context, IE]),
+match_tunnel(Type, Expected, IE) ->
+    ?LOG(error, "match_tunnel: FqTEID not found, ~p, ~p, ~p",
+		[Type, Expected, IE]),
     error_m:fail([#v2_cause{v2_cause = invalid_peer}]).
 
 pdn_alloc(#v2_pdn_address_allocation{type = non_ip}) ->
@@ -1001,13 +997,16 @@ copy_to_session(_, #v2_pdn_address_allocation{type = non_ip}, _AAAopts, _, Sessi
 %%
 
 copy_to_session(?'Sender F-TEID for Control Plane',
-		#v2_fully_qualified_tunnel_endpoint_identifier{ipv4 = IP4}, _AAAopts,
-		#context{remote_control_teid = #fq_teid{ip = {_,_,_,_}}}, Session) ->
-    Session#{'3GPP-SGSN-Address' => ergw_inet:bin2ip(IP4)};
-copy_to_session(?'Sender F-TEID for Control Plane',
-		#v2_fully_qualified_tunnel_endpoint_identifier{ipv6 = IP6}, _AAAopts,
-		#context{remote_control_teid = #fq_teid{ip = {_,_,_,_,_,_,_,_}}}, Session) ->
-    Session#{'3GPP-SGSN-IPv6-Address' => ergw_inet:bin2ip(IP6)};
+		#v2_fully_qualified_tunnel_endpoint_identifier{ipv4 = IP4, ipv6 = IP6},
+		_AAAopts, Context, Session) ->
+    case ergw_gsn_lib:tunnel(left, remote, Context) of
+	#fq_teid{ip = {_,_,_,_}} ->
+	    Session#{'3GPP-SGSN-Address' => ergw_inet:bin2ip(IP4)};
+	#fq_teid{ip = {_,_,_,_,_,_,_,_}} ->
+	    Session#{'3GPP-SGSN-IPv6-Address' => ergw_inet:bin2ip(IP6)};
+	_ ->
+	    Session
+    end;
 
 copy_to_session(?'Bearer Contexts to be created',
 		#v2_bearer_context{
@@ -1142,9 +1141,7 @@ update_session_from_gtp_req(IEs, Session, Context) ->
 update_context_cntl_ids(#v2_fully_qualified_tunnel_endpoint_identifier{
 			   key = TEI, ipv4 = IP4, ipv6 = IP6}, Context) ->
     IP = ergw_gsn_lib:choose_context_ip(left, local, IP4, IP6, Context),
-    Context#context{
-      remote_control_teid = #fq_teid{ip = ergw_inet:bin2ip(IP), teid = TEI}
-     };
+    ergw_gsn_lib:set_remote_tunnel_teid(IP, TEI, Context);
 update_context_cntl_ids(_ , Context) ->
     Context.
 
@@ -1196,27 +1193,25 @@ copy_ies_to_response(RequestIEs, ResponseIEs0, [H|T]) ->
     copy_ies_to_response(RequestIEs, ResponseIEs, T).
 
 
-msg(#context{remote_control_teid = #fq_teid{teid = RemoteCntlTEI}}, Type, RequestIEs) ->
+msg(#tunnel{remote = #fq_teid{teid = RemoteCntlTEI}}, Type, RequestIEs) ->
     #gtp{version = v2, type = Type, tei = RemoteCntlTEI, ie = RequestIEs}.
 
 send_request(Tunnel, DstIP, DstPort, T3, N3, Msg, ReqInfo) ->
     gtp_context:send_request(Tunnel, DstIP, DstPort, T3, N3, Msg, ReqInfo).
 
-send_request(#context{left_tnl = Tunnel,
-		      remote_control_teid = #fq_teid{ip = RemoteCntlIP}},
-	     T3, N3, Msg, ReqInfo) ->
+send_request(#tunnel{remote = #fq_teid{ip = RemoteCntlIP}} = Tunnel, T3, N3, Msg, ReqInfo) ->
     send_request(Tunnel, RemoteCntlIP, ?GTP2c_PORT, T3, N3, Msg, ReqInfo).
 
-send_request(Context, T3, N3, Type, RequestIEs, ReqInfo) ->
-    send_request(Context, T3, N3, msg(Context, Type, RequestIEs), ReqInfo).
+send_request(Tunnel, T3, N3, Type, RequestIEs, ReqInfo) ->
+    send_request(Tunnel, T3, N3, msg(Tunnel, Type, RequestIEs), ReqInfo).
 
-delete_context(From, TermCause, #{context := Context} = Data) ->
+delete_context(From, TermCause, #{context := #context{left_tnl = Tunnel} = Context} = Data) ->
     Type = delete_bearer_request,
     EBI = 5,
     RequestIEs0 = [#v2_cause{v2_cause = reactivation_requested},
 		   #v2_eps_bearer_id{eps_bearer_id = EBI}],
     RequestIEs = gtp_v2_c:build_recovery(Type, Context, false, RequestIEs0),
-    send_request(Context, ?T3, ?N3, Type, RequestIEs, {From, TermCause}),
+    send_request(Tunnel, ?T3, ?N3, Type, RequestIEs, {From, TermCause}),
     {next_state, shutdown_initiated, Data}.
 
 allocate_ips(APNOpts, SOpts, PAA, DAF, Context) ->

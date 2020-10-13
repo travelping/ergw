@@ -35,10 +35,9 @@ forward_request(Direction, Socket, DstIP, DstPort,
     ?LOG(debug, "Invoking Context Send Request: ~p", [Request]),
     gtp_context:send_request(Socket, DstIP, DstPort, ReqId, Request, ReqInfo).
 
-forward_request(Direction,
-		#context{left_tnl = Tunnel,
-			 remote_control_teid = #fq_teid{ip = RemoteCntlIP}},
-		Request, ReqKey, SeqNo, NewPeer, OldState) ->
+forward_request(Direction, Context, Request, ReqKey, SeqNo, NewPeer, OldState) ->
+    #tunnel{remote = #fq_teid{ip = RemoteCntlIP}} = Tunnel =
+	ergw_gsn_lib:tunnel(left, Context),
     forward_request(Direction, Tunnel, RemoteCntlIP, ?GTP1c_PORT,
 		    Request, ReqKey, SeqNo, NewPeer, OldState).
 

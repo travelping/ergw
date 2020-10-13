@@ -582,26 +582,22 @@ context2keys(#context{
 		apn                 = APN,
 		context_id          = ContextId,
 		left_tnl            = #tunnel{socket = Socket} = LeftTnl,
-		remote_control_teid = RemoteCntlTEID,
 		vrf                 = #vrf{name = VRF},
 		ms_v4               = MSv4,
 		ms_v6               = MSv6
 	       }) ->
     ordsets:from_list(
-      [tunnel_key(local, LeftTnl),
-       socket_teid_key(Socket, 'gtp-c', RemoteCntlTEID)]
+      [tunnel_key(local, LeftTnl), tunnel_key(remote, LeftTnl)]
       ++ [socket_key(Socket, ContextId) || ContextId /= undefined]
       ++ [#bsf{dnn = APN, ip_domain = VRF, ip = ergw_ip_pool:ip(MSv4)} || MSv4 /= undefined]
       ++ [#bsf{dnn = APN, ip_domain = VRF,
 	       ip = ergw_inet:ipv6_prefix(ergw_ip_pool:ip(MSv6))} || MSv6 /= undefined]);
 context2keys(#context{
 		context_id          = ContextId,
-		left_tnl            = #tunnel{socket = Socket} = LeftTnl,
-		remote_control_teid = RemoteCntlTEID
+		left_tnl            = #tunnel{socket = Socket} = LeftTnl
 	       }) ->
     ordsets:from_list(
-      [tunnel_key(local, LeftTnl),
-       socket_teid_key(Socket, 'gtp-c', RemoteCntlTEID)]
+      [tunnel_key(local, LeftTnl), tunnel_key(remote, LeftTnl)]
       ++ [socket_key(Socket, ContextId) || ContextId /= undefined]).
 
 socket_key(#socket{name = Name}, Key) ->
@@ -611,8 +607,9 @@ socket_key({Name, _}, Key) ->
 
 tunnel_key(local, #tunnel{socket = Socket, local = #fq_teid{teid = TEID}}) ->
     socket_teid_key(Socket, TEID);
-tunnel_key(remote, #tunnel{socket = Socket, remote = #fq_teid{teid = TEID}}) ->
-    socket_teid_key(Socket, TEID).
+tunnel_key(remote, #tunnel{socket = Socket, remote = FqTEID})
+  when is_record(FqTEID, fq_teid) ->
+    socket_teid_key(Socket, FqTEID).
 
 socket_teid_key(#socket{type = Type} = Socket, TEI) ->
     socket_teid_key(Socket, Type, TEI).

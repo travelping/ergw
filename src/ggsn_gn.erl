@@ -505,7 +505,8 @@ terminate(_Reason, _State, #{context := Context}) ->
 %%% Internal functions
 %%%===================================================================
 
-response(Cmd, #context{remote_control_teid = #fq_teid{teid = TEID}}, Response) ->
+response(Cmd, Context, Response) ->
+    #fq_teid{teid = TEID} = ergw_gsn_lib:tunnel(left, remote, Context),
     {Cmd, TEID, Response}.
 
 response(Cmd, Context, IEs0, #gtp{ie = ReqIEs}) ->
@@ -1029,9 +1030,6 @@ negotiate_qos(ReqPriority, ReqQoSProfileData) ->
 	    {NegPriority, ReqQoSProfileData, QoS}
     end.
 
-update_element_with(Field, Tuple, Fun) ->
-    setelement(Field, Tuple, Fun(element(Field, Tuple))).
-
 set_fq_teid(Id, undefined, Value) ->
     set_fq_teid(Id, #fq_teid{}, Value);
 set_fq_teid(ip, TEID, Value) ->
@@ -1039,19 +1037,16 @@ set_fq_teid(ip, TEID, Value) ->
 set_fq_teid(teid, TEID, Value) ->
     TEID#fq_teid{teid = Value}.
 
-set_fq_teid(Id, Field, Context, Value) ->
-    update_element_with(Field, Context, set_fq_teid(Id, _, Value)).
-
 get_context_from_req(_, #gsn_address{instance = 0, address = CntlIP}, Context) ->
     IP = ergw_gsn_lib:choose_context_ip(left, local, CntlIP, CntlIP, Context),
-    set_fq_teid(ip, #context.remote_control_teid, Context, IP);
+    ergw_gsn_lib:update_remote_tunnel_teid(set_fq_teid(ip, _, IP), Context);
 get_context_from_req(_, #gsn_address{instance = 1, address = DataIP}, Context) ->
     IP = ergw_gsn_lib:choose_context_ip(left, local, DataIP, DataIP, Context),
     ergw_gsn_lib:update_remote_data_teid(set_fq_teid(ip, _, IP), Context);
 get_context_from_req(_, #tunnel_endpoint_identifier_data_i{instance = 0, tei = DataTEI}, Context) ->
     ergw_gsn_lib:update_remote_data_teid(set_fq_teid(teid, _, DataTEI), Context);
 get_context_from_req(_, #tunnel_endpoint_identifier_control_plane{instance = 0, tei = CntlTEI}, Context) ->
-    set_fq_teid(teid, #context.remote_control_teid, Context, CntlTEI);
+    ergw_gsn_lib:update_remote_tunnel_teid(set_fq_teid(teid, _, CntlTEI), Context);
 get_context_from_req(?'Access Point Name', #access_point_name{apn = APN}, Context) ->
     Context#context{apn = APN};
 get_context_from_req(?'IMSI', #international_mobile_subscriber_identity{imsi = IMSI}, Context) ->
@@ -1089,23 +1084,25 @@ copy_ies_to_response(RequestIEs, ResponseIEs0, [H|T]) ->
 	end,
     copy_ies_to_response(RequestIEs, ResponseIEs, T).
 
-send_request(#context{left_tnl = Tunnel,
-		      remote_control_teid =
-			  #fq_teid{
-			     ip = RemoteCntlIP,
-			     teid = RemoteCntlTEI}
-		     },
-	     T3, N3, Type, RequestIEs, ReqInfo) ->
-    Msg = #gtp{version = v1, type = Type, tei = RemoteCntlTEI, ie = RequestIEs},
-    gtp_context:send_request(Tunnel, RemoteCntlIP, ?GTP1c_PORT, T3, N3, Msg, ReqInfo).
+msg(#tunnel{remote = #fq_teid{teid = RemoteCntlTEI}}, Type, RequestIEs) ->
+    #gtp{version = v1, type = Type, tei = RemoteCntlTEI, ie = RequestIEs}.
 
-delete_context(From, TermCause, #{context := Context} = Data) ->
+send_request(Tunnel, DstIP, DstPort, T3, N3, Msg, ReqInfo) ->
+    gtp_context:send_request(Tunnel, DstIP, DstPort, T3, N3, Msg, ReqInfo).
+
+send_request(#tunnel{remote = #fq_teid{ip = RemoteCntlIP}} = Tunnel, T3, N3, Msg, ReqInfo) ->
+    send_request(Tunnel, RemoteCntlIP, ?GTP1c_PORT, T3, N3, Msg, ReqInfo).
+
+send_request(Tunnel, T3, N3, Type, RequestIEs, ReqInfo) ->
+    send_request(Tunnel, T3, N3, msg(Tunnel, Type, RequestIEs), ReqInfo).
+
+delete_context(From, TermCause, #{context := #context{left_tnl = Tunnel} = Context} = Data) ->
     Type = delete_pdp_context_request,
     NSAPI = 5,
     RequestIEs0 = [#nsapi{nsapi = NSAPI},
 		   #teardown_ind{value = 1}],
     RequestIEs = gtp_v1_c:build_recovery(Type, Context, false, RequestIEs0),
-    send_request(Context, ?T3, ?N3, Type, RequestIEs, {From, TermCause}),
+    send_request(Tunnel, ?T3, ?N3, Type, RequestIEs, {From, TermCause}),
     {next_state, shutdown_initiated, Data}.
 
 allocate_ips(APNOpts, SOpts, EUA, DAF, Context) ->
