@@ -623,7 +623,7 @@ update_path_bind(NewContext, _OldContext) ->
 
 init_proxy_context(Socket,
 		   #context{imei = IMEI, context_id = ContextId, version = Version,
-			    control_interface = Interface, state = CState},
+			    state = CState},
 		   #{imsi := IMSI, msisdn := MSISDN, apn := DstAPN}, {_GwNode, PGW}) ->
     APN = ergw_node_selection:expand_apn(DstAPN, IMSI),
     Info = ergw_gtp_socket:info(Socket),
@@ -640,7 +640,6 @@ init_proxy_context(Socket,
        context_id        = ContextId,
 
        version           = Version,
-       control_interface = Interface,
        left_tnl          = ProxyTnl,
        left              = #bearer{interface = 'Core'},
 
