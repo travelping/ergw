@@ -12,8 +12,13 @@
          allowed_methods/2, delete_resource/2,
          content_types_accepted/2]).
 
+-export([trails/0]).
+
 -define(FIELDS_MAPPING, [{accept_new, 'acceptNewRequests'},
 			 {plmn_id, 'plmnId'}]).
+
+trails() ->
+    ergw_http_api_doc:trails().
 
 init(Req, Opts) ->
     {cowboy_rest, Req, Opts}.

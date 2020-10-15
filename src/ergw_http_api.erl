@@ -34,10 +34,13 @@ start_http_listener(Opts) ->
 		    {"/metrics/[:registry]", prometheus_cowboy2_handler, []},
 		    %% 5G SBI APIs
 		    {"/sbi/nbsf-management/v1/pcfBindings", sbi_nbsf_handler, []},
-		    %% serves static files for swagger UI
-		    {"/api/v1/spec/ui", swagger_ui_handler, []},
-		    {"/api/v1/spec/ui/[...]", cowboy_static, {priv_dir, ergw, "static"}}]}
-		 ]),
+		    % Swagger
+		    {"/api-docs", cowboy_swagger_redirect_handler, {priv_file, cowboy_swagger, "swagger/index.html"}},
+		    {"/api-docs/swagger.json", cowboy_swagger_json_handler, #{}},
+		    {"/api-docs/[...]", cowboy_static, {priv_dir, cowboy_swagger, "swagger", [{mimetypes, cow_mimetypes, all}]}}
+		   ]
+		 }]),
+    ok = trails_store(Dispatch),
     SocketOpts = [get_inet(Opts) | maps:to_list(maps:with([port, ip, ipv6_v6only], Opts))],
     TransOpts0 = maps:with([num_acceptors], Opts),
     TransOpts = TransOpts0#{socket_opts => SocketOpts,
@@ -87,3 +90,21 @@ get_inet(#{ip := {_, _, _, _}}) ->
     inet;
 get_inet(#{ip := {_, _, _, _, _, _, _, _}}) ->
     inet6.
+
+trails_store(Dispatch) ->
+    try
+        [{_, _, Modules}] = Dispatch,
+        trails:store(trails:trails(collect_trails(Modules, [])))
+    catch Class:Exception ->
+        ?LOG(error, "Trails Call: [~p:~p/0] catched ~p:~p~n", [?MODULE, ?FUNCTION_NAME, Class, Exception])
+    end.
+
+collect_trails([], Acc) ->
+    Acc;
+collect_trails([{_, _, Module, _} | T], Acc) ->
+    case erlang:function_exported(Module, trails, 0) of
+        true ->
+            collect_trails(T, [Module | Acc]);
+        _ ->
+            collect_trails(T, Acc)
+    end.
