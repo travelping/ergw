@@ -380,18 +380,16 @@ handle_request(ReqKey,
     %% SessionOpts = init_session_qos(ReqQoSProfile, SessionOpts1),
 
     ergw_sx_node:wait_connect(SxConnectId),
-    {UPinfo0, ContextUP} = ergw_gsn_lib:select_upf(Candidates, ContextPreAuth),
-
-    SessionOpts  = ergw_gsn_lib:init_session_ip_opts(UPinfo0, ContextUP, SessionOpts1),
+    {UPinfo, SessionOpts} = ergw_gsn_lib:select_upf(Candidates, SessionOpts1, ContextPreAuth),
 
     {ok, ActiveSessionOpts0, AuthSEvs} =
-	authenticate(ContextUP, Session, SessionOpts, Request),
+	authenticate(ContextPreAuth, Session, SessionOpts, Request),
 
-    {PendingPCtx, NodeCaps, APNOpts, ContextVRF} =
-	ergw_gsn_lib:reselect_upf(Candidates, ActiveSessionOpts0, ContextUP, UPinfo0),
+    {PendingPCtx, NodeCaps, APNOpts, VRF} =
+	ergw_gsn_lib:reselect_upf(Candidates, ActiveSessionOpts0, UPinfo, ContextPreAuth),
 
     {Result, ActiveSessionOpts1, ContextPending1} =
-	allocate_ips(APNOpts, ActiveSessionOpts0, PAA, DAF, ContextVRF),
+	allocate_ips(APNOpts, ActiveSessionOpts0, PAA, DAF, VRF, ContextPreAuth),
     {ContextPending, ActiveSessionOpts} = 
 	add_apn_timeout(APNOpts, ActiveSessionOpts1, ContextPending1),
     ergw_aaa_session:set(Session, ActiveSessionOpts),
@@ -1214,8 +1212,8 @@ delete_context(From, TermCause, #{context := #context{left_tnl = Tunnel}} = Data
     send_request(Tunnel, ?T3, ?N3, Type, RequestIEs, {From, TermCause}),
     {next_state, shutdown_initiated, Data}.
 
-allocate_ips(APNOpts, SOpts, PAA, DAF, Context) ->
-    ergw_gsn_lib:allocate_ips(pdn_alloc(PAA), APNOpts, SOpts, DAF, Context).
+allocate_ips(APNOpts, SOpts, PAA, DAF, VRF, Context) ->
+    ergw_gsn_lib:allocate_ips(pdn_alloc(PAA), APNOpts, SOpts, DAF, VRF, Context).
 
 ppp_ipcp_conf_resp(Verdict, Opt, IPCP) ->
     maps:update_with(Verdict, fun(O) -> [Opt|O] end, [Opt], IPCP).
@@ -1357,7 +1355,7 @@ change_reporting_actions(RequestIEs, IE0) ->
     _IE = change_reporting_action(CRSI, ENBCRSI, RequestIEs, Triggers, IE0).
 
 create_session_response(Result, SessionOpts, RequestIEs, EBI,
-			#context{ms_v4 = MSv4, ms_v6 = MSv6} = Context) ->
+			#context{ms_ip = #ue_ip{v4 = MSv4, v6 = MSv6}} = Context) ->
 
     IE0 = bearer_context(EBI, Context, []),
     IE1 = pdn_pco(SessionOpts, RequestIEs, IE0),

@@ -1073,9 +1073,9 @@ create_session_request_pool_exhausted() ->
     [{doc, "Dynamic IP pool exhausted"}].
 create_session_request_pool_exhausted(Config) ->
     ok = meck:expect(ergw_gsn_lib, allocate_ips,
-		     fun(AllocInfo, APNOpts, SOpts, DualAddressBearerFlag, Context) ->
+		     fun(AllocInfo, APNOpts, SOpts, DualAddressBearerFlag, VRF, Context) ->
 			     try
-				 meck:passthrough([AllocInfo, APNOpts, SOpts, DualAddressBearerFlag, Context])
+				 meck:passthrough([AllocInfo, APNOpts, SOpts, DualAddressBearerFlag, VRF, Context])
 			     catch
 				 throw:#ctx_err{} = CtxErr ->
 				     meck:exception(throw, CtxErr)
@@ -1497,9 +1497,9 @@ pdn_session_request_bearer_types() ->
     [{doc, "Create different IP bearers against APNs with restrictions/preferences"}].
 pdn_session_request_bearer_types(Config) ->
     ok = meck:expect(ergw_gsn_lib, allocate_ips,
-		     fun(AllocInfo, APNOpts, SOpts, DualAddressBearerFlag, Context) ->
+		     fun(AllocInfo, APNOpts, SOpts, DualAddressBearerFlag, VRF, Context) ->
 			     try
-				 meck:passthrough([AllocInfo, APNOpts, SOpts, DualAddressBearerFlag, Context])
+				 meck:passthrough([AllocInfo, APNOpts, SOpts, DualAddressBearerFlag, VRF, Context])
 			     catch
 				 throw:#ctx_err{} = CtxErr ->
 				     meck:exception(throw, CtxErr)
@@ -3994,9 +3994,9 @@ aa_pool_select_fail(Config) ->
 		 'Framed-IPv6-Pool' => <<"pool-C">>},
 
     ok = meck:expect(ergw_gsn_lib, reselect_upf,
-		     fun(Candidates, SOpts, Ctx, UPinfo) ->
+		     fun(Candidates, Session, UPinfo, Ctx) ->
 			     try
-				 meck:passthrough([Candidates, SOpts, Ctx, UPinfo])
+				 meck:passthrough([Candidates, Session, UPinfo, Ctx])
 			     catch
 				 throw:#ctx_err{} = CtxErr ->
 				     meck:exception(throw, CtxErr)

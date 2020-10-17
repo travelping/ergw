@@ -125,15 +125,17 @@ maybe_ip(_,_) -> undefined.
 init([Node, InVRF, IP4, IP6, #{apn := APN} = _SxOpts]) ->
     process_flag(trap_exit, true),
 
+    UeIP = #ue_ip{v4 = maybe_ip(IP4, 32), v6 = maybe_ip(IP6, 128)},
     Context0 =
 	#tdf_ctx{
 	   left = #bearer{interface = 'Access'},
 	   right = #bearer{interface = 'SGi-LAN'},
 
-	   ms_v4 = maybe_ip(IP4, 32),
-	   ms_v6 = maybe_ip(IP6, 128)
+	   ms_ip = UeIP
 	  },
-    Context = ergw_gsn_lib:set_ue_ip(left, remote, InVRF, Context0),
+    Context = ergw_gsn_lib:set_ue_ip(
+		left, remote, InVRF, UeIP,
+		ergw_gsn_lib:set_ue_ip(right, local, UeIP, Context0)),
 
     {ok, Session} = ergw_aaa_session_sup:new_session(self(), to_session([])),
     SessionOpts = ergw_aaa_session:get(Session),
@@ -355,7 +357,7 @@ start_session(#data{apn = APN, context = Context0, dp_node = Node,
 
     {ok, PendingPCtx, NodeCaps} = ergw_sx_node:attach(Node, Context0),
     VRF = ergw_gsn_lib:select_vrf(NodeCaps, APN),
-    PendingContext = ergw_gsn_lib:set_ue_ip(right, local, VRF, Context0),
+    PendingContext = ergw_gsn_lib:set_bearer_vrf(right, VRF, Context0),
 
     Now = erlang:monotonic_time(),
     SOpts = #{now => Now},
@@ -413,7 +415,7 @@ start_session(#data{apn = APN, context = Context0, dp_node = Node,
 
     Data#data{context = Context, pfcp = PCtx, pcc = PCC4}.
 
-init_session(#data{context = Context}) ->
+init_session(#data{context = #tdf_ctx{ms_ip = UeIP}}) ->
     {MCC, MNC} = ergw:get_plmn_id(),
     Opts0 =
 	#{'Username'		=> <<"ergw">>,
@@ -423,8 +425,8 @@ init_session(#data{context = Context}) ->
 	  '3GPP-GGSN-MCC-MNC'	=> <<MCC/binary, MNC/binary>>
 	 },
     Opts1 =
-	case Context of
-	    #tdf_ctx{ms_v4 = IP4} when IP4 /= undefined ->
+	case UeIP of
+	    #ue_ip{v4 = IP4} when IP4 /= undefined ->
 		IP4addr = ergw_inet:bin2ip(ergw_ip_pool:addr(IP4)),
 		Opts0#{
 		       'Framed-IP-Address' => IP4addr,
@@ -432,8 +434,8 @@ init_session(#data{context = Context}) ->
 	    _ ->
 		Opts0
 	end,
-    case Context of
-	#tdf_ctx{ms_v6 = IP6} when IP6 /= undefined ->
+    case UeIP of
+	#ue_ip{v6 = IP6} when IP6 /= undefined ->
 	    IP6addr = ergw_inet:bin2ip(ergw_ip_pool:addr(IP6)),
 	    Opts1#{'Framed-IPv6-Prefix' => IP6addr,
 		   'Requested-IPv6-Prefix' => IP6addr};
@@ -541,5 +543,5 @@ vrf_keys(#tdf_ctx{left = #bearer{vrf = InVrf}, right = #bearer{vrf = OutVrf}}, I
 vrf_keys(_, _) ->
     [].
 
-context2keys(#tdf_ctx{ms_v4 = IP4, ms_v6 = IP6} = Ctx) ->
+context2keys(#tdf_ctx{ms_ip = #ue_ip{v4 = IP4, v6 = IP6}} = Ctx) ->
     vrf_keys(Ctx, IP4) ++ vrf_keys(Ctx, IP6).

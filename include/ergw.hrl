@@ -108,18 +108,12 @@
 	  'Idle-Timeout'  :: non_neg_integer() | infinity,
 
 	  version                :: 'v1' | 'v2',
-	  vrf                    :: atom(),
 	  pdn_type               :: 'undefined' | 'IPv4' | 'IPv6' | 'IPv4v6' | 'Non-IP',
-	  ipv4_pool              :: 'undefined' | binary(),
-	  ipv6_pool              :: 'undefined' | binary(),
-
 	  left_tnl               :: 'undefined' | #tunnel{},
-
 	  left                   :: 'undefined' | #bearer{},
 	  right                  :: 'undefined' | #bearer{},
 
-	  ms_v4                  :: inet:ip4_address(),
-	  ms_v6                  :: inet:ip6_address(),
+	  ms_ip                  :: #ue_ip{},
 	  dns_v6                 :: [inet:ip6_address()],
 	  state                  :: term(),
 	  restrictions = []      :: [{'v1', boolean()} |
@@ -130,8 +124,7 @@
 	  left                   :: 'undefined' | #bearer{},
 	  right                  :: 'undefined' | #bearer{},
 
-	  ms_v4                  :: inet:ip4_address(),
-	  ms_v6                  :: inet:ip6_address()
+	  ms_ip                  :: #ue_ip{}
 	 }).
 
 -record(gtp_socket_info, {

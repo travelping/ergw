@@ -581,23 +581,19 @@ context2keys(#context{
 		apn                 = APN,
 		context_id          = ContextId,
 		left_tnl            = #tunnel{socket = Socket} = LeftTnl,
-		vrf                 = #vrf{name = VRF},
-		ms_v4               = MSv4,
-		ms_v6               = MSv6
+		right               = Bearer
 	       }) ->
     ordsets:from_list(
       [tunnel_key(local, LeftTnl), tunnel_key(remote, LeftTnl)]
       ++ [socket_key(Socket, ContextId) || ContextId /= undefined]
-      ++ [#bsf{dnn = APN, ip_domain = VRF, ip = ergw_ip_pool:ip(MSv4)} || MSv4 /= undefined]
-      ++ [#bsf{dnn = APN, ip_domain = VRF,
-	       ip = ergw_inet:ipv6_prefix(ergw_ip_pool:ip(MSv6))} || MSv6 /= undefined]);
-context2keys(#context{
-		context_id          = ContextId,
-		left_tnl            = #tunnel{socket = Socket} = LeftTnl
-	       }) ->
-    ordsets:from_list(
-      [tunnel_key(local, LeftTnl), tunnel_key(remote, LeftTnl)]
-      ++ [socket_key(Socket, ContextId) || ContextId /= undefined]).
+      ++ bsf_keys(APN, Bearer)).
+
+bsf_keys(APN, #bearer{vrf = VRF, local = #ue_ip{v4 = IPv4, v6 = IPv6}}) ->
+    [#bsf{dnn = APN, ip_domain = VRF, ip = ergw_ip_pool:ip(IPv4)} || IPv4 /= undefined] ++
+	[#bsf{dnn = APN, ip_domain = VRF,
+	      ip = ergw_inet:ipv6_prefix(ergw_ip_pool:ip(IPv6))} || IPv6 /= undefined];
+bsf_keys(_, _) ->
+    [].
 
 socket_key(#socket{name = Name}, Key) ->
     {Name, Key};
