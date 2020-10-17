@@ -34,8 +34,7 @@
 	 pcc_events_to_charging_rule_report/1]).
 -export([pcc_ctx_has_rules/1]).
 -export([apn/2, select_vrf/2,
-	 init_session_ip_opts/3,
-	 allocate_ips/5, release_context_ips/1]).
+	 allocate_ips/6, release_context_ips/1]).
 -export([tunnel/2, tunnel/3,
 	 init_tunnel/3,
 	 assign_tunnel_teid/3,
@@ -49,12 +48,13 @@
 	 set_remote_data_teid/3,
 	 update_remote_data_teid/2,
 	 unset_remote_data_teid/1,
-	 set_ue_ip/1,
-	 set_ue_ip/3,
+	 set_bearer_vrf/3,
+	 %% set_ue_ip/2,
 	 set_ue_ip/4,
+	 set_ue_ip/5,
 	 unset_ue_ip/1]).
 
--export([select_upf/2, reselect_upf/4]).
+-export([select_upf/3, reselect_upf/4]).
 
 -include_lib("kernel/include/logger.hrl").
 -include_lib("parse_trans/include/exprecs.hrl").
@@ -1566,33 +1566,35 @@ select(Method, L1, L2) when is_list(L1), is_list(L2) ->
 select_vrf({AvaVRFs, _AvaPools}, APN) ->
     select(random, maps:get(vrfs, apn(APN)), AvaVRFs).
 
-%% select_upf/2
-select_upf(Candidates, #context{apn = APN} = Ctx) ->
+%% select_upf/3
+select_upf(Candidates, Session0, #context{apn = APN} = Ctx) ->
     Opts = apn_opts(APN, Ctx),
-    {Pid, NodeCaps, VRF, Pools} =
+    {_, _, _, Pools} = Node =
 	select_by_caps(Candidates, Opts, [], Ctx),
 
     %% TBD: smarter v4/v6 pool select
     Pool = select(random, Pools),
+    Session =
+	init_session_ue_ifid(
+	  Opts, Session0#{'Framed-Pool' => Pool, 'Framed-IPv6-Pool' => Pool}),
 
-    {{Pid, NodeCaps, Opts}, Ctx#context{vrf = VRF, ipv4_pool = Pool, ipv6_pool = Pool}}.
+    {{Node, Opts, Pool}, Session}.
 
 %% reselect_upf/4
-reselect_upf(Candidates, SOpts, Ctx, UPinfo0) ->
-    IP4 = maps:get('Framed-Pool', SOpts, Ctx#context.ipv4_pool),
-    IP6 = maps:get('Framed-IPv6-Pool', SOpts, Ctx#context.ipv6_pool),
-    reselect_upf_(Candidates, Ctx, Ctx#context{ipv4_pool = IP4, ipv6_pool = IP6}, UPinfo0).
+reselect_upf(Candidates, Session, {Node, Opts, Pool}, Ctx) ->
+    IP4 = maps:get('Framed-Pool', Session, undefined),
+    IP6 = maps:get('Framed-IPv6-Pool', Session, undefined),
 
-reselect_upf_(_, Ctx, Ctx, {Pid, NodeCaps, APNOpts}) ->
-    {ok, PCtx, _} = ergw_sx_node:attach(Pid, Ctx),
-    {PCtx, NodeCaps, APNOpts, Ctx};
-
-reselect_upf_(Candidates, _, #context{ipv4_pool = IP4, ipv6_pool = IP6} = Ctx, {_, _, Opts}) ->
-    Pools = ordsets:from_list([IP4 || is_binary(IP4)] ++ [IP6 || is_binary(IP6)]),
     {Pid, NodeCaps, VRF, _} =
-	select_by_caps(Candidates, Opts, Pools, Ctx),
+	if (IP4 /= Pool orelse IP6 /= Pool) ->
+		Pools = ordsets:from_list([IP4 || is_binary(IP4)]
+					  ++ [IP6 || is_binary(IP6)]),
+		select_by_caps(Candidates, Opts, Pools, Ctx);
+	   true ->
+		Node
+	end,
     {ok, PCtx, _} = ergw_sx_node:attach(Pid, Ctx),
-    {PCtx, NodeCaps, Opts, Ctx#context{vrf = VRF}}.
+    {PCtx, NodeCaps, Opts, VRF}.
 
 %% common_caps/3
 common_caps({WVRFs, WPools}, {HVRFs, HPools}, true) ->
@@ -1661,78 +1663,63 @@ normalize_ipv6(IP) when ?IS_IPv6(IP) ->
 normalize_ipv6(undefined) ->
     undefined.
 
-init_session_pool(#context{ipv4_pool = undefined, ipv6_pool = undefined}, Session) ->
-    Session;
-init_session_pool(#context{ipv4_pool = IPv4Pool, ipv6_pool = undefined}, Session) ->
-    Session#{'Framed-Pool' => IPv4Pool};
-init_session_pool(#context{ipv4_pool = undefined, ipv6_pool = IPv6Pool}, Session) ->
-    Session#{'Framed-IPv6-Pool' => IPv6Pool};
-init_session_pool(#context{ipv4_pool = IPv4Pool, ipv6_pool = IPv6Pool}, Session) ->
-    Session#{'Framed-Pool' => IPv4Pool, 'Framed-IPv6-Pool' => IPv6Pool}.
-
-init_session_ue_ifid({_, _, APNOpts}, #{'3GPP-PDP-Type' := Type} = Session)
+init_session_ue_ifid(APNOpts, #{'3GPP-PDP-Type' := Type} = Session)
   when Type =:= 'IPv6'; Type =:= 'IPv4v6' ->
     ReqIPv6 = maps:get('Requested-IPv6-Prefix', Session, {?ZERO_IPv6, 64}),
     IfId = ue_interface_id(ReqIPv6, APNOpts),
     Session#{'Framed-Interface-Id' => IfId};
-init_session_ue_ifid(_UPinfo, Session) ->
+init_session_ue_ifid(_, Session) ->
     Session.
 
-init_session_ip_opts(UPinfo, Context, Session0) ->
-    Session = init_session_pool(Context, Session0),
-    init_session_ue_ifid(UPinfo, Session).
-
-request_alloc({ReqIPv4, PrefixLen}, Opts, #context{ipv4_pool = Pool})
+request_alloc({ReqIPv4, PrefixLen}, #{'Framed-Pool' := Pool} = Opts)
   when ?IS_IPv4(ReqIPv4) ->
     Request = case ReqIPv4 of
 		  ?ZERO_IPv4 -> ipv4;
 		  _          -> ReqIPv4
 	      end,
     {Pool, Request, PrefixLen, Opts};
-request_alloc({ReqIPv6, PrefixLen}, Opts, #context{ipv6_pool = Pool})
+request_alloc({ReqIPv6, PrefixLen}, #{'Framed-Pool' := Pool} = Opts)
   when ?IS_IPv6(ReqIPv6) ->
     Request = case ReqIPv6 of
 		  ?ZERO_IPv6 -> ipv6;
 		  _          -> ReqIPv6
 	      end,
     {Pool, Request, PrefixLen, Opts};
-request_alloc(_ReqIP, _Opts, _Context) ->
+request_alloc(_ReqIP, _Opts) ->
     skip.
 
-request_ip_alloc(ReqIPs, Opts,
-		 #context{left_tnl = #tunnel{local = #fq_teid{teid = TEI}}} = Context) ->
-    Req = [request_alloc(IP, Opts, Context) || IP <- ReqIPs],
+request_ip_alloc(ReqIPs, Opts,# tunnel{local = #fq_teid{teid = TEI}}) ->
+    Req = [request_alloc(IP, Opts) || IP <- ReqIPs],
     ergw_ip_pool:send_request(TEI, Req).
 
 ip_alloc_result(skip, Acc) ->
     Acc;
-ip_alloc_result({error, empty}, {Context, _}) ->
-    throw(?CTX_ERR(?FATAL, all_dynamic_addresses_are_occupied, Context));
-ip_alloc_result({error, taken}, {Context, _}) ->
-    throw(?CTX_ERR(?FATAL, system_error, Context));
+ip_alloc_result({error, empty}, {UeIP, _}) ->
+    throw(?CTX_ERR(?FATAL, all_dynamic_addresses_are_occupied, UeIP));
+ip_alloc_result({error, taken}, {UeIP, _}) ->
+    throw(?CTX_ERR(?FATAL, system_error, UeIP));
 ip_alloc_result({error, undefined}, Acc) ->
     %% pool not defined
     Acc;
 ip_alloc_result({error, Result}, Acc) ->
     ?LOG(error, "IP alloc failed with ~p", [Result]),
     Acc;
-ip_alloc_result(AI, {Context, Opts0}) ->
+ip_alloc_result(AI, {UeIP, Opts0}) ->
     case ergw_ip_pool:ip(AI) of
 	{IP, _} when ?IS_IPv4(IP) ->
 	    Opts1 = maps:merge(Opts0, ergw_ip_pool:opts(AI)),
 	    Opts = maps:put('Framed-IP-Address', IP, Opts1),
-	    {set_ue_ip(Context#context{ms_v4 = AI}), Opts};
+	    {UeIP#ue_ip{v4 = AI}, Opts};
 	{IP, _} = IPv6 when ?IS_IPv6(IP) ->
 	    Opts1 = maps:merge(Opts0, ergw_ip_pool:opts(AI)),
-	    Opts = Opts1#{'Framed-IPv6-Prefix' => ergw_inet:ipv6_prefix(IPv6),
-			  'Framed-Interface-Id' => ergw_inet:ipv6_interface_id(IPv6)},
-	    {set_ue_ip(Context#context{ms_v6 = AI}), Opts}
+	    Opts = Opts1#{'Framed-IPv6-Prefix' => ergw_inet:ipv6_prefix(IPv6)},
+	    {UeIP#ue_ip{v6 = AI}, Opts}
     end.
 
-wait_ip_alloc_results(ReqIds, Opts0, Context) ->
+wait_ip_alloc_results(ReqIds, Opts0) ->
     IPOpts = ['Framed-IP-Address', 'Framed-IPv6-Prefix', 'Framed-Interface-Id'],
     Opts = maps:without(IPOpts, Opts0),
-    lists:foldl(fun ip_alloc_result/2, {Context, Opts}, ergw_ip_pool:wait_response(ReqIds)).
+    lists:foldl(fun ip_alloc_result/2, {#ue_ip{}, Opts}, ergw_ip_pool:wait_response(ReqIds)).
 
 ue_interface_id({{_,_,_,_,A,B,C,D} = ReqIP, _}, _) when ReqIP =/= ?ZERO_IPv6 ->
     {0,0,0,0,A,B,C,D};
@@ -1788,9 +1775,22 @@ session_ip_alloc(_, _, SessionOpts, _, {PDNType, ReqMSv4, ReqMSv6}) ->
     MSv6 = session_ipv6_alloc(SessionOpts, ReqMSv6),
     {PDNType, MSv4, MSv6}.
 
-allocate_ips_result(ReqPDNType, Bearer, #context{ms_v4 = MSv4, ms_v6 = MSv6} = Context) ->
+allocate_ips_result(ReqPDNType, Bearer, #ue_ip{v4 = MSv4, v6 = MSv6}, Context) ->
     allocate_ips_result(ReqPDNType, Bearer, ergw_ip_pool:ip(MSv4),
 			ergw_ip_pool:ip(MSv6), Context).
+
+%% allocate_ips/4
+allocate_ips(ReqIPs, SOpts0, VRF, #context{left_tnl = Tunnel} = Context0) ->
+    ReqIds = request_ip_alloc(ReqIPs, SOpts0, Tunnel),
+    try
+	{UeIP, SOpts} = wait_ip_alloc_results(ReqIds, SOpts0),
+	Context = set_ue_ip(right, local, VRF, UeIP, Context0#context{ms_ip = UeIP}),
+	{UeIP, SOpts, Context}
+    catch
+	throw:#ctx_err{context = CtxUeIP} = CtxErr ->
+	    ErrCtx = set_ue_ip(right, local, VRF, CtxUeIP, Context0#context{ms_ip = CtxUeIP}),
+	    throw(CtxErr#ctx_err{context = ErrCtx})
+    end.
 
 allocate_ips_result('Non-IP', _, _, _, _) -> {request_accepted, 'Non-IP'};
 allocate_ips_result('IPv4', _, IPv4, _, _) when IPv4 /= undefined ->
@@ -1811,22 +1811,21 @@ allocate_ips_result('IPv4v6', _, undefined, IPv6, _) when IPv6 /= undefined ->
 allocate_ips_result(_, _, _, _, Context) ->
     throw(?CTX_ERR(?FATAL, preferred_pdn_type_not_supported, Context)).
 
-%% allocate_ips/5
+%% allocate_ips/6
 allocate_ips(AllocInfo,
 	     #{bearer_type := Bearer, prefered_bearer_type := PrefBearer} = APNOpts,
-	     SOpts0, DualAddressBearerFlag, Context0) ->
+	     SOpts0, DualAddressBearerFlag, VRF, Context0) ->
     {ReqPDNType, ReqMSv4, ReqMSv6} =
 	session_ip_alloc(Bearer, PrefBearer, SOpts0, DualAddressBearerFlag, AllocInfo),
 
     SOpts1 = maps:merge(SOpts0, maps:with(?APNOpts, APNOpts)),
+    SOpts2 = init_session_ue_ifid(APNOpts, SOpts1),
 
-    ReqIPs = [normalize_ipv4(ReqMSv4),
-	      normalize_ipv6(ReqMSv6)],
-    ReqIds = request_ip_alloc(ReqIPs, SOpts1, Context0),
-    {Context, SOpts2} = wait_ip_alloc_results(ReqIds, SOpts1, Context0),
+    ReqIPs = [normalize_ipv4(ReqMSv4), normalize_ipv6(ReqMSv6)],
+    {UeIP, SOpts3, Context} = allocate_ips(ReqIPs, SOpts2, VRF, Context0),
 
-    {Result, PDNType} = allocate_ips_result(ReqPDNType, Bearer, Context),
-    SOpts = maps:put('3GPP-PDP-Type', PDNType, SOpts2),
+    {Result, PDNType} = allocate_ips_result(ReqPDNType, Bearer, UeIP, Context),
+    SOpts = init_session_ue_ifid(APNOpts, SOpts3),
 
     DNS = if PDNType =:= 'IPv6' orelse PDNType =:= 'IPv4v6' ->
 		  maps:get('DNS-Server-IPv6-Address', SOpts, []) ++          %% RFC 6911
@@ -1837,9 +1836,11 @@ allocate_ips(AllocInfo,
     {Result, SOpts, Context#context{pdn_type = PDNType, dns_v6 = DNS}}.
 
 %% release_context_ips/1
-release_context_ips(#context{ms_v4 = MSv4, ms_v6 = MSv6} = Context) ->
+release_context_ips(#context{ms_ip = #ue_ip{v4 = MSv4, v6 = MSv6}} = Context) ->
     ergw_ip_pool:release([MSv4, MSv6]),
-    unset_ue_ip(Context#context{ms_v4 = undefined, ms_v6 = undefined}).
+    unset_ue_ip(Context#context{ms_ip = undefined});
+release_context_ips(#context{ms_ip = _IP} = Context) ->
+    Context.
 
 %%%===================================================================
 %%% Bearer helpers
@@ -1995,23 +1996,25 @@ update_ue_ip(CtxSide, BearerSide, VRF, Fun, Ctx) ->
 	      update_field_with(BearerSide, Bearer#bearer{vrf = VRF}, Fun)
       end).
 
-%% set_ue_ip/1
-set_ue_ip(Ctx) ->
-    set_ue_ip(right, local, Ctx).
+%% set_bearer_vrf/3,
+set_bearer_vrf(CtxSide, VRF, Ctx) ->
+    update_field_with(
+      context_field(bearer, CtxSide), Ctx,
+      fun(Bearer) -> Bearer#bearer{vrf = VRF} end).
 
-%% set_ue_ip/3
-set_ue_ip(CtxSide, BearerSide, #context{vrf = #vrf{name = VRF}} = Ctx) ->
-    set_ue_ip(CtxSide, BearerSide, VRF, Ctx).
+%% %% set_ue_ip/2
+%% set_ue_ip(VRF, Ctx) ->
+%%     set_ue_ip(right, local, VRF, Ctx).
 
 %% set_ue_ip/4
-set_ue_ip(CtxSide, BearerSide, VRF, Ctx) ->
-    update_ue_ip(CtxSide, BearerSide, VRF, fun(_) -> set_ue_ip_f(Ctx) end, Ctx).
+set_ue_ip(CtxSide, BearerSide, UeIP, Ctx) when is_record(UeIP, ue_ip) ->
+    update_field_with(context_field(bearer, CtxSide), Ctx, '#set-'([{BearerSide, UeIP}], _)).
 
-%% set_ue_ip_f/1
-set_ue_ip_f(#context{ms_v4 = IPv4, ms_v6 = IPv6}) ->
-    #ue_ip{v4 = IPv4, v6 = IPv6};
-set_ue_ip_f(#tdf_ctx{ms_v4 = IPv4, ms_v6 = IPv6}) ->
-    #ue_ip{v4 = IPv4, v6 = IPv6}.
+%% set_ue_ip/5
+set_ue_ip(CtxSide, BearerSide, #vrf{name = VRF}, UeIP, Ctx) ->
+    update_ue_ip(CtxSide, BearerSide, VRF, fun(_) -> UeIP end, Ctx);
+set_ue_ip(CtxSide, BearerSide, VRF, UeIP, Ctx) when is_binary(VRF) ->
+    update_ue_ip(CtxSide, BearerSide, VRF, fun(_) -> UeIP end, Ctx).
 
 %% unset_ue_ip/1
 unset_ue_ip(Ctx) ->
@@ -2061,7 +2064,8 @@ ip_pdu(Data, _Context, _PCtx) ->
 %% IPv6 Router Solicitation
 icmpv6(TC, FlowLabel, _SrcAddr, ?'IPv6 All Routers LL',
        <<?'ICMPv6 Router Solicitation':8, _Code:8, _CSum:16, _/binary>>,
-       #context{left = Bearer, ms_v6 = MSv6, dns_v6 = DNSv6}, PCtx) ->
+       #context{left = Bearer, right = #bearer{local = #ue_ip{v6 = MSv6}},
+		dns_v6 = DNSv6}, PCtx) ->
     IPv6 = ergw_ip_pool:ip(MSv6),
     {Prefix, PLen} = ergw_inet:ipv6_interface_id(IPv6, ?NULL_INTERFACE_ID),
 

@@ -112,12 +112,12 @@ context2binding(imsi, #context{imsi = IMSI}, B) ->
     B#{supi => <<"imsi-", IMSI/binary>>};
 context2binding(msisdn, #context{msisdn = MSISDN}, B) ->
     B#{gpsi => <<"msisdn-", MSISDN/binary>>};
-context2binding(vrf, #context{vrf = #vrf{name = VRF}}, B) ->
+context2binding(vrf, #context{right = #bearer{local = #ue_ip{}, vrf = VRF}}, B) ->
     B#{ipDomain =>
 	   iolist_to_binary(lists:join($. , [ Part || <<Len:8, Part:Len/bytes>> <= VRF ]))};
-context2binding(ms_v4, #context{ms_v4 = AI}, B) when AI /= undefined ->
+context2binding(ms_v4, #context{ms_ip = #ue_ip{v4 = AI}}, B) when AI /= undefined ->
     B#{'ipv4Addr' => iolist_to_binary(inet:ntoa(ergw_ip_pool:addr(AI)))};
-context2binding(ms_v6, #context{ms_v6 = AI}, B) when AI /= undefined ->
+context2binding(ms_v6, #context{ms_ip = #ue_ip{v6 = AI}}, B) when AI /= undefined ->
     {IP, Len} = ergw_ip_pool:ip(AI),
     B#{'ipv6Prefix' => iolist_to_binary([inet:ntoa(IP), $/, integer_to_list(Len)])};
 context2binding(_, _, B) ->

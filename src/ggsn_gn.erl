@@ -347,18 +347,16 @@ handle_request(ReqKey,
     SessionOpts2 = init_session_qos(IEs, SessionOpts1),
 
     ergw_sx_node:wait_connect(SxConnectId),
-    {UPinfo0, ContextUP} = ergw_gsn_lib:select_upf(Candidates, ContextPreAuth),
-
-    SessionOpts  = ergw_gsn_lib:init_session_ip_opts(UPinfo0, ContextUP, SessionOpts2),
+    {UPinfo, SessionOpts} = ergw_gsn_lib:select_upf(Candidates, SessionOpts2, ContextPreAuth),
 
     {ok, ActiveSessionOpts0, AuthSEvs} =
-	authenticate(ContextUP, Session, SessionOpts, Request),
+	authenticate(ContextPreAuth, Session, SessionOpts, Request),
 
-    {PendingPCtx, NodeCaps, APNOpts, ContextVRF} =
-	ergw_gsn_lib:reselect_upf(Candidates, ActiveSessionOpts0, ContextUP, UPinfo0),
+    {PendingPCtx, NodeCaps, APNOpts, VRF} =
+	ergw_gsn_lib:reselect_upf(Candidates, ActiveSessionOpts0, UPinfo, ContextPreAuth),
 
     {Result, ActiveSessionOpts1, ContextPending1} =
-	allocate_ips(APNOpts, ActiveSessionOpts0, EUA, DAF, ContextVRF),
+	allocate_ips(APNOpts, ActiveSessionOpts0, EUA, DAF, VRF, ContextPreAuth),
     {ContextPending, ActiveSessionOpts} =
 	add_apn_timeout(APNOpts, ActiveSessionOpts1, ContextPending1),
     ergw_aaa_session:set(Session, ActiveSessionOpts),
@@ -1105,8 +1103,8 @@ delete_context(From, TermCause, #{context := #context{left_tnl = Tunnel}} = Data
     send_request(Tunnel, ?T3, ?N3, Type, RequestIEs, {From, TermCause}),
     {next_state, shutdown_initiated, Data}.
 
-allocate_ips(APNOpts, SOpts, EUA, DAF, Context) ->
-    ergw_gsn_lib:allocate_ips(pdp_alloc(EUA), APNOpts, SOpts, DAF, Context).
+allocate_ips(APNOpts, SOpts, EUA, DAF, VRF, Context) ->
+    ergw_gsn_lib:allocate_ips(pdp_alloc(EUA), APNOpts, SOpts, DAF, VRF, Context).
 
 ppp_ipcp_conf_resp(Verdict, Opt, IPCP) ->
     maps:update_with(Verdict, fun(O) -> [Opt|O] end, [Opt], IPCP).
@@ -1194,7 +1192,7 @@ change_reporting_actions(#gtp{ext_hdr = ExtHdr}, IEs) ->
     _IE = change_reporting_action(CRSI, Triggers, IEs).
 
 create_pdp_context_response(Result, SessionOpts, #gtp{ie = RequestIEs} = Request,
-			    #context{ms_v4 = MSv4, ms_v6 = MSv6} = Context) ->
+			    #context{ms_ip = #ue_ip{v4 = MSv4, v6 = MSv6}} = Context) ->
     IE0 = [Result,
 	   #reordering_required{required = no},
 	   context_charging_id(Context),

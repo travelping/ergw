@@ -806,9 +806,9 @@ create_pdp_context_request_pool_exhausted() ->
     [{doc, "Dynamic IP pool exhausted"}].
 create_pdp_context_request_pool_exhausted(Config) ->
     ok = meck:expect(ergw_gsn_lib, allocate_ips,
-		     fun(AllocInfo, APNOpts, SOpts, DualAddressBearerFlag, Context) ->
+		     fun(AllocInfo, APNOpts, SOpts, DualAddressBearerFlag, VRF, Context) ->
 			     try
-				 meck:passthrough([AllocInfo, APNOpts, SOpts, DualAddressBearerFlag, Context])
+				 meck:passthrough([AllocInfo, APNOpts, SOpts, DualAddressBearerFlag, VRF, Context])
 			     catch
 				 throw:#ctx_err{} = CtxErr ->
 				     meck:exception(throw, CtxErr)
@@ -1059,9 +1059,9 @@ pdp_context_request_bearer_types() ->
 
 pdp_context_request_bearer_types(Config) ->
     ok = meck:expect(ergw_gsn_lib, allocate_ips,
-		     fun(AllocInfo, APNOpts, SOpts, DualAddressBearerFlag, Context) ->
+		     fun(AllocInfo, APNOpts, SOpts, DualAddressBearerFlag, VRF, Context) ->
 			     try
-				 meck:passthrough([AllocInfo, APNOpts, SOpts, DualAddressBearerFlag, Context])
+				 meck:passthrough([AllocInfo, APNOpts, SOpts, DualAddressBearerFlag, VRF, Context])
 			     catch
 				 throw:#ctx_err{} = CtxErr ->
 				     meck:exception(throw, CtxErr)

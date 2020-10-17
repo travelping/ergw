@@ -82,12 +82,7 @@ ue_ip_address(Direction, #ue_ip{v4 = undefined, v6 = IPv6})
 ue_ip_address(Direction, #ue_ip{v4 = IPv4, v6 = IPv6})
   when IPv4 /= undefined, IPv6 /= undefined ->
     #ue_ip_address{type = Direction, ipv4 = alloc_info_addr(IPv4),
-		   ipv6 = alloc_info_addr(IPv6)};
-
-ue_ip_address(Direction, #tdf_ctx{ms_v4 = MSv4}) when MSv4 /= undefined ->
-    #ue_ip_address{type = Direction, ipv4 = alloc_info_addr(MSv4)};
-ue_ip_address(Direction, #tdf_ctx{ms_v6 = MSv6}) when MSv6 /= undefined ->
-    #ue_ip_address{type = Direction, ipv6 = alloc_info_addr(MSv6)}.
+		   ipv6 = alloc_info_addr(IPv6)}.
 
 source_interface(Name)
   when is_atom(Name) ->
