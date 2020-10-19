@@ -357,8 +357,12 @@ handle_request(ReqKey,
 
     {Result, ActiveSessionOpts1, ContextPending1} =
 	allocate_ips(APNOpts, ActiveSessionOpts0, EUA, DAF, VRF, ContextPreAuth),
-    {ContextPending, ActiveSessionOpts} =
+    {ContextPending2, ActiveSessionOpts} =
 	add_apn_timeout(APNOpts, ActiveSessionOpts1, ContextPending1),
+
+    Context = ergw_gsn_lib:assign_local_data_teid(PendingPCtx, NodeCaps, ContextPending2),
+    gtp_context:remote_context_register_new(Context),
+
     ergw_aaa_session:set(Session, ActiveSessionOpts),
 
     Now = erlang:monotonic_time(),
@@ -368,7 +372,7 @@ handle_request(ReqKey,
 	       'Bearer-Operation' => ?'DIAMETER_GX_BEARER-OPERATION_ESTABLISHMENT'},
 
     {ok, _, GxEvents} =
-	ccr_initial(ContextPending, Session, gx, GxOpts, SOpts, Request),
+	ccr_initial(Context, Session, gx, GxOpts, SOpts, Request),
 
     RuleBase = ergw_charging:rulebase(),
     {PCC1, PCCErrors1} =
@@ -376,7 +380,7 @@ handle_request(ReqKey,
 
     case ergw_gsn_lib:pcc_ctx_has_rules(PCC1) of
 	false ->
-	    ?ABORT_CTX_REQUEST(ContextPending, Request, create_pdp_context_response,
+	    ?ABORT_CTX_REQUEST(Context, Request, create_pdp_context_response,
 			       user_authentication_failed);
 	true ->
 	    ok
@@ -387,7 +391,7 @@ handle_request(ReqKey,
     GyReqServices = #{credits => CreditsAdd},
 
     {ok, GySessionOpts, GyEvs} =
-	ccr_initial(ContextPending, Session, gy, GyReqServices, SOpts, Request),
+	ccr_initial(Context, Session, gy, GyReqServices, SOpts, Request),
     ?LOG(debug, "GySessionOpts: ~p", [GySessionOpts]),
     ?LOG(debug,"Initial GyEvs: ~p", [GyEvs]),
 
@@ -397,9 +401,9 @@ handle_request(ReqKey,
     {PCC2, PCCErrors2} = ergw_gsn_lib:gy_events_to_pcc_ctx(Now, GyEvs, PCC1),
     PCC3 = ergw_gsn_lib:session_events_to_pcc_ctx(AuthSEvs, PCC2),
     PCC4 = ergw_gsn_lib:session_events_to_pcc_ctx(RfSEvs, PCC3),
-    {Context, PCtx} =
-	ergw_gsn_lib:create_sgi_session(PendingPCtx, NodeCaps, PCC4, ContextPending),
-    gtp_context:remote_context_register_new(Context),
+
+    #context{left = Left, right = Right} = Context,
+    PCtx = ergw_gsn_lib:create_sgi_session(PendingPCtx, PCC4, Left, Right, Context),
 
     GxReport = ergw_gsn_lib:pcc_events_to_charging_rule_report(PCCErrors1 ++ PCCErrors2),
     if map_size(GxReport) /= 0 ->

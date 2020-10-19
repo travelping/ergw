@@ -249,6 +249,7 @@ handle_event(info, #aaa_request{procedure = {gx, 'RAR'},
     Now = erlang:monotonic_time(),
     ReqOps = #{now => Now},
 
+    #tdf_ctx{left = Left, right = Right} = Context,
     RuleBase = ergw_charging:rulebase(),
 
 %%% step 1a:
@@ -261,7 +262,7 @@ handle_event(info, #aaa_request{procedure = {gx, 'RAR'},
 %%% step 2
 %%% step 3:
     {PCtx1, UsageReport} =
-	ergw_gsn_lib:modify_sgi_session(PCC1, [], #{}, Context, PCtx0),
+	ergw_gsn_lib:modify_sgi_session(PCC1, [], #{}, Left, Right, Context, PCtx0),
 
 %%% step 4:
     ChargeEv = {online, 'RAR'},   %% made up value, not use anywhere...
@@ -279,7 +280,7 @@ handle_event(info, #aaa_request{procedure = {gx, 'RAR'},
 
 %%% step 6:
     {PCtx, _} =
-	ergw_gsn_lib:modify_sgi_session(PCC4, [], #{}, Context, PCtx1),
+	ergw_gsn_lib:modify_sgi_session(PCC4, [], #{}, Left, Right, Context, PCtx1),
 
 %%% step 7:
     %% TODO Charging-Rule-Report for successfully installed/removed rules
@@ -312,11 +313,12 @@ handle_event(internal, {session, stop, _Session}, State, Data) ->
 handle_event(internal, {session, {update_credits, _} = CreditEv, _}, _State,
 	     #data{context = Context, pfcp = PCtx0, pcc = PCC0} = Data) ->
     Now = erlang:monotonic_time(),
+    #tdf_ctx{left = Left, right = Right} = Context,
 
     {PCC, _PCCErrors} = ergw_gsn_lib:gy_events_to_pcc_ctx(Now, [CreditEv], PCC0),
 
     {PCtx, _} =
-	ergw_gsn_lib:modify_sgi_session(PCC, [], #{}, Context, PCtx0),
+	ergw_gsn_lib:modify_sgi_session(PCC, [], #{}, Left, Right, Context, PCtx0),
 
     {keep_state, Data#data{pfcp = PCtx, pcc = PCC}};
 
@@ -357,7 +359,7 @@ start_session(#data{apn = APN, context = Context0, dp_node = Node,
 
     {ok, PendingPCtx, NodeCaps} = ergw_sx_node:attach(Node, Context0),
     VRF = ergw_gsn_lib:select_vrf(NodeCaps, APN),
-    PendingContext = ergw_gsn_lib:set_bearer_vrf(right, VRF, Context0),
+    Context = ergw_gsn_lib:set_bearer_vrf(right, VRF, Context0),
 
     Now = erlang:monotonic_time(),
     SOpts = #{now => Now},
@@ -399,8 +401,8 @@ start_session(#data{apn = APN, context = Context0, dp_node = Node,
     PCC3 = ergw_gsn_lib:session_events_to_pcc_ctx(AuthSEvs, PCC2),
     PCC4 = ergw_gsn_lib:session_events_to_pcc_ctx(RfSEvs, PCC3),
 
-    {Context, PCtx} =
-	ergw_gsn_lib:create_tdf_session(PendingPCtx, NodeCaps, PCC4, PendingContext),
+    #tdf_ctx{left = Left, right = Right} = Context,
+    PCtx = ergw_gsn_lib:create_tdf_session(PendingPCtx, PCC4, Left, Right, Context),
 
     Keys = context2keys(Context),
     gtp_context_reg:register(Keys, ?MODULE, self()),

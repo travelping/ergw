@@ -190,6 +190,7 @@ handle_event(info, #aaa_request{procedure = {gx, 'RAR'},
     Now = erlang:monotonic_time(),
     ReqOps = #{now => Now},
 
+    #tdf_ctx{left = Left, right = Right} = Context,
     RuleBase = ergw_charging:rulebase(),
 
 %%% step 1a:
@@ -202,7 +203,7 @@ handle_event(info, #aaa_request{procedure = {gx, 'RAR'},
 %%% step 2
 %%% step 3:
     {PCtx1, UsageReport} =
-	ergw_gsn_lib:modify_sgi_session(PCC1, [], #{}, Context, PCtx0),
+	ergw_gsn_lib:modify_sgi_session(PCC1, [], #{}, Left, Right, Context, PCtx0),
 
 %%% step 4:
     ChargeEv = {online, 'RAR'},   %% made up value, not use anywhere...
@@ -220,7 +221,7 @@ handle_event(info, #aaa_request{procedure = {gx, 'RAR'},
 
 %%% step 6:
     {PCtx, _} =
-	ergw_gsn_lib:modify_sgi_session(PCC4, [], #{}, Context, PCtx1),
+	ergw_gsn_lib:modify_sgi_session(PCC4, [], #{}, Left, Right, Context, PCtx1),
 
 %%% step 7:
     %% TODO Charging-Rule-Report for successfully installed/removed rules
@@ -269,10 +270,11 @@ handle_event(internal, {session, stop, _Session}, _, _) ->
 handle_event(internal, {session, {update_credits, _} = CreditEv, _}, _State,
 	     #{context := Context, pfcp := PCtx0, pcc := PCC0} = Data) ->
     Now = erlang:monotonic_time(),
+    #tdf_ctx{left = Left, right = Right} = Context,
 
     {PCC, _PCCErrors} = ergw_gsn_lib:gy_events_to_pcc_ctx(Now, [CreditEv], PCC0),
     {PCtx, _} =
-	ergw_gsn_lib:modify_sgi_session(PCC, [], #{}, Context, PCtx0),
+	ergw_gsn_lib:modify_sgi_session(PCC, [], #{}, Left, Right, Context, PCtx0),
 
     {keep_state, Data#{pfcp := PCtx, pcc := PCC}};
 
@@ -390,8 +392,11 @@ handle_request(ReqKey,
 
     {Result, ActiveSessionOpts1, ContextPending1} =
 	allocate_ips(APNOpts, ActiveSessionOpts0, PAA, DAF, VRF, ContextPreAuth),
-    {ContextPending, ActiveSessionOpts} = 
+    {ContextPending2, ActiveSessionOpts} =
 	add_apn_timeout(APNOpts, ActiveSessionOpts1, ContextPending1),
+    Context = ergw_gsn_lib:assign_local_data_teid(PendingPCtx, NodeCaps, ContextPending2),
+    gtp_context:remote_context_register_new(Context),
+
     ergw_aaa_session:set(Session, ActiveSessionOpts),
 
     Now = erlang:monotonic_time(),
@@ -401,7 +406,7 @@ handle_request(ReqKey,
 	       'Bearer-Operation' => ?'DIAMETER_GX_BEARER-OPERATION_ESTABLISHMENT'},
 
     {ok, _, GxEvents} =
-	ccr_initial(ContextPending, Session, gx, GxOpts, SOpts, Request),
+	ccr_initial(Context, Session, gx, GxOpts, SOpts, Request),
 
     RuleBase = ergw_charging:rulebase(),
     {PCC1, PCCErrors1} =
@@ -409,7 +414,7 @@ handle_request(ReqKey,
 
     case ergw_gsn_lib:pcc_ctx_has_rules(PCC1) of
 	false ->
-	    ?ABORT_CTX_REQUEST(ContextPending, Request, create_session_response,
+	    ?ABORT_CTX_REQUEST(Context, Request, create_session_response,
 			       user_authentication_failed);
 	true ->
 	    ok
@@ -420,7 +425,7 @@ handle_request(ReqKey,
     GyReqServices = #{credits => CreditsAdd},
 
     {ok, GySessionOpts, GyEvs} =
-	ccr_initial(ContextPending, Session, gy, GyReqServices, SOpts, Request),
+	ccr_initial(Context, Session, gy, GyReqServices, SOpts, Request),
     ?LOG(debug, "GySessionOpts: ~p", [GySessionOpts]),
     ?LOG(debug, "Initial GyEvs: ~p", [GyEvs]),
 
@@ -431,9 +436,8 @@ handle_request(ReqKey,
     PCC3 = ergw_gsn_lib:session_events_to_pcc_ctx(AuthSEvs, PCC2),
     PCC4 = ergw_gsn_lib:session_events_to_pcc_ctx(RfSEvs, PCC3),
 
-    {Context, PCtx} =
-	ergw_gsn_lib:create_sgi_session(PendingPCtx, NodeCaps, PCC4, ContextPending),
-    gtp_context:remote_context_register_new(Context),
+    #context{left = Left, right = Right} = Context,
+    PCtx = ergw_gsn_lib:create_sgi_session(PendingPCtx, PCC4, Left, Right, Context),
 
     GxReport = ergw_gsn_lib:pcc_events_to_charging_rule_report(PCCErrors1 ++ PCCErrors2),
     if map_size(GxReport) /= 0 ->
@@ -864,9 +868,10 @@ apply_context_change(NewContext0, OldContext, URRActions,
 		#{}
 	end,
     NewContext = gtp_path:bind(NewContext0),
+    #tdf_ctx{left = Left, right = Right} = NewContext,
     {PCtx, UsageReport} =
 	ergw_gsn_lib:modify_sgi_session(PCC, URRActions,
-					ModifyOpts, NewContext, PCtx0),
+					ModifyOpts, Left, Right, NewContext, PCtx0),
     gtp_path:unbind(OldContext),
     defer_usage_report(URRActions, UsageReport),
     Data#{context => NewContext, pfcp => PCtx}.

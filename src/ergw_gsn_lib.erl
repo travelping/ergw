@@ -9,7 +9,7 @@
 
 -compile({parse_transform, cut}).
 
--export([create_sgi_session/4, create_tdf_session/4,
+-export([create_sgi_session/5, create_tdf_session/5,
 	 usage_report_to_charging_events/3,
 	 process_online_charging_events/4,
 	 process_offline_charging_events/4,
@@ -18,7 +18,7 @@
 	 secondary_rat_usage_data_report_to_rf/2,
 	 pfcp_to_context_event/1,
 	 pcc_ctx_to_credit_request/1,
-	 modify_sgi_session/5,
+	 modify_sgi_session/7,
 	 delete_sgi_session/3,
 	 query_usage_report/2, query_usage_report/3,
 	 choose_context_ip/5,
@@ -67,7 +67,7 @@
 
 -export_records([context, tdf_ctx, tunnel, bearer]).
 
--record(sx_upd, {now, errors = [], monitors = #{}, pctx = #pfcp_ctx{}, sctx}).
+-record(sx_upd, {now, errors = [], monitors = #{}, pctx = #pfcp_ctx{}, left, right, sctx}).
 
 -define(SECONDS_PER_DAY, 86400).
 -define(DAYS_FROM_0_TO_1970, 719528).
@@ -157,11 +157,11 @@ choose_context_ip(_IP4, _IP6, _, Context) ->
     %% IP version mismatch, broken peer GSN or misconfiguration
     throw(?CTX_ERR(?FATAL, system_failure, Context)).
 
-session_establishment_request(PCC, PCtx0, Ctx) ->
+session_establishment_request(PCC, PCtx0, Left, Right, Ctx) ->
     {ok, CntlNode, _, _} = ergw_sx_socket:id(),
 
     PCtx1 = pctx_update_from_ctx(PCtx0, Ctx),
-    {SxRules, SxErrors, PCtx} = build_sx_rules(PCC, #{}, PCtx1, Ctx),
+    {SxRules, SxErrors, PCtx} = build_sx_rules(PCC, #{}, PCtx1, Left, Right, Ctx),
     ?LOG(debug, "SxRules: ~p~n", [SxRules]),
     ?LOG(debug, "SxErrors: ~p~n", [SxErrors]),
     ?LOG(debug, "CtxPending: ~p~n", [Ctx]),
@@ -175,7 +175,7 @@ session_establishment_request(PCC, PCtx0, Ctx) ->
 	#pfcp{version = v1, type = session_establishment_response,
 	      ie = #{pfcp_cause := #pfcp_cause{cause = 'Request accepted'},
 		     f_seid := #f_seid{}} = RespIEs} ->
-	    {Ctx, ctx_update_dp_seid(RespIEs, PCtx)};
+	    ctx_update_dp_seid(RespIEs, PCtx);
 	_ ->
 	    throw(?CTX_ERR(?FATAL, system_failure, Ctx))
     end.
@@ -433,11 +433,11 @@ apply_charging_profile(URR, OCP) ->
     maps:fold(fun apply_charging_profile/3, URR, OCP).
 
 %% build_sx_rules/4
-build_sx_rules(PCC, Opts, PCtx0, SCtx) ->
+build_sx_rules(PCC, Opts, PCtx0, Left, Right, SCtx) ->
     PCtx2 = ergw_pfcp:reset_ctx(PCtx0),
 
     Init = #sx_upd{now = erlang:monotonic_time(millisecond),
-		   pctx = PCtx2, sctx = SCtx},
+		   pctx = PCtx2, left = Left, right = Right, sctx = SCtx},
     #sx_upd{errors = Errors, pctx = NewPCtx0} =
 	build_sx_rules_3(PCC, Opts, Init),
     NewPCtx = ergw_pfcp:apply_timers(PCtx0, NewPCtx0),
@@ -460,7 +460,7 @@ build_sx_rules_3(#pcc_ctx{monitors = Monitors, rules = PolicyRules,
 
 build_sx_ctx_rule(#sx_upd{
 		     pctx = #pfcp_ctx{cp_bearer = CpBearer} = PCtx0,
-		     sctx = #context{left = LeftBearer, right = RightBearer}
+		     left = LeftBearer, right = RightBearer
 		    } = Update)
   when RightBearer#bearer.local#ue_ip.v6 /= undefined ->
     {PdrId, PCtx1} = ergw_pfcp:get_id(pdr, ipv6_mcast_pdr, PCtx0),
@@ -651,10 +651,7 @@ build_sx_sgi_fwd_far(FarId, _RedirInfo, _LeftBearer, RightBearer) ->
 
 %% build_sx_rule/6
 build_sx_rule(Direction, Name, Definition, FilterInfo, URRs,
-	      #sx_upd{sctx = #context{left = LeftBearer, right = RightBearer}} = Update) ->
-    build_sx_rule(Direction, Name, Definition, FilterInfo, URRs, LeftBearer, RightBearer, Update);
-build_sx_rule(Direction, Name, Definition, FilterInfo, URRs,
-	      #sx_upd{sctx = #tdf_ctx{left = LeftBearer, right = RightBearer}} = Update) ->
+	      #sx_upd{left = LeftBearer, right = RightBearer} = Update) ->
     build_sx_rule(Direction, Name, Definition, FilterInfo, URRs, LeftBearer, RightBearer, Update).
 
 %% build_sx_rule/8
@@ -975,21 +972,26 @@ register_ctx_ids(Handler, #pfcp_ctx{seid = #seid{cp = SEID}}) ->
     gtp_context_reg:register(Keys, Handler, self()).
 
 register_ctx_ids(Handler,
+		 #bearer{local = FqTEID},
+		 #pfcp_ctx{seid = #seid{cp = SEID}} = PCtx) ->
+    Keys = [{seid, SEID} |
+	    [ergw_pfcp:ctx_teid_key(PCtx, FqTEID) || is_record(FqTEID, fq_teid)]],
+    gtp_context_reg:register(Keys, Handler, self());
+register_ctx_ids(Handler,
 		 #context{left = #bearer{local = FqTEID}},
 		 #pfcp_ctx{seid = #seid{cp = SEID}} = PCtx) ->
     Keys = [{seid, SEID} |
 	    [ergw_pfcp:ctx_teid_key(PCtx, FqTEID) || is_record(FqTEID, fq_teid)]],
     gtp_context_reg:register(Keys, Handler, self()).
 
-create_sgi_session(PCtx, NodeCaps, PCC, Ctx0)
+create_sgi_session(PCtx, PCC, Left, Right, Ctx)
   when is_record(PCC, pcc_ctx) ->
-    Ctx = assign_local_data_teid(PCtx, NodeCaps, Ctx0),
-    register_ctx_ids(gtp_context, Ctx, PCtx),
-    session_establishment_request(PCC, PCtx, Ctx).
+    register_ctx_ids(gtp_context, Left, PCtx),
+    session_establishment_request(PCC, PCtx, Left, Right, Ctx).
 
-modify_sgi_session(PCC, URRActions, Opts, Ctx, PCtx0)
+modify_sgi_session(PCC, URRActions, Opts, Left, Right, Ctx, PCtx0)
   when is_record(PCC, pcc_ctx), is_record(PCtx0, pfcp_ctx) ->
-    {SxRules0, SxErrors, PCtx} = build_sx_rules(PCC, Opts, PCtx0, Ctx),
+    {SxRules0, SxErrors, PCtx} = build_sx_rules(PCC, Opts, PCtx0, Left, Right, Ctx),
     SxRules =
 	lists:foldl(
 	  fun({offline, _}, SxR) ->
@@ -1003,10 +1005,10 @@ modify_sgi_session(PCC, URRActions, Opts, Ctx, PCtx0)
     ?LOG(debug, "PCtx: ~p~n", [PCtx]),
     session_modification_request(PCtx, SxRules, Ctx).
 
-create_tdf_session(PCtx, _NodeCaps, PCC, Ctx)
-  when is_record(PCC, pcc_ctx), is_record(Ctx, tdf_ctx) ->
+create_tdf_session(PCtx, PCC, Left, Right, Ctx)
+  when is_record(PCC, pcc_ctx) ->
     register_ctx_ids(tdf, PCtx),
-    session_establishment_request(PCC, PCtx, Ctx).
+    session_establishment_request(PCC, PCtx, Left, Right, Ctx).
 
 opt_int(X) when is_integer(X) -> [X];
 opt_int(_) -> [].
