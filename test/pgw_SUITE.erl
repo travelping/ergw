@@ -2489,9 +2489,9 @@ sx_upf_restart() ->
     [{doc, "Test UPF restart behavior"}].
 sx_upf_restart(Config) ->
     ok = meck:expect(ergw_gsn_lib, create_sgi_session,
-		     fun(PCtx, NodeCaps, SessionOpts, Ctx) ->
+		     fun(PCtx, PCC, Left, Right, Ctx) ->
 			     try
-				 meck:passthrough([PCtx, NodeCaps, SessionOpts, Ctx])
+				 meck:passthrough([PCtx, PCC, Left, Right, Ctx])
 			     catch
 				 throw:#ctx_err{} = CtxErr ->
 				     meck:exception(throw, CtxErr)
@@ -2565,7 +2565,7 @@ sx_upf_restart(Config) ->
     ?match([{_, _, _, _, <<_/binary>>}|_], UDP),
 
     meck_validate(Config),
-    ok = meck:delete(ergw_gsn_lib, create_sgi_session, 4),
+    ok = meck:delete(ergw_gsn_lib, create_sgi_session, 5),
     ok.
 
 %%--------------------------------------------------------------------
@@ -2578,9 +2578,9 @@ sx_timeout(Config) ->
 			     meck:passthrough([Peer, 100, 2, Msg, CbInfo])
 		     end),
     ok = meck:expect(ergw_gsn_lib, create_sgi_session,
-		     fun(PCtx, NodeCaps, SessionOpts, Ctx) ->
+		     fun(PCtx, PCC, Left, Right, Ctx) ->
 			     try
-				 meck:passthrough([PCtx, NodeCaps, SessionOpts, Ctx])
+				 meck:passthrough([PCtx, PCC, Left, Right, Ctx])
 			     catch
 				 throw:#ctx_err{} = CtxErr ->
 				     meck:exception(throw, CtxErr)
@@ -2595,7 +2595,7 @@ sx_timeout(Config) ->
     meck_validate(Config),
 
     ok = meck:delete(ergw_sx_socket, call, 5),
-    ok = meck:delete(ergw_gsn_lib, create_sgi_session, 4),
+    ok = meck:delete(ergw_gsn_lib, create_sgi_session, 5),
     ok.
 
 %%--------------------------------------------------------------------
@@ -2619,9 +2619,9 @@ sx_connect_fail(Config) ->
 			     meck:passthrough([Peer, 100, 2, Msg, CbInfo])
 		     end),
     ok = meck:expect(ergw_gsn_lib, create_sgi_session,
-		     fun(PCtx, NodeCaps, SessionOpts, Ctx) ->
+		     fun(PCtx, PCC, Left, Right, Ctx) ->
 			     try
-				 meck:passthrough([PCtx, NodeCaps, SessionOpts, Ctx])
+				 meck:passthrough([PCtx, PCC, Left, Right, Ctx])
 			     catch
 				 throw:#ctx_err{} = CtxErr ->
 				     meck:exception(throw, CtxErr)
@@ -2651,7 +2651,7 @@ sx_connect_fail(Config) ->
     true = meck:validate(ergw_sx_node),
 
     ok = meck:delete(ergw_sx_socket, call, 5),
-    ok = meck:delete(ergw_gsn_lib, create_sgi_session, 4),
+    ok = meck:delete(ergw_gsn_lib, create_sgi_session, 5),
     ok.
 
 %%--------------------------------------------------------------------
