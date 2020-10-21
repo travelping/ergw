@@ -27,7 +27,6 @@
 	 session_events_to_pcc_ctx/2,
 	 gx_events_to_pcc_ctx/4,
 	 gy_events_to_pcc_ctx/3,
-	 gy_events_to_pcc_rules/2,
 	 gy_credit_report/1,
 	 gy_credit_request/2,
 	 gy_credit_request/3,
@@ -40,7 +39,6 @@
 	 init_tunnel/4,
 	 assign_tunnel_teid/3,
 	 reassign_tunnel_teid/1,
-	 assign_local_data_teid/3,
 	 assign_local_data_teid/5,
 	 set_bearer_vrf/3,
 	 set_ue_ip/4,
@@ -306,46 +304,6 @@ remove_pcc_rules('Charging-Rule-Name', V, Opts, Update) ->
     lists:foldl(remove_pcc_rule(_, false, Opts, _), Update, V);
 remove_pcc_rules('Charging-Rule-Base-Name', V, Opts, Update) ->
     lists:foldl(remove_pcc_rule(_, true, Opts, _), Update, V).
-
-%% convert Gy Multiple-Services-Credit-Control interactions in PCC rule states
-
-gy_events_to_rating_group_map(Evs)
-  when is_list(Evs) ->
-    lists:foldl(
-      fun({update_credits, E}, M) ->
-	      EvsM = gy_events_to_rating_group_map_1(E),
-	      maps:merge(M, EvsM);
-	 (_, M) ->
-	      M
-      end, #{}, Evs).
-
-gy_events_to_rating_group_map_1(Evs)
-  when is_list(Evs) ->
-    lists:foldl(
-      fun(#{'Rating-Group' := [RatingGroup]} = V, M) -> M#{RatingGroup => V};
-	 (_, M) -> M end, #{}, Evs);
-gy_events_to_rating_group_map_1(Evs)
-  when is_map(Evs) ->
-    Evs.
-
-%% gy_events_to_pcc_rules/4
-gy_events_to_pcc_rules(K, V, EvsMap, {Removals, Rules}) ->
-    case maps:get('Online', V, [0]) of
-	[0] -> {Removals, Rules#{K => V}};
-	[1] ->
-	    RatingGroup = get_rating_group('Online-Rating-Group', V),
-	    case maps:get(RatingGroup, EvsMap, undefined) of
-		#{'Result-Code' := [2001]} ->
-		    {Removals, Rules#{K => V}};
-		_ ->
-		    {[{K, V} | Removals], Rules}
-	    end
-    end.
-
-%% gy_events_to_pcc_rules/2
-gy_events_to_pcc_rules(Evs, Rules0) ->
-    EvsMap = gy_events_to_rating_group_map(Evs),
-    maps:fold(gy_events_to_pcc_rules(_, _, EvsMap, _), {[], #{}}, Rules0).
 
 gy_events_to_credits(Now, #{'Rating-Group' := [RatingGroup],
 			    'Result-Code' := [2001],
@@ -1880,18 +1838,6 @@ init_bearer(Interface, #vrf{name = VRF}) ->
 %% bearer/2
 bearer(CtxSide, Ctx) ->
     '#get-'(context_field(bearer, CtxSide), Ctx).
-
-%% assign_local_data_teid/3
-assign_local_data_teid(PCtx, NodeCaps, Ctx)
-  when is_record(Ctx, context) ->
-    assign_local_data_teid(left, PCtx, NodeCaps, Ctx).
-
-%% assign_local_data_teid/4
-assign_local_data_teid(CtxSide, PCtx, NodeCaps, Ctx) ->
-    Tunnel = tunnel(CtxSide, Ctx),
-    update_field_with(
-      context_field(bearer, CtxSide), Ctx,
-      assign_local_data_teid_f(PCtx, NodeCaps, Tunnel, _, Ctx)).
 
 %% assign_local_data_teid/5
 assign_local_data_teid(PCtx, NodeCaps, Tunnel, Bearer, Ctx)
