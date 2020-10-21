@@ -45,13 +45,13 @@ before_script:
       sudo sh -c 'echo "::1     localhost ip6-localhost ip6-loopback" >> /etc/hosts';
     fi
 
-script:
-  - ip -br addr
-  - source test/env.sh
-  - ./rebar3 compile
-  - ./rebar3 do xref, ct
-  - (./rebar3 as test do coveralls send || /bin/true)
-  - (cd _build/test/logs/; zip -1r ../../../ct-logs.zip . )
+#script:
+ # - ip -br addr
+ # - source test/env.sh
+ # - ./rebar3 compile
+ # - ./rebar3 do xref, ct
+ # - (./rebar3 as test do coveralls send || /bin/true)
+ # - (cd _build/test/logs/; zip -1r ../../../ct-logs.zip . )
 
 jobs:
   include:
