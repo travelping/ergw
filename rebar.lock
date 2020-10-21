@@ -4,7 +4,7 @@
  {<<"cowlib">>,{pkg,<<"cowlib">>,<<"2.9.1">>},1},
  {<<"eradius">>,
   {git,"https://github.com/travelping/eradius.git",
-       {ref,"135073f3313f1dbdc7ed310d058afabd6b0ec124"}},
+       {ref,"bbb27691ea64685f45febcd286dda7d8d44c5a3e"}},
   1},
  {<<"ergw_aaa">>,
   {git,"git://github.com/travelping/ergw_aaa",
