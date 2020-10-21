@@ -76,8 +76,8 @@ select_sx_node(Candidates, Context) ->
 	{ok, Pid} = connect_sx_candidates(Candidates),
 	{ok, _PCtx, _NodeCaps} = attach(Pid, Context)
     catch
-	error:{badmatch, _} ->
-	    throw(?CTX_ERR(?FATAL, system_failure, Context))
+	error:{badmatch, _}:St ->
+	    erlang:raise(throw, ?CTX_ERR(?FATAL, system_failure, Context), St)
     end.
 
 attach(Node, Context) when is_pid(Node) ->

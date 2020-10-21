@@ -193,9 +193,9 @@ meck_init(Config) ->
 			     end
 		     end),
     ok = meck:expect(ergw_gsn_lib, select_upf,
-		     fun(Candidates, Session, Context) ->
+		     fun(Candidates, Session, APN, Ctx) ->
 			     try
-				 meck:passthrough([Candidates, Session, Context])
+				 meck:passthrough([Candidates, Session, APN, Ctx])
 			     catch
 				 throw:#ctx_err{} = CtxErr ->
 				     meck:exception(throw, CtxErr)

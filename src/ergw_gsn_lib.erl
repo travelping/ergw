@@ -21,7 +21,7 @@
 	 modify_sgi_session/7,
 	 delete_sgi_session/3,
 	 query_usage_report/2, query_usage_report/3,
-	 choose_context_ip/5,
+	 choose_ip_by_tunnel/4,
 	 ip_pdu/3]).
 -export([%%update_pcc_rules/2,
 	 session_events_to_pcc_ctx/2,
@@ -34,27 +34,20 @@
 	 pcc_events_to_charging_rule_report/1]).
 -export([pcc_ctx_has_rules/1]).
 -export([apn/2, select_vrf/2,
-	 allocate_ips/6, release_context_ips/1]).
--export([tunnel/2, tunnel/3,
-	 init_tunnel/3,
+	 allocate_ips/7, release_context_ips/1]).
+-export([tunnel/2,
+	 bearer/2,
+	 init_tunnel/4,
 	 assign_tunnel_teid/3,
-	 reassign_tunnel_teid/3,
-	 set_remote_tunnel_teid/3,
-	 update_remote_tunnel_teid/2,
-	 unset_remote_tunnel_teid/1,
-	 set_remote_restart_counter/2,
-	 set_tunnel_path/3,
+	 reassign_tunnel_teid/1,
 	 assign_local_data_teid/3,
-	 set_remote_data_teid/3,
-	 update_remote_data_teid/2,
-	 unset_remote_data_teid/1,
+	 assign_local_data_teid/5,
 	 set_bearer_vrf/3,
-	 %% set_ue_ip/2,
 	 set_ue_ip/4,
-	 set_ue_ip/5,
-	 unset_ue_ip/1]).
+	 set_ue_ip/5
+	]).
 
--export([select_upf/3, reselect_upf/4]).
+-export([select_upf/4, reselect_upf/4]).
 
 -include_lib("kernel/include/logger.hrl").
 -include_lib("parse_trans/include/exprecs.hrl").
@@ -65,7 +58,7 @@
 -include_lib("ergw_aaa/include/diameter_3gpp_ts32_299.hrl").
 -include("include/ergw.hrl").
 
--export_records([context, tdf_ctx, tunnel, bearer]).
+-export_records([context, tdf_ctx, tunnel, bearer, fq_teid]).
 
 -record(sx_upd, {now, errors = [], monitors = #{}, pctx = #pfcp_ctx{}, left, right, sctx}).
 
@@ -101,7 +94,7 @@ delete_sgi_session(Reason, Ctx, PCtx)
 			  [_Other]),
 	    undefined
     end;
-delete_sgi_session(_Reason, _Context, _PCtx) ->
+delete_sgi_session(_Reason, _Ctx, _PCtx) ->
     undefined.
 
 build_query_usage_report(Type, PCtx) ->
@@ -141,21 +134,20 @@ ctx_update_dp_seid(#{f_seid := #f_seid{seid = DP}},
 ctx_update_dp_seid(_, PCtx) ->
     PCtx.
 
-%% choose_context_ip/5
-choose_context_ip(CtxSide, TunnelSide, IP4, IP6, Ctx) ->
-    FqTEID = tunnel(CtxSide, TunnelSide, Ctx),
-    choose_context_ip(IP4, IP6, FqTEID, Ctx).
+%% choose_ip_by_tunnel/4
+choose_ip_by_tunnel(#tunnel{local = FqTEID}, IP4, IP6, Ctx) ->
+    choose_ip_by_tunnel_f(FqTEID, IP4, IP6, Ctx).
 
-%% use additional information from the Context to prefre V4 or V6....
-choose_context_ip(IP4, _IP6, #fq_teid{ip = LocalIP}, _)
+%% use additional information from the context or config to prefer V4 or V6....
+choose_ip_by_tunnel_f(#fq_teid{ip = LocalIP}, IP4, _IP6, _)
   when is_binary(IP4), byte_size(IP4) =:= 4, ?IS_IPv4(LocalIP) ->
     IP4;
-choose_context_ip(_IP4, IP6, #fq_teid{ip = LocalIP}, _)
+choose_ip_by_tunnel_f(#fq_teid{ip = LocalIP}, _IP4, IP6, _)
   when is_binary(IP6), byte_size(IP6) =:= 16, ?IS_IPv6(LocalIP) ->
     IP6;
-choose_context_ip(_IP4, _IP6, _, Context) ->
+choose_ip_by_tunnel_f(_, _IP4, _IP6, Ctx) ->
     %% IP version mismatch, broken peer GSN or misconfiguration
-    throw(?CTX_ERR(?FATAL, system_failure, Context)).
+    throw(?CTX_ERR(?FATAL, system_failure, Ctx)).
 
 session_establishment_request(PCC, PCtx0, Left, Right, Ctx) ->
     {ok, CntlNode, _, _} = ergw_sx_socket:id(),
@@ -458,11 +450,13 @@ build_sx_rules_3(#pcc_ctx{monitors = Monitors, rules = PolicyRules,
     Update5 = maps:fold(fun build_sx_usage_rule/3, Update4, GrantedCredits),
     maps:fold(fun build_sx_rule/3, Update5, PolicyRules).
 
+%% install special SLAAC and RA rule (only for tunnels for the moment)
 build_sx_ctx_rule(#sx_upd{
 		     pctx = #pfcp_ctx{cp_bearer = CpBearer} = PCtx0,
 		     left = LeftBearer, right = RightBearer
 		    } = Update)
-  when RightBearer#bearer.local#ue_ip.v6 /= undefined ->
+  when not is_record(LeftBearer#bearer.remote, ue_ip),
+       RightBearer#bearer.local#ue_ip.v6 /= undefined ->
     {PdrId, PCtx1} = ergw_pfcp:get_id(pdr, ipv6_mcast_pdr, PCtx0),
     {FarId, PCtx} = ergw_pfcp:get_id(far, dp_to_cp_far, PCtx1),
 
@@ -973,12 +967,6 @@ register_ctx_ids(Handler, #pfcp_ctx{seid = #seid{cp = SEID}}) ->
 
 register_ctx_ids(Handler,
 		 #bearer{local = FqTEID},
-		 #pfcp_ctx{seid = #seid{cp = SEID}} = PCtx) ->
-    Keys = [{seid, SEID} |
-	    [ergw_pfcp:ctx_teid_key(PCtx, FqTEID) || is_record(FqTEID, fq_teid)]],
-    gtp_context_reg:register(Keys, Handler, self());
-register_ctx_ids(Handler,
-		 #context{left = #bearer{local = FqTEID}},
 		 #pfcp_ctx{seid = #seid{cp = SEID}} = PCtx) ->
     Keys = [{seid, SEID} |
 	    [ergw_pfcp:ctx_teid_key(PCtx, FqTEID) || is_record(FqTEID, fq_teid)]],
@@ -1545,9 +1533,9 @@ apn([H|_] = APN0, APNs) when is_binary(H) ->
 apn(_, _) ->
     false.
 
-apn_opts(APN, Context) ->
+apn_opts(APN, Ctx) ->
     case apn(APN) of
-	false -> throw(?CTX_ERR(?FATAL, missing_or_unknown_apn, Context));
+	false -> throw(?CTX_ERR(?FATAL, missing_or_unknown_apn, Ctx));
 	Other -> Other
     end.
 
@@ -1568,8 +1556,8 @@ select(Method, L1, L2) when is_list(L1), is_list(L2) ->
 select_vrf({AvaVRFs, _AvaPools}, APN) ->
     select(random, maps:get(vrfs, apn(APN)), AvaVRFs).
 
-%% select_upf/3
-select_upf(Candidates, Session0, #context{apn = APN} = Ctx) ->
+%% select_upf/4
+select_upf(Candidates, Session0, APN, Ctx) ->
     Opts = apn_opts(APN, Ctx),
     {_, _, _, Pools} = Node =
 	select_by_caps(Candidates, Opts, [], Ctx),
@@ -1595,8 +1583,9 @@ reselect_upf(Candidates, Session, {Node, Opts, Pool}, Ctx) ->
 	   true ->
 		Node
 	end,
+    Bearer = init_bearer('SGi-LAN', VRF),
     {ok, PCtx, _} = ergw_sx_node:attach(Pid, Ctx),
-    {PCtx, NodeCaps, Opts, VRF}.
+    {PCtx, NodeCaps, Opts, Bearer}.
 
 %% common_caps/3
 common_caps({WVRFs, WPools}, {HVRFs, HPools}, true) ->
@@ -1777,22 +1766,21 @@ session_ip_alloc(_, _, SessionOpts, _, {PDNType, ReqMSv4, ReqMSv6}) ->
     MSv6 = session_ipv6_alloc(SessionOpts, ReqMSv6),
     {PDNType, MSv4, MSv6}.
 
-allocate_ips_result(ReqPDNType, Bearer, #ue_ip{v4 = MSv4, v6 = MSv6}, Context) ->
-    allocate_ips_result(ReqPDNType, Bearer, ergw_ip_pool:ip(MSv4),
-			ergw_ip_pool:ip(MSv6), Context).
-
 %% allocate_ips/4
-allocate_ips(ReqIPs, SOpts0, VRF, #context{left_tnl = Tunnel} = Context0) ->
+allocate_ips(ReqIPs, SOpts0, Tunnel, Context) ->
     ReqIds = request_ip_alloc(ReqIPs, SOpts0, Tunnel),
     try
 	{UeIP, SOpts} = wait_ip_alloc_results(ReqIds, SOpts0),
-	Context = set_ue_ip(right, local, VRF, UeIP, Context0#context{ms_ip = UeIP}),
-	{UeIP, SOpts, Context}
+	{UeIP, SOpts, Context#context{ms_ip = UeIP}}
     catch
 	throw:#ctx_err{context = CtxUeIP} = CtxErr ->
-	    ErrCtx = set_ue_ip(right, local, VRF, CtxUeIP, Context0#context{ms_ip = CtxUeIP}),
+	    ErrCtx = Context#context{ms_ip = CtxUeIP},
 	    throw(CtxErr#ctx_err{context = ErrCtx})
     end.
+
+allocate_ips_result(ReqPDNType, BearerType, #ue_ip{v4 = MSv4, v6 = MSv6}, Context) ->
+    allocate_ips_result(ReqPDNType, BearerType, ergw_ip_pool:ip(MSv4),
+			ergw_ip_pool:ip(MSv6), Context).
 
 allocate_ips_result('Non-IP', _, _, _, _) -> {request_accepted, 'Non-IP'};
 allocate_ips_result('IPv4', _, IPv4, _, _) when IPv4 /= undefined ->
@@ -1813,20 +1801,20 @@ allocate_ips_result('IPv4v6', _, undefined, IPv6, _) when IPv6 /= undefined ->
 allocate_ips_result(_, _, _, _, Context) ->
     throw(?CTX_ERR(?FATAL, preferred_pdn_type_not_supported, Context)).
 
-%% allocate_ips/6
+%% allocate_ips/7
 allocate_ips(AllocInfo,
-	     #{bearer_type := Bearer, prefered_bearer_type := PrefBearer} = APNOpts,
-	     SOpts0, DualAddressBearerFlag, VRF, Context0) ->
+	     #{bearer_type := BearerType, prefered_bearer_type := PrefBearer} = APNOpts,
+	     SOpts0, DualAddressBearerFlag, Tunnel, Bearer, Context0) ->
     {ReqPDNType, ReqMSv4, ReqMSv6} =
-	session_ip_alloc(Bearer, PrefBearer, SOpts0, DualAddressBearerFlag, AllocInfo),
+	session_ip_alloc(BearerType, PrefBearer, SOpts0, DualAddressBearerFlag, AllocInfo),
 
     SOpts1 = maps:merge(SOpts0, maps:with(?APNOpts, APNOpts)),
     SOpts2 = init_session_ue_ifid(APNOpts, SOpts1),
 
     ReqIPs = [normalize_ipv4(ReqMSv4), normalize_ipv6(ReqMSv6)],
-    {UeIP, SOpts3, Context} = allocate_ips(ReqIPs, SOpts2, VRF, Context0),
+    {UeIP, SOpts3, Context} = allocate_ips(ReqIPs, SOpts2, Tunnel, Context0),
 
-    {Result, PDNType} = allocate_ips_result(ReqPDNType, Bearer, UeIP, Context),
+    {Result, PDNType} = allocate_ips_result(ReqPDNType, BearerType, UeIP, Context),
     SOpts = init_session_ue_ifid(APNOpts, SOpts3),
 
     DNS = if PDNType =:= 'IPv6' orelse PDNType =:= 'IPv4v6' ->
@@ -1835,7 +1823,7 @@ allocate_ips(AllocInfo,
 	     true ->
 		  []
 	  end,
-    {Result, SOpts, Context#context{pdn_type = PDNType, dns_v6 = DNS}}.
+    {Result, SOpts, Bearer#bearer{local = UeIP}, Context#context{pdn_type = PDNType, dns_v6 = DNS}}.
 
 %% release_context_ips/1
 release_context_ips(#context{ms_ip = #ue_ip{v4 = MSv4, v6 = MSv6}} = Context) ->
@@ -1858,28 +1846,13 @@ context_field(tunnel, right) -> right_tnl;
 context_field(bearer, left)  -> left;
 context_field(bearer, right) -> right.
 
-%% update_teid/5
-update_teid(Type, CtxSide, InfoSide, Fun, Ctx) ->
-    update_field_with(context_field(Type, CtxSide), Ctx, update_field_with(InfoSide, _, Fun)).
-
-%% set_teid/5
-set_teid(Type, CtxSide, InfoSide, IP, TEI, Ctx) ->
-    FqTEID = #fq_teid{ip = ergw_inet:bin2ip(IP), teid = TEI},
-    update_field_with(context_field(Type, CtxSide), Ctx, '#set-'([{InfoSide, FqTEID}], _)).
-
-%% unset_teid/3
-unset_teid(Type, CtxSide, InfoSide, Ctx) ->
-    update_field_with(context_field(Type, CtxSide), Ctx, '#set-'([{InfoSide, undefined}], _)).
-
+%% tunnel/2
 tunnel(CtxSide, Ctx) ->
     '#get-'(context_field(tunnel, CtxSide), Ctx).
 
-tunnel(CtxSide, TunnelSide, Ctx) ->
-    '#get-'(TunnelSide, tunnel(CtxSide, Ctx)).
-
-%% init_tunnel/3
-init_tunnel(Interface, #gtp_socket_info{vrf = VRF}, Socket) ->
-    #tunnel{interface = Interface, vrf = VRF, socket = Socket}.
+%% init_tunnel/4
+init_tunnel(Interface, #gtp_socket_info{vrf = VRF}, Socket, Version) ->
+    #tunnel{interface = Interface, vrf = VRF, socket = Socket, version = Version}.
 
 %% assign_tunnel_teid/3
 assign_tunnel_teid(TunnelSide, #gtp_socket_info{vrf = VRF} = Info, Tunnel) ->
@@ -1890,62 +1863,27 @@ assign_tunnel_teid_f(#gtp_socket_info{ip = IP}, #tunnel{socket = Socket}) ->
     {ok, TEI} = ergw_tei_mngr:alloc_tei(Socket),
     #fq_teid{ip = IP, teid = TEI}.
 
-%% assign_tunnel_teid/3
-reassign_tunnel_teid(CtxSide, TunnelSide, Ctx) ->
+%% assign_tunnel_teid/1
+reassign_tunnel_teid(Tunnel) ->
     update_field_with(
-      context_field(tunnel, CtxSide), Ctx,
-      fun(Tunnel) ->
-	      update_field_with(
-		TunnelSide, Tunnel, reassign_tunnel_teid_f(Tunnel, _))
-      end).
+      local, Tunnel, reassign_tunnel_teid_f(Tunnel, _)).
 
 %% reassign_tunnel_teid_f/2
 reassign_tunnel_teid_f(#tunnel{socket = Socket}, FqTEID) ->
     {ok, TEI} = ergw_tei_mngr:alloc_tei(Socket),
     FqTEID#fq_teid{teid = TEI}.
 
-%% set_remote_tunnel_teid/3
-set_remote_tunnel_teid(IP, TEI, Ctx) ->
-    set_teid(tunnel, left, remote, IP, TEI, Ctx).
+%% init_bearer/2
+init_bearer(Interface, #vrf{name = VRF}) ->
+    #bearer{interface = Interface, vrf = VRF}.
 
-%% set_remote_tunnel_teid/5
-%% set_remote_tunnel_teid(CtxSide, TunnelSide, IP, TEI, Ctx) ->
-%%     set_teid(tunnel, CtxSide, TunnelSide, IP, TEI, Ctx).
-
-%% update_remote_tunnel_teid/2
-update_remote_tunnel_teid(Fun, Ctx) ->
-    update_teid(tunnel, left, remote, Fun, Ctx).
-
-%% update_remote_tunnel_teid/4
-%% update_remote_tunnel_teid(CtxSide, TunnelSide, Fun, Ctx) ->
-%%     update_teid(tunnel, CtxSide, TunnelSide, Fun, Ctx).
-
-%% unset_remote_tunnel_teid/1
-unset_remote_tunnel_teid(Ctx) ->
-    unset_teid(tunnel, left, remote, Ctx).
-
-%% unset_remote_tunnel_teid/3
-%% unset_remote_tunnel_teid(CtxSide, TunnelSide, Ctx) ->
-%%     unset_teid(tunnel, CtxSide, TunnelSide, Ctx).
-
-%% set_remote_restart_counter/2
-set_remote_restart_counter(RestartCounter, Ctx) ->
-    set_remote_restart_counter(left, RestartCounter, Ctx).
-
-%% set_remote_restart_counter/3
-set_remote_restart_counter(CtxSide, RestartCounter, Ctx) ->
-    update_field_with(
-      context_field(tunnel, CtxSide), Ctx,
-      '#set-'([{remote_restart_counter, RestartCounter}], _)).
-
-%% set_tunnel_path/3
-set_tunnel_path(CtxSide, Path, Ctx) ->
-    update_field_with(
-      context_field(tunnel, CtxSide), Ctx,
-      '#set-'([{path, Path}], _)).
+%% bearer/2
+bearer(CtxSide, Ctx) ->
+    '#get-'(context_field(bearer, CtxSide), Ctx).
 
 %% assign_local_data_teid/3
-assign_local_data_teid(PCtx, NodeCaps, Ctx) ->
+assign_local_data_teid(PCtx, NodeCaps, Ctx)
+  when is_record(Ctx, context) ->
     assign_local_data_teid(left, PCtx, NodeCaps, Ctx).
 
 %% assign_local_data_teid/4
@@ -1955,40 +1893,21 @@ assign_local_data_teid(CtxSide, PCtx, NodeCaps, Ctx) ->
       context_field(bearer, CtxSide), Ctx,
       assign_local_data_teid_f(PCtx, NodeCaps, Tunnel, _, Ctx)).
 
-%% assign_local_data_teid_f/4
+%% assign_local_data_teid/5
+assign_local_data_teid(PCtx, NodeCaps, Tunnel, Bearer, Ctx)
+  when is_record(Bearer, bearer) ->
+    assign_local_data_teid_f(PCtx, NodeCaps, Tunnel, Bearer, Ctx).
+
+%% assign_local_data_teid_f/5
 assign_local_data_teid_f(PCtx, {VRFs, _} = _NodeCaps,
-			 #tunnel{vrf = VRF, local = Tunnel}, Bearer, Ctx) ->
+			 #tunnel{vrf = VRF} = Tunnel, Bearer, Ctx) ->
     #vrf{name = Name, ipv4 = IP4, ipv6 = IP6} = maps:get(VRF, VRFs),
-    IP = choose_context_ip(IP4, IP6, Tunnel, Ctx),
+    IP = choose_ip_by_tunnel(Tunnel, IP4, IP6, Ctx),
     {ok, DataTEI} = ergw_tei_mngr:alloc_tei(PCtx),
     FqTEID = #fq_teid{
 		     ip = ergw_inet:bin2ip(IP),
 		     teid = DataTEI},
     Bearer#bearer{vrf = Name, local = FqTEID}.
-
-%% set_remote_data_teid/3
-set_remote_data_teid(IP, TEI, Ctx) ->
-    set_teid(bearer, left, remote, IP, TEI, Ctx).
-
-%% set_remote_data_teid/5
-%% set_remote_data_teid(CtxSide, BearerSide, IP, TEI, Ctx) ->
-%%     set_teid(bearer, CtxSide, BearerSide, IP, TEI, Ctx).
-
-%% update_remote_data_teid/2
-update_remote_data_teid(Fun, Ctx) ->
-    update_teid(bearer, left, remote, Fun, Ctx).
-
-%% update_remote_data_teid/4
-%% update_remote_data_teid(CtxSide, BearerSide, Fun, Ctx) ->
-%%     update_teid(bearer, CtxSide, BearerSide, Fun, Ctx).
-
-%% unset_remote_data_teid/1
-unset_remote_data_teid(Ctx) ->
-    unset_teid(bearer, left, remote, Ctx).
-
-%% unset_remote_data_teid/3
-%% unset_remote_data_teid(CtxSide, BearerSide, Ctx) ->
-%%     unset_teid(bearer, CtxSide, BearerSide, Ctx).
 
 %% update_ue_ip/5
 update_ue_ip(CtxSide, BearerSide, VRF, Fun, Ctx) ->
@@ -2003,10 +1922,6 @@ set_bearer_vrf(CtxSide, VRF, Ctx) ->
     update_field_with(
       context_field(bearer, CtxSide), Ctx,
       fun(Bearer) -> Bearer#bearer{vrf = VRF} end).
-
-%% %% set_ue_ip/2
-%% set_ue_ip(VRF, Ctx) ->
-%%     set_ue_ip(right, local, VRF, Ctx).
 
 %% set_ue_ip/4
 set_ue_ip(CtxSide, BearerSide, UeIP, Ctx) when is_record(UeIP, ue_ip) ->
