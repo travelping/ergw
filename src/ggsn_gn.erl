@@ -20,7 +20,10 @@
 %%-export([defered_usage_report/3]).
 
 %% shared API's
--export([init_session/3, init_session_from_gtp_req/3]).
+-export([init_session/4,
+	 init_session_from_gtp_req/4,
+	 update_tunnel_from_gtp_req/4
+	]).
 
 -include_lib("kernel/include/logger.hrl").
 -include_lib("gtplib/include/gtp_packet.hrl").
@@ -60,7 +63,8 @@
 
 -define(ABORT_CTX_REQUEST(Context, Request, Type, Cause),
 	begin
-	    AbortReply = response(Type, Context, [#cause{value = Cause}], Request),
+	    LeftTunnel = ergw_gsn_lib:tunnel(left, Context),
+	    AbortReply = response(Type, LeftTunnel, [#cause{value = Cause}], Request),
 	    throw(?CTX_ERR(?FATAL, AbortReply, Context))
 	end).
 
@@ -181,6 +185,7 @@ handle_event(info, #aaa_request{procedure = {gx, 'RAR'},
     Now = erlang:monotonic_time(),
     ReqOps = #{now => Now},
 
+    #context{left = Left, right = Right} = Context,
     RuleBase = ergw_charging:rulebase(),
 
 %%% step 1a:
@@ -193,7 +198,7 @@ handle_event(info, #aaa_request{procedure = {gx, 'RAR'},
 %%% step 2
 %%% step 3:
     {PCtx1, UsageReport} =
-	ergw_gsn_lib:modify_sgi_session(PCC1, [], #{}, Context, PCtx0),
+	ergw_gsn_lib:modify_sgi_session(PCC1, [], #{}, Left, Right, Context, PCtx0),
 
 %%% step 4:
     ChargeEv = {online, 'RAR'},   %% made up value, not use anywhere...
@@ -211,7 +216,7 @@ handle_event(info, #aaa_request{procedure = {gx, 'RAR'},
 
 %%% step 6:
     {PCtx, _} =
-	ergw_gsn_lib:modify_sgi_session(PCC4, [], #{}, Context, PCtx1),
+	ergw_gsn_lib:modify_sgi_session(PCC4, [], #{}, Left, Right, Context, PCtx1),
 
 %%% step 7:
     %% TODO Charging-Rule-Report for successfully installed/removed rules
@@ -261,10 +266,11 @@ handle_event(internal, {session, stop, _Session}, _, _) ->
 handle_event(internal, {session, {update_credits, _} = CreditEv, _}, _State,
 	     #{context := Context, pfcp := PCtx0, pcc := PCC0} = Data) ->
     Now = erlang:monotonic_time(),
+    #context{left = Left, right = Right} = Context,
 
     {PCC, _PCCErrors} = ergw_gsn_lib:gy_events_to_pcc_ctx(Now, [CreditEv], PCC0),
     {PCtx, _} =
-	ergw_gsn_lib:modify_sgi_session(PCC, [], #{}, Context, PCtx0),
+	ergw_gsn_lib:modify_sgi_session(PCC, [], #{}, Left, Right, Context, PCtx0),
 
     {keep_state, Data#{pfcp := PCtx, pcc := PCC}};
 
@@ -334,34 +340,45 @@ handle_request(ReqKey,
     Candidates = ergw_node_selection:topology_select(APN_FQDN, [], Services, NodeSelect),
     SxConnectId = ergw_sx_node:request_connect(Candidates, NodeSelect, 1000),
 
+    Context1 = update_context_from_gtp_req(Request, Context0),
+
+    LeftTunnel0 = ergw_gsn_lib:tunnel(left, Context0),
+    LeftBearer0 = ergw_gsn_lib:bearer(left, Context0),
+    {LeftTunnel1, LeftBearer1} =
+	update_tunnel_from_gtp_req(Request, LeftTunnel0, LeftBearer0, Context1),
+
+    LeftTunnel = gtp_path:bind(Request, LeftTunnel1),
+
+    gtp_context:terminate_colliding_context(LeftTunnel, Context1),
+
     EUA = maps:get(?'End User Address', IEs, undefined),
     DAF = proplists:get_bool('Dual Address Bearer Flag', gtp_v1_c:get_common_flags(IEs)),
 
-    Context1 = update_context_from_gtp_req(Request, Context0),
-    ContextPreAuth = gtp_path:bind(Request, Context1),
-
-    gtp_context:terminate_colliding_context(ContextPreAuth),
-
-    SessionOpts0 = init_session(IEs, ContextPreAuth, AAAopts),
-    SessionOpts1 = init_session_from_gtp_req(IEs, AAAopts, SessionOpts0),
+    SessionOpts0 = init_session(IEs, LeftTunnel, Context1, AAAopts),
+    SessionOpts1 = init_session_from_gtp_req(IEs, AAAopts, LeftTunnel, SessionOpts0),
     SessionOpts2 = init_session_qos(IEs, SessionOpts1),
 
+    ContextPreAuth = ergw_gsn_lib:'#set-'([{left_tnl, LeftTunnel},
+					   {left, LeftBearer1}], Context1),
+
     ergw_sx_node:wait_connect(SxConnectId),
-    {UPinfo, SessionOpts} = ergw_gsn_lib:select_upf(Candidates, SessionOpts2, ContextPreAuth),
+    {UPinfo, SessionOpts} = ergw_gsn_lib:select_upf(Candidates, SessionOpts2, APN, ContextPreAuth),
 
     {ok, ActiveSessionOpts0, AuthSEvs} =
-	authenticate(ContextPreAuth, Session, SessionOpts, Request),
+	authenticate(Session, SessionOpts, Request, ContextPreAuth),
 
-    {PendingPCtx, NodeCaps, APNOpts, VRF} =
+    {PendingPCtx, NodeCaps, APNOpts, RightBearer0} =
 	ergw_gsn_lib:reselect_upf(Candidates, ActiveSessionOpts0, UPinfo, ContextPreAuth),
 
-    {Result, ActiveSessionOpts1, ContextPending1} =
-	allocate_ips(APNOpts, ActiveSessionOpts0, EUA, DAF, VRF, ContextPreAuth),
-    {ContextPending2, ActiveSessionOpts} =
+    {Result, ActiveSessionOpts1, RightBearer, ContextPending1} =
+	allocate_ips(
+	  APNOpts, ActiveSessionOpts0, EUA, DAF, LeftTunnel, RightBearer0, ContextPreAuth),
+    {Context, ActiveSessionOpts} =
 	add_apn_timeout(APNOpts, ActiveSessionOpts1, ContextPending1),
 
-    Context = ergw_gsn_lib:assign_local_data_teid(PendingPCtx, NodeCaps, ContextPending2),
-    gtp_context:remote_context_register_new(Context),
+    LeftBearer =
+	ergw_gsn_lib:assign_local_data_teid(
+	  PendingPCtx, NodeCaps, LeftTunnel, LeftBearer1, Context),
 
     ergw_aaa_session:set(Session, ActiveSessionOpts),
 
@@ -371,8 +388,7 @@ handle_request(ReqKey,
     GxOpts = #{'Event-Trigger' => ?'DIAMETER_GX_EVENT-TRIGGER_UE_IP_ADDRESS_ALLOCATE',
 	       'Bearer-Operation' => ?'DIAMETER_GX_BEARER-OPERATION_ESTABLISHMENT'},
 
-    {ok, _, GxEvents} =
-	ccr_initial(Context, Session, gx, GxOpts, SOpts, Request),
+    {ok, _, GxEvents} = ccr_initial(Session, gx, GxOpts, SOpts, Request, Context),
 
     RuleBase = ergw_charging:rulebase(),
     {PCC1, PCCErrors1} =
@@ -391,7 +407,7 @@ handle_request(ReqKey,
     GyReqServices = #{credits => CreditsAdd},
 
     {ok, GySessionOpts, GyEvs} =
-	ccr_initial(Context, Session, gy, GyReqServices, SOpts, Request),
+	ccr_initial(Session, gy, GyReqServices, SOpts, Request, Context),
     ?LOG(debug, "GySessionOpts: ~p", [GySessionOpts]),
     ?LOG(debug,"Initial GyEvs: ~p", [GyEvs]),
 
@@ -402,8 +418,8 @@ handle_request(ReqKey,
     PCC3 = ergw_gsn_lib:session_events_to_pcc_ctx(AuthSEvs, PCC2),
     PCC4 = ergw_gsn_lib:session_events_to_pcc_ctx(RfSEvs, PCC3),
 
-    #context{left = Left, right = Right} = Context,
-    PCtx = ergw_gsn_lib:create_sgi_session(PendingPCtx, PCC4, Left, Right, Context),
+    PCtx =
+	ergw_gsn_lib:create_sgi_session(PendingPCtx, PCC4, LeftBearer, RightBearer, Context),
 
     GxReport = ergw_gsn_lib:pcc_events_to_charging_rule_report(PCCErrors1 ++ PCCErrors2),
     if map_size(GxReport) /= 0 ->
@@ -413,65 +429,88 @@ handle_request(ReqKey,
 	    ok
     end,
 
-    ResponseIEs = create_pdp_context_response(Result, ActiveSessionOpts, Request, Context),
-    Response = response(create_pdp_context_response, Context, ResponseIEs, Request),
+    FinalContext =
+	ergw_gsn_lib:'#set-'(
+	  [{left, LeftBearer}, {right, RightBearer}], Context),
+    gtp_context:remote_context_register_new(FinalContext),
+
+    ResponseIEs = create_pdp_context_response(Result, ActiveSessionOpts, Request,
+					      LeftTunnel, LeftBearer, FinalContext),
+    Response = response(create_pdp_context_response, LeftTunnel, ResponseIEs, Request),
     gtp_context:send_response(ReqKey, Request, Response),
 
-    Actions = context_idle_action([], Context),
-    {keep_state, Data#{context => Context, pfcp => PCtx, pcc => PCC4}, Actions};
+    Actions = context_idle_action([], FinalContext),
+    {keep_state, Data#{context => FinalContext, pfcp => PCtx, pcc => PCC4}, Actions};
 
 handle_request(ReqKey,
 	       #gtp{type = update_pdp_context_request,
 		    ie = #{?'Quality of Service Profile' := ReqQoSProfile} = IEs} = Request,
 	       _Resent, _State,
-	       #{context := OldContext, pfcp := PCtx,
-		 'Session' := Session} = Data0) ->
+	       #{context := Context, pfcp := PCtx0, 'Session' := Session, pcc := PCC} = Data) ->
 
-    Context0 = update_context_from_gtp_req(Request, OldContext),
-    Context = gtp_path:bind(Request, Context0),
-    URRActions = update_session_from_gtp_req(IEs, Session, Context),
+    RightBearer = ergw_gsn_lib:bearer(right, Context),
+    LeftTunnelOld = ergw_gsn_lib:tunnel(left, Context),
+    LeftBearerOld = ergw_gsn_lib:bearer(left, Context),
+    {LeftTunnel0, LeftBearer} =
+	update_tunnel_from_gtp_req(
+	  Request, LeftTunnelOld#tunnel{version = v1}, LeftBearerOld, Context),
 
-    Data1 = if Context /= OldContext ->
-		     gtp_context:remote_context_update(OldContext, Context),
-		     apply_context_change(Context, OldContext, URRActions, Data0);
-		true ->
-		     trigger_defered_usage_report(URRActions, PCtx),
-		     Data0
-	     end,
+    LeftTunnel1 = gtp_path:bind(Request, LeftTunnel0),
+    gtp_context:tunnel_reg_update(LeftTunnelOld, LeftTunnel1),
+    LeftTunnel = update_path_bind(LeftTunnel1, LeftTunnelOld),
+
+    URRActions = update_session_from_gtp_req(IEs, Session, LeftTunnel),
+
+    PCtx =
+	if LeftBearer /= LeftBearerOld ->
+		apply_bearer_change(
+		  LeftBearer, RightBearer, URRActions, PCtx0, PCC, Context);
+	   true ->
+		trigger_defered_usage_report(URRActions, PCtx0),
+		PCtx0
+	end,
+
+    FinalContext =
+	ergw_gsn_lib:'#set-'(
+	  [{left_tnl, LeftTunnel}, {left, LeftBearer}], Context),
+    DataNew = Data#{context => FinalContext, pfcp := PCtx},
 
     ResponseIEs0 = [#cause{value = request_accepted},
 		    context_charging_id(Context),
 		    ReqQoSProfile],
-    ResponseIEs = tunnel_endpoint_elements(Context, ResponseIEs0),
-    Response = response(update_pdp_context_response, Context, ResponseIEs, Request),
+    ResponseIEs1 = tunnel_elements(LeftTunnel, ResponseIEs0),
+    ResponseIEs = bearer_elements(LeftBearer, ResponseIEs1),
+    Response = response(update_pdp_context_response, LeftTunnel, ResponseIEs, Request),
     gtp_context:send_response(ReqKey, Request, Response),
 
     Actions = context_idle_action([], Context),
-    {keep_state, Data1, Actions};
+    {keep_state, DataNew, Actions};
 
 handle_request(ReqKey,
 	       #gtp{type = ms_info_change_notification_request, ie = IEs} = Request,
 	       _Resent, _State,
-	       #{context := OldContext, pfcp := PCtx,
-		 'Session' := Session} = Data) ->
+	       #{context := Context, pfcp := PCtx, 'Session' := Session}) ->
 
-    Context = update_context_from_gtp_req(Request, OldContext),
-    URRActions = update_session_from_gtp_req(IEs, Session, Context),
+    LeftTunnel = ergw_gsn_lib:tunnel(left, Context),
+
+    URRActions = update_session_from_gtp_req(IEs, Session, LeftTunnel),
     trigger_defered_usage_report(URRActions, PCtx),
 
     ResponseIEs0 = [#cause{value = request_accepted}],
     ResponseIEs = copy_ies_to_response(IEs, ResponseIEs0, [?'IMSI', ?'IMEI']),
-    Response = response(ms_info_change_notification_response, Context, ResponseIEs, Request),
+    Response = response(ms_info_change_notification_response, LeftTunnel, ResponseIEs, Request),
     gtp_context:send_response(ReqKey, Request, Response),
 
     Actions = context_idle_action([], Context),
-    {keep_state, Data#{context => Context}, Actions};
+    {keep_state_and_data, Actions};
 
 handle_request(ReqKey,
 	       #gtp{type = delete_pdp_context_request, ie = _IEs} = Request,
 	       _Resent, _State, #{context := Context} = Data) ->
+    LeftTunnel = ergw_gsn_lib:tunnel(left, Context),
+
     close_pdp_context(normal, Data),
-    Response = response(delete_pdp_context_response, Context, request_accepted),
+    Response = response(delete_pdp_context_response, LeftTunnel, request_accepted),
     gtp_context:send_response(ReqKey, Request, Response),
     {next_state, shutdown, Data};
 
@@ -491,13 +530,18 @@ handle_response({From, TermCause},
 		#gtp{type = delete_pdp_context_response,
 		     ie = #{?'Cause' := #cause{value = Cause}}} = Response,
 		_Request, _State,
-		#{context := Context0} = Data) ->
-    Context = gtp_path:bind(Response, Context0),
+		#{context := Context} = Data) ->
+    LeftTunnel0 = ergw_gsn_lib:tunnel(left, Context),
+    LeftTunnel = gtp_path:bind(Response, LeftTunnel0),
+
+    FinalContext = ergw_gsn_lib:'#set-'([{left_tnl, LeftTunnel}], Context),
+    DataNew = Data#{context => FinalContext},
+
     close_pdp_context(TermCause, Data),
     if is_tuple(From) -> gen_statem:reply(From, {ok, Cause});
        true -> ok
     end,
-    {next_state, shutdown, Data#{context := Context}}.
+    {next_state, shutdown, DataNew}.
 
 terminate(_Reason, _State, #{context := Context}) ->
     ergw_gsn_lib:release_context_ips(Context),
@@ -507,18 +551,20 @@ terminate(_Reason, _State, #{context := Context}) ->
 %%% Internal functions
 %%%===================================================================
 
-response(Cmd, Context, Response) ->
-    #fq_teid{teid = TEID} = ergw_gsn_lib:tunnel(left, remote, Context),
+%% response/3
+response(Cmd, #tunnel{remote = #fq_teid{teid = TEID}}, Response) ->
     {Cmd, TEID, Response}.
 
-response(Cmd, #context{left_tnl = Tunnel} = Context, IEs0, #gtp{ie = ReqIEs}) ->
+%% response/4
+response(Cmd, Tunnel, IEs0, #gtp{ie = ReqIEs})
+  when is_record(Tunnel, tunnel) ->
     IEs = gtp_v1_c:build_recovery(Cmd, Tunnel, is_map_key(?'Recovery', ReqIEs), IEs0),
-    response(Cmd, Context, IEs).
+    response(Cmd, Tunnel, IEs).
 
 session_failure_to_gtp_cause(_) ->
     system_failure.
 
-authenticate(Context, Session, SessionOpts, Request) ->
+authenticate(Session, SessionOpts, Request, Ctx) ->
     ?LOG(debug, "SessionOpts: ~p", [SessionOpts]),
     case ergw_aaa_session:invoke(Session, SessionOpts, authenticate, [inc_session_id]) of
 	{ok, _, _} = Result ->
@@ -526,16 +572,16 @@ authenticate(Context, Session, SessionOpts, Request) ->
 	    Result;
 	Other ->
 	    ?LOG(debug, "AuthResult: ~p", [Other]),
-	    ?ABORT_CTX_REQUEST(Context, Request, create_pdp_context_response,
+	    ?ABORT_CTX_REQUEST(Ctx, Request, create_pdp_context_response,
 			       user_authentication_failed)
     end.
 
-ccr_initial(Context, Session, API, SessionOpts, ReqOpts, Request) ->
+ccr_initial(Session, API, SessionOpts, ReqOpts, Request, Ctx) ->
     case ergw_aaa_session:invoke(Session, SessionOpts, {API, 'CCR-Initial'}, ReqOpts) of
 	{ok, _, _} = Result ->
 	    Result;
 	{Fail, _, _} ->
-	    ?ABORT_CTX_REQUEST(Context, Request, create_pdp_context_response,
+	    ?ABORT_CTX_REQUEST(Ctx, Request, create_pdp_context_response,
 			       session_failure_to_gtp_cause(Fail))
     end.
 
@@ -679,15 +725,20 @@ trigger_defered_usage_report(URRActions, PCtx) ->
 defer_usage_report(URRActions, UsageReport) ->
     defered_usage_report(self(), URRActions, UsageReport).
 
-apply_context_change(NewContext0, OldContext, URRActions,
-		     #{pfcp := PCtx0, pcc := PCC} = Data) ->
-    NewContext = gtp_path:bind(NewContext0),
+apply_bearer_change(LeftBearer, RightBearer, URRActions, PCtx0, PCC, Ctx) ->
     {PCtx, UsageReport} =
 	ergw_gsn_lib:modify_sgi_session(PCC, URRActions,
-					#{}, NewContext, PCtx0),
-    gtp_path:unbind(OldContext),
+					#{}, LeftBearer, RightBearer, Ctx, PCtx0),
     defer_usage_report(URRActions, UsageReport),
-    Data#{context => NewContext, pfcp => PCtx}.
+    PCtx.
+
+update_path_bind(NewTunnel0, OldTunnel)
+  when NewTunnel0 /= OldTunnel ->
+    NewTunnel = gtp_path:bind(NewTunnel0),
+    gtp_path:unbind(OldTunnel),
+    NewTunnel;
+update_path_bind(NewTunnel, _OldTunnel) ->
+    NewTunnel.
 
 %% 'Idle-Timeout' received from ergw_aaa Session takes precedence over configured one
 add_apn_timeout(Opts, Session, Context) ->
@@ -725,17 +776,18 @@ hexstr(Value, _Width) when is_binary(Value) ->
 hexstr(Value, Width) when is_integer(Value) ->
      erlang:iolist_to_binary(io_lib:format("~*.16.0B", [Width, Value])).
 
-init_session(IEs,
-	     #context{left_tnl = Tunnel, charging_identifier = ChargingId},
+%% init_session/4
+init_session(IEs, #tunnel{local = #fq_teid{ip = LocalIP}},
+	     #context{charging_identifier = ChargingId},
 	     #{'Username' := #{default := Username},
 	       'Password' := #{default := Password}}) ->
     MappedUsername = map_username(IEs, Username, []),
     {MCC, MNC} = ergw:get_plmn_id(),
     Opts =
-	case Tunnel#tunnel.local#fq_teid.ip of
-	    {_,_,_,_,_,_,_,_} = LocalIP ->
+	case LocalIP of
+	    {_,_,_,_,_,_,_,_} ->
 		#{'3GPP-GGSN-IPv6-Address' => LocalIP};
-	    LocalIP ->
+	    _ ->
 		#{'3GPP-GGSN-Address' => LocalIP}
 	end,
     Opts#{'Username'		=> MappedUsername,
@@ -869,7 +921,15 @@ copy_to_session(_, #ms_time_zone{timezone = TZ, dst = DST}, _AAAopts, Session) -
 copy_to_session(_, _, _AAAopts, Session) ->
     Session.
 
-init_session_from_gtp_req(IEs, AAAopts, Session) ->
+copy_tunnel_to_session(#tunnel{remote = #fq_teid{ip = {_,_,_,_} = IP}}, Session) ->
+    Session#{'3GPP-SGSN-Address' => IP};
+copy_tunnel_to_session(#tunnel{remote = #fq_teid{ip = {_,_,_,_,_,_,_,_} = IP}}, Session) ->
+    Session#{'3GPP-SGSN-IPv6-Address' => IP};
+copy_tunnel_to_session(_, Session) ->
+    Session.
+
+init_session_from_gtp_req(IEs, AAAopts, Tunnel, Session0) ->
+    Session = copy_tunnel_to_session(Tunnel, Session0),
     maps:fold(copy_to_session(_, _, AAAopts, _), Session, IEs).
 
 init_session_qos(#{?'Quality of Service Profile' :=
@@ -885,14 +945,14 @@ init_session_qos(#{?'Quality of Service Profile' :=
 init_session_qos(_IEs, Session) ->
     Session.
 
-update_session_from_gtp_req(IEs, Session, Context) ->
+update_session_from_gtp_req(IEs, Session, _Context) ->
     OldSOpts = ergw_aaa_session:get(Session),
     NewSOpts0 =
 	maps:fold(copy_to_session(_, _, undefined, _), OldSOpts, IEs),
     NewSOpts =
 	init_session_qos(IEs, NewSOpts0),
     ergw_aaa_session:set(Session, NewSOpts),
-    gtp_context:collect_charging_events(OldSOpts, NewSOpts, Context).
+    gtp_context:collect_charging_events(OldSOpts, NewSOpts).
 
 negotiate_qos_prio(X) when X > 0 andalso X =< 3 ->
     X;
@@ -1032,23 +1092,6 @@ negotiate_qos(ReqPriority, ReqQoSProfileData) ->
 	    {NegPriority, ReqQoSProfileData, QoS}
     end.
 
-set_fq_teid(Id, undefined, Value) ->
-    set_fq_teid(Id, #fq_teid{}, Value);
-set_fq_teid(ip, TEID, Value) ->
-    TEID#fq_teid{ip = ergw_inet:bin2ip(Value)};
-set_fq_teid(teid, TEID, Value) ->
-    TEID#fq_teid{teid = Value}.
-
-get_context_from_req(_, #gsn_address{instance = 0, address = CntlIP}, Context) ->
-    IP = ergw_gsn_lib:choose_context_ip(left, local, CntlIP, CntlIP, Context),
-    ergw_gsn_lib:update_remote_tunnel_teid(set_fq_teid(ip, _, IP), Context);
-get_context_from_req(_, #gsn_address{instance = 1, address = DataIP}, Context) ->
-    IP = ergw_gsn_lib:choose_context_ip(left, local, DataIP, DataIP, Context),
-    ergw_gsn_lib:update_remote_data_teid(set_fq_teid(ip, _, IP), Context);
-get_context_from_req(_, #tunnel_endpoint_identifier_data_i{instance = 0, tei = DataTEI}, Context) ->
-    ergw_gsn_lib:update_remote_data_teid(set_fq_teid(teid, _, DataTEI), Context);
-get_context_from_req(_, #tunnel_endpoint_identifier_control_plane{instance = 0, tei = CntlTEI}, Context) ->
-    ergw_gsn_lib:update_remote_tunnel_teid(set_fq_teid(teid, _, CntlTEI), Context);
 get_context_from_req(?'Access Point Name', #access_point_name{apn = APN}, Context) ->
     Context#context{apn = APN};
 get_context_from_req(?'IMSI', #international_mobile_subscriber_identity{imsi = IMSI}, Context) ->
@@ -1066,6 +1109,31 @@ get_context_from_req(_, _, Context) ->
 update_context_from_gtp_req(#gtp{ie = IEs} = Req, Context0) ->
     Context1 = gtp_v1_c:update_context_id(Req, Context0),
     maps:fold(fun get_context_from_req/3, Context1, IEs).
+
+update_fq_teid(Field, Value, Rec) when is_record(Rec, fq_teid) ->
+    ergw_gsn_lib:'#set-'([{Field, Value}], Rec);
+update_fq_teid(Field, Value, _) ->
+    ergw_gsn_lib:'#new-fq_teid'([{Field, Value}]).
+
+update_fq_teid(Side, Field, Value, Rec) ->
+     ergw_gsn_lib:'#set-'(
+       [{Side, update_fq_teid(Field, Value, ergw_gsn_lib:'#get-'(Side, Rec))}], Rec).
+
+get_tunnel_from_req(_, #gsn_address{instance = 0, address = IP}, {Tunnel, Bearer}, Ctx) ->
+    IP = ergw_gsn_lib:choose_ip_by_tunnel(Tunnel, IP, IP, Ctx),
+    {update_fq_teid(remote, ip, ergw_inet:bin2ip(IP), Tunnel), Bearer};
+get_tunnel_from_req(_, #gsn_address{instance = 1, address = IP}, {Tunnel, Bearer}, Ctx) ->
+    IP = ergw_gsn_lib:choose_ip_by_tunnel(Tunnel, IP, IP, Ctx),
+    {Tunnel, update_fq_teid(remote, ip, ergw_inet:bin2ip(IP), Bearer)};
+get_tunnel_from_req(_, #tunnel_endpoint_identifier_data_i{instance = 0, tei = TEI}, {Tunnel, Bearer}, _) ->
+    {Tunnel, update_fq_teid(remote, teid, TEI, Bearer)};
+get_tunnel_from_req(_, #tunnel_endpoint_identifier_control_plane{instance = 0, tei = TEI}, {Tunnel, Bearer}, _) ->
+    {update_fq_teid(remote, teid, TEI, Tunnel), Bearer};
+get_tunnel_from_req(_, _, Acc, _) ->
+    Acc.
+
+update_tunnel_from_gtp_req(#gtp{ie = IEs}, Tunnel, Bearer, Ctx) ->
+    maps:fold(get_tunnel_from_req(_, _, _, Ctx), {Tunnel, Bearer}, IEs).
 
 enter_ie(_Key, Value, IEs)
   when is_list(IEs) ->
@@ -1107,8 +1175,8 @@ delete_context(From, TermCause, #{context := #context{left_tnl = Tunnel}} = Data
     send_request(Tunnel, ?T3, ?N3, Type, RequestIEs, {From, TermCause}),
     {next_state, shutdown_initiated, Data}.
 
-allocate_ips(APNOpts, SOpts, EUA, DAF, VRF, Context) ->
-    ergw_gsn_lib:allocate_ips(pdp_alloc(EUA), APNOpts, SOpts, DAF, VRF, Context).
+allocate_ips(APNOpts, SOpts, EUA, DAF, Tunnel, Bearer, Context) ->
+    ergw_gsn_lib:allocate_ips(pdp_alloc(EUA), APNOpts, SOpts, DAF, Tunnel, Bearer, Context).
 
 ppp_ipcp_conf_resp(Verdict, Opt, IPCP) ->
     maps:update_with(Verdict, fun(O) -> [Opt|O] end, [Opt], IPCP).
@@ -1167,14 +1235,14 @@ pdp_qos_profile(#{'3GPP-Allocation-Retention-Priority' := NegotiatedPriority,
 pdp_qos_profile(_SessionOpts, IE) ->
     IE.
 
-tunnel_endpoint_elements(#context{
-			    left_tnl = #tunnel{local = #fq_teid{ip = CntlIP, teid = CntlTEI}},
-			    left = #bearer{local = #fq_teid{ip = DataIP, teid = DataTEI}}
-			   }, IEs) ->
-    [#tunnel_endpoint_identifier_data_i{tei = DataTEI},
-     #tunnel_endpoint_identifier_control_plane{tei = CntlTEI},
-     #gsn_address{instance = 0, address = ergw_inet:ip2bin(CntlIP)},   %% for Control Plane
-     #gsn_address{instance = 1, address = ergw_inet:ip2bin(DataIP)}    %% for User Traffic
+tunnel_elements(#tunnel{local = #fq_teid{ip = IP, teid = TEI}}, IEs) ->
+    [#tunnel_endpoint_identifier_control_plane{tei = TEI},
+     #gsn_address{instance = 0, address = ergw_inet:ip2bin(IP)}   %% for Control Plane
+     | IEs].
+
+bearer_elements(#bearer{local = #fq_teid{ip = IP, teid = TEI}}, IEs) ->
+    [#tunnel_endpoint_identifier_data_i{tei = TEI},
+     #gsn_address{instance = 1, address = ergw_inet:ip2bin(IP)}    %% for User Traffic
      | IEs].
 
 context_charging_id(#context{charging_identifier = ChargingId}) ->
@@ -1196,6 +1264,7 @@ change_reporting_actions(#gtp{ext_hdr = ExtHdr}, IEs) ->
     _IE = change_reporting_action(CRSI, Triggers, IEs).
 
 create_pdp_context_response(Result, SessionOpts, #gtp{ie = RequestIEs} = Request,
+			    Tunnel, Bearer,
 			    #context{ms_ip = #ue_ip{v4 = MSv4, v6 = MSv6}} = Context) ->
     IE0 = [Result,
 	   #reordering_required{required = no},
@@ -1203,8 +1272,9 @@ create_pdp_context_response(Result, SessionOpts, #gtp{ie = RequestIEs} = Request
 	   encode_eua(MSv4, MSv6)],
     IE1 = pdp_qos_profile(SessionOpts, IE0),
     IE2 = pdp_pco(SessionOpts, RequestIEs, IE1),
-    IE3 = tunnel_endpoint_elements(Context, IE2),
-    _IE = change_reporting_actions(Request, IE3).
+    IE3 = tunnel_elements(Tunnel, IE2),
+    IE4 = bearer_elements(Bearer, IE3),
+    _IE = change_reporting_actions(Request, IE4).
 
 %% Wrapper for gen_statem state_callback_result Actions argument
 %% Timeout set in the context of a prolonged idle gtp session

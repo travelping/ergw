@@ -56,6 +56,7 @@
 	  vrf			:: term(),
 	  socket		:: #socket{},
 	  path			:: 'undefined' | pid(),
+	  version               :: 'v1' | 'v2',
 	  local			:: 'undefined' | #fq_teid{},
 	  remote		:: 'undefined' | #fq_teid{},
 	  remote_restart_counter :: 0 .. 255

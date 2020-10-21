@@ -20,9 +20,10 @@
 	 send_request/6, resend_request/2,
 	 request_finished/1,
 	 path_restart/2,
-	 terminate_colliding_context/1, terminate_context/1,
+	 terminate_colliding_context/2, terminate_context/1,
 	 delete_context/1, trigger_delete_context/1,
 	 remote_context_register/1, remote_context_register_new/1, remote_context_update/2,
+	 tunnel_reg_update/2,
 	 enforce_restrictions/2,
 	 info/1,
 	 validate_options/3,
@@ -30,7 +31,7 @@
 	 generic_error/3,
 	 socket_key/2, socket_teid_key/2]).
 -export([usage_report_to_accounting/1,
-	 collect_charging_events/3]).
+	 collect_charging_events/2]).
 
 %% ergw_context callbacks
 -export([sx_report/2, port_message/2, port_message/4]).
@@ -106,6 +107,13 @@ remote_context_update(OldContext, NewContext)
     Insert = ordsets:subtract(NewKeys, OldKeys),
     gtp_context_reg:update(Delete, Insert, ?MODULE, self()).
 
+tunnel_reg_update(TunnelOld, TunnelNew) ->
+    OldKeys = ordsets:from_list(tunnel2keys(TunnelOld)),
+    NewKeys = ordsets:from_list(tunnel2keys(TunnelNew)),
+    Delete = ordsets:subtract(OldKeys, NewKeys),
+    Insert = ordsets:subtract(NewKeys, OldKeys),
+    gtp_context_reg:update(Delete, Insert, ?MODULE, self()).
+
 delete_context(Context) ->
     gen_statem:call(Context, delete_context).
 
@@ -113,7 +121,7 @@ trigger_delete_context(Context) ->
     gen_statem:cast(Context, delete_context).
 
 %% TODO: add online charing events
-collect_charging_events(OldS, NewS, _Context) ->
+collect_charging_events(OldS, NewS) ->
     EvChecks =
 	[
 	 {'CGI',                     'cgi-sai-change'},
@@ -154,7 +162,7 @@ collect_charging_events(OldS, NewS, _Context) ->
 %% that when an incomming Create PDP Context/Create Session requests collides
 %% with an existing context based on a IMSI, Bearer, Protocol tuple, that the
 %% preexisting context should be deleted locally. This function does that.
-terminate_colliding_context(#context{left_tnl = #tunnel{socket = Socket}, context_id = Id})
+terminate_colliding_context(#tunnel{socket = Socket}, #context{context_id = Id})
   when Id /= undefined ->
     case gtp_context_reg:lookup(socket_key(Socket, Id)) of
 	{?MODULE, Server} when is_pid(Server) ->
@@ -162,7 +170,7 @@ terminate_colliding_context(#context{left_tnl = #tunnel{socket = Socket}, contex
 	_ ->
 	    ok
     end;
-terminate_colliding_context(_) ->
+terminate_colliding_context(_, _) ->
     ok.
 
 terminate_context(Context)
@@ -320,7 +328,7 @@ init([Socket, Info, Version, Interface,
 
     LeftTnl =
 	ergw_gsn_lib:assign_tunnel_teid(
-	  local, Info, ergw_gsn_lib:init_tunnel('Access', Info, Socket)),
+	  local, Info, ergw_gsn_lib:init_tunnel('Access', Info, Socket, Version)),
     Context = #context{
 		 charging_identifier = ergw_gtp_c_socket:get_uniq_id(Socket),
 
@@ -404,8 +412,8 @@ handle_event(cast, {handle_response, ReqInfo, Request, Response0}, State,
 	end,
 	Interface:handle_response(ReqInfo, Response, Request, State, Data)
     catch
-	throw:#ctx_err{} = CtxErr ->
-	    handle_ctx_error(CtxErr, State, Data);
+	throw:#ctx_err{} = CtxErr:St ->
+	    handle_ctx_error(CtxErr, St, State, Data);
 
 	Class:Reason:Stacktrace ->
 	    ?LOG(error, "GTP response failed with: ~p:~p (~p)", [Class, Reason, Stacktrace]),
@@ -441,11 +449,12 @@ code_change(_OldVsn, State, Data, _Extra) ->
 %%% Message Handling functions
 %%%===================================================================
 
-log_ctx_error(#ctx_err{level = Level, where = {File, Line}, reply = Reply}) ->
-    ?LOG(debug, "CtxErr: ~w, at ~s:~w, ~p", [Level, File, Line, Reply]).
+log_ctx_error(#ctx_err{level = Level, where = {File, Line}, reply = Reply}, St) ->
+    ?LOG(debug, #{type => ctx_err, level => Level, file => File,
+		  line => Line, reply => Reply, stack => St}).
 
-handle_ctx_error(#ctx_err{level = Level, context = Context} = CtxErr, _State, Data) ->
-    log_ctx_error(CtxErr),
+handle_ctx_error(#ctx_err{level = Level, context = Context} = CtxErr, St, _State, Data) ->
+    log_ctx_error(CtxErr, St),
     case Level of
 	?FATAL when is_record(Context, context) ->
 	    {stop, normal, Data#{context => Context}};
@@ -457,7 +466,7 @@ handle_ctx_error(#ctx_err{level = Level, context = Context} = CtxErr, _State, Da
 	    {keep_state, Data}
     end.
 
-handle_ctx_error(#ctx_err{reply = Reply} = CtxErr, Handler,
+handle_ctx_error(#ctx_err{reply = Reply} = CtxErr, St, Handler,
 		 Request, #gtp{type = MsgType, seq_no = SeqNo}, State, Data) ->
     Response = if is_list(Reply) orelse is_atom(Reply) ->
 		       Handler:build_response({MsgType, Reply});
@@ -465,7 +474,7 @@ handle_ctx_error(#ctx_err{reply = Reply} = CtxErr, Handler,
 		       Handler:build_response(Reply)
 	       end,
     send_response(Request, Response#gtp{seq_no = SeqNo}),
-    handle_ctx_error(CtxErr, State, Data).
+    handle_ctx_error(CtxErr, St, State, Data).
 
 handle_request(#request{socket = Socket} = Request,
 	       #gtp{version = Version} = Msg,
@@ -477,9 +486,9 @@ handle_request(#request{socket = Socket} = Request,
 	validate_message(Msg, Data0),
 	Interface:handle_request(Request, Msg, Resent, State, Data0)
     catch
-	throw:#ctx_err{} = CtxErr ->
+	throw:#ctx_err{} = CtxErr:St ->
 	    Handler = gtp_path:get_handler(Socket, Version),
-	    handle_ctx_error(CtxErr, Handler, Request, Msg, State, Data0);
+	    handle_ctx_error(CtxErr, St, Handler, Request, Msg, State, Data0);
 
 	Class:Reason:Stacktrace ->
 	    ?LOG(error, "GTP~p failed with: ~p:~p (~p)", [Version, Class, Reason, Stacktrace]),
@@ -584,9 +593,12 @@ context2keys(#context{
 		right               = Bearer
 	       }) ->
     ordsets:from_list(
-      [tunnel_key(local, LeftTnl), tunnel_key(remote, LeftTnl)]
+      tunnel2keys(LeftTnl)
       ++ [socket_key(Socket, ContextId) || ContextId /= undefined]
       ++ bsf_keys(APN, Bearer)).
+
+tunnel2keys(Tunnel) ->
+    [tunnel_key(local, Tunnel), tunnel_key(remote, Tunnel)].
 
 bsf_keys(APN, #bearer{vrf = VRF, local = #ue_ip{v4 = IPv4, v6 = IPv6}}) ->
     [#bsf{dnn = APN, ip_domain = VRF, ip = ergw_ip_pool:ip(IPv4)} || IPv4 /= undefined] ++

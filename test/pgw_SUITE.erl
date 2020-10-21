@@ -1073,9 +1073,12 @@ create_session_request_pool_exhausted() ->
     [{doc, "Dynamic IP pool exhausted"}].
 create_session_request_pool_exhausted(Config) ->
     ok = meck:expect(ergw_gsn_lib, allocate_ips,
-		     fun(AllocInfo, APNOpts, SOpts, DualAddressBearerFlag, VRF, Context) ->
+		     fun(AllocInfo, APNOpts, SOpts, DualAddressBearerFlag,
+			 Tunnel, Bearer, Context) ->
 			     try
-				 meck:passthrough([AllocInfo, APNOpts, SOpts, DualAddressBearerFlag, VRF, Context])
+				 meck:passthrough([AllocInfo, APNOpts, SOpts,
+						   DualAddressBearerFlag,
+						   Tunnel, Bearer, Context])
 			     catch
 				 throw:#ctx_err{} = CtxErr ->
 				     meck:exception(throw, CtxErr)
@@ -1497,9 +1500,12 @@ pdn_session_request_bearer_types() ->
     [{doc, "Create different IP bearers against APNs with restrictions/preferences"}].
 pdn_session_request_bearer_types(Config) ->
     ok = meck:expect(ergw_gsn_lib, allocate_ips,
-		     fun(AllocInfo, APNOpts, SOpts, DualAddressBearerFlag, VRF, Context) ->
+		     fun(AllocInfo, APNOpts, SOpts, DualAddressBearerFlag,
+			 Tunnel, Bearer, Context) ->
 			     try
-				 meck:passthrough([AllocInfo, APNOpts, SOpts, DualAddressBearerFlag, VRF, Context])
+				 meck:passthrough([AllocInfo, APNOpts, SOpts,
+						   DualAddressBearerFlag,
+						   Tunnel, Bearer, Context])
 			     catch
 				 throw:#ctx_err{} = CtxErr ->
 				     meck:exception(throw, CtxErr)

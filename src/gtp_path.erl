@@ -69,23 +69,21 @@ handle_request(#request{socket = Socket, ip = IP} = ReqKey, #gtp{version = Versi
 handle_response(Path, Request, Ref, Response) ->
     gen_statem:cast(Path, {handle_response, Request, Ref, Response}).
 
-bind(Context) ->
-    monitor_path_recovery(bind_path(Context)).
+bind(Tunnel) ->
+    monitor_path_recovery(bind_path(Tunnel)).
 
 bind(#gtp{ie = #{{recovery, 0} :=
 		     #recovery{restart_counter = RestartCounter}}
-	 } = Request, Context) ->
-    bind_path_recovery(RestartCounter, bind_path(Request, Context));
+	 } = Request, Tunnel) ->
+    bind_path_recovery(RestartCounter, bind_path(Request, Tunnel));
 bind(#gtp{ie = #{{v2_recovery, 0} :=
 		     #v2_recovery{restart_counter = RestartCounter}}
-	 } = Request, Context) ->
-    bind_path_recovery(RestartCounter, bind_path(Request, Context));
-bind(Request, Context) ->
-    bind_path_recovery(undefined, bind_path(Request, Context)).
+	 } = Request, Tunnel) ->
+    bind_path_recovery(RestartCounter, bind_path(Request, Tunnel));
+bind(Request, Tunnel) ->
+    bind_path_recovery(undefined, bind_path(Request, Tunnel)).
 
-unbind(#context{version = Version} = Context) ->
-    #tunnel{socket = Socket, remote = #fq_teid{ip = RemoteIP}} =
-	ergw_gsn_lib:tunnel(left, Context),
+unbind(#tunnel{socket = Socket, version = Version, remote = #fq_teid{ip = RemoteIP}}) ->
     case get(Socket, Version, RemoteIP) of
 	Path when is_pid(Path) ->
 	    gen_statem:call(Path, {unbind, self()});
@@ -526,29 +524,25 @@ unregister(Pid, State, #{monitors := Mons} = Data, Actions)
 unregister(_Pid, _, _Data, Actions) ->
     {keep_state_and_data, Actions}.
 
-bind_path(#gtp{version = Version}, Context) ->
-    bind_path(Context#context{version = Version}).
+bind_path(#gtp{version = Version}, Tunnel) ->
+    bind_path(Tunnel#tunnel{version = Version}).
 
-bind_path(#context{version = Version} = Context) ->
-    #tunnel{socket = Socket, remote = #fq_teid{ip = RemoteCntlIP}} =
-	ergw_gsn_lib:tunnel(left, Context),
+bind_path(#tunnel{socket = Socket, version = Version,
+		  remote = #fq_teid{ip = RemoteCntlIP}} = Tunnel) ->
     Path = maybe_new_path(Socket, Version, RemoteCntlIP),
-    ergw_gsn_lib:set_tunnel_path(left, Path, Context).
+    Tunnel#tunnel{path = Path}.
 
-monitor_path_recovery(Context) ->
-    #tunnel{path = Path} = ergw_gsn_lib:tunnel(left, Context),
+monitor_path_recovery(#tunnel{path = Path} = Tunnel) ->
     {ok, PathRestartCounter} = gen_statem:call(Path, {monitor, self()}),
-    ergw_gsn_lib:set_remote_restart_counter(PathRestartCounter, Context).
+    Tunnel#tunnel{remote_restart_counter = PathRestartCounter}.
 
-bind_path_recovery(RestartCounter, Context)
+bind_path_recovery(RestartCounter, #tunnel{path = Path} = Tunnel)
   when is_integer(RestartCounter) ->
-    #tunnel{path = Path} = ergw_gsn_lib:tunnel(left, Context),
     ok = gen_statem:call(Path, {bind, self(), RestartCounter}),
-    ergw_gsn_lib:set_remote_restart_counter(RestartCounter, Context);
-bind_path_recovery(_RestartCounter, Context) ->
-    #tunnel{path = Path} = ergw_gsn_lib:tunnel(left, Context),
+    Tunnel#tunnel{remote_restart_counter = RestartCounter};
+bind_path_recovery(_RestartCounter, #tunnel{path = Path} = Tunnel) ->
     {ok, PathRestartCounter} = gen_statem:call(Path, {bind, self()}),
-    ergw_gsn_lib:set_remote_restart_counter(PathRestartCounter, Context).
+    Tunnel#tunnel{remote_restart_counter = PathRestartCounter}.
 
 send_echo_request(State, #{socket := Socket, handler := Handler, ip := DstIP,
 			   t3 := T3, n3 := N3}) ->

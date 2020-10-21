@@ -15,9 +15,9 @@
 	 select_gw/5,
 	 select_gtp_proxy_sockets/2,
 	 select_sx_proxy_candidate/3]).
--export([create_forward_session/3,
+-export([create_forward_session/4,
 	 modify_forward_session/5,
-	 delete_forward_session/4,
+	 delete_forward_session/3,
 	 query_usage_report/2]).
 
 -include_lib("kernel/include/logger.hrl").
@@ -29,18 +29,28 @@
 %%% API
 %%%===================================================================
 
-forward_request(Direction, Socket, DstIP, DstPort,
+%% forward_request/9
+forward_request(Direction, #tunnel{socket = Socket}, DstIP, DstPort,
 		Request, ReqKey, SeqNo, NewPeer, OldState) ->
     {ReqId, ReqInfo} = make_proxy_request(Direction, ReqKey, SeqNo, NewPeer, OldState),
     ?LOG(debug, "Invoking Context Send Request: ~p", [Request]),
     gtp_context:send_request(Socket, DstIP, DstPort, ReqId, Request, ReqInfo).
 
-forward_request(Direction, Context, Request, ReqKey, SeqNo, NewPeer, OldState) ->
-    #tunnel{remote = #fq_teid{ip = RemoteCntlIP}} = Tunnel =
-	ergw_gsn_lib:tunnel(left, Context),
-    forward_request(Direction, Tunnel, RemoteCntlIP, ?GTP1c_PORT,
-		    Request, ReqKey, SeqNo, NewPeer, OldState).
+%% forward_request/7
+forward_request(Direction, #tunnel{remote = #fq_teid{ip = IP}} = Tunnel,
+		Request, ReqKey, SeqNo, NewPeer, OldState) ->
+    forward_request(Direction, Tunnel, IP, ?GTP1c_PORT,
+		    Request, ReqKey, SeqNo, NewPeer, OldState);
+forward_request(Direction, Context, Request, ReqKey, SeqNo, NewPeer, OldState)
+  when is_record(Context, context) ->
+    Tunnel = ergw_gsn_lib:tunnel(left, Context),
+    forward_request(Direction, Tunnel, Request, ReqKey, SeqNo, NewPeer, OldState).
 
+%% forward_request/3
+forward_request(Tunnel, ReqKey, Request)
+  when is_record(Tunnel, tunnel) ->
+    ReqId = make_request_id(ReqKey, Request),
+    gtp_context:resend_request(Tunnel, ReqId);
 forward_request(#context{left_tnl = Tunnel}, ReqKey, Request) ->
     ReqId = make_request_id(ReqKey, Request),
     gtp_context:resend_request(Tunnel, ReqId).
@@ -212,8 +222,7 @@ update_m_rec(Record, Map) when is_tuple(Record) ->
 %%% Sx DP API
 %%%===================================================================
 
-proxy_pdr({SrcIntf, #context{left = LeftBearer},
-	  DstIntf, _Right}, PCtx0) ->
+proxy_pdr({SrcIntf, LeftBearer, DstIntf, _Right}, PCtx0) ->
 
     {[PdrId, FarId, UrrId], PCtx} =
 	ergw_pfcp:get_id([{pdr, SrcIntf}, {far, DstIntf}, {urr, proxy}], PCtx0),
@@ -226,13 +235,13 @@ proxy_pdr({SrcIntf, #context{left = LeftBearer},
 	   #urr_id{id = UrrId}],
     ergw_pfcp_rules:add(pdr, PdrId, PDR, PCtx).
 
-proxy_far({_SrcIntf, _Left, DstIntf, #context{left = LeftBearer}}, PCtx0)
-  when LeftBearer#bearer.remote /= undefined ->
+proxy_far({_SrcIntf, _Left, DstIntf, RightBearer}, PCtx0)
+  when RightBearer#bearer.remote /= undefined ->
     {FarId, PCtx} = ergw_pfcp:get_id(far, DstIntf, PCtx0),
     FAR = [#far_id{id = FarId},
 	   #apply_action{forw = 1},
 	   #forwarding_parameters{
-	      group = ergw_pfcp:traffic_forward(LeftBearer, [])
+	      group = ergw_pfcp:traffic_forward(RightBearer, [])
 	     }
 	  ],
     ergw_pfcp_rules:add(far, FarId, FAR, PCtx);
@@ -251,22 +260,20 @@ proxy_urr(PCtx0) ->
 	  ],
     ergw_pfcp_rules:add(urr, UrrId, URR, PCtx).
 
-register_ctx_ids(#context{left = #bearer{local = FqTEID}},
+register_ctx_ids(Handler,
+		 #bearer{local = Left}, #bearer{local = Right},
 		 #pfcp_ctx{seid = #seid{cp = SEID}} = PCtx) ->
-    Keys = [{seid, SEID} |
-	    [ergw_pfcp:ctx_teid_key(PCtx, FqTEID) || is_record(FqTEID, fq_teid)]],
-    gtp_context_reg:register(Keys, gtp_context, self()).
+    Keys = [{seid, SEID}]
+	++ [ergw_pfcp:ctx_teid_key(PCtx, Left) || is_record(Left, fq_teid)]
+	++ [ergw_pfcp:ctx_teid_key(PCtx, Right) || is_record(Right, fq_teid)],
+    gtp_context_reg:register(Keys, Handler, self()).
 
-create_forward_session(Candidates, Left0, Right0) ->
-    {ok, PCtx0, NodeCaps} = ergw_sx_node:select_sx_node(Candidates, Left0),
-    Left = ergw_gsn_lib:assign_local_data_teid(PCtx0, NodeCaps, Left0),
-    register_ctx_ids(Left, PCtx0),
-    Right = ergw_gsn_lib:assign_local_data_teid(PCtx0, NodeCaps, Right0),
-    register_ctx_ids(Left, PCtx0),
-
+create_forward_session(PCtx0, Left, Right, Ctx) ->
     {ok, CntlNode, _, _} = ergw_sx_socket:id(),
+    register_ctx_ids(gtp_context, Left, Right, PCtx0),
 
-    MakeRules = [{'Access', Left, 'Core', Right}, {'Core', Right, 'Access', Left}],
+    MakeRules = [{'Access', Left, 'Core', Right},
+		 {'Core', Right, 'Access', Left}],
     PCtx1 = lists:foldl(fun proxy_pdr/2, PCtx0, MakeRules),
     PCtx2 = lists:foldl(fun proxy_far/2, PCtx1, MakeRules),
     PCtx = proxy_urr(PCtx2),
@@ -278,24 +285,21 @@ create_forward_session(Candidates, Left0, Right0) ->
 	#pfcp{version = v1, type = session_establishment_response,
 	      ie = #{pfcp_cause := #pfcp_cause{cause = 'Request accepted'},
 		     f_seid := #f_seid{}} = RespIEs} ->
-	    {Left, Right, ctx_update_dp_seid(RespIEs, PCtx)};
+	    ctx_update_dp_seid(RespIEs, PCtx);
 	_Other ->
-	    throw(?CTX_ERR(?FATAL, system_failure, Left))
+	    throw(?CTX_ERR(?FATAL, system_failure, Ctx))
     end.
 
-modify_forward_session(#context{version = OldVersion} = OldLeft,
-		       #context{version = NewVersion} = NewLeft,
-		       _OldRight, NewRight, OldPCtx) ->
-    MakeRules = [{'Access', NewLeft, 'Core', NewRight}, {'Core', NewRight, 'Access', NewLeft}],
+modify_forward_session(Opts, Left, Right, Ctx, OldPCtx) ->
+    MakeRules = [{'Access', Left, 'Core', Right}, {'Core', Right, 'Access', Left}],
     PCtx0 = ergw_pfcp:reset_ctx(OldPCtx),
     PCtx1 = lists:foldl(fun proxy_pdr/2, PCtx0, MakeRules),
     PCtx2 = lists:foldl(fun proxy_far/2, PCtx1, MakeRules),
     PCtx = proxy_urr(PCtx2),
-    Opts = #{send_end_marker => (v2 =:= NewVersion andalso v2 =:= OldVersion)},
     IEs = ergw_pfcp:update_pfcp_rules(OldPCtx, PCtx, Opts),
 
     Req = #pfcp{version = v1, type = session_modification_request, ie = IEs},
-    case ergw_sx_node:call(OldPCtx, Req, NewLeft) of
+    case ergw_sx_node:call(OldPCtx, Req, Left) of
 	#pfcp{version = v1, type = session_modification_response,
 	      ie = #{
 		     pfcp_cause :=
@@ -303,13 +307,13 @@ modify_forward_session(#context{version = OldVersion} = OldLeft,
 	    %%TODO: modify_proxy_report_urrs(Response, URRActions),
 	    ctx_update_dp_seid(RespIEs, PCtx);
 	_ ->
-	    throw(?CTX_ERR(?FATAL, system_failure, OldLeft))
+	    throw(?CTX_ERR(?FATAL, system_failure, Ctx))
     end.
 
-
-delete_forward_session(Reason, Left, _Right, PCtx) when Reason =:= normal; Reason =:= administrative ->
+delete_forward_session(Reason, Ctx, PCtx)
+  when Reason =:= normal; Reason =:= administrative ->
     Req = #pfcp{version = v1, type = session_deletion_request, ie = []},
-    case ergw_sx_node:call(PCtx, Req, Left) of
+    case ergw_sx_node:call(PCtx, Req, Ctx) of
 	#pfcp{type = session_deletion_response,
 	      ie = #{pfcp_cause := #pfcp_cause{cause = 'Request accepted'}} = IEs} ->
 	    maps:get(usage_report_sdr, IEs, undefined);
@@ -318,7 +322,7 @@ delete_forward_session(Reason, Left, _Right, PCtx) when Reason =:= normal; Reaso
 			  [_Other]),
 	    undefined
     end;
-delete_forward_session(_Reason, _Left, _Right, _PCtx) ->
+delete_forward_session(_Reason, _Ctx, _PCtx) ->
     undefined.
 
 query_usage_report(Ctx, PCtx)

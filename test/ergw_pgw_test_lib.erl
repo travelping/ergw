@@ -937,6 +937,8 @@ validate_response(create_session_request, SubType, Response,
 validate_response(modify_bearer_request, SubType, Response,
 		  #gtpc{local_control_tei = LocalCntlTEI} = GtpC)
   when SubType == tei_update; SubType == sgw_change ->
+    ?match(#gtp{type = modify_bearer_response}, Response),
+    ?match(#gtp{tei = LocalCntlTEI}, Response),
     ?match(
        #gtp{type = modify_bearer_response,
 	    tei = LocalCntlTEI,
