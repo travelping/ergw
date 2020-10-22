@@ -202,7 +202,7 @@ handle_event({call, From}, {sx, #pfcp{type = session_report_request,
     {Online, Offline, Monitor} =
 	ergw_pfcp_context:usage_report_to_charging_events(UsageReport, ChargeEv, PCtx),
     ergw_gsn_lib:process_accounting_monitor_events(ChargeEv, Monitor, Now, Session),
-    GyReqServices = ergw_gsn_lib:gy_credit_request(Online, PCC),
+    GyReqServices = ergw_pcc_context:gy_credit_request(Online, PCC),
     ergw_gsn_lib:process_online_charging_events(ChargeEv, GyReqServices, Session, ReqOpts),
     ergw_gsn_lib:process_offline_charging_events(ChargeEv, Offline, Now, Session),
 
@@ -259,10 +259,10 @@ handle_event(info, #aaa_request{procedure = {gx, 'RAR'},
 
 %%% step 1a:
     {PCC1, _} =
-	ergw_gsn_lib:gx_events_to_pcc_ctx(Events, remove, RuleBase, PCC0),
+	ergw_pcc_context:gx_events_to_pcc_ctx(Events, remove, RuleBase, PCC0),
 %%% step 1b:
     {PCC2, PCCErrors2} =
-	ergw_gsn_lib:gx_events_to_pcc_ctx(Events, install, RuleBase, PCC1),
+	ergw_pcc_context:gx_events_to_pcc_ctx(Events, install, RuleBase, PCC1),
 
 %%% step 2
 %%% step 3:
@@ -275,13 +275,13 @@ handle_event(info, #aaa_request{procedure = {gx, 'RAR'},
 	ergw_pfcp_context:usage_report_to_charging_events(UsageReport, ChargeEv, PCtx1),
 
     ergw_gsn_lib:process_accounting_monitor_events(ChargeEv, Monitor, Now, Session),
-    GyReqServices = ergw_gsn_lib:gy_credit_request(Online, PCC0, PCC2),
+    GyReqServices = ergw_pcc_context:gy_credit_request(Online, PCC0, PCC2),
     {ok, _, GyEvs} =
 	ergw_gsn_lib:process_online_charging_events(ChargeEv, GyReqServices, Session, ReqOps),
     ergw_gsn_lib:process_offline_charging_events(ChargeEv, Offline, Now, Session),
 
 %%% step 5:
-    {PCC4, PCCErrors4} = ergw_gsn_lib:gy_events_to_pcc_ctx(Now, GyEvs, PCC2),
+    {PCC4, PCCErrors4} = ergw_pcc_context:gy_events_to_pcc_ctx(Now, GyEvs, PCC2),
 
 %%% step 6:
     {PCtx, _} =
@@ -320,7 +320,7 @@ handle_event(internal, {session, {update_credits, _} = CreditEv, _}, _State,
     Now = erlang:monotonic_time(),
     #tdf_ctx{left = Left, right = Right} = Context,
 
-    {PCC, _PCCErrors} = ergw_gsn_lib:gy_events_to_pcc_ctx(Now, [CreditEv], PCC0),
+    {PCC, _PCCErrors} = ergw_pcc_context:gy_events_to_pcc_ctx(Now, [CreditEv], PCC0),
 
     {PCtx, _} =
 	ergw_pfcp_context:modify_sgi_session(PCC, [], #{}, Left, Right, Context, PCtx0),
@@ -384,15 +384,15 @@ start_session(#data{apn = APN, context = Context0, dp_node = Node,
 
     RuleBase = ergw_charging:rulebase(),
     {PCC1, PCCErrors1} =
-	ergw_gsn_lib:gx_events_to_pcc_ctx(GxEvents, '_', RuleBase, PCC0),
+	ergw_pcc_context:gx_events_to_pcc_ctx(GxEvents, '_', RuleBase, PCC0),
 
-    case ergw_gsn_lib:pcc_ctx_has_rules(PCC1) of
+    case ergw_pcc_context:pcc_ctx_has_rules(PCC1) of
 	false -> throw({fail, authenticate, no_pcc_rules});
 	true ->  ok
     end,
 
     %% TBD............
-    CreditsAdd = ergw_gsn_lib:pcc_ctx_to_credit_request(PCC1),
+    CreditsAdd = ergw_pcc_context:pcc_ctx_to_credit_request(PCC1),
     GyReqServices = #{credits => CreditsAdd},
 
     {ok, GySessionOpts, GyEvs} =
@@ -402,9 +402,9 @@ start_session(#data{apn = APN, context = Context0, dp_node = Node,
     ergw_aaa_session:invoke(Session, #{}, start, SOpts),
     {_, _, RfSEvs} = ergw_aaa_session:invoke(Session, #{}, {rf, 'Initial'}, SOpts),
 
-    {PCC2, PCCErrors2} = ergw_gsn_lib:gy_events_to_pcc_ctx(Now, GyEvs, PCC1),
-    PCC3 = ergw_gsn_lib:session_events_to_pcc_ctx(AuthSEvs, PCC2),
-    PCC4 = ergw_gsn_lib:session_events_to_pcc_ctx(RfSEvs, PCC3),
+    {PCC2, PCCErrors2} = ergw_pcc_context:gy_events_to_pcc_ctx(Now, GyEvs, PCC1),
+    PCC3 = ergw_pcc_context:session_events_to_pcc_ctx(AuthSEvs, PCC2),
+    PCC4 = ergw_pcc_context:session_events_to_pcc_ctx(RfSEvs, PCC3),
 
     #tdf_ctx{left = Left, right = Right} = Context,
     PCtx = ergw_pfcp_context:create_tdf_session(PendingPCtx, PCC4, Left, Right, Context),
@@ -523,7 +523,7 @@ triggered_charging_event(ChargeEv, Now, Request,
 	{Online, Offline, Monitor} =
 	    ergw_pfcp_context:usage_report_to_charging_events(UsageReport, ChargeEv, PCtx),
 	ergw_gsn_lib:process_accounting_monitor_events(ChargeEv, Monitor, Now, Session),
-	GyReqServices = ergw_gsn_lib:gy_credit_request(Online, PCC),
+	GyReqServices = ergw_pcc_context:gy_credit_request(Online, PCC),
 	ergw_gsn_lib:process_online_charging_events(ChargeEv, GyReqServices, Session, ReqOpts),
 	ergw_gsn_lib:process_offline_charging_events(ChargeEv, Offline, Now, Session)
     catch
