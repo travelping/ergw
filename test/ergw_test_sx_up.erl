@@ -295,7 +295,7 @@ handle_message(#pfcp{type = heartbeat_request,
 	       #state{dp_recovery_ts = RecoveryTS,
 		      cp_recovery_ts = CpRecoveryTS} = State0) ->
     IEs = [#recovery_time_stamp{
-	      time = ergw_sx_node:seconds_to_sntp_time(RecoveryTS)}],
+	      time = ergw_gsn_lib:seconds_to_sntp_time(RecoveryTS)}],
     State =
 	if InCpRecoveryTS =/= CpRecoveryTS ->
 		State0#state{cp_recovery_ts = undefined};
@@ -312,7 +312,7 @@ handle_message(#pfcp{type = association_setup_request,
 	[#node_id{id = [<<"test">>, <<"server">>]},
 	 #pfcp_cause{cause = 'Request accepted'},
 	 #recovery_time_stamp{
-	    time = ergw_sx_node:seconds_to_sntp_time(RecoveryTS)},
+	    time = ergw_gsn_lib:seconds_to_sntp_time(RecoveryTS)},
 	 user_plane_ip_resource_information([<<"cp">>], State0),
 	 user_plane_ip_resource_information([<<"irx">>], State0),
 	 user_plane_ip_resource_information([<<"proxy-irx">>], State0),

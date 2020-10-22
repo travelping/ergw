@@ -2494,7 +2494,7 @@ sx_up_to_cp_forward(Config) ->
 sx_upf_restart() ->
     [{doc, "Test UPF restart behavior"}].
 sx_upf_restart(Config) ->
-    ok = meck:expect(ergw_gsn_lib, create_sgi_session,
+    ok = meck:expect(ergw_pfcp_context, create_sgi_session,
 		     fun(PCtx, PCC, Left, Right, Ctx) ->
 			     try
 				 meck:passthrough([PCtx, PCC, Left, Right, Ctx])
@@ -2571,7 +2571,7 @@ sx_upf_restart(Config) ->
     ?match([{_, _, _, _, <<_/binary>>}|_], UDP),
 
     meck_validate(Config),
-    ok = meck:delete(ergw_gsn_lib, create_sgi_session, 5),
+    ok = meck:delete(ergw_pfcp_context, create_sgi_session, 5),
     ok.
 
 %%--------------------------------------------------------------------
@@ -2583,7 +2583,7 @@ sx_timeout(Config) ->
 		     fun(Peer, _T1, _N1, Msg, CbInfo) ->
 			     meck:passthrough([Peer, 100, 2, Msg, CbInfo])
 		     end),
-    ok = meck:expect(ergw_gsn_lib, create_sgi_session,
+    ok = meck:expect(ergw_pfcp_context, create_sgi_session,
 		     fun(PCtx, PCC, Left, Right, Ctx) ->
 			     try
 				 meck:passthrough([PCtx, PCC, Left, Right, Ctx])
@@ -2601,7 +2601,7 @@ sx_timeout(Config) ->
     meck_validate(Config),
 
     ok = meck:delete(ergw_sx_socket, call, 5),
-    ok = meck:delete(ergw_gsn_lib, create_sgi_session, 5),
+    ok = meck:delete(ergw_pfcp_context, create_sgi_session, 5),
     ok.
 
 %%--------------------------------------------------------------------
@@ -2624,7 +2624,7 @@ sx_connect_fail(Config) ->
 		     fun(Peer, _T1, _N1, Msg, CbInfo) ->
 			     meck:passthrough([Peer, 100, 2, Msg, CbInfo])
 		     end),
-    ok = meck:expect(ergw_gsn_lib, create_sgi_session,
+    ok = meck:expect(ergw_pfcp_context, create_sgi_session,
 		     fun(PCtx, PCC, Left, Right, Ctx) ->
 			     try
 				 meck:passthrough([PCtx, PCC, Left, Right, Ctx])
@@ -2657,7 +2657,7 @@ sx_connect_fail(Config) ->
     true = meck:validate(ergw_sx_node),
 
     ok = meck:delete(ergw_sx_socket, call, 5),
-    ok = meck:delete(ergw_gsn_lib, create_sgi_session, 5),
+    ok = meck:delete(ergw_pfcp_context, create_sgi_session, 5),
     ok.
 
 %%--------------------------------------------------------------------
@@ -2872,10 +2872,10 @@ simple_ofcs(Config) ->
     Report =
 	[
 	 #volume_measurement{total = 5, uplink = 2, downlink = 3},
-	 #time_of_first_packet{time = ergw_sx_node:seconds_to_sntp_time(StartTS + 24)},
-	 #time_of_last_packet{time = ergw_sx_node:seconds_to_sntp_time(StartTS + 180)},
-	 #start_time{time = ergw_sx_node:seconds_to_sntp_time(StartTS)},
-	 #end_time{time = ergw_sx_node:seconds_to_sntp_time(StartTS + 600)},
+	 #time_of_first_packet{time = ergw_gsn_lib:seconds_to_sntp_time(StartTS + 24)},
+	 #time_of_last_packet{time = ergw_gsn_lib:seconds_to_sntp_time(StartTS + 180)},
+	 #start_time{time = ergw_gsn_lib:seconds_to_sntp_time(StartTS)},
+	 #end_time{time = ergw_gsn_lib:seconds_to_sntp_time(StartTS + 600)},
 	 #tp_packet_measurement{total = 12, uplink = 5, downlink = 7}],
     ReportFun =
 	fun({Id, Type}, Reports) ->
@@ -3422,11 +3422,11 @@ split_charging1(Config) ->
 	fun(BaseTS, Duration, Slot) ->
 		[#volume_measurement{total = Slot, uplink = 2 * Slot, downlink = 3 * Slot},
 		 #time_of_first_packet{
-		    time = ergw_sx_node:seconds_to_sntp_time(BaseTS + Slot)},
+		    time = ergw_gsn_lib:seconds_to_sntp_time(BaseTS + Slot)},
 		 #time_of_last_packet{
-		    time = ergw_sx_node:seconds_to_sntp_time(BaseTS + Duration - Slot)},
-		 #start_time{time = ergw_sx_node:seconds_to_sntp_time(BaseTS)},
-		 #end_time{time = ergw_sx_node:seconds_to_sntp_time(BaseTS + Duration)},
+		    time = ergw_gsn_lib:seconds_to_sntp_time(BaseTS + Duration - Slot)},
+		 #start_time{time = ergw_gsn_lib:seconds_to_sntp_time(BaseTS)},
+		 #end_time{time = ergw_gsn_lib:seconds_to_sntp_time(BaseTS + Duration)},
 		 #tp_packet_measurement{total = Slot, uplink = 2 * Slot, downlink = 3 * Slot}]
 	end,
 
@@ -3456,11 +3456,11 @@ split_charging1(Config) ->
 		 #volume_measurement{
 		    total = Slot, uplink = 2 * Slot, downlink = 3 * Slot},
 		 #time_of_first_packet{
-		    time = ergw_sx_node:seconds_to_sntp_time(BaseTS + Slot)},
+		    time = ergw_gsn_lib:seconds_to_sntp_time(BaseTS + Slot)},
 		 #time_of_last_packet{
-		    time = ergw_sx_node:seconds_to_sntp_time(BaseTS + Duration - Slot)},
-		 #start_time{time = ergw_sx_node:seconds_to_sntp_time(BaseTS)},
-		 #end_time{time = ergw_sx_node:seconds_to_sntp_time(BaseTS + Duration)},
+		    time = ergw_gsn_lib:seconds_to_sntp_time(BaseTS + Duration - Slot)},
+		 #start_time{time = ergw_gsn_lib:seconds_to_sntp_time(BaseTS)},
+		 #end_time{time = ergw_gsn_lib:seconds_to_sntp_time(BaseTS + Duration)},
 		 #tp_packet_measurement{
 		    total = Slot, uplink = 2 * Slot, downlink = 3 * Slot}]
 	end,
@@ -3750,11 +3750,11 @@ split_charging2(Config) ->
 	fun(BaseTS, Duration, Slot) ->
 		[#volume_measurement{total = Slot, uplink = 2 * Slot, downlink = 3 * Slot},
 		 #time_of_first_packet{
-		    time = ergw_sx_node:seconds_to_sntp_time(BaseTS + Slot)},
+		    time = ergw_gsn_lib:seconds_to_sntp_time(BaseTS + Slot)},
 		 #time_of_last_packet{
-		    time = ergw_sx_node:seconds_to_sntp_time(BaseTS + Duration - Slot)},
-		 #start_time{time = ergw_sx_node:seconds_to_sntp_time(BaseTS)},
-		 #end_time{time = ergw_sx_node:seconds_to_sntp_time(BaseTS + Duration)},
+		    time = ergw_gsn_lib:seconds_to_sntp_time(BaseTS + Duration - Slot)},
+		 #start_time{time = ergw_gsn_lib:seconds_to_sntp_time(BaseTS)},
+		 #end_time{time = ergw_gsn_lib:seconds_to_sntp_time(BaseTS + Duration)},
 		 #tp_packet_measurement{total = Slot, uplink = 2 * Slot, downlink = 3 * Slot}]
 	end,
 
@@ -3784,11 +3784,11 @@ split_charging2(Config) ->
 		 #volume_measurement{
 		    total = Slot, uplink = 2 * Slot, downlink = 3 * Slot},
 		 #time_of_first_packet{
-		    time = ergw_sx_node:seconds_to_sntp_time(BaseTS + Slot)},
+		    time = ergw_gsn_lib:seconds_to_sntp_time(BaseTS + Slot)},
 		 #time_of_last_packet{
-		    time = ergw_sx_node:seconds_to_sntp_time(BaseTS + Duration - Slot)},
-		 #start_time{time = ergw_sx_node:seconds_to_sntp_time(BaseTS)},
-		 #end_time{time = ergw_sx_node:seconds_to_sntp_time(BaseTS + Duration)},
+		    time = ergw_gsn_lib:seconds_to_sntp_time(BaseTS + Duration - Slot)},
+		 #start_time{time = ergw_gsn_lib:seconds_to_sntp_time(BaseTS)},
+		 #end_time{time = ergw_gsn_lib:seconds_to_sntp_time(BaseTS + Duration)},
 		 #tp_packet_measurement{
 		    total = Slot, uplink = 2 * Slot, downlink = 3 * Slot}]
 	end,
@@ -3999,10 +3999,10 @@ aa_pool_select_fail(Config) ->
     AAAReply = #{'Framed-Pool'      => <<"pool-C">>,
 		 'Framed-IPv6-Pool' => <<"pool-C">>},
 
-    ok = meck:expect(ergw_gsn_lib, reselect_upf,
-		     fun(Candidates, Session, UPinfo, Ctx) ->
+    ok = meck:expect(ergw_pfcp_context, reselect_upf,
+		     fun(Candidates, Session, APNOpts, UPinfo, Ctx) ->
 			     try
-				 meck:passthrough([Candidates, Session, UPinfo, Ctx])
+				 meck:passthrough([Candidates, Session, APNOpts, UPinfo, Ctx])
 			     catch
 				 throw:#ctx_err{} = CtxErr ->
 				     meck:exception(throw, CtxErr)

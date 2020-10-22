@@ -1,4 +1,4 @@
-%% Copyright 2017,2018, Travelping GmbH <info@travelping.com>
+%% Copyright 2017-2020, Travelping GmbH <info@travelping.com>
 
 %% This program is free software; you can redistribute it and/or
 %% modify it under the terms of the GNU General Public License
@@ -9,8 +9,14 @@
 
 -compile({parse_transform, cut}).
 
--export([create_sgi_session/5, create_tdf_session/5,
-	 usage_report_to_charging_events/3,
+-export([seconds_to_sntp_time/1,
+	 gregorian_seconds_to_sntp_time/1,
+	 datetime_to_sntp_time/1,
+	 sntp_time_to_seconds/1
+	 %% sntp_time_to_gregorian_seconds/1
+	 %% sntp_time_to_datetime/1
+	]).
+-export([
 	 process_online_charging_events/4,
 	 process_offline_charging_events/4,
 	 process_offline_charging_events/5,
@@ -18,11 +24,9 @@
 	 secondary_rat_usage_data_report_to_rf/2,
 	 pfcp_to_context_event/1,
 	 pcc_ctx_to_credit_request/1,
-	 modify_sgi_session/7,
-	 delete_sgi_session/3,
-	 query_usage_report/2, query_usage_report/3,
 	 choose_ip_by_tunnel/4,
-	 ip_pdu/3]).
+	 ip_pdu/3
+	]).
 -export([%%update_pcc_rules/2,
 	 session_events_to_pcc_ctx/2,
 	 gx_events_to_pcc_ctx/4,
@@ -32,11 +36,12 @@
 	 gy_credit_request/3,
 	 pcc_events_to_charging_rule_report/1]).
 -export([pcc_ctx_has_rules/1]).
--export([apn/2, select_vrf/2,
+-export([apn/2, apn_opts/2, select_vrf/2,
 	 allocate_ips/7, release_context_ips/1]).
 -export([tunnel/2,
 	 bearer/2,
 	 init_tunnel/4,
+	 init_bearer/2,
 	 assign_tunnel_teid/3,
 	 reassign_tunnel_teid/1,
 	 assign_local_data_teid/5,
@@ -44,8 +49,6 @@
 	 set_ue_ip/4,
 	 set_ue_ip/5
 	]).
-
--export([select_upf/4, reselect_upf/4]).
 
 -include_lib("kernel/include/logger.hrl").
 -include_lib("parse_trans/include/exprecs.hrl").
@@ -57,8 +60,6 @@
 -include("include/ergw.hrl").
 
 -export_records([context, tdf_ctx, tunnel, bearer, fq_teid]).
-
--record(sx_upd, {now, errors = [], monitors = #{}, pctx = #pfcp_ctx{}, left, right, sctx}).
 
 -define(SECONDS_PER_DAY, 86400).
 -define(DAYS_FROM_0_TO_1970, 719528).
@@ -76,61 +77,37 @@
 		  'DNS-Server-IPv6-Address', '3GPP-IPv6-DNS-Servers']).
 
 %%%===================================================================
-%%% Sx DP API
-%%%===================================================================
-
-delete_sgi_session(Reason, Ctx, PCtx)
-  when Reason /= upf_failure ->
-    Req = #pfcp{version = v1, type = session_deletion_request, ie = []},
-    case ergw_sx_node:call(PCtx, Req, Ctx) of
-	#pfcp{type = session_deletion_response,
-	      ie = #{pfcp_cause := #pfcp_cause{cause = 'Request accepted'}} = IEs} ->
-	    maps:get(usage_report_sdr, IEs, undefined);
-
-	_Other ->
-	    ?LOG(warning, "PFCP: Session Deletion failed with ~p",
-			  [_Other]),
-	    undefined
-    end;
-delete_sgi_session(_Reason, _Ctx, _PCtx) ->
-    undefined.
-
-build_query_usage_report(Type, PCtx) ->
-    maps:fold(fun(K, {URRType, V}, A)
-		    when Type =:= URRType, is_integer(V) ->
-		      [#query_urr{group = [#urr_id{id = K}]} | A];
-		 (_, _, A) -> A
-	      end, [], ergw_pfcp:get_urr_ids(PCtx)).
-
-%% query_usage_report/2
-query_usage_report(Ctx, PCtx) ->
-    query_usage_report(online, Ctx, PCtx).
-
-%% query_usage_report/3
-query_usage_report(Type, Ctx, PCtx)
-  when is_record(PCtx, pfcp_ctx) andalso
-       (Type == offline orelse Type == online) ->
-    IEs = build_query_usage_report(Type, PCtx),
-    session_modification_request(PCtx, IEs, Ctx);
-
-query_usage_report(ChargingKeys, Ctx, PCtx)
-  when is_record(PCtx, pfcp_ctx) ->
-    IEs = [#query_urr{group = [#urr_id{id = Id}]} ||
-	   Id <- ergw_pfcp:get_urr_ids(ChargingKeys, PCtx), is_integer(Id)],
-    session_modification_request(PCtx, IEs, Ctx).
-
-%%%===================================================================
 %%% Helper functions
 %%%===================================================================
 
+seconds_to_sntp_time(Sec) ->
+    if Sec >= 2085978496 ->
+	    Sec - 2085978496;
+       true ->
+	    Sec + 2208988800
+    end.
+
+gregorian_seconds_to_sntp_time(Sec) ->
+    seconds_to_sntp_time(Sec - ?SECONDS_FROM_0_TO_1970).
+
+datetime_to_sntp_time(DateTime) ->
+    gregorian_seconds_to_sntp_time(calendar:datetime_to_gregorian_seconds(DateTime)).
+
+sntp_time_to_seconds(SNTP) ->
+    if SNTP >= 2208988800 ->
+	    SNTP - 2208988800;
+       true ->
+	    SNTP + 2085978496
+    end.
+
+sntp_time_to_gregorian_seconds(SNTP) ->
+    ergw_gsn_lib:sntp_time_to_seconds(SNTP) + ?SECONDS_FROM_0_TO_1970.
+
+sntp_time_to_datetime(SNTP) ->
+    calendar:gregorian_seconds_to_datetime(sntp_time_to_gregorian_seconds(SNTP)).
+
 get_rating_group(Key, M) when is_map(M) ->
     hd(maps:get(Key, M, maps:get('Rating-Group', M, [undefined]))).
-
-ctx_update_dp_seid(#{f_seid := #f_seid{seid = DP}},
-		   #pfcp_ctx{seid = SEID} = PCtx) ->
-    PCtx#pfcp_ctx{seid = SEID#seid{dp = DP}};
-ctx_update_dp_seid(_, PCtx) ->
-    PCtx.
 
 %% choose_ip_by_tunnel/4
 choose_ip_by_tunnel(#tunnel{local = FqTEID}, IP4, IP6, Ctx) ->
@@ -147,44 +124,6 @@ choose_ip_by_tunnel_f(_, _IP4, _IP6, Ctx) ->
     %% IP version mismatch, broken peer GSN or misconfiguration
     throw(?CTX_ERR(?FATAL, system_failure, Ctx)).
 
-session_establishment_request(PCC, PCtx0, Left, Right, Ctx) ->
-    {ok, CntlNode, _, _} = ergw_sx_socket:id(),
-
-    PCtx1 = pctx_update_from_ctx(PCtx0, Ctx),
-    {SxRules, SxErrors, PCtx} = build_sx_rules(PCC, #{}, PCtx1, Left, Right, Ctx),
-    ?LOG(debug, "SxRules: ~p~n", [SxRules]),
-    ?LOG(debug, "SxErrors: ~p~n", [SxErrors]),
-    ?LOG(debug, "CtxPending: ~p~n", [Ctx]),
-
-    IEs0 = pfcp_pctx_update(PCtx, PCtx0, SxRules),
-    IEs = update_m_rec(ergw_pfcp:f_seid(PCtx, CntlNode), IEs0),
-    ?LOG(debug, "IEs: ~p~n", [IEs]),
-
-    Req = #pfcp{version = v1, type = session_establishment_request, ie = IEs},
-    case ergw_sx_node:call(PCtx, Req, Ctx) of
-	#pfcp{version = v1, type = session_establishment_response,
-	      ie = #{pfcp_cause := #pfcp_cause{cause = 'Request accepted'},
-		     f_seid := #f_seid{}} = RespIEs} ->
-	    ctx_update_dp_seid(RespIEs, PCtx);
-	_ ->
-	    throw(?CTX_ERR(?FATAL, system_failure, Ctx))
-    end.
-
-session_modification_request(PCtx, ReqIEs, Ctx)
-  when (is_list(ReqIEs) andalso length(ReqIEs) /= 0) orelse
-       (is_map(ReqIEs) andalso map_size(ReqIEs) /= 0) ->
-    Req = #pfcp{version = v1, type = session_modification_request, ie = ReqIEs},
-    case ergw_sx_node:call(PCtx, Req, Ctx) of
-	#pfcp{type = session_modification_response,
-	      ie = #{pfcp_cause := #pfcp_cause{cause = 'Request accepted'}} = RespIEs} ->
-	    UsageReport = maps:get(usage_report_smr, RespIEs, undefined),
-	    {PCtx, UsageReport};
-	_ ->
-	    throw(?CTX_ERR(?FATAL, system_failure, Ctx))
-    end;
-session_modification_request(PCtx, _ReqIEs, _Ctx) ->
-    %% nothing to do
-    {PCtx, undefined}.
 
 %%%===================================================================
 %%% PCC context helper
@@ -192,6 +131,16 @@ session_modification_request(PCtx, _ReqIEs, _Ctx) ->
 
 pcc_ctx_has_rules(#pcc_ctx{rules = Rules}) ->
     maps:size(Rules) /= 0.
+
+pfcp_to_context_event([], M) ->
+    M;
+pfcp_to_context_event([{ChargingKey, Ev}|T], M) ->
+    pfcp_to_context_event(T,
+			  maps:update_with(Ev, [ChargingKey|_], [ChargingKey], M)).
+
+%% pfcp_to_context_event/1
+pfcp_to_context_event(Evs) ->
+    pfcp_to_context_event(Evs, #{}).
 
 %%%===================================================================
 %%% PCC to Sx translation functions
@@ -340,621 +289,7 @@ gy_events_to_pcc_ctx(Now, Evs, #pcc_ctx{rules = Rules0, credits = Credits0} = PC
     {PCC#pcc_ctx{rules = Rules, credits = Credits}, Removed}.
 
 
-%% convert PCC rule state into Sx rule states
 
-sx_rule_error(Error, #sx_upd{errors = Errors} = Update) ->
-    Update#sx_upd{errors = [Error | Errors]}.
-
-apply_charing_tariff_time({H, M}, URR)
-  when is_integer(H), H >= 0, H < 24,
-       is_integer(M), M >= 0, M < 60 ->
-    {Date, _} = Now = calendar:universal_time(),
-    NowSecs = calendar:datetime_to_gregorian_seconds(Now),
-    TCSecs =
-	case calendar:datetime_to_gregorian_seconds({Date, {H, M, 0}}) of
-	    T when T > NowSecs ->
-		T;
-	    T when T =< NowSecs ->
-		T + ?SECONDS_PER_DAY
-	end,
-    TCTime = seconds_to_sntp_time(TCSecs - ?SECONDS_FROM_0_TO_1970),   %% 1970
-    case URR of
-	#{monitoring_time := #monitoring_time{time = OldTCTime}}
-	  when TCTime > OldTCTime ->
-	    %% don't update URR when new time is after existing time
-	    URR;
-	_ ->
-	    URR#{monitoring_time => #monitoring_time{time = TCTime}}
-    end;
-apply_charing_tariff_time(Time, URR) ->
-    ?LOG(error, "Invalid Tariff-Time \"~p\"", [Time]),
-    URR.
-
-apply_charging_profile('Tariff-Time', Value, URR)
-  when is_tuple(Value) ->
-    apply_charing_tariff_time(Value, URR);
-apply_charging_profile('Tariff-Time', Value, URR)
-  when is_list(Value) ->
-    lists:foldl(fun apply_charing_tariff_time/2, URR, Value);
-apply_charging_profile(_K, _V, URR) ->
-    URR.
-
-apply_charging_profile(URR, OCP) ->
-    maps:fold(fun apply_charging_profile/3, URR, OCP).
-
-%% build_sx_rules/4
-build_sx_rules(PCC, Opts, PCtx0, Left, Right, SCtx) ->
-    PCtx2 = ergw_pfcp:reset_ctx(PCtx0),
-
-    Init = #sx_upd{now = erlang:monotonic_time(millisecond),
-		   pctx = PCtx2, left = Left, right = Right, sctx = SCtx},
-    #sx_upd{errors = Errors, pctx = NewPCtx0} =
-	build_sx_rules_3(PCC, Opts, Init),
-    NewPCtx = ergw_pfcp:apply_timers(PCtx0, NewPCtx0),
-
-    SxRuleReq = ergw_pfcp:update_pfcp_rules(PCtx0, NewPCtx, Opts),
-
-    %% TODO:
-    %% remove unused SxIds
-
-    {SxRuleReq, Errors, NewPCtx}.
-
-build_sx_rules_3(#pcc_ctx{monitors = Monitors, rules = PolicyRules,
-			  credits = GrantedCredits} = PCC, _Opts, Update0) ->
-    Update1 = build_sx_ctx_rule(Update0),
-    Update2 = build_ipcan_rule(Update1),
-    Update3 = maps:fold(fun build_sx_monitor_rule/3, Update2, Monitors),
-    Update4 = build_sx_charging_rule(PCC, PolicyRules, Update3),
-    Update5 = maps:fold(fun build_sx_usage_rule/3, Update4, GrantedCredits),
-    maps:fold(fun build_sx_rule/3, Update5, PolicyRules).
-
-%% install special SLAAC and RA rule (only for tunnels for the moment)
-build_sx_ctx_rule(#sx_upd{
-		     pctx = #pfcp_ctx{cp_bearer = CpBearer} = PCtx0,
-		     left = LeftBearer, right = RightBearer
-		    } = Update)
-  when not is_record(LeftBearer#bearer.remote, ue_ip),
-       RightBearer#bearer.local#ue_ip.v6 /= undefined ->
-    {PdrId, PCtx1} = ergw_pfcp:get_id(pdr, ipv6_mcast_pdr, PCtx0),
-    {FarId, PCtx} = ergw_pfcp:get_id(far, dp_to_cp_far, PCtx1),
-
-    PDI = #pdi{
-	     group =
-		 [#sdf_filter{
-		     flow_description =
-			 <<"permit out 58 from ff00::/8 to assigned">>}
-		 | ergw_pfcp:traffic_endp(LeftBearer, [])]
-	    },
-    PDR = [#pdr_id{id = PdrId},
-	   #precedence{precedence = 100},
-	   PDI,
-	   #far_id{id = FarId}
-	   %% TBD: #urr_id{id = 1}
-	  ],
-    FAR = [#far_id{id = FarId},
-	   #apply_action{forw = 1},
-	   #forwarding_parameters{
-	      group = ergw_pfcp:traffic_forward(CpBearer, [])
-	     }
-	  ],
-    Update#sx_upd{
-      pctx = ergw_pfcp_rules:add(
-	       [{pdr, ipv6_mcast_pdr, PDR},
-		{far, dp_to_cp_far, FAR}], PCtx)};
-build_sx_ctx_rule(Update) ->
-    Update.
-
-build_sx_charging_rule(PCC, PolicyRules, Update) ->
-    maps:fold(
-      fun(Name, Definition, Upd0) ->
-	      Upd = build_sx_offline_charging_rule(Name, Definition, PCC, Upd0),
-	      build_sx_online_charging_rule(Name, Definition, PCC, Upd)
-      end, Update, PolicyRules).
-
-%% TBD: handle offline charging config, only link URR if trigger closes CDR...
-build_sx_linked_rule(URR, PCtx) ->
-    build_sx_linked_offline_rule(ergw_charging:is_enabled(offline), URR, PCtx).
-
-build_sx_linked_offline_rule(true, URR0, PCtx0) ->
-    RuleName = {offline, 'IP-CAN'},
-    {LinkedUrrId, PCtx} =
-	ergw_pfcp:get_urr_id(RuleName, ['IP-CAN'], RuleName, PCtx0),
-    URR = maps:update_with(reporting_triggers,
-			   fun(T) -> T#reporting_triggers{linked_usage_reporting = 1} end,
-			   URR0#{linked_urr_id => #linked_urr_id{id = LinkedUrrId}}),
-    {URR, PCtx};
-build_sx_linked_offline_rule(_, URR, PCtx) ->
-    {URR, PCtx}.
-
-build_sx_offline_charging_rule(Name,
-			       #{'Offline' := [1]} = Definition,
-			       #pcc_ctx{offline_charging_profile = OCPcfg},
-			       #sx_upd{pctx = PCtx0} = Update) ->
-    RatingGroup =
-	case get_rating_group('Offline-Rating-Group', Definition) of
-	    RG when is_integer(RG) -> RG;
-	    _ ->
-		%% Offline without Rating-Group ???
-		sx_rule_error({system_error, Name}, Update)
-	end,
-    ChargingKey = {offline, RatingGroup},
-    MM = case maps:get('Metering-Method', Definition,
-		       [?'DIAMETER_3GPP_CHARGING_METERING-METHOD_DURATION_VOLUME']) of
-	     [?'DIAMETER_3GPP_CHARGING_METERING-METHOD_DURATION'] ->
-		 #measurement_method{durat = 1};
-	     [?'DIAMETER_3GPP_CHARGING_METERING-METHOD_VOLUME'] ->
-		 #measurement_method{volum = 1};
-	     [?'DIAMETER_3GPP_CHARGING_METERING-METHOD_DURATION_VOLUME'] ->
-		 #measurement_method{volum = 1, durat = 1}
-	 end,
-
-    {UrrId, PCtx1} = ergw_pfcp:get_urr_id(ChargingKey, [RatingGroup], ChargingKey, PCtx0),
-    URR0 = #{urr_id => #urr_id{id = UrrId},
-	     measurement_method => MM,
-	     reporting_triggers => #reporting_triggers{}},
-    {URR1, PCtx} = build_sx_linked_rule(URR0, PCtx1),
-
-    OCP = maps:get('Default', OCPcfg, #{}),
-    URR = apply_charging_profile(URR1, OCP),
-
-    ?LOG(debug, "Offline URR: ~p", [URR]),
-    Update#sx_upd{
-      pctx = ergw_pfcp_rules:add(urr, ChargingKey, URR, PCtx)};
-
-build_sx_offline_charging_rule(_Name, _Definition, _PCC, Update) ->
-    Update.
-
-build_sx_online_charging_rule(Name, #{'Online' := [1]} = Definition,
-			      _PCC, #sx_upd{pctx = PCtx} = Update) ->
-    RatingGroup =
-	case get_rating_group('Online-Rating-Group', Definition) of
-	    RG when is_integer(RG) -> RG;
-	    _ ->
-		%% Online without Rating-Group ???
-		sx_rule_error({system_error, Name}, Update)
-	end,
-    ChargingKey = {online, RatingGroup},
-    Update#sx_upd{
-      pctx = ergw_pfcp_rules:add(urr, ChargingKey, needed, PCtx)};
-build_sx_online_charging_rule(_Name, _Definition, _PCC, Update) ->
-    Update.
-
-%% no need to split into dl and ul direction, URR contain DL, UL and Total
-%% build_sx_rule/3
-build_sx_rule(Name, #{'Flow-Information' := FlowInfo,
-		      'Metering-Method' := [_MeterM]} = Definition,
-	      #sx_upd{} = Update) ->
-    %% we need PDR+FAR (and PDI) for UL and DL, URR is universal for both
-
-    {DL, UL} = lists:foldl(
-		 fun(#{'Flow-Direction' :=
-			   [?'DIAMETER_3GPP_CHARGING_FLOW-DIRECTION_DOWNLINK']} = R, {D, U}) ->
-			 {[R | D], U};
-		    (#{'Flow-Direction' :=
-			   [?'DIAMETER_3GPP_CHARGING_FLOW-DIRECTION_UPLINK']} = R, {D, U}) ->
-			 {D, [R | U]};
-		    (#{'Flow-Direction' :=
-			   [?'DIAMETER_3GPP_CHARGING_FLOW-DIRECTION_BIDIRECTIONAL']} = R, {D, U}) ->
-			 {[R | D], [R | U]};
-		    (_, A) ->
-			 A
-		 end, {[], []}, FlowInfo),
-    build_sx_rule(Name, Definition, DL, UL, Update);
-
-build_sx_rule(Name, #{'TDF-Application-Identifier' := [AppId],
-		      'Metering-Method' := [_MeterM]} = Definition,
-	      #sx_upd{} = Update) ->
-    build_sx_rule(Name, Definition, AppId, AppId, Update);
-
-build_sx_rule(Name, _Definition, Update) ->
-    sx_rule_error({system_error, Name}, Update).
-
-%% build_sx_rule/5
-build_sx_rule(Name, Definition, DL, UL, Update0) ->
-    URRs = get_rule_urrs(Definition, Update0),
-    Update = build_sx_rule(downlink, Name, Definition, DL, URRs, Update0),
-    build_sx_rule(uplink, Name, Definition, UL, URRs, Update).
-
-build_sx_filter(FlowInfo)
-  when is_list(FlowInfo) ->
-    [#sdf_filter{flow_description = FD} || #{'Flow-Description' := [FD]} <- FlowInfo];
-build_sx_filter(AppId)
-  when is_binary(AppId) ->
-    [#application_id{id = AppId}];
-build_sx_filter(_) ->
-    [].
-
-to_binary(List) when is_list(List) ->
-    list_to_binary(List);
-to_binary(Bin) when is_binary(Bin) ->
-    Bin.
-
-%% The spec compliante FAR would set Destination Interface
-%% to Access. However, VPP can not deal with that right now.
-%%
-%% build_sx_sgi_fwd_far(FarId,
-%%		     [#{'Redirect-Support' :=        [1],   %% ENABLED
-%%			'Redirect-Address-Type' :=   [2],   %% URL
-%%			'Redirect-Server-Address' := [URL]}],
-%%		     LeftBearer, _RightBearer) ->
-%%     RedirInfo = #redirect_information{type = 'URL', address = to_binary(URL)},
-%%     [#far_id{id = FarId},
-%%      #apply_action{forw = 1},
-%%      #forwarding_parameters{
-%%	group = ergw_pfcp:traffic_forward(LeftBearer, [RedirInfo])
-%%        }];
-build_sx_sgi_fwd_far(FarId,
-		     [#{'Redirect-Support' :=        [1],   %% ENABLED
-			'Redirect-Address-Type' :=   [2],   %% URL
-			'Redirect-Server-Address' := [URL]}],
-		     _LeftBearer, RightBearer) ->
-    RedirInfo = #redirect_information{type = 'URL', address = to_binary(URL)},
-    [#far_id{id = FarId},
-     #apply_action{forw = 1},
-     #forwarding_parameters{
-	group = ergw_pfcp:traffic_forward(RightBearer, [RedirInfo])
-       }];
-build_sx_sgi_fwd_far(FarId, _RedirInfo, _LeftBearer, RightBearer) ->
-    [#far_id{id = FarId},
-     #apply_action{forw = 1},
-     #forwarding_parameters{
-	group = ergw_pfcp:traffic_forward(RightBearer, [])
-       }].
-
-%% build_sx_rule/6
-build_sx_rule(Direction, Name, Definition, FilterInfo, URRs,
-	      #sx_upd{left = LeftBearer, right = RightBearer} = Update) ->
-    build_sx_rule(Direction, Name, Definition, FilterInfo, URRs, LeftBearer, RightBearer, Update).
-
-%% build_sx_rule/8
-build_sx_rule(Direction = downlink, Name, Definition, FilterInfo, URRs,
-	      LeftBearer, RightBearer, #sx_upd{pctx = PCtx0} = Update)
-  when LeftBearer#bearer.remote /= undefined ->
-    [Precedence] = maps:get('Precedence', Definition, [1000]),
-    RuleName = {Direction, Name},
-    {PdrId, PCtx1} = ergw_pfcp:get_id(pdr, RuleName, PCtx0),
-    {FarId, PCtx} = ergw_pfcp:get_id(far, RuleName, PCtx1),
-
-    SxFilter = build_sx_filter(FilterInfo),
-    PDI = #pdi{group = ergw_pfcp:traffic_endp(RightBearer, SxFilter)},
-    PDR = [#pdr_id{id = PdrId},
-	   #precedence{precedence = Precedence},
-	   PDI,
-	   #far_id{id = FarId}] ++
-	[#urr_id{id = X} || X <- URRs],
-
-    FAR = [#far_id{id = FarId},
-	   #apply_action{forw = 1},
-	   #forwarding_parameters{
-	      group = ergw_pfcp:traffic_forward(LeftBearer, [])
-	     }
-	  ],
-
-    Update#sx_upd{
-      pctx = ergw_pfcp_rules:add(
-	       [{pdr, RuleName, PDR},
-		{far, RuleName, FAR}], PCtx)};
-
-build_sx_rule(Direction = uplink, Name, Definition, FilterInfo, URRs,
-	      LeftBearer, RightBearer, #sx_upd{pctx = PCtx0} = Update) ->
-    [Precedence] = maps:get('Precedence', Definition, [1000]),
-    RuleName = {Direction, Name},
-    {PdrId, PCtx1} = ergw_pfcp:get_id(pdr, RuleName, PCtx0),
-    {FarId, PCtx} = ergw_pfcp:get_id(far, RuleName, PCtx1),
-
-    SxFilter = build_sx_filter(FilterInfo),
-    PDI = #pdi{group =
-		   [ergw_pfcp:ue_ip_address(src, RightBearer)
-		   | ergw_pfcp:traffic_endp(LeftBearer, SxFilter)]},
-    PDR =
-	ergw_pfcp:outer_header_removal(
-	  LeftBearer,
-	  [#pdr_id{id = PdrId},
-	   #precedence{precedence = Precedence},
-	   PDI,
-	   #far_id{id = FarId}]) ++
-	[#urr_id{id = X} || X <- URRs],
-
-    RedirInfo = maps:get('Redirect-Information', Definition, undefined),
-    FAR = build_sx_sgi_fwd_far(FarId, RedirInfo, LeftBearer, RightBearer),
-
-    Update#sx_upd{
-      pctx = ergw_pfcp_rules:add(
-	       [{pdr, RuleName, PDR},
-		{far, RuleName, FAR}], PCtx)};
-
-build_sx_rule(_Direction, Name, _Definition, _FilterInfo, _URRs,
-	      _LeftBearer, _RightBearer, Update) ->
-    sx_rule_error({system_error, Name}, Update).
-
-%% ===========================================================================
-
-get_rule_urrs(D, #sx_upd{pctx = PCtx}) ->
-    RGs =
-	lists:foldl(
-	  fun({K, RG}, Acc) ->
-		  case maps:get(K, D, undefined) of
-		      [1] -> ergw_pfcp:get_urr_group(get_rating_group(RG, D), PCtx) ++ Acc;
-		      _   -> Acc
-		  end
-	  end, ergw_pfcp:get_urr_group('IP-CAN', PCtx),
-	  [{'Online',  'Online-Rating-Group'},
-	   {'Offline', 'Offline-Rating-Group'}]),
-    lists:usort(RGs).
-
-%% 'Granted-Service-Unit' => [#{'CC-Time' => [14400],'CC-Total-Octets' => [10485760]}],
-%% 'Rating-Group' => [3000],'Result-Code' => ?'DIAMETER_BASE_RESULT-CODE_SUCCESS',
-%% 'Time-Quota-Threshold' => [1440],
-%% 'Validity-Time' => [600],
-%% 'Volume-Quota-Threshold' => [921600]}],
-
-seconds_to_sntp_time(Sec) ->
-    if Sec >= 2085978496 ->
-	    Sec - 2085978496;
-       true ->
-	    Sec + 2208988800
-    end.
-
-sntp_time_to_seconds(SNTP) ->
-    if SNTP >= 2208988800 ->
-	    SNTP - 2208988800;
-       true ->
-	    SNTP + 2085978496
-    end.
-
-%% build_sx_usage_rule_4/4
-build_sx_usage_rule_4(time, #{'CC-Time' := [Time]}, _,
-		    #{measurement_method := MM,
-		      reporting_triggers := RT} = URR) ->
-    URR#{measurement_method => MM#measurement_method{durat = 1},
-	 reporting_triggers => RT#reporting_triggers{time_quota = 1},
-	 time_quota => #time_quota{quota = Time}};
-
-build_sx_usage_rule_4(time_quota_threshold,
-		    #{'CC-Time' := [Time]}, #{'Time-Quota-Threshold' := [TimeThreshold]},
-		    #{reporting_triggers := RT} = URR)
-  when Time > TimeThreshold ->
-    URR#{reporting_triggers => RT#reporting_triggers{time_threshold = 1},
-	 time_threshold => #time_threshold{threshold = Time - TimeThreshold}};
-
-build_sx_usage_rule_4(total_octets, #{'CC-Total-Octets' := [Volume]}, _,
-		    #{measurement_method := MM,
-		      reporting_triggers := RT} = URR) ->
-    maps:update_with(volume_quota, fun(V) -> V#volume_quota{total = Volume} end,
-		     #volume_quota{total = Volume},
-		     URR#{measurement_method => MM#measurement_method{volum = 1},
-			  reporting_triggers => RT#reporting_triggers{volume_quota = 1}});
-build_sx_usage_rule_4(input_octets, #{'CC-Input-Octets' := [Volume]}, _,
-		    #{measurement_method := MM,
-		      reporting_triggers := RT} = URR) ->
-    maps:update_with(volume_quota, fun(V) -> V#volume_quota{uplink = Volume} end,
-		     #volume_quota{uplink = Volume},
-		     URR#{measurement_method => MM#measurement_method{volum = 1},
-			  reporting_triggers => RT#reporting_triggers{volume_quota = 1}});
-build_sx_usage_rule_4(output_octets, #{'CC-Output-Octets' := [Volume]}, _,
-		    #{measurement_method := MM,
-		      reporting_triggers := RT} = URR) ->
-    maps:update_with(volume_quota, fun(V) -> V#volume_quota{downlink = Volume} end,
-		     #volume_quota{downlink = Volume},
-		     URR#{measurement_method => MM#measurement_method{volum = 1},
-			  reporting_triggers => RT#reporting_triggers{volume_quota = 1}});
-
-build_sx_usage_rule_4(total_quota_threshold,
-		    #{'CC-Total-Octets' := [Volume]},
-		    #{'Volume-Quota-Threshold' := [Threshold]},
-		    #{reporting_triggers := RT} = URR)
-  when Volume > Threshold ->
-    VolumeThreshold = Volume - Threshold,
-    maps:update_with(volume_threshold, fun(V) -> V#volume_threshold{total = VolumeThreshold} end,
-		     #volume_threshold{total = VolumeThreshold},
-		     URR#{reporting_triggers => RT#reporting_triggers{volume_threshold = 1}});
-build_sx_usage_rule_4(input_quota_threshold,
-		    #{'CC-Input-Octets' := [Volume]},
-		    #{'Volume-Quota-Threshold' := [Threshold]},
-		    #{reporting_triggers := RT} = URR)
-  when Volume > Threshold ->
-    VolumeThreshold = Volume - Threshold,
-    maps:update_with(volume_threshold, fun(V) -> V#volume_threshold{uplink = VolumeThreshold} end,
-		     #volume_threshold{uplink = VolumeThreshold},
-		     URR#{reporting_triggers => RT#reporting_triggers{volume_threshold = 1}});
-build_sx_usage_rule_4(output_quota_threshold,
-		    #{'CC-Output-Octets' := [Volume]},
-		    #{'Volume-Quota-Threshold' := [Threshold]},
-		    #{reporting_triggers := RT} = URR)
-  when Volume > Threshold ->
-    VolumeThreshold = Volume - Threshold,
-    maps:update_with(volume_threshold, fun(V) -> V#volume_threshold{downlink = VolumeThreshold} end,
-		     #volume_threshold{downlink = VolumeThreshold},
-		     URR#{reporting_triggers => RT#reporting_triggers{volume_threshold = 1}});
-
-build_sx_usage_rule_4(monitoring_time, #{'Tariff-Time-Change' := [TTC]}, _, URR) ->
-    Time = seconds_to_sntp_time(
-	     calendar:datetime_to_gregorian_seconds(TTC) - ?SECONDS_FROM_0_TO_1970),   %% 1970
-    URR#{monitoring_time => #monitoring_time{time = Time}};
-
-build_sx_usage_rule_4(Type, _, _, URR) ->
-    ?LOG(warning, "build_sx_usage_rule_4: not handling ~p", [Type]),
-    URR.
-
-pfcp_to_context_event([], M) ->
-    M;
-pfcp_to_context_event([{ChargingKey, Ev}|T], M) ->
-    pfcp_to_context_event(T,
-			  maps:update_with(Ev, [ChargingKey|_], [ChargingKey], M)).
-
-%% pfcp_to_context_event/1
-pfcp_to_context_event(Evs) ->
-    pfcp_to_context_event(Evs, #{}).
-
-pctx_update_from_ctx(PCtx, #context{'Idle-Timeout' = IdleTimeout})
-  when is_integer(IdleTimeout) ->
-    %% UP timer is measured in seconds
-    PCtx#pfcp_ctx{up_inactivity_timer = IdleTimeout div 1000};
-pctx_update_from_ctx(PCtx, _) ->
-    %% if 'Idle-Timeout' /= integer, it is not set
-    PCtx#pfcp_ctx{up_inactivity_timer = undefined}.
-
-pfcp_pctx_update(#pfcp_ctx{up_inactivity_timer = UPiTnew} = PCtx,
-		 #pfcp_ctx{up_inactivity_timer = UPiTold}, IEs)
-  when UPiTold /= UPiTnew ->
-    update_m_rec(ergw_pfcp:up_inactivity_timer(PCtx), IEs);
-pfcp_pctx_update(_, _, IEs) ->
-    IEs.
-
-handle_validity_time(ChargingKey, #{'Validity-Time' := {abs, AbsTime}}, PCtx, _) ->
-    ergw_pfcp:set_timer(AbsTime, {ChargingKey, validity_time}, PCtx);
-handle_validity_time(_, _, PCtx, _) ->
-    PCtx.
-
-%% build_sx_usage_rule/3
-build_sx_usage_rule(_K, #{'Rating-Group' := [RatingGroup],
-			  'Granted-Service-Unit' := [GSU],
-			  'Update-Time-Stamp' := UpdateTS} = GCU,
-		    #sx_upd{pctx = PCtx0} = Update) ->
-    ChargingKey = {online, RatingGroup},
-    {UrrId, PCtx1} = ergw_pfcp:get_urr_id(ChargingKey, [RatingGroup], ChargingKey, PCtx0),
-    PCtx2 = handle_validity_time(ChargingKey, GCU, PCtx1, Update),
-
-    URR0 = #{urr_id => #urr_id{id = UrrId},
-	     measurement_method => #measurement_method{},
-	     reporting_triggers => #reporting_triggers{},
-	     'Update-Time-Stamp' => UpdateTS},
-    {URR1, PCtx} =
-	case ergw_pfcp:get_urr_ids([{offline, RatingGroup}], PCtx2) of
-	    [undefined] ->
-		%% if this is an online only rule, do nothing
-		{URR0, PCtx2};
-	    [OffId] when is_integer(OffId)->
-		%% if the same rule is use for offline and online reporting add a link
-		build_sx_linked_rule(URR0, PCtx2)
-	end,
-    URR = lists:foldl(build_sx_usage_rule_4(_, GSU, GCU, _), URR1,
-		      [time, time_quota_threshold,
-		       total_octets, input_octets, output_octets,
-		       total_quota_threshold, input_quota_threshold, output_quota_threshold,
-		       monitoring_time]),
-
-    ?LOG(debug, "URR: ~p", [URR]),
-    Update#sx_upd{
-      pctx = ergw_pfcp_rules:add(urr, ChargingKey, URR, PCtx)};
-build_sx_usage_rule(_, _, Update) ->
-    Update.
-
-build_ipcan_rule(Update) ->
-    build_ipcan_rule(ergw_charging:is_enabled(offline), Update).
-
-%% build IP-CAN rule for offline charging
-build_ipcan_rule(true, #sx_upd{pctx = PCtx0} = Update) ->
-    RuleName = {offline, 'IP-CAN'},
-    %% TBD: Offline Charging Rules at the IP-CAL level need to be seperated
-    %%      by Charging-Id (maps to ARP/QCI combi)
-    {UrrId, PCtx} = ergw_pfcp:get_urr_id(RuleName, ['IP-CAN'], RuleName, PCtx0),
-
-    URR = [#urr_id{id = UrrId},
-	   #measurement_method{volum = 1, durat = 1},
-	   #reporting_triggers{}],
-
-    ?LOG(debug, "URR: ~p", [URR]),
-    Update#sx_upd{pctx = ergw_pfcp_rules:add(urr, RuleName, URR, PCtx)};
-build_ipcan_rule(_, Update) ->
-    Update.
-
-build_sx_monitor_rule(Level, Monitors, Update) ->
-    maps:fold(build_sx_monitor_rule(Level, _, _, _), Update, Monitors).
-
-%% TBD: merging offline rules with identical timeout.... maybe
-build_sx_monitor_rule('IP-CAN', Service, {periodic, Time, _Opts} = _Definition,
-		      #sx_upd{monitors = Monitors0, pctx = PCtx0} = Update) ->
-    ?LOG(debug, "Sx Monitor Rule: ~p", [_Definition]),
-
-    RuleName = {monitor, 'IP-CAN', Service},
-    {UrrId, PCtx} = ergw_pfcp:get_urr_id(RuleName, ['IP-CAN'], RuleName, PCtx0),
-
-    URR = [#urr_id{id = UrrId},
-	   #measurement_method{volum = 1, durat = 1},
-	   #reporting_triggers{periodic_reporting = 1},
-	   #measurement_period{period = Time}],
-
-    ?LOG(debug, "URR: ~p", [URR]),
-    Monitors1 = update_m_key('IP-CAN', UrrId, Monitors0),
-    Monitors = Monitors1#{{urr, UrrId}  => Service},
-    Update#sx_upd{
-      pctx = ergw_pfcp_rules:add(urr, RuleName, URR, PCtx),
-      monitors = Monitors};
-
-build_sx_monitor_rule('Offline', Service, {periodic, Time, _Opts} = Definition,
-		      #sx_upd{monitors = Monitors0, pctx = PCtx0} = Update) ->
-    ?LOG(debug, "Sx Offline Monitor URR: ~p:~p", [Service, Definition]),
-
-    RuleName = {offline, 'IP-CAN'},
-    %% TBD: Offline Charging Rules at the IP-CAL level need to be seperated
-    %%      by Charging-Id (maps to ARP/QCI combi)
-    {UrrId, PCtx1} = ergw_pfcp:get_urr_id(RuleName, ['IP-CAN'], RuleName, PCtx0),
-
-    URR = [#urr_id{id = UrrId},
-	   #measurement_method{volum = 1, durat = 1},
-	   #reporting_triggers{periodic_reporting = 1},
-	   #measurement_period{period = Time}],
-    ?LOG(debug, "URR: ~p", [URR]),
-    URRUpd =
-	fun (X0) ->
-		X = X0#{measurement_period => #measurement_period{period = Time}},
-		maps:update_with(
-		  reporting_triggers,
-		  fun (T) -> T#reporting_triggers{periodic_reporting = 1} end, X)
-	end,
-    PCtx = ergw_pfcp_rules:update_with(urr, RuleName, URRUpd, URR, PCtx1),
-
-    Monitors1 = update_m_key('Offline', UrrId, Monitors0),
-    Monitors = Monitors1#{{urr, UrrId}  => Service},
-    Update#sx_upd{pctx = PCtx, monitors = Monitors};
-
-build_sx_monitor_rule(Level, Service, Definition, Update) ->
-    ?LOG(error, "Sx Monitor URR: ~p:~p:~p", [Level, Service, Definition]),
-    sx_rule_error({system_error, Definition}, Update).
-
-update_m_key(Key, Value, Map) ->
-    maps:update_with(Key, [Value | _], [Value], Map).
-
-update_m_rec(Record, Map) when is_tuple(Record) ->
-    maps:update_with(element(1, Record), [Record | _], [Record], Map).
-
-register_ctx_ids(Handler, #pfcp_ctx{seid = #seid{cp = SEID}}) ->
-    Keys = [{seid, SEID}],
-    gtp_context_reg:register(Keys, Handler, self()).
-
-register_ctx_ids(Handler,
-		 #bearer{local = FqTEID},
-		 #pfcp_ctx{seid = #seid{cp = SEID}} = PCtx) ->
-    Keys = [{seid, SEID} |
-	    [ergw_pfcp:ctx_teid_key(PCtx, FqTEID) || is_record(FqTEID, fq_teid)]],
-    gtp_context_reg:register(Keys, Handler, self()).
-
-create_sgi_session(PCtx, PCC, Left, Right, Ctx)
-  when is_record(PCC, pcc_ctx) ->
-    register_ctx_ids(gtp_context, Left, PCtx),
-    session_establishment_request(PCC, PCtx, Left, Right, Ctx).
-
-modify_sgi_session(PCC, URRActions, Opts, Left, Right, Ctx, PCtx0)
-  when is_record(PCC, pcc_ctx), is_record(PCtx0, pfcp_ctx) ->
-    {SxRules0, SxErrors, PCtx} = build_sx_rules(PCC, Opts, PCtx0, Left, Right, Ctx),
-    SxRules =
-	lists:foldl(
-	  fun({offline, _}, SxR) ->
-		  SxR#{query_urr => build_query_usage_report(offline, PCtx)};
-	     (_, SxR) ->
-		  SxR
-	  end, SxRules0, URRActions),
-
-    ?LOG(debug, "SxRules: ~p~n", [SxRules]),
-    ?LOG(debug, "SxErrors: ~p~n", [SxErrors]),
-    ?LOG(debug, "PCtx: ~p~n", [PCtx]),
-    session_modification_request(PCtx, SxRules, Ctx).
-
-create_tdf_session(PCtx, PCC, Left, Right, Ctx)
-  when is_record(PCC, pcc_ctx) ->
-    register_ctx_ids(tdf, PCtx),
-    session_establishment_request(PCC, PCtx, Left, Right, Ctx).
 
 opt_int(X) when is_integer(X) -> [X];
 opt_int(_) -> [].
@@ -1208,17 +543,11 @@ cev_to_rf('Charge-Event', {_, 'tai-change'}, _, C) ->
 cev_to_rf('Rating-Group' = Key, RatingGroup, service_data, C) ->
     C#{Key => [RatingGroup]};
 cev_to_rf(_, #time_of_first_packet{time = TS}, service_data, C) ->
-    C#{'Time-First-Usage' =>
-	     [calendar:gregorian_seconds_to_datetime(sntp_time_to_seconds(TS)
-						     + ?SECONDS_FROM_0_TO_1970)]};
+    C#{'Time-First-Usage' => [sntp_time_to_datetime(TS)]};
 cev_to_rf(_, #time_of_last_packet{time = TS}, service_data, C) ->
-    C#{'Time-Last-Usage' =>
-	     [calendar:gregorian_seconds_to_datetime(sntp_time_to_seconds(TS)
-						     + ?SECONDS_FROM_0_TO_1970)]};
+    C#{'Time-Last-Usage' => [sntp_time_to_datetime(TS)]};
 cev_to_rf(_, #end_time{time = TS}, _, C) ->
-    C#{'Change-Time' =>
-	     [calendar:gregorian_seconds_to_datetime(sntp_time_to_seconds(TS)
-						     + ?SECONDS_FROM_0_TO_1970)]};
+    C#{'Change-Time' => [sntp_time_to_datetime(TS)]};
 cev_to_rf(usage_report_trigger, #usage_report_trigger{} = Trigger, _, C) ->
     cev_to_rf_change_condition(record_info(fields, usage_report_trigger),
 			       tl(tuple_to_list(Trigger)), C);
@@ -1243,12 +572,8 @@ secondary_rat_usage_data_report_to_rf(ChargingId,
 					 start_time = Start, end_time = End,
 					 dl = DL, ul = UL}) ->
     #{'Secondary-RAT-Type' => [binary:encode_unsigned(RAT)],
-      'RAN-Start-Timestamp' =>
-	  [calendar:gregorian_seconds_to_datetime(sntp_time_to_seconds(Start)
-						  + ?SECONDS_FROM_0_TO_1970)],
-      'RAN-End-Timestamp' =>
-	  [calendar:gregorian_seconds_to_datetime(sntp_time_to_seconds(End)
-						  + ?SECONDS_FROM_0_TO_1970)],
+      'RAN-Start-Timestamp' => [sntp_time_to_datetime(Start)],
+      'RAN-End-Timestamp' => [sntp_time_to_datetime(End)],
       'Accounting-Input-Octets' => [UL],
       'Accounting-Output-Octets' => [DL],
       '3GPP-Charging-Id' => [ChargingId]}.
@@ -1278,55 +603,6 @@ charging_event_to_rf(URR, {_, Init}, Reason, {SDCs, TDVs}) ->
     TDV0 = maps:fold(cev_to_rf(_, _, traffic_data, _), Init, URR),
     TDV = cev_reason(Reason, TDV0),
     {SDCs, [TDV|TDVs]}.
-
-fold_usage_report_1(Fun, #usage_report_smr{group = UR}, Acc) ->
-    Fun(UR, Acc);
-fold_usage_report_1(Fun, #usage_report_sdr{group = UR}, Acc) ->
-    Fun(UR, Acc);
-fold_usage_report_1(Fun, #usage_report_srr{group = UR}, Acc) ->
-    Fun(UR, Acc).
-
-foldl_usage_report(_Fun, Acc, []) ->
-    Acc;
-foldl_usage_report(Fun, Acc, [H|T]) ->
-    foldl_usage_report(Fun, fold_usage_report_1(Fun, H, Acc), T);
-foldl_usage_report(Fun, Acc, URR) when is_tuple(URR) ->
-    fold_usage_report_1(Fun, URR, Acc);
-foldl_usage_report(_Fun, Acc, undefined) ->
-    Acc.
-
-init_charging_events() ->
-    {[], [], []}.
-
-%% usage_report_to_charging_events/4
-usage_report_to_charging_events({online, RatingGroup}, Report,
-				ChargeEv, {On, _, _} = Ev)
-  when is_integer(RatingGroup), is_map(Report) ->
-    setelement(1, Ev, [Report#{'Rating-Group' => RatingGroup,
-			       'Charge-Event' => ChargeEv} | On]);
-usage_report_to_charging_events({offline, RatingGroup}, Report,
-				ChargeEv, {_, Off, _} = Ev)
-  when is_map(Report) ->
-    setelement(2, Ev, [Report#{'Rating-Group' => RatingGroup,
-			       'Charge-Event' => ChargeEv} | Off]);
-usage_report_to_charging_events({monitor, Level, Service} = _K,
-				Report, ChargeEv, {_, _, Mon} = Ev)
-  when is_map(Report) ->
-    setelement(3, Ev, [Report#{'Service-Id' => Service,
-			       'Level' => Level,
-			       'Charge-Event' => ChargeEv} | Mon]);
-usage_report_to_charging_events(_K, _V, _ChargeEv, Ev) ->
-    Ev.
-
-%% usage_report_to_charging_events/3
-usage_report_to_charging_events(URR, ChargeEv, PCtx)
-  when is_record(PCtx, pfcp_ctx) ->
-    UrrIds = ergw_pfcp:get_urr_ids(PCtx),
-    foldl_usage_report(
-      fun (#{urr_id := #urr_id{id = Id}} = Report, Ev) ->
-	      usage_report_to_charging_events(maps:get(Id, UrrIds, undefined), Report, ChargeEv, Ev)
-      end,
-      init_charging_events(), URR).
 
 %% process_online_charging_events/4
 process_online_charging_events(Reason, Request, Session, ReqOpts)
@@ -1513,84 +789,6 @@ select(Method, L1, L2) when is_list(L1), is_list(L2) ->
 %% select_vrf/2
 select_vrf({AvaVRFs, _AvaPools}, APN) ->
     select(random, maps:get(vrfs, apn(APN)), AvaVRFs).
-
-%% select_upf/4
-select_upf(Candidates, Session0, APN, Ctx) ->
-    Opts = apn_opts(APN, Ctx),
-    {_, _, _, Pools} = Node =
-	select_by_caps(Candidates, Opts, [], Ctx),
-
-    %% TBD: smarter v4/v6 pool select
-    Pool = select(random, Pools),
-    Session =
-	init_session_ue_ifid(
-	  Opts, Session0#{'Framed-Pool' => Pool, 'Framed-IPv6-Pool' => Pool}),
-
-    {{Node, Opts, Pool}, Session}.
-
-%% reselect_upf/4
-reselect_upf(Candidates, Session, {Node, Opts, Pool}, Ctx) ->
-    IP4 = maps:get('Framed-Pool', Session, undefined),
-    IP6 = maps:get('Framed-IPv6-Pool', Session, undefined),
-
-    {Pid, NodeCaps, VRF, _} =
-	if (IP4 /= Pool orelse IP6 /= Pool) ->
-		Pools = ordsets:from_list([IP4 || is_binary(IP4)]
-					  ++ [IP6 || is_binary(IP6)]),
-		select_by_caps(Candidates, Opts, Pools, Ctx);
-	   true ->
-		Node
-	end,
-    Bearer = init_bearer('SGi-LAN', VRF),
-    {ok, PCtx, _} = ergw_sx_node:attach(Pid, Ctx),
-    {PCtx, NodeCaps, Opts, Bearer}.
-
-%% common_caps/3
-common_caps({WVRFs, WPools}, {HVRFs, HPools}, true) ->
-    VRFs = maps:with(WVRFs, HVRFs),
-    Pools = ordsets:intersection(WPools, HPools),
-    {maps:size(VRFs) /= 0 andalso length(Pools) /=0, VRFs, Pools};
-common_caps({WVRFs, WPools}, {HVRFs, HPools}, false) ->
-    VRFs = maps:with(WVRFs, HVRFs),
-    {maps:size(VRFs) /= 0 andalso ordsets:is_subset(WPools, HPools), VRFs, WPools}.
-
-%% common_caps/5
-common_caps(_, [], _Available, _AnyPool, Candidates) ->
-    Candidates;
-common_caps(Wanted, [{Node, _, _, _, _} = UPF|Next], Available, AnyPool, Candidates)
-  when is_map_key(Node, Available) ->
-    {_, NodeCaps} = maps:get(Node, Available),
-    case common_caps(Wanted, NodeCaps, AnyPool) of
-	{true, _, _} ->
-	    [UPF|common_caps(Wanted, Next, Available, AnyPool,Candidates)];
-	{false, _, _} ->
-	    common_caps(Wanted, Next, Available, AnyPool, Candidates)
-    end;
-common_caps(Wanted, [_|Next], Available, AnyPool, Candidates) ->
-    common_caps(Wanted, Next, Available, AnyPool, Candidates).
-
-select_by_caps(Candidates, #{vrfs := VRFs, ip_pools := Pools}, [], Context) ->
-    Wanted = {VRFs, ordsets:from_list(Pools)},
-    filter_by_caps(Candidates, Wanted, true, Context);
-
-select_by_caps(Candidates, #{vrfs := VRFs, ip_pools := Pools}, WantPools, Context) ->
-    ordsets:is_subset(WantPools, Pools) orelse
-	    %% pool not available
-	throw(?CTX_ERR(?FATAL, no_resources_available, Context)),
-
-    Wanted = {VRFs, WantPools},
-    filter_by_caps(Candidates, Wanted, false, Context).
-
-filter_by_caps(Candidates, Wanted, AnyPool, Context) ->
-    Available = ergw_sx_node_reg:available(),
-    Eligible = common_caps(Wanted, Candidates, Available, AnyPool, []),
-    length(Eligible) /= 0 orelse
-	throw(?CTX_ERR(?FATAL, no_resources_available, Context)),
-    {{Node, _, _}, _} = ergw_node_selection:snaptr_candidate(Eligible),
-    {Pid, NodeCaps} = maps:get(Node, Available),
-    {_, SVRFs, SPools} = common_caps(Wanted, NodeCaps, AnyPool),
-    VRF = maps:get(select(random, maps:keys(SVRFs)), SVRFs),
-    {Pid, NodeCaps, VRF, SPools}.
 
 %%%===================================================================
 
@@ -1791,6 +989,86 @@ release_context_ips(#context{ms_ip = _IP} = Context) ->
     Context.
 
 %%%===================================================================
+%%% T-PDU functions
+%%%===================================================================
+
+-define('ICMPv6', 58).
+
+-define('IPv6 All Nodes LL',   <<255,2,0,0,0,0,0,0,0,0,0,0,0,0,0,1>>).
+-define('IPv6 All Routers LL', <<255,2,0,0,0,0,0,0,0,0,0,0,0,0,0,2>>).
+-define('ICMPv6 Router Solicitation',  133).
+-define('ICMPv6 Router Advertisement', 134).
+
+-define(NULL_INTERFACE_ID, {0,0,0,0,0,0,0,0}).
+-define('Our LL IP', <<254,128,0,0,0,0,0,0,0,0,0,0,0,0,0,2>>).
+
+-define('RA Prefix Information', 3).
+-define('RDNSS', 25).
+
+%% ICMPv6
+ip_pdu(<<6:4, TC:8, FlowLabel:20, Length:16, ?ICMPv6:8,
+	     _HopLimit:8, SrcAddr:16/bytes, DstAddr:16/bytes,
+	     PayLoad:Length/bytes, _/binary>>, Context, PCtx) ->
+    icmpv6(TC, FlowLabel, SrcAddr, DstAddr, PayLoad, Context, PCtx);
+ip_pdu(Data, _Context, _PCtx) ->
+    ?LOG(warning, "unhandled T-PDU: ~p", [Data]),
+    ok.
+
+%% IPv6 Router Solicitation
+icmpv6(TC, FlowLabel, _SrcAddr, ?'IPv6 All Routers LL',
+       <<?'ICMPv6 Router Solicitation':8, _Code:8, _CSum:16, _/binary>>,
+       #context{left = Bearer, right = #bearer{local = #ue_ip{v6 = MSv6}},
+		dns_v6 = DNSv6}, PCtx) ->
+    IPv6 = ergw_ip_pool:ip(MSv6),
+    {Prefix, PLen} = ergw_inet:ipv6_interface_id(IPv6, ?NULL_INTERFACE_ID),
+
+    OnLink = 1,
+    AutoAddrCnf = 1,
+    ValidLifeTime = 2592000,
+    PreferredLifeTime = 604800,
+    PrefixInformation = <<?'RA Prefix Information':8, 4:8,
+			  PLen:8, OnLink:1, AutoAddrCnf:1, 0:6,
+			  ValidLifeTime:32, PreferredLifeTime:32, 0:32,
+			  (ergw_inet:ip2bin(Prefix))/binary>>,
+
+    DNSCnt = length(DNSv6),
+    DNSSrvOpt =
+	if (DNSCnt /= 0) ->
+		<<?'RDNSS', (1 + DNSCnt * 2):8, 0:16, 16#ffffffff:32,
+		  << <<(ergw_inet:ip2bin(DNS))/binary>> || DNS <- DNSv6 >>/binary >>;
+	   true ->
+		<<>>
+	end,
+
+    TTL = 255,
+    Managed = 0,
+    OtherCnf = 0,
+    LifeTime = 1800,
+    ReachableTime = 0,
+    RetransTime = 0,
+    RAOpts = <<TTL:8, Managed:1, OtherCnf:1, 0:6, LifeTime:16,
+	       ReachableTime:32, RetransTime:32,
+	       PrefixInformation/binary,
+	       DNSSrvOpt/binary>>,
+
+    NwSrc = ?'Our LL IP',
+    NwDst = ?'IPv6 All Nodes LL',
+    ICMPLength = 4 + size(RAOpts),
+
+    CSum = ergw_inet:ip_csum(<<NwSrc:16/bytes-unit:8, NwDst:16/bytes-unit:8,
+				  ICMPLength:32, 0:24, ?ICMPv6:8,
+				  ?'ICMPv6 Router Advertisement':8, 0:8, 0:16,
+				  RAOpts/binary>>),
+    ICMPv6 = <<6:4, TC:8, FlowLabel:20, ICMPLength:16, ?ICMPv6:8, TTL:8,
+	       NwSrc:16/bytes, NwDst:16/bytes,
+	       ?'ICMPv6 Router Advertisement':8, 0:8, CSum:16, RAOpts/binary>>,
+    ergw_pfcp_context:send_g_pdu(PCtx, Bearer, ICMPv6);
+
+icmpv6(_TC, _FlowLabel, _SrcAddr, _DstAddr, _PayLoad, _Context, _PCtx) ->
+    ?LOG(warning, "unhandeld ICMPv6 from ~p to ~p: ~p", [_SrcAddr, _DstAddr, _PayLoad]),
+    ok.
+
+%%%===================================================================
 %%% Bearer helpers
 %%%===================================================================
 
@@ -1886,121 +1164,3 @@ unset_ue_ip(Ctx) ->
 %% unset_ue_ip/3
 unset_ue_ip(CtxSide, BearerSide, Ctx) ->
     update_ue_ip(CtxSide, BearerSide, undefined, fun(_) -> undefined end, Ctx).
-
-%%%===================================================================
-%%% T-PDU functions
-%%%===================================================================
-
-send_g_pdu(PCtx, #bearer{vrf = VRF,
-		       local = #fq_teid{ip = SrcIP},
-		       remote = #fq_teid{ip = DstIP, teid = TEID}}, Data) ->
-    GTP = #gtp{version =v1, type = g_pdu, tei = TEID, ie = Data},
-    PayLoad = gtp_packet:encode(GTP),
-    UDP = ergw_inet:make_udp(
-	    ergw_inet:ip2bin(SrcIP), ergw_inet:ip2bin(DstIP),
-	    ?GTP1u_PORT, ?GTP1u_PORT, PayLoad),
-    ergw_sx_node:send(PCtx, 'Access', VRF, UDP),
-    ok.
-
--define('ICMPv6', 58).
-
--define('IPv6 All Nodes LL',   <<255,2,0,0,0,0,0,0,0,0,0,0,0,0,0,1>>).
--define('IPv6 All Routers LL', <<255,2,0,0,0,0,0,0,0,0,0,0,0,0,0,2>>).
--define('ICMPv6 Router Solicitation',  133).
--define('ICMPv6 Router Advertisement', 134).
-
--define(NULL_INTERFACE_ID, {0,0,0,0,0,0,0,0}).
--define('Our LL IP', <<254,128,0,0,0,0,0,0,0,0,0,0,0,0,0,2>>).
-
--define('RA Prefix Information', 3).
--define('RDNSS', 25).
-
-%% ICMPv6
-ip_pdu(<<6:4, TC:8, FlowLabel:20, Length:16, ?ICMPv6:8,
-	     _HopLimit:8, SrcAddr:16/bytes, DstAddr:16/bytes,
-	     PayLoad:Length/bytes, _/binary>>, Context, PCtx) ->
-    icmpv6(TC, FlowLabel, SrcAddr, DstAddr, PayLoad, Context, PCtx);
-ip_pdu(Data, _Context, _PCtx) ->
-    ?LOG(warning, "unhandled T-PDU: ~p", [Data]),
-    ok.
-
-%% IPv6 Router Solicitation
-icmpv6(TC, FlowLabel, _SrcAddr, ?'IPv6 All Routers LL',
-       <<?'ICMPv6 Router Solicitation':8, _Code:8, _CSum:16, _/binary>>,
-       #context{left = Bearer, right = #bearer{local = #ue_ip{v6 = MSv6}},
-		dns_v6 = DNSv6}, PCtx) ->
-    IPv6 = ergw_ip_pool:ip(MSv6),
-    {Prefix, PLen} = ergw_inet:ipv6_interface_id(IPv6, ?NULL_INTERFACE_ID),
-
-    OnLink = 1,
-    AutoAddrCnf = 1,
-    ValidLifeTime = 2592000,
-    PreferredLifeTime = 604800,
-    PrefixInformation = <<?'RA Prefix Information':8, 4:8,
-			  PLen:8, OnLink:1, AutoAddrCnf:1, 0:6,
-			  ValidLifeTime:32, PreferredLifeTime:32, 0:32,
-			  (ergw_inet:ip2bin(Prefix))/binary>>,
-
-    DNSCnt = length(DNSv6),
-    DNSSrvOpt =
-	if (DNSCnt /= 0) ->
-		<<?'RDNSS', (1 + DNSCnt * 2):8, 0:16, 16#ffffffff:32,
-		  << <<(ergw_inet:ip2bin(DNS))/binary>> || DNS <- DNSv6 >>/binary >>;
-	   true ->
-		<<>>
-	end,
-
-    TTL = 255,
-    Managed = 0,
-    OtherCnf = 0,
-    LifeTime = 1800,
-    ReachableTime = 0,
-    RetransTime = 0,
-    RAOpts = <<TTL:8, Managed:1, OtherCnf:1, 0:6, LifeTime:16,
-	       ReachableTime:32, RetransTime:32,
-	       PrefixInformation/binary,
-	       DNSSrvOpt/binary>>,
-
-    NwSrc = ?'Our LL IP',
-    NwDst = ?'IPv6 All Nodes LL',
-    ICMPLength = 4 + size(RAOpts),
-
-    CSum = ergw_inet:ip_csum(<<NwSrc:16/bytes-unit:8, NwDst:16/bytes-unit:8,
-				  ICMPLength:32, 0:24, ?ICMPv6:8,
-				  ?'ICMPv6 Router Advertisement':8, 0:8, 0:16,
-				  RAOpts/binary>>),
-    ICMPv6 = <<6:4, TC:8, FlowLabel:20, ICMPLength:16, ?ICMPv6:8, TTL:8,
-	       NwSrc:16/bytes, NwDst:16/bytes,
-	       ?'ICMPv6 Router Advertisement':8, 0:8, CSum:16, RAOpts/binary>>,
-    send_g_pdu(PCtx, Bearer, ICMPv6);
-
-icmpv6(_TC, _FlowLabel, _SrcAddr, _DstAddr, _PayLoad, _Context, _PCtx) ->
-    ?LOG(warning, "unhandeld ICMPv6 from ~p to ~p: ~p", [_SrcAddr, _DstAddr, _PayLoad]),
-    ok.
-
-%%
-%%
-%% Translating PCC Rules and Charging Information to PDRs, FARs and URRs
-%% =====================================================================
-%%
-%% 1. translate current rules to PFCP
-%% 2. calculate difference between new and old PFCP
-%% 3. translate PFCP difference into rules
-%%
-%% It would be possible to tranalte GX events (Charging-Rule-Install/Remove)
-%% directly into PFCP changes. But this a optimization for the future.
-%%
-%% URRs are special:
-%% * quotas are consumed by the UPF, so simply resending them might not work
-%% * updated quotas could be indentical to old values, yet the update needs to
-%%   send to the UPF
-%%
-%% Online charing and rejected Rating-Groups (Result-Code != 2001)
-%%
-%% If Gy rejects a RG, the resulting PCC rules need to be removed (and reported
-%% as such)
-%%
-%% Details:
-%%
-%% * every active PCC-Rule can have online, offline or no URR
-%%
