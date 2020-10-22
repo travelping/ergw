@@ -11,8 +11,10 @@
 
 %% API
 -export([start_link/0]).
--export([register/2, unregister/1, lookup/1, up/2, down/1, available/0]).
+-export([register/2, lookup/1, up/2, down/1, available/0]).
 -export([all/0]).
+
+-ignore_xref([start_link/0, all/0]).
 
 %% regine_server callbacks
 -export([init/1, handle_register/4, handle_unregister/3, handle_pid_remove/3,
@@ -33,8 +35,9 @@ start_link() ->
 
 register(Key, Pid) when is_pid(Pid) ->
     regine_server:register(?SERVER, Pid, Key, undefined).
-unregister(Key) ->
-    regine_server:unregister(?SERVER, Key, undefined).
+
+%% unregister(Key) ->
+%%     regine_server:unregister(?SERVER, Key, undefined).
 
 lookup(Key) ->
     case ets:lookup(?SERVER, Key) of

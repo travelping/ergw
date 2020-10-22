@@ -17,13 +17,19 @@
 	 request_connect/3, request_connect/5, wait_connect/1,
 	 attach/2, attach_tdf/2, notify_up/2]).
 -export([start_link/5, send/4, call/3,
-	 get_vrfs/2, handle_request/3, response/3]).
+	 handle_request/3, response/3]).
 -ifdef(TEST).
 -export([test_cmd/2, seconds_to_sntp_time/1]).
 -endif.
 
 %% ergw_context callbacks
 -export([sx_report/2, port_message/2, port_message/4]).
+
+
+-ignore_xref([start_link/5,
+	      request_connect/5,		% used in spawn from request_connect/3
+	      response/3			% used through apply from response_cb
+	     ]).
 
 %% gen_statem callbacks
 -export([init/1, callback_mode/0, handle_event/4,
@@ -108,9 +114,6 @@ call(#pfcp_ctx{node = Node, seid = #seid{dp = SEID}}, #pfcp{} = Request, OpaqueR
     call_3(Node, Request#pfcp{seid = SEID}, OpaqueRef);
 call(#pfcp_ctx{node = Node}, Request, OpaqueRef) ->
     call_3(Node, Request, OpaqueRef).
-
-get_vrfs(PCtx, Context) ->
-    call(PCtx, get_vrfs, Context).
 
 response(Pid, CbData, Response) ->
     gen_statem:cast(Pid, {response, CbData, Response}).
@@ -383,10 +386,6 @@ handle_event({call, From}, attach, _, #data{pfcp_ctx = PNodeCtx} = Data) ->
     Reply = {ok, PCtx, NodeCaps},
     {keep_state_and_data, [{reply, From, Reply}]};
 
-handle_event({call, From}, get_vrfs, {connected, _},
-	     #data{vrfs = VRFs}) ->
-    {keep_state_and_data, [{reply, From, {ok, VRFs}}]};
-
 %% send 'up' when we are ready, only wait if this is the first connect attempt
 %% or if we are already connected and just waiting for some rules to get installed
 handle_event(cast, {notify_up, NotifyUp}, {connected, ready}, _Data) ->
@@ -429,7 +428,7 @@ handle_event({call, _} = Evt, #pfcp{} = Request0, {connected, _},
     keep_state_and_data;
 
 handle_event({call, _}, Request, _, _Data)
-  when is_record(Request, pfcp); Request == get_vrfs ->
+  when is_record(Request, pfcp) ->
     {keep_state_and_data, postpone};
 
 handle_event(cast, {handle_pdu, _Request, #gtp{type=g_pdu, ie = PDU}}, _, Data) ->

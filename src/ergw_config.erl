@@ -11,15 +11,17 @@
 
 %% API
 -export([load_config/1,
-	 validate_node_name/1,
-	 validate_config/1,
 	 validate_options/4,
 	 validate_apn_name/1,
 	 check_unique_keys/2,
 	 validate_ip_cfg_opt/2,
 	 opts_fold/3,
-	 get_opt/3,
-	 to_map/1]).
+	 get_opt/3
+	]).
+
+-ifdef(TEST).
+-export([validate_config/1]).
+-endif.
 
 -define(DefaultOptions, [{plmn_id, {<<"001">>, <<"01">>}},
 			 {teid, {0, 0}},
@@ -107,19 +109,6 @@ take_opt(Key, List, Default) when is_list(List) ->
 take_opt(Key, Map, Default) when is_map(Map) ->
     {maps:get(Key, Map, Default), maps:remove(Key, Map)}.
 
-validate_node_name(Name)
-  when is_list(Name) ->
-    validate_node_name_list(lists:reverse(string:tokens(Name, "."))),
-    Name;
-validate_node_name(Name)
-  when is_binary(Name) ->
-    validate_node_name(binary_to_list(Name));
-validate_node_name(Name)
-  when is_atom(Name) ->
-    validate_node_name(atom_to_list(Name));
-validate_node_name(Name) ->
-    throw({error, {options, Name}}).
-
 %%%===================================================================
 %%% Options Validation
 %%%===================================================================
@@ -165,13 +154,6 @@ mandatory_keys(Keys, Map) when is_map(Map) ->
 		      ok
 	      end
       end, Keys).
-
-validate_node_name_list(["org", "3gppnetwork" | _]) ->
-    ok;
-validate_node_name_list(["epc" | _]) ->
-    ok;
-validate_node_name_list(Name) ->
-    throw({error, {options, lists:flatten(lists:join($., lists:reverse(Name)))}}).
 
 -ifdef (SIMULATOR).
 validate_config(Config) ->

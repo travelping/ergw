@@ -11,8 +11,10 @@
 
 %% API
 -export([start_link/0]).
--export([register/1, lookup/1, match/1]).
+-export([register/1, lookup/1]).
 -export([all/0]).
+
+-ignore_xref([start_link/0, all/0]).
 
 %% regine_server callbacks
 -export([init/1, handle_register/4, handle_unregister/3, handle_pid_remove/3,
@@ -37,9 +39,6 @@ register(Pool) ->
 
 lookup(Pool) when is_binary(Pool) ->
     regine_server:call(?SERVER, {lookup, Pool}).
-
-match(Pools) when is_list(Pools) ->
-    regine_server:call(?SERVER, {match, Pools}).
 
 all() ->
     regine_server:call(?SERVER, all).
@@ -71,9 +70,6 @@ handle_death(_Pid, _Reason, State) ->
 
 handle_call({lookup, Pool}, _From, State) ->
     maps:get(Pool, State, undefined);
-
-handle_call({match, Pools}, _From, State) ->
-    maps:to_list(maps:with(Pools, State));
 
 handle_call(all, _From, State) ->
     maps:to_list(State).

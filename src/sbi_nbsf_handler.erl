@@ -7,12 +7,17 @@
 
 -module(sbi_nbsf_handler).
 
+-behavior(cowboy_rest).
+
 -export([init/2,
 	 allowed_methods/2,
 	 content_types_provided/2,
 	 malformed_request/2,
 	 resource_exists/2,
 	 to_json/2]).
+
+%% cowboy handler methods, used in routes
+-ignore_xref([to_json/2]).
 
 -include("include/ergw.hrl").
 

@@ -18,6 +18,8 @@
 %% API
 -export([start_link/0, alloc_tei/1]).
 
+-ignore_xref([start_link/0]).
+
 %% gen_statem callbacks
 -export([callback_mode/0, init/1, handle_event/4, terminate/3, code_change/4]).
 

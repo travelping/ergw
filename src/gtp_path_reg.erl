@@ -15,6 +15,8 @@
 -export([all/0, all/1]).
 -export([state/1, state/2]).
 
+-ignore_xref([start_link/0]).
+
 %% regine_server callbacks
 -export([init/1, handle_register/4, handle_unregister/3, handle_pid_remove/3,
 	 handle_death/3, terminate/2, handle_call/3]).

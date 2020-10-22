@@ -22,6 +22,10 @@
 %% Validate environment Variables
 -export([validate_options/1]).
 
+-ignore_xref([start_link/4,
+	      handle_response/4			% used from callback handler
+	      ]).
+
 %% gen_statem callbacks
 -export([callback_mode/0, init/1, handle_event/4,
 	 terminate/3, code_change/4]).

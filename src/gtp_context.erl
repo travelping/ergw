@@ -22,9 +22,8 @@
 	 path_restart/2,
 	 terminate_colliding_context/2, terminate_context/1,
 	 delete_context/1, trigger_delete_context/1,
-	 remote_context_register/1, remote_context_register_new/1, remote_context_update/2,
+	 remote_context_register/1, remote_context_register_new/1,
 	 tunnel_reg_update/2,
-	 enforce_restrictions/2,
 	 info/1,
 	 validate_options/3,
 	 validate_option/2,
@@ -35,6 +34,11 @@
 
 %% ergw_context callbacks
 -export([sx_report/2, port_message/2, port_message/4]).
+
+-ignore_xref([start_link/6,
+	      delete_context/1,			% used by Ops through Erlang CLI
+	      handle_response/4			% used from callback handler
+	      ]).
 
 %% gen_statem callbacks
 -export([callback_mode/0, init/1, handle_event/4,
@@ -97,15 +101,6 @@ remote_context_register_new(Context)
 	_ ->
 	    throw(?CTX_ERR(?FATAL, system_failure, Context))
     end.
-
-remote_context_update(OldContext, NewContext)
-  when is_record(OldContext, context),
-       is_record(NewContext, context) ->
-    OldKeys = context2keys(OldContext),
-    NewKeys = context2keys(NewContext),
-    Delete = ordsets:subtract(OldKeys, NewKeys),
-    Insert = ordsets:subtract(NewKeys, OldKeys),
-    gtp_context_reg:update(Delete, Insert, ?MODULE, self()).
 
 tunnel_reg_update(TunnelOld, TunnelNew) ->
     OldKeys = ordsets:from_list(tunnel2keys(TunnelOld)),
@@ -192,9 +187,6 @@ test_cmd(Pid, Cmd) when is_pid(Pid) ->
     gen_statem:call(Pid, {?TestCmdTag, Cmd}).
 
 -endif.
-
-enforce_restrictions(Msg, #context{restrictions = Restrictions} = Context) ->
-    lists:foreach(fun(R) -> enforce_restriction(Context, Msg, R) end, Restrictions).
 
 %%%===================================================================
 %%% Options Validation
@@ -534,11 +526,6 @@ register_request(Handler, Server, #request{key = ReqKey, socket = Socket}) ->
 
 unregister_request(#request{key = ReqKey, socket = Socket}) ->
     gtp_context_reg:unregister([socket_key(Socket, ReqKey)], ?MODULE, self()).
-
-enforce_restriction(Context, #gtp{version = Version}, {Version, false}) ->
-    throw(?CTX_ERR(?FATAL, {version_not_supported, []}, Context));
-enforce_restriction(_Context, _Msg, _Restriction) ->
-    ok.
 
 get_handler_if(Socket, #gtp{version = v1} = Msg) ->
     gtp_v1_c:get_handler(Socket, Msg);

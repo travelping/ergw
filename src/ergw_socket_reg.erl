@@ -11,8 +11,10 @@
 
 %% API
 -export([start_link/0]).
--export([register/3, unregister/2, lookup/2, waitfor/2]).
+-export([register/3, lookup/2, waitfor/2]).
 -export([all/0]).
+
+-ignore_xref([start_link/0]).
 
 %% regine_server callbacks
 -export([init/1, handle_register/4, handle_unregister/3, handle_pid_remove/3,
@@ -35,8 +37,9 @@ start_link() ->
 
 register(Type, Name, Value) ->
     regine_server:register(?SERVER, self(), {Type, Name}, Value).
-unregister(Type, Name) ->
-    regine_server:unregister(?SERVER, {Type, Name}, undefined).
+
+%% unregister(Type, Name) ->
+%%     regine_server:unregister(?SERVER, {Type, Name}, undefined).
 
 lookup(Type, Name) ->
     Key = {Type, Name},

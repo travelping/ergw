@@ -10,7 +10,9 @@
 -behaviour(supervisor).
 
 %% API
--export([start_link/0, new/5, new/6]).
+-export([start_link/0, new/5]).
+
+-ignore_xref([start_link/0]).
 
 %% Supervisor callbacks
 -export([init/1]).

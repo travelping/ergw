@@ -16,6 +16,11 @@
 
 -export([start_link/6, validate_options/1, unsolicited_report/5]).
 
+-ignore_xref([start_link/6]).
+
+%% TBD: use a PFCP or handler behavior?
+-ignore_xref([start_link/6, validate_options/1, unsolicited_report/5]).
+
 %% ergw_context callbacks
 -export([sx_report/2, port_message/2, port_message/4]).
 

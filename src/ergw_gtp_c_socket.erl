@@ -8,6 +8,7 @@
 -module(ergw_gtp_c_socket).
 
 -behavior(gen_server).
+-behavior(ergw_gtp_socket).
 
 -compile({parse_transform, cut}).
 
@@ -15,14 +16,14 @@
 -export([start_link/1,
 	 info/1, send/4, send_response/3,
 	 send_request/6, send_request/7, resend_request/2]).
--export([get_request_q/1, get_response_q/1, get_seq_no/2, get_uniq_id/1]).
+-export([get_seq_no/2, get_uniq_id/1]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
 	 terminate/2, code_change/3]).
 
 -ifdef(TEST).
--export([send_reply/2]).
+-export([get_request_q/1, get_response_q/1, send_reply/2]).
 -endif.
 
 -include_lib("kernel/include/logger.hrl").
@@ -112,17 +113,19 @@ send_request(Socket, DstIP, DstPort, ReqId,
 resend_request(Socket, ReqId) ->
     cast(Socket, {resend_request, ReqId}).
 
-get_request_q(Socket) ->
-    call(Socket, get_request_q).
-
-get_response_q(Socket) ->
-    call(Socket, get_response_q).
-
 get_seq_no(Socket, ReqId) ->
     call(Socket, {get_seq_no, ReqId}).
 
 get_uniq_id(Socket) ->
     call(Socket, get_uniq_id).
+
+-ifdef(TEST).
+get_request_q(Socket) ->
+    call(Socket, get_request_q).
+
+get_response_q(Socket) ->
+    call(Socket, get_response_q).
+-endif.
 
 %%%===================================================================
 %%% call/cast wrapper for #socket
