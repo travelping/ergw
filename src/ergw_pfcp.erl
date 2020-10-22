@@ -12,12 +12,10 @@
 -export([
 	 traffic_endp/2,
 	 traffic_forward/2,
-
 	 f_seid/2,
-	 f_teid/1, f_teid/2,
+	 f_teid/1,
 	 ue_ip_address/2,
 	 network_instance/1,
-	 outer_header_creation/1,
 	 outer_header_removal/1,
 	 outer_header_removal/2,
 	 ctx_teid_key/2,

@@ -15,14 +15,14 @@
 
 -export([validate_options/2, expand_apn/2, split_apn/1,
 	 apn_to_fqdn/2, apn_to_fqdn/1,
-	 lookup_dns/3, colocation_match/2, topology_match/2,
+	 topology_match/2,
 	 candidates/3, snaptr_candidate/1, topology_select/4,
-	 lookup/2, lookup/3]).
+	 lookup/2]).
 
 -include_lib("kernel/include/logger.hrl").
 
 -ifdef(TEST).
--export([naptr/2]).
+-export([lookup_dns/3, colocation_match/2, naptr/2]).
 -define(NAPTR, ?MODULE:naptr).
 -else.
 -define(NAPTR, naptr).
@@ -50,11 +50,14 @@ lookup_dns(Name, ServiceSet, NameServers) ->
     Response = ?NAPTR(Name, NameServers),
     match(Response, ordsets:from_list(ServiceSet)).
 
+-ifdef(TEST).
+%% currently unused, but worth keeping arround
 colocation_match(CandidatesA, CandidatesB) ->
     Tree0 = #{},
     Tree1 = lists:foldl(insert_colo_candidates(_, 1, _), Tree0, CandidatesA),
     Tree = lists:foldl(insert_colo_candidates(_, 2, _), Tree1, CandidatesB),
     filter_tree(Tree).
+-endif.
 
 topology_match(CandidatesA, CandidatesB) ->
     Tree0 = {#{}, #{}},
@@ -345,6 +348,7 @@ insert_candidates([_|Next] = Label, Candidate, Pos, Tree0) ->
     Tree = insert_candidate(Label, Candidate, Pos, Tree0),
     insert_candidates(Next, Candidate, Pos, Tree).
 
+-ifdef(TEST).
 insert_colo_candidates({Host, _, _, _, _} = Candidate, Pos, Tree) ->
     case string:tokens(Host, ".") of
 	[Top, _ | Labels]
@@ -353,6 +357,7 @@ insert_colo_candidates({Host, _, _, _, _} = Candidate, Pos, Tree) ->
 	Labels ->
 	    insert_candidate(Labels, Candidate, Pos, Tree)
     end.
+-endif.
 
 insert_topo_candidates({Host, _, _, _, _} = Candidate, Pos,
 		       {MatchTree0, PrefixTree0} = Tree) ->

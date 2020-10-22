@@ -14,10 +14,20 @@
 -export([make_seq_id/1, make_request/6]).
 -export([make_gtp_socket/3]).
 
+-ignore_xref([info/1, send/4]).
+
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include("include/ergw.hrl").
 
 -define(EXO_PERF_OPTS, [{time_span, 300 * 1000}]).		%% 5 min histogram
+
+%%====================================================================
+%% Behavior spec
+%%====================================================================
+
+-callback info(Socket :: #socket{}) -> Info :: term().
+-callback send(Socket :: #socket{}, IP :: inet:ip_address(),
+	       Port :: inet:port_number(), Data :: binary()) -> Result :: term().
 
 %%====================================================================
 %% API

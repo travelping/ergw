@@ -20,6 +20,9 @@
 	 delete_forward_session/3,
 	 query_usage_report/2]).
 
+%% planned refactoring, keep for now
+-ignore_xref([query_usage_report/2]).
+
 -include_lib("kernel/include/logger.hrl").
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include_lib("pfcplib/include/pfcp_packet.hrl").

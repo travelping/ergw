@@ -8,6 +8,7 @@
 -module(ergw_gtp_u_socket).
 
 -behavior(gen_server).
+-behavior(ergw_gtp_socket).
 
 -compile({parse_transform, cut}).
 

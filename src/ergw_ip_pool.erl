@@ -9,15 +9,25 @@
 
 %% API
 -export([start_ip_pool/2, send_request/2, wait_response/1, release/1,
-	 requested/1, addr/1, ip/1, opts/1]).
+	 addr/1, ip/1, opts/1]).
 -export([static_ip/2]).
--export([get/5]).
 -export([validate_options/1, validate_name/2]).
 
 -include_lib("kernel/include/logger.hrl").
 
 -define(IS_IPv4(X), (is_tuple(X) andalso tuple_size(X) == 4)).
 -define(IS_IPv6(X), (is_tuple(X) andalso tuple_size(X) == 8)).
+
+%%====================================================================
+%% Behavior spec
+%%====================================================================
+
+-callback start_ip_pool(Name :: binary(), Opts :: map()) -> Result :: term().
+-callback send_pool_request(CliendId :: term(), Request :: term()) -> ReqId :: term().
+-callback wait_pool_response(ReqId :: term()) -> Result :: term().
+-callback ip(AllocInfo :: tuple()) -> Result :: term().
+-callback opts(AllocInfo :: tuple()) -> Result :: term().
+-callback release(AllocInfo :: tuple()) -> Result :: term().
 
 %%====================================================================
 %% API
@@ -35,9 +45,6 @@ wait_response(RequestIds) ->
 release(AllocInfos) ->
     [pool_release(AI) || AI <- AllocInfos].
 
-requested(AllocInfo) ->
-    AllocInfo:requested().
-
 addr(AllocInfo) ->
     case ip(AllocInfo) of
 	{IP, _} -> IP;
@@ -49,12 +56,6 @@ ip(AllocInfo) ->
 
 opts(AllocInfo) ->
     alloc_info(AllocInfo, opts).
-
-%% compat wrapper
-get(Pool, ClientId, IP, PrefixLen, Opts) ->
-    ReqId = send_request(ClientId, [{Pool, IP, PrefixLen, Opts}]),
-    [AllocInfo] = wait_response(ReqId),
-    AllocInfo.
 
 static_ip(IP, PrefixLen) ->
     {'$static', {IP, PrefixLen}}.

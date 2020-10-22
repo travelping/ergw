@@ -8,11 +8,14 @@
 -module(ergw_local_pool).
 
 -behavior(gen_server).
+-behavior(ergw_ip_pool).
 
 %% API
 -export([start_ip_pool/2, send_pool_request/2, wait_pool_response/1, release/1, ip/1, opts/1]).
 -export([start_link/3, start_link/4]).
--export([validate_options/1, validate_option/2]).
+-export([validate_options/1]).
+
+-ignore_xref([start_link/3, start_link/4]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,

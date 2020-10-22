@@ -15,9 +15,11 @@
 -export([start_link/0]).
 -export([register/3, register_new/3, update/4, unregister/3,
 	 lookup/1, select/1,
-	 match_key/2, match_keys/2,
+	 match_keys/2,
 	 await_unreg/1]).
 -export([all/0]).
+
+-ignore_xref([start_link/0]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).

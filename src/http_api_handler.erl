@@ -7,10 +7,15 @@
 
 -module(http_api_handler).
 
+-behavior(cowboy_rest).
+
 -export([init/2, content_types_provided/2,
          handle_request_json/2, handle_request_text/2,
          allowed_methods/2, delete_resource/2,
          content_types_accepted/2]).
+
+%% cowboy handler methods, used in routes
+-ignore_xref([handle_request_json/2, handle_request_text/2]).
 
 -define(FIELDS_MAPPING, [{accept_new, 'acceptNewRequests'},
 			 {plmn_id, 'plmnId'}]).
