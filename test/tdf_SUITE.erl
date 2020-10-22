@@ -907,10 +907,10 @@ simple_ofcs(Config) ->
     Report =
 	[
 	 #volume_measurement{total = 5, uplink = 2, downlink = 3},
-	 #time_of_first_packet{time = ergw_sx_node:seconds_to_sntp_time(StartTS + 24)},
-	 #time_of_last_packet{time = ergw_sx_node:seconds_to_sntp_time(StartTS + 180)},
-	 #start_time{time = ergw_sx_node:seconds_to_sntp_time(StartTS)},
-	 #end_time{time = ergw_sx_node:seconds_to_sntp_time(StartTS + 600)},
+	 #time_of_first_packet{time = ergw_gsn_lib:seconds_to_sntp_time(StartTS + 24)},
+	 #time_of_last_packet{time = ergw_gsn_lib:seconds_to_sntp_time(StartTS + 180)},
+	 #start_time{time = ergw_gsn_lib:seconds_to_sntp_time(StartTS)},
+	 #end_time{time = ergw_gsn_lib:seconds_to_sntp_time(StartTS + 600)},
 	 #tp_packet_measurement{total = 12, uplink = 5, downlink = 7}],
     ReportFun =
 	fun({Id, Type}, Reports) ->

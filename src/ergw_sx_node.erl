@@ -19,7 +19,7 @@
 -export([start_link/5, send/4, call/3,
 	 handle_request/3, response/3]).
 -ifdef(TEST).
--export([test_cmd/2, seconds_to_sntp_time/1]).
+-export([test_cmd/2]).
 -endif.
 
 %% ergw_context callbacks
@@ -620,13 +620,6 @@ lb(random, L) when is_list(L) ->
 response_cb(CbData) ->
     {?MODULE, response, [self(), CbData]}.
 
-seconds_to_sntp_time(Sec) ->
-    if Sec >= 2085978496 ->
-	    Sec - 2085978496;
-       true ->
-	    Sec + 2208988800
-    end.
-
 next_heartbeat(_Data) ->
     {state_timeout, 5000, heartbeat}.
 
@@ -651,7 +644,7 @@ put_build_id(R = #pfcp{ie = IEs}) ->
 
 put_recovery_time_stamp(R = #pfcp{ie = IEs}) ->
     TS = #recovery_time_stamp{
-	    time = seconds_to_sntp_time(gtp_config:get_start_time())},
+	    time = ergw_gsn_lib:seconds_to_sntp_time(gtp_config:get_start_time())},
     R#pfcp{ie = put_ie(TS, IEs)}.
 
 augment_mandatory_ie(R = #pfcp{type = Type}, _Data)
@@ -685,7 +678,7 @@ make_response(Type, SEID, #pfcp{version = v1, seq_no = SeqNo}, IEs) ->
 
 send_heartbeat(#data{dp = #node{ip = IP}}) ->
     IEs = [#recovery_time_stamp{
-	      time = seconds_to_sntp_time(gtp_config:get_start_time())}],
+	      time = ergw_gsn_lib:seconds_to_sntp_time(gtp_config:get_start_time())}],
     Req = #pfcp{version = v1, type = heartbeat_request, ie = IEs},
     ergw_sx_socket:call(IP, 500, 5, Req, response_cb(heartbeat)).
 

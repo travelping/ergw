@@ -144,7 +144,7 @@ handle_event(cast, {defered_usage_report, URRActions, UsageReport}, _State,
     case proplists:get_value(offline, URRActions) of
 	{ChargeEv, OldS} ->
 	    {_Online, Offline, _} =
-		ergw_gsn_lib:usage_report_to_charging_events(UsageReport, ChargeEv, PCtx),
+		ergw_pfcp_context:usage_report_to_charging_events(UsageReport, ChargeEv, PCtx),
 	    ergw_gsn_lib:process_offline_charging_events(ChargeEv, Offline, Now, OldS, Session);
 	_ ->
 	    ok
@@ -207,12 +207,12 @@ handle_event(info, #aaa_request{procedure = {gx, 'RAR'},
 %%% step 2
 %%% step 3:
     {PCtx1, UsageReport} =
-	ergw_gsn_lib:modify_sgi_session(PCC1, [], #{}, Left, Right, Context, PCtx0),
+	ergw_pfcp_context:modify_sgi_session(PCC1, [], #{}, Left, Right, Context, PCtx0),
 
 %%% step 4:
     ChargeEv = {online, 'RAR'},   %% made up value, not use anywhere...
     {Online, Offline, Monitor} =
-	ergw_gsn_lib:usage_report_to_charging_events(UsageReport, ChargeEv, PCtx1),
+	ergw_pfcp_context:usage_report_to_charging_events(UsageReport, ChargeEv, PCtx1),
 
     ergw_gsn_lib:process_accounting_monitor_events(ChargeEv, Monitor, Now, Session),
     GyReqServices = ergw_gsn_lib:gy_credit_request(Online, PCC0, PCC2),
@@ -225,7 +225,7 @@ handle_event(info, #aaa_request{procedure = {gx, 'RAR'},
 
 %%% step 6:
     {PCtx, _} =
-	ergw_gsn_lib:modify_sgi_session(PCC4, [], #{}, Left, Right, Context, PCtx1),
+	ergw_pfcp_context:modify_sgi_session(PCC4, [], #{}, Left, Right, Context, PCtx1),
 
 %%% step 7:
     %% TODO Charging-Rule-Report for successfully installed/removed rules
@@ -278,7 +278,7 @@ handle_event(internal, {session, {update_credits, _} = CreditEv, _}, _State,
 
     {PCC, _PCCErrors} = ergw_gsn_lib:gy_events_to_pcc_ctx(Now, [CreditEv], PCC0),
     {PCtx, _} =
-	ergw_gsn_lib:modify_sgi_session(PCC, [], #{}, Left, Right, Context, PCtx0),
+	ergw_pfcp_context:modify_sgi_session(PCC, [], #{}, Left, Right, Context, PCtx0),
 
     {keep_state, Data#{pfcp := PCtx, pcc := PCC}};
 
@@ -386,14 +386,17 @@ handle_request(ReqKey,
 					   {left, LeftBearer1}], Context1),
 
     ergw_sx_node:wait_connect(SxConnectId),
+
+    APNOpts = ergw_gsn_lib:apn_opts(APN, ContextPreAuth),
     {UPinfo, SessionOpts} =
-	ergw_gsn_lib:select_upf(Candidates, SessionOpts1, APN, ContextPreAuth),
+	ergw_pfcp_context:select_upf(Candidates, SessionOpts1, APNOpts, ContextPreAuth),
 
     {ok, ActiveSessionOpts0, AuthSEvs} =
 	authenticate(Session, SessionOpts, Request, ContextPreAuth),
 
-    {PendingPCtx, NodeCaps, APNOpts, RightBearer0} =
-	ergw_gsn_lib:reselect_upf(Candidates, ActiveSessionOpts0, UPinfo, ContextPreAuth),
+    {PendingPCtx, NodeCaps, RightBearer0} =
+	ergw_pfcp_context:reselect_upf(
+	  Candidates, ActiveSessionOpts0, APNOpts, UPinfo, ContextPreAuth),
 
     {Result, ActiveSessionOpts1, RightBearer, ContextPending1} =
 	allocate_ips(
@@ -444,7 +447,7 @@ handle_request(ReqKey,
     PCC4 = ergw_gsn_lib:session_events_to_pcc_ctx(RfSEvs, PCC3),
 
     PCtx =
-	ergw_gsn_lib:create_sgi_session(PendingPCtx, PCC4, LeftBearer, RightBearer, Context),
+	ergw_pfcp_context:create_sgi_session(PendingPCtx, PCC4, LeftBearer, RightBearer, Context),
 
     GxReport = ergw_gsn_lib:pcc_events_to_charging_rule_report(PCCErrors1 ++ PCCErrors2),
     if map_size(GxReport) /= 0 ->
@@ -820,7 +823,7 @@ encode_paa(Type, IPv4, IPv6) ->
     #v2_pdn_address_allocation{type = Type, address = <<IPv6/binary, IPv4/binary>>}.
 
 close_pdn_context(Reason, #{context := Context, pfcp := PCtx, 'Session' := Session}) ->
-    URRs = ergw_gsn_lib:delete_sgi_session(Reason, Context, PCtx),
+    URRs = ergw_pfcp_context:delete_sgi_session(Reason, Context, PCtx),
 
     %% ===========================================================================
 
@@ -847,7 +850,7 @@ close_pdn_context(Reason, #{context := Context, pfcp := PCtx, 'Session' := Sessi
     end,
 
     ChargeEv = {terminate, TermCause},
-    {Online, Offline, Monitor} = ergw_gsn_lib:usage_report_to_charging_events(URRs, ChargeEv, PCtx),
+    {Online, Offline, Monitor} = ergw_pfcp_context:usage_report_to_charging_events(URRs, ChargeEv, PCtx),
     ergw_gsn_lib:process_accounting_monitor_events(ChargeEv, Monitor, Now, Session),
     GyReqServices = ergw_gsn_lib:gy_credit_report(Online),
     ergw_gsn_lib:process_online_charging_events(ChargeEv, GyReqServices, Session, ReqOpts),
@@ -858,9 +861,9 @@ close_pdn_context(Reason, #{context := Context, pfcp := PCtx, 'Session' := Sessi
 
 query_usage_report(ChargingKeys, Context, PCtx)
   when is_list(ChargingKeys) ->
-    ergw_gsn_lib:query_usage_report(ChargingKeys, Context, PCtx);
+    ergw_pfcp_context:query_usage_report(ChargingKeys, Context, PCtx);
 query_usage_report(_, Context, PCtx) ->
-    ergw_gsn_lib:query_usage_report(Context, PCtx).
+    ergw_pfcp_context:query_usage_report(Context, PCtx).
 
 triggered_charging_event(ChargeEv, Now, Request,
 			 #{context := Context, pfcp := PCtx,
@@ -871,7 +874,7 @@ triggered_charging_event(ChargeEv, Now, Request,
 	{_, UsageReport} =
 	    query_usage_report(Request, Context, PCtx),
 	{Online, Offline, Monitor} =
-	    ergw_gsn_lib:usage_report_to_charging_events(UsageReport, ChargeEv, PCtx),
+	    ergw_pfcp_context:usage_report_to_charging_events(UsageReport, ChargeEv, PCtx),
 	ergw_gsn_lib:process_accounting_monitor_events(ChargeEv, Monitor, Now, Session),
 	GyReqServices = ergw_gsn_lib:gy_credit_request(Online, PCC),
 	ergw_gsn_lib:process_online_charging_events(ChargeEv, GyReqServices, Session, ReqOpts),
@@ -884,7 +887,7 @@ triggered_charging_event(ChargeEv, Now, Request,
 
 defered_usage_report_fun(Owner, URRActions, PCtx) ->
     try
-	{_, Report} = ergw_gsn_lib:query_usage_report(offline, undefined, PCtx),
+	{_, Report} = ergw_pfcp_context:query_usage_report(offline, undefined, PCtx),
 	defered_usage_report(Owner, URRActions, Report)
     catch
 	throw:#ctx_err{} = CtxErr ->
@@ -907,7 +910,7 @@ apply_bearer_change(LeftBearer, RightBearer, URRActions, SendEM, PCtx0, PCC, Ctx
 	   true   -> #{}
 	end,
     {PCtx, UsageReport} =
-	ergw_gsn_lib:modify_sgi_session(PCC, URRActions,
+	ergw_pfcp_context:modify_sgi_session(PCC, URRActions,
 					ModifyOpts, LeftBearer, RightBearer, Ctx, PCtx0),
     defer_usage_report(URRActions, UsageReport),
     PCtx.

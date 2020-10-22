@@ -183,6 +183,7 @@ meck_init(Config) ->
     ok = meck:new(ergw_gtp_c_socket, [passthrough, no_link]),
     ok = meck:new(ergw_aaa_session, [passthrough, no_link]),
     ok = meck:new(ergw_gsn_lib, [passthrough, no_link]),
+    ok = meck:new(ergw_pfcp_context, [passthrough, no_link]),
     ok = meck:expect(ergw_gsn_lib, select_vrf,
 		     fun(NodeCaps, APN) ->
 			     try
@@ -192,7 +193,16 @@ meck_init(Config) ->
 				     meck:exception(throw, CtxErr)
 			     end
 		     end),
-    ok = meck:expect(ergw_gsn_lib, select_upf,
+    ok = meck:expect(ergw_gsn_lib, apn_opts,
+		     fun(APN, Ctx) ->
+			     try
+				 meck:passthrough([APN, Ctx])
+			     catch
+				 throw:#ctx_err{} = CtxErr ->
+				     meck:exception(throw, CtxErr)
+			     end
+		     end),
+    ok = meck:expect(ergw_pfcp_context, select_upf,
 		     fun(Candidates, Session, APN, Ctx) ->
 			     try
 				 meck:passthrough([Candidates, Session, APN, Ctx])
@@ -220,6 +230,7 @@ meck_reset(Config) ->
     meck:reset(ergw_gtp_c_socket),
     meck:reset(ergw_aaa_session),
     meck:reset(ergw_gsn_lib),
+    meck:reset(ergw_pfcp_context),
     meck:reset(ergw_proxy_lib),
     meck:reset(proplists:get_value(handler_under_test, Config)).
 
@@ -228,6 +239,7 @@ meck_unload(Config) ->
     meck:unload(ergw_gtp_c_socket),
     meck:unload(ergw_aaa_session),
     meck:unload(ergw_gsn_lib),
+    meck:unload(ergw_pfcp_context),
     meck:unload(ergw_proxy_lib),
     meck:unload(proplists:get_value(handler_under_test, Config)).
 
@@ -236,6 +248,7 @@ meck_validate(Config) ->
     ?equal(true, meck:validate(ergw_gtp_c_socket)),
     ?equal(true, meck:validate(ergw_aaa_session)),
     ?equal(true, meck:validate(ergw_gsn_lib)),
+    ?equal(true, meck:validate(ergw_pfcp_context)),
     ?equal(true, meck:validate(ergw_proxy_lib)),
     ?equal(true, meck:validate(proplists:get_value(handler_under_test, Config))).
 
