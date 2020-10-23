@@ -201,7 +201,7 @@ handle_event(info, #aaa_request{procedure = {gx, 'RAR'},
 %%% step 2
 %%% step 3:
     {PCtx1, UsageReport} =
-	ergw_pfcp_context:modify_sgi_session(PCC1, [], #{}, Left, Right, Context, PCtx0),
+	ergw_pfcp_context:modify_pfcp_session(PCC1, [], #{}, Left, Right, Context, PCtx0),
 
 %%% step 4:
     ChargeEv = {online, 'RAR'},   %% made up value, not use anywhere...
@@ -219,7 +219,7 @@ handle_event(info, #aaa_request{procedure = {gx, 'RAR'},
 
 %%% step 6:
     {PCtx, _} =
-	ergw_pfcp_context:modify_sgi_session(PCC4, [], #{}, Left, Right, Context, PCtx1),
+	ergw_pfcp_context:modify_pfcp_session(PCC4, [], #{}, Left, Right, Context, PCtx1),
 
 %%% step 7:
     %% TODO Charging-Rule-Report for successfully installed/removed rules
@@ -272,7 +272,7 @@ handle_event(internal, {session, {update_credits, _} = CreditEv, _}, _State,
 
     {PCC, _PCCErrors} = ergw_pcc_context:gy_events_to_pcc_ctx(Now, [CreditEv], PCC0),
     {PCtx, _} =
-	ergw_pfcp_context:modify_sgi_session(PCC, [], #{}, Left, Right, Context, PCtx0),
+	ergw_pfcp_context:modify_pfcp_session(PCC, [], #{}, Left, Right, Context, PCtx0),
 
     {keep_state, Data#{pfcp := PCtx, pcc := PCC}};
 
@@ -426,7 +426,7 @@ handle_request(ReqKey,
     PCC4 = ergw_pcc_context:session_events_to_pcc_ctx(RfSEvs, PCC3),
 
     PCtx =
-	ergw_pfcp_context:create_sgi_session(PendingPCtx, PCC4, LeftBearer, RightBearer, Context),
+	ergw_pfcp_context:create_pfcp_session(PendingPCtx, PCC4, LeftBearer, RightBearer, Context),
 
     GxReport = ergw_gsn_lib:pcc_events_to_charging_rule_report(PCCErrors1 ++ PCCErrors2),
     if map_size(GxReport) /= 0 ->
@@ -742,7 +742,7 @@ encode_paa(Type, IPv4, IPv6) ->
     #v2_pdn_address_allocation{type = Type, address = <<IPv6/binary, IPv4/binary>>}.
 
 close_pdn_context(Reason, #{context := Context, pfcp := PCtx, 'Session' := Session}) ->
-    URRs = ergw_pfcp_context:delete_sgi_session(Reason, Context, PCtx),
+    URRs = ergw_pfcp_context:delete_pfcp_session(Reason, Context, PCtx),
 
     %% ===========================================================================
 
@@ -826,7 +826,7 @@ defer_usage_report(URRActions, UsageReport) ->
 apply_bearer_change(LeftBearer, RightBearer, URRActions, PCtx0, PCC, Ctx) ->
     ModifyOpts = #{send_end_marker => true},
     {PCtx, UsageReport} =
-	ergw_pfcp_context:modify_sgi_session(PCC, URRActions,
+	ergw_pfcp_context:modify_pfcp_session(PCC, URRActions,
 					ModifyOpts, LeftBearer, RightBearer, Ctx, PCtx0),
     defer_usage_report(URRActions, UsageReport),
     PCtx.

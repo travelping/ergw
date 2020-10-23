@@ -134,7 +134,7 @@ init([Node, InVRF, IP4, IP6, #{apn := APN} = _SxOpts]) ->
     Context0 =
 	#tdf_ctx{
 	   left = #bearer{interface = 'Access'},
-	   right = #bearer{interface = 'SGi-LAN'},
+	   right = #bearer{interface = 'SGi-LAN', remote = default},
 
 	   ms_ip = UeIP
 	  },
@@ -267,7 +267,7 @@ handle_event(info, #aaa_request{procedure = {gx, 'RAR'},
 %%% step 2
 %%% step 3:
     {PCtx1, UsageReport} =
-	ergw_pfcp_context:modify_sgi_session(PCC1, [], #{}, Left, Right, Context, PCtx0),
+	ergw_pfcp_context:modify_pfcp_session(PCC1, [], #{}, Left, Right, Context, PCtx0),
 
 %%% step 4:
     ChargeEv = {online, 'RAR'},   %% made up value, not use anywhere...
@@ -285,7 +285,7 @@ handle_event(info, #aaa_request{procedure = {gx, 'RAR'},
 
 %%% step 6:
     {PCtx, _} =
-	ergw_pfcp_context:modify_sgi_session(PCC4, [], #{}, Left, Right, Context, PCtx1),
+	ergw_pfcp_context:modify_pfcp_session(PCC4, [], #{}, Left, Right, Context, PCtx1),
 
 %%% step 7:
     %% TODO Charging-Rule-Report for successfully installed/removed rules
@@ -323,7 +323,7 @@ handle_event(internal, {session, {update_credits, _} = CreditEv, _}, _State,
     {PCC, _PCCErrors} = ergw_pcc_context:gy_events_to_pcc_ctx(Now, [CreditEv], PCC0),
 
     {PCtx, _} =
-	ergw_pfcp_context:modify_sgi_session(PCC, [], #{}, Left, Right, Context, PCtx0),
+	ergw_pfcp_context:modify_pfcp_session(PCC, [], #{}, Left, Right, Context, PCtx0),
 
     {keep_state, Data#data{pfcp = PCtx, pcc = PCC}};
 
@@ -471,7 +471,7 @@ ccr_initial(Session, API, SessionOpts, ReqOpts) ->
 
 close_pdn_context(Reason, run, #data{context = Context, pfcp = PCtx,
 				     session = Session}) ->
-    URRs = ergw_pfcp_context:delete_sgi_session(Reason, Context, PCtx),
+    URRs = ergw_pfcp_context:delete_pfcp_session(Reason, Context, PCtx),
 
     TermCause =
 	case Reason of

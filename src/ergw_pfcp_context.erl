@@ -9,10 +9,10 @@
 
 -compile({parse_transform, cut}).
 
--export([create_sgi_session/5, create_tdf_session/5,
+-export([create_pfcp_session/5, create_tdf_session/5,
 	 usage_report_to_charging_events/3,
-	 modify_sgi_session/7,
-	 delete_sgi_session/3,
+	 modify_pfcp_session/7,
+	 delete_pfcp_session/3,
 	 query_usage_report/2, query_usage_report/3
 	]).
 -export([select_upf/4, reselect_upf/5]).
@@ -35,7 +35,7 @@
 %%% PFCP Sx/N6 API
 %%%===================================================================
 
-delete_sgi_session(Reason, Ctx, PCtx)
+delete_pfcp_session(Reason, Ctx, PCtx)
   when Reason /= upf_failure ->
     Req = #pfcp{version = v1, type = session_deletion_request, ie = []},
     case ergw_sx_node:call(PCtx, Req, Ctx) of
@@ -48,7 +48,7 @@ delete_sgi_session(Reason, Ctx, PCtx)
 			  [_Other]),
 	    undefined
     end;
-delete_sgi_session(_Reason, _Ctx, _PCtx) ->
+delete_pfcp_session(_Reason, _Ctx, _PCtx) ->
     undefined.
 
 build_query_usage_report(Type, PCtx) ->
@@ -360,36 +360,58 @@ to_binary(List) when is_list(List) ->
 to_binary(Bin) when is_binary(Bin) ->
     Bin.
 
+pdr(PdrId, Precedence, Side, Src, Dst, FilterInfo, FarId, URRs) ->
+    SxFilter = build_sx_filter(FilterInfo),
+    Group =
+	[#pdr_id{id = PdrId},
+	 #precedence{precedence = Precedence},
+	 #pdi{group = pdi(Side, Src, Dst, SxFilter)},
+	 #far_id{id = FarId}] ++
+	[#urr_id{id = X} || X <- URRs],
+    ergw_pfcp:outer_header_removal(Src, Group).
+
+pdi(Side, Src, #bearer{local = UeIP} = Dst, Group)
+  when is_record(UeIP, ue_ip) ->
+    %% gtp endpoint with UE IP for bearer binding verification
+    [ergw_pfcp:ue_ip_address(Side, Dst)
+    | ergw_pfcp:traffic_endp(Src, Group)];
+pdi(_Side, Src, _Dst, Group) ->
+    ergw_pfcp:traffic_endp(Src, Group).
+
+%% s(L) -> lists:sort(L).
+
 %% The spec compliante FAR would set Destination Interface
 %% to Access. However, VPP can not deal with that right now.
 %%
-%% build_sx_sgi_fwd_far(FarId,
-%%		     [#{'Redirect-Support' :=        [1],   %% ENABLED
-%%			'Redirect-Address-Type' :=   [2],   %% URL
-%%			'Redirect-Server-Address' := [URL]}],
-%%		     LeftBearer, _RightBearer) ->
+%% far(FarId, [#{'Redirect-Support' :=        [1],   %% ENABLED
+%%	      'Redirect-Address-Type' :=   [2],   %% URL
+%%	      'Redirect-Server-Address' := [URL]}],
+%%     Src, _Dst) ->
 %%     RedirInfo = #redirect_information{type = 'URL', address = to_binary(URL)},
 %%     [#far_id{id = FarId},
 %%      #apply_action{forw = 1},
 %%      #forwarding_parameters{
-%%	group = ergw_pfcp:traffic_forward(LeftBearer, [RedirInfo])
-%%        }];
-build_sx_sgi_fwd_far(FarId,
-		     [#{'Redirect-Support' :=        [1],   %% ENABLED
-			'Redirect-Address-Type' :=   [2],   %% URL
-			'Redirect-Server-Address' := [URL]}],
-		     _LeftBearer, RightBearer) ->
+%%	group = ergw_pfcp:traffic_forward(Src, [RedirInfo])
+%%        }
+%%     ];
+far(FarId, [#{'Redirect-Support' :=        [1],   %% ENABLED
+	      'Redirect-Address-Type' :=   [2],   %% URL
+	      'Redirect-Server-Address' := [URL]}],
+    _Src, Dst) ->
     RedirInfo = #redirect_information{type = 'URL', address = to_binary(URL)},
     [#far_id{id = FarId},
      #apply_action{forw = 1},
      #forwarding_parameters{
-	group = ergw_pfcp:traffic_forward(RightBearer, [RedirInfo])
+	group = ergw_pfcp:traffic_forward(Dst, [RedirInfo])
        }];
-build_sx_sgi_fwd_far(FarId, _RedirInfo, _LeftBearer, RightBearer) ->
+far(FarId, _RedirInfo, _Src, #bearer{remote = undefined}) ->
+    [#far_id{id = FarId},
+     #apply_action{drop = 1}];
+far(FarId, _RedirInfo, _Src, Dst) ->
     [#far_id{id = FarId},
      #apply_action{forw = 1},
      #forwarding_parameters{
-	group = ergw_pfcp:traffic_forward(RightBearer, [])
+	group = ergw_pfcp:traffic_forward(Dst, [])
        }].
 
 %% build_sx_rule/6
@@ -406,20 +428,8 @@ build_sx_rule(Direction = downlink, Name, Definition, FilterInfo, URRs,
     {PdrId, PCtx1} = ergw_pfcp:get_id(pdr, RuleName, PCtx0),
     {FarId, PCtx} = ergw_pfcp:get_id(far, RuleName, PCtx1),
 
-    SxFilter = build_sx_filter(FilterInfo),
-    PDI = #pdi{group = ergw_pfcp:traffic_endp(RightBearer, SxFilter)},
-    PDR = [#pdr_id{id = PdrId},
-	   #precedence{precedence = Precedence},
-	   PDI,
-	   #far_id{id = FarId}] ++
-	[#urr_id{id = X} || X <- URRs],
-
-    FAR = [#far_id{id = FarId},
-	   #apply_action{forw = 1},
-	   #forwarding_parameters{
-	      group = ergw_pfcp:traffic_forward(LeftBearer, [])
-	     }
-	  ],
+    PDR = pdr(PdrId, Precedence, dst, RightBearer, LeftBearer, FilterInfo, FarId, URRs),
+    FAR = far(FarId, undefined, RightBearer, LeftBearer),
 
     Update#sx_upd{
       pctx = ergw_pfcp_rules:add(
@@ -433,21 +443,10 @@ build_sx_rule(Direction = uplink, Name, Definition, FilterInfo, URRs,
     {PdrId, PCtx1} = ergw_pfcp:get_id(pdr, RuleName, PCtx0),
     {FarId, PCtx} = ergw_pfcp:get_id(far, RuleName, PCtx1),
 
-    SxFilter = build_sx_filter(FilterInfo),
-    PDI = #pdi{group =
-		   [ergw_pfcp:ue_ip_address(src, RightBearer)
-		   | ergw_pfcp:traffic_endp(LeftBearer, SxFilter)]},
-    PDR =
-	ergw_pfcp:outer_header_removal(
-	  LeftBearer,
-	  [#pdr_id{id = PdrId},
-	   #precedence{precedence = Precedence},
-	   PDI,
-	   #far_id{id = FarId}]) ++
-	[#urr_id{id = X} || X <- URRs],
+    PDR = pdr(PdrId, Precedence, src, LeftBearer, RightBearer, FilterInfo, FarId, URRs),
 
     RedirInfo = maps:get('Redirect-Information', Definition, undefined),
-    FAR = build_sx_sgi_fwd_far(FarId, RedirInfo, LeftBearer, RightBearer),
+    FAR = far(FarId, RedirInfo, LeftBearer, RightBearer),
 
     Update#sx_upd{
       pctx = ergw_pfcp_rules:add(
@@ -696,12 +695,12 @@ register_ctx_ids(Handler,
 	    [ergw_pfcp:ctx_teid_key(PCtx, FqTEID) || is_record(FqTEID, fq_teid)]],
     gtp_context_reg:register(Keys, Handler, self()).
 
-create_sgi_session(PCtx, PCC, Left, Right, Ctx)
+create_pfcp_session(PCtx, PCC, Left, Right, Ctx)
   when is_record(PCC, pcc_ctx) ->
     register_ctx_ids(gtp_context, Left, PCtx),
     session_establishment_request(PCC, PCtx, Left, Right, Ctx).
 
-modify_sgi_session(PCC, URRActions, Opts, Left, Right, Ctx, PCtx0)
+modify_pfcp_session(PCC, URRActions, Opts, Left, Right, Ctx, PCtx0)
   when is_record(PCC, pcc_ctx), is_record(PCtx0, pfcp_ctx) ->
     {SxRules0, SxErrors, PCtx} = build_sx_rules(PCC, Opts, PCtx0, Left, Right, Ctx),
     SxRules =

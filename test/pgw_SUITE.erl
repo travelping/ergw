@@ -2494,7 +2494,7 @@ sx_up_to_cp_forward(Config) ->
 sx_upf_restart() ->
     [{doc, "Test UPF restart behavior"}].
 sx_upf_restart(Config) ->
-    ok = meck:expect(ergw_pfcp_context, create_sgi_session,
+    ok = meck:expect(ergw_pfcp_context, create_pfcp_session,
 		     fun(PCtx, PCC, Left, Right, Ctx) ->
 			     try
 				 meck:passthrough([PCtx, PCC, Left, Right, Ctx])
@@ -2571,7 +2571,7 @@ sx_upf_restart(Config) ->
     ?match([{_, _, _, _, <<_/binary>>}|_], UDP),
 
     meck_validate(Config),
-    ok = meck:delete(ergw_pfcp_context, create_sgi_session, 5),
+    ok = meck:delete(ergw_pfcp_context, create_pfcp_session, 5),
     ok.
 
 %%--------------------------------------------------------------------
@@ -2583,7 +2583,7 @@ sx_timeout(Config) ->
 		     fun(Peer, _T1, _N1, Msg, CbInfo) ->
 			     meck:passthrough([Peer, 100, 2, Msg, CbInfo])
 		     end),
-    ok = meck:expect(ergw_pfcp_context, create_sgi_session,
+    ok = meck:expect(ergw_pfcp_context, create_pfcp_session,
 		     fun(PCtx, PCC, Left, Right, Ctx) ->
 			     try
 				 meck:passthrough([PCtx, PCC, Left, Right, Ctx])
@@ -2601,7 +2601,7 @@ sx_timeout(Config) ->
     meck_validate(Config),
 
     ok = meck:delete(ergw_sx_socket, call, 5),
-    ok = meck:delete(ergw_pfcp_context, create_sgi_session, 5),
+    ok = meck:delete(ergw_pfcp_context, create_pfcp_session, 5),
     ok.
 
 %%--------------------------------------------------------------------
@@ -2624,7 +2624,7 @@ sx_connect_fail(Config) ->
 		     fun(Peer, _T1, _N1, Msg, CbInfo) ->
 			     meck:passthrough([Peer, 100, 2, Msg, CbInfo])
 		     end),
-    ok = meck:expect(ergw_pfcp_context, create_sgi_session,
+    ok = meck:expect(ergw_pfcp_context, create_pfcp_session,
 		     fun(PCtx, PCC, Left, Right, Ctx) ->
 			     try
 				 meck:passthrough([PCtx, PCC, Left, Right, Ctx])
@@ -2657,7 +2657,7 @@ sx_connect_fail(Config) ->
     true = meck:validate(ergw_sx_node),
 
     ok = meck:delete(ergw_sx_socket, call, 5),
-    ok = meck:delete(ergw_pfcp_context, create_sgi_session, 5),
+    ok = meck:delete(ergw_pfcp_context, create_pfcp_session, 5),
     ok.
 
 %%--------------------------------------------------------------------

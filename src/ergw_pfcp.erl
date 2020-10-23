@@ -21,7 +21,7 @@
 	 ctx_teid_key/2,
 	 up_inactivity_timer/1]).
 -export([init_ctx/1, reset_ctx/1,
-	 get_id/2, get_id/3, update_pfcp_rules/3]).
+	 get_id/3, update_pfcp_rules/3]).
 -export([get_urr_id/4, get_urr_group/2,
 	 get_urr_ids/1, get_urr_ids/2,
 	 find_urr_by_id/2]).
@@ -202,9 +202,6 @@ reset_ctx(PCtx) ->
 
 reset_ctx_timers(PCtx) ->
     PCtx#pfcp_ctx{timers = #{}, timer_by_tref = #{}}.
-
-get_id(Keys, PCtx) ->
-    lists:mapfoldr(fun({Type, Name}, P) -> get_id(Type, Name, P) end, PCtx, Keys).
 
 get_id(Type, Name, #pfcp_ctx{idcnt = Cnt, idmap = IdMap} = PCtx) ->
     Key = {Type, Name},
