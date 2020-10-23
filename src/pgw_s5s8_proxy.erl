@@ -328,7 +328,8 @@ handle_request(ReqKey,
     RightBearer =
 	ergw_gsn_lib:assign_local_data_teid(PCtx0, NodeCaps, RightTunnel, RightBearer0, Ctx),
 
-    PCtx = ergw_proxy_lib:create_forward_session(PCtx0, LeftBearer, RightBearer, Ctx),
+    PCC = ergw_proxy_lib:proxy_pcc(),
+    PCtx = ergw_pfcp_context:create_pfcp_session(PCtx0, PCC, LeftBearer, RightBearer, Ctx),
 
     FinalContext =
 	ergw_gsn_lib:'#set-'(
@@ -500,9 +501,10 @@ handle_response(#proxy_request{direction = sgw2pgw} = ProxyRequest,
 
     Return =
 	if ?CAUSE_OK(Cause) ->
-		PCtx =
-		    ergw_proxy_lib:modify_forward_session(
-		      #{}, LeftBearer, RightBearer, Context, PCtx0),
+		PCC = ergw_proxy_lib:proxy_pcc(),
+		{PCtx, _} =
+		    ergw_pfcp_context:modify_pfcp_session(
+		      PCC, [], #{}, LeftBearer, RightBearer, Context, PCtx0),
 		{keep_state, Data#{proxy_context => ProxyContext, pfcp => PCtx}};
 	   true ->
 		delete_forward_session(normal, Data),
@@ -546,8 +548,9 @@ handle_response(#proxy_request{direction = sgw2pgw,
 	if SendEM -> #{send_end_marker => true};
 	   true   -> #{}
 	end,
-    PCtx = ergw_proxy_lib:modify_forward_session(
-	     ModifyOpts, LeftBearer, RightBearer, PrevContext, PCtxOld),
+    PCC = ergw_proxy_lib:proxy_pcc(),
+    {PCtx, _} = ergw_pfcp_context:modify_pfcp_session(
+		  PCC, [], ModifyOpts, LeftBearer, RightBearer, PrevContext, PCtxOld),
     forward_response(ProxyRequest, Response, Context),
 
     DataNew = Data#{proxy_context => FinalProxyContext, pfcp := PCtx},
@@ -672,7 +675,7 @@ handle_proxy_info(Request, Session, Tunnel, Bearer, Context, #{proxy_ds := Proxy
     end.
 
 delete_forward_session(Reason, #{context := Context, pfcp := PCtx, 'Session' := Session}) ->
-    URRs = ergw_proxy_lib:delete_forward_session(Reason, Context, PCtx),
+    URRs = ergw_pfcp_context:delete_pfcp_session(Reason, Context, PCtx),
     SessionOpts = to_session(gtp_context:usage_report_to_accounting(URRs)),
     ?LOG(debug, "Accounting Opts: ~p", [SessionOpts]),
     ergw_aaa_session:invoke(Session, SessionOpts, stop, #{async => true}).

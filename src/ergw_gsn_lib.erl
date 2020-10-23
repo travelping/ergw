@@ -797,7 +797,10 @@ allocate_ips(AllocInfo,
 	     true ->
 		  []
 	  end,
-    {Result, SOpts, Bearer#bearer{local = UeIP}, Context#context{pdn_type = PDNType, dns_v6 = DNS}}.
+    {Result, SOpts,
+     Bearer#bearer{local = UeIP, remote = default},		% set remote to default for now
+								% (as in default route)
+     Context#context{pdn_type = PDNType, dns_v6 = DNS}}.
 
 %% release_context_ips/1
 release_context_ips(#context{ms_ip = #ue_ip{v4 = MSv4, v6 = MSv6}} = Context) ->

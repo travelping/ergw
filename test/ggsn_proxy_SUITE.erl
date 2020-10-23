@@ -2014,10 +2014,10 @@ session_accounting(Config) ->
 sx_upf_reconnect() ->
     [{doc, "Test UPF reconnect behavior"}].
 sx_upf_reconnect(Config) ->
-    ok = meck:expect(ergw_proxy_lib, create_forward_session,
-		     fun(PCtx0, Left, Right, Ctx) ->
+    ok = meck:expect(ergw_pfcp_context, create_pfcp_session,
+		     fun(PCtx0, PCC, Left, Right, Ctx) ->
 			     try
-				 meck:passthrough([PCtx0, Left, Right, Ctx])
+				 meck:passthrough([PCtx0, PCC, Left, Right, Ctx])
 			     catch
 				 throw:#ctx_err{} = CtxErr ->
 				     meck:exception(throw, CtxErr)
@@ -2048,7 +2048,7 @@ sx_upf_reconnect(Config) ->
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
 
     meck_validate(Config),
-    ok = meck:delete(ergw_proxy_lib, create_forward_session, 4),
+    ok = meck:delete(ergw_pfcp_context, create_pfcp_session, 5),
     ok.
 
 %%--------------------------------------------------------------------
@@ -2091,10 +2091,10 @@ sx_timeout(Config) ->
 		     fun(Peer, _T1, _N1, Msg, CbInfo) ->
 			     meck:passthrough([Peer, 100, 2, Msg, CbInfo])
 		     end),
-    ok = meck:expect(ergw_proxy_lib, create_forward_session,
-		     fun(PCtx0, Left, Right, Ctx) ->
+    ok = meck:expect(ergw_pfcp_context, create_pfcp_session,
+		     fun(PCtx0, PCC, Left, Right, Ctx) ->
 			     try
-				 meck:passthrough([PCtx0, Left, Right, Ctx])
+				 meck:passthrough([PCtx0, PCC, Left, Right, Ctx])
 			     catch
 				 throw:#ctx_err{} = CtxErr ->
 				     meck:exception(throw, CtxErr)
@@ -2109,7 +2109,7 @@ sx_timeout(Config) ->
     meck_validate(Config),
 
     ok = meck:delete(ergw_sx_socket, call, 5),
-    ok = meck:delete(ergw_proxy_lib, create_forward_session, 4),
+    ok = meck:delete(ergw_pfcp_context, create_pfcp_session, 5),
     ok.
 
 %%--------------------------------------------------------------------

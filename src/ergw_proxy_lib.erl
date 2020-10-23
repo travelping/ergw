@@ -15,17 +15,12 @@
 	 select_gw/5,
 	 select_gtp_proxy_sockets/2,
 	 select_sx_proxy_candidate/3]).
--export([create_forward_session/4,
-	 modify_forward_session/5,
-	 delete_forward_session/3,
-	 query_usage_report/2]).
-
-%% planned refactoring, keep for now
--ignore_xref([query_usage_report/2]).
+-export([proxy_pcc/0]).
 
 -include_lib("kernel/include/logger.hrl").
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include_lib("pfcplib/include/pfcp_packet.hrl").
+-include_lib("ergw_aaa/include/diameter_3gpp_ts32_299.hrl").
 -include("include/ergw.hrl").
 
 %%%===================================================================
@@ -193,12 +188,6 @@ validate_context(Name, Opts, _Acc) ->
 %%% Helper functions
 %%%===================================================================
 
-ctx_update_dp_seid(#{f_seid := #f_seid{seid = DP}},
-		   #pfcp_ctx{seid = SEID} = PCtx) ->
-    PCtx#pfcp_ctx{seid = SEID#seid{dp = DP}};
-ctx_update_dp_seid(_, PCtx) ->
-    PCtx.
-
 make_request_id(#request{key = ReqKey}, #gtp{seq_no = SeqNo})
   when is_integer(SeqNo) ->
     {ReqKey, SeqNo};
@@ -218,118 +207,20 @@ make_proxy_request(Direction, Request, SeqNo, NewPeer, State) ->
 		},
     {ReqId, ReqInfo}.
 
-update_m_rec(Record, Map) when is_tuple(Record) ->
-    maps:update_with(element(1, Record), [Record | _], [Record], Map).
-
 %%%===================================================================
 %%% Sx DP API
 %%%===================================================================
 
-proxy_pdr({SrcIntf, LeftBearer, DstIntf, _Right}, PCtx0) ->
-
-    {[PdrId, FarId, UrrId], PCtx} =
-	ergw_pfcp:get_id([{pdr, SrcIntf}, {far, DstIntf}, {urr, proxy}], PCtx0),
-    PDI = #pdi{group = ergw_pfcp:traffic_endp(LeftBearer, [])},
-    PDR = [#pdr_id{id = PdrId},
-	   #precedence{precedence = 100},
-	   PDI,
-	   ergw_pfcp:outer_header_removal(LeftBearer),
-	   #far_id{id = FarId},
-	   #urr_id{id = UrrId}],
-    ergw_pfcp_rules:add(pdr, PdrId, PDR, PCtx).
-
-proxy_far({_SrcIntf, _Left, DstIntf, RightBearer}, PCtx0)
-  when RightBearer#bearer.remote /= undefined ->
-    {FarId, PCtx} = ergw_pfcp:get_id(far, DstIntf, PCtx0),
-    FAR = [#far_id{id = FarId},
-	   #apply_action{forw = 1},
-	   #forwarding_parameters{
-	      group = ergw_pfcp:traffic_forward(RightBearer, [])
-	     }
-	  ],
-    ergw_pfcp_rules:add(far, FarId, FAR, PCtx);
-proxy_far({_SrcIntf, _Left, DstIntf, _Right}, PCtx0) ->
-    {FarId, PCtx} = ergw_pfcp:get_id(far, DstIntf, PCtx0),
-    FAR = [#far_id{id = FarId},
-	   #apply_action{drop = 1}
-	  ],
-    ergw_pfcp_rules:add(far, FarId, FAR, PCtx).
-
-proxy_urr(PCtx0) ->
-    {UrrId, PCtx} = ergw_pfcp:get_id(urr, proxy, PCtx0),
-    URR = [#urr_id{id = UrrId},
-	   #measurement_method{volum = 1},
-	   #reporting_triggers{periodic_reporting = 1}
-	  ],
-    ergw_pfcp_rules:add(urr, UrrId, URR, PCtx).
-
-register_ctx_ids(Handler,
-		 #bearer{local = Left}, #bearer{local = Right},
-		 #pfcp_ctx{seid = #seid{cp = SEID}} = PCtx) ->
-    Keys = [{seid, SEID}]
-	++ [ergw_pfcp:ctx_teid_key(PCtx, Left) || is_record(Left, fq_teid)]
-	++ [ergw_pfcp:ctx_teid_key(PCtx, Right) || is_record(Right, fq_teid)],
-    gtp_context_reg:register(Keys, Handler, self()).
-
-create_forward_session(PCtx0, Left, Right, Ctx) ->
-    {ok, CntlNode, _, _} = ergw_sx_socket:id(),
-    register_ctx_ids(gtp_context, Left, Right, PCtx0),
-
-    MakeRules = [{'Access', Left, 'Core', Right},
-		 {'Core', Right, 'Access', Left}],
-    PCtx1 = lists:foldl(fun proxy_pdr/2, PCtx0, MakeRules),
-    PCtx2 = lists:foldl(fun proxy_far/2, PCtx1, MakeRules),
-    PCtx = proxy_urr(PCtx2),
-    Rules = ergw_pfcp:update_pfcp_rules(PCtx0, PCtx, #{}),
-    IEs = update_m_rec(ergw_pfcp:f_seid(PCtx, CntlNode), Rules),
-
-    Req = #pfcp{version = v1, type = session_establishment_request, ie = IEs},
-    case ergw_sx_node:call(PCtx, Req, Left) of
-	#pfcp{version = v1, type = session_establishment_response,
-	      ie = #{pfcp_cause := #pfcp_cause{cause = 'Request accepted'},
-		     f_seid := #f_seid{}} = RespIEs} ->
-	    ctx_update_dp_seid(RespIEs, PCtx);
-	_Other ->
-	    throw(?CTX_ERR(?FATAL, system_failure, Ctx))
-    end.
-
-modify_forward_session(Opts, Left, Right, Ctx, OldPCtx) ->
-    MakeRules = [{'Access', Left, 'Core', Right}, {'Core', Right, 'Access', Left}],
-    PCtx0 = ergw_pfcp:reset_ctx(OldPCtx),
-    PCtx1 = lists:foldl(fun proxy_pdr/2, PCtx0, MakeRules),
-    PCtx2 = lists:foldl(fun proxy_far/2, PCtx1, MakeRules),
-    PCtx = proxy_urr(PCtx2),
-    IEs = ergw_pfcp:update_pfcp_rules(OldPCtx, PCtx, Opts),
-
-    Req = #pfcp{version = v1, type = session_modification_request, ie = IEs},
-    case ergw_sx_node:call(OldPCtx, Req, Left) of
-	#pfcp{version = v1, type = session_modification_response,
-	      ie = #{
-		     pfcp_cause :=
-			 #pfcp_cause{cause = 'Request accepted'}} = RespIEs} = _Response ->
-	    %%TODO: modify_proxy_report_urrs(Response, URRActions),
-	    ctx_update_dp_seid(RespIEs, PCtx);
-	_ ->
-	    throw(?CTX_ERR(?FATAL, system_failure, Ctx))
-    end.
-
-delete_forward_session(Reason, Ctx, PCtx)
-  when Reason =:= normal; Reason =:= administrative ->
-    Req = #pfcp{version = v1, type = session_deletion_request, ie = []},
-    case ergw_sx_node:call(PCtx, Req, Ctx) of
-	#pfcp{type = session_deletion_response,
-	      ie = #{pfcp_cause := #pfcp_cause{cause = 'Request accepted'}} = IEs} ->
-	    maps:get(usage_report_sdr, IEs, undefined);
-	_Other ->
-	    ?LOG(warning, "PFCP (proxy): Session Deletion failed with ~p",
-			  [_Other]),
-	    undefined
-    end;
-delete_forward_session(_Reason, _Ctx, _PCtx) ->
-    undefined.
-
-query_usage_report(Ctx, PCtx)
-  when is_record(PCtx, pfcp_ctx) ->
-    IEs = [#query_urr{group = [#urr_id{id = 1}]}],
-    Req = #pfcp{version = v1, type = session_modification_request, ie = IEs},
-    ergw_sx_node:call(PCtx, Req, Ctx).
+proxy_pcc() ->
+    #pcc_ctx{
+       rules =
+	   #{<<"r-0001">> =>
+		 #{'Charging-Rule-Base-Name' => <<"proxy">>,
+		   'Flow-Information' => [],
+		   'Metering-Method' => [?'DIAMETER_3GPP_CHARGING_METERING-METHOD_VOLUME'],
+		   'Offline' => [0],
+		   'Online' => [0],
+		   'Precedence' => [100],
+		   'Rating-Group' => [3000]}
+	    }
+      }.
