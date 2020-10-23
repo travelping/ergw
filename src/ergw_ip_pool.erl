@@ -13,6 +13,10 @@
 -export([static_ip/2]).
 -export([validate_options/1, validate_name/2]).
 
+-if(?OTP_RELEASE =< 23).
+-ignore_xref([behaviour_info/1]).
+-endif.
+
 -include_lib("kernel/include/logger.hrl").
 
 -define(IS_IPv4(X), (is_tuple(X) andalso tuple_size(X) == 4)).

@@ -1,5 +1,9 @@
 -module(gtp_protocol).
 
+-if(?OTP_RELEASE =< 23).
+-ignore_xref([behaviour_info/1]).
+-endif.
+
 -include_lib("gtplib/include/gtp_packet.hrl").
 
 -callback gtp_msg_type(Type :: atom()) -> MsgType :: 'request' | 'response' | 'other'.

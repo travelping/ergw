@@ -10,6 +10,10 @@
 %% API
 -export([sx_report/1, port_message/2, port_message/3, port_message/4]).
 
+-if(?OTP_RELEASE =< 23).
+-ignore_xref([behaviour_info/1]).
+-endif.
+
 %%-type ctx_ref() :: {Handler :: atom(), Server :: pid()}.
 -type seid() :: 0..16#ffffffffffffffff.
 
