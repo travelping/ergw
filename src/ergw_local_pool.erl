@@ -82,7 +82,7 @@ release({_, Server, {IP, _}, Pool, _Opts}) ->
     %% see alloc_reply
     gen_server:cast(Server, {release, IP, Pool}).
 
--if(OTP_RELEASE >= 23).
+-if(?OTP_RELEASE >= 23).
 send_request(Server, Request) ->
     gen_server:send_request(Server, Request).
 
