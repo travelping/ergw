@@ -1,6 +1,13 @@
 erGW - 3GPP GGSN and PDN-GW in Erlang
 =====================================
 
+Version 2.7.0 - 26 October 2020
+-------------------------------
+
+* Added termination cause mapping
+* Fixed broken `ergw-c-node.config`
+* Update [ergw_aaa](https://github.com/travelping/ergw_aaa) tag to [3.6.0](https://github.com/travelping/ergw_aaa/releases/tag/3.6.0)
+
 Version 2.6.1 - 08 October 2020
 -------------------------------
 
