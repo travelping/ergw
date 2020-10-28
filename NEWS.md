@@ -1,6 +1,11 @@
 erGW - 3GPP GGSN and PDN-GW in Erlang
 =====================================
 
+Version 2.7.1 - 28 October 2020
+-------------------------------
+
+* Update [ergw_aaa](https://github.com/travelping/ergw_aaa) tag to [3.6.1](https://github.com/travelping/ergw_aaa/releases/tag/3.6.1)
+
 Version 2.7.0 - 26 October 2020
 -------------------------------
 
