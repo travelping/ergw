@@ -283,8 +283,8 @@ gtp_context_new_teids(Base, N, GtpC) ->
 
 make_error_indication_report(#gtpc{local_data_tei = TEI, local_ip = IP}) ->
     make_error_indication_report(IP, TEI);
-make_error_indication_report(#context{left = #bearer{local = #fq_teid{ip = IP},
-						   remote = #fq_teid{teid = TEI}}}) ->
+make_error_indication_report(#bearer{local = #fq_teid{ip = IP},
+				     remote = #fq_teid{teid = TEI}}) ->
     make_error_indication_report(IP, TEI).
 
 f_teid(TEID, {_,_,_,_} = IP) ->

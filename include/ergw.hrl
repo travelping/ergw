@@ -111,8 +111,6 @@
 	  version                :: 'v1' | 'v2',
 	  pdn_type               :: 'undefined' | 'IPv4' | 'IPv6' | 'IPv4v6' | 'Non-IP',
 	  left_tnl               :: 'undefined' | #tunnel{},
-	  left                   :: 'undefined' | #bearer{},
-	  right                  :: 'undefined' | #bearer{},
 
 	  ms_ip                  :: #ue_ip{},
 	  dns_v6                 :: [inet:ip6_address()],
@@ -122,9 +120,6 @@
 	 }).
 
 -record(tdf_ctx, {
-	  left                   :: 'undefined' | #bearer{},
-	  right                  :: 'undefined' | #bearer{},
-
 	  ms_ip                  :: #ue_ip{}
 	 }).
 

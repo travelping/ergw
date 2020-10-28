@@ -1430,9 +1430,9 @@ error_indication_ggsn2sgsn(Config) ->
 
     {_Handler, CtxPid} = gtp_context_reg:lookup({'irx', {imsi, ?'IMSI', 5}}),
     true = is_pid(CtxPid),
-    #{proxy_context := Ctx} = gtp_context:info(CtxPid),
+    #{right_bearer := RightBearer} = gtp_context:info(CtxPid),
 
-    ergw_test_sx_up:send('sgw-u', make_error_indication_report(Ctx)),
+    ergw_test_sx_up:send('sgw-u', make_error_indication_report(RightBearer)),
 
     Request = recv_pdu(Cntl, 5000),
     ?match(#gtp{type = delete_pdp_context_request}, Request),
@@ -1493,10 +1493,10 @@ update_pdp_context_request_ra_update() ->
 update_pdp_context_request_ra_update(Config) ->
     {GtpC1, _, _} = create_pdp_context(Config),
     {_Handler, CtxPid} = gtp_context_reg:lookup({'remote-irx', {imsi, ?'PROXY-IMSI', 5}}),
-    #{context := Ctx1} = gtp_context:info(CtxPid),
+    #{context := Ctx1, left_bearer := LeftBearer1} = gtp_context:info(CtxPid),
 
     {GtpC2, _, _} = update_pdp_context(ra_update, GtpC1),
-    #{context := Ctx2} = gtp_context:info(CtxPid),
+    #{context := Ctx2, left_bearer := LeftBearer2} = gtp_context:info(CtxPid),
 
     ?equal([], outstanding_requests()),
     delete_pdp_context(GtpC2),
@@ -1507,7 +1507,7 @@ update_pdp_context_request_ra_update(Config) ->
 
     %% make sure the GGSN side control TEID don't change
     ?equal(Ctx1#context.left_tnl#tunnel.remote, Ctx2#context.left_tnl#tunnel.remote),
-    ?equal(Ctx1#context.left#bearer.remote,     Ctx2#context.left#bearer.remote),
+    ?equal(LeftBearer1#bearer.remote, LeftBearer2#bearer.remote),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
@@ -1519,7 +1519,7 @@ update_pdp_context_request_tei_update() ->
 update_pdp_context_request_tei_update(Config) ->
     {GtpC1, _, _} = create_pdp_context(Config),
     {_Handler, CtxPid} = gtp_context_reg:lookup({'remote-irx', {imsi, ?'PROXY-IMSI', 5}}),
-    #{context := Ctx1} = gtp_context:info(CtxPid),
+    #{context := Ctx1, left_bearer := LeftBearer1} = gtp_context:info(CtxPid),
 
     {_Handler, ProxyCtxPid} = gtp_context_reg:lookup({'irx', {imsi, ?'IMSI', 5}}),
     #{proxy_context := PrxCtx1} = gtp_context:info(ProxyCtxPid),
@@ -1527,7 +1527,7 @@ update_pdp_context_request_tei_update(Config) ->
     ?match({gtp_context, ProxyCtxPid}, gtp_context_reg:lookup(ProxyRegKey1)),
 
     {GtpC2, _, _} = update_pdp_context(tei_update, GtpC1),
-    #{context := Ctx2} = gtp_context:info(CtxPid),
+    #{context := Ctx2, left_bearer := LeftBearer2} = gtp_context:info(CtxPid),
 
     #{proxy_context := PrxCtx2} = gtp_context:info(ProxyCtxPid),
     ProxyRegKey2 = gtp_context:tunnel_key(local, PrxCtx2#context.left_tnl),
@@ -1543,7 +1543,7 @@ update_pdp_context_request_tei_update(Config) ->
 
     %% make sure the GGSN side control TEID DOES change
     ?not_equal(Ctx1#context.left_tnl#tunnel.remote, Ctx2#context.left_tnl#tunnel.remote),
-    ?equal(Ctx1#context.left#bearer.remote,         Ctx2#context.left#bearer.remote),
+    ?equal(LeftBearer1#bearer.remote, LeftBearer2#bearer.remote),
 
     [_, SMR0|_] = lists:filter(
 		    fun(#pfcp{type = session_modification_request}) -> true;
@@ -1585,10 +1585,10 @@ update_pdp_context_request_broken_recovery(Config) ->
 		     end),
     {GtpC1, _, _} = create_pdp_context(Config),
     {_Handler, CtxPid} = gtp_context_reg:lookup({'remote-irx', {imsi, ?'PROXY-IMSI', 5}}),
-    #{context := Ctx1} = gtp_context:info(CtxPid),
+    #{context := Ctx1, left_bearer := LeftBearer1} = gtp_context:info(CtxPid),
 
     {GtpC2, _, _} = update_pdp_context(simple, GtpC1),
-    #{context := Ctx2} = gtp_context:info(CtxPid),
+    #{context := Ctx2, left_bearer := LeftBearer2} = gtp_context:info(CtxPid),
 
     ?equal([], outstanding_requests()),
     delete_pdp_context(GtpC2),
@@ -1599,7 +1599,7 @@ update_pdp_context_request_broken_recovery(Config) ->
 
     %% make sure the GGSN side control TEID don't change
     ?equal(Ctx1#context.left_tnl#tunnel.remote, Ctx2#context.left_tnl#tunnel.remote),
-    ?equal(Ctx1#context.left#bearer.remote,     Ctx2#context.left#bearer.remote),
+    ?equal(LeftBearer1#bearer.remote, LeftBearer2#bearer.remote),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),

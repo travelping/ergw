@@ -170,6 +170,7 @@ handle_event(info, #aaa_request{procedure = {gx, 'RAR'},
 				events = Events} = Request,
 	     run,
 	     #{context := Context, pfcp := PCtx0,
+	       left_bearer := LeftBearer, right_bearer := RightBearer,
 	       'Session' := Session, pcc := PCC0} = Data) ->
 %%% 1. update PCC
 %%%    a) calculate PCC rules to be removed
@@ -187,7 +188,6 @@ handle_event(info, #aaa_request{procedure = {gx, 'RAR'},
     Now = erlang:monotonic_time(),
     ReqOps = #{now => Now},
 
-    #context{left = Left, right = Right} = Context,
     RuleBase = ergw_charging:rulebase(),
 
 %%% step 1a:
@@ -200,7 +200,8 @@ handle_event(info, #aaa_request{procedure = {gx, 'RAR'},
 %%% step 2
 %%% step 3:
     {PCtx1, UsageReport} =
-	case ergw_pfcp_context:modify_pfcp_session(PCC1, [], #{}, Left, Right, PCtx0) of
+	case ergw_pfcp_context:modify_pfcp_session(
+	       PCC1, [], #{}, LeftBearer, RightBearer, PCtx0) of
 	    {ok, Result1} -> Result1;
 	    {error, Err1} -> throw(Err1#ctx_err{context = Context})
 	end,
@@ -221,7 +222,8 @@ handle_event(info, #aaa_request{procedure = {gx, 'RAR'},
 
 %%% step 6:
     {PCtx, _} =
-	case ergw_pfcp_context:modify_pfcp_session(PCC4, [], #{}, Left, Right, PCtx1) of
+	case ergw_pfcp_context:modify_pfcp_session(
+	       PCC4, [], #{}, LeftBearer, RightBearer, PCtx1) of
 	    {ok, Result2} -> Result2;
 	    {error, Err2} -> throw(Err2#ctx_err{context = Context})
 	end,
@@ -271,13 +273,15 @@ handle_event(internal, {session, stop, _Session}, _, _) ->
     keep_state_and_data;
 
 handle_event(internal, {session, {update_credits, _} = CreditEv, _}, _State,
-	     #{context := Context, pfcp := PCtx0, pcc := PCC0} = Data) ->
+	     #{context := Context, pfcp := PCtx0,
+	       left_bearer := LeftBearer, right_bearer := RightBearer,
+	       pcc := PCC0} = Data) ->
     Now = erlang:monotonic_time(),
-    #context{left = Left, right = Right} = Context,
 
     {PCC, _PCCErrors} = ergw_pcc_context:gy_events_to_pcc_ctx(Now, [CreditEv], PCC0),
     {PCtx, _} =
-	case ergw_pfcp_context:modify_pfcp_session(PCC, [], #{}, Left, Right, PCtx0) of
+	case ergw_pfcp_context:modify_pfcp_session(
+	       PCC, [], #{}, LeftBearer, RightBearer, PCtx0) of
 	    {ok, Result1} -> Result1;
 	    {error, Err1} -> throw(Err1#ctx_err{context = Context})
 	end,
@@ -294,10 +298,11 @@ handle_event(cast, Ev, _State, _Data)
     keep_state_and_data.
 
 handle_pdu(ReqKey, #gtp{ie = PDU} = Msg, _State,
-	   #{context := Context, pfcp := PCtx} = Data) ->
+	   #{context := Context, pfcp := PCtx,
+	     left_bearer := LeftBearer, right_bearer := RightBearer} = Data) ->
     ?LOG(debug, "GTP-U PGW: ~p, ~p", [ReqKey, gtp_c_lib:fmt_gtp(Msg)]),
 
-    ergw_gsn_lib:ip_pdu(PDU, Context, PCtx),
+    ergw_gsn_lib:ip_pdu(PDU, LeftBearer, RightBearer, Context, PCtx),
     {keep_state, Data}.
 
 handle_sx_report(#pfcp{type = session_report_request,
@@ -352,6 +357,7 @@ handle_request(ReqKey,
 			  } = IEs} = Request,
 	       _Resent, _State,
 	       #{context := Context0, aaa_opts := AAAopts, node_selection := NodeSelect,
+		 left_bearer := LeftBearer0,
 		 'Session' := Session, pcc := PCC0} = Data) ->
 
     APN_FQDN = ergw_node_selection:apn_to_fqdn(APN),
@@ -368,7 +374,6 @@ handle_request(ReqKey,
     Context1 = update_context_from_gtp_req(Request, Context0),
 
     LeftTunnel0 = ergw_gsn_lib:tunnel(left, Context0),
-    LeftBearer0 = ergw_gsn_lib:bearer(left, Context0),
 
     {LeftTunnel1, LeftBearer1} =
 	case update_tunnel_from_gtp_req(Request, LeftTunnel0, LeftBearer0) of
@@ -388,8 +393,7 @@ handle_request(ReqKey,
     %% SessionOpts = init_session_qos(ReqQoSProfile, SessionOpts1),
 
     %% TBD.... this is needed for the throws....
-    ContextPreAuth = ergw_gsn_lib:'#set-'([{left_tnl, LeftTunnel},
-					   {left, LeftBearer1}], Context1),
+    ContextPreAuth = ergw_gsn_lib:'#set-'([{left_tnl, LeftTunnel}], Context1),
 
     ergw_sx_node:wait_connect(SxConnectId),
 
@@ -496,13 +500,10 @@ handle_request(ReqKey,
 	    ok
     end,
 
-    FinalContext =
-	ergw_gsn_lib:'#set-'(
-	  [{left, LeftBearer}, {right, RightBearer}], Context),
-
-    case gtp_context:remote_context_register_new(FinalContext) of
+    case gtp_context:remote_context_register_new(
+	   LeftTunnel, LeftBearer, RightBearer, Context) of
 	ok -> ok;
-	{error, Err11} -> throw(Err11#ctx_err{context = FinalContext})
+	{error, Err11} -> throw(Err11#ctx_err{context = Context})
     end,
 
     ResponseIEs = create_session_response(Cause, ActiveSessionOpts, IEs, EBI,
@@ -510,8 +511,12 @@ handle_request(ReqKey,
     Response = response(create_session_response, LeftTunnel, ResponseIEs, Request),
     gtp_context:send_response(ReqKey, Request, Response),
 
-    Actions = context_idle_action([], FinalContext),
-    {keep_state, Data#{context => FinalContext, pfcp => PCtx, pcc => PCC4}, Actions};
+    FinalData =
+	Data#{context => Context, pfcp => PCtx, pcc => PCC4,
+	      left_bearer => LeftBearer, right_bearer => RightBearer},
+
+    Actions = context_idle_action([], Context),
+    {keep_state, FinalData, Actions};
 
 %% TODO:
 %%  Only single or no bearer modification is supported by this and the next function.
@@ -523,12 +528,12 @@ handle_request(ReqKey,
 			       #v2_bearer_context{group = #{?'EPS Bearer ID' := EBI}}
 			  } = IEs} = Request,
 	       _Resent, _State,
-	       #{context := Context, pfcp := PCtx0, 'Session' := Session, pcc := PCC} = Data) ->
+	       #{context := Context, pfcp := PCtx0,
+		 left_bearer := LeftBearerOld, right_bearer := RightBearer,
+		 'Session' := Session, pcc := PCC} = Data) ->
     process_secondary_rat_usage_data_reports(IEs, Context, Session),
 
-    RightBearer = ergw_gsn_lib:bearer(right, Context),
     LeftTunnelOld = ergw_gsn_lib:tunnel(left, Context),
-    LeftBearerOld = ergw_gsn_lib:bearer(left, Context),
     {LeftTunnel0, LeftBearer} =
 	case update_tunnel_from_gtp_req(
 	       Request, LeftTunnelOld#tunnel{version = v2}, LeftBearerOld) of
@@ -556,9 +561,7 @@ handle_request(ReqKey,
 	end,
 
     FinalContext =
-	ergw_gsn_lib:'#set-'(
-	  [{left_tnl, LeftTunnel}, {left, LeftBearer}], Context),
-    DataNew = Data#{context => FinalContext, pfcp := PCtx},
+	ergw_gsn_lib:'#set-'([{left_tnl, LeftTunnel}], Context),
 
     ResponseIEs0 =
 	case maps:is_key(?'Sender F-TEID for Control Plane', IEs) of
@@ -586,18 +589,21 @@ handle_request(ReqKey,
     Response = response(modify_bearer_response, LeftTunnel, ResponseIEs, Request),
     gtp_context:send_response(ReqKey, Request, Response),
 
+    DataNew =
+	Data#{context => FinalContext, pfcp := PCtx, left_bearer => LeftBearer},
     Actions = context_idle_action([], Context),
     {keep_state, DataNew, Actions};
 
 handle_request(ReqKey,
 	       #gtp{type = modify_bearer_request, ie = IEs} = Request,
 	       _Resent, _State,
-	       #{context := Context, pfcp := PCtx, 'Session' := Session} = Data)
+	       #{context := Context, pfcp := PCtx,
+		 left_bearer := LeftBearerOld,
+		 'Session' := Session} = Data)
   when not is_map_key(?'Bearer Contexts to be modified', IEs) ->
     process_secondary_rat_usage_data_reports(IEs, Context, Session),
 
     LeftTunnelOld = ergw_gsn_lib:tunnel(left, Context),
-    LeftBearerOld = ergw_gsn_lib:bearer(left, Context),
     {LeftTunnel0, _LeftBearer} =
 	case update_tunnel_from_gtp_req(
 	       Request, LeftTunnelOld#tunnel{version = v2}, LeftBearerOld) of
