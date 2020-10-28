@@ -50,7 +50,10 @@
 	       apn,
 	       context,
 	       pfcp,
-	       pcc :: #pcc_ctx{}}).
+	       pcc :: #pcc_ctx{},
+	       left_bearer :: #bearer{},
+	       right_bearer :: #bearer{}
+	      }).
 
 %%====================================================================
 %% API
@@ -131,16 +134,19 @@ init([Node, InVRF, IP4, IP6, #{apn := APN} = _SxOpts]) ->
     process_flag(trap_exit, true),
 
     UeIP = #ue_ip{v4 = maybe_ip(IP4, 32), v6 = maybe_ip(IP6, 128)},
-    Context0 =
-	#tdf_ctx{
-	   left = #bearer{interface = 'Access'},
-	   right = #bearer{interface = 'SGi-LAN', remote = default},
-
-	   ms_ip = UeIP
-	  },
-    Context = ergw_gsn_lib:set_ue_ip(
-		left, remote, InVRF, UeIP,
-		ergw_gsn_lib:set_ue_ip(right, local, UeIP, Context0)),
+    Context = #tdf_ctx{
+		  ms_ip = UeIP
+		 },
+    LeftBearer = #bearer{
+		    interface = 'Access',
+		    vrf = InVRF,
+		    remote = UeIP
+		   },
+    RightBearer = #bearer{
+		     interface = 'SGi-LAN',
+		     local = UeIP,
+		     remote = default
+		    },
 
     {ok, Session} = ergw_aaa_session_sup:new_session(self(), to_session([])),
     SessionOpts = ergw_aaa_session:get(Session),
@@ -151,7 +157,9 @@ init([Node, InVRF, IP4, IP6, #{apn := APN} = _SxOpts]) ->
 	      context = Context,
 	      dp_node = Node,
 	      session = Session,
-	      pcc     = PCC
+	      pcc     = PCC,
+	      left_bearer = LeftBearer,
+	      right_bearer = RightBearer
 	     },
 
     ?LOG(info, "TDF process started for ~p", [[Node, IP4, IP6]]),
@@ -237,7 +245,8 @@ handle_event(info, #aaa_request{procedure = {gx, 'RAR'},
 				events = Events} = Request,
 	     _State,
 	     #data{context = Context, pfcp = PCtx0,
-		   session = Session, pcc = PCC0} = Data) ->
+		   session = Session, pcc = PCC0,
+		   left_bearer = LeftBearer, right_bearer = RightBearer} = Data) ->
 %%% 1. update PCC
 %%%    a) calculate PCC rules to be removed
 %%%    b) calculate PCC rules to be installed
@@ -254,7 +263,6 @@ handle_event(info, #aaa_request{procedure = {gx, 'RAR'},
     Now = erlang:monotonic_time(),
     ReqOps = #{now => Now},
 
-    #tdf_ctx{left = Left, right = Right} = Context,
     RuleBase = ergw_charging:rulebase(),
 
 %%% step 1a:
@@ -267,7 +275,8 @@ handle_event(info, #aaa_request{procedure = {gx, 'RAR'},
 %%% step 2
 %%% step 3:
     {PCtx1, UsageReport} =
-	case ergw_pfcp_context:modify_pfcp_session(PCC1, [], #{}, Left, Right, PCtx0) of
+	case ergw_pfcp_context:modify_pfcp_session(
+	       PCC1, [], #{}, LeftBearer, RightBearer, PCtx0) of
 	    {ok, Result1} -> Result1;
 	    {error, Err1} -> throw(Err1#ctx_err{context = Context})
 	end,
@@ -288,7 +297,8 @@ handle_event(info, #aaa_request{procedure = {gx, 'RAR'},
 
 %%% step 6:
     {PCtx, _} =
-	case ergw_pfcp_context:modify_pfcp_session(PCC4, [], #{}, Left, Right, PCtx1) of
+	case ergw_pfcp_context:modify_pfcp_session(
+	       PCC4, [], #{}, LeftBearer, RightBearer, PCtx1) of
 	    {ok, Result2} -> Result2;
 	    {error, Err2} -> throw(Err2#ctx_err{context = Context})
 	end,
@@ -322,13 +332,14 @@ handle_event(internal, {session, stop, _Session}, State, Data) ->
     {next_state, shutdown, Data};
 
 handle_event(internal, {session, {update_credits, _} = CreditEv, _}, _State,
-	     #data{context = Context, pfcp = PCtx0, pcc = PCC0} = Data) ->
+	     #data{context = Context, pfcp = PCtx0, pcc = PCC0,
+		   left_bearer = LeftBearer, right_bearer = RightBearer} = Data) ->
     Now = erlang:monotonic_time(),
-    #tdf_ctx{left = Left, right = Right} = Context,
 
     {PCC, _PCCErrors} = ergw_pcc_context:gy_events_to_pcc_ctx(Now, [CreditEv], PCC0),
     {PCtx, _} =
-	case ergw_pfcp_context:modify_pfcp_session(PCC, [], #{}, Left, Right, PCtx0) of
+	case ergw_pfcp_context:modify_pfcp_session(
+	       PCC, [], #{}, LeftBearer, RightBearer, PCtx0) of
 	    {ok, Result1} -> Result1;
 	    {error, Err1} -> throw(Err1#ctx_err{context = Context})
 	end,
@@ -367,17 +378,18 @@ code_change(_OldVsn, State, Data, _Extra) ->
 %%% Internal functions
 %%%===================================================================
 
-start_session(#data{apn = APN, context = Context0, dp_node = Node,
-		    session = Session, pcc = PCC0} = Data) ->
+start_session(#data{apn = APN, context = Context, dp_node = Node,
+		    session = Session, pcc = PCC0,
+		    left_bearer = LeftBearer, right_bearer = RightBearer0} = Data) ->
 
     {PendingPCtx, NodeCaps} =
 	case ergw_sx_node:attach(Node) of
 	    {ok, Result1} -> Result1;
-	    {error, Err1} -> throw(Err1#ctx_err{context = Context0})
+	    {error, Err1} -> throw(Err1#ctx_err{context = Context})
 	end,
 
     VRF = ergw_gsn_lib:select_vrf(NodeCaps, APN),
-    Context = ergw_gsn_lib:set_bearer_vrf(right, VRF, Context0),
+    RightBearer = RightBearer0#bearer{vrf = VRF},
 
     Now = erlang:monotonic_time(),
     SOpts = #{now => Now},
@@ -430,7 +442,6 @@ start_session(#data{apn = APN, context = Context0, dp_node = Node,
     PCC3 = ergw_pcc_context:session_events_to_pcc_ctx(AuthSEvs, PCC2),
     PCC4 = ergw_pcc_context:session_events_to_pcc_ctx(RfSEvs, PCC3),
 
-    #tdf_ctx{left = LeftBearer, right = RightBearer} = Context,
     PCtx =
 	case ergw_pfcp_context:create_tdf_session(
 	       PendingPCtx, PCC4, LeftBearer, RightBearer, Context) of
@@ -438,7 +449,7 @@ start_session(#data{apn = APN, context = Context0, dp_node = Node,
 	    {error, Err5} -> throw({fail, Err5})
 	end,
 
-    Keys = context2keys(Context),
+    Keys = context2keys(LeftBearer, RightBearer, Context),
     gtp_context_reg:register(Keys, ?MODULE, self()),
 
     GxReport = ergw_gsn_lib:pcc_events_to_charging_rule_report(PCCErrors1 ++ PCCErrors2),
@@ -449,7 +460,7 @@ start_session(#data{apn = APN, context = Context0, dp_node = Node,
 	    ok
     end,
 
-    Data#data{context = Context, pfcp = PCtx, pcc = PCC4}.
+    Data#data{context = Context, pfcp = PCtx, pcc = PCC4, right_bearer = RightBearer}.
 
 init_session(#data{context = #tdf_ctx{ms_ip = UeIP}}) ->
     {MCC, MNC} = ergw:get_plmn_id(),
@@ -569,12 +580,13 @@ handle_charging_event(Key, Ev, _Now, Data) ->
 %% context registry
 %%====================================================================
 
-vrf_keys(#tdf_ctx{left = #bearer{vrf = InVrf}, right = #bearer{vrf = OutVrf}}, IP)
+vrf_keys(#bearer{vrf = InVrf}, #bearer{vrf = OutVrf}, IP)
   when is_binary(InVrf), is_binary(OutVrf), IP /= undefined ->
     Addr = ergw_ip_pool:addr(IP),
     [{ue, InVrf, Addr}, {ue, OutVrf, Addr}];
-vrf_keys(_, _) ->
+vrf_keys(_, _, _) ->
     [].
 
-context2keys(#tdf_ctx{ms_ip = #ue_ip{v4 = IP4, v6 = IP6}} = Ctx) ->
-    vrf_keys(Ctx, IP4) ++ vrf_keys(Ctx, IP6).
+context2keys(LeftBearer, RightBearer, #tdf_ctx{ms_ip = #ue_ip{v4 = IP4, v6 = IP6}}) ->
+    vrf_keys(LeftBearer, RightBearer, IP4) ++
+	vrf_keys(LeftBearer, RightBearer, IP6).

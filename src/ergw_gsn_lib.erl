@@ -25,7 +25,7 @@
 	 secondary_rat_usage_data_report_to_rf/2,
 	 pfcp_to_context_event/1,
 	 choose_ip_by_tunnel/3,
-	 ip_pdu/3
+	 ip_pdu/5
 	]).
 -export([
 	 gy_credit_report/1,
@@ -35,15 +35,10 @@
 -export([apn/1, apn/2, select_vrf/2,
 	 allocate_ips/7, release_context_ips/1]).
 -export([tunnel/2,
-	 bearer/2,
 	 init_tunnel/4,
-	 init_bearer/2,
 	 assign_tunnel_teid/3,
 	 reassign_tunnel_teid/1,
-	 assign_local_data_teid/4,
-	 set_bearer_vrf/3,
-	 set_ue_ip/4,
-	 set_ue_ip/5
+	 assign_local_data_teid/4
 	]).
 
 -include_lib("kernel/include/logger.hrl").
@@ -805,7 +800,7 @@ allocate_ips(AllocInfo,
 %% release_context_ips/1
 release_context_ips(#context{ms_ip = #ue_ip{v4 = MSv4, v6 = MSv6}} = Context) ->
     ergw_ip_pool:release([MSv4, MSv6]),
-    unset_ue_ip(Context#context{ms_ip = undefined});
+    Context#context{ms_ip = undefined};
 release_context_ips(#context{ms_ip = _IP} = Context) ->
     Context.
 
@@ -829,17 +824,18 @@ release_context_ips(#context{ms_ip = _IP} = Context) ->
 %% ICMPv6
 ip_pdu(<<6:4, TC:8, FlowLabel:20, Length:16, ?ICMPv6:8,
 	     _HopLimit:8, SrcAddr:16/bytes, DstAddr:16/bytes,
-	     PayLoad:Length/bytes, _/binary>>, Context, PCtx) ->
-    icmpv6(TC, FlowLabel, SrcAddr, DstAddr, PayLoad, Context, PCtx);
-ip_pdu(Data, _Context, _PCtx) ->
+	     PayLoad:Length/bytes, _/binary>>,
+       LeftBearer, RightBearer, Context, PCtx) ->
+    icmpv6(TC, FlowLabel, SrcAddr, DstAddr, PayLoad, LeftBearer, RightBearer, Context, PCtx);
+ip_pdu(Data, _LeftBearer, _RightBearer, _Context, _PCtx) ->
     ?LOG(warning, "unhandled T-PDU: ~p", [Data]),
     ok.
 
 %% IPv6 Router Solicitation
 icmpv6(TC, FlowLabel, _SrcAddr, ?'IPv6 All Routers LL',
        <<?'ICMPv6 Router Solicitation':8, _Code:8, _CSum:16, _/binary>>,
-       #context{left = Bearer, right = #bearer{local = #ue_ip{v6 = MSv6}},
-		dns_v6 = DNSv6}, PCtx) ->
+       LeftBearer, #bearer{local = #ue_ip{v6 = MSv6}},
+       #context{dns_v6 = DNSv6}, PCtx) ->
     IPv6 = ergw_ip_pool:ip(MSv6),
     {Prefix, PLen} = ergw_inet:ipv6_interface_id(IPv6, ?NULL_INTERFACE_ID),
 
@@ -883,9 +879,10 @@ icmpv6(TC, FlowLabel, _SrcAddr, ?'IPv6 All Routers LL',
     ICMPv6 = <<6:4, TC:8, FlowLabel:20, ICMPLength:16, ?ICMPv6:8, TTL:8,
 	       NwSrc:16/bytes, NwDst:16/bytes,
 	       ?'ICMPv6 Router Advertisement':8, 0:8, CSum:16, RAOpts/binary>>,
-    ergw_pfcp_context:send_g_pdu(PCtx, Bearer, ICMPv6);
+    ergw_pfcp_context:send_g_pdu(PCtx, LeftBearer, ICMPv6);
 
-icmpv6(_TC, _FlowLabel, _SrcAddr, _DstAddr, _PayLoad, _Context, _PCtx) ->
+icmpv6(_TC, _FlowLabel, _SrcAddr, _DstAddr, _PayLoad,
+       _LeftBearer, _RightBearer, _Context, _PCtx) ->
     ?LOG(warning, "unhandeld ICMPv6 from ~p to ~p: ~p", [_SrcAddr, _DstAddr, _PayLoad]),
     ok.
 
@@ -899,9 +896,7 @@ update_field_with(Field, Rec, Fun) ->
     %% Set(Fun(Get(Rec)), Rec).
 
 context_field(tunnel, left)  -> left_tnl;
-context_field(tunnel, right) -> right_tnl;
-context_field(bearer, left)  -> left;
-context_field(bearer, right) -> right.
+context_field(tunnel, right) -> right_tnl.
 
 %% tunnel/2
 tunnel(CtxSide, Ctx) ->
@@ -930,14 +925,6 @@ reassign_tunnel_teid_f(#tunnel{socket = Socket}, FqTEID) ->
     {ok, TEI} = ergw_tei_mngr:alloc_tei(Socket),
     FqTEID#fq_teid{teid = TEI}.
 
-%% init_bearer/2
-init_bearer(Interface, #vrf{name = VRF}) ->
-    #bearer{interface = Interface, vrf = VRF}.
-
-%% bearer/2
-bearer(CtxSide, Ctx) ->
-    '#get-'(context_field(bearer, CtxSide), Ctx).
-
 %% assign_local_data_teid/4
 assign_local_data_teid(PCtx, {VRFs, _} = _NodeCaps, #tunnel{vrf = VRF} = Tunnel, Bearer)
   when is_record(Bearer, bearer) ->
@@ -951,35 +938,3 @@ assign_local_data_teid(PCtx, {VRFs, _} = _NodeCaps, #tunnel{vrf = VRF} = Tunnel,
 			   teid = DataTEI},
 	       return(Bearer#bearer{vrf = Name, local = FqTEID})
 	   end]).
-
-%% update_ue_ip/5
-update_ue_ip(CtxSide, BearerSide, VRF, Fun, Ctx) ->
-    update_field_with(
-      context_field(bearer, CtxSide), Ctx,
-      fun(Bearer) ->
-	      update_field_with(BearerSide, Bearer#bearer{vrf = VRF}, Fun)
-      end).
-
-%% set_bearer_vrf/3,
-set_bearer_vrf(CtxSide, VRF, Ctx) ->
-    update_field_with(
-      context_field(bearer, CtxSide), Ctx,
-      fun(Bearer) -> Bearer#bearer{vrf = VRF} end).
-
-%% set_ue_ip/4
-set_ue_ip(CtxSide, BearerSide, UeIP, Ctx) when is_record(UeIP, ue_ip) ->
-    update_field_with(context_field(bearer, CtxSide), Ctx, '#set-'([{BearerSide, UeIP}], _)).
-
-%% set_ue_ip/5
-set_ue_ip(CtxSide, BearerSide, #vrf{name = VRF}, UeIP, Ctx) ->
-    update_ue_ip(CtxSide, BearerSide, VRF, fun(_) -> UeIP end, Ctx);
-set_ue_ip(CtxSide, BearerSide, VRF, UeIP, Ctx) when is_binary(VRF) ->
-    update_ue_ip(CtxSide, BearerSide, VRF, fun(_) -> UeIP end, Ctx).
-
-%% unset_ue_ip/1
-unset_ue_ip(Ctx) ->
-    unset_ue_ip(right, local, Ctx).
-
-%% unset_ue_ip/3
-unset_ue_ip(CtxSide, BearerSide, Ctx) ->
-    update_ue_ip(CtxSide, BearerSide, undefined, fun(_) -> undefined end, Ctx).

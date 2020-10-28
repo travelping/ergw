@@ -149,13 +149,18 @@ validate_option(Opt, Value) ->
 -record(context_state, {nsapi}).
 
 init(#{proxy_sockets := ProxySockets, node_selection := NodeSelect,
-       proxy_data_source := ProxyDS, contexts := Contexts}, Data) ->
+       proxy_data_source := ProxyDS, contexts := Contexts},
+     #{right_bearer := RightBearer} = Data) ->
 
     {ok, Session} = ergw_aaa_session_sup:new_session(self(), to_session([])),
 
     {ok, run, Data#{proxy_sockets => ProxySockets,
-		    'Version' => v1, 'Session' => Session, contexts => Contexts,
-		    node_selection => NodeSelect, proxy_ds => ProxyDS}}.
+		    'Version' => v1,
+		    'Session' => Session,
+		    contexts => Contexts,
+		    node_selection => NodeSelect,
+		    right_bearer => RightBearer#bearer{interface = 'Core'},
+		    proxy_ds => ProxyDS}}.
 
 handle_event(enter, _OldState, _State, _Data) ->
     keep_state_and_data;
@@ -271,12 +276,12 @@ handle_request(ReqKey,
 	       #gtp{type = create_pdp_context_request,
 		    ie = IEs} = Request, _Resent, _State,
 	       #{context := Context0, aaa_opts := AAAopts, node_selection := NodeSelect,
+		 left_bearer := LeftBearer0, right_bearer := RightBearer0,
 		 'Session' := Session} = Data) ->
 
    Context = update_context_from_gtp_req(Request, Context0#context{state = #context_state{}}),
 
     LeftTunnel0 = ergw_gsn_lib:tunnel(left, Context0),
-    LeftBearer0 = ergw_gsn_lib:bearer(left, Context0),
 
     {LeftTunnel1, LeftBearer1} =
 	case ggsn_gn:update_tunnel_from_gtp_req(Request, LeftTunnel0, LeftBearer0) of
@@ -292,8 +297,7 @@ handle_request(ReqKey,
     SessionOpts = ggsn_gn:init_session_from_gtp_req(IEs, AAAopts, LeftTunnel, SessionOpts0),
 
     %% TBD.... this is needed for the throws....
-    Ctx = ergw_gsn_lib:'#set-'([{left_tnl, LeftTunnel},
-				{left, LeftBearer1}], Context),
+    Ctx = ergw_gsn_lib:'#set-'([{left_tnl, LeftTunnel}], Context),
 
     ProxyInfo =
 	case handle_proxy_info(SessionOpts, LeftTunnel, LeftBearer1, Context, Data) of
@@ -322,7 +326,6 @@ handle_request(ReqKey,
     ProxyContext = init_proxy_context(ProxySocket, Context, ProxyInfo, ProxyGGSN),
 
     RightTunnel0 = ergw_gsn_lib:tunnel(left, ProxyContext),
-    RightBearer0 = ergw_gsn_lib:bearer(left, ProxyContext),
 %% ======================================================
     RightTunnel = gtp_path:bind(RightTunnel0),
 
@@ -352,30 +355,31 @@ handle_request(ReqKey,
 	end,
 
     FinalContext =
-	ergw_gsn_lib:'#set-'(
-	  [{left_tnl, LeftTunnel}, {left, LeftBearer}], Context),
+	ergw_gsn_lib:'#set-'([{left_tnl, LeftTunnel}], Context),
     FinalProxyContext =
-	ergw_gsn_lib:'#set-'(
-	  [{left_tnl, RightTunnel}, {left, RightBearer}], ProxyContext),
+	ergw_gsn_lib:'#set-'([{left_tnl, RightTunnel}], ProxyContext),
 
-    case gtp_context:remote_context_register_new(FinalContext) of
+    case gtp_context:remote_context_register_new(
+	   LeftTunnel, LeftBearer, RightBearer, FinalContext) of
 	ok -> ok;
 	{error, Err8} -> throw(Err8#ctx_err{context = FinalContext})
     end,
 
-    DataNew = Data#{context => FinalContext, proxy_context => FinalProxyContext, pfcp => PCtx},
-    forward_request(sgsn2ggsn, ReqKey, Request, DataNew, Data),
+    DataNew =
+	Data#{context => FinalContext, proxy_context => FinalProxyContext, pfcp => PCtx,
+	      left_bearer => LeftBearer, right_bearer => RightBearer},
+
+    forward_request(sgsn2ggsn, ReqKey, Request, RightTunnel, RightBearer, ProxyContext, Data),
 
     {keep_state, DataNew};
 
 handle_request(ReqKey,
 	       #gtp{type = update_pdp_context_request} = Request,
 	       _Resent, _State,
-	       #{context := OldContext,
-		 proxy_context := OldProxyContext} = Data)
+	       #{context := OldContext, proxy_context := OldProxyContext,
+		 left_bearer := LeftBearerOld, right_bearer := RightBearer} = Data)
   when ?IS_REQUEST_CONTEXT(ReqKey, Request, OldContext) ->
     LeftTunnelOld = ergw_gsn_lib:tunnel(left, OldContext),
-    LeftBearerOld = ergw_gsn_lib:bearer(left, OldContext),
     {LeftTunnel0, LeftBearer} =
 	case ggsn_gn:update_tunnel_from_gtp_req(
 	       Request, LeftTunnelOld#tunnel{version = v1}, LeftBearerOld) of
@@ -393,13 +397,14 @@ handle_request(ReqKey,
     RightTunnel = update_path_bind(RightTunnel1, RightTunnelOld),
 
     FinalContext =
-	ergw_gsn_lib:'#set-'(
-	  [{left_tnl, LeftTunnel}, {left, LeftBearer}], OldContext),
+	ergw_gsn_lib:'#set-'([{left_tnl, LeftTunnel}], OldContext),
     FinalProxyContext =
 	ergw_gsn_lib:'#set-'([{left_tnl, RightTunnel}], OldProxyContext),
-    DataNew = Data#{context => FinalContext, proxy_context => FinalProxyContext},
+    DataNew =
+	Data#{context => FinalContext, proxy_context => FinalProxyContext,
+	      left_bearer => LeftBearer},
 
-    forward_request(sgsn2ggsn, ReqKey, Request, DataNew, Data),
+    forward_request(sgsn2ggsn, ReqKey, Request, RightTunnel, RightBearer, FinalProxyContext, Data),
 
     {keep_state, DataNew};
 
@@ -409,32 +414,39 @@ handle_request(ReqKey,
 handle_request(ReqKey,
 	       #gtp{type = update_pdp_context_request} = Request,
 	       _Resent, _State,
-	       #{proxy_context := ProxyContext} = Data)
+	       #{context := Context, proxy_context := ProxyContext,
+		 left_bearer := LeftBearer} = Data)
   when ?IS_REQUEST_CONTEXT(ReqKey, Request, ProxyContext) ->
 
     DataNew = bind_forward_path(ggsn2sgsn, Request, Data),
-    forward_request(ggsn2sgsn, ReqKey, Request, DataNew, Data),
+
+    LeftTunnel = ergw_gsn_lib:tunnel(left, Context),
+    forward_request(ggsn2sgsn, ReqKey, Request, LeftTunnel, LeftBearer, Context, Data),
 
     {keep_state, DataNew};
 
 handle_request(ReqKey,
 	       #gtp{type = ms_info_change_notification_request} = Request,
 	       _Resent, _State,
-	       #{context := Context} = Data)
+	       #{context := Context, proxy_context := ProxyContext,
+		 right_bearer := RightBearer} = Data)
   when ?IS_REQUEST_CONTEXT_OPTIONAL_TEI(ReqKey, Request, Context) ->
 
     DataNew = bind_forward_path(sgsn2ggsn, Request, Data),
-    forward_request(sgsn2ggsn, ReqKey, Request, DataNew, Data),
+
+    RightTunnel = ergw_gsn_lib:tunnel(left, ProxyContext),
+    forward_request(sgsn2ggsn, ReqKey, Request, RightTunnel, RightBearer, ProxyContext, Data),
 
     {keep_state, DataNew};
 
 handle_request(ReqKey,
 	       #gtp{type = delete_pdp_context_request} = Request,
 	       _Resent, _State,
-	       #{context := Context} = Data0)
+	       #{context := Context, proxy_context := ProxyContext,
+		 right_bearer := RightBearer} = Data0)
   when ?IS_REQUEST_CONTEXT(ReqKey, Request, Context) ->
-
-    forward_request(sgsn2ggsn, ReqKey, Request, Data0, Data0),
+    RightTunnel = ergw_gsn_lib:tunnel(left, ProxyContext),
+    forward_request(sgsn2ggsn, ReqKey, Request, RightTunnel, RightBearer, ProxyContext, Data0),
 
     Msg = {delete_pdp_context_request, sgsn2ggsn, ReqKey, Request},
     Data = restart_timeout(?RESPONSE_TIMEOUT, Msg, Data0),
@@ -444,10 +456,11 @@ handle_request(ReqKey,
 handle_request(ReqKey,
 	       #gtp{type = delete_pdp_context_request} = Request,
 	       _Resent, _State,
-	       #{proxy_context := ProxyContext} = Data0)
+	       #{context := Context, proxy_context := ProxyContext,
+		 left_bearer := LeftBearer} = Data0)
   when ?IS_REQUEST_CONTEXT(ReqKey, Request, ProxyContext) ->
-
-    forward_request(ggsn2sgsn, ReqKey, Request, Data0, Data0),
+    LeftTunnel = ergw_gsn_lib:tunnel(left, Context),
+    forward_request(ggsn2sgsn, ReqKey, Request, LeftTunnel, LeftBearer, Context, Data0),
 
     Msg = {delete_pdp_context_request, ggsn2sgsn, ReqKey, Request},
     Data = restart_timeout(?RESPONSE_TIMEOUT, Msg, Data0),
@@ -463,14 +476,11 @@ handle_response(#proxy_request{direction = sgsn2ggsn} = ProxyRequest,
 		#gtp{type = create_pdp_context_response,
 		     ie = #{?'Cause' := #cause{value = Cause}}} = Response,
 		_Request, _State,
-		#{context := Context,
-		  proxy_context := PrevProxyCtx,
-		  pfcp := PCtx0} = Data) ->
+		#{context := Context, proxy_context := PrevProxyCtx, pfcp := PCtx0,
+		  left_bearer := LeftBearer, right_bearer := RightBearer0} = Data) ->
     ?LOG(debug, "OK Proxy Response ~p", [Response]),
 
-    LeftBearer = ergw_gsn_lib:bearer(left, Context),
     RightTunnel0 = ergw_gsn_lib:tunnel(left, PrevProxyCtx),
-    RightBearer0 = ergw_gsn_lib:bearer(left, PrevProxyCtx),
 
     {RightTunnel1, RightBearer} =
 	case ggsn_gn:update_tunnel_from_gtp_req(Response, RightTunnel0, RightBearer0) of
@@ -482,9 +492,9 @@ handle_response(#proxy_request{direction = sgsn2ggsn} = ProxyRequest,
     ProxyContext1 = update_context_from_gtp_req(Response, PrevProxyCtx),
 
     ProxyContext =
-	ergw_gsn_lib:'#set-'(
-	  [{left_tnl, RightTunnel}, {left, RightBearer}], ProxyContext1),
-    gtp_context:remote_context_register(ProxyContext),
+	ergw_gsn_lib:'#set-'([{left_tnl, RightTunnel}], ProxyContext1),
+    gtp_context:remote_context_register(
+      RightTunnel, LeftBearer, RightBearer, ProxyContext),
 
     Return =
 	if ?CAUSE_OK(Cause) ->
@@ -495,27 +505,28 @@ handle_response(#proxy_request{direction = sgsn2ggsn} = ProxyRequest,
 			{ok, Result2} -> Result2;
 			{error, Err2} -> throw(Err2#ctx_err{context = Context})
 		    end,
-		{keep_state, Data#{proxy_context => ProxyContext, pfcp => PCtx}};
+		DataNew =
+		    Data#{proxy_context => ProxyContext, pfcp => PCtx,
+			  right_bearer => RightBearer},
+		{keep_state, DataNew};
 	   true ->
 		delete_forward_session(normal, Data),
 		{next_state, shutdown, Data}
 	end,
 
-    forward_response(ProxyRequest, Response, Context),
+    LeftTunnel = ergw_gsn_lib:tunnel(left, Context),
+    forward_response(ProxyRequest, Response, LeftTunnel, LeftBearer, Context),
     Return;
 
 handle_response(#proxy_request{direction = sgsn2ggsn,
 			       context = PrevContext} = ProxyRequest,
 		#gtp{type = update_pdp_context_response} = Response,
 		_Request, _State,
-		#{context := Context,
-		  proxy_context := ProxyContextOld,
-		  pfcp := PCtxOld} = Data) ->
+		#{context := Context, proxy_context := ProxyContextOld, pfcp := PCtxOld,
+		  left_bearer := LeftBearer, right_bearer := RightBearerOld} = Data) ->
     ?LOG(debug, "OK Proxy Response ~p", [Response]),
 
-    LeftBearer = ergw_gsn_lib:bearer(left, Context),
     RightTunnelOld = ergw_gsn_lib:tunnel(left, ProxyContextOld),
-    RightBearerOld = ergw_gsn_lib:bearer(left, ProxyContextOld),
 
     {RightTunnel0, RightBearer} =
 	case ggsn_gn:update_tunnel_from_gtp_req(Response, RightTunnelOld, RightBearerOld) of
@@ -529,9 +540,9 @@ handle_response(#proxy_request{direction = sgsn2ggsn,
     ProxyContext1 = update_context_from_gtp_req(Response, ProxyContextOld),
 
     FinalProxyContext =
-	ergw_gsn_lib:'#set-'(
-	  [{left_tnl, RightTunnel}, {left, RightBearer}], ProxyContext1),
-    gtp_context:remote_context_register(FinalProxyContext),
+	ergw_gsn_lib:'#set-'([{left_tnl, RightTunnel}], ProxyContext1),
+    gtp_context:remote_context_register(
+      RightTunnel, LeftBearer, RightBearer, FinalProxyContext),
 
     PCC = ergw_proxy_lib:proxy_pcc(),
     {PCtx, _} =
@@ -541,35 +552,42 @@ handle_response(#proxy_request{direction = sgsn2ggsn,
 	    {error, Err2} -> throw(Err2#ctx_err{context = PrevContext})
 	end,
 
-    forward_response(ProxyRequest, Response, Context),
+    LeftTunnel = ergw_gsn_lib:tunnel(left, Context),
+    forward_response(ProxyRequest, Response, LeftTunnel, LeftBearer, Context),
 
-    DataNew = Data#{proxy_context => FinalProxyContext, pfcp := PCtx},
-
+    DataNew =
+	Data#{proxy_context => FinalProxyContext, pfcp := PCtx,
+	     right_bearer => RightBearer},
     {keep_state, DataNew};
 
 handle_response(#proxy_request{direction = ggsn2sgsn} = ProxyRequest,
 		#gtp{type = update_pdp_context_response} = Response,
-		_Request, _State, #{proxy_context := ProxyContext}) ->
+		_Request, _State,
+		#{proxy_context := ProxyContext, right_bearer := RightBearer}) ->
     ?LOG(debug, "OK SGSN Response ~p", [Response]),
 
-    forward_response(ProxyRequest, Response, ProxyContext),
+    RightTunnel = ergw_gsn_lib:tunnel(left, ProxyContext),
+    forward_response(ProxyRequest, Response, RightTunnel, RightBearer, ProxyContext),
     keep_state_and_data;
 
 handle_response(#proxy_request{direction = sgsn2ggsn} = ProxyRequest,
 		#gtp{type = ms_info_change_notification_response} = Response,
-		_Request, _State, #{context := Context}) ->
+		_Request, _State, #{context := Context, left_bearer := LeftBearer}) ->
     ?LOG(debug, "OK Proxy Response ~p", [Response]),
 
-    forward_response(ProxyRequest, Response, Context),
+    LeftTunnel = ergw_gsn_lib:tunnel(left, Context),
+    forward_response(ProxyRequest, Response, LeftTunnel, LeftBearer, Context),
     keep_state_and_data;
 
 handle_response(#proxy_request{direction = sgsn2ggsn} = ProxyRequest,
 		#gtp{type = delete_pdp_context_response} = Response,
 		_Request, _State,
-		#{context := Context} = Data0) ->
+		#{context := Context, left_bearer := LeftBearer} = Data0) ->
     ?LOG(debug, "OK Proxy Response ~p", [Response]),
 
-    forward_response(ProxyRequest, Response, Context),
+    LeftTunnel = ergw_gsn_lib:tunnel(left, Context),
+    forward_response(ProxyRequest, Response, LeftTunnel, LeftBearer, Context),
+
     Data = cancel_timeout(Data0),
     delete_forward_session(normal, Data),
     {next_state, shutdown, Data};
@@ -577,10 +595,11 @@ handle_response(#proxy_request{direction = sgsn2ggsn} = ProxyRequest,
 handle_response(#proxy_request{direction = ggsn2sgsn} = ProxyRequest,
 		#gtp{type = delete_pdp_context_response} = Response,
 		_Request, _State,
-		#{proxy_context := ProxyContext} = Data0) ->
+		#{proxy_context := ProxyContext, right_bearer := RightBearer} = Data0) ->
     ?LOG(debug, "OK SGSN Response ~p", [Response]),
 
-    forward_response(ProxyRequest, Response, ProxyContext),
+    RightTunnel = ergw_gsn_lib:tunnel(left, ProxyContext),
+    forward_response(ProxyRequest, Response, RightTunnel, RightBearer, ProxyContext),
     Data = cancel_timeout(Data0),
     delete_forward_session(normal, Data),
     {next_state, shutdown, Data};
@@ -668,7 +687,6 @@ init_proxy_context(Socket,
 
        version           = Version,
        left_tnl          = ProxyTnl,
-       left              = #bearer{interface = 'Core'},
 
        state             = CState
       }.
@@ -793,23 +811,11 @@ bind_forward_path(ggsn2sgsn, Request,
 	 }.
 
 fteid_forward_context(#f_teid{ipv4 = IPv4, ipv6 = IPv6, teid = TEID},
-		      #{proxy_context :=
-			    #context{
-			       left =
-				   #bearer{
-				      remote =
-					  #fq_teid{ip = IP,
-						   teid = TEID}}}})
+		      #{right_bearer := #bearer{remote = #fq_teid{ip = IP, teid = TEID}}})
   when IP =:= IPv4; IP =:= IPv6 ->
     ggsn2sgsn;
 fteid_forward_context(#f_teid{ipv4 = IPv4, ipv6 = IPv6, teid = TEID},
-		      #{context :=
-			    #context{
-			       left =
-				   #bearer{
-				      remote =
-					  #fq_teid{ip = IP,
-						   teid = TEID}}}})
+		      #{left_bearer := #bearer{remote = #fq_teid{ip = IP, teid = TEID}}})
   when IP =:= IPv4; IP =:= IPv6 ->
     sgsn2ggsn.
 
@@ -818,21 +824,15 @@ forward_context(sgsn2ggsn, #{proxy_context := Context}) ->
 forward_context(ggsn2sgsn, #{context := Context}) ->
     Context.
 
-forward_request(Direction, ReqKey,
-		#gtp{seq_no = ReqSeqNo, ie = ReqIEs} = Request,
-		Data, DataOld) ->
-    Context = forward_context(Direction, Data),
-    LeftTunnel = ergw_gsn_lib:tunnel(left, Context),
-    LeftBearer = ergw_gsn_lib:bearer(left, Context),
-    FwdReq = build_context_request(LeftTunnel, LeftBearer, Context, false, undefined, Request),
-    ergw_proxy_lib:forward_request(Direction, LeftTunnel, FwdReq, ReqKey,
-				   ReqSeqNo, is_map_key(?'Recovery', ReqIEs), DataOld).
+forward_request(Direction, ReqKey, #gtp{seq_no = ReqSeqNo, ie = ReqIEs} = Request,
+		Tunnel, Bearer, Context, Data) ->
+    FwdReq = build_context_request(Tunnel, Bearer, Context, false, undefined, Request),
+    ergw_proxy_lib:forward_request(Direction, Tunnel, FwdReq, ReqKey,
+				   ReqSeqNo, is_map_key(?'Recovery', ReqIEs), Data).
 
 forward_response(#proxy_request{request = ReqKey, seq_no = SeqNo, new_peer = NewPeer},
-		 Response, Context) ->
-    LeftTunnel = ergw_gsn_lib:tunnel(left, Context),
-    LeftBearer = ergw_gsn_lib:bearer(left, Context),
-    GtpResp = build_context_request(LeftTunnel, LeftBearer, Context, NewPeer, SeqNo, Response),
+		 Response, Tunnel, Bearer, Context) ->
+    GtpResp = build_context_request(Tunnel, Bearer, Context, NewPeer, SeqNo, Response),
     gtp_context:send_response(ReqKey, GtpResp).
 
 

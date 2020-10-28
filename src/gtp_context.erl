@@ -22,7 +22,7 @@
 	 path_restart/2,
 	 terminate_colliding_context/2, terminate_context/1,
 	 delete_context/1, trigger_delete_context/1,
-	 remote_context_register/1, remote_context_register_new/1,
+	 remote_context_register/4, remote_context_register_new/4,
 	 tunnel_reg_update/2,
 	 info/1,
 	 validate_options/3,
@@ -87,14 +87,13 @@ start_link(Socket, Info, Version, Interface, IfOpts, Opts) ->
 path_restart(Context, Path) ->
     jobs:run(path_restart, fun() -> gen_statem:call(Context, {path_restart, Path}) end).
 
-remote_context_register(Context)
+remote_context_register(LeftTunnel, LeftBearer, RightBearer, Context)
   when is_record(Context, context) ->
-    Keys = context2keys(Context),
+    Keys = context2keys(LeftTunnel, LeftBearer, RightBearer, Context),
     gtp_context_reg:register(Keys, ?MODULE, self()).
 
-remote_context_register_new(Context)
-  when is_record(Context, context) ->
-    Keys = context2keys(Context),
+remote_context_register_new(LeftTunnel, LeftBearer, RightBearer, Context) ->
+    Keys = context2keys(LeftTunnel, LeftBearer, RightBearer, Context),
     case gtp_context_reg:register_new(Keys, ?MODULE, self()) of
 	ok ->
 	    ok;
@@ -318,16 +317,14 @@ init([Socket, Info, Version, Interface,
     ?LOG(debug, "init(~p)", [[Socket, Info, Interface]]),
     process_flag(trap_exit, true),
 
-    LeftTnl =
+    LeftTunnel =
 	ergw_gsn_lib:assign_tunnel_teid(
 	  local, Info, ergw_gsn_lib:init_tunnel('Access', Info, Socket, Version)),
     Context = #context{
 		 charging_identifier = ergw_gtp_c_socket:get_uniq_id(Socket),
 
 		 version           = Version,
-		 left_tnl          = LeftTnl,
-		 left              = #bearer{interface = 'Access'},
-		 right             = #bearer{interface = 'SGi-LAN'}
+		 left_tnl          = LeftTunnel
 		},
 
     Data = #{
@@ -335,7 +332,10 @@ init([Socket, Info, Version, Interface,
       version        => Version,
       interface      => Interface,
       node_selection => NodeSelect,
-      aaa_opts       => AAAOpts},
+      aaa_opts       => AAAOpts,
+      left_tunnel    => LeftTunnel,
+      left_bearer    => #bearer{interface = 'Access'},
+      right_bearer   => #bearer{interface = 'SGi-LAN'}},
 
     Interface:init(Opts, Data).
 
@@ -573,16 +573,12 @@ validate_ies(#gtp{version = Version, type = MsgType, ie = IEs}, Cause, #{interfa
 %% context registry
 %%====================================================================
 
-context2keys(#context{
-		apn                 = APN,
-		context_id          = ContextId,
-		left_tnl            = #tunnel{socket = Socket} = LeftTnl,
-		right               = Bearer
-	       }) ->
+context2keys(#tunnel{socket = Socket} = LeftTunnel, _LeftBearer, RightBearer,
+	     #context{apn = APN, context_id = ContextId}) ->
     ordsets:from_list(
-      tunnel2keys(LeftTnl)
+      tunnel2keys(LeftTunnel)
       ++ [socket_key(Socket, ContextId) || ContextId /= undefined]
-      ++ bsf_keys(APN, Bearer)).
+      ++ bsf_keys(APN, RightBearer)).
 
 tunnel2keys(Tunnel) ->
     [tunnel_key(local, Tunnel), tunnel_key(remote, Tunnel)].

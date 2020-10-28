@@ -808,7 +808,7 @@ reselect_upf(Candidates, Session, APNOpts, {Node, Pool}) ->
     IP6 = maps:get('Framed-IPv6-Pool', Session, undefined),
 
     do([error_m ||
-	   {Pid, NodeCaps, VRF, _} <-
+	   {Pid, NodeCaps, #vrf{name = VRF}, _} <-
 	       begin
 		   if (IP4 /= Pool orelse IP6 /= Pool) ->
 			   Pools = ordsets:from_list([IP4 || is_binary(IP4)]
@@ -819,7 +819,7 @@ reselect_upf(Candidates, Session, APNOpts, {Node, Pool}) ->
 		   end
 	       end,
 	   {PCtx, _} <- ergw_sx_node:attach(Pid),
-	   return({PCtx, NodeCaps, ergw_gsn_lib:init_bearer('SGi-LAN', VRF)})
+	   return({PCtx, NodeCaps, #bearer{interface = 'SGi-LAN', vrf = VRF}})
        ]).
 
 %% common_caps/3
