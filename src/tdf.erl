@@ -300,6 +300,10 @@ handle_event(info, #aaa_request{procedure = {gy, 'RAR'},
     triggered_charging_event(interim, Now, ChargingKeys, Data),
     keep_state_and_data;
 
+%% Enable AAA to provide reason for session stop
+handle_event(internal, {session, {stop, Reason}, _Session}, State, Data) ->
+    close_pdn_context(Reason, State, Data),
+    {next_state, shutdown, Data};
 handle_event(internal, {session, stop, _Session}, State, Data) ->
     close_pdn_context(normal, State, Data),
     {next_state, shutdown, Data};

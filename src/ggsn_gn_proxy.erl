@@ -160,8 +160,8 @@ init(#{proxy_sockets := ProxyPorts, node_selection := NodeSelect,
 handle_event(enter, _OldState, _State, _Data) ->
     keep_state_and_data;
 
-handle_event({call, From}, delete_context, _State, Data) ->
-    delete_context(administrative, Data),
+handle_event({call, From}, {delete_context, Reason}, _State, Data) ->
+    delete_context(Reason, Data),
     {next_state, shutdown, Data, [{reply, From, ok}]};
 
 handle_event({call, From}, terminate_context, _State, Data) ->
@@ -184,8 +184,8 @@ handle_event({call, From}, {path_restart, Path}, _State,
 handle_event({call, From}, {path_restart, _Path}, _State, _Data) ->
     {keep_state_and_data, [{reply, From, ok}]};
 
-handle_event(cast, delete_context, _State, Data) ->
-    delete_context(administrative, Data),
+handle_event(cast, {delete_context, Reason}, _State, Data) ->
+    delete_context(Reason, Data),
     {next_state, shutdown, Data};
 
 handle_event(cast, {packet_in, _GtpPort, _IP, _Port, _Msg}, _State, _Data) ->

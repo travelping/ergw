@@ -115,11 +115,11 @@ init(_Opts, Data) ->
 handle_event(enter, _OldState, _State, _Data) ->
     keep_state_and_data;
 
-handle_event({call, From}, delete_context, run, Data) ->
-    delete_context(From, administrative, Data);
-handle_event({call, From}, delete_context, shutdown, _Data) ->
+handle_event({call, From}, {delete_context, Reason}, run, Data) ->
+    delete_context(From, Reason, Data);
+handle_event({call, From}, {delete_context, _Reason}, shutdown, _Data) ->
     {keep_state_and_data, [{reply, From, {ok, ok}}]};
-handle_event({call, _From}, delete_context, _State, _Data) ->
+handle_event({call, _From}, {delete_context, _Reason}, _State, _Data) ->
     {keep_state_and_data, [postpone]};
 
 handle_event({call, From}, terminate_context, _State, Data) ->
@@ -147,9 +147,9 @@ handle_event(cast, {defered_usage_report, URRActions, UsageReport}, _State,
     end,
     keep_state_and_data;
 
-handle_event(cast, delete_context, run, Data) ->
-    delete_context(undefined, administrative, Data);
-handle_event(cast, delete_context, _State, _Data) ->
+handle_event(cast, {delete_context, Reason}, run, Data) ->
+    delete_context(undefined, Reason, Data);
+handle_event(cast, {delete_context, _Reason}, _State, _Data) ->
     keep_state_and_data;
 
 handle_event(cast, {packet_in, _GtpPort, _IP, _Port, _Msg}, _State, _Data) ->
@@ -164,7 +164,7 @@ handle_event(info, {'DOWN', _MonitorRef, Type, Pid, _Info}, _State,
 
 handle_event(info, #aaa_request{procedure = {_, 'ASR'}} = Request, run, Data) ->
     ergw_aaa_session:response(Request, ok, #{}, #{}),
-    delete_context(undefined, administrative, Data);
+    delete_context(undefined, aaa_asr, Data);
 handle_event(info, #aaa_request{procedure = {_, 'ASR'}} = Request, _State, _Data) ->
     ergw_aaa_session:response(Request, ok, #{}, #{}),
     keep_state_and_data;
@@ -260,9 +260,11 @@ handle_event(info, _Info, _State, _Data) ->
 
 handle_event({timeout, context_idle}, stop_session, _state, Data) ->
     delete_context(undefined, normal, Data);
-
+%% Enable AAA to provide reason for session stop
+handle_event(internal, {session, {stop, Reason}, _Session}, run, Data) ->
+    delete_context(undefined, Reason, Data);
 handle_event(internal, {session, stop, _Session}, run, Data) ->
-    delete_context(undefined, normal, Data);
+    delete_context(undefined, aaa_error, Data);
 handle_event(internal, {session, stop, _Session}, _, _) ->
     keep_state_and_data;
 
@@ -291,7 +293,7 @@ handle_sx_report(#pfcp{type = session_report_request,
 handle_sx_report(#pfcp{type = session_report_request,
 		       ie = #{report_type := #report_type{upir = 1}}},
 		 _State, Data) ->
-    close_pdn_context(inactivity_timeout, Data),
+    close_pdn_context(up_inactivity_timeout, Data),
     {shutdown, Data};
 
 handle_sx_report(#pfcp{type = session_report_request,

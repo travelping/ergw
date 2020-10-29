@@ -104,11 +104,13 @@ remote_context_update(OldContext, NewContext)
     Insert = ordsets:subtract(NewKeys, OldKeys),
     gtp_context_reg:update(Delete, Insert, ?MODULE, self()).
 
+%% This is only used in tests
 delete_context(Context) ->
-    gen_statem:call(Context, delete_context).
+    gen_statem:call(Context, {delete_context, normal}).
 
+%% Trigger from admin API
 trigger_delete_context(Context) ->
-    gen_statem:cast(Context, delete_context).
+    gen_statem:cast(Context, {delete_context, administrative}).
 
 %% TODO: add online charing events
 collect_charging_events(OldS, NewS, _Context) ->

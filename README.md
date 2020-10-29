@@ -83,7 +83,10 @@ Example of configuration **RADIUS**:
                 {link_broken, 2},
                 {upf_failure, 9},
                 {remote_failure, 9},
-                {inactivity_timeout, 4},
+                {cp_inactivity_timeout, 4},
+                {up_inactivity_timeout, 4},
+                {aaa_asr, 6},
+                {aaa_error, 9},
                 {peer_restart, 7}
             ]}
         ]}
