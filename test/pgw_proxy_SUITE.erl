@@ -865,8 +865,15 @@ end_per_testcase(TestCase, Config)
 end_per_testcase(path_maint, Config) ->
     set_path_timers(#{'echo' => 60 * 1000}),
     end_per_testcase(Config);
+end_per_testcase(path_failure_to_pgw, Config) ->
+    ok = meck:delete(ergw_gtp_c_socket, send_request, 7),
+    end_per_testcase(Config);
 end_per_testcase(path_failure_to_pgw_and_restore, Config) ->
+    ok = meck:delete(ergw_gtp_c_socket, send_request, 7),
     set_path_timers(#{'down_echo' => 600 * 1000}),
+    end_per_testcase(Config);
+end_per_testcase(path_failure_to_sgw, Config) ->
+    ok = meck:delete(ergw_gtp_c_socket, send_request, 7),
     end_per_testcase(Config);
 end_per_testcase(simple_session, Config) ->
     ok = meck:unload(pgw_s5s8),
@@ -903,6 +910,7 @@ end_per_testcase(create_session_overload, Config) ->
     Config;
 end_per_testcase(dns_node_selection, Config) ->
     ok = meck:unload(inet_res),
+    ok = meck:delete(?HUT, init, 2),
     end_per_testcase(Config),
     Config;
 end_per_testcase(sx_upf_removal, Config) ->
@@ -921,6 +929,9 @@ end_per_testcase(TestCase, Config)
     ok = meck:unload(gtp_proxy_ds),
     end_per_testcase(Config),
     Config;
+end_per_testcase(sx_timeout, Config) ->
+    ok = meck:delete(ergw_sx_socket, call, 5),
+    end_per_testcase(Config);
 end_per_testcase(_, Config) ->
     end_per_testcase(Config),
     Config.
@@ -963,9 +974,10 @@ create_session_request_accept_new(Config) ->
 
 %%--------------------------------------------------------------------
 create_session_overload_response() ->
-    [{doc, "Check that Create Session Response with Cuase Overload works"}].
+    [{doc, "Check that Create Session Response with Cause Overload works"}].
 create_session_overload_response(Config) ->
-    create_session(overload, Config),
+    %% proxy will set the TEID, so use no_resources_available instead of overload
+    create_session(no_resources_available, Config),
 
     ?equal([], outstanding_requests()),
     meck_validate(Config),
@@ -1110,16 +1122,6 @@ path_failure_to_pgw_and_restore() ->
 path_failure_to_pgw_and_restore(Config) ->
     Cntl = whereis(gtpc_client_server),
 
-    ok = meck:expect(ergw_proxy_lib, select_gw,
-		     fun (ProxyInfo, Services, NodeSelect, Port, Context) ->
-			     try
-				 meck:passthrough([ProxyInfo, Services, NodeSelect, Port, Context])
-			     catch
-				 throw:#ctx_err{} = CtxErr ->
-				     meck:exception(throw, CtxErr)
-			     end
-		     end),
-
     lists:foreach(fun({_, Pid, _}) -> gtp_path:stop(Pid) end, gtp_path_reg:all()),
 
     {GtpC, _, _} = create_session(Config),
@@ -1155,7 +1157,7 @@ path_failure_to_pgw_and_restore(Config) ->
 		  fun({_, State}) -> State =:= down end, gtp_path_reg:all(FinalGSN))),
 
     % confirm that a new session will now fail as the PGW is marked as down
-    create_session(overload, Config),
+    create_session(no_resources_available, Config),
     ct:sleep(100),
 
     ok = meck:delete(ergw_gtp_c_socket, send_request, 7),
@@ -1178,7 +1180,6 @@ path_failure_to_pgw_and_restore(Config) ->
     lists:foreach(fun({_, Pid, _}) -> gtp_path:stop(Pid) end, gtp_path_reg:all()),
 
     meck_validate(Config),
-    ok = meck:delete(ergw_proxy_lib, select_gw, 5),
     ok.
 
 %%--------------------------------------------------------------------

@@ -458,12 +458,23 @@ handle_ctx_error(#ctx_err{level = Level, context = Context} = CtxErr, St, _State
 	    {keep_state, Data}
     end.
 
-handle_ctx_error(#ctx_err{reply = Reply} = CtxErr, St, Handler,
-		 Request, #gtp{type = MsgType, seq_no = SeqNo}, State, Data) ->
-    Response = if is_list(Reply) orelse is_atom(Reply) ->
-		       Handler:build_response({MsgType, Reply});
-		  true ->
-		       Handler:build_response(Reply)
+handle_ctx_error(#ctx_err{reply = Reply, tunnel = Tunnel} = CtxErr, St, Handler,
+		 Request, #gtp{type = MsgType, seq_no = SeqNo} = Msg, State, Data) ->
+    Response0 = if is_list(Reply) orelse is_atom(Reply) ->
+			Handler:build_response({MsgType, Reply});
+		   true ->
+			Handler:build_response(Reply)
+		end,
+    Response = case Tunnel of
+		   #tunnel{remote = #fq_teid{teid = TEID}} ->
+		       Response0#gtp{tei = TEID};
+		   _ ->
+		       case find_sender_teid(Msg) of
+			   TEID when is_integer(TEID) ->
+			       Response0#gtp{tei = TEID};
+			   _ ->
+			       Response0#gtp{tei = 0}
+		       end
 	       end,
     send_response(Request, Response#gtp{seq_no = SeqNo}),
     handle_ctx_error(CtxErr, St, State, Data).
@@ -512,9 +523,15 @@ request_finished(Request) ->
 generic_error(_Request, #gtp{type = g_pdu}, _Error) ->
     ok;
 generic_error(#request{socket = Socket} = Request,
-	      #gtp{version = Version, type = MsgType, seq_no = SeqNo}, Error) ->
+	      #gtp{version = Version, type = MsgType, seq_no = SeqNo} = Msg, Error) ->
     Handler = gtp_path:get_handler(Socket, Version),
-    Reply = Handler:build_response({MsgType, 0, Error}),
+    TEID = case find_sender_teid(Msg) of
+	       Value when is_integer(Value) ->
+		   Value;
+	       _ ->
+		   0
+	   end,
+    Reply = Handler:build_response({MsgType, TEID, Error}),
     ergw_gtp_c_socket:send_response(Request, Reply#gtp{seq_no = SeqNo}, SeqNo /= 0).
 
 %%%===================================================================
@@ -531,6 +548,11 @@ get_handler_if(Socket, #gtp{version = v1} = Msg) ->
     gtp_v1_c:get_handler(Socket, Msg);
 get_handler_if(Socket, #gtp{version = v2} = Msg) ->
     gtp_v2_c:get_handler(Socket, Msg).
+
+find_sender_teid(#gtp{version = v1} = Msg) ->
+    gtp_v1_c:find_sender_teid(Msg);
+find_sender_teid(#gtp{version = v2} = Msg) ->
+    gtp_v2_c:find_sender_teid(Msg).
 
 context_new(Socket, Info, Version, Interface, InterfaceOpts) ->
     case gtp_context_sup:new(Socket, Info, Version, Interface, InterfaceOpts) of

@@ -429,69 +429,103 @@ make_response(#gtp{type = delete_bearer_request, seq_no = SeqNo},
 
 %%%-------------------------------------------------------------------
 
+validate_seq_no(#gtp{seq_no = SeqNo}, #gtpc{seq_no = GtpCSeqNo}) ->
+    ?equal(GtpCSeqNo, SeqNo);
+validate_seq_no(#gtp{seq_no = SeqNo}, ExpectedSeqNo) ->
+    ?equal(ExpectedSeqNo, SeqNo).
+
+validate_teid(#gtp{tei = TEID}, #gtpc{local_control_tei = GtpCTEID}) ->
+    ?equal(GtpCTEID, TEID);
+validate_teid(#gtp{tei = TEID}, ExpectedTEID) ->
+    ?equal(ExpectedTEID, TEID).
+
 validate_response(_Type, invalid_teid, Response, GtpC) ->
+    validate_seq_no(Response, GtpC),
+    validate_teid(Response, 0),
     ?match(
        #gtp{ie = #{{v2_cause,0} := #v2_cause{v2_cause = context_not_found}}
 	   }, Response),
     GtpC;
 
 validate_response(create_session_request, missing_ie, Response, GtpC) ->
+    validate_seq_no(Response, GtpC),
+    validate_teid(Response, 0),
    ?match(#gtp{type = create_session_response,
 		ie = #{{v2_cause,0} := #v2_cause{v2_cause = mandatory_ie_missing}}},
 	  Response),
     GtpC;
 
 validate_response(create_session_request, aaa_reject, Response, GtpC) ->
+    validate_seq_no(Response, GtpC),
+    validate_teid(Response, GtpC),
    ?match(#gtp{type = create_session_response,
 		ie = #{{v2_cause,0} := #v2_cause{v2_cause = user_authentication_failed}}},
 	  Response),
     GtpC;
 
 validate_response(create_session_request, gx_fail, Response, GtpC) ->
+    validate_seq_no(Response, GtpC),
+    validate_teid(Response, GtpC),
    ?match(#gtp{type = create_session_response,
 		ie = #{{v2_cause,0} := #v2_cause{v2_cause = system_failure}}},
 	  Response),
     GtpC;
 
 validate_response(create_session_request, gy_fail, Response, GtpC) ->
+    validate_seq_no(Response, GtpC),
+    validate_teid(Response, GtpC),
    ?match(#gtp{type = create_session_response,
 		ie = #{{v2_cause,0} := #v2_cause{v2_cause = system_failure}}},
 	  Response),
     GtpC;
 
 validate_response(create_session_request, overload, Response, GtpC) ->
+    validate_seq_no(Response, GtpC),
+
+    %% this is debatable, but decoding the request would require even more resources.
+    %% validate_teid(Response, GtpC),
+    validate_teid(Response, 0),
+
    ?match(#gtp{type = create_session_response,
 		ie = #{{v2_cause,0} := #v2_cause{v2_cause = no_resources_available}}},
 	  Response),
     GtpC;
 
 validate_response(create_session_request, invalid_apn, Response, GtpC) ->
+    validate_seq_no(Response, GtpC),
+    validate_teid(Response, GtpC),
    ?match(#gtp{type = create_session_response,
 		ie = #{{v2_cause,0} := #v2_cause{v2_cause = missing_or_unknown_apn}}},
 	  Response),
     GtpC;
 
 validate_response(create_session_request, pool_exhausted, Response, GtpC) ->
+    validate_seq_no(Response, GtpC),
+    validate_teid(Response, GtpC),
    ?match(#gtp{type = create_session_response,
 		ie = #{{v2_cause,0} := #v2_cause{v2_cause = all_dynamic_addresses_are_occupied}}},
 	  Response),
     GtpC;
 
 validate_response(create_session_request, invalid_mapping, Response, GtpC) ->
+    validate_seq_no(Response, GtpC),
+    validate_teid(Response, GtpC),
    ?match(#gtp{type = create_session_response,
 		ie = #{{v2_cause,0} := #v2_cause{v2_cause = user_authentication_failed}}},
 	  Response),
     GtpC;
 
 validate_response(create_session_request, version_restricted, Response, GtpC) ->
+    validate_seq_no(Response, GtpC),
+    validate_teid(Response, undefined),
     ?match(#gtp{type = version_not_supported}, Response),
     GtpC;
 
-validate_response(create_session_request, SubType, Response,
-		  #gtpc{local_control_tei = LocalCntlTEI} = GtpC) ->
+validate_response(create_session_request, SubType, Response, GtpC) ->
+    validate_seq_no(Response, GtpC),
+    validate_teid(Response, GtpC),
     ?match(
        #gtp{type = create_session_response,
-	    tei = LocalCntlTEI,
 	    ie = #{{v2_cause,0} := #v2_cause{v2_cause = request_accepted},
 		   {v2_fully_qualified_tunnel_endpoint_identifier,0} :=
 		       #v2_fully_qualified_tunnel_endpoint_identifier{
@@ -527,12 +561,12 @@ validate_response(create_session_request, SubType, Response,
 	  remote_data_tei = RemoteDataTEI
      };
 
-validate_response(modify_bearer_request, SubType, Response,
-		  #gtpc{local_control_tei = LocalCntlTEI} = GtpC)
+validate_response(modify_bearer_request, SubType, Response, GtpC)
   when SubType == tei_update; SubType == enb_u_tei ->
+    validate_seq_no(Response, GtpC),
+    validate_teid(Response, GtpC),
     ?match(
        #gtp{type = modify_bearer_response,
-	    tei = LocalCntlTEI,
 	    ie = #{{v2_cause,0} := #v2_cause{v2_cause = request_accepted},
 		   {v2_bearer_context,0} :=
 		       #v2_bearer_context{
@@ -544,23 +578,23 @@ validate_response(modify_bearer_request, SubType, Response,
 		  }}, Response),
     GtpC;
 
-validate_response(modify_bearer_request, SubType, Response,
-		  #gtpc{local_control_tei = LocalCntlTEI} = GtpC)
+validate_response(modify_bearer_request, SubType, Response, GtpC)
   when SubType == simple; SubType == ra_update ->
+    validate_seq_no(Response, GtpC),
+    validate_teid(Response, GtpC),
     ?match(
        #gtp{type = modify_bearer_response,
-	    tei = LocalCntlTEI,
 	    ie = #{{v2_cause,0} := #v2_cause{v2_cause = request_accepted}}
 	   }, Response),
     #gtp{ie = IEs} = Response,
     ?equal(false, maps:is_key({v2_bearer_context,0}, IEs)),
     GtpC;
 
-validate_response(modify_bearer_command, _SubType, Response,
-		  #gtpc{seq_no = SeqNo, local_control_tei = LocalCntlTEI} = GtpC) ->
+validate_response(modify_bearer_command, _SubType, Response, GtpC) ->
+    validate_seq_no(Response, GtpC),
+    validate_teid(Response, GtpC),
     ?match(
        #gtp{type = update_bearer_request,
-	    seq_no = SeqNo, tei = LocalCntlTEI,
 	    ie = #{{v2_aggregate_maximum_bit_rate,0} := #v2_aggregate_maximum_bit_rate{},
 		   {v2_bearer_context,0} :=
 		   #v2_bearer_context{
@@ -571,37 +605,38 @@ validate_response(modify_bearer_command, _SubType, Response,
 	   }, Response),
     GtpC;
 
-validate_response(release_access_bearers_request, _SubType, Response,
-		  #gtpc{local_control_tei = LocalCntlTEI} = GtpC) ->
+validate_response(release_access_bearers_request, _SubType, Response, GtpC) ->
+    validate_seq_no(Response, GtpC),
+    validate_teid(Response, GtpC),
     ?match(#gtp{type = release_access_bearers_response,
-		tei = LocalCntlTEI,
 		ie = #{{v2_cause,0} := #v2_cause{v2_cause = request_accepted}}
 	       }, Response),
     GtpC;
 
 validate_response(delete_session_request, not_found, Response, GtpC) ->
+    validate_seq_no(Response, GtpC),
+    validate_teid(Response, 0),
     ?match(
        #gtp{type = delete_session_response,
-	    tei = 0,
 	    ie = #{{v2_cause,0} := #v2_cause{v2_cause = context_not_found}}
 	   }, Response),
     GtpC;
 
-validate_response(delete_session_request, SubType, Response,
-		  #gtpc{local_control_tei = LocalCntlTEI} = GtpC)
+validate_response(delete_session_request, SubType, Response, GtpC)
   when SubType == invalid_peer_teid;
        SubType == invalid_peer_ip ->
+    validate_seq_no(Response, GtpC),
+    validate_teid(Response, GtpC),
     ?match(
        #gtp{type = delete_session_response,
-	    tei = LocalCntlTEI,
 	    ie = #{{v2_cause,0} := #v2_cause{v2_cause = invalid_peer}}
 	   }, Response),
     GtpC;
 
-validate_response(delete_session_request, _SubType, Response,
-		  #gtpc{local_control_tei = LocalCntlTEI} = GtpC) ->
+validate_response(delete_session_request, _SubType, Response, GtpC) ->
+    validate_seq_no(Response, GtpC),
+    validate_teid(Response, GtpC),
     ?match(#gtp{type = delete_session_response,
-		tei = LocalCntlTEI,
 		ie = #{{v2_cause,0} := #v2_cause{v2_cause = request_accepted}}
 	       }, Response),
     GtpC.

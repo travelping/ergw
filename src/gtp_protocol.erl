@@ -16,3 +16,5 @@
 -callback build_echo_request() -> EchoRequest :: #gtp{}.
 
 -callback get_cause(IEs :: map()) -> Cause :: atom().
+
+-callback find_sender_teid(Msg :: #gtp{}) -> 'undefined' | non_neg_integer().

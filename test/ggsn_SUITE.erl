@@ -639,6 +639,10 @@ end_per_testcase(create_pdp_context_request_pool_exhausted, Config) ->
     meck:unload(ergw_local_pool),
     end_per_testcase(Config),
     Config;
+end_per_testcase(create_pdp_context_request_accept_new, Config) ->
+    ergw:system_info(accept_new, true),
+    end_per_testcase(Config),
+    Config;
 end_per_testcase(path_restart, Config) ->
     meck:unload(gtp_path),
     end_per_testcase(Config),
