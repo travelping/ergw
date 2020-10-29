@@ -18,6 +18,7 @@
 	 type/0, port/0,
 	 get_msg_keys/1, update_context_id/2,
 	 get_cause/1, get_common_flags/1,
+	 find_sender_teid/1,
 	 load_class/1]).
 
 %% support functions
@@ -283,6 +284,9 @@ load_class(#gtp{type = g_pdu}) ->
     data;
 load_class(_) ->
     other.
+
+find_sender_teid(_) ->
+    undefined.
 
 %%%===================================================================
 %%% Internal functions

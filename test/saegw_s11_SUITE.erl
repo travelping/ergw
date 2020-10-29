@@ -583,6 +583,10 @@ end_per_testcase(create_session_request_pool_exhausted, Config) ->
     meck:unload(ergw_local_pool),
     end_per_testcase(Config),
     Config;
+end_per_testcase(create_session_request_accept_new, Config) ->
+    ergw:system_info(accept_new, true),
+    end_per_testcase(Config),
+    Config;
 end_per_testcase(TestCase, Config)
   when TestCase == delete_bearer_request_resend;
        TestCase == modify_bearer_command_timeout ->

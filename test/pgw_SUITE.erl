@@ -918,6 +918,10 @@ end_per_testcase(create_session_request_pool_exhausted, Config) ->
     meck:unload(ergw_local_pool),
     end_per_testcase(Config),
     Config;
+end_per_testcase(create_session_request_accept_new, Config) ->
+    ergw:system_info(accept_new, true),
+    end_per_testcase(Config),
+    Config;
 end_per_testcase(path_restart, Config) ->
     meck:unload(gtp_path),
     end_per_testcase(Config),
@@ -2585,7 +2589,7 @@ sx_connect_fail(Config) ->
 	[receive {Ref, Notify} -> Notify after 2000 -> timeout end || Ref <- Expect],
     [?equal(dead, R) || R <- Result],
 
-    create_session(overload , Config),
+    create_session(no_resources_available , Config),
 
     ?equal([], outstanding_requests()),
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
@@ -3943,7 +3947,7 @@ aa_pool_select_fail(Config) ->
 			     meck:passthrough([Session, SessionOpts, Procedure, Opts])
 		     end),
 
-    create_session(overload, Config),
+    create_session(no_resources_available, Config),
 
     ?equal([], outstanding_requests()),
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),

@@ -18,7 +18,8 @@
 	  level,
 	  where,
 	  reply,
-	  context
+	  context,
+	  tunnel
 	 }).
 
 -define(CTX_ERR(Level,Reply), #ctx_err{level=Level,reply=Reply,where={?FILE, ?LINE}}).

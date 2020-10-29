@@ -817,8 +817,15 @@ end_per_testcase(request_fast_resend, Config) ->
 end_per_testcase(path_maint, Config) ->
     set_path_timers(#{'echo' => 60 * 1000}),
     end_per_testcase(Config);
+end_per_testcase(path_failure_to_ggsn, Config) ->
+    ok = meck:delete(ergw_gtp_c_socket, send_request, 7),
+    end_per_testcase(Config);
 end_per_testcase(path_failure_to_ggsn_and_restore, Config) ->
+    ok = meck:delete(ergw_gtp_c_socket, send_request, 7),
     set_path_timers(#{'down_echo' => 600 * 1000}),
+    end_per_testcase(Config);
+end_per_testcase(path_failure_to_sgsn, Config) ->
+    ok = meck:delete(ergw_gtp_c_socket, send_request, 7),
     end_per_testcase(Config);
 end_per_testcase(simple_pdp_context_request, Config) ->
     meck:unload(ggsn_gn),
@@ -849,6 +856,9 @@ end_per_testcase(TestCase, Config)
     ok = meck:unload(gtp_proxy_ds),
     end_per_testcase(Config),
     Config;
+end_per_testcase(sx_timeout, Config) ->
+    ok = meck:delete(ergw_sx_socket, call, 5),
+    end_per_testcase(Config);
 end_per_testcase(_, Config) ->
     end_per_testcase(Config),
     Config.
@@ -1063,16 +1073,6 @@ path_failure_to_ggsn_and_restore() ->
 path_failure_to_ggsn_and_restore(Config) ->
     Cntl = whereis(gtpc_client_server),
 
-    ok = meck:expect(ergw_proxy_lib, select_gw,
-		     fun (ProxyInfo, Services, NodeSelect, Port, Context) ->
-			     try
-				 meck:passthrough([ProxyInfo, Services, NodeSelect, Port, Context])
-			     catch
-				 throw:#ctx_err{} = CtxErr ->
-				     meck:exception(throw, CtxErr)
-			     end
-		     end),
-
     lists:foreach(fun({_, Pid, _}) -> gtp_path:stop(Pid) end, gtp_path_reg:all()),
 
     {GtpC, _, _} = create_pdp_context(Config),
@@ -1107,7 +1107,7 @@ path_failure_to_ggsn_and_restore(Config) ->
     ?match([_], lists:filter(
 		  fun({_, State}) -> State =:= down end, gtp_path_reg:all(FinalGSN))),
 
-    create_pdp_context(overload, Config),
+    create_pdp_context(no_resources_available, Config),
     ct:sleep(100),
 
     ok = meck:delete(ergw_gtp_c_socket, send_request, 7),
@@ -1130,7 +1130,6 @@ path_failure_to_ggsn_and_restore(Config) ->
     lists:foreach(fun({_, Pid, _}) -> gtp_path:stop(Pid) end, gtp_path_reg:all()),
 
     meck_validate(Config),
-    ok = meck:delete(ergw_proxy_lib, select_gw, 5),
     ok.
 
 %%--------------------------------------------------------------------
@@ -1918,8 +1917,8 @@ create_pdp_context_overload() ->
     [{doc, "Check that the overload protection works"}].
 create_pdp_context_overload(Config) ->
     create_pdp_context(overload, Config),
-    ?equal([], outstanding_requests()),
 
+    ?equal([], outstanding_requests()),
     meck_validate(Config),
     ok.
 

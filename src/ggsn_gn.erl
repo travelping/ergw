@@ -176,6 +176,7 @@ handle_event(info, #aaa_request{procedure = {gx, 'RAR'},
 %%% 5. apply granted quotas to PCC rules, remove PCC rules without quotas
 %%% 6. install new PCC rules which have granted quota
 %%% 7. report remove and not installed (lack of quota) PCC rules on Gx
+    #context{left_tnl = LeftTunnel} = Context,
 
     Now = erlang:monotonic_time(),
     ReqOps = #{now => Now},
@@ -195,7 +196,7 @@ handle_event(info, #aaa_request{procedure = {gx, 'RAR'},
 	case ergw_pfcp_context:modify_pfcp_session(
 	       PCC1, [], #{}, LeftBearer, RightBearer, PCtx0) of
 	    {ok, Result1} -> Result1;
-	    {error, Err1} -> throw(Err1#ctx_err{context = Context})
+	    {error, Err1} -> throw(Err1#ctx_err{context = Context, tunnel = LeftTunnel})
 	end,
 
 %%% step 4:
@@ -217,7 +218,7 @@ handle_event(info, #aaa_request{procedure = {gx, 'RAR'},
 	case ergw_pfcp_context:modify_pfcp_session(
 	       PCC4, [], #{}, LeftBearer, RightBearer, PCtx1) of
 	    {ok, Result2} -> Result2;
-	    {error, Err2} -> throw(Err2#ctx_err{context = Context})
+	    {error, Err2} -> throw(Err2#ctx_err{context = Context, tunnel = LeftTunnel})
 	end,
 
 %%% step 7:
@@ -269,6 +270,7 @@ handle_event(internal, {session, {update_credits, _} = CreditEv, _}, _State,
 	     #{context := Context, pfcp := PCtx0,
 	       left_bearer := LeftBearer, right_bearer := RightBearer,
 	       pcc := PCC0} = Data) ->
+    #context{left_tnl = LeftTunnel} = Context,
     Now = erlang:monotonic_time(),
 
     {PCC, _PCCErrors} = ergw_pcc_context:gy_events_to_pcc_ctx(Now, [CreditEv], PCC0),
@@ -276,7 +278,7 @@ handle_event(internal, {session, {update_credits, _} = CreditEv, _}, _State,
 	case ergw_pfcp_context:modify_pfcp_session(
 	       PCC, [], #{}, LeftBearer, RightBearer, PCtx0) of
 	    {ok, Result1} -> Result1;
-	    {error, Err1} -> throw(Err1#ctx_err{context = Context})
+	    {error, Err1} -> throw(Err1#ctx_err{context = Context, tunnel = LeftTunnel})
 	end,
     {keep_state, Data#{pfcp := PCtx, pcc := PCC}};
 
@@ -348,53 +350,51 @@ handle_request(ReqKey,
     Candidates = ergw_node_selection:topology_select(APN_FQDN, [], Services, NodeSelect),
     SxConnectId = ergw_sx_node:request_connect(Candidates, NodeSelect, 1000),
 
-    Context1 = update_context_from_gtp_req(Request, Context0),
+    ContextPreAuth = update_context_from_gtp_req(Request, Context0),
 
     LeftTunnel0 = ergw_gsn_lib:tunnel(left, Context0),
     {LeftTunnel1, LeftBearer1} =
 	case update_tunnel_from_gtp_req(Request, LeftTunnel0, LeftBearer0) of
 	    {ok, Result1} -> Result1;
-	    {error, Err1} -> throw(Err1#ctx_err{context = Context1})
+	    {error, Err1} -> throw(Err1#ctx_err{context = ContextPreAuth, tunnel = LeftTunnel0})
 	end,
 
     LeftTunnel = gtp_path:bind(Request, LeftTunnel1),
 
-    gtp_context:terminate_colliding_context(LeftTunnel, Context1),
+    gtp_context:terminate_colliding_context(LeftTunnel, ContextPreAuth),
 
     EUA = maps:get(?'End User Address', IEs, undefined),
     DAF = proplists:get_bool('Dual Address Bearer Flag', gtp_v1_c:get_common_flags(IEs)),
 
-    SessionOpts0 = init_session(IEs, LeftTunnel, Context1, AAAopts),
+    SessionOpts0 = init_session(IEs, LeftTunnel, ContextPreAuth, AAAopts),
     SessionOpts1 = init_session_from_gtp_req(IEs, AAAopts, LeftTunnel, SessionOpts0),
     SessionOpts2 = init_session_qos(IEs, SessionOpts1),
-
-    ContextPreAuth = ergw_gsn_lib:'#set-'([{left_tnl, LeftTunnel}], Context1),
 
     ergw_sx_node:wait_connect(SxConnectId),
 
     APNOpts =
 	case ergw_gsn_lib:apn(APN) of
 	    {ok, Result2} -> Result2;
-	    {error, Err2} -> throw(Err2#ctx_err{context = ContextPreAuth})
+	    {error, Err2} -> throw(Err2#ctx_err{context = ContextPreAuth, tunnel = LeftTunnel})
 	end,
 
     {UPinfo, SessionOpts} =
 	case ergw_pfcp_context:select_upf(Candidates, SessionOpts2, APNOpts) of
 	    {ok, Result3} -> Result3;
-	    {error, Err3} -> throw(Err3#ctx_err{context = ContextPreAuth})
+	    {error, Err3} -> throw(Err3#ctx_err{context = ContextPreAuth, tunnel = LeftTunnel})
 	end,
 
     {ActiveSessionOpts0, AuthSEvs} =
 	case authenticate(Session, SessionOpts) of
 	    {ok, Result4} -> Result4;
-	    {error, Err4} -> throw(Err4#ctx_err{context = ContextPreAuth})
+	    {error, Err4} -> throw(Err4#ctx_err{context = ContextPreAuth, tunnel = LeftTunnel})
 	end,
 
     {PendingPCtx, NodeCaps, RightBearer0} =
 	case ergw_pfcp_context:reselect_upf(
 	       Candidates, ActiveSessionOpts0, APNOpts, UPinfo) of
 	    {ok, Result5} -> Result5;
-	    {error, Err5} -> throw(Err5#ctx_err{context = ContextPreAuth})
+	    {error, Err5} -> throw(Err5#ctx_err{context = ContextPreAuth, tunnel = LeftTunnel})
 	end,
 
     {Result6, {Cause, ActiveSessionOpts1, RightBearer, ContextPending1}} =
@@ -402,7 +402,7 @@ handle_request(ReqKey,
 	  APNOpts, ActiveSessionOpts0, EUA, DAF, LeftTunnel, RightBearer0, ContextPreAuth),
     case Result6 of
 	ok -> ok;
-	{error, Err6} -> throw(Err6#ctx_err{context = ContextPending1})
+	{error, Err6} -> throw(Err6#ctx_err{context = ContextPending1, tunnel = LeftTunnel})
     end,
 
     {Context, ActiveSessionOpts} =
@@ -412,7 +412,7 @@ handle_request(ReqKey,
 	case ergw_gsn_lib:assign_local_data_teid(
 	  PendingPCtx, NodeCaps, LeftTunnel, LeftBearer1) of
 	    {ok, Result7} -> Result7;
-	    {error, Err7} -> throw(Err7#ctx_err{context = Context})
+	    {error, Err7} -> throw(Err7#ctx_err{context = Context, tunnel = LeftTunnel})
 	end,
 
     ergw_aaa_session:set(Session, ActiveSessionOpts),
@@ -426,7 +426,7 @@ handle_request(ReqKey,
     {_, GxEvents} =
 	case ccr_initial(Session, gx, GxOpts, SOpts) of
 	    {ok, Result8} -> Result8;
-	    {error, Err8} -> throw(Err8#ctx_err{context = Context})
+	    {error, Err8} -> throw(Err8#ctx_err{context = Context, tunnel = LeftTunnel})
 	end,
 
     RuleBase = ergw_charging:rulebase(),
@@ -437,7 +437,7 @@ handle_request(ReqKey,
 	true ->
 	    ok;
 	_ ->
-	    throw(?CTX_ERR(?FATAL, user_authentication_failed))
+	    throw(?CTX_ERR(?FATAL, user_authentication_failed, tunnel = LeftTunnel))
     end,
 
     %% TBD............
@@ -447,7 +447,7 @@ handle_request(ReqKey,
     {GySessionOpts, GyEvs} =
 	case ccr_initial(Session, gy, GyReqServices, SOpts) of
 	    {ok, Result9} -> Result9;
-	    {error, Err9} -> throw(Err9#ctx_err{context = Context})
+	    {error, Err9} -> throw(Err9#ctx_err{context = Context, tunnel = LeftTunnel})
 	end,
 
     ?LOG(debug, "GySessionOpts: ~p", [GySessionOpts]),
@@ -464,7 +464,7 @@ handle_request(ReqKey,
 	case ergw_pfcp_context:create_pfcp_session(
 	       PendingPCtx, PCC4, LeftBearer, RightBearer, Context) of
 	    {ok, Result10} -> Result10;
-	    {error, Err10} -> throw(Err10#ctx_err{context = Context})
+	    {error, Err10} -> throw(Err10#ctx_err{context = Context, tunnel = LeftTunnel})
 	end,
 
     GxReport = ergw_gsn_lib:pcc_events_to_charging_rule_report(PCCErrors1 ++ PCCErrors2),
@@ -478,7 +478,7 @@ handle_request(ReqKey,
     case gtp_context:remote_context_register_new(
 	   LeftTunnel, LeftBearer, RightBearer, Context) of
 	ok -> ok;
-	{error, Err11} -> throw(Err11#ctx_err{context = Context})
+	{error, Err11} -> throw(Err11#ctx_err{context = Context, tunnel = LeftTunnel})
     end,
 
     ResponseIEs = create_pdp_context_response(Cause, ActiveSessionOpts, Request,
@@ -486,8 +486,9 @@ handle_request(ReqKey,
     Response = response(create_pdp_context_response, LeftTunnel, ResponseIEs, Request),
     gtp_context:send_response(ReqKey, Request, Response),
 
+    FinalContext = ergw_gsn_lib:'#set-'([{left_tnl, LeftTunnel}], Context),
     FinalData =
-	Data#{context => Context, pfcp => PCtx, pcc => PCC4,
+	Data#{context => FinalContext, pfcp => PCtx, pcc => PCC4,
 	      left_bearer => LeftBearer, right_bearer => RightBearer},
     Actions = context_idle_action([], Context),
     {keep_state, FinalData, Actions};
@@ -505,7 +506,7 @@ handle_request(ReqKey,
 	case update_tunnel_from_gtp_req(
 	       Request, LeftTunnelOld#tunnel{version = v1}, LeftBearerOld) of
 	    {ok, Result1} -> Result1;
-	    {error, Err1} -> throw(Err1#ctx_err{context = Context})
+	    {error, Err1} -> throw(Err1#ctx_err{context = Context, tunnel = LeftTunnelOld})
 	end,
 
     LeftTunnel1 = gtp_path:bind(Request, LeftTunnel0),
@@ -519,7 +520,7 @@ handle_request(ReqKey,
 		case apply_bearer_change(
 		       LeftBearer, RightBearer, URRActions, PCtx0, PCC) of
 		    {ok, Result2} -> Result2;
-		    {error, Err2} -> throw(Err2#ctx_err{context = Context})
+		    {error, Err2} -> throw(Err2#ctx_err{context = Context, tunnel = LeftTunnel})
 		end;
 	   true ->
 		trigger_defered_usage_report(URRActions, PCtx0),

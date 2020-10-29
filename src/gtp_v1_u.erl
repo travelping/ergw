@@ -14,7 +14,8 @@
 	 build_response/1,
 	 build_echo_request/0,
 	 type/0, port/0,
-	 get_cause/1]).
+	 get_cause/1,
+	 find_sender_teid/1]).
 
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include("include/ergw.hrl").
@@ -37,6 +38,9 @@ gtp_msg_type(Type) ->
     gtp_v1_c:gtp_msg_type(Type).
 
 get_cause(_) ->
+    undefined.
+
+find_sender_teid(_) ->
     undefined.
 
 %%%===================================================================

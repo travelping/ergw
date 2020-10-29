@@ -424,85 +424,135 @@ validate_cause(_Type, {_, _, _} = SubType, #gtp{ie = #{{cause,0} := #cause{value
 validate_cause(_Type, _SubType, Response) ->
     ?match(#gtp{ie = #{{cause,0} := #cause{value = request_accepted}}}, Response).
 
+validate_seq_no(#gtp{seq_no = SeqNo}, #gtpc{seq_no = GtpCSeqNo}) ->
+    ?equal(GtpCSeqNo, SeqNo);
+validate_seq_no(#gtp{seq_no = SeqNo}, ExpectedSeqNo) ->
+    ?equal(ExpectedSeqNo, SeqNo).
+
+validate_teid(#gtp{tei = TEID}, #gtpc{local_control_tei = GtpCTEID}) ->
+    ?equal(GtpCTEID, TEID);
+validate_teid(#gtp{tei = TEID}, ExpectedTEID) ->
+    ?equal(ExpectedTEID, TEID).
+
 validate_response(_Type, invalid_teid, Response, GtpC) ->
+    validate_seq_no(Response, GtpC),
+    validate_teid(Response, 0),
     ?match(
        #gtp{ie = #{{cause,0} := #cause{value = non_existent}}
 	   }, Response),
     GtpC;
 
 validate_response(create_pdp_context_request, system_failure, Response, GtpC) ->
+    validate_seq_no(Response, GtpC),
+    validate_teid(Response, GtpC),
     ?match(#gtp{type = create_pdp_context_response,
 		ie = #{{cause,0} := #cause{value = system_failure}}},
 	   Response),
     GtpC;
 
 validate_response(create_pdp_context_request, aaa_reject, Response, GtpC) ->
+    validate_seq_no(Response, GtpC),
+    validate_teid(Response, GtpC),
     ?match(#gtp{type = create_pdp_context_response,
 		ie = #{{cause,0} := #cause{value = user_authentication_failed}}},
 	   Response),
     GtpC;
 
 validate_response(create_pdp_context_request, gx_fail, Response, GtpC) ->
+    validate_seq_no(Response, GtpC),
+    validate_teid(Response, GtpC),
     ?match(#gtp{type = create_pdp_context_response,
 		ie = #{{cause,0} := #cause{value = system_failure}}},
 	   Response),
     GtpC;
 
 validate_response(create_pdp_context_request, gy_fail, Response, GtpC) ->
+    validate_seq_no(Response, GtpC),
+    validate_teid(Response, GtpC),
     ?match(#gtp{type = create_pdp_context_response,
 		ie = #{{cause,0} := #cause{value = system_failure}}},
 	   Response),
     GtpC;
+
 validate_response(create_pdp_context_request, overload, Response, GtpC) ->
+    validate_seq_no(Response, GtpC),
+
+    %% this is debatable, but decoding the request would require even more resources.
+    %% validate_teid(Response, GtpC),
+    validate_teid(Response, 0),
+
+    ?match(#gtp{type = create_pdp_context_response,
+		ie = #{{cause,0} := #cause{value = no_resources_available}}},
+	   Response),
+    GtpC;
+
+validate_response(create_pdp_context_request, no_resources_available, Response, GtpC) ->
+    validate_seq_no(Response, GtpC),
+    validate_teid(Response, GtpC),
+
     ?match(#gtp{type = create_pdp_context_response,
 		ie = #{{cause,0} := #cause{value = no_resources_available}}},
 	   Response),
     GtpC;
 
 validate_response(create_pdp_context_request, invalid_apn, Response, GtpC) ->
+    validate_seq_no(Response, GtpC),
+    validate_teid(Response, GtpC),
     ?match(#gtp{type = create_pdp_context_response,
 		ie = #{{cause,0} := #cause{value = missing_or_unknown_apn}}},
 	   Response),
     GtpC;
 
 validate_response(create_pdp_context_request, pool_exhausted, Response, GtpC) ->
+    validate_seq_no(Response, GtpC),
+    validate_teid(Response, GtpC),
     ?match(#gtp{type = create_pdp_context_response,
 		ie = #{{cause,0} := #cause{value = all_dynamic_pdp_addresses_are_occupied}}},
 	   Response),
     GtpC;
 
 validate_response(create_pdp_context_request, missing_ie, Response, GtpC) ->
+    validate_seq_no(Response, GtpC),
+    validate_teid(Response, 0),
     ?match(#gtp{type = create_pdp_context_response,
 		ie = #{{cause,0} := #cause{value = mandatory_ie_missing}}},
 	   Response),
     GtpC;
 
 validate_response(create_pdp_context_request, invalid_mapping, Response, GtpC) ->
+    validate_seq_no(Response, GtpC),
+    validate_teid(Response, GtpC),
     ?match(#gtp{type = create_pdp_context_response,
 		ie = #{{cause,0} := #cause{value = user_authentication_failed}}},
 	   Response),
     GtpC;
 
 validate_response(create_pdp_context_request, version_restricted, Response, GtpC) ->
+    validate_seq_no(Response, GtpC),
+    validate_teid(Response, GtpC),
     ?match(#gtp{type = version_not_supported}, Response),
     GtpC;
 
 validate_response(create_pdp_context_request, {ipv4, _, v6only}, Response, GtpC) ->
+    validate_seq_no(Response, GtpC),
+    validate_teid(Response, GtpC),
     ?match(#gtp{type = create_pdp_context_response,
 		ie = #{{cause,0} := #cause{value = unknown_pdp_address_or_pdp_type}}},
 	   Response),
     GtpC;
 validate_response(create_pdp_context_request, {ipv6, _, v4only}, Response, GtpC) ->
+    validate_seq_no(Response, GtpC),
+    validate_teid(Response, GtpC),
     ?match(#gtp{type = create_pdp_context_response,
 		ie = #{{cause,0} := #cause{value = unknown_pdp_address_or_pdp_type}}},
 	   Response),
     GtpC;
 
-validate_response(create_pdp_context_request, SubType, Response,
-		  #gtpc{local_control_tei = LocalCntlTEI} = GtpC0) ->
+validate_response(create_pdp_context_request, SubType, Response, GtpC0) ->
     validate_cause(create_pdp_context_request, SubType, Response),
+    validate_seq_no(Response, GtpC0),
+    validate_teid(Response, GtpC0),
     ?match(#gtp{type = create_pdp_context_response,
-		tei = LocalCntlTEI,
 		ie = #{{charging_id,0} := #charging_id{},
 		       {gsn_address,0} := #gsn_address{},
 		       {gsn_address,1} := #gsn_address{},
@@ -532,10 +582,10 @@ validate_response(create_pdp_context_request, SubType, Response,
 	  remote_data_tei = RemoteDataTEI
      };
 
-validate_response(update_pdp_context_request, _SubType, Response,
-		  #gtpc{local_control_tei = LocalCntlTEI} = GtpC) ->
+validate_response(update_pdp_context_request, _SubType, Response, GtpC) ->
+    validate_seq_no(Response, GtpC),
+    validate_teid(Response, GtpC),
     ?match(#gtp{type = update_pdp_context_response,
-		tei = LocalCntlTEI,
 		ie = #{{cause,0} := #cause{value = request_accepted},
 		       {charging_id,0} := #charging_id{},
 		       {gsn_address,0} := #gsn_address{},
@@ -562,6 +612,8 @@ validate_response(update_pdp_context_request, _SubType, Response,
      };
 
 validate_response(ms_info_change_notification_request, without_tei, Response, GtpC) ->
+    validate_seq_no(Response, GtpC),
+    validate_teid(Response, GtpC),
     ?match(
        #gtp{type = ms_info_change_notification_response,
 	    ie = #{{cause,0} :=
@@ -576,16 +628,18 @@ validate_response(ms_info_change_notification_request, without_tei, Response, Gt
 
 validate_response(ms_info_change_notification_request, invalid_imsi,
 		  Response, GtpC) ->
+    validate_seq_no(Response, GtpC),
+    validate_teid(Response, 0),
     ?match(
        #gtp{ie = #{{cause,0} := #cause{value = non_existent}}
 	   }, Response),
     GtpC;
 
-validate_response(ms_info_change_notification_request, simple, Response,
-		  #gtpc{local_control_tei = LocalCntlTEI} = GtpC) ->
+validate_response(ms_info_change_notification_request, simple, Response, GtpC) ->
+    validate_seq_no(Response, GtpC),
+    validate_teid(Response, GtpC),
     ?match(
        #gtp{type = ms_info_change_notification_response,
-	    tei = LocalCntlTEI,
 	    ie = #{{cause,0} := #cause{value = request_accepted}}
 	   }, Response),
     #gtp{ie = IEs} = Response,
@@ -594,16 +648,18 @@ validate_response(ms_info_change_notification_request, simple, Response,
     GtpC;
 
 validate_response(delete_pdp_context_request, not_found, Response, GtpC) ->
+    validate_seq_no(Response, GtpC),
+    validate_teid(Response, 0),
     ?match(#gtp{type = delete_pdp_context_response,
 		tei = 0,
 		ie = #{{cause,0} := #cause{value = non_existent}}
 	       }, Response),
     GtpC;
 
-validate_response(delete_pdp_context_request, _SubType, Response,
-		  #gtpc{local_control_tei = LocalCntlTEI} = GtpC) ->
+validate_response(delete_pdp_context_request, _SubType, Response, GtpC) ->
+    validate_seq_no(Response, GtpC),
+    validate_teid(Response, GtpC),
     ?match(#gtp{type = delete_pdp_context_response,
-		tei = LocalCntlTEI,
 		ie = #{{cause,0} := #cause{value = request_accepted}}
 	       }, Response),
     GtpC.
