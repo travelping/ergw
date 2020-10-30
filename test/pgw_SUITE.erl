@@ -1207,8 +1207,7 @@ path_failure(Config) ->
     {GtpC, _, _} = create_session(Config),
 
     {_Handler, CtxPid} = gtp_context_reg:lookup({'irx-socket', {imsi, ?'IMSI', 5}}),
-    #{context := Ctx1} = gtp_context:info(CtxPid),
-    #context{left_tnl = #tunnel{socket = CSocket}} = Ctx1,
+    #{left_tunnel := #tunnel{socket = CSocket}} = gtp_context:info(CtxPid),
 
     ClientIP = proplists:get_value(client_ip, Config),
     ok = meck:expect(ergw_gtp_c_socket, send_request,

@@ -714,15 +714,14 @@ imei(_, _) ->
 -define(T3, 10 * 1000).
 -define(N3, 5).
 
-ggsn_update_context(From, Context) ->
+ggsn_update_context(From, Tunnel) ->
     Type = update_pdp_context_request,
     NSAPI = 5,
     RequestIEs0 = [#nsapi{nsapi = NSAPI}],
-    RequestIEs = gtp_v1_c:build_recovery(Type, Context, false, RequestIEs0),
-    ggsn_send_request(Context, ?T3, ?N3, Type, RequestIEs, From).
+    RequestIEs = gtp_v1_c:build_recovery(Type, Tunnel, false, RequestIEs0),
+    ggsn_send_request(Tunnel, ?T3, ?N3, Type, RequestIEs, From).
 
-ggsn_send_request(Context, T3, N3, Type, RequestIEs, From) ->
-    #tunnel{remote = #fq_teid{ip = RemoteCntlIP, teid = RemoteCntlTEI}} = Tunnel =
-	ergw_gsn_lib:tunnel(left, Context),
+ggsn_send_request(#tunnel{remote = #fq_teid{ip = RemoteCntlIP, teid = RemoteCntlTEI}} = Tunnel,
+		  T3, N3, Type, RequestIEs, From) ->
     Msg = #gtp{version = v1, type = Type, tei = RemoteCntlTEI, ie = RequestIEs},
     gtp_context:send_request(Tunnel, RemoteCntlIP, ?GTP1c_PORT, T3, N3, Msg, From).

@@ -734,8 +734,8 @@ init_per_testcase(ggsn_update_pdp_context_request, Config) ->
     setup_per_testcase(Config),
     ok = meck:new(ggsn_gn, [passthrough, no_link]),
     ok = meck:expect(ggsn_gn, handle_event,
-		     fun({call, From}, update_context, _State, #{context := Context}) ->
-			     ergw_ggsn_test_lib:ggsn_update_context(From, Context),
+		     fun({call, From}, update_context, _State, #{left_tunnel := LeftTunnel}) ->
+			     ergw_ggsn_test_lib:ggsn_update_context(From, LeftTunnel),
 			     keep_state_and_data;
 			(Type, Content, State, Data) ->
 			     meck:passthrough([Type, Content, State, Data])
@@ -983,8 +983,7 @@ ggsn_broken_recovery(Config) ->
     {GtpC, _, _} = create_pdp_context(Config),
 
     {_Handler, CtxPid} = gtp_context_reg:lookup({'irx', {imsi, ?'IMSI', 5}}),
-    #{proxy_context := Ctx1} = gtp_context:info(CtxPid),
-    #context{left_tnl = #tunnel{socket = CSocket}} = Ctx1,
+    #{right_tunnel := #tunnel{socket = CSocket}} = gtp_context:info(CtxPid),
 
     FinalGSN = proplists:get_value(final_gsn, Config),
     ok = meck:expect(ergw_gtp_c_socket, send_request,
@@ -1021,8 +1020,7 @@ path_failure_to_ggsn(Config) ->
     {GtpC, _, _} = create_pdp_context(Config),
 
     {_Handler, CtxPid} = gtp_context_reg:lookup({'irx', {imsi, ?'IMSI', 5}}),
-    #{proxy_context := Ctx1} = gtp_context:info(CtxPid),
-    #context{left_tnl = #tunnel{socket = CSocket}} = Ctx1,
+    #{right_tunnel := #tunnel{socket = CSocket}} = gtp_context:info(CtxPid),
 
     FinalGSN = proplists:get_value(final_gsn, Config),
     ok = meck:expect(ergw_gtp_c_socket, send_request,
@@ -1078,8 +1076,7 @@ path_failure_to_ggsn_and_restore(Config) ->
     {GtpC, _, _} = create_pdp_context(Config),
 
     {_Handler, CtxPid} = gtp_context_reg:lookup({'irx', {imsi, ?'IMSI', 5}}),
-    #{proxy_context := Ctx1} = gtp_context:info(CtxPid),
-    #context{left_tnl = #tunnel{socket = CSocket}} = Ctx1,
+    #{right_tunnel := #tunnel{socket = CSocket}} = gtp_context:info(CtxPid),
 
     FinalGSN = proplists:get_value(final_gsn, Config),
     ok = meck:expect(ergw_gtp_c_socket, send_request,
@@ -1140,8 +1137,7 @@ path_failure_to_sgsn(Config) ->
     {GtpC, _, _} = create_pdp_context(Config),
 
     {_Handler, CtxPid} = gtp_context_reg:lookup({'irx', {imsi, ?'IMSI', 5}}),
-    #{context := Ctx1} = gtp_context:info(CtxPid),
-    #context{left_tnl = #tunnel{socket = CSocket}} = Ctx1,
+    #{left_tunnel := #tunnel{socket = CSocket}} = gtp_context:info(CtxPid),
 
     ClientIP = proplists:get_value(client_ip, Config),
     ok = meck:expect(ergw_gtp_c_socket, send_request,
@@ -1186,7 +1182,7 @@ simple_pdp_context_request(Config) ->
     ?match(#gtp{seq_no = SeqNo} when SeqNo >= 16#8000, P),
 
     V = meck:capture(first, ggsn_gn, handle_request, ['_', GtpRecMatch, '_', '_', '_'], 2),
-    %% ct:pal("V: ~s", [ergw_test_lib:pretty_print(V)]),
+    ct:pal("V: ~s", [ergw_test_lib:pretty_print(V)]),
     ?match(
        #gtp{ie = #{
 	      {access_point_name, 0} :=
@@ -1492,10 +1488,10 @@ update_pdp_context_request_ra_update() ->
 update_pdp_context_request_ra_update(Config) ->
     {GtpC1, _, _} = create_pdp_context(Config),
     {_Handler, CtxPid} = gtp_context_reg:lookup({'remote-irx', {imsi, ?'PROXY-IMSI', 5}}),
-    #{context := Ctx1, left_bearer := LeftBearer1} = gtp_context:info(CtxPid),
+    #{left_tunnel := LeftTunnel1, left_bearer := LeftBearer1} = gtp_context:info(CtxPid),
 
     {GtpC2, _, _} = update_pdp_context(ra_update, GtpC1),
-    #{context := Ctx2, left_bearer := LeftBearer2} = gtp_context:info(CtxPid),
+    #{left_tunnel := LeftTunnel2, left_bearer := LeftBearer2} = gtp_context:info(CtxPid),
 
     ?equal([], outstanding_requests()),
     delete_pdp_context(GtpC2),
@@ -1505,7 +1501,7 @@ update_pdp_context_request_ra_update(Config) ->
     ?equal(GtpC1#gtpc.remote_data_tei,    GtpC2#gtpc.remote_data_tei),
 
     %% make sure the GGSN side control TEID don't change
-    ?equal(Ctx1#context.left_tnl#tunnel.remote, Ctx2#context.left_tnl#tunnel.remote),
+    ?equal(LeftTunnel1#tunnel.remote, LeftTunnel2#tunnel.remote),
     ?equal(LeftBearer1#bearer.remote, LeftBearer2#bearer.remote),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
@@ -1518,18 +1514,18 @@ update_pdp_context_request_tei_update() ->
 update_pdp_context_request_tei_update(Config) ->
     {GtpC1, _, _} = create_pdp_context(Config),
     {_Handler, CtxPid} = gtp_context_reg:lookup({'remote-irx', {imsi, ?'PROXY-IMSI', 5}}),
-    #{context := Ctx1, left_bearer := LeftBearer1} = gtp_context:info(CtxPid),
+    #{left_tunnel := LeftTunnel1, left_bearer := LeftBearer1} = gtp_context:info(CtxPid),
 
     {_Handler, ProxyCtxPid} = gtp_context_reg:lookup({'irx', {imsi, ?'IMSI', 5}}),
-    #{proxy_context := PrxCtx1} = gtp_context:info(ProxyCtxPid),
-    ProxyRegKey1 = gtp_context:tunnel_key(local, PrxCtx1#context.left_tnl),
+    #{right_tunnel := RightTunnel1} = gtp_context:info(ProxyCtxPid),
+    ProxyRegKey1 = gtp_context:tunnel_key(local, RightTunnel1),
     ?match({gtp_context, ProxyCtxPid}, gtp_context_reg:lookup(ProxyRegKey1)),
 
     {GtpC2, _, _} = update_pdp_context(tei_update, GtpC1),
-    #{context := Ctx2, left_bearer := LeftBearer2} = gtp_context:info(CtxPid),
+    #{left_tunnel := LeftTunnel2, left_bearer := LeftBearer2} = gtp_context:info(CtxPid),
 
-    #{proxy_context := PrxCtx2} = gtp_context:info(ProxyCtxPid),
-    ProxyRegKey2 = gtp_context:tunnel_key(local, PrxCtx2#context.left_tnl),
+    #{right_tunnel := RightTunnel2} = gtp_context:info(ProxyCtxPid),
+    ProxyRegKey2 = gtp_context:tunnel_key(local, RightTunnel2),
     ?match(undefined, gtp_context_reg:lookup(ProxyRegKey1)),
     ?match({gtp_context, ProxyCtxPid}, gtp_context_reg:lookup(ProxyRegKey2)),
 
@@ -1541,7 +1537,7 @@ update_pdp_context_request_tei_update(Config) ->
     ?equal(GtpC1#gtpc.remote_data_tei,    GtpC2#gtpc.remote_data_tei),
 
     %% make sure the GGSN side control TEID DOES change
-    ?not_equal(Ctx1#context.left_tnl#tunnel.remote, Ctx2#context.left_tnl#tunnel.remote),
+    ?not_equal(LeftTunnel1#tunnel.remote, LeftTunnel2#tunnel.remote),
     ?equal(LeftBearer1#bearer.remote, LeftBearer2#bearer.remote),
 
     [_, SMR0|_] = lists:filter(
@@ -1584,10 +1580,10 @@ update_pdp_context_request_broken_recovery(Config) ->
 		     end),
     {GtpC1, _, _} = create_pdp_context(Config),
     {_Handler, CtxPid} = gtp_context_reg:lookup({'remote-irx', {imsi, ?'PROXY-IMSI', 5}}),
-    #{context := Ctx1, left_bearer := LeftBearer1} = gtp_context:info(CtxPid),
+    #{left_tunnel := LeftTunnel1, left_bearer := LeftBearer1} = gtp_context:info(CtxPid),
 
     {GtpC2, _, _} = update_pdp_context(simple, GtpC1),
-    #{context := Ctx2, left_bearer := LeftBearer2} = gtp_context:info(CtxPid),
+    #{left_tunnel := LeftTunnel2, left_bearer := LeftBearer2} = gtp_context:info(CtxPid),
 
     ?equal([], outstanding_requests()),
     delete_pdp_context(GtpC2),
@@ -1597,7 +1593,7 @@ update_pdp_context_request_broken_recovery(Config) ->
     ?equal(GtpC1#gtpc.remote_data_tei,    GtpC2#gtpc.remote_data_tei),
 
     %% make sure the GGSN side control TEID don't change
-    ?equal(Ctx1#context.left_tnl#tunnel.remote, Ctx2#context.left_tnl#tunnel.remote),
+    ?equal(LeftTunnel1#tunnel.remote, LeftTunnel2#tunnel.remote),
     ?equal(LeftBearer1#bearer.remote, LeftBearer2#bearer.remote),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),

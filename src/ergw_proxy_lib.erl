@@ -39,22 +39,15 @@ forward_request(Direction, #tunnel{socket = Socket}, DstIP, DstPort,
 forward_request(Direction, #tunnel{remote = #fq_teid{ip = IP}} = Tunnel,
 		Request, ReqKey, SeqNo, NewPeer, OldState) ->
     forward_request(Direction, Tunnel, IP, ?GTP1c_PORT,
-		    Request, ReqKey, SeqNo, NewPeer, OldState);
-forward_request(Direction, Context, Request, ReqKey, SeqNo, NewPeer, OldState)
-  when is_record(Context, context) ->
-    Tunnel = ergw_gsn_lib:tunnel(left, Context),
-    forward_request(Direction, Tunnel, Request, ReqKey, SeqNo, NewPeer, OldState).
+		    Request, ReqKey, SeqNo, NewPeer, OldState).
 
 %% forward_request/3
 forward_request(Tunnel, ReqKey, Request)
   when is_record(Tunnel, tunnel) ->
     ReqId = make_request_id(ReqKey, Request),
-    gtp_context:resend_request(Tunnel, ReqId);
-forward_request(#context{left_tnl = Tunnel}, ReqKey, Request) ->
-    ReqId = make_request_id(ReqKey, Request),
     gtp_context:resend_request(Tunnel, ReqId).
 
-get_seq_no(#context{left_tnl = #tunnel{socket = Socket}}, ReqKey, Request) ->
+get_seq_no(#tunnel{socket = Socket}, ReqKey, Request) ->
     ReqId = make_request_id(ReqKey, Request),
     ergw_gtp_c_socket:get_seq_no(Socket, ReqId).
 
@@ -207,8 +200,7 @@ make_proxy_request(Direction, Request, SeqNo, NewPeer, State) ->
 		 request = Request,
 		 seq_no = SeqNo,
 		 new_peer = NewPeer,
-		 context = maps:get(context, State, undefined),
-		 proxy_ctx = maps:get(proxy_context, State, undefined)
+		 right_tunnel = maps:get(right_tunnel, State, undefined)
 		},
     {ReqId, ReqInfo}.
 
