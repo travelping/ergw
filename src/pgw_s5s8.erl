@@ -124,7 +124,7 @@ handle_event({call, From}, terminate_context, _State, Data) ->
     {next_state, shutdown, Data, [{reply, From, ok}]};
 
 handle_event({call, From}, {path_restart, Path}, _State,
-	     #{context := #context{left_tnl = #tunnel{path = Path}}} = Data) ->
+	     #{left_tunnel := #tunnel{path = Path}} = Data) ->
     close_pdn_context(normal, Data),
     {next_state, shutdown, Data, [{reply, From, ok}]};
 
@@ -170,6 +170,7 @@ handle_event(info, #aaa_request{procedure = {gx, 'RAR'},
 				events = Events} = Request,
 	     run,
 	     #{context := Context, pfcp := PCtx0,
+	       left_tunnel := LeftTunnel,
 	       left_bearer := LeftBearer, right_bearer := RightBearer,
 	       'Session' := Session, pcc := PCC0} = Data) ->
 %%% 1. update PCC
@@ -184,8 +185,6 @@ handle_event(info, #aaa_request{procedure = {gx, 'RAR'},
 %%% 5. apply granted quotas to PCC rules, remove PCC rules without quotas
 %%% 6. install new PCC rules which have granted quota
 %%% 7. report remove and not installed (lack of quota) PCC rules on Gx
-    #context{left_tnl = LeftTunnel} = Context,
-
     Now = erlang:monotonic_time(),
     ReqOps = #{now => Now},
 
@@ -275,9 +274,9 @@ handle_event(internal, {session, stop, _Session}, _, _) ->
 
 handle_event(internal, {session, {update_credits, _} = CreditEv, _}, _State,
 	     #{context := Context, pfcp := PCtx0,
+	       left_tunnel := LeftTunnel,
 	       left_bearer := LeftBearer, right_bearer := RightBearer,
 	       pcc := PCC0} = Data) ->
-    #context{left_tnl = LeftTunnel} = Context,
     Now = erlang:monotonic_time(),
 
     {PCC, _PCCErrors} = ergw_pcc_context:gy_events_to_pcc_ctx(Now, [CreditEv], PCC0),
@@ -359,7 +358,7 @@ handle_request(ReqKey,
 			  } = IEs} = Request,
 	       _Resent, _State,
 	       #{context := Context0, aaa_opts := AAAopts, node_selection := NodeSelect,
-		 left_bearer := LeftBearer0,
+		 left_tunnel := LeftTunnel0, left_bearer := LeftBearer0,
 		 'Session' := Session, pcc := PCC0} = Data) ->
 
     APN_FQDN = ergw_node_selection:apn_to_fqdn(APN),
@@ -374,8 +373,6 @@ handle_request(ReqKey,
     SxConnectId = ergw_sx_node:request_connect(Candidates, NodeSelect, 1000),
 
     ContextPreAuth = update_context_from_gtp_req(Request, Context0),
-
-    LeftTunnel0 = ergw_gsn_lib:tunnel(left, Context0),
 
     {LeftTunnel1, LeftBearer1} =
 	case update_tunnel_from_gtp_req(Request, LeftTunnel0, LeftBearer0) of
@@ -510,9 +507,9 @@ handle_request(ReqKey,
     Response = response(create_session_response, LeftTunnel, ResponseIEs, Request),
     gtp_context:send_response(ReqKey, Request, Response),
 
-    FinalContext = ergw_gsn_lib:'#set-'([{left_tnl, LeftTunnel}], Context),
     FinalData =
-	Data#{context => FinalContext, pfcp => PCtx, pcc => PCC4,
+	Data#{context => Context, pfcp => PCtx, pcc => PCC4,
+	      left_tunnel => LeftTunnel,
 	      left_bearer => LeftBearer, right_bearer => RightBearer},
 
     Actions = context_idle_action([], Context),
@@ -529,11 +526,11 @@ handle_request(ReqKey,
 			  } = IEs} = Request,
 	       _Resent, _State,
 	       #{context := Context, pfcp := PCtx0,
+		 left_tunnel := LeftTunnelOld,
 		 left_bearer := LeftBearerOld, right_bearer := RightBearer,
 		 'Session' := Session, pcc := PCC} = Data) ->
     process_secondary_rat_usage_data_reports(IEs, Context, Session),
 
-    LeftTunnelOld = ergw_gsn_lib:tunnel(left, Context),
     {LeftTunnel0, LeftBearer} =
 	case update_tunnel_from_gtp_req(
 	       Request, LeftTunnelOld#tunnel{version = v2}, LeftBearerOld) of
@@ -559,9 +556,6 @@ handle_request(ReqKey,
 		trigger_defered_usage_report(URRActions, PCtx0),
 		PCtx0
 	end,
-
-    FinalContext =
-	ergw_gsn_lib:'#set-'([{left_tnl, LeftTunnel}], Context),
 
     ResponseIEs0 =
 	case maps:is_key(?'Sender F-TEID for Control Plane', IEs) of
@@ -590,7 +584,7 @@ handle_request(ReqKey,
     gtp_context:send_response(ReqKey, Request, Response),
 
     DataNew =
-	Data#{context => FinalContext, pfcp := PCtx, left_bearer => LeftBearer},
+	Data#{pfcp := PCtx, left_tunnel => LeftTunnel, left_bearer => LeftBearer},
     Actions = context_idle_action([], Context),
     {keep_state, DataNew, Actions};
 
@@ -598,12 +592,11 @@ handle_request(ReqKey,
 	       #gtp{type = modify_bearer_request, ie = IEs} = Request,
 	       _Resent, _State,
 	       #{context := Context, pfcp := PCtx,
-		 left_bearer := LeftBearerOld,
+		 left_tunnel := LeftTunnelOld, left_bearer := LeftBearerOld,
 		 'Session' := Session} = Data)
   when not is_map_key(?'Bearer Contexts to be modified', IEs) ->
     process_secondary_rat_usage_data_reports(IEs, Context, Session),
 
-    LeftTunnelOld = ergw_gsn_lib:tunnel(left, Context),
     {LeftTunnel0, _LeftBearer} =
 	case update_tunnel_from_gtp_req(
 	       Request, LeftTunnelOld#tunnel{version = v2}, LeftBearerOld) of
@@ -618,8 +611,7 @@ handle_request(ReqKey,
     URRActions = update_session_from_gtp_req(IEs, Session, LeftTunnel),
     trigger_defered_usage_report(URRActions, PCtx),
 
-    FinalContext = ergw_gsn_lib:'#set-'([{left_tnl, LeftTunnel}], Context),
-    DataNew = Data#{context => FinalContext, pfcp := PCtx},
+    DataNew = Data#{pfcp := PCtx, left_tunnel => LeftTunnel},
 
     ResponseIEs = [#v2_cause{v2_cause = request_accepted}],
     Response = response(modify_bearer_response, LeftTunnel, ResponseIEs, Request),
@@ -636,9 +628,8 @@ handle_request(#request{ip = SrcIP, port = SrcPort} = ReqKey,
 			       #v2_bearer_context{
 				   group = #{?'EPS Bearer ID' := EBI} = Bearer}} = IEs},
 	       _Resent, _State,
-	       #{context := Context, pfcp := PCtx, 'Session' := Session}) ->
-    LeftTunnel = ergw_gsn_lib:tunnel(left, Context),
-
+	       #{context := Context, pfcp := PCtx, left_tunnel := LeftTunnel,
+		 'Session' := Session}) ->
     URRActions = update_session_from_gtp_req(IEs, Session, LeftTunnel),
     trigger_defered_usage_report(URRActions, PCtx),
 
@@ -657,10 +648,9 @@ handle_request(#request{ip = SrcIP, port = SrcPort} = ReqKey,
 handle_request(ReqKey,
 	       #gtp{type = change_notification_request, ie = IEs} = Request,
 	       _Resent, _State,
-	       #{context := Context, pfcp := PCtx, 'Session' := Session}) ->
+	       #{context := Context, pfcp := PCtx, left_tunnel := LeftTunnel,
+		 'Session' := Session}) ->
     process_secondary_rat_usage_data_reports(IEs, Context, Session),
-
-    LeftTunnel = ergw_gsn_lib:tunnel(left, Context),
 
     URRActions = update_session_from_gtp_req(IEs, Session, LeftTunnel),
     trigger_defered_usage_report(URRActions, PCtx),
@@ -675,11 +665,7 @@ handle_request(ReqKey,
 
 handle_request(ReqKey,
 	       #gtp{type = suspend_notification} = Request,
-	       _Resent, _State, #{context := Context}) ->
-
-    %% don't do anything special for now
-    LeftTunnel = ergw_gsn_lib:tunnel(left, Context),
-
+	       _Resent, _State, #{context := Context, left_tunnel := LeftTunnel}) ->
     ResponseIEs = [#v2_cause{v2_cause = request_accepted}],
     Response = response(suspend_acknowledge, LeftTunnel, ResponseIEs, Request),
     gtp_context:send_response(ReqKey, Request, Response),
@@ -689,11 +675,7 @@ handle_request(ReqKey,
 
 handle_request(ReqKey,
 	       #gtp{type = resume_notification} = Request,
-	       _Resent, _State, #{context := Context}) ->
-
-    %% don't do anything special for now
-    LeftTunnel = ergw_gsn_lib:tunnel(left, Context),
-
+	       _Resent, _State, #{context := Context, left_tunnel := LeftTunnel}) ->
     ResponseIEs = [#v2_cause{v2_cause = request_accepted}],
     Response = response(resume_acknowledge, LeftTunnel, ResponseIEs, Request),
     gtp_context:send_response(ReqKey, Request, Response),
@@ -703,10 +685,9 @@ handle_request(ReqKey,
 
 handle_request(ReqKey,
 	       #gtp{type = delete_session_request, ie = IEs} = Request,
-	       _Resent, _State, #{context := Context, 'Session' := Session} = Data) ->
-
+	       _Resent, _State,
+	       #{context := Context, left_tunnel := LeftTunnel, 'Session' := Session} = Data) ->
     FqTEID = maps:get(?'Sender F-TEID for Control Plane', IEs, undefined),
-    LeftTunnel = ergw_gsn_lib:tunnel(left, Context),
 
     case match_tunnel(?'S5/S8-C SGW', LeftTunnel, FqTEID) of
 	ok ->
@@ -737,14 +718,12 @@ handle_response(CommandReqKey,
 				   group = #{?'Cause' := #v2_cause{v2_cause = BearerCause}}
 				  }} = IEs} = Response,
 		_Request, run,
-		#{context := Context, pfcp := PCtx, 'Session' := Session} = Data) ->
+		#{pfcp := PCtx, left_tunnel := LeftTunnel0, 'Session' := Session} = Data) ->
     gtp_context:request_finished(CommandReqKey),
 
-    LeftTunnel0 = ergw_gsn_lib:tunnel(left, Context),
     LeftTunnel = gtp_path:bind(Response, LeftTunnel0),
 
-    FinalContext = ergw_gsn_lib:'#set-'([{left_tnl, LeftTunnel}], Context),
-    DataNew = Data#{context => FinalContext},
+    DataNew = Data#{left_tunnel => LeftTunnel},
 
     if Cause =:= request_accepted andalso BearerCause =:= request_accepted ->
 	    URRActions = update_session_from_gtp_req(IEs, Session, LeftTunnel),
@@ -772,14 +751,13 @@ handle_response({From, TermCause},
 		#gtp{type = delete_bearer_response,
 		     ie = #{?'Cause' := #v2_cause{v2_cause = RespCause}} = IEs} = Response,
 		_Request, _State,
-		#{context := Context, 'Session' := Session} = Data) ->
-    LeftTunnel0 = ergw_gsn_lib:tunnel(left, Context),
+		#{context := Context, left_tunnel := LeftTunnel0,
+		  'Session' := Session} = Data) ->
     LeftTunnel = gtp_path:bind(Response, LeftTunnel0),
 
-    FinalContext = ergw_gsn_lib:'#set-'([{left_tnl, LeftTunnel}], Context),
-    DataNew = Data#{context => FinalContext},
+    DataNew = Data#{left_tunnel => LeftTunnel},
 
-    process_secondary_rat_usage_data_reports(IEs, FinalContext, Session),
+    process_secondary_rat_usage_data_reports(IEs, Context, Session),
     close_pdn_context(TermCause, DataNew),
     if is_tuple(From) -> gen_statem:reply(From, {ok, RespCause});
        true -> ok
@@ -1331,7 +1309,7 @@ send_request(#tunnel{remote = #fq_teid{ip = RemoteCntlIP}} = Tunnel, T3, N3, Msg
 send_request(Tunnel, T3, N3, Type, RequestIEs, ReqInfo) ->
     send_request(Tunnel, T3, N3, msg(Tunnel, Type, RequestIEs), ReqInfo).
 
-delete_context(From, TermCause, #{context := #context{left_tnl = Tunnel}} = Data) ->
+delete_context(From, TermCause, #{left_tunnel := Tunnel} = Data) ->
     Type = delete_bearer_request,
     EBI = 5,
     RequestIEs0 = [#v2_cause{v2_cause = reactivation_requested},

@@ -34,8 +34,7 @@
 	 make_gy_credit_request/3]).
 -export([apn/1, apn/2, select_vrf/2,
 	 allocate_ips/7, release_context_ips/1]).
--export([tunnel/2,
-	 init_tunnel/4,
+-export([init_tunnel/4,
 	 assign_tunnel_teid/3,
 	 reassign_tunnel_teid/1,
 	 assign_local_data_teid/4
@@ -887,20 +886,11 @@ icmpv6(_TC, _FlowLabel, _SrcAddr, _DstAddr, _PayLoad,
     ok.
 
 %%%===================================================================
-%%% Bearer helpers
+%%% Tunnel helpers
 %%%===================================================================
 
 update_field_with(Field, Rec, Fun) ->
     '#set-'([{Field, Fun('#get-'(Field, Rec))}], Rec).
-    %% {Get, Set} = '#lens-'(Field, element(1, Rec)),
-    %% Set(Fun(Get(Rec)), Rec).
-
-context_field(tunnel, left)  -> left_tnl;
-context_field(tunnel, right) -> right_tnl.
-
-%% tunnel/2
-tunnel(CtxSide, Ctx) ->
-    '#get-'(context_field(tunnel, CtxSide), Ctx).
 
 %% init_tunnel/4
 init_tunnel(Interface, #gtp_socket_info{vrf = VRF}, Socket, Version) ->

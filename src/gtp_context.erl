@@ -323,8 +323,7 @@ init([Socket, Info, Version, Interface,
     Context = #context{
 		 charging_identifier = ergw_gtp_c_socket:get_uniq_id(Socket),
 
-		 version           = Version,
-		 left_tnl          = LeftTunnel
+		 version           = Version
 		},
 
     Data = #{

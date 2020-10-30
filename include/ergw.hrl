@@ -111,7 +111,6 @@
 
 	  version                :: 'v1' | 'v2',
 	  pdn_type               :: 'undefined' | 'IPv4' | 'IPv6' | 'IPv4v6' | 'Non-IP',
-	  left_tnl               :: 'undefined' | #tunnel{},
 
 	  ms_ip                  :: #ue_ip{},
 	  dns_v6                 :: [inet:ip6_address()],
@@ -144,8 +143,7 @@
 	  direction	:: atom(),
 	  request	:: #request{},
 	  seq_no	:: non_neg_integer(),
-	  context	:: #context{},
-	  proxy_ctx	:: #context{},
+	  right_tunnel	:: #tunnel{},
 	  new_peer	:: boolean()
 }).
 
