@@ -1,6 +1,6 @@
 %% -*- erlang -*-
 {application, ergw, [
-    {vsn,git},
+    {vsn, semver},
     {description, "3GPP GGSN/PGW"},
     {applications, [kernel, stdlib, erlando, crypto,
 		    regine, gtplib, pfcplib,
