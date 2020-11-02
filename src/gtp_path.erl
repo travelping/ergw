@@ -14,7 +14,6 @@
 
 %% API
 -export([start_link/4, all/1,
-	 maybe_new_path/3,
 	 handle_request/2, handle_response/4,
 	 bind/1, bind/2, unbind/1, down/2,
 	 get_handler/2, info/1]).
@@ -31,7 +30,7 @@
 	 terminate/3, code_change/4]).
 
 -ifdef(TEST).
--export([ping/1, ping/3, set/3, stop/1]).
+-export([ping/1, ping/3, set/3, stop/1, maybe_new_path/3]).
 -endif.
 
 -include_lib("kernel/include/logger.hrl").

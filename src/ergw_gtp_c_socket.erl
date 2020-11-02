@@ -91,24 +91,16 @@ send_response(#request{socket = Socket} = ReqKey, Msg, DoCache) ->
     cast(Socket, {send_response, ReqKey, Data, DoCache}).
 
 %% send_request/7
-send_request(Socket, DstIP, DstPort, T3, N3,
-	     Msg = #gtp{version = Version}, CbInfo) ->
+send_request(Socket, DstIP, DstPort, T3, N3, Msg, CbInfo) ->
     ?LOG(debug, "~p: gtp_socket send_request to ~s(~p):~w: ~p",
-		[self(), inet:ntoa(DstIP), DstIP, DstPort, Msg]),
-
-    cast(Socket,
-		    make_send_req(undefined, DstIP, DstPort, T3, N3, Msg, CbInfo)),
-    gtp_path:maybe_new_path(Socket, Version, DstIP).
+	 [self(), inet:ntoa(DstIP), DstIP, DstPort, Msg]),
+    cast(Socket, make_send_req(undefined, DstIP, DstPort, T3, N3, Msg, CbInfo)).
 
 %% send_request/6
-send_request(Socket, DstIP, DstPort, ReqId,
-	     Msg = #gtp{version = Version}, CbInfo) ->
+send_request(Socket, DstIP, DstPort, ReqId, Msg, CbInfo) ->
     ?LOG(debug, "~p: gtp_socket send_request ~p to ~s:~w: ~p",
 		[self(), ReqId, inet:ntoa(DstIP), DstPort, Msg]),
-
-    cast(Socket,
-		    make_send_req(ReqId, DstIP, DstPort, ?T3 * 2, 0, Msg, CbInfo)),
-    gtp_path:maybe_new_path(Socket, Version, DstIP).
+    cast(Socket, make_send_req(ReqId, DstIP, DstPort, ?T3 * 2, 0, Msg, CbInfo)).
 
 resend_request(Socket, ReqId) ->
     cast(Socket, {resend_request, ReqId}).
