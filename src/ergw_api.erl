@@ -41,6 +41,10 @@ contexts(all) ->
     lists:usort([Pid || {{_Socket, {teid, 'gtp-c', _TEID}}, {_, Pid}}
 				       <- gtp_context_reg:all(), is_pid(Pid)]).
 
+delete_contexts(all) ->
+    lists:foreach(fun(Context) ->
+        gtp_context:trigger_delete_context(Context)
+    end, contexts(all));
 delete_contexts(Count) ->
     delete_contexts(contexts(all), Count).
 
@@ -70,6 +74,8 @@ collect_contexts(Context, Tunnels) ->
     [Info#{'Process' => Context} | Tunnels].
 
 delete_contexts(_Contexts, 0) ->
+    ok;
+delete_contexts([], _Count) ->
     ok;
 delete_contexts(Contexts, Count) ->
     Id = rand:uniform(length(Contexts)),

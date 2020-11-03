@@ -14,15 +14,8 @@
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include_lib("common_test/include/ct.hrl").
 
--define(CONFIG_UPDATE,
-	[{[sockets, cp, ip], localhost},
-	 {[sockets, irx, ip], test_gsn},
-	 {[sockets, sx, ip], localhost},
-	 {[node_selection, {default, 2}, 2, "topon.gn.ggsn.$ORIGIN"],
-	  {fun node_sel_update/2, final_gsn}},
-	 {[node_selection, {default, 2}, 2, "topon.sx.prox01.$ORIGIN"],
-	  {fun node_sel_update/2, pgw_u01_sx}}
-	]).
+-define(TIMEOUT, 2000).
+-define(HUT, ggsn_gn).
 
 -define(TEST_CONFIG,
 	[
@@ -78,14 +71,17 @@
 		  ]},
 
 		 {handlers,
-		  %% proxy handler
-		  [{gn, [{handler, ggsn_gn_proxy},
+		  [{gn, [{handler, ggsn_gn},
 			 {sockets, [irx]},
-			 {proxy_sockets, ['proxy-irx']},
-			 {node_selection, [static]},
-			 {contexts,
-			  [{<<"ams">>,
-			    [{proxy_sockets, ['proxy-irx']}]}]}
+			 {node_selection, [default]},
+			 {aaa, [{'Username',
+				 [{default, ['IMSI',   <<"/">>,
+					     'IMEI',   <<"/">>,
+					     'MSISDN', <<"/">>,
+					     'ATOM',   <<"/">>,
+					     "TEXT",   <<"/">>,
+					     12345,
+					     <<"@">>, 'APN']}]}]}
 			]}
 		  ]},
 
@@ -101,30 +97,84 @@
 			  ]}
 		  ]},
 
-		 {node_selection,
+		  {node_selection,
+ 		  [{default,
+ 		    {static,
+ 		     [
+ 		      %% APN NAPTR alternative
+ 		      {"_default.apn.$ORIGIN", {300,64536},
+ 		       [{"x-3gpp-ggsn","x-gn"},{"x-3gpp-ggsn","x-gp"}],
+ 		       "topon.gn.ggsn.$ORIGIN"},
+ 		      {"_default.apn.$ORIGIN", {300,64536},
+ 		       [{"x-3gpp-upf","x-sxb"}],
+ 		       "topon.sx.prox01.$ORIGIN"},
+ 		      {"async-sx.apn.$ORIGIN", {300,64536},
+ 		       [{"x-3gpp-upf","x-sxb"}],
+ 		       "topon.sx.prox01.$ORIGIN"},
+ 		      {"async-sx.apn.$ORIGIN", {300,64536},
+ 		       [{"x-3gpp-upf","x-sxb"}],
+ 		       "topon.sx.prox02.$ORIGIN"},
+
+ 		      %% A/AAAA record alternatives
+ 		      {"topon.gn.ggsn.$ORIGIN", ?MUST_BE_UPDATED, []},
+ 		      {"topon.sx.prox01.$ORIGIN", ?MUST_BE_UPDATED, []},
+ 		      {"topon.sx.prox02.$ORIGIN", ?MUST_BE_UPDATED, []}
+ 		     ]
+ 		    }
+ 		   }
+ 		  ]
+ 		 },
+
+		 {charging,
 		  [{default,
-		    {static,
-		     [
-		      %% APN NAPTR alternative
-		      {"_default.apn.epc.mnc001.mcc001.3gppnetwork.org", {300,64536},
-		       [{"x-3gpp-pgw","x-s5-gtp"},{"x-3gpp-pgw","x-s8-gtp"},
-			{"x-3gpp-pgw","x-gn"},{"x-3gpp-pgw","x-gp"}],
-		       "topon.s5s8.pgw.epc.mnc001.mcc001.3gppnetwork.org"},
-
-		      {"web.apn.epc.mnc001.mcc001.3gppnetwork.org", {300,64536},
-		       [{"x-3gpp-pgw","x-s5-gtp"},{"x-3gpp-pgw","x-s8-gtp"},
-			{"x-3gpp-pgw","x-gn"},{"x-3gpp-pgw","x-gp"}],
-		       "topon.s5s8.pgw.epc.mnc001.mcc001.3gppnetwork.org"},
-
-		      %% A/AAAA record alternatives
-		      {"topon.s5s8.pgw.epc.mnc001.mcc001.3gppnetwork.org",  [{172, 20, 16, 89}], []}
-		     ]
-		    }
-		   },
-		   {mydns,
-		    {dns, {{172,20,16,75}, 53}}}
-		  ]
-		 },
+		    [{offline,
+		      [{triggers,
+			[{'cgi-sai-change',            'container'},
+			 {'ecgi-change',               'container'},
+			 {'max-cond-change',           'cdr'},
+			 {'ms-time-zone-change',       'cdr'},
+			 {'qos-change',                'container'},
+			 {'rai-change',                'container'},
+			 {'rat-change',                'cdr'},
+			 {'sgsn-sgw-change',           'cdr'},
+			 {'sgsn-sgw-plmn-id-change',   'cdr'},
+			 {'tai-change',                'container'},
+			 {'tariff-switch-change',      'container'},
+			 {'user-location-info-change', 'container'}
+			]}
+		      ]},
+		     {rulebase,
+		      [{<<"r-0001">>,
+			#{'Rating-Group' => [3000],
+			  'Flow-Information' =>
+			      [#{'Flow-Description' => [<<"permit out ip from any to assigned">>],
+				 'Flow-Direction'   => [1]    %% DownLink
+				},
+			       #{'Flow-Description' => [<<"permit out ip from any to assigned">>],
+				 'Flow-Direction'   => [2]    %% UpLink
+				}],
+			  'Metering-Method'  => [1],
+			  'Precedence' => [100],
+			  'Offline'  => [1]
+			 }},
+		       {<<"r-0002">>,
+			#{'Rating-Group' => [4000],
+			  'Flow-Information' =>
+			      [#{'Flow-Description' => [<<"permit out ip from any to assigned">>],
+				 'Flow-Direction'   => [1]    %% DownLink
+				},
+			       #{'Flow-Description' => [<<"permit out ip from any to assigned">>],
+				 'Flow-Direction'   => [2]    %% UpLink
+				}],
+			  'Metering-Method'  => [1],
+			  'Precedence' => [100],
+			  'Offline'  => [1]
+			 }},
+		       {<<"m2m0001">>, [<<"r-0001">>]},
+		       {<<"m2m0002">>, [<<"r-0002">>]}
+		      ]}
+		     ]}
+		  ]},
 
 		 {nodes,
 		  [{default,
@@ -139,42 +189,124 @@
 
 		 {http_api, [{port, 0}]}
 		]},
-	 {ergw_aaa, [{ergw_aaa_provider, {ergw_aaa_mock, [{shared_secret, <<"MySecret">>}]}}]}
+
+		{ergw_aaa, [
+	   	   {handlers,
+	   	    [{ergw_aaa_static,
+	   	      [{'NAS-Identifier',          <<"NAS-Identifier">>},
+	   	       {'Node-Id',                 <<"PGW-001">>},
+	   	       {'Charging-Rule-Base-Name', <<"m2m0001">>}
+	   	      ]}
+	   	    ]},
+	   	   {services,
+	   	    [{'Default',
+	   	      [{handler, 'ergw_aaa_static'},
+	   	       {answers,
+				#{'Initial-Gx' =>
+					#{
+						'Result-Code' => 2001,
+						'Charging-Rule-Install' => [#{'Charging-Rule-Base-Name' => [<<"m2m0001">>]}]
+					},
+				'Update-Gx' => #{'Result-Code' => 2001},
+				'Final-Gx' => #{'Result-Code' => 2001}
+				}
+				}
+	   	      ]}
+	   	    ]},
+	   	   {apps,
+	   	    [{default,
+	   	      [{session, ['Default']},
+	   	       {procedures, [{authenticate, []},
+	   			     {authorize, []},
+	   			     {start, []},
+	   			     {interim, []},
+	   			     {stop, []},
+	   			     {{gx, 'CCR-Initial'},   [{'Default', [{answer, 'Initial-Gx'}]}]},
+	   			     {{gx, 'CCR-Update'},    [{'Default', [{answer, 'Update-Gx'}]}]},
+	   			     {{gx, 'CCR-Terminate'}, [{'Default', [{answer, 'Final-Gx'}]}]},
+	   			     {{gy, 'CCR-Initial'},   []},
+	   			     {{gy, 'CCR-Update'},    []},
+	   			     {{gy, 'CCR-Terminate'}, []}
+	   			    ]}
+	   	      ]}
+	   	    ]}
+   	  ]}
 	]).
+
+-define(CONFIG_UPDATE,
+	[{[sockets, cp, ip], localhost},
+	 {[sockets, irx, ip], test_gsn},
+	 {[sockets, sx, ip], localhost},
+	 {[node_selection, {default, 2}, 2, "topon.gn.ggsn.$ORIGIN"],
+	  {fun node_sel_update/2, final_gsn}},
+	 {[node_selection, {default, 2}, 2, "topon.sx.prox01.$ORIGIN"],
+	  {fun node_sel_update/2, pgw_u01_sx}},
+	 {[node_selection, {default, 2}, 2, "topon.sx.prox02.$ORIGIN"],
+	  {fun node_sel_update/2, sgw_u_sx}}
+	]).
+
+node_sel_update(Node, {_,_,_,_} = IP) ->
+    {Node, [IP], []};
+node_sel_update(Node, {_,_,_,_,_,_,_,_} = IP) ->
+    {Node, [], [IP]}.
 
 all() ->
     [http_api_version_req,
      http_api_status_req,
      http_api_status_accept_new_get_req,
      http_api_status_accept_new_post_req,
-     http_api_prometheus_metrics_req
-     %% http_api_delete_sessions
+     http_api_prometheus_metrics_req,
+     http_api_delete_sessions,
+     http_api_delete_all_sessions
     ].
 
-init_per_testcase(Config) ->
-    meck_reset(Config).
-init_per_testcase(http_api_delete_sessions, Config) ->
+%%%===================================================================
+%%% Tests
+%%%===================================================================
+
+setup_per_testcase(Config) ->
+    setup_per_testcase(Config, true).
+
+setup_per_testcase(Config, ClearSxHist) ->
     ct:pal("Sockets: ~p", [ergw_socket_reg:all()]),
     ergw_test_sx_up:reset('pgw-u01'),
     meck_reset(Config),
     start_gtpc_server(Config),
+    reconnect_all_sx_nodes(),
+    ClearSxHist andalso ergw_test_sx_up:history('pgw-u01', true),
+    ok.
+
+end_per_testcase(_Config) ->
+    stop_gtpc_server(),
+    ok.
+
+init_per_testcase(Config) ->
+    meck_reset(Config).
+init_per_testcase(TestCase, Config) when TestCase =:= http_api_delete_sessions; TestCase =:= http_api_delete_all_sessions ->
+    ct:pal("Sockets: ~p", [ergw_socket_reg:all()]),
+    setup_per_testcase(Config),
+    ok = meck:expect(?HUT, handle_request,
+        fun(Request, Msg, Resent, State, Data) ->
+            if Resent -> ok;
+            true      -> ct:sleep(1000)
+        end,
+        meck:passthrough([Request, Msg, Resent, State, Data])
+    end),
     Config;
 init_per_testcase(_, Config) ->
     init_per_testcase(Config),
     Config.
 
-end_per_testcase(http_api_session_delete, Config) ->
-    stop_gtpc_server(),
+end_per_testcase(TestCase, Config) when TestCase =:= http_api_delete_sessions; TestCase =:= http_api_delete_all_sessions ->
+    end_per_testcase(Config),
     Config;
 end_per_testcase(_, Config) ->
     Config.
 
 init_per_suite(Config0) ->
     inets:start(),
-    Config1 = [{app_cfg, ?TEST_CONFIG},
-	       {handler_under_test, ggsn_gn_proxy}
-	       | Config0],
-    Config2 = update_app_config(ipv4, [], Config1),
+    Config1 = [{app_cfg, ?TEST_CONFIG}, {handler_under_test, ?HUT} | Config0],
+    Config2 = update_app_config(ipv4, ?CONFIG_UPDATE, Config1),
     lib_init_per_suite(Config2).
 
 end_per_suite(Config) ->
@@ -262,11 +394,30 @@ http_api_prometheus_metrics_req(_Config) ->
 http_api_delete_sessions() ->
     [{doc, "Check DELETE /contexts/count API"}].
 http_api_delete_sessions(Config) ->
-    Res1 = json_http_request(delete, "/contexts/0"),
-    ?match(#{<<"contexts">> := 0}, Res1),
+    {GtpC0, _, _} = create_pdp_context(Config),
+    {GtpC1, _, _} = create_pdp_context(random, GtpC0),
+    ContextsCount = length(ergw_api:contexts(all)),
+    Res = json_http_request(delete, "/api/v1/contexts/2"),
+    ?match(#{<<"contexts">> := ContextsCount}, Res),
+    ok = respond_delete_pdp_context_request([GtpC0, GtpC1], whereis(gtpc_client_server)),
+    ?match(0, length(ergw_api:contexts(all))),
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    ?match(0, meck:num_calls(?HUT, handle_request, ['_', '_', true, '_', '_'])),
+    meck_validate(Config),
+    ok.
 
-    ok = meck:wait(ggsn_gn, terminate, '_', 2000),
-    wait4tunnels(2000),
+http_api_delete_all_sessions() ->
+    [{doc, "Check DELETE /contexts API"}].
+http_api_delete_all_sessions(Config) ->
+    {GtpC0, _, _} = create_pdp_context(Config),
+    {GtpC1, _, _} = create_pdp_context(random, GtpC0),
+    ContextsCount = length(ergw_api:contexts(all)),
+    Res = json_http_request(delete, "/api/v1/contexts"),
+    ?match(#{<<"contexts">> := ContextsCount}, Res),
+    ok = respond_delete_pdp_context_request([GtpC0, GtpC1], whereis(gtpc_client_server)),
+    ?match(0, length(ergw_api:contexts(all))),
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    ?match(0, meck:num_calls(?HUT, handle_request, ['_', '_', true, '_', '_'])),
     meck_validate(Config),
     ok.
 
@@ -283,3 +434,12 @@ json_http_request(Method, Path) ->
     {ok, {_, _, Body}} = httpc:request(Method, {URL, []},
 				       [], [{body_format, binary}]),
     jsx:decode(Body, [return_maps]).
+
+respond_delete_pdp_context_request([], _) ->
+    ct:sleep(?TIMEOUT);
+respond_delete_pdp_context_request([GtpC|T], Cntl) ->
+    Request = recv_pdu(Cntl, ?TIMEOUT),
+    ?match(#gtp{type = delete_pdp_context_request}, Request),
+    Response = make_response(Request, simple, GtpC),
+    send_pdu(Cntl, GtpC, Response),
+    respond_delete_pdp_context_request(T, Cntl).

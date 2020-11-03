@@ -30,7 +30,7 @@ start_http_listener(Opts) ->
 		    {"/api/v1/status", http_api_handler, []},
 		    {"/api/v1/status/accept-new", http_api_handler, []},
 		    {"/api/v1/status/accept-new/:value", http_api_handler, []},
-		    {"/api/v1/contexts/:count", http_api_handler, []},
+		    {"/api/v1/contexts/[:count]", http_api_handler, []},
 		    {"/metrics/[:registry]", prometheus_cowboy2_handler, []},
 		    %% 5G SBI APIs
 		    {"/sbi/nbsf-management/v1/pcfBindings", sbi_nbsf_handler, []},

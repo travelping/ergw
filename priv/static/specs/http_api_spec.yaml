@@ -52,6 +52,28 @@ paths:
       responses:
         '200':
           description: returns the metrics
+  /contexts:
+    delete:
+      summary: 'delete all contexts'
+      responses:
+        '200':
+          description: return count of contexts
+          schema:
+            $ref: '#/definitions/DeleteContexts'
+  /contexts/{count}:
+    delete:
+      summary: 'delete N contexts'
+      parameters:
+        - name: count
+          in: path
+          required: true
+          type: integer
+          description: 'number of contexts for deleting'
+      responses:
+        '200':
+          description: return count of contexts
+          schema:
+            $ref: '#/definitions/DeleteContexts'
 definitions:
   Status:
     type: "object"
@@ -62,6 +84,12 @@ definitions:
       plmnId:
         $ref:
           "#/definitions/PLMN"
+  DeleteContexts:
+    type: "object"
+    properties:
+      contexts:
+        type: "integer"
+        default: 0
   PLMN:
     type: "object"
     properties:
