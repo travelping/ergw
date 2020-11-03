@@ -1,6 +1,11 @@
 erGW - 3GPP GGSN and PDN-GW in Erlang
 =====================================
 
+Version 2.6.2 - 3 November 2020
+-------------------------------
+
+* Update `prometheus_diameter_collector` deps for handle discarded answers in the diameter stats in `2.6.x`
+
 Version 2.6.1 - 08 October 2020
 -------------------------------
 
