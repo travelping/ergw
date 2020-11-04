@@ -12,9 +12,11 @@
 -compile({parse_transform, cut}).
 
 -export([validate_options/1, init/2, request_spec/3,
-	 handle_pdu/4, handle_sx_report/3,
+	 handle_pdu/4,
 	 handle_request/5, handle_response/5,
 	 handle_event/4, terminate/3]).
+
+-export([delete_context/3, close_context/3]).
 
 -include_lib("kernel/include/logger.hrl").
 -include_lib("gtplib/include/gtp_packet.hrl").
@@ -165,34 +167,6 @@ init(#{proxy_sockets := ProxySockets, node_selection := NodeSelect,
 handle_event(enter, _OldState, _State, _Data) ->
     keep_state_and_data;
 
-handle_event({call, From}, delete_context, _State, Data) ->
-    delete_context(administrative, Data),
-    {next_state, shutdown, Data, [{reply, From, ok}]};
-
-handle_event({call, From}, terminate_context, _State, Data) ->
-    initiate_pdp_context_teardown(sgsn2ggsn, Data),
-    delete_forward_session(normal, Data),
-    {next_state, shutdown, Data, [{reply, From, ok}]};
-
-handle_event({call, From}, {path_restart, Path}, _State,
-	     #{left_tunnel := #tunnel{path = Path}} = Data) ->
-    initiate_pdp_context_teardown(sgsn2ggsn, Data),
-    delete_forward_session(normal, Data),
-    {next_state, shutdown, Data, [{reply, From, ok}]};
-
-handle_event({call, From}, {path_restart, Path}, _State,
-	     #{right_tunnel := #tunnel{path = Path}} = Data) ->
-    initiate_pdp_context_teardown(ggsn2sgsn, Data),
-    delete_forward_session(normal, Data),
-    {next_state, shutdown, Data, [{reply, From, ok}]};
-
-handle_event({call, From}, {path_restart, _Path}, _State, _Data) ->
-    {keep_state_and_data, [{reply, From, ok}]};
-
-handle_event(cast, delete_context, _State, Data) ->
-    delete_context(administrative, Data),
-    {next_state, shutdown, Data};
-
 handle_event(cast, {packet_in, _Socket, _IP, _Port, _Msg}, _State, _Data) ->
     ?LOG(warning, "packet_in not handled (yet): ~p", [_Msg]),
     keep_state_and_data;
@@ -204,12 +178,6 @@ handle_event(info, {timeout, _, {delete_pdp_context_request, Direction, _ReqKey,
     delete_forward_session(normal, Data),
     {next_state, shutdown, Data};
 
-handle_event(info, {'DOWN', _MonitorRef, Type, Pid, _Info}, _State,
-	     #{pfcp := #pfcp_ctx{node = Pid}} = Data)
-  when Type == process; Type == pfcp ->
-    delete_context(upf_failure, Data),
-    {next_state, shutdown, Data};
-
 handle_event(info, _Info, _State, _Data) ->
     keep_state_and_data.
 
@@ -217,23 +185,6 @@ handle_pdu(ReqKey, Msg, _State, Data) ->
     ?LOG(debug, "GTP-U v1 Proxy: ~p, ~p",
 		[ReqKey, gtp_c_lib:fmt_gtp(Msg)]),
     {keep_state, Data}.
-
-handle_sx_report(#pfcp{type = session_report_request,
-		       ie = #{report_type := #report_type{erir = 1},
-			      error_indication_report :=
-				  #error_indication_report{
-				     group =
-					 #{f_teid :=
-					       #f_teid{ipv4 = IP4, ipv6 = IP6} = FTEID0}}}},
-		 _State, Data) ->
-    FTEID = FTEID0#f_teid{ipv4 = ergw_inet:bin2ip(IP4), ipv6 = ergw_inet:bin2ip(IP6)},
-    Direction = fteid_forward_context(FTEID, Data),
-    initiate_pdp_context_teardown(Direction, Data),
-    delete_forward_session(normal, Data),
-    {next_state, shutdown, Data};
-
-handle_sx_report(_, _State, Data) ->
-    {error, 'System failure', Data}.
 
 %%
 %% resend request
@@ -770,15 +721,6 @@ bind_forward_path(ggsn2sgsn, Request,
     Data#{left_tunnel => gtp_path:bind(LeftTunnel),
 	  right_tunnel => gtp_path:bind(Request, RightTunnel)}.
 
-fteid_forward_context(#f_teid{ipv4 = IPv4, ipv6 = IPv6, teid = TEID},
-		      #{right_bearer := #bearer{remote = #fq_teid{ip = IP, teid = TEID}}})
-  when IP =:= IPv4; IP =:= IPv6 ->
-    ggsn2sgsn;
-fteid_forward_context(#f_teid{ipv4 = IPv4, ipv6 = IPv6, teid = TEID},
-		      #{left_bearer := #bearer{remote = #fq_teid{ip = IP, teid = TEID}}})
-  when IP =:= IPv4; IP =:= IPv6 ->
-    sgsn2ggsn.
-
 forward_request(Direction, ReqKey, #gtp{seq_no = ReqSeqNo, ie = ReqIEs} = Request,
 		Tunnel, Bearer, Context, Data) ->
     FwdReq = build_context_request(Tunnel, Bearer, Context, false, undefined, Request),
@@ -808,7 +750,25 @@ restart_timeout(Timeout, Msg, Data) ->
     cancel_timeout(Data),
     Data#{timeout => erlang:start_timer(Timeout, self(), Msg)}.
 
-delete_context(Reason, Data) ->
+close_context(Side, TermCause, Data) ->
+    case Side of
+	left  ->
+	    initiate_pdp_context_teardown(sgsn2ggsn, Data);
+	right ->
+	    initiate_pdp_context_teardown(ggsn2sgsn, Data);
+	both ->
+	    initiate_pdp_context_teardown(sgsn2ggsn, Data),
+	    initiate_pdp_context_teardown(ggsn2sgsn, Data)
+    end,
+    delete_forward_session(TermCause, Data).
+
+delete_context(From, TermCause, Data) ->
     initiate_pdp_context_teardown(sgsn2ggsn, Data),
     initiate_pdp_context_teardown(ggsn2sgsn, Data),
-    delete_forward_session(Reason, Data).
+    delete_forward_session(TermCause, Data),
+    Action = case From of
+		 undefined -> [];
+		 _ -> [{reply, From, ok}]
+	     end,
+    %% TDB: {next_state, shutdown_initiated, Data}. ????
+    {next_state, shutdown, Data, Action}.

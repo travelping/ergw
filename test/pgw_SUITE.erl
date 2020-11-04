@@ -745,7 +745,7 @@ init_per_testcase(path_maintenance, Config) ->
     Config;
 init_per_testcase(duplicate_session_slow, Config) ->
     setup_per_testcase(Config),
-    ok = meck:expect(?HUT, handle_event,
+    ok = meck:expect(gtp_context, handle_event,
 		     fun({call, _} = Type, terminate_context = Content, run = State, Data) ->
 			     %% simulate a 500ms delay in terminating the context
 			     ct:sleep(500),
@@ -931,7 +931,7 @@ end_per_testcase(path_maintenance, Config) ->
     end_per_testcase(Config),
     Config;
 end_per_testcase(duplicate_session_slow, Config) ->
-    ok = meck:delete(?HUT, handle_event, 4),
+    ok = meck:delete(gtp_context, handle_event, 4),
     end_per_testcase(Config),
     Config;
 end_per_testcase(TestCase, Config)
@@ -2620,7 +2620,8 @@ gy_validity_timer(Config) ->
     delete_session(GtpC),
 
     ?match(X when X >= 3 andalso X < 10,
-		  meck:num_calls(?HUT, handle_event, [info, {pfcp_timer, '_'}, '_', '_'])),
+		  meck:num_calls(
+		    gtp_context, handle_event, [info, {timeout, '_', pfcp_timer}, '_', '_'])),
 
     CCRU = lists:filter(
 	     fun({_, {ergw_aaa_session, invoke, [_, S, {gy,'CCR-Update'}, _]}, _}) ->
@@ -4926,7 +4927,7 @@ gtp_idle_timeout(Config) ->
     Cntl = whereis(gtpc_client_server),
     {GtpC, _, _} = create_session(Config),
     %% The meck wait timeout (400 ms) has to be more than then the Idle-Timeout
-    ok = meck:wait(?HUT, handle_event,
+    ok = meck:wait(gtp_context, handle_event,
 		   [{timeout, context_idle}, stop_session, '_', '_'], 400),
 
     %% Timeout triggers a delete_bearer_request towards the S-GW.

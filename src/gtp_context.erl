@@ -32,6 +32,8 @@
 -export([usage_report_to_accounting/1,
 	 collect_charging_events/2]).
 
+-export([usage_report/3, trigger_usage_report/3]).
+
 %% ergw_context callbacks
 -export([sx_report/2, port_message/2, port_message/4]).
 
@@ -51,6 +53,7 @@
 -include_lib("kernel/include/logger.hrl").
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include_lib("pfcplib/include/pfcp_packet.hrl").
+-include_lib("ergw_aaa/include/ergw_aaa_session.hrl").
 -include("include/ergw.hrl").
 
 -define(TestCmdTag, '$TestCmd').
@@ -362,21 +365,46 @@ handle_event(cast, stop, shutdown, _Data) ->
 handle_event(enter, OldState, State, #{interface := Interface} = Data) ->
     Interface:handle_event(enter, OldState, State, Data);
 
-handle_event({call, From}, {sx, Report}, State,
-	    #{interface := Interface, pfcp := PCtx} = Data0) ->
-    ?LOG(debug, "~w: handle_call Sx: ~p", [?MODULE, Report]),
-    case Interface:handle_sx_report(Report, State, Data0) of
-	{ok, Data} ->
-	    {keep_state, Data, [{reply, From, {ok, PCtx}}]};
-	{reply, Reply, Data} ->
-	    {keep_state, Data, [{reply, From, {ok, PCtx, Reply}}]};
-	{shutdown, Data} ->
-	    {next_state, shutdown, Data, [{reply, From, {ok, PCtx}}]};
-	{error, Reply, Data} ->
-	    {keep_state, Data, [{reply, From, {ok, PCtx, Reply}}]};
-	{noreply, Data} ->
-	    {keep_state, Data}
+%% Error Indication Report
+handle_event({call, From},
+	     {sx, #pfcp{type = session_report_request,
+			ie = #{report_type := #report_type{erir = 1},
+			       error_indication_report :=
+				   #error_indication_report{
+				      group =
+					  #{f_teid :=
+						#f_teid{ipv4 = IP4, ipv6 = IP6} = FTEID0}}}}},
+	     _State, #{pfcp := PCtx} = Data) ->
+    FTEID = FTEID0#f_teid{ipv4 = ergw_inet:bin2ip(IP4), ipv6 = ergw_inet:bin2ip(IP6)},
+    case fteid_tunnel_side(FTEID, Data) of
+	none ->
+	    %% late EIR, we already switched to a new peer
+	    {keep_state_and_data, [{reply, From, {ok, PCtx}}]};
+
+	Side ->
+	    close_context(Side, normal, Data),
+	    {next_state, shutdown, Data, [{reply, From, {ok, PCtx}}]}
     end;
+
+%% User Plane Inactivity Timer expired
+handle_event({call, From},
+	     {sx, #pfcp{type = session_report_request,
+			ie = #{report_type := #report_type{upir = 1}}}},
+	     _State, #{pfcp := PCtx} = Data) ->
+    close_context(both, normal, Data),
+    {next_state, shutdown, Data, [{reply, From, {ok, PCtx}}]};
+
+%% Usage Report
+handle_event({call, From},
+	     {sx, #pfcp{type = session_report_request,
+			ie = #{report_type := #report_type{usar = 1},
+			       usage_report_srr := UsageReport}}},
+	      _State, #{pfcp := PCtx, 'Session' := Session, pcc := PCC}) ->
+    Now = erlang:monotonic_time(),
+    ChargeEv = interim,
+
+    ergw_gtp_gsn_session:usage_report_request(ChargeEv, Now, UsageReport, PCtx, PCC, Session),
+    {keep_state_and_data, [{reply, From, {ok, PCtx}}]};
 
 handle_event(cast, {handle_message, Request, #gtp{} = Msg0, Resent}, State, Data) ->
     Msg = gtp_packet:decode_ies(Msg0),
@@ -411,17 +439,184 @@ handle_event(cast, {handle_response, ReqInfo, Request, Response0}, State,
 	    erlang:raise(Class, Reason, Stacktrace)
     end;
 
+handle_event(info, #aaa_request{procedure = {_, 'ASR'}} = Request, run, Data) ->
+    ergw_aaa_session:response(Request, ok, #{}, #{}),
+    delete_context(undefined, administrative, Data);
+handle_event(info, #aaa_request{procedure = {_, 'ASR'}} = Request, _State, _Data) ->
+    ergw_aaa_session:response(Request, ok, #{}, #{}),
+    keep_state_and_data;
+
+handle_event(info, #aaa_request{procedure = {gx, 'RAR'},
+				events = Events} = Request,
+	     run,
+	     #{context := Context, pfcp := PCtx0,
+	       left_tunnel := LeftTunnel,
+	       left_bearer := LeftBearer, right_bearer := RightBearer,
+	       'Session' := Session, pcc := PCC0} = Data) ->
+%%% 1. update PCC
+%%%    a) calculate PCC rules to be removed
+%%%    b) calculate PCC rules to be installed
+%%% 2. figure out which Rating-Groups are new or which ones have to be removed
+%%%    based on updated PCC rules
+%%% 3. remove PCC rules and unsused Rating-Group URRs from UPF
+%%% 4. on Gy:
+%%%     - report removed URRs/RGs
+%%%     - request credits for new URRs/RGs
+%%% 5. apply granted quotas to PCC rules, remove PCC rules without quotas
+%%% 6. install new PCC rules which have granted quota
+%%% 7. report remove and not installed (lack of quota) PCC rules on Gx
+    Now = erlang:monotonic_time(),
+    ReqOps = #{now => Now},
+
+    RuleBase = ergw_charging:rulebase(),
+
+%%% step 1a:
+    {PCC1, _} =
+	ergw_pcc_context:gx_events_to_pcc_ctx(Events, remove, RuleBase, PCC0),
+%%% step 1b:
+    {PCC2, PCCErrors2} =
+	ergw_pcc_context:gx_events_to_pcc_ctx(Events, install, RuleBase, PCC1),
+
+%%% step 2
+%%% step 3:
+    {PCtx1, UsageReport} =
+	case ergw_pfcp_context:modify_pfcp_session(
+	       PCC1, [], #{}, LeftBearer, RightBearer, PCtx0) of
+	    {ok, Result1} -> Result1;
+	    {error, Err1} -> throw(Err1#ctx_err{context = Context, tunnel = LeftTunnel})
+	end,
+
+%%% step 4:
+    ChargeEv = {online, 'RAR'},   %% made up value, not use anywhere...
+    {Online, Offline, Monitor} =
+	ergw_pfcp_context:usage_report_to_charging_events(UsageReport, ChargeEv, PCtx1),
+
+    ergw_gsn_lib:process_accounting_monitor_events(ChargeEv, Monitor, Now, Session),
+    GyReqServices = ergw_pcc_context:gy_credit_request(Online, PCC0, PCC2),
+    {ok, _, GyEvs} =
+	ergw_gsn_lib:process_online_charging_events(ChargeEv, GyReqServices, Session, ReqOps),
+    ergw_gsn_lib:process_offline_charging_events(ChargeEv, Offline, Now, Session),
+
+%%% step 5:
+    {PCC4, PCCErrors4} = ergw_pcc_context:gy_events_to_pcc_ctx(Now, GyEvs, PCC2),
+
+%%% step 6:
+    {PCtx, _} =
+	case ergw_pfcp_context:modify_pfcp_session(
+	       PCC4, [], #{}, LeftBearer, RightBearer, PCtx1) of
+	    {ok, Result2} -> Result2;
+	    {error, Err2} -> throw(Err2#ctx_err{context = Context, tunnel = LeftTunnel})
+	end,
+
+%%% step 7:
+    %% TODO Charging-Rule-Report for successfully installed/removed rules
+
+    GxReport = ergw_gsn_lib:pcc_events_to_charging_rule_report(PCCErrors2 ++ PCCErrors4),
+    ergw_aaa_session:response(Request, ok, GxReport, #{}),
+    {keep_state, Data#{pfcp := PCtx, pcc := PCC4}};
+
+handle_event(info, #aaa_request{procedure = {gy, 'RAR'},
+				events = Events} = Request,
+	     run, Data) ->
+    ergw_aaa_session:response(Request, ok, #{}, #{}),
+    Now = erlang:monotonic_time(),
+
+    %% Triggered CCR.....
+    ChargingKeys =
+	case proplists:get_value(report_rating_group, Events) of
+	    RatingGroups when is_list(RatingGroups) ->
+		[{online, RG} || RG <- RatingGroups];
+	    _ ->
+		undefined
+	end,
+    ergw_gtp_gsn_lib:triggered_charging_event(interim, Now, ChargingKeys, Data),
+    keep_state_and_data;
+
+handle_event(info, #aaa_request{procedure = {_, 'RAR'}} = Request, _State, _Data) ->
+    ergw_aaa_session:response(Request, {error, unknown_session}, #{}, #{}),
+    keep_state_and_data;
+
 handle_event(info, {update_session, Session, Events}, _State, _Data) ->
     ?LOG(debug, "SessionEvents: ~p~n       Events: ~p", [Session, Events]),
     Actions = [{next_event, internal, {session, Ev, Session}} || Ev <- Events],
     {keep_state_and_data, Actions};
 
-handle_event(info, {timeout, TRef, pfcp_timer} = Info, State,
-	    #{interface := Interface, pfcp := PCtx0} = Data) ->
-    ?LOG(debug, "handle_info ~p:~p", [Interface,Info]),
+handle_event(internal, {session, {update_credits, _} = CreditEv, _}, _State,
+	     #{context := Context, pfcp := PCtx0,
+	       left_tunnel := LeftTunnel,
+	       left_bearer := LeftBearer, right_bearer := RightBearer,
+	       pcc := PCC0} = Data) ->
+    Now = erlang:monotonic_time(),
+
+    {PCC, _PCCErrors} = ergw_pcc_context:gy_events_to_pcc_ctx(Now, [CreditEv], PCC0),
+    {PCtx, _} =
+	case ergw_pfcp_context:modify_pfcp_session(
+	       PCC, [], #{}, LeftBearer, RightBearer, PCtx0) of
+	    {ok, Result1} -> Result1;
+	    {error, Err1} -> throw(Err1#ctx_err{context = Context, tunnel = LeftTunnel})
+	end,
+    {keep_state, Data#{pfcp := PCtx, pcc := PCC}};
+
+handle_event(internal, {session, stop, _Session}, run, Data) ->
+    delete_context(undefined, normal, Data);
+handle_event(internal, {session, stop, _Session}, _, _) ->
+    keep_state_and_data;
+
+handle_event(internal, {session, Ev, _}, _State, _Data) ->
+    ?LOG(error, "unhandled session event: ~p", [Ev]),
+    keep_state_and_data;
+
+handle_event(info, {timeout, TRef, pfcp_timer} = Info, _State, #{pfcp := PCtx0} = Data0) ->
+    ?LOG(debug, "handle_info: ~p", [Info]),
+    Now = erlang:monotonic_time(),
     {Evs, PCtx} = ergw_pfcp:timer_expired(TRef, PCtx0),
-    CtxEvs = ergw_gsn_lib:pfcp_to_context_event(Evs),
-    Interface:handle_event(info, {pfcp_timer, CtxEvs}, State, Data#{pfcp => PCtx});
+    Data = Data0#{pfcp => PCtx},
+    #{validity_time := ChargingKeys} = ergw_gsn_lib:pfcp_to_context_event(Evs),
+    ergw_gtp_gsn_lib:triggered_charging_event(validity_time, Now, ChargingKeys, Data),
+    {keep_state, Data};
+
+handle_event({call, From}, delete_context, run, Data) ->
+    %% TBD: showdown vs. shutdown_initiated in proxy...
+    delete_context(From, administrative, Data);
+handle_event({call, From}, delete_context, shutdown, _Data) ->
+    {keep_state_and_data, [{reply, From, {ok, ok}}]};
+handle_event({call, _From}, delete_context, _State, _Data) ->
+    {keep_state_and_data, [postpone]};
+
+handle_event({call, From}, terminate_context, _State, Data) ->
+    close_context(left, normal, Data),
+    {next_state, shutdown, Data, [{reply, From, ok}]};
+
+handle_event({call, From}, {path_restart, Path}, _State,
+	     #{left_tunnel := #tunnel{path = Path}} = Data) ->
+    close_context(left, normal, Data),
+    {next_state, shutdown, Data, [{reply, From, ok}]};
+
+handle_event({call, From}, {path_restart, Path}, _State,
+	     #{right_tunnel := #tunnel{path = Path}} = Data) ->
+    close_context(right, normal, Data),
+    {next_state, shutdown, Data, [{reply, From, ok}]};
+
+handle_event({call, From}, {path_restart, _Path}, _State, _Data) ->
+    {keep_state_and_data, [{reply, From, ok}]};
+
+handle_event(cast, {usage_report, URRActions, UsageReport}, _State, Data) ->
+    ergw_gtp_gsn_lib:usage_report(URRActions, UsageReport, Data),
+    keep_state_and_data;
+
+handle_event(cast, delete_context, run, Data) ->
+    delete_context(undefined, administrative, Data);
+handle_event(cast, delete_context, _State, _Data) ->
+    keep_state_and_data;
+
+handle_event(info, {'DOWN', _MonitorRef, Type, Pid, _Info}, _State,
+	     #{pfcp := #pfcp_ctx{node = Pid}} = Data)
+  when Type == process; Type == pfcp ->
+    close_context(both, upf_failure, Data),
+    {next_state, shutdown, Data};
+
+handle_event({timeout, context_idle}, stop_session, _State, Data) ->
+    delete_context(undefined, normal, Data);
 
 handle_event(Type, Content, State, #{interface := Interface} = Data) ->
     ?LOG(debug, "~w: handle_event: (~p, ~p, ~p)",
@@ -656,3 +851,46 @@ usage_report_to_accounting([H|_]) ->
     usage_report_to_accounting(H);
 usage_report_to_accounting(undefined) ->
     [].
+
+%%====================================================================
+%% Helper
+%%====================================================================
+
+fteid_tunnel_side(#f_teid{ipv4 = IPv4, ipv6 = IPv6, teid = TEID},
+		  #{left_bearer := #bearer{remote = #fq_teid{ip = IP, teid = TEID}}})
+  when IP =:= IPv4; IP =:= IPv6 ->
+    left;
+fteid_tunnel_side(#f_teid{ipv4 = IPv4, ipv6 = IPv6, teid = TEID},
+		  #{right_bearer := #bearer{remote = #fq_teid{ip = IP, teid = TEID}}})
+  when IP =:= IPv4; IP =:= IPv6 ->
+    right;
+fteid_tunnel_side(_, _) ->
+    none.
+
+close_context(Side, TermCause, #{interface := Interface} = Data) ->
+    Interface:close_context(Side, TermCause, Data).
+
+delete_context(From, TermCause, #{interface := Interface} = Data) ->
+    Interface:delete_context(From, TermCause, Data).
+
+%%====================================================================
+%% asynchrounus usage reporting
+%%====================================================================
+
+usage_report(Server, URRActions, Report) ->
+    gen_statem:cast(Server, {usage_report, URRActions, Report}).
+
+usage_report_fun(Owner, URRActions, PCtx) ->
+    case ergw_pfcp_context:query_usage_report(offline, PCtx) of
+	{ok, {_, Report}} ->
+	    usage_report(Owner, URRActions, Report);
+	{error, CtxErr} ->
+	    ?LOG(error, "Defered Usage Report failed with ~p", [CtxErr])
+    end.
+
+trigger_usage_report(_Self, [], _PCtx) ->
+    ok;
+trigger_usage_report(Self, URRActions, PCtx) ->
+    Self = self(),
+    proc_lib:spawn(fun() -> usage_report_fun(Self, URRActions, PCtx) end),
+    ok.

@@ -185,6 +185,16 @@ meck_init(Config) ->
     ok = meck:new(ergw_gsn_lib, [passthrough, no_link]),
     ok = meck:new(ergw_pfcp_context, [passthrough, no_link]),
     ok = meck:new(ergw_proxy_lib, [passthrough, no_link]),
+    ok = meck:new(gtp_context, [passthrough, no_link]),
+    ok = meck:expect(gtp_context, port_message,
+		     fun(Request, Msg) ->
+			     try
+				 meck:passthrough([Request, Msg])
+			     catch
+				 throw:Err ->
+				     meck:exception(throw, Err)
+			     end
+		     end),
 
     {_, Hut} = lists:keyfind(handler_under_test, 1, Config),   %% let it crash if HUT is undefined
     ok = meck:new(Hut, [passthrough, no_link, non_strict]),
@@ -205,6 +215,7 @@ meck_reset(Config) ->
     meck:reset(ergw_gsn_lib),
     meck:reset(ergw_pfcp_context),
     meck:reset(ergw_proxy_lib),
+    meck:reset(gtp_context),
     meck:reset(proplists:get_value(handler_under_test, Config)).
 
 meck_unload(Config) ->
@@ -214,6 +225,7 @@ meck_unload(Config) ->
     meck:unload(ergw_gsn_lib),
     meck:unload(ergw_pfcp_context),
     meck:unload(ergw_proxy_lib),
+    meck:unload(gtp_context),
     meck:unload(proplists:get_value(handler_under_test, Config)).
 
 meck_validate(Config) ->
@@ -223,6 +235,7 @@ meck_validate(Config) ->
     ?equal(true, meck:validate(ergw_gsn_lib)),
     ?equal(true, meck:validate(ergw_pfcp_context)),
     ?equal(true, meck:validate(ergw_proxy_lib)),
+    ?equal(true, meck:validate(gtp_context)),
     ?equal(true, meck:validate(proplists:get_value(handler_under_test, Config))).
 
 %%%===================================================================
