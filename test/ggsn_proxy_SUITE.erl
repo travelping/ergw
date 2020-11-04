@@ -748,10 +748,6 @@ init_per_testcase(ggsn_update_pdp_context_request, Config) ->
 			     meck:passthrough([From, Response, Request, State, Data])
 		     end),
     Config;
-init_per_testcase(update_pdp_context_request_broken_recovery, Config) ->
-    setup_per_testcase(Config),
-    ok = meck:new(gtp_context, [passthrough, no_link]),
-    Config;
 init_per_testcase(create_pdp_context_overload, Config) ->
     setup_per_testcase(Config),
     jobs:modify_queue(create, [{max_size, 0}]),
@@ -836,7 +832,7 @@ end_per_testcase(ggsn_update_pdp_context_request, Config) ->
     end_per_testcase(Config),
     Config;
 end_per_testcase(update_pdp_context_request_broken_recovery, Config) ->
-    meck:unload(gtp_context),
+    meck:delete(gtp_context, send_response, 3),
     end_per_testcase(Config),
     Config;
 end_per_testcase(create_pdp_context_overload, Config) ->

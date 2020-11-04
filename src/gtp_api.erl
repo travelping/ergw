@@ -59,14 +59,8 @@
 	      {noreply, NewData :: map(), 'hibernate'} |
 	      {stop, Reason :: term(), NewData :: map()}.
 
--callback handle_sx_report(Msg :: #pfcp{},
-			   State :: gen_statem:state(), % Current state
-			   Data :: map()) ->
-    Return :: {reply, Reply :: term(), NewData :: map()} |
-	      {ok, NewData :: map()} |
-	      {stop, NewData :: map()} |
-	      {error, Reply :: term(), NewData :: map()} |
-	      {noreply, NewData :: map()}.
+-callback close_context(Side :: atom(), Reason :: atom(), Data :: map()) -> term().
+-callback delete_context(From :: term(), TermCause :: atom(), Data :: map()) -> term().
 
 %% Clean up before the server terminates.
 -callback terminate(

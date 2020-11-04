@@ -1608,7 +1608,8 @@ gy_validity_timer(Config) ->
     delete_pdp_context(GtpC),
 
     ?match(X when X >= 3 andalso X < 10,
-		  meck:num_calls(?HUT, handle_event, [info, {pfcp_timer, '_'}, '_', '_'])),
+		  meck:num_calls(
+		    gtp_context, handle_event, [info, {timeout, '_', pfcp_timer}, '_', '_'])),
 
     CCRU = lists:filter(
 	     fun({_, {ergw_aaa_session, invoke, [_, S, {gy,'CCR-Update'}, _]}, _}) ->
@@ -2502,7 +2503,7 @@ gtp_idle_timeout(Config) ->
     Cntl = whereis(gtpc_client_server),
     {GtpC, _, _} = create_pdp_context(Config),
     %% The meck wait timeout (400 ms) has to be more than then the Idle-Timeout
-    ok = meck:wait(?HUT, handle_event,
+    ok = meck:wait(gtp_context, handle_event,
 		   [{timeout, context_idle}, stop_session, '_', '_'], 3000),
 
     %% Timeout triggers a delete_pdp_context_request towards the SGSN
