@@ -12,7 +12,8 @@
 
 -export([connect_upf_candidates/4, create_session/10]).
 -export([triggered_charging_event/4, usage_report/3, close_context/2]).
--export([update_tunnel_endpoint/3, apply_bearer_change/6]).
+-export([update_tunnel_endpoint/3, handle_peer_change/3, update_tunnel_endpoint/2,
+	 apply_bearer_change/6]).
 
 -include_lib("kernel/include/logger.hrl").
 -include_lib("gtplib/include/gtp_packet.hrl").
@@ -160,17 +161,32 @@ add_apn_timeout(Opts, Session, Context) ->
 %% Tunnel
 %%====================================================================
 
-update_tunnel_endpoint(Request, TunnelOld, Tunnel0) ->
-    Tunnel = gtp_path:bind(Request, Tunnel0),
-    update_path_bind(TunnelOld, Tunnel).
+update_tunnel_endpoint(Msg, TunnelOld, Tunnel0) ->
+    Tunnel = gtp_path:bind(Msg, Tunnel0),
+    gtp_context:tunnel_reg_update(TunnelOld, Tunnel),
+    if Tunnel#tunnel.path /= TunnelOld#tunnel.path ->
+	    gtp_path:unbind(TunnelOld);
+       true ->
+	    ok
+    end,
+    Tunnel.
 
-update_path_bind(TunnelOld, TunnelNew)
-  when TunnelOld /= TunnelNew ->
-    gtp_context:tunnel_reg_update(TunnelOld, TunnelNew),
-    gtp_path:unbind(TunnelOld),
-    TunnelNew;
-update_path_bind(_TunnelOld, TunnelNew) ->
-    TunnelNew.
+handle_peer_change(#tunnel{remote = NewFqTEID},
+		   #tunnel{remote = OldFqTEID}, TunnelOld)
+  when OldFqTEID /= NewFqTEID ->
+    ergw_gsn_lib:reassign_tunnel_teid(TunnelOld);
+handle_peer_change(_, _, Tunnel) ->
+    Tunnel.
+
+update_tunnel_endpoint(TunnelOld, Tunnel0) ->
+    Tunnel = gtp_path:bind(Tunnel0),
+    gtp_context:tunnel_reg_update(TunnelOld, Tunnel),
+    if Tunnel#tunnel.path /= TunnelOld#tunnel.path ->
+	    gtp_path:unbind(TunnelOld);
+       true ->
+	    ok
+    end,
+    Tunnel.
 
 %%====================================================================
 %% Bearer Support
