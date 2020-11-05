@@ -16,7 +16,7 @@
 	 delete_pfcp_session/2,
 	 query_usage_report/1, query_usage_report/2
 	]).
--export([select_upf/3, reselect_upf/4]).
+-export([select_upf/1, select_upf/3, reselect_upf/4]).
 -export([send_g_pdu/3]).
 
 -include_lib("kernel/include/logger.hrl").
@@ -787,6 +787,31 @@ select(first, L) -> hd(L);
 select(random, L) when is_list(L) ->
     lists:nth(rand:uniform(length(L)), L).
 
+
+%% select_upf/1
+select_upf(Candidates) ->
+    do([error_m ||
+	   Available = ergw_sx_node_reg:available(),
+	   Pid <- select_upf_with(fun({Pid, _}) -> {ok, Pid} end, Candidates, Available),
+	   ergw_sx_node:attach(Pid)
+       ]).
+
+%% select_upf/2
+select_upf_with(_, [], _) ->
+    {error, ?CTX_ERR(?FATAL, no_resources_available)};
+select_upf_with(Fun, Candidates, Available) ->
+    case ergw_node_selection:snaptr_candidate(Candidates) of
+	{{Node, _, _}, Next} when is_map_key(Node, Available) ->
+	    case Fun(maps:get(Node, Available)) of
+		{ok, _} = Result ->
+		    Result;
+		_ ->
+		    select_upf_with(Fun, Next, Available)
+	    end;
+	{_, Next} ->
+	    select_upf_with(Fun, Next, Available)
+    end.
+
 %% select_upf/3
 select_upf(Candidates, Session0, APNOpts) ->
     do([error_m ||
@@ -865,18 +890,17 @@ select_by_caps(Candidates, #{vrfs := VRFs, ip_pools := Pools}, WantPools) ->
 filter_by_caps(Candidates, Wanted, AnyPool) ->
     Available = ergw_sx_node_reg:available(),
     Eligible = common_caps(Wanted, Candidates, Available, AnyPool, []),
-    filter_by_caps_f(Wanted, AnyPool, Available, Eligible).
 
-%% filter_by_caps_f/4
-filter_by_caps_f(Wanted, AnyPool, Available, Eligible)
-  when length(Eligible) /= 0 ->
-    {{Node, _, _}, _} = ergw_node_selection:snaptr_candidate(Eligible),
-    {Pid, NodeCaps} = maps:get(Node, Available),
+    %% Note: common_caps/5 filters all **Available** nodes by capabilities first,
+    %%       select_upf_with/3 can therefor simply take the node with the highest precedence.
+    select_upf_with(
+      fun(Node) -> filter_by_caps_f(Node, Wanted, AnyPool) end, Eligible, Available).
+
+%% filter_by_caps_f/1
+filter_by_caps_f({Pid, NodeCaps}, Wanted, AnyPool) ->
     {_, SVRFs, SPools} = common_caps(Wanted, NodeCaps, AnyPool),
     VRF = maps:get(select(random, maps:keys(SVRFs)), SVRFs),
-    {ok, {Pid, NodeCaps, VRF, SPools}};
-filter_by_caps_f(_, _, _, _) ->
-    {error, ?CTX_ERR(?FATAL, no_resources_available)}.
+    {ok, {Pid, NodeCaps, VRF, SPools}}.
 
 %%%===================================================================
 

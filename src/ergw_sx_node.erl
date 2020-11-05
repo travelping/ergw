@@ -13,8 +13,7 @@
 -compile({parse_transform, cut}).
 
 %% API
--export([select_sx_node/1,
-	 request_connect/3, request_connect/5, wait_connect/1,
+-export([request_connect/3, request_connect/5, wait_connect/1,
 	 attach/1, attach_tdf/2, notify_up/2]).
 -export([start_link/5, send/4, call/2,
 	 handle_request/3, response/3]).
@@ -76,11 +75,6 @@
 %%====================================================================
 %% API
 %%====================================================================
-
-%% select_sx_node/1
-select_sx_node(Candidates) ->
-    {ok, Pid} = connect_sx_candidates(Candidates),
-    attach(Pid).
 
 %% attach/1
 attach(Node) when is_pid(Node) ->
@@ -571,23 +565,6 @@ connect_node({Node, _, _, IP4, IP6}, NodeSelect, _Available, Expects) ->
     NotifyUp = {self(), make_ref()},
     ergw_sx_node_mngr:connect(Node, NodeSelect, IP4, IP6, [NotifyUp]),
     [NotifyUp | Expects].
-
-%% connect_sx_candidates/1
-connect_sx_candidates(Candidates) ->
-    Available = ergw_sx_node_reg:available(),
-    connect_sx_candidates(Candidates, Available).
-
-%% connect_sx_candidates/2
-connect_sx_candidates([], _Available) ->
-    {error, not_found};
-connect_sx_candidates(Candidates0, Available) ->
-    case ergw_node_selection:snaptr_candidate(Candidates0) of
-	{{Node, _, _}, _} when is_map_key(Node, Available) ->
-	    {Pid, _} = maps:get(Node, Available),
-	    {ok, Pid};
-	{_, Next} ->
-	    connect_sx_candidates(Next, Available)
-    end.
 
 notify_up(Server, [{Pid, Ref}|_] = NotifyUp) when is_pid(Pid), is_reference(Ref) ->
     gen_statem:cast(Server, {notify_up, NotifyUp});
