@@ -41,7 +41,7 @@
  {<<"prometheus_cowboy">>,{pkg,<<"prometheus_cowboy">>,<<"0.1.8">>},0},
  {<<"prometheus_diameter_collector">>,
   {git,"https://github.com/travelping/prometheus_diameter_collector.git",
-       {ref,"3899c5196a0e4623c09aae4750e6003300f36fea"}},
+       {ref,"d2cb3854f345f7765d97cac80b98bce6bc656b5f"}},
   0},
  {<<"prometheus_httpd">>,{pkg,<<"prometheus_httpd">>,<<"2.1.11">>},1},
  {<<"ranch">>,{pkg,<<"ranch">>,<<"1.7.1">>},1},
