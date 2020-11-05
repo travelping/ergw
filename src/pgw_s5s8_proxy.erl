@@ -126,8 +126,6 @@ validate_options(Opts) ->
 validate_option(Opt, Value) ->
     ergw_proxy_lib:validate_option(Opt, Value).
 
--record(context_state, {ebi}).
-
 init(#{proxy_sockets := ProxySockets, node_selection := NodeSelect,
        proxy_data_source := ProxyDS, contexts := Contexts},
      #{right_bearer := RightBearer} = Data) ->
@@ -235,7 +233,7 @@ handle_request(ReqKey,
 		 left_bearer := LeftBearer0, right_bearer := RightBearer0,
 		 'Session' := Session} = Data) ->
 
-    Context = update_context_from_gtp_req(Request, Context0#context{state = #context_state{}}),
+    Context = pgw_s5s8:update_context_from_gtp_req(Request, Context0),
 
     {LeftTunnel1, LeftBearer1} =
 	case pgw_s5s8:update_tunnel_from_gtp_req(Request, LeftTunnel0, LeftBearer0) of
@@ -469,7 +467,7 @@ handle_response(#proxy_request{direction = sgw2pgw} = ProxyRequest,
 	end,
     RightTunnel = gtp_path:bind(Response, RightTunnel1),
 
-    ProxyContext = update_context_from_gtp_req(Response, PrevProxyCtx),
+    ProxyContext = pgw_s5s8:update_context_from_gtp_req(Response, PrevProxyCtx),
 
     gtp_context:remote_context_register(
       RightTunnel, LeftBearer, RightBearer, ProxyContext),
@@ -513,7 +511,7 @@ handle_response(#proxy_request{direction = sgw2pgw,
     RightTunnel =
 	ergw_gtp_gsn_lib:update_tunnel_endpoint(Response, RightTunnelOld, RightTunnel0),
 
-    ProxyContext = update_context_from_gtp_req(Response, ProxyContextOld),
+    ProxyContext = pgw_s5s8:update_context_from_gtp_req(Response, ProxyContextOld),
 
     gtp_context:remote_context_register(
       RightTunnel, LeftBearer, RightBearer, ProxyContext),
@@ -610,7 +608,7 @@ handle_response(#proxy_request{direction = pgw2sgw} = ProxyRequest,
 	if is_record(Response0, gtp) ->
 		Response0;
 	   true ->
-		#context{state = #context_state{ebi = EBI}} = ProxyContext,
+		#context{default_bearer_id = EBI} = ProxyContext,
 		#gtp{version = v2,
 		     type = delete_bearer_response,
 		     ie = #{?'Cause' => #v2_cause{v2_cause = request_accepted},
@@ -660,8 +658,8 @@ init_proxy_tunnel(Socket, {_GwNode, PGW}) ->
 	  local, Info, ergw_gsn_lib:init_tunnel('Core', Info, Socket, v2)),
     RightTunnel#tunnel{remote = #fq_teid{ip = PGW}}.
 
-init_proxy_context(#context{imei = IMEI, context_id = ContextId, version = Version,
-			    state = CState},
+init_proxy_context(#context{imei = IMEI, context_id = ContextId,
+			    default_bearer_id = EBI, version = Version},
 		   #{imsi := IMSI, msisdn := MSISDN, apn := DstAPN}) ->
     APN = ergw_node_selection:expand_apn(DstAPN, IMSI),
 
@@ -670,37 +668,12 @@ init_proxy_context(#context{imei = IMEI, context_id = ContextId, version = Versi
        imsi              = IMSI,
        imei              = IMEI,
        msisdn            = MSISDN,
+
        context_id        = ContextId,
+       default_bearer_id = EBI,
 
-       version           = Version,
-
-       state             = CState
+       version           = Version
       }.
-
-get_context_from_bearer(?'EPS Bearer ID', #v2_eps_bearer_id{eps_bearer_id = EBI},
-			#context{state = CState} = Context) ->
-    Context#context{state = CState#context_state{ebi = EBI}};
-get_context_from_bearer(_K, _, Context) ->
-    Context.
-
-get_context_from_req(_K, #v2_bearer_context{instance = 0, group = Bearer}, Context) ->
-    maps:fold(fun get_context_from_bearer/3, Context, Bearer);
-get_context_from_req(?'Access Point Name', #v2_access_point_name{apn = APN}, Context) ->
-    Context#context{apn = APN};
-get_context_from_req(?'IMSI', #v2_international_mobile_subscriber_identity{imsi = IMSI}, Context) ->
-    Context#context{imsi = IMSI};
-get_context_from_req(?'ME Identity', #v2_mobile_equipment_identity{mei = IMEI}, Context) ->
-    Context#context{imei = IMEI};
-get_context_from_req(?'MSISDN', #v2_msisdn{msisdn = MSISDN}, Context) ->
-    Context#context{msisdn = MSISDN};
-get_context_from_req(_K, _, Context) ->
-    Context.
-
-update_context_from_gtp_req(#gtp{ie = IEs} = Req, Context0) ->
-    Context1 = gtp_v2_c:update_context_id(Req, Context0),
-    Context = #context{imsi = IMSI, apn = APN} =
-	maps:fold(fun get_context_from_req/3, Context1, IEs),
-    Context#context{apn = ergw_node_selection:expand_apn(APN, IMSI)}.
 
 fq_teid(#fq_teid{ip = {_,_,_,_} = IP, teid = TEI}, IE) ->
     IE#v2_fully_qualified_tunnel_endpoint_identifier{
@@ -769,7 +742,7 @@ proxy_info(Session,
 	imsi    => IMSI,
 	imei    => IMEI,
 	msisdn  => MSISDN,
-	apn     => APN,
+	apn     => ergw_node_selection:expand_apn(APN, IMSI),
 	servingGwCip => GsnC,
 	servingGwUip => GsnU
        }.
@@ -796,8 +769,7 @@ send_request(Tunnel, T3, N3, Type, RequestIEs) ->
 
 initiate_session_teardown(sgw2pgw,
 			  #{right_tunnel := Tunnel,
-			    proxy_context :=
-				#context{state = #context_state{ebi = EBI}}}) ->
+			    proxy_context := #context{default_bearer_id = EBI}}) ->
     Type = delete_session_request,
     RequestIEs0 = [#v2_cause{v2_cause = network_failure},
 		   #v2_eps_bearer_id{eps_bearer_id = EBI}],
@@ -805,8 +777,7 @@ initiate_session_teardown(sgw2pgw,
     send_request(Tunnel, ?T3, ?N3, Type, RequestIEs);
 initiate_session_teardown(pgw2sgw,
 			  #{left_tunnel := Tunnel,
-			    context :=
-				#context{state = #context_state{ebi = EBI}}}) ->
+			    context := #context{default_bearer_id = EBI}}) ->
     Type = delete_bearer_request,
     RequestIEs0 = [#v2_cause{v2_cause = reactivation_requested},
 		   #v2_eps_bearer_id{eps_bearer_id = EBI}],
