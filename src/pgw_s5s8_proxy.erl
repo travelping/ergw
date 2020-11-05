@@ -634,7 +634,7 @@ terminate(_Reason, _State, _Data) ->
 %%%===================================================================
 
 handle_proxy_info(Session, Tunnel, Bearer, Context, #{proxy_ds := ProxyDS}) ->
-    PI = proxy_info(Session, Tunnel, Bearer, Context),
+    PI = ergw_proxy_lib:proxy_info(Session, Tunnel, Bearer, Context),
     case gtp_proxy_ds:map(ProxyDS, PI) of
 	ProxyInfo when is_map(ProxyInfo) ->
 	    ?LOG(debug, "OK Proxy Map: ~p", [ProxyInfo]),
@@ -725,27 +725,6 @@ set_req_from_context(_, _, _, _K, IE) ->
 
 update_gtp_req_from_context(Tunnel, Bearer, Context, GtpReqIEs) ->
     maps:map(set_req_from_context(Tunnel, Bearer, Context, _, _), GtpReqIEs).
-
-proxy_info(Session,
-	   #tunnel{remote = #fq_teid{ip = GsnC}},
-	   #bearer{remote = #fq_teid{ip = GsnU}},
-	   #context{apn = APN, imsi = IMSI, imei = IMEI, msisdn = MSISDN}) ->
-    Keys = [{'3GPP-RAT-Type', 'ratType'},
-	    {'3GPP-User-Location-Info', 'userLocationInfo'},
-	    {'RAI', rai}],
-    PI = lists:foldl(
-	   fun({Key, MapTo}, P) when is_map_key(Key, Session) ->
-		   P#{MapTo => maps:get(Key, Session)};
-	      (_, P) -> P
-	   end, #{}, Keys),
-    PI#{version => v2,
-	imsi    => IMSI,
-	imei    => IMEI,
-	msisdn  => MSISDN,
-	apn     => ergw_node_selection:expand_apn(APN, IMSI),
-	servingGwCip => GsnC,
-	servingGwUip => GsnU
-       }.
 
 build_context_request(#tunnel{remote = #fq_teid{teid = TEI}} = Tunnel, Bearer,
 		      Context, NewPeer, SeqNo,
