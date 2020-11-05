@@ -106,6 +106,7 @@
 
 	  context_id             :: term(),
 	  charging_identifier    :: non_neg_integer(),
+	  default_bearer_id      :: 'undefined' | non_neg_integer(),
 
 	  'Idle-Timeout'  :: non_neg_integer() | infinity,
 
@@ -114,7 +115,6 @@
 
 	  ms_ip                  :: #ue_ip{},
 	  dns_v6                 :: [inet:ip6_address()],
-	  state                  :: term(),
 	  restrictions = []      :: [{'v1', boolean()} |
 				     {'v2', boolean()}]
 	 }).

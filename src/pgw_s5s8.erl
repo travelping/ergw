@@ -22,7 +22,8 @@
 %% shared API's
 -export([init_session/4,
 	 init_session_from_gtp_req/4,
-	 update_tunnel_from_gtp_req/3
+	 update_tunnel_from_gtp_req/3,
+	 update_context_from_gtp_req/2
 	]).
 
 -include_lib("kernel/include/logger.hrl").
@@ -58,6 +59,7 @@
 -define('APN-AMBR',					{v2_aggregate_maximum_bit_rate, 0}).
 -define('Bearer Level QoS',				{v2_bearer_level_quality_of_service, 0}).
 -define('EPS Bearer ID',                                {v2_eps_bearer_id, 0}).
+-define('Linked EPS Bearer ID',                         {v2_eps_bearer_id, 0}).
 -define('SGW-U node name',                              {v2_fully_qualified_domain_name, 0}).
 -define('Secondary RAT Usage Data Report',              {v2_secondary_rat_usage_data_report, 0}).
 
@@ -786,6 +788,25 @@ update_session_from_gtp_req(IEs, Session, Tunnel)
     ergw_aaa_session:set(Session, NewSOpts),
     gtp_context:collect_charging_events(OldSOpts, NewSOpts).
 
+get_context_from_bearer(?'EPS Bearer ID', #v2_eps_bearer_id{eps_bearer_id = EBI},
+			#context{default_bearer_id = undefined} = Context) ->
+    Context#context{default_bearer_id =  EBI};
+get_context_from_bearer(_K, _, Context) ->
+    Context.
+
+%% EPS Bearer Id (EBI):
+%%
+%% From TS 29.274:
+%% > This IE shall be included on S4/S11 in RAU/TAU/HO except in the Gn/Gp SGSN to MME/S4-SGSN
+%% > RAU/TAU/HO procedures with SGW change to identify the default bearer of the PDN Connection
+%%
+%% So, we either get a list of bearer and the Linked EPS Bearer ID tell us which on is the
+%% default bearer, or we get only on bearer and that is the default bearer
+get_context_from_req(?'Linked EPS Bearer ID', #v2_eps_bearer_id{eps_bearer_id = EBI}, Context) ->
+    Context#context{default_bearer_id =  EBI};
+get_context_from_req(_K, #v2_bearer_context{instance = 0, group = Bearer}, Context) ->
+    maps:fold(fun get_context_from_bearer/3, Context, Bearer);
+
 get_context_from_req(?'Access Point Name', #v2_access_point_name{apn = APN}, Context) ->
     Context#context{apn = APN};
 get_context_from_req(?'IMSI', #v2_international_mobile_subscriber_identity{imsi = IMSI}, Context) ->
@@ -879,9 +900,9 @@ send_request(#tunnel{remote = #fq_teid{ip = RemoteCntlIP}} = Tunnel, T3, N3, Msg
 send_request(Tunnel, T3, N3, Type, RequestIEs, ReqInfo) ->
     send_request(Tunnel, T3, N3, msg(Tunnel, Type, RequestIEs), ReqInfo).
 
-delete_context(From, TermCause, #{left_tunnel := Tunnel} = Data) ->
+delete_context(From, TermCause, #{left_tunnel := Tunnel,
+				  context := #context{default_bearer_id = EBI}} = Data) ->
     Type = delete_bearer_request,
-    EBI = 5,
     RequestIEs0 = [#v2_cause{v2_cause = reactivation_requested},
 		   #v2_eps_bearer_id{eps_bearer_id = EBI}],
     RequestIEs = gtp_v2_c:build_recovery(Type, Tunnel, false, RequestIEs0),

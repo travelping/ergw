@@ -25,7 +25,8 @@
 %% shared API's
 -export([init_session/4,
 	 init_session_from_gtp_req/4,
-	 update_tunnel_from_gtp_req/3
+	 update_tunnel_from_gtp_req/3,
+	 update_context_from_gtp_req/2
 	]).
 
 -include_lib("kernel/include/logger.hrl").
@@ -702,8 +703,8 @@ get_context_from_req(?'IMEI', #imei{imei = IMEI}, Context) ->
 get_context_from_req(?'MSISDN', #ms_international_pstn_isdn_number{
 				   msisdn = {isdn_address, _, _, 1, MSISDN}}, Context) ->
     Context#context{msisdn = MSISDN};
-%% get_context_from_req(#nsapi{instance = 0, nsapi = NSAPI}, #context{state = Data} = Context) ->
-%%     Context#context{state = Data#context_state{nsapi = NSAPI}};
+get_context_from_req(_K, #nsapi{instance = 0, nsapi = NSAPI}, Context) ->
+    Context#context{default_bearer_id = NSAPI};
 get_context_from_req(_, _, Context) ->
     Context.
 
@@ -780,9 +781,9 @@ send_request(#tunnel{remote = #fq_teid{ip = RemoteCntlIP}} = Tunnel, T3, N3, Msg
 send_request(Tunnel, T3, N3, Type, RequestIEs, ReqInfo) ->
     send_request(Tunnel, T3, N3, msg(Tunnel, Type, RequestIEs), ReqInfo).
 
-delete_context(From, TermCause, #{left_tunnel := Tunnel} = Data) ->
+delete_context(From, TermCause, #{left_tunnel := Tunnel,
+				  context := #context{default_bearer_id = NSAPI}} = Data) ->
     Type = delete_pdp_context_request,
-    NSAPI = 5,
     RequestIEs0 = [#nsapi{nsapi = NSAPI},
 		   #teardown_ind{value = 1}],
     RequestIEs = gtp_v1_c:build_recovery(Type, Tunnel, false, RequestIEs0),

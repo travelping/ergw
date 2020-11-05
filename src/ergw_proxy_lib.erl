@@ -16,7 +16,7 @@
 	 select_gw/5,
 	 select_gtp_proxy_sockets/2,
 	 select_sx_proxy_candidate/3]).
--export([proxy_pcc/0]).
+-export([proxy_info/4, proxy_pcc/0]).
 
 -include_lib("kernel/include/logger.hrl").
 -include_lib("gtplib/include/gtp_packet.hrl").
@@ -203,6 +203,27 @@ make_proxy_request(Direction, Request, SeqNo, NewPeer, State) ->
 		 right_tunnel = maps:get(right_tunnel, State, undefined)
 		},
     {ReqId, ReqInfo}.
+
+proxy_info(Session,
+	   #tunnel{version = Version, remote = #fq_teid{ip = GsnC}},
+	   #bearer{remote = #fq_teid{ip = GsnU}},
+	   #context{apn = APN, imsi = IMSI, imei = IMEI, msisdn = MSISDN}) ->
+    Keys = [{'3GPP-RAT-Type', 'ratType'},
+	    {'3GPP-User-Location-Info', 'userLocationInfo'},
+	    {'RAI', rai}],
+    PI = lists:foldl(
+	   fun({Key, MapTo}, P) when is_map_key(Key, Session) ->
+		   P#{MapTo => maps:get(Key, Session)};
+	      (_, P) -> P
+	   end, #{}, Keys),
+    PI#{version => Version,
+	imsi    => IMSI,
+	imei    => IMEI,
+	msisdn  => MSISDN,
+	apn     => ergw_node_selection:expand_apn(APN, IMSI),
+	servingGwCip => GsnC,
+	servingGwUip => GsnU
+       }.
 
 %%%===================================================================
 %%% Sx DP API

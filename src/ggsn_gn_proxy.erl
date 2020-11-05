@@ -148,8 +148,6 @@ validate_options(Opts) ->
 validate_option(Opt, Value) ->
     ergw_proxy_lib:validate_option(Opt, Value).
 
--record(context_state, {nsapi}).
-
 init(#{proxy_sockets := ProxySockets, node_selection := NodeSelect,
        proxy_data_source := ProxyDS, contexts := Contexts},
      #{right_bearer := RightBearer} = Data) ->
@@ -226,7 +224,7 @@ handle_request(ReqKey,
 		 left_tunnel := LeftTunnel0,
 		 left_bearer := LeftBearer0, right_bearer := RightBearer0,
 		 'Session' := Session} = Data) ->
-    Context = update_context_from_gtp_req(Request, Context0#context{state = #context_state{}}),
+    Context = ggsn_gn:update_context_from_gtp_req(Request, Context0),
 
     {LeftTunnel1, LeftBearer1} =
 	case ggsn_gn:update_tunnel_from_gtp_req(Request, LeftTunnel0, LeftBearer0) of
@@ -412,7 +410,7 @@ handle_response(#proxy_request{direction = sgsn2ggsn} = ProxyRequest,
 	end,
     RightTunnel = gtp_path:bind(Response, RightTunnel1),
 
-    ProxyContext = update_context_from_gtp_req(Response, PrevProxyCtx),
+    ProxyContext = ggsn_gn:update_context_from_gtp_req(Response, PrevProxyCtx),
 
     gtp_context:remote_context_register(
       RightTunnel, LeftBearer, RightBearer, ProxyContext),
@@ -454,7 +452,7 @@ handle_response(#proxy_request{direction = sgsn2ggsn} = ProxyRequest,
     RightTunnel =
 	ergw_gtp_gsn_lib:update_tunnel_endpoint(Response, RightTunnelOld, RightTunnel0),
 
-    ProxyContext = update_context_from_gtp_req(Response, ProxyContextOld),
+    ProxyContext = ggsn_gn:update_context_from_gtp_req(Response, ProxyContextOld),
 
     gtp_context:remote_context_register(
       RightTunnel, LeftBearer, RightBearer, ProxyContext),
@@ -562,8 +560,8 @@ init_proxy_tunnel(Socket, {_GwNode, GGSN}) ->
 	  local, Info, ergw_gsn_lib:init_tunnel('Core', Info, Socket, v1)),
     RightTunnel#tunnel{remote = #fq_teid{ip = GGSN}}.
 
-init_proxy_context(#context{imei = IMEI, context_id = ContextId, version = Version,
-			    state = CState},
+init_proxy_context(#context{imei = IMEI, context_id = ContextId,
+			    default_bearer_id = NSAPI, version = Version},
 		   #{imsi := IMSI, msisdn := MSISDN, apn := DstAPN}) ->
     {APN, _OI} = ergw_node_selection:split_apn(DstAPN),
 
@@ -572,32 +570,12 @@ init_proxy_context(#context{imei = IMEI, context_id = ContextId, version = Versi
        imsi              = IMSI,
        imei              = IMEI,
        msisdn            = MSISDN,
+
        context_id        = ContextId,
+       default_bearer_id = NSAPI,
 
-       version           = Version,
-
-       state             = CState
+       version           = Version
       }.
-
-get_context_from_req(?'Access Point Name', #access_point_name{apn = APN}, Context) ->
-    Context#context{apn = APN};
-get_context_from_req(?'IMSI', #international_mobile_subscriber_identity{imsi = IMSI}, Context) ->
-    Context#context{imsi = IMSI};
-get_context_from_req(?'IMEI', #imei{imei = IMEI}, Context) ->
-    Context#context{imei = IMEI};
-get_context_from_req(?'MSISDN', #ms_international_pstn_isdn_number{
-				   msisdn = {isdn_address, _, _, 1, MSISDN}}, Context) ->
-    Context#context{msisdn = MSISDN};
-get_context_from_req(_K, #nsapi{instance = 0, nsapi = NSAPI}, #context{state = CState} = Context) ->
-    Context#context{state = CState#context_state{nsapi = NSAPI}};
-get_context_from_req(_K, _, Context) ->
-    Context.
-
-update_context_from_gtp_req(#gtp{ie = IEs} = Req, Context0) ->
-    Context1 = gtp_v1_c:update_context_id(Req, Context0),
-    Context = #context{imsi = IMSI, apn = APN} =
-	maps:fold(fun get_context_from_req/3, Context1, IEs),
-    Context#context{apn = ergw_node_selection:expand_apn(APN, IMSI)}.
 
 set_req_from_context(_, _, #context{apn = APN},
 		     _K, #access_point_name{instance = 0} = IE)
@@ -645,7 +623,7 @@ proxy_info(Session,
 	imsi    => IMSI,
 	imei    => IMEI,
 	msisdn  => MSISDN,
-	apn     => APN,
+	apn     => ergw_node_selection:expand_apn(APN, IMSI),
 	servingGwCip => GsnC,
 	servingGwUip => GsnU
        }.
@@ -672,8 +650,7 @@ send_request(Tunnel, T3, N3, Type, RequestIEs) ->
 
 initiate_pdp_context_teardown(sgsn2ggsn,
 			      #{right_tunnel := Tunnel,
-				proxy_context :=
-				    #context{state = #context_state{nsapi = NSAPI}}}) ->
+				proxy_context := #context{default_bearer_id = NSAPI}}) ->
     Type = delete_pdp_context_request,
     RequestIEs0 = [#cause{value = request_accepted},
 		   #teardown_ind{value = 1},
@@ -682,8 +659,7 @@ initiate_pdp_context_teardown(sgsn2ggsn,
     send_request(Tunnel, ?T3, ?N3, Type, RequestIEs);
 initiate_pdp_context_teardown(ggsn2sgsn,
 			      #{left_tunnel := Tunnel,
-				context :=
-				    #context{state = #context_state{nsapi = NSAPI}}}) ->
+				context := #context{default_bearer_id = NSAPI}}) ->
     Type = delete_pdp_context_request,
     RequestIEs0 = [#cause{value = request_accepted},
 		   #teardown_ind{value = 1},
