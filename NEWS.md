@@ -1,6 +1,12 @@
 erGW - 3GPP GGSN and PDN-GW in Erlang
 =====================================
 
+Version 2.7.2 - 5 November 2020
+-------------------------------
+
+* Update [prometheus_diameter_collector](https://github.com/travelping/prometheus_diameter_collector) tag to [1.0.1](https://github.com/travelping/prometheus_diameter_collector/releases/tag/1.0.1) for handle discarded answers in the diameter stats
+* Added [SemVer](https://semver.org/) for `erGw` for skip step of change `rebar.config` each time when version of project will update.
+
 Version 2.7.1 - 28 October 2020
 -------------------------------
 
