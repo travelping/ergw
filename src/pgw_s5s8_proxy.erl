@@ -326,14 +326,11 @@ handle_request(ReqKey,
 	    {ok, Result1} -> Result1;
 	    {error, Err1} -> throw(Err1#ctx_err{tunnel = LeftTunnelOld})
 	end,
+    LeftTunnel = ergw_gtp_gsn_lib:update_tunnel_endpoint(Request, LeftTunnelOld, LeftTunnel0),
 
-    LeftTunnel1 = gtp_path:bind(Request, LeftTunnel0),
-    gtp_context:tunnel_reg_update(LeftTunnelOld, LeftTunnel1),
-    LeftTunnel = update_path_bind(LeftTunnel1, LeftTunnelOld),
-
-    RightTunnel1 =
-	handle_sgw_change(LeftTunnel, LeftTunnelOld, RightTunnelOld#tunnel{version = v2}),
-    RightTunnel = update_path_bind(RightTunnel1, RightTunnelOld),
+    RightTunnel0 = ergw_gtp_gsn_lib:handle_peer_change(
+		     LeftTunnel, LeftTunnelOld, RightTunnelOld#tunnel{version = v2}),
+    RightTunnel = ergw_gtp_gsn_lib:update_tunnel_endpoint(RightTunnelOld, RightTunnel0),
 
     DataNew = Data#{left_tunnel => LeftTunnel, right_tunnel => RightTunnel,
 		    left_bearer => LeftBearer},
@@ -513,9 +510,8 @@ handle_response(#proxy_request{direction = sgw2pgw,
 	    {ok, Result1} -> Result1;
 	    {error, Err1} -> throw(Err1#ctx_err{tunnel = LeftTunnel})
 	end,
-    RightTunnel1 = gtp_path:bind(Response, RightTunnel0),
-    gtp_context:tunnel_reg_update(RightTunnelOld, RightTunnel1),
-    RightTunnel = update_path_bind(RightTunnel0, RightTunnelOld),
+    RightTunnel =
+	ergw_gtp_gsn_lib:update_tunnel_endpoint(Response, RightTunnelOld, RightTunnel0),
 
     ProxyContext = update_context_from_gtp_req(Response, ProxyContextOld),
 
@@ -656,23 +652,6 @@ delete_forward_session(Reason, #{pfcp := PCtx, 'Session' := Session}) ->
     SessionOpts = to_session(gtp_context:usage_report_to_accounting(URRs)),
     ?LOG(debug, "Accounting Opts: ~p", [SessionOpts]),
     ergw_aaa_session:invoke(Session, SessionOpts, stop, #{async => true}).
-
-handle_sgw_change(#tunnel{remote = NewFqTEID},
-		  #tunnel{remote = OldFqTEID}, RightTunnelOld)
-  when OldFqTEID /= NewFqTEID ->
-    RightTunnel = ergw_gsn_lib:reassign_tunnel_teid(RightTunnelOld),
-    gtp_context:tunnel_reg_update(RightTunnelOld, RightTunnel),
-    RightTunnel;
-handle_sgw_change(_, _, RightTunnel) ->
-    RightTunnel.
-
-update_path_bind(NewTunnel0, OldTunnel)
-  when NewTunnel0 /= OldTunnel ->
-    NewTunnel = gtp_path:bind(NewTunnel0),
-    gtp_path:unbind(OldTunnel),
-    NewTunnel;
-update_path_bind(NewTunnel, _OldTunnel) ->
-    NewTunnel.
 
 init_proxy_tunnel(Socket, {_GwNode, PGW}) ->
     Info = ergw_gtp_socket:info(Socket),

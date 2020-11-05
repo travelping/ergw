@@ -104,6 +104,8 @@ remote_context_register_new(LeftTunnel, LeftBearer, RightBearer, Context) ->
 	    {error, ?CTX_ERR(?FATAL, system_failure)}
     end.
 
+tunnel_reg_update(Tunnel, Tunnel) ->
+    ok;
 tunnel_reg_update(TunnelOld, TunnelNew) ->
     OldKeys = ordsets:from_list(tunnel2keys(TunnelOld)),
     NewKeys = ordsets:from_list(tunnel2keys(TunnelNew)),
