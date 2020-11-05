@@ -238,7 +238,7 @@ handle_request(ReqKey,
 handle_request(ReqKey,
 	       #gtp{type = delete_pdp_context_request, ie = _IEs} = Request,
 	       _Resent, _State, #{left_tunnel := LeftTunnel} = Data) ->
-    close_pdp_context(normal, Data),
+    ergw_gtp_gsn_lib:close_context(normal, Data),
     Response = response(delete_pdp_context_response, LeftTunnel, request_accepted),
     gtp_context:send_response(ReqKey, Request, Response),
     {next_state, shutdown, Data};
@@ -249,7 +249,7 @@ handle_request(ReqKey, _Msg, _Resent, _State, _Data) ->
 
 handle_response({From, TermCause}, timeout, #gtp{type = delete_pdp_context_request},
 		_State, Data) ->
-    close_pdp_context(TermCause, Data),
+    ergw_gtp_gsn_lib:close_context(TermCause, Data),
     if is_tuple(From) -> gen_statem:reply(From, {error, timeout});
        true -> ok
     end,
@@ -263,7 +263,7 @@ handle_response({From, TermCause},
     LeftTunnel = gtp_path:bind(Response, LeftTunnel0),
     DataNew = Data#{left_tunnel := LeftTunnel},
 
-    close_pdp_context(TermCause, Data),
+    ergw_gtp_gsn_lib:close_context(TermCause, Data),
     if is_tuple(From) -> gen_statem:reply(From, {ok, Cause});
        true -> ok
     end,
@@ -344,9 +344,6 @@ encode_eua(Org, Number, IPv4, IPv6) ->
 		      pdp_address = <<IPv4/binary, IPv6/binary >>}.
 
 close_context(_Side, Reason, Data) ->
-    ergw_gtp_gsn_lib:close_context(Reason, Data).
-
-close_pdp_context(Reason, Data) ->
     ergw_gtp_gsn_lib:close_context(Reason, Data).
 
 map_attr('APN', #{?'Access Point Name' := #access_point_name{apn = APN}}) ->
