@@ -310,7 +310,7 @@ handle_request(ReqKey,
 
     case match_tunnel(?'S11-C MME', LeftTunnel, FqTEID) of
 	ok ->
-	    close_pdn_context(normal, Data),
+	    ergw_gtp_gsn_lib:close_context(normal, Data),
 	    Response = response(delete_session_response, LeftTunnel, request_accepted),
 	    gtp_context:send_response(ReqKey, Request, Response),
 	    {next_state, shutdown, Data};
@@ -354,7 +354,7 @@ handle_response(_, timeout, #gtp{type = update_bearer_request}, run, Data) ->
 
 handle_response({From, TermCause}, timeout, #gtp{type = delete_bearer_request},
 		_State, Data) ->
-    close_pdn_context(TermCause, Data),
+    ergw_gtp_gsn_lib:close_context(TermCause, Data),
     if is_tuple(From) -> gen_statem:reply(From, {error, timeout});
        true -> ok
     end,
@@ -368,7 +368,7 @@ handle_response({From, TermCause},
 
     DataNew = Data#{left_tunnel => LeftTunnel},
 
-    close_pdn_context(TermCause, Data),
+    ergw_gtp_gsn_lib:close_context(TermCause, Data),
     if is_tuple(From) -> gen_statem:reply(From, {ok, Cause});
        true -> ok
     end,
@@ -446,9 +446,6 @@ encode_paa(Type, IPv4, IPv6) ->
     #v2_pdn_address_allocation{type = Type, address = <<IPv6/binary, IPv4/binary>>}.
 
 close_context(_Side, Reason, Data) ->
-    ergw_gtp_gsn_lib:close_context(Reason, Data).
-
-close_pdn_context(Reason, Data) ->
     ergw_gtp_gsn_lib:close_context(Reason, Data).
 
 copy_ppp_to_session({pap, 'PAP-Authentication-Request', _Id, Username, Password}, Session0) ->
