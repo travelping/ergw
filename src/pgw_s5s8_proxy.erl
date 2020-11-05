@@ -277,7 +277,7 @@ handle_request(ReqKey,
 
     ergw_sx_node:wait_connect(SxConnectId),
     {PCtx0, NodeCaps} =
-	case ergw_sx_node:select_sx_node(Candidates) of
+	case ergw_pfcp_context:select_upf(Candidates) of
 	    {ok, Result4} -> Result4;
 	    {error, Err4} -> throw(Err4#ctx_err{context = ProxyContext, tunnel = LeftTunnel})   %% TBD: proxy context ???
 	end,
