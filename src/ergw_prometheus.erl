@@ -16,8 +16,6 @@
 -export([pfcp/4, pfcp/5,
 	 pfcp_request_duration/3, pfcp_peer_response/4]).
 
--export([termination_cause/2]).
-
 -include("include/ergw.hrl").
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include_lib("pfcplib/include/pfcp_packet.hrl").
@@ -107,11 +105,6 @@ declare() ->
 				  {labels, [name, type]},
 				  {buckets, [100, 300, 500, 750, 1000]},
 				  {help, "PFCP Request execution time."}]),
-
-    %% Termination cause metrics
-    prometheus_counter:declare([{name, termination_cause_total},
-                  {labels, [name, type]},
-                  {help, "Total number of termination causes"}]),
     ok.
 
 %%%===================================================================
@@ -241,11 +234,3 @@ pfcp_request_duration(Name, MsgType, Duration) ->
 pfcp_peer_response(Name, RemoteIP, #pfcp{type = MsgType}, RTT) ->
     prometheus_histogram:observe(
       pfcp_peer_response_milliseconds, [Name, inet:ntoa(RemoteIP), MsgType], RTT).
-
-%%%===================================================================
-%%% Termination cause Metrics collections
-%%%===================================================================
-
-%% termination_cause/2
-termination_cause(Name, Type) ->
-    prometheus_counter:inc(termination_cause_total, [Name, Type]).

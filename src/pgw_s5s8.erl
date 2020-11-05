@@ -128,7 +128,7 @@ handle_event({call, From}, terminate_context, _State, Data) ->
 
 handle_event({call, From}, {path_restart, Path}, _State,
 	     #{context := #context{path = Path}} = Data) ->
-    close_pdn_context(peer_restart, Data),
+    close_pdn_context(normal, Data),
     {next_state, shutdown, Data, [{reply, From, ok}]};
 
 handle_event({call, From}, {path_restart, _Path}, _State, _Data) ->
@@ -259,10 +259,10 @@ handle_event(info, _Info, _State, _Data) ->
     keep_state_and_data;
 
 handle_event({timeout, context_idle}, stop_session, _state, Data) ->
-    delete_context(undefined, inactivity_timeout, Data);
+    delete_context(undefined, normal, Data);
 
 handle_event(internal, {session, stop, _Session}, run, Data) ->
-    delete_context(undefined, administrative, Data);
+    delete_context(undefined, normal, Data);
 handle_event(internal, {session, stop, _Session}, _, _) ->
     keep_state_and_data;
 
@@ -293,18 +293,17 @@ handle_pdu(ReqKey, #gtp{ie = PDU} = Msg, _State,
     ergw_gsn_lib:ip_pdu(PDU, Context, PCtx),
     {keep_state, Data}.
 
-%% User Plane error indication
 handle_sx_report(#pfcp{type = session_report_request,
 		       ie = #{report_type := #report_type{erir = 1}}},
 	    _State, Data) ->
-    close_pdn_context(remote_failure, Data),
+    close_pdn_context(normal, Data),
     {shutdown, Data};
 
 %% User Plane Inactivity Timer expired
 handle_sx_report(#pfcp{type = session_report_request,
 		       ie = #{report_type := #report_type{upir = 1}}},
 		 _State, Data) ->
-    close_pdn_context(inactivity_timeout, Data),
+    close_pdn_context(normal, Data),
     {shutdown, Data};
 
 handle_sx_report(Report, State, Data) ->
@@ -782,6 +781,17 @@ close_pdn_context(Reason, #{context := Context, pfcp := PCtx, 'Session' := Sessi
     URRs = ergw_gsn_lib:delete_sgi_session(Reason, Context, PCtx),
 
     %% ===========================================================================
+
+    TermCause =
+	if Reason =:= upf_failure;
+	   Reason =:= link_broken ->
+		?'DIAMETER_BASE_TERMINATION-CAUSE_LINK_BROKEN';
+	   Reason =:= administrative ->
+		?'DIAMETER_BASE_TERMINATION-CAUSE_ADMINISTRATIVE';
+	   true ->
+		?'DIAMETER_BASE_TERMINATION-CAUSE_LOGOUT'
+	end,
+
     %% TODO: Monitors, AAA over SGi
 
     %%  1. CCR on Gx to get PCC rules
@@ -794,13 +804,12 @@ close_pdn_context(Reason, #{context := Context, pfcp := PCtx, 'Session' := Sessi
 	    ?LOG(warning, "Gx terminate failed with: ~p", [GxOther])
     end,
 
-    ChargeEv = {terminate, Reason},
+    ChargeEv = {terminate, TermCause},
     {Online, Offline, Monitor} = ergw_gsn_lib:usage_report_to_charging_events(URRs, ChargeEv, PCtx),
     ergw_gsn_lib:process_accounting_monitor_events(ChargeEv, Monitor, Now, Session),
     GyReqServices = ergw_gsn_lib:gy_credit_report(Online),
     ergw_gsn_lib:process_online_charging_events(ChargeEv, GyReqServices, Session, ReqOpts),
     ergw_gsn_lib:process_offline_charging_events(ChargeEv, Offline, Now, Session),
-    ergw_prometheus:termination_cause(?FUNCTION_NAME, Reason),
 
     %% ===========================================================================
     ok.

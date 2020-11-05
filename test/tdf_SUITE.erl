@@ -1126,7 +1126,7 @@ simple_ocs(Config) ->
 	}, SInterim),
 
     ?match_map(
-       #{'Termination-Cause' => normal,
+       #{'Termination-Cause' => 1,
 	 used_credits =>
 	     [{3000,
 	       #{'CC-Input-Octets'  => ['_'],
