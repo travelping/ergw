@@ -117,7 +117,7 @@ handle_event(info, _Info, _State, Data) ->
 
 handle_pdu(ReqKey, #gtp{ie = PDU} = Msg, _State,
 	   #{context := Context, pfcp := PCtx,
-	     left_bearer := LeftBearer, right_bearer := RightBearer} = Data) ->
+	     bearer := #{left := LeftBearer, right := RightBearer}} = Data) ->
     ?LOG(debug, "GTP-U GGSN: ~p, ~p", [ReqKey, gtp_c_lib:fmt_gtp(Msg)]),
 
     ergw_gsn_lib:ip_pdu(PDU, LeftBearer, RightBearer, Context, PCtx),
@@ -134,7 +134,7 @@ handle_request(ReqKey,
 			   ?'Access Point Name' := #access_point_name{apn = APN}
 			  } = IEs} = Request, _Resent, _State,
 	       #{context := Context0, aaa_opts := AAAopts, node_selection := NodeSelect,
-		 left_tunnel := LeftTunnel0, left_bearer := LeftBearer0,
+		 left_tunnel := LeftTunnel0, bearer := #{left := LeftBearer0},
 		 'Session' := Session, pcc := PCC0} = Data) ->
     Services = [{"x-3gpp-upf", "x-sxb"}],
 
@@ -160,21 +160,20 @@ handle_request(ReqKey,
     SessionOpts1 = init_session_from_gtp_req(IEs, AAAopts, LeftTunnel, SessionOpts0),
     SessionOpts2 = init_session_qos(IEs, SessionOpts1),
 
-    {Cause, SessionOpts, Context, LeftBearer, RightBearer, PCC4, PCtx} =
+    {Cause, SessionOpts, Context, Bearer, PCC4, PCtx} =
 	case ergw_gtp_gsn_lib:create_session(APN, pdp_alloc(EUA), DAF, UpSelInfo, Session,
 					     SessionOpts2, Context1, LeftTunnel, LeftBearer1, PCC0) of
 	    {ok, Result} -> Result;
 	    {error, Err} -> throw(Err)
 	end,
 
-    ResponseIEs = create_pdp_context_response(Cause, SessionOpts, Request, LeftTunnel, LeftBearer, Context),
+    ResponseIEs = create_pdp_context_response(Cause, SessionOpts, Request, LeftTunnel, Bearer, Context),
     Response = response(create_pdp_context_response, LeftTunnel, ResponseIEs, Request),
     gtp_context:send_response(ReqKey, Request, Response),
 
     FinalData =
 	Data#{context => Context, pfcp => PCtx, pcc => PCC4,
-	      left_tunnel := LeftTunnel,
-	      left_bearer => LeftBearer, right_bearer => RightBearer},
+	      left_tunnel => LeftTunnel, bearer => Bearer},
     Actions = context_idle_action([], Context),
     {keep_state, FinalData, Actions};
 
@@ -184,7 +183,7 @@ handle_request(ReqKey,
 	       _Resent, _State,
 	       #{context := Context, pfcp := PCtx0,
 		 left_tunnel := LeftTunnelOld,
-		 left_bearer := LeftBearerOld, right_bearer := RightBearer,
+		 bearer := #{left := LeftBearerOld} = Bearer0,
 		 'Session' := Session, pcc := PCC} = Data) ->
     {LeftTunnel0, LeftBearer} =
 	case update_tunnel_from_gtp_req(
@@ -192,13 +191,14 @@ handle_request(ReqKey,
 	    {ok, Result1} -> Result1;
 	    {error, Err1} -> throw(Err1#ctx_err{context = Context, tunnel = LeftTunnelOld})
 	end,
+    Bearer = Bearer0#{left => LeftBearer},
 
     LeftTunnel = ergw_gtp_gsn_lib:update_tunnel_endpoint(Request, LeftTunnelOld, LeftTunnel0),
     URRActions = update_session_from_gtp_req(IEs, Session, LeftTunnel),
     PCtx =
 	if LeftBearer /= LeftBearerOld ->
 		case ergw_gtp_gsn_lib:apply_bearer_change(
-		       LeftBearer, RightBearer, URRActions, false, PCtx0, PCC) of
+		       Bearer, URRActions, false, PCtx0, PCC) of
 		    {ok, Result2} -> Result2;
 		    {error, Err2} -> throw(Err2#ctx_err{context = Context, tunnel = LeftTunnel})
 		end;
@@ -211,12 +211,11 @@ handle_request(ReqKey,
 		    context_charging_id(Context),
 		    ReqQoSProfile],
     ResponseIEs1 = tunnel_elements(LeftTunnel, ResponseIEs0),
-    ResponseIEs = bearer_elements(LeftBearer, ResponseIEs1),
+    ResponseIEs = bearer_elements(Bearer, ResponseIEs1),
     Response = response(update_pdp_context_response, LeftTunnel, ResponseIEs, Request),
     gtp_context:send_response(ReqKey, Request, Response),
 
-    DataNew =
-	Data#{pfcp => PCtx, left_tunnel => LeftTunnel, left_bearer => LeftBearer},
+    DataNew = Data#{pfcp => PCtx, left_tunnel => LeftTunnel, bearer => Bearer},
     Actions = context_idle_action([], Context),
     {keep_state, DataNew, Actions};
 
@@ -849,10 +848,15 @@ tunnel_elements(#tunnel{local = #fq_teid{ip = IP, teid = TEI}}, IEs) ->
      #gsn_address{instance = 0, address = ergw_inet:ip2bin(IP)}   %% for Control Plane
      | IEs].
 
-bearer_elements(#bearer{local = #fq_teid{ip = IP, teid = TEI}}, IEs) ->
+bearer_elements(Bearer, IEs) ->
+    maps:fold(fun bearer_elements/3, IEs, Bearer).
+
+bearer_elements(left, #bearer{local = #fq_teid{ip = IP, teid = TEI}}, IEs) ->
     [#tunnel_endpoint_identifier_data_i{tei = TEI},
      #gsn_address{instance = 1, address = ergw_inet:ip2bin(IP)}    %% for User Traffic
-     | IEs].
+    | IEs];
+bearer_elements(_, _, IEs) ->
+    IEs.
 
 context_charging_id(#context{charging_identifier = ChargingId}) ->
     #charging_id{id = <<ChargingId:32>>}.

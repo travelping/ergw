@@ -51,8 +51,7 @@
 	       context,
 	       pfcp,
 	       pcc :: #pcc_ctx{},
-	       left_bearer :: #bearer{},
-	       right_bearer :: #bearer{}
+	       bearer :: #{Key :: atom() := Value :: #bearer{}}
 	      }).
 
 %%====================================================================
@@ -152,14 +151,14 @@ init([Node, InVRF, IP4, IP6, #{apn := APN} = _SxOpts]) ->
     SessionOpts = ergw_aaa_session:get(Session),
     OCPcfg = maps:get('Offline-Charging-Profile', SessionOpts, #{}),
     PCC = #pcc_ctx{offline_charging_profile = OCPcfg},
+    Bearer = #{left => LeftBearer, right => RightBearer},
     Data = #data{
 	      apn     = APN,
 	      context = Context,
 	      dp_node = Node,
 	      session = Session,
 	      pcc     = PCC,
-	      left_bearer = LeftBearer,
-	      right_bearer = RightBearer
+	      bearer  = Bearer
 	     },
 
     ?LOG(info, "TDF process started for ~p", [[Node, IP4, IP6]]),
@@ -246,7 +245,7 @@ handle_event(info, #aaa_request{procedure = {gx, 'RAR'},
 	     _State,
 	     #data{context = Context, pfcp = PCtx0,
 		   session = Session, pcc = PCC0,
-		   left_bearer = LeftBearer, right_bearer = RightBearer} = Data) ->
+		   bearer = Bearer} = Data) ->
 %%% 1. update PCC
 %%%    a) calculate PCC rules to be removed
 %%%    b) calculate PCC rules to be installed
@@ -275,8 +274,7 @@ handle_event(info, #aaa_request{procedure = {gx, 'RAR'},
 %%% step 2
 %%% step 3:
     {PCtx1, UsageReport} =
-	case ergw_pfcp_context:modify_pfcp_session(
-	       PCC1, [], #{}, LeftBearer, RightBearer, PCtx0) of
+	case ergw_pfcp_context:modify_pfcp_session(PCC1, [], #{}, Bearer, PCtx0) of
 	    {ok, Result1} -> Result1;
 	    {error, Err1} -> throw(Err1#ctx_err{context = Context})
 	end,
@@ -297,8 +295,7 @@ handle_event(info, #aaa_request{procedure = {gx, 'RAR'},
 
 %%% step 6:
     {PCtx, _} =
-	case ergw_pfcp_context:modify_pfcp_session(
-	       PCC4, [], #{}, LeftBearer, RightBearer, PCtx1) of
+	case ergw_pfcp_context:modify_pfcp_session(PCC4, [], #{}, Bearer, PCtx1) of
 	    {ok, Result2} -> Result2;
 	    {error, Err2} -> throw(Err2#ctx_err{context = Context})
 	end,
@@ -332,14 +329,12 @@ handle_event(internal, {session, stop, _Session}, State, Data) ->
     {next_state, shutdown, Data};
 
 handle_event(internal, {session, {update_credits, _} = CreditEv, _}, _State,
-	     #data{context = Context, pfcp = PCtx0, pcc = PCC0,
-		   left_bearer = LeftBearer, right_bearer = RightBearer} = Data) ->
+	     #data{context = Context, pfcp = PCtx0, pcc = PCC0, bearer = Bearer} = Data) ->
     Now = erlang:monotonic_time(),
 
     {PCC, _PCCErrors} = ergw_pcc_context:gy_events_to_pcc_ctx(Now, [CreditEv], PCC0),
     {PCtx, _} =
-	case ergw_pfcp_context:modify_pfcp_session(
-	       PCC, [], #{}, LeftBearer, RightBearer, PCtx0) of
+	case ergw_pfcp_context:modify_pfcp_session(PCC, [], #{}, Bearer, PCtx0) of
 	    {ok, Result1} -> Result1;
 	    {error, Err1} -> throw(Err1#ctx_err{context = Context})
 	end,
@@ -380,7 +375,7 @@ code_change(_OldVsn, State, Data, _Extra) ->
 
 start_session(#data{apn = APN, context = Context, dp_node = Node,
 		    session = Session, pcc = PCC0,
-		    left_bearer = LeftBearer, right_bearer = RightBearer0} = Data) ->
+		    bearer = #{left := LeftBearer, right := RightBearer0} = Bearer0} = Data) ->
 
     {PendingPCtx, NodeCaps} =
 	case ergw_sx_node:attach(Node) of
@@ -390,6 +385,7 @@ start_session(#data{apn = APN, context = Context, dp_node = Node,
 
     VRF = ergw_gsn_lib:select_vrf(NodeCaps, APN),
     RightBearer = RightBearer0#bearer{vrf = VRF},
+    Bearer = Bearer0#{right => RightBearer},
 
     Now = erlang:monotonic_time(),
     SOpts = #{now => Now},
@@ -443,8 +439,7 @@ start_session(#data{apn = APN, context = Context, dp_node = Node,
     PCC4 = ergw_pcc_context:session_events_to_pcc_ctx(RfSEvs, PCC3),
 
     PCtx =
-	case ergw_pfcp_context:create_tdf_session(
-	       PendingPCtx, PCC4, LeftBearer, RightBearer, Context) of
+	case ergw_pfcp_context:create_tdf_session(PendingPCtx, PCC4, Bearer, Context) of
 	    {ok, Result5} -> Result5;
 	    {error, Err5} -> throw({fail, Err5})
 	end,
@@ -460,7 +455,7 @@ start_session(#data{apn = APN, context = Context, dp_node = Node,
 	    ok
     end,
 
-    Data#data{context = Context, pfcp = PCtx, pcc = PCC4, right_bearer = RightBearer}.
+    Data#data{context = Context, pfcp = PCtx, pcc = PCC4, bearer = Bearer}.
 
 init_session(#data{context = #tdf_ctx{ms_ip = UeIP}}) ->
     {MCC, MNC} = ergw:get_plmn_id(),

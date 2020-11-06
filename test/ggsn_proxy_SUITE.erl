@@ -1421,7 +1421,7 @@ error_indication_ggsn2sgsn(Config) ->
 
     {_Handler, CtxPid} = gtp_context_reg:lookup({'irx', {imsi, ?'IMSI', 5}}),
     true = is_pid(CtxPid),
-    #{right_bearer := RightBearer} = gtp_context:info(CtxPid),
+    #{bearer := #{right := RightBearer}} = gtp_context:info(CtxPid),
 
     ergw_test_sx_up:send('sgw-u', make_error_indication_report(RightBearer)),
 
@@ -1484,10 +1484,10 @@ update_pdp_context_request_ra_update() ->
 update_pdp_context_request_ra_update(Config) ->
     {GtpC1, _, _} = create_pdp_context(Config),
     {_Handler, CtxPid} = gtp_context_reg:lookup({'remote-irx', {imsi, ?'PROXY-IMSI', 5}}),
-    #{left_tunnel := LeftTunnel1, left_bearer := LeftBearer1} = gtp_context:info(CtxPid),
+    #{left_tunnel := LeftTunnel1, bearer := #{left := LeftBearer1}} = gtp_context:info(CtxPid),
 
     {GtpC2, _, _} = update_pdp_context(ra_update, GtpC1),
-    #{left_tunnel := LeftTunnel2, left_bearer := LeftBearer2} = gtp_context:info(CtxPid),
+    #{left_tunnel := LeftTunnel2, bearer := #{left := LeftBearer2}} = gtp_context:info(CtxPid),
 
     ?equal([], outstanding_requests()),
     delete_pdp_context(GtpC2),
@@ -1510,7 +1510,7 @@ update_pdp_context_request_tei_update() ->
 update_pdp_context_request_tei_update(Config) ->
     {GtpC1, _, _} = create_pdp_context(Config),
     {_Handler, CtxPid} = gtp_context_reg:lookup({'remote-irx', {imsi, ?'PROXY-IMSI', 5}}),
-    #{left_tunnel := LeftTunnel1, left_bearer := LeftBearer1} = gtp_context:info(CtxPid),
+    #{left_tunnel := LeftTunnel1, bearer := #{left := LeftBearer1}} = gtp_context:info(CtxPid),
 
     {_Handler, ProxyCtxPid} = gtp_context_reg:lookup({'irx', {imsi, ?'IMSI', 5}}),
     #{right_tunnel := RightTunnel1} = gtp_context:info(ProxyCtxPid),
@@ -1518,7 +1518,7 @@ update_pdp_context_request_tei_update(Config) ->
     ?match({gtp_context, ProxyCtxPid}, gtp_context_reg:lookup(ProxyRegKey1)),
 
     {GtpC2, _, _} = update_pdp_context(tei_update, GtpC1),
-    #{left_tunnel := LeftTunnel2, left_bearer := LeftBearer2} = gtp_context:info(CtxPid),
+    #{left_tunnel := LeftTunnel2, bearer := #{left := LeftBearer2}} = gtp_context:info(CtxPid),
 
     #{right_tunnel := RightTunnel2} = gtp_context:info(ProxyCtxPid),
     ProxyRegKey2 = gtp_context:tunnel_key(local, RightTunnel2),
@@ -1576,10 +1576,10 @@ update_pdp_context_request_broken_recovery(Config) ->
 		     end),
     {GtpC1, _, _} = create_pdp_context(Config),
     {_Handler, CtxPid} = gtp_context_reg:lookup({'remote-irx', {imsi, ?'PROXY-IMSI', 5}}),
-    #{left_tunnel := LeftTunnel1, left_bearer := LeftBearer1} = gtp_context:info(CtxPid),
+    #{left_tunnel := LeftTunnel1, bearer := #{left := LeftBearer1}} = gtp_context:info(CtxPid),
 
     {GtpC2, _, _} = update_pdp_context(simple, GtpC1),
-    #{left_tunnel := LeftTunnel2, left_bearer := LeftBearer2} = gtp_context:info(CtxPid),
+    #{left_tunnel := LeftTunnel2, bearer := #{left := LeftBearer2}} = gtp_context:info(CtxPid),
 
     ?equal([], outstanding_requests()),
     delete_pdp_context(GtpC2),

@@ -10,9 +10,9 @@
 -compile({parse_transform, do}).
 -compile({parse_transform, cut}).
 
--export([create_pfcp_session/5, create_tdf_session/5,
+-export([create_pfcp_session/4, create_tdf_session/4,
 	 usage_report_to_charging_events/3,
-	 modify_pfcp_session/6,
+	 modify_pfcp_session/5,
 	 delete_pfcp_session/2,
 	 query_usage_report/1, query_usage_report/2
 	]).
@@ -89,8 +89,8 @@ ctx_update_dp_seid(#{f_seid := #f_seid{seid = DP}},
 ctx_update_dp_seid(_, PCtx) ->
     PCtx.
 
-%% session_establishment_request/5
-session_establishment_request(PCC, PCtx0, Left, Right, Ctx) ->
+%% session_establishment_request/4
+session_establishment_request(PCC, PCtx0, #{left := Left, right := Right}, Ctx) ->
     {ok, CntlNode, _, _} = ergw_sx_socket:id(),
 
     PCtx1 = pctx_update_from_ctx(PCtx0, Ctx),
@@ -698,12 +698,12 @@ register_ctx_ids(Handler,
 	    [ergw_pfcp:ctx_teid_key(PCtx, FqTEID) || is_record(FqTEID, fq_teid)]],
     gtp_context_reg:register(Keys, Handler, self()).
 
-create_pfcp_session(PCtx, PCC, Left, Right, Ctx)
+create_pfcp_session(PCtx, PCC, #{left := Left} = Bearer, Ctx)
   when is_record(PCC, pcc_ctx) ->
     register_ctx_ids(gtp_context, Left, PCtx),
-    session_establishment_request(PCC, PCtx, Left, Right, Ctx).
+    session_establishment_request(PCC, PCtx, Bearer, Ctx).
 
-modify_pfcp_session(PCC, URRActions, Opts, Left, Right, PCtx0)
+modify_pfcp_session(PCC, URRActions, Opts, #{left := Left, right := Right} = _Bearer, PCtx0)
   when is_record(PCC, pcc_ctx), is_record(PCtx0, pfcp_ctx) ->
     {SxRules0, SxErrors, PCtx} = build_sx_rules(PCC, Opts, PCtx0, Left, Right),
     SxRules =
@@ -719,10 +719,10 @@ modify_pfcp_session(PCC, URRActions, Opts, Left, Right, PCtx0)
     ?LOG(debug, "PCtx: ~p~n", [PCtx]),
     session_modification_request(PCtx, SxRules).
 
-create_tdf_session(PCtx, PCC, Left, Right, Ctx)
+create_tdf_session(PCtx, PCC, Bearer, Ctx)
   when is_record(PCC, pcc_ctx) ->
     register_ctx_ids(tdf, PCtx),
-    session_establishment_request(PCC, PCtx, Left, Right, Ctx).
+    session_establishment_request(PCC, PCtx,  Bearer, Ctx).
 
 %% ===========================================================================
 %% Usage Report to Charging Event translation

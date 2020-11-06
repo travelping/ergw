@@ -117,7 +117,7 @@ handle_event(info, _Info, _State, _Data) ->
 
 handle_pdu(ReqKey, #gtp{ie = PDU} = Msg, _State,
 	   #{context := Context, pfcp := PCtx,
-	     left_bearer := LeftBearer, right_bearer := RightBearer} = Data) ->
+	     bearer := #{left := LeftBearer, right := RightBearer}} = Data) ->
     ?LOG(debug, "GTP-U SAE-GW: ~p, ~p", [ReqKey, gtp_c_lib:fmt_gtp(Msg)]),
 
     ergw_gsn_lib:ip_pdu(PDU, LeftBearer, RightBearer, Context, PCtx),
@@ -135,7 +135,7 @@ handle_request(ReqKey,
 			  } = IEs} = Request,
 	       _Resent, _State,
 	       #{context := Context0, aaa_opts := AAAopts, node_selection := NodeSelect,
-		  left_tunnel := LeftTunnel0, left_bearer := LeftBearer0,
+		  left_tunnel := LeftTunnel0, bearer := #{left := LeftBearer0},
 		 'Session' := Session, pcc := PCC0} = Data) ->
 
     Services = [{"x-3gpp-upf", "x-sxb"}],
@@ -162,21 +162,20 @@ handle_request(ReqKey,
     SessionOpts1 = pgw_s5s8:init_session_from_gtp_req(IEs, AAAopts, LeftTunnel, SessionOpts0),
     %% SessionOpts = init_session_qos(ReqQoSProfile, SessionOpts1),
 
-    {Cause, SessionOpts, Context, LeftBearer, RightBearer, PCC4, PCtx} =
+    {Cause, SessionOpts, Context, Bearer, PCC4, PCtx} =
 	case ergw_gtp_gsn_lib:create_session(APN, pdn_alloc(PAA), DAF, UpSelInfo, Session,
 					     SessionOpts1, Context1, LeftTunnel, LeftBearer1, PCC0) of
 	    {ok, Result} -> Result;
 	    {error, Err} -> throw(Err)
 	end,
 
-    ResponseIEs = create_session_response(Cause, SessionOpts, IEs, EBI, LeftTunnel, LeftBearer, Context),
+    ResponseIEs = create_session_response(Cause, SessionOpts, IEs, EBI, LeftTunnel, Bearer, Context),
     Response = response(create_session_response, LeftTunnel, ResponseIEs, Request),
     gtp_context:send_response(ReqKey, Request, Response),
 
     FinalData =
 	Data#{context => Context, pfcp => PCtx, pcc => PCC4,
-	      left_tunnel => LeftTunnel,
-	      left_bearer => LeftBearer, right_bearer => RightBearer},
+	      left_tunnel => LeftTunnel, bearer => Bearer},
 
     Actions = context_idle_action([], Context),
     {keep_state, FinalData, Actions};
@@ -189,7 +188,7 @@ handle_request(ReqKey,
 	       _Resent, _State,
 	       #{context := Context, pfcp := PCtx0,
 		 left_tunnel := LeftTunnelOld,
-		 left_bearer := LeftBearerOld, right_bearer := RightBearer,
+		 bearer := #{left := LeftBearerOld} = Bearer0,
 		 'Session' := Session, pcc := PCC} = Data) ->
 
     {LeftTunnel0, LeftBearer} =
@@ -198,13 +197,14 @@ handle_request(ReqKey,
 	    {ok, Result1} -> Result1;
 	    {error, Err1} -> throw(Err1#ctx_err{context = Context, tunnel = LeftTunnelOld})
 	end,
+    Bearer = Bearer0#{left => LeftBearer},
 
     LeftTunnel = ergw_gtp_gsn_lib:update_tunnel_endpoint(Request, LeftTunnelOld, LeftTunnel0),
     URRActions = update_session_from_gtp_req(IEs, Session, LeftTunnel),
     PCtx =
 	if LeftBearer /= LeftBearerOld ->
 		case ergw_gtp_gsn_lib:apply_bearer_change(
-		       LeftBearer, RightBearer, URRActions, true, PCtx0, PCC) of
+		       Bearer, URRActions, true, PCtx0, PCC) of
 		    {ok, Result2} -> Result2;
 		    {error, Err2} -> throw(Err2#ctx_err{context = Context, tunnel = LeftTunnel})
 		end;
@@ -220,8 +220,7 @@ handle_request(ReqKey,
     Response = response(modify_bearer_response, LeftTunnel, ResponseIEs, Request),
     gtp_context:send_response(ReqKey, Request, Response),
 
-    DataNew =
-	Data#{pfcp => PCtx, left_tunnel => LeftTunnel, left_bearer => LeftBearer},
+    DataNew = Data#{pfcp => PCtx, left_tunnel => LeftTunnel, bearer => Bearer},
     Actions = context_idle_action([], Context),
     {keep_state, DataNew, Actions};
 
@@ -229,7 +228,7 @@ handle_request(ReqKey,
 	       #gtp{type = modify_bearer_request, ie = IEs} = Request,
 	       _Resent, _State,
 	       #{context := Context, pfcp := PCtx,
-		 left_tunnel := LeftTunnelOld, left_bearer := LeftBearerOld,
+		 left_tunnel := LeftTunnelOld, bearer := #{left := LeftBearerOld},
 		 'Session' := Session} = Data)
   when not is_map_key(?'Bearer Contexts to be modified', IEs) ->
     {LeftTunnel0, _LeftBearer} =
@@ -283,13 +282,13 @@ handle_request(ReqKey,
 	       #gtp{type = release_access_bearers_request} = Request, _Resent, _State,
 	       #{context := Context, pfcp := PCtx0,
 		 left_tunnel := LeftTunnel,
-		 left_bearer := LeftBearer0, right_bearer := RightBearer,
+		 bearer := #{left := LeftBearer0} = Bearer0,
 		 pcc := PCC} = Data) ->
     LeftBearer = LeftBearer0#bearer{remote = undefined},
+    Bearer = Bearer0#{left => LeftBearer},
 
     PCtx =
-	case ergw_gtp_gsn_lib:apply_bearer_change(
-	       LeftBearer, RightBearer, [], true, PCtx0, PCC) of
+	case ergw_gtp_gsn_lib:apply_bearer_change(Bearer, [], true, PCtx0, PCC) of
 	    {ok, Result2} -> Result2;
 	    {error, Err2} -> throw(Err2#ctx_err{context = Context, tunnel = LeftTunnel})
 	end,
@@ -298,8 +297,7 @@ handle_request(ReqKey,
     Response = response(release_access_bearers_response, LeftTunnel, ResponseIEs, Request),
     gtp_context:send_response(ReqKey, Request, Response),
 
-    DataNew =
-	Data#{context => Context, pfcp := PCtx, left_bearer => LeftBearer},
+    DataNew = Data#{context => Context, pfcp := PCtx, bearer => Bearer},
     Actions = context_idle_action([], Context),
     {keep_state, DataNew, Actions};
 
@@ -780,7 +778,10 @@ pdn_pco(SessionOpts, #{?'Protocol Configuration Options' :=
 pdn_pco(_SessionOpts, _RequestIEs, IE) ->
     IE.
 
-bearer_context(EBI, Bearer, _Context, IEs) ->
+bearer_context(EBI, Bearer, Context, IEs) ->
+    maps:fold(bearer_context(EBI, _, _, Context, _), IEs, Bearer).
+
+bearer_context(EBI, left, Bearer, _Context, IEs) ->
     IE = #v2_bearer_context{
 	    group=[#v2_cause{v2_cause = request_accepted},
 		   EBI,
@@ -794,7 +795,9 @@ bearer_context(EBI, Bearer, _Context, IEs) ->
 		   %% F-TEID for S1-U SGW GTP-U ???
 		   s1_sgw_gtp_u_tei(Bearer),
 		   s5s8_pgw_gtp_u_tei(Bearer)]},
-    [IE | IEs].
+    [IE | IEs];
+bearer_context(_, _, _, _, IEs) ->
+    IEs.
 
 fq_teid(Instance, Type, TEI, {_,_,_,_} = IP) ->
     #v2_fully_qualified_tunnel_endpoint_identifier{
