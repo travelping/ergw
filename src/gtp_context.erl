@@ -22,7 +22,7 @@
 	 path_restart/2,
 	 terminate_colliding_context/2, terminate_context/1,
 	 delete_context/1, trigger_delete_context/1,
-	 remote_context_register/4, remote_context_register_new/4,
+	 remote_context_register/3, remote_context_register_new/3,
 	 tunnel_reg_update/2,
 	 info/1,
 	 validate_options/3,
@@ -90,13 +90,13 @@ start_link(Socket, Info, Version, Interface, IfOpts, Opts) ->
 path_restart(Context, Path) ->
     jobs:run(path_restart, fun() -> gen_statem:call(Context, {path_restart, Path}) end).
 
-remote_context_register(LeftTunnel, LeftBearer, RightBearer, Context)
+remote_context_register(LeftTunnel, Bearer, Context)
   when is_record(Context, context) ->
-    Keys = context2keys(LeftTunnel, LeftBearer, RightBearer, Context),
+    Keys = context2keys(LeftTunnel, Bearer, Context),
     gtp_context_reg:register(Keys, ?MODULE, self()).
 
-remote_context_register_new(LeftTunnel, LeftBearer, RightBearer, Context) ->
-    Keys = context2keys(LeftTunnel, LeftBearer, RightBearer, Context),
+remote_context_register_new(LeftTunnel, Bearer, Context) ->
+    Keys = context2keys(LeftTunnel, Bearer, Context),
     case gtp_context_reg:register_new(Keys, ?MODULE, self()) of
 	ok ->
 	    ok;
@@ -330,7 +330,8 @@ init([Socket, Info, Version, Interface,
 
 		 version           = Version
 		},
-
+    Bearer = #{left => #bearer{interface = 'Access'},
+	       right => #bearer{interface = 'SGi-LAN'}},
     Data = #{
       context        => Context,
       version        => Version,
@@ -338,8 +339,7 @@ init([Socket, Info, Version, Interface,
       node_selection => NodeSelect,
       aaa_opts       => AAAOpts,
       left_tunnel    => LeftTunnel,
-      left_bearer    => #bearer{interface = 'Access'},
-      right_bearer   => #bearer{interface = 'SGi-LAN'}},
+      bearer         => Bearer},
 
     Interface:init(Opts, Data).
 
@@ -452,8 +452,7 @@ handle_event(info, #aaa_request{procedure = {gx, 'RAR'},
 				events = Events} = Request,
 	     run,
 	     #{context := Context, pfcp := PCtx0,
-	       left_tunnel := LeftTunnel,
-	       left_bearer := LeftBearer, right_bearer := RightBearer,
+	       left_tunnel := LeftTunnel, bearer := Bearer,
 	       'Session' := Session, pcc := PCC0} = Data) ->
 %%% 1. update PCC
 %%%    a) calculate PCC rules to be removed
@@ -482,8 +481,7 @@ handle_event(info, #aaa_request{procedure = {gx, 'RAR'},
 %%% step 2
 %%% step 3:
     {PCtx1, UsageReport} =
-	case ergw_pfcp_context:modify_pfcp_session(
-	       PCC1, [], #{}, LeftBearer, RightBearer, PCtx0) of
+	case ergw_pfcp_context:modify_pfcp_session(PCC1, [], #{}, Bearer, PCtx0) of
 	    {ok, Result1} -> Result1;
 	    {error, Err1} -> throw(Err1#ctx_err{context = Context, tunnel = LeftTunnel})
 	end,
@@ -504,8 +502,7 @@ handle_event(info, #aaa_request{procedure = {gx, 'RAR'},
 
 %%% step 6:
     {PCtx, _} =
-	case ergw_pfcp_context:modify_pfcp_session(
-	       PCC4, [], #{}, LeftBearer, RightBearer, PCtx1) of
+	case ergw_pfcp_context:modify_pfcp_session(PCC4, [], #{}, Bearer, PCtx1) of
 	    {ok, Result2} -> Result2;
 	    {error, Err2} -> throw(Err2#ctx_err{context = Context, tunnel = LeftTunnel})
 	end,
@@ -545,15 +542,13 @@ handle_event(info, {update_session, Session, Events}, _State, _Data) ->
 
 handle_event(internal, {session, {update_credits, _} = CreditEv, _}, _State,
 	     #{context := Context, pfcp := PCtx0,
-	       left_tunnel := LeftTunnel,
-	       left_bearer := LeftBearer, right_bearer := RightBearer,
+	       left_tunnel := LeftTunnel, bearer := Bearer,
 	       pcc := PCC0} = Data) ->
     Now = erlang:monotonic_time(),
 
     {PCC, _PCCErrors} = ergw_pcc_context:gy_events_to_pcc_ctx(Now, [CreditEv], PCC0),
     {PCtx, _} =
-	case ergw_pfcp_context:modify_pfcp_session(
-	       PCC, [], #{}, LeftBearer, RightBearer, PCtx0) of
+	case ergw_pfcp_context:modify_pfcp_session(PCC, [], #{}, Bearer, PCtx0) of
 	    {ok, Result1} -> Result1;
 	    {error, Err1} -> throw(Err1#ctx_err{context = Context, tunnel = LeftTunnel})
 	end,
@@ -791,22 +786,23 @@ validate_ies(#gtp{version = Version, type = MsgType, ie = IEs}, Cause, #{interfa
 %% context registry
 %%====================================================================
 
-context2keys(#tunnel{socket = Socket} = LeftTunnel, _LeftBearer, RightBearer,
+context2keys(#tunnel{socket = Socket} = LeftTunnel, Bearer,
 	     #context{apn = APN, context_id = ContextId}) ->
     ordsets:from_list(
       tunnel2keys(LeftTunnel)
       ++ [socket_key(Socket, ContextId) || ContextId /= undefined]
-      ++ bsf_keys(APN, RightBearer)).
+      ++ maps:fold(bsf_keys(APN, _, _, _), [], Bearer)).
 
 tunnel2keys(Tunnel) ->
     [tunnel_key(local, Tunnel), tunnel_key(remote, Tunnel)].
 
-bsf_keys(APN, #bearer{vrf = VRF, local = #ue_ip{v4 = IPv4, v6 = IPv6}}) ->
+bsf_keys(APN, _, #bearer{vrf = VRF, local = #ue_ip{v4 = IPv4, v6 = IPv6}}, Keys) ->
     [#bsf{dnn = APN, ip_domain = VRF, ip = ergw_ip_pool:ip(IPv4)} || IPv4 /= undefined] ++
 	[#bsf{dnn = APN, ip_domain = VRF,
-	      ip = ergw_inet:ipv6_prefix(ergw_ip_pool:ip(IPv6))} || IPv6 /= undefined];
-bsf_keys(_, _) ->
-    [].
+	      ip = ergw_inet:ipv6_prefix(ergw_ip_pool:ip(IPv6))} || IPv6 /= undefined] ++
+    Keys;
+bsf_keys(_, _, _, Keys) ->
+    Keys.
 
 socket_key(#socket{name = Name}, Key) ->
     {Name, Key};
@@ -858,16 +854,17 @@ usage_report_to_accounting(undefined) ->
 %% Helper
 %%====================================================================
 
-fteid_tunnel_side(#f_teid{ipv4 = IPv4, ipv6 = IPv6, teid = TEID},
-		  #{left_bearer := #bearer{remote = #fq_teid{ip = IP, teid = TEID}}})
+fteid_tunnel_side(FqTEID, #{bearer := Bearer}) ->
+    fteid_tunnel_side_f(FqTEID, maps:next(maps:iterator(Bearer))).
+
+fteid_tunnel_side_f(_, none) ->
+    none;
+fteid_tunnel_side_f(#f_teid{ipv4 = IPv4, ipv6 = IPv6, teid = TEID},
+		  {Key, #bearer{remote = #fq_teid{ip = IP, teid = TEID}}, _})
   when IP =:= IPv4; IP =:= IPv6 ->
-    left;
-fteid_tunnel_side(#f_teid{ipv4 = IPv4, ipv6 = IPv6, teid = TEID},
-		  #{right_bearer := #bearer{remote = #fq_teid{ip = IP, teid = TEID}}})
-  when IP =:= IPv4; IP =:= IPv6 ->
-    right;
-fteid_tunnel_side(_, _) ->
-    none.
+    Key;
+fteid_tunnel_side_f(FqTEID, {_, _, Iter}) ->
+    fteid_tunnel_side_f(FqTEID, maps:next(Iter)).
 
 close_context(Side, TermCause, #{interface := Interface} = Data) ->
     Interface:close_context(Side, TermCause, Data).

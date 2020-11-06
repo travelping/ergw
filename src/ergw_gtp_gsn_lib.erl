@@ -13,7 +13,7 @@
 -export([connect_upf_candidates/4, create_session/10]).
 -export([triggered_charging_event/4, usage_report/3, close_context/2]).
 -export([update_tunnel_endpoint/3, handle_peer_change/3, update_tunnel_endpoint/2,
-	 apply_bearer_change/6]).
+	 apply_bearer_change/5]).
 
 -include_lib("kernel/include/logger.hrl").
 -include_lib("gtplib/include/gtp_packet.hrl").
@@ -85,6 +85,7 @@ create_session_fun(APN, PAA, DAF, {Candidates, SxConnectId}, Session,
 	    {ok, Result7} -> Result7;
 	    {error, Err7} -> throw(Err7#ctx_err{context = Context, tunnel = LeftTunnel})
 	end,
+    Bearer = #{left => LeftBearer, right => RightBearer},
 
     ergw_aaa_session:set(Session, SessionOpts),
 
@@ -129,7 +130,7 @@ create_session_fun(APN, PAA, DAF, {Candidates, SxConnectId}, Session,
     PCC3 = ergw_pcc_context:session_events_to_pcc_ctx(AuthSEvs, PCC2),
     PCC4 = ergw_pcc_context:session_events_to_pcc_ctx(RfSEvs, PCC3),
 
-    PCtx = case ergw_pfcp_context:create_pfcp_session(PendingPCtx, PCC4, LeftBearer, RightBearer, Context) of
+    PCtx = case ergw_pfcp_context:create_pfcp_session(PendingPCtx, PCC4, Bearer, Context) of
 	       {ok, Result10} -> Result10;
 	       {error, Err10} -> throw(Err10#ctx_err{context = Context, tunnel = LeftTunnel})
 	   end,
@@ -142,13 +143,12 @@ create_session_fun(APN, PAA, DAF, {Candidates, SxConnectId}, Session,
 	    ok
     end,
 
-    case gtp_context:remote_context_register_new(
-	   LeftTunnel, LeftBearer, RightBearer, Context) of
+    case gtp_context:remote_context_register_new(LeftTunnel, Bearer, Context) of
 	ok -> ok;
 	{error, Err11} -> throw(Err11#ctx_err{context = Context, tunnel = LeftTunnel})
     end,
 
-    {ok, {Cause, SessionOpts, Context, LeftBearer, RightBearer, PCC4, PCtx}}.
+    {ok, {Cause, SessionOpts, Context, Bearer, PCC4, PCtx}}.
 
 %% 'Idle-Timeout' received from ergw_aaa Session takes precedence over configured one
 add_apn_timeout(Opts, Session, Context) ->
@@ -192,13 +192,12 @@ update_tunnel_endpoint(TunnelOld, Tunnel0) ->
 %% Bearer Support
 %%====================================================================
 
-apply_bearer_change(LeftBearer, RightBearer, URRActions, SendEM, PCtx0, PCC) ->
+apply_bearer_change(Bearer, URRActions, SendEM, PCtx0, PCC) ->
     ModifyOpts =
 	if SendEM -> #{send_end_marker => true};
 	   true   -> #{}
 	end,
-    case ergw_pfcp_context:modify_pfcp_session(
-	   PCC, URRActions, ModifyOpts, LeftBearer, RightBearer, PCtx0) of
+    case ergw_pfcp_context:modify_pfcp_session(PCC, URRActions, ModifyOpts, Bearer, PCtx0) of
 	{ok, {PCtx, UsageReport}} ->
 	    gtp_context:usage_report(self(), URRActions, UsageReport),
 	    {ok, PCtx};
