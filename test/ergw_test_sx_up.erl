@@ -2,6 +2,7 @@
 
 -behaviour(gen_server).
 -compile({parse_transform, cut}).
+-compile({parse_transform, exprecs}).
 
 %% API
 -export([start/2, stop/1, restart/1,
@@ -9,7 +10,8 @@
 	 up_inactivity_timer_expiry/2,
 	 reset/1, history/1, history/2,
 	 accounting/2,
-	 enable/1, disable/1]).
+	 enable/1, disable/1,
+	 feature/3]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -23,13 +25,15 @@
 -define(SERVER, ?MODULE).
 
 -record(state, {sx, gtp, accounting, enabled,
-		record,
+		record, features,
 		cp_ip, cp_seid,
 		up_ip, up_seid,
 		cp_recovery_ts,
 		dp_recovery_ts,
 		seq_no, urrs, teids,
 		history}).
+
+-export_records([up_function_features]).
 
 %%%===================================================================
 %%% API
@@ -81,6 +85,9 @@ enable(Role) ->
 disable(Role) ->
     gen_server:call(server_name(Role), {enabled, false}).
 
+feature(Role, Feature, V) ->
+    gen_server:call(server_name(Role), {feature, Feature, V}).
+
 %%%===================================================================
 %%% gen_server callbacks
 %%%===================================================================
@@ -97,6 +104,8 @@ init([IP]) ->
 	       accounting = on,
 	       enabled = true,
 	       record = true,
+	       features = #up_function_features{ftup = 1, treu = 1, empu = 1,
+						ueip = 1, mnop = 1, ip6pl = 1},
 	       cp_seid = 0,
 	       up_ip = ergw_inet:ip2bin(IP),
 	       up_seid = ergw_sx_socket:seid(),
@@ -122,6 +131,11 @@ handle_call(reset, _From, State0) ->
 
 handle_call({enabled, Bool}, _From, State) ->
     {reply, ok, State#state{enabled = Bool}};
+
+handle_call({feature, Feature, V}, _From, #state{features = UpFF0} = State) ->
+    UpFF = '#set-'([{Feature, V}], UpFF0),
+    OldV = '#get-'(Feature, UpFF0),
+    {reply, {ok, OldV}, State#state{features = UpFF}};
 
 handle_call(restart, _From, State0) ->
     State = State0#state{
@@ -307,13 +321,13 @@ handle_message(#pfcp{type = heartbeat_request,
 handle_message(#pfcp{type = association_setup_request,
 		     ie = #{recovery_time_stamp :=
 				#recovery_time_stamp{time = CpRecoveryTS}}},
-	       #state{dp_recovery_ts = RecoveryTS} = State0) ->
+	       #state{features = UpFF, dp_recovery_ts = RecoveryTS} = State0) ->
     RespIEs =
 	[#node_id{id = [<<"test">>, <<"server">>]},
 	 #pfcp_cause{cause = 'Request accepted'},
 	 #recovery_time_stamp{
 	    time = ergw_gsn_lib:seconds_to_sntp_time(RecoveryTS)},
-	 #up_function_features{ftup = 1, treu = 1, empu = 1, ueip = 1, mnop = 1, ip6pl = 1},
+	 UpFF,
 	 user_plane_ip_resource_information([<<"cp">>], State0),
 	 user_plane_ip_resource_information([<<"irx">>], State0),
 	 user_plane_ip_resource_information([<<"proxy-irx">>], State0),
