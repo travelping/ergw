@@ -28,7 +28,7 @@
 		up_ip, up_seid,
 		cp_recovery_ts,
 		dp_recovery_ts,
-		seq_no, urrs,
+		seq_no, urrs, teids,
 		history}).
 
 %%%===================================================================
@@ -313,6 +313,7 @@ handle_message(#pfcp{type = association_setup_request,
 	 #pfcp_cause{cause = 'Request accepted'},
 	 #recovery_time_stamp{
 	    time = ergw_gsn_lib:seconds_to_sntp_time(RecoveryTS)},
+	 #up_function_features{ftup = 1, treu = 1, empu = 1, ueip = 1, mnop = 1, ip6pl = 1},
 	 user_plane_ip_resource_information([<<"cp">>], State0),
 	 user_plane_ip_resource_information([<<"irx">>], State0),
 	 user_plane_ip_resource_information([<<"proxy-irx">>], State0),
@@ -423,7 +424,36 @@ process_ies(_Fun, Acc, []) ->
 process_ies(Fun, Acc, [H|T]) ->
     process_ies(Fun, Fun(H, Acc), T).
 
+choose_up_ip(choose, _, #state{up_ip = IP})
+  when size(IP) ==  4 ->
+    {ergw_inet:ip2bin(?LOCALHOST_IPv4), undefined};
+choose_up_ip(_, choose, #state{up_ip = IP})
+  when size(IP) == 16 ->
+    {ergw_inet:ip2bin(?LOCALHOST_IPv6), IP}.
+
+process_f_teid(Id, #{f_teid := #f_teid{teid = choose, choose_id = ChId}},
+	       {RespIEs, #state{teids = TEIDs} = State})
+  when is_map_key(ChId, TEIDs) ->
+    {TEID, IP4, IP6} = maps:get(ChId, TEIDs),
+    FqTEID = #f_teid{teid = TEID, ipv4 = IP4, ipv6 = IP6},
+    Create = #created_pdr{group = [Id, FqTEID]},
+    {[Create | RespIEs], State};
+
+process_f_teid(Id, #f_teid{teid = choose, choose_id = ChId, ipv4 = IPv4, ipv6 = IPv6},
+	       {RespIEs, #state{teids = TEIDs} = State}) ->
+    {IP4, IP6} = choose_up_ip(IPv4, IPv6, State),
+    TEID = rand:uniform(16#fffffffe),
+    FqTEID = #f_teid{teid = TEID, ipv4 = IP4, ipv6 = IP6},
+    Create = #created_pdr{group = [Id, FqTEID]},
+    {[Create | RespIEs], State#state{teids = maps:put(ChId, {TEID, IP4, IP6}, TEIDs)}};
+
+process_f_teid(_, _, Acc) ->
+    Acc.
+
 %% process_request_ie/3
+process_request_ie(#create_pdr{group = #{pdr_id := Id, pdi := #pdi{group = PDI}}}, Acc) ->
+    process_f_teid(Id, maps:get(f_teid, PDI, undefined), Acc);
+
 process_request_ie(#query_urr{group = #{urr_id := #urr_id{id = Id}}},
 	   {RespIEs, #state{accounting = on} = State}) ->
     Report =
@@ -482,7 +512,9 @@ process_request_ies(_, IEs, Acc) ->
     process_ies(fun process_request_ie/2, Acc, IEs).
 
 %% process_request/3
-process_request(ReqIEs, RespIEs, State) ->
+process_request(ReqIEs, RespIEs, State0) ->
+    ct:pal("Process Req: ~p", [ReqIEs]),
+    State = State0#state{teids = #{}},
     maps:fold(fun process_request_ies/3, {RespIEs, State}, ReqIEs).
 
 report_urrs(#state{accounting = on, urrs = URRs}, RespIEs) ->
