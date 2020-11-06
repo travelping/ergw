@@ -279,7 +279,7 @@ handle_request(ReqKey,
     Response = response(modify_bearer_response, LeftTunnel, ResponseIEs, Request),
     gtp_context:send_response(ReqKey, Request, Response),
 
-    DataNew = Data#{pfcp := PCtx, left_tunnel => LeftTunnel, bearer => Bearer},
+    DataNew = Data#{pfcp => PCtx, left_tunnel => LeftTunnel, bearer => Bearer},
     Actions = context_idle_action([], Context),
     {keep_state, DataNew, Actions};
 
@@ -307,7 +307,7 @@ handle_request(ReqKey,
     Response = response(modify_bearer_response, LeftTunnel, ResponseIEs, Request),
     gtp_context:send_response(ReqKey, Request, Response),
 
-    DataNew = Data#{pfcp := PCtx, left_tunnel => LeftTunnel},
+    DataNew = Data#{pfcp => PCtx, left_tunnel => LeftTunnel},
     Actions = context_idle_action([], Context),
     {keep_state, DataNew, Actions};
 

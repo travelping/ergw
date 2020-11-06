@@ -297,7 +297,7 @@ handle_request(ReqKey,
     Response = response(release_access_bearers_response, LeftTunnel, ResponseIEs, Request),
     gtp_context:send_response(ReqKey, Request, Response),
 
-    DataNew = Data#{context => Context, pfcp := PCtx, bearer => Bearer},
+    DataNew = Data#{context => Context, pfcp => PCtx, bearer => Bearer},
     Actions = context_idle_action([], Context),
     {keep_state, DataNew, Actions};
 
