@@ -10,7 +10,7 @@
 -compile({parse_transform, cut}).
 
 -export([
-	 traffic_endp/2,
+	 traffic_endpoint/2,
 	 traffic_forward/2,
 	 f_seid/2,
 	 f_teid/1,
@@ -42,24 +42,24 @@
 alloc_info_addr(AI) ->
     ergw_inet:ip2bin(ergw_ip_pool:addr(AI)).
 
-traffic_endp(#bearer{local = FqTEID} = Bearer, Group)
+traffic_endpoint(#bearer{local = FqTEID} = Bearer, Group)
   when is_record(FqTEID, fq_teid) ->
     [source_interface(Bearer),
      ergw_pfcp:network_instance(Bearer),
      ergw_pfcp:f_teid(FqTEID)
     | Group];
-traffic_endp(#bearer{local = UeIP} = Bearer, Group)
+traffic_endpoint(#bearer{local = UeIP} = Bearer, Group)
   when is_record(UeIP, ue_ip) ->
     [source_interface(Bearer),
      ergw_pfcp:network_instance(Bearer),
      ergw_pfcp:ue_ip_address(dst, UeIP)
     | Group];
-traffic_endp(#bearer{local = undefined, remote = UeIP} = Bearer, Group)
+traffic_endpoint(#bearer{local = undefined, remote = UeIP} = Bearer, Group)
   when is_record(UeIP, ue_ip) ->
     [source_interface(Bearer),
      ergw_pfcp:network_instance(Bearer)
     | Group];
-traffic_endp(_, Group) ->
+traffic_endpoint(_, Group) ->
     Group.
 
 traffic_forward(#bearer{} = Bearer, Group) ->

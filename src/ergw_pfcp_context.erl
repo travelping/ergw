@@ -217,7 +217,7 @@ build_sx_ctx_rule(#sx_upd{
 		 [#sdf_filter{
 		     flow_description =
 			 <<"permit out 58 from ff00::/8 to assigned">>}
-		 | ergw_pfcp:traffic_endp(LeftBearer, [])]
+		 | ergw_pfcp:traffic_endpoint(LeftBearer, [])]
 	    },
     PDR = [#pdr_id{id = PdrId},
 	   #precedence{precedence = 100},
@@ -377,9 +377,9 @@ pdi(Side, Src, #bearer{local = UeIP} = Dst, Group)
   when is_record(UeIP, ue_ip) ->
     %% gtp endpoint with UE IP for bearer binding verification
     [ergw_pfcp:ue_ip_address(Side, Dst)
-    | ergw_pfcp:traffic_endp(Src, Group)];
+    | ergw_pfcp:traffic_endpoint(Src, Group)];
 pdi(_Side, Src, _Dst, Group) ->
-    ergw_pfcp:traffic_endp(Src, Group).
+    ergw_pfcp:traffic_endpoint(Src, Group).
 
 %% s(L) -> lists:sort(L).
 

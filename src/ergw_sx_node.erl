@@ -740,7 +740,7 @@ gen_per_feature_pfcp_rule('Access', #vrf{name = Name} = VRF, Bearer, PCtx0) ->
     {FarId, PCtx} = ergw_pfcp:get_id(far, Key, PCtx1),
 
     %% GTP-U encapsulated packet from CP
-    PDI = #pdi{group = ergw_pfcp:traffic_endp(Bearer, [])},
+    PDI = #pdi{group = ergw_pfcp:traffic_endpoint(Bearer, [])},
     PDR = [#pdr_id{id = PdrId},
 	   #precedence{precedence = 100},
 	   PDI,
