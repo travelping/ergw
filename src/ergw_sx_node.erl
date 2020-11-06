@@ -731,10 +731,10 @@ assign_local_data_teid(PCtx, Node, VRFs, Bearer) ->
 	       },
     Bearer#bearer{vrf = VRF#vrf.name, local = FqTEID}.
 
-gen_pfcp_rules(_Key, #vrf{features = Features} = VRF, Bearer, Acc) ->
-    lists:foldl(gen_per_feature_pfcp_rule(_, VRF, Bearer, _), Acc, Features).
+generate_pfcp_rules(_Key, #vrf{features = Features} = VRF, Bearer, Acc) ->
+    lists:foldl(generate_per_feature_pfcp_rule(_, VRF, Bearer, _), Acc, Features).
 
-gen_per_feature_pfcp_rule('Access', #vrf{name = Name} = VRF, Bearer, PCtx0) ->
+generate_per_feature_pfcp_rule('Access', #vrf{name = Name} = VRF, Bearer, PCtx0) ->
     Key = {Name, 'Access'},
     {PdrId, PCtx1} = ergw_pfcp:get_id(pdr, Key, PCtx0),
     {FarId, PCtx} = ergw_pfcp:get_id(far, Key, PCtx1),
@@ -759,7 +759,7 @@ gen_per_feature_pfcp_rule('Access', #vrf{name = Name} = VRF, Bearer, PCtx0) ->
     ergw_pfcp_rules:add(
       [{pdr, PdrId, PDR},
        {far, FarId, FAR}], PCtx);
-gen_per_feature_pfcp_rule('TDF-Source', #vrf{name = Name} = VRF, _Bearer, PCtx0) ->
+generate_per_feature_pfcp_rule('TDF-Source', #vrf{name = Name} = VRF, _Bearer, PCtx0) ->
     Key = {tdf, Name},
     {PdrId, PCtx1} = ergw_pfcp:get_id(pdr, Key, PCtx0),
     {FarId, PCtx2} = ergw_pfcp:get_id(far, Key, PCtx1),
@@ -793,7 +793,7 @@ gen_per_feature_pfcp_rule('TDF-Source', #vrf{name = Name} = VRF, _Bearer, PCtx0)
       [{pdr, PdrId, PDR},
        {far, FarId, FAR},
        {urr, UrrId, URR}], PCtx);
-gen_per_feature_pfcp_rule(_, _VRF, _DpGtpIP, Acc) ->
+generate_per_feature_pfcp_rule(_, _VRF, _DpGtpIP, Acc) ->
     Acc.
 
 install_cp_rules(#data{pfcp_ctx = PCtx0,
@@ -804,7 +804,7 @@ install_cp_rules(#data{pfcp_ctx = PCtx0,
     Bearer = assign_local_data_teid(PCtx0, DpNode, VRFs, Bearer0),
 
     PCtx1 = ergw_pfcp:init_ctx(PCtx0),
-    PCtx = maps:fold(gen_pfcp_rules(_, _, Bearer, _), PCtx1, VRFs),
+    PCtx = maps:fold(generate_pfcp_rules(_, _, Bearer, _), PCtx1, VRFs),
     Rules = ergw_pfcp:update_pfcp_rules(PCtx1, PCtx, #{}),
     IEs = update_m_rec(ergw_pfcp:f_seid(PCtx, CntlNode), Rules),
 
