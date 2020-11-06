@@ -465,7 +465,7 @@ handle_response(#proxy_request{direction = sgsn2ggsn} = ProxyRequest,
     forward_response(ProxyRequest, Response, LeftTunnel, LeftBearer, Context),
 
     DataNew =
-	Data#{proxy_context => ProxyContext, pfcp := PCtx,
+	Data#{proxy_context => ProxyContext, pfcp => PCtx,
 	      right_tunnel => RightTunnel, bearer => Bearer},
     {keep_state, DataNew};
 
