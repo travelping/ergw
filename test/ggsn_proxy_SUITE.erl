@@ -761,8 +761,9 @@ init_per_testcase(cache_timeout, Config) ->
 	_ ->
 	    {skip, "slow tests run only on CI"}
     end;
-init_per_testcase(delete_bearer_requests_multi, Config) ->
+init_per_testcase(sx_upf_removal, Config) ->
     setup_per_testcase(Config),
+    ok = meck:new(ergw_sx_node, [passthrough, no_link]),
     Config;
 init_per_testcase(TestCase, Config)
   when TestCase == proxy_context_selection;
@@ -840,8 +841,9 @@ end_per_testcase(create_pdp_context_overload, Config) ->
     jobs:modify_regulator(rate, create, {rate,create,1}, [{limit,100}]),
     end_per_testcase(Config),
     Config;
-end_per_testcase(delete_bearer_requests_multi, Config) ->
-    ok = meck:delete(ergw_gtp_c_socket, send_request, 7),
+end_per_testcase(sx_upf_removal, Config) ->
+    ok = meck:unload(ergw_sx_node),
+    ok = meck:delete(ergw_sx_socket, call, 5),
     end_per_testcase(Config),
     Config;
 end_per_testcase(TestCase, Config)
@@ -2037,7 +2039,6 @@ sx_upf_removal() ->
 sx_upf_removal(Config) ->
     Cntl = whereis(gtpc_client_server),
 
-    ok = meck:new(ergw_sx_node, [passthrough]),
     %% reduce Sx timeout to speed up test
     ok = meck:expect(ergw_sx_socket, call,
 		     fun(Peer, _T1, _N1, Msg, CbInfo) ->
@@ -2078,8 +2079,6 @@ sx_timeout(Config) ->
     ?equal([], outstanding_requests()),
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
-
-    ok = meck:delete(ergw_sx_socket, call, 5),
     ok.
 
 %%--------------------------------------------------------------------

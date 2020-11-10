@@ -684,6 +684,7 @@ all() ->
 %%%===================================================================
 
 setup_per_testcase(Config) ->
+    logger:set_primary_config(level, debug),
     setup_per_testcase(Config, true).
 
 setup_per_testcase(Config, ClearSxHist) ->
@@ -806,6 +807,7 @@ init_per_testcase(sx_cp_to_up_forward, Config) ->
 init_per_testcase(sx_connect_fail, Config) ->
     meck_reset(Config),
     start_gtpc_server(Config),
+    ok = meck:new(ergw_sx_node, [passthrough, no_link]),
     Config;
 init_per_testcase(gy_validity_timer, Config) ->
     setup_per_testcase(Config),
@@ -900,11 +902,15 @@ end_per_testcase(Config) ->
     set_online_charging(false),
     ok.
 
+end_per_testcase(sx_connect_fail, Config) ->
+    ok = meck:unload(ergw_sx_node),
+    meck:delete(ergw_sx_socket, call, 5),
+    end_per_testcase(Config),
+    Config;
 end_per_testcase(delete_bearer_requests_multi, Config) ->
     ok = meck:delete(ergw_gtp_c_socket, send_request, 7),
     end_per_testcase(Config),
     Config;
-
 end_per_testcase(TestCase, Config)
   when TestCase == create_session_request_aaa_reject;
        TestCase == create_session_request_gx_fail;
@@ -2620,8 +2626,6 @@ sx_timeout(Config) ->
 sx_connect_fail() ->
     [{doc, "Check that a unreachable UPF leads to a proper error response"}].
 sx_connect_fail(Config) ->
-    ok = meck:new(ergw_sx_node, [passthrough]),
-
     %% reduce Sx timeout to speed up test
     ok = meck:expect(ergw_sx_socket, call,
 		     fun(Peer, _T1, _N1, Msg, CbInfo) ->
