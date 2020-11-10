@@ -826,9 +826,6 @@ init_per_testcase(sx_upf_removal, Config) ->
     setup_per_testcase(Config),
     ok = meck:new(ergw_sx_node, [passthrough, no_link]),
     Config;
-init_per_testcase(delete_bearer_requests_multi, Config) ->
-    setup_per_testcase(Config),
-    Config;
 init_per_testcase(TestCase, Config)
   when TestCase == proxy_context_selection;
      TestCase == proxy_context_invalid_selection;
@@ -885,9 +882,12 @@ end_per_testcase(simple_session, Config) ->
     ok = meck:unload(pgw_s5s8),
     end_per_testcase(Config),
     Config;
-end_per_testcase(TestCase, Config)
-  when TestCase == create_lb_multi_session;
-       TestCase == one_lb_node_down ->
+end_per_testcase(create_lb_multi_session, Config) ->
+    ok = meck:unload(pgw_s5s8),
+    end_per_testcase(Config),
+    Config;
+end_per_testcase(one_lb_node_down, Config) ->
+    ok = meck:delete(ergw_gtp_c_socket, send_request, 7),
     ok = meck:unload(pgw_s5s8),
     end_per_testcase(Config),
     Config;
@@ -926,10 +926,7 @@ end_per_testcase(dns_node_selection, Config) ->
     Config;
 end_per_testcase(sx_upf_removal, Config) ->
     ok = meck:unload(ergw_sx_node),
-    end_per_testcase(Config),
-    Config;
-end_per_testcase(delete_bearer_requests_multi, Config) ->
-    ok = meck:delete(ergw_gtp_c_socket, send_request, 7),
+    ok = meck:delete(ergw_sx_socket, call, 5),
     end_per_testcase(Config),
     Config;
 end_per_testcase(TestCase, Config)
@@ -1120,8 +1117,6 @@ path_failure_to_pgw(Config) ->
     gtp_path:stop(PeerPid),
 
     meck_validate(Config),
-
-    ok = meck:delete(ergw_gtp_c_socket, send_request, 7),
     ok.
 
 %%--------------------------------------------------------------------
@@ -1222,8 +1217,6 @@ path_failure_to_sgw(Config) ->
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     wait4tunnels(?TIMEOUT),
     meck_validate(Config),
-
-    ok = meck:delete(ergw_gtp_c_socket, send_request, 7),
     ok.
 
 %%--------------------------------------------------------------------
@@ -2593,7 +2586,6 @@ dns_node_selection(Config) ->
 
     ?equal([], outstanding_requests()),
 
-    ok = meck:delete(?HUT, init, 2),
     ok.
 
 %%--------------------------------------------------------------------
@@ -2672,8 +2664,6 @@ sx_timeout(Config) ->
     ?equal([], outstanding_requests()),
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
-
-    ok = meck:delete(ergw_sx_socket, call, 5),
     ok.
 
 %%--------------------------------------------------------------------

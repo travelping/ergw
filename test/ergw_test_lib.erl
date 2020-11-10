@@ -178,14 +178,12 @@ update_app_config(Group, CfgUpd, Config0) ->
 %%% Meck functions for fake the GTP sockets
 %%%===================================================================
 
+meck_modules() ->
+    [ergw_sx_socket, ergw_gtp_c_socket, ergw_aaa_session, ergw_gsn_lib,
+     ergw_pfcp_context, ergw_proxy_lib, gtp_context].
+
 meck_init(Config) ->
-    ok = meck:new(ergw_sx_socket, [passthrough, no_link]),
-    ok = meck:new(ergw_gtp_c_socket, [passthrough, no_link]),
-    ok = meck:new(ergw_aaa_session, [passthrough, no_link]),
-    ok = meck:new(ergw_gsn_lib, [passthrough, no_link]),
-    ok = meck:new(ergw_pfcp_context, [passthrough, no_link]),
-    ok = meck:new(ergw_proxy_lib, [passthrough, no_link]),
-    ok = meck:new(gtp_context, [passthrough, no_link]),
+    ok = meck:new(meck_modules(), [passthrough, no_link]),
     ok = meck:expect(gtp_context, port_message,
 		     fun(Request, Msg) ->
 			     try
@@ -209,34 +207,21 @@ meck_init(Config) ->
 		     end).
 
 meck_reset(Config) ->
-    meck:reset(ergw_sx_socket),
-    meck:reset(ergw_gtp_c_socket),
-    meck:reset(ergw_aaa_session),
-    meck:reset(ergw_gsn_lib),
-    meck:reset(ergw_pfcp_context),
-    meck:reset(ergw_proxy_lib),
-    meck:reset(gtp_context),
-    meck:reset(proplists:get_value(handler_under_test, Config)).
+    meck:reset([proplists:get_value(handler_under_test, Config) | meck_modules()]).
 
 meck_unload(Config) ->
-    meck:unload(ergw_sx_socket),
-    meck:unload(ergw_gtp_c_socket),
-    meck:unload(ergw_aaa_session),
-    meck:unload(ergw_gsn_lib),
-    meck:unload(ergw_pfcp_context),
-    meck:unload(ergw_proxy_lib),
-    meck:unload(gtp_context),
-    meck:unload(proplists:get_value(handler_under_test, Config)).
+    meck:unload([proplists:get_value(handler_under_test, Config) | meck_modules()]).
 
 meck_validate(Config) ->
-    ?equal(true, meck:validate(ergw_sx_socket)),
-    ?equal(true, meck:validate(ergw_gtp_c_socket)),
-    ?equal(true, meck:validate(ergw_aaa_session)),
-    ?equal(true, meck:validate(ergw_gsn_lib)),
-    ?equal(true, meck:validate(ergw_pfcp_context)),
-    ?equal(true, meck:validate(ergw_proxy_lib)),
-    ?equal(true, meck:validate(gtp_context)),
-    ?equal(true, meck:validate(proplists:get_value(handler_under_test, Config))).
+    lists:foreach(fun meck_validate_mod/1,
+		  [proplists:get_value(handler_under_test, Config) | meck_modules()]).
+
+meck_validate_mod(Mod) ->
+    case meck:validate(Mod) of
+	true -> ok;
+	false ->
+	    ct:fail(meck:history(Mod))
+    end.
 
 %%%===================================================================
 %%% GTP entity and context function
