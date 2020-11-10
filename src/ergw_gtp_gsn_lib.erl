@@ -43,7 +43,7 @@ create_session(APN, PAA, DAF, UPSelInfo, Session, SessionOpts, Context, LeftTunn
     end.
 
 create_session_fun(APN, PAA, DAF, {Candidates, SxConnectId}, Session,
-		   SessionOpts0, Context0, LeftTunnel, LeftBearer0, PCC0) ->
+		   SessionOpts0, Context0, LeftTunnel, LeftBearer, PCC0) ->
 
     ergw_sx_node:wait_connect(SxConnectId),
 
@@ -65,7 +65,7 @@ create_session_fun(APN, PAA, DAF, {Candidates, SxConnectId}, Session,
 	    {error, Err4} -> throw(Err4#ctx_err{context = Context0, tunnel = LeftTunnel})
 	end,
 
-    {PendingPCtx, NodeCaps, RightBearer0} =
+    {PCtx0, NodeCaps, RightBearer0} =
 	case ergw_pfcp_context:reselect_upf(Candidates, SessionOpts2, APNOpts, UPinfo) of
 	    {ok, Result5} -> Result5;
 	    {error, Err5} -> throw(Err5#ctx_err{context = Context0, tunnel = LeftTunnel})
@@ -80,12 +80,12 @@ create_session_fun(APN, PAA, DAF, {Candidates, SxConnectId}, Session,
 
     {Context, SessionOpts} = add_apn_timeout(APNOpts, SessionOpts3, Context1),
 
-    LeftBearer =
-	case ergw_gsn_lib:assign_local_data_teid(PendingPCtx, NodeCaps, LeftTunnel, LeftBearer0) of
+    Bearer0 = #{left => LeftBearer, right => RightBearer},
+    Bearer1 =
+	case ergw_gsn_lib:assign_local_data_teid(left, PCtx0, NodeCaps, LeftTunnel, Bearer0) of
 	    {ok, Result7} -> Result7;
 	    {error, Err7} -> throw(Err7#ctx_err{context = Context, tunnel = LeftTunnel})
 	end,
-    Bearer = #{left => LeftBearer, right => RightBearer},
 
     ergw_aaa_session:set(Session, SessionOpts),
 
@@ -130,7 +130,8 @@ create_session_fun(APN, PAA, DAF, {Candidates, SxConnectId}, Session,
     PCC3 = ergw_pcc_context:session_events_to_pcc_ctx(AuthSEvs, PCC2),
     PCC4 = ergw_pcc_context:session_events_to_pcc_ctx(RfSEvs, PCC3),
 
-    PCtx = case ergw_pfcp_context:create_session(gtp_context, PCC4, PCtx0, Bearer, Context) of
+    {PCtx, Bearer} =
+	case ergw_pfcp_context:create_session(gtp_context, PCC4, PCtx0, Bearer1, Context) of
 	       {ok, Result10} -> Result10;
 	       {error, Err10} -> throw(Err10#ctx_err{context = Context, tunnel = LeftTunnel})
 	   end,

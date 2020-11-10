@@ -18,6 +18,8 @@
 	]).
 -export([select_upf/1, select_upf/3, reselect_upf/4]).
 -export([send_g_pdu/3]).
+-export([register_ctx_ids/3, unregister_ctx_ids/3]).
+-export([update_dp_seid/2, make_request_bearer/3, update_bearer/3]).
 
 -include_lib("kernel/include/logger.hrl").
 -include_lib("gtplib/include/gtp_packet.hrl").
@@ -106,11 +108,35 @@ query_usage_report(ChargingKeys, PCtx)
 get_rating_group(Key, M) when is_map(M) ->
     hd(maps:get(Key, M, maps:get('Rating-Group', M, [undefined]))).
 
-ctx_update_dp_seid(#{f_seid := #f_seid{seid = DP}},
-		   #pfcp_ctx{seid = SEID} = PCtx) ->
+update_dp_seid(#{f_seid := #f_seid{seid = DP}}, #pfcp_ctx{seid = SEID} = PCtx) ->
     PCtx#pfcp_ctx{seid = SEID#seid{dp = DP}};
-ctx_update_dp_seid(_, PCtx) ->
+update_dp_seid(_, PCtx) ->
     PCtx.
+
+%% update_bearer/2
+update_bearer(#f_teid{teid = TEID, ipv4 = IP}, #bearer{local = #fq_teid{ip = v4}} = Bearer) ->
+    Bearer#bearer{local = #fq_teid{ip =  ergw_inet:bin2ip(IP), teid = TEID}};
+update_bearer(#f_teid{teid = TEID, ipv6 = IP}, #bearer{local = #fq_teid{ip = v6}} = Bearer) ->
+    Bearer#bearer{local = #fq_teid{ip = ergw_inet:bin2ip(IP), teid = TEID}};
+update_bearer(_, Bearer) ->
+    Bearer.
+
+update_bearer_f(#created_pdr{group = #{pdr_id := #pdr_id{id = PdrId}, f_teid := FqTEID}},
+		{BearerMap, PCtx0}) ->
+    Key = ergw_pfcp:get_bearer_key_by_pdr(PdrId, PCtx0),
+    Bearer = maps:update_with(Key, update_bearer(FqTEID, _), BearerMap),
+    PCtx = ergw_pfcp:update_teids(PdrId, FqTEID, PCtx0),
+    {Bearer, PCtx};
+update_bearer_f(_, Acc) ->
+    Acc.
+
+%% update_bearer/3
+update_bearer(#{created_pdr := #created_pdr{} = PDR}, Bearer, PCtx) ->
+    update_bearer_f(PDR, {Bearer, PCtx});
+update_bearer(#{created_pdr := PDRs}, Bearer, PCtx) when is_list(PDRs) ->
+    lists:foldl(fun update_bearer_f/2, {Bearer, PCtx}, PDRs);
+update_bearer(_, Bearer, PCtx) ->
+    {Bearer, PCtx}.
 
 %% session_establishment_request/5
 session_establishment_request(Handler, PCC, PCtx0,
@@ -119,21 +145,23 @@ session_establishment_request(Handler, PCC, PCtx0,
     {ok, CntlNode, _, _} = ergw_sx_socket:id(),
 
     PCtx1 = pctx_update_from_ctx(PCtx0, Ctx),
-    {SxRules, SxErrors, PCtx} = build_sx_rules(PCC, #{}, PCtx1, Left, Right),
+    {SxRules, SxErrors, PCtx2} = build_sx_rules(PCC, #{}, PCtx1, Left, Right),
     ?LOG(debug, "SxRules: ~p~n", [SxRules]),
     ?LOG(debug, "SxErrors: ~p~n", [SxErrors]),
     ?LOG(debug, "CtxPending: ~p~n", [Ctx]),
 
-    IEs0 = pfcp_pctx_update(PCtx, PCtx0, SxRules),
-    IEs = update_m_rec(ergw_pfcp:f_seid(PCtx, CntlNode), IEs0),
+    IEs0 = pfcp_pctx_update(PCtx2, PCtx0, SxRules),
+    IEs = update_m_rec(ergw_pfcp:f_seid(PCtx2, CntlNode), IEs0),
     ?LOG(debug, "IEs: ~p~n", [IEs]),
 
     Req = #pfcp{version = v1, type = session_establishment_request, ie = IEs},
-    case ergw_sx_node:call(PCtx, Req) of
+    case ergw_sx_node:call(PCtx2, Req) of
 	#pfcp{version = v1, type = session_establishment_response,
 	      ie = #{pfcp_cause := #pfcp_cause{cause = 'Request accepted'},
 		     f_seid := #f_seid{}} = RespIEs} ->
-	    {ok, ctx_update_dp_seid(RespIEs, PCtx)};
+	    {Bearer, PCtx} = update_bearer(RespIEs, Bearer0, PCtx2),
+	    register_ctx_ids(Handler, Bearer, PCtx),
+	    {ok, {update_dp_seid(RespIEs, PCtx), Bearer}};
 	_ ->
 	    {error, ?CTX_ERR(?FATAL, system_failure)}
     end.
@@ -235,14 +263,15 @@ build_sx_ctx_rule(#sx_upd{
   when not is_record(LeftBearer#bearer.remote, ue_ip),
        RightBearer#bearer.local#ue_ip.v6 /= undefined ->
     {PdrId, PCtx1} = ergw_pfcp:get_id(pdr, ipv6_mcast_pdr, PCtx0),
-    {FarId, PCtx} = ergw_pfcp:get_id(far, dp_to_cp_far, PCtx1),
+    {FarId, PCtx2} = ergw_pfcp:get_id(far, dp_to_cp_far, PCtx1),
+    {LeftBearerReq, PCtx} = make_request_bearer(PdrId, LeftBearer, PCtx2),
 
     PDI = #pdi{
 	     group =
 		 [#sdf_filter{
 		     flow_description =
 			 <<"permit out 58 from ff00::/8 to assigned">>}
-		 | ergw_pfcp:traffic_endpoint(LeftBearer, [])]
+		 | ergw_pfcp:traffic_endpoint(LeftBearerReq, [])]
 	    },
     PDR = [#pdr_id{id = PdrId},
 	   #precedence{precedence = 100},
@@ -406,6 +435,11 @@ pdi(Side, Src, #bearer{local = UeIP} = Dst, Group)
 pdi(_Side, Src, _Dst, Group) ->
     ergw_pfcp:traffic_endpoint(Src, Group).
 
+make_request_bearer(PdrId, #bearer{local = #fq_teid{teid = {upf, Id}} = FqTEID} = Bearer, PCtx0) ->
+    {ChId, PCtx} = ergw_pfcp:get_chid(PdrId, Id, PCtx0),
+    {Bearer#bearer{local = FqTEID#fq_teid{teid = {upf, ChId}}}, PCtx};
+make_request_bearer(_PdrId, Bearer, PCtx) ->
+    {Bearer, PCtx}.
 %% s(L) -> lists:sort(L).
 
 %% The spec compliante FAR would set Destination Interface
@@ -454,9 +488,10 @@ build_sx_rule(Direction = downlink, Name, Definition, FilterInfo, URRs,
     [Precedence] = maps:get('Precedence', Definition, [1000]),
     RuleName = {Direction, Name},
     {PdrId, PCtx1} = ergw_pfcp:get_id(pdr, RuleName, PCtx0),
-    {FarId, PCtx} = ergw_pfcp:get_id(far, RuleName, PCtx1),
+    {FarId, PCtx2} = ergw_pfcp:get_id(far, RuleName, PCtx1),
+    {RightBearerReq, PCtx} = make_request_bearer(PdrId, RightBearer, PCtx2),
 
-    PDR = pdr(PdrId, Precedence, dst, RightBearer, LeftBearer, FilterInfo, FarId, URRs),
+    PDR = pdr(PdrId, Precedence, dst, RightBearerReq, LeftBearer, FilterInfo, FarId, URRs),
     FAR = far(FarId, undefined, RightBearer, LeftBearer),
 
     Update#sx_upd{
@@ -469,9 +504,10 @@ build_sx_rule(Direction = uplink, Name, Definition, FilterInfo, URRs,
     [Precedence] = maps:get('Precedence', Definition, [1000]),
     RuleName = {Direction, Name},
     {PdrId, PCtx1} = ergw_pfcp:get_id(pdr, RuleName, PCtx0),
-    {FarId, PCtx} = ergw_pfcp:get_id(far, RuleName, PCtx1),
+    {FarId, PCtx2} = ergw_pfcp:get_id(far, RuleName, PCtx1),
+    {LeftBearerReq, PCtx} = make_request_bearer(PdrId, LeftBearer, PCtx2),
 
-    PDR = pdr(PdrId, Precedence, src, LeftBearer, RightBearer, FilterInfo, FarId, URRs),
+    PDR = pdr(PdrId, Precedence, src, LeftBearerReq, RightBearer, FilterInfo, FarId, URRs),
 
     RedirInfo = maps:get('Redirect-Information', Definition, undefined),
     FAR = far(FarId, RedirInfo, LeftBearer, RightBearer),

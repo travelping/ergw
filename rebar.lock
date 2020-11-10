@@ -30,7 +30,7 @@
   0},
  {<<"pfcplib">>,
   {git,"https://github.com/travelping/pfcplib.git",
-       {ref,"4129bd08343eafc7f2125becfd23ae84ea707de7"}},
+       {ref,"304e876adff9b44a9d7add0e83bcb4d2ab437476"}},
   0},
  {<<"pmod_transform">>,
   {git,"git://github.com/erlang/pmod_transform.git",

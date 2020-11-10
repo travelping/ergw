@@ -74,6 +74,7 @@
 -record(pfcp_ctx, {
 	  name			:: term(),
 	  node			:: pid(),
+	  features,
 	  seid			:: #seid{},
 
 	  cp_bearer		:: #bearer{},
@@ -82,6 +83,7 @@
 	  idmap = #{}		:: map(),
 	  urr_by_id = #{}	:: map(),
 	  urr_by_grp = #{}	:: map(),
+	  chid_by_pdr = #{}	:: map(),
 	  sx_rules = #{}	:: map(),
 	  timers = #{}		:: map(),
 	  timer_by_tref = #{}	:: map(),

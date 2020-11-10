@@ -44,9 +44,10 @@
 	       mode = transient  :: 'transient' | 'persistent',
 	       node_select       :: atom(),
 	       retries = 0       :: non_neg_integer(),
+	       features          :: #up_function_features{},
 	       recovery_ts       :: undefined | non_neg_integer(),
 	       pfcp_ctx          :: #pfcp_ctx{},
-	       bearer            :: #bearer{},
+	       bearer            :: #{atom() := #bearer{}},
 	       cp_socket         :: #socket{},
 	       cp_info           :: #gtp_socket_info{},
 	       cp,
@@ -194,7 +195,7 @@ init([Parent, Node, NodeSelect, IP4, IP6, NotifyUp]) ->
 		  retries = 0,
 		  recovery_ts = undefined,
 		  pfcp_ctx = PCtx,
-		  bearer = #bearer{interface = 'CP-function'},
+		  bearer = #{dp => #bearer{interface = 'CP-function'}},
 		  cp_socket = Socket,
 		  cp_info = SockInfo,
 		  cp = CP,
@@ -286,7 +287,7 @@ handle_event(cast, {response, _, #pfcp{version = v1, type = association_setup_re
 
 handle_event(cast, {send, 'Access', _VRF, Data}, {connected, _},
 	     #data{cp_socket = Socket, dp = #node{ip = IP},
-		   bearer = #bearer{local = #fq_teid{teid = TEI}}}) ->
+		   bearer = #{dp := #bearer{local = #fq_teid{teid = TEI}}}}) ->
 
     Msg = #gtp{version = v1, type = g_pdu, tei = TEI, ie = Data},
     Bin = gtp_packet:encode(Msg),
@@ -346,16 +347,21 @@ handle_event(cast, {response, _, #pfcp{version = v1, type = heartbeat_response, 
 
 handle_event(cast, {response, from_cp_rule,
 		    #pfcp{version = v1, type = session_establishment_response,
-			  ie = #{pfcp_cause := #pfcp_cause{cause = 'Request accepted'},
-				 f_seid := #f_seid{seid = DP}}}} = R,
-	     {connected, init}, #data{pfcp_ctx = #pfcp_ctx{seid = SEID} = PCtx} = Data) ->
+			  ie = #{pfcp_cause :=
+				     #pfcp_cause{cause = 'Request accepted'}} = IEs}} = R,
+	     {connected, init}, #data{pfcp_ctx = PCtx0, bearer = Bearer0} = Data0) ->
     ?LOG(debug, "Response: ~p", [R]),
-    {next_state, {connected, ready}, Data#data{pfcp_ctx = PCtx#pfcp_ctx{seid = SEID#seid{dp = DP}}}};
+    PCtx1 = ergw_pfcp_context:update_dp_seid(IEs, PCtx0),
+    {Bearer, PCtx} = ergw_pfcp_context:update_bearer(IEs, Bearer0, PCtx1),
+    ergw_pfcp_context:register_ctx_ids(?MODULE, Bearer, PCtx),
+    Data = Data0#data{pfcp_ctx = PCtx, bearer = Bearer},
+    {next_state, {connected, ready}, Data};
 
 handle_event({call, From}, attach, _, #data{pfcp_ctx = PNodeCtx} = Data) ->
     PCtx = #pfcp_ctx{
 	      name = PNodeCtx#pfcp_ctx.name,
 	      node = PNodeCtx#pfcp_ctx.node,
+	      features = PNodeCtx#pfcp_ctx.features,
 	      seid = #seid{cp = ergw_sx_socket:seid()},
 
 	      cp_bearer = PNodeCtx#pfcp_ctx.cp_bearer
@@ -649,20 +655,25 @@ heartbeat_response(ReqKey, #pfcp{type = heartbeat_request} = Request) ->
     ergw_sx_socket:send_response(ReqKey, Response, true).
 
 handle_nodeup(#{recovery_time_stamp := #recovery_time_stamp{time = RecoveryTS}} = IEs,
-	      #data{dp = #node{node = Node, ip = IP},
+	      #data{pfcp_ctx = PNodeCtx,
+		    dp = #node{node = Node, ip = IP},
 		    vrfs = VRFs} = Data0) ->
     ?LOG(debug, "Node ~s (~s) is up", [Node, inet:ntoa(IP)]),
     ?LOG(debug, "Node IEs: ~s", [pfcp_packet:pretty_print(IEs)]),
 
+    UPFeatures = maps:get(up_function_features, IEs, #up_function_features{_ = 0}),
     UPIPResInfo = maps:get(user_plane_ip_resource_information, IEs, []),
     Data = Data0#data{
+	     pfcp_ctx = PNodeCtx#pfcp_ctx{features = UPFeatures},
 	     recovery_ts = RecoveryTS,
+	     features = UPFeatures,
 	     vrfs = init_vrfs(VRFs, UPIPResInfo)
 	    },
     install_cp_rules(Data).
 
 init_node_cfg(#data{cfg = Cfg} = Data) ->
     Data#data{
+      features = #up_function_features{_ = 0},
       ip_pools = maps:get(ip_pools, Cfg, []),
       vrfs = maps:map(
 	       fun(Id, #{features := Features}) ->
@@ -691,7 +702,8 @@ init_vrfs(VRFs,
 mode(#{connect := true}) -> persistent;
 mode(_) -> transient.
 
-handle_nodedown(Data) ->
+handle_nodedown(#data{pfcp_ctx = PCtx, bearer = Bearer} = Data) ->
+    ergw_pfcp_context:unregister_ctx_ids(?MODULE, Bearer, PCtx),
     Self = self(),
     {monitored_by, Notify} = process_info(Self, monitored_by),
     ?LOG(debug, "Node Down Monitor Notify: ~p", [Notify]),
@@ -719,17 +731,14 @@ make_cp_bearer(TEI,  #gtp_socket_info{vrf = VRF, ip = IP}) ->
     FqTEID = #fq_teid{ip = IP, teid = TEI},
     #bearer{interface = 'CP-function', vrf = VRF, remote = FqTEID}.
 
-assign_local_data_teid(PCtx, Node, VRFs, Bearer) ->
+assign_local_data_teid(Key, PCtx, Node, VRFs, Bearer0) ->
     [VRF|_] =
 	lists:filter(fun(#vrf{features = Features}) ->
 			     lists:member('CP-Function', Features)
 		     end, maps:values(VRFs)),
-    {ok, DataTEI} = ergw_tei_mngr:alloc_tei(PCtx),
-    FqTEID = #fq_teid{
-		ip = choose_up_ip(Node, VRF),
-		teid = DataTEI
-	       },
-    Bearer#bearer{vrf = VRF#vrf.name, local = FqTEID}.
+    IP = choose_up_ip(Node, VRF),
+    Bearer = maps:update_with(Key, _#bearer{vrf = VRF#vrf.name}, Bearer0),
+    ergw_gsn_lib:assign_local_data_teid(Key, PCtx, IP, Bearer).
 
 generate_pfcp_rules(_Key, #vrf{features = Features} = VRF, Bearer, Acc) ->
     lists:foldl(generate_per_feature_pfcp_rule(_, VRF, Bearer, _), Acc, Features).
@@ -737,10 +746,11 @@ generate_pfcp_rules(_Key, #vrf{features = Features} = VRF, Bearer, Acc) ->
 generate_per_feature_pfcp_rule('Access', #vrf{name = Name} = VRF, Bearer, PCtx0) ->
     Key = {Name, 'Access'},
     {PdrId, PCtx1} = ergw_pfcp:get_id(pdr, Key, PCtx0),
-    {FarId, PCtx} = ergw_pfcp:get_id(far, Key, PCtx1),
+    {FarId, PCtx2} = ergw_pfcp:get_id(far, Key, PCtx1),
+    {BearerReq, PCtx} = ergw_pfcp_context:make_request_bearer(PdrId, Bearer, PCtx2),
 
     %% GTP-U encapsulated packet from CP
-    PDI = #pdi{group = ergw_pfcp:traffic_endpoint(Bearer, [])},
+    PDI = #pdi{group = ergw_pfcp:traffic_endpoint(BearerReq, [])},
     PDR = [#pdr_id{id = PdrId},
 	   #precedence{precedence = 100},
 	   PDI,
@@ -801,10 +811,11 @@ install_cp_rules(#data{pfcp_ctx = PCtx0,
 		       cp = CntlNode,
 		       dp = #node{ip = DpNodeIP} = DpNode,
 		       vrfs = VRFs} = Data) ->
-    Bearer = assign_local_data_teid(PCtx0, DpNode, VRFs, Bearer0),
+    {ok, Bearer} = assign_local_data_teid(dp, PCtx0, DpNode, VRFs, Bearer0),
+    DpBearer = maps:get(dp, Bearer),
 
     PCtx1 = ergw_pfcp:init_ctx(PCtx0),
-    PCtx = maps:fold(generate_pfcp_rules(_, _, Bearer, _), PCtx1, VRFs),
+    PCtx = maps:fold(generate_pfcp_rules(_, _, DpBearer, _), PCtx1, VRFs),
     Rules = ergw_pfcp:update_pfcp_rules(PCtx1, PCtx, #{}),
     IEs = update_m_rec(ergw_pfcp:f_seid(PCtx, CntlNode), Rules),
 
