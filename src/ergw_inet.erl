@@ -7,7 +7,7 @@
 
 -module(ergw_inet).
 
--export([ip2bin/1, bin2ip/1,
+-export([to_ip/1, ip2bin/1, bin2ip/1,
 	 ipv6_interface_id/2,
 	 ipv6_prefix/1, ipv6_prefix/2]).
 -export([ip_csum/1, make_udp/5]).
@@ -18,6 +18,13 @@
 %%====================================================================
 %% IP Address helpers
 %%====================================================================
+
+to_ip({_,_,_,_} = IP) ->
+    IP;
+to_ip({_,_,_,_,_,_,_,_} = IP) ->
+    IP;
+to_ip(IP) when is_binary(IP) ->
+    bin2ip(IP).
 
 ip2bin(V) when is_atom(V) ->
     V;

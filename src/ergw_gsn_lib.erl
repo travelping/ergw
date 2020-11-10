@@ -37,7 +37,8 @@
 -export([init_tunnel/4,
 	 assign_tunnel_teid/3,
 	 reassign_tunnel_teid/1,
-	 assign_local_data_teid/4
+	 assign_local_data_teid/4,
+	 assign_local_data_teid/5
 	]).
 
 -include_lib("kernel/include/logger.hrl").
@@ -916,15 +917,43 @@ reassign_tunnel_teid_f(#tunnel{socket = Socket}, FqTEID) ->
     FqTEID#fq_teid{teid = TEI}.
 
 %% assign_local_data_teid/4
-assign_local_data_teid(PCtx, {VRFs, _} = _NodeCaps, #tunnel{vrf = VRF} = Tunnel, Bearer)
+assign_local_data_teid(Key, PCtx, IP, Bearer) ->
+    do([error_m ||
+	   B0 = maps:get(Key, Bearer),
+	   B1 <- assign_local_data_teid_4(Key, PCtx, IP, B0),
+	   return(maps:put(Key, B1, Bearer))
+       ]).
+
+%% assign_local_data_teid/5
+assign_local_data_teid(Key, PCtx, NodeCaps, Tunnel, Bearer) ->
+    do([error_m ||
+	   B0 = maps:get(Key, Bearer),
+	   B1 <- assign_local_data_teid_5(Key, PCtx, NodeCaps, Tunnel, B0),
+	   return(maps:put(Key, B1, Bearer))
+       ]).
+
+assign_local_data_teid_4(Key, #pfcp_ctx{
+			       features = #up_function_features{ftup = 1}}, IP, Bearer) ->
+    IPver =
+	if byte_size(IP) =:=  4; tuple_size(IP) =:= 4 -> v4;
+	   byte_size(IP) =:= 16; tuple_size(IP) =:= 8 -> v6
+	end,
+    FqTEID = #fq_teid{ip = IPver, teid = {upf, Key}},
+    {ok, Bearer#bearer{local = FqTEID}};
+assign_local_data_teid_4(_, PCtx, IP, Bearer) ->
+    do([error_m ||
+	   DataTEI <- ergw_tei_mngr:alloc_tei(PCtx),
+	   begin
+	       FqTEID = #fq_teid{
+			   ip = ergw_inet:to_ip(IP),
+			   teid = DataTEI},
+	       return(Bearer#bearer{local = FqTEID})
+	   end]).
+
+assign_local_data_teid_5(Key, PCtx, {VRFs, _} = _NodeCaps, #tunnel{vrf = VRF} = Tunnel, Bearer)
   when is_record(Bearer, bearer) ->
     #vrf{name = Name, ipv4 = IP4, ipv6 = IP6} = maps:get(VRF, VRFs),
     do([error_m ||
 	   IP <- choose_ip_by_tunnel(Tunnel, IP4, IP6),
-	   DataTEI <- ergw_tei_mngr:alloc_tei(PCtx),
-	   begin
-	       FqTEID = #fq_teid{
-			   ip = ergw_inet:bin2ip(IP),
-			   teid = DataTEI},
-	       return(Bearer#bearer{vrf = Name, local = FqTEID})
-	   end]).
+	   assign_local_data_teid_4(Key, PCtx, IP, Bearer#bearer{vrf = Name})
+       ]).

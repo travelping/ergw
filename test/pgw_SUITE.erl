@@ -1351,8 +1351,7 @@ simple_session_request(Config) ->
 		 pdi :=
 		     #pdi{
 			group =
-			    #{f_teid :=
-				  #f_teid{choose_id = 5, teid = choose},
+			    #{f_teid := #f_teid{teid = choose},
 			      network_instance :=
 				  #network_instance{instance = <<3, "irx">>},
 			      sdf_filter :=

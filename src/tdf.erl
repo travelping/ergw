@@ -374,8 +374,7 @@ code_change(_OldVsn, State, Data, _Extra) ->
 %%%===================================================================
 
 start_session(#data{apn = APN, context = Context, dp_node = Node,
-		    session = Session, pcc = PCC0,
-		    bearer = #{left := LeftBearer, right := RightBearer0} = Bearer0} = Data) ->
+		    session = Session, pcc = PCC0, bearer = Bearer0} = Data) ->
 
     {PendingPCtx, NodeCaps} =
 	case ergw_sx_node:attach(Node) of
@@ -384,8 +383,7 @@ start_session(#data{apn = APN, context = Context, dp_node = Node,
 	end,
 
     VRF = ergw_gsn_lib:select_vrf(NodeCaps, APN),
-    RightBearer = RightBearer0#bearer{vrf = VRF},
-    Bearer = Bearer0#{right => RightBearer},
+    Bearer1 = maps:update_with(right, _#bearer{vrf = VRF}, Bearer0),
 
     Now = erlang:monotonic_time(),
     SOpts = #{now => Now},
@@ -438,13 +436,13 @@ start_session(#data{apn = APN, context = Context, dp_node = Node,
     PCC3 = ergw_pcc_context:session_events_to_pcc_ctx(AuthSEvs, PCC2),
     PCC4 = ergw_pcc_context:session_events_to_pcc_ctx(RfSEvs, PCC3),
 
-    PCtx =
-	case ergw_pfcp_context:create_session(tdf, PCC4, PendingPCtx, Bearer, Context) of
+    {PCtx, Bearer} =
+	case ergw_pfcp_context:create_session(tdf, PCC4, PendingPCtx, Bearer1, Context) of
 	    {ok, Result5} -> Result5;
 	    {error, Err5} -> throw({fail, Err5})
 	end,
 
-    Keys = context2keys(LeftBearer, RightBearer, Context),
+    Keys = context2keys(Bearer, Context),
     gtp_context_reg:register(Keys, ?MODULE, self()),
 
     GxReport = ergw_gsn_lib:pcc_events_to_charging_rule_report(PCCErrors1 ++ PCCErrors2),
@@ -568,13 +566,13 @@ handle_charging_event(Key, Ev, _Now, Data) ->
 %% context registry
 %%====================================================================
 
-vrf_keys(#bearer{vrf = InVrf}, #bearer{vrf = OutVrf}, IP)
+vrf_keys(#{left := #bearer{vrf = InVrf}, right := #bearer{vrf = OutVrf}}, IP)
   when is_binary(InVrf), is_binary(OutVrf), IP /= undefined ->
     Addr = ergw_ip_pool:addr(IP),
     [{ue, InVrf, Addr}, {ue, OutVrf, Addr}];
-vrf_keys(_, _, _) ->
+vrf_keys(_, _) ->
     [].
 
-context2keys(LeftBearer, RightBearer, #tdf_ctx{ms_ip = #ue_ip{v4 = IP4, v6 = IP6}}) ->
-    vrf_keys(LeftBearer, RightBearer, IP4) ++
-	vrf_keys(LeftBearer, RightBearer, IP6).
+context2keys(Bearer, #tdf_ctx{ms_ip = #ue_ip{v4 = IP4, v6 = IP6}}) ->
+    vrf_keys(Bearer, IP4) ++
+	vrf_keys(Bearer, IP6).

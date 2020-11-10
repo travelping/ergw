@@ -535,7 +535,7 @@ process_request_ies(IEs, RESTI, Acc) ->
 
 %% process_request/3
 process_request(ReqIEs, RespIEs, State0) ->
-    ct:pal("Process Req: ~p", [ReqIEs]),
+    %% ct:pal("Process Req: ~p", [ReqIEs]),
     State = State0#state{teids = #{}},
     #pfcpsereq_flags{resti = RESTI} =
 	maps:get(pfcpsereq_flags, ReqIEs, #pfcpsereq_flags{resti = 0}),

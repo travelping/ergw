@@ -230,7 +230,7 @@ handle_request(ReqKey,
 	       _Resent, _State,
 	       #{context := Context0, aaa_opts := AAAopts, node_selection := NodeSelect,
 		 left_tunnel := LeftTunnel0,
-		 bearer := #{left := LeftBearer0, right := RightBearer0} = Bearer0,
+		 bearer := #{left := LeftBearer0} = Bearer0,
 		 'Session' := Session} = Data) ->
 
     Context = pgw_s5s8:update_context_from_gtp_req(Request, Context0),
@@ -240,7 +240,7 @@ handle_request(ReqKey,
 	    {ok, Result1} -> Result1;
 	    {error, Err1} -> throw(Err1#ctx_err{tunnel = LeftTunnel0})
 	end,
-
+    Bearer1 = Bearer0#{left => LeftBearer1},
     LeftTunnel = gtp_path:bind(Request, LeftTunnel1),
 
     gtp_context:terminate_colliding_context(LeftTunnel, Context),
@@ -280,21 +280,20 @@ handle_request(ReqKey,
 	    {error, Err4} -> throw(Err4#ctx_err{context = ProxyContext, tunnel = LeftTunnel})   %% TBD: proxy context ???
 	end,
 
-    LeftBearer =
-	case ergw_gsn_lib:assign_local_data_teid(PCtx0, NodeCaps, LeftTunnel, LeftBearer1) of
+    Bearer2 =
+	case ergw_gsn_lib:assign_local_data_teid(left, PCtx0, NodeCaps, LeftTunnel, Bearer1) of
 	    {ok, Result5} -> Result5;
 	    {error, Err5} -> throw(Err5#ctx_err{tunnel = LeftTunnel})
 	end,
-    RightBearer =
-	case ergw_gsn_lib:assign_local_data_teid(PCtx0, NodeCaps, RightTunnel, RightBearer0) of
+    Bearer3 =
+	case ergw_gsn_lib:assign_local_data_teid(right, PCtx0, NodeCaps, RightTunnel, Bearer2) of
 	    {ok, Result6} -> Result6;
 	    {error, Err6} -> throw(Err6#ctx_err{tunnel = LeftTunnel})
 	end,
-    Bearer = Bearer0#{left => LeftBearer, right => RightBearer},
 
     PCC = ergw_proxy_lib:proxy_pcc(),
-    PCtx =
-	case ergw_pfcp_context:create_session(gtp_context, PCC, PCtx0, Bearer, Context) of
+    {PCtx, Bearer} =
+	case ergw_pfcp_context:create_session(gtp_context, PCC, PCtx0, Bearer3, Context) of
 	    {ok, Result7} -> Result7;
 	    {error, Err7} -> throw(Err7#ctx_err{tunnel = LeftTunnel})
 	end,
@@ -307,7 +306,8 @@ handle_request(ReqKey,
     DataNew =
 	Data#{context => Context, proxy_context => ProxyContext, pfcp => PCtx,
 	      left_tunnel => LeftTunnel, right_tunnel => RightTunnel, bearer => Bearer},
-    forward_request(sgw2pgw, ReqKey, Request, RightTunnel, RightBearer, ProxyContext, DataNew, Data),
+    forward_request(sgw2pgw, ReqKey, Request, RightTunnel,
+		    maps:get(right, Bearer), ProxyContext, DataNew, Data),
 
     {keep_state, DataNew};
 
