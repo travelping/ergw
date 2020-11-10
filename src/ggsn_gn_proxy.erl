@@ -286,7 +286,7 @@ handle_request(ReqKey,
 
     PCC = ergw_proxy_lib:proxy_pcc(),
     PCtx =
-	case ergw_pfcp_context:create_pfcp_session(PCtx0, PCC, Bearer, Context) of
+	case ergw_pfcp_context:create_session(gtp_context, PCC, PCtx0, Bearer, Context) of
 	    {ok, Result7} -> Result7;
 	    {error, Err7} -> throw(Err7#ctx_err{tunnel = LeftTunnel})
 	end,
@@ -418,7 +418,7 @@ handle_response(#proxy_request{direction = sgsn2ggsn} = ProxyRequest,
 	if ?CAUSE_OK(Cause) ->
 		PCC = ergw_proxy_lib:proxy_pcc(),
 		{PCtx, _} =
-		    case ergw_pfcp_context:modify_pfcp_session(PCC, [], #{}, Bearer, PCtx0) of
+		    case ergw_pfcp_context:modify_session(PCC, [], #{}, Bearer, PCtx0) of
 			{ok, Result2} -> Result2;
 			{error, Err2} -> throw(Err2#ctx_err{tunnel = LeftTunnel})
 		    end,
@@ -457,7 +457,7 @@ handle_response(#proxy_request{direction = sgsn2ggsn} = ProxyRequest,
 
     PCC = ergw_proxy_lib:proxy_pcc(),
     {PCtx, _} =
-	case ergw_pfcp_context:modify_pfcp_session(PCC, [], #{}, Bearer, PCtxOld) of
+	case ergw_pfcp_context:modify_session(PCC, [], #{}, Bearer, PCtxOld) of
 	    {ok, Result2} -> Result2;
 	    {error, Err2} -> throw(Err2#ctx_err{tunnel = LeftTunnel})
 	end,
@@ -545,7 +545,7 @@ handle_proxy_info(Session, Tunnel, Bearer, Context, #{proxy_ds := ProxyDS}) ->
     end.
 
 delete_forward_session(Reason, #{pfcp := PCtx, 'Session' := Session}) ->
-    URRs = ergw_pfcp_context:delete_pfcp_session(Reason, PCtx),
+    URRs = ergw_pfcp_context:delete_session(Reason, PCtx),
     SessionOpts = to_session(gtp_context:usage_report_to_accounting(URRs)),
     ?LOG(debug, "Accounting Opts: ~p", [SessionOpts]),
     ergw_aaa_session:invoke(Session, SessionOpts, stop, #{async => true}).

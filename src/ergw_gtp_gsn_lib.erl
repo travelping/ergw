@@ -130,7 +130,7 @@ create_session_fun(APN, PAA, DAF, {Candidates, SxConnectId}, Session,
     PCC3 = ergw_pcc_context:session_events_to_pcc_ctx(AuthSEvs, PCC2),
     PCC4 = ergw_pcc_context:session_events_to_pcc_ctx(RfSEvs, PCC3),
 
-    PCtx = case ergw_pfcp_context:create_pfcp_session(PendingPCtx, PCC4, Bearer, Context) of
+    PCtx = case ergw_pfcp_context:create_session(gtp_context, PCC4, PCtx0, Bearer, Context) of
 	       {ok, Result10} -> Result10;
 	       {error, Err10} -> throw(Err10#ctx_err{context = Context, tunnel = LeftTunnel})
 	   end,
@@ -197,7 +197,7 @@ apply_bearer_change(Bearer, URRActions, SendEM, PCtx0, PCC) ->
 	if SendEM -> #{send_end_marker => true};
 	   true   -> #{}
 	end,
-    case ergw_pfcp_context:modify_pfcp_session(PCC, URRActions, ModifyOpts, Bearer, PCtx0) of
+    case ergw_pfcp_context:modify_session(PCC, URRActions, ModifyOpts, Bearer, PCtx0) of
 	{ok, {PCtx, UsageReport}} ->
 	    gtp_context:usage_report(self(), URRActions, UsageReport),
 	    {ok, PCtx};
@@ -224,7 +224,7 @@ usage_report(URRActions, UsageReport, #{pfcp := PCtx, 'Session' := Session}) ->
     ergw_gtp_gsn_session:usage_report(URRActions, UsageReport, PCtx, Session).
 
 close_context(Reason, #{pfcp := PCtx, 'Session' := Session}) ->
-    UsageReport = ergw_pfcp_context:delete_pfcp_session(Reason, PCtx),
+    UsageReport = ergw_pfcp_context:delete_session(Reason, PCtx),
     ergw_gtp_gsn_session:close_context(Reason, UsageReport, PCtx, Session),
     ergw_prometheus:termination_cause(?FUNCTION_NAME, Reason),
     ok.

@@ -10,10 +10,10 @@
 -compile({parse_transform, do}).
 -compile({parse_transform, cut}).
 
--export([create_pfcp_session/4, create_tdf_session/4,
+-export([create_session/5,
+	 modify_session/5,
+	 delete_session/2,
 	 usage_report_to_charging_events/3,
-	 modify_pfcp_session/5,
-	 delete_pfcp_session/2,
 	 query_usage_report/1, query_usage_report/2
 	]).
 -export([select_upf/1, select_upf/3, reselect_upf/4]).
@@ -36,7 +36,30 @@
 %%% PFCP Sx/N6 API
 %%%===================================================================
 
-delete_pfcp_session(Reason, PCtx)
+%% create_session/5
+create_session(Handler, PCC, PCtx, Bearer, Ctx)
+  when is_record(PCC, pcc_ctx) ->
+    session_establishment_request(Handler, PCC, PCtx, Bearer, Ctx).
+
+%% modify_session/5
+modify_session(PCC, URRActions, Opts, #{left := Left, right := Right} = _Bearer, PCtx0)
+  when is_record(PCC, pcc_ctx), is_record(PCtx0, pfcp_ctx) ->
+    {SxRules0, SxErrors, PCtx} = build_sx_rules(PCC, Opts, PCtx0, Left, Right),
+    SxRules =
+	lists:foldl(
+	  fun({offline, _}, SxR) ->
+		  SxR#{query_urr => build_query_usage_report(offline, PCtx)};
+	     (_, SxR) ->
+		  SxR
+	  end, SxRules0, URRActions),
+
+    ?LOG(debug, "SxRules: ~p~n", [SxRules]),
+    ?LOG(debug, "SxErrors: ~p~n", [SxErrors]),
+    ?LOG(debug, "PCtx: ~p~n", [PCtx]),
+    session_modification_request(PCtx, SxRules).
+
+%% delete_session/2
+delete_session(Reason, PCtx)
   when Reason /= upf_failure ->
     Req = #pfcp{version = v1, type = session_deletion_request, ie = []},
     case ergw_sx_node:call(PCtx, Req) of
@@ -49,7 +72,7 @@ delete_pfcp_session(Reason, PCtx)
 			  [_Other]),
 	    undefined
     end;
-delete_pfcp_session(_Reason, _PCtx) ->
+delete_session(_Reason, _PCtx) ->
     undefined.
 
 build_query_usage_report(Type, PCtx) ->
@@ -89,8 +112,10 @@ ctx_update_dp_seid(#{f_seid := #f_seid{seid = DP}},
 ctx_update_dp_seid(_, PCtx) ->
     PCtx.
 
-%% session_establishment_request/4
-session_establishment_request(PCC, PCtx0, #{left := Left, right := Right}, Ctx) ->
+%% session_establishment_request/5
+session_establishment_request(Handler, PCC, PCtx0,
+			      #{left := Left, right := Right} = Bearer0, Ctx) ->
+    register_ctx_ids(Handler, Bearer0, PCtx0),
     {ok, CntlNode, _, _} = ergw_sx_socket:id(),
 
     PCtx1 = pctx_update_from_ctx(PCtx0, Ctx),
@@ -687,42 +712,22 @@ update_m_key(Key, Value, Map) ->
 update_m_rec(Record, Map) when is_tuple(Record) ->
     maps:update_with(element(1, Record), [Record | _], [Record], Map).
 
-register_ctx_ids(Handler, #pfcp_ctx{seid = #seid{cp = SEID}}) ->
-    Keys = [{seid, SEID}],
+make_pctx_bearer_key(_, #bearer{local = FqTEID}, PCtx, Keys)
+  when is_record(FqTEID, fq_teid), is_integer(FqTEID#fq_teid.teid) ->
+    [ergw_pfcp:ctx_teid_key(PCtx, FqTEID)|Keys];
+make_pctx_bearer_key(_, _, _, Keys) ->
+    Keys.
+
+make_pctx_keys(Bearer, #pfcp_ctx{seid = #seid{cp = SEID}} = PCtx) ->
+    maps:fold(make_pctx_bearer_key(_, _, PCtx, _), [{seid, SEID}], Bearer).
+
+register_ctx_ids(Handler, Bearer, PCtx) ->
+    Keys = make_pctx_keys(Bearer, PCtx),
     gtp_context_reg:register(Keys, Handler, self()).
 
-register_ctx_ids(Handler,
-		 #bearer{local = FqTEID},
-		 #pfcp_ctx{seid = #seid{cp = SEID}} = PCtx) ->
-    Keys = [{seid, SEID} |
-	    [ergw_pfcp:ctx_teid_key(PCtx, FqTEID) || is_record(FqTEID, fq_teid)]],
-    gtp_context_reg:register(Keys, Handler, self()).
-
-create_pfcp_session(PCtx, PCC, #{left := Left} = Bearer, Ctx)
-  when is_record(PCC, pcc_ctx) ->
-    register_ctx_ids(gtp_context, Left, PCtx),
-    session_establishment_request(PCC, PCtx, Bearer, Ctx).
-
-modify_pfcp_session(PCC, URRActions, Opts, #{left := Left, right := Right} = _Bearer, PCtx0)
-  when is_record(PCC, pcc_ctx), is_record(PCtx0, pfcp_ctx) ->
-    {SxRules0, SxErrors, PCtx} = build_sx_rules(PCC, Opts, PCtx0, Left, Right),
-    SxRules =
-	lists:foldl(
-	  fun({offline, _}, SxR) ->
-		  SxR#{query_urr => build_query_usage_report(offline, PCtx)};
-	     (_, SxR) ->
-		  SxR
-	  end, SxRules0, URRActions),
-
-    ?LOG(debug, "SxRules: ~p~n", [SxRules]),
-    ?LOG(debug, "SxErrors: ~p~n", [SxErrors]),
-    ?LOG(debug, "PCtx: ~p~n", [PCtx]),
-    session_modification_request(PCtx, SxRules).
-
-create_tdf_session(PCtx, PCC, Bearer, Ctx)
-  when is_record(PCC, pcc_ctx) ->
-    register_ctx_ids(tdf, PCtx),
-    session_establishment_request(PCC, PCtx,  Bearer, Ctx).
+unregister_ctx_ids(Handler, Bearer, PCtx) ->
+    Keys = make_pctx_keys(Bearer, PCtx),
+    gtp_context_reg:unregister(Keys, Handler, self()).
 
 %% ===========================================================================
 %% Usage Report to Charging Event translation

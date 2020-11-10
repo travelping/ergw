@@ -274,7 +274,7 @@ handle_event(info, #aaa_request{procedure = {gx, 'RAR'},
 %%% step 2
 %%% step 3:
     {PCtx1, UsageReport} =
-	case ergw_pfcp_context:modify_pfcp_session(PCC1, [], #{}, Bearer, PCtx0) of
+	case ergw_pfcp_context:modify_session(PCC1, [], #{}, Bearer, PCtx0) of
 	    {ok, Result1} -> Result1;
 	    {error, Err1} -> throw(Err1#ctx_err{context = Context})
 	end,
@@ -295,7 +295,7 @@ handle_event(info, #aaa_request{procedure = {gx, 'RAR'},
 
 %%% step 6:
     {PCtx, _} =
-	case ergw_pfcp_context:modify_pfcp_session(PCC4, [], #{}, Bearer, PCtx1) of
+	case ergw_pfcp_context:modify_session(PCC4, [], #{}, Bearer, PCtx1) of
 	    {ok, Result2} -> Result2;
 	    {error, Err2} -> throw(Err2#ctx_err{context = Context})
 	end,
@@ -334,7 +334,7 @@ handle_event(internal, {session, {update_credits, _} = CreditEv, _}, _State,
 
     {PCC, _PCCErrors} = ergw_pcc_context:gy_events_to_pcc_ctx(Now, [CreditEv], PCC0),
     {PCtx, _} =
-	case ergw_pfcp_context:modify_pfcp_session(PCC, [], #{}, Bearer, PCtx0) of
+	case ergw_pfcp_context:modify_session(PCC, [], #{}, Bearer, PCtx0) of
 	    {ok, Result1} -> Result1;
 	    {error, Err1} -> throw(Err1#ctx_err{context = Context})
 	end,
@@ -439,7 +439,7 @@ start_session(#data{apn = APN, context = Context, dp_node = Node,
     PCC4 = ergw_pcc_context:session_events_to_pcc_ctx(RfSEvs, PCC3),
 
     PCtx =
-	case ergw_pfcp_context:create_tdf_session(PendingPCtx, PCC4, Bearer, Context) of
+	case ergw_pfcp_context:create_session(tdf, PCC4, PendingPCtx, Bearer, Context) of
 	    {ok, Result5} -> Result5;
 	    {error, Err5} -> throw({fail, Err5})
 	end,
@@ -506,7 +506,7 @@ ccr_initial(Session, API, SessionOpts, ReqOpts) ->
     end.
 
 close_pdn_context(Reason, run, #data{pfcp = PCtx, session = Session}) ->
-    URRs = ergw_pfcp_context:delete_pfcp_session(Reason, PCtx),
+    URRs = ergw_pfcp_context:delete_session(Reason, PCtx),
 
     %% TODO: Monitors, AAA over SGi
 
