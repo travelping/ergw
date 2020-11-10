@@ -481,7 +481,7 @@ handle_event(info, #aaa_request{procedure = {gx, 'RAR'},
 %%% step 2
 %%% step 3:
     {PCtx1, UsageReport} =
-	case ergw_pfcp_context:modify_pfcp_session(PCC1, [], #{}, Bearer, PCtx0) of
+	case ergw_pfcp_context:modify_session(PCC1, [], #{}, Bearer, PCtx0) of
 	    {ok, Result1} -> Result1;
 	    {error, Err1} -> throw(Err1#ctx_err{context = Context, tunnel = LeftTunnel})
 	end,
@@ -502,7 +502,7 @@ handle_event(info, #aaa_request{procedure = {gx, 'RAR'},
 
 %%% step 6:
     {PCtx, _} =
-	case ergw_pfcp_context:modify_pfcp_session(PCC4, [], #{}, Bearer, PCtx1) of
+	case ergw_pfcp_context:modify_session(PCC4, [], #{}, Bearer, PCtx1) of
 	    {ok, Result2} -> Result2;
 	    {error, Err2} -> throw(Err2#ctx_err{context = Context, tunnel = LeftTunnel})
 	end,
@@ -548,7 +548,7 @@ handle_event(internal, {session, {update_credits, _} = CreditEv, _}, _State,
 
     {PCC, _PCCErrors} = ergw_pcc_context:gy_events_to_pcc_ctx(Now, [CreditEv], PCC0),
     {PCtx, _} =
-	case ergw_pfcp_context:modify_pfcp_session(PCC, [], #{}, Bearer, PCtx0) of
+	case ergw_pfcp_context:modify_session(PCC, [], #{}, Bearer, PCtx0) of
 	    {ok, Result1} -> Result1;
 	    {error, Err1} -> throw(Err1#ctx_err{context = Context, tunnel = LeftTunnel})
 	end,
