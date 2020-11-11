@@ -717,28 +717,16 @@ handle_nodedown(#data{pfcp_ctx = PCtx, bearer = Bearer} = Data) ->
 update_m_rec(Record, Map) when is_tuple(Record) ->
     maps:update_with(element(1, Record), [Record | _], [Record], Map).
 
-%% use additional information from the Context to prefre V4 or V6....
-choose_up_ip(#node{ip = {_,_,_,_}}, #vrf{ipv4 = IP4})
-  when is_binary(IP4) ->
-    ergw_inet:bin2ip(IP4);
-choose_up_ip(#node{ip = {_,_,_,_,_,_,_,_}}, #vrf{ipv4 = IP6})
-  when is_binary(IP6) ->
-    ergw_inet:bin2ip(IP6);
-choose_up_ip(#node{ip = IP}, _VRF) ->
-    IP.
-
 make_cp_bearer(TEI,  #gtp_socket_info{vrf = VRF, ip = IP}) ->
     FqTEID = #fq_teid{ip = IP, teid = TEI},
     #bearer{interface = 'CP-function', vrf = VRF, remote = FqTEID}.
 
-assign_local_data_teid(Key, PCtx, Node, VRFs, Bearer0) ->
+assign_local_data_teid(Key, PCtx, #node{ip = NodeIP}, VRFs, Bearer) ->
     [VRF|_] =
 	lists:filter(fun(#vrf{features = Features}) ->
 			     lists:member('CP-Function', Features)
 		     end, maps:values(VRFs)),
-    IP = choose_up_ip(Node, VRF),
-    Bearer = maps:update_with(Key, _#bearer{vrf = VRF#vrf.name}, Bearer0),
-    ergw_gsn_lib:assign_local_data_teid(Key, PCtx, IP, Bearer).
+    ergw_gsn_lib:assign_local_data_teid(Key, PCtx, VRF, NodeIP, Bearer).
 
 generate_pfcp_rules(_Key, #vrf{features = Features} = VRF, Bearer, Acc) ->
     lists:foldl(generate_per_feature_pfcp_rule(_, VRF, Bearer, _), Acc, Features).
