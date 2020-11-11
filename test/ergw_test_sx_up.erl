@@ -322,18 +322,25 @@ handle_message(#pfcp{type = association_setup_request,
 		     ie = #{recovery_time_stamp :=
 				#recovery_time_stamp{time = CpRecoveryTS}}},
 	       #state{features = UpFF, dp_recovery_ts = RecoveryTS} = State0) ->
+    UpIPRes =
+	case UpFF of
+	    #up_function_features{ftup = 1} ->
+		[];
+	    _ ->
+		[user_plane_ip_resource_information([<<"cp">>], State0),
+		 user_plane_ip_resource_information([<<"irx">>], State0),
+		 user_plane_ip_resource_information([<<"proxy-irx">>], State0),
+		 user_plane_ip_resource_information([<<"remote-irx">>], State0),
+		 user_plane_ip_resource_information([<<"remote-irx2">>], State0)]
+	end,
+
     RespIEs =
 	[#node_id{id = [<<"test">>, <<"server">>]},
 	 #pfcp_cause{cause = 'Request accepted'},
 	 #recovery_time_stamp{
 	    time = ergw_gsn_lib:seconds_to_sntp_time(RecoveryTS)},
-	 UpFF,
-	 user_plane_ip_resource_information([<<"cp">>], State0),
-	 user_plane_ip_resource_information([<<"irx">>], State0),
-	 user_plane_ip_resource_information([<<"proxy-irx">>], State0),
-	 user_plane_ip_resource_information([<<"remote-irx">>], State0),
-	 user_plane_ip_resource_information([<<"remote-irx2">>], State0)
-	],
+	 UpFF
+	 | UpIPRes ],
     State = State0#state{cp_recovery_ts = CpRecoveryTS},
     sx_reply(association_setup_response, RespIEs, State);
 

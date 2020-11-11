@@ -37,7 +37,6 @@
 -export([init_tunnel/4,
 	 assign_tunnel_teid/3,
 	 reassign_tunnel_teid/1,
-	 assign_local_data_teid/4,
 	 assign_local_data_teid/5
 	]).
 
@@ -916,44 +915,46 @@ reassign_tunnel_teid_f(#tunnel{socket = Socket}, FqTEID) ->
     {ok, TEI} = ergw_tei_mngr:alloc_tei(Socket),
     FqTEID#fq_teid{teid = TEI}.
 
-%% assign_local_data_teid/4
-assign_local_data_teid(Key, PCtx, IP, Bearer) ->
-    do([error_m ||
-	   B0 = maps:get(Key, Bearer),
-	   B1 <- assign_local_data_teid_4(Key, PCtx, IP, B0),
-	   return(maps:put(Key, B1, Bearer))
-       ]).
+ip_ver(IP) when ?IS_IPv4(IP) -> v4;
+ip_ver(IP) when ?IS_IPv6(IP) -> v6.
+
+choose_ip(LocalIP, IP4, _IP6)
+  when is_binary(IP4), byte_size(IP4) =:= 4, ?IS_IPv4(LocalIP) ->
+    {ok, IP4};
+choose_ip(LocalIP, _IP4, IP6)
+  when is_binary(IP6), byte_size(IP6) =:= 16, ?IS_IPv6(LocalIP) ->
+    {ok, IP6};
+choose_ip(_LocalIP, _IP4, _IP6) ->
+    %% IP version mismatch, broken peer GSN or misconfiguration
+    {error, ?CTX_ERR(?FATAL, system_failure)}.
 
 %% assign_local_data_teid/5
-assign_local_data_teid(Key, PCtx, NodeCaps, Tunnel, Bearer) ->
+assign_local_data_teid(Key, PCtx, NodeOrVRF, TunnelOrIP, Bearer) ->
     do([error_m ||
 	   B0 = maps:get(Key, Bearer),
-	   B1 <- assign_local_data_teid_5(Key, PCtx, NodeCaps, Tunnel, B0),
+	   B1 <- assign_local_data_teid_5(Key, PCtx, NodeOrVRF, TunnelOrIP, B0),
 	   return(maps:put(Key, B1, Bearer))
        ]).
 
-assign_local_data_teid_4(Key, #pfcp_ctx{
-			       features = #up_function_features{ftup = 1}}, IP, Bearer) ->
-    IPver =
-	if byte_size(IP) =:=  4; tuple_size(IP) =:= 4 -> v4;
-	   byte_size(IP) =:= 16; tuple_size(IP) =:= 8 -> v6
-	end,
-    FqTEID = #fq_teid{ip = IPver, teid = {upf, Key}},
-    {ok, Bearer#bearer{local = FqTEID}};
-assign_local_data_teid_4(_, PCtx, IP, Bearer) ->
-    do([error_m ||
-	   DataTEI <- ergw_tei_mngr:alloc_tei(PCtx),
-	   begin
-	       FqTEID = #fq_teid{
-			   ip = ergw_inet:to_ip(IP),
-			   teid = DataTEI},
-	       return(Bearer#bearer{local = FqTEID})
-	   end]).
+assign_local_data_teid_5(Key, PCtx, {VRFs, _} = _NodeCaps,
+		       #tunnel{vrf = Name, local = #fq_teid{ip = TunnelIP}}, Bearer)
+  when is_map_key(Name, VRFs) ->
+    assign_local_data_teid_5(Key, PCtx, maps:get(Name, VRFs), TunnelIP, Bearer);
 
-assign_local_data_teid_5(Key, PCtx, {VRFs, _} = _NodeCaps, #tunnel{vrf = VRF} = Tunnel, Bearer)
-  when is_record(Bearer, bearer) ->
-    #vrf{name = Name, ipv4 = IP4, ipv6 = IP6} = maps:get(VRF, VRFs),
+assign_local_data_teid_5(Key, #pfcp_ctx{
+				 features = #up_function_features{ftup = 1}},
+		       #vrf{name = VRF}, TunnelIP, Bearer) ->
+    IPver = ip_ver(TunnelIP),
+    FqTEID = #fq_teid{ip = IPver, teid = {upf, Key}},
+    {ok, Bearer#bearer{vrf = VRF, local = FqTEID}};
+
+assign_local_data_teid_5(_Key, #pfcp_ctx{
+				features = #up_function_features{ftup = FTUP}} = PCtx,
+		       #vrf{name = VRF, ipv4 = IP4, ipv6 = IP6}, TunnelIP, Bearer)
+  when FTUP /= 1 ->
     do([error_m ||
-	   IP <- choose_ip_by_tunnel(Tunnel, IP4, IP6),
-	   assign_local_data_teid_4(Key, PCtx, IP, Bearer#bearer{vrf = Name})
+	   IP <- choose_ip(TunnelIP, IP4, IP6),
+	   DataTEI <- ergw_tei_mngr:alloc_tei(PCtx),
+	   FqTEID = #fq_teid{ip = ergw_inet:to_ip(IP), teid = DataTEI},
+	   return(Bearer#bearer{vrf = VRF, local = FqTEID})
        ]).
