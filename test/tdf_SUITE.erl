@@ -393,8 +393,8 @@ end_per_group(Group, Config)
     ok = lib_end_per_suite(Config).
 
 common() ->
-    [setup_upf,  %% <- keep this first
-     simple_session,
+    [simple_session,
+     setup_upf,
      gy_validity_timer,
      simple_aaa,
      simple_ofcs,
@@ -508,7 +508,9 @@ end_per_testcase(_, Config) ->
 setup_upf() ->
     [{doc, "Test initial UPF rules installation"}].
 setup_upf(Config) ->
-    [ASR0, SER0 |_] = ergw_test_sx_up:history('tdf-u'),
+    H = ergw_test_sx_up:history('tdf-u'),
+    [ASR0, SER0 |_] =
+	lists:dropwhile(fun(#pfcp{type = Type}) -> Type /= association_setup_request end, H),
     ASR = pfcp_packet:to_map(ASR0),
     ?match(#pfcp{type = association_setup_request}, ASR),
 
