@@ -2560,12 +2560,14 @@ dns_node_selection(Config) ->
 	      meck:passthrough([Name, Class, Type, Opts])
       end),
 
+    StartTS = erlang:monotonic_time(millisecond),
+
     lists:foreach(
-        fun(_) ->
-            {GtpC, _, _} = create_session(Config),
-            delete_session(GtpC)
-        end,
-        lists:seq(1,10)
+	fun(_) ->
+	    {GtpC, _, _} = create_session(Config),
+	    delete_session(GtpC)
+	end,
+	lists:seq(1,10)
     ),
 
     timer:sleep(1100),
@@ -2573,13 +2575,25 @@ dns_node_selection(Config) ->
     {GtpC3, _, _} = create_session(Config),
     delete_session(GtpC3),
 
+    StopTS = erlang:monotonic_time(millisecond),
+    Duration = StopTS - StartTS,
+
     % 4 DNS requests to start with (it'll remember Sx node name then)
     % then 3 for each time it needs to resolve further
-    % since the cache time check is on exact second, it can be 
+    % since the cache time check is on exact second, it can be
     % total 7 or 10 if the test is done just before change
     % of second
-    NCalls = meck:num_calls(inet_res, resolve, '_'),
-    ?equal(true, NCalls == 7 orelse NCalls == 10),
+    % values get higher if the test runs too slow
+
+    case meck:num_calls(inet_res, resolve, '_') of
+	 7 -> ok;
+	10 -> ok;
+	NCalls when Duration > 3000 ->
+	    ct:pal("test too slow, calls ~w, durations ~w ms", [NCalls, Duration]);
+	NCalls ->
+	    ct:fail("expected 7 or 10 calls, got calls ~w, durations ~w ms",
+		    [NCalls, Duration])
+    end,
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
