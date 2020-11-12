@@ -621,7 +621,26 @@ handle_response(#proxy_request{request = ReqKey} = _ReqInfo,
     ?LOG(warning, "Unknown Proxy Response ~p", [Response]),
 
     gtp_context:request_finished(ReqKey),
-    keep_state_and_data.
+    keep_state_and_data;
+
+handle_response(_, _, #gtp{type = delete_bearer_request}, shutdown, _) ->
+      keep_state_and_data;
+handle_response(_, _, #gtp{type = delete_session_request}, shutdown, _) ->
+      keep_state_and_data;
+
+handle_response({Direction, From}, timeout, #gtp{type = delete_bearer_request},
+		shutdown_initiated, Data) ->
+    session_teardown_response({error, timeout}, Direction, From, Data);
+handle_response({Direction, From}, timeout, #gtp{type = delete_session_request},
+		shutdown_initiated, Data) ->
+    session_teardown_response({error, timeout}, Direction, From, Data);
+
+handle_response({Direction, From}, #gtp{type = delete_bearer_response},
+		_Request, shutdown_initiated, Data) ->
+    session_teardown_response(ok, Direction, From, Data);
+handle_response({Direction, From}, #gtp{type = delete_session_response},
+		_Request, shutdown_initiated, Data) ->
+    session_teardown_response(ok, Direction, From, Data).
 
 terminate(_Reason, _State, _Data) ->
     ok.
@@ -734,31 +753,45 @@ build_context_request(#tunnel{remote = #fq_teid{teid = TEI}} = Tunnel, Bearer,
 msg(#tunnel{remote = #fq_teid{teid = RemoteCntlTEI}}, Type, RequestIEs) ->
     #gtp{version = v2, type = Type, tei = RemoteCntlTEI, ie = RequestIEs}.
 
-send_request(Tunnel, DstIP, DstPort, T3, N3, Msg) ->
-    gtp_context:send_request(Tunnel, DstIP, DstPort, T3, N3, Msg, undefined).
+send_request(Tunnel, DstIP, DstPort, T3, N3, Msg, ReqInfo) ->
+    gtp_context:send_request(Tunnel, DstIP, DstPort, T3, N3, Msg, ReqInfo).
 
-send_request(#tunnel{remote = #fq_teid{ip = RemoteCntlIP}} = Tunnel, T3, N3, Msg) ->
-    send_request(Tunnel, RemoteCntlIP, ?GTP2c_PORT, T3, N3, Msg).
+send_request(#tunnel{remote = #fq_teid{ip = RemoteCntlIP}} = Tunnel, T3, N3, Msg, ReqInfo) ->
+    send_request(Tunnel, RemoteCntlIP, ?GTP2c_PORT, T3, N3, Msg, ReqInfo).
 
-send_request(Tunnel, T3, N3, Type, RequestIEs) ->
-    send_request(Tunnel, T3, N3, msg(Tunnel, Type, RequestIEs)).
+send_request(Tunnel, T3, N3, Type, RequestIEs, ReqInfo) ->
+    send_request(Tunnel, T3, N3, msg(Tunnel, Type, RequestIEs), ReqInfo).
 
-initiate_session_teardown(sgw2pgw,
+initiate_session_teardown(sgw2pgw = Direction, From,
 			  #{right_tunnel := Tunnel,
-			    proxy_context := #context{default_bearer_id = EBI}}) ->
+			    proxy_context := #context{default_bearer_id = EBI}} = Data) ->
     Type = delete_session_request,
     RequestIEs0 = [#v2_cause{v2_cause = network_failure},
 		   #v2_eps_bearer_id{eps_bearer_id = EBI}],
     RequestIEs = gtp_v2_c:build_recovery(Type, Tunnel, false, RequestIEs0),
-    send_request(Tunnel, ?T3, ?N3, Type, RequestIEs);
-initiate_session_teardown(pgw2sgw,
+    send_request(Tunnel, ?T3, ?N3, Type, RequestIEs, {Direction, From}),
+    maps:update_with(shutdown, [Direction|_], [Direction], Data);
+initiate_session_teardown(pgw2sgw = Direction, From,
 			  #{left_tunnel := Tunnel,
-			    context := #context{default_bearer_id = EBI}}) ->
+			    context := #context{default_bearer_id = EBI}} = Data) ->
     Type = delete_bearer_request,
     RequestIEs0 = [#v2_cause{v2_cause = reactivation_requested},
 		   #v2_eps_bearer_id{eps_bearer_id = EBI}],
     RequestIEs = gtp_v2_c:build_recovery(Type, Tunnel, false, RequestIEs0),
-    send_request(Tunnel, ?T3, ?N3, Type, RequestIEs).
+    send_request(Tunnel, ?T3, ?N3, Type, RequestIEs, {Direction, From}),
+    maps:update_with(shutdown, [Direction|_], [Direction], Data).
+
+session_teardown_response(Answer, Direction, From, #{shutdown := Shutdown0} = Data) ->
+    case lists:delete(Direction, Shutdown0) of
+	[] ->
+	    Action = case From of
+			 undefined -> [];
+			 _ -> [{reply, From, Answer}]
+		     end,
+	    {next_state, shutdown, maps:remove(shutdown, Data), Action};
+	Shutdown ->
+	    {keep_state, Data#{shutdown => Shutdown}}
+    end.
 
 bind_forward_path(sgw2pgw, Request,
 		  #{left_tunnel := LeftTunnel, right_tunnel := RightTunnel} = Data) ->
@@ -820,26 +853,20 @@ restart_timeout(Timeout, Msg, Data) ->
     cancel_timeout(Data),
     Data#{timeout => erlang:start_timer(Timeout, self(), Msg)}.
 
-
 close_context(Side, TermCause, Data) ->
     case Side of
 	left ->
-	    initiate_session_teardown(sgw2pgw, Data);
+	    initiate_session_teardown(sgw2pgw, undefined, Data);
 	right ->
-	    initiate_session_teardown(pgw2sgw, Data);
+	    initiate_session_teardown(pgw2sgw, undefined, Data);
 	both ->
-	    initiate_session_teardown(sgw2pgw, Data),
-	    initiate_session_teardown(pgw2sgw, Data)
+	    initiate_session_teardown(sgw2pgw, undefined, Data),
+	    initiate_session_teardown(pgw2sgw, undefined, Data)
     end,
     delete_forward_session(TermCause, Data).
 
-delete_context(From, TermCause, Data) ->
-    initiate_session_teardown(sgw2pgw, Data),
-    initiate_session_teardown(pgw2sgw, Data),
+delete_context(From, TermCause, Data0) ->
+    Data1 = initiate_session_teardown(sgw2pgw, From, Data0),
+    Data = initiate_session_teardown(pgw2sgw, From, Data1),
     delete_forward_session(TermCause, Data),
-    Action = case From of
-		 undefined -> [];
-		 _ -> [{reply, From, ok}]
-	     end,
-    %% TDB: {next_state, shutdown_initiated, Data}. ????
-    {next_state, shutdown, Data, Action}.
+    {next_state, shutdown_initiated, Data}.
