@@ -1276,6 +1276,9 @@ path_maintenance(Config) ->
     EchoMs = ['_', echo_request, '_', #gtp{type = echo_response, _ = '_'}],
     ?match(X when X >= 8, meck:num_calls(gtp_path, handle_response, EchoMs)),
 
+    %% make sure path has moved from busy to idle
+    ct:sleep(20),
+
     meck:reset(gtp_path),
     %% wait for 100ms
     ?equal(timeout, recv_pdu(GtpC, undefined, 100, fun(Why) -> Why end)),
