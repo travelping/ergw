@@ -88,7 +88,8 @@ start_link(Socket, Info, Version, Interface, IfOpts, Opts) ->
     gen_statem:start_link(?MODULE, [Socket, Info, Version, Interface, IfOpts], Opts).
 
 path_restart(Context, Path) ->
-    jobs:run(path_restart, fun() -> gen_statem:call(Context, {path_restart, Path}) end).
+    Fun = fun() -> (catch gen_statem:call(Context, {path_restart, Path})) end,
+    jobs:run(path_restart, Fun).
 
 remote_context_register(LeftTunnel, Bearer, Context)
   when is_record(Context, context) ->
