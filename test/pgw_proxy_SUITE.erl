@@ -2648,7 +2648,8 @@ sx_upf_removal(Config) ->
 
     ergw_test_sx_up:disable('sgw-u'),
 
-    Req = recv_pdu(Cntl, 5000),
+    %% heart beats are send every 5000 ms, make sure we wait long enough
+    Req = recv_pdu(Cntl, 6000),
     ?match(#gtp{type = delete_bearer_request}, Req),
     Resp = make_response(Req, simple, GtpC),
     send_pdu(Cntl, GtpC, Resp),
