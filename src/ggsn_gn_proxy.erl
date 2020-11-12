@@ -521,9 +521,16 @@ handle_response(#proxy_request{request = ReqKey} = _ReqInfo,
     gtp_context:request_finished(ReqKey),
     keep_state_and_data;
 
-handle_response(_, Response, _Request, _State, _Data) ->
-    ?LOG(warning, "Unknown Proxy Response ~p", [Response]),
-    keep_state_and_data.
+handle_response(_, _, #gtp{type = delete_pdp_context_request}, shutdown, _) ->
+    keep_state_and_data;
+
+handle_response({Direction, From}, timeout, #gtp{type = delete_pdp_context_request},
+		shutdown_initiated, Data) ->
+    pdp_context_teardown_response({error, timeout}, Direction, From, Data);
+
+handle_response({Direction, From}, #gtp{type = delete_pdp_context_response},
+		_Request, shutdown_initiated, Data) ->
+    pdp_context_teardown_response(ok, Direction, From, Data).
 
 terminate(_Reason, _State, _Data) ->
     ok.
@@ -615,33 +622,47 @@ build_context_request(#tunnel{remote = #fq_teid{teid = TEI}} = Tunnel, Bearer,
 msg(#tunnel{remote = #fq_teid{teid = RemoteCntlTEI}}, Type, RequestIEs) ->
     #gtp{version = v1, type = Type, tei = RemoteCntlTEI, ie = RequestIEs}.
 
-send_request(Tunnel, DstIP, DstPort, T3, N3, Msg) ->
-    gtp_context:send_request(Tunnel, DstIP, DstPort, T3, N3, Msg, undefined).
+send_request(Tunnel, DstIP, DstPort, T3, N3, Msg, ReqInfo) ->
+    gtp_context:send_request(Tunnel, DstIP, DstPort, T3, N3, Msg, ReqInfo).
 
-send_request(#tunnel{remote = #fq_teid{ip = RemoteCntlIP}} = Tunnel, T3, N3, Msg) ->
-    send_request(Tunnel, RemoteCntlIP, ?GTP1c_PORT, T3, N3, Msg).
+send_request(#tunnel{remote = #fq_teid{ip = RemoteCntlIP}} = Tunnel, T3, N3, Msg, ReqInfo) ->
+    send_request(Tunnel, RemoteCntlIP, ?GTP2c_PORT, T3, N3, Msg, ReqInfo).
 
-send_request(Tunnel, T3, N3, Type, RequestIEs) ->
-    send_request(Tunnel, T3, N3, msg(Tunnel, Type, RequestIEs)).
+send_request(Tunnel, T3, N3, Type, RequestIEs, ReqInfo) ->
+    send_request(Tunnel, T3, N3, msg(Tunnel, Type, RequestIEs), ReqInfo).
 
-initiate_pdp_context_teardown(sgsn2ggsn,
+initiate_pdp_context_teardown(sgsn2ggsn = Direction, From,
 			      #{right_tunnel := Tunnel,
-				proxy_context := #context{default_bearer_id = NSAPI}}) ->
+				proxy_context := #context{default_bearer_id = NSAPI}} = Data) ->
     Type = delete_pdp_context_request,
     RequestIEs0 = [#cause{value = request_accepted},
 		   #teardown_ind{value = 1},
 		   #nsapi{nsapi = NSAPI}],
     RequestIEs = gtp_v1_c:build_recovery(Type, Tunnel, false, RequestIEs0),
-    send_request(Tunnel, ?T3, ?N3, Type, RequestIEs);
-initiate_pdp_context_teardown(ggsn2sgsn,
+    send_request(Tunnel, ?T3, ?N3, Type, RequestIEs, {Direction, From}),
+    maps:update_with(shutdown, [Direction|_], [Direction], Data);
+initiate_pdp_context_teardown(ggsn2sgsn = Direction, From,
 			      #{left_tunnel := Tunnel,
-				context := #context{default_bearer_id = NSAPI}}) ->
+				context := #context{default_bearer_id = NSAPI}} = Data) ->
     Type = delete_pdp_context_request,
     RequestIEs0 = [#cause{value = request_accepted},
 		   #teardown_ind{value = 1},
 		   #nsapi{nsapi = NSAPI}],
     RequestIEs = gtp_v1_c:build_recovery(Type, Tunnel, false, RequestIEs0),
-    send_request(Tunnel, ?T3, ?N3, Type, RequestIEs).
+    send_request(Tunnel, ?T3, ?N3, Type, RequestIEs, {Direction, From}),
+    maps:update_with(shutdown, [Direction|_], [Direction], Data).
+
+pdp_context_teardown_response(Answer, Direction, From, #{shutdown := Shutdown0} = Data) ->
+    case lists:delete(Direction, Shutdown0) of
+	[] ->
+	    Action = case From of
+			 undefined -> [];
+			 _ -> [{reply, From, Answer}]
+		     end,
+	    {next_state, shutdown, maps:remove(shutdown, Data), Action};
+	Shutdown ->
+	    {keep_state, Data#{shutdown => Shutdown}}
+    end.
 
 bind_forward_path(sgsn2ggsn, Request,
 		  #{left_tunnel := LeftTunnel, right_tunnel := RightTunnel} = Data) ->
@@ -684,22 +705,17 @@ restart_timeout(Timeout, Msg, Data) ->
 close_context(Side, TermCause, Data) ->
     case Side of
 	left  ->
-	    initiate_pdp_context_teardown(sgsn2ggsn, Data);
+	    initiate_pdp_context_teardown(sgsn2ggsn, undefined, Data);
 	right ->
-	    initiate_pdp_context_teardown(ggsn2sgsn, Data);
+	    initiate_pdp_context_teardown(ggsn2sgsn, undefined, Data);
 	both ->
-	    initiate_pdp_context_teardown(sgsn2ggsn, Data),
-	    initiate_pdp_context_teardown(ggsn2sgsn, Data)
+	    initiate_pdp_context_teardown(sgsn2ggsn, undefined, Data),
+	    initiate_pdp_context_teardown(ggsn2sgsn, undefined, Data)
     end,
     delete_forward_session(TermCause, Data).
 
-delete_context(From, TermCause, Data) ->
-    initiate_pdp_context_teardown(sgsn2ggsn, Data),
-    initiate_pdp_context_teardown(ggsn2sgsn, Data),
+delete_context(From, TermCause, Data0) ->
+    Data1 = initiate_pdp_context_teardown(sgsn2ggsn, From, Data0),
+    Data = initiate_pdp_context_teardown(ggsn2sgsn, From, Data1),
     delete_forward_session(TermCause, Data),
-    Action = case From of
-		 undefined -> [];
-		 _ -> [{reply, From, ok}]
-	     end,
-    %% TDB: {next_state, shutdown_initiated, Data}. ????
-    {next_state, shutdown, Data, Action}.
+    {next_state, shutdown_initiated, Data}.
