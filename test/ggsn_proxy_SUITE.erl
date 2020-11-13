@@ -620,8 +620,8 @@ common() ->
      session_accounting,
      sx_upf_reconnect,
      sx_upf_removal,
-     sx_timeout,
-     delete_bearer_requests_multi
+     sx_timeout
+     %% delete_bearer_requests_multi
     ].
 
 common_groups() ->
@@ -2096,6 +2096,15 @@ sx_timeout(Config) ->
     ok.
 
 %%--------------------------------------------------------------------
+%% The following test in inherently broken and disabled.
+%%
+%% For the test suite, proxy contexts and GGSN server context all live
+%% in the same registry. The delete_contexts/3 call will not distingiush
+%% between them. This leads to all kind of interesting race conditions
+%% that can not occure in live networks.
+%%
+%% It is unclear whether is any value in sorting the race condition out
+%% to get this test to pass.
 delete_bearer_requests_multi() ->
     [{doc, "Check ergw_api deletes multiple contexts"}].
 delete_bearer_requests_multi(Config) ->
