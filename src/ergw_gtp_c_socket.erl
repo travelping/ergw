@@ -23,7 +23,11 @@
 	 terminate/2, code_change/3]).
 
 -ifdef(TEST).
--export([get_request_q/1, get_response_q/1, send_reply/2]).
+-export([get_request_q/1, get_response_q/1, send_reply/2, make_send_req/7]).
+
+-define(MAKE_SEND_REQ, ?MODULE:make_send_req).
+-else.
+-define(MAKE_SEND_REQ, make_send_req).
 -endif.
 
 -include_lib("kernel/include/logger.hrl").
@@ -94,13 +98,13 @@ send_response(#request{socket = Socket} = ReqKey, Msg, DoCache) ->
 send_request(Socket, DstIP, DstPort, T3, N3, Msg, CbInfo) ->
     ?LOG(debug, "~p: gtp_socket send_request to ~s(~p):~w: ~p",
 	 [self(), inet:ntoa(DstIP), DstIP, DstPort, Msg]),
-    cast(Socket, make_send_req(undefined, DstIP, DstPort, T3, N3, Msg, CbInfo)).
+    cast(Socket, ?MAKE_SEND_REQ(undefined, DstIP, DstPort, T3, N3, Msg, CbInfo)).
 
 %% send_request/6
 send_request(Socket, DstIP, DstPort, ReqId, Msg, CbInfo) ->
     ?LOG(debug, "~p: gtp_socket send_request ~p to ~s:~w: ~p",
 		[self(), ReqId, inet:ntoa(DstIP), DstPort, Msg]),
-    cast(Socket, make_send_req(ReqId, DstIP, DstPort, ?T3 * 2, 0, Msg, CbInfo)).
+    cast(Socket, ?MAKE_SEND_REQ(ReqId, DstIP, DstPort, ?T3 * 2, 0, Msg, CbInfo)).
 
 resend_request(Socket, ReqId) ->
     cast(Socket, {resend_request, ReqId}).

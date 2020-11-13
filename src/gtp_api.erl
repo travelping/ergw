@@ -59,8 +59,10 @@
 	      {noreply, NewData :: map(), 'hibernate'} |
 	      {stop, Reason :: term(), NewData :: map()}.
 
--callback close_context(Side :: atom(), Reason :: atom(), Data :: map()) -> term().
--callback delete_context(From :: term(), TermCause :: atom(), Data :: map()) -> term().
+-callback close_context(Side :: atom(), Reason :: atom(),
+			State :: term(), Data :: map()) -> term().
+-callback delete_context(From :: term(), TermCause :: atom(),
+			 State :: term(), Data :: map()) -> term().
 
 %% Clean up before the server terminates.
 -callback terminate(

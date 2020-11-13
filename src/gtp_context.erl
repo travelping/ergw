@@ -377,7 +377,7 @@ handle_event({call, From},
 				      group =
 					  #{f_teid :=
 						#f_teid{ipv4 = IP4, ipv6 = IP6} = FTEID0}}}}},
-	     _State, #{pfcp := PCtx} = Data) ->
+	     State, #{pfcp := PCtx} = Data) ->
     FTEID = FTEID0#f_teid{ipv4 = ergw_inet:bin2ip(IP4), ipv6 = ergw_inet:bin2ip(IP6)},
     case fteid_tunnel_side(FTEID, Data) of
 	none ->
@@ -385,7 +385,7 @@ handle_event({call, From},
 	    {keep_state_and_data, [{reply, From, {ok, PCtx}}]};
 
 	Side ->
-	    close_context(Side, remote_failure, Data),
+	    close_context(Side, remote_failure, State, Data),
 	    {next_state, shutdown, Data, [{reply, From, {ok, PCtx}}]}
     end;
 
@@ -393,8 +393,8 @@ handle_event({call, From},
 handle_event({call, From},
 	     {sx, #pfcp{type = session_report_request,
 			ie = #{report_type := #report_type{upir = 1}}}},
-	     _State, #{pfcp := PCtx} = Data) ->
-    close_context(both, inactivity_timeout, Data),
+	     State, #{pfcp := PCtx} = Data) ->
+    close_context(both, inactivity_timeout, State, Data),
     {next_state, shutdown, Data, [{reply, From, {ok, PCtx}}]};
 
 %% Usage Report
@@ -442,16 +442,13 @@ handle_event(cast, {handle_response, ReqInfo, Request, Response0}, State,
 	    erlang:raise(Class, Reason, Stacktrace)
     end;
 
-handle_event(info, #aaa_request{procedure = {_, 'ASR'}} = Request, run, Data) ->
+handle_event(info, #aaa_request{procedure = {_, 'ASR'}} = Request, State, Data) ->
     ergw_aaa_session:response(Request, ok, #{}, #{}),
-    delete_context(undefined, administrative, Data);
-handle_event(info, #aaa_request{procedure = {_, 'ASR'}} = Request, _State, _Data) ->
-    ergw_aaa_session:response(Request, ok, #{}, #{}),
-    keep_state_and_data;
+    delete_context(undefined, administrative, State, Data);
 
 handle_event(info, #aaa_request{procedure = {gx, 'RAR'},
 				events = Events} = Request,
-	     run,
+	     connected,
 	     #{context := Context, pfcp := PCtx0,
 	       left_tunnel := LeftTunnel, bearer := Bearer,
 	       'Session' := Session, pcc := PCC0} = Data) ->
@@ -517,7 +514,7 @@ handle_event(info, #aaa_request{procedure = {gx, 'RAR'},
 
 handle_event(info, #aaa_request{procedure = {gy, 'RAR'},
 				events = Events} = Request,
-	     run, Data) ->
+	     connected, Data) ->
     ergw_aaa_session:response(Request, ok, #{}, #{}),
     Now = erlang:monotonic_time(),
 
@@ -555,10 +552,8 @@ handle_event(internal, {session, {update_credits, _} = CreditEv, _}, _State,
 	end,
     {keep_state, Data#{pfcp := PCtx, pcc := PCC}};
 
-handle_event(internal, {session, stop, _Session}, run, Data) ->
-    delete_context(undefined, normal, Data);
-handle_event(internal, {session, stop, _Session}, _, _) ->
-    keep_state_and_data;
+handle_event(internal, {session, stop, _Session}, State, Data) ->
+     delete_context(undefined, normal, State, Data);
 
 handle_event(internal, {session, Ev, _}, _State, _Data) ->
     ?LOG(error, "unhandled session event: ~p", [Ev]),
@@ -573,26 +568,26 @@ handle_event(info, {timeout, TRef, pfcp_timer} = Info, _State, #{pfcp := PCtx0} 
     ergw_gtp_gsn_lib:triggered_charging_event(validity_time, Now, ChargingKeys, Data),
     {keep_state, Data};
 
-handle_event({call, From}, delete_context, run, Data) ->
-    %% TBD: showdown vs. shutdown_initiated in proxy...
-    delete_context(From, administrative, Data);
+handle_event({call, From}, delete_context, State, Data)
+  when State == connected; State == connecting ->
+    delete_context(From, administrative, State, Data);
 handle_event({call, From}, delete_context, shutdown, _Data) ->
     {keep_state_and_data, [{reply, From, {ok, ok}}]};
 handle_event({call, _From}, delete_context, _State, _Data) ->
     {keep_state_and_data, [postpone]};
 
-handle_event({call, From}, terminate_context, _State, Data) ->
-    close_context(left, normal, Data),
+handle_event({call, From}, terminate_context, State, Data) ->
+    close_context(left, normal, State, Data),
     {next_state, shutdown, Data, [{reply, From, ok}]};
 
-handle_event({call, From}, {path_restart, Path}, _State,
+handle_event({call, From}, {path_restart, Path}, State,
 	     #{left_tunnel := #tunnel{path = Path}} = Data) ->
-    close_context(left, peer_restart, Data),
+    close_context(left, peer_restart, State, Data),
     {next_state, shutdown, Data, [{reply, From, ok}]};
 
-handle_event({call, From}, {path_restart, Path}, _State,
+handle_event({call, From}, {path_restart, Path}, State,
 	     #{right_tunnel := #tunnel{path = Path}} = Data) ->
-    close_context(right, peer_restart, Data),
+    close_context(right, peer_restart, State, Data),
     {next_state, shutdown, Data, [{reply, From, ok}]};
 
 handle_event({call, From}, {path_restart, _Path}, _State, _Data) ->
@@ -602,19 +597,17 @@ handle_event(cast, {usage_report, URRActions, UsageReport}, _State, Data) ->
     ergw_gtp_gsn_lib:usage_report(URRActions, UsageReport, Data),
     keep_state_and_data;
 
-handle_event(cast, delete_context, run, Data) ->
-    delete_context(undefined, administrative, Data);
-handle_event(cast, delete_context, _State, _Data) ->
-    keep_state_and_data;
+handle_event(cast, delete_context, State, Data) ->
+    delete_context(undefined, administrative, State, Data);
 
-handle_event(info, {'DOWN', _MonitorRef, Type, Pid, _Info}, _State,
+handle_event(info, {'DOWN', _MonitorRef, Type, Pid, _Info}, State,
 	     #{pfcp := #pfcp_ctx{node = Pid}} = Data)
   when Type == process; Type == pfcp ->
-    close_context(both, upf_failure, Data),
+    close_context(both, upf_failure, State, Data),
     {next_state, shutdown, Data};
 
-handle_event({timeout, context_idle}, stop_session, _State, Data) ->
-    delete_context(undefined, normal, Data);
+handle_event({timeout, context_idle}, stop_session, State, Data) ->
+    delete_context(undefined, normal, State, Data);
 
 handle_event(Type, Content, State, #{interface := Interface} = Data) ->
     ?LOG(debug, "~w: handle_event: (~p, ~p, ~p)",
@@ -867,11 +860,11 @@ fteid_tunnel_side_f(#f_teid{ipv4 = IPv4, ipv6 = IPv6, teid = TEID},
 fteid_tunnel_side_f(FqTEID, {_, _, Iter}) ->
     fteid_tunnel_side_f(FqTEID, maps:next(Iter)).
 
-close_context(Side, TermCause, #{interface := Interface} = Data) ->
-    Interface:close_context(Side, TermCause, Data).
+close_context(Side, TermCause, State, #{interface := Interface} = Data) ->
+    Interface:close_context(Side, TermCause, State, Data).
 
-delete_context(From, TermCause, #{interface := Interface} = Data) ->
-    Interface:delete_context(From, TermCause, Data).
+delete_context(From, TermCause, State, #{interface := Interface} = Data) ->
+    Interface:delete_context(From, TermCause, State, Data).
 
 %%====================================================================
 %% asynchrounus usage reporting

@@ -12,6 +12,7 @@
 			  update_app_config/3,
 			  load_config/1]).
 -import('ergw_test_lib', [meck_init/1,
+			  meck_init_hut_handle_request/1,
 			  meck_reset/1,
 			  meck_unload/1,
 			  meck_validate/1]).

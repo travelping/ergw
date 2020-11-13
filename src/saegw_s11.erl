@@ -17,7 +17,7 @@
 	 handle_request/5, handle_response/5,
 	 handle_event/4, terminate/3]).
 
--export([delete_context/3, close_context/3]).
+-export([delete_context/4, close_context/4]).
 
 %% PFCP context API's
 %%-export([defered_usage_report/3]).
@@ -178,7 +178,7 @@ handle_request(ReqKey,
 	      left_tunnel => LeftTunnel, bearer => Bearer},
 
     Actions = context_idle_action([], Context),
-    {keep_state, FinalData, Actions};
+    {next_state, connected, FinalData, Actions};
 
 handle_request(ReqKey,
 	       #gtp{type = modify_bearer_request,
@@ -330,7 +330,7 @@ handle_response(_,
 				#v2_bearer_context{
 				   group = #{?'Cause' := #v2_cause{v2_cause = BearerCause}}
 				  }} = IEs} = Response,
-		_Request, run,
+		_Request, connected = State,
 		#{pfcp := PCtx, left_tunnel := LeftTunnel0, 'Session' := Session} = Data) ->
     LeftTunnel = gtp_path:bind(Response, LeftTunnel0),
 
@@ -343,12 +343,12 @@ handle_response(_,
        true ->
 	    ?LOG(error, "Update Bearer Request failed with ~p/~p",
 			[Cause, BearerCause]),
-	    delete_context(undefined, link_broken, DataNew)
+	    delete_context(undefined, link_broken, State, DataNew)
     end;
 
-handle_response(_, timeout, #gtp{type = update_bearer_request}, run, Data) ->
+handle_response(_, timeout, #gtp{type = update_bearer_request}, connected = State, Data) ->
     ?LOG(error, "Update Bearer Request failed with timeout"),
-    delete_context(undefined, link_broken, Data);
+    delete_context(undefined, link_broken, State, Data);
 
 handle_response({From, TermCause}, timeout, #gtp{type = delete_bearer_request},
 		_State, Data) ->
@@ -373,7 +373,7 @@ handle_response({From, TermCause},
     {next_state, shutdown, DataNew};
 
 handle_response(_CommandReqKey, _Response, _Request, State, _Data)
-  when State =/= run ->
+  when State =/= connected ->
     keep_state_and_data.
 
 terminate(_Reason, _State, #{context := Context}) ->
@@ -443,7 +443,7 @@ encode_paa(IPv4, IPv6) when IPv4 /= undefined, IPv6 /= undefined ->
 encode_paa(Type, IPv4, IPv6) ->
     #v2_pdn_address_allocation{type = Type, address = <<IPv6/binary, IPv4/binary>>}.
 
-close_context(_Side, Reason, Data) ->
+close_context(_Side, Reason, _State, Data) ->
     ergw_gtp_gsn_lib:close_context(Reason, Data).
 
 copy_ppp_to_session({pap, 'PAP-Authentication-Request', _Id, Username, Password}, Session0) ->
@@ -718,14 +718,18 @@ send_request(#tunnel{remote = #fq_teid{ip = RemoteCntlIP}} = Tunnel, T3, N3, Msg
 send_request(Tunnel, T3, N3, Type, RequestIEs, ReqInfo) ->
     send_request(Tunnel, T3, N3, msg(Tunnel, Type, RequestIEs), ReqInfo).
 
-delete_context(From, TermCause, #{left_tunnel := Tunnel} = Data) ->
+delete_context(From, TermCause, connected, #{left_tunnel := Tunnel} = Data) ->
     Type = delete_bearer_request,
     EBI = 5,
     RequestIEs0 = [#v2_cause{v2_cause = reactivation_requested},
 		   #v2_eps_bearer_id{eps_bearer_id = EBI}],
     RequestIEs = gtp_v2_c:build_recovery(Type, Tunnel, false, RequestIEs0),
     send_request(Tunnel, ?T3, ?N3, Type, RequestIEs, {From, TermCause}),
-    {next_state, shutdown_initiated, Data}.
+    {next_state, shutdown_initiated, Data};
+delete_context(undefined, _, _, _) ->
+    keep_state_and_data;
+delete_context(From, _, _, _) ->
+    {keep_state_and_data, [{reply, From, ok}]}.
 
 ppp_ipcp_conf_resp(Verdict, Opt, IPCP) ->
     maps:update_with(Verdict, fun(O) -> [Opt|O] end, [Opt], IPCP).

@@ -14,6 +14,7 @@
 	 update_app_config/3,
 	 load_config/1]).
 -export([meck_init/1,
+	 meck_init_hut_handle_request/1,
 	 meck_reset/1,
 	 meck_unload/1,
 	 meck_validate/1]).
@@ -182,6 +183,17 @@ meck_modules() ->
     [ergw_sx_socket, ergw_gtp_c_socket, ergw_aaa_session, ergw_gsn_lib,
      ergw_pfcp_context, ergw_proxy_lib, gtp_context].
 
+meck_init_hut_handle_request(Hut) ->
+    meck:expect(Hut, handle_request,
+		fun(ReqKey, Request, Resent, State, Data) ->
+			try
+			    meck:passthrough([ReqKey, Request, Resent, State, Data])
+			catch
+			    throw:#ctx_err{} = CtxErr ->
+				meck:exception(throw, CtxErr)
+			end
+		end).
+
 meck_init(Config) ->
     ok = meck:new(meck_modules(), [passthrough, no_link]),
     ok = meck:expect(gtp_context, port_message,
@@ -196,15 +208,7 @@ meck_init(Config) ->
 
     {_, Hut} = lists:keyfind(handler_under_test, 1, Config),   %% let it crash if HUT is undefined
     ok = meck:new(Hut, [passthrough, no_link, non_strict]),
-    ok = meck:expect(Hut, handle_request,
-		     fun(ReqKey, Request, Resent, State, Data) ->
-			     try
-				 meck:passthrough([ReqKey, Request, Resent, State, Data])
-			     catch
-				 throw:#ctx_err{} = CtxErr ->
-				     meck:exception(throw, CtxErr)
-			     end
-		     end).
+    ok = meck_init_hut_handle_request(Hut).
 
 meck_reset(Config) ->
     meck:reset([proplists:get_value(handler_under_test, Config) | meck_modules()]).
