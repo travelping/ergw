@@ -1225,30 +1225,43 @@ create_lb_multi_context() ->
     [{doc, "Create multi contexts across the 2 Load Balancers"}].
 create_lb_multi_context(Config) ->
     init_seq_no(?MODULE, 16#8000),
+    GtpC = gtp_context(?MODULE, Config),
 
     %% stop all existing paths
     lists:foreach(fun({_, Pid, _}) -> gtp_path:stop(Pid) end, gtp_path_reg:all()),
 
+    GSNs = [{proplists:get_value(K, Config), 0} || K <- [final_gsn, final_gsn_2]],
+    CntSinit = maps:from_list(GSNs),
+
     %% for 6 clients cumulative nCr for at least 1 hit on both lb = 0.984
     %% for 10 clients it is = 0.999. 1 < No of clients =< 10
+    %%
+    %% however, for small number of tries the deviation from this expected number
+    %% is far greater, run with a max. tries of 100 clients...
 
-    GtpCs0 = make_gtp_contexts(?NUM_OF_CLIENTS, Config),
-    GtpCs1 = lists:map(fun(GtpC0) -> create_pdp_context(#{apn => ?'APN-LB-1'}, GtpC0) end, GtpCs0),
+    fun TestFun(0, _, _) ->
+	    ct:fail(max_tries);
+	TestFun(Cnt, CntS0, GtpC0) ->
+	    {GtpC1, _, _} = create_pdp_context(#{apn => ?'APN-LB-1'}, GtpC0),
 
-    GSNs = [proplists:get_value(K, Config) || K <- [final_gsn, final_gsn_2]],
-    CntS0 = lists:foldl(fun(K, M) -> M#{K => 0} end, #{}, GSNs),
-    CntS = lists:foldl(
-	     fun({{_,{teid,'gtp-c',{fq_teid, PeerIP,_}}},_}, M) ->
-		     maps:update_with(PeerIP, fun(C) -> C + 1 end, 1, M);
-		(_, M) -> M
-	     end, CntS0, gtp_context_reg:all()),
+	    CntS = lists:foldl(
+		     fun({{_,{teid,'gtp-c',{fq_teid, PeerIP,_}}},_}, M)
+			   when is_map_key(PeerIP, M) ->
+			     maps:update_with(PeerIP, fun(C) -> C + 1 end, 1, M);
+			(_, M) -> M
+		     end, CntS0, gtp_context_reg:all()),
 
-    ct:pal("CntS: ~p~n", [CntS]),
-    [?match(X when X > 0, maps:get(K, CntS)) || K <- GSNs],
+	    {GtpC2, _, _} = delete_pdp_context(GtpC1),
 
-    lists:foreach(fun({GtpC1,_,_}) -> delete_pdp_context(GtpC1) end, GtpCs1),
+	    case maps:fold(fun(_K, V, Acc) -> Acc andalso V /= 0 end, true, CntS) of
+		true ->
+		    ct:pal("CntS: ~p~nSuccess with ~p tries left", [CntS, Cnt]),
+		    ok;
+		_ ->
+		    TestFun(Cnt - 1, CntS, GtpC2)
+	    end
+    end(100, CntSinit, GtpC),
 
-    ok = meck:wait(?NUM_OF_CLIENTS, ?HUT, terminate, '_', ?TIMEOUT),
     wait4tunnels(?TIMEOUT),
     meck_validate(Config),
     ok.
