@@ -17,7 +17,7 @@
 	 handle_request/5, handle_response/5,
 	 handle_event/4, terminate/3]).
 
--export([delete_context/3, close_context/3]).
+-export([delete_context/4, close_context/4]).
 
 %% PFCP context API's
 %%-export([defered_usage_report/3]).
@@ -175,7 +175,7 @@ handle_request(ReqKey,
 	Data#{context => Context, pfcp => PCtx, pcc => PCC4,
 	      left_tunnel => LeftTunnel, bearer => Bearer},
     Actions = context_idle_action([], Context),
-    {keep_state, FinalData, Actions};
+    {next_state, connected, FinalData, Actions};
 
 handle_request(ReqKey,
 	       #gtp{type = update_pdp_context_request,
@@ -342,7 +342,7 @@ encode_eua(Org, Number, IPv4, IPv6) ->
 		      pdp_type_number = Number,
 		      pdp_address = <<IPv4/binary, IPv6/binary >>}.
 
-close_context(_Side, Reason, Data) ->
+close_context(_Side, Reason, _State, Data) ->
     ergw_gtp_gsn_lib:close_context(Reason, Data).
 
 map_attr('APN', #{?'Access Point Name' := #access_point_name{apn = APN}}) ->
@@ -777,14 +777,19 @@ send_request(#tunnel{remote = #fq_teid{ip = RemoteCntlIP}} = Tunnel, T3, N3, Msg
 send_request(Tunnel, T3, N3, Type, RequestIEs, ReqInfo) ->
     send_request(Tunnel, T3, N3, msg(Tunnel, Type, RequestIEs), ReqInfo).
 
-delete_context(From, TermCause, #{left_tunnel := Tunnel,
-				  context := #context{default_bearer_id = NSAPI}} = Data) ->
+delete_context(From, TermCause, connected,
+	       #{left_tunnel := Tunnel, context :=
+		     #context{default_bearer_id = NSAPI}} = Data) ->
     Type = delete_pdp_context_request,
     RequestIEs0 = [#nsapi{nsapi = NSAPI},
 		   #teardown_ind{value = 1}],
     RequestIEs = gtp_v1_c:build_recovery(Type, Tunnel, false, RequestIEs0),
     send_request(Tunnel, ?T3, ?N3, Type, RequestIEs, {From, TermCause}),
-    {next_state, shutdown_initiated, Data}.
+    {next_state, shutdown_initiated, Data};
+delete_context(undefined, _, _, _) ->
+    keep_state_and_data;
+delete_context(From, _, _, _) ->
+    {keep_state_and_data, [{reply, From, ok}]}.
 
 ppp_ipcp_conf_resp(Verdict, Opt, IPCP) ->
     maps:update_with(Verdict, fun(O) -> [Opt|O] end, [Opt], IPCP).

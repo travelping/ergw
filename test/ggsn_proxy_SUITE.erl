@@ -591,6 +591,7 @@ common() ->
      simple_pdp_context_request_no_proxy_map,
      create_pdp_context_request_resend,
      create_pdp_context_proxy_request_resend,
+     create_pdp_context_request_timeout,
      create_lb_multi_context,
      one_lb_node_down,
      delete_pdp_context_request_resend,
@@ -672,6 +673,37 @@ init_per_testcase(create_pdp_context_proxy_request_resend, Config) ->
 			     keep_state_and_data;
 			(ReqKey, Msg, Resent, State, Data) ->
 			     meck:passthrough([ReqKey, Msg, Resent, State, Data])
+		     end),
+    Config;
+init_per_testcase(create_pdp_context_request_timeout, Config) ->
+    setup_per_testcase(Config),
+    ok = meck:new(ggsn_gn, [passthrough, no_link]),
+    %% block session in the GGSN
+    ok = meck:expect(ggsn_gn, handle_request,
+		     fun(ReqKey, #gtp{type = create_pdp_context_request}, _, _, _) ->
+			     gtp_context:request_finished(ReqKey),
+			     keep_state_and_data;
+			(ReqKey, Msg, Resent, State, Data) ->
+			     meck:passthrough([ReqKey, Msg, Resent, State, Data])
+		     end),
+    ok = meck:expect(ergw_gtp_c_socket, make_send_req,
+		     fun(ReqId, Address, Port, _T3, N3, #gtp{type = Type} = Msg, CbInfo)
+			   when Type == create_session_request ->
+			     %% reduce timeout to 500 ms speed up the test
+			     meck:passthrough([ReqId, Address, Port, 500, N3, Msg, CbInfo]);
+			(ReqId, Address, Port, T3, N3, Msg, CbInfo) ->
+			     meck:passthrough([ReqId, Address, Port, T3, N3, Msg, CbInfo])
+		     end),
+    ok = meck:expect(?HUT, handle_request,
+		     fun(ReqKey, Request, Resent, State, Data) ->
+			     case meck:passthrough([ReqKey, Request, Resent, State, Data]) of
+				 {next_state, connecting, DataNew, _} ->
+				     %% 1 second timeout for the test
+				     Action = [{state_timeout, 1000, connecting}],
+				     {next_state, connecting, DataNew, Action};
+				 Other ->
+				     Other
+			     end
 		     end),
     Config;
 init_per_testcase(delete_pdp_context_request_timeout, Config) ->
@@ -794,6 +826,13 @@ end_per_testcase(TestCase, Config)
     Config;
 end_per_testcase(create_pdp_context_proxy_request_resend, Config) ->
     ok = meck:unload(ggsn_gn),
+    end_per_testcase(Config),
+    Config;
+end_per_testcase(create_pdp_context_request_timeout, Config) ->
+    ok = meck:unload(ggsn_gn),
+    ok = meck:delete(ergw_gtp_c_socket, make_send_req, 7),
+    ok = meck:delete(?HUT, handle_request, 5),
+    ok = meck_init_hut_handle_request(?HUT),
     end_per_testcase(Config),
     Config;
 end_per_testcase(delete_pdp_context_request_timeout, Config) ->
@@ -1372,6 +1411,26 @@ create_pdp_context_proxy_request_resend(Config) ->
     ok.
 
 %%--------------------------------------------------------------------
+create_pdp_context_request_timeout() ->
+    [{doc, "Check that the proxy does shutdown the context on timeout"}].
+create_pdp_context_request_timeout(Config) ->
+    %% logger:set_primary_config(level, debug),
+
+    GtpC = gtp_context(Config),
+    Request = make_request(create_pdp_context_request, simple, GtpC),
+
+    ?equal({error,timeout}, send_recv_pdu(GtpC, Request, 2 * 1000, error)),
+
+    ?equal(undefined, gtp_context_reg:lookup({'irx', {imsi, ?'IMSI', 5}})),
+    ?match(1, meck:num_calls(ggsn_gn, handle_request, '_')),
+
+    wait4tunnels(?TIMEOUT),
+    ?equal([], outstanding_requests()),
+    meck_validate(Config),
+    ok.
+
+
+%%--------------------------------------------------------------------
 delete_pdp_context_request_resend() ->
     [{doc, "Check that a retransmission of a Delete PDP Context Request works"}].
 delete_pdp_context_request_resend(Config) ->
@@ -1924,6 +1983,9 @@ create_pdp_context_overload() ->
     [{doc, "Check that the overload protection works"}].
 create_pdp_context_overload(Config) ->
     create_pdp_context(overload, Config),
+
+    ct:sleep(10),
+    ?equal(undefined, gtp_context_reg:lookup({'irx', {imsi, ?'IMSI', 5}})),
 
     ?equal([], outstanding_requests()),
     meck_validate(Config),
