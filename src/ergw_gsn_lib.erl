@@ -33,7 +33,7 @@
 	 pcc_events_to_charging_rule_report/1,
 	 make_gy_credit_request/3]).
 -export([apn/1, apn/2, select_vrf/2,
-	 allocate_ips/7, release_context_ips/1]).
+	 allocate_ips/8, release_context_ips/1]).
 -export([init_tunnel/4,
 	 assign_tunnel_teid/3,
 	 reassign_tunnel_teid/1,
@@ -643,8 +643,8 @@ request_alloc({ReqIPv6, PrefixLen}, #{'Framed-Pool' := Pool} = Opts)
 request_alloc(_ReqIP, _Opts) ->
     skip.
 
-request_ip_alloc(ReqIPs, Opts,# tunnel{local = #fq_teid{teid = TEI}}) ->
-    Req = [request_alloc(IP, Opts) || IP <- ReqIPs],
+request_ip_alloc(ReqIPs, PCO, #tunnel{local = #fq_teid{teid = TEI}}) ->
+    Req = [request_alloc(IP, PCO) || IP <- ReqIPs],
     ergw_ip_pool:send_request(TEI, Req).
 
 ip_alloc_result(skip, Acc) ->
@@ -731,10 +731,12 @@ session_ip_alloc(_, _, SessionOpts, _, {PDNType, ReqMSv4, ReqMSv6}) ->
     MSv6 = session_ipv6_alloc(SessionOpts, ReqMSv6),
     {PDNType, MSv4, MSv6}.
 
-%% allocate_ips/3
-allocate_ips(ReqIPs, SOpts0, Tunnel) ->
-    ReqIds = request_ip_alloc(ReqIPs, SOpts0, Tunnel),
-    wait_ip_alloc_results(ReqIds, SOpts0).
+%% allocate_ips/4
+allocate_ips(ReqIPs, PCO0, SOpts, Tunnel) ->
+    RequestSOpts = ['Framed-Pool', 'Framed-Interface-Id'],
+    PCO = maps:merge(maps:with(RequestSOpts, SOpts), PCO0),
+    ReqIds = request_ip_alloc(ReqIPs, PCO, Tunnel),
+    wait_ip_alloc_results(ReqIds, SOpts).
 
 allocate_ips_result(ReqPDNType, BearerType, #ue_ip{v4 = MSv4, v6 = MSv6}) ->
     allocate_ips_result(ReqPDNType, BearerType, ergw_ip_pool:ip(MSv4),
@@ -760,10 +762,10 @@ allocate_ips_result('IPv4v6', _, undefined, IPv6) when IPv6 /= undefined ->
 allocate_ips_result(_, _, _, _) ->
     {error, ?CTX_ERR(?FATAL, preferred_pdn_type_not_supported)}.
 
-%% allocate_ips/7
+%% allocate_ips/8
 allocate_ips(AllocInfo,
 	     #{bearer_type := BearerType, prefered_bearer_type := PrefBearer} = APNOpts,
-	     SOpts0, DualAddressBearerFlag, Tunnel, Bearer, Context) ->
+	     SOpts0, DualAddressBearerFlag, PCO, Tunnel, Bearer, Context) ->
     {ReqPDNType, ReqMSv4, ReqMSv6} =
 	session_ip_alloc(BearerType, PrefBearer, SOpts0, DualAddressBearerFlag, AllocInfo),
 
@@ -771,7 +773,7 @@ allocate_ips(AllocInfo,
     SOpts2 = init_session_ue_ifid(APNOpts, SOpts1),
 
     ReqIPs = [normalize_ipv4(ReqMSv4), normalize_ipv6(ReqMSv6)],
-    {Result0, {UeIP, SOpts3}} = allocate_ips(ReqIPs, SOpts2, Tunnel),
+    {Result0, {UeIP, SOpts3}} = allocate_ips(ReqIPs, PCO, SOpts2, Tunnel),
     case Result0 of
 	ok ->
 	    case allocate_ips_result(ReqPDNType, BearerType, UeIP) of
