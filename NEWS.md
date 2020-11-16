@@ -1,6 +1,17 @@
 erGW - 3GPP GGSN and PDN-GW in Erlang
 =====================================
 
+Version 2.8.0 - 16 November 2020
+-------------------------------
+
+* Refactor handler contexts
+* Implement UP based TEID assignment
+* Remove reliance on User Plane IP Resource Information IE
+* Update [ergw_aaa](https://github.com/travelping/ergw_aaa) tag to [3.6.2](https://github.com/travelping/ergw_aaa/releases/tag/3.6.2)
+* Fix Common Tests
+* Handle timeouts create `session`/`pdp_context` requests 
+* Extend delete contexts REST API for delete all contexts: `/api/v1/contexts`
+
 Version 2.7.2 - 5 November 2020
 -------------------------------
 
