@@ -8,6 +8,7 @@
 		    prometheus, cowboy, prometheus_cowboy,
 		    prometheus_diameter_collector,
 		    jsx, compiler, os_mon, jobs]},
+    {included_applications, [dhcp]},
     {mod, {ergw_app, []}},
     {registered, []}
 ]}.
