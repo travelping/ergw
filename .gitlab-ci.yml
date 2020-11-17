@@ -61,6 +61,7 @@ build:otp-23.1:
     - ip addr add fd96:dcd2:efdb:41c3::30/64 dev lo
     - ip addr add fd96:dcd2:efdb:41c3::40/64 dev lo
     - ip addr add fd96:dcd2:efdb:41c3::50/64 dev lo
+    - ip -6 route add ff01::/16 dev lo table local
     - ./rebar3 do xref
     - ./rebar3 do ct
 
