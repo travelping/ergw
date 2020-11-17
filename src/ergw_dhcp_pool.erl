@@ -555,12 +555,12 @@ dhcpv6_init_f(ClientId, ReqIP, PrefixLen, ReqOpts, #pool{servers = Srvs} = Pool)
 
 dhcpv6_renew_f(ClientId, IP, PrefixLen, ReqOpts, SrvId, Srv, Pool) ->
     Opts = dhcpv6_opts(ClientId, IP, PrefixLen, ReqOpts),
-    dhcpv6_renew(Pool, Srv, ClientId, IP, Opts, SrvId).
+    dhcpv6_renew(Pool, Srv, ClientId, Opts, SrvId).
 
 dhcpv6_rebind_f(ClientId, IP, PrefixLen, ReqOpts, #pool{servers = Srvs} = Pool) ->
     Srv = choose_server(Srvs),
     Opts = dhcpv6_opts(ClientId, IP, PrefixLen, ReqOpts),
-    dhcpv6_rebind(Pool, Srv, ClientId, IP, Opts).
+    dhcpv6_rebind(Pool, Srv, ClientId, Opts).
 
 dhcpv6_solicit(Pool, Srv, Opts) ->
     DHCP = #dhcpv6{op = ?DHCPV6_SOLICIT, options = Opts},
@@ -579,59 +579,39 @@ dhcpv6_advertise(ReqId, Timeout) ->
 	    dhcpv6_advertise(ReqId, Timeout)
     end.
 
-dhcpv6_request(Pool, ClientId, Opts, Server, #dhcpv6{options = AdvOpts} = Advertise) ->
+dhcpv6_request(Pool, ClientId, Opts, Server,
+	       #dhcpv6{options = #{?D6O_SERVERID := SrvId} = AdvOpts} = Advertise) ->
     DHCP = Advertise#dhcpv6{op = ?DHCPV6_REQUEST, options = maps:merge(Opts, AdvOpts)},
     ReqId = dhcpv6_send_request(Pool, Server, DHCP),
 
     ReqTimeOut = erlang:monotonic_time(millisecond) + 1000,  %% 1 sec
     case dhcpv6_reply(ReqId, {abs, ReqTimeOut}) of
-	{ok, Server, #dhcpv6{options =
-				 #{?D6O_SERVERID := SrvId,
-				   ?D6O_IA_PD :=
-				       #{?IAID := {T1, T2,
-						   #{?D6O_IAPREFIX := IAPref}}} = IAOpts
-				  } = RespOpts}} ->
-	    case hd(maps:to_list(IAPref)) of
-		{{_,_} = PD, {_PrefLife, ValidLife, PDOpts}} ->
-		    FinalOpts0 =
-			maps:merge(
-			  maps:merge(dhcpv6_resp_opts(RespOpts), dhcpv6_resp_opts(IAOpts)),
-			  dhcpv6_resp_opts(PDOpts)),
-		    FinalOpts =
-			FinalOpts0#{lease => ValidLife,
-				    renewal => time_default(T1, 3600),
-				    rebinding => time_default(T2, 7200)},
-		    {ok, PD, {Server, SrvId, ClientId}, FinalOpts};
-		_ ->
-		    {error, failed}
-	    end;
+	{ok, Server, #dhcpv6{options = #{?D6O_SERVERID := SrvId}} = Reply} ->
+	    dhcpv6_resp_ia(ClientId, Server, Reply);
 	{error, _} = Error ->
 	    Error
     end.
 
-dhcpv6_renew(Pool, Srv, ClientId, IP, Opts, SrvId) ->
-    DHCP = #dhcpv6{op = ?DHCPV6_RENEW, options = Opts#{?D6O_SERVERID := SrvId}},
+dhcpv6_renew(Pool, Srv, ClientId, Opts, SrvId) ->
+    DHCP = #dhcpv6{op = ?DHCPV6_RENEW, options = Opts#{?D6O_SERVERID => SrvId}},
     ReqId = dhcpv6_send_request(Pool, Srv, DHCP),
 
     ReqTimeOut = erlang:monotonic_time(millisecond) + 1000,  %% 1 sec
     case dhcpv6_reply(ReqId, {abs, ReqTimeOut}) of
-	{ok, Server, #dhcpv6{options = #{?D6O_SERVERID := SrvId} = RespOpts}} ->
-	    IP = tbd,
-	    {ok, {IP, 32}, {Server, SrvId, ClientId}, dhcpv6_resp_opts(RespOpts)};
+	{ok, Server, #dhcpv6{options = #{?D6O_SERVERID := SrvId}} = Reply} ->
+	    dhcpv6_resp_ia(ClientId, Server, Reply);
 	{error, _} = Error ->
 	    Error
     end.
 
-%% TBD: in REBIND we should broadcast the request (or send to all configured servers)
-dhcpv6_rebind(Pool, Srv, ClientId, IP, Opts) ->
-    DHCP = #dhcpv6{op = ?DHCPV6_REBIND, options = Opts},
+dhcpv6_rebind(Pool, Srv, ClientId, Opts) ->
+    DHCP = #dhcpv6{op = ?DHCPV6_REBIND, options = maps:remove(?D6O_SERVERID, Opts)},
     ReqId = dhcpv6_send_request(Pool, Srv, DHCP),
 
     ReqTimeOut = erlang:monotonic_time(millisecond) + 1000,  %% 1 sec
     case dhcpv6_reply(ReqId, {abs, ReqTimeOut}) of
-	{ok, Server, #dhcpv6{options = #{?D6O_SERVERID := SrvId} = RespOpts}} ->
-	    IP = tbd,
-	    {ok, {IP, 32}, {Server, SrvId, ClientId}, dhcpv6_resp_opts(RespOpts)};
+	{ok, Server, #dhcpv6{} = Reply} ->
+	    dhcpv6_resp_ia(ClientId, Server, Reply);
 	{error, _} = Error ->
 	    Error
     end.
@@ -706,6 +686,30 @@ dhcpv6_client_id(ClientId) when is_integer(ClientId) ->
     {2, ?VENDOR_ID_3GPP, integer_to_binary(ClientId)};
 dhcpv6_client_id(ClientId) when is_list(ClientId) ->
     {2, ?VENDOR_ID_3GPP, iolist_to_binary(ClientId)}.
+
+dhcpv6_resp_ia(ClientId, Server,
+	       #dhcpv6{options =
+			   #{?D6O_SERVERID := SrvId,
+			     ?D6O_IA_PD :=
+				 #{?IAID := {T1, T2,
+					     #{?D6O_IAPREFIX := IAPref}}} = IAOpts
+			    } = RespOpts}) ->
+    case hd(maps:to_list(IAPref)) of
+	{{_,_} = PD, {_PrefLife, ValidLife, PDOpts}} ->
+	    FinalOpts0 =
+		maps:merge(
+		  maps:merge(dhcpv6_resp_opts(RespOpts), dhcpv6_resp_opts(IAOpts)),
+		  dhcpv6_resp_opts(PDOpts)),
+	    FinalOpts =
+		FinalOpts0#{lease => ValidLife,
+			    renewal => time_default(T1, 3600),
+			    rebinding => time_default(T2, 7200)},
+	    {ok, PD, {Server, SrvId, ClientId}, FinalOpts};
+	_ ->
+	    {error, failed}
+    end;
+dhcpv6_resp_ia(_, _, _) ->
+    {error, failed}.
 
 dhcpv6_resp_opts(?D6O_NAME_SERVERS, V, Opts) ->
     Opts#{'DNS-Server-IPv6-Address' => V};

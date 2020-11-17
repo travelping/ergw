@@ -231,7 +231,7 @@ end_per_group(Group, Config)
 
 groups() ->
     [{ipv4, [], [dhcpv4, v4_renew]},
-     {ipv6, [], [dhcpv6]}].
+     {ipv6, [], [dhcpv6, v6_renew, v6_rebind]}].
 
 all() ->
     [{group, ipv4},
@@ -307,6 +307,52 @@ dhcpv6(_Config) ->
     ?match({ergw_dhcp_pool, _, {{_,_,_,_,_,_,_,_}, 64}, _,
 	    #{'DNS-Server-IPv6-Address' := [{_,_,_,_,_,_,_,_}|_]}},
 	   AllocInfo),
+
+    ergw_ip_pool:release([AllocInfo]),
+    ct:sleep(100),
+    ok.
+
+%--------------------------------------------------------------------
+v6_renew() ->
+    [{doc, "Test simple dhcpv6 requests"}].
+v6_renew(_Config) ->
+    ClientId = <<"aaaaa">>,
+    Pool = <<"pool-A">>,
+    IP = ipv6,
+    PrefixLen = 64,
+    Opts = #{'DNS-Server-IPv6-Address' => true},
+
+    ReqId = ergw_ip_pool:send_request(ClientId, [{Pool, IP, PrefixLen, Opts}]),
+    [AllocInfo] = ergw_ip_pool:wait_response(ReqId),
+    ?match({ergw_dhcp_pool, _, {{_,_,_,_,_,_,_,_}, 64}, _,
+	    #{'DNS-Server-IPv6-Address' := [{_,_,_,_,_,_,_,_}|_]}},
+	   AllocInfo),
+
+    ergw_ip_pool:handle_event(AllocInfo, renewal),
+    ct:sleep({seconds, 1}),
+
+    ergw_ip_pool:release([AllocInfo]),
+    ct:sleep(100),
+    ok.
+
+%--------------------------------------------------------------------
+v6_rebind() ->
+    [{doc, "Test simple dhcpv6 requests"}].
+v6_rebind(_Config) ->
+    ClientId = <<"aaaaa">>,
+    Pool = <<"pool-A">>,
+    IP = ipv6,
+    PrefixLen = 64,
+    Opts = #{'DNS-Server-IPv6-Address' => true},
+
+    ReqId = ergw_ip_pool:send_request(ClientId, [{Pool, IP, PrefixLen, Opts}]),
+    [AllocInfo] = ergw_ip_pool:wait_response(ReqId),
+    ?match({ergw_dhcp_pool, _, {{_,_,_,_,_,_,_,_}, 64}, _,
+	    #{'DNS-Server-IPv6-Address' := [{_,_,_,_,_,_,_,_}|_]}},
+	   AllocInfo),
+
+    ergw_ip_pool:handle_event(AllocInfo, rebinding),
+    ct:sleep({seconds, 1}),
 
     ergw_ip_pool:release([AllocInfo]),
     ct:sleep(100),
