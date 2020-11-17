@@ -126,9 +126,21 @@ erGW Installation
                  ]},
 
                 {sockets,
-                 [{epc, [{type, 'gtp-c'},
+                 [{cp, [{type, 'gtp-u'},
+                    {vrf, cp},
+                    {ip,  {127,0,0,1}},
+                    freebind,
+                    {reuseaddr, true}
+                  ]},
+                 {epc, [{type, 'gtp-c'},
                          {ip,  {172,20,16,1}},
                          {netdev, "vrf-irx"}
+                        ]},
+                        {sx, [{node, 'ergw'},
+                           {name, 'ergw'},
+                           {type, 'pfcp'},
+                           {socket, cp},
+                           {ip,  {172,21,16,2}}
                         ]}
                  ]},
 
@@ -139,13 +151,6 @@ erGW Installation
                          {'MS-Primary-NBNS-Server', {127,0,0,1}},
                          {'MS-Secondary-NBNS-Server', {127,0,0,1}}
                         ]}
-                 ]},
-
-                {sx_socket,
-                 [{node, 'ergw'},
-                  {name, 'ergw'},
-                  {ip, {0,0,0,0}
-                  }
                  ]},
 
                 {handlers,

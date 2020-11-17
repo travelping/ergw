@@ -297,8 +297,7 @@ Then fill just created **ergw.config** file with content like described below pr
           ]},
 
          {sockets,
-          [{'cp-socket',
-            [{type, 'gtp-u'},
+          [{cp, [{type, 'gtp-u'},
              {vrf, cp},
              {ip,  {127,0,0,1}},
              freebind,
@@ -308,7 +307,13 @@ Then fill just created **ergw.config** file with content like described below pr
                   {vrf, epc},
                   {ip,  {127,0,0,1}},
                   {reuseaddr, true}
-                 ]}
+                 ]},
+           {sx, [{node, 'ergw'},
+                 {name, 'ergw'},
+                 {type, 'pfcp'},
+                 {socket, cp},
+                 {ip,  {172,21,16,2}}
+           ]}
           ]},
 
          {vrfs,
@@ -321,14 +326,6 @@ Then fill just created **ergw.config** file with content like described below pr
                   {'MS-Primary-NBNS-Server', {127,0,0,1}},
                   {'MS-Secondary-NBNS-Server', {127,0,0,1}}
                  ]}
-          ]},
-
-         {sx_socket,
-          [{node, 'ergw'},
-           {name, 'ergw'},
-           {socket, 'cp-socket'},
-           {ip,  {127,0,0,1}},
-           freebind
           ]},
 
          {handlers,
