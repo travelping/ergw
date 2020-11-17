@@ -39,6 +39,7 @@
 	 reassign_tunnel_teid/1,
 	 assign_local_data_teid/5
 	]).
+-export([context_timeouts/1]).
 
 -include_lib("kernel/include/logger.hrl").
 -include_lib("parse_trans/include/exprecs.hrl").
@@ -49,7 +50,7 @@
 -include_lib("ergw_aaa/include/diameter_3gpp_ts32_299.hrl").
 -include("include/ergw.hrl").
 
--export_records([context, tdf_ctx, tunnel, bearer, fq_teid]).
+-export_records([context, tdf_ctx, tunnel, bearer, fq_teid, ue_ip]).
 
 -define(SECONDS_PER_DAY, 86400).
 -define(DAYS_FROM_0_TO_1970, 719528).
@@ -960,3 +961,23 @@ assign_local_data_teid_5(_Key, #pfcp_ctx{
 	   FqTEID = #fq_teid{ip = ergw_inet:to_ip(IP), teid = DataTEI},
 	   return(Bearer#bearer{vrf = VRF, local = FqTEID})
        ]).
+
+%%%===================================================================
+%%% Timeout helpers
+%%%===================================================================
+
+'#tolist-'(Tuple) ->
+    [Record|Fields] = tuple_to_list(Tuple),
+    lists:zip('#info-'(Record), Fields).
+
+context_ip_timeouts(Id, Key, Timeout, Actions) ->
+    [{{timeout, {ip, Id, Key}}, Timeout, Key, {abs, true}} | Actions].
+
+context_ip_timeouts(_Id, undefined, Actions) ->
+    Actions;
+context_ip_timeouts(Id, AI, Actions) ->
+    maps:fold(context_ip_timeouts(Id, _, _, _), Actions, ergw_ip_pool:timeouts(AI)).
+
+context_timeouts(#context{ms_ip = MsIP}) ->
+    lists:foldl(
+      fun({Id, AI}, Acc) -> context_ip_timeouts(Id, AI, Acc) end, [], '#tolist-'(MsIP)).

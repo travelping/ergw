@@ -212,7 +212,8 @@ handle_request(ReqKey,
 	Data#{context => Context, pfcp => PCtx, pcc => PCC4,
 	      left_tunnel => LeftTunnel, bearer => Bearer},
 
-    Actions = context_idle_action([], Context),
+    Actions0 = ergw_gsn_lib:context_timeouts(Context),
+    Actions = context_idle_action(Actions0, Context),
     {next_state, connected, FinalData, Actions};
 
 %% TODO:

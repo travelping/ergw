@@ -11,7 +11,8 @@
 -behavior(ergw_ip_pool).
 
 %% API
--export([start_ip_pool/2, send_pool_request/2, wait_pool_response/1, release/1, ip/1, opts/1]).
+-export([start_ip_pool/2, send_pool_request/2, wait_pool_response/1, release/1,
+	 ip/1, opts/1, timeouts/1, handle_event/2]).
 -export([start_link/3, start_link/4]).
 -export([validate_options/1]).
 
@@ -114,6 +115,11 @@ wait_response(Mref, Timeout)
 
 ip({?MODULE, _, IP, _, _}) -> IP.
 opts({?MODULE, _, _, _, Opts}) -> Opts.
+timeouts({?MODULE, _, _, _, _}) ->
+    #{}.
+
+handle_event(_, _) ->
+    ok.
 
 %%====================================================================
 %%% Options Validation
