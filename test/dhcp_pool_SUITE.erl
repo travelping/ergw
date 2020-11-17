@@ -60,6 +60,29 @@
 	    ]}
 	  ]},
 
+	 {dhcpv6,
+	  [{server_id, ?LOCALHOST_IPv6},
+	   {next_server, ?LOCALHOST_IPv6},
+	   {socket, #{netdev => "lo",
+		      ip     => ?LOCALHOST_IPv6,
+		      join   => {1, [all_dhcp_servers, all_dhcp_relay_agents_and_servers]}}},
+	   {authoritative, true},
+	   {lease_file, "/var/run/dhcpv6_leases"},
+	   {subnets,
+	    [#{subnet  => ?IPv6PoolNet,
+	       options => [],
+	       pools   =>
+		   [#{pool    => {?IPv6HostPoolStart, ?IPv6HostPoolEnd},
+		      options => []}],
+	       pd_pools =>
+		   [#{prefix        => ?IPv6PoolStart,
+		      prefix_len    => 48,
+		      delegated_len => 64,
+		      options       => []}]
+	      }
+	    ]}
+	  ]},
+
 	 {ergw, [{'$setup_vars',
 		  [{"ORIGIN", {value, "epc.mnc001.mcc001.3gppnetwork.org"}}]},
 		 {sockets,
@@ -90,6 +113,13 @@
 		     {ip, {127,100,0,1}},
 		     {port, random},
 		     {reuseaddr, true}
+		    ]},
+		   {'dhcp-v6',
+		    [{type, dhcp},
+		     %%{ip, ?MUST_BE_UPDATED},
+		     {ip, ?LOCALHOST_IPv6},
+		     {port, random},
+		     {reuseaddr, true}
 		    ]}
 		  ]},
 
@@ -97,6 +127,9 @@
 		  [{'pool-A', [{handler, ergw_dhcp_pool},
 			       {ipv4, [{socket, 'dhcp-v4'},
 				       {id, {172,20,48,1}},
+				       {servers, [broadcast]}]},
+			       {ipv6, [{socket, 'dhcp-v6'},
+				       {id, {16#8001, 0, 1, 0, 0, 0, 0, 0}},
 				       {servers, [broadcast]}]}
 			      ]}
 		  ]},
@@ -158,12 +191,15 @@
 suite() ->
     [{timetrap,{seconds,30}}].
 
-dhcp_init_per_suite(Config) ->
+dhcp_init_per_suite(Group, Config) ->
     {_, AppCfg} = lists:keyfind(app_cfg, 1, Config),   %% let it crash if undefined
 
-    [application:load(App) || App <- [cowboy, ergw, ergw_aaa, dhcp]],
+    [application:load(App) || App <- [cowboy, ergw, ergw_aaa, dhcp, dhcpv6]],
     load_config(AppCfg),
-    {ok, _} = application:ensure_all_started(dhcp),
+    case Group of
+	ipv4 -> {ok, _} = application:ensure_all_started(dhcp);
+	ipv6 -> {ok, _} = application:ensure_all_started(dhcpv6)
+    end,
     {ok, _} = application:ensure_all_started(ergw),
     Config.
 
@@ -182,23 +218,25 @@ init_per_group(ipv6, Config0) ->
     case ergw_test_lib:has_ipv6_test_config() of
 	true ->
 	    Config = update_app_config(ipv6, ?CONFIG_UPDATE, Config0),
-	    dhcp_init_per_suite(Config);
+	    dhcp_init_per_suite(ipv6, Config);
 	_ ->
 	    {skip, "IPv6 test IPs not configured"}
     end;
 init_per_group(ipv4, Config0) ->
     Config = update_app_config(ipv4, ?CONFIG_UPDATE, Config0),
-    dhcp_init_per_suite(Config).
+    dhcp_init_per_suite(ipv4, Config).
 
 end_per_group(Group, Config)
   when Group == ipv4; Group == ipv6 ->
     ok = dhcp_end_per_suite(Config).
 
 groups() ->
-    [{ipv4, [], [dhcpv4, v4_renew]}].
+    [{ipv4, [], [dhcpv4, v4_renew]},
+     {ipv6, [], [dhcpv6]}].
 
 all() ->
-    [{group, ipv4}].
+    [{group, ipv4},
+     {group, ipv6}].
 
 %%%===================================================================
 %%% Tests
@@ -248,6 +286,28 @@ v4_renew(_Config) ->
 
     ergw_ip_pool:handle_event(AllocInfo, renewal),
     ct:sleep({seconds, 1}),
+
+    ergw_ip_pool:release([AllocInfo]),
+    ct:sleep(100),
+    ok.
+
+%%--------------------------------------------------------------------
+dhcpv6() ->
+    [{doc, "Test simple dhcpv6 requests"}].
+dhcpv6(_Config) ->
+    ct:pal("All: ~p", [ergw_socket_reg:all()]),
+    inet:i(),
+    ClientId = <<"aaaaa">>,
+    Pool = <<"pool-A">>,
+    IP = ipv6,
+    PrefixLen = 64,
+    Opts = #{'MS-Primary-DNS-Server' => true,
+	     'MS-Secondary-DNS-Server' => true},
+
+    ReqId = ergw_ip_pool:send_request(ClientId, [{Pool, IP, PrefixLen, Opts}]),
+    [AllocInfo] = ergw_ip_pool:wait_response(ReqId),
+    ?match({ergw_dhcp_pool, _, {{_,_,_,_}, 32}, _, #{'MS-Primary-DNS-Server' := {_,_,_,_}}},
+	   AllocInfo),
 
     ergw_ip_pool:release([AllocInfo]),
     ct:sleep(100),

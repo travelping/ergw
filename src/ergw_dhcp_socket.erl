@@ -21,6 +21,7 @@
 
 -include_lib("kernel/include/logger.hrl").
 -include_lib("dhcp/include/dhcp.hrl").
+-include_lib("dhcpv6/include/dhcpv6.hrl").
 -include("include/ergw.hrl").
 
 -type xid() :: 0 .. 16#ffffffff.
@@ -361,11 +362,14 @@ handle_err_input(Socket, State) ->
 %%% Sx Message functions
 %%%===================================================================
 
-handle_message(#{port := Port, addr := IP} = Source,
+handle_message(#{family := Family, port := Port, addr := IP} = Source,
 	       Data, #state{name = _Name} = State0) ->
     ?LOG(debug, "handle message ~s:~w: ~p", [inet:ntoa(IP), Port, Data]),
     try
-	Msg = dhcp_lib:decode(Data, map),
+	Msg = case Family of
+		  inet -> dhcp_lib:decode(Data, map);
+		  inet6 -> dhcpv6_lib:decode(Data)
+	      end,
 	%% ergw_prometheus:dhcp(rx, Name, IP, Msg),
 	handle_response(Source, Msg, State0)
     catch
@@ -375,8 +379,12 @@ handle_message(#{port := Port, addr := IP} = Source,
 	    State0
     end.
 
-handle_response(_Source, #dhcp{xid = XId} = Msg,
-		#state{name = _Name} = State) ->
+handle_response(_Source, Msg, #state{name = _Name} = State) ->
+    XId = case Msg of
+	      #dhcp{xid = Id}   -> Id;
+	      #dhcpv6{xid = Id} -> Id
+	  end,
+
     case lookup_request(XId, State) of
 	none -> %% late, drop silently
 	    %% ergw_prometheus:dhcp(rx, Name, IP, Msg, late),

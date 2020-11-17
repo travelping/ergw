@@ -95,6 +95,13 @@
 		     {ip, {127,100,0,1}},
 		     {port, random},
 		     {reuseaddr, true}
+		    ]},
+		   {'dhcp-v6',
+		    [{type, dhcp},
+		     %%{ip, ?MUST_BE_UPDATED},
+		     {ip, ?LOCALHOST_IPv6},
+		     {port, random},
+		     {reuseaddr, true}
 		    ]}
 		  ]},
 
@@ -136,6 +143,9 @@
 		   {'pool-DHCP', [{handler, ergw_dhcp_pool},
 				  {ipv4, [{socket, 'dhcp-v4'},
 					  {id, {172,20,48,1}},
+					  {servers, [broadcast]}]},
+				  {ipv6, [{socket, 'dhcp-v6'},
+					  {id, {16#8001, 0, 1, 0, 0, 0, 0, 0}},
 					  {servers, [broadcast]}]}
 				 ]}
 		  ]},
