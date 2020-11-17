@@ -450,7 +450,8 @@ handle_event({call, From},
 	     _State,
 	     #data{pfcp_ctx = #pfcp_ctx{seid = #seid{dp = SEID}} = PCtx, tdf = Tdf}) ->
     {ok, {tdf, VRF}} = ergw_pfcp:find_urr_by_id(Id, PCtx),
-    ?LOG(debug, "Sx Node TDF Report on ~p for UE IPv4 ~p IPv6 ~p", [VRF, IP4, IP6]),
+    ?LOG(debug, "Sx Node TDF Report on ~p for UE IPv4 ~s IPv6 ~s",
+         [VRF, bin2ntoa(IP4), bin2ntoa(IP6)]),
 
     Handler = maps:get(handler, Tdf, tdf),
     try
@@ -511,10 +512,7 @@ handle_udp_gtp(SrcIP, DstIP, <<SrcPort:16, DstPort:16, _:16, _:16, PayLoad/binar
 	       #data{dp = #node{node = Node}} = Data)
   when DstPort =:= ?GTP1u_PORT ->
     Msg = gtp_packet:decode(PayLoad),
-    ?LOG(debug, "GTP-U ~s:~w -> ~s:~w: ~p",
-		[inet:ntoa(ergw_inet:bin2ip(SrcIP)), SrcPort,
-		 inet:ntoa(ergw_inet:bin2ip(DstIP)), DstPort,
-		 Msg]),
+    ?LOG(debug, "GTP-U ~s:~w -> ~s:~w: ~p", [bin2ntoa(SrcIP), SrcPort, bin2ntoa(DstIP), DstPort, Msg]),
     ReqKey = make_request(SrcIP, SrcPort, Msg, Data),
     Socket = #socket{name = Node, type = 'gtp-u'},
     TEID = #fq_teid{ip = ergw_inet:bin2ip(DstIP), teid = Msg#gtp.tei},
@@ -522,8 +520,7 @@ handle_udp_gtp(SrcIP, DstIP, <<SrcPort:16, DstPort:16, _:16, _:16, PayLoad/binar
     ok;
 handle_udp_gtp(SrcIP, DstIP, <<SrcPort:16, DstPort:16, _:16, _:16, PayLoad/binary>>, _Data) ->
     ?LOG(debug, "unexpected UDP ~s:~w -> ~s:~w: ~p",
-		[inet:ntoa(ergw_inet:bin2ip(SrcIP)), SrcPort,
-		 inet:ntoa(ergw_inet:bin2ip(DstIP)), DstPort, PayLoad]),
+		[bin2ntoa(SrcIP), SrcPort, bin2ntoa(DstIP), DstPort, PayLoad]),
     ok.
 
 %% request_connect/2
@@ -850,3 +847,8 @@ resolve_and_enter_loop(Node, _, #data{node_select = NodeSelect} = Data) ->
 	    terminate(normal, init, Data),
 	    ok
     end.
+
+bin2ntoa(IP) when is_binary(IP) ->
+    inet:ntoa(ergw_inet:bin2ip(IP));
+bin2ntoa(IP) ->
+    io_lib:format("~p", [IP]).
