@@ -61,16 +61,16 @@
 	  ]},
 
 	 {dhcpv6,
-	  [{server_id, ?LOCALHOST_IPv6},
+	  [{server_id, {4, <<112,239,124,234,172,81,85,194,223,29,48,191,218,176,68,242>>}},
 	   {next_server, ?LOCALHOST_IPv6},
-	   {socket, #{netdev => "lo",
-		      ip     => ?LOCALHOST_IPv6,
-		      join   => {1, [all_dhcp_servers, all_dhcp_relay_agents_and_servers]}}},
+	   {socket, #{%%netdev => "lo",
+		      ip     => any,
+		      join   => {0, [local, all_dhcp_servers, all_dhcp_relay_agents_and_servers]}}},
 	   {authoritative, true},
 	   {lease_file, "/var/run/dhcpv6_leases"},
 	   {subnets,
 	    [#{subnet  => ?IPv6PoolNet,
-	       options => [],
+	       options => [{23, [?LOCALHOST_IPv6]}],              %% Domain Name Server,
 	       pools   =>
 		   [#{pool    => {?IPv6HostPoolStart, ?IPv6HostPoolEnd},
 		      options => []}],
@@ -117,8 +117,7 @@
 		   {'dhcp-v6',
 		    [{type, dhcp},
 		     %%{ip, ?MUST_BE_UPDATED},
-		     {ip, ?LOCALHOST_IPv6},
-		     {port, random},
+		     {ip, #{family => inet6, addr => any, port => random}},
 		     {reuseaddr, true}
 		    ]}
 		  ]},
@@ -130,7 +129,7 @@
 				       {servers, [broadcast]}]},
 			       {ipv6, [{socket, 'dhcp-v6'},
 				       {id, {16#8001, 0, 1, 0, 0, 0, 0, 0}},
-				       {servers, [broadcast]}]}
+				       {servers, [local]}]}
 			      ]}
 		  ]},
 
@@ -301,12 +300,12 @@ dhcpv6(_Config) ->
     Pool = <<"pool-A">>,
     IP = ipv6,
     PrefixLen = 64,
-    Opts = #{'MS-Primary-DNS-Server' => true,
-	     'MS-Secondary-DNS-Server' => true},
+    Opts = #{'DNS-Server-IPv6-Address' => true},
 
     ReqId = ergw_ip_pool:send_request(ClientId, [{Pool, IP, PrefixLen, Opts}]),
     [AllocInfo] = ergw_ip_pool:wait_response(ReqId),
-    ?match({ergw_dhcp_pool, _, {{_,_,_,_}, 32}, _, #{'MS-Primary-DNS-Server' := {_,_,_,_}}},
+    ?match({ergw_dhcp_pool, _, {{_,_,_,_,_,_,_,_}, 64}, _,
+	    #{'DNS-Server-IPv6-Address' := [{_,_,_,_,_,_,_,_}|_]}},
 	   AllocInfo),
 
     ergw_ip_pool:release([AllocInfo]),

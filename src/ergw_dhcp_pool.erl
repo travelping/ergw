@@ -30,6 +30,8 @@
 
 -include_lib("kernel/include/logger.hrl").
 -include_lib("dhcp/include/dhcp.hrl").
+-include_lib("dhcpv6/include/dhcpv6.hrl").
+-include("include/3gpp.hrl").
 
 -define(IS_IPv4(X), (is_tuple(X) andalso tuple_size(X) == 4)).
 -define(IS_IPv6(X), (is_tuple(X) andalso tuple_size(X) == 8)).
@@ -37,6 +39,7 @@
 -define(ZERO_IPv4, {0,0,0,0}).
 -define(ZERO_IPv6, {0,0,0,0,0,0,0,0}).
 -define(UE_INTERFACE_ID, {0,0,0,0,0,0,0,1}).
+-define(IAID, 1).
 
 -define(IPv4Opts, ['Framed-Pool',
 		   'MS-Primary-DNS-Server',
@@ -80,7 +83,7 @@ wait_pool_response(ReqId) ->
 	    Error
     end.
 
-release({_, Server, {IP, _}, SrvId, _Opts}) ->
+release({_, Server, {_, _} = IP, SrvId, _Opts}) ->
     %% see alloc_reply
     gen_server:cast(Server, {release, IP, SrvId}).
 
@@ -142,6 +145,8 @@ validate_server(ipv6, IP) when ?IS_IPv6(IP) ->
     IP;
 validate_server(_, broadcast = Value) ->
     Value;
+validate_server(ipv6, local = Value) ->
+    Value;
 validate_server(Type, Value) ->
     throw({error, {options, {Type, {servers, Value}}}}).
 
@@ -185,17 +190,34 @@ handle_call({get, ClientId, ipv4, PrefixLen, ReqOpts}, From, State) ->
 handle_call({get, ClientId, {_,_,_,_} = IP, PrefixLen, ReqOpts}, From, State) ->
     dhcpv4_init(ClientId, IP, PrefixLen, ReqOpts, From, State);
 
+handle_call({get, ClientId, ipv6, PrefixLen, ReqOpts}, From, State) ->
+    dhcpv6_init(ClientId, undefined, PrefixLen, ReqOpts, From, State);
+handle_call({get, ClientId, {_,_,_,_,_,_,_,_} = IP, PrefixLen, ReqOpts}, From, State) ->
+    dhcpv6_init(ClientId, IP, PrefixLen, ReqOpts, From, State);
+
 handle_call({get, _ClientId, IP, PrefixLen, _ReqOpts}, _From, State) ->
     Error = {unsupported, {IP, PrefixLen}},
     {reply, {error, Error}, State};
 
 handle_call({handle_event, {_, _, {IP, PrefixLen}, {Srv, ClientId}, Opts}, renewal},
-	    From, State) ->
+	    From, State)
+  when ?IS_IPv4(IP) ->
     dhcpv4_renew(ClientId, IP, PrefixLen, Opts, Srv, From, State);
 
 handle_call({handle_event, {_, _, {IP, PrefixLen}, {_Srv, ClientId}, Opts}, rebinding},
-	    From, State) ->
+	    From, State)
+  when ?IS_IPv4(IP) ->
     dhcpv4_rebind(ClientId, IP, PrefixLen, Opts, From, State);
+
+handle_call({handle_event, {_, _, {IP, PrefixLen}, {Server, SrvId, ClientId}, Opts}, renewal},
+	    From, State)
+  when ?IS_IPv6(IP) ->
+    dhcpv6_renew(ClientId, IP, PrefixLen, Opts, SrvId, Server, From, State);
+
+handle_call({handle_event, {_, _, {IP, PrefixLen}, {_, _, ClientId}, Opts}, rebinding},
+	    From, State)
+  when ?IS_IPv6(IP) ->
+    dhcpv6_rebind(ClientId, IP, PrefixLen, Opts, From, State);
 
 handle_call({handle_event, {_, _, IP, SrvId, Opts}, Ev}, _From, State) ->
     ?LOG(error, "unhandled DHCP event: ~p, (~p, ~p, ~p)", [Ev, IP, SrvId, Opts]),
@@ -205,8 +227,14 @@ handle_call(Request, _From, State) ->
     ?LOG(warning, "handle_call: ~p", [Request]),
     {reply, error, State}.
 
-handle_cast({release, IP, SrvId}, State) ->
+handle_cast({release, {IP, 32}, SrvId}, State)
+  when ?IS_IPv4(IP) ->
     dhcpv4_release(IP, SrvId, State),
+    {noreply, State};
+
+handle_cast({release, {IP, _} = Addr, SrvId}, State)
+  when ?IS_IPv6(IP) ->
+    dhcpv6_release(Addr, SrvId, State),
     {noreply, State};
 
 handle_cast(Msg, State) ->
@@ -302,7 +330,7 @@ dhcpv4_discover(Pool, Srv, Opts) ->
 
 dhcpv4_offer(ReqId, Timeout) ->
     case ergw_dhcp_socket:wait_response(ReqId, Timeout) of
-	{ok, #dhcp{options = #{?DHO_DHCP_MESSAGE_TYPE := ?DHCPOFFER}} = Answer} ->
+	{ok, _Srv, #dhcp{options = #{?DHO_DHCP_MESSAGE_TYPE := ?DHCPOFFER}} = Answer} ->
 	    Answer;
 	{error, timeout} = Error ->
 	    Error;
@@ -397,7 +425,7 @@ dhcpv4_release(IP, {Srv, ClientId}, #state{ipv4 = Pool}) ->
 
 dhcpv4_answer(ReqId, Timeout) ->
     case ergw_dhcp_socket:wait_response(ReqId, Timeout) of
-	{ok, #dhcp{options = #{?DHO_DHCP_MESSAGE_TYPE := Type}} = Answer}
+	{ok, _Srv, #dhcp{options = #{?DHO_DHCP_MESSAGE_TYPE := Type}} = Answer}
 	  when Type =:= ?DHCPDECLINE;
 	       Type =:= ?DHCPACK;
 	       Type =:= ?DHCPNAK ->
@@ -483,3 +511,214 @@ dhcpv4_resp_opts(_K, _V, Opts) ->
 dhcpv4_resp_opts(Opts) ->
     Now = erlang:system_time(second),
     maps:fold(fun dhcpv4_resp_opts/3, #{'Base-Time' => Now}, Opts).
+
+%%%===================================================================
+%%% DHCPv6 functions
+%%%===================================================================
+
+time_default(0, Default) ->
+    Default;
+time_default(Time, _) ->
+    Time.
+
+%% dhcpv6_spawn/3
+dhcpv6_spawn(Fun, From, #state{outstanding = OutS} = State) ->
+    ReqF = fun() -> exit({reply, Fun()}) end,
+    {_, Mref} = spawn_monitor(ReqF),
+    {noreply, State#state{outstanding = maps:put(Mref, From, OutS)}}.
+
+%% dhcpv6_init/6
+dhcpv6_init(ClientId, IP, PrefixLen, ReqOpts, From, #state{ipv6 = Pool} = State)
+  when is_record(Pool, pool) ->
+    ReqF = fun() -> dhcpv6_init_f(ClientId, IP, PrefixLen, ReqOpts, Pool) end,
+    dhcpv6_spawn(ReqF, From, State).
+
+%% dhcpv6_renew/6
+dhcpv6_renew(ClientId, IP, PrefixLen, Opts, SrvId, Srv, From, #state{ipv6 = Pool} = State) ->
+    ReqF = fun() -> dhcpv6_renew_f(ClientId, IP, PrefixLen, Opts, SrvId, Srv, Pool) end,
+    dhcpv6_spawn(ReqF, From, State).
+
+%% dhcpv6_rebind/6
+dhcpv6_rebind(ClientId, IP, PrefixLen, Opts, From, #state{ipv6 = Pool} = State) ->
+    ReqF = fun() -> dhcpv6_rebind_f(ClientId, IP, PrefixLen, Opts, Pool) end,
+    dhcpv6_spawn(ReqF, From, State).
+
+dhcpv6_init_f(ClientId, ReqIP, PrefixLen, ReqOpts, #pool{servers = Srvs} = Pool) ->
+    Srv = choose_server(Srvs),
+    Opts = dhcpv6_opts(ClientId, ReqIP, PrefixLen, ReqOpts),
+    case dhcpv6_solicit(Pool, Srv, Opts) of
+	{ok, Server, #dhcpv6{} = Advertise} ->
+	    dhcpv6_request(Pool, ClientId, Opts, Server, Advertise);
+	Other ->
+	    Other
+    end.
+
+dhcpv6_renew_f(ClientId, IP, PrefixLen, ReqOpts, SrvId, Srv, Pool) ->
+    Opts = dhcpv6_opts(ClientId, IP, PrefixLen, ReqOpts),
+    dhcpv6_renew(Pool, Srv, ClientId, IP, Opts, SrvId).
+
+dhcpv6_rebind_f(ClientId, IP, PrefixLen, ReqOpts, #pool{servers = Srvs} = Pool) ->
+    Srv = choose_server(Srvs),
+    Opts = dhcpv6_opts(ClientId, IP, PrefixLen, ReqOpts),
+    dhcpv6_rebind(Pool, Srv, ClientId, IP, Opts).
+
+dhcpv6_solicit(Pool, Srv, Opts) ->
+    DHCP = #dhcpv6{op = ?DHCPV6_SOLICIT, options = Opts},
+    ReqId = dhcpv6_send_request(Pool, Srv, DHCP),
+
+    TimeOut = erlang:monotonic_time(millisecond) + 1000,  %% 1 sec
+    dhcpv6_advertise(ReqId, {abs, TimeOut}).
+
+dhcpv6_advertise(ReqId, Timeout) ->
+    case ergw_dhcp_socket:wait_response(ReqId, Timeout) of
+	{ok, _, #dhcpv6{op = ?DHCPV6_ADVERTISE}} = Answer ->
+	    Answer;
+	{error, timeout} = Error ->
+	    Error;
+	{error, _} ->
+	    dhcpv6_advertise(ReqId, Timeout)
+    end.
+
+dhcpv6_request(Pool, ClientId, Opts, Server, #dhcpv6{options = AdvOpts} = Advertise) ->
+    DHCP = Advertise#dhcpv6{op = ?DHCPV6_REQUEST, options = maps:merge(Opts, AdvOpts)},
+    ReqId = dhcpv6_send_request(Pool, Server, DHCP),
+
+    ReqTimeOut = erlang:monotonic_time(millisecond) + 1000,  %% 1 sec
+    case dhcpv6_reply(ReqId, {abs, ReqTimeOut}) of
+	{ok, Server, #dhcpv6{options =
+				 #{?D6O_SERVERID := SrvId,
+				   ?D6O_IA_PD :=
+				       #{?IAID := {T1, T2,
+						   #{?D6O_IAPREFIX := IAPref}}} = IAOpts
+				  } = RespOpts}} ->
+	    case hd(maps:to_list(IAPref)) of
+		{{_,_} = PD, {_PrefLife, ValidLife, PDOpts}} ->
+		    FinalOpts0 =
+			maps:merge(
+			  maps:merge(dhcpv6_resp_opts(RespOpts), dhcpv6_resp_opts(IAOpts)),
+			  dhcpv6_resp_opts(PDOpts)),
+		    FinalOpts =
+			FinalOpts0#{lease => ValidLife,
+				    renewal => time_default(T1, 3600),
+				    rebinding => time_default(T2, 7200)},
+		    {ok, PD, {Server, SrvId, ClientId}, FinalOpts};
+		_ ->
+		    {error, failed}
+	    end;
+	{error, _} = Error ->
+	    Error
+    end.
+
+dhcpv6_renew(Pool, Srv, ClientId, IP, Opts, SrvId) ->
+    DHCP = #dhcpv6{op = ?DHCPV6_RENEW, options = Opts#{?D6O_SERVERID := SrvId}},
+    ReqId = dhcpv6_send_request(Pool, Srv, DHCP),
+
+    ReqTimeOut = erlang:monotonic_time(millisecond) + 1000,  %% 1 sec
+    case dhcpv6_reply(ReqId, {abs, ReqTimeOut}) of
+	{ok, Server, #dhcpv6{options = #{?D6O_SERVERID := SrvId} = RespOpts}} ->
+	    IP = tbd,
+	    {ok, {IP, 32}, {Server, SrvId, ClientId}, dhcpv6_resp_opts(RespOpts)};
+	{error, _} = Error ->
+	    Error
+    end.
+
+%% TBD: in REBIND we should broadcast the request (or send to all configured servers)
+dhcpv6_rebind(Pool, Srv, ClientId, IP, Opts) ->
+    DHCP = #dhcpv6{op = ?DHCPV6_REBIND, options = Opts},
+    ReqId = dhcpv6_send_request(Pool, Srv, DHCP),
+
+    ReqTimeOut = erlang:monotonic_time(millisecond) + 1000,  %% 1 sec
+    case dhcpv6_reply(ReqId, {abs, ReqTimeOut}) of
+	{ok, Server, #dhcpv6{options = #{?D6O_SERVERID := SrvId} = RespOpts}} ->
+	    IP = tbd,
+	    {ok, {IP, 32}, {Server, SrvId, ClientId}, dhcpv6_resp_opts(RespOpts)};
+	{error, _} = Error ->
+	    Error
+    end.
+
+dhcpv6_release({IP, PrefixLen}, {Srv, SrvId, ClientId}, #state{ipv6 = Pool}) ->
+    Opts0 = #{?D6O_SERVERID => SrvId,
+	      ?D6O_CLIENTID => dhcpv6_client_id(ClientId)},
+    Opts = dhcpv6_ia(IP, PrefixLen, [], Opts0),
+    DHCP = #dhcpv6{op = ?DHCPV6_RELEASE, options = Opts},
+    _ReqId = dhcpv6_send_request(Pool, Srv, DHCP).
+
+dhcpv6_reply(ReqId, Timeout) ->
+    case ergw_dhcp_socket:wait_response(ReqId, Timeout) of
+	{ok, _, #dhcpv6{op = ?DHCPV6_REPLY}} = Answer ->
+	    Answer;
+	{ok, _, #dhcpv6{} = Answer} ->
+	    ?LOG(debug, "unexpected DHCP response ~p", [Answer]),
+	    dhcpv6_reply(ReqId, Timeout);
+	{error, timeout} = Error ->
+	    Error;
+	{error, _} ->
+	    dhcpv6_reply(ReqId, Timeout)
+    end.
+
+dhcpv6_send_request(#pool{socket = Socket}, Srv, DHCP) ->
+    ergw_dhcp_socket:send_request(Socket, Srv, DHCP).
+
+%% 'Framed-IPv6-Pool'
+
+dhcpv6_req_list('DNS-Server-IPv6-Address', _, Opts) ->
+    ordsets:add_element(?D6O_NAME_SERVERS, Opts);
+dhcpv6_req_list('3GPP-IPv6-DNS-Servers', _, Opts) ->
+    ordsets:add_element(?D6O_NAME_SERVERS, Opts);
+dhcpv6_req_list('SIP-Servers-IPv6-Address-List', _, Opts) ->
+    ordsets:add_element(?D6O_SIP_SERVERS_ADDR, Opts);
+dhcpv6_req_list(_, _, Opts) ->
+    Opts.
+
+dhcpv6_opts(ClientId, ReqIP, PrefixLen, ReqOpts) ->
+    ReqList0 = ordsets:from_list([?D6O_SOL_MAX_RT]),
+    ReqList = ordsets:to_list(maps:fold(fun dhcpv6_req_list/3, ReqList0, ReqOpts)),
+    Opts =
+	#{?D6O_CLIENTID => dhcpv6_client_id(ClientId),
+	  ?D6O_ELAPSED_TIME => 0,
+	  ?D6O_ORO => ReqList},
+    dhcpv6_ia(ReqIP, PrefixLen, ReqOpts, Opts).
+
+dhcpv6_ia_na(?ZERO_IPv6, Opts) -> Opts;
+dhcpv6_ia_na(IP, Opts) when ?IS_IPv6(IP) ->
+    Opts#{?D6O_IAADDR => #{IP => {0, 0, #{}}}};
+dhcpv6_ia_na(_, Opts) ->
+    Opts.
+
+dhcpv6_ia_pd(IP, PrefixLen, Opts) when PrefixLen /= 0, ?IS_IPv6(IP) ->
+    Opts#{?D6O_IAPREFIX => #{{IP, PrefixLen} => {0, 0, #{}}}};
+dhcpv6_ia_pd(_, _, Opts) ->
+    Opts.
+
+dhcpv6_ia(ReqIP, 128, _ReqOpts, Opts) ->
+    IAOpts = dhcpv6_ia_na(ReqIP, #{}),
+    IA = #{?IAID => {0, 0, IAOpts}},
+    Opts#{?D6O_IA_NA => IA};
+
+dhcpv6_ia(ReqIP, PrefixLen, _ReqOpts, Opts) ->
+    IAOpts = dhcpv6_ia_pd(ReqIP, PrefixLen, #{}),
+    IA = #{?IAID => {0, 0, IAOpts}},
+    Opts#{?D6O_IA_PD => IA}.
+
+dhcpv6_client_id(ClientId) when is_binary(ClientId) ->
+    {2, ?VENDOR_ID_3GPP, ClientId};
+dhcpv6_client_id(ClientId) when is_integer(ClientId) ->
+    {2, ?VENDOR_ID_3GPP, integer_to_binary(ClientId)};
+dhcpv6_client_id(ClientId) when is_list(ClientId) ->
+    {2, ?VENDOR_ID_3GPP, iolist_to_binary(ClientId)}.
+
+dhcpv6_resp_opts(?D6O_NAME_SERVERS, V, Opts) ->
+    Opts#{'DNS-Server-IPv6-Address' => V};
+dhcpv6_resp_opts(?D6O_SIP_SERVERS_ADDR, V, Opts) ->
+    Opts#{'SIP-Servers-IPv6-Address-List' => V};
+dhcpv6_resp_opts(Opt, V, Opts)
+  when Opt =:= lease;
+       Opt =:= renewal;
+       Opt =:= rebinding ->
+    set_time(Opt, V, Opts);
+dhcpv6_resp_opts(_K, _V, Opts) ->
+    Opts.
+
+dhcpv6_resp_opts(Opts) ->
+    Now = erlang:system_time(second),
+    maps:fold(fun dhcpv6_resp_opts/3, #{'Base-Time' => Now}, Opts).

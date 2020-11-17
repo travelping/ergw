@@ -28,7 +28,7 @@
 
 -record(state, {
 	  name    :: term(),
-	  ip      :: inet:ip_address(),
+	  addr    :: socket:sockaddr(),
 	  socket  :: socket:socket(),
 
 	  xid     :: xid(),
@@ -36,7 +36,7 @@
 	 }).
 
 -define(SERVER, ?MODULE).
--define(DHCP_SERVER_PORT, 67).
+-define(DHCPv4_SERVER_PORT, 67).
 -define(TIMEOUT, 10 * 1000).
 
 %%====================================================================
@@ -75,10 +75,12 @@ wait_response(Mref, Timeout) when is_integer(Timeout) ->
     receive
 	{'DOWN', Mref, _, _, Reason} ->
 	    {error, Reason};
-	{Mref, Reply} ->
-	    {ok, Reply};
-	Other ->
-	    {error, Other}
+	{Mref, {error, _} = Error} ->
+	    Error;
+	{Mref, {Source, Msg}} ->
+	    {ok, Source, Msg};
+	{Mref, Other} ->
+	    Other
     after Timeout ->
 	    {error, timeout}
     end;
@@ -95,7 +97,7 @@ wait_response(ReqId, {abs, Timeout}) ->
 %%%===================================================================
 
 -define(SOCKET_OPTS, [netdev, netns, freebind, reuseaddr, rcvbuf]).
--define(SocketDefaults, [{ip, invalid}, {port, dhcp}]).
+-define(SocketDefaults, [{ip, invalid}]).
 
 validate_options(Name, Values) ->
      ergw_config:validate_options(fun validate_option/2, Values,
@@ -105,9 +107,19 @@ validate_option(type, dhcp = Value) ->
     Value;
 validate_option(name, Value) when is_atom(Value) ->
     Value;
-validate_option(ip, Value)
-  when is_tuple(Value) andalso
-       (tuple_size(Value) == 4 orelse tuple_size(Value) == 8) ->
+validate_option(ip, Value) when is_tuple(Value) andalso tuple_size(Value) == 4 ->
+    #{family => inet, addr => Value, port => dhcp};
+validate_option(ip, Value) when is_tuple(Value) andalso tuple_size(Value) == 8 ->
+    #{family => inet6, addr => Value, port => dhcp};
+validate_option(ip, #{family := inet6, addr := _, port := _, scope := Scope} = Value)
+  when is_list(Scope) ->
+    case net:if_name2index(Scope) of
+	{ok, Idx} ->
+	    Value#{scope => Idx};
+	_ ->
+	    throw({error, {options, {ip, Value}}})
+    end;
+validate_option(ip, #{family := _, addr := _, port := _} = Value) ->
     Value;
 validate_option(port, Value) when Value =:= dhcp; Value =:= random ->
     Value;
@@ -136,19 +148,20 @@ validate_option(Opt, Value) ->
 %%% gen_server callbacks
 %%%===================================================================
 
-init(#{name := Name, ip := IP, port := PortOpt} = Opts) ->
+init(#{name := Name} = Opts) ->
     process_flag(trap_exit, true),
 
+    Addr = socket_addr(Opts),
     SocketOpts = maps:with(?SOCKET_OPTS, Opts),
-    {ok, Socket} = make_dhcp_socket(IP, PortOpt, SocketOpts),
+    {ok, Socket} = make_dhcp_socket(Addr, SocketOpts),
 
     ergw_socket_reg:register('dhcp', Name, self()),
     State = #state{
 	       name = Name,
-	       ip = IP,
+	       addr = Addr,
 	       socket = Socket,
 
-	       xid = rand:uniform(16#ffffffff),
+	       xid = init_xid(Addr),
 	       pending = gb_trees:empty()
 	      },
     select(Socket),
@@ -165,6 +178,11 @@ handle_cast({request, From, Srv, #dhcp{} = DHCP}, #state{xid = XId} = State) ->
     Req = DHCP#dhcp{xid = XId},
     %% message_counter(tx, State, DHCP),
     send_request(Srv, Req, From, State#state{xid = (XId + 1) rem 16#100000000});
+
+handle_cast({request, From, Srv, #dhcpv6{} = DHCP}, #state{xid = XId} = State) ->
+    Req = DHCP#dhcpv6{xid = XId},
+    %% message_counter(tx, State, DHCP),
+    send_request(Srv, Req, From, State#state{xid = (XId + 1) rem 16#1000000});
 
 handle_cast(Msg, State) ->
     ?LOG(error, "handle_cast: unknown ~p", [Msg]),
@@ -195,37 +213,39 @@ code_change(_OldVsn, State, _Extra) ->
 %%% Socket functions
 %%%===================================================================
 
-family({_,_,_,_}) -> inet;
-family({_,_,_,_,_,_,_,_}) -> inet6.
+socket_addr(#{ip := #{family := Family, port := Port} = IP} = Opts) ->
+    IP#{port => port_opt(Family, maps:get(port, Opts, Port))}.
 
-port_opt(dhcp) -> ?DHCP_SERVER_PORT;
-port_opt(_) -> 0.
+port_opt(inet, dhcp) -> ?DHCPv4_SERVER_PORT;
+port_opt(inet6, dhcp) -> ?DHCPv6_SERVER_PORT;
+port_opt(_, _) -> 0.
 
-make_dhcp_socket(IP, Port, #{netns := NetNs} = Opts)
+make_dhcp_socket(#{family := Family} = Addr, #{netns := NetNs} = Opts)
   when is_list(NetNs) ->
-    {ok, Socket} = socket:open(family(IP), dgram, udp, #{netns => NetNs}),
-    bind_dhcp_socket(Socket, IP, Port, Opts);
-make_dhcp_socket(IP, Port, Opts) ->
-    {ok, Socket} = socket:open(family(IP), dgram, udp),
-    bind_dhcp_socket(Socket, IP, Port, Opts).
+    {ok, Socket} = socket:open(Family, dgram, udp, #{netns => NetNs}),
+    bind_dhcp_socket(Socket, Addr, Opts);
+make_dhcp_socket(#{family := Family} = Addr, Opts) ->
+    {ok, Socket} = socket:open(Family, dgram, udp),
+    bind_dhcp_socket(Socket, Addr, Opts).
 
-bind_dhcp_socket(Socket, {_,_,_,_} = IP, PortOpt, Opts) ->
+bind_dhcp_socket(Socket, #{family := inet} = Addr, Opts) ->
     ok = socket_ip_freebind(Socket, Opts),
     ok = socket_netdev(Socket, Opts),
-    {ok, _} = socket:bind(Socket, #{family => inet, addr => IP, port => port_opt(PortOpt)}),
+    {ok, _} = socket:bind(Socket, Addr),
     ok = socket:setopt(Socket, socket, broadcast, true),
     ok = socket:setopt(Socket, ip, recverr, true),
     ok = socket:setopt(Socket, ip, mtu_discover, dont),
     maps:fold(fun(K, V, ok) -> ok = socket_setopts(Socket, K, V) end, ok, Opts),
     {ok, Socket};
 
-bind_dhcp_socket(Socket, {_,_,_,_,_,_,_,_} = IP, PortOpt, Opts) ->
+bind_dhcp_socket(Socket, #{family := inet6} = Addr, Opts) ->
     ok = socket:setopt(Socket, ipv6, v6only, true),
     ok = socket_netdev(Socket, Opts),
-    {ok, _} = socket:bind(Socket, #{family => inet6, addr => IP, port => port_opt(PortOpt)}),
+    {ok, _} = socket:bind(Socket, Addr),
     ok = socket:setopt(Socket, socket, broadcast, true),
     ok = socket:setopt(Socket, ipv6, recverr, true),
     ok = socket:setopt(Socket, ipv6, mtu_discover, dont),
+    %%ok = socket:setopt(Socket, ipv6, multicast_if, 1),
     maps:fold(fun(K, V, ok) -> ok = socket_setopts(Socket, K, V) end, ok, Opts),
     {ok, Socket}.
 
@@ -379,7 +399,7 @@ handle_message(#{family := Family, port := Port, addr := IP} = Source,
 	    State0
     end.
 
-handle_response(_Source, Msg, #state{name = _Name} = State) ->
+handle_response(Source, Msg, #state{name = _Name} = State) ->
     XId = case Msg of
 	      #dhcp{xid = Id}   -> Id;
 	      #dhcpv6{xid = Id} -> Id
@@ -392,7 +412,7 @@ handle_response(_Source, Msg, #state{name = _Name} = State) ->
 
 	{value, From} ->
 	    %% ergw_prometheus:dhcp(rx, Name, IP, Msg),
-	    reply(From, Msg),
+	    reply(From, Source, Msg),
 	    State
     end.
 
@@ -400,13 +420,32 @@ handle_response(_Source, Msg, #state{name = _Name} = State) ->
 %%% Internal functions
 %%%===================================================================
 
+init_xid(#{family := inet}) ->
+    rand:uniform(16#ffffffff);
+init_xid(#{family := inet6}) ->
+    rand:uniform(16#ffffff).
+
+reply(From, Source, Msg) ->
+    reply(From, {Source, Msg}).
+
 reply({Pid, Ref}, Reply) ->
     Pid ! {Ref, Reply}.
 
 send_request(Srv, #dhcp{xid = XId} = Req0, From, State) ->
     Req = dhcp_req_opts(Req0, State),
-    SendTo = dhcp_server(Srv),
+    SendTo = dhcp_server(inet, Srv),
     Data = dhcp_lib:encode(Req),
+    case sendto(State, SendTo, Data) of
+	ok ->
+	    {noreply, start_request(XId, Req, From, State)};
+	{error, _} = Error ->
+	    reply(From, Error),
+	    {noreply, State}
+    end;
+send_request(Srv, #dhcpv6{xid = XId} = Req0, From, State) ->
+    Req = dhcp_req_opts(Req0, State),
+    SendTo = dhcp_server(inet6, Srv),
+    Data = dhcpv6_lib:encode(Req),
     case sendto(State, SendTo, Data) of
 	ok ->
 	    {noreply, start_request(XId, Req, From, State)};
@@ -425,25 +464,37 @@ lookup_request(Xid, #state{pending = Pending}) ->
 remove_request(Xid, #state{pending = Pending} = State) ->
     State#state{pending = gb_trees:delete_any(Xid, Pending)}.
 
-sendto(#state{socket = Socket, ip = SrcIP}, DstIP, Data) ->
-    Dest = #{family => family(SrcIP),
-	     addr => DstIP,
-	     port => ?DHCP_SERVER_PORT},
-    socket:sendto(Socket, Data, Dest, nowait).
+sendto(#state{socket = Socket}, Dst, Data) ->
+    socket:sendto(Socket, Data, Dst, nowait).
 
 dhcp_req_opts(#dhcp{options = Opts} = Req, _State) ->
 %%  when Port /= ?DHCP_SERVER_PORT ->
-    AgentOpts = [{?RAI_DHCPV4_RELAY_SOURCE_PORT, ?DHCP_SERVER_PORT} |
+    AgentOpts = [{?RAI_DHCPV4_RELAY_SOURCE_PORT, ?DHCPv4_SERVER_PORT} |
 		 dhcp_lib:get_opt(?DHO_DHCP_AGENT_OPTIONS, Opts, [])],
     Req#dhcp{options = dhcp_lib:put_opt(?DHO_DHCP_AGENT_OPTIONS, AgentOpts, Opts)};
 dhcp_req_opts(Req, _) ->
     Req.
 
-dhcp_server(broadcast) ->
-    broadcast;
-dhcp_server({0,0,0,0}) ->
-    broadcast;
-dhcp_server(SendTo) ->
+dest_addr(inet, Dst) ->
+    #{family => inet, addr => Dst, port => ?DHCPv4_SERVER_PORT};
+dest_addr(inet6, Dst) ->
+    #{family => inet6, addr => Dst, port => ?DHCPv6_SERVER_PORT}.
+
+dhcp_server(inet, broadcast) ->
+    dest_addr(inet, broadcast);
+dhcp_server(inet, {0,0,0,0}) ->
+    dest_addr(inet, broadcast);
+
+dhcp_server(inet6, local) ->
+    dest_addr(inet6, ?DHCPv6_NODE_LOCAL_ALL_ROUTERS);
+dhcp_server(inet6, broadcast) ->
+    dest_addr(inet6, ?ALL_DHCPv6_RELAY_AGENTS_AND_SERVERS);
+dhcp_server(inet6, {0,0,0,0,0,0,0,0}) ->
+    dest_addr(inet6, ?ALL_DHCPv6_RELAY_AGENTS_AND_SERVERS);
+
+dhcp_server(Family, SendTo) when is_tuple(SendTo) ->
+    dest_addr(Family, SendTo);
+dhcp_server(Family, #{family := Family} = SendTo) ->
     SendTo.
 
 %%%===================================================================
