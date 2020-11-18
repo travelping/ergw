@@ -268,6 +268,12 @@ code_change(_OldVsn, State, _Extra) ->
 %%% Socket functions
 %%%===================================================================
 
+-if(?OTP_RELEASE =< 23).
+-define(BIND_OK, {ok, _}).
+-else.
+-define(BIND_OK, ok).
+-endif.
+
 -record(sx_request, {
 	  key		:: term(),
 	  ip		:: inet:ip_address(),
@@ -300,7 +306,7 @@ make_sx_socket(IP, Port, Opts) ->
 bind_sx_socket(Socket, {_,_,_,_} = IP, Port, Opts) ->
     ok = socket_ip_freebind(Socket, Opts),
     ok = socket_netdev(Socket, Opts),
-    {ok, _} = socket:bind(Socket, #{family => inet, addr => IP, port => Port}),
+    ?BIND_OK = socket:bind(Socket, #{family => inet, addr => IP, port => Port}),
     ok = socket:setopt(Socket, ip, recverr, true),
     ok = socket:setopt(Socket, ip, mtu_discover, dont),
     maps:fold(fun(K, V, ok) -> ok = socket_setopts(Socket, K, V) end, ok, Opts),
@@ -309,7 +315,7 @@ bind_sx_socket(Socket, {_,_,_,_} = IP, Port, Opts) ->
 bind_sx_socket(Socket, {_,_,_,_,_,_,_,_} = IP, Port, Opts) ->
     ok = socket:setopt(Socket, ipv6, v6only, true),
     ok = socket_netdev(Socket, Opts),
-    {ok, _} = socket:bind(Socket, #{family => inet6, addr => IP, port => Port}),
+    ?BIND_OK = socket:bind(Socket, #{family => inet6, addr => IP, port => Port}),
     ok = socket:setopt(Socket, ipv6, recverr, true),
     ok = socket:setopt(Socket, ipv6, mtu_discover, dont),
     maps:fold(fun(K, V, ok) -> ok = socket_setopts(Socket, K, V) end, ok, Opts),
