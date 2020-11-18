@@ -101,6 +101,12 @@ invoke_handler(#socket{type = 'gtp-u'} = Socket, F, A) ->
 %%% Socket Helper
 %%%===================================================================
 
+-if(?OTP_RELEASE =< 23).
+-define(BIND_OK, {ok, _}).
+-else.
+-define(BIND_OK, ok).
+-endif.
+
 family({_,_,_,_}) -> inet;
 family({_,_,_,_,_,_,_,_}) -> inet6.
 
@@ -115,7 +121,7 @@ make_gtp_socket(IP, Port, Opts) ->
 bind_gtp_socket(Socket, {_,_,_,_} = IP, Port, Opts) ->
     ok = socket_ip_freebind(Socket, Opts),
     ok = socket_netdev(Socket, Opts),
-    {ok, _} = socket:bind(Socket, #{family => inet, addr => IP, port => Port}),
+    ?BIND_OK = socket:bind(Socket, #{family => inet, addr => IP, port => Port}),
     ok = socket:setopt(Socket, ip, recverr, true),
     ok = socket:setopt(Socket, ip, mtu_discover, dont),
     maps:fold(fun(K, V, ok) -> ok = socket_setopts(Socket, K, V) end, ok, Opts),
@@ -124,7 +130,7 @@ bind_gtp_socket(Socket, {_,_,_,_} = IP, Port, Opts) ->
 bind_gtp_socket(Socket, {_,_,_,_,_,_,_,_} = IP, Port, Opts) ->
     ok = socket:setopt(Socket, ipv6, v6only, true),
     ok = socket_netdev(Socket, Opts),
-    {ok, _} = socket:bind(Socket, #{family => inet6, addr => IP, port => Port}),
+    ?BIND_OK = socket:bind(Socket, #{family => inet6, addr => IP, port => Port}),
     ok = socket:setopt(Socket, ipv6, recverr, true),
     ok = socket:setopt(Socket, ipv6, mtu_discover, dont),
     maps:fold(fun(K, V, ok) -> ok = socket_setopts(Socket, K, V) end, ok, Opts),
