@@ -350,12 +350,13 @@ init([Socket, Info, Version, Interface,
     InitResult = Interface:init(Opts, Data),
 
     case {CompressCtx, InitResult} of
-	{true, {ok, State, NewData}} -> {ok, State, pack_ctx(NewData)};
+	{true, {ok, State, NewData}} when is_map_key(pcc, NewData) -> {ok, State, pack_ctx(NewData)};
 	{_, _} -> InitResult
     end.
 
 %% PCC and PFCP Context compression to reduce process heap in case of big rulesets
-handle_event(Event, Info, State, #{compress_ctx := true} = Data) ->
+handle_event(Event, Info, State, #{compress_ctx := true, pcc := PCC} = Data)
+  when is_binary(PCC) ->
     case handle_event(Event, Info, State, unpack_ctx(Data)) of
 	{next_state, NewState, NewData} -> {next_state, NewState, pack_ctx(NewData)};
 	{next_state, NewState, NewData, Actions} -> {next_state, NewState, pack_ctx(NewData), Actions};
