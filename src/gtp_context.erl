@@ -202,6 +202,7 @@ test_cmd(Pid, Cmd) when is_pid(Pid) ->
 			    (is_map(X) andalso map_size(X) /= 0))).
 
 -define(ContextDefaults, [{node_selection, undefined},
+			  {compress_ctx, true},
 			  {aaa,            []}]).
 
 -define(DefaultAAAOpts,
@@ -229,6 +230,8 @@ validate_option(node_selection, [S|_] = Value)
     Value;
 validate_option(aaa, Value) when is_list(Value); is_map(Value) ->
     ergw_config:opts_fold(fun validate_aaa_option/3, ?DefaultAAAOpts, Value);
+validate_option(compress_ctx, true) -> true;
+validate_option(compress_ctx, false) -> false;
 validate_option(Opt, Value) ->
     throw({error, {options, {Opt, Value}}}).
 
@@ -318,6 +321,7 @@ callback_mode() -> [handle_event_function, state_enter].
 
 init([Socket, Info, Version, Interface,
       #{node_selection := NodeSelect,
+	compress_ctx := CompressCtx,
 	aaa := AAAOpts} = Opts]) ->
 
     ?LOG(debug, "init(~p)", [[Socket, Info, Interface]]),
@@ -338,11 +342,28 @@ init([Socket, Info, Version, Interface,
       version        => Version,
       interface      => Interface,
       node_selection => NodeSelect,
+      compress_ctx   => CompressCtx,
       aaa_opts       => AAAOpts,
       left_tunnel    => LeftTunnel,
       bearer         => Bearer},
 
-    Interface:init(Opts, Data).
+    InitResult = Interface:init(Opts, Data),
+
+    case {CompressCtx, InitResult} of
+	{true, {ok, State, NewData}} -> {ok, State, pack_ctx(NewData)};
+	{_, _} -> InitResult
+    end.
+
+%% PCC and PFCP Context compression to reduce process heap in case of big rulesets
+handle_event(Event, Info, State, #{compress_ctx := true} = Data) ->
+    case handle_event(Event, Info, State, unpack_ctx(Data)) of
+	{next_state, NewState, NewData} -> {next_state, NewState, pack_ctx(NewData)};
+	{next_state, NewState, NewData, Actions} -> {next_state, NewState, pack_ctx(NewData), Actions};
+	{keep_state, NewData} -> {keep_state, pack_ctx(NewData)};
+	{repeat_state, NewData} -> {repeat_state, pack_ctx(NewData)};
+	{stop_and_reply, Reason, Replies, NewData} -> {stop_and_reply, Reason, Replies, pack_ctx(NewData)};
+	Result -> Result
+    end;
 
 handle_event({call, From}, info, _, Data) ->
     {keep_state_and_data, [{reply, From, Data}]};
@@ -887,3 +908,19 @@ trigger_usage_report(Self, URRActions, PCtx) ->
     Self = self(),
     proc_lib:spawn(fun() -> usage_report_fun(Self, URRActions, PCtx) end),
     ok.
+
+%%====================================================================
+%% helpers to reduce heap size
+%%====================================================================
+pack_ctx(#{pcc := PCC, pfcp := PCtx, compress_ctx := true} = Data) ->
+    Data#{pcc => term_to_binary(PCC, [compressed]), pfcp => term_to_binary(PCtx, [compressed])};
+pack_ctx(#{pcc := PCC, compress_ctx := true} = Data) ->
+    Data#{pcc => term_to_binary(PCC, [compressed])}.
+
+
+unpack_ctx(#{pcc := PCC, pfcp := PCtx, compress_ctx := true} = Data)
+  when is_binary(PCC), is_binary(PCtx) ->
+    Data#{pcc => binary_to_term(PCC), pfcp => binary_to_term(PCtx)};
+unpack_ctx(#{pcc := PCC, compress_ctx := true} = Data)
+  when is_binary(PCC) ->
+    Data#{pcc => binary_to_term(PCC)}.
