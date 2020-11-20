@@ -492,7 +492,9 @@ contexts_at_scale(Config) ->
 	    (NProcs * NCtx) / (Total / 1.0e6)]),
 
     Tunnels = NProcs * NCtx + 1,
-    [?match(#{tunnels := Tunnels}, X) || X <- ergw_api:peer(all)],
+    {Cnt, _} = ergw_nudsf:search(#{tag => type, value => 'gtp-c'}, #{count => true}),
+    %%[?match(#{tunnels := Tunnels}, X) || X <- ergw_api:peer(all)],
+    ?equal(Tunnels, Cnt),
 
     ct:log(fmt_memory_html("Memory", erlang:memory())),
 
@@ -580,14 +582,17 @@ mfa({M, F, A}) when is_atom(M), is_atom(F), is_integer(A) ->
 mfa(MFA) ->
     io_lib:format("~p", [MFA]).
 
+process_info_2(Pid, Acc) ->
+    case erlang:process_info(Pid, [current_function, memory, dictionary]) of
+	[{current_function, C}, {memory, M}|_] = ProcInfo ->
+	    I = proc_lib:translate_initial_call(ProcInfo),
+	    [{Pid, C, I, M} | Acc];
+	_ ->
+	    Acc
+    end.
+
 process_info() ->
-    [begin
-	 {_, C} = erlang:process_info(Pid, current_function),
-	 {_, M} = erlang:process_info(Pid, memory),
-	 I = proc_lib:translate_initial_call(Pid),
-	 {Pid, C, I, M}
-     end
-     || Pid <- erlang:processes()].
+    lists:foldl(fun process_info_2/2, [], erlang:processes()).
 
 fmt_process_info(ProcInfo) ->
     [[io_lib:format("~p:~p: I: ~p, ~p - ~s~n", [Pid, C, I, M, units(M)]) ||
