@@ -46,12 +46,16 @@ before_script:
     fi
 
 script:
-  - ip -br addr
-  - source test/env.sh
-  - ./rebar3 compile
-  - ./rebar3 do xref, ct
-  - (./rebar3 as test do coveralls send || /bin/true)
-  - (cd _build/test/logs/; zip -1r ../../../ct-logs.zip . )
+  - if [ $TRAVIS_BRANCH != "master" ]; then
+      ip -br addr;
+      source test/env.sh;
+      ./rebar3 compile;
+      ./rebar3 do xref, ct;
+      (./rebar3 as test do coveralls send || /bin/true);
+      (cd _build/test/logs/; zip -1r ../../../ct-logs.zip . );
+    else
+      ./rebar3 compile;
+    fi
 
 jobs:
   include:
@@ -74,13 +78,6 @@ jobs:
         - docker tag $BUILD_IMAGE $BUILD_IMAGE:$TAG
         - docker push $BUILD_IMAGE:$TAG
         - echo "docker push done"
-
-addons:
-  artifacts:
-    paths: ct-logs.zip
-    bucket: travis-erlang-logs
-    s3_region: eu-west-1
-    acl: public_read
 
 notifications:
   webhooks: https://coveralls.io/webhook
