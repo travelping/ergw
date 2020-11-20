@@ -29,11 +29,25 @@
 
 	 {ergw, [{'$setup_vars',
 		  [{"ORIGIN", {value, "epc.mnc001.mcc001.3gppnetwork.org"}}]},
-		 {sockets, []},
+		 {sockets, [
+		    {cp, [
+		       {type, 'gtp-u'},
+		       {vrf, cp},
+		       {ip,  {127,0,0,1}},
+		       freebind,
+		       {reuseaddr, true}
+		    ]},
+		    {sx, [
+		       {node, 'ergw'},
+		       {name, 'ergw'},
+		       {type, 'pfcp'},
+		       {socket, cp},
+		       {ip,  {127,127,127,127}}
+		    ]}
+		 ]},
 		 {vrfs, []},
 		 {handlers, []},
 		 {node_selection, []},
-		 {sx_socket, #{node => 'ergw', name => 'ergw', ip => {127,127,127,127}}},
 		 {apns, []}
 		]},
 	 {ergw_aaa, [{ergw_aaa_provider, {ergw_aaa_mock, [{shared_secret, <<"MySecret">>}]}}]}
