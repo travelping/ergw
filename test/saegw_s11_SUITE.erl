@@ -562,7 +562,7 @@ end_per_testcase(Config) ->
     stop_gtpc_server(),
 
     PoolId = [<<"pool-A">>, ipv4, "10.180.0.1"],
-    ?match_metric(prometheus_gauge, ergw_local_pool_free, PoolId, 65534),
+    ?match_metric(prometheus_gauge, ergw_local_pool_free, PoolId, ?IPv4PoolSize),
 
     AppsCfg = proplists:get_value(aaa_cfg, Config),
     ok = application:set_env(ergw_aaa, apps, AppsCfg),
@@ -655,14 +655,14 @@ create_session_request_gy_fail() ->
 create_session_request_gy_fail(Config) ->
     PoolId = [<<"pool-A">>, ipv4, "10.180.0.1"],
 
-    ?match_metric(prometheus_gauge, ergw_local_pool_free, PoolId, 65534),
+    ?match_metric(prometheus_gauge, ergw_local_pool_free, PoolId, ?IPv4PoolSize),
     ?match_metric(prometheus_gauge, ergw_local_pool_used, PoolId, 0),
 
     create_session(gy_fail, Config),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
 
-    ?match_metric(prometheus_gauge, ergw_local_pool_free, PoolId, 65534),
+    ?match_metric(prometheus_gauge, ergw_local_pool_free, PoolId, ?IPv4PoolSize),
     ?match_metric(prometheus_gauge, ergw_local_pool_used, PoolId, 0),
 
     meck_validate(Config),
@@ -744,12 +744,12 @@ simple_session_request() ->
 simple_session_request(Config) ->
     PoolId = [<<"pool-A">>, ipv4, "10.180.0.1"],
 
-    ?match_metric(prometheus_gauge, ergw_local_pool_free, PoolId, 65534),
+    ?match_metric(prometheus_gauge, ergw_local_pool_free, PoolId, ?IPv4PoolSize),
     ?match_metric(prometheus_gauge, ergw_local_pool_used, PoolId, 0),
 
     {GtpC1, _, _} = create_session(Config),
 
-    ?match_metric(prometheus_gauge, ergw_local_pool_free, PoolId, 65533),
+    ?match_metric(prometheus_gauge, ergw_local_pool_free, PoolId, ?IPv4PoolSize - 1),
     ?match_metric(prometheus_gauge, ergw_local_pool_used, PoolId, 1),
 
     {GtpC2, _, _} = modify_bearer(enb_u_tei, GtpC1),
@@ -758,7 +758,7 @@ simple_session_request(Config) ->
     ?equal([], outstanding_requests()),
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
 
-    ?match_metric(prometheus_gauge, ergw_local_pool_free, PoolId, 65534),
+    ?match_metric(prometheus_gauge, ergw_local_pool_free, PoolId, ?IPv4PoolSize),
     ?match_metric(prometheus_gauge, ergw_local_pool_used, PoolId, 0),
 
     meck_validate(Config),
@@ -1152,8 +1152,8 @@ session_options(Config) ->
 		   'Password' => '_',
 
 		   %% TODO check 'PDP-Context-Type' => primary,
-		   'Framed-IP-Address' => {10, 180, '_', '_'},
-		   'Framed-IPv6-Prefix' => {{16#8001, 0, 1, '_', '_', '_', '_', '_'},64},
+		   'Framed-IP-Address' => {10, '_', '_', '_'},
+		   'Framed-IPv6-Prefix' => {{16#8001, 0, '_', '_', '_', '_', '_', '_'},64},
 
 		   'Charging-Rule-Base-Name' => <<"m2m0001">>,
 
@@ -1605,8 +1605,8 @@ simple_ocs(Config) ->
 	  'Diameter-Session-Id' => '_',
 	  'ECGI' => '_',
 	  'Event-Trigger' => '_',
-	  'Framed-IP-Address' => {10, 180, '_', '_'},
-	  %% 'Framed-IPv6-Prefix' => {{16#8001, 0, 1, '_', '_', '_', '_', '_'},64},
+	  'Framed-IP-Address' => {10, '_', '_', '_'},
+	  %% 'Framed-IPv6-Prefix' => {{16#8001, 0, '_', '_', '_', '_', '_', '_'},64},
 	  'Framed-Protocol' => 'GPRS-PDP-Context',
 	  'Multi-Session-Id' => '_',
 	  'NAS-Identifier' => '_',

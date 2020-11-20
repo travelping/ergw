@@ -81,11 +81,14 @@
 -define('IMEISV', <<"3520990017614823">>).			%% found on wikipedia
 
 -define(IPv4PoolStart, {10, 180, 0, 1}).
--define(IPv4PoolEnd,   {10, 180, 255, 254}).
+%%-define(IPv4PoolEnd,   {10, 180, 255, 254}).
+-define(IPv4PoolEnd,   {10, 187, 255, 254}).
 -define(IPv4StaticIP,  {10, 180, 128, 128}).
+%%-define(IPv4PoolSize,  65534).
+-define(IPv4PoolSize,  524286).
 
 -define(IPv6PoolStart, {16#8001, 0, 1, 0, 0, 0, 0, 0}).
--define(IPv6PoolEnd,   {16#8001, 0, 1, 16#FFFF, 16#FFFF, 16#FFFF, 16#FFFF, 16#FFFF}).
+-define(IPv6PoolEnd,   {16#8001, 0, 7, 16#FFFF, 16#FFFF, 16#FFFF, 16#FFFF, 16#FFFF}).
 -define(IPv6StaticIP,  {16#8001, 0, 1, 16#0180, 1, 2, 3, 4}).
 
 %% for non-standard /128 assigments
