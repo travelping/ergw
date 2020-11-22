@@ -20,7 +20,9 @@ start_link('gtp-c', Opts) ->
 start_link('gtp-u', Opts) ->
     ergw_gtp_u_socket:start_link(Opts);
 start_link('pfcp', Opts) ->
-    ergw_sx_socket:start_link(Opts).
+    ergw_sx_socket:start_link(Opts);
+start_link('dhcp', Opts) ->
+    ergw_dhcp_socket:start_link(Opts).
 
 %%%===================================================================
 %%% Options Validation
@@ -43,6 +45,8 @@ validate_option(Name, Values)
 	    ergw_gtp_socket:validate_options(Name, Values);
 	'pfcp' ->
 	    ergw_sx_socket:validate_options(Name, Values);
+	'dhcp' ->
+	    ergw_dhcp_socket:validate_options(Name, Values);
 	_ ->
 	    throw({error, {options, {Name, Values}}})
     end;

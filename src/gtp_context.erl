@@ -609,6 +609,34 @@ handle_event(info, {'DOWN', _MonitorRef, Type, Pid, _Info}, State,
 handle_event({timeout, context_idle}, stop_session, State, Data) ->
     delete_context(undefined, normal, State, Data);
 
+handle_event({timeout, {ip, _, lease}}, _Event, State, Data) ->
+    delete_context(undefined, normal, State, Data);
+handle_event({timeout, {ip, Id, _}}, Event, _State, #{context := #context{ms_ip = MsIP}}) ->
+    AI = ergw_gsn_lib:'#get-'(Id, MsIP),
+    Server = self(),
+    Fun =
+	fun() ->
+		Result = (catch ergw_ip_pool:handle_event(AI, Event)),
+		gen_statem:cast(Server, {ip, Id, AI, Result})
+	end,
+    spawn(Fun),
+    keep_state_and_data;
+
+handle_event(cast, {ip, Id, AI, {ok, NewAI}}, connected,
+	     #{context := #context{ms_ip = MsIP} = Context0} = Data) ->
+    {GetF, SetF} = ergw_gsn_lib:'#lens-'(Id, element(1, MsIP)),
+    case GetF(MsIP) of
+	AI ->
+	    Context = Context0#context{ms_ip = SetF(NewAI, MsIP)},
+	    Actions = ergw_gsn_lib:context_timeouts(Context),
+	    {keep_state, Data#{context => Context}, Actions};
+	_  ->
+	    keep_state_and_data
+    end;
+
+handle_event(cast, {ip, _, _, _}, _State, _Data) ->
+    keep_state_and_data;
+
 handle_event(Type, Content, State, #{interface := Interface} = Data) ->
     ?LOG(debug, "~w: handle_event: (~p, ~p, ~p)",
 		[?MODULE, Type, Content, State]),
