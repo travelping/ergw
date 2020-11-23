@@ -61,7 +61,7 @@ choose_gw(Nodes, NodeSelect, Version, #socket{name = Name} = Socket) ->
 	   begin
 	       case gtp_path_reg:state({Name, Version, IP}) of
 		   down ->
-		       choose_gw(Next, NodeSelect, Socket, Version);
+		       choose_gw(Next, NodeSelect, Version, Socket);
 		   State when State =:= undefined; State =:= up ->
 		       return({Node, IP})
 	       end
