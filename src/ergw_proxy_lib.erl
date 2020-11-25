@@ -52,7 +52,7 @@ get_seq_no(#tunnel{socket = Socket}, ReqKey, Request) ->
     ergw_gtp_c_socket:get_seq_no(Socket, ReqId).
 
 %% choose_gw/4
-choose_gw([], _NodeSelect, _Version, _Socket) ->
+choose_gw([], _NodeSelect, _Version, #socket{}) ->
     {error, ?CTX_ERR(?FATAL, no_resources_available)};
 choose_gw(Nodes, NodeSelect, Version, #socket{name = Name} = Socket) ->
     {Candidate, Next} = ergw_node_selection:snaptr_candidate(Nodes),
@@ -71,7 +71,7 @@ choose_gw(Nodes, NodeSelect, Version, #socket{name = Name} = Socket) ->
 select_gw(#{imsi := IMSI, gwSelectionAPN := APN}, Version, Services, NodeSelect, Socket) ->
     FQDN = ergw_node_selection:apn_to_fqdn(APN, IMSI),
     case ergw_node_selection:candidates(FQDN, Services, NodeSelect) of
-	Nodes when is_list(Nodes), length(Nodes) /= 0 ->
+	[_|_] = Nodes ->
 	    choose_gw(Nodes, NodeSelect, Version, Socket);
 	_ ->
 	    {error, ?CTX_ERR(?FATAL, system_failure)}
