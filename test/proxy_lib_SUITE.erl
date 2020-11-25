@@ -29,6 +29,10 @@
 	      {static,
 	       [
 		%% APN NAPTR alternative
+		{"web.apn.epc.mnc001.mcc001.3gppnetwork.org", {0,0},
+		 [{"x-3gpp-pgw","x-s5-gtp"},{"x-3gpp-pgw","x-s8-gtp"},
+		  {"x-3gpp-pgw","x-gn"},{"x-3gpp-pgw","x-gp"}],
+		 ?'CP-Node'},
 		{"web.apn.epc.mnc001.mcc001.3gppnetwork.org", {300,64536},
 		 [{"x-3gpp-pgw","x-s5-gtp"},{"x-3gpp-pgw","x-s8-gtp"},
 		  {"x-3gpp-pgw","x-gn"},{"x-3gpp-pgw","x-gp"}],
@@ -128,6 +132,11 @@ proxy_lookup(_Config) ->
     PI7 = PI#{gwSelectionAPN => apn(<<"web.mnc567.mcc001.gprs">>)},
     {error, Proxy7} = ergw_proxy_lib:select_gw(PI7, v1, ?SERVICES, NodeSelect, Socket),
     ?match(#ctx_err{level = ?FATAL, reply = system_failure}, Proxy7),
+
+    PI8 = PI#{gwSelectionAPN => apn(<<"web.apn.epc.mnc001.mcc001.3gppnetwork.org">>)},
+    ok = gtp_path_reg:register({<<"TEST">>, v1, ?'CP-IP'}, down),
+    {error, Proxy8} = ergw_proxy_lib:select_gw(PI8, v1, ?SERVICES, NodeSelect, Socket),
+    ?match(#ctx_err{level = ?FATAL, reply = no_resources_available}, Proxy8),
     ok.
 
 apn(Bin) ->
