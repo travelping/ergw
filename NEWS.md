@@ -1,6 +1,15 @@
 erGW - 3GPP GGSN and PDN-GW in Erlang
 =====================================
 
+Version 2.8.1 - 25 November 2020
+-------------------------------
+
+* Bump OTP to `23.1.2.0` and `22.3.4.12`
+* Fix issue [#245](https://github.com/travelping/ergw/issues/245): provided correct config example of `sockets` section
+* Remove `sx_socket` option because `sx` socket is now handled in the sockets section of `ergw`
+* Fix proxy `gw` selection when a `gw` is `down`
+* Fix issue [#133](https://github.com/travelping/ergw/issues/133) for correct display of IPv4 and IPv6
+
 Version 2.8.0 - 16 November 2020
 -------------------------------
 
