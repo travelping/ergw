@@ -83,7 +83,10 @@ Example of configuration **RADIUS**:
                 {link_broken, 2},
                 {upf_failure, 9},
                 {remote_failure, 9},
-                {inactivity_timeout, 4},
+                {cp_inactivity_timeout, 4},
+                {up_inactivity_timeout, 4},
+                {asr, 6},
+                {error, 9},
                 {peer_restart, 7}
             ]}
         ]}
@@ -167,7 +170,10 @@ Example of configuration **ergw-pgw-epc-rf** `function` of **DIAMETER**:
             {link_broken, 5},      
             {upf_failure, 5},      
             {remote_failure, 1},   
-            {inactivity_timeout, 1},  
+            {cp_inactivity_timeout, 4},
+            {up_inactivity_timeout, 4},
+            {asr, 6},
+            {error, 9},
             {peer_restart, 1} 
         ]}
         %% ...

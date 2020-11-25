@@ -40,6 +40,8 @@
 	 assign_local_data_teid/5
 	]).
 
+-export([to_api_and_reason/2]).
+
 -include_lib("kernel/include/logger.hrl").
 -include_lib("parse_trans/include/exprecs.hrl").
 -include_lib("gtplib/include/gtp_packet.hrl").
@@ -958,3 +960,17 @@ assign_local_data_teid_5(_Key, #pfcp_ctx{
 	   FqTEID = #fq_teid{ip = ergw_inet:to_ip(IP), teid = DataTEI},
 	   return(Bearer#bearer{vrf = VRF, local = FqTEID})
        ]).
+
+%%%===================================================================
+%%% Termination Cause helpers
+%%%===================================================================
+
+%% to_api_and_reason/2
+to_api_and_reason({MaybeAPI, Reason}, _) -> {to_api(MaybeAPI), Reason};
+to_api_and_reason(Reason, Interface)     -> {to_api(Interface), Reason}.
+
+%% to_api/1
+to_api(saegw_s11) -> saegw;
+to_api(ggsn_gn)   -> ggsn;
+to_api(pgw_s5s8)  -> pgw;
+to_api(API)       -> API.

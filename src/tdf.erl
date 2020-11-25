@@ -235,9 +235,9 @@ handle_event(info, #aaa_request{procedure = {_, 'RAR'}} = Request, shutdown, _Da
     ergw_aaa_session:response(Request, {error, unknown_session}, #{}, #{}),
     keep_state_and_data;
 
-handle_event(info, #aaa_request{procedure = {_, 'ASR'}} = Request, State, Data) ->
+handle_event(info, #aaa_request{procedure = {API, 'ASR'}} = Request, State, Data) ->
     ergw_aaa_session:response(Request, ok, #{}, #{}),
-    close_pdn_context(administrative, State, Data),
+    close_pdn_context({API, asr}, State, Data),
     {next_state, shutdown, Data};
 
 handle_event(info, #aaa_request{procedure = {gx, 'RAR'},
@@ -323,6 +323,11 @@ handle_event(info, #aaa_request{procedure = {gy, 'RAR'},
 	end,
     triggered_charging_event(interim, Now, ChargingKeys, Data),
     keep_state_and_data;
+
+%% Enable AAA to provide reason for session stop
+handle_event(internal, {session, {stop, {_, _} = APIAndReason}, _Session}, State, Data) ->
+    close_pdn_context(APIAndReason, State, Data),
+    {next_state, shutdown, Data};
 
 handle_event(internal, {session, stop, _Session}, State, Data) ->
     close_pdn_context(normal, State, Data),
@@ -503,7 +508,8 @@ ccr_initial(Session, API, SessionOpts, ReqOpts) ->
 	    {error, {'CCR-Initial', Fail}}
     end.
 
-close_pdn_context(Reason, run, #data{pfcp = PCtx, session = Session}) ->
+close_pdn_context(MaybeReason, run, #data{pfcp = PCtx, session = Session}) ->
+    {API, Reason} = ergw_gsn_lib:to_api_and_reason(MaybeReason, ?MODULE),
     URRs = ergw_pfcp_context:delete_session(Reason, PCtx),
 
     %% TODO: Monitors, AAA over SGi
@@ -526,7 +532,7 @@ close_pdn_context(Reason, run, #data{pfcp = PCtx, session = Session}) ->
     GyReqServices = ergw_gsn_lib:gy_credit_report(Online),
     ergw_gsn_lib:process_online_charging_events(ChargeEv, GyReqServices, Session, ReqOpts),
     ergw_gsn_lib:process_offline_charging_events(ChargeEv, Offline, Now, Session),
-    ergw_prometheus:termination_cause(?FUNCTION_NAME, Reason),
+    ergw_prometheus:termination_cause(?FUNCTION_NAME, API, Reason),
 
     ok;
 close_pdn_context(_Reason, _State, _Data) ->

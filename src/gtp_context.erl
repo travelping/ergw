@@ -115,11 +115,13 @@ tunnel_reg_update(TunnelOld, TunnelNew) ->
     Insert = ordsets:subtract(NewKeys, OldKeys),
     gtp_context_reg:update(Delete, Insert, ?MODULE, self()).
 
+%% Used in tests only
 delete_context(Context) ->
-    gen_statem:call(Context, delete_context).
+    gen_statem:call(Context, {delete_context, normal}).
 
+%% Trigger from admin API
 trigger_delete_context(Context) ->
-    gen_statem:cast(Context, delete_context).
+    gen_statem:cast(Context, {delete_context, administrative}).
 
 %% TODO: add online charing events
 collect_charging_events(OldS, NewS) ->
@@ -395,7 +397,7 @@ handle_event({call, From},
 	     {sx, #pfcp{type = session_report_request,
 			ie = #{report_type := #report_type{upir = 1}}}},
 	     State, #{pfcp := PCtx} = Data) ->
-    close_context(both, inactivity_timeout, State, Data),
+    close_context(both, up_inactivity_timeout, State, Data),
     {next_state, shutdown, Data, [{reply, From, {ok, PCtx}}]};
 
 %% Usage Report
@@ -443,9 +445,9 @@ handle_event(cast, {handle_response, ReqInfo, Request, Response0}, State,
 	    erlang:raise(Class, Reason, Stacktrace)
     end;
 
-handle_event(info, #aaa_request{procedure = {_, 'ASR'}} = Request, State, Data) ->
+handle_event(info, #aaa_request{procedure = {API, 'ASR'}} = Request, State, Data) ->
     ergw_aaa_session:response(Request, ok, #{}, #{}),
-    delete_context(undefined, administrative, State, Data);
+    delete_context(undefined, {API, asr}, State, Data);
 
 handle_event(info, #aaa_request{procedure = {gx, 'RAR'},
 				events = Events} = Request,
@@ -553,8 +555,12 @@ handle_event(internal, {session, {update_credits, _} = CreditEv, _}, _State,
 	end,
     {keep_state, Data#{pfcp := PCtx, pcc := PCC}};
 
+%% Enable AAA to provide reason for session stop
+handle_event(internal, {session, {stop, {_, _} = APIAndReason}, _Session}, State, Data) ->
+     delete_context(undefined, APIAndReason, State, Data);
+
 handle_event(internal, {session, stop, _Session}, State, Data) ->
-     delete_context(undefined, normal, State, Data);
+     delete_context(undefined, error, State, Data);
 
 handle_event(internal, {session, Ev, _}, _State, _Data) ->
     ?LOG(error, "unhandled session event: ~p", [Ev]),
@@ -569,6 +575,9 @@ handle_event(info, {timeout, TRef, pfcp_timer} = Info, _State, #{pfcp := PCtx0} 
     ergw_gtp_gsn_lib:triggered_charging_event(validity_time, Now, ChargingKeys, Data),
     {keep_state, Data};
 
+handle_event({call, From}, {delete_context, Reason}, State, Data)
+  when State == connected; State == connecting ->
+    delete_context(From, Reason, State, Data);
 handle_event({call, From}, delete_context, State, Data)
   when State == connected; State == connecting ->
     delete_context(From, administrative, State, Data);
@@ -598,8 +607,8 @@ handle_event(cast, {usage_report, URRActions, UsageReport}, _State, Data) ->
     ergw_gtp_gsn_lib:usage_report(URRActions, UsageReport, Data),
     keep_state_and_data;
 
-handle_event(cast, delete_context, State, Data) ->
-    delete_context(undefined, administrative, State, Data);
+handle_event(cast, {delete_context, Reason}, State, Data) ->
+    delete_context(undefined, Reason, State, Data);
 
 handle_event(info, {'DOWN', _MonitorRef, Type, Pid, _Info}, State,
 	     #{pfcp := #pfcp_ctx{node = Pid}} = Data)
@@ -861,11 +870,15 @@ fteid_tunnel_side_f(#f_teid{ipv4 = IPv4, ipv6 = IPv6, teid = TEID},
 fteid_tunnel_side_f(FqTEID, {_, _, Iter}) ->
     fteid_tunnel_side_f(FqTEID, maps:next(Iter)).
 
+close_context(Side, {_, _} = TermCause, State, #{interface := Interface} = Data) ->
+    Interface:close_context(Side, TermCause, State, Data);
 close_context(Side, TermCause, State, #{interface := Interface} = Data) ->
-    Interface:close_context(Side, TermCause, State, Data).
+    Interface:close_context(Side, {Interface, TermCause}, State, Data).
 
+delete_context(From, {_, _} = TermCause, State, #{interface := Interface} = Data) ->
+    Interface:delete_context(From, TermCause, State, Data);
 delete_context(From, TermCause, State, #{interface := Interface} = Data) ->
-    Interface:delete_context(From, TermCause, State, Data).
+    Interface:delete_context(From, {Interface, TermCause}, State, Data).
 
 %%====================================================================
 %% asynchrounus usage reporting
