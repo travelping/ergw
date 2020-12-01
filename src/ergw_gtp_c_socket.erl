@@ -331,23 +331,29 @@ make_request(ArrivalTS, IP, Port, Msg, #state{gtp_socket = Socket, info = Info})
     ergw_gtp_socket:make_request(ArrivalTS, IP, Port, Msg, Socket, Info).
 
 handle_input(Socket, Info, #state{burst_size = BurstSize} = State) ->
-    handle_input(Socket, Info, BurstSize, State).
+    handle_input(Socket, Info, 0, BurstSize, State).
 
-handle_input(Socket, _Info, 0, State0) ->
+handle_input(Socket, _Info, Cnt, Max, State0)
+  when Cnt >= Max ->
     %% break the loop and restart
     self() ! {'$socket', Socket, select, undefined},
     {noreply, State0};
 
-handle_input(Socket, Info, Cnt, State0) ->
+handle_input(Socket, Info, Cnt, Max, State0) ->
     case socket:recvfrom(Socket, 0, [], nowait) of
 	{error, _} ->
 	    State = handle_err_input(Socket, State0),
-	    handle_input(Socket, Info, Cnt - 1, State);
+	    handle_input(Socket, Info, Cnt + 1, Max, State);
 
 	{ok, {#{addr := IP, port := Port}, Data}} ->
 	    ArrivalTS = erlang:monotonic_time(),
 	    State = handle_message(ArrivalTS, IP, Port, Data, State0),
-	    handle_input(Socket, Info, Cnt - 1, State);
+	    handle_input(Socket, Info, Cnt + 1, Max, State);
+
+	{select, _SelectInfo} when Cnt == 0 ->
+	    %% there must be something in the error queue
+	    State = handle_err_input(Socket, State0),
+	    handle_input(Socket, Info, Cnt + 1, Max, State);
 
 	{select, _SelectInfo} ->
 	    {noreply, State0}
@@ -406,13 +412,15 @@ handle_socket_error(Error, IP, _Port, _State) ->
     ok.
 
 handle_err_input(Socket, State) ->
-    case socket:recvmsg(Socket, [errqueue], nowait) of
+    case socket:recvmsg(Socket, [errqueue], 0) of
 	{ok, #{addr := #{addr := IP, port := Port}, ctrl := Ctrl}} ->
 	    lists:foreach(handle_socket_error(_, IP, Port, State), Ctrl),
 	    ok;
 
-	{select, SelectInfo} ->
-	    socket:cancel(Socket, SelectInfo);
+	{error, timeout} ->
+	    ok;
+	{error, ewouldblock} ->
+	    ok;
 
 	Other ->
 	    ?LOG(error, "got unhandled error input: ~p", [Other])
