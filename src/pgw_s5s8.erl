@@ -311,7 +311,7 @@ handle_request(ReqKey,
     Actions = context_idle_action([], Context),
     {keep_state, DataNew, Actions};
 
-handle_request(#request{ip = SrcIP, port = SrcPort} = ReqKey,
+handle_request(#request{src = Src, ip = IP, port = Port} = ReqKey,
 	       #gtp{type = modify_bearer_command,
 		    seq_no = SeqNo,
 		    ie = #{?'APN-AMBR' := AMBR,
@@ -331,7 +331,7 @@ handle_request(#request{ip = SrcIP, port = SrcPort} = ReqKey,
 	    group = copy_ies_to_response(Bearer, [EBI], [?'Bearer Level QoS'])}],
     RequestIEs = gtp_v2_c:build_recovery(Type, LeftTunnel, false, RequestIEs0),
     Msg = msg(LeftTunnel, Type, RequestIEs),
-    send_request(LeftTunnel, SrcIP, SrcPort, ?T3, ?N3, Msg#gtp{seq_no = SeqNo}, ReqKey),
+    send_request(LeftTunnel, Src, IP, Port, ?T3, ?N3, Msg#gtp{seq_no = SeqNo}, ReqKey),
 
     Actions = context_idle_action([], Context),
     {keep_state_and_data, Actions};
@@ -887,14 +887,17 @@ copy_ies_to_response(RequestIEs, ResponseIEs0, [H|T]) ->
 msg(#tunnel{remote = #fq_teid{teid = RemoteCntlTEI}}, Type, RequestIEs) ->
     #gtp{version = v2, type = Type, tei = RemoteCntlTEI, ie = RequestIEs}.
 
-send_request(Tunnel, DstIP, DstPort, T3, N3, Msg, ReqInfo) ->
-    gtp_context:send_request(Tunnel, DstIP, DstPort, T3, N3, Msg, ReqInfo).
-
+%% send_request/5
 send_request(#tunnel{remote = #fq_teid{ip = RemoteCntlIP}} = Tunnel, T3, N3, Msg, ReqInfo) ->
-    send_request(Tunnel, RemoteCntlIP, ?GTP2c_PORT, T3, N3, Msg, ReqInfo).
+    send_request(Tunnel, any, RemoteCntlIP, ?GTP2c_PORT, T3, N3, Msg, ReqInfo).
 
+%% send_request/6
 send_request(Tunnel, T3, N3, Type, RequestIEs, ReqInfo) ->
     send_request(Tunnel, T3, N3, msg(Tunnel, Type, RequestIEs), ReqInfo).
+
+%% send_request/8
+send_request(Tunnel, Src, DstIP, DstPort, T3, N3, Msg, ReqInfo) ->
+    gtp_context:send_request(Tunnel, Src, DstIP, DstPort, T3, N3, Msg, ReqInfo).
 
 delete_context(From, TermCause, connected,
 	       #{left_tunnel := Tunnel, context :=

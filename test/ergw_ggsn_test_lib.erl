@@ -719,9 +719,9 @@ ggsn_update_context(From, Tunnel) ->
     NSAPI = 5,
     RequestIEs0 = [#nsapi{nsapi = NSAPI}],
     RequestIEs = gtp_v1_c:build_recovery(Type, Tunnel, false, RequestIEs0),
-    ggsn_send_request(Tunnel, ?T3, ?N3, Type, RequestIEs, From).
+    ggsn_send_request(Tunnel, any, ?T3, ?N3, Type, RequestIEs, From).
 
 ggsn_send_request(#tunnel{remote = #fq_teid{ip = RemoteCntlIP, teid = RemoteCntlTEI}} = Tunnel,
-		  T3, N3, Type, RequestIEs, From) ->
+		  Src, T3, N3, Type, RequestIEs, From) ->
     Msg = #gtp{version = v1, type = Type, tei = RemoteCntlTEI, ie = RequestIEs},
-    gtp_context:send_request(Tunnel, RemoteCntlIP, ?GTP1c_PORT, T3, N3, Msg, From).
+    gtp_context:send_request(Tunnel, Src, RemoteCntlIP, ?GTP1c_PORT, T3, N3, Msg, From).

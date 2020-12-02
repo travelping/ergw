@@ -291,7 +291,7 @@ handle_event(cast, {send, 'Access', _VRF, Data}, {connected, _},
 
     Msg = #gtp{version = v1, type = g_pdu, tei = TEI, ie = Data},
     Bin = gtp_packet:encode(Msg),
-    ergw_gtp_u_socket:send(Socket, IP, ?GTP1u_PORT, Bin),
+    ergw_gtp_u_socket:send(Socket, gtp, IP, ?GTP1u_PORT, Bin),
 
     keep_state_and_data;
 
@@ -486,7 +486,7 @@ pfcp_reply_actions({call, From}, Reply) ->
     [{reply, From, Reply}].
 
 make_request(IP, Port, Msg, #data{cp_socket = Socket, cp_info = Info}) ->
-    ergw_gtp_socket:make_request(0, IP, Port, Msg, Socket, Info).
+    ergw_gtp_socket:make_request(0, sx, IP, Port, Msg, Socket, Info).
 
 %% IPv4, non fragmented, UDP packet
 handle_ip_pdu(<<Version:4, IHL:4, _TOS:8, TotLen:16, _Id:16, _:2, 0:1, 0:13,

@@ -640,7 +640,7 @@ msg(#tunnel{remote = #fq_teid{teid = RemoteCntlTEI}}, Type, RequestIEs) ->
     #gtp{version = v1, type = Type, tei = RemoteCntlTEI, ie = RequestIEs}.
 
 send_request(Tunnel, DstIP, DstPort, T3, N3, Msg, ReqInfo) ->
-    gtp_context:send_request(Tunnel, DstIP, DstPort, T3, N3, Msg, ReqInfo).
+    gtp_context:send_request(Tunnel, any, DstIP, DstPort, T3, N3, Msg, ReqInfo).
 
 send_request(#tunnel{remote = #fq_teid{ip = RemoteCntlIP}} = Tunnel, T3, N3, Msg, ReqInfo) ->
     send_request(Tunnel, RemoteCntlIP, ?GTP2c_PORT, T3, N3, Msg, ReqInfo).
@@ -696,7 +696,7 @@ bind_forward_path(ggsn2sgsn, Request,
 forward_request(Direction, ReqKey, #gtp{seq_no = ReqSeqNo, ie = ReqIEs} = Request,
 		Tunnel, Bearer, Context, Data) ->
     FwdReq = build_context_request(Tunnel, Bearer, Context, false, undefined, Request),
-    ergw_proxy_lib:forward_request(Direction, Tunnel, FwdReq, ReqKey,
+    ergw_proxy_lib:forward_request(Direction, Tunnel, any, FwdReq, ReqKey,
 				   ReqSeqNo, is_map_key(?'Recovery', ReqIEs), Data).
 
 forward_response(#proxy_request{request = ReqKey, seq_no = SeqNo, new_peer = NewPeer},

@@ -10,11 +10,11 @@
 -compile({parse_transform, cut}).
 
 %% API
--export([validate_options/2, info/1, send/4]).
--export([make_seq_id/1, make_request/6]).
+-export([validate_options/2, info/1, send/5]).
+-export([make_seq_id/1, make_request/7]).
 -export([make_gtp_socket/3]).
 
--ignore_xref([info/1, send/4]).
+-ignore_xref([info/1, send/5]).
 
 -if(?OTP_RELEASE =< 23).
 -ignore_xref([behaviour_info/1]).
@@ -30,7 +30,7 @@
 %%====================================================================
 
 -callback info(Socket :: #socket{}) -> Info :: term().
--callback send(Socket :: #socket{}, IP :: inet:ip_address(),
+-callback send(Socket :: #socket{}, Src :: atom(), IP :: inet:ip_address(),
 	       Port :: inet:port_number(), Data :: binary()) -> Result :: term().
 
 %%====================================================================
@@ -40,8 +40,8 @@
 info(Socket) ->
     invoke_handler(Socket, info, []).
 
-send(Socket, IP, Port, Data) ->
-    invoke_handler(Socket, send, [IP, Port, Data]).
+send(Socket, Src, IP, Port, Data) ->
+    invoke_handler(Socket, send, [Src, IP, Port, Data]).
 
 %%%===================================================================
 %%% Options Validation
@@ -158,12 +158,13 @@ make_seq_id(#gtp{version = Version, seq_no = SeqNo})
 make_seq_id(_) ->
     undefined.
 
-make_request(ArrivalTS, IP, Port, Msg = #gtp{version = Version, type = Type}, Socket, Info) ->
+make_request(ArrivalTS, Src, IP, Port, Msg = #gtp{version = Version, type = Type}, Socket, Info) ->
     SeqId = make_seq_id(Msg),
     #request{
        key = {Socket, IP, Port, Type, SeqId},
        socket = Socket,
        info = Info,
+       src = Src,
        ip = IP,
        port = Port,
        version = Version,

@@ -11,7 +11,7 @@
 	  {parse_transform, cut}]).
 
 -export([validate_options/3, validate_option/2,
-	 forward_request/3, forward_request/7, forward_request/9,
+	 forward_request/3, forward_request/8, forward_request/10,
 	 get_seq_no/3,
 	 select_gw/5,
 	 select_gtp_proxy_sockets/2,
@@ -28,17 +28,17 @@
 %%% API
 %%%===================================================================
 
-%% forward_request/9
-forward_request(Direction, #tunnel{socket = Socket}, DstIP, DstPort,
+%% forward_request/10
+forward_request(Direction, #tunnel{socket = Socket}, Src, DstIP, DstPort,
 		Request, ReqKey, SeqNo, NewPeer, OldState) ->
     {ReqId, ReqInfo} = make_proxy_request(Direction, ReqKey, SeqNo, NewPeer, OldState),
     ?LOG(debug, "Invoking Context Send Request: ~p", [Request]),
-    gtp_context:send_request(Socket, DstIP, DstPort, ReqId, Request, ReqInfo).
+    gtp_context:send_request(Socket, Src, DstIP, DstPort, ReqId, Request, ReqInfo).
 
-%% forward_request/7
+%% forward_request/8
 forward_request(Direction, #tunnel{remote = #fq_teid{ip = IP}} = Tunnel,
-		Request, ReqKey, SeqNo, NewPeer, OldState) ->
-    forward_request(Direction, Tunnel, IP, ?GTP1c_PORT,
+		Src, Request, ReqKey, SeqNo, NewPeer, OldState) ->
+    forward_request(Direction, Tunnel, Src, IP, ?GTP1c_PORT,
 		    Request, ReqKey, SeqNo, NewPeer, OldState).
 
 %% forward_request/3
