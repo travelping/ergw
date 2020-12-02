@@ -15,9 +15,9 @@
 
 -export([handle_response/4,
 	 start_link/6,
-	 send_request/7,
+	 send_request/8,
 	 send_response/2, send_response/3,
-	 send_request/6, resend_request/2,
+	 send_request/7, resend_request/2,
 	 request_finished/1,
 	 path_restart/2,
 	 terminate_colliding_context/2, terminate_context/1,
@@ -69,17 +69,18 @@
 handle_response(Context, ReqInfo, Request, Response) ->
     gen_statem:cast(Context, {handle_response, ReqInfo, Request, Response}).
 
-%% send_request/7
-send_request(#tunnel{socket = Socket}, DstIP, DstPort, T3, N3, Msg, ReqInfo) ->
+%% send_request/8
+send_request(#tunnel{socket = Socket}, Src, DstIP, DstPort, T3, N3, Msg, ReqInfo) ->
     CbInfo = {?MODULE, handle_response, [self(), ReqInfo, Msg]},
-    ergw_gtp_c_socket:send_request(Socket, DstIP, DstPort, T3, N3, Msg, CbInfo).
+    ergw_gtp_c_socket:send_request(Socket, Src, DstIP, DstPort, T3, N3, Msg, CbInfo).
 
-%% send_request/6
-send_request(Socket, DstIP, DstPort, ReqId, Msg, ReqInfo) when is_record(Socket, socket) ->
+%% send_request/7
+send_request(Socket, Src, DstIP, DstPort, ReqId, Msg, ReqInfo)
+  when is_record(Socket, socket) ->
     CbInfo = {?MODULE, handle_response, [self(), ReqInfo, Msg]},
-    ergw_gtp_c_socket:send_request(Socket, DstIP, DstPort, ReqId, Msg, CbInfo);
-send_request(#tunnel{socket = Socket}, DstIP, DstPort, ReqId, Msg, ReqInfo) ->
-    send_request(Socket, DstIP, DstPort, ReqId, Msg, ReqInfo).
+    ergw_gtp_c_socket:send_request(Socket, Src, DstIP, DstPort, ReqId, Msg, CbInfo);
+send_request(#tunnel{socket = Socket}, Src, DstIP, DstPort, ReqId, Msg, ReqInfo) ->
+    send_request(Socket, Src, DstIP, DstPort, ReqId, Msg, ReqInfo).
 
 resend_request(#tunnel{socket = Socket}, ReqId) ->
     ergw_gtp_c_socket:resend_request(Socket, ReqId).

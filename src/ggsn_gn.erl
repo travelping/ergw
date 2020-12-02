@@ -769,7 +769,7 @@ msg(#tunnel{remote = #fq_teid{teid = RemoteCntlTEI}}, Type, RequestIEs) ->
     #gtp{version = v1, type = Type, tei = RemoteCntlTEI, ie = RequestIEs}.
 
 send_request(Tunnel, DstIP, DstPort, T3, N3, Msg, ReqInfo) ->
-    gtp_context:send_request(Tunnel, DstIP, DstPort, T3, N3, Msg, ReqInfo).
+    gtp_context:send_request(Tunnel, any, DstIP, DstPort, T3, N3, Msg, ReqInfo).
 
 send_request(#tunnel{remote = #fq_teid{ip = RemoteCntlIP}} = Tunnel, T3, N3, Msg, ReqInfo) ->
     send_request(Tunnel, RemoteCntlIP, ?GTP1c_PORT, T3, N3, Msg, ReqInfo).

@@ -1201,9 +1201,9 @@ pgw_update_context(From, Tunnel) ->
 		    ]},
 	 #v2_aggregate_maximum_bit_rate{uplink = 48128, downlink = 1704125}],
     RequestIEs = gtp_v2_c:build_recovery(Type, Tunnel, false, RequestIEs0),
-    pgw_send_request(Tunnel, ?T3, ?N3, Type, RequestIEs, From).
+    pgw_send_request(Tunnel, any, ?T3, ?N3, Type, RequestIEs, From).
 
 pgw_send_request(#tunnel{remote = #fq_teid{ip = RemoteCntlIP, teid = RemoteCntlTEI}} = Tunnel,
-		 T3, N3, Type, RequestIEs, From) ->
+		 Src, T3, N3, Type, RequestIEs, From) ->
     Msg = #gtp{version = v2, type = Type, tei = RemoteCntlTEI, ie = RequestIEs},
-    gtp_context:send_request(Tunnel, RemoteCntlIP, ?GTP2c_PORT, T3, N3, Msg, From).
+    gtp_context:send_request(Tunnel, Src, RemoteCntlIP, ?GTP2c_PORT, T3, N3, Msg, From).

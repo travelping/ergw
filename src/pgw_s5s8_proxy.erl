@@ -770,7 +770,7 @@ msg(#tunnel{remote = #fq_teid{teid = RemoteCntlTEI}}, Type, RequestIEs) ->
     #gtp{version = v2, type = Type, tei = RemoteCntlTEI, ie = RequestIEs}.
 
 send_request(Tunnel, DstIP, DstPort, T3, N3, Msg, ReqInfo) ->
-    gtp_context:send_request(Tunnel, DstIP, DstPort, T3, N3, Msg, ReqInfo).
+    gtp_context:send_request(Tunnel, any, DstIP, DstPort, T3, N3, Msg, ReqInfo).
 
 send_request(#tunnel{remote = #fq_teid{ip = RemoteCntlIP}} = Tunnel, T3, N3, Msg, ReqInfo) ->
     send_request(Tunnel, RemoteCntlIP, ?GTP2c_PORT, T3, N3, Msg, ReqInfo).
@@ -823,29 +823,30 @@ bind_forward_path(pgw2sgw, Request,
 
 forward_request(Direction, ReqKey, #gtp{seq_no = ReqSeqNo, ie = ReqIEs} = Request,
 		Tunnel, Bearer, Context,
-		#{last_trigger_id := {ReqSeqNo, LastFwdSeqNo, SrcIP, SrcPort, _}}, Data) ->
+		#{last_trigger_id :=
+		      {ReqSeqNo, LastFwdSeqNo, Src, IP, Port, _}}, Data) ->
     FwdReq = build_context_request(Tunnel, Bearer, Context, false, LastFwdSeqNo, Request),
-    ergw_proxy_lib:forward_request(Direction, Tunnel, SrcIP, SrcPort, FwdReq, ReqKey,
+    ergw_proxy_lib:forward_request(Direction, Tunnel, Src,IP, Port, FwdReq, ReqKey,
 				   ReqSeqNo, is_map_key(?'Recovery', ReqIEs), Data);
 
 forward_request(Direction, ReqKey, #gtp{seq_no = ReqSeqNo, ie = ReqIEs} = Request,
 		Tunnel, Bearer, Context, _, Data) ->
     FwdReq = build_context_request(Tunnel, Bearer, Context, false, undefined, Request),
-    ergw_proxy_lib:forward_request(Direction, Tunnel, FwdReq, ReqKey,
+    ergw_proxy_lib:forward_request(Direction, Tunnel, any, FwdReq, ReqKey,
 				   ReqSeqNo, is_map_key(?'Recovery', ReqIEs), Data).
 
-trigger_request(Tunnel, #request{ip = SrcIP, port = SrcPort} = ReqKey,
+trigger_request(Tunnel, #request{src = Src, ip = IP, port = Port} = ReqKey,
 		#gtp{seq_no = SeqNo} = Request, Data) ->
     case ergw_proxy_lib:get_seq_no(Tunnel, ReqKey, Request) of
 	{ok, FwdSeqNo} ->
-	    Data#{last_trigger_id => {FwdSeqNo, SeqNo, SrcIP, SrcPort, ReqKey}};
+	    Data#{last_trigger_id => {FwdSeqNo, SeqNo, Src, IP, Port, ReqKey}};
 	_ ->
 	    Data
     end.
 
 trigger_request_finished(#gtp{seq_no = SeqNo},
 			 #{last_trigger_id :=
-			       {_, SeqNo, _, _, CommandReqKey}}) ->
+			       {_, SeqNo, _, _, _, CommandReqKey}}) ->
     gtp_context:request_finished(CommandReqKey);
 trigger_request_finished(_, _) ->
     ok.

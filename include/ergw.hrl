@@ -134,6 +134,7 @@
 	  key		:: term(),
 	  socket	:: #socket{},
 	  info          :: #gtp_socket_info{},
+	  src		:: atom(),
 	  ip		:: inet:ip_address(),
 	  port		:: 0 .. 65535,
 	  version	:: 'v1' | 'v2',

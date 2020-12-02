@@ -552,7 +552,7 @@ send_echo_request(State, #{socket := Socket, handler := Handler, ip := DstIP,
     Msg = Handler:build_echo_request(),
     Ref = erlang:make_ref(),
     CbInfo = {?MODULE, handle_response, [self(), echo_request, Ref]},
-    ergw_gtp_c_socket:send_request(Socket, DstIP, ?GTP1c_PORT, T3, N3, Msg, CbInfo),
+    ergw_gtp_c_socket:send_request(Socket, any, DstIP, ?GTP1c_PORT, T3, N3, Msg, CbInfo),
     State#state{echo = Ref}.
 
 path_restart(RestartCounter, State, #{contexts := CtxS} = Data, Actions) ->

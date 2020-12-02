@@ -765,15 +765,15 @@ init_per_testcase(TestCase, Config)
        TestCase == modify_bearer_command_timeout ->
     setup_per_testcase(Config),
     ok = meck:expect(ergw_gtp_c_socket, send_request,
-		     fun(Socket, DstIP, DstPort, _T3, _N3,
+		     fun(Socket, Src, DstIP, DstPort, _T3, _N3,
 			 #gtp{type = Type} = Msg, CbInfo)
 			   when Type == delete_bearer_request;
 				Type == update_bearer_request ->
 			     %% reduce timeout to 1 second and 2 resends
 			     %% to speed up the test
-			     meck:passthrough([Socket, DstIP, DstPort, 1000, 2, Msg, CbInfo]);
-			(Socket, DstIP, DstPort, T3, N3, Msg, CbInfo) ->
-			     meck:passthrough([Socket, DstIP, DstPort, T3, N3, Msg, CbInfo])
+			     meck:passthrough([Socket, Src, DstIP, DstPort, 1000, 2, Msg, CbInfo]);
+			(Socket, Src, DstIP, DstPort, T3, N3, Msg, CbInfo) ->
+			     meck:passthrough([Socket, Src, DstIP, DstPort, T3, N3, Msg, CbInfo])
 		     end),
     Config;
 init_per_testcase(delete_bearer_requests_multi, Config) ->
@@ -908,7 +908,7 @@ end_per_testcase(sx_connect_fail, Config) ->
     end_per_testcase(Config),
     Config;
 end_per_testcase(delete_bearer_requests_multi, Config) ->
-    ok = meck:delete(ergw_gtp_c_socket, send_request, 7),
+    ok = meck:delete(ergw_gtp_c_socket, send_request, 8),
     end_per_testcase(Config),
     Config;
 end_per_testcase(TestCase, Config)
@@ -952,7 +952,7 @@ end_per_testcase(duplicate_session_slow, Config) ->
 end_per_testcase(TestCase, Config)
   when TestCase == delete_bearer_request_resend;
        TestCase == modify_bearer_command_timeout ->
-    ok = meck:delete(ergw_gtp_c_socket, send_request, 7),
+    ok = meck:delete(ergw_gtp_c_socket, send_request, 8),
     end_per_testcase(Config),
     Config;
 end_per_testcase(request_fast_resend, Config) ->
@@ -1226,12 +1226,12 @@ path_failure(Config) ->
 
     ClientIP = proplists:get_value(client_ip, Config),
     ok = meck:expect(ergw_gtp_c_socket, send_request,
-		     fun (_, IP, _, _, _, #gtp{type = echo_request}, CbInfo)
+		     fun (_, _, IP, _, _, _, #gtp{type = echo_request}, CbInfo)
 			   when IP =:= ClientIP ->
 			     %% simulate a Echo timeout
 			     ergw_gtp_c_socket:send_reply(CbInfo, timeout);
-			 (Socket, IP, Port, T3, N3, Msg, CbInfo) ->
-			     meck:passthrough([Socket, IP, Port, T3, N3, Msg, CbInfo])
+			 (Socket, Src, IP, Port, T3, N3, Msg, CbInfo) ->
+			     meck:passthrough([Socket, Src, IP, Port, T3, N3, Msg, CbInfo])
 		     end),
 
     gtp_path:ping(CSocket, v2, ClientIP),
@@ -1246,7 +1246,7 @@ path_failure(Config) ->
     wait4tunnels(?TIMEOUT),
     meck_validate(Config),
 
-    ok = meck:delete(ergw_gtp_c_socket, send_request, 7),
+    ok = meck:delete(ergw_gtp_c_socket, send_request, 8),
     ok.
 
 %%--------------------------------------------------------------------

@@ -13,7 +13,7 @@
 -compile({parse_transform, cut}).
 
 %% API
--export([start_link/1, info/1, send/4]).
+-export([start_link/1, info/1, send/5]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -50,9 +50,9 @@ start_link(SocketOpts) ->
 info(Socket) ->
     call(Socket, info).
 
-send(#socket{type = 'gtp-u'} = Socket, IP, Port, #gtp{} = Msg) ->
+send(#socket{type = 'gtp-u'} = Socket, _Src, IP, Port, #gtp{} = Msg) ->
     cast(Socket, make_send_req(IP, Port, Msg));
-send(#socket{type = 'gtp-u'} = Socket, IP, Port, Data) ->
+send(#socket{type = 'gtp-u'} = Socket, _Src, IP, Port, Data) ->
     cast(Socket, {send, IP, Port, Data}).
 
 %%%===================================================================
@@ -152,7 +152,7 @@ make_send_req(Address, Port, Msg) ->
       }.
 
 make_request(IP, Port, Msg, #state{gtp_socket = Socket, info = Info}) ->
-    ergw_gtp_socket:make_request(0, IP, Port, Msg, Socket, Info).
+    ergw_gtp_socket:make_request(0, gtp, IP, Port, Msg, Socket, Info).
 
 handle_input(Socket, Info, #state{burst_size = BurstSize} = State) ->
     handle_input(Socket, Info, BurstSize, State).
