@@ -560,6 +560,10 @@ end_per_suite(_Config) ->
 
 init_per_group(sx_fail, Config) ->
     [{upf, false} | Config];
+init_per_group(single_socket, Config) ->
+    AppCfg0 = proplists:get_value(app_cfg, Config),
+    AppCfg = set_cfg_value([ergw, sockets, 'irx-socket', split_sockets], false, AppCfg0),
+    lists:keystore(app_cfg, 1, Config, {app_cfg, AppCfg});
 init_per_group(ipv6, Config0) ->
     case ergw_test_lib:has_ipv6_test_config() of
 	true ->
@@ -575,7 +579,8 @@ init_per_group(ipv4, Config0) ->
 end_per_group(Group, Config)
   when Group == ipv4; Group == ipv6 ->
     ok = lib_end_per_suite(Config);
-end_per_group(sx_fail, _Config) ->
+end_per_group(Group, _Config)
+  when Group == sx_fail; Group == single_socket ->
     ok.
 
 common() ->
@@ -666,18 +671,27 @@ common() ->
 sx_fail() ->
     [sx_connect_fail].
 
+single_socket() ->
+    [simple_session_request,
+     modify_bearer_command,
+     modify_bearer_command_resend,
+     modify_bearer_command_timeout,
+     modify_bearer_command_congestion].
+
 groups() ->
     [{ipv4, [], common()},
      {ipv6, [], common()},
      {sx_fail, [{ipv4, [], sx_fail()},
-		{ipv6, [], sx_fail()}]
-     }
+		{ipv6, [], sx_fail()}]},
+     {single_socket, [{ipv4, [], single_socket()},
+		      {ipv6, [], single_socket()}]}
     ].
 
 all() ->
     [{group, ipv4},
      {group, ipv6},
-     {group, sx_fail}].
+     {group, sx_fail},
+     {group, single_socket}].
 
 %%%===================================================================
 %%% Tests
