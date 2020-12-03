@@ -139,11 +139,21 @@ call(#socket{pid = Handler}, Request) ->
 %%% gen_server callbacks
 %%%===================================================================
 
-init(#{name := Name, ip := IP, burst_size := BurstSize} = SocketOpts) ->
+init(#{name := Name, ip := IP, burst_size := BurstSize,
+       split_sockets := SplitSockets} = SocketOpts) ->
     process_flag(trap_exit, true),
 
     {ok, RecvSocket} = ergw_gtp_socket:make_gtp_socket(IP, ?GTP1c_PORT, SocketOpts),
-    {ok, SendSocket} = ergw_gtp_socket:make_gtp_socket(IP, 0, SocketOpts),
+    SendSocket =
+	case SplitSockets of
+	    true ->
+		{ok, SndSocket} = ergw_gtp_socket:make_gtp_socket(IP, 0, SocketOpts),
+		self() ! {'$socket', SndSocket, select, undefined},
+		SndSocket;
+	    false ->
+		RecvSocket
+	end,
+
     VRF = case SocketOpts of
 	      #{vrf := VRF0} when is_binary(VRF0) ->
 		  VRF0;
@@ -175,7 +185,6 @@ init(#{name := Name, ip := IP, burst_size := BurstSize} = SocketOpts) ->
 	       unique_id = rand:uniform(16#ffffffff)
 	      },
     self() ! {'$socket', RecvSocket, select, undefined},
-    self() ! {'$socket', SendSocket, select, undefined},
     {ok, State}.
 
 handle_call(info, _From, #state{info = Info} = State) ->
@@ -279,7 +288,10 @@ handle_info(Info, State) ->
 
 terminate(_Reason, #state{recv_socket = RecvSocket, send_socket = SendSocket} = _State) ->
     socket:close(RecvSocket),
-    socket:close(SendSocket),
+    case SendSocket of
+	RecvSocket -> ok;
+	_ -> socket:close(SendSocket)
+    end,
     ok.
 
 code_change(_OldVsn, State, _Extra) ->
