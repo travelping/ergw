@@ -558,30 +558,33 @@ init_per_suite(Config0) ->
 end_per_suite(_Config) ->
     ok.
 
+init_per_group(common, Config) ->
+    lib_init_per_suite(Config);
 init_per_group(sx_fail, Config) ->
-    [{upf, false} | Config];
-init_per_group(single_socket, Config) ->
-    AppCfg0 = proplists:get_value(app_cfg, Config),
+    lib_init_per_suite([{upf, false} | Config]);
+init_per_group(single_socket, Config0) ->
+    AppCfg0 = proplists:get_value(app_cfg, Config0),
     AppCfg = set_cfg_value([ergw, sockets, 'irx-socket', split_sockets], false, AppCfg0),
-    lists:keystore(app_cfg, 1, Config, {app_cfg, AppCfg});
-init_per_group(ipv6, Config0) ->
+    Config = lists:keystore(app_cfg, 1, Config0, {app_cfg, AppCfg}),
+    lib_init_per_suite(Config);
+init_per_group(ipv6, Config) ->
     case ergw_test_lib:has_ipv6_test_config() of
 	true ->
-	    Config = update_app_config(ipv6, ?CONFIG_UPDATE, Config0),
-	    lib_init_per_suite(Config);
+	    update_app_config(ipv6, ?CONFIG_UPDATE, Config);
 	_ ->
 	    {skip, "IPv6 test IPs not configured"}
     end;
-init_per_group(ipv4, Config0) ->
-    Config = update_app_config(ipv4, ?CONFIG_UPDATE, Config0),
-    lib_init_per_suite(Config).
+init_per_group(ipv4, Config) ->
+    update_app_config(ipv4, ?CONFIG_UPDATE, Config).
 
-end_per_group(Group, Config)
-  when Group == ipv4; Group == ipv6 ->
-    ok = lib_end_per_suite(Config);
 end_per_group(Group, _Config)
-  when Group == sx_fail; Group == single_socket ->
-    ok.
+  when Group == ipv4; Group == ipv6 ->
+    ok;
+end_per_group(Group, Config)
+  when Group == common;
+       Group == sx_fail;
+       Group == single_socket ->
+    ok = lib_end_per_suite(Config).
 
 common() ->
     [invalid_gtp_pdu,
@@ -679,19 +682,15 @@ single_socket() ->
      modify_bearer_command_congestion].
 
 groups() ->
-    [{ipv4, [], common()},
-     {ipv6, [], common()},
-     {sx_fail, [{ipv4, [], sx_fail()},
-		{ipv6, [], sx_fail()}]},
-     {single_socket, [{ipv4, [], single_socket()},
-		      {ipv6, [], single_socket()}]}
-    ].
+    [{common, [], common()},
+     {sx_fail, [], sx_fail()},
+     {single_socket, [], single_socket()},
+     {ipv4, [], [{group, common}, {group, sx_fail}, {group, single_socket}]},
+     {ipv6, [], [{group, common}, {group, sx_fail}, {group, single_socket}]}].
 
 all() ->
     [{group, ipv4},
-     {group, ipv6},
-     {group, sx_fail},
-     {group, single_socket}].
+     {group, ipv6}].
 
 %%%===================================================================
 %%% Tests
