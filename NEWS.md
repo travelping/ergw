@@ -1,6 +1,17 @@
 erGW - 3GPP GGSN and PDN-GW in Erlang
 =====================================
 
+Version 2.8.2 - 10 December 2020
+-------------------------------
+
+* CT: change the nested groups in the GTP suites - [PR #276](https://github.com/travelping/ergw/pull/276)
+* A collection of small CT fixes - [PR #274](https://github.com/travelping/ergw/pull/274)
+* Use random `udp` source port for `GTP-C` requests - [PR #273](https://github.com/travelping/ergw/pull/273)
+* Fix reading from socket error queue - [PR #272](https://github.com/travelping/ergw/pull/272)
+* Updated [ergw_aaa](https://github.com/travelping/ergw_aaa) tag to [3.6.4](https://github.com/travelping/ergw_aaa/releases/tag/3.6.4) - [PR #271](https://github.com/travelping/ergw/pull/271)
+* Improve session termination reason handling - [PR #271](https://github.com/travelping/ergw/pull/271)
+* Add miss test case of proxy_lib_SUITE - [PR #270](https://github.com/travelping/ergw/pull/270)
+
 Version 2.8.1 - 25 November 2020
 -------------------------------
 
