@@ -26,7 +26,7 @@ The following metrics exist:
 | gtp\_u\_socket\_messages\_processed\_total      | counter   | name, direction, version, type                 | Total number of GTP message processed on socket          |
 | ergw\_local\_pool\_free                         | gauge     | name, type, id                                 | Number of free IPs                                       |
 | ergw\_local\_pool\_used                         | gauge     | name, type, id                                 | Number of used IPs                                       |
-| termination\_cause\_total                       | counter   | name, api, type                                | Total number of termination causes                       |
+| termination\_cause\_total                       | counter   | api, reason                                    | Total number of termination causes                       |
 
 The label `name` is is taken from the configuration of the GTP socket and PeerIP is the IP address of
 the peer GSN.
@@ -202,7 +202,7 @@ The label `type` is the Termination Causes types. For Termination causes the fol
 | peer_restart          | The session is terminated because remote peer restart was detected one of the GTP peer connections the session is associated to |
 | cp_inactivity_timeout | The session had no Control Plane (GTP-C) activity within the configured session inactivity timeout |
 | up_inactivity_timeout | User plane has reported that the session had no user data transfer withing the configured session inactivity timeout |
-| asr                   | One of the `AAA` interfaces (Gx, Gy, Ro) has disconnected the session |
+| 'ASR'                 | One of the `AAA` interfaces (Gx, Gy, Ro) has disconnected the session |
 | error                 | An unidentified error has been returned for an AAA request |
 | req_timeout           | An `AAA` request related to the session has timed out. :warning: **Note** : that this is only triggered when the `AAA` handler has no configured default answer for this error |
 | conn_error            | An `AAA` request related to the session failed because of no connection available. :warning: **Note** : that this is only triggered when the `AAA` handler has no configured default answer for this error |
