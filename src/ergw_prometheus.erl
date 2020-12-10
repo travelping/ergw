@@ -110,8 +110,8 @@ declare() ->
 
     %% Termination cause metrics
     prometheus_counter:declare([{name, termination_cause_total},
-                  {labels, [name, type]},
-                  {help, "Total number of termination causes"}]),
+				{labels, [api, reason]},
+				{help, "Total number of termination causes"}]),
     ok.
 
 %%%===================================================================

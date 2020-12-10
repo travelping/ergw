@@ -36,6 +36,7 @@
 
 -import(ergw_aaa_session, [to_session/1]).
 
+-define(API, 's5/s8').
 -define(GTP_v1_Interface, ggsn_gn).
 -define(T3, 10 * 1000).
 -define(N3, 5).
@@ -383,7 +384,7 @@ handle_request(ReqKey,
     case match_tunnel(?'S5/S8-C SGW', LeftTunnel, FqTEID) of
 	ok ->
 	    process_secondary_rat_usage_data_reports(IEs, Context, Session),
-	    ergw_gtp_gsn_lib:close_context(normal, Data),
+	    ergw_gtp_gsn_lib:close_context(?API, normal, Data),
 	    Response = response(delete_session_response, LeftTunnel, request_accepted),
 	    gtp_context:send_response(ReqKey, Request, Response),
 	    {next_state, shutdown, Data};
@@ -432,7 +433,7 @@ handle_response(_, timeout, #gtp{type = update_bearer_request}, connected = Stat
 
 handle_response({From, TermCause}, timeout, #gtp{type = delete_bearer_request},
 		_State, Data) ->
-    ergw_gtp_gsn_lib:close_context(TermCause, Data),
+    ergw_gtp_gsn_lib:close_context(?API, TermCause, Data),
     if is_tuple(From) -> gen_statem:reply(From, {error, timeout});
        true -> ok
     end,
@@ -449,7 +450,7 @@ handle_response({From, TermCause},
     DataNew = Data#{left_tunnel => LeftTunnel},
 
     process_secondary_rat_usage_data_reports(IEs, Context, Session),
-    ergw_gtp_gsn_lib:close_context(TermCause, DataNew),
+    ergw_gtp_gsn_lib:close_context(?API, TermCause, DataNew),
     if is_tuple(From) -> gen_statem:reply(From, {ok, RespCause});
        true -> ok
     end,
@@ -527,7 +528,7 @@ encode_paa(Type, IPv4, IPv6) ->
     #v2_pdn_address_allocation{type = Type, address = <<IPv6/binary, IPv4/binary>>}.
 
 close_context(_Side, Reason, _State, Data) ->
-    ergw_gtp_gsn_lib:close_context(Reason, Data).
+    ergw_gtp_gsn_lib:close_context(?API, Reason, Data).
 
 map_attr('APN', #{?'Access Point Name' := #v2_access_point_name{apn = APN}}) ->
     unicode:characters_to_binary(lists:join($., APN));

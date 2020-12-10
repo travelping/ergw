@@ -4911,6 +4911,8 @@ gy_async_stop() ->
     [{doc, "Check that a error/stop from async session call terminates the context"}].
 gy_async_stop(Config) ->
     Cntl = whereis(gtpc_client_server),
+    MfrId = [gy, peer_reject],
+    MfrCnt = get_metric(prometheus_counter, termination_cause_total, MfrId, 0),
 
     {GtpC, _, _} = create_session(Config),
 
@@ -4923,6 +4925,8 @@ gy_async_stop(Config) ->
     ?equal([], outstanding_requests()),
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     wait4contexts(?TIMEOUT),
+
+    ?match_metric(prometheus_counter, termination_cause_total, MfrId, MfrCnt + 1),
 
     meck_validate(Config),
     ok.
