@@ -41,6 +41,7 @@
 
 -import(ergw_aaa_session, [to_session/1]).
 
+-define(API, tdf).
 -define(SERVER, ?MODULE).
 -define(TestCmdTag, '$TestCmd').
 
@@ -235,9 +236,9 @@ handle_event(info, #aaa_request{procedure = {_, 'RAR'}} = Request, shutdown, _Da
     ergw_aaa_session:response(Request, {error, unknown_session}, #{}, #{}),
     keep_state_and_data;
 
-handle_event(info, #aaa_request{procedure = {API, 'ASR'}} = Request, State, Data) ->
+handle_event(info, #aaa_request{procedure = {_, 'ASR'} = Procedure} = Request, State, Data) ->
     ergw_aaa_session:response(Request, ok, #{}, #{}),
-    close_pdn_context({API, asr}, State, Data),
+    close_pdn_context(Procedure, State, Data),
     {next_state, shutdown, Data};
 
 handle_event(info, #aaa_request{procedure = {gx, 'RAR'},
@@ -325,8 +326,8 @@ handle_event(info, #aaa_request{procedure = {gy, 'RAR'},
     keep_state_and_data;
 
 %% Enable AAA to provide reason for session stop
-handle_event(internal, {session, {stop, {_, _} = APIAndReason}, _Session}, State, Data) ->
-    close_pdn_context(APIAndReason, State, Data),
+handle_event(internal, {session, {stop, Reason}, _Session}, State, Data) ->
+    close_pdn_context(Reason, State, Data),
     {next_state, shutdown, Data};
 
 handle_event(internal, {session, stop, _Session}, State, Data) ->
@@ -508,9 +509,10 @@ ccr_initial(Session, API, SessionOpts, ReqOpts) ->
 	    {error, {'CCR-Initial', Fail}}
     end.
 
-close_pdn_context(MaybeReason, run, #data{pfcp = PCtx, session = Session}) ->
-    {API, Reason} = ergw_gsn_lib:to_api_and_reason(MaybeReason, ?MODULE),
-    URRs = ergw_pfcp_context:delete_session(Reason, PCtx),
+close_pdn_context(Reason, State, Data) when is_atom(Reason) ->
+    close_pdn_context({?API, Reason}, State, Data);
+close_pdn_context({API, TermCause}, run, #data{pfcp = PCtx, session = Session}) ->
+    URRs = ergw_pfcp_context:delete_session(TermCause, PCtx),
 
     %% TODO: Monitors, AAA over SGi
 
@@ -525,14 +527,14 @@ close_pdn_context(MaybeReason, run, #data{pfcp = PCtx, session = Session}) ->
 	    ?LOG(warning, "Gx terminate failed with: ~p", [GxOther])
     end,
 
-    ChargeEv = {terminate, Reason},
+    ChargeEv = {terminate, TermCause},
     {Online, Offline, Monitor} =
 	ergw_pfcp_context:usage_report_to_charging_events(URRs, ChargeEv, PCtx),
     ergw_gsn_lib:process_accounting_monitor_events(ChargeEv, Monitor, Now, Session),
     GyReqServices = ergw_gsn_lib:gy_credit_report(Online),
     ergw_gsn_lib:process_online_charging_events(ChargeEv, GyReqServices, Session, ReqOpts),
     ergw_gsn_lib:process_offline_charging_events(ChargeEv, Offline, Now, Session),
-    ergw_prometheus:termination_cause(?FUNCTION_NAME, API, Reason),
+    ergw_prometheus:termination_cause(API, TermCause),
 
     ok;
 close_pdn_context(_Reason, _State, _Data) ->

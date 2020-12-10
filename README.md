@@ -85,7 +85,7 @@ Example of configuration **RADIUS**:
                 {remote_failure, 9},
                 {cp_inactivity_timeout, 4},
                 {up_inactivity_timeout, 4},
-                {asr, 6},
+                {'ASR', 6},
                 {error, 9},
                 {peer_restart, 7}
             ]}
@@ -172,7 +172,7 @@ Example of configuration **ergw-pgw-epc-rf** `function` of **DIAMETER**:
             {remote_failure, 1},   
             {cp_inactivity_timeout, 4},
             {up_inactivity_timeout, 4},
-            {asr, 6},
+            {'ASR', 6},
             {error, 9},
             {peer_restart, 1} 
         ]}
