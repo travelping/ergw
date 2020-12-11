@@ -63,6 +63,10 @@ validate_option(ip, Value)
   when is_tuple(Value) andalso
        (tuple_size(Value) == 4 orelse tuple_size(Value) == 8) ->
     Value;
+validate_option(cluster_ip, Value)
+  when is_tuple(Value) andalso
+       (tuple_size(Value) == 4 orelse tuple_size(Value) == 8) ->
+    Value;
 validate_option(netdev, Value) when is_list(Value) ->
     Value;
 validate_option(netdev, Value) when is_binary(Value) ->

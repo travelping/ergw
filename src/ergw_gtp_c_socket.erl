@@ -168,9 +168,10 @@ init(#{name := Name, ip := IP, burst_size := BurstSize,
 	  },
     ergw_socket_reg:register('gtp-c', Name, GtpSocket),
 
+    SrvIP = maps:get(cluster_ip, SocketOpts, IP),
     State = #state{
 	       gtp_socket = GtpSocket,
-	       info = #gtp_socket_info{vrf = VRF, ip = IP},
+	       info = #gtp_socket_info{vrf = VRF, ip = SrvIP},
 
 	       recv_socket = RecvSocket,
 	       send_socket = SendSocket,
