@@ -10,9 +10,11 @@
 -compile([{parse_transform, cut}]).
 
 %% API
--export([peer/1, tunnel/1, contexts/1, delete_contexts/1, memory/1]).
+-export([peer/1, tunnel/1, contexts/1, delete_contexts/1,
+	 memory/1, ring_status/0, member_status/0]).
 
--ignore_xref([peer/1, tunnel/1, memory/1]).
+-ignore_xref([peer/1, tunnel/1, memory/1,
+	      ring_status/0, member_status/0]).
 
 -include("include/ergw.hrl").
 
@@ -57,6 +59,13 @@ memory(Limit0) ->
     LProcS = lists:sublist(lists:reverse(lists:keysort(3, Summary)), Limit),
     io:format("~s~n", [fmt_process_summary("ProcessSummary", LProcS)]),
     ok.
+
+ring_status() ->
+    {ok, Ring} = riak_core_ring_manager:get_my_ring(),
+    riak_core_ring:pretty_print(Ring, [legend]).
+
+member_status() ->
+    riak_core_console:member_status([]).
 
 %%%===================================================================
 %%% Internal functions
