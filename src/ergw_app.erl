@@ -24,7 +24,7 @@ start(_StartType, _StartArgs) ->
 	   Config <- ergw_config:load(),
 	   ergw_prometheus:declare(),
 	   ensure_jobs_queues(),
-	   %% riak_core:register([{vnode_module, gtp_context_vnode}]),
+	   riak_core:register([{vnode_module, gtp_context_reg_vnode}]),
 	   riak_core_node_watcher:service_up(ergw, self()),
 	   Pid <- ergw_sup:start_link(Config),
 	   ergw_config:apply(Config),
