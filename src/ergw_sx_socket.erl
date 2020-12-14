@@ -492,7 +492,7 @@ handle_response(ArrivalTS, IP, _Port, #pfcp{seq_no = SeqNo} = Msg,
 	    State;
 
 	#send_req{} = SendReq ->
-	    ?log_pfcp(info, "~p: found response: ~p: ", [self(), SeqNo], Msg),
+	    ?log_pfcp(debug, "~p: found response: ~p: ", [self(), SeqNo], Msg),
 	    measure_response(State0, SendReq, ArrivalTS),
 	    send_request_reply(SendReq, Msg),
 	    State
@@ -552,7 +552,7 @@ cancel_timer(Ref) ->
 prepare_send_req(#send_req{msg = Msg0} = SendReq, State0) ->
     ?LOG(debug, "PrepSend: ~p", [SendReq]),
     {Msg, State} = new_sequence_number(Msg0, State0),
-    ?log_pfcp(info, "PrepSend: ", [], Msg),
+    ?log_pfcp(debug, "PrepSend: ", [], Msg),
     BinMsg = pfcp_packet:encode(Msg),
     {SendReq#send_req{msg = Msg, data = BinMsg}, State}.
 
