@@ -256,7 +256,9 @@ all() ->
      http_api_status_accept_new_post_req,
      http_api_prometheus_metrics_req,
      http_api_delete_sessions,
-     http_api_delete_all_sessions
+     http_api_delete_all_sessions,
+     http_api_delete_all_sessions_by_criteria,
+     http_api_delete_all_sessions_by_upf_fqdn_criteria
     ].
 
 %%%===================================================================
@@ -281,7 +283,11 @@ end_per_testcase(_Config) ->
 
 init_per_testcase(Config) ->
     meck_reset(Config).
-init_per_testcase(TestCase, Config) when TestCase =:= http_api_delete_sessions; TestCase =:= http_api_delete_all_sessions ->
+init_per_testcase(TestCase, Config) when
+  TestCase =:= http_api_delete_sessions;
+  TestCase =:= http_api_delete_all_sessions;
+  TestCase =:= http_api_delete_all_sessions_by_criteria;
+  TestCase =:= http_api_delete_all_sessions_by_upf_fqdn_criteria ->
     ct:pal("Sockets: ~p", [ergw_socket_reg:all()]),
     setup_per_testcase(Config),
     ok = meck:expect(?HUT, handle_request,
@@ -296,7 +302,11 @@ init_per_testcase(_, Config) ->
     init_per_testcase(Config),
     Config.
 
-end_per_testcase(TestCase, Config) when TestCase =:= http_api_delete_sessions; TestCase =:= http_api_delete_all_sessions ->
+end_per_testcase(TestCase, Config) when
+  TestCase =:= http_api_delete_sessions;
+  TestCase =:= http_api_delete_all_sessions;
+  TestCase =:= http_api_delete_all_sessions_by_criteria;
+  TestCase =:= http_api_delete_all_sessions_by_upf_fqdn_criteria ->
     end_per_testcase(Config),
     Config;
 end_per_testcase(_, Config) ->
@@ -414,6 +424,44 @@ http_api_delete_all_sessions(Config) ->
     {GtpC1, _, _} = create_pdp_context(random, GtpC0),
     ContextsCount = length(ergw_api:contexts(all)),
     Res = json_http_request(delete, "/api/v1/contexts"),
+    ?match(#{<<"contexts">> := ContextsCount}, Res),
+    ok = respond_delete_pdp_context_request([GtpC0, GtpC1], whereis(gtpc_client_server)),
+    wait4tunnels(?TIMEOUT),
+    ?match(0, length(ergw_api:contexts(all))),
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    ?match(0, meck:num_calls(?HUT, handle_request, ['_', '_', true, '_', '_'])),
+    meck_validate(Config),
+    ok.
+
+http_api_delete_all_sessions_by_criteria() ->
+    [{doc, "Check DELETE /contexts API - delete contexts by criteria"}].
+http_api_delete_all_sessions_by_criteria(Config) ->
+    {GtpC0, {_, _, _, _, _, _, _, Data0}, _} = create_pdp_context(Config),
+    {GtpC1, {_, _, _, _, _, _, _, Data1}, _} = create_pdp_context(random, GtpC0),
+    ContextsCount = length(ergw_api:contexts(all)),
+    IMSI0 = [ binary_to_list(I) || {international_mobile_subscriber_identity, _, I} <- Data0],
+    IMSI1 = [ binary_to_list(I) || {international_mobile_subscriber_identity, _, I} <- Data1],
+    Base = "/api/v1/contexts?version=v1&imsi=",
+    Rest = "&upf-fqdn=prox01%2Eepc%2Emnc001%2Emcc001%2E3gppnetwork%2Eorg",
+    _ = json_http_request(delete, Base ++ IMSI0 ++ Rest),
+    Res = json_http_request(delete, Base ++ IMSI1 ++ Rest),
+    ?match(#{<<"contexts">> := ContextsCount}, Res),
+    ok = respond_delete_pdp_context_request([GtpC0, GtpC1], whereis(gtpc_client_server)),
+    wait4tunnels(?TIMEOUT),
+    ?match(0, length(ergw_api:contexts(all))),
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    ?match(0, meck:num_calls(?HUT, handle_request, ['_', '_', true, '_', '_'])),
+    meck_validate(Config),
+    ok.
+
+http_api_delete_all_sessions_by_upf_fqdn_criteria() ->
+    [{doc, "Check DELETE /contexts API - delete contexts by 'upf-fqdn' criteria"}].
+http_api_delete_all_sessions_by_upf_fqdn_criteria(Config) ->
+    {GtpC0, _, _} = create_pdp_context(Config),
+    {GtpC1, _, _} = create_pdp_context(random, GtpC0),
+    ContextsCount = length(ergw_api:contexts(all)),
+    Path = "/api/v1/contexts?&upf-fqdn=prox01.epc.mnc001.mcc001.3gppnetwork.org",
+    Res = json_http_request(delete, Path),
     ?match(#{<<"contexts">> := ContextsCount}, Res),
     ok = respond_delete_pdp_context_request([GtpC0, GtpC1], whereis(gtpc_client_server)),
     wait4tunnels(?TIMEOUT),

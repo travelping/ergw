@@ -47,6 +47,10 @@ delete_contexts(all) ->
     lists:foreach(fun(Context) ->
         gtp_context:trigger_delete_context(Context)
     end, contexts(all));
+delete_contexts(#{} = Criteria) ->
+    lists:foreach(fun(Context) ->
+        delete_context_by_criteria(Criteria, gtp_context:info(Context), Context)
+    end, contexts(all));
 delete_contexts(Count) ->
     delete_contexts(contexts(all), Count).
 
@@ -127,3 +131,22 @@ fmt_process_summary(Head, Summary) ->
 		    [mfa(I), Cnt, units(Sum), units(Min), units(Max),
 		     units(Sum/Cnt), units(math:exp(Log / Cnt))])
       || {I, Cnt, Sum, Log, Min, Max} <- Summary]].
+
+delete_context_by_criteria(#{version := Version, 'upf-fqdn' := UPF_FQDN, imsi := IMSI},
+                           #{version := Version, pfcp := #pfcp_ctx{name = PFCP_CTX_NAME}, context := #context{imsi = IMSI}},
+                           Context) ->
+    delete_context_by_upf_fqdn(PFCP_CTX_NAME, UPF_FQDN, Context);
+delete_context_by_criteria(#{'upf-fqdn' := UPF_FQDN},
+                           #{pfcp := #pfcp_ctx{name = PFCP_CTX_NAME}},
+                           Context) ->
+    delete_context_by_upf_fqdn(PFCP_CTX_NAME, UPF_FQDN, Context);
+delete_context_by_criteria(_, _, _) ->
+    ok.
+
+delete_context_by_upf_fqdn(PFCP_CTX_NAME, UPF_FQDN, Context) ->
+    case catch re:run(PFCP_CTX_NAME, UPF_FQDN) of
+        nomatch ->
+            ok;
+        _ ->
+            gtp_context:trigger_delete_context(Context)
+    end.

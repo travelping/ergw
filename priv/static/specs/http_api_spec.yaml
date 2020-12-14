@@ -55,6 +55,25 @@ paths:
   /contexts:
     delete:
       summary: 'delete all contexts'
+      parameters:
+        - name: version
+          in: query
+          required: false
+          type: string
+          description: 'Version'
+          default: 'v1'
+        - name: imsi
+          in: query
+          required: false
+          type: integer
+          description: 'International Mobile Subscriber Identity'
+          default: '111111111111111'
+        - name: upf-fqdn
+          in: query
+          required: false
+          type: string
+          description: 'The UPF FQDN will be used as regex'
+          default: 'prox01.epc.mnc001.mcc001.3gppnetwork.org'
       responses:
         '200':
           description: return count of contexts

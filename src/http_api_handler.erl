@@ -92,7 +92,16 @@ handle_request(<<"POST">>, _, json, Req, State) ->
     end;
 
 handle_request(<<"DELETE">>, <<"/api/v1/contexts">>, json, Req, State) ->
-    ok = ergw_api:delete_contexts(all),
+    case cowboy_req:parse_qs(Req) of
+        [] ->
+            ergw_api:delete_contexts(all);
+        Qs ->
+            ergw_api:delete_contexts(#{
+                version    => list_to_existing_atom(binary_to_list(proplists:get_value(<<"version">>, Qs, <<>>))),
+                'upf-fqdn' => binary_to_list(proplists:get_value(<<"upf-fqdn">>, Qs, <<>>)),
+                imsi       => proplists:get_value(<<"imsi">>, Qs, <<>>)
+            })
+    end,
     Response = jsx:encode(#{contexts => length(ergw_api:contexts(all))}),
     Req2 = cowboy_req:set_resp_body(Response, Req),
     {true, Req2, State};
