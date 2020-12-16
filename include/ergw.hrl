@@ -172,3 +172,7 @@
 	  ip                        :: {inet:ip4_address(),1..32}|
 				       {inet:ip6_address(),1..128}
 	}).
+
+-record(seid_key, {seid}).
+-record(context_key, {socket, id}).
+-record(socket_teid_key, {name, type, teid}).

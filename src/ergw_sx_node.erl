@@ -183,7 +183,7 @@ init([Parent, Node, NodeSelect, IP4, IP6, NotifyUp]) ->
 
     RegKeys =
 	[gtp_context:socket_teid_key(Socket, TEI),
-	 {seid, SEID}],
+	 #seid_key{seid = SEID}],
     gtp_context_reg:register(RegKeys, ?MODULE, self()),
 
     Nodes = setup:get_env(ergw, nodes, #{}),

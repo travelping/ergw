@@ -1013,9 +1013,10 @@ ggsn_broken_recovery() ->
     [{doc, "Check that Create PDP Context Request works and "
            "that a GGSN Restart terminates the session"}].
 ggsn_broken_recovery(Config) ->
+    CtxKey = #context_key{socket = 'irx', id = {imsi, ?'IMSI', 5}},
     {GtpC, _, _} = create_pdp_context(Config),
 
-    {_Handler, CtxPid} = gtp_context_reg:lookup({'irx', {imsi, ?'IMSI', 5}}),
+    {_Handler, CtxPid} = gtp_context_reg:lookup(CtxKey),
     #{right_tunnel := #tunnel{socket = CSocket}} = gtp_context:info(CtxPid),
 
     FinalGSN = proplists:get_value(final_gsn, Config),
@@ -1049,10 +1050,12 @@ path_failure_to_ggsn() ->
       "that a path failure (Echo timeout) terminates the session"}].
 path_failure_to_ggsn(Config) ->
     Cntl = whereis(gtpc_client_server),
+    CtxKey = #context_key{socket = 'irx', id = {imsi, ?'IMSI', 5}},
+    RemoteCtxKey = #context_key{socket = 'remote-irx', id = {imsi, ?'PROXY-IMSI', 5}},
 
     {GtpC, _, _} = create_pdp_context(Config),
 
-    {_Handler, CtxPid} = gtp_context_reg:lookup({'irx', {imsi, ?'IMSI', 5}}),
+    {_Handler, CtxPid} = gtp_context_reg:lookup(CtxKey),
     #{right_tunnel := #tunnel{socket = CSocket}} = gtp_context:info(CtxPid),
 
     FinalGSN = proplists:get_value(final_gsn, Config),
@@ -1077,7 +1080,7 @@ path_failure_to_ggsn(Config) ->
     ct:sleep(100),
     delete_pdp_context(not_found, GtpC),
 
-    {_Handler, Server} = gtp_context_reg:lookup({'remote-irx', {imsi, ?'PROXY-IMSI', 5}}),
+    {_Handler, Server} = gtp_context_reg:lookup(RemoteCtxKey),
     true = is_pid(Server),
     %% killing the GGSN context
     exit(Server, kill),
@@ -1103,12 +1106,13 @@ path_failure_to_ggsn_and_restore() ->
       "and is later restored with a valid echo"}].
 path_failure_to_ggsn_and_restore(Config) ->
     Cntl = whereis(gtpc_client_server),
+    CtxKey = #context_key{socket = 'irx', id = {imsi, ?'IMSI', 5}},
 
     lists:foreach(fun({_, Pid, _}) -> gtp_path:stop(Pid) end, gtp_path_reg:all()),
 
     {GtpC, _, _} = create_pdp_context(Config),
 
-    {_Handler, CtxPid} = gtp_context_reg:lookup({'irx', {imsi, ?'IMSI', 5}}),
+    {_Handler, CtxPid} = gtp_context_reg:lookup(CtxKey),
     #{right_tunnel := #tunnel{socket = CSocket}} = gtp_context:info(CtxPid),
 
     FinalGSN = proplists:get_value(final_gsn, Config),
@@ -1167,9 +1171,10 @@ path_failure_to_sgsn() ->
     [{doc, "Check that Create PDP Context works and "
       "that a path failure (Echo timeout) terminates the session"}].
 path_failure_to_sgsn(Config) ->
+    CtxKey = #context_key{socket = 'irx', id = {imsi, ?'IMSI', 5}},
     {GtpC, _, _} = create_pdp_context(Config),
 
-    {_Handler, CtxPid} = gtp_context_reg:lookup({'irx', {imsi, ?'IMSI', 5}}),
+    {_Handler, CtxPid} = gtp_context_reg:lookup(CtxKey),
     #{left_tunnel := #tunnel{socket = CSocket}} = gtp_context:info(CtxPid),
 
     ClientIP = proplists:get_value(client_ip, Config),
@@ -1280,7 +1285,8 @@ create_lb_multi_context(Config) ->
 	    {GtpC1, _, _} = create_pdp_context(#{apn => ?'APN-LB-1'}, GtpC0),
 
 	    CntS = lists:foldl(
-		     fun({{_,{teid,'gtp-c',{fq_teid, PeerIP,_}}},_}, M)
+		     fun({#socket_teid_key{
+			     type = 'gtp-c', teid = #fq_teid{ip = PeerIP}}, _}, M)
 			   when is_map_key(PeerIP, M) ->
 			     maps:update_with(PeerIP, fun(C) -> C + 1 end, 1, M);
 			(_, M) -> M
@@ -1338,7 +1344,9 @@ one_lb_node_down(Config) ->
     GtpCs0 = make_gtp_contexts(?NUM_OF_CLIENTS, Config),
     GtpCs1 = lists:map(fun(GtpC0) -> create_pdp_context(random, GtpC0) end, GtpCs0),
 
-    PgwFqTeids = [X || {{_,{teid,'gtp-c',{fq_teid, PeerIP,_}}},_} =
+
+
+    PgwFqTeids = [X || {#socket_teid_key{type = 'gtp-c', teid = #fq_teid{ip = PeerIP}}, _} =
 			   X <- gtp_context_reg:all(), PeerIP == DownGSN],
     ?match(0, length(PgwFqTeids)), % Check no connection to down peer
 
@@ -1390,12 +1398,13 @@ create_pdp_context_request_resend(Config) ->
 create_pdp_context_proxy_request_resend() ->
     [{doc, "Check that the proxy does not send the Create PDP Context Request multiple times"}].
 create_pdp_context_proxy_request_resend(Config) ->
+    CtxKey = #context_key{socket = 'irx', id = {imsi, ?'IMSI', 5}},
     GtpC = gtp_context(Config),
     Request = make_request(create_pdp_context_request, simple, GtpC),
 
     ?equal({error,timeout}, send_recv_pdu(GtpC, Request, 2 * 1000, error)),
 
-    {_Handler, Server} = gtp_context_reg:lookup({'irx', {imsi, ?'IMSI', 5}}),
+    {_Handler, Server} = gtp_context_reg:lookup(CtxKey),
     true = is_pid(Server),
 
     %% killing the proxy PGW context
@@ -1411,13 +1420,14 @@ create_pdp_context_request_timeout() ->
     [{doc, "Check that the proxy does shutdown the context on timeout"}].
 create_pdp_context_request_timeout(Config) ->
     %% logger:set_primary_config(level, debug),
+    CtxKey = #context_key{socket = 'irx', id = {imsi, ?'IMSI', 5}},
 
     GtpC = gtp_context(Config),
     Request = make_request(create_pdp_context_request, simple, GtpC),
 
     ?equal({error,timeout}, send_recv_pdu(GtpC, Request, 2 * 1000, error)),
 
-    ?equal(undefined, gtp_context_reg:lookup({'irx', {imsi, ?'IMSI', 5}})),
+    ?equal(undefined, gtp_context_reg:lookup(CtxKey)),
     ?match(1, meck:num_calls(ggsn_gn, handle_request, '_')),
 
     wait4tunnels(?TIMEOUT),
@@ -1445,8 +1455,11 @@ delete_pdp_context_request_timeout() ->
     [{doc, "Check that a Delete PDP Context Request terminates the "
            "proxy session even when the final GSN fails"}].
 delete_pdp_context_request_timeout(Config) ->
+    RemoteCtxKey = #context_key{socket = 'remote-irx', id = {imsi, ?'PROXY-IMSI', 5}},
+
     {GtpC, _, _} = create_pdp_context(Config),
-    {_Handler, Server} = gtp_context_reg:lookup({'remote-irx', {imsi, ?'PROXY-IMSI', 5}}),
+
+    {_Handler, Server} = gtp_context_reg:lookup(RemoteCtxKey),
     true = is_pid(Server),
 
     Request = make_request(delete_pdp_context_request, simple, GtpC),
@@ -1486,10 +1499,12 @@ error_indication_ggsn2sgsn() ->
     [{doc, "Check the a GTP-U error indication terminates the session"}].
 error_indication_ggsn2sgsn(Config) ->
     Cntl = whereis(gtpc_client_server),
+    CtxKey = #context_key{socket = 'irx', id = {imsi, ?'IMSI', 5}},
+    RemoteCtxKey = #context_key{socket = 'remote-irx', id = {imsi, ?'PROXY-IMSI', 5}},
 
     {GtpC, _, _} = create_pdp_context(Config),
 
-    {_Handler, CtxPid} = gtp_context_reg:lookup({'irx', {imsi, ?'IMSI', 5}}),
+    {_Handler, CtxPid} = gtp_context_reg:lookup(CtxKey),
     true = is_pid(CtxPid),
     #{bearer := #{right := RightBearer}} = gtp_context:info(CtxPid),
 
@@ -1503,7 +1518,7 @@ error_indication_ggsn2sgsn(Config) ->
     ct:sleep(100),
     delete_pdp_context(not_found, GtpC),
 
-    {_Handler, Server} = gtp_context_reg:lookup({'remote-irx', {imsi, ?'PROXY-IMSI', 5}}),
+    {_Handler, Server} = gtp_context_reg:lookup(RemoteCtxKey),
     true = is_pid(Server),
     %% killing the GGSN context
     exit(Server, kill),
@@ -1552,8 +1567,10 @@ request_fast_resend(Config) ->
 update_pdp_context_request_ra_update() ->
     [{doc, "Check Update PDP Context with Routing Area Update"}].
 update_pdp_context_request_ra_update(Config) ->
+    RemoteCtxKey = #context_key{socket = 'remote-irx', id = {imsi, ?'PROXY-IMSI', 5}},
+
     {GtpC1, _, _} = create_pdp_context(Config),
-    {_Handler, CtxPid} = gtp_context_reg:lookup({'remote-irx', {imsi, ?'PROXY-IMSI', 5}}),
+    {_Handler, CtxPid} = gtp_context_reg:lookup(RemoteCtxKey),
     #{left_tunnel := LeftTunnel1, bearer := #{left := LeftBearer1}} = gtp_context:info(CtxPid),
 
     {GtpC2, _, _} = update_pdp_context(ra_update, GtpC1),
@@ -1578,11 +1595,14 @@ update_pdp_context_request_ra_update(Config) ->
 update_pdp_context_request_tei_update() ->
     [{doc, "Check Update PDP Context with TEID update (e.g. SGSN change)"}].
 update_pdp_context_request_tei_update(Config) ->
+    CtxKey = #context_key{socket = 'irx', id = {imsi, ?'IMSI', 5}},
+    RemoteCtxKey = #context_key{socket = 'remote-irx', id = {imsi, ?'PROXY-IMSI', 5}},
+
     {GtpC1, _, _} = create_pdp_context(Config),
-    {_Handler, CtxPid} = gtp_context_reg:lookup({'remote-irx', {imsi, ?'PROXY-IMSI', 5}}),
+    {_Handler, CtxPid} = gtp_context_reg:lookup(RemoteCtxKey),
     #{left_tunnel := LeftTunnel1, bearer := #{left := LeftBearer1}} = gtp_context:info(CtxPid),
 
-    {_Handler, ProxyCtxPid} = gtp_context_reg:lookup({'irx', {imsi, ?'IMSI', 5}}),
+    {_Handler, ProxyCtxPid} = gtp_context_reg:lookup(CtxKey),
     #{right_tunnel := RightTunnel1} = gtp_context:info(ProxyCtxPid),
     ProxyRegKey1 = gtp_context:tunnel_key(local, RightTunnel1),
     ?match({gtp_context, ProxyCtxPid}, gtp_context_reg:lookup(ProxyRegKey1)),
@@ -1627,6 +1647,8 @@ update_pdp_context_request_tei_update(Config) ->
 update_pdp_context_request_broken_recovery() ->
     [{doc, "Check Update PDP Context where the response includes an invalid recovery"}].
 update_pdp_context_request_broken_recovery(Config) ->
+    RemoteCtxKey = #context_key{socket = 'remote-irx', id = {imsi, ?'PROXY-IMSI', 5}},
+
     ok = meck:expect(gtp_context, send_response,
 		     fun(ReqKey, Request, {update_pdp_context_response, TEID, IEs0})->
 			     IEs = [#recovery{restart_counter = 0},
@@ -1645,7 +1667,7 @@ update_pdp_context_request_broken_recovery(Config) ->
 			     meck:passthrough([ReqKey, Request, Response])
 		     end),
     {GtpC1, _, _} = create_pdp_context(Config),
-    {_Handler, CtxPid} = gtp_context_reg:lookup({'remote-irx', {imsi, ?'PROXY-IMSI', 5}}),
+    {_Handler, CtxPid} = gtp_context_reg:lookup(RemoteCtxKey),
     #{left_tunnel := LeftTunnel1, bearer := #{left := LeftBearer1}} = gtp_context:info(CtxPid),
 
     {GtpC2, _, _} = update_pdp_context(simple, GtpC1),
@@ -1805,10 +1827,11 @@ delete_pdp_context_requested() ->
     [{doc, "Check GGSN initiated Delete PDP Context"}].
 delete_pdp_context_requested(Config) ->
     Cntl = whereis(gtpc_client_server),
+    RemoteCtxKey = #context_key{socket = 'remote-irx', id = {imsi, ?'PROXY-IMSI', 5}},
 
     {GtpC, _, _} = create_pdp_context(Config),
 
-    {_Handler, Server} = gtp_context_reg:lookup({'remote-irx', {imsi, ?'PROXY-IMSI', 5}}),
+    {_Handler, Server} = gtp_context_reg:lookup(RemoteCtxKey),
     true = is_pid(Server),
 
     Self = self(),
@@ -1839,10 +1862,11 @@ delete_pdp_context_requested_resend() ->
     [{doc, "Check resend of GGSN initiated Delete PDP Context"}].
 delete_pdp_context_requested_resend(Config) ->
     Cntl = whereis(gtpc_client_server),
+    RemoteCtxKey = #context_key{socket = 'remote-irx', id = {imsi, ?'PROXY-IMSI', 5}},
 
     {_, _, _} = create_pdp_context(Config),
 
-    {_Handler, Server} = gtp_context_reg:lookup({'remote-irx', {imsi, ?'PROXY-IMSI', 5}}),
+    {_Handler, Server} = gtp_context_reg:lookup(RemoteCtxKey),
     true = is_pid(Server),
 
     Self = self(),
@@ -1871,10 +1895,11 @@ delete_pdp_context_requested_invalid_teid() ->
     [{doc, "Check error response of GGSN initiated Delete PDP Context with invalid TEID"}].
 delete_pdp_context_requested_invalid_teid(Config) ->
     Cntl = whereis(gtpc_client_server),
+    RemoteCtxKey = #context_key{socket = 'remote-irx', id = {imsi, ?'PROXY-IMSI', 5}},
 
     {GtpC, _, _} = create_pdp_context(Config),
 
-    {_Handler, Server} = gtp_context_reg:lookup({'remote-irx', {imsi, ?'PROXY-IMSI', 5}}),
+    {_Handler, Server} = gtp_context_reg:lookup(RemoteCtxKey),
     true = is_pid(Server),
 
     Self = self(),
@@ -1908,8 +1933,9 @@ delete_pdp_context_requested_late_response(Config) ->
     Cntl = whereis(gtpc_client_server),
 
     {GtpC, _, _} = create_pdp_context(Config),
+    RemoteCtxKey = #context_key{socket = 'remote-irx', id = {imsi, ?'PROXY-IMSI', 5}},
 
-    {_Handler, Server} = gtp_context_reg:lookup({'remote-irx', {imsi, ?'PROXY-IMSI', 5}}),
+    {_Handler, Server} = gtp_context_reg:lookup(RemoteCtxKey),
     true = is_pid(Server),
 
     Self = self(),
@@ -1944,10 +1970,11 @@ ggsn_update_pdp_context_request() ->
      {timetrap,{seconds,60}}].
 ggsn_update_pdp_context_request(Config) ->
     Cntl = whereis(gtpc_client_server),
+    RemoteCtxKey = #context_key{socket = 'remote-irx', id = {imsi, ?'PROXY-IMSI', 5}},
 
     {GtpC, _, _} = create_pdp_context(Config),
 
-    {_Handler, Server} = gtp_context_reg:lookup({'remote-irx', {imsi, ?'PROXY-IMSI', 5}}),
+    {_Handler, Server} = gtp_context_reg:lookup(RemoteCtxKey),
     true = is_pid(Server),
 
     Self = self(),
@@ -1978,10 +2005,12 @@ ggsn_update_pdp_context_request(Config) ->
 create_pdp_context_overload() ->
     [{doc, "Check that the overload protection works"}].
 create_pdp_context_overload(Config) ->
+    CtxKey = #context_key{socket = 'irx', id = {imsi, ?'IMSI', 5}},
+
     create_pdp_context(overload, Config),
 
     ct:sleep(10),
-    ?equal(undefined, gtp_context_reg:lookup({'irx', {imsi, ?'IMSI', 5}})),
+    ?equal(undefined, gtp_context_reg:lookup(CtxKey)),
 
     ?equal([], outstanding_requests()),
     meck_validate(Config),

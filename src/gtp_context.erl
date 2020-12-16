@@ -28,7 +28,7 @@
 	 validate_options/3,
 	 validate_option/2,
 	 generic_error/3,
-	 socket_key/2, socket_teid_key/2]).
+	 context_key/2, socket_teid_key/2]).
 -export([usage_report_to_accounting/1,
 	 collect_charging_events/2]).
 
@@ -167,7 +167,7 @@ collect_charging_events(OldS, NewS) ->
 %% preexisting context should be deleted locally. This function does that.
 terminate_colliding_context(#tunnel{socket = Socket}, #context{context_id = Id})
   when Id /= undefined ->
-    case gtp_context_reg:lookup(socket_key(Socket, Id)) of
+    case gtp_context_reg:lookup(context_key(Socket, Id)) of
 	{?MODULE, Server} when is_pid(Server) ->
 	    gtp_context:terminate_context(Server);
 	_ ->
@@ -276,15 +276,15 @@ sx_report(Server, Report) ->
 port_message(Request, #gtp{version = v2, type = MsgType, tei = 0} = Msg)
   when MsgType == change_notification_request;
        MsgType == change_notification_response ->
-    Keys = gtp_v2_c:get_msg_keys(Msg),
-    ergw_context:port_message(Keys, Request, Msg);
+    Id = gtp_v2_c:get_context_id(Msg),
+    ergw_context:port_message(Id, Request, Msg);
 
 %% same as above for GTPv2
 port_message(Request, #gtp{version = v1, type = MsgType, tei = 0} = Msg)
   when MsgType == ms_info_change_notification_request;
        MsgType == ms_info_change_notification_response ->
-    Keys = gtp_v1_c:get_msg_keys(Msg),
-    ergw_context:port_message(Keys, Request, Msg);
+    Id = gtp_v1_c:get_context_id(Msg),
+    ergw_context:port_message(Id, Request, Msg);
 
 port_message(#request{socket = Socket, info = Info} = Request,
 		 #gtp{version = Version, tei = 0} = Msg) ->
@@ -733,11 +733,11 @@ generic_error(#request{socket = Socket} = Request,
 %%% Internal functions
 %%%===================================================================
 
-register_request(Handler, Server, #request{key = ReqKey, socket = Socket}) ->
-    gtp_context_reg:register([socket_key(Socket, ReqKey)], Handler, Server).
+register_request(Handler, Server, #request{key = ReqKey}) ->
+    gtp_context_reg:register([ReqKey], Handler, Server).
 
-unregister_request(#request{key = ReqKey, socket = Socket}) ->
-    gtp_context_reg:unregister([socket_key(Socket, ReqKey)], ?MODULE, self()).
+unregister_request(#request{key = ReqKey}) ->
+    gtp_context_reg:unregister([ReqKey], ?MODULE, self()).
 
 get_handler_if(Socket, #gtp{version = v1} = Msg) ->
     gtp_v1_c:get_handler(Socket, Msg);
@@ -794,7 +794,7 @@ context2keys(#tunnel{socket = Socket} = LeftTunnel, Bearer,
 	     #context{apn = APN, context_id = ContextId}) ->
     ordsets:from_list(
       tunnel2keys(LeftTunnel)
-      ++ [socket_key(Socket, ContextId) || ContextId /= undefined]
+      ++ [context_key(Socket, ContextId) || ContextId /= undefined]
       ++ maps:fold(bsf_keys(APN, _, _, _), [], Bearer)).
 
 tunnel2keys(Tunnel) ->
@@ -808,10 +808,8 @@ bsf_keys(APN, _, #bearer{vrf = VRF, local = #ue_ip{v4 = IPv4, v6 = IPv6}}, Keys)
 bsf_keys(_, _, _, Keys) ->
     Keys.
 
-socket_key(#socket{name = Name}, Key) ->
-    {Name, Key};
-socket_key({Name, _}, Key) ->
-    {Name, Key}.
+context_key(#socket{name = Name}, Id) ->
+    #context_key{socket = Name, id = Id}.
 
 tunnel_key(local, #tunnel{socket = Socket, local = #fq_teid{teid = TEID}}) ->
     socket_teid_key(Socket, TEID);
@@ -823,7 +821,7 @@ socket_teid_key(#socket{type = Type} = Socket, TEI) ->
     socket_teid_key(Socket, Type, TEI).
 
 socket_teid_key(#socket{name = Name}, Type, TEI) ->
-    {Name, {teid, Type, TEI}}.
+    #socket_teid_key{name = Name, type = Type, teid = TEI}.
 
 %%====================================================================
 %% Experimental Trigger Support

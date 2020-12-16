@@ -1829,15 +1829,16 @@ tdf_app_id(Config) ->
 %%%===================================================================
 
 tdf_node_pid() ->
-    [[Pid]] = ets:match(gtp_context_reg, {{'cp-socket',{teid,'gtp-u','_'}},{ergw_sx_node, '$1'}}),
+    TEIDMatch = #socket_teid_key{name = 'cp-socket', type = 'gtp-u', _ = '_'},
+    [[Pid]] = ets:match(gtp_context_reg, {TEIDMatch, {ergw_sx_node, '$1'}}),
     Pid.
 
 tdf_seid() ->
-    [[SEID]] = ets:match(gtp_context_reg, {{seid, '$1'},{ergw_sx_node, '_'}}),
+    [[SEID]] = ets:match(gtp_context_reg, {#seid_key{seid = '$1'}, {ergw_sx_node, '_'}}),
     SEID.
 
 tdf_session_pid() ->
-    [[SEID]] = ets:match(gtp_context_reg, {{seid, '_'},{tdf, '$1'}}),
+    [[SEID]] = ets:match(gtp_context_reg, {#seid_key{_ = '_'}, {tdf, '$1'}}),
     SEID.
 
 ue_ip_address(Type, Config) ->

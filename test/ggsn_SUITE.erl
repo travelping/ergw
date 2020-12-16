@@ -973,9 +973,10 @@ path_failure() ->
     [{doc, "Check that Create PDP Context works and "
       "that a path failure (Echo timeout) terminates the session"}].
 path_failure(Config) ->
+    CtxKey = #context_key{socket = 'irx', id = {imsi, ?'IMSI', 5}},
     {GtpC, _, _} = create_pdp_context(Config),
 
-    {_Handler, CtxPid} = gtp_context_reg:lookup({'irx', {imsi, ?'IMSI', 5}}),
+    {_Handler, CtxPid} = gtp_context_reg:lookup(CtxKey),
     #{left_tunnel := #tunnel{socket = CSocket}} = gtp_context:info(CtxPid),
 
     ClientIP = proplists:get_value(client_ip, Config),
@@ -1414,10 +1415,11 @@ delete_pdp_context_requested() ->
     [{doc, "Check GGSN initiated Delete PDP Context"}].
 delete_pdp_context_requested(Config) ->
     Cntl = whereis(gtpc_client_server),
+    CtxKey = #context_key{socket = 'irx', id = {imsi, ?'IMSI', 5}},
 
     {GtpC, _, _} = create_pdp_context(Config),
 
-    {_Handler, Server} = gtp_context_reg:lookup({'irx', {imsi, ?'IMSI', 5}}),
+    {_Handler, Server} = gtp_context_reg:lookup(CtxKey),
     true = is_pid(Server),
 
     Self = self(),
@@ -1449,10 +1451,11 @@ delete_pdp_context_requested_resend() ->
     [{doc, "Check resend of GGSN initiated Delete PDP Context"}].
 delete_pdp_context_requested_resend(Config) ->
     Cntl = whereis(gtpc_client_server),
+    CtxKey = #context_key{socket = 'irx', id = {imsi, ?'IMSI', 5}},
 
     {_, _, _} = create_pdp_context(Config),
 
-    {_Handler, Server} = gtp_context_reg:lookup({'irx', {imsi, ?'IMSI', 5}}),
+    {_Handler, Server} = gtp_context_reg:lookup(CtxKey),
     true = is_pid(Server),
 
     Self = self(),
@@ -1717,6 +1720,7 @@ gy_validity_timer(Config) ->
 simple_aaa() ->
     [{doc, "Check simple session with RADIOS/DIAMETER over (S)Gi"}].
 simple_aaa(Config) ->
+    CtxKey = #context_key{socket = 'irx', id = {imsi, ?'IMSI', 5}},
     Interim = rand:uniform(1800) + 1800,
     AAAReply = #{'Acct-Interim-Interval' => Interim},
 
@@ -1733,7 +1737,7 @@ simple_aaa(Config) ->
 
     {GtpC, _, _} = create_pdp_context(Config),
 
-    {_Handler, Server} = gtp_context_reg:lookup({'irx', {imsi, ?'IMSI', 5}}),
+    {_Handler, Server} = gtp_context_reg:lookup(CtxKey),
     true = is_pid(Server),
     {ok, PCtx} = gtp_context:test_cmd(Server, pfcp_ctx),
 
@@ -1826,6 +1830,7 @@ simple_aaa(Config) ->
 simple_ofcs() ->
     [{doc, "Check simple session with DIAMETER Rf"}].
 simple_ofcs(Config) ->
+    CtxKey = #context_key{socket = 'irx', id = {imsi, ?'IMSI', 5}},
     Interim = rand:uniform(1800) + 1800,
     AAAReply = #{'Acct-Interim-Interval' => [Interim]},
 
@@ -1842,7 +1847,7 @@ simple_ofcs(Config) ->
 
     {GtpC, _, _} = create_pdp_context(Config),
 
-    {_Handler, Server} = gtp_context_reg:lookup({'irx', {imsi, ?'IMSI', 5}}),
+    {_Handler, Server} = gtp_context_reg:lookup(CtxKey),
     true = is_pid(Server),
     {ok, PCtx} = gtp_context:test_cmd(Server, pfcp_ctx),
 
@@ -1975,9 +1980,10 @@ simple_ofcs(Config) ->
 simple_ocs() ->
     [{doc, "Test Gy a simple interaction"}].
 simple_ocs(Config) ->
+    CtxKey = #context_key{socket = 'irx', id = {imsi, ?'IMSI', 5}},
     {GtpC, _, _} = create_pdp_context(Config),
 
-    {_Handler, Server} = gtp_context_reg:lookup({'irx', {imsi, ?'IMSI', 5}}),
+    {_Handler, Server} = gtp_context_reg:lookup(CtxKey),
     true = is_pid(Server),
     {ok, PCtx} = gtp_context:test_cmd(Server, pfcp_ctx),
 
@@ -2164,10 +2170,11 @@ gy_ccr_asr_overlap() ->
     [{doc, "Test that ASR is answered when it arrives during CCR-T"}].
 gy_ccr_asr_overlap(Config) ->
     Cntl = whereis(gtpc_client_server),
+    CtxKey = #context_key{socket = 'irx', id = {imsi, ?'IMSI', 5}},
 
     {GtpC, _, _} = create_pdp_context(Config),
 
-    {_Handler, Server} = gtp_context_reg:lookup({'irx', {imsi, ?'IMSI', 5}}),
+    {_Handler, Server} = gtp_context_reg:lookup(CtxKey),
     true = is_pid(Server),
 
     #{'Session' := Session} = gtp_context:info(Server),
@@ -2296,9 +2303,10 @@ volume_threshold(Config) ->
 gx_rar_gy_interaction() ->
     [{doc, "Check that a Gx RAR triggers a Gy request"}].
 gx_rar_gy_interaction(Config) ->
+    CtxKey = #context_key{socket = 'irx', id = {imsi, ?'IMSI', 5}},
     {GtpC, _, _} = create_pdp_context(Config),
 
-    {_Handler, Server} = gtp_context_reg:lookup({'irx', {imsi, ?'IMSI', 5}}),
+    {_Handler, Server} = gtp_context_reg:lookup(CtxKey),
     true = is_pid(Server),
 
     {ok, Session} = gtp_context:test_cmd(Server, session),
@@ -2356,10 +2364,11 @@ gx_asr() ->
     [{doc, "Check that ASR on Gx terminates the session"}].
 gx_asr(Config) ->
     Cntl = whereis(gtpc_client_server),
+    CtxKey = #context_key{socket = 'irx', id = {imsi, ?'IMSI', 5}},
 
     {GtpC, _, _} = create_pdp_context(Config),
 
-    {_Handler, Server} = gtp_context_reg:lookup({'irx', {imsi, ?'IMSI', 5}}),
+    {_Handler, Server} = gtp_context_reg:lookup(CtxKey),
     true = is_pid(Server),
 
     ResponseFun = fun(_, _, _, _) -> ok end,
@@ -2382,9 +2391,10 @@ gx_asr(Config) ->
 gx_rar() ->
     [{doc, "Check that RAR on Gx changes the session"}].
 gx_rar(Config) ->
+    CtxKey = #context_key{socket = 'irx', id = {imsi, ?'IMSI', 5}},
     {GtpC, _, _} = create_pdp_context(Config),
 
-    {_Handler, Server} = gtp_context_reg:lookup({'irx', {imsi, ?'IMSI', 5}}),
+    {_Handler, Server} = gtp_context_reg:lookup(CtxKey),
     true = is_pid(Server),
 
     #{'Session' := Session} = gtp_context:info(Server),
@@ -2491,10 +2501,11 @@ gy_asr() ->
     [{doc, "Check that ASR on Gy terminates the session"}].
 gy_asr(Config) ->
     Cntl = whereis(gtpc_client_server),
+    CtxKey = #context_key{socket = 'irx', id = {imsi, ?'IMSI', 5}},
 
     {GtpC, _, _} = create_pdp_context(Config),
 
-    {_Handler, Server} = gtp_context_reg:lookup({'irx', {imsi, ?'IMSI', 5}}),
+    {_Handler, Server} = gtp_context_reg:lookup(CtxKey),
     true = is_pid(Server),
 
     ResponseFun = fun(_, _, _, _) -> ok end,
@@ -2627,6 +2638,7 @@ gtp_idle_timeout(Config) ->
 up_inactivity_timer() ->
     [{doc, "Test expiry of the User Plane Inactivity Timer"}].
 up_inactivity_timer(Config) ->
+    CtxKey = #context_key{socket = 'irx', id = {imsi, ?'IMSI', 5}},
     Interim = rand:uniform(1800) + 1800,
     AAAReply = #{'Acct-Interim-Interval' => Interim},
 
@@ -2644,7 +2656,8 @@ up_inactivity_timer(Config) ->
 	   end),
 
     create_pdp_context(Config),
-    {_Handler, Server} = gtp_context_reg:lookup({'irx', {imsi, ?'IMSI', 5}}),
+
+    {_Handler, Server} = gtp_context_reg:lookup(CtxKey),
     true = is_pid(Server),
     {ok, PCtx} = gtp_context:test_cmd(Server, pfcp_ctx),
     [SER|_] = lists:filter(

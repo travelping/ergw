@@ -755,7 +755,7 @@ make_pctx_bearer_key(_, _, _, Keys) ->
     Keys.
 
 make_pctx_keys(Bearer, #pfcp_ctx{seid = #seid{cp = SEID}} = PCtx) ->
-    maps:fold(make_pctx_bearer_key(_, _, PCtx, _), [{seid, SEID}], Bearer).
+    maps:fold(make_pctx_bearer_key(_, _, PCtx, _), [#seid_key{seid = SEID}], Bearer).
 
 register_ctx_ids(Handler, Bearer, PCtx) ->
     Keys = make_pctx_keys(Bearer, PCtx),

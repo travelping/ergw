@@ -39,7 +39,7 @@
 %%% -----------------------------------------------------------------
 
 sx_report(#pfcp{type = session_report_request, seid = SEID} = Report) ->
-    apply2context({seid, SEID}, sx_report, [Report]).
+    apply2context(#seid_key{seid = SEID}, sx_report, [Report]).
 
 %% port_message/2
 port_message(Request, Msg) ->
@@ -47,10 +47,15 @@ port_message(Request, Msg) ->
     ok.
 
 %% port_message/3
-port_message(Keys, #request{socket = Socket} = Request, Msg)
-  when is_list(Keys) ->
-    Contexts = gtp_context_reg:match_keys(Socket, Keys),
-    port_message_ctx(Contexts, Request, Msg).
+port_message(Id, #request{socket = Socket} = Request, Msg) ->
+    Key = gtp_context:context_key(Socket, Id),
+    case gtp_context_reg:select(Key) of
+	[{Handler, Server}] when is_atom(Handler), is_pid(Server) ->
+	    Handler:port_message(Server, Request, Msg, false);
+	_Other ->
+	    ?LOG(debug, "unable to find context ~p", [Key]),
+	    throw({error, not_found})
+    end.
 
 %% port_message/4
 port_message(Key, Request, Msg, Resent) ->
@@ -68,9 +73,6 @@ apply2context(Key, F, A) ->
 	    ?LOG(debug, "unable to find context ~p", [Key]),
 	    {error, not_found}
     end.
-
-port_request_key(#request{key = ReqKey, socket = Socket}) ->
-    gtp_context:socket_key(Socket, ReqKey).
 
 %% TODO - MAYBE
 %%  it might be benificial to first perform the lookup and then enqueue
@@ -94,9 +96,9 @@ port_message_h(Request, #gtp{} = Msg) ->
 
 port_message_run(Request, #gtp{type = g_pdu} = Msg) ->
     port_message_p(Request, Msg);
-port_message_run(Request, Msg0) ->
+port_message_run(#request{key = ReqKey} = Request, Msg0) ->
     Msg = gtp_packet:decode_ies(Msg0),
-    case port_message(port_request_key(Request), Request, Msg, true) of
+    case port_message(ReqKey, Request, Msg, true) of
 	{error, not_found} ->
 	    port_message_p(Request, Msg);
 	Result ->
@@ -112,12 +114,6 @@ port_message_p(#request{socket = Socket} = Request, #gtp{tei = TEI} = Msg) ->
 	Result ->
 	    Result
     end.
-
-port_message_ctx([{Handler, Server} | _], Request, Msg)
-  when is_atom(Handler), is_pid(Server) ->
-    Handler:port_message(Server, Request, Msg, false);
-port_message_ctx(_, _Request, _Msg) ->
-    throw({error, not_found}).
 
 load_class(#gtp{version = v1} = Msg) ->
     gtp_v1_c:load_class(Msg);

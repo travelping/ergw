@@ -1113,10 +1113,12 @@ path_failure_to_pgw() ->
       "that a path failure (Echo timeout) terminates the session"}].
 path_failure_to_pgw(Config) ->
     Cntl = whereis(gtpc_client_server),
+    CtxKey = #context_key{socket = 'irx', id = {imsi, ?'IMSI', 5}},
+    RemoteCtxKey = #context_key{socket = 'remote-irx', id = {imsi, ?'PROXY-IMSI', 5}},
 
     {GtpC, _, _} = create_session(Config),
 
-    {_Handler, CtxPid} = gtp_context_reg:lookup({'irx', {imsi, ?'IMSI', 5}}),
+    {_Handler, CtxPid} = gtp_context_reg:lookup(CtxKey),
     #{right_tunnel := #tunnel{socket = CSocket}} = gtp_context:info(CtxPid),
 
     FinalGSN = proplists:get_value(final_gsn, Config),
@@ -1141,7 +1143,7 @@ path_failure_to_pgw(Config) ->
     ct:sleep(100),
     delete_session(not_found, GtpC),
 
-    {_Handler, Server} = gtp_context_reg:lookup({'remote-irx', {imsi, ?'PROXY-IMSI', 5}}),
+    {_Handler, Server} = gtp_context_reg:lookup(RemoteCtxKey),
     true = is_pid(Server),
     %% killing the PGW context
     exit(Server, kill),
@@ -1165,12 +1167,13 @@ path_failure_to_pgw_and_restore() ->
       "and is later restored with a valid echo"}].
 path_failure_to_pgw_and_restore(Config) ->
     Cntl = whereis(gtpc_client_server),
+    CtxKey = #context_key{socket = 'irx', id = {imsi, ?'IMSI', 5}},
 
     lists:foreach(fun({_, Pid, _}) -> gtp_path:stop(Pid) end, gtp_path_reg:all()),
 
     {GtpC, _, _} = create_session(Config),
 
-    {_Handler, CtxPid} = gtp_context_reg:lookup({'irx', {imsi, ?'IMSI', 5}}),
+    {_Handler, CtxPid} = gtp_context_reg:lookup(CtxKey),
     #{right_tunnel := #tunnel{socket = CSocket}} = gtp_context:info(CtxPid),
 
     FinalGSN = proplists:get_value(final_gsn, Config),
@@ -1230,9 +1233,11 @@ path_failure_to_sgw() ->
     [{doc, "Check that Create Session Request works and "
       "that a path failure (Echo timeout) terminates the session"}].
 path_failure_to_sgw(Config) ->
+    CtxKey = #context_key{socket = 'irx', id = {imsi, ?'IMSI', 5}},
+
     {GtpC, _, _} = create_session(Config),
 
-    {_Handler, CtxPid} = gtp_context_reg:lookup({'irx', {imsi, ?'IMSI', 5}}),
+    {_Handler, CtxPid} = gtp_context_reg:lookup(CtxKey),
     #{left_tunnel := #tunnel{socket = CSocket}} = gtp_context:info(CtxPid),
 
     ClientIP = proplists:get_value(client_ip, Config),
@@ -1609,7 +1614,8 @@ create_lb_multi_session(Config) ->
 	    {GtpC1, _, _} = create_session(#{apn => ?'APN-LB-1'}, GtpC0),
 
 	    CntS = lists:foldl(
-		     fun({{_,{teid,'gtp-c',{fq_teid, PeerIP,_}}},_}, M)
+		     fun({#socket_teid_key{
+			     type = 'gtp-c', teid = #fq_teid{ip = PeerIP}}, _}, M)
 			   when is_map_key(PeerIP, M) ->
 			     maps:update_with(PeerIP, fun(C) -> C + 1 end, 1, M);
 			(_, M) -> M
@@ -1667,7 +1673,7 @@ one_lb_node_down(Config) ->
     GtpCs0 = make_gtp_contexts(?NUM_OF_CLIENTS, Config),
     GtpCs1 = lists:map(fun(GtpC0) -> create_session(random, GtpC0) end, GtpCs0),
 
-    PgwFqTeids = [X || {{_,{teid,'gtp-c',{fq_teid, PeerIP,_}}},_} =
+    PgwFqTeids = [X || {#socket_teid_key{type = 'gtp-c', teid = #fq_teid{ip = PeerIP}}, _} =
 			   X <- gtp_context_reg:all(), PeerIP == DownGSN],
     ?match(0, length(PgwFqTeids)), % Check no connection to down peer
 
@@ -1718,12 +1724,14 @@ create_session_request_resend(Config) ->
 create_session_proxy_request_resend() ->
     [{doc, "Check that the proxy does not send the Create Session Request multiple times"}].
 create_session_proxy_request_resend(Config) ->
+    CtxKey = #context_key{socket = 'irx', id = {imsi, ?'IMSI', 5}},
+
     GtpC = gtp_context(Config),
     Request = make_request(create_session_request, simple, GtpC),
 
     ?equal({error,timeout}, send_recv_pdu(GtpC, Request, 2 * 1000, error)),
 
-    {_Handler, Server} = gtp_context_reg:lookup({'irx', {imsi, ?'IMSI', 5}}),
+    {_Handler, Server} = gtp_context_reg:lookup(CtxKey),
     true = is_pid(Server),
 
     %% killing the proxy PGW context
@@ -1770,8 +1778,11 @@ delete_session_request_timeout() ->
     [{doc, "Check that a Delete Session Request terminates the "
            "proxy session even when the final GSN fails"}].
 delete_session_request_timeout(Config) ->
+    RemoteCtxKey = #context_key{socket = 'remote-irx', id = {imsi, ?'PROXY-IMSI', 5}},
+
     {GtpC, _, _} = create_session(Config),
-    {_Handler, Server} = gtp_context_reg:lookup({'remote-irx', {imsi, ?'PROXY-IMSI', 5}}),
+
+    {_Handler, Server} = gtp_context_reg:lookup(RemoteCtxKey),
     true = is_pid(Server),
 
     Request = make_request(delete_session_request, simple, GtpC),
@@ -1811,10 +1822,12 @@ error_indication_pgw2sgw() ->
     [{doc, "Check the a GTP-U error indication terminates the session"}].
 error_indication_pgw2sgw(Config) ->
     Cntl = whereis(gtpc_client_server),
+    CtxKey = #context_key{socket = 'irx', id = {imsi, ?'IMSI', 5}},
+    RemoteCtxKey = #context_key{socket = 'remote-irx', id = {imsi, ?'PROXY-IMSI', 5}},
 
     {GtpC, _, _} = create_session(Config),
 
-    {_Handler, CtxPid} = gtp_context_reg:lookup({'irx', {imsi, ?'IMSI', 5}}),
+    {_Handler, CtxPid} = gtp_context_reg:lookup(CtxKey),
     true = is_pid(CtxPid),
     #{bearer := #{right := RightBearer}} = gtp_context:info(CtxPid),
 
@@ -1828,7 +1841,7 @@ error_indication_pgw2sgw(Config) ->
     ct:sleep(100),
     delete_session(not_found, GtpC),
 
-    {_Handler, Server} = gtp_context_reg:lookup({'remote-irx', {imsi, ?'PROXY-IMSI', 5}}),
+    {_Handler, Server} = gtp_context_reg:lookup(RemoteCtxKey),
     true = is_pid(Server),
     %% killing the PGW context
     exit(Server, kill),
@@ -1877,8 +1890,11 @@ request_fast_resend(Config) ->
 modify_bearer_request_ra_update() ->
     [{doc, "Check Modify Bearer Routing Area Update"}].
 modify_bearer_request_ra_update(Config) ->
+    RemoteCtxKey = #context_key{socket = 'remote-irx', id = {imsi, ?'PROXY-IMSI', 5}},
+
     {GtpC1, _, _} = create_session(Config),
-    {_Handler, CtxPid} = gtp_context_reg:lookup({'remote-irx', {imsi, ?'PROXY-IMSI', 5}}),
+
+    {_Handler, CtxPid} = gtp_context_reg:lookup(RemoteCtxKey),
     #{left_tunnel := LeftTunnel1, bearer := #{left := LeftBearer1}} = gtp_context:info(CtxPid),
 
     {GtpC2, _, _} = modify_bearer(ra_update, GtpC1),
@@ -1903,11 +1919,15 @@ modify_bearer_request_ra_update(Config) ->
 modify_bearer_request_tei_update() ->
     [{doc, "Check Modify Bearer with TEID update (e.g. SGW change)"}].
 modify_bearer_request_tei_update(Config) ->
+    CtxKey = #context_key{socket = 'irx', id = {imsi, ?'IMSI', 5}},
+    RemoteCtxKey = #context_key{socket = 'remote-irx', id = {imsi, ?'PROXY-IMSI', 5}},
+
     {GtpC1, _, _} = create_session(Config),
-    {_Handler, CtxPid} = gtp_context_reg:lookup({'remote-irx', {imsi, ?'PROXY-IMSI', 5}}),
+
+    {_Handler, CtxPid} = gtp_context_reg:lookup(RemoteCtxKey),
     #{left_tunnel := LeftTunnel1, bearer := #{left := LeftBearer1}} = gtp_context:info(CtxPid),
 
-    {_Handler, ProxyCtxPid} = gtp_context_reg:lookup({'irx', {imsi, ?'IMSI', 5}}),
+    {_Handler, ProxyCtxPid} = gtp_context_reg:lookup(CtxKey),
     #{right_tunnel := RightTunnel1} = gtp_context:info(ProxyCtxPid),
     ProxyRegKey1 = gtp_context:tunnel_key(local, RightTunnel1),
     ?match({gtp_context, ProxyCtxPid}, gtp_context_reg:lookup(ProxyRegKey1)),
@@ -2232,10 +2252,11 @@ delete_bearer_request() ->
      {timetrap,{seconds,60}}].
 delete_bearer_request(Config) ->
     Cntl = whereis(gtpc_client_server),
+    RemoteCtxKey = #context_key{socket = 'remote-irx', id = {imsi, ?'PROXY-IMSI', 5}},
 
     {GtpC, _, _} = create_session(Config),
 
-    {_Handler, Server} = gtp_context_reg:lookup({'remote-irx', {imsi, ?'PROXY-IMSI', 5}}),
+    {_Handler, Server} = gtp_context_reg:lookup(RemoteCtxKey),
     true = is_pid(Server),
 
     Self = self(),
@@ -2267,10 +2288,11 @@ delete_bearer_request_resend() ->
      {timetrap,{seconds,60}}].
 delete_bearer_request_resend(Config) ->
     Cntl = whereis(gtpc_client_server),
+    RemoteCtxKey = #context_key{socket = 'remote-irx', id = {imsi, ?'PROXY-IMSI', 5}},
 
     {_, _, _} = create_session(Config),
 
-    {_Handler, Server} = gtp_context_reg:lookup({'remote-irx', {imsi, ?'PROXY-IMSI', 5}}),
+    {_Handler, Server} = gtp_context_reg:lookup(RemoteCtxKey),
     true = is_pid(Server),
 
     Self = self(),
@@ -2300,10 +2322,11 @@ delete_bearer_request_invalid_teid() ->
      {timetrap,{seconds,60}}].
 delete_bearer_request_invalid_teid(Config) ->
     Cntl = whereis(gtpc_client_server),
+    RemoteCtxKey = #context_key{socket = 'remote-irx', id = {imsi, ?'PROXY-IMSI', 5}},
 
     {GtpC, _, _} = create_session(Config),
 
-    {_Handler, Server} = gtp_context_reg:lookup({'remote-irx', {imsi, ?'PROXY-IMSI', 5}}),
+    {_Handler, Server} = gtp_context_reg:lookup(RemoteCtxKey),
     true = is_pid(Server),
 
     Self = self(),
@@ -2336,10 +2359,11 @@ delete_bearer_request_late_response() ->
      {timetrap,{seconds,60}}].
 delete_bearer_request_late_response(Config) ->
     Cntl = whereis(gtpc_client_server),
+    RemoteCtxKey = #context_key{socket = 'remote-irx', id = {imsi, ?'PROXY-IMSI', 5}},
 
     {GtpC, _, _} = create_session(Config),
 
-    {_Handler, Server} = gtp_context_reg:lookup({'remote-irx', {imsi, ?'PROXY-IMSI', 5}}),
+    {_Handler, Server} = gtp_context_reg:lookup(RemoteCtxKey),
     true = is_pid(Server),
 
     Self = self(),
@@ -2388,8 +2412,11 @@ unsupported_request(Config) ->
 interop_sgsn_to_sgw() ->
     [{doc, "Check 3GPP T 23.401, Annex D, SGSN to SGW handover"}].
 interop_sgsn_to_sgw(Config) ->
+    RemoteCtxKey = #context_key{socket = 'remote-irx', id = {imsi, ?'PROXY-IMSI', 5}},
+
     {GtpC1, _, _} = ergw_ggsn_test_lib:create_pdp_context(Config),
-    {_Handler, CtxPid} = gtp_context_reg:lookup({'remote-irx', {imsi, ?'PROXY-IMSI', 5}}),
+
+    {_Handler, CtxPid} = gtp_context_reg:lookup(RemoteCtxKey),
     #{left_tunnel := LeftTunnel1, bearer := #{left := LeftBearer1}} = gtp_context:info(CtxPid),
 
     check_contexts_metric(v1, 3, 1),
@@ -2437,8 +2464,11 @@ interop_sgsn_to_sgw(Config) ->
 interop_sgw_to_sgsn() ->
     [{doc, "Check 3GPP T 23.401, Annex D, SGW to SGSN handover"}].
 interop_sgw_to_sgsn(Config) ->
+    RemoteCtxKey = #context_key{socket = 'remote-irx', id = {imsi, ?'PROXY-IMSI', 5}},
+
     {GtpC1, _, _} = create_session(Config),
-    {_Handler, CtxPid} = gtp_context_reg:lookup({'remote-irx', {imsi, ?'PROXY-IMSI', 5}}),
+
+    {_Handler, CtxPid} = gtp_context_reg:lookup(RemoteCtxKey),
     #{left_tunnel := LeftTunnel1, bearer := #{left := LeftBearer1}} = gtp_context:info(CtxPid),
 
     check_contexts_metric(v1, 0, 0),
@@ -2488,10 +2518,11 @@ update_bearer_request() ->
      {timetrap,{seconds,60}}].
 update_bearer_request(Config) ->
     Cntl = whereis(gtpc_client_server),
+    RemoteCtxKey = #context_key{socket = 'remote-irx', id = {imsi, ?'PROXY-IMSI', 5}},
 
     {GtpC, _, _} = create_session(Config),
 
-    {_Handler, Server} = gtp_context_reg:lookup({'remote-irx', {imsi, ?'PROXY-IMSI', 5}}),
+    {_Handler, Server} = gtp_context_reg:lookup(RemoteCtxKey),
     true = is_pid(Server),
 
     Self = self(),
@@ -2830,7 +2861,7 @@ check_contexts_metric(Version, Cnt, Expect) ->
     [?equal({Path, Expect}, M) || {Path, _} = M <- Metrics].
 
 pfcp_seids() ->
-    lists:flatten(ets:match(gtp_context_reg, {{seid, '$1'},{ergw_sx_node, '_'}})).
+    lists:flatten(ets:match(gtp_context_reg, {#seid_key{seid = '$1'},{ergw_sx_node, '_'}})).
 
 % Set Timers for Path management
 set_path_timers(SetTimers) ->

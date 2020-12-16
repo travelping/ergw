@@ -16,7 +16,7 @@
 	 build_echo_request/0,
 	 validate_teid/2,
 	 type/0, port/0,
-	 get_msg_keys/1, update_context_id/2,
+	 get_context_id/1, update_context_id/2,
 	 get_cause/1, get_indication_flags/1,
 	 find_sender_teid/1,
 	 load_class/1]).
@@ -258,7 +258,7 @@ get_context_ebi(#{?'Bearer Contexts' :=
 get_context_ebi(_) ->
     '_'.
 
-get_context_id(IEs) ->
+get_context_id(#gtp{version = v2, ie = IEs}) ->
     EBI = get_context_ebi(IEs),
     UIMSI = proplists:get_bool('UIMSI', get_indication_flags(IEs)),
     case {UIMSI, IEs} of
@@ -270,16 +270,8 @@ get_context_id(IEs) ->
 	    undefined
     end.
 
-get_msg_keys(#gtp{version = v2, ie = IEs}) ->
-    case get_context_id(IEs) of
-	undefined ->
-	    [];
-	Id ->
-	    [Id]
-    end.
-
-update_context_id(#gtp{version = v2, ie = IEs}, Context) ->
-    case get_context_id(IEs) of
+update_context_id(Msg, Context) ->
+    case get_context_id(Msg) of
 	{_, _, EBI} = Id when is_integer(EBI) ->
 	    Context#context{context_id = Id};
 	_Other ->
