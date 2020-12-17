@@ -43,6 +43,7 @@
 -export([init_ets/1]).
 
 -include("ergw_test_lib.hrl").
+-include_lib("stdlib/include/ms_transform.hrl").
 -include_lib("kernel/include/logger.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("gtplib/include/gtp_packet.hrl").
@@ -544,7 +545,8 @@ add_cfg_value([H | T], Value, Config) ->
 %%%===================================================================
 
 outstanding_requests() ->
-    ets:match_object(gtp_context_reg, {{'_', {'_', '_', '_', '_', '_'}}, '_'}).
+    Ms = ets:fun2ms(fun({Key, _} = Obj) when element(1, Key) == 'request' -> Obj end),
+    ets:select(gtp_context_reg, Ms).
 
 wait4tunnels(Cnt) ->
     case [X || X = #{tunnels := T} <- ergw_api:peer(all), T /= 0] of

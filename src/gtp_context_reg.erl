@@ -15,7 +15,6 @@
 -export([start_link/0]).
 -export([register/3, register_new/3, update/4, unregister/3,
 	 lookup/1, select/1,
-	 match_keys/2,
 	 await_unreg/1]).
 -export([all/0]).
 
@@ -49,19 +48,6 @@ lookup(Key) when is_tuple(Key) ->
 
 select(Key) ->
     ets:select(?SERVER, [{{Key, '$1'},[],['$1']}]).
-
-match_key(#socket{name = Name}, Key) ->
-    select({Name, Key}).
-
-match_keys(_, []) ->
-    throw({error, not_found});
-match_keys(Socket, [H|T]) ->
-    case match_key(Socket, H) of
-	[_|_] = Match ->
-	    Match;
-	_ ->
-	    match_keys(Socket, T)
-    end.
 
 register(Keys, Handler, Pid)
   when is_list(Keys), is_atom(Handler), is_pid(Pid) ->

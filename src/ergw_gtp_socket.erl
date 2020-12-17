@@ -166,10 +166,11 @@ make_seq_id(#gtp{version = Version, seq_no = SeqNo})
 make_seq_id(_) ->
     undefined.
 
-make_request(ArrivalTS, Src, IP, Port, Msg = #gtp{version = Version, type = Type}, Socket, Info) ->
+make_request(ArrivalTS, Src, IP, Port, Msg = #gtp{version = Version, type = Type},
+	     #socket{name = SocketName} = Socket, Info) ->
     SeqId = make_seq_id(Msg),
     #request{
-       key = {Socket, IP, Port, Type, SeqId},
+       key = {request, {SocketName, IP, Port, Type, SeqId}},
        socket = Socket,
        info = Info,
        src = Src,

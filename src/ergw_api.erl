@@ -14,6 +14,8 @@
 
 -ignore_xref([peer/1, tunnel/1, memory/1]).
 
+-include("include/ergw.hrl").
+
 %%%===================================================================
 %%% API
 %%%===================================================================
@@ -38,8 +40,8 @@ tunnel(Socket) when is_atom(Socket) ->
     lists:foldl(fun collext_path_contexts/2, [], gtp_path_reg:all(Socket)).
 
 contexts(all) ->
-    lists:usort([Pid || {{_Socket, {teid, 'gtp-c', _TEID}}, {_, Pid}}
-				       <- gtp_context_reg:all(), is_pid(Pid)]).
+    lists:usort([Pid || {#socket_teid_key{type = 'gtp-c'}, {_, Pid}}
+			    <- gtp_context_reg:all(), is_pid(Pid)]).
 
 delete_contexts(all) ->
     lists:foreach(fun(Context) ->

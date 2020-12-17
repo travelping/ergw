@@ -27,6 +27,7 @@
 	 terminate/2, code_change/3]).
 
 -include_lib("kernel/include/logger.hrl").
+-include("include/ergw.hrl").
 
 -define(SERVER, ?MODULE).
 -record(state, {tid :: ets:tid()}).
@@ -208,7 +209,7 @@ i(memory, path) ->
 
 i(memory, context) ->
     MemUsage =
-	lists:foldl(fun({{seid, _}, {_, Pid}}, Mem) ->
+	lists:foldl(fun({#seid_key{}, {_, Pid}}, Mem) ->
 			    {memory, M} = erlang:process_info(Pid, memory),
 			    Mem + M;
 		       (_, Mem) ->

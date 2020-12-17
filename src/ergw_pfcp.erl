@@ -158,7 +158,7 @@ outer_header_removal(v6) ->
     #outer_header_removal{header = 'GTP-U/UDP/IPv6'}.
 
 ctx_teid_key(#pfcp_ctx{name = Name}, TEI) ->
-    {Name, {teid, 'gtp-u', TEI}}.
+    #socket_teid_key{name = Name, type = 'gtp-u', teid = TEI}.
 
 up_inactivity_timer(#pfcp_ctx{up_inactivity_timer = Timer})
   when is_integer(Timer) ->
