@@ -2790,6 +2790,8 @@ sx_ondemand(Config) ->
     ?equal([], outstanding_requests()),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    wait4contexts(?TIMEOUT),
+
     ?equal(0, active_contexts()).
 
 %%--------------------------------------------------------------------

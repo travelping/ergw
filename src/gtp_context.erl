@@ -167,12 +167,14 @@ collect_charging_events(OldS, NewS) ->
 %% preexisting context should be deleted locally. This function does that.
 terminate_colliding_context(#tunnel{socket = Socket}, #context{context_id = Id})
   when Id /= undefined ->
-    case gtp_context_reg:lookup(context_key(Socket, Id)) of
-	{?MODULE, Server} when is_pid(Server) ->
-	    gtp_context:terminate_context(Server);
-	_ ->
-	    ok
-    end;
+    Contexts = gtp_context_reg:global_lookup(context_key(Socket, Id)),
+    lists:foreach(
+      fun({?MODULE, Server}) when is_pid(Server) ->
+	      gtp_context:terminate_context(Server);
+	 (_) ->
+	      ok
+      end, Contexts),
+    ok;
 terminate_colliding_context(_, _) ->
     ok.
 
