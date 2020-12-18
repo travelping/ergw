@@ -14,7 +14,7 @@
 %% API
 -export([start_link/0]).
 -export([register/3, register_new/3, update/4, unregister/3,
-	 lookup/1, select/1,
+	 lookup/1, select/1, global_lookup/1,
 	 await_unreg/1]).
 -export([all/0]).
 
@@ -38,6 +38,14 @@
 start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
+lookup(#context_key{id = {Type, _, _}} = Key)
+  when Type == imei; Type == imsi ->
+    case global_lookup(Key) of
+	[Value|_] ->
+	    Value;
+	_ ->
+	    undefined
+    end;
 lookup(Key) when is_tuple(Key) ->
     case ets:lookup(?SERVER, Key) of
 	[{Key, Value}] ->
@@ -149,6 +157,7 @@ handle_add_keys(Fun, Keys, Handler, Pid, State) ->
     case Fun(?SERVER, [{Key, RegV} || Key <- Keys]) of
 	true ->
 	    link(Pid),
+	    [global_add_key(Key, RegV) || Key <- Keys],
 	    NKeys = ordsets:union(Keys, get_pid(Pid, State)),
 	    {reply, ok, update_pid(Pid, NKeys, State)};
 	_ ->
@@ -169,8 +178,29 @@ delete_keys(Keys, Pid, State) ->
 %% be delete if Key and Pid match.....
 delete_key(Key, Pid) ->
     case ets:lookup(?SERVER, Key) of
-	[{Key, {_, Pid}}] ->
+	[{Key, {_, Pid} = Value}] ->
+	    global_del_key(Key, Value),
 	    ets:take(?SERVER, Key);
 	Other ->
 	    Other
+    end.
+
+global_add_key(#context_key{id = {Type, _, _}} = Key, RegV)
+  when Type == imei; Type == imsi ->
+    gtp_context_reg_vnode:put(<<"context">>, Key, RegV);
+global_add_key(_, _) ->
+    ok.
+
+global_del_key(#context_key{id = {Type, _, _}} = Key, RegV)
+  when Type == imei; Type == imsi ->
+    gtp_context_reg_vnode:delete(<<"context">>, Key, RegV);
+global_del_key(_, _) ->
+    ok.
+
+global_lookup(Key) ->
+    case gtp_context_reg_vnode:get(<<"context">>, Key) of
+	{ok, #{reason := finished, result := Result}} ->
+	    lists:usort([Value || {_Location, {ok, Value}} <- Result]);
+	_ ->
+	    []
     end.

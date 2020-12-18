@@ -10,7 +10,7 @@
 -behaviour(riak_core_vnode).
 
 %% API
--export([start_vnode/1, ping/0, ping/1, get/2, put/3, delete/2]).
+-export([start_vnode/1, ping/0, ping/1, get/2, put/3, delete/2, delete/3, all/1]).
 
 %% riak_core_vnode callbacks
 -export([init/1,
@@ -30,8 +30,9 @@
 	 handle_exit/3]).
 
 -ignore_xref([start_vnode/1, ping/0, ping/1]).
--ignore_xref([get/2, put/3, delete/2]).
+-ignore_xref([get/2, put/3, delete/2, delete/3, all/1]).
 
+-include_lib("stdlib/include/ms_transform.hrl").
 -include_lib("riak_core/include/riak_core_vnode.hrl").
 
 -record(state, {partition, tid}).
@@ -74,6 +75,13 @@ delete(Bucket, Key) ->
     RKey = key(Bucket, Key),
     run_quorum(RKey, {delete, Bucket, Key}, #{}).
 
+delete(Bucket, Key, Value) ->
+    RKey = key(Bucket, Key),
+    run_quorum(RKey, {delete, Bucket, Key, Value}, #{}).
+
+all(Bucket) ->
+    run_coverage({all, Bucket}, #{}).
+
 %%%===================================================================
 %%% riak_core_vnode callbacks
 %%%===================================================================
@@ -102,6 +110,11 @@ handle_command({put, Bucket, Key, Value}, _Sender, State) ->
 handle_command({delete, Bucket, Key}, _Sender, State) ->
     Location = {State#state.partition, node()},
     true = ets:delete(State#state.tid, {Bucket, Key}),
+    {reply, {Location, ok}, State};
+
+handle_command({delete, Bucket, Key, Value}, _Sender, State) ->
+    Location = {State#state.partition, node()},
+    true = ets:delete_object(State#state.tid, {{Bucket, Key}, Value}),
     {reply, {Location, ok}, State};
 
 handle_command(Message, _Sender, State) ->
@@ -158,6 +171,10 @@ handle_overload_command(_, _, _) ->
 handle_overload_info(_, _Idx) ->
     ok.
 
+handle_coverage({all, Bucket} = _Req, _KeySpaces, _Sender, State) ->
+    Ms = ets:fun2ms(fun({{B, K}, V}) when B == Bucket -> {K, V} end),
+    Res = ets:select(State#state.tid, Ms),
+    {reply, Res, State};
 handle_coverage(_Req, _KeySpaces, _Sender, State) ->
     {stop, not_implemented, State}.
 
@@ -186,3 +203,9 @@ run_quorum(Key, Command, Opts0) ->
     receive
 	{ReqId, Val} -> Val
     end.
+
+run_coverage(Command, Opts0) ->
+    Defaults = #{pvc => 3, vnode_selector => allup, wait_timeout_ms => ?TIMEOUT},
+    Opts = maps:merge(Defaults, Opts0),
+    N = maps:get(n, Opts, ?N),
+    riak_core_coverage_statem:coverage_request(Command, N, ?SERVICE, ?VMASTER, Opts).
