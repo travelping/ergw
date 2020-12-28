@@ -10,7 +10,7 @@
 -compile([{parse_transform, cut}]).
 
 %% API
--export([peer/1, tunnel/1, contexts/1, delete_contexts/1, memory/1]).
+-export([peer/1, tunnel/1, contexts/1, delete_contexts/1, get_teids/1, memory/1]).
 
 -ignore_xref([peer/1, tunnel/1, memory/1]).
 
@@ -41,7 +41,10 @@ tunnel(Socket) when is_atom(Socket) ->
 
 contexts(all) ->
     lists:usort([Pid || {#socket_teid_key{type = 'gtp-c'}, {_, Pid}}
-			    <- gtp_context_reg:all(), is_pid(Pid)]).
+			    <- gtp_context_reg:all(), is_pid(Pid)]);
+contexts(teids) ->
+    lists:usort([{Pid, TEID} || {#socket_teid_key{type = 'gtp-c', teid = TEID}, {_, Pid}}
+			    <- gtp_context_reg:all(), is_integer(TEID), is_pid(Pid)]).
 
 delete_contexts(all) ->
     lists:foreach(fun(Context) ->
@@ -49,6 +52,9 @@ delete_contexts(all) ->
     end, contexts(all));
 delete_contexts(Count) ->
     delete_contexts(contexts(all), Count).
+
+get_teids(#{} = Params) ->
+    get_teids(contexts(teids), Params, []).
 
 memory(Limit0) ->
     Limit = min(Limit0, 100),
@@ -84,6 +90,18 @@ delete_contexts(Contexts, Count) ->
     Context = lists:nth(Id, Contexts),
     gtp_context:trigger_delete_context(Context),
     delete_contexts(Contexts -- [Context], Count - 1).
+
+get_teids([], _, Acc) ->
+    Acc;
+get_teids([{Context, TEID} | T], #{imsi := IMSI} = Params, Acc) ->
+    case gtp_context:info(Context) of
+        #{context := #context{imsi = IMSI}} ->
+            get_teids(T, Params, [TEID|Acc]);
+        _ ->
+            get_teids(T, Params, Acc)
+    end;
+get_teids([_|T], Params, Acc) ->
+    get_teids(T, Params, Acc).
 
 units(X) when X > 1024 * 1024 * 1024 ->
     io_lib:format("~.4f GB", [X / math:pow(2, 30)]);

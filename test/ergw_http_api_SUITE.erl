@@ -256,7 +256,8 @@ all() ->
      http_api_status_accept_new_post_req,
      http_api_prometheus_metrics_req,
      http_api_delete_sessions,
-     http_api_delete_all_sessions
+     http_api_delete_all_sessions,
+     http_api_get_teids_by_imsi_params
     ].
 
 %%%===================================================================
@@ -281,7 +282,10 @@ end_per_testcase(_Config) ->
 
 init_per_testcase(Config) ->
     meck_reset(Config).
-init_per_testcase(TestCase, Config) when TestCase =:= http_api_delete_sessions; TestCase =:= http_api_delete_all_sessions ->
+init_per_testcase(TestCase, Config) when
+  TestCase =:= http_api_delete_sessions;
+  TestCase =:= http_api_delete_all_sessions;
+  TestCase =:= http_api_get_teids_by_imsi_params ->
     ct:pal("Sockets: ~p", [ergw_socket_reg:all()]),
     setup_per_testcase(Config),
     ok = meck:expect(?HUT, handle_request,
@@ -296,7 +300,10 @@ init_per_testcase(_, Config) ->
     init_per_testcase(Config),
     Config.
 
-end_per_testcase(TestCase, Config) when TestCase =:= http_api_delete_sessions; TestCase =:= http_api_delete_all_sessions ->
+end_per_testcase(TestCase, Config) when
+  TestCase =:= http_api_delete_sessions;
+  TestCase =:= http_api_delete_all_sessions;
+  TestCase =:= http_api_get_teids_by_imsi_params ->
     end_per_testcase(Config),
     Config;
 end_per_testcase(_, Config) ->
@@ -418,6 +425,28 @@ http_api_delete_all_sessions(Config) ->
     ok = respond_delete_pdp_context_request([GtpC0, GtpC1], whereis(gtpc_client_server)),
     wait4tunnels(?TIMEOUT),
     ?match(0, length(ergw_api:contexts(all))),
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    ?match(0, meck:num_calls(?HUT, handle_request, ['_', '_', true, '_', '_'])),
+    meck_validate(Config),
+    ok.
+
+http_api_get_teids_by_imsi_params() ->
+    [{doc, "Check GET /contexts API - get TEIDs of contexts by IMSI"}].
+http_api_get_teids_by_imsi_params(Config) ->
+    {GtpC0, {_, _, _, _, _, _, _, ReqData0}, {_, _, _, _, _, _, _, RespData0}} = create_pdp_context(Config),
+    {GtpC1, {_, _, _, _, _, _, _, ReqData1}, {_, _, _, _, _, _, _, RespData1}} = create_pdp_context(random, GtpC0),
+    IMSI0 = [binary_to_list(I) || {international_mobile_subscriber_identity, _, I} <- ReqData0],
+    #{{tunnel_endpoint_identifier_control_plane, 0} := {_, _, TEID0}} = RespData0,
+    IMSI1 = [binary_to_list(I) || {international_mobile_subscriber_identity, _, I} <- ReqData1],
+    #{{tunnel_endpoint_identifier_control_plane, 0} := {_, _, TEID1}} = RespData1,
+    Base = "/api/v1/contexts?imsi=",
+    Res0 = json_http_request(get, Base ++ IMSI0),
+    Res1 = json_http_request(get, Base ++ IMSI1),
+    ?match(#{<<"teids">> := [TEID0]}, Res0),
+    ?match(#{<<"teids">> := [TEID1]}, Res1),
+    _ = json_http_request(delete, "/api/v1/contexts"),
+    ok = respond_delete_pdp_context_request([GtpC0, GtpC1], whereis(gtpc_client_server)),
+    wait4tunnels(?TIMEOUT),
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     ?match(0, meck:num_calls(?HUT, handle_request, ['_', '_', true, '_', '_'])),
     meck_validate(Config),

@@ -91,6 +91,12 @@ handle_request(<<"POST">>, _, json, Req, State) ->
             {true, Req2, State}
     end;
 
+handle_request(<<"GET">>, <<"/api/v1/contexts">>, json, Req, State) ->
+    Qs = cowboy_req:parse_qs(Req),
+    TEIDs = ergw_api:get_teids(#{imsi => proplists:get_value(<<"imsi">>, Qs, <<>>)}),
+    Response = jsx:encode(#{teids => TEIDs}),
+    {Response, Req, State};
+
 handle_request(<<"DELETE">>, <<"/api/v1/contexts">>, json, Req, State) ->
     ok = ergw_api:delete_contexts(all),
     Response = jsx:encode(#{contexts => length(ergw_api:contexts(all))}),

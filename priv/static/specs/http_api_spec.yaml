@@ -53,6 +53,20 @@ paths:
         '200':
           description: returns the metrics
   /contexts:
+    get:
+      summary: 'get TEIDs of contexts by IMSI'
+      parameters:
+        - name: imsi
+          in: query
+          required: true
+          type: integer
+          default: 111111111111111
+          description: 'list of related TEIDs'
+      responses:
+        '200':
+          description: return list of TEIDs
+          schema:
+            $ref: '#/definitions/GetContextsTeids'
     delete:
       summary: 'delete all contexts'
       responses:
@@ -93,6 +107,14 @@ definitions:
       contexts:
         type: "integer"
         default: 0
+  GetContextsTeids:
+    type: "object"
+    properties:
+      teids:
+        type: "array"
+        items:
+          type: integer
+          default: 3416802480
   PLMN:
     type: "object"
     properties:
