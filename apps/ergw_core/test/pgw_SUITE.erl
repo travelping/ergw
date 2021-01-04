@@ -44,6 +44,19 @@
 	    ]}
 	  ]},
 
+	 {opentelemetry,
+	  [{resource, [{<<"service.name">>, <<"ergw">>}]},
+	   {processors,
+	    [{otel_batch_processor,
+	      #{exporter =>
+		    {opentelemetry_exporter,
+		     #{endpoints => [{http, "localhost", 55681, []}]}
+		    }
+	       }
+	     }
+	    ]}
+	  ]},
+
 	 {ergw_core,
 	  #{node =>
 		[{node_id, <<"PGW.epc.mnc001.mcc001.3gppnetwork.org">>}],

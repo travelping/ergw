@@ -25,6 +25,10 @@
 -define(CTX_ERR(Level,Reply), #ctx_err{level=Level,reply=Reply,where={?FILE, ?LINE}}).
 -define(CTX_ERR(Level,Reply,Context), #ctx_err{level=Level,reply=Reply,
 					       context=Context,where={?FILE, ?LINE}}).
+-define(FUNCTION_OTEL_EVENT,
+	<<(list_to_binary(?MODULE_STRING))/binary, $:,
+	  (atom_to_binary(?FUNCTION_NAME))/binary, $/,
+	  (integer_to_binary(?FUNCTION_ARITY))/binary>>).
 
 -record(node, {
 	  node	:: atom(),
@@ -141,6 +145,7 @@
 	  port		:: 0 .. 65535,
 	  version	:: 'v1' | 'v2',
 	  type		:: atom(),
+	  span_ctx      :: term(),
 	  arrival_ts    :: integer()
 	 }).
 

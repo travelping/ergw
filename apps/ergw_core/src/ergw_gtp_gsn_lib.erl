@@ -36,6 +36,7 @@
 -include_lib("diameter/include/diameter_gen_base_rfc6733.hrl").
 -include_lib("ergw_aaa/include/diameter_3gpp_ts29_212.hrl").
 -include_lib("ergw_aaa/include/ergw_aaa_session.hrl").
+-include_lib("opentelemetry_api/include/otel_tracer.hrl").
 -include("include/ergw.hrl").
 
 %%====================================================================
@@ -82,7 +83,7 @@ handle_peer_change(_, _, Tunnel) ->
 
 apply_bearer_change(URRActions, SendEM) ->
     do([statem_m ||
-	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+	     _ = ?add_event(?FUNCTION_OTEL_EVENT, []),
 
 	   ModifyOpts =
 	       if SendEM -> #{send_end_marker => true};
@@ -113,7 +114,7 @@ apply_bearer_change(URRActions, SendEM) ->
 
 triggered_charging_event_m(ChargeEv, Now, Request) ->
     do([statem_m ||
-	   _ = ?LOG(debug, "~s, Ev: ~p", [?FUNCTION_NAME, ChargeEv]),
+	   _ = ?add_event(?FUNCTION_OTEL_EVENT, [{ev, ChargeEv}]),
 
 	   UsageReport <- query_usage_report_m(Request),
 	   usage_report_m3(ChargeEv, Now, UsageReport)
@@ -143,7 +144,7 @@ usage_report_m([]) ->
     do([statem_m || return()]);
 usage_report_m(URRActions) ->
     do([statem_m ||
-	   _ = ?LOG(debug, "~s-#2, Actions: ~p", [?FUNCTION_NAME, URRActions]),
+	   _ = ?add_event(?FUNCTION_OTEL_EVENT, [{actions, URRActions}]),
 
 	   UsageReport <- query_usage_report_m(offline),
 	   usage_report_m(URRActions, UsageReport)
@@ -151,7 +152,7 @@ usage_report_m(URRActions) ->
 
 usage_report_m(URRActions, UsageReport) ->
     do([statem_m ||
-	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+	     _ = ?add_event(?FUNCTION_OTEL_EVENT, []),
 
 	   #{pfcp := PCtx, 'Session' := Session} <- statem_m:get_data(),
 	   statem_m:return(
@@ -160,7 +161,7 @@ usage_report_m(URRActions, UsageReport) ->
 
 usage_report_m3(ChargeEv, Now, UsageReport) ->
     do([statem_m ||
-	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+	   _ = ?add_event(?FUNCTION_OTEL_EVENT, []),
 
 	   PCtx <- statem_m:get_data(maps:get(pfcp, _)),
 	   {Online, Offline, Monitor} =
@@ -231,7 +232,8 @@ close_context_m(API, TermCause, State, #{pfcp := PCtx} = Data)
   when is_atom(TermCause) ->
     statem_m:run(
       do([statem_m ||
-	     _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+	     _ = ?add_event(?FUNCTION_OTEL_EVENT, []),
+
 	     ReqId <-
 		 statem_m:return(
 		   ergw_pfcp_context:send_session_deletion_request(TermCause, PCtx)),
@@ -247,7 +249,8 @@ close_context_m(_API, _TermCause, State, Data) ->
 close_context_m(API, TermCause, UsageReport)
   when is_atom(TermCause) ->
     do([statem_m ||
-	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+	   _ = ?add_event(?FUNCTION_OTEL_EVENT, []),
+
 	   #{pfcp := PCtx, 'Session' := Session} <- statem_m:get_data(),
 	   _ = ergw_gtp_gsn_session:close_context(TermCause, UsageReport, PCtx, Session),
 	   _ = ergw_prometheus:termination_cause(API, TermCause),
@@ -285,10 +288,12 @@ query_usage_report_m(_) ->
 
 create_session_m(APN, PAA, DAF, {Candidates, SxConnectId}, SessionOpts0) ->
     do([statem_m ||
+	   _ = ?add_event(?FUNCTION_OTEL_EVENT, []),
+
 	   Now = erlang:monotonic_time(),
 	   return(ergw_sx_node:wait_connect(SxConnectId)),
 	   APNOpts <- statem_m:lift(ergw_apn:get(APN)),
-	   statem_m:lift(?LOG(debug, "APNOpts: ~p~n", [APNOpts])),
+	   _ = ?add_event(?FUNCTION_OTEL_EVENT, [{apnopts, APNOpts}]),
 	   UPinfo <- select_upf(Candidates, SessionOpts0, APNOpts),
 	   AuthSEvs <- authenticate(),
 	   {PCtx, NodeCaps, RightBearer0} <- reselect_upf(Candidates, APNOpts, UPinfo),
@@ -298,13 +303,10 @@ create_session_m(APN, PAA, DAF, {Candidates, SxConnectId}, SessionOpts0) ->
 	   PCCErrors0 <- gx_ccr_i(Now),
 	   pcc_ctx_has_rules(),
 	   {GySessionOpts, GyEvs} <- gy_ccr_i(Now),
-	   statem_m:return(
-	     begin
-		 ?LOG(debug, "GySessionOpts: ~p", [GySessionOpts]),
-		 ?LOG(debug, "Initial GyEvs: ~p", [GyEvs])
-	     end),
+	   _ = ?add_event(?FUNCTION_OTEL_EVENT, [{'GySessionOpts', GySessionOpts},
+						 {'GyEvs', GyEvs}]),
 	   RfSEvs <- rf_i(Now),
-	   _ = ?LOG(debug, "RfSEvs: ~p", [RfSEvs]),
+	   _ = ?add_event(?FUNCTION_OTEL_EVENT, [{'RfSEvs', RfSEvs}]),
 	   PCCErrors <- pfcp_create_session(Now, PCtx, GyEvs, AuthSEvs, RfSEvs, PCCErrors0),
 	   aaa_start(Now),
 	   gx_error_report(Now, PCCErrors),
@@ -316,7 +318,8 @@ create_session_m(APN, PAA, DAF, {Candidates, SxConnectId}, SessionOpts0) ->
 
 select_upf(Candidates, SessionOpts0, APNOpts) ->
     do([statem_m ||
-	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+	   _ = ?add_event(?FUNCTION_OTEL_EVENT, []),
+
 	   {UPinfo, SessionOpts} <- statem_m:lift(ergw_pfcp_context:select_upf(Candidates, SessionOpts0, APNOpts)),
 	   statem_m:modify_data(_#{session_opts => SessionOpts}),
 	   return(UPinfo)
@@ -324,7 +327,8 @@ select_upf(Candidates, SessionOpts0, APNOpts) ->
 
 authenticate() ->
     do([statem_m ||
-	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+	   _ = ?add_event(?FUNCTION_OTEL_EVENT, []),
+
 	   #{'Session' := Session, session_opts := SessionOpts0} <- statem_m:get_data(),
 	   ReqId <- statem_m:return(ergw_context_statem:send_request(fun() -> ergw_gtp_gsn_session:authenticate(Session, SessionOpts0) end)),
 	   Response <- statem_m:wait(ReqId),
@@ -337,9 +341,9 @@ authenticate() ->
 
 reselect_upf(Candidates, APNOpts, UPinfo) ->
     do([statem_m ||
-	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+	   _ = ?add_event(?FUNCTION_OTEL_EVENT, []),
+
 	   SessionOpts <- statem_m:get_data(maps:get(session_opts, _)),
-	   statem_m:lift(?LOG(debug, "SessionOpts: ~p~n", [SessionOpts])),
 	   statem_m:lift(ergw_pfcp_context:reselect_upf(Candidates, SessionOpts, APNOpts, UPinfo))
        ]).
 
@@ -360,8 +364,8 @@ allocate_ips(PAA, APNOpts, DAF, RightBearer0) ->
 
 add_apn_timeout(APNOpts) ->
     do([statem_m ||
-	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
-	   statem_m:lift(?LOG(debug, "AddApnTimeout: ~p~n", [APNOpts])),
+	   _ = ?add_event(?FUNCTION_OTEL_EVENT, [{apnOpts, APNOpts}]),
+
 	   #{session_opts := SessionOpts, context := Context0} <- statem_m:get_data(),
 	   Context <- statem_m:return(add_apn_timeout(APNOpts, SessionOpts, Context0)),
 	   statem_m:modify_data(_#{context => Context})
@@ -370,7 +374,8 @@ add_apn_timeout(APNOpts) ->
 %% TBD: unify assign_local_data_teid/2 and assign_local_data_teid/4
 assign_local_data_teid(left = Key, NodeCaps) ->
     do([statem_m ||
-	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+	   _ = ?add_event(?FUNCTION_OTEL_EVENT, []),
+
 	   #{pfcp := PCtx, left_tunnel := LeftTunnel,
 	     bearer := Bearer0} <- statem_m:get_data(),
 	   Bearer <-
@@ -380,7 +385,8 @@ assign_local_data_teid(left = Key, NodeCaps) ->
        ]);
 assign_local_data_teid(right = Key, NodeCaps) ->
     do([statem_m ||
-	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+	   _ = ?add_event(?FUNCTION_OTEL_EVENT, []),
+
 	   #{pfcp := PCtx, right_tunnel := RightTunnel,
 	     bearer := Bearer0} <- statem_m:get_data(),
 	   Bearer <-
@@ -391,8 +397,8 @@ assign_local_data_teid(right = Key, NodeCaps) ->
 
 assign_local_data_teid(left = Key, PCtx, NodeCaps, RightBearer) ->
     do([statem_m ||
-	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
-	   statem_m:lift(?LOG(debug, "AssignLocalDataTeid")),
+	   _ = ?add_event(?FUNCTION_OTEL_EVENT, []),
+
 	   #{left_tunnel := LeftTunnel, bearer := #{left := LeftBearer}} <- statem_m:get_data(),
 	   Bearer <- statem_m:lift(
 		       ergw_gsn_lib:assign_local_data_teid(Key, PCtx, NodeCaps, LeftTunnel,
@@ -402,7 +408,8 @@ assign_local_data_teid(left = Key, PCtx, NodeCaps, RightBearer) ->
 
 gx_ccr_i(Now) ->
     do([statem_m ||
-	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+	   _ = ?add_event(?FUNCTION_OTEL_EVENT, []),
+
 	   #{session_opts := SessionOpts, 'Session' := Session, pcc := PCC0} <- statem_m:get_data(),
 	   _ = ergw_aaa_session:set(Session, SessionOpts),
 	   GxOpts = #{'Event-Trigger' => ?'DIAMETER_GX_EVENT-TRIGGER_UE_IP_ADDRESS_ALLOCATE',
@@ -421,7 +428,8 @@ gx_ccr_i(Now) ->
 
 pcc_ctx_has_rules() ->
     do([statem_m ||
-	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+	   _ = ?add_event(?FUNCTION_OTEL_EVENT, []),
+
 	   PCC <- statem_m:get_data(maps:get(pcc, _)),
 	   case ergw_pcc_context:pcc_ctx_has_rules(PCC) of
 	       true ->
@@ -433,7 +441,8 @@ pcc_ctx_has_rules() ->
 
 gy_ccr_i(Now) ->
     do([statem_m ||
-	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+	   _ = ?add_event(?FUNCTION_OTEL_EVENT, []),
+
 	   #{'Session' := Session, pcc := PCC} <- statem_m:get_data(),
 
 	   %% TBD............
@@ -450,7 +459,8 @@ gy_ccr_i(Now) ->
 
 rf_i(Now) ->
     do([statem_m ||
-	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+	   _ = ?add_event(?FUNCTION_OTEL_EVENT, []),
+
 	   #{'Session' := Session} <- statem_m:get_data(),
 	   {_, _, RfSEvs} = ergw_aaa_session:invoke(Session, #{}, {rf, 'Initial'}, #{now => Now}),
 	   _ = ?LOG(debug, "RfSEvs: ~p", [RfSEvs]),
@@ -461,7 +471,8 @@ rf_i(Now) ->
 
 update_context_from_gtp_req(Interface, Type, Request) ->
     do([statem_m ||
-	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+	   _ = ?add_event(?FUNCTION_OTEL_EVENT, []),
+
 	   Context0 <- statem_m:get_data(maps:get(Type, _)),
 	   Context = Interface:update_context_from_gtp_req(Request, Context0),
 	   statem_m:modify_data(_#{Type => Context})
@@ -469,7 +480,8 @@ update_context_from_gtp_req(Interface, Type, Request) ->
 
 update_tunnel_from_gtp_req(Interface, Version, left, Request) ->
     do([statem_m ||
-	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+	   _ = ?add_event(?FUNCTION_OTEL_EVENT, []),
+
 	   #{left_tunnel := LeftTunnel0, bearer := #{left := LeftBearer0}} <- statem_m:get_data(),
 	   {LeftTunnel, LeftBearer} <-
 	       statem_m:lift(Interface:update_tunnel_from_gtp_req(
@@ -483,7 +495,8 @@ update_tunnel_from_gtp_req(Interface, Version, left, Request) ->
        ]);
 update_tunnel_from_gtp_req(Interface, Version, right, Request) ->
     do([statem_m ||
-	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+	   _ = ?add_event(?FUNCTION_OTEL_EVENT, []),
+
 	   #{right_tunnel := RightTunnel0, bearer := #{right := RightBearer0}} <- statem_m:get_data(),
 	   {RightTunnel, RightBearer} <-
 	       statem_m:lift(Interface:update_tunnel_from_gtp_req(
@@ -509,7 +522,8 @@ apply_update_tunnel_endpoint(TunnelOld, Tunnel0) ->
 
 update_tunnel_endpoint(left, #{left_tunnel := LeftTunnelOld}) ->
     do([statem_m ||
-	   _ = ?LOG(debug, "~s, left", [?FUNCTION_NAME]),
+	   _ = ?add_event(?FUNCTION_OTEL_EVENT, [{side, left}]),
+
 	   LeftTunnel0 <- statem_m:get_data(maps:get(left_tunnel, _)),
 	   LeftTunnel <- statem_m:return(apply_update_tunnel_endpoint(
 					   LeftTunnelOld, LeftTunnel0)),
@@ -517,7 +531,8 @@ update_tunnel_endpoint(left, #{left_tunnel := LeftTunnelOld}) ->
        ]);
 update_tunnel_endpoint(right, #{right_tunnel := RightTunnelOld}) ->
     do([statem_m ||
-	   _ = ?LOG(debug, "~s/~p, right", [?FUNCTION_NAME, ?FUNCTION_ARITY]),
+	   _ = ?add_event(?FUNCTION_OTEL_EVENT, [{side, right}]),
+
 	   RightTunnel0 <- statem_m:get_data(maps:get(right_tunnel, _)),
 	   RightTunnel <- statem_m:return(apply_update_tunnel_endpoint(
 					    RightTunnelOld, RightTunnel0)),
@@ -526,14 +541,16 @@ update_tunnel_endpoint(right, #{right_tunnel := RightTunnelOld}) ->
 
 bind_tunnel(left) ->
     do([statem_m ||
-	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+	   _ = ?add_event(?FUNCTION_OTEL_EVENT, []),
+
 	   LeftTunnel0 <- statem_m:get_data(maps:get(left_tunnel, _)),
 	   LeftTunnel <- statem_m:lift(gtp_path:bind_tunnel(LeftTunnel0)),
 	   statem_m:modify_data(_#{left_tunnel => LeftTunnel})
        ]);
 bind_tunnel(right) ->
     do([statem_m ||
-	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+	   _ = ?add_event(?FUNCTION_OTEL_EVENT, []),
+
 	   RightTunnel0 <- statem_m:get_data(maps:get(right_tunnel, _)),
 	   RightTunnel <- statem_m:lift(gtp_path:bind_tunnel(RightTunnel0)),
 	   statem_m:modify_data(_#{right_tunnel => RightTunnel})
@@ -541,14 +558,16 @@ bind_tunnel(right) ->
 
 terminate_colliding_context() ->
     do([statem_m ||
-	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+	   _ = ?add_event(?FUNCTION_OTEL_EVENT, []),
+
 	   #{left_tunnel := LeftTunnel, context := Context} <- statem_m:get_data(),
 	   statem_m:return(gtp_context:terminate_colliding_context(LeftTunnel, Context))
        ]).
 
 init_session(Interface, IEs) ->
     do([statem_m ||
-	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+	   _ = ?add_event(?FUNCTION_OTEL_EVENT, []),
+
 	   #{left_tunnel := LeftTunnel, bearer := #{left := LeftBearer},
 	     context := Context, aaa_opts := AAAopts} <- statem_m:get_data(),
 
@@ -562,7 +581,8 @@ init_session(Interface, IEs) ->
 
 collect_charging_events(Interface, IEs) ->
     do([statem_m ||
-	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+	   _ = ?add_event(?FUNCTION_OTEL_EVENT, []),
+
 	   #{'Session' := Session, left_tunnel := LeftTunnel,
 	     bearer := #{left := LeftBearer}} <- statem_m:get_data(),
 	   {OldSOpts, NewSOpts} =
@@ -575,7 +595,8 @@ collect_charging_events(Interface, IEs) ->
 
 pfcp_create_session(PCC) ->
      do([statem_m ||
-	    _ = ?LOG(debug, "~s/1", [?FUNCTION_NAME]),
+	   _ = ?add_event(?FUNCTION_OTEL_EVENT, []),
+
 	    #{context := Context, bearer := Bearer, pfcp := PCtx0} <- statem_m:get_data(),
 
 	    {ReqId, PCtx} <-
@@ -592,7 +613,8 @@ pfcp_create_session(PCC) ->
 
 pfcp_create_session(Now, PCtx0, GyEvs, AuthSEvs, RfSEvs, PCCErrors0) ->
     do([statem_m ||
-	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+	   _ = ?add_event(?FUNCTION_OTEL_EVENT, []),
+
 	   #{context := Context, bearer := Bearer, pcc := PCC0} <- statem_m:get_data(),
 	   {PCC2, PCCErrors1} = ergw_pcc_context:gy_events_to_pcc_ctx(Now, GyEvs, PCC0),
 	   PCC3 = ergw_pcc_context:session_events_to_pcc_ctx(AuthSEvs, PCC2),
@@ -617,7 +639,8 @@ pfcp_create_session(Now, PCtx0, GyEvs, AuthSEvs, RfSEvs, PCCErrors0) ->
 
 pfcp_create_session_response(Response) ->
     do([statem_m ||
-	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+	   _ = ?add_event(?FUNCTION_OTEL_EVENT, []),
+
 	   D1 <- statem_m:get_data(),
 	   _ = ?LOG(debug, "After Response (~p): ~p", [self(), D1]),
 	   _ = ?LOG(debug, "Response: ~p", [Response]),
@@ -633,7 +656,8 @@ pfcp_create_session_response(Response) ->
 
 pfcp_session_modification() ->
     do([statem_m ||
-	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+	   _ = ?add_event(?FUNCTION_OTEL_EVENT, []),
+
 	   #{pfcp := PCtx0, pcc := PCC, bearer := Bearer} <- statem_m:get_data(),
 	   {PCtx, ReqId} <-
 	       statem_m:return(
@@ -650,14 +674,16 @@ pfcp_session_modification() ->
 
 aaa_start(Now) ->
     do([statem_m ||
-	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+	   _ = ?add_event(?FUNCTION_OTEL_EVENT, []),
+
 	   #{'Session' := Session, session_opts := SessionOpts} <- statem_m:get_data(),
 	   statem_m:return(ergw_aaa_session:invoke(Session, SessionOpts, start, #{now => Now, async => true}))
        ]).
 
 gx_error_report(Now, PCCErrors) ->
     do([statem_m ||
-	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+	   _ = ?add_event(?FUNCTION_OTEL_EVENT, []),
+
 	   #{'Session' := Session} <- statem_m:get_data(),
 	   statem_m:return(
 	     begin
@@ -677,14 +703,16 @@ gy_events_to_pcc_ctx(Now, Evs, State, #{pcc := PCC0} = Data) ->
 
 remote_context_register_new() ->
     do([statem_m ||
-	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+	   _ = ?add_event(?FUNCTION_OTEL_EVENT, []),
+
 	   #{context := Context, left_tunnel := LeftTunnel, bearer := Bearer} <- statem_m:get_data(),
 	   statem_m:lift(gtp_context:remote_context_register_new(LeftTunnel, Bearer, Context))
        ]).
 
 pfcp_session_liveness_check() ->
     do([statem_m ||
-	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+	   _ = ?add_event(?FUNCTION_OTEL_EVENT, []),
+
 	   PCtx0 <- statem_m:get_data(maps:get(pfcp, _)),
 	   ReqId <-
 	       statem_m:return(ergw_pfcp_context:send_session_liveness_check(PCtx0)),

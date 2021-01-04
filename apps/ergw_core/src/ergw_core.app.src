@@ -5,6 +5,7 @@
     {applications, [kernel, stdlib, crypto, gun,
 		    erlando, regine, gtplib, pfcplib, plists, xxhash,
 		    ergw_aaa, ergw_cluster,
+		    opentelemetry, opentelemetry_api, opentelemetry_exporter,
 		    prometheus, cowboy, prometheus_cowboy,
 		    prometheus_diameter_collector,
 		    compiler, os_mon, jobs, ra,

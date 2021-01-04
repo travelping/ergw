@@ -83,7 +83,7 @@ lib_init_per_group(Config0) ->
     {_, AppCfg} = lists:keyfind(app_cfg, 1, Config0),   %% let it crash if undefined
 
     Config = init_ets(Config0),
-    [application:load(App) || App <- [cowboy, ergw_core, ergw_aaa]],
+    [application:load(App) || App <- [opentelemetry, cowboy, ergw_core, ergw_aaa]],
     meck_init(Config),
     load_config(AppCfg),
     {ok, _} = application:ensure_all_started(ergw_core),
@@ -115,7 +115,7 @@ lib_end_per_group(Config) ->
     ok = ergw_test_sx_up:stop('sgw-u'),
     ok = ergw_test_sx_up:stop('tdf-u'),
     ?config(table_owner, Config) ! stop,
-    [application:stop(App) || App <- [ranch, cowboy, ergw_core, ergw_aaa, ergw_cluster]],
+    [application:stop(App) || App <- [opentelemetry, ranch, cowboy, ergw_core, ergw_aaa, ergw_cluster]],
     ok.
 
 init_apps(AppCfg) ->

@@ -81,7 +81,7 @@ init_ets(Config) ->
 
 lib_init_per_group(Config0) ->
     Config = init_ets(Config0),
-    [application:load(App) || App <- [cowboy, ergw, ergw_core, ergw_aaa]],
+    [application:load(App) || App <- [opentelemetry, cowboy, ergw, ergw_core, ergw_aaa]],
     meck_init(Config),
 
     case proplists:get_value(upf, Config, true) of
@@ -109,7 +109,7 @@ lib_init_per_group(Config0) ->
     Config.
 
 lib_end_per_group(Config) ->
-    [application:stop(App) || App <- [ranch, cowboy, ergw_core, ergw_aaa, ergw_cluster, ergw]],
+    [application:stop(App) || App <- [opentelemetry, ranch, cowboy, ergw_core, ergw_aaa, ergw_cluster, ergw]],
     meck_unload(Config),
     ok = ergw_test_sx_up:stop('pgw-u01'),
     ok = ergw_test_sx_up:stop('pgw-u02'),

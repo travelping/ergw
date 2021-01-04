@@ -18,6 +18,7 @@
 -include_lib("diameter/include/diameter_gen_base_rfc6733.hrl").
 -include_lib("ergw_aaa/include/diameter_3gpp_ts29_212.hrl").
 -include_lib("ergw_aaa/include/ergw_aaa_session.hrl").
+-include_lib("opentelemetry_api/include/otel_tracer.hrl").
 -include("include/ergw.hrl").
 
 -include("pgw_s5s8.hrl").
@@ -27,7 +28,9 @@
 %%====================================================================
 
 change_notification(ReqKey, Request, _Resent, State, Data) ->
+    SpanCtx = ?start_span(?FUNCTION_OTEL_EVENT, #{}),
     ergw_context_statem:next(
+      SpanCtx,
       change_notification_fun(Request, _, _),
       change_notification_ok(ReqKey, Request, _, _, _),
       change_notification_fail(ReqKey, Request, _, _, _),
@@ -35,8 +38,10 @@ change_notification(ReqKey, Request, _Resent, State, Data) ->
 
 change_notification_ok(ReqKey, #gtp{ie = IEs} = Request, _,
 		       State, #{context := Context, left_tunnel := LeftTunnel} = Data) ->
-    _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
-    ?LOG(debug, "IEs: ~p~nTunnel: ~p~nContext: ~p~n", [IEs, LeftTunnel, Context]),
+    ?add_event(?FUNCTION_OTEL_EVENT,
+	       [{ies, IEs},
+		{leftTunnel, LeftTunnel},
+		{context, Context}]),
 
     ResponseIEs0 = [#v2_cause{v2_cause = request_accepted}],
     ResponseIEs = pgw_s5s8:copy_ies_to_response(IEs, ResponseIEs0, [?'IMSI', ?'ME Identity']),
@@ -49,8 +54,8 @@ change_notification_ok(ReqKey, #gtp{ie = IEs} = Request, _,
 change_notification_fail(ReqKey, #gtp{type = MsgType, seq_no = SeqNo} = Request,
 		    #ctx_err{reply = Reply} = Error,
 		    _State, #{left_tunnel := Tunnel} = Data) ->
-    _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
-    ?LOG(debug, "Error: ~p", [Error]),
+    _ = ?add_event(?FUNCTION_OTEL_EVENT, [{error, Error}]),
+
     gtp_context:log_ctx_error(Error, []),
     Response0 = if is_list(Reply) orelse is_atom(Reply) ->
 			gtp_v2_c:build_response({MsgType, Reply});
@@ -71,18 +76,17 @@ change_notification_fail(ReqKey, #gtp{type = MsgType, seq_no = SeqNo} = Request,
     gtp_context:send_response(ReqKey, Response#gtp{seq_no = SeqNo}),
     {stop, normal, Data};
 change_notification_fail(ReqKey, Request, Error, State, Data) ->
-    _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+    _ = ?add_event(?FUNCTION_OTEL_EVENT, [{error, Error}]),
+
     ct:fail(#{'ReqKey' => ReqKey, 'Request' => Request, 'Error' => Error, 'State' => State, 'Data' => Data}),
     {stop, normal, Data}.
 
 change_notification_fun(#gtp{type = change_notification_request, ie = IEs}, State, Data) ->
     statem_m:run(
       do([statem_m ||
-	     _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+	     _ = ?add_event(?FUNCTION_OTEL_EVENT, []),
 
 	     pgw_s5s8:process_secondary_rat_usage_data_reports(IEs),
 	     URRActions <- ergw_gtp_gsn_lib:collect_charging_events(pgw_s5s8, IEs),
 	     ergw_gtp_gsn_lib:usage_report_m(URRActions)
-
-
 	 ]), State, Data).

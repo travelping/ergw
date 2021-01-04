@@ -11,6 +11,7 @@
 -behavior(ergw_gtp_socket).
 
 -compile({parse_transform, cut}).
+-compile({parse_transform, ct_expand}).
 
 %% API
 -export([start_link/2,
@@ -32,6 +33,8 @@
 
 -include_lib("kernel/include/logger.hrl").
 -include_lib("gtplib/include/gtp_packet.hrl").
+-include_lib("opentelemetry_api/include/otel_tracer.hrl").
+-include_lib("opentelemetry_api/include/opentelemetry.hrl").
 -include("include/ergw.hrl").
 
 -type v1_sequence_number() :: 0 .. 16#ffff.
@@ -447,11 +450,36 @@ handle_err_input(Socket, State) ->
     end,
     State.
 
-handle_message(ArrivalTS, Src, IP, Port, Data, #state{gtp_socket = Socket} = State0) ->
-    try gtp_packet:decode(Data, #{ies => binary}) of
+handle_message(ArrivalTS, Src, IP, Port, Data, #state{gtp_socket = Socket} = State) ->
+    SpanName = ct_expand:term(
+		 iolist_to_binary(
+		   io_lib:format("~s:~s/~w", [?MODULE, ?FUNCTION_NAME, ?FUNCTION_ARITY]))),
+    SpanOpts = #{kind => ?SPAN_KIND_SERVER,
+		 attributes => [{<<"socket.type">>, Socket#socket.type},
+				{<<"socket.id">>, Socket#socket.name}]},
+    ?with_span(SpanName, SpanOpts,
+	       fun(_SpanCtx) -> handle_message_f(ArrivalTS, Src, IP, Port, Data, State) end).
+
+otel_gtp_attrs(true, _Src, IP, Port, Msg, #state{gtp_socket = Socket}) ->
+    Attrs = [{<<"gtp.version">>,   Msg#gtp.version},
+	     {<<"gtp.type">>,      Msg#gtp.type},
+	     {<<"gtp.seq_no">>,    Msg#gtp.seq_no},
+	     {<<"net.socket">>,    Socket#socket.name},
+	     {<<"net.peer.ip">>,   iolist_to_binary(inet:ntoa(IP))},
+	     {<<"net.peer.port">>, Port},
+	     {<<"net.transport">>, <<"IP.UDP.GTP-C">>}],
+    ?set_attributes(Attrs);
+otel_gtp_attrs(_, _, _, _, _, _) ->
+    ok.
+
+handle_message_f(ArrivalTS, Src, IP, Port, Data, #state{gtp_socket = Socket} = State0) ->
+    try
+	?with_span(<<"decode">>, #{}, fun(_) -> gtp_packet:decode(Data, #{ies => binary}) end)
+    of
 	Msg = #gtp{} ->
 	    %% TODO: handle decode failures
 
+	    otel_gtp_attrs(?is_recording(),  Src, IP, Port, Msg, State0),
 	    ?LOG(debug, "handle message: ~p", [{Src, IP, Port,
 						State0#state.gtp_socket,
 						Msg}]),
@@ -466,6 +494,7 @@ handle_message(ArrivalTS, Src, IP, Port, Data, #state{gtp_socket = Socket} = Sta
 
 handle_message_1(_, _, _, _, #gtp{version = Version}, #state{gtp_socket = Socket} = State)
   when Version /= v1 andalso Version /= v2 ->
+    ?set_attribute(<<"error.message">>, 'version-not-supported'),
     ergw_prometheus:gtp_error(rx, Socket, 'version-not-supported'),
     State;
 
@@ -482,24 +511,27 @@ handle_message_1(ArrivalTS, Src, IP, Port, #gtp{version = Version, type = MsgTyp
 	end,
     case Handler:gtp_msg_type(MsgType) of
 	response ->
-	    handle_response(ArrivalTS, Src, IP, Port, Msg, State);
+	    ?with_span(<<"handle_response">>, #{},
+		       handle_response(_, ArrivalTS, Src, IP, Port, Msg, State));
 	request ->
 	    ReqKey = make_request(ArrivalTS, Src, IP, Port, Msg, State),
-	    handle_request(ReqKey, Msg, State);
+	    ?with_span(<<"handle_request">>, #{}, handle_request(_, ReqKey, Msg, State));
 	_ ->
 	    State
     end.
 
-handle_response(ArrivalTS, _Src, IP, _Port, Msg, #state{gtp_socket = Socket} = State0) ->
+handle_response(_SpanCtx, ArrivalTS, _Src, IP, _Port, Msg, #state{gtp_socket = Socket} = State0) ->
     SeqId = ergw_gtp_socket:make_seq_id(Msg),
     {Req, State} = take_request(SeqId, State0),
     case Req of
 	none -> %% duplicate, drop silently
 	    ergw_prometheus:gtp(rx, Socket, IP, Msg, duplicate),
+	    ?set_attribute(<<"error.message">>, 'duplicate'),
 	    ?LOG(debug, "~p: duplicate response: ~p, ~p", [self(), SeqId, gtp_c_lib:fmt_gtp(Msg)]),
 	    State;
 
 	#send_req{} = SendReq ->
+	    %% TBD: restore span id... / end outgoing request span
 	    ?LOG(debug, "~p: found response: ~p", [self(), SeqId]),
 	    measure_reply(Socket, SendReq, ArrivalTS),
 	    gtp_path:activity(Socket, IP, Msg#gtp.version, ArrivalTS, rx),
@@ -507,7 +539,7 @@ handle_response(ArrivalTS, _Src, IP, _Port, Msg, #state{gtp_socket = Socket} = S
 	    State
     end.
 
-handle_request(#request{src = Src, ip = IP, port = Port} = ReqKey, Msg,
+handle_request(SpanCtx, #request{src = Src, ip = IP, port = Port} = ReqKey, Msg,
 	       #state{gtp_socket = Socket, responses = Responses} = State) ->
     case ergw_cache:get(cache_key(ReqKey), Responses) of
 	{value, Data} ->
@@ -516,7 +548,7 @@ handle_request(#request{src = Src, ip = IP, port = Port} = ReqKey, Msg,
 
 	_Other ->
 	    ?LOG(debug, "HandleRequest: ~p", [_Other]),
-	    ergw_context:port_message(ReqKey, Msg)
+	    ergw_context:port_message(ReqKey#request{span_ctx = SpanCtx}, Msg)
     end,
     State.
 

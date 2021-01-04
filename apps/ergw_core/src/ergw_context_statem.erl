@@ -23,9 +23,11 @@
 -export([callback_mode/0, init/1, handle_event/4, terminate/3, code_change/4]).
 
 %% async FSM helpers
--export([next/5, send_request/1]).
+-export([next/5, next/6, send_request/1]).
 
 -include_lib("kernel/include/logger.hrl").
+-include_lib("opentelemetry_api/include/otel_tracer.hrl").
+-include("include/ergw.hrl").
 
 %%%=========================================================================
 %%%  API
@@ -120,38 +122,54 @@ code_change(OldVsn, State, #{?HANDLER := Handler} = Data, Extra) ->
 %% async FSM helpers
 %%====================================================================
 
-next(StateFun, OkF, FailF, State0, Data0)
+%% next/5
+next(StateFun, OkF, FailF, State, Data) ->
+    next(undefined, StateFun, OkF, FailF, State, Data).
+
+otel_span_end(undefined, Fun, Result, State, Data) ->
+    Fun(Result, State, Data);
+otel_span_end(SpanCtx, Fun, Result, State, Data) ->
+    try
+	?set_current_span(SpanCtx),
+	Fun(Result, State, Data)
+    after
+	?end_span(SpanCtx)
+    end.
+
+%% next/6
+next(SpanCtx, StateFun, OkF, FailF, State0, Data0)
   when is_function(StateFun, 2),
        is_function(OkF, 3),
        is_function(FailF, 3) ->
+    ?set_current_span(SpanCtx),
     {Result, State, Data} = StateFun(State0, Data0),
-    next(Result, OkF, FailF, State, Data);
+    next(SpanCtx, Result, OkF, FailF, State, Data);
 
-next(ok, Fun, _, State, Data)
+next(SpanCtx, ok, Fun, _, State, Data)
   when is_function(Fun, 3) ->
-    Fun(ok, State, Data);
-next({ok, Result}, Fun, _, State, Data)
+    otel_span_end(SpanCtx, Fun, ok, State, Data);
+next(SpanCtx, {ok, Result}, Fun, _, State, Data)
   when is_function(Fun, 3) ->
-    Fun(Result, State, Data);
-next({error, Result}, _, Fun, State, Data)
+    otel_span_end(SpanCtx, Fun, Result, State, Data);
+next(SpanCtx, {error, Result}, _, Fun, State, Data)
   when is_function(Fun, 3) ->
-    Fun(Result, State, Data);
-next({wait, ReqId, Q}, OkF, FailF, #{async := Async} = State, Data)
+    otel_span_end(SpanCtx, Fun, Result, State, Data);
+next(SpanCtx, {wait, ReqId, Q}, OkF, FailF, #{async := Async} = State, Data)
   when (is_reference(ReqId) orelse is_pid(ReqId)),
        is_list(Q),
        is_function(OkF, 3),
        is_function(FailF, 3) ->
-    Req = {ReqId, Q, OkF, FailF},
+    Req = {ReqId, SpanCtx, Q, OkF, FailF},
     {next_state, State#{async := maps:put(ReqId, Req, Async)}, Data}.
 
 statem_m_continue(ReqId, Result, DeMonitor, #{async := Async0} = State, Data) ->
-    {{Mref, Q, OkF, FailF}, Async} = maps:take(ReqId, Async0),
+    {{Mref, SpanCtx, Q, OkF, FailF}, Async} = maps:take(ReqId, Async0),
     case DeMonitor of
 	true -> demonitor(Mref, [flush]);
 	_ -> ok
     end,
     ?LOG(debug, "Result: ~p~n", [Result]),
-    next(statem_m:response(Q, Result, _, _), OkF, FailF, State#{async := Async}, Data).
+    next(SpanCtx, statem_m:response(Q, Result, _, _), OkF, FailF, State#{async := Async}, Data).
 
 -if(?OTP_RELEASE =< 23).
 

@@ -18,6 +18,7 @@
 -include_lib("diameter/include/diameter_gen_base_rfc6733.hrl").
 -include_lib("ergw_aaa/include/diameter_3gpp_ts29_212.hrl").
 -include_lib("ergw_aaa/include/ergw_aaa_session.hrl").
+-include_lib("opentelemetry_api/include/otel_tracer.hrl").
 -include("include/ergw.hrl").
 
 -include("pgw_s5s8.hrl").
@@ -27,7 +28,9 @@
 %%====================================================================
 
 modify_bearer(ReqKey, Request, _Resent, State, Data) ->
+    SpanCtx = ?start_span(?FUNCTION_OTEL_EVENT, #{}),
     ergw_context_statem:next(
+      SpanCtx,
       modify_bearer_fun(Request, _, _),
       modify_bearer_ok(ReqKey, Request, _, _, _),
       modify_bearer_fail(ReqKey, Request, _, _, _),
@@ -40,9 +43,12 @@ modify_bearer_ok(ReqKey,
 			    } = IEs} = Request,
 		 _, State,
 		 #{context := Context, left_tunnel := LeftTunnel, bearer := Bearer} = Data) ->
-    _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
-    ?LOG(debug, "IEs: ~p~nEBI: ~p~nTunnel: ~p~nBearer: ~p~nContext: ~p~n",
-	   [IEs, EBI, LeftTunnel, Bearer, Context]),
+    ?add_event(?FUNCTION_OTEL_EVENT,
+	       [{ies, IEs},
+		{ebi, EBI},
+		{leftTunnel, LeftTunnel},
+		{bearer, Bearer},
+		{context, Context}]),
 
     ResponseIEs0 =
 	case maps:is_key(?'Sender F-TEID for Control Plane', IEs) of
@@ -71,12 +77,13 @@ modify_bearer_ok(ReqKey,
     gtp_context:send_response(ReqKey, Request, Response),
 
     Actions = pgw_s5s8:context_idle_action([], Context),
-    ?LOG(debug, "MBR data: ~p", [Data]),
     {next_state, State, Data, Actions};
 
 modify_bearer_ok(ReqKey, #gtp{type = modify_bearer_request, ie = IEs} = Request,
 		 _, State, #{context := Context, left_tunnel := LeftTunnel} = Data)
   when not is_map_key(?'Bearer Contexts to be modified', IEs) ->
+    ?add_event(?FUNCTION_OTEL_EVENT, []),
+
     ResponseIEs = [#v2_cause{v2_cause = request_accepted}],
     Response = pgw_s5s8:response(modify_bearer_response, LeftTunnel, ResponseIEs, Request),
     gtp_context:send_response(ReqKey, Request, Response),
@@ -87,8 +94,8 @@ modify_bearer_ok(ReqKey, #gtp{type = modify_bearer_request, ie = IEs} = Request,
 modify_bearer_fail(ReqKey, #gtp{type = MsgType, seq_no = SeqNo} = Request,
 		    #ctx_err{reply = Reply} = Error,
 		    _State, #{left_tunnel := Tunnel} = Data) ->
-    _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
-    ?LOG(debug, "Error: ~p", [Error]),
+    ?add_event(?FUNCTION_OTEL_EVENT, [{error, Error}]),
+
     gtp_context:log_ctx_error(Error, []),
     Response0 = if is_list(Reply) orelse is_atom(Reply) ->
 			gtp_v2_c:build_response({MsgType, Reply});
@@ -109,7 +116,8 @@ modify_bearer_fail(ReqKey, #gtp{type = MsgType, seq_no = SeqNo} = Request,
     gtp_context:send_response(ReqKey, Response#gtp{seq_no = SeqNo}),
     {stop, normal, Data};
 modify_bearer_fail(ReqKey, Request, Error, State, Data) ->
-    _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+    ?add_event(?FUNCTION_OTEL_EVENT, []),
+
     ct:fail(#{'ReqKey' => ReqKey, 'Request' => Request, 'Error' => Error, 'State' => State, 'Data' => Data}),
     {stop, normal, Data}.
 
@@ -121,7 +129,7 @@ modify_bearer_fun(#gtp{type = modify_bearer_request, ie = IEs} = Request, State,
   when is_map_key(?'Bearer Contexts to be modified', IEs) ->
     statem_m:run(
       do([statem_m ||
-	     _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+	     _ = ?add_event(?FUNCTION_OTEL_EVENT, []),
 	     process_secondary_rat_usage_data_reports(IEs),
 	     #{left_tunnel := LeftTunnelOld,
 	       bearer := #{left := LeftBearerOld}} <- statem_m:get_data(),
@@ -135,7 +143,7 @@ modify_bearer_fun(#gtp{type = modify_bearer_request, ie = IEs} = Request, State,
   when not is_map_key(?'Bearer Contexts to be modified', IEs) ->
     statem_m:run(
       do([statem_m ||
-	     _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+	     _ = ?add_event(?FUNCTION_OTEL_EVENT, []),
 	     process_secondary_rat_usage_data_reports(IEs),
 	     ergw_gtp_gsn_lib:update_tunnel_from_gtp_req(pgw_s5s8, v2, left, Request),
 	     ergw_gtp_gsn_lib:update_tunnel_endpoint(left, Data),
@@ -145,7 +153,7 @@ modify_bearer_fun(#gtp{type = modify_bearer_request, ie = IEs} = Request, State,
 
 process_secondary_rat_usage_data_reports(IEs) ->
     do([statem_m ||
-	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+	   _ = ?add_event(?FUNCTION_OTEL_EVENT, []),
 	   #{context := Context, 'Session' := Session} <- statem_m:get_data(),
 
 	   %% TODO: this call blocking AAA API, convert to send_request/wait
@@ -159,7 +167,7 @@ handle_bearer_change(URRActions, _LeftTunnelOld, LeftBearerOld, LeftBearer)
 handle_bearer_change(URRActions, LeftTunnelOld, LeftBearerOld, LeftBearer)
   when LeftBearerOld =/= LeftBearer ->
     do([statem_m ||
-	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+	   _ = ?add_event(?FUNCTION_OTEL_EVENT, []),
 	   LeftTunnel <- statem_m:get_data(maps:get(left_tunnel, _)),
 	   SendEM = LeftTunnelOld#tunnel.version == LeftTunnel#tunnel.version,
 	   SessionInfo <- ergw_gtp_gsn_lib:apply_bearer_change(URRActions, SendEM),
@@ -170,7 +178,7 @@ handle_bearer_change(URRActions, LeftTunnelOld, LeftBearerOld, LeftBearer)
 
 handle_bearer_change(URRActions, LeftTunnelOld, LeftBearerOld) ->
     do([statem_m ||
-	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+	   _ = ?add_event(?FUNCTION_OTEL_EVENT, []),
 	   #{bearer := #{left := LeftBearer}} <- statem_m:get_data(),
 	   handle_bearer_change(URRActions, LeftTunnelOld, LeftBearerOld, LeftBearer)
        ]).

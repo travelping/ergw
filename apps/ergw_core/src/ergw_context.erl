@@ -24,6 +24,7 @@
 -include_lib("kernel/include/logger.hrl").
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include_lib("pfcplib/include/pfcp_packet.hrl").
+-include_lib("opentelemetry_api/include/otel_tracer.hrl").
 -include("ergw_core_config.hrl").
 -include("include/ergw.hrl").
 
@@ -52,7 +53,11 @@ sx_report(#pfcp{type = session_report_request, seid = SEID} = Report) ->
 
 %% port_message/2
 port_message(Request, Msg) ->
-    proc_lib:spawn(fun() -> port_message_h(Request, Msg) end),
+    SpanCtx = ?current_span_ctx,
+    proc_lib:spawn(fun() ->
+			   ?set_current_span(SpanCtx),
+			   port_message_h(Request, Msg)
+		   end),
     ok.
 
 %% port_message/3
@@ -117,7 +122,7 @@ apply2context(Key, F, A) ->
 %%
 port_message_h(Request, #gtp{} = Msg) ->
     Queue = load_class(Msg),
-    case jobs:ask(Queue) of
+    case ?with_span(<<"queue">>, #{}, fun(_) -> jobs:ask(Queue) end) of
 	{ok, Opaque} ->
 	    try
 		port_message_run(Request, Msg)

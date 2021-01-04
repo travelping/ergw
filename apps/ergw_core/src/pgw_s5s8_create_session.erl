@@ -18,6 +18,7 @@
 -include_lib("diameter/include/diameter_gen_base_rfc6733.hrl").
 -include_lib("ergw_aaa/include/diameter_3gpp_ts29_212.hrl").
 -include_lib("ergw_aaa/include/ergw_aaa_session.hrl").
+-include_lib("opentelemetry_api/include/otel_tracer.hrl").
 -include("include/ergw.hrl").
 
 -include("pgw_s5s8.hrl").
@@ -27,7 +28,9 @@
 %%====================================================================
 
 create_session(ReqKey, Request, _Resent, State, Data) ->
+    SpanCtx = ?start_span(?FUNCTION_OTEL_EVENT, #{}),
     ergw_context_statem:next(
+      SpanCtx,
       create_session_fun(Request, _, _),
       create_session_ok(ReqKey, Request, _, _, _),
       create_session_fail(ReqKey, Request, _, _, _),
@@ -40,22 +43,27 @@ create_session_ok(ReqKey,
 		 {Cause, SessionOpts},
 		 State, #{context := Context, left_tunnel := LeftTunnel,
 			   bearer := Bearer} = Data) ->
-    _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
-    ?LOG(debug, "Cause: ~p~nOpts: ~p~nIEs: ~p~nEBI: ~p~nTunnel: ~p~nBearer: ~p~nContext: ~p~n",
-	   [Cause, SessionOpts, IEs, EBI, LeftTunnel, Bearer, Context]),
+    ?add_event(?FUNCTION_OTEL_EVENT,
+	       [{cause, Cause},
+		{sessionOpts, SessionOpts},
+		{ies, IEs},
+		{ebi, EBI},
+		{leftTunnel, LeftTunnel},
+		{bearer, Bearer},
+		{context, Context}]),
+
     ResponseIEs = pgw_s5s8:create_session_response(Cause, SessionOpts, IEs, EBI, LeftTunnel, Bearer, Context),
     Response = pgw_s5s8:response(create_session_response, LeftTunnel, ResponseIEs, Request),
     gtp_context:send_response(ReqKey, Request, Response),
 
     Actions = pgw_s5s8:context_idle_action([], Context),
-    ?LOG(debug, "CSR data: ~p", [Data]),
     {next_state, State#{session := connected}, Data, Actions}.
 
 create_session_fail(ReqKey, #gtp{type = MsgType, seq_no = SeqNo} = Request,
 		    #ctx_err{reply = Reply} = Error,
 		    _State, #{left_tunnel := Tunnel} = Data) ->
-    _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
-    ?LOG(debug, "Error: ~p", [Error]),
+    ?add_event(?FUNCTION_OTEL_EVENT, [{error, Error}]),
+
     gtp_context:log_ctx_error(Error, []),
     Response0 = if is_list(Reply) orelse is_atom(Reply) ->
 			gtp_v2_c:build_response({MsgType, Reply});
@@ -77,7 +85,8 @@ create_session_fail(ReqKey, #gtp{type = MsgType, seq_no = SeqNo} = Request,
     {stop, normal, Data};
 
 create_session_fail(ReqKey, Request, Error, State, Data) ->
-    _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+    ?add_event(?FUNCTION_OTEL_EVENT, [{error, Error}]),
+
     ct:fail(#{'ReqKey' => ReqKey, 'Request' => Request, 'Error' => Error, 'State' => State, 'Data' => Data}),
     {next_state, State#{session := shutdown}, Data}.
 
@@ -85,7 +94,8 @@ create_session_fun(#gtp{ie = #{?'Access Point Name' := #v2_access_point_name{apn
 		   State, Data) ->
     statem_m:run(
       do([statem_m ||
-	     _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+	     _ = ?add_event(?FUNCTION_OTEL_EVENT, []),
+
 	     NodeSelect <- statem_m:get_data(maps:get(node_selection, _)),
 	     PeerUpNode =
 		 case IEs of

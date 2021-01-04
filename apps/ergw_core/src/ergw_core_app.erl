@@ -15,6 +15,8 @@
 %% Application callbacks
 -export([start/2, stop/1]).
 
+-include_lib("opentelemetry_api/include/otel_tracer.hrl").
+
 %%%===================================================================
 %%% Application callbacks
 %%%===================================================================
@@ -23,9 +25,15 @@ start(_StartType, _StartArgs) ->
     do([error_m ||
 	   ergw_prometheus:declare(),
 	   ensure_jobs_queues(),
-	   riak_core:register([{vnode_module, gtp_path_db_vnode},
-			       {vnode_module, gtp_context_reg_vnode}]),
-	   riak_core_node_watcher:service_up(ergw_core, self()),
+
+	   ?with_span(<<"riak_init/0">>, #{},
+		      fun(_SpanCtx) ->
+			      riak_core:register([{vnode_module, gtp_path_db_vnode},
+						  {vnode_module, gtp_context_reg_vnode}]),
+			      riak_core_node_watcher:service_up(ergw_core, self()),
+			      ok
+		      end),
+
 	   Pid <- ergw_core_sup:start_link(),
 	   return(Pid)
        ]).
