@@ -21,6 +21,7 @@
 -endif.
 
 -include_lib("gtplib/include/gtp_packet.hrl").
+-include_lib("opentelemetry_api/include/otel_tracer.hrl").
 -include("include/ergw.hrl").
 
 -define(EXO_PERF_OPTS, [{time_span, 300 * 1000}]).		%% 5 min histogram
@@ -182,4 +183,5 @@ make_request(ArrivalTS, Src, IP, Port, Msg = #gtp{version = Version, type = Type
        port = Port,
        version = Version,
        type = Type,
+       span_ctx = ?current_span_ctx,
        arrival_ts = ArrivalTS}.

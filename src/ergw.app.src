@@ -5,6 +5,7 @@
     {applications, [kernel, stdlib, erlando, crypto,
 		    regine, gtplib, pfcplib,
 		    ergw_aaa, setup, netdata,
+		    opentelemetry, opentelemetry_api, opentelemetry_exporter,
 		    prometheus, cowboy, prometheus_cowboy,
 		    prometheus_diameter_collector,
 		    jsx, compiler, os_mon, jobs,

@@ -139,6 +139,7 @@
 	  port		:: 0 .. 65535,
 	  version	:: 'v1' | 'v2',
 	  type		:: atom(),
+	  span_ctx      :: term(),
 	  arrival_ts    :: integer()
 	 }).
 

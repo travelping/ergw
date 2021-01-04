@@ -44,6 +44,19 @@
 	    ]}
 	  ]},
 
+	 {opentelemetry,
+	  [{resource, [{<<"service.name">>, <<"ergw">>}]},
+	   {processors,
+	    [{otel_batch_processor,
+	      #{exporter =>
+		    {opentelemetry_exporter,
+		     #{endpoints => [{http, "localhost", 55681, []}]}
+		    }
+	       }
+	     }
+	    ]}
+	  ]},
+
 	 {ergw, [{'$setup_vars',
 		  [{"ORIGIN", {value, "epc.mnc001.mcc001.3gppnetwork.org"}}]},
 		 {node_id, "PGW.$ORIGIN"},
@@ -696,7 +709,7 @@ all() ->
 %%%===================================================================
 
 setup_per_testcase(Config) ->
-    logger:set_primary_config(level, debug),
+    %% logger:set_primary_config(level, debug),
     setup_per_testcase(Config, true).
 
 setup_per_testcase(Config, ClearSxHist) ->

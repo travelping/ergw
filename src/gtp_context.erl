@@ -54,6 +54,7 @@
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include_lib("pfcplib/include/pfcp_packet.hrl").
 -include_lib("ergw_aaa/include/ergw_aaa_session.hrl").
+-include_lib("opentelemetry_api/include/otel_tracer.hrl").
 -include("include/ergw.hrl").
 
 -define(TestCmdTag, '$TestCmd').
@@ -415,15 +416,23 @@ handle_event({call, From},
     {keep_state_and_data, [{reply, From, {ok, PCtx}}]};
 
 handle_event(cast, {handle_message, Request, #gtp{} = Msg0, Resent}, State, Data) ->
-    Msg = gtp_packet:decode_ies(Msg0),
-    ?LOG(debug, "handle gtp request: ~w, ~p",
-		[Request#request.port, gtp_c_lib:fmt_gtp(Msg)]),
-    handle_request(Request, Msg, Resent, State, Data);
+    ?set_current_span(Request#request.span_ctx),
+    ?with_span(<<"handle_message">>, #{},
+	       fun(_) ->
+		       Msg = gtp_packet:decode_ies(Msg0),
+		       ?LOG(debug, "handle gtp request: ~w, ~p",
+			    [Request#request.port, gtp_c_lib:fmt_gtp(Msg)]),
+		       handle_request(Request, Msg, Resent, State, Data)
+	       end);
 
 handle_event(cast, {handle_pdu, Request, Msg}, State, #{interface := Interface} = Data) ->
-    ?LOG(debug, "handle GTP-U PDU: ~w, ~p",
-		[Request#request.port, gtp_c_lib:fmt_gtp(Msg)]),
-    Interface:handle_pdu(Request, Msg, State, Data);
+    ?set_current_span(Request#request.span_ctx),
+    ?with_span(<<"handle_pdu">>, #{},
+	       fun(_) ->
+		       ?LOG(debug, "handle GTP-U PDU: ~w, ~p",
+			    [Request#request.port, gtp_c_lib:fmt_gtp(Msg)]),
+		       Interface:handle_pdu(Request, Msg, State, Data)
+	       end);
 
 handle_event(cast, {handle_response, ReqInfo, Request, Response0}, State,
 	    #{interface := Interface} = Data) ->
