@@ -292,7 +292,7 @@ add_ie(_Key, IE, IEs) when is_list(IEs) -> [IE|IEs];
 add_ie(Key, IE, IEs) when is_map(IEs) -> maps:put(Key, IE, IEs).
 
 add_recovery(IEs) ->
-    {ok, RCnt} = gtp_config:get_restart_counter(),
+    RCnt = gtp_config:get_restart_counter(),
     add_ie('Recovery', #recovery{restart_counter = RCnt}, IEs).
 
 map_reply_ies(IEs) when is_list(IEs) ->

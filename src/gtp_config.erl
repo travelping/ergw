@@ -8,7 +8,7 @@
 -module(gtp_config).
 
 %% API
--export([init/0, get_restart_counter/0, get_start_time/0]).
+-export([init/0, sync/0, get_restart_counter/0, get_start_time/0]).
 
 -define(App, ergw).
 
@@ -26,16 +26,26 @@ init() ->
     Count = proplists:get_value(restart_count, State0, 0),
     State1 = lists:keystore(restart_count, 1, State0, {restart_count, (Count + 1) band 16#ff}),
 
-    lists:foreach(fun({K, V}) ->
-			  application:set_env(?App, K, V, [{persistent, true}])
-		  end, State1),
-    application:set_env(?App, start_time, erlang:system_time(seconds), [{persistent, true}]),
-
+    lists:foreach(fun({K, V}) -> ergw_global:put(K, V) end, State1),
     write_terms(StateFile, State1),
+
+    Now = erlang:system_time(seconds),
+    application:set_env(?App, start_time, Now, [{persistent, true}]),
+    ergw_global:put(start_time, Now),
+    ok.
+
+sync() ->
+    StateFile = setup:get_env(?App, state_file, filename:join(setup:data_dir(), "ergw.state")),
+    application:set_env(?App, state_file, StateFile, [{persistent, true}]),
+
+    State = [{restart_count, ergw_global:get(restart_count)}],
+    write_terms(StateFile, State),
+
+    application:set_env(?App, start_time, erlang:system_time(seconds), [{persistent, true}]),
     ok.
 
 get_restart_counter() ->
-    application:get_env(?App, restart_count).
+    ergw_global:get(restart_count).
 
 get_start_time() ->
     {ok, Time} = application:get_env(?App, start_time),

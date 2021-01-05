@@ -55,13 +55,10 @@ start_node({_Id, NodeName}) ->
     Opts = [{monitor_master, true},
 	    {erl_flags, PathFlag}],
     {ok, _} = ct_slave:start(NodeName, Opts),
-    ct:pal("Ping: ~p", [net_adm:ping(NodeName)]),
-    R = erpc:call(NodeName, erlang, registered, []),
-    ct:pal("R: ~p", [R]),
     ok.
 
 stop_node({_Id, NodeName}) ->
-  ct_slave:stop(NodeName).
+    ct_slave:stop(NodeName).
 
 random_node(Config, Fun) ->
     Nodes = proplists:get_value(nodes, Config),
@@ -92,8 +89,7 @@ init_per_suite(Config) ->
 	{file, _} ->
 	    {Module, Binary, Filename} = code:get_object_code(cthr),
 	    {_, NodeNames} = lists:unzip(Nodes),
-	    R = erpc:multicall(NodeNames, code, load_binary, [Module, Filename, Binary]),
-	    ct:pal("R: ~p", [R]),
+	    erpc:multicall(NodeNames, code, load_binary, [Module, Filename, Binary]),
 	    ok;
 	_ ->
 	    ok
@@ -108,9 +104,23 @@ end_per_suite(Config) ->
 build_cluster(Config) ->
     Nodes = proplists:get_value(nodes, Config),
     [Us|NodeNames] = [X || {_, X} <- Nodes],
-    Res = erpc:multicall(NodeNames, riak_core, join, [Us]),
-    ?match([], lists:filter(fun(X) -> X /= {ok, ok} end, Res)),
+    JoinRes = plists:map(fun (Node) -> join_cluster(10, Us, Node) end, NodeNames),
+    ?match([], lists:filter(fun(X) -> X /= ok end, JoinRes)),
     ok = build_cluster_commit(10, Us).
+
+join_cluster(0, _, _) ->
+    {error, timeout};
+join_cluster(Cnt, Us, Node) ->
+    erpc:call(Node, application, which_applications, []),
+    case (catch erpc:call(Node, riak_core, join, [Us])) of
+	ok ->
+	    ok;
+	{error, node_still_starting} ->
+	    ct:sleep(50),
+	    join_cluster(Cnt - 1, Us, Node);
+	Other ->
+	    Other
+    end.
 
 build_cluster_commit(0, _Us) ->
     {error, timeout};
@@ -186,6 +196,7 @@ end_per_group(Config) ->
 -define(NODE_OPTS, [%%{[riak_core, ring_state_dir], riak_node_dir},
 		    {[kernel, logger, '_', config, file], log},
 		    {[riak_core, handoff_ip], ip},
+		    {[ergw, node_id], node_id},
 		    {[ergw, sockets, '_', ip], ip}
 		   ]).
 
@@ -199,6 +210,9 @@ gen_per_node_opt(_, log, V) ->
       io_lib:format("~s.~s", ([node(), V])));
 gen_per_node_opt(_, riak_node_dir, _) ->
     filename:join([".", "data", node()]);
+gen_per_node_opt(Id, node_id, V) ->
+    lists:flatten(
+      io_lib:format("node~2.10.0w.~s", [Id, V]));
 gen_per_node_opt(Id, ip, IP) ->
     make_ip(Id, IP).
 
