@@ -28,7 +28,7 @@
 
 -record(state, {
 	  name,
-	  node           :: binary(),
+	  node           :: atom(),
 	  send_socket    :: socket:socket(),
 	  recv_socket    :: socket:socket(),
 	  burst_size = 1 :: non_neg_integer(),

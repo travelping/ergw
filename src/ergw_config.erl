@@ -67,7 +67,6 @@
 load() ->
     Config = validate_config(setup:get_all_env(ergw)),
     load_env_config(Config),
-    ok = gtp_config:init(),
     {ok, Config}.
 
 load_env_config([]) ->
@@ -237,10 +236,12 @@ validate_option(plmn_id, {MCC, MNC} = Value) ->
        ok -> Value;
        _  -> throw({error, {options, {plmn_id, Value}}})
     end;
-validate_option(node_id, Value) when is_binary(Value) ->
+validate_option(node_id, Value) when is_atom(Value), Value /= undefined ->
     Value;
+validate_option(node_id, Value) when is_binary(Value) ->
+    binary_to_atom(Value);
 validate_option(node_id, Value) when is_list(Value) ->
-    iolist_to_binary(Value);
+    binary_to_atom(iolist_to_binary(Value));
 validate_option(accept_new, Value) when is_boolean(Value) ->
     Value;
 validate_option(cluster, Value) when ?is_opts(Value) ->
