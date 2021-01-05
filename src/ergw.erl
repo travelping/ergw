@@ -206,13 +206,15 @@ i(memory, context) ->
     {context, MemUsage}.
 
 wait_till_ready() ->
-    gen_server:call(?SERVER, ready).
+    ok = gen_server:call(?SERVER, ready, infinity).
 
 %%%===================================================================
 %%% gen_server callbacks
 %%%===================================================================
 
 init(Config) ->
+    process_flag(trap_exit, true),
+
     TID = ets:new(?SERVER, [ordered_set, named_table, public,
 			    {keypos, 2}, {read_concurrency, true}]),
     load_config(Config),
@@ -228,18 +230,20 @@ init(Config) ->
 	    init:wait_until_started()
     end,
 
+    Now = erlang:monotonic_time(),
     case ergw_cluster:start() of
 	ok ->
-	    ok;
+	    ergw_config:apply(Config),
+	    ?LOG(info, "ergw: ready to process requests, cluster started in ~w ms",
+		 [erlang:convert_time_unit(erlang:monotonic_time() - Now, native, millisecond)]),
+	    gen_server:enter_loop(?MODULE, [], #state{tid = TID}, {local, ?SERVER});
+
 	Other ->
-	    ?LOG(critical, "cluster support failed to state with ~0p", [Other]),
-	    init:stop(1)
-    end,
+	    ?LOG(critical, "cluster support failed to start with ~0p", [Other]),
+	    init:stop(1),
+	    {shutdown, Other}
+    end.
 
-    ergw_config:apply(Config),
-    ?LOG(info, "ergw: ready to process requests"),
-
-    gen_server:enter_loop(?MODULE, [], #state{tid = TID}, {local, ?SERVER}).
 
 handle_call(ready, _From, State) ->
     {reply, ok, State};
@@ -254,6 +258,7 @@ handle_info(_Info, State) ->
     {noreply, State}.
 
 terminate(_Reason, _State) ->
+    ergw_cluster:stop(),
     ok.
 
 code_change(_OldVsn, State, _Extra) ->
