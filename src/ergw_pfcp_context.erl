@@ -648,15 +648,27 @@ build_sx_usage_rule(_K, #{'Rating-Group' := [RatingGroup],
 	     measurement_method => #measurement_method{},
 	     reporting_triggers => #reporting_triggers{},
 	     'Update-Time-Stamp' => UpdateTS},
-    {URR1, PCtx} =
-	case ergw_pfcp:get_urr_ids([{offline, RatingGroup}], PCtx2) of
-	    [undefined] ->
-		%% if this is an online only rule, do nothing
-		{URR0, PCtx2};
-	    [OffId] when is_integer(OffId)->
-		%% if the same rule is use for offline and online reporting add a link
-		build_sx_linked_rule(URR0, PCtx2)
-	end,
+
+%%% FIXME: triggering a report on Online RGs also triggers a Gy report.
+%%%        linking them to the Offline for interim reporting will result
+%%%        Gy reports without a Gy specific trigger.
+%%% Note:  unlinking them breaks including Service Data Containers in ACRs when
+%%%        one of the conditions in "IP-CAN bearer modification" are meet
+%%%        see 3GPP TS 32.251, Sect. 5.2.3.4.1 and Table  5.2.3.4.1.1.
+
+    %% {URR1, PCtx} =
+    %%         case ergw_pfcp:get_urr_ids([{offline, RatingGroup}], PCtx2) of
+    %%             [undefined] ->
+    %%                 %% if this is an online only rule, do nothing
+    %%                 {URR0, PCtx2};
+    %%             [OffId] when is_integer(OffId)->
+    %%                 %% if the same rule is use for offline and online reporting add a link
+    %%                 build_sx_linked_rule(URR0, PCtx2)
+    %%         end,
+    {URR1, PCtx} = {URR0, PCtx2},
+
+%%% FIXME - End
+
     URR = lists:foldl(build_sx_usage_rule_4(_, GSU, GCU, _), URR1,
 		      [time, time_quota_threshold,
 		       total_octets, input_octets, output_octets,
