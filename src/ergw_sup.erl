@@ -30,17 +30,26 @@ start_link(Config) ->
 %% ===================================================================
 
 init([Config]) ->
-    VMaster = #{id       => gtp_context_reg_vnode_master,
-		start    => {riak_core_vnode_master, start_link, [gtp_context_reg_vnode]},
-		restart  => permanent,
-		shutdown => 5000,
-		type     => worker,
-		modules  => [riak_core_vnode_master]},
+    VContextRegMaster =
+	#{id       => gtp_context_reg_vnode_master,
+	  start    => {riak_core_vnode_master, start_link, [gtp_context_reg_vnode]},
+	  restart  => permanent,
+	  shutdown => 5000,
+	  type     => worker,
+	  modules  => [riak_core_vnode_master]},
+    VPathDbMaster =
+	#{id       => gtp_path_db_vnode_master,
+	  start    => {riak_core_vnode_master, start_link, [gtp_path_db_vnode]},
+	  restart  => permanent,
+	  shutdown => 5000,
+	  type     => worker,
+	  modules  => [riak_core_vnode_master]},
     {ok, {{one_for_one, 5, 10}, [?CHILD(ergw_inet_res, worker, []),
 				 ?CHILD(gtp_path_reg, worker, []),
 				 ?CHILD(ergw_tei_mngr, worker, []),
 				 ?CHILD(gtp_path_sup, supervisor, []),
-				 VMaster,
+				 VContextRegMaster,
+				 VPathDbMaster,
 				 ?CHILD(gtp_context_reg, worker, []),
 				 ?CHILD(gtp_context_sup, supervisor, []),
 				 ?CHILD(tdf_sup, supervisor, []),
