@@ -13,7 +13,7 @@
 
 %% API
 -export([validate_options/2, start_link/1]).
--export([call/3, call/5, send_response/3, id/0, seid/0]).
+-export([call/5, send_response/3, id/0, seid/0]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -79,9 +79,6 @@
 
 start_link(Opts) ->
     proc_lib:start_link(?MODULE, init, [Opts]).
-
-call(Peer, Msg, {_,_,_} = CbInfo) ->
-    ?MODULE:call(Peer, ?T1, ?N1, Msg, CbInfo).
 
 call(Peer, T1, N1, Msg, {_,_,_} = CbInfo) ->
     Req = make_send_req(Peer, T1, N1, Msg, CbInfo),
