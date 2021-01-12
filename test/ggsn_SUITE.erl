@@ -460,7 +460,8 @@ common() ->
      gx_invalid_charging_rule,
      gx_rar_gy_interaction,
      gtp_idle_timeout,
-     up_inactivity_timer].
+     up_inactivity_timer,
+     pfcp_sx_association_metric].
 
 groups() ->
     [{common, [], common()},
@@ -2675,6 +2676,15 @@ up_inactivity_timer(Config) ->
 
     meck_validate(Config),
     ok.
+
+%%--------------------------------------------------------------------
+pfcp_sx_association_metric() ->
+    [{doc, "Test expiry of PFCP Sx association and session counters"}].
+pfcp_sx_association_metric(_Config) ->
+    ?equal(ok, prometheus_registry:register_collector(ergw, ergw_prometheus_collector)),
+    Metrics = prometheus_text_format:format(ergw),
+    ?match({match, _}, re:run(Metrics, "pfcp_sx_association_total")),
+    ?match({match, _}, re:run(Metrics, "pfcp_sx_context_total")).
 
 %%%===================================================================
 %%% Internal functions
