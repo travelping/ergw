@@ -376,7 +376,15 @@ Then fill just created **ergw.config** file with content like described below pr
               [{cp, [{features, ['CP-Function']}]},
                {epc, [{features, ['Access']}]},
                {sgi, [{features, ['SGi-LAN']}]}]
-             }]
+             },
+             {heartbeat, [
+               {interval, 5000},
+               {timeout, 500},
+               {retry, 5}
+             ]},
+             {request,
+               [{timeout, 30000},
+               {retry, 5}]}]
            }]
          }
         ]},

@@ -908,6 +908,11 @@ config(_Config)  ->
     ?ok_option(set_cfg_value([nodes, default, ip_pools], [a, b], ?GGSN_CONFIG)),
     ?error_option(set_cfg_value([nodes, default, ip_pools], [a, a], ?GGSN_CONFIG)),
 
+    ?error_option(set_cfg_value([nodes, default, heartbeat], [{interval, invalid}], ?GGSN_CONFIG)),
+    ?ok_option(set_cfg_value([nodes, default, heartbeat], [{interval, 5000}, {timeout, 500}, {retry, 5}], ?GGSN_CONFIG)),
+    ?error_option(set_cfg_value([nodes, default, request], [{timeout, invalid}], ?GGSN_CONFIG)),
+    ?ok_option(set_cfg_value([nodes, default, request], [{timeout, 30000}, {retry, 5}], ?GGSN_CONFIG)),
+
     ?error_option(set_cfg_value([nodes, test], [], ?GGSN_PROXY_CONFIG)),
     ?ok_option(set_cfg_value([nodes, "test"], [], ?GGSN_PROXY_CONFIG)),
     ?ok_option(set_cfg_value([nodes, "test", vrfs, cp, features], ['CP-Function'], ?GGSN_PROXY_CONFIG)),

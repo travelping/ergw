@@ -405,10 +405,10 @@ handle_event(cast, {response, _, _} = R, _, _Data) ->
     keep_state_and_data;
 
 handle_event({call, _} = Evt, #pfcp{} = Request0, {connected, _},
-	     #data{dp = #node{ip = IP}} = Data) ->
+	     #data{dp = #node{ip = IP}, cfg = #{request := #{timeout := Timeout, retry := Retry}}} = Data) ->
     Request = augment_mandatory_ie(Request0, Data),
     ?LOG(debug, "DP Call ~p", [Request]),
-    ergw_sx_socket:call(IP, Request, response_cb(Evt)),
+    ergw_sx_socket:call(IP, Timeout, Retry, Request, response_cb(Evt)),
     keep_state_and_data;
 
 handle_event({call, _}, Request, _, _Data)
@@ -584,8 +584,8 @@ lb(random, L) when is_list(L) ->
 response_cb(CbData) ->
     {?MODULE, response, [self(), CbData]}.
 
-next_heartbeat(_Data) ->
-    {state_timeout, 5000, heartbeat}.
+next_heartbeat(#data{cfg = #{heartbeat := #{interval := Interval}}}) ->
+    {state_timeout, Interval, heartbeat}.
 
 put_ie(IE, IEs) when is_map(IEs) ->
     maps:put(element(1, IE), IE, IEs);
@@ -640,11 +640,11 @@ make_response(Type, SEID, #pfcp{version = v1, seq_no = SeqNo}, IEs) ->
     #pfcp{version = v1, type = Type, seid = SEID, seq_no = SeqNo, ie = IEs}.
 
 
-send_heartbeat(#data{dp = #node{ip = IP}}) ->
+send_heartbeat(#data{dp = #node{ip = IP}, cfg = #{heartbeat := #{timeout := Timeout, retry := Retry}}}) ->
     IEs = [#recovery_time_stamp{
 	      time = ergw_gsn_lib:seconds_to_sntp_time(gtp_config:get_start_time())}],
     Req = #pfcp{version = v1, type = heartbeat_request, ie = IEs},
-    ergw_sx_socket:call(IP, 500, 5, Req, response_cb(heartbeat)).
+    ergw_sx_socket:call(IP, Timeout, Retry, Req, response_cb(heartbeat)).
 
 heartbeat_response(ReqKey, #pfcp{type = heartbeat_request} = Request) ->
     Response = put_recovery_time_stamp(
@@ -795,7 +795,8 @@ install_cp_rules(#data{pfcp_ctx = PCtx0,
 		       bearer = Bearer0,
 		       cp = CntlNode,
 		       dp = #node{ip = DpNodeIP} = DpNode,
-		       vrfs = VRFs} = Data) ->
+		       vrfs = VRFs,
+		       cfg = #{request := #{timeout := Timeout, retry := Retry}}} = Data) ->
     {ok, Bearer} = assign_local_data_teid(dp, PCtx0, DpNode, VRFs, Bearer0),
     DpBearer = maps:get(dp, Bearer),
 
@@ -806,7 +807,7 @@ install_cp_rules(#data{pfcp_ctx = PCtx0,
 
     Req0 = #pfcp{version = v1, type = session_establishment_request, seid = 0, ie = IEs},
     Req = augment_mandatory_ie(Req0, Data),
-    ergw_sx_socket:call(DpNodeIP, Req, response_cb(from_cp_rule)),
+    ergw_sx_socket:call(DpNodeIP, Timeout, Retry, Req, response_cb(from_cp_rule)),
 
     Data#data{pfcp_ctx = PCtx, bearer = Bearer}.
 

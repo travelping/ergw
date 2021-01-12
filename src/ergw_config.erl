@@ -42,7 +42,13 @@
 		      {ipv6_ue_interface_id, default},
 		      {'Idle-Timeout', 28800000}         %% 8hrs timer in msecs
 		     ]).
--define(DefaultsNodesDefaults, [{vrfs, invalid}, {node_selection, default}]).
+-define(DefaultsNodesDefaults, [{vrfs, invalid},
+    {node_selection, default},
+    {heartbeat, []},
+    {request, []}]).
+
+-define(NodeDefaultHeartbeat, [{interval, 5000}, {timeout, 500}, {retry, 5}]).
+-define(NodeDefaultRequest, [{timeout, 30000}, {retry, 5}]).
 
 -define(is_opts(X), (is_list(X) orelse is_map(X))).
 -define(non_empty_opts(X), ((is_list(X) andalso length(X) /= 0) orelse
@@ -313,6 +319,27 @@ validate_node_vrfs({Name, Opts})
 validate_node_vrfs({Name, Opts}) ->
     throw({error, {options, {Name, Opts}}}).
 
+validate_node_heartbeat({interval, Value} = Opts)
+  when is_integer(Value), Value > 100 ->
+    Opts;
+validate_node_heartbeat({timeout, Value} = Opts)
+  when is_integer(Value), Value > 100 ->
+    Opts;
+validate_node_heartbeat({retry, Value} = Opts)
+  when is_integer(Value), Value >= 0 ->
+    Opts;
+validate_node_heartbeat({Opt, Value}) ->
+    throw({error, {options, {Opt, Value}}}).
+
+validate_node_request({timeout, Value} = Opts)
+  when is_integer(Value), Value > 100 ->
+    Opts;
+validate_node_request({retry, Value} = Opts)
+  when is_integer(Value), Value >= 0 ->
+    Opts;
+validate_node_request({Opt, Value}) ->
+    throw({error, {options, {Opt, Value}}}).
+
 validate_node_default_option(vrfs, VRFs)
   when ?non_empty_opts(VRFs) ->
     check_unique_keys(vrfs, VRFs),
@@ -324,6 +351,12 @@ validate_node_default_option(ip_pools, Pools)
     V;
 validate_node_default_option(node_selection, Value) ->
     Value;
+validate_node_default_option(heartbeat, Opts)
+  when ?is_opts(Opts) ->
+    validate_options(fun validate_node_heartbeat/1, Opts, ?NodeDefaultHeartbeat, map);
+validate_node_default_option(request, Opts)
+  when ?is_opts(Opts) ->
+    validate_options(fun validate_node_request/1, Opts, ?NodeDefaultRequest, map);
 validate_node_default_option(Opt, Values) ->
     throw({error, {options, {Opt, Values}}}).
 
