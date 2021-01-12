@@ -1536,7 +1536,6 @@ simple_ocs(Config) ->
 	     #measurement_method{volum = 1, durat = 1},
 	 reporting_triggers =>
 	     #reporting_triggers{
-		linked_usage_reporting = 1,
 		time_quota = 1,   time_threshold = 1,
 		volume_quota = 1, volume_threshold = 1},
 	 time_quota =>

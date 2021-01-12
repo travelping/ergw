@@ -3297,7 +3297,6 @@ simple_ocs(Config) ->
 	     #measurement_method{volum = 1, durat = 1},
 	 reporting_triggers =>
 	     #reporting_triggers{
-		linked_usage_reporting = 1,
 		time_quota = 1,   time_threshold = 1,
 		volume_quota = 1, volume_threshold = 1},
 	 time_quota =>
@@ -3801,22 +3800,41 @@ split_charging2(Config) ->
     {URRs, Linked} =
 	lists:partition(fun(X) -> not maps:is_key(linked_urr_id, X#create_urr.group) end,
 			maps:get(create_urr, SER#pfcp.ie)),
-    ?equal(1, length(URRs)),
-    ?equal(4, length(Linked)),
+    ?equal(2, length(URRs)),
+    ?equal(3, length(Linked)),
 
-    URR1 = hd(URRs),
+    [URR1, URR2] = lists:sort(URRs),
+
     ?match_map(
-       %% offline charging URR for Traffic Volume Container
+       %% offline charging URR Periodic
        #{urr_id => #urr_id{id = '_'},
 	 measurement_method =>
 	     #measurement_method{volum = 1, durat = 1},
-	 measurement_period =>
-	     #measurement_period{period = Interim},
 	 reporting_triggers =>
 	     #reporting_triggers{periodic_reporting = 1}
 	}, URR1#create_urr.group),
 
-    [L1, L2, L3, L4] = lists:sort(Linked),
+    ?match_map(
+       %% online only charging URR
+       #{urr_id => #urr_id{id = '_'},
+	 measurement_method =>
+	     #measurement_method{volum = 1, durat = 1},
+	 reporting_triggers =>
+	     #reporting_triggers{
+		time_quota = 1, time_threshold = 1,
+		volume_quota = 1, volume_threshold = 1},
+	 time_quota =>
+	     #time_quota{quota = 3600},
+	 time_threshold =>
+	     #time_threshold{threshold = 3540},
+	 volume_quota =>
+	     #volume_quota{total = 102400},
+	 volume_threshold =>
+	     #volume_threshold{total = 92160}
+	}, URR2#create_urr.group),
+
+    [L1, L2, L3] = lists:sort(Linked),
+
     ?match_map(
        %% offline charging URR for Rating Group
        #{urr_id => #urr_id{id = '_'},
@@ -3838,7 +3856,6 @@ split_charging2(Config) ->
 	}, L2#create_urr.group),
 
     ct:pal("L3: ~p", [L3]),
-    ct:pal("L4: ~p", [L4]),
     ?match_map(
        %% offline charging URR for Rating Group
        #{urr_id => #urr_id{id = '_'},
@@ -3849,26 +3866,7 @@ split_charging2(Config) ->
 	     #reporting_triggers{linked_usage_reporting = 1}
 	}, L3#create_urr.group),
 
-    ?match_map(
-       %% online only charging URR
-       #{urr_id => #urr_id{id = '_'},
-	 linked_urr_id => #linked_urr_id{id = '_'},
-	 measurement_method =>
-	     #measurement_method{volum = 1, durat = 1},
-	 reporting_triggers =>
-	     #reporting_triggers{
-		time_quota = 1, time_threshold = 1,
-		volume_quota = 1, volume_threshold = 1,
-		linked_usage_reporting = 1},
-	 time_quota =>
-	     #time_quota{quota = 3600},
-	 time_threshold =>
-	     #time_threshold{threshold = 3540},
-	 volume_quota =>
-	     #volume_quota{total = 102400},
-	 volume_threshold =>
-	     #volume_threshold{total = 92160}
-	}, L4#create_urr.group),
+ 
 
     %% Session Report Sequence
     %% - Start
@@ -4200,21 +4198,12 @@ tariff_time_change(Config) ->
 		   (_) ->false
 		end, ergw_test_sx_up:history('pgw-u01')),
 
-    {[URR], Linked} =
+    {URRs, [Linked]} =
 	lists:partition(fun(X) -> not maps:is_key(linked_urr_id, X#create_urr.group) end,
 			maps:get(create_urr, SER#pfcp.ie)),
-    ?match_map(
-       %% offline charging URR for Traffic Volume Container
-       #{urr_id => #urr_id{id = '_'},
-	 measurement_method =>
-	     #measurement_method{volum = 1, durat = 1},
-	 measurement_period =>
-	     #measurement_period{period = Interim},
-	 reporting_triggers =>
-	     #reporting_triggers{periodic_reporting = 1}
-	}, URR#create_urr.group),
 
-    [L1, L2] = lists:sort(Linked),
+    [URR1, URR2] = lists:sort(URRs),
+
     ?match_map(
        %% offline charging URR for Rating Group
        #{urr_id => #urr_id{id = '_'},
@@ -4223,17 +4212,15 @@ tariff_time_change(Config) ->
 	     #measurement_method{volum = 1},
 	 reporting_triggers =>
 	     #reporting_triggers{linked_usage_reporting = 1}
-	}, L1#create_urr.group),
+	}, Linked#create_urr.group),
 
     ?match_map(
        %% online charging URR
        #{urr_id => #urr_id{id = '_'},
-	 linked_urr_id => #linked_urr_id{id = '_'},
 	 measurement_method =>
 	     #measurement_method{volum = 1, durat = 1},
 	 reporting_triggers =>
 	     #reporting_triggers{
-		linked_usage_reporting = 1,
 		time_quota = 1,   time_threshold = 1,
 		volume_quota = 1, volume_threshold = 1},
 	 time_quota =>
@@ -4244,7 +4231,18 @@ tariff_time_change(Config) ->
 	     #volume_quota{total = 102400},
 	 volume_threshold =>
 	     #volume_threshold{total = 92160}
-	}, L2#create_urr.group),
+	}, URR2#create_urr.group),
+
+    ?match_map(
+       %% offline charging URR for Traffic Volume Container
+       #{urr_id => #urr_id{id = '_'},
+	 measurement_method =>
+	     #measurement_method{volum = 1, durat = 1},
+	 measurement_period =>
+	     #measurement_period{period = Interim},
+	 reporting_triggers =>
+	     #reporting_triggers{periodic_reporting = 1}
+	}, URR1#create_urr.group),
 
     MatchSpec = ets:fun2ms(fun({Id, {Type, _}})
 				 when Type =:= offline; Type =:= online -> {Type, Id} end),
