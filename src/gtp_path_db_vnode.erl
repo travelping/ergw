@@ -102,7 +102,12 @@ cas_restart_counter(Key, Value, Time) ->
     run_quorum(RKey, {cas_restart_counter, Key, Value, Time}, #{}).
 
 all() ->
-    run_coverage(all, #{}).
+    case run_coverage(all, #{}) of
+	{ok, #{reason := finished, result := Result}} ->
+	    {ok, merge_result(Result)};
+	Other ->
+	    Other
+    end.
 
 %%%===================================================================
 %%% riak_core_vnode callbacks
@@ -350,3 +355,28 @@ notify_state_change(_Key,  #{state := State}, #{state := State}, _Node) ->
 notify_state_change(Key, #{state := OldState}, #{state := State, nodes := Nodes}, Node) ->
     erpc:multicast(Nodes -- [Node], gtp_path, sync_state, [Key, OldState, State]),
     ok.
+
+merge_result([H|T]) ->
+    merge_result(T, lists:keysort(1, H)).
+
+merge_result([], Acc) ->
+    Acc;
+merge_result([T|H], Acc) ->
+    merge_result(H, merge(lists:keysort(1, T), Acc, [])).
+
+merge([], [], Acc) ->
+    lists:reverse(Acc);
+merge(L, [], Acc) ->
+    lists:reverse(Acc) ++ L;
+merge([], L, Acc) ->
+    lists:reverse(Acc) ++ L;
+merge([{K, #{time := T1}} = P1|N1], [{K, #{time := T2}}|N2], Acc)
+  when T1 >= T2->
+    merge(N1, N2, [P1|Acc]);
+merge([{K, #{time := T1}}|N1], [{K, #{time := T2}} = P2|N2], Acc)
+  when T2 > T1->
+    merge(N1, N2, [P2|Acc]);
+merge([{K1, _} = P1|N1], [{K2, _}|_] = R2, Acc) when K1 < K2 ->
+    merge(N1, R2, [P1|Acc]);
+merge([{K1, _}|_] = R1, [{K2, _} = P2|N2], Acc) when K1 > K2 ->
+    merge(R1, N2, [P2|Acc]).
