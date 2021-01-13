@@ -557,14 +557,14 @@ end_per_suite(_Config) ->
     ok.
 
 init_per_group(common, Config) ->
-    lib_init_per_suite(Config);
+    lib_init_per_group(Config);
 init_per_group(sx_fail, Config) ->
-    lib_init_per_suite([{upf, false} | Config]);
+    lib_init_per_group([{upf, false} | Config]);
 init_per_group(single_socket, Config0) ->
     AppCfg0 = proplists:get_value(app_cfg, Config0),
     AppCfg = set_cfg_value([ergw, sockets, 'irx-socket', send_port], false, AppCfg0),
     Config = lists:keystore(app_cfg, 1, Config0, {app_cfg, AppCfg}),
-    lib_init_per_suite(Config);
+    lib_init_per_group(Config);
 init_per_group(ipv6, Config) ->
     case ergw_test_lib:has_ipv6_test_config() of
 	true ->
@@ -582,7 +582,7 @@ end_per_group(Group, Config)
   when Group == common;
        Group == sx_fail;
        Group == single_socket ->
-    ok = lib_end_per_suite(Config).
+    ok = lib_end_per_group(Config).
 
 common() ->
     [invalid_gtp_pdu,

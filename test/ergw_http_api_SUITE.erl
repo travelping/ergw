@@ -306,11 +306,11 @@ init_per_suite(Config0) ->
     inets:start(),
     Config1 = [{app_cfg, ?TEST_CONFIG}, {handler_under_test, ?HUT} | Config0],
     Config2 = update_app_config(ipv4, ?CONFIG_UPDATE, Config1),
-    lib_init_per_suite(Config2).
+    lib_init_per_group(Config2).
 
 end_per_suite(Config) ->
     inets:stop(),
-    ok = lib_end_per_suite(Config),
+    ok = lib_end_per_group(Config),
     ok.
 
 http_api_version_req() ->
