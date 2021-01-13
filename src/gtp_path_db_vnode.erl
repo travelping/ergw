@@ -15,7 +15,7 @@
 -export([start_vnode/1, ping/0, ping/1,
 	 get/1, put/2, cas_restart_counter/3,
 	 all/0,
-	 attach/2, detach/2]).
+	 state/3, attach/2, detach/2]).
 
 %% riak_core_vnode callbacks
 -export([init/1,
@@ -76,6 +76,10 @@ get(Key) ->
 put(Key, Value) ->
     RKey = key(Key),
     run_quorum(RKey, {put, Key, Value}, #{}).
+
+state(Key, State, Node) ->
+    RKey = key(Key),
+    send_event(RKey, {state, Key, State, Node}, #{}).
 
 attach(Key, Node) ->
     RKey = key(Key),
@@ -140,6 +144,20 @@ handle_command({cas_restart_counter, Key, Value, Time}, _Sender, State) ->
     Obj = ets:lookup(State#state.tid, {Key}),
     Res = cas_restart_counter(Key, Value, Time, Obj, State),
     {reply, {Location, Res}, State};
+
+handle_command({state, Key, State, Node}, _Sender, State) ->
+    case ets:lookup(State#state.tid, {Key}) of
+	[{_, Obj0}] ->
+	    Obj1 =  maps:put(state, State, Obj0),
+	    Obj = update_path_nodes(maps:put(Node, true, _), Obj1),
+	    notify_state_change(Key, Obj0, Obj, Node),
+	    ets:insert(State#state.tid, {{Key}, Obj});
+	[] ->
+	    logger:debug("path_db: got state change `~0p` for unknown object ~0p from ~0p",
+			  [State, Key, Node]),
+	    ok
+    end,
+    {noreply, State};
 
 handle_command({attach, Key, Node}, _Sender, State) ->
     case ets:lookup(State#state.tid, {Key}) of
@@ -326,3 +344,9 @@ update_path_nodes(Fun, Obj) ->
 			     maps:filter(
 			       fun(K, _V) -> lists:member(K, RingNodes) end, Fun(M))
 		     end, Obj).
+
+notify_state_change(_Key,  #{state := State}, #{state := State}, _Node) ->
+    ok;
+notify_state_change(Key, #{state := OldState}, #{state := State, nodes := Nodes}, Node) ->
+    erpc:multicast(Nodes -- [Node], gtp_path, sync_state, [Key, OldState, State]),
+    ok.

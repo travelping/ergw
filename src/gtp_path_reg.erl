@@ -102,6 +102,7 @@ handle_pid_remove(_Pid, Keys, State) ->
 
 handle_call({state, Key, PeerState}, _From, State) ->
     Result = ets:update_element(?SERVER, Key, {3, PeerState}),
+    gtp_path_db_vnode:state(Key, PeerState, node()),
     {reply, Result, State}.
 
 handle_death(_Pid, _Reason, State) ->
