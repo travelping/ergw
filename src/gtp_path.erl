@@ -16,14 +16,15 @@
 -export([start_link/4, all/1,
 	 handle_request/2, handle_response/4,
 	 bind/1, bind/2, unbind/1, icmp_error/2, path_restart/2,
-	 get_handler/2, info/1]).
+	 get_handler/2, info/1, sync_state/3]).
 
 %% Validate environment Variables
 -export([validate_options/1]).
 
 -ignore_xref([start_link/4,
 	      path_restart/2,
-	      handle_response/4			% used from callback handler
+	      handle_response/4,		% used from callback handler
+	      sync_state/3
 	      ]).
 
 %% gen_statem callbacks
@@ -130,6 +131,9 @@ get_handler(#socket{type = 'gtp-c'}, v1) ->
     gtp_v1_c;
 get_handler(#socket{type = 'gtp-c'}, v2) ->
     gtp_v2_c.
+
+sync_state(Key, OldState, State) ->
+    error(badarg, [Key, OldState, State]).
 
 -ifdef(TEST).
 ping(Path) ->
