@@ -392,7 +392,7 @@ end_per_suite(_Config) ->
     ok.
 
 init_per_group(common, Config) ->
-    lib_init_per_suite(Config);
+    lib_init_per_group(Config);
 init_per_group(ipv6, Config) ->
     case ergw_test_lib:has_ipv6_test_config() of
 	true ->
@@ -407,7 +407,7 @@ end_per_group(Group, _Config)
   when Group == ipv4; Group == ipv6 ->
     ok;
 end_per_group(common, Config) ->
-    ok = lib_end_per_suite(Config).
+    ok = lib_end_per_group(Config).
 
 common() ->
     [invalid_gtp_pdu,

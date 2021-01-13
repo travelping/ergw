@@ -7,8 +7,8 @@
 
 -ifndef(ERGW_NO_IMPORTS).
 
--import('ergw_test_lib', [lib_init_per_suite/1,
-			  lib_end_per_suite/1,
+-import('ergw_test_lib', [lib_init_per_group/1,
+			  lib_end_per_group/1,
 			  update_app_config/3,
 			  load_config/1]).
 -import('ergw_test_lib', [meck_init/1,

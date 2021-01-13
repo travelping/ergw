@@ -329,7 +329,7 @@ init_per_group(ipv6, Config0) ->
 	    Config = update_app_config(ipv6, ?CONFIG_UPDATE, Config1),
 	    inets:start(),
 	    application:ensure_all_started(gun),
-	    lib_init_per_suite(Config);
+	    lib_init_per_group(Config);
 	_ ->
 	    {skip, "IPv6 test IPs not configured"}
     end;
@@ -338,12 +338,12 @@ init_per_group(ipv4, Config0) ->
     Config = update_app_config(ipv4, ?CONFIG_UPDATE, Config1),
     inets:start(),
     application:ensure_all_started(gun),
-    lib_init_per_suite(Config).
+    lib_init_per_group(Config).
 
 end_per_group(_Group, Config) ->
     inets:stop(),
     application:stop(gun),
-    ok = lib_end_per_suite(Config).
+    ok = lib_end_per_group(Config).
 
 common() ->
     [nbsf_get].

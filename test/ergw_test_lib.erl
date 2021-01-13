@@ -9,8 +9,8 @@
 
 -define(ERGW_NO_IMPORTS, true).
 
--export([lib_init_per_suite/1,
-	 lib_end_per_suite/1,
+-export([lib_init_per_group/1,
+	 lib_end_per_group/1,
 	 update_app_config/3,
 	 load_config/1]).
 -export([meck_init/1,
@@ -72,7 +72,7 @@ init_ets(Config) ->
 		       {teid, 1}]),
     [{table, TabId}, {table_owner, Pid} | Config].
 
-lib_init_per_suite(Config0) ->
+lib_init_per_group(Config0) ->
     {_, AppCfg} = lists:keyfind(app_cfg, 1, Config0),   %% let it crash if undefined
 
     Config = init_ets(Config0),
@@ -96,7 +96,7 @@ lib_init_per_suite(Config0) ->
     {ok, AppsCfg} = application:get_env(ergw_aaa, apps),
     [{aaa_cfg, AppsCfg} |Config].
 
-lib_end_per_suite(Config) ->
+lib_end_per_group(Config) ->
     meck_unload(Config),
     ok = ergw_test_sx_up:stop('pgw-u01'),
     ok = ergw_test_sx_up:stop('pgw-u02'),
