@@ -26,6 +26,14 @@ The following metrics exist:
 | gtp\_u\_socket\_messages\_processed\_total      | counter   | name, direction, version, type                 | Total number of GTP message processed on socket          |
 | ergw\_local\_pool\_free                         | gauge     | name, type, id                                 | Number of free IPs                                       |
 | ergw\_local\_pool\_used                         | gauge     | name, type, id                                 | Number of used IPs                                       |
+| pfcp\_messages\_processed\_total                | counter   | name, direction, remote, type                  | Total number of PFCP message processed                   |
+| pfcp\_messages\_duplicates\_total               | counter   | name, remote, type                             | Total number of duplicate PFCP message received          |
+| pfcp\_messages\_retransmits\_total              | counter   | name, remote, type                             | Total number of retransmited PFCP message                |
+| pfcp\_messages\_timeouts\_total                 | counter   | name, remote, type                             | Total number of timed out PFCP message                   |
+| pfcp\_messages\_replies\_total                  | counter   | name, direction, remote, type, result          | Total number of reply PFCP message                       |
+| pfcp\_errors\_total                             | counter   | name, direction, remote, type                  | Total number of PFCP errors                              |
+| pfcp\_peer\_response\_milliseconds              | histogram | name, remote, type                             | PFCP round trip time                                     |
+| pfcp\_request\_duration\_microseconds           | histogram | name, type                                     | PFCP Request execution time                              |
 | termination\_cause\_total                       | counter   | api, reason                                    | Total number of termination causes                       |
 
 The label `name` is is taken from the configuration of the GTP socket and PeerIP is the IP address of
