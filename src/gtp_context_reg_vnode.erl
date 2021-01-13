@@ -80,7 +80,12 @@ delete(Bucket, Key, Value) ->
     run_quorum(RKey, {delete, Bucket, Key, Value}, #{}).
 
 all(Bucket) ->
-    run_coverage({all, Bucket}, #{}).
+    case run_coverage({all, Bucket}, #{}) of
+	{ok, #{reason := finished, result := Result}} ->
+	    {ok, lists:umerge([lists:usort(X) || X <- Result])};
+	Other ->
+	    Other
+    end.
 
 %%%===================================================================
 %%% riak_core_vnode callbacks

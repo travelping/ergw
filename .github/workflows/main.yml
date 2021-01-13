@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        otp: [22.3.4.14, 23.0.4, 23.1.5.0, 23.2.1.0, 23.2.7.0]
+        otp: [23.0.4, 23.1.5.0, 23.2.7.0]
     container:
       image: erlang:${{ matrix.otp }}-alpine
       options: --privileged
@@ -31,21 +31,28 @@ jobs:
     - name: Prep for tests
       run: |
            sh -c 'echo 0 > /proc/sys/net/ipv6/conf/all/disable_ipv6'
-           ip addr add fd96:dcd2:efdb:41c3::10/64 dev lo
-           ip addr add fd96:dcd2:efdb:41c3::11/64 dev lo
-           ip addr add fd96:dcd2:efdb:41c3::12/64 dev lo
-           ip addr add fd96:dcd2:efdb:41c3::13/64 dev lo
-           ip addr add fd96:dcd2:efdb:41c3::14/64 dev lo
-           ip addr add fd96:dcd2:efdb:41c3::15/64 dev lo
-           ip addr add fd96:dcd2:efdb:41c3::16/64 dev lo
-           ip addr add fd96:dcd2:efdb:41c3::17/64 dev lo
-           ip addr add fd96:dcd2:efdb:41c3::18/64 dev lo
-           ip addr add fd96:dcd2:efdb:41c3::19/64 dev lo
-           ip addr add fd96:dcd2:efdb:41c3::1a/64 dev lo
-           ip addr add fd96:dcd2:efdb:41c3::20/64 dev lo
-           ip addr add fd96:dcd2:efdb:41c3::30/64 dev lo
-           ip addr add fd96:dcd2:efdb:41c3::40/64 dev lo
-           ip addr add fd96:dcd2:efdb:41c3::50/64 dev lo
+           ip addr add fd96:dcd2:efdb:41c3::10:1/64 dev lo
+           ip addr add fd96:dcd2:efdb:41c3::20:1/64 dev lo
+           ip addr add fd96:dcd2:efdb:41c3::20:2/64 dev lo
+           ip addr add fd96:dcd2:efdb:41c3::30:1/64 dev lo
+           ip addr add fd96:dcd2:efdb:41c3::100:1/64 dev lo
+           ip addr add fd96:dcd2:efdb:41c3::100:2/64 dev lo
+           ip addr add fd96:dcd2:efdb:41c3::100:3/64 dev lo
+           ip addr add fd96:dcd2:efdb:41c3::100:4/64 dev lo
+           ip addr add fd96:dcd2:efdb:41c3::100:5/64 dev lo
+           ip addr add fd96:dcd2:efdb:41c3::100:6/64 dev lo
+           ip addr add fd96:dcd2:efdb:41c3::100:7/64 dev lo
+           ip addr add fd96:dcd2:efdb:41c3::100:8/64 dev lo
+           ip addr add fd96:dcd2:efdb:41c3::100:9/64 dev lo
+           ip addr add fd96:dcd2:efdb:41c3::200:1/64 dev lo
+           ip addr add fd96:dcd2:efdb:41c3::200:2/64 dev lo
+           ip addr add fd96:dcd2:efdb:41c3::200:3/64 dev lo
+           ip addr add fd96:dcd2:efdb:41c3::300:1/64 dev lo
+           ip addr add fd96:dcd2:efdb:41c3::300:2/64 dev lo
+           ip addr add fd96:dcd2:efdb:41c3::300:3/64 dev lo
+           ip addr add fd96:dcd2:efdb:41c3::400:1/64 dev lo
+           ip addr add fd96:dcd2:efdb:41c3::400:2/64 dev lo
+           ip addr add fd96:dcd2:efdb:41c3::400:3/64 dev lo
     - name: Run tests
       env:
         CI_DNS_SERVER: 172.18.0.1
@@ -59,6 +66,7 @@ jobs:
                   quay.io/travelping/ergw-dns-test-server:latest
            rebar3 do xref
            rebar3 do ct
+           rebar3 do ct --name test@127.0.0.1 --suite=pgw_dist_SUITE --group=ipv4 --case=simple_session_request
     - name: Coveralls
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

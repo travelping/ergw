@@ -56,16 +56,16 @@
 -define(TDF_U_SX_IPv4, {127,0,210,1}).
 
 -define(LOCALHOST_IPv6, {0,0,0,0,0,0,0,1}).
--define(CLIENT_IP_IPv6, {16#fd96, 16#dcd2, 16#efdb, 16#41c3, 0, 0, 0, 16#10}).
+-define(CLIENT_IP_IPv6, {16#fd96, 16#dcd2, 16#efdb, 16#41c3, 0, 0, 16#100, 1}).
 -define(TEST_GSN_IPv6, ?LOCALHOST_IPv6).
--define(PROXY_GSN_IPv6, {16#fd96, 16#dcd2, 16#efdb, 16#41c3, 0, 0, 0, 16#20}).
--define(FINAL_GSN_IPv6, {16#fd96, 16#dcd2, 16#efdb, 16#41c3, 0, 0, 0, 16#30}).
--define(FINAL_GSN2_IPv6, {16#fd96, 16#dcd2, 16#efdb, 16#41c3, 0, 0, 0, 16#40}).
+-define(PROXY_GSN_IPv6, {16#fd96, 16#dcd2, 16#efdb, 16#41c3, 0, 0, 16#200, 1}).
+-define(FINAL_GSN_IPv6, {16#fd96, 16#dcd2, 16#efdb, 16#41c3, 0, 0, 16#300, 1}).
+-define(FINAL_GSN2_IPv6, {16#fd96, 16#dcd2, 16#efdb, 16#41c3, 0, 0, 16#400, 1}).
 
--define(SGW_U_SX_IPv6, {16#fd96, 16#dcd2, 16#efdb, 16#41c3, 0, 0, 0, 16#20}).
--define(PGW_U01_SX_IPv6, {16#fd96, 16#dcd2, 16#efdb, 16#41c3, 0, 0, 0, 16#30}).
--define(PGW_U02_SX_IPv6, {16#fd96, 16#dcd2, 16#efdb, 16#41c3, 0, 0, 0, 16#40}).
--define(TDF_U_SX_IPv6, {16#fd96, 16#dcd2, 16#efdb, 16#41c3, 0, 0, 0, 16#50}).
+-define(SGW_U_SX_IPv6, {16#fd96, 16#dcd2, 16#efdb, 16#41c3, 0, 0, 16#10, 1}).
+-define(PGW_U01_SX_IPv6, {16#fd96, 16#dcd2, 16#efdb, 16#41c3, 0, 0, 16#20, 1}).
+-define(PGW_U02_SX_IPv6, {16#fd96, 16#dcd2, 16#efdb, 16#41c3, 0, 0, 16#20, 2}).
+-define(TDF_U_SX_IPv6, {16#fd96, 16#dcd2, 16#efdb, 16#41c3, 0, 0, 16#30, 1}).
 
 -define('APN-EXAMPLE', [<<"example">>, <<"net">>]).
 -define('APN-ExAmPlE', [<<"eXaMpLe">>, <<"net">>]).

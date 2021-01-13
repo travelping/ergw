@@ -113,9 +113,17 @@ load_config(AppCfg) ->
 		fun({logger, V})
 		      when App =:= kernel, is_list(V) ->
 			lists:foreach(
-			  fun({handler, HandlerId, _Module, HandlerConfig})
+			  fun({handler, HandlerId, Module, HandlerConfig})
 				when is_map(HandlerConfig)->
-				  logger:update_handler_config(HandlerId, HandlerConfig);
+				  case logger:update_handler_config(HandlerId, HandlerConfig) of
+				      {error, {not_found, cth_log_redirect}} ->
+					  ok;
+				      {error, {not_found, _}} ->
+					  logger:add_handler(HandlerId, Module, HandlerConfig);
+				      Other ->
+					  Other
+				  end,
+				  ok;
 			     (Cfg) ->
 				  ct:fail("unknown logger config  ~p", [Cfg])
 			  end, V),
