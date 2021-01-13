@@ -379,17 +379,17 @@ init_per_group(ipv6, Config0) ->
     case ergw_test_lib:has_ipv6_test_config() of
 	true ->
 	    Config = update_app_config(ipv6, ?CONFIG_UPDATE, Config0),
-	    lib_init_per_suite(Config);
+	    lib_init_per_group(Config);
 	_ ->
 	    {skip, "IPv6 test IPs not configured"}
     end;
 init_per_group(ipv4, Config0) ->
     Config = update_app_config(ipv4, ?CONFIG_UPDATE, Config0),
-    lib_init_per_suite(Config).
+    lib_init_per_group(Config).
 
 end_per_group(Group, Config)
   when Group == ipv4; Group == ipv6 ->
-    ok = lib_end_per_suite(Config).
+    ok = lib_end_per_group(Config).
 
 common() ->
     [simple_session,

@@ -550,7 +550,7 @@ init_per_group(single_proxy_interface, Config0) ->
 			    {app_cfg, ?TEST_CONFIG_SINGLE_PROXY_SOCKET}),
     Config = update_app_config(proplists:get_value(ip_group, Config1),
 			       ?CONFIG_UPDATE_SINGLE_PROXY_SOCKET, Config1),
-    lib_init_per_suite(Config);
+    lib_init_per_group(Config);
 init_per_group(no_proxy_map, Config0) ->
     Cf0 = proplists:get_value(ergw, ?TEST_CONFIG_SINGLE_PROXY_SOCKET),
     Cf1 = proplists:delete(proxy_map, Cf0),
@@ -558,19 +558,19 @@ init_per_group(no_proxy_map, Config0) ->
     Config1 = lists:keystore(app_cfg, 1, Config0, {app_cfg, Cf}),
     Config = update_app_config(proplists:get_value(ip_group, Config1),
 			       ?CONFIG_UPDATE_SINGLE_PROXY_SOCKET, Config1),
-    lib_init_per_suite(Config);
+    lib_init_per_group(Config);
 init_per_group(_Group, Config0) ->
     Config1 = lists:keystore(app_cfg, 1, Config0,
 			    {app_cfg, ?TEST_CONFIG_MULTIPLE_PROXY_SOCKETS}),
     Config = update_app_config(proplists:get_value(ip_group, Config1),
 			       ?CONFIG_UPDATE_MULTIPLE_PROXY_SOCKETS, Config1),
-    lib_init_per_suite(Config).
+    lib_init_per_group(Config).
 
 end_per_group(Group, _Config)
   when Group == ipv4; Group == ipv6 ->
     ok;
 end_per_group(_Group, Config) ->
-    ok = lib_end_per_suite(Config),
+    ok = lib_end_per_group(Config),
     ok.
 
 common() ->
