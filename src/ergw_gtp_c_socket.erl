@@ -98,13 +98,13 @@ send_response(#request{socket = Socket} = ReqKey, Msg, DoCache) ->
 
 %% send_request/8
 send_request(Socket, Src, DstIP, DstPort, T3, N3, Msg, CbInfo) ->
-    ?LOG(debug, "~p: gtp_socket send_request to ~s(~p):~w: ~p",
+    ?LOG(debug, "~p: gtp_socket send_request to ~s(~0p):~w: ~0p",
 	 [self(), inet:ntoa(DstIP), DstIP, DstPort, Msg]),
     cast(Socket, ?MAKE_SEND_REQ(undefined, Src, DstIP, DstPort, T3, N3, Msg, CbInfo)).
 
 %% send_request/7
 send_request(Socket, Src, DstIP, DstPort, ReqId, Msg, CbInfo) ->
-    ?LOG(debug, "~p: gtp_socket send_request ~p to ~s:~w: ~p",
+    ?LOG(debug, "~p: gtp_socket send_request ~0p to ~s:~w: ~0p",
 		[self(), ReqId, inet:ntoa(DstIP), DstPort, Msg]),
     cast(Socket, ?MAKE_SEND_REQ(ReqId, Src, DstIP, DstPort, ?T3 * 2, 0, Msg, CbInfo)).
 

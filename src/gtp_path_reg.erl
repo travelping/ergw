@@ -87,13 +87,17 @@ init([]) ->
 
 handle_register(Pid, Key, Value, State) ->
     ets:insert(?SERVER, {Key, Pid, Value}),
+    gtp_path_db_vnode:attach(Key, node()),
     {ok, [Key], State}.
 
 handle_unregister(Key, _Value, State) ->
     unregister(Key, State).
 
 handle_pid_remove(_Pid, Keys, State) ->
-    lists:foreach(fun(Key) -> ets:delete(?SERVER, Key) end, Keys),
+    lists:foreach(fun(Key) ->
+			  ets:delete(?SERVER, Key),
+			  gtp_path_db_vnode:detach(Key, node())
+		  end, Keys),
     State.
 
 handle_call({state, Key, PeerState}, _From, State) ->
@@ -112,4 +116,5 @@ terminate(_Reason, _State) ->
 
 unregister(Key, State) ->
     Pids = [Pid || {_, Pid} <- ets:take(?SERVER, Key)],
+    gtp_path_db_vnode:detach(Key, node()),
     {Pids, State}.

@@ -1039,6 +1039,9 @@ path_maint(Config) ->
 	     fun(X, M) -> maps:put(proplists:get_value(X, Config), X, M) end,
 	     #{}, [client_ip, test_gsn, proxy_gsn, final_gsn]),
 
+    %% stop all paths
+    lists:foreach(fun({_, Pid, _}) -> gtp_path:stop(Pid) end, gtp_path_reg:all()),
+
     {GtpC0, _, _} = create_session(random, Config),
     ct:sleep(500),
 
