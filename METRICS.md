@@ -34,6 +34,8 @@ The following metrics exist:
 | pfcp\_errors\_total                             | counter   | name, direction, remote, type                  | Total number of PFCP errors                              |
 | pfcp\_peer\_response\_milliseconds              | histogram | name, remote, type                             | PFCP round trip time                                     |
 | pfcp\_request\_duration\_microseconds           | histogram | name, type                                     | PFCP Request execution time                              |
+| pfcp\_sx\_association\_total                    | gauge     | state                                          | Total number of PFCP Sx node association                 |
+| pfcp\_sx\_context\_total                        | gauge     | name                                           | Total number of PFCP Sx node session counters            |
 | termination\_cause\_total                       | counter   | api, reason                                    | Total number of termination causes                       |
 
 The label `name` is is taken from the configuration of the GTP socket and PeerIP is the IP address of

@@ -13,6 +13,7 @@
 -export([start_link/0]).
 -export([register/2, lookup/1, up/2, down/1, available/0]).
 -export([all/0]).
+-export([count_available/0, count_monitors/1]).
 
 -ignore_xref([start_link/0, all/0]).
 
@@ -58,6 +59,17 @@ available() ->
 
 all() ->
     ets:tab2list(?SERVER).
+
+count_available() ->
+    maps:size(available()).
+
+count_monitors(Pid) ->
+    case process_info(Pid, monitored_by) of
+        {monitored_by, Monitors} ->
+            length(Monitors);
+        _ ->
+            0
+    end.
 
 %%%===================================================================
 %%% regine callbacks
