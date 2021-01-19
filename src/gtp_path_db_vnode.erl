@@ -9,8 +9,13 @@
 
 -behaviour(riak_core_vnode).
 
+-compile({parse_transform, cut}).
+
 %% API
--export([start_vnode/1, ping/0, ping/1, get/1, put/2, all/0, restart_counter/2]).
+-export([start_vnode/1, ping/0, ping/1,
+	 get/1, put/2, cas_restart_counter/3,
+	 all/0,
+	 attach/2, detach/2]).
 
 %% riak_core_vnode callbacks
 -export([init/1,
@@ -31,7 +36,7 @@
 
 -compile({no_auto_import,[put/2]}).
 -ignore_xref([start_vnode/1, ping/0, ping/1]).
--ignore_xref([get/2, put/3, delete/2, delete/3, all/1]).
+-ignore_xref([get/1, put/2, delete/2, delete/3, all/0]).
 
 -include_lib("stdlib/include/ms_transform.hrl").
 -include_lib("riak_core/include/riak_core_vnode.hrl").
@@ -72,6 +77,14 @@ put(Key, Value) ->
     RKey = key(Key),
     run_quorum(RKey, {put, Key, Value}, #{}).
 
+attach(Key, Node) ->
+    RKey = key(Key),
+    send_event(RKey, {attach, Key, Node}, #{}).
+
+detach(Key, Node) ->
+    RKey = key(Key),
+    send_event(RKey, {detach, Key, Node}, #{}).
+
 %% delete(Key) ->
 %%     RKey = key(Key),
 %%     run_quorum(RKey, {delete, Key}, #{}).
@@ -80,9 +93,9 @@ put(Key, Value) ->
 %%     RKey = key(Key),
 %%     run_quorum(RKey, {delete, Key, Value}, #{}).
 
-restart_counter(Key, Value) ->
+cas_restart_counter(Key, Value, Time) ->
     RKey = key(Key),
-    run_quorum(RKey, {restart_counter, Key, Value}, #{}).
+    run_quorum(RKey, {cas_restart_counter, Key, Value, Time}, #{}).
 
 all() ->
     run_coverage(all, #{}).
@@ -122,11 +135,36 @@ handle_command({delete, Key, Value}, _Sender, State) ->
     true = ets:delete_object(State#state.tid, {{Key}, Value}),
     {reply, {Location, ok}, State};
 
-handle_command({restart_counter, Key, Value}, _Sender, State) ->
+handle_command({cas_restart_counter, Key, Value, Time}, _Sender, State) ->
     Location = {State#state.partition, node()},
     Obj = ets:lookup(State#state.tid, {Key}),
-    Res = cas_restart_counter(Key, Value, Obj, State),
+    Res = cas_restart_counter(Key, Value, Time, Obj, State),
     {reply, {Location, Res}, State};
+
+handle_command({attach, Key, Node}, _Sender, State) ->
+    case ets:lookup(State#state.tid, {Key}) of
+	[{_, Obj0}] ->
+	    Obj = update_path_nodes(maps:put(Node, true, _), Obj0),
+	    ets:insert(State#state.tid, {{Key}, Obj});
+	[] ->
+	    Obj = init_obj(undefined, #{Node => true}, 0),
+	    ets:insert(State#state.tid, {{Key}, Obj})
+    end,
+    {noreply, State};
+
+handle_command({detach, Key, Node}, _Sender, State) ->
+    case ets:lookup(State#state.tid, {Key}) of
+	[{_, Obj0}] ->
+	    case update_path_nodes(maps:remove(Node, _), Obj0) of
+		#{nodes := Nodes} when map_size(Nodes) == 0 ->
+		    ets:delete(State#state.tid, {Key});
+		Obj ->
+		    ets:insert(State#state.tid, {{Key}, Obj})
+	    end;
+	[] ->
+	    ok
+    end,
+    {noreply, State};
 
 handle_command(Message, _Sender, State) ->
     logger:warning("unhandled_command ~p", [Message]),
@@ -198,6 +236,9 @@ terminate(_Reason, _State) ->
 %%% Internal functions
 %%%===================================================================
 
+init_obj(RC, Nodes, Time) ->
+    #{restart_counter => RC, nodes => Nodes, time => Time, state => init}.
+
 bin(V) when is_binary(V) -> V;
 bin(V) -> term_to_binary(V).
 
@@ -214,36 +255,32 @@ run_quorum(Key, Command, Opts0) ->
 	{ReqId, Val} -> Val
     end.
 
+send_event(Key, Command, Opts) ->
+    N = maps:get(n, Opts, ?N),
+    DocIdx = riak_core_util:chash_key(Key),
+    PrefList = riak_core_apl:get_apl(DocIdx, N, ?SERVICE),
+    riak_core_vnode_master:command_unreliable(PrefList, Command, ?VMASTER).
+
 run_coverage(Command, Opts0) ->
     Defaults = #{pvc => 3, vnode_selector => allup, wait_timeout_ms => ?TIMEOUT},
     Opts = maps:merge(Defaults, Opts0),
     N = maps:get(n, Opts, ?N),
     riak_core_coverage_statem:coverage_request(Command, N, ?SERVICE, ?VMASTER, Opts).
 
-node_down(_Key) ->
-    ok.
-
 put(Key, Value, #state{tid = TID}) ->
     ets:insert(TID, {{Key}, Value}).
 
-cas_restart_counter(Key, Counter, [], State) ->
-    Obj = #{restart_counter => undefined, state => init},
-    cas_restart_counter_4(Key, Counter, Obj, State);
-cas_restart_counter(Key, Counter, [{_, Obj}], State) ->
-    cas_restart_counter_4(Key, Counter, Obj, State).
+cas_restart_counter(Key, Counter, Time, [], State) ->
+    Obj = init_obj(undefined, #{}, Time),
+    cas_restart_counter_4(Key, Counter, Time, Obj, State);
+cas_restart_counter(Key, Counter, Time, [{_, Obj}], State) ->
+    cas_restart_counter_4(Key, Counter, Time, Obj, State).
 
-cas_restart_counter_4(Key, Counter, Obj, State) ->
-    case update_restart_counter(Counter, Obj) of
-	no ->
-	    {ok, Counter};
-	{initial, New} ->
-	    put(Key, Obj#{restart_counter => Counter}, State),
-	    {ok, New};
-	{peer_restart, New} ->
-	    put(Key, Obj#{restart_counter => Counter}, State),
-	    node_down(Key),
-	    {ok, New}
-    end.
+cas_restart_counter_4(Key, Counter, Time, #{time := ObjTime0} = Obj, State) ->
+    {Result, New} = update_restart_counter(Counter, Obj),
+    ObjTime = max(Time, ObjTime0) + 1,
+    put(Key, Obj#{restart_counter => New, time => ObjTime}, State),
+    {Result, New, ObjTime}.
 
 %% 3GPP TS 23.007, Sect. 18 GTP-C-based restart procedures:
 %%
@@ -272,10 +309,20 @@ cas_restart_counter_4(Key, Counter, Obj, State) ->
 update_restart_counter(Counter, #{restart_counter := undefined}) ->
     {initial, Counter};
 update_restart_counter(Counter, #{restart_counter := Counter}) ->
-    no;
+    {current, Counter};
 update_restart_counter(New, #{restart_counter := Old})
   when ?SMALLER(Old, New) ->
     {peer_restart, New};
 update_restart_counter(New, #{restart_counter := Old})
   when not ?SMALLER(Old, New) ->
-    no.
+    {old, Old}.
+
+update_path_nodes(Fun, Obj) ->
+    {ok, Ring} = riak_core_ring_manager:get_my_ring(),
+    RingNodes = riak_core_ring:all_members(Ring),
+
+    maps:update_with(nodes,
+		     fun (M) ->
+			     maps:filter(
+			       fun(K, _V) -> lists:member(K, RingNodes) end, Fun(M))
+		     end, Obj).
