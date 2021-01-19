@@ -15,13 +15,14 @@
 %% API
 -export([start_link/4, all/1,
 	 handle_request/2, handle_response/4,
-	 bind/1, bind/2, unbind/1, icmp_error/2,
+	 bind/1, bind/2, unbind/1, icmp_error/2, path_restart/2,
 	 get_handler/2, info/1]).
 
 %% Validate environment Variables
 -export([validate_options/1]).
 
 -ignore_xref([start_link/4,
+	      path_restart/2,
 	      handle_response/4			% used from callback handler
 	      ]).
 
@@ -102,6 +103,14 @@ icmp_error(Socket, Version, IP) ->
     case get(Socket, Version, IP) of
 	Path when is_pid(Path) ->
 	    gen_statem:cast(Path, icmp_error);
+	_ ->
+	    ok
+    end.
+
+path_restart(Key, RestartCounter) ->
+    case gtp_path_reg:lookup(Key) of
+	Path when is_pid(Path) ->
+	    gen_statem:cast(Path, {path_restart, RestartCounter});
 	_ ->
 	    ok
     end.
@@ -222,6 +231,7 @@ init([#socket{name = SocketName} = Socket, Version, RemoteIP, Args]) ->
 	     handler    => get_handler(Socket, Version),
 	     ip         => RemoteIP,
 	     reg_key    => RegKey,
+	     time       => 0,
 
 	     contexts   => #{},
 	     monitors   => #{}
@@ -276,15 +286,17 @@ handle_event({call, From}, {monitor, Pid}, #state{recovery = RstCnt} = State, Da
 handle_event({call, From}, {bind, Pid}, #state{recovery = RstCnt} = State, Data) ->
     register_bind(Pid, State, Data, [{reply, From, {ok, RstCnt}}]);
 
-handle_event({call, From}, {bind, Pid, RstCnt}, State, Data) ->
-    case update_restart_counter(RstCnt, State, Data) of
-	initial  ->
-	    register_bind(Pid, State#state{recovery = RstCnt}, Data, [{reply, From, ok}]);
+handle_event({call, From}, {bind, Pid, RstCnt}, State, Data0) ->
+    {Verdict, New, Data} = cas_restart_counter(RstCnt, Data0),
+    case Verdict of
+	_ when Verdict == initial; Verdict == current ->
+	    register_bind(Pid, State#state{recovery = New}, Data, [{reply, From, ok}]);
 	peer_restart  ->
 	    %% try again after state change
-	    path_restart(RstCnt, State, Data, [postpone]);
-	no ->
-	    register_bind(Pid, State, Data, [{reply, From, ok}])
+	    ring_path_restart(RstCnt, Data),
+	    {keep_state, Data, [postpone]};
+	_ ->
+	    {keep_state, Data, [{reply, From, Verdict}]}
     end;
 
 handle_event({call, From}, {unbind, Pid}, State, Data) ->
@@ -322,13 +334,20 @@ handle_event(cast,{handle_response, echo_request, _, #gtp{} = Msg}, State, Data)
     handle_recovery_ie(Msg, State#state{echo = idle}, Data);
 
 handle_event(cast,{handle_response, echo_request, _, _Msg}, State, Data) ->
-    path_restart(undefined, peer_state(down, State), Data, []);
+    ring_path_restart(undefined, Data),
+    {next_state, peer_state(down, State), Data};
+
+handle_event(cast, {path_restart, RstCnt}, #state{recovery = RstCnt} = _State, _Data) ->
+    keep_state_and_data;
+handle_event(cast, {path_restart, RstCnt}, State, Data) ->
+    path_restart(RstCnt, State, Data);
 
 handle_event(cast, icmp_error, _, #{icmp_error_handling := ignore}) ->
     keep_state_and_data;
 
 handle_event(cast, icmp_error, State, Data) ->
-    path_restart(undefined, peer_state(down, State), Data, []);
+    ring_path_restart(undefined, Data),
+    {next_state, peer_state(down, State), Data};
 
 handle_event(info,{'DOWN', _MonitorRef, process, Pid, _Info}, State, Data) ->
     unregister(Pid, State, Data, []);
@@ -426,53 +445,32 @@ peer_state(PState, #state{peer = Peer} = State) ->
 peer_contexts(Contexts, #state{peer = Peer} = State) ->
     State#state{peer = Peer#peer{contexts = Contexts}}.
 
-%% 3GPP TS 23.007, Sect. 18 GTP-C-based restart procedures:
-%%
-%% The GTP-C entity that receives a Recovery Information Element in an Echo Response
-%% or in another GTP-C message from a peer, shall compare the received remote Restart
-%% counter value with the previous Restart counter value stored for that peer entity.
-%%
-%%   - If no previous value was stored the Restart counter value received in the Echo
-%%     Response or in the GTP-C message shall be stored for the peer.
-%%
-%%   - If the value of a Restart counter previously stored for a peer is smaller than
-%%     the Restart counter value received in the Echo Response message or the GTP-C
-%%     message, taking the integer roll-over into account, this indicates that the
-%%     entity that sent the Echo Response or the GTP-C message has restarted. The
-%%     received, new Restart counter value shall be stored by the receiving entity,
-%%     replacing the value previously stored for the peer.
-%%
-%%   - If the value of a Restart counter previously stored for a peer is larger than
-%%     the Restart counter value received in the Echo Response message or the GTP-C message,
-%%     taking the integer roll-over into account, this indicates a possible race condition
-%%     (newer message arriving before the older one). The received new Restart counter value
-%%     shall be discarded and an error may be logged
+cas_restart_counter(Counter, #{time := Time0, reg_key := Key} = Data) ->
+    case gtp_path_db_vnode:cas_restart_counter(Key, Counter, Time0 + 1) of
+	{ok, #{result := Result}} ->
+	    {Verdict, New, Time} =
+		lists:foldl(
+		  fun({_Location, {_, _, T1} = R}, {_, _, T2})
+			when T1 > T2 -> R;
+		     (_, A) -> A
+		  end,
+		  {fail, Counter, Time0}, Result),
+	    {Verdict, New, Data#{time => Time}};
+	_Res ->
+	    {fail, Counter, Data}
+    end.
 
--define(SMALLER(S1, S2), ((S1 < S2 andalso (S2 - S1) < 128) orelse (S1 > S2 andalso (S1 - S2) > 128))).
-
-update_restart_counter(_Counter, #state{recovery = undefined}, _Data) ->
-    initial;
-update_restart_counter(Counter, #state{recovery = Counter}, _Data) ->
-    no;
-update_restart_counter(New, #state{recovery = Old}, #{ip := IP})
-  when ?SMALLER(Old, New) ->
-    ?LOG(warning, "GSN ~s restarted (~w != ~w)", [inet:ntoa(IP), Old, New]),
-    peer_restart;
-update_restart_counter(New, #state{recovery = Old}, #{ip := IP})
-  when not ?SMALLER(Old, New) ->
-    ?LOG(warning, "possible race on message with restart counter for GSN ~s (old: ~w, new: ~w)",
-	 [inet:ntoa(IP), Old, New]),
-    no.
-
-handle_restart_counter(RestartCounter, State0, Data) ->
+handle_restart_counter(RestartCounter, State0, Data0) ->
     State = peer_state(up, State0),
-    case update_restart_counter(RestartCounter, State, Data) of
-	initial  ->
-	    {next_state, State#state{recovery = RestartCounter}, Data};
+    {Verdict, New, Data} = cas_restart_counter(RestartCounter, Data0),
+    case Verdict of
+	_ when Verdict == initial; Verdict == current ->
+	    {next_state, State#state{recovery = New}, Data};
 	peer_restart  ->
-	    path_restart(RestartCounter, State, Data, []);
-	no ->
-	    {next_state, State, Data}
+	    ring_path_restart(RestartCounter, Data),
+	    {next_state, State, Data};
+	_ ->
+	    {keep_state, Data}
     end.
 
 handle_recovery_ie(#gtp{version = v1,
@@ -551,7 +549,8 @@ monitor_path_recovery(#tunnel{path = Path} = Tunnel) ->
 
 bind_path_recovery(RestartCounter, #tunnel{path = Path} = Tunnel)
   when is_integer(RestartCounter) ->
-    ok = gen_statem:call(Path, {bind, self(), RestartCounter}),
+    %% TBD: bind could return `old` for request that "race" with a restart
+    _ = gen_statem:call(Path, {bind, self(), RestartCounter}),
     Tunnel#tunnel{remote_restart_counter = RestartCounter};
 bind_path_recovery(_RestartCounter, #tunnel{path = Path} = Tunnel) ->
     {ok, PathRestartCounter} = gen_statem:call(Path, {bind, self()}),
@@ -565,7 +564,12 @@ send_echo_request(State, #{socket := Socket, handler := Handler, ip := DstIP,
     ergw_gtp_c_socket:send_request(Socket, any, DstIP, ?GTP1c_PORT, T3, N3, Msg, CbInfo),
     State#state{echo = Ref}.
 
-path_restart(RestartCounter, State, #{contexts := CtxS} = Data, Actions) ->
+ring_path_restart(RestartCounter, #{reg_key := Key}) ->
+    {ok, Ring} = riak_core_ring_manager:get_my_ring(),
+    erpc:multicast(riak_core_ring:all_members(Ring),
+		   ?MODULE, path_restart, [Key, RestartCounter]).
+
+path_restart(RestartCounter, State, #{contexts := CtxS} = Data) ->
     Path = self(),
     ResF =
 	fun() ->
@@ -573,4 +577,4 @@ path_restart(RestartCounter, State, #{contexts := CtxS} = Data, Actions) ->
 				gtp_context:path_restart(_, Path))
 	end,
     proc_lib:spawn(ResF),
-    update_contexts(State#state{recovery = RestartCounter}, Data, #{}, Actions).
+    update_contexts(State#state{recovery = RestartCounter}, Data, #{}, []).
