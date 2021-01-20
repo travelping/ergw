@@ -307,8 +307,7 @@
 	    [{ergw_aaa_static,
 	      [{'NAS-Identifier',          <<"NAS-Identifier">>},
 	       {'Node-Id',                 <<"PGW-001">>},
-	       {'Charging-Rule-Base-Name', <<"m2m0001">>},
-	       {'Acct-Interim-Interval',  600}
+	       {'Charging-Rule-Base-Name', <<"m2m0001">>}
 	      ]}
 	    ]},
 	   {services,
