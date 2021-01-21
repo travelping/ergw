@@ -43,8 +43,7 @@
  {<<"prometheus">>,{pkg,<<"prometheus">>,<<"4.6.0">>},0},
  {<<"prometheus_cowboy">>,{pkg,<<"prometheus_cowboy">>,<<"0.1.8">>},0},
  {<<"prometheus_diameter_collector">>,
-  {git,"https://github.com/travelping/prometheus_diameter_collector.git",
-       {ref,"d2cb3854f345f7765d97cac80b98bce6bc656b5f"}},
+  {pkg,<<"prometheus_diameter_collector">>,<<"1.2.0">>},
   0},
  {<<"prometheus_httpd">>,{pkg,<<"prometheus_httpd">>,<<"2.1.11">>},1},
  {<<"ranch">>,{pkg,<<"ranch">>,<<"1.7.1">>},1},
@@ -65,6 +64,7 @@
  {<<"jsx">>, <<"20A170ABD4335FC6DB24D5FAD1E5D677C55DADF83D1B20A8A33B5FE159892A39">>},
  {<<"prometheus">>, <<"20510F381DB1CCAB818B4CF2FAC5FA6AB5CC91BC364A154399901C001465F46F">>},
  {<<"prometheus_cowboy">>, <<"CFCE0BC7B668C5096639084FCD873826E6220EA714BF60A716F5BD080EF2A99C">>},
+ {<<"prometheus_diameter_collector">>, <<"833A62869BF28960A2ADED43A669B95DEC9859336907999B74532CE2F0460CED">>},
  {<<"prometheus_httpd">>, <<"F616ED9B85B536B195D94104063025A91F904A4CFC20255363F49A197D96C896">>},
  {<<"ranch">>, <<"6B1FAB51B49196860B733A49C07604465A47BDB78AA10C1C16A3D199F7F8C881">>}]},
 {pkg_hash_ext,[
@@ -75,6 +75,7 @@
  {<<"jsx">>, <<"37BECA0435F5CA8A2F45F76A46211E76418FBEF80C36F0361C249FC75059DC6D">>},
  {<<"prometheus">>, <<"4905FD2992F8038ECCD7AA0CD22F40637ED618C0BED1F75C05AACEC15B7545DE">>},
  {<<"prometheus_cowboy">>, <<"BA286BECA9302618418892D37BCD5DC669A6CC001F4EB6D6AF85FF81F3F4F34C">>},
+ {<<"prometheus_diameter_collector">>, <<"FDFE0694A6F3371461FCFF8D9EE0035B09B85387B0B0CF9367854E36EE880DED">>},
  {<<"prometheus_httpd">>, <<"0BBE831452CFDF9588538EB2F570B26F30C348ADAE5E95A7D87F35A5910BCF92">>},
  {<<"ranch">>, <<"451D8527787DF716D99DC36162FCA05934915DB0B6141BBDAC2EA8D3C7AFC7D7">>}]}
 ].
