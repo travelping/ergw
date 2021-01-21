@@ -10,7 +10,7 @@
 -behaviour(supervisor).
 
 %% API
--export([start_link/0]).
+-export([start_link/1]).
 
 %% Supervisor callbacks
 -export([init/1]).
@@ -22,14 +22,14 @@
 %% API functions
 %% ===================================================================
 
-start_link() ->
-    supervisor:start_link({local, ?MODULE}, ?MODULE, []).
+start_link(Config) ->
+    supervisor:start_link({local, ?MODULE}, ?MODULE, [Config]).
 
 %% ===================================================================
 %% Supervisor callbacks
 %% ===================================================================
 
-init([]) ->
+init([Config]) ->
     ok = ergw_node_selection_cache:init(),
     {ok, {{one_for_one, 5, 10}, [?CHILD(gtp_path_reg, worker, []),
 				 ?CHILD(ergw_tei_mngr, worker, []),
@@ -44,5 +44,5 @@ init([]) ->
 				 ?CHILD(ergw_sx_node_mngr, worker, []),
 				 ?CHILD(gtp_proxy_ds, worker, []),
 				 ?CHILD(ergw_ip_pool_sup, supervisor, []),
-				 ?CHILD(ergw, worker, [])
+				 ?CHILD(ergw, worker, [Config])
 				]} }.
