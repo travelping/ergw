@@ -140,14 +140,14 @@ call(#socket{pid = Handler}, Request) ->
 %%%===================================================================
 
 init(#{name := Name, ip := IP, burst_size := BurstSize,
-       split_sockets := SplitSockets} = SocketOpts) ->
+       send_port := SendPort} = SocketOpts) ->
     process_flag(trap_exit, true),
 
     {ok, RecvSocket} = ergw_gtp_socket:make_gtp_socket(IP, ?GTP1c_PORT, SocketOpts),
     SendSocket =
-	case SplitSockets of
-	    true ->
-		{ok, SndSocket} = ergw_gtp_socket:make_gtp_socket(IP, 0, SocketOpts),
+	case SendPort of
+	    _ when is_integer(SendPort) ->
+		{ok, SndSocket} = ergw_gtp_socket:make_gtp_socket(IP, SendPort, SocketOpts),
 		self() ! {'$socket', SndSocket, select, undefined},
 		SndSocket;
 	    false ->

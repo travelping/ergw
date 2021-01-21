@@ -614,6 +614,13 @@ config(_Config)  ->
     ?error_option(set_cfg_value([sockets, irx, invalid], true, ?GGSN_CONFIG)),
     ?error_option(set_cfg_value([sockets, irx], invalid, ?GGSN_CONFIG)),
     ?error_option(add_cfg_value([sockets, irx], [], ?GGSN_CONFIG)),
+    ?ok_option(set_cfg_value([sockets, irx, send_port], true, ?GGSN_CONFIG)),
+    ?ok_option(set_cfg_value([sockets, irx, send_port], false, ?GGSN_CONFIG)),
+    ?ok_option(set_cfg_value([sockets, irx, send_port], 0, ?GGSN_CONFIG)),
+    ?ok_option(set_cfg_value([sockets, irx, send_port], 12345, ?GGSN_CONFIG)),
+    ?error_option(set_cfg_value([sockets, irx, send_port], -1, ?GGSN_CONFIG)),
+    ?error_option(set_cfg_value([sockets, irx, send_port], 22, ?GGSN_CONFIG)),
+    ?error_option(set_cfg_value([sockets, irx, send_port], invalid, ?GGSN_CONFIG)),
 
     ?ok_option(add_cfg_value([sockets, irx, vrf], 'irx', ?GGSN_CONFIG)),
     ?ok_option(add_cfg_value([sockets, irx, vrf], "irx", ?GGSN_CONFIG)),

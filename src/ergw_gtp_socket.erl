@@ -47,7 +47,7 @@ send(Socket, Src, IP, Port, Data) ->
 %%% Options Validation
 %%%===================================================================
 
--define(SocketDefaults, [{ip, invalid}, {burst_size, 10}, {split_sockets, true}]).
+-define(SocketDefaults, [{ip, invalid}, {burst_size, 10}, {send_port, true}]).
 
 validate_options(Name, Values) ->
     ergw_config:validate_options(fun validate_option/2, Values,
@@ -77,8 +77,14 @@ validate_option(freebind, Value) when is_boolean(Value) ->
     Value;
 validate_option(reuseaddr, Value) when is_boolean(Value) ->
     Value;
-validate_option(split_sockets, Value) when is_boolean(Value) ->
-    Value;
+validate_option(send_port, Port)
+  when is_integer(Port) andalso
+       (Port =:= 0 orelse (Port >= 1024 andalso Port < 65536)) ->
+    Port;
+validate_option(send_port, true) ->
+    0;
+validate_option(send_port, false) ->
+    false;
 validate_option(rcvbuf, Value)
   when is_integer(Value) andalso Value > 0 ->
     Value;

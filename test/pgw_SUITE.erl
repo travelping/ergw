@@ -562,7 +562,7 @@ init_per_group(sx_fail, Config) ->
     lib_init_per_suite([{upf, false} | Config]);
 init_per_group(single_socket, Config0) ->
     AppCfg0 = proplists:get_value(app_cfg, Config0),
-    AppCfg = set_cfg_value([ergw, sockets, 'irx-socket', split_sockets], false, AppCfg0),
+    AppCfg = set_cfg_value([ergw, sockets, 'irx-socket', send_port], false, AppCfg0),
     Config = lists:keystore(app_cfg, 1, Config0, {app_cfg, AppCfg}),
     lib_init_per_suite(Config);
 init_per_group(ipv6, Config) ->
