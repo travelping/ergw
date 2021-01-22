@@ -137,6 +137,8 @@ node_init_per_group(Id, Config) ->
     M1 = #{node => node()},
     maps:merge(M1, maps:from_list(L1)),
 
+    ergw:wait_till_ready(),
+
     {ok, AppsCfg} = application:get_env(ergw_aaa, apps),
     {{aaa_cfg, Id}, AppsCfg}.
 
