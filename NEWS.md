@@ -1,6 +1,32 @@
 erGW - 3GPP GGSN and PDN-GW in Erlang
 =====================================
 
+Version 2.8.3 - 22 January 2021
+-------------------------------
+**Documentations** :books:
+* [#285](https://github.com/travelping/ergw/pull/285) Add missing decription of `PFCP` metrics
+
+**Dependencies** :gear:
+* [#292](https://github.com/travelping/ergw/pull/292) Update [ergw_aaa](https://github.com/travelping/ergw_aaa) tag to [3.6.7](https://github.com/travelping/ergw_aaa/releases/tag/3.6.7)
+* [#291](https://github.com/travelping/ergw/pull/291) Update [prometheus_diameter_collector](https://github.com/travelping/prometheus_diameter_collector) tag to [1.2.0](https://github.com/travelping/prometheus_diameter_collector/releases/tag/1.2.0)
+
+**Improvements** :bulb:
+* [#293](https://github.com/travelping/ergw/pull/293) `PFCP` reduce log output
+
+**Refactorings** :fire:
+* [#289](https://github.com/travelping/ergw/pull/289) Remove dotfiles
+* [#290](https://github.com/travelping/ergw/pull/290) Remove diagrams
+
+**Features** :rocket:
+* [#278](https://github.com/travelping/ergw/pull/278) Add global `node_id` config setting and use it in `PFCP`
+* [#279](https://github.com/travelping/ergw/pull/279) Replace context key tuples with records
+* [#283](https://github.com/travelping/ergw/pull/283) Configurable retry timings for `SMF` / `UPF` heartbeats
+* [#286](https://github.com/travelping/ergw/pull/286) Added `PFCP` `Sx` association metric
+* [#294](https://github.com/travelping/ergw/pull/294) Change socket config `split_sockets` to `send_port`
+
+**Bugs** :bug:
+* [#282](https://github.com/travelping/ergw/pull/282) Fix online charging `URR` link
+
 Version 2.8.2 - 10 December 2020
 -------------------------------
 
