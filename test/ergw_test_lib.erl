@@ -80,6 +80,7 @@ lib_init_per_group(Config0) ->
     meck_init(Config),
     load_config(AppCfg),
     {ok, _} = application:ensure_all_started(ergw),
+    ergw:wait_till_ready(),
 
     case proplists:get_value(upf, Config, true) of
 	true ->

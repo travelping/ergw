@@ -26,16 +26,18 @@ init_per_suite(Config) ->
 	      ]}
     ],
     Cfg = [{plmn_id, {<<"001">>, <<"01">>}},
-        {proxy_map, ProxyMap},
-        {sockets, []},
-        {handlers, []},
-        {ip_pools, #{}},
-        {nodes, #{}}
-    ],
+	   {proxy_map, ProxyMap},
+	   {sockets, []},
+	   {handlers, []},
+	   {ip_pools, #{}},
+	   {nodes, #{}}
+	  ],
     application:load(ergw),
     [application:set_env(ergw, K, V) || {K, V} <- Cfg],
-    {ok, Pid} = gen_server:start(ergw, [Cfg], []),
+    {ok, _} = application:ensure_all_started(riak_core),
+    {ok, Pid} = ergw:start(Cfg),
     gen_server:start({local, gtp_proxy_ds_test}, gtp_proxy_ds, [], []),
+    ergw:wait_till_ready(),
     [{ergw, Pid}|Config].
 
 end_per_suite(Config) ->
@@ -44,6 +46,7 @@ end_per_suite(Config) ->
     application:set_env(ergw, proxy_map, ProxyMap),
     gen_server:stop(gtp_proxy_ds_test),
     gen_server:stop(Pid),
+    application:stop(riak_core),
     ok.
 
 

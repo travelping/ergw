@@ -25,6 +25,13 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
 	 terminate/2, code_change/3]).
 
+-ifdef(TEST).
+-export([start/1, wait_till_ready/0]).
+-else.
+-export([wait_till_ready/0]).
+-ignore_xref([wait_till_ready/0]).
+-endif.
+
 -include_lib("kernel/include/logger.hrl").
 -include("include/ergw.hrl").
 
@@ -38,8 +45,13 @@
 %% API
 %%====================================================================
 
+-ifdef(TEST).
+start(Config) ->
+    proc_lib:start(?MODULE, init, [Config]).
+-endif.
+
 start_link(Config) ->
-    gen_server:start_link(?MODULE, [Config], []).
+    proc_lib:start_link(?MODULE, init, [Config]).
 
 %% get global PLMN Id (aka MCC/MNC)
 get_plmn_id() ->
@@ -193,17 +205,44 @@ i(memory, context) ->
 		    end, 0, gtp_context_reg:all()),
     {context, MemUsage}.
 
+wait_till_ready() ->
+    gen_server:call(?SERVER, ready).
 
 %%%===================================================================
 %%% gen_server callbacks
 %%%===================================================================
 
-init([Config]) ->
+init(Config) ->
     TID = ets:new(?SERVER, [ordered_set, named_table, public,
 			    {keypos, 2}, {read_concurrency, true}]),
     load_config(Config),
-    {ok, #state{tid = TID}}.
 
+    register(?SERVER, self()),
+    proc_lib:init_ack({ok, self()}),
+
+    %% undocumented, see stdlib's shell.erl
+    case init:notify_when_started(self()) of
+	started ->
+	    ok;
+	_ ->
+	    init:wait_until_started()
+    end,
+
+    case ergw_cluster:start() of
+	ok ->
+	    ok;
+	Other ->
+	    ?LOG(critical, "cluster support failed to state with ~0p", [Other]),
+	    init:stop(1)
+    end,
+
+    ergw_config:apply(Config),
+    ?LOG(info, "ergw: ready to process requests"),
+
+    gen_server:enter_loop(?MODULE, [], #state{tid = TID}, {local, ?SERVER}).
+
+handle_call(ready, _From, State) ->
+    {reply, ok, State};
 handle_call(_Request, _From, State) ->
     Reply = ok,
     {reply, Reply, State}.

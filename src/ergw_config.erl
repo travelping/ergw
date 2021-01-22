@@ -28,6 +28,7 @@
 			 {node_id, undefined},
 			 {teid, {0, 0}},
 			 {accept_new, true},
+			 {cluster, []},
 			 {sockets, []},
 			 {handlers, []},
 			 {path_management, []},
@@ -72,7 +73,8 @@ load() ->
 load_env_config([]) ->
     ok;
 load_env_config([{Key, Value} | T])
-  when Key =:= path_management;
+  when Key =:= cluster;
+       Key =:= path_management;
        Key =:= node_selection;
        Key =:= nodes;
        Key =:= ip_pools;
@@ -241,6 +243,8 @@ validate_option(node_id, Value) when is_list(Value) ->
     iolist_to_binary(Value);
 validate_option(accept_new, Value) when is_boolean(Value) ->
     Value;
+validate_option(cluster, Value) when ?is_opts(Value) ->
+    ergw_cluster:validate_options(Value);
 validate_option(sockets, Value) when ?is_opts(Value) ->
     ergw_socket:validate_options(Value);
 validate_option(handlers, Value) when is_list(Value), length(Value) >= 1 ->
@@ -280,6 +284,7 @@ validate_option(Opt, Value)
   when Opt == plmn_id;
        Opt == node_id;
        Opt == accept_new;
+       Opt == cluster;
        Opt == sockets;
        Opt == handlers;
        Opt == node_selection;
