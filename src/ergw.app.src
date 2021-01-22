@@ -3,7 +3,7 @@
     {vsn, semver},
     {description, "3GPP GGSN/PGW"},
     {applications, [kernel, stdlib, erlando, crypto,
-		    regine, gtplib, pfcplib,
+		    regine, gtplib, pfcplib, plists,
 		    ergw_aaa, setup, netdata,
 		    prometheus, cowboy, prometheus_cowboy,
 		    prometheus_diameter_collector,
