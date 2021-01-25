@@ -161,22 +161,29 @@ handle_request(ReqKey,
     SessionOpts1 = init_session_from_gtp_req(IEs, AAAopts, LeftTunnel, SessionOpts0),
     SessionOpts2 = init_session_qos(IEs, SessionOpts1),
 
-    {Cause, SessionOpts, Context, Bearer, PCC4, PCtx} =
+
+    {Verdict, Cause, SessionOpts, Context, Bearer, PCC4, PCtx} =
 	case ergw_gtp_gsn_lib:create_session(APN, pdp_alloc(EUA), DAF, UpSelInfo, Session,
 					     SessionOpts2, Context1, LeftTunnel, LeftBearer1, PCC0) of
-	    {ok, Result} -> Result;
-	    {error, Err} -> throw(Err)
-	end,
+	   {ok, Result} -> Result;
+	   {error, Err} -> throw(Err)
+       end,
+
+    FinalData =
+	Data#{context => Context, pfcp => PCtx, pcc => PCC4,
+	      left_tunnel => LeftTunnel, bearer => Bearer},
 
     ResponseIEs = create_pdp_context_response(Cause, SessionOpts, Request, LeftTunnel, Bearer, Context),
     Response = response(create_pdp_context_response, LeftTunnel, ResponseIEs, Request),
     gtp_context:send_response(ReqKey, Request, Response),
 
-    FinalData =
-	Data#{context => Context, pfcp => PCtx, pcc => PCC4,
-	      left_tunnel => LeftTunnel, bearer => Bearer},
-    Actions = context_idle_action([], Context),
-    {next_state, connected, FinalData, Actions};
+    case Verdict of
+	ok ->
+	    Actions = context_idle_action([], Context),
+	    {next_state, connected, FinalData, Actions};
+	_ ->
+	    {next_state, shutdown, FinalData}
+    end;
 
 handle_request(ReqKey,
 	       #gtp{type = update_pdp_context_request,
@@ -237,8 +244,8 @@ handle_request(ReqKey,
 
 handle_request(ReqKey,
 	       #gtp{type = delete_pdp_context_request, ie = _IEs} = Request,
-	       _Resent, _State, #{left_tunnel := LeftTunnel} = Data) ->
-    ergw_gtp_gsn_lib:close_context(?API, normal, Data),
+	       _Resent, _State, #{left_tunnel := LeftTunnel} = Data0) ->
+    Data = ergw_gtp_gsn_lib:close_context(?API, normal, Data0),
     Response = response(delete_pdp_context_response, LeftTunnel, request_accepted),
     gtp_context:send_response(ReqKey, Request, Response),
     {next_state, shutdown, Data};
@@ -248,8 +255,8 @@ handle_request(ReqKey, _Msg, _Resent, _State, _Data) ->
     keep_state_and_data.
 
 handle_response({From, TermCause}, timeout, #gtp{type = delete_pdp_context_request},
-		_State, Data) ->
-    ergw_gtp_gsn_lib:close_context(?API, TermCause, Data),
+		_State, Data0) ->
+    Data = ergw_gtp_gsn_lib:close_context(?API, TermCause, Data0),
     if is_tuple(From) -> gen_statem:reply(From, {error, timeout});
        true -> ok
     end,
@@ -259,16 +266,20 @@ handle_response({From, TermCause},
 		#gtp{type = delete_pdp_context_response,
 		     ie = #{?'Cause' := #cause{value = Cause}}} = Response,
 		_Request, _State,
-		#{left_tunnel := LeftTunnel0} = Data) ->
+		#{left_tunnel := LeftTunnel0} = Data0) ->
     LeftTunnel = gtp_path:bind(Response, LeftTunnel0),
-    DataNew = Data#{left_tunnel := LeftTunnel},
+    Data1 = Data0#{left_tunnel := LeftTunnel},
 
-    ergw_gtp_gsn_lib:close_context(?API, TermCause, Data),
+    Data = ergw_gtp_gsn_lib:close_context(?API, TermCause, Data1),
     if is_tuple(From) -> gen_statem:reply(From, {ok, Cause});
        true -> ok
     end,
-    {next_state, shutdown, DataNew}.
+    {next_state, shutdown, Data}.
 
+terminate(_Reason, _State, #{pfcp := PCtx, context := Context}) ->
+    ergw_pfcp_context:delete_session(terminate, PCtx),
+    ergw_gsn_lib:release_context_ips(Context),
+    ok;
 terminate(_Reason, _State, #{context := Context}) ->
     ergw_gsn_lib:release_context_ips(Context),
     ok.

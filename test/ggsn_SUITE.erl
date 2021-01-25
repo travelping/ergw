@@ -421,6 +421,7 @@ common() ->
      create_pdp_context_request_pool_exhausted,
      create_pdp_context_request_dotted_apn,
      create_pdp_context_request_accept_new,
+     create_pdp_context_request_duplicate_teids,
      path_restart, path_restart_recovery, path_restart_multi,
      path_failure,
      simple_pdp_context_request,
@@ -899,6 +900,21 @@ create_pdp_context_request_accept_new(Config) ->
     ?equal([], outstanding_requests()),
     wait4contexts(?TIMEOUT),
 
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+create_pdp_context_request_duplicate_teids() ->
+    [{doc, "Check that PDP context with existing TEIDs are rejected"}].
+create_pdp_context_request_duplicate_teids(Config) ->
+    {GtpC, _, _} = create_pdp_context(Config),
+    create_pdp_context(duplicate_teids, GtpC),
+
+    delete_pdp_context(GtpC),
+
+    wait4contexts(?TIMEOUT),
+
+    ?equal(1, maps:size(ergw_test_sx_up:sessions('pgw-u01'))),
     meck_validate(Config),
     ok.
 
