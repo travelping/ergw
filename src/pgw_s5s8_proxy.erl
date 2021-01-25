@@ -151,29 +151,29 @@ handle_event(cast, {packet_in, _Socket, _IP, _Port, _Msg}, _State, _Data) ->
     keep_state_and_data;
 
 handle_event(info, {timeout, _, {delete_session_request, Direction, _ReqKey, _Request}},
-	     _State, Data) ->
+	     _State, Data0) ->
     ?LOG(warning, "Proxy Delete Session Timeout ~p", [Direction]),
 
-    delete_forward_session(normal, Data),
+    Data = delete_forward_session(normal, Data0),
     {next_state, shutdown, Data};
 
 handle_event(info, {timeout, _, {delete_bearer_request, Direction, _ReqKey, _Request}},
-	     _State, Data) ->
+	     _State, Data0) ->
     ?LOG(warning, "Proxy Delete Bearer Timeout ~p", [Direction]),
 
-    delete_forward_session(normal, Data),
+    Data = delete_forward_session(normal, Data0),
     {next_state, shutdown, Data};
 
 handle_event(info, _Info, _State, _Data) ->
     keep_state_and_data;
 
-handle_event(state_timeout, #proxy_request{} = ReqKey, connecting, Data) ->
+handle_event(state_timeout, #proxy_request{} = ReqKey, connecting, Data0) ->
     gtp_context:request_finished(ReqKey),
-    delete_forward_session(normal, Data),
+    Data = delete_forward_session(normal, Data0),
     {next_state, shutdown, Data};
 
-handle_event(state_timeout, _, connecting, Data) ->
-    delete_forward_session(normal, Data),
+handle_event(state_timeout, _, connecting, Data0) ->
+    Data = delete_forward_session(normal, Data0),
     {next_state, shutdown, Data}.
 
 %% API Message Matrix:
@@ -477,7 +477,7 @@ handle_response(#proxy_request{direction = sgw2pgw} = ProxyRequest,
 		_Request, _State,
 		#{context := Context, proxy_context := PrevProxyCtx, pfcp := PCtx0,
 		  left_tunnel := LeftTunnel, right_tunnel := RightTunnel0,
-		  bearer := #{left := LeftBearer, right := RightBearer0} = Bearer0} = Data) ->
+		  bearer := #{left := LeftBearer, right := RightBearer0} = Bearer0} = Data0) ->
     ?LOG(debug, "OK Proxy Response ~p", [Response]),
 
     {RightTunnel1, RightBearer} =
@@ -500,12 +500,12 @@ handle_response(#proxy_request{direction = sgw2pgw} = ProxyRequest,
 			{ok, Result2} -> Result2;
 			{error, Err2} -> throw(Err2#ctx_err{tunnel = LeftTunnel})
 		    end,
-		DataNew =
-		    Data#{proxy_context => ProxyContext, pfcp => PCtx,
+		Data =
+		    Data0#{proxy_context => ProxyContext, pfcp => PCtx,
 			  right_tunnel => RightTunnel, bearer => Bearer},
-		{next_state, connected, DataNew};
+		{next_state, connected, Data};
 	   true ->
-		delete_forward_session(normal, Data),
+		Data = delete_forward_session(normal, Data0),
 		{next_state, shutdown, Data}
 	end,
 
@@ -597,7 +597,7 @@ handle_response(#proxy_request{direction = pgw2sgw} = ProxyRequest,
 
 handle_response(#proxy_request{direction = sgw2pgw} = ProxyRequest,
 		Response0, #gtp{type = delete_session_request}, _State,
-		#{context := Context, left_tunnel := LeftTunnel, bearer := #{left := LeftBearer}} = Data) ->
+		#{context := Context, left_tunnel := LeftTunnel, bearer := #{left := LeftBearer}} = Data0) ->
     ?LOG(debug, "Proxy Response ~p", [Response0]),
 
     Response =
@@ -609,7 +609,7 @@ handle_response(#proxy_request{direction = sgw2pgw} = ProxyRequest,
 		     ie = #{?'Cause' => #v2_cause{v2_cause = request_accepted}}}
 	end,
     forward_response(ProxyRequest, Response, LeftTunnel, LeftBearer, Context),
-    delete_forward_session(normal, Data),
+    Data = delete_forward_session(normal, Data0),
     {next_state, shutdown, Data};
 
 %%
@@ -618,7 +618,7 @@ handle_response(#proxy_request{direction = sgw2pgw} = ProxyRequest,
 handle_response(#proxy_request{direction = pgw2sgw} = ProxyRequest,
 		Response0, #gtp{type = delete_bearer_request}, _State,
 		#{proxy_context := ProxyContext,
-		  right_tunnel := RightTunnel, bearer := #{right := RightBearer}} = Data) ->
+		  right_tunnel := RightTunnel, bearer := #{right := RightBearer}} = Data0) ->
     ?LOG(debug, "Proxy Response ~p", [Response0]),
 
     Response =
@@ -633,7 +633,7 @@ handle_response(#proxy_request{direction = pgw2sgw} = ProxyRequest,
 				#v2_eps_bearer_id{eps_bearer_id = EBI}}}
 	end,
     forward_response(ProxyRequest, Response, RightTunnel, RightBearer, ProxyContext),
-    delete_forward_session(normal, Data),
+    Data = delete_forward_session(normal, Data0),
     {next_state, shutdown, Data};
 
 handle_response(#proxy_request{request = ReqKey} = _ReqInfo,
@@ -677,11 +677,12 @@ handle_proxy_info(Session, Tunnel, Bearer, Context, #{proxy_ds := ProxyDS}) ->
 	    {error, ?CTX_ERR(?FATAL, Cause)}
     end.
 
-delete_forward_session(Reason, #{pfcp := PCtx, 'Session' := Session}) ->
+delete_forward_session(Reason, #{pfcp := PCtx, 'Session' := Session} = Data) ->
     URRs = ergw_pfcp_context:delete_session(Reason, PCtx),
     SessionOpts = to_session(gtp_context:usage_report_to_accounting(URRs)),
     ?LOG(debug, "Accounting Opts: ~p", [SessionOpts]),
-    ergw_aaa_session:invoke(Session, SessionOpts, stop, #{async => true}).
+    ergw_aaa_session:invoke(Session, SessionOpts, stop, #{async => true}),
+    maps:remove(pfcp, Data).
 
 init_proxy_tunnel(Socket, {_GwNode, PGW}) ->
     Info = ergw_gtp_socket:info(Socket),
@@ -891,8 +892,8 @@ close_context(_, _, _, _) ->
 delete_context(From, TermCause, State, Data0)
   when State == connected; State == connecting ->
     Data1 = initiate_session_teardown(sgw2pgw, From, State, Data0),
-    Data = initiate_session_teardown(pgw2sgw, From, State, Data1),
-    delete_forward_session(TermCause, Data),
+    Data2 = initiate_session_teardown(pgw2sgw, From, State, Data1),
+    Data = delete_forward_session(TermCause, Data2),
     {next_state, shutdown_initiated, Data};
 delete_context(undefined, _, _, _) ->
     keep_state_and_data;

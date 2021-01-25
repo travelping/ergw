@@ -597,6 +597,7 @@ common() ->
      create_session_request_pool_exhausted,
      create_session_request_dotted_apn,
      create_session_request_accept_new,
+     create_session_request_duplicate_teids,
      path_restart, path_restart_recovery, path_restart_multi,
      path_failure,
      path_maintenance,
@@ -1172,6 +1173,21 @@ create_session_request_accept_new(Config) ->
     create_session(overload, Config),
     ?equal(ergw:system_info(accept_new, true), false),
 
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+create_session_request_duplicate_teids() ->
+    [{doc, "Check that session with existing TEIDs are rejected"}].
+create_session_request_duplicate_teids(Config) ->
+    {GtpC, _, _} = create_session(Config),
+    create_session(duplicate_teids, GtpC),
+
+    delete_session(GtpC),
+
+    wait4contexts(?TIMEOUT),
+
+    ?equal(1, maps:size(ergw_test_sx_up:sessions('pgw-u01'))),
     meck_validate(Config),
     ok.
 

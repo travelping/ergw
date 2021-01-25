@@ -380,15 +380,15 @@ handle_event({call, From},
 				      group =
 					  #{f_teid :=
 						#f_teid{ipv4 = IP4, ipv6 = IP6} = FTEID0}}}}},
-	     State, #{pfcp := PCtx} = Data) ->
+	     State, #{pfcp := PCtx} = Data0) ->
     FTEID = FTEID0#f_teid{ipv4 = ergw_inet:bin2ip(IP4), ipv6 = ergw_inet:bin2ip(IP6)},
-    case fteid_tunnel_side(FTEID, Data) of
+    case fteid_tunnel_side(FTEID, Data0) of
 	none ->
 	    %% late EIR, we already switched to a new peer
 	    {keep_state_and_data, [{reply, From, {ok, PCtx}}]};
 
 	Side ->
-	    close_context(Side, remote_failure, State, Data),
+	    Data = close_context(Side, remote_failure, State, Data0),
 	    {next_state, shutdown, Data, [{reply, From, {ok, PCtx}}]}
     end;
 
@@ -396,8 +396,8 @@ handle_event({call, From},
 handle_event({call, From},
 	     {sx, #pfcp{type = session_report_request,
 			ie = #{report_type := #report_type{upir = 1}}}},
-	     State, #{pfcp := PCtx} = Data) ->
-    close_context(both, up_inactivity_timeout, State, Data),
+	     State, #{pfcp := PCtx} = Data0) ->
+    Data = close_context(both, up_inactivity_timeout, State, Data0),
     {next_state, shutdown, Data, [{reply, From, {ok, PCtx}}]};
 
 %% Usage Report
@@ -586,18 +586,18 @@ handle_event({call, From}, delete_context, shutdown, _Data) ->
 handle_event({call, _From}, delete_context, _State, _Data) ->
     {keep_state_and_data, [postpone]};
 
-handle_event({call, From}, terminate_context, State, Data) ->
-    close_context(left, normal, State, Data),
+handle_event({call, From}, terminate_context, State, Data0) ->
+    Data = close_context(left, normal, State, Data0),
     {next_state, shutdown, Data, [{reply, From, ok}]};
 
 handle_event({call, From}, {path_restart, Path}, State,
-	     #{left_tunnel := #tunnel{path = Path}} = Data) ->
-    close_context(left, peer_restart, State, Data),
+	     #{left_tunnel := #tunnel{path = Path}} = Data0) ->
+    Data = close_context(left, peer_restart, State, Data0),
     {next_state, shutdown, Data, [{reply, From, ok}]};
 
 handle_event({call, From}, {path_restart, Path}, State,
-	     #{right_tunnel := #tunnel{path = Path}} = Data) ->
-    close_context(right, peer_restart, State, Data),
+	     #{right_tunnel := #tunnel{path = Path}} = Data0) ->
+    Data = close_context(right, peer_restart, State, Data0),
     {next_state, shutdown, Data, [{reply, From, ok}]};
 
 handle_event({call, From}, {path_restart, _Path}, _State, _Data) ->
@@ -611,9 +611,9 @@ handle_event(cast, {delete_context, Reason}, State, Data) ->
     delete_context(undefined, Reason, State, Data);
 
 handle_event(info, {'DOWN', _MonitorRef, Type, Pid, _Info}, State,
-	     #{pfcp := #pfcp_ctx{node = Pid}} = Data)
+	     #{pfcp := #pfcp_ctx{node = Pid}} = Data0)
   when Type == process; Type == pfcp ->
-    close_context(both, upf_failure, State, Data),
+    Data = close_context(both, upf_failure, State, Data0),
     {next_state, shutdown, Data};
 
 handle_event({timeout, context_idle}, stop_session, State, Data) ->

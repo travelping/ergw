@@ -31,6 +31,8 @@ create_pdp_context(#gtpc{} = GtpC) ->
 create_pdp_context(Config) ->
     create_pdp_context(simple, Config).
 
+create_pdp_context(duplicate_teids = SubType, #gtpc{} = GtpC) ->
+    execute_request(create_pdp_context_request, SubType, GtpC);
 create_pdp_context(SubType, #gtpc{} = GtpC0) ->
     GtpC = gtp_context_new_teids(GtpC0),
     execute_request(create_pdp_context_request, SubType, GtpC);
@@ -442,11 +444,10 @@ validate_response(_Type, invalid_teid, Response, GtpC) ->
 	   }, Response),
     GtpC;
 
-validate_response(create_pdp_context_request, system_failure, Response, GtpC) ->
+validate_response(_Type, system_failure, Response, GtpC) ->
     validate_seq_no(Response, GtpC),
     validate_teid(Response, GtpC),
-    ?match(#gtp{type = create_pdp_context_response,
-		ie = #{{cause,0} := #cause{value = system_failure}}},
+    ?match(#gtp{ie = #{{cause,0} := #cause{value = system_failure}}},
 	   Response),
     GtpC;
 
@@ -458,21 +459,11 @@ validate_response(create_pdp_context_request, aaa_reject, Response, GtpC) ->
 	   Response),
     GtpC;
 
-validate_response(create_pdp_context_request, gx_fail, Response, GtpC) ->
-    validate_seq_no(Response, GtpC),
-    validate_teid(Response, GtpC),
-    ?match(#gtp{type = create_pdp_context_response,
-		ie = #{{cause,0} := #cause{value = system_failure}}},
-	   Response),
-    GtpC;
-
-validate_response(create_pdp_context_request, gy_fail, Response, GtpC) ->
-    validate_seq_no(Response, GtpC),
-    validate_teid(Response, GtpC),
-    ?match(#gtp{type = create_pdp_context_response,
-		ie = #{{cause,0} := #cause{value = system_failure}}},
-	   Response),
-    GtpC;
+validate_response(create_pdp_context_request = Type, SubType, Response, GtpC)
+  when SubType =:= duplicate_teids;
+       SubType =:= gx_fail;
+       SubType =:= gy_fail ->
+    validate_response(Type, system_failure, Response, GtpC);
 
 validate_response(create_pdp_context_request, overload, Response, GtpC) ->
     validate_seq_no(Response, GtpC),
@@ -691,7 +682,9 @@ apn(_)           -> ?'APN-EXAMPLE'.
 
 imsi(M, TEI) when is_map(M) ->
     imsi(maps:get(imsi, M, random), TEI);
-imsi('2nd', _) ->
+imsi(SubType, _)
+  when SubType =:= '2nd';
+       SubType =:= duplicate_teids->
     <<"454545454545452">>;
 imsi(random, TEI) ->
     integer_to_binary(700000000000000 + TEI);
@@ -700,7 +693,9 @@ imsi(_, _) ->
 
 imei(M, TEI) when is_map(M) ->
     imei(maps:get(imei, M, random), TEI);
-imei('2nd', _) ->
+imei(SubType, _)
+  when SubType =:= '2nd';
+       SubType =:= duplicate_teids->
     <<"6543210987654321">>;
 imei(random, TEI) ->
     integer_to_binary(7000000000000000 + TEI);

@@ -163,23 +163,28 @@ handle_request(ReqKey,
     SessionOpts1 = pgw_s5s8:init_session_from_gtp_req(IEs, AAAopts, LeftTunnel, SessionOpts0),
     %% SessionOpts = init_session_qos(ReqQoSProfile, SessionOpts1),
 
-    {Cause, SessionOpts, Context, Bearer, PCC4, PCtx} =
-	case ergw_gtp_gsn_lib:create_session(APN, pdn_alloc(PAA), DAF, UpSelInfo, Session,
-					     SessionOpts1, Context1, LeftTunnel, LeftBearer1, PCC0) of
-	    {ok, Result} -> Result;
-	    {error, Err} -> throw(Err)
-	end,
-
-    ResponseIEs = create_session_response(Cause, SessionOpts, IEs, EBI, LeftTunnel, Bearer, Context),
-    Response = response(create_session_response, LeftTunnel, ResponseIEs, Request),
-    gtp_context:send_response(ReqKey, Request, Response),
+    {Verdict, Cause, SessionOpts, Context, Bearer, PCC4, PCtx} =
+       case ergw_gtp_gsn_lib:create_session(APN, pdn_alloc(PAA), DAF, UpSelInfo, Session,
+					    SessionOpts1, Context1, LeftTunnel, LeftBearer1, PCC0) of
+	   {ok, Result} -> Result;
+	   {error, Err} -> throw(Err)
+       end,
 
     FinalData =
 	Data#{context => Context, pfcp => PCtx, pcc => PCC4,
 	      left_tunnel => LeftTunnel, bearer => Bearer},
 
-    Actions = context_idle_action([], Context),
-    {next_state, connected, FinalData, Actions};
+    ResponseIEs = create_session_response(Cause, SessionOpts, IEs, EBI, LeftTunnel, Bearer, Context),
+    Response = response(create_session_response, LeftTunnel, ResponseIEs, Request),
+    gtp_context:send_response(ReqKey, Request, Response),
+
+    case Verdict of
+	ok ->
+	    Actions = context_idle_action([], Context),
+	    {next_state, connected, FinalData, Actions};
+	_ ->
+	    {next_state, shutdown, FinalData}
+    end;
 
 handle_request(ReqKey,
 	       #gtp{type = modify_bearer_request,
@@ -304,12 +309,12 @@ handle_request(ReqKey,
 
 handle_request(ReqKey,
 	       #gtp{type = delete_session_request, ie = IEs} = Request,
-	       _Resent, _State, #{left_tunnel := LeftTunnel} = Data) ->
+	       _Resent, _State, #{left_tunnel := LeftTunnel} = Data0) ->
     FqTEID = maps:get(?'Sender F-TEID for Control Plane', IEs, undefined),
 
     case match_tunnel(?'S11-C MME', LeftTunnel, FqTEID) of
 	ok ->
-	    ergw_gtp_gsn_lib:close_context(?API, normal, Data),
+	    Data = ergw_gtp_gsn_lib:close_context(?API, normal, Data0),
 	    Response = response(delete_session_response, LeftTunnel, request_accepted),
 	    gtp_context:send_response(ReqKey, Request, Response),
 	    {next_state, shutdown, Data};
@@ -352,8 +357,8 @@ handle_response(_, timeout, #gtp{type = update_bearer_request}, connected = Stat
     delete_context(undefined, link_broken, State, Data);
 
 handle_response({From, TermCause}, timeout, #gtp{type = delete_bearer_request},
-		_State, Data) ->
-    ergw_gtp_gsn_lib:close_context(?API, TermCause, Data),
+		_State, Data0) ->
+    Data = ergw_gtp_gsn_lib:close_context(?API, TermCause, Data0),
     if is_tuple(From) -> gen_statem:reply(From, {error, timeout});
        true -> ok
     end,
@@ -362,21 +367,25 @@ handle_response({From, TermCause}, timeout, #gtp{type = delete_bearer_request},
 handle_response({From, TermCause},
 		#gtp{type = delete_bearer_response,
 		     ie = #{?'Cause' := #v2_cause{v2_cause = Cause}}} = Response,
-		_Request, _State, #{left_tunnel := LeftTunnel0} = Data) ->
+		_Request, _State, #{left_tunnel := LeftTunnel0} = Data0) ->
     LeftTunnel = gtp_path:bind(Response, LeftTunnel0),
 
-    DataNew = Data#{left_tunnel => LeftTunnel},
+    Data1 = Data0#{left_tunnel => LeftTunnel},
 
-    ergw_gtp_gsn_lib:close_context(?API, TermCause, Data),
+    Data = ergw_gtp_gsn_lib:close_context(?API, TermCause, Data1),
     if is_tuple(From) -> gen_statem:reply(From, {ok, Cause});
        true -> ok
     end,
-    {next_state, shutdown, DataNew};
+    {next_state, shutdown, Data};
 
 handle_response(_CommandReqKey, _Response, _Request, State, _Data)
   when State =/= connected ->
     keep_state_and_data.
 
+terminate(_Reason, _State, #{pfcp := PCtx, context := Context}) ->
+    ergw_pfcp_context:delete_session(terminate, PCtx),
+    ergw_gsn_lib:release_context_ips(Context),
+    ok;
 terminate(_Reason, _State, #{context := Context}) ->
     ergw_gsn_lib:release_context_ips(Context),
     ok.

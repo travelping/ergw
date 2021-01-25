@@ -9,7 +9,7 @@
 	 send/2, send/3, usage_report/4,
 	 up_inactivity_timer_expiry/2,
 	 reset/1, history/1, history/2,
-	 accounting/2,
+	 sessions/1, accounting/2,
 	 enable/1, disable/1,
 	 feature/3]).
 
@@ -26,12 +26,19 @@
 
 -record(state, {sx, gtp, accounting, enabled,
 		record, features,
-		cp_ip, cp_seid,
-		up_ip, up_seid,
+		cp_ip,
+		up_ip,
 		cp_recovery_ts,
 		dp_recovery_ts,
 		seq_no, urrs, teids,
+		last_cp_seid,
+		sessions,
 		history}).
+
+-record(session, {
+		  cp_seid,
+		  up_seid
+		 }).
 
 -export_records([up_function_features]).
 
@@ -76,6 +83,9 @@ history(Role) ->
 history(Role, Record) ->
     gen_server:call(server_name(Role), {history, Record}).
 
+sessions(Role) ->
+    gen_server:call(server_name(Role), sessions).
+
 accounting(Role, Acct) ->
     gen_server:call(server_name(Role), {accounting, Acct}).
 
@@ -106,13 +116,13 @@ init([IP]) ->
 	       record = true,
 	       features = #up_function_features{ftup = 1, treu = 1, empu = 1,
 						ueip = 1, mnop = 1, ip6pl = 1},
-	       cp_seid = 0,
 	       up_ip = ergw_inet:ip2bin(IP),
-	       up_seid = ergw_sx_socket:seid(),
 	       cp_recovery_ts = undefined,
 	       dp_recovery_ts = erlang:system_time(seconds),
 	       seq_no = erlang:unique_integer([positive]) band 16#ffffff,
 	       urrs = #{},
+	       last_cp_seid = 0,
+	       sessions = #{},
 	       history = []
 	      },
     {ok, State}.
@@ -122,9 +132,9 @@ handle_call(reset, _From, State0) ->
 	      accounting = on,
 	      enabled = true,
 	      cp_ip = undefined,
-	      cp_seid = 0,
-	      up_seid = ergw_sx_socket:seid(),
 	      urrs = #{},
+	      last_cp_seid = 0,
+	      sessions = #{},
 	      history = []
 	     },
     {reply, ok, State};
@@ -142,12 +152,12 @@ handle_call(restart, _From, State0) ->
 	      accounting = on,
 	      enabled = true,
 	      cp_ip = undefined,
-	      cp_seid = 0,
-	      up_seid = ergw_sx_socket:seid(),
 	      cp_recovery_ts = undefined,
 	      dp_recovery_ts = erlang:system_time(seconds),
 	      seq_no = erlang:unique_integer([positive]) band 16#ffffff,
 	      urrs = #{},
+	      last_cp_seid = 0,
+	      sessions = #{},
 	      history = []
 	     },
     {reply, ok, State};
@@ -157,10 +167,13 @@ handle_call(history, _From, #state{history = Hist} = State) ->
 handle_call({history, Record}, _From, State) ->
     {reply, ok, State#state{record = Record, history = []}};
 
+handle_call(sessions, _From, #state{sessions = Sessions} = State) ->
+    {reply, Sessions, State};
+
 handle_call({accounting, Acct}, _From, State) ->
     {reply, ok, State#state{accounting = Acct}};
 
-handle_call({send, #pfcp{} = Msg}, _From, #state{cp_seid = SEID} = State0) ->
+handle_call({send, #pfcp{} = Msg}, _From, #state{last_cp_seid = SEID} = State0) ->
     State = do_send(SEID, Msg, State0),
     {reply, ok, State};
 
@@ -364,46 +377,56 @@ handle_message(#pfcp{type = session_establishment_request, seid = 0,
 		     ie = #{f_seid := #f_seid{seid = ControlPlaneSEID,
 					      ipv4 = ControlPlaneIP4,
 					      ipv6 = ControlPlaneIP6}} = ReqIEs},
-	       #state{up_ip = IP, up_seid = UserPlaneSEID} = State0) ->
+	       #state{up_ip = IP, sessions = Sessions} = State0) ->
     ControlPlaneIP = choose_control_ip(ControlPlaneIP4, ControlPlaneIP6, State0),
+    UserPlaneSEID = ergw_sx_socket:seid(),
     RespIEs0 =
 	[#pfcp_cause{cause = 'Request accepted'},
 	 f_seid(UserPlaneSEID, IP)],
     {RespIEs, State1} = process_request(ReqIEs, RespIEs0, State0),
+
+    Session = #session{up_seid = UserPlaneSEID, cp_seid = ControlPlaneSEID},
     State = State1#state{cp_ip = ergw_inet:bin2ip(ControlPlaneIP),
-			 cp_seid = ControlPlaneSEID},
+			 last_cp_seid = ControlPlaneSEID,
+			 sessions = maps:put(UserPlaneSEID, Session, Sessions)},
     sx_reply(session_establishment_response, ControlPlaneSEID, RespIEs, State);
 
 handle_message(#pfcp{type = session_modification_request, seid = UserPlaneSEID, ie = ReqIEs},
-	      #state{cp_seid = ControlPlaneSEID,
-		     up_seid = UserPlaneSEID} = State0) ->
+	       #state{sessions = Sessions} = State0)
+  when is_map_key(UserPlaneSEID, Sessions) ->
+    #session{cp_seid = ControlPlaneSEID} = maps:get(UserPlaneSEID, Sessions),
     RespIEs0 = [#pfcp_cause{cause = 'Request accepted'}],
     {RespIEs, State} = process_request(ReqIEs, RespIEs0, State0),
     sx_reply(session_modification_response, ControlPlaneSEID, RespIEs, State);
 
 handle_message(#pfcp{type = session_deletion_request, seid = UserPlaneSEID},
-	       #state{cp_seid = ControlPlaneSEID,
-		      up_seid = UserPlaneSEID} = State0) ->
+	       #state{sessions = Sessions} = State0)
+  when is_map_key(UserPlaneSEID, Sessions) ->
+    #session{cp_seid = ControlPlaneSEID} = maps:get(UserPlaneSEID, Sessions),
     RespIEs0 = [#pfcp_cause{cause = 'Request accepted'}],
     RespIEs = report_urrs(State0, RespIEs0),
-    State = State0#state{urrs = #{}},
+    State = State0#state{urrs = #{}, sessions = maps:remove(UserPlaneSEID, Sessions)},
     sx_reply(session_deletion_response, ControlPlaneSEID, RespIEs, State);
 
-handle_message(#pfcp{type = ReqType, seid = SendingUserPlaneSEID},
-	      #state{cp_seid = ControlPlaneSEID,
-		     up_seid = OurUserPlaneSEID} = State)
-  when
+handle_message(#pfcp{type = ReqType, seid = UserPlaneSEID},
+	       #state{sessions = Sessions} = State)
+  when is_map_key(UserPlaneSEID, Sessions) andalso
+       (ReqType == session_set_deletion_request orelse
+	ReqType == session_establishment_request orelse
+	ReqType == session_modification_request orelse
+	ReqType == session_deletion_request) ->
+    #session{cp_seid = ControlPlaneSEID} = maps:get(UserPlaneSEID, Sessions),
+    RespIEs = [#pfcp_cause{cause = 'System failure'}],
+    sx_reply(make_sx_response(ReqType), ControlPlaneSEID, RespIEs, State);
+
+handle_message(#pfcp{type = ReqType}, State)
+    when
       ReqType == session_set_deletion_request orelse
       ReqType == session_establishment_request orelse
       ReqType == session_modification_request orelse
       ReqType == session_deletion_request ->
-    {SEID, RespIEs} =
-	if SendingUserPlaneSEID /= OurUserPlaneSEID ->
-		{0, [#pfcp_cause{cause = 'Session context not found'}]};
-	   true ->
-		{ControlPlaneSEID, [#pfcp_cause{cause = 'System failure'}]}
-	end,
-    sx_reply(make_sx_response(ReqType), SEID, RespIEs, State);
+    RespIEs = [#pfcp_cause{cause = 'Session context not found'}],
+    sx_reply(make_sx_response(ReqType), 0, RespIEs, State);
 
 handle_message(#pfcp{type = ReqType}, State)
   when

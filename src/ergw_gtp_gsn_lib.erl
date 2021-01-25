@@ -36,7 +36,7 @@ connect_upf_candidates(APN, Services, NodeSelect, PeerUpNode) ->
 
 create_session(APN, PAA, DAF, UPSelInfo, Session, SessionOpts, Context, LeftTunnel, LeftBearer, PCC) ->
     try
-	create_session_fun(APN, PAA, DAF, UPSelInfo, Session, SessionOpts, Context, LeftTunnel, LeftBearer, PCC)
+	{ok, create_session_fun(APN, PAA, DAF, UPSelInfo, Session, SessionOpts, Context, LeftTunnel, LeftBearer, PCC)}
     catch
 	throw:Error ->
 	    {error, Error}
@@ -145,11 +145,14 @@ create_session_fun(APN, PAA, DAF, {Candidates, SxConnectId}, Session,
     end,
 
     case gtp_context:remote_context_register_new(LeftTunnel, Bearer, Context) of
-	ok -> ok;
-	{error, Err11} -> throw(Err11#ctx_err{context = Context, tunnel = LeftTunnel})
-    end,
+	ok ->
+	    {ok, Cause, SessionOpts, Context, Bearer, PCC4, PCtx};
+	{error, #ctx_err{level = Level, where = {File, Line}}} ->
+	    ?LOG(debug, #{type => ctx_err, level => Level, file => File,
+			  line => Line, reply => system_failure}),
+	    {error, system_failure, SessionOpts, Context, Bearer, PCC4, PCtx}
+    end.
 
-    {ok, {Cause, SessionOpts, Context, Bearer, PCC4, PCtx}}.
 
 %% 'Idle-Timeout' received from ergw_aaa Session takes precedence over configured one
 add_apn_timeout(Opts, Session, Context) ->
@@ -227,12 +230,14 @@ usage_report(URRActions, UsageReport, #{pfcp := PCtx, 'Session' := Session}) ->
 %% close_context/3
 close_context(_, {API, TermCause}, Context) ->
     close_context(API, TermCause, Context);
-close_context(API, TermCause, #{pfcp := PCtx, 'Session' := Session})
+close_context(API, TermCause, #{pfcp := PCtx, 'Session' := Session} = Data)
   when is_atom(TermCause) ->
     UsageReport = ergw_pfcp_context:delete_session(TermCause, PCtx),
     ergw_gtp_gsn_session:close_context(TermCause, UsageReport, PCtx, Session),
     ergw_prometheus:termination_cause(API, TermCause),
-    ok.
+    maps:remove(pfcp, Data);
+close_context(_API, _TermCause, Data) ->
+    Data.
 
 %%====================================================================
 %% Helper
