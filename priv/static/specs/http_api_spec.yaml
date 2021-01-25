@@ -6,9 +6,9 @@ info:
   license:
     name: "GPL 2.0"
     url: "https://www.gnu.org/licenses/#GPL"
-basePath: /api/v1
+basePath: /
 paths:
-  /version:
+  /api/v1/version:
     get:
       summary: get the erGW version
       responses:
@@ -16,7 +16,7 @@ paths:
           description: 'returns version of the erGW'
           schema:
             $ref: '#/definitions/Version'
-  /status:
+  /api/v1/status:
     get:
       summary: get the status
       responses:
@@ -24,7 +24,7 @@ paths:
           description: returns the current status
           schema:
             $ref: '#/definitions/Status'
-  /status/accept-new:
+  /api/v1/status/accept-new:
     get:
       summary: get the current 'accept-new' status
       responses:
@@ -32,7 +32,7 @@ paths:
           description: get the current 'accept-new' status
           schema:
             $ref: '#/definitions/StatusAcceptNewRequests'
-  /status/accept-new/{value}:
+  /api/v1/status/accept-new/{value}:
     post:
       summary: 'enables/disables accepting new requests'
       parameters:
@@ -49,10 +49,12 @@ paths:
   /metrics:
     get:
       summary: get the metrics
+      produces:
+        - text/plain
       responses:
         '200':
           description: returns the metrics
-  /contexts:
+  /api/v1/contexts:
     delete:
       summary: 'delete all contexts'
       responses:
@@ -60,7 +62,7 @@ paths:
           description: return count of contexts
           schema:
             $ref: '#/definitions/DeleteContexts'
-  /contexts/{count}:
+  /api/v1/contexts/{count}:
     delete:
       summary: 'delete N contexts'
       parameters:
