@@ -73,9 +73,9 @@ wait_pool_response(ReqId) ->
 	{reply, Reply} ->
 	    Reply;
 	timeout ->
-	    undefined;
-	{error, _} ->
-	    undefined
+	    {error, timeout};
+	{error, _} = Error ->
+	    Error
     end.
 
 release({_, Server, {IP, _}, Pool, _Opts}) ->
