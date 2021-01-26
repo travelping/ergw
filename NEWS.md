@@ -1,6 +1,11 @@
 erGW - 3GPP GGSN and PDN-GW in Erlang
 =====================================
 
+Version 2.8.4 - 26 January 2021
+-------------------------------
+**Bugfixes** :bug:
+* [#296](https://github.com/travelping/ergw/pull/296) Fix reliably delete `PFCP` session
+
 Version 2.8.3 - 22 January 2021
 -------------------------------
 **Documentations** :books:
@@ -24,7 +29,7 @@ Version 2.8.3 - 22 January 2021
 * [#286](https://github.com/travelping/ergw/pull/286) Added `PFCP` `Sx` association metric
 * [#294](https://github.com/travelping/ergw/pull/294) Change socket config `split_sockets` to `send_port`
 
-**Bugs** :bug:
+**Bugfixes** :bug:
 * [#282](https://github.com/travelping/ergw/pull/282) Fix online charging `URR` link
 
 Version 2.8.2 - 10 December 2020
