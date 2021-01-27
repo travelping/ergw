@@ -13,6 +13,8 @@ before_script: &before_script
 .check:otp: &check_otp
   stage: test
   image: erlang
+  services:
+    - quay.io/travelping/ergw-dns-test-server:latest
   artifacts:
     when: always
     untracked: true
@@ -20,7 +22,14 @@ before_script: &before_script
       - _build
     reports:
       junit: _build/test/logs/report.xml
+  before_script:
+    - apk update
+    - apk --no-cache upgrade
+    - apk --no-cache add git zip iproute2
+    - ps xaw
   script:
+    - cat /etc/hosts
+    - ss -aun
     - sh -c 'echo 0 > /proc/sys/net/ipv6/conf/all/disable_ipv6'
     - ip addr add fd96:dcd2:efdb:41c3::10/64 dev lo
     - ip addr add fd96:dcd2:efdb:41c3::11/64 dev lo

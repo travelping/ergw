@@ -1,0 +1,71 @@
+;
+; This is the GUTI related record and the MME node record 
+; The operator has decided to use the 3GPP name as the canononical node name of the MME
+; rather than having two records (the 3GPP one and an operator defined value)
+;
+mmec01.mmegi8001.mme                      (
+;    IN NAPTR order pref. flag service                    regexp  replacement
+     IN NAPTR 100   999   "a"   "x-3gpp-mme:x-s10"            ""  topoff.eth1.mmec01.mmegi8001.mme )
+     IN NAPTR 200   999   "a"   "x-3gpp-mme:x-s11"            ""  topoff.eth3.mmec01.mmegi8001.mme
+;    IN NAPTR 300   999   "a"   "x-3gpp-mme:x-s3"             ""  topoff.eth5.mmec01.mmegi8001.mme
+;    IN NAPTR 400   999   "a"   "x-3gpp-mme:x-gn"             ""  topoff.eth6.mmec01.mmegi8001.mme
+;    IN NAPTR 500   999   "a"   "x-3gpp-mme:x-s1-mme"         ""  topoff.eth7.mmec01.mmegi8001.mme
+
+;  This particular operator only supports LTE access in their accesses etc.  
+;  So the S3 record is commented out above. If the operator wants the MME to be used with S3/S4
+;  SGSN nodes then the record would have to be included. 
+;  The Gn/Gp interface is commented out for same reason. This operator does not support it. 
+;  If the operator wants the MME to be used for Gn/Gp SGSN interworking
+;  then the record would have to be included. 
+;
+;   Reminder: Canonical node name records must be complete.
+;   However, "x-3gpp-mme:x-s1-mme" is an exception.  
+;   While S1-MME interface must be physically present and used in a MME
+;   it is explicitly optional for an operator to provision in this release of 3GPP
+;.  So it too is commented out
+
+; NAPTR order plays no major role in this particular example since the MME node is already 
+; selected in GUTI case and as a canonical node name. In most cases the interface type 
+;(S10 vs S11 etc) is functionally determined so the NAPTR order is rarely used in this record set
+; If the S3 and Gn records were not commented out the S10 is preferred over S3 over Gn 
+; I.e. a combined MME/SGSN  could communicate to the MME above using any of the three protocols 
+; at context transfer. 
+; So the operator is stating that S10 is preferred over S3 over Gn
+;
+; Of course if the MME had multiple S10 interfaces 
+; the operator could provision more than one S10 record with different orders 
+; perhaps to select S10 IPv6 over S10 IPv4
+ 
+ 
+; We have the same type of records for the other MME (same comments would apply)
+
+;
+mmec02.mmegi8001.mme                      (
+;    IN NAPTR order pref. flag service                    regexp  replacement
+     IN NAPTR 100   999   "a"   "x-3gpp-mme:x-s10"            ""  topoff.eth1.mmec02.mmegi8001.mme )
+     IN NAPTR 200   999   "a"   "x-3gpp-mme:x-s11"            ""  topoff.eth3.mmec02.mmegi8001.mme
+;    IN NAPTR 300   999   "a"   "x-3gpp-mme:x-s3"             ""  topoff.eth5.mmec02.mmegi8001.mme
+     IN NAPTR 400   999   "a"   "x-3gpp-mme:x-gn"             ""  topoff.eth6.mmec02.mmegi8001.mme
+;    IN NAPTR 500   999   "a"   "x-3gpp-mme:x-s1-mme"         ""  topoff.eth7.mmec02.mmegi8001.mme
+;
+;
+; All MME IP addresses for both MME
+;
+topoff.eth1.mmec01.mmegi8001.mme IN A 192.0.2.11
+                                 IN A 192.0.2.12
+                                 IN AAAA 2001:db8:0:0:0:0:0:0
+                                 IN AAAA 2001:db8:0:1:0:0:0:0
+topoff.eth3.mmec01.mmegi8001.mme IN A 192.0.2.13
+                                 IN A 192.0.2.14
+                                 IN AAAA 2001:db8:0:2:0:0:0:0
+                                 IN AAAA 2001:db8:0:3:0:0:0:0
+topoff.eth1.mmec02.mmegi8001.mme IN A 192.0.2.17
+                                 IN A 192.0.2.18
+                                 IN AAAA 2001:db8:0:6:0:0:0:0
+                                 IN AAAA 2001:db8:0:7:0:0:0:0
+topoff.eth3.mmec02.mmegi8001.mme IN A 192.0.2.19
+                                 IN A 192.0.2.110
+                                 IN AAAA 2001:db8:0:8:0:0:0:0
+                                 IN AAAA 2001:db8:0:9:0:0:0:0
+
+; end of file

@@ -1,0 +1,56 @@
+; All TAC codes for one region 
+ 
+*.tac-hb01.tac                             (
+;  IN NAPTR order pref. flag service                        regexp replacement
+   IN NAPTR 100   999   "a" "x-3gpp-sgw:x-s5-gtp:x-s8-gtp"      ""  topoff.eth4.gw01.nodes )
+   IN NAPTR 200   999   "a" "x-3gpp-sgw:x-s5-gtp:x-s8-gtp"      ""  topoff.eth4.gw21.nodes
+;  IN NAPTR 300   999   "a" "x-3gpp-sgw:x-s8-pmip"              ""  topoff.eth9.gw01.nodes
+;  IN NAPTR 400   999   "a" "x-3gpp-sgw:x-s8-pmip"              ""  topoff.eth9.gw21.nodes
+; Above records are needed for SGW selection in initial attach of a UE (or TAU or handover attach)
+;
+   IN NAPTR 500   999   "a" "x-3gpp-mme:x-s10"                  ""  topoff.eth1.mmec01.mmegi8001.mme
+   IN NAPTR 600   999   "a" "x-3gpp-mme:x-s10"                  ""  topoff.eth1.mmec02.mmegi8001.mme
+;  Above two records are needed for target MME selection by source MME
+;
+;  IN NAPTR 700   999   "a" "x-3gpp-sgw:x-s11"                  ""  topoff.eth1.gw01.nodes )
+;  IN NAPTR 800   999   "a" "x-3gpp-sgw:x-s11"                  ""  topoff.eth1.gw21.nodes
+;  Above two S11 records are purely optional for an operator to provision and are only 
+;  an optimizaton when included so they are commented out for this example
+;  IN NAPTR 900   999   "a" "x-3gpp-sgw:x-s4"                   ""  topoff.eth6.gw01.nodes )
+;  IN NAPTR 1000  999   "a" "x-3gpp-sgw:x-s4"                   ""  topoff.eth6.gw21.nodes
+; This operator does not support S3/S4 so they are commented out for this example
+; Above two S4 records are purely optional for an operator to provision even if S3/S4 is supported
+
+; Note relative value of NAPTR order is important between the S5/S8 records,  
+; relative value of NAPTR order is important between the S10 records,  
+; relative value of NAPTR order is important between the S11 records 
+; but is not really important between different interface types used here 
+; (i.e. the MME selection procedure does not look for an SGW interface)
+;
+;  This operators policy is PMIPv6 is used only as last choice
+;  and only for S8 they don't allow S5 PMIPv6 at all
+
+
+; All TAC codes for another region
+ 
+*.tac-hb40.tac                           (
+;  IN NAPTR order pref. flag service                        regexp replacement
+   IN NAPTR 200   999   "a" "x-3gpp-sgw:x-s5-gtp:x-s8-gtp"      ""  topoff.eth4.gw01.nodes )
+   IN NAPTR 100   999   "a" "x-3gpp-sgw:x-s5-gtp:x-s8-gtp"      ""  topoff.eth4.gw21.nodes
+;  IN NAPTR 400   999   "a" "x-3gpp-sgw:x-s8-pmip"              ""  topoff.eth9.gw01.nodes
+;  IN NAPTR 300   999   "a" "x-3gpp-sgw:x-s8-pmip"              ""  topoff.eth9.gw21.nodes
+;
+   IN NAPTR 600   999   "a" "x-3gpp-mme:x-s10"                  ""  topoff.eth1.mmec01.mmegi8001.mme
+   IN NAPTR 500   999   "a" "x-3gpp-mme:x-s10"                  ""  topoff.eth1.mmec02.mmegi8001.mme
+;
+;  IN NAPTR 800   999   "a" "x-3gpp-sgw:x-s11"                  ""  topoff.eth1.gw01.nodes )
+;  IN NAPTR 700   999   "a" "x-3gpp-sgw:x-s11"                  ""  topoff.eth1.gw21.nodes
+
+;  IN NAPTR 1000  999   "a" "x-3gpp-sgw:x-s4"                   ""  topoff.eth6.gw01.nodes )
+;  IN NAPTR 900   999   "a" "x-3gpp-sgw:x-s4"                   ""  topoff.eth6.gw21.nodes
+
+
+; For the example the TAC values *.tac-hb40.tac are on other side of network than the *.tac-hb01.tac 
+; Relative order reverses in comparison to since those TAI are closer to the other set of nodes
+
+; end of file
