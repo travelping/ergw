@@ -28,6 +28,7 @@ before_script: &before_script
     - apk --no-cache add git zip iproute2
     - ps xaw
   script:
+    - export CI_DNS_SERVER=127.0.0.1
     - cat /etc/hosts
     - ss -aun
     - sh -c 'echo 0 > /proc/sys/net/ipv6/conf/all/disable_ipv6'
