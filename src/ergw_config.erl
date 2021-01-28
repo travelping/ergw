@@ -35,7 +35,8 @@
 			 {nodes, []},
 			 {ip_pools, []},
 			 {apns, []},
-			 {charging, [{default, []}]}]).
+			 {charging, [{default, []}]},
+			 {metrics, []}]).
 -define(VrfDefaults, [{features, invalid}]).
 -define(ApnDefaults, [{ip_pools, []},
 		      {bearer_type, 'IPv4v6'},
@@ -79,7 +80,8 @@ load_env_config([{Key, Value} | T])
        Key =:= charging;
        Key =:= proxy_map;
        Key =:= teid;
-       Key =:= node_id ->
+       Key =:= node_id;
+       Key =:= metrics ->
     ok = application:set_env(ergw, Key, Value),
     load_env_config(T);
 load_env_config([_ | T]) ->
@@ -272,6 +274,8 @@ validate_option(path_management, Opts) when ?is_opts(Opts) ->
     gtp_path:validate_options(Opts);
 validate_option(teid, Value) ->
     ergw_tei_mngr:validate_option(Value);
+validate_option(metrics, Opts) ->
+    ergw_prometheus:validate_options(Opts);
 validate_option(Opt, Value)
   when Opt == plmn_id;
        Opt == node_id;
