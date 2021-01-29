@@ -157,7 +157,6 @@ Defines a list of named sockets. The format is (in Erlang type syntax):
       [{gn, [{handler, ggsn_gn},
              {protocol, gn},
              {sockets, [irx]},
-             {data_paths, [grx]},
              {aaa, [{'Username',
                      [{default, ['IMSI', <<"@">>, 'APN']}]}]},
 
@@ -182,10 +181,6 @@ which sockets, the AAA provider and the defaults AAA attribute mapping.
   - `{sockets, [socket_name()]}`
 
     the GTP-C sockets that are served by this handler
-
-  - `{data_paths, [socket_name()]}`
-
-    the GTP-U data paths that are served by this handler
 
   - `{aaa, [aaa_options()]}`
 
@@ -273,14 +268,10 @@ options.
     {handlers,
      [{gn, [{handler, ggsn_gn_proxy},
             {sockets, [irx]},
-            {data_paths, [grx]},
             {proxy_sockets, ['irx-1']},
-            {proxy_data_paths, ['grx-1']},
             {ggns, {127, 0, 0, 1}},
-            {contexts, [{<<"ams">>, [{proxy_sockets, ['irx-ams']},
-                                     {proxy_data_paths, ['grx-ams']}]},
-                        {<<"us">>,  [{proxy_sockets, ['irx-us']},
-                                     {proxy_data_paths, ['grx-us']}]}]}
+            {contexts, [{<<"ams">>, [{proxy_sockets, ['irx-ams']}]},
+                        {<<"us">>,  [{proxy_sockets, ['irx-us']}]}]}
             ]}]}
 
 * handler_options:
@@ -288,10 +279,6 @@ options.
   - `{proxy_sockets, [socket_name()]}`
 
     the default GTP-C socket for forwarding requests
-
-  - `{data_paths, [socket_name()]}`
-
-    the default GTP-U data paths for forwarding requests
 
   - `{ggsn, inet:ip_address()}`
 
@@ -302,7 +289,7 @@ options.
     list of forwarding context. Forwarding can be selected by the proxy
     data source
 
-* context: `{context_name(), [{proxy_sockets, [socket_name()]}, {data_paths, [socket_name()]}]}`
+* context: `{context_name(), [{proxy_sockets, [socket_name()]}]}`
 
   a context comprises of proxy GTP-c sockets and proxy GTP-u data paths
 
@@ -324,12 +311,10 @@ Sample handler configuration:
 
     {handlers,
      [{gn, [{handler, pgw_s5s8},
-            {sockets, [irx]},
-            {data_paths, [grx]}
+            {sockets, [irx]}
            ]},
       {s5s8, [{handler, pgw_s5s8},
-              {sockets, [irx]},
-              {data_paths, [grx]}
+              {sockets, [irx]}
              ]}]}
 
 NAPTR records for APN's on such a gateway should use "Service Parameters" of
@@ -342,8 +327,7 @@ Sample handler configuration for a S5/S8 only PGW
 
     {handlers,
      [{s5s8, [{handler, pgw_s5s8},
-              {sockets, [irx]},
-              {data_paths, [grx]}
+              {sockets, [irx]}
              ]}]}
 
 NAPTR records for APN's on such a gateway should use "Service Parameters" of
@@ -355,8 +339,7 @@ Sample handler configuration for Gn/Gp only GGSN
 
     {handlers,
      [{gn, [{handler, ggsn_gn},
-            {sockets, [irx]},
-            {data_paths, [grx]}
+            {sockets, [irx]}
            ]}]}
 
 NAPTR records for APN's on such a gateway should use "Service Parameters" of
@@ -371,12 +354,10 @@ Sample handler configuration:
 
     {handlers,
      [{gn, [{handler, ggsn_gn},
-            {sockets, [irx]},
-            {data_paths, [grx]}
+            {sockets, [irx]}
            ]},
       {s5s8, [{handler, pgw_s5s8},
-              {sockets, [irx]},
-              {data_paths, [grx]}
+              {sockets, [irx]}
              ]}]}
 
 NAPTR records for APN's on such a gateway should use "Service Parameters" of
