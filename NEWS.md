@@ -1,13 +1,27 @@
 erGW - 3GPP GGSN and PDN-GW in Erlang
 =====================================
 
+Version 2.8.5 - 29 January 2021
+-------------------------------
+
+**Dependencies** :gear:
+* [#308](https://github.com/travelping/ergw/pull/308) Update [ergw_aaa](https://github.com/travelping/ergw_aaa) tag to [3.6.8](https://github.com/travelping/ergw_aaa/releases/tag/3.6.8)
+
+**Features** :rocket:
+* [#304](https://github.com/travelping/ergw/pull/304) Multiarch build support on `Travis` and `GitLab-CI`
+
+**Bugfixes** :bug:
+* [#298](https://github.com/travelping/ergw/pull/298) Remove non use option and fix `dev-sx.config`
+
 Version 2.8.4 - 26 January 2021
 -------------------------------
+
 **Bugfixes** :bug:
 * [#296](https://github.com/travelping/ergw/pull/296) Fix reliably delete `PFCP` session
 
 Version 2.8.3 - 22 January 2021
 -------------------------------
+
 **Documentations** :books:
 * [#285](https://github.com/travelping/ergw/pull/285) Add missing decription of `PFCP` metrics
 
