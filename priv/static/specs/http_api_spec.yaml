@@ -46,12 +46,6 @@ paths:
           description: returns the current 'accept-new' status
           schema:
             $ref: '#/definitions/StatusAcceptNewRequests'
-  /metrics:
-    get:
-      summary: get the metrics
-      responses:
-        '200':
-          description: returns the metrics
   /contexts:
     delete:
       summary: 'delete all contexts'
