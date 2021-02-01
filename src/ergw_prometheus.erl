@@ -7,6 +7,8 @@
 
 -module(ergw_prometheus).
 
+-export([validate_options/1]).
+
 -export([declare/0]).
 -export([gtp_error/3, gtp/4, gtp/5,
 	 gtp_request_duration/4,
@@ -23,10 +25,30 @@
 -include_lib("pfcplib/include/pfcp_packet.hrl").
 
 %%%===================================================================
+%%% Options Validation
+%%%===================================================================
+
+-define(DefaultMetricsOpts, [{gtp_path_rtt_millisecond_intervals, [10, 30, 50, 75, 100, 1000, 2000]}]).
+
+validate_options(Opts) ->
+    ergw_config:validate_options(fun validate_option/2, Opts, ?DefaultMetricsOpts, map).
+
+validate_option(gtp_path_rtt_millisecond_intervals = Opt, Value) ->
+    case [V || V <- Value, is_integer(V), V > 0] of
+        [_|_] = Value ->
+            Value;
+        _ ->
+            throw({error, {options, {Opt, Value}}})
+    end.
+
+%%%===================================================================
 %%% API
 %%%===================================================================
 
 declare() ->
+    %% Metrics Config
+    {ok, Config} = application:get_env(ergw, metrics),
+
     %% GTP path metrics
     prometheus_counter:declare([{name, gtp_path_messages_processed_total},
 				{labels, [name, remote, direction, version, type]},
@@ -45,7 +67,7 @@ declare() ->
 				{help, "Total number of reply GTP message on path"}]),
     prometheus_histogram:declare([{name, gtp_path_rtt_milliseconds},
 				  {labels, [name, ip, version, type]},
-				  {buckets, [10, 30, 50, 75, 100, 1000, 2000]},
+				  {buckets, maps:get(gtp_path_rtt_millisecond_intervals, Config)},
 				  {help, "GTP path round trip time"}]),
     prometheus_gauge:declare([{name, gtp_path_contexts_total},
 			      {labels, [name, ip, version]},

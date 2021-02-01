@@ -920,6 +920,10 @@ config(_Config)  ->
     ?error_option(set_cfg_value([nodes, default, request], [{timeout, invalid}], ?GGSN_CONFIG)),
     ?ok_option(set_cfg_value([nodes, default, request], [{timeout, 30000}, {retry, 5}], ?GGSN_CONFIG)),
 
+    ?error_option(set_cfg_value([metrics, gtp_path_rtt_millisecond_intervals], [invalid], ?GGSN_CONFIG)),
+    ?error_option(set_cfg_value([metrics, gtp_path_rtt_millisecond_intervals], [-100], ?GGSN_CONFIG)),
+    ?ok_option(set_cfg_value([metrics, gtp_path_rtt_millisecond_intervals], [10, 100], ?GGSN_CONFIG)),
+
     ?error_option(set_cfg_value([nodes, test], [], ?GGSN_PROXY_CONFIG)),
     ?ok_option(set_cfg_value([nodes, "test"], [], ?GGSN_PROXY_CONFIG)),
     ?ok_option(set_cfg_value([nodes, "test", vrfs, cp, features], ['CP-Function'], ?GGSN_PROXY_CONFIG)),
