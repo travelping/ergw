@@ -10,17 +10,16 @@
 -behavior(gen_server).
 
 %% API
--export([start_link/0]).
+-export([start_link/1]).
 -export([start_socket/1, start_ip_pool/2,
 	 connect_sx_node/2,
 	 attach_tdf/2, attach_protocol/5]).
 -export([handler/2]).
--export([load_config/1]).
 -export([get_plmn_id/0, get_node_id/0, get_accept_new/0]).
 -export([system_info/0, system_info/1, system_info/2]).
 -export([i/0, i/1, i/2]).
 
--ignore_xref([start_link/0, i/0, i/1, i/2]).
+-ignore_xref([start_link/1, i/0, i/1, i/2]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -39,8 +38,8 @@
 %% API
 %%====================================================================
 
-start_link() ->
-    gen_server:start_link(?MODULE, [], []).
+start_link(Config) ->
+    gen_server:start_link(?MODULE, [Config], []).
 
 %% get global PLMN Id (aka MCC/MNC)
 get_plmn_id() ->
@@ -71,29 +70,6 @@ system_info(accept_new, New) when is_boolean(New) ->
     Old;
 system_info(Key, Value) ->
     error(badarg, [Key, Value]).
-
-load_config([]) ->
-    ok;
-load_config([{plmn_id, {MCC, MNC}} | T]) ->
-    true = ets:insert(?SERVER, {config, plmn_id, MCC, MNC}),
-    load_config(T);
-load_config([{accept_new, Value} | T]) ->
-    true = ets:insert(?SERVER, {config, accept_new, Value}),
-    load_config(T);
-load_config([{Key, Value} | T])
-  when Key =:= path_management;
-       Key =:= node_selection;
-       Key =:= nodes;
-       Key =:= ip_pools;
-       Key =:= apns;
-       Key =:= charging;
-       Key =:= proxy_map;
-       Key =:= teid;
-       Key =:= node_id ->
-    ok = application:set_env(ergw, Key, Value),
-    load_config(T);
-load_config([_ | T]) ->
-    load_config(T).
 
 %%
 %% Initialize a new PFCP, GTPv1/v2-c or GTPv1-u socket
@@ -222,11 +198,10 @@ i(memory, context) ->
 %%% gen_server callbacks
 %%%===================================================================
 
-init([]) ->
+init([Config]) ->
     TID = ets:new(?SERVER, [ordered_set, named_table, public,
 			    {keypos, 2}, {read_concurrency, true}]),
-    true = ets:insert(TID, {config, plmn_id, <<"001">>, <<"01">>}),
-    true = ets:insert(TID, {config, accpept_new, true}),
+    load_config(Config),
     {ok, #state{tid = TID}}.
 
 handle_call(_Request, _From, State) ->
@@ -248,3 +223,14 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
+
+load_config([]) ->
+    ok;
+load_config([{plmn_id, {MCC, MNC}} | T]) ->
+    true = ets:insert(?SERVER, {config, plmn_id, MCC, MNC}),
+    load_config(T);
+load_config([{accept_new, Value} | T]) ->
+    true = ets:insert(?SERVER, {config, accept_new, Value}),
+    load_config(T);
+load_config([_ | T]) ->
+    load_config(T).

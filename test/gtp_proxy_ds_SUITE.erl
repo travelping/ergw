@@ -25,9 +25,16 @@ init_per_suite(Config) ->
 	       {[<<"apn2">>], [<<"example2">>, <<"com">>]}
 	      ]}
     ],
-    {ok, Pid} = gen_server:start(ergw, [], []),
-    ergw:load_config([{plmn_id, {<<"001">>, <<"01">>}},
-		      {proxy_map, ProxyMap}]),
+    Cfg = [{plmn_id, {<<"001">>, <<"01">>}},
+        {proxy_map, ProxyMap},
+        {sockets, []},
+        {handlers, []},
+        {ip_pools, #{}},
+        {nodes, #{}}
+    ],
+    application:load(ergw),
+    [application:set_env(ergw, K, V) || {K, V} <- Cfg],
+    {ok, Pid} = gen_server:start(ergw, [Cfg], []),
     gen_server:start({local, gtp_proxy_ds_test}, gtp_proxy_ds, [], []),
     [{ergw, Pid}|Config].
 

@@ -10,7 +10,8 @@
 -compile({parse_transform, cut}).
 
 %% API
--export([load_config/1,
+-export([load/0,
+	 apply/1,
 	 validate_options/4,
 	 validate_apn_name/1,
 	 check_unique_keys/2,
@@ -61,9 +62,30 @@
 %%% API
 %%%===================================================================
 
-load_config(Config0) ->
-    Config = validate_config(Config0),
-    ergw:load_config(Config),
+load() ->
+    Config = validate_config(setup:get_all_env(ergw)),
+    load_env_config(Config),
+    ok = gtp_config:init(),
+    {ok, Config}.
+
+load_env_config([]) ->
+    ok;
+load_env_config([{Key, Value} | T])
+  when Key =:= path_management;
+       Key =:= node_selection;
+       Key =:= nodes;
+       Key =:= ip_pools;
+       Key =:= apns;
+       Key =:= charging;
+       Key =:= proxy_map;
+       Key =:= teid;
+       Key =:= node_id ->
+    ok = application:set_env(ergw, Key, Value),
+    load_env_config(T);
+load_env_config([_ | T]) ->
+    load_env_config(T).
+
+apply(Config) ->
     lists:foreach(fun ergw:start_socket/1, proplists:get_value(sockets, Config)),
     maps:map(fun load_sx_node/2, proplists:get_value(nodes, Config)),
     lists:foreach(fun load_handler/1, proplists:get_value(handlers, Config)),

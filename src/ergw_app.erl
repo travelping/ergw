@@ -21,11 +21,11 @@
 
 start(_StartType, _StartArgs) ->
     do([error_m ||
-	   gtp_config:init(),
+	   Config <- ergw_config:load(),
 	   ergw_prometheus:declare(),
 	   ensure_jobs_queues(),
-	   Pid <- ergw_sup:start_link(),
-	   ergw_config:load_config(setup:get_all_env(ergw)),
+	   Pid <- ergw_sup:start_link(Config),
+	   ergw_config:apply(Config),
 	   return(Pid)
        ]).
 
