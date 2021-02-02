@@ -198,14 +198,14 @@ handle_socket_error(#{level := ip, type := ?IP_RECVERR,
 		    IP, _Port, #state{gtp_socket = Socket})
   when Origin == ?SO_EE_ORIGIN_ICMP, Type == ?ICMP_DEST_UNREACH,
        (Code == ?ICMP_HOST_UNREACH orelse Code == ?ICMP_PORT_UNREACH) ->
-    gtp_path:down(Socket, IP);
+    gtp_path:icmp_error(Socket, IP);
 
 handle_socket_error(#{level := ip, type := recverr,
 		      data := #{origin := icmp, type := dest_unreach, code := Code}},
 		    IP, _Port, #state{gtp_socket = Socket})
   when Code == host_unreach;
        Code == port_unreach ->
-    gtp_path:down(Socket, IP);
+    gtp_path:icmp_error(Socket, IP);
 
 handle_socket_error(#{level := ipv6, type := ?IPV6_RECVERR,
 		      data := <<_ErrNo:32/native-integer,
@@ -215,14 +215,14 @@ handle_socket_error(#{level := ipv6, type := ?IPV6_RECVERR,
 		    IP, _Port, #state{gtp_socket = Socket})
   when Origin == ?SO_EE_ORIGIN_ICMP6, Type == ?ICMP6_DST_UNREACH,
        (Code == ?ICMP6_DST_UNREACH_ADDR orelse Code == ?ICMP6_DST_UNREACH_NOPORT) ->
-    gtp_path:down(Socket, IP);
+    gtp_path:icmp_error(Socket, IP);
 
 handle_socket_error(#{level := ipv6, type := recverr,
 		      data := #{origin := icmp6, type := dst_unreach, code := Code}},
 		    IP, _Port, #state{gtp_socket = Socket})
   when Code == addr_unreach;
        Code == port_unreach ->
-    gtp_path:down(Socket, IP);
+    gtp_path:icmp_error(Socket, IP);
 
 handle_socket_error(Error, IP, _Port, _State) ->
     ?LOG(debug, "got unhandled error info for ~s: ~p", [inet:ntoa(IP), Error]),

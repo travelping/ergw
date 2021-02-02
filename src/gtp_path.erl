@@ -15,7 +15,7 @@
 %% API
 -export([start_link/4, all/1,
 	 handle_request/2, handle_response/4,
-	 bind/1, bind/2, unbind/1, down/2,
+	 bind/1, bind/2, unbind/1, icmp_error/2,
 	 get_handler/2, info/1]).
 
 %% Validate environment Variables
@@ -94,14 +94,14 @@ unbind(#tunnel{socket = Socket, version = Version, remote = #fq_teid{ip = Remote
 	    ok
     end.
 
-down(Socket, IP) ->
-    down(Socket, v1, IP),
-    down(Socket, v2, IP).
+icmp_error(Socket, IP) ->
+    icmp_error(Socket, v1, IP),
+    icmp_error(Socket, v2, IP).
 
-down(Socket, Version, IP) ->
+icmp_error(Socket, Version, IP) ->
     case get(Socket, Version, IP) of
 	Path when is_pid(Path) ->
-	    gen_statem:cast(Path, down);
+	    gen_statem:cast(Path, icmp_error);
 	_ ->
 	    ok
     end.
@@ -148,13 +148,16 @@ stop(Path) ->
 
 %% Timer value: echo    = echo interval when peer is up.
 
--define(Defaults, [{t3, 10 * 1000},              % echo retry interval
-		   {n3,  5},                     % echo retry count
-		   {echo, 60 * 1000},            % echo ping interval
-		   {idle_timeout, 1800 * 1000},  % time to keep the path entry when idle
-		   {idle_echo,     600 * 1000},  % echo retry interval when idle
-		   {down_timeout, 3600 * 1000},  % time to keep the path entry when down
-		   {down_echo,     600 * 1000}]).% echo retry interval when down
+-define(Defaults, [
+    {t3, 10 * 1000},                  % echo retry interval
+    {n3,  5},                         % echo retry count
+    {echo, 60 * 1000},                % echo ping interval
+    {idle_timeout, 1800 * 1000},      % time to keep the path entry when idle
+    {idle_echo,     600 * 1000},      % echo retry interval when idle
+    {down_timeout, 3600 * 1000},      % time to keep the path entry when down
+    {down_echo,     600 * 1000},      % echo retry interval when down
+    {icmp_error_handling, immediate}  % configurable GTP path ICMP error behaviour
+]).
 
 validate_options(Values) ->
     ergw_config:validate_options(fun validate_option/2, Values, ?Defaults, map).
@@ -185,6 +188,9 @@ validate_option(Opt, Value)
 validate_option(Opt, Value)
   when Opt =:= idle_timeout; Opt =:= down_timeout ->
     validate_timeout(Opt, Value);
+validate_option(icmp_error_handling, Value)
+  when Value =:= immediate; Value =:= ignore ->
+    Value;
 validate_option(Opt, Value) ->
     throw({error, {options, {Opt, Value}}}).
 
@@ -207,7 +213,8 @@ init([#socket{name = SocketName} = Socket, Version, RemoteIP, Args]) ->
 
     Data0 = maps:with([t3, n3, echo,
 		       idle_timeout, idle_echo,
-		       down_timeout, down_echo], Args),
+		       down_timeout, down_echo,
+		       icmp_error_handling], Args),
     Data = Data0#{
 	     %% Path Info Keys
 	     socket     => Socket, % #socket{}
@@ -317,7 +324,10 @@ handle_event(cast,{handle_response, echo_request, _, #gtp{} = Msg}, State, Data)
 handle_event(cast,{handle_response, echo_request, _, _Msg}, State, Data) ->
     path_restart(undefined, peer_state(down, State), Data, []);
 
-handle_event(cast, down, State, Data) ->
+handle_event(cast, icmp_error, _, #{icmp_error_handling := ignore}) ->
+    keep_state_and_data;
+
+handle_event(cast, icmp_error, State, Data) ->
     path_restart(undefined, peer_state(down, State), Data, []);
 
 handle_event(info,{'DOWN', _MonitorRef, process, Pid, _Info}, State, Data) ->
