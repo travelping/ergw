@@ -1081,6 +1081,7 @@ config(_Config)  ->
     ?ok_option(set_cfg_value([path_management, down_timeout], 7200 * 1000, ?PGW_PROXY_CONFIG)),
     ?ok_option(set_cfg_value([path_management, idle_timeout], 0, ?PGW_PROXY_CONFIG)),
     ?ok_option(set_cfg_value([path_management, down_timeout], 0, ?PGW_PROXY_CONFIG)),
+    ?ok_option(set_cfg_value([path_management, icmp_error_handling], ignore, ?PGW_PROXY_CONFIG)),
 
     ?error_option(set_cfg_value([path_management, t3], -1, ?PGW_PROXY_CONFIG)),
     ?error_option(set_cfg_value([path_management, n3], -1, ?PGW_PROXY_CONFIG)),
@@ -1096,4 +1097,7 @@ config(_Config)  ->
     ?error_option(set_cfg_value([path_management, down_timeout], -1, ?PGW_PROXY_CONFIG)),
     ?error_option(set_cfg_value([path_management, idle_timeout], invalid, ?PGW_PROXY_CONFIG)),
     ?error_option(set_cfg_value([path_management, down_timeout], invalid, ?PGW_PROXY_CONFIG)),
+
+    ?error_option(set_cfg_value([path_management, icmp_error_handling], invalid, ?PGW_PROXY_CONFIG)),
+    ?error_option(set_cfg_value([path_management, icmp_error_handling], <<>>, ?PGW_PROXY_CONFIG)),
     ok.
