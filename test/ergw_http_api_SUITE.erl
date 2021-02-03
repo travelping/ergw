@@ -256,7 +256,8 @@ all() ->
      http_api_status_accept_new_post_req,
      http_api_prometheus_metrics_req,
      http_api_delete_sessions,
-     http_api_delete_all_sessions
+     http_api_delete_all_sessions,
+     http_status_k8s
     ].
 
 %%%===================================================================
@@ -421,6 +422,17 @@ http_api_delete_all_sessions(Config) ->
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     ?match(0, meck:num_calls(?HUT, handle_request, ['_', '_', true, '_', '_'])),
     meck_validate(Config),
+    ok.
+
+http_status_k8s() ->
+    [{doc, "Check that /status/ready works"}].
+http_status_k8s(_Config) ->
+    URL = get_test_url("/status/ready"),
+    Accept = "text/plain",
+    Response = httpc:request(get, {URL, [{"Accept", Accept}]},
+			     [], [{body_format, binary}]),
+
+    ?match({ok, {{_, 200, _}, _, _}}, Response),
     ok.
 
 %%%===================================================================

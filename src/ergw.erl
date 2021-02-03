@@ -7,7 +7,7 @@
 
 -module(ergw).
 
--behavior(gen_server).
+-behavior(gen_statem).
 
 %% API
 -export([start_link/1]).
@@ -21,9 +21,11 @@
 
 -ignore_xref([start_link/1, i/0, i/1, i/2]).
 
-%% gen_server callbacks
--export([init/1, handle_call/3, handle_cast/2, handle_info/2,
-	 terminate/2, code_change/3]).
+%% gen_statem callbacks
+-export([callback_mode/0, init/1, handle_event/4,
+	 terminate/3, code_change/4]).
+
+-export([ready/0]).
 
 -ifdef(TEST).
 -export([start/1, wait_till_ready/0]).
@@ -36,7 +38,6 @@
 -include("include/ergw.hrl").
 
 -define(SERVER, ?MODULE).
--record(state, {tid :: ets:tid()}).
 
 -record(protocol_key, {socket, protocol}).
 -record(protocol, {key, name, handler, options}).
@@ -47,11 +48,11 @@
 
 -ifdef(TEST).
 start(Config) ->
-    proc_lib:start(?MODULE, init, [Config]).
+    gen_statem:start({local, ?SERVER}, ?MODULE, [Config], []).
 -endif.
 
 start_link(Config) ->
-    proc_lib:start_link(?MODULE, init, [Config]).
+    gen_statem:start_link({local, ?SERVER}, ?MODULE, [Config], []).
 
 %% get global PLMN Id (aka MCC/MNC)
 get_plmn_id() ->
@@ -206,22 +207,65 @@ i(memory, context) ->
     {context, MemUsage}.
 
 wait_till_ready() ->
-    ok = gen_server:call(?SERVER, ready, infinity).
+    ok = gen_statem:call(?SERVER, wait_till_ready, infinity).
+
+ready() ->
+    gen_statem:call(?SERVER, ready).
 
 %%%===================================================================
-%%% gen_server callbacks
+%%% gen_statem callbacks
 %%%===================================================================
 
-init(Config) ->
+callback_mode() -> [handle_event_function].
+
+init([Config]) ->
     process_flag(trap_exit, true),
+    Now = erlang:monotonic_time(),
 
-    TID = ets:new(?SERVER, [ordered_set, named_table, public,
-			    {keypos, 2}, {read_concurrency, true}]),
+    ets:new(?SERVER, [ordered_set, named_table, public,
+		      {keypos, 2}, {read_concurrency, true}]),
     load_config(Config),
 
-    register(?SERVER, self()),
-    proc_lib:init_ack({ok, self()}),
+    Pid = proc_lib:spawn_link(fun startup/0),
+    {ok, startup, #{init => Now, config => Config, startup => Pid}}.
 
+handle_event({call, From}, wait_till_ready, ready, _Data) ->
+    {keep_state_and_data, [{reply, From, ok}]};
+handle_event({call, _From}, wait_till_ready, _State, _Data) ->
+    {keep_state_and_data, [postpone]};
+
+handle_event({call, From}, ready, State, _Data) ->
+    Reply = {reply, From, State == ready},
+    {keep_state_and_data, [Reply]};
+
+handle_event(info, {'EXIT', Pid, ok}, startup,
+	     #{init := Now, config := Config, startup := Pid} = Data) ->
+    ergw_config:apply(Config),
+    ?LOG(info, "ergw: ready to process requests, cluster started in ~w ms",
+	 [erlang:convert_time_unit(erlang:monotonic_time() - Now, native, millisecond)]),
+    {next_state, ready, maps:remove(startup, Data)};
+
+handle_event(info, {'EXIT', Pid, Reason}, startup, #{startup := Pid}) ->
+    ?LOG(critical, "cluster support failed to start with ~0p", [Reason]),
+    init:stop(1),
+    {stop, {shutdown, Reason}};
+
+handle_event(Event, Info, _State, _Data) ->
+    ?LOG(error, "~p: ~w: handle_event(~p, ...): ~p", [self(), ?MODULE, Event, Info]),
+    keep_state_and_data.
+
+terminate(_Reason, _State, _Data) ->
+    ergw_cluster:stop(),
+    ok.
+
+code_change(_OldVsn, State, Data, _Extra) ->
+    {ok, State, Data}.
+
+%%%===================================================================
+%%% Internal functions
+%%%===================================================================
+
+startup() ->
     %% undocumented, see stdlib's shell.erl
     case init:notify_when_started(self()) of
 	started ->
@@ -229,44 +273,7 @@ init(Config) ->
 	_ ->
 	    init:wait_until_started()
     end,
-
-    Now = erlang:monotonic_time(),
-    case ergw_cluster:start() of
-	ok ->
-	    ergw_config:apply(Config),
-	    ?LOG(info, "ergw: ready to process requests, cluster started in ~w ms",
-		 [erlang:convert_time_unit(erlang:monotonic_time() - Now, native, millisecond)]),
-	    gen_server:enter_loop(?MODULE, [], #state{tid = TID}, {local, ?SERVER});
-
-	Other ->
-	    ?LOG(critical, "cluster support failed to start with ~0p", [Other]),
-	    init:stop(1),
-	    {shutdown, Other}
-    end.
-
-
-handle_call(ready, _From, State) ->
-    {reply, ok, State};
-handle_call(_Request, _From, State) ->
-    Reply = ok,
-    {reply, Reply, State}.
-
-handle_cast(_Msg, State) ->
-    {noreply, State}.
-
-handle_info(_Info, State) ->
-    {noreply, State}.
-
-terminate(_Reason, _State) ->
-    ergw_cluster:stop(),
-    ok.
-
-code_change(_OldVsn, State, _Extra) ->
-    {ok, State}.
-
-%%%===================================================================
-%%% Internal functions
-%%%===================================================================
+    exit(ergw_cluster:start()).
 
 load_config([]) ->
     ok;
