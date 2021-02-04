@@ -74,6 +74,14 @@ validate_option(Opt, Value) ->
 %%%===================================================================
 
 start(#{enabled := true, seed_nodes := SeedNodes, initial_timeout := Timeout}) ->
+    case net_kernel:epmd_module() of
+	k8s_epmd ->
+	    {ok, _} = application:ensure_all_started(k8s_dist),
+	    ok;
+	_ ->
+	    ok
+    end,
+
     Nodes = get_nodes(SeedNodes) -- [node()],
     Now = erlang:monotonic_time(millisecond),
     Deadline = Now + Timeout,

@@ -1,0 +1,10 @@
+{application, k8s_dist,
+ [{description, "Erlang Distribution in k8s"},
+  {vsn, "0.1.0"},
+  {registered, []},
+  {applications, [kernel, stdlib, gun]},
+  {env,[]},
+  {modules, [k8s_dist, k8s_epmd, k8s_tcp_dist]},
+
+  {links, []}
+ ]}.
