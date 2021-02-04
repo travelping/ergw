@@ -390,7 +390,18 @@ Then fill just created **ergw.config** file with content like described below pr
                [{timeout, 30000},
                {retry, 5}]}]
            }]
-         }
+         },
+
+         {path_management, [
+           {t3, 10000},
+           {n3,  5},
+           {echo, 60000},
+           {idle_timeout, 1800000},
+           {idle_echo,     600000},
+           {down_timeout, 3600000},
+           {down_echo,     600000},
+           {icmp_error_handling, immediate} % optional, can be 'ignore' | 'immediate', by default: immediate
+         ]}
         ]},
 
  {ergw_aaa,
