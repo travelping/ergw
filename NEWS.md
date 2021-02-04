@@ -1,6 +1,25 @@
 erGW - 3GPP GGSN and PDN-GW in Erlang
 =====================================
 
+Version 2.8.6 - 4 February 2021
+-------------------------------
+
+**Documentations** :books:
+* [#318](https://github.com/travelping/ergw/pull/318) Add `path_management` to `README`
+
+**Dependencies** :gear:
+* [#319](https://github.com/travelping/ergw/pull/319) Update [ergw_aaa](https://github.com/travelping/ergw_aaa) tag to [3.6.9](https://github.com/travelping/ergw_aaa/releases/tag/3.6.9)
+
+**Improvements** :bulb:
+* [#310](https://github.com/travelping/ergw/pull/310) Shuffle the config loading to make it available earlier
+
+**Refactorings** :fire:
+* [#313](https://github.com/travelping/ergw/pull/313) Remove `/metrics` from `Swagger` definitions
+
+**Features** :rocket:
+* [#315](https://github.com/travelping/ergw/pull/315) Implement configurable `GTP` path `ICMP` error behaviour
+* [#306](https://github.com/travelping/ergw/pull/306) Implement configurable `GTP` `RTT` metrics interval
+
 Version 2.8.5 - 29 January 2021
 -------------------------------
 
