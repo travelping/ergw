@@ -744,7 +744,7 @@ init_per_testcase(path_maint, Config) ->
     setup_per_testcase(Config),
     Config;
 init_per_testcase(path_failure_to_ggsn_and_restore, Config) ->
-    set_path_timers(#{'down_echo' => 1}),
+    set_path_timers(#{down => #{echo => 1}}),
     setup_per_testcase(Config),
     Config;
 init_per_testcase(simple_pdp_context_request, Config) ->
@@ -854,7 +854,7 @@ end_per_testcase(path_failure_to_ggsn, Config) ->
     end_per_testcase(Config);
 end_per_testcase(path_failure_to_ggsn_and_restore, Config) ->
     ok = meck:delete(ergw_gtp_c_socket, send_request, 8),
-    set_path_timers(#{'down_echo' => 600 * 1000}),
+    set_path_timers(#{down => #{echo => 600 * 1000}}),
     end_per_testcase(Config);
 end_per_testcase(path_failure_to_sgsn, Config) ->
     ok = meck:delete(ergw_gtp_c_socket, send_request, 8),
@@ -1013,7 +1013,7 @@ ggsn_broken_recovery() ->
     [{doc, "Check that Create PDP Context Request works and "
            "that a GGSN Restart terminates the session"}].
 ggsn_broken_recovery(Config) ->
-    CtxKey = #context_key{socket = 'irx', id = {imsi, ?'IMSI', 5}},
+    CtxKey = #context_key{socket = <<"irx">>, id = {imsi, ?'IMSI', 5}},
     {GtpC, _, _} = create_pdp_context(Config),
 
     {_, CtxPid} = gtp_context_reg:lookup(CtxKey),
@@ -1050,8 +1050,8 @@ path_failure_to_ggsn() ->
       "that a path failure (Echo timeout) terminates the session"}].
 path_failure_to_ggsn(Config) ->
     Cntl = whereis(gtpc_client_server),
-    CtxKey = #context_key{socket = 'irx', id = {imsi, ?'IMSI', 5}},
-    RemoteCtxKey = #context_key{socket = 'remote-irx', id = {imsi, ?'PROXY-IMSI', 5}},
+    CtxKey = #context_key{socket = <<"irx">>, id = {imsi, ?'IMSI', 5}},
+    RemoteCtxKey = #context_key{socket = <<"remote-irx">>, id = {imsi, ?'PROXY-IMSI', 5}},
 
     {GtpC, _, _} = create_pdp_context(Config),
 
@@ -1080,7 +1080,7 @@ path_failure_to_ggsn(Config) ->
     ct:sleep(100),
     delete_pdp_context(not_found, GtpC),
 
-    {_Handler, Server} = gtp_context_reg:lookup(RemoteCtxKey),
+    {_, Server} = gtp_context_reg:lookup(RemoteCtxKey),
     true = is_pid(Server),
     %% killing the GGSN context
     exit(Server, kill),
@@ -1106,7 +1106,7 @@ path_failure_to_ggsn_and_restore() ->
       "and is later restored with a valid echo"}].
 path_failure_to_ggsn_and_restore(Config) ->
     Cntl = whereis(gtpc_client_server),
-    CtxKey = #context_key{socket = 'irx', id = {imsi, ?'IMSI', 5}},
+    CtxKey = #context_key{socket = <<"irx">>, id = {imsi, ?'IMSI', 5}},
 
     lists:foreach(fun({_, Pid, _}) -> gtp_path:stop(Pid) end, gtp_path_reg:all()),
 
@@ -1171,7 +1171,7 @@ path_failure_to_sgsn() ->
     [{doc, "Check that Create PDP Context works and "
       "that a path failure (Echo timeout) terminates the session"}].
 path_failure_to_sgsn(Config) ->
-    CtxKey = #context_key{socket = 'irx', id = {imsi, ?'IMSI', 5}},
+    CtxKey = #context_key{socket = <<"irx">>, id = {imsi, ?'IMSI', 5}},
     {GtpC, _, _} = create_pdp_context(Config),
 
     {_, CtxPid} = gtp_context_reg:lookup(CtxKey),
@@ -1318,7 +1318,7 @@ one_lb_node_down(Config) ->
     lists:foreach(fun({_, Pid, _}) -> gtp_path:stop(Pid) end, gtp_path_reg:all()),
 
     DownGSN = proplists:get_value(final_gsn_2, Config),
-    CSocket = ergw_socket_reg:lookup('gtp-c', 'irx'),
+    CSocket = ergw_socket_reg:lookup('gtp-c', <<"irx">>),
 
     ok = meck:expect(ergw_gtp_c_socket, send_request,
 		     fun (_, _, IP, _, _, _, #gtp{type = echo_request}, CbInfo)
@@ -1398,7 +1398,7 @@ create_pdp_context_request_resend(Config) ->
 create_pdp_context_proxy_request_resend() ->
     [{doc, "Check that the proxy does not send the Create PDP Context Request multiple times"}].
 create_pdp_context_proxy_request_resend(Config) ->
-    CtxKey = #context_key{socket = 'irx', id = {imsi, ?'IMSI', 5}},
+    CtxKey = #context_key{socket = <<"irx">>, id = {imsi, ?'IMSI', 5}},
     GtpC = gtp_context(Config),
     Request = make_request(create_pdp_context_request, simple, GtpC),
 
@@ -1420,7 +1420,7 @@ create_pdp_context_request_timeout() ->
     [{doc, "Check that the proxy does shutdown the context on timeout"}].
 create_pdp_context_request_timeout(Config) ->
     %% logger:set_primary_config(level, debug),
-    CtxKey = #context_key{socket = 'irx', id = {imsi, ?'IMSI', 5}},
+    CtxKey = #context_key{socket = <<"irx">>, id = {imsi, ?'IMSI', 5}},
 
     GtpC = gtp_context(Config),
     Request = make_request(create_pdp_context_request, simple, GtpC),
@@ -1455,7 +1455,7 @@ delete_pdp_context_request_timeout() ->
     [{doc, "Check that a Delete PDP Context Request terminates the "
            "proxy session even when the final GSN fails"}].
 delete_pdp_context_request_timeout(Config) ->
-    RemoteCtxKey = #context_key{socket = 'remote-irx', id = {imsi, ?'PROXY-IMSI', 5}},
+    RemoteCtxKey = #context_key{socket = <<"remote-irx">>, id = {imsi, ?'PROXY-IMSI', 5}},
 
     {GtpC, _, _} = create_pdp_context(Config),
 
@@ -1499,8 +1499,8 @@ error_indication_ggsn2sgsn() ->
     [{doc, "Check the a GTP-U error indication terminates the session"}].
 error_indication_ggsn2sgsn(Config) ->
     Cntl = whereis(gtpc_client_server),
-    CtxKey = #context_key{socket = 'irx', id = {imsi, ?'IMSI', 5}},
-    RemoteCtxKey = #context_key{socket = 'remote-irx', id = {imsi, ?'PROXY-IMSI', 5}},
+    CtxKey = #context_key{socket = <<"irx">>, id = {imsi, ?'IMSI', 5}},
+    RemoteCtxKey = #context_key{socket = <<"remote-irx">>, id = {imsi, ?'PROXY-IMSI', 5}},
 
     {GtpC, _, _} = create_pdp_context(Config),
 
@@ -1567,7 +1567,7 @@ request_fast_resend(Config) ->
 update_pdp_context_request_ra_update() ->
     [{doc, "Check Update PDP Context with Routing Area Update"}].
 update_pdp_context_request_ra_update(Config) ->
-    RemoteCtxKey = #context_key{socket = 'remote-irx', id = {imsi, ?'PROXY-IMSI', 5}},
+    RemoteCtxKey = #context_key{socket = <<"remote-irx">>, id = {imsi, ?'PROXY-IMSI', 5}},
 
     {GtpC1, _, _} = create_pdp_context(Config),
     {_, CtxPid} = gtp_context_reg:lookup(RemoteCtxKey),
@@ -1595,8 +1595,8 @@ update_pdp_context_request_ra_update(Config) ->
 update_pdp_context_request_tei_update() ->
     [{doc, "Check Update PDP Context with TEID update (e.g. SGSN change)"}].
 update_pdp_context_request_tei_update(Config) ->
-    CtxKey = #context_key{socket = 'irx', id = {imsi, ?'IMSI', 5}},
-    RemoteCtxKey = #context_key{socket = 'remote-irx', id = {imsi, ?'PROXY-IMSI', 5}},
+    CtxKey = #context_key{socket = <<"irx">>, id = {imsi, ?'IMSI', 5}},
+    RemoteCtxKey = #context_key{socket = <<"remote-irx">>, id = {imsi, ?'PROXY-IMSI', 5}},
 
     {GtpC1, _, _} = create_pdp_context(Config),
     {_, CtxPid} = gtp_context_reg:lookup(RemoteCtxKey),
@@ -1647,7 +1647,7 @@ update_pdp_context_request_tei_update(Config) ->
 update_pdp_context_request_broken_recovery() ->
     [{doc, "Check Update PDP Context where the response includes an invalid recovery"}].
 update_pdp_context_request_broken_recovery(Config) ->
-    RemoteCtxKey = #context_key{socket = 'remote-irx', id = {imsi, ?'PROXY-IMSI', 5}},
+    RemoteCtxKey = #context_key{socket = <<"remote-irx">>, id = {imsi, ?'PROXY-IMSI', 5}},
 
     ok = meck:expect(gtp_context, send_response,
 		     fun(ReqKey, Request, {update_pdp_context_response, TEID, IEs0})->
@@ -1827,7 +1827,7 @@ delete_pdp_context_requested() ->
     [{doc, "Check GGSN initiated Delete PDP Context"}].
 delete_pdp_context_requested(Config) ->
     Cntl = whereis(gtpc_client_server),
-    RemoteCtxKey = #context_key{socket = 'remote-irx', id = {imsi, ?'PROXY-IMSI', 5}},
+    RemoteCtxKey = #context_key{socket = <<"remote-irx">>, id = {imsi, ?'PROXY-IMSI', 5}},
 
     {GtpC, _, _} = create_pdp_context(Config),
 
@@ -1862,7 +1862,7 @@ delete_pdp_context_requested_resend() ->
     [{doc, "Check resend of GGSN initiated Delete PDP Context"}].
 delete_pdp_context_requested_resend(Config) ->
     Cntl = whereis(gtpc_client_server),
-    RemoteCtxKey = #context_key{socket = 'remote-irx', id = {imsi, ?'PROXY-IMSI', 5}},
+    RemoteCtxKey = #context_key{socket = <<"remote-irx">>, id = {imsi, ?'PROXY-IMSI', 5}},
 
     {_, _, _} = create_pdp_context(Config),
 
@@ -1895,7 +1895,7 @@ delete_pdp_context_requested_invalid_teid() ->
     [{doc, "Check error response of GGSN initiated Delete PDP Context with invalid TEID"}].
 delete_pdp_context_requested_invalid_teid(Config) ->
     Cntl = whereis(gtpc_client_server),
-    RemoteCtxKey = #context_key{socket = 'remote-irx', id = {imsi, ?'PROXY-IMSI', 5}},
+    RemoteCtxKey = #context_key{socket = <<"remote-irx">>, id = {imsi, ?'PROXY-IMSI', 5}},
 
     {GtpC, _, _} = create_pdp_context(Config),
 
@@ -1933,7 +1933,7 @@ delete_pdp_context_requested_late_response(Config) ->
     Cntl = whereis(gtpc_client_server),
 
     {GtpC, _, _} = create_pdp_context(Config),
-    RemoteCtxKey = #context_key{socket = 'remote-irx', id = {imsi, ?'PROXY-IMSI', 5}},
+    RemoteCtxKey = #context_key{socket = <<"remote-irx">>, id = {imsi, ?'PROXY-IMSI', 5}},
 
     {_Handler, Server} = gtp_context_reg:lookup(RemoteCtxKey),
     true = is_pid(Server),
@@ -1970,7 +1970,7 @@ ggsn_update_pdp_context_request() ->
      {timetrap,{seconds,60}}].
 ggsn_update_pdp_context_request(Config) ->
     Cntl = whereis(gtpc_client_server),
-    RemoteCtxKey = #context_key{socket = 'remote-irx', id = {imsi, ?'PROXY-IMSI', 5}},
+    RemoteCtxKey = #context_key{socket = <<"remote-irx">>, id = {imsi, ?'PROXY-IMSI', 5}},
 
     {GtpC, _, _} = create_pdp_context(Config),
 
@@ -2005,7 +2005,7 @@ ggsn_update_pdp_context_request(Config) ->
 create_pdp_context_overload() ->
     [{doc, "Check that the overload protection works"}].
 create_pdp_context_overload(Config) ->
-    CtxKey = #context_key{socket = 'irx', id = {imsi, ?'IMSI', 5}},
+    CtxKey = #context_key{socket = <<"irx">>, id = {imsi, ?'IMSI', 5}},
 
     create_pdp_context(overload, Config),
 
@@ -2039,7 +2039,7 @@ cache_timeout(Config) ->
     Socket =
 	case ergw_socket_reg:lookup('gtp-c', 'proxy-irx') of
 	    undefined ->
-		ergw_socket_reg:lookup('gtp-c', 'irx');
+		ergw_socket_reg:lookup('gtp-c', <<"irx">>);
 	    Other ->
 		Other
 	end,
@@ -2242,10 +2242,19 @@ proxy_context_selection_map(ProxyInfo, Context) ->
 	    Other
     end.
 
+maps_recusive_merge(Key, Value, Map) ->
+    maps:update_with(Key, fun(V) -> maps_recusive_merge(V, Value) end, Value, Map).
+
+maps_recusive_merge(M1, M2)
+  when is_map(M1) andalso is_map(M1) ->
+    maps:fold(fun maps_recusive_merge/3, M1, M2);
+maps_recusive_merge(_, New) ->
+    New.
+
 % Set Timers for Path management
 set_path_timers(SetTimers) ->
     {ok, Timers} = application:get_env(ergw, path_management),
-    NewTimers = maps:merge(Timers, SetTimers),
+    NewTimers = maps_recusive_merge(Timers, SetTimers),
     application:set_env(ergw, path_management, NewTimers).
 
 make_gtp_contexts(Cnt, Config) ->

@@ -12,7 +12,8 @@
 -compile([{parse_transform, do},
 	  {parse_transform, cut}]).
 
--export([validate_options/1, init/2, request_spec/3,
+-export([validate_options/1, config_meta/0,
+	 init/2, request_spec/3,
 	 handle_pdu/4,
 	 handle_request/5, handle_response/5,
 	 handle_event/4, terminate/3]).
@@ -104,6 +105,12 @@ validate_options(Options) ->
 validate_option(Opt, Value) ->
     gtp_context:validate_option(Opt, Value).
 
+config_meta() ->
+    Meta = maps:merge(
+	     gtp_context:config_meta(),
+	     #{protocol => {enum, atom, [gn, gp, s5, s8, s5s8]}}),
+    ergw_config:normalize_meta(Meta).
+
 init(_Opts, Data) ->
     {ok, Session} = ergw_aaa_session_sup:new_session(self(), to_session([])),
     SessionOpts = ergw_aaa_session:get(Session),
@@ -173,7 +180,7 @@ handle_request(ReqKey,
 		SGWuFQDN;
 	    _ -> []
 	end,
-    Services = [{"x-3gpp-upf", "x-sxb"}],
+    Services = [{'x-3gpp-upf', 'x-sxb'}],
 
     {ok, UpSelInfo} =
 	ergw_gtp_gsn_lib:connect_upf_candidates(APN, Services, NodeSelect, PeerUpNode),
@@ -540,7 +547,7 @@ close_context(_Side, Reason, _State, Data) ->
     ergw_gtp_gsn_lib:close_context(?API, Reason, Data).
 
 map_attr('APN', #{?'Access Point Name' := #v2_access_point_name{apn = APN}}) ->
-    unicode:characters_to_binary(lists:join($., APN));
+    iolist_to_binary(lists:join($., APN));
 map_attr('IMSI', #{?'IMSI' := #v2_international_mobile_subscriber_identity{imsi = IMSI}}) ->
     IMSI;
 map_attr('IMEI', #{?'ME Identity' := #v2_mobile_equipment_identity{mei = IMEI}}) ->

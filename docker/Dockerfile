@@ -17,7 +17,8 @@ RUN     apk update && apk --no-cache upgrade && \
 			pcre2 \
 			pkgconf \
 			scanelf \
-			zlib
+			zlib \
+			yaml-dev
 
 ADD     . /build
 RUN     rebar3 as prod release
@@ -29,7 +30,7 @@ FROM alpine:3.13
 WORKDIR /
 RUN     apk update && \
 		apk --no-cache upgrade && \
-		apk --no-cache add zlib ncurses-libs libcrypto1.1 lksctp-tools tini
+		apk --no-cache add zlib ncurses-libs libcrypto1.1 yaml lksctp-tools tini
 COPY    docker/docker-entrypoint.sh /
 COPY    config/ergw-c-node.config /etc/ergw-c-node/
 

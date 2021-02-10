@@ -11,15 +11,15 @@
 
 %% API
 -export([start_link/1]).
--export([start_socket/1, start_ip_pool/2,
+-export([start_socket/2, start_ip_pool/2,
 	 connect_sx_node/2,
 	 attach_tdf/2, attach_protocol/5]).
--export([handler/2]).
+-export([handler/2, config/0]).
 -export([get_plmn_id/0, get_node_id/0, get_accept_new/0]).
 -export([system_info/0, system_info/1, system_info/2]).
 -export([i/0, i/1, i/2]).
 
--ignore_xref([start_link/1, i/0, i/1, i/2]).
+-ignore_xref([start_link/1, config/0, i/0, i/1, i/2]).
 
 %% gen_statem callbacks
 -export([callback_mode/0, init/1, handle_event/4,
@@ -56,17 +56,18 @@ start_link(Config) ->
 
 %% get global PLMN Id (aka MCC/MNC)
 get_plmn_id() ->
-    [{config, plmn_id, MCC, MNC}] = ets:lookup(?SERVER, plmn_id),
+    {ok, #{mcc := MCC, mnc := MNC}} = application:get_env(ergw, plmn_id),
     {MCC, MNC}.
+
 get_node_id() ->
     {ok, Id} = application:get_env(ergw, node_id),
     Id.
 get_accept_new() ->
-    [{config, accept_new, Value}] = ets:lookup(?SERVER, accept_new),
+    {ok, Value} = application:get_env(ergw, accept_new),
     Value.
 
 system_info() ->
-    [{K,system_info(K)} || K <- [plmn_id, node_id, accept_new]].
+    [{K, system_info(K)} || K <- [plmn_id, node_id, accept_new]].
 
 system_info(accept_new) ->
     get_accept_new();
@@ -79,7 +80,7 @@ system_info(Arg) ->
 
 system_info(accept_new, New) when is_boolean(New) ->
     Old = get_accept_new(),
-    true = ets:insert(?SERVER, {config, accept_new, New}),
+    ok = application:set_env(ergw, accept_new, New),
     Old;
 system_info(Key, Value) ->
     error(badarg, [Key, Value]).
@@ -87,8 +88,8 @@ system_info(Key, Value) ->
 %%
 %% Initialize a new PFCP, GTPv1/v2-c or GTPv1-u socket
 %%
-start_socket({_Name, #{type := Type} = Opts}) ->
-    ergw_socket_sup:new(Type, Opts).
+start_socket(Name, #{type := Type} = Opts) ->
+    ergw_socket_sup:new(Name, Type, Opts).
 
 %%
 %% start IP_POOL instance
@@ -146,11 +147,12 @@ connect_sx_node(Node, #{node_selection := NodeSelect} = Opts) ->
 %%
 %% attach a GTP protocol (Gn, S5, S2a...) to a socket
 %%
-attach_protocol(Socket, Name, Protocol, Handler, Opts0) ->
+attach_protocol(Socket, Name, Protocol, Handler, Opts) ->
     Key = #protocol_key{socket = Socket, protocol = Protocol},
     case code:ensure_loaded(Handler) of
 	{module, _} ->
-	    Opts = Handler:validate_options(Opts0),
+	    Meta = Handler:config_meta(),
+	    true = ergw_config:validate_config([], Meta, Opts),
 	    P = #protocol{
 		   key = Key,
 		   name = Name,
@@ -174,6 +176,9 @@ handler(Socket, Protocol) ->
 	_ ->
 	    {error, not_found}
     end.
+
+config() ->
+    gen_server:call(?SERVER, config).
 
 i() ->
     lists:map(fun i/1, [memory]).
@@ -238,6 +243,10 @@ handle_event({call, From}, ready, State, _Data) ->
     Reply = {reply, From, State == ready},
     {keep_state_and_data, [Reply]};
 
+handle_event({call, From}, config, _, #{config := Config}) ->
+    Reply = {reply, From, Config},
+    {keep_state_and_data, [Reply]};
+
 handle_event(info, {'EXIT', Pid, ok}, startup,
 	     #{init := Now, config := Config, startup := Pid} = Data) ->
     ergw_config:apply(Config),
@@ -275,13 +284,8 @@ startup() ->
     end,
     exit(ergw_cluster:start()).
 
-load_config([]) ->
-    ok;
-load_config([{plmn_id, {MCC, MNC}} | T]) ->
-    true = ets:insert(?SERVER, {config, plmn_id, MCC, MNC}),
-    load_config(T);
-load_config([{accept_new, Value} | T]) ->
-    true = ets:insert(?SERVER, {config, accept_new, Value}),
-    load_config(T);
-load_config([_ | T]) ->
-    load_config(T).
+load_config(Config) ->
+    maps:map(fun load_config/2, Config).
+
+load_config(Key, Value) ->
+    ok = application:set_env(ergw, Key, Value).

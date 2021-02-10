@@ -1125,7 +1125,7 @@ set_online_charging([Key|Next], Set, Cfg)
 
 set_online_charging(Set) ->
     {ok, Cfg0} = application:get_env(ergw, charging),
-    Cfg = set_online_charging(['_', rulebase, '_'], Set, Cfg0),
+    Cfg = set_online_charging(['_', rule, '_'], Set, Cfg0),
 	ok = application:set_env(ergw, charging, Cfg).
 
 %% Set APN key data

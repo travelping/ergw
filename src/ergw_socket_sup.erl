@@ -10,7 +10,7 @@
 -behaviour(supervisor).
 
 %% API
--export([start_link/0, new/2]).
+-export([start_link/0, new/3]).
 
 -ignore_xref([start_link/0]).
 
@@ -26,8 +26,8 @@
 start_link() ->
     supervisor:start_link({local, ?SERVER}, ?MODULE, []).
 
-new(Type, Socket)->
-    supervisor:start_child(?SERVER, [Type, Socket]).
+new(Name, Type, Socket)->
+    supervisor:start_child(?SERVER, [Name, Type, Socket]).
 
 %% ===================================================================
 %% Supervisor callbacks

@@ -10,7 +10,7 @@
 -behaviour(gen_server).
 
 %% API
--export([start_link/0, map/1, map/2, validate_options/1]).
+-export([start_link/0, map/1, map/2, validate_options/1, config_meta/0]).
 
 -ignore_xref([start_link/0, map/1, map/2]).
 
@@ -56,13 +56,13 @@ map(Handler, ProxyInfo) ->
 			    (is_map(X) andalso map_size(X) /= 0))).
 
 validate_options(Values) ->
-    ergw_config:validate_options(fun validate_option/2, Values, [], map).
+    ergw_config_legacy:validate_options(fun validate_option/2, Values, [], map).
 
 validate_imsi(From, To) when is_binary(From), is_binary(To) ->
-    To;
-validate_imsi(From, {IMSI, MSISDN} = To)
+    #{imsi => To};
+validate_imsi(From, {IMSI, MSISDN})
   when is_binary(From), is_binary(IMSI), is_binary(MSISDN) ->
-    To;
+    #{imsi => IMSI, msisdn => MSISDN};
 validate_imsi(From, To) ->
     throw({error, {options, {From, To}}}).
 
@@ -72,32 +72,32 @@ validate_apn(From, To) ->
     throw({error, {options, {From, To}}}).
 
 validate_option(imsi, Opts) when ?non_empty_opts(Opts) ->
-    ergw_config:check_unique_keys(imsi, Opts),
-    ergw_config:validate_options(fun validate_imsi/2, Opts, [], map);
+    ergw_config_legacy:check_unique_keys(imsi, Opts),
+    ergw_config_legacy:validate_options(fun validate_imsi/2, Opts, [], map);
 validate_option(apn, Opts) when ?non_empty_opts(Opts) ->
-    ergw_config:check_unique_keys(apn, Opts),
-    ergw_config:validate_options(fun validate_apn/2, Opts, [], map);
+    ergw_config_legacy:check_unique_keys(apn, Opts),
+    ergw_config_legacy:validate_options(fun validate_apn/2, Opts, [], map);
 validate_option(Opt, Value) ->
     throw({error, {options, {Opt, Value}}}).
+
+config_meta() ->
+    To = #{imsi => binary, msisdn => binary},
+    IMSI = {kvlist, {from, binary}, {to, To}},
+    APN = {kvlist, {from, apn}, {to, apn}},
+    #{imsi => IMSI, apn => APN}.
 
 %%%===================================================================
 %%% gen_server callbacks
 %%%===================================================================
 
 init([]) ->
-    State = validate_options(application:get_env(?App, proxy_map, #{})),
-    {ok, State}.
+    Meta = ergw_config:normalize_meta(config_meta()),
+    Config = application:get_env(?App, proxy_map, #{}),
+    true = ergw_config:validate_config([proxy_map], Meta, Config),
+    {ok, Config}.
 
 handle_call({map, #{imsi := IMSI, apn := APN} = PI0}, _From, State) ->
-    PI1 =
-	case maps:get(imsi, State, undefined) of
-	    #{IMSI := MappedIMSI} when is_binary(MappedIMSI) ->
-		PI0#{imsi => MappedIMSI};
-	    #{IMSI := {MappedIMSI, MappedMSISDN}} ->
-		PI0#{imsi => MappedIMSI, msisdn => MappedMSISDN};
-	    _ ->
-		PI0
-	end,
+    PI1 = maps:merge(PI0, maps:get(IMSI, maps:get(imsi, State, #{}), #{})),
     PI =
 	case ergw_gsn_lib:apn(APN, maps:get(apn, State, undefined)) of
 	    {ok, DstAPN} -> PI1#{apn => DstAPN};

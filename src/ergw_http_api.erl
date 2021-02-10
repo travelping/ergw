@@ -8,11 +8,14 @@
 -module(ergw_http_api).
 
 %% API
--export([init/1, validate_options/1]).
+-export([init/1, validate_options/1, config_meta/0]).
 
 -include_lib("kernel/include/logger.hrl").
 
 init(undefined) ->
+    ?LOG(debug, "HTTP API will not be started because of lack of configuration~n"),
+    ok;
+init(#{enabled := false}) ->
     ?LOG(debug, "HTTP API will not be started because of lack of configuration~n"),
     ok;
 init(Opts) when is_map(Opts) ->
@@ -57,13 +60,16 @@ start_http_listener(Opts) ->
 %%% Options Validation
 %%%===================================================================
 
--define(Defaults, [{ip, {127, 0, 0, 1}},
+-define(Defaults, [{enabled, true},
+		   {ip, {127, 0, 0, 1}},
 		   {port, 8000},
 		   {num_acceptors, 100}]).
 
 validate_options(Values) ->
-    ergw_config:validate_options(fun validate_option/1, Values, ?Defaults, map).
+    ergw_config_legacy:validate_options(fun validate_option/1, Values, ?Defaults, map).
 
+validate_option({enabled, Value} = Opt) when is_boolean(Value) ->
+    Opt;
 validate_option({port, Port} = Opt)
   when is_integer(Port), Port >= 0, Port =< 65535 ->
     Opt;
@@ -83,6 +89,16 @@ validate_option({ipv6_v6only, Value} = Opt) when is_boolean(Value) ->
     Opt;
 validate_option(Opt) ->
     throw({error, {options, Opt}}).
+
+config_meta() ->
+    Meta = #{
+	     enabled       => {boolean, false},
+	     ip            => {ip_address, {127, 0, 0, 1}},
+	     port          => {integer, 8000},
+	     ipv6_v6only   => {boolean, false},
+	     num_acceptors => {integer, 100}
+	    },
+    {Meta, #{}}.
 
 get_inet(#{ip := {_, _, _, _}}) ->
     inet;

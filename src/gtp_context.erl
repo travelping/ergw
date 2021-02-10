@@ -27,6 +27,7 @@
 	 info/1,
 	 validate_options/3,
 	 validate_option/2,
+	 config_meta/0,
 	 generic_error/3,
 	 context_key/2, socket_teid_key/2]).
 -export([usage_report_to_accounting/1,
@@ -218,7 +219,7 @@ test_cmd(Pid, Cmd) when is_pid(Pid) ->
 	 }).
 
 validate_options(Fun, Opts, Defaults) ->
-    ergw_config:validate_options(Fun, Opts, Defaults ++ ?ContextDefaults, map).
+    ergw_config_legacy:validate_options(Fun, Opts, Defaults ++ ?ContextDefaults, map).
 
 validate_option(protocol, Value)
   when Value == 'gn' orelse
@@ -227,13 +228,14 @@ validate_option(protocol, Value)
     Value;
 validate_option(handler, Value) when is_atom(Value) ->
     Value;
-validate_option(sockets, Value) when is_list(Value) ->
-    Value;
+validate_option(sockets, [S|_] = Value)
+  when is_binary(S); is_atom(S) ->
+    [ergw_config:to_binary(V) || V <- Value];
 validate_option(node_selection, [S|_] = Value)
-  when is_atom(S) ->
-    Value;
+  when is_binary(S); is_atom(S) ->
+    [ergw_config:to_binary(V) || V <- Value];
 validate_option(aaa, Value) when is_list(Value); is_map(Value) ->
-    ergw_config:opts_fold(fun validate_aaa_option/3, ?DefaultAAAOpts, Value);
+    ergw_config_legacy:opts_fold(fun validate_aaa_option/3, ?DefaultAAAOpts, Value);
 validate_option(Opt, Value) ->
     throw({error, {options, {Opt, Value}}}).
 
@@ -244,12 +246,12 @@ validate_aaa_option(Key, Value, AAA)
   when (is_list(Value) orelse is_map(Value)) andalso
        (Key == 'Username' orelse Key == 'Password') ->
     %% Attr = maps:get(Key, AAA),
-    %% maps:put(Key, ergw_config:opts_fold(validate_aaa_attr_option(Key, _, _, _), Attr, Value), AAA);
+    %% maps:put(Key, ergw_config_legacy:opts_fold(validate_aaa_attr_option(Key, _, _, _), Attr, Value), AAA);
 
     %% maps:update_with(Key, fun(Attr) ->
-    %% 				  ergw_config:opts_fold(validate_aaa_attr_option(Key, _, _, _), Attr, Value)
+    %% 				  ergw_config_legacy:opts_fold(validate_aaa_attr_option(Key, _, _, _), Attr, Value)
     %% 			  end, AAA);
-    maps:update_with(Key, ergw_config:opts_fold(validate_aaa_attr_option(Key, _, _, _), _, Value), AAA);
+    maps:update_with(Key, ergw_config_legacy:opts_fold(validate_aaa_attr_option(Key, _, _, _), _, Value), AAA);
 
 validate_aaa_option(Key, Value, AAA)
   when Key == '3GPP-GGSN-MCC-MNC' ->
@@ -266,6 +268,14 @@ validate_aaa_attr_option('Password', default, Default, Attr) ->
     Attr#{default => Default};
 validate_aaa_attr_option(Key, Setting, Value, _Attr) ->
     throw({error, {options, {aaa_attr, {Key, Setting, Value}}}}).
+
+config_meta() ->
+    #{
+      handler        => atom,
+      sockets        => {list, binary},
+      node_selection => {list, binary},
+      aaa            => passthrough
+     }.
 
 %%====================================================================
 %% ergw_context API
@@ -324,8 +334,7 @@ port_message(Server, Request, Msg, Resent) ->
 callback_mode() -> [handle_event_function, state_enter].
 
 init([Socket, Info, Version, Interface,
-      #{node_selection := NodeSelect,
-	aaa := AAAOpts} = Opts]) ->
+      #{node_selection := NodeSelect, aaa := AAAOpts} = Opts]) ->
 
     ?LOG(debug, "init(~p)", [[Socket, Info, Interface]]),
     process_flag(trap_exit, true),

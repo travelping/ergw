@@ -670,7 +670,8 @@ common() ->
      gx_rar_gy_interaction,
      tdf_app_id,
      gtp_idle_timeout,
-     up_inactivity_timer].
+     up_inactivity_timer,
+     struct_config].
 
 sx_fail() ->
     [sx_connect_fail].
@@ -908,6 +909,13 @@ init_per_testcase(gtp_idle_timeout, Config) ->
     set_apn_key('Idle-Timeout', 300),
     setup_per_testcase(Config),
     Config;
+init_per_testcase(TestCase, Config)
+  when TestCase == struct_config ->
+    setup_per_testcase(Config),
+    set_online_charging(true),
+    load_aaa_answer_config([{{gy, 'CCR-Initial'}, 'Initial-OCS'},
+			    {{gy, 'CCR-Update'},  'Update-OCS-GxGy'}]),
+    Config;
 init_per_testcase(_, Config) ->
     setup_per_testcase(Config),
     Config.
@@ -999,7 +1007,7 @@ invalid_gtp_pdu() ->
       " and that the GTP socket is not crashing"}].
 invalid_gtp_pdu(Config) ->
     TestGSN = proplists:get_value(test_gsn, Config),
-    MfrId = ['irx-socket', rx, 'malformed-requests'],
+    MfrId = [<<"irx-socket">>, rx, 'malformed-requests'],
     MfrCnt = get_metric(prometheus_counter, gtp_c_socket_errors_total, MfrId, 0),
 
     S = make_gtp_socket(Config),
@@ -1272,7 +1280,7 @@ path_failure() ->
     [{doc, "Check that Create Session Request works and "
       "that a path failure (Echo timeout) terminates the session"}].
 path_failure(Config) ->
-    CtxKey = #context_key{socket = 'irx-socket', id = {imsi, ?'IMSI', 5}},
+    CtxKey = #context_key{socket = <<"irx-socket">>, id = {imsi, ?'IMSI', 5}},
 
     {GtpC, _, _} = create_session(Config),
 
@@ -2189,7 +2197,7 @@ delete_bearer_request() ->
      {timetrap,{seconds,60}}].
 delete_bearer_request(Config) ->
     Cntl = whereis(gtpc_client_server),
-    CtxKey = #context_key{socket = 'irx-socket', id = {imsi, ?'IMSI', 5}},
+    CtxKey = #context_key{socket = <<"irx-socket">>, id = {imsi, ?'IMSI', 5}},
 
     {GtpC, _, _} = create_session(Config),
 
@@ -2268,7 +2276,7 @@ delete_bearer_request_resend() ->
      {timetrap,{seconds,60}}].
 delete_bearer_request_resend(Config) ->
     Cntl = whereis(gtpc_client_server),
-    CtxKey = #context_key{socket = 'irx-socket', id = {imsi, ?'IMSI', 5}},
+    CtxKey = #context_key{socket = <<"irx-socket">>, id = {imsi, ?'IMSI', 5}},
 
     {_, _, _} = create_session(Config),
 
@@ -2318,8 +2326,8 @@ interop_sgsn_to_sgw() ->
     [{doc, "Check 3GPP T 23.401, Annex D, SGSN to SGW handover"}].
 interop_sgsn_to_sgw(Config) ->
     ClientIP = proplists:get_value(client_ip, Config),
-    CtxMetricV1 = ['irx-socket', inet:ntoa(ClientIP), v1],
-    CtxMetricV2 = ['irx-socket', inet:ntoa(ClientIP), v2],
+    CtxMetricV1 = [<<"irx-socket">>, inet:ntoa(ClientIP), v1],
+    CtxMetricV2 = [<<"irx-socket">>, inet:ntoa(ClientIP), v2],
 
     {GtpC1, _, _} = ergw_ggsn_test_lib:create_pdp_context(Config),
     ?match_metric(prometheus_gauge, gtp_path_contexts_total, CtxMetricV1, 1),
@@ -2371,8 +2379,8 @@ interop_sgw_to_sgsn() ->
     [{doc, "Check 3GPP T 23.401, Annex D, SGW to SGSN handover"}].
 interop_sgw_to_sgsn(Config) ->
     ClientIP = proplists:get_value(client_ip, Config),
-    CtxMetricV1 = ['irx-socket', inet:ntoa(ClientIP), v1],
-    CtxMetricV2 = ['irx-socket', inet:ntoa(ClientIP), v2],
+    CtxMetricV1 = [<<"irx-socket">>, inet:ntoa(ClientIP), v1],
+    CtxMetricV2 = [<<"irx-socket">>, inet:ntoa(ClientIP), v2],
 
     {GtpC1, _, _} = create_session(Config),
     ?match_metric(prometheus_gauge, gtp_path_contexts_total, CtxMetricV2, 1),
@@ -2852,7 +2860,7 @@ gy_validity_timer_cp(Config) ->
 gy_validity_timer_up() ->
     [{doc, "Check Validity-Timer attached to MSCC in UPF with VTIME"}].
 gy_validity_timer_up(Config) ->
-    CtxKey = #context_key{socket = 'irx-socket', id = {imsi, ?'IMSI', 5}},
+    CtxKey = #context_key{socket = <<"irx-socket">>, id = {imsi, ?'IMSI', 5}},
 
     {GtpC, _, _} = create_session(Config),
 
@@ -2914,7 +2922,7 @@ gy_validity_timer_up(Config) ->
 simple_aaa() ->
     [{doc, "Check simple session with RADIOS/DIAMETER over (S)Gi"}].
 simple_aaa(Config) ->
-    CtxKey = #context_key{socket = 'irx-socket', id = {imsi, ?'IMSI', 5}},
+    CtxKey = #context_key{socket = <<"irx-socket">>, id = {imsi, ?'IMSI', 5}},
     Interim = rand:uniform(1800) + 1800,
     AAAReply = #{'Acct-Interim-Interval' => Interim},
 
@@ -3026,7 +3034,7 @@ simple_aaa(Config) ->
 simple_ofcs() ->
     [{doc, "Check simple session with DIAMETER Rf"}].
 simple_ofcs(Config) ->
-    CtxKey = #context_key{socket = 'irx-socket', id = {imsi, ?'IMSI', 5}},
+    CtxKey = #context_key{socket = <<"irx-socket">>, id = {imsi, ?'IMSI', 5}},
     Interim = rand:uniform(1800) + 1800,
     AAAReply = #{'Acct-Interim-Interval' => [Interim]},
 
@@ -3178,7 +3186,7 @@ simple_ofcs(Config) ->
 ofcs_no_interim() ->
     [{doc, "Check that OFCS reporting also works without Acct-Interim-Interval"}].
 ofcs_no_interim(Config) ->
-    CtxKey = #context_key{socket = 'irx-socket', id = {imsi, ?'IMSI', 5}},
+    CtxKey = #context_key{socket = <<"irx-socket">>, id = {imsi, ?'IMSI', 5}},
     AAAReply = #{},
 
     ok = meck:expect(ergw_aaa_session, invoke,
@@ -3345,7 +3353,7 @@ secondary_rat_usage_data_report(Config) ->
 simple_ocs() ->
     [{doc, "Test Gy a simple interaction"}].
 simple_ocs(Config) ->
-    CtxKey = #context_key{socket = 'irx-socket', id = {imsi, ?'IMSI', 5}},
+    CtxKey = #context_key{socket = <<"irx-socket">>, id = {imsi, ?'IMSI', 5}},
 
     {GtpC, _, _} = create_session(Config),
 
@@ -3533,7 +3541,7 @@ split_charging1() ->
     [{doc, "Used different Rating-Groups for Online and Offline charging, "
       "without catch all PCC rules/RG"}].
 split_charging1(Config) ->
-    CtxKey = #context_key{socket = 'irx-socket', id = {imsi, ?'IMSI', 5}},
+    CtxKey = #context_key{socket = <<"irx-socket">>, id = {imsi, ?'IMSI', 5}},
     Interim = rand:uniform(1800) + 1800,
     AAAReply = #{'Acct-Interim-Interval' => [Interim]},
 
@@ -3850,7 +3858,7 @@ split_charging2() ->
     [{doc, "Used different Rating-Groups for Online and Offline charging, "
       "with catch all PCC rules/RG"}].
 split_charging2(Config) ->
-    CtxKey = #context_key{socket = 'irx-socket', id = {imsi, ?'IMSI', 5}},
+    CtxKey = #context_key{socket = <<"irx-socket">>, id = {imsi, ?'IMSI', 5}},
     Interim = rand:uniform(1800) + 1800,
     AAAReply = #{'Acct-Interim-Interval' => [Interim]},
 
@@ -4252,7 +4260,7 @@ aa_pool_select_fail(Config) ->
 tariff_time_change() ->
     [{doc, "Check Rf and Gy action on Tariff-Time-Change"}].
 tariff_time_change(Config) ->
-    CtxKey = #context_key{socket = 'irx-socket', id = {imsi, ?'IMSI', 5}},
+    CtxKey = #context_key{socket = <<"irx-socket">>, id = {imsi, ?'IMSI', 5}},
     Interim = rand:uniform(1800) + 1800,
     AAAReply = #{'Acct-Interim-Interval' => [Interim]},
 
@@ -4497,7 +4505,7 @@ gy_ccr_asr_overlap() ->
     [{doc, "Test that ASR is answered when it arrives during CCR-T"}].
 gy_ccr_asr_overlap(Config) ->
     Cntl = whereis(gtpc_client_server),
-    CtxKey = #context_key{socket = 'irx-socket', id = {imsi, ?'IMSI', 5}},
+    CtxKey = #context_key{socket = <<"irx-socket">>, id = {imsi, ?'IMSI', 5}},
 
     {GtpC, _, _} = create_session(Config),
 
@@ -4632,7 +4640,7 @@ volume_threshold(Config) ->
 gx_rar_gy_interaction() ->
     [{doc, "Check that a Gx RAR triggers a Gy request"}].
 gx_rar_gy_interaction(Config) ->
-    CtxKey = #context_key{socket = 'irx-socket', id = {imsi, ?'IMSI', 5}},
+    CtxKey = #context_key{socket = <<"irx-socket">>, id = {imsi, ?'IMSI', 5}},
 
     {GtpC, _, _} = create_session(Config),
 
@@ -4829,7 +4837,7 @@ gx_asr() ->
     [{doc, "Check that ASR on Gx terminates the session"}].
 gx_asr(Config) ->
     Cntl = whereis(gtpc_client_server),
-    CtxKey = #context_key{socket = 'irx-socket', id = {imsi, ?'IMSI', 5}},
+    CtxKey = #context_key{socket = <<"irx-socket">>, id = {imsi, ?'IMSI', 5}},
 
     {GtpC, _, _} = create_session(Config),
 
@@ -4856,7 +4864,7 @@ gx_asr(Config) ->
 gx_rar() ->
     [{doc, "Check that RAR on Gx changes the session"}].
 gx_rar(Config) ->
-    CtxKey = #context_key{socket = 'irx-socket', id = {imsi, ?'IMSI', 5}},
+    CtxKey = #context_key{socket = <<"irx-socket">>, id = {imsi, ?'IMSI', 5}},
 
     {GtpC, _, _} = create_session(Config),
 
@@ -4985,7 +4993,7 @@ gy_asr() ->
     [{doc, "Check that ASR on Gy terminates the session"}].
 gy_asr(Config) ->
     Cntl = whereis(gtpc_client_server),
-    CtxKey = #context_key{socket = 'irx-socket', id = {imsi, ?'IMSI', 5}},
+    CtxKey = #context_key{socket = <<"irx-socket">>, id = {imsi, ?'IMSI', 5}},
 
     {GtpC, _, _} = create_session(Config),
 
@@ -5277,7 +5285,7 @@ gtp_idle_timeout(Config) ->
 up_inactivity_timer() ->
     [{doc, "Test expiry of the User Plane Inactivity Timer"}].
 up_inactivity_timer(Config) ->
-    CtxKey = #context_key{socket = 'irx-socket', id = {imsi, ?'IMSI', 5}},
+    CtxKey = #context_key{socket = <<"irx-socket">>, id = {imsi, ?'IMSI', 5}},
     Interim = rand:uniform(1800) + 1800,
     AAAReply = #{'Acct-Interim-Interval' => Interim},
 
@@ -5316,6 +5324,34 @@ up_inactivity_timer(Config) ->
 
     meck_validate(Config),
     ok.
+
+%%--------------------------------------------------------------------
+struct_config() ->
+    [{doc, "Check that a Gx RAR triggers a Gy request"}].
+struct_config(_Config) ->
+    Cnf = ergw:config(),
+    ct:pal("Cnf:~n~p", [Cnf]),
+    write_terms("./ergw.config", [Cnf]),
+
+    AAA = application:get_all_env(ergw_aaa),
+    ct:pal("AAA:~n~p", [AAA]),
+    write_terms("./ergw_aaa.config", [AAA]),
+    ok.
+
+write_terms(FileName, List) ->
+    filelib:ensure_dir(FileName),
+    Format = fun(Term) -> io_lib:format("~tp.~n", [Term]) end,
+    Text = lists:map(Format, List),
+    case file:write_file(FileName, Text) of
+	ok ->
+	    ok;
+	{error, Reason} ->
+	    ?LOG(error, "Failed to write to ~s with ~s", [FileName, file:format_error(Reason)]),
+	    ok;
+	Other ->
+	    ?LOG(error, "Failed to write to ~s with ~w", [FileName, Other]),
+	    ok
+    end.
 
 %%%===================================================================
 %%% Internal functions
@@ -5378,8 +5414,8 @@ set_online_charging([Key|Next], Set, Cfg)
 
 set_online_charging(Set) ->
     {ok, Cfg0} = application:get_env(ergw, charging),
-    Cfg = set_online_charging(['_', rulebase, '_'], Set, Cfg0),
-	ok = application:set_env(ergw, charging, Cfg).
+    Cfg = set_online_charging(['_', rule, '_'], Set, Cfg0),
+    ok = application:set_env(ergw, charging, Cfg).
 
 %% Set APN key data
 set_apn_key(Key, Value) ->

@@ -42,7 +42,7 @@ start() ->
 start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
-resolve(Name, Selection, Class, Type) ->
+resolve(Name, Selection, Class, Type) when is_binary(Name) ->
     case match(make_rr_key(Name, Selection, Class, Type)) of
 	false ->
 	    gen_server:call(?SERVER, {resolve, Name, Selection, Class, Type});
@@ -125,9 +125,8 @@ load_config(Name, {static, Entries}) ->
 load_config(_, {dns, NameServers}) ->
     {dns, nsopts(NameServers)}.
 
-load_static(Selection, {Host, {Order, Pref}, [{Service, _}|_] = Services, Replacement}, Entries) ->
-    SStr = lists:flatten(lists:join($:, [Service | [Protocol || {_, Protocol} <- Services]])),
-    Data = {Order, Pref, "a", SStr, "", Replacement},
+load_static(Selection, {Host, {Order, Pref}, Services, Replacement}, Entries) ->
+    Data = {Order, Pref, a, Services, "", Replacement},
     RR = inet_dns:make_rr([{domain, Host}, {class, in}, {type, naptr},
 			   {ttl, infinity}, {data, Data}]),
     make_cache_entry(Selection, RR, Entries);
@@ -175,19 +174,99 @@ update_cache_entry(#entry{ttl = TA} = A, #entry{ttl = TB} = B) when TA > TB ->
 update_cache_entry(#entry{answer = AA} = A, #entry{answer = AB}) ->
     A#entry{answer = AA ++ AB}.
 
-lower_rr(RR) ->
-    case inet_dns:rr(RR, domain) of
-	Domain when is_list(Domain) ->
-	    inet_dns:make_rr(RR, domain, string:lowercase(iolist_to_binary(Domain)));
-	_ ->
-	    RR
-    end.
+lowercase(Host) when is_list(Host) ->
+    string:lowercase(iolist_to_binary(Host));
+lowercase(Host) when is_binary(Host) ->
+    string:lowercase(Host).
 
-make_rr_key(Name, Selection, Class, Type) ->
-    {iolist_to_binary(Name), Selection, Class, Type}.
+lower_rr(RR) ->
+    Domain = inet_dns:rr(RR, domain),
+    inet_dns:make_rr(RR, domain, lowercase(Domain)).
+
+normalize_rr(RR0) ->
+    RR = lower_rr(RR0),
+    normalize_rr(inet_dns:rr(RR, class), inet_dns:rr(RR, type), inet_dns:rr(RR, data), RR).
+
+normalize_naptr_flag([$a]) -> a;
+normalize_naptr_flag([$A]) -> a;
+normalize_naptr_flag([$s]) -> s;
+normalize_naptr_flag([$S]) -> s;
+normalize_naptr_flag(Flag) -> Flag.
+
+%% 3GPP TS 23.003, Sect. 19.4.3.
+tggp_service("x-3gpp-amf") -> 'x-3gpp-amf';
+tggp_service("x-3gpp-ggsn") -> 'x-3gpp-ggsn';
+tggp_service("x-3gpp-mme") -> 'x-3gpp-mme';
+tggp_service("x-3gpp-msc") -> 'x-3gpp-msc';
+tggp_service("x-3gpp-pgw") -> 'x-3gpp-pgw';
+tggp_service("x-3gpp-sgsn") -> 'x-3gpp-sgsn';
+tggp_service("x-3gpp-sgw") -> 'x-3gpp-sgw';
+tggp_service("x-3gpp-ucmf") -> 'x-3gpp-ucmf';
+tggp_service("x-3gpp-upf") -> 'x-3gpp-upf';
+tggp_service(List) when is_list(List) ->
+    list_to_binary(List).
+
+tggp_protocol("x-gn") -> 'x-gn';
+tggp_protocol("x-gp") -> 'x-gp';
+tggp_protocol("x-n2") -> 'x-n2';
+tggp_protocol("x-n26") -> 'x-n26';
+tggp_protocol("x-n4") -> 'x-n4';
+tggp_protocol("x-n55") -> 'x-n55';
+tggp_protocol("x-nqprime") -> 'x-nqprime';
+tggp_protocol("x-s1-u") -> 'x-s1-u';
+tggp_protocol("x-s10") -> 'x-s10';
+tggp_protocol("x-s11") -> 'x-s11';
+tggp_protocol("x-s12") -> 'x-s12';
+tggp_protocol("x-s16") -> 'x-s16';
+tggp_protocol("x-s2a-gtp") -> 'x-s2a-gtp';
+tggp_protocol("x-s2a-mipv4") -> 'x-s2a-mipv4';
+tggp_protocol("x-s2a-pmip") -> 'x-s2a-pmip';
+tggp_protocol("x-s2b-gtp") -> 'x-s2b-gtp';
+tggp_protocol("x-s2b-pmip") -> 'x-s2b-pmip';
+tggp_protocol("x-s2c-dsmip") -> 'x-s2c-dsmip';
+tggp_protocol("x-s3") -> 'x-s3';
+tggp_protocol("x-s4") -> 'x-s4';
+tggp_protocol("x-s5-gtp") -> 'x-s5-gtp';
+tggp_protocol("x-s5-pmip") -> 'x-s5-pmip';
+tggp_protocol("x-s6a") -> 'x-s6a';
+tggp_protocol("x-s8-gtp") -> 'x-s8-gtp';
+tggp_protocol("x-s8-pmip") -> 'x-s8-pmip';
+tggp_protocol("x-sv") -> 'x-sv';
+tggp_protocol("x-sxa") -> 'x-sxa';
+tggp_protocol("x-sxb") -> 'x-sxb';
+tggp_protocol("x-sxc") -> 'x-sxc';
+tggp_protocol("x-urcmp") -> 'x-urcmp';
+tggp_protocol(List) when is_list(List) ->
+    list_to_binary(List).
+
+normalize_naptr_services(Services) ->
+    [Service | Protocols] = string:tokens(Services, ":"),
+    [{tggp_service(Service), tggp_protocol(P)} || P <- Protocols].
+
+normalize_rr(in, naptr, {Order, Pref, Flag, Services, RegExp, Host}, RR)
+  when is_list(Host), is_list(RegExp) ->
+    Data = {Order, Pref, normalize_naptr_flag(Flag),
+	    normalize_naptr_services(Services), list_to_binary(RegExp), lowercase(Host)},
+    inet_dns:make_rr(RR, data, Data);
+normalize_rr(in, srv, {Prio, Weight, Port, Host}, RR) when is_list(Host) ->
+    Data = {Prio, Weight, Port, lowercase(Host)},
+    inet_dns:make_rr(RR, data, Data);
+normalize_rr(in, ns, Host, RR) when is_list(Host) ->
+    inet_dns:make_rr(RR, data, lowercase(Host));
+normalize_rr(_Class, _Type, _Data, RR) ->
+    RR.
+
+msg_rr_list(Msg, List) ->
+    lists:map(fun normalize_rr/1, inet_dns:msg(Msg, List)).
+
+make_rr_key(Name, Selection, Class, Type) when is_list(Name) ->
+    {iolist_to_binary(Name), Selection, Class, Type};
+make_rr_key(Name, Selection, Class, Type) when is_binary(Name) ->
+    {Name, Selection, Class, Type}.
 
 make_rr_key(Selection, RR) ->
-    {inet_dns:rr(RR, domain), Selection, inet_dns:rr(RR, class), inet_dns:rr(RR, type)}.
+    make_rr_key(inet_dns:rr(RR, domain), Selection,
+		inet_dns:rr(RR, class), inet_dns:rr(RR, type)).
 
 make_cache_entry(Selection, RR0, Entries) ->
     RR = lower_rr(RR0),
@@ -199,7 +278,7 @@ make_cache_entries(Selection, List, Entries) ->
     lists:foldl(make_cache_entry(Selection, _, _), Entries, List).
 
 res_resolve(Name, Selection, Class, Type, NsOpts) ->
-    case inet_res:resolve(Name, Class, Type, [{usevc, true} | NsOpts]) of
+    case inet_res:resolve(binary_to_list(Name), Class, Type, [{usevc, true} | NsOpts]) of
 	{error, nxdomain} = Error ->
 	    res_neg_cache_answer(Name, Selection, Class, Type, Error),
 	    Error;
@@ -214,10 +293,10 @@ res_resolve(Name, Selection, Class, Type, NsOpts) ->
 
 res_cache_answer(Selection, Msg) ->
     Now = erlang:monotonic_time(second),
-    AN = inet_dns:msg(Msg, anlist),
+    AN = msg_rr_list(Msg, anlist),
     Entries0 = make_cache_entries(Selection, AN, #{}),
-    Entries1 = make_cache_entries(Selection, inet_dns:msg(Msg, arlist), Entries0),
-    Entries2 = make_cache_entries(Selection, inet_dns:msg(Msg, nslist), Entries1),
+    Entries1 = make_cache_entries(Selection, msg_rr_list(Msg, arlist), Entries0),
+    Entries2 = make_cache_entries(Selection, msg_rr_list(Msg, nslist), Entries1),
     Entries = maps:map(fun(_, #entry{ttl = TTL} = E) -> E#entry{ttl = TTL + Now} end, Entries2),
     ets:insert(?SERVER, maps:values(Entries)),
     AN.

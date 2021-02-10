@@ -110,6 +110,7 @@ init([IP]) ->
     process_flag(trap_exit, true),
 
     SockOpts = [binary, {ip, IP}, {active, true}, {reuseaddr, true}, {buffer, 65536}],
+    ct:pal("SockOpts: ~p~n", [SockOpts]),
     {ok, GtpSocket} = gen_udp:open(?GTP1u_PORT, SockOpts),
     {ok, SxSocket} = gen_udp:open(8805, SockOpts),
     State = #state{
@@ -130,6 +131,7 @@ init([IP]) ->
 	       sessions = #{},
 	       history = []
 	      },
+    ct:pal("SxUpState: ~p~n", [State]),
     {ok, State}.
 
 handle_call(reset, _From, State0) ->
@@ -190,7 +192,7 @@ handle_call({send, Msg}, _From,
 	    #state{gtp = GtpSocket, cp_ip = IP, up_ip = UpIP} = State)
   when is_binary(Msg) ->
     {ok, SxPid} = ergw_sx_node_reg:lookup(ergw_inet:bin2ip(UpIP)),
-    TEIDMatch = #socket_teid_key{name = 'cp-socket', type = 'gtp-u', teid = '$1', _ = '_'},
+    TEIDMatch = #socket_teid_key{name = <<"cp-socket">>, type = 'gtp-u', teid = '$1', _ = '_'},
     [[SxTEI]] = ets:match(gtp_context_reg, {TEIDMatch, {'_',SxPid}}),
     BinMsg = gtp_packet:encode(#gtp{version = v1, type = g_pdu, tei = SxTEI, ie = Msg}),
     ok = gen_udp:send(GtpSocket, IP, ?GTP1u_PORT, BinMsg),
@@ -227,11 +229,13 @@ handle_call(stop, _From, State) ->
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
-handle_info({udp, _, _, _, _}, #state{enabled = false} = State) ->
+handle_info({udp, _, _, _, _} = _P, #state{enabled = false} = State) ->
+    ct:pal("UDP#1: ~p", [_P]),
     {noreply, State};
 
-handle_info({udp, SxSocket, IP, InPortNo, Packet},
+handle_info({udp, SxSocket, IP, InPortNo, Packet} = _P,
 	    #state{sx = SxSocket} = State0) ->
+    ct:pal("UDP#2: ~p", [_P]),
     try
 	Msg = pfcp_packet:decode(Packet),
 	?match(ok, (catch pfcp_packet:validate('Sxb', Msg))),
@@ -252,9 +256,11 @@ handle_info({udp, SxSocket, IP, InPortNo, Packet},
     end;
 handle_info({udp, GtpSocket, _, _, _} = Msg,
 	    #state{gtp = GtpSocket} = State) ->
+    ct:pal("UDP#3: ~p", [Msg]),
     {noreply, record(Msg, State)}.
 
 terminate(_Reason, #state{sx = SxSocket}) ->
+    ct:pal("UDP#4: ~p", [_Reason]),
     catch gen_udp:close(SxSocket),
     ok.
 

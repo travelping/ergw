@@ -13,6 +13,8 @@
 -callback validate_options(Opts :: [{Key :: atom(), Value :: term()}]) ->
     Return :: #{Key :: atom() => Value :: term()}.
 
+-callback config_meta() -> Return :: ergw_config:meta().
+
 -callback init(Opts :: term(),
 	       Data :: map()) ->
     Return :: {ok, Data :: map()} |

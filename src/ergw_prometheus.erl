@@ -7,9 +7,9 @@
 
 -module(ergw_prometheus).
 
--export([validate_options/1]).
+-export([validate_options/1, config_meta/0]).
 
--export([declare/0]).
+-export([declare/1]).
 -export([gtp_error/3, gtp/4, gtp/5,
 	 gtp_request_duration/4,
 	 gtp_path_rtt/4,
@@ -31,7 +31,7 @@
 -define(DefaultMetricsOpts, [{gtp_path_rtt_millisecond_intervals, [10, 30, 50, 75, 100, 1000, 2000]}]).
 
 validate_options(Opts) ->
-    ergw_config:validate_options(fun validate_option/2, Opts, ?DefaultMetricsOpts, map).
+    ergw_config_legacy:validate_options(fun validate_option/2, Opts, ?DefaultMetricsOpts, map).
 
 validate_option(gtp_path_rtt_millisecond_intervals = Opt, Value) ->
     case [V || V <- Value, is_integer(V), V > 0] of
@@ -41,14 +41,14 @@ validate_option(gtp_path_rtt_millisecond_intervals = Opt, Value) ->
             throw({error, {options, {Opt, Value}}})
     end.
 
+config_meta() ->
+    {#{gtp_path_rtt_millisecond_intervals => {list, integer}}, #{}}.
+
 %%%===================================================================
 %%% API
 %%%===================================================================
 
-declare() ->
-    %% Metrics Config
-    {ok, Config} = application:get_env(ergw, metrics),
-
+declare(#{metrics := Config}) ->
     %% GTP path metrics
     prometheus_counter:declare([{name, gtp_path_messages_processed_total},
 				{labels, [name, remote, direction, version, type]},

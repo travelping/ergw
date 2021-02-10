@@ -999,7 +999,7 @@ delete_bearer_request() ->
      {timetrap,{seconds,60}}].
 delete_bearer_request(Config) ->
     Cntl = whereis(gtpc_client_server),
-    CtxKey = #context_key{socket = 'irx', id = {imsi, ?'IMSI', 5}},
+    CtxKey = #context_key{socket = <<"irx">>, id = {imsi, ?'IMSI', 5}},
 
     {GtpC, _, _} = create_session(Config),
 
@@ -1035,7 +1035,7 @@ delete_bearer_request_resend() ->
      {timetrap,{seconds,60}}].
 delete_bearer_request_resend(Config) ->
     Cntl = whereis(gtpc_client_server),
-    CtxKey = #context_key{socket = 'irx', id = {imsi, ?'IMSI', 5}},
+    CtxKey = #context_key{socket = <<"irx">>, id = {imsi, ?'IMSI', 5}},
 
     {_, _, _} = create_session(Config),
 
@@ -1240,7 +1240,7 @@ gy_validity_timer(Config) ->
 simple_aaa() ->
     [{doc, "Check simple session with RADIOS/DIAMETER over (S)Gi"}].
 simple_aaa(Config) ->
-    CtxKey = #context_key{socket = 'irx', id = {imsi, ?'IMSI', 5}},
+    CtxKey = #context_key{socket = <<"irx">>, id = {imsi, ?'IMSI', 5}},
     Interim = rand:uniform(1800) + 1800,
     AAAReply = #{'Acct-Interim-Interval' => Interim},
 
@@ -1349,7 +1349,7 @@ simple_aaa(Config) ->
 simple_ofcs() ->
     [{doc, "Check simple session with DIAMETER Rf"}].
 simple_ofcs(Config) ->
-    CtxKey = #context_key{socket = 'irx', id = {imsi, ?'IMSI', 5}},
+    CtxKey = #context_key{socket = <<"irx">>, id = {imsi, ?'IMSI', 5}},
     Interim = rand:uniform(1800) + 1800,
     AAAReply = #{'Acct-Interim-Interval' => [Interim]},
 
@@ -1498,7 +1498,7 @@ simple_ofcs(Config) ->
 simple_ocs() ->
     [{doc, "Test Gy a simple interaction"}].
 simple_ocs(Config) ->
-    CtxKey = #context_key{socket = 'irx', id = {imsi, ?'IMSI', 5}},
+    CtxKey = #context_key{socket = <<"irx">>, id = {imsi, ?'IMSI', 5}},
 
     {GtpC, _, _} = create_session(Config),
 
@@ -1685,7 +1685,7 @@ gy_ccr_asr_overlap() ->
     [{doc, "Test that ASR is answered when it arrives during CCR-T"}].
 gy_ccr_asr_overlap(Config) ->
     Cntl = whereis(gtpc_client_server),
-    CtxKey = #context_key{socket = 'irx', id = {imsi, ?'IMSI', 5}},
+    CtxKey = #context_key{socket = <<"irx">>, id = {imsi, ?'IMSI', 5}},
 
     {GtpC, _, _} = create_session(Config),
 
@@ -1816,7 +1816,7 @@ volume_threshold(Config) ->
 gx_rar_gy_interaction() ->
     [{doc, "Check that a Gx RAR triggers a Gy request"}].
 gx_rar_gy_interaction(Config) ->
-    CtxKey = #context_key{socket = 'irx', id = {imsi, ?'IMSI', 5}},
+    CtxKey = #context_key{socket = <<"irx">>, id = {imsi, ?'IMSI', 5}},
 
     {GtpC, _, _} = create_session(Config),
 
@@ -1876,7 +1876,7 @@ gx_asr() ->
     [{doc, "Check that ASR on Gx terminates the session"}].
 gx_asr(Config) ->
     Cntl = whereis(gtpc_client_server),
-    CtxKey = #context_key{socket = 'irx', id = {imsi, ?'IMSI', 5}},
+    CtxKey = #context_key{socket = <<"irx">>, id = {imsi, ?'IMSI', 5}},
 
     {GtpC, _, _} = create_session(Config),
 
@@ -1901,7 +1901,7 @@ gx_asr(Config) ->
 gx_rar() ->
     [{doc, "Check that RAR on Gx changes the session"}].
 gx_rar(Config) ->
-    CtxKey = #context_key{socket = 'irx', id = {imsi, ?'IMSI', 5}},
+    CtxKey = #context_key{socket = <<"irx">>, id = {imsi, ?'IMSI', 5}},
 
     {GtpC1, _, _} = create_session(Config),
     {GtpC2, _, _} = modify_bearer(enb_u_tei, GtpC1),
@@ -2011,7 +2011,7 @@ gy_asr() ->
     [{doc, "Check that ASR on Gy terminates the session"}].
 gy_asr(Config) ->
     Cntl = whereis(gtpc_client_server),
-    CtxKey = #context_key{socket = 'irx', id = {imsi, ?'IMSI', 5}},
+    CtxKey = #context_key{socket = <<"irx">>, id = {imsi, ?'IMSI', 5}},
 
     {GtpC, _, _} = create_session(Config),
 
@@ -2138,7 +2138,7 @@ gtp_idle_timeout(Config) ->
 up_inactivity_timer() ->
     [{doc, "Test expiry of the User Plane Inactivity Timer"}].
 up_inactivity_timer(Config) ->
-    CtxKey = #context_key{socket = 'irx', id = {imsi, ?'IMSI', 5}},
+    CtxKey = #context_key{socket = <<"irx">>, id = {imsi, ?'IMSI', 5}},
     Interim = rand:uniform(1800) + 1800,
     AAAReply = #{'Acct-Interim-Interval' => Interim},
 
@@ -2241,7 +2241,7 @@ set_online_charging([Key|Next], Set, Cfg)
 
 set_online_charging(Set) ->
     {ok, Cfg0} = application:get_env(ergw, charging),
-    Cfg = set_online_charging(['_', rulebase, '_'], Set, Cfg0),
+    Cfg = set_online_charging(['_', rule, '_'], Set, Cfg0),
     ok = application:set_env(ergw, charging, Cfg).
 
 %% Set APN key data

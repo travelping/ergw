@@ -10,7 +10,7 @@
 -compile([{parse_transform, do},
 	  {parse_transform, cut}]).
 
--export([validate_options/3, validate_option/2,
+-export([validate_options/3, validate_option/2, config_meta/0,
 	 forward_request/3, forward_request/8, forward_request/10,
 	 get_seq_no/3,
 	 select_gw/5,
@@ -103,7 +103,7 @@ select_gw_ip(_IP4, _IP6) ->
     undefined.
 
 select_gtp_proxy_sockets(ProxyInfo, #{contexts := Contexts, proxy_sockets := ProxySockets}) ->
-    Context = maps:get(context, ProxyInfo, default),
+    Context = maps:get(context, ProxyInfo, <<"default">>),
     Ctx = maps:get(Context, Contexts, #{}),
     if Ctx =:= #{} ->
 	    ?LOG(warning, "proxy context ~p not found, using default", [Context]);
@@ -114,7 +114,7 @@ select_gtp_proxy_sockets(ProxyInfo, #{contexts := Contexts, proxy_sockets := Pro
 
 select_sx_proxy_candidate({GwNode, _}, #{upfSelectionAPN := APN} = ProxyInfo,
 			  #{contexts := Contexts, node_selection := ProxyNodeSelect}) ->
-    Context = maps:get(context, ProxyInfo, default),
+    Context = maps:get(context, ProxyInfo, <<"default">>),
     Ctx = maps:get(Context, Contexts, #{}),
     if Ctx =:= #{} ->
 	    ?LOG(warning, "proxy context ~p not found, using default", [Context]);
@@ -122,7 +122,7 @@ select_sx_proxy_candidate({GwNode, _}, #{upfSelectionAPN := APN} = ProxyInfo,
     end,
     NodeSelect = maps:get(node_selection, Ctx, ProxyNodeSelect),
     APN_FQDN = ergw_node_selection:apn_to_fqdn(APN),
-    Services = [{"x-3gpp-upf", "x-sxa"}],
+    Services = [{'x-3gpp-upf', 'x-sxa'}],
     Candidates0 = ergw_node_selection:candidates(APN_FQDN, Services, NodeSelect),
     PGWCandidate = [{GwNode, 0, Services, [], []}],
     case ergw_node_selection:topology_match(Candidates0, PGWCandidate) of
@@ -162,25 +162,40 @@ validate_option(Opt, Value)
   when Opt == proxy_sockets ->
     validate_context_option(Opt, Value);
 validate_option(contexts, Values) when is_list(Values); is_map(Values) ->
-    ergw_config:opts_fold(fun validate_context/3, #{}, Values);
+    ergw_config_legacy:opts_fold(fun validate_context/3, #{}, Values);
 validate_option(Opt, Value) ->
     gtp_context:validate_option(Opt, Value).
 
-validate_context_option(proxy_sockets, Value) when is_list(Value), Value /= [] ->
-    Value;
+validate_context_option(proxy_sockets, [S|_] = Value)
+  when is_binary(S); is_atom(S) ->
+    [ergw_config:to_binary(V) || V <- Value];
 validate_context_option(node_selection, [S|_] = Value)
-  when is_atom(S) ->
-    Value;
+  when is_binary(S); is_atom(S) ->
+    [ergw_config:to_binary(V) || V <- Value];
 validate_context_option(Opt, Value) ->
     throw({error, {options, {Opt, Value}}}).
 
 validate_context(Name, Opts0, Acc)
   when is_binary(Name) andalso ?is_opts(Opts0) ->
-    Opts = ergw_config:validate_options(
+    Opts = ergw_config_legacy:validate_options(
 	     fun validate_context_option/2, Opts0, ?ContextDefaults, map),
     Acc#{Name => Opts};
 validate_context(Name, Opts, _Acc) ->
     throw({error, {options, {contexts, {Name, Opts}}}}).
+
+config_meta() ->
+    Context = #{proxy_sockets => {list, binary},
+		node_selection => {list, binary}},
+    #{
+      handler           => atom,
+      sockets           => {list, binary},
+      node_selection    => {list, binary},
+      aaa               => passthrough,
+      proxy_data_source => {module, gtp_proxy_ds},
+
+      proxy_sockets     => {list, binary},
+      contexts          => {{klist, {name, binary}, Context}, #{}}
+     }.
 
 %%%===================================================================
 %%% Helper functions

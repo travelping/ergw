@@ -24,7 +24,7 @@ env:
 before_install:
   - curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add -
   - sudo apt-get update
-  - sudo apt-get -y install binfmt-support zip qemu-user-static
+  - sudo apt-get -y install binfmt-support zip qemu-user-static libyaml-dev
   - |
     mkdir -vp ~/.docker/cli-plugins/ ~/dockercache
     curl --silent -L "https://github.com/docker/buildx/releases/download/${BUILDX_VER}/buildx-${BUILDX_VER}.linux-amd64" > ~/.docker/cli-plugins/docker-buildx

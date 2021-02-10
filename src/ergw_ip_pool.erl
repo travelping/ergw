@@ -11,7 +11,7 @@
 -export([start_ip_pool/2, send_request/2, wait_response/1, release/1,
 	 addr/1, ip/1, opts/1]).
 -export([static_ip/2]).
--export([validate_options/1, validate_name/2]).
+-export([validate_options/1, validate_name/2, config_meta/0]).
 
 -if(?OTP_RELEASE =< 23).
 -ignore_xref([behaviour_info/1]).
@@ -70,21 +70,34 @@ static_ip(IP, PrefixLen) ->
 
 validate_options(Options) ->
     ?LOG(debug, "IP Pool Options: ~p", [Options]),
-    case ergw_config:get_opt(handler, Options, ergw_local_pool) of
+    case ergw_config_legacy:get_opt(handler, Options, ergw_local_pool) of
 	ergw_local_pool ->
 	    ergw_local_pool:validate_options(Options);
 	Handler ->
 	    throw({error, {options, {handler, Handler}}})
     end.
 
-validate_name(_, Name) when is_binary(Name) ->
-    Name;
-validate_name(_, Name) when is_list(Name) ->
-    unicode:characters_to_binary(Name, utf8);
-validate_name(_, Name) when is_atom(Name) ->
-    atom_to_binary(Name, utf8);
+validate_name(_, Name) when is_binary(Name); is_list(Name); is_atom(Name) ->
+    ergw_config:to_binary(Name);
 validate_name(Opt, Name) ->
    throw({error, {options, {Opt, Name}}}).
+
+config_meta() ->
+    Range = #{
+	      start => ip,
+	      'end' => ip,
+	      prefixLen => integer
+	     },
+    Meta = #{handler                    => module,
+	     ranges                     => {list, Range},
+	     'MS-Primary-DNS-Server'    => ip4,
+	     'MS-Secondary-DNS-Server'  => ip4,
+	     'MS-Primary-NBNS-Server'   => ip4,
+	     'MS-Secondary-NBNS-Server' => ip4,
+	     'DNS-Server-IPv6-Address'  => {list, ip6},    %tbd
+	     '3GPP-IPv6-DNS-Servers'    => {list, ip6}},   %tbd
+    {{map, {id, binary}, Meta}, #{}}.
+
 
 %%%===================================================================
 %%% Internal functions

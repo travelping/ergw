@@ -80,17 +80,18 @@ gx_pcc_rules(_Config) ->
     [RuleDef3001, RuleDef3002, RuleDef3003 | _] =
 	[{group(Id), RG} || {Id, RG} <- lists:zip(RIds, RGs)],
 
-    RuleBase1 = maps:from_list([RuleDef3001]),
-    RuleBase1a = #{group(3001) => RG3001#{'Rating-Group' => [6001]}},
-    RuleBase2 = maps:from_list([RuleDef3001, RuleDef3002]),
-    RuleBase3 = maps:from_list([RuleDef3001, RuleDef3002, RuleDef3003,
-				{rule_base(1), [group(3003)]}]),
-    RuleBase3a = maps:from_list([{group(3001), RG3001#{'Rating-Group' => [6001]}},
-				 RuleDef3002,
-				 {group(3003), RG3003#{'Rating-Group' => [6003]}},
-				 {rule_base(1), [group(3003)]}]),
-    RuleBase4 = maps:from_list([RuleDef3001, RuleDef3002, RuleDef3003,
-				{rule_base(1), [group(3003), group(3004)]}]),
+    RuleBase0 = #{rule => #{}, rulebase => #{}},
+    RuleBase1 = RuleBase0#{rule => maps:from_list([RuleDef3001])},
+    RuleBase1a = RuleBase0#{rule => #{group(3001) => RG3001#{'Rating-Group' => [6001]}}},
+    RuleBase2 =  RuleBase0#{rule => maps:from_list([RuleDef3001, RuleDef3002])},
+    RuleBase3 = #{rule => maps:from_list([RuleDef3001, RuleDef3002, RuleDef3003]),
+		  rulebase => #{rule_base(1) => [group(3003)]}},
+    RuleBase3a =  #{rule => maps:from_list([{group(3001), RG3001#{'Rating-Group' => [6001]}},
+					    RuleDef3002,
+					    {group(3003), RG3003#{'Rating-Group' => [6003]}}]),
+		    rulebase => #{rule_base(1) => [group(3003)]}},
+    RuleBase4 = #{rule => maps:from_list([RuleDef3001, RuleDef3002, RuleDef3003]),
+		  rulebase => #{rule_base(1) => [group(3003), group(3004)]}},
     ct:pal("RuleBase3: ~p", [RuleBase3]),
     ct:pal("RuleBase4: ~p", [RuleBase4]),
 
@@ -115,13 +116,13 @@ gx_pcc_rules(_Config) ->
     ?match_pcc({#{<<"r-3001">> :=
 		  #{'Charging-Rule-Name' := <<"r-3001">>,
 		    'Rating-Group' := [3001]}}, [_|_]},
-	   ergw_pcc_context:gx_events_to_pcc_ctx(Install1, '_', #{}, PCC0)),
-    {PCC1, _} = ergw_pcc_context:gx_events_to_pcc_ctx(Install1, '_', #{}, PCC0),
+	   ergw_pcc_context:gx_events_to_pcc_ctx(Install1, '_', RuleBase0, PCC0)),
+    {PCC1, _} = ergw_pcc_context:gx_events_to_pcc_ctx(Install1, '_', RuleBase0, PCC0),
 
     ?match_pcc({#{<<"r-3001">> :=
 		  #{'Charging-Rule-Name' := <<"r-3001">>,
 		    'Rating-Group' := [3001]}}, [_|_]},
-	   ergw_pcc_context:gx_events_to_pcc_ctx(Install2, '_', #{}, PCC0)),
+	   ergw_pcc_context:gx_events_to_pcc_ctx(Install2, '_', RuleBase0, PCC0)),
 
     ?match_pcc({#{<<"r-3001">> :=
 		  #{'Charging-Rule-Name' := <<"r-3001">>,
@@ -353,18 +354,18 @@ gx_pcc_rules(_Config) ->
 		    'Rating-Group' := [3003]} = RG3}, []}
 	       when is_map_key('Charging-Rule-Name', RG2) =:= false andalso
 		    is_map_key('Charging-Rule-Name', RG3) =:= false,
-	   ergw_pcc_context:gx_events_to_pcc_ctx(Remove1, '_', #{}, PCC3)),
+	   ergw_pcc_context:gx_events_to_pcc_ctx(Remove1, '_', RuleBase0, PCC3)),
 
     ?match_pcc({#{<<"r-3001">> :=
 		  #{'Charging-Rule-Name' := <<"r-3001">>,
 		    'Rating-Group' := [3001]}},
 	    [{not_found, {rule, <<"r-3003">>}}]},
-	   ergw_pcc_context:gx_events_to_pcc_ctx(Remove2, '_', #{}, PCC3)),
+	   ergw_pcc_context:gx_events_to_pcc_ctx(Remove2, '_', RuleBase0, PCC3)),
 
     ?match({PCC3, [{not_found, {rule, <<"rb-0001">>}}]},
-	   ergw_pcc_context:gx_events_to_pcc_ctx(Remove3, '_', #{}, PCC3)),
+	   ergw_pcc_context:gx_events_to_pcc_ctx(Remove3, '_', RuleBase0, PCC3)),
 
     ?match({PCC3, [{not_found, {rule, <<"rb-0001">>}}]},
-	   ergw_pcc_context:gx_events_to_pcc_ctx(Remove4, '_', #{}, PCC3)),
+	   ergw_pcc_context:gx_events_to_pcc_ctx(Remove4, '_', RuleBase0, PCC3)),
 
     ok.

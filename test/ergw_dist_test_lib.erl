@@ -85,8 +85,10 @@ init_per_suite(Config) ->
     NodeCnt = proplists:get_value(node_count, Config, 3),
     Nodes = [{Id, mk_node_id(Id)} || Id <- lists:seq(0, NodeCnt - 1)],
     lists:foreach(fun start_node/1, Nodes),
-    case code:is_loaded(cthr) of
-	{file, _} ->
+
+    %% needed because of rebar3 parse transform for ct:pal
+    case code:ensure_loaded(cthr) of
+	{module, _} ->
 	    {Module, Binary, Filename} = code:get_object_code(cthr),
 	    {_, NodeNames} = lists:unzip(Nodes),
 	    erpc:multicall(NodeNames, code, load_binary, [Module, Filename, Binary]),

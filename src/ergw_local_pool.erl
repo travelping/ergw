@@ -31,6 +31,9 @@
 -define(IS_IPv4(X), (is_tuple(X) andalso tuple_size(X) == 4)).
 -define(IS_IPv6(X), (is_tuple(X) andalso tuple_size(X) == 8)).
 
+-define(IS_binIPv4(X), (is_binary(X) andalso size(X) ==  4)).
+-define(IS_binIPv6(X), (is_binary(X) andalso size(X) == 16)).
+
 -define(ZERO_IPv4, {0,0,0,0}).
 -define(ZERO_IPv6, {0,0,0,0,0,0,0,0}).
 -define(UE_INTERFACE_ID, {0,0,0,0,0,0,0,1}).
@@ -49,9 +52,11 @@
 %% API
 %%====================================================================
 
-start_ip_pool(Name, Opts0)
+start_ip_pool(Name, Opts)
   when is_binary(Name) ->
-    Opts = validate_options(Opts0),
+    Meta = ergw_config:normalize_meta(config_meta_pool()),
+    true = ergw_config:validate_config([ip_pool, Name], Meta, Opts),
+
     ergw_ip_pool_sup:start_local_pool_sup(),
     ergw_local_pool_sup:start_ip_pool(Name, Opts).
 
@@ -121,12 +126,14 @@ opts({?MODULE, _, _, _, Opts}) -> Opts.
 
 validate_options(Options) ->
     ?LOG(debug, "IP Pool Options: ~p", [Options]),
-    ergw_config:validate_options(fun validate_option/2, Options, ?DefaultOptions, map).
+    ergw_config_legacy:validate_options(fun validate_option/2, Options, ?DefaultOptions, map).
 
-validate_ip_range({Start, End, PrefixLen} = Range)
+validate_ip_range({Start, End, PrefixLen})
   when ?IS_IPv4(Start), ?IS_IPv4(End), End > Start,
        is_integer(PrefixLen), PrefixLen > 0, PrefixLen =< 32 ->
-    Range;
+    #{start => ergw_config:to_ip(Start),
+      'end' => ergw_config:to_ip(End),
+      prefixLen => PrefixLen};
 validate_ip_range({Start, End, PrefixLen} = Range)
   when ?IS_IPv6(Start), ?IS_IPv6(End), End > Start,
        is_integer(PrefixLen), PrefixLen > 0, PrefixLen =< 128 ->
@@ -136,9 +143,13 @@ validate_ip_range({Start, End, PrefixLen} = Range)
        PrefixLen =/= 64 ->
 	    ?LOG(warning, "3GPP only supports /64 IPv6 prefix assigment, "
 		 "/~w might not work, USE AT YOUR OWN RISK!", [PrefixLen]),
-	    Range;
+	    #{start => ergw_config:to_ip(Start),
+	      'end' => ergw_config:to_ip(End),
+	      prefixLen => PrefixLen};
        true ->
-	    Range
+	    #{start => ergw_config:to_ip(Start),
+	      'end' => ergw_config:to_ip(End),
+	      prefixLen => PrefixLen}
     end;
 validate_ip_range(Range) ->
     throw({error, {options, {range, Range}}}).
@@ -150,7 +161,7 @@ validate_option(Opt, Value)
   when Opt == 'MS-Primary-DNS-Server';   Opt == 'MS-Secondary-DNS-Server';
        Opt == 'MS-Primary-NBNS-Server';  Opt == 'MS-Secondary-NBNS-Server';
        Opt == 'DNS-Server-IPv6-Address'; Opt == '3GPP-IPv6-DNS-Servers' ->
-    ergw_config:validate_ip_cfg_opt(Opt, Value);
+    ergw_config_legacy:validate_ip_cfg_opt(Opt, Value);
 validate_option(Opt, Pool)
   when Opt =:= 'Framed-Pool';
        Opt =:= 'Framed-IPv6-Pool' ->
@@ -160,6 +171,25 @@ validate_option(handler, Value) ->
 validate_option(Opt, Value) ->
     throw({error, {options, {Opt, Value}}}).
 
+config_meta_pool() ->
+    Range = #{
+	      start => ip,
+	      'end' => ip,
+	      prefixLen => integer
+	     },
+    #{handler                    => module,
+      ranges                     => {list, Range},
+      'MS-Primary-DNS-Server'    => ip4,
+      'MS-Secondary-DNS-Server'  => ip4,
+      'MS-Primary-NBNS-Server'   => ip4,
+      'MS-Secondary-NBNS-Server' => ip4,
+      'DNS-Server-IPv6-Address'  => {list, ip6},    %tbd
+      '3GPP-IPv6-DNS-Servers'    => {list, ip6}}.   %tbd
+
+%% config_meta() ->
+%%     Meta = config_meta_pool(),
+%%     {{map, {id, binary}, Meta}, #{}}.
+
 %%%===================================================================
 %%% gen_server callbacks
 %%%===================================================================
@@ -167,7 +197,7 @@ validate_option(Opt, Value) ->
 init([Name, #{ranges := Ranges} = Opts]) ->
     ergw_local_pool_reg:register(Name),
     Pools = init_pools(Name, Ranges),
-    ?LOG(debug, "init Pool state: ~p", [Pools]),
+    ?LOG(debug, "init Pools state: ~p", [Pools]),
     State = #state{
 	       name = Name,
 	       pools = Pools,
@@ -178,14 +208,14 @@ init([Name, #{ranges := Ranges} = Opts]) ->
 
 init_pools(Name, Ranges) ->
     lists:foldl(
-      fun({First, Last, PrefixLen}, Pools)
-	    when ?IS_IPv4(First), ?IS_IPv4(Last),
+      fun(#{start := First, 'end' := Last, prefixLen := PrefixLen}, Pools)
+	    when ?IS_binIPv4(First), ?IS_binIPv4(Last),
 		 is_integer(PrefixLen), PrefixLen =< 32,
 		 not is_map_key({ipv4, PrefixLen}, Pools) ->
 	      Pools#{{ipv4, PrefixLen} =>
 			 init_pool(Name, ipv4, ip2int(First), ip2int(Last), 32 - PrefixLen)};
-	 ({First, Last, PrefixLen}, Pools)
-	    when ?IS_IPv6(First), ?IS_IPv6(Last),
+	 (#{start := First, 'end' := Last, prefixLen := PrefixLen}, Pools)
+	    when ?IS_binIPv6(First), ?IS_binIPv6(Last),
 		 is_integer(PrefixLen), PrefixLen =< 128,
 		 not is_map_key({ipv6, PrefixLen}, Pools) ->
 	      Pools#{{ipv6, PrefixLen} =>
@@ -246,7 +276,11 @@ ip2int({A, B, C, D}) ->
     (A bsl 24) + (B bsl 16) + (C bsl 8) + D;
 ip2int({A, B, C, D, E, F, G, H}) ->
     (A bsl 112) + (B bsl 96) + (C bsl 80) + (D bsl 64) +
-	(E bsl 48) + (F bsl 32) + (G bsl 16) + H.
+	(E bsl 48) + (F bsl 32) + (G bsl 16) + H;
+ip2int(<<IP:32>>) ->
+    IP;
+ip2int(<<IP:128>>) ->
+    IP.
 
 int2ip(ipv4, IP) ->
     <<A:8, B:8, C:8, D:8>> = <<IP:32>>,
@@ -285,7 +319,7 @@ init_pool(Name, Type, First, Last, Shift) ->
     Start = First bsr Shift,
     End = Last bsr Shift,
     Size = End - Start + 1,
-    ?LOG(debug, "init Pool ~w ~p - ~p (~p)", [Id, Start, End, Size]),
+    ?LOG(debug, "init Pool ~s ~p - ~p (~p)", [Id, Start, End, Size]),
     init_table(FreeTid, Start, End),
 
     prometheus_gauge:declare([{name, ergw_local_pool_free},

@@ -1828,7 +1828,7 @@ tdf_app_id(Config) ->
 %%%===================================================================
 
 tdf_node_pid() ->
-    TEIDMatch = #socket_teid_key{name = 'cp-socket', type = 'gtp-u', _ = '_'},
+    TEIDMatch = #socket_teid_key{name = <<"cp-socket">>, type = 'gtp-u', _ = '_'},
     [[Pid]] = ets:match(gtp_context_reg, {TEIDMatch, {ergw_sx_node, '$1'}}),
     Pid.
 
@@ -1915,7 +1915,7 @@ set_online_charging([Key|Next], Set, Cfg)
 
 set_online_charging(Set) ->
     {ok, Cfg0} = application:get_env(ergw, charging),
-    Cfg = set_online_charging(['_', rulebase, '_'], Set, Cfg0),
+    Cfg = set_online_charging(['_', rule, '_'], Set, Cfg0),
     ok = application:set_env(ergw, charging, Cfg).
 
 stop_session(Pid) when is_pid(Pid) ->

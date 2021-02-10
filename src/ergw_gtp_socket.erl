@@ -10,7 +10,7 @@
 -compile({parse_transform, cut}).
 
 %% API
--export([validate_options/2, info/1, send/5]).
+-export([validate_options/2, config_meta/0, info/1, send/5]).
 -export([make_seq_id/1, make_request/7]).
 -export([make_gtp_socket/3]).
 
@@ -50,10 +50,12 @@ send(Socket, Src, IP, Port, Data) ->
 -define(SocketDefaults, [{ip, invalid}, {burst_size, 10}, {send_port, true}]).
 
 validate_options(Name, Values) ->
-    ergw_config:validate_options(fun validate_option/2, Values,
-				 [{name, Name}|?SocketDefaults], map).
+    maps:remove(
+      name,
+      ergw_config_legacy:validate_options(fun validate_option/2, Values,
+					  [{vrf, Name}|?SocketDefaults], map)).
 
-validate_option(name, Value) when is_atom(Value) ->
+validate_option(name, Value) ->
     Value;
 validate_option(type, 'gtp-c' = Value) ->
     Value;
@@ -97,6 +99,57 @@ validate_option(burst_size, Value)
     Value;
 validate_option(Opt, Value) ->
     throw({error, {options, {Opt, Value}}}).
+
+config_meta() ->
+    load_typespecs(),
+
+    Meta = #{name => atom,
+	     type => {enum, atom, ['gtp-c', 'gtp-u']},
+	     ip => {ip_address, invalid},
+	     cluster_ip => ip_address,
+	     netdev => string,
+	     netns => string,
+	     vrf => vrf,
+	     freebind => boolean,
+	     reuseaddr => boolean,
+	     send_port => {send_port, true},
+	     rcvbuf => integer,
+	     burst_size => {integer, 10}},
+    ergw_config:normalize_meta(Meta).
+
+is_send_port(V) when is_boolean(V) ->
+    true;
+is_send_port(Port) ->
+    is_integer(Port)
+	andalso (Port =:= 0 orelse (Port >= 1024 andalso Port < 65536)).
+
+to_send_port(Port) ->
+    case (catch ergw_config:to_atom(Port)) of
+	V when is_boolean(V) ->
+	    V;
+	_ ->
+	    ergw_config:to_integer(Port)
+    end.
+
+from_send_port(Port) when is_atom(Port) ->
+    Port;
+from_send_port(Port) -> Port.
+
+%%%===================================================================
+%%% Type Specs
+%%%===================================================================
+
+load_typespecs() ->
+    Spec =
+	#{
+	  send_port =>
+	      #cnf_type{
+		 coerce = fun to_send_port/1,
+		 serialize = fun from_send_port/1,
+		 validate = fun is_send_port/1
+		}
+	 },
+    ergw_config:register_typespec(Spec).
 
 %%%===================================================================
 %%% Internal functions

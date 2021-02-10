@@ -7,11 +7,14 @@
 
 -module(ergw_test_lib).
 
+-compile({parse_transform, cut}).
+
 -define(ERGW_NO_IMPORTS, true).
 
 -export([lib_init_per_group/1,
 	 lib_end_per_group/1,
 	 update_app_config/3,
+	 clear_app_env/1,
 	 load_config/1]).
 -export([meck_init/1,
 	 meck_init_hut_handle_request/1,
@@ -107,9 +110,17 @@ lib_end_per_group(Config) ->
     [application:stop(App) || App <- [ranch, cowboy, ergw, ergw_aaa]],
     ok.
 
+clear_app_env(App)
+  when App =:= ergw;
+       App =:= ergw_aaa ->
+    [application:unset_env(App, Par) || {Par, _} <- application:get_all_env(App)];
+clear_app_env(_) ->
+    ok.
+
 load_config(AppCfg) ->
     lists:foreach(
       fun({App, Settings}) ->
+	      clear_app_env(App),
 	      lists:foreach(
 		fun({logger, V})
 		      when App =:= kernel, is_list(V) ->
@@ -183,7 +194,7 @@ update_app_config(Group, CfgUpd, Config0) ->
 	  fun({AppKey, CfgKey}, AppCfg) ->
 		  set_cfg_value([ergw] ++ AppKey, update_app_cfgkey(CfgKey, Config), AppCfg)
 	  end, AppCfg0, CfgUpd),
-    ergw_config:validate_config(proplists:get_value(ergw, AppCfg1)),
+    true = ergw_config:validate_config(proplists:get_value(ergw, AppCfg1)),
     lists:keystore(app_cfg, 1, Config, {app_cfg, AppCfg1}).
 
 %%%===================================================================
@@ -399,7 +410,7 @@ sx_nodes_up(N, Cnt) ->
 	Nodes when map_size(Nodes) =:= N ->
 	    ok;
 	_Nodes ->
-	    ct:sleep(50),
+	    ct:sleep(100),
 	    sx_nodes_up(N, Cnt - 1)
     end.
 
@@ -524,23 +535,47 @@ set_cfg_value(Key, Value) when is_function(Value) ->
 set_cfg_value(Key, Value) ->
     {Key, Value}.
 
-set_cfg_value([Key], Value, Config) when is_boolean(Value) ->
+map_cfg_update(Key, {K, V}, Config) ->
+    maps:put(K, V, maps:remove(Key, Config)).
+
+set_cfg_value([Key], Value, Config) when is_boolean(Value), is_list(Config) ->
     lists:keystore(Key, 1, proplists:delete(Key, Config), set_cfg_value(Key, Value));
-set_cfg_value([{Key, Pos}], Value, Config) ->
+set_cfg_value([Key], Value, Config) when is_boolean(Value), is_map(Config) ->
+    map_cfg_update(Key, set_cfg_value(Key, Value), Config);
+
+set_cfg_value([{Key, Pos}], Value, Config) when is_list(Config) ->
     Tuple = lists:keyfind(Key, 1, Config),
     lists:keystore(Key, 1, Config, setelement(Pos, Tuple, set_cfg_value(Key, Value)));
-set_cfg_value([Key], Value, Config) ->
+set_cfg_value([{Key, Pos}], Value, Config) when is_map(Config) ->
+    maps:update_with(Key, setelement(Pos, _, set_cfg_value(Key, Value)), Config);
+
+set_cfg_value([Key], Value, Config) when is_list(Config) ->
     lists:keystore(Key, 1, Config, set_cfg_value(Key, Value));
-set_cfg_value([{Key, Pos} | T], Value, Config) ->
+set_cfg_value([Key], Value, Config) when is_map(Config) ->
+    map_cfg_update(Key, set_cfg_value(Key, Value), Config);
+
+set_cfg_value([{Key, Pos} | T], Value, Config) when is_list(Config) ->
     Tuple = lists:keyfind(Key, 1, Config),
     lists:keystore(Key, 1, Config,
 		   setelement(Pos, Tuple, set_cfg_value(T, Value, element(Pos, Tuple))));
+set_cfg_value([{Key, Pos} | T], Value, Config) ->
+    maps:update_with(
+      Key,
+      fun(Tuple) ->
+	      setelement(Pos, Tuple, set_cfg_value(T, Value, element(Pos, Tuple)))
+      end, Config);
+
 set_cfg_value([Pos | T], Value, Config)
   when is_integer(Pos), is_tuple(Config) ->
     setelement(Pos, Config, set_cfg_value(T, Value, element(Pos, Config)));
-set_cfg_value([H | T], Value, Config) ->
+
+set_cfg_value([H | T], Value, Config) when is_list(Config) ->
     Prop = proplists:get_value(H, Config, []),
-    lists:keystore(H, 1, Config, {H, set_cfg_value(T, Value, Prop)}).
+    lists:keystore(H, 1, Config, {H, set_cfg_value(T, Value, Prop)});
+
+set_cfg_value([H | T], Value, Config) when is_map(Config) ->
+    Prop = maps:get(H, Config, #{}),
+    maps:put(H, set_cfg_value(T, Value, Prop), Config).
 
 add_cfg_value([Key], Value, Config) ->
     ct:pal("Cfg: ~p", [[{Key, Value} | Config]]),

@@ -12,7 +12,8 @@
 -compile([{parse_transform, do},
 	  {parse_transform, cut}]).
 
--export([validate_options/1, init/2, request_spec/3,
+-export([validate_options/1, config_meta/0,
+	 init/2, request_spec/3,
 	 handle_pdu/4,
 	 handle_request/5, handle_response/5,
 	 handle_event/4, terminate/3]).
@@ -125,6 +126,12 @@ validate_options(Opts) ->
 
 validate_option(Opt, Value) ->
     ergw_proxy_lib:validate_option(Opt, Value).
+
+config_meta() ->
+    Meta = maps:merge(
+	     ergw_proxy_lib:config_meta(),
+	     #{protocol => {enum, atom, [gn, gp, s5, s8, s5s8]}}),
+    ergw_config:normalize_meta(Meta).
 
 init(#{proxy_sockets := ProxySockets, node_selection := NodeSelect,
        proxy_data_source := ProxyDS, contexts := Contexts},
@@ -267,7 +274,7 @@ handle_request(ReqKey,
     ProxySocket = ergw_proxy_lib:select_gtp_proxy_sockets(ProxyInfo, Data),
 
     %% GTP v2 services only, we don't do v1 to v2 conversion (yet)
-    Services = [{"x-3gpp-pgw", "x-s8-gtp"}, {"x-3gpp-pgw", "x-s5-gtp"}],
+    Services = [{'x-3gpp-pgw', 'x-s8-gtp'}, {'x-3gpp-pgw', 'x-s5-gtp'}],
     ProxyGGSN =
 	case ergw_proxy_lib:select_gw(ProxyInfo, v2, Services, NodeSelect, ProxySocket) of
 	    {ok, Result3} -> Result3;

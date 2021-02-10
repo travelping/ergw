@@ -58,9 +58,9 @@
 	       notify_up = []    :: [{pid(), reference()}]}).
 
 -ifdef(TEST).
--define(AssocReqTimeout, 2).
+-define(AssocReqTimeout, 20).
 -define(AssocReqRetries, 5).
--define(AssocTimeout, 5).
+-define(AssocTimeout, 50).
 -define(AssocRetries, 10).
 -define(MaxRetriesScale, 5).
 -else.
@@ -186,8 +186,8 @@ init([Parent, Node, NodeSelect, IP4, IP6, NotifyUp]) ->
 	 #seid_key{seid = SEID}],
     gtp_context_reg:register(RegKeys, ?MODULE, self()),
 
-    Nodes = setup:get_env(ergw, nodes, #{}),
-    Cfg = maps:get(Node, Nodes, maps:get(default, Nodes, #{})),
+    #{default := Default, entries := Nodes} = setup:get_env(ergw, nodes, #{}),
+    Cfg = maps:get(Node, Nodes, Default),
     IP = select_node_ip(IP4, IP6),
     Data0 = #data{cfg = Cfg,
 		  mode = mode(Cfg),
@@ -247,7 +247,7 @@ handle_event({call, From}, {?TestCmdTag, reconnect}, connecting, _) ->
     {keep_state_and_data, [{reply, From, ok}]};
 handle_event({call, From}, {?TestCmdTag, reconnect}, {connected, _}, Data) ->
     {next_state, dead, handle_nodedown(Data#data{retries = 0}), [{reply, From, ok}]};
-handle_event({call, From}, {?TestCmdTag, wait4nodeup}, {connected, _}, _) ->
+handle_event({call, From}, {?TestCmdTag, wait4nodeup}, {connected, ready}, _) ->
     {keep_state_and_data, [{reply, From, ok}]};
 handle_event({call, _From}, {?TestCmdTag, wait4nodeup}, _, _) ->
     {keep_state_and_data, [postpone]};
@@ -595,7 +595,7 @@ put_ie(IE, _IEs) ->
     [IE].
 
 put_node_id(R = #pfcp{ie = IEs}, #data{cp = #node{node = Node}}) ->
-    NodeId = #node_id{id = string:split(atom_to_binary(Node), ".", all)},
+    NodeId = #node_id{id = string:split(Node, ".", all)},
     R#pfcp{ie = put_ie(NodeId, IEs)}.
 
 put_build_id(R = #pfcp{ie = IEs}) ->

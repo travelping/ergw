@@ -23,7 +23,7 @@
 %% gen_statem callbacks
 -export([callback_mode/0, init/1, handle_event/4, terminate/3, code_change/4]).
 
--export([validate_option/1]).
+-export([validate_option/1, config_meta/0]).
 
 -include("include/ergw.hrl").
 
@@ -65,12 +65,17 @@ validate_option({Prefix, Len} = Value)
   when is_integer(Prefix), is_integer(Len),
        Len >= 0, Len =< 8, Prefix >= 0 ->
     case ?POW(2, Len) of
-	X when X > Prefix -> Value;
+	X when X > Prefix ->
+	    #{prefix => Prefix, len => Len};
 	_ ->
 	    throw({error, {options, {teid, Value}}})
     end;
 validate_option(Value) ->
     throw({error, {options, {teid, Value}}}).
+
+config_meta() ->
+    #{prefix => {integer, 0},
+      len    => {integer, 0}}.
 
 %%%===================================================================
 %%% gen_statem callbacks
@@ -127,7 +132,7 @@ alloc_tei(From, Name, KeyFun, Cnt, RndState0, State, Data0) ->
     end.
 
 maybe_update_data(#data{prefix = undefined, prefix_len = undefined} = Data) ->
-    {ok, {Prefix, PrefixLen}} = application:get_env(ergw, teid),
+    {ok, #{prefix := Prefix, len := PrefixLen}} = application:get_env(ergw, teid),
     Data#data{prefix = Prefix, prefix_len = PrefixLen};
 maybe_update_data(Data) ->
     Data.

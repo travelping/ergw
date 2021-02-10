@@ -19,7 +19,7 @@
 	 get_handler/2, info/1, sync_state/3]).
 
 %% Validate environment Variables
--export([validate_options/1]).
+-export([validate_options/1, config_meta/0]).
 
 -ignore_xref([start_link/4,
 	      path_restart/2,
@@ -172,8 +172,13 @@ stop(Path) ->
     {icmp_error_handling, immediate}  % configurable GTP path ICMP error behaviour
 ]).
 
-validate_options(Values) ->
-    ergw_config:validate_options(fun validate_option/2, Values, ?Defaults, map).
+validate_options(Opts0) ->
+    #{idle_timeout := IdleTimeout, idle_echo := IdleEcho,
+      down_timeout := DownTimeout, down_echo := DownEcho} = Opts1 =
+	ergw_config_legacy:validate_options(fun validate_option/2, Opts0, ?Defaults, map),
+    Opts = maps:without([idle_timeout, idle_echo, down_timeout, down_echo], Opts1),
+    Opts#{idle => #{timeout => IdleTimeout, echo => IdleEcho},
+	  down => #{timeout => DownTimeout, echo => DownEcho}}.
 
 validate_echo(_Opt, Value) when is_integer(Value), Value >= 60 * 1000 ->
     Value;
@@ -207,6 +212,57 @@ validate_option(icmp_error_handling, Value)
 validate_option(Opt, Value) ->
     throw({error, {options, {Opt, Value}}}).
 
+config_meta() ->
+    load_typespecs(),
+
+    Meta = #{t3 => {integer, 10 * 1000},               % echo retry interval
+	     n3 => {integer,  5},                      % echo retry count
+
+	     echo => {echo,  60 * 1000},               % echo ping interval
+	     idle =>
+		 {#{echo    => {echo,   1800 * 1000},  % time to keep the path entry when idle
+		    timeout => {timeout, 600 * 1000}}, % echo retry interval when idle
+		  #{}},
+	     down =>
+		 {#{echo    => {echo,   3600 * 1000},  % time to keep the path entry when down
+		    timeout => {timeout, 600 * 1000}}, % echo retry interval when down
+		  #{}},
+	     icmp_error_handling =>
+		 {enum, atom, [immediate, ignore]}},   % configurable GTP path ICMP error behaviour
+    {Meta, #{}}.
+
+is_echo(off) -> true;
+is_echo(Timeout) -> (is_integer(Timeout) andalso Timeout > 0).
+
+to_echo(Timeout) ->
+    case (catch ergw_config:to_atom(Timeout)) of
+	off ->
+	    off;
+	_ ->
+	    ergw_config:to_timeout(Timeout)
+    end.
+
+from_echo(Timeout) when is_atom(Timeout) ->
+    Timeout;
+from_echo(Timeout) ->
+    ergw_config:from_timeout(Timeout).
+
+%%%===================================================================
+%%% Type Specs
+%%%===================================================================
+
+load_typespecs() ->
+    Spec =
+	#{
+	  echo =>
+	      #cnf_type{
+		 coerce = fun to_echo/1,
+		 serialize = fun from_echo/1,
+		 validate = fun is_echo/1
+		}
+	 },
+    ergw_config:register_typespec(Spec).
+
 %%%===================================================================
 %%% Protocol Module API
 %%%===================================================================
@@ -224,10 +280,7 @@ init([#socket{name = SocketName} = Socket, Version, RemoteIP, Args]) ->
     State = #state{peer = #peer{state = up, contexts = 0},
 		   echo = stopped},
 
-    Data0 = maps:with([t3, n3, echo,
-		       idle_timeout, idle_echo,
-		       down_timeout, down_echo,
-		       icmp_error_handling], Args),
+    Data0 = maps:with([t3, n3, echo, idle, down, icmp_error_handling], Args),
     Data = Data0#{
 	     %% Path Info Keys
 	     socket     => Socket, % #socket{}
@@ -419,19 +472,19 @@ enter_peer_state_action(_, State, Data) ->
     [enter_state_timeout_action(State, Data),
      enter_state_echo_action(State, Data)].
 
-enter_state_timeout_action(idle, #{idle_timeout := Timeout}) when is_integer(Timeout) ->
+enter_state_timeout_action(idle, #{idle :=#{timeout := Timeout}}) when is_integer(Timeout) ->
     {{timeout, peer}, Timeout, stop};
-enter_state_timeout_action(down, #{down_timeout := Timeout}) when is_integer(Timeout) ->
+enter_state_timeout_action(down, #{down := #{timeout := Timeout}}) when is_integer(Timeout) ->
     {{timeout, peer}, Timeout, stop};
 enter_state_timeout_action(_State, _Data) ->
     {{timeout, peer}, cancel}.
 
 enter_state_echo_action(busy, #{echo := EchoInterval}) when is_integer(EchoInterval) ->
     {{timeout, echo}, EchoInterval, start_echo};
-enter_state_echo_action(idle, #{idle_echo := EchoInterval})
+enter_state_echo_action(idle, #{idle := #{echo := EchoInterval}})
   when is_integer(EchoInterval) ->
     {{timeout, echo}, EchoInterval, start_echo};
-enter_state_echo_action(down, #{down_echo := EchoInterval})
+enter_state_echo_action(down, #{down := #{echo := EchoInterval}})
   when is_integer(EchoInterval) ->
     {{timeout, echo}, EchoInterval, start_echo};
 enter_state_echo_action(_, _) ->

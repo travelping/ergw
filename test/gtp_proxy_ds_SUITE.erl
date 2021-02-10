@@ -18,23 +18,33 @@
 %%%===================================================================
 
 init_per_suite(Config) ->
-    ProxyMap = [
-	{imsi, [{<<"111111111111111">>, {<<"111111111111111">>, <<"16477141111">>}},
-		{<<"222222222222222">>, {<<"333333333333333">>, <<"16477141222">>}} ]},
-	{apn, [{[<<"apn1">>], [<<"example1">>, <<"com">>]},
-	       {[<<"apn2">>], [<<"example2">>, <<"com">>]}
-	      ]}
-    ],
-    Cfg = [{plmn_id, {<<"001">>, <<"01">>}},
-	   {proxy_map, ProxyMap},
-	   {sockets, []},
-	   {handlers, []},
-	   {ip_pools, #{}},
-	   {nodes, #{}}
-	  ],
+    ProxyMap =
+	#{imsi => #{<<"111111111111111">> =>
+			#{imsi => <<"111111111111111">>, msisdn => <<"16477141111">>},
+		    <<"222222222222222">> =>
+			#{imsi => <<"333333333333333">>, msisdn => <<"16477141222">>}},
+	  apn => #{[<<"apn1">>] => [<<"example1">>, <<"com">>],
+		   [<<"apn2">>] => [<<"example2">>, <<"com">>]}},
+    Cfg = #{node_id => <<"PROXY">>,
+	    plmn_id => #{mcc => <<"001">>, mnc => <<"01">>},
+	    accept_new => true,
+	    cluster =>
+		#{enabled => false,
+		  initial_timeout => 60000,
+		  release_cursor_every => 0,
+		  seed_nodes => {erlang,nodes,[known]}},
+	    proxy_map => ProxyMap,
+	    sockets => #{},
+	    handlers => #{},
+	    ip_pools => #{},
+	    nodes => #{entries => #{}},
+	    http_api => #{enabled => false}},
     application:load(ergw),
-    [application:set_env(ergw, K, V) || {K, V} <- Cfg],
+    ergw_test_lib:clear_app_env(ergw),
+    maps:foreach(fun(K, V) -> application:set_env(ergw, K, V) end, Cfg),
     {ok, _} = application:ensure_all_started(riak_core),
+    {ok, _} = application:ensure_all_started(ra),
+    ergw_config:config_meta(),
     {ok, Pid} = ergw:start(Cfg),
     gen_server:start({local, gtp_proxy_ds_test}, gtp_proxy_ds, [], []),
     ergw:wait_till_ready(),

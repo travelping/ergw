@@ -10,7 +10,7 @@
 -compile({parse_transform, do}).
 
 %% API
--export([validate_options/1, start/0, stop/0, get_ra_node_id/0]).
+-export([validate_options/1, config_meta/0, start/0, stop/0, get_ra_node_id/0]).
 
 -include_lib("kernel/include/logger.hrl").
 
@@ -46,7 +46,7 @@ stop() ->
 			  {seed_nodes, {erlang, nodes, [known]}}]).
 
 validate_options(Values) ->
-    ergw_config:validate_options(fun validate_option/2, Values, ?ClusterDefaults, map).
+    ergw_config_legacy:validate_options(fun validate_option/2, Values, ?ClusterDefaults, map).
 
 validate_option(enabled, Value) when is_boolean(Value) ->
     Value;
@@ -68,6 +68,14 @@ validate_option(seed_nodes, Nodes) when is_list(Nodes) ->
     Nodes;
 validate_option(Opt, Value) ->
     throw({error, {options, {Opt, Value}}}).
+
+config_meta() ->
+    Meta = #{enabled               => {boolean, false},
+	     initial_timeout       => {timeout, 60 * 1000},
+	     release_cursor_every  => {integer, 0},
+	     seed_nodes            => {term, {erlang, nodes, [known]}}
+	    },
+    {Meta, #{}}.
 
 %%%===================================================================
 %%% Internal functions

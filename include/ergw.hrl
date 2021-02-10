@@ -26,6 +26,19 @@
 -define(CTX_ERR(Level,Reply,Context), #ctx_err{level=Level,reply=Reply,
 					       context=Context,where={?FILE, ?LINE}}).
 
+-record(cnf_type, {
+	  coerce,
+	  serialize,
+	  validate,
+	  find,
+	  set
+	 }).
+
+-record(cnf_value, {
+	  type,
+	  default
+	 }).
+
 -record(node, {
 	  node	:: atom(),
 	  ip	:: inet:ip_address()

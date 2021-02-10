@@ -14,12 +14,13 @@
 -compile([{parse_transform, do},
 	  {parse_transform, cut}]).
 
--export([start_link/6, validate_options/1, unsolicited_report/5]).
+-export([start_link/6, validate_options/1, config_meta/0,
+	 unsolicited_report/5]).
 
 -ignore_xref([start_link/6]).
 
 %% TBD: use a PFCP or handler behavior?
--ignore_xref([start_link/6, validate_options/1, unsolicited_report/5]).
+-ignore_xref([start_link/6, validate_options/1, config_meta/0, unsolicited_report/5]).
 
 %% ergw_context callbacks
 -export([sx_report/2, port_message/2, port_message/4]).
@@ -82,23 +83,32 @@ test_cmd(Pid, Cmd) when is_pid(Pid) ->
 
 validate_options(Options) ->
     ?LOG(debug, "TDF Options: ~p", [Options]),
-    ergw_config:validate_options(fun validate_option/2, Options, ?HandlerDefaults, map).
+    ergw_config_legacy:validate_options(fun validate_option/2, Options, ?HandlerDefaults, map).
 
 validate_option(protocol, ip) ->
     ip;
 validate_option(handler, Value) when is_atom(Value) ->
     Value;
 validate_option(node_selection, [S|_] = Value)
-  when is_atom(S) ->
-    Value;
-validate_option(nodes, [S|_] = Value)
-  when is_list(S) ->
-    Value;
+  when is_binary(S); is_atom(S) ->
+    [ergw_config:to_binary(V) || V <- Value];
+validate_option(nodes, [N|_] = Value)
+  when is_binary(N); is_list(N) ->
+    [ergw_config:to_binary(V) || V <- Value];
 validate_option(apn, APN)
   when is_list(APN) ->
-    ergw_config:validate_apn_name(APN);
+    ergw_config_legacy:validate_apn_name(APN);
 validate_option(Opt, Value) ->
     throw({error, {options, {Opt, Value}}}).
+
+config_meta() ->
+    Meta = #{handler        => atom,
+	     protocol       => {enum, atom, [ip]},
+	     node_selection => {list, binary},
+	     nodes          => {list, binary},
+	     apn            => apn
+	    },
+    ergw_config:normalize_meta(Meta).
 
 %%====================================================================
 %% ergw_context API

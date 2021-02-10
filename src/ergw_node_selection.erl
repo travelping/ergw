@@ -15,13 +15,15 @@
 
 -compile({parse_transform, cut}).
 
--export([validate_options/2, expand_apn/2, split_apn/1,
+-export([validate_options/2, config_meta/0,
+	 expand_apn/2, split_apn/1,
 	 apn_to_fqdn/2, apn_to_fqdn/1,
 	 topology_match/2,
 	 candidates/3, snaptr_candidate/1, topology_select/4,
 	 lookup/2]).
 
 -include_lib("kernel/include/logger.hrl").
+-include("include/ergw.hrl").
 
 -ifdef(TEST).
 -export([lookup_naptr/3, colocation_match/2, naptr/2]).
@@ -35,11 +37,6 @@
 %%====================================================================
 %% API
 %%====================================================================
-
-%% -type service()           :: string().
-%% -type protocol()          :: string().
-%% -type service_parameter() :: {service(), protocol()}.
-%% -type preference()        :: {integer(), integer()}.
 
 -ifdef(TEST).
 %% currently unused, but worth keeping arround
@@ -85,11 +82,11 @@ topology_select(FQDN, MatchPeers, Services, NodeSelect) ->
 candidates(Name, Services, NodeSelection) ->
     ServiceSet = ordsets:from_list(Services),
     Norm = normalize_name(Name),
-    case lookup(lists:flatten(lists:join($., Norm)), ServiceSet, NodeSelection) of
+    case lookup(iolist_to_binary(lists:join($., Norm)), ServiceSet, NodeSelection) of
 	[] ->
 	    %% no candidates, try with _default
-	    DefaultAPN = normalize_name(["_default", "apn", "epc"]),
-	    lookup(lists:flatten(lists:join($., DefaultAPN)), ServiceSet, NodeSelection);
+	    DefaultAPN = normalize_name([<<"_default">>, <<"apn">>, <<"epc">>]),
+	    lookup(iolist_to_binary(lists:join($., DefaultAPN)), ServiceSet, NodeSelection);
 	L ->
 	    L
     end.
@@ -124,17 +121,14 @@ apn_to_fqdn([H|_] = APN, IMSI)
 
 apn_to_fqdn([H|_] = APN)
   when is_binary(H) ->
-    apn_to_fqdn([binary_to_list(X) || X <- APN]);
-apn_to_fqdn(APN)
-  when is_list(APN) ->
     FQDN =
 	case lists:reverse(APN) of
-	    ["gprs", MCC, MNC | APN_NI] ->
-		lists:reverse(["org", "3gppnetwork", MCC, MNC, "epc", "apn" | APN_NI]);
-	    ["org", "3gppnetwork" | _] ->
+	    [<<"gprs">>, MCC, MNC | APN_NI] ->
+		lists:reverse([<<"org">>, <<"3gppnetwork">>, MCC, MNC, <<"epc">>, <<"apn">> | APN_NI]);
+	    [<<"org">>, <<"3gppnetwork">> | _] ->
 		APN;
 	    APN_NI ->
-		normalize_name_fqdn(["epc", "apn" | APN_NI])
+		normalize_name_fqdn([<<"epc">>, <<"apn">> | APN_NI])
 	end,
     {fqdn, FQDN}.
 
@@ -188,20 +182,22 @@ validate_ip_list(L) ->
 	 (IP) -> throw({error, {options, {ip, IP}}})
       end, L).
 
-validate_static_option({Label, {Order, Prio} = Degree, [{_,_}|_] = Services, Host})
-  when is_list(Label),
+validate_static_option({Label, {Order, Prio} = Degree, [{_,_}|_] = Services0, Host})
+  when (is_list(Label) orelse is_binary(Label)),
        is_integer(Order),
        is_integer(Prio),
-       is_list(Host) ->
-    {Label, Degree, ordsets:from_list(Services), Host};
-validate_static_option({Host, IP4, IP6} = Opt)
-  when is_list(Host),
+       (is_list(Host) orelse is_binary(Host)) ->
+    Services = ordsets:from_list(
+		 [{ergw_config:to_atom(S), ergw_config:to_atom(P)} || {S, P} <- Services0]),
+    {ergw_config:to_binary(Label), Degree, Services, ergw_config:to_binary(Host)};
+validate_static_option({Host, IP4, IP6})
+  when (is_list(Host) orelse is_binary(Host)),
        is_list(IP4),
        is_list(IP6),
        (length(IP4) /= 0 orelse length(IP6) /= 0) ->
     validate_ip_list(IP4),
     validate_ip_list(IP6),
-    Opt;
+    {ergw_config:to_binary(Host), IP4, IP6};
 validate_static_option(Opt) ->
     throw({error, {options, {static, Opt}}}).
 
@@ -217,6 +213,143 @@ validate_options(dns, {IP, Port} = Server)
     Server;
 validate_options(Type, Opts) ->
     throw({error, {options, {Type, Opts}}}).
+
+config_meta() ->
+    load_typespecs(),
+    {{map, {id, binary}, node_selection}, #{}}.
+
+config_meta_rr_naptr() ->
+    %% 3GPP TS 23.003, Sect. 19.4.3.
+    Services = ['x-3gpp-amf', 'x-3gpp-ggsn', 'x-3gpp-mme', 'x-3gpp-msc', 'x-3gpp-pgw',
+		'x-3gpp-sgsn', 'x-3gpp-sgw', 'x-3gpp-ucmf', 'x-3gpp-upf'],
+    Protocols = ['x-gn', 'x-gp', 'x-n2', 'x-n26', 'x-n4', 'x-n55', 'x-nqprime', 'x-s1-u',
+		 'x-s10', 'x-s11', 'x-s12', 'x-s16', 'x-s2a-gtp', 'x-s2a-mipv4', 'x-s2a-pmip',
+		 'x-s2b-gtp', 'x-s2b-pmip', 'x-s2c-dsmip', 'x-s3', 'x-s4', 'x-s5-gtp',
+		 'x-s5-pmip', 'x-s6a', 'x-s8-gtp', 'x-s8-pmip', 'x-sv',
+		 'x-sxa', 'x-sxb', 'x-sxc', 'x-urcmp'],
+    Meta = #{
+	     type => atom,
+	     name => binary,
+	     order => integer,
+	     priority => integer,
+	     service => {enum, atom, Services},
+	     protocols => {list, {enum, atom, Protocols}},
+	     replacement => binary
+	    },
+    ergw_config:normalize_meta(Meta).
+
+config_meta_rr_host() ->
+    Meta = #{
+	     type => atom,
+	     name => binary,
+	     ip4  => {{list, ip4_address}, []},
+	     ip6  => {{list, ip6_address}, []}
+	    },
+    ergw_config:normalize_meta(Meta).
+
+config_meta_static() ->
+    Meta = #{entries => {list, static_rr}},
+    ergw_config:normalize_meta(Meta).
+
+config_meta_dns_server() ->
+    Meta = #{server => ip_address, port => {integer, 53}},
+    ergw_config:normalize_meta(Meta).
+
+is_nodesel(_, _, {dns, {Server, Port}}) ->
+    ergw_config:is_ip_address(Server) andalso is_integer(Port);
+is_nodesel(_, _, {dns, Server}) ->
+    Server == undefined;
+is_nodesel(Path, _, {static, RRs}) ->
+    ergw_config:validate_config(Path, static, config_meta_static(), #{entries => RRs}).
+
+is_static_rr(_Path, {Name, {Order, Priority}, Services, Replacement}) ->
+    is_binary(Name) andalso is_integer(Order) andalso is_integer(Priority)
+	andalso is_list(Services) andalso is_binary(Replacement);
+is_static_rr(_Path, {Name, IP4, IP6}) ->
+    is_binary(Name) andalso is_list(IP4) andalso is_list(IP6)
+	andalso (length(IP4) /= 0 orelse length(IP6) /= 0);
+is_static_rr(_, _) ->
+    false.
+
+from_nodesel({dns, {Server, Port}}) ->
+    #{type => dns, server => ergw_config:from_ip_address(Server), port => Port};
+from_nodesel({dns, Server}) ->
+    #{type => dns, server => Server};
+from_nodesel({static, RRs}) ->
+    V = ergw_config:serialize_config(config_meta_static(), #{entries => RRs}),
+    V#{type => static}.
+
+from_static_rr({Name, {Order, Priority}, Services, Replacement}) ->
+    {[Service|_], Protocols} = lists:unzip(Services),
+    Value = #{type        => naptr,
+	      name        => Name,
+	      order       => Order,
+	      priority    => Priority,
+	      service     => Service,
+	      protocols   => Protocols,
+	      replacement => Replacement},
+    ergw_config:serialize_config(config_meta_rr_naptr(), Value);
+
+from_static_rr({Name, IP4, IP6}) ->
+    Value = #{type => host, name => Name, ip4 => IP4, ip6 => IP6},
+    ergw_config:serialize_config(config_meta_rr_host(), Value).
+
+to_nodesel(NodeSel) ->
+    {Name, Map} = ergw_config:take_key(type, NodeSel),
+    to_nodesel(ergw_config:to_atom(Name), Map).
+
+to_static_rr(RR) ->
+    case ergw_config:to_atom(
+	   maps:get(type, RR, maps:get(<<"type">>, RR, undefined))) of
+	naptr ->
+	    to_rr(ergw_config:coerce_config(config_meta_rr_naptr(), RR));
+	host ->
+	    to_rr(ergw_config:coerce_config(config_meta_rr_host(), RR))
+    end.
+
+to_rr(#{type := naptr, name := Name, order := Order, priority := Priority,
+	service := Service, protocols := Protocols, replacement := Replacement}) ->
+    Services = [{Service, Protocol} || Protocol <- Protocols],
+    {Name, {Order, Priority}, Services, Replacement};
+to_rr(#{type := host, name := Name} = RR) ->
+    IP4 = maps:get(ip4, RR, []),
+    IP6 = maps:get(ip6, RR, []),
+    {Name, IP4, IP6}.
+
+to_nodesel(static, Value) ->
+    #{entries := Entries} = ergw_config:coerce_config(config_meta_static(), Value),
+    {static, Entries};
+to_nodesel(dns, Value) ->
+    case (catch ergw_config:coerce_config(config_meta_dns_server(), Value)) of
+	#{server := Server, port := Port} ->
+	    {dns, {Server, Port}};
+	_ ->
+	    {dns, ergw_config:to_atom(ergw_config:get_key(server, Value))}
+    end;
+to_nodesel(_, NodeSel) ->
+    NodeSel.
+
+%%%===================================================================
+%%% Type Specs
+%%%===================================================================
+
+load_typespecs() ->
+    Spec =
+	#{
+	  node_selection =>
+	      #cnf_type{
+		 coerce = fun to_nodesel/1,
+		 serialize = fun from_nodesel/1,
+		 validate = fun is_nodesel/3
+		},
+	  static_rr =>
+	      #cnf_type{
+		 coerce = fun to_static_rr/1,
+		 serialize = fun from_static_rr/1,
+		 validate = fun is_static_rr/2
+		}
+	 },
+    ergw_config:register_typespec(Spec).
 
 %%%===================================================================
 %%% Internal functions
@@ -274,7 +407,7 @@ match(_, _) ->
 
 do_lookup([], _DoFun) ->
     [];
-do_lookup([Selection|Next], DoFun) ->
+do_lookup([Selection|Next], DoFun) when is_binary(Selection) ->
     case DoFun(Selection) of
 	[] ->
 	    do_lookup(Next, DoFun);
@@ -283,32 +416,30 @@ do_lookup([Selection|Next], DoFun) ->
 	Host ->
 	    Host
     end;
-do_lookup(Selection, DoFun) when is_atom(Selection) ->
+do_lookup(Selection, DoFun) when is_binary(Selection) ->
     do_lookup([Selection], DoFun).
 
-lookup(Name, Selection) ->
+lookup(Name, Selection) when is_binary(Name) ->
     do_lookup(Selection, lookup_host(Name, _)).
 
-lookup(Name, ServiceSet, Selection) ->
+lookup(Name, ServiceSet, Selection) when is_binary(Name) ->
     do_lookup(Selection, lookup_naptr(Name, ServiceSet, _)).
 
 normalize_name({fqdn, FQDN}) ->
     FQDN;
-normalize_name([H|_] = Name) when is_list(H) ->
+normalize_name([H|_] = Name) when is_binary(H) ->
     normalize_name_fqdn(lists:reverse(Name));
-normalize_name(Name) when is_list(Name) ->
-    normalize_name_fqdn(lists:reverse(string:tokens(Name, ".")));
 normalize_name(Name) when is_binary(Name) ->
-    normalize_name(binary_to_list(Name)).
+    normalize_name_fqdn(lists:reverse(binary:split(Name, <<$.>>, [global]))).
 
-normalize_name_fqdn(["org", "3gppnetwork" | _] = Name) ->
+normalize_name_fqdn([<<"org">>, <<"3gppnetwork">> | _] = Name) ->
     lists:reverse(Name);
-normalize_name_fqdn(["epc" | _] = Name) ->
+normalize_name_fqdn([<<"epc">> | _] = Name) ->
     {MCC, MNC} = ergw:get_plmn_id(),
     lists:reverse(
-      ["org", "3gppnetwork",
-       lists:flatten(io_lib:format("mcc~3..0s", [MCC])),
-       lists:flatten(io_lib:format("mnc~3..0s", [MNC])) |
+      [<<"org">>, <<"3gppnetwork">>,
+       iolist_to_binary(io_lib:format("mcc~3..0s", [MCC])),
+       iolist_to_binary(io_lib:format("mnc~3..0s", [MNC])) |
        Name]).
 
 add_candidate(Pos, Tuple, Candidate) ->
@@ -329,9 +460,9 @@ insert_candidates([_|Next] = Label, Candidate, Pos, Tree0) ->
 
 -ifdef(TEST).
 insert_colo_candidates({Host, _, _, _, _} = Candidate, Pos, Tree) ->
-    case string:tokens(Host, ".") of
+    case binary:split(Host, <<$.>>, [global]) of
 	[Top, _ | Labels]
-	  when Top =:= "topon"; Top =:= "topoff" ->
+	  when Top =:= <<"topon">>; Top =:= <<"topoff">> ->
 	    insert_candidate(Labels, Candidate, Pos, Tree);
 	Labels ->
 	    insert_candidate(Labels, Candidate, Pos, Tree)
@@ -340,8 +471,8 @@ insert_colo_candidates({Host, _, _, _, _} = Candidate, Pos, Tree) ->
 
 insert_topo_candidates({Host, _, _, _, _} = Candidate, Pos,
 		       {MatchTree0, PrefixTree0} = Tree) ->
-    case string:tokens(Host, ".") of
-	["topon", _ | Labels] ->
+    case binary:split(Host, <<$.>>, [global]) of
+	[<<"topon">>, _ | Labels] ->
 	    PrefixTree = insert_candidates(Labels, Candidate, Pos, PrefixTree0),
 	    MatchTree = insert_candidate(Labels, Candidate, Pos, MatchTree0),
 	    {MatchTree, PrefixTree};
@@ -379,13 +510,11 @@ naptr(Name, Selection) ->
     ergw_inet_res:resolve(Name, Selection, in, naptr).
 
 naptr_service_filter({Order, Pref, Flag, Services, _RegExp, Host}, OrdSPSet, Acc) ->
-    [Service | Protocols] = string:tokens(Services, ":"),
-    RRSPSet = ordsets:from_list([{Service, P} || P <- Protocols]),
-    case ordsets:is_disjoint(RRSPSet, OrdSPSet) of
+    case ordsets:is_disjoint(Services, OrdSPSet) of
 	true ->
 	    Acc;
 	_ ->
-	    [{Host, {Order, 65535 - Pref}, Flag, RRSPSet} | Acc]
+	    [{Host, {Order, 65535 - Pref}, Flag, Services} | Acc]
     end;
 naptr_service_filter(_, _, Acc) ->
     Acc.
@@ -400,18 +529,16 @@ naptr_filter(RR, OrdSPSet, Acc) ->
 
 %% RFC2915: "A" means that the next lookup should be for either an A, AAAA, or A6 record.
 %% We only support A for now.
-follow({Host, Order, "a", Services}, Selection, Res) ->
-    Key = string:to_lower(Host),
-    case lookup_host(Key, Selection) of
-	{_, IP4, IP6} ->
+follow({Host, Order, a, Services}, Selection, Res) ->
+    case lookup_host(Host, Selection) of
+	{_, IP4, IP6} = _R ->
 	    [{Host, Order, Services, IP4, IP6} | Res];
 	_ ->
 	    Res
     end;
 %% RFC2915: the "S" flag means that the next lookup should be for SRV records.
-follow({Host, Order, "s", Services}, Selection, Res) ->
-    Key = string:to_lower(Host),
-    case ergw_inet_res:resolve(Key, Selection, in, srv) of
+follow({Host, Order, s, Services}, Selection, Res) ->
+    case ergw_inet_res:resolve(Host, Selection, in, srv) of
 	SrvRRs when is_list(SrvRRs) ->
 	    case lists:foldl(follow_srv(_, _, Selection), {[], []}, SrvRRs) of
 		{IP4, IP6} when is_list(IP4) andalso IP4 /= [];
@@ -426,8 +553,7 @@ follow({Host, Order, "s", Services}, Selection, Res) ->
 
 follow_srv(RR, {IP4in, IP6in} = IPs, Selection) ->
     {_Prio, _Weight, _Port, Host} = data(RR),
-    Key = string:to_lower(Host),
-    case lookup_host(Key, Selection) of
+    case lookup_host(Host, Selection) of
 	{_, IP4, IP6} ->
 	    {IP4 ++ IP4in, IP6 ++ IP6in};
 	_ ->
