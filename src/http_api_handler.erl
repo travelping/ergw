@@ -46,6 +46,12 @@ handle_request_text(Req, State) ->
     Method = cowboy_req:method(Req),
     handle_request(Method, Path, prometheus, Req, State).
 
+handle_request(<<"GET">>, <<"/api/v1alpha">>, json, Req, State) ->
+    Config = ergw:config(),
+    Mapped = ergw_config:serialize_config(Config),
+    Response = jsx:encode(Mapped),
+    {Response, Req, State};
+
 handle_request(<<"GET">>, <<"/api/v1/version">>, json, Req, State) ->
     {ok, Vsn} = application:get_key(ergw, vsn),
     Response = jsx:encode(#{version => list_to_binary(Vsn)}),

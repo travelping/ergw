@@ -18,13 +18,13 @@
 	?match({error,{options, _}}, (catch ergw_config_legacy:validate_config(Config)))).
 
 -define(ok_legacy_option(Config),
-	?match(#{}, (catch ergw_config_legacy:load(Config)))).
+	?match({ok, #{}}, (catch ergw_config_legacy:load(Config)))).
 
 -define(ok_option(Config),
 	?match(#{}, (catch begin
-			       Cnf = ergw_config_legacy:load(Config),
+			       {ok, Cnf} = ergw_config_legacy:load(Config),
 			       ct:pal("Cnf: ~p", [Cnf]),
-			       ergw_config:validate_config(Cnf),
+			       true = ergw_config:validate_config(Cnf),
 
 			       Mapped = ergw_config:serialize_config(Cnf),
 			       ct:pal("Mapped: ~p", [Mapped]),

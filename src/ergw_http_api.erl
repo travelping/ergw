@@ -36,6 +36,7 @@ start_http_listener(Opts) ->
 		    {"/api/v1/contexts/[:count]", http_api_handler, []},
 		    {"/metrics/[:registry]", prometheus_cowboy2_handler, []},
 		    {"/status/[...]", http_status_handler, []},
+		    {"/api/v1alpha", http_api_handler, []},
 		    %% 5G SBI APIs
 		    {"/sbi/nbsf-management/v1/pcfBindings", sbi_nbsf_handler, []},
 		    %% serves static files for swagger UI
