@@ -1266,7 +1266,7 @@ path_failure(Config) ->
 
     {GtpC, _, _} = create_session(Config),
 
-    {_Handler, CtxPid} = gtp_context_reg:lookup(CtxKey),
+    {_, CtxPid} = gtp_context_reg:lookup(CtxKey),
     #{left_tunnel := #tunnel{socket = CSocket}} = gtp_context:info(CtxPid),
 
     ClientIP = proplists:get_value(client_ip, Config),

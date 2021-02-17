@@ -1016,7 +1016,7 @@ ggsn_broken_recovery(Config) ->
     CtxKey = #context_key{socket = 'irx', id = {imsi, ?'IMSI', 5}},
     {GtpC, _, _} = create_pdp_context(Config),
 
-    {_Handler, CtxPid} = gtp_context_reg:lookup(CtxKey),
+    {_, CtxPid} = gtp_context_reg:lookup(CtxKey),
     #{right_tunnel := #tunnel{socket = CSocket}} = gtp_context:info(CtxPid),
 
     FinalGSN = proplists:get_value(final_gsn, Config),
@@ -1055,7 +1055,7 @@ path_failure_to_ggsn(Config) ->
 
     {GtpC, _, _} = create_pdp_context(Config),
 
-    {_Handler, CtxPid} = gtp_context_reg:lookup(CtxKey),
+    {_, CtxPid} = gtp_context_reg:lookup(CtxKey),
     #{right_tunnel := #tunnel{socket = CSocket}} = gtp_context:info(CtxPid),
 
     FinalGSN = proplists:get_value(final_gsn, Config),
@@ -1112,7 +1112,7 @@ path_failure_to_ggsn_and_restore(Config) ->
 
     {GtpC, _, _} = create_pdp_context(Config),
 
-    {_Handler, CtxPid} = gtp_context_reg:lookup(CtxKey),
+    {_, CtxPid} = gtp_context_reg:lookup(CtxKey),
     #{right_tunnel := #tunnel{socket = CSocket}} = gtp_context:info(CtxPid),
 
     FinalGSN = proplists:get_value(final_gsn, Config),
@@ -1174,7 +1174,7 @@ path_failure_to_sgsn(Config) ->
     CtxKey = #context_key{socket = 'irx', id = {imsi, ?'IMSI', 5}},
     {GtpC, _, _} = create_pdp_context(Config),
 
-    {_Handler, CtxPid} = gtp_context_reg:lookup(CtxKey),
+    {_, CtxPid} = gtp_context_reg:lookup(CtxKey),
     #{left_tunnel := #tunnel{socket = CSocket}} = gtp_context:info(CtxPid),
 
     ClientIP = proplists:get_value(client_ip, Config),
@@ -1504,7 +1504,7 @@ error_indication_ggsn2sgsn(Config) ->
 
     {GtpC, _, _} = create_pdp_context(Config),
 
-    {_Handler, CtxPid} = gtp_context_reg:lookup(CtxKey),
+    {_, CtxPid} = gtp_context_reg:lookup(CtxKey),
     true = is_pid(CtxPid),
     #{bearer := #{right := RightBearer}} = gtp_context:info(CtxPid),
 
@@ -1570,7 +1570,7 @@ update_pdp_context_request_ra_update(Config) ->
     RemoteCtxKey = #context_key{socket = 'remote-irx', id = {imsi, ?'PROXY-IMSI', 5}},
 
     {GtpC1, _, _} = create_pdp_context(Config),
-    {_Handler, CtxPid} = gtp_context_reg:lookup(RemoteCtxKey),
+    {_, CtxPid} = gtp_context_reg:lookup(RemoteCtxKey),
     #{left_tunnel := LeftTunnel1, bearer := #{left := LeftBearer1}} = gtp_context:info(CtxPid),
 
     {GtpC2, _, _} = update_pdp_context(ra_update, GtpC1),
@@ -1599,7 +1599,7 @@ update_pdp_context_request_tei_update(Config) ->
     RemoteCtxKey = #context_key{socket = 'remote-irx', id = {imsi, ?'PROXY-IMSI', 5}},
 
     {GtpC1, _, _} = create_pdp_context(Config),
-    {_Handler, CtxPid} = gtp_context_reg:lookup(RemoteCtxKey),
+    {_, CtxPid} = gtp_context_reg:lookup(RemoteCtxKey),
     #{left_tunnel := LeftTunnel1, bearer := #{left := LeftBearer1}} = gtp_context:info(CtxPid),
 
     {_Handler, ProxyCtxPid} = gtp_context_reg:lookup(CtxKey),
@@ -1667,7 +1667,7 @@ update_pdp_context_request_broken_recovery(Config) ->
 			     meck:passthrough([ReqKey, Request, Response])
 		     end),
     {GtpC1, _, _} = create_pdp_context(Config),
-    {_Handler, CtxPid} = gtp_context_reg:lookup(RemoteCtxKey),
+    {_, CtxPid} = gtp_context_reg:lookup(RemoteCtxKey),
     #{left_tunnel := LeftTunnel1, bearer := #{left := LeftBearer1}} = gtp_context:info(CtxPid),
 
     {GtpC2, _, _} = update_pdp_context(simple, GtpC1),

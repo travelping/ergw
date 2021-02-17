@@ -1118,7 +1118,7 @@ path_failure_to_pgw(Config) ->
 
     {GtpC, _, _} = create_session(Config),
 
-    {_Handler, CtxPid} = gtp_context_reg:lookup(CtxKey),
+    {_, CtxPid} = gtp_context_reg:lookup(CtxKey),
     #{right_tunnel := #tunnel{socket = CSocket}} = gtp_context:info(CtxPid),
 
     FinalGSN = proplists:get_value(final_gsn, Config),
@@ -1173,7 +1173,7 @@ path_failure_to_pgw_and_restore(Config) ->
 
     {GtpC, _, _} = create_session(Config),
 
-    {_Handler, CtxPid} = gtp_context_reg:lookup(CtxKey),
+    {_, CtxPid} = gtp_context_reg:lookup(CtxKey),
     #{right_tunnel := #tunnel{socket = CSocket}} = gtp_context:info(CtxPid),
 
     FinalGSN = proplists:get_value(final_gsn, Config),
@@ -1237,7 +1237,7 @@ path_failure_to_sgw(Config) ->
 
     {GtpC, _, _} = create_session(Config),
 
-    {_Handler, CtxPid} = gtp_context_reg:lookup(CtxKey),
+    {_, CtxPid} = gtp_context_reg:lookup(CtxKey),
     #{left_tunnel := #tunnel{socket = CSocket}} = gtp_context:info(CtxPid),
 
     ClientIP = proplists:get_value(client_ip, Config),
@@ -1827,7 +1827,7 @@ error_indication_pgw2sgw(Config) ->
 
     {GtpC, _, _} = create_session(Config),
 
-    {_Handler, CtxPid} = gtp_context_reg:lookup(CtxKey),
+    {_, CtxPid} = gtp_context_reg:lookup(CtxKey),
     true = is_pid(CtxPid),
     #{bearer := #{right := RightBearer}} = gtp_context:info(CtxPid),
 
@@ -1894,7 +1894,7 @@ modify_bearer_request_ra_update(Config) ->
 
     {GtpC1, _, _} = create_session(Config),
 
-    {_Handler, CtxPid} = gtp_context_reg:lookup(RemoteCtxKey),
+    {_, CtxPid} = gtp_context_reg:lookup(RemoteCtxKey),
     #{left_tunnel := LeftTunnel1, bearer := #{left := LeftBearer1}} = gtp_context:info(CtxPid),
 
     {GtpC2, _, _} = modify_bearer(ra_update, GtpC1),
@@ -1924,7 +1924,7 @@ modify_bearer_request_tei_update(Config) ->
 
     {GtpC1, _, _} = create_session(Config),
 
-    {_Handler, CtxPid} = gtp_context_reg:lookup(RemoteCtxKey),
+    {_, CtxPid} = gtp_context_reg:lookup(RemoteCtxKey),
     #{left_tunnel := LeftTunnel1, bearer := #{left := LeftBearer1}} = gtp_context:info(CtxPid),
 
     {_Handler, ProxyCtxPid} = gtp_context_reg:lookup(CtxKey),
@@ -2416,7 +2416,7 @@ interop_sgsn_to_sgw(Config) ->
 
     {GtpC1, _, _} = ergw_ggsn_test_lib:create_pdp_context(Config),
 
-    {_Handler, CtxPid} = gtp_context_reg:lookup(RemoteCtxKey),
+    {_, CtxPid} = gtp_context_reg:lookup(RemoteCtxKey),
     #{left_tunnel := LeftTunnel1, bearer := #{left := LeftBearer1}} = gtp_context:info(CtxPid),
 
     check_contexts_metric(v1, 3, 1),
@@ -2468,7 +2468,7 @@ interop_sgw_to_sgsn(Config) ->
 
     {GtpC1, _, _} = create_session(Config),
 
-    {_Handler, CtxPid} = gtp_context_reg:lookup(RemoteCtxKey),
+    {_, CtxPid} = gtp_context_reg:lookup(RemoteCtxKey),
     #{left_tunnel := LeftTunnel1, bearer := #{left := LeftBearer1}} = gtp_context:info(CtxPid),
 
     check_contexts_metric(v1, 0, 0),
