@@ -53,14 +53,17 @@ validate_option(Opt) ->
     throw({error, {options, Opt}}).
 
 config_meta() ->
-    {{klist, {name, binary}, {delegate, delegate_field(type, _)}}, #{}}.
+    {{klist, {name, binary}, {delegate, fun delegate_type/1}}, #{}}.
 
-delegate_field(Field, Map) when is_map(Map) ->
-    case ergw_config:to_atom(ergw_config:get_key(Field, Map)) of
+delegate_type(Map) when is_map(Map) ->
+    case ergw_config:to_atom(ergw_config:get_key(type, Map)) of
 	'gtp-c' ->
 	    ergw_gtp_socket:config_meta();
 	'gtp-u' ->
 	    ergw_gtp_socket:config_meta();
 	'pfcp' ->
 	    ergw_sx_socket:config_meta()
-    end.
+    end;
+delegate_type(schema) ->
+    Handlers = [ergw_gtp_socket,  ergw_sx_socket],
+    lists:map(fun(Handler) -> Handler:config_meta() end, Handlers).

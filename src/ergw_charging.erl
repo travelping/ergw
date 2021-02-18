@@ -217,11 +217,11 @@ config_meta() ->
 	     %% 'Traffic-Steering-Policy-Identifier-UL'
 	     %% 'Content-Version'
 	     '$end'           => {boolean, true}},
-    Meta = #{rulebase => {{map, {name, binary}, {list, binary}}, []},
+    Meta = #{rulebase => {{kvlist, {name, binary}, {rules, {list, binary}}}, []},
 	     rule     => {{map, {name, binary}, Rule}, []},
 	     online   => {Online, []},
 	     offline  => {Offline, []}},
-    ergw_config:normalize_meta({{map, {id, binary}, Meta}, #{}}).
+    ergw_config:normalize_meta({{map, {name, binary}, Meta}, #{}}).
 
 %%%===================================================================
 %%% Type Specs
@@ -232,6 +232,7 @@ load_typespecs() ->
 	#{
 	  optional =>
 	      #cnf_type{
+		 schema    = fun ergw_config:serialize_schema/1,
 		 coerce    = fun(Type, Y) -> [ergw_config:coerce_config(Type, Y)] end,
 		 serialize = fun(Type, [Y]) -> ergw_config:serialize_config(Type, Y) end,
 		 validate =

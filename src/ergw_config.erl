@@ -8,16 +8,18 @@
 -module(ergw_config).
 
 -compile({parse_transform, cut}).
+-compile({parse_transform, do}).
 
 %% API
 -export([load/0,
 	 apply/1,
 	 normalize_meta/1,
+	 serialize_schema/0,
+	 serialize_schema/1,
 	 serialize_config/1,
 	 serialize_config/2,
 	 coerce_config/1,
 	 coerce_config/2,
-	 validate_config/1,
 	 validate_config/3,
 	 validate_config/4,
 	 register_typespec/1,
@@ -31,10 +33,13 @@
 	 is_ip_address/1]).
 
 %% not yet used
--ignore_xref([find/2, get/2, set/3, set_value/3]).
+-ignore_xref([find/2, get/2, set/3, set_value/3,serialize_schema/0]).
+
+%% will be remove soonish
+-ignore_xref([serialize_schema/0]).
 
 -ifdef(TEST).
--export([config_meta/0]).
+-export([config_meta/0, load_schemas/0,	validate_config/1]).
 -endif.
 
 -type(meta() :: term()).
@@ -71,9 +76,57 @@
 
 load() ->
     load_typespecs(),
-    {ok, Config} = ergw_config_legacy:load(),
-    load_env_config(Config),
-    {ok, Config}.
+    do([error_m ||
+	   load_schemas(),
+	   Config <- load_config(),
+	   load_env_config(Config),
+	   return(Config)
+       ]).
+
+load_config() ->
+    case application:get_env(ergw, config) of
+	{ok, Config} ->
+	    load_config(Config);
+	_ ->
+	    load_legacy_config()
+    end.
+
+load_config(File) ->
+    do([error_m ||
+	   Bin <- file:read_file(File),
+	   Config <- case filename:extension(string:lowercase(unicode:characters_to_binary(File))) of
+			 <<".yaml">> ->
+			     parse_yaml(Bin);
+			 <<".json">> ->
+			     parse_json(Bin)
+		     end,
+	   validate_config_with_schema(Config),
+	   return(ergw_config:coerce_config(Config))
+       ]).
+
+parse_yaml(Bin) ->
+    case fast_yaml:decode(Bin, [{maps, true}, sane_scalars]) of
+	{ok, [Terms]} ->
+	    {ok, Terms};
+	Other ->
+	    Other
+    end.
+
+parse_json(Bin) ->
+    try
+	Dec = jsx:decode(Bin, [return_maps, {labels, binary}]),
+	{ok, Dec}
+    catch
+	exit:badarg ->
+	    {error, invalid_json}
+    end.
+
+load_legacy_config() ->
+    do([error_m ||
+	   Config <- ergw_config_legacy:load(),
+	   validate_config(Config),
+	   return(Config)
+       ]).
 
 load_env_config(Config) ->
     maps:map(fun load_env_config/2, Config),
@@ -117,6 +170,14 @@ load_handler(Name, #{handler  := Handler,
 load_sx_node(Name, Opts) ->
     ergw:connect_sx_node(Name, Opts).
 
+load_schemas() ->
+    jesse:load_schemas(
+      filename:join([code:lib_dir(ergw, priv), "schemas"]),
+      fun (Bin) ->
+	      {ok, [Terms]} = fast_yaml:decode(Bin, [{maps, true}, sane_scalars]),
+	      Terms
+      end).
+
 %%%===================================================================
 %%% config metadata
 %%%===================================================================
@@ -127,7 +188,7 @@ config_raw_meta() ->
 	  apns            => config_meta_apns(),
 	  charging        => ergw_charging:config_meta(),
 	  cluster         => ergw_cluster:config_meta(),
-	  handlers        => {{map, {id, binary}, {delegate, delegate_field(handler, _)}}, #{}},
+	  handlers        => {{map, {name, binary}, {delegate, fun delegate_handler/1}}, #{}},
 	  http_api        => ergw_http_api:config_meta(),
 	  ip_pools        => ergw_ip_pool:config_meta(),
 	  metrics         => ergw_prometheus:config_meta(),
@@ -162,7 +223,7 @@ config_meta_nodes() ->
 		retry => integer
 	       },
     Default = #{
-		vrfs           => {{klist, {id, vrf}, VRF}, #{}},
+		vrfs           => {{klist, {name, vrf}, VRF}, #{}},
 		ip_pools       => {list, binary},
 		node_selection => binary,
 		heartbeat      => Heartbeat,
@@ -175,7 +236,7 @@ config_meta_nodes() ->
 		 rport   => integer
 		},
     #{default => Default,
-      entries => {map, {id, binary}, Node}}.
+      entries => {map, {name, binary}, Node}}.
 
 config_meta_apns() ->
     Meta = #{vrf                  => vrf,
@@ -237,9 +298,12 @@ meta_type(Type) when is_atom(Type) ->
 %%% Delegate Helper
 %%%===================================================================
 
-delegate_field(Field, Map) when is_map(Map) ->
-    Handler = to_atom(get_key(Field, Map)),
-    Handler:config_meta().
+delegate_handler(Map) when is_map(Map) ->
+    Handler = to_atom(get_key(handler, Map)),
+    Handler:config_meta();
+delegate_handler(schema) ->
+    Handlers = [saegw_s11, pgw_s5s8, pgw_s5s8_proxy, ggsn_gn, ggsn_gn_proxy, tdf],
+    lists:map(fun(Handler) -> Handler:config_meta() end, Handlers).
 
 ts2meta({delegate, Meta}, V) when is_function(Meta) ->
     Meta(V);
@@ -376,7 +440,23 @@ fmt_path(Path) ->
 
 validate_config(Config) ->
     Meta = config_meta(),
-    validate_config([], Meta, Config).
+    try validate_config([], Meta, Config) of
+	true ->
+	    Mapped = ergw_config:serialize_config(Config),
+	    JSON = jsx:decode(jsx:encode(Mapped), [return_maps, {labels, binary}]),
+	    file:write_file("last.yaml", fast_yaml:encode(JSON)),
+	    validate_config_with_schema(JSON)
+    catch
+	throw:Error ->
+	    Error
+    end.
+
+validate_config_with_schema(Config) ->
+    Schema = filename:join([code:lib_dir(ergw, priv), "schemas", "ergw_config.yaml"]),
+    case jesse:validate(Schema, Config) of
+	{ok, _} -> ok;
+	Other -> Other
+    end.
 
 validate_type(Path, F, Opts, V) when is_list(Path), is_function(F, 3) ->
     validate_type(Path, F(Path, _, _), Opts, V);
@@ -445,6 +525,9 @@ to_string(V) when is_list(V); is_binary(V) ->
 to_module(V) ->
     to_atom(V).
 
+to_ip(Map) when is_map(Map) ->
+    [{_Type, IP}] = maps:to_list(Map),
+    to_ip(IP);
 to_ip(IP) when is_tuple(IP) ->
     ergw_inet:ip2bin(IP);
 to_ip(IP) when is_list(IP) ->
@@ -463,6 +546,9 @@ to_ip4(IP) ->
 to_ip6(IP) ->
     <<_:16/bytes>> = to_ip(IP).
 
+to_ip_address(Map) when is_map(Map) ->
+    [{_Type, IP}] = maps:to_list(Map),
+    to_ip_address(IP);
 to_ip_address({_,_,_,_} = IP) ->
     IP;
 to_ip_address({_,_,_,_,_,_,_,_} = IP) ->
@@ -580,12 +666,8 @@ to_kvlist({KField, KMeta, VField, VMeta}, KV, Config) ->
 to_kvlist(Type, V) when is_list(V) ->
     lists:foldl(to_kvlist(Type, _, _), #{}, V).
 
-to_map({_KField, KMeta, TypeSpec}, K, V, Config) ->
-    Meta = ts2meta(TypeSpec, V),
-    maps:put(coerce_config_type(KMeta, K), coerce_config(Meta, V), Config).
-
-to_map(Type, V) when is_map(V) ->
-    maps:fold(to_map(Type, _, _, _), #{}, V).
+to_map(Type, V) when is_list(V) ->
+    to_klist(Type, V).
 
 %% processing
 
@@ -616,6 +698,15 @@ from_ip(IP) when is_binary(IP) ->
     from_ip_address(ergw_inet:bin2ip(IP)).
 
 from_ip_address(IP) when is_tuple(IP) ->
+    Prop = if tuple_size(IP) == 4 -> 'ipv4Addr';
+	      tuple_size(IP) == 8 -> 'ipv6Addr'
+	   end,
+    #{Prop => iolist_to_binary(inet:ntoa(IP))}.
+
+from_ip46(IP) when is_binary(IP) ->
+    from_ip46_address(ergw_inet:bin2ip(IP)).
+
+from_ip46_address(IP) when is_tuple(IP) ->
     iolist_to_binary(inet:ntoa(IP)).
 
 from_apn('_') ->
@@ -657,7 +748,7 @@ from_term(Term) ->
 from_ip6_ifid(IfId) when is_atom(IfId) ->
     IfId;
 from_ip6_ifid(IfId) ->
-    from_ip_address(IfId).
+    from_ip46_address(IfId).
 
 from_enum({Type, _}, V) ->
     serialize_config(Type, V).
@@ -689,12 +780,8 @@ from_kvlist({KField, KMeta, VField, VMeta}, K, V, Config) ->
 from_kvlist(Type, V) when is_map(V) ->
     maps:fold(from_kvlist(Type, _, _, _), [], V).
 
-from_map({_KField, KMeta, TypeSpec}, K, V, Config) ->
-    Meta = ts2meta(TypeSpec, V),
-    maps:put(serialize_config(KMeta, K), serialize_config(Meta, V), Config).
-
 from_map(Type, V) when is_map(V) ->
-    maps:fold(from_map(Type, _, _, _), #{}, V).
+    from_klist(Type, V).
 
 %% processing
 
@@ -709,6 +796,162 @@ serialize_config(#cnf_value{type = Type}, V) when is_atom(Type) ->
 serialize_config(#cnf_value{type = {Type, Opts}}, V) ->
     #cnf_type{serialize = F} = get_typespec(Type),
     F(Opts, V).
+
+%%%===================================================================
+%%% Dump The Schema
+%%%===================================================================
+
+ts2meta({delegate, Meta}) when is_function(Meta) ->
+    Meta(schema);
+ts2meta(TypeSpec) when is_record(TypeSpec, cnf_value) ->
+    TypeSpec;
+ts2meta(TypeSpec) when is_map(TypeSpec) ->
+    TypeSpec.
+
+translate_schema_type(echo) ->
+    #{'$ref' => '#/components/schemas/echoTimeout'};
+%% translate_schema_type(echo) ->
+%%     #{'oneOf' =>
+%% 	  [#{'$ref' => '#/components/schemas/timeout'},
+%% 	   #{enum => [off]}]};
+translate_schema_type(mcc) ->
+    #{'$ref' => 'TS29122_CommonData.yaml#/components/schemas/Mcc'};
+translate_schema_type(mnc) ->
+    #{'$ref' => 'TS29122_CommonData.yaml#/components/schemas/Mnc'};
+translate_schema_type(passthrough) ->
+    #{type => object};
+translate_schema_type(module) ->
+    #{type => string};
+translate_schema_type(atom) ->
+    #{type => string};
+translate_schema_type(binary) ->
+    #{type => string};
+translate_schema_type(string) ->
+    #{type => string};
+translate_schema_type(Type)
+  when Type =:= ip; Type =:= ip_address ->
+    #{'oneOf' =>
+	  [#{type => string, format => ipv4},
+	   #{type => string, format => ipv6}]};
+translate_schema_type(Type)
+  when Type =:= ip4; Type =:= ip4_address ->
+    #{'$ref' => 'TS29122_CommonData.yaml#/components/schemas/Ipv4Addr'};
+translate_schema_type(Type)
+  when Type =:= ip6; Type =:= ip6_address ->
+    #{'$ref' => 'TS29122_CommonData.yaml#/components/schemas/Ipv6Addr'};
+translate_schema_type(apn) ->
+    #{type => string, format => hostname};
+translate_schema_type(timeout) ->
+    #{oneOf =>
+	  [#{type => object,
+	     properties =>
+		 #{unit =>
+		       #{enum => [millisecond, second, minute, hour, day]},
+		   timeout =>
+		       #{type => integer}}},
+	   #{enum => [infinity]}]};
+translate_schema_type(vrf) ->
+    Name = #{type => string, format => hostname},
+    #{type => object,
+      properties =>
+	  #{name => Name,
+	    type => #{enum => [apn, dnn]}}};
+translate_schema_type(term) ->
+    #{type => string};
+translate_schema_type(ip6_ifid) ->
+    #{'$ref' => 'TS29122_CommonData.yaml#/components/schemas/Ipv6Addr'};
+translate_schema_type(Type) ->
+     #{type => Type}.
+
+serialize_schema_type(#cnf_value{type = Type, default = Default} = Value) ->
+    Obj = translate_schema_type(Type),
+    case Default of
+	_ when Default =:= undefined;
+	       Default =:= invalid;
+	       is_map_key('$ref', Obj) ->
+	    Obj;
+	_ ->
+	    Obj#{default => serialize_config(Value, Default)}
+    end.
+
+serialize_schema_enum({Type, Enums}) ->
+    Obj = serialize_schema_type(Type),
+    Obj#{enum => Enums}.
+
+serialize_schema_flag({_Type, Flags}) ->
+    #{type => array, items => #{enum => Flags}}.
+
+%% complex types
+
+serialize_schema_object(_K, Type) ->
+    serialize_schema(Type).
+
+serialize_schema_object(Meta) ->
+    #{type => object,
+      properties => maps:map(fun serialize_schema_object/2, Meta)}.
+
+serialize_schema_list(Type) ->
+    #{type => array, items => serialize_schema(Type)}.
+
+serialize_schema_klist(KeyField, KeyType, Meta) ->
+     Obj = serialize_schema(Meta),
+    Obj#{KeyField => KeyType}.
+
+serialize_schema_klist({KeyField, KeyMeta, TypeSpec}) ->
+    KeyType = serialize_schema(KeyMeta),
+    Items =
+	case ts2meta(TypeSpec) of
+	    Meta when is_list(Meta) ->
+		#{'anyOf' =>
+		      lists:map(serialize_schema_klist(KeyField, KeyType, _), Meta)};
+	    Meta ->
+		serialize_schema_klist(KeyField, KeyType, Meta)
+	end,
+    #{type => array, items => Items}.
+
+serialize_schema_kvlist({KField, KMeta, VField, VMeta}) ->
+    Obj = #{KField => serialize_schema(KMeta),
+	    VField => serialize_schema(VMeta)},
+    #{type => array, items => Obj}.
+
+serialize_schema_map(Type) ->
+    serialize_schema_klist(Type).
+
+%% processing
+
+serialize_schema() ->
+    Components =
+	#{schemas =>
+	      #{timeout =>
+		    #{type => object,
+		      properties =>
+			  #{unit =>
+				#{enum => [millisecond, second, minute, hour, day]},
+			    timeout =>
+				#{type => integer}}},
+		echoTimeout =>
+		    #{'oneOf' =>
+			  [#{'$ref' => '#/components/schemas/timeout'},
+			   #{enum => [off]}]}}},
+    Meta = config_meta(),
+    Obj = serialize_schema(Meta),
+    Obj#{<<"$schema">> => <<"http://json-schema.org/draft-04/schema#">>,
+	 components => Components}.
+
+serialize_schema(List) when is_list(List) ->
+    #{'oneOf' => lists:map(fun serialize_schema/1, List)};
+serialize_schema(#cnf_value{type = Type} = Value) when is_atom(Type) ->
+    #cnf_type{schema = F} = get_typespec(Type),
+    serialize_schema(F, Value, []);
+
+serialize_schema(#cnf_value{type = {Type, Opts}} = Value) ->
+    #cnf_type{schema = F} = get_typespec(Type),
+    serialize_schema(F, Value, [Opts]).
+
+serialize_schema(F, _Value, Args) when is_function(F) ->
+    apply(F, Args);
+serialize_schema(_, #cnf_value{} = Value, _) ->
+    serialize_schema_type(Value).
 
 %%%===================================================================
 %%% Get Functions
@@ -887,6 +1130,7 @@ load_typespecs() ->
     Spec =
 	#{object =>
 	      #cnf_type{
+		 schema    = fun serialize_schema_object/1,
 		 coerce    = fun to_object/2,
 		 serialize = fun from_object/2,
 		 validate  = fun validate_object/3,
@@ -895,6 +1139,7 @@ load_typespecs() ->
 		},
 	  list =>
 	      #cnf_type{
+		 schema    = fun serialize_schema_list/1,
 		 coerce    = fun to_list/2,
 		 serialize = fun from_list/2,
 		 validate  = fun validate_list/3,
@@ -903,6 +1148,7 @@ load_typespecs() ->
 		},
 	  klist =>
 	      #cnf_type{
+		 schema    = fun serialize_schema_klist/1,
 		 coerce    = fun to_klist/2,
 		 serialize = fun from_klist/2,
 		 validate  = fun validate_klist/3,
@@ -912,6 +1158,7 @@ load_typespecs() ->
 	  kvlist =>
 	      #cnf_type{
 		 coerce    = fun to_kvlist/2,
+		 schema    = fun serialize_schema_kvlist/1,
 		 serialize = fun from_kvlist/2,
 		 validate  = fun validate_kvlist/3,
 		 find      = fun find_kvlist/3,
@@ -919,6 +1166,7 @@ load_typespecs() ->
 		},
 	  map =>
 	      #cnf_type{
+		 schema    = fun serialize_schema_map/1,
 		 coerce    = fun to_map/2,
 		 serialize = fun from_map/2,
 		 validate  = fun validate_map/3,
@@ -994,13 +1242,13 @@ load_typespecs() ->
 	  ip4 =>
 	      #cnf_type{
 		 coerce    = fun to_ip4/1,
-		 serialize = fun from_ip/1,
+		 serialize = fun from_ip46/1,
 		 validate  = fun is_ip4/1
 		},
 	  ip6 =>
 	      #cnf_type{
 		 coerce    = fun to_ip6/1,
-		 serialize = fun from_ip/1,
+		 serialize = fun from_ip46/1,
 		 validate  = fun is_ip6/1
 		},
 	  ip_address =>
@@ -1012,13 +1260,13 @@ load_typespecs() ->
 	  ip4_address =>
 	      #cnf_type{
 		 coerce    = fun to_ip4_address/1,
-		 serialize = fun from_ip_address/1,
+		 serialize = fun from_ip46_address/1,
 		 validate  = fun is_ip4_address/1
 		},
 	  ip6_address =>
 	      #cnf_type{
 		 coerce    = fun to_ip6_address/1,
-		 serialize = fun from_ip_address/1,
+		 serialize = fun from_ip46_address/1,
 		 validate  = fun is_ip6_address/1
 		},
 	  ip6_ifid =>
@@ -1047,12 +1295,14 @@ load_typespecs() ->
 		},
 	  enum =>
 	      #cnf_type{
+		 schema    = fun serialize_schema_enum/1,
 		 coerce    = fun to_enum/2,
 		 serialize = fun from_enum/2,
 		 validate  = fun is_enum/2
 		},
 	  flag =>
 	      #cnf_type{
+		 schema    = fun serialize_schema_flag/1,
 		 coerce    = fun to_flag/2,
 		 serialize = fun from_flag/2,
 		 validate  = fun is_flag/2

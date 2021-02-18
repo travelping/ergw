@@ -194,7 +194,9 @@ update_app_config(Group, CfgUpd, Config0) ->
 	  fun({AppKey, CfgKey}, AppCfg) ->
 		  set_cfg_value([ergw] ++ AppKey, update_app_cfgkey(CfgKey, Config), AppCfg)
 	  end, AppCfg0, CfgUpd),
-    true = ergw_config:validate_config(proplists:get_value(ergw, AppCfg1)),
+    {ok, Cfg} = ergw_config_legacy:load(proplists:get_value(ergw, AppCfg1)),
+    ok = ergw_config:load_schemas(),
+    ok = ergw_config:validate_config(Cfg),
     lists:keystore(app_cfg, 1, Config, {app_cfg, AppCfg1}).
 
 %%%===================================================================

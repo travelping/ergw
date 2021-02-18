@@ -135,6 +135,11 @@ from_send_port(Port) when is_atom(Port) ->
     Port;
 from_send_port(Port) -> Port.
 
+serialize_schema_send_port() ->
+    #{'oneOf' =>
+	  [#{type => boolean},
+	   #{type => integer}]}.
+
 %%%===================================================================
 %%% Type Specs
 %%%===================================================================
@@ -144,6 +149,7 @@ load_typespecs() ->
 	#{
 	  send_port =>
 	      #cnf_type{
+		 schema    = fun serialize_schema_send_port/0,
 		 coerce = fun to_send_port/1,
 		 serialize = fun from_send_port/1,
 		 validate = fun is_send_port/1

@@ -96,7 +96,7 @@ config_meta() ->
 	     'MS-Secondary-NBNS-Server' => ip4,
 	     'DNS-Server-IPv6-Address'  => {list, ip6},    %tbd
 	     '3GPP-IPv6-DNS-Servers'    => {list, ip6}},   %tbd
-    {{map, {id, binary}, Meta}, #{}}.
+    {{map, {name, binary}, Meta}, #{}}.
 
 
 %%%===================================================================

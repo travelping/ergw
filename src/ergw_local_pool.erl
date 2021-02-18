@@ -188,7 +188,7 @@ config_meta_pool() ->
 
 %% config_meta() ->
 %%     Meta = config_meta_pool(),
-%%     {{map, {id, binary}, Meta}, #{}}.
+%%     {{map, {name, binary}, Meta}, #{}}.
 
 %%%===================================================================
 %%% gen_server callbacks

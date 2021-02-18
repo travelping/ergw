@@ -4,7 +4,7 @@
     {description, "3GPP GGSN/PGW"},
     {applications, [kernel, stdlib, crypto, gun,
 		    erlando, regine, gtplib, pfcplib, plists,
-		    ergw_aaa, setup, netdata,
+		    ergw_aaa, setup, netdata, jesse,
 		    prometheus, cowboy, prometheus_cowboy,
 		    prometheus_diameter_collector,
 		    jsx, compiler, os_mon, jobs, ra,

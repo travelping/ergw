@@ -1,0 +1,787 @@
+"$schema": "http://json-schema.org/draft-04/schema#"
+title: erGW config
+description: erGW configuration
+
+components:
+  schemas:
+    EchoTimeout:
+      oneOf:
+        - $ref: "#/components/schemas/Timeout"
+        - enum:
+            - off
+
+    Timeout:
+      type: object
+      properties:
+        timeout:
+          type: integer
+        unit:
+          enum:
+            - millisecond
+            - second
+            - minute
+            - hour
+            - day
+
+    TimeoutInf:
+      oneOf:
+        - $ref: "#/components/schemas/Timeout"
+        - enum:
+            - infinity
+
+    DhcpRange:
+      onfOf:
+        - type: object
+          properties:
+            start:
+              $ref: 'TS29571_CommonData.yaml#/components/schemas/Ipv4Addr'
+            end:
+              $ref: 'TS29571_CommonData.yaml#/components/schemas/Ipv4Addr'
+            prefixLen:
+              type: integer
+        - type: object
+          properties:
+            start:
+              $ref: 'TS29571_CommonData.yaml#/components/schemas/Ipv6Addr'
+            end:
+              $ref: 'TS29571_CommonData.yaml#/components/schemas/Ipv6Addr'
+            prefixLen:
+              type: integer
+
+    IpAddress:
+      type: object
+      oneOf:
+        - required:
+          - ipv4Addr
+        - required:
+          - ipv6Addr
+        - required:
+          - ipv6Prefix
+      properties:
+        ipv4Addr:
+          $ref: 'TS29571_CommonData.yaml#/components/schemas/Ipv4Addr'
+        ipv6Addr:
+          $ref: 'TS29571_CommonData.yaml#/components/schemas/Ipv6Addr'
+        ipv6Prefix:
+          $ref: 'TS29571_CommonData.yaml#/components/schemas/Ipv6Prefix'
+
+type: object
+properties:
+  $end:
+    default: true
+    type: boolean
+  accept_new:
+    default: true
+    type: boolean
+  apns:
+    items:
+      apn:
+        format: hostname
+        type: string
+      properties:
+        3GPP-IPv6-DNS-Servers:
+          items:
+            $ref: TS29571_CommonData.yaml#/components/schemas/Ipv6Addr
+          type: array
+        DNS-Server-IPv6-Address:
+          items:
+            $ref: TS29571_CommonData.yaml#/components/schemas/Ipv6Addr
+          type: array
+        Idle-Timeout:
+          $ref: "#/components/schemas/TimeoutInf"
+        MS-Primary-DNS-Server:
+          $ref: TS29571_CommonData.yaml#/components/schemas/Ipv4Addr
+        MS-Primary-NBNS-Server:
+          $ref: TS29571_CommonData.yaml#/components/schemas/Ipv4Addr
+        MS-Secondary-DNS-Server:
+          $ref: TS29571_CommonData.yaml#/components/schemas/Ipv4Addr
+        MS-Secondary-NBNS-Server:
+          $ref: TS29571_CommonData.yaml#/components/schemas/Ipv4Addr
+        bearer_type:
+          enum:
+            - IPv4
+            - IPv6
+            - IPv4v6
+          type: string
+        ip_pools:
+          items:
+            type: string
+          type: array
+        ipv6_ue_interface_id:
+          $ref: TS29571_CommonData.yaml#/components/schemas/Ipv6Addr
+        prefered_bearer_type:
+          enum:
+            - IPv4
+            - IPv6
+          type: string
+        vrf:
+          properties:
+            name:
+              format: hostname
+              type: string
+            type:
+              enum:
+                - apn
+                - dnn
+          type: object
+        vrfs:
+          items:
+            properties:
+              name:
+                format: hostname
+                type: string
+              type:
+                enum:
+                  - apn
+                  - dnn
+            type: object
+          type: array
+      type: object
+    type: array
+  charging:
+    items:
+      name:
+        type: string
+      properties:
+        offline:
+          properties:
+            enable:
+              default: true
+              type: boolean
+            triggers:
+              properties:
+                cgi-sai-change:
+                  enum:
+                    - container
+                    - off
+                  type: string
+                ecgi-change:
+                  enum:
+                    - container
+                    - off
+                  type: string
+                max-cond-change:
+                  enum:
+                    - cdr
+                    - off
+                  type: string
+                ms-time-zone-change:
+                  enum:
+                    - cdr
+                    - off
+                  type: string
+                qos-change:
+                  enum:
+                    - container
+                    - off
+                  type: string
+                rai-change:
+                  enum:
+                    - container
+                    - off
+                  type: string
+                rat-change:
+                  enum:
+                    - cdr
+                    - off
+                  type: string
+                sgsn-sgw-change:
+                  enum:
+                    - cdr
+                    - off
+                  type: string
+                sgsn-sgw-plmn-id-change:
+                  enum:
+                    - cdr
+                    - off
+                  type: string
+                tai-change:
+                  enum:
+                    - container
+                    - off
+                  type: string
+                tariff-switch-change:
+                  enum:
+                    - container
+                    - off
+                  type: string
+                user-location-info-change:
+                  enum:
+                    - container
+                    - off
+                  type: string
+              type: object
+          type: object
+        online:
+          properties: []
+          type: object
+        rule:
+          items:
+            name:
+              type: string
+            properties:
+              $end:
+                default: true
+                type: boolean
+              Flow-Information:
+                items:
+                  properties:
+                    Flow-Description:
+                      type: string
+                    Flow-Direction:
+                      type: integer
+                  type: object
+                type: array
+              Metering-Method:
+                type: integer
+              Offline:
+                type: integer
+              Offline-Rating-Group:
+                type: integer
+              Online:
+                type: integer
+              Online-Rating-Group:
+                type: integer
+              Precedence:
+                type: integer
+              Rating-Group:
+                type: integer
+              Redirect-Information:
+                type: string
+              Service-Identifier:
+                type: string
+              TDF-Application-Identifier:
+                type: string
+            type: object
+          type: array
+        rulebase:
+          items:
+            name:
+              type: string
+            rules:
+              items:
+                type: string
+              type: array
+          type: array
+      type: object
+    type: array
+  cluster:
+    properties:
+      enabled:
+        default: false
+        type: boolean
+      initial_timeout:
+        $ref: "#/components/schemas/TimeoutInf"
+      release_cursor_every:
+        default: 0
+        type: integer
+      seed_nodes:
+        default: "{erlang,nodes,[known]}"
+        type: string
+    type: object
+  handlers:
+    items:
+      anyOf:
+        - name:
+            type: string
+          properties:
+            aaa:
+              type: object
+            handler:
+              type: string
+            node_selection:
+              items:
+                type: string
+              type: array
+            protocol:
+              enum:
+                - s11
+              type: string
+            sockets:
+              items:
+                type: string
+              type: array
+          type: object
+        - name:
+            type: string
+          properties:
+            aaa:
+              type: object
+            handler:
+              type: string
+            node_selection:
+              items:
+                type: string
+              type: array
+            protocol:
+              enum:
+                - gn
+                - gp
+                - s5
+                - s8
+                - s5s8
+              type: string
+            sockets:
+              items:
+                type: string
+              type: array
+          type: object
+        - name:
+            type: string
+          properties:
+            aaa:
+              type: object
+            contexts:
+              items:
+                name:
+                  type: string
+                properties:
+                  node_selection:
+                    items:
+                      type: string
+                    type: array
+                  proxy_sockets:
+                    items:
+                      type: string
+                    type: array
+                type: object
+              type: array
+            handler:
+              type: string
+            node_selection:
+              items:
+                type: string
+              type: array
+            protocol:
+              enum:
+                - gn
+                - gp
+                - s5
+                - s8
+                - s5s8
+              type: string
+            proxy_data_source:
+              default: gtp_proxy_ds
+              type: string
+            proxy_sockets:
+              items:
+                type: string
+              type: array
+            sockets:
+              items:
+                type: string
+              type: array
+          type: object
+        - name:
+            type: string
+          properties:
+            aaa:
+              type: object
+            handler:
+              type: string
+            node_selection:
+              items:
+                type: string
+              type: array
+            protocol:
+              enum:
+                - gn
+                - gp
+              type: string
+            sockets:
+              items:
+                type: string
+              type: array
+          type: object
+        - name:
+            type: string
+          properties:
+            aaa:
+              type: object
+            contexts:
+              items:
+                name:
+                  type: string
+                properties:
+                  node_selection:
+                    items:
+                      type: string
+                    type: array
+                  proxy_sockets:
+                    items:
+                      type: string
+                    type: array
+                type: object
+              type: array
+            handler:
+              type: string
+            node_selection:
+              items:
+                type: string
+              type: array
+            protocol:
+              enum:
+                - gn
+                - gp
+              type: string
+            proxy_data_source:
+              default: gtp_proxy_ds
+              type: string
+            proxy_sockets:
+              items:
+                type: string
+              type: array
+            sockets:
+              items:
+                type: string
+              type: array
+          type: object
+        - name:
+            type: string
+          properties:
+            apn:
+              format: hostname
+              type: string
+            handler:
+              type: string
+            node_selection:
+              items:
+                type: string
+              type: array
+            nodes:
+              items:
+                type: string
+              type: array
+            protocol:
+              enum:
+                - ip
+              type: string
+          type: object
+    type: array
+  http_api:
+    properties:
+      enabled:
+        default: false
+        type: boolean
+      ip:
+        $ref: "#/components/schemas/IpAddress"
+      ipv6_v6only:
+        default: false
+        type: boolean
+      num_acceptors:
+        default: 100
+        type: integer
+      port:
+        default: 8000
+        type: integer
+    type: object
+  ip_pools:
+    items:
+      name:
+        type: string
+      properties:
+        3GPP-IPv6-DNS-Servers:
+          items:
+            $ref: TS29571_CommonData.yaml#/components/schemas/Ipv6Addr
+          type: array
+        DNS-Server-IPv6-Address:
+          items:
+            $ref: TS29571_CommonData.yaml#/components/schemas/Ipv6Addr
+          type: array
+        MS-Primary-DNS-Server:
+          $ref: TS29571_CommonData.yaml#/components/schemas/Ipv4Addr
+        MS-Primary-NBNS-Server:
+          $ref: TS29571_CommonData.yaml#/components/schemas/Ipv4Addr
+        MS-Secondary-DNS-Server:
+          $ref: TS29571_CommonData.yaml#/components/schemas/Ipv4Addr
+        MS-Secondary-NBNS-Server:
+          $ref: TS29571_CommonData.yaml#/components/schemas/Ipv4Addr
+        handler:
+          type: string
+        ranges:
+          type: array
+          items:
+            $ref: "#/components/schemas/DhcpRange"
+      type: object
+    type: array
+  metrics:
+    properties:
+      gtp_path_rtt_millisecond_intervals:
+        items:
+          type: integer
+        type: array
+    type: object
+  node_id:
+    type: string
+  node_selection:
+    items:
+      name:
+        type: string
+      type: object
+    type: array
+  nodes:
+    properties:
+      default:
+        properties:
+          heartbeat:
+            type: object
+            properties:
+              interval:
+                $ref: "#/components/schemas/TimeoutInf"
+              retry:
+                type: integer
+              timeout:
+                $ref: "#/components/schemas/TimeoutInf"
+          ip_pools:
+            items:
+              type: string
+            type: array
+          node_selection:
+            type: string
+          request:
+            type: object
+            properties:
+              retry:
+                type: integer
+              timeout:
+                $ref: "#/components/schemas/TimeoutInf"
+          vrfs:
+            items:
+              name:
+                properties:
+                  name:
+                    format: hostname
+                    type: string
+                  type:
+                    enum:
+                      - apn
+                      - dnn
+                type: object
+              properties:
+                features:
+                  items:
+                    enum:
+                      - Access
+                      - Core
+                      - SGi-LAN
+                      - CP-Function
+                      - LI Function
+                      - TDF-Source
+                  type: array
+              type: object
+            type: array
+        type: object
+      entries:
+        items:
+          name:
+            type: string
+          properties:
+            connect:
+              type: boolean
+            heartbeat:
+              type: object
+              properties:
+                interval:
+                  $ref: "#/components/schemas/TimeoutInf"
+                retry:
+                  type: integer
+                timeout:
+                  $ref: "#/components/schemas/TimeoutInf"
+            ip_pools:
+              items:
+                type: string
+              type: array
+            node_selection:
+              type: string
+            raddr:
+              $ref: "#/components/schemas/IpAddress"
+            request:
+              type: object
+              properties:
+                retry:
+                  type: integer
+                timeout:
+                  $ref: "#/components/schemas/TimeoutInf"
+            rport:
+              type: integer
+            vrfs:
+              items:
+                name:
+                  properties:
+                    name:
+                      format: hostname
+                      type: string
+                    type:
+                      enum:
+                        - apn
+                        - dnn
+                  type: object
+                properties:
+                  features:
+                    items:
+                      enum:
+                        - Access
+                        - Core
+                        - SGi-LAN
+                        - CP-Function
+                        - LI Function
+                        - TDF-Source
+                    type: array
+                type: object
+              type: array
+          type: object
+        type: array
+    type: object
+  path_management:
+    properties:
+      down:
+        type: object
+        properties:
+          echo:
+            $ref: "#/components/schemas/EchoTimeout"
+          timeout:
+            $ref: "#/components/schemas/TimeoutInf"
+      echo:
+        $ref: "#/components/schemas/EchoTimeout"
+      icmp_error_handling:
+        enum:
+          - immediate
+          - ignore
+        type: string
+      idle:
+        properties:
+          echo:
+            $ref: "#/components/schemas/EchoTimeout"
+          timeout:
+            $ref: "#/components/schemas/TimeoutInf"
+        type: object
+      n3:
+        default: 5
+        type: integer
+      t3:
+        default: 10000
+        type: integer
+    type: object
+  plmn_id:
+    properties:
+      mcc:
+        $ref: TS29571_CommonData.yaml#/components/schemas/Mcc
+      mnc:
+        $ref: TS29571_CommonData.yaml#/components/schemas/Mnc
+    type: object
+  proxy_map:
+    properties:
+      apn:
+        items:
+          from:
+            format: hostname
+            type: string
+          to:
+            format: hostname
+            type: string
+        type: array
+      imsi:
+        items:
+          from:
+            type: string
+          to:
+            properties:
+              imsi:
+                type: string
+              msisdn:
+                type: string
+            type: object
+        type: array
+    type: object
+  sockets:
+    items:
+      anyOf:
+        - name:
+            type: string
+          properties:
+            burst_size:
+              default: 10
+              type: integer
+            cluster_ip:
+              $ref: "#/components/schemas/IpAddress"
+            freebind:
+              type: boolean
+            ip:
+              $ref: "#/components/schemas/IpAddress"
+            name:
+              type: string
+            netdev:
+              type: string
+            netns:
+              type: string
+            rcvbuf:
+              type: integer
+            reuseaddr:
+              type: boolean
+            send_port:
+              oneOf:
+                - type: boolean
+                - type: integer
+            type:
+              enum:
+                - gtp-c
+                - gtp-u
+              type: string
+            vrf:
+              properties:
+                name:
+                  format: hostname
+                  type: string
+                type:
+                  enum:
+                    - apn
+                    - dnn
+              type: object
+          type: object
+        - name:
+            type: string
+          properties:
+            burst_size:
+              default: 10
+              type: integer
+            freebind:
+              type: boolean
+            ip:
+              $ref: "#/components/schemas/IpAddress"
+            name:
+              type: string
+            netdev:
+              type: string
+            netns:
+              type: string
+            rcvbuf:
+              type: integer
+            reuseaddr:
+              type: boolean
+            socket:
+              type: string
+            type:
+              enum:
+                - pfcp
+              type: string
+            vrf:
+              properties:
+                name:
+                  format: hostname
+                  type: string
+                type:
+                  enum:
+                    - apn
+                    - dnn
+              type: object
+          type: object
+    type: array
+  teid:
+    properties:
+      len:
+        default: 0
+        type: integer
+      prefix:
+        default: 0
+        type: integer
+    type: object

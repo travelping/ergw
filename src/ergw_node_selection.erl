@@ -216,7 +216,7 @@ validate_options(Type, Opts) ->
 
 config_meta() ->
     load_typespecs(),
-    {{map, {id, binary}, node_selection}, #{}}.
+    {{map, {name, binary}, node_selection}, #{}}.
 
 config_meta_rr_naptr() ->
     %% 3GPP TS 23.003, Sect. 19.4.3.
@@ -270,6 +270,28 @@ is_static_rr(_Path, {Name, IP4, IP6}) ->
 	andalso (length(IP4) /= 0 orelse length(IP6) /= 0);
 is_static_rr(_, _) ->
     false.
+
+serialize_schema_node_selection() ->
+    #{type => object}.
+    %% #{'oneOf' =>
+    %% 	  [#{type => object,
+    %% 	     properties =>
+    %% 		 #{type => #{enum => [dns]},
+    %% 		   server => #{type => string},
+    %% 		   port => #{type => integer}}},
+    %% 	   #{type => object,
+    %% 	     properties =>
+    %% 		 #{type => #{enum => [static]},
+    %% 		   entries => ergw_config:serialize_schema(config_meta_static())}}]}.
+
+serialize_schema_static_rr() ->
+    #{'oneOf' =>
+	  [#{type => object,
+	     properties =>
+		 #{type => #{enum => [host]}}}
+	   #{type => object,
+	     properties =>
+		 #{type => #{enum => [naptr]}}}]}.
 
 from_nodesel({dns, {Server, Port}}) ->
     #{type => dns, server => ergw_config:from_ip_address(Server), port => Port};
@@ -338,12 +360,14 @@ load_typespecs() ->
 	#{
 	  node_selection =>
 	      #cnf_type{
-		 coerce = fun to_nodesel/1,
+		 schema    = fun serialize_schema_node_selection/0,
+		 coerce    = fun to_nodesel/1,
 		 serialize = fun from_nodesel/1,
-		 validate = fun is_nodesel/3
+		 validate  = fun is_nodesel/3
 		},
 	  static_rr =>
 	      #cnf_type{
+		 schema    = fun serialize_schema_static_rr/0,
 		 coerce = fun to_static_rr/1,
 		 serialize = fun from_static_rr/1,
 		 validate = fun is_static_rr/2

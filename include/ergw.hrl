@@ -27,6 +27,7 @@
 					       context=Context,where={?FILE, ?LINE}}).
 
 -record(cnf_type, {
+	  schema,
 	  coerce,
 	  serialize,
 	  validate,

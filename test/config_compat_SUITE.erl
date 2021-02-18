@@ -24,10 +24,12 @@
 	?match(#{}, (catch begin
 			       {ok, Cnf} = ergw_config_legacy:load(Config),
 			       ct:pal("Cnf: ~p", [Cnf]),
-			       true = ergw_config:validate_config(Cnf),
 
 			       Mapped = ergw_config:serialize_config(Cnf),
 			       ct:pal("Mapped: ~p", [Mapped]),
+
+			       ok = ergw_config:validate_config(Cnf),
+
 			       JBin = jsx:encode(Mapped),
 			       Dec = jsx:decode(JBin, [return_maps, {labels, binary}]),
 			       ct:pal("JSON:~n~120p~n", [Dec]),
@@ -574,6 +576,8 @@ all() ->
 config() ->
     [{doc, "Test the config validation"}].
 config(_Config)  ->
+    ergw_config:load_schemas(),
+
     ?ok_option(?GGSN_CONFIG),
     ?error_option(set_cfg_value([plmn_id], {undefined, undefined}, ?GGSN_CONFIG)),
     ?error_option(set_cfg_value([plmn_id], {<<"abc">>, <<"ab">>}, ?GGSN_CONFIG)),
@@ -1116,6 +1120,16 @@ config(_Config)  ->
 
     ?error_option(set_cfg_value([path_management, icmp_error_handling], invalid, ?PGW_PROXY_CONFIG)),
     ?error_option(set_cfg_value([path_management, icmp_error_handling], <<>>, ?PGW_PROXY_CONFIG)),
+
+    %% use this to rebuild the configs for the config_SUITE
+    %%   BUT: beware of the handler names!!!
+    %%
+    %% write("ggsn.json", ?GGSN_CONFIG),
+    %% write("ggsn_proxy.json", ?GGSN_PROXY_CONFIG),
+    %% write("pgw.json", ?PGW_CONFIG),
+    %% write("pgw_proxy.json", ?PGW_PROXY_CONFIG),
+    %% write("sae_s11.json", ?SAE_S11_CONFIG),
+    %% write("tdf.json", ?TDF_CONFIG),
     ok.
 
 %%%===================================================================
@@ -1150,3 +1164,8 @@ diff(Key, A, B) when is_map(A), is_map(B) ->
 diff(Key, A, B) ->
     ct:pal("(~p) ~s: not equal~nA: ~p~nB: ~p~n", [Key, fk(Key), A, B]),
     false.
+
+write(File, Config) ->
+    {ok, Cnf} = ergw_config_legacy:load(Config),
+    Mapped = ergw_config:serialize_config(Cnf),
+    file:write_file(File, jsx:encode(Mapped, [{indent, 2}])).

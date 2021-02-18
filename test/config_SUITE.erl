@@ -18,18 +18,20 @@
 	?match({error,{options, _}}, (catch ergw_config:validate_config(Config)))).
 
 -define(ok_option(Config),
-	?match(true, (catch ergw_config:validate_config(Config)))).
+	?match(ok, (catch ergw_config:validate_config(Config)))).
 
 %%%===================================================================
 %%% API
 %%%===================================================================
 
 all() ->
-    [config].
+    [config, load].
 
 config() ->
     [{doc, "Test the config validation"}].
 config(Config)  ->
+    ergw_config:load_schemas(),
+
     DataDir  = ?config(data_dir, Config),
     GGSNcfg = read_json(DataDir, "ggsn.json"),
     GGSNproxyCfg = read_json(DataDir, "ggsn_proxy.json"),
@@ -98,10 +100,11 @@ config(Config)  ->
     ?ok_option(set([sockets, sx, freebind], false, GGSNcfg)),
     ?ok_option(set([sockets, sx, rcvbuf], 1, GGSNcfg)),
 
-    ?ok_option(set([handlers, gn, aaa, '3GPP-GGSN-MCC-MNC'], <<"00101">>, GGSNcfg)),
-    ?ok_option(set([handlers, gn], #{handler => ggsn_gn,
-				     sockets => [irx],
-				     node_selection => [static]}, GGSNcfg)),
+    %% aaa is a ergw_aaa type, setting that is not yet supported
+    %% ?ok_option(set([handlers, <<"gn-1">>, aaa, '3GPP-GGSN-MCC-MNC'], <<"00101">>, GGSNcfg)),
+    ?ok_option(set([handlers, <<"gn-1">>], #{handler => ggsn_gn,
+					     sockets => [irx],
+					     node_selection => [static]}, GGSNcfg)),
 
     ?match(X when is_binary(X), (catch vrf:validate_name('aaa'))),
     ?match(X when is_binary(X), (catch vrf:validate_name('1st.2nd'))),
@@ -145,10 +148,10 @@ config(Config)  ->
 
     ct:pal("GGSN proxy: ~p", [GGSNproxyCfg]),
 
-    ?ok_option(set([handlers, gn, proxy_data_source], gtp_proxy_ds, GGSNproxyCfg)),
-    ?ok_option(set([handlers, gn, contexts, <<"ams">>], #{node_selection => [static]}, GGSNproxyCfg)),
-    ?ok_option(set([handlers, gn, contexts, <<"ams">>, node_selection], [static], GGSNproxyCfg)),
-    ?ok_option(set([handlers, gn, node_selection], [static], GGSNproxyCfg)),
+    ?ok_option(set([handlers, <<"gn-proxy">>, proxy_data_source], gtp_proxy_ds, GGSNproxyCfg)),
+    ?ok_option(set([handlers, <<"gn-proxy">>, contexts, <<"ams">>], #{node_selection => [static]}, GGSNproxyCfg)),
+    ?ok_option(set([handlers, <<"gn-proxy">>, contexts, <<"ams">>, node_selection], [static], GGSNproxyCfg)),
+    ?ok_option(set([handlers, <<"gn-proxy">>, node_selection], [static], GGSNproxyCfg)),
 
     ?ok_option(set([node_selection, mydns], #{type => dns, server => undefined}, GGSNproxyCfg)),
     ?ok_option(set([node_selection, mydns], #{type => dns, server => {172,20,16,75}, port => 53},
@@ -250,6 +253,25 @@ config(Config)  ->
     %% ?ok_option(set([path_management, down_timeout], 0, PGWproxyCfg)),
     %% ?ok_option(set([path_management, icmp_error_handling], ignore, PGWproxyCfg)),
     ok.
+
+laod() ->
+    [{doc, "Test the config load function"}].
+load(Config)  ->
+    DataDir  = ?config(data_dir, Config),
+
+    application:load(ergw),
+
+    load(DataDir, "ggsn.json"),
+    load(DataDir, "ggsn_proxy.json"),
+    load(DataDir, "pgw.json"),
+    load(DataDir, "pgw_proxy.json"),
+    load(DataDir, "sae_s11.json"),
+    load(DataDir, "tdf.json"),
+    ok.
+
+load(Dir, File) ->
+    application:set_env(ergw, config, filename:join(Dir, File)),
+    ?match({ok, #{handlers := _}}, ergw_config:load()).
 
 %%%===================================================================
 %%% Internal functions
