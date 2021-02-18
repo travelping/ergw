@@ -434,6 +434,8 @@ validate_seq_no(#gtp{seq_no = SeqNo}, #gtpc{seq_no = GtpCSeqNo}) ->
 validate_seq_no(#gtp{seq_no = SeqNo}, ExpectedSeqNo) ->
     ?equal(ExpectedSeqNo, SeqNo).
 
+validate_teid(#gtp{tei = 0, ie = #{{v2_cause, 0} := #v2_cause{v2_cause = context_not_found}}}, #gtpc{}) ->
+    ok;
 validate_teid(#gtp{tei = TEID}, #gtpc{local_control_tei = GtpCTEID}) ->
     ?equal(GtpCTEID, TEID);
 validate_teid(#gtp{tei = TEID}, ExpectedTEID) ->
@@ -441,7 +443,7 @@ validate_teid(#gtp{tei = TEID}, ExpectedTEID) ->
 
 validate_response(_Type, invalid_teid, Response, GtpC) ->
     validate_seq_no(Response, GtpC),
-    validate_teid(Response, 0),
+    validate_teid(Response, GtpC),
     ?match(
        #gtp{ie = #{{v2_cause,0} := #v2_cause{v2_cause = context_not_found}}
 	   }, Response),
@@ -484,7 +486,7 @@ validate_response(create_session_request, overload, Response, GtpC) ->
 
     %% this is debatable, but decoding the request would require even more resources.
     %% validate_teid(Response, GtpC),
-    validate_teid(Response, 0),
+    validate_teid(Response, GtpC),
 
    ?match(#gtp{type = create_session_response,
 		ie = #{{v2_cause,0} := #v2_cause{v2_cause = no_resources_available}}},

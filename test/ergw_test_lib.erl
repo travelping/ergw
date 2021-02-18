@@ -470,7 +470,7 @@ update_timeout(Timeout, At) ->
     Timeout - (erlang:monotonic_time(millisecond) - At).
 
 recv_pdu_msg(Response, At, S, IP, SeqNo, Timeout, Fail) ->
-    case gtp_packet:decode(Response) of
+    case gtp_packet:decode(Response, #{ies => map}) of
 	#gtp{type = echo_request} = Msg ->
 	    Resp = Msg#gtp{type = echo_response, ie = []},
 	    send_pdu(S, IP, Resp),

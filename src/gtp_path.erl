@@ -297,22 +297,14 @@ handle_event({call, From}, info, #state{peer = #peer{contexts = CtxCnt}} = State
 	      version => Version, ip => IP, state => State, data => Data},
     {keep_state_and_data, [{reply, From, Reply}]};
 
-handle_event(cast, {handle_request, ReqKey, #gtp{type = echo_request} = Msg0},
+handle_event(cast, {handle_request, ReqKey, #gtp{type = echo_request} = Msg},
 	     State, #{socket := Socket, handler := Handler} = Data) ->
-    ?LOG(debug, "echo_request: ~p", [Msg0]),
-    try gtp_packet:decode_ies(Msg0) of
-	Msg = #gtp{} ->
-	    ResponseIEs = Handler:build_recovery(echo_response, Socket, true, []),
-	    Response = Msg#gtp{type = echo_response, ie = ResponseIEs},
-	    ergw_gtp_c_socket:send_response(ReqKey, Response, false),
+    ?LOG(debug, "echo_request: ~p", [Msg]),
+    ResponseIEs = Handler:build_recovery(echo_response, Socket, true, []),
+    Response = Msg#gtp{type = echo_response, ie = ResponseIEs},
+    ergw_gtp_c_socket:send_response(ReqKey, Response, false),
 
-	    handle_recovery_ie(Msg, State, Data)
-    catch
-	Class:Error ->
-	    ?LOG(error, "GTP decoding failed with ~p:~p for ~p",
-		 [Class, Error, Msg0]),
-	    keep_state_and_data
-    end;
+    handle_recovery_ie(Msg, State, Data);
 
 handle_event(cast, {handle_response, echo_request, ReqRef, _Msg}, #state{echo = SRef}, _)
   when ReqRef /= SRef ->

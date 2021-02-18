@@ -431,6 +431,10 @@ validate_seq_no(#gtp{seq_no = SeqNo}, #gtpc{seq_no = GtpCSeqNo}) ->
 validate_seq_no(#gtp{seq_no = SeqNo}, ExpectedSeqNo) ->
     ?equal(ExpectedSeqNo, SeqNo).
 
+validate_teid(#gtp{tei = 0, type = Type, ie = #{{cause, 0} := #cause{value = non_existent}}}, #gtpc{})
+  when Type =:= delete_pdp_context_response;
+       Type =:= ms_info_change_notification_response ->
+    ok;
 validate_teid(#gtp{tei = TEID}, #gtpc{local_control_tei = GtpCTEID}) ->
     ?equal(GtpCTEID, TEID);
 validate_teid(#gtp{tei = TEID}, ExpectedTEID) ->
@@ -438,7 +442,7 @@ validate_teid(#gtp{tei = TEID}, ExpectedTEID) ->
 
 validate_response(_Type, invalid_teid, Response, GtpC) ->
     validate_seq_no(Response, GtpC),
-    validate_teid(Response, 0),
+    validate_teid(Response, GtpC),
     ?match(
        #gtp{ie = #{{cause,0} := #cause{value = non_existent}}
 	   }, Response),
@@ -470,7 +474,7 @@ validate_response(create_pdp_context_request, overload, Response, GtpC) ->
 
     %% this is debatable, but decoding the request would require even more resources.
     %% validate_teid(Response, GtpC),
-    validate_teid(Response, 0),
+    validate_teid(Response, GtpC),
 
     ?match(#gtp{type = create_pdp_context_response,
 		ie = #{{cause,0} := #cause{value = no_resources_available}}},

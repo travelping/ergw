@@ -511,7 +511,7 @@ handle_ip_pdu(PDU, _Data) ->
 handle_udp_gtp(SrcIP, DstIP, <<SrcPort:16, DstPort:16, _:16, _:16, PayLoad/binary>>,
 	       #data{dp = #node{node = Node}} = Data)
   when DstPort =:= ?GTP1u_PORT ->
-    Msg = gtp_packet:decode(PayLoad),
+    Msg = gtp_packet:decode(PayLoad, #{ies => map}),
     ?LOG(debug, "GTP-U ~s:~w -> ~s:~w: ~p", [bin2ntoa(SrcIP), SrcPort, bin2ntoa(DstIP), DstPort, Msg]),
     ReqKey = make_request(SrcIP, SrcPort, Msg, Data),
     Socket = #socket{name = Node, type = 'gtp-u'},

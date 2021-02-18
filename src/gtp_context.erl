@@ -412,8 +412,7 @@ handle_event({call, From},
     ergw_gtp_gsn_session:usage_report_request(ChargeEv, Now, UsageReport, PCtx, PCC, Session),
     {keep_state_and_data, [{reply, From, {ok, PCtx}}]};
 
-handle_event(cast, {handle_message, Request, #gtp{} = Msg0, Resent}, State, Data) ->
-    Msg = gtp_packet:decode_ies(Msg0),
+handle_event(cast, {handle_message, Request, #gtp{} = Msg, Resent}, State, Data) ->
     ?LOG(debug, "handle gtp request: ~w, ~p",
 		[Request#request.port, gtp_c_lib:fmt_gtp(Msg)]),
     handle_request(Request, Msg, Resent, State, Data);
@@ -423,10 +422,9 @@ handle_event(cast, {handle_pdu, Request, Msg}, State, #{interface := Interface} 
 		[Request#request.port, gtp_c_lib:fmt_gtp(Msg)]),
     Interface:handle_pdu(Request, Msg, State, Data);
 
-handle_event(cast, {handle_response, ReqInfo, Request, Response0}, State,
+handle_event(cast, {handle_response, ReqInfo, Request, Response}, State,
 	    #{interface := Interface} = Data) ->
     try
-	Response = gtp_packet:decode_ies(Response0),
 	case Response of
 	    #gtp{} ->
 		?LOG(debug, "handle gtp response: ~p", [gtp_c_lib:fmt_gtp(Response)]),

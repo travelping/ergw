@@ -96,8 +96,7 @@ port_message_h(Request, #gtp{} = Msg) ->
 
 port_message_run(Request, #gtp{type = g_pdu} = Msg) ->
     port_message_p(Request, Msg);
-port_message_run(#request{key = ReqKey} = Request, Msg0) ->
-    Msg = gtp_packet:decode_ies(Msg0),
+port_message_run(#request{key = ReqKey} = Request, Msg) ->
     case port_message(ReqKey, Request, Msg, true) of
 	{error, not_found} ->
 	    port_message_p(Request, Msg);

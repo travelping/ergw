@@ -129,7 +129,7 @@ handle_input(Socket, State) ->
     end.
 
 handle_message(IP, Port, Data, State0) ->
-    try gtp_packet:decode(Data, #{ies => binary}) of
+    try gtp_packet:decode(Data, #{ies => map}) of
 	Msg = #gtp{} ->
 	    State = handle_message_1(IP, Port, Msg, State0),
 	    {noreply, State}

@@ -453,7 +453,7 @@ handle_err_input(Socket, State) ->
     State.
 
 handle_message(ArrivalTS, Src, IP, Port, Data, #state{gtp_socket = Socket} = State0) ->
-    try gtp_packet:decode(Data, #{ies => binary}) of
+    try gtp_packet:decode(Data, #{ies => map}) of
 	Msg = #gtp{} ->
 	    %% TODO: handle decode failures
 
