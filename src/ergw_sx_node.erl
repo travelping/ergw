@@ -186,7 +186,7 @@ init([Parent, Node, NodeSelect, IP4, IP6, NotifyUp]) ->
 	 #seid_key{seid = SEID}],
     gtp_context_reg:register(RegKeys, ?MODULE, self()),
 
-    #{default := Default, entries := Nodes} = setup:get_env(ergw, nodes, #{}),
+    {ok, #{default := Default, entries := Nodes}} = ergw_config:get([nodes]),
     Cfg = maps:get(Node, Nodes, Default),
     IP = select_node_ip(IP4, IP6),
     Data0 = #data{cfg = Cfg,

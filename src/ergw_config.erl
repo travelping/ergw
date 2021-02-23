@@ -10,6 +10,8 @@
 -compile({parse_transform, cut}).
 -compile({parse_transform, do}).
 
+-compile({no_auto_import,[put/2]}).
+
 %% API
 -export([load/0,
 	 apply/1,
@@ -25,7 +27,8 @@
 	 register_typespec/1,
 	 get_key/2, take_key/2,
 	 set_value/3,
-	 get/2, set/3, find/2
+	 get/1, get/2, put/2,
+	 set/3, find/2
 	]).
 
 -export([to_atom/1, to_integer/1, to_binary/1, to_ip/1, to_timeout/1,
@@ -132,24 +135,20 @@ load_env_config(Config) ->
     maps:map(fun load_env_config/2, Config),
     ok.
 
-load_env_config(Key, Value)
-  when Key =:= cluster;
-       Key =:= path_management;
-       Key =:= node_selection;
-       Key =:= nodes;
-       Key =:= ip_pools;
-       Key =:= apns;
-       Key =:= charging;
-       Key =:= proxy_map;
-       Key =:= teid;
-       Key =:= node_id;
-       Key =:= metrics ->
-    ok = application:set_env(ergw, Key, Value);
-load_env_config(_, _) ->
-    ok.
+load_env_config(Key, Value) ->
+    case is_global_key(Key) of
+	true -> ok;
+	false ->
+	    ok = application:set_env(ergw, Key, Value)
+    end.
 
 apply(#{sockets := Sockets, nodes := #{entries := Nodes},
-	  handlers := Handlers, ip_pools := IPpools, http_api := HTTP}) ->
+	handlers := Handlers, ip_pools := IPpools,
+	http_api := HTTP} = Config) ->
+    %% load config
+    maps:map(fun put/2, Config),
+
+    %% apply
     maps:map(fun ergw:start_socket/2, Sockets),
     maps:map(fun load_sx_node/2, Nodes),
     maps:map(fun load_handler/2, Handlers),
@@ -954,10 +953,26 @@ serialize_schema(_, #cnf_value{} = Value, _) ->
     serialize_schema_type(Value).
 
 %%%===================================================================
-%%% Get Functions
+%%% Get/Put Functions
 %%%===================================================================
 
+is_global_key(restart_count) -> true;
+is_global_key(apns) -> true;
+is_global_key(nodes) -> true;
+is_global_key(charging) -> true;
+is_global_key(path_management) -> true;
+is_global_key(proxy_map) -> true;
+is_global_key(_) -> false.
+
 %% direct access to internal presentation, no type conversion
+
+get([Key|Next] = Query) ->
+    case is_global_key(Key) of
+	true -> ergw_global:find(Query);
+	false ->
+	    {ok, Config} = application:get_env(ergw, Key),
+	    get(Next, Config)
+    end.
 
 get([], Config) ->
     {ok, Config};
@@ -965,6 +980,14 @@ get([K|Next], Config) when is_map_key(K, Config) ->
     get(Next, maps:get(K, Config));
 get(_, _) ->
     false.
+
+put(Key, Val) ->
+    case is_global_key(Key) of
+	true ->
+	    {ok, _} = ergw_global:put(Key, Val);
+	false ->
+	    ok = application:set_env(ergw, Key, Val)
+    end.
 
 %%%===================================================================
 %%% Config Coercion

@@ -248,8 +248,8 @@ load_typespecs() ->
 config() ->
     %% TODO: use APN, VPLMN, HPLMN and Charging Characteristics
     %%       to select config
-    case application:get_env(ergw, charging) of
-	{ok, #{<<"default">> := Cfg}} -> Cfg;
+    case ergw_config:get([charging, <<"default">>]) of
+	{ok, Cfg} -> Cfg;
 	_ -> #{}
     end.
 

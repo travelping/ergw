@@ -44,6 +44,7 @@
 -export([query_usage_report/1]).
 -export([match_map/4, maps_key_length/2]).
 -export([init_ets/1]).
+-export([set_online_charging/1, set_apn_key/2, load_aaa_answer_config/1, set_path_timers/1]).
 
 -include("ergw_test_lib.hrl").
 -include_lib("stdlib/include/ms_transform.hrl").
@@ -734,3 +735,67 @@ maps_key_length(Key, Map) when is_map(Map) ->
 	X when is_tuple(X) -> 1;
 	_ -> 0
     end.
+
+%%%===================================================================
+%%% Config Tweaking Helpers
+%%%===================================================================
+
+maps_recusive_merge(Key, Value, Map) ->
+    maps:update_with(Key, fun(V) -> maps_recusive_merge(V, Value) end, Value, Map).
+
+maps_recusive_merge(M1, M2)
+  when is_map(M1) andalso is_map(M1) ->
+    maps:fold(fun maps_recusive_merge/3, M1, M2);
+maps_recusive_merge(_, New) ->
+    New.
+
+cfg_get_value([], Cfg) ->
+    Cfg;
+cfg_get_value([H|T], Cfg) when is_map(Cfg) ->
+    cfg_get_value(T, maps:get(H, Cfg));
+cfg_get_value([H|T], Cfg) when is_list(Cfg) ->
+    cfg_get_value(T, proplists:get_value(H, Cfg)).
+
+load_aaa_answer_config(AnswerCfg) ->
+    {ok, Cfg0} = application:get_env(ergw_aaa, apps),
+    Session = cfg_get_value([default, session, 'Default'], Cfg0),
+    Answers =
+	[{Proc, [{'Default', Session#{answer => Answer}}]}
+	 || {Proc, Answer} <- AnswerCfg],
+    UpdCfg =
+	#{default =>
+	      #{procedures => maps:from_list(Answers)}},
+    Cfg = maps_recusive_merge(Cfg0, UpdCfg),
+    ok = application:set_env(ergw_aaa, apps, Cfg).
+
+set_online_charging([], true, Cfg)
+  when is_map(Cfg) ->
+    maps:put('Online', [1], Cfg);
+set_online_charging([], _, Cfg)
+  when is_map(Cfg) ->
+    maps:remove('Online', Cfg);
+set_online_charging([], _, Cfg) ->
+    Cfg;
+
+set_online_charging(['_'|Next], Set, Cfg) when is_map(Cfg) ->
+    maps:map(fun(_, V) -> set_online_charging(Next, Set, V) end, Cfg);
+set_online_charging([Key|Next], Set, Cfg) when is_map(Cfg) ->
+    Cfg#{Key => set_online_charging(Next, Set, maps:get(Key, Cfg))}.
+
+set_online_charging(Set) ->
+    {ok, Cfg0} = ergw_config:get([charging]),
+    Cfg = set_online_charging(['_', rule, '_'], Set, Cfg0),
+    {ok, _} = ergw_config:put(charging, Cfg).
+
+%% Set APN key data
+set_apn_key(Key, Value) ->
+    {ok, APNs0} = ergw_config:get([apns]),
+    Upd = fun(_APN, Val_map) -> maps:put(Key, Value, Val_map) end,
+    APNs = maps:map(Upd, APNs0),
+    {ok, _} = ergw_config:put(apns, APNs).
+
+% Set Timers for Path management
+set_path_timers(SetTimers) ->
+    {ok, Timers} = ergw_config:get([path_management]),
+    NewTimers = maps_recusive_merge(Timers, SetTimers),
+    {ok, _} = ergw_config:put(path_management, NewTimers).

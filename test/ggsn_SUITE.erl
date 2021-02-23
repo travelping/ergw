@@ -571,12 +571,12 @@ init_per_testcase(cache_timeout, Config) ->
     end;
 init_per_testcase(gy_validity_timer, Config) ->
     setup_per_testcase(Config),
-    set_online_charging(true),
+    ergw_test_lib:set_online_charging(true),
     load_ocs_config('Initial-OCS-VT', 'Update-OCS-VT'),
     Config;
 init_per_testcase(gy_async_stop, Config) ->
     setup_per_testcase(Config),
-    set_online_charging(true),
+    ergw_test_lib:set_online_charging(true),
     load_ocs_config('Initial-OCS-VT', 'Update-OCS-Fail'),
     Config;
 init_per_testcase(TestCase, Config)
@@ -584,33 +584,33 @@ init_per_testcase(TestCase, Config)
        TestCase == gy_ccr_asr_overlap;
        TestCase == volume_threshold ->
     setup_per_testcase(Config),
-    set_online_charging(true),
+    ergw_test_lib:set_online_charging(true),
     load_ocs_config('Initial-OCS', 'Update-OCS'),
     Config;
 init_per_testcase(TestCase, Config)
   when TestCase == gx_rar_gy_interaction ->
     setup_per_testcase(Config),
-    set_online_charging(true),
-    load_aaa_answer_config([{{gy, 'CCR-Initial'}, 'Initial-OCS'},
+    ergw_test_lib:set_online_charging(true),
+    ergw_test_lib:load_aaa_answer_config([{{gy, 'CCR-Initial'}, 'Initial-OCS'},
 			    {{gy, 'CCR-Update'},  'Update-OCS-GxGy'}]),
     Config;
 %% init_per_testcase(TestCase, Config)
 %%   when TestCase == gx_rar ->
 %%     setup_per_testcase(Config),
-%%     load_aaa_answer_config([{{gy, 'CCR-Initial'}, 'Initial-OCS'},
+%%     ergw_test_lib:load_aaa_answer_config([{{gy, 'CCR-Initial'}, 'Initial-OCS'},
 %%			    {{gy, 'CCR-Update'},  'Update-OCS'}]),
 %%     Config;
 init_per_testcase(gx_invalid_charging_rulebase, Config) ->
     setup_per_testcase(Config),
-    load_aaa_answer_config([{{gx, 'CCR-Initial'}, 'Initial-Gx-Fail-1'}]),
+    ergw_test_lib:load_aaa_answer_config([{{gx, 'CCR-Initial'}, 'Initial-Gx-Fail-1'}]),
     Config;
 init_per_testcase(gx_invalid_charging_rule, Config) ->
     setup_per_testcase(Config),
-    load_aaa_answer_config([{{gx, 'CCR-Initial'}, 'Initial-Gx-Fail-2'}]),
+    ergw_test_lib:load_aaa_answer_config([{{gx, 'CCR-Initial'}, 'Initial-Gx-Fail-2'}]),
     Config;
 %% gtp 'Idle-Timeout' reduced to 300ms for test purposes
 init_per_testcase(gtp_idle_timeout, Config) ->
-    set_apn_key('Idle-Timeout', 300),
+    ergw_test_lib:set_apn_key('Idle-Timeout', 300),
     setup_per_testcase(Config),
     Config;
 init_per_testcase(_, Config) ->
@@ -625,7 +625,7 @@ end_per_testcase(Config) ->
 
     AppsCfg = proplists:get_value(aaa_cfg, Config),
     ok = application:set_env(ergw_aaa, apps, AppsCfg),
-    set_online_charging(false),
+    ergw_test_lib:set_online_charging(false),
     ok.
 
 end_per_testcase(TestCase, Config)
@@ -667,7 +667,7 @@ end_per_testcase(create_pdp_context_overload, Config) ->
     Config;
 %% gtp 'Idle-Timeout' reset to default 28800000ms ~8 hrs
 end_per_testcase(gtp_idle_timeout, Config) ->
-    set_apn_key('Idle-Timeout', 28800000),
+    ergw_test_lib:set_apn_key('Idle-Timeout', 28800000),
     end_per_testcase(Config),
     Config;
 end_per_testcase(_, Config) ->
@@ -2706,69 +2706,9 @@ pfcp_sx_association_metric(_Config) ->
 %%% Internal functions
 %%%===================================================================
 
-maps_recusive_merge(Key, Value, Map) ->
-    maps:update_with(Key, fun(V) -> maps_recusive_merge(V, Value) end, Value, Map).
-
-maps_recusive_merge(M1, M2)
-  when is_map(M1) andalso is_map(M1) ->
-    maps:fold(fun maps_recusive_merge/3, M1, M2);
-maps_recusive_merge(_, New) ->
-    New.
-
-cfg_get_value([], Cfg) ->
-    Cfg;
-cfg_get_value([H|T], Cfg) when is_map(Cfg) ->
-    cfg_get_value(T, maps:get(H, Cfg));
-cfg_get_value([H|T], Cfg) when is_list(Cfg) ->
-    cfg_get_value(T, proplists:get_value(H, Cfg)).
-
 load_ocs_config(Initial, Update) ->
-    load_aaa_answer_config([{{gy, 'CCR-Initial'}, Initial},
-			    {{gy, 'CCR-Update'},  Update}]).
-
-load_aaa_answer_config(AnswerCfg) ->
-    {ok, Cfg0} = application:get_env(ergw_aaa, apps),
-    Session = cfg_get_value([default, session, 'Default'], Cfg0),
-    Answers =
-	[{Proc, [{'Default', Session#{answer => Answer}}]}
-	 || {Proc, Answer} <- AnswerCfg],
-    UpdCfg =
-	#{default =>
-	      #{procedures => maps:from_list(Answers)}},
-    Cfg = maps_recusive_merge(Cfg0, UpdCfg),
-    ok = application:set_env(ergw_aaa, apps, Cfg).
-
-set_online_charging([], true, Cfg)
-  when is_map(Cfg) ->
-    maps:put('Online', [1], Cfg);
-set_online_charging([], _, Cfg)
-  when is_map(Cfg) ->
-    maps:remove('Online', Cfg);
-set_online_charging([], _, Cfg) ->
-    Cfg;
-
-set_online_charging([Key|Next], Set, [{_, _}|_] = Cfg)
-  when Key =:= '_' ->
-    lists:map(
-      fun({K, V}) -> {K, set_online_charging(Next, Set, V)} end, Cfg);
-set_online_charging([Key|Next], Set, [{_, _}|_] = Cfg) ->
-    New = {Key, set_online_charging(Next, Set, proplists:get_value(Key, Cfg))},
-    lists:keystore(Key, 1, Cfg, New);
-%% set_online_charging(_, _Set, Cfg) when is_list(Cfg) ->
-%%     Cfg;
-
-set_online_charging([Key|Next], Set, Cfg)
-  when Key =:= '_', is_map(Cfg) ->
-    maps:map(
-      fun(_, V) -> set_online_charging(Next, Set, V) end, Cfg);
-set_online_charging([Key|Next], Set, Cfg)
-  when is_map(Cfg) ->
-    Cfg#{Key => set_online_charging(Next, Set, maps:get(Key, Cfg))}.
-
-set_online_charging(Set) ->
-    {ok, Cfg0} = application:get_env(ergw, charging),
-    Cfg = set_online_charging(['_', rule, '_'], Set, Cfg0),
-    ok = application:set_env(ergw, charging, Cfg).
+    ergw_test_lib:load_aaa_answer_config([{{gy, 'CCR-Initial'}, Initial},
+					  {{gy, 'CCR-Update'},  Update}]).
 
 socket_counter_metrics() ->
     Metrics =
@@ -2798,10 +2738,3 @@ socket_counter_metrics_ok_value(Metrics, Part) ->
 
 socket_counter_metrics_ok_value_0([Value]) -> Value;
 socket_counter_metrics_ok_value_0([]) -> 0.
-
-%% Set APN key data
-set_apn_key(Key, Value) ->
-    {ok, APNs0} = application:get_env(ergw, apns),
-    Upd = fun(_APN, Val_map) -> maps:put(Key, Value, Val_map) end,
-    APNs = maps:map(Upd, APNs0),
-    ok = application:set_env(ergw, apns, APNs).

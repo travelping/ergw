@@ -80,7 +80,7 @@ system_info(Arg) ->
 
 system_info(accept_new, New) when is_boolean(New) ->
     Old = get_accept_new(),
-    ok = application:set_env(ergw, accept_new, New),
+    ok = ergw_config:put(accept_new, New),
     Old;
 system_info(Key, Value) ->
     error(badarg, [Key, Value]).
@@ -229,7 +229,6 @@ init([Config]) ->
 
     ets:new(?SERVER, [ordered_set, named_table, public,
 		      {keypos, 2}, {read_concurrency, true}]),
-    load_config(Config),
 
     Pid = proc_lib:spawn_link(fun startup/0),
     {ok, startup, #{init => Now, config => Config, startup => Pid}}.
@@ -283,9 +282,3 @@ startup() ->
 	    init:wait_until_started()
     end,
     exit(ergw_cluster:start()).
-
-load_config(Config) ->
-    maps:map(fun load_config/2, Config).
-
-load_config(Key, Value) ->
-    ok = application:set_env(ergw, Key, Value).

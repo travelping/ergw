@@ -567,7 +567,8 @@ make_gy_credit_request(Ev, Add, CreditsNeeded) ->
 %%%===================================================================
 
 apn(APN) ->
-    apn(APN, application:get_env(ergw, apns, #{})).
+    {ok, APNs} = ergw_config:get([apns]),
+    apn(APN, APNs).
 
 apn([H|_] = APN0, APNs) when is_binary(H) ->
     APN = gtp_c_lib:normalize_labels(APN0),

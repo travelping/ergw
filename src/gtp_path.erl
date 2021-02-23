@@ -62,7 +62,7 @@ maybe_new_path(Socket, Version, RemoteIP) ->
 	Path when is_pid(Path) ->
 	    Path;
 	_ ->
-	    {ok, Args} = application:get_env(ergw, path_management),
+	    {ok, Args} = ergw_config:get([path_management]),
 	    {ok, Path} = gtp_path_sup:new_path(Socket, Version, RemoteIP, Args),
 	    Path
     end.

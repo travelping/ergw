@@ -21,7 +21,6 @@
 -include_lib("kernel/include/logger.hrl").
 
 -define(SERVER, ?MODULE).
--define(App, ergw).
 
 -define(ResponseKeys, [imsi, msisdn, apn, context, gwSelectionAPN, upfSelectionAPN]).
 
@@ -90,16 +89,19 @@ config_meta() ->
 %%% gen_server callbacks
 %%%===================================================================
 
+
 init([]) ->
-    Meta = ergw_config:normalize_meta(config_meta()),
-    Config = application:get_env(?App, proxy_map, #{}),
-    true = ergw_config:validate_config([proxy_map], Meta, Config),
-    {ok, Config}.
+    {ok, {state}}.
 
 handle_call({map, #{imsi := IMSI, apn := APN} = PI0}, _From, State) ->
-    PI1 = maps:merge(PI0, maps:get(IMSI, maps:get(imsi, State, #{}), #{})),
+    Config =
+	case ergw_config:get([proxy_map]) of
+	    {ok, Cfg} -> Cfg;
+	    _ -> #{}
+	end,
+    PI1 = maps:merge(PI0, maps:get(IMSI, maps:get(imsi, Config, #{}), #{})),
     PI =
-	case ergw_gsn_lib:apn(APN, maps:get(apn, State, undefined)) of
+	case ergw_gsn_lib:apn(APN, maps:get(apn, Config, undefined)) of
 	    {ok, DstAPN} -> PI1#{apn => DstAPN};
 	    {error, _}   -> PI1
 	end,

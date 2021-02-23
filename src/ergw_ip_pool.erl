@@ -115,8 +115,8 @@ static_ip_info(opts,   _) -> #{};
 static_ip_info(release, _) -> ok.
 
 with_pool(Pool, Fun) ->
-    case application:get_env(ip_pools) of
-	{ok, #{Pool := #{handler := Handler}}} ->
+    case ergw_config:get([ip_pools, Pool]) of
+	{ok, #{handler := Handler}} ->
 	    Fun(Handler);
 	_ ->
 	    {error, not_found}

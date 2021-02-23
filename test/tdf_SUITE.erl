@@ -446,8 +446,8 @@ init_per_testcase(setup_upf, Config) ->
      {aaa_cfg, AppsCfg} | Config];
 init_per_testcase(gy_validity_timer, Config0) ->
     Config = setup_per_testcase(Config0),
-    set_online_charging(true),
-    load_aaa_answer_config([{{gy, 'CCR-Initial'}, 'Initial-OCS-VT'},
+    ergw_test_lib:set_online_charging(true),
+    ergw_test_lib:load_aaa_answer_config([{{gy, 'CCR-Initial'}, 'Initial-OCS-VT'},
 			    {{gy, 'CCR-Update'},  'Update-OCS-VT'}]),
     Config;
 init_per_testcase(TestCase, Config0)
@@ -455,32 +455,32 @@ init_per_testcase(TestCase, Config0)
        TestCase == gy_ccr_asr_overlap;
        TestCase == volume_threshold ->
     Config = setup_per_testcase(Config0),
-    set_online_charging(true),
-    load_aaa_answer_config([{{gy, 'CCR-Initial'}, 'Initial-OCS'},
+    ergw_test_lib:set_online_charging(true),
+    ergw_test_lib:load_aaa_answer_config([{{gy, 'CCR-Initial'}, 'Initial-OCS'},
 			    {{gy, 'CCR-Update'},  'Update-OCS'}]),
     Config;
 init_per_testcase(TestCase, Config0)
   when TestCase == gx_rar_gy_interaction ->
     Config = setup_per_testcase(Config0),
-    set_online_charging(true),
-    load_aaa_answer_config([{{gy, 'CCR-Initial'}, 'Initial-OCS'},
+    ergw_test_lib:set_online_charging(true),
+    ergw_test_lib:load_aaa_answer_config([{{gy, 'CCR-Initial'}, 'Initial-OCS'},
 			    {{gy, 'CCR-Update'},  'Update-OCS-GxGy'}]),
     Config;
 init_per_testcase(gx_invalid_charging_rulebase, Config0) ->
     Config = setup_per_testcase(Config0),
-    load_aaa_answer_config([{{gx, 'CCR-Initial'}, 'Initial-Gx-Fail-1'}]),
+    ergw_test_lib:load_aaa_answer_config([{{gx, 'CCR-Initial'}, 'Initial-Gx-Fail-1'}]),
     Config;
 init_per_testcase(gx_invalid_charging_rule, Config0) ->
     Config = setup_per_testcase(Config0),
-    load_aaa_answer_config([{{gx, 'CCR-Initial'}, 'Initial-Gx-Fail-2'}]),
+    ergw_test_lib:load_aaa_answer_config([{{gx, 'CCR-Initial'}, 'Initial-Gx-Fail-2'}]),
     Config;
 init_per_testcase(redirect_info, Config0) ->
     Config = setup_per_testcase(Config0),
-    load_aaa_answer_config([{{gx, 'CCR-Initial'}, 'Initial-Gx-Redirect'}]),
+    ergw_test_lib:load_aaa_answer_config([{{gx, 'CCR-Initial'}, 'Initial-Gx-Redirect'}]),
     Config;
 init_per_testcase(tdf_app_id, Config0) ->
     Config = setup_per_testcase(Config0),
-    load_aaa_answer_config([{{gx, 'CCR-Initial'}, 'Initial-Gx-TDF-App'}]),
+    ergw_test_lib:load_aaa_answer_config([{{gx, 'CCR-Initial'}, 'Initial-Gx-TDF-App'}]),
     Config;
 init_per_testcase(_, Config) ->
     setup_per_testcase(Config).
@@ -488,7 +488,7 @@ init_per_testcase(_, Config) ->
 end_per_testcase(Config) ->
     AppsCfg = proplists:get_value(aaa_cfg, Config),
     ok = application:set_env(ergw_aaa, apps, AppsCfg),
-    set_online_charging(false),
+    ergw_test_lib:set_online_charging(false),
     ok.
 
 end_per_testcase(TestCase, Config)
@@ -1857,66 +1857,6 @@ packet_in(Config) ->
 	   ue_ip_address(src, Config)],
     MatchSpec = ets:fun2ms(fun({Id, {'tdf', V}}) when V =:= VRF -> Id end),
     ergw_test_sx_up:usage_report('tdf-u', PCtx, MatchSpec, IEs).
-
-maps_recusive_merge(Key, Value, Map) ->
-    maps:update_with(Key, fun(V) -> maps_recusive_merge(V, Value) end, Value, Map).
-
-maps_recusive_merge(M1, M2)
-  when is_map(M1) andalso is_map(M1) ->
-    maps:fold(fun maps_recusive_merge/3, M1, M2);
-maps_recusive_merge(_, New) ->
-    New.
-
-cfg_get_value([], Cfg) ->
-    Cfg;
-cfg_get_value([H|T], Cfg) when is_map(Cfg) ->
-    cfg_get_value(T, maps:get(H, Cfg));
-cfg_get_value([H|T], Cfg) when is_list(Cfg) ->
-    cfg_get_value(T, proplists:get_value(H, Cfg)).
-
-load_aaa_answer_config(AnswerCfg) ->
-    {ok, Cfg0} = application:get_env(ergw_aaa, apps),
-    Session = cfg_get_value([default, session, 'Default'], Cfg0),
-    Answers =
-	[{Proc, [{'Default', Session#{answer => Answer}}]}
-	 || {Proc, Answer} <- AnswerCfg],
-    UpdCfg =
-	#{default =>
-	      #{procedures => maps:from_list(Answers)}},
-    Cfg = maps_recusive_merge(Cfg0, UpdCfg),
-    ok = application:set_env(ergw_aaa, apps, Cfg).
-
-set_online_charging([], true, Cfg)
-  when is_map(Cfg) ->
-    maps:put('Online', [1], Cfg);
-set_online_charging([], _, Cfg)
-  when is_map(Cfg) ->
-    maps:remove('Online', Cfg);
-set_online_charging([], _, Cfg) ->
-    Cfg;
-
-set_online_charging([Key|Next], Set, [{_, _}|_] = Cfg)
-  when Key =:= '_' ->
-    lists:map(
-      fun({K, V}) -> {K, set_online_charging(Next, Set, V)} end, Cfg);
-set_online_charging([Key|Next], Set, [{_, _}|_] = Cfg) ->
-    New = {Key, set_online_charging(Next, Set, proplists:get_value(Key, Cfg))},
-    lists:keystore(Key, 1, Cfg, New);
-%% set_online_charging(_, _Set, Cfg) when is_list(Cfg) ->
-%%     Cfg;
-
-set_online_charging([Key|Next], Set, Cfg)
-  when Key =:= '_', is_map(Cfg) ->
-    maps:map(
-      fun(_, V) -> set_online_charging(Next, Set, V) end, Cfg);
-set_online_charging([Key|Next], Set, Cfg)
-  when is_map(Cfg) ->
-    Cfg#{Key => set_online_charging(Next, Set, maps:get(Key, Cfg))}.
-
-set_online_charging(Set) ->
-    {ok, Cfg0} = application:get_env(ergw, charging),
-    Cfg = set_online_charging(['_', rule, '_'], Set, Cfg0),
-    ok = application:set_env(ergw, charging, Cfg).
 
 stop_session(Pid) when is_pid(Pid) ->
     Pid ! {update_session, #{}, [stop]}.

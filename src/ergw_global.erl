@@ -8,10 +8,11 @@
 -module(ergw_global).
 -behaviour(ra_machine).
 
+-compile({parse_transform, cut}).
 -compile({no_auto_import,[apply/3]}).
 
 %% API
--export([ping/0, get/1, put/2]).
+-export([ping/0, get/1, put/2, find/1]).
 %-export([ping/1, get/2, put/3, delete/2, delete/3, all/1]).
 
 % ra_machine callbacks
@@ -41,6 +42,17 @@ get(Key) ->
 			     fun(State) ->
 				     maps:get(Key, State, undefined)
 			     end) of
+	{ok, Value, _} ->
+	    Value;
+	{timeout, _} ->
+	    timeout;
+	{error, nodedown} ->
+	    error
+    end.
+
+find(Query) ->
+    ServerRef = {ergw_cluster:get_ra_node_id(), node()},
+    case ra:consistent_query(ServerRef, find_query(Query, _)) of
 	{ok, Value, _} ->
 	    Value;
 	{timeout, _} ->
@@ -114,3 +126,10 @@ release_cursor(Index, Every) ->
 	_ ->
 	    do_not_release_cursor
     end.
+
+find_query([], Config) ->
+    {ok, Config};
+find_query([K|Next], Config) when is_map_key(K, Config) ->
+    find_query(Next, maps:get(K, Config));
+find_query(_, _) ->
+    false.
