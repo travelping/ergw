@@ -91,11 +91,9 @@ send_response(ReqKey, Msg, DoCache) ->
 id() ->
     gen_server:call(?SERVER, id).
 
-
 seid() ->
-    %% 64bit unique id, inspired by https://github.com/fogfish/uid
-    ((erlang:monotonic_time(millisecond) band 16#3ffffffffffff) bsl 14) bor
-	(erlang:unique_integer([positive]) band 16#3fff).
+    %% default exsss (as of OTP 23) has a period of 2^116-1, should be safe...
+    rand:uniform(16#ffff_ffff_ffff_ffff).
 
 %%%===================================================================
 %%% Options Validation
