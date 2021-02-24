@@ -740,15 +740,6 @@ maps_key_length(Key, Map) when is_map(Map) ->
 %%% Config Tweaking Helpers
 %%%===================================================================
 
-maps_recusive_merge(Key, Value, Map) ->
-    maps:update_with(Key, fun(V) -> maps_recusive_merge(V, Value) end, Value, Map).
-
-maps_recusive_merge(M1, M2)
-  when is_map(M1) andalso is_map(M1) ->
-    maps:fold(fun maps_recusive_merge/3, M1, M2);
-maps_recusive_merge(_, New) ->
-    New.
-
 cfg_get_value([], Cfg) ->
     Cfg;
 cfg_get_value([H|T], Cfg) when is_map(Cfg) ->
@@ -765,7 +756,7 @@ load_aaa_answer_config(AnswerCfg) ->
     UpdCfg =
 	#{default =>
 	      #{procedures => maps:from_list(Answers)}},
-    Cfg = maps_recusive_merge(Cfg0, UpdCfg),
+    Cfg = ergw_config:merge(Cfg0, UpdCfg),
     ok = application:set_env(ergw_aaa, apps, Cfg).
 
 set_online_charging([], true, Cfg)
@@ -797,5 +788,5 @@ set_apn_key(Key, Value) ->
 % Set Timers for Path management
 set_path_timers(SetTimers) ->
     {ok, Timers} = ergw_config:get([path_management]),
-    NewTimers = maps_recusive_merge(Timers, SetTimers),
+    NewTimers = ergw_config:merge(Timers, SetTimers),
     {ok, _} = ergw_config:put(path_management, NewTimers).

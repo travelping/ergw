@@ -42,7 +42,7 @@
 -ignore_xref([serialize_schema/0]).
 
 -ifdef(TEST).
--export([config_meta/0, load_schemas/0,	validate_config/1]).
+-export([config_meta/0, load_schemas/0, validate_config/1, merge/2]).
 -endif.
 
 -type(meta() :: term()).
@@ -62,9 +62,6 @@
     {node_selection, default},
     {heartbeat, []},
     {request, []}]).
-
--define(NodeDefaultHeartbeat, [{interval, 5000}, {timeout, 500}, {retry, 5}]).
--define(NodeDefaultRequest, [{timeout, 30000}, {retry, 5}]).
 
 -define(is_opts(X), (is_list(X) orelse is_map(X))).
 -define(non_empty_opts(X), ((is_list(X) andalso length(X) /= 0) orelse
@@ -177,6 +174,16 @@ load_schemas() ->
 	      Terms
       end).
 
+merge(Key, Value, Map) ->
+    maps:update_with(Key, fun(V) -> merge(V, Value) end, Value, Map).
+
+%% like maps:merge/2, but decend into maps
+merge(Map1, Map2)
+  when is_map(Map1) andalso is_map(Map1) ->
+    maps:fold(fun merge/3, Map1, Map2);
+merge(_, Value2) ->
+    Value2.
+
 %%%===================================================================
 %%% config metadata
 %%%===================================================================
@@ -213,20 +220,20 @@ config_meta_nodes() ->
 		{flag, atom, ['Access', 'Core', 'SGi-LAN', 'CP-Function', 'LI Function', 'TDF-Source']}
 	   },
     Heartbeat = #{
-		  interval => timeout,
-		  timeout => timeout,
-		  retry => integer
+		  interval => {timeout, 5000},
+		  timeout => {timeout, 500},
+		  retry => {integer, 5}
 		 },
     Request = #{
-		timeout => timeout,
-		retry => integer
+		timeout => {timeout, 30000},
+		retry => {integer, 5}
 	       },
     Default = #{
 		vrfs           => {{klist, {name, vrf}, VRF}, #{}},
-		ip_pools       => {list, binary},
-		node_selection => binary,
-		heartbeat      => Heartbeat,
-		request        => Request
+		ip_pools       => {{list, binary}, []},
+		node_selection => {binary, <<"default">>},
+		heartbeat      => {Heartbeat, #{}},
+		request        => {Request, #{}}
 	       },
     Node =
 	Default#{
@@ -670,17 +677,12 @@ to_map(Type, V) when is_list(V) ->
 
 %% processing
 
-merge_default(Config, Default) when is_map(Config), is_map(Default) ->
-    maps:merge(Default, Config);
-merge_default(Config, _) ->
-    Config.
-
 coerce_config(Config) ->
     Meta = config_meta(),
     coerce_config(Meta, Config).
 
 coerce_config(#cnf_value{default = Default} = Type, V) ->
-    merge_default(coerce_config_type(Type, V), Default).
+    merge(Default, coerce_config_type(Type, V)).
 
 coerce_config_type(#cnf_value{type = Type}, V) when is_atom(Type) ->
     #cnf_type{coerce = F} = get_typespec(Type),
@@ -716,7 +718,7 @@ from_apn(APN) ->
 from_timeout(Timeout) when not is_integer(Timeout) ->
     Timeout;
 from_timeout(0) ->
-    #{timeout => 0};
+    #{timeout => 0, unit => millisecond};
 from_timeout(Timeout) ->
     from_timeout(Timeout, [{millisecond, 1000},
 			   {second, 60},
