@@ -225,6 +225,7 @@
         }
     ],
     "upf_nodes": {
+	"required_upff": ["ftup", "treu", "empu"],
         "default": {
             "heartbeat": {
                 "interval": {

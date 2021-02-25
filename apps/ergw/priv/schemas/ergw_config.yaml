@@ -687,6 +687,50 @@ properties:
   upf_nodes:
     type: object
     properties:
+      required_upff:
+        type: array
+        items:
+          type: string
+          enum:
+            - treu
+            - heeu
+            - pfdm
+            - ftup
+            - trst
+            - dlbd
+            - ddnd
+            - bucp
+            - epfar
+            - pfde
+            - frrt
+            - trace
+            - quoac
+            - udbc
+            - pdiu
+            - empu
+            - gcom
+            - bundl
+            - mte
+            - mnop
+            - sset
+            - ueip
+            - adpdp
+            - dpdra
+            - mptcp
+            - tscu
+            - ip6pl
+            - iptv
+            - norp
+            - vtime
+            - rttl
+            - mpas
+            - ethar
+            - ciot
+            - mt_edt
+            - gpqm
+            - qfqm
+            - atsss_ll
+
       default:
         type: object
         properties:
