@@ -977,24 +977,40 @@ pdn_pco(_SessionOpts, _RequestIEs, IE) ->
 context_charging_id(#context{charging_identifier = ChargingId}) ->
     #v2_charging_id{id = <<ChargingId:32>>}.
 
-bearer_context(EBI, Bearer, Context, IEs) ->
-    maps:fold(bearer_context(EBI, _, _, Context, _), IEs, Bearer).
+bearer_qos_profile(#{'QoS-Information' :=
+			 #{'QoS-Class-Identifier' := Label,
+			   'Max-Requested-Bandwidth-UL' := MBR4ul,
+			   'Max-Requested-Bandwidth-DL' := MBR4dl,
+			   'Guaranteed-Bitrate-UL' := GBR4ul,
+			   'Guaranteed-Bitrate-DL' := GBR4dl,
 
-bearer_context(EBI, left, Bearer, Context, IEs) ->
-    IE = #v2_bearer_context{
-	    group=[#v2_cause{v2_cause = request_accepted},
-		   context_charging_id(Context),
-		   EBI,
-		   #v2_bearer_level_quality_of_service{
-		      pl=15,
-		      pvi=0,
-		      label=9,maximum_bit_rate_for_uplink=0,
-		      maximum_bit_rate_for_downlink=0,
-		      guaranteed_bit_rate_for_uplink=0,
-		      guaranteed_bit_rate_for_downlink=0},
-		   s5s8_pgw_gtp_u_tei(Bearer)]},
-    [IE | IEs];
-bearer_context(_, _, _, _, IEs) ->
+			   'Allocation-Retention-Priority' :=
+			       #{'Priority-Level' := PL,
+				 'Pre-emption-Capability' := PCI,
+				 'Pre-emption-Vulnerability' := PVI}}}, IE) ->
+    QoS = #v2_bearer_level_quality_of_service{
+	     pci = PCI, pl = PL, pvi = PVI, label = Label,
+	     maximum_bit_rate_for_uplink = MBR4ul div 1000,
+	     maximum_bit_rate_for_downlink = MBR4dl div 1000,
+	     guaranteed_bit_rate_for_uplink = GBR4ul div 1000,
+	     guaranteed_bit_rate_for_downlink = GBR4dl div 1000
+	    },
+    [QoS | IE];
+bearer_qos_profile(_SessionOpts, IE) ->
+    IE.
+
+bearer_context(SessionOpts, EBI, Bearer, Context, IEs) ->
+    maps:fold(bearer_context(SessionOpts, EBI, _, _, Context, _), IEs, Bearer).
+
+bearer_context(SessionOpts, EBI, left, Bearer, Context, IEs) ->
+    BearerCtx0 =
+	[#v2_cause{v2_cause = request_accepted},
+	 context_charging_id(Context),
+	 EBI,
+	 s5s8_pgw_gtp_u_tei(Bearer)],
+     BearerCtx = bearer_qos_profile(SessionOpts, BearerCtx0),
+   [#v2_bearer_context{group = BearerCtx} | IEs];
+bearer_context(_, _, _, _, _, IEs) ->
     IEs.
 
 fq_teid(Instance, Type, TEI, {_,_,_,_} = IP) ->
@@ -1071,7 +1087,7 @@ create_session_response(Cause, SessionOpts, RequestIEs, EBI,
 			Tunnel, Bearer,
 			#context{ms_ip = #ue_ip{v4 = MSv4, v6 = MSv6}} = Context) ->
 
-    IE0 = bearer_context(EBI, Bearer, Context, []),
+    IE0 = bearer_context(SessionOpts, EBI, Bearer, Context, []),
     IE1 = pdn_pco(SessionOpts, RequestIEs, IE0),
     IE2 = change_reporting_actions(RequestIEs, IE1),
 
