@@ -15,7 +15,7 @@
 %% API
 -export([request_connect/3, request_connect/5, wait_connect/1,
 	 attach/1, attach_tdf/2, notify_up/2,
-	 set_defaults/1, add_sx_node/2]).
+	 set_defaults/1, set_required_upff/1, add_sx_node/2]).
 -export([start_link/5, send/4, call/2,
 	 handle_request/3, response/3]).
 -export([validate_options/2, validate_defaults/1]).
@@ -43,7 +43,8 @@
 -include("ergw_core_config.hrl").
 -include("include/ergw.hrl").
 
--record(data, {cfg,
+-record(data, {required_upff,
+	       cfg,
 	       mode = transient  :: 'transient' | 'persistent',
 	       node_select       :: atom(),
 	       retries = 0       :: non_neg_integer(),
@@ -150,6 +151,11 @@ handle_request_fun(ReqKey, #pfcp{type = session_report_request} = Report) ->
 set_defaults(Opts0) ->
     Opts = ergw_sx_node:validate_defaults(Opts0),
     ergw_core_config:put(up_node_defaults, Opts).
+
+set_required_upff(Opts) when is_record(Opts, up_function_features) ->
+    ergw_core_config:put(up_required_feature, Opts);
+set_required_upff(Opts) ->
+    error(badarg, [Opts]).
 
 add_sx_node(Name, Opts0) ->
     Opts = validate_options(Name, Opts0),
@@ -319,6 +325,8 @@ init([Parent, Node, NodeSelect, IP4, IP6, NotifyUp]) ->
 	 #seid_key{seid = SEID}],
     gtp_context_reg:register(RegKeys, ?MODULE, self()),
 
+    {ok, ReqUpFF} =
+	ergw_core_config:get([up_required_feature], #up_function_features{_ = '_'}),
     {ok, Default} = ergw_core_config:get([up_node_defaults], #{}),
     Cfg = case ergw_core_config:get([nodes, Node], Default) of
 	      {ok, Cfg0} -> Cfg0;
@@ -326,7 +334,8 @@ init([Parent, Node, NodeSelect, IP4, IP6, NotifyUp]) ->
 	  end,
 
     IP = select_node_ip(IP4, IP6),
-    Data0 = #data{cfg = maps:merge(Default, Cfg),
+    Data0 = #data{required_upff = ReqUpFF,
+		  cfg = maps:merge(Default, Cfg),
 		  mode = mode(Cfg),
 		  node_select = NodeSelect,
 		  retries = 0,
@@ -412,14 +421,13 @@ handle_event(cast, {response, association_setup_request, Error},
     {next_state, dead, Data#data{retries = Retries + 1}};
 
 handle_event(cast, {response, _, #pfcp{version = v1, type = association_setup_response, ie = IEs}},
-	     connecting, Data0) ->
+	     connecting, Data) ->
     case IEs of
 	#{pfcp_cause := #pfcp_cause{cause = 'Request accepted'}} ->
-	    Data = handle_nodeup(IEs, Data0),
-	    {next_state, {connected, init}, Data};
+	    handle_nodeup(IEs, Data);
 	Other ->
 	    ?LOG(debug, "Other: ~p", [Other]),
-	    {next_state, dead, Data0}
+	    {next_state, dead, Data}
     end;
 
 handle_event(cast, {send, 'Access', _VRF, Data}, {connected, _},
@@ -789,21 +797,45 @@ heartbeat_response(ReqKey, #pfcp{type = heartbeat_request} = Request) ->
     ergw_sx_socket:send_response(ReqKey, Response, true).
 
 handle_nodeup(#{recovery_time_stamp := #recovery_time_stamp{time = RecoveryTS}} = IEs,
-	      #data{pfcp_ctx = PNodeCtx,
+	      #data{required_upff = ReqUpFF,
+		    pfcp_ctx = PNodeCtx,
 		    dp = #node{node = Node, ip = IP},
 		    vrfs = VRFs} = Data0) ->
     ?LOG(debug, "Node ~s (~s) is up", [Node, inet:ntoa(IP)]),
     ?LOG(debug, "Node IEs: ~s", [pfcp_packet:pretty_print(IEs)]),
 
     UPFeatures = maps:get(up_function_features, IEs, #up_function_features{_ = 0}),
-    UPIPResInfo = maps:get(user_plane_ip_resource_information, IEs, []),
-    Data = Data0#data{
-	     pfcp_ctx = PNodeCtx#pfcp_ctx{features = UPFeatures},
-	     recovery_ts = RecoveryTS,
-	     features = UPFeatures,
-	     vrfs = init_vrfs(VRFs, UPIPResInfo)
-	    },
-    install_cp_rules(Data).
+    case validate_up_features(UPFeatures, ReqUpFF) of
+	true ->
+	    UPIPResInfo = maps:get(user_plane_ip_resource_information, IEs, []),
+	    Data1 = Data0#data{
+		     pfcp_ctx = PNodeCtx#pfcp_ctx{features = UPFeatures},
+		     recovery_ts = RecoveryTS,
+		     features = UPFeatures,
+		     vrfs = init_vrfs(VRFs, UPIPResInfo)
+		    },
+	    Data = install_cp_rules(Data1),
+	    {next_state, {connected, init}, Data};
+	{H, Got, Wanted} ->
+	    ?LOG(critical, "~s UP Function Feature, wanted ~p to be ~p, got ~p",
+		 [inet:ntoa(IP), H, Wanted, Got]),
+	    {next_state, dead, Data0}
+    end.
+
+validate_up_features(UpFF, ReqUpFF) ->
+    validate_up_ff(
+      ergw_config:'#info-'(up_function_features),
+      tl(tuple_to_list(UpFF)),
+      tl(tuple_to_list(ReqUpFF))).
+
+validate_up_ff(_, List, List) ->
+    true;
+validate_up_ff([_|T], [V|UpFF], [V|ReqUpFF]) ->
+    validate_up_ff(T, UpFF, ReqUpFF);
+validate_up_ff([_|T], [_|UpFF], ['_'|ReqUpFF]) ->
+    validate_up_ff(T, UpFF, ReqUpFF);
+validate_up_ff([H|_], [Got|_], [Wanted|_]) ->
+    {H, Got, Wanted}.
 
 init_node_cfg(#data{cfg = Cfg} = Data) ->
     Data#data{

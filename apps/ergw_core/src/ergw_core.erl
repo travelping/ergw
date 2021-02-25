@@ -40,6 +40,7 @@
 	 terminate/3, code_change/4]).
 
 -include_lib("kernel/include/logger.hrl").
+-include_lib("pfcplib/include/pfcp_packet.hrl").
 -include("ergw_core_config.hrl").
 -include("include/ergw.hrl").
 
@@ -114,12 +115,16 @@ setopts(node_selection = What, Opts0) ->
 setopts(sx_defaults = What, Opts0) ->
     Opts = ergw_sx_node:validate_defaults(Opts0),
     gen_statem:call(?SERVER, {setopts, What, Opts});
+setopts(required_upff = What, Opts) when is_record(Opts, up_function_features) ->
+    gen_statem:call(?SERVER, {setopts, What, Opts});
 setopts(path_management = What, Opts0) ->
     Opts = gtp_path:validate_options(Opts0),
     gen_statem:call(?SERVER, {setopts, What, Opts});
 setopts(proxy_map = What, Opts0) ->
     Opts = gtp_proxy_ds:validate_options(Opts0),
-    gen_statem:call(?SERVER, {setopts, What, Opts}).
+    gen_statem:call(?SERVER, {setopts, What, Opts});
+setopts(What, Opts) ->
+    error(badarg, [What, Opts]).
 
 %%
 %% Initialize a new PFCP, GTPv1/v2-c or GTPv1-u socket
@@ -378,6 +383,10 @@ handle_event({call, From}, {setopts, node_selection, Opts}, running, _) ->
 
 handle_event({call, From}, {setopts, sx_defaults, Opts}, running, _) ->
     Reply = ergw_sx_node:set_defaults(Opts),
+    {keep_state_and_data, [{reply, From, Reply}]};
+
+handle_event({call, From}, {setopts, required_upff, Opts}, running, _) ->
+    Reply = ergw_sx_node:set_required_upff(Opts),
     {keep_state_and_data, [{reply, From, Reply}]};
 
 handle_event({call, From}, {setopts, path_management, Opts}, running, _) ->

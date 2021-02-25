@@ -463,7 +463,8 @@ config_meta_nodes() ->
 		 raddr   => ip_address,
 		 rport   => integer
 		},
-    #{default => Default,
+    #{required_upff => upff,
+      default => Default,
       entries => {map, {name, binary}, Node}}.
 
 config_meta_path_management() ->
@@ -963,6 +964,11 @@ to_aaa_avp(K0, V0, M) ->
 to_aaa_avp(Map) when is_map(Map) ->
     maps:fold(fun to_aaa_avp/3, #{}, Map).
 
+to_upff(V) when is_list(V) ->
+    MinUpFF = #up_function_features{_ = '_'},
+    lists:foldl(
+      fun(X) -> to_atom(X) end, MinUpFF, V).
+
 %% complex types
 
 to_object(Meta, K, V)
@@ -1125,6 +1131,9 @@ from_aaa_avp(_K, Value) ->
 
 from_aaa_avp(Map) when is_map(Map) ->
     maps:fold(fun from_aaa_avp/3, #{}, Map).
+
+from_upff(V) ->
+    [X || X <- '#info-'(up_function_features), '#get-'(X, V) =:= 1].
 
 %% complex types
 
@@ -1338,6 +1347,11 @@ load_typespecs() ->
 	      #cnf_type{
 		 coerce = fun to_aaa_avp/1,
 		 serialize = fun from_aaa_avp/1
+		},
+	  upff =>
+	      #cnf_type{
+		 coerce    = fun to_upff/1,
+		 serialize = fun from_upff/1
 		}
 	 },
     register_typespec(Spec).
