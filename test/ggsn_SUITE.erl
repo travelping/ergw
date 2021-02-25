@@ -894,7 +894,7 @@ create_pdp_context_request_accept_new() ->
     [{doc, "Check the accept_new = false can block new contexts"}].
 create_pdp_context_request_accept_new(Config) ->
     ?equal(ergw:system_info(accept_new, false), true),
-    create_pdp_context(overload, Config),
+    create_pdp_context(reject_new, Config),
     ?equal(ergw:system_info(accept_new, true), false),
 
     ?equal([], outstanding_requests()),

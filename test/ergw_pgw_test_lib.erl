@@ -382,9 +382,18 @@ make_request(echo_request, _SubType,
     #gtp{version = v2, type = echo_request, tei = undefined,
 	 seq_no = SeqNo, ie = IEs};
 
-make_request(create_session_request, missing_ie,
+make_request(create_session_request, missing_sender_teid,
 	     #gtpc{restart_counter = RCnt, seq_no = SeqNo}) ->
     IEs = [#v2_recovery{restart_counter = RCnt}],
+    #gtp{version = v2, type = create_session_request, tei = 0,
+	 seq_no = SeqNo, ie = IEs};
+
+make_request(create_session_request, missing_ie,
+	     #gtpc{restart_counter = RCnt, seq_no = SeqNo,
+		   local_ip = LocalIP,
+		   local_control_tei = LocalCntlTEI}) ->
+    IEs = [#v2_recovery{restart_counter = RCnt},
+	   fq_teid(0, ?'S5/S8-C SGW', LocalCntlTEI, LocalIP)],
     #gtp{version = v2, type = create_session_request, tei = 0,
 	 seq_no = SeqNo, ie = IEs};
 
@@ -814,9 +823,17 @@ validate_response(_Type, invalid_teid, Response, GtpC) ->
 	   }, Response),
     GtpC;
 
-validate_response(create_session_request, missing_ie, Response, GtpC) ->
+validate_response(create_session_request, missing_sender_teid, Response, GtpC) ->
     validate_seq_no(Response, GtpC),
     validate_teid(Response, 0),
+    ?match(#gtp{type = create_session_response,
+		ie = #{{v2_cause,0} := #v2_cause{v2_cause = mandatory_ie_missing}}},
+	   Response),
+    GtpC;
+
+validate_response(create_session_request, missing_ie, Response, GtpC) ->
+    validate_seq_no(Response, GtpC),
+    validate_teid(Response, GtpC),
     ?match(#gtp{type = create_session_response,
 		ie = #{{v2_cause,0} := #v2_cause{v2_cause = mandatory_ie_missing}}},
 	   Response),
@@ -840,8 +857,16 @@ validate_response(create_session_request, overload, Response, GtpC) ->
     validate_seq_no(Response, GtpC),
 
     %% this is debatable, but decoding the request would require even more resources.
-    %% validate_teid(Response, GtpC),
     validate_teid(Response, 0),
+
+   ?match(#gtp{type = create_session_response,
+		ie = #{{v2_cause,0} := #v2_cause{v2_cause = no_resources_available}}},
+	  Response),
+    GtpC;
+
+validate_response(create_session_request, reject_new, Response, GtpC) ->
+    validate_seq_no(Response, GtpC),
+    validate_teid(Response, GtpC),
 
    ?match(#gtp{type = create_session_response,
 		ie = #{{v2_cause,0} := #v2_cause{v2_cause = no_resources_available}}},
