@@ -40,7 +40,8 @@
 -include_lib("pfcplib/include/pfcp_packet.hrl").
 -include("include/ergw.hrl").
 
--record(data, {cfg,
+-record(data, {required_upff,
+	       cfg,
 	       mode = transient  :: 'transient' | 'persistent',
 	       node_select       :: atom(),
 	       retries = 0       :: non_neg_integer(),
@@ -186,10 +187,12 @@ init([Parent, Node, NodeSelect, IP4, IP6, NotifyUp]) ->
 	 #seid_key{seid = SEID}],
     gtp_context_reg:register(RegKeys, ?MODULE, self()),
 
-    {ok, #{default := Default, entries := Nodes}} = ergw_config:get([nodes]),
+    {ok, #{default := Default, entries := Nodes, required_upff := ReqUpFF}} =
+	ergw_config:get([nodes]),
     Cfg = maps:get(Node, Nodes, Default),
     IP = select_node_ip(IP4, IP6),
-    Data0 = #data{cfg = Cfg,
+    Data0 = #data{required_upff = ReqUpFF,
+		  cfg = Cfg,
 		  mode = mode(Cfg),
 		  node_select = NodeSelect,
 		  retries = 0,
@@ -275,14 +278,13 @@ handle_event(cast, {response, association_setup_request, Error},
     {next_state, dead, Data#data{retries = Retries + 1}};
 
 handle_event(cast, {response, _, #pfcp{version = v1, type = association_setup_response, ie = IEs}},
-	     connecting, Data0) ->
+	     connecting, Data) ->
     case IEs of
 	#{pfcp_cause := #pfcp_cause{cause = 'Request accepted'}} ->
-	    Data = handle_nodeup(IEs, Data0),
-	    {next_state, {connected, init}, Data};
+	    handle_nodeup(IEs, Data);
 	Other ->
 	    ?LOG(debug, "Other: ~p", [Other]),
-	    {next_state, dead, Data0}
+	    {next_state, dead, Data}
     end;
 
 handle_event(cast, {send, 'Access', _VRF, Data}, {connected, _},
@@ -652,21 +654,45 @@ heartbeat_response(ReqKey, #pfcp{type = heartbeat_request} = Request) ->
     ergw_sx_socket:send_response(ReqKey, Response, true).
 
 handle_nodeup(#{recovery_time_stamp := #recovery_time_stamp{time = RecoveryTS}} = IEs,
-	      #data{pfcp_ctx = PNodeCtx,
+	      #data{required_upff = ReqUpFF,
+		    pfcp_ctx = PNodeCtx,
 		    dp = #node{node = Node, ip = IP},
 		    vrfs = VRFs} = Data0) ->
     ?LOG(debug, "Node ~s (~s) is up", [Node, inet:ntoa(IP)]),
     ?LOG(debug, "Node IEs: ~s", [pfcp_packet:pretty_print(IEs)]),
 
     UPFeatures = maps:get(up_function_features, IEs, #up_function_features{_ = 0}),
-    UPIPResInfo = maps:get(user_plane_ip_resource_information, IEs, []),
-    Data = Data0#data{
-	     pfcp_ctx = PNodeCtx#pfcp_ctx{features = UPFeatures},
-	     recovery_ts = RecoveryTS,
-	     features = UPFeatures,
-	     vrfs = init_vrfs(VRFs, UPIPResInfo)
-	    },
-    install_cp_rules(Data).
+    case validate_up_features(UPFeatures, ReqUpFF) of
+	true ->
+	    UPIPResInfo = maps:get(user_plane_ip_resource_information, IEs, []),
+	    Data1 = Data0#data{
+		     pfcp_ctx = PNodeCtx#pfcp_ctx{features = UPFeatures},
+		     recovery_ts = RecoveryTS,
+		     features = UPFeatures,
+		     vrfs = init_vrfs(VRFs, UPIPResInfo)
+		    },
+	    Data = install_cp_rules(Data1),
+	    {next_state, {connected, init}, Data};
+	{H, Got, Wanted} ->
+	    ?LOG(critical, "~s UP Function Feature, wanted ~p to be ~p, got ~p",
+		 [inet:ntoa(IP), H, Wanted, Got]),
+	    {next_state, dead, Data0}
+    end.
+
+validate_up_features(UpFF, ReqUpFF) ->
+    validate_up_ff(
+      ergw_config:'#info-'(up_function_features),
+      tl(tuple_to_list(UpFF)),
+      tl(tuple_to_list(ReqUpFF))).
+
+validate_up_ff(_, List, List) ->
+    true;
+validate_up_ff([_|T], [V|UpFF], [V|ReqUpFF]) ->
+    validate_up_ff(T, UpFF, ReqUpFF);
+validate_up_ff([_|T], [_|UpFF], ['_'|ReqUpFF]) ->
+    validate_up_ff(T, UpFF, ReqUpFF);
+validate_up_ff([H|_], [Got|_], [Wanted|_]) ->
+    {H, Got, Wanted}.
 
 init_node_cfg(#data{cfg = Cfg} = Data) ->
     Data#data{

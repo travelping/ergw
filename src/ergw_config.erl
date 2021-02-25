@@ -49,7 +49,11 @@
 -export_type([meta/0]).
 
 -include_lib("kernel/include/logger.hrl").
+-include_lib("parse_trans/include/exprecs.hrl").
+-include_lib("pfcplib/include/pfcp_packet.hrl").
 -include("include/ergw.hrl").
+
+-export_records([up_function_features]).
 
 -define(VrfDefaults, [{features, invalid}]).
 -define(ApnDefaults, [{ip_pools, []},
@@ -124,8 +128,12 @@ parse_json(Bin) ->
 load_legacy_config() ->
     do([error_m ||
 	   Config <- ergw_config_legacy:load(),
-	   validate_config(Config),
-	   return(Config)
+	   ok = validate_config(Config),
+
+	   %% the serialize / coerce dance is necessary to apply defaults from
+	   %% the new config that might not have existed in the legacy config
+	   Mapped = serialize_config(Config),
+	   return(ergw_config:coerce_config(Mapped))
        ]).
 
 load_env_config(Config) ->
@@ -241,7 +249,8 @@ config_meta_nodes() ->
 		 raddr   => ip_address,
 		 rport   => integer
 		},
-    #{default => Default,
+    #{required_upff => {upff, #up_function_features{_ = '_'}},
+      default => Default,
       entries => {map, {name, binary}, Node}}.
 
 config_meta_apns() ->
@@ -261,20 +270,30 @@ config_meta_apns() ->
 	    },
     {{map, {apn, apn}, Meta}, #{}}.
 
+default_from_meta(Meta) when is_map(Meta) ->
+    D = maps:from_list(
+	  [{K,V} || {K, #cnf_value{default = V}} <- maps:to_list(Meta), V /= undefined]),
+    io:format("MDefault: ~p~n", [D]),
+    D;
+default_from_meta(_) ->
+    undefined.
+
 normalize_meta({delegate, _} = Type) ->
     Type;
 normalize_meta(#cnf_value{} = Type) ->
     Type;
 normalize_meta(Object) when is_map(Object) ->
     Meta = maps:map(fun (_, V) -> normalize_meta(V) end, Object),
-    #cnf_value{type = {object, Meta}};
+    Default = default_from_meta(Meta),
+    #cnf_value{type = {object, Meta}, default = Default};
 normalize_meta({list, Type})->
     Meta = normalize_meta(Type),
     #cnf_value{type = {list, Meta}};
 normalize_meta({klist, {KeyField, KeyType}, Type}) ->
     KeyMeta = meta_type(KeyType),
     Meta = normalize_meta(Type),
-    #cnf_value{type = {klist, {KeyField, KeyMeta, Meta}}};
+    Default = default_from_meta(Meta),
+    #cnf_value{type = {klist, {KeyField, KeyMeta, Meta}}, default = Default};
 normalize_meta({kvlist, {KField, KType}, {VField, VType}}) ->
     KMeta = meta_type(KType),
     VMeta = normalize_meta(VType),
@@ -283,7 +302,8 @@ normalize_meta({map, {KeyField, KeyType}, Type})
   when is_atom(KeyType) ->
     KeyMeta = meta_type(KeyType),
     Meta = normalize_meta(Type),
-    #cnf_value{type = {map, {KeyField, KeyMeta, Meta}}};
+    Default = default_from_meta(Meta),
+    #cnf_value{type = {map, {KeyField, KeyMeta, Meta}}, default = Default};
 normalize_meta({map, _KeyType, _Type}) ->
     erlang:error(not_impl_yet);
 normalize_meta({Type, Default}) ->
@@ -391,6 +411,9 @@ is_ip6_ifid({0,0,0,0,E,F,G,H}) ->
 	H >= 0 andalso H < 65536 andalso
 	E + F + G + H =/= 0;
 is_ip6_ifid(_) -> false.
+
+is_upff(Value) ->
+    is_record(Value, up_function_features).
 
 %% complex types
 
@@ -641,6 +664,11 @@ to_enum({Type, _}, V) ->
 to_flag({Meta, _}, V) ->
     to_list(Meta, V).
 
+to_upff(V) when is_list(V) ->
+    MinUpFF = #up_function_features{_ = '_'},
+    lists:foldl(
+      fun(X) -> to_atom(X) end, MinUpFF, V).
+
 %% complex types
 
 to_object(Meta, K, V) when is_atom(K), is_map(Meta) ->
@@ -756,6 +784,9 @@ from_enum({Type, _}, V) ->
 
 from_flag({Meta, _}, V) ->
     from_list(Meta, V).
+
+from_upff(V) ->
+    [X || X <- '#info-'(up_function_features), '#get-'(X, V) =:= 1].
 
 %% complex types
 
@@ -1331,6 +1362,12 @@ load_typespecs() ->
 		 coerce    = fun to_flag/2,
 		 serialize = fun from_flag/2,
 		 validate  = fun is_flag/2
+		},
+	  upff =>
+	      #cnf_type{
+		 coerce    = fun to_upff/1,
+		 serialize = fun from_upff/1,
+		 validate  = fun is_upff/1
 		}
 	 },
     register_typespec(Spec).
