@@ -733,7 +733,7 @@ create_session_request_accept_new() ->
     [{doc, "Check the accept_new = false can block new session"}].
 create_session_request_accept_new(Config) ->
     ?equal(ergw:system_info(accept_new, false), true),
-    create_session(overload, Config),
+    create_session(reject_new, Config),
     ?equal(ergw:system_info(accept_new, true), false),
 
     meck_validate(Config),

@@ -491,6 +491,15 @@ validate_response(create_session_request, overload, Response, GtpC) ->
 	  Response),
     GtpC;
 
+validate_response(create_session_request, reject_new, Response, GtpC) ->
+    validate_seq_no(Response, GtpC),
+    validate_teid(Response, GtpC),
+
+   ?match(#gtp{type = create_session_response,
+		ie = #{{v2_cause,0} := #v2_cause{v2_cause = no_resources_available}}},
+	  Response),
+    GtpC;
+
 validate_response(create_session_request, invalid_apn, Response, GtpC) ->
     validate_seq_no(Response, GtpC),
     validate_teid(Response, GtpC),

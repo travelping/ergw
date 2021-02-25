@@ -588,6 +588,7 @@ common() ->
     [invalid_gtp_pdu,
      invalid_gtp_version,
      apn_lookup,
+     create_session_request_missing_sender_teid,
      create_session_request_missing_ie,
      create_session_request_aaa_reject,
      create_session_request_gx_fail,
@@ -1033,6 +1034,15 @@ invalid_gtp_version(Config) ->
     ok.
 
 %%--------------------------------------------------------------------
+create_session_request_missing_sender_teid() ->
+    [{doc, "Check that Create Session Request IE validation works"}].
+create_session_request_missing_sender_teid(Config) ->
+    create_session(missing_sender_teid, Config),
+
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
 create_session_request_missing_ie() ->
     [{doc, "Check that Create Session Request IE validation works"}].
 create_session_request_missing_ie(Config) ->
@@ -1170,7 +1180,7 @@ create_session_request_accept_new() ->
     [{doc, "Check the accept_new = false can block new session"}].
 create_session_request_accept_new(Config) ->
     ?equal(ergw:system_info(accept_new, false), true),
-    create_session(overload, Config),
+    create_session(reject_new, Config),
     ?equal(ergw:system_info(accept_new, true), false),
 
     meck_validate(Config),

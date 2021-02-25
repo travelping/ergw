@@ -469,8 +469,16 @@ validate_response(create_pdp_context_request, overload, Response, GtpC) ->
     validate_seq_no(Response, GtpC),
 
     %% this is debatable, but decoding the request would require even more resources.
-    %% validate_teid(Response, GtpC),
     validate_teid(Response, 0),
+
+    ?match(#gtp{type = create_pdp_context_response,
+		ie = #{{cause,0} := #cause{value = no_resources_available}}},
+	   Response),
+    GtpC;
+
+validate_response(create_pdp_context_request, reject_new, Response, GtpC) ->
+    validate_seq_no(Response, GtpC),
+    validate_teid(Response, GtpC),
 
     ?match(#gtp{type = create_pdp_context_response,
 		ie = #{{cause,0} := #cause{value = no_resources_available}}},

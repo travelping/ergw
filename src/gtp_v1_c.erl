@@ -277,6 +277,10 @@ load_class(#gtp{type = g_pdu}) ->
 load_class(_) ->
     other.
 
+find_sender_teid(#gtp{
+		    ie = #{{tunnel_endpoint_identifier_control_plane,0} :=
+			       #tunnel_endpoint_identifier_control_plane{tei = TEID}}}) ->
+    TEID;
 find_sender_teid(_) ->
     undefined.
 

@@ -291,13 +291,15 @@ port_message(#request{socket = Socket, info = Info} = Request,
     case get_handler_if(Socket, Msg) of
 	{ok, Interface, InterfaceOpts} ->
 	    case ergw:get_accept_new() of
-		true -> ok;
+		true ->
+		    validate_teid(Msg),
+		    Server = context_new(Socket, Info, Version, Interface, InterfaceOpts),
+		    port_message(Server, Request, Msg, false);
+
 		_ ->
-		    throw({error, no_resources_available})
-	    end,
-	    validate_teid(Msg),
-	    Server = context_new(Socket, Info, Version, Interface, InterfaceOpts),
-	    port_message(Server, Request, Msg, false);
+		    gtp_context:generic_error(Request, Msg, no_resources_available),
+		    ok
+	    end;
 
 	{error, _} = Error ->
 	    throw(Error)
