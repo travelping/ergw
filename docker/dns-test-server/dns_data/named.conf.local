@@ -6,8 +6,28 @@
 // organization
 //include "/etc/bind/zones.rfc1918";
 
+// from 3GPP TS 29.303
 zone "epc.mnc990.mcc311.3gppnetwork.org" {
 	type master;
 	file "/etc/bind/CS_EX.txt";
 };
 
+zone "epc.mnc001.mcc001.3gppnetwork.org" {
+	type master;
+	file "/etc/bind/db.test-net-001";
+};
+
+zone "epc.mnc002.mcc001.3gppnetwork.org" {
+	type master;
+	file "/etc/bind/db.test-net-002";
+};
+
+zone "epc.mnc003.mcc001.3gppnetwork.org" {
+	type master;
+	file "/etc/bind/db.test-net-003";
+};
+
+zone "epc.mnc004.mcc001.3gppnetwork.org" {
+	type master;
+	file "/etc/bind/db.test-net-004";
+};
