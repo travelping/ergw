@@ -1,6 +1,14 @@
 erGW - 3GPP GGSN and PDN-GW in Erlang
 =====================================
 
+Version 2.8.7 - 26 February 2021
+-------------------------------
+
+**Bugfixes** :bug:
+* [#326](https://github.com/travelping/ergw/pull/326) Return proper sender `TEID` when rejecting new sessions
+* [#327](https://github.com/travelping/ergw/pull/327) Use `Bearer QoS` from session in `Create Session Response`
+* [#325](https://github.com/travelping/ergw/pull/325) Switch to `rand:uniform/1` for `SEID` generation
+
 Version 2.8.6 - 4 February 2021
 -------------------------------
 
