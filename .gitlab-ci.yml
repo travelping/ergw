@@ -1,4 +1,5 @@
 stages:
+  - prepare
   - test
   - container
 
@@ -97,3 +98,30 @@ docker:
              --platform=linux/arm64,linux/amd64 \
              --push --no-cache .
   when: always
+
+dns-server:
+  image: jdrouet/docker-with-buildx:stable
+  stage: prepare
+  dependencies: []
+  variables:
+    REGISTRY: "quay.io"
+    BUILD_IMAGE: "travelping/ergw-dns-test-server"
+  services:
+    - docker:dind
+    - linuxkit/binfmt:v0.8
+  script:
+    - docker version
+    - docker buildx ls
+    - docker buildx inspect --bootstrap
+    - docker login -u ${QUAY_USER_ID} -p ${QUAY_TOKEN} ${REGISTRY}
+    - |
+      cd docker/dns-test-server
+      docker buildx build \
+             -t ${REGISTRY}/${BUILD_IMAGE}:latest \
+             --platform=linux/arm64,linux/amd64 \
+             --push --no-cache \
+             -f Dockerfile .
+  only:
+    changes:
+    - docker/dns-test-server/Dockerfile
+    - docker/dns-test-server/dns_data/*
