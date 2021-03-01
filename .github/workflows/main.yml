@@ -11,7 +11,7 @@ on:
 jobs:
   test:
     name: CI
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-latest
     strategy:
       matrix:
         otp: [22.3.4.14, 23.0.4, 23.1.5.0, 23.2.1.0]
@@ -19,12 +19,13 @@ jobs:
       image: erlang:${{ matrix.otp }}-alpine
       options: --privileged
     steps:
-    - uses: actions/checkout@v2
     - name: Prepare
       run: |
            apk update
            apk --no-cache upgrade
-           apk --no-cache add gcc git libc-dev libc-utils libgcc linux-headers make bash musl-dev musl-utils ncurses-dev pcre2 pkgconf scanelf wget zlib
+           apk --no-cache add gcc git libc-dev libc-utils libgcc linux-headers make bash \
+                              musl-dev musl-utils ncurses-dev pcre2 pkgconf scanelf wget zlib
+    - uses: actions/checkout@v2
     - name: Build
       run: rebar3 compile
     - name: Prep for tests
@@ -46,10 +47,16 @@ jobs:
            ip addr add fd96:dcd2:efdb:41c3::40/64 dev lo
            ip addr add fd96:dcd2:efdb:41c3::50/64 dev lo
     - name: Run tests
+      env:
+        CI_RUN_SLOW_TESTS: true
       run: |
            rebar3 do xref
            rebar3 do ct
-           rebar3 as test do coveralls send || /bin/true
+    - name: Coveralls
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        COVERALLS_FLAG_NAME: ${{ matrix.otp }}
+      run: DEBUG=1 rebar3 as test coveralls send || /bin/true
     - name: Archive Test Output
       if: ${{ always() }}
       uses: actions/upload-artifact@v2
@@ -58,3 +65,34 @@ jobs:
         path: |
           _build/test/logs/
           !_build/test/logs/last
+
+  slack:
+    needs: test
+    runs-on: ubuntu-20.04
+    if: always()
+    steps:
+    - name: Slack notification
+      uses: 8398a7/action-slack@v3
+      with:
+        author_name: "GitHub Actions"
+        username: ${{ github.event.repository.name }}
+        icon_emoji: ':octocat:'
+        fields: repo, message, ref, commit, author, action, eventName, workflow, job, took
+        status: ${{ needs.test.result }}
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}
+        MATRIX_CONTEXT: ${{ toJson(matrix) }}
+
+  finish:
+    needs: test
+    runs-on: ubuntu-20.04
+    if: always()
+    steps:
+    - name: Coveralls Finished
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+           curl -v -k https://coveralls.io/webhook \
+                --header "Content-Type: application/json" \
+                --data "{\"repo_name\":\"$GITHUB_REPOSITORY\",\"repo_token\":\"$GITHUB_TOKEN\",\"payload\":{\"build_num\":$GITHUB_RUN_ID,\"status\":\"done\"}}"
