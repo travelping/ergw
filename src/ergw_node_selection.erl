@@ -13,6 +13,8 @@
 
 -module(ergw_node_selection).
 
+-compile({parse_transform, cut}).
+
 -export([validate_options/2, expand_apn/2, split_apn/1,
 	 apn_to_fqdn/2, apn_to_fqdn/1,
 	 topology_match/2,
@@ -22,33 +24,22 @@
 -include_lib("kernel/include/logger.hrl").
 
 -ifdef(TEST).
--export([lookup_dns/3, colocation_match/2, naptr/2]).
+-export([lookup_naptr/3, colocation_match/2, naptr/2]).
 -define(NAPTR, ?MODULE:naptr).
 -else.
 -define(NAPTR, naptr).
 -endif.
 
--compile({parse_transform, cut}).
+-define(TIMEOUT, 1000).
 
 %%====================================================================
 %% API
 %%====================================================================
 
--type service()           :: string().
--type protocol()          :: string().
--type service_parameter() :: {service(), protocol()}.
--type preference()        :: {integer(), integer()}.
-
--spec lookup_dns(Name :: string(),
-		 QueryServices :: [service_parameter()],
-		 NameServers :: undefined | {inet:ip_address(), inet:port_number()}) ->
-			[{Host :: string(), Preference :: preference(),
-			  Services :: [service_parameter()],
-			  IPv4 :: [inet:ip4_address()],
-			  IPv6 :: [inet:ip4_address()]}].
-lookup_dns(Name, ServiceSet, NameServers) ->
-    Response = ?NAPTR(Name, NameServers),
-    match(Response, ordsets:from_list(ServiceSet)).
+%% -type service()           :: string().
+%% -type protocol()          :: string().
+%% -type service_parameter() :: {service(), protocol()}.
+%% -type preference()        :: {integer(), integer()}.
 
 -ifdef(TEST).
 %% currently unused, but worth keeping arround
@@ -233,85 +224,73 @@ validate_options(Type, Opts) ->
 
 %% @private
 
-lookup_host(Name, dns, NameServers) ->
-    NsOpts =
-	case NameServers of
-	    {_,_}  ->
-		[{nameservers, [NameServers]}];
-	    _ ->
-		[]
-	end,
-    case ergw_node_selection_cache:resolve(Name, any, NsOpts) of
-	{ok, Msg} ->
-	    lists:foldl(
-	      fun(RR, R) ->
-		      case {inet_dns:rr(RR, class), inet_dns:rr(RR, type)} of
-			  {in, a} ->
-			      setelement(2, R, [inet_dns:rr(RR, data) | element(2, R)]);
-			  {in, aaaa} ->
-			      setelement(3, R, [inet_dns:rr(RR, data) | element(3, R)]);
-			  _ ->
-			      R
-		      end
-	      end, {Name, [], []}, inet_dns:msg(Msg, anlist));
-	{error, _} = Error ->
-	    ?LOG(debug, "DNS Error: ~p", [Error]),
-	    Error
-    end;
-lookup_host(Name, static, RR) ->
-    ?LOG(debug, "Host ~p, RR ~p", [Name, RR]),
-    case lists:keyfind(Name, 1, RR) of
-	{_, _, _} = R ->
-	    R;
-	_ ->
-	    {error, not_found}
+expect_answer(_, Answer, 2) ->
+    Answer;
+expect_answer(Ref, {A4, A6} = Answer0, Cnt) ->
+    receive
+	{A4, Response} when is_list(Response) ->
+	    expect_answer(Ref, {[inet_dns:rr(RR, data) || RR <- Response], A6}, Cnt + 1);
+	{A4, _} ->
+	    expect_answer(Ref, {[], A6}, Cnt + 1);
+	{A6, Response} when is_list(Response) ->
+	    expect_answer(Ref, {A4, [inet_dns:rr(RR, data) || RR <- Response]}, Cnt + 1);
+	{A6, _} ->
+	    expect_answer(Ref, {A4, []}, Cnt + 1);
+	{Ref, timeout} ->
+	    Answer0
     end.
 
-lookup_naptr(Name, ServiceSet, dns, NameServers) ->
-    lookup_dns(Name, ServiceSet, NameServers);
-lookup_naptr(Name, ServiceSet, static, RR) ->
-    L1 = [X || X <- RR, string:equal(element(1, X), Name, true),
-			not ordsets:is_disjoint(element(3, X), ServiceSet)],
-    lists:foldl(lookup_naptr_static(_, RR, _), [], L1).
+al(Answer) when is_list(Answer) ->
+    Answer;
+al(_) -> [].
 
-lookup_naptr_static({_, Order, Services, Host}, RR, Acc) ->
-    case lists:keyfind(Host, 1, RR) of
-	{_, IP4, IP6} ->
-	    [{Host, Order, Services, IP4, IP6} | Acc];
+lookup_host(Name, Selection) ->
+    Ref = make_ref(),
+    erlang:send_after(?TIMEOUT, self(), {Ref, timeout}),
+    Query = {async_lookup_host(Name, a, Selection),
+	     async_lookup_host(Name, aaaa, Selection)},
+    case expect_answer(Ref, Query, 0) of
+	{IP4, IP6} when is_list(IP4) andalso IP4 /= [];
+			is_list(IP6) andalso IP6 /= [] ->
+	    {Name, al(IP4), al(IP6)};
 	_ ->
-	    Acc
-    end;
-lookup_naptr_static(_, _, Acc) ->
-    Acc.
+	    {error, nxdomain}
+    end.
 
-do_lookup([], _DoFun, _NodeSelection) ->
+async_lookup_host(Name, Type, Selection) ->
+    Owner = self(),
+    spawn(
+      fun() -> Owner ! {self(), (catch ergw_inet_res:resolve(Name, Selection, in, Type))} end).
+
+lookup_naptr(Name, ServiceSet, Selection) ->
+    Response = ?NAPTR(Name, Selection),
+    FilteredAnswers = match(Response, ordsets:from_list(ServiceSet)),
+    lists:foldl(follow(_, Selection, _), [], FilteredAnswers).
+
+match(Msg, OrdSPSet) when is_list(Msg) ->
+    lists:foldl(naptr_filter(_, OrdSPSet, _), [], Msg);
+match(_, _) ->
+    [].
+
+do_lookup([], _DoFun) ->
     [];
-do_lookup([Selection|Next], DoFun, NodeSelection) ->
-    case NodeSelection of
-	#{Selection := {Type, Opts}} ->
-	    case DoFun(Type, Opts) of
-		[] ->
-		    do_lookup(Next, DoFun, NodeSelection);
-		{error, _} = _Other ->
-		    do_lookup(Next, DoFun, NodeSelection);
-		Host ->
-		    Host
-	    end;
-	_ ->
-	    do_lookup(Next, DoFun, NodeSelection)
+do_lookup([Selection|Next], DoFun) ->
+    case DoFun(Selection) of
+	[] ->
+	    do_lookup(Next, DoFun);
+	{error, _} = _Other ->
+	    do_lookup(Next, DoFun);
+	Host ->
+	    Host
     end;
-do_lookup(Selection, DoFun, NodeSelection) when is_atom(Selection) ->
-    do_lookup([Selection], DoFun, NodeSelection).
-
-do_lookup(Selection, DoFun) ->
-    ?LOG(debug, "Selection ~p in ~p", [Selection, application:get_env(ergw, node_selection, #{})]),
-    do_lookup(Selection, DoFun, application:get_env(ergw, node_selection, #{})).
+do_lookup(Selection, DoFun) when is_atom(Selection) ->
+    do_lookup([Selection], DoFun).
 
 lookup(Name, Selection) ->
-    do_lookup(Selection, lookup_host(Name, _, _)).
+    do_lookup(Selection, lookup_host(Name, _)).
 
 lookup(Name, ServiceSet, Selection) ->
-    do_lookup(Selection, lookup_naptr(Name, ServiceSet, _, _)).
+    do_lookup(Selection, lookup_naptr(Name, ServiceSet, _)).
 
 normalize_name({fqdn, FQDN}) ->
     FQDN;
@@ -396,15 +375,8 @@ filter_tree(Tree) ->
     {_, Pairs} = lists:unzip(List),
     filter_tree(lists:reverse(lists:keysort(1, List)), lists:usort(Pairs), []).
 
-naptr(Name, NameServers) ->
-    NsOpts =
-	case NameServers of
-	    {_,_}  ->
-		[{nameservers, [NameServers]}];
-	    _ ->
-		[]
-	end,
-    ergw_node_selection_cache:resolve(Name, naptr, NsOpts).
+naptr(Name, Selection) ->
+    ergw_inet_res:resolve(Name, Selection, in, naptr).
 
 naptr_service_filter({Order, Pref, Flag, Services, _RegExp, Host}, OrdSPSet, Acc) ->
     [Service | Protocols] = string:tokens(Services, ":"),
@@ -426,48 +398,40 @@ naptr_filter(RR, OrdSPSet, Acc) ->
 	    Acc
     end.
 
-match({ok, Msg}, OrdSPSet) ->
-    FilteredAnswers =
-	lists:foldl(naptr_filter(_, OrdSPSet, _), [], inet_dns:msg(Msg, anlist)),
-    ArMap = arlist_to_map(Msg),
-    [follow(RR, ArMap) || RR <- FilteredAnswers];
-match(_, _) -> [].
-
-arlist_to_map(RR, Map) ->
-    Type = type(RR),
-    Domain = string:to_lower(domain(RR)),
-    Data = data(RR),
-    maps:update_with(
-      Type, maps:update_with(Domain, [Data|_], [Data], _), #{Domain => [Data]}, Map).
-
-arlist_to_map(Msg) ->
-    lists:foldl(fun arlist_to_map/2, #{}, inet_dns:msg(Msg, arlist)).
-
-resolve_rr(Type, Key, ArMap) ->
-    Hosts = maps:get(Type, ArMap, #{}),
-    maps:get(Key, Hosts, []).
-
 %% RFC2915: "A" means that the next lookup should be for either an A, AAAA, or A6 record.
 %% We only support A for now.
-follow({Host, Order, "a", Services}, ArMap) ->
+follow({Host, Order, "a", Services}, Selection, Res) ->
     Key = string:to_lower(Host),
-    IP4 = resolve_rr(a, Key, ArMap),
-    IP6 = resolve_rr(aaaa, Key, ArMap),
-    {Host, Order, Services, IP4, IP6};
-
+    case lookup_host(Key, Selection) of
+	{_, IP4, IP6} ->
+	    [{Host, Order, Services, IP4, IP6} | Res];
+	_ ->
+	    Res
+    end;
 %% RFC2915: the "S" flag means that the next lookup should be for SRV records.
-follow({Host, Order, "s", Services}, ArMap) ->
+follow({Host, Order, "s", Services}, Selection, Res) ->
     Key = string:to_lower(Host),
-    SrvRRs = resolve_rr(srv, Key, ArMap),
-    {IP4, IP6} = lists:foldl(follow_srv(_, ArMap, _), {[], []}, SrvRRs),
-    {Host, Order, Services, IP4, IP6}.
+    case ergw_inet_res:resolve(Key, Selection, in, srv) of
+	SrvRRs when is_list(SrvRRs) ->
+	    case lists:foldl(follow_srv(_, _, Selection), {[], []}, SrvRRs) of
+		{IP4, IP6} when is_list(IP4) andalso IP4 /= [];
+				is_list(IP6) andalso IP6 /= [] ->
+		    [{Host, Order, Services, IP4, IP6} | Res];
+		_ ->
+		    Res
+	    end;
+	_ ->
+	    Res
+    end.
 
-follow_srv({_Prio, _Weight, _Port, Host}, ArMap, {IP4in, IP6in}) ->
+follow_srv(RR, {IP4in, IP6in} = IPs, Selection) ->
+    {_Prio, _Weight, _Port, Host} = data(RR),
     Key = string:to_lower(Host),
-    IP4 = resolve_rr(a, Key, ArMap),
-    IP6 = resolve_rr(aaaa, Key, ArMap),
-    {IP4 ++ IP4in, IP6 ++ IP6in}.
+    case lookup_host(Key, Selection) of
+	{_, IP4, IP6} ->
+	    {IP4 ++ IP4in, IP6 ++ IP6in};
+	_ ->
+	    IPs
+    end.
 
-domain(Resource) -> inet_dns:rr(Resource, domain).
 data(Resource) -> inet_dns:rr(Resource, data).
-type(Resource) -> inet_dns:rr(Resource, type).

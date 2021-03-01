@@ -12,11 +12,6 @@
 
 -include("ergw_test_lib.hrl").
 
-% copy from kernel/src/inet_dns.hrl
--record(dns_rec, {header, qdlist = [], anlist = [], nslist = [], arlist = []}).
--record(dns_rr, {domain = "", type = any, class = in, cnt = 0, ttl = 0, data = [],
-		 tm, bm = [], func = false}).
-
 -define(ERGW1, {100, 255, 4, 133}).
 -define(ERGW2, {100, 255, 4, 125}).
 -define(HUB1,  {100, 255, 5, 46}).
@@ -27,70 +22,6 @@
 		   {"x-3gpp-pgw", "x-s5-gtp"},
 		   {"x-3gpp-pgw", "x-gp"},
 		   {"x-3gpp-pgw", "x-gn"}]).
-
--define(SRV_q,
-	#dns_rec{
-	   anlist = [#dns_rr{domain = "example.apn.epc.mnc001.mcc001.3gppnetwork.org",
-			     type = naptr,
-			     data = % order pref flags service                regexp
-				    { 100,  100, "s",  "x-3gpp-pgw:x-s8-gtp", [],
-				    % replacement
-				      "pgw-list-2.node.epc.mnc001.mcc001.3gppnetwork.org"}}],
-	   arlist = [#dns_rr{domain = "ergw.ovh.node.epc.mnc001.mcc001.3gppnetwork.org",
-			     type = a,
-			     data = ?ERGW1},
-		     #dns_rr{domain = "ergw.ovh.node.epc.mnc001.mcc001.3gppnetwork.org",
-			     type = a,
-			     data = ?ERGW2},
-		     #dns_rr{domain = "ns0.mnc001.mcc001.3gppnetwork.org",
-			     type = a,
-			     data = {10, 10, 4, 2}},
-		     #dns_rr{domain = "ns1.mnc001.mcc001.3gppnetwork.org",
-			     type = a,
-			     data = {10, 10, 4, 3}},
-		     #dns_rr{domain = "pgw-list-2.node.epc.mnc001.mcc001.3gppnetwork.org",
-			     type = srv,
-			     data = % priority weight port
-				    { 100,     100,   2123,
-				    % target
-				     "ergw.ovh.node.epc.mnc001.mcc001.3gppnetwork.org"}}]
-	  }).
-
--define(SRV_q_no_ar,
-	#dns_rec{
-	   anlist = [#dns_rr{domain = "example.apn.epc.mnc002.mcc001.3gppnetwork.org",
-			     type = naptr,
-			     data = % order pref flags service                regexp
-				    { 100,  100, "s",  "x-3gpp-pgw:x-s8-gtp", [],
-				    % replacement
-				      "pgw-list-2.node.epc.mnc002.mcc001.3gppnetwork.org"}}]
-	  }).
-
--define(A_q,
-	#dns_rec{
-	   anlist = [#dns_rr{domain = "example.apn.epc.mnc003.mcc001.3gppnetwork.org",
-			     type = naptr,
-			     data = % order pref flags service
-				    { 20,   20, "a",   "x-3gpp-pgw:x-s5-gtp:x-s8-gtp:x-gn",
-				    % regexp replacement
-				      [],     "hub.node.epc.mnc003.mcc001.3gppnetwork.org"}}],
-	   arlist = [#dns_rr{domain = "hub.node.epc.mnc003.mcc001.3gppnetwork.org",
-			     type = a,
-			     data = ?HUB1},
-		     #dns_rr{domain = "hub.node.epc.mnc003.mcc001.3gppnetwork.org",
-			     type = a,
-			     data = ?HUB2}]
-	  }).
-
--define(A_q_no_ar,
-	#dns_rec{
-	   anlist = [#dns_rr{domain = "example.apn.epc.mnc004.mcc001.3gppnetwork.org",
-			     type = naptr,
-			     data = % order pref flags service
-				    { 20,   20, "a",   "x-3gpp-pgw:x-s5-gtp:x-s8-gtp:x-gn",
-				    % regexp replacement
-				      [],     "hub.node.epc.mnc004.mcc001.3gppnetwork.org"}}]
-	  }).
 
 -define(L1, [{"topon.gngp.pgw.north.epc.mnc005.mcc001.3gppnetwork.org",
 	      {500,64536},
@@ -178,11 +109,18 @@
 		 [{"x-3gpp-upf","x-sxa"}],
 		 "topon.sx.prox03.node.epc.mnc001.mcc001.3gppnetwork.org"},
 
+		{"example.apn.epc.mnc003.mcc001.3gppnetwork.org", {20, 20},
+		 [{"x-3gpp-pgw","x-s5-gtp"},{"x-3gpp-pgw","x-s8-gtp"},
+		  {"x-3gpp-pgw","x-gn"}],
+		 "hub.node.epc.mnc003.mcc001.3gppnetwork.org"},
+
 		%% A/AAAA record alternatives
 		{"topon.s5s8.pgw.epc.mnc001.mcc001.3gppnetwork.org",  [?ERGW1], []},
 		{"topon.sx.prox01.node.epc.mnc001.mcc001.3gppnetwork.org", [?UP1], []},
 		{"topon.sx.prox02.node.epc.mnc001.mcc001.3gppnetwork.org", [?UP1], []},
-		{"topon.sx.prox03.node.epc.mnc001.mcc001.3gppnetwork.org", [?UP1], []}
+		{"topon.sx.prox03.node.epc.mnc001.mcc001.3gppnetwork.org", [?UP1], []},
+
+		{"hub.node.epc.mnc003.mcc001.3gppnetwork.org", [?HUB1, ?HUB2], []}
 	       ]
 	      }
 	 }
@@ -193,7 +131,7 @@
 %%%===================================================================
 
 lookup_suites() ->
-    [srv_lookup, srv_lookup_no_ar, a_lookup, a_lookup_no_ar,
+    [a_lookup, a_lookup_no_final_a,
      default_lookup, lb_entry_lookup].
 
 api_suites() ->
@@ -203,7 +141,7 @@ api_suites() ->
 groups() ->
     [{api, [], api_suites()},
      {static, [], lookup_suites()},
-     {dns, [], lookup_suites()}].
+     {dns, [], lookup_suites() ++ [srv_lookup, srv_lookup_no_final_a]}].
 
 all() ->
     [{group, api},
@@ -224,38 +162,31 @@ end_per_suite(_Config) ->
 
 init_per_group(static, Config) ->
     application:set_env(ergw, node_selection, ?ERGW_NODE_SELECTION),
+    {ok, Pid} = ergw_inet_res:start(),
     ok = meck:new(ergw_node_selection, [passthrough, no_link]),
-    ok = meck:expect(ergw_node_selection, naptr,
-		     fun("example.apn.epc.mnc001.mcc001.3gppnetwork.org.", _) ->
-			     {ok, ?SRV_q};
-			("example.apn.epc.mnc002.mcc001.3gppnetwork.org.", _) ->
-			     {ok, ?SRV_q_no_ar};
-			("example.apn.epc.mnc003.mcc001.3gppnetwork.org.", _) ->
-			     {ok, ?A_q};
-			("example.apn.epc.mnc004.mcc001.3gppnetwork.org.", _) ->
-			     {ok, ?A_q_no_ar}
-		     end),
-    Config;
+    [{cache_server, Pid} | Config];
 init_per_group(dns, Config) ->
     case os:getenv("CI_DNS_SERVER") of
 	Server when is_list(Server) ->
 	    {ok, ServerIP} = inet:parse_address(Server),
 	    NodeSelection = #{default => {dns, {ServerIP, 53}}},
 	    application:set_env(ergw, node_selection, NodeSelection),
-	    Pid = spawn(fun cache_server/0),
-	    [{cache_server, Pid}, {dns_servers, {ServerIP, 53}} | Config];
+	    {ok, Pid} = ergw_inet_res:start(),
+	    [{cache_server, Pid} | Config];
 	false ->
 	    {skip, "DNS test server not configured"}
     end;
 init_per_group(_, Config) ->
     Config.
 
-end_per_group(static, _Config) ->
+end_per_group(static, Config) ->
     ok = meck:unload(ergw_node_selection),
+    Pid = proplists:get_value(cache_server, Config),
+    exit(Pid, kill),
     ok;
 end_per_group(dns, Config) ->
     Pid = proplists:get_value(cache_server, Config),
-    Pid ! stop,
+    exit(Pid, kill),
     ok;
 end_per_group(_, _Config) ->
     ok.
@@ -266,43 +197,39 @@ end_per_group(_, _Config) ->
 
 srv_lookup() ->
     [{doc, "NAPTR lookup with following SRV"}].
-srv_lookup(Config) ->
-    NameServers = proplists:get_value(dns_servers, Config),
-    R = ergw_node_selection:lookup_dns("example.apn.epc.mnc001.mcc001.3gppnetwork.org.",
-				       ?SERVICES, NameServers),
+srv_lookup(_Config) ->
+    R = ergw_node_selection:lookup_naptr("example.apn.epc.mnc001.mcc001.3gppnetwork.org",
+					 ?SERVICES, default),
     ?match([{"pgw-list-2.node.epc.mnc001.mcc001.3gppnetwork.org", _, _, [_|_], _}], R),
     [{_, _, _, IP4, _}] = R,
     ?equal(lists:sort([?ERGW1, ?ERGW2]), lists:sort(IP4)),
 
     ok.
 
-srv_lookup_no_ar() ->
-    [{doc, "NPTR lookup with following SRV (no AR section in DNS response)"}].
-srv_lookup_no_ar(Config) ->
-    NameServers = proplists:get_value(dns_servers, Config),
-    R = ergw_node_selection:lookup_dns("example.apn.epc.mnc002.mcc001.3gppnetwork.org.",
-				       ?SERVICES, NameServers),
-    ?match([{"pgw-list-2.node.epc.mnc002.mcc001.3gppnetwork.org", _, _, [], []}], R),
+srv_lookup_no_final_a() ->
+    [{doc, "NAPTR lookup with following SRV (no AR section in DNS response)"}].
+srv_lookup_no_final_a(_Config) ->
+    R = ergw_node_selection:lookup_naptr("example.apn.epc.mnc002.mcc001.3gppnetwork.org",
+					 ?SERVICES, default),
+    ?match([], R),
     ok.
 
 a_lookup() ->
     [{doc, "NAPTR lookup with following A"}].
-a_lookup(Config) ->
-    NameServers = proplists:get_value(dns_servers, Config),
-    R = ergw_node_selection:lookup_dns("example.apn.epc.mnc003.mcc001.3gppnetwork.org.",
-				       ?SERVICES, NameServers),
+a_lookup(_Config) ->
+    R = ergw_node_selection:lookup_naptr("example.apn.epc.mnc003.mcc001.3gppnetwork.org",
+					 ?SERVICES, default),
     ?match([{"hub.node.epc.mnc003.mcc001.3gppnetwork.org", _, _, [_|_], _}], R),
     [{_, _, _, IP4, _}] = R,
     ?equal(lists:sort([?HUB1, ?HUB2]), lists:sort(IP4)),
     ok.
 
-a_lookup_no_ar() ->
-    [{doc, "NPTR lookup with following A"}].
-a_lookup_no_ar(Config) ->
-    NameServers = proplists:get_value(dns_servers, Config),
-    R = ergw_node_selection:lookup_dns("example.apn.epc.mnc004.mcc001.3gppnetwork.org.",
-				       ?SERVICES, NameServers),
-    ?match([{"hub.node.epc.mnc004.mcc001.3gppnetwork.org", _, _, [], []}], R),
+a_lookup_no_final_a() ->
+    [{doc, "NAPTR lookup with following A"}].
+a_lookup_no_final_a(_Config) ->
+    R = ergw_node_selection:lookup_naptr("example.apn.epc.mnc004.mcc001.3gppnetwork.org",
+					 ?SERVICES, default),
+    ?match([], R),
     ok.
 
 default_lookup() ->
@@ -414,6 +341,6 @@ lb_entry_stats(_Config) ->
 %%%===================================================================
 
 cache_server() ->
-    ok = ergw_node_selection_cache:init(),
+    ok = ergw_inet_res:init(),
     receive stop -> ok end,
     ok.
