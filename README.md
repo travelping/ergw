@@ -1,7 +1,7 @@
 # erGW - 3GPP GGSN and PDN-GW in Erlang
-[![Build Status][travis badge]][travis]
+[![Build Status][gh badge]][gh]
 [![Coverage Status][coveralls badge]][coveralls]
-[![Erlang Versions][erlang version badge]][travis]
+[![Erlang Versions][erlang version badge]][gh]
 
 This is a 3GPP GGSN and PDN-GW implemented in Erlang. It strives to eventually support all the functionality as defined by [3GPP TS 23.002](http://www.3gpp.org/dynareport/23002.htm) Section 4.1.3.1 for the GGSN and Section 4.1.4.2.2 for the PDN-GW.
 
@@ -473,6 +473,7 @@ Then fill just created **ergw.config** file with content like described below pr
         ]}
 ].
 ```
+
 ## COMPILE & RUN
 ```sh
 $ ./rebar3 compile
@@ -522,8 +523,8 @@ export CI_DNS_SERVER=127.0.10.1
 before running the unit tests.
 
 <!-- Badges -->
-[travis]: https://travis-ci.com/travelping/ergw
-[travis badge]: https://img.shields.io/travis/com/travelping/ergw/master.svg?style=flat-square
+[gh]: https://github.com/travelping/ergw/actions/workflows/main.yml
+[gh badge]: https://img.shields.io/github/workflow/status/travelping/ergw/CI?style=flat-square
 [coveralls]: https://coveralls.io/github/travelping/ergw
 [coveralls badge]: https://img.shields.io/coveralls/travelping/ergw/master.svg?style=flat-square
 [erlang version badge]: https://img.shields.io/badge/erlang-R22.3.4%20to%2023.1-blue.svg?style=flat-square
