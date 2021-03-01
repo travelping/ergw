@@ -93,7 +93,7 @@ id() ->
 
 seid() ->
     %% default exsss (as of OTP 23) has a period of 2^116-1, should be safe...
-    rand:uniform(16#ffff_ffff_ffff_ffff).
+    rand:uniform(16#ffffffffffffffff).
 
 %%%===================================================================
 %%% Options Validation
