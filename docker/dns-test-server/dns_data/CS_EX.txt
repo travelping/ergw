@@ -1,0 +1,15 @@
+$ORIGIN epc.mnc990.mcc311.3gppnetwork.org.
+;
+$TTL 3600 ; 1 hour - this directive is defined in IETF RFC 2308 not RFC 1035
+;
+$INCLUDE /etc/bind/SOA_DB.txt
+;
+$INCLUDE /etc/bind/CS_MME_DB.txt
+;
+$INCLUDE /etc/bind/CS_SGW_PGW_NODE_DB.txt
+;
+$INCLUDE /etc/bind/CS_TAI_DB.txt
+;
+$INCLUDE /etc/bind/CS_APN_DB.txt
+;
+; End of file
