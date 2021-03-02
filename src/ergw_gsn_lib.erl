@@ -134,8 +134,7 @@ gy_events_to_credits(Now, #{'Rating-Group' := [RatingGroup],
 			    'Validity-Time' := [Time]
 			   } = C0, Credits)
   when is_integer(Time) ->
-    AbsTime = erlang:convert_time_unit(Now, native, millisecond) + Time * 1000,
-    C = C0#{'Update-Time-Stamp' => Now, 'Validity-Time' => {abs, AbsTime}},
+    C = C0#{'Update-Time-Stamp' => Now, 'Validity-Time' => {Now, Time}},
     Credits#{RatingGroup => C};
 gy_events_to_credits(Now, #{'Rating-Group' := [RatingGroup],
 			    'Result-Code' := [2001]
@@ -179,6 +178,9 @@ trigger_to_reason(#usage_report_trigger{timth = 1}, Report) ->
 trigger_to_reason(#usage_report_trigger{termr = 1}, Report) ->
     Report#{'Reporting-Reason' =>
 		[?'DIAMETER_3GPP_CHARGING_REPORTING-REASON_FINAL']};
+trigger_to_reason(#usage_report_trigger{quvti = 1}, Report) ->
+    Report#{'Reporting-Reason' =>
+		[?'DIAMETER_3GPP_CHARGING_REPORTING-REASON_VALIDITY_TIME']};
 trigger_to_reason(_, Report) ->
    Report.
 

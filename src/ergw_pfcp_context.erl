@@ -630,10 +630,18 @@ pfcp_pctx_update(#pfcp_ctx{up_inactivity_timer = UPiTnew} = PCtx,
 pfcp_pctx_update(_, _, IEs) ->
     IEs.
 
-handle_validity_time(ChargingKey, #{'Validity-Time' := {abs, AbsTime}}, PCtx, _) ->
-    ergw_pfcp:set_timer(AbsTime, {ChargingKey, validity_time}, PCtx);
-handle_validity_time(_, _, PCtx, _) ->
-    PCtx.
+handle_validity_time(_ChargingKey,
+		     #{'Update-Time-Stamp' := BaseTime, 'Validity-Time' := {BaseTime, Time}},
+		     URR0, #pfcp_ctx{features = #up_function_features{vtime = 1}} = PCtx) ->
+    URR = maps:update_with(reporting_triggers,
+			   fun(T) -> T#reporting_triggers{quota_validity_time = 1} end,
+			   URR0#{quota_validity_time => #quota_validity_time{time = Time}}),
+    {URR, PCtx};
+handle_validity_time(ChargingKey, #{'Validity-Time' := {BaseTime, Time}}, URR, PCtx) ->
+    AbsTime = erlang:convert_time_unit(BaseTime, native, millisecond) + Time * 1000,
+    {URR, ergw_pfcp:set_timer(AbsTime, {ChargingKey, validity_time}, PCtx)};
+handle_validity_time(_, _, URR, PCtx) ->
+    {URR, PCtx}.
 
 %% build_sx_usage_rule/3
 build_sx_usage_rule(_K, #{'Rating-Group' := [RatingGroup],
@@ -642,12 +650,13 @@ build_sx_usage_rule(_K, #{'Rating-Group' := [RatingGroup],
 		    #sx_upd{pctx = PCtx0} = Update) ->
     ChargingKey = {online, RatingGroup},
     {UrrId, PCtx1} = ergw_pfcp:get_urr_id(ChargingKey, [RatingGroup], ChargingKey, PCtx0),
-    PCtx2 = handle_validity_time(ChargingKey, GCU, PCtx1, Update),
 
     URR0 = #{urr_id => #urr_id{id = UrrId},
 	     measurement_method => #measurement_method{},
 	     reporting_triggers => #reporting_triggers{},
 	     'Update-Time-Stamp' => UpdateTS},
+
+    {URR1, PCtx2} = handle_validity_time(ChargingKey, GCU, URR0, PCtx1),
 
 %%% FIXME: triggering a report on Online RGs also triggers a Gy report.
 %%%        linking them to the Offline for interim reporting will result
@@ -665,11 +674,11 @@ build_sx_usage_rule(_K, #{'Rating-Group' := [RatingGroup],
     %%                 %% if the same rule is use for offline and online reporting add a link
     %%                 build_sx_linked_rule(URR0, PCtx2)
     %%         end,
-    {URR1, PCtx} = {URR0, PCtx2},
+    {URR2, PCtx} = {URR1, PCtx2},
 
 %%% FIXME - End
 
-    URR = lists:foldl(build_sx_usage_rule_4(_, GSU, GCU, _), URR1,
+    URR = lists:foldl(build_sx_usage_rule_4(_, GSU, GCU, _), URR2,
 		      [time, time_quota_threshold,
 		       total_octets, input_octets, output_octets,
 		       total_quota_threshold, input_quota_threshold, output_quota_threshold,

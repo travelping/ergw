@@ -1340,7 +1340,7 @@ simple_session(Config) ->
 	    SERFilter(#create_urr{
 			 group =
 			     #{urr_id := Id,
-			       reporting_triggers := #reporting_triggers{_ = 0}
+			       reporting_triggers := #reporting_triggers{}
 			      }}, Acc) ->
 		Acc#{{urr, id} => Id};
 	    SERFilter(_, Acc) ->

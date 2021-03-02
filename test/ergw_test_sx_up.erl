@@ -8,6 +8,7 @@
 -export([start/2, stop/1, restart/1,
 	 send/2, send/3, usage_report/4,
 	 up_inactivity_timer_expiry/2,
+	 up_quota_validity_time_expiry/2,
 	 reset/1, history/1, history/2,
 	 sessions/1, accounting/2,
 	 enable/1, disable/1,
@@ -74,6 +75,9 @@ usage_report(Role, PCtx, MatchSpec, Report) ->
 up_inactivity_timer_expiry(Role, PCtx) ->
     gen_server:call(server_name(Role), {up_inactivity_timer_expiry, PCtx}).
 
+up_quota_validity_time_expiry(Role, PCtx) ->
+    gen_server:call(server_name(Role), {up_quota_validity_time_expiry, PCtx}).
+
 reset(Role) ->
     gen_server:call(server_name(Role), reset).
 
@@ -115,7 +119,8 @@ init([IP]) ->
 	       enabled = true,
 	       record = true,
 	       features = #up_function_features{ftup = 1, treu = 1, empu = 1,
-						ueip = 1, mnop = 1, ip6pl = 1},
+						ueip = 1, mnop = 1, ip6pl = 1,
+						_ = 0},
 	       up_ip = ergw_inet:ip2bin(IP),
 	       cp_recovery_ts = undefined,
 	       dp_recovery_ts = erlang:system_time(seconds),
