@@ -697,7 +697,7 @@ all() ->
 %%%===================================================================
 
 setup_per_testcase(Config) ->
-    logger:set_primary_config(level, debug),
+    %% logger:set_primary_config(level, debug),
     setup_per_testcase(Config, true).
 
 setup_per_testcase(Config, ClearSxHist) ->
