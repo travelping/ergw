@@ -74,9 +74,9 @@ docker:
       esac
     - |
       if [ $CI_COMMIT_REF_NAME == "master" ] ; then
-         export TAGS="-t ${REGISTRY}/${BUILD_IMAGE}:v${CI_COMMIT_DESCRIBE}"
+         export TAGS="-t ${REGISTRY}/${BUILD_IMAGE}:${CI_COMMIT_DESCRIBE}"
       else
-         export TAGS="-t ${REGISTRY}/${BUILD_IMAGE}:${CI_COMMIT_REF_SLUG}_v${CI_COMMIT_DESCRIBE}"
+         export TAGS="-t ${REGISTRY}/${BUILD_IMAGE}:${CI_COMMIT_REF_SLUG}_${CI_COMMIT_DESCRIBE}"
       fi
     - docker login -u ${QUAY_USER_ID} -p ${QUAY_TOKEN} ${REGISTRY}
     - |
