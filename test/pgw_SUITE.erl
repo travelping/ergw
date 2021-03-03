@@ -646,7 +646,8 @@ common() ->
      sx_upf_restart,
      sx_timeout,
      sx_ondemand,
-     gy_validity_timer,
+     gy_validity_timer_cp,
+     gy_validity_timer_up,
      simple_aaa,
      simple_ofcs,
      ofcs_no_interim,
@@ -822,7 +823,14 @@ init_per_testcase(sx_connect_fail, Config) ->
     start_gtpc_server(Config),
     ok = meck:new(ergw_sx_node, [passthrough, no_link]),
     Config;
-init_per_testcase(gy_validity_timer, Config) ->
+init_per_testcase(gy_validity_timer_cp, Config) ->
+    setup_per_testcase(Config),
+    set_online_charging(true),
+    load_aaa_answer_config([{{gy, 'CCR-Initial'}, 'Initial-OCS-VT'},
+			    {{gy, 'CCR-Update'},  'Update-OCS-VT'}]),
+    Config;
+init_per_testcase(gy_validity_timer_up, Config) ->
+    {ok, _} = ergw_test_sx_up:feature('pgw-u01', vtime, 1),
     setup_per_testcase(Config),
     set_online_charging(true),
     load_aaa_answer_config([{{gy, 'CCR-Initial'}, 'Initial-OCS-VT'},
@@ -905,6 +913,10 @@ init_per_testcase(_, Config) ->
     Config.
 
 end_per_testcase(Config) ->
+    Result = case active_contexts() of
+		 0 -> ok;
+		 Ctx -> {fail, {contexts_left, Ctx}}
+	     end,
     stop_gtpc_server(),
 
     PoolId = [<<"pool-A">>, ipv4, "10.180.0.1"],
@@ -913,17 +925,15 @@ end_per_testcase(Config) ->
     AppsCfg = proplists:get_value(aaa_cfg, Config),
     ok = application:set_env(ergw_aaa, apps, AppsCfg),
     set_online_charging(false),
-    ok.
+    Result.
 
 end_per_testcase(sx_connect_fail, Config) ->
     ok = meck:unload(ergw_sx_node),
     meck:delete(ergw_sx_socket, call, 5),
-    end_per_testcase(Config),
-    Config;
+    end_per_testcase(Config);
 end_per_testcase(delete_bearer_requests_multi, Config) ->
     ok = meck:delete(ergw_gtp_c_socket, send_request, 8),
-    end_per_testcase(Config),
-    Config;
+    end_per_testcase(Config);
 end_per_testcase(TestCase, Config)
   when TestCase == create_session_request_aaa_reject;
        TestCase == create_session_request_gx_fail;
@@ -936,62 +946,52 @@ end_per_testcase(TestCase, Config)
        TestCase == tariff_time_change ->
     ok = meck:delete(ergw_aaa_session, start_link, 2),
     ok = meck:delete(ergw_aaa_session, invoke, 4),
-    end_per_testcase(Config),
-    Config;
+    end_per_testcase(Config);
 end_per_testcase(create_session_request_pool_exhausted, Config) ->
     meck:unload(ergw_local_pool),
-    end_per_testcase(Config),
-    Config;
+    end_per_testcase(Config);
 end_per_testcase(create_session_request_accept_new, Config) ->
     ergw:system_info(accept_new, true),
-    end_per_testcase(Config),
-    Config;
+    end_per_testcase(Config);
 end_per_testcase(path_restart, Config) ->
     meck:unload(gtp_path),
-    end_per_testcase(Config),
-    Config;
+    end_per_testcase(Config);
 end_per_testcase(path_maintenance, Config) ->
     meck:unload(gtp_path),
-    end_per_testcase(Config),
-    Config;
+    end_per_testcase(Config);
 end_per_testcase(simple_session_request_cp_teid, Config) ->
     {ok, _} = ergw_test_sx_up:feature('pgw-u01', ftup, 1),
-    end_per_testcase(Config),
-    Config;
+    end_per_testcase(Config);
 end_per_testcase(duplicate_session_slow, Config) ->
     ok = meck:delete(gtp_context, handle_event, 4),
-    end_per_testcase(Config),
-    Config;
+    end_per_testcase(Config);
 end_per_testcase(TestCase, Config)
   when TestCase == delete_bearer_request_resend;
        TestCase == modify_bearer_command_timeout ->
     ok = meck:delete(ergw_gtp_c_socket, send_request, 8),
-    end_per_testcase(Config),
-    Config;
+    end_per_testcase(Config);
 end_per_testcase(request_fast_resend, Config) ->
     ok = meck:delete(?HUT, handle_request, 5),
-    end_per_testcase(Config),
-    Config;
+    end_per_testcase(Config);
 end_per_testcase(TestCase, Config)
   when TestCase == interop_sgsn_to_sgw;
        TestCase == interop_sgsn_to_sgw_const_tei;
        TestCase == interop_sgw_to_sgsn ->
     ok = meck:unload(ggsn_gn),
-    end_per_testcase(Config),
-    Config;
+    end_per_testcase(Config);
 end_per_testcase(create_session_overload, Config) ->
     jobs:modify_queue(create, [{max_size, 10}]),
     jobs:modify_regulator(rate, create, {rate,create,1}, [{limit,100}]),
-    end_per_testcase(Config),
-    Config;
+    end_per_testcase(Config);
+end_per_testcase(gy_validity_timer_up, Config) ->
+    {ok, _} = ergw_test_sx_up:feature('pgw-u01', vtime, 0),
+    end_per_testcase(Config);
 %% gtp 'Idle-Timeout' reset to default 28800000ms ~8 hrs
 end_per_testcase(gtp_idle_timeout, Config) ->
     set_apn_key('Idle-Timeout', 28800000),
-    end_per_testcase(Config),
-    Config;
+    end_per_testcase(Config);
 end_per_testcase(_, Config) ->
-    end_per_testcase(Config),
-    Config.
+    end_per_testcase(Config).
 
 %%--------------------------------------------------------------------
 invalid_gtp_pdu() ->
@@ -2814,14 +2814,13 @@ sx_ondemand(Config) ->
     ?equal(SxNodeAvail + 1, maps:size(ergw_sx_node_reg:available())),
     ?equal([], outstanding_requests()),
 
-    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
-    ?equal(0, active_contexts()).
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT).
 
 %%--------------------------------------------------------------------
 
-gy_validity_timer() ->
+gy_validity_timer_cp() ->
     [{doc, "Check Validity-Timer attached to MSCC"}].
-gy_validity_timer(Config) ->
+gy_validity_timer_cp(Config) ->
     {GtpC, _, _} = create_session(Config),
     ct:sleep({seconds, 10}),
     delete_session(GtpC),
@@ -2841,6 +2840,67 @@ gy_validity_timer(Config) ->
 		(_) -> false
 	     end, meck:history(ergw_aaa_session)),
     ?match(Y when Y >= 3 andalso Y < 10, length(CCRU)),
+
+    ?equal([], outstanding_requests()),
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    wait4contexts(?TIMEOUT),
+
+    meck_validate(Config),
+    ok.
+
+gy_validity_timer_up() ->
+    [{doc, "Check Validity-Timer attached to MSCC in UPF with VTIME"}].
+gy_validity_timer_up(Config) ->
+    CtxKey = #context_key{socket = 'irx-socket', id = {imsi, ?'IMSI', 5}},
+
+    {GtpC, _, _} = create_session(Config),
+
+    {_Handler, Server} = gtp_context_reg:lookup(CtxKey),
+    true = is_pid(Server),
+    {ok, PCtx} = gtp_context:test_cmd(Server, pfcp_ctx),
+
+    MatchSpec = ets:fun2ms(fun({Id, {'online', _}}) -> Id end),
+    Report =
+	[#usage_report_trigger{quvti = 1, _= 0},
+	 #volume_measurement{total = 5, uplink = 2, downlink = 3},
+	 #tp_packet_measurement{total = 12, uplink = 5, downlink = 7}],
+
+    lists:foreach(
+      fun(_X) ->
+	      ct:sleep(100),
+	      ergw_test_sx_up:usage_report('pgw-u01', PCtx, MatchSpec, Report)
+      end, lists:seq(1, 3)),
+
+    ct:sleep(100),
+    delete_session(GtpC),
+
+    [SER|_] = lists:filter(
+		fun(#pfcp{type = session_establishment_request}) -> true;
+		   (_) ->false
+		end, ergw_test_sx_up:history('pgw-u01')),
+    ?equal(3, length(maps:get(create_urr, SER#pfcp.ie))),
+    {[URR], _} =
+	lists:partition(fun(X) -> maps:is_key(quota_validity_time, X#create_urr.group) end,
+			maps:get(create_urr, SER#pfcp.ie)),
+
+    ?match_map(
+       #{urr_id => #urr_id{id = '_'},
+	 quota_validity_time => #quota_validity_time{time = 2},
+	 reporting_triggers =>
+	     #reporting_triggers{quota_validity_time = 1, _ = '_'}
+	}, URR#create_urr.group),
+
+    CCRU = lists:filter(
+	     fun({_, {ergw_aaa_session, invoke, [_, S, {gy,'CCR-Update'}, _]}, _}) ->
+		     ?match(
+			#{used_credits :=
+			      [{3000,
+				#{'Reporting-Reason' :=
+				      [?'DIAMETER_3GPP_CHARGING_REPORTING-REASON_VALIDITY_TIME']}}]}, S),
+		     true;
+		(_) -> false
+	     end, meck:history(ergw_aaa_session)),
+    ?equal(3, length(CCRU)),
 
     ?equal([], outstanding_requests()),
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
