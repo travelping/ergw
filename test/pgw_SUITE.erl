@@ -905,6 +905,10 @@ init_per_testcase(_, Config) ->
     Config.
 
 end_per_testcase(Config) ->
+    Result = case active_contexts() of
+		 0 -> ok;
+		 Ctx -> {fail, {contexts_left, Ctx}}
+	     end,
     stop_gtpc_server(),
 
     PoolId = [<<"pool-A">>, ipv4, "10.180.0.1"],
@@ -913,17 +917,15 @@ end_per_testcase(Config) ->
     AppsCfg = proplists:get_value(aaa_cfg, Config),
     ok = application:set_env(ergw_aaa, apps, AppsCfg),
     set_online_charging(false),
-    ok.
+    Result.
 
 end_per_testcase(sx_connect_fail, Config) ->
     ok = meck:unload(ergw_sx_node),
     meck:delete(ergw_sx_socket, call, 5),
-    end_per_testcase(Config),
-    Config;
+    end_per_testcase(Config);
 end_per_testcase(delete_bearer_requests_multi, Config) ->
     ok = meck:delete(ergw_gtp_c_socket, send_request, 8),
-    end_per_testcase(Config),
-    Config;
+    end_per_testcase(Config);
 end_per_testcase(TestCase, Config)
   when TestCase == create_session_request_aaa_reject;
        TestCase == create_session_request_gx_fail;
@@ -936,62 +938,49 @@ end_per_testcase(TestCase, Config)
        TestCase == tariff_time_change ->
     ok = meck:delete(ergw_aaa_session, start_link, 2),
     ok = meck:delete(ergw_aaa_session, invoke, 4),
-    end_per_testcase(Config),
-    Config;
+    end_per_testcase(Config);
 end_per_testcase(create_session_request_pool_exhausted, Config) ->
     meck:unload(ergw_local_pool),
-    end_per_testcase(Config),
-    Config;
+    end_per_testcase(Config);
 end_per_testcase(create_session_request_accept_new, Config) ->
     ergw:system_info(accept_new, true),
-    end_per_testcase(Config),
-    Config;
+    end_per_testcase(Config);
 end_per_testcase(path_restart, Config) ->
     meck:unload(gtp_path),
-    end_per_testcase(Config),
-    Config;
+    end_per_testcase(Config);
 end_per_testcase(path_maintenance, Config) ->
     meck:unload(gtp_path),
-    end_per_testcase(Config),
-    Config;
+    end_per_testcase(Config);
 end_per_testcase(simple_session_request_cp_teid, Config) ->
     {ok, _} = ergw_test_sx_up:feature('pgw-u01', ftup, 1),
-    end_per_testcase(Config),
-    Config;
+    end_per_testcase(Config);
 end_per_testcase(duplicate_session_slow, Config) ->
     ok = meck:delete(gtp_context, handle_event, 4),
-    end_per_testcase(Config),
-    Config;
+    end_per_testcase(Config);
 end_per_testcase(TestCase, Config)
   when TestCase == delete_bearer_request_resend;
        TestCase == modify_bearer_command_timeout ->
     ok = meck:delete(ergw_gtp_c_socket, send_request, 8),
-    end_per_testcase(Config),
-    Config;
+    end_per_testcase(Config);
 end_per_testcase(request_fast_resend, Config) ->
     ok = meck:delete(?HUT, handle_request, 5),
-    end_per_testcase(Config),
-    Config;
+    end_per_testcase(Config);
 end_per_testcase(TestCase, Config)
   when TestCase == interop_sgsn_to_sgw;
        TestCase == interop_sgsn_to_sgw_const_tei;
        TestCase == interop_sgw_to_sgsn ->
     ok = meck:unload(ggsn_gn),
-    end_per_testcase(Config),
-    Config;
+    end_per_testcase(Config);
 end_per_testcase(create_session_overload, Config) ->
     jobs:modify_queue(create, [{max_size, 10}]),
     jobs:modify_regulator(rate, create, {rate,create,1}, [{limit,100}]),
-    end_per_testcase(Config),
-    Config;
+    end_per_testcase(Config);
 %% gtp 'Idle-Timeout' reset to default 28800000ms ~8 hrs
 end_per_testcase(gtp_idle_timeout, Config) ->
     set_apn_key('Idle-Timeout', 28800000),
-    end_per_testcase(Config),
-    Config;
+    end_per_testcase(Config);
 end_per_testcase(_, Config) ->
-    end_per_testcase(Config),
-    Config.
+    end_per_testcase(Config).
 
 %%--------------------------------------------------------------------
 invalid_gtp_pdu() ->
@@ -2814,8 +2803,7 @@ sx_ondemand(Config) ->
     ?equal(SxNodeAvail + 1, maps:size(ergw_sx_node_reg:available())),
     ?equal([], outstanding_requests()),
 
-    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
-    ?equal(0, active_contexts()).
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT).
 
 %%--------------------------------------------------------------------
 
