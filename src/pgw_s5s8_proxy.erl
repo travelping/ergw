@@ -886,8 +886,8 @@ close_context(Side, TermCause, State, Data)
 	    initiate_session_teardown(pgw2sgw, undefined, State, Data)
     end,
     delete_forward_session(TermCause, Data);
-close_context(_, _, _, _) ->
-    ok.
+close_context(_, _, _, Data) ->
+    Data.
 
 delete_context(From, TermCause, State, Data0)
   when State == connected; State == connecting ->
