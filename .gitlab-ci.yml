@@ -69,7 +69,11 @@ check:otp-23.1:
 
 check:otp-23.2:
   <<: *check_otp
-  image: erlang:23.2.1.0-alpine
+  image: erlang:23.2.7.0-alpine
+
+check:otp-24.0:
+  <<: *check_otp
+  image: erlang:24.0-rc1.0.0-alpine
 
 docker:
   image: jdrouet/docker-with-buildx:stable
