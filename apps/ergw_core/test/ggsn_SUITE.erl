@@ -250,7 +250,9 @@
 		       {ip_pools, [<<"pool-A">>]}],
 		  nodes =>
 		      [{<<"topon.sx.prox01.epc.mnc001.mcc001.3gppnetwork.org">>, [connect]}]
-		 }
+		 },
+	    path_management =>
+		#{suspect => #{timeout => 0}}
 	   }
 	 },
 

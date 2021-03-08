@@ -765,6 +765,28 @@ properties:
   path_management:
     type: object
     properties:
+      n3:
+        type: integer
+        default: 5
+      t3:
+        type: integer
+        default: 10000
+      echo:
+        $ref: "#/components/schemas/EchoTimeout"
+      idle:
+        type: object
+        properties:
+          echo:
+            $ref: "#/components/schemas/EchoTimeout"
+          timeout:
+            $ref: "#/components/schemas/TimeoutInf"
+      suspect:
+        type: object
+        properties:
+          echo:
+            $ref: "#/components/schemas/EchoTimeout"
+          timeout:
+            $ref: "#/components/schemas/TimeoutInf"
       down:
         type: object
         properties:
@@ -772,26 +794,11 @@ properties:
             $ref: "#/components/schemas/EchoTimeout"
           timeout:
             $ref: "#/components/schemas/TimeoutInf"
-      echo:
-        $ref: "#/components/schemas/EchoTimeout"
       icmp_error_handling:
         type: string
         enum:
           - immediate
           - ignore
-      idle:
-        properties:
-          echo:
-            $ref: "#/components/schemas/EchoTimeout"
-          timeout:
-            $ref: "#/components/schemas/TimeoutInf"
-        type: object
-      n3:
-        default: 5
-        type: integer
-      t3:
-        default: 10000
-        type: integer
 
   proxy_map:
     type: object

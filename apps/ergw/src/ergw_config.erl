@@ -474,6 +474,9 @@ config_meta_path_management() ->
       idle =>
 	  #{echo    => echo,                   % time to keep the path entry when idle
 	    timeout => timeout},               % echo retry interval when idle
+      suspect =>
+	  #{echo    => echo,                   % time to keep the path entry when suspect
+	    timeout => timeout},               % echo retry interval when suspect
       down =>
 	  #{echo    => echo,                   % time to keep the path entry when down
 	    timeout => timeout},               % echo retry interval when down

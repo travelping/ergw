@@ -272,6 +272,7 @@
 		 {echo, 60 * 1000},
 		 {idle, [{timeout, 1800 * 1000},
 			 {echo,     600 * 1000}]},
+		 {suspect, [{timeout, 0}]},
 		 {down, [{timeout, 3600 * 1000},
 			 {echo,     600 * 1000}]}]
 	   }
@@ -562,6 +563,7 @@
 		 {echo, 60 * 1000},
 		 {idle, [{timeout, 1800 * 1000},
 			 {echo,     600 * 1000}]},
+		 {suspect, [{timeout, 0}]},
 		 {down, [{timeout, 3600 * 1000},
 			 {echo,     600 * 1000}]}]
 	   }
