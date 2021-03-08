@@ -39,7 +39,7 @@
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include("include/ergw.hrl").
 
--record(peer, {state    :: up | down,
+-record(peer, {state    :: up | down | suspect,
 	       contexts :: non_neg_integer()
 	      }).
 
@@ -180,12 +180,17 @@ stop(Path) ->
     {n3,  5},                         % echo retry count
     {echo, 60 * 1000},                % echo ping interval
     {idle, []},
+    {suspect, []},
     {down, []},
     {icmp_error_handling, immediate}  % configurable GTP path ICMP error behaviour
 ]).
 -define(IdleDefaults, [
     {timeout, 1800 * 1000},      % time to keep the path entry when idle
     {echo,     600 * 1000}       % echo retry interval when idle
+]).
+-define(SuspectDefaults, [
+    {timeout, 300 * 1000},       % time to keep the path entry when suspect
+    {echo,     60 * 1000}        % echo retry interval when suspect
 ]).
 -define(DownDefaults, [
     {timeout, 3600 * 1000},      % time to keep the path entry when down
@@ -227,6 +232,8 @@ validate_option(echo, Value) ->
 
 validate_option(Opt = idle, Values) ->
     ergw_core_config:validate_options(validate_state(Opt, _, _), Values, ?IdleDefaults);
+validate_option(Opt = suspect, Values) ->
+    ergw_core_config:validate_options(validate_state(Opt, _, _), Values, ?SuspectDefaults);
 validate_option(Opt = down, Values) ->
     ergw_core_config:validate_options(validate_state(Opt, _, _), Values, ?DownDefaults);
 validate_option(icmp_error_handling, Value)
@@ -252,7 +259,7 @@ init([#socket{name = SocketName} = Socket, Version, RemoteIP, Args]) ->
     State = #state{peer = #peer{state = up, contexts = 0},
 		   echo = stopped},
 
-    Data0 = maps:with([t3, n3, echo, idle, down, icmp_error_handling], Args),
+    Data0 = maps:with([t3, n3, echo, idle, suspect, down, icmp_error_handling], Args),
     Data = Data0#{
 	     %% Path Info Keys
 	     socket     => Socket, % #socket{}
@@ -294,6 +301,10 @@ handle_event({timeout, echo}, start_echo, #state{echo = EchoT} = State0, Data)
     {next_state, State, Data};
 handle_event({timeout, echo}, start_echo, _State, _Data) ->
     keep_state_and_data;
+
+handle_event({timeout, peer}, down, State, Data) ->
+    ring_path_restart(undefined, Data),
+    {next_state, peer_state(down, State), Data};
 
 handle_event({timeout, peer}, stop, _State, #{reg_key := RegKey}) ->
     gtp_path_reg:unregister(RegKey),
@@ -363,8 +374,7 @@ handle_event(cast,{handle_response, echo_request, _, #gtp{} = Msg}, State, Data)
     handle_recovery_ie(Msg, State#state{echo = idle}, Data);
 
 handle_event(cast,{handle_response, echo_request, _, _Msg}, State, Data) ->
-    ring_path_restart(undefined, Data),
-    {next_state, peer_state(down, State), Data};
+    {next_state, peer_state(suspect, State), Data};
 
 handle_event(cast, {path_restart, RstCnt}, #state{recovery = RstCnt} = _State, _Data) ->
     keep_state_and_data;
@@ -375,8 +385,7 @@ handle_event(cast, icmp_error, _, #{icmp_error_handling := ignore}) ->
     keep_state_and_data;
 
 handle_event(cast, icmp_error, State, Data) ->
-    ring_path_restart(undefined, Data),
-    {next_state, peer_state(down, State), Data};
+    {next_state, peer_state(suspect, State), Data};
 
 handle_event(info,{'DOWN', _MonitorRef, process, Pid, _Info}, State, Data) ->
     unregister(Pid, State, Data, []);
@@ -427,7 +436,8 @@ code_change(_OldVsn, State, Data, _Extra) ->
 
 peer_state(#peer{state = down}) -> down;
 peer_state(#peer{state = up, contexts = 0}) -> idle;
-peer_state(#peer{state = up}) -> busy.
+peer_state(#peer{state = up}) -> busy;
+peer_state(#peer{state = suspect}) -> suspect.
 
 peer_state_change(#peer{state = State}, #peer{state = State}, _) ->
     ok;
@@ -444,8 +454,10 @@ enter_peer_state_action(_, State, Data) ->
     [enter_state_timeout_action(State, Data),
      enter_state_echo_action(State, Data)].
 
-enter_state_timeout_action(idle, #{idle :=#{timeout := Timeout}}) when is_integer(Timeout) ->
+enter_state_timeout_action(idle, #{idle := #{timeout := Timeout}}) when is_integer(Timeout) ->
     {{timeout, peer}, Timeout, stop};
+enter_state_timeout_action(suspect, #{suspect := #{timeout := Timeout}}) when is_integer(Timeout) ->
+    {{timeout, peer}, Timeout, down};
 enter_state_timeout_action(down, #{down := #{timeout := Timeout}}) when is_integer(Timeout) ->
     {{timeout, peer}, Timeout, stop};
 enter_state_timeout_action(_State, _Data) ->
@@ -454,6 +466,9 @@ enter_state_timeout_action(_State, _Data) ->
 enter_state_echo_action(busy, #{echo := EchoInterval}) when is_integer(EchoInterval) ->
     {{timeout, echo}, EchoInterval, start_echo};
 enter_state_echo_action(idle, #{idle := #{echo := EchoInterval}})
+  when is_integer(EchoInterval) ->
+    {{timeout, echo}, EchoInterval, start_echo};
+enter_state_echo_action(suspect, #{suspect := #{echo := EchoInterval}})
   when is_integer(EchoInterval) ->
     {{timeout, echo}, EchoInterval, start_echo};
 enter_state_echo_action(down, #{down := #{echo := EchoInterval}})
