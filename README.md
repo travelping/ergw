@@ -254,7 +254,7 @@ ergw-c-node
 
 # BUILDING & RUNNING
 ## REQUIRED
-* The minimum supported Erlang version is **22.3.4** (*Erlang 23.0.3 is the recommended version.*).
+* Erlang OTP **23.2.7** is the recommended version.
 * [Rebar3](https://www.rebar3.org/)
 An *erGW* installation needs a user plane provider to handle the GTP-U path. This
 instance can be installed on the same or different host.
