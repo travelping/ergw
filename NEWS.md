@@ -1,6 +1,19 @@
 erGW - 3GPP GGSN and PDN-GW in Erlang
 =====================================
 
+Version 2.8.8 - 9 March 2021
+-------------------------------
+
+**Bugfixes** :bug:
+* [#332](https://github.com/travelping/ergw/pull/332) Build is broked for OTP `22.3` in ergw `2.8.7`
+* [#335](https://github.com/travelping/ergw/pull/335) fix statem data corruption `in S5/S8` proxy
+
+**Features** :rocket:
+* [#331](https://github.com/travelping/ergw/pull/331) implement a "real" DNS response cache
+* [#333](https://github.com/travelping/ergw/pull/333) Remove prefix `v` from image tag
+* [#341](https://github.com/travelping/ergw/pull/341) Udpate OTP image to `23.2.7`
+* [#334](https://github.com/travelping/ergw/pull/334) add `UP VTIME` feature support
+
 Version 2.8.7 - 26 February 2021
 -------------------------------
 
