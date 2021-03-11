@@ -56,7 +56,7 @@ map(Handler, ProxyInfo) ->
 			    (is_map(X) andalso map_size(X) /= 0))).
 
 validate_options(Values) ->
-    ergw_config:validate_options(fun validate_option/2, Values, [], map).
+    ergw_core_config:validate_options(fun validate_option/2, Values, [], map).
 
 validate_imsi(From, To) when is_binary(From), is_binary(To) ->
     To;
@@ -72,11 +72,11 @@ validate_apn(From, To) ->
     throw({error, {options, {From, To}}}).
 
 validate_option(imsi, Opts) when ?non_empty_opts(Opts) ->
-    ergw_config:check_unique_keys(imsi, Opts),
-    ergw_config:validate_options(fun validate_imsi/2, Opts, [], map);
+    ergw_core_config:check_unique_keys(imsi, Opts),
+    ergw_core_config:validate_options(fun validate_imsi/2, Opts, [], map);
 validate_option(apn, Opts) when ?non_empty_opts(Opts) ->
-    ergw_config:check_unique_keys(apn, Opts),
-    ergw_config:validate_options(fun validate_apn/2, Opts, [], map);
+    ergw_core_config:check_unique_keys(apn, Opts),
+    ergw_core_config:validate_options(fun validate_apn/2, Opts, [], map);
 validate_option(Opt, Value) ->
     throw({error, {options, {Opt, Value}}}).
 

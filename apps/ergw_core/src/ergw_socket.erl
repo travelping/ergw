@@ -29,14 +29,14 @@ start_link('pfcp', Opts) ->
 -define(is_opts(X), (is_list(X) orelse is_map(X))).
 
 validate_options(Values) when is_list(Values), length(Values) >= 1 ->
-    ergw_config:check_unique_keys(sockets, Values),
-    ergw_config:validate_options(fun validate_option/2, Values, [], list);
+    ergw_core_config:check_unique_keys(sockets, Values),
+    ergw_core_config:validate_options(fun validate_option/2, Values, [], list);
 validate_options(Values) ->
     throw({error, {options, {sockets, Values}}}).
 
 validate_option(Name, Values)
   when is_atom(Name), ?is_opts(Values) ->
-    case ergw_config:get_opt(type, Values, undefined) of
+    case ergw_core_config:get_opt(type, Values, undefined) of
 	'gtp-c' ->
 	    ergw_gtp_socket:validate_options(Name, Values);
 	'gtp-u' ->

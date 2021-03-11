@@ -82,7 +82,7 @@ test_cmd(Pid, Cmd) when is_pid(Pid) ->
 
 validate_options(Options) ->
     ?LOG(debug, "TDF Options: ~p", [Options]),
-    ergw_config:validate_options(fun validate_option/2, Options, ?HandlerDefaults, map).
+    ergw_core_config:validate_options(fun validate_option/2, Options, ?HandlerDefaults, map).
 
 validate_option(protocol, ip) ->
     ip;
@@ -96,7 +96,7 @@ validate_option(nodes, [S|_] = Value)
     Value;
 validate_option(apn, APN)
   when is_list(APN) ->
-    ergw_config:validate_apn_name(APN);
+    ergw_core_config:validate_apn_name(APN);
 validate_option(Opt, Value) ->
     throw({error, {options, {Opt, Value}}}).
 

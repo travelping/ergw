@@ -105,7 +105,7 @@ seid() ->
 			 {burst_size, 10}]).
 
 validate_options(Name, Values) ->
-     ergw_config:validate_options(fun validate_option/2, Values,
+     ergw_core_config:validate_options(fun validate_option/2, Values,
 				  [{name, Name}|?SocketDefaults], map).
 
 validate_option(type, pfcp = Value) ->

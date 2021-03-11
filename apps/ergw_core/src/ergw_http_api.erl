@@ -17,7 +17,7 @@ init(undefined) ->
     ok;
 init(Opts) when is_map(Opts) ->
     ?LOG(debug, "HTTP API listener options: ~p", [Opts]),
-    %% HTTP API options should be already validated in the ergw_config,
+    %% HTTP API options should be already validated in the ergw_core_config,
     %% so it should be safe to run with it
     start_http_listener(Opts).
 
@@ -62,7 +62,7 @@ start_http_listener(Opts) ->
 		   {num_acceptors, 100}]).
 
 validate_options(Values) ->
-    ergw_config:validate_options(fun validate_option/1, Values, ?Defaults, map).
+    ergw_core_config:validate_options(fun validate_option/1, Values, ?Defaults, map).
 
 validate_option({port, Port} = Opt)
   when is_integer(Port), Port >= 0, Port =< 65535 ->

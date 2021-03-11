@@ -15,10 +15,10 @@
 -include("ergw_ggsn_test_lib.hrl").
 
 -define(error_option(Config),
-	?match({error,{options, _}}, (catch ergw_config:validate_config(Config)))).
+	?match({error,{options, _}}, (catch ergw_core_config:validate_config(Config)))).
 
 -define(ok_option(Config),
-	?match([_|_], (catch ergw_config:validate_config(Config)))).
+	?match([_|_], (catch ergw_core_config:validate_config(Config)))).
 
 -define(GGSN_CONFIG,
 	[{node_id, <<"GGSN">>},
@@ -558,7 +558,7 @@ config() ->
     [{doc, "Test the config validation"}].
 config(_Config)  ->
     ?ok_option(?GGSN_CONFIG),
-    ?ok_option(ergw_config:validate_config(?GGSN_CONFIG)),
+    ?ok_option(ergw_core_config:validate_config(?GGSN_CONFIG)),
     ?error_option(set_cfg_value([plmn_id], {undefined, undefined}, ?GGSN_CONFIG)),
     ?error_option(set_cfg_value([plmn_id], {<<"abc">>, <<"ab">>}, ?GGSN_CONFIG)),
     ?error_option(set_cfg_value([node_id], undefined, ?GGSN_CONFIG)),
@@ -575,11 +575,11 @@ config(_Config)  ->
     ?ok_option(set_cfg_value([invalid], [], ?GGSN_CONFIG)),
 
     ?error_option(set_cfg_value([accept_new], invalid, ?GGSN_CONFIG)),
-    Accept0 = (catch ergw_config:validate_config(?GGSN_CONFIG)),
+    Accept0 = (catch ergw_core_config:validate_config(?GGSN_CONFIG)),
     ?equal(true, proplists:get_value(accept_new, Accept0)),
-    Accept1 = (catch ergw_config:validate_config(set_cfg_value([accept_new], true, ?GGSN_CONFIG))),
+    Accept1 = (catch ergw_core_config:validate_config(set_cfg_value([accept_new], true, ?GGSN_CONFIG))),
     ?equal(true, proplists:get_value(accept_new, Accept1)),
-    Accept2 = (catch ergw_config:validate_config(set_cfg_value([accept_new], false, ?GGSN_CONFIG))),
+    Accept2 = (catch ergw_core_config:validate_config(set_cfg_value([accept_new], false, ?GGSN_CONFIG))),
     ?equal(false, proplists:get_value(accept_new, Accept2)),
 
     ?ok_option(set_cfg_value([http_api, port], 1234, ?GGSN_CONFIG)),
@@ -631,7 +631,7 @@ config(_Config)  ->
     ?error_option(add_cfg_value([sockets, irx, vrf], [<<"irx">>, "invalid"], ?GGSN_CONFIG)),
 
     SockOpts = [{type, 'gtp-c'}, {ip,  ?TEST_GSN_IPv4}, reuseaddr, freebind],
-    SockCfg = (catch ergw_config:validate_config(
+    SockCfg = (catch ergw_core_config:validate_config(
 		       add_cfg_value([sockets, 'irx-2'], SockOpts, ?GGSN_CONFIG))),
     ?match(#{type      := 'gtp-c',
 	     ip        := _,
@@ -772,7 +772,7 @@ config(_Config)  ->
     ?error_option(set_cfg_value([apns, '_', vrfs], [a | b], ?GGSN_CONFIG)),
     ?error_option(set_cfg_value([apns, '_', vrfs], [a, a], ?GGSN_CONFIG)),
     ?match({error, {apn, _}},
-	   (catch ergw_config:validate_config(
+	   (catch ergw_core_config:validate_config(
 		    set_cfg_value([apns, invalid], [], ?GGSN_CONFIG)))),
     ?error_option(set_cfg_value([apns, ?'APN-EXAMPLE'], [], ?GGSN_CONFIG)),
     ?error_option(set_cfg_value([apns, ?'APN-EXAMPLE'], invalid, ?GGSN_CONFIG)),
@@ -781,12 +781,12 @@ config(_Config)  ->
     ?error_option(set_cfg_value([apns], invalid, ?GGSN_CONFIG)),
     ?ok_option(add_cfg_value([apns, [<<"a-b">>]], [{vrf, example}], ?GGSN_CONFIG)),
     ?match({error, {apn, _}},
-	   (catch ergw_config:validate_config(
+	   (catch ergw_core_config:validate_config(
 		    add_cfg_value([apns, [<<"$">>]], [{vrf, example}], ?GGSN_CONFIG)))),
     ?match({error, {apn, _}},
-	   (catch ergw_config:validate_config(
+	   (catch ergw_core_config:validate_config(
 		    add_cfg_value([apns, [<<"_">>]], [{vrf, example}], ?GGSN_CONFIG)))),
-    APN0 = proplists:get_value(apns, (catch ergw_config:validate_config(?GGSN_CONFIG))),
+    APN0 = proplists:get_value(apns, (catch ergw_core_config:validate_config(?GGSN_CONFIG))),
     %% check that APN's are lower cased after validation
     ?match(VRF when is_map(VRF), maps:get([<<"apn1">>], APN0)),
 
