@@ -139,7 +139,7 @@ handle_request(ReqKey,
 		  left_tunnel := LeftTunnel0, bearer := #{left := LeftBearer0},
 		 'Session' := Session, pcc := PCC0} = Data) ->
 
-    Services = [{"x-3gpp-upf", "x-sxb"}],
+    Services = [{'x-3gpp-upf', 'x-sxb'}],
 
     {ok, UpSelInfo} =
 	ergw_gtp_gsn_lib:connect_upf_candidates(APN, Services, NodeSelect, []),

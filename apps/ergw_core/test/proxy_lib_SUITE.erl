@@ -13,15 +13,15 @@
 -include("../include/ergw.hrl").
 -include("ergw_test_lib.hrl").
 
--define('CP-Node', "topon.s5s8.pgw.epc.mnc001.mcc001.3gppnetwork.org").
--define('SX-Node', "topon.sx.prox01.epc.mnc001.mcc001.3gppnetwork.org").
+-define('CP-Node', <<"topon.s5s8.pgw.epc.mnc001.mcc001.3gppnetwork.org">>).
+-define('SX-Node', <<"topon.sx.prox01.epc.mnc001.mcc001.3gppnetwork.org">>).
 -define('CP-IP', {172,20,21,91}).
 -define('SX-IP', {172,20,16,91}).
 
--define(SERVICES, [{"x-3gpp-pgw", "x-s8-gtp"},
-		   {"x-3gpp-pgw", "x-s5-gtp"},
-		   {"x-3gpp-pgw", "x-gp"},
-		   {"x-3gpp-pgw", "x-gn"}]).
+-define(SERVICES, [{'x-3gpp-pgw', 'x-s8-gtp'},
+		   {'x-3gpp-pgw', 'x-s5-gtp'},
+		   {'x-3gpp-pgw', 'x-gp'},
+		   {'x-3gpp-pgw', 'x-gn'}]).
 
 
 -define(ERGW_NODE_SELECTION,
@@ -29,34 +29,34 @@
 	      {static,
 	       [
 		%% APN NAPTR alternative
-		{"web.apn.epc.mnc001.mcc001.3gppnetwork.org", {0,0},
-		 [{"x-3gpp-pgw","x-s5-gtp"},{"x-3gpp-pgw","x-s8-gtp"},
-		  {"x-3gpp-pgw","x-gn"},{"x-3gpp-pgw","x-gp"}],
+		{<<"web.apn.epc.mnc001.mcc001.3gppnetwork.org">>, {0,0},
+		 [{'x-3gpp-pgw','x-s5-gtp'},{'x-3gpp-pgw','x-s8-gtp'},
+		  {'x-3gpp-pgw','x-gn'},{'x-3gpp-pgw','x-gp'}],
 		 ?'CP-Node'},
-		{"web.apn.epc.mnc001.mcc001.3gppnetwork.org", {300,64536},
-		 [{"x-3gpp-pgw","x-s5-gtp"},{"x-3gpp-pgw","x-s8-gtp"},
-		  {"x-3gpp-pgw","x-gn"},{"x-3gpp-pgw","x-gp"}],
+		{<<"web.apn.epc.mnc001.mcc001.3gppnetwork.org">>, {300,64536},
+		 [{'x-3gpp-pgw','x-s5-gtp'},{'x-3gpp-pgw','x-s8-gtp'},
+		  {'x-3gpp-pgw','x-gn'},{'x-3gpp-pgw','x-gp'}],
 		 ?'CP-Node'},
-		{"web.apn.epc.mnc001.mcc001.3gppnetwork.org", {300,64536},
-		 [{"x-3gpp-upf","x-sxa"}],
+		{<<"web.apn.epc.mnc001.mcc001.3gppnetwork.org">>, {300,64536},
+		 [{'x-3gpp-upf','x-sxa'}],
 		 ?'SX-Node'},
 
 		%% A/AAAA record alternatives
-		{"web.apn.epc.mnc123.mcc001.3gppnetwork.org", {300,64536},
-		 [{"x-3gpp-pgw","x-s5-gtp"},{"x-3gpp-pgw","x-s8-gtp"},
-		  {"x-3gpp-pgw","x-gn"},{"x-3gpp-pgw","x-gp"}],
+		{<<"web.apn.epc.mnc123.mcc001.3gppnetwork.org">>, {300,64536},
+		 [{'x-3gpp-pgw','x-s5-gtp'},{'x-3gpp-pgw','x-s8-gtp'},
+		  {'x-3gpp-pgw','x-gn'},{'x-3gpp-pgw','x-gp'}],
 		 ?'CP-Node'},
-		{"web.apn.epc.mnc123.mcc001.3gppnetwork.org", {300,64536},
-		 [{"x-3gpp-upf","x-sxa"}],
+		{<<"web.apn.epc.mnc123.mcc001.3gppnetwork.org">>, {300,64536},
+		 [{'x-3gpp-upf','x-sxa'}],
 		 ?'SX-Node'},
 
 		%% A/AAAA record alternatives
-		{"web.apn.epc.mnc123.mcc001.example.org", {300,64536},
-		 [{"x-3gpp-pgw","x-s5-gtp"},{"x-3gpp-pgw","x-s8-gtp"},
-		  {"x-3gpp-pgw","x-gn"},{"x-3gpp-pgw","x-gp"}],
+		{<<"web.apn.epc.mnc123.mcc001.example.org">>, {300,64536},
+		 [{'x-3gpp-pgw','x-s5-gtp'},{'x-3gpp-pgw','x-s8-gtp'},
+		  {'x-3gpp-pgw','x-gn'},{'x-3gpp-pgw','x-gp'}],
 		 ?'CP-Node'},
-		{"web.apn.epc.mnc123.mcc001.example.org", {300,64536},
-		 [{"x-3gpp-upf","x-sxa"}],
+		{<<"web.apn.epc.mnc123.mcc001.example.org">>, {300,64536},
+		 [{'x-3gpp-upf','x-sxa'}],
 		 ?'SX-Node'},
 
 		{?'CP-Node',  [?'CP-IP'], []},

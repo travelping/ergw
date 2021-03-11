@@ -267,7 +267,7 @@ handle_request(ReqKey,
     ProxySocket = ergw_proxy_lib:select_gtp_proxy_sockets(ProxyInfo, Data),
 
     %% GTP v2 services only, we don't do v1 to v2 conversion (yet)
-    Services = [{"x-3gpp-pgw", "x-s8-gtp"}, {"x-3gpp-pgw", "x-s5-gtp"}],
+    Services = [{'x-3gpp-pgw', 'x-s8-gtp'}, {'x-3gpp-pgw', 'x-s5-gtp'}],
     ProxyGGSN =
 	case ergw_proxy_lib:select_gw(ProxyInfo, v2, Services, NodeSelect, ProxySocket) of
 	    {ok, Result3} -> Result3;

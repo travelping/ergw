@@ -236,10 +236,8 @@ validate_option(plmn_id, {MCC, MNC} = Value) ->
        ok -> Value;
        _  -> throw({error, {options, {plmn_id, Value}}})
     end;
-validate_option(node_id, Value) when is_atom(Value), Value /= undefined ->
-    Value;
 validate_option(node_id, Value) when is_binary(Value) ->
-    binary_to_atom(Value);
+    Value;
 validate_option(node_id, Value) when is_list(Value) ->
     binary_to_atom(iolist_to_binary(Value));
 validate_option(accept_new, Value) when is_boolean(Value) ->
@@ -411,7 +409,7 @@ validate_default_node(Opts) ->
     throw({error, {options, {nodes, default, Opts}}}).
 
 validate_nodes(Name, Opts, Defaults)
-  when is_list(Name), ?is_opts(Opts) ->
+  when is_binary(Name), ?is_opts(Opts) ->
     validate_options(fun validate_node_option/2, Opts, Defaults, map);
 validate_nodes(Opt, Values, _) ->
     throw({error, {options, {Opt, Values}}}).

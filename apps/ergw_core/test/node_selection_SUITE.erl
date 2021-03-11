@@ -18,63 +18,63 @@
 -define(HUB2,  {100, 255, 5, 45}).
 -define(UP1,   {172,20,16,91}).
 
--define(SERVICES, [{"x-3gpp-pgw", "x-s8-gtp"},
-		   {"x-3gpp-pgw", "x-s5-gtp"},
-		   {"x-3gpp-pgw", "x-gp"},
-		   {"x-3gpp-pgw", "x-gn"}]).
+-define(SERVICES, [{'x-3gpp-pgw', 'x-s8-gtp'},
+		   {'x-3gpp-pgw', 'x-s5-gtp'},
+		   {'x-3gpp-pgw', 'x-gp'},
+		   {'x-3gpp-pgw', 'x-gn'}]).
 
--define(L1, [{"topon.gngp.pgw.north.epc.mnc005.mcc001.3gppnetwork.org",
+-define(L1, [{<<"topon.gngp.pgw.north.epc.mnc990.mcc311.3gppnetwork.org">>,
 	      {500,64536},
-	      [{"x-3gpp-pgw","x-gn"},{"x-3gpp-pgw","x-gp"}],
+	      [{'x-3gpp-pgw','x-gn'},{'x-3gpp-pgw','x-gp'}],
 	      [{1,0,0,2}],
 	      []},
-	     {"topon.s5s8.pgw.north.epc.mnc005.mcc001.3gppnetwork.org",
+	     {<<"topon.s5s8.pgw.north.epc.mnc005.mcc001.3gppnetwork.org">>,
 	      {200,64536},
-	      [{"x-3gpp-pgw","x-s5-gtp"},{"x-3gpp-pgw","x-s8-gtp"}],
+	      [{'x-3gpp-pgw','x-s5-gtp'},{'x-3gpp-pgw','x-s8-gtp'}],
 	      [{1,0,0,1}],
 	      []}]).
 
--define(L2, [{"topon.s5s8.pgw.south.epc.mnc005.mcc001.3gppnetwork.org",
+-define(L2, [{<<"topon.s5s8.pgw.south.epc.mnc005.mcc001.3gppnetwork.org">>,
 	      {200,64536},
-	      [{"x-3gpp-pgw","x-s5-gtp"},{"x-3gpp-pgw","x-s8-gtp"}],
+	      [{'x-3gpp-pgw','x-s5-gtp'},{'x-3gpp-pgw','x-s8-gtp'}],
 	      [{2,0,0,1}],
 	      []},
-	     {"topon.gngp.pgw.south.epc.mnc005.mcc001.3gppnetwork.org",
+	     {<<"topon.gngp.pgw.south.epc.mnc005.mcc001.3gppnetwork.org">>,
 	      {500,64536},
-	      [{"x-3gpp-pgw","x-gn"},{"x-3gpp-pgw","x-gp"}],
+	      [{'x-3gpp-pgw','x-gn'},{'x-3gpp-pgw','x-gp'}],
 	      [{2,0,0,2}],
 	      []}]).
 
--define(L3, [{"topon.gngp.saegw.south.epc.mnc005.mcc001.3gppnetwork.org",
+-define(L3, [{<<"topon.gngp.saegw.south.epc.mnc005.mcc001.3gppnetwork.org">>,
 	      {500,64536},
-	      [{"x-3gpp-pgw","x-gn"},{"x-3gpp-pgw","x-gp"}],
+	      [{'x-3gpp-pgw','x-gn'},{'x-3gpp-pgw','x-gp'}],
 	      [{5,0,0,2},{5,0,0,5}],
 	      []},
-	     {"topon.s5s8.saegw.south.epc.mnc005.mcc001.3gppnetwork.org",
+	     {<<"topon.s5s8.saegw.south.epc.mnc005.mcc001.3gppnetwork.org">>,
 	      {200,64536},
-	      [{"x-3gpp-pgw","x-s5-gtp"},{"x-3gpp-pgw","x-s8-gtp"}],
+	      [{'x-3gpp-pgw','x-s5-gtp'},{'x-3gpp-pgw','x-s8-gtp'}],
 	      [{5,0,0,4},{5,0,0,1}],
 	      []}]).
 
--define(S1, [{"topon.s5s8.sgw.south.epc.mnc005.mcc001.3gppnetwork.org",
+-define(S1, [{<<"topon.s5s8.sgw.south.epc.mnc005.mcc001.3gppnetwork.org">>,
 	      {300,64536},
-	      [{"x-3gpp-sgw","x-s5-gtp"},{"x-3gpp-sgw","x-s8-gtp"}],
+	      [{'x-3gpp-sgw','x-s5-gtp'},{'x-3gpp-sgw','x-s8-gtp'}],
 	      [{4,0,0,2}],
 	      []},
-	     {"topon.gngp.sgw.south.epc.mnc005.mcc001.3gppnetwork.org",
+	     {<<"topon.gngp.sgw.south.epc.mnc005.mcc001.3gppnetwork.org">>,
 	      {800,64536},
-	      [{"x-3gpp-sgw","x-gn"},{"x-3gpp-sgw","x-gp"}],
+	      [{'x-3gpp-sgw','x-gn'},{'x-3gpp-sgw','x-gp'}],
 	      [{4,0,0,3}],
 	      []}]).
 
--define(S2, [{"topon.gngp.saegw.south.epc.mnc005.mcc001.3gppnetwork.org",
+-define(S2, [{<<"topon.gngp.saegw.south.epc.mnc005.mcc001.3gppnetwork.org">>,
 	      {800,64536},
-	      [{"x-3gpp-sgw","x-gn"},{"x-3gpp-sgw","x-gp"}],
+	      [{'x-3gpp-sgw','x-gn'},{'x-3gpp-sgw','x-gp'}],
 	      [{5,0,0,5},{5,0,0,2}],
 	      []},
-	     {"topon.s5s8.saegw.south.epc.mnc005.mcc001.3gppnetwork.org",
+	     {<<"topon.s5s8.saegw.south.epc.mnc005.mcc001.3gppnetwork.org">>,
 	      {300,64536},
-	      [{"x-3gpp-sgw","x-s5-gtp"},{"x-3gpp-sgw","x-s8-gtp"}],
+	      [{'x-3gpp-sgw','x-s5-gtp'},{'x-3gpp-sgw','x-s8-gtp'}],
 	      [{5,0,0,1},{5,0,0,4}],
 	      []}]).
 
@@ -83,44 +83,44 @@
 	      {static,
 	       [
 		%% APN NAPTR alternative
-		{"_default.apn.epc.mnc001.mcc001.3gppnetwork.org", {300,64536},
-		 [{"x-3gpp-pgw","x-s5-gtp"},{"x-3gpp-pgw","x-s8-gtp"},
-		  {"x-3gpp-pgw","x-gn"},{"x-3gpp-pgw","x-gp"}],
-		 "topon.s5s8.pgw.epc.mnc001.mcc001.3gppnetwork.org"},
-		{"_default.apn.epc.mnc001.mcc001.3gppnetwork.org", {300,64536},
-		 [{"x-3gpp-upf","x-sxa"}],
-		 "topon.sx.prox01.node.epc.mnc001.mcc001.3gppnetwork.org"},
+		{<<"_default.apn.epc.mnc001.mcc001.3gppnetwork.org">>, {300,64536},
+		 [{'x-3gpp-pgw','x-s5-gtp'},{'x-3gpp-pgw','x-s8-gtp'},
+		  {'x-3gpp-pgw','x-gn'},{'x-3gpp-pgw','x-gp'}],
+		 <<"topon.s5s8.pgw.epc.mnc001.mcc001.3gppnetwork.org">>},
+		{<<"_default.apn.epc.mnc001.mcc001.3gppnetwork.org">>, {300,64536},
+		 [{'x-3gpp-upf','x-sxa'}],
+		 <<"topon.sx.prox01.node.epc.mnc001.mcc001.3gppnetwork.org">>},
 
-		{"web.apn.epc.mnc001.mcc001.3gppnetwork.org", {300,64536},
-		 [{"x-3gpp-pgw","x-s5-gtp"},{"x-3gpp-pgw","x-s8-gtp"},
-		  {"x-3gpp-pgw","x-gn"},{"x-3gpp-pgw","x-gp"}],
-		 "topon.s5s8.pgw.epc.mnc001.mcc001.3gppnetwork.org"},
-		{"web.apn.epc.mnc001.mcc001.3gppnetwork.org", {300,64536},
-		 [{"x-3gpp-upf","x-sxa"}],
-		 "topon.sx.prox01.node.epc.mnc001.mcc001.3gppnetwork.org"},
+		{<<"web.apn.epc.mnc001.mcc001.3gppnetwork.org">>, {300,64536},
+		 [{'x-3gpp-pgw','x-s5-gtp'},{'x-3gpp-pgw','x-s8-gtp'},
+		  {'x-3gpp-pgw','x-gn'},{'x-3gpp-pgw','x-gp'}],
+		 <<"topon.s5s8.pgw.epc.mnc001.mcc001.3gppnetwork.org">>},
+		{<<"web.apn.epc.mnc001.mcc001.3gppnetwork.org">>, {300,64536},
+		 [{'x-3gpp-upf','x-sxa'}],
+		 <<"topon.sx.prox01.node.epc.mnc001.mcc001.3gppnetwork.org">>},
 
-		{"lb.apn.epc.mnc001.mcc001.3gppnetwork.org", {300,64536},
-		 [{"x-3gpp-upf","x-sxa"}],
-		 "topon.sx.prox01.node.epc.mnc001.mcc001.3gppnetwork.org"},
-		{"lb.apn.epc.mnc001.mcc001.3gppnetwork.org", {300,64536},
-		 [{"x-3gpp-upf","x-sxa"}],
-		 "topon.sx.prox02.node.epc.mnc001.mcc001.3gppnetwork.org"},
-		{"lb.apn.epc.mnc001.mcc001.3gppnetwork.org", {300,10},
-		 [{"x-3gpp-upf","x-sxa"}],
-		 "topon.sx.prox03.node.epc.mnc001.mcc001.3gppnetwork.org"},
+		{<<"lb.apn.epc.mnc001.mcc001.3gppnetwork.org">>, {300,64536},
+		 [{'x-3gpp-upf','x-sxa'}],
+		 <<"topon.sx.prox01.node.epc.mnc001.mcc001.3gppnetwork.org">>},
+		{<<"lb.apn.epc.mnc001.mcc001.3gppnetwork.org">>, {300,64536},
+		 [{'x-3gpp-upf','x-sxa'}],
+		 <<"topon.sx.prox02.node.epc.mnc001.mcc001.3gppnetwork.org">>},
+		{<<"lb.apn.epc.mnc001.mcc001.3gppnetwork.org">>, {300,10},
+		 [{'x-3gpp-upf','x-sxa'}],
+		 <<"topon.sx.prox03.node.epc.mnc001.mcc001.3gppnetwork.org">>},
 
-		{"example.apn.epc.mnc003.mcc001.3gppnetwork.org", {20, 20},
-		 [{"x-3gpp-pgw","x-s5-gtp"},{"x-3gpp-pgw","x-s8-gtp"},
-		  {"x-3gpp-pgw","x-gn"}],
-		 "hub.node.epc.mnc003.mcc001.3gppnetwork.org"},
+		{<<"example.apn.epc.mnc003.mcc001.3gppnetwork.org">>, {20, 20},
+		 [{'x-3gpp-pgw','x-s5-gtp'},{'x-3gpp-pgw','x-s8-gtp'},
+		  {'x-3gpp-pgw','x-gn'}],
+		 <<"hub.node.epc.mnc003.mcc001.3gppnetwork.org">>},
 
 		%% A/AAAA record alternatives
-		{"topon.s5s8.pgw.epc.mnc001.mcc001.3gppnetwork.org",  [?ERGW1], []},
-		{"topon.sx.prox01.node.epc.mnc001.mcc001.3gppnetwork.org", [?UP1], []},
-		{"topon.sx.prox02.node.epc.mnc001.mcc001.3gppnetwork.org", [?UP1], []},
-		{"topon.sx.prox03.node.epc.mnc001.mcc001.3gppnetwork.org", [?UP1], []},
+		{<<"topon.s5s8.pgw.epc.mnc001.mcc001.3gppnetwork.org">>,  [?ERGW1], []},
+		{<<"topon.sx.prox01.node.epc.mnc001.mcc001.3gppnetwork.org">>, [?UP1], []},
+		{<<"topon.sx.prox02.node.epc.mnc001.mcc001.3gppnetwork.org">>, [?UP1], []},
+		{<<"topon.sx.prox03.node.epc.mnc001.mcc001.3gppnetwork.org">>, [?UP1], []},
 
-		{"hub.node.epc.mnc003.mcc001.3gppnetwork.org", [?HUB1, ?HUB2], []}
+		{<<"hub.node.epc.mnc003.mcc001.3gppnetwork.org">>, [?HUB1, ?HUB2], []}
 	       ]
 	      }
 	 }
@@ -198,9 +198,9 @@ end_per_group(_, _Config) ->
 srv_lookup() ->
     [{doc, "NAPTR lookup with following SRV"}].
 srv_lookup(_Config) ->
-    R = ergw_node_selection:lookup_naptr("example.apn.epc.mnc001.mcc001.3gppnetwork.org",
+    R = ergw_node_selection:lookup_naptr(<<"example.apn.epc.mnc001.mcc001.3gppnetwork.org">>,
 					 ?SERVICES, default),
-    ?match([{"pgw-list-2.node.epc.mnc001.mcc001.3gppnetwork.org", _, _, [_|_], _}], R),
+    ?match([{<<"pgw-list-2.node.epc.mnc001.mcc001.3gppnetwork.org">>, _, _, [_|_], _}], R),
     [{_, _, _, IP4, _}] = R,
     ?equal(lists:sort([?ERGW1, ?ERGW2]), lists:sort(IP4)),
 
@@ -209,7 +209,7 @@ srv_lookup(_Config) ->
 srv_lookup_no_final_a() ->
     [{doc, "NAPTR lookup with following SRV (no AR section in DNS response)"}].
 srv_lookup_no_final_a(_Config) ->
-    R = ergw_node_selection:lookup_naptr("example.apn.epc.mnc002.mcc001.3gppnetwork.org",
+    R = ergw_node_selection:lookup_naptr(<<"example.apn.epc.mnc002.mcc001.3gppnetwork.org">>,
 					 ?SERVICES, default),
     ?match([], R),
     ok.
@@ -217,9 +217,9 @@ srv_lookup_no_final_a(_Config) ->
 a_lookup() ->
     [{doc, "NAPTR lookup with following A"}].
 a_lookup(_Config) ->
-    R = ergw_node_selection:lookup_naptr("example.apn.epc.mnc003.mcc001.3gppnetwork.org",
+    R = ergw_node_selection:lookup_naptr(<<"example.apn.epc.mnc003.mcc001.3gppnetwork.org">>,
 					 ?SERVICES, default),
-    ?match([{"hub.node.epc.mnc003.mcc001.3gppnetwork.org", _, _, [_|_], _}], R),
+    ?match([{<<"hub.node.epc.mnc003.mcc001.3gppnetwork.org">>, _, _, [_|_], _}], R),
     [{_, _, _, IP4, _}] = R,
     ?equal(lists:sort([?HUB1, ?HUB2]), lists:sort(IP4)),
     ok.
@@ -227,7 +227,7 @@ a_lookup(_Config) ->
 a_lookup_no_final_a() ->
     [{doc, "NAPTR lookup with following A"}].
 a_lookup_no_final_a(_Config) ->
-    R = ergw_node_selection:lookup_naptr("example.apn.epc.mnc004.mcc001.3gppnetwork.org",
+    R = ergw_node_selection:lookup_naptr(<<"example.apn.epc.mnc004.mcc001.3gppnetwork.org">>,
 					 ?SERVICES, default),
     ?match([], R),
     ok.
@@ -235,8 +235,8 @@ a_lookup_no_final_a(_Config) ->
 default_lookup() ->
     [{doc, "lookup from config"}].
 default_lookup(_Config) ->
-    R = ergw_node_selection:candidates("example.apn.epc", [{"x-3gpp-upf","x-sxa"}], [default]),
-    ?match([{"topon.sx.prox01.node.epc.mnc001.mcc001.3gppnetwork.org", _, _, [_|_], _}], R),
+    R = ergw_node_selection:candidates(<<"example.apn.epc">>, [{'x-3gpp-upf','x-sxa'}], [default]),
+    ?match([{<<"topon.sx.prox01.node.epc.mnc001.mcc001.3gppnetwork.org">>, _, _, [_|_], _}], R),
     [{_, _, _, IP4, _}] = R,
     ?equal(lists:sort([?UP1]), lists:sort(IP4)),
     ok.
@@ -244,28 +244,27 @@ default_lookup(_Config) ->
 topology_match() ->
     [{doc, "Check that topon node matching find the best combination"}].
 topology_match(_Config) ->
-    ?match([{{"topon.gngp.pgw.south.epc.mnc005.mcc001.3gppnetwork.org", _, _, _, _},
-	     {"topon.gngp.sgw.south.epc.mnc005.mcc001.3gppnetwork.org", _, _, _, _}} | _],
+    ?match([{{<<"topon.gngp.pgw.south.epc.mnc005.mcc001.3gppnetwork.org">>, _, _, _, _},
+	     {<<"topon.gngp.sgw.south.epc.mnc005.mcc001.3gppnetwork.org">>, _, _, _, _}} | _],
 	   ergw_node_selection:topology_match(?L1 ++ ?L2, ?S1)).
 
 colocation_match() ->
     [{doc, "Check that topon node matching find the best combination"}].
 colocation_match(_Config) ->
-    ?match([{{"topon.gngp.saegw.south.epc.mnc005.mcc001.3gppnetwork.org", _, _, _, _},
-	     {"topon.gngp.saegw.south.epc.mnc005.mcc001.3gppnetwork.org", _, _, _, _}} | _],
+    ?match([{{<<"topon.gngp.saegw.south.epc.mnc005.mcc001.3gppnetwork.org">>, _, _, _, _},
+	     {<<"topon.gngp.saegw.south.epc.mnc005.mcc001.3gppnetwork.org">>, _, _, _, _}} | _],
 	   ergw_node_selection:colocation_match(?L1 ++ ?L2 ++ ?L3, ?S1 ++ ?S2)).
 
 apn_to_fqdn() ->
     [{doc, "Translater APN-NI and APN-OI into a proper DNS FQDN for lookup"}].
 apn_to_fqdn(_Config) ->
     TestsOk =
-	[["example","com"],
-	 [<<"example">>, <<"com">>],
-	 ["example","com","mnc001","mcc001","gprs"],
-	 ["example","com","apn","epc","mnc001","mcc001","3gppnetwork","org"]],
+	[[<<"example">>, <<"com">>],
+	 [<<"example">>, <<"com">>, <<"mnc001">>, <<"mcc001">>, <<"gprs">>], [<<"example">>, <<"com">>, <<"apn">>, <<"epc">>,
+	  <<"mnc001">>, <<"mcc001">>, <<"3gppnetwork">>, <<"org">>]],
     lists:foreach(
       fun(X) ->
-	      ?equal({fqdn,["example","com","apn","epc","mnc001","mcc001","3gppnetwork","org"]},
+	      ?equal({fqdn,[<<"example">>,<<"com">>,<<"apn">>,<<"epc">>, <<"mnc001">>,<<"mcc001">>,<<"3gppnetwork">>,<<"org">>]},
 		     ergw_node_selection:apn_to_fqdn(X)) end, TestsOk),
 
     %%
@@ -274,39 +273,39 @@ apn_to_fqdn(_Config) ->
     %%
 
     %% APN-NI ends with GRPS
-    ?equal({fqdn,["example","gprs","apn","epc","mnc001","mcc001","3gppnetwork","org"]},
-	   ergw_node_selection:apn_to_fqdn(["example","gprs"])),
-    ?equal({fqdn,["apn","epc","example","com","3gppnetwork","org"]},
-	   ergw_node_selection:apn_to_fqdn(["example","com","gprs"])),
+    ?equal({fqdn,[<<"example">>, <<"gprs">>, <<"apn">>, <<"epc">>, <<"mnc001">>, <<"mcc001">>, <<"3gppnetwork">>, <<"org">>]},
+	   ergw_node_selection:apn_to_fqdn([<<"example">>, <<"gprs">>])),
+    ?equal({fqdn,[<<"apn">>, <<"epc">>, <<"example">>, <<"com">>, <<"3gppnetwork">>, <<"org">>]},
+	   ergw_node_selection:apn_to_fqdn([<<"example">>, <<"com">>, <<"gprs">>])),
 
     %% MCC/MNC swapped
-    ?equal({fqdn,["example","com","apn","epc","mcc001","mnc001","3gppnetwork","org"]},
-	   ergw_node_selection:apn_to_fqdn(["example","com","mcc001","mnc001","gprs"])),
+    ?equal({fqdn,[<<"example">>, <<"com">>, <<"apn">>, <<"epc">>, <<"mcc001">>, <<"mnc001">>, <<"3gppnetwork">>, <<"org">>]},
+	   ergw_node_selection:apn_to_fqdn([<<"example">>, <<"com">>, <<"mcc001">>, <<"mnc001">>, <<"gprs">>])),
 
     %% end with .3gppnetwork.org
-    ?equal({fqdn,["example","com","3gppnetwork","org"]},
-	   ergw_node_selection:apn_to_fqdn(["example","com","3gppnetwork","org"])),
+    ?equal({fqdn,[<<"example">>, <<"com">>, <<"3gppnetwork">>, <<"org">>]},
+	   ergw_node_selection:apn_to_fqdn([<<"example">>, <<"com">>, <<"3gppnetwork">>, <<"org">>])),
 
     %% .3gppnetwork.org with incomplete content
-    ?equal({fqdn,["example","com","mcc001","mnc001","3gppnetwork","org"]},
-	   ergw_node_selection:apn_to_fqdn(["example","com","mcc001","mnc001","3gppnetwork","org"])),
+    ?equal({fqdn,[<<"example">>, <<"com">>, <<"mcc001">>, <<"mnc001">>, <<"3gppnetwork">>, <<"org">>]},
+	   ergw_node_selection:apn_to_fqdn([<<"example">>, <<"com">>, <<"mcc001">>, <<"mnc001">>, <<"3gppnetwork">>, <<"org">>])),
 
-    ?equal({fqdn,["example",<<"com">>,"apn","epc","mnc001","mcc001","3gppnetwork","org"]},
-	   ergw_node_selection:apn_to_fqdn(["example",<<"com">>])),
+    ?equal({fqdn,[<<"example">>, <<"com">>, <<"apn">>, <<"epc">>, <<"mnc001">>, <<"mcc001">>, <<"3gppnetwork">>, <<"org">>]},
+	   ergw_node_selection:apn_to_fqdn([<<"example">>, <<"com">>])),
 
     %% expected to crash
-    ?match({'EXIT', {badarg, _}},
-	   (catch ergw_node_selection:apn_to_fqdn([<<"example">>,"com"]))),
+    ?match({'EXIT', {function_clause, _}},
+	   (catch ergw_node_selection:apn_to_fqdn(["example",<<"com">>]))),
 
     ok.
 
 lb_entry_lookup() ->
     [{doc, "Load balancing entry from config"}].
 lb_entry_lookup(_Config) ->
-    R = ergw_node_selection:candidates("lb.apn.epc", [{"x-3gpp-upf","x-sxa"}], [default]),
-    ?match([{"topon.sx.prox01.node.epc.mnc001.mcc001.3gppnetwork.org", _, _, [_|_], _},
-	    {"topon.sx.prox02.node.epc.mnc001.mcc001.3gppnetwork.org", _, _, [_|_], _},
-	    {"topon.sx.prox03.node.epc.mnc001.mcc001.3gppnetwork.org", _, _, [_|_], _}],
+    R = ergw_node_selection:candidates(<<"lb.apn.epc">>, [{'x-3gpp-upf','x-sxa'}], [default]),
+    ?match([{<<"topon.sx.prox01.node.epc.mnc001.mcc001.3gppnetwork.org">>, _, _, [_|_], _},
+	    {<<"topon.sx.prox02.node.epc.mnc001.mcc001.3gppnetwork.org">>, _, _, [_|_], _},
+	    {<<"topon.sx.prox03.node.epc.mnc001.mcc001.3gppnetwork.org">>, _, _, [_|_], _}],
 	   lists:sort(R)),
 
     {N1, R1} = ergw_node_selection:snaptr_candidate(R),

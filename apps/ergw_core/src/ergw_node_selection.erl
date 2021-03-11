@@ -36,11 +36,6 @@
 %% API
 %%====================================================================
 
-%% -type service()           :: string().
-%% -type protocol()          :: string().
-%% -type service_parameter() :: {service(), protocol()}.
-%% -type preference()        :: {integer(), integer()}.
-
 -ifdef(TEST).
 %% currently unused, but worth keeping arround
 colocation_match(CandidatesA, CandidatesB) ->
@@ -85,11 +80,11 @@ topology_select(FQDN, MatchPeers, Services, NodeSelect) ->
 candidates(Name, Services, NodeSelection) ->
     ServiceSet = ordsets:from_list(Services),
     Norm = normalize_name(Name),
-    case lookup(lists:flatten(lists:join($., Norm)), ServiceSet, NodeSelection) of
+    case lookup(iolist_to_binary(lists:join($., Norm)), ServiceSet, NodeSelection) of
 	[] ->
 	    %% no candidates, try with _default
-	    DefaultAPN = normalize_name(["_default", "apn", "epc"]),
-	    lookup(lists:flatten(lists:join($., DefaultAPN)), ServiceSet, NodeSelection);
+	    DefaultAPN = normalize_name([<<"_default">>, <<"apn">>, <<"epc">>]),
+	    lookup(iolist_to_binary(lists:join($., DefaultAPN)), ServiceSet, NodeSelection);
 	L ->
 	    L
     end.
@@ -124,17 +119,14 @@ apn_to_fqdn([H|_] = APN, IMSI)
 
 apn_to_fqdn([H|_] = APN)
   when is_binary(H) ->
-    apn_to_fqdn([binary_to_list(X) || X <- APN]);
-apn_to_fqdn(APN)
-  when is_list(APN) ->
     FQDN =
 	case lists:reverse(APN) of
-	    ["gprs", MCC, MNC | APN_NI] ->
-		lists:reverse(["org", "3gppnetwork", MCC, MNC, "epc", "apn" | APN_NI]);
-	    ["org", "3gppnetwork" | _] ->
+	    [<<"gprs">>, MCC, MNC | APN_NI] ->
+		lists:reverse([<<"org">>, <<"3gppnetwork">>, MCC, MNC, <<"epc">>, <<"apn">> | APN_NI]);
+	    [<<"org">>, <<"3gppnetwork">> | _] ->
 		APN;
 	    APN_NI ->
-		normalize_name_fqdn(["epc", "apn" | APN_NI])
+		normalize_name_fqdn([<<"epc">>, <<"apn">> | APN_NI])
 	end,
     {fqdn, FQDN}.
 
@@ -188,20 +180,16 @@ validate_ip_list(L) ->
 	 (IP) -> throw({error, {options, {ip, IP}}})
       end, L).
 
-validate_static_option({Label, {Order, Prio} = Degree, [{_,_}|_] = Services, Host})
-  when is_list(Label),
-       is_integer(Order),
-       is_integer(Prio),
-       is_list(Host) ->
-    {Label, Degree, ordsets:from_list(Services), Host};
-validate_static_option({Host, IP4, IP6} = Opt)
-  when is_list(Host),
-       is_list(IP4),
-       is_list(IP6),
+validate_static_option({Label, {Order, Prio} = Degree, [{_,_}|_] = Services0, Host})
+  when is_binary(Label), is_integer(Order), is_integer(Prio), is_binary(Host) ->
+    Services = ordsets:from_list([{S, P} || {S, P} <- Services0]),
+    {Label, Degree, Services, Host};
+validate_static_option({Host, IP4, IP6})
+  when is_binary(Host), is_list(IP4), is_list(IP6),
        (length(IP4) /= 0 orelse length(IP6) /= 0) ->
     validate_ip_list(IP4),
     validate_ip_list(IP6),
-    Opt;
+    {Host, IP4, IP6};
 validate_static_option(Opt) ->
     throw({error, {options, {static, Opt}}}).
 
@@ -283,32 +271,30 @@ do_lookup([Selection|Next], DoFun) ->
 	Host ->
 	    Host
     end;
-do_lookup(Selection, DoFun) when is_atom(Selection) ->
+do_lookup(Selection, DoFun) ->
     do_lookup([Selection], DoFun).
 
-lookup(Name, Selection) ->
+lookup(Name, Selection) when is_binary(Name) ->
     do_lookup(Selection, lookup_host(Name, _)).
 
-lookup(Name, ServiceSet, Selection) ->
+lookup(Name, ServiceSet, Selection) when is_binary(Name) ->
     do_lookup(Selection, lookup_naptr(Name, ServiceSet, _)).
 
 normalize_name({fqdn, FQDN}) ->
     FQDN;
-normalize_name([H|_] = Name) when is_list(H) ->
+normalize_name([H|_] = Name) when is_binary(H) ->
     normalize_name_fqdn(lists:reverse(Name));
-normalize_name(Name) when is_list(Name) ->
-    normalize_name_fqdn(lists:reverse(string:tokens(Name, ".")));
 normalize_name(Name) when is_binary(Name) ->
-    normalize_name(binary_to_list(Name)).
+    normalize_name_fqdn(lists:reverse(binary:split(Name, <<$.>>, [global]))).
 
-normalize_name_fqdn(["org", "3gppnetwork" | _] = Name) ->
+normalize_name_fqdn([<<"org">>, <<"3gppnetwork">> | _] = Name) ->
     lists:reverse(Name);
-normalize_name_fqdn(["epc" | _] = Name) ->
+normalize_name_fqdn([<<"epc">> | _] = Name) ->
     {MCC, MNC} = ergw_core:get_plmn_id(),
     lists:reverse(
-      ["org", "3gppnetwork",
-       lists:flatten(io_lib:format("mcc~3..0s", [MCC])),
-       lists:flatten(io_lib:format("mnc~3..0s", [MNC])) |
+      [<<"org">>, <<"3gppnetwork">>,
+       iolist_to_binary(io_lib:format("mcc~3..0s", [MCC])),
+       iolist_to_binary(io_lib:format("mnc~3..0s", [MNC])) |
        Name]).
 
 add_candidate(Pos, Tuple, Candidate) ->
@@ -329,9 +315,9 @@ insert_candidates([_|Next] = Label, Candidate, Pos, Tree0) ->
 
 -ifdef(TEST).
 insert_colo_candidates({Host, _, _, _, _} = Candidate, Pos, Tree) ->
-    case string:tokens(Host, ".") of
+    case binary:split(Host, <<$.>>, [global]) of
 	[Top, _ | Labels]
-	  when Top =:= "topon"; Top =:= "topoff" ->
+	  when Top =:= <<"topon">>; Top =:= <<"topoff">> ->
 	    insert_candidate(Labels, Candidate, Pos, Tree);
 	Labels ->
 	    insert_candidate(Labels, Candidate, Pos, Tree)
@@ -340,8 +326,8 @@ insert_colo_candidates({Host, _, _, _, _} = Candidate, Pos, Tree) ->
 
 insert_topo_candidates({Host, _, _, _, _} = Candidate, Pos,
 		       {MatchTree0, PrefixTree0} = Tree) ->
-    case string:tokens(Host, ".") of
-	["topon", _ | Labels] ->
+    case binary:split(Host, <<$.>>, [global]) of
+	[<<"topon">>, _ | Labels] ->
 	    PrefixTree = insert_candidates(Labels, Candidate, Pos, PrefixTree0),
 	    MatchTree = insert_candidate(Labels, Candidate, Pos, MatchTree0),
 	    {MatchTree, PrefixTree};
@@ -379,13 +365,11 @@ naptr(Name, Selection) ->
     ergw_inet_res:resolve(Name, Selection, in, naptr).
 
 naptr_service_filter({Order, Pref, Flag, Services, _RegExp, Host}, OrdSPSet, Acc) ->
-    [Service | Protocols] = string:tokens(Services, ":"),
-    RRSPSet = ordsets:from_list([{Service, P} || P <- Protocols]),
-    case ordsets:is_disjoint(RRSPSet, OrdSPSet) of
+    case ordsets:is_disjoint(Services, OrdSPSet) of
 	true ->
 	    Acc;
 	_ ->
-	    [{Host, {Order, 65535 - Pref}, Flag, RRSPSet} | Acc]
+	    [{Host, {Order, 65535 - Pref}, Flag, Services} | Acc]
     end;
 naptr_service_filter(_, _, Acc) ->
     Acc.
@@ -400,18 +384,16 @@ naptr_filter(RR, OrdSPSet, Acc) ->
 
 %% RFC2915: "A" means that the next lookup should be for either an A, AAAA, or A6 record.
 %% We only support A for now.
-follow({Host, Order, "a", Services}, Selection, Res) ->
-    Key = string:to_lower(Host),
-    case lookup_host(Key, Selection) of
-	{_, IP4, IP6} ->
+follow({Host, Order, a, Services}, Selection, Res) ->
+    case lookup_host(Host, Selection) of
+	{_, IP4, IP6} = _R ->
 	    [{Host, Order, Services, IP4, IP6} | Res];
 	_ ->
 	    Res
     end;
 %% RFC2915: the "S" flag means that the next lookup should be for SRV records.
-follow({Host, Order, "s", Services}, Selection, Res) ->
-    Key = string:to_lower(Host),
-    case ergw_inet_res:resolve(Key, Selection, in, srv) of
+follow({Host, Order, s, Services}, Selection, Res) ->
+    case ergw_inet_res:resolve(Host, Selection, in, srv) of
 	SrvRRs when is_list(SrvRRs) ->
 	    case lists:foldl(follow_srv(_, _, Selection), {[], []}, SrvRRs) of
 		{IP4, IP6} when is_list(IP4) andalso IP4 /= [];
@@ -426,8 +408,7 @@ follow({Host, Order, "s", Services}, Selection, Res) ->
 
 follow_srv(RR, {IP4in, IP6in} = IPs, Selection) ->
     {_Prio, _Weight, _Port, Host} = data(RR),
-    Key = string:to_lower(Host),
-    case lookup_host(Key, Selection) of
+    case lookup_host(Host, Selection) of
 	{_, IP4, IP6} ->
 	    {IP4 ++ IP4in, IP6 ++ IP6in};
 	_ ->

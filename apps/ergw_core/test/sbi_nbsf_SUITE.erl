@@ -37,7 +37,7 @@
 	 {ergw_core, [{'$setup_vars',
 		  [{"ORIGIN", {value, "epc.mnc001.mcc001.3gppnetwork.org"}}]},
 
-		 {node_id, <<"PGW">>},
+		 {node_id, <<"PGW.$ORIGIN">>},
 		 {http_api, [{port, 0}]},
 
 		 {sockets,
@@ -129,28 +129,28 @@
 		    {static,
 		     [
 		      %% APN NAPTR alternative
-		      {"_default.apn.$ORIGIN", {300,64536},
-		       [{"x-3gpp-pgw","x-s5-gtp"},{"x-3gpp-pgw","x-s8-gtp"},
-			{"x-3gpp-pgw","x-gn"},{"x-3gpp-pgw","x-gp"}],
-		       "topon.s5s8.pgw.$ORIGIN"},
-		      {"_default.apn.$ORIGIN", {300,64536},
-		       [{"x-3gpp-upf","x-sxb"}],
-		       "topon.sx.prox01.$ORIGIN"},
-		      {"_default.apn.$ORIGIN", {400,64536},
-		       [{"x-3gpp-upf","x-sxb"}],
-		       "topon.sx.prox03.$ORIGIN"},
-		      {"async-sx.apn.$ORIGIN", {300,64536},
-		       [{"x-3gpp-upf","x-sxb"}],
-		       "topon.sx.prox01.$ORIGIN"},
-		      {"async-sx.apn.$ORIGIN", {300,64536},
-		       [{"x-3gpp-upf","x-sxb"}],
-		       "topon.sx.prox02.$ORIGIN"},
+		      {<<"_default.apn.$ORIGIN">>, {300,64536},
+		       [{'x-3gpp-pgw','x-s5-gtp'},{'x-3gpp-pgw','x-s8-gtp'},
+			{'x-3gpp-pgw','x-gn'},{'x-3gpp-pgw','x-gp'}],
+		       <<"topon.s5s8.pgw.$ORIGIN">>},
+		      {<<"_default.apn.$ORIGIN">>, {300,64536},
+		       [{'x-3gpp-upf','x-sxb'}],
+		       <<"topon.sx.prox01.$ORIGIN">>},
+		      {<<"_default.apn.$ORIGIN">>, {400,64536},
+		       [{'x-3gpp-upf','x-sxb'}],
+		       <<"topon.sx.prox03.$ORIGIN">>},
+		      {<<"async-sx.apn.$ORIGIN">>, {300,64536},
+		       [{'x-3gpp-upf','x-sxb'}],
+		       <<"topon.sx.prox01.$ORIGIN">>},
+		      {<<"async-sx.apn.$ORIGIN">>, {300,64536},
+		       [{'x-3gpp-upf','x-sxb'}],
+		       <<"topon.sx.prox02.$ORIGIN">>},
 
 		      %% A/AAAA record alternatives
-		      {"topon.s5s8.pgw.$ORIGIN", ?MUST_BE_UPDATED, []},
-		      {"topon.sx.prox01.$ORIGIN", ?MUST_BE_UPDATED, []},
-		      {"topon.sx.prox02.$ORIGIN", ?MUST_BE_UPDATED, []},
-		      {"topon.sx.prox03.$ORIGIN", ?MUST_BE_UPDATED, []}
+		      {<<"topon.s5s8.pgw.$ORIGIN">>, ?MUST_BE_UPDATED, []},
+		      {<<"topon.sx.prox01.$ORIGIN">>, ?MUST_BE_UPDATED, []},
+		      {<<"topon.sx.prox02.$ORIGIN">>, ?MUST_BE_UPDATED, []},
+		      {<<"topon.sx.prox03.$ORIGIN">>, ?MUST_BE_UPDATED, []}
 		     ]
 		    }
 		   }
@@ -236,8 +236,8 @@
 		      ]},
 		     {ip_pools, ['pool-A']}]
 		   },
-		   {"topon.sx.prox01.$ORIGIN", [connect]},
-		   {"topon.sx.prox03.$ORIGIN", [connect, {ip_pools, ['pool-B', 'pool-C']}]}
+		   {<<"topon.sx.prox01.$ORIGIN">>, [connect]},
+		   {<<"topon.sx.prox03.$ORIGIN">>, [connect, {ip_pools, ['pool-B', 'pool-C']}]}
 		  ]
 		 }
 		]},
@@ -293,13 +293,13 @@
 	 {[sockets, 'cp-socket', ip], localhost},
 	 {[sockets, 'irx-socket', ip], test_gsn},
 	 {[sockets, sx, ip], localhost},
-	 {[node_selection, {default, 2}, 2, "topon.s5s8.pgw.$ORIGIN"],
+	 {[node_selection, {default, 2}, 2, <<"topon.s5s8.pgw.$ORIGIN">>],
 	  {fun node_sel_update/2, final_gsn}},
-	 {[node_selection, {default, 2}, 2, "topon.sx.prox01.$ORIGIN"],
+	 {[node_selection, {default, 2}, 2, <<"topon.sx.prox01.$ORIGIN">>],
 	  {fun node_sel_update/2, pgw_u01_sx}},
-	 {[node_selection, {default, 2}, 2, "topon.sx.prox02.$ORIGIN"],
+	 {[node_selection, {default, 2}, 2, <<"topon.sx.prox02.$ORIGIN">>],
 	  {fun node_sel_update/2, sgw_u_sx}},
-	 {[node_selection, {default, 2}, 2, "topon.sx.prox03.$ORIGIN"],
+	 {[node_selection, {default, 2}, 2, <<"topon.sx.prox03.$ORIGIN">>],
 	  {fun node_sel_update/2, pgw_u02_sx}}
 	]).
 

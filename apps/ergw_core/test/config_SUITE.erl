@@ -90,7 +90,7 @@
 	      ]},
 	     {ip_pools, ['pool-A']}]
 	   },
-	   {"node-A", [connect]}]
+	   {<<"node-A">>, [connect]}]
 	 },
 
 	 {path_management,
@@ -162,25 +162,25 @@
 	    {static,
 	     [
 	      %% APN NAPTR alternative
-	      {"_default.apn.epc.mnc001.mcc001.3gppnetwork.org", {300,64536},
-	       [{"x-3gpp-pgw","x-s5-gtp"},{"x-3gpp-pgw","x-s8-gtp"},
-		{"x-3gpp-pgw","x-gn"},{"x-3gpp-pgw","x-gp"}],
-	       "topon.s5s8.pgw.epc.mnc001.mcc001.3gppnetwork.org"},
-	      {"_default.apn.epc.mnc001.mcc001.3gppnetwork.org", {300,64536},
-	       [{"x-3gpp-upf","x-sxa"}],
-	       "topon.sx.prox01.epc.mnc001.mcc001.3gppnetwork.org"},
+	      {<<"_default.apn.epc.mnc001.mcc001.3gppnetwork.org">>, {300,64536},
+	       [{'x-3gpp-pgw','x-s5-gtp'},{'x-3gpp-pgw','x-s8-gtp'},
+		{'x-3gpp-pgw','x-gn'},{'x-3gpp-pgw','x-gp'}],
+	       <<"topon.s5s8.pgw.epc.mnc001.mcc001.3gppnetwork.org">>},
+	      {<<"_default.apn.epc.mnc001.mcc001.3gppnetwork.org">>, {300,64536},
+	       [{'x-3gpp-upf','x-sxa'}],
+	       <<"topon.sx.prox01.epc.mnc001.mcc001.3gppnetwork.org">>},
 
-	      {"web.apn.epc.mnc001.mcc001.3gppnetwork.org", {300,64536},
-	       [{"x-3gpp-pgw","x-s5-gtp"},{"x-3gpp-pgw","x-s8-gtp"},
-		{"x-3gpp-pgw","x-gn"},{"x-3gpp-pgw","x-gp"}],
-	       "topon.s5s8.pgw.epc.mnc001.mcc001.3gppnetwork.org"},
-	      {"web.apn.epc.mnc001.mcc001.3gppnetwork.org", {300,64536},
-	       [{"x-3gpp-upf","x-sxa"}],
-	       "topon.sx.prox01.epc.mnc001.mcc001.3gppnetwork.org"},
+	      {<<"web.apn.epc.mnc001.mcc001.3gppnetwork.org">>, {300,64536},
+	       [{'x-3gpp-pgw','x-s5-gtp'},{'x-3gpp-pgw','x-s8-gtp'},
+		{'x-3gpp-pgw','x-gn'},{'x-3gpp-pgw','x-gp'}],
+	       <<"topon.s5s8.pgw.epc.mnc001.mcc001.3gppnetwork.org">>},
+	      {<<"web.apn.epc.mnc001.mcc001.3gppnetwork.org">>, {300,64536},
+	       [{'x-3gpp-upf','x-sxa'}],
+	       <<"topon.sx.prox01.epc.mnc001.mcc001.3gppnetwork.org">>},
 
 	      %% A/AAAA record alternatives
-	      {"topon.s5s8.pgw.epc.mnc001.mcc001.3gppnetwork.org",  [{172, 20, 16, 89}], []},
-	      {"topon.sx.prox01.epc.mnc001.mcc001.3gppnetwork.org", [{172,20,16,91}], []}
+	      {<<"topon.s5s8.pgw.epc.mnc001.mcc001.3gppnetwork.org">>,  [{172, 20, 16, 89}], []},
+	      {<<"topon.sx.prox01.epc.mnc001.mcc001.3gppnetwork.org">>, [{172,20,16,91}], []}
 	     ]
 	    }
 	   },
@@ -365,25 +365,25 @@
 	    {static,
 	     [
 	      %% APN NAPTR alternative
-	      {"_default.apn.epc.mnc001.mcc001.3gppnetwork.org", {300,64536},
-	       [{"x-3gpp-pgw","x-s5-gtp"},{"x-3gpp-pgw","x-s8-gtp"},
-		{"x-3gpp-pgw","x-gn"},{"x-3gpp-pgw","x-gp"}],
-	       "topon.s5s8.pgw.epc.mnc001.mcc001.3gppnetwork.org"},
-	      {"_default.apn.epc.mnc001.mcc001.3gppnetwork.org", {300,64536},
-	       [{"x-3gpp-upf","x-sxa"}],
-	       "topon.sx.prox01.epc.mnc001.mcc001.3gppnetwork.org"},
+	      {<<"_default.apn.epc.mnc001.mcc001.3gppnetwork.org">>, {300,64536},
+	       [{'x-3gpp-pgw','x-s5-gtp'},{'x-3gpp-pgw','x-s8-gtp'},
+		{'x-3gpp-pgw','x-gn'},{'x-3gpp-pgw','x-gp'}],
+	       <<"topon.s5s8.pgw.epc.mnc001.mcc001.3gppnetwork.org">>},
+	      {<<"_default.apn.epc.mnc001.mcc001.3gppnetwork.org">>, {300,64536},
+	       [{'x-3gpp-upf','x-sxa'}],
+	       <<"topon.sx.prox01.epc.mnc001.mcc001.3gppnetwork.org">>},
 
-	      {"web.apn.epc.mnc001.mcc001.3gppnetwork.org", {300,64536},
-	       [{"x-3gpp-pgw","x-s5-gtp"},{"x-3gpp-pgw","x-s8-gtp"},
-		{"x-3gpp-pgw","x-gn"},{"x-3gpp-pgw","x-gp"}],
-	       "topon.s5s8.pgw.epc.mnc001.mcc001.3gppnetwork.org"},
-	      {"web.apn.epc.mnc001.mcc001.3gppnetwork.org", {300,64536},
-	       [{"x-3gpp-upf","x-sxa"}],
-	       "topon.sx.prox01.epc.mnc001.mcc001.3gppnetwork.org"},
+	      {<<"web.apn.epc.mnc001.mcc001.3gppnetwork.org">>, {300,64536},
+	       [{'x-3gpp-pgw','x-s5-gtp'},{'x-3gpp-pgw','x-s8-gtp'},
+		{'x-3gpp-pgw','x-gn'},{'x-3gpp-pgw','x-gp'}],
+	       <<"topon.s5s8.pgw.epc.mnc001.mcc001.3gppnetwork.org">>},
+	      {<<"web.apn.epc.mnc001.mcc001.3gppnetwork.org">>, {300,64536},
+	       [{'x-3gpp-upf','x-sxa'}],
+	       <<"topon.sx.prox01.epc.mnc001.mcc001.3gppnetwork.org">>},
 
 	      %% A/AAAA record alternatives
-	      {"topon.s5s8.pgw.epc.mnc001.mcc001.3gppnetwork.org",  [{172, 20, 16, 89}], []},
-	      {"topon.sx.prox01.epc.mnc001.mcc001.3gppnetwork.org", [{172,20,16,91}], []}
+	      {<<"topon.s5s8.pgw.epc.mnc001.mcc001.3gppnetwork.org">>,  [{172, 20, 16, 89}], []},
+	      {<<"topon.sx.prox01.epc.mnc001.mcc001.3gppnetwork.org">>, [{172,20,16,91}], []}
 	     ]
 	    }
 	   },
@@ -495,7 +495,7 @@
 	  [{'h1', [{handler, tdf},
 		   {protocol, ip},
 		   {apn, ?'APN-EXAMPLE'},
-		   {nodes, ["topon.sx.prox01.mnc001.mcc001.3gppnetwork.org"]},
+		   {nodes, [<<"topon.sx.prox01.mnc001.mcc001.3gppnetwork.org">>]},
 		   {node_selection, [default]}
 		  ]}
 	  ]},
@@ -510,25 +510,25 @@
 	    {static,
 	     [
 	      %% APN NAPTR alternative
-	      {"_default.apn.mnc001.mcc001.3gppnetwork.org", {300,64536},
-	       [{"x-3gpp-pgw","x-s5-gtp"},{"x-3gpp-pgw","x-s8-gtp"},
-		{"x-3gpp-pgw","x-gn"},{"x-3gpp-pgw","x-gp"}],
-	       "topon.s5s8.pgw.mnc001.mcc001.3gppnetwork.org"},
-	      {"_default.apn.mnc001.mcc001.3gppnetwork.org", {300,64536},
-	       [{"x-3gpp-upf","x-sxb"}],
-	       "topon.sx.prox01.mnc001.mcc001.3gppnetwork.org"},
+	      {<<"_default.apn.mnc001.mcc001.3gppnetwork.org">>, {300,64536},
+	       [{'x-3gpp-pgw','x-s5-gtp'},{'x-3gpp-pgw','x-s8-gtp'},
+		{'x-3gpp-pgw','x-gn'},{'x-3gpp-pgw','x-gp'}],
+	       <<"topon.s5s8.pgw.mnc001.mcc001.3gppnetwork.org">>},
+	      {<<"_default.apn.mnc001.mcc001.3gppnetwork.org">>, {300,64536},
+	       [{'x-3gpp-upf','x-sxb'}],
+	       <<"topon.sx.prox01.mnc001.mcc001.3gppnetwork.org">>},
 
-	      {"web.apn.mnc001.mcc001.3gppnetwork.org", {300,64536},
-	       [{"x-3gpp-pgw","x-s5-gtp"},{"x-3gpp-pgw","x-s8-gtp"},
-		{"x-3gpp-pgw","x-gn"},{"x-3gpp-pgw","x-gp"}],
-	       "topon.s5s8.pgw.mnc001.mcc001.3gppnetwork.org"},
-	      {"web.apn.mnc001.mcc001.3gppnetwork.org", {300,64536},
-	       [{"x-3gpp-upf","x-sxb"}],
-	       "topon.sx.prox01.mnc001.mcc001.3gppnetwork.org"},
+	      {<<"web.apn.mnc001.mcc001.3gppnetwork.org">>, {300,64536},
+	       [{'x-3gpp-pgw','x-s5-gtp'},{'x-3gpp-pgw','x-s8-gtp'},
+		{'x-3gpp-pgw','x-gn'},{'x-3gpp-pgw','x-gp'}],
+	       <<"topon.s5s8.pgw.mnc001.mcc001.3gppnetwork.org">>},
+	      {<<"web.apn.mnc001.mcc001.3gppnetwork.org">>, {300,64536},
+	       [{'x-3gpp-upf','x-sxb'}],
+	       <<"topon.sx.prox01.mnc001.mcc001.3gppnetwork.org">>},
 
 	      %% A/AAAA record alternatives
-	      {"topon.s5s8.pgw.mnc001.mcc001.3gppnetwork.org",  [{172, 20, 16, 28}], []},
-	      {"topon.sx.prox01.mnc001.mcc001.3gppnetwork.org", [{172,21,16,1}], []}
+	      {<<"topon.s5s8.pgw.mnc001.mcc001.3gppnetwork.org">>,  [{172, 20, 16, 28}], []},
+	      {<<"topon.sx.prox01.mnc001.mcc001.3gppnetwork.org">>, [{172,21,16,1}], []}
 	     ]
 	    }
 	   },
@@ -878,23 +878,26 @@ config(_Config)  ->
     ?error_option(set_cfg_value([node_selection, default],
 				{static, [{"Label", {0,0}, [], "Host"}]},
 				?GGSN_PROXY_CONFIG)),
+    ?error_option(set_cfg_value([node_selection, default],
+				{static, [{"Label", {0,0}, [{'x-3gpp-pgw','x-gp'}], "Host"}]},
+				?GGSN_PROXY_CONFIG)),
     ?ok_option(set_cfg_value([node_selection, default],
-			     {static, [{"Label", {0,0}, [{"x-3gpp-pgw","x-gp"}], "Host"}]},
+			     {static, [{<<"Label">>, {0,0}, [{'x-3gpp-pgw','x-gp'}], <<"Host">>}]},
 			     ?GGSN_PROXY_CONFIG)),
     ?error_option(set_cfg_value([node_selection, default],
-			     {static, [{"Host", [], []}]},
+			     {static, [{<<"Host">>, [], []}]},
 			     ?GGSN_PROXY_CONFIG)),
     ?error_option(set_cfg_value([node_selection, default],
-			     {static, [{"Host", [invalid], []}]},
+			     {static, [{<<"Host">>, [invalid], []}]},
 			     ?GGSN_PROXY_CONFIG)),
     ?error_option(set_cfg_value([node_selection, default],
-			     {static, [{"Host", [], [invalid]}]},
+			     {static, [{<<"Host">>, [], [invalid]}]},
 			     ?GGSN_PROXY_CONFIG)),
     ?ok_option(set_cfg_value([node_selection, default],
-			     {static, [{"Host", [?LOCALHOST_IPv4], []}]},
+			     {static, [{<<"Host">>, [?LOCALHOST_IPv4], []}]},
 			     ?GGSN_PROXY_CONFIG)),
     ?ok_option(set_cfg_value([node_selection, default],
-			     {static, [{"Host", [], [?LOCALHOST_IPv6]}]},
+			     {static, [{<<"Host">>, [], [?LOCALHOST_IPv6]}]},
 			     ?GGSN_PROXY_CONFIG)),
 
     ?error_option(set_cfg_value([nodes], invalid, ?GGSN_PROXY_CONFIG)),
@@ -925,18 +928,19 @@ config(_Config)  ->
     ?ok_option(set_cfg_value([metrics, gtp_path_rtt_millisecond_intervals], [10, 100], ?GGSN_CONFIG)),
 
     ?error_option(set_cfg_value([nodes, test], [], ?GGSN_PROXY_CONFIG)),
-    ?ok_option(set_cfg_value([nodes, "test"], [], ?GGSN_PROXY_CONFIG)),
-    ?ok_option(set_cfg_value([nodes, "test", vrfs, cp, features], ['CP-Function'], ?GGSN_PROXY_CONFIG)),
-    ?ok_option(set_cfg_value([nodes, "test", vrfs, 'cp2', features], ['CP-Function'], ?GGSN_PROXY_CONFIG)),
+    ?error_option(set_cfg_value([nodes, "test"], [], ?GGSN_PROXY_CONFIG)),
+    ?ok_option(set_cfg_value([nodes, <<"test">>], [], ?GGSN_PROXY_CONFIG)),
+    ?ok_option(set_cfg_value([nodes, <<"test">>, vrfs, cp, features], ['CP-Function'], ?GGSN_PROXY_CONFIG)),
+    ?ok_option(set_cfg_value([nodes, <<"test">>, vrfs, 'cp2', features], ['CP-Function'], ?GGSN_PROXY_CONFIG)),
 
-    ?ok_option(set_cfg_value([nodes, "test"], [connect], ?GGSN_PROXY_CONFIG)),
-    ?ok_option(set_cfg_value([nodes, "test"], [{connect, true}], ?GGSN_PROXY_CONFIG)),
-    ?ok_option(set_cfg_value([nodes, "test"], [{connect, false}], ?GGSN_PROXY_CONFIG)),
-    ?error_option(set_cfg_value([nodes, "test"], [{raddr, invalid}], ?GGSN_PROXY_CONFIG)),
-    ?ok_option(set_cfg_value([nodes, "test"], [{raddr, {1,1,1,1}}], ?GGSN_PROXY_CONFIG)),
-    ?ok_option(set_cfg_value([nodes, "test"], [{raddr, {1,1,1,1,2,2,2,2}}], ?GGSN_PROXY_CONFIG)),
-    ?error_option(set_cfg_value([nodes, "test"], [{port, invalid}], ?GGSN_PROXY_CONFIG)),
-    ?ok_option(set_cfg_value([nodes, "test"], [{rport, 1234}], ?GGSN_PROXY_CONFIG)),
+    ?ok_option(set_cfg_value([nodes, <<"test">>], [connect], ?GGSN_PROXY_CONFIG)),
+    ?ok_option(set_cfg_value([nodes, <<"test">>], [{connect, true}], ?GGSN_PROXY_CONFIG)),
+    ?ok_option(set_cfg_value([nodes, <<"test">>], [{connect, false}], ?GGSN_PROXY_CONFIG)),
+    ?error_option(set_cfg_value([nodes, <<"test">>], [{raddr, invalid}], ?GGSN_PROXY_CONFIG)),
+    ?ok_option(set_cfg_value([nodes, <<"test">>], [{raddr, {1,1,1,1}}], ?GGSN_PROXY_CONFIG)),
+    ?ok_option(set_cfg_value([nodes, <<"test">>], [{raddr, {1,1,1,1,2,2,2,2}}], ?GGSN_PROXY_CONFIG)),
+    ?error_option(set_cfg_value([nodes, <<"test">>], [{port, invalid}], ?GGSN_PROXY_CONFIG)),
+    ?ok_option(set_cfg_value([nodes, <<"test">>], [{rport, 1234}], ?GGSN_PROXY_CONFIG)),
 
     ?error_option(set_cfg_value([proxy_map, invalid], [], ?GGSN_PROXY_CONFIG)),
     ?ok_option(set_cfg_value([proxy_map, imsi],
@@ -974,16 +978,19 @@ config(_Config)  ->
     ?error_option(set_cfg_value([node_selection, default], {static, 1}, ?PGW_PROXY_CONFIG)),
     ?error_option(set_cfg_value([node_selection, default], {static, []}, ?PGW_PROXY_CONFIG)),
     ?error_option(set_cfg_value([node_selection, default],
-				{static, [{"Label", {0,0}, [], "Host"}]},
+				{static, [{<<"Label">>, {0,0}, [], <<"Host">>}]},
 				?PGW_PROXY_CONFIG)),
+    ?error_option(set_cfg_value([node_selection, default],
+			     {static, [{"Label", {0,0}, [{'x-3gpp-pgw','x-s8-gtp'}], "Host"}]},
+			     ?PGW_PROXY_CONFIG)),
     ?ok_option(set_cfg_value([node_selection, default],
-			     {static, [{"Label", {0,0}, [{"x-3gpp-pgw","x-s8-gtp"}], "Host"}]},
+			     {static, [{<<"Label">>, {0,0}, [{'x-3gpp-pgw','x-s8-gtp'}], <<"Host">>}]},
 			     ?PGW_PROXY_CONFIG)),
     ?error_option(set_cfg_value([node_selection, default],
-			     {static, [{"Host", [], []}]},
+			     {static, [{<<"Host">>, [], []}]},
 			     ?PGW_PROXY_CONFIG)),
     ?ok_option(set_cfg_value([node_selection, default],
-			     {static, [{"Host", [{1,1,1,1}], []}]},
+			     {static, [{<<"Host">>, [{1,1,1,1}], []}]},
 			     ?PGW_PROXY_CONFIG)),
 
     ?ok_option(?SAE_S11_CONFIG),
@@ -1020,7 +1027,7 @@ config(_Config)  ->
     ?error_option(set_cfg_value([handlers, tdf],
 				[{handler, tdf},
 				 {protocol, ip},
-				 {nodes, ["topon.sx.prox01.mnc001.mcc001.3gppnetwork.org"]},
+				 {nodes, [<<"topon.sx.prox01.mnc001.mcc001.3gppnetwork.org">>]},
 				 {node_selection, [default]}], ?TDF_CONFIG)),
     ?error_option(set_cfg_value([handlers, tdf],
 				[{handler, tdf},
@@ -1031,7 +1038,7 @@ config(_Config)  ->
 				[{handler, tdf},
 				 {protocol, ip},
 				 {apn, ?'APN-EXAMPLE'},
-				 {nodes, ["topon.sx.prox01.mnc001.mcc001.3gppnetwork.org"]}],
+				 {nodes, [<<"topon.sx.prox01.mnc001.mcc001.3gppnetwork.org">>]}],
 				?TDF_CONFIG)),
 
     %% Charging Policy Rulebase Config
