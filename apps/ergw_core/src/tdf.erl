@@ -92,7 +92,7 @@ validate_option(node_selection, [S|_] = Value)
   when is_atom(S) ->
     Value;
 validate_option(nodes, [S|_] = Value)
-  when is_list(S) ->
+  when is_binary(S) ->
     Value;
 validate_option(apn, APN)
   when is_list(APN) ->

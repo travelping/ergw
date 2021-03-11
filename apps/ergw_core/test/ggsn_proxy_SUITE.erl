@@ -111,37 +111,37 @@
 		    {static,
 		     [
 		      %% APN NAPTR alternative
-		      {"_default.apn.$ORIGIN", {300,64536},
-		       [{"x-3gpp-ggsn","x-gn"},{"x-3gpp-ggsn","x-gp"}],
-		       "topon.gtp.ggsn.$ORIGIN"},
-		      {"_default.apn.$ORIGIN", {300,64536},
-		       [{"x-3gpp-upf","x-sxa"}],
-		       "topon.sx.sgw-u01.$ORIGIN"},
-		      {"_default.apn.$ORIGIN", {300,64536},
-		       [{"x-3gpp-upf","x-sxb"}],
-		       "topon.sx.pgw-u01.$ORIGIN"},
+		      {<<"_default.apn.$ORIGIN">>, {300,64536},
+		       [{'x-3gpp-ggsn','x-gn'},{'x-3gpp-ggsn','x-gp'}],
+		       <<"topon.gtp.ggsn.$ORIGIN">>},
+		      {<<"_default.apn.$ORIGIN">>, {300,64536},
+		       [{'x-3gpp-upf','x-sxa'}],
+		       <<"topon.sx.sgw-u01.$ORIGIN">>},
+		      {<<"_default.apn.$ORIGIN">>, {300,64536},
+		       [{'x-3gpp-upf','x-sxb'}],
+		       <<"topon.sx.pgw-u01.$ORIGIN">>},
 
-		      {"pgw-1.apn.$ORIGIN", {300,64536},
-		       [{"x-3gpp-ggsn","x-gn"},{"x-3gpp-ggsn","x-gp"}],
-		       "topon.pgw-1.nodes.$ORIGIN"},
-		      {"upf-1.apn.$ORIGIN", {300,64536},
-		       [{"x-3gpp-upf","x-sxb"}],
-		       "topon.pgw-1.nodes.$ORIGIN"},
+		      {<<"pgw-1.apn.$ORIGIN">>, {300,64536},
+		       [{'x-3gpp-ggsn','x-gn'},{'x-3gpp-ggsn','x-gp'}],
+		       <<"topon.pgw-1.nodes.$ORIGIN">>},
+		      {<<"upf-1.apn.$ORIGIN">>, {300,64536},
+		       [{'x-3gpp-upf','x-sxb'}],
+		       <<"topon.pgw-1.nodes.$ORIGIN">>},
 
-		      {"lb-1.apn.$HOMECC", {300,64536},
-		       [{"x-3gpp-ggsn","x-gn"},{"x-3gpp-ggsn","x-gp"}],
-		       "topon.gtp.ggsn.$ORIGIN"},
-		      {"lb-1.apn.$HOMECC", {300,64536},
-		       [{"x-3gpp-ggsn","x-gn"},{"x-3gpp-ggsn","x-gp"}],
-		       "topon.gtp.ggsn-2.$ORIGIN"},
+		      {<<"lb-1.apn.$HOMECC">>, {300,64536},
+		       [{'x-3gpp-ggsn','x-gn'},{'x-3gpp-ggsn','x-gp'}],
+		       <<"topon.gtp.ggsn.$ORIGIN">>},
+		      {<<"lb-1.apn.$HOMECC">>, {300,64536},
+		       [{'x-3gpp-ggsn','x-gn'},{'x-3gpp-ggsn','x-gp'}],
+		       <<"topon.gtp.ggsn-2.$ORIGIN">>},
 
 		      %% A/AAAA record alternatives
-		      {"topon.gtp.ggsn.$ORIGIN", ?MUST_BE_UPDATED, []},
-		      {"topon.gtp.ggsn-2.$ORIGIN", ?MUST_BE_UPDATED, []},
-		      {"topon.sx.sgw-u01.$ORIGIN", ?MUST_BE_UPDATED, []},
-		      {"topon.sx.pgw-u01.$ORIGIN", ?MUST_BE_UPDATED, []},
-		      {"topon.pgw-1.nodes.$ORIGIN", ?MUST_BE_UPDATED, []},
-		      {"topon.upf-1.nodes.$ORIGIN", ?MUST_BE_UPDATED, []}
+		      {<<"topon.gtp.ggsn.$ORIGIN">>, ?MUST_BE_UPDATED, []},
+		      {<<"topon.gtp.ggsn-2.$ORIGIN">>, ?MUST_BE_UPDATED, []},
+		      {<<"topon.sx.sgw-u01.$ORIGIN">>, ?MUST_BE_UPDATED, []},
+		      {<<"topon.sx.pgw-u01.$ORIGIN">>, ?MUST_BE_UPDATED, []},
+		      {<<"topon.pgw-1.nodes.$ORIGIN">>, ?MUST_BE_UPDATED, []},
+		      {<<"topon.upf-1.nodes.$ORIGIN">>, ?MUST_BE_UPDATED, []}
 		     ]
 		    }
 		   }
@@ -194,9 +194,9 @@
 		     },
 		     {ip_pools, ['pool-A']}]
 		   },
-		   {"topon.sx.sgw-u01.$ORIGIN", [connect]},
-		   {"topon.sx.pgw-u01.$ORIGIN", [connect]},
-		   {"topon.upf-1.nodes.$ORIGIN", [connect]}
+		   {<<"topon.sx.sgw-u01.$ORIGIN">>, [connect]},
+		   {<<"topon.sx.pgw-u01.$ORIGIN">>, [connect]},
+		   {<<"topon.upf-1.nodes.$ORIGIN">>, [connect]}
 		  ]
 		 },
 
@@ -335,37 +335,37 @@
 		    {static,
 		     [
 		      %% APN NAPTR alternative
-		      {"_default.apn.$ORIGIN", {300,64536},
-		       [{"x-3gpp-ggsn","x-gn"},{"x-3gpp-ggsn","x-gp"}],
-		       "topon.gtp.ggsn.$ORIGIN"},
-		      {"_default.apn.$ORIGIN", {300,64536},
-		       [{"x-3gpp-upf","x-sxa"}],
-		       "topon.sx.sgw-u01.$ORIGIN"},
-		      {"_default.apn.$ORIGIN", {300,64536},
-		       [{"x-3gpp-upf","x-sxb"}],
-		       "topon.sx.pgw-u01.$ORIGIN"},
+		      {<<"_default.apn.$ORIGIN">>, {300,64536},
+		       [{'x-3gpp-ggsn','x-gn'},{'x-3gpp-ggsn','x-gp'}],
+		       <<"topon.gtp.ggsn.$ORIGIN">>},
+		      {<<"_default.apn.$ORIGIN">>, {300,64536},
+		       [{'x-3gpp-upf','x-sxa'}],
+		       <<"topon.sx.sgw-u01.$ORIGIN">>},
+		      {<<"_default.apn.$ORIGIN">>, {300,64536},
+		       [{'x-3gpp-upf','x-sxb'}],
+		       <<"topon.sx.pgw-u01.$ORIGIN">>},
 
-		      {"pgw-1.apn.$ORIGIN", {300,64536},
-		       [{"x-3gpp-ggsn","x-gn"},{"x-3gpp-ggsn","x-gp"}],
-		       "topon.pgw-1.nodes.$ORIGIN"},
-		      {"upf-1.apn.$ORIGIN", {300,64536},
-		       [{"x-3gpp-upf","x-sxb"}],
-		       "topon.pgw-1.nodes.$ORIGIN"},
+		      {<<"pgw-1.apn.$ORIGIN">>, {300,64536},
+		       [{'x-3gpp-ggsn','x-gn'},{'x-3gpp-ggsn','x-gp'}],
+		       <<"topon.pgw-1.nodes.$ORIGIN">>},
+		      {<<"upf-1.apn.$ORIGIN">>, {300,64536},
+		       [{'x-3gpp-upf','x-sxb'}],
+		       <<"topon.pgw-1.nodes.$ORIGIN">>},
 
-		      {"lb-1.apn.$HOMECC", {300,64536},
-		       [{"x-3gpp-ggsn","x-gn"},{"x-3gpp-ggsn","x-gp"}],
-		       "topon.gtp.ggsn.$ORIGIN"},
-		      {"lb-1.apn.$HOMECC", {300,64536},
-		       [{"x-3gpp-ggsn","x-gn"},{"x-3gpp-ggsn","x-gp"}],
-		       "topon.gtp.ggsn-2.$ORIGIN"},
+		      {<<"lb-1.apn.$HOMECC">>, {300,64536},
+		       [{'x-3gpp-ggsn','x-gn'},{'x-3gpp-ggsn','x-gp'}],
+		       <<"topon.gtp.ggsn.$ORIGIN">>},
+		      {<<"lb-1.apn.$HOMECC">>, {300,64536},
+		       [{'x-3gpp-ggsn','x-gn'},{'x-3gpp-ggsn','x-gp'}],
+		       <<"topon.gtp.ggsn-2.$ORIGIN">>},
 
 		      %% A/AAAA record alternatives
-		      {"topon.gtp.ggsn.$ORIGIN", ?MUST_BE_UPDATED, []},
-		      {"topon.gtp.ggsn-2.$ORIGIN", ?MUST_BE_UPDATED, []},
-		      {"topon.sx.sgw-u01.$ORIGIN", ?MUST_BE_UPDATED, []},
-		      {"topon.sx.pgw-u01.$ORIGIN", ?MUST_BE_UPDATED, []},
-		      {"topon.pgw-1.nodes.$ORIGIN", ?MUST_BE_UPDATED, []},
-		      {"topon.upf-1.nodes.$ORIGIN", ?MUST_BE_UPDATED, []}
+		      {<<"topon.gtp.ggsn.$ORIGIN">>, ?MUST_BE_UPDATED, []},
+		      {<<"topon.gtp.ggsn-2.$ORIGIN">>, ?MUST_BE_UPDATED, []},
+		      {<<"topon.sx.sgw-u01.$ORIGIN">>, ?MUST_BE_UPDATED, []},
+		      {<<"topon.sx.pgw-u01.$ORIGIN">>, ?MUST_BE_UPDATED, []},
+		      {<<"topon.pgw-1.nodes.$ORIGIN">>, ?MUST_BE_UPDATED, []},
+		      {<<"topon.upf-1.nodes.$ORIGIN">>, ?MUST_BE_UPDATED, []}
 		     ]
 		    }
 		   }
@@ -417,9 +417,9 @@
 		     },
 		     {ip_pools, ['pool-A']}]
 		   },
-		   {"topon.sx.sgw-u01.$ORIGIN", [connect]},
-		   {"topon.sx.pgw-u01.$ORIGIN", [connect]},
-		   {"topon.upf-1.nodes.$ORIGIN", [connect]}
+		   {<<"topon.sx.sgw-u01.$ORIGIN">>, [connect]},
+		   {<<"topon.sx.pgw-u01.$ORIGIN">>, [connect]},
+		   {<<"topon.upf-1.nodes.$ORIGIN">>, [connect]}
 		  ]
 		 },
 
@@ -483,17 +483,17 @@
 	 {[sockets, 'remote-irx', ip], final_gsn},
 	 {[sockets, 'remote-irx2', ip], final_gsn_2},
 	 {[sockets, sx, ip], localhost},
-	 {[node_selection, {default, 2}, 2, "topon.gtp.ggsn.$ORIGIN"],
+	 {[node_selection, {default, 2}, 2, <<"topon.gtp.ggsn.$ORIGIN">>],
 	  {fun node_sel_update/2, final_gsn}},
-	 {[node_selection, {default, 2}, 2, "topon.gtp.ggsn-2.$ORIGIN"],
+	 {[node_selection, {default, 2}, 2, <<"topon.gtp.ggsn-2.$ORIGIN">>],
 	  {fun node_sel_update/2, final_gsn_2}},
-	 {[node_selection, {default, 2}, 2, "topon.sx.sgw-u01.$ORIGIN"],
+	 {[node_selection, {default, 2}, 2, <<"topon.sx.sgw-u01.$ORIGIN">>],
 	  {fun node_sel_update/2, sgw_u_sx}},
-	 {[node_selection, {default, 2}, 2, "topon.sx.pgw-u01.$ORIGIN"],
+	 {[node_selection, {default, 2}, 2, <<"topon.sx.pgw-u01.$ORIGIN">>],
 	  {fun node_sel_update/2, pgw_u01_sx}},
-	 {[node_selection, {default, 2}, 2, "topon.pgw-1.nodes.$ORIGIN"],
+	 {[node_selection, {default, 2}, 2, <<"topon.pgw-1.nodes.$ORIGIN">>],
 	  {fun node_sel_update/2, final_gsn}},
-	 {[node_selection, {default, 2}, 2, "topon.upf-1.nodes.$ORIGIN"],
+	 {[node_selection, {default, 2}, 2, <<"topon.upf-1.nodes.$ORIGIN">>],
 	  {fun node_sel_update/2, sgw_u_sx}}
 	]).
 
@@ -503,17 +503,17 @@
 	 {[sockets, 'remote-irx', ip], final_gsn},
 	 {[sockets, 'remote-irx2', ip], final_gsn_2},
 	 {[sockets, sx, ip], localhost},
-	 {[node_selection, {default, 2}, 2, "topon.gtp.ggsn.$ORIGIN"],
+	 {[node_selection, {default, 2}, 2, <<"topon.gtp.ggsn.$ORIGIN">>],
 	  {fun node_sel_update/2, final_gsn}},
-	 {[node_selection, {default, 2}, 2, "topon.gtp.ggsn-2.$ORIGIN"],
+	 {[node_selection, {default, 2}, 2, <<"topon.gtp.ggsn-2.$ORIGIN">>],
 	  {fun node_sel_update/2, final_gsn_2}},
-	 {[node_selection, {default, 2}, 2, "topon.sx.sgw-u01.$ORIGIN"],
+	 {[node_selection, {default, 2}, 2, <<"topon.sx.sgw-u01.$ORIGIN">>],
 	  {fun node_sel_update/2, sgw_u_sx}},
-	 {[node_selection, {default, 2}, 2, "topon.sx.pgw-u01.$ORIGIN"],
+	 {[node_selection, {default, 2}, 2, <<"topon.sx.pgw-u01.$ORIGIN">>],
 	  {fun node_sel_update/2, pgw_u01_sx}},
-	 {[node_selection, {default, 2}, 2, "topon.pgw-1.nodes.$ORIGIN"],
+	 {[node_selection, {default, 2}, 2, <<"topon.pgw-1.nodes.$ORIGIN">>],
 	  {fun node_sel_update/2, final_gsn}},
-	 {[node_selection, {default, 2}, 2, "topon.upf-1.nodes.$ORIGIN"],
+	 {[node_selection, {default, 2}, 2, <<"topon.upf-1.nodes.$ORIGIN">>],
 	  {fun node_sel_update/2, sgw_u_sx}}
 	]).
 

@@ -44,7 +44,7 @@
 
 	 {ergw_core, [{'$setup_vars',
 		  [{"ORIGIN", {value, "epc.mnc001.mcc001.3gppnetwork.org"}}]},
-		 {node_id, "TDF.$ORIGIN"},
+		 {node_id, <<"TDF.$ORIGIN">>},
 		 {sockets,
 		  [{'cp-socket', [{type, 'gtp-u'},
 				  {vrf, cp},
@@ -77,7 +77,7 @@
 		  [{'h1', [{handler, ?HUT},
 			   {protocol, ip},
 			   {apn, ?'APN-EXAMPLE'},
-			   {nodes, ["topon.sx.prox01.$ORIGIN"]},
+			   {nodes, [<<"topon.sx.prox01.$ORIGIN">>]},
 			   {node_selection, [default]}
 			  ]}
 		  ]},
@@ -87,17 +87,17 @@
 		    {static,
 		     [
 		      %% APN NAPTR alternative
-		      {"_default.apn.$ORIGIN", {300,64536},
-		       [{"x-3gpp-pgw","x-s5-gtp"},{"x-3gpp-pgw","x-s8-gtp"},
-			{"x-3gpp-pgw","x-gn"},{"x-3gpp-pgw","x-gp"}],
-		       "topon.tdf.$ORIGIN"},
-		      {"_default.apn.$ORIGIN", {300,64536},
-		       [{"x-3gpp-upf","x-sxb"}, {"x-3gpp-upf","x-sxc"}],
-		       "topon.sx.prox01.$ORIGIN"},
+		      {<<"_default.apn.$ORIGIN">>, {300,64536},
+		       [{'x-3gpp-pgw','x-s5-gtp'},{'x-3gpp-pgw','x-s8-gtp'},
+			{'x-3gpp-pgw','x-gn'},{'x-3gpp-pgw','x-gp'}],
+		       <<"topon.tdf.$ORIGIN">>},
+		      {<<"_default.apn.$ORIGIN">>, {300,64536},
+		       [{'x-3gpp-upf','x-sxb'}, {'x-3gpp-upf','x-sxc'}],
+		       <<"topon.sx.prox01.$ORIGIN">>},
 
 		      %% A/AAAA record alternatives
-		      {"topon.tdf.$ORIGIN", ?MUST_BE_UPDATED, []},
-		      {"topon.sx.prox01.$ORIGIN", ?MUST_BE_UPDATED, []}
+		      {<<"topon.tdf.$ORIGIN">>, ?MUST_BE_UPDATED, []},
+		      {<<"topon.sx.prox01.$ORIGIN">>, ?MUST_BE_UPDATED, []}
 		     ]
 		    }
 		   }
@@ -160,7 +160,7 @@
 		      ]},
 		     {ip_pools, ['pool-A']}]
 		   },
-		   {"topon.sx.prox01.$ORIGIN", [connect]}
+		   {<<"topon.sx.prox01.$ORIGIN">>, [connect]}
 		  ]
 		 }
 		]},
@@ -350,9 +350,9 @@
 -define(CONFIG_UPDATE,
 	[{[sockets, 'cp-socket', ip], localhost},
 	 {[sockets, sx, ip], localhost},
-	 {[node_selection, {default, 2}, 2, "topon.tdf.$ORIGIN"],
+	 {[node_selection, {default, 2}, 2, <<"topon.tdf.$ORIGIN">>],
 	  {fun node_sel_update/2, final_gsn}},
-	 {[node_selection, {default, 2}, 2, "topon.sx.prox01.$ORIGIN"],
+	 {[node_selection, {default, 2}, 2, <<"topon.sx.prox01.$ORIGIN">>],
 	  {fun node_sel_update/2, tdf_u_sx}}
 	]).
 

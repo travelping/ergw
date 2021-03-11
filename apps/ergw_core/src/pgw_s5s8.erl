@@ -173,7 +173,7 @@ handle_request(ReqKey,
 		SGWuFQDN;
 	    _ -> []
 	end,
-    Services = [{"x-3gpp-upf", "x-sxb"}],
+    Services = [{'x-3gpp-upf', 'x-sxb'}],
 
     {ok, UpSelInfo} =
 	ergw_gtp_gsn_lib:connect_upf_candidates(APN, Services, NodeSelect, PeerUpNode),
@@ -540,7 +540,7 @@ close_context(_Side, Reason, _State, Data) ->
     ergw_gtp_gsn_lib:close_context(?API, Reason, Data).
 
 map_attr('APN', #{?'Access Point Name' := #v2_access_point_name{apn = APN}}) ->
-    unicode:characters_to_binary(lists:join($., APN));
+    iolist_to_binary(lists:join($., APN));
 map_attr('IMSI', #{?'IMSI' := #v2_international_mobile_subscriber_identity{imsi = IMSI}}) ->
     IMSI;
 map_attr('IMEI', #{?'ME Identity' := #v2_mobile_equipment_identity{mei = IMEI}}) ->

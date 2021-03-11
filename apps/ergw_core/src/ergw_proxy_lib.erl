@@ -122,7 +122,7 @@ select_sx_proxy_candidate({GwNode, _}, #{upfSelectionAPN := APN} = ProxyInfo,
     end,
     NodeSelect = maps:get(node_selection, Ctx, ProxyNodeSelect),
     APN_FQDN = ergw_node_selection:apn_to_fqdn(APN),
-    Services = [{"x-3gpp-upf", "x-sxa"}],
+    Services = [{'x-3gpp-upf', 'x-sxa'}],
     Candidates0 = ergw_node_selection:candidates(APN_FQDN, Services, NodeSelect),
     PGWCandidate = [{GwNode, 0, Services, [], []}],
     case ergw_node_selection:topology_match(Candidates0, PGWCandidate) of

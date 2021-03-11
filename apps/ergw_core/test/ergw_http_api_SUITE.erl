@@ -34,7 +34,7 @@
 
 	 {ergw_core, [{'$setup_vars',
 		  [{"ORIGIN", {value, "epc.mnc001.mcc001.3gppnetwork.org"}}]},
-		 {node_id, <<"GGSN">>},
+		 {node_id, <<"GGSN.$ORIGIN">>},
 		 {sockets,
 		  [{cp, [{type, 'gtp-u'},
 			 {ip, ?LOCALHOST_IPv4},
@@ -97,32 +97,32 @@
 		  ]},
 
 		  {node_selection,
- 		  [{default,
- 		    {static,
- 		     [
- 		      %% APN NAPTR alternative
- 		      {"_default.apn.$ORIGIN", {300,64536},
- 		       [{"x-3gpp-ggsn","x-gn"},{"x-3gpp-ggsn","x-gp"}],
- 		       "topon.gn.ggsn.$ORIGIN"},
- 		      {"_default.apn.$ORIGIN", {300,64536},
- 		       [{"x-3gpp-upf","x-sxb"}],
- 		       "topon.sx.prox01.$ORIGIN"},
- 		      {"async-sx.apn.$ORIGIN", {300,64536},
- 		       [{"x-3gpp-upf","x-sxb"}],
- 		       "topon.sx.prox01.$ORIGIN"},
- 		      {"async-sx.apn.$ORIGIN", {300,64536},
- 		       [{"x-3gpp-upf","x-sxb"}],
- 		       "topon.sx.prox02.$ORIGIN"},
+		   [{default,
+		     {static,
+		      [
+		       %% APN NAPTR alternative
+		       {<<"_default.apn.$ORIGIN">>, {300,64536},
+			[{'x-3gpp-ggsn','x-gn'},{'x-3gpp-ggsn','x-gp'}],
+			<<"topon.gn.ggsn.$ORIGIN">>},
+		       {<<"_default.apn.$ORIGIN">>, {300,64536},
+			[{'x-3gpp-upf','x-sxb'}],
+			<<"topon.sx.prox01.$ORIGIN">>},
+		       {<<"async-sx.apn.$ORIGIN">>, {300,64536},
+			[{'x-3gpp-upf','x-sxb'}],
+			<<"topon.sx.prox01.$ORIGIN">>},
+		       {<<"async-sx.apn.$ORIGIN">>, {300,64536},
+			[{'x-3gpp-upf','x-sxb'}],
+			<<"topon.sx.prox02.$ORIGIN">>},
 
- 		      %% A/AAAA record alternatives
- 		      {"topon.gn.ggsn.$ORIGIN", ?MUST_BE_UPDATED, []},
- 		      {"topon.sx.prox01.$ORIGIN", ?MUST_BE_UPDATED, []},
- 		      {"topon.sx.prox02.$ORIGIN", ?MUST_BE_UPDATED, []}
- 		     ]
- 		    }
- 		   }
- 		  ]
- 		 },
+		       %% A/AAAA record alternatives
+		       {<<"topon.gn.ggsn.$ORIGIN">>, ?MUST_BE_UPDATED, []},
+		       {<<"topon.sx.prox01.$ORIGIN">>, ?MUST_BE_UPDATED, []},
+		       {<<"topon.sx.prox02.$ORIGIN">>, ?MUST_BE_UPDATED, []}
+		      ]
+		     }
+		    }
+		   ]
+		  },
 
 		 {charging,
 		  [{default,
@@ -236,11 +236,11 @@
 	[{[sockets, cp, ip], localhost},
 	 {[sockets, irx, ip], test_gsn},
 	 {[sockets, sx, ip], localhost},
-	 {[node_selection, {default, 2}, 2, "topon.gn.ggsn.$ORIGIN"],
+	 {[node_selection, {default, 2}, 2, <<"topon.gn.ggsn.$ORIGIN">>],
 	  {fun node_sel_update/2, final_gsn}},
-	 {[node_selection, {default, 2}, 2, "topon.sx.prox01.$ORIGIN"],
+	 {[node_selection, {default, 2}, 2, <<"topon.sx.prox01.$ORIGIN">>],
 	  {fun node_sel_update/2, pgw_u01_sx}},
-	 {[node_selection, {default, 2}, 2, "topon.sx.prox02.$ORIGIN"],
+	 {[node_selection, {default, 2}, 2, <<"topon.sx.prox02.$ORIGIN">>],
 	  {fun node_sel_update/2, sgw_u_sx}}
 	]).
 
@@ -334,7 +334,7 @@ http_api_status_req(_Config) ->
 				       [], [{body_format, binary}]),
     Response = jsx:decode(Body, [return_maps]),
     ?equal(maps:get(accept_new, SysInfo), maps:get(<<"acceptNewRequests">>, Response)),
-    ?equal(atom_to_binary(maps:get(node_id, SysInfo)), maps:get(<<"nodeId">>, Response)),
+    ?equal(maps:get(node_id, SysInfo), maps:get(<<"nodeId">>, Response)),
     {Mcc, Mnc} = maps:get(plmn_id, SysInfo),
     PlmnIdFromResponse = maps:get(<<"plmnId">>, Response),
     MccFromResponse = maps:get(<<"mcc">>, PlmnIdFromResponse),
