@@ -183,7 +183,7 @@ update_app_config(Group, CfgUpd, Config0) ->
 	  fun({AppKey, CfgKey}, AppCfg) ->
 		  set_cfg_value([ergw_core] ++ AppKey, update_app_cfgkey(CfgKey, Config), AppCfg)
 	  end, AppCfg0, CfgUpd),
-    ergw_config:validate_config(proplists:get_value(ergw_core, AppCfg1)),
+    ergw_core_config:validate_config(proplists:get_value(ergw_core, AppCfg1)),
     lists:keystore(app_cfg, 1, Config, {app_cfg, AppCfg1}).
 
 %%%===================================================================

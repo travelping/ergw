@@ -21,7 +21,7 @@
 
 start(_StartType, _StartArgs) ->
     do([error_m ||
-	   Config <- ergw_config:load(),
+	   Config <- ergw_core_config:load(),
 	   ergw_prometheus:declare(),
 	   ensure_jobs_queues(),
 	   riak_core:register([{vnode_module, gtp_path_db_vnode},

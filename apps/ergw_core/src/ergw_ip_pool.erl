@@ -70,7 +70,7 @@ static_ip(IP, PrefixLen) ->
 
 validate_options(Options) ->
     ?LOG(debug, "IP Pool Options: ~p", [Options]),
-    case ergw_config:get_opt(handler, Options, ergw_local_pool) of
+    case ergw_core_config:get_opt(handler, Options, ergw_local_pool) of
 	ergw_local_pool ->
 	    ergw_local_pool:validate_options(Options);
 	Handler ->

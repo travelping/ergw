@@ -46,7 +46,7 @@ stop() ->
 			  {seed_nodes, {erlang, nodes, [known]}}]).
 
 validate_options(Values) ->
-    ergw_config:validate_options(fun validate_option/2, Values, ?ClusterDefaults, map).
+    ergw_core_config:validate_options(fun validate_option/2, Values, ?ClusterDefaults, map).
 
 validate_option(enabled, Value) when is_boolean(Value) ->
     Value;

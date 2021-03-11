@@ -121,7 +121,7 @@ opts({?MODULE, _, _, _, Opts}) -> Opts.
 
 validate_options(Options) ->
     ?LOG(debug, "IP Pool Options: ~p", [Options]),
-    ergw_config:validate_options(fun validate_option/2, Options, ?DefaultOptions, map).
+    ergw_core_config:validate_options(fun validate_option/2, Options, ?DefaultOptions, map).
 
 validate_ip_range({Start, End, PrefixLen} = Range)
   when ?IS_IPv4(Start), ?IS_IPv4(End), End > Start,
@@ -150,7 +150,7 @@ validate_option(Opt, Value)
   when Opt == 'MS-Primary-DNS-Server';   Opt == 'MS-Secondary-DNS-Server';
        Opt == 'MS-Primary-NBNS-Server';  Opt == 'MS-Secondary-NBNS-Server';
        Opt == 'DNS-Server-IPv6-Address'; Opt == '3GPP-IPv6-DNS-Servers' ->
-    ergw_config:validate_ip_cfg_opt(Opt, Value);
+    ergw_core_config:validate_ip_cfg_opt(Opt, Value);
 validate_option(Opt, Pool)
   when Opt =:= 'Framed-Pool';
        Opt =:= 'Framed-IPv6-Pool' ->

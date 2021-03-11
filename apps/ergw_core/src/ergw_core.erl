@@ -240,7 +240,7 @@ handle_event({call, From}, ready, State, _Data) ->
 
 handle_event(info, {'EXIT', Pid, ok}, startup,
 	     #{init := Now, config := Config, startup := Pid} = Data) ->
-    ergw_config:apply(Config),
+    ergw_core_config:apply(Config),
     ?LOG(info, "ergw_core: ready to process requests, cluster started in ~w ms",
 	 [erlang:convert_time_unit(erlang:monotonic_time() - Now, native, millisecond)]),
     {next_state, ready, maps:remove(startup, Data)};

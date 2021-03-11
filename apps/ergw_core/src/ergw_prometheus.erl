@@ -31,7 +31,7 @@
 -define(DefaultMetricsOpts, [{gtp_path_rtt_millisecond_intervals, [10, 30, 50, 75, 100, 1000, 2000]}]).
 
 validate_options(Opts) ->
-    ergw_config:validate_options(fun validate_option/2, Opts, ?DefaultMetricsOpts, map).
+    ergw_core_config:validate_options(fun validate_option/2, Opts, ?DefaultMetricsOpts, map).
 
 validate_option(gtp_path_rtt_millisecond_intervals = Opt, Value) ->
     case [V || V <- Value, is_integer(V), V > 0] of

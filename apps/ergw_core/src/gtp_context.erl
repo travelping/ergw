@@ -218,7 +218,7 @@ test_cmd(Pid, Cmd) when is_pid(Pid) ->
 	 }).
 
 validate_options(Fun, Opts, Defaults) ->
-    ergw_config:validate_options(Fun, Opts, Defaults ++ ?ContextDefaults, map).
+    ergw_core_config:validate_options(Fun, Opts, Defaults ++ ?ContextDefaults, map).
 
 validate_option(protocol, Value)
   when Value == 'gn' orelse
@@ -233,7 +233,7 @@ validate_option(node_selection, [S|_] = Value)
   when is_atom(S) ->
     Value;
 validate_option(aaa, Value) when is_list(Value); is_map(Value) ->
-    ergw_config:opts_fold(fun validate_aaa_option/3, ?DefaultAAAOpts, Value);
+    ergw_core_config:opts_fold(fun validate_aaa_option/3, ?DefaultAAAOpts, Value);
 validate_option(Opt, Value) ->
     throw({error, {options, {Opt, Value}}}).
 
@@ -244,12 +244,12 @@ validate_aaa_option(Key, Value, AAA)
   when (is_list(Value) orelse is_map(Value)) andalso
        (Key == 'Username' orelse Key == 'Password') ->
     %% Attr = maps:get(Key, AAA),
-    %% maps:put(Key, ergw_config:opts_fold(validate_aaa_attr_option(Key, _, _, _), Attr, Value), AAA);
+    %% maps:put(Key, ergw_core_config:opts_fold(validate_aaa_attr_option(Key, _, _, _), Attr, Value), AAA);
 
     %% maps:update_with(Key, fun(Attr) ->
-    %% 				  ergw_config:opts_fold(validate_aaa_attr_option(Key, _, _, _), Attr, Value)
+    %% 				  ergw_core_config:opts_fold(validate_aaa_attr_option(Key, _, _, _), Attr, Value)
     %% 			  end, AAA);
-    maps:update_with(Key, ergw_config:opts_fold(validate_aaa_attr_option(Key, _, _, _), _, Value), AAA);
+    maps:update_with(Key, ergw_core_config:opts_fold(validate_aaa_attr_option(Key, _, _, _), _, Value), AAA);
 
 validate_aaa_option(Key, Value, AAA)
   when Key == '3GPP-GGSN-MCC-MNC' ->
