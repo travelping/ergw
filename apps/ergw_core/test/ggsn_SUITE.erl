@@ -618,6 +618,10 @@ init_per_testcase(_, Config) ->
     Config.
 
 end_per_testcase(Config) ->
+    Result = case active_contexts() of
+		 0 -> ok;
+		 Ctx -> {fail, {contexts_left, Ctx}}
+	     end,
     stop_gtpc_server(),
 
     PoolId = [<<"pool-A">>, ipv4, "10.180.0.1"],
@@ -626,7 +630,7 @@ end_per_testcase(Config) ->
     AppsCfg = proplists:get_value(aaa_cfg, Config),
     ok = application:set_env(ergw_aaa, apps, AppsCfg),
     set_online_charging(false),
-    ok.
+    Result.
 
 end_per_testcase(TestCase, Config)
   when TestCase == create_pdp_context_request_aaa_reject;
@@ -637,42 +641,33 @@ end_per_testcase(TestCase, Config)
        TestCase == simple_aaa;
        TestCase == simple_ofcs ->
     ok = meck:delete(ergw_aaa_session, invoke, 4),
-    end_per_testcase(Config),
-    Config;
+    end_per_testcase(Config);
 end_per_testcase(create_pdp_context_request_pool_exhausted, Config) ->
     meck:unload(ergw_local_pool),
-    end_per_testcase(Config),
-    Config;
+    end_per_testcase(Config);
 end_per_testcase(create_pdp_context_request_accept_new, Config) ->
     ergw_core:system_info(accept_new, true),
-    end_per_testcase(Config),
-    Config;
+    end_per_testcase(Config);
 end_per_testcase(path_restart, Config) ->
     meck:unload(gtp_path),
-    end_per_testcase(Config),
-    Config;
+    end_per_testcase(Config);
 end_per_testcase(TestCase, Config)
   when TestCase == delete_pdp_context_requested_resend ->
     ok = meck:delete(ergw_gtp_c_socket, send_request, 8),
-    end_per_testcase(Config),
-    Config;
+    end_per_testcase(Config);
 end_per_testcase(request_fast_resend, Config) ->
     ok = meck:delete(?HUT, handle_request, 5),
-    end_per_testcase(Config),
-    Config;
+    end_per_testcase(Config);
 end_per_testcase(create_pdp_context_overload, Config) ->
     jobs:modify_queue(create, [{max_size, 10}]),
     jobs:modify_regulator(rate, create, {rate,create,1}, [{limit,100}]),
-    end_per_testcase(Config),
-    Config;
+    end_per_testcase(Config);
 %% gtp 'Idle-Timeout' reset to default 28800000ms ~8 hrs
 end_per_testcase(gtp_idle_timeout, Config) ->
     set_apn_key('Idle-Timeout', 28800000),
-    end_per_testcase(Config),
-    Config;
+    end_per_testcase(Config);
 end_per_testcase(_, Config) ->
-    end_per_testcase(Config),
-    Config.
+    end_per_testcase(Config).
 
 %%--------------------------------------------------------------------
 invalid_gtp_pdu() ->
