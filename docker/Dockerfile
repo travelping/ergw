@@ -24,7 +24,7 @@ RUN     rebar3 as prod release
 
 # -- runtime image --
 
-FROM alpine:3.12
+FROM alpine:3.13
 
 WORKDIR /
 RUN     apk update && \
