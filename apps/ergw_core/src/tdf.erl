@@ -83,7 +83,7 @@ test_cmd(Pid, Cmd) when is_pid(Pid) ->
 
 validate_options(Options) ->
     ?LOG(debug, "TDF Options: ~p", [Options]),
-    ergw_core_config:validate_options(fun validate_option/2, Options, ?HandlerDefaults, map).
+    ergw_core_config:validate_options(fun validate_option/2, Options, ?HandlerDefaults).
 
 validate_option(protocol, ip) ->
     ip;

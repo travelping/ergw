@@ -30,7 +30,7 @@ start_link('pfcp', Name, Opts) ->
 			    (is_map(X) andalso map_size(X) /= 0))).
 
 validate_options(Values) when ?non_empty_opts(Values) ->
-    ergw_core_config:validate_options(fun validate_option/2, Values, [], map);
+    ergw_core_config:validate_options(fun validate_option/2, Values, []);
 validate_options(Values) ->
     throw({error, {options, {sockets, Values}}}).
 

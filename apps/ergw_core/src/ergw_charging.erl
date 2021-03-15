@@ -42,7 +42,7 @@
 
 validate_options({Key, Opts})
   when is_atom(Key), ?is_opts(Opts) ->
-    {Key, ergw_core_config:validate_options(fun validate_charging_options/2, Opts, ?DefaultChargingOpts, map)}.
+    {Key, ergw_core_config:validate_options(fun validate_charging_options/2, Opts, ?DefaultChargingOpts)}.
 
 %% validate_rule_def('Service-Identifier', Value) ->
 %% validate_rule_def('Rating-Group', Value) ->
@@ -99,7 +99,7 @@ validate_rulebase(Key, [Id | _] = RuleBaseDef)
 validate_rulebase(Key, Rule)
   when is_binary(Key) andalso ?non_empty_opts(Rule) ->
     ergw_core_config:validate_options(fun validate_rule_def/2,
-				 Rule, ?DefaultRuleDef, map);
+				 Rule, ?DefaultRuleDef);
 validate_rulebase(Key, Rule) ->
     throw({error, {options, {rulebase, {Key, Rule}}}}).
 
@@ -134,19 +134,19 @@ validate_offline_charging_options(enable, Opt) when is_boolean(Opt) ->
     Opt;
 validate_offline_charging_options(triggers, Opts) ->
     ergw_core_config:validate_options(fun validate_offline_charging_triggers/2,
-				 Opts, ?DefaultOfflineChargingTriggers, map);
+				 Opts, ?DefaultOfflineChargingTriggers);
 validate_offline_charging_options(Key, Opts) ->
     throw({error, {options, {{offline, charging}, {Key, Opts}}}}).
 
 validate_charging_options(rulebase, RuleBase) ->
     ergw_core_config:validate_options(fun validate_rulebase/2,
-				 RuleBase, ?DefaultRulebase, map);
+				 RuleBase, ?DefaultRulebase);
 validate_charging_options(online, Opts) ->
     ergw_core_config:validate_options(fun validate_online_charging_options/2,
-				 Opts, ?DefaultOnlineChargingOpts, map);
+				 Opts, ?DefaultOnlineChargingOpts);
 validate_charging_options(offline, Opts) ->
     ergw_core_config:validate_options(fun validate_offline_charging_options/2,
-				 Opts, ?DefaultOfflineChargingOpts, map);
+				 Opts, ?DefaultOfflineChargingOpts);
 validate_charging_options(Key, Opts) ->
     throw({error, {options, {charging, {Key, Opts}}}}).
 

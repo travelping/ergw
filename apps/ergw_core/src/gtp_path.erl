@@ -173,7 +173,7 @@ stop(Path) ->
 ]).
 
 validate_options(Values) ->
-    ergw_core_config:validate_options(fun validate_option/2, Values, ?Defaults, map).
+    ergw_core_config:validate_options(fun validate_option/2, Values, ?Defaults).
 
 validate_echo(_Opt, Value) when is_integer(Value), Value >= 60 * 1000 ->
     Value;
