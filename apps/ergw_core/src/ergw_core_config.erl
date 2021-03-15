@@ -13,8 +13,8 @@
 -export([load/0,
 	 apply/1,
 	 validate_options/3,
-	 validate_apn_name/1,
-	 check_unique_keys/2,
+	 mandatory_keys/2,
+	 check_unique_elements/2,
 	 validate_ip_cfg_opt/2,
 	 to_map/1
 	]).
@@ -37,20 +37,6 @@
 			 {apns, []},
 			 {charging, [{default, []}]},
 			 {metrics, []}]).
--define(VrfDefaults, [{features, invalid}]).
--define(ApnDefaults, [{ip_pools, []},
-		      {bearer_type, 'IPv4v6'},
-		      {prefered_bearer_type, 'IPv6'},
-		      {ipv6_ue_interface_id, default},
-		      {'Idle-Timeout', 28800000}         %% 8hrs timer in msecs
-		     ]).
--define(DefaultsNodesDefaults, [{vrfs, invalid},
-    {node_selection, default},
-    {heartbeat, []},
-    {request, []}]).
-
--define(NodeDefaultHeartbeat, [{interval, 5000}, {timeout, 500}, {retry, 5}]).
--define(NodeDefaultRequest, [{timeout, 30000}, {retry, 5}]).
 
 -define(is_opts(X), (is_list(X) orelse is_map(X))).
 -define(non_empty_opts(X), ((is_list(X) andalso length(X) /= 0) orelse
@@ -108,15 +94,6 @@ to_map(L) when is_list(L) ->
 %%%===================================================================
 %%% Options Validation
 %%%===================================================================
-
-check_unique_keys(Key, List) when is_list(List) ->
-    UList = lists:ukeysort(1, List),
-    if length(UList) == length(List) ->
-	    ok;
-       true ->
-	    Duplicate = proplists:get_keys(List) -- proplists:get_keys(UList),
-	    throw({error, {options, {Key, Duplicate}}})
-    end.
 
 check_unique_elements(Key, List) when is_list(List) ->
     UList = lists:usort(List),
@@ -193,22 +170,17 @@ validate_option(accept_new, Value) when is_boolean(Value) ->
 validate_option(cluster, Value) when ?is_opts(Value) ->
     ergw_cluster:validate_options(Value);
 validate_option(sockets, Value) when ?is_opts(Value) ->
-    ergw_socket:validate_options(Value);
+    validate_options(fun ergw_socket:validate_options/2, Value, []);
 validate_option(handlers, Value) when ?non_empty_opts(Value) ->
-    validate_options(fun validate_handlers_option/2, Value, []);
+    validate_options(fun ergw_context:validate_options/2, Value, []);
 validate_option(node_selection, Value) when ?is_opts(Value) ->
-    validate_options(fun validate_node_selection_option/2, Value, []);
-validate_option(nodes, Value0) when ?non_empty_opts(Value0) ->
-    Value = to_map(Value0),
-    Defaults = validate_default_node(maps:get(default, Value, [])),
-    NodeDefaults = Defaults#{connect => false},
-    Opts = validate_options(validate_nodes(_, _, NodeDefaults),
-			    maps:remove(default, Value), []),
-    Opts#{default => Defaults};
+    validate_options(fun ergw_node_selection:validate_options/2, Value, []);
+validate_option(nodes, Values) when ?non_empty_opts(Values) ->
+    ergw_sx_node:validate_options(to_map(Values));
 validate_option(ip_pools, Value) when ?is_opts(Value) ->
-    validate_options(fun validate_ip_pools/1, Value, []);
+    validate_options(fun ergw_ip_pool:validate_options/2, Value, []);
 validate_option(apns, Value) when ?is_opts(Value) ->
-    validate_options(fun validate_apns/1, Value, []);
+    validate_options(fun ergw_apn:validate_options/1, Value, []);
 validate_option(http_api, Value) when ?is_opts(Value) ->
     ergw_http_api:validate_options(Value);
 validate_option(charging, Opts)
@@ -251,175 +223,6 @@ validate_mcc_mcn(MCC, MNC)
     end;
 validate_mcc_mcn(_, _) ->
     error.
-
-validate_handlers_option(_Name, #{handler := Handler} = Values)
-  when is_atom(Handler) ->
-    case code:ensure_loaded(Handler) of
-	{module, _} ->
-	    ok;
-	_ ->
-	    throw({error, {options, {handler, Values}}})
-    end,
-    Handler:validate_options(Values);
-validate_handlers_option(Name, Values) when is_list(Values) ->
-    validate_handlers_option(Name, to_map(Values));
-validate_handlers_option(Name, Values) ->
-    throw({error, {options, {Name, Values}}}).
-
-validate_node_selection_option(Key, {Type, Opts})
-  when is_atom(Key), is_atom(Type) ->
-    {Type, ergw_node_selection:validate_options(Type, Opts)};
-validate_node_selection_option(Opt, Values) ->
-    throw({error, {options, {Opt, Values}}}).
-
-validate_node_vrf_option(features, Features)
-  when is_list(Features), length(Features) /= 0 ->
-    Rem = lists:usort(Features) --
-	['Access', 'Core', 'SGi-LAN', 'CP-Function', 'LI Function', 'TDF-Source'],
-    if Rem /= [] ->
-	    throw({error, {options, {features, Features}}});
-       true ->
-	    Features
-    end;
-validate_node_vrf_option(Opt, Values) ->
-    throw({error, {options, {Opt, Values}}}).
-
-validate_node_vrfs({Name, Opts})
-  when ?is_opts(Opts) ->
-    {vrf:validate_name(Name),
-    validate_options(fun validate_node_vrf_option/2, Opts, ?VrfDefaults)};
-validate_node_vrfs({Name, Opts}) ->
-    throw({error, {options, {Name, Opts}}}).
-
-validate_node_heartbeat({interval, Value} = Opts)
-  when is_integer(Value), Value > 100 ->
-    Opts;
-validate_node_heartbeat({timeout, Value} = Opts)
-  when is_integer(Value), Value > 100 ->
-    Opts;
-validate_node_heartbeat({retry, Value} = Opts)
-  when is_integer(Value), Value >= 0 ->
-    Opts;
-validate_node_heartbeat({Opt, Value}) ->
-    throw({error, {options, {Opt, Value}}}).
-
-validate_node_request({timeout, Value} = Opts)
-  when is_integer(Value), Value > 100 ->
-    Opts;
-validate_node_request({retry, Value} = Opts)
-  when is_integer(Value), Value >= 0 ->
-    Opts;
-validate_node_request({Opt, Value}) ->
-    throw({error, {options, {Opt, Value}}}).
-
-validate_node_default_option(vrfs, VRFs)
-  when ?non_empty_opts(VRFs) ->
-    validate_options(fun validate_node_vrfs/1, VRFs, []);
-validate_node_default_option(ip_pools, Pools)
-  when is_list(Pools) ->
-    V = [ergw_ip_pool:validate_name(ip_pools, Name) || Name <- Pools],
-    check_unique_elements(ip_pools, V),
-    V;
-validate_node_default_option(node_selection, Value) ->
-    Value;
-validate_node_default_option(heartbeat, Opts)
-  when ?is_opts(Opts) ->
-    validate_options(fun validate_node_heartbeat/1, Opts, ?NodeDefaultHeartbeat);
-validate_node_default_option(request, Opts)
-  when ?is_opts(Opts) ->
-    validate_options(fun validate_node_request/1, Opts, ?NodeDefaultRequest);
-validate_node_default_option(Opt, Values) ->
-    throw({error, {options, {Opt, Values}}}).
-
-validate_node_option(connect, Value) when is_boolean(Value) ->
-    Value;
-validate_node_option(node_selection, Value) ->
-    Value;
-validate_node_option(raddr, {_,_,_,_} = RAddr) ->
-    RAddr;
-validate_node_option(raddr, {_,_,_,_,_,_,_,_} = RAddr) ->
-    RAddr;
-validate_node_option(rport, Port) when is_integer(Port) ->
-    Port;
-validate_node_option(Opt, Values) ->
-    validate_node_default_option(Opt, Values).
-
-validate_default_node(Opts) when ?is_opts(Opts) ->
-    validate_options(fun validate_node_default_option/2, Opts, ?DefaultsNodesDefaults);
-validate_default_node(Opts) ->
-    throw({error, {options, {nodes, default, Opts}}}).
-
-validate_nodes(Name, Opts, Defaults)
-  when is_binary(Name), ?is_opts(Opts) ->
-    validate_options(fun validate_node_option/2, Opts, Defaults);
-validate_nodes(Opt, Values, _) ->
-    throw({error, {options, {Opt, Values}}}).
-
-validate_ip_pools({Name, Values})
-  when ?is_opts(Values) ->
-    {ergw_ip_pool:validate_name(ip_pools, Name), ergw_ip_pool:validate_options(to_map(Values))};
-validate_ip_pools({Opt, Value}) ->
-    throw({error, {options, {Opt, Value}}}).
-
-validate_apns({APN0, Value}) when ?is_opts(Value) ->
-    APN =
-	if APN0 =:= '_' -> APN0;
-	   true         -> validate_apn_name(APN0)
-	end,
-    Opts = validate_options(fun validate_apn_option/1, Value, ?ApnDefaults),
-    mandatory_keys([vrfs], Opts),
-    {APN, Opts};
-validate_apns({Opt, Value}) ->
-    throw({error, {options, {Opt, Value}}}).
-
-validate_apn_name(APN) when is_list(APN) ->
-    try
-	gtp_c_lib:normalize_labels(APN)
-    catch
-	error:badarg ->
-	    throw({error, {apn, APN}})
-    end;
-validate_apn_name(APN) ->
-    throw({error, {apn, APN}}).
-
-validate_apn_option({vrf, Name}) ->
-    {vrfs, [vrf:validate_name(Name)]};
-validate_apn_option({vrfs = Opt, VRFs})
-  when is_list(VRFs), length(VRFs) /= 0 ->
-    V = [vrf:validate_name(Name) || Name <- VRFs],
-    check_unique_elements(Opt, V),
-    {Opt, V};
-validate_apn_option({ip_pools = Opt, Pools})
-  when is_list(Pools) ->
-    V = [ergw_ip_pool:validate_name(Opt, Name) || Name <- Pools],
-    check_unique_elements(Opt, V),
-    {Opt, V};
-validate_apn_option({bearer_type = Opt, Type})
-  when Type =:= 'IPv4'; Type =:= 'IPv6'; Type =:= 'IPv4v6' ->
-    {Opt, Type};
-validate_apn_option({prefered_bearer_type = Opt, Type})
-  when Type =:= 'IPv4'; Type =:= 'IPv6' ->
-    {Opt, Type};
-validate_apn_option({ipv6_ue_interface_id = Opt, Type})
-  when Type =:= default;
-       Type =:= random ->
-    {Opt, Type};
-validate_apn_option({ipv6_ue_interface_id, {0,0,0,0,E,F,G,H}} = Opt)
-  when E >= 0, E < 65536, F >= 0, F < 65536,
-       G >= 0, G < 65536, H >= 0, H < 65536,
-       (E + F + G + H) =/= 0 ->
-    Opt;
-validate_apn_option({Opt, Value})
-  when Opt == 'MS-Primary-DNS-Server';   Opt == 'MS-Secondary-DNS-Server';
-       Opt == 'MS-Primary-NBNS-Server';  Opt == 'MS-Secondary-NBNS-Server';
-       Opt == 'DNS-Server-IPv6-Address'; Opt == '3GPP-IPv6-DNS-Servers' ->
-    {Opt, validate_ip_cfg_opt(Opt, Value)};
-validate_apn_option({'Idle-Timeout', Timer})
-  when (is_integer(Timer) andalso Timer > 0)
-       orelse Timer =:= infinity->
-    {'Idle-Timeout', Timer};
-validate_apn_option({Opt, Value}) ->
-    throw({error, {options, {Opt, Value}}}).
 
 validate_ip6(_Opt, IP) when ?IS_IPv6(IP) ->
     IP;

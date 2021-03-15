@@ -174,6 +174,12 @@ snaptr_candidate(Candidates) ->
 
 -define(IS_IP(X), (is_tuple(X) andalso (tuple_size(X) == 4 orelse tuple_size(X) == 8))).
 
+validate_options(Key, {Type, Opts})
+  when is_atom(Key), is_atom(Type) ->
+    {Type, validate_type_options(Type, Opts)};
+validate_options(Opt, Values) ->
+    throw({error, {options, {Opt, Values}}}).
+
 validate_ip_list(L) ->
     lists:foreach(
       fun(IP) when ?IS_IP(IP) -> ok;
@@ -193,17 +199,17 @@ validate_static_option({Host, IP4, IP6})
 validate_static_option(Opt) ->
     throw({error, {options, {static, Opt}}}).
 
-validate_options(static, Opts)
+validate_type_options(static, Opts)
   when is_list(Opts), length(Opts) > 0 ->
     lists:map(fun validate_static_option/1, Opts);
-validate_options(dns, undefined) ->
+validate_type_options(dns, undefined) ->
     undefined;
-validate_options(dns, IP) when ?IS_IP(IP) ->
+validate_type_options(dns, IP) when ?IS_IP(IP) ->
     {IP, 53};
-validate_options(dns, {IP, Port} = Server)
+validate_type_options(dns, {IP, Port} = Server)
   when ?IS_IP(IP) andalso is_integer(Port) ->
     Server;
-validate_options(Type, Opts) ->
+validate_type_options(Type, Opts) ->
     throw({error, {options, {Type, Opts}}}).
 
 %%%===================================================================

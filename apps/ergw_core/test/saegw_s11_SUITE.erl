@@ -63,7 +63,7 @@
 		  ]},
 
 		 {ip_pools,
-		  [{'pool-A', [{ranges,  [{?IPv4PoolStart, ?IPv4PoolEnd, 32},
+		  [{<<"pool-A">>, [{ranges,  [{?IPv4PoolStart, ?IPv4PoolEnd, 32},
 					  {?IPv6PoolStart, ?IPv6PoolEnd, 64}]},
 			       {'MS-Primary-DNS-Server', {8,8,8,8}},
 			       {'MS-Secondary-DNS-Server', {8,8,4,4}},
@@ -118,15 +118,15 @@
 		 {apns,
 		  [{?'APN-EXAMPLE',
 		    [{vrf, sgi},
-		     {ip_pools, ['pool-A']},
+		     {ip_pools, [<<"pool-A">>]},
 		     {'Idle-Timeout', 21600000}]}, % Idle timeout 6 hours
 		   {[<<"APN1">>],
 		    [{vrf, sgi},
-		     {ip_pools, ['pool-A']},
+		     {ip_pools, [<<"pool-A">>]},
 		     {'Idle-Timeout', 28800000}]}, % Idle timeout 8 hours
 		   {[<<"async-sx">>],
 		    [{vrf, sgi},
-		     {ip_pools, ['pool-A']},
+		     {ip_pools, [<<"pool-A">>]},
 		     {'Idle-Timeout', infinity}]}
 		  ]},
 
@@ -188,7 +188,7 @@
 		       {irx, [{features, ['Access']}]},
 		       {sgi, [{features, ['SGi-LAN']}]}
 		      ]},
-		     {ip_pools, ['pool-A']}]
+		     {ip_pools, [<<"pool-A">>]}]
 		   },
 		   {<<"topon.sx.prox01.$ORIGIN">>, [connect]}
 		  ]

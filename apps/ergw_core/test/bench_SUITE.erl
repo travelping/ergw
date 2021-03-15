@@ -94,7 +94,7 @@
 		  ]},
 
 		 {ip_pools,
-		  [{'pool-A', [{ranges,  [{?IPv4PoolStart, ?IPv4PoolEnd, 32},
+		  [{<<"pool-A">>, [{ranges,  [{?IPv4PoolStart, ?IPv4PoolEnd, 32},
 					  {?IPv6PoolStart, ?IPv6PoolEnd, 64},
 					  {?IPv6HostPoolStart, ?IPv6HostPoolEnd, 128}]},
 			       {'MS-Primary-DNS-Server', {8,8,8,8}},
@@ -163,16 +163,16 @@
 		 {apns,
 		  [{?'APN-EXAMPLE',
 		    [{vrf, sgi},
-		     {ip_pools, ['pool-A']}]},
+		     {ip_pools, [<<"pool-A">>]}]},
 		   {[<<"exa">>, <<"mple">>, <<"net">>],
 		    [{vrf, sgi},
-		     {ip_pools, ['pool-A']}]},
+		     {ip_pools, [<<"pool-A">>]}]},
 		   {[<<"APN1">>],
 		    [{vrf, sgi},
-		     {ip_pools, ['pool-A']}]},
+		     {ip_pools, [<<"pool-A">>]}]},
 		   {[<<"APN2">>, <<"mnc001">>, <<"mcc001">>, <<"gprs">>],
 		    [{vrf, sgi},
-		     {ip_pools, ['pool-A']}]}
+		     {ip_pools, [<<"pool-A">>]}]}
 		   %% {'_', [{vrf, wildcard}]}
 		  ]},
 
@@ -204,7 +204,7 @@
 		       {irx, [{features, ['Access']}]},
 		       {sgi, [{features, ['SGi-LAN']}]}
 		      ]},
-		     {ip_pools, ['pool-A']}]
+		     {ip_pools, [<<"pool-A">>]}]
 		   },
 		   {<<"topon.sx.prox01.$ORIGIN">>, [connect]}
 		  ]

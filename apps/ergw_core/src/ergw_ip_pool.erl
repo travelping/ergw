@@ -11,7 +11,7 @@
 -export([start_ip_pool/2, send_request/2, wait_response/1, release/1,
 	 addr/1, ip/1, opts/1]).
 -export([static_ip/2]).
--export([validate_options/1, validate_name/2]).
+-export([validate_options/2, validate_name/2]).
 
 -if(?OTP_RELEASE =< 23).
 -ignore_xref([behaviour_info/1]).
@@ -68,14 +68,19 @@ static_ip(IP, PrefixLen) ->
 %%% Options Validation
 %%%===================================================================
 
-validate_options(Options) ->
-    ?LOG(debug, "IP Pool Options: ~p", [Options]),
-    case maps:get(handler, Options, ergw_local_pool) of
-	ergw_local_pool ->
-	    ergw_local_pool:validate_options(Options);
-	Handler ->
-	    throw({error, {options, {handler, Handler}}})
-    end.
+-define(is_opts(X), (is_list(X) orelse is_map(X))).
+
+validate_options(_Name, Values0)
+  when ?is_opts(Values0) ->
+    Values = ergw_core_config:to_map(Values0),
+    validate_pool(maps:get(handler, Values, ergw_local_pool), Values);
+validate_options(Name, Values) ->
+    throw({error, {options, {Name, Values}}}).
+
+validate_pool(ergw_local_pool, Options) ->
+    ergw_local_pool:validate_options(Options);
+validate_pool(Handler, _Options) ->
+    throw({error, {options, {handler, Handler}}}).
 
 validate_name(_, Name) when is_binary(Name) ->
     Name;

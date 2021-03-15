@@ -74,7 +74,7 @@
 		  ]},
 
 		 {ip_pools,
-		  [{'pool-A', [{ranges,  [{?IPv4PoolStart, ?IPv4PoolEnd, 32},
+		  [{<<"pool-A">>, [{ranges,  [{?IPv4PoolStart, ?IPv4PoolEnd, 32},
 					  {?IPv6PoolStart, ?IPv6PoolEnd, 64},
 					  {?IPv6HostPoolStart, ?IPv6HostPoolEnd, 128}]},
 			       {'MS-Primary-DNS-Server', {8,8,8,8}},
@@ -155,8 +155,8 @@
 		 {apns,
 		  [{?'APN-PROXY',
 		    [{vrf, example},
-		     {ip_pools, ['pool-A']}]},
-		   {?'APN-LB-1', [{vrf, example}, {ip_pools, ['pool-A']}]}
+		     {ip_pools, [<<"pool-A">>]}]},
+		   {?'APN-LB-1', [{vrf, example}, {ip_pools, [<<"pool-A">>]}]}
 		  ]},
 
 		 {charging,
@@ -196,7 +196,7 @@
 		       {'remote-irx2', [{features, ['Access']}]},
 		       {example, [{features, ['SGi-LAN']}]}]
 		     },
-		     {ip_pools, ['pool-A']}]
+		     {ip_pools, [<<"pool-A">>]}]
 		   },
 		   {<<"topon.sx.sgw-u01.$ORIGIN">>, [connect]},
 		   {<<"topon.sx.pgw-u01.$ORIGIN">>, [connect]},
@@ -302,7 +302,7 @@
 		  ]},
 
 		 {ip_pools,
-		  [{'pool-A', [{ranges,  [{?IPv4PoolStart, ?IPv4PoolEnd, 32},
+		  [{<<"pool-A">>, [{ranges,  [{?IPv4PoolStart, ?IPv4PoolEnd, 32},
 					  {?IPv6PoolStart, ?IPv6PoolEnd, 64},
 					  {?IPv6HostPoolStart, ?IPv6HostPoolEnd, 128}]},
 			       {'MS-Primary-DNS-Server', {8,8,8,8}},
@@ -383,8 +383,8 @@
 		 {apns,
 		  [{?'APN-PROXY',
 		    [{vrf, example},
-		     {ip_pools, ['pool-A']}]},
-		   {?'APN-LB-1', [{vrf, example}, {ip_pools, ['pool-A']}]}
+		     {ip_pools, [<<"pool-A">>]}]},
+		   {?'APN-LB-1', [{vrf, example}, {ip_pools, [<<"pool-A">>]}]}
 		  ]},
 
 		 {charging,
@@ -423,7 +423,7 @@
 		       {'remote-irx2', [{features, ['Access']}]},
 		       {example, [{features, ['SGi-LAN']}]}]
 		     },
-		     {ip_pools, ['pool-A']}]
+		     {ip_pools, [<<"pool-A">>]}]
 		   },
 		   {<<"topon.sx.sgw-u01.$ORIGIN">>, [connect]},
 		   {<<"topon.sx.pgw-u01.$ORIGIN">>, [connect]},
