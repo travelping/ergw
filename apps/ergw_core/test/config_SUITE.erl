@@ -56,7 +56,9 @@
 	  ]},
 
 	 {handlers,
-	  [{gn, [{handler, ggsn_gn},
+	  #{gn =>
+		[{handler, ggsn_gn},
+		 {protocol, gn},
 		 {sockets, [irx]},
 		 {node_selection, [static]},
 		 {aaa, [{'Username',
@@ -68,7 +70,7 @@
 				     12345,
 				     <<"@">>, 'APN']}]}]}
 		]}
-	  ]},
+	 },
 
 	 {apns,
 	  [{?'APN-EXAMPLE',
@@ -130,22 +132,26 @@
 
 	 {handlers,
 	  %% proxy handler
-	  [{gn, [{handler, ggsn_gn_proxy},
+	  #{gn =>
+		[{handler, ggsn_gn_proxy},
+		 {protocol, gn},
 		 {sockets, [irx]},
 		 {proxy_sockets, ['irx']},
 		 {node_selection, [static]},
 		 {contexts,
 		  [{<<"ams">>,
 		    [{proxy_sockets, ['irx']}]}]}
-		]},
-	   %% remote GGSN handler
-	   {gn, [{handler, ggsn_gn},
-		 {sockets, ['remote-irx', 'remote-irx2']},
-		 {node_selection, [static]},
-		 {aaa, [{'Username',
-			 [{default, ['IMSI', <<"@">>, 'APN']}]}]}
-		]}
-	  ]},
+		],
+	  %% remote GGSN handler
+	  'gn-remote' =>
+	      [{handler, ggsn_gn},
+	       {protocol, gn},
+	       {sockets, ['remote-irx', 'remote-irx2']},
+	       {node_selection, [static]},
+	       {aaa, [{'Username',
+		       [{default, ['IMSI', <<"@">>, 'APN']}]}]}
+	      ]}
+	 },
 
 	 {apns,
 	  [{?'APN-PROXY', [{vrf, example}]}
@@ -244,33 +250,35 @@
 	  ]},
 
 	 {handlers,
-	  [{'h1', [{handler, pgw_s5s8},
-		   {protocol, gn},
-		   {sockets, [irx]},
-		   {node_selection, [static]},
-		   {aaa, [{'Username',
-			   [{default, ['IMSI',   <<"/">>,
-				       'IMEI',   <<"/">>,
-				       'MSISDN', <<"/">>,
-				       'ATOM',   <<"/">>,
-				       "TEXT",   <<"/">>,
-				       12345,
-				       <<"@">>, 'APN']}]}]}
-		  ]},
-	   {'h2', [{handler, pgw_s5s8},
-		   {protocol, s5s8},
-		   {sockets, [irx]},
-		   {node_selection, [static]},
-		   {aaa, [{'Username',
-			   [{default, ['IMSI',   <<"/">>,
-				       'IMEI',   <<"/">>,
-				       'MSISDN', <<"/">>,
-				       'ATOM',   <<"/">>,
-				       "TEXT",   <<"/">>,
-				       12345,
-				       <<"@">>, 'APN']}]}]}
-		  ]}
-	  ]},
+	  #{'h1' =>
+		[{handler, pgw_s5s8},
+		 {protocol, gn},
+		 {sockets, [irx]},
+		 {node_selection, [static]},
+		 {aaa, [{'Username',
+			 [{default, ['IMSI',   <<"/">>,
+				     'IMEI',   <<"/">>,
+				     'MSISDN', <<"/">>,
+				     'ATOM',   <<"/">>,
+				     "TEXT",   <<"/">>,
+				     12345,
+				     <<"@">>, 'APN']}]}]}
+		],
+	    'h2' =>
+		[{handler, pgw_s5s8},
+		 {protocol, s5s8},
+		 {sockets, [irx]},
+		 {node_selection, [static]},
+		 {aaa, [{'Username',
+			 [{default, ['IMSI',   <<"/">>,
+				     'IMEI',   <<"/">>,
+				     'MSISDN', <<"/">>,
+				     'ATOM',   <<"/">>,
+				     "TEXT",   <<"/">>,
+				     12345,
+				     <<"@">>, 'APN']}]}]}
+		]}
+	 },
 
 	 {apns,
 	  [{?'APN-EXAMPLE',
@@ -324,31 +332,39 @@
 
 	 {handlers,
 	  %% proxy handler
-	  [{gn, [{handler, pgw_s5s8_proxy},
+	  #{gn =>
+		[{handler, pgw_s5s8_proxy},
+		 {protocol, gn},
 		 {sockets, [irx]},
 		 {proxy_sockets, ['irx']},
 		 {node_selection, [static]}
-		]},
-	   {s5s8, [{handler, pgw_s5s8_proxy},
-		   {sockets, [irx]},
-		   {proxy_sockets, ['irx']},
-		   {node_selection, [static]},
-		   {contexts,
-		    [{<<"ams">>,
-		      [{proxy_sockets, ['irx']}]}]}
-		  ]},
+		],
+	   s5s8 =>
+		[{handler, pgw_s5s8_proxy},
+		 {protocol, s5s8},
+		 {sockets, [irx]},
+		 {proxy_sockets, ['irx']},
+		 {node_selection, [static]},
+		 {contexts,
+		  [{<<"ams">>,
+		    [{proxy_sockets, ['irx']}]}]}
+		],
 	   %% remote PGW handler
-	   {gn, [{handler, pgw_s5s8},
+	    'gn-remote' =>
+		[{handler, pgw_s5s8},
+		 {protocol, gn},
 		 {sockets, ['remote-irx', 'remote-irx2']},
 		 {node_selection, [static]},
 		 {aaa, [{'Username',
 			 [{default, ['IMSI', <<"@">>, 'APN']}]}]}
-		]},
-	   {s5s8, [{handler, pgw_s5s8},
-		   {sockets, ['remote-irx', 'remote-irx2']},
-		   {node_selection, [static]}
-		  ]}
-	  ]},
+		],
+	    's5s8-remote' =>
+		[{handler, pgw_s5s8},
+		 {protocol, s5s8},
+		 {sockets, ['remote-irx', 'remote-irx2']},
+		 {node_selection, [static]}
+		]}
+	 },
 
 	 {apns,
 	  [{?'APN-PROXY', [{vrf, example}]}
@@ -437,20 +453,21 @@
 	  ]},
 
 	 {handlers,
-	  [{'h1', [{handler, saegw_s11},
-		   {protocol, s11},
-		   {sockets, [irx]},
-		   {node_selection, [static]},
-		   {aaa, [{'Username',
-			   [{default, ['IMSI',   <<"/">>,
-				       'IMEI',   <<"/">>,
-				       'MSISDN', <<"/">>,
-				       'ATOM',   <<"/">>,
-				       "TEXT",   <<"/">>,
-				       12345,
-				       <<"@">>, 'APN']}]}]}
-		  ]}
-	  ]},
+	  #{'h1' =>
+		[{handler, saegw_s11},
+		 {protocol, s11},
+		 {sockets, [irx]},
+		 {node_selection, [static]},
+		 {aaa, [{'Username',
+			 [{default, ['IMSI',   <<"/">>,
+				     'IMEI',   <<"/">>,
+				     'MSISDN', <<"/">>,
+				     'ATOM',   <<"/">>,
+				     "TEXT",   <<"/">>,
+				     12345,
+				     <<"@">>, 'APN']}]}]}
+		]}
+	 },
 
 	 {apns,
 	  [{?'APN-EXAMPLE',
@@ -492,13 +509,14 @@
 	  ]},
 
 	 {handlers,
-	  [{'h1', [{handler, tdf},
-		   {protocol, ip},
-		   {apn, ?'APN-EXAMPLE'},
-		   {nodes, [<<"topon.sx.prox01.mnc001.mcc001.3gppnetwork.org">>]},
-		   {node_selection, [default]}
-		  ]}
-	  ]},
+	  #{'h1' =>
+		[{handler, tdf},
+		 {protocol, ip},
+		 {apn, ?'APN-EXAMPLE'},
+		 {nodes, [<<"topon.sx.prox01.mnc001.mcc001.3gppnetwork.org">>]},
+		 {node_selection, [default]}
+		]}
+	 },
 
 	 {apns,
 	  [{?'APN-EXAMPLE', [{vrf, sgi}]},
@@ -670,13 +688,17 @@ config(_Config)  ->
     ?error_option(set_cfg_value([handlers, gn, aaa, 'Username', invalid], invalid, ?GGSN_CONFIG)),
     ?error_option(set_cfg_value([handlers, gn, aaa, invalid], invalid, ?GGSN_CONFIG)),
     ?ok_option(set_cfg_value([handlers, gn], [{handler, ggsn_gn},
+					      {protocol, gn},
 					      {sockets, [irx]},
 					      {node_selection, [static]}], ?GGSN_CONFIG)),
     ?error_option(set_cfg_value([handlers, gn], [{sockets, [irx]},
+						 {protocol, gn},
 						 {node_selection, [static]}], ?GGSN_CONFIG)),
     ?error_option(set_cfg_value([handlers, gn], [{handler, ggsn_gn},
+						 {protocol, gn},
 						 {sockets, [irx]}], ?GGSN_CONFIG)),
     ?error_option(set_cfg_value([handlers, gn], [{handler, ggsn_gn},
+						 {protocol, gn},
 						 {sockets, [irx]},
 						 {node_selection, []}], ?GGSN_CONFIG)),
 

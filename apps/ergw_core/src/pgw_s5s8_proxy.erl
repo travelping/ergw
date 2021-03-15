@@ -117,11 +117,11 @@ request_spec(v2, resume_acknowledge, _) ->
 request_spec(v2, _, _) ->
     [].
 
--define(Defaults, []).
+-define(HandlerDefaults, [{protocol, undefined}]).
 
 validate_options(Opts) ->
     ?LOG(debug, "PGW S5/S8 Options: ~p", [Opts]),
-    ergw_proxy_lib:validate_options(fun validate_option/2, Opts, ?Defaults).
+    ergw_proxy_lib:validate_options(fun validate_option/2, Opts, ?HandlerDefaults).
 
 validate_option(Opt, Value) ->
     ergw_proxy_lib:validate_option(Opt, Value).

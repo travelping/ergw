@@ -97,9 +97,11 @@ request_spec(v2, resume_notification, _) ->
 request_spec(v2, _, _) ->
     [].
 
+-define(HandlerDefaults, [{protocol, undefined}]).
+
 validate_options(Options) ->
     ?LOG(debug, "GGSN S5/S8 Options: ~p", [Options]),
-    gtp_context:validate_options(fun validate_option/2, Options, []).
+    gtp_context:validate_options(fun validate_option/2, Options, ?HandlerDefaults).
 
 validate_option(Opt, Value) ->
     gtp_context:validate_option(Opt, Value).

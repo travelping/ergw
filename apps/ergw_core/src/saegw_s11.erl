@@ -92,9 +92,11 @@ request_spec(v2, modify_bearer_command, _) ->
 request_spec(v2, _, _) ->
     [].
 
+-define(HandlerDefaults, [{protocol, undefined}]).
+
 validate_options(Options) ->
     ?LOG(debug, "SAEGW S11 Options: ~p", [Options]),
-    gtp_context:validate_options(fun validate_option/2, Options, []).
+    gtp_context:validate_options(fun validate_option/2, Options, ?HandlerDefaults).
 
 validate_option(Opt, Value) ->
     gtp_context:validate_option(Opt, Value).

@@ -76,7 +76,8 @@ test_cmd(Pid, Cmd) when is_pid(Pid) ->
 %%% Options Validation
 %%%===================================================================
 
--define(HandlerDefaults, [{node_selection, undefined},
+-define(HandlerDefaults, [{protocol, undefined},
+			  {node_selection, undefined},
 			  {nodes, undefined},
 			  {apn, undefined}]).
 

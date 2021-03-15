@@ -91,9 +91,11 @@ request_spec(v1, update_pdp_context_request, _) ->
 request_spec(v1, _, _) ->
     [].
 
+-define(HandlerDefaults, [{protocol, undefined}]).
+
 validate_options(Options) ->
     ?LOG(debug, "GGSN Gn/Gp Options: ~p", [Options]),
-    gtp_context:validate_options(fun validate_option/2, Options, []).
+    gtp_context:validate_options(fun validate_option/2, Options, ?HandlerDefaults).
 
 validate_option(Opt, Value) ->
     gtp_context:validate_option(Opt, Value).

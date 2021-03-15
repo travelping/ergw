@@ -105,7 +105,9 @@
 		  ]},
 
 		 {handlers,
-		  [{gn, [{handler, ?HUT},
+		  #{gn =>
+			[{handler, ?HUT},
+			 {protocol, gn},
 			 {sockets, ['irx-socket']},
 			 {node_selection, [default]},
 			 {aaa, [{'Username',
@@ -116,20 +118,22 @@
 					     "TEXT",   <<"/">>,
 					     12345,
 					     <<"@">>, 'APN']}]}]}
-			]},
-		   {s5s8, [{handler, ?HUT},
-			   {sockets, ['irx-socket']},
-			   {node_selection, [default]},
-			   {aaa, [{'Username',
-				   [{default, ['IMSI',   <<"/">>,
-					       'IMEI',   <<"/">>,
-					       'MSISDN', <<"/">>,
-					       'ATOM',   <<"/">>,
-					       "TEXT",   <<"/">>,
-					       12345,
-					       <<"@">>, 'APN']}]}]}
-			  ]}
-		  ]},
+			],
+		    s5s8 =>
+			[{handler, ?HUT},
+			 {protocol, s5s8},
+			 {sockets, ['irx-socket']},
+			 {node_selection, [default]},
+			 {aaa, [{'Username',
+				 [{default, ['IMSI',   <<"/">>,
+					     'IMEI',   <<"/">>,
+					     'MSISDN', <<"/">>,
+					     'ATOM',   <<"/">>,
+					     "TEXT",   <<"/">>,
+					     12345,
+					     <<"@">>, 'APN']}]}]}
+			]}
+		 },
 
 		 {node_selection,
 		  [{default,

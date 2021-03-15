@@ -76,13 +76,15 @@
 		  ]},
 
 		 {handlers,
-		  [{s11, [{handler, ?HUT},
-			  {sockets, [irx]},
-			  {node_selection, [default]},
-			  {aaa, [{'Username',
-				  [{default, ['IMSI', <<"/">>, 'IMEI', <<"/">>, 'MSISDN', <<"@">>, 'APN']}]}]}
-			 ]}
-		  ]},
+		  #{s11 =>
+			[{handler, ?HUT},
+			 {protocol, s11},
+			 {sockets, [irx]},
+			 {node_selection, [default]},
+			 {aaa, [{'Username',
+				 [{default, ['IMSI', <<"/">>, 'IMEI', <<"/">>, 'MSISDN', <<"@">>, 'APN']}]}]}
+			]}
+		 },
 
 		 {node_selection,
 		  [{default,
