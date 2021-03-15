@@ -656,7 +656,7 @@ config(_Config)  ->
 	     ip        := _,
 	     freebind  := true,
 	     reuseaddr := true},
-	   proplists:get_value('irx-2', maps:get(sockets, SockCfg))),
+	   maps:get('irx-2', maps:get(sockets, SockCfg))),
 
     ?error_option(set_cfg_value([sockets, sx, ip], invalid, ?GGSN_CONFIG)),
     ?error_option(set_cfg_value([sockets, sx, ip], {1,1,1,1,1}, ?GGSN_CONFIG)),

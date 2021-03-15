@@ -11,7 +11,7 @@
 
 %% API
 -export([start_link/1]).
--export([start_socket/1, start_ip_pool/2,
+-export([start_socket/2, start_ip_pool/2,
 	 connect_sx_node/2,
 	 attach_tdf/2, attach_protocol/5]).
 -export([handler/2]).
@@ -87,8 +87,8 @@ system_info(Key, Value) ->
 %%
 %% Initialize a new PFCP, GTPv1/v2-c or GTPv1-u socket
 %%
-start_socket({_Name, #{type := Type} = Opts}) ->
-    ergw_socket_sup:new(Type, Opts).
+start_socket(Name, #{type := Type} = Opts) ->
+    ergw_socket_sup:new(Type, Name, Opts).
 
 %%
 %% start IP_POOL instance
