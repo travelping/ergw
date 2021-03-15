@@ -162,7 +162,7 @@ validate_option(Opt, Value)
   when Opt == proxy_sockets ->
     validate_context_option(Opt, Value);
 validate_option(contexts, Values) when is_list(Values); is_map(Values) ->
-    ergw_core_config:validate_options(fun validate_context/2, Values, [], map);
+    ergw_core_config:validate_options(fun validate_context/2, Values, []);
 validate_option(Opt, Value) ->
     gtp_context:validate_option(Opt, Value).
 
@@ -177,7 +177,7 @@ validate_context_option(Opt, Value) ->
 validate_context(Name, Opts)
   when is_binary(Name) andalso ?is_opts(Opts) ->
     ergw_core_config:validate_options(
-      fun validate_context_option/2, Opts, ?ContextDefaults, map);
+      fun validate_context_option/2, Opts, ?ContextDefaults);
 validate_context(Name, Opts) ->
     throw({error, {options, {contexts, {Name, Opts}}}}).
 

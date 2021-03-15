@@ -121,7 +121,7 @@ opts({?MODULE, _, _, _, Opts}) -> Opts.
 
 validate_options(Options) ->
     ?LOG(debug, "IP Pool Options: ~p", [Options]),
-    ergw_core_config:validate_options(fun validate_option/2, Options, ?DefaultOptions, map).
+    ergw_core_config:validate_options(fun validate_option/2, Options, ?DefaultOptions).
 
 validate_ip_range({Start, End, PrefixLen} = Range)
   when ?IS_IPv4(Start), ?IS_IPv4(End), End > Start,

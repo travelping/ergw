@@ -62,7 +62,7 @@ start_http_listener(Opts) ->
 		   {num_acceptors, 100}]).
 
 validate_options(Values) ->
-    ergw_core_config:validate_options(fun validate_option/1, Values, ?Defaults, map).
+    ergw_core_config:validate_options(fun validate_option/1, Values, ?Defaults).
 
 validate_option({port, Port} = Opt)
   when is_integer(Port), Port >= 0, Port =< 65535 ->

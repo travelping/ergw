@@ -12,7 +12,7 @@
 %% API
 -export([load/0,
 	 apply/1,
-	 validate_options/4,
+	 validate_options/3,
 	 validate_apn_name/1,
 	 check_unique_keys/2,
 	 validate_ip_cfg_opt/2,
@@ -109,15 +109,6 @@ to_map(L) when is_list(L) ->
 %%% Options Validation
 %%%===================================================================
 
-return_type(List, list) when is_list(List) ->
-    List;
-return_type(List, map) when is_list(List) ->
-    maps:from_list(List);
-return_type(Map, map) when is_map(Map) ->
-    Map;
-return_type(Map, list) when is_map(Map) ->
-    maps:to_list(Map).
-
 check_unique_keys(Key, List) when is_list(List) ->
     UList = lists:ukeysort(1, List),
     if length(UList) == length(List) ->
@@ -151,12 +142,12 @@ mandatory_keys(Keys, Map) when is_map(Map) ->
 
 -ifdef (SIMULATOR).
 validate_config(Config) when ?is_opts(Config) ->
-    catch (validate_options(fun validate_option/2, Config, ?DefaultOptions, map)),
+    catch (validate_options(fun validate_option/2, Config, ?DefaultOptions)),
     Config.
 -else.
 
 validate_config(Config) when ?is_opts(Config) ->
-    validate_options(fun validate_option/2, Config, ?DefaultOptions, map).
+    validate_options(fun validate_option/2, Config, ?DefaultOptions).
 
 -endif.
 
@@ -183,25 +174,10 @@ normalize_proplists(L0) ->
     proplists:substitute_negations([{disable, enable}], L).
 
 %% validate_options/4
-validate_options(Fun, Options, Defaults, map)
+validate_options(Fun, Options, Defaults)
   when ?is_opts(Options), ?is_opts(Defaults) ->
     Opts = maps:merge(to_map(Defaults), to_map(Options)),
-    validate_options(Fun, Opts);
-validate_options(Fun, Options, Defaults, list)
-  when is_list(Options), is_list(Defaults) ->
-    Opts0 = normalize_proplists(Options),
-    Opts = lists:ukeymerge(1, lists:keysort(1, Opts0), lists:keysort(1, Defaults)),
-    return_type(validate_options(Fun, Opts), list);
-validate_options(Fun, Options, Defaults, list)
-  when is_list(Options), is_map(Defaults) ->
-    Opts0 = normalize_proplists(Options),
-    Opts = lists:ukeymerge(1, lists:keysort(1, Opts0),
-			   lists:keysort(1, maps:to_list(Defaults))),
-    return_type(validate_options(Fun, Opts), list);
-validate_options(Fun, Options, Defaults, list)
-  when is_map(Options) andalso ?is_opts(Defaults) ->
-    Opts = maps:to_list(maps:merge(to_map(Defaults), Options)),
-    return_type(validate_options(Fun, Opts), list).
+    validate_options(Fun, Opts).
 
 validate_option(plmn_id, {MCC, MNC} = Value) ->
     case validate_mcc_mcn(MCC, MNC) of
@@ -219,25 +195,25 @@ validate_option(cluster, Value) when ?is_opts(Value) ->
 validate_option(sockets, Value) when ?is_opts(Value) ->
     ergw_socket:validate_options(Value);
 validate_option(handlers, Value) when ?non_empty_opts(Value) ->
-    validate_options(fun validate_handlers_option/2, Value, [], map);
+    validate_options(fun validate_handlers_option/2, Value, []);
 validate_option(node_selection, Value) when ?is_opts(Value) ->
-    validate_options(fun validate_node_selection_option/2, Value, [], map);
+    validate_options(fun validate_node_selection_option/2, Value, []);
 validate_option(nodes, Value0) when ?non_empty_opts(Value0) ->
     Value = to_map(Value0),
     Defaults = validate_default_node(maps:get(default, Value, [])),
     NodeDefaults = Defaults#{connect => false},
     Opts = validate_options(validate_nodes(_, _, NodeDefaults),
-			    maps:remove(default, Value), [], map),
+			    maps:remove(default, Value), []),
     Opts#{default => Defaults};
 validate_option(ip_pools, Value) when ?is_opts(Value) ->
-    validate_options(fun validate_ip_pools/1, Value, [], map);
+    validate_options(fun validate_ip_pools/1, Value, []);
 validate_option(apns, Value) when ?is_opts(Value) ->
-    validate_options(fun validate_apns/1, Value, [], map);
+    validate_options(fun validate_apns/1, Value, []);
 validate_option(http_api, Value) when ?is_opts(Value) ->
     ergw_http_api:validate_options(Value);
 validate_option(charging, Opts)
   when ?non_empty_opts(Opts) ->
-    validate_options(fun ergw_charging:validate_options/1, Opts, [], map);
+    validate_options(fun ergw_charging:validate_options/1, Opts, []);
 validate_option(proxy_map, Opts) ->
     gtp_proxy_ds:validate_options(Opts);
 validate_option(path_management, Opts) when ?is_opts(Opts) ->
@@ -311,7 +287,7 @@ validate_node_vrf_option(Opt, Values) ->
 validate_node_vrfs({Name, Opts})
   when ?is_opts(Opts) ->
     {vrf:validate_name(Name),
-    validate_options(fun validate_node_vrf_option/2, Opts, ?VrfDefaults, map)};
+    validate_options(fun validate_node_vrf_option/2, Opts, ?VrfDefaults)};
 validate_node_vrfs({Name, Opts}) ->
     throw({error, {options, {Name, Opts}}}).
 
@@ -338,7 +314,7 @@ validate_node_request({Opt, Value}) ->
 
 validate_node_default_option(vrfs, VRFs)
   when ?non_empty_opts(VRFs) ->
-    validate_options(fun validate_node_vrfs/1, VRFs, [], map);
+    validate_options(fun validate_node_vrfs/1, VRFs, []);
 validate_node_default_option(ip_pools, Pools)
   when is_list(Pools) ->
     V = [ergw_ip_pool:validate_name(ip_pools, Name) || Name <- Pools],
@@ -348,10 +324,10 @@ validate_node_default_option(node_selection, Value) ->
     Value;
 validate_node_default_option(heartbeat, Opts)
   when ?is_opts(Opts) ->
-    validate_options(fun validate_node_heartbeat/1, Opts, ?NodeDefaultHeartbeat, map);
+    validate_options(fun validate_node_heartbeat/1, Opts, ?NodeDefaultHeartbeat);
 validate_node_default_option(request, Opts)
   when ?is_opts(Opts) ->
-    validate_options(fun validate_node_request/1, Opts, ?NodeDefaultRequest, map);
+    validate_options(fun validate_node_request/1, Opts, ?NodeDefaultRequest);
 validate_node_default_option(Opt, Values) ->
     throw({error, {options, {Opt, Values}}}).
 
@@ -369,13 +345,13 @@ validate_node_option(Opt, Values) ->
     validate_node_default_option(Opt, Values).
 
 validate_default_node(Opts) when ?is_opts(Opts) ->
-    validate_options(fun validate_node_default_option/2, Opts, ?DefaultsNodesDefaults, map);
+    validate_options(fun validate_node_default_option/2, Opts, ?DefaultsNodesDefaults);
 validate_default_node(Opts) ->
     throw({error, {options, {nodes, default, Opts}}}).
 
 validate_nodes(Name, Opts, Defaults)
   when is_binary(Name), ?is_opts(Opts) ->
-    validate_options(fun validate_node_option/2, Opts, Defaults, map);
+    validate_options(fun validate_node_option/2, Opts, Defaults);
 validate_nodes(Opt, Values, _) ->
     throw({error, {options, {Opt, Values}}}).
 
@@ -390,7 +366,7 @@ validate_apns({APN0, Value}) when ?is_opts(Value) ->
 	if APN0 =:= '_' -> APN0;
 	   true         -> validate_apn_name(APN0)
 	end,
-    Opts = validate_options(fun validate_apn_option/1, Value, ?ApnDefaults, map),
+    Opts = validate_options(fun validate_apn_option/1, Value, ?ApnDefaults),
     mandatory_keys([vrfs], Opts),
     {APN, Opts};
 validate_apns({Opt, Value}) ->
