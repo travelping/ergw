@@ -90,31 +90,39 @@
 
 		 {handlers,
 		  %% proxy handler
-		  [{gn, [{handler, ?HUT},
+		  #{gn =>
+			[{handler, ?HUT},
+			 {protocol, gn},
 			 {sockets, [irx]},
 			 {proxy_sockets, ['proxy-irx']},
 			 {node_selection, [default]}
-			]},
-		   {s5s8, [{handler, ?HUT},
-			   {sockets, [irx]},
-			   {proxy_sockets, ['proxy-irx']},
-			   {node_selection, [default]},
-			   {contexts,
-			    [{<<"ams">>,
-			      [{proxy_sockets, ['proxy-irx']}]}]}
-			  ]},
+			],
+		    s5s8 =>
+			[{handler, ?HUT},
+			 {protocol, s5s8},
+			 {sockets, [irx]},
+			 {proxy_sockets, ['proxy-irx']},
+			 {node_selection, [default]},
+			 {contexts,
+			  [{<<"ams">>,
+			    [{proxy_sockets, ['proxy-irx']}]}]}
+			],
 		   %% remote PGW handler
-		   {gn, [{handler, pgw_s5s8},
+		    'gn-remote' =>
+			[{handler, pgw_s5s8},
+			 {protocol, gn},
 			 {sockets, ['remote-irx', 'remote-irx2']},
 			 {node_selection, [default]},
 			 {aaa, [{'Username',
 				 [{default, ['IMSI', <<"@">>, 'APN']}]}]}
-			]},
-		   {s5s8, [{handler, pgw_s5s8},
-			   {sockets, ['remote-irx', 'remote-irx2']},
-			   {node_selection, [default]}
-			  ]}
-		  ]},
+			],
+		    's5s8-remote' =>
+			[{handler, pgw_s5s8},
+			 {protocol, s5s8},
+			 {sockets, ['remote-irx', 'remote-irx2']},
+			 {node_selection, [default]}
+			]}
+		 },
 
 		 {node_selection,
 		  [{default,
@@ -328,31 +336,39 @@
 
 		 {handlers,
 		  %% proxy handler
-		  [{gn, [{handler, ?HUT},
+		  #{gn =>
+			[{handler, ?HUT},
+			 {protocol, gn},
 			 {sockets, [irx]},
 			 {proxy_sockets, ['irx']},
 			 {node_selection, [default]}
-			]},
-		   {s5s8, [{handler, ?HUT},
-			   {sockets, [irx]},
-			   {proxy_sockets, ['irx']},
-			   {node_selection, [default]},
-			   {contexts,
-			    [{<<"ams">>,
-			      [{proxy_sockets, ['irx']}]}]}
-			  ]},
+			],
+		    s5s8 =>
+			[{handler, ?HUT},
+			 {protocol, s5s8},
+			 {sockets, [irx]},
+			 {proxy_sockets, ['irx']},
+			 {node_selection, [default]},
+			 {contexts,
+			  [{<<"ams">>,
+			    [{proxy_sockets, ['irx']}]}]}
+			],
 		   %% remote PGW handler
-		   {gn, [{handler, pgw_s5s8},
+		    'gn-remote' =>
+			[{handler, pgw_s5s8},
+			 {protocol, gn},
 			 {sockets, ['remote-irx', 'remote-irx2']},
 			 {node_selection, [default]},
 			 {aaa, [{'Username',
 				 [{default, ['IMSI', <<"@">>, 'APN']}]}]}
-			]},
-		   {s5s8, [{handler, pgw_s5s8},
-			   {sockets, ['remote-irx', 'remote-irx2']},
-			   {node_selection, [default]}
-			  ]}
-		  ]},
+			],
+		    's5s8-remote' =>
+			[{handler, pgw_s5s8},
+			 {protocol, s5s8},
+			 {sockets, ['remote-irx', 'remote-irx2']},
+			 {node_selection, [default]}
+			]}
+		 },
 
 		 {node_selection,
 		  [{default,

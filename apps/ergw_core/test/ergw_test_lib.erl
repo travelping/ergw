@@ -109,9 +109,9 @@ lib_end_per_group(Config) ->
     [application:stop(App) || App <- [ranch, cowboy, ergw_core, ergw_aaa]],
     ok.
 
-load_config(AppCfg) ->
+load_config(AppCfg) when is_list(AppCfg) ->
     lists:foreach(
-      fun({App, Settings}) ->
+      fun({App, Settings}) when is_list(Settings) ->
 	      lists:foreach(
 		fun({logger, V})
 		      when App =:= kernel, is_list(V) ->
@@ -133,7 +133,9 @@ load_config(AppCfg) ->
 			ok;
 		   ({K,V}) ->
 			application:set_env(App, K, V)
-		end, Settings)
+		end, Settings);
+	 ({App, Settings}) when is_map(Settings) ->
+	      maps:foreach(fun(K,V) -> application:set_env(App, K, V) end, Settings)
       end, AppCfg),
     ok.
 

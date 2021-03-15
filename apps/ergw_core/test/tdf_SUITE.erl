@@ -74,13 +74,14 @@
 		  ]},
 
 		 {handlers,
-		  [{'h1', [{handler, ?HUT},
-			   {protocol, ip},
-			   {apn, ?'APN-EXAMPLE'},
-			   {nodes, [<<"topon.sx.prox01.$ORIGIN">>]},
-			   {node_selection, [default]}
-			  ]}
-		  ]},
+		  #{'h1' =>
+			[{handler, ?HUT},
+			 {protocol, ip},
+			 {apn, ?'APN-EXAMPLE'},
+			 {nodes, [<<"topon.sx.prox01.$ORIGIN">>]},
+			 {node_selection, [default]}
+			]}
+		 },
 
 		 {node_selection,
 		  [{default,

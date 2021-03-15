@@ -89,22 +89,26 @@
 
 		 {handlers,
 		  %% proxy handler
-		  [{gn, [{handler, ?HUT},
+		  #{gn =>
+			[{handler, ?HUT},
+			 {protocol, gn},
 			 {sockets, [irx]},
 			 {proxy_sockets, ['proxy-irx']},
 			 {node_selection, [default]},
 			 {contexts,
 			  [{<<"ams">>,
 			      [{proxy_sockets, ['proxy-irx']}]}]}
-			]},
-		   %% remote GGSN handler
-		   {gn, [{handler, ggsn_gn},
+			],
+		    %% remote GGSN handler
+		    'gn-remote' =>
+			[{handler, ggsn_gn},
+			 {protocol, gn},
 			 {sockets, ['remote-irx', 'remote-irx2']},
 			 {node_selection, [default]},
 			 {aaa, [{'Username',
 				 [{default, ['IMSI', <<"@">>, 'APN']}]}]}
 			]}
-		  ]},
+		 },
 
 		 {node_selection,
 		  [{default,
@@ -313,22 +317,26 @@
 
 		 {handlers,
 		  %% proxy handler
-		  [{gn, [{handler, ?HUT},
+		  #{gn =>
+			[{handler, ?HUT},
+			 {protocol, gn},
 			 {sockets, [irx]},
 			 {proxy_sockets, ['irx']},
 			 {node_selection, [default]},
 			 {contexts,
 			  [{<<"ams">>,
 			    [{proxy_sockets, ['irx']}]}]}
-			]},
-		   %% remote GGSN handler
-		   {gn, [{handler, ggsn_gn},
+			],
+		    %% remote GGSN handler
+		    'gn-remote' =>
+			[{handler, ggsn_gn},
+			 {protocol, gn},
 			 {sockets, ['remote-irx', 'remote-irx2']},
 			 {node_selection, [default]},
 			 {aaa, [{'Username',
 				 [{default, ['IMSI', <<"@">>, 'APN']}]}]}
 			]}
-		  ]},
+		 },
 
 		 {node_selection,
 		  [{default,

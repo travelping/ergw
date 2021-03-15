@@ -26,6 +26,7 @@ init_per_suite(Config) ->
 	      ]}
     ],
     Cfg = [{plmn_id, {<<"001">>, <<"01">>}},
+	   {node_id, <<"node">>},
 	   {accept_new, true},
 	   {proxy_map, ProxyMap},
 	   {sockets, []},

@@ -77,7 +77,9 @@
 		  ]},
 
 		 {handlers,
-		  [{gn, [{handler, ggsn_gn},
+		  #{gn =>
+			[{handler, ggsn_gn},
+			 {protocol, gn},
 			 {sockets, [irx]},
 			 {node_selection, [default]},
 			 {aaa, [{'Username',
@@ -89,7 +91,7 @@
 					     12345,
 					     <<"@">>, 'APN']}]}]}
 			]}
-		  ]},
+		 },
 
 		 {node_selection,
 		  [{default,

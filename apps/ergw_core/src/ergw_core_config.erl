@@ -30,7 +30,7 @@
 			 {accept_new, true},
 			 {cluster, []},
 			 {sockets, []},
-			 {handlers, []},
+			 {handlers, #{}},
 			 {path_management, []},
 			 {node_selection, [{default, {dns, undefined}}]},
 			 {nodes, []},
@@ -89,7 +89,7 @@ apply(#{sockets := Sockets, nodes := Nodes,
 	handlers := Handlers, ip_pools := IPpools} = Config) ->
     lists:foreach(fun ergw_core:start_socket/1, Sockets),
     maps:map(fun load_sx_node/2, Nodes),
-    lists:foreach(fun load_handler/1, Handlers),
+    maps:foreach(fun load_handler/2, Handlers),
     maps:map(fun ergw_core:start_ip_pool/2, IPpools),
     ergw_http_api:init(maps:get(http_api, Config, undefined)),
     ok.
@@ -116,25 +116,10 @@ to_map(L) when is_list(L) ->
 	      throw({error, {options, Opt}})
       end, #{}, normalize_proplists(L)).
 
-get_opt(Key, List) when is_list(List) ->
-    proplists:get_value(Key, List);
-get_opt(Key, Map) when is_map(Map) ->
-    maps:get(Key, Map).
-
 get_opt(Key, List, Default) when is_list(List) ->
     proplists:get_value(Key, List, Default);
 get_opt(Key, Map, Default) when is_map(Map) ->
     maps:get(Key, Map, Default).
-
-set_opt(Key, Value, List) when is_list(List) ->
-    lists:keystore(Key, 1, List, {Key, Value});
-set_opt(Key, Value, Map) when is_map(Map) ->
-    Map#{Key => Value}.
-
-without_opts(Keys, List) when is_list(List) ->
-    [X || X <- List, not lists:member(element(1, X), Keys)];
-without_opts(Keys, Map) when is_map(Map) ->
-    maps:without(Keys, Map).
 
 take_opt(Key, List, Default) when is_list(List) ->
     case lists:keytake(Key, 1, List) of
@@ -261,9 +246,8 @@ validate_option(cluster, Value) when ?is_opts(Value) ->
     ergw_cluster:validate_options(Value);
 validate_option(sockets, Value) when ?is_opts(Value) ->
     ergw_socket:validate_options(Value);
-validate_option(handlers, Value) when is_list(Value), length(Value) >= 1 ->
-    check_unique_keys(handlers, without_opts(['gn', 's5s8'], Value)),
-    validate_options(fun validate_handlers_option/2, Value);
+validate_option(handlers, Value) when ?non_empty_opts(Value) ->
+    validate_options(fun validate_handlers_option/2, Value, [], map);
 validate_option(node_selection, Value) when ?is_opts(Value) ->
     check_unique_keys(node_selection, Value),
     validate_options(fun validate_node_selection_option/2, Value, [], map);
@@ -324,11 +308,9 @@ validate_mcc_mcn(MCC, MNC)
 validate_mcc_mcn(_, _) ->
     error.
 
-validate_handlers_option(Opt, Values0)
-  when ?is_opts(Values0) ->
-    Protocol = get_opt(protocol, Values0, Opt),
-    Values = set_opt(protocol, Protocol, Values0),
-    Handler = get_opt(handler, Values),
+validate_handlers_option(_Name, Values)
+  when ?is_opts(Values) ->
+    Handler = get_opt(handler, Values, undefined),
     case code:ensure_loaded(Handler) of
 	{module, _} ->
 	    ok;
@@ -336,8 +318,8 @@ validate_handlers_option(Opt, Values0)
 	    throw({error, {options, {handler, Values}}})
     end,
     Handler:validate_options(Values);
-validate_handlers_option(Opt, Values) ->
-    throw({error, {options, {Opt, Values}}}).
+validate_handlers_option(Name, Values) ->
+    throw({error, {options, {Name, Values}}}).
 
 validate_node_selection_option(Key, {Type, Opts})
   when is_atom(Key), is_atom(Type) ->
@@ -520,14 +502,14 @@ validate_ip_cfg_opt(Opt, DNS)
 validate_ip_cfg_opt(Opt, Value) ->
     throw({error, {options, {Opt, Value}}}).
 
-load_handler({_Name, #{protocol := ip, nodes := Nodes} = Opts0}) ->
+load_handler(_Name, #{protocol := ip, nodes := Nodes} = Opts0) ->
     Opts = maps:without([protocol, nodes], Opts0),
     lists:foreach(ergw_core:attach_tdf(_, Opts), Nodes);
 
-load_handler({Name, #{handler  := Handler,
-		      protocol := Protocol,
-		      sockets  := Sockets} = Opts0}) ->
-    Opts = maps:to_list(maps:without([handler, protocol, sockets], Opts0)),
+load_handler(Name, #{handler  := Handler,
+		     protocol := Protocol,
+		     sockets  := Sockets} = Opts0) ->
+    Opts = maps:without([handler, sockets], Opts0),
     lists:foreach(ergw_core:attach_protocol(_, Name, Protocol, Handler, Opts), Sockets).
 
 load_sx_node(default, _) ->

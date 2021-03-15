@@ -139,11 +139,11 @@ request_spec(v1, delete_pdp_context_response, _) ->
 request_spec(v1, _, _) ->
     [].
 
--define(Defaults, []).
+-define(HandlerDefaults, [{protocol, undefined}]).
 
 validate_options(Opts) ->
     ?LOG(debug, "GGSN Gn/Gp Options: ~p", [Opts]),
-    ergw_proxy_lib:validate_options(fun validate_option/2, Opts, ?Defaults).
+    ergw_proxy_lib:validate_options(fun validate_option/2, Opts, ?HandlerDefaults).
 
 validate_option(Opt, Value) ->
     ergw_proxy_lib:validate_option(Opt, Value).
