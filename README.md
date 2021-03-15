@@ -235,11 +235,11 @@ Due to a bug in OTP 22.x, the `netdev` configuration option of *erGW* is broken
 ([see](https://github.com/erlang/otp/pull/2600)). If you need this feature, you
 must use OTP 23.x.
 
-When in doubt check the `otp_release` section in [.travis.yml](.travis.yml) for tested
+When in doubt check the `otp_release` section in [.github/workflows/main.yml](.github/workflows/main.yml) for tested
 versions.
 
 # DOCKER IMAGES
-Docker images are build by travis-ci and pushed to [hub.docker.com](https://hub.docker.com/r/ergw/ergw-c-node/tags),
+Docker images are build by [GitHub Actions](.github/workflows/docker.yaml) and pushed to [hub.docker.com](https://hub.docker.com/r/ergw/ergw-c-node/tags),
 and by gitlab.com and pushed to [quay.io](https://quay.io/repository/travelping/ergw-c-node?tab=tags).
 
 ## BUILDING DOCKER IMAGE
@@ -499,7 +499,7 @@ $ rebar ct
 ```
 
 In order to run the IPv6 a number of locap IPv6 addresses have to be added to the host.
-Check .travis.yml or .gitlab-ci.yml the list.
+Check [.github/workflows/main.yml](.github/workflows/main.yml) or [.gitlab-ci.yml](.gitlab-ci.yml) the list.
 
 The DNS resolver tests can be run with a local DNS server. The docker image use with
 the CI test can also be use for that.
