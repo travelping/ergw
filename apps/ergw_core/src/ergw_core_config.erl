@@ -144,8 +144,6 @@ return_type(Map, map) when is_map(Map) ->
 return_type(Map, list) when is_map(Map) ->
     maps:to_list(Map).
 
-check_unique_keys(_Key, Map) when is_map(Map) ->
-    ok;
 check_unique_keys(Key, List) when is_list(List) ->
     UList = lists:ukeysort(1, List),
     if length(UList) == length(List) ->
@@ -249,26 +247,21 @@ validate_option(sockets, Value) when ?is_opts(Value) ->
 validate_option(handlers, Value) when ?non_empty_opts(Value) ->
     validate_options(fun validate_handlers_option/2, Value, [], map);
 validate_option(node_selection, Value) when ?is_opts(Value) ->
-    check_unique_keys(node_selection, Value),
     validate_options(fun validate_node_selection_option/2, Value, [], map);
 validate_option(nodes, Value) when ?non_empty_opts(Value) ->
-    check_unique_keys(nodes, Value),
     {Defaults0, Value1} = take_opt(default, Value, []),
     Defaults = validate_default_node(Defaults0),
     NodeDefaults = Defaults#{connect => false},
     Opts = validate_options(validate_nodes(_, _, NodeDefaults), Value1, [], map),
     Opts#{default => Defaults};
 validate_option(ip_pools, Value) when ?is_opts(Value) ->
-    check_unique_keys(ip_pools, Value),
     validate_options(fun validate_ip_pools/1, Value, [], map);
 validate_option(apns, Value) when ?is_opts(Value) ->
-    check_unique_keys(apns, Value),
     validate_options(fun validate_apns/1, Value, [], map);
 validate_option(http_api, Value) when ?is_opts(Value) ->
     ergw_http_api:validate_options(Value);
 validate_option(charging, Opts)
   when ?non_empty_opts(Opts) ->
-    check_unique_keys(charging, Opts),
     validate_options(fun ergw_charging:validate_options/1, Opts, [], map);
 validate_option(proxy_map, Opts) ->
     gtp_proxy_ds:validate_options(Opts);
@@ -369,7 +362,6 @@ validate_node_request({Opt, Value}) ->
 
 validate_node_default_option(vrfs, VRFs)
   when ?non_empty_opts(VRFs) ->
-    check_unique_keys(vrfs, VRFs),
     validate_options(fun validate_node_vrfs/1, VRFs, [], map);
 validate_node_default_option(ip_pools, Pools)
   when is_list(Pools) ->
