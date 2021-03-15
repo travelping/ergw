@@ -7,12 +7,14 @@
 
 -module(ergw_core).
 
+-compile({parse_transform, cut}).
+
 -behavior(gen_statem).
 
 %% API
 -export([start_link/1]).
--export([start_socket/2, start_ip_pool/2,
-	 connect_sx_node/2,
+-export([add_socket/2, add_handler/2, add_ip_pool/2,
+	 add_sx_node/2, connect_sx_node/2,
 	 attach_tdf/2, attach_protocol/5]).
 -export([handler/2]).
 -export([get_plmn_id/0, get_node_id/0, get_accept_new/0]).
@@ -87,14 +89,32 @@ system_info(Key, Value) ->
 %%
 %% Initialize a new PFCP, GTPv1/v2-c or GTPv1-u socket
 %%
-start_socket(Name, #{type := Type} = Opts) ->
+add_socket(Name, #{type := Type} = Opts) ->
     ergw_socket_sup:new(Type, Name, Opts).
+
+%%
+%% add a protocol handler
+%%
+add_handler(_Name, #{protocol := ip, nodes := Nodes} = Opts0) ->
+    Opts = maps:without([protocol, nodes], Opts0),
+    lists:foreach(ergw_core:attach_tdf(_, Opts), Nodes);
+
+add_handler(Name, #{handler  := Handler,
+		    protocol := Protocol,
+		    sockets  := Sockets} = Opts0) ->
+    Opts = maps:without([handler, sockets], Opts0),
+    lists:foreach(ergw_core:attach_protocol(_, Name, Protocol, Handler, Opts), Sockets).
 
 %%
 %% start IP_POOL instance
 %%
-start_ip_pool(Name, Options) ->
+add_ip_pool(Name, Options) ->
     ergw_ip_pool:start_ip_pool(Name, Options).
+
+add_sx_node(default, _) ->
+    ok;
+add_sx_node(Name, Opts) ->
+    connect_sx_node(Name, Opts).
 
 %%
 %% start a TDF instance

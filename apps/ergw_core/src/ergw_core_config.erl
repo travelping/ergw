@@ -72,10 +72,10 @@ load_env_config(_, _) ->
 
 apply(#{sockets := Sockets, nodes := Nodes,
 	handlers := Handlers, ip_pools := IPpools} = Config) ->
-    maps:map(fun ergw_core:start_socket/2, Sockets),
-    maps:map(fun load_sx_node/2, Nodes),
-    maps:foreach(fun load_handler/2, Handlers),
-    maps:map(fun ergw_core:start_ip_pool/2, IPpools),
+    maps:map(fun ergw_core:add_socket/2, Sockets),
+    maps:map(fun ergw_core:add_sx_node/2, Nodes),
+    maps:foreach(fun ergw_core:add_handler/2, Handlers),
+    maps:map(fun ergw_core:add_ip_pool/2, IPpools),
     ergw_http_api:init(maps:get(http_api, Config, undefined)),
     ok.
 
@@ -248,18 +248,3 @@ validate_ip_cfg_opt(Opt, DNS)
     [validate_ip6(Opt, IP) || IP <- DNS];
 validate_ip_cfg_opt(Opt, Value) ->
     throw({error, {options, {Opt, Value}}}).
-
-load_handler(_Name, #{protocol := ip, nodes := Nodes} = Opts0) ->
-    Opts = maps:without([protocol, nodes], Opts0),
-    lists:foreach(ergw_core:attach_tdf(_, Opts), Nodes);
-
-load_handler(Name, #{handler  := Handler,
-		     protocol := Protocol,
-		     sockets  := Sockets} = Opts0) ->
-    Opts = maps:without([handler, sockets], Opts0),
-    lists:foreach(ergw_core:attach_protocol(_, Name, Protocol, Handler, Opts), Sockets).
-
-load_sx_node(default, _) ->
-    ok;
-load_sx_node(Name, Opts) ->
-    ergw_core:connect_sx_node(Name, Opts).
