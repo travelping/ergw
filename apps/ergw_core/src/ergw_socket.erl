@@ -7,7 +7,7 @@
 
 -module(ergw_socket).
 
--export([start_link/3, validate_options/2]).
+-export([start_link/3, validate_options/2, add_socket/2]).
 
 -ignore_xref([start_link/3]).
 
@@ -21,6 +21,12 @@ start_link('gtp-u', Name, Opts) ->
     ergw_gtp_u_socket:start_link(Name, Opts);
 start_link('pfcp', Name, Opts) ->
     ergw_sx_socket:start_link(Name, Opts).
+
+%%
+%% Initialize a new PFCP, GTPv1/v2-c or GTPv1-u socket
+%%
+add_socket(Name, #{type := Type} = Opts) ->
+    ergw_socket_sup:new(Type, Name, Opts).
 
 %%%===================================================================
 %%% Options Validation
