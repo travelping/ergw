@@ -16,8 +16,7 @@
 	 validate_apn_name/1,
 	 check_unique_keys/2,
 	 validate_ip_cfg_opt/2,
-	 opts_fold/3,
-	 get_opt/3
+	 to_map/1
 	]).
 
 -ifdef(TEST).
@@ -94,16 +93,6 @@ apply(#{sockets := Sockets, nodes := Nodes,
     ergw_http_api:init(maps:get(http_api, Config, undefined)),
     ok.
 
-opts_fold(Fun, AccIn, Opts) when is_list(Opts) ->
-    lists:foldl(fun({K,V}, Acc) -> Fun(K, V, Acc) end, AccIn, Opts);
-opts_fold(Fun, AccIn, Opts) when is_map(Opts) ->
-    maps:fold(Fun, AccIn, Opts).
-
-%% opts_map(Fun, Opts) when is_list(Opts) ->
-%%     lists:map(fun({K,V}) -> {K, Fun(K, V)} end, Opts);
-%% opts_map(Fun, Opts) when is_map(Opts) ->
-%%     maps:map(Fun, Opts).
-
 to_map(M) when is_map(M) ->
     M;
 to_map(L) when is_list(L) ->
@@ -115,21 +104,6 @@ to_map(L) when is_list(L) ->
 	 (Opt, _) ->
 	      throw({error, {options, Opt}})
       end, #{}, normalize_proplists(L)).
-
-get_opt(Key, List, Default) when is_list(List) ->
-    proplists:get_value(Key, List, Default);
-get_opt(Key, Map, Default) when is_map(Map) ->
-    maps:get(Key, Map, Default).
-
-take_opt(Key, List, Default) when is_list(List) ->
-    case lists:keytake(Key, 1, List) of
-	{value, {_, Value}, List2} ->
-	    {Value, List2};
-	false ->
-	    {Default, List}
-    end;
-take_opt(Key, Map, Default) when is_map(Map) ->
-    {maps:get(Key, Map, Default), maps:remove(Key, Map)}.
 
 %%%===================================================================
 %%% Options Validation
@@ -248,11 +222,12 @@ validate_option(handlers, Value) when ?non_empty_opts(Value) ->
     validate_options(fun validate_handlers_option/2, Value, [], map);
 validate_option(node_selection, Value) when ?is_opts(Value) ->
     validate_options(fun validate_node_selection_option/2, Value, [], map);
-validate_option(nodes, Value) when ?non_empty_opts(Value) ->
-    {Defaults0, Value1} = take_opt(default, Value, []),
-    Defaults = validate_default_node(Defaults0),
+validate_option(nodes, Value0) when ?non_empty_opts(Value0) ->
+    Value = to_map(Value0),
+    Defaults = validate_default_node(maps:get(default, Value, [])),
     NodeDefaults = Defaults#{connect => false},
-    Opts = validate_options(validate_nodes(_, _, NodeDefaults), Value1, [], map),
+    Opts = validate_options(validate_nodes(_, _, NodeDefaults),
+			    maps:remove(default, Value), [], map),
     Opts#{default => Defaults};
 validate_option(ip_pools, Value) when ?is_opts(Value) ->
     validate_options(fun validate_ip_pools/1, Value, [], map);
@@ -301,9 +276,8 @@ validate_mcc_mcn(MCC, MNC)
 validate_mcc_mcn(_, _) ->
     error.
 
-validate_handlers_option(_Name, Values)
-  when ?is_opts(Values) ->
-    Handler = get_opt(handler, Values, undefined),
+validate_handlers_option(_Name, #{handler := Handler} = Values)
+  when is_atom(Handler) ->
     case code:ensure_loaded(Handler) of
 	{module, _} ->
 	    ok;
@@ -311,6 +285,8 @@ validate_handlers_option(_Name, Values)
 	    throw({error, {options, {handler, Values}}})
     end,
     Handler:validate_options(Values);
+validate_handlers_option(Name, Values) when is_list(Values) ->
+    validate_handlers_option(Name, to_map(Values));
 validate_handlers_option(Name, Values) ->
     throw({error, {options, {Name, Values}}}).
 
@@ -405,7 +381,7 @@ validate_nodes(Opt, Values, _) ->
 
 validate_ip_pools({Name, Values})
   when ?is_opts(Values) ->
-    {ergw_ip_pool:validate_name(ip_pools, Name), ergw_ip_pool:validate_options(Values)};
+    {ergw_ip_pool:validate_name(ip_pools, Name), ergw_ip_pool:validate_options(to_map(Values))};
 validate_ip_pools({Opt, Value}) ->
     throw({error, {options, {Opt, Value}}}).
 
