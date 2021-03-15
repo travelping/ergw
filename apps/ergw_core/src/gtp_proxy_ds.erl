@@ -72,10 +72,8 @@ validate_apn(From, To) ->
     throw({error, {options, {From, To}}}).
 
 validate_option(imsi, Opts) when ?non_empty_opts(Opts) ->
-    ergw_core_config:check_unique_keys(imsi, Opts),
     ergw_core_config:validate_options(fun validate_imsi/2, Opts, [], map);
 validate_option(apn, Opts) when ?non_empty_opts(Opts) ->
-    ergw_core_config:check_unique_keys(apn, Opts),
     ergw_core_config:validate_options(fun validate_apn/2, Opts, [], map);
 validate_option(Opt, Value) ->
     throw({error, {options, {Opt, Value}}}).
