@@ -7,39 +7,39 @@
 
 -module(ergw_socket).
 
--export([start_link/2, validate_options/1]).
+-export([start_link/3, validate_options/1]).
 
--ignore_xref([start_link/2]).
+-ignore_xref([start_link/3]).
 
 %%====================================================================
 %% API
 %%====================================================================
 
-start_link('gtp-c', Opts) ->
-    ergw_gtp_c_socket:start_link(Opts);
-start_link('gtp-u', Opts) ->
-    ergw_gtp_u_socket:start_link(Opts);
-start_link('pfcp', Opts) ->
-    ergw_sx_socket:start_link(Opts).
+start_link('gtp-c', Name, Opts) ->
+    ergw_gtp_c_socket:start_link(Name, Opts);
+start_link('gtp-u', Name, Opts) ->
+    ergw_gtp_u_socket:start_link(Name, Opts);
+start_link('pfcp', Name, Opts) ->
+    ergw_sx_socket:start_link(Name, Opts).
 
 %%%===================================================================
 %%% Options Validation
 %%%===================================================================
 
--define(is_opts(X), (is_list(X) orelse is_map(X))).
+-define(non_empty_opts(X), ((is_list(X) andalso length(X) /= 0) orelse
+			    (is_map(X) andalso map_size(X) /= 0))).
 
-validate_options(Values) when is_list(Values), length(Values) >= 1 ->
-    ergw_core_config:check_unique_keys(sockets, Values),
-    ergw_core_config:validate_options(fun validate_option/2, Values, [], list);
+validate_options(Values) when ?non_empty_opts(Values) ->
+    ergw_core_config:validate_options(fun validate_option/2, Values, [], map);
 validate_options(Values) ->
     throw({error, {options, {sockets, Values}}}).
 
-validate_option(Name, #{type := Type} = Values)
+validate_option(_Name, #{type := Type} = Values)
   when Type =:= 'gtp-c';
        Type =:= 'gtp-u' ->
-    ergw_gtp_socket:validate_options(Name, Values);
-validate_option(Name, #{type := pfcp} = Values) ->
-    ergw_sx_socket:validate_options(Name, Values);
+    ergw_gtp_socket:validate_options(Values);
+validate_option(_Name, #{type := pfcp} = Values) ->
+    ergw_sx_socket:validate_options(Values);
 validate_option(Name, Values) when is_list(Values) ->
     validate_option(Name, ergw_core_config:to_map(Values));
 validate_option(Opt, Values) ->

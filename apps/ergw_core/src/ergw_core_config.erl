@@ -86,7 +86,7 @@ load_env_config(_, _) ->
 
 apply(#{sockets := Sockets, nodes := Nodes,
 	handlers := Handlers, ip_pools := IPpools} = Config) ->
-    lists:foreach(fun ergw_core:start_socket/1, Sockets),
+    maps:map(fun ergw_core:start_socket/2, Sockets),
     maps:map(fun load_sx_node/2, Nodes),
     maps:foreach(fun load_handler/2, Handlers),
     maps:map(fun ergw_core:start_ip_pool/2, IPpools),

@@ -13,7 +13,7 @@
 -compile({parse_transform, cut}).
 
 %% API
--export([start_link/1,
+-export([start_link/2,
 	 info/1, send/5, send_response/3,
 	 send_request/7, send_request/8, resend_request/2]).
 -export([get_seq_no/2, get_uniq_id/1]).
@@ -80,10 +80,10 @@
 %% API
 %%====================================================================
 
-start_link(SocketOpts) ->
+start_link(Name, SocketOpts) ->
     Opts = [{hibernate_after, 5000},
 	    {spawn_opt,[{fullsweep_after, 16}]}],
-    gen_server:start_link(?MODULE, SocketOpts, Opts).
+    gen_server:start_link(?MODULE, {Name, SocketOpts}, Opts).
 
 info(Socket) ->
     call(Socket, info).
@@ -139,8 +139,7 @@ call(#socket{pid = Handler}, Request) ->
 %%% gen_server callbacks
 %%%===================================================================
 
-init(#{name := Name, ip := IP, burst_size := BurstSize,
-       send_port := SendPort} = SocketOpts) ->
+init({Name, #{ip := IP, burst_size := BurstSize, send_port := SendPort} = SocketOpts}) ->
     process_flag(trap_exit, true),
 
     {ok, RecvSocket} = ergw_gtp_socket:make_gtp_socket(IP, ?GTP1c_PORT, SocketOpts),

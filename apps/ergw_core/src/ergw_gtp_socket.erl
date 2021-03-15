@@ -10,7 +10,7 @@
 -compile({parse_transform, cut}).
 
 %% API
--export([validate_options/2, info/1, send/5]).
+-export([validate_options/1, info/1, send/5]).
 -export([make_seq_id/1, make_request/7]).
 -export([make_gtp_socket/3]).
 
@@ -49,12 +49,9 @@ send(Socket, Src, IP, Port, Data) ->
 
 -define(SocketDefaults, [{ip, invalid}, {burst_size, 10}, {send_port, true}]).
 
-validate_options(Name, Values) ->
-    ergw_core_config:validate_options(fun validate_option/2, Values,
-				 [{name, Name}|?SocketDefaults], map).
+validate_options(Values) ->
+    ergw_core_config:validate_options(fun validate_option/2, Values, ?SocketDefaults, map).
 
-validate_option(name, Value) when is_atom(Value) ->
-    Value;
 validate_option(type, 'gtp-c' = Value) ->
     Value;
 validate_option(type, 'gtp-u' = Value) ->

@@ -29,7 +29,7 @@ init_per_suite(Config) ->
 	   {node_id, <<"node">>},
 	   {accept_new, true},
 	   {proxy_map, ProxyMap},
-	   {sockets, []},
+	   {sockets, #{}},
 	   {handlers, #{}},
 	   {ip_pools, #{}},
 	   {nodes, #{}}

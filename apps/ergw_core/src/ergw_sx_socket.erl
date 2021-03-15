@@ -12,7 +12,7 @@
 -compile({parse_transform, cut}).
 
 %% API
--export([validate_options/2, start_link/1]).
+-export([validate_options/1, start_link/2]).
 -export([call/5, send_response/3, id/0, seid/0]).
 
 %% gen_server callbacks
@@ -77,8 +77,8 @@
 %% API
 %%====================================================================
 
-start_link(Opts) ->
-    proc_lib:start_link(?MODULE, init, [Opts]).
+start_link(Name, Opts) ->
+    proc_lib:start_link(?MODULE, init, [{Name, Opts}]).
 
 call(Peer, T1, N1, Msg, {_,_,_} = CbInfo) ->
     Req = make_send_req(Peer, T1, N1, Msg, CbInfo),
@@ -104,16 +104,13 @@ seid() ->
 			 {ip, invalid},
 			 {burst_size, 10}]).
 
-validate_options(Name, Values) ->
-     ergw_core_config:validate_options(fun validate_option/2, Values,
-				  [{name, Name}|?SocketDefaults], map).
+validate_options(Values) ->
+     ergw_core_config:validate_options(fun validate_option/2, Values, ?SocketDefaults, map).
 
 validate_option(type, pfcp = Value) ->
     Value;
 validate_option(node, Value) ->
     ?LOG(warning, "depreciated config key 'node' in Sx socket configuration"),
-    Value;
-validate_option(name, Value) when is_atom(Value) ->
     Value;
 validate_option(ip, Value)
   when is_tuple(Value) andalso
@@ -147,7 +144,7 @@ validate_option(Opt, Value) ->
 %%% gen_server callbacks
 %%%===================================================================
 
-init(#{name := Name, ip := IP, socket := GtpSocketName, burst_size := BurstSize} = Opts) ->
+init({Name, #{ip := IP, socket := GtpSocketName, burst_size := BurstSize} = Opts}) ->
     process_flag(trap_exit, true),
 
     SocketOpts = maps:with(?SOCKET_OPTS, Opts),
