@@ -18,7 +18,7 @@
 	?match({error,{options, _}}, (catch ergw_core_config:validate_config(Config)))).
 
 -define(ok_option(Config),
-	?match([_|_], (catch ergw_core_config:validate_config(Config)))).
+	?match(#{}, (catch ergw_core_config:validate_config(Config)))).
 
 -define(GGSN_CONFIG,
 	[{node_id, <<"GGSN">>},
@@ -574,13 +574,14 @@ config(_Config)  ->
     %% pass-through of unexpected options
     ?ok_option(set_cfg_value([invalid], [], ?GGSN_CONFIG)),
 
+    ct:pal("Cfg: ~p", [set_cfg_value([accept_new], invalid, ?GGSN_CONFIG)]),
     ?error_option(set_cfg_value([accept_new], invalid, ?GGSN_CONFIG)),
     Accept0 = (catch ergw_core_config:validate_config(?GGSN_CONFIG)),
-    ?equal(true, proplists:get_value(accept_new, Accept0)),
+    ?equal(true, maps:get(accept_new, Accept0)),
     Accept1 = (catch ergw_core_config:validate_config(set_cfg_value([accept_new], true, ?GGSN_CONFIG))),
-    ?equal(true, proplists:get_value(accept_new, Accept1)),
+    ?equal(true, maps:get(accept_new, Accept1)),
     Accept2 = (catch ergw_core_config:validate_config(set_cfg_value([accept_new], false, ?GGSN_CONFIG))),
-    ?equal(false, proplists:get_value(accept_new, Accept2)),
+    ?equal(false, maps:get(accept_new, Accept2)),
 
     ?ok_option(set_cfg_value([http_api, port], 1234, ?GGSN_CONFIG)),
     ?ok_option(set_cfg_value([http_api, num_acceptors], 5, ?GGSN_CONFIG)),
@@ -637,7 +638,7 @@ config(_Config)  ->
 	     ip        := _,
 	     freebind  := true,
 	     reuseaddr := true},
-	   proplists:get_value('irx-2', proplists:get_value(sockets, SockCfg))),
+	   proplists:get_value('irx-2', maps:get(sockets, SockCfg))),
 
     ?error_option(set_cfg_value([sockets, sx, ip], invalid, ?GGSN_CONFIG)),
     ?error_option(set_cfg_value([sockets, sx, ip], {1,1,1,1,1}, ?GGSN_CONFIG)),
@@ -786,7 +787,7 @@ config(_Config)  ->
     ?match({error, {apn, _}},
 	   (catch ergw_core_config:validate_config(
 		    add_cfg_value([apns, [<<"_">>]], [{vrf, example}], ?GGSN_CONFIG)))),
-    APN0 = proplists:get_value(apns, (catch ergw_core_config:validate_config(?GGSN_CONFIG))),
+    APN0 = maps:get(apns, (catch ergw_core_config:validate_config(?GGSN_CONFIG))),
     %% check that APN's are lower cased after validation
     ?match(VRF when is_map(VRF), maps:get([<<"apn1">>], APN0)),
 

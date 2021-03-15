@@ -66,12 +66,10 @@
 
 load() ->
     Config = validate_config(setup:get_all_env(ergw_core)),
-    load_env_config(Config),
+    maps:foreach(fun load_env_config/2, Config),
     {ok, Config}.
 
-load_env_config([]) ->
-    ok;
-load_env_config([{Key, Value} | T])
+load_env_config(Key, Value)
   when Key =:= cluster;
        Key =:= path_management;
        Key =:= node_selection;
@@ -83,17 +81,17 @@ load_env_config([{Key, Value} | T])
        Key =:= teid;
        Key =:= node_id;
        Key =:= metrics ->
-    ok = application:set_env(ergw_core, Key, Value),
-    load_env_config(T);
-load_env_config([_ | T]) ->
-    load_env_config(T).
+    ok = application:set_env(ergw_core, Key, Value);
+load_env_config(_, _) ->
+    ok.
 
-apply(Config) ->
-    lists:foreach(fun ergw_core:start_socket/1, proplists:get_value(sockets, Config)),
-    maps:map(fun load_sx_node/2, proplists:get_value(nodes, Config)),
-    lists:foreach(fun load_handler/1, proplists:get_value(handlers, Config)),
-    maps:map(fun ergw_core:start_ip_pool/2, proplists:get_value(ip_pools, Config)),
-    ergw_http_api:init(proplists:get_value(http_api, Config)),
+apply(#{sockets := Sockets, nodes := Nodes,
+	handlers := Handlers, ip_pools := IPpools} = Config) ->
+    lists:foreach(fun ergw_core:start_socket/1, Sockets),
+    maps:map(fun load_sx_node/2, Nodes),
+    lists:foreach(fun load_handler/1, Handlers),
+    maps:map(fun ergw_core:start_ip_pool/2, IPpools),
+    ergw_http_api:init(maps:get(http_api, Config, undefined)),
     ok.
 
 opts_fold(Fun, AccIn, Opts) when is_list(Opts) ->
@@ -106,10 +104,17 @@ opts_fold(Fun, AccIn, Opts) when is_map(Opts) ->
 %% opts_map(Fun, Opts) when is_map(Opts) ->
 %%     maps:map(Fun, Opts).
 
-to_map(List) when is_list(List) ->
-    maps:from_list(List);
-to_map(Map) when is_map(Map) ->
-    Map.
+to_map(M) when is_map(M) ->
+    M;
+to_map(L) when is_list(L) ->
+    lists:foldr(
+      fun({K, V}, M) when not is_map_key(K, M) ->
+	      M#{K => V};
+	 (K, M) when is_atom(K) ->
+	      M#{K => true};
+	 (Opt, _) ->
+	      throw({error, {options, Opt}})
+      end, #{}, normalize_proplists(L)).
 
 get_opt(Key, List) when is_list(List) ->
     proplists:get_value(Key, List);
@@ -188,13 +193,13 @@ mandatory_keys(Keys, Map) when is_map(Map) ->
       end, Keys).
 
 -ifdef (SIMULATOR).
-validate_config(Config) ->
-    catch (validate_options(fun validate_option/2, Config, ?DefaultOptions, list)),
+validate_config(Config) when ?is_opts(Config) ->
+    catch (validate_options(fun validate_option/2, Config, ?DefaultOptions, map)),
     Config.
 -else.
 
-validate_config(Config) ->
-    validate_options(fun validate_option/2, Config, ?DefaultOptions, list).
+validate_config(Config) when ?is_opts(Config) ->
+    validate_options(fun validate_option/2, Config, ?DefaultOptions, map).
 
 -endif.
 
@@ -203,6 +208,12 @@ validate_option(Fun, Opt, Value) when is_function(Fun, 2) ->
 validate_option(Fun, Opt, Value) when is_function(Fun, 1) ->
     Fun({Opt, Value}).
 
+validate_options(Fun, M) when is_map(M) ->
+    maps:fold(
+      fun(K0, V0, A) ->
+	      {K, V} = validate_option(Fun, K0, V0),
+	      A#{K => V}
+      end, #{}, M);
 validate_options(_Fun, []) ->
     [];
 %% validate_options(Fun, [Opt | Tail]) when is_atom(Opt) ->
@@ -215,21 +226,25 @@ normalize_proplists(L0) ->
     proplists:substitute_negations([{disable, enable}], L).
 
 %% validate_options/4
-validate_options(Fun, Options, Defaults, ReturnType)
+validate_options(Fun, Options, Defaults, map)
+  when ?is_opts(Options), ?is_opts(Defaults) ->
+    Opts = maps:merge(to_map(Defaults), to_map(Options)),
+    validate_options(Fun, Opts);
+validate_options(Fun, Options, Defaults, list)
   when is_list(Options), is_list(Defaults) ->
     Opts0 = normalize_proplists(Options),
     Opts = lists:ukeymerge(1, lists:keysort(1, Opts0), lists:keysort(1, Defaults)),
-    return_type(validate_options(Fun, Opts), ReturnType);
-validate_options(Fun, Options, Defaults, ReturnType)
+    return_type(validate_options(Fun, Opts), list);
+validate_options(Fun, Options, Defaults, list)
   when is_list(Options), is_map(Defaults) ->
     Opts0 = normalize_proplists(Options),
     Opts = lists:ukeymerge(1, lists:keysort(1, Opts0),
 			   lists:keysort(1, maps:to_list(Defaults))),
-    return_type(validate_options(Fun, Opts), ReturnType);
-validate_options(Fun, Options, Defaults, ReturnType)
+    return_type(validate_options(Fun, Opts), list);
+validate_options(Fun, Options, Defaults, list)
   when is_map(Options) andalso ?is_opts(Defaults) ->
     Opts = maps:to_list(maps:merge(to_map(Defaults), Options)),
-    return_type(validate_options(Fun, Opts), ReturnType).
+    return_type(validate_options(Fun, Opts), list).
 
 validate_option(plmn_id, {MCC, MNC} = Value) ->
     case validate_mcc_mcn(MCC, MNC) of

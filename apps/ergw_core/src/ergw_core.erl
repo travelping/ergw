@@ -275,13 +275,8 @@ startup() ->
     end,
     exit(ergw_cluster:start()).
 
-load_config([]) ->
-    ok;
-load_config([{plmn_id, {MCC, MNC}} | T]) ->
+
+load_config(#{plmn_id := {MCC, MNC}, accept_new := Value}) ->
     true = ets:insert(?SERVER, {config, plmn_id, MCC, MNC}),
-    load_config(T);
-load_config([{accept_new, Value} | T]) ->
     true = ets:insert(?SERVER, {config, accept_new, Value}),
-    load_config(T);
-load_config([_ | T]) ->
-    load_config(T).
+    ok.
