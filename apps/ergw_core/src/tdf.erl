@@ -97,7 +97,7 @@ validate_option(nodes, [S|_] = Value)
     Value;
 validate_option(apn, APN)
   when is_list(APN) ->
-    ergw_core_config:validate_apn_name(APN);
+    ergw_apn:validate_apn_name(APN);
 validate_option(Opt, Value) ->
     throw({error, {options, {Opt, Value}}}).
 

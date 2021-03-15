@@ -9,6 +9,7 @@
 
 %% API
 -export([sx_report/1, port_message/2, port_message/3, port_message/4]).
+-export([validate_options/2]).
 
 -if(?OTP_RELEASE =< 23).
 -ignore_xref([behaviour_info/1]).
@@ -60,6 +61,26 @@ port_message(Id, #request{socket = Socket} = Request, Msg) ->
 %% port_message/4
 port_message(Key, Request, Msg, Resent) ->
     apply2context(Key, port_message, [Request, Msg, Resent]).
+
+%%%===================================================================
+%%% Options Validation
+%%%===================================================================
+
+-define(is_opts(X), (is_list(X) orelse is_map(X))).
+
+validate_options(_Name, #{handler := Handler} = Values)
+  when is_atom(Handler) ->
+    case code:ensure_loaded(Handler) of
+	{module, _} ->
+	    ok;
+	_ ->
+	    throw({error, {options, {handler, Values}}})
+    end,
+    Handler:validate_options(Values);
+validate_options(Name, Values) when is_list(Values) ->
+    validate_options(Name, ergw_core_config:to_map(Values));
+validate_options(Name, Values) ->
+    throw({error, {options, {Name, Values}}}).
 
 %%%=========================================================================
 %%%  internal functions

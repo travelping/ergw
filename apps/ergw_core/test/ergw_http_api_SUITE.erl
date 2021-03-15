@@ -57,7 +57,7 @@
 		  ]},
 
 		 {ip_pools,
-		  [{'pool-A', [{ranges,  [{?IPv4PoolStart, ?IPv4PoolEnd, 32},
+		  [{<<"pool-A">>, [{ranges,  [{?IPv4PoolStart, ?IPv4PoolEnd, 32},
 					  {?IPv6PoolStart, ?IPv6PoolEnd, 64}]},
 			       {'MS-Primary-DNS-Server', {8,8,8,8}},
 			       {'MS-Secondary-DNS-Server', {8,8,4,4}},
@@ -89,7 +89,7 @@
 		 {apns,
 		  [{?'APN-EXAMPLE',
 		    [{vrf, sgi},
-		     {ip_pools, ['pool-A']}]}
+		     {ip_pools, [<<"pool-A">>]}]}
 		  ]},
 
 		 {proxy_map,
@@ -184,7 +184,7 @@
 		       {irx, [{features, ['Access']}]},
 		       {sgi, [{features, ['SGi-LAN']}]}
 		      ]},
-		     {ip_pools, ['pool-A']}]
+		     {ip_pools, [<<"pool-A">>]}]
 		   }]
 		 },
 

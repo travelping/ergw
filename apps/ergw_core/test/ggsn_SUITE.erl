@@ -63,7 +63,7 @@
 		  ]},
 
 		 {ip_pools,
-		  [{'pool-A', [{ranges,  [{?IPv4PoolStart, ?IPv4PoolEnd, 32},
+		  [{<<"pool-A">>, [{ranges,  [{?IPv4PoolStart, ?IPv4PoolEnd, 32},
 					  {?IPv6PoolStart, ?IPv6PoolEnd, 64},
 					  {?IPv6HostPoolStart, ?IPv6HostPoolEnd, 128}]},
 			       {'MS-Primary-DNS-Server', {8,8,8,8}},
@@ -124,35 +124,35 @@
 		 {apns,
 		  [{?'APN-EXAMPLE',
 		    [{vrf, sgi},
-		     {ip_pools, ['pool-A']},
+		     {ip_pools, [<<"pool-A">>]},
 		     {'Idle-Timeout', 21600000}]}, % Idle timeout 6 hours
 		   {[<<"exa">>, <<"mple">>, <<"net">>],
 		    [{vrf, sgi},
-		     {ip_pools, ['pool-A']}]},
+		     {ip_pools, [<<"pool-A">>]}]},
 		   {[<<"APN1">>],
 		    [{vrf, sgi},
-		     {ip_pools, ['pool-A']},
+		     {ip_pools, [<<"pool-A">>]},
 		     {'Idle-Timeout', 28800000}]}, % Idle timeout 8 hours
 		   {[<<"v6only">>],
 		    [{vrf, sgi},
-		     {ip_pools, ['pool-A']},
+		     {ip_pools, [<<"pool-A">>]},
 		     {bearer_type, 'IPv6'},
 		     {'Idle-Timeout', infinity}]},
 		   {[<<"v4only">>],
 		    [{vrf, sgi},
-		     {ip_pools, ['pool-A']},
+		     {ip_pools, [<<"pool-A">>]},
 		     {bearer_type, 'IPv4'}]},
 		   {[<<"prefV6">>],
 		    [{vrf, sgi},
-		     {ip_pools, ['pool-A']},
+		     {ip_pools, [<<"pool-A">>]},
 		     {prefered_bearer_type, 'IPv6'}]},
 		   {[<<"prefV4">>],
 		    [{vrf, sgi},
-		     {ip_pools, ['pool-A']},
+		     {ip_pools, [<<"pool-A">>]},
 		     {prefered_bearer_type, 'IPv4'}]},
 		   {[<<"async-sx">>],
 		    [{vrf, sgi},
-		     {ip_pools, ['pool-A']}]}
+		     {ip_pools, [<<"pool-A">>]}]}
 		  ]},
 
 		 {charging,
@@ -213,7 +213,7 @@
 		       {irx, [{features, ['Access']}]},
 		       {sgi, [{features, ['SGi-LAN']}]}
 		      ]},
-		     {ip_pools, ['pool-A']}]
+		     {ip_pools, [<<"pool-A">>]}]
 		   },
 		   {<<"topon.sx.prox01.$ORIGIN">>, [connect]}
 		  ]

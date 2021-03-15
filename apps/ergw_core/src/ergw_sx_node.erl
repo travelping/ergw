@@ -17,6 +17,7 @@
 	 attach/1, attach_tdf/2, notify_up/2]).
 -export([start_link/5, send/4, call/2,
 	 handle_request/3, response/3]).
+-export([validate_options/1]).
 -ifdef(TEST).
 -export([test_cmd/2]).
 -endif.
@@ -143,6 +144,115 @@ handle_request_fun(ReqKey, #pfcp{type = session_report_request} = Report) ->
     Response = make_response(session_report_response, Ctx, Report, IEs),
     ergw_sx_socket:send_response(ReqKey, Response, true),
     ok.
+
+%%%===================================================================
+%%% Options Validation
+%%%===================================================================
+
+-define(VrfDefaults, [{features, invalid}]).
+-define(DefaultsNodesDefaults, [{vrfs, invalid},
+    {node_selection, default},
+    {heartbeat, []},
+    {request, []}]).
+
+-define(NodeDefaultHeartbeat, [{interval, 5000}, {timeout, 500}, {retry, 5}]).
+-define(NodeDefaultRequest, [{timeout, 30000}, {retry, 5}]).
+
+-define(is_opts(X), (is_list(X) orelse is_map(X))).
+-define(non_empty_opts(X), ((is_list(X) andalso length(X) /= 0) orelse
+			    (is_map(X) andalso map_size(X) /= 0))).
+
+validate_options(Values) ->
+    Defaults = validate_default_node(maps:get(default, Values, [])),
+    NodeDefaults = Defaults#{connect => false},
+    Opts = ergw_core_config:validate_options(
+	     validate_nodes(_, _, NodeDefaults), maps:remove(default, Values), []),
+    Opts#{default => Defaults}.
+
+validate_node_vrf_option(features, Features)
+  when is_list(Features), length(Features) /= 0 ->
+    Rem = lists:usort(Features) --
+	['Access', 'Core', 'SGi-LAN', 'CP-Function', 'LI Function', 'TDF-Source'],
+    if Rem /= [] ->
+	    throw({error, {options, {features, Features}}});
+       true ->
+	    Features
+    end;
+validate_node_vrf_option(Opt, Values) ->
+    throw({error, {options, {Opt, Values}}}).
+
+validate_node_vrfs({Name, Opts})
+  when ?is_opts(Opts) ->
+    {vrf:validate_name(Name),
+    ergw_core_config:validate_options(fun validate_node_vrf_option/2, Opts, ?VrfDefaults)};
+validate_node_vrfs({Name, Opts}) ->
+    throw({error, {options, {Name, Opts}}}).
+
+validate_node_heartbeat({interval, Value} = Opts)
+  when is_integer(Value), Value > 100 ->
+    Opts;
+validate_node_heartbeat({timeout, Value} = Opts)
+  when is_integer(Value), Value > 100 ->
+    Opts;
+validate_node_heartbeat({retry, Value} = Opts)
+  when is_integer(Value), Value >= 0 ->
+    Opts;
+validate_node_heartbeat({Opt, Value}) ->
+    throw({error, {options, {Opt, Value}}}).
+
+validate_node_request({timeout, Value} = Opts)
+  when is_integer(Value), Value > 100 ->
+    Opts;
+validate_node_request({retry, Value} = Opts)
+  when is_integer(Value), Value >= 0 ->
+    Opts;
+validate_node_request({Opt, Value}) ->
+    throw({error, {options, {Opt, Value}}}).
+
+validate_node_default_option(vrfs, VRFs)
+  when ?non_empty_opts(VRFs) ->
+    ergw_core_config:validate_options(fun validate_node_vrfs/1, VRFs, []);
+validate_node_default_option(ip_pools, Pools)
+  when is_list(Pools) ->
+    V = [ergw_ip_pool:validate_name(ip_pools, Name) || Name <- Pools],
+    ergw_core_config:check_unique_elements(ip_pools, V),
+    V;
+validate_node_default_option(node_selection, Value) ->
+    Value;
+validate_node_default_option(heartbeat, Opts)
+  when ?is_opts(Opts) ->
+    ergw_core_config:validate_options(
+      fun validate_node_heartbeat/1, Opts, ?NodeDefaultHeartbeat);
+validate_node_default_option(request, Opts)
+  when ?is_opts(Opts) ->
+    ergw_core_config:validate_options(fun validate_node_request/1, Opts, ?NodeDefaultRequest);
+validate_node_default_option(Opt, Values) ->
+    throw({error, {options, {Opt, Values}}}).
+
+validate_node_option(connect, Value) when is_boolean(Value) ->
+    Value;
+validate_node_option(node_selection, Value) ->
+    Value;
+validate_node_option(raddr, {_,_,_,_} = RAddr) ->
+    RAddr;
+validate_node_option(raddr, {_,_,_,_,_,_,_,_} = RAddr) ->
+    RAddr;
+validate_node_option(rport, Port) when is_integer(Port) ->
+    Port;
+validate_node_option(Opt, Values) ->
+    validate_node_default_option(Opt, Values).
+
+validate_default_node(Opts) when ?is_opts(Opts) ->
+    ergw_core_config:validate_options(
+      fun validate_node_default_option/2, Opts, ?DefaultsNodesDefaults);
+validate_default_node(Opts) ->
+    throw({error, {options, {nodes, default, Opts}}}).
+
+validate_nodes(Name, Opts, Defaults)
+  when is_binary(Name), ?is_opts(Opts) ->
+    ergw_core_config:validate_options(fun validate_node_option/2, Opts, Defaults);
+validate_nodes(Opt, Values, _) ->
+    throw({error, {options, {Opt, Values}}}).
 
 %%====================================================================
 %% ergw_context API

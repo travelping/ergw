@@ -49,8 +49,7 @@
 %% API
 %%====================================================================
 
-start_ip_pool(Name, Opts0)
-  when is_binary(Name) ->
+start_ip_pool(Name, Opts0) ->
     Opts = validate_options(Opts0),
     ergw_ip_pool_sup:start_local_pool_sup(),
     ergw_local_pool_sup:start_ip_pool(Name, Opts).
