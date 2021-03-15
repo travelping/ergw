@@ -26,16 +26,17 @@ init_per_suite(Config) ->
 	      ]}
     ],
     Cfg = [{plmn_id, {<<"001">>, <<"01">>}},
+	   {accept_new, true},
 	   {proxy_map, ProxyMap},
 	   {sockets, []},
-	   {handlers, []},
+	   {handlers, #{}},
 	   {ip_pools, #{}},
 	   {nodes, #{}}
 	  ],
     application:load(ergw_core),
     [application:set_env(ergw_core, K, V) || {K, V} <- Cfg],
     {ok, _} = application:ensure_all_started(riak_core),
-    {ok, Pid} = ergw_core:start(Cfg),
+    {ok, Pid} = ergw_core:start(maps:from_list(Cfg)),
     gen_server:start({local, gtp_proxy_ds_test}, gtp_proxy_ds, [], []),
     ergw_core:wait_till_ready(),
     [{ergw_core, Pid}|Config].

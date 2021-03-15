@@ -7,6 +7,8 @@
 
 -module(ergw_test_lib).
 
+-compile({parse_transform, cut}).
+
 -define(ERGW_NO_IMPORTS, true).
 
 -export([lib_init_per_group/1,
@@ -524,30 +526,59 @@ set_cfg_value(Key, Value) when is_function(Value) ->
 set_cfg_value(Key, Value) ->
     {Key, Value}.
 
-set_cfg_value([Key], Value, Config) when is_boolean(Value) ->
-    lists:keystore(Key, 1, proplists:delete(Key, Config), set_cfg_value(Key, Value));
-set_cfg_value([{Key, Pos}], Value, Config) ->
+map_cfg_update(Key, {K, V}, Config) ->
+    maps:put(K, V, maps:remove(Key, Config)).
+
+set_cfg_value([{Key, Pos}], Value, Config) when is_list(Config) ->
     Tuple = lists:keyfind(Key, 1, Config),
     lists:keystore(Key, 1, Config, setelement(Pos, Tuple, set_cfg_value(Key, Value)));
-set_cfg_value([Key], Value, Config) ->
-    lists:keystore(Key, 1, Config, set_cfg_value(Key, Value));
-set_cfg_value([{Key, Pos} | T], Value, Config) ->
+set_cfg_value([{Key, Pos}], Value, Config) when is_map(Config) ->
+    maps:update_with(Key, setelement(Pos, _, set_cfg_value(Key, Value)), Config);
+
+set_cfg_value([Key], Value, Config) when is_list(Config) ->
+    Cnf = lists:filter(
+	    fun(X) when is_tuple(X) -> element(1, X) =/= Key;
+	       (X) -> X =/= Key
+	    end, Config),
+    L = lists:keystore(Key, 1, Cnf, set_cfg_value(Key, Value)),
+    ct:pal("L: ~p", [L]),
+    L;
+set_cfg_value([Key], Value, Config) when is_map(Config) ->
+    map_cfg_update(Key, set_cfg_value(Key, Value), Config);
+
+set_cfg_value([{Key, Pos} | T], Value, Config) when is_list(Config) ->
     Tuple = lists:keyfind(Key, 1, Config),
     lists:keystore(Key, 1, Config,
 		   setelement(Pos, Tuple, set_cfg_value(T, Value, element(Pos, Tuple))));
+set_cfg_value([{Key, Pos} | T], Value, Config) ->
+    maps:update_with(
+      Key,
+      fun(Tuple) ->
+	      setelement(Pos, Tuple, set_cfg_value(T, Value, element(Pos, Tuple)))
+      end, Config);
+
 set_cfg_value([Pos | T], Value, Config)
   when is_integer(Pos), is_tuple(Config) ->
     setelement(Pos, Config, set_cfg_value(T, Value, element(Pos, Config)));
-set_cfg_value([H | T], Value, Config) ->
-    Prop = proplists:get_value(H, Config, []),
-    lists:keystore(H, 1, Config, {H, set_cfg_value(T, Value, Prop)}).
 
-add_cfg_value([Key], Value, Config) ->
-    ct:pal("Cfg: ~p", [[{Key, Value} | Config]]),
-    [{Key, Value} | Config];
-add_cfg_value([H | T], Value, Config) ->
+set_cfg_value([H | T], Value, Config) when is_list(Config) ->
     Prop = proplists:get_value(H, Config, []),
-    lists:keystore(H, 1, Config, {H, add_cfg_value(T, Value, Prop)}).
+    lists:keystore(H, 1, Config, {H, set_cfg_value(T, Value, Prop)});
+
+set_cfg_value([H | T], Value, Config) when is_map(Config) ->
+    Prop = maps:get(H, Config, #{}),
+    maps:put(H, set_cfg_value(T, Value, Prop), Config).
+
+add_cfg_value([Key], Value, Config) when is_list(Config) ->
+    [{Key, Value} | Config];
+add_cfg_value([Key], Value, Config) when is_map(Config) ->
+    maps:put(Key, Value, Config);
+add_cfg_value([H | T], Value, Config) when is_list(Config) ->
+    Prop = proplists:get_value(H, Config, []),
+    lists:keystore(H, 1, Config, {H, add_cfg_value(T, Value, Prop)});
+add_cfg_value([H | T], Value, Config) when is_map(Config) ->
+    Prop = maps:get(H, Config, #{}),
+    maps:put(H, add_cfg_value(T, Value, Prop), Config).
 
 %%%===================================================================
 %%% Retrieve outstanding request from gtp_context_reg
