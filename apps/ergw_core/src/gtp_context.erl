@@ -232,24 +232,20 @@ validate_option(sockets, Value) when is_list(Value) ->
 validate_option(node_selection, [S|_] = Value)
   when is_atom(S) ->
     Value;
-validate_option(aaa, Value) when is_list(Value); is_map(Value) ->
-    ergw_core_config:opts_fold(fun validate_aaa_option/3, ?DefaultAAAOpts, Value);
+validate_option(aaa, Value0) when is_list(Value0); is_map(Value0) ->
+    Value = ergw_core_config:to_map(Value0),
+    maps:fold(fun validate_aaa_option/3, ?DefaultAAAOpts, Value);
 validate_option(Opt, Value) ->
     throw({error, {options, {Opt, Value}}}).
 
 validate_aaa_option(Key, AppId, AAA)
   when Key == appid; Key == 'AAA-Application-Id' ->
     AAA#{'AAA-Application-Id' => AppId};
-validate_aaa_option(Key, Value, AAA)
-  when (is_list(Value) orelse is_map(Value)) andalso
+validate_aaa_option(Key, Value0, AAA)
+  when (is_list(Value0) orelse is_map(Value0)) andalso
        (Key == 'Username' orelse Key == 'Password') ->
-    %% Attr = maps:get(Key, AAA),
-    %% maps:put(Key, ergw_core_config:opts_fold(validate_aaa_attr_option(Key, _, _, _), Attr, Value), AAA);
-
-    %% maps:update_with(Key, fun(Attr) ->
-    %% 				  ergw_core_config:opts_fold(validate_aaa_attr_option(Key, _, _, _), Attr, Value)
-    %% 			  end, AAA);
-    maps:update_with(Key, ergw_core_config:opts_fold(validate_aaa_attr_option(Key, _, _, _), _, Value), AAA);
+    Value = ergw_core_config:to_map(Value0),
+    maps:update_with(Key, maps:fold(validate_aaa_attr_option(Key, _, _, _), _, Value), AAA);
 
 validate_aaa_option(Key, Value, AAA)
   when Key == '3GPP-GGSN-MCC-MNC' ->

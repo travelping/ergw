@@ -34,17 +34,13 @@ validate_options(Values) when is_list(Values), length(Values) >= 1 ->
 validate_options(Values) ->
     throw({error, {options, {sockets, Values}}}).
 
-validate_option(Name, Values)
-  when is_atom(Name), ?is_opts(Values) ->
-    case ergw_core_config:get_opt(type, Values, undefined) of
-	'gtp-c' ->
-	    ergw_gtp_socket:validate_options(Name, Values);
-	'gtp-u' ->
-	    ergw_gtp_socket:validate_options(Name, Values);
-	'pfcp' ->
-	    ergw_sx_socket:validate_options(Name, Values);
-	_ ->
-	    throw({error, {options, {Name, Values}}})
-    end;
+validate_option(Name, #{type := Type} = Values)
+  when Type =:= 'gtp-c';
+       Type =:= 'gtp-u' ->
+    ergw_gtp_socket:validate_options(Name, Values);
+validate_option(Name, #{type := pfcp} = Values) ->
+    ergw_sx_socket:validate_options(Name, Values);
+validate_option(Name, Values) when is_list(Values) ->
+    validate_option(Name, ergw_core_config:to_map(Values));
 validate_option(Opt, Values) ->
     throw({error, {options, {Opt, Values}}}).
