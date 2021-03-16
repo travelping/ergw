@@ -162,12 +162,14 @@ handle_request_fun(ReqKey, #pfcp{type = session_report_request} = Report) ->
 -define(non_empty_opts(X), ((is_list(X) andalso length(X) /= 0) orelse
 			    (is_map(X) andalso map_size(X) /= 0))).
 
-validate_options(Values) ->
+validate_options(Values) when is_map(Values) ->
     Defaults = validate_default_node(maps:get(default, Values, [])),
     NodeDefaults = Defaults#{connect => false},
     Opts = ergw_core_config:validate_options(
 	     validate_nodes(_, _, NodeDefaults), maps:remove(default, Values), []),
-    Opts#{default => Defaults}.
+    Opts#{default => Defaults};
+validate_options(Values) when is_list(Values) ->
+    validate_options(ergw_core_config:to_map(Values)).
 
 validate_node_vrf_option(features, Features)
   when is_list(Features), length(Features) /= 0 ->
