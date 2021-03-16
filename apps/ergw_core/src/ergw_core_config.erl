@@ -17,10 +17,6 @@
 	 to_map/1
 	]).
 
--ifdef(TEST).
--export([validate_config/1]).
--endif.
-
 -define(is_opts(X), (is_list(X) orelse is_map(X))).
 -define(non_empty_opts(X), ((is_list(X) andalso length(X) /= 0) orelse
 			    (is_map(X) andalso map_size(X) /= 0))).

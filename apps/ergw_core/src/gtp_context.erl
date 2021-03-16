@@ -218,6 +218,7 @@ test_cmd(Pid, Cmd) when is_pid(Pid) ->
 	 }).
 
 validate_options(Fun, Opts, Defaults) ->
+    ergw_core_config:mandatory_keys([protocol, handler, sockets], Opts),
     ergw_core_config:validate_options(Fun, Opts, Defaults ++ ?ContextDefaults).
 
 validate_option(protocol, Value)

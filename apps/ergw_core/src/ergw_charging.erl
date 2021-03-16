@@ -40,7 +40,10 @@
 	 {'tariff-switch-change',	'container'},
 	 {'user-location-info-change',	'container'}]).
 
-validate_options({Key, Opts})
+validate_options(Opts) when ?non_empty_opts(Opts) ->
+    ergw_core_config:validate_options(fun validate_charging/1, Opts, []).
+
+validate_charging({Key, Opts})
   when is_atom(Key), ?is_opts(Opts) ->
     {Key, ergw_core_config:validate_options(fun validate_charging_options/2, Opts, ?DefaultChargingOpts)}.
 

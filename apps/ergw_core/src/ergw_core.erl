@@ -274,8 +274,8 @@ validate_option(accept_new, Value) when is_boolean(Value) ->
     Value;
 validate_option(teid, Value) ->
     ergw_tei_mngr:validate_option(Value);
-validate_option(_Opt, Value) ->
-    Value.
+validate_option(Opt, Value) ->
+    throw({error, {options, {Opt, Value}}}).
 
 validate_mcc_mcn(MCC, MNC)
   when is_binary(MCC) andalso size(MCC) == 3 andalso

@@ -129,7 +129,7 @@ validate_option(http_api, Value) when ?is_opts(Value) ->
     ergw_http_api:validate_options(Value);
 validate_option(charging, Opts)
   when ?non_empty_opts(Opts) ->
-    validate_options(fun ergw_charging:validate_options/1, Opts, []);
+    ergw_charging:validate_options(Opts);
 validate_option(proxy_map, Opts) ->
     gtp_proxy_ds:validate_options(Opts);
 validate_option(path_management, Opts) when ?is_opts(Opts) ->
