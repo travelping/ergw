@@ -9,32 +9,25 @@
 
 -compile({parse_transform, cut}).
 
--behavior(gen_statem).
+-behavior(gen_server).
 
 %% API
--export([start_link/1]).
--export([add_socket/2, add_handler/2, add_ip_pool/2,
-	 add_sx_node/2, connect_sx_node/2,
-	 attach_tdf/2, attach_protocol/5]).
+-export([start_link/0, start_node/1, validate_options/1]).
+-export([setopts/2,
+	 add_socket/2,
+	 add_handler/2,
+	 add_ip_pool/2,
+	 add_sx_node/2]).
 -export([handler/2]).
 -export([get_plmn_id/0, get_node_id/0, get_accept_new/0]).
 -export([system_info/0, system_info/1, system_info/2]).
 -export([i/0, i/1, i/2]).
 
--ignore_xref([start_link/1, i/0, i/1, i/2]).
+-ignore_xref([start_link/0, i/0, i/1, i/2]).
 
-%% gen_statem callbacks
--export([callback_mode/0, init/1, handle_event/4,
-	 terminate/3, code_change/4]).
-
--export([ready/0]).
-
--ifdef(TEST).
--export([start/1, wait_till_ready/0]).
--else.
--export([wait_till_ready/0]).
--ignore_xref([wait_till_ready/0]).
--endif.
+%% gen_server callbacks
+-export([init/1, handle_call/3, handle_cast/2, handle_info/2,
+	 terminate/2, code_change/3]).
 
 -include_lib("kernel/include/logger.hrl").
 -include("include/ergw.hrl").
@@ -48,13 +41,19 @@
 %% API
 %%====================================================================
 
--ifdef(TEST).
-start(Config) ->
-    gen_statem:start({local, ?SERVER}, ?MODULE, [Config], []).
--endif.
+start_node(Config) ->
+    case ergw_cluster:is_ready() of
+	true ->
+	    Cnf = validate_options(Config),
+	    ok = load_config(Cnf),
+	    true = ets:insert(?SERVER, {state, is_running, true}),
+	    ok;
+	false ->
+	    {error, cluster_not_ready}
+    end.
 
-start_link(Config) ->
-    gen_statem:start_link({local, ?SERVER}, ?MODULE, [Config], []).
+start_link() ->
+    gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
 %% get global PLMN Id (aka MCC/MNC)
 get_plmn_id() ->
@@ -86,34 +85,55 @@ system_info(accept_new, New) when is_boolean(New) ->
 system_info(Key, Value) ->
     error(badarg, [Key, Value]).
 
+setopts(Opt, Value) ->
+    when_running(
+      fun() -> do_setopts(Opt, Value) end).
+
+do_setopts(node_selection, Opts) ->
+    ergw_inet_res:load_config(Opts).
+
 %%
 %% Initialize a new PFCP, GTPv1/v2-c or GTPv1-u socket
 %%
-add_socket(Name, #{type := Type} = Opts) ->
-    ergw_socket_sup:new(Type, Name, Opts).
+add_socket(Name, Opts0) ->
+    Opts = ergw_socket:validate_options(Name, Opts0),
+    when_running(
+      fun() -> ergw_socket:add_socket(Name, Opts) end).
 
 %%
 %% add a protocol handler
 %%
-add_handler(_Name, #{protocol := ip, nodes := Nodes} = Opts0) ->
-    Opts = maps:without([protocol, nodes], Opts0),
-    lists:foreach(ergw_core:attach_tdf(_, Opts), Nodes);
+add_handler(Name, Opts0) ->
+    Opts = ergw_context:validate_options(Name, Opts0),
+    when_running(
+      fun() -> do_add_handler(Name, Opts) end).
 
-add_handler(Name, #{handler  := Handler,
+do_add_handler(_Name, #{protocol := ip, nodes := Nodes} = Opts0) ->
+    Opts = maps:without([protocol, nodes], Opts0),
+    lists:foreach(attach_tdf(_, Opts), Nodes);
+
+do_add_handler(Name, #{handler  := Handler,
 		    protocol := Protocol,
 		    sockets  := Sockets} = Opts0) ->
     Opts = maps:without([handler, sockets], Opts0),
-    lists:foreach(ergw_core:attach_protocol(_, Name, Protocol, Handler, Opts), Sockets).
+    lists:foreach(attach_protocol(_, Name, Protocol, Handler, Opts), Sockets).
 
 %%
 %% start IP_POOL instance
 %%
-add_ip_pool(Name, Options) ->
-    ergw_ip_pool:start_ip_pool(Name, Options).
+add_ip_pool(Name, Opts0) ->
+    Opts = ergw_ip_pool:validate_options(Name, Opts0),
+    when_running(
+      fun() -> ergw_ip_pool:start_ip_pool(Name, Opts) end).
 
-add_sx_node(default, _) ->
+add_sx_node(Name, Opts0) ->
+    Opts = ergw_sx_node:validate_options(Opts0),
+    when_running(
+      fun() -> do_add_sx_node(Name, Opts) end).
+
+do_add_sx_node(default, _) ->
     ok;
-add_sx_node(Name, Opts) ->
+do_add_sx_node(Name, Opts) ->
     connect_sx_node(Name, Opts).
 
 %%
@@ -226,77 +246,89 @@ i(memory, context) ->
 		    end, 0, gtp_context_reg:all()),
     {context, MemUsage}.
 
-wait_till_ready() ->
-    ok = gen_statem:call(?SERVER, wait_till_ready, infinity).
+%%%===================================================================
+%%% Options Validation
+%%%===================================================================
 
-ready() ->
-    gen_statem:call(?SERVER, ready).
+-define(is_opts(X), (is_list(X) orelse is_map(X))).
+
+-define(DefaultOptions, [{plmn_id, {<<"001">>, <<"01">>}},
+			 {node_id, undefined},
+			 {teid, {0, 0}},
+			 {accept_new, true}
+			]).
+
+validate_options(Config) when ?is_opts(Config) ->
+    ergw_core_config:validate_options(fun validate_option/2, Config, ?DefaultOptions).
+
+validate_option(plmn_id, {MCC, MNC} = Value) ->
+    case validate_mcc_mcn(MCC, MNC) of
+       ok -> Value;
+       _  -> throw({error, {options, {plmn_id, Value}}})
+    end;
+validate_option(node_id, Value) when is_binary(Value) ->
+    Value;
+validate_option(node_id, Value) when is_list(Value) ->
+    binary_to_atom(iolist_to_binary(Value));
+validate_option(accept_new, Value) when is_boolean(Value) ->
+    Value;
+validate_option(teid, Value) ->
+    ergw_tei_mngr:validate_option(Value);
+validate_option(_Opt, Value) ->
+    Value.
+
+validate_mcc_mcn(MCC, MNC)
+  when is_binary(MCC) andalso size(MCC) == 3 andalso
+       is_binary(MNC) andalso (size(MNC) == 2 orelse size(MNC) == 3) ->
+    try {binary_to_integer(MCC), binary_to_integer(MNC)} of
+	_ -> ok
+    catch
+	error:badarg -> error
+    end;
+validate_mcc_mcn(_, _) ->
+    error.
 
 %%%===================================================================
 %%% gen_statem callbacks
 %%%===================================================================
 
-callback_mode() -> [handle_event_function].
-
-init([Config]) ->
-    process_flag(trap_exit, true),
-    Now = erlang:monotonic_time(),
-
+init([]) ->
     ets:new(?SERVER, [ordered_set, named_table, public,
 		      {keypos, 2}, {read_concurrency, true}]),
-    load_config(Config),
+    load_config(#{plmn_id => {<<"001">>, <<"001">>}, accept_new => false}),
+    {ok, state}.
 
-    Pid = proc_lib:spawn_link(fun startup/0),
-    {ok, startup, #{init => Now, config => Config, startup => Pid}}.
+handle_call(Request, _From, State) ->
+    ?LOG(error, "handle_call: unknown ~p", [Request]),
+    {reply, ok, State}.
 
-handle_event({call, From}, wait_till_ready, ready, _Data) ->
-    {keep_state_and_data, [{reply, From, ok}]};
-handle_event({call, _From}, wait_till_ready, _State, _Data) ->
-    {keep_state_and_data, [postpone]};
+handle_cast(Msg, State) ->
+    ?LOG(error, "handle_cast: unknown ~p", [Msg]),
+    {noreply, State}.
 
-handle_event({call, From}, ready, State, _Data) ->
-    Reply = {reply, From, State == ready},
-    {keep_state_and_data, [Reply]};
+handle_info(Info, State) ->
+    ?LOG(error, "handle_info: unknown ~p, ~p", [Info, State]),
+    {noreply, State}.
 
-handle_event(info, {'EXIT', Pid, ok}, startup,
-	     #{init := Now, config := Config, startup := Pid} = Data) ->
-    ergw_core_config:apply(Config),
-    ?LOG(info, "ergw_core: ready to process requests, cluster started in ~w ms",
-	 [erlang:convert_time_unit(erlang:monotonic_time() - Now, native, millisecond)]),
-    {next_state, ready, maps:remove(startup, Data)};
-
-handle_event(info, {'EXIT', Pid, Reason}, startup, #{startup := Pid}) ->
-    ?LOG(critical, "cluster support failed to start with ~0p", [Reason]),
-    init:stop(1),
-    {stop, {shutdown, Reason}};
-
-handle_event(Event, Info, _State, _Data) ->
-    ?LOG(error, "~p: ~w: handle_event(~p, ...): ~p", [self(), ?MODULE, Event, Info]),
-    keep_state_and_data.
-
-terminate(_Reason, _State, _Data) ->
-    ergw_cluster:stop(),
+terminate(_Reason, _State) ->
     ok.
 
-code_change(_OldVsn, State, Data, _Extra) ->
-    {ok, State, Data}.
+code_change(_OldVsn, State, _Extra) ->
+    {ok, State}.
 
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
 
-startup() ->
-    %% undocumented, see stdlib's shell.erl
-    case init:notify_when_started(self()) of
-	started ->
-	    ok;
-	_ ->
-	    init:wait_until_started()
-    end,
-    exit(ergw_cluster:start()).
-
-
 load_config(#{plmn_id := {MCC, MNC}, accept_new := Value}) ->
     true = ets:insert(?SERVER, {config, plmn_id, MCC, MNC}),
     true = ets:insert(?SERVER, {config, accept_new, Value}),
     ok.
+
+when_running(Fun) ->
+    case ets:lookup(?SERVER, is_running) of
+	[{state, is_running, true}] ->
+	    Fun();
+	_ ->
+	    {error, node_not_running}
+    end.

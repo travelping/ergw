@@ -12,7 +12,7 @@
 -compile({parse_transform, cut}).
 
 %% API
--export([start_link/0, resolve/4]).
+-export([start_link/0, load_config/1, resolve/4]).
 
 -ifdef(TEST).
 -export([start/0]).
@@ -42,6 +42,10 @@ start() ->
 start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
+load_config(Config) ->
+    Opts = ergw_node_selection:validate_options(Config),
+    gen_server:call(?SERVER, {load_config, Opts}).
+
 resolve(Name, Selection, Class, Type) when is_binary(Name) ->
     case match(make_rr_key(Name, Selection, Class, Type)) of
 	false ->
@@ -58,7 +62,7 @@ init([]) ->
     process_flag(trap_exit, true),
     ets:new(?MODULE, [named_table, public, set, {keypos, #entry.key}, {read_concurrency, true}]),
     State = #state{
-	       config = load_config(),
+	       config = #{},
 	       outstanding = #{},
 	       cache_timer = init_timer()},
     {ok, State}.
@@ -86,6 +90,11 @@ handle_call({resolve, Name, Selection, Class, Type},
 	Answer ->
 	    {reply, Answer, State}
     end;
+
+handle_call({load_config, Config}, _From, State0) ->
+    State = State0#{config => maps:map(fun load_config/2, Config)},
+    {reply, ok, State};
+
 handle_call(_, _From, State) ->
     {reply, {error, nxdomain}, State}.
 
@@ -113,10 +122,6 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 %%% Config Support
 %%%===================================================================
-
-load_config() ->
-    {ok, Config} = application:get_env(ergw_core, node_selection),
-    maps:map(fun load_config/2, Config).
 
 load_config(Name, {static, Entries}) ->
     DB = lists:foldl(load_static(Name, _, _), #{}, Entries),

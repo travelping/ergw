@@ -19,7 +19,7 @@ init(Req0, Opts) ->
 
 status(<<"GET">>, [<<"ready">>], Req) ->
     Headers = #{<<"content-type">> => <<"text/plain; charset=utf-8">>},
-    case (catch ergw_core:ready()) of
+    case (catch ergw:is_ready()) of
 	true -> cowboy_req:reply(200, Headers, <<"yes">>, Req);
 	_    -> cowboy_req:reply(503, Headers, <<"no">>, Req)
     end;

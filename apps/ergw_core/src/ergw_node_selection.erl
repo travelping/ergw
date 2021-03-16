@@ -15,7 +15,7 @@
 
 -compile({parse_transform, cut}).
 
--export([validate_options/2, expand_apn/2, split_apn/1,
+-export([validate_options/1, expand_apn/2, split_apn/1,
 	 apn_to_fqdn/2, apn_to_fqdn/1,
 	 topology_match/2,
 	 candidates/3, snaptr_candidate/1, topology_select/4,
@@ -172,7 +172,11 @@ snaptr_candidate(Candidates) ->
 %%% Options Validation
 %%%===================================================================
 
+-define(is_opts(X), (is_list(X) orelse is_map(X))).
 -define(IS_IP(X), (is_tuple(X) andalso (tuple_size(X) == 4 orelse tuple_size(X) == 8))).
+
+validate_options(Value) when ?is_opts(Value) ->
+    ergw_core_config:validate_options(fun validate_options/2, Value, []).
 
 validate_options(Key, {Type, Opts})
   when is_atom(Key), is_atom(Type) ->
