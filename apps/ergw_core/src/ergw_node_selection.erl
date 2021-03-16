@@ -182,12 +182,12 @@ validate_options(Key, {Type, Opts})
   when is_atom(Key), is_atom(Type) ->
     {Type, validate_type_options(Type, Opts)};
 validate_options(Opt, Values) ->
-    throw({error, {options, {Opt, Values}}}).
+    erlang:error(badarg, [Opt, Values]).
 
 validate_ip_list(L) ->
     lists:foreach(
       fun(IP) when ?IS_IP(IP) -> ok;
-	 (IP) -> throw({error, {options, {ip, IP}}})
+	 (IP) -> erlang:error(badarg, [ip, IP])
       end, L).
 
 validate_static_option({Label, {Order, Prio} = Degree, [{_,_}|_] = Services0, Host})
@@ -201,7 +201,7 @@ validate_static_option({Host, IP4, IP6})
     validate_ip_list(IP6),
     {Host, IP4, IP6};
 validate_static_option(Opt) ->
-    throw({error, {options, {static, Opt}}}).
+    erlang:error(badarg, [static, Opt]).
 
 validate_type_options(static, Opts)
   when is_list(Opts), length(Opts) > 0 ->
@@ -214,7 +214,7 @@ validate_type_options(dns, {IP, Port} = Server)
   when ?IS_IP(IP) andalso is_integer(Port) ->
     Server;
 validate_type_options(Type, Opts) ->
-    throw({error, {options, {Type, Opts}}}).
+    erlang:error(badarg, [Type, Opts]).
 
 %%%===================================================================
 %%% Internal functions

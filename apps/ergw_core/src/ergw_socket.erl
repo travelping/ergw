@@ -41,4 +41,4 @@ validate_options(_Name, #{type := pfcp} = Values) ->
 validate_options(Name, Values) when is_list(Values) ->
     validate_options(Name, ergw_core_config:to_map(Values));
 validate_options(Opt, Values) ->
-    throw({error, {options, {Opt, Values}}}).
+    erlang:error(badarg, [Opt, Values]).

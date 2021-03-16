@@ -176,19 +176,19 @@ validate_node_vrf_option(features, Features)
     Rem = lists:usort(Features) --
 	['Access', 'Core', 'SGi-LAN', 'CP-Function', 'LI Function', 'TDF-Source'],
     if Rem /= [] ->
-	    throw({error, {options, {features, Features}}});
+	    erlang:error(badarg, [features, Features]);
        true ->
 	    Features
     end;
 validate_node_vrf_option(Opt, Values) ->
-    throw({error, {options, {Opt, Values}}}).
+    erlang:error(badarg, [Opt, Values]).
 
 validate_node_vrfs({Name, Opts})
   when ?is_opts(Opts) ->
     {vrf:validate_name(Name),
     ergw_core_config:validate_options(fun validate_node_vrf_option/2, Opts, ?VrfDefaults)};
 validate_node_vrfs({Name, Opts}) ->
-    throw({error, {options, {Name, Opts}}}).
+    erlang:error(badarg, [Name, Opts]).
 
 validate_node_heartbeat({interval, Value} = Opts)
   when is_integer(Value), Value > 100 ->
@@ -200,7 +200,7 @@ validate_node_heartbeat({retry, Value} = Opts)
   when is_integer(Value), Value >= 0 ->
     Opts;
 validate_node_heartbeat({Opt, Value}) ->
-    throw({error, {options, {Opt, Value}}}).
+    erlang:error(badarg, [Opt, Value]).
 
 validate_node_request({timeout, Value} = Opts)
   when is_integer(Value), Value > 100 ->
@@ -209,7 +209,7 @@ validate_node_request({retry, Value} = Opts)
   when is_integer(Value), Value >= 0 ->
     Opts;
 validate_node_request({Opt, Value}) ->
-    throw({error, {options, {Opt, Value}}}).
+    erlang:error(badarg, [Opt, Value]).
 
 validate_node_default_option(vrfs, VRFs)
   when ?non_empty_opts(VRFs) ->
@@ -229,7 +229,7 @@ validate_node_default_option(request, Opts)
   when ?is_opts(Opts) ->
     ergw_core_config:validate_options(fun validate_node_request/1, Opts, ?NodeDefaultRequest);
 validate_node_default_option(Opt, Values) ->
-    throw({error, {options, {Opt, Values}}}).
+    erlang:error(badarg, [Opt, Values]).
 
 validate_node_option(connect, Value) when is_boolean(Value) ->
     Value;
@@ -248,13 +248,13 @@ validate_default_node(Opts) when ?is_opts(Opts) ->
     ergw_core_config:validate_options(
       fun validate_node_default_option/2, Opts, ?DefaultsNodesDefaults);
 validate_default_node(Opts) ->
-    throw({error, {options, {nodes, default, Opts}}}).
+    erlang:error(badarg, [nodes, default, Opts]).
 
 validate_nodes(Name, Opts, Defaults)
   when is_binary(Name), ?is_opts(Opts) ->
     ergw_core_config:validate_options(fun validate_node_option/2, Opts, Defaults);
 validate_nodes(Opt, Values, _) ->
-    throw({error, {options, {Opt, Values}}}).
+    erlang:error(badarg, [Opt, Values]).
 
 %%====================================================================
 %% ergw_context API

@@ -75,12 +75,12 @@ validate_options(_Name, Values0)
     Values = ergw_core_config:to_map(Values0),
     validate_pool(maps:get(handler, Values, ergw_local_pool), Values);
 validate_options(Name, Values) ->
-    throw({error, {options, {Name, Values}}}).
+    erlang:error(badarg, [Name, Values]).
 
 validate_pool(ergw_local_pool, Options) ->
     ergw_local_pool:validate_options(Options);
 validate_pool(Handler, _Options) ->
-    throw({error, {options, {handler, Handler}}}).
+    erlang:error(badarg, [handler, Handler]).
 
 validate_name(_, Name) when is_binary(Name) ->
     Name;
@@ -89,7 +89,7 @@ validate_name(_, Name) when is_list(Name) ->
 validate_name(_, Name) when is_atom(Name) ->
     atom_to_binary(Name, utf8);
 validate_name(Opt, Name) ->
-   throw({error, {options, {Opt, Name}}}).
+   erlang:error(badarg, [Opt, Name]).
 
 %%%===================================================================
 %%% Internal functions

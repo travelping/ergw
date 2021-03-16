@@ -180,14 +180,14 @@ validate_echo(_Opt, Value) when is_integer(Value), Value >= 60 * 1000 ->
 validate_echo(_Opt, off = Value) ->
     Value;
 validate_echo(Opt, Value) ->
-    throw({error, {options, {Opt, Value}}}).
+    erlang:error(badarg, [Opt, Value]).
 
 validate_timeout(_Opt, Value) when is_integer(Value), Value >= 0 ->
     Value;
 validate_timeout(_Opt, infinity = Value) ->
     Value;
 validate_timeout(Opt, Value) ->
-    throw({error, {options, {Opt, Value}}}).
+    erlang:error(badarg, [Opt, Value]).
 
 validate_option(t3, Value)
   when is_integer(Value) andalso Value > 0 ->
@@ -205,7 +205,7 @@ validate_option(icmp_error_handling, Value)
   when Value =:= immediate; Value =:= ignore ->
     Value;
 validate_option(Opt, Value) ->
-    throw({error, {options, {Opt, Value}}}).
+    erlang:error(badarg, [Opt, Value]).
 
 %%%===================================================================
 %%% Protocol Module API

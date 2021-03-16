@@ -82,13 +82,13 @@ validate_rule_def(Key, Value)
        is_list(Value) andalso length(Value) /= 0 ->
     Value;
 validate_rule_def(Key, Value) ->
-    throw({error, {options, {rule, {Key, Value}}}}).
+    erlang:error(badarg, [rule, {Key, Value}]).
 
 validate_rulebase(Key, [Id | _] = RuleBaseDef)
   when is_binary(Key) andalso is_binary(Id) ->
     case lists:usort(RuleBaseDef) of
 	S when length(S) /= length(RuleBaseDef) ->
-	    throw({error, {options, {rulebase, {Key, RuleBaseDef}}}});
+	    erlang:error(badarg, [rulebase, {Key, RuleBaseDef}]);
 	_ ->
 	    ok
     end,
@@ -96,7 +96,7 @@ validate_rulebase(Key, [Id | _] = RuleBaseDef)
     lists:foreach(fun(RId) when is_binary(RId) ->
 			  ok;
 		     (RId) ->
-			  throw({error, {options, {rule, {Key, RId}}}})
+			  erlang:error(badarg, [rule, {Key, RId}])
 		  end, RuleBaseDef),
     RuleBaseDef;
 validate_rulebase(Key, Rule)
@@ -104,10 +104,10 @@ validate_rulebase(Key, Rule)
     ergw_core_config:validate_options(fun validate_rule_def/2,
 				 Rule, ?DefaultRuleDef);
 validate_rulebase(Key, Rule) ->
-    throw({error, {options, {rulebase, {Key, Rule}}}}).
+    erlang:error(badarg, [rulebase, {Key, Rule}]).
 
 validate_online_charging_options(Key, Opts) ->
-    throw({error, {options, {{online, charging}, {Key, Opts}}}}).
+    erlang:error(badarg, [{online, charging}, {Key, Opts}]).
 
 validate_offline_charging_triggers(Key, Opt)
   when (Opt == 'cdr' orelse Opt == 'off') andalso
@@ -131,7 +131,7 @@ validate_offline_charging_triggers(Key, Opt)
 	Key == 'user-location-info-change') ->
     Opt;
 validate_offline_charging_triggers(Key, Opts) ->
-    throw({error, {options, {{offline, charging, triggers}, {Key, Opts}}}}).
+    erlang:error(badarg, [{offline, charging, triggers}, {Key, Opts}]).
 
 validate_offline_charging_options(enable, Opt) when is_boolean(Opt) ->
     Opt;
@@ -139,7 +139,7 @@ validate_offline_charging_options(triggers, Opts) ->
     ergw_core_config:validate_options(fun validate_offline_charging_triggers/2,
 				 Opts, ?DefaultOfflineChargingTriggers);
 validate_offline_charging_options(Key, Opts) ->
-    throw({error, {options, {{offline, charging}, {Key, Opts}}}}).
+    erlang:error(badarg, [{offline, charging}, {Key, Opts}]).
 
 validate_charging_options(rulebase, RuleBase) ->
     ergw_core_config:validate_options(fun validate_rulebase/2,
@@ -151,7 +151,7 @@ validate_charging_options(offline, Opts) ->
     ergw_core_config:validate_options(fun validate_offline_charging_options/2,
 				 Opts, ?DefaultOfflineChargingOpts);
 validate_charging_options(Key, Opts) ->
-    throw({error, {options, {charging, {Key, Opts}}}}).
+    erlang:error(badarg, [charging, {Key, Opts}]).
 
 %%%===================================================================
 %%% API

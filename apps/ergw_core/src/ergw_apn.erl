@@ -34,17 +34,17 @@ validate_options({APN0, Value}) when ?is_opts(Value) ->
     ergw_core_config:mandatory_keys([vrfs], Opts),
     {APN, Opts};
 validate_options({Opt, Value}) ->
-    throw({error, {options, {Opt, Value}}}).
+    erlang:error(badarg, [Opt, Value]).
 
 validate_apn_name(APN) when is_list(APN) ->
     try
 	gtp_c_lib:normalize_labels(APN)
     catch
 	error:badarg ->
-	    throw({error, {apn, APN}})
+	    erlang:error(badarg, [apn, APN])
     end;
 validate_apn_name(APN) ->
-    throw({error, {apn, APN}}).
+    erlang:error(badarg, [apn, APN]).
 
 validate_apn_option({vrf, Name}) ->
     {vrfs, [vrf:validate_name(Name)]};
@@ -83,4 +83,4 @@ validate_apn_option({'Idle-Timeout', Timer})
        orelse Timer =:= infinity->
     {'Idle-Timeout', Timer};
 validate_apn_option({Opt, Value}) ->
-    throw({error, {options, {Opt, Value}}}).
+    erlang:error(badarg, [Opt, Value]).

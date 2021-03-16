@@ -237,7 +237,7 @@ validate_option(aaa, Value0) when is_list(Value0); is_map(Value0) ->
     Value = ergw_core_config:to_map(Value0),
     maps:fold(fun validate_aaa_option/3, ?DefaultAAAOpts, Value);
 validate_option(Opt, Value) ->
-    throw({error, {options, {Opt, Value}}}).
+    erlang:error(badarg, [Opt, Value]).
 
 validate_aaa_option(Key, AppId, AAA)
   when Key == appid; Key == 'AAA-Application-Id' ->
@@ -252,7 +252,7 @@ validate_aaa_option(Key, Value, AAA)
   when Key == '3GPP-GGSN-MCC-MNC' ->
     AAA#{'3GPP-GGSN-MCC-MNC' => Value};
 validate_aaa_option(Key, Value, _AAA) ->
-    throw({error, {options, {aaa, {Key, Value}}}}).
+    erlang:error(badarg, [aaa, {Key, Value}]).
 
 validate_aaa_attr_option('Username', default, Default, Attr) ->
     Attr#{default => Default};
@@ -262,7 +262,7 @@ validate_aaa_attr_option('Username', from_protocol_opts, Bool, Attr)
 validate_aaa_attr_option('Password', default, Default, Attr) ->
     Attr#{default => Default};
 validate_aaa_attr_option(Key, Setting, Value, _Attr) ->
-    throw({error, {options, {aaa_attr, {Key, Setting, Value}}}}).
+    erlang:error(badarg, [aaa_attr, {Key, Setting, Value}]).
 
 %%====================================================================
 %% ergw_context API
