@@ -155,7 +155,7 @@ validate_option(proxy_data_source, Value) ->
 	{module, _} ->
 	    ok;
 	_ ->
-	    throw({error, {options, {proxy_data_source, Value}}})
+	    erlang:error(badarg, [proxy_data_source, Value])
     end,
     Value;
 validate_option(Opt, Value)
@@ -172,14 +172,14 @@ validate_context_option(node_selection, [S|_] = Value)
   when is_atom(S) ->
     Value;
 validate_context_option(Opt, Value) ->
-    throw({error, {options, {Opt, Value}}}).
+    erlang:error(badarg, [Opt, Value]).
 
 validate_context(Name, Opts)
   when is_binary(Name) andalso ?is_opts(Opts) ->
     ergw_core_config:validate_options(
       fun validate_context_option/2, Opts, ?ContextDefaults);
 validate_context(Name, Opts) ->
-    throw({error, {options, {contexts, {Name, Opts}}}}).
+    erlang:error(badarg, [contexts, {Name, Opts}]).
 
 %%%===================================================================
 %%% Helper functions

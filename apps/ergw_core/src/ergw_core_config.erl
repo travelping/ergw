@@ -37,7 +37,7 @@ to_map(L) when is_list(L) ->
 	 (K, M) when is_atom(K) ->
 	      M#{K => true};
 	 (Opt, _) ->
-	      throw({error, {options, Opt}})
+	      erlang:error(badarg, [Opt])
       end, #{}, normalize_proplists(L)).
 
 %%%===================================================================
@@ -50,7 +50,7 @@ check_unique_elements(Key, List) when is_list(List) ->
 	    ok;
        true ->
 	    Duplicate = proplists:get_keys(List) -- proplists:get_keys(UList),
-	    throw({error, {options, {Key, Duplicate}}})
+	    erlang:error(badarg, [Key, Duplicate])
     end.
 
 mandatory_keys(Keys, Map) when is_map(Map) ->
@@ -60,7 +60,7 @@ mandatory_keys(Keys, Map) when is_map(Map) ->
 	      if V =:= [] orelse
 		 (is_map(V) andalso map_size(V) == 0) orelse
 		 V =:= undefined ->
-			 throw({error, {options, {missing, K}}});
+			 erlang:error(badarg, [missing, K]);
 		 true ->
 		      ok
 	      end
@@ -97,7 +97,7 @@ validate_options(Fun, Options, Defaults)
 validate_ip6(_Opt, IP) when ?IS_IPv6(IP) ->
     IP;
 validate_ip6(Opt, Value) ->
-    throw({error, {options, {Opt, Value}}}).
+    erlang:error(badarg, [Opt, Value]).
 
 validate_ip_cfg_opt(Opt, {_,_,_,_} = IP)
   when Opt == 'MS-Primary-DNS-Server';
@@ -117,4 +117,4 @@ validate_ip_cfg_opt(Opt, DNS)
 	Opt == '3GPP-IPv6-DNS-Servers') ->
     [validate_ip6(Opt, IP) || IP <- DNS];
 validate_ip_cfg_opt(Opt, Value) ->
-    throw({error, {options, {Opt, Value}}}).
+    erlang:error(badarg, [Opt, Value]).

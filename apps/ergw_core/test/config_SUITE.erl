@@ -14,7 +14,7 @@
 -include("ergw_test_lib.hrl").
 -include("ergw_ggsn_test_lib.hrl").
 
--define(bad(Fun), ?match({error, _}, (catch Fun))).
+-define(bad(Fun), ?match({'EXIT', {badarg, _}}, (catch Fun))).
 -define(ok(Fun), ?match(#{}, (catch Fun))).
 -define(ok2(Fun), ?match({_, #{}}, (catch Fun))).
 
@@ -409,7 +409,7 @@ ip_pool(_Config)  ->
 vrf() ->
     [{doc, "Test validation of the VRF configuration"}].
 vrf(_Config)  ->
-    ?match({error,{options, {vrf, _}}}, (catch vrf:validate_name([<<"1st">>, "2nd"]))),
+    ?match({'EXIT',{badarg, _}}, (catch vrf:validate_name([<<"1st">>, "2nd"]))),
     ?match(X when is_binary(X), (catch vrf:validate_name('aaa'))),
     ?match(X when is_binary(X), (catch vrf:validate_name('1st.2nd'))),
     ?match(X when is_binary(X), (catch vrf:validate_name("1st.2nd"))),

@@ -46,10 +46,10 @@ validate_options(Opts) ->
 %% 	[_|_] = Value ->
 %% 	    Value;
 %%        _ ->
-%% 	    throw({error, {options, {Opt, Value}}})
+%% 	    erlang:error(badarg, [Opt, Value])
 %%     end;
 validate_option(Opt, Value) ->
-    throw({error, {options, {Opt, Value}}}).
+    erlang:error(badarg, [Opt, Value]).
 
 %%%===================================================================
 %%% API

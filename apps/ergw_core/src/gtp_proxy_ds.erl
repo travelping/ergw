@@ -64,19 +64,19 @@ validate_imsi(From, {IMSI, MSISDN} = To)
   when is_binary(From), is_binary(IMSI), is_binary(MSISDN) ->
     To;
 validate_imsi(From, To) ->
-    throw({error, {options, {From, To}}}).
+    erlang:error(badarg, [From, To]).
 
 validate_apn([From|_], [To|_] = APN) when is_binary(From), is_binary(To) ->
     APN;
 validate_apn(From, To) ->
-    throw({error, {options, {From, To}}}).
+    erlang:error(badarg, [From, To]).
 
 validate_option(imsi, Opts) when ?non_empty_opts(Opts) ->
     ergw_core_config:validate_options(fun validate_imsi/2, Opts, []);
 validate_option(apn, Opts) when ?non_empty_opts(Opts) ->
     ergw_core_config:validate_options(fun validate_apn/2, Opts, []);
 validate_option(Opt, Value) ->
-    throw({error, {options, {Opt, Value}}}).
+    erlang:error(badarg, [Opt, Value]).
 
 %%%===================================================================
 %%% gen_server callbacks

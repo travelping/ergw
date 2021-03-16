@@ -24,7 +24,7 @@ validate_name(Name) ->
 	normalize_name(Name)
     catch
 	_:_ ->
-	    throw({error, {options, {vrf, Name}}})
+	    erlang:error(badarg, [vrf, Name])
     end.
 
 normalize_name(Name)

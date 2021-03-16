@@ -74,13 +74,13 @@ validate_options(_Name, #{handler := Handler} = Values)
 	{module, _} ->
 	    ok;
 	_ ->
-	    throw({error, {options, {handler, Values}}})
+	    erlang:error(badarg, [handler, Values])
     end,
     Handler:validate_options(Values);
 validate_options(Name, Values) when is_list(Values) ->
     validate_options(Name, ergw_core_config:to_map(Values));
 validate_options(Name, Values) ->
-    throw({error, {options, {Name, Values}}}).
+    erlang:error(badarg, [Name, Values]).
 
 %%%=========================================================================
 %%%  internal functions

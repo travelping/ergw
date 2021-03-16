@@ -93,7 +93,7 @@ validate_option(burst_size, Value)
   when is_integer(Value) andalso Value > 0 ->
     Value;
 validate_option(Opt, Value) ->
-    throw({error, {options, {Opt, Value}}}).
+    erlang:error(badarg, [Opt, Value]).
 
 %%%===================================================================
 %%% Internal functions

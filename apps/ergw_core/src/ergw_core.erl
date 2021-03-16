@@ -200,10 +200,10 @@ attach_protocol(Socket, Name, Protocol, Handler, Opts0) ->
 		true ->
 		    {ok, Key};
 		false ->
-		    throw({error, {duplicate, Socket, Protocol}})
+		    erlang:error(badarg, [duplicate, Socket, Protocol])
 	    end;
 	_ ->
-	    throw({error, {invalid_handler, Handler}})
+	    erlang:error(badarg, [invalid_handler, Handler])
     end.
 
 handler(Socket, Protocol) ->
@@ -264,7 +264,7 @@ validate_options(Config) when ?is_opts(Config) ->
 validate_option(plmn_id, {MCC, MNC} = Value) ->
     case validate_mcc_mcn(MCC, MNC) of
        ok -> Value;
-       _  -> throw({error, {options, {plmn_id, Value}}})
+       _  -> erlang:error(badarg, [plmn_id, Value])
     end;
 validate_option(node_id, Value) when is_binary(Value) ->
     Value;
@@ -275,7 +275,7 @@ validate_option(accept_new, Value) when is_boolean(Value) ->
 validate_option(teid, Value) ->
     ergw_tei_mngr:validate_option(Value);
 validate_option(Opt, Value) ->
-    throw({error, {options, {Opt, Value}}}).
+    erlang:error(badarg, [Opt, Value]).
 
 validate_mcc_mcn(MCC, MNC)
   when is_binary(MCC) andalso size(MCC) == 3 andalso

@@ -67,10 +67,10 @@ validate_option({Prefix, Len} = Value)
     case ?POW(2, Len) of
 	X when X > Prefix -> Value;
 	_ ->
-	    throw({error, {options, {teid, Value}}})
+	    erlang:error(badarg, [teid, Value])
     end;
 validate_option(Value) ->
-    throw({error, {options, {teid, Value}}}).
+    erlang:error(badarg, [teid, Value]).
 
 %%%===================================================================
 %%% gen_statem callbacks

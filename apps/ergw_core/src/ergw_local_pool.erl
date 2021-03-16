@@ -131,7 +131,7 @@ validate_ip_range({Start, End, PrefixLen} = Range)
        is_integer(PrefixLen), PrefixLen > 0, PrefixLen =< 128 ->
     if PrefixLen =:= 127 ->
 	    ?LOG(warning, "a /127 IPv6 prefix is not supported"),
-	    throw({error, {options, {range, Range}}});
+	    erlang:error(badarg, [range, Range]);
        PrefixLen =/= 64 ->
 	    ?LOG(warning, "3GPP only supports /64 IPv6 prefix assigment, "
 		 "/~w might not work, USE AT YOUR OWN RISK!", [PrefixLen]),
@@ -140,7 +140,7 @@ validate_ip_range({Start, End, PrefixLen} = Range)
 	    Range
     end;
 validate_ip_range(Range) ->
-    throw({error, {options, {range, Range}}}).
+    erlang:error(badarg, [range, Range]).
 
 validate_option(ranges, Ranges)
   when is_list(Ranges), length(Ranges) /= 0 ->
@@ -157,7 +157,7 @@ validate_option(Opt, Pool)
 validate_option(handler, Value) ->
     Value;
 validate_option(Opt, Value) ->
-    throw({error, {options, {Opt, Value}}}).
+    erlang:error(badarg, [Opt, Value]).
 
 %%%===================================================================
 %%% gen_server callbacks
