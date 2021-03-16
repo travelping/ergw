@@ -6,7 +6,7 @@
  {<<"eradius">>,{pkg,<<"eradius">>,<<"2.2.1">>},1},
  {<<"ergw_aaa">>,
   {git,"https://github.com/travelping/ergw_aaa.git",
-       {ref,"cec8a3b0033373fb4e7a54aeafa901d0d8ea18c4"}},
+       {ref,"7e13f6d70d1115fc1f9543f0adac696fd7466a81"}},
   0},
  {<<"erlando">>,
   {git,"https://github.com/travelping/erlando.git",
@@ -36,10 +36,7 @@
   0},
  {<<"prometheus_httpd">>,{pkg,<<"prometheus_httpd">>,<<"2.1.11">>},1},
  {<<"ranch">>,{pkg,<<"ranch">>,<<"1.7.1">>},1},
- {<<"regine">>,
-  {git,"https://github.com/travelping/regine.git",
-       {ref,"96db48f290f1c22cbede304bad13982167353750"}},
-  1},
+ {<<"regine">>,{pkg,<<"regine">>,<<"1.0.0">>},1},
  {<<"setup">>,
   {git,"https://github.com/uwiger/setup.git",
        {ref,"b8fd827e7e9e0f5aeec2f26a2f3a31bb06407686"}},
@@ -60,7 +57,8 @@
  {<<"prometheus_cowboy">>, <<"CFCE0BC7B668C5096639084FCD873826E6220EA714BF60A716F5BD080EF2A99C">>},
  {<<"prometheus_diameter_collector">>, <<"833A62869BF28960A2ADED43A669B95DEC9859336907999B74532CE2F0460CED">>},
  {<<"prometheus_httpd">>, <<"F616ED9B85B536B195D94104063025A91F904A4CFC20255363F49A197D96C896">>},
- {<<"ranch">>, <<"6B1FAB51B49196860B733A49C07604465A47BDB78AA10C1C16A3D199F7F8C881">>}]},
+ {<<"ranch">>, <<"6B1FAB51B49196860B733A49C07604465A47BDB78AA10C1C16A3D199F7F8C881">>},
+ {<<"regine">>, <<"81CB906BCDA9E177C85FE5D1825B55A5A33F528B46A914278DBAA1403FE13E59">>}]},
 {pkg_hash_ext,[
  {<<"accept">>, <<"11B18C220BCC2EAB63B5470C038EF10EB6783BCB1FCDB11AA4137DEFA5AC1BB8">>},
  {<<"cowboy">>, <<"4643E4FBA74AC96D4D152C75803DE6FAD0B3FA5DF354C71AFDD6CBEEB15FAC8A">>},
@@ -76,5 +74,6 @@
  {<<"prometheus_cowboy">>, <<"BA286BECA9302618418892D37BCD5DC669A6CC001F4EB6D6AF85FF81F3F4F34C">>},
  {<<"prometheus_diameter_collector">>, <<"FDFE0694A6F3371461FCFF8D9EE0035B09B85387B0B0CF9367854E36EE880DED">>},
  {<<"prometheus_httpd">>, <<"0BBE831452CFDF9588538EB2F570B26F30C348ADAE5E95A7D87F35A5910BCF92">>},
- {<<"ranch">>, <<"451D8527787DF716D99DC36162FCA05934915DB0B6141BBDAC2EA8D3C7AFC7D7">>}]}
+ {<<"ranch">>, <<"451D8527787DF716D99DC36162FCA05934915DB0B6141BBDAC2EA8D3C7AFC7D7">>},
+ {<<"regine">>, <<"74A329F769BF5A7DA56C3F04B61AAFFB7276E9AED7D2BF9789F024502CAD0458">>}]}
 ].
