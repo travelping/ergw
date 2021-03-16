@@ -1,14 +1,15 @@
 %% -*- erlang -*-
-{application, ergw_core, [
+{application, ergw, [
     {vsn, semver},
     {description, "3GPP GGSN/PGW"},
     {applications, [kernel, stdlib, crypto, gun,
 		    erlando, regine, gtplib, pfcplib, plists,
-		    ergw_aaa, ergw_cluster,
+		    ergw_aaa, setup, netdata,
 		    prometheus, cowboy, prometheus_cowboy,
 		    prometheus_diameter_collector,
-		    compiler, os_mon, jobs, ra,
+		    jsx, compiler, os_mon, jobs, ra,
 		    riak_core, riak_core_lite_util]},
+    {included_applications, [k8s_dist]},
     {mod, {ergw_core_app, []}},
     {registered, []}
 ]}.

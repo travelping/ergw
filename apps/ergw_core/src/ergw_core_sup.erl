@@ -10,7 +10,7 @@
 -behaviour(supervisor).
 
 %% API
--export([start_link/1]).
+-export([start_link/0]).
 
 %% Supervisor callbacks
 -export([init/1]).
@@ -22,14 +22,14 @@
 %% API functions
 %% ===================================================================
 
-start_link(Config) ->
-    supervisor:start_link({local, ?MODULE}, ?MODULE, [Config]).
+start_link() ->
+    supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 %% ===================================================================
 %% Supervisor callbacks
 %% ===================================================================
 
-init([Config]) ->
+init([]) ->
     VContextRegMaster =
 	#{id       => gtp_context_reg_vnode_master,
 	  start    => {riak_core_vnode_master, start_link, [gtp_context_reg_vnode]},
@@ -60,5 +60,5 @@ init([Config]) ->
 				 ?CHILD(ergw_sx_node_mngr, worker, []),
 				 ?CHILD(gtp_proxy_ds, worker, []),
 				 ?CHILD(ergw_ip_pool_sup, supervisor, []),
-				 ?CHILD(ergw_core, worker, [Config])
+				 ?CHILD(ergw_core, worker, [])
 				]} }.

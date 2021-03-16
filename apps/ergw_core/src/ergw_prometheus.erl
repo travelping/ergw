@@ -28,26 +28,36 @@
 %%% Options Validation
 %%%===================================================================
 
--define(DefaultMetricsOpts, [{gtp_path_rtt_millisecond_intervals, [10, 30, 50, 75, 100, 1000, 2000]}]).
+%%-define(DefaultMetricsOpts, [{gtp_path_rtt_millisecond_intervals, [10, 30, 50, 75, 100, 1000, 2000]}]).
 
 validate_options(Opts) ->
-    ergw_core_config:validate_options(fun validate_option/2, Opts, ?DefaultMetricsOpts).
+    ergw_core_config:validate_options(fun validate_option/2, Opts, []).
 
-validate_option(gtp_path_rtt_millisecond_intervals = Opt, Value) ->
-    case [V || V <- Value, is_integer(V), V > 0] of
-        [_|_] = Value ->
-            Value;
-        _ ->
-            throw({error, {options, {Opt, Value}}})
-    end.
+%% disabled for now
+%%
+%% prometheus metrics must be declared early. Changing them once the config is ready
+%% to be applied is FFS...
+
+%% validate_options(Opts) ->
+%%     ergw_core_config:validate_options(fun validate_option/2, Opts, ?DefaultMetricsOpts).
+
+%% validate_option(gtp_path_rtt_millisecond_intervals = Opt, Value) ->
+%%     case [V || V <- Value, is_integer(V), V > 0] of
+%% 	[_|_] = Value ->
+%% 	    Value;
+%%        _ ->
+%% 	    throw({error, {options, {Opt, Value}}})
+%%     end;
+validate_option(Opt, Value) ->
+    throw({error, {options, {Opt, Value}}}).
 
 %%%===================================================================
 %%% API
 %%%===================================================================
 
 declare() ->
-    %% Metrics Config
-    {ok, Config} = application:get_env(ergw_core, metrics),
+    %% %% Metrics Config
+    %% {ok, Config} = application:get_env(ergw_core, metrics),
 
     %% GTP path metrics
     prometheus_counter:declare([{name, gtp_path_messages_processed_total},
@@ -65,9 +75,13 @@ declare() ->
     prometheus_counter:declare([{name, gtp_path_messages_replies_total},
 				{labels, [name, remote, direction, version, type, result]},
 				{help, "Total number of reply GTP message on path"}]),
+    %% prometheus_histogram:declare([{name, gtp_path_rtt_milliseconds},
+    %% 				  {labels, [name, ip, version, type]},
+    %% 				  {buckets, maps:get(gtp_path_rtt_millisecond_intervals, Config)},
+    %% 				  {help, "GTP path round trip time"}]),
     prometheus_histogram:declare([{name, gtp_path_rtt_milliseconds},
 				  {labels, [name, ip, version, type]},
-				  {buckets, maps:get(gtp_path_rtt_millisecond_intervals, Config)},
+				  {buckets, [10, 30, 50, 75, 100, 1000, 2000]},
 				  {help, "GTP path round trip time"}]),
     prometheus_gauge:declare([{name, gtp_path_contexts_total},
 			      {labels, [name, ip, version]},

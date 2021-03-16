@@ -21,13 +21,12 @@
 
 start(_StartType, _StartArgs) ->
     do([error_m ||
-	   Config <- ergw_core_config:load(),
 	   ergw_prometheus:declare(),
 	   ensure_jobs_queues(),
 	   riak_core:register([{vnode_module, gtp_path_db_vnode},
 			       {vnode_module, gtp_context_reg_vnode}]),
 	   riak_core_node_watcher:service_up(ergw_core, self()),
-	   Pid <- ergw_core_sup:start_link(Config),
+	   Pid <- ergw_core_sup:start_link(),
 	   return(Pid)
        ]).
 

@@ -7,34 +7,55 @@
 
 -module(ergw_cluster).
 
+-behavior(gen_statem).
+
 -compile({parse_transform, do}).
 
 %% API
--export([validate_options/1, start/0, stop/0, get_ra_node_id/0]).
+-export([start_link/0,
+	 start/1, start/2,
+	 validate_options/1,
+	 get_ra_node_id/0,
+	 wait_till_ready/0,
+	 wait_till_running/0,
+	 is_ready/0,
+	 is_running/0]).
+
+-ignore_xref([start_link/0]).
+
+%% gen_statem callbacks
+-export([callback_mode/0, init/1, handle_event/4,
+	 terminate/3, code_change/4]).
 
 -include_lib("kernel/include/logger.hrl").
+
+-define(SERVER, ?MODULE).
 
 %%====================================================================
 %% API
 %%====================================================================
 
-start() ->
-    %% borrowed from riak_core:standard_join
-    {ok, MyRing} = riak_core_ring_manager:get_raw_ring(),
-    Singleton = ([node()] =:= riak_core_ring:all_members(MyRing)),
-    ?LOG(info, "CLUSTER: ring members: ~p", [riak_core_ring:all_members(MyRing)]),
+start_link() ->
+    gen_statem:start_link({local, ?SERVER}, ?MODULE, [], []).
 
-    do([error_m ||
-	   case Singleton of
-	       true  -> start(application:get_env(ergw_core, cluster, #{}));
-	       false -> ok
-	   end,
-	   start_raft()
-       ]).
+start(Config) ->
+    start(Config, infinity).
 
-stop() ->
-    leave_ra_cluster(10),
-    ok.
+start(Config, Timeout) ->
+    Cnf = validate_options(Config),
+    gen_statem:call(?SERVER, {start, Cnf}, Timeout).
+
+wait_till_ready() ->
+    ok = gen_statem:call(?SERVER, wait_till_ready, infinity).
+
+wait_till_running() ->
+    ok = gen_statem:call(?SERVER, wait_till_ready, infinity).
+
+is_ready() ->
+    gen_statem:call(?SERVER, is_ready).
+
+is_running() ->
+    gen_statem:call(?SERVER, is_running).
 
 %%%===================================================================
 %%% Options Validation
@@ -70,10 +91,98 @@ validate_option(Opt, Value) ->
     throw({error, {options, {Opt, Value}}}).
 
 %%%===================================================================
+%%% gen_statem callbacks
+%%%===================================================================
+
+callback_mode() -> [handle_event_function].
+
+init([]) ->
+    process_flag(trap_exit, true),
+    Now = erlang:monotonic_time(),
+
+    Pid = proc_lib:spawn_link(fun startup/0),
+    {ok, startup, #{init => Now, startup => Pid}}.
+
+handle_event({call, From}, wait_till_ready, State, _Data)
+  when State =:= ready; State =:= running ->
+    {keep_state_and_data, [{reply, From, ok}]};
+handle_event({call, _From}, wait_till_ready, _State, _Data) ->
+    {keep_state_and_data, [postpone]};
+
+handle_event({call, From}, wait_till_running, running, _Data) ->
+    {keep_state_and_data, [{reply, From, ok}]};
+handle_event({call, _From}, wait_till_running, _State, _Data) ->
+    {keep_state_and_data, [postpone]};
+
+handle_event({call, From}, is_ready, State, _Data) ->
+    Reply = {reply, From, State == ready},
+    {keep_state_and_data, [Reply]};
+
+handle_event({call, From}, is_running, State, _Data) ->
+    Reply = {reply, From, State == running},
+    {keep_state_and_data, [Reply]};
+
+handle_event({call, From}, {start, Config}, ready, Data) ->
+    start_cluster(Config),
+    {next_state, running, Data#{config => Config}, [{reply, From, ok}]};
+handle_event({call, _}, {start, _}, _, _) ->
+    {keep_state_and_data, [postpone]};
+
+handle_event(info, {'EXIT', Pid, ok}, startup,
+	     #{init := Now, startup := Pid} = Data) ->
+    ?LOG(info, "ergw_core: ready to process requests, cluster started in ~w ms",
+	 [erlang:convert_time_unit(erlang:monotonic_time() - Now, native, millisecond)]),
+    {next_state, ready, maps:remove(startup, Data)};
+
+handle_event(info, {'EXIT', Pid, Reason}, startup, #{startup := Pid}) ->
+    ?LOG(critical, "cluster support failed to start with ~0p", [Reason]),
+    init:stop(1),
+    {stop, {shutdown, Reason}};
+
+handle_event(Event, Info, _State, _Data) ->
+    ?LOG(error, "~p: ~w: handle_event(~p, ...): ~p", [self(), ?MODULE, Event, Info]),
+    keep_state_and_data.
+
+terminate(_Reason, _State, _Data) ->
+    stop_cluster(),
+    ok.
+
+code_change(_OldVsn, State, Data, _Extra) ->
+    {ok, State, Data}.
+
+%%%===================================================================
 %%% Internal functions
 %%%===================================================================
 
-start(#{enabled := true, seed_nodes := SeedNodes, initial_timeout := Timeout}) ->
+startup() ->
+    %% undocumented, see stdlib's shell.erl
+    case init:notify_when_started(self()) of
+	started ->
+	    ok;
+	_ ->
+	    init:wait_until_started()
+    end,
+    exit(ok).
+
+start_cluster(Config) ->
+    %% borrowed from riak_core:standard_join
+    {ok, MyRing} = riak_core_ring_manager:get_raw_ring(),
+    Singleton = ([node()] =:= riak_core_ring:all_members(MyRing)),
+    ?LOG(info, "CLUSTER: ring members: ~p", [riak_core_ring:all_members(MyRing)]),
+
+    do([error_m ||
+	   case Singleton of
+	       true  -> do_start_cluster(Config);
+	       false -> ok
+	   end,
+	   start_raft()
+       ]).
+
+stop_cluster() ->
+    leave_ra_cluster(10),
+    ok.
+
+do_start_cluster(#{enabled := true, seed_nodes := SeedNodes, initial_timeout := Timeout}) ->
     case net_kernel:epmd_module() of
 	k8s_epmd ->
 	    {ok, _} = application:ensure_all_started(k8s_dist),
@@ -90,7 +199,7 @@ start(#{enabled := true, seed_nodes := SeedNodes, initial_timeout := Timeout}) -
 	   Node <- wait_for_nodes(Nodes, Now, Deadline),
 	   join(Node)
        ]);
-start(_) ->
+do_start_cluster(_) ->
     ok.
 
 wait_for_nodes(_Nodes, Now, Deadline)
@@ -180,17 +289,7 @@ commit() ->
 %%%===================================================================
 
 get_ra_node_id() ->
-    case persistent_term:get(ra_node_id, undefined) of
-	undefined ->
-	    NodeId = ergw_core:get_node_id(),
-	    Id = binary_to_atom(
-		   iolist_to_binary(
-		     io_lib:format("$ra-~s", [NodeId]))),
-	    persistent_term:get(ra_node_id, Id),
-	    Id;
-	RaId ->
-	    RaId
-    end.
+    application:get_env(ergw_cluster, ra_node_id, '$ra-ergw-cluster').
 
 start_ra_cluster(cluster, ClusterId, Machine, ServerId) ->
     ra:start_cluster(ClusterId, Machine, [ServerId]);
