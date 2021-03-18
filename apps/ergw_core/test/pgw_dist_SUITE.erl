@@ -694,7 +694,7 @@ node_init_per_testcase(Id, _, Config) ->
 
 node_end_per_testcase(_Id, AppsCfg) ->
     ok = application:set_env(ergw_aaa, apps, AppsCfg),
-    set_online_charging(false),
+    ergw_test_lib:set_online_charging(false),
     ok.
 
 node_end_per_testcase(Id, create_session_request_accept_new, AppsCfg) ->
@@ -1069,70 +1069,3 @@ change_notification_request_invalid_imsi(Config) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
-
-maps_recusive_merge(Key, Value, Map) ->
-    maps:update_with(Key, fun(V) -> maps_recusive_merge(V, Value) end, Value, Map).
-
-maps_recusive_merge(M1, M2)
-  when is_map(M1) andalso is_map(M1) ->
-    maps:fold(fun maps_recusive_merge/3, M1, M2);
-maps_recusive_merge(_, New) ->
-    New.
-
-cfg_get_value([], Cfg) ->
-    Cfg;
-cfg_get_value([H|T], Cfg) when is_map(Cfg) ->
-    cfg_get_value(T, maps:get(H, Cfg));
-cfg_get_value([H|T], Cfg) when is_list(Cfg) ->
-    cfg_get_value(T, proplists:get_value(H, Cfg)).
-
-load_aaa_answer_config(AnswerCfg) ->
-    {ok, Cfg0} = application:get_env(ergw_aaa, apps),
-    Session = cfg_get_value([default, session, 'Default'], Cfg0),
-    Answers =
-	[{Proc, [{'Default', Session#{answer => Answer}}]}
-	 || {Proc, Answer} <- AnswerCfg],
-    UpdCfg =
-	#{default =>
-	      #{procedures => maps:from_list(Answers)}},
-    Cfg = maps_recusive_merge(Cfg0, UpdCfg),
-    ok = application:set_env(ergw_aaa, apps, Cfg).
-
-set_online_charging([], true, Cfg)
-  when is_map(Cfg) ->
-    maps:put('Online', [1], Cfg);
-set_online_charging([], _, Cfg)
-  when is_map(Cfg) ->
-    maps:remove('Online', Cfg);
-set_online_charging([], _, Cfg) ->
-    Cfg;
-
-set_online_charging([Key|Next], Set, [{_, _}|_] = Cfg)
-  when Key =:= '_' ->
-    lists:map(
-      fun({K, V}) -> {K, set_online_charging(Next, Set, V)} end, Cfg);
-set_online_charging([Key|Next], Set, [{_, _}|_] = Cfg) ->
-    New = {Key, set_online_charging(Next, Set, proplists:get_value(Key, Cfg))},
-    lists:keystore(Key, 1, Cfg, New);
-%% set_online_charging(_, _Set, Cfg) when is_list(Cfg) ->
-%%     Cfg;
-
-set_online_charging([Key|Next], Set, Cfg)
-  when Key =:= '_', is_map(Cfg) ->
-    maps:map(
-      fun(_, V) -> set_online_charging(Next, Set, V) end, Cfg);
-set_online_charging([Key|Next], Set, Cfg)
-  when is_map(Cfg) ->
-    Cfg#{Key => set_online_charging(Next, Set, maps:get(Key, Cfg))}.
-
-set_online_charging(Set) ->
-    {ok, Cfg0} = application:get_env(ergw_core, charging),
-    Cfg = set_online_charging(['_', rulebase, '_'], Set, Cfg0),
-	ok = application:set_env(ergw_core, charging, Cfg).
-
-%% Set APN key data
-set_apn_key(Key, Value) ->
-    {ok, APNs0} = application:get_env(ergw_core, apns),
-    Upd = fun(_APN, Val_map) -> maps:put(Key, Value, Val_map) end,
-    APNs = maps:map(Upd, APNs0),
-    ok = application:set_env(ergw_core, apns, APNs).

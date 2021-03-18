@@ -744,11 +744,11 @@ init_per_testcase(request_fast_resend, Config) ->
 		     end),
     Config;
 init_per_testcase(path_maint, Config) ->
-    set_path_timers(#{'echo' => 700}),
+    ergw_test_lib:set_path_timers(#{'echo' => 700}),
     setup_per_testcase(Config),
     Config;
 init_per_testcase(path_failure_to_ggsn_and_restore, Config) ->
-    set_path_timers(#{'down_echo' => 1}),
+    ergw_test_lib:set_path_timers(#{'down_echo' => 1}),
     setup_per_testcase(Config),
     Config;
 init_per_testcase(simple_pdp_context_request, Config) ->
@@ -851,14 +851,14 @@ end_per_testcase(request_fast_resend, Config) ->
     end_per_testcase(Config),
     Config;
 end_per_testcase(path_maint, Config) ->
-    set_path_timers(#{'echo' => 60 * 1000}),
+    ergw_test_lib:set_path_timers(#{'echo' => 60 * 1000}),
     end_per_testcase(Config);
 end_per_testcase(path_failure_to_ggsn, Config) ->
     ok = meck:delete(ergw_gtp_c_socket, send_request, 8),
     end_per_testcase(Config);
 end_per_testcase(path_failure_to_ggsn_and_restore, Config) ->
     ok = meck:delete(ergw_gtp_c_socket, send_request, 8),
-    set_path_timers(#{'down_echo' => 600 * 1000}),
+    ergw_test_lib:set_path_timers(#{'down_echo' => 600 * 1000}),
     end_per_testcase(Config);
 end_per_testcase(path_failure_to_sgsn, Config) ->
     ok = meck:delete(ergw_gtp_c_socket, send_request, 8),
@@ -2245,12 +2245,6 @@ proxy_context_selection_map(ProxyInfo, Context) ->
 	Other ->
 	    Other
     end.
-
-% Set Timers for Path management
-set_path_timers(SetTimers) ->
-    {ok, Timers} = application:get_env(ergw_core, path_management),
-    NewTimers = maps:merge(Timers, SetTimers),
-    application:set_env(ergw_core, path_management, NewTimers).
 
 make_gtp_contexts(Cnt, Config) ->
     BaseIP = proplists:get_value(client_ip, Config),
