@@ -34,217 +34,213 @@
 	    ]}
 	  ]},
 
-	 {ergw_core, [{'$setup_vars',
-		  [{"ORIGIN", {value, "epc.mnc001.mcc001.3gppnetwork.org"}}]},
+	 {ergw_core,
+	  #{node =>
+		[{node_id, <<"PGW.epc.mnc001.mcc001.3gppnetwork.org">>}],
 
-		 {node_id, <<"PGW.$ORIGIN">>},
-		 {http_api, [{port, 0}]},
-
-		 {sockets,
-		  [{'cp-socket',
-			[{type, 'gtp-u'},
-			 {vrf, cp},
-			 {ip, ?MUST_BE_UPDATED},
-			 {reuseaddr, true}
-			]},
-		   {'irx-socket',
-			 [{type, 'gtp-c'},
-			  {vrf, irx},
-			  {ip, ?MUST_BE_UPDATED},
-			  {reuseaddr, true}
-			 ]},
-
-		   {sx, [{type, 'pfcp'},
-			 {socket, 'cp-socket'},
-			 {ip, ?MUST_BE_UPDATED},
-			 {reuseaddr, true}
-			]}
+	    sockets =>
+		[{'cp-socket',
+		  [{type, 'gtp-u'},
+		   {vrf, cp},
+		   {ip, ?MUST_BE_UPDATED},
+		   {reuseaddr, true}
+		  ]},
+		 {'irx-socket',
+		  [{type, 'gtp-c'},
+		   {vrf, irx},
+		   {ip, ?MUST_BE_UPDATED},
+		   {reuseaddr, true}
 		  ]},
 
-		 {ip_pools,
-		  [{<<"pool-A">>, [{ranges,  [{?IPv4PoolStart, ?IPv4PoolEnd, 32},
-					  {?IPv6PoolStart, ?IPv6PoolEnd, 64},
-					  {?IPv6HostPoolStart, ?IPv6HostPoolEnd, 128}]},
-			       {'MS-Primary-DNS-Server', {8,8,8,8}},
-			       {'MS-Secondary-DNS-Server', {8,8,4,4}},
-			       {'MS-Primary-NBNS-Server', {127,0,0,1}},
-			       {'MS-Secondary-NBNS-Server', {127,0,0,1}},
-			       {'DNS-Server-IPv6-Address',
-				[{16#2001, 16#4860, 16#4860, 0, 0, 0, 0, 16#8888},
-				 {16#2001, 16#4860, 16#4860, 0, 0, 0, 0, 16#8844}]}
-			      ]},
-		   {<<"pool-B">>, [{ranges,  [{?IPv4PoolStart, ?IPv4PoolEnd, 32},
-					  {?IPv6PoolStart, ?IPv6PoolEnd, 64},
-					  {?IPv6HostPoolStart, ?IPv6HostPoolEnd, 128}]},
-			       {'MS-Primary-DNS-Server', {8,8,8,8}},
-			       {'MS-Secondary-DNS-Server', {8,8,4,4}},
-			       {'MS-Primary-NBNS-Server', {127,0,0,1}},
-			       {'MS-Secondary-NBNS-Server', {127,0,0,1}},
-			       {'DNS-Server-IPv6-Address',
-				[{16#2001, 16#4860, 16#4860, 0, 0, 0, 0, 16#8888},
-				 {16#2001, 16#4860, 16#4860, 0, 0, 0, 0, 16#8844}]}
-			      ]},
-		   {<<"pool-C">>, [{ranges,  [{?IPv4PoolStart, ?IPv4PoolEnd, 32},
-					  {?IPv6PoolStart, ?IPv6PoolEnd, 64},
-					  {?IPv6HostPoolStart, ?IPv6HostPoolEnd, 128}]},
-			       {'MS-Primary-DNS-Server', {8,8,8,8}},
-			       {'MS-Secondary-DNS-Server', {8,8,4,4}},
-			       {'MS-Primary-NBNS-Server', {127,0,0,1}},
-			       {'MS-Secondary-NBNS-Server', {127,0,0,1}},
-			       {'DNS-Server-IPv6-Address',
-				[{16#2001, 16#4860, 16#4860, 0, 0, 0, 0, 16#8888},
-				 {16#2001, 16#4860, 16#4860, 0, 0, 0, 0, 16#8844}]}
-			      ]}
-		  ]},
-
-		 {handlers,
-		  #{gn =>
-			[{handler, pgw_s5s8},
-			 {protocol, gn},
-			 {sockets, ['irx-socket']},
-			 {node_selection, [default]},
-			 {aaa, [{'Username',
-				 [{default, ['IMSI',   <<"/">>,
-					     'IMEI',   <<"/">>,
-					     'MSISDN', <<"/">>,
-					     'ATOM',   <<"/">>,
-					     "TEXT",   <<"/">>,
-					     12345,
-					     <<"@">>, 'APN']}]}]}
-			],
-		    s5s8 =>
-			[{handler, pgw_s5s8},
-			 {protocol, s5s8},
-			 {sockets, ['irx-socket']},
-			 {node_selection, [default]},
-			 {aaa, [{'Username',
-				 [{default, ['IMSI',   <<"/">>,
-					     'IMEI',   <<"/">>,
-					     'MSISDN', <<"/">>,
-					     'ATOM',   <<"/">>,
-					     "TEXT",   <<"/">>,
-					     12345,
-					     <<"@">>, 'APN']}]}]}
-			]}
-		 },
-
-		 {node_selection,
-		  [{default,
-		    {static,
-		     [
-		      %% APN NAPTR alternative
-		      {<<"_default.apn.$ORIGIN">>, {300,64536},
-		       [{'x-3gpp-pgw','x-s5-gtp'},{'x-3gpp-pgw','x-s8-gtp'},
-			{'x-3gpp-pgw','x-gn'},{'x-3gpp-pgw','x-gp'}],
-		       <<"topon.s5s8.pgw.$ORIGIN">>},
-		      {<<"_default.apn.$ORIGIN">>, {300,64536},
-		       [{'x-3gpp-upf','x-sxb'}],
-		       <<"topon.sx.prox01.$ORIGIN">>},
-		      {<<"_default.apn.$ORIGIN">>, {400,64536},
-		       [{'x-3gpp-upf','x-sxb'}],
-		       <<"topon.sx.prox03.$ORIGIN">>},
-		      {<<"async-sx.apn.$ORIGIN">>, {300,64536},
-		       [{'x-3gpp-upf','x-sxb'}],
-		       <<"topon.sx.prox01.$ORIGIN">>},
-		      {<<"async-sx.apn.$ORIGIN">>, {300,64536},
-		       [{'x-3gpp-upf','x-sxb'}],
-		       <<"topon.sx.prox02.$ORIGIN">>},
-
-		      %% A/AAAA record alternatives
-		      {<<"topon.s5s8.pgw.$ORIGIN">>, ?MUST_BE_UPDATED, []},
-		      {<<"topon.sx.prox01.$ORIGIN">>, ?MUST_BE_UPDATED, []},
-		      {<<"topon.sx.prox02.$ORIGIN">>, ?MUST_BE_UPDATED, []},
-		      {<<"topon.sx.prox03.$ORIGIN">>, ?MUST_BE_UPDATED, []}
-		     ]
-		    }
-		   }
-		  ]
-		 },
-
-		 {apns,
-		  [{?'APN-EXAMPLE',
-		    [{vrf, sgi},
-		     {ip_pools, [<<"pool-A">>, <<"pool-B">>]}]},
-		   {[<<"exa">>, <<"mple">>, <<"net">>],
-		    [{vrf, sgi},
-		     {ip_pools, [<<"pool-A">>]}]},
-		   {[<<"APN1">>],
-		    [{vrf, sgi},
-		     {ip_pools, [<<"pool-A">>]}]},
-		   {[<<"APN2">>, <<"mnc001">>, <<"mcc001">>, <<"gprs">>],
-		    [{vrf, sgi},
-		     {ip_pools, [<<"pool-A">>]}]},
-		   {[<<"async-sx">>],
-		    [{vrf, sgi},
-		     {ip_pools, [<<"pool-A">>]}]}
-		   %% {'_', [{vrf, wildcard}]}
-		  ]},
-
-		 {charging,
-		  [{default,
-		    [{offline,
-		      [{triggers,
-			[{'cgi-sai-change',            'container'},
-			 {'ecgi-change',               'container'},
-			 {'max-cond-change',           'cdr'},
-			 {'ms-time-zone-change',       'cdr'},
-			 {'qos-change',                'container'},
-			 {'rai-change',                'container'},
-			 {'rat-change',                'cdr'},
-			 {'sgsn-sgw-change',           'cdr'},
-			 {'sgsn-sgw-plmn-id-change',   'cdr'},
-			 {'tai-change',                'container'},
-			 {'tariff-switch-change',      'container'},
-			 {'user-location-info-change', 'container'}
-			]}
-		      ]},
-		     {rulebase,
-		      [{<<"r-0001">>,
-			#{'Rating-Group' => [3000],
-			  'Flow-Information' =>
-			      [#{'Flow-Description' => [<<"permit out ip from any to assigned">>],
-				 'Flow-Direction'   => [1]    %% DownLink
-				},
-			       #{'Flow-Description' => [<<"permit out ip from any to assigned">>],
-				 'Flow-Direction'   => [2]    %% UpLink
-				}],
-			  'Metering-Method'  => [1],
-			  'Precedence' => [100],
-			  'Offline'  => [1]
-			 }},
-		       {<<"r-0002">>,
-			#{'Rating-Group' => [4000],
-			  'Flow-Information' =>
-			      [#{'Flow-Description' => [<<"permit out ip from any to assigned">>],
-				 'Flow-Direction'   => [1]    %% DownLink
-				},
-			       #{'Flow-Description' => [<<"permit out ip from any to assigned">>],
-				 'Flow-Direction'   => [2]    %% UpLink
-				}],
-			  'Metering-Method'  => [1],
-			  'Precedence' => [100],
-			  'Offline'  => [1]
-			 }},
-		       {<<"m2m0001">>, [<<"r-0001">>]},
-		       {<<"m2m0002">>, [<<"r-0002">>]}
+		 {sx, [{type, 'pfcp'},
+		       {socket, 'cp-socket'},
+		       {ip, ?MUST_BE_UPDATED},
+		       {reuseaddr, true}
 		      ]}
-		     ]}
-		  ]},
+		],
 
-		 {nodes,
-		  [{default,
-		    [{vrfs,
-		      [{cp, [{features, ['CP-Function']}]},
-		       {irx, [{features, ['Access']}]},
-		       {sgi, [{features, ['SGi-LAN']}]}
+	    ip_pools =>
+		[{<<"pool-A">>, [{ranges,  [{?IPv4PoolStart, ?IPv4PoolEnd, 32},
+					    {?IPv6PoolStart, ?IPv6PoolEnd, 64},
+					    {?IPv6HostPoolStart, ?IPv6HostPoolEnd, 128}]},
+				 {'MS-Primary-DNS-Server', {8,8,8,8}},
+				 {'MS-Secondary-DNS-Server', {8,8,4,4}},
+				 {'MS-Primary-NBNS-Server', {127,0,0,1}},
+				 {'MS-Secondary-NBNS-Server', {127,0,0,1}},
+				 {'DNS-Server-IPv6-Address',
+				  [{16#2001, 16#4860, 16#4860, 0, 0, 0, 0, 16#8888},
+				   {16#2001, 16#4860, 16#4860, 0, 0, 0, 0, 16#8844}]}
+				]},
+		 {<<"pool-B">>, [{ranges,  [{?IPv4PoolStart, ?IPv4PoolEnd, 32},
+					    {?IPv6PoolStart, ?IPv6PoolEnd, 64},
+					    {?IPv6HostPoolStart, ?IPv6HostPoolEnd, 128}]},
+				 {'MS-Primary-DNS-Server', {8,8,8,8}},
+				 {'MS-Secondary-DNS-Server', {8,8,4,4}},
+				 {'MS-Primary-NBNS-Server', {127,0,0,1}},
+				 {'MS-Secondary-NBNS-Server', {127,0,0,1}},
+				 {'DNS-Server-IPv6-Address',
+				  [{16#2001, 16#4860, 16#4860, 0, 0, 0, 0, 16#8888},
+				   {16#2001, 16#4860, 16#4860, 0, 0, 0, 0, 16#8844}]}
+				]},
+		 {<<"pool-C">>, [{ranges,  [{?IPv4PoolStart, ?IPv4PoolEnd, 32},
+					    {?IPv6PoolStart, ?IPv6PoolEnd, 64},
+					    {?IPv6HostPoolStart, ?IPv6HostPoolEnd, 128}]},
+				 {'MS-Primary-DNS-Server', {8,8,8,8}},
+				 {'MS-Secondary-DNS-Server', {8,8,4,4}},
+				 {'MS-Primary-NBNS-Server', {127,0,0,1}},
+				 {'MS-Secondary-NBNS-Server', {127,0,0,1}},
+				 {'DNS-Server-IPv6-Address',
+				  [{16#2001, 16#4860, 16#4860, 0, 0, 0, 0, 16#8888},
+				   {16#2001, 16#4860, 16#4860, 0, 0, 0, 0, 16#8844}]}
+				]}
+		],
+
+	    handlers =>
+		#{gn =>
+		      [{handler, pgw_s5s8},
+		       {protocol, gn},
+		       {sockets, ['irx-socket']},
+		       {node_selection, [default]},
+		       {aaa, [{'Username',
+			       [{default, ['IMSI',   <<"/">>,
+					   'IMEI',   <<"/">>,
+					   'MSISDN', <<"/">>,
+					   'ATOM',   <<"/">>,
+					   "TEXT",   <<"/">>,
+					   12345,
+					   <<"@">>, 'APN']}]}]}
+		      ],
+		  s5s8 =>
+		      [{handler, pgw_s5s8},
+		       {protocol, s5s8},
+		       {sockets, ['irx-socket']},
+		       {node_selection, [default]},
+		       {aaa, [{'Username',
+			       [{default, ['IMSI',   <<"/">>,
+					   'IMEI',   <<"/">>,
+					   'MSISDN', <<"/">>,
+					   'ATOM',   <<"/">>,
+					   "TEXT",   <<"/">>,
+					   12345,
+					   <<"@">>, 'APN']}]}]}
 		      ]},
-		     {ip_pools, [<<"pool-A">>]}]
-		   },
-		   {<<"topon.sx.prox01.$ORIGIN">>, [connect]},
-		   {<<"topon.sx.prox03.$ORIGIN">>, [connect, {ip_pools, [<<"pool-B">>, <<"pool-C">>]}]}
-		  ]
+
+	    node_selection =>
+		[{default,
+		  {static,
+		   [
+		    %% APN NAPTR alternative
+		    {<<"_default.apn.epc.mnc001.mcc001.3gppnetwork.org">>, {300,64536},
+		     [{'x-3gpp-pgw','x-s5-gtp'},{'x-3gpp-pgw','x-s8-gtp'},
+		      {'x-3gpp-pgw','x-gn'},{'x-3gpp-pgw','x-gp'}],
+		     <<"topon.s5s8.pgw.epc.mnc001.mcc001.3gppnetwork.org">>},
+		    {<<"_default.apn.epc.mnc001.mcc001.3gppnetwork.org">>, {300,64536},
+		     [{'x-3gpp-upf','x-sxb'}],
+		     <<"topon.sx.prox01.epc.mnc001.mcc001.3gppnetwork.org">>},
+		    {<<"_default.apn.epc.mnc001.mcc001.3gppnetwork.org">>, {400,64536},
+		     [{'x-3gpp-upf','x-sxb'}],
+		     <<"topon.sx.prox03.epc.mnc001.mcc001.3gppnetwork.org">>},
+		    {<<"async-sx.apn.epc.mnc001.mcc001.3gppnetwork.org">>, {300,64536},
+		     [{'x-3gpp-upf','x-sxb'}],
+		     <<"topon.sx.prox01.epc.mnc001.mcc001.3gppnetwork.org">>},
+		    {<<"async-sx.apn.epc.mnc001.mcc001.3gppnetwork.org">>, {300,64536},
+		     [{'x-3gpp-upf','x-sxb'}],
+		     <<"topon.sx.prox02.epc.mnc001.mcc001.3gppnetwork.org">>},
+
+		    %% A/AAAA record alternatives
+		    {<<"topon.s5s8.pgw.epc.mnc001.mcc001.3gppnetwork.org">>, ?MUST_BE_UPDATED, []},
+		    {<<"topon.sx.prox01.epc.mnc001.mcc001.3gppnetwork.org">>, ?MUST_BE_UPDATED, []},
+		    {<<"topon.sx.prox02.epc.mnc001.mcc001.3gppnetwork.org">>, ?MUST_BE_UPDATED, []},
+		    {<<"topon.sx.prox03.epc.mnc001.mcc001.3gppnetwork.org">>, ?MUST_BE_UPDATED, []}
+		   ]
+		  }
 		 }
-		]},
+		],
+
+	    apns =>
+		[{?'APN-EXAMPLE',
+		  [{vrf, sgi},
+		   {ip_pools, [<<"pool-A">>, <<"pool-B">>]}]},
+		 {[<<"exa">>, <<"mple">>, <<"net">>],
+		  [{vrf, sgi},
+		   {ip_pools, [<<"pool-A">>]}]},
+		 {[<<"APN1">>],
+		  [{vrf, sgi},
+		   {ip_pools, [<<"pool-A">>]}]},
+		 {[<<"APN2">>, <<"mnc001">>, <<"mcc001">>, <<"gprs">>],
+		  [{vrf, sgi},
+		   {ip_pools, [<<"pool-A">>]}]},
+		 {[<<"async-sx">>],
+		  [{vrf, sgi},
+		   {ip_pools, [<<"pool-A">>]}]}
+		 %% {'_', [{vrf, wildcard}]}
+		],
+
+	    charging =>
+		[{default,
+		  [{offline,
+		    [{triggers,
+		      [{'cgi-sai-change',            'container'},
+		       {'ecgi-change',               'container'},
+		       {'max-cond-change',           'cdr'},
+		       {'ms-time-zone-change',       'cdr'},
+		       {'qos-change',                'container'},
+		       {'rai-change',                'container'},
+		       {'rat-change',                'cdr'},
+		       {'sgsn-sgw-change',           'cdr'},
+		       {'sgsn-sgw-plmn-id-change',   'cdr'},
+		       {'tai-change',                'container'},
+		       {'tariff-switch-change',      'container'},
+		       {'user-location-info-change', 'container'}
+		      ]}
+		    ]},
+		   {rulebase,
+		    [{<<"r-0001">>,
+		      #{'Rating-Group' => [3000],
+			'Flow-Information' =>
+			    [#{'Flow-Description' => [<<"permit out ip from any to assigned">>],
+			       'Flow-Direction'   => [1]    %% DownLink
+			      },
+			     #{'Flow-Description' => [<<"permit out ip from any to assigned">>],
+			       'Flow-Direction'   => [2]    %% UpLink
+			      }],
+			'Metering-Method'  => [1],
+			'Precedence' => [100],
+			'Offline'  => [1]
+		       }},
+		     {<<"r-0002">>,
+		      #{'Rating-Group' => [4000],
+			'Flow-Information' =>
+			    [#{'Flow-Description' => [<<"permit out ip from any to assigned">>],
+			       'Flow-Direction'   => [1]    %% DownLink
+			      },
+			     #{'Flow-Description' => [<<"permit out ip from any to assigned">>],
+			       'Flow-Direction'   => [2]    %% UpLink
+			      }],
+			'Metering-Method'  => [1],
+			'Precedence' => [100],
+			'Offline'  => [1]
+		       }},
+		     {<<"m2m0001">>, [<<"r-0001">>]},
+		     {<<"m2m0002">>, [<<"r-0002">>]}
+		    ]}
+		  ]}
+		],
+
+	    upf_nodes =>
+		#{default =>
+		      [{vrfs,
+			[{cp, [{features, ['CP-Function']}]},
+			 {irx, [{features, ['Access']}]},
+			 {sgi, [{features, ['SGi-LAN']}]}
+			]},
+		       {ip_pools, [<<"pool-A">>]}],
+		  nodes =>
+		      [{<<"topon.sx.prox01.epc.mnc001.mcc001.3gppnetwork.org">>, [connect]},
+		       {<<"topon.sx.prox03.epc.mnc001.mcc001.3gppnetwork.org">>, [connect, {ip_pools, [<<"pool-B">>, <<"pool-C">>]}]}]
+		 }
+	   }
+	 },
 
 	 {ergw_aaa,
 	  [
@@ -297,13 +293,13 @@
 	 {[sockets, 'cp-socket', ip], localhost},
 	 {[sockets, 'irx-socket', ip], test_gsn},
 	 {[sockets, sx, ip], localhost},
-	 {[node_selection, {default, 2}, 2, <<"topon.s5s8.pgw.$ORIGIN">>],
+	 {[node_selection, {default, 2}, 2, <<"topon.s5s8.pgw.epc.mnc001.mcc001.3gppnetwork.org">>],
 	  {fun node_sel_update/2, final_gsn}},
-	 {[node_selection, {default, 2}, 2, <<"topon.sx.prox01.$ORIGIN">>],
+	 {[node_selection, {default, 2}, 2, <<"topon.sx.prox01.epc.mnc001.mcc001.3gppnetwork.org">>],
 	  {fun node_sel_update/2, pgw_u01_sx}},
-	 {[node_selection, {default, 2}, 2, <<"topon.sx.prox02.$ORIGIN">>],
+	 {[node_selection, {default, 2}, 2, <<"topon.sx.prox02.epc.mnc001.mcc001.3gppnetwork.org">>],
 	  {fun node_sel_update/2, sgw_u_sx}},
-	 {[node_selection, {default, 2}, 2, <<"topon.sx.prox03.$ORIGIN">>],
+	 {[node_selection, {default, 2}, 2, <<"topon.sx.prox03.epc.mnc001.mcc001.3gppnetwork.org">>],
 	  {fun node_sel_update/2, pgw_u02_sx}}
 	]).
 
