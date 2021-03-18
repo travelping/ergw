@@ -39,7 +39,7 @@ wait_till_ready() ->
     ok = gen_statem:call(?SERVER, wait_till_ready, infinity).
 
 wait_till_running() ->
-    ok = gen_statem:call(?SERVER, wait_till_ready, infinity).
+    ok = gen_statem:call(?SERVER, wait_till_running, infinity).
 
 is_ready() ->
     gen_statem:call(?SERVER, is_ready).

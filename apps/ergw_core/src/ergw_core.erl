@@ -9,10 +9,11 @@
 
 -compile({parse_transform, cut}).
 
--behavior(gen_server).
+-behavior(gen_statem).
 
 %% API
 -export([start_link/0, start_node/1, validate_options/1]).
+-export([wait_till_running/0, is_running/0]).
 -export([setopts/2,
 	 add_socket/2,
 	 add_handler/2,
@@ -25,9 +26,9 @@
 
 -ignore_xref([start_link/0, i/0, i/1, i/2]).
 
-%% gen_server callbacks
--export([init/1, handle_call/3, handle_cast/2, handle_info/2,
-	 terminate/2, code_change/3]).
+%% gen_statem callbacks
+-export([callback_mode/0, init/1, handle_event/4,
+	 terminate/3, code_change/4]).
 
 -include_lib("kernel/include/logger.hrl").
 -include("include/ergw.hrl").
@@ -45,15 +46,19 @@ start_node(Config) ->
     case ergw_cluster:is_ready() of
 	true ->
 	    Cnf = validate_options(Config),
-	    ok = load_config(Cnf),
-	    true = ets:insert(?SERVER, {state, is_running, true}),
-	    ok;
+	    gen_statem:call(?SERVER, {start, Cnf});
 	false ->
 	    {error, cluster_not_ready}
     end.
 
 start_link() ->
-    gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
+    gen_statem:start_link({local, ?SERVER}, ?MODULE, [], []).
+
+wait_till_running() ->
+    ok = gen_statem:call(?SERVER, wait_till_running, infinity).
+
+is_running() ->
+    gen_statem:call(?SERVER, is_running).
 
 %% get global PLMN Id (aka MCC/MNC)
 get_plmn_id() ->
@@ -292,37 +297,49 @@ validate_mcc_mcn(_, _) ->
 %%% gen_statem callbacks
 %%%===================================================================
 
+callback_mode() -> [handle_event_function].
+
 init([]) ->
     ets:new(?SERVER, [ordered_set, named_table, public,
 		      {keypos, 2}, {read_concurrency, true}]),
-    load_config(#{plmn_id => {<<"001">>, <<"001">>}, accept_new => false}),
-    {ok, state}.
+    load_config(ergw_core_config:to_map(?DefaultOptions)),
+    {ok, startup, data}.
 
-handle_call(Request, _From, State) ->
-    ?LOG(error, "handle_call: unknown ~p", [Request]),
-    {reply, ok, State}.
+handle_event({call, From}, wait_till_running, running, _Data) ->
+    {keep_state_and_data, [{reply, From, ok}]};
+handle_event({call, _From}, wait_till_running, _State, _Data) ->
+    {keep_state_and_data, [postpone]};
 
-handle_cast(Msg, State) ->
-    ?LOG(error, "handle_cast: unknown ~p", [Msg]),
-    {noreply, State}.
+handle_event({call, From}, is_running, State, _Data) ->
+    Reply = {reply, From, State == running},
+    {keep_state_and_data, [Reply]};
 
-handle_info(Info, State) ->
-    ?LOG(error, "handle_info: unknown ~p, ~p", [Info, State]),
-    {noreply, State}.
+handle_event({call, From}, {start, Config}, _State, Data) ->
+    load_config(Config),
+    true = ets:insert(?SERVER, {state, is_running, true}),
+    {next_state, running, Data, [{reply, From, ok}]};
 
-terminate(_Reason, _State) ->
+handle_event(Event, Info, _State, _Data) ->
+    ?LOG(error, "~p: ~w: handle_event(~p, ...): ~p", [self(), ?MODULE, Event, Info]),
+    keep_state_and_data.
+
+terminate(_Reason, _State, _Data) ->
     ok.
 
-code_change(_OldVsn, State, _Extra) ->
-    {ok, State}.
+code_change(_OldVsn, State, Data, _Extra) ->
+    {ok, State, Data}.
 
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
 
-load_config(#{plmn_id := {MCC, MNC}, accept_new := Value}) ->
+load_config(#{plmn_id := {MCC, MNC},
+	      node_id := NodeId,
+	      teid := TEID,
+	      accept_new := Value}) ->
     true = ets:insert(?SERVER, {config, plmn_id, MCC, MNC}),
     true = ets:insert(?SERVER, {config, accept_new, Value}),
+    application:set_env([{ergw_core, [{node_id, NodeId}, {teid, TEID}]}]),
     ok.
 
 when_running(Fun) ->
