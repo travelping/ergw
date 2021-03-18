@@ -19,7 +19,7 @@
 	 get_handler/2, info/1, sync_state/3]).
 
 %% Validate environment Variables
--export([validate_options/1]).
+-export([validate_options/1, setopts/1]).
 
 -ignore_xref([start_link/4,
 	      path_restart/2,
@@ -57,12 +57,26 @@ start_link(Socket, Version, RemoteIP, Args) ->
 	    {spawn_opt,[{fullsweep_after, 0}]}],
     gen_statem:start_link(?MODULE, [Socket, Version, RemoteIP, Args], Opts).
 
+setopts(Opts0) ->
+    Opts = validate_options(Opts0),
+    ergw_core_config:put(path_management, Opts).
+
+getopts() ->
+    case ergw_core_config:get([path_management], []) of
+	{ok, Opts0} = Args when is_map(Opts0) ->
+	    Args;
+	{ok, Opts0} when is_list(Opts0) ->
+	    Opts = validate_options(Opts0),
+	    ergw_core_config:put(path_management, Opts),
+	    {ok, Opts}
+    end.
+
 maybe_new_path(Socket, Version, RemoteIP) ->
     case get(Socket, Version, RemoteIP) of
 	Path when is_pid(Path) ->
 	    Path;
 	_ ->
-	    {ok, Args} = application:get_env(ergw_core, path_management),
+	    {ok, Args} = getopts(),
 	    {ok, Path} = gtp_path_sup:new_path(Socket, Version, RemoteIP, Args),
 	    Path
     end.

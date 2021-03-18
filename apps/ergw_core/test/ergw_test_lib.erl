@@ -82,7 +82,12 @@ lib_init_per_group(Config0) ->
     meck_init(Config),
     load_config(AppCfg),
     {ok, _} = application:ensure_all_started(ergw_core),
-    ergw_core:wait_till_ready(),
+    ergw_cluster:wait_till_ready(),
+    ergw_cluster:start([{enabled, false}]),
+    ergw_cluster:wait_till_running(),
+
+    CoreConfig = proplists:get_value(ergw_core, AppCfg),
+    ergw_core_init(CoreConfig),
 
     case proplists:get_value(upf, Config, true) of
 	true ->
@@ -106,12 +111,23 @@ lib_end_per_group(Config) ->
     ok = ergw_test_sx_up:stop('sgw-u'),
     ok = ergw_test_sx_up:stop('tdf-u'),
     ?config(table_owner, Config) ! stop,
-    [application:stop(App) || App <- [ranch, cowboy, ergw_core, ergw_aaa]],
+    [application:stop(App) || App <- [ranch, cowboy, ergw_core, ergw_aaa, ergw_cluster]],
+    ok.
+
+clear_app_env(App)
+  when App =:= ergw_core;
+       App =:= ergw_aaa ->
+    [application:unset_env(App, Par) || {Par, _} <- application:get_all_env(App)];
+clear_app_env(_) ->
     ok.
 
 load_config(AppCfg) when is_list(AppCfg) ->
     lists:foreach(
-      fun({App, Settings}) when is_list(Settings) ->
+      fun({ergw_core, _}) ->
+	      clear_app_env(ergw_core),
+	      ok;
+	 ({App, Settings}) when is_list(Settings) ->
+	      clear_app_env(App),
 	      lists:foreach(
 		fun({logger, V})
 		      when App =:= kernel, is_list(V) ->
@@ -135,6 +151,7 @@ load_config(AppCfg) when is_list(AppCfg) ->
 			application:set_env(App, K, V)
 		end, Settings);
 	 ({App, Settings}) when is_map(Settings) ->
+	      clear_app_env(App),
 	      maps:foreach(fun(K,V) -> application:set_env(App, K, V) end, Settings)
       end, AppCfg),
     ok.
@@ -187,8 +204,86 @@ update_app_config(Group, CfgUpd, Config0) ->
 	  fun({AppKey, CfgKey}, AppCfg) ->
 		  set_cfg_value([ergw_core] ++ AppKey, update_app_cfgkey(CfgKey, Config), AppCfg)
 	  end, AppCfg0, CfgUpd),
-    ergw_core_config:validate_config(proplists:get_value(ergw_core, AppCfg1)),
-    lists:keystore(app_cfg, 1, Config, {app_cfg, AppCfg1}).
+    CoreCfg = validate_core_config(proplists:get_value(ergw_core, AppCfg1)),
+    AppCfg = lists:keystore(ergw_core, 1, AppCfg1, {ergw_core, CoreCfg}),
+    lists:keystore(app_cfg, 1, Config, {app_cfg, AppCfg}).
+
+ergw_core_init(Config) ->
+    Init = [node, wait_till_running, path_management, node_selection,
+	    sockets, upf_nodes, handlers, ip_pools, apns, charging, proxy_map],
+    lists:foreach(ergw_core_init(_, Config), Init).
+
+ergw_core_init(node, #{node := Node}) ->
+    ergw_core:start_node(Node);
+ergw_core_init(wait_till_running, _) ->
+    ergw_core:wait_till_running();
+ergw_core_init(path_management, #{path_management := NodeSel}) ->
+    ok = ergw_core:setopts(path_management, NodeSel);
+ergw_core_init(node_selection, #{node_selection := NodeSel}) ->
+    ok = ergw_core:setopts(node_selection, NodeSel);
+ergw_core_init(sockets, #{sockets := Sockets}) ->
+    maps:map(fun ergw_core:add_socket/2, Sockets);
+ergw_core_init(upf_nodes, #{upf_nodes := UP}) ->
+    ergw_core:setopts(sx_defaults, maps:get(default, UP, #{})),
+    maps:map(fun ergw_core:add_sx_node/2, maps:get(nodes, UP, #{}));
+ergw_core_init(handlers, #{handlers := Handlers}) ->
+    maps:map(fun ergw_core:add_handler/2, Handlers);
+ergw_core_init(ip_pools, #{ip_pools := Pools}) ->
+    maps:map(fun ergw_core:add_ip_pool/2, Pools);
+ergw_core_init(apns, #{apns := APNs}) ->
+    maps:map(fun ergw_core:add_apn/2, APNs);
+ergw_core_init(charging, #{charging := Charging}) ->
+    ok = ergw_core:setopts(charging, Charging);
+ergw_core_init(proxy_map, #{proxy_map := Map}) ->
+    ok = ergw_core:setopts(proxy_map, Map);
+ergw_core_init(_, _) ->
+    ok.
+
+%%%===================================================================
+%%% Options Validation
+%%%===================================================================
+
+-define(is_opts(X), (is_list(X) orelse is_map(X))).
+-define(non_empty_opts(X), ((is_list(X) andalso length(X) /= 0) orelse
+			    (is_map(X) andalso map_size(X) /= 0))).
+
+%% make sure that our test config passes validation before applying it
+validate_core_config(Config) ->
+    ergw_core_config:validate_options(fun validate_option/2, Config, []).
+
+validate_option(node, Value) when ?is_opts(Value) ->
+    ergw_core:validate_options(Value);
+validate_option(sockets, Value) when ?is_opts(Value) ->
+    ergw_core_config:validate_options(fun ergw_socket:validate_options/2, Value, []);
+validate_option(handlers, Value) when ?non_empty_opts(Value) ->
+    ergw_core_config:validate_options(fun ergw_context:validate_options/2, Value, []);
+validate_option(node_selection, Values) when ?is_opts(Values) ->
+    ergw_node_selection:validate_options(Values);
+validate_option(upf_nodes, Values) when ?is_opts(Values) ->
+    ergw_core_config:validate_options(fun validate_upf_nodes/2, Values, [{default, #{}}, {nodes, #{}}]);
+validate_option(ip_pools, Value) when ?is_opts(Value) ->
+    ergw_core_config:validate_options(fun ergw_ip_pool:validate_options/2, Value, []);
+validate_option(apns, Value) when ?is_opts(Value) ->
+    ergw_core_config:validate_options(fun ergw_apn:validate_options/1, Value, []);
+validate_option(charging, Opts)
+  when ?non_empty_opts(Opts) ->
+    ergw_charging:validate_options(Opts);
+validate_option(proxy_map, Opts) ->
+    gtp_proxy_ds:validate_options(Opts);
+validate_option(path_management, Opts) when ?is_opts(Opts) ->
+    gtp_path:validate_options(Opts);
+validate_option(metrics, Opts) ->
+    ergw_prometheus:validate_options(Opts);
+validate_option(Opt, Value) ->
+    erlang:error(badarg, [Opt, Value]).
+
+validate_upf_nodes(default, Values) ->
+    ergw_sx_node:validate_defaults(Values);
+validate_upf_nodes(nodes, Nodes) ->
+    ergw_core_config:validate_options(
+      fun ergw_sx_node:validate_options/2, Nodes, []);
+validate_upf_nodes(Opt, Value) ->
+    erlang:error(badarg, [Opt, Value]).
 
 %%%===================================================================
 %%% Meck functions for fake the GTP sockets

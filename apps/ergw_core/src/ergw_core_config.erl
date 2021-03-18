@@ -14,7 +14,8 @@
 	 mandatory_keys/2,
 	 check_unique_elements/2,
 	 validate_ip_cfg_opt/2,
-	 to_map/1
+	 to_map/1,
+	 get/2, put/2
 	]).
 
 -define(is_opts(X), (is_list(X) orelse is_map(X))).
@@ -39,6 +40,28 @@ to_map(L) when is_list(L) ->
 	 (Opt, _) ->
 	      erlang:error(badarg, [Opt])
       end, #{}, normalize_proplists(L)).
+
+get([Key|Next], Default) ->
+    case application:get_env(ergw_core, Key) of
+	{ok, Config} ->
+	    get(Next, Config, Default);
+	undefined when Next =:= [] ->
+	    {ok, Default};
+	undefined ->
+	    undefined
+    end.
+
+get([], Config, _) ->
+    {ok, Config};
+get([K|Next], Config, Default) when is_map_key(K, Config) ->
+    get(Next, maps:get(K, Config), Default);
+get([_], _, Default) ->
+    {ok, Default};
+get(_, _, _) ->
+    undefined.
+
+put(Key, Val) ->
+    ok = application:set_env(ergw_core, Key, Val).
 
 %%%===================================================================
 %%% Options Validation

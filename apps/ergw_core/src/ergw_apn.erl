@@ -7,8 +7,39 @@
 
 -module(ergw_apn).
 
--export([validate_options/1,
+-compile({no_auto_import,[get/1]}).
+
+-export([add/2, get/1, get/2,
+	 validate_options/1,
 	 validate_apn_name/1]).
+
+-include("include/ergw.hrl").
+
+%%====================================================================
+%% API
+%%====================================================================
+
+add(Name0, Opts0) ->
+    {Name, Opts} = ergw_apn:validate_options({Name0, Opts0}),
+    {ok, APNs} = ergw_core_config:get([apns], #{}),
+    ergw_core_config:put(apns, maps:put(Name, Opts, APNs)).
+
+get(APN) ->
+    {ok, APNs} = ergw_core_config:get([apns], #{}),
+    get(APN, APNs).
+
+get([H|_] = APN0, APNs) when is_binary(H) ->
+    APN = gtp_c_lib:normalize_labels(APN0),
+    {NI, OI} = ergw_node_selection:split_apn(APN),
+    FqAPN = NI ++ OI,
+    case APNs of
+	#{FqAPN := A} -> {ok, A};
+	#{NI :=    A} -> {ok, A};
+	#{'_' :=   A} -> {ok, A};
+	_ -> {error, ?CTX_ERR(?FATAL, missing_or_unknown_apn)}
+    end;
+get(_, _) ->
+    {error, ?CTX_ERR(?FATAL, missing_or_unknown_apn)}.
 
 %%%===================================================================
 %%% Options Validation

@@ -80,17 +80,23 @@ groups() ->
     [].
 
 init_per_suite(Config) ->
-    application:load(ergw_core),
-    application:set_env(ergw_core, node_selection, ?ERGW_NODE_SELECTION),
-    {ok, Pid} = ergw_inet_res:start(),
-    ok = meck:new(ergw_core, [passthrough, no_link]),
-    ok = meck:expect(ergw_core, get_plmn_id, fun() -> {<<"001">>, <<"01">>} end),
-    [{cache_server, Pid} | Config].
+    Node = [{node_id, <<"node">>}],
 
-end_per_suite(Config) ->
-    meck:unload(ergw_core),
-    Pid = proplists:get_value(cache_server, Config),
-    exit(Pid, kill),
+    {ok, _} = application:ensure_all_started(ergw_core),
+
+    ergw_cluster:wait_till_ready(),
+    ergw_cluster:start([{enabled, false}]),
+    ergw_cluster:wait_till_running(),
+
+    ergw_core:start_node(Node),
+    ergw_core:wait_till_running(),
+
+    ok = ergw_core:setopts(node_selection, ?ERGW_NODE_SELECTION),
+
+    Config.
+
+end_per_suite(_Config) ->
+    [application:stop(App) || App <- [ranch, cowboy, ergw_core, ergw_aaa, ergw_cluster]],
     ok.
 
 %%%===================================================================

@@ -14,10 +14,11 @@
 
 %% API
 -export([request_connect/3, request_connect/5, wait_connect/1,
-	 attach/1, attach_tdf/2, notify_up/2]).
+	 attach/1, attach_tdf/2, notify_up/2,
+	 set_defaults/1, add_sx_node/2]).
 -export([start_link/5, send/4, call/2,
 	 handle_request/3, response/3]).
--export([validate_options/1]).
+-export([validate_options/2, validate_defaults/1]).
 -ifdef(TEST).
 -export([test_cmd/2]).
 -endif.
@@ -145,15 +146,45 @@ handle_request_fun(ReqKey, #pfcp{type = session_report_request} = Report) ->
     ergw_sx_socket:send_response(ReqKey, Response, true),
     ok.
 
+set_defaults(Opts0) ->
+    Opts = ergw_sx_node:validate_defaults(Opts0),
+    ergw_core_config:put(up_node_defaults, Opts).
+
+add_sx_node(Name, Opts0) ->
+    Opts = validate_options(Name, Opts0),
+    {ok, Nodes} = ergw_core_config:get([nodes], #{}),
+    ergw_core_config:put(nodes, maps:put(Name, Opts, Nodes)),
+    {ok, Defaults} = ergw_core_config:get([up_node_defaults], #{connect => false}),
+    connect_sx_node(Name, maps:merge(Defaults, Opts)).
+
+%%
+%% connect UPF node
+%%
+connect_sx_node(_Node, #{connect := false}) ->
+    ok;
+connect_sx_node(Node, #{raddr := IP4} = _Opts) when tuple_size(IP4) =:= 4 ->
+    ergw_sx_node_mngr:connect(Node, default, [IP4], []);
+connect_sx_node(Node, #{raddr := IP6} = _Opts) when tuple_size(IP6) =:= 8 ->
+    ergw_sx_node_mngr:connect(Node, default, [], [IP6]);
+connect_sx_node(Node, #{node_selection := NodeSelect} = Opts) ->
+    case ergw_node_selection:lookup(Node, NodeSelect) of
+	{_, IP4, IP6} ->
+	    ergw_sx_node_mngr:connect(Node, NodeSelect, IP4, IP6);
+	_Other ->
+	    %% TBD
+	    {error, {badarg, [Node, Opts]}}
+    end.
+
 %%%===================================================================
 %%% Options Validation
 %%%===================================================================
 
+-define(NodeDefaults, [{connect, false}]).
 -define(VrfDefaults, [{features, invalid}]).
--define(DefaultsNodesDefaults, [{vrfs, invalid},
-    {node_selection, default},
-    {heartbeat, []},
-    {request, []}]).
+-define(Defaults, [{vrfs, invalid},
+		   {node_selection, default},
+		   {heartbeat, []},
+		   {request, []}]).
 
 -define(NodeDefaultHeartbeat, [{interval, 5000}, {timeout, 500}, {retry, 5}]).
 -define(NodeDefaultRequest, [{timeout, 30000}, {retry, 5}]).
@@ -161,15 +192,6 @@ handle_request_fun(ReqKey, #pfcp{type = session_report_request} = Report) ->
 -define(is_opts(X), (is_list(X) orelse is_map(X))).
 -define(non_empty_opts(X), ((is_list(X) andalso length(X) /= 0) orelse
 			    (is_map(X) andalso map_size(X) /= 0))).
-
-validate_options(Values) when is_map(Values) ->
-    Defaults = validate_default_node(maps:get(default, Values, [])),
-    NodeDefaults = Defaults#{connect => false},
-    Opts = ergw_core_config:validate_options(
-	     validate_nodes(_, _, NodeDefaults), maps:remove(default, Values), []),
-    Opts#{default => Defaults};
-validate_options(Values) when is_list(Values) ->
-    validate_options(ergw_core_config:to_map(Values)).
 
 validate_node_vrf_option(features, Features)
   when is_list(Features), length(Features) /= 0 ->
@@ -244,16 +266,16 @@ validate_node_option(rport, Port) when is_integer(Port) ->
 validate_node_option(Opt, Values) ->
     validate_node_default_option(Opt, Values).
 
-validate_default_node(Opts) when ?is_opts(Opts) ->
+validate_defaults(Opts) when ?is_opts(Opts) ->
     ergw_core_config:validate_options(
-      fun validate_node_default_option/2, Opts, ?DefaultsNodesDefaults);
-validate_default_node(Opts) ->
+      fun validate_node_default_option/2, Opts, ?Defaults);
+validate_defaults(Opts) ->
     erlang:error(badarg, [nodes, default, Opts]).
 
-validate_nodes(Name, Opts, Defaults)
+validate_options(Name, Opts)
   when is_binary(Name), ?is_opts(Opts) ->
-    ergw_core_config:validate_options(fun validate_node_option/2, Opts, Defaults);
-validate_nodes(Opt, Values, _) ->
+    ergw_core_config:validate_options(fun validate_node_option/2, Opts, ?NodeDefaults);
+validate_options(Opt, Values) ->
     erlang:error(badarg, [Opt, Values]).
 
 %%====================================================================
@@ -298,10 +320,11 @@ init([Parent, Node, NodeSelect, IP4, IP6, NotifyUp]) ->
 	 #seid_key{seid = SEID}],
     gtp_context_reg:register(RegKeys, ?MODULE, self()),
 
-    Nodes = setup:get_env(ergw_core, nodes, #{}),
-    Cfg = maps:get(Node, Nodes, maps:get(default, Nodes, #{})),
+    {ok, Default} = ergw_core_config:get([up_node_defaults], #{}),
+    {ok, Cfg} = ergw_core_config:get([nodes, Node], Default),
+
     IP = select_node_ip(IP4, IP6),
-    Data0 = #data{cfg = Cfg,
+    Data0 = #data{cfg = maps:merge(Default, Cfg),
 		  mode = mode(Cfg),
 		  node_select = NodeSelect,
 		  retries = 0,

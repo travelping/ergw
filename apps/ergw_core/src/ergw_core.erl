@@ -18,11 +18,16 @@
 	 add_socket/2,
 	 add_handler/2,
 	 add_ip_pool/2,
-	 add_sx_node/2]).
+	 add_sx_node/2,
+	 add_apn/2]).
 -export([handler/2]).
--export([get_plmn_id/0, get_node_id/0, get_accept_new/0]).
+-export([get_plmn_id/0, get_node_id/0, get_accept_new/0, get_teid_config/0]).
 -export([system_info/0, system_info/1, system_info/2]).
 -export([i/0, i/1, i/2]).
+
+-ifdef(TEST).
+-export([start/0]).
+-endif.
 
 -ignore_xref([start_link/0, i/0, i/1, i/2]).
 
@@ -51,6 +56,11 @@ start_node(Config) ->
 	    {error, cluster_not_ready}
     end.
 
+-ifdef(TEST).
+start() ->
+    gen_statem:start({local, ?SERVER}, ?MODULE, [], []).
+-endif.
+
 start_link() ->
     gen_statem:start_link({local, ?SERVER}, ?MODULE, [], []).
 
@@ -69,6 +79,9 @@ get_node_id() ->
     Id.
 get_accept_new() ->
     [{config, accept_new, Value}] = ets:lookup(?SERVER, accept_new),
+    Value.
+get_teid_config() ->
+    {ok, Value} = application:get_env(ergw_core, teid),
     Value.
 
 system_info() ->
@@ -90,37 +103,42 @@ system_info(accept_new, New) when is_boolean(New) ->
 system_info(Key, Value) ->
     error(badarg, [Key, Value]).
 
-setopts(Opt, Value) ->
-    when_running(
-      fun() -> do_setopts(Opt, Value) end).
-
-do_setopts(node_selection, Opts) ->
-    ergw_inet_res:load_config(Opts).
+setopts(node_selection = What, Opts0) ->
+    Opts = ergw_node_selection:validate_options(Opts0),
+    gen_statem:call(?SERVER, {setopts, What, Opts});
+setopts(sx_defaults = What, Opts0) ->
+    Opts = ergw_sx_node:validate_defaults(Opts0),
+    gen_statem:call(?SERVER, {setopts, What, Opts});
+setopts(path_management = What, Opts0) ->
+    Opts = gtp_path:validate_options(Opts0),
+    gen_statem:call(?SERVER, {setopts, What, Opts});
+setopts(charging = What, Opts0) ->
+    Opts = ergw_charging:validate_options(Opts0),
+    gen_statem:call(?SERVER, {setopts, What, Opts});
+setopts(proxy_map = What, Opts0) ->
+    Opts = gtp_proxy_ds:validate_options(Opts0),
+    gen_statem:call(?SERVER, {setopts, What, Opts}).
 
 %%
 %% Initialize a new PFCP, GTPv1/v2-c or GTPv1-u socket
 %%
 add_socket(Name, Opts0) ->
     Opts = ergw_socket:validate_options(Name, Opts0),
-    when_running(
-      fun() -> ergw_socket:add_socket(Name, Opts) end).
+    gen_statem:call(?SERVER, {add_socket, Name, Opts}).
 
 %%
 %% add a protocol handler
 %%
 add_handler(Name, Opts0) ->
     Opts = ergw_context:validate_options(Name, Opts0),
-    when_running(
-      fun() -> do_add_handler(Name, Opts) end).
+    gen_statem:call(?SERVER, {add_handler, Name, Opts}).
 
-do_add_handler(_Name, #{protocol := ip, nodes := Nodes} = Opts0) ->
-    Opts = maps:without([protocol, nodes], Opts0),
+do_add_handler(_Name, #{protocol := ip, nodes := Nodes} = Opts) ->
     lists:foreach(attach_tdf(_, Opts), Nodes);
 
 do_add_handler(Name, #{handler  := Handler,
-		    protocol := Protocol,
-		    sockets  := Sockets} = Opts0) ->
-    Opts = maps:without([handler, sockets], Opts0),
+		       protocol := Protocol,
+		       sockets  := Sockets} = Opts) ->
     lists:foreach(attach_protocol(_, Name, Protocol, Handler, Opts), Sockets).
 
 %%
@@ -128,18 +146,21 @@ do_add_handler(Name, #{handler  := Handler,
 %%
 add_ip_pool(Name, Opts0) ->
     Opts = ergw_ip_pool:validate_options(Name, Opts0),
-    when_running(
-      fun() -> ergw_ip_pool:start_ip_pool(Name, Opts) end).
+    gen_statem:call(?SERVER, {add_ip_pool, Name, Opts}).
 
+%%
+%% add a new UP node
+%%
 add_sx_node(Name, Opts0) ->
-    Opts = ergw_sx_node:validate_options(Opts0),
-    when_running(
-      fun() -> do_add_sx_node(Name, Opts) end).
+    Opts = ergw_sx_node:validate_options(Name, Opts0),
+    gen_statem:call(?SERVER, {add_sx_node, Name, Opts}).
 
-do_add_sx_node(default, _) ->
-    ok;
 do_add_sx_node(Name, Opts) ->
-    connect_sx_node(Name, Opts).
+    ergw_sx_node:add_sx_node(Name, Opts).
+
+add_apn(Name0, Opts0) ->
+    {Name, Opts} = ergw_apn:validate_options({Name0, Opts0}),
+    gen_statem:call(?SERVER, {add_apn, Name, Opts}).
 
 %%
 %% start a TDF instance
@@ -169,24 +190,6 @@ attach_tdf(SxNode, #{node_selection := NodeSelections} = Opts, _, true) ->
 		 end
 	 end)(NodeSelections),
     attach_tdf(SxNode, Opts, Result, false).
-
-%%
-%% connect UPF node
-%%
-connect_sx_node(_Node, #{connect := false}) ->
-    ok;
-connect_sx_node(Node, #{raddr := IP4} = _Opts) when tuple_size(IP4) =:= 4 ->
-    ergw_sx_node_mngr:connect(Node, default, [IP4], []);
-connect_sx_node(Node, #{raddr := IP6} = _Opts) when tuple_size(IP6) =:= 8 ->
-    ergw_sx_node_mngr:connect(Node, default, [], [IP6]);
-connect_sx_node(Node, #{node_selection := NodeSelect} = Opts) ->
-    case ergw_node_selection:lookup(Node, NodeSelect) of
-	{_, IP4, IP6} ->
-	    ergw_sx_node_mngr:connect(Node, NodeSelect, IP4, IP6);
-	_Other ->
-	    %% TBD:
-	    erlang:error(badarg, [Node, Opts])
-    end.
 
 %%
 %% attach a GTP protocol (Gn, S5, S2a...) to a socket
@@ -319,6 +322,49 @@ handle_event({call, From}, {start, Config}, _State, Data) ->
     true = ets:insert(?SERVER, {state, is_running, true}),
     {next_state, running, Data, [{reply, From, ok}]};
 
+handle_event({call, From}, {add_socket, Name, Opts}, running, _) ->
+    Reply = ergw_socket:add_socket(Name, Opts),
+    {keep_state_and_data, [{reply, From, Reply}]};
+
+handle_event({call, From}, {add_handler, Name, Opts}, running, _) ->
+    Reply = do_add_handler(Name, Opts),
+    {keep_state_and_data, [{reply, From, Reply}]};
+
+handle_event({call, From}, {add_ip_pool, Name, Opts}, running, _) ->
+    Reply = ergw_ip_pool:start_ip_pool(Name, Opts),
+    {keep_state_and_data, [{reply, From, Reply}]};
+
+handle_event({call, From}, {add_sx_node, Name, Opts}, running, _) ->
+    Reply = do_add_sx_node(Name, Opts),
+    {keep_state_and_data, [{reply, From, Reply}]};
+
+handle_event({call, From}, {add_apn, Name, Opts}, running, _) ->
+    Reply = ergw_apn:add(Name, Opts),
+    {keep_state_and_data, [{reply, From, Reply}]};
+
+handle_event({call, From}, {setopts, node_selection, Opts}, running, _) ->
+    Reply = ergw_inet_res:load_config(Opts),
+    {keep_state_and_data, [{reply, From, Reply}]};
+
+handle_event({call, From}, {setopts, sx_defaults, Opts}, running, _) ->
+    Reply = ergw_sx_node:set_defaults(Opts),
+    {keep_state_and_data, [{reply, From, Reply}]};
+
+handle_event({call, From}, {setopts, path_management, Opts}, running, _) ->
+    Reply = gtp_path:setopts(Opts),
+    {keep_state_and_data, [{reply, From, Reply}]};
+
+handle_event({call, From}, {setopts, charging, Opts}, running, _) ->
+    Reply = ergw_charging:setopts(Opts),
+    {keep_state_and_data, [{reply, From, Reply}]};
+
+handle_event({call, From}, {setopts, proxy_map, Opts}, running, _) ->
+    Reply = gtp_proxy_ds:setopts(Opts),
+    {keep_state_and_data, [{reply, From, Reply}]};
+
+handle_event({call, From}, _, State, _) when State /= running ->
+    {keep_state_and_data, [{reply, From, {error, node_not_running}}]};
+
 handle_event(Event, Info, _State, _Data) ->
     ?LOG(error, "~p: ~w: handle_event(~p, ...): ~p", [self(), ?MODULE, Event, Info]),
     keep_state_and_data.
@@ -341,11 +387,3 @@ load_config(#{plmn_id := {MCC, MNC},
     true = ets:insert(?SERVER, {config, accept_new, Value}),
     application:set_env([{ergw_core, [{node_id, NodeId}, {teid, TEID}]}]),
     ok.
-
-when_running(Fun) ->
-    case ets:lookup(?SERVER, is_running) of
-	[{state, is_running, true}] ->
-	    Fun();
-	_ ->
-	    {error, node_not_running}
-    end.

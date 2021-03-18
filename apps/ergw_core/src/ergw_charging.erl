@@ -8,6 +8,7 @@
 -module(ergw_charging).
 
 -export([validate_options/1,
+	 setopts/1,
 	 reporting_triggers/0,
 	 is_charging_event/2,
 	 is_enabled/1,
@@ -157,34 +158,42 @@ validate_charging_options(Key, Opts) ->
 %%% API
 %%%===================================================================
 
-config() ->
-    %% TODO: use APN, VPLMN, HPLMN and Charging Characteristics
-    %%       to select config
-    case application:get_env(ergw_core, charging) of
-	{ok, #{default := Cfg}} -> Cfg;
-	_ -> #{}
+setopts(Opts0) ->
+    Opts = validate_options(Opts0),
+    ergw_core_config:put(charging, Opts).
+
+%% TODO: use APN, VPLMN, HPLMN and Charging Characteristics
+%%       to select config
+getopts() ->
+    case ergw_core_config:get([charging, default], []) of
+	{ok, Opts0} when is_map(Opts0) ->
+	    Opts0;
+	{ok, Opts0} when is_list(Opts0) ->
+	    Opts = validate_options(Opts0),
+	    ergw_core_config:put(charging, Opts),
+	    Opts
     end.
 
 reporting_triggers() ->
     Triggers =
 	maps:get(triggers,
-		 maps:get(offline, config(), #{}), #{}),
+		 maps:get(offline, getopts(), #{}), #{}),
     maps:map(
       fun(_Key, Cond) -> Cond /= 'off' end, Triggers).
 
 is_charging_event(offline, Evs) ->
     Filter =
 	maps:get(triggers,
-		 maps:get(offline, config(), #{}), #{}),
+		 maps:get(offline, getopts(), #{}), #{}),
     is_offline_charging_event(Evs, Filter);
 is_charging_event(online, _) ->
     true.
 
 is_enabled(Type = offline) ->
-    maps:get(enable, maps:get(Type, config(), #{}), true).
+    maps:get(enable, maps:get(Type, getopts(), #{}), true).
 
 rulebase() ->
-    maps:get(rulebase, config(), #{}).
+    maps:get(rulebase, getopts(), #{}).
 
 %%%===================================================================
 %%% Helper functions

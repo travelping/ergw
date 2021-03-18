@@ -161,17 +161,17 @@ end_per_suite(_Config) ->
     ok.
 
 init_per_group(static, Config) ->
-    application:set_env(ergw_core, node_selection, ?ERGW_NODE_SELECTION),
     {ok, Pid} = ergw_inet_res:start(),
+    ok = ergw_inet_res:load_config(?ERGW_NODE_SELECTION),
     ok = meck:new(ergw_node_selection, [passthrough, no_link]),
     [{cache_server, Pid} | Config];
 init_per_group(dns, Config) ->
     case os:getenv("CI_DNS_SERVER") of
 	Server when is_list(Server) ->
+	    {ok, Pid} = ergw_inet_res:start(),
 	    {ok, ServerIP} = inet:parse_address(Server),
 	    NodeSelection = #{default => {dns, {ServerIP, 53}}},
-	    application:set_env(ergw_core, node_selection, NodeSelection),
-	    {ok, Pid} = ergw_inet_res:start(),
+	    ok = ergw_inet_res:load_config(NodeSelection),
 	    [{cache_server, Pid} | Config];
 	false ->
 	    {skip, "DNS test server not configured"}

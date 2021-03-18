@@ -127,7 +127,7 @@ alloc_tei(From, Name, KeyFun, Cnt, RndState0, State, Data0) ->
     end.
 
 maybe_update_data(#data{prefix = undefined, prefix_len = undefined} = Data) ->
-    {ok, {Prefix, PrefixLen}} = application:get_env(ergw_core, teid),
+    {Prefix, PrefixLen} = ergw_core:get_teid_config(),
     Data#data{prefix = Prefix, prefix_len = PrefixLen};
 maybe_update_data(Data) ->
     Data.

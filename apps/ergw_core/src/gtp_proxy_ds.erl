@@ -10,7 +10,11 @@
 -behaviour(gen_server).
 
 %% API
--export([start_link/0, map/1, map/2, validate_options/1]).
+-export([start_link/0, map/1, map/2, validate_options/1, setopts/1]).
+
+-ifdef(TEST).
+-export([start/0]).
+-endif.
 
 -ignore_xref([start_link/0, map/1, map/2]).
 
@@ -31,6 +35,15 @@
 
 start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
+
+-ifdef(TEST).
+start() ->
+    gen_server:start({local, ?SERVER}, ?MODULE, [], []).
+-endif.
+
+setopts(Opts0) ->
+    Opts = validate_options(Opts0),
+    gen_server:call(?SERVER, {setopts, Opts}).
 
 map(ProxyInfo) ->
     gen_server:call(?SERVER, {map, ProxyInfo}).
@@ -83,8 +96,13 @@ validate_option(Opt, Value) ->
 %%%===================================================================
 
 init([]) ->
-    State = validate_options(application:get_env(?App, proxy_map, #{})),
+    {ok, Opts} = ergw_core_config:get([proxy_map], []),
+    State = validate_options(Opts),
     {ok, State}.
+
+handle_call({setopts, Opts}, _From, _) ->
+    State = validate_options(Opts),
+    {reply, ok, State};
 
 handle_call({map, #{imsi := IMSI, apn := APN} = PI0}, _From, State) ->
     PI1 =
@@ -97,7 +115,7 @@ handle_call({map, #{imsi := IMSI, apn := APN} = PI0}, _From, State) ->
 		PI0
 	end,
     PI =
-	case ergw_gsn_lib:apn(APN, maps:get(apn, State, undefined)) of
+	case ergw_apn:get(APN, maps:get(apn, State, undefined)) of
 	    {ok, DstAPN} -> PI1#{apn => DstAPN};
 	    {error, _}   -> PI1
 	end,

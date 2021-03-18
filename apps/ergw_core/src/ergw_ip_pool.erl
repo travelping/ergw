@@ -37,8 +37,10 @@
 %% API
 %%====================================================================
 
-start_ip_pool(Name, Opts) ->
-    with_pool(Name, fun(Handler) -> apply(Handler, ?FUNCTION_NAME, [Name, Opts]) end).
+start_ip_pool(Name, #{handler := Handler} = Opts) ->
+    {ok, Pools} = ergw_core_config:get([ip_pools], #{}),
+    ergw_core_config:put(ip_pools, maps:put(Name, Opts, Pools)),
+    Handler:start_ip_pool(Name, Opts).
 
 send_request(ClientId, Requests) ->
     [send_pool_request(ClientId, R) || R <- Requests].
@@ -107,8 +109,8 @@ static_ip_info(opts,   _) -> #{};
 static_ip_info(release, _) -> ok.
 
 with_pool(Pool, Fun) ->
-    case application:get_env(ip_pools) of
-	{ok, #{Pool := #{handler := Handler}}} ->
+    case ergw_core_config:get([ip_pools, Pool], undefined) of
+	{ok, #{handler := Handler}} ->
 	    Fun(Handler);
 	_ ->
 	    {error, not_found}

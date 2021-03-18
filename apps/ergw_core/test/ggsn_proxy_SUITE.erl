@@ -40,178 +40,176 @@
 	    ]}
 	  ]},
 
-	 {ergw_core, [{'$setup_vars',
-		  [{"ORIGIN", {value, "epc.mnc001.mcc001.3gppnetwork.org"}},
-		   {"HOMECC", {value, "epc.mnc000.mcc700.3gppnetwork.org"}}]},
-		 {node_id, <<"GGSN">>},
-		 {sockets,
-		  [{cp, [{type, 'gtp-u'},
-			 {ip, ?MUST_BE_UPDATED},
-			 {reuseaddr, true}
-			]},
-		   {irx, [{type, 'gtp-c'},
-			  {ip,  ?MUST_BE_UPDATED},
-			  {reuseaddr, true}
-			 ]},
-		   {'proxy-irx', [{type, 'gtp-c'},
-				  {ip,  ?MUST_BE_UPDATED},
+	 {ergw_core,
+	  #{node =>
+		[{node_id, <<"GGSN">>}],
+	    sockets =>
+		[{cp, [{type, 'gtp-u'},
+		       {ip, ?MUST_BE_UPDATED},
+		       {reuseaddr, true}
+		      ]},
+		 {irx, [{type, 'gtp-c'},
+			{ip,  ?MUST_BE_UPDATED},
+			{reuseaddr, true}
+		       ]},
+		 {'proxy-irx', [{type, 'gtp-c'},
+				{ip,  ?MUST_BE_UPDATED},
+				{reuseaddr, true}
+			       ]},
+		 {'remote-irx', [{type, 'gtp-c'},
+				 {ip,  ?MUST_BE_UPDATED},
+				 {reuseaddr, true}
+				]},
+		 {'remote-irx2', [{type, 'gtp-c'},
+				  {ip, ?MUST_BE_UPDATED},
 				  {reuseaddr, true}
 				 ]},
-		   {'remote-irx', [{type, 'gtp-c'},
-				   {ip,  ?MUST_BE_UPDATED},
-				   {reuseaddr, true}
-				  ]},
-		   {'remote-irx2', [{type, 'gtp-c'},
-				    {ip, ?MUST_BE_UPDATED},
-				    {reuseaddr, true}
-				   ]},
 
-		   {sx, [{type, 'pfcp'},
-			 {socket, cp},
-			 {ip, ?MUST_BE_UPDATED},
-			 {reuseaddr, true}
-			]}
-		  ]},
-
-		 {ip_pools,
-		  [{<<"pool-A">>, [{ranges,  [{?IPv4PoolStart, ?IPv4PoolEnd, 32},
-					  {?IPv6PoolStart, ?IPv6PoolEnd, 64},
-					  {?IPv6HostPoolStart, ?IPv6HostPoolEnd, 128}]},
-			       {'MS-Primary-DNS-Server', {8,8,8,8}},
-			       {'MS-Secondary-DNS-Server', {8,8,4,4}},
-			       {'MS-Primary-NBNS-Server', {127,0,0,1}},
-			       {'MS-Secondary-NBNS-Server', {127,0,0,1}},
-			       {'DNS-Server-IPv6-Address',
-				[{16#2001, 16#4860, 16#4860, 0, 0, 0, 0, 16#8888},
-				 {16#2001, 16#4860, 16#4860, 0, 0, 0, 0, 16#8844}]}
-			      ]}
-		  ]},
-
-		 {handlers,
-		  %% proxy handler
-		  #{gn =>
-			[{handler, ?HUT},
-			 {protocol, gn},
-			 {sockets, [irx]},
-			 {proxy_sockets, ['proxy-irx']},
-			 {node_selection, [default]},
-			 {contexts,
-			  [{<<"ams">>,
-			      [{proxy_sockets, ['proxy-irx']}]}]}
-			],
-		    %% remote GGSN handler
-		    'gn-remote' =>
-			[{handler, ggsn_gn},
-			 {protocol, gn},
-			 {sockets, ['remote-irx', 'remote-irx2']},
-			 {node_selection, [default]},
-			 {aaa, [{'Username',
-				 [{default, ['IMSI', <<"@">>, 'APN']}]}]}
-			]}
-		 },
-
-		 {node_selection,
-		  [{default,
-		    {static,
-		     [
-		      %% APN NAPTR alternative
-		      {<<"_default.apn.$ORIGIN">>, {300,64536},
-		       [{'x-3gpp-ggsn','x-gn'},{'x-3gpp-ggsn','x-gp'}],
-		       <<"topon.gtp.ggsn.$ORIGIN">>},
-		      {<<"_default.apn.$ORIGIN">>, {300,64536},
-		       [{'x-3gpp-upf','x-sxa'}],
-		       <<"topon.sx.sgw-u01.$ORIGIN">>},
-		      {<<"_default.apn.$ORIGIN">>, {300,64536},
-		       [{'x-3gpp-upf','x-sxb'}],
-		       <<"topon.sx.pgw-u01.$ORIGIN">>},
-
-		      {<<"pgw-1.apn.$ORIGIN">>, {300,64536},
-		       [{'x-3gpp-ggsn','x-gn'},{'x-3gpp-ggsn','x-gp'}],
-		       <<"topon.pgw-1.nodes.$ORIGIN">>},
-		      {<<"upf-1.apn.$ORIGIN">>, {300,64536},
-		       [{'x-3gpp-upf','x-sxb'}],
-		       <<"topon.pgw-1.nodes.$ORIGIN">>},
-
-		      {<<"lb-1.apn.$HOMECC">>, {300,64536},
-		       [{'x-3gpp-ggsn','x-gn'},{'x-3gpp-ggsn','x-gp'}],
-		       <<"topon.gtp.ggsn.$ORIGIN">>},
-		      {<<"lb-1.apn.$HOMECC">>, {300,64536},
-		       [{'x-3gpp-ggsn','x-gn'},{'x-3gpp-ggsn','x-gp'}],
-		       <<"topon.gtp.ggsn-2.$ORIGIN">>},
-
-		      %% A/AAAA record alternatives
-		      {<<"topon.gtp.ggsn.$ORIGIN">>, ?MUST_BE_UPDATED, []},
-		      {<<"topon.gtp.ggsn-2.$ORIGIN">>, ?MUST_BE_UPDATED, []},
-		      {<<"topon.sx.sgw-u01.$ORIGIN">>, ?MUST_BE_UPDATED, []},
-		      {<<"topon.sx.pgw-u01.$ORIGIN">>, ?MUST_BE_UPDATED, []},
-		      {<<"topon.pgw-1.nodes.$ORIGIN">>, ?MUST_BE_UPDATED, []},
-		      {<<"topon.upf-1.nodes.$ORIGIN">>, ?MUST_BE_UPDATED, []}
-		     ]
-		    }
-		   }
-		  ]
-		 },
-
-		 {apns,
-		  [{?'APN-PROXY',
-		    [{vrf, example},
-		     {ip_pools, [<<"pool-A">>]}]},
-		   {?'APN-LB-1', [{vrf, example}, {ip_pools, [<<"pool-A">>]}]}
-		  ]},
-
-		 {charging,
-		  [{default,
-		    [{rulebase,
-		      [{<<"r-0001">>,
-			#{'Rating-Group' => [3000],
-			  'Flow-Information' =>
-			      [#{'Flow-Description' => [<<"permit out ip from any to assigned">>],
-				 'Flow-Direction'   => [1]    %% DownLink
-				},
-			       #{'Flow-Description' => [<<"permit out ip from any to assigned">>],
-				 'Flow-Direction'   => [2]    %% UpLink
-				}],
-			  'Metering-Method'  => [1],
-			  'Precedence' => [100],
-			  'Offline'  => [1]
-			 }},
-		       {<<"m2m0001">>, [<<"r-0001">>]}
+		 {sx, [{type, 'pfcp'},
+		       {socket, cp},
+		       {ip, ?MUST_BE_UPDATED},
+		       {reuseaddr, true}
 		      ]}
-		     ]}
-		  ]},
+		],
 
-		 {proxy_map,
-		  [{apn,  [{?'APN-EXAMPLE', ?'APN-PROXY'}]},
-		   {imsi, [{?'IMSI', {?'PROXY-IMSI', ?'PROXY-MSISDN'}}
-			  ]}
-		  ]},
+	    ip_pools =>
+		[{<<"pool-A">>, [{ranges,  [{?IPv4PoolStart, ?IPv4PoolEnd, 32},
+					    {?IPv6PoolStart, ?IPv6PoolEnd, 64},
+					    {?IPv6HostPoolStart, ?IPv6HostPoolEnd, 128}]},
+				 {'MS-Primary-DNS-Server', {8,8,8,8}},
+				 {'MS-Secondary-DNS-Server', {8,8,4,4}},
+				 {'MS-Primary-NBNS-Server', {127,0,0,1}},
+				 {'MS-Secondary-NBNS-Server', {127,0,0,1}},
+				 {'DNS-Server-IPv6-Address',
+				  [{16#2001, 16#4860, 16#4860, 0, 0, 0, 0, 16#8888},
+				   {16#2001, 16#4860, 16#4860, 0, 0, 0, 0, 16#8844}]}
+				]}
+		],
 
-		 {nodes,
-		  [{default,
-		    [{vrfs,
-		      [{cp, [{features, ['CP-Function']}]},
-		       {irx, [{features, ['Access']}]},
-		       {'proxy-irx', [{features, ['Core']}]},
-		       {'remote-irx', [{features, ['Access']}]},
-		       {'remote-irx2', [{features, ['Access']}]},
-		       {example, [{features, ['SGi-LAN']}]}]
-		     },
-		     {ip_pools, [<<"pool-A">>]}]
-		   },
-		   {<<"topon.sx.sgw-u01.$ORIGIN">>, [connect]},
-		   {<<"topon.sx.pgw-u01.$ORIGIN">>, [connect]},
-		   {<<"topon.upf-1.nodes.$ORIGIN">>, [connect]}
-		  ]
-		 },
+	    handlers =>
+		%% proxy handler
+		#{gn =>
+		      [{handler, ?HUT},
+		       {protocol, gn},
+		       {sockets, [irx]},
+		       {proxy_sockets, ['proxy-irx']},
+		       {node_selection, [default]},
+		       {contexts,
+			[{<<"ams">>,
+			  [{proxy_sockets, ['proxy-irx']}]}]}
+		      ],
+		  %% remote GGSN handler
+		  'gn-remote' =>
+		      [{handler, ggsn_gn},
+		       {protocol, gn},
+		       {sockets, ['remote-irx', 'remote-irx2']},
+		       {node_selection, [default]},
+		       {aaa, [{'Username',
+			       [{default, ['IMSI', <<"@">>, 'APN']}]}]}
+		      ]},
 
-		 {path_management, [{t3, 10 * 1000},
-				    {n3,  5},
-				    {echo, 60 * 1000},
-				    {idle_timeout, 1800 * 1000},
-				    {idle_echo,     600 * 1000},
-				    {down_timeout, 3600 * 1000},
-				    {down_echo,     600 * 1000}]}
-		]},
+	    node_selection =>
+		[{default,
+		  {static,
+		   [
+		    %% APN NAPTR alternative
+		    {<<"_default.apn.epc.mnc001.mcc001.3gppnetwork.org">>, {300,64536},
+		     [{'x-3gpp-ggsn','x-gn'},{'x-3gpp-ggsn','x-gp'}],
+		     <<"topon.gtp.ggsn.epc.mnc001.mcc001.3gppnetwork.org">>},
+		    {<<"_default.apn.epc.mnc001.mcc001.3gppnetwork.org">>, {300,64536},
+		     [{'x-3gpp-upf','x-sxa'}],
+		     <<"topon.sx.sgw-u01.epc.mnc001.mcc001.3gppnetwork.org">>},
+		    {<<"_default.apn.epc.mnc001.mcc001.3gppnetwork.org">>, {300,64536},
+		     [{'x-3gpp-upf','x-sxb'}],
+		     <<"topon.sx.pgw-u01.epc.mnc001.mcc001.3gppnetwork.org">>},
+
+		    {<<"pgw-1.apn.epc.mnc001.mcc001.3gppnetwork.org">>, {300,64536},
+		     [{'x-3gpp-ggsn','x-gn'},{'x-3gpp-ggsn','x-gp'}],
+		     <<"topon.pgw-1.nodes.epc.mnc001.mcc001.3gppnetwork.org">>},
+		    {<<"upf-1.apn.epc.mnc001.mcc001.3gppnetwork.org">>, {300,64536},
+		     [{'x-3gpp-upf','x-sxb'}],
+		     <<"topon.pgw-1.nodes.epc.mnc001.mcc001.3gppnetwork.org">>},
+
+		    {<<"lb-1.apn.epc.mnc000.mcc700.3gppnetwork.org">>, {300,64536},
+		     [{'x-3gpp-ggsn','x-gn'},{'x-3gpp-ggsn','x-gp'}],
+		     <<"topon.gtp.ggsn.epc.mnc001.mcc001.3gppnetwork.org">>},
+		    {<<"lb-1.apn.epc.mnc000.mcc700.3gppnetwork.org">>, {300,64536},
+		     [{'x-3gpp-ggsn','x-gn'},{'x-3gpp-ggsn','x-gp'}],
+		     <<"topon.gtp.ggsn-2.epc.mnc001.mcc001.3gppnetwork.org">>},
+
+		    %% A/AAAA record alternatives
+		    {<<"topon.gtp.ggsn.epc.mnc001.mcc001.3gppnetwork.org">>, ?MUST_BE_UPDATED, []},
+		    {<<"topon.gtp.ggsn-2.epc.mnc001.mcc001.3gppnetwork.org">>, ?MUST_BE_UPDATED, []},
+		    {<<"topon.sx.sgw-u01.epc.mnc001.mcc001.3gppnetwork.org">>, ?MUST_BE_UPDATED, []},
+		    {<<"topon.sx.pgw-u01.epc.mnc001.mcc001.3gppnetwork.org">>, ?MUST_BE_UPDATED, []},
+		    {<<"topon.pgw-1.nodes.epc.mnc001.mcc001.3gppnetwork.org">>, ?MUST_BE_UPDATED, []},
+		    {<<"topon.upf-1.nodes.epc.mnc001.mcc001.3gppnetwork.org">>, ?MUST_BE_UPDATED, []}
+		   ]
+		  }
+		 }
+		],
+
+	    apns =>
+		[{?'APN-PROXY',
+		  [{vrf, example},
+		   {ip_pools, [<<"pool-A">>]}]},
+		 {?'APN-LB-1', [{vrf, example}, {ip_pools, [<<"pool-A">>]}]}
+		],
+
+	    charging =>
+		[{default,
+		  [{rulebase,
+		    [{<<"r-0001">>,
+		      #{'Rating-Group' => [3000],
+			'Flow-Information' =>
+			    [#{'Flow-Description' => [<<"permit out ip from any to assigned">>],
+			       'Flow-Direction'   => [1]    %% DownLink
+			      },
+			     #{'Flow-Description' => [<<"permit out ip from any to assigned">>],
+			       'Flow-Direction'   => [2]    %% UpLink
+			      }],
+			'Metering-Method'  => [1],
+			'Precedence' => [100],
+			'Offline'  => [1]
+		       }},
+		     {<<"m2m0001">>, [<<"r-0001">>]}
+		    ]}
+		  ]}
+		],
+
+	    proxy_map =>
+		[{apn,  [{?'APN-EXAMPLE', ?'APN-PROXY'}]},
+		 {imsi, [{?'IMSI', {?'PROXY-IMSI', ?'PROXY-MSISDN'}}
+			]}
+		],
+
+	    upf_nodes =>
+		#{default =>
+		      [{vrfs,
+			[{cp, [{features, ['CP-Function']}]},
+			 {irx, [{features, ['Access']}]},
+			 {'proxy-irx', [{features, ['Core']}]},
+			 {'remote-irx', [{features, ['Access']}]},
+			 {'remote-irx2', [{features, ['Access']}]},
+			 {example, [{features, ['SGi-LAN']}]}]
+		       },
+		       {ip_pools, [<<"pool-A">>]}],
+		  nodes =>
+		      [{<<"topon.sx.sgw-u01.epc.mnc001.mcc001.3gppnetwork.org">>, [connect]},
+		       {<<"topon.sx.pgw-u01.epc.mnc001.mcc001.3gppnetwork.org">>, [connect]},
+		       {<<"topon.upf-1.nodes.epc.mnc001.mcc001.3gppnetwork.org">>, [connect]}]
+		  },
+
+	    path_management =>
+		[{t3, 10 * 1000},
+		 {n3,  5},
+		 {echo, 60 * 1000},
+		 {idle_timeout, 1800 * 1000},
+		 {idle_echo,     600 * 1000},
+		 {down_timeout, 3600 * 1000},
+		 {down_echo,     600 * 1000}]
+	   }
+	 },
 
 	 {ergw_aaa,
 	  [
@@ -272,173 +270,171 @@
 	    ]}
 	  ]},
 
-	 {ergw_core, [{'$setup_vars',
-		  [{"ORIGIN", {value, "epc.mnc001.mcc001.3gppnetwork.org"}},
-		   {"HOMECC", {value, "epc.mnc000.mcc700.3gppnetwork.org"}}]},
-		 {node_id, <<"GGSN">>},
-		 {sockets,
-		  [{cp, [{type, 'gtp-u'},
-			 {ip, ?MUST_BE_UPDATED},
-			 {reuseaddr, true}
-			]},
-		   {irx, [{type, 'gtp-c'},
-			  {ip,  ?TEST_GSN_IPv4},
-			  {reuseaddr, true}
-			 ]},
-		   {'remote-irx', [{type, 'gtp-c'},
-				   {ip,  ?FINAL_GSN_IPv4},
-				   {reuseaddr, true}
-				  ]},
-		   {'remote-irx2', [{type, 'gtp-c'},
-				    {ip, ?MUST_BE_UPDATED},
-				    {reuseaddr, true}
-				   ]},
+	 {ergw_core,
+	  #{node =>
+		[{node_id, <<"GGSN">>}],
+	    sockets =>
+		[{cp, [{type, 'gtp-u'},
+		       {ip, ?MUST_BE_UPDATED},
+		       {reuseaddr, true}
+		      ]},
+		 {irx, [{type, 'gtp-c'},
+			{ip,  ?TEST_GSN_IPv4},
+			{reuseaddr, true}
+		       ]},
+		 {'remote-irx', [{type, 'gtp-c'},
+				 {ip,  ?FINAL_GSN_IPv4},
+				 {reuseaddr, true}
+				]},
+		 {'remote-irx2', [{type, 'gtp-c'},
+				  {ip, ?MUST_BE_UPDATED},
+				  {reuseaddr, true}
+				 ]},
 
-		   {sx, [{type, 'pfcp'},
-			 {socket, cp},
-			 {ip, ?MUST_BE_UPDATED},
-			 {reuseaddr, true}
-			]}
-		  ]},
-
-		 {ip_pools,
-		  [{<<"pool-A">>, [{ranges,  [{?IPv4PoolStart, ?IPv4PoolEnd, 32},
-					  {?IPv6PoolStart, ?IPv6PoolEnd, 64},
-					  {?IPv6HostPoolStart, ?IPv6HostPoolEnd, 128}]},
-			       {'MS-Primary-DNS-Server', {8,8,8,8}},
-			       {'MS-Secondary-DNS-Server', {8,8,4,4}},
-			       {'MS-Primary-NBNS-Server', {127,0,0,1}},
-			       {'MS-Secondary-NBNS-Server', {127,0,0,1}},
-			       {'DNS-Server-IPv6-Address',
-				[{16#2001, 16#4860, 16#4860, 0, 0, 0, 0, 16#8888},
-				 {16#2001, 16#4860, 16#4860, 0, 0, 0, 0, 16#8844}]}
-			      ]}
-		  ]},
-
-		 {handlers,
-		  %% proxy handler
-		  #{gn =>
-			[{handler, ?HUT},
-			 {protocol, gn},
-			 {sockets, [irx]},
-			 {proxy_sockets, ['irx']},
-			 {node_selection, [default]},
-			 {contexts,
-			  [{<<"ams">>,
-			    [{proxy_sockets, ['irx']}]}]}
-			],
-		    %% remote GGSN handler
-		    'gn-remote' =>
-			[{handler, ggsn_gn},
-			 {protocol, gn},
-			 {sockets, ['remote-irx', 'remote-irx2']},
-			 {node_selection, [default]},
-			 {aaa, [{'Username',
-				 [{default, ['IMSI', <<"@">>, 'APN']}]}]}
-			]}
-		 },
-
-		 {node_selection,
-		  [{default,
-		    {static,
-		     [
-		      %% APN NAPTR alternative
-		      {<<"_default.apn.$ORIGIN">>, {300,64536},
-		       [{'x-3gpp-ggsn','x-gn'},{'x-3gpp-ggsn','x-gp'}],
-		       <<"topon.gtp.ggsn.$ORIGIN">>},
-		      {<<"_default.apn.$ORIGIN">>, {300,64536},
-		       [{'x-3gpp-upf','x-sxa'}],
-		       <<"topon.sx.sgw-u01.$ORIGIN">>},
-		      {<<"_default.apn.$ORIGIN">>, {300,64536},
-		       [{'x-3gpp-upf','x-sxb'}],
-		       <<"topon.sx.pgw-u01.$ORIGIN">>},
-
-		      {<<"pgw-1.apn.$ORIGIN">>, {300,64536},
-		       [{'x-3gpp-ggsn','x-gn'},{'x-3gpp-ggsn','x-gp'}],
-		       <<"topon.pgw-1.nodes.$ORIGIN">>},
-		      {<<"upf-1.apn.$ORIGIN">>, {300,64536},
-		       [{'x-3gpp-upf','x-sxb'}],
-		       <<"topon.pgw-1.nodes.$ORIGIN">>},
-
-		      {<<"lb-1.apn.$HOMECC">>, {300,64536},
-		       [{'x-3gpp-ggsn','x-gn'},{'x-3gpp-ggsn','x-gp'}],
-		       <<"topon.gtp.ggsn.$ORIGIN">>},
-		      {<<"lb-1.apn.$HOMECC">>, {300,64536},
-		       [{'x-3gpp-ggsn','x-gn'},{'x-3gpp-ggsn','x-gp'}],
-		       <<"topon.gtp.ggsn-2.$ORIGIN">>},
-
-		      %% A/AAAA record alternatives
-		      {<<"topon.gtp.ggsn.$ORIGIN">>, ?MUST_BE_UPDATED, []},
-		      {<<"topon.gtp.ggsn-2.$ORIGIN">>, ?MUST_BE_UPDATED, []},
-		      {<<"topon.sx.sgw-u01.$ORIGIN">>, ?MUST_BE_UPDATED, []},
-		      {<<"topon.sx.pgw-u01.$ORIGIN">>, ?MUST_BE_UPDATED, []},
-		      {<<"topon.pgw-1.nodes.$ORIGIN">>, ?MUST_BE_UPDATED, []},
-		      {<<"topon.upf-1.nodes.$ORIGIN">>, ?MUST_BE_UPDATED, []}
-		     ]
-		    }
-		   }
-		  ]
-		 },
-
-		 {apns,
-		  [{?'APN-PROXY',
-		    [{vrf, example},
-		     {ip_pools, [<<"pool-A">>]}]},
-		   {?'APN-LB-1', [{vrf, example}, {ip_pools, [<<"pool-A">>]}]}
-		  ]},
-
-		 {charging,
-		  [{default,
-		    [{rulebase,
-		      [{<<"r-0001">>,
-			#{'Rating-Group' => [3000],
-			  'Flow-Information' =>
-			      [#{'Flow-Description' => [<<"permit out ip from any to assigned">>],
-				 'Flow-Direction'   => [1]    %% DownLink
-				},
-			       #{'Flow-Description' => [<<"permit out ip from any to assigned">>],
-				 'Flow-Direction'   => [2]    %% UpLink
-				}],
-			  'Metering-Method'  => [1],
-			  'Precedence' => [100],
-			  'Offline'  => [1]
-			 }},
-		       {<<"m2m0001">>, [<<"r-0001">>]}
+		 {sx, [{type, 'pfcp'},
+		       {socket, cp},
+		       {ip, ?MUST_BE_UPDATED},
+		       {reuseaddr, true}
 		      ]}
-		     ]}
-		  ]},
+		],
 
-		 {proxy_map,
-		  [{apn,  [{?'APN-EXAMPLE', ?'APN-PROXY'}]},
-		   {imsi, [{?'IMSI', {?'PROXY-IMSI', ?'PROXY-MSISDN'}}
-			  ]}
-		  ]},
+	    ip_pools =>
+		[{<<"pool-A">>, [{ranges,  [{?IPv4PoolStart, ?IPv4PoolEnd, 32},
+					    {?IPv6PoolStart, ?IPv6PoolEnd, 64},
+					    {?IPv6HostPoolStart, ?IPv6HostPoolEnd, 128}]},
+				 {'MS-Primary-DNS-Server', {8,8,8,8}},
+				 {'MS-Secondary-DNS-Server', {8,8,4,4}},
+				 {'MS-Primary-NBNS-Server', {127,0,0,1}},
+				 {'MS-Secondary-NBNS-Server', {127,0,0,1}},
+				 {'DNS-Server-IPv6-Address',
+				  [{16#2001, 16#4860, 16#4860, 0, 0, 0, 0, 16#8888},
+				   {16#2001, 16#4860, 16#4860, 0, 0, 0, 0, 16#8844}]}
+				]}
+		],
 
-		 {nodes,
-		  [{default,
-		    [{vrfs,
-		      [{cp, [{features, ['CP-Function']}]},
-		       {irx, [{features, ['Access', 'Core']}]},
-		       {'remote-irx', [{features, ['Access']}]},
-		       {'remote-irx2', [{features, ['Access']}]},
-		       {example, [{features, ['SGi-LAN']}]}]
-		     },
-		     {ip_pools, [<<"pool-A">>]}]
-		   },
-		   {<<"topon.sx.sgw-u01.$ORIGIN">>, [connect]},
-		   {<<"topon.sx.pgw-u01.$ORIGIN">>, [connect]},
-		   {<<"topon.upf-1.nodes.$ORIGIN">>, [connect]}
-		  ]
+	    handlers =>
+		%% proxy handler
+		#{gn =>
+		      [{handler, ?HUT},
+		       {protocol, gn},
+		       {sockets, [irx]},
+		       {proxy_sockets, ['irx']},
+		       {node_selection, [default]},
+		       {contexts,
+			[{<<"ams">>,
+			  [{proxy_sockets, ['irx']}]}]}
+		      ],
+		  %% remote GGSN handler
+		  'gn-remote' =>
+		      [{handler, ggsn_gn},
+		       {protocol, gn},
+		       {sockets, ['remote-irx', 'remote-irx2']},
+		       {node_selection, [default]},
+		       {aaa, [{'Username',
+			       [{default, ['IMSI', <<"@">>, 'APN']}]}]}
+		      ]},
+
+	    node_selection =>
+		[{default,
+		  {static,
+		   [
+		    %% APN NAPTR alternative
+		    {<<"_default.apn.epc.mnc001.mcc001.3gppnetwork.org">>, {300,64536},
+		     [{'x-3gpp-ggsn','x-gn'},{'x-3gpp-ggsn','x-gp'}],
+		     <<"topon.gtp.ggsn.epc.mnc001.mcc001.3gppnetwork.org">>},
+		    {<<"_default.apn.epc.mnc001.mcc001.3gppnetwork.org">>, {300,64536},
+		     [{'x-3gpp-upf','x-sxa'}],
+		     <<"topon.sx.sgw-u01.epc.mnc001.mcc001.3gppnetwork.org">>},
+		    {<<"_default.apn.epc.mnc001.mcc001.3gppnetwork.org">>, {300,64536},
+		     [{'x-3gpp-upf','x-sxb'}],
+		     <<"topon.sx.pgw-u01.epc.mnc001.mcc001.3gppnetwork.org">>},
+
+		    {<<"pgw-1.apn.epc.mnc001.mcc001.3gppnetwork.org">>, {300,64536},
+		     [{'x-3gpp-ggsn','x-gn'},{'x-3gpp-ggsn','x-gp'}],
+		     <<"topon.pgw-1.nodes.epc.mnc001.mcc001.3gppnetwork.org">>},
+		    {<<"upf-1.apn.epc.mnc001.mcc001.3gppnetwork.org">>, {300,64536},
+		     [{'x-3gpp-upf','x-sxb'}],
+		     <<"topon.pgw-1.nodes.epc.mnc001.mcc001.3gppnetwork.org">>},
+
+		    {<<"lb-1.apn.epc.mnc000.mcc700.3gppnetwork.org">>, {300,64536},
+		     [{'x-3gpp-ggsn','x-gn'},{'x-3gpp-ggsn','x-gp'}],
+		     <<"topon.gtp.ggsn.epc.mnc001.mcc001.3gppnetwork.org">>},
+		    {<<"lb-1.apn.epc.mnc000.mcc700.3gppnetwork.org">>, {300,64536},
+		     [{'x-3gpp-ggsn','x-gn'},{'x-3gpp-ggsn','x-gp'}],
+		     <<"topon.gtp.ggsn-2.epc.mnc001.mcc001.3gppnetwork.org">>},
+
+		    %% A/AAAA record alternatives
+		    {<<"topon.gtp.ggsn.epc.mnc001.mcc001.3gppnetwork.org">>, ?MUST_BE_UPDATED, []},
+		    {<<"topon.gtp.ggsn-2.epc.mnc001.mcc001.3gppnetwork.org">>, ?MUST_BE_UPDATED, []},
+		    {<<"topon.sx.sgw-u01.epc.mnc001.mcc001.3gppnetwork.org">>, ?MUST_BE_UPDATED, []},
+		    {<<"topon.sx.pgw-u01.epc.mnc001.mcc001.3gppnetwork.org">>, ?MUST_BE_UPDATED, []},
+		    {<<"topon.pgw-1.nodes.epc.mnc001.mcc001.3gppnetwork.org">>, ?MUST_BE_UPDATED, []},
+		    {<<"topon.upf-1.nodes.epc.mnc001.mcc001.3gppnetwork.org">>, ?MUST_BE_UPDATED, []}
+		   ]
+		  }
+		 }
+		],
+
+	    apns =>
+		[{?'APN-PROXY',
+		  [{vrf, example},
+		   {ip_pools, [<<"pool-A">>]}]},
+		 {?'APN-LB-1', [{vrf, example}, {ip_pools, [<<"pool-A">>]}]}
+		],
+
+	    charging =>
+		[{default,
+		  [{rulebase,
+		    [{<<"r-0001">>,
+		      #{'Rating-Group' => [3000],
+			'Flow-Information' =>
+			    [#{'Flow-Description' => [<<"permit out ip from any to assigned">>],
+			       'Flow-Direction'   => [1]    %% DownLink
+			      },
+			     #{'Flow-Description' => [<<"permit out ip from any to assigned">>],
+			       'Flow-Direction'   => [2]    %% UpLink
+			      }],
+			'Metering-Method'  => [1],
+			'Precedence' => [100],
+			'Offline'  => [1]
+		       }},
+		     {<<"m2m0001">>, [<<"r-0001">>]}
+		    ]}
+		  ]}
+		],
+
+	    proxy_map =>
+		[{apn,  [{?'APN-EXAMPLE', ?'APN-PROXY'}]},
+		 {imsi, [{?'IMSI', {?'PROXY-IMSI', ?'PROXY-MSISDN'}}
+			]}
+		],
+
+	    upf_nodes =>
+		#{default =>
+		      [{vrfs,
+			[{cp, [{features, ['CP-Function']}]},
+			 {irx, [{features, ['Access', 'Core']}]},
+			 {'remote-irx', [{features, ['Access']}]},
+			 {'remote-irx2', [{features, ['Access']}]},
+			 {example, [{features, ['SGi-LAN']}]}]
+		       },
+		       {ip_pools, [<<"pool-A">>]}],
+		  nodes =>
+		      [{<<"topon.sx.sgw-u01.epc.mnc001.mcc001.3gppnetwork.org">>, [connect]},
+		       {<<"topon.sx.pgw-u01.epc.mnc001.mcc001.3gppnetwork.org">>, [connect]},
+		       {<<"topon.upf-1.nodes.epc.mnc001.mcc001.3gppnetwork.org">>, [connect]}]
 		 },
 
-		 {path_management, [{t3, 10 * 1000},
-				    {n3,  5},
-				    {echo, 60 * 1000},
-				    {idle_timeout, 1800 * 1000},
-				    {idle_echo,     600 * 1000},
-				    {down_timeout, 3600 * 1000},
-				    {down_echo,     600 * 1000}]}
-		]},
+	    path_management =>
+		[{t3, 10 * 1000},
+		 {n3,  5},
+		 {echo, 60 * 1000},
+		 {idle_timeout, 1800 * 1000},
+		 {idle_echo,     600 * 1000},
+		 {down_timeout, 3600 * 1000},
+		 {down_echo,     600 * 1000}]
+	   }
+	 },
 
 	 {ergw_aaa,
 	  [
@@ -491,17 +487,17 @@
 	 {[sockets, 'remote-irx', ip], final_gsn},
 	 {[sockets, 'remote-irx2', ip], final_gsn_2},
 	 {[sockets, sx, ip], localhost},
-	 {[node_selection, {default, 2}, 2, <<"topon.gtp.ggsn.$ORIGIN">>],
+	 {[node_selection, {default, 2}, 2, <<"topon.gtp.ggsn.epc.mnc001.mcc001.3gppnetwork.org">>],
 	  {fun node_sel_update/2, final_gsn}},
-	 {[node_selection, {default, 2}, 2, <<"topon.gtp.ggsn-2.$ORIGIN">>],
+	 {[node_selection, {default, 2}, 2, <<"topon.gtp.ggsn-2.epc.mnc001.mcc001.3gppnetwork.org">>],
 	  {fun node_sel_update/2, final_gsn_2}},
-	 {[node_selection, {default, 2}, 2, <<"topon.sx.sgw-u01.$ORIGIN">>],
+	 {[node_selection, {default, 2}, 2, <<"topon.sx.sgw-u01.epc.mnc001.mcc001.3gppnetwork.org">>],
 	  {fun node_sel_update/2, sgw_u_sx}},
-	 {[node_selection, {default, 2}, 2, <<"topon.sx.pgw-u01.$ORIGIN">>],
+	 {[node_selection, {default, 2}, 2, <<"topon.sx.pgw-u01.epc.mnc001.mcc001.3gppnetwork.org">>],
 	  {fun node_sel_update/2, pgw_u01_sx}},
-	 {[node_selection, {default, 2}, 2, <<"topon.pgw-1.nodes.$ORIGIN">>],
+	 {[node_selection, {default, 2}, 2, <<"topon.pgw-1.nodes.epc.mnc001.mcc001.3gppnetwork.org">>],
 	  {fun node_sel_update/2, final_gsn}},
-	 {[node_selection, {default, 2}, 2, <<"topon.upf-1.nodes.$ORIGIN">>],
+	 {[node_selection, {default, 2}, 2, <<"topon.upf-1.nodes.epc.mnc001.mcc001.3gppnetwork.org">>],
 	  {fun node_sel_update/2, sgw_u_sx}}
 	]).
 
@@ -511,17 +507,17 @@
 	 {[sockets, 'remote-irx', ip], final_gsn},
 	 {[sockets, 'remote-irx2', ip], final_gsn_2},
 	 {[sockets, sx, ip], localhost},
-	 {[node_selection, {default, 2}, 2, <<"topon.gtp.ggsn.$ORIGIN">>],
+	 {[node_selection, {default, 2}, 2, <<"topon.gtp.ggsn.epc.mnc001.mcc001.3gppnetwork.org">>],
 	  {fun node_sel_update/2, final_gsn}},
-	 {[node_selection, {default, 2}, 2, <<"topon.gtp.ggsn-2.$ORIGIN">>],
+	 {[node_selection, {default, 2}, 2, <<"topon.gtp.ggsn-2.epc.mnc001.mcc001.3gppnetwork.org">>],
 	  {fun node_sel_update/2, final_gsn_2}},
-	 {[node_selection, {default, 2}, 2, <<"topon.sx.sgw-u01.$ORIGIN">>],
+	 {[node_selection, {default, 2}, 2, <<"topon.sx.sgw-u01.epc.mnc001.mcc001.3gppnetwork.org">>],
 	  {fun node_sel_update/2, sgw_u_sx}},
-	 {[node_selection, {default, 2}, 2, <<"topon.sx.pgw-u01.$ORIGIN">>],
+	 {[node_selection, {default, 2}, 2, <<"topon.sx.pgw-u01.epc.mnc001.mcc001.3gppnetwork.org">>],
 	  {fun node_sel_update/2, pgw_u01_sx}},
-	 {[node_selection, {default, 2}, 2, <<"topon.pgw-1.nodes.$ORIGIN">>],
+	 {[node_selection, {default, 2}, 2, <<"topon.pgw-1.nodes.epc.mnc001.mcc001.3gppnetwork.org">>],
 	  {fun node_sel_update/2, final_gsn}},
-	 {[node_selection, {default, 2}, 2, <<"topon.upf-1.nodes.$ORIGIN">>],
+	 {[node_selection, {default, 2}, 2, <<"topon.upf-1.nodes.epc.mnc001.mcc001.3gppnetwork.org">>],
 	  {fun node_sel_update/2, sgw_u_sx}}
 	]).
 
@@ -561,7 +557,7 @@ init_per_group(single_proxy_interface, Config0) ->
     lib_init_per_group(Config);
 init_per_group(no_proxy_map, Config0) ->
     Cf0 = proplists:get_value(ergw_core, ?TEST_CONFIG_SINGLE_PROXY_SOCKET),
-    Cf1 = proplists:delete(proxy_map, Cf0),
+    Cf1 = maps:remove(proxy_map, Cf0),
     Cf = lists:keystore(ergw_core, 1, ?TEST_CONFIG_SINGLE_PROXY_SOCKET, {ergw_core, Cf1}),
     Config1 = lists:keystore(app_cfg, 1, Config0, {app_cfg, Cf}),
     Config = update_app_config(proplists:get_value(ip_group, Config1),
