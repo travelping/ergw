@@ -119,8 +119,9 @@ validate_option(handlers, Value) when ?non_empty_opts(Value) ->
     validate_options(fun ergw_context:validate_options/2, Value, []);
 validate_option(node_selection, Values) when ?is_opts(Values) ->
     ergw_node_selection:validate_options(to_map(Values));
-validate_option(nodes, Values) when ?non_empty_opts(Values) ->
-    ergw_sx_node:validate_options(to_map(Values));
+validate_option(upf_nodes, Values) when ?non_empty_opts(Values) ->
+    validate_options(fun validate_upf_nodes/2, to_map(Values),
+		      [{default, #{}}, {nodes, #{}}]);
 validate_option(ip_pools, Value) when ?is_opts(Value) ->
     validate_options(fun ergw_ip_pool:validate_options/2, Value, []);
 validate_option(apns, Value) when ?is_opts(Value) ->
@@ -152,3 +153,10 @@ validate_option(Opt, Value)
     throw({error, {options, {Opt, Value}}});
 validate_option(_Opt, Value) ->
     Value.
+
+validate_upf_nodes(default, Values) ->
+    ergw_sx_node:validate_defaults(Values);
+validate_upf_nodes(nodes, Nodes) ->
+    validate_options(fun ergw_sx_node:validate_options/2, to_map(Nodes));
+validate_upf_nodes(Opt, Value) ->
+    throw({error, {options, {Opt, Value}}}).

@@ -37,7 +37,8 @@ all() ->
      vrf,
      apn,
      node_sel,
-     nodes,
+     upf_node_defaults,
+     upf_node,
      %% metrics,				% TBD: does not work yet
      proxy_map,
      charging,
@@ -544,58 +545,62 @@ node_sel(_Config)  ->
 
     ok.
 
-nodes() ->
+upf_node_defaults() ->
     [{doc, "Test validation of the nodes configuration"}].
-nodes(_Config)  ->
-    Nodes = [{default,
-	      [{vrfs,
-		[{cp, [{features, ['CP-Function']}]},
-		 {irx, [{features, ['Access']}]},
-		 {sgi, [{features, ['SGi-LAN']}]}
-		]},
-	       {ip_pools, [<<"pool-A">>]}]
-	     },
-	     {<<"node-A">>, [connect]}],
-    ValF = fun(Values) -> ergw_sx_node:validate_options(Values) end,
+upf_node_defaults(_Config)  ->
+    Default =
+	[{vrfs,
+	  [{cp, [{features, ['CP-Function']}]},
+	   {irx, [{features, ['Access']}]},
+	   {sgi, [{features, ['SGi-LAN']}]}
+	  ]},
+	 {ip_pools, [<<"pool-A">>]}],
+    ValF = fun(Values) -> ergw_sx_node:validate_defaults(Values) end,
 
-    ?ok(ValF(Nodes)),
+    ?ok(ValF(Default)),
+    ?bad(ValF(invalid)),
     ?bad(ValF([])),
+    ?bad(ValF(set_cfg_value([vrfs], invalid, Default))),
+    ?bad(ValF(set_cfg_value([vrfs], [], Default))),
+    ?bad(ValF(set_cfg_value([vrfs, cp], invalid, Default))),
+    ?bad(ValF(set_cfg_value([vrfs, cp], [], Default))),
+    ?bad(ValF(set_cfg_value([vrfs, cp, features], [], Default))),
+    ?bad(ValF(set_cfg_value([vrfs, cp, features], invalid, Default))),
+    ?bad(ValF(set_cfg_value([vrfs, cp, features], [invalid], Default))),
 
-    ?bad(ValF(set_cfg_value([default], invalid, Nodes))),
-    ?bad(ValF(set_cfg_value([default], [], Nodes))),
-    ?bad(ValF(set_cfg_value([default], [{invalid, invalid}], Nodes))),
-    ?bad(ValF(set_cfg_value([default, vrfs], invalid, Nodes))),
-    ?bad(ValF(set_cfg_value([default, vrfs], [], Nodes))),
-    ?bad(ValF(set_cfg_value([default, vrfs, cp], invalid, Nodes))),
-    ?bad(ValF(set_cfg_value([default, vrfs, cp], [], Nodes))),
-    ?bad(ValF(set_cfg_value([default, vrfs, cp, features], [], Nodes))),
-    ?bad(ValF(set_cfg_value([default, vrfs, cp, features], invalid, Nodes))),
-    ?bad(ValF(set_cfg_value([default, vrfs, cp, features], [invalid], Nodes))),
+    ?ok(ValF(set_cfg_value([ip_pools], [], Default))),
+    ?bad(ValF(set_cfg_value([ip_pools], a, Default))),
+    ?ok(ValF(set_cfg_value([ip_pools], [a, b], Default))),
+    ?bad(ValF(set_cfg_value([ip_pools], [a, a], Default))),
 
-    ?ok(ValF(set_cfg_value([default, ip_pools], [], Nodes))),
-    ?bad(ValF(set_cfg_value([default, ip_pools], a, Nodes))),
-    ?ok(ValF(set_cfg_value([default, ip_pools], [a, b], Nodes))),
-    ?bad(ValF(set_cfg_value([default, ip_pools], [a, a], Nodes))),
+    ?bad(ValF(set_cfg_value([heartbeat], [{interval, invalid}], Default))),
+    ?ok(ValF(set_cfg_value([heartbeat], [{interval, 5000}, {timeout, 500}, {retry, 5}], Default))),
+    ?bad(ValF(set_cfg_value([request], [{timeout, invalid}], Default))),
+    ?ok(ValF(set_cfg_value([request], [{timeout, 30000}, {retry, 5}], Default))),
+    ok.
 
-    ?bad(ValF(set_cfg_value([default, heartbeat], [{interval, invalid}], Nodes))),
-    ?ok(ValF(set_cfg_value([default, heartbeat], [{interval, 5000}, {timeout, 500}, {retry, 5}], Nodes))),
-    ?bad(ValF(set_cfg_value([default, request], [{timeout, invalid}], Nodes))),
-    ?ok(ValF(set_cfg_value([default, request], [{timeout, 30000}, {retry, 5}], Nodes))),
+upf_node() ->
+    [{doc, "Test validation of the nodes configuration"}].
+upf_node(_Config)  ->
+    Node = [connect],
+    ValF = fun ergw_sx_node:validate_options/2,
 
-    ?bad(ValF(set_cfg_value([test], [], Nodes))),
-    ?bad(ValF(set_cfg_value(["test"], [], Nodes))),
-    ?ok(ValF(set_cfg_value([<<"test">>], [], Nodes))),
-    ?ok(ValF(set_cfg_value([<<"test">>, vrfs, cp, features], ['CP-Function'], Nodes))),
-    ?ok(ValF(set_cfg_value([<<"test">>, vrfs, 'cp2', features], ['CP-Function'], Nodes))),
+    ?ok(ValF(<<"test">>, Node)),
+    ?ok(ValF(<<"test">>, [])),
+    ?bad(ValF(test, Node)),
+    ?bad(ValF("test", Node)),
 
-    ?ok(ValF(set_cfg_value([<<"test">>], [connect], Nodes))),
-    ?ok(ValF(set_cfg_value([<<"test">>], [{connect, true}], Nodes))),
-    ?ok(ValF(set_cfg_value([<<"test">>], [{connect, false}], Nodes))),
-    ?bad(ValF(set_cfg_value([<<"test">>], [{raddr, invalid}], Nodes))),
-    ?ok(ValF(set_cfg_value([<<"test">>], [{raddr, {1,1,1,1}}], Nodes))),
-    ?ok(ValF(set_cfg_value([<<"test">>], [{raddr, {1,1,1,1,2,2,2,2}}], Nodes))),
-    ?bad(ValF(set_cfg_value([<<"test">>], [{port, invalid}], Nodes))),
-    ?ok(ValF(set_cfg_value([<<"test">>], [{rport, 1234}], Nodes))),
+    ?ok(ValF(<<"test">>, [connect])),
+    ?ok(ValF(<<"test">>, [{connect, true}])),
+    ?ok(ValF(<<"test">>, [{connect, false}])),
+    ?bad(ValF(<<"test">>, [{raddr, invalid}])),
+    ?ok(ValF(<<"test">>, [{raddr, {1,1,1,1}}])),
+    ?ok(ValF(<<"test">>, [{raddr, {1,1,1,1,2,2,2,2}}])),
+    ?bad(ValF(<<"test">>, [{port, invalid}])),
+    ?ok(ValF(<<"test">>, [{rport, 1234}])),
+
+    ?ok(ValF(<<"test">>, set_cfg_value([vrfs, cp, features], ['CP-Function'], Node))),
+    ?ok(ValF(<<"test">>, set_cfg_value([vrfs, 'cp2', features], ['CP-Function'], Node))),
     ok.
 
 metrics() ->

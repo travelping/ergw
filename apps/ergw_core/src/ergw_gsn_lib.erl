@@ -32,7 +32,7 @@
 	 gy_events_to_credits/3,
 	 pcc_events_to_charging_rule_report/1,
 	 make_gy_credit_request/3]).
--export([apn/1, apn/2, select_vrf/2,
+-export([select_vrf/2,
 	 allocate_ips/7, release_context_ips/1]).
 -export([init_tunnel/4,
 	 assign_tunnel_teid/3,
@@ -566,22 +566,6 @@ make_gy_credit_request(Ev, Add, CreditsNeeded) ->
 %%% VRF selection
 %%%===================================================================
 
-apn(APN) ->
-    apn(APN, application:get_env(ergw_core, apns, #{})).
-
-apn([H|_] = APN0, APNs) when is_binary(H) ->
-    APN = gtp_c_lib:normalize_labels(APN0),
-    {NI, OI} = ergw_node_selection:split_apn(APN),
-    FqAPN = NI ++ OI,
-    case APNs of
-	#{FqAPN := A} -> {ok, A};
-	#{NI :=    A} -> {ok, A};
-	#{'_' :=   A} -> {ok, A};
-	_ -> {error, ?CTX_ERR(?FATAL, missing_or_unknown_apn)}
-    end;
-apn(_, _) ->
-    {error, ?CTX_ERR(?FATAL, missing_or_unknown_apn)}.
-
 %% select/2
 select(_, []) -> undefined;
 select(first, L) -> hd(L);
@@ -597,7 +581,7 @@ select(Method, L1, L2) when is_list(L1), is_list(L2) ->
 
 %% select_vrf/2
 select_vrf({AvaVRFs, _AvaPools}, APN) ->
-    {ok, APNOpts} = apn(APN),
+    {ok, APNOpts} = ergw_apn:get(APN),
     select(random, maps:get(vrfs, APNOpts), AvaVRFs).
 
 %%%===================================================================

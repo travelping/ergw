@@ -43,8 +43,7 @@ start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
 load_config(Config) ->
-    Opts = ergw_node_selection:validate_options(Config),
-    gen_server:call(?SERVER, {load_config, Opts}).
+    gen_server:call(?SERVER, {load_config, Config}).
 
 resolve(Name, Selection, Class, Type) when is_binary(Name) ->
     case match(make_rr_key(Name, Selection, Class, Type)) of
@@ -92,7 +91,7 @@ handle_call({resolve, Name, Selection, Class, Type},
     end;
 
 handle_call({load_config, Config}, _From, State0) ->
-    State = State0#{config => maps:map(fun load_config/2, Config)},
+    State = State0#state{config = maps:map(fun load_config/2, Config)},
     {reply, ok, State};
 
 handle_call(_, _From, State) ->

@@ -48,7 +48,7 @@ create_session_fun(APN, PAA, DAF, {Candidates, SxConnectId}, Session,
     ergw_sx_node:wait_connect(SxConnectId),
 
     APNOpts =
-	case ergw_gsn_lib:apn(APN) of
+	case ergw_apn:get(APN) of
 	    {ok, Result2} -> Result2;
 	    {error, Err2} -> throw(Err2#ctx_err{context = Context0, tunnel = LeftTunnel})
 	end,

@@ -50,11 +50,7 @@
  {<<"ranch">>,{pkg,<<"ranch">>,<<"1.7.1">>},1},
  {<<"regine">>,{pkg,<<"regine">>,<<"1.0.0">>},1},
  {<<"riak_core">>,{pkg,<<"riak_core_lite">>,<<"0.10.0">>},0},
- {<<"riak_core_lite_util">>,{pkg,<<"riak_core_lite_util">>,<<"0.1.2">>},0},
- {<<"setup">>,
-  {git,"https://github.com/uwiger/setup.git",
-       {ref,"b8fd827e7e9e0f5aeec2f26a2f3a31bb06407686"}},
-  0}]}.
+ {<<"riak_core_lite_util">>,{pkg,<<"riak_core_lite_util">>,<<"0.1.2">>},0}]}.
 [
 {pkg_hash,[
  {<<"accept">>, <<"B33B127ABCA7CC948BBE6CAA4C263369ABF1347CFA9D8E699C6D214660F10CD1">>},
