@@ -95,28 +95,33 @@ update_pcc_rule(Name, Rule, Opts, #pcc_upd{rules = Rules0} = Update) ->
     Rules = maps:update_with(Name, maps:merge(_, UpdRule), UpdRule, Rules0),
     Update#pcc_upd{rules = Rules}.
 
-install_preconf_rule(Name, IsRuleBase, Opts, RuleBase, Update) ->
-    case RuleBase of
-	#{Name := Rules} when IsRuleBase andalso is_list(Rules) ->
-	    UpdOpts = Opts#{'Charging-Rule-Base-Name' => Name},
-	    lists:foldl(install_preconf_rule(_, false, UpdOpts, RuleBase, _), Update, Rules);
-	#{Name := Rule} when (not IsRuleBase) andalso is_map(Rule) ->
+install_preconf_rule(Name, Opts, Rules, Update) ->
+    case Rules of
+	#{Name := Rule} ->
 	    update_pcc_rule(Name, Rule, Opts, Update);
-	_ when IsRuleBase ->
-	    pcc_upd_error({not_found, {rulebase, Name}}, Update);
 	_ ->
 	    pcc_upd_error({not_found, {rule, Name}}, Update)
+    end.
+
+install_preconf_rulebase(Name, Opts, Rules, RuleBase, Update) ->
+    case RuleBase of
+	#{Name := RulesList} ->
+	    UpdOpts = Opts#{'Charging-Rule-Base-Name' => Name},
+	    lists:foldl(install_preconf_rule(_, UpdOpts, Rules, _), Update, RulesList);
+	_ ->
+	    pcc_upd_error({not_found, {rulebase, Name}}, Update)
     end.
 
 install_pcc_rules(Install, RuleBase, Update) ->
     {Rules, Opts} = split_pcc_rule(Install),
     maps:fold(install_pcc_rule(_, _, Opts, RuleBase, _), Update, Rules).
 
-install_pcc_rule('Charging-Rule-Name', V, Opts, RuleBase, Update) ->
-    lists:foldl(install_preconf_rule(_, false, Opts, RuleBase, _), Update, V);
-install_pcc_rule('Charging-Rule-Base-Name', V, Opts, RuleBase, Update) ->
-    lists:foldl(install_preconf_rule(_, true, Opts, RuleBase, _), Update, V);
-install_pcc_rule('Charging-Rule-Definition', V, Opts, _RuleBase, Update) ->
+install_pcc_rule('Charging-Rule-Name', V, Opts, #{rule := Rules}, Update) ->
+    lists:foldl(install_preconf_rule(_, Opts, Rules, _), Update, V);
+install_pcc_rule('Charging-Rule-Base-Name', V, Opts,
+		 #{rule := Rules, rulebase := RuleBase}, Update) ->
+    lists:foldl(install_preconf_rulebase(_, Opts, Rules, RuleBase, _), Update, V);
+install_pcc_rule('Charging-Rule-Definition', V, Opts, _, Update) ->
     lists:foldl(fun(#{'Charging-Rule-Name' := Name} = Rule, Upd) ->
 			update_pcc_rule(Name, Rule, Opts, Upd)
 		end, Update, V).

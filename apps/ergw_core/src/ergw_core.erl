@@ -19,7 +19,10 @@
 	 add_handler/2,
 	 add_ip_pool/2,
 	 add_sx_node/2,
-	 add_apn/2]).
+	 add_apn/2,
+	 add_charging_rule/2,
+	 add_charging_rulebase/2
+	]).
 -export([handler/2]).
 -export([get_plmn_id/0, get_node_id/0, get_accept_new/0, get_teid_config/0]).
 -export([system_info/0, system_info/1, system_info/2]).
@@ -161,6 +164,14 @@ do_add_sx_node(Name, Opts) ->
 add_apn(Name0, Opts0) ->
     {Name, Opts} = ergw_apn:validate_options({Name0, Opts0}),
     gen_statem:call(?SERVER, {add_apn, Name, Opts}).
+
+add_charging_rule(Name, Opts0) ->
+    Opts = ergw_charging:validate_rule(Name, Opts0),
+    gen_statem:call(?SERVER, {add_charging_rule, Name, Opts}).
+
+add_charging_rulebase(Name, Opts0) ->
+    Opts = ergw_charging:validate_rulebase(Name, Opts0),
+    gen_statem:call(?SERVER, {add_charging_rulebase, Name, Opts}).
 
 %%
 %% start a TDF instance
@@ -340,6 +351,14 @@ handle_event({call, From}, {add_sx_node, Name, Opts}, running, _) ->
 
 handle_event({call, From}, {add_apn, Name, Opts}, running, _) ->
     Reply = ergw_apn:add(Name, Opts),
+    {keep_state_and_data, [{reply, From, Reply}]};
+
+handle_event({call, From}, {add_rule, Name, Opts}, running, _) ->
+    Reply = ergw_charging:add_rule(Name, Opts),
+    {keep_state_and_data, [{reply, From, Reply}]};
+
+handle_event({call, From}, {add_rulebase, Name, Opts}, running, _) ->
+    Reply = ergw_charging:add_rulebase(Name, Opts),
     {keep_state_and_data, [{reply, From, Reply}]};
 
 handle_event({call, From}, {setopts, node_selection, Opts}, running, _) ->

@@ -7,8 +7,8 @@
 
 -module(ergw_charging).
 
--export([validate_options/1,
-	 setopts/1,
+-export([validate_options/1, validate_rule/2, validate_rulebase/2,
+	 add_rule/2, add_rulebase/2, setopts/1,
 	 reporting_triggers/0,
 	 is_charging_event/2,
 	 is_enabled/1,
@@ -22,7 +22,7 @@
 -define(non_empty_opts(X), ((is_list(X) andalso length(X) /= 0) orelse
 			    (is_map(X) andalso map_size(X) /= 0))).
 
--define(DefaultChargingOpts, [{rulebase, []}, {online, []}, {offline, []}]).
+-define(DefaultChargingOpts, [{online, []}, {offline, []}]).
 -define(DefaultRulebase, []).
 -define(DefaultRuleDef, []).
 -define(DefaultOnlineChargingOpts, []).
@@ -78,11 +78,10 @@ validate_charging({Key, Opts})
 %% validate_rule_def('Traffic-Steering-Policy-Identifier-UL', Value) ->
 %% validate_rule_def('Content-Version', Value) ->
 
-validate_rule_def(Key, Value)
-  when is_atom(Key) andalso
-       is_list(Value) andalso length(Value) /= 0 ->
+validate_rule(Key, Value)
+  when is_atom(Key) andalso is_list(Value) andalso length(Value) /= 0 ->
     Value;
-validate_rule_def(Key, Value) ->
+validate_rule(Key, Value) ->
     erlang:error(badarg, [rule, {Key, Value}]).
 
 validate_rulebase(Key, [Id | _] = RuleBaseDef)
@@ -142,9 +141,6 @@ validate_offline_charging_options(triggers, Opts) ->
 validate_offline_charging_options(Key, Opts) ->
     erlang:error(badarg, [{offline, charging}, {Key, Opts}]).
 
-validate_charging_options(rulebase, RuleBase) ->
-    ergw_core_config:validate_options(fun validate_rulebase/2,
-				 RuleBase, ?DefaultRulebase);
 validate_charging_options(online, Opts) ->
     ergw_core_config:validate_options(fun validate_online_charging_options/2,
 				 Opts, ?DefaultOnlineChargingOpts);
@@ -157,6 +153,16 @@ validate_charging_options(Key, Opts) ->
 %%%===================================================================
 %%% API
 %%%===================================================================
+
+add_rule(Name, Opts0) ->
+    Opts = ergw_apn:validate_rule(Name, Opts0),
+    {ok, Rules} = ergw_core_config:get([charging_rule], #{}),
+    ergw_core_config:put(charging_rule, maps:put(Name, Opts, Rules)).
+
+add_rulebase(Name, Opts0) ->
+    Opts = ergw_apn:validate_rule(Name, Opts0),
+    {ok, RBs} = ergw_core_config:get([charging_rulebase], #{}),
+    ergw_core_config:put(charging_rulebase, maps:put(Name, Opts, RBs)).
 
 setopts(Opts0) ->
     Opts = validate_options(Opts0),
@@ -193,7 +199,9 @@ is_enabled(Type = offline) ->
     maps:get(enable, maps:get(Type, getopts(), #{}), true).
 
 rulebase() ->
-    maps:get(rulebase, getopts(), #{}).
+    {ok, Rules} = ergw_core_config:get([charging_rule], #{}),
+    {ok, RBs} = ergw_core_config:get([charging_rulebase], #{}),
+    maps:merge(Rules, RBs).
 
 %%%===================================================================
 %%% Helper functions
