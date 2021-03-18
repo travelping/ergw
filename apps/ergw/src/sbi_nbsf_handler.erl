@@ -19,7 +19,7 @@
 %% cowboy handler methods, used in routes
 -ignore_xref([to_json/2]).
 
--include("include/ergw.hrl").
+-include_lib("ergw_core/include/ergw.hrl").
 
 -define(FIELDS_MAPPING, [{accept_new, 'acceptNewRequests'},
 			 {plmn_id, 'plmnId'}]).
