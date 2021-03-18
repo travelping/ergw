@@ -206,87 +206,89 @@
 		],
 
 	    charging =>
-		[{default,
-		  [{offline,
-		    [{triggers,
-		      [{'cgi-sai-change',            'container'},
-		       {'ecgi-change',               'container'},
-		       {'max-cond-change',           'cdr'},
-		       {'ms-time-zone-change',       'cdr'},
-		       {'qos-change',                'container'},
-		       {'rai-change',                'container'},
-		       {'rat-change',                'cdr'},
-		       {'sgsn-sgw-change',           'cdr'},
-		       {'sgsn-sgw-plmn-id-change',   'cdr'},
-		       {'tai-change',                'container'},
-		       {'tariff-switch-change',      'container'},
-		       {'user-location-info-change', 'container'}
-		      ]}
-		    ]},
-		   {rulebase,
-		    [{<<"r-0001">>,
-		      #{'Rating-Group' => [3000],
-			'Flow-Information' =>
-			    [#{'Flow-Description' => [<<"permit out ip from any to assigned">>],
-			       'Flow-Direction'   => [1]    %% DownLink
-			      },
-			     #{'Flow-Description' => [<<"permit out ip from any to assigned">>],
-			       'Flow-Direction'   => [2]    %% UpLink
-			      }],
-			'Metering-Method'  => [1],
-			'Precedence' => [100],
-			'Offline'  => [1]
-		       }},
-		     {<<"r-0002">>,
-		      #{'Rating-Group' => [4000],
-			'Flow-Information' =>
-			    [#{'Flow-Description' => [<<"permit out ip from any to assigned">>],
-			       'Flow-Direction'   => [1]    %% DownLink
-			      },
-			     #{'Flow-Description' => [<<"permit out ip from any to assigned">>],
-			       'Flow-Direction'   => [2]    %% UpLink
-			      }],
-			'Metering-Method'  => [1],
-			'Precedence' => [100],
-			'Offline'  => [1]
-		       }},
-		     {<<"r-0001-split">>,
-		      #{'Online-Rating-Group' => [3000],
-			'Offline-Rating-Group' => [3001],
-			'Flow-Information' =>
-			    [#{'Flow-Description' => [<<"permit out ip from any to assigned">>],
-			       'Flow-Direction'   => [1]    %% DownLink
-			      },
-			     #{'Flow-Description' => [<<"permit out ip from any to assigned">>],
-			       'Flow-Direction'   => [2]    %% UpLink
-			      }],
-			'Metering-Method'  => [1],
-			'Precedence' => [100],
-			'Online'  => [1],
-			'Offline'  => [1]
-		       }},
-		     {<<"r-0002-split">>,
-		      #{'Online-Rating-Group' => [3000],
-			'Offline-Rating-Group' => [3002],
-			'Flow-Information' =>
-			    [#{'Flow-Description' => [<<"permit out ip from any to assigned">>],
-			       'Flow-Direction'   => [1]    %% DownLink
-			      },
-			     #{'Flow-Description' => [<<"permit out ip from any to assigned">>],
-			       'Flow-Direction'   => [2]    %% UpLink
-			      }],
-			'Metering-Method'  => [1],
-			'Precedence' => [100],
-			'Online'  => [1],
-			'Offline'  => [1]
-		       }},
-		     {<<"m2m0001">>, [<<"r-0001">>]},
-		     {<<"m2m0002">>, [<<"r-0002">>]},
-		     {<<"m2m0001-split1">>, [<<"r-0001-split">>, <<"r-0002-split">>]},
-		     {<<"m2m0001-split2">>, [<<"r-0001">>, <<"r-0001-split">>, <<"r-0002-split">>]}
-		    ]}
-		  ]}
-		],
+		#{profiles =>
+		      [{default,
+			[{offline,
+			  [{triggers,
+			    [{'cgi-sai-change',            'container'},
+			     {'ecgi-change',               'container'},
+			     {'max-cond-change',           'cdr'},
+			     {'ms-time-zone-change',       'cdr'},
+			     {'qos-change',                'container'},
+			     {'rai-change',                'container'},
+			     {'rat-change',                'cdr'},
+			     {'sgsn-sgw-change',           'cdr'},
+			     {'sgsn-sgw-plmn-id-change',   'cdr'},
+			     {'tai-change',                'container'},
+			     {'tariff-switch-change',      'container'},
+			     {'user-location-info-change', 'container'}
+			    ]}
+			  ]}
+			]}
+		      ],
+		  rules =>
+		      [{<<"r-0001">>,
+			#{'Rating-Group' => [3000],
+			  'Flow-Information' =>
+			      [#{'Flow-Description' => [<<"permit out ip from any to assigned">>],
+				 'Flow-Direction'   => [1]    %% DownLink
+				},
+			       #{'Flow-Description' => [<<"permit out ip from any to assigned">>],
+				 'Flow-Direction'   => [2]    %% UpLink
+				}],
+			  'Metering-Method'  => [1],
+			  'Precedence' => [100],
+			  'Offline'  => [1]
+			 }},
+		       {<<"r-0002">>,
+			#{'Rating-Group' => [4000],
+			  'Flow-Information' =>
+			      [#{'Flow-Description' => [<<"permit out ip from any to assigned">>],
+				 'Flow-Direction'   => [1]    %% DownLink
+				},
+			       #{'Flow-Description' => [<<"permit out ip from any to assigned">>],
+				 'Flow-Direction'   => [2]    %% UpLink
+				}],
+			  'Metering-Method'  => [1],
+			  'Precedence' => [100],
+			  'Offline'  => [1]
+			 }},
+		       {<<"r-0001-split">>,
+			#{'Online-Rating-Group' => [3000],
+			  'Offline-Rating-Group' => [3001],
+			  'Flow-Information' =>
+			      [#{'Flow-Description' => [<<"permit out ip from any to assigned">>],
+				 'Flow-Direction'   => [1]    %% DownLink
+				},
+			       #{'Flow-Description' => [<<"permit out ip from any to assigned">>],
+				 'Flow-Direction'   => [2]    %% UpLink
+				}],
+			  'Metering-Method'  => [1],
+			  'Precedence' => [100],
+			  'Online'  => [1],
+			  'Offline'  => [1]
+			 }},
+		       {<<"r-0002-split">>,
+			#{'Online-Rating-Group' => [3000],
+			  'Offline-Rating-Group' => [3002],
+			  'Flow-Information' =>
+			      [#{'Flow-Description' => [<<"permit out ip from any to assigned">>],
+				 'Flow-Direction'   => [1]    %% DownLink
+				},
+			       #{'Flow-Description' => [<<"permit out ip from any to assigned">>],
+				 'Flow-Direction'   => [2]    %% UpLink
+				}],
+			  'Metering-Method'  => [1],
+			  'Precedence' => [100],
+			  'Online'  => [1],
+			  'Offline'  => [1]
+			 }}],
+		  rulebase =>
+		      [{<<"m2m0001">>, [<<"r-0001">>]},
+		       {<<"m2m0002">>, [<<"r-0002">>]},
+		       {<<"m2m0001-split1">>, [<<"r-0001-split">>, <<"r-0002-split">>]},
+		       {<<"m2m0001-split2">>, [<<"r-0001">>, <<"r-0001-split">>, <<"r-0002-split">>]}]
+		 },
 
 	    upf_nodes =>
 		#{default =>
