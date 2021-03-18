@@ -60,9 +60,9 @@
 	       notify_up = []    :: [{pid(), reference()}]}).
 
 -ifdef(TEST).
--define(AssocReqTimeout, 2).
+-define(AssocReqTimeout, 20).
 -define(AssocReqRetries, 5).
--define(AssocTimeout, 5).
+-define(AssocTimeout, 50).
 -define(AssocRetries, 10).
 -define(MaxRetriesScale, 5).
 -else.
@@ -382,7 +382,7 @@ handle_event({call, From}, {?TestCmdTag, reconnect}, connecting, _) ->
     {keep_state_and_data, [{reply, From, ok}]};
 handle_event({call, From}, {?TestCmdTag, reconnect}, {connected, _}, Data) ->
     {next_state, dead, handle_nodedown(Data#data{retries = 0}), [{reply, From, ok}]};
-handle_event({call, From}, {?TestCmdTag, wait4nodeup}, {connected, _}, _) ->
+handle_event({call, From}, {?TestCmdTag, wait4nodeup}, {connected, ready}, _) ->
     {keep_state_and_data, [{reply, From, ok}]};
 handle_event({call, _From}, {?TestCmdTag, wait4nodeup}, _, _) ->
     {keep_state_and_data, [postpone]};
