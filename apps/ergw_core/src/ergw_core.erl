@@ -20,6 +20,7 @@
 	 add_ip_pool/2,
 	 add_sx_node/2,
 	 add_apn/2,
+	 add_charging_profile/2,
 	 add_charging_rule/2,
 	 add_charging_rulebase/2
 	]).
@@ -115,9 +116,6 @@ setopts(sx_defaults = What, Opts0) ->
 setopts(path_management = What, Opts0) ->
     Opts = gtp_path:validate_options(Opts0),
     gen_statem:call(?SERVER, {setopts, What, Opts});
-setopts(charging = What, Opts0) ->
-    Opts = ergw_charging:validate_options(Opts0),
-    gen_statem:call(?SERVER, {setopts, What, Opts});
 setopts(proxy_map = What, Opts0) ->
     Opts = gtp_proxy_ds:validate_options(Opts0),
     gen_statem:call(?SERVER, {setopts, What, Opts}).
@@ -164,6 +162,10 @@ do_add_sx_node(Name, Opts) ->
 add_apn(Name0, Opts0) ->
     {Name, Opts} = ergw_apn:validate_options({Name0, Opts0}),
     gen_statem:call(?SERVER, {add_apn, Name, Opts}).
+
+add_charging_profile(Name, Opts0) ->
+    Opts = ergw_charging:validate_profile(Name, Opts0),
+    gen_statem:call(?SERVER, {add_charging_profile, Name, Opts}).
 
 add_charging_rule(Name, Opts0) ->
     Opts = ergw_charging:validate_rule(Name, Opts0),
@@ -353,11 +355,15 @@ handle_event({call, From}, {add_apn, Name, Opts}, running, _) ->
     Reply = ergw_apn:add(Name, Opts),
     {keep_state_and_data, [{reply, From, Reply}]};
 
-handle_event({call, From}, {add_rule, Name, Opts}, running, _) ->
+handle_event({call, From}, {add_charging_profile, Name, Opts}, running, _) ->
+    Reply = ergw_charging:add_profile(Name, Opts),
+    {keep_state_and_data, [{reply, From, Reply}]};
+
+handle_event({call, From}, {add_charging_rule, Name, Opts}, running, _) ->
     Reply = ergw_charging:add_rule(Name, Opts),
     {keep_state_and_data, [{reply, From, Reply}]};
 
-handle_event({call, From}, {add_rulebase, Name, Opts}, running, _) ->
+handle_event({call, From}, {add_charging_rulebase, Name, Opts}, running, _) ->
     Reply = ergw_charging:add_rulebase(Name, Opts),
     {keep_state_and_data, [{reply, From, Reply}]};
 
@@ -371,10 +377,6 @@ handle_event({call, From}, {setopts, sx_defaults, Opts}, running, _) ->
 
 handle_event({call, From}, {setopts, path_management, Opts}, running, _) ->
     Reply = gtp_path:setopts(Opts),
-    {keep_state_and_data, [{reply, From, Reply}]};
-
-handle_event({call, From}, {setopts, charging, Opts}, running, _) ->
-    Reply = ergw_charging:setopts(Opts),
     {keep_state_and_data, [{reply, From, Reply}]};
 
 handle_event({call, From}, {setopts, proxy_map, Opts}, running, _) ->

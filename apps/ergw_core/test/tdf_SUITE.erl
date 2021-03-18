@@ -116,39 +116,39 @@
 		],
 
 	    charging =>
-		[{default,
-		  [{rulebase,
-		    [{<<"r-0001">>,
-		      #{'Rating-Group' => [3000],
-			'Flow-Information' =>
-			    [#{'Flow-Description' => [<<"permit out ip from any to assigned">>],
-			       'Flow-Direction'   => [1]    %% DownLink
-			      },
-			     #{'Flow-Description' => [<<"permit out ip from any to assigned">>],
-			       'Flow-Direction'   => [2]    %% UpLink
-			      }],
-			'Metering-Method'  => [1],
-			'Precedence' => [100],
-			'Offline'  => [1]
-		       }},
-		     {<<"r-0002">>,
-		      #{'Rating-Group' => [4000],
-			'Flow-Information' =>
-			    [#{'Flow-Description' => [<<"permit out ip from any to assigned">>],
-			       'Flow-Direction'   => [1]    %% DownLink
-			      },
-			     #{'Flow-Description' => [<<"permit out ip from any to assigned">>],
-			       'Flow-Direction'   => [2]    %% UpLink
-			      }],
-			'Metering-Method'  => [1],
-			'Precedence' => [100],
-			'Offline'  => [1]
-		       }},
-		     {<<"m2m0001">>, [<<"r-0001">>]},
-		     {<<"m2m0002">>, [<<"r-0002">>]}
-		    ]}
-		  ]}
-		],
+		#{profiles =>
+		      [{default, []}],
+		  rules =>
+		      [{<<"r-0001">>,
+			#{'Rating-Group' => [3000],
+			  'Flow-Information' =>
+			      [#{'Flow-Description' => [<<"permit out ip from any to assigned">>],
+				 'Flow-Direction'   => [1]    %% DownLink
+				},
+			       #{'Flow-Description' => [<<"permit out ip from any to assigned">>],
+				 'Flow-Direction'   => [2]    %% UpLink
+				}],
+			  'Metering-Method'  => [1],
+			  'Precedence' => [100],
+			  'Offline'  => [1]
+			 }},
+		       {<<"r-0002">>,
+			#{'Rating-Group' => [4000],
+			  'Flow-Information' =>
+			      [#{'Flow-Description' => [<<"permit out ip from any to assigned">>],
+				 'Flow-Direction'   => [1]    %% DownLink
+				},
+			       #{'Flow-Description' => [<<"permit out ip from any to assigned">>],
+				 'Flow-Direction'   => [2]    %% UpLink
+				}],
+			  'Metering-Method'  => [1],
+			  'Precedence' => [100],
+			  'Offline'  => [1]
+			 }}],
+		  rulebase =>
+		      [{<<"m2m0001">>, [<<"r-0001">>]},
+		       {<<"m2m0002">>, [<<"r-0002">>]}]
+		 },
 
 	    upf_nodes =>
 		#{default =>

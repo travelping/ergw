@@ -116,10 +116,10 @@ install_pcc_rules(Install, RuleBase, Update) ->
     {Rules, Opts} = split_pcc_rule(Install),
     maps:fold(install_pcc_rule(_, _, Opts, RuleBase, _), Update, Rules).
 
-install_pcc_rule('Charging-Rule-Name', V, Opts, #{rule := Rules}, Update) ->
+install_pcc_rule('Charging-Rule-Name', V, Opts, #{rules := Rules}, Update) ->
     lists:foldl(install_preconf_rule(_, Opts, Rules, _), Update, V);
 install_pcc_rule('Charging-Rule-Base-Name', V, Opts,
-		 #{rule := Rules, rulebase := RuleBase}, Update) ->
+		 #{rules := Rules, rulebase := RuleBase}, Update) ->
     lists:foldl(install_preconf_rulebase(_, Opts, Rules, RuleBase, _), Update, V);
 install_pcc_rule('Charging-Rule-Definition', V, Opts, _, Update) ->
     lists:foldl(fun(#{'Charging-Rule-Name' := Name} = Rule, Upd) ->

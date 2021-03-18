@@ -7,8 +7,8 @@
 
 -module(ergw_charging).
 
--export([validate_options/1, validate_rule/2, validate_rulebase/2,
-	 add_rule/2, add_rulebase/2, setopts/1,
+-export([validate_profile/2, validate_rule/2, validate_rulebase/2,
+	 add_profile/2, add_rule/2, add_rulebase/2,
 	 reporting_triggers/0,
 	 is_charging_event/2,
 	 is_enabled/1,
@@ -22,7 +22,7 @@
 -define(non_empty_opts(X), ((is_list(X) andalso length(X) /= 0) orelse
 			    (is_map(X) andalso map_size(X) /= 0))).
 
--define(DefaultChargingOpts, [{online, []}, {offline, []}]).
+-define(DefaultProfile, [{online, []}, {offline, []}]).
 -define(DefaultRulebase, []).
 -define(DefaultRuleDef, []).
 -define(DefaultOnlineChargingOpts, []).
@@ -41,70 +41,105 @@
 	 {'tariff-switch-change',	'container'},
 	 {'user-location-info-change',	'container'}]).
 
-validate_options(Opts) when ?non_empty_opts(Opts) ->
-    ergw_core_config:validate_options(fun validate_charging/1, Opts, []).
+validate_profile(Name, Opts)
+  when is_atom(Name), ?is_opts(Opts) ->
+    ergw_core_config:validate_options(fun validate_charging_options/2, Opts, ?DefaultProfile).
 
-validate_charging({Key, Opts})
-  when is_atom(Key), ?is_opts(Opts) ->
-    {Key, ergw_core_config:validate_options(fun validate_charging_options/2, Opts, ?DefaultChargingOpts)}.
-
-%% validate_rule_def('Service-Identifier', Value) ->
-%% validate_rule_def('Rating-Group', Value) ->
-%% validate_rule_def('Flow-Information', Value) ->
-%% validate_rule_def('Default-Bearer-Indication', Value) ->
-%% validate_rule_def('TDF-Application-Identifier', Value) ->
-%% validate_rule_def('Flow-Status', Value) ->
-%% validate_rule_def('QoS-Information', Value) ->
-%% validate_rule_def('PS-to-CS-Session-Continuity', Value) ->
-%% validate_rule_def('Reporting-Level', Value) ->
-%% validate_rule_def('Online', Value) ->
-%% validate_rule_def('Offline', Value) ->
-%% validate_rule_def('Max-PLR-DL', Value) ->
-%% validate_rule_def('Max-PLR-UL', Value) ->
-%% validate_rule_def('Metering-Method', Value) ->
-%% validate_rule_def('Precedence', Value) ->
-%% validate_rule_def('AF-Charging-Identifier', Value) ->
-%% validate_rule_def('Flows', Value) ->
-%% validate_rule_def('Monitoring-Key', Value) ->
-%% validate_rule_def('Redirect-Information', Value) ->
-%% validate_rule_def('Mute-Notification', Value) ->
-%% validate_rule_def('AF-Signalling-Protocol', Value) ->
-%% validate_rule_def('Sponsor-Identity', Value) ->
-%% validate_rule_def('Application-Service-Provider-Identity', Value) ->
-%% validate_rule_def('Required-Access-Info', Value) ->
-%% validate_rule_def('Sharing-Key-DL', Value) ->
-%% validate_rule_def('Sharing-Key-UL', Value) ->
-%% validate_rule_def('Traffic-Steering-Policy-Identifier-DL', Value) ->
-%% validate_rule_def('Traffic-Steering-Policy-Identifier-UL', Value) ->
-%% validate_rule_def('Content-Version', Value) ->
-
-validate_rule(Key, Value)
-  when is_atom(Key) andalso is_list(Value) andalso length(Value) /= 0 ->
+%% validate_rule_def('Service-Identifier', [Value] = V)
+%%   when is_integer(Value) ->
+%%     V;
+validate_rule_def('Rating-Group', [Value] = V)
+  when is_integer(Value), Value >= 0 ->
+    V;
+validate_rule_def('Online-Rating-Group', [Value] = V)
+  when is_integer(Value), Value >= 0 ->
+    V;
+validate_rule_def('Offline-Rating-Group', [Value] = V)
+  when is_integer(Value), Value >= 0 ->
+    V;
+validate_rule_def('Flow-Information', Value)
+  when is_list(Value), length(Value) /= 0 ->
     Value;
-validate_rule(Key, Value) ->
-    erlang:error(badarg, [rule, {Key, Value}]).
+%% validate_rule_def('Default-Bearer-Indication', [Value] = V) ->
+%%     V;
+validate_rule_def('TDF-Application-Identifier', [Value] = V)
+  when is_binary(Value) ->
+    V;
+%% validate_rule_def('Flow-Status', [Value] = V) ->
+%%     V;
+%% validate_rule_def('QoS-Information', [Value] = V) ->
+%%     V;
+%% validate_rule_def('PS-to-CS-Session-Continuity', [Value] = V) ->
+%%     V;
+%% validate_rule_def('Reporting-Level', [Value] = V) ->
+%%     V;
+validate_rule_def('Online', [Value] = V)
+  when Value =:= 0; Value =:= 1 ->
+    V;
+validate_rule_def('Offline', [Value] = V)
+  when Value =:= 0; Value =:= 1 ->
+    V;
+%% validate_rule_def('Max-PLR-DL', [Value] = V) ->
+%%     V;
+%% validate_rule_def('Max-PLR-UL', [Value] = V) ->
+%%     V;
+validate_rule_def('Metering-Method', [Value] = V)
+  when Value =:= 0; Value =:= 1; Value =:= 2; Value =:= 3 ->
+    V;
+validate_rule_def('Precedence', [Value] = V)
+  when is_integer(Value), Value >= 0 ->
+    V;
+%% validate_rule_def('AF-Charging-Identifier', [Value] = V) ->
+%%     V;
+%% validate_rule_def('Flows', [Value] = V) ->
+%%     V;
+%% validate_rule_def('Monitoring-Key', [Value] = V) ->
+%%     V;
+validate_rule_def('Redirect-Information', Value = V)
+  when is_list(Value), length(Value) /= 0, length(Value) =< 2 ->
+    V;
+%% validate_rule_def('Mute-Notification', [Value] = V) ->
+%%     V;
+%% validate_rule_def('AF-Signalling-Protocol', [Value] = V) ->
+%%     V;
+%% validate_rule_def('Sponsor-Identity', [Value] = V) ->
+%%     V;
+%% validate_rule_def('Application-Service-Provider-Identity', [Value] = V) ->
+%%     V;
+%% validate_rule_def('Required-Access-Info', [Value] = V) ->
+%%     V;
+%% validate_rule_def('Sharing-Key-DL', [Value] = V) ->
+%%     V;
+%% validate_rule_def('Sharing-Key-UL', [Value] = V) ->
+%%     V;
+%% validate_rule_def('Traffic-Steering-Policy-Identifier-DL', [Value] = V) ->
+%%     V;
+%% validate_rule_def('Traffic-Steering-Policy-Identifier-UL', [Value] = V) ->
+%%     V;
+%% validate_rule_def('Content-Version', [Value] = V) ->
+%%     V;
+validate_rule_def(AVP, Value) ->
+    %% only known AVP are supported for now
+    erlang:error(badarg, [AVP, Value]).
 
-validate_rulebase(Key, [Id | _] = RuleBaseDef)
-  when is_binary(Key) andalso is_binary(Id) ->
-    case lists:usort(RuleBaseDef) of
-	S when length(S) /= length(RuleBaseDef) ->
-	    erlang:error(badarg, [rulebase, {Key, RuleBaseDef}]);
-	_ ->
+validate_rule(Key, Opts)
+  when is_binary(Key), ?non_empty_opts(Opts) ->
+    %% 3GPP TS 29.212 Charging-Rule-Definition AVP in Erlang terms
+    ergw_core_config:validate_options(fun validate_rule_def/2, Opts, []);
+validate_rule(Key, Opts) ->
+    erlang:error(badarg, [Key, Opts]).
+
+validate_rulebase(Key, RuleBaseDef)
+  when is_binary(Key), is_list(RuleBaseDef) ->
+    S = lists:usort([X || X <- RuleBaseDef, is_binary(X)]),
+    if length(S) /= length(RuleBaseDef) ->
+	    erlang:error(badarg, [Key, RuleBaseDef]);
+       true ->
 	    ok
     end,
-
-    lists:foreach(fun(RId) when is_binary(RId) ->
-			  ok;
-		     (RId) ->
-			  erlang:error(badarg, [rule, {Key, RId}])
-		  end, RuleBaseDef),
     RuleBaseDef;
-validate_rulebase(Key, Rule)
-  when is_binary(Key) andalso ?non_empty_opts(Rule) ->
-    ergw_core_config:validate_options(fun validate_rule_def/2,
-				 Rule, ?DefaultRuleDef);
-validate_rulebase(Key, Rule) ->
-    erlang:error(badarg, [rulebase, {Key, Rule}]).
+validate_rulebase(Key, RuleBase) ->
+    erlang:error(badarg, [Key, RuleBase]).
 
 validate_online_charging_options(Key, Opts) ->
     erlang:error(badarg, [{online, charging}, {Key, Opts}]).
@@ -154,54 +189,55 @@ validate_charging_options(Key, Opts) ->
 %%% API
 %%%===================================================================
 
+add_profile(Name, Opts0) ->
+    Opts = validate_profile(Name, Opts0),
+    {ok, Profiles} = ergw_core_config:get([charging_profile], #{}),
+    ergw_core_config:put(charging_profile, maps:put(Name, Opts, Profiles)).
+
 add_rule(Name, Opts0) ->
-    Opts = ergw_apn:validate_rule(Name, Opts0),
+    Opts = validate_rule(Name, Opts0),
     {ok, Rules} = ergw_core_config:get([charging_rule], #{}),
     ergw_core_config:put(charging_rule, maps:put(Name, Opts, Rules)).
 
 add_rulebase(Name, Opts0) ->
-    Opts = ergw_apn:validate_rule(Name, Opts0),
+    Opts = validate_rulebase(Name, Opts0),
     {ok, RBs} = ergw_core_config:get([charging_rulebase], #{}),
     ergw_core_config:put(charging_rulebase, maps:put(Name, Opts, RBs)).
 
-setopts(Opts0) ->
-    Opts = validate_options(Opts0),
-    ergw_core_config:put(charging, Opts).
-
 %% TODO: use APN, VPLMN, HPLMN and Charging Characteristics
 %%       to select config
-getopts() ->
-    case ergw_core_config:get([charging, default], []) of
+get_profile() ->
+    case ergw_core_config:get([charging_profile, default], []) of
 	{ok, Opts0} when is_map(Opts0) ->
 	    Opts0;
-	{ok, Opts0} when is_list(Opts0) ->
-	    Opts = validate_options(Opts0),
-	    ergw_core_config:put(charging, Opts),
+	undefined ->
+	    Opts = validate_profile(default, []),
+	    ergw_core_config:put(charging_profile, #{default => Opts}),
 	    Opts
     end.
 
 reporting_triggers() ->
     Triggers =
 	maps:get(triggers,
-		 maps:get(offline, getopts(), #{}), #{}),
+		 maps:get(offline, get_profile(), #{}), #{}),
     maps:map(
       fun(_Key, Cond) -> Cond /= 'off' end, Triggers).
 
 is_charging_event(offline, Evs) ->
     Filter =
 	maps:get(triggers,
-		 maps:get(offline, getopts(), #{}), #{}),
+		 maps:get(offline, get_profile(), #{}), #{}),
     is_offline_charging_event(Evs, Filter);
 is_charging_event(online, _) ->
     true.
 
 is_enabled(Type = offline) ->
-    maps:get(enable, maps:get(Type, getopts(), #{}), true).
+    maps:get(enable, maps:get(Type, get_profile(), #{}), true).
 
 rulebase() ->
     {ok, Rules} = ergw_core_config:get([charging_rule], #{}),
-    {ok, RBs} = ergw_core_config:get([charging_rulebase], #{}),
-    maps:merge(Rules, RBs).
+    {ok, RuleBase} = ergw_core_config:get([charging_rulebase], #{}),
+    #{rules => Rules, rulebase => RuleBase}.
 
 %%%===================================================================
 %%% Helper functions

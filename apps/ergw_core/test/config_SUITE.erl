@@ -42,7 +42,8 @@ all() ->
      %% metrics,				% TBD: does not work yet
      proxy_map,
      charging,
-     rule_base,
+     charging_rule,
+     charging_rulebase,
      path_management
     ].
 
@@ -639,54 +640,88 @@ proxy_map(_Config)  ->
 charging() ->
     [{doc, "Test validation of the charging configuration"}].
 charging(_Config)  ->
-    Charging = [{default, []}],
-    ValF = fun(Values) -> ergw_charging:validate_options(Values) end,
+    ValF = fun(Values) -> ergw_charging:validate_profile(default, Values) end,
 
-    ?ok(ValF(Charging)),
+    ?ok(ValF([])),
 
-    ?ok(ValF(set_cfg_value([default, online], [], Charging))),
-    ?ok(ValF(set_cfg_value([default, offline], [], Charging))),
-    ?ok(ValF(set_cfg_value([default, offline], [enable], Charging))),
-    ?ok(ValF(set_cfg_value([default, offline], [disable], Charging))),
-    ?ok(ValF(set_cfg_value([default, offline, enable], true, Charging))),
-    ?ok(ValF(set_cfg_value([default, offline, enable], false, Charging))),
-    ?bad(ValF(set_cfg_value([default, offline, enable], invalid, Charging))),
-    ?ok(ValF(set_cfg_value([default, offline, triggers], [], Charging))),
-    ?bad(ValF(set_cfg_value([default, offline, triggers, invalid], cdr, Charging))),
-    ?ok(ValF(set_cfg_value([default, offline, triggers], [{'ecgi-change', off}], Charging))),
-    ?bad(ValF(set_cfg_value([default, invalid], [], Charging))),
-    ?bad(ValF(set_cfg_value([default, online, invalid], [], Charging))),
-    ?bad(ValF(set_cfg_value([default, offline, invalid], [], Charging))),
+    ?ok(ValF([{online, []}])),
+    ?ok(ValF([{offline, []}])),
+    ?ok(ValF([{offline, [enable]}])),
+    ?ok(ValF([{offline, [disable]}])),
+    ?ok(ValF([{offline, [{enable, true}]}])),
+    ?ok(ValF([{offline, [{enable, false}]}])),
+    ?bad(ValF([{offline, [{enable, invalid}]}])),
+    ?ok(ValF([{offline, [{triggers, []}]}])),
+    ?bad(ValF([{offline, [{triggers, [{invalid, cdr}]}]}])),
+    ?ok(ValF([{offline, [{triggers, [{'ecgi-change', off}]}]}])),
+    ?bad(ValF([{invalid, []}])),
+    ?bad(ValF([{online, [{invalid, []}]}])),
+    ?bad(ValF([{offline, [{invalid, []}]}])),
     ok.
 
-rule_base() ->
+charging_rule() ->
+    [{doc, "Test validation of the rule configuration"}].
+charging_rule(_Config)  ->
+    ValF = fun ergw_charging:validate_rule/2,
+
+    ?bad(ValF(<<"r-0001">>, [{'Rating-Group', []}])),
+
+    ?ok(ValF(<<"r-0001">>, [{'Rating-Group', [3000]}])),
+    ?bad(ValF(<<"r-0001">>, [{'Rating-Group', 3000}])),
+    ?bad(ValF(<<"r-0001">>, [{'Rating-Group', atom}])),
+
+    ?bad(ValF(<<"r-0001">>, [{'Rating-Group', [3000]}, {'Rating-Group', [3000]}])),
+
+    %% ?ok(ValF(<<"r-0001">>, [{'Rating-Group', [3000]}, {'Service-Identifier', [1]}])),
+    %% ?bad(ValF(<<"r-0001">>, [{'Rating-Group', [3000]}, {'Service-Identifier', [value]}])),
+
+    ?ok(ValF(<<"r-0001">>, #{'Online-Rating-Group' => [3000]})),
+    ?bad(ValF(<<"r-0001">>, #{'Online-Rating-Group' => 3000})),
+    ?bad(ValF(<<"r-0001">>, #{'Online-Rating-Group' => [atom]})),
+
+    ?ok(ValF(<<"r-0001">>, #{'Offline-Rating-Group' => [3000]})),
+    ?bad(ValF(<<"r-0001">>, #{'Offline-Rating-Group' => 3000})),
+    ?bad(ValF(<<"r-0001">>, #{'Offline-Rating-Group' => [atom]})),
+
+    ?ok(ValF(<<"r-0001">>, #{'Rating-Group' => [3000], 'TDF-Application-Identifier' => [<<"Gold">>]})),
+    ?bad(ValF(<<"r-0001">>, #{'Rating-Group' => [3000], 'TDF-Application-Identifier' => <<"Gold">>})),
+    ?bad(ValF(<<"r-0001">>, #{'Rating-Group' => [3000], 'TDF-Application-Identifier' => "Gold"})),
+    ?bad(ValF(<<"r-0001">>, #{'Rating-Group' => [3000], 'TDF-Application-Identifier' => [atom]})),
+
+    ?ok(ValF(<<"r-0001">>, #{'Rating-Group' => [3000], 'Online' => [0]})),
+    ?bad(ValF(<<"r-0001">>, #{'Rating-Group' => [3000], 'Online' => [2]})),
+    ?bad(ValF(<<"r-0001">>, #{'Rating-Group' => [3000], 'Online' => [true]})),
+    ?bad(ValF(<<"r-0001">>, #{'Rating-Group' => [3000], 'Online' => 0})),
+
+    ?ok(ValF(<<"r-0001">>, #{'Rating-Group' => [3000], 'Offline' => [0]})),
+    ?bad(ValF(<<"r-0001">>, #{'Rating-Group' => [3000], 'Offline' => [2]})),
+    ?bad(ValF(<<"r-0001">>, #{'Rating-Group' => [3000], 'Offline' => [true]})),
+    ?bad(ValF(<<"r-0001">>, #{'Rating-Group' => [3000], 'Offline' => 0})),
+
+    ?ok(ValF(<<"r-0001">>, #{'Rating-Group' => [3000], 'Metering-Method' => [0]})),
+    ?bad(ValF(<<"r-0001">>, #{'Rating-Group' => [3000], 'Metering-Method' => [4]})),
+    ?bad(ValF(<<"r-0001">>, #{'Rating-Group' => [3000], 'Metering-Method' => [true]})),
+    ?bad(ValF(<<"r-0001">>, #{'Rating-Group' => [3000], 'Metering-Method' => 0})),
+
+    ?ok(ValF(<<"r-0001">>, #{'Rating-Group' => [3000], 'Precedence' => [0]})),
+    ?bad(ValF(<<"r-0001">>, #{'Rating-Group' => [3000], 'Precedence' => [true]})),
+    ?bad(ValF(<<"r-0001">>, #{'Rating-Group' => [3000], 'Precedence' => 0})),
+
+    ok.
+
+charging_rulebase() ->
     [{doc, "Test validation of the rule base configuration"}].
-rule_base(_Config)  ->
-    ValF = fun(Values) -> ergw_charging:validate_options(Values) end,
-    RB = [default, rulebase],
+charging_rulebase(_Config)  ->
+    ValF = fun ergw_charging:validate_rulebase/2,
 
     %% Charging Policy Rulebase Config
-    ?ok(ValF(set_cfg_value(RB, [], []))),
-    ?bad(ValF(set_cfg_value(RB ++ [<<"r-0001">>], [], []))),
-    ?ok(ValF(set_cfg_value(RB ++ [<<"rb-0001">>], [<<"r-0001">>], []))),
-    ?ok(ValF(set_cfg_value(RB, [{<<"rb-0001">>, [<<"r-0001">>]}], []))),
-    ?bad(ValF(set_cfg_value(RB, [{<<"rb-0001">>, [<<"r-0001">>, <<"r-0001">>]}], []))),
-    ?bad(ValF(set_cfg_value(RB, [{<<"rb-0001">>, [<<"r-0001">>]}, {<<"rb-0001">>, [<<"r-0001">>]}], []))),
-    ?bad(ValF(set_cfg_value(RB ++ [<<"rb-0001">>], [<<"r-0001">>, undefined], []))),
-    ?bad(ValF(set_cfg_value(RB ++ [<<"rb-0001">>], [], []))),
-    ?bad(ValF(set_cfg_value(RB ++ [<<"rb-0001">>], #{}, []))),
-    ?bad(ValF(set_cfg_value(RB ++ [<<"rb-0001">>], [undefined], []))),
-
-    ?ok(ValF(set_cfg_value(RB ++ [<<"rb-0001">>], [{'Rating-Group', [3000]}], []))),
-    ?ok(ValF(set_cfg_value(RB ++ [<<"rb-0001">>], [{'Rating-Group', [3000]}, {'Service-Identifier', [value]}], []))),
-    ?bad(ValF(set_cfg_value(RB ++ [<<"rb-0001">>], [{'Rating-Group', 3000}], []))),
-    ?bad(ValF(set_cfg_value(RB ++ [<<"rb-0001">>], [{'Rating-Group', [3000]}, {'Rating-Group', [3000]}], []))),
-    ?bad(ValF(set_cfg_value(RB ++ [<<"rb-0001">>], [{'Rating-Group', []}], []))),
-
-    ?ok(ValF(set_cfg_value(RB ++ [<<"rb-0001">>], #{'Rating-Group' => [3000]}, []))),
-    ?bad(ValF(set_cfg_value(RB ++ [<<"rb-0001">>], #{'Rating-Group' => 3000}, []))),
-
-    ?bad(ValF(set_cfg_value(RB ++ [<<"rb-0001">>], [{'Rating-Group', 3000}], []))),
+    ?match([], (catch ValF(<<"rb-0001">>, []))),
+    ?bad(ValF(<<"rb-0001">>, #{})),
+    ?bad(ValF(<<"rb-0001">>, [undefined])),
+    ?match([<<"r-0001">>], (catch ValF(<<"rb-0001">>, [<<"r-0001">>]))),
+    ?bad(ValF(<<"rb-0001">>, [<<"r-0001">>, <<"r-0001">>])),
+    ?bad(ValF(<<"rb-0001">>, [{<<"rb-0001">>, [<<"r-0001">>]}])),
+    ?bad(ValF(<<"rb-0001">>, [<<"r-0001">>, undefined])),
     ok.
 
 path_management() ->

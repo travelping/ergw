@@ -234,10 +234,20 @@ ergw_core_init(ip_pools, #{ip_pools := Pools}) ->
 ergw_core_init(apns, #{apns := APNs}) ->
     maps:map(fun ergw_core:add_apn/2, APNs);
 ergw_core_init(charging, #{charging := Charging}) ->
-    ok = ergw_core:setopts(charging, Charging);
+    Init = [rules, rulebase, profile],
+    lists:foreach(ergw_charging_init(_, Charging), Init);
 ergw_core_init(proxy_map, #{proxy_map := Map}) ->
     ok = ergw_core:setopts(proxy_map, Map);
 ergw_core_init(_, _) ->
+    ok.
+
+ergw_charging_init(rules, #{rules := Rules}) ->
+    maps:map(fun ergw_core:add_charging_rule/2, Rules);
+ergw_charging_init(rulebase, #{rulebase := RuleBase}) ->
+    maps:map(fun ergw_core:add_charging_rulebase/2, RuleBase);
+ergw_charging_init(profiles, #{profiles := Profiles}) ->
+    maps:map(fun ergw_core:add_charging_profile/2, Profiles);
+ergw_charging_init(_, _) ->
     ok.
 
 %%%===================================================================
@@ -266,9 +276,8 @@ validate_option(ip_pools, Value) when ?is_opts(Value) ->
     ergw_core_config:validate_options(fun ergw_ip_pool:validate_options/2, Value, []);
 validate_option(apns, Value) when ?is_opts(Value) ->
     ergw_core_config:validate_options(fun ergw_apn:validate_options/1, Value, []);
-validate_option(charging, Opts)
-  when ?non_empty_opts(Opts) ->
-    ergw_charging:validate_options(Opts);
+validate_option(charging, Opts) ->
+    ergw_core_config:validate_options(fun validate_charging_options/2, Opts, []);
 validate_option(proxy_map, Opts) ->
     gtp_proxy_ds:validate_options(Opts);
 validate_option(path_management, Opts) when ?is_opts(Opts) ->
@@ -285,6 +294,13 @@ validate_upf_nodes(nodes, Nodes) ->
       fun ergw_sx_node:validate_options/2, Nodes, []);
 validate_upf_nodes(Opt, Value) ->
     erlang:error(badarg, [Opt, Value]).
+
+validate_charging_options(profiles, Profiles) ->
+    ergw_core_config:validate_options(fun ergw_charging:validate_profile/2, Profiles, []);
+validate_charging_options(rules, Rules) ->
+    ergw_core_config:validate_options(fun ergw_charging:validate_rule/2, Rules, []);
+validate_charging_options(rulebase, RuleBase) ->
+    ergw_core_config:validate_options(fun ergw_charging:validate_rulebase/2, RuleBase, []).
 
 %%%===================================================================
 %%% Meck functions for fake the GTP sockets
@@ -874,9 +890,9 @@ set_online_charging([Key|Next], Set, Cfg) when is_map(Cfg) ->
     Cfg#{Key => set_online_charging(Next, Set, maps:get(Key, Cfg))}.
 
 set_online_charging(Set) ->
-    {ok, Cfg0} = ergw_core_config:get([charging], undefined),
-    Cfg = set_online_charging(['_', rulebase, '_'], Set, Cfg0),
-    ok = ergw_core_config:put(charging, Cfg).
+    {ok, Cfg0} = ergw_core_config:get([charging_rule], undefined),
+    Cfg = set_online_charging(['_'], Set, Cfg0),
+    ok = ergw_core_config:put(charging_rule, Cfg).
 
 %% Set APN key data
 set_apn_key(Key, Value) ->
