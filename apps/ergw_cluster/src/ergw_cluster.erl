@@ -49,7 +49,7 @@ wait_till_ready() ->
     ok = gen_statem:call(?SERVER, wait_till_ready, infinity).
 
 wait_till_running() ->
-    ok = gen_statem:call(?SERVER, wait_till_ready, infinity).
+    ok = gen_statem:call(?SERVER, wait_till_running, infinity).
 
 is_ready() ->
     gen_statem:call(?SERVER, is_ready).
@@ -115,7 +115,7 @@ handle_event({call, _From}, wait_till_running, _State, _Data) ->
     {keep_state_and_data, [postpone]};
 
 handle_event({call, From}, is_ready, State, _Data) ->
-    Reply = {reply, From, State == ready},
+    Reply = {reply, From, State == ready orelse State == running},
     {keep_state_and_data, [Reply]};
 
 handle_event({call, From}, is_running, State, _Data) ->
@@ -123,6 +123,7 @@ handle_event({call, From}, is_running, State, _Data) ->
     {keep_state_and_data, [Reply]};
 
 handle_event({call, From}, {start, Config}, ready, Data) ->
+    application:set_env([{ergw_cluster, maps:to_list(Config)}]),
     start_cluster(Config),
     {next_state, running, Data#{config => Config}, [{reply, From, ok}]};
 handle_event({call, _}, {start, _}, _, _) ->
