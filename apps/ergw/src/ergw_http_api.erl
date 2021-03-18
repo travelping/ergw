@@ -8,22 +8,24 @@
 -module(ergw_http_api).
 
 %% API
--export([init/1, validate_options/1]).
+-export([init/1]).
 
--ignore_xref([init/1, validate_options/1]).
+-ifdef(TEST).
+-export([validate_options/1]).
+-endif.
+
+%%-ignore_xref([init/1, validate_options/1]).
 
 -include_lib("kernel/include/logger.hrl").
 
-init(undefined) ->
-    ?LOG(debug, "HTTP API will not be started because of lack of configuration~n"),
-    ok;
-init(Opts) when is_map(Opts) ->
+init(Opts0) ->
+    Opts = validate_options(Opts0),
     ?LOG(debug, "HTTP API listener options: ~p", [Opts]),
     %% HTTP API options should be already validated in the ergw_core_config,
     %% so it should be safe to run with it
     start_http_listener(Opts).
 
-start_http_listener(Opts) ->
+start_http_listener(#{enabled := true} = Opts) ->
     Dispatch = cowboy_router:compile(
 		 [{'_',
 		   [
@@ -53,7 +55,9 @@ start_http_listener(Opts) ->
 		metrics_callback => fun prometheus_cowboy2_instrumenter:observe/1,
 		stream_handlers => [cowboy_metrics_h, cowboy_stream_h]
 	       }},
-    cowboy:start_clear(ergw_http_listener, TransOpts, ProtoOpts).
+    cowboy:start_clear(ergw_http_listener, TransOpts, ProtoOpts);
+start_http_listener(_) ->
+    ok.
 
 %%%===================================================================
 %%% Options Validation
@@ -63,28 +67,30 @@ start_http_listener(Opts) ->
 		   {port, 8000},
 		   {num_acceptors, 100}]).
 
-validate_options(Values) ->
-    ergw_core_config:validate_options(fun validate_option/1, Values, ?Defaults).
+validate_options(Opts) when is_map(Opts) ->
+    ergw_core_config:mandatory_keys([enabled], Opts),
+    ergw_core_config:validate_options(fun validate_option/2, Opts, ?Defaults);
+validate_options(Opts) when is_list(Opts) ->
+    validate_options(ergw_core_config:to_map(Opts));
+validate_options(Opts) ->
+    erlang:error(badarg, [Opts]).
 
-validate_option({port, Port} = Opt)
+validate_option(enabled, Value) when is_boolean(Value) ->
+    Value;
+validate_option(port, Port)
   when is_integer(Port), Port >= 0, Port =< 65535 ->
-    Opt;
-validate_option({acceptors_num, Acceptors})
+    Port;
+validate_option(num_acceptors, Acceptors)
   when is_integer(Acceptors) ->
-    ?LOG(warning, "HTTP config option 'acceptors_num' is depreciated, "
-	 "please use 'num_acceptors'."),
-    {num_acceptors, Acceptors};
-validate_option({num_acceptors, Acceptors} = Opt)
-  when is_integer(Acceptors) ->
-    Opt;
-validate_option({ip, Value} = Opt)
+    Acceptors;
+validate_option(ip, Value)
   when is_tuple(Value) andalso
        (tuple_size(Value) == 4 orelse tuple_size(Value) == 8) ->
-    Opt;
-validate_option({ipv6_v6only, Value} = Opt) when is_boolean(Value) ->
-    Opt;
-validate_option(Opt) ->
-    throw({error, {options, Opt}}).
+    Value;
+validate_option(ipv6_v6only, Value) when is_boolean(Value) ->
+    Value;
+validate_option(Opt, Value) ->
+    erlang:error(badarg, [Opt, Value]).
 
 get_inet(#{ip := {_, _, _, _}}) ->
     inet;

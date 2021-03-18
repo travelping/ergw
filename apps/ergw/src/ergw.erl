@@ -77,7 +77,7 @@ handle_event({call, _From}, wait_till_running, _State, _Data) ->
     {keep_state_and_data, [postpone]};
 
 handle_event({call, From}, is_ready, State, _Data) ->
-    Reply = {reply, From, State == ready},
+    Reply = {reply, From, State == ready orelse State == running},
     {keep_state_and_data, [Reply]};
 
 handle_event({call, From}, is_running, State, _Data) ->

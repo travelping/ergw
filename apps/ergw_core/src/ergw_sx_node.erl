@@ -320,7 +320,10 @@ init([Parent, Node, NodeSelect, IP4, IP6, NotifyUp]) ->
     gtp_context_reg:register(RegKeys, ?MODULE, self()),
 
     {ok, Default} = ergw_core_config:get([up_node_defaults], #{}),
-    {ok, Cfg} = ergw_core_config:get([nodes, Node], Default),
+    Cfg = case ergw_core_config:get([nodes, Node], Default) of
+	      {ok, Cfg0} -> Cfg0;
+	      _ -> Default
+	  end,
 
     IP = select_node_ip(IP4, IP6),
     Data0 = #data{cfg = maps:merge(Default, Cfg),

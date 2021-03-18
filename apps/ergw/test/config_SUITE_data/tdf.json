@@ -1,307 +1,307 @@
 {
     "node": {
-	"accept_new":true,
-	"node_id":"TDF",
-	"plmn_id":{
-	    "mcc":"001",
-	    "mnc":"01"
-	}
+        "accept_new": true,
+        "node_id": "TDF",
+        "plmn_id": {
+            "mcc": "001",
+            "mnc": "01"
+        }
     },
-  "apns":[
-    {
-      "Idle-Timeout":{
-	"timeout":8,
-	"unit":"hour"
-      },
-      "apn":"example.net",
-      "bearer_type":"IPv4v6",
-      "ip_pools":[],
-      "ipv6_ue_interface_id":"default",
-      "prefered_bearer_type":"IPv6",
-      "vrfs":[
-	{
-	  "name":"sgi",
-	  "type":"apn"
-	}
-      ]
+    "apns": [
+        {
+            "Idle-Timeout": {
+                "timeout": 8,
+                "unit": "hour"
+            },
+            "apn": "example.net",
+            "bearer_type": "IPv4v6",
+            "ip_pools": [],
+            "ipv6_ue_interface_id": "default",
+            "prefered_bearer_type": "IPv6",
+            "vrfs": [
+                {
+                    "name": "sgi",
+                    "type": "apn"
+                }
+            ]
+        },
+        {
+            "Idle-Timeout": {
+                "timeout": 8,
+                "unit": "hour"
+            },
+            "apn": "*",
+            "bearer_type": "IPv4v6",
+            "ip_pools": [],
+            "ipv6_ue_interface_id": "default",
+            "prefered_bearer_type": "IPv6",
+            "vrfs": [
+                {
+                    "name": "sgi",
+                    "type": "apn"
+                }
+            ]
+        }
+    ],
+    "charging": {
+        "profiles": [
+            {
+                "name": "default",
+                "offline": {
+                    "enable": true,
+                    "triggers": {
+                        "cgi-sai-change": "container",
+                        "ecgi-change": "container",
+                        "max-cond-change": "cdr",
+                        "ms-time-zone-change": "cdr",
+                        "qos-change": "container",
+                        "rai-change": "container",
+                        "rat-change": "cdr",
+                        "sgsn-sgw-change": "cdr",
+                        "sgsn-sgw-plmn-id-change": "cdr",
+                        "tai-change": "container",
+                        "tariff-switch-change": "container",
+                        "user-location-info-change": "container"
+                    }
+                },
+                "online": {}
+            }
+        ],
+        "rules": [],
+        "rulebase": []
     },
-    {
-      "Idle-Timeout":{
-	"timeout":8,
-	"unit":"hour"
-      },
-      "apn":"*",
-      "bearer_type":"IPv4v6",
-      "ip_pools":[],
-      "ipv6_ue_interface_id":"default",
-      "prefered_bearer_type":"IPv6",
-      "vrfs":[
-	{
-	  "name":"sgi",
-	  "type":"apn"
-	}
-      ]
+    "cluster": {
+        "enabled": false,
+        "initial_timeout": {
+            "timeout": 1,
+            "unit": "minute"
+        },
+        "release_cursor_every": 0,
+        "seed_nodes": "{erlang,nodes,[known]}"
+    },
+    "handlers": [
+        {
+            "apn": "example.net",
+            "handler": "tdf",
+            "name": "h1",
+            "node_selection": [
+                "default"
+            ],
+            "nodes": [
+                "topon.sx.prox01.mnc001.mcc001.3gppnetwork.org"
+            ],
+            "protocol": "ip"
+        }
+    ],
+    "http_api": {
+        "enabled": false
+    },
+    "ip_pools": [],
+    "metrics": {
+        "gtp_path_rtt_millisecond_intervals": [
+            10,
+            30,
+            50,
+            75,
+            100,
+            1000,
+            2000
+        ]
+    },
+    "node_selection": [
+        {
+            "name": "dns",
+            "port": 53,
+            "server": {
+                "ipv4Addr": "127.0.0.1"
+            },
+            "type": "dns"
+        },
+        {
+            "entries": [
+                {
+                    "name": "_default.apn.mnc001.mcc001.3gppnetwork.org",
+                    "order": 300,
+                    "preference": 64536,
+                    "protocols": [
+                        "x-gn",
+                        "x-gp",
+                        "x-s5-gtp",
+                        "x-s8-gtp"
+                    ],
+                    "replacement": "topon.s5s8.pgw.mnc001.mcc001.3gppnetwork.org",
+                    "service": "x-3gpp-pgw",
+                    "type": "naptr"
+                },
+                {
+                    "name": "_default.apn.mnc001.mcc001.3gppnetwork.org",
+                    "order": 300,
+                    "preference": 64536,
+                    "protocols": [
+                        "x-sxb"
+                    ],
+                    "replacement": "topon.sx.prox01.mnc001.mcc001.3gppnetwork.org",
+                    "service": "x-3gpp-upf",
+                    "type": "naptr"
+                },
+                {
+                    "name": "web.apn.mnc001.mcc001.3gppnetwork.org",
+                    "order": 300,
+                    "preference": 64536,
+                    "protocols": [
+                        "x-gn",
+                        "x-gp",
+                        "x-s5-gtp",
+                        "x-s8-gtp"
+                    ],
+                    "replacement": "topon.s5s8.pgw.mnc001.mcc001.3gppnetwork.org",
+                    "service": "x-3gpp-pgw",
+                    "type": "naptr"
+                },
+                {
+                    "name": "web.apn.mnc001.mcc001.3gppnetwork.org",
+                    "order": 300,
+                    "preference": 64536,
+                    "protocols": [
+                        "x-sxb"
+                    ],
+                    "replacement": "topon.sx.prox01.mnc001.mcc001.3gppnetwork.org",
+                    "service": "x-3gpp-upf",
+                    "type": "naptr"
+                },
+                {
+                    "ip4": [
+                        "172.20.16.28"
+                    ],
+                    "ip6": [],
+                    "name": "topon.s5s8.pgw.mnc001.mcc001.3gppnetwork.org",
+                    "type": "host"
+                },
+                {
+                    "ip4": [
+                        "172.21.16.1"
+                    ],
+                    "ip6": [],
+                    "name": "topon.sx.prox01.mnc001.mcc001.3gppnetwork.org",
+                    "type": "host"
+                }
+            ],
+            "name": "default",
+            "type": "static"
+        }
+    ],
+    "upf_nodes": {
+        "default": {
+            "heartbeat": {
+                "interval": {
+                    "timeout": 5,
+                    "unit": "second"
+                },
+                "retry": 5,
+                "timeout": {
+                    "timeout": 500,
+                    "unit": "millisecond"
+                }
+            },
+            "node_selection": "default",
+            "request": {
+                "retry": 5,
+                "timeout": {
+                    "timeout": 30,
+                    "unit": "second"
+                }
+            },
+            "vrfs": [
+                {
+                    "features": [
+                        "SGi-LAN"
+                    ],
+                    "name": {
+                        "name": "sgi",
+                        "type": "apn"
+                    }
+                },
+                {
+                    "features": [
+                        "TDF-Source",
+                        "Access"
+                    ],
+                    "name": {
+                        "name": "epc",
+                        "type": "apn"
+                    }
+                },
+                {
+                    "features": [
+                        "CP-Function"
+                    ],
+                    "name": {
+                        "name": "cp",
+                        "type": "apn"
+                    }
+                }
+            ]
+        },
+        "entries": []
+    },
+    "path_management": {
+        "down": {
+            "echo": {
+                "timeout": 10,
+                "unit": "minute"
+            },
+            "timeout": {
+                "timeout": 1,
+                "unit": "hour"
+            }
+        },
+        "echo": {
+            "timeout": 1,
+            "unit": "minute"
+        },
+        "icmp_error_handling": "immediate",
+        "idle": {
+            "echo": {
+                "timeout": 10,
+                "unit": "minute"
+            },
+            "timeout": {
+                "timeout": 30,
+                "unit": "minute"
+            }
+        },
+        "n3": 5,
+        "t3": 10000
+    },
+    "sockets": [
+        {
+            "burst_size": 10,
+            "ip": {
+                "ipv4Addr": "127.0.0.1"
+            },
+            "name": "sx",
+            "reuseaddr": true,
+            "socket": "cp-socket",
+            "type": "pfcp"
+        },
+        {
+            "burst_size": 10,
+            "freebind": true,
+            "ip": {
+                "ipv4Addr": "127.0.0.1"
+            },
+            "name": "cp-socket",
+            "reuseaddr": true,
+            "send_port": 0,
+            "type": "gtp-u",
+            "vrf": {
+                "name": "cp",
+                "type": "apn"
+            }
+        }
+    ],
+    "teid": {
+        "len": 0,
+        "prefix": 0
     }
-  ],
-    "charging":
-    {
-	"profiles":[
-	    {
-		"name":"default",
-		"offline":{
-		    "enable":true,
-		    "triggers":{
-			"cgi-sai-change":"container",
-			"ecgi-change":"container",
-			"max-cond-change":"cdr",
-			"ms-time-zone-change":"cdr",
-			"qos-change":"container",
-			"rai-change":"container",
-			"rat-change":"cdr",
-			"sgsn-sgw-change":"cdr",
-			"sgsn-sgw-plmn-id-change":"cdr",
-			"tai-change":"container",
-			"tariff-switch-change":"container",
-			"user-location-info-change":"container"
-		    }
-		},
-		"online":{}
-	    }],
-	"rules":[],
-	"rulebase":[]
-    },
-  "cluster":{
-    "enabled":false,
-    "initial_timeout":{
-      "timeout":1,
-      "unit":"minute"
-    },
-    "release_cursor_every":0,
-    "seed_nodes":"{erlang,nodes,[known]}"
-  },
-  "handlers":[
-    {
-      "apn":"example.net",
-      "handler":"tdf",
-      "name":"h1",
-      "node_selection":[
-	"default"
-      ],
-      "nodes":[
-	"topon.sx.prox01.mnc001.mcc001.3gppnetwork.org"
-      ],
-      "protocol":"ip"
-    }
-  ],
-  "http_api":{
-    "enabled":false
-  },
-  "ip_pools":[],
-  "metrics":{
-    "gtp_path_rtt_millisecond_intervals":[
-      10,
-      30,
-      50,
-      75,
-      100,
-      1000,
-      2000
-    ]
-  },
-  "node_selection":[
-    {
-      "name":"dns",
-      "port":53,
-      "server":{
-	"ipv4Addr":"127.0.0.1"
-      },
-      "type":"dns"
-    },
-    {
-      "entries":[
-	{
-	  "name":"_default.apn.mnc001.mcc001.3gppnetwork.org",
-	  "order":300,
-	  "preference":64536,
-	  "protocols":[
-	    "x-gn",
-	    "x-gp",
-	    "x-s5-gtp",
-	    "x-s8-gtp"
-	  ],
-	  "replacement":"topon.s5s8.pgw.mnc001.mcc001.3gppnetwork.org",
-	  "service":"x-3gpp-pgw",
-	  "type":"naptr"
-	},
-	{
-	  "name":"_default.apn.mnc001.mcc001.3gppnetwork.org",
-	  "order":300,
-	  "preference":64536,
-	  "protocols":[
-	    "x-sxb"
-	  ],
-	  "replacement":"topon.sx.prox01.mnc001.mcc001.3gppnetwork.org",
-	  "service":"x-3gpp-upf",
-	  "type":"naptr"
-	},
-	{
-	  "name":"web.apn.mnc001.mcc001.3gppnetwork.org",
-	  "order":300,
-	  "preference":64536,
-	  "protocols":[
-	    "x-gn",
-	    "x-gp",
-	    "x-s5-gtp",
-	    "x-s8-gtp"
-	  ],
-	  "replacement":"topon.s5s8.pgw.mnc001.mcc001.3gppnetwork.org",
-	  "service":"x-3gpp-pgw",
-	  "type":"naptr"
-	},
-	{
-	  "name":"web.apn.mnc001.mcc001.3gppnetwork.org",
-	  "order":300,
-	  "preference":64536,
-	  "protocols":[
-	    "x-sxb"
-	  ],
-	  "replacement":"topon.sx.prox01.mnc001.mcc001.3gppnetwork.org",
-	  "service":"x-3gpp-upf",
-	  "type":"naptr"
-	},
-	{
-	  "ip4":[
-	    "172.20.16.28"
-	  ],
-	  "ip6":[],
-	  "name":"topon.s5s8.pgw.mnc001.mcc001.3gppnetwork.org",
-	  "type":"host"
-	},
-	{
-	  "ip4":[
-	    "172.21.16.1"
-	  ],
-	  "ip6":[],
-	  "name":"topon.sx.prox01.mnc001.mcc001.3gppnetwork.org",
-	  "type":"host"
-	}
-      ],
-      "name":"default",
-      "type":"static"
-    }
-  ],
-  "upf_nodes":{
-    "default":{
-      "heartbeat":{
-	"interval":{
-	  "timeout":5,
-	  "unit":"second"
-	},
-	"retry":5,
-	"timeout":{
-	  "timeout":500,
-	  "unit":"millisecond"
-	}
-      },
-      "node_selection":"default",
-      "request":{
-	"retry":5,
-	"timeout":{
-	  "timeout":30,
-	  "unit":"second"
-	}
-      },
-      "vrfs":[
-	{
-	  "features":[
-	    "SGi-LAN"
-	  ],
-	  "name":{
-	    "name":"sgi",
-	    "type":"apn"
-	  }
-	},
-	{
-	  "features":[
-	    "TDF-Source",
-	    "Access"
-	  ],
-	  "name":{
-	    "name":"epc",
-	    "type":"apn"
-	  }
-	},
-	{
-	  "features":[
-	    "CP-Function"
-	  ],
-	  "name":{
-	    "name":"cp",
-	    "type":"apn"
-	  }
-	}
-      ]
-    },
-    "entries":[]
-  },
-  "path_management":{
-    "down":{
-      "echo":{
-	"timeout":10,
-	"unit":"minute"
-      },
-      "timeout":{
-	"timeout":1,
-	"unit":"hour"
-      }
-    },
-    "echo":{
-      "timeout":1,
-      "unit":"minute"
-    },
-    "icmp_error_handling":"immediate",
-    "idle":{
-      "echo":{
-	"timeout":10,
-	"unit":"minute"
-      },
-      "timeout":{
-	"timeout":30,
-	"unit":"minute"
-      }
-    },
-    "n3":5,
-    "t3":10000
-  },
-  "sockets":[
-    {
-      "burst_size":10,
-      "ip":{
-	"ipv4Addr":"127.0.0.1"
-      },
-      "name":"sx",
-      "reuseaddr":true,
-      "socket":"cp-socket",
-      "type":"pfcp"
-    },
-    {
-      "burst_size":10,
-      "freebind":true,
-      "ip":{
-	"ipv4Addr":"127.0.0.1"
-      },
-      "name":"cp-socket",
-      "reuseaddr":true,
-      "send_port":0,
-      "type":"gtp-u",
-      "vrf":{
-	"name":"cp",
-	"type":"apn"
-      }
-    }
-  ],
-  "teid":{
-    "len":0,
-    "prefix":0
-  }
 }

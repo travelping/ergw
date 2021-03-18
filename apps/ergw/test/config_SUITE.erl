@@ -11,18 +11,33 @@
 
 -include_lib("common_test/include/ct.hrl").
 
+-define(match(Guard, Expr),
+	((fun () ->
+		  case (Expr) of
+		      Guard -> ok;
+		      V -> ct:pal("MISMATCH(~s:~b, ~s)~nExpected: ~p~nActual:   ~s~n",
+				   [?FILE, ?LINE, ??Expr, ??Guard,
+				    smc_test_lib:pretty_print(V)]),
+			    error(badmatch)
+		  end
+	  end)())).
+
+-define(bad(Fun), ?match({'EXIT', {badarg, _}}, (catch Fun))).
+-define(ok(Fun), ?match(#{}, (catch Fun))).
+
 %%%===================================================================
 %%% API
 %%%===================================================================
 
 all() ->
-    [load].
+    [load, http_api].
 
 init_per_testcase(_Case, Config) ->
-    clear_app_env(),
+    smc_test_lib:clear_app_env(),
     Config.
 
 end_per_testcase(_Case, _Config) ->
+    smc_test_lib:clear_app_env(),
     ok.
 
 laod() ->
@@ -45,6 +60,18 @@ load(Dir, File) ->
     %% ?match({ok, #{handlers := _}}, ergw_config:load()).
     ok.
 
+http_api() ->
+    [{doc, "Test HTTP API config"}].
+http_api(_Config) ->
+    API = [{enabled, false}],
+    ValF = fun ergw_http_api:validate_options/1,
+
+    ?ok(ValF(API)),
+    ?ok(ValF(ValF(API))),
+
+    ?bad(ValF([])),
+    ok.
+
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
@@ -56,8 +83,3 @@ read_json(Dir, File) ->
 
 set(Keys, Value, Config) ->
     ergw_config:set(Keys, Value, Config).
-
-clear_app_env() ->
-    [[application:unset_env(App, Par) ||
-	 {Par, _} <- application:get_all_env(App)] ||
-	App <- [ergw_core, ergw_aaa, ergw_cluster]].
