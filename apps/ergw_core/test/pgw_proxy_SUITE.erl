@@ -785,11 +785,11 @@ init_per_testcase(TestCase, Config)
 		     end),
     Config;
 init_per_testcase(path_maint, Config) ->
-    set_path_timers(#{'echo' => 700}),
+    ergw_test_lib:set_path_timers(#{'echo' => 700}),
     setup_per_testcase(Config),
     Config;
 init_per_testcase(path_failure_to_pgw_and_restore, Config) ->
-    set_path_timers(#{'down_echo' => 1}),
+    ergw_test_lib:set_path_timers(#{'down_echo' => 1}),
     setup_per_testcase(Config),
     Config;
 init_per_testcase(simple_session, Config) ->
@@ -915,14 +915,14 @@ end_per_testcase(TestCase, Config)
     end_per_testcase(Config),
     Config;
 end_per_testcase(path_maint, Config) ->
-    set_path_timers(#{'echo' => 60 * 1000}),
+    ergw_test_lib:set_path_timers(#{'echo' => 60 * 1000}),
     end_per_testcase(Config);
 end_per_testcase(path_failure_to_pgw, Config) ->
     ok = meck:delete(ergw_gtp_c_socket, send_request, 8),
     end_per_testcase(Config);
 end_per_testcase(path_failure_to_pgw_and_restore, Config) ->
     ok = meck:delete(ergw_gtp_c_socket, send_request, 8),
-    set_path_timers(#{'down_echo' => 600 * 1000}),
+    ergw_test_lib:set_path_timers(#{'down_echo' => 600 * 1000}),
     end_per_testcase(Config);
 end_per_testcase(path_failure_to_sgw, Config) ->
     ok = meck:delete(ergw_gtp_c_socket, send_request, 8),
@@ -2868,12 +2868,6 @@ check_contexts_metric(Version, Cnt, Expect) ->
 
 pfcp_seids() ->
     lists:flatten(ets:match(gtp_context_reg, {#seid_key{seid = '$1'},{ergw_sx_node, '_'}})).
-
-% Set Timers for Path management
-set_path_timers(SetTimers) ->
-    {ok, Timers} = application:get_env(ergw_core, path_management),
-    NewTimers = maps:merge(Timers, SetTimers),
-    application:set_env(ergw_core, path_management, NewTimers).
 
 make_gtp_contexts(Cnt, Config) ->
     BaseIP = proplists:get_value(client_ip, Config),
