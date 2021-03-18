@@ -1,908 +1,962 @@
 {
     "node": {
-	"accept_new":true,
-	"node_id":"PGW",
-	"plmn_id":{
-	    "mcc":"001",
-	    "mnc":"01"
-	}
+        "accept_new": true,
+        "node_id": "PGW",
+        "plmn_id": {
+            "mcc": "001",
+            "mnc": "01"
+        }
     },
-  "apns":[
-    {
-      "Idle-Timeout":{
-	"timeout":8,
-	"unit":"hour"
-      },
-      "apn":"example.net",
-      "bearer_type":"IPv4v6",
-      "ip_pools":[
-	"pool-A",
-	"pool-B"
-      ],
-      "ipv6_ue_interface_id":"default",
-      "prefered_bearer_type":"IPv6",
-      "vrfs":[
-	{
-	  "name":"upstream",
-	  "type":"apn"
-	}
-      ]
+    "apns": [
+        {
+            "Idle-Timeout": {
+                "timeout": 8,
+                "unit": "hour"
+            },
+            "apn": "example.net",
+            "bearer_type": "IPv4v6",
+            "ip_pools": [
+                "pool-A",
+                "pool-B"
+            ],
+            "ipv6_ue_interface_id": "default",
+            "prefered_bearer_type": "IPv6",
+            "vrfs": [
+                {
+                    "name": "upstream",
+                    "type": "apn"
+                }
+            ]
+        },
+        {
+            "Idle-Timeout": {
+                "timeout": 8,
+                "unit": "hour"
+            },
+            "apn": "apn1",
+            "bearer_type": "IPv4v6",
+            "ip_pools": [
+                "pool-A",
+                "pool-B"
+            ],
+            "ipv6_ue_interface_id": "default",
+            "prefered_bearer_type": "IPv6",
+            "vrfs": [
+                {
+                    "name": "upstream",
+                    "type": "apn"
+                }
+            ]
+        }
+    ],
+    "charging": {
+        "profiles": [
+            {
+                "name": "default",
+                "offline": {
+                    "enable": true,
+                    "triggers": {
+                        "cgi-sai-change": "container",
+                        "ecgi-change": "container",
+                        "max-cond-change": "cdr",
+                        "ms-time-zone-change": "cdr",
+                        "qos-change": "container",
+                        "rai-change": "container",
+                        "rat-change": "cdr",
+                        "sgsn-sgw-change": "cdr",
+                        "sgsn-sgw-plmn-id-change": "cdr",
+                        "tai-change": "container",
+                        "tariff-switch-change": "container",
+                        "user-location-info-change": "container"
+                    }
+                },
+                "online": {}
+            }
+        ],
+        "rules": [
+            {
+                "name": "r-0001",
+                "Rating-Group": 3000,
+                "Flow-Information": [
+                    {
+                        "Flow-Description": "permit out ip from any to assigned",
+                        "Flow-Direction": 1
+                    },
+                    {
+                        "Flow-Description": "permit out ip from any to assigned",
+                        "Flow-Direction": 2
+                    }
+                ],
+                "Metering-Method": 1,
+                "Precedence": 100,
+                "Offline": 1
+            }
+        ],
+        "rulebase": [
+            {
+                "name": "m2m0001",
+                "rules": [
+                    "r-0001"
+                ]
+            }
+        ]
     },
-    {
-      "Idle-Timeout":{
-	"timeout":8,
-	"unit":"hour"
-      },
-      "apn":"apn1",
-      "bearer_type":"IPv4v6",
-      "ip_pools":[
-	"pool-A",
-	"pool-B"
-      ],
-      "ipv6_ue_interface_id":"default",
-      "prefered_bearer_type":"IPv6",
-      "vrfs":[
-	{
-	  "name":"upstream",
-	  "type":"apn"
-	}
-      ]
-    }
-  ],
-    "charging":
-    {
-	"profiles":[
-	    {
-		"name":"default",
-		"offline":{
-		    "enable":true,
-		    "triggers":{
-			"cgi-sai-change":"container",
-			"ecgi-change":"container",
-			"max-cond-change":"cdr",
-			"ms-time-zone-change":"cdr",
-			"qos-change":"container",
-			"rai-change":"container",
-			"rat-change":"cdr",
-			"sgsn-sgw-change":"cdr",
-			"sgsn-sgw-plmn-id-change":"cdr",
-			"tai-change":"container",
-			"tariff-switch-change":"container",
-			"user-location-info-change":"container"
-		    }
-		},
-		"online":{}
-	    }],
-	"rules":[
-	    {
-		"name":"r-0001",
-		"Rating-Group":3000,
-		"Flow-Information":[
-		    {
-			"Flow-Description":"permit out ip from any to assigned",
-			"Flow-Direction":1
-		    },
-		    {
-			"Flow-Description":"permit out ip from any to assigned",
-			"Flow-Direction":2
-		    }
-		],
-		"Metering-Method":1,
-		"Precedence":100,
-		"Offline":1
-	    }
-	],
-	"rulebase":[
-	    {
-		"name":"m2m0001",
-		"rules":["r-0001"]
-	    }
-	]
+    "cluster": {
+        "enabled": false,
+        "initial_timeout": {
+            "timeout": 1,
+            "unit": "minute"
+        },
+        "release_cursor_every": 0,
+        "seed_nodes": "{erlang,nodes,[known]}"
     },
-
-  "cluster":{
-    "enabled":false,
-    "initial_timeout":{
-      "timeout":1,
-      "unit":"minute"
+    "handlers": [
+        {
+            "aaa": {
+                "AAA-Application-Id": "ergw_aaa_provider",
+                "Password": {
+                    "default": "ergw"
+                },
+                "Username": {
+                    "default": [
+                        "IMSI",
+                        "/",
+                        "IMEI",
+                        "/",
+                        "MSISDN",
+                        "/",
+                        "ATOM",
+                        "/",
+                        [
+                            84,
+                            69,
+                            88,
+                            84
+                        ],
+                        "/",
+                        12345,
+                        "@",
+                        "APN"
+                    ],
+                    "from_protocol_opts": true
+                }
+            },
+            "handler": "pgw_s5s8",
+            "name": "h2",
+            "node_selection": [
+                "static"
+            ],
+            "protocol": "s5s8",
+            "sockets": [
+                "irx"
+            ]
+        },
+        {
+            "aaa": {
+                "AAA-Application-Id": "ergw_aaa_provider",
+                "Password": {
+                    "default": "ergw"
+                },
+                "Username": {
+                    "default": [
+                        "IMSI",
+                        "/",
+                        "IMEI",
+                        "/",
+                        "MSISDN",
+                        "/",
+                        "ATOM",
+                        "/",
+                        [
+                            84,
+                            69,
+                            88,
+                            84
+                        ],
+                        "/",
+                        12345,
+                        "@",
+                        "APN"
+                    ],
+                    "from_protocol_opts": true
+                }
+            },
+            "handler": "pgw_s5s8",
+            "name": "h1",
+            "node_selection": [
+                "static"
+            ],
+            "protocol": "gn",
+            "sockets": [
+                "irx"
+            ]
+        }
+    ],
+    "http_api": {
+        "enabled": false
     },
-    "release_cursor_every":0,
-    "seed_nodes":"{erlang,nodes,[known]}"
-  },
-  "handlers":[
-    {
-      "aaa":{
-	"AAA-Application-Id":"ergw_aaa_provider",
-	"Password":{
-	  "default":"ergw"
-	},
-	"Username":{
-	  "default":[
-	    "IMSI",
-	    "/",
-	    "IMEI",
-	    "/",
-	    "MSISDN",
-	    "/",
-	    "ATOM",
-	    "/",
-	    [
-	      84,
-	      69,
-	      88,
-	      84
-	    ],
-	    "/",
-	    12345,
-	    "@",
-	    "APN"
-	  ],
-	  "from_protocol_opts":true
-	}
-      },
-      "handler":"pgw_s5s8",
-      "name":"h2",
-      "node_selection":[
-	"static"
-      ],
-      "protocol":"s5s8",
-      "sockets":[
-	"irx"
-      ]
+    "ip_pools": [
+        {
+            "DNS-Server-IPv6-Address": [
+                "2001:4860:4860::8888",
+                "2001:4860:4860::8844"
+            ],
+            "MS-Primary-DNS-Server": "8.8.8.8",
+            "MS-Primary-NBNS-Server": "127.0.0.1",
+            "MS-Secondary-DNS-Server": "8.8.4.4",
+            "MS-Secondary-NBNS-Server": "127.0.0.1",
+            "handler": "ergw_local_pool",
+            "name": "pool-A",
+            "ranges": [
+                {
+                    "end": {
+                        "ipv4Addr": "10.187.255.254"
+                    },
+                    "prefix_len": 32,
+                    "start": {
+                        "ipv4Addr": "10.180.0.1"
+                    }
+                },
+                {
+                    "end": {
+                        "ipv6Addr": "8001:0:7:ffff:ffff:ffff:ffff:ffff"
+                    },
+                    "prefix_len": 64,
+                    "start": {
+                        "ipv6Addr": "8001:0:1::"
+                    }
+                }
+            ]
+        }
+    ],
+    "metrics": {
+        "gtp_path_rtt_millisecond_intervals": [
+            10,
+            30,
+            50,
+            75,
+            100,
+            1000,
+            2000
+        ]
     },
-    {
-      "aaa":{
-	"AAA-Application-Id":"ergw_aaa_provider",
-	"Password":{
-	  "default":"ergw"
-	},
-	"Username":{
-	  "default":[
-	    "IMSI",
-	    "/",
-	    "IMEI",
-	    "/",
-	    "MSISDN",
-	    "/",
-	    "ATOM",
-	    "/",
-	    [
-	      84,
-	      69,
-	      88,
-	      84
-	    ],
-	    "/",
-	    12345,
-	    "@",
-	    "APN"
-	  ],
-	  "from_protocol_opts":true
-	}
-      },
-      "handler":"pgw_s5s8",
-      "name":"h1",
-      "node_selection":[
-	"static"
-      ],
-      "protocol":"gn",
-      "sockets":[
-	"irx"
-      ]
-    }
-  ],
-  "http_api":{
-    "enabled":false
-  },
-  "ip_pools":[
-    {
-      "DNS-Server-IPv6-Address":[
-	"2001:4860:4860::8888",
-	"2001:4860:4860::8844"
-      ],
-      "MS-Primary-DNS-Server":"8.8.8.8",
-      "MS-Primary-NBNS-Server":"127.0.0.1",
-      "MS-Secondary-DNS-Server":"8.8.4.4",
-      "MS-Secondary-NBNS-Server":"127.0.0.1",
-      "handler":"ergw_local_pool",
-      "name":"pool-A",
-      "ranges":[
-	{
-	  "end":{
-	    "ipv4Addr":"10.187.255.254"
-	  },
-	  "prefix_len":32,
-	  "start":{
-	    "ipv4Addr":"10.180.0.1"
-	  }
-	},
-	{
-	  "end":{
-	    "ipv6Addr":"8001:0:7:ffff:ffff:ffff:ffff:ffff"
-	  },
-	  "prefix_len":64,
-	  "start":{
-	    "ipv6Addr":"8001:0:1::"
-	  }
-	}
-      ]
-    }
-  ],
-  "metrics":{
-    "gtp_path_rtt_millisecond_intervals":[
-      10,
-      30,
-      50,
-      75,
-      100,
-      1000,
-      2000
-    ]
-  },
-  "node_selection":[
-    {
-      "name":"default",
-	"server":{
-	"ipv4Addr":"127.0.0.1"
-      },
-      "type":"dns"
-    }
-  ],
-  "upf_nodes":{
-    "default":{
-      "heartbeat":{
-	"interval":{
-	  "timeout":5,
-	  "unit":"second"
-	},
-	"retry":5,
-	"timeout":{
-	  "timeout":500,
-	  "unit":"millisecond"
-	}
-      },
-      "node_selection":"default",
-      "request":{
-	"retry":5,
-	"timeout":{
-	  "timeout":30,
-	  "unit":"second"
-	}
-      },
-      "vrfs":[
-	{
-	  "features":[
-	    "SGi-LAN"
-	  ],
-	  "name":{
-	    "name":"sgi",
-	    "type":"apn"
-	  }
-	},
-	{
-	  "features":[
-	    "Access"
-	  ],
-	  "name":{
-	    "name":"irx",
-	    "type":"apn"
-	  }
-	},
-	{
-	  "features":[
-	    "CP-Function"
-	  ],
-	  "name":{
-	    "name":"cp",
-	    "type":"apn"
-	  }
-	}
-      ]
+    "node_selection": [
+        {
+            "name": "default",
+            "server": {
+                "ipv4Addr": "127.0.0.1"
+            },
+            "type": "dns"
+        }
+    ],
+    "upf_nodes": {
+        "default": {
+            "heartbeat": {
+                "interval": {
+                    "timeout": 5,
+                    "unit": "second"
+                },
+                "retry": 5,
+                "timeout": {
+                    "timeout": 500,
+                    "unit": "millisecond"
+                }
+            },
+            "node_selection": "default",
+            "request": {
+                "retry": 5,
+                "timeout": {
+                    "timeout": 30,
+                    "unit": "second"
+                }
+            },
+            "vrfs": [
+                {
+                    "features": [
+                        "SGi-LAN"
+                    ],
+                    "name": {
+                        "name": "sgi",
+                        "type": "apn"
+                    }
+                },
+                {
+                    "features": [
+                        "Access"
+                    ],
+                    "name": {
+                        "name": "irx",
+                        "type": "apn"
+                    }
+                },
+                {
+                    "features": [
+                        "CP-Function"
+                    ],
+                    "name": {
+                        "name": "cp",
+                        "type": "apn"
+                    }
+                }
+            ]
+        },
+        "entries": []
     },
-    "entries":[]
-  },
-  "path_management":{
-    "down":{
-      "echo":{
-	"timeout":10,
-	"unit":"minute"
-      },
-      "timeout":{
-	"timeout":1,
-	"unit":"hour"
-      }
+    "path_management": {
+        "down": {
+            "echo": {
+                "timeout": 10,
+                "unit": "minute"
+            },
+            "timeout": {
+                "timeout": 1,
+                "unit": "hour"
+            }
+        },
+        "echo": {
+            "timeout": 1,
+            "unit": "minute"
+        },
+        "icmp_error_handling": "immediate",
+        "idle": {
+            "echo": {
+                "timeout": 10,
+                "unit": "minute"
+            },
+            "timeout": {
+                "timeout": 30,
+                "unit": "minute"
+            }
+        },
+        "n3": 5,
+        "t3": 10000
     },
-    "echo":{
-      "timeout":1,
-      "unit":"minute"
+    "sockets": [
+        {
+            "burst_size": 10,
+            "ip": {
+                "ipv4Addr": "127.0.0.1"
+            },
+            "name": "sx",
+            "reuseaddr": true,
+            "socket": "cp",
+            "type": "pfcp"
+        },
+        {
+            "burst_size": 10,
+            "ip": {
+                "ipv4Addr": "127.0.0.1"
+            },
+            "name": "irx",
+            "reuseaddr": true,
+            "send_port": 0,
+            "type": "gtp-c",
+            "vrf": {
+                "name": "irx",
+                "type": "apn"
+            }
+        },
+        {
+            "burst_size": 10,
+            "freebind": true,
+            "ip": {
+                "ipv4Addr": "127.0.0.1"
+            },
+            "name": "cp",
+            "reuseaddr": true,
+            "send_port": 0,
+            "type": "gtp-u",
+            "vrf": {
+                "name": "cp",
+                "type": "apn"
+            }
+        }
+    ],
+    "teid": {
+        "len": 0,
+        "prefix": 0
     },
-    "icmp_error_handling":"immediate",
-    "idle":{
-      "echo":{
-	"timeout":10,
-	"unit":"minute"
-      },
-      "timeout":{
-	"timeout":30,
-	"unit":"minute"
-      }
-    },
-    "n3":5,
-    "t3":10000
-  },
-  "sockets":[
-    {
-      "burst_size":10,
-      "ip":{
-	"ipv4Addr":"127.0.0.1"
-      },
-      "name":"sx",
-      "reuseaddr":true,
-      "socket":"cp",
-      "type":"pfcp"
-    },
-    {
-      "burst_size":10,
-      "ip":{
-	"ipv4Addr":"127.0.0.1"
-      },
-      "name":"irx",
-      "reuseaddr":true,
-      "send_port":0,
-      "type":"gtp-c",
-      "vrf":{
-	"name":"irx",
-	"type":"apn"
-      }
-    },
-    {
-      "burst_size":10,
-      "freebind":true,
-      "ip":{
-	"ipv4Addr":"127.0.0.1"
-      },
-      "name":"cp",
-      "reuseaddr":true,
-      "send_port":0,
-      "type":"gtp-u",
-      "vrf":{
-	"name":"cp",
-	"type":"apn"
-      }
-    }
-  ],
-  "teid":{
-    "len":0,
-    "prefix":0
-  },
-
-    "aaa":{
-	"apps":[
-	    {
-		"application":"default",
-		"procedures":[
-		    {
-			"api":"gy",
-			"procedure":"CCR-Update",
-			"steps":[]
-		    },
-		    {
-			"api":"gy",
-			"procedure":"CCR-Terminate",
-			"steps":[]
-		    },
-		    {
-			"api":"gy",
-			"procedure":"CCR-Initial",
-			"steps":[]
-		    },
-		    {
-			"api":"gx",
-			"procedure":"CCR-Update",
-			"steps":[
-			    {
-				"answer":"Update-Gx",
-				"service":"Default"
-			    }
-			]
-		    },
-		    {
-			"api":"gx",
-			"procedure":"CCR-Terminate",
-			"steps":[
-			    {
-				"answer":"Final-Gx",
-				"service":"Default"
-			    }
-			]
-		    },
-		    {
-			"api":"gx",
-			"procedure":"CCR-Initial",
-			"steps":[
-			    {
-				"answer":"Initial-Gx",
-				"service":"Default"
-			    }
-			]
-		    },
-		    {
-			"procedure":"stop",
-			"steps":[]
-		    },
-		    {
-			"procedure":"start",
-			"steps":[]
-		    },
-		    {
-			"procedure":"interim",
-			"steps":[]
-		    },
-		    {
-			"procedure":"init",
-			"steps":[
-			    {
-				"service":"Default"
-			    }
-			]
-		    },
-		    {
-			"procedure":"authorize",
-			"steps":[]
-		    },
-		    {
-			"procedure":"authenticate",
-			"steps":[]
-		    }
-		]
-	    }
-	],
-	"handlers":[
-	    {
-		"defaults":{
-		    "Charging-Rule-Base-Name":"m2m0001",
-		    "NAS-Identifier":"NAS-Identifier",
-		    "Node-Id":"PGW-001"
-		},
-		"handler":"ergw_aaa_static"
-	    }
-	],
-	"services":[
-	    {
-		"answers":{
-		    "Final-Gx":{
-			"Result-Code":2001
-		    },
-		    "Final-OCS":{
-			"Result-Code":2001
-		    },
-		    "Initial-Gx":{
-			"Charging-Rule-Install":[
-			    {
-				"Charging-Rule-Base-Name":[
-				    "m2m0001"
-				]
-			    }
-			],
-			"Result-Code":2001
-		    },
-		    "Initial-Gx-Fail-1":{
-			"Charging-Rule-Install":[
-			    {
-				"Charging-Rule-Base-Name":[
-				    "m2m0001",
-				    "unknown-rulebase"
-				]
-			    }
-			],
-			"Result-Code":2001
-		    },
-		    "Initial-Gx-Fail-2":{
-			"Charging-Rule-Install":[
-			    {
-				"Charging-Rule-Name":[
-				    "r-0001",
-				    "unknown-rule"
-				]
-			    }
-			],
-			"Result-Code":2001
-		    },
-		    "Initial-Gx-Redirect":{
-			"Charging-Rule-Install":[
-			    {
-				"Charging-Rule-Definition":[
-				    {
-					"Charging-Rule-Name":"m2m",
-					"Flow-Information":[
-					    {
-						"Flow-Description":[
-						    "permit out ip from any to assigned"
-						],
-						"Flow-Direction":[
-						    1
-						]
-					    },
-					    {
-						"Flow-Description":[
-						    "permit out ip from any to assigned"
-						],
-						"Flow-Direction":[
-						    2
-						]
-					    }
-					],
-					"Metering-Method":[
-					    1
-					],
-					"Offline":[
-					    1
-					],
-					"Precedence":[
-					    100
-					],
-					"Rating-Group":[
-					    3000
-					],
-					"Redirect-Information":[
-					    {
-						"Redirect-Address-Type":[
-						    2
-						],
-						"Redirect-Server-Address":[
-						    "http://www.heise.de/"
-						],
-						"Redirect-Support":[
-						    1
-						]
-					    }
-					]
-				    }
-				]
-			    }
-			],
-			"Result-Code":2001
-		    },
-		    "Initial-Gx-Split1":{
-			"Charging-Rule-Install":[
-			    {
-				"Charging-Rule-Base-Name":[
-				    "m2m0001-split1"
-				]
-			    }
-			],
-			"Result-Code":2001
-		    },
-		    "Initial-Gx-Split2":{
-			"Charging-Rule-Install":[
-			    {
-				"Charging-Rule-Base-Name":[
-				    "m2m0001-split2"
-				]
-			    }
-			],
-			"Result-Code":2001
-		    },
-		    "Initial-Gx-TDF-App":{
-			"Charging-Rule-Install":[
-			    {
-				"Charging-Rule-Definition":[
-				    {
-					"Charging-Rule-Name":"m2m",
-					"Metering-Method":[
-					    1
-					],
-					"Offline":[
-					    1
-					],
-					"Precedence":[
-					    100
-					],
-					"Rating-Group":[
-					    3000
-					],
-					"TDF-Application-Identifier":[
-					    "Gold"
-					]
-				    }
-				]
-			    }
-			],
-			"Result-Code":2001
-		    },
-		    "Initial-OCS":{
-			"Multiple-Services-Credit-Control":[
-			    {
-				"Envelope-Reporting":[
-				    0
-				],
-				"Granted-Service-Unit":[
-				    {
-					"CC-Time":[
-					    3600
-					],
-					"CC-Total-Octets":[
-					    102400
-					]
-				    }
-				],
-				"Rating-Group":[
-				    3000
-				],
-				"Result-Code":[
-				    2001
-				],
-				"Time-Quota-Threshold":[
-				    60
-				],
-				"Validity-Time":[
-				    3600
-				],
-				"Volume-Quota-Threshold":[
-				    10240
-				]
-			    }
-			],
-			"Result-Code":2001
-		    },
-		    "Initial-OCS-TTC":{
-			"Multiple-Services-Credit-Control":[
-			    {
-				"Envelope-Reporting":[
-				    0
-				],
-				"Granted-Service-Unit":[
-				    {
-					"CC-Time":[
-					    3600
-					],
-					"CC-Total-Octets":[
-					    102400
-					],
-					"Tariff-Time-Change":[
-					    "2019-08-26T14:14:00Z"
-					]
-				    }
-				],
-				"Rating-Group":[
-				    3000
-				],
-				"Result-Code":[
-				    2001
-				],
-				"Tariff-Time-Change":[
-				    "2019-08-26T14:14:00Z"
-				],
-				"Time-Quota-Threshold":[
-				    60
-				],
-				"Volume-Quota-Threshold":[
-				    10240
-				]
-			    }
-			],
-			"Result-Code":2001
-		    },
-		    "Initial-OCS-VT":{
-			"Multiple-Services-Credit-Control":[
-			    {
-				"Envelope-Reporting":[
-				    0
-				],
-				"Granted-Service-Unit":[
-				    {
-					"CC-Time":[
-					    3600
-					],
-					"CC-Total-Octets":[
-					    102400
-					]
-				    }
-				],
-				"Rating-Group":[
-				    3000
-				],
-				"Result-Code":[
-				    2001
-				],
-				"Time-Quota-Threshold":[
-				    60
-				],
-				"Validity-Time":[
-				    2
-				],
-				"Volume-Quota-Threshold":[
-				    10240
-				]
-			    }
-			],
-			"Result-Code":2001
-		    },
-		    "Update-Gx":{
-			"Result-Code":2001
-		    },
-		    "Update-OCS":{
-			"Multiple-Services-Credit-Control":[
-			    {
-				"Envelope-Reporting":[
-				    0
-				],
-				"Granted-Service-Unit":[
-				    {
-					"CC-Time":[
-					    3600
-					],
-					"CC-Total-Octets":[
-					    102400
-					]
-				    }
-				],
-				"Rating-Group":[
-				    3000
-				],
-				"Result-Code":[
-				    2001
-				],
-				"Time-Quota-Threshold":[
-				    60
-				],
-				"Validity-Time":[
-				    3600
-				],
-				"Volume-Quota-Threshold":[
-				    10240
-				]
-			    }
-			],
-			"Result-Code":2001
-		    },
-		    "Update-OCS-Fail":{
-			"Result-Code":3001
-		    },
-		    "Update-OCS-GxGy":{
-			"Multiple-Services-Credit-Control":[
-			    {
-				"Envelope-Reporting":[
-				    0
-				],
-				"Granted-Service-Unit":[
-				    {
-					"CC-Time":[
-					    3600
-					],
-					"CC-Total-Octets":[
-					    102400
-					]
-				    }
-				],
-				"Rating-Group":[
-				    3000
-				],
-				"Result-Code":[
-				    2001
-				],
-				"Time-Quota-Threshold":[
-				    60
-				],
-				"Validity-Time":[
-				    3600
-				],
-				"Volume-Quota-Threshold":[
-				    10240
-				]
-			    },
-			    {
-				"Envelope-Reporting":[
-				    0
-				],
-				"Granted-Service-Unit":[
-				    {
-					"CC-Time":[
-					    3600
-					],
-					"CC-Total-Octets":[
-					    102400
-					]
-				    }
-				],
-				"Rating-Group":[
-				    4000
-				],
-				"Result-Code":[
-				    2001
-				],
-				"Time-Quota-Threshold":[
-				    60
-				],
-				"Validity-Time":[
-				    3600
-				],
-				"Volume-Quota-Threshold":[
-				    10240
-				]
-			    }
-			],
-			"Result-Code":2001
-		    },
-		    "Update-OCS-TTC":{
-			"Multiple-Services-Credit-Control":[
-			    {
-				"Envelope-Reporting":[
-				    0
-				],
-				"Granted-Service-Unit":[
-				    {
-					"CC-Time":[
-					    3600
-					],
-					"CC-Total-Octets":[
-					    102400
-					],
-					"Tariff-Time-Change":[
-					    "2019-08-26T14:14:00Z"
-					]
-				    }
-				],
-				"Rating-Group":[
-				    3000
-				],
-				"Result-Code":[
-				    2001
-				],
-				"Time-Quota-Threshold":[
-				    60
-				],
-				"Volume-Quota-Threshold":[
-				    10240
-				]
-			    }
-			],
-			"Result-Code":2001
-		    },
-		    "Update-OCS-VT":{
-			"Multiple-Services-Credit-Control":[
-			    {
-				"Envelope-Reporting":[
-				    0
-				],
-				"Granted-Service-Unit":[
-				    {
-					"CC-Time":[
-					    3600
-					],
-					"CC-Total-Octets":[
-					    102400
-					]
-				    }
-				],
-				"Rating-Group":[
-				    3000
-				],
-				"Result-Code":[
-				    2001
-				],
-				"Time-Quota-Threshold":[
-				    60
-				],
-				"Validity-Time":[
-				    2
-				],
-				"Volume-Quota-Threshold":[
-				    10240
-				]
-			    }
-			],
-			"Result-Code":2001
-		    }
-		},
-		"defaults":{
-		    "Charging-Rule-Base-Name":"m2m0001",
-		    "NAS-Identifier":"NAS-Identifier",
-		    "Node-Id":"PGW-001"
-		},
-		"handler":"ergw_aaa_static",
-		"service":"Default"
-	    }
-	]
+    "aaa": {
+        "apps": [
+            {
+                "application": "default",
+                "procedures": [
+                    {
+                        "api": "gy",
+                        "procedure": "CCR-Update",
+                        "steps": []
+                    },
+                    {
+                        "api": "gy",
+                        "procedure": "CCR-Terminate",
+                        "steps": []
+                    },
+                    {
+                        "api": "gy",
+                        "procedure": "CCR-Initial",
+                        "steps": []
+                    },
+                    {
+                        "api": "gx",
+                        "procedure": "CCR-Update",
+                        "steps": [
+                            {
+                                "answer": "Update-Gx",
+                                "service": "Default"
+                            }
+                        ]
+                    },
+                    {
+                        "api": "gx",
+                        "procedure": "CCR-Terminate",
+                        "steps": [
+                            {
+                                "answer": "Final-Gx",
+                                "service": "Default"
+                            }
+                        ]
+                    },
+                    {
+                        "api": "gx",
+                        "procedure": "CCR-Initial",
+                        "steps": [
+                            {
+                                "answer": "Initial-Gx",
+                                "service": "Default"
+                            }
+                        ]
+                    },
+                    {
+                        "procedure": "stop",
+                        "steps": []
+                    },
+                    {
+                        "procedure": "start",
+                        "steps": []
+                    },
+                    {
+                        "procedure": "interim",
+                        "steps": []
+                    },
+                    {
+                        "procedure": "init",
+                        "steps": [
+                            {
+                                "service": "Default"
+                            }
+                        ]
+                    },
+                    {
+                        "procedure": "authorize",
+                        "steps": []
+                    },
+                    {
+                        "procedure": "authenticate",
+                        "steps": []
+                    }
+                ]
+            }
+        ],
+        "handlers": [
+            {
+                "defaults": {
+                    "Charging-Rule-Base-Name": "m2m0001",
+                    "NAS-Identifier": "NAS-Identifier",
+                    "Node-Id": "PGW-001"
+                },
+                "handler": "ergw_aaa_static"
+            }
+        ],
+        "services": [
+            {
+                "answers": [
+                    {
+                        "name": "Final-Gx",
+                        "avps": {
+                            "Result-Code": 2001
+                        }
+                    },
+                    {
+                        "name": "Final-OCS",
+                        "avps": {
+                            "Result-Code": 2001
+                        }
+                    },
+                    {
+                        "name": "Initial-Gx",
+                        "avps": {
+                            "Charging-Rule-Install": [
+                                {
+                                    "Charging-Rule-Base-Name": [
+                                        "m2m0001"
+                                    ]
+                                }
+                            ],
+                            "Result-Code": 2001
+                        }
+                    },
+                    {
+                        "name": "Initial-Gx-Fail-1",
+                        "avps": {
+                            "Charging-Rule-Install": [
+                                {
+                                    "Charging-Rule-Base-Name": [
+                                        "m2m0001",
+                                        "unknown-rulebase"
+                                    ]
+                                }
+                            ],
+                            "Result-Code": 2001
+                        }
+                    },
+                    {
+                        "name": "Initial-Gx-Fail-2",
+                        "avps": {
+                            "Charging-Rule-Install": [
+                                {
+                                    "Charging-Rule-Name": [
+                                        "r-0001",
+                                        "unknown-rule"
+                                    ]
+                                }
+                            ],
+                            "Result-Code": 2001
+                        }
+                    },
+                    {
+                        "name": "Initial-Gx-Redirect",
+                        "avps": {
+                            "Charging-Rule-Install": [
+                                {
+                                    "Charging-Rule-Definition": [
+                                        {
+                                            "Charging-Rule-Name": "m2m",
+                                            "Flow-Information": [
+                                                {
+                                                    "Flow-Description": [
+                                                        "permit out ip from any to assigned"
+                                                    ],
+                                                    "Flow-Direction": [
+                                                        1
+                                                    ]
+                                                },
+                                                {
+                                                    "Flow-Description": [
+                                                        "permit out ip from any to assigned"
+                                                    ],
+                                                    "Flow-Direction": [
+                                                        2
+                                                    ]
+                                                }
+                                            ],
+                                            "Metering-Method": [
+                                                1
+                                            ],
+                                            "Offline": [
+                                                1
+                                            ],
+                                            "Precedence": [
+                                                100
+                                            ],
+                                            "Rating-Group": [
+                                                3000
+                                            ],
+                                            "Redirect-Information": [
+                                                {
+                                                    "Redirect-Address-Type": [
+                                                        2
+                                                    ],
+                                                    "Redirect-Server-Address": [
+                                                        "http://www.heise.de/"
+                                                    ],
+                                                    "Redirect-Support": [
+                                                        1
+                                                    ]
+                                                }
+                                            ]
+                                        }
+                                    ]
+                                }
+                            ],
+                            "Result-Code": 2001
+                        }
+                    },
+                    {
+                        "name": "Initial-Gx-Split1",
+                        "avps": {
+                            "Charging-Rule-Install": [
+                                {
+                                    "Charging-Rule-Base-Name": [
+                                        "m2m0001-split1"
+                                    ]
+                                }
+                            ],
+                            "Result-Code": 2001
+                        }
+                    },
+                    {
+                        "name": "Initial-Gx-Split2",
+                        "avps": {
+                            "Charging-Rule-Install": [
+                                {
+                                    "Charging-Rule-Base-Name": [
+                                        "m2m0001-split2"
+                                    ]
+                                }
+                            ],
+                            "Result-Code": 2001
+                        }
+                    },
+                    {
+                        "name": "Initial-Gx-TDF-App",
+                        "avps": {
+                            "Charging-Rule-Install": [
+                                {
+                                    "Charging-Rule-Definition": [
+                                        {
+                                            "Charging-Rule-Name": "m2m",
+                                            "Metering-Method": [
+                                                1
+                                            ],
+                                            "Offline": [
+                                                1
+                                            ],
+                                            "Precedence": [
+                                                100
+                                            ],
+                                            "Rating-Group": [
+                                                3000
+                                            ],
+                                            "TDF-Application-Identifier": [
+                                                "Gold"
+                                            ]
+                                        }
+                                    ]
+                                }
+                            ],
+                            "Result-Code": 2001
+                        }
+                    },
+                    {
+                        "name": "Initial-OCS",
+                        "avps": {
+                            "Multiple-Services-Credit-Control": [
+                                {
+                                    "Envelope-Reporting": [
+                                        0
+                                    ],
+                                    "Granted-Service-Unit": [
+                                        {
+                                            "CC-Time": [
+                                                3600
+                                            ],
+                                            "CC-Total-Octets": [
+                                                102400
+                                            ]
+                                        }
+                                    ],
+                                    "Rating-Group": [
+                                        3000
+                                    ],
+                                    "Result-Code": [
+                                        2001
+                                    ],
+                                    "Time-Quota-Threshold": [
+                                        60
+                                    ],
+                                    "Validity-Time": [
+                                        3600
+                                    ],
+                                    "Volume-Quota-Threshold": [
+                                        10240
+                                    ]
+                                }
+                            ],
+                            "Result-Code": 2001
+                        }
+                    },
+                    {
+                        "name": "Initial-OCS-TTC",
+                        "avps": {
+                            "Multiple-Services-Credit-Control": [
+                                {
+                                    "Envelope-Reporting": [
+                                        0
+                                    ],
+                                    "Granted-Service-Unit": [
+                                        {
+                                            "CC-Time": [
+                                                3600
+                                            ],
+                                            "CC-Total-Octets": [
+                                                102400
+                                            ],
+                                            "Tariff-Time-Change": [
+                                                "2019-08-26T14:14:00Z"
+                                            ]
+                                        }
+                                    ],
+                                    "Rating-Group": [
+                                        3000
+                                    ],
+                                    "Result-Code": [
+                                        2001
+                                    ],
+                                    "Tariff-Time-Change": [
+                                        "2019-08-26T14:14:00Z"
+                                    ],
+                                    "Time-Quota-Threshold": [
+                                        60
+                                    ],
+                                    "Volume-Quota-Threshold": [
+                                        10240
+                                    ]
+                                }
+                            ],
+                            "Result-Code": 2001
+                        }
+                    },
+                    {
+                        "name": "Initial-OCS-VT",
+                        "avps": {
+                            "Multiple-Services-Credit-Control": [
+                                {
+                                    "Envelope-Reporting": [
+                                        0
+                                    ],
+                                    "Granted-Service-Unit": [
+                                        {
+                                            "CC-Time": [
+                                                3600
+                                            ],
+                                            "CC-Total-Octets": [
+                                                102400
+                                            ]
+                                        }
+                                    ],
+                                    "Rating-Group": [
+                                        3000
+                                    ],
+                                    "Result-Code": [
+                                        2001
+                                    ],
+                                    "Time-Quota-Threshold": [
+                                        60
+                                    ],
+                                    "Validity-Time": [
+                                        2
+                                    ],
+                                    "Volume-Quota-Threshold": [
+                                        10240
+                                    ]
+                                }
+                            ],
+                            "Result-Code": 2001
+                        }
+                    },
+                    {
+                        "name": "Update-Gx",
+                        "avps": {
+                            "Result-Code": 2001
+                        }
+                    },
+                    {
+                        "name": "Update-OCS",
+                        "avps": {
+                            "Multiple-Services-Credit-Control": [
+                                {
+                                    "Envelope-Reporting": [
+                                        0
+                                    ],
+                                    "Granted-Service-Unit": [
+                                        {
+                                            "CC-Time": [
+                                                3600
+                                            ],
+                                            "CC-Total-Octets": [
+                                                102400
+                                            ]
+                                        }
+                                    ],
+                                    "Rating-Group": [
+                                        3000
+                                    ],
+                                    "Result-Code": [
+                                        2001
+                                    ],
+                                    "Time-Quota-Threshold": [
+                                        60
+                                    ],
+                                    "Validity-Time": [
+                                        3600
+                                    ],
+                                    "Volume-Quota-Threshold": [
+                                        10240
+                                    ]
+                                }
+                            ],
+                            "Result-Code": 2001
+                        }
+                    },
+                    {
+                        "name": "Update-OCS-Fail",
+                        "avps": {
+                            "Result-Code": 3001
+                        }
+                    },
+                    {
+                        "name": "Update-OCS-GxGy",
+                        "avps": {
+                            "Multiple-Services-Credit-Control": [
+                                {
+                                    "Envelope-Reporting": [
+                                        0
+                                    ],
+                                    "Granted-Service-Unit": [
+                                        {
+                                            "CC-Time": [
+                                                3600
+                                            ],
+                                            "CC-Total-Octets": [
+                                                102400
+                                            ]
+                                        }
+                                    ],
+                                    "Rating-Group": [
+                                        3000
+                                    ],
+                                    "Result-Code": [
+                                        2001
+                                    ],
+                                    "Time-Quota-Threshold": [
+                                        60
+                                    ],
+                                    "Validity-Time": [
+                                        3600
+                                    ],
+                                    "Volume-Quota-Threshold": [
+                                        10240
+                                    ]
+                                },
+                                {
+                                    "Envelope-Reporting": [
+                                        0
+                                    ],
+                                    "Granted-Service-Unit": [
+                                        {
+                                            "CC-Time": [
+                                                3600
+                                            ],
+                                            "CC-Total-Octets": [
+                                                102400
+                                            ]
+                                        }
+                                    ],
+                                    "Rating-Group": [
+                                        4000
+                                    ],
+                                    "Result-Code": [
+                                        2001
+                                    ],
+                                    "Time-Quota-Threshold": [
+                                        60
+                                    ],
+                                    "Validity-Time": [
+                                        3600
+                                    ],
+                                    "Volume-Quota-Threshold": [
+                                        10240
+                                    ]
+                                }
+                            ],
+                            "Result-Code": 2001
+                        }
+                    },
+                    {
+                        "name": "Update-OCS-TTC",
+                        "avps": {
+                            "Multiple-Services-Credit-Control": [
+                                {
+                                    "Envelope-Reporting": [
+                                        0
+                                    ],
+                                    "Granted-Service-Unit": [
+                                        {
+                                            "CC-Time": [
+                                                3600
+                                            ],
+                                            "CC-Total-Octets": [
+                                                102400
+                                            ],
+                                            "Tariff-Time-Change": [
+                                                "2019-08-26T14:14:00Z"
+                                            ]
+                                        }
+                                    ],
+                                    "Rating-Group": [
+                                        3000
+                                    ],
+                                    "Result-Code": [
+                                        2001
+                                    ],
+                                    "Time-Quota-Threshold": [
+                                        60
+                                    ],
+                                    "Volume-Quota-Threshold": [
+                                        10240
+                                    ]
+                                }
+                            ],
+                            "Result-Code": 2001
+                        }
+                    },
+                    {
+                        "name": "Update-OCS-VT",
+                        "avps": {
+                            "Multiple-Services-Credit-Control": [
+                                {
+                                    "Envelope-Reporting": [
+                                        0
+                                    ],
+                                    "Granted-Service-Unit": [
+                                        {
+                                            "CC-Time": [
+                                                3600
+                                            ],
+                                            "CC-Total-Octets": [
+                                                102400
+                                            ]
+                                        }
+                                    ],
+                                    "Rating-Group": [
+                                        3000
+                                    ],
+                                    "Result-Code": [
+                                        2001
+                                    ],
+                                    "Time-Quota-Threshold": [
+                                        60
+                                    ],
+                                    "Validity-Time": [
+                                        2
+                                    ],
+                                    "Volume-Quota-Threshold": [
+                                        10240
+                                    ]
+                                }
+                            ],
+                            "Result-Code": 2001
+                        }
+                    }
+                ],
+                "defaults": {
+                    "Charging-Rule-Base-Name": "m2m0001",
+                    "NAS-Identifier": "NAS-Identifier",
+                    "Node-Id": "PGW-001"
+                },
+                "handler": "ergw_aaa_static",
+                "service": "Default"
+            }
+        ]
     }
 }

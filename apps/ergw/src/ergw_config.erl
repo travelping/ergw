@@ -135,7 +135,8 @@ ergw_aaa_init(_, _) ->
 
 ergw_core_init(Config) ->
     Init = [node, aaa, wait_till_running, path_management, node_selection,
-	    sockets, upf_nodes, handlers, ip_pools, apns, charging, proxy_map],
+	    sockets, upf_nodes, handlers, ip_pools, apns, charging, proxy_map,
+	    http_api],
     lists:foreach(ergw_core_init(_, Config), Init).
 
 ergw_core_init(node, #{node := Node}) ->
@@ -164,6 +165,8 @@ ergw_core_init(charging, #{charging := Charging}) ->
     lists:foreach(ergw_charging_init(_, Charging), Init);
 ergw_core_init(proxy_map, #{proxy_map := Map}) ->
     ok = ergw_core:setopts(proxy_map, Map);
+ergw_core_init(http_api, #{http_api := Opts}) ->
+    ergw_http_api:init(Opts);
 ergw_core_init(_K, _) ->
     ok.
 
@@ -361,8 +364,7 @@ config_meta_tdf() ->
      }.
 
 config_meta_http_api() ->
-    #{
-      enabled       => boolean,
+    #{enabled       => boolean,
       ip            => ip_address,
       port          => integer,
       ipv6_v6only   => boolean,
@@ -580,7 +582,7 @@ ergw_meta_aaa_handler_gx() ->
       function => binary,
       'Destination-Host' => binary,
       'Destination-Realm' => binary,
-      answers => aaa_avp,
+      answers => {kvlist, {name, binary}, {avps, aaa_avp}},
       answer_if_down => binary,
       answer_if_timeout => binary,
       avp_filter => {list, binary},
@@ -628,7 +630,7 @@ ergw_meta_aaa_handler_ro() ->
       'Destination-Realm' => binary,
       'CC-Session-Failover' => atom,
       'Credit-Control-Failure-Handling' => atom,
-      answers => aaa_avp,
+      answers => {kvlist, {name, binary}, {avps, aaa_avp}},
       answer_if_down => binary,
       answer_if_timeout => binary,
       answer_if_rate_limit => binary,
@@ -640,7 +642,7 @@ ergw_meta_aaa_handler_ro() ->
 ergw_meta_aaa_handler_static() ->
     #{handler => module,
       defaults => aaa_avp,
-      answers => aaa_avp,
+      answers => {kvlist, {name, binary}, {avps, aaa_avp}},
       answer => binary}.
 
 config_meta_term_cause_mapping() ->
@@ -651,13 +653,14 @@ config_meta_aaa_services() ->
 
 delegate_aaa_service(Map) when is_map(Map) ->
     Meta =
-	case to_atom(get_key(handler, Map)) of
+	case (catch to_atom(get_key(handler, Map))) of
 	    ergw_aaa_gx     -> ergw_meta_aaa_handler_gx();
 	    ergw_aaa_nasreq -> ergw_meta_aaa_handler_nasreq();
 	    ergw_aaa_radius -> ergw_meta_aaa_handler_radius();
 	    ergw_aaa_rf     -> ergw_meta_aaa_handler_rf();
 	    ergw_aaa_ro     -> ergw_meta_aaa_handler_ro();
-	    ergw_aaa_static -> ergw_meta_aaa_handler_static()
+	    ergw_aaa_static -> ergw_meta_aaa_handler_static();
+	    _               -> ergw_meta_aaa_handler_static()
 	end,
     normalize_meta(Meta).
 
@@ -940,6 +943,9 @@ to_aaa_procedures(List) when is_list(List) ->
 to_aaa_avp('Tariff-Time-Change', V) when is_binary(V) ->
     Time = calendar:rfc3339_to_system_time(binary_to_list(V)),
     calendar:system_time_to_universal_time(Time, second);
+to_aaa_avp('Tariff-Time', V) when is_binary(V) ->
+    {ok, [Hour, Minute], _} = io_lib:fread("~d:~d", binary_to_list(V)),
+    {Hour, Minute};
 to_aaa_avp(K, V) when is_list(V) ->
     lists:map(to_aaa_avp(K, _), V);
 to_aaa_avp(_K, M) when is_map(M) ->
@@ -1091,12 +1097,15 @@ from_aaa_procedures({API, Procedure}, V0, Config) ->
 from_aaa_procedures(Map) when is_map(Map) ->
     maps:fold(fun from_aaa_procedures/3, [], Map).
 
+from_time({Hour, Minute}) ->
+    iolist_to_binary(io_lib:format("~2..0w:~2..0w:00Z", [Hour, Minute])).
+
 from_aaa_avp(K, V, M) when is_map(V) ->
     maps:put(K, from_aaa_avp(V), M);
 from_aaa_avp(K, V, M) when is_list(V) ->
     maps:put(K, lists:map(from_aaa_avp(K, _), V), M);
 from_aaa_avp(K, V, M) ->
-    maps:put(K, from_aaa_avp(k, V), M).
+    maps:put(K, from_aaa_avp(K, V), M).
 
 from_aaa_avp(_K, Map) when is_map(Map) ->
     maps:fold(fun from_aaa_avp/3, #{}, Map);
@@ -1104,6 +1113,8 @@ from_aaa_avp(_K, {{Year, Month, Day}, {Hour, Minute, Second}}) ->
     iolist_to_binary(
       io_lib:format("~w-~2..0w-~2..0wT~2..0w:~2..0w:~2..0wZ",
 		    [Year, Month, Day, Hour, Minute, Second]));
+from_aaa_avp('Tariff-Time', Time) ->
+    from_time(Time);
 from_aaa_avp(_K, Value) when is_list(Value) ->
     iolist_to_binary(Value);
 from_aaa_avp(_K, Value) ->
@@ -1121,7 +1132,7 @@ from_object(Meta, V) when is_map(V) ->
     maps:map(from_object(Meta, _, _), V).
 
 from_list(Type, V) when is_list(V) ->
-    lists:map(serialize_config(Type, _), V).
+    lists:map(fun(V0) -> serialize_config(ts2meta(Type, V0), V0) end, V).
 
 from_klist({KeyField, KeyMeta, VTypeSpec}, K, V, Config) ->
     VMeta = ts2meta(VTypeSpec, KeyField, K, V),

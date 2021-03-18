@@ -9,8 +9,9 @@
 
 -compile(export_all).
 
--include("ergw_test_lib.hrl").
--include("ergw_ggsn_test_lib.hrl").
+-include("smc_test_lib.hrl").
+-include("smc_ggsn_test_lib.hrl").
+-include_lib("ergw_core/include/ergw.hrl").
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include_lib("common_test/include/ct.hrl").
 
@@ -284,15 +285,16 @@ end_per_testcase(_Config) ->
 
 init_per_testcase(Config) ->
     meck_reset(Config).
+
 init_per_testcase(TestCase, Config) when TestCase =:= http_api_delete_sessions; TestCase =:= http_api_delete_all_sessions ->
     ct:pal("Sockets: ~p", [ergw_socket_reg:all()]),
     setup_per_testcase(Config),
     ok = meck:expect(?HUT, handle_request,
-        fun(Request, Msg, Resent, State, Data) ->
-            if Resent -> ok;
-            true      -> ct:sleep(1000)
-        end,
-        meck:passthrough([Request, Msg, Resent, State, Data])
+	fun(Request, Msg, Resent, State, Data) ->
+	    if Resent -> ok;
+	    true      -> ct:sleep(1000)
+	end,
+	meck:passthrough([Request, Msg, Resent, State, Data])
     end),
     Config;
 init_per_testcase(_, Config) ->
@@ -306,14 +308,39 @@ end_per_testcase(_, Config) ->
     Config.
 
 init_per_suite(Config0) ->
+    Config1 = smc_test_lib:init_ets(Config0),
+    Config2 = [{handler_under_test, ?HUT}|Config1],
+    Config = smc_test_lib:group_config(ipv4, Config2),
+
+    [application:load(App) || App <- [cowboy, ergw_core, ergw_aaa]],
+    smc_test_lib:meck_init(Config),
+
+    Dir  = ?config(data_dir, Config),
+    application:load(ergw),
+    CfgSet = #{type => json, file => filename:join(Dir, "ggsn.json")},
+    application:set_env(ergw, config, CfgSet),
+    {ok, Started} = application:ensure_all_started(ergw),
+    ct:pal("Started: ~p", [Started]),
+
+    ergw:wait_till_running(),
     inets:start(),
-    Config1 = [{app_cfg, ?TEST_CONFIG}, {handler_under_test, ?HUT} | Config0],
-    Config2 = update_app_config(ipv4, ?CONFIG_UPDATE, Config1),
-    lib_init_per_group(Config2).
+
+    {ok, _} = ergw_test_sx_up:start('pgw-u01', proplists:get_value(pgw_u01_sx, Config)),
+    {ok, _} = ergw_test_sx_up:start('pgw-u02', proplists:get_value(pgw_u02_sx, Config)),
+    {ok, _} = ergw_test_sx_up:start('sgw-u', proplists:get_value(sgw_u_sx, Config)),
+    {ok, _} = ergw_test_sx_up:start('tdf-u', proplists:get_value(tdf_u_sx, Config)),
+
+    Config.
 
 end_per_suite(Config) ->
+    smc_test_lib:meck_unload(Config),
+    ok = ergw_test_sx_up:stop('pgw-u01'),
+    ok = ergw_test_sx_up:stop('pgw-u02'),
+    ok = ergw_test_sx_up:stop('sgw-u'),
+    ok = ergw_test_sx_up:stop('tdf-u'),
+    ?config(table_owner, Config) ! stop,
+    [application:stop(App) || App <- [ergw_core, ergw_aaa, ergw_cluster, ergw]],
     inets:stop(),
-    ok = lib_end_per_group(Config),
     ok.
 
 http_api_version_req() ->
