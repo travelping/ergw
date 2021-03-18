@@ -93,12 +93,11 @@ apply(#{index := Index, term := Term} = _Metadata,
     {NewState, {{read, ReadValue}, {index, Index}, {term, Term}}, SideEffects}.
 
 side_effects(RaftIndex, MachineState) ->
-    {ok, Opts} = application:get_env(ergw_core, cluster),
-    case Opts of
-	#{release_cursor_every := NegativeOrZero}
+    case application:get_env(ergw_cluster, release_cursor_every) of
+	{ok, NegativeOrZero}
 	  when NegativeOrZero =< 0 ->
 	    [];
-	#{release_cursor_every := Every} ->
+	{ok, Every} ->
 	    case release_cursor(RaftIndex, Every) of
 		release_cursor ->
 		    [{release_cursor, RaftIndex, MachineState}];
