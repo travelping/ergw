@@ -47,9 +47,10 @@ send(Socket, Src, IP, Port, Data) ->
 %%% Options Validation
 %%%===================================================================
 
--define(SocketDefaults, [{ip, invalid}, {burst_size, 10}, {send_port, true}]).
+-define(SocketDefaults, [{burst_size, 10}, {send_port, true}]).
 
 validate_options(Values) ->
+    ergw_core_config:mandatory_keys([ip, vrf], Values),
     ergw_core_config:validate_options(fun validate_option/2, Values, ?SocketDefaults).
 
 validate_option(type, 'gtp-c' = Value) ->

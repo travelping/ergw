@@ -47,10 +47,12 @@
 		[{node_id, <<"SAE-GW.epc.mnc001.mcc001.3gppnetwork.org">>}],
 	    sockets =>
 		[{cp, [{type, 'gtp-u'},
+		       {vrf, cp},
 		       {ip, ?MUST_BE_UPDATED},
 		       {reuseaddr, true}
 		      ]},
 		 {irx, [{type, 'gtp-c'},
+			{vrf, irx},
 			{ip,  ?MUST_BE_UPDATED},
 			{reuseaddr, true}
 		       ]},

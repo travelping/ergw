@@ -100,12 +100,11 @@ seid() ->
 %%%===================================================================
 
 -define(SOCKET_OPTS, [netdev, netns, freebind, reuseaddr, rcvbuf]).
--define(SocketDefaults, [{socket, "invalid"},
-			 {ip, invalid},
-			 {burst_size, 10}]).
+-define(SocketDefaults, [{burst_size, 10}]).
 
 validate_options(Values) ->
-     ergw_core_config:validate_options(fun validate_option/2, Values, ?SocketDefaults).
+    ergw_core_config:mandatory_keys([ip, socket], Values),
+    ergw_core_config:validate_options(fun validate_option/2, Values, ?SocketDefaults).
 
 validate_option(type, pfcp = Value) ->
     Value;
