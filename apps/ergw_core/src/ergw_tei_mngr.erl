@@ -61,16 +61,19 @@ alloc_tei(Name, KeyFun) ->
 %%% Options Validation
 %%%===================================================================
 
-validate_option({Prefix, Len} = Value)
+validate_option(#{prefix := Prefix, len := Len} = Opts)
   when is_integer(Prefix), is_integer(Len),
        Len >= 0, Len =< 8, Prefix >= 0 ->
     case ?POW(2, Len) of
-	X when X > Prefix -> Value;
+	X when X > Prefix ->
+	    Opts;
 	_ ->
-	    erlang:error(badarg, [teid, Value])
+	    erlang:error(badarg, [teid, Opts])
     end;
-validate_option(Value) ->
-    erlang:error(badarg, [teid, Value]).
+validate_option(Opts) when is_list(Opts) ->
+    validate_option(ergw_core_config:to_map(Opts));
+validate_option(Opts) ->
+    erlang:error(badarg, [teid, Opts]).
 
 %%%===================================================================
 %%% gen_statem callbacks
@@ -127,7 +130,7 @@ alloc_tei(From, Name, KeyFun, Cnt, RndState0, State, Data0) ->
     end.
 
 maybe_update_data(#data{prefix = undefined, prefix_len = undefined} = Data) ->
-    {Prefix, PrefixLen} = ergw_core:get_teid_config(),
+    {ok, #{prefix := Prefix, len := PrefixLen}} = ergw_core_config:get([teid], undefined),
     Data#data{prefix = Prefix, prefix_len = PrefixLen};
 maybe_update_data(Data) ->
     Data.
