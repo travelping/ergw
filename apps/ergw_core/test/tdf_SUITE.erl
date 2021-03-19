@@ -60,9 +60,9 @@
 		],
 
 	    ip_pools =>
-		[{<<"pool-A">>, [{ranges,  [{?IPv4PoolStart, ?IPv4PoolEnd, 32},
-					    {?IPv6PoolStart, ?IPv6PoolEnd, 64},
-					    {?IPv6HostPoolStart, ?IPv6HostPoolEnd, 128}]},
+		[{<<"pool-A">>, [{ranges, [#{start => ?IPv4PoolStart, 'end' => ?IPv4PoolEnd, prefix_len => 32},
+					   #{start => ?IPv6PoolStart, 'end' => ?IPv6PoolEnd, prefix_len => 64},
+					   #{start => ?IPv6HostPoolStart, 'end' => ?IPv6HostPoolEnd, prefix_len => 128}]},
 				 {'MS-Primary-DNS-Server', {8,8,8,8}},
 				 {'MS-Secondary-DNS-Server', {8,8,4,4}},
 				 {'MS-Primary-NBNS-Server', {127,0,0,1}},

@@ -122,25 +122,27 @@ validate_options(Options) ->
     ?LOG(debug, "IP Pool Options: ~p", [Options]),
     ergw_core_config:validate_options(fun validate_option/2, Options, ?DefaultOptions).
 
-validate_ip_range({Start, End, PrefixLen} = Range)
+validate_ip_range(#{start := Start, 'end' := End, prefix_len := PrefixLen} = Opts)
   when ?IS_IPv4(Start), ?IS_IPv4(End), End > Start,
        is_integer(PrefixLen), PrefixLen > 0, PrefixLen =< 32 ->
-    Range;
-validate_ip_range({Start, End, PrefixLen} = Range)
+    Opts;
+validate_ip_range(#{start := Start, 'end' := End, prefix_len := PrefixLen} = Opts)
   when ?IS_IPv6(Start), ?IS_IPv6(End), End > Start,
        is_integer(PrefixLen), PrefixLen > 0, PrefixLen =< 128 ->
     if PrefixLen =:= 127 ->
 	    ?LOG(warning, "a /127 IPv6 prefix is not supported"),
-	    erlang:error(badarg, [range, Range]);
+	    erlang:error(badarg, [Opts]);
        PrefixLen =/= 64 ->
 	    ?LOG(warning, "3GPP only supports /64 IPv6 prefix assigment, "
 		 "/~w might not work, USE AT YOUR OWN RISK!", [PrefixLen]),
-	    Range;
+	    Opts;
        true ->
-	    Range
+	    Opts
     end;
-validate_ip_range(Range) ->
-    erlang:error(badarg, [range, Range]).
+validate_ip_range(Opts) when is_list(Opts) ->
+    validate_ip_range(ergw_core_config:to_map(Opts));
+validate_ip_range(Opts) ->
+    erlang:error(badarg, [Opts]).
 
 validate_option(ranges, Ranges)
   when is_list(Ranges), length(Ranges) /= 0 ->
@@ -177,13 +179,13 @@ init([Name, #{ranges := Ranges} = Opts]) ->
 
 init_pools(Name, Ranges) ->
     lists:foldl(
-      fun({First, Last, PrefixLen}, Pools)
+      fun(#{start := First, 'end' := Last, prefix_len := PrefixLen}, Pools)
 	    when ?IS_IPv4(First), ?IS_IPv4(Last),
 		 is_integer(PrefixLen), PrefixLen =< 32,
 		 not is_map_key({ipv4, PrefixLen}, Pools) ->
 	      Pools#{{ipv4, PrefixLen} =>
 			 init_pool(Name, ipv4, ip2int(First), ip2int(Last), 32 - PrefixLen)};
-	 ({First, Last, PrefixLen}, Pools)
+	 (#{start := First, 'end' := Last, prefix_len := PrefixLen}, Pools)
 	    when ?IS_IPv6(First), ?IS_IPv6(Last),
 		 is_integer(PrefixLen), PrefixLen =< 128,
 		 not is_map_key({ipv6, PrefixLen}, Pools) ->
