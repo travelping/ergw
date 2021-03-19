@@ -65,10 +65,13 @@ node(_Config)  ->
     ?ok(ValF(set_cfg_value([node_id], ["GGSN", <<"-proxy">>], Node))),
     ?bad(ValF(set_cfg_value([sockets], undefined, Node))),
 
-    ?ok(ValF(set_cfg_value([teid], {2, 4}, Node))),
+    ?ok(ValF(set_cfg_value([teid], [{prefix, 2}, {len, 4}], Node))),
+    ?ok(ValF(set_cfg_value([teid], #{prefix => 2, len => 4}, Node))),
+    ?bad(ValF(set_cfg_value([teid], {2, 4}, Node))),
     ?bad(ValF(set_cfg_value([teid], 1, Node))),
-    ?bad(ValF(set_cfg_value([teid], {8, 2}, Node))),
-    ?bad(ValF(set_cfg_value([teid], {atom, 8}, Node))),
+    ?bad(ValF(set_cfg_value([teid], [{prefix, 8}, {len, 2}], Node))),
+    ?bad(ValF(set_cfg_value([teid], [{prefix, atom}, {len, 4}], Node))),
+    ?bad(ValF(set_cfg_value([teid], [{prefix, 2}, {len, atom}], Node))),
 
     %% unexpected options
     ?bad(ValF(set_cfg_value([invalid], [], Node))),

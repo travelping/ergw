@@ -275,7 +275,7 @@ i(memory, context) ->
 
 -define(DefaultOptions, [{plmn_id, {<<"001">>, <<"01">>}},
 			 {node_id, undefined},
-			 {teid, {0, 0}},
+			 {teid, [{prefix, 0}, {len, 0}]},
 			 {accept_new, true}
 			]).
 
