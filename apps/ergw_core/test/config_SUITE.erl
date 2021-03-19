@@ -627,14 +627,14 @@ proxy_map() ->
     [{doc, "Test validation of the proxy map configuration"}].
 proxy_map(_Config)  ->
     Map = [{apn,  [{?'APN-EXAMPLE', ?'APN-PROXY'}]},
-	   {imsi, [{?'IMSI', {?'PROXY-IMSI', ?'PROXY-MSISDN'}}]}],
-    ValF = fun(Values) ->  gtp_proxy_ds:validate_options(Values) end,
+	   {imsi, [{?'IMSI', [{imsi, ?'PROXY-IMSI'}, {msisdn, ?'PROXY-MSISDN'}]}]}],
+    ValF = fun(Values) -> gtp_proxy_ds:validate_options(Values) end,
 
     ?ok(ValF(Map)),
 
     ?bad(ValF(set_cfg_value([invalid], [], Map))),
-    ?ok(ValF(set_cfg_value([imsi], [{<<"222222222222222">>, <<"333333333333333">>}], Map))),
-    ?bad(ValF(set_cfg_value([imsi], [{invalid, <<"333333333333333">>}], Map))),
+    ?ok(ValF(set_cfg_value([imsi], [{<<"222222222222222">>, [{imsi, <<"333333333333333">>}]}], Map))),
+    ?bad(ValF(set_cfg_value([imsi], [{invalid, [{imsi, <<"333333333333333">>}]}], Map))),
     ?bad(ValF(set_cfg_value([imsi], [{<<"222222222222222">>, invalid}], Map))),
     ?bad(ValF(set_cfg_value([apn], [{[invalid, <<"label">>], [<<"test">>]}], Map))),
     ?bad(ValF(set_cfg_value([apn], [{[<<"label">>], [invalid, <<"test">>]}], Map))),
