@@ -184,9 +184,7 @@
 
 	    proxy_map =>
 		[{apn,  [{?'APN-EXAMPLE', ?'APN-PROXY'}]},
-		 {imsi, [{?'IMSI', {?'PROXY-IMSI', ?'PROXY-MSISDN'}}
-			]}
-		],
+		 {imsi, [{?'IMSI', [{imsi, ?'PROXY-IMSI'}, {msisdn, ?'PROXY-MSISDN'}]}]}],
 
 	    upf_nodes =>
 		#{default =>
@@ -414,9 +412,7 @@
 
 	    proxy_map =>
 		[{apn,  [{?'APN-EXAMPLE', ?'APN-PROXY'}]},
-		 {imsi, [{?'IMSI', {?'PROXY-IMSI', ?'PROXY-MSISDN'}}
-			]}
-		],
+		 {imsi, [{?'IMSI', [{imsi, ?'PROXY-IMSI'}, {msisdn, ?'PROXY-MSISDN'}]}]}],
 
 	    upf_nodes =>
 		#{default =>

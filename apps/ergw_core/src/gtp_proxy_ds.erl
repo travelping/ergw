@@ -25,7 +25,6 @@
 -include_lib("kernel/include/logger.hrl").
 
 -define(SERVER, ?MODULE).
--define(App, ergw_core).
 
 -define(ResponseKeys, [imsi, msisdn, apn, context, gwSelectionAPN, upfSelectionAPN]).
 
@@ -71,11 +70,14 @@ map(Handler, ProxyInfo) ->
 validate_options(Values) ->
     ergw_core_config:validate_options(fun validate_option/2, Values, []).
 
-validate_imsi(From, To) when is_binary(From), is_binary(To) ->
-    To;
-validate_imsi(From, {IMSI, MSISDN} = To)
+validate_imsi(From, #{imsi := IMSI, msisdn := MSISDN} = To)
   when is_binary(From), is_binary(IMSI), is_binary(MSISDN) ->
     To;
+validate_imsi(From, #{imsi := IMSI} = To)
+  when is_binary(From), is_binary(IMSI), not is_map_key(msisdn, To) ->
+    To;
+validate_imsi(From, To) when is_list(To) ->
+    validate_imsi(From, ergw_core_config:to_map(To));
 validate_imsi(From, To) ->
     erlang:error(badarg, [From, To]).
 
@@ -96,24 +98,14 @@ validate_option(Opt, Value) ->
 %%%===================================================================
 
 init([]) ->
-    {ok, Opts} = ergw_core_config:get([proxy_map], []),
-    State = validate_options(Opts),
-    {ok, State}.
+    {ok, #{}}.
 
 handle_call({setopts, Opts}, _From, _) ->
     State = validate_options(Opts),
     {reply, ok, State};
 
 handle_call({map, #{imsi := IMSI, apn := APN} = PI0}, _From, State) ->
-    PI1 =
-	case maps:get(imsi, State, undefined) of
-	    #{IMSI := MappedIMSI} when is_binary(MappedIMSI) ->
-		PI0#{imsi => MappedIMSI};
-	    #{IMSI := {MappedIMSI, MappedMSISDN}} ->
-		PI0#{imsi => MappedIMSI, msisdn => MappedMSISDN};
-	    _ ->
-		PI0
-	end,
+    PI1 = maps:merge(PI0, maps:get(IMSI, maps:get(imsi, State, #{}), #{})),
     PI =
 	case ergw_apn:get(APN, maps:get(apn, State, undefined)) of
 	    {ok, DstAPN} -> PI1#{apn => DstAPN};
