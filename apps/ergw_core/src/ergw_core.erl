@@ -76,7 +76,7 @@ is_running() ->
 
 %% get global PLMN Id (aka MCC/MNC)
 get_plmn_id() ->
-    [{config, plmn_id, MCC, MNC}] = ets:lookup(?SERVER, plmn_id),
+    [{config, plmn_id, #{mcc := MCC, mnc := MNC}}] = ets:lookup(?SERVER, plmn_id),
     {MCC, MNC}.
 get_node_id() ->
     {ok, Id} = application:get_env(ergw_core, node_id),
@@ -273,7 +273,7 @@ i(memory, context) ->
 
 -define(is_opts(X), (is_list(X) orelse is_map(X))).
 
--define(DefaultOptions, #{plmn_id => {<<"001">>, <<"01">>},
+-define(DefaultOptions, #{plmn_id => #{mcc => <<"001">>, mnc => <<"01">>},
 			  node_id => undefined,
 			  teid => #{prefix => 0, len => 0},
 			  accept_new => true}).
@@ -286,11 +286,13 @@ validate_options(Opts) when is_list(Opts) ->
 validate_options(Opts) ->
     erlang:error(badarg, [Opts]).
 
-validate_option(plmn_id, {MCC, MNC} = Value) ->
+validate_option(plmn_id, #{mcc := MCC, mnc := MNC} = Opts) ->
     case validate_mcc_mcn(MCC, MNC) of
-       ok -> Value;
-       _  -> erlang:error(badarg, [plmn_id, Value])
+	ok -> Opts;
+	_  -> erlang:error(badarg, [plmn_id, Opts])
     end;
+validate_option(plmn_id, Opts) when is_list(Opts) ->
+    validate_option(plmn_id, ergw_core_config:to_map(Opts));
 validate_option(node_id, Value) when is_binary(Value) ->
     Value;
 validate_option(node_id, Value) when is_list(Value) ->
@@ -404,11 +406,11 @@ code_change(_OldVsn, State, Data, _Extra) ->
 %%% Internal functions
 %%%===================================================================
 
-load_config(#{plmn_id := {MCC, MNC},
+load_config(#{plmn_id := PlmnId,
 	      node_id := NodeId,
 	      teid := TEID,
 	      accept_new := Value}) ->
-    true = ets:insert(?SERVER, {config, plmn_id, MCC, MNC}),
+    true = ets:insert(?SERVER, {config, plmn_id, PlmnId}),
     true = ets:insert(?SERVER, {config, accept_new, Value}),
     application:set_env([{ergw_core, [{node_id, NodeId}, {teid, TEID}]}]),
     ok.

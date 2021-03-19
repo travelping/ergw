@@ -58,8 +58,10 @@ node(_Config)  ->
     ?ok(ValF(Node)),
     ?ok(ValF(ValF(Node))),
 
-    ?bad(ValF(set_cfg_value([plmn_id], {undefined, undefined}, Node))),
-    ?bad(ValF(set_cfg_value([plmn_id], {<<"abc">>, <<"ab">>}, Node))),
+    ?ok(ValF(set_cfg_value([plmn_id], [{mcc, <<"001">>}, {mnc, <<"01">>}], Node))),
+    ?bad(ValF(set_cfg_value([plmn_id], [{mcc, <<"001">>}, {mnc, atom}], Node))),
+    ?bad(ValF(set_cfg_value([plmn_id], [{mcc, atom}, {mnc, <<"01">>}], Node))),
+    ?bad(ValF(set_cfg_value([plmn_id], [{mcc, <<"00a">>}, {mnc, <<"0a">>}], Node))),
     ?bad(ValF(set_cfg_value([node_id], undefined, Node))),
     ?ok(ValF(set_cfg_value([node_id], "GGSN", Node))),
     ?ok(ValF(set_cfg_value([node_id], ["GGSN", <<"-proxy">>], Node))),
