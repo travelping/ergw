@@ -273,14 +273,18 @@ i(memory, context) ->
 
 -define(is_opts(X), (is_list(X) orelse is_map(X))).
 
--define(DefaultOptions, [{plmn_id, {<<"001">>, <<"01">>}},
-			 {node_id, undefined},
-			 {teid, [{prefix, 0}, {len, 0}]},
-			 {accept_new, true}
-			]).
+-define(DefaultOptions, #{plmn_id => {<<"001">>, <<"01">>},
+			  node_id => undefined,
+			  teid => #{prefix => 0, len => 0},
+			  accept_new => true}).
 
-validate_options(Config) when ?is_opts(Config) ->
-    ergw_core_config:validate_options(fun validate_option/2, Config, ?DefaultOptions).
+validate_options(Opts) when is_map(Opts) ->
+    ergw_core_config:mandatory_keys([node_id], Opts),
+    ergw_core_config:validate_options(fun validate_option/2, Opts, ?DefaultOptions);
+validate_options(Opts) when is_list(Opts) ->
+    validate_options(ergw_core_config:to_map(Opts));
+validate_options(Opts) ->
+    erlang:error(badarg, [Opts]).
 
 validate_option(plmn_id, {MCC, MNC} = Value) ->
     case validate_mcc_mcn(MCC, MNC) of
@@ -318,7 +322,7 @@ callback_mode() -> [handle_event_function].
 init([]) ->
     ets:new(?SERVER, [ordered_set, named_table, public,
 		      {keypos, 2}, {read_concurrency, true}]),
-    load_config(ergw_core_config:to_map(?DefaultOptions)),
+    load_config(?DefaultOptions),
     {ok, startup, data}.
 
 handle_event({call, From}, wait_till_running, running, _Data) ->
