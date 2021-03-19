@@ -112,19 +112,19 @@ gtp_socket(ValF, Socket) ->
     ?bad(ValF(set_cfg_value([send_port], 22, Socket))),
     ?bad(ValF(set_cfg_value([send_port], invalid, Socket))),
 
-    ?ok(ValF(add_cfg_value([vrf], 'irx', Socket))),
-    ?ok(ValF(add_cfg_value([vrf], "irx", Socket))),
-    ?ok(ValF(add_cfg_value([vrf], <<"irx">>, Socket))),
-    ?ok(ValF(add_cfg_value([vrf], [<<"irx">>], Socket))),
-    ?bad(ValF(add_cfg_value([vrf], ["irx", invalid], Socket))),
-    ?bad(ValF(add_cfg_value([vrf], [<<"irx">>, invalid], Socket))),
-    ?bad(ValF(add_cfg_value([vrf], [<<"irx">>, "invalid"], Socket))),
+    ?ok(ValF(set_cfg_value([vrf], 'irx', Socket))),
+    ?ok(ValF(set_cfg_value([vrf], "irx", Socket))),
+    ?ok(ValF(set_cfg_value([vrf], <<"irx">>, Socket))),
+    ?ok(ValF(set_cfg_value([vrf], [<<"irx">>], Socket))),
+    ?bad(ValF(set_cfg_value([vrf], ["irx", invalid], Socket))),
+    ?bad(ValF(set_cfg_value([vrf], [<<"irx">>, invalid], Socket))),
+    ?bad(ValF(set_cfg_value([vrf], [<<"irx">>, "invalid"], Socket))),
     ok.
 
 gtp_c_socket() ->
     [{doc, "Test validation of the GTP-U socket configuration"}].
 gtp_c_socket(_Config)  ->
-    Socket = [{type, 'gtp-c'}, {ip,  ?TEST_GSN_IPv4}, {reuseaddr, true}],
+    Socket = [{type, 'gtp-c'}, {vrf, irx}, {ip,  ?TEST_GSN_IPv4}, {reuseaddr, true}],
     ValF = fun(Values) -> ergw_socket:validate_options(name, Values) end,
 
     gtp_socket(ValF, Socket),
@@ -137,7 +137,7 @@ gtp_c_socket(_Config)  ->
 gtp_u_socket() ->
     [{doc, "Test validation of the GTP-U socket configuration"}].
 gtp_u_socket(_Config)  ->
-    Socket = [{type, 'gtp-u'}, {ip,  ?TEST_GSN_IPv4}, {reuseaddr, true}],
+    Socket = [{type, 'gtp-u'}, {vrf, grx}, {ip,  ?TEST_GSN_IPv4}, {reuseaddr, true}],
     ValF = fun(Values) -> ergw_socket:validate_options(name, Values) end,
 
     gtp_socket(ValF, Socket),

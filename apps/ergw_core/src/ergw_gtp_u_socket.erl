@@ -69,15 +69,10 @@ call(#socket{pid = Handler}, Request) ->
 %%% gen_server callbacks
 %%%===================================================================
 
-init({Name, #{ip := IP, burst_size := BurstSize} = SocketOpts}) ->
+init({Name, #{ip := IP, vrf := VRF, burst_size := BurstSize} = SocketOpts}) ->
     process_flag(trap_exit, true),
 
     {ok, Socket} = ergw_gtp_socket:make_gtp_socket(IP, ?GTP1u_PORT, SocketOpts),
-    VRF = case SocketOpts of
-	      #{vrf := VRF0} when is_binary(VRF0) ->
-		  VRF0;
-	      _ -> vrf:normalize_name(Name)
-	  end,
 
     GtpSocket =
 	#socket{

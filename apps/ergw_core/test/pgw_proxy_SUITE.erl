@@ -46,22 +46,27 @@
 		[{node_id, <<"PGW.epc.mnc001.mcc001.3gppnetwork.org">>}],
 	    sockets =>
 		[{cp, [{type, 'gtp-u'},
+		       {vrf, cp},
 		       {ip, ?MUST_BE_UPDATED},
 		       {reuseaddr, true}
 		      ]},
 		 {irx, [{type, 'gtp-c'},
+			{vrf, irx},
 			{ip, ?MUST_BE_UPDATED},
 			{reuseaddr, true}
 		       ]},
 		 {'proxy-irx', [{type, 'gtp-c'},
+				{vrf, irx},
 				{ip, ?MUST_BE_UPDATED},
 				{reuseaddr, true}
 			       ]},
 		 {'remote-irx', [{type, 'gtp-c'},
+				 {vrf, irx},
 				 {ip, ?MUST_BE_UPDATED},
 				 {reuseaddr, true}
 				]},
 		 {'remote-irx2', [{type, 'gtp-c'},
+				  {vrf, irx},
 				  {ip, ?MUST_BE_UPDATED},
 				  {reuseaddr, true}
 				 ]},
@@ -294,18 +299,22 @@
 		[{node_id, <<"PGW.epc.mnc001.mcc001.3gppnetwork.org">>}],
 	    sockets =>
 		[{cp, [{type, 'gtp-u'},
+		       {vrf, cp},
 		       {ip, ?MUST_BE_UPDATED},
 		       {reuseaddr, true}
 		      ]},
 		 {irx, [{type, 'gtp-c'},
+			{vrf, irx},
 			{ip, ?MUST_BE_UPDATED},
 			{reuseaddr, true}
 		       ]},
 		 {'remote-irx', [{type, 'gtp-c'},
+				 {vrf, irx},
 				 {ip, ?MUST_BE_UPDATED},
 				 {reuseaddr, true}
 				]},
 		 {'remote-irx2', [{type, 'gtp-c'},
+				  {vrf, irx},
 				  {ip, ?MUST_BE_UPDATED},
 				  {reuseaddr, true}
 				 ]},

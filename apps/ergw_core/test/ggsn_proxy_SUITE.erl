@@ -45,22 +45,27 @@
 		[{node_id, <<"GGSN">>}],
 	    sockets =>
 		[{cp, [{type, 'gtp-u'},
+		       {vrf, cp},
 		       {ip, ?MUST_BE_UPDATED},
 		       {reuseaddr, true}
 		      ]},
 		 {irx, [{type, 'gtp-c'},
+			{vrf, irx},
 			{ip,  ?MUST_BE_UPDATED},
 			{reuseaddr, true}
 		       ]},
 		 {'proxy-irx', [{type, 'gtp-c'},
+				{vrf, irx},
 				{ip,  ?MUST_BE_UPDATED},
 				{reuseaddr, true}
 			       ]},
 		 {'remote-irx', [{type, 'gtp-c'},
+				 {vrf, irx},
 				 {ip,  ?MUST_BE_UPDATED},
 				 {reuseaddr, true}
 				]},
 		 {'remote-irx2', [{type, 'gtp-c'},
+				  {vrf, irx},
 				  {ip, ?MUST_BE_UPDATED},
 				  {reuseaddr, true}
 				 ]},
@@ -275,18 +280,22 @@
 		[{node_id, <<"GGSN">>}],
 	    sockets =>
 		[{cp, [{type, 'gtp-u'},
+		       {vrf, cp},
 		       {ip, ?MUST_BE_UPDATED},
 		       {reuseaddr, true}
 		      ]},
 		 {irx, [{type, 'gtp-c'},
+			{vrf, irx},
 			{ip,  ?TEST_GSN_IPv4},
 			{reuseaddr, true}
 		       ]},
 		 {'remote-irx', [{type, 'gtp-c'},
+				 {vrf, irx},
 				 {ip,  ?FINAL_GSN_IPv4},
 				 {reuseaddr, true}
 				]},
 		 {'remote-irx2', [{type, 'gtp-c'},
+				  {vrf, irx},
 				  {ip, ?MUST_BE_UPDATED},
 				  {reuseaddr, true}
 				 ]},
