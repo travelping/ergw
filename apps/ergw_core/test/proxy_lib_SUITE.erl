@@ -26,45 +26,74 @@
 
 -define(ERGW_NODE_SELECTION,
 	#{default =>
-	      {static,
-	       [
-		%% APN NAPTR alternative
-		{<<"web.apn.epc.mnc001.mcc001.3gppnetwork.org">>, {0,0},
-		 [{'x-3gpp-pgw','x-s5-gtp'},{'x-3gpp-pgw','x-s8-gtp'},
-		  {'x-3gpp-pgw','x-gn'},{'x-3gpp-pgw','x-gp'}],
-		 ?'CP-Node'},
-		{<<"web.apn.epc.mnc001.mcc001.3gppnetwork.org">>, {300,64536},
-		 [{'x-3gpp-pgw','x-s5-gtp'},{'x-3gpp-pgw','x-s8-gtp'},
-		  {'x-3gpp-pgw','x-gn'},{'x-3gpp-pgw','x-gp'}],
-		 ?'CP-Node'},
-		{<<"web.apn.epc.mnc001.mcc001.3gppnetwork.org">>, {300,64536},
-		 [{'x-3gpp-upf','x-sxa'}],
-		 ?'SX-Node'},
+	      #{type => static,
+		entries =>
+		    [
+		     %% APN NAPTR alternative
+		     #{type        => naptr,
+		       name        => <<"web.apn.epc.mnc001.mcc001.3gppnetwork.org">>,
+		       order       => 0,
+		       preference  => 0,
+		       service     => 'x-3gpp-pgw',
+		       protocols   => ['x-s5-gtp', 'x-s8-gtp', 'x-gn', 'x-gp'],
+		       replacement => ?'CP-Node'},
+		     #{type        => naptr,
+		       name        => <<"web.apn.epc.mnc001.mcc001.3gppnetwork.org">>,
+		       order       => 300,
+		       preference  => 64536,
+		       service     => 'x-3gpp-pgw',
+		       protocols   => ['x-s5-gtp', 'x-s8-gtp', 'x-gn', 'x-gp'],
+		       replacement => ?'CP-Node'},
+		     #{type        => naptr,
+		       name        => <<"web.apn.epc.mnc001.mcc001.3gppnetwork.org">>,
+		       order       => 300,
+		       preference  => 64536,
+		       service     => 'x-3gpp-upf',
+		       protocols   => ['x-sxa'],
+		       replacement => ?'SX-Node'},
 
-		%% A/AAAA record alternatives
-		{<<"web.apn.epc.mnc123.mcc001.3gppnetwork.org">>, {300,64536},
-		 [{'x-3gpp-pgw','x-s5-gtp'},{'x-3gpp-pgw','x-s8-gtp'},
-		  {'x-3gpp-pgw','x-gn'},{'x-3gpp-pgw','x-gp'}],
-		 ?'CP-Node'},
-		{<<"web.apn.epc.mnc123.mcc001.3gppnetwork.org">>, {300,64536},
-		 [{'x-3gpp-upf','x-sxa'}],
-		 ?'SX-Node'},
+		     #{type        => naptr,
+		       name        => <<"web.apn.epc.mnc123.mcc001.3gppnetwork.org">>,
+		       order       => 300,
+		       preference  => 64536,
+		       service     => 'x-3gpp-pgw',
+		       protocols   => ['x-s5-gtp', 'x-s8-gtp', 'x-gn', 'x-gp'],
+		       replacement => ?'CP-Node'},
+		     #{type        => naptr,
+		       name        => <<"web.apn.epc.mnc123.mcc001.3gppnetwork.org">>,
+		       order       => 300,
+		       preference  => 64536,
+		       service     => 'x-3gpp-upf',
+		       protocols   => ['x-sxa'],
+		       replacement => ?'SX-Node'},
 
-		%% A/AAAA record alternatives
-		{<<"web.apn.epc.mnc123.mcc001.example.org">>, {300,64536},
-		 [{'x-3gpp-pgw','x-s5-gtp'},{'x-3gpp-pgw','x-s8-gtp'},
-		  {'x-3gpp-pgw','x-gn'},{'x-3gpp-pgw','x-gp'}],
-		 ?'CP-Node'},
-		{<<"web.apn.epc.mnc123.mcc001.example.org">>, {300,64536},
-		 [{'x-3gpp-upf','x-sxa'}],
-		 ?'SX-Node'},
+		     #{type        => naptr,
+		       name        => <<"web.apn.epc.mnc123.mcc001.example.org">>,
+		       order       => 300,
+		       preference  => 64536,
+		       service     => 'x-3gpp-pgw',
+		       protocols   => ['x-s5-gtp', 'x-s8-gtp', 'x-gn', 'x-gp'],
+		       replacement => ?'CP-Node'},
+		     #{type        => naptr,
+		       name        => <<"web.apn.epc.mnc123.mcc001.example.org">>,
+		       order       => 300,
+		       preference  => 64536,
+		       service     => 'x-3gpp-upf',
+		       protocols   => ['x-sxa'],
+		       replacement => ?'SX-Node'},
 
-		{?'CP-Node',  [?'CP-IP'], []},
-		{?'SX-Node', [?'SX-IP'], []}
-	       ]
-	      }
-	 }
-       ).
+		     %% A/AAAA record alternatives
+		     #{type => host,
+		       name => ?'CP-Node',
+		       ip4  => [?'CP-IP'],
+		       ip6  => []},
+		     #{type => host,
+		       name => ?'SX-Node',
+		       ip4  => [?'SX-IP'],
+		       ip6  => []}
+		    ]
+	       }
+	  }).
 
 %%%===================================================================
 %%% Common Test callbacks

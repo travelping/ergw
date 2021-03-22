@@ -173,48 +173,140 @@ snaptr_candidate(Candidates) ->
 %%%===================================================================
 
 -define(is_opts(X), (is_list(X) orelse is_map(X))).
+-define(non_empty_opts(X), ((is_list(X) andalso length(X) /= 0) orelse
+			    (is_map(X) andalso map_size(X) /= 0))).
+
 -define(IS_IP(X), (is_tuple(X) andalso (tuple_size(X) == 4 orelse tuple_size(X) == 8))).
+-define(IS_IPv4(X), (is_tuple(X) andalso tuple_size(X) == 4)).
+-define(IS_IPv6(X), (is_tuple(X) andalso tuple_size(X) == 8)).
 
-validate_options(Value) when ?is_opts(Value) ->
-    ergw_core_config:validate_options(fun validate_options/2, Value, []).
+validate_options(Opts) when ?is_opts(Opts) ->
+    ergw_core_config:validate_options(fun validate_options/2, Opts, []);
+validate_options(Opts) ->
+    erlang:error(badarg, [Opts]).
 
-validate_options(Key, {Type, Opts})
-  when is_atom(Key), is_atom(Type) ->
-    {Type, validate_type_options(Type, Opts)};
-validate_options(Opt, Values) ->
-    erlang:error(badarg, [Opt, Values]).
+validate_options(_Name, #{type := static} = Opts) ->
+    ergw_core_config:mandatory_keys([entries], Opts),
+    ergw_core_config:validate_options(fun validate_static_option/2, Opts, []);
+validate_options(_Name, #{type := dns} = Opts) ->
+    ergw_core_config:mandatory_keys([server], Opts),
+    ergw_core_config:validate_options(fun validate_dns_option/2, Opts, [{port, 53}]);
+validate_options(Name, Opts) when is_list(Opts) ->
+    validate_options(Name, ergw_core_config:to_map(Opts));
+validate_options(Name, Opts) ->
+    erlang:error(badarg, [Name, Opts]).
 
-validate_ip_list(L) ->
+validate_static_option(type, Value) ->
+    Value;
+validate_static_option(entries, Entries) when is_list(Entries) ->
+    lists:map(fun validate_static_entries/1, Entries);
+validate_static_option(Opt, Value) ->
+    erlang:error(badarg, [Opt, Value]).
+
+validate_static_entries(#{type := naptr} = Entry) when is_map(Entry) ->
+    ergw_core_config:mandatory_keys(
+      [name, order, preference, service, protocols, replacement], Entry),
+    ergw_core_config:validate_options(fun validate_naptr/2, Entry, []);
+validate_static_entries(#{type := host} = Entry) when is_map(Entry) ->
+    ergw_core_config:mandatory_keys([name], Entry),
+    ergw_core_config:validate_options(fun validate_host/2, Entry, [{ip4, []}, {ip6, []}]);
+validate_static_entries(Entry) when is_list(Entry) ->
+    validate_static_entries(ergw_core_config:to_map(Entry));
+validate_static_entries(Entry) ->
+    erlang:error(badarg, [Entry]).
+
+validate_service('x-3gpp-amf')  -> ok;
+validate_service('x-3gpp-ggsn') -> ok;
+validate_service('x-3gpp-mme')  -> ok;
+validate_service('x-3gpp-msc')  -> ok;
+validate_service('x-3gpp-pgw')  -> ok;
+validate_service('x-3gpp-sgsn') -> ok;
+validate_service('x-3gpp-sgw')  -> ok;
+validate_service('x-3gpp-ucmf') -> ok;
+validate_service('x-3gpp-upf')  -> ok;
+validate_service(Value) ->
+    erlang:error(badarg, [service, Value]).
+
+validate_protocol('x-gn') -> ok;
+validate_protocol('x-gp') -> ok;
+validate_protocol('x-n2') -> ok;
+validate_protocol('x-n26') -> ok;
+validate_protocol('x-n4') -> ok;
+validate_protocol('x-n55') -> ok;
+validate_protocol('x-nqprime') -> ok;
+validate_protocol('x-s1-u') -> ok;
+validate_protocol('x-s10') -> ok;
+validate_protocol('x-s11') -> ok;
+validate_protocol('x-s12') -> ok;
+validate_protocol('x-s16') -> ok;
+validate_protocol('x-s2a-gtp') -> ok;
+validate_protocol('x-s2a-mipv4') -> ok;
+validate_protocol('x-s2a-pmip') -> ok;
+validate_protocol('x-s2b-gtp') -> ok;
+validate_protocol('x-s2b-pmip') -> ok;
+validate_protocol('x-s2c-dsmip') -> ok;
+validate_protocol('x-s3') -> ok;
+validate_protocol('x-s4') -> ok;
+validate_protocol('x-s5-gtp') -> ok;
+validate_protocol('x-s5-pmip') -> ok;
+validate_protocol('x-s6a') -> ok;
+validate_protocol('x-s8-gtp') -> ok;
+validate_protocol('x-s8-pmip') -> ok;
+validate_protocol('x-sv') -> ok;
+validate_protocol('x-sxa') -> ok;
+validate_protocol('x-sxb') -> ok;
+validate_protocol('x-sxc') -> ok;
+validate_protocol('x-urcmp') -> ok;
+validate_protocol(Value) ->
+    erlang:error(badarg, [protocol, Value]).
+
+validate_naptr(type, Value) ->
+    Value;
+validate_naptr(name, Value) when is_binary(Value) ->
+    Value;
+validate_naptr(order, Value) when is_integer(Value) ->
+    Value;
+validate_naptr(preference, Value) when is_integer(Value) ->
+    Value;
+validate_naptr(service, Value) when is_atom(Value) ->
+    validate_service(Value),
+    Value;
+validate_naptr(protocols = Opt, Value) when ?non_empty_opts(Value) ->
+    ergw_core_config:check_unique_elements(Opt, Value),
+    [validate_protocol(V) || V <- Value],
+    Value;
+validate_naptr(replacement, Value) when is_binary(Value) ->
+    Value;
+validate_naptr(Opt, Value) ->
+    erlang:error(badarg, [Opt, Value]).
+
+validate_host(type, Value) ->
+    Value;
+validate_host(name, Value) when is_binary(Value) ->
+    Value;
+validate_host(ip4, Value) when is_list(Value) ->
     lists:foreach(
-      fun(IP) when ?IS_IP(IP) -> ok;
-	 (IP) -> erlang:error(badarg, [ip, IP])
-      end, L).
+      fun(IP) when ?IS_IPv4(IP) -> ok;
+	 (IP) -> erlang:error(badarg, [ip4, IP])
+      end, Value),
+    Value;
+validate_host(ip6, Value) when is_list(Value) ->
+    lists:foreach(
+      fun(IP) when ?IS_IPv6(IP) -> ok;
+	 (IP) -> erlang:error(badarg, [ip6, IP])
+      end, Value),
+    Value;
+validate_host(Opt, Value) ->
+    erlang:error(badarg, [Opt, Value]).
 
-validate_static_option({Label, {Order, Prio} = Degree, [{_,_}|_] = Services0, Host})
-  when is_binary(Label), is_integer(Order), is_integer(Prio), is_binary(Host) ->
-    Services = ordsets:from_list([{S, P} || {S, P} <- Services0]),
-    {Label, Degree, Services, Host};
-validate_static_option({Host, IP4, IP6})
-  when is_binary(Host), is_list(IP4), is_list(IP6),
-       (length(IP4) /= 0 orelse length(IP6) /= 0) ->
-    validate_ip_list(IP4),
-    validate_ip_list(IP6),
-    {Host, IP4, IP6};
-validate_static_option(Opt) ->
-    erlang:error(badarg, [static, Opt]).
-
-validate_type_options(static, Opts)
-  when is_list(Opts), length(Opts) > 0 ->
-    lists:map(fun validate_static_option/1, Opts);
-validate_type_options(dns, undefined) ->
-    undefined;
-validate_type_options(dns, IP) when ?IS_IP(IP) ->
-    {IP, 53};
-validate_type_options(dns, {IP, Port} = Server)
-  when ?IS_IP(IP) andalso is_integer(Port) ->
-    Server;
-validate_type_options(Type, Opts) ->
-    erlang:error(badarg, [Type, Opts]).
+validate_dns_option(type, Value) ->
+    Value;
+validate_dns_option(server, Value) when ?IS_IP(Value) ->
+    Value;
+validate_dns_option(port, Value) when is_integer(Value) ->
+    Value;
+validate_dns_option(Opt, Value) ->
+    erlang:error(badarg, [Opt, Value]).
 
 %%%===================================================================
 %%% Internal functions

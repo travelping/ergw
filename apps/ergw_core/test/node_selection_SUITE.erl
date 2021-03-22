@@ -80,51 +80,88 @@
 
 -define(ERGW_NODE_SELECTION,
 	#{default =>
-	      {static,
-	       [
-		%% APN NAPTR alternative
-		{<<"_default.apn.epc.mnc001.mcc001.3gppnetwork.org">>, {300,64536},
-		 [{'x-3gpp-pgw','x-s5-gtp'},{'x-3gpp-pgw','x-s8-gtp'},
-		  {'x-3gpp-pgw','x-gn'},{'x-3gpp-pgw','x-gp'}],
-		 <<"topon.s5s8.pgw.epc.mnc001.mcc001.3gppnetwork.org">>},
-		{<<"_default.apn.epc.mnc001.mcc001.3gppnetwork.org">>, {300,64536},
-		 [{'x-3gpp-upf','x-sxa'}],
-		 <<"topon.sx.prox01.node.epc.mnc001.mcc001.3gppnetwork.org">>},
+	      #{type => static,
+		entries =>
+		    [
+		     %% APN NAPTR alternative
+		     #{type        => naptr,
+		       name        => <<"_default.apn.epc.mnc001.mcc001.3gppnetwork.org">>,
+		       order       => 300,
+		       preference  => 64536,
+		       service     => 'x-3gpp-pgw',
+		       protocols   => ['x-s5-gtp', 'x-s8-gtp' ,'x-gn', 'x-gp'],
+		       replacement => <<"topon.s5s8.pgw.epc.mnc001.mcc001.3gppnetwork.org">>},
+		     #{type        => naptr,
+		       name        => <<"_default.apn.epc.mnc001.mcc001.3gppnetwork.org">>,
+		       order       => 300,
+		       preference  => 64536,
+		       service     => 'x-3gpp-upf',
+		       protocols   => ['x-sxa'],
+		       replacement => <<"topon.sx.prox01.node.epc.mnc001.mcc001.3gppnetwork.org">>},
 
-		{<<"web.apn.epc.mnc001.mcc001.3gppnetwork.org">>, {300,64536},
-		 [{'x-3gpp-pgw','x-s5-gtp'},{'x-3gpp-pgw','x-s8-gtp'},
-		  {'x-3gpp-pgw','x-gn'},{'x-3gpp-pgw','x-gp'}],
-		 <<"topon.s5s8.pgw.epc.mnc001.mcc001.3gppnetwork.org">>},
-		{<<"web.apn.epc.mnc001.mcc001.3gppnetwork.org">>, {300,64536},
-		 [{'x-3gpp-upf','x-sxa'}],
-		 <<"topon.sx.prox01.node.epc.mnc001.mcc001.3gppnetwork.org">>},
+		     #{type        => naptr,
+		       name        => <<"web.apn.epc.mnc001.mcc001.3gppnetwork.org">>,
+		       order       => 300,
+		       preference  => 64536,
+		       service     => 'x-3gpp-pgw',
+		       protocols   => ['x-s5-gtp', 'x-s8-gtp', 'x-gn', 'x-gp'],
+		       replacement => <<"topon.s5s8.pgw.epc.mnc001.mcc001.3gppnetwork.org">>},
+		     #{type        => naptr,
+		       name        => <<"web.apn.epc.mnc001.mcc001.3gppnetwork.org">>,
+		       order       => 300,
+		       preference  => 64536,
+		       service     => 'x-3gpp-upf',
+		       protocols   => ['x-sxa'],
+		       replacement => <<"topon.sx.prox01.node.epc.mnc001.mcc001.3gppnetwork.org">>},
 
-		{<<"lb.apn.epc.mnc001.mcc001.3gppnetwork.org">>, {300,64536},
-		 [{'x-3gpp-upf','x-sxa'}],
-		 <<"topon.sx.prox01.node.epc.mnc001.mcc001.3gppnetwork.org">>},
-		{<<"lb.apn.epc.mnc001.mcc001.3gppnetwork.org">>, {300,64536},
-		 [{'x-3gpp-upf','x-sxa'}],
-		 <<"topon.sx.prox02.node.epc.mnc001.mcc001.3gppnetwork.org">>},
-		{<<"lb.apn.epc.mnc001.mcc001.3gppnetwork.org">>, {300,10},
-		 [{'x-3gpp-upf','x-sxa'}],
-		 <<"topon.sx.prox03.node.epc.mnc001.mcc001.3gppnetwork.org">>},
+		     #{type        => naptr,
+		       name        => <<"lb.apn.epc.mnc001.mcc001.3gppnetwork.org">>,
+		       order       => 300,
+		       preference  => 64536,
+		       service     => 'x-3gpp-upf',
+		       protocols   => ['x-sxa'],
+		       replacement => <<"topon.sx.prox01.node.epc.mnc001.mcc001.3gppnetwork.org">>},
+		     #{type        => naptr,
+		       name        => <<"lb.apn.epc.mnc001.mcc001.3gppnetwork.org">>,
+		       order       => 300,
+		       preference  => 64536,
+		       service     => 'x-3gpp-upf',
+		       protocols   => ['x-sxa'],
+		       replacement => <<"topon.sx.prox02.node.epc.mnc001.mcc001.3gppnetwork.org">>},
+		     #{type        => naptr,
+		       name        => <<"lb.apn.epc.mnc001.mcc001.3gppnetwork.org">>,
+		       order       => 300,
+		       preference  => 10,
+		       service     => 'x-3gpp-upf',
+		       protocols   => ['x-sxa'],
+		       replacement => <<"topon.sx.prox03.node.epc.mnc001.mcc001.3gppnetwork.org">>},
 
-		{<<"example.apn.epc.mnc003.mcc001.3gppnetwork.org">>, {20, 20},
-		 [{'x-3gpp-pgw','x-s5-gtp'},{'x-3gpp-pgw','x-s8-gtp'},
-		  {'x-3gpp-pgw','x-gn'}],
-		 <<"hub.node.epc.mnc003.mcc001.3gppnetwork.org">>},
+		     #{type        => naptr,
+		       name        => <<"example.apn.epc.mnc003.mcc001.3gppnetwork.org">>,
+		       order       => 20,
+		       preference  => 20,
+		       service     => 'x-3gpp-pgw',
+		       protocols   => ['x-s5-gtp', 'x-s8-gtp', 'x-gn', 'x-gp'],
+		       replacement => <<"hub.node.epc.mnc003.mcc001.3gppnetwork.org">>},
 
-		%% A/AAAA record alternatives
-		{<<"topon.s5s8.pgw.epc.mnc001.mcc001.3gppnetwork.org">>,  [?ERGW1], []},
-		{<<"topon.sx.prox01.node.epc.mnc001.mcc001.3gppnetwork.org">>, [?UP1], []},
-		{<<"topon.sx.prox02.node.epc.mnc001.mcc001.3gppnetwork.org">>, [?UP1], []},
-		{<<"topon.sx.prox03.node.epc.mnc001.mcc001.3gppnetwork.org">>, [?UP1], []},
+		     %% A/AAAA record alternatives
+		     #{type => host,
+		       name => <<"topon.s5s8.pgw.epc.mnc001.mcc001.3gppnetwork.org">>,
+		       ip4  => [?ERGW1]},
+		     #{type => host,
+		       name => <<"topon.sx.prox01.node.epc.mnc001.mcc001.3gppnetwork.org">>,
+		       ip4  => [?UP1]},
+		     #{type => host,
+		       name => <<"topon.sx.prox02.node.epc.mnc001.mcc001.3gppnetwork.org">>,
+		       ip4  => [?UP1]},
+		     #{type => host,
+		       name => <<"topon.sx.prox03.node.epc.mnc001.mcc001.3gppnetwork.org">>,
+		       ip4  => [?UP1]},
 
-		{<<"hub.node.epc.mnc003.mcc001.3gppnetwork.org">>, [?HUB1, ?HUB2], []}
-	       ]
-	      }
-	 }
-       ).
+		     #{type => host,
+		       name => <<"hub.node.epc.mnc003.mcc001.3gppnetwork.org">>,
+		       ip4  => [?HUB1, ?HUB2]}
+		    ]}}).
 
 %%%===================================================================
 %%% Common Test callbacks
@@ -162,7 +199,7 @@ end_per_suite(_Config) ->
 
 init_per_group(static, Config) ->
     {ok, Pid} = ergw_inet_res:start(),
-    ok = ergw_inet_res:load_config(?ERGW_NODE_SELECTION),
+    ok = ergw_inet_res:load_config(ergw_node_selection:validate_options(?ERGW_NODE_SELECTION)),
     ok = meck:new(ergw_node_selection, [passthrough, no_link]),
     [{cache_server, Pid} | Config];
 init_per_group(dns, Config) ->
@@ -170,7 +207,7 @@ init_per_group(dns, Config) ->
 	Server when is_list(Server) ->
 	    {ok, Pid} = ergw_inet_res:start(),
 	    {ok, ServerIP} = inet:parse_address(Server),
-	    NodeSelection = #{default => {dns, {ServerIP, 53}}},
+	    NodeSelection = #{default => #{type => dns, server => ServerIP, port => 53}},
 	    ok = ergw_inet_res:load_config(NodeSelection),
 	    [{cache_server, Pid} | Config];
 	false ->
