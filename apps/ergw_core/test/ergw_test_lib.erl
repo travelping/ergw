@@ -643,11 +643,16 @@ set_cfg_value(Key, Value) ->
 map_cfg_update(Key, {K, V}, Config) ->
     maps:put(K, V, maps:remove(Key, Config)).
 
-set_cfg_value([{Key, Pos}], Value, Config) when is_list(Config) ->
+set_cfg_value([{Key, Pos}], Value, Config) when is_list(Config), is_integer(Pos) ->
     Tuple = lists:keyfind(Key, 1, Config),
     lists:keystore(Key, 1, Config, setelement(Pos, Tuple, set_cfg_value(Key, Value)));
-set_cfg_value([{Key, Pos}], Value, Config) when is_map(Config) ->
+set_cfg_value([{Key, Pos}], Value, Config) when is_map(Config), is_integer(Pos) ->
     maps:update_with(Key, setelement(Pos, _, set_cfg_value(Key, Value)), Config);
+
+set_cfg_value([{K, V}], Value, Config) when is_list(Config) ->
+    lists:map(
+	  fun(#{K := V1} = Item) when V1 =:= V -> set_cfg_value(Item, Value);
+	     (Item) -> Item end, Config);
 
 set_cfg_value([Key], Value, Config) when is_list(Config) ->
     Cnf = lists:filter(
@@ -660,16 +665,21 @@ set_cfg_value([Key], Value, Config) when is_list(Config) ->
 set_cfg_value([Key], Value, Config) when is_map(Config) ->
     map_cfg_update(Key, set_cfg_value(Key, Value), Config);
 
-set_cfg_value([{Key, Pos} | T], Value, Config) when is_list(Config) ->
+set_cfg_value([{Key, Pos} | T], Value, Config) when is_list(Config), is_integer(Pos) ->
     Tuple = lists:keyfind(Key, 1, Config),
     lists:keystore(Key, 1, Config,
 		   setelement(Pos, Tuple, set_cfg_value(T, Value, element(Pos, Tuple))));
-set_cfg_value([{Key, Pos} | T], Value, Config) ->
+set_cfg_value([{Key, Pos} | T], Value, Config) when is_map(Config), is_integer(Pos) ->
     maps:update_with(
       Key,
       fun(Tuple) ->
 	      setelement(Pos, Tuple, set_cfg_value(T, Value, element(Pos, Tuple)))
       end, Config);
+
+set_cfg_value([{K, V} | T], Value, Config) when is_list(Config) ->
+    lists:map(
+      fun(#{K := V1} = Item) when V1 =:= V -> set_cfg_value(T, Value, Item);
+	 (Item) -> Item end, Config);
 
 set_cfg_value([Pos | T], Value, Config)
   when is_integer(Pos), is_tuple(Config) ->

@@ -95,31 +95,63 @@
 		      ]},
 
 	    node_selection =>
-		[{default,
-		  {static,
-		   [
-		    %% APN NAPTR alternative
-		    {<<"_default.apn.epc.mnc001.mcc001.3gppnetwork.org">>, {300,64536},
-		     [{'x-3gpp-ggsn','x-gn'},{'x-3gpp-ggsn','x-gp'}],
-		     <<"topon.gn.ggsn.epc.mnc001.mcc001.3gppnetwork.org">>},
-		    {<<"_default.apn.epc.mnc001.mcc001.3gppnetwork.org">>, {300,64536},
-		     [{'x-3gpp-upf','x-sxb'}],
-		     <<"topon.sx.prox01.epc.mnc001.mcc001.3gppnetwork.org">>},
-		    {<<"async-sx.apn.epc.mnc001.mcc001.3gppnetwork.org">>, {300,64536},
-		     [{'x-3gpp-upf','x-sxb'}],
-		     <<"topon.sx.prox01.epc.mnc001.mcc001.3gppnetwork.org">>},
-		    {<<"async-sx.apn.epc.mnc001.mcc001.3gppnetwork.org">>, {300,64536},
-		     [{'x-3gpp-upf','x-sxb'}],
-		     <<"topon.sx.prox02.epc.mnc001.mcc001.3gppnetwork.org">>},
+		#{default =>
+		      #{type => static,
+			entries =>
+			    [
+			     %% APN NAPTR alternative
+			     #{type        => naptr,
+			       name        => <<"_default.apn.epc.mnc001.mcc001.3gppnetwork.org">>,
+			       order       => 300,
+			       preference  => 64536,
+			       service     => 'x-3gpp-ggsn',
+			       protocols   => ['x-gn', 'x-gp'],
+			       replacement => <<"topon.gn.ggsn.epc.mnc001.mcc001.3gppnetwork.org">>},
 
-		    %% A/AAAA record alternatives
-		    {<<"topon.gn.ggsn.epc.mnc001.mcc001.3gppnetwork.org">>, ?MUST_BE_UPDATED, []},
-		    {<<"topon.sx.prox01.epc.mnc001.mcc001.3gppnetwork.org">>, ?MUST_BE_UPDATED, []},
-		    {<<"topon.sx.prox02.epc.mnc001.mcc001.3gppnetwork.org">>, ?MUST_BE_UPDATED, []}
-		   ]
-		  }
-		 }
-		],
+			     #{type        => naptr,
+			       name        => <<"_default.apn.epc.mnc001.mcc001.3gppnetwork.org">>,
+			       order       => 300,
+			       preference  => 64536,
+			       service     => 'x-3gpp-upf',
+			       protocols   => ['x-sxb'],
+			       replacement => <<"topon.sx.prox01.epc.mnc001.mcc001.3gppnetwork.org">>},
+
+			     #{type        => naptr,
+			       name        => <<"_default.apn.epc.mnc001.mcc001.3gppnetwork.org">>,
+			       order       => 400,
+			       preference  => 64536,
+			       service     => 'x-3gpp-upf',
+			       protocols   => ['x-sxb'],
+			       replacement => <<"topon.sx.prox03.epc.mnc001.mcc001.3gppnetwork.org">>},
+
+			     #{type        => naptr,
+			       name        => <<"async-sx.apn.epc.mnc001.mcc001.3gppnetwork.org">>,
+			       order       => 300,
+			       preference  => 64536,
+			       service     => 'x-3gpp-upf',
+			       protocols   => ['x-sxb'],
+			       replacement => <<"topon.sx.prox01.epc.mnc001.mcc001.3gppnetwork.org">>},
+
+			     #{type        => naptr,
+			       name        => <<"async-sx.apn.epc.mnc001.mcc001.3gppnetwork.org">>,
+			       order       => 300,
+			       preference  => 64536,
+			       service     => 'x-3gpp-upf',
+			       protocols   => ['x-sxb'],
+			       replacement => <<"topon.sx.prox02.epc.mnc001.mcc001.3gppnetwork.org">>},
+
+			     %% A/AAAA record alternatives
+			     #{type => host,
+			       name => <<"topon.gn.ggsn.epc.mnc001.mcc001.3gppnetwork.org">>,
+			       ip4  => ?MUST_BE_UPDATED},
+			     #{type => host,
+			       name => <<"topon.sx.prox01.epc.mnc001.mcc001.3gppnetwork.org">>,
+			       ip4  => ?MUST_BE_UPDATED},
+			     #{type => host,
+			       name => <<"topon.sx.prox02.epc.mnc001.mcc001.3gppnetwork.org">>,
+			       ip4  => ?MUST_BE_UPDATED}
+			    ]}
+		 },
 
 	    apns =>
 		[{?'APN-EXAMPLE',
@@ -368,18 +400,18 @@
 	[{[sockets, cp, ip], localhost},
 	 {[sockets, irx, ip], test_gsn},
 	 {[sockets, sx, ip], localhost},
-	 {[node_selection, {default, 2}, 2, <<"topon.gn.ggsn.epc.mnc001.mcc001.3gppnetwork.org">>],
-	  {fun node_sel_update/2, final_gsn}},
-	 {[node_selection, {default, 2}, 2, <<"topon.sx.prox01.epc.mnc001.mcc001.3gppnetwork.org">>],
-	  {fun node_sel_update/2, pgw_u01_sx}},
-	 {[node_selection, {default, 2}, 2, <<"topon.sx.prox02.epc.mnc001.mcc001.3gppnetwork.org">>],
-	  {fun node_sel_update/2, sgw_u_sx}}
+	 {[node_selection, default, entries, {name, <<"topon.gn.ggsn.epc.mnc001.mcc001.3gppnetwork.org">>}],
+	  {fun node_sel_update/2,  final_gsn}},
+	 {[node_selection, default, entries, {name, <<"topon.sx.prox01.epc.mnc001.mcc001.3gppnetwork.org">>}],
+	  {fun node_sel_update/2,  pgw_u01_sx}},
+	 {[node_selection, default, entries, {name, <<"topon.sx.prox02.epc.mnc001.mcc001.3gppnetwork.org">>}],
+	  {fun node_sel_update/2,  sgw_u_sx}}
 	]).
 
 node_sel_update(Node, {_,_,_,_} = IP) ->
-    {Node, [IP], []};
+    Node#{ip4 => [IP], ip6 => []};
 node_sel_update(Node, {_,_,_,_,_,_,_,_} = IP) ->
-    {Node, [], [IP]}.
+    Node#{ip4 => [], ip6 => [IP]}.
 
 %%%===================================================================
 %%% Setup

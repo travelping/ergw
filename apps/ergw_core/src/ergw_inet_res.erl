@@ -122,19 +122,22 @@ code_change(_OldVsn, State, _Extra) ->
 %%% Config Support
 %%%===================================================================
 
-load_config(Name, {static, Entries}) ->
+load_config(Name, #{type := static, entries := Entries}) when is_list(Entries) ->
     DB = lists:foldl(load_static(Name, _, _), #{}, Entries),
     ets:insert(?SERVER, maps:values(DB)),
-    {static, []};
-load_config(_, {dns, NameServers}) ->
-    {dns, nsopts(NameServers)}.
+    static;
+load_config(_, #{type := dns, server := Server, port := Port}) ->
+    {dns, [{nameservers, [{Server, Port}]}]}.
 
-load_static(Selection, {Host, {Order, Pref}, Services, Replacement}, Entries) ->
+load_static(Selection, #{type := naptr, name := Host, order := Order, preference := Pref,
+			 service := Service, protocols := Protocols,
+			 replacement := Replacement}, Entries) ->
+    Services = ordsets:from_list([{Service, Protocol} || Protocol <- Protocols]),
     Data = {Order, Pref, a, Services, "", Replacement},
     RR = inet_dns:make_rr([{domain, Host}, {class, in}, {type, naptr},
 			   {ttl, infinity}, {data, Data}]),
     make_cache_entry(Selection, RR, Entries);
-load_static(Selection, {Host, IP4, IP6}, Entries0) ->
+load_static(Selection, #{type := host, name := Host, ip4 := IP4, ip6 := IP6}, Entries0) ->
     Entries1 = lists:foldl(load_static(Selection, Host, a, _, _), Entries0, IP4),
     _Entries = lists:foldl(load_static(Selection, Host, aaaa, _, _), Entries1, IP6).
 
@@ -142,11 +145,6 @@ load_static(Selection, Host, Type, IP, Entries) ->
     RR = inet_dns:make_rr([{domain, Host}, {class, in}, {type, Type},
 			   {ttl, infinity}, {data, IP}]),
     make_cache_entry(Selection, RR, Entries).
-
-nsopts({_,_} = NameServers) ->
-    [{nameservers, [NameServers]}];
-nsopts(_) ->
-    [].
 
 %%%===================================================================
 %%% Internal functions

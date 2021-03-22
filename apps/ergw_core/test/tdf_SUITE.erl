@@ -83,25 +83,38 @@
 		      ]},
 
 	    node_selection =>
-		[{default,
-		  {static,
-		   [
-		    %% APN NAPTR alternative
-		    {<<"_default.apn.epc.mnc001.mcc001.3gppnetwork.org">>, {300,64536},
-		     [{'x-3gpp-pgw','x-s5-gtp'},{'x-3gpp-pgw','x-s8-gtp'},
-		      {'x-3gpp-pgw','x-gn'},{'x-3gpp-pgw','x-gp'}],
-		     <<"topon.tdf.epc.mnc001.mcc001.3gppnetwork.org">>},
-		    {<<"_default.apn.epc.mnc001.mcc001.3gppnetwork.org">>, {300,64536},
-		     [{'x-3gpp-upf','x-sxb'}, {'x-3gpp-upf','x-sxc'}],
-		     <<"topon.sx.prox01.epc.mnc001.mcc001.3gppnetwork.org">>},
+		#{default =>
+		      #{type => static,
+			entries =>
+			    [
+			     %% APN NAPTR alternative
+			     #{type        => naptr,
+			       name        => <<"_default.apn.epc.mnc001.mcc001.3gppnetwork.org">>,
+			       order       => 300,
+			       preference  => 64536,
+			       service     => 'x-3gpp-pgw',
+			       protocols   => ['x-s5-gtp', 'x-s8-gtp', 'x-gn', 'x-gp'],
+			       replacement => <<"topon.tdf.epc.mnc001.mcc001.3gppnetwork.org">>},
 
-		    %% A/AAAA record alternatives
-		    {<<"topon.tdf.epc.mnc001.mcc001.3gppnetwork.org">>, ?MUST_BE_UPDATED, []},
-		    {<<"topon.sx.prox01.epc.mnc001.mcc001.3gppnetwork.org">>, ?MUST_BE_UPDATED, []}
-		   ]
-		  }
-		 }
-		],
+			     #{type        => naptr,
+			       name        => <<"_default.apn.epc.mnc001.mcc001.3gppnetwork.org">>,
+			       order       => 300,
+			       preference  => 64536,
+			       service     => 'x-3gpp-upf',
+			       protocols   => ['x-sxb', 'x-sxc'],
+			       replacement => <<"topon.sx.prox01.epc.mnc001.mcc001.3gppnetwork.org">>},
+
+			     %% A/AAAA record alternatives
+			     #{type => host,
+			       name => <<"topon.tdf.epc.mnc001.mcc001.3gppnetwork.org">>,
+			       ip4  => ?MUST_BE_UPDATED,
+			       ip6  => ?MUST_BE_UPDATED},
+			     #{type => host,
+			       name => <<"topon.sx.prox01.epc.mnc001.mcc001.3gppnetwork.org">>,
+			       ip4  => ?MUST_BE_UPDATED,
+			       ip6  => ?MUST_BE_UPDATED}
+			    ]}
+		 },
 
 	    apns =>
 		[{?'APN-EXAMPLE',
@@ -349,16 +362,16 @@
 -define(CONFIG_UPDATE,
 	[{[sockets, 'cp-socket', ip], localhost},
 	 {[sockets, sx, ip], localhost},
-	 {[node_selection, {default, 2}, 2, <<"topon.tdf.epc.mnc001.mcc001.3gppnetwork.org">>],
+	 {[node_selection, default, entries, {name, <<"topon.tdf.epc.mnc001.mcc001.3gppnetwork.org">>}],
 	  {fun node_sel_update/2, final_gsn}},
-	 {[node_selection, {default, 2}, 2, <<"topon.sx.prox01.epc.mnc001.mcc001.3gppnetwork.org">>],
+	 {[node_selection, default, entries, {name, <<"topon.sx.prox01.epc.mnc001.mcc001.3gppnetwork.org">>}],
 	  {fun node_sel_update/2, tdf_u_sx}}
 	]).
 
 node_sel_update(Node, {_,_,_,_} = IP) ->
-    {Node, [IP], []};
+    Node#{ip4 => [IP], ip6 => []};
 node_sel_update(Node, {_,_,_,_,_,_,_,_} = IP) ->
-    {Node, [], [IP]}.
+    Node#{ip4 => [], ip6 => [IP]}.
 
 %%%===================================================================
 %%% Setup
