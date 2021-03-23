@@ -218,7 +218,6 @@
 		 {path_management, [{t3, 10 * 1000},
 				    {n3,  5},
 				    {echo, 60 * 1000},
-				    {idle_timeout, 1800 * 1000},
 				    {idle_echo,     600 * 1000},
 				    {down_timeout, 3600 * 1000},
 				    {down_echo,     600 * 1000}]}
@@ -456,7 +455,6 @@
 		 {path_management, [{t3, 10 * 1000},
 				    {n3,  5},
 				    {echo, 60 * 1000},
-				    {idle_timeout, 1800 * 1000},
 				    {idle_echo,     600 * 1000},
 				    {down_timeout, 3600 * 1000},
 				    {down_echo,     600 * 1000}]}
