@@ -152,7 +152,7 @@ stop(Path) ->
     {t3, 10 * 1000},                  % echo retry interval
     {n3,  5},                         % echo retry count
     {echo, 60 * 1000},                % echo ping interval
-    {idle_timeout, 1800 * 1000},      % time to keep the path entry when idle
+    {idle_timeout, infinity},         % time to keep the path entry when idle
     {idle_echo,     600 * 1000},      % echo retry interval when idle
     {down_timeout, 3600 * 1000},      % time to keep the path entry when down
     {down_echo,     600 * 1000},      % echo retry interval when down

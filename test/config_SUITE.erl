@@ -203,7 +203,6 @@
 	  [{t3, 10 * 1000},
 	   {n3, 5},
 	   {echo, 60 * 1000},
-	   {idle_timeout, 1800 * 1000},
 	   {idle_echo,     600 * 1000},
 	   {down_timeout, 3600 * 1000},
 	   {down_echo,     600 * 1000}]
@@ -1080,6 +1079,7 @@ config(_Config)  ->
     ?ok_option(set_cfg_value([path_management, idle_timeout], 300 * 1000, ?PGW_PROXY_CONFIG)),
     ?ok_option(set_cfg_value([path_management, down_timeout], 7200 * 1000, ?PGW_PROXY_CONFIG)),
     ?ok_option(set_cfg_value([path_management, idle_timeout], 0, ?PGW_PROXY_CONFIG)),
+	?ok_option(set_cfg_value([path_management, idle_timeout], infinity, ?PGW_PROXY_CONFIG)),
     ?ok_option(set_cfg_value([path_management, down_timeout], 0, ?PGW_PROXY_CONFIG)),
     ?ok_option(set_cfg_value([path_management, icmp_error_handling], ignore, ?PGW_PROXY_CONFIG)),
 
