@@ -558,20 +558,19 @@
 	    ]},
 	   {apps,
 	    [{default,
-	      [{session, ['Default']},
-	       {procedures, [{authenticate, []},
-			     {authorize, []},
-			     {start, []},
-			     {interim, []},
-			     {stop, []},
-			     {{gx, 'CCR-Initial'},   [{'Default', [{answer, 'Initial-Gx'}]}]},
-			     {{gx, 'CCR-Update'},    [{'Default', [{answer, 'Update-Gx'}]}]},
-			     {{gx, 'CCR-Terminate'}, [{'Default', [{answer, 'Final-Gx'}]}]},
-			     {{gy, 'CCR-Initial'},   []},
-			     {{gy, 'CCR-Update'},    []},
-			     %%{{gy, 'CCR-Update'},    [{'Default', [{answer, 'Update-If-Down'}]}]},
-			     {{gy, 'CCR-Terminate'}, []}
-			    ]}
+	      [{init, ['Default']},
+	       {authenticate, []},
+	       {authorize, []},
+	       {start, []},
+	       {interim, []},
+	       {stop, []},
+	       {{gx, 'CCR-Initial'},   [{'Default', [{answer, 'Initial-Gx'}]}]},
+	       {{gx, 'CCR-Update'},    [{'Default', [{answer, 'Update-Gx'}]}]},
+	       {{gx, 'CCR-Terminate'}, [{'Default', [{answer, 'Final-Gx'}]}]},
+	       {{gy, 'CCR-Initial'},   []},
+	       {{gy, 'CCR-Update'},    []},
+	       %%{{gy, 'CCR-Update'},    [{'Default', [{answer, 'Update-If-Down'}]}]},
+	       {{gy, 'CCR-Terminate'}, []}
 	      ]}
 	    ]}
 	  ]}

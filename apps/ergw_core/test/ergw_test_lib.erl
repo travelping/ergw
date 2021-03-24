@@ -87,8 +87,8 @@ lib_init_per_group(Config0) ->
     ergw_cluster:start([{enabled, false}]),
     ergw_cluster:wait_till_running(),
 
-    CoreConfig = proplists:get_value(ergw_core, AppCfg),
-    ergw_core_init(CoreConfig),
+    init_app(ergw_aaa, fun ergw_aaa_init/1, AppCfg),
+    init_app(ergw_core, fun ergw_core_init/1, AppCfg),
 
     case proplists:get_value(upf, Config, true) of
 	true ->
@@ -124,8 +124,8 @@ clear_app_env(_) ->
 
 load_config(AppCfg) when is_list(AppCfg) ->
     lists:foreach(
-      fun({ergw_core, _}) ->
-	      clear_app_env(ergw_core),
+      fun({App, _}) when App =:= ergw_core; App =:= ergw_aaa ->
+	      clear_app_env(App),
 	      ok;
 	 ({App, Settings}) when is_list(Settings) ->
 	      clear_app_env(App),
@@ -209,6 +209,11 @@ update_app_config(Group, CfgUpd, Config0) ->
     AppCfg = lists:keystore(ergw_core, 1, AppCfg1, {ergw_core, CoreCfg}),
     lists:keystore(app_cfg, 1, Config, {app_cfg, AppCfg}).
 
+
+init_app(App, Fun, Cfg) ->
+    Config = proplists:get_value(App, Cfg),
+    Fun(ergw_core_config:to_map(Config)).
+
 ergw_core_init(Config) ->
     Init = [node, wait_till_running, path_management, node_selection,
 	    sockets, upf_nodes, handlers, ip_pools, apns, charging, proxy_map],
@@ -248,6 +253,37 @@ ergw_charging_init(rulebase, #{rulebase := RuleBase}) ->
 ergw_charging_init(profiles, #{profiles := Profiles}) ->
     maps:map(fun ergw_core:add_charging_profile/2, Profiles);
 ergw_charging_init(_, _) ->
+    ok.
+
+%% copied from ergw_aaa test suites
+ergw_aaa_init(Config) ->
+    Init = [product_name, rate_limits, handlers, services, functions, apps],
+    lists:foreach(ergw_aaa_init(_, Config), Init).
+
+ergw_aaa_init(product_name, #{product_name := PN0}) ->
+    PN = ergw_aaa_config:validate_option(product_name, PN0),
+    ergw_aaa:setopt(product_name, PN);
+ergw_aaa_init(rate_limits, #{rate_limits := Limits0}) ->
+    Limits = ergw_aaa_config:validate_options(
+	       fun ergw_aaa_config:validate_rate_limit/2, Limits0, []),
+    ergw_aaa:setopt(rate_limits, Limits);
+ergw_aaa_init(handlers, #{handlers := Handlers0}) ->
+    Handlers = ergw_aaa_config:validate_options(
+		 fun ergw_aaa_config:validate_handler/2, Handlers0, []),
+    maps:map(fun ergw_aaa:add_handler/2, Handlers);
+ergw_aaa_init(services, #{services := Services0}) ->
+    Services = ergw_aaa_config:validate_options(
+		 fun ergw_aaa_config:validate_service/2, Services0, []),
+    maps:map(fun ergw_aaa:add_service/2, Services);
+ergw_aaa_init(functions, #{functions := Functions0}) ->
+    Functions = ergw_aaa_config:validate_options(
+		  fun ergw_aaa_config:validate_function/2, Functions0, []),
+    maps:map(fun ergw_aaa:add_function/2, Functions);
+ergw_aaa_init(apps, #{apps := Apps0}) ->
+    Apps = ergw_aaa_config:validate_options(fun ergw_aaa_config:validate_app/2, Apps0, []),
+    maps:map(fun ergw_aaa:add_application/2, Apps);
+ergw_aaa_init(_K, _) ->
+    ct:pal("AAA Init: ~p", [_K]),
     ok.
 
 %%%===================================================================
@@ -874,16 +910,18 @@ cfg_get_value([H|T], Cfg) when is_list(Cfg) ->
     cfg_get_value(T, proplists:get_value(H, Cfg)).
 
 load_aaa_answer_config(AnswerCfg) ->
-    {ok, Cfg0} = application:get_env(ergw_aaa, apps),
-    Session = cfg_get_value([default, session, 'Default'], Cfg0),
+    Cfg0 = ergw_aaa:get_application(default),
+    Session = cfg_get_value([init, 'Default'], Cfg0),
     Answers =
 	[{Proc, [{'Default', Session#{answer => Answer}}]}
 	 || {Proc, Answer} <- AnswerCfg],
-    UpdCfg =
-	#{default =>
-	      #{procedures => maps:from_list(Answers)}},
+    UpdCfg = ergw_core_config:to_map(Answers),
     Cfg = maps_recusive_merge(Cfg0, UpdCfg),
-    ok = application:set_env(ergw_aaa, apps, Cfg).
+    ok = set_aaa_config(apps, default, Cfg).
+
+set_aaa_config(Key, Name, Opts) ->
+    M = application:get_env(ergw_aaa, Key, #{}),
+    application:set_env(ergw_aaa, Key, maps:put(Name, Opts, M)).
 
 set_online_charging([], true, Cfg)
   when is_map(Cfg) ->
