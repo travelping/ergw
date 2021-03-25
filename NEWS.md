@@ -1,6 +1,24 @@
 erGW - 3GPP GGSN and PDN-GW in Erlang
 =====================================
 
+Version 2.8.9 - 25 March 2021
+-------------------------------
+**Improvements** :bulb:
+* [343](https://github.com/travelping/ergw/pull/343) Update `alpine` to `3.13` for `Dockerfile`
+> (C) musl-1.2.1.tar.gz (sig) - August 4, 2020
+  This release features the new "mallocng" malloc implementation, replacing musl's original
+  dlmalloc-like allocator that suffered from fundamental design problems. Its major user-facing
+  new properties are the ability to return freed memory on a much finer granularity and
+  avoidance of many catastrophic fragmentation patterns.
+  In addition it provides strong hardening against memory usage errors by the caller,
+  including detection of overflows, double-free, and use-after-free,
+  and does not admit corruption of allocator state via these errors.
+
+**Dependencies** :gear:
+* [#345](https://github.com/travelping/ergw/pull/345) Update [ergw_aaa](https://github.com/travelping/ergw_aaa) tag to [3.6.10](https://github.com/travelping/ergw_aaa/releases/tag/3.6.10)
+* [#337](https://github.com/travelping/ergw/pull/337) Update [pfcplib](https://github.com/travelping/pfcplib) tag to [2.0.0](https://github.com/travelping/pfcplib/releases/tag/2.0.0)
+* [#351](https://github.com/travelping/ergw/pull/351) Update [gtplib](https://github.com/travelping/gtplib) tag to [2.0.1](https://github.com/travelping/gtplib/releases/tag/2.0.1)
+
 Version 2.8.8 - 9 March 2021
 -------------------------------
 
