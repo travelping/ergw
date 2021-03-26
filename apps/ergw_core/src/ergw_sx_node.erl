@@ -180,9 +180,7 @@ connect_sx_node(Node, #{node_selection := NodeSelect} = Opts) ->
 %%%===================================================================
 
 -define(NodeDefaults, [{connect, false}]).
--define(VrfDefaults, [{features, invalid}]).
--define(Defaults, [{vrfs, invalid},
-		   {node_selection, default},
+-define(Defaults, [{node_selection, default},
 		   {heartbeat, []},
 		   {request, []}]).
 
@@ -205,10 +203,11 @@ validate_node_vrf_option(features, Features)
 validate_node_vrf_option(Opt, Values) ->
     erlang:error(badarg, [Opt, Values]).
 
-validate_node_vrfs({Name, Opts})
-  when ?is_opts(Opts) ->
+validate_node_vrfs({Name, Opts}) when is_map(Opts) ->
     {vrf:validate_name(Name),
-    ergw_core_config:validate_options(fun validate_node_vrf_option/2, Opts, ?VrfDefaults)};
+     ergw_core_config:validate_options(fun validate_node_vrf_option/2, Opts, [])};
+validate_node_vrfs({Name, Opts}) when is_list(Opts) ->
+    validate_node_vrfs({Name, ergw_core_config:to_map(Opts)});
 validate_node_vrfs({Name, Opts}) ->
     erlang:error(badarg, [Name, Opts]).
 
@@ -266,9 +265,12 @@ validate_node_option(rport, Port) when is_integer(Port) ->
 validate_node_option(Opt, Values) ->
     validate_node_default_option(Opt, Values).
 
-validate_defaults(Opts) when ?is_opts(Opts) ->
+validate_defaults(Opts) when is_map(Opts) ->
+    ergw_core_config:mandatory_keys([vrfs], Opts),
     ergw_core_config:validate_options(
       fun validate_node_default_option/2, Opts, ?Defaults);
+validate_defaults(Opts) when is_list(Opts) ->
+    validate_defaults(ergw_core_config:to_map(Opts));
 validate_defaults(Opts) ->
     erlang:error(badarg, [nodes, default, Opts]).
 

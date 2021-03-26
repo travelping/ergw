@@ -130,8 +130,7 @@ validate_option(reuseaddr, Value) when is_boolean(Value) ->
 validate_option(rcvbuf, Value)
   when is_integer(Value) andalso Value > 0 ->
     Value;
-validate_option(socket, Value)
-  when is_atom(Value) ->
+validate_option(socket, Value) ->
     Value;
 validate_option(burst_size, Value)
   when is_integer(Value) andalso Value > 0 ->
