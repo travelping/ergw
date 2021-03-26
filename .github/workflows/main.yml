@@ -24,7 +24,8 @@ jobs:
            apk update
            apk --no-cache upgrade
            apk --no-cache add docker gcc git libc-dev libc-utils libgcc linux-headers make bash \
-                              musl-dev musl-utils ncurses-dev pcre2 pkgconf scanelf wget zlib
+                              musl-dev musl-utils ncurses-dev pcre2 pkgconf scanelf wget zlib \
+                              yaml-dev
     - uses: actions/checkout@v2
     - name: Build
       run: rebar3 compile
