@@ -1,0 +1,819 @@
+"$schema": "http://json-schema.org/draft-04/schema#"
+title: erGW config
+description: erGW configuration
+
+components:
+  schemas:
+    EchoTimeout:
+      oneOf:
+        - $ref: "#/components/schemas/Timeout"
+        - enum:
+            - off
+
+    Timeout:
+      type: object
+      properties:
+        timeout:
+          type: integer
+        unit:
+          enum:
+            - millisecond
+            - second
+            - minute
+            - hour
+            - day
+      required: ['timeout', 'unit']
+
+    TimeoutInf:
+      oneOf:
+        - $ref: "#/components/schemas/Timeout"
+        - enum:
+            - infinity
+
+    DhcpRange:
+      onfOf:
+        - type: object
+          properties:
+            start:
+              $ref: 'TS29571_CommonData.yaml#/components/schemas/Ipv4Addr'
+            end:
+              $ref: 'TS29571_CommonData.yaml#/components/schemas/Ipv4Addr'
+            prefixLen:
+              type: integer
+        - type: object
+          properties:
+            start:
+              $ref: 'TS29571_CommonData.yaml#/components/schemas/Ipv6Addr'
+            end:
+              $ref: 'TS29571_CommonData.yaml#/components/schemas/Ipv6Addr'
+            prefixLen:
+              type: integer
+
+    IpAddress:
+      type: object
+      oneOf:
+        - required:
+          - ipv4Addr
+        - required:
+          - ipv6Addr
+        - required:
+          - ipv6Prefix
+      properties:
+        ipv4Addr:
+          $ref: 'TS29571_CommonData.yaml#/components/schemas/Ipv4Addr'
+        ipv6Addr:
+          $ref: 'TS29571_CommonData.yaml#/components/schemas/Ipv6Addr'
+        ipv6Prefix:
+          $ref: 'TS29571_CommonData.yaml#/components/schemas/Ipv6Prefix'
+
+    VrfName:
+      type: object
+      properties:
+        name:
+          format: hostname
+          type: string
+        type:
+          enum:
+            - apn
+            - dnn
+
+    VRF:
+      type: object
+      properties:
+        name:
+          $ref: "#/components/schemas/VrfName"
+        features:
+          type: array
+          items:
+            enum:
+              - Access
+              - Core
+              - SGi-LAN
+              - CP-Function
+              - LI Function
+              - TDF-Source
+
+    APN:
+      type: object
+      apn:
+        type: string
+        format: hostname
+      properties:
+        3GPP-IPv6-DNS-Servers:
+          type: array
+          items:
+            $ref: TS29571_CommonData.yaml#/components/schemas/Ipv6Addr
+        DNS-Server-IPv6-Address:
+          type: array
+          items:
+            $ref: TS29571_CommonData.yaml#/components/schemas/Ipv6Addr
+        Idle-Timeout:
+          $ref: "#/components/schemas/TimeoutInf"
+        MS-Primary-DNS-Server:
+          $ref: TS29571_CommonData.yaml#/components/schemas/Ipv4Addr
+        MS-Primary-NBNS-Server:
+          $ref: TS29571_CommonData.yaml#/components/schemas/Ipv4Addr
+        MS-Secondary-DNS-Server:
+          $ref: TS29571_CommonData.yaml#/components/schemas/Ipv4Addr
+        MS-Secondary-NBNS-Server:
+          $ref: TS29571_CommonData.yaml#/components/schemas/Ipv4Addr
+        bearer_type:
+          type: string
+          enum:
+            - IPv4
+            - IPv6
+            - IPv4v6
+        ip_pools:
+          type: array
+          items:
+            type: string
+        ipv6_ue_interface_id:
+          $ref: TS29571_CommonData.yaml#/components/schemas/Ipv6Addr
+        prefered_bearer_type:
+          type: string
+          enum:
+            - IPv4
+            - IPv6
+        vrf:
+          $ref: "#/components/schemas/VrfName"
+        vrfs:
+          type: array
+          items:
+            $ref: "#/components/schemas/VrfName"
+
+    SAEGwHandler:
+      type: object
+      properties:
+        name:
+          type: string
+        handler:
+          type: string
+          enum:
+            - saegw_s11
+        sockets:
+          type: array
+          items:
+            type: string
+        protocol:
+          type: string
+          enum:
+            - s11
+        node_selection:
+          type: array
+          items:
+            type: string
+        aaa:
+          type: object
+
+    PGwHandler:
+      type: object
+      properties:
+        name:
+          type: string
+        handler:
+          type: string
+          enum:
+            - pgw_s5s8
+        sockets:
+          type: array
+          items:
+            type: string
+        protocol:
+          type: string
+          enum:
+            - gn
+            - gp
+            - s5
+            - s8
+            - s5s8
+        node_selection:
+          type: array
+          items:
+            type: string
+        aaa:
+          type: object
+
+    PGwProxyHandler:
+      type: object
+      properties:
+        name:
+          type: string
+        handler:
+          type: string
+          enum:
+            - pgw_s5s8_proxy
+        sockets:
+          type: array
+          items:
+            type: string
+        protocol:
+          type: string
+          enum:
+            - gn
+            - gp
+            - s5
+            - s8
+            - s5s8
+        node_selection:
+          type: array
+          items:
+            type: string
+        aaa:
+          type: object
+        contexts:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              node_selection:
+                type: array
+                items:
+                  type: string
+              proxy_sockets:
+                type: array
+                items:
+                  type: string
+        proxy_data_source:
+          type: string
+          default: gtp_proxy_ds
+        proxy_sockets:
+          type: array
+          items:
+            type: string
+
+    GGSnHandler:
+      type: object
+      properties:
+        name:
+          type: string
+        handler:
+          type: string
+          enum:
+            - ggsn_gn
+        sockets:
+          type: array
+          items:
+            type: string
+        protocol:
+          type: string
+          enum:
+            - gn
+            - gp
+        node_selection:
+          type: array
+          items:
+            type: string
+        aaa:
+          type: object
+
+    GGSnProxyHandler:
+      type: object
+      properties:
+        name:
+          type: string
+        handler:
+          type: string
+          enum:
+            - ggsn_gn_proxy
+        sockets:
+          type: array
+          items:
+            type: string
+        protocol:
+          type: string
+          enum:
+            - gn
+            - gp
+        node_selection:
+          type: array
+          items:
+            type: string
+        aaa:
+          type: object
+        contexts:
+          type: array
+          items:
+            type: object
+            name:
+              type: string
+            properties:
+              node_selection:
+                type: array
+                items:
+                  type: string
+              proxy_sockets:
+                type: array
+                items:
+                  type: string
+        proxy_data_source:
+          type: string
+          default: gtp_proxy_ds
+        proxy_sockets:
+          type: array
+          items:
+            type: string
+
+    TdfHandler:
+      type: object
+      properties:
+        name:
+          type: string
+        handler:
+          type: string
+          enum:
+            - tdf
+        protocol:
+          type: string
+          enum:
+            - ip
+        nodes:
+          type: array
+          items:
+            type: string
+        node_selection:
+          type: array
+          items:
+            type: string
+        apn:
+          type: string
+          format: hostname
+
+    ChargingContainerClosureTrigger:
+      type: string
+      enum:
+        - container
+        - off
+
+    ChargingRecordClosureTrigger:
+      type: string
+      enum:
+        - cdr
+        - off
+
+    GtpSocket:
+      type: object
+      properties:
+        name:
+          type: string
+        burst_size:
+          default: 10
+          type: integer
+        cluster_ip:
+          $ref: "#/components/schemas/IpAddress"
+        freebind:
+          type: boolean
+        ip:
+          $ref: "#/components/schemas/IpAddress"
+        name:
+          type: string
+        netdev:
+          type: string
+        netns:
+          type: string
+        rcvbuf:
+          type: integer
+        reuseaddr:
+          type: boolean
+        send_port:
+          oneOf:
+            - type: boolean
+            - type: integer
+        type:
+          enum:
+            - gtp-c
+            - gtp-u
+          type: string
+        vrf:
+          $ref: "#/components/schemas/VrfName"
+
+    PfcpSocket:
+      type: object
+      properties:
+        name:
+          type: string
+        burst_size:
+          default: 10
+          type: integer
+        freebind:
+          type: boolean
+        ip:
+          $ref: "#/components/schemas/IpAddress"
+        name:
+          type: string
+        netdev:
+          type: string
+        netns:
+          type: string
+        rcvbuf:
+          type: integer
+        reuseaddr:
+          type: boolean
+        socket:
+          type: string
+        type:
+          enum:
+            - pfcp
+          type: string
+        vrf:
+          $ref: "#/components/schemas/VRF"
+
+    3gppDnsServices:
+      enum:
+        - x-3gpp-amf
+        - x-3gpp-ggsn
+        - x-3gpp-mme
+        - x-3gpp-msc
+        - x-3gpp-pgw
+        - x-3gpp-sgsn
+        - x-3gpp-sgw
+        - x-3gpp-ucmf
+        - x-3gpp-upf
+      type: string
+
+    3gppDnsProtocols:
+      enum:
+        - x-gn
+        - x-gp
+        - x-n2
+        - x-n26
+        - x-n4
+        - x-n55
+        - x-nqprime
+        - x-s1-u
+        - x-s10
+        - x-s11
+        - x-s12
+        - x-s16
+        - x-s2a-gtp
+        - x-s2a-mipv4
+        - x-s2a-pmip
+        - x-s2b-gtp
+        - x-s2b-pmip
+        - x-s2c-dsmip
+        - x-s3
+        - x-s4
+        - x-s5-gtp
+        - x-s5-pmip
+        - x-s6a
+        - x-s8-gtp
+        - x-s8-pmip
+        - x-sv
+        - x-sxa
+        - x-sxb
+        - x-sxc
+        - x-urcmp
+      type: string
+
+type: object
+properties:
+  $end:
+    default: true
+    type: boolean
+
+  node_id:
+    type: string
+
+  plmn_id:
+    type: object
+    properties:
+      mcc:
+        $ref: TS29571_CommonData.yaml#/components/schemas/Mcc
+      mnc:
+        $ref: TS29571_CommonData.yaml#/components/schemas/Mnc
+
+  teid:
+    type: object
+    properties:
+      len:
+        type: integer
+        default: 0
+      prefix:
+        type: integer
+        default: 0
+
+  accept_new:
+    default: true
+    type: boolean
+
+  cluster:
+    type: object
+    properties:
+      enabled:
+        type: boolean
+        default: false
+      initial_timeout:
+        $ref: "#/components/schemas/TimeoutInf"
+      release_cursor_every:
+        type: integer
+        default: 0
+      seed_nodes:
+        type: string
+        default: "{erlang,nodes,[known]}"
+
+  sockets:
+    type: array
+    items:
+      oneOf:
+        - $ref: "#/components/schemas/GtpSocket"
+        - $ref: "#/components/schemas/PfcpSocket"
+
+  apns:
+    type: array
+    items:
+      $ref: "#/components/schemas/APN"
+
+  charging:
+    type: object
+    properties:
+      rule:
+        type: array
+        items:
+          type: object
+          properties:
+            name:
+              type: string
+            Flow-Information:
+              type: array
+              items:
+                type: object
+                properties:
+                  Flow-Description:
+                    type: string
+                  Flow-Direction:
+                    type: integer
+            Metering-Method:
+              type: integer
+            Offline:
+              type: integer
+            Offline-Rating-Group:
+              type: integer
+            Online:
+              type: integer
+            Online-Rating-Group:
+              type: integer
+            Precedence:
+              type: integer
+            Rating-Group:
+              type: integer
+            Redirect-Information:
+              type: string
+            Service-Identifier:
+              type: string
+            TDF-Application-Identifier:
+              type: string
+      rulebase:
+        type: array
+        items:
+          name:
+            type: string
+          rules:
+            type: array
+            items:
+              type: string
+      profiles:
+        type: array
+        items:
+          name:
+            type: string
+          offline:
+            properties:
+              enable:
+                default: true
+                type: boolean
+              triggers:
+                type: object
+                properties:
+                  cgi-sai-change:
+                    $ref: "#/components/schemas/ChargingContainerClosureTrigger"
+                  ecgi-change:
+                    $ref: "#/components/schemas/ChargingContainerClosureTrigger"
+                  max-cond-change:
+                    $ref: "#/components/schemas/ChargingRecordClosureTrigger"
+                  ms-time-zone-change:
+                    $ref: "#/components/schemas/ChargingRecordClosureTrigger"
+                  qos-change:
+                    $ref: "#/components/schemas/ChargingContainerClosureTrigger"
+                  rai-change:
+                    $ref: "#/components/schemas/ChargingContainerClosureTrigger"
+                  rat-change:
+                    $ref: "#/components/schemas/ChargingRecordClosureTrigger"
+                  sgsn-sgw-change:
+                    $ref: "#/components/schemas/ChargingRecordClosureTrigger"
+                  sgsn-sgw-plmn-id-change:
+                    $ref: "#/components/schemas/ChargingRecordClosureTrigger"
+                  tai-change:
+                    $ref: "#/components/schemas/ChargingContainerClosureTrigger"
+                  tariff-switch-change:
+                    $ref: "#/components/schemas/ChargingContainerClosureTrigger"
+                  user-location-info-change:
+                    $ref: "#/components/schemas/ChargingContainerClosureTrigger"
+            type: object
+          online:
+            properties: []
+            type: object
+
+  handlers:
+    type: array
+    items:
+      oneOf:
+        - $ref: "#/components/schemas/PGwHandler"
+        - $ref: "#/components/schemas/GGSnHandler"
+        - $ref: "#/components/schemas/SAEGwHandler"
+        - $ref: "#/components/schemas/PGwProxyHandler"
+        - $ref: "#/components/schemas/GGSnProxyHandler"
+        - $ref: "#/components/schemas/TdfHandler"
+
+  http_api:
+    type: object
+    properties:
+      enabled:
+        type: boolean
+        default: false
+      ip:
+        $ref: "#/components/schemas/IpAddress"
+      ipv6_v6only:
+        type: boolean
+        default: false
+      num_acceptors:
+        type: integer
+        default: 100
+      port:
+        type: integer
+        default: 8000
+
+  ip_pools:
+    type: array
+    items:
+      type: object
+      name:
+        type: string
+      properties:
+        3GPP-IPv6-DNS-Servers:
+          type: array
+          items:
+            $ref: TS29571_CommonData.yaml#/components/schemas/Ipv6Addr
+        DNS-Server-IPv6-Address:
+          type: array
+          items:
+            $ref: TS29571_CommonData.yaml#/components/schemas/Ipv6Addr
+        MS-Primary-DNS-Server:
+          $ref: TS29571_CommonData.yaml#/components/schemas/Ipv4Addr
+        MS-Primary-NBNS-Server:
+          $ref: TS29571_CommonData.yaml#/components/schemas/Ipv4Addr
+        MS-Secondary-DNS-Server:
+          $ref: TS29571_CommonData.yaml#/components/schemas/Ipv4Addr
+        MS-Secondary-NBNS-Server:
+          $ref: TS29571_CommonData.yaml#/components/schemas/Ipv4Addr
+        handler:
+          type: string
+        ranges:
+          type: array
+          items:
+            $ref: "#/components/schemas/DhcpRange"
+
+  metrics:
+    type: object
+    properties:
+      gtp_path_rtt_millisecond_intervals:
+        type: array
+        items:
+          type: integer
+
+  node_selection:
+    type: array
+    items:
+      type: object
+      name:
+        type: string
+
+  upf_nodes:
+    type: object
+    properties:
+      default:
+        type: object
+        properties:
+          heartbeat:
+            type: object
+            properties:
+              interval:
+                $ref: "#/components/schemas/TimeoutInf"
+              retry:
+                type: integer
+              timeout:
+                $ref: "#/components/schemas/TimeoutInf"
+          ip_pools:
+            type: array
+            items:
+              type: string
+          node_selection:
+            type: string
+          request:
+            type: object
+            properties:
+              retry:
+                type: integer
+              timeout:
+                $ref: "#/components/schemas/TimeoutInf"
+          vrfs:
+            type: array
+            items:
+              $ref: "#/components/schemas/VRF"
+        required: [ vrfs ]
+      entries:
+        type: array
+        items:
+          type: object
+          name:
+            type: string
+          properties:
+            connect:
+              type: boolean
+            heartbeat:
+              type: object
+              properties:
+                interval:
+                  $ref: "#/components/schemas/TimeoutInf"
+                retry:
+                  type: integer
+                timeout:
+                  $ref: "#/components/schemas/TimeoutInf"
+            ip_pools:
+              type: array
+              items:
+                type: string
+            node_selection:
+              type: string
+            raddr:
+              $ref: "#/components/schemas/IpAddress"
+            request:
+              type: object
+              properties:
+                retry:
+                  type: integer
+                timeout:
+                  $ref: "#/components/schemas/TimeoutInf"
+            rport:
+              type: integer
+            vrfs:
+              type: array
+              items:
+                $ref: "#/components/schemas/VRF"
+    required: [ default ]
+
+  path_management:
+    type: object
+    properties:
+      down:
+        type: object
+        properties:
+          echo:
+            $ref: "#/components/schemas/EchoTimeout"
+          timeout:
+            $ref: "#/components/schemas/TimeoutInf"
+      echo:
+        $ref: "#/components/schemas/EchoTimeout"
+      icmp_error_handling:
+        type: string
+        enum:
+          - immediate
+          - ignore
+      idle:
+        properties:
+          echo:
+            $ref: "#/components/schemas/EchoTimeout"
+          timeout:
+            $ref: "#/components/schemas/TimeoutInf"
+        type: object
+      n3:
+        default: 5
+        type: integer
+      t3:
+        default: 10000
+        type: integer
+
+  proxy_map:
+    type: object
+    properties:
+      apn:
+        type: array
+        items:
+          from:
+            type: string
+            format: hostname
+          to:
+            type: string
+            format: hostname
+      imsi:
+        type: array
+        items:
+          from:
+            type: string
+          to:
+            type: object
+            properties:
+              imsi:
+                type: string
+              msisdn:
+                type: string

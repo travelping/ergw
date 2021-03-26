@@ -86,13 +86,12 @@ handle_event(info, {'DOWN', Mref, _, _, ok}, startup,
 	 [erlang:convert_time_unit(erlang:monotonic_time() - Now, native, millisecond)]),
 
     Cluster = maps:get(cluster, Config, #{}),
-    {_, Mref} = erlang:spawn_monitor(
+    {_, ClusterMref} = erlang:spawn_monitor(
 		  fun() -> exit(ergw_cluster:start(Cluster)) end),
-    {next_state, ready, Data#{startup => Mref}};
+    {next_state, ready, Data#{startup => ClusterMref}};
 
 handle_event(info, {'DOWN', Mref, _, _, Reason}, startup, #{startup := Mref}) ->
     ?LOG(critical, "ergw: support applications failed to start with ~0p", [Reason]),
-    init:stop(1),
     {stop, {shutdown, Reason}};
 
 handle_event(info, {'DOWN', Mref, _, _, ok}, ready,
