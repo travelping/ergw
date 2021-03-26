@@ -137,7 +137,6 @@ handle_event(info, {'EXIT', Pid, ok}, startup,
 
 handle_event(info, {'EXIT', Pid, Reason}, startup, #{startup := Pid}) ->
     ?LOG(critical, "cluster support failed to start with ~0p", [Reason]),
-    init:stop(1),
     {stop, {shutdown, Reason}};
 
 handle_event(Event, Info, _State, _Data) ->
