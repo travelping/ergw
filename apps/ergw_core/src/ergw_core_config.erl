@@ -118,6 +118,8 @@ validate_options(Fun, Options, Defaults)
     validate_options(Fun, Opts).
 
 validate_ip6(_Opt, IP) when ?IS_IPv6(IP) ->
+    ergw_inet:ip2bin(IP);
+validate_ip6(_Opt, <<_:128/bits>> = IP) ->
     IP;
 validate_ip6(Opt, Value) ->
     erlang:error(badarg, [Opt, Value]).
