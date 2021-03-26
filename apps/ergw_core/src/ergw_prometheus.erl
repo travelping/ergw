@@ -41,13 +41,13 @@ validate_options(Opts) ->
 %% validate_options(Opts) ->
 %%     ergw_core_config:validate_options(fun validate_option/2, Opts, ?DefaultMetricsOpts).
 
-%% validate_option(gtp_path_rtt_millisecond_intervals = Opt, Value) ->
-%%     case [V || V <- Value, is_integer(V), V > 0] of
-%% 	[_|_] = Value ->
-%% 	    Value;
-%%        _ ->
-%% 	    erlang:error(badarg, [Opt, Value])
-%%     end;
+validate_option(gtp_path_rtt_millisecond_intervals = Opt, Value) ->
+    case [V || V <- Value, is_integer(V), V > 0] of
+	[_|_] = Value ->
+	    Value;
+       _ ->
+	    erlang:error(badarg, [Opt, Value])
+    end;
 validate_option(Opt, Value) ->
     erlang:error(badarg, [Opt, Value]).
 
