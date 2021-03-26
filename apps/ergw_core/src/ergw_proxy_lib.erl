@@ -168,8 +168,7 @@ validate_option(Opt, Value) ->
 
 validate_context_option(proxy_sockets, Value) when is_list(Value), Value /= [] ->
     Value;
-validate_context_option(node_selection, [S|_] = Value)
-  when is_atom(S) ->
+validate_context_option(node_selection, Value) when is_list(Value), length(Value) /= 0 ->
     Value;
 validate_context_option(Opt, Value) ->
     erlang:error(badarg, [Opt, Value]).

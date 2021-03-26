@@ -89,8 +89,7 @@ validate_option(protocol, ip) ->
     ip;
 validate_option(handler, Value) when is_atom(Value) ->
     Value;
-validate_option(node_selection, [S|_] = Value)
-  when is_atom(S) ->
+validate_option(node_selection, Value) when is_list(Value), length(Value) /= 0 ->
     Value;
 validate_option(nodes, [S|_] = Value)
   when is_binary(S) ->

@@ -41,9 +41,11 @@
 	 {'tariff-switch-change',	'container'},
 	 {'user-location-info-change',	'container'}]).
 
-validate_profile(Name, Opts)
-  when is_atom(Name), ?is_opts(Opts) ->
-    ergw_core_config:validate_options(fun validate_charging_options/2, Opts, ?DefaultProfile).
+validate_profile(_Name, Opts)
+  when ?is_opts(Opts) ->
+    ergw_core_config:validate_options(fun validate_charging_options/2, Opts, ?DefaultProfile);
+validate_profile(Name, Opts) ->
+    erlang:error(badarg, [Name, Opts]).
 
 %% validate_rule_def('Service-Identifier', [Value] = V)
 %%   when is_integer(Value) ->
