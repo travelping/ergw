@@ -30,7 +30,7 @@
  {<<"p1_utils">>,{pkg,<<"p1_utils">>,<<"1.0.22">>},1},
  {<<"parse_trans">>,
   {git,"https://github.com/uwiger/parse_trans.git",
-       {ref,"35439e206ce6f6a858f64efce5c70588d437b941"}},
+       {ref,"4c4990dc8b0842421888794e5d8031f097de239f"}},
   0},
  {<<"pfcplib">>,{pkg,<<"pfcplib">>,<<"2.0.0">>},0},
  {<<"plists">>,
