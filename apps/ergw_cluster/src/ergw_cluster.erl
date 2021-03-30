@@ -126,7 +126,9 @@ handle_event({call, From}, {start, Config}, ready, Data) ->
     application:set_env([{ergw_cluster, maps:to_list(Config)}]),
     start_cluster(Config),
     {next_state, running, Data#{config => Config}, [{reply, From, ok}]};
-handle_event({call, _}, {start, _}, _, _) ->
+handle_event({call, From}, {start, _}, running, _) ->
+    {keep_state_and_data, [{reply, From, {error, already_started}}]};
+handle_event({call, _}, {start, _}, _State, _) ->
     {keep_state_and_data, [postpone]};
 
 handle_event(info, {'EXIT', Pid, ok}, startup,

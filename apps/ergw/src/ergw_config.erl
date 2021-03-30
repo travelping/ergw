@@ -100,13 +100,51 @@ apply(Config) ->
     ergw_core_init(Config),
     ok.
 
+%% copied from ergw_aaa test suites
+ergw_aaa_init(Config) ->
+    Init = [product_name, rate_limits, handlers, services, functions, apps],
+    lists:foreach(ergw_aaa_init(_, Config), Init).
+
+ergw_aaa_init(product_name, #{product_name := PN0}) ->
+    PN = ergw_aaa_config:validate_option(product_name, PN0),
+    ergw_aaa:setopt(product_name, PN),
+    PN;
+ergw_aaa_init(rate_limits, #{rate_limits := Limits0}) ->
+    Limits = ergw_aaa_config:validate_options(
+	       fun ergw_aaa_config:validate_rate_limit/2, Limits0, []),
+    ergw_aaa:setopt(rate_limits, Limits),
+    Limits;
+ergw_aaa_init(handlers, #{handlers := Handlers0}) ->
+    Handlers = ergw_aaa_config:validate_options(
+		 fun ergw_aaa_config:validate_handler/2, Handlers0, []),
+    maps:map(fun ergw_aaa:add_handler/2, Handlers),
+    Handlers;
+ergw_aaa_init(services, #{services := Services0}) ->
+    Services = ergw_aaa_config:validate_options(
+		 fun ergw_aaa_config:validate_service/2, Services0, []),
+    maps:map(fun ergw_aaa:add_service/2, Services),
+    Services;
+ergw_aaa_init(functions, #{functions := Functions0}) ->
+    Functions = ergw_aaa_config:validate_options(
+		  fun ergw_aaa_config:validate_function/2, Functions0, []),
+    maps:map(fun ergw_aaa:add_function/2, Functions),
+    Functions;
+ergw_aaa_init(apps, #{apps := Apps0}) ->
+    Apps = ergw_aaa_config:validate_options(fun ergw_aaa_config:validate_app/2, Apps0, []),
+    maps:map(fun ergw_aaa:add_application/2, Apps),
+    Apps;
+ergw_aaa_init(_, _) ->
+    ok.
+
 ergw_core_init(Config) ->
-    Init = [node, wait_till_running, path_management, node_selection,
+    Init = [node, aaa, wait_till_running, path_management, node_selection,
 	    sockets, upf_nodes, handlers, ip_pools, apns, charging, proxy_map],
     lists:foreach(ergw_core_init(_, Config), Init).
 
 ergw_core_init(node, #{node := Node}) ->
     ergw_core:start_node(Node);
+ergw_core_init(aaa, #{aaa := AAA}) ->
+    ergw_aaa_init(AAA);
 ergw_core_init(wait_till_running, _) ->
     ergw_core:wait_till_running();
 ergw_core_init(path_management, #{path_management := NodeSel}) ->
@@ -153,6 +191,9 @@ load_schemas() ->
 %%% config metadata
 %%%===================================================================
 
+optional(X) ->
+    #cnf_value{type = {optional, normalize_meta(X)}}.
+
 config_raw_meta() ->
     #{node            => config_meta_node(),
       apns            => config_meta_apns(),
@@ -167,7 +208,8 @@ config_raw_meta() ->
       path_management => config_meta_path_management(),
       proxy_map       => config_meta_proxy_map(),
       sockets         => config_meta_socket(),
-      teid            => config_meta_tei_mngr()}.
+      teid            => config_meta_tei_mngr(),
+      aaa             => config_meta_aaa()}.
 
 config_meta() ->
     load_typespecs(),
@@ -212,32 +254,29 @@ config_meta_charging() ->
     Online = #{},
     Offline = #{enable => boolean,
 		triggers => Triggers},
-    Optional = fun(X) ->
-		       #cnf_value{type = {optional, normalize_meta(X)}}
-	       end,
-    FlowInfo = #{'Flow-Description' => Optional(binary),
-		 'Flow-Direction'  => Optional(integer)},
-    Rule = #{'Service-Identifier' => Optional(atom),      %%tbd: this is most likely wrong
-	     'Rating-Group' => Optional(integer),
-	     'Online-Rating-Group' => Optional(integer),
-	     'Offline-Rating-Group' => Optional(integer),
+    FlowInfo = #{'Flow-Description' => optional(binary),
+		 'Flow-Direction'  => optional(integer)},
+    Rule = #{'Service-Identifier' => optional(atom),      %%tbd: this is most likely wrong
+	     'Rating-Group' => optional(integer),
+	     'Online-Rating-Group' => optional(integer),
+	     'Offline-Rating-Group' => optional(integer),
 	     'Flow-Information' => {list, FlowInfo},
 	     %% 'Default-Bearer-Indication'
-	     'TDF-Application-Identifier' => Optional(binary),
+	     'TDF-Application-Identifier' => optional(binary),
 	     %% 'Flow-Status'
 	     %% 'QoS-Information'
 	     %% 'PS-to-CS-Session-Continuity'
 	     %% 'Reporting-Level'
-	     'Online' => Optional(integer),
-	     'Offline' => Optional(integer),
+	     'Online' => optional(integer),
+	     'Offline' => optional(integer),
 	     %% 'Max-PLR-DL'
 	     %% 'Max-PLR-UL'
-	     'Metering-Method' => Optional(integer),
-	     'Precedence' => Optional(integer),
+	     'Metering-Method' => optional(integer),
+	     'Precedence' => optional(integer),
 	     %% 'AF-Charging-Identifier'
 	     %% 'Flows'
 	     %% 'Monitoring-Key'
-	     'Redirect-Information' => Optional(binary)
+	     'Redirect-Information' => optional(binary)
 	     %% 'Mute-Notification'
 	     %% 'AF-Signalling-Protocol'
 	     %% 'Sponsor-Identity'
@@ -493,6 +532,150 @@ config_meta_tei_mngr() ->
     #{prefix => integer,
       len    => integer}.
 
+config_meta_aaa() ->
+    #{product_name => config_meta_aaa_product_name(),
+      rate_limits => config_meta_aaa_rate_limits(),
+      functions => config_meta_aaa_functions(),
+      handlers => config_meta_aaa_handlers(),
+      services => config_meta_aaa_services(),
+      apps => config_meta_aaa_apps()}.
+
+config_meta_aaa_product_name() ->
+    binary.
+
+config_meta_aaa_rate_limits() ->
+    Meta = #{outstanding_requests => integer, rate => integer},
+    {klist, {host, binary}, Meta}.
+
+config_meta_aaa_functions() ->
+    {klist, {name, binary}, {delegate, fun delegate_aaa_function/1}}.
+
+delegate_aaa_function(Map) when is_map(Map) ->
+    Meta =
+	case to_atom(get_key(handler, Map)) of
+	    ergw_aaa_diameter ->
+		config_meta_aaa_function_diameter()
+	end,
+    normalize_meta(Meta).
+
+config_meta_aaa_function_diameter() ->
+    #{handler => module,
+      'Origin-Host' => host_or_ip,
+      'Origin-Realm' => binary}.
+
+config_meta_aaa_handlers() ->
+    {klist, {handler, module}, {delegate, fun delegate_aaa_handler/1}}.
+
+delegate_aaa_handler(Map) when is_map(Map) ->
+    Meta =
+	case to_atom(get_key(handler, Map)) of
+	    ergw_aaa_gx     -> ergw_meta_aaa_handler_gx();
+	    ergw_aaa_nasreq -> ergw_meta_aaa_handler_nasreq();
+	    ergw_aaa_radius -> ergw_meta_aaa_handler_radius();
+	    ergw_aaa_rf     -> ergw_meta_aaa_handler_rf();
+	    ergw_aaa_ro     -> ergw_meta_aaa_handler_ro();
+	    ergw_aaa_static -> ergw_meta_aaa_handler_static()
+	end,
+    normalize_meta(Meta).
+
+ergw_meta_aaa_handler_gx() ->
+    #{handler => module,
+      function => binary,
+      'Destination-Host' => binary,
+      'Destination-Realm' => binary,
+      answers => aaa_avp,
+      answer_if_down => binary,
+      answer_if_timeout => binary,
+      avp_filter => {list, binary},
+      termination_cause_mapping => config_meta_term_cause_mapping()}.
+
+ergw_meta_aaa_handler_nasreq() ->
+    #{handler => module,
+      function => binary,
+      accounting => atom,
+      'Destination-Host' => binary,
+      'Destination-Realm' => binary,
+      avp_filter => {list, binary},
+      termination_cause_mapping => config_meta_term_cause_mapping()}.
+
+ergw_meta_aaa_handler_radius() ->
+    #{handler => module,
+      server => ergw_meta_radius_server(),
+      server_name => binary,
+      client_name => binary,
+      timeout => integer,
+      retries => integer,
+      async => boolean,
+      avp_filter => {list, binary},
+      vendor_dicts => atom,
+      termination_cause_mapping => config_meta_term_cause_mapping()}.
+
+ergw_meta_radius_server() ->
+    #{ip => ip_or_host,
+      port => integer,
+      secret => binary}.
+
+ergw_meta_aaa_handler_rf() ->
+    #{handler => module,
+      function => binary,
+      accounting => atom,
+      'Destination-Host' => binary,
+      'Destination-Realm' => binary,
+      avp_filter => {list, binary},
+      termination_cause_mapping => config_meta_term_cause_mapping()}.
+
+ergw_meta_aaa_handler_ro() ->
+    #{handler => module,
+      function => binary,
+      'Destination-Host' => binary,
+      'Destination-Realm' => binary,
+      'CC-Session-Failover' => atom,
+      'Credit-Control-Failure-Handling' => atom,
+      answers => aaa_avp,
+      answer_if_down => binary,
+      answer_if_timeout => binary,
+      answer_if_rate_limit => binary,
+      tx_timeout => integer,
+      max_retries => integer,
+      avp_filter => {list, binary},
+      termination_cause_mapping => config_meta_term_cause_mapping()}.
+
+ergw_meta_aaa_handler_static() ->
+    #{handler => module,
+      defaults => aaa_avp,
+      answers => aaa_avp,
+      answer => binary}.
+
+config_meta_term_cause_mapping() ->
+    {kvlist, {cause, atom}, {code, integer}}.
+
+config_meta_aaa_services() ->
+    {klist, {service, binary}, {delegate, fun delegate_aaa_service/1}}.
+
+delegate_aaa_service(Map) when is_map(Map) ->
+    Meta =
+	case to_atom(get_key(handler, Map)) of
+	    ergw_aaa_gx     -> ergw_meta_aaa_handler_gx();
+	    ergw_aaa_nasreq -> ergw_meta_aaa_handler_nasreq();
+	    ergw_aaa_radius -> ergw_meta_aaa_handler_radius();
+	    ergw_aaa_rf     -> ergw_meta_aaa_handler_rf();
+	    ergw_aaa_ro     -> ergw_meta_aaa_handler_ro();
+	    ergw_aaa_static -> ergw_meta_aaa_handler_static()
+	end,
+    normalize_meta(Meta).
+
+config_meta_aaa_apps() ->
+    {kvlist, {application, default_or_binary}, {procedures, aaa_procedures}}.
+
+config_meta_aaa_application() ->
+    Service = #{service => binary,
+		answer => binary},
+    normalize_meta({list, Service}).
+
+%%%===================================================================
+%%% normalize functions
+%%%===================================================================
+
 normalize_meta({delegate, _} = Type) ->
     Type;
 normalize_meta(#cnf_value{} = Type) ->
@@ -529,12 +712,22 @@ meta_type(Type) when is_atom(Type) ->
 %%% Delegate Helper
 %%%===================================================================
 
-ts2meta({delegate, Meta}, V) when is_function(Meta) ->
+ts2meta({delegate, Meta}, V) when is_function(Meta, 1) ->
     Meta(V);
 ts2meta(TypeSpec, _) when is_record(TypeSpec, cnf_value) ->
     TypeSpec;
 ts2meta(TypeSpec, _) when is_map(TypeSpec) ->
     TypeSpec.
+
+ts2meta({delegate, Meta}, KeyField, K, V) when is_map(V), is_function(Meta, 1) ->
+    Meta(V#{KeyField => K});
+ts2meta({delegate, Meta}, KeyField, K, _) when is_function(Meta, 1) ->
+    Meta(#{KeyField => K});
+ts2meta(TypeSpec, _, _, _) when is_record(TypeSpec, cnf_value) ->
+    TypeSpec;
+ts2meta(TypeSpec, _, _, _) when is_map(TypeSpec) ->
+    TypeSpec.
+
 
 %%%===================================================================
 %%% Helper
@@ -544,6 +737,11 @@ take_key(Field, Map) when is_atom(Field), is_map_key(Field, Map) ->
     maps:take(Field, Map);
 take_key(Field, Map) ->
     maps:take(to_binary(Field), Map).
+
+get_key(Field, Map, Default) when is_atom(Field), is_map_key(Field, Map) ->
+    maps:get(Field, Map, Default);
+get_key(Field, Map, Default) ->
+    maps:get(to_binary(Field), Map, Default).
 
 get_key(Field, Map) when is_atom(Field), is_map_key(Field, Map) ->
     maps:get(Field, Map);
@@ -608,6 +806,12 @@ to_integer(V) when is_list(V) ->
 
 to_string(V) when is_list(V); is_binary(V) ->
     unicode:characters_to_list(V).
+
+to_default_or_binary(V) ->
+    case to_binary(V) of
+	<<"default">> -> default;
+	Bin           -> Bin
+    end.
 
 to_module(V) ->
     to_atom(V).
@@ -724,6 +928,35 @@ to_echo(Timeout) ->
 	    to_timeout(Timeout)
     end.
 
+to_aaa_procedure(#{<<"api">> := API, <<"procedure">> := Procedure} = V, M) ->
+    Steps = get_key(steps, V, []),
+    Config = coerce_config(config_meta_aaa_application(), Steps),
+    maps:put({to_atom(API), to_atom(Procedure)}, Config, M);
+to_aaa_procedure(#{<<"procedure">> := Procedure} = V, M) ->
+    Steps = get_key(steps, V, []),
+    Config = coerce_config(config_meta_aaa_application(), Steps),
+    maps:put(to_atom(Procedure), Config, M).
+
+to_aaa_procedures(List) when is_list(List) ->
+    lists:foldl(fun to_aaa_procedure/2, #{}, List).
+
+to_aaa_avp('Tariff-Time-Change', V) when is_binary(V) ->
+    Time = calendar:rfc3339_to_system_time(binary_to_list(V)),
+    calendar:system_time_to_universal_time(Time, second);
+to_aaa_avp(K, V) when is_list(V) ->
+    lists:map(to_aaa_avp(K, _), V);
+to_aaa_avp(_K, M) when is_map(M) ->
+    to_aaa_avp(M);
+to_aaa_avp(_K, V) ->
+    V.
+
+to_aaa_avp(K0, V0, M) ->
+    K = to_atom(K0),
+    maps:put(K, to_aaa_avp(K, V0), M).
+
+to_aaa_avp(Map) when is_map(Map) ->
+    maps:fold(fun to_aaa_avp/3, #{}, Map).
+
 %% complex types
 
 to_object(Meta, K, V)
@@ -744,7 +977,7 @@ to_list(Meta, V) when is_list(V) ->
 
 to_klist({KeyField, KeyMeta, VMeta}, V, Config) ->
     {Key, Map} = take_key(KeyField, V),
-    maps:put(coerce_config(KeyMeta, Key), coerce_config(VMeta, Map), Config).
+    maps:put(coerce_config(KeyMeta, Key), coerce_config_2(ts2meta(VMeta, V), Map), Config).
 
 to_klist(Type, V) when is_list(V) ->
     lists:foldl(to_klist(Type, _, _), #{}, V).
@@ -851,6 +1084,37 @@ from_echo(Timeout) when is_atom(Timeout) ->
 from_echo(Timeout) ->
     from_timeout(Timeout).
 
+from_aaa_procedures(K, V0, Config) when is_atom(K) ->
+    V = serialize_config(config_meta_aaa_application(), V0),
+    [#{procedure => K, steps => V} | Config];
+from_aaa_procedures({API, Procedure}, V0, Config) ->
+    V = serialize_config(config_meta_aaa_application(), V0),
+    [#{api => API, procedure => Procedure, steps => V} | Config].
+
+from_aaa_procedures(Map) when is_map(Map) ->
+    maps:fold(fun from_aaa_procedures/3, [], Map).
+
+from_aaa_avp(K, V, M) when is_map(V) ->
+    maps:put(K, from_aaa_avp(V), M);
+from_aaa_avp(K, V, M) when is_list(V) ->
+    maps:put(K, lists:map(from_aaa_avp(K, _), V), M);
+from_aaa_avp(K, V, M) ->
+    maps:put(K, from_aaa_avp(k, V), M).
+
+from_aaa_avp(_K, Map) when is_map(Map) ->
+    maps:fold(fun from_aaa_avp/3, #{}, Map);
+from_aaa_avp(_K, {{Year, Month, Day}, {Hour, Minute, Second}}) ->
+    iolist_to_binary(
+      io_lib:format("~w-~2..0w-~2..0wT~2..0w:~2..0w:~2..0wZ",
+		    [Year, Month, Day, Hour, Minute, Second]));
+from_aaa_avp(_K, Value) when is_list(Value) ->
+    iolist_to_binary(Value);
+from_aaa_avp(_K, Value) ->
+    Value.
+
+from_aaa_avp(Map) when is_map(Map) ->
+    maps:fold(fun from_aaa_avp/3, #{}, Map).
+
 %% complex types
 
 from_object(Meta, K, V) when is_map(Meta), is_map_key(K, Meta) ->
@@ -862,13 +1126,15 @@ from_object(Meta, V) when is_map(V) ->
 from_list(Type, V) when is_list(V) ->
     lists:map(serialize_config(Type, _), V).
 
-from_klist({KeyField, KeyMeta, VMeta}, K, V, Config) ->
+from_klist({KeyField, KeyMeta, VTypeSpec}, K, V, Config) ->
+    VMeta = ts2meta(VTypeSpec, KeyField, K, V),
     [maps:put(KeyField, serialize_config(KeyMeta, K), serialize_config(VMeta, V))|Config].
 
 from_klist(Type, V) when is_map(V) ->
     maps:fold(from_klist(Type, _, _, _), [], V).
 
-from_kvlist({KField, KMeta, VField, VMeta}, K, V, Config) ->
+from_kvlist({KField, KMeta, VField, VTypeSpec}, K, V, Config) ->
+    VMeta = ts2meta(VTypeSpec, KField, K, V),
     [#{KField => serialize_config(KMeta, K), VField => serialize_config(VMeta, V)}|Config].
 
 from_kvlist(Type, V) when is_map(V) ->
@@ -883,13 +1149,23 @@ serialize_config(Config) ->
     Meta = config_meta(),
     serialize_config(Meta, Config).
 
-serialize_config(#cnf_value{type = Type}, V) when is_atom(Type) ->
+serialize_config(#cnf_value{type = Type} = Cnf, V) when is_atom(Type) ->
     #cnf_type{serialize = F} = get_typespec(Type),
-    F(V);
+    case is_function(F, 1) of
+	true ->
+	    F(V);
+	false ->
+	    erlang:error(badarg, [Cnf, V])
+    end;
 
-serialize_config(#cnf_value{type = {Type, Opts}}, V) ->
+serialize_config(#cnf_value{type = {Type, Opts}} = Cnf, V) ->
     #cnf_type{serialize = F} = get_typespec(Type),
-    F(Opts, V).
+    case is_function(F, 2) of
+	true ->
+	    F(Opts, V);
+	false ->
+	    erlang:error(badarg, [Cnf, V])
+    end.
 
 %%%===================================================================
 %%% Type Specs
@@ -967,6 +1243,11 @@ load_typespecs() ->
 		 coerce    = fun to_string/1,
 		 serialize = fun from_string/1
 		},
+	  default_or_binary =>
+	      #cnf_type{
+		 coerce    = fun to_default_or_binary/1,
+		 serialize = fun (V) -> V end
+		},
 	  module =>
 	      #cnf_type{
 		 coerce    = fun to_module/1,
@@ -1036,6 +1317,16 @@ load_typespecs() ->
 	      #cnf_type{
 		 coerce = fun to_echo/1,
 		 serialize = fun from_echo/1
+		},
+	  aaa_procedures =>
+	      #cnf_type{
+		 coerce = fun to_aaa_procedures/1,
+		 serialize = fun from_aaa_procedures/1
+		},
+	  aaa_avp =>
+	      #cnf_type{
+		 coerce = fun to_aaa_avp/1,
+		 serialize = fun from_aaa_avp/1
 		}
 	 },
     register_typespec(Spec).
