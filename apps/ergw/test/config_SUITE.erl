@@ -18,6 +18,13 @@
 all() ->
     [load].
 
+init_per_testcase(_Case, Config) ->
+    clear_app_env(),
+    Config.
+
+end_per_testcase(_Case, _Config) ->
+    ok.
+
 laod() ->
     [{doc, "Test the config load function"}].
 load(Config)  ->
@@ -49,3 +56,8 @@ read_json(Dir, File) ->
 
 set(Keys, Value, Config) ->
     ergw_config:set(Keys, Value, Config).
+
+clear_app_env() ->
+    [[application:unset_env(App, Par) ||
+	 {Par, _} <- application:get_all_env(App)] ||
+	App <- [ergw_core, ergw_aaa, ergw_cluster]].

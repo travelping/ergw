@@ -263,10 +263,11 @@
 	  [
 	   {handlers,
 	    [{ergw_aaa_static,
-	      [{'NAS-Identifier',          <<"NAS-Identifier">>},
-	       {'Node-Id',                 <<"PGW-001">>},
-	       {'Charging-Rule-Base-Name', <<"m2m0001">>}
-	      ]}
+	      #{defaults =>
+		    [{'NAS-Identifier',          <<"NAS-Identifier">>},
+		     {'Node-Id',                 <<"PGW-001">>},
+		     {'Charging-Rule-Base-Name', <<"m2m0001">>}]
+	       }}
 	    ]},
 	   {services,
 	    [{'Default',
@@ -285,15 +286,15 @@
 	    ]},
 	   {apps,
 	    [{default,
-	      [{init, ['Default']},
+	      [{init, [#{service => 'Default'}]},
 	       {authenticate, []},
 	       {authorize, []},
 	       {start, []},
 	       {interim, []},
 	       {stop, []},
-	       {{gx, 'CCR-Initial'},   [{'Default', [{answer, 'Initial-Gx'}]}]},
-	       {{gx, 'CCR-Update'},    [{'Default', [{answer, 'Update-Gx'}]}]},
-	       {{gx, 'CCR-Terminate'}, [{'Default', [{answer, 'Final-Gx'}]}]},
+	       {{gx,'CCR-Initial'},   [#{service => 'Default', answer => 'Initial-Gx'}]},
+	       {{gx,'CCR-Terminate'}, [#{service => 'Default', answer => 'Final-Gx'}]},
+	       {{gx,'CCR-Update'},    [#{service => 'Default', answer => 'Update-Gx'}]},
 	       {{gy, 'CCR-Initial'},   []},
 	       {{gy, 'CCR-Update'},    []},
 	       {{gy, 'CCR-Terminate'}, []}
@@ -534,10 +535,11 @@
 	  [
 	   {handlers,
 	    [{ergw_aaa_static,
-	      [{'NAS-Identifier',          <<"NAS-Identifier">>},
-	       {'Node-Id',                 <<"PGW-001">>},
-	       {'Charging-Rule-Base-Name', <<"m2m0001">>}
-	      ]}
+	      #{defaults =>
+		    [{'NAS-Identifier',          <<"NAS-Identifier">>},
+		     {'Node-Id',                 <<"PGW-001">>},
+		     {'Charging-Rule-Base-Name', <<"m2m0001">>}]
+	       }}
 	    ]},
 	   {services,
 	    [{'Default',
@@ -556,15 +558,15 @@
 	    ]},
 	   {apps,
 	    [{default,
-	      [{init, ['Default']},
+	      [{init, [#{service => 'Default'}]},
 	       {authenticate, []},
 	       {authorize, []},
 	       {start, []},
 	       {interim, []},
 	       {stop, []},
-	       {{gx, 'CCR-Initial'},   [{'Default', [{answer, 'Initial-Gx'}]}]},
-	       {{gx, 'CCR-Update'},    [{'Default', [{answer, 'Update-Gx'}]}]},
-	       {{gx, 'CCR-Terminate'}, [{'Default', [{answer, 'Final-Gx'}]}]},
+	       {{gx,'CCR-Initial'},   [#{service => 'Default', answer => 'Initial-Gx'}]},
+	       {{gx,'CCR-Terminate'}, [#{service => 'Default', answer => 'Final-Gx'}]},
+	       {{gx,'CCR-Update'},    [#{service => 'Default', answer => 'Update-Gx'}]},
 	       {{gy, 'CCR-Initial'},   []},
 	       {{gy, 'CCR-Update'},    []},
 	       {{gy, 'CCR-Terminate'}, []}

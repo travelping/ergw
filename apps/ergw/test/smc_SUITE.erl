@@ -25,6 +25,14 @@ init_per_suite(Config) ->
 end_per_suite(_Config) ->
     ok.
 
+init_per_testcase(_Case, Config) ->
+    clear_app_env(),
+    Config.
+
+end_per_testcase(_Case, _Config) ->
+    [application:stop(App) || App <- [ergw_core, ergw_aaa, ergw_cluster, ergw]],
+    ok.
+
 pgw() ->
     [{doc, "Test the PGW function"}].
 pgw(Config)  ->
@@ -36,8 +44,6 @@ pgw(Config)  ->
     ct:pal("Started: ~p", [Started]),
 
     ergw:wait_till_running(),
-
-    [application:stop(App) || App <- [ergw_core, ergw_aaa, ergw_cluster, ergw]],
     ok.
 
 pgw_proxy() ->
@@ -50,8 +56,6 @@ pgw_proxy(Config)  ->
     application:ensure_all_started(ergw),
 
     ergw:wait_till_running(),
-
-    [application:stop(App) || App <- [ergw_core, ergw_aaa, ergw_cluster, ergw]],
     ok.
 
 ggsn() ->
@@ -64,8 +68,6 @@ ggsn(Config)  ->
     application:ensure_all_started(ergw),
 
     ergw:wait_till_running(),
-
-    [application:stop(App) || App <- [ergw_core, ergw_aaa, ergw_cluster, ergw]],
     ok.
 
 ggsn_proxy() ->
@@ -78,8 +80,6 @@ ggsn_proxy(Config)  ->
     application:ensure_all_started(ergw),
 
     ergw:wait_till_running(),
-
-    [application:stop(App) || App <- [ergw_core, ergw_aaa, ergw_cluster, ergw]],
     ok.
 
 saegw_s11() ->
@@ -92,8 +92,6 @@ saegw_s11(Config)  ->
     application:ensure_all_started(ergw),
 
     ergw:wait_till_running(),
-
-    [application:stop(App) || App <- [ergw_core, ergw_aaa, ergw_cluster, ergw]],
     ok.
 
 tdf() ->
@@ -106,10 +104,13 @@ tdf(Config)  ->
     application:ensure_all_started(ergw),
 
     ergw:wait_till_running(),
-
-    [application:stop(App) || App <- [ergw_core, ergw_aaa, ergw_cluster, ergw]],
     ok.
 
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
+
+clear_app_env() ->
+    [[application:unset_env(App, Par) ||
+	 {Par, _} <- application:get_all_env(App)] ||
+	App <- [ergw_core, ergw_aaa, ergw_cluster]].
