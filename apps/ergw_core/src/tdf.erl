@@ -76,23 +76,18 @@ test_cmd(Pid, Cmd) when is_pid(Pid) ->
 %%% Options Validation
 %%%===================================================================
 
--define(HandlerDefaults, [{protocol, undefined},
-			  {node_selection, undefined},
-			  {nodes, undefined},
-			  {apn, undefined}]).
-
-validate_options(Options) ->
-    ?LOG(debug, "TDF Options: ~p", [Options]),
-    ergw_core_config:validate_options(fun validate_option/2, Options, ?HandlerDefaults).
+validate_options(Opts) ->
+    ?LOG(debug, "TDF Options: ~p", [Opts]),
+    ergw_core_config:mandatory_keys([protocol, node_selection, nodes, apn], Opts),
+    ergw_core_config:validate_options(fun validate_option/2, Opts, []).
 
 validate_option(protocol, ip) ->
     ip;
 validate_option(handler, Value) when is_atom(Value) ->
     Value;
-validate_option(node_selection, Value) when is_list(Value), length(Value) /= 0 ->
+validate_option(node_selection, Value) when length(Value) /= 0 ->
     Value;
-validate_option(nodes, [S|_] = Value)
-  when is_binary(S) ->
+validate_option(nodes, Value) when length(Value) /= 0 ->
     Value;
 validate_option(apn, APN)
   when is_list(APN) ->

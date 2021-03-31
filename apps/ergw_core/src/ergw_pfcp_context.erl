@@ -25,6 +25,7 @@
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include_lib("pfcplib/include/pfcp_packet.hrl").
 -include_lib("ergw_aaa/include/diameter_3gpp_ts32_299.hrl").
+-include("ergw_core_config.hrl").
 -include("include/ergw.hrl").
 
 -record(sx_upd, {now, errors = [], monitors = #{}, pctx = #pfcp_ctx{}, left, right}).
@@ -168,8 +169,7 @@ session_establishment_request(Handler, PCC, PCtx0,
 
 %% session_modification_request/2
 session_modification_request(PCtx, ReqIEs)
-  when (is_list(ReqIEs) andalso length(ReqIEs) /= 0) orelse
-       (is_map(ReqIEs) andalso map_size(ReqIEs) /= 0) ->
+  when ?is_non_empty_opts(ReqIEs) ->
     Req = #pfcp{version = v1, type = session_modification_request, ie = ReqIEs},
     case ergw_sx_node:call(PCtx, Req) of
 	#pfcp{type = session_modification_response,

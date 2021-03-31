@@ -40,6 +40,7 @@
 	 terminate/3, code_change/4]).
 
 -include_lib("kernel/include/logger.hrl").
+-include("ergw_core_config.hrl").
 -include("include/ergw.hrl").
 
 -define(SERVER, ?MODULE).
@@ -270,8 +271,6 @@ i(memory, context) ->
 %%%===================================================================
 %%% Options Validation
 %%%===================================================================
-
--define(is_opts(X), (is_list(X) orelse is_map(X))).
 
 -define(DefaultOptions, #{plmn_id => #{mcc => <<"001">>, mnc => <<"01">>},
 			  node_id => undefined,

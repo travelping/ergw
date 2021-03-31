@@ -21,6 +21,7 @@
 -include_lib("kernel/include/logger.hrl").
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include_lib("pfcplib/include/pfcp_packet.hrl").
+-include("ergw_core_config.hrl").
 -include("include/ergw.hrl").
 
 %%%=========================================================================
@@ -65,8 +66,6 @@ port_message(Key, Request, Msg, Resent) ->
 %%%===================================================================
 %%% Options Validation
 %%%===================================================================
-
--define(is_opts(X), (is_list(X) orelse is_map(X))).
 
 validate_options(_Name, #{handler := Handler} = Values)
   when is_atom(Handler) ->

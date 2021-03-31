@@ -22,6 +22,7 @@
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include_lib("pfcplib/include/pfcp_packet.hrl").
 -include_lib("ergw_aaa/include/diameter_3gpp_ts32_299.hrl").
+-include("ergw_core_config.hrl").
 -include("include/ergw.hrl").
 
 %%%===================================================================
@@ -145,8 +146,6 @@ select_sx_proxy_candidate({GwNode, _}, #{upfSelectionAPN := APN} = ProxyInfo,
 
 -define(ContextDefaults, []).
 
--define(is_opts(X), (is_list(X) orelse is_map(X))).
-
 validate_options(Fun, Opts, Defaults) ->
     gtp_context:validate_options(Fun, Opts, Defaults ++ ?ProxyDefaults).
 
@@ -166,9 +165,11 @@ validate_option(contexts, Values) when is_list(Values); is_map(Values) ->
 validate_option(Opt, Value) ->
     gtp_context:validate_option(Opt, Value).
 
-validate_context_option(proxy_sockets, Value) when is_list(Value), Value /= [] ->
+validate_context_option(proxy_sockets, Value)
+  when length(Value) /= 0 ->
     Value;
-validate_context_option(node_selection, Value) when is_list(Value), length(Value) /= 0 ->
+validate_context_option(node_selection, Value)
+  when length(Value) /= 0 ->
     Value;
 validate_context_option(Opt, Value) ->
     erlang:error(badarg, [Opt, Value]).

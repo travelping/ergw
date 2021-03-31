@@ -54,6 +54,7 @@
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include_lib("pfcplib/include/pfcp_packet.hrl").
 -include_lib("ergw_aaa/include/ergw_aaa_session.hrl").
+-include("ergw_core_config.hrl").
 -include("include/ergw.hrl").
 
 -define(TestCmdTag, '$TestCmd').
@@ -202,13 +203,7 @@ test_cmd(Pid, Cmd) when is_pid(Pid) ->
 %%% Options Validation
 %%%===================================================================
 
--define(is_opts(X), (is_list(X) orelse is_map(X))).
--define(non_empty_opts(X), ((is_list(X) andalso length(X) /= 0) orelse
-			    (is_map(X) andalso map_size(X) /= 0))).
-
--define(ContextDefaults, [{node_selection, undefined},
-			  {aaa,            []}]).
-
+-define(ContextDefaults, [{aaa, []}]).
 -define(DefaultAAAOpts,
 	#{
 	  'AAA-Application-Id' => ergw_aaa_provider,
@@ -218,7 +213,7 @@ test_cmd(Pid, Cmd) when is_pid(Pid) ->
 	 }).
 
 validate_options(Fun, Opts, Defaults) ->
-    ergw_core_config:mandatory_keys([protocol, handler, sockets], Opts),
+    ergw_core_config:mandatory_keys([protocol, handler, sockets, node_selection], Opts),
     ergw_core_config:validate_options(Fun, Opts, Defaults ++ ?ContextDefaults).
 
 validate_option(protocol, Value)
@@ -228,11 +223,11 @@ validate_option(protocol, Value)
     Value;
 validate_option(handler, Value) when is_atom(Value) ->
     Value;
-validate_option(sockets, Value) when is_list(Value) ->
+validate_option(sockets, Value) when length(Value) /= 0 ->
     Value;
-validate_option(node_selection, Value) when is_list(Value), length(Value) /= 0 ->
+validate_option(node_selection, Value) when length(Value) /= 0 ->
     Value;
-validate_option(aaa, Value0) when is_list(Value0); is_map(Value0) ->
+validate_option(aaa, Value0) when ?is_opts(Value0) ->
     Value = ergw_core_config:to_map(Value0),
     maps:fold(fun validate_aaa_option/3, ?DefaultAAAOpts, Value);
 validate_option(Opt, Value) ->

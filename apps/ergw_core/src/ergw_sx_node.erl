@@ -40,6 +40,7 @@
 -include_lib("kernel/include/inet.hrl").
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include_lib("pfcplib/include/pfcp_packet.hrl").
+-include("ergw_core_config.hrl").
 -include("include/ergw.hrl").
 
 -record(data, {cfg,
@@ -187,12 +188,8 @@ connect_sx_node(Node, #{node_selection := NodeSelect} = Opts) ->
 -define(NodeDefaultHeartbeat, [{interval, 5000}, {timeout, 500}, {retry, 5}]).
 -define(NodeDefaultRequest, [{timeout, 30000}, {retry, 5}]).
 
--define(is_opts(X), (is_list(X) orelse is_map(X))).
--define(non_empty_opts(X), ((is_list(X) andalso length(X) /= 0) orelse
-			    (is_map(X) andalso map_size(X) /= 0))).
-
 validate_node_vrf_option(features, Features)
-  when is_list(Features), length(Features) /= 0 ->
+  when length(Features) /= 0 ->
     Rem = lists:usort(Features) --
 	['Access', 'Core', 'SGi-LAN', 'CP-Function', 'LI Function', 'TDF-Source'],
     if Rem /= [] ->
@@ -233,7 +230,7 @@ validate_node_request({Opt, Value}) ->
     erlang:error(badarg, [Opt, Value]).
 
 validate_node_default_option(vrfs, VRFs)
-  when ?non_empty_opts(VRFs) ->
+  when ?is_non_empty_opts(VRFs) ->
     ergw_core_config:validate_options(fun validate_node_vrfs/1, VRFs, []);
 validate_node_default_option(ip_pools, Pools)
   when is_list(Pools) ->

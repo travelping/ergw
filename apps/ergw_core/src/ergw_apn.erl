@@ -13,6 +13,7 @@
 	 validate_options/1,
 	 validate_apn_name/1]).
 
+-include("ergw_core_config.hrl").
 -include("include/ergw.hrl").
 
 %%====================================================================
@@ -52,10 +53,6 @@ get(_, _) ->
 		      {'Idle-Timeout', 28800000}         %% 8hrs timer in msecs
 		     ]).
 
--define(is_opts(X), (is_list(X) orelse is_map(X))).
--define(non_empty_opts(X), ((is_list(X) andalso length(X) /= 0) orelse
-			    (is_map(X) andalso map_size(X) /= 0))).
-
 validate_options({APN0, Value}) when ?is_opts(Value) ->
     APN =
 	if APN0 =:= '_' -> APN0;
@@ -80,7 +77,7 @@ validate_apn_name(APN) ->
 validate_apn_option({vrf, Name}) ->
     {vrfs, [vrf:validate_name(Name)]};
 validate_apn_option({vrfs = Opt, VRFs})
-  when is_list(VRFs), length(VRFs) /= 0 ->
+  when length(VRFs) /= 0 ->
     V = [vrf:validate_name(Name) || Name <- VRFs],
     ergw_core_config:check_unique_elements(Opt, V),
     {Opt, V};
