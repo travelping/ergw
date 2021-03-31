@@ -562,7 +562,7 @@ sx_nodes_up(N, Cnt) ->
 	Nodes when map_size(Nodes) =:= N ->
 	    ok;
 	_Nodes ->
-	    ct:sleep(50),
+	    ct:sleep(100),
 	    sx_nodes_up(N, Cnt - 1)
     end.
 
