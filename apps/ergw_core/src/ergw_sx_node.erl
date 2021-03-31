@@ -954,10 +954,10 @@ send_notify_up(Notify, #data{notify_up = NotifyUp} = Data) ->
 node_caps(#data{ip_pools = Pools, vrfs = VRFs}) ->
     {VRFs, ordsets:from_list(Pools)}.
 
-select_node_ip(IP4, _IP6) when length(IP4) /= 0 ->
+select_node_ip([_|_] = IP4, _IP6) ->
     {IP, _} = lb(random, IP4),
     IP;
-select_node_ip(_IP4, IP6) when length(IP6) /= 0 ->
+select_node_ip(_IP4, [_|_] = IP6) ->
     {IP, _} = lb(random, IP6),
     IP;
 select_node_ip(_IP4, _IP6) ->

@@ -127,10 +127,8 @@ select_sx_proxy_candidate({GwNode, _}, #{upfSelectionAPN := APN} = ProxyInfo,
     Candidates0 = ergw_node_selection:candidates(APN_FQDN, Services, NodeSelect),
     PGWCandidate = [{GwNode, 0, Services, [], []}],
     case ergw_node_selection:topology_match(Candidates0, PGWCandidate) of
-	{_, C} when is_list(C), length(C) /= 0 ->
-	    C;
-	{C, _} when is_list(C), length(C) /= 0 ->
-	    C;
+	{_, [_|_] = C} -> C;
+	{[_|_] = C, _} -> C;
 	_ ->
 	    %% neither colocation, not topology matched
 	    Candidates0
