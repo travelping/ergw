@@ -27,9 +27,7 @@
 
 -include_lib("kernel/include/logger.hrl").
 -include_lib("stdlib/include/ms_transform.hrl").
-
--define(IS_IPv4(X), (is_tuple(X) andalso tuple_size(X) == 4)).
--define(IS_IPv6(X), (is_tuple(X) andalso tuple_size(X) == 8)).
+-include("ergw_core_config.hrl").
 
 -define(ZERO_IPv4, {0,0,0,0}).
 -define(ZERO_IPv6, {0,0,0,0,0,0,0,0}).
@@ -145,7 +143,7 @@ validate_ip_range(Opts) ->
     erlang:error(badarg, [Opts]).
 
 validate_option(ranges, Ranges)
-  when is_list(Ranges), length(Ranges) /= 0 ->
+  when length(Ranges) /= 0 ->
     [validate_ip_range(X) || X <- Ranges];
 validate_option(Opt, Value)
   when Opt == 'MS-Primary-DNS-Server';   Opt == 'MS-Secondary-DNS-Server';

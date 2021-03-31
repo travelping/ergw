@@ -22,6 +22,7 @@
 	 lookup/2]).
 
 -include_lib("kernel/include/logger.hrl").
+-include("ergw_core_config.hrl").
 
 -ifdef(TEST).
 -export([lookup_naptr/3, colocation_match/2, naptr/2]).
@@ -172,14 +173,6 @@ snaptr_candidate(Candidates) ->
 %%% Options Validation
 %%%===================================================================
 
--define(is_opts(X), (is_list(X) orelse is_map(X))).
--define(non_empty_opts(X), ((is_list(X) andalso length(X) /= 0) orelse
-			    (is_map(X) andalso map_size(X) /= 0))).
-
--define(IS_IP(X), (is_tuple(X) andalso (tuple_size(X) == 4 orelse tuple_size(X) == 8))).
--define(IS_IPv4(X), (is_tuple(X) andalso tuple_size(X) == 4)).
--define(IS_IPv6(X), (is_tuple(X) andalso tuple_size(X) == 8)).
-
 validate_options(Opts) when ?is_opts(Opts) ->
     ergw_core_config:validate_options(fun validate_options/2, Opts, []);
 validate_options(Opts) ->
@@ -271,7 +264,7 @@ validate_naptr(preference, Value) when is_integer(Value) ->
 validate_naptr(service, Value) when is_atom(Value) ->
     validate_service(Value),
     Value;
-validate_naptr(protocols = Opt, Value) when ?non_empty_opts(Value) ->
+validate_naptr(protocols = Opt, Value) when ?is_non_empty_opts(Value) ->
     ergw_core_config:check_unique_elements(Opt, Value),
     [validate_protocol(V) || V <- Value],
     Value;

@@ -18,12 +18,7 @@
 	 get/2, put/2
 	]).
 
--define(is_opts(X), (is_list(X) orelse is_map(X))).
--define(non_empty_opts(X), ((is_list(X) andalso length(X) /= 0) orelse
-			    (is_map(X) andalso map_size(X) /= 0))).
-
--define(IS_IPv4(X), (is_tuple(X) andalso tuple_size(X) == 4)).
--define(IS_IPv6(X), (is_tuple(X) andalso tuple_size(X) == 8)).
+-include("ergw_core_config.hrl").
 
 %%%===================================================================
 %%% API

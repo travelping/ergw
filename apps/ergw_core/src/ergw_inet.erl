@@ -12,7 +12,8 @@
 	 ipv6_prefix/1, ipv6_prefix/2]).
 -export([ip_csum/1, make_udp/5]).
 
--define(IS_IPv6(X), (is_tuple(X) andalso tuple_size(X) == 8)).
+-include("ergw_core_config.hrl").
+
 -define(IPPROTO_UDP, 17).
 
 %%====================================================================

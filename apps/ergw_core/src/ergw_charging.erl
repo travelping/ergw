@@ -14,13 +14,11 @@
 	 is_enabled/1,
 	 rulebase/0]).
 
+-include("ergw_core_config.hrl").
+
 %%%===================================================================
 %%% Options Validation
 %%%===================================================================
-
--define(is_opts(X), (is_list(X) orelse is_map(X))).
--define(non_empty_opts(X), ((is_list(X) andalso length(X) /= 0) orelse
-			    (is_map(X) andalso map_size(X) /= 0))).
 
 -define(DefaultProfile, [{online, []}, {offline, []}]).
 -define(DefaultRulebase, []).
@@ -60,7 +58,7 @@ validate_rule_def('Offline-Rating-Group', [Value] = V)
   when is_integer(Value), Value >= 0 ->
     V;
 validate_rule_def('Flow-Information', Value)
-  when is_list(Value), length(Value) /= 0 ->
+  when length(Value) /= 0 ->
     Value;
 %% validate_rule_def('Default-Bearer-Indication', [Value] = V) ->
 %%     V;
@@ -125,7 +123,7 @@ validate_rule_def(AVP, Value) ->
     erlang:error(badarg, [AVP, Value]).
 
 validate_rule(Key, Opts)
-  when is_binary(Key), ?non_empty_opts(Opts) ->
+  when is_binary(Key), ?is_non_empty_opts(Opts) ->
     %% 3GPP TS 29.212 Charging-Rule-Definition AVP in Erlang terms
     ergw_core_config:validate_options(fun validate_rule_def/2, Opts, []);
 validate_rule(Key, Opts) ->

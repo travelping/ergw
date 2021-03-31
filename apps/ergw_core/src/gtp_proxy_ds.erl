@@ -23,6 +23,7 @@
 	 terminate/2, code_change/3]).
 
 -include_lib("kernel/include/logger.hrl").
+-include("ergw_core_config.hrl").
 
 -define(SERVER, ?MODULE).
 
@@ -63,10 +64,6 @@ map(Handler, ProxyInfo) ->
 %%% Options Validation
 %%%===================================================================
 
--define(is_opts(X), (is_list(X) orelse is_map(X))).
--define(non_empty_opts(X), ((is_list(X) andalso length(X) /= 0) orelse
-			    (is_map(X) andalso map_size(X) /= 0))).
-
 validate_options(Values) ->
     ergw_core_config:validate_options(fun validate_option/2, Values, []).
 
@@ -86,9 +83,9 @@ validate_apn([From|_], [To|_] = APN) when is_binary(From), is_binary(To) ->
 validate_apn(From, To) ->
     erlang:error(badarg, [From, To]).
 
-validate_option(imsi, Opts) when ?non_empty_opts(Opts) ->
+validate_option(imsi, Opts) when ?is_non_empty_opts(Opts) ->
     ergw_core_config:validate_options(fun validate_imsi/2, Opts, []);
-validate_option(apn, Opts) when ?non_empty_opts(Opts) ->
+validate_option(apn, Opts) when ?is_non_empty_opts(Opts) ->
     ergw_core_config:validate_options(fun validate_apn/2, Opts, []);
 validate_option(Opt, Value) ->
     erlang:error(badarg, [Opt, Value]).

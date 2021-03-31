@@ -47,6 +47,7 @@
 -include_lib("ergw_aaa/include/ergw_aaa_3gpp.hrl").
 -include_lib("ergw_aaa/include/diameter_3gpp_ts29_212.hrl").
 -include_lib("ergw_aaa/include/diameter_3gpp_ts32_299.hrl").
+-include("ergw_core_config.hrl").
 -include("include/ergw.hrl").
 
 -export_records([context, tdf_ctx, tunnel, bearer, fq_teid]).
@@ -54,9 +55,6 @@
 -define(SECONDS_PER_DAY, 86400).
 -define(DAYS_FROM_0_TO_1970, 719528).
 -define(SECONDS_FROM_0_TO_1970, (?DAYS_FROM_0_TO_1970*?SECONDS_PER_DAY)).
-
--define(IS_IPv4(X), (is_tuple(X) andalso tuple_size(X) == 4)).
--define(IS_IPv6(X), (is_tuple(X) andalso tuple_size(X) == 8)).
 
 -define(ZERO_IPv4, {0,0,0,0}).
 -define(ZERO_IPv6, {0,0,0,0,0,0,0,0}).

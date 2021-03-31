@@ -18,9 +18,7 @@
 -endif.
 
 -include_lib("kernel/include/logger.hrl").
-
--define(IS_IPv4(X), (is_tuple(X) andalso tuple_size(X) == 4)).
--define(IS_IPv6(X), (is_tuple(X) andalso tuple_size(X) == 8)).
+-include("ergw_core_config.hrl").
 
 %%====================================================================
 %% Behavior spec
@@ -69,8 +67,6 @@ static_ip(IP, PrefixLen) ->
 %%%====================================================================
 %%% Options Validation
 %%%===================================================================
-
--define(is_opts(X), (is_list(X) orelse is_map(X))).
 
 validate_options(_Name, Values0)
   when ?is_opts(Values0) ->
