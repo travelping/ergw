@@ -67,7 +67,7 @@ jobs:
                   quay.io/travelping/ergw-dns-test-server:latest
            rebar3 do xref
            rebar3 do ct
-           rebar3 do ct --name test@127.0.0.1 --suite=pgw_dist_SUITE --group=ipv4 --case=simple_session_request
+           rebar3 do ct --name test@127.0.0.1 --suite=apps/ergw_core/test/pgw_dist_SUITE
     - name: Coveralls
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

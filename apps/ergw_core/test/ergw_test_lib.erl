@@ -14,7 +14,8 @@
 -export([lib_init_per_group/1,
 	 lib_end_per_group/1,
 	 update_app_config/3,
-	 load_config/1]).
+	 load_config/1,
+	 init_apps/1]).
 -export([meck_init/1,
 	 meck_init_hut_handle_request/1,
 	 meck_reset/1,
@@ -87,8 +88,7 @@ lib_init_per_group(Config0) ->
     ok = ergw_cluster:start([{enabled, false}]),
     ergw_cluster:wait_till_running(),
 
-    init_app(ergw_aaa, fun ergw_aaa_init/1, AppCfg),
-    init_app(ergw_core, fun ergw_core_init/1, AppCfg),
+    init_apps(AppCfg),
 
     case proplists:get_value(upf, Config, true) of
 	true ->
@@ -113,6 +113,11 @@ lib_end_per_group(Config) ->
     ok = ergw_test_sx_up:stop('tdf-u'),
     ?config(table_owner, Config) ! stop,
     [application:stop(App) || App <- [ranch, cowboy, ergw_core, ergw_aaa, ergw_cluster]],
+    ok.
+
+init_apps(AppCfg) ->
+    init_app(ergw_aaa, fun ergw_aaa_init/1, AppCfg),
+    init_app(ergw_core, fun ergw_core_init/1, AppCfg),
     ok.
 
 clear_app_env(App)

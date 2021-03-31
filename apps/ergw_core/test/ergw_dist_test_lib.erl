@@ -16,6 +16,7 @@
 	 init_per_group/1,
 	 end_per_group/1,
 	 node_init_per_group/2,
+	 node_init_apps_per_group/2,
 	 node_end_per_group/2,
 	 random_node/2,
 	 random_node/4,
@@ -85,8 +86,10 @@ init_per_suite(Config) ->
     NodeCnt = proplists:get_value(node_count, Config, 3),
     Nodes = [{Id, mk_node_id(Id)} || Id <- lists:seq(0, NodeCnt - 1)],
     lists:foreach(fun start_node/1, Nodes),
-    case code:is_loaded(cthr) of
-	{file, _} ->
+
+    %% needed because of rebar3 parse transform for ct:pal
+    case code:ensure_loaded(cthr) of
+	{module, _} ->
 	    {Module, Binary, Filename} = code:get_object_code(cthr),
 	    {_, NodeNames} = lists:unzip(Nodes),
 	    erpc:multicall(NodeNames, code, load_binary, [Module, Filename, Binary]),
@@ -142,18 +145,20 @@ node_init_per_group(Id, Config) ->
     [application:load(App) || App <- [cowboy, ergw_core, ergw_aaa, riak_core]],
     ergw_test_lib:load_config(per_node_config(Id, AppCfg)),
     {ok, _} = application:ensure_all_started(ergw_core),
+    ergw_cluster:wait_till_ready(),
+    ok = ergw_cluster:start([{enabled, false}]),
+    ergw_cluster:wait_till_running(),
+    ok.
 
-    L1 = [{A, application:get_all_env(A)} || A <- [kernel, riak_core, ergw_core, ergw_aaa]],
-    M1 = #{node => node()},
-    maps:merge(M1, maps:from_list(L1)),
-
-    ergw_core:wait_till_ready(),
+node_init_apps_per_group(Id, Config) ->
+    {_, AppCfg} = lists:keyfind(app_cfg, 1, Config),   %% let it crash if undefined
+    ergw_test_lib:init_apps(per_node_config(Id, AppCfg)),
 
     {ok, AppsCfg} = application:get_env(ergw_aaa, apps),
     {{aaa_cfg, Id}, AppsCfg}.
 
 node_end_per_group(_Id, _Config) ->
-    [application:stop(App) || App <- [ranch, cowboy, ergw_core, ergw_aaa, riak_core]],
+    [application:stop(App) || App <- [ranch, cowboy, ergw_core, ergw_aaa, ergw_cluster, riak_core]],
     ok.
 
 init_per_group(Config) ->
@@ -172,8 +177,9 @@ init_per_group(Config) ->
 	    ok = ergw_test_sx_up:stop('tdf-u')
     end,
 
-    NodeInit = foreach_node(Config, ?MODULE, node_init_per_group, [Config]),
+    foreach_node(Config, ?MODULE, node_init_per_group, [Config]),
     build_cluster(Config),
+    NodeInit = foreach_node(Config, ?MODULE, node_init_apps_per_group, [Config]),
     MasterCfg = ergw_test_lib:init_ets(Config),
 
     lists:foldl(
@@ -196,7 +202,7 @@ end_per_group(Config) ->
 -define(NODE_OPTS, [%%{[riak_core, ring_state_dir], riak_node_dir},
 		    {[kernel, logger, '_', config, file], log},
 		    {[riak_core, handoff_ip], ip},
-		    {[ergw_core, node_id], node_id},
+		    {[ergw_core, node, node_id], node_id},
 		    {[ergw_core, sockets, '_', ip], ip}
 		   ]).
 
@@ -211,7 +217,7 @@ gen_per_node_opt(_, log, V) ->
 gen_per_node_opt(_, riak_node_dir, _) ->
     filename:join([".", "data", node()]);
 gen_per_node_opt(Id, node_id, V) ->
-    lists:flatten(
+    iolist_to_binary(
       io_lib:format("node~2.10.0w.~s", [Id, V]));
 gen_per_node_opt(Id, ip, IP) ->
     make_ip(Id, IP).
