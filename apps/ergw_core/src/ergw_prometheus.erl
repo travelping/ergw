@@ -20,6 +20,8 @@
 
 -export([termination_cause/2]).
 
+-ignore_xref([validate_options/1]).
+
 -include("include/ergw.hrl").
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include_lib("pfcplib/include/pfcp_packet.hrl").

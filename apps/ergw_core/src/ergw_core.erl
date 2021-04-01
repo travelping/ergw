@@ -12,7 +12,7 @@
 -behavior(gen_statem).
 
 %% API
--export([start_link/0, start_node/1, validate_options/1]).
+-export([start_link/0, start_node/1]).
 -export([wait_till_running/0, is_running/0]).
 -export([setopts/2,
 	 add_socket/2,
@@ -30,10 +30,10 @@
 -export([i/0, i/1, i/2]).
 
 -ifdef(TEST).
--export([start/0]).
+-export([start/0, validate_options/1]).
 -endif.
 
--ignore_xref([start_link/0, i/0, i/1, i/2]).
+-ignore_xref([start_link/0, i/0, i/1, i/2, is_running/0, get_teid_config/0]).
 
 %% gen_statem callbacks
 -export([callback_mode/0, init/1, handle_event/4,

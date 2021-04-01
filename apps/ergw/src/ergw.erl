@@ -12,13 +12,15 @@
 -compile({parse_transform, do}).
 
 %% API
--export([start_link/1,
-	 wait_till_ready/0,
-	 wait_till_running/0,
-	 is_ready/0,
-	 is_running/0]).
+-export([start_link/1, is_ready/0]).
 
 -ignore_xref([start_link/1]).
+
+-ifdef(TEST).
+-export([wait_till_ready/0,
+	 wait_till_running/0,
+	 is_running/0]).
+-endif.
 
 %% gen_statem callbacks
 -export([callback_mode/0, init/1, handle_event/4,
@@ -35,17 +37,19 @@
 start_link(Config) ->
     gen_statem:start_link({local, ?SERVER}, ?MODULE, Config, []).
 
+is_ready() ->
+    gen_statem:call(?SERVER, is_ready).
+
+-ifdef(TEST).
 wait_till_ready() ->
     ok = gen_statem:call(?SERVER, wait_till_ready, infinity).
 
 wait_till_running() ->
     ok = gen_statem:call(?SERVER, wait_till_running, infinity).
 
-is_ready() ->
-    gen_statem:call(?SERVER, is_ready).
-
 is_running() ->
     gen_statem:call(?SERVER, is_running).
+-endif.
 
 %%%===================================================================
 %%% gen_statem callbacks
