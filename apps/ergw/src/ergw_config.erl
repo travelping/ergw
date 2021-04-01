@@ -13,22 +13,19 @@
 -compile({no_auto_import,[put/2]}).
 
 %% API
--export([load/0,
-	 apply/1,
-	 %% ergw_core_init/1,
-	 normalize_meta/1,
-	 serialize_config/1,
-	 serialize_config/2,
-	 coerce_config/1,
-	 coerce_config/2
-	]).
+-export([load/0, apply/1, serialize_config/1]).
 
 -ifdef(TEST).
--export([config_meta/0, load_schemas/0, validate_config_with_schema/1]).
+-export([config_meta/0,
+	 load_schemas/0,
+	 validate_config_with_schema/1,
+	 normalize_meta/1,
+	 serialize_config/2,
+	 coerce_config/1,
+	 coerce_config/2]).
 -endif.
 
--type(meta() :: term()).
--export_type([meta/0]).
+-ignore_xref([serialize_config/1]).
 
 -include_lib("kernel/include/logger.hrl").
 -include_lib("parse_trans/include/exprecs.hrl").

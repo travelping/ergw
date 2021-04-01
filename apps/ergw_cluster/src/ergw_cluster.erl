@@ -12,16 +12,17 @@
 -compile({parse_transform, do}).
 
 %% API
--export([start_link/0,
-	 start/1, start/2,
+-export([start_link/0, start/1,
 	 validate_options/1,
 	 get_ra_node_id/0,
 	 wait_till_ready/0,
-	 wait_till_running/0,
-	 is_ready/0,
-	 is_running/0]).
+	 is_ready/0]).
 
--ignore_xref([start_link/0]).
+-ignore_xref([start_link/0, validate_options/1]).
+
+-ifdef(TEST).
+-export([start/2, wait_till_running/0, is_running/0]).
+-endif.
 
 %% gen_statem callbacks
 -export([callback_mode/0, init/1, handle_event/4,
@@ -48,14 +49,16 @@ start(Config, Timeout) ->
 wait_till_ready() ->
     ok = gen_statem:call(?SERVER, wait_till_ready, infinity).
 
-wait_till_running() ->
-    ok = gen_statem:call(?SERVER, wait_till_running, infinity).
-
 is_ready() ->
     gen_statem:call(?SERVER, is_ready).
 
+-ifdef(TEST).
+wait_till_running() ->
+    ok = gen_statem:call(?SERVER, wait_till_running, infinity).
+
 is_running() ->
     gen_statem:call(?SERVER, is_running).
+-endif.
 
 %%%===================================================================
 %%% Options Validation

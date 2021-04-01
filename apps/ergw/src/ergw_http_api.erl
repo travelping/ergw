@@ -10,6 +10,8 @@
 %% API
 -export([init/1, validate_options/1]).
 
+-ignore_xref([init/1, validate_options/1]).
+
 -include_lib("kernel/include/logger.hrl").
 
 init(undefined) ->
