@@ -579,9 +579,9 @@
 	]).
 
 -define(CONFIG_UPDATE,
-	[{[sockets, 'cp-socket', ip], localhost},
+	[{[sockets, 'cp-socket', ip], test_gsn},
 	 {[sockets, 'irx-socket', ip], test_gsn},
-	 {[sockets, sx, ip], localhost},
+	 {[sockets, sx, ip], test_gsn},
 	 {[node_selection, default, entries, {name, <<"topon.s5s8.pgw.epc.mnc001.mcc001.3gppnetwork.org">>}],
 	  {fun node_sel_update/2,  final_gsn}},
 	 {[node_selection, default, entries, {name, <<"topon.sx.prox01.epc.mnc001.mcc001.3gppnetwork.org">>}],

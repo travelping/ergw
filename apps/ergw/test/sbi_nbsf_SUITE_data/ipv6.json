@@ -632,7 +632,7 @@
                 {
                     "ip4":[],
                     "ip6":[
-                        "fd96:dcd2:efdb:41c3::20:1"
+                        "fd96:dcd2:efdb:41c3::10:2"
                     ],
                     "name":"topon.sx.prox01.epc.mnc001.mcc001.3gppnetwork.org",
                     "type":"host"
@@ -648,7 +648,7 @@
                 {
                     "ip4":[],
                     "ip6":[
-                        "fd96:dcd2:efdb:41c3::20:2"
+                        "fd96:dcd2:efdb:41c3::10:3"
                     ],
                     "name":"topon.sx.prox03.epc.mnc001.mcc001.3gppnetwork.org",
                     "type":"host"
@@ -691,7 +691,7 @@
         {
             "burst_size":10,
             "ip":{
-                "ipv6Addr":"::1"
+                "ipv6Addr":"fd96:dcd2:efdb:41c3::20:1"
             },
             "name":"sx",
             "reuseaddr":true,
@@ -701,7 +701,7 @@
         {
             "burst_size":10,
             "ip":{
-                "ipv6Addr":"::1"
+                "ipv6Addr":"fd96:dcd2:efdb:41c3::20:1"
             },
             "name":"irx-socket",
             "reuseaddr":true,
@@ -715,7 +715,7 @@
         {
             "burst_size":10,
             "ip":{
-                "ipv6Addr":"::1"
+                "ipv6Addr":"fd96:dcd2:efdb:41c3::20:1"
             },
             "name":"cp-socket",
             "reuseaddr":true,
