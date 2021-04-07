@@ -178,7 +178,7 @@ api_suites() ->
 groups() ->
     [{api, [], api_suites()},
      {static, [], lookup_suites()},
-     {dns, [], lookup_suites() ++ [srv_lookup, srv_lookup_no_final_a]}].
+     {dns, [], lookup_suites() ++ [srv_lookup, srv_lookup_no_final_a, no_error_empty_data]}].
 
 all() ->
     [{group, api},
@@ -209,7 +209,7 @@ init_per_group(dns, Config) ->
 	    {ok, ServerIP} = inet:parse_address(Server),
 	    NodeSelection = #{default => #{type => dns, server => ServerIP, port => 53}},
 	    ok = ergw_inet_res:load_config(NodeSelection),
-	    [{cache_server, Pid} | Config];
+	    [{cache_server, Pid}, {server, ServerIP} | Config];
 	false ->
 	    {skip, "DNS test server not configured"}
     end;
@@ -370,6 +370,26 @@ lb_entry_stats(_Config) ->
 			    {_, V} <- maps:to_list(Stats)])),
     %% lets be gratious and accept a 10% deviantion from the expected mean
     Max > 0.1 andalso ct:fail("SNAPTR selection unbalanced"),
+    ok.
+
+no_error_empty_data() ->
+    [{doc, "Check that NO-ERROR EMPTY-DATA responses get cached"}].
+no_error_empty_data(Config) ->
+    ServerIP = proplists:get_value(server, Config),
+    Name = <<"example.apn.epc.mnc001.mcc001.3gppnetwork.org">>,
+
+    %% make sure the server is not returning a nxdomain error
+    Opts = [usevc, {nameservers, [{ServerIP,53}]}],
+    Check = inet_res:resolve(binary_to_list(Name), in, aaaa, Opts),
+    ?match({ok, _}, Check),
+
+    Res1 = ergw_inet_res:resolve(Name, default, in, aaaa),
+    Cached = ergw_inet_res:match(ergw_inet_res:make_rr_key(Name, default, in, aaaa)),
+    Res2 = ergw_inet_res:resolve(Name, default, in, aaaa),
+
+    ?match({error, nxdomain}, Res1),
+    ?match({error, nxdomain}, Cached),
+    ?match({error, nxdomain}, Res2),
     ok.
 
 %%%===================================================================
