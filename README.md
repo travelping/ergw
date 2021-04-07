@@ -490,38 +490,6 @@ Eshell V11.0.3  (abort with ^G)
 
 The configuration is documented in [CONFIG.md](CONFIG.md)
 
-## RUNNING UNIT TEST
-
-Unit test can be run local with:
-
-```sh
-$ rebar ct
-```
-
-In order to run the IPv6 a number of locap IPv6 addresses have to be added to the host.
-Check [.github/workflows/main.yml](.github/workflows/main.yml) or [.gitlab-ci.yml](.gitlab-ci.yml) the list.
-
-The DNS resolver tests can be run with a local DNS server. The docker image use with
-the CI test can also be use for that.
-
-Run it with:
-```sh
-docker run -d --rm \
-        --name=bind9 \
-        --publish 127.0.10.1:53:53/udp \
-        --publish 127.0.10.1:53:53/tcp \
-        --publish 127.0.10.1:953:953/tcp \
-        quay.io/travelping/ergw-dns-test-server:latest
-```
-
-and
-
-```sh
-export CI_DNS_SERVER=127.0.10.1
-```
-
-before running the unit tests.
-
 <!-- Badges -->
 [gh]: https://github.com/travelping/ergw/actions/workflows/main.yml
 [gh badge]: https://img.shields.io/github/workflow/status/travelping/ergw/CI?style=flat-square

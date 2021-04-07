@@ -82,15 +82,12 @@ groups() ->
 init_per_suite(Config) ->
     application:load(ergw),
     application:set_env(ergw, node_selection, ?ERGW_NODE_SELECTION),
-    {ok, Pid} = ergw_inet_res:start(),
     ok = meck:new(ergw, [passthrough, no_link]),
     ok = meck:expect(ergw, get_plmn_id, fun() -> {<<"001">>, <<"01">>} end),
-    [{cache_server, Pid} | Config].
+    Config.
 
-end_per_suite(Config) ->
+end_per_suite(_Config) ->
     meck:unload(ergw),
-    Pid = proplists:get_value(cache_server, Config),
-    exit(Pid, kill),
     ok.
 
 %%%===================================================================

@@ -1,10 +1,15 @@
 erGW - 3GPP GGSN and PDN-GW in Erlang
 =====================================
+Version 2.8.10 - 7 April 2021
+-------------------------------
+**Bugfixes** :bug:
+* [cfdf116](https://github.com/travelping/ergw/commit/cfdf1162fbdc3d955f26b85bf6f2ce23c4a4f942) DNS lookup responses with no answer records are not cached
+> As a temporary fix, the simple DNS cache is used on this patch release.
 
 Version 2.8.9 - 25 March 2021
 -------------------------------
 **Improvements** :bulb:
-* [343](https://github.com/travelping/ergw/pull/343) Update `alpine` to `3.13` for `Dockerfile`
+* [#343](https://github.com/travelping/ergw/pull/343) Update `alpine` to `3.13` for `Dockerfile`
 > (C) musl-1.2.1.tar.gz (sig) - August 4, 2020
   This release features the new "mallocng" malloc implementation, replacing musl's original
   dlmalloc-like allocator that suffered from fundamental design problems. Its major user-facing

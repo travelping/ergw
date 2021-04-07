@@ -2616,18 +2616,16 @@ dns_node_selection(Config) ->
 			meck:passthrough([Opts#{node_selection => [mydns]}, Data])
 		end),
 
-    DNSrr = fun (Name, a, IP) when tuple_size (IP) == 4 ->
-		    {ok, {dns_rec, {dns_header, 1, true, query, false, false, true, true, false, 0},
-			  [{dns_query, Name, a, in}],
-			  [{dns_rr, Name, a, in, 0, 8595, IP, undefined, [], false}],
-			  [], []}};
-		(Name, aaaa, IP) when tuple_size (IP) == 8 ->
-		    {ok, {dns_rec, {dns_header, 1, true, query, false, false, true, true, false, 0},
-			  [{dns_query, Name, aaaa, in}],
-			  [{dns_rr, Name, aaaa, in, 0, 8595, IP, undefined, [], false}],
-			  [], []}};
-		(_, _, _) ->
-		    {error, nxdomain}
+    DNSrr = fun (Name, IP) when tuple_size (IP) == 4 ->
+		    {dns_rec, {dns_header, 1, true, query, false, false, true, true, false, 0},
+		     [{dns_query, Name, any, in}],
+		     [{dns_rr, Name, a, in, 0, 8595, IP, undefined, [], false}],
+		     [], []};
+		(Name, IP) when tuple_size (IP) == 8 ->
+		    {dns_rec, {dns_header, 1, true, query, false, false, true, true, false, 0},
+		     [{dns_query, Name, any, in}],
+		     [{dns_rr, Name, aaaa, in, 0, 8595, IP, undefined, [], false}],
+		     [], []}
 	    end,
 
     meck:expect(
@@ -2638,45 +2636,38 @@ dns_node_selection(Config) ->
 		    [{dns_rr, ?ProxyV, naptr, in, 0, 593,
 		      {100, 100, "a", "x-3gpp-pgw:x-s8-gtp:x-gn-gtp:x-gp", [], ?PGW},
 		      undefined, [], false}],
-		    [{dns_rr,"epc.mnc022.mcc222.3gppnetwork.org", soa, in, 0, 3600,
-		      {"epc.mnc022.mcc222.3gppnetwork.org",
-		       "administrator.example.com", 1, 3600, 15, 604800, 3600},
-		      undefined,[],false},
-		     {dns_rr, "epc.mnc022.mcc222.3gppnetwork.org", ns, in, 0, 593,
+		    [{dns_rr, "epc.mnc022.mcc222.3gppnetwork.org", ns, in, 0, 593,
 		      "dns1.mnc022.mcc222.3gppnetwork.org", undefined, [], false},
 		     {dns_rr, "epc.mnc022.mcc222.3gppnetwork.org", ns, in, 0, 593,
 		      "dns0.mnc022.mcc222.3gppnetwork.org", undefined, [], false}],
 		    []}};
-	  (?PGW, in, Type, _Opts) when Type =:= a; Type =:= aaaa ->
-	      ct:pal("Resolve: ~0p", [{?PGW, in, Type, _Opts}]),
-	      DNSrr(?PGW, Type, proplists:get_value(final_gsn, Config));
+	  (?PGW, in, any, _Opts) ->
+	      {ok, DNSrr(?PGW, proplists:get_value(final_gsn, Config))};
 	  (?ProxyH, in, naptr, _Opts) ->
 	      {ok, {dns_rec, {dns_header, 7509, true, query, false, false, true, true, false, 0},
 		    [{dns_query, ?ProxyH, naptr, in}],
 		    [{dns_rr, ?ProxyH, naptr, in, 0, 593,
 		      {100, 100, "a", "x-3gpp-upf:x-sxa:x-sxb", [], ?UPF},
 		      undefined, [], false}],
-		    [{dns_rr,"epc.mnc001.mcc001.3gppnetwork.org", soa, in, 0, 3600,
-		      {"epc.mnc001.mcc001.3gppnetwork.org",
-		       "administrator.example.com", 1, 3600, 15, 604800, 3600},
-		      undefined,[],false},
-		     {dns_rr, "epc.mnc001.mcc001.3gppnetwork.org", ns, in, 0, 593,
+		    [{dns_rr, "epc.mnc001.mcc001.3gppnetwork.org", ns, in, 0, 593,
 		      "dns1.mnc001.mcc001.3gppnetwork.org", undefined, [], false},
 		     {dns_rr, "epc.mnc001.mcc001.3gppnetwork.org", ns, in, 0, 593,
 		      "dns0.mnc001.mcc001.3gppnetwork.org", undefined, [], false}],
 		    []}};
-	  (?UPF, in, Type, _Opts) when Type =:= a; Type =:= aaaa ->
-	      DNSrr(?UPF, Type, proplists:get_value(pgw_u02_sx, Config));
+	  (?UPF, in, any, _Opts) ->
+	      {ok, DNSrr(?UPF, proplists:get_value(pgw_u02_sx, Config))};
 	  (Name, Class, Type, Opts) ->
 	      meck:passthrough([Name, Class, Type, Opts])
       end),
+
+    StartTS = erlang:monotonic_time(millisecond),
 
     lists:foreach(
 	fun(_) ->
 	    {GtpC, _, _} = create_session(Config),
 	    delete_session(GtpC)
 	end,
-	lists:seq(1, 10 + rand:uniform(10))
+	lists:seq(1,10)
     ),
 
     timer:sleep(1100),
@@ -2684,7 +2675,25 @@ dns_node_selection(Config) ->
     {GtpC3, _, _} = create_session(Config),
     delete_session(GtpC3),
 
-    ?equal(6, meck:num_calls(inet_res, resolve, '_')),
+    StopTS = erlang:monotonic_time(millisecond),
+    Duration = StopTS - StartTS,
+
+    % 4 DNS requests to start with (it'll remember Sx node name then)
+    % then 3 for each time it needs to resolve further
+    % since the cache time check is on exact second, it can be
+    % total 7 or 10 if the test is done just before change
+    % of second
+    % values get higher if the test runs too slow
+
+    case meck:num_calls(inet_res, resolve, '_') of
+	 7 -> ok;
+	10 -> ok;
+	NCalls when Duration > 3000 ->
+	    ct:pal("test too slow, calls ~w, durations ~w ms", [NCalls, Duration]);
+	NCalls ->
+	    ct:fail("expected 7 or 10 calls, got calls ~w, durations ~w ms",
+		    [NCalls, Duration])
+    end,
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
