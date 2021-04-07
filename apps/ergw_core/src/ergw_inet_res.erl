@@ -15,7 +15,7 @@
 -export([start_link/0, load_config/1, resolve/4]).
 
 -ifdef(TEST).
--export([start/0]).
+-export([start/0, match/1, make_rr_key/4]).
 -endif.
 
 -ignore_xref([start_link/0, start/0]).
@@ -279,6 +279,23 @@ make_cache_entry(Selection, RR0, Entries) ->
 make_cache_entries(Selection, List, Entries) ->
     lists:foldl(make_cache_entry(Selection, _, _), Entries, List).
 
+make_neg_cache_entry(Selection, TTL, Query, Entries) ->
+    Name = lowercase(inet_dns:dns_query(Query, domain)),
+    Class = inet_dns:dns_query(Query, class),
+    Type = inet_dns:dns_query(Query, type),
+    Key = make_rr_key(Name, Selection, Class, Type),
+    Entry = #entry{key = Key, ttl = TTL, answer = {error, nxdomain}},
+    maps:update_with(Key, update_cache_entry(Entry, _), Entry, Entries).
+
+make_neg_cache_entries(Now, Selection, QDList, NS, Entries) ->
+    SOAs = lists:filter(
+		fun(RR) -> inet_dns:rr(RR, type) =:= soa end, NS),
+    TTL = case SOAs of
+	      [SOA] -> soa_ttl(Now, SOA) - Now;
+	      _     -> ?NEG_CACHE_TTL
+	  end,
+    lists:foldl(make_neg_cache_entry(Selection, TTL, _, _), Entries, QDList).
+
 res_resolve(Name, Selection, Class, Type, NsOpts) ->
     case inet_res:resolve(binary_to_list(Name), Class, Type, [{usevc, true} | NsOpts]) of
 	{error, nxdomain} = Error ->
@@ -295,10 +312,19 @@ res_resolve(Name, Selection, Class, Type, NsOpts) ->
 
 res_cache_answer(Selection, Msg) ->
     Now = erlang:monotonic_time(second),
-    AN = msg_rr_list(Msg, anlist),
-    Entries0 = make_cache_entries(Selection, AN, #{}),
+    NS = msg_rr_list(Msg, nslist),
+    AN = case msg_rr_list(Msg, anlist) of
+	     []  -> {error, nxdomain};
+	     AN0 -> AN0
+	 end,
+    Entries0 =
+	if not is_list(AN) ->
+		make_neg_cache_entries(Now, Selection, inet_dns:msg(Msg, qdlist), NS, #{});
+	   true ->
+		make_cache_entries(Selection, AN, #{})
+	end,
     Entries1 = make_cache_entries(Selection, msg_rr_list(Msg, arlist), Entries0),
-    Entries2 = make_cache_entries(Selection, msg_rr_list(Msg, nslist), Entries1),
+    Entries2 = make_cache_entries(Selection, NS, Entries1),
     Entries = maps:map(fun(_, #entry{ttl = TTL} = E) -> E#entry{ttl = TTL + Now} end, Entries2),
     ets:insert(?SERVER, maps:values(Entries)),
     AN.
@@ -316,6 +342,11 @@ res_neg_cache_rr(Name, Selection, Class, Type, TTL, Answer) ->
 	       answer = Answer},
     ets:insert(?SERVER, Entry).
 
+soa_ttl(Now, RR) ->
+    TTL = inet_dns:rr(RR, ttl), %% this value is already adjusted
+    {_, _, _Serial, _Refresh, _Retry, _Expire, Minimum} = inet_dns:rr(RR, data),
+    min(TTL, Now + Minimum).
+
 find_cached_soa_ttl(Now, [], _) ->
     Now + ?NEG_CACHE_TTL;
 find_cached_soa_ttl(Now, Name, Selection) ->
@@ -324,9 +355,7 @@ find_cached_soa_ttl(Now, Name, Selection) ->
 	    [_|Next] = string:split(Name, "."),
 	    find_cached_soa_ttl(Now, Next, Selection);
 	[RR] ->
-	    TTL = inet_dns:rr(RR, ttl), %% this value is already adjusted
-	    {_, _, _Serial, _Refresh, _Retry, _Expire, Minimum} = inet_dns:rr(RR, data),
-	    TTL, Now + Minimum
+	    soa_ttl(Now, RR)
     end.
 
 %% -------------------------------------------------------------------
