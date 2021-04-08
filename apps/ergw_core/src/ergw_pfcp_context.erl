@@ -152,7 +152,8 @@ session_establishment_request(Handler, PCC, PCtx0,
     ?LOG(debug, "CtxPending: ~p~n", [Ctx]),
 
     IEs0 = pfcp_pctx_update(PCtx2, PCtx0, SxRules),
-    IEs = update_m_rec(ergw_pfcp:f_seid(PCtx2, CntlNode), IEs0),
+    IEs1 = update_m_rec(ergw_pfcp:f_seid(PCtx2, CntlNode), IEs0),
+    IEs = pfcp_user_id(Ctx, IEs1),
     ?LOG(debug, "IEs: ~p~n", [IEs]),
 
     Req = #pfcp{version = v1, type = session_establishment_request, ie = IEs},
@@ -628,6 +629,12 @@ pfcp_pctx_update(#pfcp_ctx{up_inactivity_timer = UPiTnew} = PCtx,
   when UPiTold /= UPiTnew ->
     update_m_rec(ergw_pfcp:up_inactivity_timer(PCtx), IEs);
 pfcp_pctx_update(_, _, IEs) ->
+    IEs.
+
+pfcp_user_id(#context{imsi = IMSI, imei = IMEI, msisdn = MSISDN}, IEs) ->
+    IEs#{user_id => #user_id{imsi = IMSI, imei = IMEI, msisdn = MSISDN}};
+pfcp_user_id(_, IEs) ->
+    %% TDF contexts do not have user id information
     IEs.
 
 handle_validity_time(_ChargingKey,
