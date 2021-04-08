@@ -1413,7 +1413,8 @@ simple_session_request(Config) ->
 		   (_) ->false
 		end, ergw_test_sx_up:history('pgw-u01')),
 
-    ?match_map(#{create_pdr => '_', create_far => '_',  create_urr => '_'}, SER#pfcp.ie),
+    ?match_map(#{user_id => '_', create_pdr => '_',
+		 create_far => '_',  create_urr => '_'}, SER#pfcp.ie),
     #{create_pdr := PDRs0,
       create_far := FARs0,
       create_urr := URR
