@@ -208,7 +208,8 @@ handle_request(ReqKey,
     Bearer = Bearer0#{left => LeftBearer},
 
     LeftTunnel = ergw_gtp_gsn_lib:update_tunnel_endpoint(Request, LeftTunnelOld, LeftTunnel0),
-    URRActions = update_session_from_gtp_req(IEs, Session, LeftTunnel),
+    {OldSOpts, NewSOpts} = update_session_from_gtp_req(IEs, Session, LeftTunnel),
+    URRActions = gtp_context:collect_charging_events(OldSOpts, NewSOpts),
     PCtx =
 	if LeftBearer /= LeftBearerOld ->
 		case ergw_gtp_gsn_lib:apply_bearer_change(
@@ -247,7 +248,8 @@ handle_request(ReqKey,
 	end,
 
     LeftTunnel = ergw_gtp_gsn_lib:update_tunnel_endpoint(Request, LeftTunnelOld, LeftTunnel0),
-    URRActions = update_session_from_gtp_req(IEs, Session, LeftTunnel),
+    {OldSOpts, NewSOpts} = update_session_from_gtp_req(IEs, Session, LeftTunnel),
+    URRActions = gtp_context:collect_charging_events(OldSOpts, NewSOpts),
     gtp_context:trigger_usage_report(self(), URRActions, PCtx),
 
     DataNew =
@@ -268,12 +270,8 @@ handle_request(#request{src = Src, ip = IP, port = Port} = ReqKey,
 			       #v2_bearer_context{
 				  group = #{?'EPS Bearer ID' := EBI} = Bearer}} = IEs},
 	       _Resent, _State,
-	       #{context := Context, pfcp := PCtx,
-		 left_tunnel := LeftTunnel, 'Session' := Session}) ->
-    gtp_context:request_finished(ReqKey),
-
-    URRActions = update_session_from_gtp_req(IEs, Session, LeftTunnel),
-    gtp_context:trigger_usage_report(self(), URRActions, PCtx),
+	       #{context := Context, left_tunnel := LeftTunnel, 'Session' := Session}) ->
+    {OldSOpts, _} = update_session_from_gtp_req(IEs, Session, LeftTunnel),
 
     Type = update_bearer_request,
     RequestIEs0 = [AMBR,
@@ -281,7 +279,8 @@ handle_request(#request{src = Src, ip = IP, port = Port} = ReqKey,
 		      group = copy_ies_to_response(Bearer, [EBI], [?'Bearer Level QoS'])}],
     RequestIEs = gtp_v2_c:build_recovery(Type, LeftTunnel, false, RequestIEs0),
     Msg = msg(LeftTunnel, Type, RequestIEs),
-    send_request(LeftTunnel, Src, IP, Port, ?T3, ?N3, Msg#gtp{seq_no = SeqNo}, undefined),
+    send_request(
+      LeftTunnel, Src, IP, Port, ?T3, ?N3, Msg#gtp{seq_no = SeqNo}, {ReqKey, OldSOpts}),
 
     Actions = context_idle_action([], Context),
     {keep_state_and_data, Actions};
@@ -331,7 +330,7 @@ handle_request(ReqKey, _Msg, _Resent, _State, _Data) ->
     gtp_context:request_finished(ReqKey),
     keep_state_and_data.
 
-handle_response(_,
+handle_response({CommandReqKey, OldSOpts},
 		#gtp{type = update_bearer_response,
 		     ie = #{?'Cause' := #v2_cause{v2_cause = Cause},
 			    ?'Bearer Contexts to be modified' :=
@@ -340,12 +339,16 @@ handle_response(_,
 				  }} = IEs} = Response,
 		_Request, connected = State,
 		#{pfcp := PCtx, left_tunnel := LeftTunnel0, 'Session' := Session} = Data) ->
-    LeftTunnel = gtp_path:bind(Response, LeftTunnel0),
+    gtp_context:request_finished(CommandReqKey),
 
+    LeftTunnel = gtp_path:bind(Response, LeftTunnel0),
     DataNew = Data#{left_tunnel => LeftTunnel},
 
+    {_, NewSOpts} = update_session_from_gtp_req(IEs, Session, LeftTunnel),
+
     if Cause =:= request_accepted andalso BearerCause =:= request_accepted ->
-	    URRActions = update_session_from_gtp_req(IEs, Session, LeftTunnel),
+	    {_, NewSOpts} = update_session_from_gtp_req(IEs, Session, LeftTunnel),
+	    URRActions = gtp_context:collect_charging_events(OldSOpts, NewSOpts),
 	    gtp_context:trigger_usage_report(self(), URRActions, PCtx),
 	    {keep_state, DataNew};
        true ->
@@ -354,8 +357,9 @@ handle_response(_,
 	    delete_context(undefined, link_broken, State, DataNew)
     end;
 
-handle_response(_, timeout, #gtp{type = update_bearer_request}, connected = State, Data) ->
+handle_response({CommandReqKey, _}, timeout, #gtp{type = update_bearer_request}, connected = State, Data) ->
     ?LOG(error, "Update Bearer Request failed with timeout"),
+    gtp_context:request_finished(CommandReqKey),
     delete_context(undefined, link_broken, State, Data);
 
 handle_response({From, TermCause}, timeout, #gtp{type = delete_bearer_request},
@@ -639,7 +643,7 @@ update_session_from_gtp_req(IEs, Session, Tunnel)
     NewSOpts =
 	maps:fold(copy_to_session(_, _, undefined, _), NewSOpts1, IEs),
     ergw_aaa_session:set(Session, NewSOpts),
-    gtp_context:collect_charging_events(OldSOpts, NewSOpts).
+    {OldSOpts, NewSOpts}.
 
 get_context_from_req(?'Access Point Name', #v2_access_point_name{apn = APN}, Context) ->
     Context#context{apn = APN};
