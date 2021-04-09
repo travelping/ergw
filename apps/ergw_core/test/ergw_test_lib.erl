@@ -570,7 +570,8 @@ make_gtp_socket(Config) ->
     make_gtp_socket(?GTP2c_PORT, Config).
 
 make_gtp_socket(Port, IP) when is_tuple(IP) ->
-    {ok, S} = gen_udp:open(Port, [{ip, IP}, {active, false}, binary, {reuseaddr, true}]),
+    {ok, S} = gen_udp:open(Port, [{ip, IP}, {active, false}, binary,
+				  {reuseaddr, true}, {recbuf, 8388608}]),
     S;
 make_gtp_socket(Port, Config) when is_list(Config) ->
     make_gtp_socket(Port, proplists:get_value(client_ip, Config)).
