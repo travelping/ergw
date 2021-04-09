@@ -82,12 +82,14 @@
 		 {'irx-socket',
 		  [{type, 'gtp-c'},
 		   {vrf, irx},
+		   {rcvbuf, 134217728},
 		   {ip, ?MUST_BE_UPDATED},
 		   {reuseaddr, true}
 		  ]},
 
 		 {sx, [{type, 'pfcp'},
-		       {socket, cp},
+		       {rcvbuf, 134217728},
+		       {socket, 'cp-socket'},
 		       {ip, ?MUST_BE_UPDATED},
 		       {reuseaddr, true}
 		      ]}
@@ -138,25 +140,38 @@
 		      ]},
 
 	    node_selection =>
-		[{default,
-		  {static,
-		   [
-		    %% APN NAPTR alternative
-		    {<<"_default.apn.epc.mnc001.mcc001.3gppnetwork.org">>, {300,64536},
-		     [{'x-3gpp-pgw','x-s5-gtp'},{'x-3gpp-pgw','x-s8-gtp'},
-		      {'x-3gpp-pgw','x-gn'},{'x-3gpp-pgw','x-gp'}],
-		     <<"topon.s5s8.pgw.epc.mnc001.mcc001.3gppnetwork.org">>},
-		    {<<"_default.apn.epc.mnc001.mcc001.3gppnetwork.org">>, {300,64536},
-		     [{'x-3gpp-upf','x-sxb'}],
-		     <<"topon.sx.prox01.epc.mnc001.mcc001.3gppnetwork.org">>},
+		#{default =>
+		      #{type => static,
+			entries =>
+			    [
+			     %% APN NAPTR alternative
+			     #{type        => naptr,
+			       name        => <<"_default.apn.epc.mnc001.mcc001.3gppnetwork.org">>,
+			       order       => 300,
+			       preference  => 64536,
+			       service     => 'x-3gpp-pgw',
+			       protocols   => ['x-s5-gtp', 'x-s8-gtp', 'x-gn', 'x-gp'],
+			       replacement => <<"topon.s5s8.pgw.epc.mnc001.mcc001.3gppnetwork.org">>},
 
-		    %% A/AAAA record alternatives
-		    {<<"topon.s5s8.pgw.epc.mnc001.mcc001.3gppnetwork.org">>, ?MUST_BE_UPDATED, []},
-		    {<<"topon.sx.prox01.epc.mnc001.mcc001.3gppnetwork.org">>, ?MUST_BE_UPDATED, []}
-		   ]
-		  }
-		 }
-		],
+			     #{type        => naptr,
+			       name        => <<"_default.apn.epc.mnc001.mcc001.3gppnetwork.org">>,
+			       order       => 300,
+			       preference  => 64536,
+			       service     => 'x-3gpp-upf',
+			       protocols   => ['x-sxb'],
+			       replacement => <<"topon.sx.prox01.epc.mnc001.mcc001.3gppnetwork.org">>},
+
+			     %% A/AAAA record alternatives
+			     #{type => host,
+			       name => <<"topon.s5s8.pgw.epc.mnc001.mcc001.3gppnetwork.org">>,
+			       ip4  => ?MUST_BE_UPDATED,
+			       ip6  => ?MUST_BE_UPDATED},
+			     #{type => host,
+			       name => <<"topon.sx.prox01.epc.mnc001.mcc001.3gppnetwork.org">>,
+			       ip4  => ?MUST_BE_UPDATED,
+			       ip6  => ?MUST_BE_UPDATED}
+			    ]}
+		 },
 
 	    apns =>
 		[{?'APN-EXAMPLE',
@@ -175,9 +190,8 @@
 		],
 
 	    charging =>
-		[{default,
-		  [{rulebase,
-		    [{<<"r-0001">>,
+		#{rules =>
+		      [{<<"r-0001">>,
 		      #{'Rating-Group' => [3000],
 			'Flow-Information' =>
 			    [#{'Flow-Description' => [<<"permit out ip from any to assigned">>],
@@ -189,11 +203,10 @@
 			'Metering-Method'  => [1],
 			'Precedence' => [100],
 			'Offline'  => [1]
-		       }},
-		     {<<"m2m0001">>, [<<"r-0001">>]}
-		    ]}
-		  ]}
-		],
+		       }}],
+		  rulebase =>
+		      [{<<"m2m0001">>, [<<"r-0001">>]}]
+		 },
 
 	    upf_nodes =>
 		#{default =>
@@ -228,93 +241,8 @@
 			'Charging-Rule-Install' =>
 			    [#{'Charging-Rule-Base-Name' => [<<"m2m0001">>]}]
 		       },
-		  'Initial-Gx-Redirect' =>
-		      #{'Result-Code' => 2001,
-			'Charging-Rule-Install' =>
-			    [#{'Charging-Rule-Definition' =>
-				   [#{
-				      'Charging-Rule-Name' => <<"m2m">>,
-				      'Rating-Group' => [3000],
-				      'Flow-Information' =>
-					  [#{'Flow-Description' => [<<"permit out ip from any to assigned">>],
-					     'Flow-Direction'   => [1]    %% DownLink
-					    },
-					   #{'Flow-Description' => [<<"permit out ip from any to assigned">>],
-					     'Flow-Direction'   => [2]    %% UpLink
-					    }],
-				      'Metering-Method'  => [1],
-				      'Precedence' => [100],
-				      'Offline'  => [1],
-				      'Redirect-Information' =>
-					  [#{'Redirect-Support' =>
-						 [1],   %% ENABLED
-					     'Redirect-Address-Type' =>
-						 [2],   %% URL
-					     'Redirect-Server-Address' =>
-						 ["http://www.heise.de/"]
-					    }]
-				     }]
-			      }]
-		       },
 		  'Update-Gx' => #{'Result-Code' => 2001},
-		  'Final-Gx' => #{'Result-Code' => 2001},
-		  'Initial-OCS' =>
-		      #{'Result-Code' => 2001,
-			'Multiple-Services-Credit-Control' =>
-			    [#{'Envelope-Reporting' => [0],
-			       'Granted-Service-Unit' =>
-				   [#{'CC-Time' => [3600],
-				      'CC-Total-Octets' => [102400]}],
-			       'Rating-Group' => [3000],
-			       'Validity-Time' => [3600],
-			       'Result-Code' => [2001],
-			       'Time-Quota-Threshold' => [60],
-			       'Volume-Quota-Threshold' => [10240]
-			      }]
-		       },
-		  'Update-OCS' =>
-		      #{'Result-Code' => 2001,
-			'Multiple-Services-Credit-Control' =>
-			    [#{'Envelope-Reporting' => [0],
-			       'Granted-Service-Unit' =>
-				   [#{'CC-Time' => [3600],
-				      'CC-Total-Octets' => [102400]}],
-			       'Rating-Group' => [3000],
-			       'Validity-Time' => [3600],
-			       'Result-Code' => [2001],
-			       'Time-Quota-Threshold' => [60],
-			       'Volume-Quota-Threshold' => [10240]
-			      }]
-		       },
-		  'Initial-OCS-VT' =>
-		      #{'Result-Code' => 2001,
-			'Multiple-Services-Credit-Control' =>
-			    [#{'Envelope-Reporting' => [0],
-			       'Granted-Service-Unit' =>
-				   [#{'CC-Time' => [3600],
-				      'CC-Total-Octets' => [102400]}],
-			       'Rating-Group' => [3000],
-			       'Validity-Time' => [2],
-			       'Result-Code' => [2001],
-			       'Time-Quota-Threshold' => [60],
-			       'Volume-Quota-Threshold' => [10240]
-			      }]
-		       },
-		  'Update-OCS-VT' =>
-		      #{'Result-Code' => 2001,
-			'Multiple-Services-Credit-Control' =>
-			    [#{'Envelope-Reporting' => [0],
-			       'Granted-Service-Unit' =>
-				   [#{'CC-Time' => [3600],
-				      'CC-Total-Octets' => [102400]}],
-			       'Rating-Group' => [3000],
-			       'Validity-Time' => [2],
-			       'Result-Code' => [2001],
-			       'Time-Quota-Threshold' => [60],
-			       'Volume-Quota-Threshold' => [10240]
-			      }]
-		       },
-		  'Final-OCS' => #{'Result-Code' => 2001}
+		  'Final-Gx' => #{'Result-Code' => 2001}
 		 }
 	       }
 	      ]}
@@ -342,16 +270,16 @@
 	[{[sockets, 'cp-socket', ip], localhost},
 	 {[sockets, 'irx-socket', ip], test_gsn},
 	 {[sockets, sx, ip], localhost},
-	 {[node_selection, {default, 2}, 2, <<"topon.s5s8.pgw.epc.mnc001.mcc001.3gppnetwork.org">>],
+	 {[node_selection, default, entries, {name, <<"topon.s5s8.pgw.epc.mnc001.mcc001.3gppnetwork.org">>}],
 	  {fun node_sel_update/2, final_gsn}},
-	 {[node_selection, {default, 2}, 2, <<"topon.sx.prox01.epc.mnc001.mcc001.3gppnetwork.org">>],
+	 {[node_selection, default, entries, {name, <<"topon.sx.prox01.epc.mnc001.mcc001.3gppnetwork.org">>}],
 	  {fun node_sel_update/2, pgw_u01_sx}}
 	]).
 
 node_sel_update(Node, {_,_,_,_} = IP) ->
-    {Node, [IP], []};
+    Node#{ip4 => [IP], ip6 => []};
 node_sel_update(Node, {_,_,_,_,_,_,_,_} = IP) ->
-    {Node, [], [IP]}.
+    Node#{ip4 => [], ip6 => [IP]}.
 
 %%%===================================================================
 %%% Setup
@@ -371,17 +299,32 @@ init_per_suite(Config0) ->
 end_per_suite(_Config) ->
     ok.
 
+%% copy of lib_{init,end}_per_group without the meck overhead
 bench_init_per_group(Config0) ->
     {_, AppCfg} = lists:keyfind(app_cfg, 1, Config0),   %% let it crash if undefined
 
     Config = ergw_test_lib:init_ets(Config0),
-    [application:load(App) || App <- [cowboy, ergw_core, ergw_aaa]],
+    [application:load(App) || App <- [cowboy, jobs, ergw_core, ergw_aaa]],
     load_config(AppCfg),
     {ok, _} = application:ensure_all_started(ergw_core),
+    ergw_cluster:wait_till_ready(),
+    ok = ergw_cluster:start([{enabled, false}]),
+    ergw_cluster:wait_till_running(),
+
+    ergw_test_lib:init_apps(AppCfg),
+
     {ok, _} = ergw_test_sx_up:start('pgw-u01', proplists:get_value(pgw_u01_sx, Config)),
     {ok, _} = ergw_test_sx_up:start('sgw-u', proplists:get_value(sgw_u_sx, Config)),
+
     {ok, AppsCfg} = application:get_env(ergw_aaa, apps),
     [{aaa_cfg, AppsCfg} |Config].
+
+bench_end_per_group(Config) ->
+    ok = ergw_test_sx_up:stop('pgw-u01'),
+    ok = ergw_test_sx_up:stop('sgw-u'),
+    ?config(table_owner, Config) ! stop,
+    [application:stop(App) || App <- [ranch, cowboy, ergw_core, ergw_aaa, ergw_cluster]],
+    ok.
 
 init_per_group(ipv6, Config0) ->
     case ergw_test_lib:has_ipv6_test_config() of
@@ -394,13 +337,6 @@ init_per_group(ipv6, Config0) ->
 init_per_group(ipv4, Config0) ->
     Config = update_app_config(ipv4, ?CONFIG_UPDATE, Config0),
     bench_init_per_group(Config).
-
-bench_end_per_group(Config) ->
-    ok = ergw_test_sx_up:stop('pgw-u01'),
-    ok = ergw_test_sx_up:stop('sgw-u'),
-    ?config(table_owner, Config) ! stop,
-    [application:stop(App) || App <- [ranch, cowboy, ergw_core, ergw_aaa]],
-    ok.
 
 end_per_group(Group, Config)
   when Group == ipv4; Group == ipv6 ->
@@ -466,7 +402,7 @@ contexts_at_scale() ->
 contexts_at_scale(Config) ->
     {GtpC0, _, _} = create_session(Config),
 
-    TargetRate = 1000,
+    TargetRate = 2000,
     NProcs = 10,
     NCtx = 15000,
 
@@ -485,7 +421,7 @@ contexts_at_scale(Config) ->
 
     TotalExec = lists:foldl(fun({Ms, _}, Sum) -> Sum + Ms end, 0, T),
     Total = erlang:convert_time_unit(Stop - Start, native, microsecond),
-    ct:pal("~8w (~w) x ~8w: ~w exec us, ~w us, ~f secs, ~f us/req, ~f req/s~n",
+    ct:pal("~8w (~w) x ~8w: ~w exec µs, ~w µs, ~f secs, ~f µs/req, ~f req/s~n",
 	   [NProcs, length(Procs), NCtx, TotalExec, Total,
 	    Total / 1.0e6, Total / (NProcs * NCtx),
 	    (NProcs * NCtx) / (Total / 1.0e6)]),
@@ -521,34 +457,6 @@ contexts_at_scale(Config) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
-
-maps_recusive_merge(Key, Value, Map) ->
-    maps:update_with(Key, fun(V) -> maps_recusive_merge(V, Value) end, Value, Map).
-
-maps_recusive_merge(M1, M2)
-  when is_map(M1) andalso is_map(M1) ->
-    maps:fold(fun maps_recusive_merge/3, M1, M2);
-maps_recusive_merge(_, New) ->
-    New.
-
-cfg_get_value([], Cfg) ->
-    Cfg;
-cfg_get_value([H|T], Cfg) when is_map(Cfg) ->
-    cfg_get_value(T, maps:get(H, Cfg));
-cfg_get_value([H|T], Cfg) when is_list(Cfg) ->
-    cfg_get_value(T, proplists:get_value(H, Cfg)).
-
-load_aaa_answer_config(AnswerCfg) ->
-    {ok, Cfg0} = application:get_env(ergw_aaa, apps),
-    Session = cfg_get_value([default, session, 'Default'], Cfg0),
-    Answers =
-	[{Proc, [{'Default', Session#{answer => Answer}}]}
-	 || {Proc, Answer} <- AnswerCfg],
-    UpdCfg =
-	#{default =>
-	      #{procedures => maps:from_list(Answers)}},
-    Cfg = maps_recusive_merge(Cfg0, UpdCfg),
-    ok = application:set_env(ergw_aaa, apps, Cfg).
 
 collect_nproc(Pids) ->
     lists:map(fun (Pid) -> receive {Pid, T} -> T end end, Pids).
