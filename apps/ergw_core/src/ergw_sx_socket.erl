@@ -108,9 +108,6 @@ validate_options(Values) ->
 
 validate_option(type, pfcp = Value) ->
     Value;
-validate_option(node, Value) ->
-    ?LOG(warning, "depreciated config key 'node' in Sx socket configuration"),
-    Value;
 validate_option(ip, Value)
   when is_tuple(Value) andalso
        (tuple_size(Value) == 4 orelse tuple_size(Value) == 8) ->

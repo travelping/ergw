@@ -366,8 +366,6 @@ components:
           type: boolean
         ip:
           $ref: "#/components/schemas/IpAddress"
-        name:
-          type: string
         netdev:
           type: string
         netns:
@@ -400,8 +398,6 @@ components:
           type: boolean
         ip:
           $ref: "#/components/schemas/IpAddress"
-        name:
-          type: string
         netdev:
           type: string
         netns:
