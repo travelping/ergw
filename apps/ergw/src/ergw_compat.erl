@@ -185,6 +185,8 @@ translate_option({nodes, Nodes0}) ->
     Default = maps:get(default, Nodes),
     Entries = maps:remove(default, Nodes),
     {upf_nodes, #{default => Default, entries => Entries}};
+translate_option({vrfs, VRFs}) ->
+    {ip_pools, translate_vrfs_to_ip_pools(VRFs)};
 translate_option({Opt, Values}) ->
     {Opt, translate_option(Opt, Values)}.
 
@@ -302,6 +304,21 @@ translate_option(Opt, Value)
     throw({error, {options, {Opt, Value}}});
 translate_option(_Opt, Value) ->
     Value.
+
+translate_vrfs_to_ip_pools(VRFs) ->
+    translate_options(fun translate_vrf_to_ip_pool/1, VRFs, [], map).
+
+translate_vrf_to_ip_pool({Pool, Opts0}) ->
+    Opts = translate_options(fun translate_ip_pool/1, Opts0, [], map),
+    {<<"pool-", (to_binary(Pool))/binary>>, Opts#{handler => ergw_local_pool}}.
+
+translate_ip_pool({pools, Pools}) ->
+    Ranges =
+	[#{start => Start, 'end' => End, prefix_len => PrefixLen}
+	 || {Start, End, PrefixLen} <- Pools],
+    {ranges, Ranges};
+translate_ip_pool({K, V}) ->
+    {K, V}.
 
 translate_mcc_mcn(MCC, MNC)
   when is_binary(MCC) andalso size(MCC) == 3 andalso
@@ -443,7 +460,16 @@ translate_apns({APN0, Value}) when ?is_opts(Value) ->
 	if APN0 =:= '_' -> APN0;
 	   true         -> translate_apn_name(APN0)
 	end,
-    Opts = translate_options(fun translate_apn_option/1, Value, ?ApnDefaults, map),
+    Opts0 = translate_options(fun translate_apn_option/1, Value, ?ApnDefaults, map),
+    Opts =
+	case Opts0 of
+	    #{ip_pools := [], vrfs := VRFs} ->
+		Pools =
+		    [<<"pool-", (to_binary(VRF))/binary>> || #{name := VRF} <- VRFs],
+		Opts0#{ip_pools => Pools};
+	    _ ->
+		Opts0
+	end,
     mandatory_keys([vrfs], Opts),
     {APN, Opts};
 translate_apns({Opt, Value}) ->
@@ -630,8 +656,9 @@ ergw_gtp_socket_translate_option(Opt, Value) ->
 			 {burst_size, 10}]).
 
 ergw_sx_socket_translate_options(Name, Values) ->
-    translate_options(
-      fun ergw_sx_socket_translate_option/2, Values, [{name, Name}|?SxSocketDefaults], map).
+    Opts = translate_options(fun ergw_sx_socket_translate_option/2,
+			     Values, [{name, Name}|?SxSocketDefaults], map),
+    maps:without([node], Opts).
 
 ergw_sx_socket_translate_option(type, pfcp = Value) ->
     Value;
