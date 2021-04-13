@@ -4554,7 +4554,10 @@ tariff_time_change(Config) ->
 
     ok = meck:expect(ergw_aaa_session, start_link,
 		     fun (Owner, SOpts0) ->
-			     OPC = #{'Default' => #{'Tariff-Time' => [{15, 4}]}},
+			     OPC = #{'Default' =>
+					 #{'Tariff-Time' =>
+					       [#{'Local-Tariff-Time' => {15, 4},
+						  'Location' => <<"Etc/UTC">>}]}},
 			     SOpts = SOpts0#{'Offline-Charging-Profile' => OPC},
 			     meck:passthrough([Owner, SOpts])
 		     end),

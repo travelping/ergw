@@ -8,7 +8,8 @@
 		    prometheus, cowboy, prometheus_cowboy,
 		    prometheus_diameter_collector,
 		    compiler, os_mon, jobs, ra,
-		    riak_core, riak_core_lite_util, ergw_sbi_client]},
+		    riak_core, riak_core_lite_util, ergw_sbi_client,
+		    zoneinfo]},
     {mod, {ergw_core_app, []}},
     {registered, []}
 ]}.

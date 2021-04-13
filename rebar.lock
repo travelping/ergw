@@ -57,6 +57,10 @@
  {<<"xxhash">>,
   {git,"https://github.com/pierreis/erlang-xxhash.git",
        {ref,"5d222dcb54c9dd8247d4429174126ebda52b0e2d"}},
+  0},
+ {<<"zoneinfo">>,
+  {git,"https://github.com/RoadRunnr/zoneinfo.git",
+       {ref,"53de9dfa58df592be744e62b872f2688986d79a9"}},
   0}]}.
 [
 {pkg_hash,[

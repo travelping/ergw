@@ -22,6 +22,10 @@
 -export([register_ctx_ids/3, unregister_ctx_ids/3]).
 -export([update_dp_seid/2, make_request_bearer/3, update_bearer/3]).
 
+-ifdef(TEST).
+-export([apply_charging_tariff_time/3]).
+-endif.
+
 -include_lib("kernel/include/logger.hrl").
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include_lib("pfcplib/include/pfcp_packet.hrl").
@@ -232,49 +236,58 @@ session_modification_request(PCtx, _ReqIEs) ->
 sx_rule_error(Error, #sx_upd{errors = Errors} = Update) ->
     Update#sx_upd{errors = [Error | Errors]}.
 
-apply_charing_tariff_time({H, M}, URR)
+apply_charging_tariff_time(#{'Local-Tariff-Time' := {H, M}, 'Location' := Location}, Now, URR)
   when is_integer(H), H >= 0, H < 24,
        is_integer(M), M >= 0, M < 60 ->
-    {Date, _} = Now = calendar:universal_time(),
-    NowSecs = calendar:datetime_to_gregorian_seconds(Now),
-    TCSecs =
-	case calendar:datetime_to_gregorian_seconds({Date, {H, M, 0}}) of
-	    T when T > NowSecs ->
-		T;
-	    T when T =< NowSecs ->
-		T + ?SECONDS_PER_DAY
+    {LocalDate, _} = LocalNow =
+	localtime:to_local_time(
+	  localtime:from_universal_time(Now, Location)),
+    TT0 = {LocalDate, {H, M, 0}},
+    TT =
+	if TT0 < LocalNow ->
+		calendar:gregorian_seconds_to_datetime(
+		  calendar:datetime_to_gregorian_seconds(TT0) + ?SECONDS_PER_DAY);
+	   true ->
+		TT0
 	end,
-    TCTime = ergw_gsn_lib:gregorian_seconds_to_sntp_time(TCSecs),
-    case URR of
-	#{monitoring_time := #monitoring_time{time = OldTCTime}}
-	  when TCTime > OldTCTime ->
-	    %% don't update URR when new time is after existing time
+    case localtime:from_local_time(TT, Location) of
+	[] ->
+	    ?LOG(error, "can't calculate UTC from Tariff-Time \"~p\" at location ~s",
+		 [TT, Location]),
 	    URR;
-	_ ->
-	    URR#{monitoring_time => #monitoring_time{time = TCTime}}
+	TTList ->
+	    UniTT = localtime:to_universal_time(hd(TTList)),
+	    TCTime = ergw_gsn_lib:gregorian_seconds_to_sntp_time(
+		       calendar:datetime_to_gregorian_seconds(UniTT)),
+	    case URR of
+		#{monitoring_time := #monitoring_time{time = OldTCTime}}
+		  when TCTime > OldTCTime ->
+		    %% don't update URR when new time is after existing time
+		    URR;
+		_ ->
+		    URR#{monitoring_time => #monitoring_time{time = TCTime}}
+	    end
     end;
-apply_charing_tariff_time(Time, URR) ->
+apply_charging_tariff_time(Time, _Now, URR) ->
     ?LOG(error, "Invalid Tariff-Time \"~p\"", [Time]),
     URR.
 
-apply_charging_profile('Tariff-Time', Value, URR)
-  when is_tuple(Value) ->
-    apply_charing_tariff_time(Value, URR);
-apply_charging_profile('Tariff-Time', Value, URR)
+apply_charging_profile('Tariff-Time', Value, Now, URR)
+  when is_map(Value) ->
+    apply_charging_tariff_time(Value, Now, URR);
+apply_charging_profile('Tariff-Time', Value, Now, URR)
   when is_list(Value) ->
-    lists:foldl(fun apply_charing_tariff_time/2, URR, Value);
-apply_charging_profile(_K, _V, URR) ->
+    lists:foldl(apply_charging_tariff_time(_, Now, _), URR, Value);
+apply_charging_profile(_K, _V, _Now, URR) ->
     URR.
 
-apply_charging_profile(URR, OCP) ->
-    maps:fold(fun apply_charging_profile/3, URR, OCP).
+apply_charging_profile(OCP, Now, URR) ->
+    maps:fold(apply_charging_profile(_, _, Now, _), URR, OCP).
 
 %% build_sx_rules/5
 build_sx_rules(PCC, Opts, PCtx0, Left, Right) ->
     PCtx2 = ergw_pfcp:reset_ctx(PCtx0),
-
-    Init = #sx_upd{now = erlang:monotonic_time(millisecond),
-		   pctx = PCtx2, left = Left, right = Right},
+    Init = #sx_upd{now = calendar:universal_time(), pctx = PCtx2, left = Left, right = Right},
     #sx_upd{errors = Errors, pctx = NewPCtx0} =
 	build_sx_rules_3(PCC, Opts, Init),
     NewPCtx = ergw_pfcp:apply_timers(PCtx0, NewPCtx0),
@@ -357,7 +370,7 @@ build_sx_linked_offline_rule(_, URR, PCtx) ->
 build_sx_offline_charging_rule(Name,
 			       #{'Offline' := [1]} = Definition,
 			       #pcc_ctx{offline_charging_profile = OCPcfg},
-			       #sx_upd{pctx = PCtx0} = Update) ->
+			       #sx_upd{now = Now, pctx = PCtx0} = Update) ->
     RatingGroup =
 	case get_rating_group('Offline-Rating-Group', Definition) of
 	    RG when is_integer(RG) -> RG;
@@ -383,7 +396,7 @@ build_sx_offline_charging_rule(Name,
     {URR1, PCtx} = build_sx_linked_rule(URR0, PCtx1),
 
     OCP = maps:get('Default', OCPcfg, #{}),
-    URR = apply_charging_profile(URR1, OCP),
+    URR = apply_charging_profile(OCP, Now, URR1),
 
     ?LOG(debug, "Offline URR: ~p", [URR]),
     Update#sx_upd{
