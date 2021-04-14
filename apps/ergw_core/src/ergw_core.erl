@@ -78,16 +78,16 @@ is_running() ->
 
 %% get global PLMN Id (aka MCC/MNC)
 get_plmn_id() ->
-    [{config, plmn_id, #{mcc := MCC, mnc := MNC}}] = ets:lookup(?SERVER, plmn_id),
+    {ok, #{mcc := MCC, mnc := MNC}} = ergw_core_config:get([plmn_id], undefined),
     {MCC, MNC}.
 get_node_id() ->
-    {ok, Id} = application:get_env(ergw_core, node_id),
+    {ok, Id} = ergw_core_config:get([node_id], <<"ergw">>),
     Id.
 get_accept_new() ->
-    [{config, accept_new, Value}] = ets:lookup(?SERVER, accept_new),
+    {ok, Value} = ergw_core_config:get([accept_new], true),
     Value.
 get_teid_config() ->
-    {ok, Value} = application:get_env(ergw_core, teid),
+    {ok, Value} = ergw_core_config:get([teid], undefined),
     Value.
 
 system_info() ->
@@ -104,7 +104,7 @@ system_info(Arg) ->
 
 system_info(accept_new, New) when is_boolean(New) ->
     Old = get_accept_new(),
-    true = ets:insert(?SERVER, {config, accept_new, New}),
+    ok = ergw_core_config:put(accept_new, New),
     Old;
 system_info(Key, Value) ->
     error(badarg, [Key, Value]).
@@ -417,8 +417,10 @@ code_change(_OldVsn, State, Data, _Extra) ->
 load_config(#{plmn_id := PlmnId,
 	      node_id := NodeId,
 	      teid := TEID,
-	      accept_new := Value}) ->
-    true = ets:insert(?SERVER, {config, plmn_id, PlmnId}),
-    true = ets:insert(?SERVER, {config, accept_new, Value}),
-    application:set_env([{ergw_core, [{node_id, NodeId}, {teid, TEID}]}]),
+	      accept_new := New}) ->
+
+    ok = ergw_core_config:put(plmn_id, PlmnId),
+    ok = ergw_core_config:put(accept_new, New),
+    ok = ergw_core_config:put(node_id, NodeId),
+    ok = ergw_core_config:put(teid, TEID),
     ok.
