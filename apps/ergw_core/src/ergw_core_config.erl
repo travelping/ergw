@@ -36,7 +36,21 @@ to_map(L) when is_list(L) ->
 	      erlang:error(badarg, [Opt])
       end, #{}, normalize_proplists(L)).
 
-get([Key|Next], Default) ->
+get([Key|_] = Query, Default) ->
+    case is_global_key(Key) of
+	true  -> get_global_key(Query, Default);
+	false -> get_local_key(Query, Default)
+    end.
+
+get_global_key(Query, Default) ->
+    case ergw_global:find(Query) of
+	{ok, Value} ->
+	    {ok, Value};
+	_ ->
+	    {ok, Default}
+    end.
+
+get_local_key([Key|Next], Default) ->
     case application:get_env(ergw_core, Key) of
 	{ok, Config} ->
 	    get(Next, Config, Default);
@@ -56,7 +70,26 @@ get(_, _, _) ->
     undefined.
 
 put(Key, Val) ->
-    ok = application:set_env(ergw_core, Key, Val).
+    case is_global_key(Key) of
+	true ->
+	    {ok, _} = ergw_global:put(Key, Val),
+	    ok;
+	false ->
+	    ok = application:set_env(ergw_core, Key, Val)
+    end.
+%%%===================================================================
+%%% Get Functions
+%%% Get/Put Functions
+%%%===================================================================
+
+is_global_key(restart_count) -> true;
+is_global_key(apns) -> true;
+is_global_key(nodes) -> true;
+is_global_key(charging) -> true;
+is_global_key(path_management) -> true;
+is_global_key(proxy_map) -> true;
+is_global_key(_) -> false.
+
 
 %%%===================================================================
 %%% Options Validation
