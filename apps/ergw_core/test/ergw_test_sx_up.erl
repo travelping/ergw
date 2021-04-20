@@ -121,6 +121,8 @@ nat_port_blocks(Role, VRF, Blocks) ->
 
 init([IP, Role]) ->
     process_flag(trap_exit, true),
+    %% process_flag(scheduler, 2),
+    %% process_flag(priority, high),
 
     SockOpts = [binary, {ip, IP}, {active, true}, {reuseaddr, true},
 		{recbuf, 134217728}, {buffer, 65536}],

@@ -215,7 +215,11 @@
 			 {irx, [{features, ['Access']}]},
 			 {sgi, [{features, ['SGi-LAN']}]}
 			]},
-		       {ip_pools, [<<"pool-A">>]}],
+		       {ue_ip_pools,
+			[[{ip_pools, [<<"pool-A">>]},
+			  {vrf, sgi},
+			   {ip_versions, [v4, v6]}]]}
+		      ],
 		  nodes =>
 		      [{<<"topon.sx.prox01.epc.mnc001.mcc001.3gppnetwork.org">>, [connect]}]
 		 }
@@ -237,12 +241,14 @@
 	      [{handler, 'ergw_aaa_static'},
 	       {answers,
 		#{'Initial-Gx' =>
-		      #{'Result-Code' => 2001,
-			'Charging-Rule-Install' =>
-			    [#{'Charging-Rule-Base-Name' => [<<"m2m0001">>]}]
+		      #{avps =>
+			    #{'Result-Code' => 2001,
+			      'Charging-Rule-Install' =>
+				  [#{'Charging-Rule-Base-Name' => [<<"m2m0001">>]}]
+			     }
 		       },
-		  'Update-Gx' => #{'Result-Code' => 2001},
-		  'Final-Gx' => #{'Result-Code' => 2001}
+		  'Update-Gx' => #{avps => #{'Result-Code' => 2001}},
+		  'Final-Gx' => #{avps => #{'Result-Code' => 2001}}
 		 }
 	       }
 	      ]}
@@ -320,8 +326,8 @@ bench_init_per_group(Config0) ->
     [{aaa_cfg, AppsCfg} |Config].
 
 bench_end_per_group(Config) ->
-    ok = ergw_test_sx_up:stop('pgw-u01'),
-    ok = ergw_test_sx_up:stop('sgw-u'),
+    %% ok = ergw_test_sx_up:stop('pgw-u01'),
+    %% ok = ergw_test_sx_up:stop('sgw-u'),
     ?config(table_owner, Config) ! stop,
     [application:stop(App) || App <- [ranch, cowboy, ergw_core, ergw_aaa, ergw_cluster]],
     ok.
@@ -358,6 +364,7 @@ all() ->
 %%%===================================================================
 
 init_per_testcase(Config) ->
+    logger:set_primary_config(level, critical),
     ergw_test_sx_up:reset('pgw-u01'),
     ergw_test_sx_up:history('pgw-u01', false),
     start_gtpc_server(Config),
@@ -383,28 +390,36 @@ end_per_testcase(_, Config) ->
 
 %%--------------------------------------------------------------------
 
-create_nsess(_Base, _GtpC, Ctxs, _Delay, 0) ->
-    Ctxs;
-create_nsess(Base, GtpC0, Ctxs, Delay, N) ->
+create_nsess(_Base, _GtpC, _Delay, 0) ->
+    [];
+create_nsess(Base, GtpC0, Delay, N) ->
     {Time, {GtpC1, _, _}} =
 	timer:tc(ergw_pgw_test_lib, create_deterministic_session, [Base, N, GtpC0]),
-    erlang:garbage_collect(),
-    case floor((Delay - Time) / 1.0e3) of
-	Sleep when Sleep > 0 ->
-	    ct:sleep(Sleep);
-	_ ->
-	    ok
-    end,
-    create_nsess(Base, GtpC1, [GtpC1|Ctxs], Delay, N - 1).
+    %%erlang:garbage_collect(),
+    %%erlang:yield(),
+    %% case floor((Delay - Time) / 1.0e3) of
+    %% 	Sleep when Sleep > 0 ->
+    %% 	    timer:sleep(Sleep);
+    %% 	_ ->
+    %% 	    ok
+    %% end,
+    [Time | create_nsess(Base, GtpC1, Delay, N - 1)].
 
 contexts_at_scale() ->
     [{doc, "Check that a Path Restart terminates multiple session"}].
 contexts_at_scale(Config) ->
-    {GtpC0, _, _} = create_session(Config),
+    process_flag(trap_exit, true),
+    %% process_flag(scheduler, 1),
+    %% process_flag(priority, high),
 
-    TargetRate = 2000,
-    NProcs = 10,
-    NCtx = 15000,
+    {GtpC0, _, _} = create_session({ipv4, false, default}, Config),
+    Echo0 = make_request(echo_request, simple, GtpC0),
+    send_recv_pdu(GtpC0, Echo0),
+
+    TargetRate = 5000,
+    NProcs = 32,
+    NCtx = 1500,
+    %NCtx = 150000,
 
     Delay = 1.0e6 * NProcs / TargetRate,
     Order = ceil(math:log2(NCtx)),
@@ -412,8 +427,11 @@ contexts_at_scale(Config) ->
     Procs =
 	start_timed_nproc(
 	  fun (N) ->
+		  %% process_flag(scheduler, 1),
+		  %% process_flag(priority, high),
+
 		  GtpC = GtpC0#gtpc{socket = make_gtp_socket(0, Config)},
-		  create_nsess(1000 + (N bsl Order), GtpC, [], Delay, NCtx)
+		  create_nsess(1000 + (N bsl Order), GtpC, Delay, NCtx)
 	  end, [], NProcs),
 
     T = collect_nproc(Procs),
@@ -421,13 +439,24 @@ contexts_at_scale(Config) ->
 
     TotalExec = lists:foldl(fun({Ms, _}, Sum) -> Sum + Ms end, 0, T),
     Total = erlang:convert_time_unit(Stop - Start, native, microsecond),
-    ct:pal("~8w (~w) x ~8w: ~w exec µs, ~w µs, ~f secs, ~f µs/req, ~f req/s~n",
+    ct:pal("~8w (~w) x ~8w: ~w exec µs, ~w µs, ~f secs, ~f µs/req, ~f req/s (wallTime: ~f req/s~n)",
 	   [NProcs, length(Procs), NCtx, TotalExec, Total,
 	    Total / 1.0e6, Total / (NProcs * NCtx),
+	    (NProcs * NCtx) / (TotalExec / 1.0e6),
 	    (NProcs * NCtx) / (Total / 1.0e6)]),
+
+    ct:log(fmt_proc_times(Total, T)),
 
     Tunnels = NProcs * NCtx + 1,
     [?match(#{tunnels := Tunnels}, X) || X <- ergw_api:peer(all)],
+
+    fun DrainF() ->
+	    receive
+		_ -> DrainF()
+	    after
+		0 -> ok
+	    end
+    end(),
 
     ct:log(fmt_memory_html("Memory", erlang:memory())),
 
@@ -449,14 +478,30 @@ contexts_at_scale(Config) ->
 			  gtp_context_inc_restart_counter(GtpC0))),
     send_recv_pdu(GtpC0, Echo),
 
-    wait4tunnels(?TIMEOUT),
-    ct:sleep({seconds, 30}),
-
+    wait_4_tunnels_stop(),
     ok.
 
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
+
+get_tunnel_cnt() ->
+    lists:foldl(
+      fun(#{tunnels := N}, Sum) -> N + Sum end, 0, ergw_api:peer(all)).
+
+wait_4_tunnels_stop() ->
+    wait_4_tunnels_stop(get_tunnel_cnt()).
+
+wait_4_tunnels_stop(0) ->
+    ok;
+wait_4_tunnels_stop(N) ->
+    ct:sleep(100),
+    case get_tunnel_cnt() of
+	N ->
+	    ct:fail("timeout, waiting for tunnels to terminate, left over ~p", [N]);
+	Total ->
+	    wait_4_tunnels_stop(Total)
+    end.
 
 collect_nproc(Pids) ->
     lists:map(fun (Pid) -> receive {Pid, T} -> T end end, Pids).
@@ -464,7 +509,7 @@ collect_nproc(Pids) ->
 start_nproc(_Fun, Pids, 0) ->
     Pids;
 start_nproc(Fun, Pids, N) when is_function(Fun, 1) ->
-    [proc_lib:spawn_link(fun () -> Fun(N) end) | start_nproc(Fun, Pids, N - 1)].
+    [spawn_link(fun () -> Fun(N) end) | start_nproc(Fun, Pids, N - 1)].
 
 timed_proc(Owner, Fun) ->
     Owner ! {self(), timer:tc(Fun)}.
@@ -488,13 +533,17 @@ mfa(MFA) ->
     io_lib:format("~p", [MFA]).
 
 process_info() ->
-    [begin
-	 {_, C} = erlang:process_info(Pid, current_function),
-	 {_, M} = erlang:process_info(Pid, memory),
-	 I = proc_lib:translate_initial_call(Pid),
-	 {Pid, C, I, M}
-     end
-     || Pid <- erlang:processes()].
+    lists:foldl(
+      fun(Pid, Acc) ->
+	      try
+		  {_, C} = erlang:process_info(Pid, current_function),
+		  {_, M} = erlang:process_info(Pid, memory),
+		  I = proc_lib:translate_initial_call(Pid),
+		  [{Pid, C, I, M}|Acc]
+	      catch
+		  _:_ -> Acc
+	      end
+      end, [], erlang:processes()).
 
 fmt_process_info(ProcInfo) ->
     [[io_lib:format("~p:~p: I: ~p, ~p - ~s~n", [Pid, C, I, M, units(M)]) ||
@@ -557,3 +606,73 @@ fmt_memory_html(Head, Memory) ->
 			[Key, Value, units(Value)])
 	  || {Key, Value} <- Memory]]
 	++ ["</table>"].
+
+times_avg(Times) ->
+    Len = length(Times),
+    {Sum, Log} =
+	lists:foldl(
+	  fun(V, {Sum0, Log0}) -> {Sum0 + V, Log0 + math:log(V)} end, {0, 0}, Times),
+    {Sum / Len, math:exp(Log / Len)}.
+
+fmt_avg(Values) ->
+    {Avg, Log} = times_avg(Values),
+    io_lib:format("<td align=\"right\">~w</td><td align=\"right\">~w</td>",
+		  [round(Avg), round(Log)]).
+
+fmt_times(Key, Wall, Times) ->
+    Len = length(Times),
+    SortT = lists:sort(Times),
+    Perc1 = lists:sublist(SortT, erlang:ceil(Len * 0.01)),
+    Perc5 = lists:sublist(SortT, erlang:ceil(Len * 0.05)),
+    Perc95 = lists:nthtail(erlang:floor(Len * 0.95), SortT),
+    Perc99 = lists:nthtail(erlang:floor(Len * 0.99), SortT),
+
+    ["<tr align=\"right\">",
+     "<td align=\"left\">", Key, "</td>",
+     [fmt_avg(P) || P <- [Times, Perc1, Perc5, Perc95, Perc99]],
+     io_lib:format("<td align=\"right\">~w</td><td align=\"right\">~w</td>"
+		   "<td align=\"right\">~f</td>",
+		   [hd(SortT), lists:nth(Len, SortT), Len / (Wall / 1.0e6)]),
+     "</tr>"].
+
+fmt_proc_times(TotalExec, Times) ->
+    AllTimes = lists:foldl(fun({_, T}, Acc) -> Acc ++ T end, [], Times),
+    file:write_file("times.csv",
+		    [[integer_to_list(X), "\n"] || X <- AllTimes]),
+    ["<table>"
+     "  <caption>Times</caption>"
+     "  <colgroup>"
+     "      <col>"
+     "      <col span=\"2\">"
+     "      <col span=\"2\">"
+     "      <col span=\"2\">"
+     "      <col span=\"2\">"
+     "      <col span=\"3\">"
+     "  </colgroup>"
+     "  <tr>"
+     "    <th rowspan=\"2\" scope=\"colgroup\" />"
+     "    <th colspan=\"2\" scope=\"colgroup\">Overall</th>"
+     "    <th colspan=\"2\" scope=\"colgroup\">1st percentil</th>"
+     "    <th colspan=\"2\" scope=\"colgroup\">5th percentil</th>"
+     "    <th colspan=\"2\" scope=\"colgroup\">95th percentil</th>"
+     "    <th colspan=\"2\" scope=\"colgroup\">99th percentil</th>"
+     "    <th colspan=\"3\" scope=\"colgroup\" />"
+     "  </tr>"
+     "  <tr>"
+     "      <th scope=\"col\">Arith. Avg</th>"
+     "      <th scope=\"col\">Geom. Avg</th>"
+     "      <th scope=\"col\">Arith. Avg</th>"
+     "      <th scope=\"col\">Geom. Avg</th>"
+     "      <th scope=\"col\">Arith. Avg</th>"
+     "      <th scope=\"col\">Geom. Avg</th>"
+     "      <th scope=\"col\">Arith. Avg</th>"
+     "      <th scope=\"col\">Geom. Avg</th>"
+     "      <th scope=\"col\">Arith. Avg</th>"
+     "      <th scope=\"col\">Geom. Avg</th>"
+     "      <th scope=\"col\">Fastest</th>"
+     "      <th scope=\"col\">Slowest</th>"
+     "      <th scope=\"col\">Req/s</th>"
+     "  </tr>",
+     [fmt_times("", Wall, T) || {Wall, T} <- Times],
+     fmt_times("Total", TotalExec, AllTimes),
+     "</table>"].

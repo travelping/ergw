@@ -51,7 +51,7 @@ create_deterministic_session(Base, N, #gtpc{} = GtpC0) ->
     GtpC = gtp_context_inc_seq(GtpC1),
     Msg = create_session_request(Base, N, GtpC),
     Response = send_recv_pdu(GtpC, Msg, 20000),
-    {validate_response(create_session_request, simple, Response, GtpC), Msg, Response}.
+    {validate_response(create_session_request, ipv4, Response, GtpC), Msg, Response}.
 
 modify_bearer(SubType, GtpC0)
   when SubType == tei_update ->
@@ -368,7 +368,7 @@ create_session_request(Base, N,
 	 #v2_ue_time_zone{timezone = 10, dst = 0},
 	 #v2_user_location_information{tai = ergw_test_lib:tai(1, 1, 55001),
 				       ecgi = ergw_test_lib:ecgi(1, 1, 138873180)}],
-    IEs = make_pdn_type(simple, IEs0),
+    IEs = make_pdn_type(ipv4, IEs0),
     #gtp{version = v2, type = create_session_request, tei = 0,
 	 seq_no = SeqNo, ie = IEs}.
 
