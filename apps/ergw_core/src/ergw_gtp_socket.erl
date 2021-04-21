@@ -174,11 +174,17 @@ make_seq_id(#gtp{version = Version, seq_no = SeqNo})
 make_seq_id(_) ->
     undefined.
 
+make_hash(#gtp{ie = IEs}) when is_binary(IEs) ->
+    xxhash:hash64(IEs);
+make_hash(_) ->
+    undefined.
+
 make_request(ArrivalTS, Src, IP, Port, Msg = #gtp{version = Version, type = Type},
 	     #socket{name = SocketName} = Socket, Info) ->
     SeqId = make_seq_id(Msg),
+    Hash = make_hash(Msg),
     #request{
-       key = {request, {SocketName, IP, Port, Type, SeqId}},
+       key = {request, {SocketName, IP, Port, Type, SeqId, Hash}},
        socket = Socket,
        info = Info,
        src = Src,
