@@ -39,7 +39,6 @@ all() ->
      node_sel,
      upf_node_defaults,
      upf_node,
-     %% metrics,				% TBD: does not work yet
      proxy_map,
      charging,
      charging_rule,
@@ -668,20 +667,6 @@ upf_node(_Config)  ->
 
     ?ok(ValF(<<"test">>, set_cfg_value([vrfs, cp, features], ['CP-Function'], Node))),
     ?ok(ValF(<<"test">>, set_cfg_value([vrfs, 'cp2', features], ['CP-Function'], Node))),
-    ok.
-
-metrics() ->
-    [{doc, "Test validation of the metrics configuration"}].
-metrics(_Config)  ->
-    Metrics = [{gtp_path_rtt_millisecond_intervals, [10,30,50,75,100,1000,2000]}],
-    ValF = fun(Values) -> ergw_prometheus:validate_options(Values) end,
-
-    ?ok(ValF(Metrics)),
-    ?bad(ValF([])),
-
-    ?bad(ValF(set_cfg_value([gtp_path_rtt_millisecond_intervals], [invalid], Metrics))),
-    ?bad(ValF(set_cfg_value([gtp_path_rtt_millisecond_intervals], [-100], Metrics))),
-    ?ok(ValF(set_cfg_value([gtp_path_rtt_millisecond_intervals], [10, 100], Metrics))),
     ok.
 
 proxy_map() ->

@@ -175,17 +175,6 @@
         "enabled": false
     },
     "ip_pools": [],
-    "metrics": {
-        "gtp_path_rtt_millisecond_intervals": [
-            10,
-            30,
-            50,
-            75,
-            100,
-            1000,
-            2000
-        ]
-    },
     "node_selection": [
         {
             "name": "mydns",

@@ -26,8 +26,7 @@
 			 {nodes, []},
 			 {ip_pools, []},
 			 {apns, []},
-			 {charging, [{default, []}]},
-			 {metrics, []}]).
+			 {charging, [{default, []}]}]).
 -define(VrfDefaults, [{features, invalid}]).
 -define(ApnDefaults, [{ip_pools, []},
 		      {bearer_type, 'IPv4v6'},
@@ -284,8 +283,6 @@ translate_option(path_management, Opts) when ?is_opts(Opts) ->
     gtp_path_translate_options(Opts);
 translate_option(teid, Value) ->
     ergw_tei_mngr_translate_option(Value);
-translate_option(metrics, Opts) ->
-    ergw_prometheus_translate_options(Opts);
 translate_option(Opt, Value)
   when Opt == plmn_id;
        Opt == node_id;
@@ -937,19 +934,6 @@ ergw_tei_mngr_translate_option({Prefix, Len} = Value)
     end;
 ergw_tei_mngr_translate_option(Value) ->
     throw({error, {options, {teid, Value}}}).
-
--define(DefaultMetricsOpts, [{gtp_path_rtt_millisecond_intervals, [10, 30, 50, 75, 100, 1000, 2000]}]).
-
-ergw_prometheus_translate_options(Opts) ->
-    translate_options(fun ergw_prometheus_translate_option/2, Opts, ?DefaultMetricsOpts, map).
-
-ergw_prometheus_translate_option(gtp_path_rtt_millisecond_intervals = Opt, Value) ->
-    case [V || V <- Value, is_integer(V), V > 0] of
-	[_|_] = Value ->
-	    Value;
-	_ ->
-	    throw({error, {options, {Opt, Value}}})
-    end.
 
 ergw_node_selection_translate_ip_list(L) ->
     lists:map(

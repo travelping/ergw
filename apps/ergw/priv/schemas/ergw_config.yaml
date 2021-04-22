@@ -669,14 +669,6 @@ properties:
           items:
             $ref: "#/components/schemas/DhcpRange"
 
-  metrics:
-    type: object
-    properties:
-      gtp_path_rtt_millisecond_intervals:
-        type: array
-        items:
-          type: integer
-
   node_selection:
     type: array
     items:

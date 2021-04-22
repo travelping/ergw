@@ -202,7 +202,6 @@ config_raw_meta() ->
       handlers        => config_meta_handler(),
       http_api        => config_meta_http_api(),
       ip_pools        => config_meta_ip_pools(),
-      metrics         => config_meta_metrics(),
       node_selection  => config_meta_node_selection(),
       upf_nodes       => config_meta_nodes(),
       path_management => config_meta_path_management(),
@@ -386,9 +385,6 @@ config_meta_ip_pools() ->
 	     'DNS-Server-IPv6-Address'  => {list, ip6_address},    %tbd
 	     '3GPP-IPv6-DNS-Servers'    => {list, ip6_address}},   %tbd
     {map, {name, binary}, Meta}.
-
-config_meta_metrics() ->
-    #{gtp_path_rtt_millisecond_intervals => {list, integer}}.
 
 config_meta_node_selection() ->
     {map, {name, binary}, {delegate, fun delegate_node_selection_type/1}}.

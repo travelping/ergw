@@ -329,8 +329,6 @@ validate_option(proxy_map, Opts) ->
     gtp_proxy_ds:validate_options(Opts);
 validate_option(path_management, Opts) when ?is_opts(Opts) ->
     gtp_path:validate_options(Opts);
-validate_option(metrics, Opts) ->
-    ergw_prometheus:validate_options(Opts);
 validate_option(Opt, Value) ->
     erlang:error(badarg, [Opt, Value]).
 

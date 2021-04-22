@@ -541,17 +541,6 @@
             ]
         }
     ],
-    "metrics":{
-        "gtp_path_rtt_millisecond_intervals":[
-            10,
-            30,
-            50,
-            75,
-            100,
-            1000,
-            2000
-        ]
-    },
     "node":{
         "accept_new":true,
         "node_id":"PGW.epc.mnc001.mcc001.3gppnetwork.org",
