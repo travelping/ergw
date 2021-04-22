@@ -14,7 +14,6 @@ The following metrics exist:
 | gtp\_path\_messages\_retransmits\_total         | counter   | name, remote, version, type                    | Total number of retransmited GTP message on path         |
 | gtp\_path\_messages\_timeouts\_total            | counter   | name, remote, version, type                    | Total number of timed out GTP message on path            |
 | gtp\_path\_messages\_replies\_total             | counter   | name, remote, direction, version, type, result | Total number of reply GTP message on path                |
-| gtp\_path\_rtt\_milliseconds                    | histogram | name, ip, version, type                        | GTP path round trip time                                 |
 | gtp\_path\_contexts\_total                      | gauge     | name, ip, version                              | Total number of GTP contexts on path                     |
 | gtp\_c\_socket\_messages\_processed\_total      | counter   | name, direction, version, type                 | Total number of GTP message processed on socket          |
 | gtp\_c\_socket\_messages\_duplicates\_total     | counter   | name, version, type                            | Total number of duplicate GTP message received on socket |
@@ -40,9 +39,6 @@ The following metrics exist:
 
 The label `name` is is taken from the configuration of the GTP socket and PeerIP is the IP address of
 the peer GSN.
-
-The path `rtt` is the round trip time histogram for each request/response
-message pair.
 
 The label `direction` has the value `tx` or `rx` for transmitted or received.
 The `timeout` counter exists only for requests that require a response.

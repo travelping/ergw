@@ -487,7 +487,7 @@ handle_message_1(ArrivalTS, Src, IP, Port, #gtp{version = Version, type = MsgTyp
 	end,
     case Handler:gtp_msg_type(MsgType) of
 	response ->
-	    handle_response(ArrivalTS, Src, IP, Port, Msg, State);
+	    handle_response(IP, Msg, State);
 	request ->
 	    ReqKey = make_request(ArrivalTS, Src, IP, Port, Msg, State),
 	    handle_request(ReqKey, Msg, State);
@@ -495,7 +495,7 @@ handle_message_1(ArrivalTS, Src, IP, Port, #gtp{version = Version, type = MsgTyp
 	    State
     end.
 
-handle_response(ArrivalTS, _Src, IP, _Port, Msg, #state{gtp_socket = Socket} = State0) ->
+handle_response(IP, Msg, #state{gtp_socket = Socket} = State0) ->
     SeqId = ergw_gtp_socket:make_seq_id(Msg),
     {Req, State} = take_request(SeqId, State0),
     case Req of
@@ -506,7 +506,6 @@ handle_response(ArrivalTS, _Src, IP, _Port, Msg, #state{gtp_socket = Socket} = S
 
 	#send_req{} = SendReq ->
 	    ?LOG(debug, "~p: found response: ~p", [self(), SeqId]),
-	    measure_reply(Socket, SendReq, ArrivalTS),
 	    send_request_reply(SendReq, Msg),
 	    State
     end.
@@ -615,10 +614,6 @@ message_counter(Direction, #request{socket = Socket, ip = IP}, Msg) ->
 %% message_counter/4
 message_counter(Direction, Socket, #send_req{address = IP, msg = Msg}, Verdict) ->
     ergw_prometheus:gtp(Direction, Socket, IP, Msg, Verdict).
-
-%% measure the time it takes our peer to reply to a request
-measure_reply(Socket, #send_req{address = IP, msg = Msg, send_ts = SendTS}, ArrivalTS) ->
-    ergw_prometheus:gtp_path_rtt(Socket, IP, Msg, ArrivalTS - SendTS).
 
 %% measure the time it takes us to generate a response to a request
 measure_response(#request{

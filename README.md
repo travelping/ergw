@@ -353,10 +353,6 @@ Then fill just created **ergw.config** file with content like described below pr
 
          {teid, {3, 6}}, % {teid, {Prefix, Length}} - optional, default: {0, 0}
 
-         {metrics, [
-             {gtp_path_rtt_millisecond_intervals, [10, 100]} % optional, default: [10, 30, 50, 75, 100, 1000, 2000]
-         ]},
-
          {node_selection,
           [{default,
             {static,

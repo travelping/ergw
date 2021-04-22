@@ -7,12 +7,9 @@
 
 -module(ergw_prometheus).
 
--export([validate_options/1]).
-
 -export([declare/0]).
 -export([gtp_error/3, gtp/4, gtp/5,
 	 gtp_request_duration/4,
-	 gtp_path_rtt/4,
 	 gtp_path_contexts/4
 	]).
 -export([pfcp/4, pfcp/5,
@@ -25,30 +22,10 @@
 -include_lib("pfcplib/include/pfcp_packet.hrl").
 
 %%%===================================================================
-%%% Options Validation
-%%%===================================================================
-
--define(DefaultMetricsOpts, [{gtp_path_rtt_millisecond_intervals, [10, 30, 50, 75, 100, 1000, 2000]}]).
-
-validate_options(Opts) ->
-    ergw_config:validate_options(fun validate_option/2, Opts, ?DefaultMetricsOpts, map).
-
-validate_option(gtp_path_rtt_millisecond_intervals = Opt, Value) ->
-    case [V || V <- Value, is_integer(V), V > 0] of
-        [_|_] = Value ->
-            Value;
-        _ ->
-            throw({error, {options, {Opt, Value}}})
-    end.
-
-%%%===================================================================
 %%% API
 %%%===================================================================
 
 declare() ->
-    %% Metrics Config
-    {ok, Config} = application:get_env(ergw, metrics),
-
     %% GTP path metrics
     prometheus_counter:declare([{name, gtp_path_messages_processed_total},
 				{labels, [name, remote, direction, version, type]},
@@ -65,10 +42,6 @@ declare() ->
     prometheus_counter:declare([{name, gtp_path_messages_replies_total},
 				{labels, [name, remote, direction, version, type, result]},
 				{help, "Total number of reply GTP message on path"}]),
-    prometheus_histogram:declare([{name, gtp_path_rtt_milliseconds},
-				  {labels, [name, ip, version, type]},
-				  {buckets, maps:get(gtp_path_rtt_millisecond_intervals, Config)},
-				  {help, "GTP path round trip time"}]),
     prometheus_gauge:declare([{name, gtp_path_contexts_total},
 			      {labels, [name, ip, version]},
 			      {help, "Total number of GTP contexts on path"}]),
@@ -211,10 +184,6 @@ gtp_reply_update(Name, Direction, Version, MsgType, Cause) ->
 gtp_request_duration(#socket{name = Name}, Version, MsgType, Duration) ->
     prometheus_histogram:observe(
       gtp_c_socket_request_duration_microseconds, [Name, Version, MsgType], Duration).
-
-gtp_path_rtt(#socket{name = Name}, RemoteIP, #gtp{version = Version, type = MsgType}, RTT) ->
-    prometheus_histogram:observe(
-      gtp_path_rtt_milliseconds, [Name, inet:ntoa(RemoteIP), Version, MsgType], RTT).
 
 gtp_path_contexts(#socket{name = Name}, RemoteIP, Version, Counter) ->
     prometheus_gauge:set(
