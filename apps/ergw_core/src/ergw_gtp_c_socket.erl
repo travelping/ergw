@@ -74,7 +74,7 @@
 -define(T3, 10 * 1000).
 -define(N3, 5).
 -define(RESPONSE_TIMEOUT, (?T3 * ?N3 + (?T3 div 2))).
--define(CACHE_TIMEOUT, ?RESPONSE_TIMEOUT).
+-define(CACHE_TIMEOUT_INTERVAL, 100).
 
 %%====================================================================
 %% API
@@ -174,8 +174,8 @@ init({Name, #{ip := IP, vrf := VRF,
 	       v1_seq_no = 0,
 	       v2_seq_no = 0,
 	       pending = gb_trees:empty(),
-	       requests = ergw_cache:new(?T3 * 4, requests),
-	       responses = ergw_cache:new(?CACHE_TIMEOUT, responses),
+	       requests = ergw_cache:new(?CACHE_TIMEOUT_INTERVAL, requests),
+	       responses = ergw_cache:new(?CACHE_TIMEOUT_INTERVAL, responses),
 
 	       unique_id = rand:uniform(16#ffffffff)
 	      },
