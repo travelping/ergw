@@ -1,5 +1,11 @@
 erGW - 3GPP GGSN and PDN-GW in Erlang
 =====================================
+
+Version 2.8.10 - 22 April 2021
+-------------------------------
+**Improvements** :bulb:
+* [#367](https://github.com/travelping/ergw/pull/367) Remove `gtp_path_rtt_milliseconds_metric`
+
 Version 2.8.10 - 7 April 2021
 -------------------------------
 **Bugfixes** :bug:
