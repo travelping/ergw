@@ -57,7 +57,7 @@
 -define(T1, 10 * 1000).
 -define(N1, 5).
 -define(RESPONSE_TIMEOUT, (?T1 * ?N1 + (?T1 div 2))).
--define(CACHE_TIMEOUT, ?RESPONSE_TIMEOUT).
+-define(CACHE_TIMEOUT_INTERVAL, 100).
 
 -define(log_pfcp(Level, Fmt, Args, PFCP),
 	try
@@ -165,7 +165,7 @@ init({Name, #{ip := IP, socket := GtpSocketName, burst_size := BurstSize} = Opts
 	       seq_no = 1,
 	       pending = gb_trees:empty(),
 
-	       responses = ergw_cache:new(?CACHE_TIMEOUT, responses)
+	       responses = ergw_cache:new(?CACHE_TIMEOUT_INTERVAL, responses)
 	      },
     self() ! {'$socket', SendSocket, select, undefined},
     self() ! {'$socket', RecvSocket, select, undefined},
