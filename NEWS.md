@@ -1,5 +1,11 @@
 erGW - 3GPP GGSN and PDN-GW in Erlang
 =====================================
+
+Version 2.8.11 - 23 April 2021
+-------------------------------
+**Improvements** :bulb:
+* [#369](https://github.com/travelping/ergw/pull/369) Start use fork of `prometheus` with speedup fix
+
 Version 2.8.10 - 7 April 2021
 -------------------------------
 **Bugfixes** :bug:
