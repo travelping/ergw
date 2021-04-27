@@ -187,6 +187,7 @@ connect_sx_node(Node, #{node_selection := NodeSelect} = Opts) ->
 %%%===================================================================
 
 -define(NodeDefaults, [{connect, false}]).
+-define(VrfDefaults, [{features, invalid}]).
 -define(Defaults, [{node_selection, default},
 		   {heartbeat, []},
 		   {request, []}]).
@@ -208,7 +209,7 @@ validate_node_vrf_option(Opt, Values) ->
 
 validate_node_vrfs({Name, Opts}) when is_map(Opts) ->
     {vrf:validate_name(Name),
-     ergw_core_config:validate_options(fun validate_node_vrf_option/2, Opts, [])};
+     ergw_core_config:validate_options(fun validate_node_vrf_option/2, Opts, ?VrfDefaults)};
 validate_node_vrfs({Name, Opts}) when is_list(Opts) ->
     validate_node_vrfs({Name, ergw_core_config:to_map(Opts)});
 validate_node_vrfs({Name, Opts}) ->

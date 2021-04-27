@@ -5,7 +5,7 @@
 %% as published by the Free Software Foundation; either version
 %% 2 of the License, or (at your option) any later version.
 
--module(config_SUITE).
+-module(core_config_SUITE).
 
 -compile(export_all).
 
@@ -356,8 +356,8 @@ tdf_handler(_Config)  ->
 
     ?bad(ValF(set_cfg_value([nodes], [], Handler))),
     ?bad(ValF(set_cfg_value([node_selection], [], Handler))),
-    ?bad(ValF(set_cfg_value([node_selection], ["default"], Handler))),
-    ?bad(ValF(set_cfg_value([node_selection], [<<"default">>], Handler))),
+    ?ok(ValF(set_cfg_value([node_selection], ["default"], Handler))),
+    ?ok(ValF(set_cfg_value([node_selection], [<<"default">>], Handler))),
     ok.
 
 ip_pool() ->
