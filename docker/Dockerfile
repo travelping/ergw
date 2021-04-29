@@ -30,7 +30,7 @@ FROM alpine:3.13
 WORKDIR /
 RUN     apk update && \
 		apk --no-cache upgrade && \
-		apk --no-cache add zlib ncurses-libs libcrypto1.1 lksctp-tools tini yaml
+		apk --no-cache add libgcc libstdc++ zlib ncurses-libs libcrypto1.1 lksctp-tools tini yaml
 COPY    docker/docker-entrypoint.sh /
 COPY    config/ergw-c-node.config /etc/ergw-c-node/
 
