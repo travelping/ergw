@@ -884,57 +884,62 @@ select_upf_with(Fun, Candidates, Available) ->
 %% select_upf/3
 select_upf(Candidates, Session0, APNOpts) ->
     do([error_m ||
-	   {_, _, _, Pools} = Node <- select_by_caps(Candidates, APNOpts, []),
+	   {_, _, Pools} = Node <- select_by_caps(Candidates, APNOpts, []),
 	   begin
-	       %% TBD: smarter v4/v6 pool select
-	       Pool = select(random, Pools),
+	       %% select a random VRF
+	       VRF = select(random, [V || {{V,_},_} <- Pools]),
+
+	       PoolV4 = select(random, [P || {{V, v4}, P} <- Pools, V == VRF]),
+	       PoolV6 = select(random, [P || {{V, v6}, P} <- Pools, V == VRF]),
+
 	       Session =
 		   init_session_ue_ifid(
-		     APNOpts, Session0#{'Framed-Pool' => Pool, 'Framed-IPv6-Pool' => Pool}),
+		     APNOpts, Session0#{'Framed-Pool' => PoolV4, 'Framed-IPv6-Pool' => PoolV6}),
 
-	       return({{Node, Pool}, Session})
+	       return({{Node, PoolV4, PoolV6}, Session})
 	   end
        ]).
 
 %% reselect_upf/4
-reselect_upf(Candidates, Session, APNOpts, {Node, Pool}) ->
+reselect_upf(Candidates, Session, APNOpts, {Node, PoolV4, PoolV6}) ->
     IP4 = maps:get('Framed-Pool', Session, undefined),
     IP6 = maps:get('Framed-IPv6-Pool', Session, undefined),
 
     do([error_m ||
-	   {Pid, NodeCaps, #vrf{name = VRF}, _} <-
+	   {Pid, NodeCaps, Pools} <-
 	       begin
-		   if (IP4 /= Pool orelse IP6 /= Pool) ->
-			   Pools = ordsets:from_list([IP4 || is_binary(IP4)]
-						     ++ [IP6 || is_binary(IP6)]),
-			   select_by_caps(Candidates, APNOpts, Pools);
+		   if (IP4 /= PoolV4 orelse IP6 /= PoolV6) ->
+			   WantPools = [{IP4, v4} || is_binary(IP4)]
+			       ++ [{IP6, v6} || is_binary(IP6)],
+			   select_by_caps(Candidates, APNOpts, WantPools);
 		      true ->
 			   return(Node)
 		   end
 	       end,
+	   %% select a random VRF
+	   VRF = select(random, [V || {{V,_},_} <- Pools]),
 	   {PCtx, _} <- ergw_sx_node:attach(Pid),
 	   return({PCtx, NodeCaps, #bearer{interface = 'SGi-LAN', vrf = VRF}})
        ]).
 
 %% common_caps/3
-common_caps({WVRFs, WPools}, {HVRFs, HPools}, true) ->
-    VRFs = maps:with(WVRFs, HVRFs),
+common_caps(WPools, HPools, true) ->
     Pools = ordsets:intersection(WPools, HPools),
-    {maps:size(VRFs) /= 0 andalso length(Pools) /=0, VRFs, Pools};
-common_caps({WVRFs, WPools}, {HVRFs, HPools}, false) ->
-    VRFs = maps:with(WVRFs, HVRFs),
-    {maps:size(VRFs) /= 0 andalso ordsets:is_subset(WPools, HPools), VRFs, WPools}.
+    {ordsets:size(Pools) /= 0, Pools};
+common_caps(WPools, HPools, false) ->
+    %% TBD: is this correct????
+    {ordsets:is_subset(WPools, HPools), WPools}.
 
 %% common_caps/5
 common_caps(_, [], _Available, _AnyPool, Candidates) ->
     Candidates;
 common_caps(Wanted, [{Node, _, _, _, _} = UPF|Next], Available, AnyPool, Candidates)
   when is_map_key(Node, Available) ->
-    {_, NodeCaps} = maps:get(Node, Available),
-    case common_caps(Wanted, NodeCaps, AnyPool) of
-	{true, _, _} ->
+    {_, {_, NodePools}} = maps:get(Node, Available),
+    case common_caps(Wanted, NodePools, AnyPool) of
+	{true, _} ->
 	    [UPF|common_caps(Wanted, Next, Available, AnyPool,Candidates)];
-	{false, _, _} ->
+	{false,_} ->
 	    common_caps(Wanted, Next, Available, AnyPool, Candidates)
     end;
 common_caps(Wanted, [_|Next], Available, AnyPool, Candidates) ->
@@ -942,13 +947,16 @@ common_caps(Wanted, [_|Next], Available, AnyPool, Candidates) ->
 
 %% select_by_caps/3
 select_by_caps(Candidates, #{vrfs := VRFs, ip_pools := Pools}, []) ->
-    Wanted = {VRFs, ordsets:from_list(Pools)},
+    Wanted =
+	ordsets:from_list([{{VRF, IP}, Pool} || VRF <- VRFs, IP <- [v4, v6], Pool <- Pools]),
     filter_by_caps(Candidates, Wanted, true);
 
 select_by_caps(Candidates, #{vrfs := VRFs, ip_pools := Pools}, WantPools) ->
-    case ordsets:is_subset(WantPools, Pools) of
+    WantPoolsSet = ordsets:from_list([P || {P, _} <- WantPools]),
+    case ordsets:is_subset(WantPoolsSet, Pools) of
 	true ->
-	    Wanted = {VRFs, WantPools},
+	    Wanted = ordsets:from_list(
+		       [{{VRF, IP}, Pool} || VRF <- VRFs, {Pool, IP} <- WantPools]),
 	    filter_by_caps(Candidates, Wanted, false);
 	_ ->
 	    %% pool not available
@@ -966,10 +974,9 @@ filter_by_caps(Candidates, Wanted, AnyPool) ->
       fun(Node) -> filter_by_caps_f(Node, Wanted, AnyPool) end, Eligible, Available).
 
 %% filter_by_caps_f/1
-filter_by_caps_f({Pid, NodeCaps}, Wanted, AnyPool) ->
-    {_, SVRFs, SPools} = common_caps(Wanted, NodeCaps, AnyPool),
-    VRF = maps:get(select(random, maps:keys(SVRFs)), SVRFs),
-    {ok, {Pid, NodeCaps, VRF, SPools}}.
+filter_by_caps_f({Pid, {_, NodePools} = NodeCaps}, Wanted, AnyPool) ->
+    {_, SPools} = common_caps(Wanted, NodePools, AnyPool),
+    {ok, {Pid, NodeCaps, SPools}}.
 
 %%%===================================================================
 

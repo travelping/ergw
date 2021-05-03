@@ -241,6 +241,15 @@
                         "type": "apn"
                     }
                 }
+            ],
+            "ue_ip_pools": [
+                {"ip_pools": ["pool-A", "pool-B"],
+                 "vrf": {
+                     "name": "sgi",
+                     "type": "apn"
+                 },
+                 "ip_versions": ["v4", "v6"]
+                }
             ]
         },
         "entries": [

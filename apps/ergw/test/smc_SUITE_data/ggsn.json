@@ -227,8 +227,14 @@
                     "unit": "millisecond"
                 }
             },
-            "ip_pools": [
-                "pool-A"
+            "ue_ip_pools": [
+                {"ip_pools": ["pool-A"],
+                 "vrf": {
+                     "name": "sgi",
+                     "type": "apn"
+                 },
+                 "ip_versions": ["v4", "v6"]
+                }
             ],
             "node_selection": "default",
             "request": {
@@ -282,9 +288,15 @@
                         "unit": "millisecond"
                     }
                 },
-                "ip_pools": [
-                    "pool-A"
-                ],
+		"ue_ip_pools": [
+                    {"ip_pools": ["pool-A"],
+                     "vrf": {
+			 "name": "sgi",
+			 "type": "apn"
+                     },
+                     "ip_versions": ["v4", "v6"]
+                    }
+		],
                 "name": "node-A",
                 "node_selection": "default",
                 "request": {

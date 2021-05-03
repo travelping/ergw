@@ -348,10 +348,20 @@
 			 {irx, [{features, ['Access']}]},
 			 {sgi, [{features, ['SGi-LAN']}]}
 			]},
-		       {ip_pools, [<<"pool-A">>]}],
+		       {ue_ip_pools,
+			[[{ip_pools, [<<"pool-A">>]},
+			  {vrf, sgi},
+			   {ip_versions, [v4, v6]}]]}
+		      ],
 		  nodes =>
 		      [{<<"topon.sx.prox01.epc.mnc001.mcc001.3gppnetwork.org">>, [connect]},
-		       {<<"topon.sx.prox03.epc.mnc001.mcc001.3gppnetwork.org">>, [connect, {ip_pools, [<<"pool-B">>, <<"pool-C">>]}]}]
+		       {<<"topon.sx.prox03.epc.mnc001.mcc001.3gppnetwork.org">>,
+			[connect,
+			 {ue_ip_pools,
+			 [[{ip_pools, [<<"pool-B">>, <<"pool-C">>]},
+			   {vrf, sgi},
+			   {ip_versions, [v4, v6]}]]}
+			]}]
 		 }
 	   }
 	 },

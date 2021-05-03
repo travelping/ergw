@@ -744,8 +744,14 @@
                     "unit":"millisecond"
                 }
             },
-            "ip_pools":[
-                "pool-A"
+            "ue_ip_pools": [
+                {"ip_pools": ["pool-A"],
+                 "vrf": {
+                     "name": "sgi",
+                     "type": "apn"
+                 },
+                 "ip_versions": ["v4", "v6"]
+                }
             ],
             "node_selection":"default",
             "request":{
@@ -799,10 +805,15 @@
                         "unit":"millisecond"
                     }
                 },
-                "ip_pools":[
-                    "pool-B",
-                    "pool-C"
-                ],
+		"ue_ip_pools": [
+                    {"ip_pools": ["pool-B", "pool-C"],
+                     "vrf": {
+			 "name": "sgi",
+			 "type": "apn"
+                     },
+                     "ip_versions": ["v4", "v6"]
+                    }
+		],
                 "name":"topon.sx.prox03.epc.mnc001.mcc001.3gppnetwork.org",
                 "node_selection":"default",
                 "request":{
@@ -855,9 +866,15 @@
                         "unit":"millisecond"
                     }
                 },
-                "ip_pools":[
-                    "pool-A"
-                ],
+		"ue_ip_pools": [
+                    {"ip_pools": ["pool-A"],
+                     "vrf": {
+			 "name": "sgi",
+			 "type": "apn"
+                     },
+                     "ip_versions": ["v4", "v6"]
+                    }
+		],
                 "name":"topon.sx.prox01.epc.mnc001.mcc001.3gppnetwork.org",
                 "node_selection":"default",
                 "request":{

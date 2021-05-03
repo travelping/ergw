@@ -56,7 +56,7 @@
 	       cp_info           :: #gtp_socket_info{},
 	       cp,
 	       dp,
-	       ip_pools,
+	       ue_ip_pools,
 	       vrfs,
 	       tdf,
 	       notify_up = []    :: [{pid(), reference()}]}).
@@ -236,14 +236,38 @@ validate_node_request({retry, Value} = Opts)
 validate_node_request({Opt, Value}) ->
     erlang:error(badarg, [Opt, Value]).
 
+validate_node_ue_ip_pool(Pool) when is_map(Pool) ->
+    ergw_core_config:validate_options(fun validate_node_ue_ip_pool/2, Pool,
+				      [{vrf, '_'}, {ip_versions, [v4, v6]}]);
+validate_node_ue_ip_pool(Pool) when is_list(Pool) ->
+    validate_node_ue_ip_pool(ergw_core_config:to_map(Pool));
+validate_node_ue_ip_pool(Pool) ->
+    erlang:error(badarg, [Pool]).
+
+validate_node_ue_ip_pool(ip_pools, Names) when is_list(Names) ->
+    V = [ergw_ip_pool:validate_name(ip_pools, Name) || Name <- Names],
+    ergw_core_config:check_unique_elements(ip_pools, V),
+    V;
+validate_node_ue_ip_pool(vrf, '_' = Name) ->
+    Name;
+validate_node_ue_ip_pool(vrf, Name) ->
+    vrf:validate_name(Name);
+validate_node_ue_ip_pool(ip_versions, Versions) when is_list(Versions) ->
+    lists:foreach(
+      fun(v4) -> ok;
+	 (v6) -> ok;
+	 (_)  -> erlang:error(badarg, [ip_versions, Versions])
+      end, Versions),
+    Versions;
+validate_node_ue_ip_pool(Name, Opts) ->
+    erlang:error(badarg, [Name, Opts]).
+
 validate_node_default_option(vrfs, VRFs)
   when ?is_non_empty_opts(VRFs) ->
     ergw_core_config:validate_options(fun validate_node_vrfs/1, VRFs, []);
-validate_node_default_option(ip_pools, Pools)
+validate_node_default_option(ue_ip_pools, Pools)
   when is_list(Pools) ->
-    V = [ergw_ip_pool:validate_name(ip_pools, Name) || Name <- Pools],
-    ergw_core_config:check_unique_elements(ip_pools, V),
-    V;
+    lists:map(fun validate_node_ue_ip_pool/1, Pools);
 validate_node_default_option(node_selection, Value) ->
     Value;
 validate_node_default_option(heartbeat, Opts)
@@ -329,10 +353,13 @@ init([Parent, Node, NodeSelect, IP4, IP6, NotifyUp]) ->
     {ok, ReqUpFF} =
 	ergw_core_config:get([up_required_feature], #up_function_features{_ = '_'}),
     {ok, Default} = ergw_core_config:get([up_node_defaults], #{}),
-    Cfg = case ergw_core_config:get([nodes, Node], Default) of
+    Cfg1 = case ergw_core_config:get([nodes, Node], Default) of
 	      {ok, Cfg0} -> Cfg0;
 	      _ -> Default
 	  end,
+
+    %% fill any undefined option with the default
+    Cfg = maps:merge(Default, Cfg1),
 
     IP = select_node_ip(IP4, IP6),
     Data0 = #data{required_upff = ReqUpFF,
@@ -801,6 +828,7 @@ handle_nodeup(#{recovery_time_stamp := #recovery_time_stamp{time = RecoveryTS}} 
 	      #data{required_upff = ReqUpFF,
 		    pfcp_ctx = PNodeCtx,
 		    dp = #node{node = Node, ip = IP},
+		    ue_ip_pools = UEIPPools0,
 		    vrfs = VRFs} = Data0) ->
     ?LOG(debug, "Node ~s (~s) is up", [Node, inet:ntoa(IP)]),
     ?LOG(debug, "Node IEs: ~s", [pfcp_packet:pretty_print(IEs)]),
@@ -809,11 +837,13 @@ handle_nodeup(#{recovery_time_stamp := #recovery_time_stamp{time = RecoveryTS}} 
     case validate_up_features(UPFeatures, ReqUpFF) of
 	true ->
 	    UPIPResInfo = maps:get(user_plane_ip_resource_information, IEs, []),
+	    UEIPPools = get_ue_ip_pool_information(IEs, UEIPPools0),
 	    Data1 = Data0#data{
-		     pfcp_ctx = PNodeCtx#pfcp_ctx{features = UPFeatures},
-		     recovery_ts = RecoveryTS,
-		     features = UPFeatures,
-		     vrfs = init_vrfs(VRFs, UPIPResInfo)
+		      pfcp_ctx = PNodeCtx#pfcp_ctx{features = UPFeatures},
+		      recovery_ts = RecoveryTS,
+		      features = UPFeatures,
+		      ue_ip_pools = ordsets:from_list(UEIPPools),
+		      vrfs = init_vrfs(VRFs, UPIPResInfo)
 		    },
 	    Data = install_cp_rules(Data1),
 	    {next_state, {connected, init}, Data};
@@ -822,6 +852,33 @@ handle_nodeup(#{recovery_time_stamp := #recovery_time_stamp{time = RecoveryTS}} 
 		 [inet:ntoa(IP), H, Wanted, Got]),
 	    {next_state, dead, Data0}
     end.
+
+make_ue_ip_pool_info(PI, Identities, Info) ->
+    #network_instance{instance = Instance} =
+	maps:get(network_instance, PI, #network_instance{instance = '_'}),
+    #ip_version{v4 = V4, v6 = V6} = maps:get(ip_version, PI, #ip_version{_ = 1}),
+    IPs = [v4 || V4 == 1] ++ [v6 || V6 == 1],
+    [{{Instance, IP}, Id} ||
+	IP <- IPs, #ue_ip_address_pool_identity{identity = Id} <- Identities] ++ Info.
+
+make_ue_ip_pool_info(#ue_ip_address_pool_information{
+			group = #{ue_ip_address_pool_identity := Identity} = PI}, Info)
+  when is_list(Identity) ->
+    make_ue_ip_pool_info(PI, Identity, Info);
+make_ue_ip_pool_info(#ue_ip_address_pool_information{
+			group = #{ue_ip_address_pool_identity := Identity} = PI}, Info)
+  when is_record(Identity, ue_ip_address_pool_identity) ->
+    make_ue_ip_pool_info(PI, [Identity], Info);
+make_ue_ip_pool_info(_, Info) ->
+    Info.
+
+get_ue_ip_pool_information(#{ue_ip_address_pool_information := PoolInfo}, _)
+  when is_list(PoolInfo) ->
+    lists:foldl(fun make_ue_ip_pool_info/2, [], PoolInfo);
+get_ue_ip_pool_information(#{ue_ip_address_pool_information := PoolInfo}, _) ->
+    make_ue_ip_pool_info(PoolInfo, []);
+get_ue_ip_pool_information(_, UEIPPoolInfo) ->
+    UEIPPoolInfo.
 
 validate_up_features(UpFF, ReqUpFF) ->
     validate_up_ff(
@@ -838,10 +895,19 @@ validate_up_ff([_|T], [_|UpFF], ['_'|ReqUpFF]) ->
 validate_up_ff([H|_], [Got|_], [Wanted|_]) ->
     {H, Got, Wanted}.
 
+init_ue_ip_pools([]) ->
+    [];
+init_ue_ip_pools([Pool|Rest]) ->
+    init_ue_ip_pool(Pool, init_ue_ip_pools(Rest)).
+
+init_ue_ip_pool(#{ip_pools := Names, vrf := VRF, ip_versions := IPs}, Pools) ->
+    [{{VRF, IP}, Name} || IP <- IPs, Name <- Names] ++ Pools.
+
 init_node_cfg(#data{cfg = Cfg} = Data) ->
+    UEIPPools = init_ue_ip_pools(maps:get(ue_ip_pools, Cfg, [])),
     Data#data{
       features = #up_function_features{_ = 0},
-      ip_pools = maps:get(ip_pools, Cfg, []),
+      ue_ip_pools = ordsets:from_list(UEIPPools),
       vrfs = maps:map(
 	       fun(Id, #{features := Features}) ->
 		       #vrf{name = Id, features = Features}
@@ -987,8 +1053,8 @@ send_notify_up(Notify, #data{notify_up = NotifyUp} = Data) ->
     send_notify_up(Notify, NotifyUp),
     Data#data{notify_up = []}.
 
-node_caps(#data{ip_pools = Pools, vrfs = VRFs}) ->
-    {VRFs, ordsets:from_list(Pools)}.
+node_caps(#data{ue_ip_pools = Pools, vrfs = VRFs}) ->
+    {VRFs, Pools}.
 
 select_node_ip([_|_] = IP4, _IP6) ->
     {IP, _} = lb(random, IP4),
