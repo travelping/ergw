@@ -621,7 +621,11 @@ upf_node_defaults(_Config)  ->
 	   {irx, [{features, ['Access']}]},
 	   {sgi, [{features, ['SGi-LAN']}]}
 	  ]},
-	 {ip_pools, [<<"pool-A">>]}],
+	 {ue_ip_pools,
+	  [[{ip_pools, [<<"pool-A">>]},
+	    {vrf, sgi},
+	    {ip_versions, [v4, v6]}]]}
+	],
     ValF = fun(Values) -> ergw_sx_node:validate_defaults(Values) end,
 
     ?ok(ValF(Default)),
@@ -635,10 +639,14 @@ upf_node_defaults(_Config)  ->
     ?bad(ValF(set_cfg_value([vrfs, cp, features], invalid, Default))),
     ?bad(ValF(set_cfg_value([vrfs, cp, features], [invalid], Default))),
 
-    ?ok(ValF(set_cfg_value([ip_pools], [], Default))),
-    ?bad(ValF(set_cfg_value([ip_pools], a, Default))),
-    ?ok(ValF(set_cfg_value([ip_pools], [a, b], Default))),
-    ?bad(ValF(set_cfg_value([ip_pools], [a, a], Default))),
+    ?ok(ValF(set_cfg_value([ue_ip_pools], [], Default))),
+    ?ok(ValF(set_cfg_value([ue_ip_pools], [[{ip_pools, [a,b]}]], Default))),
+    ?ok(ValF(set_cfg_value([ue_ip_pools], [[{ip_pools, [a,b]}], [{ip_pools, [a,b,c]}]], Default))),
+    ?bad(ValF(set_cfg_value([ue_ip_pools], [{ip_pools, [a,b]}], Default))),
+
+    ?ok(ValF(set_cfg_value([ue_ip_pools], [[{ip_pools, [a,b]}, {ip_versions, [v4]}]], Default))),
+    ?ok(ValF(set_cfg_value([ue_ip_pools], [[{ip_pools, [a,b]}, {ip_versions, [v6]}]], Default))),
+    ?bad(ValF(set_cfg_value([ue_ip_pools], [[{ip_pools, [a,b]}, {ip_versions, [v8]}]], Default))),
 
     ?bad(ValF(set_cfg_value([heartbeat], [{interval, invalid}], Default))),
     ?ok(ValF(set_cfg_value([heartbeat], [{interval, 5000}, {timeout, 500}, {retry, 5}], Default))),

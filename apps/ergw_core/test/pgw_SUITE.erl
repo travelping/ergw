@@ -326,16 +326,26 @@
 
 	    upf_nodes =>
 		#{default =>
-		       [{vrfs,
-			 [{cp, [{features, ['CP-Function']}]},
-			  {irx, [{features, ['Access']}]},
-			  {sgi, [{features, ['SGi-LAN']}]}
-			 ]},
-			{ip_pools, [<<"pool-A">>]}],
+		      [{vrfs,
+			[{cp, [{features, ['CP-Function']}]},
+			 {irx, [{features, ['Access']}]},
+			 {sgi, [{features, ['SGi-LAN']}]}
+			]},
+		       {ue_ip_pools,
+			[[{ip_pools, [<<"pool-A">>]},
+			  {vrf, sgi},
+			   {ip_versions, [v4, v6]}]]}
+		      ],
 		  nodes =>
 		      [{<<"topon.sx.prox01.epc.mnc001.mcc001.3gppnetwork.org">>, [connect]},
-		       {<<"topon.sx.prox03.epc.mnc001.mcc001.3gppnetwork.org">>, [connect, {ip_pools, [<<"pool-B">>, <<"pool-C">>]}]}]
-		  },
+		       {<<"topon.sx.prox03.epc.mnc001.mcc001.3gppnetwork.org">>,
+			[connect,
+			 {ue_ip_pools,
+			 [[{ip_pools, [<<"pool-A">>, <<"pool-B">>]},
+			   {vrf, sgi},
+			   {ip_versions, [v4, v6]}]]}
+			]}]
+		 },
 	    path_management =>
 		#{suspect => #{timeout => 0}}
 	   }

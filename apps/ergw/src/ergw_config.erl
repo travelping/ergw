@@ -450,9 +450,14 @@ config_meta_nodes() ->
 		timeout => timeout,
 		retry => integer
 	       },
+    Pool = #{
+	     ip_pools => {list, binary},
+	     vrf => vrf,
+	     ip_versions => {list, atom}
+	    },
     Default = #{
 		vrfs           => {klist, {name, vrf}, VRF},
-		ip_pools       => {list, binary},
+		ue_ip_pools    => {list, Pool},
 		node_selection => binary,
 		heartbeat      => Heartbeat,
 		request        => Request

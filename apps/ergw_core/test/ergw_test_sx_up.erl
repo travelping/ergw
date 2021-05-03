@@ -313,6 +313,16 @@ user_plane_ip_resource_information(VRF, #state{up_ip = IP})
        ipv6 = ergw_inet:ip2bin(?LOCALHOST_IPv6)
       }.
 
+ue_ip_address_pool_ids(Pools) when is_list(Pools) ->
+    [#ue_ip_address_pool_identity{identity = Identity} || Identity <- Pools];
+ue_ip_address_pool_ids(Pool) ->
+    ue_ip_address_pool_ids([Pool]).
+
+ue_ip_address_pool_information(VRF, Pools) ->
+    IEs = [ue_ip_address_pool_ids(Pools),
+	   #network_instance{instance = vrf:normalize_name(VRF)}],
+    #ue_ip_address_pool_information{group = IEs}.
+
 sx_reply(Type, IEs, State) ->
     sx_reply(Type, undefined, IEs, State).
 sx_reply(Type, SEID, IEs, State) ->
@@ -344,6 +354,12 @@ handle_message(#pfcp{type = association_setup_request,
 	       #state{features = UpFF, dp_recovery_ts = RecoveryTS} = State0) ->
     UpIPRes =
 	case UpFF of
+	    %% tests assume that pgw0 has only pool-A, reporting pool-B breaks the test
+	    %% the check for `disable` avoids unused function warnings for now
+	    #up_function_features{ftup = disabled} ->
+		[ue_ip_address_pool_information(sgi, [<<"pool-A">>, <<"pool-B">>]),
+		 ue_ip_address_pool_information(sgi, <<"pool-C">>)];
+
 	    #up_function_features{ftup = 1} ->
 		[];
 	    _ ->

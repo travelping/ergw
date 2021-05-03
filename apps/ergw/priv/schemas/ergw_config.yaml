@@ -93,6 +93,24 @@ components:
               - LI Function
               - TDF-Source
 
+    UeIpPool:
+      type: object
+      properties:
+        ip_pools:
+          type: array
+          items:
+            type: string
+        vrf:
+          $ref: "#/components/schemas/VrfName"
+        ip_versions:
+          type: array
+          items:
+            enum:
+              - v4
+              - v6
+      required: [ ip_pools, vrf ]
+      additionalProperties: false
+
     APN:
       type: object
       apn:
@@ -743,10 +761,10 @@ properties:
                 type: integer
               timeout:
                 $ref: "#/components/schemas/TimeoutInf"
-          ip_pools:
+          ue_ip_pools:
             type: array
             items:
-              type: string
+              $ref: "#/components/schemas/UeIpPool"
           node_selection:
             type: string
           request:
@@ -779,10 +797,10 @@ properties:
                   type: integer
                 timeout:
                   $ref: "#/components/schemas/TimeoutInf"
-            ip_pools:
+            ue_ip_pools:
               type: array
               items:
-                type: string
+                $ref: "#/components/schemas/UeIpPool"
             node_selection:
               type: string
             raddr:
@@ -801,6 +819,7 @@ properties:
               items:
                 $ref: "#/components/schemas/VRF"
     required: [ default ]
+    additionalProperties: false
 
   path_management:
     type: object

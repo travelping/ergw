@@ -241,7 +241,11 @@
 			 {'remote-irx2', [{features, ['Access']}]},
 			 {example, [{features, ['SGi-LAN']}]}]
 		       },
-		       {ip_pools, [<<"pool-A">>]}],
+		       {ue_ip_pools,
+			[[{ip_pools, [<<"pool-A">>]},
+			  {vrf, example},
+			   {ip_versions, [v4, v6]}]]}
+		      ],
 		  nodes =>
 		      [{<<"topon.sx.sgw-u01.epc.mnc001.mcc001.3gppnetwork.org">>, [connect]},
 		       {<<"topon.sx.pgw-u01.epc.mnc001.mcc001.3gppnetwork.org">>, [connect]},
@@ -514,7 +518,11 @@
 			 {'remote-irx2', [{features, ['Access']}]},
 			 {example, [{features, ['SGi-LAN']}]}]
 		       },
-		       {ip_pools, [<<"pool-A">>]}],
+		       {ue_ip_pools,
+			[[{ip_pools, [<<"pool-A">>]},
+			  {vrf, example},
+			   {ip_versions, [v4, v6]}]]}
+		      ],
 		  nodes =>
 		      [{<<"topon.sx.sgw-u01.epc.mnc001.mcc001.3gppnetwork.org">>, [connect]},
 		       {<<"topon.sx.pgw-u01.epc.mnc001.mcc001.3gppnetwork.org">>, [connect]},
