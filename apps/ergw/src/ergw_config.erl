@@ -562,9 +562,12 @@ delegate_aaa_function(Map) when is_map(Map) ->
     normalize_meta(Meta).
 
 config_meta_aaa_function_diameter() ->
+    Transport =
+	#{connect_to => binary},
     #{handler => module,
       'Origin-Host' => host_or_ip,
-      'Origin-Realm' => binary}.
+      'Origin-Realm' => binary,
+      transports => {list, Transport}}.
 
 config_meta_aaa_handlers() ->
     {klist, {handler, module}, {delegate, fun delegate_aaa_handler/1}}.
@@ -614,7 +617,7 @@ ergw_meta_aaa_handler_radius() ->
       termination_cause_mapping => config_meta_term_cause_mapping()}.
 
 ergw_meta_radius_server() ->
-    #{ip => ip_or_host,
+    #{ip => host_or_ip,
       port => integer,
       secret => binary}.
 
@@ -863,6 +866,15 @@ to_ip4_address(IP) ->
 to_ip6_address(IP) ->
     {_, _, _, _, _, _, _, _} = to_ip_address(IP).
 
+to_host_or_ip(#{<<"ipv4Addr">> := Bin}) when is_binary(Bin) ->
+    {ok, IP} = inet:parse_ipv4_address(binary_to_list(Bin)),
+    IP;
+to_host_or_ip(#{<<"ipv6Addr">> := Bin}) when is_binary(Bin) ->
+    {ok, IP} = inet:parse_ipv6_address(binary_to_list(Bin)),
+    IP;
+to_host_or_ip(Bin) when is_binary(Bin) ->
+    Bin.
+
 to_apn(<<"*">>) ->
     '_';
 to_apn(APN) ->
@@ -961,6 +973,12 @@ to_aaa_avp(K0, V0, M) ->
     K = to_atom(K0),
     maps:put(K, to_aaa_avp(K, V0), M).
 
+to_aaa_avp(#{<<"ipv4Addr">> := Bin}) when is_binary(Bin) ->
+    {ok, IP} = inet:parse_ipv4_address(binary_to_list(Bin)),
+    IP;
+to_aaa_avp(#{<<"ipv6Addr">> := Bin}) when is_binary(Bin) ->
+    {ok, IP} = inet:parse_ipv6_address(binary_to_list(Bin)),
+    IP;
 to_aaa_avp(Map) when is_map(Map) ->
     maps:fold(fun to_aaa_avp/3, #{}, Map).
 
@@ -1050,6 +1068,11 @@ from_ip46(IP) when is_binary(IP) ->
 from_ip46_address(IP) when is_tuple(IP) ->
     iolist_to_binary(inet:ntoa(IP)).
 
+from_host_or_ip(IP) when is_tuple(IP) ->
+    from_ip_address(IP);
+from_host_or_ip(Host) when is_binary(Host) ->
+    Host.
+
 from_apn('_') ->
     <<"*">>;
 from_apn(APN) ->
@@ -1126,6 +1149,10 @@ from_aaa_avp('Tariff-Time', Time) ->
     from_time(Time);
 from_aaa_avp(_K, Value) when is_list(Value) ->
     iolist_to_binary(Value);
+from_aaa_avp(_K, Value) when ?IS_IPv4(Value) ->
+    from_ip_address(Value);
+from_aaa_avp(_K, Value) when ?IS_IPv6(Value) ->
+    from_ip_address(Value);
 from_aaa_avp(_K, Value) ->
     Value.
 
@@ -1352,6 +1379,11 @@ load_typespecs() ->
 	      #cnf_type{
 		 coerce    = fun to_upff/1,
 		 serialize = fun from_upff/1
+		},
+	  host_or_ip =>
+	      #cnf_type{
+		 coerce    = fun to_host_or_ip/1,
+		 serialize = fun from_host_or_ip/1
 		}
 	 },
     register_typespec(Spec).

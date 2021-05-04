@@ -1273,15 +1273,27 @@ translate_keyed_opt(Key, Fun, Config, Default) ->
     end.
 
 aaa_translate_function(_Function, Opts) ->
-    to_map(Opts).
+    translate_options(fun aaa_translate_function_option/2, Opts, [], map).
+
+aaa_translate_function_option(transports, Opts) when is_list(Opts) ->
+    lists:map(fun to_map/1, Opts);
+aaa_translate_function_option(_, Opt) ->
+    Opt.
 
 aaa_translate_handler(ergw_aaa_static, Opts) when is_map(Opts) ->
     Answers = maps:get(answers, Opts, #{}),
     #{answers => Answers, defaults => maps:remove(answers, Opts)};
 aaa_translate_handler(ergw_aaa_static, Opts) when is_list(Opts) ->
     aaa_translate_handler(ergw_aaa_static, to_map(Opts));
+aaa_translate_handler(ergw_aaa_radius, Opts) ->
+    translate_options(fun aaa_translate_radius_option/2, Opts, [], map);
 aaa_translate_handler(_Handler, Opts) ->
     to_map(Opts).
+
+aaa_translate_radius_option(server, {IP, Port, Secret}) ->
+    #{ip => IP, port => Port, secret => Secret};
+aaa_translate_radius_option(_, Opts) ->
+    Opts.
 
 aaa_translate_service(_Service, Opts, _Config) ->
     to_map(Opts).
