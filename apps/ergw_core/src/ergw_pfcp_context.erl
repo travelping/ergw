@@ -881,54 +881,96 @@ select_upf_with(Fun, Candidates, Available) ->
 	    select_upf_with(Fun, Next, Available)
     end.
 
+%% select_upf_pools/3
+select_upf_pool(Candidates, APNOpts, WantPools) ->
+    do([error_m ||
+	   {_, _, Pools} = Node <- select_by_caps(Candidates, APNOpts, WantPools),
+	   begin
+	       %% select a random VRF
+	       VRF = select(random, lists:usort([V || #{vrf := V} <- Pools])),
+	       FilterF =
+		   fun (IP) ->
+			   lists:foldl(
+			     fun(#{vrf := HasV, ip_versions := Versions, ip_pools := HasP}, P) ->
+				     case HasV =:= VRF andalso lists:member(IP, Versions) of
+					 true -> P ++ HasP;
+					 false -> P
+				     end
+			     end, [], Pools)
+		   end,
+
+	       PoolV4 = select(random, FilterF(v4)),
+	       PoolV6 = select(random, FilterF(v6)),
+
+	       return({Node, VRF, PoolV4, PoolV6})
+	   end
+       ]).
+
+
 %% select_upf/3
 select_upf(Candidates, Session0, APNOpts) ->
     do([error_m ||
-	   {_, _, Pools} = Node <- select_by_caps(Candidates, APNOpts, []),
+	   {_Node, _VRF, PoolV4, PoolV6} = Node <- select_upf_pool(Candidates, APNOpts, []),
 	   begin
-	       %% select a random VRF
-	       VRF = select(random, [V || {{V,_},_} <- Pools]),
-
-	       PoolV4 = select(random, [P || {{V, v4}, P} <- Pools, V == VRF]),
-	       PoolV6 = select(random, [P || {{V, v6}, P} <- Pools, V == VRF]),
-
 	       Session =
 		   init_session_ue_ifid(
 		     APNOpts, Session0#{'Framed-Pool' => PoolV4, 'Framed-IPv6-Pool' => PoolV6}),
-
-	       return({{Node, PoolV4, PoolV6}, Session})
+	       return({Node, Session})
 	   end
        ]).
 
 %% reselect_upf/4
-reselect_upf(Candidates, Session, APNOpts, {Node, PoolV4, PoolV6}) ->
+reselect_upf(Candidates, Session, APNOpts, {_, _, PoolV4, PoolV6} = UPinfo) ->
     IP4 = maps:get('Framed-Pool', Session, undefined),
     IP6 = maps:get('Framed-IPv6-Pool', Session, undefined),
 
     do([error_m ||
-	   {Pid, NodeCaps, Pools} <-
+	   {{Pid, NodeCaps, _}, VRF, _,_} <-
 	       begin
 		   if (IP4 /= PoolV4 orelse IP6 /= PoolV6) ->
 			   WantPools = [{IP4, v4} || is_binary(IP4)]
 			       ++ [{IP6, v6} || is_binary(IP6)],
-			   select_by_caps(Candidates, APNOpts, WantPools);
+			   select_upf_pool(Candidates, APNOpts, WantPools);
 		      true ->
-			   return(Node)
+			   return(UPinfo)
 		   end
 	       end,
-	   %% select a random VRF
-	   VRF = select(random, [V || {{V,_},_} <- Pools]),
 	   {PCtx, _} <- ergw_sx_node:attach(Pid),
 	   return({PCtx, NodeCaps, #bearer{interface = 'SGi-LAN', vrf = VRF}})
        ]).
 
+have_wanted_caps({WantVRF, WantIP, WantPool}, #{ip_pools := Pools, vrf := VRF, ip_versions := IPs}) ->
+    (VRF =:= '_' orelse WantVRF =:= VRF)
+	andalso (WantPool =:= '_' orelse lists:member(WantPool, Pools))
+	andalso (WantIP =:= '_' orelse lists:member(WantIP, IPs)).
+
+common_caps_intersection([], _, Common) ->
+    Common;
+common_caps_intersection([Want|More], HasCaps, Common0) ->
+    Common =
+	lists:filter(
+	  fun(Has) -> have_wanted_caps(Want, Has) end, HasCaps),
+    common_caps_intersection(More, HasCaps, Common0 ++ Common).
+
+common_caps_subset([], _, IsSubSet) ->
+    {IsSubSet, []};
+common_caps_subset([Want|More], HasCaps, IsSubSet) ->
+    case common_caps_subset(More, HasCaps, IsSubSet) of
+	{true, SubSet} ->
+	    SubS =
+		lists:filter(
+		  fun(Has) -> have_wanted_caps(Want, Has) end, HasCaps),
+	    {true andalso SubS /= [], SubSet ++ SubS};
+	Other ->
+	    Other
+    end.
+
 %% common_caps/3
 common_caps(WPools, HPools, true) ->
-    Pools = ordsets:intersection(WPools, HPools),
-    {ordsets:size(Pools) /= 0, Pools};
+    Pools = common_caps_intersection(WPools, HPools, []),
+    {length(Pools) /= 0, Pools};
 common_caps(WPools, HPools, false) ->
-    %% TBD: is this correct????
-    {ordsets:is_subset(WPools, HPools), WPools}.
+    common_caps_subset(WPools, HPools, true).
 
 %% common_caps/5
 common_caps(_, [], _Available, _AnyPool, Candidates) ->
@@ -947,21 +989,13 @@ common_caps(Wanted, [_|Next], Available, AnyPool, Candidates) ->
 
 %% select_by_caps/3
 select_by_caps(Candidates, #{vrfs := VRFs, ip_pools := Pools}, []) ->
-    Wanted =
-	ordsets:from_list([{{VRF, IP}, Pool} || VRF <- VRFs, IP <- [v4, v6], Pool <- Pools]),
+    Wanted = [{VRF, '_', Pool} || VRF <- VRFs, Pool <- Pools],
     filter_by_caps(Candidates, Wanted, true);
 
-select_by_caps(Candidates, #{vrfs := VRFs, ip_pools := Pools}, WantPools) ->
-    WantPoolsSet = ordsets:from_list([P || {P, _} <- WantPools]),
-    case ordsets:is_subset(WantPoolsSet, Pools) of
-	true ->
-	    Wanted = ordsets:from_list(
-		       [{{VRF, IP}, Pool} || VRF <- VRFs, {Pool, IP} <- WantPools]),
-	    filter_by_caps(Candidates, Wanted, false);
-	_ ->
-	    %% pool not available
-	    {error, ?CTX_ERR(?FATAL, no_resources_available)}
-    end.
+select_by_caps(Candidates, #{vrfs := VRFs}, WantPools) ->
+    Wanted = [{VRF, IP, Pool} ||
+		 VRF <- VRFs, {Pool, IP} <- WantPools],
+    filter_by_caps(Candidates, Wanted, false).
 
 %% filter_by_caps/3
 filter_by_caps(Candidates, Wanted, AnyPool) ->

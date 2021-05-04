@@ -854,12 +854,12 @@ handle_nodeup(#{recovery_time_stamp := #recovery_time_stamp{time = RecoveryTS}} 
     end.
 
 make_ue_ip_pool_info(PI, Identities, Info) ->
-    #network_instance{instance = Instance} =
+    #network_instance{instance = VRF} =
 	maps:get(network_instance, PI, #network_instance{instance = '_'}),
     #ip_version{v4 = V4, v6 = V6} = maps:get(ip_version, PI, #ip_version{_ = 1}),
     IPs = [v4 || V4 == 1] ++ [v6 || V6 == 1],
-    [{{Instance, IP}, Id} ||
-	IP <- IPs, #ue_ip_address_pool_identity{identity = Id} <- Identities] ++ Info.
+    Ids = ordsets:from_list([Id || #ue_ip_address_pool_identity{identity = Id} <- Identities]),
+    [#{ip_pools => Ids, vrf => VRF, ip_versions => IPs}|Info].
 
 make_ue_ip_pool_info(#ue_ip_address_pool_information{
 			group = #{ue_ip_address_pool_identity := Identity} = PI}, Info)
@@ -895,19 +895,10 @@ validate_up_ff([_|T], [_|UpFF], ['_'|ReqUpFF]) ->
 validate_up_ff([H|_], [Got|_], [Wanted|_]) ->
     {H, Got, Wanted}.
 
-init_ue_ip_pools([]) ->
-    [];
-init_ue_ip_pools([Pool|Rest]) ->
-    init_ue_ip_pool(Pool, init_ue_ip_pools(Rest)).
-
-init_ue_ip_pool(#{ip_pools := Names, vrf := VRF, ip_versions := IPs}, Pools) ->
-    [{{VRF, IP}, Name} || IP <- IPs, Name <- Names] ++ Pools.
-
 init_node_cfg(#data{cfg = Cfg} = Data) ->
-    UEIPPools = init_ue_ip_pools(maps:get(ue_ip_pools, Cfg, [])),
     Data#data{
       features = #up_function_features{_ = 0},
-      ue_ip_pools = ordsets:from_list(UEIPPools),
+      ue_ip_pools = maps:get(ue_ip_pools, Cfg, []),
       vrfs = maps:map(
 	       fun(Id, #{features := Features}) ->
 		       #vrf{name = Id, features = Features}
