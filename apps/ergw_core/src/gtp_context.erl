@@ -612,7 +612,7 @@ handle_event(info, {'DOWN', _MonitorRef, Type, Pid, _Info}, State,
     {next_state, shutdown, Data};
 
 handle_event({timeout, context_idle}, stop_session, State, Data) ->
-    delete_context(undefined, normal, State, Data);
+    delete_context(undefined, cp_inactivity_timeout, State, Data);
 
 handle_event(Type, Content, State, #{interface := Interface} = Data) ->
     ?LOG(debug, "~w: handle_event: (~p, ~p, ~p)",
