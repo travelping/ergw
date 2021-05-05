@@ -476,7 +476,7 @@ handle_event(info, #aaa_request{procedure = {gx, 'RAR'},
 
 %%% step 2
 %%% step 3:
-    {PCtx1, UsageReport} =
+    {PCtx1, UsageReport, _} =
 	case ergw_pfcp_context:modify_session(PCC1, [], #{}, Bearer, PCtx0) of
 	    {ok, Result1} -> Result1;
 	    {error, Err1} -> throw(Err1#ctx_err{context = Context, tunnel = LeftTunnel})
@@ -497,7 +497,7 @@ handle_event(info, #aaa_request{procedure = {gx, 'RAR'},
     {PCC4, PCCErrors4} = ergw_pcc_context:gy_events_to_pcc_ctx(Now, GyEvs, PCC2),
 
 %%% step 6:
-    {PCtx, _} =
+    {PCtx, _, _} =
 	case ergw_pfcp_context:modify_session(PCC4, [], #{}, Bearer, PCtx1) of
 	    {ok, Result2} -> Result2;
 	    {error, Err2} -> throw(Err2#ctx_err{context = Context, tunnel = LeftTunnel})
@@ -543,7 +543,7 @@ handle_event(internal, {session, {update_credits, _} = CreditEv, _}, _State,
     Now = erlang:monotonic_time(),
 
     {PCC, _PCCErrors} = ergw_pcc_context:gy_events_to_pcc_ctx(Now, [CreditEv], PCC0),
-    {PCtx, _} =
+    {PCtx, _, _} =
 	case ergw_pfcp_context:modify_session(PCC, [], #{}, Bearer, PCtx0) of
 	    {ok, Result1} -> Result1;
 	    {error, Err1} -> throw(Err1#ctx_err{context = Context, tunnel = LeftTunnel})
@@ -878,7 +878,7 @@ usage_report(Server, URRActions, Report) ->
 
 usage_report_fun(Owner, URRActions, PCtx) ->
     case ergw_pfcp_context:query_usage_report(offline, PCtx) of
-	{ok, {_, Report}} ->
+	{ok, {_, Report, _}} ->
 	    usage_report(Owner, URRActions, Report);
 	{error, CtxErr} ->
 	    ?LOG(error, "Defered Usage Report failed with ~p", [CtxErr])

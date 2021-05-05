@@ -38,7 +38,8 @@
 
 -record(ue_ip, {
 	  v4               :: inet:ip4_address(),
-	  v6               :: inet:ip6_address()
+	  v6               :: inet:ip6_address(),
+	  nat              :: term()
 	 }).
 
 -record(seid, {

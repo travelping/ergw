@@ -139,6 +139,32 @@ update_bearer(#{created_pdr := PDRs}, Bearer, PCtx) when is_list(PDRs) ->
 update_bearer(_, Bearer, PCtx) ->
     {Bearer, PCtx}.
 
+%% session_info/3
+session_info(_, #tp_created_nat_binding{
+		   group =
+		       #{bbf_nat_port_block := #bbf_nat_port_block{block = Block},
+			 bbf_nat_outside_address := #bbf_nat_outside_address{ipv4 = IP},
+			 bbf_nat_external_port_range :=
+			     #bbf_nat_external_port_range{ranges = [{Start, End}|_]}}},
+	     Info) ->
+    Info#{'NAT-Pool-Id' => Block,
+	  'NAT-IP-Address' => IP,
+	  'NAT-Port-Start' => Start,
+	  'NAT-Port-End' => End};
+session_info(_, #tp_created_nat_binding{
+		   group =
+		       #{bbf_nat_port_block := #bbf_nat_port_block{block = Block},
+			 bbf_nat_outside_address := #bbf_nat_outside_address{ipv4 = IP}}},
+	     Info) ->
+    Info#{'NAT-Pool-Id' => Block,
+	  'NAT-IP-Address' => IP};
+session_info(_, _, Info) ->
+    Info.
+
+%% session_info/1
+session_info(RespIEs) ->
+    maps:fold(fun session_info/3, #{}, RespIEs).
+
 %% session_establishment_request/5
 session_establishment_request(Handler, PCC, PCtx0,
 			      #{left := Left, right := Right} = Bearer0, Ctx) ->
@@ -161,9 +187,10 @@ session_establishment_request(Handler, PCC, PCtx0,
 	#pfcp{version = v1, type = session_establishment_response,
 	      ie = #{pfcp_cause := #pfcp_cause{cause = 'Request accepted'},
 		     f_seid := #f_seid{}} = RespIEs} ->
+	    SessionInfo = session_info(RespIEs),
 	    {Bearer, PCtx} = update_bearer(RespIEs, Bearer0, PCtx2),
 	    register_ctx_ids(Handler, Bearer, PCtx),
-	    {ok, {update_dp_seid(RespIEs, PCtx), Bearer}};
+	    {ok, {update_dp_seid(RespIEs, PCtx), Bearer, SessionInfo}};
 	_ ->
 	    {error, ?CTX_ERR(?FATAL, system_failure)}
     end.
@@ -175,14 +202,15 @@ session_modification_request(PCtx, ReqIEs)
     case ergw_sx_node:call(PCtx, Req) of
 	#pfcp{type = session_modification_response,
 	      ie = #{pfcp_cause := #pfcp_cause{cause = 'Request accepted'}} = RespIEs} ->
+	    SessionInfo = session_info(RespIEs),
 	    UsageReport = maps:get(usage_report_smr, RespIEs, undefined),
-	    {ok, {PCtx, UsageReport}};
+	    {ok, {PCtx, UsageReport, SessionInfo}};
 	_ ->
 	    {error, ?CTX_ERR(?FATAL, system_failure)}
     end;
 session_modification_request(PCtx, _ReqIEs) ->
     %% nothing to do
-    {ok, {PCtx, undefined}}.
+    {ok, {PCtx, undefined, #{}}}.
 
 %%%===================================================================
 %%% PCC to Sx translation functions
@@ -891,18 +919,28 @@ select_upf_pool(Candidates, APNOpts, WantPools) ->
 	       FilterF =
 		   fun (IP) ->
 			   lists:foldl(
-			     fun(#{vrf := HasV, ip_versions := Versions, ip_pools := HasP}, P) ->
+			     fun(#{vrf := HasV, ip_versions := Versions, ip_pools := HasP,
+				   nat_port_blocks := HasNAT}, P) ->
 				     case HasV =:= VRF andalso lists:member(IP, Versions) of
-					 true -> P ++ HasP;
-					 false -> P
+					 true ->
+					     case HasNAT of
+						 [] ->
+						     P ++ [{Pool, undefined} || Pool <- HasP];
+						 _ ->
+						     P ++ [{Pool, NAT} || Pool <- HasP, NAT <- HasNAT]
+					     end;
+					 false ->
+					     P
 				     end
 			     end, [], Pools)
 		   end,
+	       Maybe = fun({_,_} = Pool) -> Pool;
+			  (_) -> {undefined, undefined}
+		       end,
+	       {PoolV4, NAT} = Maybe(select(random, FilterF(v4))),
+	       {PoolV6, _} = Maybe(select(random, FilterF(v6))),
 
-	       PoolV4 = select(random, FilterF(v4)),
-	       PoolV6 = select(random, FilterF(v6)),
-
-	       return({Node, VRF, PoolV4, PoolV6})
+	       return({Node, VRF, PoolV4, NAT, PoolV6})
 	   end
        ]).
 
@@ -910,26 +948,35 @@ select_upf_pool(Candidates, APNOpts, WantPools) ->
 %% select_upf/3
 select_upf(Candidates, Session0, APNOpts) ->
     do([error_m ||
-	   {_Node, _VRF, PoolV4, PoolV6} = Node <- select_upf_pool(Candidates, APNOpts, []),
+	   {_, _VRF, PoolV4, NAT, PoolV6} =
+	       Node <- select_upf_pool(Candidates, APNOpts, []),
 	   begin
-	       Session =
-		   init_session_ue_ifid(
-		     APNOpts, Session0#{'Framed-Pool' => PoolV4, 'Framed-IPv6-Pool' => PoolV6}),
+	       Session1 = Session0#{'Framed-Pool' => PoolV4, 'Framed-IPv6-Pool' => PoolV6},
+	       Session2 =
+		   case maps:get(nat_port_blocks, APNOpts, []) of
+		       Blocks when is_list(Blocks), length(Blocks) /= 0 ->
+			   Session1#{'NAT-Pool-Id' => NAT};
+		       _ ->
+			   Session1
+		   end,
+	       Session = init_session_ue_ifid(APNOpts, Session2),
 	       return({Node, Session})
 	   end
        ]).
 
 %% reselect_upf/4
-reselect_upf(Candidates, Session, APNOpts, {_, _, PoolV4, PoolV6} = UPinfo) ->
+reselect_upf(Candidates, Session, APNOpts, {_, _, PoolV4, NATBlock, PoolV6} = UPinfo) ->
+    NAT = maps:get('NAT-Pool-Id', Session, undefined),
     IP4 = maps:get('Framed-Pool', Session, undefined),
     IP6 = maps:get('Framed-IPv6-Pool', Session, undefined),
 
     do([error_m ||
-	   {{Pid, NodeCaps, _}, VRF, _,_} <-
+	   {{Pid, NodeCaps, _}, VRF, _, _, _} <-
 	       begin
-		   if (IP4 /= PoolV4 orelse IP6 /= PoolV6) ->
-			   WantPools = [{IP4, v4} || is_binary(IP4)]
-			       ++ [{IP6, v6} || is_binary(IP6)],
+		   if (IP4 /= PoolV4 orelse IP6 /= PoolV6 orelse
+		       NATBlock /= NAT) ->
+			   WantPools = [{IP4, v4, NAT} || is_binary(IP4)]
+			       ++ [{IP6, v6, undefined} || is_binary(IP6)],
 			   select_upf_pool(Candidates, APNOpts, WantPools);
 		      true ->
 			   return(UPinfo)
@@ -939,10 +986,16 @@ reselect_upf(Candidates, Session, APNOpts, {_, _, PoolV4, PoolV6} = UPinfo) ->
 	   return({PCtx, NodeCaps, #bearer{interface = 'SGi-LAN', vrf = VRF}})
        ]).
 
-have_wanted_caps({WantVRF, WantIP, WantPool}, #{ip_pools := Pools, vrf := VRF, ip_versions := IPs}) ->
+have_wanted_caps({WantVRF, WantIP, WantPool, WantNAT},
+		 #{ip_pools := Pools, vrf := VRF, ip_versions := IPs,
+		   nat_port_blocks := NATblocks}) ->
     (VRF =:= '_' orelse WantVRF =:= VRF)
 	andalso (WantPool =:= '_' orelse lists:member(WantPool, Pools))
-	andalso (WantIP =:= '_' orelse lists:member(WantIP, IPs)).
+	andalso (WantIP =:= '_' orelse lists:member(WantIP, IPs))
+	andalso (WantIP =/= v4 orelse
+				 (WantNAT =:= undefined
+				  orelse (WantNAT =:= '_' andalso NATblocks /= [])
+				  orelse lists:member(WantNAT, NATblocks))).
 
 common_caps_intersection([], _, Common) ->
     Common;
@@ -988,13 +1041,14 @@ common_caps(Wanted, [_|Next], Available, AnyPool, Candidates) ->
     common_caps(Wanted, Next, Available, AnyPool, Candidates).
 
 %% select_by_caps/3
-select_by_caps(Candidates, #{vrfs := VRFs, ip_pools := Pools}, []) ->
-    Wanted = [{VRF, '_', Pool} || VRF <- VRFs, Pool <- Pools],
+select_by_caps(Candidates, #{vrfs := VRFs, ip_pools := Pools} = APNopts, []) ->
+    NATpools = maps:get(nat_port_blocks, APNopts, [undefined]),
+    Wanted = [{VRF, '_', Pool, NAT} || VRF <- VRFs, Pool <- Pools, NAT <- NATpools],
     filter_by_caps(Candidates, Wanted, true);
 
 select_by_caps(Candidates, #{vrfs := VRFs}, WantPools) ->
-    Wanted = [{VRF, IP, Pool} ||
-		 VRF <- VRFs, {Pool, IP} <- WantPools],
+    Wanted = [{VRF, IP, Pool, NAT} ||
+		 VRF <- VRFs, {Pool, IP, NAT} <- WantPools],
     filter_by_caps(Candidates, Wanted, false).
 
 %% filter_by_caps/3

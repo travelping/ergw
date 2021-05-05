@@ -214,7 +214,9 @@ handle_request(ReqKey,
 	if LeftBearer /= LeftBearerOld ->
 		case ergw_gtp_gsn_lib:apply_bearer_change(
 		       Bearer, URRActions, true, PCtx0, PCC) of
-		    {ok, Result2} -> Result2;
+		    {ok, {RPCtx, SessionInfo}} ->
+			ergw_aaa_session:set(Session, SessionInfo),
+			RPCtx;
 		    {error, Err2} -> throw(Err2#ctx_err{context = Context, tunnel = LeftTunnel})
 		end;
 	   true ->
@@ -296,7 +298,7 @@ handle_request(ReqKey,
 
     PCtx =
 	case ergw_gtp_gsn_lib:apply_bearer_change(Bearer, [], true, PCtx0, PCC) of
-	    {ok, Result2} -> Result2;
+	    {ok, {RPCtx, _}} -> RPCtx;
 	    {error, Err2} -> throw(Err2#ctx_err{context = Context, tunnel = LeftTunnel})
 	end,
 

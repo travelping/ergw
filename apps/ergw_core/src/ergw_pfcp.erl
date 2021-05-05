@@ -130,6 +130,10 @@ f_teid({upf, ChId}, v6) ->
 outer_header_creation(#bearer{remote = FqTEID}, Group)
   when is_record(FqTEID, fq_teid) ->
     [outer_header_creation(FqTEID) | Group];
+outer_header_creation(#bearer{local = #ue_ip{v4 = V4, nat = NAT}}, Group)
+  when V4 /= undefined, is_binary(NAT) ->
+    [#bbf_apply_action{nat = 1},
+     #bbf_nat_port_block{block = NAT} | Group];
 outer_header_creation(_, Group) ->
     Group.
 

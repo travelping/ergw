@@ -254,7 +254,9 @@ handle_request(ReqKey,
 		SendEM = LeftTunnelOld#tunnel.version == LeftTunnel#tunnel.version,
 		case ergw_gtp_gsn_lib:apply_bearer_change(
 		       Bearer, URRActions, SendEM, PCtx0, PCC) of
-		    {ok, Result2} -> Result2;
+		    {ok, {RPCtx, SessionInfo}} ->
+			ergw_aaa_session:set(Session, SessionInfo),
+			RPCtx;
 		    {error, Err2} -> throw(Err2#ctx_err{context = Context, tunnel = LeftTunnel})
 		end;
 	   true ->

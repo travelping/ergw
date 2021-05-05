@@ -302,7 +302,7 @@ handle_request(ReqKey,
 	end,
 
     PCC = ergw_proxy_lib:proxy_pcc(),
-    {PCtx, Bearer} =
+    {PCtx, Bearer, _} =
 	case ergw_pfcp_context:create_session(gtp_context, PCC, PCtx0, Bearer3, Context) of
 	    {ok, Result7} -> Result7;
 	    {error, Err7} -> throw(Err7#ctx_err{tunnel = LeftTunnel})
@@ -495,7 +495,7 @@ handle_response(#proxy_request{direction = sgw2pgw} = ProxyRequest,
     Return =
 	if ?CAUSE_OK(Cause) ->
 		PCC = ergw_proxy_lib:proxy_pcc(),
-		{PCtx, _} =
+		{PCtx, _, _} =
 		    case ergw_pfcp_context:modify_session(PCC, [], #{}, Bearer, PCtx0) of
 			{ok, Result2} -> Result2;
 			{error, Err2} -> throw(Err2#ctx_err{tunnel = LeftTunnel})
@@ -540,7 +540,7 @@ handle_response(#proxy_request{direction = sgw2pgw,
 	   true   -> #{}
 	end,
     PCC = ergw_proxy_lib:proxy_pcc(),
-    {PCtx, _} =
+    {PCtx, _, _} =
 	case ergw_pfcp_context:modify_session(PCC, [], ModifyOpts, Bearer, PCtxOld) of
 	    {ok, Result2} -> Result2;
 	    {error, Err2} -> throw(Err2#ctx_err{tunnel = LeftTunnel})

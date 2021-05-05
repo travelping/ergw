@@ -225,6 +225,7 @@ config_meta_apns() ->
     Meta = #{vrf                  => vrf,
 	     vrfs                 => {list, vrf},
 	     ip_pools             => {list, binary},
+	     nat_port_blocks      => {list, binary},
 	     bearer_type          => atom,
 	     prefered_bearer_type => atom,
 	     ipv6_ue_interface_id => ip6_ifid,
@@ -453,6 +454,7 @@ config_meta_nodes() ->
     Pool = #{
 	     ip_pools => {list, binary},
 	     vrf => vrf,
+	     nat_port_blocks => {list, binary},
 	     ip_versions => {list, atom}
 	    },
     Default = #{

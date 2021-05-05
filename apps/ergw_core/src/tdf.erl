@@ -269,7 +269,7 @@ handle_event(info, #aaa_request{procedure = {gx, 'RAR'},
 
 %%% step 2
 %%% step 3:
-    {PCtx1, UsageReport} =
+    {PCtx1, UsageReport, _} =
 	case ergw_pfcp_context:modify_session(PCC1, [], #{}, Bearer, PCtx0) of
 	    {ok, Result1} -> Result1;
 	    {error, Err1} -> throw(Err1#ctx_err{context = Context})
@@ -290,7 +290,7 @@ handle_event(info, #aaa_request{procedure = {gx, 'RAR'},
     {PCC4, PCCErrors4} = ergw_pcc_context:gy_events_to_pcc_ctx(Now, GyEvs, PCC2),
 
 %%% step 6:
-    {PCtx, _} =
+    {PCtx, _, _} =
 	case ergw_pfcp_context:modify_session(PCC4, [], #{}, Bearer, PCtx1) of
 	    {ok, Result2} -> Result2;
 	    {error, Err2} -> throw(Err2#ctx_err{context = Context})
@@ -334,7 +334,7 @@ handle_event(internal, {session, {update_credits, _} = CreditEv, _}, _State,
     Now = erlang:monotonic_time(),
 
     {PCC, _PCCErrors} = ergw_pcc_context:gy_events_to_pcc_ctx(Now, [CreditEv], PCC0),
-    {PCtx, _} =
+    {PCtx, _, _} =
 	case ergw_pfcp_context:modify_session(PCC, [], #{}, Bearer, PCtx0) of
 	    {ok, Result1} -> Result1;
 	    {error, Err1} -> throw(Err1#ctx_err{context = Context})
@@ -389,9 +389,9 @@ start_session(#data{apn = APN, context = Context, dp_node = Node,
     Now = erlang:monotonic_time(),
     SOpts = #{now => Now},
 
-    SessionOpts = init_session(Data),
+    SessionOpts0 = init_session(Data),
     {_, AuthSEvs} =
-	case authenticate(Session, SessionOpts) of
+	case authenticate(Session, SessionOpts0) of
 	    {ok, Result2} -> Result2;
 	    {error, Err2} -> throw({fail, Err2})
 	end,
@@ -430,18 +430,20 @@ start_session(#data{apn = APN, context = Context, dp_node = Node,
 
     ?LOG(debug, "GySessionOpts: ~p", [GySessionOpts]),
 
-    ergw_aaa_session:invoke(Session, #{}, start, SOpts),
     {_, _, RfSEvs} = ergw_aaa_session:invoke(Session, #{}, {rf, 'Initial'}, SOpts),
 
     {PCC2, PCCErrors2} = ergw_pcc_context:gy_events_to_pcc_ctx(Now, GyEvs, PCC1),
     PCC3 = ergw_pcc_context:session_events_to_pcc_ctx(AuthSEvs, PCC2),
     PCC4 = ergw_pcc_context:session_events_to_pcc_ctx(RfSEvs, PCC3),
 
-    {PCtx, Bearer} =
+    {PCtx, Bearer, SessionInfo} =
 	case ergw_pfcp_context:create_session(tdf, PCC4, PendingPCtx, Bearer1, Context) of
 	    {ok, Result5} -> Result5;
 	    {error, Err5} -> throw({fail, Err5})
 	end,
+
+    SessionOpts = maps:merge(SessionOpts0, SessionInfo),
+    ergw_aaa_session:invoke(Session, SessionOpts, start, SOpts#{async => true}),
 
     Keys = context2keys(Bearer, Context),
     gtp_context_reg:register(Keys, ?MODULE, self()),
@@ -546,7 +548,7 @@ triggered_charging_event(ChargeEv, Now, Request,
     ReqOpts = #{now => Now, async => true},
 
     case query_usage_report(Request, PCtx) of
-	{ok, {_, UsageReport}} ->
+	{ok, {_, UsageReport, _}} ->
 	    {Online, Offline, Monitor} =
 		ergw_pfcp_context:usage_report_to_charging_events(UsageReport, ChargeEv, PCtx),
 	    ergw_gsn_lib:process_accounting_monitor_events(ChargeEv, Monitor, Now, Session),
