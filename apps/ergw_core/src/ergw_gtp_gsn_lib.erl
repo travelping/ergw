@@ -78,7 +78,7 @@ create_session_fun(APN, PAA, DAF, {Candidates, SxConnectId}, Session,
 	{error, Err6} -> throw(Err6#ctx_err{context = Context1, tunnel = LeftTunnel})
     end,
 
-    {Context, SessionOpts} = add_apn_timeout(APNOpts, SessionOpts3, Context1),
+    {Context, SessionOpts4} = add_apn_timeout(APNOpts, SessionOpts3, Context1),
 
     Bearer0 = #{left => LeftBearer, right => RightBearer},
     Bearer1 =
@@ -87,7 +87,7 @@ create_session_fun(APN, PAA, DAF, {Candidates, SxConnectId}, Session,
 	    {error, Err7} -> throw(Err7#ctx_err{context = Context, tunnel = LeftTunnel})
 	end,
 
-    ergw_aaa_session:set(Session, SessionOpts),
+    ergw_aaa_session:set(Session, SessionOpts4),
 
     Now = erlang:monotonic_time(),
     SOpts = #{now => Now},
@@ -123,18 +123,20 @@ create_session_fun(APN, PAA, DAF, {Candidates, SxConnectId}, Session,
     ?LOG(debug, "GySessionOpts: ~p", [GySessionOpts]),
     ?LOG(debug, "Initial GyEvs: ~p", [GyEvs]),
 
-    ergw_aaa_session:invoke(Session, #{}, start, SOpts),
     {_, _, RfSEvs} = ergw_aaa_session:invoke(Session, #{}, {rf, 'Initial'}, SOpts),
 
     {PCC2, PCCErrors2} = ergw_pcc_context:gy_events_to_pcc_ctx(Now, GyEvs, PCC1),
     PCC3 = ergw_pcc_context:session_events_to_pcc_ctx(AuthSEvs, PCC2),
     PCC4 = ergw_pcc_context:session_events_to_pcc_ctx(RfSEvs, PCC3),
 
-    {PCtx, Bearer} =
+    {PCtx, Bearer, SessionInfo} =
 	case ergw_pfcp_context:create_session(gtp_context, PCC4, PCtx0, Bearer1, Context) of
 	       {ok, Result10} -> Result10;
 	       {error, Err10} -> throw(Err10#ctx_err{context = Context, tunnel = LeftTunnel})
 	   end,
+
+    SessionOpts = maps:merge(SessionOpts4, SessionInfo),
+    ergw_aaa_session:invoke(Session, SessionOpts, start, SOpts#{async => true}),
 
     GxReport = ergw_gsn_lib:pcc_events_to_charging_rule_report(PCCErrors1 ++ PCCErrors2),
     if map_size(GxReport) /= 0 ->
@@ -202,9 +204,9 @@ apply_bearer_change(Bearer, URRActions, SendEM, PCtx0, PCC) ->
 	   true   -> #{}
 	end,
     case ergw_pfcp_context:modify_session(PCC, URRActions, ModifyOpts, Bearer, PCtx0) of
-	{ok, {PCtx, UsageReport}} ->
+	{ok, {PCtx, UsageReport, SessionInfo}} ->
 	    gtp_context:usage_report(self(), URRActions, UsageReport),
-	    {ok, PCtx};
+	    {ok, {PCtx, SessionInfo}};
 	{error, _} = Error ->
 	    Error
     end.
@@ -216,7 +218,7 @@ apply_bearer_change(Bearer, URRActions, SendEM, PCtx0, PCC) ->
 triggered_charging_event(ChargeEv, Now, Request,
 			 #{pfcp := PCtx, 'Session' := Session, pcc := PCC}) ->
     case query_usage_report(Request, PCtx) of
-	{ok, {_, UsageReport}} ->
+	{ok, {_, UsageReport, _}} ->
 	    ergw_gtp_gsn_session:usage_report_request(
 	      ChargeEv, Now, UsageReport, PCtx, PCC, Session);
 	{error, CtxErr} ->

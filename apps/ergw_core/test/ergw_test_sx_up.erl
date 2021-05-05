@@ -12,7 +12,8 @@
 	 reset/1, history/1, history/2,
 	 sessions/1, accounting/2,
 	 enable/1, disable/1,
-	 feature/3]).
+	 feature/3, ue_ip_pools/2,
+	 nat_port_blocks/2]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -27,6 +28,8 @@
 
 -record(state, {sx, gtp, accounting, enabled,
 		record, features,
+		ue_ip_pools,
+		nat_port_blocks,
 		cp_ip,
 		up_ip,
 		cp_recovery_ts,
@@ -102,6 +105,12 @@ disable(Role) ->
 feature(Role, Feature, V) ->
     gen_server:call(server_name(Role), {feature, Feature, V}).
 
+ue_ip_pools(Role, Pools) ->
+    gen_server:call(server_name(Role), {ue_ip_pools, Pools}).
+
+nat_port_blocks(Role, Pools) ->
+    gen_server:call(server_name(Role), {nat_port_blocks, Pools}).
+
 %%%===================================================================
 %%% gen_server callbacks
 %%%===================================================================
@@ -122,6 +131,8 @@ init([IP]) ->
 	       features = #up_function_features{ftup = 1, treu = 1, empu = 1,
 						ueip = 1, mnop = 1, ip6pl = 1,
 						_ = 0},
+	       ue_ip_pools = [<<"pool-A">>],
+	       nat_port_blocks = [],
 	       up_ip = ergw_inet:ip2bin(IP),
 	       cp_recovery_ts = undefined,
 	       dp_recovery_ts = erlang:system_time(seconds),
@@ -152,6 +163,12 @@ handle_call({feature, Feature, V}, _From, #state{features = UpFF0} = State) ->
     UpFF = '#set-'([{Feature, V}], UpFF0),
     OldV = '#get-'(Feature, UpFF0),
     {reply, {ok, OldV}, State#state{features = UpFF}};
+
+handle_call({ue_ip_pools, Pools}, _From, State) ->
+    {reply, ok, State#state{ue_ip_pools = Pools}};
+
+handle_call({nat_port_blocks, Blocks}, _From, State) ->
+    {reply, ok, State#state{nat_port_blocks = Blocks}};
 
 handle_call(restart, _From, State0) ->
     State = State0#state{
@@ -318,9 +335,10 @@ ue_ip_address_pool_ids(Pools) when is_list(Pools) ->
 ue_ip_address_pool_ids(Pool) ->
     ue_ip_address_pool_ids([Pool]).
 
-ue_ip_address_pool_information(VRF, Pools) ->
+ue_ip_address_pool_information(VRF, Pools, NATblocks) ->
     IEs = [ue_ip_address_pool_ids(Pools),
-	   #network_instance{instance = vrf:normalize_name(VRF)}],
+	   #network_instance{instance = vrf:normalize_name(VRF)}] ++
+	[#bbf_nat_port_block{block = Block} || Block <- NATblocks],
     #ue_ip_address_pool_information{group = IEs}.
 
 sx_reply(Type, IEs, State) ->
@@ -351,17 +369,14 @@ handle_message(#pfcp{type = heartbeat_request,
 handle_message(#pfcp{type = association_setup_request,
 		     ie = #{recovery_time_stamp :=
 				#recovery_time_stamp{time = CpRecoveryTS}}},
-	       #state{features = UpFF, dp_recovery_ts = RecoveryTS} = State0) ->
+	       #state{features = UpFF, ue_ip_pools = IPpools, nat_port_blocks = NATblocks,
+		      dp_recovery_ts = RecoveryTS} = State0) ->
     UpIPRes =
 	case UpFF of
-	    %% tests assume that pgw0 has only pool-A, reporting pool-B breaks the test
-	    %% the check for `disable` avoids unused function warnings for now
-	    #up_function_features{ftup = disabled} ->
-		[ue_ip_address_pool_information(sgi, [<<"pool-A">>, <<"pool-B">>]),
-		 ue_ip_address_pool_information(sgi, <<"pool-C">>)];
-
 	    #up_function_features{ftup = 1} ->
-		[];
+		[#bbf_up_function_features{},
+		 ue_ip_address_pool_information(sgi, IPpools, NATblocks),
+		 ue_ip_address_pool_information(example, IPpools, NATblocks)];
 	    _ ->
 		[user_plane_ip_resource_information([<<"cp">>], State0),
 		 user_plane_ip_resource_information([<<"irx">>], State0),
@@ -528,6 +543,20 @@ process_f_teid(_, _, _, Acc) ->
 %% process_request_ie/3
 process_request_ie(#create_pdr{group = #{pdr_id := Id, pdi := #pdi{group = PDI}}}, RESTI, Acc) ->
     process_f_teid(Id, maps:get(f_teid, PDI, undefined), RESTI, Acc);
+
+process_request_ie(#create_far{
+		      group =
+			  #{forwarding_parameters :=
+				#forwarding_parameters{
+				   group =
+				       #{bbf_apply_action := #bbf_apply_action{nat = 1},
+					 bbf_nat_port_block := Block}}}},
+		   _, {RespIEs, State}) ->
+    Start = 1024 + rand:uniform(50000),
+    Bind = #tp_created_nat_binding{
+	      group = [Block, #bbf_nat_outside_address{ipv4 = <<192,168,1,1>>},
+		       #bbf_nat_external_port_range{ranges = [{Start, Start + 1000}]}]},
+    {[Bind | RespIEs], State};
 
 process_request_ie(#query_urr{group = #{urr_id := #urr_id{id = Id}}},
 		   _, {RespIEs, #state{accounting = on} = State}) ->

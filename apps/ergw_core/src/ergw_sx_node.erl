@@ -187,6 +187,7 @@ connect_sx_node(Node, #{node_selection := NodeSelect} = Opts) ->
 %%%===================================================================
 
 -define(NodeDefaults, [{connect, false}]).
+-define(UeIpPoolDefaults, [{vrf, '_'}, {nat_port_blocks, []}, {ip_versions, [v4, v6]}]).
 -define(VrfDefaults, [{features, invalid}]).
 -define(Defaults, [{node_selection, default},
 		   {heartbeat, []},
@@ -237,8 +238,7 @@ validate_node_request({Opt, Value}) ->
     erlang:error(badarg, [Opt, Value]).
 
 validate_node_ue_ip_pool(Pool) when is_map(Pool) ->
-    ergw_core_config:validate_options(fun validate_node_ue_ip_pool/2, Pool,
-				      [{vrf, '_'}, {ip_versions, [v4, v6]}]);
+    ergw_core_config:validate_options(fun validate_node_ue_ip_pool/2, Pool, ?UeIpPoolDefaults);
 validate_node_ue_ip_pool(Pool) when is_list(Pool) ->
     validate_node_ue_ip_pool(ergw_core_config:to_map(Pool));
 validate_node_ue_ip_pool(Pool) ->
@@ -252,6 +252,13 @@ validate_node_ue_ip_pool(vrf, '_' = Name) ->
     Name;
 validate_node_ue_ip_pool(vrf, Name) ->
     vrf:validate_name(Name);
+validate_node_ue_ip_pool(nat_port_blocks, Names) when is_list(Names) ->
+    lists:foreach(
+      fun(<<"*">>) -> erlang:error(badarg, [nat_port_blocks, Names]);
+	 (Name) when is_binary(Name) -> ok;
+	 (_) -> erlang:error(badarg, [nat_port_blocks, Names])
+      end, Names),
+    Names;
 validate_node_ue_ip_pool(ip_versions, Versions) when is_list(Versions) ->
     lists:foreach(
       fun(v4) -> ok;
@@ -859,7 +866,20 @@ make_ue_ip_pool_info(PI, Identities, Info) ->
     #ip_version{v4 = V4, v6 = V6} = maps:get(ip_version, PI, #ip_version{_ = 1}),
     IPs = [v4 || V4 == 1] ++ [v6 || V6 == 1],
     Ids = ordsets:from_list([Id || #ue_ip_address_pool_identity{identity = Id} <- Identities]),
-    [#{ip_pools => Ids, vrf => VRF, ip_versions => IPs}|Info].
+
+    Pool0 = #{ip_pools => Ids, vrf => VRF, nat_port_blocks => [], ip_versions => IPs},
+    Pool =
+	case PI of
+	    #{bbf_nat_port_block := #bbf_nat_port_block{block = NATportBlock}} ->
+		Pool0#{nat_port_blocks => [NATportBlock]};
+	    #{bbf_nat_port_block := NATportBlocks} when is_list(NATportBlocks) ->
+		Pool0#{nat_port_blocks =>
+			   [NATportBlock ||
+			       #bbf_nat_port_block{block = NATportBlock} <- NATportBlocks]};
+	    _ ->
+		Pool0
+	end,
+    [Pool|Info].
 
 make_ue_ip_pool_info(#ue_ip_address_pool_information{
 			group = #{ue_ip_address_pool_identity := Identity} = PI}, Info)

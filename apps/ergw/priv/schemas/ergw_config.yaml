@@ -102,6 +102,11 @@ components:
             type: string
         vrf:
           $ref: "#/components/schemas/VrfName"
+        nat_port_blocks:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
         ip_versions:
           type: array
           items:
@@ -145,6 +150,21 @@ components:
           type: array
           items:
             type: string
+        nat_port_blocks:
+          oneOf:
+            - type: array
+              uniqueItems: true
+              items:
+                type: string
+                not:
+                  enum:
+                    - "*"
+            - type: array
+              uniqueItems: true
+              items:
+                type: string
+                enum:
+                  - "*"
         ipv6_ue_interface_id:
           $ref: TS29571_CommonData.yaml#/components/schemas/Ipv6Addr
         prefered_bearer_type:

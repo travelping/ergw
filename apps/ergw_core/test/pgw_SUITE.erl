@@ -707,6 +707,7 @@ common() ->
      split_charging1,
      split_charging2,
      aa_pool_select,
+     aa_nat_select,
      aa_pool_select_fail,
      tariff_time_change,
      gy_ccr_asr_overlap,
@@ -922,6 +923,16 @@ init_per_testcase(TestCase, Config)
 			    {{gy, 'CCR-Initial'}, 'Initial-OCS'},
 			    {{gy, 'CCR-Update'},  'Update-OCS'}]),
     Config;
+init_per_testcase(aa_pool_select, Config) ->
+    ergw_test_sx_up:ue_ip_pools('pgw-u01', [<<"pool-A">>, <<"pool-C">>,
+					    <<"pool-D">>, <<"pool-B">>]),
+    setup_per_testcase(Config),
+    Config;
+init_per_testcase(aa_nat_select, Config) ->
+    ergw_test_sx_up:nat_port_blocks('pgw-u01', [<<"nat-A">>, <<"nat-C">>,
+						<<"nat-D">>, <<"nat-B">>]),
+    setup_per_testcase(Config),
+    Config;
 init_per_testcase(TestCase, Config)
   when TestCase == tariff_time_change ->
     setup_per_testcase(Config),
@@ -1043,6 +1054,12 @@ end_per_testcase(create_session_overload, Config) ->
     end_per_testcase(Config);
 end_per_testcase(gy_validity_timer_up, Config) ->
     {ok, _} = ergw_test_sx_up:feature('pgw-u01', vtime, 0),
+    end_per_testcase(Config);
+end_per_testcase(aa_pool_select, Config) ->
+    ok = ergw_test_sx_up:ue_ip_pools('pgw-u01', [<<"pool-A">>]),
+    end_per_testcase(Config);
+end_per_testcase(aa_nat_select, Config) ->
+    ergw_test_sx_up:nat_port_blocks('pgw-u01', []),
     end_per_testcase(Config);
 %% gtp 'Idle-Timeout' reset to default 28800000ms ~8 hrs
 end_per_testcase(gtp_idle_timeout, Config) ->
@@ -4319,6 +4336,44 @@ aa_pool_select(Config) ->
 
     {GtpC, _, _} = create_session(Config),
     delete_session(GtpC),
+
+    ?equal([], outstanding_requests()),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    wait4contexts(?TIMEOUT),
+
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+aa_nat_select() ->
+    [{doc, "Select IP-NAT through AAA"}].
+aa_nat_select(Config) ->
+    AAAReply = #{'NAT-Pool-Id' => <<"nat-B">>},
+    ok = meck:expect(ergw_aaa_session, invoke,
+		     fun (Session, SessionOpts, Procedure = authenticate, Opts) ->
+			     {_, SIn, Ev} =
+				 meck:passthrough([Session, SessionOpts, Procedure, Opts]),
+			     SOut = maps:merge(SIn, AAAReply),
+			     {ok, SOut, Ev};
+			 (Session, SessionOpts, Procedure, Opts) ->
+			     meck:passthrough([Session, SessionOpts, Procedure, Opts])
+		     end),
+
+    {GtpC, _, _} = create_session(Config),
+    delete_session(GtpC),
+
+    H = meck:history(ergw_aaa_session),
+    [SInv|_] =
+	lists:foldr(
+	  fun({_, {ergw_aaa_session, invoke, [_, _, start, _]}, {ok, Opts}}, Acc) ->
+		  [Opts|Acc];
+	     (_, Acc) ->
+		  Acc
+	  end, [], H),
+    ?match(#{'NAT-Pool-Id' := _,
+	     'NAT-IP-Address' := _,
+	     'NAT-Port-Start' := _}, SInv),
 
     ?equal([], outstanding_requests()),
 

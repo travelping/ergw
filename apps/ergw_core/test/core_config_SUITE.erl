@@ -497,7 +497,14 @@ apn(_Config)  ->
     ?bad(ValF(set_cfg_value(['3GPP-IPv6-DNS-Servers'], ?LOCALHOST_IPv6, APN))),
     ?ok2(ValF(set_cfg_value(['3GPP-IPv6-DNS-Servers'], [?LOCALHOST_IPv6], APN))),
     ?bad(ValF(set_cfg_value(['3GPP-IPv6-DNS-Servers'], ?LOCALHOST_IPv6, APN))),
-    ok2.
+
+    ?ok2(ValF(set_cfg_value([nat_port_blocks], [<<"*">>], APN))),
+    ?ok2(ValF(set_cfg_value([nat_port_blocks], ['_'], APN))),
+    ?ok2(ValF(set_cfg_value([nat_port_blocks], [<<"block-A">>, <<"block-B">>], APN))),
+    ?bad(ValF(set_cfg_value([nat_port_blocks], [], APN))),
+    ?bad(ValF(set_cfg_value([nat_port_blocks], ['block-A'], APN))),
+    ?bad(ValF(set_cfg_value([nat_port_blocks], [<<"block-A">>, <<"*">>], APN))),
+    ok.
 
 node_sel() ->
     [{doc, "Test validation of the node selection configuration"}].
@@ -652,6 +659,11 @@ upf_node_defaults(_Config)  ->
     ?ok(ValF(set_cfg_value([heartbeat], [{interval, 5000}, {timeout, 500}, {retry, 5}], Default))),
     ?bad(ValF(set_cfg_value([request], [{timeout, invalid}], Default))),
     ?ok(ValF(set_cfg_value([request], [{timeout, 30000}, {retry, 5}], Default))),
+
+    ?ok(ValF(set_cfg_value([ue_ip_pools, 1, nat_port_blocks ], [], Default))),
+    ?ok(ValF(set_cfg_value([ue_ip_pools, 1, nat_port_blocks ], [<<"block-A">>, <<"block-B">>], Default))),
+    ?bad(ValF(set_cfg_value([ue_ip_pools, 1, nat_port_blocks ], [<<"block-A">>, <<"*">>], Default))),
+    ?bad(ValF(set_cfg_value([ue_ip_pools, 1, nat_port_blocks ], ['block-A', 'block-B'], Default))),
     ok.
 
 upf_node() ->

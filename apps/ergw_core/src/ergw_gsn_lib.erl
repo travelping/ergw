@@ -648,7 +648,8 @@ ip_alloc_result(AI, {Result, {UeIP, Opts0}}) ->
 	{IP, _} when ?IS_IPv4(IP) ->
 	    Opts1 = maps:merge(Opts0, ergw_ip_pool:opts(AI)),
 	    Opts = maps:put('Framed-IP-Address', IP, Opts1),
-	    {Result, {UeIP#ue_ip{v4 = AI}, Opts}};
+	    NAT = maps:get('NAT-Pool-Id', Opts, undefined),
+	    {Result, {UeIP#ue_ip{v4 = AI, nat = NAT}, Opts}};
 	{IP, _} = IPv6 when ?IS_IPv6(IP) ->
 	    Opts1 = maps:merge(Opts0, ergw_ip_pool:opts(AI)),
 	    Opts = Opts1#{'Framed-IPv6-Prefix' => ergw_inet:ipv6_prefix(IPv6)},

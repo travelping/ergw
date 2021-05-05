@@ -86,6 +86,18 @@ validate_apn_option({ip_pools = Opt, Pools})
     V = [ergw_ip_pool:validate_name(Opt, Name) || Name <- Pools],
     ergw_core_config:check_unique_elements(Opt, V),
     {Opt, V};
+validate_apn_option({nat_port_blocks = Opt, [<<"*">>]}) ->
+    {Opt, ['_']};
+validate_apn_option({nat_port_blocks = Opt, ['_']} = V) ->
+    {Opt, V};
+validate_apn_option({nat_port_blocks, Blocks} = Opt)
+  when is_list(Blocks), length(Blocks) /= 0 ->
+    lists:foreach(
+      fun(<<"*">>) -> erlang:error(badarg, [Opt]);
+	 (B) when is_binary(B) -> ok;
+	 (_) -> erlang:error(badarg, [Opt])
+      end, Blocks),
+    Opt;
 validate_apn_option({bearer_type = Opt, Type})
   when Type =:= 'IPv4'; Type =:= 'IPv6'; Type =:= 'IPv4v6' ->
     {Opt, Type};

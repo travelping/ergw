@@ -702,6 +702,9 @@ set_cfg_value([{K, V}], Value, Config) when is_list(Config) ->
 	  fun(#{K := V1} = Item) when V1 =:= V -> set_cfg_value(Item, Value);
 	     (Item) -> Item end, Config);
 
+set_cfg_value([Pos], Value, Config) when is_integer(Pos), is_list(Config) ->
+    {H, [_|T]} = lists:split(Pos - 1, Config),
+    H ++ [Value] ++ T;
 set_cfg_value([Key], Value, Config) when is_list(Config) ->
     Cnf = lists:filter(
 	    fun(X) when is_tuple(X) -> element(1, X) =/= Key;
@@ -724,6 +727,9 @@ set_cfg_value([{Key, Pos} | T], Value, Config) when is_map(Config), is_integer(P
 	      setelement(Pos, Tuple, set_cfg_value(T, Value, element(Pos, Tuple)))
       end, Config);
 
+set_cfg_value([Pos | Next], Value, Config) when is_integer(Pos), is_list(Config) ->
+    {H, [Cfg|T]} = lists:split(Pos - 1, Config),
+    H ++ [set_cfg_value(Next, Value, Cfg)] ++ T;
 set_cfg_value([{K, V} | T], Value, Config) when is_list(Config) ->
     lists:map(
       fun(#{K := V1} = Item) when V1 =:= V -> set_cfg_value(T, Value, Item);
