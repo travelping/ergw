@@ -54,7 +54,11 @@ check:otp-23.1:
   
 check:otp-23.2:
   <<: *check_otp
-  image: quay.io/travelping/alpine-erlang:23.3.3
+  image: erlang:23.2.7.0-alpine
+  
+check:otp-23.3:
+  <<: *check_otp
+  image: quay.io/travelping/alpine-erlang:23.3.4
 
 docker:
   image: jdrouet/docker-with-buildx:stable

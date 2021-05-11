@@ -1,7 +1,7 @@
 # -- build-environment --
 # see https://docs.docker.com/engine/userguide/eng-image/multistage-build/
 
-FROM quay.io/travelping/alpine-erlang:23.3.3 AS build-env
+FROM quay.io/travelping/alpine-erlang:23.3.4 AS build-env
 
 WORKDIR /build
 RUN     apk update && apk --no-cache upgrade && \
