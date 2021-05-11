@@ -1,0 +1,47 @@
+name: quay.io
+
+on:
+  push:
+  pull_request:
+    branches: [ $default-branch ]
+  release:
+    types:
+      - created
+
+jobs:
+  quay:
+    name: quay.io
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v2
+
+    - name: Get tag
+      uses: tenhaus/get-release-or-tag@v2
+      id: tag
+
+    - name: Branch name
+      id: get_version
+      uses: battila7/get-version-action@v2
+
+    - name: Build Image
+      id: build-image
+      uses: redhat-actions/buildah-build@v2
+      with:
+        image: 'travelping/ergw-c-node'
+        tags: ${{ github.event.action == 'created' && steps.tag.outputs.tag || format('{0}_{1}', steps.get_version.outputs.version, steps.tag.outputs.tag) }}
+        dockerfiles: |
+          ./docker/Dockerfile
+
+    - name: Push To quay.io
+      id: push-to-quay
+      uses: redhat-actions/push-to-registry@v2
+      with:
+        image: ${{ steps.build-image.outputs.image }}
+        tags: ${{ steps.build-image.outputs.tags }}
+        registry: quay.io
+        username: ${{ secrets.QUAY_USER_ID }}
+        password: ${{ secrets.QUAY_TOKEN }}
+
+    - name: Print image url
+      run: echo "Image pushed to ${{ steps.push-to-quay.outputs.registry-paths }}"
