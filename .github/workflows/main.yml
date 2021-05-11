@@ -14,9 +14,9 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        otp: [22.3.4.14, 23.0.4, 23.1.5.0, 23.2.1.0, 23.2.7.0]
+        otp: [22.3, 23.3.4]
     container:
-      image: erlang:${{ matrix.otp }}-alpine
+      image: quay.io/travelping/alpine-erlang:${{ matrix.otp }}
       options: --privileged
     steps:
     - name: Prepare
