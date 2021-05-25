@@ -575,7 +575,7 @@ sendto(Socket, RemoteIP, Port, Data) ->
     Dest = #{family => family(RemoteIP),
 	     addr => RemoteIP,
 	     port => Port},
-    socket:sendto(Socket, Data, Dest, nowait).
+    socket:sendto(Socket, Data, Dest, 0).
 
 sendto(request, IP, Port, Data, #state{send_socket = Socket}) ->
     sendto(Socket, IP, Port, Data);
@@ -586,6 +586,12 @@ sendto(response, IP, Port, Data, #state{recv_socket = Socket}) ->
 send_request(#send_req{address = DstIP, data = Data} = SendReq, State) ->
     case sendto(request, DstIP, 8805, Data, State) of
 	ok ->
+	    start_request(SendReq, State);
+	{error, timeout} ->
+	    message_counter(tx, State, SendReq, timeout),
+	    start_request(SendReq, State);
+	{error, {timeout, _}} ->
+	    message_counter(tx, State, SendReq, timeout),
 	    start_request(SendReq, State);
 	_ ->
 	    message_counter(tx, State, SendReq, unreachable),
