@@ -1,7 +1,7 @@
 # -- build-environment --
 # see https://docs.docker.com/engine/userguide/eng-image/multistage-build/
 
-FROM quay.io/travelping/alpine-erlang:24.0 AS build-env
+FROM quay.io/travelping/alpine-erlang:23.3 AS build-env
 
 WORKDIR /build
 RUN     apk update && apk --no-cache upgrade && \
@@ -30,7 +30,7 @@ FROM alpine:3.14
 WORKDIR /
 RUN     apk update && \
 		apk --no-cache upgrade && \
-		apk --no-cache add libgcc libstdc++ zlib ncurses-libs libcrypto1.1 lksctp-tools tini yaml
+		apk --no-cache add zlib ncurses-libs libcrypto1.1 lksctp-tools tini yaml
 COPY    docker/docker-entrypoint.sh /
 COPY    config/ergw-c-node.config /etc/ergw-c-node/
 
