@@ -6,7 +6,7 @@
  {<<"eradius">>,{pkg,<<"eradius">>,<<"2.2.1">>},1},
  {<<"ergw_aaa">>,
   {git,"https://github.com/travelping/ergw_aaa.git",
-       {ref,"3aa98e1bf44ef95c34267e441a3250cd7d0170c4"}},
+       {ref,"04c6bafce789819553223e1136b667eb6b458c6f"}},
   0},
  {<<"erlando">>,
   {git,"https://github.com/travelping/erlando.git",
