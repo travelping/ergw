@@ -264,7 +264,7 @@ static_lookup() ->
 static_lookup(_Config) ->
     application:set_env(ergw, node_selection, ?ERGW_NODE_SELECTION),
 
-    R = ergw_node_selection:candidates("example.apn.epc", [{"x-3gpp-upf","x-sxa"}], [default]),
+    R = ergw_node_selection:candidates("example.apn.EPC", [{"x-3gpp-upf","x-sxa"}], [default]),
     ?match([{"topon.sx.prox01.epc.mnc001.mcc001.3gppnetwork.org", _, _, [_|_], []}], R),
     [{_, _, _, IP4, _}] = R,
     ?equal(lists:sort([?UP1]), lists:sort(IP4)),
