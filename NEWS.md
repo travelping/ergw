@@ -1,6 +1,18 @@
 erGW - 3GPP GGSN and PDN-GW in Erlang
 =====================================
 
+Version 2.8.12 - 31 May 2021
+-------------------------------
+**Improvements** :bulb:
+* [#380](https://github.com/travelping/ergw/pull/380) Start use image `quay.io/travelping/alpine-erlang:23.3.4`(the image is included fix for kernel)
+* [#373](https://github.com/travelping/ergw/pull/373) Start use `master` of `prometheus`(included all speedup fixes)
+
+**Bugfixes** :bug:
+* [#376](https://github.com/travelping/ergw/pull/376) Change `normal` termination reason
+
+**Dependencies** :gear:
+* [#389](https://github.com/travelping/ergw/pull/389) Update [ergw_aaa](https://github.com/travelping/ergw_aaa) tag to [3.6.14](https://github.com/travelping/ergw_aaa/releases/tag/3.6.14)
+
 Version 2.8.11 - 23 April 2021
 -------------------------------
 **Improvements** :bulb:
