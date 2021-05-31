@@ -425,9 +425,14 @@ common() ->
      tdf_app_id
     ].
 
+only(ipv4) ->
+    [aa_nat_select];
+only(_) ->
+    [].
+
 groups() ->
-    [{ipv4, [], common()},
-     {ipv6, [], common()}].
+    [{ipv4, [], common() ++ only(ipv4)},
+     {ipv6, [], common() ++ only(ipv6)}].
 
 all() ->
     [{group, ipv4},
@@ -497,6 +502,11 @@ init_per_testcase(tdf_app_id, Config0) ->
     Config = setup_per_testcase(Config0),
     ergw_test_lib:load_aaa_answer_config([{{gx, 'CCR-Initial'}, 'Initial-Gx-TDF-App'}]),
     Config;
+init_per_testcase(aa_pool_select, Config) ->
+    ergw_test_sx_up:ue_ip_pools('tdf-u', [<<"pool-A">>, <<"pool-C">>,
+					  <<"pool-D">>, <<"pool-B">>]),
+    setup_per_testcase(Config),
+    Config;
 init_per_testcase(_, Config) ->
     setup_per_testcase(Config).
 
@@ -510,6 +520,11 @@ end_per_testcase(TestCase, Config)
   when TestCase == gy_ccr_asr_overlap;
        TestCase == simple_aaa;
        TestCase == simple_ofcs ->
+    ok = meck:delete(ergw_aaa_session, invoke, 4),
+    end_per_testcase(Config),
+    Config;
+end_per_testcase(aa_nat_select, Config) ->
+    ergw_test_sx_up:nat_port_blocks('tdf-u', []),
     ok = meck:delete(ergw_aaa_session, invoke, 4),
     end_per_testcase(Config),
     Config;
@@ -1833,6 +1848,51 @@ tdf_app_id(Config) ->
     stop_session(Pid),
 
     ct:sleep({seconds, 1}),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+aa_nat_select() ->
+    [{doc, "Select IP-NAT through AAA"}].
+aa_nat_select(Config) ->
+    AAAReply = #{'NAT-Pool-Id' => <<"nat-B">>},
+
+    ok = meck:expect(ergw_aaa_session, invoke,
+		     fun (Session, SessionOpts, Procedure = authenticate, Opts) ->
+			     {_, SIn, EvIn} =
+				 meck:passthrough([Session, SessionOpts, Procedure, Opts]),
+			     {SOut, EvOut} =
+				 ergw_aaa_radius:to_session(authenticate, {SIn, EvIn}, AAAReply),
+			     {ok, SOut, EvOut};
+			 (Session, SessionOpts, Procedure, Opts) ->
+			     meck:passthrough([Session, SessionOpts, Procedure, Opts])
+		     end),
+
+    UeIP = ergw_inet:ip2bin(proplists:get_value(ue_ip, Config)),
+
+    packet_in(Config),
+    ct:sleep(100),
+
+    {tdf, Server} = gtp_context_reg:lookup({ue, <<3, "sgi">>, UeIP}),
+    true = is_pid(Server),
+
+    ct:sleep(100),
+    stop_session(Server),
+    ct:sleep(100),
+
+    H = meck:history(ergw_aaa_session),
+    [SInv|_] =
+	lists:foldr(
+	  fun({_, {ergw_aaa_session, invoke, [_, _, start, _]}, {ok, Opts}}, Acc) ->
+		  [Opts|Acc];
+	     (_, Acc) ->
+		  Acc
+	  end, [], H),
+    ?match(#{'NAT-Pool-Id' := _,
+	     'NAT-IP-Address' := _,
+	     'NAT-Port-Start' := _}, SInv),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
