@@ -390,11 +390,12 @@ start_session(#data{apn = APN, context = Context, dp_node = Node,
     SOpts = #{now => Now},
 
     SessionOpts0 = init_session(Data),
-    {_, AuthSEvs} =
+    {SessionOpts1, AuthSEvs} =
 	case authenticate(Session, SessionOpts0) of
 	    {ok, Result2} -> Result2;
 	    {error, Err2} -> throw({fail, Err2})
 	end,
+    Bearer2 = apply_bearer_opts(SessionOpts1, Bearer1),
 
     %% -----------------------------------------------------------
     %% TBD: maybe reselect VRF based on outcome of authenticate ??
@@ -437,12 +438,12 @@ start_session(#data{apn = APN, context = Context, dp_node = Node,
     PCC4 = ergw_pcc_context:session_events_to_pcc_ctx(RfSEvs, PCC3),
 
     {PCtx, Bearer, SessionInfo} =
-	case ergw_pfcp_context:create_session(tdf, PCC4, PendingPCtx, Bearer1, Context) of
+	case ergw_pfcp_context:create_session(tdf, PCC4, PendingPCtx, Bearer2, Context) of
 	    {ok, Result5} -> Result5;
 	    {error, Err5} -> throw({fail, Err5})
 	end,
 
-    SessionOpts = maps:merge(SessionOpts0, SessionInfo),
+    SessionOpts = maps:merge(SessionOpts1, SessionInfo),
     ergw_aaa_session:invoke(Session, SessionOpts, start, SOpts#{async => true}),
 
     Keys = context2keys(Bearer, Context),
@@ -486,6 +487,14 @@ init_session(#data{context = #tdf_ctx{ms_ip = UeIP}}) ->
 	    Opts1
     end.
 
+apply_bearer_opts('NAT-Pool-Id', Id, #{right := #bearer{local = Local} = Right} = Bearer)
+  when is_record(Local, ue_ip) ->
+    Bearer#{right => Right#bearer{local = Local#ue_ip{nat = Id}}};
+apply_bearer_opts(_, _, Bearer) ->
+    Bearer.
+
+apply_bearer_opts(SOpts, Bearer) ->
+    maps:fold(fun apply_bearer_opts/3, Bearer, SOpts).
 
 authenticate(Session, SessionOpts) ->
     ?LOG(debug, "SessionOpts: ~p", [SessionOpts]),
