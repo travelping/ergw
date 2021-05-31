@@ -87,6 +87,9 @@ candidates(Name, Services, NodeSelection) ->
 	    L
     end.
 
+lowercase_apn([H|_] = APN) when is_binary(H) ->
+    [string:lowercase(X) || X <- APN].
+
 expand_apn_plmn(IMSI) when is_binary(IMSI) ->
     {MCC, MNC, _} = itu_e212:split_imsi(IMSI),
     {MCC, MNC};
@@ -113,12 +116,12 @@ split_apn([H|_] = APN)
 
 apn_to_fqdn([H|_] = APN, IMSI)
   when is_binary(H) ->
-    apn_to_fqdn(expand_apn(APN, IMSI)).
+    apn_to_fqdn(expand_apn(lowercase_apn(APN), IMSI)).
 
 apn_to_fqdn([H|_] = APN)
   when is_binary(H) ->
     FQDN =
-	case lists:reverse(APN) of
+	case lists:reverse(lowercase_apn(APN)) of
 	    [<<"gprs">>, MCC, MNC | APN_NI] ->
 		lists:reverse([<<"org">>, <<"3gppnetwork">>, MCC, MNC, <<"epc">>, <<"apn">> | APN_NI]);
 	    [<<"org">>, <<"3gppnetwork">> | _] ->
@@ -375,9 +378,9 @@ lookup(Name, ServiceSet, Selection) when is_binary(Name) ->
 normalize_name({fqdn, FQDN}) ->
     FQDN;
 normalize_name([H|_] = Name) when is_binary(H) ->
-    normalize_name_fqdn(lists:reverse(Name));
+    normalize_name_fqdn(lists:reverse(lowercase_apn(Name)));
 normalize_name(Name) when is_binary(Name) ->
-    normalize_name_fqdn(lists:reverse(binary:split(Name, <<$.>>, [global]))).
+    normalize_name_fqdn(lists:reverse(binary:split(string:lowercase(Name), <<$.>>, [global]))).
 
 normalize_name_fqdn([<<"org">>, <<"3gppnetwork">> | _] = Name) ->
     lists:reverse(Name);
