@@ -423,8 +423,8 @@ handle_event(info, Info, _State, _Data) ->
     ?LOG(error, "~p: ~w: handle_event(info, ...): ~p", [self(), ?MODULE, Info]),
     keep_state_and_data.
 
-terminate(_Reason, _State, _Data) ->
-    %% TODO: kill all PDP Context on this path
+terminate(_Reason, _State, #{ip := IP} = _Data) ->
+    ergw_prometheus:gtp_path_metrics_remove(IP),
     ok.
 
 code_change(_OldVsn, State, Data, _Extra) ->

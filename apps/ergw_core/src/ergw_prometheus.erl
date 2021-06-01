@@ -13,7 +13,8 @@
 -export([gtp_error/3, gtp/4, gtp/5,
 	 gtp_request_duration/4,
 	 gtp_path_rtt/4,
-	 gtp_path_contexts/4
+	 gtp_path_contexts/4,
+	 gtp_path_metrics_remove/1
 	]).
 -export([pfcp/4, pfcp/5,
 	 pfcp_request_duration/3, pfcp_peer_response/4]).
@@ -152,6 +153,21 @@ declare() ->
 				{help, "Total number of termination causes"}]),
     ok.
 
+gtp_path_metrics_remove(IP) ->
+    Peer = inet:ntoa(IP),
+    %% GTP path metrics
+    prometheus_counter:match_remove(
+      gtp_path_messages_processed_total, ['_', Peer, '_', '_', '_'], []),
+    prometheus_counter:match_remove(
+      gtp_path_messages_duplicates_total, ['_', Peer, '_', '_'], []),
+    prometheus_counter:match_remove(
+      gtp_path_messages_retransmits_total, ['_', Peer, '_', '_'], []),
+    prometheus_counter:match_remove(
+      gtp_path_messages_timeouts_total, ['_', Peer, '_', '_'], []),
+    prometheus_counter:match_remove(
+      gtp_path_messages_replies_total, ['_', Peer, '_', '_', '_', '_'], []),
+    ok.
+
 %%%===================================================================
 %%% GTP Metrics collections
 %%%===================================================================
@@ -161,11 +177,13 @@ gtp_error(Direction, #socket{name = Name, type = 'gtp-c'}, Error) ->
     prometheus_counter:inc(gtp_c_socket_errors_total, [Name, Direction, Error]).
 
 %% gtp/4
-gtp(Direction, #socket{name = Name, type = 'gtp-c'},
-    RemoteIP, #gtp{version = Version, type = MsgType, ie = IEs}) ->
+gtp(Direction, #socket{name = Name, type = 'gtp-c'}, IP,
+    #gtp{version = Version, type = MsgType, ie = IEs}) ->
+    prometheus_counter:inc(gtp_path_messages_processed_total,
+			   [Name, inet:ntoa(IP), Direction, Version, MsgType]),
     prometheus_counter:inc(gtp_c_socket_messages_processed_total,
 			   [Name, Direction, Version, MsgType]),
-    gtp_reply(Name, RemoteIP, Direction, Version, MsgType, IEs);
+    gtp_reply(Name, IP, Direction, Version, MsgType, IEs);
 
 gtp(Direction, #socket{name = Name, type = 'gtp-u'}, IP,
     #gtp{version = Version, type = MsgType}) ->

@@ -347,7 +347,8 @@
 			]}]
 		 },
 	    path_management =>
-		#{suspect => #{timeout => 0}}
+		#{suspect => #{timeout => 0},
+		  down    => #{timeout => 500}}
 	   }
 	 },
 
@@ -1351,6 +1352,9 @@ path_failure(Config) ->
 
     {GtpC, _, _} = create_session(Config),
 
+    M1 = prometheus_text_format:format(),
+    ?match({match, _}, re:run(M1, "^gtp_path_messages.*", [multiline, global])),
+
     {_, CtxPid} = gtp_context_reg:lookup(CtxKey),
     #{left_tunnel := #tunnel{socket = CSocket}} = gtp_context:info(CtxPid),
 
@@ -1371,6 +1375,10 @@ path_failure(Config) ->
     delete_session(not_found, GtpC),
 
     [?match(#{tunnels := 0}, X) || X <- ergw_api:peer(all)],
+
+    wait4peers(?TIMEOUT),
+    M2 = prometheus_text_format:format(),
+    ?match(nomatch, re:run(M2, "^gtp_path_messages.*", [multiline, global, {capture, all, binary}])),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     wait4tunnels(?TIMEOUT),
