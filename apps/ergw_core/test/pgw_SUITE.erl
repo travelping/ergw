@@ -2598,7 +2598,7 @@ session_options(Config) ->
 		   'Multi-Session-Id' => '_',
 		   'Diameter-Session-Id' => '_',
 		   'Called-Station-Id' =>
-		       unicode:characters_to_binary(lists:join($., ?'APN-ExAmPlE')),
+		       string:lowercase(iolist_to_binary(lists:join($., ?'APN-ExAmPlE'))),
 		   'Calling-Station-Id' => ?MSISDN,
 		   'Service-Type' => 'Framed-User',
 		   'Framed-Protocol' => 'GPRS-PDP-Context',
@@ -3616,7 +3616,7 @@ simple_ocs(Config) ->
 	  %% 'Acct-Interim-Interval' => '?????',
 	  %% 'Bearer-Operation' => '?????',
 	  'Called-Station-Id' =>
-	      unicode:characters_to_binary(lists:join($., ?'APN-ExAmPlE')),
+	      string:lowercase(iolist_to_binary(lists:join($., ?'APN-ExAmPlE'))),
 	  'Calling-Station-Id' => ?MSISDN,
 	  'Charging-Rule-Base-Name' => <<"m2m0001">>,
 	  'Diameter-Session-Id' => '_',
