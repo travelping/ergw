@@ -112,8 +112,9 @@ expand_apn_plmn(IMSI) when is_binary(IMSI) ->
 expand_apn_plmn(_) ->
     ergw:get_plmn_id().
 
-expand_apn([H|_] = APN, IMSI)
+expand_apn([H|_] = APN0, IMSI)
   when is_binary(H) ->
+    APN = lowercase_apn(APN0),
     case lists:reverse(APN) of
 	[<<"gprs">> | _] -> APN;
 	[<<"org">>, <<"3gppnetwork">> | _] -> APN;
@@ -132,7 +133,7 @@ split_apn([H|_] = APN)
 
 apn_to_fqdn([H|_] = APN, IMSI)
   when is_binary(H) ->
-    apn_to_fqdn(expand_apn(lowercase_apn(APN), IMSI)).
+    apn_to_fqdn(expand_apn(APN, IMSI)).
 
 apn_to_fqdn([H|_] = APN)
   when is_binary(H) ->
