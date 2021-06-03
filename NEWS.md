@@ -1,6 +1,11 @@
 erGW - 3GPP GGSN and PDN-GW in Erlang
 =====================================
 
+Version 2.8.14 - 3 June 2021
+-------------------------------
+**Bugfixes** :bug:
+* [#401](https://github.com/travelping/ergw/pull/401) Lowercase `APN` expansion
+
 Version 2.8.13 - 1 June 2021
 -------------------------------
 **Bugfixes** :bug:
