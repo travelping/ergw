@@ -11,7 +11,7 @@
 	  {parse_transform, cut}]).
 
 -export([connect_upf_candidates/4, create_session/10]).
--export([triggered_charging_event/4, usage_report/3, close_context/3]).
+-export([triggered_charging_event/4, usage_report/3, close_context/3, close_context/4]).
 -export([update_tunnel_endpoint/3, handle_peer_change/3, update_tunnel_endpoint/2,
 	 apply_bearer_change/5]).
 
@@ -232,14 +232,19 @@ usage_report(URRActions, UsageReport, #{pfcp := PCtx, 'Session' := Session}) ->
 %% close_context/3
 close_context(_, {API, TermCause}, Context) ->
     close_context(API, TermCause, Context);
-close_context(API, TermCause, #{pfcp := PCtx, 'Session' := Session} = Data)
+close_context(API, TermCause, #{pfcp := PCtx} = Data)
   when is_atom(TermCause) ->
     UsageReport = ergw_pfcp_context:delete_session(TermCause, PCtx),
-    ergw_gtp_gsn_session:close_context(TermCause, UsageReport, PCtx, Session),
-    ergw_prometheus:termination_cause(API, TermCause),
-    maps:remove(pfcp, Data);
+    close_context(API, TermCause, UsageReport, Data);
 close_context(_API, _TermCause, Data) ->
     Data.
+
+%% close_context/4
+close_context(API, TermCause, UsageReport, #{pfcp := PCtx, 'Session' := Session} = Data)
+  when is_atom(TermCause) ->
+    ergw_gtp_gsn_session:close_context(TermCause, UsageReport, PCtx, Session),
+    ergw_prometheus:termination_cause(API, TermCause),
+    maps:remove(pfcp, Data).
 
 %%====================================================================
 %% Helper

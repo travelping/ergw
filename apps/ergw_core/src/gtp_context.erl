@@ -387,6 +387,23 @@ handle_event({call, From},
 	    {next_state, shutdown, Data, [{reply, From, {ok, PCtx}}]}
     end;
 
+%% PFCP Session Deleted By the UP function
+handle_event({call, From},
+	     {sx, #pfcp{type = session_report_request,
+			ie = #{pfcpsrreq_flags := #pfcpsrreq_flags{psdbu = 1},
+			       report_type := ReportType} = IEs}},
+	     _State, #{pfcp := PCtx} = Data0) ->
+    TermCause =
+	case ReportType of
+	    #report_type{upir = 1} ->
+		up_inactivity_timeout;
+	    _ ->
+		deleted_by_upf
+	end,
+    UsageReport = maps:get(usage_report_srr, IEs, undefined),
+    Data = ergw_gtp_gsn_lib:close_context('pfcp', TermCause, UsageReport, Data0),
+    {next_state, shutdown, Data, [{reply, From, {ok, PCtx}}]};
+
 %% User Plane Inactivity Timer expired
 handle_event({call, From},
 	     {sx, #pfcp{type = session_report_request,
