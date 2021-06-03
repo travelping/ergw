@@ -6,7 +6,7 @@
 
 %% API
 -export([start/2, stop/1, restart/1,
-	 send/2, send/3, usage_report/4,
+	 send/2, send/3, usage_report/4, usage_report/5,
 	 up_inactivity_timer_expiry/2,
 	 up_quota_validity_time_expiry/2,
 	 reset/1, history/1, history/2,
@@ -73,7 +73,10 @@ send(Role, SEID, Msg) ->
     gen_server:call(server_name(Role), {send, SEID, Msg}).
 
 usage_report(Role, PCtx, MatchSpec, Report) ->
-    gen_server:call(server_name(Role), {usage_report, PCtx, MatchSpec, Report}).
+    usage_report(Role, PCtx, MatchSpec, [], Report).
+
+usage_report(Role, PCtx, MatchSpec, IEs, Report) ->
+    gen_server:call(server_name(Role), {usage_report, PCtx, MatchSpec, IEs, Report}).
 
 up_inactivity_timer_expiry(Role, PCtx) ->
     gen_server:call(server_name(Role), {up_inactivity_timer_expiry, PCtx}).
@@ -215,7 +218,7 @@ handle_call({send, Msg}, _From,
     {reply, ok, State};
 
 handle_call({usage_report, #pfcp_ctx{seid = #seid{cp = SEID}, urr_by_id = Rules},
-	     MatchSpec, Report}, _From, State0) ->
+	     MatchSpec, IEs0, Report}, _From, State0) ->
     Ids = ets:match_spec_run(maps:to_list(Rules), ets:match_spec_compile(MatchSpec)),
     URRs =
 	if is_function(Report, 2) ->
@@ -223,7 +226,7 @@ handle_call({usage_report, #pfcp_ctx{seid = #seid{cp = SEID}, urr_by_id = Rules}
 	   true ->
 		[#usage_report_srr{group = [#urr_id{id = Id}|Report]} || Id <- Ids]
 	end,
-    IEs = [#report_type{usar = 1}|URRs],
+    IEs = IEs0 ++ [#report_type{usar = 1}|URRs],
     SRreq = #pfcp{version = v1, type = session_report_request, ie = IEs},
     State = do_send(SEID, SRreq, State0),
     {reply, ok, State};

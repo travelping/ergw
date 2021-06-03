@@ -697,6 +697,7 @@ common() ->
      sx_upf_restart,
      sx_timeout,
      sx_ondemand,
+     pfcp_session_deleted_by_the_up_function,
      gy_validity_timer_cp,
      gy_validity_timer_up,
      simple_aaa,
@@ -2940,6 +2941,45 @@ sx_ondemand(Config) ->
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     wait4contexts(?TIMEOUT).
+
+%%--------------------------------------------------------------------
+pfcp_session_deleted_by_the_up_function() ->
+    [{doc, "Test TEBUR with PSDBU (Ts 29.244, clause 5.18"}].
+pfcp_session_deleted_by_the_up_function(Config) ->
+    CtxKey = #context_key{socket = 'irx-socket', id = {imsi, ?'IMSI', 5}},
+
+    {GtpC, _, _} = create_session(Config),
+
+    {_Handler, Server} = gtp_context_reg:lookup(CtxKey),
+    true = is_pid(Server),
+    {ok, PCtx} = gtp_context:test_cmd(Server, pfcp_ctx),
+
+    MatchSpec = ets:fun2ms(fun({Id, _}) -> Id end),
+    IEs = [#pfcpsrreq_flags{psdbu = 1}],
+    Report =
+	[#usage_report_trigger{tebur = 1, _= 0},
+	 #volume_measurement{total = 5, uplink = 2, downlink = 3},
+	 #tp_packet_measurement{total = 12, uplink = 5, downlink = 7}],
+
+    lists:foreach(
+      fun(_X) ->
+	      ct:sleep(100),
+	      ergw_test_sx_up:usage_report('pgw-u01', PCtx, MatchSpec, IEs, Report)
+      end, lists:seq(1, 3)),
+
+    ct:sleep(100),
+    delete_session(not_found, GtpC),
+
+    ?equal(true, meck:called(ergw_aaa_session, invoke, ['_', '_', {gx, 'CCR-Terminate'}, '_'])),
+    ?equal(true, meck:called(ergw_aaa_session, invoke, ['_', '_', {gy, 'CCR-Terminate'}, '_'])),
+    ?equal(true, meck:called(ergw_aaa_session, invoke, ['_', '_', stop, '_'])),
+
+    ?equal([], outstanding_requests()),
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    wait4contexts(?TIMEOUT),
+
+    meck_validate(Config),
+    ok.
 
 %%--------------------------------------------------------------------
 
