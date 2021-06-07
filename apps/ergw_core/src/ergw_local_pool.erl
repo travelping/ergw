@@ -22,7 +22,7 @@
 	 terminate/2, code_change/3]).
 
 -record(state, {name, pools, ipv4_opts, ipv6_opts}).
--record(pool,  {name, type, id, first, last, shift, used, free, used_pool, free_pool}).
+-record(pool,  {name, type, id, base, size, first, last, shift, used, free, used_pool, free_pool}).
 -record(lease, {ip, client_id}).
 
 -include_lib("kernel/include/logger.hrl").
@@ -193,12 +193,10 @@ init_pools(Name, Ranges) ->
 	      Pools
       end, #{}, Ranges).
 
-init_table(_tetTid, Start, End)
-  when Start > End ->
-    ok;
 init_table(Tid, Start, End) ->
-    ets:insert(Tid, #lease{ip = Start}),
-    init_table(Tid, Start + 1, End).
+    Length = End - Start + 1,
+    IPsList = uint32_fy_shuffle:shuffle(Length),
+    true = ets:insert(Tid, IPsList).
 
 handle_call({get, ClientId, Type, PrefixLen, ReqOpts}, _From, #state{pools = Pools} = State)
   when is_atom(Type), is_map_key({Type, PrefixLen}, Pools) ->
@@ -278,7 +276,7 @@ alloc_reply({error, _} = Error, _, _) ->
 
 init_pool(Name, Type, First, Last, Shift) ->
     UsedTid = ets:new(used_pool, [set, {keypos, #lease.ip}]),
-    FreeTid = ets:new(free_pool, [set, {keypos, #lease.ip}]),
+    FreeTid = ets:new(free_pool, [ordered_set]),
 
     Id = inet:ntoa(int2ip(Type, First)),
     Start = First bsr Shift,
@@ -296,6 +294,7 @@ init_pool(Name, Type, First, Last, Shift) ->
 
     Pool = #pool{
 	      name = Name, type = Type, id = Id,
+	      base = Start, size = Size,
 	      first = First, last = Last, shift = Shift,
 	      used = 0, free = Size,
 	      used_pool = UsedTid, free_pool = FreeTid},
@@ -304,31 +303,33 @@ init_pool(Name, Type, First, Last, Shift) ->
     Pool.
 
 allocate_ip(ClientId, ReqOpts,
-	    #pool{used = Used, free = Free,
+	    #pool{base = Base,
+		  used = Used, free = Free,
 		  used_pool = UsedTid, free_pool = FreeTid} = Pool0)
   when Free =/= 0 ->
     ?LOG(debug, "~w: Allocate Pool: ~p", [self(), Pool0]),
 
-    Id = ets:first(FreeTid),
-    ets:delete(FreeTid, Id),
+    {_, Id} = Key = ets:first(FreeTid),
+    ets:delete(FreeTid, Key),
     ets:insert(UsedTid, #lease{ip = Id, client_id = ClientId}),
-    IP = id2ip(Id, ReqOpts, Pool0),
+    IP = id2ip(Base + Id, ReqOpts, Pool0),
     Pool = Pool0#pool{used = Used + 1, free = Free - 1},
     metrics_sync_gauges(Pool),
     {{ok, IP}, Pool};
 allocate_ip(_ClientId, _ReqOpts, Pool) ->
     {{error, empty}, Pool}.
 
-release_ip(IP, #pool{first = First, last = Last,
-		      shift = Shift,
-		      used = Used, free = Free,
-		      used_pool = UsedTid, free_pool = FreeTid} = Pool0)
+release_ip(IP, #pool{base = Base, first = First, last = Last,
+		     shift = Shift,
+		     used = Used, free = Free,
+		     used_pool = UsedTid, free_pool = FreeTid} = Pool0)
   when IP >= First andalso IP =< Last ->
-    Id = IP bsr Shift,
+    Id = (IP bsr Shift) - Base,
 
     case ets:take(UsedTid, Id) of
 	[_] ->
-	    ets:insert(FreeTid, #lease{ip = Id}),
+	    Now = erlang:monotonic_time(),
+	    ets:insert(FreeTid, {{Now, Id}}),
 	    Pool = Pool0#pool{used = Used - 1, free = Free + 1},
 	    metrics_sync_gauges(Pool),
 	    Pool;
@@ -344,19 +345,20 @@ release_ip(_IP, Pool) ->
     Pool.
 
 take_ip(ClientId, IP, ReqOpts,
-	#pool{first = First, last = Last,
+	#pool{base = Base, first = First, last = Last,
 	      shift = Shift,
 	      used = Used, free = Free,
 	      used_pool = UsedTid, free_pool = FreeTid} = Pool0)
   when IP >= First andalso IP =< Last ->
-    Id = IP bsr Shift,
+    Id = (IP bsr Shift) - Base,
 
-    case ets:take(FreeTid, Id) of
-	[_] ->
+    case ets:match_object(FreeTid, {{'_', Id}}) of
+	[{Key}] ->
+	    ets:delete(FreeTid, Key),
 	    ets:insert(UsedTid, #lease{ip = Id, client_id = ClientId}),
 	    Pool = Pool0#pool{used = Used + 1, free = Free - 1},
 	    metrics_sync_gauges(Pool),
-	    {{ok, id2ip(Id, ReqOpts, Pool)}, Pool};
+	    {{ok, id2ip(Base + Id, ReqOpts, Pool)}, Pool};
 	_ ->
 	    ?LOG(warning, "attempt to take already allocated IP: ~p",
 		 [id2ip(Id, ReqOpts, Pool0)]),
@@ -374,7 +376,7 @@ take_ip(_ClientId, _IP, _ReqOpts, Pool) ->
 %%%===================================================================
 
 metrics_sync_gauges(#pool{name = Name, type = Type, id = Id,
-		       used = Used, free = Free}) ->
+			  used = Used, free = Free}) ->
     prometheus_gauge:set(ergw_local_pool_free, [Name, Type, Id], Free),
     prometheus_gauge:set(ergw_local_pool_used, [Name, Type, Id], Used),
     ok.
