@@ -18,7 +18,7 @@
 
 %% regine_server callbacks
 -export([init/1, handle_register/4, handle_unregister/3, handle_pid_remove/3,
-	 handle_death/3, handle_call/3, terminate/2]).
+	 handle_death/3, terminate/2]).
 
 %% --------------------------------------------------------------------
 %% Include files
@@ -26,6 +26,7 @@
 -include("include/ergw.hrl").
 
 -define(SERVER, ?MODULE).
+-define(TAB, ?MODULE).
 
 %%%===================================================================
 %%% API
@@ -38,41 +39,38 @@ register(Pool) ->
     regine_server:register(?SERVER, self(), Pool, undefined).
 
 lookup(Pool) when is_binary(Pool) ->
-    regine_server:call(?SERVER, {lookup, Pool}).
+    case ets:lookup(?TAB, Pool) of
+	[{_, Pid}] -> Pid;
+	_ -> undefined
+    end.
 
 all() ->
-    regine_server:call(?SERVER, all).
+    ets:tab2list(?TAB).
 
 %%%===================================================================
 %%% regine callbacks
 %%%===================================================================
 
 init([]) ->
-    {ok, #{}}.
+    ets:new(?TAB, [named_table, set, protected, {keypos, 1}, {read_concurrency, true}]),
+    {ok, state}.
 
-handle_register(_Pid, Pool, _Value, State)
-  when is_map_key(Pool, State) ->
-    {error, duplicate};
 handle_register(Pid, Pool, _Value, State) ->
-    {ok, [Pool], maps:put(Pool, Pid, State)}.
+    case ets:insert_new(?TAB, {Pool, Pid}) of
+	false -> {error, duplicate};
+	true  -> {ok, [Pool], State}
+    end.
 
-handle_unregister(Pool, _Value, State)
-  when is_map_key(Pool, State) ->
-    [[maps:get(Pool, State)], maps:remove(Pool, State)];
-handle_unregister(_Pool, _Value, State) ->
-    {[], State}.
+handle_unregister(Pool, _Value, State) ->
+    Objs = ets:take(?TAB, Pool),
+    {[Pid || {_, Pid} <- Objs], State}.
 
 handle_pid_remove(_Pid, Pools, State) ->
-    maps:without(Pools, State).
+    [ets:delete(?TAB, Pool) || Pool <- Pools],
+    State.
 
 handle_death(_Pid, _Reason, State) ->
     State.
-
-handle_call({lookup, Pool}, _From, State) ->
-    maps:get(Pool, State, undefined);
-
-handle_call(all, _From, State) ->
-    maps:to_list(State).
 
 terminate(_Reason, _State) ->
 	ok.
