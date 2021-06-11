@@ -103,7 +103,7 @@ ergw_aaa_init(Config) ->
     lists:foreach(ergw_aaa_init(_, Config), Init).
 
 ergw_aaa_init(product_name, #{product_name := PN0}) ->
-    PN = ergw_aaa_config:validate_option(product_name, PN0),
+    PN = ergw_aaa_config:validate_option(product_name, to_binary(PN0)),
     ergw_aaa:setopt(product_name, PN),
     PN;
 ergw_aaa_init(rate_limits, #{rate_limits := Limits0}) ->
@@ -570,7 +570,12 @@ delegate_aaa_function(Map) when is_map(Map) ->
 
 config_meta_aaa_function_diameter() ->
     Transport =
-	#{connect_to => binary},
+	#{connect_to => binary,
+	  recbuf => integer,
+	  sndbuf => integer,
+	  nodelay => boolean,
+	  reuseaddr => boolean,
+	  unordered => boolean},
     #{handler => module,
       'Origin-Host' => host_or_ip,
       'Origin-Realm' => binary,
