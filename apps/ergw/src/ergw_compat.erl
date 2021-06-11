@@ -404,48 +404,50 @@ translate_node_request({retry, Value} = Opts)
 translate_node_request({Opt, Value}) ->
     throw({error, {options, {Opt, Value}}}).
 
-translate_node_default_option(vrfs, VRFs)
+translate_node_default_option({K = vrfs, VRFs})
   when ?non_empty_opts(VRFs) ->
     check_unique_keys(vrfs, VRFs),
-    translate_options(fun translate_node_vrfs/1, VRFs, [], map);
-translate_node_default_option(ip_pools, Pools)
+    {K, translate_options(fun translate_node_vrfs/1, VRFs, [], map)};
+translate_node_default_option({ip_pools, Pools})
   when is_list(Pools) ->
     V = [ergw_ip_pool_translate_name(ip_pools, Name) || Name <- Pools],
     check_unique_elements(ip_pools, V),
-    V;
-translate_node_default_option(node_selection, Value) ->
-    Value;
-translate_node_default_option(heartbeat, Opts)
+    {ue_ip_pools, [#{ip_pools => V}]};
+translate_node_default_option({K = node_selection, Value}) ->
+    {K, Value};
+translate_node_default_option({K = heartbeat, Opts})
   when ?is_opts(Opts) ->
-    translate_options(fun translate_node_heartbeat/1, Opts, ?NodeDefaultHeartbeat, map);
-translate_node_default_option(request, Opts)
+    {K, translate_options(fun translate_node_heartbeat/1, Opts, ?NodeDefaultHeartbeat, map)};
+translate_node_default_option({K = request, Opts})
   when ?is_opts(Opts) ->
-    translate_options(fun translate_node_request/1, Opts, ?NodeDefaultRequest, map);
-translate_node_default_option(Opt, Values) ->
+    {K, translate_options(fun translate_node_request/1, Opts, ?NodeDefaultRequest, map)};
+translate_node_default_option({ue_ip_pools, _} = Opt) ->
+    Opt;
+translate_node_default_option({Opt, Values}) ->
     throw({error, {options, {Opt, Values}}}).
 
-translate_node_option(connect, Value) when is_boolean(Value) ->
-    Value;
-translate_node_option(node_selection, Value) ->
-    Value;
-translate_node_option(raddr, {_,_,_,_} = RAddr) ->
-    RAddr;
-translate_node_option(raddr, {_,_,_,_,_,_,_,_} = RAddr) ->
-    RAddr;
-translate_node_option(rport, Port) when is_integer(Port) ->
-    Port;
-translate_node_option(Opt, Values) ->
-    translate_node_default_option(Opt, Values).
+translate_node_option({K = connect, Value}) when is_boolean(Value) ->
+    {K, Value};
+translate_node_option({K = node_selection, Value}) ->
+    {K, Value};
+translate_node_option({K = raddr, {_,_,_,_} = RAddr}) ->
+    {K, RAddr};
+translate_node_option({K = raddr, {_,_,_,_,_,_,_,_} = RAddr}) ->
+    {K, RAddr};
+translate_node_option({K = rport, Port}) when is_integer(Port) ->
+    {K, Port};
+translate_node_option(Opt) ->
+    translate_node_default_option(Opt).
 
 translate_default_node(Opts) when ?is_opts(Opts) ->
-    translate_options(fun translate_node_default_option/2, Opts, ?DefaultsNodesDefaults, map);
+    translate_options(fun translate_node_default_option/1, Opts, ?DefaultsNodesDefaults, map);
 translate_default_node(Opts) ->
     throw({error, {options, {nodes, default, Opts}}}).
 
 translate_nodes({Name, Opts}, Defaults)
   when is_list(Name), ?is_opts(Opts) ->
     {to_binary(Name),
-     translate_options(fun translate_node_option/2, Opts, Defaults, map)};
+     translate_options(fun translate_node_option/1, Opts, Defaults, map)};
 translate_nodes({Opt, Values}, _) ->
     throw({error, {options, {Opt, Values}}}).
 
@@ -1255,7 +1257,7 @@ aaa_translate_config(Config0) ->
 
 aaa_translate_option(product_name, Value)
   when is_list(Value); is_binary(Value) ->
-    Value;
+    to_binary(Value);
 aaa_translate_option(Opt, Value)
   when Opt == product_name ->
     throw({error, {options, {Opt, Value}}});
@@ -1292,6 +1294,8 @@ aaa_translate_handler(_Handler, Opts) ->
 
 aaa_translate_radius_option(server, {IP, Port, Secret}) ->
     #{ip => IP, port => Port, secret => Secret};
+aaa_translate_radius_option(termination_cause_mapping, Mapping) when is_list(Mapping) ->
+    to_map(Mapping);
 aaa_translate_radius_option(_, Opts) ->
     Opts.
 
