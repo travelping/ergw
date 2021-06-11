@@ -382,189 +382,203 @@
 	      [{handler, 'ergw_aaa_static'},
 	       {answers,
 		#{'Initial-Gx' =>
-		      #{'Result-Code' => 2001,
-			'Charging-Rule-Install' =>
-			    [#{'Charging-Rule-Base-Name' => [<<"m2m0001">>]}]
-		       },
+		      #{avps =>
+			    #{'Result-Code' => 2001,
+			      'Charging-Rule-Install' =>
+				  [#{'Charging-Rule-Base-Name' => [<<"m2m0001">>]}]
+			     }},
 		  'Initial-Gx-Split1' =>
-		      #{'Result-Code' => 2001,
-			'Charging-Rule-Install' =>
-			    [#{'Charging-Rule-Base-Name' => [<<"m2m0001-split1">>]}]
-		       },
+		      #{avps =>
+			    #{'Result-Code' => 2001,
+			      'Charging-Rule-Install' =>
+				  [#{'Charging-Rule-Base-Name' => [<<"m2m0001-split1">>]}]
+			     }},
 		  'Initial-Gx-Split2' =>
-		      #{'Result-Code' => 2001,
-			'Charging-Rule-Install' =>
-			    [#{'Charging-Rule-Base-Name' => [<<"m2m0001-split2">>]}]
-		       },
+		      #{avps =>
+			    #{'Result-Code' => 2001,
+			      'Charging-Rule-Install' =>
+				  [#{'Charging-Rule-Base-Name' => [<<"m2m0001-split2">>]}]
+			     }},
 		  'Initial-Gx-Redirect' =>
-		      #{'Result-Code' => 2001,
-			'Charging-Rule-Install' =>
-			    [#{'Charging-Rule-Definition' =>
-				   [#{
-				      'Charging-Rule-Name' => <<"m2m">>,
-				      'Rating-Group' => [3000],
-				      'Flow-Information' =>
-					  [#{'Flow-Description' => [<<"permit out ip from any to assigned">>],
-					     'Flow-Direction'   => [1]    %% DownLink
-					    },
-					   #{'Flow-Description' => [<<"permit out ip from any to assigned">>],
-					     'Flow-Direction'   => [2]    %% UpLink
-					    }],
-				      'Metering-Method'  => [1],
-				      'Precedence' => [100],
-				      'Offline'  => [1],
-				      'Redirect-Information' =>
-					  [#{'Redirect-Support' =>
-						 [1],   %% ENABLED
-					     'Redirect-Address-Type' =>
-						 [2],   %% URL
-					     'Redirect-Server-Address' =>
-						 ["http://www.heise.de/"]
-					    }]
-				     }]
-			      }]
-		       },
+		      #{avps =>
+			    #{'Result-Code' => 2001,
+			      'Charging-Rule-Install' =>
+				  [#{'Charging-Rule-Definition' =>
+					 [#{
+					    'Charging-Rule-Name' => <<"m2m">>,
+					    'Rating-Group' => [3000],
+					    'Flow-Information' =>
+						[#{'Flow-Description' => [<<"permit out ip from any to assigned">>],
+						   'Flow-Direction'   => [1]    %% DownLink
+						  },
+						 #{'Flow-Description' => [<<"permit out ip from any to assigned">>],
+						   'Flow-Direction'   => [2]    %% UpLink
+						  }],
+					    'Metering-Method'  => [1],
+					    'Precedence' => [100],
+					    'Offline'  => [1],
+					    'Redirect-Information' =>
+						[#{'Redirect-Support' =>
+						       [1],   %% ENABLED
+						   'Redirect-Address-Type' =>
+						       [2],   %% URL
+						   'Redirect-Server-Address' =>
+						       ["http://www.heise.de/"]
+						  }]
+					   }]
+				    }]
+			     }},
 		  'Initial-Gx-TDF-App' =>
-		      #{'Result-Code' => 2001,
-			'Charging-Rule-Install' =>
-			    [#{'Charging-Rule-Definition' =>
-				   [#{
-				      'Charging-Rule-Name' => <<"m2m">>,
-				      'Rating-Group' => [3000],
-				      'TDF-Application-Identifier' => [<<"Gold">>],
-				      'Metering-Method'  => [1],
-				      'Precedence' => [100],
-				      'Offline'  => [1]
-				     }]
-			      }]
-		       },
-		  'Update-Gx' => #{'Result-Code' => 2001},
-		  'Final-Gx' => #{'Result-Code' => 2001},
+		      #{avps =>
+			    #{'Result-Code' => 2001,
+			      'Charging-Rule-Install' =>
+				  [#{'Charging-Rule-Definition' =>
+					 [#{
+					    'Charging-Rule-Name' => <<"m2m">>,
+					    'Rating-Group' => [3000],
+					    'TDF-Application-Identifier' => [<<"Gold">>],
+					    'Metering-Method'  => [1],
+					    'Precedence' => [100],
+					    'Offline'  => [1]
+					   }]
+				    }]
+			     }},
+		  'Update-Gx' => #{avps => #{'Result-Code' => 2001}},
+		  'Final-Gx' => #{avps => #{'Result-Code' => 2001}},
 
 		  'Initial-Gx-Fail-1' =>
-		      #{'Result-Code' => 2001,
-			'Charging-Rule-Install' =>
-			    [#{'Charging-Rule-Base-Name' =>
-				   [<<"m2m0001">>, <<"unknown-rulebase">>]}]
-		       },
+		      #{avps =>
+			    #{'Result-Code' => 2001,
+			      'Charging-Rule-Install' =>
+				  [#{'Charging-Rule-Base-Name' =>
+					 [<<"m2m0001">>, <<"unknown-rulebase">>]}]
+			     }},
 		  'Initial-Gx-Fail-2' =>
-		      #{'Result-Code' => 2001,
-			'Charging-Rule-Install' =>
-			    [#{'Charging-Rule-Name' => [<<"r-0001">>, <<"unknown-rule">>]}]
-		       },
+		      #{avps =>
+			    #{'Result-Code' => 2001,
+			      'Charging-Rule-Install' =>
+				  [#{'Charging-Rule-Name' => [<<"r-0001">>, <<"unknown-rule">>]}]
+			     }},
 
 		  'Initial-OCS' =>
-		      #{'Result-Code' => 2001,
-			'Multiple-Services-Credit-Control' =>
-			    [#{'Envelope-Reporting' => [0],
-			       'Granted-Service-Unit' =>
-				   [#{'CC-Time' => [3600],
-				      'CC-Total-Octets' => [102400]}],
-			       'Rating-Group' => [3000],
-			       'Validity-Time' => [3600],
-			       'Result-Code' => [2001],
-			       'Time-Quota-Threshold' => [60],
-			       'Volume-Quota-Threshold' => [10240]
-			      }]
-		       },
+		      #{avps =>
+			    #{'Result-Code' => 2001,
+			      'Multiple-Services-Credit-Control' =>
+				  [#{'Envelope-Reporting' => [0],
+				     'Granted-Service-Unit' =>
+					 [#{'CC-Time' => [3600],
+					    'CC-Total-Octets' => [102400]}],
+				     'Rating-Group' => [3000],
+				     'Validity-Time' => [3600],
+				     'Result-Code' => [2001],
+				     'Time-Quota-Threshold' => [60],
+				     'Volume-Quota-Threshold' => [10240]
+				    }]
+			     }},
 		  'Update-OCS-Fail' =>
-		      #{'Result-Code' => 3001},
+		      #{avps => #{'Result-Code' => 3001}},
 		  'Update-OCS' =>
-		      #{'Result-Code' => 2001,
-			'Multiple-Services-Credit-Control' =>
-			    [#{'Envelope-Reporting' => [0],
-			       'Granted-Service-Unit' =>
-				   [#{'CC-Time' => [3600],
-				      'CC-Total-Octets' => [102400]}],
-			       'Rating-Group' => [3000],
-			       'Validity-Time' => [3600],
-			       'Result-Code' => [2001],
-			       'Time-Quota-Threshold' => [60],
-			       'Volume-Quota-Threshold' => [10240]
-			      }]
-		       },
+		      #{avps =>
+			    #{'Result-Code' => 2001,
+			      'Multiple-Services-Credit-Control' =>
+				  [#{'Envelope-Reporting' => [0],
+				     'Granted-Service-Unit' =>
+					 [#{'CC-Time' => [3600],
+					    'CC-Total-Octets' => [102400]}],
+				     'Rating-Group' => [3000],
+				     'Validity-Time' => [3600],
+				     'Result-Code' => [2001],
+				     'Time-Quota-Threshold' => [60],
+				     'Volume-Quota-Threshold' => [10240]
+				    }]
+			     }},
 		  'Update-OCS-GxGy' =>
-		      #{'Result-Code' => 2001,
-			'Multiple-Services-Credit-Control' =>
-			    [#{'Envelope-Reporting' => [0],
-			       'Granted-Service-Unit' =>
-				   [#{'CC-Time' => [3600],
-				      'CC-Total-Octets' => [102400]}],
-			       'Rating-Group' => [3000],
-			       'Validity-Time' => [3600],
-			       'Result-Code' => [2001],
-			       'Time-Quota-Threshold' => [60],
-			       'Volume-Quota-Threshold' => [10240]
-			      },
-			     #{'Envelope-Reporting' => [0],
-			       'Granted-Service-Unit' =>
-				   [#{'CC-Time' => [3600],
-				      'CC-Total-Octets' => [102400]}],
-			       'Rating-Group' => [4000],
-			       'Validity-Time' => [3600],
-			       'Result-Code' => [2001],
-			       'Time-Quota-Threshold' => [60],
-			       'Volume-Quota-Threshold' => [10240]
-			      }]
-		       },
+		      #{avps =>
+			    #{'Result-Code' => 2001,
+			      'Multiple-Services-Credit-Control' =>
+				  [#{'Envelope-Reporting' => [0],
+				     'Granted-Service-Unit' =>
+					 [#{'CC-Time' => [3600],
+					    'CC-Total-Octets' => [102400]}],
+				     'Rating-Group' => [3000],
+				     'Validity-Time' => [3600],
+				     'Result-Code' => [2001],
+				     'Time-Quota-Threshold' => [60],
+				     'Volume-Quota-Threshold' => [10240]
+				    },
+				   #{'Envelope-Reporting' => [0],
+				     'Granted-Service-Unit' =>
+					 [#{'CC-Time' => [3600],
+					    'CC-Total-Octets' => [102400]}],
+				     'Rating-Group' => [4000],
+				     'Validity-Time' => [3600],
+				     'Result-Code' => [2001],
+				     'Time-Quota-Threshold' => [60],
+				     'Volume-Quota-Threshold' => [10240]
+				    }]
+			     }},
 		  'Initial-OCS-VT' =>
-		      #{'Result-Code' => 2001,
-			'Multiple-Services-Credit-Control' =>
-			    [#{'Envelope-Reporting' => [0],
-			       'Granted-Service-Unit' =>
-				   [#{'CC-Time' => [3600],
-				      'CC-Total-Octets' => [102400]}],
-			       'Rating-Group' => [3000],
-			       'Validity-Time' => [2],
-			       'Result-Code' => [2001],
-			       'Time-Quota-Threshold' => [60],
-			       'Volume-Quota-Threshold' => [10240]
-			      }]
-		       },
+		      #{avps =>
+			    #{'Result-Code' => 2001,
+			      'Multiple-Services-Credit-Control' =>
+				  [#{'Envelope-Reporting' => [0],
+				     'Granted-Service-Unit' =>
+					 [#{'CC-Time' => [3600],
+					    'CC-Total-Octets' => [102400]}],
+				     'Rating-Group' => [3000],
+				     'Validity-Time' => [2],
+				     'Result-Code' => [2001],
+				     'Time-Quota-Threshold' => [60],
+				     'Volume-Quota-Threshold' => [10240]
+				    }]
+			     }},
 		  'Update-OCS-VT' =>
-		      #{'Result-Code' => 2001,
-			'Multiple-Services-Credit-Control' =>
-			    [#{'Envelope-Reporting' => [0],
-			       'Granted-Service-Unit' =>
-				   [#{'CC-Time' => [3600],
-				      'CC-Total-Octets' => [102400]}],
-			       'Rating-Group' => [3000],
-			       'Validity-Time' => [2],
-			       'Result-Code' => [2001],
-			       'Time-Quota-Threshold' => [60],
-			       'Volume-Quota-Threshold' => [10240]
-			      }]
-		       },
+		      #{avps =>
+			    #{'Result-Code' => 2001,
+			      'Multiple-Services-Credit-Control' =>
+				  [#{'Envelope-Reporting' => [0],
+				     'Granted-Service-Unit' =>
+					 [#{'CC-Time' => [3600],
+					    'CC-Total-Octets' => [102400]}],
+				     'Rating-Group' => [3000],
+				     'Validity-Time' => [2],
+				     'Result-Code' => [2001],
+				     'Time-Quota-Threshold' => [60],
+				     'Volume-Quota-Threshold' => [10240]
+				    }]
+			     }},
 		  'Initial-OCS-TTC' =>
-		      #{'Result-Code' => 2001,
-			'Multiple-Services-Credit-Control' =>
-			    [#{'Envelope-Reporting' => [0],
-			       'Granted-Service-Unit' =>
-				   [#{'Tariff-Time-Change' => [{{2019, 8, 26}, {14, 14, 0}}],
-				      'CC-Time' => [3600],
-				      'CC-Total-Octets' => [102400]}],
-			       'Rating-Group' => [3000],
-			       'Tariff-Time-Change' => [{{2019, 8, 26}, {14, 14, 0}}],
-			       'Result-Code' => [2001],
-			       'Time-Quota-Threshold' => [60],
-			       'Volume-Quota-Threshold' => [10240]
-			      }]
-		       },
+		      #{avps =>
+			    #{'Result-Code' => 2001,
+			      'Multiple-Services-Credit-Control' =>
+				  [#{'Envelope-Reporting' => [0],
+				     'Granted-Service-Unit' =>
+					 [#{'Tariff-Time-Change' => [{{2019, 8, 26}, {14, 14, 0}}],
+					    'CC-Time' => [3600],
+					    'CC-Total-Octets' => [102400]}],
+				     'Rating-Group' => [3000],
+				     'Tariff-Time-Change' => [{{2019, 8, 26}, {14, 14, 0}}],
+				     'Result-Code' => [2001],
+				     'Time-Quota-Threshold' => [60],
+				     'Volume-Quota-Threshold' => [10240]
+				    }]
+			     }},
 		  'Update-OCS-TTC' =>
-		      #{'Result-Code' => 2001,
-			'Multiple-Services-Credit-Control' =>
-			    [#{'Envelope-Reporting' => [0],
-			       'Granted-Service-Unit' =>
-				   [#{'Tariff-Time-Change' => [{{2019, 8, 26}, {14, 14, 0}}],
-				      'CC-Time' => [3600],
-				      'CC-Total-Octets' => [102400]}],
-			       'Rating-Group' => [3000],
-			       'Result-Code' => [2001],
-			       'Time-Quota-Threshold' => [60],
-			       'Volume-Quota-Threshold' => [10240]
-			      }]
-		       },
-		  'Final-OCS' => #{'Result-Code' => 2001}
+		      #{avps =>
+			    #{'Result-Code' => 2001,
+			      'Multiple-Services-Credit-Control' =>
+				  [#{'Envelope-Reporting' => [0],
+				     'Granted-Service-Unit' =>
+					 [#{'Tariff-Time-Change' => [{{2019, 8, 26}, {14, 14, 0}}],
+					    'CC-Time' => [3600],
+					    'CC-Total-Octets' => [102400]}],
+				     'Rating-Group' => [3000],
+				     'Result-Code' => [2001],
+				     'Time-Quota-Threshold' => [60],
+				     'Volume-Quota-Threshold' => [10240]
+				    }]
+			     }},
+		  'Final-OCS' => #{avps => #{'Result-Code' => 2001}}
 		 }
 	       }
 	      ]}

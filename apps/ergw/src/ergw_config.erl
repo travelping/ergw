@@ -597,11 +597,12 @@ delegate_aaa_handler(Map) when is_map(Map) ->
     normalize_meta(Meta).
 
 ergw_meta_aaa_handler_gx() ->
+    Answer = #{avps => aaa_avp, state => atom},
     #{handler => module,
       function => binary,
       'Destination-Host' => binary,
       'Destination-Realm' => binary,
-      answers => {kvlist, {name, binary}, {avps, aaa_avp}},
+      answers => {klist, {name, binary}, Answer},
       answer_if_down => binary,
       answer_if_timeout => binary,
       avp_filter => {list, binary},
@@ -643,13 +644,14 @@ ergw_meta_aaa_handler_rf() ->
       termination_cause_mapping => config_meta_term_cause_mapping()}.
 
 ergw_meta_aaa_handler_ro() ->
+    Answer = #{avps => aaa_avp, state => atom},
     #{handler => module,
       function => binary,
       'Destination-Host' => binary,
       'Destination-Realm' => binary,
       'CC-Session-Failover' => atom,
       'Credit-Control-Failure-Handling' => atom,
-      answers => {kvlist, {name, binary}, {avps, aaa_avp}},
+      answers => {klist, {name, binary}, Answer},
       answer_if_down => binary,
       answer_if_timeout => binary,
       answer_if_rate_limit => binary,
@@ -659,9 +661,10 @@ ergw_meta_aaa_handler_ro() ->
       termination_cause_mapping => config_meta_term_cause_mapping()}.
 
 ergw_meta_aaa_handler_static() ->
+    Answer = #{avps => aaa_avp, state => atom},
     #{handler => module,
       defaults => aaa_avp,
-      answers => {kvlist, {name, binary}, {avps, aaa_avp}},
+      answers => {klist, {name, binary}, Answer},
       answer => binary}.
 
 config_meta_term_cause_mapping() ->
