@@ -40,6 +40,10 @@
 	 assign_local_data_teid/5
 	]).
 
+-ifdef(TEST).
+-export([sntp_time_to_datetime/1]).
+-endif.
+
 -include_lib("kernel/include/logger.hrl").
 -include_lib("parse_trans/include/exprecs.hrl").
 -include_lib("gtplib/include/gtp_packet.hrl").
