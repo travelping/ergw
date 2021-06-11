@@ -1282,15 +1282,27 @@ aaa_translate_function_option(transports, Opts) when is_list(Opts) ->
 aaa_translate_function_option(_, Opt) ->
     Opt.
 
+aaa_translate_answers(_, {ocs_hold, GCU}) when is_list(GCU) ->
+    #{avps =>
+	  #{'Result-Code' => 2001,
+	    'Multiple-Services-Credit-Control' => GCU},
+      state => ocs_hold};
+aaa_translate_answers(_, AVPs) when is_map(AVPs) ->
+    #{avps => AVPs}.
+
+aaa_translate_answers(Answers) ->
+    maps:map(fun aaa_translate_answers/2, Answers).
+
 aaa_translate_handler(ergw_aaa_static, Opts) when is_map(Opts) ->
-    Answers = maps:get(answers, Opts, #{}),
+    Answers0 = maps:get(answers, Opts, #{}),
+    Answers = aaa_translate_answers(Answers0),
     #{answers => Answers, defaults => maps:remove(answers, Opts)};
-aaa_translate_handler(ergw_aaa_static, Opts) when is_list(Opts) ->
-    aaa_translate_handler(ergw_aaa_static, to_map(Opts));
 aaa_translate_handler(ergw_aaa_radius, Opts) ->
     translate_options(fun aaa_translate_radius_option/2, Opts, [], map);
-aaa_translate_handler(_Handler, Opts) ->
-    to_map(Opts).
+aaa_translate_handler(Handler, Opts) when is_list(Opts) ->
+    aaa_translate_handler(Handler, to_map(Opts));
+aaa_translate_handler(_Handler, Opts) when is_map(Opts) ->
+    translate_options(fun aaa_translate_handler_option/2, Opts, [], map).
 
 aaa_translate_radius_option(server, {IP, Port, Secret}) ->
     #{ip => IP, port => Port, secret => Secret};
@@ -1299,8 +1311,18 @@ aaa_translate_radius_option(termination_cause_mapping, Mapping) when is_list(Map
 aaa_translate_radius_option(_, Opts) ->
     Opts.
 
+aaa_translate_handler_option(answers, Answers) ->
+    aaa_translate_answers(Answers);
+aaa_translate_handler_option(_, Opts) ->
+    Opts.
+
 aaa_translate_service(_Service, Opts, _Config) ->
-    to_map(Opts).
+    translate_options(fun aaa_translate_service_option/2, Opts, [], map).
+
+aaa_translate_service_option(answers, Answers) ->
+    aaa_translate_answers(Answers);
+aaa_translate_service_option(_, Opts) ->
+    Opts.
 
 aaa_translate_app(App, Opts, Config) ->
     AppDef = translate_options(aaa_translate_app_option(App, _, _, Config), Opts, [], map),

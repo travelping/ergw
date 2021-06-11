@@ -279,12 +279,13 @@
 	      [{handler, 'ergw_aaa_static'},
 	       {answers,
 		#{'Initial-Gx' =>
-		      #{'Result-Code' => 2001,
-			'Charging-Rule-Install' =>
-			    [#{'Charging-Rule-Base-Name' => [<<"m2m0001">>]}]
-		       },
-		  'Update-Gx' => #{'Result-Code' => 2001},
-		  'Final-Gx' => #{'Result-Code' => 2001}
+		      #{avps =>
+			    #{'Result-Code' => 2001,
+			      'Charging-Rule-Install' =>
+				  [#{'Charging-Rule-Base-Name' => [<<"m2m0001">>]}]
+			     }},
+		  'Update-Gx' => #{avps => #{'Result-Code' => 2001}},
+		  'Final-Gx' => #{avps => #{'Result-Code' => 2001}}
 		 }
 	       }
 	      ]}
@@ -556,12 +557,13 @@
 	      [{handler, 'ergw_aaa_static'},
 	       {answers,
 		#{'Initial-Gx' =>
-		      #{'Result-Code' => 2001,
-			'Charging-Rule-Install' =>
-			    [#{'Charging-Rule-Base-Name' => [<<"m2m0001">>]}]
-		       },
-		  'Update-Gx' => #{'Result-Code' => 2001},
-		  'Final-Gx' => #{'Result-Code' => 2001}
+		      #{avps =>
+			    #{'Result-Code' => 2001,
+			      'Charging-Rule-Install' =>
+				  [#{'Charging-Rule-Base-Name' => [<<"m2m0001">>]}]
+			     }},
+		  'Update-Gx' => #{avps => #{'Result-Code' => 2001}},
+		  'Final-Gx' => #{avps => #{'Result-Code' => 2001}}
 		 }
 	       }
 	      ]}
