@@ -630,7 +630,7 @@ ergw_meta_aaa_handler_radius() ->
       termination_cause_mapping => config_meta_term_cause_mapping()}.
 
 ergw_meta_radius_server() ->
-    #{ip => host_or_ip,
+    #{host => host_or_ip,
       port => integer,
       secret => binary}.
 
