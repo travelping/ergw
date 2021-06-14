@@ -1305,7 +1305,7 @@ aaa_translate_handler(_Handler, Opts) when is_map(Opts) ->
     translate_options(fun aaa_translate_handler_option/2, Opts, [], map).
 
 aaa_translate_radius_option(server, {IP, Port, Secret}) ->
-    #{ip => IP, port => Port, secret => Secret};
+    #{host => IP, port => Port, secret => Secret};
 aaa_translate_radius_option(termination_cause_mapping, Mapping) when is_list(Mapping) ->
     to_map(Mapping);
 aaa_translate_radius_option(_, Opts) ->
