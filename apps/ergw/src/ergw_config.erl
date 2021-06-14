@@ -887,7 +887,7 @@ to_host_or_ip(#{<<"ipv4Addr">> := Bin}) when is_binary(Bin) ->
 to_host_or_ip(#{<<"ipv6Addr">> := Bin}) when is_binary(Bin) ->
     {ok, IP} = inet:parse_ipv6_address(binary_to_list(Bin)),
     IP;
-to_host_or_ip(Bin) when is_binary(Bin) ->
+to_host_or_ip(#{<<"fqdn">> := Bin}) when is_binary(Bin) ->
     Bin.
 
 to_apn(<<"*">>) ->
@@ -1086,7 +1086,7 @@ from_ip46_address(IP) when is_tuple(IP) ->
 from_host_or_ip(IP) when is_tuple(IP) ->
     from_ip_address(IP);
 from_host_or_ip(Host) when is_binary(Host) ->
-    Host.
+    #{<<"fqdn">> => Host}.
 
 from_apn('_') ->
     <<"*">>;
