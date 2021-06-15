@@ -1251,8 +1251,7 @@ aaa_translate_config(Config0) ->
     Config2 = translate_keyed_opt(handlers, fun aaa_translate_handler/2, Config1, []),
     Config3 = translate_keyed_opt(services, aaa_translate_service(_, _, Config2), Config2, []),
     Config4 = translate_keyed_opt(apps, aaa_translate_app(_, _, Config3), Config3, []),
-    Config = translate_keyed_opt(rate_limits, fun aaa_translate_rate_limit/2, Config4,
-				[{default, ?DefaultRateLimit}]),
+    Config = aaa_translate_rate_limits(Config4),
     translate_options(fun aaa_translate_option/2, Config, ?DefaultAAAOptions, map).
 
 aaa_translate_option(product_name, Value)
@@ -1293,10 +1292,9 @@ aaa_translate_answers(_, AVPs) when is_map(AVPs) ->
 aaa_translate_answers(Answers) ->
     maps:map(fun aaa_translate_answers/2, Answers).
 
-aaa_translate_handler(ergw_aaa_static, Opts) when is_map(Opts) ->
-    Answers0 = maps:get(answers, Opts, #{}),
-    Answers = aaa_translate_answers(Answers0),
-    #{answers => Answers, defaults => maps:remove(answers, Opts)};
+aaa_translate_handler(ergw_aaa_static, Opts0) when is_map(Opts0) ->
+    {Answers, Opts} = take_opt(answers, Opts0, #{}),
+    #{answers => aaa_translate_answers(Answers), defaults => Opts};
 aaa_translate_handler(ergw_aaa_radius, Opts) ->
     translate_options(fun aaa_translate_radius_option/2, Opts, [], map);
 aaa_translate_handler(Handler, Opts) when is_list(Opts) ->
@@ -1362,9 +1360,18 @@ aaa_translate_app_procs_svc(_App, _Procedure, _Service, Opts, _Config)
 aaa_translate_app_procs_svc(App, Procedure, Service, Opts, _Config) ->
     throw({error, {options, {App, Procedure, Service, Opts}}}).
 
+aaa_translate_rate_limits(Config) ->
+    RateLimits = get_opt(rate_limits, Config, [{default, ?DefaultRateLimit}]),
+    {Default, Peers} = take_opt(default, RateLimits, ?DefaultRateLimit),
+    check_unique_keys(rate_limits, Peers),
+    Limits = #{default => translate_options(
+			    aaa_translate_rate_limit_option(default, _, _), Default, [], map),
+	       peers => translate_options(fun aaa_translate_rate_limit/2, Peers, [], map)},
+    set_opt(rate_limits, Limits, Config).
+
 aaa_translate_rate_limit(RateLimit, Opts) ->
     translate_options(
-      aaa_translate_rate_limit_option(RateLimit, _, _), Opts, ?DefaultRateLimit, map).
+      aaa_translate_rate_limit_option(RateLimit, _, _), Opts, [], map).
 
 aaa_translate_rate_limit_option(_RateLimit, outstanding_requests, Reqs)
   when is_integer(Reqs) andalso Reqs > 0 ->
