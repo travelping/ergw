@@ -103,13 +103,12 @@
             65,
             65
         ],
-        "rate_limits":[
-            {
-                "host":"default",
+        "rate_limits":{
+            "default":{
                 "outstanding_requests":50,
                 "rate":50
             }
-        ],
+        },
         "services":[
             {
                 "answers":[

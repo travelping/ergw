@@ -107,10 +107,9 @@ ergw_aaa_init(product_name, #{product_name := PN0}) ->
     ergw_aaa:setopt(product_name, PN),
     PN;
 ergw_aaa_init(rate_limits, #{rate_limits := Limits0}) ->
-    Limits = ergw_aaa_config:validate_options(
-	       fun ergw_aaa_config:validate_rate_limit/2, Limits0, []),
-    ergw_aaa:setopt(rate_limits, Limits),
-    Limits;
+    Limits1 = maps:with([default], Limits0),
+    Limits = maps:merge(Limits1, maps:get(peers, Limits0, #{})),
+    lists:foreach(ergw_aaa:setopt(rate_limit, _), maps:to_list(Limits));
 ergw_aaa_init(handlers, #{handlers := Handlers0}) ->
     Handlers = ergw_aaa_config:validate_options(
 		 fun ergw_aaa_config:validate_handler/2, Handlers0, []),
@@ -554,8 +553,9 @@ config_meta_aaa_product_name() ->
     binary.
 
 config_meta_aaa_rate_limits() ->
-    Meta = #{outstanding_requests => integer, rate => integer},
-    {klist, {host, binary}, Meta}.
+    RateLimit = #{outstanding_requests => integer, rate => integer},
+    #{default => RateLimit,
+      peers => {klist, {host, binary}, RateLimit}}.
 
 config_meta_aaa_functions() ->
     {klist, {name, binary}, {delegate, fun delegate_aaa_function/1}}.
