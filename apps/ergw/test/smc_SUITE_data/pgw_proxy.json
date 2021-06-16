@@ -20,8 +20,7 @@
             "prefered_bearer_type": "IPv6",
             "vrfs": [
                 {
-                    "name": "example",
-                    "type": "apn"
+                    "apn": "example"
                 }
             ]
         }
@@ -320,8 +319,7 @@
                         "SGi-LAN"
                     ],
                     "name": {
-                        "name": "sgi",
-                        "type": "apn"
+                        "apn": "sgi"
                     }
                 },
                 {
@@ -329,8 +327,7 @@
                         "Access"
                     ],
                     "name": {
-                        "name": "irx",
-                        "type": "apn"
+                        "apn": "irx"
                     }
                 },
                 {
@@ -338,8 +335,7 @@
                         "CP-Function"
                     ],
                     "name": {
-                        "name": "cp",
-                        "type": "apn"
+                        "apn": "cp"
                     }
                 }
             ]
@@ -413,8 +409,7 @@
             "send_port": 0,
             "type": "gtp-c",
             "vrf": {
-                "name": "remote-irx2",
-                "type": "apn"
+                "apn": "remote-irx2"
             }
         },
         {
@@ -427,8 +422,7 @@
             "send_port": 0,
             "type": "gtp-c",
             "vrf": {
-                "name": "remote-irx",
-                "type": "apn"
+                "apn": "remote-irx"
             }
         },
         {
@@ -441,8 +435,7 @@
             "send_port": 0,
             "type": "gtp-c",
             "vrf": {
-                "name": "irx",
-                "type": "apn"
+                "apn": "irx"
             }
         },
         {
@@ -456,8 +449,7 @@
             "send_port": 0,
             "type": "gtp-u",
             "vrf": {
-                "name": "cp",
-                "type": "apn"
+                "apn": "cp"
             }
         }
     ],

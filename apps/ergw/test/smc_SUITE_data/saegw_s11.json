@@ -23,8 +23,7 @@
             "prefered_bearer_type": "IPv6",
             "vrfs": [
                 {
-                    "name": "upstream",
-                    "type": "apn"
+                    "apn": "upstream"
                 }
             ]
         },
@@ -43,8 +42,7 @@
             "prefered_bearer_type": "IPv6",
             "vrfs": [
                 {
-                    "name": "upstream",
-                    "type": "apn"
+                    "apn": "upstream"
                 }
             ]
         }
@@ -236,8 +234,7 @@
                         "SGi-LAN"
                     ],
                     "name": {
-                        "name": "sgi",
-                        "type": "apn"
+                        "apn": "sgi"
                     }
                 },
                 {
@@ -245,8 +242,7 @@
                         "Access"
                     ],
                     "name": {
-                        "name": "irx",
-                        "type": "apn"
+                        "apn": "irx"
                     }
                 },
                 {
@@ -254,8 +250,7 @@
                         "CP-Function"
                     ],
                     "name": {
-                        "name": "cp",
-                        "type": "apn"
+                        "apn": "cp"
                     }
                 }
             ]
@@ -312,8 +307,7 @@
             "send_port": 0,
             "type": "gtp-c",
             "vrf": {
-                "name": "irx",
-                "type": "apn"
+                "apn": "irx"
             }
         },
         {
@@ -327,8 +321,7 @@
             "send_port": 0,
             "type": "gtp-u",
             "vrf": {
-                "name": "cp",
-                "type": "apn"
+                "apn": "cp"
             }
         }
     ],

@@ -68,14 +68,18 @@ components:
 
     VrfName:
       type: object
+      oneOf:
+        - required:
+          - apn
+        - required:
+          - dnn
       properties:
-        name:
+        apn:
           format: hostname
           type: string
-        type:
-          enum:
-            - apn
-            - dnn
+        dnn:
+          format: hostname
+          type: string
 
     VRF:
       type: object
