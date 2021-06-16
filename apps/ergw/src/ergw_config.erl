@@ -926,17 +926,11 @@ to_timeout(#{timeout := Timeout}) ->
 to_timeout(#{<<"timeout">> := _} = Timeout) ->
     to_timeout(maps:fold(fun(K, V, M) -> maps:put(to_atom(K), V, M) end, #{}, Timeout)).
 
-to_vrf({apn, APN}) ->
+to_vrf(#{<<"apn">> := APN}) ->
     << <<(size(L)):8, L/binary>> ||
 	L <- binary:split(to_binary(APN), <<".">>, [global, trim_all]) >>;
-to_vrf({dnn, DNN}) ->
-    to_binary(DNN);
-to_vrf(#{type := Type, name := Name}) when not is_atom(Type) ->
-    to_vrf({to_atom(Type), Name});
-to_vrf(#{name := Name}) ->
-    to_vrf({apn, Name});
-to_vrf(#{<<"name">> := _} = VRF) ->
-    to_vrf(maps:fold(fun(K, V, M) -> maps:put(to_atom(K), V, M) end, #{}, VRF)).
+to_vrf(#{<<"dnn">> :=  DNN}) ->
+    to_binary(DNN).
 
 to_term(V) ->
     String = to_string(V) ++ ".",
@@ -1114,9 +1108,9 @@ from_timeout(Timeout, [{Unit, _}|_]) ->
 
 from_vrf(<<X:8, _/binary>> = APN) when X < 64 ->
     L = [ Part || <<Len:8, Part:Len/bytes>> <= APN ],
-    #{type => apn, name => iolist_to_binary(lists:join($., L))};
+    #{apn => iolist_to_binary(lists:join($., L))};
 from_vrf(DNN) ->
-    #{type => dnn, name => DNN}.
+    #{dnn => DNN}.
 
 from_string(V) ->
     unicode:characters_to_binary(V).

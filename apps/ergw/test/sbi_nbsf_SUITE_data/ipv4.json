@@ -159,8 +159,7 @@
             "prefered_bearer_type":"IPv6",
             "vrfs":[
                 {
-                    "name":"sgi",
-                    "type":"apn"
+                    "apn":"sgi"
                 }
             ]
         },
@@ -178,8 +177,7 @@
             "prefered_bearer_type":"IPv6",
             "vrfs":[
                 {
-                    "name":"sgi",
-                    "type":"apn"
+                    "apn":"sgi"
                 }
             ]
         },
@@ -197,8 +195,7 @@
             "prefered_bearer_type":"IPv6",
             "vrfs":[
                 {
-                    "name":"sgi",
-                    "type":"apn"
+                    "apn":"sgi"
                 }
             ]
         },
@@ -216,8 +213,7 @@
             "prefered_bearer_type":"IPv6",
             "vrfs":[
                 {
-                    "name":"sgi",
-                    "type":"apn"
+                    "apn":"sgi"
                 }
             ]
         },
@@ -235,8 +231,7 @@
             "prefered_bearer_type":"IPv6",
             "vrfs":[
                 {
-                    "name":"sgi",
-                    "type":"apn"
+                    "apn":"sgi"
                 }
             ]
         }
@@ -707,8 +702,7 @@
             "send_port":0,
             "type":"gtp-c",
             "vrf":{
-                "name":"irx",
-                "type":"apn"
+                "apn":"irx"
             }
         },
         {
@@ -721,8 +715,7 @@
             "send_port":0,
             "type":"gtp-u",
             "vrf":{
-                "name":"cp",
-                "type":"apn"
+                "apn":"cp"
             }
         }
     ],
@@ -746,8 +739,7 @@
             "ue_ip_pools": [
                 {"ip_pools": ["pool-A"],
                  "vrf": {
-                     "name": "sgi",
-                     "type": "apn"
+                     "apn": "sgi"
                  },
                  "ip_versions": ["v4", "v6"]
                 }
@@ -766,8 +758,7 @@
                         "SGi-LAN"
                     ],
                     "name":{
-                        "name":"sgi",
-                        "type":"apn"
+                        "apn":"sgi"
                     }
                 },
                 {
@@ -775,8 +766,7 @@
                         "Access"
                     ],
                     "name":{
-                        "name":"irx",
-                        "type":"apn"
+                        "apn":"irx"
                     }
                 },
                 {
@@ -784,8 +774,7 @@
                         "CP-Function"
                     ],
                     "name":{
-                        "name":"cp",
-                        "type":"apn"
+                        "apn":"cp"
                     }
                 }
             ]
@@ -807,8 +796,7 @@
 		"ue_ip_pools": [
                     {"ip_pools": ["pool-B", "pool-C"],
                      "vrf": {
-			 "name": "sgi",
-			 "type": "apn"
+			 "apn": "sgi"
                      },
                      "ip_versions": ["v4", "v6"]
                     }
@@ -828,8 +816,7 @@
                             "SGi-LAN"
                         ],
                         "name":{
-                            "name":"sgi",
-                            "type":"apn"
+                            "apn":"sgi"
                         }
                     },
                     {
@@ -837,8 +824,7 @@
                             "Access"
                         ],
                         "name":{
-                            "name":"irx",
-                            "type":"apn"
+                            "apn":"irx"
                         }
                     },
                     {
@@ -846,8 +832,7 @@
                             "CP-Function"
                         ],
                         "name":{
-                            "name":"cp",
-                            "type":"apn"
+                            "apn":"cp"
                         }
                     }
                 ]
@@ -868,8 +853,7 @@
 		"ue_ip_pools": [
                     {"ip_pools": ["pool-A"],
                      "vrf": {
-			 "name": "sgi",
-			 "type": "apn"
+			 "apn": "sgi"
                      },
                      "ip_versions": ["v4", "v6"]
                     }
@@ -889,8 +873,7 @@
                             "SGi-LAN"
                         ],
                         "name":{
-                            "name":"sgi",
-                            "type":"apn"
+                            "apn":"sgi"
                         }
                     },
                     {
@@ -898,8 +881,7 @@
                             "Access"
                         ],
                         "name":{
-                            "name":"irx",
-                            "type":"apn"
+                            "apn":"irx"
                         }
                     },
                     {
@@ -907,8 +889,7 @@
                             "CP-Function"
                         ],
                         "name":{
-                            "name":"cp",
-                            "type":"apn"
+                            "apn":"cp"
                         }
                     }
                 ]
