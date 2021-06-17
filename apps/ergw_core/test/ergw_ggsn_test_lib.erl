@@ -351,6 +351,14 @@ make_request(unsupported, _SubType,
 
 %%%-------------------------------------------------------------------
 
+
+make_response(#gtp{type = update_pdp_context_request, seq_no = SeqNo},
+	      invalid_teid,
+	      #gtpc{remote_control_tei = _}) ->
+    IEs = [#cause{value = context_not_found}],
+    #gtp{version = v1, type = update_pdp_context_response,
+	 tei = 0, seq_no = SeqNo, ie = IEs};
+
 make_response(#gtp{type = update_pdp_context_request, seq_no = SeqNo},
 	      _SubType,
 	      #gtpc{restart_counter = RCnt,

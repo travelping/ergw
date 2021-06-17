@@ -153,15 +153,15 @@
 		[{?'APN-EXAMPLE',
 		  [{vrf, sgi},
 		   {ip_pools, [<<"pool-A">>]},
-		   {'Idle-Timeout', 21600000}]}, % Idle timeout 6 hours
+		   {inactivity_timeout, 21600000}]}, % Idle timeout 6 hours
 		 {[<<"APN1">>],
 		  [{vrf, sgi},
 		   {ip_pools, [<<"pool-A">>]},
-		   {'Idle-Timeout', 28800000}]}, % Idle timeout 8 hours
+		   {inactivity_timeout, 28800000}]}, % Idle timeout 8 hours
 		 {[<<"async-sx">>],
 		  [{vrf, sgi},
 		   {ip_pools, [<<"pool-A">>]},
-		   {'Idle-Timeout', infinity}]}
+		   {inactivity_timeout, infinity}]}
 		],
 
 	    charging =>
@@ -601,9 +601,9 @@ init_per_testcase(gx_invalid_charging_rule, Config) ->
     setup_per_testcase(Config),
     ergw_test_lib:load_aaa_answer_config([{{gx, 'CCR-Initial'}, 'Initial-Gx-Fail-2'}]),
     Config;
-%% gtp 'Idle-Timeout' reduced to 300ms for test purposes
+%% gtp inactivity_timeout reduced to 300ms for test purposes
 init_per_testcase(gtp_idle_timeout, Config) ->
-    ergw_test_lib:set_apn_key('Idle-Timeout', 300),
+    ergw_test_lib:set_apn_key(inactivity_timeout, 300),
     setup_per_testcase(Config),
     Config;
 init_per_testcase(_, Config) ->
@@ -651,9 +651,9 @@ end_per_testcase(create_session_overload, Config) ->
     jobs:modify_regulator(rate, create, {rate,create,1}, [{limit,100}]),
     end_per_testcase(Config),
     Config;
-%% gtp 'Idle-Timeout' reset to default 28800000ms ~8 hrs
+%% gtp inactivity_timeout reset to default 28800000ms ~8 hrs
 end_per_testcase(gtp_idle_timeout, Config) ->
-    ergw_test_lib:set_apn_key('Idle-Timeout', 28800000),
+    ergw_test_lib:set_apn_key(inactivity_timeout, 28800000),
     end_per_testcase(Config),
     Config;
 end_per_testcase(_, Config) ->
@@ -2165,20 +2165,18 @@ gx_invalid_charging_rule(Config) ->
 gtp_idle_timeout() ->
     [{doc, "Checks if the gtp idle timeout is triggered"}].
 gtp_idle_timeout(Config) ->
-    Cntl = whereis(gtpc_client_server),
     {GtpC, _, _} = create_session(Config),
     %% The meck wait timeout (400 ms) has to be more than then the Idle-Timeout
     ok = meck:wait(gtp_context, handle_event,
-		   [{timeout, context_idle}, stop_session, '_', '_'], 400),
+		   [{timeout, context_idle}, '_', '_', '_'], 400),
 
-    %% Timeout triggers a delete_bearer_request towards the S-GW.
-    Req = recv_pdu(Cntl, 5000),
-    ?match(#gtp{type = delete_bearer_request}, Req),
-    Resp = make_response(Req, simple, GtpC),
-    send_pdu(Cntl, GtpC, Resp),
+    delete_session(GtpC),
 
     ?equal([], outstanding_requests()),
+
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    wait4contexts(?TIMEOUT),
+
     meck_validate(Config),
     ok.
 
@@ -2188,7 +2186,7 @@ up_inactivity_timer() ->
 up_inactivity_timer(Config) ->
     CtxKey = #context_key{socket = 'irx', id = {imsi, ?'IMSI', 5}},
     Interim = rand:uniform(1800) + 1800,
-    AAAReply = #{'Acct-Interim-Interval' => Interim},
+    AAAReply = #{'Idle-Timeout' => 1800, 'Acct-Interim-Interval' => Interim},
 
     ok = meck:expect(
 	   ergw_aaa_session, invoke,

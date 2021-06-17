@@ -13,6 +13,7 @@
 -export([create_session/5,
 	 modify_session/5,
 	 delete_session/2,
+	 session_liveness_check/1,
 	 usage_report_to_charging_events/3,
 	 query_usage_report/1, query_usage_report/2
 	]).
@@ -77,6 +78,16 @@ delete_session(Reason, PCtx)
     end;
 delete_session(_Reason, _PCtx) ->
     undefined.
+
+session_liveness_check(#pfcp_ctx{} = PCtx) ->
+    Req = #pfcp{version = v1, type = session_modification_request, ie = []},
+    case ergw_sx_node:call(PCtx, Req) of
+	#pfcp{type = session_modification_response,
+	      ie = #{pfcp_cause := #pfcp_cause{cause = 'Request accepted'}}} ->
+	    ok;
+	_ ->
+	    {error, ?CTX_ERR(?FATAL, system_failure)}
+    end.
 
 build_query_usage_report(Type, PCtx) ->
     maps:fold(fun(K, {URRType, V}, A)
@@ -644,12 +655,12 @@ build_sx_usage_rule_4(Type, _, _, URR) ->
     ?LOG(warning, "build_sx_usage_rule_4: not handling ~p", [Type]),
     URR.
 
-pctx_update_from_ctx(PCtx, #context{'Idle-Timeout' = IdleTimeout})
+pctx_update_from_ctx(PCtx, #context{idle_timeout = IdleTimeout})
   when is_integer(IdleTimeout) ->
     %% UP timer is measured in seconds
     PCtx#pfcp_ctx{up_inactivity_timer = IdleTimeout div 1000};
 pctx_update_from_ctx(PCtx, _) ->
-    %% if 'Idle-Timeout' /= integer, it is not set
+    %% if idle_timeout /= integer, it is not set
     PCtx#pfcp_ctx{up_inactivity_timer = undefined}.
 
 pfcp_pctx_update(#pfcp_ctx{up_inactivity_timer = UPiTnew} = PCtx,

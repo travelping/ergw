@@ -157,19 +157,19 @@
 		[{?'APN-EXAMPLE',
 		  [{vrf, sgi},
 		   {ip_pools, [<<"pool-A">>]},
-		   {'Idle-Timeout', 21600000}]}, % Idle timeout 6 hours
+		   {'inactivity_timeout', 21600000}]}, % Idle timeout 6 hours
 		 {[<<"exa">>, <<"mple">>, <<"net">>],
 		  [{vrf, sgi},
 		   {ip_pools, [<<"pool-A">>]}]},
 		 {[<<"APN1">>],
 		  [{vrf, sgi},
 		   {ip_pools, [<<"pool-A">>]},
-		   {'Idle-Timeout', 28800000}]}, % Idle timeout 8 hours
+		   {'inactivity_timeout', 28800000}]}, % Idle timeout 8 hours
 		 {[<<"v6only">>],
 		  [{vrf, sgi},
 		   {ip_pools, [<<"pool-A">>]},
 		   {bearer_type, 'IPv6'},
-		   {'Idle-Timeout', infinity}]},
+		   {'inactivity_timeout', infinity}]},
 		 {[<<"v4only">>],
 		  [{vrf, sgi},
 		   {ip_pools, [<<"pool-A">>]},
@@ -657,9 +657,18 @@ init_per_testcase(gx_invalid_charging_rule, Config) ->
     setup_per_testcase(Config),
     ergw_test_lib:load_aaa_answer_config([{{gx, 'CCR-Initial'}, 'Initial-Gx-Fail-2'}]),
     Config;
-%% gtp 'Idle-Timeout' reduced to 300ms for test purposes
+%% gtp 'inactivity_timeout' reduced to 300ms for test purposes
 init_per_testcase(gtp_idle_timeout, Config) ->
-    ergw_test_lib:set_apn_key('Idle-Timeout', 300),
+    ergw_test_lib:set_apn_key('inactivity_timeout', 300),
+    ok = meck:expect(ergw_gtp_c_socket, send_request,
+		     fun(Socket, Src, DstIP, DstPort, _T3, _N3,
+			 #gtp{type = update_pdp_context_request} = Msg, CbInfo) ->
+			     %% reduce timeout to 1 second and 2 resends
+			     %% to speed up the test
+			     meck:passthrough([Socket, Src, DstIP, DstPort, 1000, 2, Msg, CbInfo]);
+			(Socket, Src, DstIP, DstPort, T3, N3, Msg, CbInfo) ->
+			     meck:passthrough([Socket, Src, DstIP, DstPort, T3, N3, Msg, CbInfo])
+		     end),
     setup_per_testcase(Config),
     Config;
 init_per_testcase(_, Config) ->
@@ -711,9 +720,10 @@ end_per_testcase(create_pdp_context_overload, Config) ->
     jobs:modify_queue(create, [{max_size, 10}]),
     jobs:modify_regulator(rate, create, {rate,create,1}, [{limit,100}]),
     end_per_testcase(Config);
-%% gtp 'Idle-Timeout' reset to default 28800000ms ~8 hrs
+%% gtp 'inactivity_timeout' reset to default 28800000ms ~8 hrs
 end_per_testcase(gtp_idle_timeout, Config) ->
-    ergw_test_lib:set_apn_key('Idle-Timeout', 28800000),
+    ergw_test_lib:set_apn_key('inactivity_timeout', 28800000),
+    ok = meck:delete(ergw_gtp_c_socket, send_request, 8),
     end_per_testcase(Config);
 end_per_testcase(_, Config) ->
     end_per_testcase(Config).
@@ -2674,15 +2684,22 @@ gtp_idle_timeout() ->
 gtp_idle_timeout(Config) ->
     Cntl = whereis(gtpc_client_server),
     {GtpC, _, _} = create_pdp_context(Config),
-    %% The meck wait timeout (400 ms) has to be more than then the Idle-Timeout
+    %% The meck wait timeout (400 ms) has to be more than then the inactivity_timeout
     ok = meck:wait(gtp_context, handle_event,
-		   [{timeout, context_idle}, stop_session, '_', '_'], 3000),
+		   [{timeout, context_idle}, '_', '_', '_'], 400),
 
-    %% Timeout triggers a delete_pdp_context_request towards the SGSN
-    Request = recv_pdu(Cntl, 5000),
-    ?match(#gtp{type = delete_pdp_context_request}, Request),
-    Response = make_response(Request, simple, GtpC),
-    send_pdu(Cntl, GtpC, Response),
+    %% Timeout triggers a update_pdp_context_request towards the SGSN
+    Req1 = recv_pdu(Cntl, 5000),
+    ?match(#gtp{type = update_pdp_context_request}, Req1),
+    Resp1 = make_response(Req1, simple, GtpC),
+    send_pdu(Cntl, GtpC, Resp1),
+
+    ok = meck:wait(gtp_context, handle_event,
+		   [{timeout, context_idle}, '_', '_', '_'], 400),
+    Req2 = recv_pdu(Cntl, 5000),
+    ?match(#gtp{type = update_pdp_context_request}, Req2),
+    Resp2 = make_response(Req2, invalid_teid, GtpC),
+    send_pdu(Cntl, GtpC, Resp2),
 
     ?equal([], outstanding_requests()),
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
@@ -2697,7 +2714,7 @@ up_inactivity_timer() ->
 up_inactivity_timer(Config) ->
     CtxKey = #context_key{socket = 'irx', id = {imsi, ?'IMSI', 5}},
     Interim = rand:uniform(1800) + 1800,
-    AAAReply = #{'Acct-Interim-Interval' => Interim},
+    AAAReply = #{'Idle-Timeout' => 1800, 'Acct-Interim-Interval' => Interim},
 
     ok = meck:expect(
 	   ergw_aaa_session, invoke,

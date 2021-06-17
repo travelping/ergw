@@ -221,14 +221,14 @@
 		[{?'APN-EXAMPLE',
 		  [{vrf, sgi},
 		   {ip_pools, [<<"pool-A">>, <<"pool-B">>]},
-		   {'Idle-Timeout', 21600000}]}, % Idle timeout 6 hours
+		   {'inactivity_timeout', 21600000}]}, % Idle timeout 6 hours
 		 {[<<"exa">>, <<"mple">>, <<"net">>],
 		  [{vrf, sgi},
 		   {ip_pools, [<<"pool-A">>]}]},
 		 {[<<"APN1">>],
 		  [{vrf, sgi},
 		   {ip_pools, [<<"pool-A">>]},
-		   {'Idle-Timeout', 28800000}]}, % Idle timeout 8 hours
+		   {'inactivity_timeout', 28800000}]}, % Idle timeout 8 hours
 		 {[<<"APN2">>, <<"mnc001">>, <<"mcc001">>, <<"gprs">>],
 		  [{vrf, sgi},
 		   {ip_pools, [<<"pool-A">>]}]},
@@ -236,12 +236,12 @@
 		  [{vrf, sgi},
 		   {ip_pools, [<<"pool-A">>]},
 		   {bearer_type, 'IPv6'},
-		   {'Idle-Timeout', infinity}]},
+		   {'inactivity_timeout', infinity}]},
 		 {[<<"v4only">>],
 		  [{vrf, sgi},
 		   {ip_pools, [<<"pool-A">>]},
 		   {bearer_type, 'IPv4'},
-		   {'Idle-Timeout', 21600000}]},
+		   {'inactivity_timeout', 21600000}]},
 		 {[<<"prefV6">>],
 		  [{vrf, sgi},
 		   {ip_pools, [<<"pool-A">>]},
