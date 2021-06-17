@@ -228,13 +228,13 @@ config_meta_apns() ->
 	     bearer_type          => atom,
 	     prefered_bearer_type => atom,
 	     ipv6_ue_interface_id => ip6_ifid,
+	     inactivity_timeout   => timeout,
 	     'MS-Primary-DNS-Server'    => ip4_address,
 	     'MS-Secondary-DNS-Server'  => ip4_address,
 	     'MS-Primary-NBNS-Server'   => ip4_address,
 	     'MS-Secondary-NBNS-Server' => ip4_address,
 	     'DNS-Server-IPv6-Address'  => {list, ip6_address},
-	     '3GPP-IPv6-DNS-Servers'    => {list, ip6_address},
-	     'Idle-Timeout'             => timeout
+	     '3GPP-IPv6-DNS-Servers'    => {list, ip6_address}
 	    },
     {map, {apn, apn}, Meta}.
 

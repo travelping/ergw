@@ -50,7 +50,7 @@ get(_, _) ->
 		      {bearer_type, 'IPv4v6'},
 		      {prefered_bearer_type, 'IPv6'},
 		      {ipv6_ue_interface_id, default},
-		      {'Idle-Timeout', 28800000}         %% 8hrs timer in msecs
+		      {inactivity_timeout, 48 * 3600 * 1000}         %% 48hrs timer in msecs
 		     ]).
 
 validate_options({APN0, Value}) when ?is_opts(Value) ->
@@ -118,9 +118,9 @@ validate_apn_option({Opt, Value})
        Opt == 'MS-Primary-NBNS-Server';  Opt == 'MS-Secondary-NBNS-Server';
        Opt == 'DNS-Server-IPv6-Address'; Opt == '3GPP-IPv6-DNS-Servers' ->
     {Opt, ergw_core_config:validate_ip_cfg_opt(Opt, Value)};
-validate_apn_option({'Idle-Timeout', Timer})
+validate_apn_option({Opt = inactivity_timeout, Timer})
   when (is_integer(Timer) andalso Timer > 0)
        orelse Timer =:= infinity->
-    {'Idle-Timeout', Timer};
+    {Opt, Timer};
 validate_apn_option({Opt, Value}) ->
     erlang:error(badarg, [Opt, Value]).

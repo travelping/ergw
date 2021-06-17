@@ -111,7 +111,8 @@
 	  charging_identifier    :: non_neg_integer(),
 	  default_bearer_id      :: 'undefined' | non_neg_integer(),
 
-	  'Idle-Timeout'  :: non_neg_integer() | infinity,
+	  idle_timeout           :: non_neg_integer() | infinity,
+	  inactivity_timeout     :: non_neg_integer() | infinity,
 
 	  version                :: 'v1' | 'v2',
 	  pdn_type               :: 'undefined' | 'IPv4' | 'IPv6' | 'IPv4v6' | 'Non-IP',

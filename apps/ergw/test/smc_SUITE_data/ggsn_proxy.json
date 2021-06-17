@@ -10,7 +10,7 @@
     "accept_new": true,
     "apns": [
         {
-            "Idle-Timeout": {
+            "inactivity_timeout": {
                 "timeout": 8,
                 "unit": "hour"
             },

@@ -123,6 +123,16 @@ handle_event(cast, {packet_in, _Socket, _IP, _Port, _Msg}, _State, _Data) ->
     ?LOG(warning, "packet_in not handled (yet): ~p", [_Msg]),
     keep_state_and_data;
 
+handle_event({timeout, context_idle}, check_session_liveness, State,
+	     #{context := Context, pfcp := PCtx} = Data) ->
+    case ergw_pfcp_context:session_liveness_check(PCtx) of
+	ok ->
+	    Actions = context_idle_action([], Context),
+	    {keep_state, Data, Actions};
+	_ ->
+	    delete_context(undefined, cp_inactivity_timeout, State, Data)
+    end;
+
 handle_event(info, _Info, _State, _Data) ->
     keep_state_and_data.
 
@@ -1084,8 +1094,8 @@ create_session_response(Cause, SessionOpts, RequestIEs, EBI,
 
 %% Wrapper for gen_statem state_callback_result Actions argument
 %% Timeout set in the context of a prolonged idle gtpv2 session
-context_idle_action(Actions, #context{'Idle-Timeout' = Timeout})
+context_idle_action(Actions, #context{inactivity_timeout = Timeout})
   when is_integer(Timeout) orelse Timeout =:= infinity ->
-    [{{timeout, context_idle}, Timeout, stop_session} | Actions];
+    [{{timeout, context_idle}, Timeout, check_session_liveness} | Actions];
 context_idle_action(Actions, _) ->
     Actions.

@@ -134,8 +134,6 @@ components:
           type: array
           items:
             $ref: TS29571_CommonData.yaml#/components/schemas/Ipv6Addr
-        Idle-Timeout:
-          $ref: "#/components/schemas/TimeoutInf"
         MS-Primary-DNS-Server:
           $ref: TS29571_CommonData.yaml#/components/schemas/Ipv4Addr
         MS-Primary-NBNS-Server:
@@ -182,6 +180,8 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/VrfName"
+        inactivity_timeout:
+          $ref: "#/components/schemas/TimeoutInf"
 
     SAEGwHandler:
       type: object

@@ -114,6 +114,17 @@ handle_event(cast, {packet_in, _Socket, _IP, _Port, _Msg}, _State, _Data) ->
     ?LOG(warning, "packet_in not handled (yet): ~p", [_Msg]),
     keep_state_and_data;
 
+handle_event({timeout, context_idle}, check_session_liveness, State,
+	     #{context := Context, pfcp := PCtx} = Data) ->
+    case ergw_pfcp_context:session_liveness_check(PCtx) of
+	ok ->
+	    send_context_alive_request(Data),
+	    Actions = context_idle_action([], Context),
+	    {keep_state, Data, Actions};
+	_ ->
+	    delete_context(undefined, cp_inactivity_timeout, State, Data)
+    end;
+
 handle_event(info, _Info, _State, Data) ->
     ?LOG(warning, "~p, handle_info(~p, ~p)", [?MODULE, _Info, Data]),
     keep_state_and_data.
@@ -257,6 +268,24 @@ handle_request(ReqKey,
 handle_request(ReqKey, _Msg, _Resent, _State, _Data) ->
     gtp_context:request_finished(ReqKey),
     keep_state_and_data.
+
+handle_response(alive_check,
+		#gtp{type = update_pdp_context_response,
+		     ie = #{?'Cause' := #cause{value = request_accepted}}},
+		_Request, _State, #{context := Context}) ->
+    Actions = context_idle_action([], Context),
+    {keep_state_and_data, Actions};
+
+handle_response(alive_check,
+		#gtp{type = update_pdp_context_response,
+		     ie = #{?'Cause' := #cause{value = context_not_found}}},
+		_Request, _State, Data0) ->
+    Data = ergw_gtp_gsn_lib:close_context(?API, cp_inactivity_timeout, Data0),
+    {next_state, shutdown, Data};
+
+handle_response(alive_check, _, #gtp{type = update_pdp_context_request}, State, Data) ->
+    %% cause /= Request Accepted or timeout
+    delete_context(undefined, cp_inactivity_timeout, State, Data);
 
 handle_response({From, TermCause}, timeout, #gtp{type = delete_pdp_context_request},
 		_State, Data0) ->
@@ -783,6 +812,25 @@ send_request(#tunnel{remote = #fq_teid{ip = RemoteCntlIP}} = Tunnel, T3, N3, Msg
 send_request(Tunnel, T3, N3, Type, RequestIEs, ReqInfo) ->
     send_request(Tunnel, T3, N3, msg(Tunnel, Type, RequestIEs), ReqInfo).
 
+%% TS 29.060, clause 7.3.3:
+%%
+%%    An Update PDP Context Request may also be sent from a GGSN to an SGSN:
+%%
+%%    [...]
+%%
+%%    - to check that the PDP context is still active at the SGSN. In such a case, the GGSN shall include the optional
+%%      IMSI IE, to add robustness against the case the SGSN has re-assigned the TEID to another PDP context (this
+%%      may happen when the PDP context is dangling at the GGSN). Also, the "Quality of service profile" IE and the
+%%      "End user Address" IE shall not be included in this case;
+%%
+send_context_alive_request(#{left_tunnel := Tunnel, context :=
+				 #context{default_bearer_id = NSAPI, imsi = IMSI}}) ->
+    Type = update_pdp_context_request,
+    RequestIEs0 = [#nsapi{nsapi = NSAPI} |
+		   [#international_mobile_subscriber_identity{imsi = IMSI} || is_binary(IMSI)]],
+    RequestIEs = gtp_v1_c:build_recovery(Type, Tunnel, false, RequestIEs0),
+    send_request(Tunnel, ?T3, ?N3, Type, RequestIEs, alive_check).
+
 delete_context(From, TermCause, connected,
 	       #{left_tunnel := Tunnel, context :=
 		     #context{default_bearer_id = NSAPI}} = Data) ->
@@ -902,8 +950,8 @@ create_pdp_context_response(Cause, SessionOpts, #gtp{ie = RequestIEs} = Request,
 
 %% Wrapper for gen_statem state_callback_result Actions argument
 %% Timeout set in the context of a prolonged idle gtp session
-context_idle_action(Actions, #context{'Idle-Timeout' = Timeout})
+context_idle_action(Actions, #context{inactivity_timeout = Timeout})
   when is_integer(Timeout) orelse Timeout =:= infinity ->
-    [{{timeout, context_idle}, Timeout, stop_session} | Actions];
+    [{{timeout, context_idle}, Timeout, check_session_liveness} | Actions];
 context_idle_action(Actions, _) ->
     Actions.

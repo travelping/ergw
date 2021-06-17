@@ -78,7 +78,7 @@ create_session_fun(APN, PAA, DAF, {Candidates, SxConnectId}, Session,
 	{error, Err6} -> throw(Err6#ctx_err{context = Context1, tunnel = LeftTunnel})
     end,
 
-    {Context, SessionOpts4} = add_apn_timeout(APNOpts, SessionOpts3, Context1),
+    Context = add_apn_timeout(APNOpts, SessionOpts3, Context1),
 
     Bearer0 = #{left => LeftBearer, right => RightBearer},
     Bearer1 =
@@ -87,7 +87,7 @@ create_session_fun(APN, PAA, DAF, {Candidates, SxConnectId}, Session,
 	    {error, Err7} -> throw(Err7#ctx_err{context = Context, tunnel = LeftTunnel})
 	end,
 
-    ergw_aaa_session:set(Session, SessionOpts4),
+    ergw_aaa_session:set(Session, SessionOpts3),
 
     Now = erlang:monotonic_time(),
     SOpts = #{now => Now},
@@ -135,7 +135,7 @@ create_session_fun(APN, PAA, DAF, {Candidates, SxConnectId}, Session,
 	       {error, Err10} -> throw(Err10#ctx_err{context = Context, tunnel = LeftTunnel})
 	   end,
 
-    SessionOpts = maps:merge(SessionOpts4, SessionInfo),
+    SessionOpts = maps:merge(SessionOpts3, SessionInfo),
     ergw_aaa_session:invoke(Session, SessionOpts, start, SOpts#{async => true}),
 
     GxReport = ergw_gsn_lib:pcc_events_to_charging_rule_report(PCCErrors1 ++ PCCErrors2),
@@ -158,10 +158,20 @@ create_session_fun(APN, PAA, DAF, {Candidates, SxConnectId}, Session,
 
 %% 'Idle-Timeout' received from ergw_aaa Session takes precedence over configured one
 add_apn_timeout(Opts, Session, Context) ->
-    SessionWithTimeout = maps:merge(maps:with(['Idle-Timeout'],Opts), Session),
-    Timeout = maps:get('Idle-Timeout', SessionWithTimeout),
-    ContextWithTimeout = Context#context{'Idle-Timeout' = Timeout},
-    {ContextWithTimeout, SessionWithTimeout}.
+    InactTimeout = maps:get(inactivity_timeout, Opts, infinity),
+    SessionTimeout = maps:get('Idle-Timeout', Session, infinity),
+    Timeout =
+	case {InactTimeout, SessionTimeout} of
+	    {_, infinity} -> InactTimeout;
+	    {infinity, X} when is_integer(X) -> X + 300 * 1000;
+	    {X, Y} when is_integer(X), is_integer(Y) ->
+		erlang:max(X, Y + 300 * 1000);
+	    _ ->
+		48 * 3600 * 1000
+	end,
+    ct:pal("inactivity_timeout: ~p~nOpts: ~p~nSessionTo: ~p~n", [Timeout, Opts, SessionTimeout]),
+    %% TODO: moving idle_timeout to the PCC ctx might make more sense
+    Context#context{inactivity_timeout = Timeout, idle_timeout = SessionTimeout}.
 
 %%====================================================================
 %% Tunnel
