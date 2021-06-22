@@ -10,7 +10,7 @@
 -compile([{parse_transform, do},
 	  {parse_transform, cut}]).
 
--export([connect_upf_candidates/4, create_session/10]).
+-export([connect_upf_candidates/4, create_session/10, create_session_n/8]).
 -export([triggered_charging_event/4, usage_report/3, close_context/3, close_context/4]).
 -export([update_tunnel_endpoint/3, handle_peer_change/3, update_tunnel_endpoint/2,
 	 apply_bearer_change/5]).
@@ -255,5 +255,245 @@ query_usage_report(ChargingKeys, PCtx)
     ergw_pfcp_context:query_usage_report(ChargingKeys, PCtx);
 query_usage_report(_, PCtx) ->
     ergw_pfcp_context:query_usage_report(PCtx).
+
+%%====================================================================
+%% new style async FSM impl
+%%====================================================================
+
+-record(create_session_n, {now, apn, paa, daf, candidates, connect_id,
+			   session_opts, left_bearer,
+			   apn_opts, up_info, auth_evs, node_caps, cause,
+			   pcc_errors, gy_evs}).
+
+create_session_n(APN, PAA, DAF, {Candidates, SxConnectId}, SessionOpts, LeftBearer,
+		 State, Data) ->
+    Args = #create_session_n{
+	      now = erlang:monotonic_time(),
+
+	      apn = APN,
+	      paa = PAA,
+	      daf = DAF,
+	      candidates = Candidates,
+	      connect_id = SxConnectId,
+
+	      session_opts = SessionOpts,
+	      left_bearer = LeftBearer
+	     },
+    create_session_n(Args, State, Data).
+
+create_session_n(#create_session_n{apn = APN, connect_id = SxConnectId} = Args, State, Data) ->
+    ergw_sx_node:wait_connect(SxConnectId),
+
+    gtp_context:next(
+      ergw_apn:get(APN),
+      ergw_apn_get_ok(Args, _, _, _),
+      fun gtp_context:fail/3,
+      State, Data).
+
+ergw_apn_get_ok(#create_session_n{candidates = Candidates, session_opts = SessionOpts} = Args0,
+		APNOpts, State, Data) ->
+    Args = Args0#create_session_n{apn_opts = APNOpts},
+    gtp_context:next(
+      ergw_pfcp_context:select_upf(Candidates, SessionOpts, APNOpts),
+      select_upf_ok(Args, _, _, _),
+      fun gtp_context:fail/3,
+      State, Data).
+
+select_upf_ok(Args0, {UPinfo, SessionOpts},
+	      State, #{'Session' := Session} = Data) ->
+    Args = Args0#create_session_n{session_opts = SessionOpts, up_info = UPinfo},
+    gtp_context:next(
+      ergw_gtp_gsn_session:authenticate(Session, SessionOpts),
+      session_authenticate_ok(Args, _, _, _),
+      fun gtp_context:fail/3,
+      State, Data).
+
+session_authenticate_ok(#create_session_n{candidates = Candidates, apn_opts = APNOpts, up_info = UPinfo} = Args0,
+			{SessionOpts, AuthSEvs},
+			State, Data) ->
+    Args = Args0#create_session_n{session_opts = SessionOpts, auth_evs = AuthSEvs},
+    gtp_context:next(
+      ergw_pfcp_context:reselect_upf(Candidates, SessionOpts, APNOpts, UPinfo),
+      reselect_upf_ok(Args, _, _, _),
+      fun gtp_context:fail/3,
+      State, Data).
+
+reselect_upf_ok(#create_session_n{
+		   paa = PAA,
+		   daf = DAF,
+
+		   session_opts = SessionOpts,
+
+		   apn_opts = APNOpts
+		  } = Args0,
+		{PCtx, NodeCaps, RightBearer},
+		State, #{context := Context, left_tunnel := LeftTunnel} = Data) ->
+    Args = Args0#create_session_n{node_caps = NodeCaps},
+    Fun =
+	fun() ->
+		case ergw_gsn_lib:allocate_ips(PAA, APNOpts, SessionOpts, DAF, LeftTunnel, RightBearer, Context) of
+		    {ok, _} = Result ->
+			Result;
+		    {{error, Error}, {_, _, _, Context1}} ->
+			gtp_context:fail({Error, Context1})
+		end
+	end,
+    DataNext = Data#{pfcp => PCtx},
+    gtp_context:next(
+      Fun(),
+      allocate_ips_ok(Args, _, _, _),
+      allocate_ips_fail(_, _, _),
+      State, DataNext).
+
+allocate_ips_fail({Error, Context}, State, Data) ->
+    gtp_context:fail(Error, State, Data#{context => Context}).
+
+allocate_ips_ok(#create_session_n{
+		   left_bearer = LeftBearer,
+
+		   apn_opts = APNOpts,
+		   node_caps = NodeCaps
+		  } = Args0,
+		{Cause, SessionOpts0, RightBearer, Context0},
+		State, #{left_tunnel := LeftTunnel, pfcp := PCtx} = Data) ->
+
+    {Context, SessionOpts} = add_apn_timeout(APNOpts, SessionOpts0, Context0),
+    Args = Args0#create_session_n{session_opts = SessionOpts, cause = Cause},
+
+    Bearer = #{left => LeftBearer, right => RightBearer},
+    DataNext = Data#{context => Context},
+    gtp_context:next(
+      ergw_gsn_lib:assign_local_data_teid(left, PCtx, NodeCaps, LeftTunnel, Bearer),
+      assign_local_data_teid_ok(Args, _, _, _),
+      fun gtp_context:fail/3,
+      State, DataNext).
+
+assign_local_data_teid_ok(#create_session_n{
+			     now = Now,
+			     session_opts = SessionOpts
+			    } = Args,
+			  Bearer0,
+			  State, #{'Session' := Session} = Data) ->
+    DataNext = Data#{bearer => Bearer0},
+
+    ergw_aaa_session:set(Session, SessionOpts),
+
+    GxOpts = #{'Event-Trigger' => ?'DIAMETER_GX_EVENT-TRIGGER_UE_IP_ADDRESS_ALLOCATE',
+	       'Bearer-Operation' => ?'DIAMETER_GX_BEARER-OPERATION_ESTABLISHMENT'},
+
+    gtp_context:next(
+      ergw_gtp_gsn_session:ccr_initial(Session, gx, GxOpts, #{now => Now}),
+      gx_ccr_i_ok(Args, _, _, _),
+      fun gtp_context:fail/3,
+      State, DataNext).
+
+gx_ccr_i_ok(Args0, {_, GxEvents}, State, #{pcc := PCC0} = Data) ->
+    RuleBase = ergw_charging:rulebase(),
+    {PCC, PCCErrors} = ergw_pcc_context:gx_events_to_pcc_ctx(GxEvents, '_', RuleBase, PCC0),
+
+    DataNext = Data#{pcc => PCC},
+    Args = Args0#create_session_n{pcc_errors = PCCErrors},
+
+    gtp_context:next(
+      case ergw_pcc_context:pcc_ctx_has_rules(PCC) of
+	  true ->
+	      gtp_context:ok(ok);
+	  _ ->
+	      gtp_context:fail(user_authentication_failed)
+      end,
+      pcc_ctx_has_rules_ok(Args, _, _, _),
+      pcc_ctx_has_rules_fail( _, _, _),
+      State, DataNext).
+
+pcc_ctx_has_rules_fail(Error, State, #{left_tunnel := LeftTunnel} = Data) ->
+    gtp_context:fail(?CTX_ERR(?FATAL, Error, tunnel = LeftTunnel), State, Data).
+
+pcc_ctx_has_rules_ok(#create_session_n{now = Now} = Args, _,
+		     State, #{'Session' := Session, pcc := PCC} = Data) ->
+
+    %% TBD............
+    CreditsAdd = ergw_pcc_context:pcc_ctx_to_credit_request(PCC),
+    GyReqServices = #{credits => CreditsAdd},
+
+    gtp_context:next(
+      ergw_gtp_gsn_session:ccr_initial(Session, gy, GyReqServices, #{now => Now}),
+      gy_ccr_i_ok(Args, _, _, _),
+      fun gtp_context:fail/3,
+      State, Data).
+
+gy_ccr_i_ok(#create_session_n{now = Now} = Args0, {GySessionOpts, GyEvs},
+	    State, #{'Session' := Session} = Data) ->
+
+    ?LOG(debug, "GySessionOpts: ~p", [GySessionOpts]),
+    ?LOG(debug, "Initial GyEvs: ~p", [GyEvs]),
+    Args = Args0#create_session_n{gy_evs = GyEvs},
+
+    gtp_context:next(
+      begin
+	  {_, _, RfSEvs} = ergw_aaa_session:invoke(Session, #{}, {rf, 'Initial'}, #{now => Now}),
+	  gtp_context:ok(RfSEvs)
+      end,
+      rf_i_ok(Args, _, _, _),
+      undefined,
+      State, Data).
+
+rf_i_ok(#create_session_n{
+	   now = Now,
+
+	   auth_evs = AuthSEvs,
+	   pcc_errors = PCCErrors1,
+	   gy_evs = GyEvs
+	  } = Args0,
+	RfSEvs,
+	State, #{context := Context, bearer := Bearer, pfcp := PCtx, pcc := PCC0} = Data) ->
+
+    {PCC2, PCCErrors2} = ergw_pcc_context:gy_events_to_pcc_ctx(Now, GyEvs, PCC0),
+    PCC3 = ergw_pcc_context:session_events_to_pcc_ctx(AuthSEvs, PCC2),
+    PCC4 = ergw_pcc_context:session_events_to_pcc_ctx(RfSEvs, PCC3),
+
+    DataNext = Data#{pcc => PCC4},
+    Args = Args0#create_session_n{pcc_errors = PCCErrors1 ++ PCCErrors2},
+
+    gtp_context:next(
+      ergw_pfcp_context:create_session(gtp_context, PCC4, PCtx, Bearer, Context),
+      pfcp_create_session_ok(Args, _, _, _),
+      fun gtp_context:fail/3,
+      State, DataNext).
+
+pfcp_create_session_ok(#create_session_n{
+			  now = Now,
+			  session_opts = SessionOpts0,
+
+			  pcc_errors = PCCErrors
+			 } = Args,
+		       {PCtx, Bearer, SessionInfo},
+		       State, #{context := Context, left_tunnel := LeftTunnel,
+				'Session' := Session} = Data) ->
+    SessionOpts = maps:merge(SessionOpts0, SessionInfo),
+    ergw_aaa_session:invoke(Session, SessionOpts, start, #{now => Now, async => true}),
+
+    GxReport = ergw_gsn_lib:pcc_events_to_charging_rule_report(PCCErrors),
+    if map_size(GxReport) /= 0 ->
+	    ergw_aaa_session:invoke(Session, GxReport,
+				    {gx, 'CCR-Update'}, #{now => Now, async => true});
+       true ->
+	    ok
+    end,
+
+    DataNext = Data#{bearer := Bearer, pfcp => PCtx},
+    gtp_context:next(
+      gtp_context:remote_context_register_new(LeftTunnel, Bearer, Context),
+      remote_context_register_new_ok(Args, _, _, _),
+      remote_context_register_new_fail(_, _, _),
+      State, DataNext).
+
+remote_context_register_new_fail(#ctx_err{} = Error, State, Data) ->
+    gtp_context:fail(Error#ctx_err{reply = system_failure}, State, Data).
+
+remote_context_register_new_ok(#create_session_n{session_opts = SessionOpts, cause = Cause},
+			       _, State, Data) ->
+    ct:pal("All: ~p~nTunnel: ~p~nBearer: ~p~n",
+	   [gtp_context_reg:all(), maps:get(left_tunnel, Data), maps:get(bearer, Data)]),
+    gtp_context:ok({Cause, SessionOpts}, State, Data).
 
 %% -*- mode: Erlang; whitespace-line-column: 120; -*-

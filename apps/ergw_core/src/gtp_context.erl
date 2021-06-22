@@ -28,6 +28,7 @@
 	 validate_options/3,
 	 validate_option/2,
 	 generic_error/3,
+	 log_ctx_error/2,
 	 context_key/2, socket_teid_key/2]).
 -export([usage_report_to_accounting/1,
 	 collect_charging_events/2]).
@@ -45,6 +46,9 @@
 %% gen_statem callbacks
 -export([callback_mode/0, init/1, handle_event/4,
 	 terminate/3, code_change/4]).
+
+%% new style async FSM helpers
+-export([next/5, fail/1, fail/3, ok/1, ok/3]).
 
 -ifdef(TEST).
 -export([tunnel_key/2, test_cmd/2]).
@@ -907,3 +911,35 @@ trigger_usage_report(Self, URRActions, PCtx) ->
     Self = self(),
     proc_lib:spawn(fun() -> usage_report_fun(Self, URRActions, PCtx) end),
     ok.
+
+%%====================================================================
+%% new style async FSM helpers
+%%====================================================================
+
+next(StateFun, OkF, FailF, State0, Data0) when is_function(StateFun, 2) ->
+    {Result, State, Data} = StateFun(State0, Data0),
+    next(Result, OkF, FailF, State, Data);
+next(ok, Fun, _, State, Data) ->
+    Fun(ok, State, Data);
+next({ok, Result}, Fun, _, State, Data) ->
+    Fun(Result, State, Data);
+next({error, Result}, _, Fun, State, Data) ->
+    Fun(Result, State, Data);
+next({async, _Fun}, _OkF, _FailF, _State, _Data) ->
+    %% tbd ....
+    %% 1. spawn a worker, run fun
+    %% 2. store worker id, funs, in data
+    %% 3. invoke cb funs from reply handler...
+    error(not_impl).
+
+fail(Error) ->
+    {error, Error}.
+
+fail(Error, State, Data) ->
+    {fail(Error), State, Data}.
+
+ok(Result) ->
+    {ok, Result}.
+
+ok(Result, State, Data) ->
+    {ok(Result), State, Data}.
