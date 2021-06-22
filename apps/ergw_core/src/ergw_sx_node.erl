@@ -17,6 +17,7 @@
 	 attach/1, attach_tdf/2, notify_up/2,
 	 set_defaults/1, set_required_upff/1, add_sx_node/2]).
 -export([start_link/5, send/4, call/2,
+	 send_request/2, receive_response/1,
 	 handle_request/3, response/3]).
 -export([validate_options/2, validate_defaults/1]).
 -ifdef(TEST).
@@ -111,6 +112,16 @@ call(#pfcp_ctx{node = Node, seid = #seid{dp = SEID}}, #pfcp{} = Request) ->
     gen_statem:call(Node, Request#pfcp{seid = SEID});
 call(#pfcp_ctx{node = Node}, Request) ->
     gen_statem:call(Node, Request).
+
+%% send_request/2
+send_request(#pfcp_ctx{node = Node, seid = #seid{dp = SEID}}, #pfcp{} = Request) ->
+    gen_statem:send_request(Node, Request#pfcp{seid = SEID});
+send_request(#pfcp_ctx{node = Node}, Request) ->
+    gen_statem:send_request(Node, Request).
+
+%% receive_response/1
+receive_response(ReqId) ->
+    gen_statem:receive_response(ReqId).
 
 response(Pid, CbData, Response) ->
     gen_statem:cast(Pid, {response, CbData, Response}).
