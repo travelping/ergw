@@ -9,6 +9,9 @@
 
 -behaviour(gtp_api).
 
+%% interim measure, to make refactoring simpler
+-compile([export_all, nowarn_export_all]).
+
 -compile([{parse_transform, do},
 	  {parse_transform, cut}]).
 
@@ -159,8 +162,11 @@ handle_request(_ReqKey, _Msg, true, _State, _Data) ->
     %% resent request
     keep_state_and_data;
 
+handle_request(ReqKey, #gtp{type = create_session_request} = Request, Resent, State, Data) ->
+    pgw_s5s8_create_session:create_session(ReqKey, Request, Resent, State, Data);
+
 handle_request(ReqKey,
-	       #gtp{type = create_session_request,
+	       #gtp{type = create_session_request_2,
 		    ie = #{?'Access Point Name' := #v2_access_point_name{apn = APN},
 			   ?'Bearer Contexts to be created' :=
 			       #v2_bearer_context{group = #{?'EPS Bearer ID' := EBI}}
@@ -475,10 +481,12 @@ handle_response(_CommandReqKey, _Response, _Request, State, _Data)
     keep_state_and_data.
 
 terminate(_Reason, _State, #{pfcp := PCtx, context := Context}) ->
+    ct:pal("Terminate #1"),
     ergw_pfcp_context:delete_session(terminate, PCtx),
     ergw_gsn_lib:release_context_ips(Context),
     ok;
-terminate(_Reason, _State, #{context := Context}) ->
+terminate(_Reason, _State, #{context := Context} = Data) ->
+    ct:pal("Terminate #2: ~p~n", [Data]),
     ergw_gsn_lib:release_context_ips(Context),
     ok.
 
