@@ -28,6 +28,7 @@
 	 validate_options/3,
 	 validate_option/2,
 	 generic_error/3,
+	 log_ctx_error/2,
 	 context_key/2, socket_teid_key/2]).
 -export([usage_report_to_accounting/1,
 	 collect_charging_events/2]).
@@ -45,6 +46,9 @@
 %% gen_statem callbacks
 -export([callback_mode/0, init/1, handle_event/4,
 	 terminate/3, code_change/4]).
+
+%% new style async FSM helpers
+-export([next/5, send_request/1]).
 
 -ifdef(TEST).
 -export([tunnel_key/2, ctx_test_cmd/2]).
@@ -100,6 +104,7 @@ remote_context_register(LeftTunnel, Bearer, Context)
 
 remote_context_register_new(LeftTunnel, Bearer, Context) ->
     Keys = context2keys(LeftTunnel, Bearer, Context),
+    ?LOG(debug, "Pid: ~p~nKeys: ~p~n", [self(), Keys]),
     case gtp_context_reg:register_new(Keys, ?MODULE, self()) of
 	ok ->
 	    ok;
@@ -369,6 +374,44 @@ init([Socket, Info, Version, Interface,
       bearer         => Bearer},
 
     Interface:init(Opts, Data).
+
+handle_event(info, {{'DOWN', ReqId}, _, _, _, Info}, State, #{'$async' := Async0} = Data0)
+  when is_map_key(ReqId, Async0) ->
+    {{_, Q, OkF, FailF}, Async} = maps:take(ReqId, Async0),
+    Data = Data0#{'$async' := Async},
+    next(statem_m:response(Q, {error, Info}, _, _), OkF, FailF, State, Data);
+handle_event(info, {{'DOWN', _}, _, _, _, _}, _, _) ->
+    keep_state_and_data;
+
+handle_event(info, {ReqId, Result}, State, #{'$async' := Async0} = Data0)
+  when is_map_key(ReqId, Async0) ->
+    {{_, Q, OkF, FailF}, Async} = maps:take(ReqId, Async0),
+    Data = Data0#{'$async' := Async},
+    ?LOG(debug, "AsyncResult: ~p~n", [Result]),
+    next(statem_m:response(Q, Result, _, _), OkF, FailF, State, Data);
+
+%% OTP-24 style send_request responses.... WE REALLY SHOULD NOT BE DOING THIS
+handle_event(info, {'DOWN', ReqId, _, _, Info}, State, #{'$async' := Async0} = Data0)
+  when is_map_key(ReqId, Async0) ->
+    {{_, Q, OkF, FailF}, Async} = maps:take(ReqId, Async0),
+    Data = Data0#{'$async' := Async},
+    next(statem_m:response(Q, {error, Info}, _, _), OkF, FailF, State, Data);
+handle_event(info, {[alias|ReqId], Result}, State, #{'$async' := Async0} = Data0)
+  when is_map_key(ReqId, Async0) ->
+    {{Mref, Q, OkF, FailF}, Async} = maps:take(ReqId, Async0),
+    Data = Data0#{'$async' := Async},
+    demonitor(Mref, [flush]),
+    ?LOG(debug, "Result: ~p~n", [Result]),
+    next(statem_m:response(Q, Result, _, _), OkF, FailF, State, Data);
+
+%% OTP-23 style send_request responses.... WE REALLY SHOULD NOT BE DOING THIS
+handle_event(info, {{'$gen_request_id', ReqId}, Result}, State, #{'$async' := Async0} = Data0)
+  when is_map_key(ReqId, Async0) ->
+    {{Mref, Q, OkF, FailF}, Async} = maps:take(ReqId, Async0),
+    Data = Data0#{'$async' := Async},
+    demonitor(Mref, [flush]),
+    ?LOG(debug, "Result: ~p~n", [Result]),
+    next(statem_m:response(Q, Result, _, _), OkF, FailF, State, Data);
 
 handle_event({call, From}, info, _, Data) ->
     {keep_state_and_data, [{reply, From, Data}]};
@@ -943,3 +986,39 @@ trigger_usage_report(Self, URRActions, PCtx) ->
     Self = self(),
     proc_lib:spawn(fun() -> usage_report_fun(Self, URRActions, PCtx) end),
     ok.
+
+%%====================================================================
+%% new style async FSM helpers
+%%====================================================================
+
+next(StateFun, OkF, FailF, State0, Data0)
+  when is_function(StateFun, 2),
+       is_function(OkF, 3),
+       is_function(FailF, 3) ->
+    {Result, State, Data} = StateFun(State0, Data0),
+    next(Result, OkF, FailF, State, Data);
+
+next(ok, Fun, _, State, Data)
+  when is_function(Fun, 3) ->
+    Fun(ok, State, Data);
+next({ok, Result}, Fun, _, State, Data)
+  when is_function(Fun, 3) ->
+    Fun(Result, State, Data);
+next({error, Result}, _, Fun, State, Data)
+  when is_function(Fun, 3) ->
+    Fun(Result, State, Data);
+next({wait, ReqId, Q}, OkF, FailF, State, Data0)
+  when is_reference(ReqId),
+       is_list(Q),
+       is_function(OkF, 3),
+       is_function(FailF, 3) ->
+    Req = {ReqId, Q, OkF, FailF},
+    Data = maps:update_with('$async', maps:put(ReqId, Req, _), #{ReqId => Req}, Data0),
+    {next_state, State, Data}.
+
+send_request(Fun) when is_function(Fun, 0) ->
+    Owner = self(),
+    ReqId = make_ref(),
+    Opts = [{monitor, [{tag, {'DOWN', ReqId}}]}],
+    spawn_opt(fun() -> Owner ! {ReqId, Fun()} end, Opts),
+    ReqId.

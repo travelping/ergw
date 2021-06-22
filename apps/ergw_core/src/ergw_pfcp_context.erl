@@ -11,6 +11,8 @@
 -compile({parse_transform, cut}).
 
 -export([create_session/5,
+	 send_session_establishment_request/5,
+	 receive_session_establishment_response/4,
 	 modify_session/5,
 	 delete_session/2,
 	 session_liveness_check/1,
@@ -180,6 +182,53 @@ session_info(_, _, Info) ->
 session_info(RespIEs) ->
     maps:fold(fun session_info/3, #{}, RespIEs).
 
+%% send_session_establishment_request/5
+send_session_establishment_request(Handler, PCC, PCtx0,
+				   #{left := Left, right := Right} = Bearer0, Ctx) ->
+    register_ctx_ids(Handler, Bearer0, PCtx0),
+    {ok, CntlNode, _, _} = ergw_sx_socket:id(),
+
+    PCtx1 = pctx_update_from_ctx(PCtx0, Ctx),
+    {SxRules, SxErrors, PCtx} = build_sx_rules(PCC, #{}, PCtx1, Left, Right),
+    ?LOG(debug, "SxRules: ~p~n", [SxRules]),
+    ?LOG(debug, "SxErrors: ~p~n", [SxErrors]),
+    ?LOG(debug, "CtxPending: ~p~n", [Ctx]),
+
+    IEs0 = pfcp_pctx_update(PCtx, PCtx0, SxRules),
+    IEs1 = update_m_rec(ergw_pfcp:f_seid(PCtx, CntlNode), IEs0),
+    IEs = pfcp_user_id(Ctx, IEs1),
+    ?LOG(debug, "IEs: ~p~n", [IEs]),
+
+    Req = #pfcp{version = v1, type = session_establishment_request, ie = IEs},
+
+    ReqId = ergw_sx_node:send_request(PCtx, Req),
+    {ReqId, PCtx}.
+
+%% receive_session_establishment_response/4
+receive_session_establishment_response(
+  #pfcp{version = v1, type = session_establishment_response,
+	ie = #{pfcp_cause := #pfcp_cause{cause = 'Request accepted'},
+	       f_seid := #f_seid{}} = RespIEs},
+  Handler, PCtx0, Bearer0) ->
+    SessionInfo = session_info(RespIEs),
+    {Bearer, PCtx} = update_bearer(RespIEs, Bearer0, PCtx0),
+    register_ctx_ids(Handler, Bearer, PCtx),
+    {ok, {update_dp_seid(RespIEs, PCtx), Bearer, SessionInfo}};
+
+receive_session_establishment_response(_, _, _, _) ->
+    {error, ?CTX_ERR(?FATAL, system_failure)}.
+
+%% session_establishment_request/5
+session_establishment_request(Handler, PCC, PCtx0, Bearer, Ctx) ->
+    {ReqId, PCtx} = send_session_establishment_request(Handler, PCC, PCtx0, Bearer, Ctx),
+    case ergw_sx_node:receive_response(ReqId) of
+	{reply, Response} ->
+	    receive_session_establishment_response(Response, Handler, PCtx, Bearer);
+	{error, Error} ->
+	    receive_session_establishment_response(Error, Handler, PCtx, Bearer)
+    end.
+
+-if(0).
 %% session_establishment_request/5
 session_establishment_request(Handler, PCC, PCtx0,
 			      #{left := Left, right := Right} = Bearer0, Ctx) ->
@@ -209,6 +258,7 @@ session_establishment_request(Handler, PCC, PCtx0,
 	_ ->
 	    {error, ?CTX_ERR(?FATAL, system_failure)}
     end.
+-endif.
 
 %% session_modification_request/2
 session_modification_request(PCtx, ReqIEs)
@@ -839,6 +889,8 @@ make_pctx_keys(Bearer, #pfcp_ctx{seid = #seid{cp = SEID}} = PCtx) ->
 
 register_ctx_ids(Handler, Bearer, PCtx) ->
     Keys = make_pctx_keys(Bearer, PCtx),
+    ?LOG(debug, "~s:~nHandler: ~p~nBearer: ~p~nPCtx: ~p~nKeys: ~p~n",
+	   [?FUNCTION_NAME, Handler, Bearer, PCtx, Keys]),
     gtp_context_reg:register(Keys, Handler, self()).
 
 unregister_ctx_ids(Handler, Bearer, PCtx) ->
