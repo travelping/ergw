@@ -346,6 +346,23 @@ init([Socket, Info, Version, Interface,
 
     Interface:init(Opts, Data).
 
+handle_event(info, {{'DOWN', ReqId}, _, _, _, Info}, State, #{'$async' := Async0} = Data0)
+  when is_map_key(ReqId, Async0) ->
+    {{_, _, FailF}, Async} = maps:take(ReqId, Async0),
+    Data = Data0#{'$async' := Async},
+    FailF(Info, State, Data);
+handle_event(info, {{'DOWN', _}, _, _, _, _}, _, _) ->
+    keep_state_and_data;
+handle_event(info, {ReqId, Result0}, State0, #{'$async' := Async0} = Data0)
+  when is_map_key(ReqId, Async0) ->
+    {{Mref, OkF, FailF}, Async} = maps:take(ReqId, Async0),
+    Data1 = Data0#{'$async' := Async},
+    demonitor(Mref, [flush]),
+    ct:pal("Result: ~p~n", [Result0]),
+
+    {Result, State, Data} = next(Result0, OkF, FailF, State0, Data1),
+    next_state_fun(Result, State, Data);
+
 handle_event({call, From}, info, _, Data) ->
     {keep_state_and_data, [{reply, From, Data}]};
 
@@ -916,21 +933,53 @@ trigger_usage_report(Self, URRActions, PCtx) ->
 %% new style async FSM helpers
 %%====================================================================
 
-next(StateFun, OkF, FailF, State0, Data0) when is_function(StateFun, 2) ->
-    {Result, State, Data} = StateFun(State0, Data0),
-    next(Result, OkF, FailF, State, Data);
-next(ok, Fun, _, State, Data) ->
+enqueue_state_fun(OkF, FailF, Data) ->
+    E = {OkF, FailF},
+    maps:update_with('$queue', [E|_], [E], Data).
+
+dequeue_state_fun(#{'$queue' := [E|Q]} = Data) ->
+    {E, Data#{'$queue' := Q}}.
+
+next_state_fun(ok, State, Data0) ->
+    {{Fun, _}, Data} = dequeue_state_fun(Data0),
     Fun(ok, State, Data);
-next({ok, Result}, Fun, _, State, Data) ->
+next_state_fun({ok, Result}, State, Data0) ->
+    {{Fun, _}, Data} = dequeue_state_fun(Data0),
     Fun(Result, State, Data);
-next({error, Result}, _, Fun, State, Data) ->
+next_state_fun({error, Result}, State, Data0) ->
+    {{_, Fun}, Data} = dequeue_state_fun(Data0),
     Fun(Result, State, Data);
-next({async, _Fun}, _OkF, _FailF, _State, _Data) ->
-    %% tbd ....
-    %% 1. spawn a worker, run fun
-    %% 2. store worker id, funs, in data
-    %% 3. invoke cb funs from reply handler...
-    error(not_impl).
+next_state_fun(Result, State, Data) ->
+    {Result, State, Data}.
+
+next(StateFun, OkF, FailF, State0, Data0)
+  when is_function(StateFun, 2),
+       is_function(OkF, 3),
+       is_function(FailF, 3) ->
+    Data1 = enqueue_state_fun(OkF, FailF, Data0),
+    {Result, State, Data} = StateFun(State0, Data1),
+    next_state_fun(Result, State, Data);
+
+next(ok, Fun, _, State, Data)
+  when is_function(Fun, 3) ->
+    Fun(ok, State, Data);
+next({ok, Result}, Fun, _, State, Data)
+  when is_function(Fun, 3) ->
+    Fun(Result, State, Data);
+next({error, Result}, _, Fun, State, Data)
+  when is_function(Fun, 3) ->
+    Fun(Result, State, Data);
+next({async, Fun}, OkF, FailF, State, Data0)
+  when is_function(Fun, 0),
+       is_function(OkF, 3),
+       is_function(FailF, 3) ->
+    Owner = self(),
+    ReqId = make_ref(),
+    Opts = [{monitor, [{tag, {'DOWN', ReqId}}]}],
+    {_, Mref} = spawn_opt(fun() -> Owner ! {ReqId, Fun()} end, Opts),
+    Req = {Mref, OkF, FailF},
+    Data = maps:update_with('$async', maps:put(ReqId, Req, _), #{ReqId => Req}, Data0),
+    {next_state, State, Data}.
 
 fail(Error) ->
     {error, Error}.

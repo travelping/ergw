@@ -22,6 +22,7 @@
 -include_lib("ergw_aaa/include/diameter_3gpp_ts29_212.hrl").
 -include_lib("ergw_aaa/include/ergw_aaa_session.hrl").
 -include("include/ergw.hrl").
+-include("gtp_context.hrl").
 
 %%====================================================================
 %% Session Setup
@@ -382,7 +383,7 @@ assign_local_data_teid_ok(#create_session_n{
 	       'Bearer-Operation' => ?'DIAMETER_GX_BEARER-OPERATION_ESTABLISHMENT'},
 
     gtp_context:next(
-      ergw_gtp_gsn_session:ccr_initial(Session, gx, GxOpts, #{now => Now}),
+      ?async(ergw_gtp_gsn_session:ccr_initial(Session, gx, GxOpts, #{now => Now})),
       gx_ccr_i_ok(Args, _, _, _),
       fun gtp_context:fail/3,
       State, DataNext).
