@@ -49,6 +49,7 @@ create_session_ok(ReqKey,
     gtp_context:send_response(ReqKey, Request, Response),
 
     Actions = pgw_s5s8:context_idle_action([], Context),
+    ct:pal("CSR data: ~p", [Data]),
     {next_state, connected, Data, Actions}.
 
 create_session_fail(ReqKey, #gtp{type = MsgType, seq_no = SeqNo} = Request,
@@ -65,7 +66,7 @@ create_session_fail(ReqKey, #gtp{type = MsgType, seq_no = SeqNo} = Request,
 		   #tunnel{remote = #fq_teid{teid = TEID}} ->
 		       Response0#gtp{tei = TEID};
 		   _ ->
-		       case gtp_context:find_sender_teid(Request) of
+		       case gtp_v2_c:find_sender_teid(Request) of
 			   TEID when is_integer(TEID) ->
 			       Response0#gtp{tei = TEID};
 			   _ ->

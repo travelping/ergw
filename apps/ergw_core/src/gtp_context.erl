@@ -104,6 +104,7 @@ remote_context_register(LeftTunnel, Bearer, Context)
 
 remote_context_register_new(LeftTunnel, Bearer, Context) ->
     Keys = context2keys(LeftTunnel, Bearer, Context),
+    ct:pal("Pid: ~p~nKeys: ~p~n", [self(), Keys]),
     case gtp_context_reg:register_new(Keys, ?MODULE, self()) of
 	ok ->
 	    ok;
@@ -358,9 +359,39 @@ handle_event(info, {ReqId, Result0}, State0, #{'$async' := Async0} = Data0)
     {{Mref, OkF, FailF}, Async} = maps:take(ReqId, Async0),
     Data1 = Data0#{'$async' := Async},
     demonitor(Mref, [flush]),
+    ct:pal("AsyncResult: ~p~n", [Result0]),
+
+    %% TBD: might make sense to use the same logic as in send_request
+    %%      - any answer calls the OkF
+    %%      - any error/timeout/DOWN calls the FailF
+    {Result, State, Data} = next(Result0, OkF, FailF, State0, Data1),
+    next_state_fun(Result, State, Data);
+
+%% OTP-24 style send_request responses.... WE REALLY SHOULD NOT BE DOING THIS
+handle_event(info, {'DOWN', ReqId, _, _, Info}, State, #{'$async' := Async0} = Data0)
+  when is_map_key(ReqId, Async0) ->
+    {{_, _, FailF}, Async} = maps:take(ReqId, Async0),
+    Data = Data0#{'$async' := Async},
+    FailF(Info, State, Data);
+handle_event(info, {[alias|ReqId], Result0}, State0, #{'$async' := Async0} = Data0)
+  when is_map_key(ReqId, Async0) ->
+    {{Mref, OkF, _}, Async} = maps:take(ReqId, Async0),
+    Data1 = Data0#{'$async' := Async},
+    demonitor(Mref, [flush]),
     ct:pal("Result: ~p~n", [Result0]),
 
-    {Result, State, Data} = next(Result0, OkF, FailF, State0, Data1),
+    {Result, State, Data} = OkF(Result0, State0, Data1),
+    next_state_fun(Result, State, Data);
+
+%% OTP-23 style send_request responses.... WE REALLY SHOULD NOT BE DOING THIS
+handle_event(info, {{'$gen_request_id', ReqId}, Result0}, State0, #{'$async' := Async0} = Data0)
+  when is_map_key(ReqId, Async0) ->
+    {{Mref, OkF, _}, Async} = maps:take(ReqId, Async0),
+    Data1 = Data0#{'$async' := Async},
+    demonitor(Mref, [flush]),
+    ct:pal("Result: ~p~n", [Result0]),
+
+    {Result, State, Data} = OkF(Result0, State0, Data1),
     next_state_fun(Result, State, Data);
 
 handle_event({call, From}, info, _, Data) ->
@@ -978,6 +1009,13 @@ next({async, Fun}, OkF, FailF, State, Data0)
     Opts = [{monitor, [{tag, {'DOWN', ReqId}}]}],
     {_, Mref} = spawn_opt(fun() -> Owner ! {ReqId, Fun()} end, Opts),
     Req = {Mref, OkF, FailF},
+    Data = maps:update_with('$async', maps:put(ReqId, Req, _), #{ReqId => Req}, Data0),
+    {next_state, State, Data};
+next(ReqId, OkF, FailF, State, Data0)
+  when is_reference(ReqId),
+       is_function(OkF, 3),
+       is_function(FailF, 3) ->
+    Req = {ReqId, OkF, FailF},
     Data = maps:update_with('$async', maps:put(ReqId, Req, _), #{ReqId => Req}, Data0),
     {next_state, State, Data}.
 

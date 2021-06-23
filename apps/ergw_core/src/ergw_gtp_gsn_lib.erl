@@ -264,7 +264,7 @@ query_usage_report(_, PCtx) ->
 -record(create_session_n, {now, apn, paa, daf, candidates, connect_id,
 			   session_opts, left_bearer,
 			   apn_opts, up_info, auth_evs, node_caps, cause,
-			   pcc_errors, gy_evs}).
+			   pcc_errors, gy_evs, pfcp}).
 
 create_session_n(APN, PAA, DAF, {Candidates, SxConnectId}, SessionOpts, LeftBearer,
 		 State, Data) ->
@@ -329,7 +329,6 @@ reselect_upf_ok(#create_session_n{
 		  } = Args0,
 		{PCtx, NodeCaps, RightBearer},
 		State, #{context := Context, left_tunnel := LeftTunnel} = Data) ->
-    Args = Args0#create_session_n{node_caps = NodeCaps},
     Fun =
 	fun() ->
 		case ergw_gsn_lib:allocate_ips(PAA, APNOpts, SessionOpts, DAF, LeftTunnel, RightBearer, Context) of
@@ -339,12 +338,12 @@ reselect_upf_ok(#create_session_n{
 			gtp_context:fail({Error, Context1})
 		end
 	end,
-    DataNext = Data#{pfcp => PCtx},
+    Args = Args0#create_session_n{node_caps = NodeCaps, pfcp = PCtx},
     gtp_context:next(
       Fun(),
       allocate_ips_ok(Args, _, _, _),
       allocate_ips_fail(_, _, _),
-      State, DataNext).
+      State, Data).
 
 allocate_ips_fail({Error, Context}, State, Data) ->
     gtp_context:fail(Error, State, Data#{context => Context}).
@@ -353,10 +352,11 @@ allocate_ips_ok(#create_session_n{
 		   left_bearer = LeftBearer,
 
 		   apn_opts = APNOpts,
-		   node_caps = NodeCaps
+		   node_caps = NodeCaps,
+		   pfcp = PCtx
 		  } = Args0,
 		{Cause, SessionOpts0, RightBearer, Context0},
-		State, #{left_tunnel := LeftTunnel, pfcp := PCtx} = Data) ->
+		State, #{left_tunnel := LeftTunnel} = Data) ->
 
     {Context, SessionOpts} = add_apn_timeout(APNOpts, SessionOpts0, Context0),
     Args = Args0#create_session_n{session_opts = SessionOpts, cause = Cause},
@@ -443,23 +443,36 @@ rf_i_ok(#create_session_n{
 
 	   auth_evs = AuthSEvs,
 	   pcc_errors = PCCErrors1,
-	   gy_evs = GyEvs
+	   gy_evs = GyEvs,
+	   pfcp = PCtx0
 	  } = Args0,
 	RfSEvs,
-	State, #{context := Context, bearer := Bearer, pfcp := PCtx, pcc := PCC0} = Data) ->
+	State, #{context := Context, bearer := Bearer, pcc := PCC0} = Data) ->
 
     {PCC2, PCCErrors2} = ergw_pcc_context:gy_events_to_pcc_ctx(Now, GyEvs, PCC0),
     PCC3 = ergw_pcc_context:session_events_to_pcc_ctx(AuthSEvs, PCC2),
     PCC4 = ergw_pcc_context:session_events_to_pcc_ctx(RfSEvs, PCC3),
 
+    {ReqId, PCtx} = ergw_pfcp_context:send_session_establishment_request(
+		      gtp_context, PCC4, PCtx0, Bearer, Context),
+
     DataNext = Data#{pcc => PCC4},
-    Args = Args0#create_session_n{pcc_errors = PCCErrors1 ++ PCCErrors2},
+    Args = Args0#create_session_n{pcc_errors = PCCErrors1 ++ PCCErrors2, pfcp = PCtx},
 
     gtp_context:next(
-      ?async(ergw_pfcp_context:create_session(gtp_context, PCC4, PCtx, Bearer, Context)),
-      pfcp_create_session_ok(Args, _, _, _),
+      ReqId,
+      pfcp_create_session_result(Args, _, _, _),
       fun gtp_context:fail/3,
       State, DataNext).
+
+pfcp_create_session_result(#create_session_n{pfcp = PCtx} = Args, Response, State, #{bearer := Bearer} = Data) ->
+    R = (catch ergw_pfcp_context:receive_session_establishment_response(Response, gtp_context, PCtx, Bearer)),
+    ct:pal("Response: ~p~nR: ~p~n", [Response, R]),
+    gtp_context:next(
+      R,
+      pfcp_create_session_ok(Args, _, _, _),
+      fun gtp_context:fail/3,
+      State, Data).
 
 pfcp_create_session_ok(#create_session_n{
 			  now = Now,
@@ -493,8 +506,8 @@ remote_context_register_new_fail(#ctx_err{} = Error, State, Data) ->
 
 remote_context_register_new_ok(#create_session_n{session_opts = SessionOpts, cause = Cause},
 			       _, State, Data) ->
-    ct:pal("All: ~p~nTunnel: ~p~nBearer: ~p~n",
-	   [gtp_context_reg:all(), maps:get(left_tunnel, Data), maps:get(bearer, Data)]),
+    ct:pal("~s:~nAll: ~p~nTunnel: ~p~nBearer: ~p~n",
+	   [?FUNCTION_NAME, gtp_context_reg:all(), maps:get(left_tunnel, Data), maps:get(bearer, Data)]),
     gtp_context:ok({Cause, SessionOpts}, State, Data).
 
 %% -*- mode: Erlang; whitespace-line-column: 120; -*-
