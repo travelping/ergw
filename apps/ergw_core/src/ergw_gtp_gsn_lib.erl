@@ -417,7 +417,7 @@ pcc_ctx_has_rules_ok(#create_session_n{now = Now} = Args, _,
     GyReqServices = #{credits => CreditsAdd},
 
     gtp_context:next(
-      ergw_gtp_gsn_session:ccr_initial(Session, gy, GyReqServices, #{now => Now}),
+      ?async(ergw_gtp_gsn_session:ccr_initial(Session, gy, GyReqServices, #{now => Now})),
       gy_ccr_i_ok(Args, _, _, _),
       fun gtp_context:fail/3,
       State, Data).
@@ -456,7 +456,7 @@ rf_i_ok(#create_session_n{
     Args = Args0#create_session_n{pcc_errors = PCCErrors1 ++ PCCErrors2},
 
     gtp_context:next(
-      ergw_pfcp_context:create_session(gtp_context, PCC4, PCtx, Bearer, Context),
+      ?async(ergw_pfcp_context:create_session(gtp_context, PCC4, PCtx, Bearer, Context)),
       pfcp_create_session_ok(Args, _, _, _),
       fun gtp_context:fail/3,
       State, DataNext).
