@@ -1,6 +1,76 @@
 erGW - 3GPP GGSN and PDN-GW in Erlang
 =====================================
 
+Version 3.0.0 - 25 June 2021
+-------------------------------
+
+**Features** :rocket:
+* [#408](https://github.com/travelping/ergw/pull/408) Update alpine to 3.14 for Dockerfile
+* [#405](https://github.com/travelping/ergw/pull/405) New IP assignment, random init, fifo reuse of IP
+* [#404](https://github.com/travelping/ergw/pull/404) Add PSDBU part or the EPFAR feature
+* [#393](https://github.com/travelping/ergw/pull/393) Add NAT to the TDF function
+* [#357](https://github.com/travelping/ergw/pull/357) Add PFPC User ID to Session Establishment Request
+* [#365](https://github.com/travelping/ergw/pull/365) Add UP Feature checking
+
+**Bugfixes** :bug:
+* [#402](https://github.com/travelping/ergw/pull/402) Bump gtp and pfcp lib to normalize FQDNs on ingres
+* [#391](https://github.com/travelping/ergw/pull/391) Handle timeout in PFCP send
+* [#356](https://github.com/travelping/ergw/pull/356) Fix PFCP control during HSS Initiated Subscribed QoS Modification
+
+**Improvements** :bulb:
+* [#354](https://github.com/travelping/ergw/pull/354) Refactor application split and with it also config handling
+
+Version 2.8.14 - 3 June 2021
+-------------------------------
+**Bugfixes** :bug:
+* [#401](https://github.com/travelping/ergw/pull/401) Lowercase `APN` expansion
+
+Version 2.8.13 - 1 June 2021
+-------------------------------
+**Bugfixes** :bug:
+* [#395](https://github.com/travelping/ergw/pull/395) Lowercase `APN` before further processing it
+
+Version 2.8.12 - 31 May 2021
+-------------------------------
+**Improvements** :bulb:
+* [#380](https://github.com/travelping/ergw/pull/380) Start use image `quay.io/travelping/alpine-erlang:23.3.4`(the image is included fix for kernel)
+* [#373](https://github.com/travelping/ergw/pull/373) Start use `master` of `prometheus`(included all speedup fixes)
+
+**Bugfixes** :bug:
+* [#376](https://github.com/travelping/ergw/pull/376) Change `normal` termination reason
+
+**Dependencies** :gear:
+* [#389](https://github.com/travelping/ergw/pull/389) Update [ergw_aaa](https://github.com/travelping/ergw_aaa) tag to [3.6.14](https://github.com/travelping/ergw_aaa/releases/tag/3.6.14)
+
+Version 2.8.11 - 23 April 2021
+-------------------------------
+**Improvements** :bulb:
+* [#369](https://github.com/travelping/ergw/pull/369) Start use fork of `prometheus` with speedup fix
+
+Version 2.8.10 - 7 April 2021
+-------------------------------
+**Bugfixes** :bug:
+* [cfdf116](https://github.com/travelping/ergw/commit/cfdf1162fbdc3d955f26b85bf6f2ce23c4a4f942) DNS lookup responses with no answer records are not cached
+> As a temporary fix, the simple DNS cache is used on this patch release.
+
+Version 2.8.9 - 25 March 2021
+-------------------------------
+**Improvements** :bulb:
+* [#343](https://github.com/travelping/ergw/pull/343) Update `alpine` to `3.13` for `Dockerfile`
+> (C) musl-1.2.1.tar.gz (sig) - August 4, 2020
+  This release features the new "mallocng" malloc implementation, replacing musl's original
+  dlmalloc-like allocator that suffered from fundamental design problems. Its major user-facing
+  new properties are the ability to return freed memory on a much finer granularity and
+  avoidance of many catastrophic fragmentation patterns.
+  In addition it provides strong hardening against memory usage errors by the caller,
+  including detection of overflows, double-free, and use-after-free,
+  and does not admit corruption of allocator state via these errors.
+
+**Dependencies** :gear:
+* [#345](https://github.com/travelping/ergw/pull/345) Update [ergw_aaa](https://github.com/travelping/ergw_aaa) tag to [3.6.10](https://github.com/travelping/ergw_aaa/releases/tag/3.6.10)
+* [#337](https://github.com/travelping/ergw/pull/337) Update [pfcplib](https://github.com/travelping/pfcplib) tag to [2.0.0](https://github.com/travelping/pfcplib/releases/tag/2.0.0)
+* [#351](https://github.com/travelping/ergw/pull/351) Update [gtplib](https://github.com/travelping/gtplib) tag to [2.0.1](https://github.com/travelping/gtplib/releases/tag/2.0.1)
+
 Version 2.8.8 - 9 March 2021
 -------------------------------
 
