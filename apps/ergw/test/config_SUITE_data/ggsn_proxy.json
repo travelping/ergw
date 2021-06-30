@@ -392,5 +392,15 @@
     "teid": {
         "len": 0,
         "prefix": 0
+    },
+    "ergw_sbi_client": {
+        "upf_selection_api": {
+            "endpoint": "https://example.com/nf-selection-api/v1",
+            "timeout": {
+                "timeout": 500,
+                "unit": "millisecond"
+            },
+            "default": "fallback"
+        }
     }
 }
