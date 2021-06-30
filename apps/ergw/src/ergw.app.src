@@ -9,7 +9,7 @@
 		    prometheus_diameter_collector,
 		    jsx, compiler, os_mon, jobs, ra,
 		    riak_core, riak_core_lite_util,
-		    ergw_cluster, ergw_core, ergw_aaa]},
+		    ergw_cluster, ergw_core, ergw_aaa, ergw_sbi_client]},
     {included_applications, [k8s_dist]},
     {mod, {ergw_app, []}},
     {registered, []}

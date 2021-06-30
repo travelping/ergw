@@ -530,6 +530,20 @@ properties:
       prefix:
         type: integer
         default: 0
+        
+  ergw_sbi_client:
+    type: object
+    properties:
+      upf_selection_api:
+        type: object
+        properties:
+          endpoint:
+            $ref: 'TS29571_CommonData.yaml#/components/schemas/Uri'
+          timeout:
+            $ref: "#/components/schemas/TimeoutInf"
+          default:
+            type: string
+        required: ['endpoint', 'timeout', 'default']
 
   accept_new:
     default: true
