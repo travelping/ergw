@@ -79,8 +79,7 @@ create_session_fail(ReqKey, #gtp{type = MsgType, seq_no = SeqNo} = Request,
 
 create_session_fail(ReqKey, Request, Error, State, Data) ->
     _ = ct:pal("~s", [?FUNCTION_NAME]),
-    ct:fail("ReqKey: ~p~nRequest: ~p~nError: ~p~nState: ~p~nData: ~p~n",
-	    [ReqKey, Request, Error, State, Data]),
+    ct:fail(#{'ReqKey' => ReqKey, 'Request' => Request, 'Error' => Error, 'State' => State, 'Data' => Data}),
     {next_state, shutdown, Data}.
 
 create_session_fun(#gtp{ie = #{?'Access Point Name' := #v2_access_point_name{apn = APN}} = IEs} = Request,
