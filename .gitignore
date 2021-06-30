@@ -15,4 +15,4 @@ rebar3
 ergw.config
 data.ergw*
 log.ergw*
-apps/ergw_core/priv/*.so
+apps/ergw_core/priv*
