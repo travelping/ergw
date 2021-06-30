@@ -610,11 +610,15 @@ pfcp_create_session(Now, PCtx0, GyEvs, AuthSEvs, RfSEvs, PCCErrors0) ->
 	       statem_m:return(
 		 ergw_pfcp_context:send_session_establishment_request(
 		   RecordId, PCC4, PCtx0, Bearer, Context)),
-	   statem_m:modify_data(_#{pfcp => PCtx}),
+	   statem_m:modify_data(_#{pfcp => PCtx, mark => set}),
+	   D2 <- statem_m:get_data(),
+	   _ = ?LOG(debug, "Before Wait (~p): ~p", [self(), D2]),
 
 	   Response <- statem_m:wait(ReqId),
 	   _ = ?LOG(debug, "PFCP: ~p", [Response]),
 
+	   D1 <- statem_m:get_data(),
+	   _ = ?LOG(debug, "Before Response (~p): ~p", [self(), D1]),
 	   pfcp_create_session_response(Response),
 	   statem_m:return(PCCErrors0 ++ PCCErrors1)
        ]).
@@ -622,6 +626,8 @@ pfcp_create_session(Now, PCtx0, GyEvs, AuthSEvs, RfSEvs, PCCErrors0) ->
 pfcp_create_session_response(Response) ->
     do([statem_m ||
 	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+	   D1 <- statem_m:get_data(),
+	   _ = ?LOG(debug, "After Response (~p): ~p", [self(), D1]),
 	   _ = ?LOG(debug, "Response: ~p", [Response]),
 	   #{record_id := RecordId, bearer := Bearer0, pfcp := PCtx0} <- statem_m:get_data(),
 	   {PCtx, Bearer, SessionInfo} <-
