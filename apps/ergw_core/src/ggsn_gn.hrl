@@ -1,0 +1,17 @@
+-define('Cause',					{cause, 0}).
+-define('IMSI',						{international_mobile_subscriber_identity, 0}).
+-define('Recovery',					{recovery, 0}).
+-define('Tunnel Endpoint Identifier Data I',		{tunnel_endpoint_identifier_data_i, 0}).
+-define('Tunnel Endpoint Identifier Control Plane',	{tunnel_endpoint_identifier_control_plane, 0}).
+-define('NSAPI',					{nsapi, 0}).
+-define('End User Address',				{end_user_address, 0}).
+-define('Access Point Name',				{access_point_name, 0}).
+-define('Protocol Configuration Options',		{protocol_configuration_options, 0}).
+-define('SGSN Address for signalling',			{gsn_address, 0}).
+-define('SGSN Address for user traffic',		{gsn_address, 1}).
+-define('MSISDN',					{ms_international_pstn_isdn_number, 0}).
+-define('Quality of Service Profile',			{quality_of_service_profile, 0}).
+-define('IMEI',						{imei, 0}).
+-define('APN-AMBR',					{aggregate_maximum_bit_rate, 0}).
+-define('Evolved ARP I',				{evolved_allocation_retention_priority_i, 0}).
+

@@ -9,6 +9,10 @@
 
 -behaviour(gtp_api).
 
+%% interim measure, to make refactoring simpler
+-compile([export_all, nowarn_export_all]).
+-ignore_xref([?MODULE]).
+
 -compile([{parse_transform, do},
 	  {parse_transform, cut}]).
 
@@ -49,23 +53,6 @@
 %%====================================================================
 %% API
 %%====================================================================
-
--define('Cause',					{cause, 0}).
--define('IMSI',						{international_mobile_subscriber_identity, 0}).
--define('Recovery',					{recovery, 0}).
--define('Tunnel Endpoint Identifier Data I',		{tunnel_endpoint_identifier_data_i, 0}).
--define('Tunnel Endpoint Identifier Control Plane',	{tunnel_endpoint_identifier_control_plane, 0}).
--define('NSAPI',					{nsapi, 0}).
--define('End User Address',				{end_user_address, 0}).
--define('Access Point Name',				{access_point_name, 0}).
--define('Protocol Configuration Options',		{protocol_configuration_options, 0}).
--define('SGSN Address for signalling',			{gsn_address, 0}).
--define('SGSN Address for user traffic',		{gsn_address, 1}).
--define('MSISDN',					{ms_international_pstn_isdn_number, 0}).
--define('Quality of Service Profile',			{quality_of_service_profile, 0}).
--define('IMEI',						{imei, 0}).
--define('APN-AMBR',					{aggregate_maximum_bit_rate, 0}).
--define('Evolved ARP I',				{evolved_allocation_retention_priority_i, 0}).
 
 -define(CAUSE_OK(Cause), (Cause =:= request_accepted orelse
 			  Cause =:= new_pdp_type_due_to_network_preference orelse
@@ -144,68 +131,8 @@ handle_request(_ReqKey, _Msg, true, _State, _Data) ->
     %% resent request
     keep_state_and_data;
 
-handle_request(ReqKey,
-	       #gtp{type = create_pdp_context_request,
-		    ie = #{
-			   ?'Access Point Name' := #access_point_name{apn = APN}
-			  } = IEs} = Request, _Resent, #{session := init} = State,
-	       #{context := Context0, aaa_opts := AAAopts, node_selection := NodeSelect,
-		 left_tunnel := LeftTunnel0, bearer := #{left := LeftBearer0},
-		 'Session' := Session, pcc := PCC0} = Data) ->
-    Services = [{'x-3gpp-upf', 'x-sxb'}],
-
-    {ok, UpSelInfo} =
-	ergw_gtp_gsn_lib:connect_upf_candidates(APN, Services, NodeSelect, []),
-
-    EUA = maps:get(?'End User Address', IEs, undefined),
-    DAF = proplists:get_bool('Dual Address Bearer Flag', gtp_v1_c:get_common_flags(IEs)),
-
-    Context1 = update_context_from_gtp_req(Request, Context0),
-
-    {LeftTunnel1, LeftBearer1} =
-	case update_tunnel_from_gtp_req(Request, LeftTunnel0, LeftBearer0) of
-	    {ok, Result1} -> Result1;
-	    {error, Err1} -> throw(Err1#ctx_err{context = Context1, tunnel = LeftTunnel0})
-	end,
-
-    LeftTunnel =
-	case gtp_path:bind_tunnel(LeftTunnel1) of
-	    {ok, LT} -> LT;
-	    {error, #ctx_err{} = Err2} ->
-		throw(Err2#ctx_err{context = Context1, tunnel = LeftTunnel1});
-	    {error, _} ->
-		throw(?CTX_ERR(?FATAL, system_failure))
-	end,
-
-    gtp_context:terminate_colliding_context(LeftTunnel, Context1),
-
-    SessionOpts0 = init_session(IEs, LeftTunnel, Context1, AAAopts),
-    SessionOpts1 = init_session_from_gtp_req(IEs, AAAopts, LeftTunnel, LeftBearer1, SessionOpts0),
-    SessionOpts2 = init_session_qos(IEs, SessionOpts1),
-
-
-    {Verdict, Cause, SessionOpts, Context, Bearer, PCC4, PCtx} =
-	case ergw_gtp_gsn_lib:create_session(APN, pdp_alloc(EUA), DAF, UpSelInfo, Session,
-					     SessionOpts2, Context1, LeftTunnel, LeftBearer1, PCC0) of
-	   {ok, Result} -> Result;
-	   {error, Err} -> throw(Err)
-       end,
-
-    FinalData =
-	Data#{context => Context, pfcp => PCtx, pcc => PCC4,
-	      left_tunnel => LeftTunnel, bearer => Bearer},
-
-    ResponseIEs = create_pdp_context_response(Cause, SessionOpts, Request, LeftTunnel, Bearer, Context),
-    Response = response(create_pdp_context_response, LeftTunnel, ResponseIEs, Request),
-    gtp_context:send_response(ReqKey, Request, Response),
-
-    case Verdict of
-	ok ->
-	    Actions = context_idle_action([], Context),
-	    {next_state, State#{session := connected}, FinalData, Actions};
-	_ ->
-	    {next_state, State#{session := shutdown}, FinalData}
-    end;
+handle_request(ReqKey, #gtp{type = create_pdp_context_request} = Request, Resent, State, Data) ->
+    ggsn_gn_create_pdp_context:create_pdp_context(ReqKey, Request, Resent, State, Data);
 
 handle_request(ReqKey,
 	       #gtp{type = update_pdp_context_request,
