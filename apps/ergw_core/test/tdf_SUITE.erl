@@ -118,7 +118,7 @@
 
 	    apns =>
 		[{?'APN-EXAMPLE',
-		  [{vrf, sgi},
+		  [{vrfs, [sgi]},
 		   {ip_pools, [<<"pool-A">>]}]},
 		 {[<<"exa">>, <<"mple">>, <<"net">>],
 		  [{vrf, sgi},
@@ -436,7 +436,7 @@ common() ->
     ].
 
 only(ipv4) ->
-    [aa_nat_select];
+    [aa_nat_select, aa_nat_select_fail];
 only(_) ->
     [].
 
@@ -515,8 +515,14 @@ init_per_testcase(tdf_app_id, Config0) ->
 init_per_testcase(aa_pool_select, Config) ->
     ergw_test_sx_up:ue_ip_pools('tdf-u', [<<"pool-A">>, <<"pool-C">>,
 					  <<"pool-D">>, <<"pool-B">>]),
-    setup_per_testcase(Config),
-    Config;
+    setup_per_testcase(Config);
+init_per_testcase(TestCase, Config)
+  when TestCase == aa_nat_select;
+       TestCase == aa_nat_select_fail ->
+    ergw_test_sx_up:nat_port_blocks('tdf-u', sgi, [<<"nat-A">>, <<"nat-C">>,
+						   <<"nat-D">>, <<"nat-B">>]),
+    ergw_test_sx_up:nat_port_blocks('tdf-u', example, [<<"nat-E">>]),
+    setup_per_testcase(Config);
 init_per_testcase(_, Config) ->
     setup_per_testcase(Config).
 
@@ -533,8 +539,11 @@ end_per_testcase(TestCase, Config)
     ok = meck:delete(ergw_aaa_session, invoke, 4),
     end_per_testcase(Config),
     Config;
-end_per_testcase(aa_nat_select, Config) ->
-    ergw_test_sx_up:nat_port_blocks('tdf-u', []),
+end_per_testcase(TestCase, Config)
+  when TestCase == aa_nat_select;
+       TestCase == aa_nat_select_fail ->
+    ergw_test_sx_up:nat_port_blocks('tdf-u', sgi, []),
+    ergw_test_sx_up:nat_port_blocks('tdf-u', example, []),
     ok = meck:delete(ergw_aaa_session, invoke, 4),
     end_per_testcase(Config),
     Config;
@@ -1867,7 +1876,7 @@ tdf_app_id(Config) ->
 aa_nat_select() ->
     [{doc, "Select IP-NAT through AAA"}].
 aa_nat_select(Config) ->
-    AAAReply = #{'NAT-Pool-Id' => <<"nat-B">>},
+    AAAReply = #{'NAT-Pool-Id' => <<"nat-A">>},
 
     ok = meck:expect(ergw_aaa_session, invoke,
 		     fun (Session, SessionOpts, Procedure = authenticate, Opts) ->
@@ -1903,6 +1912,34 @@ aa_nat_select(Config) ->
     ?match(#{'NAT-Pool-Id' := _,
 	     'NAT-IP-Address' := _,
 	     'NAT-Port-Start' := _}, SInv),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+aa_nat_select_fail() ->
+    [{doc, "Select IP-NAT through AAA"}].
+aa_nat_select_fail(Config) ->
+    AAAReply = #{'NAT-Pool-Id' => <<"nat-E">>},
+
+    ok = meck:expect(ergw_aaa_session, invoke,
+		     fun (Session, SessionOpts, Procedure = authenticate, Opts) ->
+			     {_, SIn, EvIn} =
+				 meck:passthrough([Session, SessionOpts, Procedure, Opts]),
+			     {SOut, EvOut} =
+				 ergw_aaa_radius:to_session(authenticate, {SIn, EvIn}, AAAReply),
+			     {ok, SOut, EvOut};
+			 (Session, SessionOpts, Procedure, Opts) ->
+			     meck:passthrough([Session, SessionOpts, Procedure, Opts])
+		     end),
+
+    UeIP = ergw_inet:ip2bin(proplists:get_value(ue_ip, Config)),
+
+    packet_in(Config),
+    ct:sleep(100),
+
+    undefined = gtp_context_reg:lookup({ue, <<3, "sgi">>, UeIP}),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),

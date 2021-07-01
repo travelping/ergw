@@ -32,7 +32,7 @@
 	 gy_events_to_credits/3,
 	 pcc_events_to_charging_rule_report/1,
 	 make_gy_credit_request/3]).
--export([select_vrf/2,
+-export([select_vrf/3,
 	 allocate_ips/7, release_context_ips/1]).
 -export([init_tunnel/4,
 	 assign_tunnel_teid/3,
@@ -565,22 +565,41 @@ make_gy_credit_request(Ev, Add, CreditsNeeded) ->
 %%%===================================================================
 
 %% select/2
-select(_, []) -> undefined;
-select(first, L) -> hd(L);
+select(_, []) -> {error, none};
+select(first, L) -> {ok, hd(L)};
 select(random, L) when is_list(L) ->
-    lists:nth(rand:uniform(length(L)), L).
+    {ok, lists:nth(rand:uniform(length(L)), L)}.
 
 %% select/3
 select(Method, L1, L2) when is_map(L2) ->
-    select(Method, L1, maps:keys(L2));
+    select(Method, lists:filter(maps:is_key(_, L2), L1));
 select(Method, L1, L2) when is_list(L1), is_list(L2) ->
-    {L,_} = lists:partition(fun(A) -> lists:member(A, L2) end, L1),
-    select(Method, L).
+    select(Method, lists:filter(lists:member(_, L2), L1)).
 
-%% select_vrf/2
-select_vrf({AvaVRFs, _AvaPools}, APN) ->
-    {ok, APNOpts} = ergw_apn:get(APN),
-    select(random, maps:get(vrfs, APNOpts), AvaVRFs).
+do_select_vrf({AvaVRFs, []}, ApnVRFs, []) ->
+    select(random, ApnVRFs, AvaVRFs);
+do_select_vrf({_, AvaPools}, ApnVRFs, []) ->
+    NVRFs = lists:usort([VRF || #{vrf := VRF} <- AvaPools]),
+    select(random, ApnVRFs, NVRFs);
+do_select_vrf({_, AvaPools}, ApnVRFs, [NAT]) ->
+    NVRFs =
+	lists:foldl(
+	  fun(#{vrf := VRF, nat_port_blocks := Blocks}, NATs) ->
+		  case lists:member(NAT, Blocks) of
+		      true  -> NATs#{VRF => true};
+		      false -> NATs
+		  end;
+	     (_, NATs) -> NATs
+	  end, #{}, AvaPools),
+    select(random, ApnVRFs, NVRFs).
+
+%% select_vrf/3
+select_vrf(NodeCaps, APN, #{'NAT-Pool-Id' := NAT}) ->
+    {ok, #{vrfs := ApnVRFs}} = ergw_apn:get(APN),
+    do_select_vrf(NodeCaps, ApnVRFs, [NAT]);
+select_vrf(NodeCaps, APN, _) ->
+    {ok, #{vrfs := ApnVRFs}} = ergw_apn:get(APN),
+    do_select_vrf(NodeCaps, ApnVRFs, []).
 
 %%%===================================================================
 
