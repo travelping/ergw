@@ -13,7 +13,7 @@
 	 sessions/1, accounting/2,
 	 enable/1, disable/1,
 	 feature/3, ue_ip_pools/2,
-	 nat_port_blocks/2]).
+	 nat_port_blocks/3]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -28,6 +28,7 @@
 
 -record(state, {sx, gtp, accounting, enabled,
 		record, features,
+		node_id,
 		ue_ip_pools,
 		nat_port_blocks,
 		cp_ip,
@@ -51,7 +52,7 @@
 %%%===================================================================
 
 start(Role, IP) when is_tuple(IP) ->
-    gen_server:start({local, server_name(Role)}, ?MODULE, [IP], []);
+    gen_server:start({local, server_name(Role)}, ?MODULE, [IP, Role], []);
 start(_, undefined) ->
     {ok, ignored}.
 
@@ -111,14 +112,14 @@ feature(Role, Feature, V) ->
 ue_ip_pools(Role, Pools) ->
     gen_server:call(server_name(Role), {ue_ip_pools, Pools}).
 
-nat_port_blocks(Role, Pools) ->
-    gen_server:call(server_name(Role), {nat_port_blocks, Pools}).
+nat_port_blocks(Role, VRF, Blocks) ->
+    gen_server:call(server_name(Role), {nat_port_blocks, VRF, Blocks}).
 
 %%%===================================================================
 %%% gen_server callbacks
 %%%===================================================================
 
-init([IP]) ->
+init([IP, Role]) ->
     process_flag(trap_exit, true),
 
     SockOpts = [binary, {ip, IP}, {active, true}, {reuseaddr, true},
@@ -134,8 +135,9 @@ init([IP]) ->
 	       features = #up_function_features{ftup = 1, treu = 1, empu = 1,
 						ueip = 1, mnop = 1, ip6pl = 1,
 						_ = 0},
+	       node_id = binary:split(atom_to_binary(Role), <<$.>>),
 	       ue_ip_pools = [<<"pool-A">>],
-	       nat_port_blocks = [],
+	       nat_port_blocks = #{},
 	       up_ip = ergw_inet:ip2bin(IP),
 	       cp_recovery_ts = undefined,
 	       dp_recovery_ts = erlang:system_time(seconds),
@@ -170,8 +172,8 @@ handle_call({feature, Feature, V}, _From, #state{features = UpFF0} = State) ->
 handle_call({ue_ip_pools, Pools}, _From, State) ->
     {reply, ok, State#state{ue_ip_pools = Pools}};
 
-handle_call({nat_port_blocks, Blocks}, _From, State) ->
-    {reply, ok, State#state{nat_port_blocks = Blocks}};
+handle_call({nat_port_blocks, VRF, Blocks}, _From, #state{nat_port_blocks = NPB} = State) ->
+    {reply, ok, State#state{nat_port_blocks = NPB#{VRF => Blocks}}};
 
 handle_call(restart, _From, State0) ->
     State = State0#state{
@@ -339,9 +341,10 @@ ue_ip_address_pool_ids(Pool) ->
     ue_ip_address_pool_ids([Pool]).
 
 ue_ip_address_pool_information(VRF, Pools, NATblocks) ->
+    Blocks = maps:get(VRF, NATblocks, []),
     IEs = [ue_ip_address_pool_ids(Pools),
 	   #network_instance{instance = vrf:normalize_name(VRF)}] ++
-	[#bbf_nat_port_block{block = Block} || Block <- NATblocks],
+	[#bbf_nat_port_block{block = Block} || Block <- Blocks],
     #ue_ip_address_pool_information{group = IEs}.
 
 sx_reply(Type, IEs, State) ->
@@ -372,7 +375,8 @@ handle_message(#pfcp{type = heartbeat_request,
 handle_message(#pfcp{type = association_setup_request,
 		     ie = #{recovery_time_stamp :=
 				#recovery_time_stamp{time = CpRecoveryTS}}},
-	       #state{features = UpFF, ue_ip_pools = IPpools, nat_port_blocks = NATblocks,
+	       #state{features = UpFF, node_id = NodeId,
+		      ue_ip_pools = IPpools, nat_port_blocks = NATblocks,
 		      dp_recovery_ts = RecoveryTS} = State0) ->
     UpIPRes =
 	case UpFF of
@@ -389,7 +393,7 @@ handle_message(#pfcp{type = association_setup_request,
 	end,
 
     RespIEs =
-	[#node_id{id = [<<"test">>, <<"server">>]},
+	[#node_id{id = NodeId},
 	 #pfcp_cause{cause = 'Request accepted'},
 	 #recovery_time_stamp{
 	    time = ergw_gsn_lib:seconds_to_sntp_time(RecoveryTS)},

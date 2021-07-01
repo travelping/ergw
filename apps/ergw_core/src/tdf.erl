@@ -383,9 +383,6 @@ start_session(#data{apn = APN, context = Context, dp_node = Node,
 	    {error, Err1} -> throw(Err1#ctx_err{context = Context})
 	end,
 
-    VRF = ergw_gsn_lib:select_vrf(NodeCaps, APN),
-    Bearer1 = maps:update_with(right, _#bearer{vrf = VRF}, Bearer0),
-
     Now = erlang:monotonic_time(),
     SOpts = #{now => Now},
 
@@ -395,6 +392,15 @@ start_session(#data{apn = APN, context = Context, dp_node = Node,
 	    {ok, Result2} -> Result2;
 	    {error, Err2} -> throw({fail, Err2})
 	end,
+
+    VRF =
+	case ergw_gsn_lib:select_vrf(NodeCaps, APN, SessionOpts1) of
+	    {ok, SelVRF} -> SelVRF;
+	    {error, _} -> Err2a = ?CTX_ERR(?FATAL, system_failure),
+			  throw(Err2a#ctx_err{context = Context})
+	end,
+
+    Bearer1 = maps:update_with(right, _#bearer{vrf = VRF}, Bearer0),
     Bearer2 = apply_bearer_opts(SessionOpts1, Bearer1),
 
     %% -----------------------------------------------------------

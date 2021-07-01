@@ -235,6 +235,9 @@
 		   {prefered_bearer_type, 'IPv4'}]},
 		 {[<<"async-sx">>],
 		  [{vrf, sgi},
+		   {ip_pools, [<<"pool-A">>]}]},
+		 {[<<"multi-vrf">>],
+		  [{vrfs, [sgi, example]},
 		   {ip_pools, [<<"pool-A">>]}]}
 		 %% {'_', [{vrf, wildcard}]}
 		],
@@ -944,8 +947,9 @@ init_per_testcase(aa_pool_select, Config) ->
     setup_per_testcase(Config),
     Config;
 init_per_testcase(aa_nat_select, Config) ->
-    ergw_test_sx_up:nat_port_blocks('pgw-u01', [<<"nat-A">>, <<"nat-C">>,
-						<<"nat-D">>, <<"nat-B">>]),
+    ergw_test_sx_up:nat_port_blocks('pgw-u01', sgi, [<<"nat-A">>, <<"nat-C">>,
+						     <<"nat-D">>, <<"nat-B">>]),
+    ergw_test_sx_up:nat_port_blocks('pgw-u01', example, [<<"nat-E">>]),
     setup_per_testcase(Config),
     Config;
 init_per_testcase(TestCase, Config)
@@ -1074,7 +1078,8 @@ end_per_testcase(aa_pool_select, Config) ->
     ok = ergw_test_sx_up:ue_ip_pools('pgw-u01', [<<"pool-A">>]),
     end_per_testcase(Config);
 end_per_testcase(aa_nat_select, Config) ->
-    ergw_test_sx_up:nat_port_blocks('pgw-u01', []),
+    ergw_test_sx_up:nat_port_blocks('pgw-u01', sgi, []),
+    ergw_test_sx_up:nat_port_blocks('pgw-u01', example, []),
     end_per_testcase(Config);
 %% gtp 'Idle-Timeout' reset to default 28800000ms ~8 hrs
 end_per_testcase(gtp_idle_timeout, Config) ->
@@ -4403,7 +4408,7 @@ aa_pool_select(Config) ->
 aa_nat_select() ->
     [{doc, "Select IP-NAT through AAA"}].
 aa_nat_select(Config) ->
-    AAAReply = #{'NAT-Pool-Id' => <<"nat-B">>},
+    AAAReply = #{'NAT-Pool-Id' => <<"nat-E">>},
     ok = meck:expect(ergw_aaa_session, invoke,
 		     fun (Session, SessionOpts, Procedure = authenticate, Opts) ->
 			     {_, SIn, Ev} =
@@ -4414,7 +4419,7 @@ aa_nat_select(Config) ->
 			     meck:passthrough([Session, SessionOpts, Procedure, Opts])
 		     end),
 
-    {GtpC, _, _} = create_session(Config),
+    {GtpC, _, _} = create_session(multi_vrf, Config),
     delete_session(GtpC),
 
     H = meck:history(ergw_aaa_session),
@@ -5385,16 +5390,16 @@ apn_lookup(_Config) ->
 		  <<8, "wildcard">> => #vrf{name = <<8, "wildcard">>}},
 		[]},
 
-    ct:pal("VRF: ~p", [ergw_gsn_lib:select_vrf(NodeCaps, ?'APN-EXAMPLE')]),
-    ?match(<<3, "sgi">>, ergw_gsn_lib:select_vrf(NodeCaps, ?'APN-EXAMPLE')),
-    ?match(<<3, "sgi">>, ergw_gsn_lib:select_vrf(NodeCaps, [<<"exa">>, <<"mple">>, <<"net">>])),
-    ?match(<<3, "sgi">>, ergw_gsn_lib:select_vrf(NodeCaps, [<<"APN1">>])),
-    ?match(<<3, "sgi">>, ergw_gsn_lib:select_vrf(NodeCaps, [<<"APN1">>, <<"mnc001">>, <<"mcc001">>, <<"gprs">>])),
-    ?match(<<3, "sgi">>, ergw_gsn_lib:select_vrf(NodeCaps, [<<"APN2">>])),
-    ?match(<<3, "sgi">>, ergw_gsn_lib:select_vrf(NodeCaps, [<<"APN2">>, <<"mnc001">>, <<"mcc001">>, <<"gprs">>])),
-    %% ?match(<<8, "wildcard">>, ergw_gsn_lib:select_vrf(NodeCaps, [<<"APN3">>])),
-    %% ?match(<<8, "wildcard">>, ergw_gsn_lib:select_vrf(NodeCaps, [<<"APN3">>, <<"mnc001">>, <<"mcc001">>, <<"gprs">>])),
-    %% ?match(<<8, "wildcard">>, ergw_gsn_lib:select_vrf(NodeCaps, [<<"APN4">>, <<"mnc001">>, <<"mcc901">>, <<"gprs">>])),
+    ct:pal("VRF: ~p", [ergw_gsn_lib:select_vrf(NodeCaps, ?'APN-EXAMPLE', [])]),
+    ?match({ok, <<3, "sgi">>}, ergw_gsn_lib:select_vrf(NodeCaps, ?'APN-EXAMPLE', [])),
+    ?match({ok, <<3, "sgi">>}, ergw_gsn_lib:select_vrf(NodeCaps, [<<"exa">>, <<"mple">>, <<"net">>], [])),
+    ?match({ok, <<3, "sgi">>}, ergw_gsn_lib:select_vrf(NodeCaps, [<<"APN1">>], [])),
+    ?match({ok, <<3, "sgi">>}, ergw_gsn_lib:select_vrf(NodeCaps, [<<"APN1">>, <<"mnc001">>, <<"mcc001">>, <<"gprs">>], [])),
+    ?match({ok, <<3, "sgi">>}, ergw_gsn_lib:select_vrf(NodeCaps, [<<"APN2">>], [])),
+    ?match({ok, <<3, "sgi">>}, ergw_gsn_lib:select_vrf(NodeCaps, [<<"APN2">>, <<"mnc001">>, <<"mcc001">>, <<"gprs">>], [])),
+    %% ?match({ok, <<8, "wildcard">>}, ergw_gsn_lib:select_vrf(NodeCaps, [<<"APN3">>], [])),
+    %% ?match({ok, <<8, "wildcard">>}, ergw_gsn_lib:select_vrf(NodeCaps, [<<"APN3">>, <<"mnc001">>, <<"mcc001">>, <<"gprs">>], [])),
+    %% ?match({ok, <<8, "wildcard">>}, ergw_gsn_lib:select_vrf(NodeCaps, [<<"APN4">>, <<"mnc001">>, <<"mcc901">>, <<"gprs">>], [])),
     ok.
 
 %%--------------------------------------------------------------------
