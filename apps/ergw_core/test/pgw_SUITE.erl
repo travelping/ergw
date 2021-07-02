@@ -724,6 +724,7 @@ common() ->
      simple_ocs,
      split_charging1,
      split_charging2,
+     pfcp_select,
      aa_pool_select,
      aa_nat_select,
      aa_pool_select_fail,
@@ -946,7 +947,9 @@ init_per_testcase(aa_pool_select, Config) ->
 					    <<"pool-D">>, <<"pool-B">>]),
     setup_per_testcase(Config),
     Config;
-init_per_testcase(aa_nat_select, Config) ->
+init_per_testcase(TestCase, Config)
+  when TestCase == pfcp_select;
+       TestCase == aa_nat_select ->
     ergw_test_sx_up:nat_port_blocks('pgw-u01', sgi, [<<"nat-A">>, <<"nat-C">>,
 						     <<"nat-D">>, <<"nat-B">>]),
     ergw_test_sx_up:nat_port_blocks('pgw-u01', example, [<<"nat-E">>]),
@@ -1077,7 +1080,9 @@ end_per_testcase(gy_validity_timer_up, Config) ->
 end_per_testcase(aa_pool_select, Config) ->
     ok = ergw_test_sx_up:ue_ip_pools('pgw-u01', [<<"pool-A">>]),
     end_per_testcase(Config);
-end_per_testcase(aa_nat_select, Config) ->
+end_per_testcase(TestCase, Config)
+  when TestCase == pfcp_select;
+       TestCase == aa_nat_select ->
     ergw_test_sx_up:nat_port_blocks('pgw-u01', sgi, []),
     ergw_test_sx_up:nat_port_blocks('pgw-u01', example, []),
     end_per_testcase(Config);
@@ -4372,6 +4377,33 @@ split_charging2(Config) ->
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     wait4contexts(?TIMEOUT),
+
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+pfcp_select() ->
+    [{doc, "Check PFCP UPF selection function"}].
+pfcp_select(Config) ->
+    APN_FQDN = ergw_node_selection:apn_to_fqdn([<<"multi-vrf">>]),
+    Services = [{'x-3gpp-upf','x-sxb'}],
+    NodeSelect = [default],
+    APNOpts =
+	#{bearer_type => 'IPv4v6',
+	  ip_pools => [<<"pool-A">>],
+	  prefered_bearer_type => 'IPv6',
+	  vrfs => [<<3,"sgi">>, <<7,"example">>]},
+
+    Candidates = ergw_node_selection:topology_select(APN_FQDN, [], Services, NodeSelect),
+    SxConnectId = ergw_sx_node:request_connect(Candidates, NodeSelect, 1000),
+    ergw_sx_node:wait_connect(SxConnectId),
+
+    {ok, {UPinfo, SOpts0}} = ergw_pfcp_context:select_upf(Candidates, #{}, APNOpts),
+
+    SOpts = SOpts0#{'NAT-Pool-Id' => <<"nat-E">>},
+    Res = ergw_pfcp_context:reselect_upf(Candidates, SOpts, APNOpts, UPinfo),
+    ct:pal("Res: ~p~n", [Res]),
+    ?match({ok, {_, _, #bearer{vrf = <<7,"example">>}}}, Res),
 
     meck_validate(Config),
     ok.

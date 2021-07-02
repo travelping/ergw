@@ -884,7 +884,6 @@ select(first, L) -> hd(L);
 select(random, L) when is_list(L) ->
     lists:nth(rand:uniform(length(L)), L).
 
-
 %% select_upf/1
 select_upf(Candidates) ->
     do([error_m ||
@@ -909,161 +908,129 @@ select_upf_with(Fun, Candidates, Available) ->
 	    select_upf_with(Fun, Next, Available)
     end.
 
-%% select_upf_pools/3
-select_upf_pool(Candidates, APNOpts, WantPools) ->
-    do([error_m ||
-	   {_, _, Pools} = Node <- select_by_caps(Candidates, APNOpts, WantPools),
-	   begin
-	       %% select a random VRF
-	       VRF = select(random, lists:usort([V || #{vrf := V} <- Pools])),
-	       FilterF =
-		   fun (IP) ->
-			   lists:foldl(
-			     fun(#{vrf := HasV, ip_versions := Versions, ip_pools := HasP,
-				   nat_port_blocks := HasNAT}, P) ->
-				     case HasV =:= VRF andalso lists:member(IP, Versions) of
-					 true ->
-					     case HasNAT of
-						 [] ->
-						     P ++ [{Pool, undefined} || Pool <- HasP];
-						 _ ->
-						     P ++ [{Pool, NAT} || Pool <- HasP, NAT <- HasNAT]
-					     end;
-					 false ->
-					     P
-				     end
-			     end, [], Pools)
-		   end,
-	       Maybe = fun({_,_} = Pool) -> Pool;
-			  (_) -> {undefined, undefined}
-		       end,
-	       {PoolV4, NAT} = Maybe(select(random, FilterF(v4))),
-	       {PoolV6, _} = Maybe(select(random, FilterF(v6))),
+select_ip_pool(Version, HasVersions, Pools) ->
+    case lists:member(Version, HasVersions) of
+	true  -> select(random, Pools);
+	false -> undefined
+    end.
 
-	       return({Node, VRF, PoolV4, NAT, PoolV6})
-	   end
-       ]).
-
+apn_filter(vrfs, V, F) ->
+    F#{vrf => V};
+apn_filter(ip_pools, V, F) ->
+    F#{ip_pools => [[X] || X <- V]};
+apn_filter(nat_port_blocks, V, F) ->
+    F#{nat_port_blocks => [[X] || X <- V]};
+apn_filter(_, _, F) ->
+    F.
 
 %% select_upf/3
 select_upf(Candidates, Session0, APNOpts) ->
+    Wanted = maps:fold(fun apn_filter/3, #{}, APNOpts),
     do([error_m ||
-	   {_, _VRF, PoolV4, NAT, PoolV6} =
-	       Node <- select_upf_pool(Candidates, APNOpts, []),
-	   begin
-	       Session1 = Session0#{'Framed-Pool' => PoolV4, 'Framed-IPv6-Pool' => PoolV6},
-	       Session2 =
-		   case maps:get(nat_port_blocks, APNOpts, []) of
-		       Blocks when is_list(Blocks), length(Blocks) /= 0 ->
-			   Session1#{'NAT-Pool-Id' => NAT};
-		       _ ->
-			   Session1
-		   end,
-	       Session = init_session_ue_ifid(APNOpts, Session2),
-	       return({Node, Session})
-	   end
+	   {_, _, Pools} = Node <- select_by_caps(Wanted, Candidates),
+
+	   #{ip_pools := IPpools, ip_versions := IPvs,
+	     nat_port_blocks := NATblocks, vrf := VRF} = select(random, Pools),
+	   PoolV4 = select_ip_pool(v4, IPvs, IPpools),
+	   PoolV6 = select_ip_pool(v6, IPvs, IPpools),
+	   NAT = select(random, NATblocks),
+
+	   Session1 = Session0#{'Framed-Pool' => PoolV4, 'Framed-IPv6-Pool' => PoolV6},
+	   Session2 = case maps:is_key(nat_port_blocks, Wanted) of
+			  true  -> Session1#{'NAT-Pool-Id' => NAT};
+			  false -> Session1
+		      end,
+	   Session = init_session_ue_ifid(APNOpts, Session2),
+	   UPinfo = {Node, VRF, PoolV4, NAT, PoolV6},
+
+	   return({UPinfo, Session})
        ]).
 
+filter([]) -> #{};
+filter([{_, undefined}|T]) -> filter(T);
+filter([{Ver, IP}|T]) when Ver == v4; Ver == v6 ->
+    maps:update_with(ip_versions, fun([X]) -> [[Ver|X]] end, [[Ver]],
+		     maps:update_with(ip_pools, fun([X]) -> [lists:usort([IP|X])] end, [[IP]], filter(T)));
+filter([{nat, NAT}|T]) ->
+    maps:put(nat_port_blocks, [[NAT]], filter(T)).
+
 %% reselect_upf/4
-reselect_upf(Candidates, Session, APNOpts, {_, _, PoolV4, NATBlock, PoolV6} = UPinfo) ->
+reselect_upf(Candidates, Session, _APNOpts, {Node0, VRF0, PoolV4, NATBlock, PoolV6}) ->
     NAT = maps:get('NAT-Pool-Id', Session, undefined),
     IP4 = maps:get('Framed-Pool', Session, undefined),
     IP6 = maps:get('Framed-IPv6-Pool', Session, undefined),
 
     do([error_m ||
-	   {{Pid, NodeCaps, _}, VRF, _, _, _} <-
-	       begin
-		   if (IP4 /= PoolV4 orelse IP6 /= PoolV6 orelse
-		       NATBlock /= NAT) ->
-			   WantPools = [{IP4, v4, NAT} || is_binary(IP4)]
-			       ++ [{IP6, v6, undefined} || is_binary(IP6)],
-			   select_upf_pool(Candidates, APNOpts, WantPools);
-		      true ->
-			   return(UPinfo)
-		   end
+	   {{Pid, NodeCaps, _}, VRF} <-
+	       if (IP4 /= PoolV4 orelse IP6 /= PoolV6 orelse
+		   NATBlock /= NAT) ->
+		       Wanted = filter([{v4, IP4}, {v6, IP6}, {nat, NAT}]),
+		       do([error_m ||
+			      %% TBD: if the old node is also eligible for the new values
+			      %%      then we should keep that node.
+			      {_, _, Pools} = Node1 <- select_by_caps(Wanted, Candidates),
+			      #{vrf := VRF1} = select(random, Pools),
+			      return({Node1, VRF1})
+			  ]);
+		  true ->
+		       return({Node0, VRF0})
 	       end,
 	   {PCtx, _} <- ergw_sx_node:attach(Pid),
 	   return({PCtx, NodeCaps, #bearer{interface = 'SGi-LAN', vrf = VRF}})
        ]).
 
-have_wanted_caps({WantVRF, WantIP, WantPool, WantNAT},
-		 #{ip_pools := Pools, vrf := VRF, ip_versions := IPs,
-		   nat_port_blocks := NATblocks}) ->
-    (VRF =:= '_' orelse WantVRF =:= VRF)
-	andalso (WantPool =:= '_' orelse lists:member(WantPool, Pools))
-	andalso (WantIP =:= '_' orelse lists:member(WantIP, IPs))
-	andalso (WantIP =/= v4 orelse
-				 (WantNAT =:= undefined
-				  orelse (WantNAT =:= '_' andalso NATblocks /= [])
-				  orelse lists:member(WantNAT, NATblocks))).
+common_caps_f_pred(Has, Want)
+  when is_binary(Has), is_list(Want) ->
+    lists:member(Has, Want);
+common_caps_f_pred(Has, WantAny)
+  when is_list(Has), is_list(WantAny) ->
+    fun Pred([]) -> false;
+	Pred([WantAll|T]) -> Pred(T) orelse WantAll -- Has =:= []
+    end(WantAny);
+common_caps_f_pred(_, _) ->
+    false.
 
-common_caps_intersection([], _, Common) ->
-    Common;
-common_caps_intersection([Want|More], HasCaps, Common0) ->
-    Common =
-	lists:filter(
-	  fun(Has) -> have_wanted_caps(Want, Has) end, HasCaps),
-    common_caps_intersection(More, HasCaps, Common0 ++ Common).
+common_caps_f_walk(_, none) ->
+    true;
+common_caps_f_walk(Pool, {K, V, Next})
+  when is_map_key(K, Pool) ->
+    case common_caps_f_pred(maps:get(K, Pool), V) of
+	true  -> common_caps_f_walk(Pool, maps:next(Next));
+	false -> false
+    end;
+common_caps_f_walk(_, _) ->
+    false.
 
-common_caps_subset([], _, IsSubSet) ->
-    {IsSubSet, []};
-common_caps_subset([Want|More], HasCaps, IsSubSet) ->
-    case common_caps_subset(More, HasCaps, IsSubSet) of
-	{true, SubSet} ->
-	    SubS =
-		lists:filter(
-		  fun(Has) -> have_wanted_caps(Want, Has) end, HasCaps),
-	    {true andalso SubS /= [], SubSet ++ SubS};
-	Other ->
-	    Other
-    end.
+common_caps_f(Wanted, Pool) ->
+    common_caps_f_walk(Pool, maps:next(maps:iterator(Wanted))).
 
-%% common_caps/3
-common_caps(WPools, HPools, true) ->
-    Pools = common_caps_intersection(WPools, HPools, []),
-    {length(Pools) /= 0, Pools};
-common_caps(WPools, HPools, false) ->
-    common_caps_subset(WPools, HPools, true).
+common_caps_n(Wanted, NodePools) ->
+    lists:filter(common_caps_f(Wanted, _), NodePools).
 
-%% common_caps/5
-common_caps(_, [], _Available, _AnyPool, Candidates) ->
-    Candidates;
-common_caps(Wanted, [{Node, _, _, _, _} = UPF|Next], Available, AnyPool, Candidates)
+common_caps_n(_, [], _) ->
+    [];
+common_caps_n(Wanted, [{Node, _, _, _, _} = UPF|Next], Available)
   when is_map_key(Node, Available) ->
     {_, {_, NodePools}} = maps:get(Node, Available),
-    case common_caps(Wanted, NodePools, AnyPool) of
-	{true, _} ->
-	    [UPF|common_caps(Wanted, Next, Available, AnyPool,Candidates)];
-	{false,_} ->
-	    common_caps(Wanted, Next, Available, AnyPool, Candidates)
+    case common_caps_n(Wanted, NodePools) of
+	[] -> common_caps_n(Wanted, Next, Available);
+	_  -> [UPF|common_caps_n(Wanted, Next, Available)]
     end;
-common_caps(Wanted, [_|Next], Available, AnyPool, Candidates) ->
-    common_caps(Wanted, Next, Available, AnyPool, Candidates).
+common_caps_n(Wanted, [_|Next], Available) ->
+    common_caps_n(Wanted, Next, Available).
 
-%% select_by_caps/3
-select_by_caps(Candidates, #{vrfs := VRFs, ip_pools := Pools} = APNopts, []) ->
-    NATpools = maps:get(nat_port_blocks, APNopts, [undefined]),
-    Wanted = [{VRF, '_', Pool, NAT} || VRF <- VRFs, Pool <- Pools, NAT <- NATpools],
-    filter_by_caps(Candidates, Wanted, true);
-
-select_by_caps(Candidates, #{vrfs := VRFs}, WantPools) ->
-    Wanted = [{VRF, IP, Pool, NAT} ||
-		 VRF <- VRFs, {Pool, IP, NAT} <- WantPools],
-    filter_by_caps(Candidates, Wanted, false).
-
-%% filter_by_caps/3
-filter_by_caps(Candidates, Wanted, AnyPool) ->
+%% select_by_caps/2
+select_by_caps(Wanted, Candidates) ->
     Available = ergw_sx_node_reg:available(),
-    Eligible = common_caps(Wanted, Candidates, Available, AnyPool, []),
+    Eligible = common_caps_n(Wanted, Candidates, Available),
 
     %% Note: common_caps/5 filters all **Available** nodes by capabilities first,
     %%       select_upf_with/3 can therefor simply take the node with the highest precedence.
-    select_upf_with(
-      fun(Node) -> filter_by_caps_f(Node, Wanted, AnyPool) end, Eligible, Available).
+    select_upf_with(filter_by_caps_f(Wanted, _), Eligible, Available).
 
-%% filter_by_caps_f/1
-filter_by_caps_f({Pid, {_, NodePools} = NodeCaps}, Wanted, AnyPool) ->
-    {_, SPools} = common_caps(Wanted, NodePools, AnyPool),
+%% filter_by_caps_f/2
+filter_by_caps_f(Wanted, {Pid, {_, NodePools} = NodeCaps}) ->
+    SPools = common_caps_n(Wanted, NodePools),
     {ok, {Pid, NodeCaps, SPools}}.
 
 %%%===================================================================
