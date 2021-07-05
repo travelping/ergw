@@ -888,7 +888,7 @@ select(random, L) when is_list(L) ->
 select_upf(Candidates) ->
     do([error_m ||
 	   Available = ergw_sx_node_reg:available(),
-	   Pid <- select_upf_with(fun({Pid, _}) -> {ok, Pid} end, Candidates, Available),
+	   Pid <- select_upf_with(fun(_, {Pid, _}) -> {ok, Pid} end, Candidates, Available),
 	   ergw_sx_node:attach(Pid)
        ]).
 
@@ -898,7 +898,7 @@ select_upf_with(_, [], _) ->
 select_upf_with(Fun, Candidates, Available) ->
     case ergw_node_selection:snaptr_candidate(Candidates) of
 	{{Node, _, _}, Next} when is_map_key(Node, Available) ->
-	    case Fun(maps:get(Node, Available)) of
+	    case Fun(Node, maps:get(Node, Available)) of
 		{ok, _} = Result ->
 		    Result;
 		_ ->
@@ -927,7 +927,7 @@ apn_filter(_, _, F) ->
 select_upf(Candidates, Session0, APNOpts) ->
     Wanted = maps:fold(fun apn_filter/3, #{}, APNOpts),
     do([error_m ||
-	   {_, _, Pools} = Node <- select_by_caps(Wanted, Candidates),
+	   {_, _, _, Pools} = Node <- select_by_caps(Wanted, undefined, Candidates),
 
 	   #{ip_pools := IPpools, ip_versions := IPvs,
 	     nat_port_blocks := NATblocks, vrf := VRF} = select(random, Pools),
@@ -955,20 +955,18 @@ filter([{nat, NAT}|T]) ->
     maps:put(nat_port_blocks, [[NAT]], filter(T)).
 
 %% reselect_upf/4
-reselect_upf(Candidates, Session, _APNOpts, {Node0, VRF0, PoolV4, NATBlock, PoolV6}) ->
+reselect_upf(Candidates, Session, _APNOpts, {{NodeName, _, _, _} = Node0, VRF0, PoolV4, NATBlock, PoolV6}) ->
     NAT = maps:get('NAT-Pool-Id', Session, undefined),
     IP4 = maps:get('Framed-Pool', Session, undefined),
     IP6 = maps:get('Framed-IPv6-Pool', Session, undefined),
 
     do([error_m ||
-	   {{Pid, NodeCaps, _}, VRF} <-
+	   {{_, Pid, NodeCaps, _}, VRF} <-
 	       if (IP4 /= PoolV4 orelse IP6 /= PoolV6 orelse
 		   NATBlock /= NAT) ->
 		       Wanted = filter([{v4, IP4}, {v6, IP6}, {nat, NAT}]),
 		       do([error_m ||
-			      %% TBD: if the old node is also eligible for the new values
-			      %%      then we should keep that node.
-			      {_, _, Pools} = Node1 <- select_by_caps(Wanted, Candidates),
+			      {_, _, _, Pools} = Node1 <- select_by_caps(Wanted, NodeName, Candidates),
 			      #{vrf := VRF1} = select(random, Pools),
 			      return({Node1, VRF1})
 			  ]);
@@ -1019,19 +1017,25 @@ common_caps_n(Wanted, [{Node, _, _, _, _} = UPF|Next], Available)
 common_caps_n(Wanted, [_|Next], Available) ->
     common_caps_n(Wanted, Next, Available).
 
-%% select_by_caps/2
-select_by_caps(Wanted, Candidates) ->
+%% select_by_caps/3
+select_by_caps(Wanted, Preferred, Candidates) ->
     Available = ergw_sx_node_reg:available(),
     Eligible = common_caps_n(Wanted, Candidates, Available),
 
-    %% Note: common_caps/5 filters all **Available** nodes by capabilities first,
-    %%       select_upf_with/3 can therefor simply take the node with the highest precedence.
-    select_upf_with(filter_by_caps_f(Wanted, _), Eligible, Available).
+    case lists:keymember(Preferred, 1, Eligible) of
+	true when is_map_key(Preferred, Available) ->
+	    Node = maps:get(Preferred, Available),
+	    filter_by_caps_f(Preferred, Wanted, Node);
+	_ ->
+	    %% Note: common_caps/5 filters all **Available** nodes by capabilities first,
+	    %%       select_upf_with/3 can therefor simply take the node with the highest precedence.
+	    select_upf_with(filter_by_caps_f(_, Wanted, _), Eligible, Available)
+    end.
 
 %% filter_by_caps_f/2
-filter_by_caps_f(Wanted, {Pid, {_, NodePools} = NodeCaps}) ->
+filter_by_caps_f(NodeName, Wanted, {Pid, {_, NodePools} = NodeCaps}) ->
     SPools = common_caps_n(Wanted, NodePools),
-    {ok, {Pid, NodeCaps, SPools}}.
+    {ok, {NodeName, Pid, NodeCaps, SPools}}.
 
 %%%===================================================================
 
