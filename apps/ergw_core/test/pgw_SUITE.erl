@@ -4451,7 +4451,7 @@ aa_nat_select(Config) ->
 			     meck:passthrough([Session, SessionOpts, Procedure, Opts])
 		     end),
 
-    {GtpC, _, _} = create_session(multi_vrf, Config),
+    {GtpC, _, _} = create_session(Config),
     delete_session(GtpC),
 
     H = meck:history(ergw_aaa_session),
