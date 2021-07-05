@@ -358,43 +358,28 @@ init([Socket, Info, Version, Interface,
 
     Interface:init(Opts, Data).
 
-handle_event(info, {{'DOWN', ReqId}, _, _, _, Info}, State, #{'$async' := Async0} = Data0)
-  when is_map_key(ReqId, Async0) ->
-    {{_, Q, OkF, FailF}, Async} = maps:take(ReqId, Async0),
-    Data = Data0#{'$async' := Async},
-    next(statem_m:response(Q, {error, Info}, _, _), OkF, FailF, State, Data);
+handle_event(info, {{'DOWN', ReqId}, _, _, _, Info}, #fsm{async = Async} = State, Data)
+  when is_map_key(ReqId, Async) ->
+    statem_m_continue(ReqId, {error, Info}, false, State, Data);
 handle_event(info, {{'DOWN', _}, _, _, _, _}, _, _) ->
     keep_state_and_data;
 
-handle_event(info, {ReqId, Result}, State, #{'$async' := Async0} = Data0)
-  when is_map_key(ReqId, Async0) ->
-    {{_, Q, OkF, FailF}, Async} = maps:take(ReqId, Async0),
-    Data = Data0#{'$async' := Async},
-    ct:pal("AsyncResult: ~p~n", [Result]),
-    next(statem_m:response(Q, Result, _, _), OkF, FailF, State, Data);
+handle_event(info, {ReqId, Result}, #fsm{async = Async} = State, Data)
+  when is_map_key(ReqId, Async) ->
+    statem_m_continue(ReqId, Result, false, State, Data);
 
 %% OTP-24 style send_request responses.... WE REALLY SHOULD NOT BE DOING THIS
-handle_event(info, {'DOWN', ReqId, _, _, Info}, State, #{'$async' := Async0} = Data0)
-  when is_map_key(ReqId, Async0) ->
-    {{_, Q, OkF, FailF}, Async} = maps:take(ReqId, Async0),
-    Data = Data0#{'$async' := Async},
-    next(statem_m:response(Q, {error, Info}, _, _), OkF, FailF, State, Data);
-handle_event(info, {[alias|ReqId], Result}, State, #{'$async' := Async0} = Data0)
-  when is_map_key(ReqId, Async0) ->
-    {{Mref, Q, OkF, FailF}, Async} = maps:take(ReqId, Async0),
-    Data = Data0#{'$async' := Async},
-    demonitor(Mref, [flush]),
-    ct:pal("Result: ~p~n", [Result]),
-    next(statem_m:response(Q, Result, _, _), OkF, FailF, State, Data);
+handle_event(info, {'DOWN', ReqId, _, _, Info}, #fsm{async = Async} = State, Data)
+  when is_map_key(ReqId, Async) ->
+    statem_m_continue(ReqId, {error, Info}, false, State, Data);
+handle_event(info, {[alias|ReqId], Result}, #fsm{async = Async} = State, Data)
+  when is_map_key(ReqId, Async) ->
+    statem_m_continue(ReqId, Result, true, State, Data);
 
 %% OTP-23 style send_request responses.... WE REALLY SHOULD NOT BE DOING THIS
-handle_event(info, {{'$gen_request_id', ReqId}, Result}, State, #{'$async' := Async0} = Data0)
-  when is_map_key(ReqId, Async0) ->
-    {{Mref, Q, OkF, FailF}, Async} = maps:take(ReqId, Async0),
-    Data = Data0#{'$async' := Async},
-    demonitor(Mref, [flush]),
-    ct:pal("Result: ~p~n", [Result]),
-    next(statem_m:response(Q, Result, _, _), OkF, FailF, State, Data);
+handle_event(info, {{'$gen_request_id', ReqId}, Result}, #fsm{async = Async} = State, Data)
+  when is_map_key(ReqId, Async) ->
+    statem_m_continue(ReqId, Result, true, State, Data);
 
 handle_event({call, From}, info, _, Data) ->
     {keep_state_and_data, [{reply, From, Data}]};
@@ -982,14 +967,22 @@ next({ok, Result}, Fun, _, State, Data)
 next({error, Result}, _, Fun, State, Data)
   when is_function(Fun, 3) ->
     Fun(Result, State, Data);
-next({wait, ReqId, Q}, OkF, FailF, State, Data0)
+next({wait, ReqId, Q}, OkF, FailF, #fsm{async = Async} = State, Data)
   when is_reference(ReqId),
        is_list(Q),
        is_function(OkF, 3),
        is_function(FailF, 3) ->
     Req = {ReqId, Q, OkF, FailF},
-    Data = maps:update_with('$async', maps:put(ReqId, Req, _), #{ReqId => Req}, Data0),
-    {next_state, State, Data}.
+    {next_state, State#fsm{async = maps:put(ReqId, Req, Async)}, Data}.
+
+statem_m_continue(ReqId, Result, DeMonitor, #fsm{async = Async0} = State, Data) ->
+    {{Mref, Q, OkF, FailF}, Async} = maps:take(ReqId, Async0),
+    case DeMonitor of
+	true -> demonitor(Mref, [flush]);
+	_ -> ok
+    end,
+    ct:pal("Result: ~p~n", [Result]),
+    next(statem_m:response(Q, Result, _, _), OkF, FailF, State#fsm{async = Async}, Data).
 
 send_request(Fun) when is_function(Fun, 0) ->
     Owner = self(),

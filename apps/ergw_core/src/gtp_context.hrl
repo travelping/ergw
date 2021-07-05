@@ -1,1 +1,4 @@
--record(fsm, {state}).
+-record(fsm, {
+	      state,
+	      async = #{}
+	     }).
