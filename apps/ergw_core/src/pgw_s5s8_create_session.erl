@@ -39,7 +39,7 @@ create_session_ok(ReqKey,
 				 #v2_bearer_context{group = #{?'EPS Bearer ID' := EBI}}
 			    } = IEs} = Request,
 		 {Cause, SessionOpts},
-		 _State, #{context := Context, left_tunnel := LeftTunnel,
+		 State, #{context := Context, left_tunnel := LeftTunnel,
 			   bearer := Bearer} = Data) ->
     _ = ct:pal("~s", [?FUNCTION_NAME]),
     ct:pal("Cause: ~p~nOpts: ~p~nIEs: ~p~nEBI: ~p~nTunnel: ~p~nBearer: ~p~nContext: ~p~n",
@@ -50,7 +50,7 @@ create_session_ok(ReqKey,
 
     Actions = pgw_s5s8:context_idle_action([], Context),
     ct:pal("CSR data: ~p", [Data]),
-    {next_state, connected, Data, Actions}.
+    {next_state, State#fsm{state = connected}, Data, Actions}.
 
 create_session_fail(ReqKey, #gtp{type = MsgType, seq_no = SeqNo} = Request,
 		    #ctx_err{reply = Reply} = Error,
@@ -80,7 +80,7 @@ create_session_fail(ReqKey, #gtp{type = MsgType, seq_no = SeqNo} = Request,
 create_session_fail(ReqKey, Request, Error, State, Data) ->
     _ = ct:pal("~s", [?FUNCTION_NAME]),
     ct:fail(#{'ReqKey' => ReqKey, 'Request' => Request, 'Error' => Error, 'State' => State, 'Data' => Data}),
-    {next_state, shutdown, Data}.
+    {next_state, State#fsm{state = shutdown}, Data}.
 
 create_session_fun(#gtp{ie = #{?'Access Point Name' := #v2_access_point_name{apn = APN}} = IEs} = Request,
 		   State, Data) ->

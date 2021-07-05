@@ -42,6 +42,7 @@
 -include_lib("ergw_aaa/include/ergw_aaa_session.hrl").
 -include("include/ergw.hrl").
 -include("include/3gpp.hrl").
+-include("gtp_context.hrl").
 -include("ggsn_gn.hrl").
 
 -import(ergw_aaa_session, [to_session/1]).
@@ -93,7 +94,7 @@ init(_Opts, Data) ->
     SessionOpts = ergw_aaa_session:get(Session),
     OCPcfg = maps:get('Offline-Charging-Profile', SessionOpts, #{}),
     PCC = #pcc_ctx{offline_charging_profile = OCPcfg},
-    {ok, run, Data#{'Version' => v1, 'Session' => Session, pcc => PCC}}.
+    {ok, #fsm{state = run}, Data#{'Version' => v1, 'Session' => Session, pcc => PCC}}.
 
 handle_event(enter, _OldState, _State, _Data) ->
     keep_state_and_data;
@@ -143,28 +144,28 @@ handle_request(ReqKey,
 
 handle_request(ReqKey,
 	       #gtp{type = delete_pdp_context_request, ie = _IEs} = Request,
-	       _Resent, _State, #{left_tunnel := LeftTunnel} = Data0) ->
+	       _Resent, State, #{left_tunnel := LeftTunnel} = Data0) ->
     Data = ergw_gtp_gsn_lib:close_context(?API, normal, Data0),
     Response = response(delete_pdp_context_response, LeftTunnel, request_accepted),
     gtp_context:send_response(ReqKey, Request, Response),
-    {next_state, shutdown, Data};
+    {next_state, State#fsm{state = shutdown}, Data};
 
 handle_request(ReqKey, _Msg, _Resent, _State, _Data) ->
     gtp_context:request_finished(ReqKey),
     keep_state_and_data.
 
 handle_response({From, TermCause}, timeout, #gtp{type = delete_pdp_context_request},
-		_State, Data0) ->
+		State, Data0) ->
     Data = ergw_gtp_gsn_lib:close_context(?API, TermCause, Data0),
     if is_tuple(From) -> gen_statem:reply(From, {error, timeout});
        true -> ok
     end,
-    {next_state, shutdown, Data};
+    {next_state, State#fsm{state = shutdown}, Data};
 
 handle_response({From, TermCause},
 		#gtp{type = delete_pdp_context_response,
 		     ie = #{?'Cause' := #cause{value = Cause}}} = Response,
-		_Request, _State,
+		_Request, State,
 		#{left_tunnel := LeftTunnel0} = Data0) ->
     LeftTunnel = gtp_path:bind(Response, LeftTunnel0),
     Data1 = Data0#{left_tunnel := LeftTunnel},
@@ -173,7 +174,7 @@ handle_response({From, TermCause},
     if is_tuple(From) -> gen_statem:reply(From, {ok, Cause});
        true -> ok
     end,
-    {next_state, shutdown, Data}.
+    {next_state, State#fsm{state = shutdown}, Data}.
 
 terminate(_Reason, _State, #{pfcp := PCtx, context := Context}) ->
     ergw_pfcp_context:delete_session(terminate, PCtx),
@@ -678,7 +679,7 @@ send_request(#tunnel{remote = #fq_teid{ip = RemoteCntlIP}} = Tunnel, T3, N3, Msg
 send_request(Tunnel, T3, N3, Type, RequestIEs, ReqInfo) ->
     send_request(Tunnel, T3, N3, msg(Tunnel, Type, RequestIEs), ReqInfo).
 
-delete_context(From, TermCause, connected,
+delete_context(From, TermCause, #fsm{state = connected} = State,
 	       #{left_tunnel := Tunnel, context :=
 		     #context{default_bearer_id = NSAPI}} = Data) ->
     Type = delete_pdp_context_request,
@@ -686,7 +687,7 @@ delete_context(From, TermCause, connected,
 		   #teardown_ind{value = 1}],
     RequestIEs = gtp_v1_c:build_recovery(Type, Tunnel, false, RequestIEs0),
     send_request(Tunnel, ?T3, ?N3, Type, RequestIEs, {From, TermCause}),
-    {next_state, shutdown_initiated, Data};
+    {next_state, State#fsm{state = shutdown_initiated}, Data};
 delete_context(undefined, _, _, _) ->
     keep_state_and_data;
 delete_context(From, _, _, _) ->

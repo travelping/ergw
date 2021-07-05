@@ -59,6 +59,7 @@
 -include_lib("pfcplib/include/pfcp_packet.hrl").
 -include_lib("ergw_aaa/include/ergw_aaa_session.hrl").
 -include("ergw_core_config.hrl").
+-include("gtp_context.hrl").
 -include("include/ergw.hrl").
 
 -define(TestCmdTag, '$TestCmd').
@@ -405,7 +406,7 @@ handle_event({call, From}, {?TestCmdTag, session}, _State, #{'Session' := Sessio
 handle_event({call, From}, {?TestCmdTag, pcc_rules}, _State, #{pcc := PCC}) ->
     {keep_state_and_data, [{reply, From, {ok, PCC#pcc_ctx.rules}}]};
 
-handle_event(enter, _OldState, shutdown, _Data) ->
+handle_event(enter, _OldState, #fsm{state = shutdown}, _Data) ->
     % TODO unregsiter context ....
 
     %% this makes stop the last message in the inbox and
@@ -413,7 +414,7 @@ handle_event(enter, _OldState, shutdown, _Data) ->
     gen_statem:cast(self(), stop),
     keep_state_and_data;
 
-handle_event(cast, stop, shutdown, _Data) ->
+handle_event(cast, stop, #fsm{state = shutdown}, _Data) ->
     {stop, normal};
 
 handle_event(enter, OldState, State, #{interface := Interface} = Data) ->
@@ -437,7 +438,7 @@ handle_event({call, From},
 
 	Side ->
 	    Data = close_context(Side, remote_failure, State, Data0),
-	    {next_state, shutdown, Data, [{reply, From, {ok, PCtx}}]}
+	    {next_state, State#fsm{state = shutdown}, Data, [{reply, From, {ok, PCtx}}]}
     end;
 
 %% PFCP Session Deleted By the UP function
@@ -445,7 +446,7 @@ handle_event({call, From},
 	     {sx, #pfcp{type = session_report_request,
 			ie = #{pfcpsrreq_flags := #pfcpsrreq_flags{psdbu = 1},
 			       report_type := ReportType} = IEs}},
-	     _State, #{pfcp := PCtx} = Data0) ->
+	     State, #{pfcp := PCtx} = Data0) ->
     TermCause =
 	case ReportType of
 	    #report_type{upir = 1} ->
@@ -455,7 +456,7 @@ handle_event({call, From},
 	end,
     UsageReport = maps:get(usage_report_srr, IEs, undefined),
     Data = ergw_gtp_gsn_lib:close_context('pfcp', TermCause, UsageReport, Data0),
-    {next_state, shutdown, Data, [{reply, From, {ok, PCtx}}]};
+    {next_state, State#fsm{state = shutdown}, Data, [{reply, From, {ok, PCtx}}]};
 
 %% User Plane Inactivity Timer expired
 handle_event({call, From},
@@ -463,7 +464,7 @@ handle_event({call, From},
 			ie = #{report_type := #report_type{upir = 1}}}},
 	     State, #{pfcp := PCtx} = Data0) ->
     Data = close_context(both, up_inactivity_timeout, State, Data0),
-    {next_state, shutdown, Data, [{reply, From, {ok, PCtx}}]};
+    {next_state, State#fsm{state = shutdown}, Data, [{reply, From, {ok, PCtx}}]};
 
 %% Usage Report
 handle_event({call, From},
@@ -516,7 +517,7 @@ handle_event(info, #aaa_request{procedure = {_, 'ASR'} = Procedure} = Request, S
 
 handle_event(info, #aaa_request{procedure = {gx, 'RAR'},
 				events = Events} = Request,
-	     connected,
+	     #fsm{state = connected},
 	     #{context := Context, pfcp := PCtx0,
 	       left_tunnel := LeftTunnel, bearer := Bearer,
 	       'Session' := Session, pcc := PCC0} = Data) ->
@@ -582,7 +583,7 @@ handle_event(info, #aaa_request{procedure = {gx, 'RAR'},
 
 handle_event(info, #aaa_request{procedure = {gy, 'RAR'},
 				events = Events} = Request,
-	     connected, Data) ->
+	     #fsm{state = connected}, Data) ->
     ergw_aaa_session:response(Request, ok, #{}, #{}),
     Now = erlang:monotonic_time(),
 
@@ -640,30 +641,30 @@ handle_event(info, {timeout, TRef, pfcp_timer} = Info, _State, #{pfcp := PCtx0} 
     ergw_gtp_gsn_lib:triggered_charging_event(validity_time, Now, ChargingKeys, Data),
     {keep_state, Data};
 
-handle_event({call, From}, {delete_context, Reason}, State, Data)
-  when State == connected; State == connecting ->
-    delete_context(From, Reason, State, Data);
-handle_event({call, From}, delete_context, State, Data)
-  when State == connected; State == connecting ->
+handle_event({call, From}, {delete_context, Reason}, #fsm{state = ContextState} = State, Data)
+  when ContextState == connected; ContextState == connecting ->
+    delete_context(From, Reason, #fsm{state = ContextState} = State, Data);
+handle_event({call, From}, delete_context, #fsm{state = ContextState} = State, Data)
+  when ContextState == connected; ContextState == connecting ->
     delete_context(From, administrative, State, Data);
-handle_event({call, From}, delete_context, shutdown, _Data) ->
+handle_event({call, From}, delete_context, #fsm{state = shutdown}, _Data) ->
     {keep_state_and_data, [{reply, From, {ok, ok}}]};
 handle_event({call, _From}, delete_context, _State, _Data) ->
     {keep_state_and_data, [postpone]};
 
 handle_event({call, From}, terminate_context, State, Data0) ->
     Data = close_context(left, normal, State, Data0),
-    {next_state, shutdown, Data, [{reply, From, ok}]};
+    {next_state, State#fsm{state = shutdown}, Data, [{reply, From, ok}]};
 
 handle_event({call, From}, {path_restart, Path}, State,
 	     #{left_tunnel := #tunnel{path = Path}} = Data0) ->
     Data = close_context(left, peer_restart, State, Data0),
-    {next_state, shutdown, Data, [{reply, From, ok}]};
+    {next_state, State#fsm{state = shutdown}, Data, [{reply, From, ok}]};
 
 handle_event({call, From}, {path_restart, Path}, State,
 	     #{right_tunnel := #tunnel{path = Path}} = Data0) ->
     Data = close_context(right, peer_restart, State, Data0),
-    {next_state, shutdown, Data, [{reply, From, ok}]};
+    {next_state, State#fsm{state = shutdown}, Data, [{reply, From, ok}]};
 
 handle_event({call, From}, {path_restart, _Path}, _State, _Data) ->
     {keep_state_and_data, [{reply, From, ok}]};
@@ -679,7 +680,7 @@ handle_event(info, {'DOWN', _MonitorRef, Type, Pid, _Info}, State,
 	     #{pfcp := #pfcp_ctx{node = Pid}} = Data0)
   when Type == process; Type == pfcp ->
     Data = close_context(both, upf_failure, State, Data0),
-    {next_state, shutdown, Data};
+    {next_state, State#fsm{state = shutdown}, Data};
 
 handle_event({timeout, context_idle}, stop_session, State, Data) ->
     delete_context(undefined, cp_inactivity_timeout, State, Data);

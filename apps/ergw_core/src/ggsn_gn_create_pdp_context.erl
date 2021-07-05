@@ -35,7 +35,7 @@ create_pdp_context(ReqKey, Request, _Resent, State, Data) ->
       State, Data).
 
 create_pdp_context_ok(ReqKey, Request, {Cause, SessionOpts},
-		      _State, #{context := Context, left_tunnel := LeftTunnel,
+		      State, #{context := Context, left_tunnel := LeftTunnel,
 				bearer := Bearer} = Data) ->
     _ = ct:pal("~s", [?FUNCTION_NAME]),
     ct:pal("Cause: ~p~nOpts: ~p~nTunnel: ~p~nBearer: ~p~nContext: ~p~n",
@@ -46,7 +46,7 @@ create_pdp_context_ok(ReqKey, Request, {Cause, SessionOpts},
 
     Actions = ggsn_gn:context_idle_action([], Context),
     ct:pal("C-PDP-CR data: ~p", [Data]),
-    {next_state, connected, Data, Actions}.
+    {next_state, State#fsm{state = connected}, Data, Actions}.
 
 create_pdp_context_fail(ReqKey, #gtp{type = MsgType, seq_no = SeqNo} = Request,
 		    #ctx_err{reply = Reply} = Error,
@@ -77,7 +77,7 @@ create_pdp_context_fail(ReqKey, Request, Error, State, Data) ->
     _ = ct:pal("~s", [?FUNCTION_NAME]),
     ct:fail("ReqKey: ~p~nRequest: ~p~nError: ~p~nState: ~p~nData: ~p~n",
 	    [ReqKey, Request, Error, State, Data]),
-    {next_state, shutdown, Data}.
+    {next_state, State#fsm{state = shutdown}, Data}.
 
 create_pdp_context_fun(#gtp{ie = #{?'Access Point Name' := #access_point_name{apn = APN}} = IEs} = Request,
 		       State, Data) ->

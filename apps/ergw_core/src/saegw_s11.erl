@@ -33,6 +33,7 @@
 -include_lib("ergw_aaa/include/diameter_3gpp_ts29_212.hrl").
 -include_lib("ergw_aaa/include/ergw_aaa_session.hrl").
 -include("include/ergw.hrl").
+-include("gtp_context.hrl").
 -include("saegw_s11.hrl").
 
 -import(ergw_aaa_session, [to_session/1]).
@@ -85,7 +86,7 @@ init(_Opts, Data) ->
     SessionOpts = ergw_aaa_session:get(Session),
     OCPcfg = maps:get('Offline-Charging-Profile', SessionOpts, #{}),
     PCC = #pcc_ctx{offline_charging_profile = OCPcfg},
-    {ok, run, Data#{'Session' => Session, pcc => PCC}}.
+    {ok, #fsm{state = run}, Data#{'Session' => Session, pcc => PCC}}.
 
 handle_event(enter, _OldState, _State, _Data) ->
     keep_state_and_data;
@@ -163,7 +164,7 @@ handle_request(ReqKey,
 
 handle_request(ReqKey,
 	       #gtp{type = delete_session_request, ie = IEs} = Request,
-	       _Resent, _State, #{left_tunnel := LeftTunnel} = Data0) ->
+	       _Resent, State, #{left_tunnel := LeftTunnel} = Data0) ->
     FqTEID = maps:get(?'Sender F-TEID for Control Plane', IEs, undefined),
 
     case match_tunnel(?'S11-C MME', LeftTunnel, FqTEID) of
@@ -171,7 +172,7 @@ handle_request(ReqKey,
 	    Data = ergw_gtp_gsn_lib:close_context(?API, normal, Data0),
 	    Response = response(delete_session_response, LeftTunnel, request_accepted),
 	    gtp_context:send_response(ReqKey, Request, Response),
-	    {next_state, shutdown, Data};
+	    {next_state, State#fsm{state = shutdown}, Data};
 
 	{error, ReplyIEs} ->
 	    Response = response(delete_session_response, LeftTunnel, ReplyIEs),
@@ -190,7 +191,7 @@ handle_response({CommandReqKey, OldSOpts},
 				#v2_bearer_context{
 				   group = #{?'Cause' := #v2_cause{v2_cause = BearerCause}}
 				  }} = IEs} = Response,
-		_Request, connected = State,
+		_Request, #fsm{state = connected} = State,
 		#{pfcp := PCtx, left_tunnel := LeftTunnel0, 'Session' := Session} = Data) ->
     gtp_context:request_finished(CommandReqKey),
 
@@ -210,23 +211,23 @@ handle_response({CommandReqKey, OldSOpts},
 	    delete_context(undefined, link_broken, State, DataNew)
     end;
 
-handle_response({CommandReqKey, _}, timeout, #gtp{type = update_bearer_request}, connected = State, Data) ->
+handle_response({CommandReqKey, _}, timeout, #gtp{type = update_bearer_request}, #fsm{state = connected} = State, Data) ->
     ?LOG(error, "Update Bearer Request failed with timeout"),
     gtp_context:request_finished(CommandReqKey),
     delete_context(undefined, link_broken, State, Data);
 
 handle_response({From, TermCause}, timeout, #gtp{type = delete_bearer_request},
-		_State, Data0) ->
+		State, Data0) ->
     Data = ergw_gtp_gsn_lib:close_context(?API, TermCause, Data0),
     if is_tuple(From) -> gen_statem:reply(From, {error, timeout});
        true -> ok
     end,
-    {next_state, shutdown, Data};
+    {next_state, State#fsm{state = shutdown}, Data};
 
 handle_response({From, TermCause},
 		#gtp{type = delete_bearer_response,
 		     ie = #{?'Cause' := #v2_cause{v2_cause = Cause}}} = Response,
-		_Request, _State, #{left_tunnel := LeftTunnel0} = Data0) ->
+		_Request, State, #{left_tunnel := LeftTunnel0} = Data0) ->
     LeftTunnel = gtp_path:bind(Response, LeftTunnel0),
 
     Data1 = Data0#{left_tunnel => LeftTunnel},
@@ -235,10 +236,10 @@ handle_response({From, TermCause},
     if is_tuple(From) -> gen_statem:reply(From, {ok, Cause});
        true -> ok
     end,
-    {next_state, shutdown, Data};
+    {next_state, State#fsm{state = shutdown}, Data};
 
-handle_response(_CommandReqKey, _Response, _Request, State, _Data)
-  when State =/= connected ->
+handle_response(_CommandReqKey, _Response, _Request, #fsm{state = ContextState}, _Data)
+  when ContextState =/= connected ->
     keep_state_and_data.
 
 terminate(_Reason, _State, #{pfcp := PCtx, context := Context}) ->
@@ -566,14 +567,14 @@ send_request(Tunnel, T3, N3, Type, RequestIEs, ReqInfo) ->
 send_request(Tunnel, Src, DstIP, DstPort, T3, N3, Msg, ReqInfo) ->
     gtp_context:send_request(Tunnel, Src, DstIP, DstPort, T3, N3, Msg, ReqInfo).
 
-delete_context(From, TermCause, connected, #{left_tunnel := Tunnel} = Data) ->
+delete_context(From, TermCause, #fsm{state = connected} = State, #{left_tunnel := Tunnel} = Data) ->
     Type = delete_bearer_request,
     EBI = 5,
     RequestIEs0 = [#v2_cause{v2_cause = reactivation_requested},
 		   #v2_eps_bearer_id{eps_bearer_id = EBI}],
     RequestIEs = gtp_v2_c:build_recovery(Type, Tunnel, false, RequestIEs0),
     send_request(Tunnel, ?T3, ?N3, Type, RequestIEs, {From, TermCause}),
-    {next_state, shutdown_initiated, Data};
+    {next_state, State#fsm{state = shutdown_initiated}, Data};
 delete_context(undefined, _, _, _) ->
     keep_state_and_data;
 delete_context(From, _, _, _) ->
