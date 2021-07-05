@@ -39,12 +39,11 @@ modify_bearer_ok(ReqKey,
 		      ie = #{?'Bearer Contexts to be modified' :=
 				 #v2_bearer_context{group = #{?'EPS Bearer ID' := EBI}}
 			    } = IEs} = Request,
-		 {Cause, SessionOpts},
-		 _State, #{context := Context, left_tunnel := LeftTunnel,
-			   bearer := Bearer} = Data) ->
+		 _, _State,
+		 #{context := Context, left_tunnel := LeftTunnel, bearer := Bearer} = Data) ->
     _ = ct:pal("~s", [?FUNCTION_NAME]),
-    ct:pal("Cause: ~p~nOpts: ~p~nIEs: ~p~nEBI: ~p~nTunnel: ~p~nBearer: ~p~nContext: ~p~n",
-	   [Cause, SessionOpts, IEs, EBI, LeftTunnel, Bearer, Context]),
+    ct:pal("IEs: ~p~nEBI: ~p~nTunnel: ~p~nBearer: ~p~nContext: ~p~n",
+	   [IEs, EBI, LeftTunnel, Bearer, Context]),
 
     ResponseIEs0 =
 	case maps:is_key(?'Sender F-TEID for Control Plane', IEs) of
