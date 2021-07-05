@@ -123,80 +123,9 @@ handle_request(_ReqKey, _Msg, true, _State, _Data) ->
 handle_request(ReqKey, #gtp{type = create_session_request} = Request, Resent, State, Data) ->
     saegw_s11_create_session:create_session(ReqKey, Request, Resent, State, Data);
 
-handle_request(ReqKey,
-	       #gtp{type = modify_bearer_request,
-		    ie = #{?'Bearer Contexts to be modified' :=
-			       #v2_bearer_context{group = #{?'EPS Bearer ID' := EBI}}
-			  } = IEs} = Request,
-	       _Resent, #{session := connected} = _State,
-	       #{context := Context, pfcp := PCtx0,
-		 left_tunnel := LeftTunnelOld,
-		 bearer := #{left := LeftBearerOld} = Bearer0,
-		 'Session' := Session, pcc := PCC} = Data) ->
-    {LeftTunnel0, LeftBearer} =
-	case update_tunnel_from_gtp_req(
-	       Request, LeftTunnelOld#tunnel{version = v2}, LeftBearerOld) of
-	    {ok, Result1} -> Result1;
-	    {error, Err1} -> throw(Err1#ctx_err{context = Context, tunnel = LeftTunnelOld})
-	end,
-    Bearer = Bearer0#{left => LeftBearer},
-
-    LeftTunnel = ergw_gtp_gsn_lib:update_tunnel_endpoint(LeftTunnelOld, LeftTunnel0),
-    {OldSOpts, NewSOpts} = update_session_from_gtp_req(IEs, Session, LeftTunnel, LeftBearer),
-    URRActions = gtp_context:collect_charging_events(OldSOpts, NewSOpts),
-    PCtx =
-	if LeftBearer /= LeftBearerOld ->
-		case ergw_gtp_gsn_lib:apply_bearer_change(
-		       Bearer, URRActions, true, PCtx0, PCC) of
-		    {ok, {RPCtx, SessionInfo}} ->
-			ergw_aaa_session:set(Session, SessionInfo),
-			RPCtx;
-		    {error, Err2} -> throw(Err2#ctx_err{context = Context, tunnel = LeftTunnel})
-		end;
-	   true ->
-		gtp_context:trigger_usage_report(self(), URRActions, PCtx0),
-		PCtx0
-	end,
-
-    ResponseIEs = [#v2_cause{v2_cause = request_accepted},
-		    #v2_bearer_context{
-		       group=[#v2_cause{v2_cause = request_accepted},
-			      EBI]}],
-    Response = response(modify_bearer_response, LeftTunnel, ResponseIEs, Request),
-    gtp_context:send_response(ReqKey, Request, Response),
-
-    DataNew = Data#{pfcp => PCtx, left_tunnel => LeftTunnel, bearer => Bearer},
-    Actions = context_idle_action([], Context),
-    {keep_state, DataNew, Actions};
-
-handle_request(ReqKey,
-	       #gtp{type = modify_bearer_request, ie = IEs} = Request,
-	       _Resent, #{session := connected} = _State,
-	       #{context := Context, pfcp := PCtx,
-		 left_tunnel := LeftTunnelOld, bearer := #{left := LeftBearerOld},
-		 'Session' := Session} = Data)
-  when not is_map_key(?'Bearer Contexts to be modified', IEs) ->
-    {LeftTunnel0, LeftBearer} =
-	case update_tunnel_from_gtp_req(
-	       Request, LeftTunnelOld#tunnel{version = v2}, LeftBearerOld) of
-	    {ok, Result1} -> Result1;
-	    {error, Err1} -> throw(Err1#ctx_err{context = Context, tunnel = LeftTunnelOld})
-	end,
-
-    LeftTunnel = ergw_gtp_gsn_lib:update_tunnel_endpoint(LeftTunnelOld, LeftTunnel0),
-    {OldSOpts, NewSOpts} = update_session_from_gtp_req(IEs, Session, LeftTunnel, LeftBearer),
-    URRActions = gtp_context:collect_charging_events(OldSOpts, NewSOpts),
-    gtp_context:trigger_usage_report(self(), URRActions, PCtx),
-
-    DataNew =
-	Data#{pfcp => PCtx, left_tunnel => LeftTunnel},
-
-    ResponseIEs = [#v2_cause{v2_cause = request_accepted}],
-    Response = response(modify_bearer_response, LeftTunnel, ResponseIEs, Request),
-    gtp_context:send_response(ReqKey, Request, Response),
-
-    Actions = context_idle_action([], Context),
-    {keep_state, DataNew, Actions};
+handle_request(ReqKey, #gtp{type = modify_bearer_request} = Request, Resent,
+	       #{session := connected} = State, Data) ->
+    saegw_s11_modify_bearer:modify_bearer(ReqKey, Request, Resent, State, Data);
 
 handle_request(#request{src = Src, ip = IP, port = Port} = ReqKey,
 	       #gtp{type = modify_bearer_command,
