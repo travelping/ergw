@@ -377,43 +377,28 @@ init({[Socket, Info, Version, Interface,
     {ok, State, LoopData} = Interface:init(Opts, Data),
     gen_statem:enter_loop(?MODULE, LoopOpts, State, LoopData).
 
-handle_event(info, {{'DOWN', ReqId}, _, _, _, Info}, State, #{'$async' := Async0} = Data0)
-  when is_map_key(ReqId, Async0) ->
-    {{_, Q, OkF, FailF}, Async} = maps:take(ReqId, Async0),
-    Data = Data0#{'$async' := Async},
-    next(statem_m:response(Q, {error, Info}, _, _), OkF, FailF, State, Data);
+handle_event(info, {{'DOWN', ReqId}, _, _, _, Info}, #{async := Async} = State, Data)
+  when is_map_key(ReqId, Async) ->
+    statem_m_continue(ReqId, {error, Info}, false, State, Data);
 handle_event(info, {{'DOWN', _}, _, _, _, _}, _, _) ->
     keep_state_and_data;
 
-handle_event(info, {ReqId, Result}, State, #{'$async' := Async0} = Data0)
-  when is_map_key(ReqId, Async0) ->
-    {{_, Q, OkF, FailF}, Async} = maps:take(ReqId, Async0),
-    Data = Data0#{'$async' := Async},
-    ?LOG(debug, "AsyncResult: ~p~n", [Result]),
-    next(statem_m:response(Q, Result, _, _), OkF, FailF, State, Data);
+handle_event(info, {ReqId, Result}, #{async := Async} = State, Data)
+  when is_map_key(ReqId, Async) ->
+    statem_m_continue(ReqId, Result, false, State, Data);
 
 %% OTP-24 style send_request responses.... WE REALLY SHOULD NOT BE DOING THIS
-handle_event(info, {'DOWN', ReqId, _, _, Info}, State, #{'$async' := Async0} = Data0)
-  when is_map_key(ReqId, Async0) ->
-    {{_, Q, OkF, FailF}, Async} = maps:take(ReqId, Async0),
-    Data = Data0#{'$async' := Async},
-    next(statem_m:response(Q, {error, Info}, _, _), OkF, FailF, State, Data);
-handle_event(info, {[alias|ReqId], Result}, State, #{'$async' := Async0} = Data0)
-  when is_map_key(ReqId, Async0) ->
-    {{Mref, Q, OkF, FailF}, Async} = maps:take(ReqId, Async0),
-    Data = Data0#{'$async' := Async},
-    demonitor(Mref, [flush]),
-    ?LOG(debug, "Result: ~p~n", [Result]),
-    next(statem_m:response(Q, Result, _, _), OkF, FailF, State, Data);
+handle_event(info, {'DOWN', ReqId, _, _, Info}, #{async := Async} = State, Data)
+  when is_map_key(ReqId, Async) ->
+    statem_m_continue(ReqId, {error, Info}, false, State, Data);
+handle_event(info, {[alias|ReqId], Result}, #{async := Async} = State, Data)
+  when is_map_key(ReqId, Async) ->
+    statem_m_continue(ReqId, Result, true, State, Data);
 
 %% OTP-23 style send_request responses.... WE REALLY SHOULD NOT BE DOING THIS
-handle_event(info, {{'$gen_request_id', ReqId}, Result}, State, #{'$async' := Async0} = Data0)
-  when is_map_key(ReqId, Async0) ->
-    {{Mref, Q, OkF, FailF}, Async} = maps:take(ReqId, Async0),
-    Data = Data0#{'$async' := Async},
-    demonitor(Mref, [flush]),
-    ?LOG(debug, "Result: ~p~n", [Result]),
-    next(statem_m:response(Q, Result, _, _), OkF, FailF, State, Data);
+handle_event(info, {{'$gen_request_id', ReqId}, Result}, #{async := Async} = State, Data)
+  when is_map_key(ReqId, Async) ->
+    statem_m_continue(ReqId, Result, true, State, Data);
 
 handle_event({call, From}, info, _, Data) ->
     {keep_state_and_data, [{reply, From, Data}]};
@@ -436,6 +421,15 @@ handle_event(enter, _OldState, #{session := shutdown}, _Data) ->
     %% guarantees that we process any left over messages first
     gen_statem:cast(self(), stop),
     keep_state_and_data;
+
+%% block all (other) calls, casts and infos while waiting
+%%  for the result of an asynchronous action
+handle_event({call, _}, _, #{async := Async}, _) when map_size(Async) /= 0 ->
+    {keep_state_and_data, [postpone]};
+handle_event(cast, _, #{async := Async}, _) when map_size(Async) /= 0 ->
+    {keep_state_and_data, [postpone]};
+handle_event(info, _, #{async := Async}, _) when map_size(Async) /= 0 ->
+    {keep_state_and_data, [postpone]};
 
 handle_event(cast, stop, #{session := shutdown}, _Data) ->
     {stop, normal};
@@ -1009,14 +1003,22 @@ next({ok, Result}, Fun, _, State, Data)
 next({error, Result}, _, Fun, State, Data)
   when is_function(Fun, 3) ->
     Fun(Result, State, Data);
-next({wait, ReqId, Q}, OkF, FailF, State, Data0)
+next({wait, ReqId, Q}, OkF, FailF, #{async := Async} = State, Data)
   when is_reference(ReqId),
        is_list(Q),
        is_function(OkF, 3),
        is_function(FailF, 3) ->
     Req = {ReqId, Q, OkF, FailF},
-    Data = maps:update_with('$async', maps:put(ReqId, Req, _), #{ReqId => Req}, Data0),
-    {next_state, State, Data}.
+    {next_state, State#{async := maps:put(ReqId, Req, Async)}, Data}.
+
+statem_m_continue(ReqId, Result, DeMonitor, #{async := Async0} = State, Data) ->
+    {{Mref, Q, OkF, FailF}, Async} = maps:take(ReqId, Async0),
+    case DeMonitor of
+	true -> demonitor(Mref, [flush]);
+	_ -> ok
+    end,
+    ?LOG(debug, "Result: ~p~n", [Result]),
+    next(statem_m:response(Q, Result, _, _), OkF, FailF, State#{async := Async}, Data).
 
 send_request(Fun) when is_function(Fun, 0) ->
     Owner = self(),
