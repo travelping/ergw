@@ -9,6 +9,10 @@
 
 -behaviour(gtp_api).
 
+%% interim measure, to make refactoring simpler
+-compile([export_all, nowarn_export_all]).
+-ignore_xref([?MODULE]).
+
 -compile([{parse_transform, do},
 	  {parse_transform, cut}]).
 
@@ -41,32 +45,6 @@
 %%====================================================================
 %% API
 %%====================================================================
-
--define('Cause',					{v2_cause, 0}).
--define('Recovery',					{v2_recovery, 0}).
--define('IMSI',						{v2_international_mobile_subscriber_identity, 0}).
--define('MSISDN',					{v2_msisdn, 0}).
--define('PDN Address Allocation',			{v2_pdn_address_allocation, 0}).
--define('RAT Type',					{v2_rat_type, 0}).
--define('Sender F-TEID for Control Plane',		{v2_fully_qualified_tunnel_endpoint_identifier, 0}).
--define('Access Point Name',				{v2_access_point_name, 0}).
--define('Bearer Contexts to be created',		{v2_bearer_context, 0}).
--define('Bearer Contexts to be modified',		{v2_bearer_context, 0}).
--define('Protocol Configuration Options',		{v2_protocol_configuration_options, 0}).
--define('ME Identity',					{v2_mobile_equipment_identity, 0}).
--define('APN-AMBR',					{v2_aggregate_maximum_bit_rate, 0}).
--define('Bearer Level QoS',				{v2_bearer_level_quality_of_service, 0}).
--define('EPS Bearer ID',                                {v2_eps_bearer_id, 0}).
--define('Indication',                                   {v2_indication, 0}).
-
--define('S1-U eNode-B', 0).
--define('S1-U SGW',     1).
--define('S5/S8-U SGW',  4).
--define('S5/S8-U PGW',  5).
--define('S5/S8-C SGW',  6).
--define('S5/S8-C PGW',  7).
--define('S11-C MME',    10).
--define('S11/S4-C SGW', 11).
 
 -define(CAUSE_OK(Cause), (Cause =:= request_accepted orelse
 			  Cause =:= request_accepted_partially orelse
@@ -142,67 +120,8 @@ handle_request(_ReqKey, _Msg, true, _State, _Data) ->
     %% resent request
     keep_state_and_data;
 
-handle_request(ReqKey,
-	       #gtp{type = create_session_request,
-		    ie = #{?'Access Point Name' := #v2_access_point_name{apn = APN},
-			   ?'Bearer Contexts to be created' :=
-			       #v2_bearer_context{group = #{?'EPS Bearer ID' := EBI}}
-			  } = IEs} = Request,
-	       _Resent, State,
-	       #{context := Context0, aaa_opts := AAAopts, node_selection := NodeSelect,
-		  left_tunnel := LeftTunnel0, bearer := #{left := LeftBearer0},
-		 'Session' := Session, pcc := PCC0} = Data) ->
-
-    Services = [{'x-3gpp-upf', 'x-sxb'}],
-
-    {ok, UpSelInfo} =
-	ergw_gtp_gsn_lib:connect_upf_candidates(APN, Services, NodeSelect, []),
-
-    PAA = maps:get(?'PDN Address Allocation', IEs, undefined),
-    DAF = proplists:get_bool('DAF', gtp_v2_c:get_indication_flags(IEs)),
-
-    Context1 = update_context_from_gtp_req(Request, Context0),
-
-    {LeftTunnel1, LeftBearer1} =
-	case update_tunnel_from_gtp_req(Request, LeftTunnel0, LeftBearer0) of
-	    {ok, Result1} -> Result1;
-	    {error, Err1} -> throw(Err1#ctx_err{context = Context1, tunnel = LeftTunnel0})
-	end,
-
-    LeftTunnel =
-	case gtp_path:bind_tunnel(LeftTunnel1) of
-	    {ok, LT} -> LT;
-	    {error, Err2} -> throw(Err2#ctx_err{context = Context1, tunnel = LeftTunnel1})
-	end,
-
-    gtp_context:terminate_colliding_context(LeftTunnel, Context1),
-
-    SessionOpts0 = pgw_s5s8:init_session(IEs, LeftTunnel, Context1, AAAopts),
-    SessionOpts1 = pgw_s5s8:init_session_from_gtp_req(IEs, AAAopts, LeftTunnel, LeftBearer1, SessionOpts0),
-    %% SessionOpts = init_session_qos(ReqQoSProfile, SessionOpts1),
-
-    {Verdict, Cause, SessionOpts, Context, Bearer, PCC4, PCtx} =
-       case ergw_gtp_gsn_lib:create_session(APN, pdn_alloc(PAA), DAF, UpSelInfo, Session,
-					    SessionOpts1, Context1, LeftTunnel, LeftBearer1, PCC0) of
-	   {ok, Result} -> Result;
-	   {error, Err} -> throw(Err)
-       end,
-
-    FinalData =
-	Data#{context => Context, pfcp => PCtx, pcc => PCC4,
-	      left_tunnel => LeftTunnel, bearer => Bearer},
-
-    ResponseIEs = create_session_response(Cause, SessionOpts, IEs, EBI, LeftTunnel, Bearer, Context),
-    Response = response(create_session_response, LeftTunnel, ResponseIEs, Request),
-    gtp_context:send_response(ReqKey, Request, Response),
-
-    case Verdict of
-	ok ->
-	    Actions = context_idle_action([], Context),
-	    {next_state, State#{session := connected}, FinalData, Actions};
-	_ ->
-	    {next_state, State#{session := shutdown}, FinalData}
-    end;
+handle_request(ReqKey, #gtp{type = create_session_request} = Request, Resent, State, Data) ->
+    saegw_s11_create_session:create_session(ReqKey, Request, Resent, State, Data);
 
 handle_request(ReqKey,
 	       #gtp{type = modify_bearer_request,
