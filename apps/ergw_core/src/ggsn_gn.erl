@@ -134,56 +134,17 @@ handle_request(_ReqKey, _Msg, true, _State, _Data) ->
 handle_request(ReqKey, #gtp{type = create_pdp_context_request} = Request, Resent, State, Data) ->
     ggsn_gn_create_pdp_context:create_pdp_context(ReqKey, Request, Resent, State, Data);
 
-handle_request(ReqKey,
-	       #gtp{type = update_pdp_context_request,
-		    ie = #{?'Quality of Service Profile' := ReqQoSProfile} = IEs} = Request,
-	       _Resent, #{session := connected} = _State,
-	       #{context := Context, pfcp := PCtx0,
-		 left_tunnel := LeftTunnelOld,
-		 bearer := #{left := LeftBearerOld} = Bearer0,
-		 'Session' := Session, pcc := PCC} = Data) ->
-    {LeftTunnel0, LeftBearer} =
-	case update_tunnel_from_gtp_req(
-	       Request, LeftTunnelOld#tunnel{version = v1}, LeftBearerOld) of
-	    {ok, Result1} -> Result1;
-	    {error, Err1} -> throw(Err1#ctx_err{context = Context, tunnel = LeftTunnelOld})
-	end,
-    Bearer = Bearer0#{left => LeftBearer},
-
-    LeftTunnel = ergw_gtp_gsn_lib:update_tunnel_endpoint(LeftTunnelOld, LeftTunnel0),
-    URRActions = update_session_from_gtp_req(IEs, Session, LeftTunnel, LeftBearer),
-    PCtx =
-	if LeftBearer /= LeftBearerOld ->
-		case ergw_gtp_gsn_lib:apply_bearer_change(
-		       Bearer, URRActions, false, PCtx0, PCC) of
-		    {ok, {RPCtx, SessionInfo}} ->
-			ergw_aaa_session:set(Session, SessionInfo),
-			RPCtx;
-		    {error, Err2} -> throw(Err2#ctx_err{context = Context, tunnel = LeftTunnel})
-		end;
-	   true ->
-		gtp_context:trigger_usage_report(self(), URRActions, PCtx0),
-		PCtx0
-	end,
-
-    ResponseIEs0 = [#cause{value = request_accepted},
-		    context_charging_id(Context),
-		    ReqQoSProfile],
-    ResponseIEs1 = tunnel_elements(LeftTunnel, ResponseIEs0),
-    ResponseIEs = bearer_elements(Bearer, ResponseIEs1),
-    Response = response(update_pdp_context_response, LeftTunnel, ResponseIEs, Request),
-    gtp_context:send_response(ReqKey, Request, Response),
-
-    DataNew = Data#{pfcp => PCtx, left_tunnel => LeftTunnel, bearer => Bearer},
-    Actions = context_idle_action([], Context),
-    {keep_state, DataNew, Actions};
+handle_request(ReqKey, #gtp{type = update_pdp_context_request} = Request, Resent,
+	       #{session := connected} = State, Data) ->
+    ggsn_gn_update_pdp_context:update_pdp_context(ReqKey, Request, Resent, State, Data);
 
 handle_request(ReqKey,
 	       #gtp{type = ms_info_change_notification_request, ie = IEs} = Request,
 	       _Resent, #{session := connected} = _State,
 	       #{context := Context, pfcp := PCtx, left_tunnel := LeftTunnel,
 		 bearer := #{left := LeftBearer}, 'Session' := Session}) ->
-    URRActions = update_session_from_gtp_req(IEs, Session, LeftTunnel, LeftBearer),
+    {OldSOpts, NewSOpts} = update_session_from_gtp_req(IEs, Session, LeftTunnel, LeftBearer),
+    URRActions = gtp_context:collect_charging_events(OldSOpts, NewSOpts),
     gtp_context:trigger_usage_report(self(), URRActions, PCtx),
 
     ResponseIEs0 = [#cause{value = request_accepted}],
@@ -536,7 +497,7 @@ update_session_from_gtp_req(IEs, Session, Tunnel, Bearer) ->
     NewSOpts =
 	maps:fold(copy_to_session(_, _, undefined, _), NewSOpts2, IEs),
     ergw_aaa_session:set(Session, NewSOpts),
-    gtp_context:collect_charging_events(OldSOpts, NewSOpts).
+    {OldSOpts, NewSOpts}.
 
 negotiate_qos_prio(X) when X > 0 andalso X =< 3 ->
     X;
