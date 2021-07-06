@@ -399,6 +399,15 @@ handle_event(enter, _OldState, #fsm{state = shutdown}, _Data) ->
     gen_statem:cast(self(), stop),
     keep_state_and_data;
 
+%% block all (other) calls, casts and infos while waiting
+%%  for the result of an asynchronous action
+handle_event({call, _}, _, #fsm{async = Async}, _) when map_size(Async) /= 0 ->
+    {keep_state_and_data, [postpone]};
+handle_event(cast, _, #fsm{async = Async}, _) when map_size(Async) /= 0 ->
+    {keep_state_and_data, [postpone]};
+handle_event(info, _, #fsm{async = Async}, _) when map_size(Async) /= 0 ->
+    {keep_state_and_data, [postpone]};
+
 handle_event(cast, stop, #fsm{state = shutdown}, _Data) ->
     {stop, normal};
 
