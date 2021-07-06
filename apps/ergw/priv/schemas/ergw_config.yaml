@@ -531,10 +531,10 @@ properties:
         type: integer
         default: 0
         
-  ergw_sbi_client:
+  sbi_client:
     type: object
     properties:
-      upf_selection_api:
+      upf_selection:
         type: object
         properties:
           endpoint:

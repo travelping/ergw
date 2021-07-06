@@ -21,9 +21,9 @@ validate_option(Fun, Opt, Value) when is_function(Fun, 2) ->
 validate_option(Fun, Opt, Value) when is_function(Fun, 1) ->
     Fun({Opt, Value}).
 
-validate_option(upf_selection_api = Opt, #{default := [_|_],
-                                           endpoint := [_|_] = URI,
-                                           timeout := T} = Value)
+validate_option(upf_selection = Opt, #{default := [_|_],
+				       endpoint := [_|_] = URI,
+				       timeout := T} = Value)
   when is_integer(T), T > 0->
       case uri_string:parse(URI) of
           #{host := _, path := _, scheme := _} ->

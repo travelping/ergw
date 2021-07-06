@@ -63,7 +63,7 @@ terminate(_Reason, _State) ->
 %%% Internal Functions
 %%% ============================================================================
 
-upf_selection(Data, #{upf_selection_api :=
+upf_selection(Data, #{upf_selection :=
   #{timeout := Timeout,uri := #{path := Path}} = Config} = State) ->
     case gun_open(Config) of
         {ok, Pid} ->
@@ -74,7 +74,7 @@ upf_selection(Data, #{upf_selection_api :=
                                  stream_ref => StreamRef,
                                  pid => Pid,
                                  acc => <<>>}),
-            {Resp, State#{upf_selection_api => Config#{pid => Pid}}};
+            {Resp, State#{upf_selection => Config#{pid => Pid}}};
         {error, timeout} = Resp ->
             {Resp, #{}};
         {error, _Reason} = Resp ->
@@ -82,10 +82,10 @@ upf_selection(Data, #{upf_selection_api :=
     end;
 upf_selection(Data, State) ->
     Config = #{endpoint := Endpoint} =
-        application:get_env(ergw_sbi_client, upf_selection_api, #{}),
+        application:get_env(ergw_sbi_client, upf_selection, #{}),
     case parse_uri(Endpoint) of
         #{} = URI ->
-            upf_selection(Data, State#{upf_selection_api => Config#{uri => URI}});
+            upf_selection(Data, State#{upf_selection => Config#{uri => URI}});
         Error ->
             {Error, #{}}
     end.
