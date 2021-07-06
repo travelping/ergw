@@ -27,16 +27,16 @@ start_link() ->
 %%                  modules => modules()}   % optional
 init([]) ->
     SupFlags = #{
-        strategy => one_for_all,
-        intensity => 0,
-        period => 1
+	strategy => one_for_all,
+	intensity => 0,
+	period => 1
     },
     ChildSpec = #{
-        id => ergw_sbi_client,
-        start => {ergw_sbi_client, start_link, []},
-        type => worker,
-        restart => permanent,
-        shutdown => 5000
+	id => ergw_sbi_client,
+	start => {ergw_sbi_client, start_link, []},
+	type => worker,
+	restart => permanent,
+	shutdown => 5000
     },
     {ok, {SupFlags, [ChildSpec]}}.
 
