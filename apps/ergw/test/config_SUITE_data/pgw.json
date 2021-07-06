@@ -361,8 +361,8 @@
         "len": 0,
         "prefix": 0
     },
-    "ergw_sbi_client": {
-        "upf_selection_api": {
+    "sbi_client": {
+        "upf_selection": {
             "endpoint": "https://example.com/nf-selection-api/v1",
             "timeout": {
                 "timeout": 500,
