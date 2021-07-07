@@ -87,15 +87,19 @@ split_location_info(<<MCC:3/bytes, MNC:2/bytes, Rest/binary>>, _Size) ->
 from_session(Session) ->
     maps:fold(fun from_session/3, #{}, Session).
 
-from_session('APN', V, Req) ->
-    Req#{<<"accessPointName">> => V};
+from_session('APN', [H|_] = V, Req) when is_binary(H) ->
+    Req#{<<"accessPointName">> => iolist_to_binary(lists:join($., V))};
 from_session('3GPP-IMSI', V, Req) ->
     Req#{<<"supi">> => <<"imsi-", V/binary>>};
 from_session('3GPP-SGSN-MCC-MNC', <<MCC:3/bytes, MNC/binary>>, Req) ->
     put_kv([<<"vPlmn">>, <<"plmnId">>], #{<<"mcc">> => MCC, <<"mnc">> => MNC}, Req);
 from_session('3GPP-SGSN-Address', V, Req) ->
     put_kv([<<"vPlmn">>, <<"cpAddress">>], from_ip(V), Req);
+from_session('3GPP-SGSN-IPv6-Address', V, Req) ->
+    put_kv([<<"vPlmn">>, <<"cpAddress">>], from_ip(V), Req);
 from_session('3GPP-SGSN-UP-Address', V, Req) ->
+    put_kv([<<"vPlmn">>, <<"upAddress">>], from_ip(V), Req);
+from_session('3GPP-SGSN-UP-IPv6-Address', V, Req) ->
     put_kv([<<"vPlmn">>, <<"upAddress">>], from_ip(V), Req);
 from_session('GTP-Version', v1, Req) ->
     Req#{<<"protocolType">> => <<"GTPv1">>};

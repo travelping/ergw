@@ -104,7 +104,7 @@ session() ->
       '3GPP-IMSI-MCC-MNC' => <<"11111">>,
 
       %% TBD:
-      'APN' => <<"example.net">>,
+      'APN' => [<<"example">>, <<"net">>],
       '3GPP-SGSN-UP-Address' => {127,127,127,127},
       'GTP-Version' => v2
      }.
