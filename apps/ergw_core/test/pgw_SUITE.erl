@@ -617,10 +617,12 @@ suite() ->
     [{timetrap,{seconds,30}}].
 
 init_per_suite(Config0) ->
+    Config1 = ergw_core_sbi_lib:init_per_suite(Config0),
     [{handler_under_test, ?HUT},
-     {app_cfg, ?TEST_CONFIG} | Config0].
+     {app_cfg, ?TEST_CONFIG} | Config1].
 
-end_per_suite(_Config) ->
+end_per_suite(Config) ->
+    ergw_core_sbi_lib:end_per_suite(Config),
     ok.
 
 init_per_group(common, Config) ->
@@ -672,6 +674,7 @@ common() ->
      path_maintenance,
      simple_session_request,
      simple_session_request_cp_teid,
+     simple_session_request_nf_sel,
      change_reporting_indication,
      duplicate_session_request,
      duplicate_session_slow,
@@ -836,6 +839,11 @@ init_per_testcase(path_maintenance, Config) ->
     Config;
 init_per_testcase(simple_session_request_cp_teid, Config) ->
     {ok, _} = ergw_test_sx_up:feature('pgw-u01', ftup, 0),
+    setup_per_testcase(Config),
+    Config;
+init_per_testcase(simple_session_request_nf_sel, Config) ->
+    {ok, _} = ergw_test_sx_up:feature('pgw-u01', ftup, 0),
+    ergw_sbi_client:setup(proplists:get_value(sbi_config, Config, #{})),
     setup_per_testcase(Config),
     Config;
 init_per_testcase(duplicate_session_slow, Config) ->
@@ -1052,6 +1060,10 @@ end_per_testcase(path_maintenance, Config) ->
     end_per_testcase(Config);
 end_per_testcase(simple_session_request_cp_teid, Config) ->
     {ok, _} = ergw_test_sx_up:feature('pgw-u01', ftup, 1),
+    end_per_testcase(Config);
+end_per_testcase(simple_session_request_nf_sel, Config) ->
+    {ok, _} = ergw_test_sx_up:feature('pgw-u01', ftup, 1),
+    ergw_sbi_client:setup(#{}),
     end_per_testcase(Config);
 end_per_testcase(duplicate_session_slow, Config) ->
     ok = meck:delete(gtp_context, handle_event, 4),
@@ -1649,6 +1661,52 @@ simple_session_request(Config) ->
 simple_session_request_cp_teid() ->
     [{doc, "Check simple Create Session, Delete Session sequence"}].
 simple_session_request_cp_teid(Config) ->
+    PoolId = [<<"pool-A">>, ipv4, "10.180.0.1"],
+
+    ?match_metric(prometheus_gauge, ergw_local_pool_free, PoolId, ?IPv4PoolSize),
+    ?match_metric(prometheus_gauge, ergw_local_pool_used, PoolId, 0),
+
+    {GtpC, _, _} = create_session(ipv4, Config),
+
+    ?match_metric(prometheus_gauge, ergw_local_pool_free, PoolId, ?IPv4PoolSize - 1),
+    ?match_metric(prometheus_gauge, ergw_local_pool_used, PoolId, 1),
+
+    delete_session(GtpC),
+
+    ?equal([], outstanding_requests()),
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+
+    ?match_metric(prometheus_gauge, ergw_local_pool_free, PoolId, ?IPv4PoolSize),
+    ?match_metric(prometheus_gauge, ergw_local_pool_used, PoolId, 0),
+
+    [SER|_] = lists:filter(
+		fun(#pfcp{type = session_establishment_request}) -> true;
+		   (_) ->false
+		end, ergw_test_sx_up:history('pgw-u01')),
+
+    ?match_map(#{create_pdr => '_', create_far => '_',  create_urr => '_'}, SER#pfcp.ie),
+    #{create_pdr := PDRs0} = SER#pfcp.ie,
+
+    PDRs = lists:sort(PDRs0),
+
+    ?LOG(debug, "PDRs: ~s", [pfcp_packet:pretty_print(PDRs)]),
+
+    ?match(
+       [#create_pdr{},
+	#create_pdr{group =
+			#{pdi :=
+			      #pdi{group =
+				       #{f_teid :=
+					     #f_teid{choose_id = undefined}}}}}],
+       PDRs),
+
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+simple_session_request_nf_sel() ->
+    [{doc, "Check simple Create Session, Delete Session sequence with NF selection API"}].
+simple_session_request_nf_sel(Config) ->
     PoolId = [<<"pool-A">>, ipv4, "10.180.0.1"],
 
     ?match_metric(prometheus_gauge, ergw_local_pool_free, PoolId, ?IPv4PoolSize),
