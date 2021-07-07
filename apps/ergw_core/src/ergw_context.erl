@@ -105,13 +105,14 @@ port_message_h(Request, #gtp{} = Msg) ->
 		port_message_run(Request, Msg)
 	    catch
 		throw:{error, Error} ->
-		    ?LOG(error, "handler failed with: ~p", [Error]),
-		    gtp_context:generic_error(Request, Msg, Error)
+		    Reason = handle_jobs_reason(Error),
+		    ?LOG(error, "handler failed with: ~p", [Reason]),
+		    gtp_context:generic_error(Request, Msg, Reason)
 	    after
 		jobs:done(Opaque)
 	    end;
 	{error, Reason} ->
-	    gtp_context:generic_error(Request, Msg, Reason)
+	    gtp_context:generic_error(Request, Msg, handle_jobs_reason(Reason))
     end.
 
 port_message_run(Request, #gtp{type = g_pdu} = Msg) ->
@@ -139,3 +140,10 @@ load_class(#gtp{version = v1} = Msg) ->
     gtp_v1_c:load_class(Msg);
 load_class(#gtp{version = v2} = Msg) ->
     gtp_v2_c:load_class(Msg).
+
+handle_jobs_reason(rejected = Reason) ->
+    Reason;
+handle_jobs_reason(timeout) ->
+    rate_limit;
+handle_jobs_reason(Reason) ->
+    Reason.
