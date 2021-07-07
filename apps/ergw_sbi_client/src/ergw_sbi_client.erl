@@ -158,18 +158,21 @@ upf_selection(Data, #{upf_selection :=
 				 acc => <<>>}),
 	    {Resp, State#{upf_selection => Config#{pid => Pid}}};
 	{error, timeout} = Resp ->
-	    {Resp, #{}};
+	    {Resp, State};
 	{error, _Reason} = Resp ->
-	    {Resp, #{}}
+	    {Resp, State}
     end;
 upf_selection(Data, State) ->
-    Config = #{endpoint := Endpoint} =
-	application:get_env(ergw_sbi_client, upf_selection, #{}),
-    case parse_uri(Endpoint) of
-	#{} = URI ->
-	    upf_selection(Data, State#{upf_selection => Config#{uri => URI}});
-	Error ->
-	    {Error, #{}}
+    case application:get_env(ergw_sbi_client, upf_selection, #{}) of
+	#{endpoint := Endpoint} = Config ->
+	    case parse_uri(Endpoint) of
+		#{} = URI ->
+		    upf_selection(Data, State#{upf_selection => Config#{uri => URI}});
+		Error ->
+		    {Error, State}
+	    end;
+	_ ->
+	    {{error, not_configured}, State}
     end.
 
 gun_open(#{pid := Pid} = Opts) when is_pid(Pid) ->
