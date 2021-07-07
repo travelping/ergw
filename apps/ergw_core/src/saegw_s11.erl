@@ -172,7 +172,7 @@ handle_request(ReqKey,
     gtp_context:terminate_colliding_context(LeftTunnel, Context1),
 
     SessionOpts0 = pgw_s5s8:init_session(IEs, LeftTunnel, Context1, AAAopts),
-    SessionOpts1 = pgw_s5s8:init_session_from_gtp_req(IEs, AAAopts, LeftTunnel, SessionOpts0),
+    SessionOpts1 = pgw_s5s8:init_session_from_gtp_req(IEs, AAAopts, LeftTunnel, LeftBearer1, SessionOpts0),
     %% SessionOpts = init_session_qos(ReqQoSProfile, SessionOpts1),
 
     {Verdict, Cause, SessionOpts, Context, Bearer, PCC4, PCtx} =
@@ -218,7 +218,7 @@ handle_request(ReqKey,
     Bearer = Bearer0#{left => LeftBearer},
 
     LeftTunnel = ergw_gtp_gsn_lib:update_tunnel_endpoint(Request, LeftTunnelOld, LeftTunnel0),
-    {OldSOpts, NewSOpts} = update_session_from_gtp_req(IEs, Session, LeftTunnel),
+    {OldSOpts, NewSOpts} = update_session_from_gtp_req(IEs, Session, LeftTunnel, LeftBearer),
     URRActions = gtp_context:collect_charging_events(OldSOpts, NewSOpts),
     PCtx =
 	if LeftBearer /= LeftBearerOld ->
@@ -252,7 +252,7 @@ handle_request(ReqKey,
 		 left_tunnel := LeftTunnelOld, bearer := #{left := LeftBearerOld},
 		 'Session' := Session} = Data)
   when not is_map_key(?'Bearer Contexts to be modified', IEs) ->
-    {LeftTunnel0, _LeftBearer} =
+    {LeftTunnel0, LeftBearer} =
 	case update_tunnel_from_gtp_req(
 	       Request, LeftTunnelOld#tunnel{version = v2}, LeftBearerOld) of
 	    {ok, Result1} -> Result1;
@@ -260,7 +260,7 @@ handle_request(ReqKey,
 	end,
 
     LeftTunnel = ergw_gtp_gsn_lib:update_tunnel_endpoint(Request, LeftTunnelOld, LeftTunnel0),
-    {OldSOpts, NewSOpts} = update_session_from_gtp_req(IEs, Session, LeftTunnel),
+    {OldSOpts, NewSOpts} = update_session_from_gtp_req(IEs, Session, LeftTunnel, LeftBearer),
     URRActions = gtp_context:collect_charging_events(OldSOpts, NewSOpts),
     gtp_context:trigger_usage_report(self(), URRActions, PCtx),
 
@@ -282,8 +282,9 @@ handle_request(#request{src = Src, ip = IP, port = Port} = ReqKey,
 			       #v2_bearer_context{
 				  group = #{?'EPS Bearer ID' := EBI} = Bearer}} = IEs},
 	       _Resent, _State,
-	       #{context := Context, left_tunnel := LeftTunnel, 'Session' := Session}) ->
-    {OldSOpts, _} = update_session_from_gtp_req(IEs, Session, LeftTunnel),
+	       #{context := Context, left_tunnel := LeftTunnel,
+		 bearer := #{left := LeftBearer}, 'Session' := Session}) ->
+    {OldSOpts, _} = update_session_from_gtp_req(IEs, Session, LeftTunnel, LeftBearer),
 
     Type = update_bearer_request,
     RequestIEs0 = [AMBR,
@@ -350,16 +351,17 @@ handle_response({CommandReqKey, OldSOpts},
 				   group = #{?'Cause' := #v2_cause{v2_cause = BearerCause}}
 				  }} = IEs} = Response,
 		_Request, connected = State,
-		#{pfcp := PCtx, left_tunnel := LeftTunnel0, 'Session' := Session} = Data) ->
+		#{pfcp := PCtx, left_tunnel := LeftTunnel0,bearer := #{left := LeftBearer},
+		  'Session' := Session} = Data) ->
     gtp_context:request_finished(CommandReqKey),
 
     LeftTunnel = gtp_path:bind(Response, LeftTunnel0),
     DataNew = Data#{left_tunnel => LeftTunnel},
 
-    {_, NewSOpts} = update_session_from_gtp_req(IEs, Session, LeftTunnel),
+    {_, NewSOpts} = update_session_from_gtp_req(IEs, Session, LeftTunnel, LeftBearer),
 
     if Cause =:= request_accepted andalso BearerCause =:= request_accepted ->
-	    {_, NewSOpts} = update_session_from_gtp_req(IEs, Session, LeftTunnel),
+	    {_, NewSOpts} = update_session_from_gtp_req(IEs, Session, LeftTunnel, LeftBearer),
 	    URRActions = gtp_context:collect_charging_events(OldSOpts, NewSOpts),
 	    gtp_context:trigger_usage_report(self(), URRActions, PCtx),
 	    {keep_state, DataNew};
@@ -497,7 +499,8 @@ copy_to_session(_, #v2_protocol_configuration_options{config = {0, Options}},
     lists:foldr(fun copy_ppp_to_session/2, Session, Options);
 copy_to_session(_, #v2_access_point_name{apn = APN}, _AAAopts, Session) ->
     {NI, _OI} = ergw_node_selection:split_apn(APN),
-    Session#{'Called-Station-Id' =>
+    Session#{'APN' => APN,
+	     'Called-Station-Id' =>
 		 iolist_to_binary(lists:join($., NI))};
 copy_to_session(_, #v2_msisdn{msisdn = MSISDN}, _AAAopts, Session) ->
     Session#{'Calling-Station-Id' => MSISDN, '3GPP-MSISDN' => MSISDN};
@@ -616,20 +619,32 @@ copy_qos_to_session(#{?'Bearer Contexts to be created' :=
 copy_qos_to_session(_, Session) ->
     Session.
 
-copy_tunnel_to_session(#tunnel{remote = #fq_teid{ip = {_,_,_,_} = IP}}, Session) ->
-    Session#{'3GPP-SGSN-Address' => IP};
-copy_tunnel_to_session(#tunnel{remote = #fq_teid{ip = {_,_,_,_,_,_,_,_} = IP}}, Session) ->
-    Session#{'3GPP-SGSN-IPv6-Address' => IP};
+ip_to_session({_,_,_,_} = IP, #{ip4 := Key}, Session) ->
+    Session#{Key => IP};
+ip_to_session({_,_,_,_,_,_,_,_} = IP, #{ip6 := Key}, Session) ->
+    Session#{Key => IP}.
+
+copy_tunnel_to_session(#tunnel{version = Version, remote = #fq_teid{ip = IP}}, Session) ->
+    ip_to_session(IP, #{ip4 => '3GPP-SGSN-Address',
+			ip6 => '3GPP-SGSN-IPv6-Address'},
+		  Session#{'GTP-Version' => Version});
 copy_tunnel_to_session(_, Session) ->
     Session.
 
-update_session_from_gtp_req(IEs, Session, Tunnel)
+copy_bearer_to_session(#bearer{remote = #fq_teid{ip = IP}}, Session) ->
+    ip_to_session(IP, #{ip4 => '3GPP-SGSN-UP-Address',
+			ip6 => '3GPP-SGSN-UP-IPv6-Address'}, Session);
+copy_bearer_to_session(_, Session) ->
+    Session.
+
+update_session_from_gtp_req(IEs, Session, Tunnel, Bearer)
   when is_record(Tunnel, tunnel) ->
     OldSOpts = ergw_aaa_session:get(Session),
     NewSOpts0 = copy_qos_to_session(IEs, OldSOpts),
     NewSOpts1 = copy_tunnel_to_session(Tunnel, NewSOpts0),
+    NewSOpts2 = copy_bearer_to_session(Bearer, NewSOpts1),
     NewSOpts =
-	maps:fold(copy_to_session(_, _, undefined, _), NewSOpts1, IEs),
+	maps:fold(copy_to_session(_, _, undefined, _), NewSOpts2, IEs),
     ergw_aaa_session:set(Session, NewSOpts),
     {OldSOpts, NewSOpts}.
 

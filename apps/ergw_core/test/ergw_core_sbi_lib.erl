@@ -17,7 +17,7 @@ init_per_suite(Config) ->
 	#{env =>
 	      #{dispatch =>
 		    cowboy_router:compile(
-		      [{'_', [{"/nf-selection", sbi_h, []}]}])
+		      [{'_', [{"/nf-selection", ergw_core_sbi_h, []}]}])
 	       }},
     {ok, _O} = cowboy:start_clear(?MODULE, [], ProtoOpts),
     Port = ranch:get_port(?MODULE),
