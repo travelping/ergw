@@ -256,7 +256,7 @@ handle_request(ReqKey,
     gtp_context:terminate_colliding_context(LeftTunnel, Context),
 
     SessionOpts0 = pgw_s5s8:init_session(IEs, LeftTunnel, Context, AAAopts),
-    SessionOpts = pgw_s5s8:init_session_from_gtp_req(IEs, AAAopts, LeftTunnel, SessionOpts0),
+    SessionOpts = pgw_s5s8:init_session_from_gtp_req(IEs, AAAopts, LeftTunnel, LeftBearer1, SessionOpts0),
 
     ProxyInfo =
 	case handle_proxy_info(SessionOpts, LeftTunnel, LeftBearer1, Context, Data) of

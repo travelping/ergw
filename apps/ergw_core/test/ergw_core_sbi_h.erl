@@ -1,4 +1,4 @@
--module(sbi_h).
+-module(ergw_core_sbi_h).
 
 -export([init/2, allowed_methods/2, content_types_accepted/2, to_json/2]).
 
