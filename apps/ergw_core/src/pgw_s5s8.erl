@@ -674,49 +674,25 @@ copy_to_session(_, #v2_selection_mode{mode = Mode}, _AAAopts, Session) ->
 copy_to_session(_, #v2_charging_characteristics{value = Value}, _AAAopts, Session) ->
     Session#{'3GPP-Charging-Characteristics' => Value};
 
-copy_to_session(_, #v2_serving_network{mcc = MCC, mnc = MNC}, _AAAopts, Session) ->
-    Session#{'3GPP-SGSN-MCC-MNC' => <<MCC/binary, MNC/binary>>};
+copy_to_session(_, #v2_serving_network{plmn_id = PLMN}, _AAAopts, Session) ->
+    Session#{'3GPP-SGSN-MCC-MNC' => PLMN};
 copy_to_session(_, #v2_mobile_equipment_identity{mei = IMEI}, _AAAopts, Session) ->
     Session#{'3GPP-IMEISV' => IMEI};
 copy_to_session(_, #v2_rat_type{rat_type = Type}, _AAAopts, Session) ->
     Session#{'3GPP-RAT-Type' => Type};
-
-%% 0        CGI
-%% 1        SAI
-%% 2        RAI
-%% 3-127    Spare for future use
-%% 128      TAI
-%% 129      ECGI
-%% 130      TAI and ECGI
-%% 131-255  Spare for future use
-
-copy_to_session(_, #v2_user_location_information{tai = TAI, ecgi = ECGI}, _AAAopts, Session)
-  when is_binary(TAI), is_binary(ECGI) ->
-    Value = <<130, TAI/binary, ECGI/binary>>,
-    Session#{'TAI' => TAI, 'ECGI' => ECGI, '3GPP-User-Location-Info' => Value};
-copy_to_session(_, #v2_user_location_information{ecgi = ECGI}, _AAAopts, Session)
-  when is_binary(ECGI) ->
-    Value = <<129, ECGI/binary>>,
-    Session#{'ECGI' => ECGI, '3GPP-User-Location-Info' => Value};
-copy_to_session(_, #v2_user_location_information{tai = TAI}, _AAAopts, Session)
-  when is_binary(TAI) ->
-    Value = <<128, TAI/binary>>,
-    Session#{'TAI' => TAI, '3GPP-User-Location-Info' => Value};
-copy_to_session(_, #v2_user_location_information{rai = RAI}, _AAAopts, Session)
-  when is_binary(RAI) ->
-    Value = <<2, RAI/binary>>,
-    Session#{'RAI' => RAI, '3GPP-User-Location-Info' => Value};
-copy_to_session(_, #v2_user_location_information{sai = SAI}, _AAAopts, Session0)
-  when is_binary(SAI) ->
-    Session = maps:without(['CGI'], Session0#{'SAI' => SAI}),
-    Value = <<1, SAI/binary>>,
-    Session#{'3GPP-User-Location-Info' => Value};
-copy_to_session(_, #v2_user_location_information{cgi = CGI}, _AAAopts, Session0)
-  when is_binary(CGI) ->
-    Session = maps:without(['SAI'], Session0#{'CGI' => CGI}),
-    Value = <<0, CGI/binary>>,
-    Session#{'3GPP-User-Location-Info' => Value};
-
+copy_to_session(_, #v2_user_location_information{} = Info, _AAAopts, Session) ->
+    ULI = lists:foldl(
+	    fun(X, S) when is_record(X, cgi)  -> S#{'CGI' => X};
+	       (X, S) when is_record(X, sai)  -> S#{'SAI' => X};
+	       (X, S) when is_record(X, rai)  -> S#{'RAI' => X};
+	       (X, S) when is_record(X, tai)  -> S#{'TAI' => X};
+	       (X, S) when is_record(X, ecgi) -> S#{'ECGI' => X};
+	       (X, S) when is_record(X, lai)  -> S#{'LAI' => X};
+	       (X, S) when is_record(X, macro_enb) -> S#{'macro-eNB' => X};
+	       (X, S) when is_record(X, ext_macro_enb) -> S#{'ext-macro-eNB' => X};
+	       (_, S) -> S
+	    end, #{}, tl(tuple_to_list(Info))),
+    Session#{'User-Location-Info' => ULI};
 copy_to_session(_, #v2_ue_time_zone{timezone = TZ, dst = DST}, _AAAopts, Session) ->
     Session#{'3GPP-MS-TimeZone' => {TZ, DST}};
 copy_to_session(_, _, _AAAopts, Session) ->

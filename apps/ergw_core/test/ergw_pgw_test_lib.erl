@@ -364,10 +364,10 @@ create_session_request(Base, N,
 	 #v2_msisdn{msisdn = MSISDN},
 	 #v2_rat_type{rat_type = RAT},
 	 #v2_selection_mode{mode = 0},
-	 #v2_serving_network{mcc = <<"001">>, mnc = <<"001">>},
+	 #v2_serving_network{plmn_id = ergw_test_lib:plmn(1,1)},
 	 #v2_ue_time_zone{timezone = 10, dst = 0},
-	 #v2_user_location_information{tai = <<3,2,22,214,217>>,
-				       ecgi = <<3,2,22,8,71,9,92>>}],
+	 #v2_user_location_information{tai = ergw_test_lib:tai(1, 1, 55001),
+				       ecgi = ergw_test_lib:ecgi(1, 1, 138873180)}],
     IEs = make_pdn_type(simple, IEs0),
     #gtp{version = v2, type = create_session_request, tei = 0,
 	 seq_no = SeqNo, ie = IEs}.
@@ -426,10 +426,10 @@ make_request(create_session_request, SubType,
 	 #v2_msisdn{msisdn = ?'MSISDN'},
 	 #v2_rat_type{rat_type = RAT},
 	 #v2_selection_mode{mode = 0},
-	 #v2_serving_network{mcc = <<"001">>, mnc = <<"001">>},
+	 #v2_serving_network{plmn_id = ergw_test_lib:plmn(1,1)},
 	 #v2_ue_time_zone{timezone = 10, dst = 0},
-	 #v2_user_location_information{tai = <<3,2,22,214,217>>,
-				       ecgi = <<3,2,22,8,71,9,92>>}],
+	 #v2_user_location_information{tai = ergw_test_lib:tai(1, 1, 55001),
+				       ecgi = ergw_test_lib:ecgi(1, 1, 138873180)}],
     IEs1 = make_pdn_type(SubType, IEs0),
     IEs = make_indication(SubType, IEs1),
     #gtp{version = v2, type = create_session_request, tei = 0,
@@ -459,10 +459,8 @@ make_request(modify_bearer_request, secondary_rat_usage_data_report,
 		   local_control_tei = LocalCntlTEI,
 		   remote_control_tei = RemoteCntlTEI,
 		   rat_type = RAT}) ->
-    MCCMNC = <<16#00, 16#11, 16#00>>,       %% MCC => 001, MNC => 001
-    ULI = #v2_user_location_information{
-	     tai  = <<MCCMNC/binary, 20263:16>>,
-	     ecgi = <<MCCMNC/binary, 0:4, 138873180:28>>},
+    ULI = #v2_user_location_information{tai = ergw_test_lib:tai(1, 1, 20263),
+					ecgi = ergw_test_lib:ecgi(1, 1, 138873180)},
     IEs = [#v2_recovery{restart_counter = RCnt},
 	   #v2_ue_time_zone{timezone = 10, dst = 0},
 	   ULI,
@@ -494,17 +492,14 @@ make_request(modify_bearer_request, SubType,
 		   remote_control_tei = RemoteCntlTEI,
 		   rat_type = RAT})
   when SubType == simple; SubType == ra_update ->
-    MCCMNC = <<16#00, 16#11, 16#00>>,       %% MCC => 001, MNC => 001
     ULI =
 	case SubType of
 	    ra_update ->
-		#v2_user_location_information{
-		   tai  = <<MCCMNC/binary, (SeqNo band 16#ffff):16>>,
-		   ecgi = <<MCCMNC/binary, 0:4, 138873180:28>>};
+		#v2_user_location_information{tai = ergw_test_lib:tai(1, 1, SeqNo band 16#ffff),
+					      ecgi = ergw_test_lib:ecgi(1, 1, 138873180)};
 	    _ ->
-		#v2_user_location_information{
-		   tai  = <<MCCMNC/binary, 20263:16>>,
-		   ecgi = <<MCCMNC/binary, 0:4, 138873180:28>>}
+		#v2_user_location_information{tai = ergw_test_lib:tai(1, 1, 55001),
+					      ecgi = ergw_test_lib:ecgi(1, 1, 138873180)}
 	end,
     IEs = [#v2_recovery{restart_counter = RCnt},
 	   #v2_ue_time_zone{timezone = 10, dst = 0},
@@ -540,8 +535,8 @@ make_request(change_notification_request, simple,
     IEs = [#v2_recovery{restart_counter = RCnt},
 	   #v2_rat_type{rat_type = RAT},
 	   #v2_ue_time_zone{timezone = 10, dst = 0},
-	   #v2_user_location_information{tai = <<3,2,22,214,217>>,
-					 ecgi = <<3,2,22,8,71,9,92>>}
+	   #v2_user_location_information{tai = ergw_test_lib:tai(1, 1, 55001),
+					 ecgi = ergw_test_lib:ecgi(1, 1, 138873180)}
 	  ],
 
     #gtp{version = v2, type = change_notification_request, tei = RemoteCntlTEI,
@@ -574,8 +569,8 @@ make_request(change_notification_request, without_tei,
 	      imsi = ?'IMSI'},
 	   #v2_mobile_equipment_identity{mei = ?IMEISV},
 	   #v2_ue_time_zone{timezone = 10, dst = 0},
-	   #v2_user_location_information{tai = <<3,2,22,214,217>>,
-					 ecgi = <<3,2,22,8,71,9,92>>}
+	   #v2_user_location_information{tai = ergw_test_lib:tai(1, 1, 55001),
+					 ecgi = ergw_test_lib:ecgi(1, 1, 138873180)}
 	  ],
 
     #gtp{version = v2, type = change_notification_request, tei = 0,
@@ -597,8 +592,8 @@ make_request(delete_session_request, fq_teid,
     IEs = [#v2_recovery{restart_counter = RCnt},
 	   #v2_eps_bearer_id{eps_bearer_id = 5},
 	   fq_teid(0, ?'S5/S8-C SGW', LocalCntlTEI, LocalIP),
-	   #v2_user_location_information{tai = <<3,2,22,214,217>>,
-					 ecgi = <<3,2,22,8,71,9,92>>}],
+	   #v2_user_location_information{tai = ergw_test_lib:tai(1, 1, 55001),
+					 ecgi = ergw_test_lib:ecgi(1, 1, 138873180)}],
 
     #gtp{version = v2, type = delete_session_request,
 	 tei = RemoteCntlTEI, seq_no = SeqNo, ie = IEs};
@@ -621,8 +616,8 @@ make_request(delete_session_request, SubType,
     IEs = [#v2_recovery{restart_counter = RCnt},
 	   #v2_eps_bearer_id{eps_bearer_id = 5},
 	   FqTEID,
-	   #v2_user_location_information{tai = <<3,2,22,214,217>>,
-					 ecgi = <<3,2,22,8,71,9,92>>}],
+	   #v2_user_location_information{tai = ergw_test_lib:tai(1, 1, 55001),
+					 ecgi = ergw_test_lib:ecgi(1, 1, 138873180)}],
 
     #gtp{version = v2, type = delete_session_request,
 	 tei = RemoteCntlTEI, seq_no = SeqNo, ie = IEs};

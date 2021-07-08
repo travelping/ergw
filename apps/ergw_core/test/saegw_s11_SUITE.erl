@@ -1175,7 +1175,7 @@ session_options(Config) ->
 		   '3GPP-MSISDN' => ?MSISDN,
 		   '3GPP-RAT-Type' => 6,
 		   '3GPP-IMSI' => ?IMSI,
-		   '3GPP-User-Location-Info' => '_',
+		   'User-Location-Info' => '_',
 
 		   'QoS-Information' =>
 		       #{
@@ -1652,7 +1652,7 @@ simple_ocs(Config) ->
 	  %% '3GPP-PDP-Type' => 'IPv4v6',
 	  '3GPP-RAT-Type' => 6,
 	  '3GPP-SGSN-MCC-MNC' => '_',
-	  '3GPP-User-Location-Info' => '_',
+	  'User-Location-Info' => '_',
 	  %% 'Acct-Interim-Interval' => '?????',
 	  %% 'Bearer-Operation' => '?????',
 	  'Called-Station-Id' =>
@@ -1660,7 +1660,6 @@ simple_ocs(Config) ->
 	  'Calling-Station-Id' => ?MSISDN,
 	  'Charging-Rule-Base-Name' => <<"m2m0001">>,
 	  'Diameter-Session-Id' => '_',
-	  'ECGI' => '_',
 	  'Event-Trigger' => '_',
 	  'Framed-IP-Address' => {10, '_', '_', '_'},
 	  %% 'Framed-IPv6-Prefix' => {{16#8001, 0, '_', '_', '_', '_', '_', '_'},64},
@@ -1684,11 +1683,9 @@ simple_ocs(Config) ->
 	       },
 
 	  %% 'Requested-IP-Address' => '_',
-	  %% 'SAI' => '?????',
 	  'Service-Type' => 'Framed-User',
 	  'Session-Id' => '_',
 	  'Session-Start' => '_',
-	  'TAI' => '_',
 	  'Username' => '_'
 	 },
     ?match_map(Expected, Session),
