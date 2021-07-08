@@ -259,13 +259,8 @@ make_request(create_pdp_context_request, SubType,
 	 #selection_mode{mode = 0},
 	 #tunnel_endpoint_identifier_control_plane{tei = LocalCntlTEI},
 	 #tunnel_endpoint_identifier_data_i{tei = LocalDataTEI},
-	 #user_location_information{type = 1,
-				    mcc = <<"001">>,
-				    mnc = <<"001">>,
-				    lac = 11,
-				    ci  = 0,
-				    sac = 20263,
-				    rac = 0}],
+	 #user_location_information{location = smc_test_lib:sai(1, 1, 11, 20263)}
+	],
     IEs = make_pdp_type(SubType, IEs0),
 
     Req = #gtp{version = v1, type = create_pdp_context_request, tei = 0,
@@ -282,13 +277,10 @@ make_request(update_pdp_context_request, SubType,
     ULI =
 	case SubType of
 	    ra_update ->
-		#user_location_information
-		    {type = 1, mcc = <<"001">>, mnc = <<"001">>,
-		     lac = 11, ci  = 0, sac = SeqNo band 16#ffff, rac = 0};
+		#user_location_information{location =
+					       smc_test_lib:sai(1, 1, 11, SeqNo band 16#ffff)};
 	    _ ->
-		#user_location_information
-		    {type = 1, mcc = <<"001">>, mnc = <<"001">>,
-		     lac = 11, ci  = 0, sac = 20263, rac = 0}
+		#user_location_information{location = smc_test_lib:sai(1, 1, 11, 20263)}
 	end,
 
     IEs = [#recovery{restart_counter = RCnt},
@@ -314,13 +306,7 @@ make_request(ms_info_change_notification_request, without_tei,
 	   #rat_type{rat_type = RAT},
 	   #imei{imei = <<"1234567890123456">>},
 	   #international_mobile_subscriber_identity{imsi = ?IMSI},
-	   #user_location_information{type = 1,
-				      mcc = <<"001">>,
-				      mnc = <<"001">>,
-				      lac = 11,
-				      ci  = 0,
-				      sac = 20263,
-				      rac = 0}
+	   #user_location_information{location = smc_test_lib:sai(1, 1, 11, 20263)}
 	  ],
 
     #gtp{version = v1, type = ms_info_change_notification_request, tei = 0,
@@ -333,13 +319,7 @@ make_request(ms_info_change_notification_request, invalid_imsi,
 	   #rat_type{rat_type = RAT},
 	   #international_mobile_subscriber_identity{
 	      imsi = <<"991111111111111">>},
-	   #user_location_information{type = 1,
-				      mcc = <<"001">>,
-				      mnc = <<"001">>,
-				      lac = 11,
-				      ci  = 0,
-				      sac = 20263,
-				      rac = 0}
+	   #user_location_information{location = smc_test_lib:sai(1, 1, 11, 20263)}
 	  ],
 
     #gtp{version = v1, type = ms_info_change_notification_request, tei = 0,
@@ -351,13 +331,7 @@ make_request(ms_info_change_notification_request, _SubType,
 		   rat_type = RAT}) ->
     IEs = [#recovery{restart_counter = RCnt},
 	   #rat_type{rat_type = RAT},
-	   #user_location_information{type = 1,
-				      mcc = <<"001">>,
-				      mnc = <<"001">>,
-				      lac = 11,
-				      ci  = 0,
-				      sac = 20263,
-				      rac = 0}
+	   #user_location_information{location = smc_test_lib:sai(1, 1, 11, 20263)}
 	  ],
 
     #gtp{version = v1, type = ms_info_change_notification_request,

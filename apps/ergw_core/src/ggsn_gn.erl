@@ -385,11 +385,6 @@ map_username(IEs, [H | Rest], Acc) ->
     Part = map_attr(H, IEs),
     map_username(IEs, Rest, [Part | Acc]).
 
-hexstr(Value, _Width) when is_binary(Value) ->
-    erlang:iolist_to_binary([io_lib:format("~2.16.0B", [X]) || <<X>> <= Value]);
-hexstr(Value, Width) when is_integer(Value) ->
-     erlang:iolist_to_binary(io_lib:format("~*.16.0B", [Width, Value])).
-
 %% init_session/4
 init_session(IEs, #tunnel{local = #fq_teid{ip = LocalIP}},
 	     #context{charging_identifier = ChargingId},
@@ -508,28 +503,23 @@ copy_to_session(_, #selection_mode{mode = Mode}, _AAAopts, Session) ->
     Session#{'3GPP-Selection-Mode' => Mode};
 copy_to_session(_, #charging_characteristics{value = Value}, _AAAopts, Session) ->
     Session#{'3GPP-Charging-Characteristics' => Value};
-copy_to_session(_, #routeing_area_identity{mcc = MCC, mnc = MNC,
-					   lac = LAC, rac = RAC}, _AAAopts, Session) ->
-    RAI = <<MCC/binary, MNC/binary, (hexstr(LAC, 4))/binary, (hexstr(RAC, 2))/binary>>,
-    Session#{'RAI' => RAI,
-	     '3GPP-SGSN-MCC-MNC' => <<MCC/binary, MNC/binary>>};
+copy_to_session(_, #routeing_area_identity{identity = #rai{plmn_id = PLMN} = RAI},
+		_AAAopts, Session) ->
+    maps:update_with('User-Location-Info', _#{'RAI' => RAI}, #{'RAI' => RAI},
+		     Session#{'3GPP-SGSN-MCC-MNC' => PLMN});
 copy_to_session(_, #imei{imei = IMEI}, _AAAopts, Session) ->
     Session#{'3GPP-IMEISV' => IMEI};
 copy_to_session(_, #rat_type{rat_type = Type}, _AAAopts, Session) ->
     Session#{'3GPP-RAT-Type' => Type};
-copy_to_session(_, #user_location_information{type = Type, mcc = MCC, mnc = MNC, lac = LAC,
-					      ci = CI, sac = SAC} = IE, _AAAopts, Session0) ->
-    Session = if Type == 0 ->
-		      CGI = <<MCC/binary, MNC/binary, LAC:16, CI:16>>,
-		      maps:without(['SAI'], Session0#{'CGI' => CGI});
-		 Type == 1 ->
-		      SAI = <<MCC/binary, MNC/binary, LAC:16, SAC:16>>,
-		      maps:without(['CGI'], Session0#{'SAI' => SAI});
-		 true ->
-		      Session0
-	      end,
-    Value = gtp_packet:encode_v1_uli(IE),
-    Session#{'3GPP-User-Location-Info' => Value};
+copy_to_session(_, #user_location_information{location = Location}, _AAAopts, Session) ->
+    ULI0 = maps:with(['RAI'], maps:get('User-Location-Info', Session, #{})),
+    ULI = case Location of
+	      #cgi{} -> ULI0#{'CGI' => Location};
+	      #sai{} -> ULI0#{'SAI' => Location};
+	      #rai{} -> ULI0#{'RAI' => Location};
+	      _      -> ULI0
+	  end,
+    Session#{'User-Location-Info' => ULI};
 copy_to_session(_, #ms_time_zone{timezone = TZ, dst = DST}, _AAAopts, Session) ->
     Session#{'3GPP-MS-TimeZone' => {TZ, DST}};
 copy_to_session(_, _, _AAAopts, Session) ->

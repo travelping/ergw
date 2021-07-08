@@ -206,7 +206,7 @@ proxy_info(Session,
 	   #bearer{remote = #fq_teid{ip = GsnU}},
 	   #context{apn = APN, imsi = IMSI, imei = IMEI, msisdn = MSISDN}) ->
     Keys = [{'3GPP-RAT-Type', 'ratType'},
-	    {'3GPP-User-Location-Info', 'userLocationInfo'},
+	    {'User-Location-Info', 'userLocationInfo'},
 	    {'RAI', rai}],
     PI = lists:foldl(
 	   fun({Key, MapTo}, P) when is_map_key(Key, Session) ->

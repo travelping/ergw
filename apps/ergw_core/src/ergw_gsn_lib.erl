@@ -286,19 +286,21 @@ optional_if_unset(K, V, M) ->
 
 init_cev_from_session(Now, SessionOpts) ->
     Keys = ['Charging-Rule-Base-Name', 'QoS-Information',
-	    '3GPP-User-Location-Info', '3GPP-RAT-Type',
+	    'User-Location-Info', '3GPP-RAT-Type',
 	    '3GPP-Charging-Id',
 	    '3GPP-SGSN-Address', '3GPP-SGSN-IPv6-Address'],
     Init = #{'Change-Time' =>
 		 [calendar:system_time_to_universal_time(Now + erlang:time_offset(), native)]},
     Container =
-	maps:fold(fun(K, V, M) when K == '3GPP-User-Location-Info';
-				    K == '3GPP-RAT-Type';
+	maps:fold(fun(K, V, M) when K == '3GPP-RAT-Type';
 				    K == '3GPP-Charging-Id' ->
 			  M#{K => [ergw_aaa_diameter:'3gpp_from_session'(K, V)]};
 		     (K, V, M) when K == '3GPP-SGSN-Address';
 				    K == '3GPP-SGSN-IPv6-Address' ->
 			  M#{'SGSN-Address' => [V]};
+		     ('User-Location-Info' = K, V, M) ->
+			  M#{'3GPP-User-Location-Info' =>
+				 [ergw_aaa_diameter:'3gpp_from_session'(K, V)]};
 		     (K, V, M) -> M#{K => [V]}
 		  end,
 		  Init, maps:with(Keys, SessionOpts)),

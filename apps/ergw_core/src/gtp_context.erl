@@ -125,7 +125,17 @@ trigger_delete_context(Context) ->
     gen_statem:cast(Context, {delete_context, administrative}).
 
 %% TODO: add online charing events
-collect_charging_events(OldS, NewS) ->
+collect_charging_events(OldS0, NewS0) ->
+    Fields = ['3GPP-MS-TimeZone',
+	      'QoS-Information',
+	      '3GPP-RAT-Type',
+	      '3GPP-SGSN-Address',
+	      '3GPP-SGSN-IPv6-Address',
+	      '3GPP-SGSN-MCC-MNC',
+	      'User-Location-Info'],
+    OldS = maps:merge(maps:with(Fields, OldS0), maps:get('User-Location-Info', OldS0)),
+    NewS = maps:merge(maps:with(Fields, NewS0), maps:get('User-Location-Info', NewS0)),
+
     EvChecks =
 	[
 	 {'CGI',                     'cgi-sai-change'},
@@ -141,7 +151,7 @@ collect_charging_events(OldS, NewS) ->
 	 {'3GPP-SGSN-MCC-MNC',       'sgsn-sgw-plmn-id-change'},
 	 {'TAI',                     'tai-change'},
 	 %%{ qos, 'tariff-switch-change'},
-	 {'3GPP-User-Location-Info', 'user-location-info-change'}
+	 {'User-Location-Info', 'user-location-info-change'}
 	],
 
     Events =

@@ -45,6 +45,9 @@
 -export([match_map/4, maps_key_length/2]).
 -export([init_ets/1]).
 -export([set_online_charging/1, set_apn_key/2, load_aaa_answer_config/1, set_path_timers/1]).
+-export([plmn/2, cgi/2, cgi/4, sai/2, sai/4, rai/3, rai/4,
+	 tai/2, tai/3, ecgi/2, ecgi/3, lai/2, lai/3,
+	 macro_enb/2, macro_enb/3, ext_macro_enb/2, ext_macro_enb/3]).
 
 -include("ergw_test_lib.hrl").
 -include_lib("stdlib/include/ms_transform.hrl").
@@ -969,3 +972,63 @@ set_path_timers(SetTimers) ->
     {ok, Timers} = ergw_core_config:get([path_management], undefined),
     NewTimers = maps_recusive_merge(Timers, SetTimers),
     ok = ergw_core_config:put(path_management, NewTimers).
+
+%%%===================================================================
+%%% common helpers for location data types
+%%%===================================================================
+
+plmn(CC, NC) ->
+    MCC = iolist_to_binary(io_lib:format("~3..0b", [CC])),
+    S = itu_e212:mcn_size(MCC),
+    MNC = iolist_to_binary(io_lib:format("~*..0b", [S, NC])),
+    {MCC, MNC}.
+
+cgi(CC, NC, LAC, CI) ->
+    #cgi{plmn_id = plmn(CC, NC), lac = LAC, ci = CI}.
+
+cgi(CC, NC) ->
+    cgi(CC, NC, rand:uniform(16#ffff), rand:uniform(16#ffff)).
+
+sai(CC, NC, LAC, SAC) ->
+    #sai{plmn_id = plmn(CC, NC), lac = LAC, sac = SAC}.
+
+sai(CC, NC) ->
+    sai(CC, NC, rand:uniform(16#ffff), rand:uniform(16#ffff)).
+
+rai(CC, NC, LAC, RAC) ->
+    #rai{plmn_id = plmn(CC, NC), lac = LAC, rac = RAC}.
+
+rai(v1, CC, NC) ->
+    rai(CC, NC, rand:uniform(16#ffff), (rand:uniform(16#ff) bsl 8) bor 16#ff);
+rai(v2, CC, NC) ->
+    rai(CC, NC, rand:uniform(16#ffff), rand:uniform(16#ffff)).
+
+tai(CC, NC, TAC) ->
+    #tai{plmn_id = plmn(CC, NC), tac = TAC}.
+
+tai(CC, NC) ->
+    tai(CC, NC, rand:uniform(16#ffff)).
+
+ecgi(CC, NC, ECI) ->
+    #ecgi{plmn_id = plmn(CC, NC), eci = ECI}.
+
+ecgi(CC, NC) ->
+    ecgi(CC, NC, rand:uniform(16#fffffff)).
+
+lai(CC, NC, LAC) ->
+    #lai{plmn_id = plmn(CC, NC), lac = LAC}.
+
+lai(CC, NC) ->
+    lai(CC, NC, rand:uniform(16#ffff)).
+
+macro_enb(CC, NC, MeNB) ->
+    #macro_enb{plmn_id = plmn(CC, NC), id = MeNB}.
+
+macro_enb(CC, NC) ->
+    macro_enb(CC, NC, rand:uniform(16#fffff)).
+
+ext_macro_enb(CC, NC, EMeNB) ->
+    #ext_macro_enb{plmn_id = plmn(CC, NC), id = EMeNB}.
+
+ext_macro_enb(CC, NC) ->
+    ext_macro_enb(CC, NC, rand:uniform(16#1fffff)).
