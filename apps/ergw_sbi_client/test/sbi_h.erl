@@ -21,24 +21,24 @@ read_body(Req0, Acc) ->
 to_json(Req0, State) ->
     {ok, Data, Req1} = read_body(Req0, <<>>),
     JSON = jsx:decode(Data, [{labels, binary}, return_maps]),
+
+    JsonHeaders = #{<<"content-type">> => <<"application/json;charset=utf-8">>},
+    ProblemHeaders = #{<<"content-type">> => <<"application/problem+json">>},
+
     case JSON of
 	#{<<"gpsi">> := <<"msisdn-440000000000">>} ->
-	    Headers = #{<<"content-type">> => <<"application/json">>},
 	    Body = jsx:encode(#{<<"ipv4Addr">> => <<"127.0.0.1">>}),
-	    Resp = cowboy_req:reply(200, Headers, Body, Req1),
+	    Resp = cowboy_req:reply(200, JsonHeaders, Body, Req1),
 	    {stop, Resp, State};
 	#{<<"gpsi">> := <<"msisdn-440000000001">>} ->
-	    Headers = #{<<"content-type">> => <<"application/json">>},
 	    Body = jsx:encode(#{<<"ipv6Addr">> => <<"::1">>}),
-	    Resp = cowboy_req:reply(200, Headers, Body, Req1),
+	    Resp = cowboy_req:reply(200, JsonHeaders, Body, Req1),
 	    {stop, Resp, State};
 	#{<<"gpsi">> := <<"msisdn-440000000002">>} ->
-	    Headers = #{<<"content-type">> => <<"application/json">>},
 	    Body = jsx:encode(#{<<"fqdn">> => <<"test.node.epc">>}),
-	    Resp = cowboy_req:reply(200, Headers, Body, Req1),
+	    Resp = cowboy_req:reply(200, JsonHeaders, Body, Req1),
 	    {stop, Resp, State};
 	_ ->
-	    Headers = #{<<"content-type">> => <<"application/problem+json">>},
 	    Error =
 		#{<<"type">>     => <<"type">>,
 		  <<"titel">>    => <<"title">>,
@@ -50,6 +50,6 @@ to_json(Req0, State) ->
 		      []
 		 },
 	    Body = jsx:encode(Error),
-	    Resp = cowboy_req:reply(404, Headers, Body, Req1),
+	    Resp = cowboy_req:reply(404, ProblemHeaders, Body, Req1),
 	    {stop, Resp, State}
     end.
