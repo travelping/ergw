@@ -224,19 +224,24 @@ get_reponse(#{pid := Pid, stream_ref := StreamRef, timeout := Timeout, acc := Ac
 
 handle_response(#{status := 200, headers := Headers}, Data) ->
     case lists:keyfind(<<"content-type">>, 1, Headers) of
-	{_, <<"application/json">>} ->
-	    case jsx:decode(Data, [{labels, binary}, return_maps]) of
-		#{<<"ipv4Addr">> := IP} when is_binary(IP) ->
-		    inet:parse_ipv4_address(binary_to_list(IP));
-		#{<<"ipv6Addr">> := IP} when is_binary(IP) ->
-		    inet:parse_ipv6_address(binary_to_list(IP));
-		#{<<"fqdn">> := FQDN} when is_binary(FQDN) ->
-		    {ok, FQDN};
+	{<<"content-type">>, ContentType} ->
+	    case cow_http_hd:parse_content_type(ContentType) of
+		{<<"application">>, <<"json">>, _Param} ->
+		    case jsx:decode(Data, [{labels, binary}, return_maps]) of
+			#{<<"ipv4Addr">> := IP} when is_binary(IP) ->
+			    inet:parse_ipv4_address(binary_to_list(IP));
+			#{<<"ipv6Addr">> := IP} when is_binary(IP) ->
+			    inet:parse_ipv6_address(binary_to_list(IP));
+			#{<<"fqdn">> := FQDN} when is_binary(FQDN) ->
+			    {ok, FQDN};
+			_ ->
+			    {error, invalid_payload}
+		    end;
 		_ ->
-		    {error, invalid_payload}
+		    {error, invalid_content_type}
 	    end;
 	_ ->
-		    {error, invalid_content_type}
+	    {error, no_content_type}
     end;
 handle_response(_, _) ->
     {error, invalid_response}.
