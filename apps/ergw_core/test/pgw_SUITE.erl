@@ -842,7 +842,7 @@ init_per_testcase(simple_session_request_cp_teid, Config) ->
     setup_per_testcase(Config),
     Config;
 init_per_testcase(simple_session_request_nf_sel, Config) ->
-    {ok, _} = ergw_test_sx_up:feature('pgw-u01', ftup, 0),
+    ergw_test_lib:set_apn_key(upf_selection, [ergw_sbi_client]),
     ergw_sbi_client:setup(proplists:get_value(sbi_config, Config, #{})),
     setup_per_testcase(Config),
     Config;
@@ -1062,7 +1062,7 @@ end_per_testcase(simple_session_request_cp_teid, Config) ->
     {ok, _} = ergw_test_sx_up:feature('pgw-u01', ftup, 1),
     end_per_testcase(Config);
 end_per_testcase(simple_session_request_nf_sel, Config) ->
-    {ok, _} = ergw_test_sx_up:feature('pgw-u01', ftup, 1),
+    ergw_test_lib:set_apn_key(upf_selection, ['3gpp']),
     ergw_sbi_client:setup(#{}),
     end_per_testcase(Config);
 end_per_testcase(duplicate_session_slow, Config) ->
@@ -1725,26 +1725,13 @@ simple_session_request_nf_sel(Config) ->
     ?match_metric(prometheus_gauge, ergw_local_pool_free, PoolId, ?IPv4PoolSize),
     ?match_metric(prometheus_gauge, ergw_local_pool_used, PoolId, 0),
 
-    [SER|_] = lists:filter(
-		fun(#pfcp{type = session_establishment_request}) -> true;
-		   (_) ->false
-		end, ergw_test_sx_up:history('pgw-u01')),
+    SER = lists:last(
+	    lists:filter(
+	      fun(#pfcp{type = session_establishment_request}) -> true;
+		 (_) ->false
+	      end, ergw_test_sx_up:history('pgw-u02'))),
 
     ?match_map(#{create_pdr => '_', create_far => '_',  create_urr => '_'}, SER#pfcp.ie),
-    #{create_pdr := PDRs0} = SER#pfcp.ie,
-
-    PDRs = lists:sort(PDRs0),
-
-    ?LOG(debug, "PDRs: ~s", [pfcp_packet:pretty_print(PDRs)]),
-
-    ?match(
-       [#create_pdr{},
-	#create_pdr{group =
-			#{pdi :=
-			      #pdi{group =
-				       #{f_teid :=
-					     #f_teid{choose_id = undefined}}}}}],
-       PDRs),
 
     meck_validate(Config),
     ok.
