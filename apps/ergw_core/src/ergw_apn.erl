@@ -50,7 +50,8 @@ get(_, _) ->
 		      {bearer_type, 'IPv4v6'},
 		      {prefered_bearer_type, 'IPv6'},
 		      {ipv6_ue_interface_id, default},
-		      {inactivity_timeout, 48 * 3600 * 1000}         %% 48hrs timer in msecs
+		      {inactivity_timeout, 48 * 3600 * 1000},         %% 48hrs timer in msecs
+		      {upf_selection, ['3gpp']}
 		     ]).
 
 validate_options({APN0, Value}) when ?is_opts(Value) ->
@@ -113,6 +114,9 @@ validate_apn_option({ipv6_ue_interface_id, {0,0,0,0,E,F,G,H}} = Opt)
        G >= 0, G < 65536, H >= 0, H < 65536,
        (E + F + G + H) =/= 0 ->
     Opt;
+validate_apn_option({upf_selection, List} = Opt) ->
+    lists:foreach(fun validate_upf_selection/1, List),
+    Opt;
 validate_apn_option({Opt, Value})
   when Opt == 'MS-Primary-DNS-Server';   Opt == 'MS-Secondary-DNS-Server';
        Opt == 'MS-Primary-NBNS-Server';  Opt == 'MS-Secondary-NBNS-Server';
@@ -124,3 +128,21 @@ validate_apn_option({Opt = inactivity_timeout, Timer})
     {Opt, Timer};
 validate_apn_option({Opt, Value}) ->
     erlang:error(badarg, [Opt, Value]).
+
+validate_upf_selection('3gpp') ->
+    ok;
+validate_upf_selection(M) when is_atom(M) ->
+    case code:ensure_loaded(M) of
+       {module, _} ->
+	    ok;
+	_ ->
+	    erlang:error(badarg, [apn, upf_selection, M])
+    end,
+    case erlang:function_exported(M, upf_selection, 1) of
+	true ->
+	    ok;
+	false ->
+	    erlang:error(badarg, [apn, upf_selection, M])
+    end;
+validate_upf_selection(Opt) ->
+    erlang:error(badarg, [apn, upf_selection, Opt]).

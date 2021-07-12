@@ -169,6 +169,10 @@ components:
                   - "*"
         ipv6_ue_interface_id:
           $ref: TS29571_CommonData.yaml#/components/schemas/Ipv6Addr
+        upf_selection:
+          type: array
+          items:
+            type: string
         prefered_bearer_type:
           type: string
           enum:
