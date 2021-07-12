@@ -235,6 +235,7 @@ config_meta_apns() ->
 	     prefered_bearer_type => atom,
 	     ipv6_ue_interface_id => ip6_ifid,
 	     inactivity_timeout   => timeout,
+	     upf_selection        => {list, atom},
 	     'MS-Primary-DNS-Server'    => ip4_address,
 	     'MS-Secondary-DNS-Server'  => ip4_address,
 	     'MS-Primary-NBNS-Server'   => ip4_address,

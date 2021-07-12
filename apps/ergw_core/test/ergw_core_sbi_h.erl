@@ -34,7 +34,7 @@ to_json(Req0, State) ->
 	%%     {stop, Resp, State};
 	#{<<"gpsi">> := <<"msisdn-440000000000">>} ->
 	    Headers = #{<<"content-type">> => <<"application/json">>},
-	    Body = jsx:encode(#{<<"fqdn">> => <<"topon.sx.prox01.epc.mnc001.mcc001.3gppnetwork.org">>}),
+	    Body = jsx:encode(#{<<"fqdn">> => <<"topon.sx.prox03.epc.mnc001.mcc001.3gppnetwork.org">>}),
 	    Resp = cowboy_req:reply(200, Headers, Body, Req1),
 	    {stop, Resp, State};
 	_ ->
