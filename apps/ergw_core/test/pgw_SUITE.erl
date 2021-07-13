@@ -616,13 +616,11 @@ node_sel_update(Node, {_,_,_,_,_,_,_,_} = IP) ->
 suite() ->
     [{timetrap,{seconds,30}}].
 
-init_per_suite(Config0) ->
-    Config1 = ergw_core_sbi_lib:init_per_suite(Config0),
+init_per_suite(Config) ->
     [{handler_under_test, ?HUT},
-     {app_cfg, ?TEST_CONFIG} | Config1].
+     {app_cfg, ?TEST_CONFIG} | Config].
 
-end_per_suite(Config) ->
-    ergw_core_sbi_lib:end_per_suite(Config),
+end_per_suite(_Config) ->
     ok.
 
 init_per_group(common, Config) ->
@@ -634,18 +632,21 @@ init_per_group(single_socket, Config0) ->
     AppCfg = set_cfg_value([ergw_core, sockets, 'irx-socket', send_port], false, AppCfg0),
     Config = lists:keystore(app_cfg, 1, Config0, {app_cfg, AppCfg}),
     lib_init_per_group(Config);
-init_per_group(ipv6, Config) ->
+init_per_group(ipv6, Config0) ->
     case ergw_test_lib:has_ipv6_test_config() of
 	true ->
-	    update_app_config(ipv6, ?CONFIG_UPDATE, Config);
+	    Config1 = ergw_core_sbi_lib:init_per_group(Config0),
+	    update_app_config(ipv6, ?CONFIG_UPDATE, Config1);
 	_ ->
 	    {skip, "IPv6 test IPs not configured"}
     end;
-init_per_group(ipv4, Config) ->
-    update_app_config(ipv4, ?CONFIG_UPDATE, Config).
+init_per_group(ipv4, Config0) ->
+    Config1 = ergw_core_sbi_lib:init_per_group(Config0),
+    update_app_config(ipv4, ?CONFIG_UPDATE, Config1).
 
-end_per_group(Group, _Config)
+end_per_group(Group, Config)
   when Group == ipv4; Group == ipv6 ->
+    ergw_core_sbi_lib:end_per_group(Config),
     ok;
 end_per_group(Group, Config)
   when Group == common;

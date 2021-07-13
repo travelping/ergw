@@ -7,9 +7,9 @@
 
 -module(ergw_core_sbi_lib).
 
--export([init_per_suite/1, end_per_suite/1]).
+-export([init_per_group/1, end_per_group/1]).
 
-init_per_suite(Config) ->
+init_per_group(Config) ->
     [{ok, _} = application:ensure_all_started(App) ||
 	App <- [ranch, ergw_sbi_client]],
 
@@ -34,6 +34,5 @@ init_per_suite(Config) ->
 	 },
     [{sbi_config, SbiCfg}|Config].
 
-
-end_per_suite(_) ->
+end_per_group(_) ->
     (catch cowboy:stop_listener(?MODULE)).
