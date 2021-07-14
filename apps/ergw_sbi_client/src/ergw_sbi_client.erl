@@ -23,6 +23,8 @@
 
 -ignore_xref([?MODULE]).
 
+-include_lib("gtplib/include/gtp_packet.hrl").
+
 %%% ============================================================================
 %%% API functions
 %%% ============================================================================
@@ -78,21 +80,40 @@ from_ip({_, _, _, _} = IP) ->
 from_ip({_, _, _, _,_, _, _, _} = IP) ->
     #{<<"ipv6Addr">> => iolist_to_binary(inet:ntoa(IP))}.
 
-split_location_info(<<MCC:3/bytes, MNC:3/bytes, Rest/binary>> = Bin, Size)
-  when byte_size(Bin) == Size ->
-    {{MCC, MNC}, Rest};
-split_location_info(<<MCC:3/bytes, MNC:2/bytes, Rest/binary>>, _Size) ->
-    {{MCC, MNC}, Rest}.
-
 from_session(Session) ->
     maps:fold(fun from_session/3, #{}, Session).
+
+from_plmnid({MCC, MNC}) ->
+    #{<<"mcc">> => MCC, <<"mnc">> => MNC}.
+
+from_uli('CGI', #cgi{plmn_id = PlmnId, lac = LAC, ci = CI}, Req) ->
+    Id = #{<<"plmnId">> => from_plmnid(PlmnId),
+	   <<"lac">> => LAC,
+	   <<"cellId">> => CI},
+    put_kv([<<"userLocationInfo">>, <<"cgi">>], Id, Req);
+from_uli('SAI', #sai{plmn_id = PlmnId, lac = LAC, sac = SAC}, Req) ->
+    Id = #{<<"plmnId">> => from_plmnid(PlmnId),
+	   <<"lac">> => LAC,
+	   <<"sac">> => SAC},
+    put_kv([<<"userLocationInfo">>, <<"sai">>], Id, Req);
+from_uli('RAI', #rai{plmn_id = PlmnId, lac = LAC, rac = RAC}, Req) ->
+    Id = #{<<"plmnId">> => from_plmnid(PlmnId),
+	   <<"lac">> => LAC,
+	   <<"rac">> => RAC},
+    put_kv([<<"userLocationInfo">>, <<"rai">>], Id, Req);
+from_uli('LAI', #lai{plmn_id = PlmnId, lac = LAC}, Req) ->
+    Id = #{<<"plmnId">> => from_plmnid(PlmnId),
+	   <<"lac">> => LAC},
+    put_kv([<<"userLocationInfo">>, <<"lai">>], Id, Req);
+from_uli(_, _, Req) ->
+    Req.
 
 from_session('APN', [H|_] = V, Req) when is_binary(H) ->
     Req#{<<"accessPointName">> => iolist_to_binary(lists:join($., V))};
 from_session('3GPP-IMSI', V, Req) ->
     Req#{<<"supi">> => <<"imsi-", V/binary>>};
-from_session('3GPP-SGSN-MCC-MNC', <<MCC:3/bytes, MNC/binary>>, Req) ->
-    put_kv([<<"vPlmn">>, <<"plmnId">>], #{<<"mcc">> => MCC, <<"mnc">> => MNC}, Req);
+from_session('3GPP-SGSN-MCC-MNC', PlmnId, Req) ->
+    put_kv([<<"vPlmn">>, <<"plmnId">>], from_plmnid(PlmnId), Req);
 from_session('3GPP-SGSN-Address', V, Req) ->
     put_kv([<<"vPlmn">>, <<"cpAddress">>], from_ip(V), Req);
 from_session('3GPP-SGSN-IPv6-Address', V, Req) ->
@@ -110,39 +131,8 @@ from_session('3GPP-MSISDN', V, Req) ->
 from_session('3GPP-IMEISV' , V, Req) ->
     Req#{<<"pei">> => <<"imeisv-", V/binary>>};
 
-from_session('CGI', V, Req) when is_binary(V) ->
-    case split_location_info(V, 10) of
-	{{MCC, MNC}, <<LAC:16, CI:16>>} ->
-	    Id = #{<<"plmnId">> => #{<<"mcc">> => MCC, <<"mnc">> => MNC},
-		   <<"lac">> => LAC,
-		   <<"cellId">> => CI},
-	    put_kv([<<"userLocationInfo">>, <<"cgi">>], Id, Req);
-	_ ->
-	    %% unable do decode CGI
-	    Req
-    end;
-from_session('SAI', V, Req) when is_binary(V) ->
-    case split_location_info(V, 10) of
-	{{MCC, MNC}, <<LAC:16, SAC:16>>} ->
-	    Id = #{<<"plmnId">> => #{<<"mcc">> => MCC, <<"mnc">> => MNC},
-		   <<"lac">> => LAC,
-		   <<"sac">> => SAC},
-	    put_kv([<<"userLocationInfo">>, <<"sai">>], Id, Req);
-	_ ->
-	    %% unable do decode SAI
-	    Req
-    end;
-from_session('RAI', V, Req) when is_binary(V) ->
-    case split_location_info(V, 9) of
-	{{MCC, MNC}, <<LAC:16, RAC:8>>} ->
-	    Id = #{<<"plmnId">> => #{<<"mcc">> => MCC, <<"mnc">> => MNC},
-		   <<"lac">> => LAC,
-		   <<"rac">> => RAC},
-	    put_kv([<<"userLocationInfo">>, <<"rai">>], Id, Req);
-	_ ->
-	    %% unable do decode RAI
-	    Req
-    end;
+from_session('User-Location-Info', V, Req) when is_map(V) ->
+    maps:fold(fun from_uli/3, Req, V);
 
 from_session('QoS-Information' = K, V, Req) ->
     Req#{K => V};
