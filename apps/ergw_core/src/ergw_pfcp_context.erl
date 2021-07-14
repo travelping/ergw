@@ -903,7 +903,7 @@ select_upf(Candidates) ->
 	   ergw_sx_node:attach(Pid)
        ]).
 
-%% select_upf/2
+%% select_upf_with/3
 select_upf_with(_, [], _) ->
     {error, ?CTX_ERR(?FATAL, no_resources_available)};
 select_upf_with(Fun, Candidates, Available) ->
@@ -936,6 +936,62 @@ apn_filter(_, _, F) ->
 
 %% select_upf/3
 select_upf(Candidates, Session0, APNOpts) ->
+    Select = maps:get(upf_selection, APNOpts, ['3gpp']),
+    select_upf(Candidates, Session0, APNOpts, Select).
+
+%% select_upf/4
+select_upf(_Candidates, _Session, _APNOpts, []) ->
+    {error, ?CTX_ERR(?FATAL, no_resources_available)};
+select_upf(Candidates, Session, APNOpts, ['3gpp'|_]) ->
+    select_upf_3gpp(Candidates, Session, APNOpts);
+select_upf(Candidates, Session, APNOpts, [API|Next]) ->
+    case (catch API:upf_selection(Session)) of
+	{ok, UPF} ->
+	    select_upf_api_result(UPF, Session, APNOpts);
+	{error, Error} ->
+	    {error, ?CTX_ERR(?FATAL, Error)};
+	skip ->
+	    select_upf(Candidates, Session, APNOpts, Next);
+	Other ->
+	    ?LOG(error, #{what => "UPF selection", api => API, error => Other}),
+	    {error, ?CTX_ERR(?FATAL, no_resources_available)}
+    end.
+
+select_upf_api_result(UPF, Session0, APNOpts) when is_binary(UPF) ->
+    Available = ergw_sx_node_reg:available(),
+    case Available of
+	%% TODO: this NodePools/NodeCaps thing can be cleaned,
+	%%       NodePools is contained within NodeCaps
+	#{UPF := {Pid, {_, NodePools} = NodeCaps}} ->
+	    Wanted = maps:fold(fun apn_filter/3, #{}, APNOpts),
+	    case common_caps_n(Wanted, NodePools) of
+		[] ->
+		    {error, ?CTX_ERR(?FATAL, no_resources_available)};
+		Pools ->
+		    #{ip_pools := IPpools, ip_versions := IPvs,
+		      nat_port_blocks := NATblocks, vrf := VRF} = select(random, Pools),
+		    PoolV4 = select_ip_pool(v4, IPvs, IPpools),
+		    PoolV6 = select_ip_pool(v6, IPvs, IPpools),
+		    NAT = select(random, NATblocks),
+
+		    Session1 = Session0#{'Framed-Pool' => PoolV4, 'Framed-IPv6-Pool' => PoolV6},
+		    Session2 = case maps:is_key(nat_port_blocks, Wanted) of
+				   true  -> Session1#{'NAT-Pool-Id' => NAT};
+				   false -> Session1
+			       end,
+		    Session = init_session_ue_ifid(APNOpts, Session2),
+		    Node = {UPF, Pid, NodeCaps, NodePools},
+		    UPinfo = {api, Node, VRF, PoolV4, NAT, PoolV6},
+		    {ok, {UPinfo, Session}}
+	    end;
+	_ ->
+	    {error, ?CTX_ERR(?FATAL, no_resources_available)}
+    end;
+select_upf_api_result(_UPF, _Session, _APNOpts) ->
+    {error, ?CTX_ERR(?FATAL, no_resources_available)}.
+
+%% select_upf_3gpp/3
+select_upf_3gpp(Candidates, Session0, APNOpts) ->
     Wanted = maps:fold(fun apn_filter/3, #{}, APNOpts),
     do([error_m ||
 	   {_, _, _, Pools} = Node <- select_by_caps(Wanted, undefined, Candidates),
@@ -966,6 +1022,29 @@ filter([{nat, NAT}|T]) ->
     maps:put(nat_port_blocks, [[NAT]], filter(T)).
 
 %% reselect_upf/4
+reselect_upf(_Candidates, Session, _APNOpts, {api, {_, Pid, NodeCaps, NodePools}, VRF0, PoolV4, NATBlock, PoolV6}) ->
+    NAT = maps:get('NAT-Pool-Id', Session, undefined),
+    IP4 = maps:get('Framed-Pool', Session, undefined),
+    IP6 = maps:get('Framed-IPv6-Pool', Session, undefined),
+
+    do([error_m ||
+	   VRF <-
+	       if (IP4 /= PoolV4 orelse IP6 /= PoolV6 orelse
+		   NATBlock /= NAT) ->
+		       Wanted = filter([{v4, IP4}, {v6, IP6}, {nat, NAT}]),
+		       case common_caps_n(Wanted, NodePools) of
+			   [] ->
+			       fail(?CTX_ERR(?FATAL, no_resources_available));
+			   Pools ->
+			       #{vrf := VRF1} = select(random, Pools),
+			       return(VRF1)
+		       end;
+		  true ->
+		       return(VRF0)
+	       end,
+	   {PCtx, _} <- ergw_sx_node:attach(Pid),
+	   return({PCtx, NodeCaps, #bearer{interface = 'SGi-LAN', vrf = VRF}})
+       ]);
 reselect_upf(Candidates, Session, _APNOpts, {{NodeName, _, _, _} = Node0, VRF0, PoolV4, NATBlock, PoolV6}) ->
     NAT = maps:get('NAT-Pool-Id', Session, undefined),
     IP4 = maps:get('Framed-Pool', Session, undefined),

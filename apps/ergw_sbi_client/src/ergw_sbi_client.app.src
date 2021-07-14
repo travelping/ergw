@@ -1,0 +1,17 @@
+{application, ergw_sbi_client,
+ [{description, "erGW SBI client"},
+  {vsn, semver},
+  {registered, []},
+  {mod, {ergw_sbi_client_app, []}},
+  {applications,
+   [kernel,
+    stdlib,
+    gun,
+    jsx
+   ]},
+  {env,[]},
+  {modules, []},
+
+  {licenses, ["Apache 2.0"]},
+  {links, []}
+ ]}.

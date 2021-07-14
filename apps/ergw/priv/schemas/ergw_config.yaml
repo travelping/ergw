@@ -169,6 +169,10 @@ components:
                   - "*"
         ipv6_ue_interface_id:
           $ref: TS29571_CommonData.yaml#/components/schemas/Ipv6Addr
+        upf_selection:
+          type: array
+          items:
+            type: string
         prefered_bearer_type:
           type: string
           enum:
@@ -530,6 +534,20 @@ properties:
       prefix:
         type: integer
         default: 0
+        
+  sbi_client:
+    type: object
+    properties:
+      upf_selection:
+        type: object
+        properties:
+          endpoint:
+            $ref: 'TS29571_CommonData.yaml#/components/schemas/Uri'
+          timeout:
+            $ref: "#/components/schemas/TimeoutInf"
+          default:
+            type: string
+        required: ['endpoint', 'timeout', 'default']
 
   accept_new:
     default: true

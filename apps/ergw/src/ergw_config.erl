@@ -132,16 +132,21 @@ ergw_aaa_init(apps, #{apps := Apps0}) ->
 ergw_aaa_init(_, _) ->
     ok.
 
+ergw_sbi_client_init(Opts) ->
+    ergw_sbi_client_config:validate_options(fun ergw_sbi_client_config:validate_option/2, Opts).
+
 ergw_core_init(Config) ->
     Init = [node, aaa, wait_till_running, path_management, node_selection,
 	    sockets, upf_nodes, handlers, ip_pools, apns, charging, proxy_map,
-	    http_api],
+	    http_api, sbi_client],
     lists:foreach(ergw_core_init(_, Config), Init).
 
 ergw_core_init(node, #{node := Node}) ->
     ergw_core:start_node(Node);
 ergw_core_init(aaa, #{aaa := AAA}) ->
     ergw_aaa_init(AAA);
+ergw_core_init(sbi_client, #{sbi_client := SbiClient}) ->
+    ergw_sbi_client_init(SbiClient);
 ergw_core_init(wait_till_running, _) ->
     ergw_core:wait_till_running();
 ergw_core_init(path_management, #{path_management := NodeSel}) ->
@@ -208,7 +213,8 @@ config_raw_meta() ->
       proxy_map       => config_meta_proxy_map(),
       sockets         => config_meta_socket(),
       teid            => config_meta_tei_mngr(),
-      aaa             => config_meta_aaa()}.
+      aaa             => config_meta_aaa(),
+      sbi_client      => config_meta_sbi_client()}.
 
 config_meta() ->
     load_typespecs(),
@@ -229,6 +235,7 @@ config_meta_apns() ->
 	     prefered_bearer_type => atom,
 	     ipv6_ue_interface_id => ip6_ifid,
 	     inactivity_timeout   => timeout,
+	     upf_selection        => {list, atom},
 	     'MS-Primary-DNS-Server'    => ip4_address,
 	     'MS-Secondary-DNS-Server'  => ip4_address,
 	     'MS-Primary-NBNS-Server'   => ip4_address,
@@ -542,6 +549,14 @@ config_meta_pfcp_socket() ->
 config_meta_tei_mngr() ->
     #{prefix => integer,
       len    => integer}.
+
+config_meta_sbi_client() ->
+	#{upf_selection => config_meta_sbi_client_upf_selection()}.
+
+config_meta_sbi_client_upf_selection() ->
+	#{endpoint => string,
+	  timeout => timeout,
+	  default => string}.
 
 config_meta_aaa() ->
     #{product_name => config_meta_aaa_product_name(),

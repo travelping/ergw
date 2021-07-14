@@ -247,7 +247,7 @@ handle_request(ReqKey,
     gtp_context:terminate_colliding_context(LeftTunnel, Context),
 
     SessionOpts0 = ggsn_gn:init_session(IEs, LeftTunnel, Context, AAAopts),
-    SessionOpts = ggsn_gn:init_session_from_gtp_req(IEs, AAAopts, LeftTunnel, SessionOpts0),
+    SessionOpts = ggsn_gn:init_session_from_gtp_req(IEs, AAAopts, LeftTunnel, LeftBearer1, SessionOpts0),
 
     ProxyInfo =
 	case handle_proxy_info(SessionOpts, LeftTunnel, LeftBearer1, Context, Data) of
