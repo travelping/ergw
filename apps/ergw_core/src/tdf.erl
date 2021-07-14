@@ -472,7 +472,7 @@ init_session(#data{context = #tdf_ctx{ms_ip = UeIP}}) ->
 	  'Password'		=> <<"ergw">>,
 	  'Service-Type'	=> 'Framed-User',
 	  'Framed-Protocol'	=> 'PPP',
-	  '3GPP-GGSN-MCC-MNC'	=> <<MCC/binary, MNC/binary>>
+	  '3GPP-GGSN-MCC-MNC'	=> {MCC, MNC}
 	 },
     Opts1 =
 	case UeIP of

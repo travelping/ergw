@@ -209,7 +209,7 @@ gen_handler(ValF, Handler) ->
 handler(ValF, Handler) ->
     gen_handler(ValF, Handler),
 
-    ?ok(ValF(set_cfg_value([aaa, '3GPP-GGSN-MCC-MNC'], <<"00101">>, Handler))),
+    ?ok(ValF(set_cfg_value([aaa, '3GPP-GGSN-MCC-MNC'], #{mcc => <<"001">>, mnc => <<"01">>}, Handler))),
     ?bad(ValF(set_cfg_value([aaa, 'Username', invalid], invalid, Handler))),
     ?bad(ValF(set_cfg_value([aaa, invalid], invalid, Handler))),
 

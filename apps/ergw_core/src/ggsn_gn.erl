@@ -432,7 +432,7 @@ init_session(IEs, #tunnel{local = #fq_teid{ip = LocalIP}},
 	  'Password'		=> Password,
 	  'Service-Type'	=> 'Framed-User',
 	  'Framed-Protocol'	=> 'GPRS-PDP-Context',
-	  '3GPP-GGSN-MCC-MNC'	=> <<MCC/binary, MNC/binary>>,
+	  '3GPP-GGSN-MCC-MNC'	=> {MCC, MNC},
 	  '3GPP-Charging-Id'	=> ChargingId,
 	  'PDP-Context-Type'	=> primary
      }.
@@ -462,7 +462,7 @@ copy_to_session(_, #international_mobile_subscriber_identity{imsi = IMSI}, _AAAo
     case itu_e212:split_imsi(IMSI) of
 	{MCC, MNC, _} ->
 	    Session#{'3GPP-IMSI' => IMSI,
-		     '3GPP-IMSI-MCC-MNC' => <<MCC/binary, MNC/binary>>};
+		     '3GPP-IMSI-MCC-MNC' => {MCC, MNC}};
 	_ ->
 	    Session#{'3GPP-IMSI' => IMSI}
     end;

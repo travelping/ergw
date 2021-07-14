@@ -252,9 +252,9 @@ validate_aaa_option(Key, Value0, AAA)
     Value = ergw_core_config:to_map(Value0),
     maps:update_with(Key, maps:fold(validate_aaa_attr_option(Key, _, _, _), _, Value), AAA);
 
-validate_aaa_option(Key, Value, AAA)
+validate_aaa_option(Key, #{mcc := MCC, mnc := MNC}, AAA)
   when Key == '3GPP-GGSN-MCC-MNC' ->
-    AAA#{'3GPP-GGSN-MCC-MNC' => Value};
+    AAA#{'3GPP-GGSN-MCC-MNC' => {MCC, MNC}};
 validate_aaa_option(Key, Value, _AAA) ->
     erlang:error(badarg, [aaa, {Key, Value}]).
 

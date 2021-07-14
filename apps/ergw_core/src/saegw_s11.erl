@@ -505,7 +505,7 @@ copy_to_session(_, #v2_international_mobile_subscriber_identity{imsi = IMSI}, _A
     case itu_e212:split_imsi(IMSI) of
 	{MCC, MNC, _} ->
 	    Session#{'3GPP-IMSI' => IMSI,
-		     '3GPP-IMSI-MCC-MNC' => <<MCC/binary, MNC/binary>>};
+		     '3GPP-IMSI-MCC-MNC' => {MCC, MNC}};
 	_ ->
 	    Session#{'3GPP-IMSI' => IMSI}
     end;

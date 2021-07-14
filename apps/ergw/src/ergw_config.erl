@@ -335,7 +335,9 @@ config_meta_aaa_opts() ->
     #{'AAA-Application-Id' => binary,
       'Username'           => config_meta_aaa_attr_mapping(),
       'Password'           => config_meta_aaa_attr_mapping(),
-      '3GPP-GGSN-MCC-MNC'  => passthrough}.
+      '3GPP-GGSN-MCC-MNC'  => #{mcc => mcc,
+				mnc => mnc}
+     }.
 
 config_meta_aaa_attr_mapping() ->
     #{default            => passthrough,
