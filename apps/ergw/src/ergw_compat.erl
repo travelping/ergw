@@ -1127,7 +1127,8 @@ gtp_context_translate_aaa_option(Key, Value, AAA)
 
 gtp_context_translate_aaa_option(Key, Value, AAA)
   when Key == '3GPP-GGSN-MCC-MNC' ->
-    AAA#{'3GPP-GGSN-MCC-MNC' => Value};
+    {MCC, MNC, _} = itu_e212:split_imsi(Value),
+    AAA#{'3GPP-GGSN-MCC-MNC' => {MCC, MNC}};
 gtp_context_translate_aaa_option(Key, Value, _AAA) ->
     throw({error, {options, {aaa, {Key, Value}}}}).
 

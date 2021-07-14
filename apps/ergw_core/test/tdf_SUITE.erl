@@ -1131,7 +1131,7 @@ simple_ocs(Config) ->
 	#{
 	  %% '3GPP-Allocation-Retention-Priority' => '?????',
 	  %% '3GPP-Charging-Id' => '_',  ??????
-	  '3GPP-GGSN-MCC-MNC' => <<"00101">>,
+	  '3GPP-GGSN-MCC-MNC' => {<<"001">>, <<"01">>},
 	  %% '3GPP-GPRS-Negotiated-QoS-Profile' => '?????',
 	  %% '3GPP-NSAPI' => 5,
 	  %% '3GPP-PDP-Type' => 'IPv4v6',
