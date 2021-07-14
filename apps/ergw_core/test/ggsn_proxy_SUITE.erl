@@ -12,6 +12,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include_lib("pfcplib/include/pfcp_packet.hrl").
+-include("../src/gtp_context.hrl").
 -include("../include/ergw.hrl").
 -include("ergw_test_lib.hrl").
 -include("ergw_ggsn_test_lib.hrl").
@@ -804,10 +805,10 @@ init_per_testcase(create_pdp_context_request_timeout, Config) ->
     ok = meck:expect(?HUT, handle_request,
 		     fun(ReqKey, Request, Resent, State, Data) ->
 			     case meck:passthrough([ReqKey, Request, Resent, State, Data]) of
-				 {next_state, connecting, DataNew, _} ->
+				 {next_state, #fsm{state = connecting} = NewState, DataNew, _} ->
 				     %% 1 second timeout for the test
 				     Action = [{state_timeout, 1000, connecting}],
-				     {next_state, connecting, DataNew, Action};
+				     {next_state, NewState, DataNew, Action};
 				 Other ->
 				     Other
 			     end

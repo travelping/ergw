@@ -22,6 +22,7 @@
 -include_lib("kernel/include/logger.hrl").
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include_lib("pfcplib/include/pfcp_packet.hrl").
+-include("gtp_context.hrl").
 -include("include/ergw.hrl").
 
 -import(ergw_aaa_session, [to_session/1]).
@@ -132,13 +133,14 @@ init(#{proxy_sockets := ProxySockets, node_selection := NodeSelect,
 
     {ok, Session} = ergw_aaa_session_sup:new_session(self(), to_session([])),
 
-    {ok, run, Data#{proxy_sockets => ProxySockets,
-		    'Version' => v2,
-		    'Session' => Session,
-		    contexts => Contexts,
-		    node_selection => NodeSelect,
-		    bearer => Bearer#{right => RightBearer#bearer{interface = 'Core'}},
-		    proxy_ds => ProxyDS}}.
+    State = #fsm{state = run},
+    {ok, State, Data#{proxy_sockets => ProxySockets,
+		      'Version' => v2,
+		      'Session' => Session,
+		      contexts => Contexts,
+		      node_selection => NodeSelect,
+		      bearer => Bearer#{right => RightBearer#bearer{interface = 'Core'}},
+		      proxy_ds => ProxyDS}}.
 
 handle_event(Type, Content, State, #{'Version' := v1} = Data) ->
     ?GTP_v1_Interface:handle_event(Type, Content, State, Data);
@@ -151,30 +153,30 @@ handle_event(cast, {packet_in, _Socket, _IP, _Port, _Msg}, _State, _Data) ->
     keep_state_and_data;
 
 handle_event(info, {timeout, _, {delete_session_request, Direction, _ReqKey, _Request}},
-	     _State, Data0) ->
+	     State, Data0) ->
     ?LOG(warning, "Proxy Delete Session Timeout ~p", [Direction]),
 
     Data = delete_forward_session(normal, Data0),
-    {next_state, shutdown, Data};
+    {next_state, State#fsm{state = shutdown}, Data};
 
 handle_event(info, {timeout, _, {delete_bearer_request, Direction, _ReqKey, _Request}},
-	     _State, Data0) ->
+	     State, Data0) ->
     ?LOG(warning, "Proxy Delete Bearer Timeout ~p", [Direction]),
 
     Data = delete_forward_session(normal, Data0),
-    {next_state, shutdown, Data};
+    {next_state, State#fsm{state = shutdown}, Data};
 
 handle_event(info, _Info, _State, _Data) ->
     keep_state_and_data;
 
-handle_event(state_timeout, #proxy_request{} = ReqKey, connecting, Data0) ->
+handle_event(state_timeout, #proxy_request{} = ReqKey, #fsm{state = connecting} = State, Data0) ->
     gtp_context:request_finished(ReqKey),
     Data = delete_forward_session(normal, Data0),
-    {next_state, shutdown, Data};
+    {next_state, State#fsm{state = shutdown}, Data};
 
-handle_event(state_timeout, _, connecting, Data0) ->
+handle_event(state_timeout, _, #fsm{state = connecting} = State, Data0) ->
     Data = delete_forward_session(normal, Data0),
-    {next_state, shutdown, Data}.
+    {next_state, State#fsm{state = shutdown}, Data}.
 
 %% API Message Matrix:
 %%
@@ -236,12 +238,12 @@ handle_request(_ReqKey, _Request, true, _State, _Data) ->
 
 handle_request(ReqKey,
 	       #gtp{type = create_session_request, ie = IEs} = Request,
-	       _Resent, State,
+	       _Resent, #fsm{state = ContextState} = State,
 	       #{context := Context0, aaa_opts := AAAopts, node_selection := NodeSelect,
 		 left_tunnel := LeftTunnel0,
 		 bearer := #{left := LeftBearer0} = Bearer0,
 		 'Session' := Session} = Data)
-  when State == run; State == connecting ->
+  when ContextState == run; ContextState == connecting ->
 
     Context = pgw_s5s8:update_context_from_gtp_req(Request, Context0),
 
@@ -321,11 +323,11 @@ handle_request(ReqKey,
 
     %% 30 second timeout to have enough room for resents
     Action = [{state_timeout, 30 * 1000, ReqKey}],
-    {next_state, connecting, DataNew, Action};
+    {next_state, State#fsm{state = connecting}, DataNew, Action};
 
 handle_request(ReqKey,
 	       #gtp{type = modify_bearer_request} = Request,
-	       _Resent, connected,
+	       _Resent, #fsm{state = connected},
 	       #{proxy_context := ProxyContext,
 		 left_tunnel := LeftTunnelOld, right_tunnel := RightTunnelOld,
 		 bearer := #{left := LeftBearerOld, right := RightBearer} = Bearer} = Data)
@@ -351,7 +353,7 @@ handle_request(ReqKey,
 
 handle_request(ReqKey,
 	       #gtp{type = modify_bearer_command} = Request,
-	       _Resent, connected,
+	       _Resent, #fsm{state = connected},
 	       #{proxy_context := ProxyContext,
 		 left_tunnel := LeftTunnel, right_tunnel := RightTunnel,
 		 bearer := #{right := RightBearer}} = Data0)
@@ -369,7 +371,7 @@ handle_request(ReqKey,
 %%
 handle_request(ReqKey,
 	       #gtp{type = change_notification_request} = Request,
-	       _Resent, connected,
+	       _Resent, #fsm{state = connected},
 	       #{proxy_context := ProxyContext,
 		 left_tunnel := LeftTunnel, right_tunnel := RightTunnel,
 		 bearer := #{right := RightBearer}} = Data)
@@ -386,7 +388,7 @@ handle_request(ReqKey,
 %%
 handle_request(ReqKey,
 	       #gtp{type = Type} = Request,
-	       _Resent, connected,
+	       _Resent, #fsm{state = connected},
 	       #{proxy_context := ProxyContext,
 		 left_tunnel := LeftTunnel, right_tunnel := RightTunnel,
 		 bearer := #{right := RightBearer}} = Data)
@@ -405,7 +407,7 @@ handle_request(ReqKey,
 %%
 handle_request(ReqKey,
 	       #gtp{type = update_bearer_request} = Request,
-	       _Resent, connected,
+	       _Resent, #fsm{state = connected},
 	       #{context := Context,
 		 left_tunnel := LeftTunnel, right_tunnel := RightTunnel,
 		 bearer := #{left := LeftBearer}} = Data0)
@@ -422,7 +424,7 @@ handle_request(ReqKey,
 %%
 handle_request(ReqKey,
 	       #gtp{type = delete_session_request} = Request,
-	       _Resent, connected,
+	       _Resent, #fsm{state = connected},
 	       #{proxy_context := ProxyContext,
 		 left_tunnel := LeftTunnel, right_tunnel := RightTunnel,
 		 bearer := #{right := RightBearer}} = Data0)
@@ -453,7 +455,7 @@ handle_request(ReqKey,
 
     {keep_state, Data};
 
-handle_request(_ReqKey, _Request, _Resent, connecting, _Data) ->
+handle_request(_ReqKey, _Request, _Resent, #fsm{state = connecting}, _Data) ->
     {keep_state_and_data, [postpone]};
 
 handle_request(ReqKey, _Request, _Resent, _State, _Data) ->
@@ -463,18 +465,18 @@ handle_request(ReqKey, _Request, _Resent, _State, _Data) ->
 handle_response(ReqInfo, #gtp{version = v1} = Msg, Request, State, Data) ->
     ?GTP_v1_Interface:handle_response(ReqInfo, Msg, Request, State, Data);
 
-handle_response(_, _Response, _Request, shutdown, _Data) ->
+handle_response(_, _Response, _Request, #fsm{state = shutdown}, _Data) ->
     keep_state_and_data;
 
 handle_response(#proxy_request{direction = sgw2pgw},
-		timeout, #gtp{type = create_session_request}, State, _)
-  when State == connected; State == connecting ->
+		timeout, #gtp{type = create_session_request}, #fsm{state = ContextState}, _)
+  when ContextState == connected; ContextState == connecting ->
     keep_state_and_data;
 
 handle_response(#proxy_request{direction = sgw2pgw} = ProxyRequest,
 		#gtp{type = create_session_response,
 		     ie = #{?'Cause' := #v2_cause{v2_cause = Cause}}} = Response,
-		_Request, _State,
+		_Request, State,
 		#{context := Context, proxy_context := PrevProxyCtx, pfcp := PCtx0,
 		  left_tunnel := LeftTunnel, right_tunnel := RightTunnel0,
 		  bearer := #{left := LeftBearer, right := RightBearer0} = Bearer0} = Data0) ->
@@ -503,10 +505,10 @@ handle_response(#proxy_request{direction = sgw2pgw} = ProxyRequest,
 		Data =
 		    Data0#{proxy_context => ProxyContext, pfcp => PCtx,
 			  right_tunnel => RightTunnel, bearer => Bearer},
-		{next_state, connected, Data};
+		{next_state, State#fsm{state = connected}, Data};
 	   true ->
 		Data = delete_forward_session(normal, Data0),
-		{next_state, shutdown, Data}
+		{next_state, State#fsm{state = shutdown}, Data}
 	end,
 
     forward_response(ProxyRequest, Response, LeftTunnel, LeftBearer, Context),
@@ -596,7 +598,7 @@ handle_response(#proxy_request{direction = pgw2sgw} = ProxyRequest,
     keep_state_and_data;
 
 handle_response(#proxy_request{direction = sgw2pgw} = ProxyRequest,
-		Response0, #gtp{type = delete_session_request}, _State,
+		Response0, #gtp{type = delete_session_request}, State,
 		#{context := Context, left_tunnel := LeftTunnel, bearer := #{left := LeftBearer}} = Data0) ->
     ?LOG(debug, "Proxy Response ~p", [Response0]),
 
@@ -610,13 +612,13 @@ handle_response(#proxy_request{direction = sgw2pgw} = ProxyRequest,
 	end,
     forward_response(ProxyRequest, Response, LeftTunnel, LeftBearer, Context),
     Data = delete_forward_session(normal, Data0),
-    {next_state, shutdown, Data};
+    {next_state, State#fsm{state = shutdown}, Data};
 
 %%
 %% SGW to PGW delete bearer response
 %%
 handle_response(#proxy_request{direction = pgw2sgw} = ProxyRequest,
-		Response0, #gtp{type = delete_bearer_request}, _State,
+		Response0, #gtp{type = delete_bearer_request}, State,
 		#{proxy_context := ProxyContext,
 		  right_tunnel := RightTunnel, bearer := #{right := RightBearer}} = Data0) ->
     ?LOG(debug, "Proxy Response ~p", [Response0]),
@@ -634,7 +636,7 @@ handle_response(#proxy_request{direction = pgw2sgw} = ProxyRequest,
 	end,
     forward_response(ProxyRequest, Response, RightTunnel, RightBearer, ProxyContext),
     Data = delete_forward_session(normal, Data0),
-    {next_state, shutdown, Data};
+    {next_state, State#fsm{state = shutdown}, Data};
 
 handle_response(#proxy_request{request = ReqKey} = _ReqInfo,
 		Response, _Request, _State, _Data) ->
@@ -643,20 +645,22 @@ handle_response(#proxy_request{request = ReqKey} = _ReqInfo,
     gtp_context:request_finished(ReqKey),
     keep_state_and_data;
 
-handle_response(_, _, #gtp{type = Type}, shutdown, _)
+handle_response(_, _, #gtp{type = Type}, #fsm{state = shutdown}, _)
   when Type =:= delete_bearer_request;
        Type =:= delete_session_request ->
     keep_state_and_data;
 
-handle_response({Direction, From}, timeout, #gtp{type = Type}, shutdown_initiated, Data)
+handle_response({Direction, From}, timeout, #gtp{type = Type},
+		#fsm{state = shutdown_initiated} = State, Data)
   when Type =:= delete_bearer_request;
        Type =:= delete_session_request ->
-    session_teardown_response({error, timeout}, Direction, From, Data);
+    session_teardown_response({error, timeout}, Direction, From, State, Data);
 
-handle_response({Direction, From}, #gtp{type = Type}, _, shutdown_initiated, Data)
+handle_response({Direction, From}, #gtp{type = Type}, _,
+		#fsm{state = shutdown_initiated} = State, Data)
   when Type =:= delete_bearer_response;
        Type =:= delete_session_response ->
-    session_teardown_response(ok, Direction, From, Data).
+    session_teardown_response(ok, Direction, From, State, Data).
 
 terminate(_Reason, _State, _Data) ->
     ok.
@@ -779,7 +783,7 @@ send_request(#tunnel{remote = #fq_teid{ip = RemoteCntlIP}} = Tunnel, T3, N3, Msg
 send_request(Tunnel, T3, N3, Type, RequestIEs, ReqInfo) ->
     send_request(Tunnel, T3, N3, msg(Tunnel, Type, RequestIEs), ReqInfo).
 
-initiate_session_teardown(sgw2pgw = Direction, From, connected,
+initiate_session_teardown(sgw2pgw = Direction, From, #fsm{state = connected},
 			  #{right_tunnel := Tunnel,
 			    proxy_context := #context{default_bearer_id = EBI}} = Data) ->
     Type = delete_session_request,
@@ -788,10 +792,10 @@ initiate_session_teardown(sgw2pgw = Direction, From, connected,
     RequestIEs = gtp_v2_c:build_recovery(Type, Tunnel, false, RequestIEs0),
     send_request(Tunnel, ?T3, ?N3, Type, RequestIEs, {Direction, From}),
     maps:update_with(shutdown, [Direction|_], [Direction], Data);
-initiate_session_teardown(pgw2sgw = Direction, From, State,
+initiate_session_teardown(pgw2sgw = Direction, From, #fsm{state = ContextState},
 			  #{left_tunnel := Tunnel,
 			    context := #context{default_bearer_id = EBI}} = Data)
-  when State == connected; State == connecting ->
+  when ContextState == connected; ContextState == connecting ->
     Type = delete_bearer_request,
     RequestIEs0 = [#v2_cause{v2_cause = reactivation_requested},
 		   #v2_eps_bearer_id{eps_bearer_id = EBI}],
@@ -801,14 +805,14 @@ initiate_session_teardown(pgw2sgw = Direction, From, State,
 initiate_session_teardown(_, _, _, Data) ->
     Data.
 
-session_teardown_response(Answer, Direction, From, #{shutdown := Shutdown0} = Data) ->
+session_teardown_response(Answer, Direction, From, State, #{shutdown := Shutdown0} = Data) ->
     case lists:delete(Direction, Shutdown0) of
 	[] ->
 	    Action = case From of
 			 undefined -> [];
 			 _ -> [{reply, From, Answer}]
 		     end,
-	    {next_state, shutdown, maps:remove(shutdown, Data), Action};
+	    {next_state, State#fsm{state = shutdown}, maps:remove(shutdown, Data), Action};
 	Shutdown ->
 	    {keep_state, Data#{shutdown => Shutdown}}
     end.
@@ -874,8 +878,8 @@ restart_timeout(Timeout, Msg, Data) ->
     cancel_timeout(Data),
     Data#{timeout => erlang:start_timer(Timeout, self(), Msg)}.
 
-close_context(Side, TermCause, State, Data)
-  when State == connected; State == connecting ->
+close_context(Side, TermCause, #fsm{state = ContextState} = State, Data)
+  when ContextState == connected; ContextState == connecting ->
     case Side of
 	left ->
 	    initiate_session_teardown(sgw2pgw, undefined, State, Data);
@@ -889,12 +893,12 @@ close_context(Side, TermCause, State, Data)
 close_context(_, _, _, Data) ->
     Data.
 
-delete_context(From, TermCause, State, Data0)
-  when State == connected; State == connecting ->
+delete_context(From, TermCause, #fsm{state = ContextState} = State, Data0)
+  when ContextState == connected; ContextState == connecting ->
     Data1 = initiate_session_teardown(sgw2pgw, From, State, Data0),
     Data2 = initiate_session_teardown(pgw2sgw, From, State, Data1),
     Data = delete_forward_session(TermCause, Data2),
-    {next_state, shutdown_initiated, Data};
+    {next_state, State#fsm{state = shutdown_initiated}, Data};
 delete_context(undefined, _, _, _) ->
     keep_state_and_data;
 delete_context(From, _, _, _) ->
