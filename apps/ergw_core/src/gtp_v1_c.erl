@@ -328,6 +328,8 @@ map_reply_ie(preferred_pdn_type_not_supported) ->
     #cause{value = unknown_pdp_address_or_pdp_type};
 map_reply_ie(user_authentication_failed) ->
     #cause{value = user_authentication_failed};
+map_reply_ie(timeout) ->
+    #cause{value = no_resources_available};
 map_reply_ie(IE)
   when is_tuple(IE) ->
     IE.
