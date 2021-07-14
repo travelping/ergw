@@ -55,9 +55,7 @@ session() ->
     #{'Username' => <<"111111111111111/3520990017614823/440000000000/ATOM/TEXT/12345@example.net">>,
       'Framed-Protocol' => 'GPRS-PDP-Context',
       'Multi-Session-Id' => 15958412130338583375391261628607396908,
-      'TAI' => <<3,2,22,214,217>>,
       '3GPP-SGSN-Address' => {127,127,127,127},
-      'ECGI' => <<3,2,22,8,71,9,92>>,
       '3GPP-RAT-Type' => 1,
       'Framed-IPv6-Pool' => <<"pool-A">>,
       '3GPP-Charging-Id' => 1981737279,
@@ -80,6 +78,14 @@ session() ->
 	  #{'ext-macro-eNB' =>
 		#ext_macro_enb{plmn_id = {<<"001">>, <<"001">>},
 			       id = rand:uniform(16#1fffff)},
+	    'SAI' =>
+		#sai{plmn_id = {<<"001">>, <<"001">>},
+		     lac = rand:uniform(16#ffff),
+		     sac = rand:uniform(16#ffff)},
+	    'RAI' =>
+		#rai{plmn_id = {<<"001">>, <<"001">>},
+		     lac = rand:uniform(16#ffff),
+		     rac = rand:uniform(16#ffff)},
 	    'TAI' =>
 		#tai{plmn_id = {<<"001">>, <<"001">>},
 		     tac = rand:uniform(16#ffff)}},
@@ -100,7 +106,7 @@ session() ->
       'NAS-Identifier' => <<"NAS-Identifier">>,
       '3GPP-NSAPI' => 5,
       '3GPP-PDP-Type' => 'IPv4',
-      '3GPP-SGSN-MCC-MNC' => <<"001001">>,
+      '3GPP-SGSN-MCC-MNC' => {<<"001">>,<<"001">>},
       '3GPP-IMSI-MCC-MNC' => <<"11111">>,
 
       %% TBD:
@@ -131,6 +137,17 @@ from_session(_Config) ->
 	 <<"pei">> := <<"imeisv-3520990017614823">>,
 	 <<"protocolType">> := <<"GTPv2">>,
 	 <<"supi">> := <<"imsi-111111111111111">>,
+	 <<"userLocationInfo">> :=
+	     #{<<"rai">> :=
+		   #{<<"lac">> := _,
+		     <<"plmnId">> :=
+			 #{<<"mcc">> := <<"001">>,<<"mnc">> := <<"001">>},
+		     <<"rac">> := _},
+	       <<"sai">> :=
+		   #{<<"lac">> := _,
+		     <<"plmnId">> :=
+			 #{<<"mcc">> := <<"001">>,<<"mnc">> := <<"001">>},
+		     <<"sac">> := _}},
 	 <<"vPlmn">> :=
 	     #{<<"cpAddress">> := #{<<"ipv4Addr">> := <<"127.127.127.127">>},
 	       <<"plmnId">> := #{<<"mcc">> := <<"001">>, <<"mnc">> := <<"001">>},
