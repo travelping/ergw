@@ -458,6 +458,19 @@
                     "Node-Id": "PGW-001"
                 },
                 "handler": "ergw_aaa_static"
+            },
+            {
+                "handler": "ergw_aaa_ro",
+                "Destination-Realm": "localhost",
+                "avp_filter": [
+                    [{"avp_name": "3GPP-IMSI"}],
+                    [
+                        {"avp_name": "Subscription-Id"},
+                        {"filter": [
+                            {"avp_name":"Subscription-Id-Type", "value": 1}
+                        ]}
+                    ]
+                ]
             }
         ],
         "services": [

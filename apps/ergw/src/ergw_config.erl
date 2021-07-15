@@ -607,7 +607,7 @@ ergw_meta_aaa_handler_gx() ->
       answers => {klist, {name, binary}, Answer},
       answer_if_down => binary,
       answer_if_timeout => binary,
-      avp_filter => {list, binary},
+      avp_filter => {list, {list, aaa_avp_path}},
       termination_cause_mapping => config_meta_term_cause_mapping()}.
 
 ergw_meta_aaa_handler_nasreq() ->
@@ -616,7 +616,7 @@ ergw_meta_aaa_handler_nasreq() ->
       accounting => atom,
       'Destination-Host' => binary,
       'Destination-Realm' => binary,
-      avp_filter => {list, binary},
+      avp_filter => {list, {list, aaa_avp_path}},
       termination_cause_mapping => config_meta_term_cause_mapping()}.
 
 ergw_meta_aaa_handler_radius() ->
@@ -627,7 +627,7 @@ ergw_meta_aaa_handler_radius() ->
       timeout => integer,
       retries => integer,
       async => boolean,
-      avp_filter => {list, binary},
+      avp_filter => {list, {list, aaa_avp_path}},
       vendor_dicts => atom,
       termination_cause_mapping => config_meta_term_cause_mapping()}.
 
@@ -642,7 +642,7 @@ ergw_meta_aaa_handler_rf() ->
       accounting => atom,
       'Destination-Host' => binary,
       'Destination-Realm' => binary,
-      avp_filter => {list, binary},
+      avp_filter => {list, {list, aaa_avp_path}},
       termination_cause_mapping => config_meta_term_cause_mapping()}.
 
 ergw_meta_aaa_handler_ro() ->
@@ -659,7 +659,7 @@ ergw_meta_aaa_handler_ro() ->
       answer_if_rate_limit => binary,
       tx_timeout => integer,
       max_retries => integer,
-      avp_filter => {list, binary},
+      avp_filter => {list, {list, aaa_avp_path}},
       termination_cause_mapping => config_meta_term_cause_mapping()}.
 
 ergw_meta_aaa_handler_static() ->
@@ -993,6 +993,11 @@ to_aaa_avp(#{<<"ipv6Addr">> := Bin}) when is_binary(Bin) ->
 to_aaa_avp(Map) when is_map(Map) ->
     maps:fold(fun to_aaa_avp/3, #{}, Map).
 
+to_aaa_avp_path(#{<<"avp_name">> := Bin}) when is_binary(Bin) ->
+    binary_to_atom(Bin);
+to_aaa_avp_path(#{<<"filter">> := Filter}) when is_list(Filter) ->
+    [{binary_to_atom(AVPName), Value} || #{<<"avp_name">> := AVPName, <<"value">> := Value} <- Filter].
+
 to_upff(V) when is_list(V) ->
     MinUpFF = #up_function_features{_ = '_'},
     lists:foldl(
@@ -1170,6 +1175,13 @@ from_aaa_avp(_K, Value) ->
 from_aaa_avp(Map) when is_map(Map) ->
     maps:fold(fun from_aaa_avp/3, #{}, Map).
 
+from_aaa_avp_path(AVPName) when is_atom(AVPName) ->
+    #{<<"avp_name">> => atom_to_binary(AVPName)};
+from_aaa_avp_path(Filter) when is_list(Filter) ->
+    #{<<"filter">> => [
+	#{<<"avp_name">> => atom_to_binary(AVPName), <<"value">> => Value} ||
+	{AVPName, Value} <- Filter
+    ]}.
 from_upff(V) ->
     [X || X <- '#info-'(up_function_features), '#get-'(X, V) =:= 1].
 
@@ -1386,6 +1398,11 @@ load_typespecs() ->
 		 coerce = fun to_aaa_avp/1,
 		 serialize = fun from_aaa_avp/1
 		},
+          aaa_avp_path =>
+              #cnf_type{
+        	 coerce    = fun to_aaa_avp_path/1,
+        	 serialize = fun from_aaa_avp_path/1
+          	},
 	  upff =>
 	      #cnf_type{
 		 coerce    = fun to_upff/1,
