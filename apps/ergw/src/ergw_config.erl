@@ -607,7 +607,7 @@ ergw_meta_aaa_handler_gx() ->
       answers => {klist, {name, binary}, Answer},
       answer_if_down => binary,
       answer_if_timeout => binary,
-      avp_filter => {list, binary},
+      avp_filter => aaa_avp_filter,
       termination_cause_mapping => config_meta_term_cause_mapping()}.
 
 ergw_meta_aaa_handler_nasreq() ->
@@ -616,7 +616,7 @@ ergw_meta_aaa_handler_nasreq() ->
       accounting => atom,
       'Destination-Host' => binary,
       'Destination-Realm' => binary,
-      avp_filter => {list, binary},
+      avp_filter => aaa_avp_filter,
       termination_cause_mapping => config_meta_term_cause_mapping()}.
 
 ergw_meta_aaa_handler_radius() ->
@@ -627,7 +627,7 @@ ergw_meta_aaa_handler_radius() ->
       timeout => integer,
       retries => integer,
       async => boolean,
-      avp_filter => {list, binary},
+      avp_filter => aaa_avp_filter,
       vendor_dicts => atom,
       termination_cause_mapping => config_meta_term_cause_mapping()}.
 
@@ -642,7 +642,7 @@ ergw_meta_aaa_handler_rf() ->
       accounting => atom,
       'Destination-Host' => binary,
       'Destination-Realm' => binary,
-      avp_filter => {list, binary},
+      avp_filter => aaa_avp_filter,
       termination_cause_mapping => config_meta_term_cause_mapping()}.
 
 ergw_meta_aaa_handler_ro() ->
@@ -659,7 +659,7 @@ ergw_meta_aaa_handler_ro() ->
       answer_if_rate_limit => binary,
       tx_timeout => integer,
       max_retries => integer,
-      avp_filter => {list, binary},
+      avp_filter => aaa_avp_filter,
       termination_cause_mapping => config_meta_term_cause_mapping()}.
 
 ergw_meta_aaa_handler_static() ->
@@ -795,6 +795,8 @@ to_binary(V) when is_atom(V) ->
     atom_to_binary(V);
 to_binary(V) when is_integer(V) ->
     integer_to_binary(V);
+to_binary(V) when is_float(V) ->
+    float_to_binary(V);
 to_binary(V) ->
     iolist_to_binary(io_lib:format("~0p", [V])).
 
@@ -823,10 +825,24 @@ to_atom(V) when is_list(V) ->
 
 to_integer(V) when is_integer(V) ->
     V;
+to_integer(V) when is_float(V) ->
+    round(V);
 to_integer(V) when is_binary(V) ->
     binary_to_integer(V);
 to_integer(V) when is_list(V) ->
     list_to_integer(V).
+
+to_float(V) when is_float(V) ->
+    V;
+to_float(V) when is_integer(V) ->
+    float(V);
+to_float(V) when is_binary(V) ->
+    to_float(binary_to_list(V));
+to_float(V) when is_list(V) ->
+    case lists:member($., V) of
+	true  -> list_to_float(V);
+	false -> float(list_to_integer(V))
+    end.
 
 to_string(V) when is_list(V); is_binary(V) ->
     unicode:characters_to_list(V).
@@ -984,14 +1000,66 @@ to_aaa_avp(K0, V0, M) ->
     K = to_atom(K0),
     maps:put(K, to_aaa_avp(K, V0), M).
 
-to_aaa_avp(#{<<"ipv4Addr">> := Bin}) when is_binary(Bin) ->
+to_aaa_avp_type(<<"ipv4Addr">>, Bin) when is_binary(Bin) ->
     {ok, IP} = inet:parse_ipv4_address(binary_to_list(Bin)),
     IP;
-to_aaa_avp(#{<<"ipv6Addr">> := Bin}) when is_binary(Bin) ->
+to_aaa_avp_type(<<"ipv6Addr">>, Bin) when is_binary(Bin) ->
     {ok, IP} = inet:parse_ipv6_address(binary_to_list(Bin)),
     IP;
+to_aaa_avp_type(Key, Value)
+  when Key =:= <<"unsigned32">>;
+       Key =:= <<"unsigned64">>;
+       Key =:= <<"integer32">>;
+       Key =:= <<"integer64">> ->
+    to_integer(Value);
+to_aaa_avp_type(Key, Value)
+  when Key =:= <<"utf8String">>;
+       Key =:= <<"octetString">>;
+       Key =:= <<"diameterIdentity">>;
+       Key =:= <<"time">>;
+       Key =:= <<"address">>;
+       Key =:= <<"diameterURI">>;
+       Key =:= <<"qosFilterRule">>;
+       Key =:= <<"ipFilterRule">> ->
+    to_binary(Value);
+to_aaa_avp_type(Key, Value)
+  when Key =:= <<"float32">>;
+       Key =:= <<"float64">> ->
+    to_float(Value).
+
+try_avp_type(Map, ElseFun) when is_function(ElseFun, 2) ->
+    [{Key, Value}] = maps:to_list(Map),
+    try
+	to_aaa_avp_type(Key, Value)
+    catch _:_ ->
+	    ElseFun(Key, Value)
+    end.
+
+to_aaa_avp(Map) when is_map(Map) andalso map_size(Map) =:= 1 ->
+    try_avp_type(Map, to_aaa_avp(_, _, #{}));
 to_aaa_avp(Map) when is_map(Map) ->
     maps:fold(fun to_aaa_avp/3, #{}, Map).
+
+to_aaa_avp_filter_entry(List) when is_list(List) ->
+    [to_aaa_avp_filter_item(X) || X <- List].
+
+to_aaa_avp_filter_item(K, V, M)
+  when is_list(V); is_map(V) ->
+    M#{to_atom(K) => to_aaa_avp_filter_item(V)};
+to_aaa_avp_filter_item(K, V, M) ->
+    M#{to_atom(K) => V}.
+
+to_aaa_avp_filter_item(List) when is_list(List) ->
+    [to_aaa_avp_filter_item(X) || X <- List];
+to_aaa_avp_filter_item(Key) when is_binary(Key) ->
+    to_atom(Key);
+to_aaa_avp_filter_item(Map) when is_map(Map) andalso map_size(Map) =:= 1 ->
+    try_avp_type(Map, to_aaa_avp_filter_item(_, _, #{}));
+to_aaa_avp_filter_item(Map) when is_map(Map) ->
+    maps:fold(fun to_aaa_avp_filter_item/3, #{}, Map).
+
+to_aaa_avp_filter(List) when is_list(List) ->
+    [to_aaa_avp_filter_entry(X) || X <- List].
 
 to_upff(V) when is_list(V) ->
     Set = lists:foldl(
@@ -1385,6 +1453,11 @@ load_typespecs() ->
 	      #cnf_type{
 		 coerce = fun to_aaa_avp/1,
 		 serialize = fun from_aaa_avp/1
+		},
+	  aaa_avp_filter =>
+	      #cnf_type{
+		 coerce = fun to_aaa_avp_filter/1%,
+		 %% serialize = fun from_aaa_avp_filter/1
 		},
 	  upff =>
 	      #cnf_type{

@@ -30,7 +30,7 @@
 %%%===================================================================
 
 all() ->
-    [load, http_api].
+    [load, avps, avp_filters, http_api].
 
 init_per_testcase(_Case, Config) ->
     smc_test_lib:clear_app_env(),
@@ -53,6 +53,72 @@ load(Config)  ->
     load(DataDir, "pgw_proxy", json),
     load(DataDir, "saegw_s11", json),
     load(DataDir, "tdf", json),
+    ok.
+
+avps() ->
+    [{doc, "Test the AVP filter conversion"}].
+avps(Config)  ->
+    DataDir  = ?config(data_dir, Config),
+
+    Cfg = read_json(DataDir, "avps.json"),
+    ct:pal("Cfg: ~p", [Cfg]),
+    ?match(#{aaa :=
+		 #{handlers :=
+		       #{ergw_aaa_static :=
+			     #{answers :=
+				   #{<<"AVP Test">> :=
+					 #{avps :=
+					       #{'Multiple-Services-Credit-Control' :=
+						     [_]}}}}}}
+	    }, Cfg),
+    #{aaa :=
+	  #{handlers :=
+		#{ergw_aaa_static :=
+		      #{answers :=
+			    #{<<"AVP Test">> :=
+				  #{avps :=
+					#{'Multiple-Services-Credit-Control' := [MSCC]}}}}}}} = Cfg,
+    ct:pal("MSCC: ~p~n", [MSCC]),
+    ?match(
+       #{'Rating-Group' := <<"1000">>,
+	 avp1 := [{127,0,0,1}],
+	 avp10 := [1.0],
+	 avp2 := [{0,0,0,0,0,0,0,1}],
+	 avp3 := [1],
+	 avp4 := [1],
+	 avp5 := [<<"1">>],
+	 avp6 := [<<"1">>],
+	 avp7 := [<<"1.00000000000000000000e+00">>],
+	 avp8 := [1.0],
+	 avp9 := [1.0]}, MSCC),
+    ok.
+
+avp_filters() ->
+    [{doc, "Test the AVP filter conversion"}].
+avp_filters(Config)  ->
+    DataDir  = ?config(data_dir, Config),
+
+    Cfg = read_json(DataDir, "avp_filters.json"),
+    ?match(#{aaa := #{handlers := #{ergw_aaa_nasreq := #{avp_filter := [_|_]}}}}, Cfg),
+    ct:pal("Cfg: ~p", [Cfg]),
+    #{aaa := #{handlers := #{ergw_aaa_nasreq := #{avp_filter := Filters}}}} = Cfg,
+    ct:pal("Filters: ~p", [lists:sort(Filters)]),
+    ?match(
+       [['Multiple-Services-Credit-Control',[#{'Rating-Group' := <<"1000">>}]],
+	[avp1,avp2],
+	[avp1,[#{avp2 := 1}]],
+	[avp1,[#{avp2 := 1}]],
+	[avp1,[#{avp2 := 1}]],
+	[avp1,[#{avp2 := 1.0}]],
+	[avp1,[#{avp2 := 1.0}]],
+	[avp1,[#{avp2 := 1.0}]],
+	[avp1,[#{avp2 := 1}],avp3],
+	[avp1,[#{avp2 := {127,0,0,1}}]],
+	[avp1,[#{avp2 := {0,0,0,0,0,0,0,1}}]],
+	[avp1,[#{avp2 := <<"1">>}]],
+	[avp1,[#{avp2 := <<"1">>}]],
+	[avp1,[#{avp2 := <<"1.00000000000000000000e+00">>}]]],
+       lists:sort(Filters)),
     ok.
 
 load(Dir, File, Type) ->
@@ -81,6 +147,8 @@ http_api(_Config) ->
 %%% Internal functions
 %%%===================================================================
 
+%% this function bypassed the schema validation and lets us try
+%% config translation on incomplete configs
 read_json(Dir, File) ->
     {ok, Bin} = file:read_file(filename:join(Dir, File)),
     Config = jsx:decode(Bin, [return_maps, {labels, binary}]),
