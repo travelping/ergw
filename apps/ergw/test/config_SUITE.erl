@@ -40,24 +40,29 @@ end_per_testcase(_Case, _Config) ->
     smc_test_lib:clear_app_env(),
     ok.
 
-laod() ->
+load() ->
     [{doc, "Test the config load function"}].
 load(Config)  ->
     DataDir  = ?config(data_dir, Config),
 
     application:load(ergw),
 
-    load(DataDir, "ggsn.json"),
-    load(DataDir, "ggsn_proxy.json"),
-    load(DataDir, "pgw.json"),
-    load(DataDir, "pgw_proxy.json"),
-    load(DataDir, "sae_s11.json"),
-    load(DataDir, "tdf.json"),
+    load(DataDir, "ggsn", json),
+    load(DataDir, "ggsn_proxy", json),
+    load(DataDir, "pgw", json),
+    load(DataDir, "pgw_proxy", json),
+    load(DataDir, "saegw_s11", json),
+    load(DataDir, "tdf", json),
     ok.
 
-load(Dir, File) ->
-    application:set_env(ergw, config, filename:join(Dir, File)),
-    %% ?match({ok, #{handlers := _}}, ergw_config:load()).
+load(Dir, File, Type) ->
+    FileName = filename:join(Dir, io_lib:format("~s.~s", [File, Type])),
+    Cfg = #{file => FileName, type => Type},
+    ct:pal("Cfg: ~p~n", [Cfg]),
+    application:set_env(ergw, config, Cfg),
+
+    Config = ergw_config:load(),
+    ?match({ok, #{handlers := _}}, Config),
     ok.
 
 http_api() ->
