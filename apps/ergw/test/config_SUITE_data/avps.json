@@ -1,0 +1,31 @@
+{
+    "aaa": {
+	"handlers": [
+	    {
+		"handler": "ergw_aaa_static",
+		"answers": [
+		    {
+			"name": "AVP Test",
+			"avps": {
+			    "Multiple-Services-Credit-Control": [
+				{
+				    "Rating-Group": "1000",
+				    "avp1": [{"ipv4Addr":"127.0.0.1"}],
+				    "avp2": [{"ipv6Addr":"::1"}],
+				    "avp3": [{"unsigned32":1}],
+				    "avp4": [{"unsigned32":"1"}],
+				    "avp5": [{"utf8String":"1"}],
+				    "avp6": [{"utf8String":1}],
+				    "avp7": [{"utf8String":1.0}],
+				    "avp8": [{"float32":"1"}],
+				    "avp9": [{"float32":1}],
+				    "avp10": [{"float32":1.0}]
+				}
+			    ]
+			}
+		    }
+		]
+	    }
+	]
+    }
+}

@@ -23,8 +23,7 @@
             "prefered_bearer_type": "IPv6",
             "vrfs": [
                 {
-                    "name": "upstream",
-                    "type": "apn"
+                    "apn": "upstream"
                 }
             ]
         },
@@ -43,8 +42,7 @@
             "prefered_bearer_type": "IPv6",
             "vrfs": [
                 {
-                    "name": "upstream",
-                    "type": "apn"
+                    "apn": "upstream"
                 }
             ]
         }
@@ -225,7 +223,11 @@
         }
     ],
     "upf_nodes": {
-	"required_upff": ["ftup", "treu", "empu"],
+        "required_upff": [
+            "ftup",
+            "treu",
+            "empu"
+        ],
         "default": {
             "heartbeat": {
                 "interval": {
@@ -252,8 +254,7 @@
                         "SGi-LAN"
                     ],
                     "name": {
-                        "name": "sgi",
-                        "type": "apn"
+                        "apn": "sgi"
                     }
                 },
                 {
@@ -261,8 +262,7 @@
                         "Access"
                     ],
                     "name": {
-                        "name": "irx",
-                        "type": "apn"
+                        "apn": "irx"
                     }
                 },
                 {
@@ -270,18 +270,23 @@
                         "CP-Function"
                     ],
                     "name": {
-                        "name": "cp",
-                        "type": "apn"
+                        "apn": "cp"
                     }
                 }
             ],
             "ue_ip_pools": [
-                {"ip_pools": ["pool-A", "pool-B"],
-                 "vrf": {
-                     "name": "sgi",
-                     "type": "apn"
-                 },
-                 "ip_versions": ["v4", "v6"]
+                {
+                    "ip_pools": [
+                        "pool-A",
+                        "pool-B"
+                    ],
+                    "vrf": {
+                        "apn": "sgi"
+                    },
+                    "ip_versions": [
+                        "v4",
+                        "v6"
+                    ]
                 }
             ]
         },
@@ -337,8 +342,7 @@
             "send_port": 0,
             "type": "gtp-c",
             "vrf": {
-                "name": "irx",
-                "type": "apn"
+                "apn": "irx"
             }
         },
         {
@@ -352,8 +356,7 @@
             "send_port": 0,
             "type": "gtp-u",
             "vrf": {
-                "name": "cp",
-                "type": "apn"
+                "apn": "cp"
             }
         }
     ],
