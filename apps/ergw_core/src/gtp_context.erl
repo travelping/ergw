@@ -383,6 +383,10 @@ handle_event(info, {{'DOWN', ReqId}, _, _, _, Info}, #{async := Async} = State, 
 handle_event(info, {{'DOWN', _}, _, _, _, _}, _, _) ->
     keep_state_and_data;
 
+handle_event(info, {'DOWN', _, process, ReqId, Info}, #{async := Async} = State, Data)
+  when is_map_key(ReqId, Async) ->
+    statem_m_continue(ReqId, {error, Info}, false, State, Data);
+
 handle_event(info, {ReqId, Result}, #{async := Async} = State, Data)
   when is_map_key(ReqId, Async) ->
     statem_m_continue(ReqId, Result, false, State, Data);
@@ -1004,7 +1008,7 @@ next({error, Result}, _, Fun, State, Data)
   when is_function(Fun, 3) ->
     Fun(Result, State, Data);
 next({wait, ReqId, Q}, OkF, FailF, #{async := Async} = State, Data)
-  when is_reference(ReqId),
+  when (is_reference(ReqId) orelse is_pid(ReqId)),
        is_list(Q),
        is_function(OkF, 3),
        is_function(FailF, 3) ->
@@ -1020,9 +1024,20 @@ statem_m_continue(ReqId, Result, DeMonitor, #{async := Async0} = State, Data) ->
     ?LOG(debug, "Result: ~p~n", [Result]),
     next(statem_m:response(Q, Result, _, _), OkF, FailF, State#{async := Async}, Data).
 
+-if(?OTP_RELEASE =< 23).
+
+send_request(Fun) when is_function(Fun, 0) ->
+    Owner = self(),
+    {Pid, _} = spawn_opt(fun() -> Owner ! {self(), Fun()} end, [monitor]),
+    Pid.
+
+-else.
+
 send_request(Fun) when is_function(Fun, 0) ->
     Owner = self(),
     ReqId = make_ref(),
     Opts = [{monitor, [{tag, {'DOWN', ReqId}}]}],
     spawn_opt(fun() -> Owner ! {ReqId, Fun()} end, Opts),
     ReqId.
+
+-endif.

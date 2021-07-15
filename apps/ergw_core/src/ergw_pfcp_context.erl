@@ -221,7 +221,7 @@ receive_session_establishment_response(_, _, _, _) ->
 %% session_establishment_request/5
 session_establishment_request(Handler, PCC, PCtx0, Bearer, Ctx) ->
     {ReqId, PCtx} = send_session_establishment_request(Handler, PCC, PCtx0, Bearer, Ctx),
-    case ergw_sx_node:receive_response(ReqId) of
+    case ergw_sx_node:wait_response(ReqId) of
 	{reply, Response} ->
 	    receive_session_establishment_response(Response, Handler, PCtx, Bearer);
 	{error, Error} ->

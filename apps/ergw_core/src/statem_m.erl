@@ -56,7 +56,7 @@ get_data(Fun)  -> fun (S, D) -> {{ok, Fun(D)}, S, D} end.
 modify_data(Fun)   -> fun (S, D) -> {{ok, ok}, S, Fun(D)} end.
 modify_state(Fun)  -> fun (S, D) -> {{ok, ok}, Fun(S), D} end.
 
-wait(ReqId) when is_reference(ReqId) ->
+wait(ReqId) when is_reference(ReqId); is_pid(ReqId) ->
     fun (S, D) -> {{wait, ReqId, []}, S, D} end.
 
 run(SM, State, Data) ->
