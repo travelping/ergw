@@ -1,0 +1,26 @@
+{
+    "aaa": {
+	"handlers": [
+	    {
+		"handler": "ergw_aaa_nasreq",
+		"avp_filter":
+		[
+		    ["Multiple-Services-Credit-Control", [{"Rating-Group": "1000"}]],
+		    ["avp1", [{"avp2": 1}], "avp3"],
+		    ["avp1", [{"avp2": 1}]],
+		    ["avp1", "avp2"],
+		    ["avp1", [{"avp2": {"ipv4Addr":"127.0.0.1"}}]],
+		    ["avp1", [{"avp2": {"ipv6Addr":"::1"}}]],
+		    ["avp1", [{"avp2": {"unsigned32":1}}]],
+		    ["avp1", [{"avp2": {"unsigned32":"1"}}]],
+		    ["avp1", [{"avp2": {"utf8String":"1"}}]],
+		    ["avp1", [{"avp2": {"utf8String":1}}]],
+		    ["avp1", [{"avp2": {"utf8String":1.0}}]],
+		    ["avp1", [{"avp2": {"float32":"1"}}]],
+		    ["avp1", [{"avp2": {"float32":1}}]],
+		    ["avp1", [{"avp2": {"float32":1.0}}]]
+		]
+	    }
+	]
+    }
+}
