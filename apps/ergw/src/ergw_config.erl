@@ -1009,9 +1009,9 @@ to_aaa_avp(Map) when is_map(Map) ->
     maps:fold(fun to_aaa_avp/3, #{}, Map).
 
 to_upff(V) when is_list(V) ->
-    MinUpFF = #up_function_features{_ = '_'},
-    lists:foldl(
-      fun(X) -> to_atom(X) end, MinUpFF, V).
+    Set = lists:foldl(
+	    fun(X, SetF) -> [{to_atom(X), 1}|SetF] end, [], V),
+    '#set-'(Set, #up_function_features{_ = '_'}).
 
 %% complex types
 
