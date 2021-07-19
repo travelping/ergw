@@ -184,7 +184,7 @@ handle_request(ReqKey,
     case match_tunnel(?'S11-C MME', LeftTunnel, FqTEID) of
 	ok ->
 	    gtp_context:next(
-	      ergw_gtp_gsn_lib:close_context_m(?API, normal),
+	      ergw_gtp_gsn_lib:close_context_m(?API, normal, _, _),
 	      delete_session_resp(ReqKey, Request, _, _, _),
 	      delete_session_resp(ReqKey, Request, _, _, _),
 	      State, Data);
