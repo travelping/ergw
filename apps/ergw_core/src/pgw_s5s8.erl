@@ -249,7 +249,7 @@ handle_request(ReqKey, _Msg, _Resent, _State, _Data) ->
 delete_session_request(#gtp{ie = IEs}) ->
     do([statem_m ||
 	   process_secondary_rat_usage_data_reports(IEs),
-	   ergw_gtp_gsn_lib:close_context_m(?API, normal)
+	   ergw_gtp_gsn_lib:close_context_m(?API, normal, _, _)
        ]).
 
 delete_session_resp(ReqKey, Request, _, State, #{left_tunnel := LeftTunnel} = Data) ->

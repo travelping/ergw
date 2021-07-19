@@ -13,7 +13,7 @@
 
 -export([connect_upf_candidates/4, create_session_m/5]).
 -export([triggered_charging_event/4, usage_report/3, close_context/3, close_context/4,
-	 close_context_m/2]).
+	 close_context_m/4]).
 -export([handle_peer_change/3, update_tunnel_endpoint/2,
 	 apply_bearer_change/5]).
 
@@ -136,19 +136,24 @@ close_context(API, TermCause, UsageReport, #{pfcp := PCtx, 'Session' := Session}
     ergw_prometheus:termination_cause(API, TermCause),
     maps:remove(pfcp, Data).
 
-%% close_context_m/2
-close_context_m(_, {API, TermCause}) ->
-    close_context_m(API, TermCause);
-close_context_m(API, TermCause)
+%% close_context_m/4
+close_context_m(_, {API, TermCause}, State, Data) ->
+    close_context_m(API, TermCause, State, Data);
+close_context_m(API, TermCause, State, #{pfcp := PCtx} = Data)
   when is_atom(TermCause) ->
-    do([statem_m ||
-	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
-	   PCtx <- statem_m:get_data(maps:get(pfcp, _)),
-	   UsageReport = ergw_pfcp_context:delete_session(TermCause, PCtx),
-	   close_context_m(API, TermCause, UsageReport)
-       ]);
-close_context_m(_API, _TermCause) ->
-    do([statem_m || return()]).
+    statem_m:run(
+      do([statem_m ||
+	     _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+	     ReqId <-
+		 statem_m:return(
+		   ergw_pfcp_context:send_session_deletion_request(TermCause, PCtx)),
+	     Response <- statem_m:wait(ReqId),
+	     UsageReport <-
+		 statem_m:lift(ergw_pfcp_context:receive_session_deletion_response(Response)),
+	     close_context_m(API, TermCause, UsageReport)
+	 ]), State, Data);
+close_context_m(_API, _TermCause, State, Data) ->
+    statem_m:return(ok, State, Data).
 
 %% close_context_m/3
 close_context_m(API, TermCause, UsageReport)

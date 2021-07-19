@@ -16,6 +16,8 @@
 	 modify_session/5,
 	 delete_session/2,
 	 session_liveness_check/1,
+	 send_session_deletion_request/2,
+	 receive_session_deletion_response/1,
 	 usage_report_to_charging_events/3,
 	 query_usage_report/1, query_usage_report/2
 	]).
@@ -69,21 +71,9 @@ modify_session(PCC, URRActions, Opts, #{left := Left, right := Right} = _Bearer,
     session_modification_request(PCtx, SxRules).
 
 %% delete_session/2
-delete_session(Reason, PCtx)
-  when Reason /= upf_failure ->
-    Req = #pfcp{version = v1, type = session_deletion_request, ie = []},
-    case ergw_sx_node:call(PCtx, Req) of
-	#pfcp{type = session_deletion_response,
-	      ie = #{pfcp_cause := #pfcp_cause{cause = 'Request accepted'}} = IEs} ->
-	    maps:get(usage_report_sdr, IEs, undefined);
-
-	_Other ->
-	    ?LOG(warning, "PFCP: Session Deletion failed with ~p",
-			  [_Other]),
-	    undefined
-    end;
-delete_session(_Reason, _PCtx) ->
-    undefined.
+delete_session(Reason, PCtx) ->
+    {ok, UsageReport} = session_deletion_request(Reason, PCtx),
+    UsageReport.
 
 session_liveness_check(#pfcp_ctx{} = PCtx) ->
     Req = #pfcp{version = v1, type = session_modification_request, ie = []},
@@ -227,6 +217,34 @@ session_establishment_request(Handler, PCC, PCtx0, Bearer, Ctx) ->
 	{error, Error} ->
 	    receive_session_establishment_response(Error, Handler, PCtx, Bearer)
     end.
+
+%% session_deletion_request/2
+session_deletion_request(Reason, PCtx) ->
+    ReqId = send_session_deletion_request(Reason, PCtx),
+    case ergw_sx_node:wait_response(ReqId) of
+	{reply, Response} ->
+	    receive_session_deletion_response(Response);
+	{error, Error} ->
+	    receive_session_deletion_response(Error)
+    end.
+
+%% send_session_deletion_request/2
+send_session_deletion_request(Reason, PCtx)
+  when Reason /= upf_failure ->
+    Req = #pfcp{version = v1, type = session_deletion_request, ie = []},
+    ergw_sx_node:send_request(PCtx, Req);
+send_session_deletion_request(_Reason, _PCtx) ->
+    gtp_context:send_request(fun() -> ok end).
+
+%% receive_session_deletion_response/1
+receive_session_deletion_response(
+  #pfcp{type = session_deletion_response,
+	ie = #{pfcp_cause := #pfcp_cause{cause = 'Request accepted'}} = IEs}) ->
+    {ok, maps:get(usage_report_sdr, IEs, undefined)};
+receive_session_deletion_response(Other) ->
+    ?LOG(warning, "PFCP: Session Deletion failed with ~p", [Other]),
+    {ok, undefined}.
+
 
 -if(0).
 %% session_establishment_request/5
