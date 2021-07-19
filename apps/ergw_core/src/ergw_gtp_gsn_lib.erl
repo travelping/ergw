@@ -169,7 +169,6 @@ add_apn_timeout(Opts, Session, Context) ->
 	    _ ->
 		48 * 3600 * 1000
 	end,
-    ct:pal("inactivity_timeout: ~p~nOpts: ~p~nSessionTo: ~p~n", [Timeout, Opts, SessionTimeout]),
     %% TODO: moving idle_timeout to the PCC ctx might make more sense
     Context#context{inactivity_timeout = Timeout, idle_timeout = SessionTimeout}.
 
