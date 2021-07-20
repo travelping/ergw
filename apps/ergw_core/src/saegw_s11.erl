@@ -151,29 +151,22 @@ handle_request(#request{src = Src, ip = IP, port = Port} = ReqKey,
     Actions = context_idle_action([], Context),
     {keep_state, Data, Actions};
 
-handle_request(ReqKey,
-	       #gtp{type = release_access_bearers_request} = Request,
-	       _Resent, #{session := connected} = _State,
-	       #{context := Context, pfcp := PCtx0,
-		 left_tunnel := LeftTunnel,
-		 bearer := #{left := LeftBearer0} = Bearer0,
-		 pcc := PCC} = Data) ->
-    LeftBearer = LeftBearer0#bearer{remote = undefined},
-    Bearer = Bearer0#{left => LeftBearer},
-
-    PCtx =
-	case ergw_gtp_gsn_lib:apply_bearer_change(Bearer, [], true, PCtx0, PCC) of
-	    {ok, {RPCtx, _}} -> RPCtx;
-	    {error, Err2} -> throw(Err2#ctx_err{context = Context, tunnel = LeftTunnel})
-	end,
-
-    ResponseIEs = [#v2_cause{v2_cause = request_accepted}],
-    Response = response(release_access_bearers_response, LeftTunnel, ResponseIEs, Request),
-    gtp_context:send_response(ReqKey, Request, Response),
-
-    DataNew = Data#{context => Context, pfcp => PCtx, bearer => Bearer},
-    Actions = context_idle_action([], Context),
-    {keep_state, DataNew, Actions};
+handle_request(ReqKey, #gtp{type = release_access_bearers_request} = Request,
+	       _Resent, #{session := connected} = State, Data) ->
+    gtp_context:next(
+      statem_m:run(
+	do([statem_m ||
+	       _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+	       #{left := LeftBearer} = Bearer <-
+		   statem_m:get_data(maps:get(bearer, _)),
+	       statem_m:modify_data(
+		 _#{bearer =>
+			Bearer#{left => LeftBearer#bearer{remote = undefined}}}),
+	       ergw_gtp_gsn_lib:apply_bearer_change([], true)
+	   ]), _, _),
+      release_access_bearers_resp(ReqKey, Request, _, _, _),
+      release_access_bearers_resp(ReqKey, Request, _, _, _),
+      State, Data);
 
 handle_request(ReqKey,
 	       #gtp{type = delete_session_request, ie = IEs} = Request,
@@ -198,6 +191,15 @@ handle_request(ReqKey,
 handle_request(ReqKey, _Msg, _Resent, _State, _Data) ->
     gtp_context:request_finished(ReqKey),
     keep_state_and_data.
+
+release_access_bearers_resp(ReqKey, Request, _, State,
+			    #{context := Context, left_tunnel := LeftTunnel} = Data) ->
+    ResponseIEs = [#v2_cause{v2_cause = request_accepted}],
+    Response = response(release_access_bearers_response, LeftTunnel, ResponseIEs, Request),
+    gtp_context:send_response(ReqKey, Request, Response),
+
+    Actions = context_idle_action([], Context),
+    {next_state, State, Data, Actions}.
 
 delete_session_resp(ReqKey, Request, _, State, #{left_tunnel := LeftTunnel} = Data) ->
     Response = response(delete_session_response, LeftTunnel, request_accepted),
