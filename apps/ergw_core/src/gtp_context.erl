@@ -537,71 +537,13 @@ handle_event(info, #aaa_request{procedure = {_, 'ASR'} = Procedure} = Request, S
     ergw_aaa_session:response(Request, ok, #{}, #{}),
     delete_context(undefined, Procedure, State, Data);
 
-handle_event(info, #aaa_request{procedure = {gx, 'RAR'},
-				events = Events} = Request,
-	     #{session := connected} = _State,
-	     #{context := Context, pfcp := PCtx0,
-	       left_tunnel := LeftTunnel, bearer := Bearer,
-	       'Session' := Session, pcc := PCC0} = Data) ->
-%%% 1. update PCC
-%%%    a) calculate PCC rules to be removed
-%%%    b) calculate PCC rules to be installed
-%%% 2. figure out which Rating-Groups are new or which ones have to be removed
-%%%    based on updated PCC rules
-%%% 3. remove PCC rules and unsused Rating-Group URRs from UPF
-%%% 4. on Gy:
-%%%     - report removed URRs/RGs
-%%%     - request credits for new URRs/RGs
-%%% 5. apply granted quotas to PCC rules, remove PCC rules without quotas
-%%% 6. install new PCC rules which have granted quota
-%%% 7. report remove and not installed (lack of quota) PCC rules on Gx
-    Now = erlang:monotonic_time(),
-    ReqOps = #{now => Now},
-
-    RuleBase = ergw_charging:rulebase(),
-
-%%% step 1a:
-    {PCC1, _} =
-	ergw_pcc_context:gx_events_to_pcc_ctx(Events, remove, RuleBase, PCC0),
-%%% step 1b:
-    {PCC2, PCCErrors2} =
-	ergw_pcc_context:gx_events_to_pcc_ctx(Events, install, RuleBase, PCC1),
-
-%%% step 2
-%%% step 3:
-    {PCtx1, UsageReport, _} =
-	case ergw_pfcp_context:modify_session(PCC1, [], #{}, Bearer, PCtx0) of
-	    {ok, Result1} -> Result1;
-	    {error, Err1} -> throw(Err1#ctx_err{context = Context, tunnel = LeftTunnel})
-	end,
-
-%%% step 4:
-    ChargeEv = {online, 'RAR'},   %% made up value, not use anywhere...
-    {Online, Offline, Monitor} =
-	ergw_pfcp_context:usage_report_to_charging_events(UsageReport, ChargeEv, PCtx1),
-
-    ergw_gsn_lib:process_accounting_monitor_events(ChargeEv, Monitor, Now, Session),
-    GyReqServices = ergw_pcc_context:gy_credit_request(Online, PCC0, PCC2),
-    {ok, _, GyEvs} =
-	ergw_gsn_lib:process_online_charging_events(ChargeEv, GyReqServices, Session, ReqOps),
-    ergw_gsn_lib:process_offline_charging_events(ChargeEv, Offline, Now, Session),
-
-%%% step 5:
-    {PCC4, PCCErrors4} = ergw_pcc_context:gy_events_to_pcc_ctx(Now, GyEvs, PCC2),
-
-%%% step 6:
-    {PCtx, _, _} =
-	case ergw_pfcp_context:modify_session(PCC4, [], #{}, Bearer, PCtx1) of
-	    {ok, Result2} -> Result2;
-	    {error, Err2} -> throw(Err2#ctx_err{context = Context, tunnel = LeftTunnel})
-	end,
-
-%%% step 7:
-    %% TODO Charging-Rule-Report for successfully installed/removed rules
-
-    GxReport = ergw_gsn_lib:pcc_events_to_charging_rule_report(PCCErrors2 ++ PCCErrors4),
-    ergw_aaa_session:response(Request, ok, GxReport, #{}),
-    {keep_state, Data#{pfcp := PCtx, pcc := PCC4}};
+handle_event(info, #aaa_request{procedure = {gx, 'RAR'}} = Request,
+	     #{session := connected} = State, Data) ->
+    gtp_context:next(
+      gx_rar_fun(Request, _, _),
+      gx_rar_ok(Request, _, _, _),
+      gx_rar_fail(Request, _, _, _),
+      State, Data);
 
 handle_event(info, #aaa_request{procedure = {gy, 'RAR'},
 				events = Events} = Request,
@@ -629,19 +571,12 @@ handle_event(info, {update_session, Session, Events}, _State, _Data) ->
     Actions = [{next_event, internal, {session, Ev, Session}} || Ev <- Events],
     {keep_state_and_data, Actions};
 
-handle_event(internal, {session, {update_credits, _} = CreditEv, _}, _State,
-	     #{context := Context, pfcp := PCtx0,
-	       left_tunnel := LeftTunnel, bearer := Bearer,
-	       pcc := PCC0} = Data) ->
-    Now = erlang:monotonic_time(),
-
-    {PCC, _PCCErrors} = ergw_pcc_context:gy_events_to_pcc_ctx(Now, [CreditEv], PCC0),
-    {PCtx, _, _} =
-	case ergw_pfcp_context:modify_session(PCC, [], #{}, Bearer, PCtx0) of
-	    {ok, Result1} -> Result1;
-	    {error, Err1} -> throw(Err1#ctx_err{context = Context, tunnel = LeftTunnel})
-	end,
-    {keep_state, Data#{pfcp := PCtx, pcc := PCC}};
+handle_event(internal, {session, {update_credits, _} = CreditEv, _}, State, Data) ->
+    gtp_context:next(
+      update_credits_fun(CreditEv, _, _),
+      update_credits_ok(_, _, _),
+      update_credits_fail(_, _, _),
+      State, Data);
 
 %% Enable AAA to provide reason for session stop
 handle_event(internal, {session, {stop, Reason}, _Session}, State, Data) ->
@@ -816,6 +751,121 @@ generic_error(#request{socket = Socket} = Request,
 	   end,
     Reply = Handler:build_response({MsgType, TEID, Error}),
     ergw_gtp_c_socket:send_response(Request, Reply#gtp{seq_no = SeqNo}, SeqNo /= 0).
+
+%%%===================================================================
+%%% Monadic Handlers
+%%%===================================================================
+
+pfcp_session_modification() ->
+    do([statem_m ||
+	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+	   #{pfcp := PCtx0, pcc := PCC, bearer := Bearer} <- statem_m:get_data(),
+	   {PCtx, ReqId} <-
+	       statem_m:return(
+		 ergw_pfcp_context:send_session_modification_request(
+		   PCC, [], #{}, Bearer, PCtx0)),
+	   statem_m:modify_data(_#{pfcp => PCtx}),
+	   Response <- statem_m:wait(ReqId),
+
+	   PCtx1 <- statem_m:get_data(maps:get(pfcp, _)),
+	   statem_m:lift(
+	     ergw_pfcp_context:receive_session_modification_response(PCtx1, Response))
+       ]).
+
+gx_events_to_pcc_ctx(Evs, Filter, RuleBase, State, #{pcc := PCC0} = Data) ->
+    {PCC, Errors} = ergw_pcc_context:gx_events_to_pcc_ctx(Evs, Filter, RuleBase, PCC0),
+    statem_m:return(Errors, State, Data#{pcc => PCC}).
+
+gy_events_to_pcc_ctx(Now, Evs, State, #{pcc := PCC0} = Data) ->
+    {PCC, Errors} = ergw_pcc_context:gy_events_to_pcc_ctx(Now, Evs, PCC0),
+    statem_m:return(Errors, State, Data#{pcc => PCC}).
+
+usage_report_to_charging_events(UsageReport, ChargeEv) ->
+    do([statem_m ||
+	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+	   PCtx <- statem_m:get_data(maps:get(pfcp, _)),
+	   return(
+	     ergw_pfcp_context:usage_report_to_charging_events(UsageReport, ChargeEv, PCtx))
+       ]).
+
+gy_credit_request(Online, #{pcc := PCC0}, State, #{pcc := PCC2} = Data) ->
+    GyReqServices = ergw_pcc_context:gy_credit_request(Online, PCC0, PCC2),
+    statem_m:return(GyReqServices, State, Data).
+
+gx_rar_fun(#aaa_request{events = Events}, State, Data) ->
+    statem_m:run(
+      do([statem_m ||
+	     _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+
+	     Now = erlang:monotonic_time(),
+	     RuleBase = ergw_charging:rulebase(),
+
+	     %% remove PCC rules
+	     gx_events_to_pcc_ctx(Events, remove, RuleBase, _, _),
+	     {_, UsageReport, _} <- pfcp_session_modification(),
+
+	     %% collect charging data from remove rules
+	     ChargeEv = {online, 'RAR'},   %% made up value, not use anywhere...
+	     {Online, Offline, Monitor} <-
+		 usage_report_to_charging_events(UsageReport, ChargeEv),
+
+	     Session <- statem_m:get_data(maps:get('Session', _)),
+	     _ = ergw_gsn_lib:process_accounting_monitor_events(ChargeEv, Monitor, Now, Session),
+
+	     %% install new PCC rules
+	     PCCErrors1 <- gx_events_to_pcc_ctx(Events, install, RuleBase, _, _),
+
+	     % send a Online Charging Event (Gy) with the information for the
+	     %% removed rules and request credits for the added rules
+	     GyReqServices <- gy_credit_request(Online, Data, _, _),
+
+	     GyReqId <- statem_m:return(
+			  gtp_context:send_request(
+			    fun() ->
+				    ergw_gsn_lib:process_online_charging_events(
+				      ChargeEv, GyReqServices, Session, #{now => Now})
+			    end)),
+	     {ok, _, GyEvs} <- statem_m:wait(GyReqId),
+
+	     _ = ergw_gsn_lib:process_offline_charging_events(ChargeEv, Offline, Now, Session),
+
+	     %% install the new rules, collect any errors
+	     PCCErrors2 <- gy_events_to_pcc_ctx(Now, GyEvs, _, _),
+	     pfcp_session_modification(),
+
+	     %% TODO Charging-Rule-Report for successfully installed/removed rules
+
+	     %% return all PCC errors to be include the RAA
+	     return(PCCErrors1 ++ PCCErrors2)
+	 ]), State, Data).
+
+gx_rar_ok(Request, Errors, State, Data) ->
+    ?LOG(debug, "~s: ~p", [?FUNCTION_NAME, Errors]),
+
+    GxReport = ergw_gsn_lib:pcc_events_to_charging_rule_report(Errors),
+    ergw_aaa_session:response(Request, ok, GxReport, #{}),
+    {next_state, State, Data}.
+gx_rar_fail(_Request, Error, State, Data) ->
+    ?LOG(error, "gx_rar failed with ~p", [Error]),
+
+    %% TBD: Gx RAR Error reply
+    {next_state, State, Data}.
+
+update_credits_fun(CreditEv, State, Data) ->
+    statem_m:run(
+      do([statem_m ||
+	     Now = erlang:monotonic_time(),
+
+	     _PCCErrors <- gy_events_to_pcc_ctx(Now, [CreditEv], _, _),
+	     pfcp_session_modification()
+	 ]), State, Data).
+
+update_credits_ok(_Res, State, Data) ->
+    ?LOG(debug, "~s: ~p", [?FUNCTION_NAME, _Res]),
+    {next_state, State, Data}.
+update_credits_fail(Error, State, Data) ->
+    ?LOG(error, "update_credits failed with ~p", [Error]),
+    {next_state, State, Data}.
 
 %%%===================================================================
 %%% Internal functions
