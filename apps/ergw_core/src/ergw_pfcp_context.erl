@@ -224,7 +224,7 @@ session_establishment_request(Handler, PCC, PCtx0, Bearer, Ctx) ->
 session_modification_request(PCtx, ReqIEs) ->
     case send_session_modification_request(PCtx, ReqIEs) of
 	skip ->
-	    receive_session_modification_response(PCtx, ok);
+	    receive_session_modification_response(PCtx, skip);
 	ReqId ->
 	    case ergw_sx_node:wait_response(ReqId) of
 		{reply, Response} ->
@@ -267,7 +267,7 @@ receive_session_modification_response(
     SessionInfo = session_info(RespIEs),
     UsageReport = maps:get(usage_report_smr, RespIEs, undefined),
     {ok, {PCtx, UsageReport, SessionInfo}};
-receive_session_modification_response(PCtx, ok) ->
+receive_session_modification_response(PCtx, skip) ->
     {ok, {PCtx, undefined, #{}}};
 receive_session_modification_response(_, Other) ->
     ?LOG(warning, "PFCP: Session Modification failed with ~p", [Other]),
