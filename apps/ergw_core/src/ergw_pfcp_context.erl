@@ -14,6 +14,8 @@
 	 send_session_establishment_request/5,
 	 receive_session_establishment_response/4,
 	 modify_session/5,
+	 send_session_modification_request/5,
+	 receive_session_modification_response/2,
 	 delete_session/2,
 	 session_liveness_check/1,
 	 send_session_deletion_request/2,
@@ -218,14 +220,71 @@ session_establishment_request(Handler, PCC, PCtx0, Bearer, Ctx) ->
 	    receive_session_establishment_response(Error, Handler, PCtx, Bearer)
     end.
 
+%% session_modification_request/2
+session_modification_request(PCtx, ReqIEs) ->
+    case send_session_modification_request(PCtx, ReqIEs) of
+	skip ->
+	    receive_session_modification_response(PCtx, ok);
+	ReqId ->
+	    case ergw_sx_node:wait_response(ReqId) of
+		{reply, Response} ->
+		    receive_session_modification_response(PCtx, Response);
+		{error, Error} ->
+		    receive_session_modification_response(PCtx, Error)
+	    end
+    end.
+
+%% send_session_modification_request/5
+send_session_modification_request(PCC, URRActions, Opts, #{left := Left, right := Right}, PCtx0)
+  when is_record(PCC, pcc_ctx), is_record(PCtx0, pfcp_ctx) ->
+    {SxRules0, SxErrors, PCtx} = build_sx_rules(PCC, Opts, PCtx0, Left, Right),
+    SxRules =
+	lists:foldl(
+	  fun({offline, _}, SxR) ->
+		  SxR#{query_urr => build_query_usage_report(offline, PCtx)};
+	     (_, SxR) ->
+		  SxR
+	  end, SxRules0, URRActions),
+
+    ?LOG(debug, "SxRules: ~p~n", [SxRules]),
+    ?LOG(debug, "SxErrors: ~p~n", [SxErrors]),
+    ?LOG(debug, "PCtx: ~p~n", [PCtx]),
+    {PCtx, send_session_modification_request(PCtx, SxRules)}.
+
+%% send_session_modification_request/2
+send_session_modification_request(PCtx, ReqIEs)
+  when ?is_non_empty_opts(ReqIEs) ->
+    Req = #pfcp{version = v1, type = session_modification_request, ie = ReqIEs},
+    ergw_sx_node:send_request(PCtx, Req);
+send_session_modification_request(_, _) ->
+    ?LOG(debug, "SMR: skip"),
+    skip.
+
+%% receive_session_modification_response/1
+receive_session_modification_response(
+  PCtx, #pfcp{type = session_modification_response,
+	      ie = #{pfcp_cause := #pfcp_cause{cause = 'Request accepted'}} = RespIEs}) ->
+    SessionInfo = session_info(RespIEs),
+    UsageReport = maps:get(usage_report_smr, RespIEs, undefined),
+    {ok, {PCtx, UsageReport, SessionInfo}};
+receive_session_modification_response(PCtx, ok) ->
+    {ok, {PCtx, undefined, #{}}};
+receive_session_modification_response(_, Other) ->
+    ?LOG(warning, "PFCP: Session Modification failed with ~p", [Other]),
+    {error, ?CTX_ERR(?FATAL, system_failure)}.
+
 %% session_deletion_request/2
 session_deletion_request(Reason, PCtx) ->
-    ReqId = send_session_deletion_request(Reason, PCtx),
-    case ergw_sx_node:wait_response(ReqId) of
-	{reply, Response} ->
-	    receive_session_deletion_response(Response);
-	{error, Error} ->
-	    receive_session_deletion_response(Error)
+    case send_session_deletion_request(Reason, PCtx) of
+	skip ->
+	    receive_session_deletion_response(skip);
+	ReqId ->
+	    case ergw_sx_node:wait_response(ReqId) of
+		{reply, Response} ->
+		    receive_session_deletion_response(Response);
+		{error, Error} ->
+		    receive_session_deletion_response(Error)
+	    end
     end.
 
 %% send_session_deletion_request/2
@@ -234,66 +293,19 @@ send_session_deletion_request(Reason, PCtx)
     Req = #pfcp{version = v1, type = session_deletion_request, ie = []},
     ergw_sx_node:send_request(PCtx, Req);
 send_session_deletion_request(_Reason, _PCtx) ->
-    gtp_context:send_request(fun() -> ok end).
+    ?LOG(debug, "SDR: skip"),
+    skip.
 
 %% receive_session_deletion_response/1
 receive_session_deletion_response(
   #pfcp{type = session_deletion_response,
 	ie = #{pfcp_cause := #pfcp_cause{cause = 'Request accepted'}} = IEs}) ->
     {ok, maps:get(usage_report_sdr, IEs, undefined)};
+receive_session_deletion_response(skip) ->
+    {ok, undefined};
 receive_session_deletion_response(Other) ->
     ?LOG(warning, "PFCP: Session Deletion failed with ~p", [Other]),
     {ok, undefined}.
-
-
--if(0).
-%% session_establishment_request/5
-session_establishment_request(Handler, PCC, PCtx0,
-			      #{left := Left, right := Right} = Bearer0, Ctx) ->
-    register_ctx_ids(Handler, Bearer0, PCtx0),
-    {ok, CntlNode, _, _} = ergw_sx_socket:id(),
-
-    PCtx1 = pctx_update_from_ctx(PCtx0, Ctx),
-    {SxRules, SxErrors, PCtx2} = build_sx_rules(PCC, #{}, PCtx1, Left, Right),
-    ?LOG(debug, "SxRules: ~p~n", [SxRules]),
-    ?LOG(debug, "SxErrors: ~p~n", [SxErrors]),
-    ?LOG(debug, "CtxPending: ~p~n", [Ctx]),
-
-    IEs0 = pfcp_pctx_update(PCtx2, PCtx0, SxRules),
-    IEs1 = update_m_rec(ergw_pfcp:f_seid(PCtx2, CntlNode), IEs0),
-    IEs = pfcp_user_id(Ctx, IEs1),
-    ?LOG(debug, "IEs: ~p~n", [IEs]),
-
-    Req = #pfcp{version = v1, type = session_establishment_request, ie = IEs},
-    case ergw_sx_node:call(PCtx2, Req) of
-	#pfcp{version = v1, type = session_establishment_response,
-	      ie = #{pfcp_cause := #pfcp_cause{cause = 'Request accepted'},
-		     f_seid := #f_seid{}} = RespIEs} ->
-	    SessionInfo = session_info(RespIEs),
-	    {Bearer, PCtx} = update_bearer(RespIEs, Bearer0, PCtx2),
-	    register_ctx_ids(Handler, Bearer, PCtx),
-	    {ok, {update_dp_seid(RespIEs, PCtx), Bearer, SessionInfo}};
-	_ ->
-	    {error, ?CTX_ERR(?FATAL, system_failure)}
-    end.
--endif.
-
-%% session_modification_request/2
-session_modification_request(PCtx, ReqIEs)
-  when ?is_non_empty_opts(ReqIEs) ->
-    Req = #pfcp{version = v1, type = session_modification_request, ie = ReqIEs},
-    case ergw_sx_node:call(PCtx, Req) of
-	#pfcp{type = session_modification_response,
-	      ie = #{pfcp_cause := #pfcp_cause{cause = 'Request accepted'}} = RespIEs} ->
-	    SessionInfo = session_info(RespIEs),
-	    UsageReport = maps:get(usage_report_smr, RespIEs, undefined),
-	    {ok, {PCtx, UsageReport, SessionInfo}};
-	_ ->
-	    {error, ?CTX_ERR(?FATAL, system_failure)}
-    end;
-session_modification_request(PCtx, _ReqIEs) ->
-    %% nothing to do
-    {ok, {PCtx, undefined, #{}}}.
 
 %%%===================================================================
 %%% PCC to Sx translation functions

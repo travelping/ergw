@@ -15,7 +15,7 @@
 -export([triggered_charging_event/4, usage_report/3, close_context/3, close_context/4,
 	 close_context_m/4]).
 -export([handle_peer_change/3, update_tunnel_endpoint/2,
-	 apply_bearer_change/5]).
+	 apply_bearer_change/2, apply_bearer_change/5]).
 
 -include_lib("kernel/include/logger.hrl").
 -include_lib("gtplib/include/gtp_packet.hrl").
@@ -90,6 +90,33 @@ apply_bearer_change(Bearer, URRActions, SendEM, PCtx0, PCC) ->
 	{error, _} = Error ->
 	    Error
     end.
+
+apply_bearer_change(URRActions, SendEM) ->
+    do([statem_m ||
+	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+
+	   ModifyOpts =
+	       if SendEM -> #{send_end_marker => true};
+		  true   -> #{}
+	       end,
+
+	   #{pfcp := PCtx0, pcc := PCC, bearer := Bearer} <- statem_m:get_data(),
+	   {PCtx, ReqId} <-
+	       statem_m:return(
+		 ergw_pfcp_context:send_session_modification_request(
+		   PCC, URRActions, ModifyOpts, Bearer, PCtx0)),
+	   statem_m:modify_data(_#{pfcp => PCtx}),
+	   Response <- statem_m:wait(ReqId),
+
+	   PCtx1 <- statem_m:get_data(maps:get(pfcp, _)),
+	   {_, UsageReport, SessionInfo} <-
+	       statem_m:lift(ergw_pfcp_context:receive_session_modification_response(PCtx1, Response)),
+	   statem_m:modify_data(_#{session_info => SessionInfo}),
+
+	   _ = gtp_context:usage_report(self(), URRActions, UsageReport),
+
+	   statem_m:return(SessionInfo)
+       ]).
 
 %%====================================================================
 %% Charging API

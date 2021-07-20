@@ -38,7 +38,7 @@ modify_bearer_ok(ReqKey,
 		      ie = #{?'Bearer Contexts to be modified' :=
 				 #v2_bearer_context{group = #{?'EPS Bearer ID' := EBI}}
 			    } = IEs} = Request,
-		 _, _State,
+		 _, State,
 		 #{context := Context, left_tunnel := LeftTunnel, bearer := Bearer} = Data) ->
     _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
     ?LOG(debug, "IEs: ~p~nEBI: ~p~nTunnel: ~p~nBearer: ~p~nContext: ~p~n",
@@ -53,17 +53,17 @@ modify_bearer_ok(ReqKey,
 
     Actions = saegw_s11:context_idle_action([], Context),
     ?LOG(debug, "MBR data: ~p", [Data]),
-    {keep_state, Data, Actions};
+    {next_state, State, Data, Actions};
 
 modify_bearer_ok(ReqKey, #gtp{type = modify_bearer_request, ie = IEs} = Request,
-		 _, _, #{context := Context, left_tunnel := LeftTunnel} = Data)
+		 _, State, #{context := Context, left_tunnel := LeftTunnel} = Data)
   when not is_map_key(?'Bearer Contexts to be modified', IEs) ->
     ResponseIEs = [#v2_cause{v2_cause = request_accepted}],
     Response = saegw_s11:response(modify_bearer_response, LeftTunnel, ResponseIEs, Request),
     gtp_context:send_response(ReqKey, Request, Response),
 
     Actions = saegw_s11:context_idle_action([], Context),
-    {keep_state, Data, Actions}.
+    {next_state, State, Data, Actions}.
 
 modify_bearer_fail(ReqKey, #gtp{type = MsgType, seq_no = SeqNo} = Request,
 		    #ctx_err{reply = Reply} = Error,
@@ -181,23 +181,10 @@ handle_bearer_change(URRActions, LeftTunnelOld, LeftBearerOld, LeftBearer)
 	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
 	   LeftTunnel <- statem_m:get_data(maps:get(left_tunnel, _)),
 	   SendEM = LeftTunnelOld#tunnel.version == LeftTunnel#tunnel.version,
-	   SessionInfo <- apply_bearer_change(URRActions, SendEM),
+	   SessionInfo <- ergw_gtp_gsn_lib:apply_bearer_change(URRActions, SendEM),
 
 	   Session <- statem_m:get_data(maps:get('Session', _)),
 	   statem_m:return(ergw_aaa_session:set(Session, SessionInfo))
-       ]).
-
-apply_bearer_change(URRActions, SendEM) ->
-    do([statem_m ||
-	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
-
-	   #{pfcp := PCtx0, pcc := PCC, bearer := Bearer} <- statem_m:get_data(),
-
-	   %% TODO: this calls blocking PFCP and AAA APIs, convert to send_request/wait
-	   {PCtx, SessionInfo} <- statem_m:lift(ergw_gtp_gsn_lib:apply_bearer_change(
-						  Bearer, URRActions, SendEM, PCtx0, PCC)),
-	   statem_m:modify_data(_#{pfcp => PCtx, session_info => SessionInfo}),
-	   statem_m:return(SessionInfo)
        ]).
 
 handle_bearer_change(URRActions, LeftTunnelOld, LeftBearerOld) ->

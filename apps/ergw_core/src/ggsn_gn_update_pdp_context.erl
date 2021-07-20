@@ -36,7 +36,7 @@ update_pdp_context(ReqKey, Request, _Resent, State, Data) ->
 update_pdp_context_ok(ReqKey,
 		      #gtp{type = update_pdp_context_request,
 			   ie = #{?'Quality of Service Profile' := ReqQoSProfile} = IEs} = Request,
-		      _, _State,
+		      _, State,
 		      #{context := Context, left_tunnel := LeftTunnel, bearer := Bearer} = Data) ->
     _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
     ?LOG(debug, "IEs: ~p~nTunnel: ~p~nBearer: ~p~nContext: ~p~n",
@@ -51,7 +51,7 @@ update_pdp_context_ok(ReqKey,
     gtp_context:send_response(ReqKey, Request, Response),
 
     Actions = ggsn_gn:context_idle_action([], Context),
-    {keep_state, Data, Actions}.
+    {next_state, State, Data, Actions}.
 
 update_pdp_context_fail(ReqKey, #gtp{type = MsgType, seq_no = SeqNo} = Request,
 		    #ctx_err{reply = Reply} = Error,
@@ -144,23 +144,10 @@ handle_bearer_change(URRActions, _LeftTunnelOld, LeftBearerOld, LeftBearer)
   when LeftBearerOld =/= LeftBearer ->
     do([statem_m ||
 	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
-	   SessionInfo <- apply_bearer_change(URRActions, false),
+	   SessionInfo <- ergw_gtp_gsn_lib:apply_bearer_change(URRActions, false),
 
 	   Session <- statem_m:get_data(maps:get('Session', _)),
 	   statem_m:return(ergw_aaa_session:set(Session, SessionInfo))
-       ]).
-
-apply_bearer_change(URRActions, SendEM) ->
-    do([statem_m ||
-	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
-
-	   #{pfcp := PCtx0, pcc := PCC, bearer := Bearer} <- statem_m:get_data(),
-
-	   %% TODO: this calls blocking PFCP and AAA APIs, convert to send_request/wait
-	   {PCtx, SessionInfo} <- statem_m:lift(ergw_gtp_gsn_lib:apply_bearer_change(
-						  Bearer, URRActions, SendEM, PCtx0, PCC)),
-	   statem_m:modify_data(_#{pfcp => PCtx, session_info => SessionInfo}),
-	   statem_m:return(SessionInfo)
        ]).
 
 handle_bearer_change(URRActions, LeftTunnelOld, LeftBearerOld) ->
