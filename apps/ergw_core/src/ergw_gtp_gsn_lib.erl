@@ -14,8 +14,7 @@
 -export([connect_upf_candidates/4, create_session_m/5]).
 -export([triggered_charging_event/4, usage_report/3, close_context/3, close_context/4,
 	 close_context_m/4]).
--export([handle_peer_change/3, update_tunnel_endpoint/2,
-	 apply_bearer_change/2, apply_bearer_change/5]).
+-export([handle_peer_change/3, update_tunnel_endpoint/2, apply_bearer_change/2]).
 
 -include_lib("kernel/include/logger.hrl").
 -include_lib("gtplib/include/gtp_packet.hrl").
@@ -77,19 +76,6 @@ handle_peer_change(_, _, Tunnel) ->
 %%====================================================================
 %% Bearer Support
 %%====================================================================
-
-apply_bearer_change(Bearer, URRActions, SendEM, PCtx0, PCC) ->
-    ModifyOpts =
-	if SendEM -> #{send_end_marker => true};
-	   true   -> #{}
-	end,
-    case ergw_pfcp_context:modify_session(PCC, URRActions, ModifyOpts, Bearer, PCtx0) of
-	{ok, {PCtx, UsageReport, SessionInfo}} ->
-	    gtp_context:usage_report(self(), URRActions, UsageReport),
-	    {ok, {PCtx, SessionInfo}};
-	{error, _} = Error ->
-	    Error
-    end.
 
 apply_bearer_change(URRActions, SendEM) ->
     do([statem_m ||
