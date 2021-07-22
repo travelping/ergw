@@ -357,10 +357,13 @@ translate_handlers_option(Opt, Values0)
 translate_handlers_option(Opt, Values) ->
     throw({error, {options, {Opt, Values}}}).
 
-translate_node_selection_option(Key, {Type, Opts0})
-  when is_atom(Key), is_atom(Type) ->
-    Entries = ergw_node_selection_translate_options(Type, Opts0),
-    #{type => Type, entries => Entries};
+translate_node_selection_option(Key, {static, Opts})
+  when is_atom(Key), is_list(Opts), length(Opts) > 0 ->
+    Entries = lists:map(fun ergw_node_selection_translate_static_option/1, Opts),
+    #{type => static, entries => Entries};
+translate_node_selection_option(Key, {dns, Opts})
+  when is_atom(Key) ->
+    ergw_node_selection_translate_dns(Opts);
 translate_node_selection_option(Opt, Values) ->
     throw({error, {options, {Opt, Values}}}).
 
@@ -522,7 +525,7 @@ translate_apn_option({Opt, Value})
 translate_apn_option({'Idle-Timeout', Timer})
   when (is_integer(Timer) andalso Timer > 0)
        orelse Timer =:= infinity->
-    {'Idle-Timeout', Timer};
+    {inactivity_timeout, Timer};
 translate_apn_option({Opt, Value}) ->
     throw({error, {options, {Opt, Value}}}).
 
@@ -984,18 +987,13 @@ ergw_node_selection_translate_static_option({Host, IP4, IP6})
 ergw_node_selection_translate_static_option(Opt) ->
     throw({error, {options, {static, Opt}}}).
 
-ergw_node_selection_translate_options(static, Opts)
-  when is_list(Opts), length(Opts) > 0 ->
-    lists:map(fun ergw_node_selection_translate_static_option/1, Opts);
-ergw_node_selection_translate_options(dns, undefined) ->
-    undefined;
-ergw_node_selection_translate_options(dns, IP) when ?IS_IP(IP) ->
-    {IP, 53};
-ergw_node_selection_translate_options(dns, {IP, Port} = Server)
+ergw_node_selection_translate_dns(IP) when ?IS_IP(IP) ->
+    #{type => dns, server => IP, port => 53};
+ergw_node_selection_translate_dns({IP, Port})
   when ?IS_IP(IP) andalso is_integer(Port) ->
-    Server;
-ergw_node_selection_translate_options(Type, Opts) ->
-    throw({error, {options, {Type, Opts}}}).
+    #{type => dns, server => IP, port => Port};
+ergw_node_selection_translate_dns(Opts) ->
+    throw({error, {dns, Opts}}).
 
 vrf_translate_name(Name) ->
     try
@@ -1316,12 +1314,8 @@ aaa_translate_handler_option(_, Opts) ->
     Opts.
 
 aaa_translate_service(_Service, Opts, _Config) ->
-    translate_options(fun aaa_translate_service_option/2, Opts, [], map).
-
-aaa_translate_service_option(answers, Answers) ->
-    aaa_translate_answers(Answers);
-aaa_translate_service_option(_, Opts) ->
-    Opts.
+    Handler = proplists:get_value(handler, Opts),
+    aaa_translate_handler(Handler, Opts).
 
 aaa_translate_app(App, Opts, Config) ->
     AppDef = translate_options(aaa_translate_app_option(App, _, _, Config), Opts, [], map),
