@@ -56,7 +56,7 @@ load(Config)  ->
     ok.
 
 avps() ->
-    [{doc, "Test the AVP filter conversion"}].
+    [{doc, "Test the AVP conversion"}].
 avps(Config)  ->
     DataDir  = ?config(data_dir, Config),
 
@@ -104,20 +104,20 @@ avp_filters(Config)  ->
     #{aaa := #{handlers := #{ergw_aaa_nasreq := #{avp_filter := Filters}}}} = Cfg,
     ct:pal("Filters: ~p", [lists:sort(Filters)]),
     ?match(
-       [['Multiple-Services-Credit-Control',[#{'Rating-Group' := <<"1000">>}]],
+       [['Multiple-Services-Credit-Control',[{'Rating-Group', [1000]}]],
 	[avp1,avp2],
-	[avp1,[#{avp2 := 1}]],
-	[avp1,[#{avp2 := 1}]],
-	[avp1,[#{avp2 := 1}]],
-	[avp1,[#{avp2 := 1.0}]],
-	[avp1,[#{avp2 := 1.0}]],
-	[avp1,[#{avp2 := 1.0}]],
-	[avp1,[#{avp2 := 1}],avp3],
-	[avp1,[#{avp2 := {127,0,0,1}}]],
-	[avp1,[#{avp2 := {0,0,0,0,0,0,0,1}}]],
-	[avp1,[#{avp2 := <<"1">>}]],
-	[avp1,[#{avp2 := <<"1">>}]],
-	[avp1,[#{avp2 := <<"1.00000000000000000000e+00">>}]]],
+	[avp1,[{avp2, 1}]],
+	[avp1,[{avp2, 1}]],
+	[avp1,[{avp2, 1}]],
+	[avp1,[{avp2, 1.0}]],
+	[avp1,[{avp2, 1.0}]],
+	[avp1,[{avp2, 1.0}]],
+	[avp1,[{avp2, 1}],avp3],
+	[avp1,[{avp2, {127,0,0,1}}]],
+	[avp1,[{avp2, {0,0,0,0,0,0,0,1}}]],
+	[avp1,[{avp2, <<"1">>}]],
+	[avp1,[{avp2, <<"1">>}]],
+	[avp1,[{avp2, <<"1.00000000000000000000e+00">>}]]],
        lists:sort(Filters)),
     ok.
 

@@ -1040,26 +1040,16 @@ to_aaa_avp(Map) when is_map(Map) andalso map_size(Map) =:= 1 ->
 to_aaa_avp(Map) when is_map(Map) ->
     maps:fold(fun to_aaa_avp/3, #{}, Map).
 
+to_aaa_avp_filter(List) when is_list(List) ->
+    [to_aaa_avp_filter_entry(X) || X <- List].
+
 to_aaa_avp_filter_entry(List) when is_list(List) ->
     [to_aaa_avp_filter_item(X) || X <- List].
 
-to_aaa_avp_filter_item(K, V, M)
-  when is_list(V); is_map(V) ->
-    M#{to_atom(K) => to_aaa_avp_filter_item(V)};
-to_aaa_avp_filter_item(K, V, M) ->
-    M#{to_atom(K) => V}.
-
-to_aaa_avp_filter_item(List) when is_list(List) ->
-    [to_aaa_avp_filter_item(X) || X <- List];
 to_aaa_avp_filter_item(Key) when is_binary(Key) ->
     to_atom(Key);
-to_aaa_avp_filter_item(Map) when is_map(Map) andalso map_size(Map) =:= 1 ->
-    try_avp_type(Map, to_aaa_avp_filter_item(_, _, #{}));
 to_aaa_avp_filter_item(Map) when is_map(Map) ->
-    maps:fold(fun to_aaa_avp_filter_item/3, #{}, Map).
-
-to_aaa_avp_filter(List) when is_list(List) ->
-    [to_aaa_avp_filter_entry(X) || X <- List].
+    maps:to_list(to_aaa_avp(Map)).
 
 to_upff(V) when is_list(V) ->
     Set = lists:foldl(
