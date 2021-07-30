@@ -41,10 +41,13 @@
 	       contexts :: non_neg_integer()
 	      }).
 
-%% echo_timer is the status of the echo send to the remote peer
+%% echo_is the status of the echo send to the remote peer
+%% - {stopped, LastEchoTs} : no echo idle, with last echo request sent
+%% - {idle, LastEchoTs} : next echo idle with the timestamp of the last echo request sent
+%% - {reference, LastEchoTs} : echo waiting for response with the timestamp of the echo request sent
 -record(state, {peer       :: #peer{},                     %% State of remote peer
 		recovery   :: 'undefined' | non_neg_integer(),
-		echo       :: 'stopped' | 'echo_to_send' | 'awaiting_response'}).
+		echo       :: {'stopped', non_neg_integer()} | {'idle', non_neg_integer()} | {reference(), non_neg_integer()}}). 
 
 %%%===================================================================
 %%% API
@@ -208,8 +211,8 @@ init([#socket{name = SocketName} = Socket, Version, RemoteIP, Args]) ->
     RegKey = {SocketName, Version, RemoteIP},
     gtp_path_reg:register(RegKey, up),
 
-    State = #state{peer = #peer{state = up, contexts = 0},
-		   echo = stopped},
+    State0 = #state{peer = #peer{state = up, contexts = 0},
+		   echo = {stopped, 0}},
 
     Data0 = maps:with([t3, n3, echo,
 		       idle_timeout, idle_echo,
@@ -226,31 +229,31 @@ init([#socket{name = SocketName} = Socket, Version, RemoteIP, Args]) ->
 	     contexts   => #{},
 	     monitors   => #{}
 	},
-
+    State = send_echo_request(State0, Data),
     ?LOG(debug, "State: ~p Data: ~p", [State, Data]),
     {ok, State, Data}.
 
-handle_event(enter, #state{peer = Old}, #state{peer = Peer}, Data)
+handle_event(enter, #state{peer = Old}, #state{peer = Peer, echo = Echo}, Data)
   when Old /= Peer ->
     peer_state_change(Old, Peer, Data),
     OldState = peer_state(Old),
     NewState = peer_state(Peer),
-    {keep_state_and_data, enter_peer_state_action(OldState, NewState, Data)};
+    {keep_state_and_data, enter_peer_state_action(OldState, NewState, Echo, Data)};
 
 handle_event(enter, #state{echo = Old}, #state{peer = Peer, echo = Echo}, Data)
   when Old /= Echo ->
     State = peer_state(Peer),
-    {keep_state_and_data, enter_state_echo_action(State, Data)};
+    {keep_state_and_data, enter_state_echo_action(State, Echo, Data)};
 
 handle_event(enter, _OldState, _State, _Data) ->
     keep_state_and_data;
 
-handle_event({timeout, stop_echo}, stop_echo, State, Data) ->
-    {next_state, State#state{echo = stopped}, Data, [{{timeout, echo}, cancel}]};
+handle_event({timeout, stop_echo}, stop_echo, #state{echo = {_, LastEchoTs}} = State, Data) ->
+    {next_state, State#state{echo = {stopped, LastEchoTs}}, Data, [{{timeout, echo}, cancel}]};
 
-handle_event({timeout, echo}, start_echo, #state{echo = EchoT} = State0, Data)
-  when EchoT =:= stopped;
-       EchoT =:= idle ->
+handle_event({timeout, echo}, start_echo, #state{echo = {EchoState, _}} = State0, Data)
+  when EchoState =:= stopped;
+       EchoState =:= idle ->
     State = send_echo_request(State0, Data),
     {next_state, State, Data};
 handle_event({timeout, echo}, start_echo, _State, _Data) ->
@@ -314,15 +317,15 @@ handle_event(cast, {handle_request, ReqKey, #gtp{type = echo_request} = Msg0},
 	    keep_state_and_data
     end;
 
-handle_event(cast, {handle_response, echo_request, ReqRef, _Msg}, #state{echo = SRef}, _)
+handle_event(cast, {handle_response, echo_request, ReqRef, _Msg}, #state{echo = {SRef, _}}, _)
   when ReqRef /= SRef ->
     keep_state_and_data;
 
-handle_event(cast,{handle_response, echo_request, _, #gtp{} = Msg}, State, Data) ->
-    handle_recovery_ie(Msg, State#state{echo = idle}, Data);
+handle_event(cast,{handle_response, echo_request, _, #gtp{} = Msg}, #state{echo = {_, LastEchoTs}} = State, Data) ->
+    handle_recovery_ie(Msg, State#state{echo = {idle, LastEchoTs}}, Data);
 
-handle_event(cast,{handle_response, echo_request, _, _Msg}, State, Data) ->
-    path_restart(undefined, peer_state(down, State), Data, []);
+handle_event(cast,{handle_response, echo_request, _, _Msg}, #state{echo = {_, LastEchoTs}} = State, Data) ->
+    path_restart(undefined, peer_state(down, State#state{echo = {idle, LastEchoTs}}), Data, []);
 
 handle_event(cast, icmp_error, _, #{icmp_error_handling := ignore}) ->
     keep_state_and_data;
@@ -333,12 +336,12 @@ handle_event(cast, icmp_error, State, Data) ->
 handle_event(info,{'DOWN', _MonitorRef, process, Pid, _Info}, State, Data) ->
     unregister(Pid, State, Data, []);
 
-handle_event({timeout, 'echo'}, _, #state{echo = idle} = State0, Data) ->
+handle_event({timeout, echo}, _, #state{echo = {idle, _}} = State0, Data) ->
     ?LOG(debug, "handle_event timeout: ~p", [Data]),
     State = send_echo_request(State0, Data),
     {next_state, State, Data};
 
-handle_event({timeout, 'echo'}, _, _State, _Data) ->
+handle_event({timeout, echo}, _, _State, _Data) ->
     ?LOG(debug, "handle_event timeout: ~p", [_Data]),
     keep_state_and_data;
 
@@ -390,11 +393,11 @@ peer_state_change(_, #peer{state = State}, #{reg_key := RegKey}) ->
 %%% Internal functions
 %%%===================================================================
 
-enter_peer_state_action(State, State, _Data) ->
+enter_peer_state_action(State, State, _Echo, _Data) ->
     [];
-enter_peer_state_action(_, State, Data) ->
+enter_peer_state_action(_, State, Echo, Data) ->
     [enter_state_timeout_action(State, Data),
-     enter_state_echo_action(State, Data)].
+     enter_state_echo_action(State, Echo, Data)].
 
 enter_state_timeout_action(idle, #{idle_timeout := Timeout}) when is_integer(Timeout) ->
     {{timeout, peer}, Timeout, stop};
@@ -403,16 +406,26 @@ enter_state_timeout_action(down, #{down_timeout := Timeout}) when is_integer(Tim
 enter_state_timeout_action(_State, _Data) ->
     {{timeout, peer}, cancel}.
 
-enter_state_echo_action(busy, #{echo := EchoInterval}) when is_integer(EchoInterval) ->
-    {{timeout, echo}, EchoInterval, start_echo};
-enter_state_echo_action(idle, #{idle_echo := EchoInterval})
+enter_state_echo_action(busy, {_, LastEchoTs}, #{echo := EchoInterval})
   when is_integer(EchoInterval) ->
-    {{timeout, echo}, EchoInterval, start_echo};
-enter_state_echo_action(down, #{down_echo := EchoInterval})
+    {{timeout, echo}, next_echo_schedule(EchoInterval, LastEchoTs), start_echo};
+enter_state_echo_action(idle, {_, LastEchoTs}, #{idle_echo := EchoInterval})
   when is_integer(EchoInterval) ->
-    {{timeout, echo}, EchoInterval, start_echo};
-enter_state_echo_action(_, _) ->
+    {{timeout, echo}, next_echo_schedule(EchoInterval, LastEchoTs), start_echo};
+enter_state_echo_action(down, {_, LastEchoTs}, #{down_echo := EchoInterval})
+  when is_integer(EchoInterval) ->
+    {{timeout, echo}, next_echo_schedule(EchoInterval, LastEchoTs), start_echo};
+enter_state_echo_action(_, _, _) ->
     {{timeout, stop_echo}, 0, stop_echo}.
+
+next_echo_schedule(EchoInterval, LastEchoTs) ->
+    TS = erlang:monotonic_time(millisecond),
+    if
+        % The last echo was sent before the current interval, should be sent immediately
+        LastEchoTs + EchoInterval =< TS -> 0;
+        % The last echo was sent within the interval, schedule with the time difference
+        true -> EchoInterval - (TS - LastEchoTs)
+    end.
 
 foreach_context(none, _Fun) ->
     ok;
@@ -563,7 +576,7 @@ send_echo_request(State, #{socket := Socket, handler := Handler, ip := DstIP,
     Ref = erlang:make_ref(),
     CbInfo = {?MODULE, handle_response, [self(), echo_request, Ref]},
     ergw_gtp_c_socket:send_request(Socket, any, DstIP, ?GTP1c_PORT, T3, N3, Msg, CbInfo),
-    State#state{echo = Ref}.
+    State#state{echo = {Ref, erlang:monotonic_time(millisecond)}}.
 
 path_restart(RestartCounter, State, #{contexts := CtxS} = Data, Actions) ->
     Path = self(),
