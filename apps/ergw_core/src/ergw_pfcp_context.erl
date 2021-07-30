@@ -1001,13 +1001,19 @@ select_upf_3gpp(Candidates, Session0, APNOpts) ->
 	   PoolV4 = select_ip_pool(v4, IPvs, IPpools),
 	   PoolV6 = select_ip_pool(v6, IPvs, IPpools),
 	   NAT = select(random, NATblocks),
-
-	   Session1 = Session0#{'Framed-Pool' => PoolV4, 'Framed-IPv6-Pool' => PoolV6},
-	   Session2 = case maps:is_key(nat_port_blocks, Wanted) of
-			  true  -> Session1#{'NAT-Pool-Id' => NAT};
-			  false -> Session1
+	   Session1 = case PoolV4 of
+			  undefined -> Session0;
+			  _         -> Session0#{'Framed-Pool' => PoolV4}
 		      end,
-	   Session = init_session_ue_ifid(APNOpts, Session2),
+	   Session2 = case PoolV6 of
+			  undefined -> Session1;
+			  _         -> Session1#{'Framed-IPv6-Pool' => PoolV6}
+		      end,
+	   Session3 = case maps:is_key(nat_port_blocks, Wanted) of
+			  true  -> Session2#{'NAT-Pool-Id' => NAT};
+			  false -> Session2
+		      end,
+	   Session = init_session_ue_ifid(APNOpts, Session3),
 	   UPinfo = {Node, VRF, PoolV4, NAT, PoolV6},
 
 	   return({UPinfo, Session})
