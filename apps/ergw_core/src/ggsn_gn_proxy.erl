@@ -9,6 +9,10 @@
 
 -behaviour(gtp_api).
 
+%% interim measure, to make refactoring simpler
+-compile([export_all, nowarn_export_all]).
+-ignore_xref([?MODULE]).
+
 -compile({parse_transform, cut}).
 
 -export([validate_options/1, init/2, request_spec/3,
@@ -22,6 +26,7 @@
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include_lib("pfcplib/include/pfcp_packet.hrl").
 -include("include/ergw.hrl").
+-include("ggsn_gn.hrl").
 
 -import(ergw_aaa_session, [to_session/1]).
 
@@ -47,21 +52,6 @@
 %%====================================================================
 %% API
 %%====================================================================
-
--define('Cause',					{cause, 0}).
--define('IMSI',						{international_mobile_subscriber_identity, 0}).
--define('Recovery',					{recovery, 0}).
--define('Tunnel Endpoint Identifier Data I',		{tunnel_endpoint_identifier_data_i, 0}).
--define('Tunnel Endpoint Identifier Control Plane',	{tunnel_endpoint_identifier_control_plane, 0}).
--define('NSAPI',					{nsapi, 0}).
--define('End User Address',				{end_user_address, 0}).
--define('Access Point Name',				{access_point_name, 0}).
--define('Protocol Configuration Options',		{protocol_configuration_options, 0}).
--define('SGSN Address for signalling',			{gsn_address, 0}).
--define('SGSN Address for user traffic',		{gsn_address, 1}).
--define('MSISDN',					{ms_international_pstn_isdn_number, 0}).
--define('Quality of Service Profile',			{quality_of_service_profile, 0}).
--define('IMEI',						{imei, 0}).
 
 -define(CAUSE_OK(Cause), (Cause =:= request_accepted orelse
 			  Cause =:= new_pdp_type_due_to_network_preference orelse
@@ -228,99 +218,10 @@ handle_request(_ReqKey, _Request, true, _State, _Data) ->
 		[_ReqKey, gtp_c_lib:fmt_gtp(_Request)]),
     keep_state_and_data;
 
-handle_request(ReqKey,
-	       #gtp{type = create_pdp_context_request,
-		    ie = IEs} = Request, _Resent, #{session := SState} = State,
-	       #{context := Context0, aaa_opts := AAAopts, node_selection := NodeSelect,
-		 left_tunnel := LeftTunnel0,
-		 bearer := #{left := LeftBearer0} = Bearer0,
-		 'Session' := Session} = Data)
+handle_request(ReqKey, #gtp{type = create_pdp_context_request} = Request, Resent,
+	       #{session := SState} = State, Data)
   when SState == init; SState == connecting ->
-    Context = ggsn_gn:update_context_from_gtp_req(Request, Context0),
-
-    {LeftTunnel1, LeftBearer1} =
-	case ggsn_gn:update_tunnel_from_gtp_req(Request, LeftTunnel0, LeftBearer0) of
-	    {ok, Result1} -> Result1;
-	    {error, Err1} -> throw(Err1#ctx_err{tunnel = LeftTunnel0})
-	end,
-    Bearer1 = Bearer0#{left => LeftBearer1},
-    LeftTunnel =
-	case gtp_path:bind_tunnel(LeftTunnel1) of
-	    {ok, LT} -> LT;
-	    {error, Err1a} -> throw(Err1a#ctx_err{context = Context, tunnel = LeftTunnel1})
-	end,
-
-    gtp_context:terminate_colliding_context(LeftTunnel, Context),
-
-    SessionOpts0 = ggsn_gn:init_session(IEs, LeftTunnel, Context, AAAopts),
-    SessionOpts = ggsn_gn:init_session_from_gtp_req(IEs, AAAopts, LeftTunnel, LeftBearer1, SessionOpts0),
-
-    ProxyInfo =
-	case handle_proxy_info(SessionOpts, LeftTunnel, LeftBearer1, Context, Data) of
-	    {ok, Result2} -> Result2;
-	    {error, Err2} -> throw(Err2#ctx_err{tunnel = LeftTunnel})
-	end,
-
-    ProxySocket = ergw_proxy_lib:select_gtp_proxy_sockets(ProxyInfo, Data),
-
-    %% GTP v1 services only, we don't do v1 to v2 conversion (yet)
-    Services = [{'x-3gpp-ggsn', 'x-gn'}, {'x-3gpp-ggsn', 'x-gp'},
-		{'x-3gpp-pgw', 'x-gn'}, {'x-3gpp-pgw', 'x-gp'}],
-    ProxyGGSN =
-	case ergw_proxy_lib:select_gw(ProxyInfo, v1, Services, NodeSelect, ProxySocket) of
-	    {ok, Result3} -> Result3;
-	    {error, Err3} -> throw(Err3#ctx_err{tunnel = LeftTunnel})
-	end,
-
-    Candidates = ergw_proxy_lib:select_sx_proxy_candidate(ProxyGGSN, ProxyInfo, Data),
-    SxConnectId = ergw_sx_node:request_connect(Candidates, NodeSelect, 1000),
-
-    {ok, _} = ergw_aaa_session:invoke(Session, SessionOpts, start, #{async =>true}),
-
-    ProxyContext = init_proxy_context(Context, ProxyInfo),
-    RightTunnel0 = init_proxy_tunnel(ProxySocket, ProxyGGSN),
-    {ok, {Lease, RightTunnel}} = gtp_path:aquire_lease(RightTunnel0),
-
-    ergw_sx_node:wait_connect(SxConnectId),
-    {PCtx0, NodeCaps} =
-	case ergw_pfcp_context:select_upf(Candidates) of
-	    {ok, Result4} -> Result4;
-	    {error, Err4} -> throw(Err4#ctx_err{context = ProxyContext, tunnel = LeftTunnel})   %% TBD: proxy context ???
-	end,
-
-    Bearer2 =
-	case ergw_gsn_lib:assign_local_data_teid(left, PCtx0, NodeCaps, LeftTunnel, Bearer1) of
-	    {ok, Result5} -> Result5;
-	    {error, Err5} -> throw(Err5#ctx_err{tunnel = LeftTunnel})
-	end,
-    Bearer3 =
-	case ergw_gsn_lib:assign_local_data_teid(right, PCtx0, NodeCaps, RightTunnel, Bearer2) of
-	    {ok, Result6} -> Result6;
-	    {error, Err6} -> throw(Err6#ctx_err{tunnel = LeftTunnel})
-	end,
-
-    PCC = ergw_proxy_lib:proxy_pcc(),
-    {PCtx, Bearer, _} =
-	case ergw_pfcp_context:create_session(gtp_context, PCC, PCtx0, Bearer3, Context) of
-	    {ok, Result7} -> Result7;
-	    {error, Err7} -> throw(Err7#ctx_err{tunnel = LeftTunnel})
-	end,
-
-    case gtp_context:remote_context_register_new(LeftTunnel, Bearer, Context) of
-	ok -> ok;
-	{error, Err8} -> throw(Err8#ctx_err{tunnel = LeftTunnel})
-    end,
-
-    DataNew =
-	Data#{context => Context, proxy_context => ProxyContext, pfcp => PCtx,
-	      left_tunnel => LeftTunnel, right_tunnel => RightTunnel, bearer => Bearer},
-
-    forward_request(sgsn2ggsn, ReqKey, Request, RightTunnel, Lease,
-		    maps:get(right, Bearer), ProxyContext, Data),
-
-    %% 30 second timeout to have enough room for resents
-    Action = [{state_timeout, 30 * 1000, ReqKey}],
-    {next_state, State#{session := connecting}, DataNew, Action};
+    ggsn_gn_proxy_create_pdp_context:create_pdp_context(ReqKey, Request, Resent, State, Data);
 
 handle_request(ReqKey,
 	       #gtp{type = update_pdp_context_request} = Request,
