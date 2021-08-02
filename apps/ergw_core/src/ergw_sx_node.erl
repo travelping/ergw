@@ -16,12 +16,12 @@
 -export([request_connect/3, request_connect/5, wait_connect/1,
 	 attach/1, attach_tdf/2, notify_up/2,
 	 set_defaults/1, set_required_upff/1, add_sx_node/2]).
--export([start_link/5, send/4, call/2,
+-export([start_link/5, send/4,
 	 send_request/2, wait_response/1,
 	 handle_request/3, response/3]).
 -export([validate_options/2, validate_defaults/1]).
 -ifdef(TEST).
--export([test_cmd/2]).
+-export([call/2, test_cmd/2]).
 -endif.
 
 %% ergw_context callbacks
@@ -107,11 +107,13 @@ send(#pfcp_ctx{node = Handler}, Intf, VRF, Data)
   when is_pid(Handler), is_atom(Intf), is_binary(Data) ->
     gen_statem:cast(Handler, {send, Intf, VRF, Data}).
 
+-ifdef(TEST).
 %% call/2
 call(#pfcp_ctx{node = Node, seid = #seid{dp = SEID}}, #pfcp{} = Request) ->
     gen_statem:call(Node, Request#pfcp{seid = SEID});
 call(#pfcp_ctx{node = Node}, Request) ->
     gen_statem:call(Node, Request).
+-endif.
 
 %% send_request/2
 send_request(#pfcp_ctx{node = Node, seid = #seid{dp = SEID}}, #pfcp{} = Request) ->
