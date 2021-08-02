@@ -799,16 +799,18 @@ init_per_testcase(create_pdp_context_request_timeout, Config) ->
 			(ReqId, Src, Address, Port, T3, N3, Msg, CbInfo) ->
 			     meck:passthrough([ReqId, Src, Address, Port, T3, N3, Msg, CbInfo])
 		     end),
-    ok = meck:expect(?HUT, handle_request,
-		     fun(ReqKey, Request, Resent, State, Data) ->
-			     case meck:passthrough([ReqKey, Request, Resent, State, Data]) of
-				 {next_state, #{session := connecting} = NextState, DataNew, _} ->
+    ok = meck:expect(gtp_context, handle_event,
+		     fun(info = Ev, EvData, #{session := init} = State, Data) ->
+			     case meck:passthrough([Ev, EvData, State, Data]) of
+				 {next_state, #{session := connecting} = NextState, DataNew, [{state_timeout, _, ReqKey}]} ->
 				     %% 1 second timeout for the test
-				     Action = [{state_timeout, 1000, connecting}],
+				     Action = [{state_timeout, 1000, ReqKey}],
 				     {next_state, NextState, DataNew, Action};
 				 Other ->
 				     Other
-			     end
+			     end;
+			(Ev, EvData, State, Data) ->
+			     meck:passthrough([Ev, EvData, State, Data])
 		     end),
     Config;
 init_per_testcase(delete_pdp_context_request_timeout, Config) ->
@@ -946,7 +948,7 @@ end_per_testcase(create_pdp_context_proxy_request_resend, Config) ->
 end_per_testcase(create_pdp_context_request_timeout, Config) ->
     ok = meck:unload(ggsn_gn),
     ok = meck:delete(ergw_gtp_c_socket, make_send_req, 8),
-    ok = meck:delete(?HUT, handle_request, 5),
+    ok = meck:delete(gtp_context, handle_request, 4),
     ok = meck_init_hut_handle_request(?HUT),
     end_per_testcase(Config),
     Config;
