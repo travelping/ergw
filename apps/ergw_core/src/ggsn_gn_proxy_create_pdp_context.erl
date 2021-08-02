@@ -10,7 +10,7 @@
 -compile([{parse_transform, do},
 	  {parse_transform, cut}]).
 
--export([create_pdp_context/5]).
+-export([create_pdp_context/5, create_pdp_context_response/5]).
 
 -include_lib("kernel/include/logger.hrl").
 -include_lib("gtplib/include/gtp_packet.hrl").
@@ -25,6 +25,10 @@
 %%====================================================================
 %% Impl.
 %%====================================================================
+
+-define(CAUSE_OK(Cause), (Cause =:= request_accepted orelse
+			  Cause =:= new_pdp_type_due_to_network_preference orelse
+			  Cause =:= new_pdp_type_due_to_single_address_bearer_only)).
 
 create_pdp_context(ReqKey, Request, _Resent, State, Data) ->
     gtp_context:next(
@@ -73,8 +77,8 @@ create_pdp_context_fun(#gtp{ie = IEs} = Request,
     statem_m:run(
       do([statem_m ||
 	     _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
-	     update_context_from_gtp_req(Request),
-	     update_tunnel_from_gtp_req(Request),
+	     update_context_from_gtp_req(context, Request),
+	     update_tunnel_from_gtp_req(left, Request),
 	     bind_tunnel(left),
 	     terminate_colliding_context(),
 	     SessionOpts <- init_session(IEs),
@@ -112,15 +116,70 @@ create_pdp_context_fun(#gtp{ie = IEs} = Request,
 	     return(Lease)
 	 ]), State, Data).
 
-update_context_from_gtp_req(Request) ->
+create_pdp_context_response(ProxyRequest, Response, Request, State, Data) ->
+    ?LOG(debug, "OK Proxy Response ~p", [Response]),
+    gtp_context:next(
+      create_pdp_context_response_fun(Response, _, _),
+      create_pdp_context_response_ok(ProxyRequest, Response, _, _, _),
+      create_pdp_context_response_fail(ProxyRequest, Response, Request, _, _, _),
+      State, Data).
+
+create_pdp_context_response_ok(ProxyRequest, Response, NextState,
+			   State, #{context := Context, left_tunnel := LeftTunnel,
+				    bearer := #{left := LeftBearer}} = Data) ->
+    _ = ?LOG(debug, "~s: -> ~p", [?FUNCTION_NAME, NextState]),
+
+    ggsn_gn_proxy:forward_response(ProxyRequest, Response, LeftTunnel, LeftBearer, Context),
+    {next_state, State#{session := NextState}, Data}.
+
+create_pdp_context_response_fail(ProxyRequest, Response, Request, Error, State, Data) ->
+    _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+
+    %% this can not happen
+    ?LOG(warning, #{'ProxyRequest' => ProxyRequest, 'Response' => Response,
+		    'Request' => Request, 'Error' => Error, 'State' => State, 'Data' => Data}),
+    {next_state, State#{session := shutdown}, Data}.
+
+create_pdp_context_response_fun(#gtp{ie = #{?'Cause' := #cause{value = Cause}}} = Response,
+			    State, Data) ->
+    statem_m:run(
+      do([statem_m ||
+	     _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+
+	     update_tunnel_from_gtp_req(right, Response),
+	     bind_tunnel(right),
+	     update_context_from_gtp_req(proxy_context, Response),
+
+	     proxy_context_register(),
+
+	     case ?CAUSE_OK(Cause) of
+		 true ->
+		     do([statem_m ||
+			    _ = ?LOG(debug, "~s: ok with ~p", [?FUNCTION_NAME, Cause]),
+
+			    PCC = ergw_proxy_lib:proxy_pcc(),
+			    pfcp_modify_bearers(PCC),
+			    statem_m:return(connected)
+			]);
+		 _ ->
+		     do([statem_m ||
+			    _ = ?LOG(debug, "~s: fail with ~p", [?FUNCTION_NAME, Cause]),
+
+			    delete_forward_session(normal),
+			    statem_m:return(shutdown)
+			])
+	     end
+	 ]), State, Data).
+
+update_context_from_gtp_req(Type, Request) ->
     do([statem_m ||
 	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
-	   Context0 <- statem_m:get_data(maps:get(context, _)),
+	   Context0 <- statem_m:get_data(maps:get(Type, _)),
 	   Context = ggsn_gn:update_context_from_gtp_req(Request, Context0),
-	   statem_m:modify_data(_#{context => Context})
+	   statem_m:modify_data(_#{Type => Context})
        ]).
 
-update_tunnel_from_gtp_req(Request) ->
+update_tunnel_from_gtp_req(left, Request) ->
     do([statem_m ||
 	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
 	   #{left_tunnel := LeftTunnel0, bearer := #{left := LeftBearer0}} <- statem_m:get_data(),
@@ -132,6 +191,19 @@ update_tunnel_from_gtp_req(Request) ->
 				      maps:put(left, LeftBearer, _),
 				      Data#{left_tunnel => LeftTunnel})
 	     end)
+       ]);
+update_tunnel_from_gtp_req(right, Request) ->
+    do([statem_m ||
+	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+	   #{right_tunnel := RightTunnel0, bearer := #{right := RightBearer0}} <- statem_m:get_data(),
+	   {RightTunnel, RightBearer} <-
+	       statem_m:lift(ggsn_gn:update_tunnel_from_gtp_req(Request, RightTunnel0, RightBearer0)),
+	   statem_m:modify_data(
+	     fun(Data) ->
+		     maps:update_with(bearer,
+				      maps:put(right, RightBearer, _),
+				      Data#{right_tunnel => RightTunnel})
+	     end)
        ]).
 
 bind_tunnel(left) ->
@@ -140,6 +212,13 @@ bind_tunnel(left) ->
 	   LeftTunnel0 <- statem_m:get_data(maps:get(left_tunnel, _)),
 	   LeftTunnel <- statem_m:lift(gtp_path:bind_tunnel(LeftTunnel0)),
 	   statem_m:modify_data(_#{left_tunnel => LeftTunnel})
+       ]);
+bind_tunnel(right) ->
+    do([statem_m ||
+	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+	   RightTunnel0 <- statem_m:get_data(maps:get(right_tunnel, _)),
+	   RightTunnel <- statem_m:lift(gtp_path:bind_tunnel(RightTunnel0)),
+	   statem_m:modify_data(_#{right_tunnel => RightTunnel})
        ]).
 
 aquire_lease(right) ->
@@ -149,6 +228,15 @@ aquire_lease(right) ->
 	   {Lease, RightTunnel} <- statem_m:lift(gtp_path:aquire_lease(RightTunnel0)),
 	   statem_m:modify_data(_#{right_tunnel => RightTunnel}),
 	   statem_m:return(Lease)
+       ]).
+
+proxy_context_register() ->
+    do([statem_m ||
+	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+	   #{proxy_context := ProxyContext,
+	     right_tunnel := RightTunnel, bearer := Bearer} <- statem_m:get_data(),
+	   statem_m:return(
+	     gtp_context:remote_context_register(RightTunnel, Bearer, ProxyContext))
        ]).
 
 terminate_colliding_context() ->
@@ -273,3 +361,32 @@ pfcp_create_session(PCC) ->
 
 	    statem_m:return()
 	]).
+
+pfcp_modify_bearers(PCC) ->
+     do([statem_m ||
+	    _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+
+	    #{pfcp := PCtx0, bearer := Bearer} <- statem_m:get_data(),
+	    {PCtx, ReqId} <-
+		statem_m:return(
+		  ergw_pfcp_context:send_session_modification_request(
+		    PCC, [], #{}, Bearer, PCtx0)),
+	    statem_m:modify_data(_#{pfcp => PCtx}),
+	    Response <- statem_m:wait(ReqId),
+
+	    PCtx1 <- statem_m:get_data(maps:get(pfcp, _)),
+	    {_, _, SessionInfo} <-
+		statem_m:lift(ergw_pfcp_context:receive_session_modification_response(PCtx1, Response)),
+	    statem_m:modify_data(_#{session_info => SessionInfo}),
+
+	    statem_m:return(SessionInfo)
+	]).
+
+%% TBD: make non-blocking
+delete_forward_session(Reason) ->
+    do([statem_m ||
+	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+
+	   statem_m:modify_data(ggsn_gn_proxy:delete_forward_session(Reason, _)),
+	   statem_m:return(ok)
+       ]).
