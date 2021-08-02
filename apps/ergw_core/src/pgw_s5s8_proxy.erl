@@ -364,50 +364,10 @@ handle_response(#proxy_request{direction = sgw2pgw} = ProxyRequest,
     keep_state_and_data;
 
 handle_response(#proxy_request{direction = sgw2pgw} = ProxyRequest,
-		#gtp{type = create_session_response,
-		     ie = #{?'Cause' := #v2_cause{v2_cause = Cause}}} = Response,
-		_Request, State,
-		#{context := Context, proxy_context := PrevProxyCtx, pfcp := PCtx0,
-		  left_tunnel := LeftTunnel, right_tunnel := RightTunnel0,
-		  bearer := #{left := LeftBearer, right := RightBearer0} = Bearer0} = Data0) ->
-    ?LOG(debug, "OK Proxy Response ~p", [Response]),
-
-    forward_request_done(ProxyRequest, Data0),
-    {RightTunnel1, RightBearer} =
-	case pgw_s5s8:update_tunnel_from_gtp_req(Response, RightTunnel0, RightBearer0) of
-	    {ok, Result1} -> Result1;
-	    {error, Err1} -> throw(Err1#ctx_err{tunnel = LeftTunnel})
-	end,
-    RightTunnel =
-	case gtp_path:bind_tunnel(RightTunnel1) of
-	    {ok, RT} -> RT;
-	    {error, Err1a} -> throw(Err1a#ctx_err{context = Context, tunnel = RightTunnel1})
-	end,
-    Bearer = Bearer0#{right := RightBearer},
-
-    ProxyContext = pgw_s5s8:update_context_from_gtp_req(Response, PrevProxyCtx),
-
-    gtp_context:remote_context_register(RightTunnel, Bearer, ProxyContext),
-
-    Return =
-	if ?CAUSE_OK(Cause) ->
-		PCC = ergw_proxy_lib:proxy_pcc(),
-		{PCtx, _, _} =
-		    case ergw_pfcp_context:modify_session(PCC, [], #{}, Bearer, PCtx0) of
-			{ok, Result2} -> Result2;
-			{error, Err2} -> throw(Err2#ctx_err{tunnel = LeftTunnel})
-		    end,
-		Data =
-		    Data0#{proxy_context => ProxyContext, pfcp => PCtx,
-			  right_tunnel => RightTunnel, bearer => Bearer},
-		{next_state, State#{session := connected}, Data};
-	   true ->
-		Data = delete_forward_session(normal, Data0),
-		{next_state, State#{session := shutdown}, Data}
-	end,
-
-    forward_response(ProxyRequest, Response, LeftTunnel, LeftBearer, Context),
-    Return;
+		#gtp{type = create_session_response} = Response, Request, State, Data) ->
+    forward_request_done(ProxyRequest, Data),
+    pgw_s5s8_proxy_create_session:create_session_response(ProxyRequest, Response, Request,
+							  State, Data);
 
 handle_response(#proxy_request{direction = sgw2pgw,
 			       right_tunnel = RightTunnelPrev} = ProxyRequest,
