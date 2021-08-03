@@ -32,6 +32,9 @@
 -export([callback_mode/0, init/1, handle_event/4,
 	 terminate/3, code_change/4]).
 
+%% new style async FSM helpers
+-export([next/5, send_request/1]).
+
 -include_lib("kernel/include/logger.hrl").
 -include_lib("pfcplib/include/pfcp_packet.hrl").
 -include_lib("diameter/include/diameter_gen_base_rfc6733.hrl").
@@ -180,6 +183,47 @@ init([Node, InVRF, IP4, IP6, #{apn := APN} = _SxOpts]) ->
     ?LOG(info, "TDF process started for ~p", [[Node, IP4, IP6]]),
     {ok, ergw_context:init_state(), Data, [{next_event, internal, init}]}.
 
+%%
+%% async functions support
+%%
+handle_event(info, {{'DOWN', ReqId}, _, _, _, Info}, #{async := Async} = State, Data)
+  when is_map_key(ReqId, Async) ->
+    statem_m_continue(ReqId, {error, Info}, false, State, Data);
+handle_event(info, {{'DOWN', _}, _, _, _, _}, _, _) ->
+    keep_state_and_data;
+
+handle_event(info, {'DOWN', _, process, ReqId, Info}, #{async := Async} = State, Data)
+  when is_map_key(ReqId, Async) ->
+    statem_m_continue(ReqId, {error, Info}, false, State, Data);
+
+handle_event(info, {ReqId, Result}, #{async := Async} = State, Data)
+  when is_map_key(ReqId, Async) ->
+    statem_m_continue(ReqId, Result, false, State, Data);
+
+%% OTP-24 style send_request responses.... WE REALLY SHOULD NOT BE DOING THIS
+handle_event(info, {'DOWN', ReqId, _, _, Info}, #{async := Async} = State, Data)
+  when is_map_key(ReqId, Async) ->
+    statem_m_continue(ReqId, {error, Info}, false, State, Data);
+handle_event(info, {[alias|ReqId], Result}, #{async := Async} = State, Data)
+  when is_map_key(ReqId, Async) ->
+    statem_m_continue(ReqId, Result, true, State, Data);
+
+%% OTP-23 style send_request responses.... WE REALLY SHOULD NOT BE DOING THIS
+handle_event(info, {{'$gen_request_id', ReqId}, Result}, #{async := Async} = State, Data)
+  when is_map_key(ReqId, Async) ->
+    statem_m_continue(ReqId, Result, true, State, Data);
+
+%%
+%% non-blocking handlers
+%%
+
+handle_event({call, From}, {?TestCmdTag, pfcp_ctx}, _State, #data{pfcp = PCtx}) ->
+    {keep_state_and_data, [{reply, From, {ok, PCtx}}]};
+handle_event({call, From}, {?TestCmdTag, session}, _State, #data{session = Session}) ->
+    {keep_state_and_data, [{reply, From, {ok, Session}}]};
+handle_event({call, From}, {?TestCmdTag, pcc_rules}, _State, #data{pcc = PCC}) ->
+    {keep_state_and_data, [{reply, From, {ok, PCC#pcc_ctx.rules}}]};
+
 handle_event(enter, _OldState, #{session := shutdown} = _State, _Data) ->
     % TODO unregsiter context ....
 
@@ -187,6 +231,15 @@ handle_event(enter, _OldState, #{session := shutdown} = _State, _Data) ->
     %% guarantees that we process any left over messages first
     gen_statem:cast(self(), stop),
     keep_state_and_data;
+
+%% block all (other) calls, casts and infos while waiting
+%%  for the result of an asynchronous action
+handle_event({call, _}, _, #{async := Async}, _) when map_size(Async) /= 0 ->
+    {keep_state_and_data, [postpone]};
+handle_event(cast, _, #{async := Async}, _) when map_size(Async) /= 0 ->
+    {keep_state_and_data, [postpone]};
+handle_event(info, _, #{async := Async}, _) when map_size(Async) /= 0 ->
+    {keep_state_and_data, [postpone]};
 
 handle_event(cast, stop, #{session := shutdown} = _State, _Data) ->
     {stop, normal};
@@ -204,13 +257,6 @@ handle_event(internal, init, #{session := init} = State, Data0) ->
 	    ?LOG(debug, "TDF Init failed with ~p", [_Error]),
 	    {stop, normal}
     end;
-
-handle_event({call, From}, {?TestCmdTag, pfcp_ctx}, _State, #data{pfcp = PCtx}) ->
-    {keep_state_and_data, [{reply, From, {ok, PCtx}}]};
-handle_event({call, From}, {?TestCmdTag, session}, _State, #data{session = Session}) ->
-    {keep_state_and_data, [{reply, From, {ok, Session}}]};
-handle_event({call, From}, {?TestCmdTag, pcc_rules}, _State, #data{pcc = PCC}) ->
-    {keep_state_and_data, [{reply, From, {ok, PCC#pcc_ctx.rules}}]};
 
 handle_event({call, From}, {sx, #pfcp{type = session_report_request,
 		       ie = #{report_type := #report_type{usar = 1},
@@ -616,3 +662,58 @@ vrf_keys(_, _) ->
 context2keys(Bearer, #tdf_ctx{ms_ip = #ue_ip{v4 = IP4, v6 = IP6}}) ->
     vrf_keys(Bearer, IP4) ++
 	vrf_keys(Bearer, IP6).
+
+%%====================================================================
+%% new style async FSM helpers
+%%====================================================================
+
+next(StateFun, OkF, FailF, State0, Data0)
+  when is_function(StateFun, 2),
+       is_function(OkF, 3),
+       is_function(FailF, 3) ->
+    {Result, State, Data} = StateFun(State0, Data0),
+    next(Result, OkF, FailF, State, Data);
+
+next(ok, Fun, _, State, Data)
+  when is_function(Fun, 3) ->
+    Fun(ok, State, Data);
+next({ok, Result}, Fun, _, State, Data)
+  when is_function(Fun, 3) ->
+    Fun(Result, State, Data);
+next({error, Result}, _, Fun, State, Data)
+  when is_function(Fun, 3) ->
+    Fun(Result, State, Data);
+next({wait, ReqId, Q}, OkF, FailF, #{async := Async} = State, Data)
+  when (is_reference(ReqId) orelse is_pid(ReqId)),
+       is_list(Q),
+       is_function(OkF, 3),
+       is_function(FailF, 3) ->
+    Req = {ReqId, Q, OkF, FailF},
+    {next_state, State#{async := maps:put(ReqId, Req, Async)}, Data}.
+
+statem_m_continue(ReqId, Result, DeMonitor, #{async := Async0} = State, Data) ->
+    {{Mref, Q, OkF, FailF}, Async} = maps:take(ReqId, Async0),
+    case DeMonitor of
+	true -> demonitor(Mref, [flush]);
+	_ -> ok
+    end,
+    ?LOG(debug, "Result: ~p~n", [Result]),
+    next(statem_m:response(Q, Result, _, _), OkF, FailF, State#{async := Async}, Data).
+
+-if(?OTP_RELEASE =< 23).
+
+send_request(Fun) when is_function(Fun, 0) ->
+    Owner = self(),
+    {Pid, _} = spawn_opt(fun() -> Owner ! {self(), Fun()} end, [monitor]),
+    Pid.
+
+-else.
+
+send_request(Fun) when is_function(Fun, 0) ->
+    Owner = self(),
+    ReqId = make_ref(),
+    Opts = [{monitor, [{tag, {'DOWN', ReqId}}]}],
+    spawn_opt(fun() -> Owner ! {ReqId, Fun()} end, Opts),
+    ReqId.
+
+-endif.
