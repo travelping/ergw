@@ -27,7 +27,8 @@
 -export([init_session/4,
 	 init_session_from_gtp_req/5,
 	 update_tunnel_from_gtp_req/3,
-	 update_context_from_gtp_req/2
+	 update_context_from_gtp_req/2,
+	 process_secondary_rat_usage_data_reports/1
 	]).
 
 -include_lib("kernel/include/logger.hrl").
@@ -182,24 +183,9 @@ handle_request(#request{src = Src, ip = IP, port = Port} = ReqKey,
     Actions = context_idle_action([], Context),
     {keep_state, Data, Actions};
 
-handle_request(ReqKey,
-	       #gtp{type = change_notification_request, ie = IEs} = Request,
-	       _Resent, #{session := connected} = _State,
-	       #{context := Context, pfcp := PCtx, left_tunnel := LeftTunnel,
-		 bearer := #{left := LeftBearer}, 'Session' := Session}) ->
-    process_secondary_rat_usage_data_reports(IEs, Context, Session),
-
-    {OldSOpts, NewSOpts} = update_session_from_gtp_req(IEs, Session, LeftTunnel, LeftBearer),
-    URRActions = gtp_context:collect_charging_events(OldSOpts, NewSOpts),
-    gtp_context:trigger_usage_report(self(), URRActions, PCtx),
-
-    ResponseIEs0 = [#v2_cause{v2_cause = request_accepted}],
-    ResponseIEs = copy_ies_to_response(IEs, ResponseIEs0, [?'IMSI', ?'ME Identity']),
-    Response = response(change_notification_response, LeftTunnel, ResponseIEs, Request),
-    gtp_context:send_response(ReqKey, Request, Response),
-
-    Actions = context_idle_action([], Context),
-    {keep_state_and_data, Actions};
+handle_request(ReqKey, #gtp{type = change_notification_request} = Request,
+	       Resent, #{session := connected} = State, Data) ->
+    pgw_s5s8_change_notification:change_notification(ReqKey, Request, Resent, State, Data);
 
 handle_request(ReqKey,
 	       #gtp{type = suspend_notification} = Request,
