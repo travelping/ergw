@@ -236,16 +236,12 @@ handle_event(cast, stop, #{session := shutdown} = _State, _Data) ->
 handle_event(enter, _OldState, _State, _Data) ->
     keep_state_and_data;
 
-handle_event(internal, init, #{session := init} = State, Data0) ->
-    %% start Rf/Gx/Gy interaction
-    try
-	Data = start_session(Data0),
-	{next_state, State#{session := run}, Data}
-    catch
-	throw:_Error ->
-	    ?LOG(debug, "TDF Init failed with ~p", [_Error]),
-	    {stop, normal}
-    end;
+handle_event(internal, init, #{session := init} = State, Data) ->
+    tdf:next(
+      fun start_session_fun/2,
+      fun start_session_ok/3,
+      fun start_session_fail/3,
+      State, Data);
 
 handle_event({call, From}, {sx, #pfcp{type = session_report_request,
 		       ie = #{report_type := #report_type{usar = 1},
@@ -363,125 +359,6 @@ code_change(_OldVsn, State, Data, _Extra) ->
 %%% Internal functions
 %%%===================================================================
 
-start_session(#{apn := APN, context := Context, dp_node := Node,
-		'Session' := Session, pcc := PCC0, bearer := Bearer0} = Data) ->
-
-    {PendingPCtx, NodeCaps} =
-	case ergw_sx_node:attach(Node) of
-	    {ok, Result1} -> Result1;
-	    {error, Err1} -> throw(Err1#ctx_err{context = Context})
-	end,
-
-    Now = erlang:monotonic_time(),
-    SOpts = #{now => Now},
-
-    SessionOpts0 = init_session(Data),
-    {SessionOpts1, AuthSEvs} =
-	case authenticate(Session, SessionOpts0) of
-	    {ok, Result2} -> Result2;
-	    {error, Err2} -> throw({fail, Err2})
-	end,
-
-    VRF =
-	case ergw_gsn_lib:select_vrf(NodeCaps, APN, SessionOpts1) of
-	    {ok, SelVRF} -> SelVRF;
-	    {error, _} -> Err2a = ?CTX_ERR(?FATAL, system_failure),
-			  throw(Err2a#ctx_err{context = Context})
-	end,
-
-    Bearer1 = maps:update_with(right, _#bearer{vrf = VRF}, Bearer0),
-    Bearer2 = apply_bearer_opts(SessionOpts1, Bearer1),
-
-    %% -----------------------------------------------------------
-    %% TBD: maybe reselect VRF based on outcome of authenticate ??
-    %% -----------------------------------------------------------
-
-    GxOpts = #{'Event-Trigger' => ?'DIAMETER_GX_EVENT-TRIGGER_UE_IP_ADDRESS_ALLOCATE',
-	       'Bearer-Operation' => ?'DIAMETER_GX_BEARER-OPERATION_ESTABLISHMENT'},
-
-    {_, GxEvents} =
-	case ccr_initial(Session, gx, GxOpts, SOpts) of
-	    {ok, Result3} -> Result3;
-	    {error, Err3} -> throw({fail, Err3})
-	end,
-
-    RuleBase = ergw_charging:rulebase(),
-    {PCC1, PCCErrors1} =
-	ergw_pcc_context:gx_events_to_pcc_ctx(GxEvents, '_', RuleBase, PCC0),
-
-    case ergw_pcc_context:pcc_ctx_has_rules(PCC1) of
-	true -> ok;
-	_    -> throw({fail, {authenticate, no_pcc_rules}})
-    end,
-
-    %% TBD............
-    CreditsAdd = ergw_pcc_context:pcc_ctx_to_credit_request(PCC1),
-    GyReqServices = #{credits => CreditsAdd},
-
-    {GySessionOpts, GyEvs} =
-	case ccr_initial(Session, gy, GyReqServices, SOpts) of
-	    {ok, Result4} -> Result4;
-	    {error, Err4} -> throw({fail, Err4})
-	end,
-
-    ?LOG(debug, "GySessionOpts: ~p", [GySessionOpts]),
-
-    {_, _, RfSEvs} = ergw_aaa_session:invoke(Session, #{}, {rf, 'Initial'}, SOpts),
-
-    {PCC2, PCCErrors2} = ergw_pcc_context:gy_events_to_pcc_ctx(Now, GyEvs, PCC1),
-    PCC3 = ergw_pcc_context:session_events_to_pcc_ctx(AuthSEvs, PCC2),
-    PCC4 = ergw_pcc_context:session_events_to_pcc_ctx(RfSEvs, PCC3),
-
-    {PCtx, Bearer, SessionInfo} =
-	case ergw_pfcp_context:create_session(tdf, PCC4, PendingPCtx, Bearer2, Context) of
-	    {ok, Result5} -> Result5;
-	    {error, Err5} -> throw({fail, Err5})
-	end,
-
-    SessionOpts = maps:merge(SessionOpts1, SessionInfo),
-    ergw_aaa_session:invoke(Session, SessionOpts, start, SOpts#{async => true}),
-
-    Keys = context2keys(Bearer, Context),
-    gtp_context_reg:register(Keys, ?MODULE, self()),
-
-    GxReport = ergw_gsn_lib:pcc_events_to_charging_rule_report(PCCErrors1 ++ PCCErrors2),
-    if map_size(GxReport) /= 0 ->
-	    ergw_aaa_session:invoke(Session, GxReport,
-				    {gx, 'CCR-Update'}, SOpts#{async => true});
-       true ->
-	    ok
-    end,
-
-    Data#{context => Context, pfcp => PCtx, pcc => PCC4, bearer => Bearer}.
-
-init_session(#{context := #tdf_ctx{ms_ip = UeIP}}) ->
-    {MCC, MNC} = ergw_core:get_plmn_id(),
-    Opts0 =
-	#{'Username'		=> <<"ergw">>,
-	  'Password'		=> <<"ergw">>,
-	  'Service-Type'	=> 'Framed-User',
-	  'Framed-Protocol'	=> 'PPP',
-	  '3GPP-GGSN-MCC-MNC'	=> {MCC, MNC}
-	 },
-    Opts1 =
-	case UeIP of
-	    #ue_ip{v4 = IP4} when IP4 /= undefined ->
-		IP4addr = ergw_inet:bin2ip(ergw_ip_pool:addr(IP4)),
-		Opts0#{
-		       'Framed-IP-Address' => IP4addr,
-		       'Requested-IP-Address' => IP4addr};
-	    _ ->
-		Opts0
-	end,
-    case UeIP of
-	#ue_ip{v6 = IP6} when IP6 /= undefined ->
-	    IP6addr = ergw_inet:bin2ip(ergw_ip_pool:addr(IP6)),
-	    Opts1#{'Framed-IPv6-Prefix' => IP6addr,
-		   'Requested-IPv6-Prefix' => IP6addr};
-	_ ->
-	    Opts1
-    end.
-
 apply_bearer_opts('NAT-Pool-Id', Id, #{right := #bearer{local = Local} = Right} = Bearer)
   when is_record(Local, ue_ip) ->
     Bearer#{right => Right#bearer{local = Local#ue_ip{nat = Id}}};
@@ -491,24 +368,9 @@ apply_bearer_opts(_, _, Bearer) ->
 apply_bearer_opts(SOpts, Bearer) ->
     maps:fold(fun apply_bearer_opts/3, Bearer, SOpts).
 
-authenticate(Session, SessionOpts) ->
-    ?LOG(debug, "SessionOpts: ~p", [SessionOpts]),
-    case ergw_aaa_session:invoke(Session, SessionOpts, authenticate, [inc_session_id]) of
-	{ok, SOpts, SEvs} ->
-	    {ok, {SOpts, SEvs}};
-	Other ->
-	    ?LOG(debug, "AuthResult: ~p", [Other]),
-	    {error, {authenticate, Other}}
-    end.
-
-ccr_initial(Session, API, SessionOpts, ReqOpts) ->
-    case ergw_aaa_session:invoke(Session, SessionOpts, {API, 'CCR-Initial'}, ReqOpts) of
-	{ok, SOpts, SEvs} ->
-	    {ok, {SOpts, SEvs}};
-	{Fail, _, _} ->
-	    %% TBD: replace with sensible mapping
-	    {error, {'CCR-Initial', Fail}}
-    end.
+init_tdf_bearer(VRF, SessionOpts, Bearer0) ->
+    Bearer = maps:update_with(right, _#bearer{vrf = VRF}, Bearer0),
+    apply_bearer_opts(SessionOpts, Bearer).
 
 close_pdn_context(Reason, State, Data) when is_atom(Reason) ->
     close_pdn_context({?API, Reason}, State, Data);
@@ -574,6 +436,45 @@ handle_charging_event(Key, Ev, _Now, Data) ->
 %%%===================================================================
 %%% Monadic Function Implementations
 %%%===================================================================
+
+start_session_fun(State, Data) ->
+    statem_m:run(
+      do([statem_m ||
+	     _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+
+	     Now = erlang:monotonic_time(),
+
+	     NodeCaps <- sx_node_attach(),
+
+	     init_session(_, _),
+	     AuthSEvs <- authenticate(),
+	     select_vrf(NodeCaps),
+
+	     PCCErrors0 <- gx_ccr_i(Now),
+	     pcc_ctx_has_rules(),
+	     {GySessionOpts, GyEvs} <- gy_ccr_i(Now),
+	     statem_m:return(
+	       begin
+		   ?LOG(debug, "GySessionOpts: ~p", [GySessionOpts]),
+		   ?LOG(debug, "Initial GyEvs: ~p", [GyEvs])
+	       end),
+	     RfSEvs <- rf_i(Now),
+	     _ = ?LOG(debug, "RfSEvs: ~p", [RfSEvs]),
+	     PCCErrors <- pfcp_create_session(Now, GyEvs, AuthSEvs, RfSEvs, PCCErrors0),
+	     aaa_start(Now),
+	     gx_error_report(Now, PCCErrors),
+	     context_register()
+	 ]), State, Data).
+
+start_session_ok(_Result, State, Data) ->
+    _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+    {next_state, State#{session := run}, Data}.
+
+start_session_fail(Error, _State, _Data) ->
+    _ = ?LOG(debug, "~s: ~p", [?FUNCTION_NAME, Error]),
+
+    ?LOG(debug, "TDF Init failed with ~p", [Error]),
+    {stop, normal}.
 
 %% TBD: check how far these functions are identical to gtp_context
 
@@ -656,6 +557,203 @@ update_credits_fail(Error, State, Data) ->
 %%%===================================================================
 %%% Monadic Function Helpers and Wrappers
 %%%===================================================================
+
+sx_node_attach() ->
+    do([statem_m ||
+	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+
+	   Node <- statem_m:get_data(maps:get(dp_node, _)),
+	   {PCtx, NodeCaps} <- statem_m:lift(ergw_sx_node:attach(Node)),
+	   statem_m:modify_data(_#{pctx => PCtx}),
+	   return(NodeCaps)
+       ]).
+
+init_session(State, #{context := #tdf_ctx{ms_ip = UeIP}} = Data) ->
+    _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+
+    {MCC, MNC} = ergw_core:get_plmn_id(),
+    Opts0 =
+	#{'Username'		=> <<"ergw">>,
+	  'Password'		=> <<"ergw">>,
+	  'Service-Type'	=> 'Framed-User',
+	  'Framed-Protocol'	=> 'PPP',
+	  '3GPP-GGSN-MCC-MNC'	=> {MCC, MNC}
+	 },
+    Opts1 =
+	case UeIP of
+	    #ue_ip{v4 = IP4} when IP4 /= undefined ->
+		IP4addr = ergw_inet:bin2ip(ergw_ip_pool:addr(IP4)),
+		Opts0#{
+		       'Framed-IP-Address' => IP4addr,
+		       'Requested-IP-Address' => IP4addr};
+	    _ ->
+		Opts0
+	end,
+    Opts =
+	case UeIP of
+	    #ue_ip{v6 = IP6} when IP6 /= undefined ->
+		IP6addr = ergw_inet:bin2ip(ergw_ip_pool:addr(IP6)),
+		Opts1#{'Framed-IPv6-Prefix' => IP6addr,
+		       'Requested-IPv6-Prefix' => IP6addr};
+	    _ ->
+		Opts1
+	end,
+    statem_m:return(Opts, State, Data#{session_opts => Opts}).
+
+authenticate() ->
+    do([statem_m ||
+	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+
+	   #{'Session' := Session, session_opts := SessionOpts0} <- statem_m:get_data(),
+	   ReqId <- statem_m:return(
+		      tdf:send_request(
+			fun() -> ergw_gtp_gsn_session:authenticate(Session, SessionOpts0) end)),
+	   Response <- statem_m:wait(ReqId),
+	   {SessionOpts, AuthSEvs} <- statem_m:lift(Response),
+	   _ = ?LOG(debug, "SessionOpts: ~p~nAuthSEvs: ~pn", [SessionOpts, AuthSEvs]),
+	   statem_m:modify_data(_#{session_opts => SessionOpts}),
+	   return(AuthSEvs)
+       ]).
+
+select_vrf(NodeCaps, APN, SessionOpts) ->
+    case ergw_gsn_lib:select_vrf(NodeCaps, APN, SessionOpts) of
+	{ok, _} = Result ->
+	    Result;
+	{error, _} ->
+	    {error, ?CTX_ERR(?FATAL, system_failure)}
+    end.
+
+select_vrf(NodeCaps) ->
+    do([statem_m ||
+	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+	   #{apn := APN, session_opts := SessionOpts} <- statem_m:get_data(),
+	   VRF <- statem_m:lift(select_vrf(NodeCaps, APN, SessionOpts)),
+
+	   statem_m:modify_data(
+	     maps:update_with(bearer, init_tdf_bearer(VRF, SessionOpts, _), _))
+       ]).
+
+gx_ccr_i(Now) ->
+    do([statem_m ||
+	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+	   #{session_opts := SessionOpts, 'Session' := Session, pcc := PCC0} <- statem_m:get_data(),
+	   _ = ergw_aaa_session:set(Session, SessionOpts),
+	   GxOpts = #{'Event-Trigger' => ?'DIAMETER_GX_EVENT-TRIGGER_UE_IP_ADDRESS_ALLOCATE',
+		      'Bearer-Operation' => ?'DIAMETER_GX_BEARER-OPERATION_ESTABLISHMENT'},
+	   ReqId <- statem_m:return(
+		      tdf:send_request(
+			fun() -> ergw_gtp_gsn_session:ccr_initial(Session, gx, GxOpts, #{now => Now}) end)),
+	   Response <- statem_m:wait(ReqId),
+	   _ = ?LOG(debug, "Gx CCR-I Response: ~p", [Response]),
+	   {_, GxEvents} <- statem_m:lift(Response),
+	   RuleBase = ergw_charging:rulebase(),
+	   {PCC, PCCErrors} = ergw_pcc_context:gx_events_to_pcc_ctx(GxEvents, '_', RuleBase, PCC0),
+	   statem_m:modify_data(_#{pcc => PCC}),
+	   statem_m:return(PCCErrors)
+       ]).
+
+pcc_ctx_has_rules() ->
+    do([statem_m ||
+	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+	   PCC <- statem_m:get_data(maps:get(pcc, _)),
+	   case ergw_pcc_context:pcc_ctx_has_rules(PCC) of
+	       true ->
+		   statem_m:return();
+	       _ ->
+		   statem_m:fail(user_authentication_failed)
+	   end
+       ]).
+
+gy_ccr_i(Now) ->
+    do([statem_m ||
+	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+	   #{'Session' := Session, pcc := PCC} <- statem_m:get_data(),
+
+	   %% TBD............
+	   CreditsAdd = ergw_pcc_context:pcc_ctx_to_credit_request(PCC),
+	   GyReqServices = #{credits => CreditsAdd},
+
+	   ReqId <- statem_m:return(
+		      tdf:send_request(
+			fun() -> ergw_gtp_gsn_session:ccr_initial(Session, gy, GyReqServices, #{now => Now}) end)),
+	   Response <- statem_m:wait(ReqId),
+	   _ = ?LOG(debug, "Gy CCR-I Response: ~p", [Response]),
+	   statem_m:lift(Response)
+       ]).
+
+rf_i(Now) ->
+    do([statem_m ||
+	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+	   #{'Session' := Session} <- statem_m:get_data(),
+	   {_, _, RfSEvs} = ergw_aaa_session:invoke(Session, #{}, {rf, 'Initial'}, #{now => Now}),
+	   _ = ?LOG(debug, "RfSEvs: ~p", [RfSEvs]),
+	   statem_m:return(RfSEvs)
+       ]).
+
+pfcp_create_session(Now, GyEvs, AuthSEvs, RfSEvs, PCCErrors0) ->
+    do([statem_m ||
+	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+	   #{context := Context, bearer := Bearer, pctx := PCtx0, pcc := PCC0}
+	       <- statem_m:get_data(),
+	   {PCC2, PCCErrors1} = ergw_pcc_context:gy_events_to_pcc_ctx(Now, GyEvs, PCC0),
+	   PCC3 = ergw_pcc_context:session_events_to_pcc_ctx(AuthSEvs, PCC2),
+	   PCC4 = ergw_pcc_context:session_events_to_pcc_ctx(RfSEvs, PCC3),
+	   statem_m:modify_data(_#{pcc => PCC4}),
+	   {ReqId, PCtx} <-
+	       statem_m:return(
+		 ergw_pfcp_context:send_session_establishment_request(
+		   tdf, PCC4, PCtx0, Bearer, Context)),
+	   statem_m:modify_data(_#{pfcp => PCtx, mark => set}),
+
+	   Response <- statem_m:wait(ReqId),
+	   pfcp_create_session_response(Response),
+
+	   statem_m:return(PCCErrors0 ++ PCCErrors1)
+       ]).
+
+pfcp_create_session_response(Response) ->
+    do([statem_m ||
+	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+	   #{bearer := Bearer0, pfcp := PCtx0} <- statem_m:get_data(),
+	   {PCtx, Bearer, SessionInfo} <-
+	       statem_m:lift(ergw_pfcp_context:receive_session_establishment_response(Response, tdf, PCtx0, Bearer0)),
+	   statem_m:modify_data(
+	     fun(Data) -> maps:update_with(
+			    session_opts, maps:merge(_, SessionInfo),
+			    Data#{bearer => Bearer, pfcp => PCtx})
+	     end)
+       ]).
+
+aaa_start(Now) ->
+    do([statem_m ||
+	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+	   #{'Session' := Session, session_opts := SessionOpts} <- statem_m:get_data(),
+	   statem_m:return(ergw_aaa_session:invoke(Session, SessionOpts, start, #{now => Now, async => true}))
+       ]).
+
+gx_error_report(Now, PCCErrors) ->
+    do([statem_m ||
+	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+	   #{'Session' := Session} <- statem_m:get_data(),
+	   statem_m:return(
+	     begin
+		 GxReport = ergw_gsn_lib:pcc_events_to_charging_rule_report(PCCErrors),
+		 if map_size(GxReport) /= 0 ->
+			 ergw_aaa_session:invoke(Session, GxReport,
+						 {gx, 'CCR-Update'}, #{now => Now, async => true});
+		    true ->
+			 ok
+		 end
+	     end)
+       ]).
+
+context_register() ->
+    do([statem_m ||
+	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+	   #{context := Context, bearer := Bearer} <- statem_m:get_data(),
+	   Keys = context2keys(Bearer, Context),
+	   statem_m:lift(gtp_context_reg:register(Keys, ?MODULE, self()))
+       ]).
 
 pfcp_session_modification() ->
     do([statem_m ||
