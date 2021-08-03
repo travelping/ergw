@@ -223,33 +223,10 @@ handle_request(ReqKey, #gtp{type = create_pdp_context_request} = Request, Resent
   when SState == init; SState == connecting ->
     ggsn_gn_proxy_create_pdp_context:create_pdp_context(ReqKey, Request, Resent, State, Data);
 
-handle_request(ReqKey,
-	       #gtp{type = update_pdp_context_request} = Request,
-	       _Resent, #{session := connected},
-	       #{proxy_context := ProxyContext,
-		 left_tunnel := LeftTunnelOld, right_tunnel := RightTunnelOld,
-		 bearer := #{left := LeftBearerOld, right := RightBearer} = Bearer} = Data)
-  when ?IS_REQUEST_TUNNEL(ReqKey, Request, LeftTunnelOld) ->
-    {LeftTunnel0, LeftBearer} =
-	case ggsn_gn:update_tunnel_from_gtp_req(
-	       Request, LeftTunnelOld#tunnel{version = v1}, LeftBearerOld) of
-	    {ok, Result1} -> Result1;
-	    {error, Err1} -> throw(Err1#ctx_err{tunnel = LeftTunnelOld})
-	end,
-    LeftTunnel = ergw_gtp_gsn_lib:update_tunnel_endpoint(LeftTunnelOld, LeftTunnel0),
-
-    RightTunnel0 = ergw_gtp_gsn_lib:handle_peer_change(
-		     LeftTunnel, LeftTunnelOld, RightTunnelOld#tunnel{version = v1}),
-    RightTunnel1 = ergw_gtp_gsn_lib:update_tunnel_endpoint(RightTunnelOld, RightTunnel0),
-    {ok, {Lease, RightTunnel}} = gtp_path:aquire_lease(RightTunnel1),
-
-    DataNew =
-	Data#{left_tunnel => LeftTunnel, right_tunnel => RightTunnel,
-	      bearer => Bearer#{left => LeftBearer}},
-
-    forward_request(sgsn2ggsn, ReqKey, Request, RightTunnel, Lease, RightBearer, ProxyContext, Data),
-
-    {keep_state, DataNew};
+handle_request(ReqKey, #gtp{type = update_pdp_context_request} = Request, Resent,
+	       #{session := connected} = State, #{left_tunnel := LeftTunnel} = Data)
+  when ?IS_REQUEST_TUNNEL(ReqKey, Request, LeftTunnel) ->
+    ggsn_gn_proxy_update_pdp_context:update_pdp_context(ReqKey, Request, Resent, State, Data);
 
 %%
 %% GGSN to SGW Update PDP Context Request
@@ -323,39 +300,10 @@ handle_response(#proxy_request{direction = sgsn2ggsn} = ProxyRequest,
 								 State, Data);
 
 handle_response(#proxy_request{direction = sgsn2ggsn} = ProxyRequest,
-		#gtp{type = update_pdp_context_response} = Response,
-		_Request, _State,
-		#{context := Context, proxy_context := ProxyContextOld, pfcp := PCtxOld,
-		  left_tunnel := LeftTunnel, right_tunnel := RightTunnelOld,
-		  bearer := #{left := LeftBearer, right := RightBearerOld} = Bearer0} = Data) ->
-    ?LOG(debug, "OK Proxy Response ~p", [Response]),
-
+		#gtp{type = update_pdp_context_response} = Response, Request, State, Data) ->
     forward_request_done(ProxyRequest, Data),
-    {RightTunnel0, RightBearer} =
-	case ggsn_gn:update_tunnel_from_gtp_req(Response, RightTunnelOld, RightBearerOld) of
-	    {ok, Result1} -> Result1;
-	    {error, Err1} -> throw(Err1#ctx_err{tunnel = LeftTunnel})
-	end,
-    RightTunnel = ergw_gtp_gsn_lib:update_tunnel_endpoint(RightTunnelOld, RightTunnel0),
-    Bearer = Bearer0#{right := RightBearer},
-
-    ProxyContext = ggsn_gn:update_context_from_gtp_req(Response, ProxyContextOld),
-
-    gtp_context:remote_context_register(RightTunnel, Bearer, ProxyContext),
-
-    PCC = ergw_proxy_lib:proxy_pcc(),
-    {PCtx, _, _} =
-	case ergw_pfcp_context:modify_session(PCC, [], #{}, Bearer, PCtxOld) of
-	    {ok, Result2} -> Result2;
-	    {error, Err2} -> throw(Err2#ctx_err{tunnel = LeftTunnel})
-	end,
-
-    forward_response(ProxyRequest, Response, LeftTunnel, LeftBearer, Context),
-
-    DataNew =
-	Data#{proxy_context => ProxyContext, pfcp => PCtx,
-	      right_tunnel => RightTunnel, bearer => Bearer},
-    {keep_state, DataNew};
+    ggsn_gn_proxy_update_pdp_context:update_pdp_context_response(ProxyRequest, Response, Request,
+								 State, Data);
 
 handle_response(#proxy_request{direction = ggsn2sgsn} = ProxyRequest,
 		#gtp{type = update_pdp_context_response} = Response,
