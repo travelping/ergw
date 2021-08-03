@@ -48,16 +48,6 @@
 -define(SERVER, ?MODULE).
 -define(TestCmdTag, '$TestCmd').
 
--record(data, {dp_node :: pid(),
-	       session :: pid(),
-
-	       apn,
-	       context,
-	       pfcp,
-	       pcc :: #pcc_ctx{},
-	       bearer :: #{Key :: atom() := Value :: #bearer{}}
-	      }).
-
 %%====================================================================
 %% API
 %%====================================================================
@@ -171,14 +161,13 @@ init([Node, InVRF, IP4, IP6, #{apn := APN} = _SxOpts]) ->
     OCPcfg = maps:get('Offline-Charging-Profile', SessionOpts, #{}),
     PCC = #pcc_ctx{offline_charging_profile = OCPcfg},
     Bearer = #{left => LeftBearer, right => RightBearer},
-    Data = #data{
-	      apn     = APN,
-	      context = Context,
-	      dp_node = Node,
-	      session = Session,
-	      pcc     = PCC,
-	      bearer  = Bearer
-	     },
+    Data = #{apn       => APN,
+	     context   => Context,
+	     dp_node   => Node,
+	     'Session' => Session,
+	     pcc       => PCC,
+	     bearer    => Bearer
+	    },
 
     ?LOG(info, "TDF process started for ~p", [[Node, IP4, IP6]]),
     {ok, ergw_context:init_state(), Data, [{next_event, internal, init}]}.
@@ -217,11 +206,11 @@ handle_event(info, {{'$gen_request_id', ReqId}, Result}, #{async := Async} = Sta
 %% non-blocking handlers
 %%
 
-handle_event({call, From}, {?TestCmdTag, pfcp_ctx}, _State, #data{pfcp = PCtx}) ->
+handle_event({call, From}, {?TestCmdTag, pfcp_ctx}, _State, #{pfcp := PCtx}) ->
     {keep_state_and_data, [{reply, From, {ok, PCtx}}]};
-handle_event({call, From}, {?TestCmdTag, session}, _State, #data{session = Session}) ->
+handle_event({call, From}, {?TestCmdTag, session}, _State, #{'Session' := Session}) ->
     {keep_state_and_data, [{reply, From, {ok, Session}}]};
-handle_event({call, From}, {?TestCmdTag, pcc_rules}, _State, #data{pcc = PCC}) ->
+handle_event({call, From}, {?TestCmdTag, pcc_rules}, _State, #{pcc := PCC}) ->
     {keep_state_and_data, [{reply, From, {ok, PCC#pcc_ctx.rules}}]};
 
 handle_event(enter, _OldState, #{session := shutdown} = _State, _Data) ->
@@ -261,7 +250,7 @@ handle_event(internal, init, #{session := init} = State, Data0) ->
 handle_event({call, From}, {sx, #pfcp{type = session_report_request,
 		       ie = #{report_type := #report_type{usar = 1},
 			      usage_report_srr := UsageReport}} = Report},
-	    _State, #data{session = Session, pfcp = PCtx, pcc = PCC}) ->
+	    _State, #{'Session' := Session, pfcp := PCtx, pcc := PCC}) ->
     ?LOG(debug, "~w: handle_call Sx: ~p", [?MODULE, Report]),
 
     Now = erlang:monotonic_time(),
@@ -277,7 +266,7 @@ handle_event({call, From}, {sx, #pfcp{type = session_report_request,
 
     {keep_state_and_data, [{reply, From, {ok, PCtx}}]};
 
-handle_event({call, From}, {sx, Report}, _State, #data{pfcp = PCtx}) ->
+handle_event({call, From}, {sx, Report}, _State, #{pfcp := PCtx}) ->
     ?LOG(warning, "~w: unhandled Sx report: ~p", [?MODULE, Report]),
     {keep_state_and_data, [{reply, From, {ok, PCtx, 'System failure'}}]};
 
@@ -288,7 +277,7 @@ handle_event(cast, _Request, _State, _Data) ->
     keep_state_and_data;
 
 handle_event(info, {'DOWN', _MonitorRef, Type, Pid, _Info},
-	     State, #data{dp_node = Pid} = Data)
+	     State, #{dp_node := Pid} = Data)
   when Type == process; Type == pfcp ->
     close_pdn_context(upf_failure, State, Data),
     {next_state, State#{session := shutdown}, Data};
@@ -305,9 +294,9 @@ handle_event(info, #aaa_request{procedure = {_, 'ASR'} = Procedure} = Request, S
 handle_event(info, #aaa_request{procedure = {gx, 'RAR'},
 				events = Events} = Request,
 	     _State,
-	     #data{context = Context, pfcp = PCtx0,
-		   session = Session, pcc = PCC0,
-		   bearer = Bearer} = Data) ->
+	     #{context := Context, pfcp := PCtx0,
+	       'Session' := Session, pcc := PCC0,
+	       bearer := Bearer} = Data) ->
 %%% 1. update PCC
 %%%    a) calculate PCC rules to be removed
 %%%    b) calculate PCC rules to be installed
@@ -367,7 +356,7 @@ handle_event(info, #aaa_request{procedure = {gx, 'RAR'},
 
     GxReport = ergw_gsn_lib:pcc_events_to_charging_rule_report(PCCErrors2 ++ PCCErrors4),
     ergw_aaa_session:response(Request, ok, GxReport, #{}),
-    {keep_state, Data#data{pfcp = PCtx, pcc = PCC4}};
+    {keep_state, Data#{pfcp => PCtx, pcc => PCC4}};
 
 handle_event(info, #aaa_request{procedure = {gy, 'RAR'},
 				events = Events} = Request,
@@ -396,7 +385,7 @@ handle_event(internal, {session, stop, _Session}, State, Data) ->
     {next_state, State#{session := shutdown}, Data};
 
 handle_event(internal, {session, {update_credits, _} = CreditEv, _}, _State,
-	     #data{context = Context, pfcp = PCtx0, pcc = PCC0, bearer = Bearer} = Data) ->
+	     #{context := Context, pfcp := PCtx0, pcc := PCC0, bearer := Bearer} = Data) ->
     Now = erlang:monotonic_time(),
 
     {PCC, _PCCErrors} = ergw_pcc_context:gy_events_to_pcc_ctx(Now, [CreditEv], PCC0),
@@ -406,7 +395,7 @@ handle_event(internal, {session, {update_credits, _} = CreditEv, _}, _State,
 	    {error, Err1} -> throw(Err1#ctx_err{context = Context})
 	end,
 
-    {keep_state, Data#data{pfcp = PCtx, pcc = PCC}};
+    {keep_state, Data#{pfcp => PCtx, pcc => PCC}};
 
 handle_event(internal, {session, Ev, _}, _State, _Data) ->
     ?LOG(error, "unhandled session event: ~p", [Ev]),
@@ -418,13 +407,13 @@ handle_event(info, {update_session, Session, Events}, _State, _Data) ->
     {keep_state_and_data, Actions};
 
 handle_event(info, {timeout, TRef, pfcp_timer} = Info, _State,
-	     #data{pfcp = PCtx0} = Data0) ->
+	     #{pfcp := PCtx0} = Data0) ->
     Now = erlang:monotonic_time(),
     ?LOG(debug, "handle_info TDF:~p", [Info]),
 
     {Evs, PCtx} = ergw_pfcp:timer_expired(TRef, PCtx0),
     CtxEvs = ergw_gsn_lib:pfcp_to_context_event(Evs),
-    Data = maps:fold(handle_charging_event(_, _, Now, _), Data0#data{pfcp = PCtx}, CtxEvs),
+    Data = maps:fold(handle_charging_event(_, _, Now, _), Data0#{pfcp => PCtx}, CtxEvs),
     {keep_state, Data};
 
 handle_event(info, _Info, _State, _Data) ->
@@ -440,8 +429,8 @@ code_change(_OldVsn, State, Data, _Extra) ->
 %%% Internal functions
 %%%===================================================================
 
-start_session(#data{apn = APN, context = Context, dp_node = Node,
-		    session = Session, pcc = PCC0, bearer = Bearer0} = Data) ->
+start_session(#{apn := APN, context := Context, dp_node := Node,
+		'Session' := Session, pcc := PCC0, bearer := Bearer0} = Data) ->
 
     {PendingPCtx, NodeCaps} =
 	case ergw_sx_node:attach(Node) of
@@ -529,9 +518,9 @@ start_session(#data{apn = APN, context = Context, dp_node = Node,
 	    ok
     end,
 
-    Data#data{context = Context, pfcp = PCtx, pcc = PCC4, bearer = Bearer}.
+    Data#{context => Context, pfcp => PCtx, pcc => PCC4, bearer => Bearer}.
 
-init_session(#data{context = #tdf_ctx{ms_ip = UeIP}}) ->
+init_session(#{context := #tdf_ctx{ms_ip = UeIP}}) ->
     {MCC, MNC} = ergw_core:get_plmn_id(),
     Opts0 =
 	#{'Username'		=> <<"ergw">>,
@@ -589,7 +578,7 @@ ccr_initial(Session, API, SessionOpts, ReqOpts) ->
 
 close_pdn_context(Reason, State, Data) when is_atom(Reason) ->
     close_pdn_context({?API, Reason}, State, Data);
-close_pdn_context({API, TermCause}, #{session := run}, #data{pfcp = PCtx, session = Session}) ->
+close_pdn_context({API, TermCause}, #{session := run}, #{pfcp := PCtx, 'Session' := Session}) ->
     URRs = ergw_pfcp_context:delete_session(TermCause, PCtx),
 
     %% TODO: Monitors, AAA over SGi
@@ -625,7 +614,7 @@ query_usage_report(_, PCtx) ->
     ergw_pfcp_context:query_usage_report(PCtx).
 
 triggered_charging_event(ChargeEv, Now, Request,
-			 #data{pfcp = PCtx, session = Session, pcc = PCC}) ->
+			 #{pfcp := PCtx, 'Session' := Session, pcc := PCC}) ->
     ReqOpts = #{now => Now, async => true},
 
     case query_usage_report(Request, PCtx) of
