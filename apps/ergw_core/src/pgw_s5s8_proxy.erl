@@ -226,32 +226,10 @@ handle_request(ReqKey, #gtp{type = create_session_request} = Request, Resent,
   when SState == init; SState == connecting ->
     pgw_s5s8_proxy_create_session:create_session(ReqKey, Request, Resent, State, Data);
 
-handle_request(ReqKey,
-	       #gtp{type = modify_bearer_request} = Request,
-	       _Resent, #{session := connected},
-	       #{proxy_context := ProxyContext,
-		 left_tunnel := LeftTunnelOld, right_tunnel := RightTunnelOld,
-		 bearer := #{left := LeftBearerOld, right := RightBearer} = Bearer} = Data)
-  when ?IS_REQUEST_TUNNEL(ReqKey, Request, LeftTunnelOld) ->
-    {LeftTunnel0, LeftBearer} =
-	case pgw_s5s8:update_tunnel_from_gtp_req(
-	       Request, LeftTunnelOld#tunnel{version = v2}, LeftBearerOld) of
-	    {ok, Result1} -> Result1;
-	    {error, Err1} -> throw(Err1#ctx_err{tunnel = LeftTunnelOld})
-	end,
-    LeftTunnel = ergw_gtp_gsn_lib:update_tunnel_endpoint(LeftTunnelOld, LeftTunnel0),
-
-    RightTunnel0 = ergw_gtp_gsn_lib:handle_peer_change(
-		     LeftTunnel, LeftTunnelOld, RightTunnelOld#tunnel{version = v2}),
-    RightTunnel1 = ergw_gtp_gsn_lib:update_tunnel_endpoint(RightTunnelOld, RightTunnel0),
-    {ok, {Lease, RightTunnel}} = gtp_path:aquire_lease(RightTunnel1),
-
-    DataNew = Data#{left_tunnel => LeftTunnel, right_tunnel => RightTunnel,
-		    bearer => Bearer#{left => LeftBearer}},
-
-    forward_request(sgw2pgw, ReqKey, Request, RightTunnel, Lease, RightBearer, ProxyContext, DataNew, Data),
-
-    {keep_state, DataNew};
+handle_request(ReqKey, #gtp{type = modify_bearer_request} = Request, Resent,
+	       #{session := connected} = State, #{left_tunnel := LeftTunnel} = Data)
+  when ?IS_REQUEST_TUNNEL(ReqKey, Request, LeftTunnel) ->
+    pgw_s5s8_proxy_modify_bearer:modify_bearer(ReqKey, Request, Resent, State, Data);
 
 handle_request(ReqKey,
 	       #gtp{type = modify_bearer_command} = Request,
@@ -369,48 +347,11 @@ handle_response(#proxy_request{direction = sgw2pgw} = ProxyRequest,
     pgw_s5s8_proxy_create_session:create_session_response(ProxyRequest, Response, Request,
 							  State, Data);
 
-handle_response(#proxy_request{direction = sgw2pgw,
-			       right_tunnel = RightTunnelPrev} = ProxyRequest,
-		#gtp{type = modify_bearer_response} = Response,
-		_Request, _State,
-		#{context := Context, proxy_context := ProxyContextOld, pfcp := PCtxOld,
-		  left_tunnel := LeftTunnel, right_tunnel := RightTunnelOld,
-		  bearer := #{left := LeftBearer, right := RightBearerOld} = Bearer0} = Data) ->
-    ?LOG(debug, "OK Proxy Response ~p", [Response]),
-
+handle_response(#proxy_request{direction = sgw2pgw} = ProxyRequest,
+		#gtp{type = modify_bearer_response} = Response, Request, State, Data) ->
     forward_request_done(ProxyRequest, Data),
-    {RightTunnel0, RightBearer} =
-	case pgw_s5s8:update_tunnel_from_gtp_req(Response, RightTunnelOld, RightBearerOld) of
-	    {ok, Result1} -> Result1;
-	    {error, Err1} -> throw(Err1#ctx_err{tunnel = LeftTunnel})
-	end,
-    RightTunnel = ergw_gtp_gsn_lib:update_tunnel_endpoint(RightTunnelOld, RightTunnel0),
-    Bearer = Bearer0#{right := RightBearer},
-
-    ProxyContext = pgw_s5s8:update_context_from_gtp_req(Response, ProxyContextOld),
-
-    gtp_context:remote_context_register(RightTunnel, Bearer, ProxyContext),
-
-    SendEM = RightTunnelPrev#tunnel.version == RightTunnel#tunnel.version,
-    ModifyOpts =
-	if SendEM -> #{send_end_marker => true};
-	   true   -> #{}
-	end,
-    PCC = ergw_proxy_lib:proxy_pcc(),
-    {PCtx, _, _} =
-	case ergw_pfcp_context:modify_session(PCC, [], ModifyOpts, Bearer, PCtxOld) of
-	    {ok, Result2} -> Result2;
-	    {error, Err2} -> throw(Err2#ctx_err{tunnel = LeftTunnel})
-	end,
-
-    forward_response(ProxyRequest, Response, LeftTunnel, LeftBearer, Context),
-
-    DataNew =
-	Data#{proxy_context => ProxyContext, pfcp => PCtx,
-	      right_tunnel => RightTunnel, bearer => Bearer},
-
-    {keep_state, DataNew};
-
+    pgw_s5s8_proxy_modify_bearer:modify_bearer_response(ProxyRequest, Response, Request,
+							State, Data);
 %%
 %% PGW to SGW response without tunnel endpoint modification
 %%
