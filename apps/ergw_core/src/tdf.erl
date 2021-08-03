@@ -324,18 +324,12 @@ handle_event(internal, {session, stop, _Session}, State, Data) ->
     close_pdn_context(normal, State, Data),
     {next_state, State#{session := shutdown}, Data};
 
-handle_event(internal, {session, {update_credits, _} = CreditEv, _}, _State,
-	     #{context := Context, pfcp := PCtx0, pcc := PCC0, bearer := Bearer} = Data) ->
-    Now = erlang:monotonic_time(),
-
-    {PCC, _PCCErrors} = ergw_pcc_context:gy_events_to_pcc_ctx(Now, [CreditEv], PCC0),
-    {PCtx, _, _} =
-	case ergw_pfcp_context:modify_session(PCC, [], #{}, Bearer, PCtx0) of
-	    {ok, Result1} -> Result1;
-	    {error, Err1} -> throw(Err1#ctx_err{context = Context})
-	end,
-
-    {keep_state, Data#{pfcp => PCtx, pcc => PCC}};
+handle_event(internal, {session, {update_credits, _} = CreditEv, _}, State, Data) ->
+    gtp_context:next(
+      update_credits_fun(CreditEv, _, _),
+      update_credits_ok(_, _, _),
+      update_credits_fail(_, _, _),
+      State, Data);
 
 handle_event(internal, {session, Ev, _}, _State, _Data) ->
     ?LOG(error, "unhandled session event: ~p", [Ev]),
@@ -581,7 +575,8 @@ handle_charging_event(Key, Ev, _Now, Data) ->
 %%% Monadic Function Implementations
 %%%===================================================================
 
-%% TBD: check how far this identical to gtp_context:gx_rar_fun
+%% TBD: check how far these functions are identical to gtp_context
+
 gx_rar_fun(#aaa_request{events = Events}, State, Data) ->
     statem_m:run(
       do([statem_m ||
@@ -639,6 +634,23 @@ gx_rar_fail(_Request, Error, State, Data) ->
     ct:fail(fail),
 
     %% TBD: Gx RAR Error reply
+    {next_state, State, Data}.
+
+update_credits_fun(CreditEv, State, Data) ->
+    statem_m:run(
+      do([statem_m ||
+	     Now = erlang:monotonic_time(),
+
+	     _PCCErrors <- gy_events_to_pcc_ctx(Now, [CreditEv], _, _),
+	     pfcp_session_modification()
+	 ]), State, Data).
+
+update_credits_ok(_Res, State, Data) ->
+    ?LOG(debug, "~s: ~p", [?FUNCTION_NAME, _Res]),
+    {next_state, State, Data}.
+update_credits_fail(Error, State, Data) ->
+    ?LOG(error, "update_credits failed with ~p", [Error]),
+    ct:fail(fail),
     {next_state, State, Data}.
 
 %%%===================================================================
