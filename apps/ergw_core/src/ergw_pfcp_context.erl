@@ -990,6 +990,16 @@ select_upf_api_result(UPF, Session0, APNOpts) when is_binary(UPF) ->
 select_upf_api_result(_UPF, _Session, _APNOpts) ->
     {error, ?CTX_ERR(?FATAL, no_resources_available)}.
 
+session_set_pool(Pool, Value, Session) when is_binary(Value) ->
+    maps:put(Pool, Value, Session);
+session_set_pool(_, _, Session) ->
+    Session.
+
+session_set_maybe(true, Key, Value, Session) ->
+    maps:put(Key, Value, Session);
+session_set_maybe(_, _, _, Session) ->
+    Session.
+
 %% select_upf_3gpp/3
 select_upf_3gpp(Candidates, Session0, APNOpts) ->
     Wanted = maps:fold(fun apn_filter/3, #{}, APNOpts),
@@ -1001,18 +1011,11 @@ select_upf_3gpp(Candidates, Session0, APNOpts) ->
 	   PoolV4 = select_ip_pool(v4, IPvs, IPpools),
 	   PoolV6 = select_ip_pool(v6, IPvs, IPpools),
 	   NAT = select(random, NATblocks),
-	   Session1 = case PoolV4 of
-			  undefined -> Session0;
-			  _         -> Session0#{'Framed-Pool' => PoolV4}
-		      end,
-	   Session2 = case PoolV6 of
-			  undefined -> Session1;
-			  _         -> Session1#{'Framed-IPv6-Pool' => PoolV6}
-		      end,
-	   Session3 = case maps:is_key(nat_port_blocks, Wanted) of
-			  true  -> Session2#{'NAT-Pool-Id' => NAT};
-			  false -> Session2
-		      end,
+
+	   Session1 = session_set_pool('Framed-Pool', PoolV4, Session0),
+	   Session2 = session_set_pool('Framed-IPv6-Pool', PoolV6, Session1),
+	   Session3 = session_set_maybe(maps:is_key(nat_port_blocks, Wanted),
+					 'NAT-Pool-Id', NAT, Session2),
 	   Session = init_session_ue_ifid(APNOpts, Session3),
 	   UPinfo = {Node, VRF, PoolV4, NAT, PoolV6},
 
