@@ -250,14 +250,13 @@ handle_event({call, From}, {sx, #pfcp{type = session_report_request,
     ?LOG(debug, "~w: handle_call Sx: ~p", [?MODULE, Report]),
 
     Now = erlang:monotonic_time(),
-    ReqOpts = #{now => Now, async => true},
 
     ChargeEv = interim,
     {Online, Offline, Monitor} =
 	ergw_pfcp_context:usage_report_to_charging_events(UsageReport, ChargeEv, PCtx),
     ergw_gsn_lib:process_accounting_monitor_events(ChargeEv, Monitor, Now, Session),
     GyReqServices = ergw_pcc_context:gy_credit_request(Online, PCC),
-    ergw_gsn_lib:process_online_charging_events(ChargeEv, GyReqServices, Session, ReqOpts),
+    ergw_gsn_lib:process_online_charging_events(ChargeEv, GyReqServices, Now, Session),
     ergw_gsn_lib:process_offline_charging_events(ChargeEv, Offline, Now, Session),
 
     {keep_state_and_data, [{reply, From, {ok, PCtx}}]};
@@ -395,7 +394,7 @@ close_pdn_context({API, TermCause}, #{session := run}, #{pfcp := PCtx, 'Session'
 	ergw_pfcp_context:usage_report_to_charging_events(URRs, ChargeEv, PCtx),
     ergw_gsn_lib:process_accounting_monitor_events(ChargeEv, Monitor, Now, Session),
     GyReqServices = ergw_gsn_lib:gy_credit_report(Online),
-    ergw_gsn_lib:process_online_charging_events(ChargeEv, GyReqServices, Session, ReqOpts),
+    ergw_gsn_lib:process_online_charging_events(ChargeEv, GyReqServices, Now, Session),
     ergw_gsn_lib:process_offline_charging_events(ChargeEv, Offline, Now, Session),
     ergw_prometheus:termination_cause(API, TermCause),
 
@@ -411,15 +410,14 @@ query_usage_report(_, PCtx) ->
 
 triggered_charging_event(ChargeEv, Now, Request,
 			 #{pfcp := PCtx, 'Session' := Session, pcc := PCC}) ->
-    ReqOpts = #{now => Now, async => true},
-
     case query_usage_report(Request, PCtx) of
 	{ok, {_, UsageReport, _}} ->
 	    {Online, Offline, Monitor} =
 		ergw_pfcp_context:usage_report_to_charging_events(UsageReport, ChargeEv, PCtx),
 	    ergw_gsn_lib:process_accounting_monitor_events(ChargeEv, Monitor, Now, Session),
 	    GyReqServices = ergw_pcc_context:gy_credit_request(Online, PCC),
-	    ergw_gsn_lib:process_online_charging_events(ChargeEv, GyReqServices, Session, ReqOpts),
+	    ergw_gsn_lib:process_online_charging_events(
+	      ChargeEv, GyReqServices, Now, Session),
 	    ergw_gsn_lib:process_offline_charging_events(ChargeEv, Offline, Now, Session);
 	{error, CtxErr} ->
 	    ?LOG(error, "Triggered Charging Event failed with ~p", [CtxErr])
@@ -506,10 +504,11 @@ gx_rar_fun(#aaa_request{events = Events}, State, Data) ->
 	     GyReqId <- statem_m:return(
 			  gtp_context:send_request(
 			    fun() ->
-				    ergw_gsn_lib:process_online_charging_events(
-				      ChargeEv, GyReqServices, Session, #{now => Now})
+				    ergw_gsn_lib:process_online_charging_events_sync(
+				      ChargeEv, GyReqServices, Now, Session)
 			    end)),
-	     {ok, _, GyEvs} <- statem_m:wait(GyReqId),
+	     GyResult <- statem_m:wait(GyReqId),
+	     GyEvs <- statem_m:lift(GyResult),
 
 	     _ = ergw_gsn_lib:process_offline_charging_events(ChargeEv, Offline, Now, Session),
 

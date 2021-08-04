@@ -45,13 +45,11 @@ ccr_initial(Session, API, SessionOpts, ReqOpts) ->
 
 
 usage_report_request(ChargeEv, Now, UsageReport, PCtx, PCC, Session) ->
-    ReqOpts = #{now => Now, async => true},
-
     {Online, Offline, Monitor} =
 	ergw_pfcp_context:usage_report_to_charging_events(UsageReport, ChargeEv, PCtx),
     ergw_gsn_lib:process_accounting_monitor_events(ChargeEv, Monitor, Now, Session),
     GyReqServices = ergw_pcc_context:gy_credit_request(Online, PCC),
-    ergw_gsn_lib:process_online_charging_events(ChargeEv, GyReqServices, Session, ReqOpts),
+    ergw_gsn_lib:process_online_charging_events(ChargeEv, GyReqServices, Now, Session),
     ergw_gsn_lib:process_offline_charging_events(ChargeEv, Offline, Now, Session).
 
 usage_report(URRActions, UsageReport, PCtx, Session) ->
@@ -83,6 +81,6 @@ close_context(Reason, UsageReport, PCtx, Session) ->
 	ergw_pfcp_context:usage_report_to_charging_events(UsageReport, ChargeEv, PCtx),
     ergw_gsn_lib:process_accounting_monitor_events(ChargeEv, Monitor, Now, Session),
     GyReqServices = ergw_gsn_lib:gy_credit_report(Online),
-    ergw_gsn_lib:process_online_charging_events(ChargeEv, GyReqServices, Session, ReqOpts),
+    ergw_gsn_lib:process_online_charging_events(ChargeEv, GyReqServices, Now, Session),
     ergw_gsn_lib:process_offline_charging_events(ChargeEv, Offline, Now, Session),
     ok.
