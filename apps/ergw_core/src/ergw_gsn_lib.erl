@@ -19,6 +19,7 @@
 	]).
 -export([
 	 process_online_charging_events/4,
+	 process_online_charging_events_sync/4,
 	 process_offline_charging_events/4,
 	 process_offline_charging_events/5,
 	 process_accounting_monitor_events/4,
@@ -464,11 +465,37 @@ charging_event_to_rf(URR, {_, Init}, Reason, {SDCs, TDVs}) ->
     TDV = cev_reason(Reason, TDV0),
     {SDCs, [TDV|TDVs]}.
 
-%% process_online_charging_events/4
-process_online_charging_events(Reason, Request, Session, ReqOpts)
+simplyfied_aaa_invoke(Session, SessionOpts, Procedure, Opts) ->
+    case ergw_aaa_session:invoke(Session, SessionOpts, Procedure, Opts) of
+	{Result, _, Events} -> {Result, Events};
+	{Result, _} -> Result
+    end.
+
+%% process_online_charging_events_sync/4
+process_online_charging_events_sync(Reason, Request, Now, Session)
   when is_map(Request) ->
     Used = maps:get(used_credits, Request, #{}),
     Needed = maps:get(credits, Request, #{}),
+    ReqOpts = #{async => false, now => Now},
+
+    case Reason of
+	{terminate, Cause} ->
+	    TermReq = Request#{'Termination-Cause' => Cause},
+	    simplyfied_aaa_invoke(Session, TermReq, {gy, 'CCR-Terminate'}, ReqOpts);
+	_ when map_size(Used) /= 0;
+	       map_size(Needed) /= 0 ->
+	    simplyfied_aaa_invoke(Session, Request, {gy, 'CCR-Update'}, ReqOpts);
+	_ ->
+	    {ok, []}
+    end.
+
+%% process_online_charging_events/4
+process_online_charging_events(Reason, Request, Now, Session)
+  when is_map(Request) ->
+    Used = maps:get(used_credits, Request, #{}),
+    Needed = maps:get(credits, Request, #{}),
+    ReqOpts = #{async => true, now => Now},
+
     case Reason of
 	{terminate, Cause} ->
 	    TermReq = Request#{'Termination-Cause' => Cause},
@@ -480,7 +507,6 @@ process_online_charging_events(Reason, Request, Session, ReqOpts)
 	    SOpts = ergw_aaa_session:get(Session),
 	    {ok, SOpts, []}
     end.
-
 
 process_offline_charging_events(ChargeEv, Ev, Now, Session)
   when is_list(Ev) ->

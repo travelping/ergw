@@ -820,10 +820,11 @@ gx_rar_fun(#aaa_request{events = Events}, State, Data) ->
 	     GyReqId <- statem_m:return(
 			  gtp_context:send_request(
 			    fun() ->
-				    ergw_gsn_lib:process_online_charging_events(
-				      ChargeEv, GyReqServices, Session, #{now => Now})
+				    ergw_gsn_lib:process_online_charging_events_sync(
+				      ChargeEv, GyReqServices, Now, Session)
 			    end)),
-	     {ok, _, GyEvs} <- statem_m:wait(GyReqId),
+	     GyResult <- statem_m:wait(GyReqId),
+	     GyEvs <- statem_m:lift(GyResult),
 
 	     _ = ergw_gsn_lib:process_offline_charging_events(ChargeEv, Offline, Now, Session),
 
