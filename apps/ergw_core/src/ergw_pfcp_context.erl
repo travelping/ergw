@@ -10,10 +10,8 @@
 -compile({parse_transform, do}).
 -compile({parse_transform, cut}).
 
--export([create_session/5,
-	 send_session_establishment_request/5,
+-export([send_session_establishment_request/5,
 	 receive_session_establishment_response/4,
-	 modify_session/5,
 	 send_session_modification_request/5,
 	 receive_session_modification_response/2,
 	 delete_session/2,
@@ -49,28 +47,6 @@
 %%%===================================================================
 %%% PFCP Sx/N6 API
 %%%===================================================================
-
-%% create_session/5
-create_session(Handler, PCC, PCtx, Bearer, Ctx)
-  when is_record(PCC, pcc_ctx) ->
-    session_establishment_request(Handler, PCC, PCtx, Bearer, Ctx).
-
-%% modify_session/5
-modify_session(PCC, URRActions, Opts, #{left := Left, right := Right} = _Bearer, PCtx0)
-  when is_record(PCC, pcc_ctx), is_record(PCtx0, pfcp_ctx) ->
-    {SxRules0, SxErrors, PCtx} = build_sx_rules(PCC, Opts, PCtx0, Left, Right),
-    SxRules =
-	lists:foldl(
-	  fun({offline, _}, SxR) ->
-		  SxR#{query_urr => build_query_usage_report(offline, PCtx)};
-	     (_, SxR) ->
-		  SxR
-	  end, SxRules0, URRActions),
-
-    ?LOG(debug, "SxRules: ~p~n", [SxRules]),
-    ?LOG(debug, "SxErrors: ~p~n", [SxErrors]),
-    ?LOG(debug, "PCtx: ~p~n", [PCtx]),
-    session_modification_request(PCtx, SxRules).
 
 %% delete_session/2
 delete_session(Reason, PCtx) ->
@@ -209,16 +185,6 @@ receive_session_establishment_response(
 
 receive_session_establishment_response(_, _, _, _) ->
     {error, ?CTX_ERR(?FATAL, system_failure)}.
-
-%% session_establishment_request/5
-session_establishment_request(Handler, PCC, PCtx0, Bearer, Ctx) ->
-    {ReqId, PCtx} = send_session_establishment_request(Handler, PCC, PCtx0, Bearer, Ctx),
-    case ergw_sx_node:wait_response(ReqId) of
-	{reply, Response} ->
-	    receive_session_establishment_response(Response, Handler, PCtx, Bearer);
-	{error, Error} ->
-	    receive_session_establishment_response(Error, Handler, PCtx, Bearer)
-    end.
 
 %% session_modification_request/2
 session_modification_request(PCtx, ReqIEs) ->
