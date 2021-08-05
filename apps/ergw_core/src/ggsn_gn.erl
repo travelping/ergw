@@ -138,22 +138,10 @@ handle_request(ReqKey, #gtp{type = update_pdp_context_request} = Request, Resent
 	       #{session := connected} = State, Data) ->
     ggsn_gn_update_pdp_context:update_pdp_context(ReqKey, Request, Resent, State, Data);
 
-handle_request(ReqKey,
-	       #gtp{type = ms_info_change_notification_request, ie = IEs} = Request,
-	       _Resent, #{session := connected} = _State,
-	       #{context := Context, pfcp := PCtx, left_tunnel := LeftTunnel,
-		 bearer := #{left := LeftBearer}, 'Session' := Session}) ->
-    {OldSOpts, NewSOpts} = update_session_from_gtp_req(IEs, Session, LeftTunnel, LeftBearer),
-    URRActions = gtp_context:collect_charging_events(OldSOpts, NewSOpts),
-    gtp_context:trigger_usage_report(self(), URRActions, PCtx),
-
-    ResponseIEs0 = [#cause{value = request_accepted}],
-    ResponseIEs = copy_ies_to_response(IEs, ResponseIEs0, [?'IMSI', ?'IMEI']),
-    Response = response(ms_info_change_notification_response, LeftTunnel, ResponseIEs, Request),
-    gtp_context:send_response(ReqKey, Request, Response),
-
-    Actions = context_idle_action([], Context),
-    {keep_state_and_data, Actions};
+handle_request(ReqKey, #gtp{type = ms_info_change_notification_request} = Request,
+	       Resent, #{session := connected} = State, Data) ->
+    ggsn_gn_ms_info_change_notification:ms_info_change_notification(ReqKey, Request, Resent,
+								    State, Data);
 
 handle_request(ReqKey, #gtp{type = delete_pdp_context_request} = Request,
 	       _Resent, #{session := connected} = State, Data) ->

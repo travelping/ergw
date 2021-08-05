@@ -19,6 +19,7 @@
 	 send_session_deletion_request/2,
 	 receive_session_deletion_response/1,
 	 usage_report_to_charging_events/3,
+	 send_query_usage_report/2,
 	 query_usage_report/1, query_usage_report/2
 	]).
 -export([select_upf/1, select_upf/3, reselect_upf/4]).
@@ -86,6 +87,19 @@ query_usage_report(ChargingKeys, PCtx)
     IEs = [#query_urr{group = [#urr_id{id = Id}]} ||
 	   Id <- ergw_pfcp:get_urr_ids(ChargingKeys, PCtx), is_integer(Id)],
     session_modification_request(PCtx, IEs).
+
+%% send_query_usage_report/2
+send_query_usage_report(Type, PCtx)
+  when is_record(PCtx, pfcp_ctx) andalso
+       (Type == offline orelse Type == online) ->
+    IEs = build_query_usage_report(Type, PCtx),
+    send_session_modification_request(PCtx, IEs);
+
+send_query_usage_report(ChargingKeys, PCtx)
+  when is_record(PCtx, pfcp_ctx) ->
+    IEs = [#query_urr{group = [#urr_id{id = Id}]} ||
+	   Id <- ergw_pfcp:get_urr_ids(ChargingKeys, PCtx), is_integer(Id)],
+    send_session_modification_request(PCtx, IEs).
 
 %%%===================================================================
 %%% Helper functions

@@ -12,7 +12,9 @@
 	  {parse_transform, cut}]).
 
 -export([connect_upf_candidates/4, create_session_m/5]).
--export([triggered_charging_event/4, usage_report/3, close_context/3, close_context/4,
+-export([triggered_charging_event/4,
+	 usage_report_m/1, usage_report_m/2, usage_report_m/3,
+	 close_context/3, close_context/4,
 	 close_context_m/4]).
 -export([handle_peer_change/3, update_tunnel_endpoint/2, apply_bearer_change/2]).
 -export([remote_context_register_new/0,
@@ -101,7 +103,7 @@ apply_bearer_change(URRActions, SendEM) ->
 	       statem_m:lift(ergw_pfcp_context:receive_session_modification_response(PCtx1, Response)),
 	   statem_m:modify_data(_#{session_info => SessionInfo}),
 
-	   _ = gtp_context:usage_report(self(), URRActions, UsageReport),
+	   ergw_gtp_gsn_lib:usage_report_m(URRActions, UsageReport),
 
 	   statem_m:return(SessionInfo)
        ]).
@@ -121,9 +123,16 @@ triggered_charging_event(ChargeEv, Now, Request,
     end,
     ok.
 
-usage_report(URRActions, UsageReport, #{pfcp := PCtx, 'Session' := Session}) ->
-    ergw_gtp_gsn_session:usage_report(URRActions, UsageReport, PCtx, Session);
-usage_report(_URRActions, _UsageReport, #{'Session' := _}) ->
+usage_report_finish(_, State, Data) ->
+    {next_state, State, Data}.
+
+usage_report_m(URRActions, State, #{pfcp := _, 'Session' := _} = Data) ->
+    gtp_context:next(
+      statem_m:run(usage_report_m(URRActions), _, _),
+      fun usage_report_finish/3,
+      fun usage_report_finish/3,
+      State, Data);
+usage_report_m(_URRActions, State, #{'Session' := _} = Data) ->
     ?LOG(info, "PFCP Usage Report after PFCP context closure"),
     %% FIXME:
     %%   This a a know problem with the sequencing of GTP location updates that
@@ -131,8 +140,37 @@ usage_report(_URRActions, _UsageReport, #{'Session' := _}) ->
     %%   The location update triggeres a PFCP Modify Session, the teardown a
     %%   PFCP Delete Session, the Modify Session Response can then arrive after
     %%   the teardown action has already removed the PFCP context reference.
-    ok.
+    usage_report_finish(ok, State, Data).
 
+usage_report_m([]) ->
+    _ = ?LOG(debug, "~s-#1", [?FUNCTION_NAME]),
+    do([statem_m || return()]);
+usage_report_m(URRActions) ->
+    do([statem_m ||
+	   _ = ?LOG(debug, "~s-#2, Actions: ~p", [?FUNCTION_NAME, URRActions]),
+
+	   PCtx0 <- statem_m:get_data(maps:get(pfcp, _)),
+	   ReqId <-
+	       statem_m:return(
+		 ergw_pfcp_context:send_query_usage_report(offline, PCtx0)),
+	   Response <- statem_m:wait(ReqId),
+
+	   PCtx1 <- statem_m:get_data(maps:get(pfcp, _)),
+	   {_, UsageReport, SessionInfo} <-
+	       statem_m:lift(ergw_pfcp_context:receive_session_modification_response(PCtx1, Response)),
+	   statem_m:modify_data(_#{session_info => SessionInfo}),
+
+	   usage_report_m(URRActions, UsageReport)
+       ]).
+
+usage_report_m(URRActions, UsageReport) ->
+    do([statem_m ||
+	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+
+	   #{pfcp := PCtx, 'Session' := Session} <- statem_m:get_data(),
+	   statem_m:return(
+	     ergw_gtp_gsn_session:usage_report(URRActions, UsageReport, PCtx, Session))
+       ]).
 
 %% close_context/3
 close_context(_, {API, TermCause}, Data) ->

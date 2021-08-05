@@ -214,7 +214,7 @@ handle_response({CommandReqKey, OldSOpts},
 				   group = #{?'Cause' := #v2_cause{v2_cause = BearerCause}}
 				  }} = IEs},
 		_Request, #{session := connected} = State,
-		#{pfcp := PCtx, left_tunnel := LeftTunnel0,bearer := #{left := LeftBearer},
+		#{left_tunnel := LeftTunnel0,bearer := #{left := LeftBearer},
 		  'Session' := Session} = Data) ->
     gtp_context:request_finished(CommandReqKey),
 
@@ -226,8 +226,8 @@ handle_response({CommandReqKey, OldSOpts},
     if Cause =:= request_accepted andalso BearerCause =:= request_accepted ->
 	    {_, NewSOpts} = update_session_from_gtp_req(IEs, Session, LeftTunnel, LeftBearer),
 	    URRActions = gtp_context:collect_charging_events(OldSOpts, NewSOpts),
-	    gtp_context:trigger_usage_report(self(), URRActions, PCtx),
-	    {keep_state, DataNew};
+	    ergw_gtp_gsn_lib:usage_report_m(URRActions, State, DataNew);
+
        true ->
 	    ?LOG(error, "Update Bearer Request failed with ~p/~p",
 			[Cause, BearerCause]),
