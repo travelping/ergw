@@ -33,8 +33,6 @@
 -export([usage_report_to_accounting/1,
 	 collect_charging_events/2]).
 
--export([usage_report/3, trigger_usage_report/3]).
-
 %% ergw_context callbacks
 -export([sx_report/2, port_message/2, port_message/4]).
 
@@ -624,10 +622,6 @@ handle_event({call, From}, {peer_down, Path, Notify}, State,
 handle_event({call, From}, {peer_down, _Path, _Notify}, _State, _Data) ->
     {keep_state_and_data, [{reply, From, ok}]};
 
-handle_event(cast, {usage_report, URRActions, UsageReport}, _State, Data) ->
-    ergw_gtp_gsn_lib:usage_report(URRActions, UsageReport, Data),
-    keep_state_and_data;
-
 handle_event(cast, {delete_context, Reason}, State, Data) ->
     delete_context(undefined, Reason, State, Data);
 
@@ -1015,28 +1009,6 @@ close_context(Side, Reason, State, Data) ->
 
 delete_context(From, Reason, State, #{interface := Interface} = Data) ->
     Interface:delete_context(From, Reason, State, Data).
-
-%%====================================================================
-%% asynchrounus usage reporting
-%%====================================================================
-
-usage_report(Server, URRActions, Report) ->
-    gen_statem:cast(Server, {usage_report, URRActions, Report}).
-
-usage_report_fun(Owner, URRActions, PCtx) ->
-    case ergw_pfcp_context:query_usage_report(offline, PCtx) of
-	{ok, {_, Report, _}} ->
-	    usage_report(Owner, URRActions, Report);
-	{error, CtxErr} ->
-	    ?LOG(error, "Defered Usage Report failed with ~p", [CtxErr])
-    end.
-
-trigger_usage_report(_Self, [], _PCtx) ->
-    ok;
-trigger_usage_report(Self, URRActions, PCtx) ->
-    Self = self(),
-    proc_lib:spawn(fun() -> usage_report_fun(Self, URRActions, PCtx) end),
-    ok.
 
 %%====================================================================
 %% new style async FSM helpers

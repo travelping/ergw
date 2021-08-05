@@ -141,7 +141,7 @@ modify_bearer_fun(#gtp{type = modify_bearer_request, ie = IEs} = Request, State,
 	     update_tunnel_from_gtp_req(Request),
 	     update_tunnel_endpoint(LeftTunnelOld),
 	     URRActions <- collect_charging_events(IEs),
-	     trigger_usage_report(URRActions)
+	     ergw_gtp_gsn_lib:usage_report_m(URRActions)
 	 ]), State, Data).
 
 process_secondary_rat_usage_data_reports(IEs) ->
@@ -188,16 +188,10 @@ collect_charging_events(IEs) ->
 	   statem_m:return(gtp_context:collect_charging_events(OldSOpts, NewSOpts))
       ]).
 
-trigger_usage_report(URRActions) ->
-    do([statem_m ||
-	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
-	   PCtx <- statem_m:get_data(maps:get(pfcp, _)),
-	   statem_m:return(gtp_context:trigger_usage_report(self(), URRActions, PCtx))
-       ]).
-
 handle_bearer_change(URRActions, _LeftTunnelOld, LeftBearerOld, LeftBearer)
   when LeftBearerOld =:= LeftBearer ->
-    trigger_usage_report(URRActions);
+    _ = ?LOG(debug, "~s-#1", [?FUNCTION_NAME]),
+    ergw_gtp_gsn_lib:usage_report_m(URRActions);
 handle_bearer_change(URRActions, LeftTunnelOld, LeftBearerOld, LeftBearer)
   when LeftBearerOld =/= LeftBearer ->
     do([statem_m ||
