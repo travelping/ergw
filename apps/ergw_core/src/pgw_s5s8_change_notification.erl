@@ -27,7 +27,7 @@
 %%====================================================================
 
 change_notification(ReqKey, Request, _Resent, State, Data) ->
-    gtp_context:next(
+    ergw_context_statem:next(
       change_notification_fun(Request, _, _),
       change_notification_ok(ReqKey, Request, _, _, _),
       change_notification_fail(ReqKey, Request, _, _, _),

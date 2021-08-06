@@ -27,7 +27,7 @@
 %%====================================================================
 
 modify_bearer(ReqKey, Request, _Resent, State, Data) ->
-    gtp_context:next(
+    ergw_context_statem:next(
       modify_bearer_fun(Request, _, _),
       modify_bearer_ok(ReqKey, Request, Data, _, _, _),
       modify_bearer_fail(ReqKey, Request, _, _, _),
@@ -61,7 +61,7 @@ modify_bearer_fun(Request, State, Data) ->
 modify_bearer_response(ProxyRequest, Response, Request, State, Data) ->
     _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
     ?LOG(debug, "OK Proxy Response ~p", [Response]),
-    gtp_context:next(
+    ergw_context_statem:next(
       modify_bearer_response_fun(ProxyRequest, Response, _, _),
       modify_bearer_response_ok(ProxyRequest, Response, _, _, _),
       modify_bearer_response_fail(ProxyRequest, Response, Request, _, _, _),

@@ -8,8 +8,8 @@
 -module(tdf).
 
 %%-behaviour(gtp_api).
--behavior(gen_statem).
 -behavior(ergw_context).
+-behavior(ergw_context_statem).
 
 -compile([{parse_transform, do},
 	  {parse_transform, cut}]).
@@ -28,12 +28,8 @@
 -export([ctx_test_cmd/2]).
 -endif.
 
-%% gen_statem callbacks
--export([callback_mode/0, init/1, handle_event/4,
-	 terminate/3, code_change/4]).
-
-%% new style async FSM helpers
--export([next/5, send_request/1]).
+%% ergw_context_statem callbacks
+-export([init/2, handle_event/4, terminate/3, code_change/4]).
 
 -include_lib("kernel/include/logger.hrl").
 -include_lib("pfcplib/include/pfcp_packet.hrl").
@@ -53,7 +49,7 @@
 %%====================================================================
 
 start_link(Node, VRF, IP4, IP6, SxOpts, GenOpts) ->
-    gen_statem:start_link(?MODULE, [Node, VRF, IP4, IP6, SxOpts], GenOpts).
+    ergw_context_statem:start_link(?MODULE, [Node, VRF, IP4, IP6, SxOpts], GenOpts).
 
 unsolicited_report(Node, VRF, IP4, IP6, SxOpts) ->
     tdf_sup:new(Node, VRF, IP4, IP6, SxOpts).
@@ -133,14 +129,10 @@ port_message(Server, Request, Msg, Resent) ->
 %% gen_statem API
 %%====================================================================
 
-callback_mode() -> [handle_event_function, state_enter].
-
 maybe_ip(IP, Len) when is_binary(IP) -> ergw_ip_pool:static_ip(IP, Len);
 maybe_ip(_,_) -> undefined.
 
-init([Node, InVRF, IP4, IP6, #{apn := APN} = _SxOpts]) ->
-    process_flag(trap_exit, true),
-
+init([Node, InVRF, IP4, IP6, #{apn := APN} = _SxOpts], Data0) ->
     UeIP = #ue_ip{v4 = maybe_ip(IP4, 32), v6 = maybe_ip(IP6, 128)},
     Context = #tdf_ctx{
 		  ms_ip = UeIP
@@ -161,46 +153,16 @@ init([Node, InVRF, IP4, IP6, #{apn := APN} = _SxOpts]) ->
     OCPcfg = maps:get('Offline-Charging-Profile', SessionOpts, #{}),
     PCC = #pcc_ctx{offline_charging_profile = OCPcfg},
     Bearer = #{left => LeftBearer, right => RightBearer},
-    Data = #{apn       => APN,
-	     context   => Context,
-	     dp_node   => Node,
-	     'Session' => Session,
-	     pcc       => PCC,
-	     bearer    => Bearer
-	    },
+    Data = Data0#{
+      apn       => APN,
+      context   => Context,
+      dp_node   => Node,
+      'Session' => Session,
+      pcc       => PCC,
+      bearer    => Bearer},
 
     ?LOG(info, "TDF process started for ~p", [[Node, IP4, IP6]]),
     {ok, ergw_context:init_state(), Data, [{next_event, internal, init}]}.
-
-%%
-%% async functions support
-%%
-handle_event(info, {{'DOWN', ReqId}, _, _, _, Info}, #{async := Async} = State, Data)
-  when is_map_key(ReqId, Async) ->
-    statem_m_continue(ReqId, {error, Info}, false, State, Data);
-handle_event(info, {{'DOWN', _}, _, _, _, _}, _, _) ->
-    keep_state_and_data;
-
-handle_event(info, {'DOWN', _, process, ReqId, Info}, #{async := Async} = State, Data)
-  when is_map_key(ReqId, Async) ->
-    statem_m_continue(ReqId, {error, Info}, false, State, Data);
-
-handle_event(info, {ReqId, Result}, #{async := Async} = State, Data)
-  when is_map_key(ReqId, Async) ->
-    statem_m_continue(ReqId, Result, false, State, Data);
-
-%% OTP-24 style send_request responses.... WE REALLY SHOULD NOT BE DOING THIS
-handle_event(info, {'DOWN', ReqId, _, _, Info}, #{async := Async} = State, Data)
-  when is_map_key(ReqId, Async) ->
-    statem_m_continue(ReqId, {error, Info}, false, State, Data);
-handle_event(info, {[alias|ReqId], Result}, #{async := Async} = State, Data)
-  when is_map_key(ReqId, Async) ->
-    statem_m_continue(ReqId, Result, true, State, Data);
-
-%% OTP-23 style send_request responses.... WE REALLY SHOULD NOT BE DOING THIS
-handle_event(info, {{'$gen_request_id', ReqId}, Result}, #{async := Async} = State, Data)
-  when is_map_key(ReqId, Async) ->
-    statem_m_continue(ReqId, Result, true, State, Data);
 
 %%
 %% non-blocking handlers
@@ -221,6 +183,9 @@ handle_event(enter, _OldState, #{session := shutdown} = _State, _Data) ->
     gen_statem:cast(self(), stop),
     keep_state_and_data;
 
+handle_event(enter, _OldState, _State, _Data) ->
+    keep_state_and_data;
+
 %% block all (other) calls, casts and infos while waiting
 %%  for the result of an asynchronous action
 handle_event({call, _}, _, #{async := Async}, _) when map_size(Async) /= 0 ->
@@ -233,11 +198,8 @@ handle_event(info, _, #{async := Async}, _) when map_size(Async) /= 0 ->
 handle_event(cast, stop, #{session := shutdown} = _State, _Data) ->
     {stop, normal};
 
-handle_event(enter, _OldState, _State, _Data) ->
-    keep_state_and_data;
-
 handle_event(internal, init, #{session := init} = State, Data) ->
-    tdf:next(
+    ergw_context_statem:next(
       fun start_session_fun/2,
       fun start_session_ok/3,
       fun start_session_fail/3,
@@ -287,7 +249,7 @@ handle_event(info, #aaa_request{procedure = {_, 'ASR'} = Procedure} = Request, S
     {next_state, State#{session := shutdown}, Data};
 
 handle_event(info, #aaa_request{procedure = {gx, 'RAR'}} = Request, State, Data) ->
-    tdf:next(
+    ergw_context_statem:next(
       gx_rar_fun(Request, _, _),
       gx_rar_ok(Request, _, _, _),
       gx_rar_fail(Request, _, _, _),
@@ -320,7 +282,7 @@ handle_event(internal, {session, stop, _Session}, State, Data) ->
     {next_state, State#{session := shutdown}, Data};
 
 handle_event(internal, {session, {update_credits, _} = CreditEv, _}, State, Data) ->
-    gtp_context:next(
+    ergw_context_statem:next(
       update_credits_fun(CreditEv, _, _),
       update_credits_ok(_, _, _),
       update_credits_fail(_, _, _),
@@ -502,7 +464,7 @@ gx_rar_fun(#aaa_request{events = Events}, State, Data) ->
 	     GyReqServices <- gy_credit_request(Online, Data, _, _),
 
 	     GyReqId <- statem_m:return(
-			  gtp_context:send_request(
+			  ergw_context_statem:send_request(
 			    fun() ->
 				    ergw_gsn_lib:process_online_charging_events_sync(
 				      ChargeEv, GyReqServices, Now, Session)
@@ -605,7 +567,7 @@ authenticate() ->
 
 	   #{'Session' := Session, session_opts := SessionOpts0} <- statem_m:get_data(),
 	   ReqId <- statem_m:return(
-		      tdf:send_request(
+		      ergw_context_statem:send_request(
 			fun() -> ergw_gtp_gsn_session:authenticate(Session, SessionOpts0) end)),
 	   Response <- statem_m:wait(ReqId),
 	   {SessionOpts, AuthSEvs} <- statem_m:lift(Response),
@@ -640,7 +602,7 @@ gx_ccr_i(Now) ->
 	   GxOpts = #{'Event-Trigger' => ?'DIAMETER_GX_EVENT-TRIGGER_UE_IP_ADDRESS_ALLOCATE',
 		      'Bearer-Operation' => ?'DIAMETER_GX_BEARER-OPERATION_ESTABLISHMENT'},
 	   ReqId <- statem_m:return(
-		      tdf:send_request(
+		      ergw_context_statem:send_request(
 			fun() -> ergw_gtp_gsn_session:ccr_initial(Session, gx, GxOpts, #{now => Now}) end)),
 	   Response <- statem_m:wait(ReqId),
 	   _ = ?LOG(debug, "Gx CCR-I Response: ~p", [Response]),
@@ -673,7 +635,7 @@ gy_ccr_i(Now) ->
 	   GyReqServices = #{credits => CreditsAdd},
 
 	   ReqId <- statem_m:return(
-		      tdf:send_request(
+		      ergw_context_statem:send_request(
 			fun() -> ergw_gtp_gsn_session:ccr_initial(Session, gy, GyReqServices, #{now => Now}) end)),
 	   Response <- statem_m:wait(ReqId),
 	   _ = ?LOG(debug, "Gy CCR-I Response: ~p", [Response]),
@@ -805,71 +767,3 @@ vrf_keys(_, _) ->
 context2keys(Bearer, #tdf_ctx{ms_ip = #ue_ip{v4 = IP4, v6 = IP6}}) ->
     vrf_keys(Bearer, IP4) ++
 	vrf_keys(Bearer, IP6).
-
-%%====================================================================
-%% new style async FSM helpers
-%%====================================================================
-
-%% tdf_ok(_, State, Data) ->
-%%     {next_state, State, Data}.
-
-%% tdf_fail(#ctx_err{reply = Cause}, State, Data) ->
-%%     close_pdn_context(Cause, State, Data),
-%%     {next_state, State#{session := shutdown}, Data};
-%% tdf_fail(_, State, Data) ->
-%%     %% TBD: clean shutdown ???
-%%     {next_state, State#{session := shutdown}, Data}.
-
-%% next(StateFun, State, Data) ->
-%%     next(StateFun, fun tdf_ok/3, fun tdf_fail/3, State, Data).
-
-next(StateFun, OkF, FailF, State0, Data0)
-  when is_function(StateFun, 2),
-       is_function(OkF, 3),
-       is_function(FailF, 3) ->
-    {Result, State, Data} = StateFun(State0, Data0),
-    next(Result, OkF, FailF, State, Data);
-
-next(ok, Fun, _, State, Data)
-  when is_function(Fun, 3) ->
-    Fun(ok, State, Data);
-next({ok, Result}, Fun, _, State, Data)
-  when is_function(Fun, 3) ->
-    Fun(Result, State, Data);
-next({error, Result}, _, Fun, State, Data)
-  when is_function(Fun, 3) ->
-    Fun(Result, State, Data);
-next({wait, ReqId, Q}, OkF, FailF, #{async := Async} = State, Data)
-  when (is_reference(ReqId) orelse is_pid(ReqId)),
-       is_list(Q),
-       is_function(OkF, 3),
-       is_function(FailF, 3) ->
-    Req = {ReqId, Q, OkF, FailF},
-    {next_state, State#{async := maps:put(ReqId, Req, Async)}, Data}.
-
-statem_m_continue(ReqId, Result, DeMonitor, #{async := Async0} = State, Data) ->
-    {{Mref, Q, OkF, FailF}, Async} = maps:take(ReqId, Async0),
-    case DeMonitor of
-	true -> demonitor(Mref, [flush]);
-	_ -> ok
-    end,
-    ?LOG(debug, "Result: ~p~n", [Result]),
-    next(statem_m:response(Q, Result, _, _), OkF, FailF, State#{async := Async}, Data).
-
--if(?OTP_RELEASE =< 23).
-
-send_request(Fun) when is_function(Fun, 0) ->
-    Owner = self(),
-    {Pid, _} = spawn_opt(fun() -> Owner ! {self(), Fun()} end, [monitor]),
-    Pid.
-
--else.
-
-send_request(Fun) when is_function(Fun, 0) ->
-    Owner = self(),
-    ReqId = make_ref(),
-    Opts = [{monitor, [{tag, {'DOWN', ReqId}}]}],
-    spawn_opt(fun() -> Owner ! {ReqId, Fun()} end, Opts),
-    ReqId.
-
--endif.

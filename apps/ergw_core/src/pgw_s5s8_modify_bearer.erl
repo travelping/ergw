@@ -27,7 +27,7 @@
 %%====================================================================
 
 modify_bearer(ReqKey, Request, _Resent, State, Data) ->
-    gtp_context:next(
+    ergw_context_statem:next(
       modify_bearer_fun(Request, _, _),
       modify_bearer_ok(ReqKey, Request, _, _, _),
       modify_bearer_fail(ReqKey, Request, _, _, _),

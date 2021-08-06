@@ -153,7 +153,7 @@ handle_request(#request{src = Src, ip = IP, port = Port} = ReqKey,
 
 handle_request(ReqKey, #gtp{type = release_access_bearers_request} = Request,
 	       _Resent, #{session := connected} = State, Data) ->
-    gtp_context:next(
+    ergw_context_statem:next(
       statem_m:run(
 	do([statem_m ||
 	       _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
@@ -176,7 +176,7 @@ handle_request(ReqKey,
 
     case match_tunnel(?'S11-C MME', LeftTunnel, FqTEID) of
 	ok ->
-	    gtp_context:next(
+	    ergw_context_statem:next(
 	      ergw_gtp_gsn_lib:close_context_m(?API, normal, _, _),
 	      delete_session_resp(ReqKey, Request, _, _, _),
 	      delete_session_resp(ReqKey, Request, _, _, _),

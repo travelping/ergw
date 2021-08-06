@@ -27,7 +27,7 @@
 %%====================================================================
 
 create_session(ReqKey, Request, _Resent, State, Data) ->
-    gtp_context:next(
+    ergw_context_statem:next(
       create_session_fun(Request, _, _),
       create_session_ok(ReqKey, Request, _, _, _),
       create_session_fail(ReqKey, Request, _, _, _),

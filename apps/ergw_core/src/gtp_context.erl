@@ -7,8 +7,8 @@
 
 -module(gtp_context).
 
--behavior(gen_statem).
 -behavior(ergw_context).
+-behavior(ergw_context_statem).
 
 -compile({parse_transform, cut}).
 -compile({parse_transform, do}).
@@ -41,12 +41,8 @@
 	      handle_response/4			% used from callback handler
 	      ]).
 
-%% gen_statem callbacks
--export([callback_mode/0, init/1, handle_event/4,
-	 terminate/3, code_change/4]).
-
-%% new style async FSM helpers
--export([next/5, send_request/1]).
+%% ergw_context_statem callbacks
+-export([init/2, handle_event/4, terminate/3, code_change/4]).
 
 -ifdef(TEST).
 -export([tunnel_key/2, ctx_test_cmd/2]).
@@ -89,7 +85,7 @@ resend_request(#tunnel{socket = Socket}, ReqId) ->
     ergw_gtp_c_socket:resend_request(Socket, ReqId).
 
 start_link(Socket, Info, Version, Interface, IfOpts, Opts) ->
-    gen_statem:start_link(?MODULE, [Socket, Info, Version, Interface, IfOpts], Opts).
+    ergw_context_statem:start_link(?MODULE, [Socket, Info, Version, Interface, IfOpts], Opts).
 
 peer_down(Context, Path, Notify) ->
     Fun = fun() -> (catch gen_statem:call(Context, {peer_down, Path, Notify})) end,
@@ -343,14 +339,11 @@ port_message(Server, Request, Msg, Resent) ->
 %% gen_statem API
 %%====================================================================
 
-callback_mode() -> [handle_event_function, state_enter].
-
 init([Socket, Info, Version, Interface,
       #{node_selection := NodeSelect,
-	aaa := AAAOpts} = Opts]) ->
+	aaa := AAAOpts} = Opts], Data0) ->
 
     ?LOG(debug, "init(~p)", [[Socket, Info, Interface]]),
-    process_flag(trap_exit, true),
 
     LeftTunnel =
 	ergw_gsn_lib:assign_tunnel_teid(
@@ -362,7 +355,7 @@ init([Socket, Info, Version, Interface,
 		},
     Bearer = #{left => #bearer{interface = 'Access'},
 	       right => #bearer{interface = 'SGi-LAN'}},
-    Data = #{
+    Data = Data0#{
       context        => Context,
       version        => Version,
       interface      => Interface,
@@ -372,33 +365,6 @@ init([Socket, Info, Version, Interface,
       bearer         => Bearer},
 
     Interface:init(Opts, Data).
-
-handle_event(info, {{'DOWN', ReqId}, _, _, _, Info}, #{async := Async} = State, Data)
-  when is_map_key(ReqId, Async) ->
-    statem_m_continue(ReqId, {error, Info}, false, State, Data);
-handle_event(info, {{'DOWN', _}, _, _, _, _}, _, _) ->
-    keep_state_and_data;
-
-handle_event(info, {'DOWN', _, process, ReqId, Info}, #{async := Async} = State, Data)
-  when is_map_key(ReqId, Async) ->
-    statem_m_continue(ReqId, {error, Info}, false, State, Data);
-
-handle_event(info, {ReqId, Result}, #{async := Async} = State, Data)
-  when is_map_key(ReqId, Async) ->
-    statem_m_continue(ReqId, Result, false, State, Data);
-
-%% OTP-24 style send_request responses.... WE REALLY SHOULD NOT BE DOING THIS
-handle_event(info, {'DOWN', ReqId, _, _, Info}, #{async := Async} = State, Data)
-  when is_map_key(ReqId, Async) ->
-    statem_m_continue(ReqId, {error, Info}, false, State, Data);
-handle_event(info, {[alias|ReqId], Result}, #{async := Async} = State, Data)
-  when is_map_key(ReqId, Async) ->
-    statem_m_continue(ReqId, Result, true, State, Data);
-
-%% OTP-23 style send_request responses.... WE REALLY SHOULD NOT BE DOING THIS
-handle_event(info, {{'$gen_request_id', ReqId}, Result}, #{async := Async} = State, Data)
-  when is_map_key(ReqId, Async) ->
-    statem_m_continue(ReqId, Result, true, State, Data);
 
 handle_event({call, From}, info, _, Data) ->
     {keep_state_and_data, [{reply, From, Data}]};
@@ -422,6 +388,9 @@ handle_event(enter, _OldState, #{session := shutdown}, _Data) ->
     gen_statem:cast(self(), stop),
     keep_state_and_data;
 
+handle_event(enter, OldState, State, #{interface := Interface} = Data) ->
+    Interface:handle_event(enter, OldState, State, Data);
+
 %% block all (other) calls, casts and infos while waiting
 %%  for the result of an asynchronous action
 handle_event({call, _}, _, #{async := Async}, _) when map_size(Async) /= 0 ->
@@ -433,9 +402,6 @@ handle_event(info, _, #{async := Async}, _) when map_size(Async) /= 0 ->
 
 handle_event(cast, stop, #{session := shutdown}, _Data) ->
     {stop, normal};
-
-handle_event(enter, OldState, State, #{interface := Interface} = Data) ->
-    Interface:handle_event(enter, OldState, State, Data);
 
 %% Error Indication Report
 handle_event({call, From},
@@ -535,7 +501,7 @@ handle_event(info, #aaa_request{procedure = {_, 'ASR'} = Procedure} = Request, S
 
 handle_event(info, #aaa_request{procedure = {gx, 'RAR'}} = Request,
 	     #{session := connected} = State, Data) ->
-    gtp_context:next(
+    ergw_context_statem:next(
       gx_rar_fun(Request, _, _),
       gx_rar_ok(Request, _, _, _),
       gx_rar_fail(Request, _, _, _),
@@ -568,7 +534,7 @@ handle_event(info, {update_session, Session, Events}, _State, _Data) ->
     {keep_state_and_data, Actions};
 
 handle_event(internal, {session, {update_credits, _} = CreditEv, _}, State, Data) ->
-    gtp_context:next(
+    ergw_context_statem:next(
       update_credits_fun(CreditEv, _, _),
       update_credits_ok(_, _, _),
       update_credits_fail(_, _, _),
@@ -812,7 +778,7 @@ gx_rar_fun(#aaa_request{events = Events}, State, Data) ->
 	     GyReqServices <- gy_credit_request(Online, Data, _, _),
 
 	     GyReqId <- statem_m:return(
-			  gtp_context:send_request(
+			  ergw_context_statem:send_request(
 			    fun() ->
 				    ergw_gsn_lib:process_online_charging_events_sync(
 				      ChargeEv, GyReqServices, Now, Session)
@@ -1009,58 +975,3 @@ close_context(Side, Reason, State, Data) ->
 
 delete_context(From, Reason, State, #{interface := Interface} = Data) ->
     Interface:delete_context(From, Reason, State, Data).
-
-%%====================================================================
-%% new style async FSM helpers
-%%====================================================================
-
-next(StateFun, OkF, FailF, State0, Data0)
-  when is_function(StateFun, 2),
-       is_function(OkF, 3),
-       is_function(FailF, 3) ->
-    {Result, State, Data} = StateFun(State0, Data0),
-    next(Result, OkF, FailF, State, Data);
-
-next(ok, Fun, _, State, Data)
-  when is_function(Fun, 3) ->
-    Fun(ok, State, Data);
-next({ok, Result}, Fun, _, State, Data)
-  when is_function(Fun, 3) ->
-    Fun(Result, State, Data);
-next({error, Result}, _, Fun, State, Data)
-  when is_function(Fun, 3) ->
-    Fun(Result, State, Data);
-next({wait, ReqId, Q}, OkF, FailF, #{async := Async} = State, Data)
-  when (is_reference(ReqId) orelse is_pid(ReqId)),
-       is_list(Q),
-       is_function(OkF, 3),
-       is_function(FailF, 3) ->
-    Req = {ReqId, Q, OkF, FailF},
-    {next_state, State#{async := maps:put(ReqId, Req, Async)}, Data}.
-
-statem_m_continue(ReqId, Result, DeMonitor, #{async := Async0} = State, Data) ->
-    {{Mref, Q, OkF, FailF}, Async} = maps:take(ReqId, Async0),
-    case DeMonitor of
-	true -> demonitor(Mref, [flush]);
-	_ -> ok
-    end,
-    ?LOG(debug, "Result: ~p~n", [Result]),
-    next(statem_m:response(Q, Result, _, _), OkF, FailF, State#{async := Async}, Data).
-
--if(?OTP_RELEASE =< 23).
-
-send_request(Fun) when is_function(Fun, 0) ->
-    Owner = self(),
-    {Pid, _} = spawn_opt(fun() -> Owner ! {self(), Fun()} end, [monitor]),
-    Pid.
-
--else.
-
-send_request(Fun) when is_function(Fun, 0) ->
-    Owner = self(),
-    ReqId = make_ref(),
-    Opts = [{monitor, [{tag, {'DOWN', ReqId}}]}],
-    spawn_opt(fun() -> Owner ! {ReqId, Fun()} end, Opts),
-    ReqId.
-
--endif.

@@ -27,7 +27,7 @@
 %%====================================================================
 
 create_pdp_context(ReqKey, Request, _Resent, State, Data) ->
-    gtp_context:next(
+    ergw_context_statem:next(
       create_pdp_context_fun(Request, _, _),
       create_pdp_context_ok(ReqKey, Request, _, _, _),
       create_pdp_context_fail(ReqKey, Request, _, _, _),
