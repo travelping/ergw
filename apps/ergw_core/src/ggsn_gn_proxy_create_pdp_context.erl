@@ -31,7 +31,7 @@
 			  Cause =:= new_pdp_type_due_to_single_address_bearer_only)).
 
 create_pdp_context(ReqKey, Request, _Resent, State, Data) ->
-    gtp_context:next(
+    ergw_context_statem:next(
       create_pdp_context_fun(Request, _, _),
       create_pdp_context_ok(ReqKey, Request, _, _, _),
       create_pdp_context_fail(ReqKey, Request, _, _, _),
@@ -118,7 +118,7 @@ create_pdp_context_fun(#gtp{ie = IEs} = Request,
 
 create_pdp_context_response(ProxyRequest, Response, Request, State, Data) ->
     ?LOG(debug, "OK Proxy Response ~p", [Response]),
-    gtp_context:next(
+    ergw_context_statem:next(
       create_pdp_context_response_fun(Response, _, _),
       create_pdp_context_response_ok(ProxyRequest, Response, _, _, _),
       create_pdp_context_response_fail(ProxyRequest, Response, Request, _, _, _),

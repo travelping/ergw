@@ -27,7 +27,7 @@
 %%====================================================================
 
 update_pdp_context(ReqKey, Request, _Resent, State, Data) ->
-    gtp_context:next(
+    ergw_context_statem:next(
       update_pdp_context_fun(Request, _, _),
       update_pdp_context_ok(ReqKey, Request, _, _, _),
       update_pdp_context_fail(ReqKey, Request, _, _, _),
@@ -63,7 +63,7 @@ update_pdp_context_fun(Request, State, Data) ->
 update_pdp_context_response(ProxyRequest, Response, Request, State, Data) ->
     _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
     ?LOG(debug, "OK Proxy Response ~p", [Response]),
-    gtp_context:next(
+    ergw_context_statem:next(
       update_pdp_context_response_fun(Response, _, _),
       update_pdp_context_response_ok(ProxyRequest, Response, _, _, _),
       update_pdp_context_response_fail(ProxyRequest, Response, Request, _, _, _),

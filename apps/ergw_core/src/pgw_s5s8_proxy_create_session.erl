@@ -32,7 +32,7 @@
 			  Cause =:= new_pdp_type_due_to_single_address_bearer_only)).
 
 create_session(ReqKey, Request, _Resent, State, Data) ->
-    gtp_context:next(
+    ergw_context_statem:next(
       create_session_fun(Request, _, _),
       create_session_ok(ReqKey, Request, Data, _, _, _),
       create_session_fail(ReqKey, Request, _, _, _),
@@ -119,7 +119,7 @@ create_session_fun(#gtp{ie = IEs} = Request,
 
 create_session_response(ProxyRequest, Response, Request, State, Data) ->
     ?LOG(debug, "OK Proxy Response ~p", [Response]),
-    gtp_context:next(
+    ergw_context_statem:next(
       create_session_response_fun(Response, _, _),
       create_session_response_ok(ProxyRequest, Response, _, _, _),
       create_session_response_fail(ProxyRequest, Response, Request, _, _, _),

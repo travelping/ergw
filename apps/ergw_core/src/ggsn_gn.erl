@@ -145,7 +145,7 @@ handle_request(ReqKey, #gtp{type = ms_info_change_notification_request} = Reques
 
 handle_request(ReqKey, #gtp{type = delete_pdp_context_request} = Request,
 	       _Resent, #{session := connected} = State, Data) ->
-    gtp_context:next(
+    ergw_context_statem:next(
       ergw_gtp_gsn_lib:close_context_m(?API, normal, _, _),
       delete_pdp_context_resp(ReqKey, Request, _, _, _),
       delete_pdp_context_resp(ReqKey, Request, _, _, _),

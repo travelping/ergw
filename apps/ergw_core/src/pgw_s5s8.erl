@@ -217,7 +217,7 @@ handle_request(ReqKey,
 
     case match_tunnel(?'S5/S8-C SGW', LeftTunnel, FqTEID) of
 	ok ->
-	    gtp_context:next(
+	    ergw_context_statem:next(
 	      delete_session_request(Request),
 	      delete_session_resp(ReqKey, Request, _, _, _),
 	      delete_session_resp(ReqKey, Request, _, _, _),
@@ -630,7 +630,7 @@ process_secondary_rat_usage_data_reports(#{?'Secondary RAT Usage Data Report' :=
 	       #{'RAN-Secondary-RAT-Usage-Report' =>
 		     sec_rat_udr_to_report(SecRatUDR, Context, [])},
 	   ReqId <- statem_m:return(
-		      gtp_context:send_request(
+		      ergw_context_statem:send_request(
 			fun() -> ergw_aaa_session:invoke(Session, Report, {rf, 'Update'}, #{async => false}) end)),
 	   statem_m:wait(ReqId),
 	   return()]);

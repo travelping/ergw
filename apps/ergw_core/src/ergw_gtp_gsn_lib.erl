@@ -127,7 +127,7 @@ usage_report_finish(_, State, Data) ->
     {next_state, State, Data}.
 
 usage_report_m(URRActions, State, #{pfcp := _, 'Session' := _} = Data) ->
-    gtp_context:next(
+    ergw_context_statem:next(
       statem_m:run(usage_report_m(URRActions), _, _),
       fun usage_report_finish/3,
       fun usage_report_finish/3,
@@ -276,7 +276,7 @@ authenticate() ->
     do([statem_m ||
 	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
 	   #{'Session' := Session, session_opts := SessionOpts0} <- statem_m:get_data(),
-	   ReqId <- statem_m:return(gtp_context:send_request(fun() -> ergw_gtp_gsn_session:authenticate(Session, SessionOpts0) end)),
+	   ReqId <- statem_m:return(ergw_context_statem:send_request(fun() -> ergw_gtp_gsn_session:authenticate(Session, SessionOpts0) end)),
 	   Response <- statem_m:wait(ReqId),
 	   _ = ?LOG(debug, "AuthResponse: ~p", [Response]),
 	   {SessionOpts, AuthSEvs} <- statem_m:lift(Response),
@@ -336,7 +336,7 @@ gx_ccr_i(Now) ->
 	   GxOpts = #{'Event-Trigger' => ?'DIAMETER_GX_EVENT-TRIGGER_UE_IP_ADDRESS_ALLOCATE',
 		      'Bearer-Operation' => ?'DIAMETER_GX_BEARER-OPERATION_ESTABLISHMENT'},
 	   ReqId <- statem_m:return(
-		      gtp_context:send_request(
+		      ergw_context_statem:send_request(
 			fun() -> ergw_gtp_gsn_session:ccr_initial(Session, gx, GxOpts, #{now => Now}) end)),
 	   Response <- statem_m:wait(ReqId),
 	   _ = ?LOG(debug, "Gx CCR-I Response: ~p", [Response]),
@@ -369,7 +369,7 @@ gy_ccr_i(Now) ->
 	   GyReqServices = #{credits => CreditsAdd},
 
 	   ReqId <- statem_m:return(
-		      gtp_context:send_request(
+		      ergw_context_statem:send_request(
 			fun() -> ergw_gtp_gsn_session:ccr_initial(Session, gy, GyReqServices, #{now => Now}) end)),
 	   Response <- statem_m:wait(ReqId),
 	   _ = ?LOG(debug, "Gy CCR-I Response: ~p", [Response]),

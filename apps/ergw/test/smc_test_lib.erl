@@ -176,9 +176,9 @@ meck_init_hut_handle_request(Hut) ->
 meck_init(Config) ->
     ok = meck:new(meck_modules(), [passthrough, no_link]),
     ok = meck:expect(gtp_context, init,
-		     fun(Arg) ->
+		     fun(Arg, Data) ->
 			     try
-				 meck:passthrough([Arg])
+				 meck:passthrough([Arg, Data])
 			     catch
 				 exit:normal ->
 				     meck:exception(exit, normal)
