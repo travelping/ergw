@@ -178,15 +178,16 @@ handle_request(ReqKey,
 handle_request(ReqKey,
 	       #gtp{type = delete_session_request, ie = IEs} = Request,
 	       _Resent, #{session := connected} = State,
-	       #{left_tunnel := LeftTunnel} = Data0) ->
+	       #{left_tunnel := LeftTunnel} = Data) ->
     FqTEID = maps:get(?'Sender F-TEID for Control Plane', IEs, undefined),
 
     case match_tunnel(?'S11-C MME', LeftTunnel, FqTEID) of
 	ok ->
-	    Data = ergw_gtp_gsn_lib:close_context(?API, normal, Data0),
-	    Response = response(delete_session_response, LeftTunnel, request_accepted),
-	    gtp_context:send_response(ReqKey, Request, Response),
-	    {next_state, State#{session := shutdown}, Data};
+	    gtp_context:next(
+	      ergw_gtp_gsn_lib:close_context_m(?API, normal),
+	      delete_session_resp(ReqKey, Request, _, _, _),
+	      delete_session_resp(ReqKey, Request, _, _, _),
+	      State, Data);
 
 	{error, ReplyIEs} ->
 	    Response = response(delete_session_response, LeftTunnel, ReplyIEs),
@@ -197,6 +198,11 @@ handle_request(ReqKey,
 handle_request(ReqKey, _Msg, _Resent, _State, _Data) ->
     gtp_context:request_finished(ReqKey),
     keep_state_and_data.
+
+delete_session_resp(ReqKey, Request, _, State, #{left_tunnel := LeftTunnel} = Data) ->
+    Response = response(delete_session_response, LeftTunnel, request_accepted),
+    gtp_context:send_response(ReqKey, Request, Response),
+    {next_state, State#{session := shutdown}, Data}.
 
 handle_response({CommandReqKey, OldSOpts},
 		#gtp{type = update_bearer_response,

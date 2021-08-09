@@ -155,18 +155,23 @@ handle_request(ReqKey,
     Actions = context_idle_action([], Context),
     {keep_state_and_data, Actions};
 
-handle_request(ReqKey,
-	       #gtp{type = delete_pdp_context_request, ie = _IEs} = Request,
-	       _Resent, #{session := connected} = State,
-	       #{left_tunnel := LeftTunnel} = Data0) ->
-    Data = ergw_gtp_gsn_lib:close_context(?API, normal, Data0),
-    Response = response(delete_pdp_context_response, LeftTunnel, request_accepted),
-    gtp_context:send_response(ReqKey, Request, Response),
-    {next_state, State#{session := shutdown}, Data};
+handle_request(ReqKey, #gtp{type = delete_pdp_context_request} = Request,
+	       _Resent, #{session := connected} = State, Data) ->
+    gtp_context:next(
+      ergw_gtp_gsn_lib:close_context_m(?API, normal),
+      delete_pdp_context_resp(ReqKey, Request, _, _, _),
+      delete_pdp_context_resp(ReqKey, Request, _, _, _),
+      State, Data);
 
 handle_request(ReqKey, _Msg, _Resent, _State, _Data) ->
     gtp_context:request_finished(ReqKey),
     keep_state_and_data.
+
+delete_pdp_context_resp(ReqKey, Request, _,
+			State, #{left_tunnel := LeftTunnel} = Data) ->
+    Response = response(delete_pdp_context_response, LeftTunnel, request_accepted),
+    gtp_context:send_response(ReqKey, Request, Response),
+    {next_state, State#{session := shutdown}, Data}.
 
 handle_response(alive_check,
 		#gtp{type = update_pdp_context_response,
