@@ -400,7 +400,8 @@ meck_validate_mod(Mod) ->
     case meck:validate(Mod) of
 	true -> ok;
 	false ->
-	    ct:fail(meck:history(Mod))
+	    ct:pal("Meck Validate Failed for ~p~nHistory: ~200p~n", [Mod, meck:history(Mod)]),
+	    ct:fail({meck_invalid, Mod})
     end.
 
 %%%===================================================================

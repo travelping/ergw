@@ -1078,17 +1078,17 @@ end_per_testcase(dns_node_selection, Config) ->
     ok = meck:delete(?HUT, init, 2),
     end_per_testcase(Config),
     Config;
-end_per_testcase(sx_upf_removal, Config) ->
-    ok = meck:unload(ergw_sx_node),
-    ok = meck:delete(ergw_sx_socket, call, 5),
-    end_per_testcase(Config),
-    Config;
 end_per_testcase(TestCase, Config)
   when TestCase == proxy_context_selection;
      TestCase == proxy_context_invalid_selection;
      TestCase == proxy_context_invalid_mapping;
      TestCase == proxy_api_v2 ->
     ok = meck:unload(gtp_proxy_ds),
+    end_per_testcase(Config),
+    Config;
+end_per_testcase(sx_upf_removal, Config) ->
+    ok = meck:unload(ergw_sx_node),
+    ok = meck:delete(ergw_sx_socket, call, 5),
     end_per_testcase(Config),
     Config;
 end_per_testcase(sx_timeout, Config) ->

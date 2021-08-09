@@ -765,9 +765,11 @@ setup_per_testcase(Config, ClearSxHist) ->
     ClearSxHist andalso ergw_test_sx_up:history('pgw-u01', true),
     ok.
 
-init_per_testcase(TestCase, Config)
-  when TestCase == path_restart;
-       TestCase == ggsn_broken_recovery ->
+init_per_testcase(path_restart, Config) ->
+    setup_per_testcase(Config),
+    ok = meck:new(gtp_path, [passthrough, no_link]),
+    Config;
+init_per_testcase(ggsn_broken_recovery, Config) ->
     setup_per_testcase(Config),
     ok = meck:new(gtp_path, [passthrough, no_link]),
     Config;
@@ -862,9 +864,11 @@ init_per_testcase(simple_pdp_context_request, Config) ->
     setup_per_testcase(Config),
     ok = meck:new(ggsn_gn, [passthrough, no_link]),
     Config;
-init_per_testcase(TestCase, Config)
-  when TestCase == create_lb_multi_context;
-       TestCase == one_lb_node_down ->
+init_per_testcase(create_lb_multi_context, Config) ->
+    setup_per_testcase(Config),
+    ok = meck:new(ggsn_gn, [passthrough, no_link]),
+    Config;
+init_per_testcase(one_lb_node_down, Config) ->
     setup_per_testcase(Config),
     ok = meck:new(ggsn_gn, [passthrough, no_link]),
     Config;
@@ -919,15 +923,21 @@ init_per_testcase(_, Config) ->
 end_per_testcase(_Config) ->
     stop_gtpc_server().
 
-end_per_testcase(TestCase, Config)
-  when TestCase == path_restart;
-       TestCase == ggsn_broken_recovery ->
+end_per_testcase(path_restart, Config) ->
     meck:unload(gtp_path),
     end_per_testcase(Config),
     Config;
-end_per_testcase(TestCase, Config)
-  when TestCase == create_lb_multi_context;
-       TestCase == one_lb_node_down->
+end_per_testcase(ggsn_broken_recovery, Config) ->
+    ok = meck:delete(ergw_gtp_c_socket, send_request, 8),
+    meck:unload(gtp_path),
+    end_per_testcase(Config),
+    Config;
+end_per_testcase(create_lb_multi_context, Config) ->
+    ok = meck:unload(ggsn_gn),
+    end_per_testcase(Config),
+    Config;
+end_per_testcase(one_lb_node_down, Config) ->
+    ok = meck:delete(ergw_gtp_c_socket, send_request, 8),
     ok = meck:unload(ggsn_gn),
     end_per_testcase(Config),
     Config;
@@ -987,17 +997,17 @@ end_per_testcase(create_pdp_context_overload, Config) ->
     jobs:modify_regulator(rate, create, {rate,create,1}, [{limit,100}]),
     end_per_testcase(Config),
     Config;
-end_per_testcase(sx_upf_removal, Config) ->
-    ok = meck:unload(ergw_sx_node),
-    ok = meck:delete(ergw_sx_socket, call, 5),
-    end_per_testcase(Config),
-    Config;
 end_per_testcase(TestCase, Config)
   when TestCase == proxy_context_selection;
        TestCase == proxy_context_invalid_selection;
        TestCase == proxy_context_invalid_mapping;
        TestCase == proxy_api_v2 ->
     ok = meck:unload(gtp_proxy_ds),
+    end_per_testcase(Config),
+    Config;
+end_per_testcase(sx_upf_removal, Config) ->
+    ok = meck:delete(ergw_sx_socket, call, 5),
+    ok = meck:unload(ergw_sx_node),
     end_per_testcase(Config),
     Config;
 end_per_testcase(sx_timeout, Config) ->
