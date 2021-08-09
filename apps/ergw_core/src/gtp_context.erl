@@ -455,12 +455,12 @@ handle_event({call, From},
 	     {sx, #pfcp{type = session_report_request,
 			ie = #{report_type := #report_type{usar = 1},
 			       usage_report_srr := UsageReport}}},
-	      _State, #{pfcp := PCtx, 'Session' := Session, pcc := PCC}) ->
-    Now = erlang:monotonic_time(),
-    ChargeEv = interim,
-
-    ergw_gtp_gsn_session:usage_report_request(ChargeEv, Now, UsageReport, PCtx, PCC, Session),
-    {keep_state_and_data, [{reply, From, {ok, PCtx}}]};
+	     State, Data) ->
+    ergw_context_statem:next(
+      session_report_fun(UsageReport, _, _),
+      session_report_ok(From, _, _, _),
+      session_report_fail(From, _, _, _),
+      State, Data);
 
 handle_event(cast, {handle_message, Request, #gtp{} = Msg0, Resent}, State, Data) ->
     Msg = gtp_packet:decode_ies(Msg0),
@@ -509,9 +509,8 @@ handle_event(info, #aaa_request{procedure = {gx, 'RAR'}} = Request,
 
 handle_event(info, #aaa_request{procedure = {gy, 'RAR'},
 				events = Events} = Request,
-	     #{session := connected} = _State, Data) ->
+	     #{session := connected} = State, Data) ->
     ergw_aaa_session:response(Request, ok, #{}, #{}),
-    Now = erlang:monotonic_time(),
 
     %% Triggered CCR.....
     ChargingKeys =
@@ -521,8 +520,11 @@ handle_event(info, #aaa_request{procedure = {gy, 'RAR'},
 	    _ ->
 		undefined
 	end,
-    ergw_gtp_gsn_lib:triggered_charging_event(interim, Now, ChargingKeys, Data),
-    keep_state_and_data;
+    ergw_context_statem:next(
+      triggered_charging_event_fun(interim, ChargingKeys, _, _),
+      triggered_charging_event_ok(_, _, _),
+      triggered_charging_event_fail(_, _, _),
+      State, Data);
 
 handle_event(info, #aaa_request{procedure = {_, 'RAR'}} = Request, _State, _Data) ->
     ergw_aaa_session:response(Request, {error, unknown_session}, #{}, #{}),
@@ -551,14 +553,17 @@ handle_event(internal, {session, Ev, _}, _State, _Data) ->
     ?LOG(error, "unhandled session event: ~p", [Ev]),
     keep_state_and_data;
 
-handle_event(info, {timeout, TRef, pfcp_timer} = Info, _State, #{pfcp := PCtx0} = Data0) ->
+handle_event(info, {timeout, TRef, pfcp_timer} = Info, State, #{pfcp := PCtx0} = Data0) ->
     ?LOG(debug, "handle_info: ~p", [Info]),
-    Now = erlang:monotonic_time(),
     {Evs, PCtx} = ergw_pfcp:timer_expired(TRef, PCtx0),
     Data = Data0#{pfcp => PCtx},
     #{validity_time := ChargingKeys} = ergw_gsn_lib:pfcp_to_context_event(Evs),
-    ergw_gtp_gsn_lib:triggered_charging_event(validity_time, Now, ChargingKeys, Data),
-    {keep_state, Data};
+
+    ergw_context_statem:next(
+      triggered_charging_event_fun(validity_time, ChargingKeys, _, _),
+      triggered_charging_event_ok(_, _, _),
+      triggered_charging_event_fail(_, _, _),
+      State, Data);
 
 handle_event({call, From}, {delete_context, Reason},  #{session := SState} = State, Data)
   when SState == connected; SState == connecting ->
@@ -714,22 +719,6 @@ generic_error(#request{socket = Socket} = Request,
 %%% Monadic Handlers
 %%%===================================================================
 
-pfcp_session_modification() ->
-    do([statem_m ||
-	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
-	   #{pfcp := PCtx0, pcc := PCC, bearer := Bearer} <- statem_m:get_data(),
-	   {PCtx, ReqId} <-
-	       statem_m:return(
-		 ergw_pfcp_context:send_session_modification_request(
-		   PCC, [], #{}, Bearer, PCtx0)),
-	   statem_m:modify_data(_#{pfcp => PCtx}),
-	   Response <- statem_m:wait(ReqId),
-
-	   PCtx1 <- statem_m:get_data(maps:get(pfcp, _)),
-	   statem_m:lift(
-	     ergw_pfcp_context:receive_session_modification_response(PCtx1, Response))
-       ]).
-
 gx_events_to_pcc_ctx(Evs, Filter, RuleBase, State, #{pcc := PCC0} = Data) ->
     {PCC, Errors} = ergw_pcc_context:gx_events_to_pcc_ctx(Evs, Filter, RuleBase, PCC0),
     statem_m:return(Errors, State, Data#{pcc => PCC}).
@@ -760,7 +749,7 @@ gx_rar_fun(#aaa_request{events = Events}, State, Data) ->
 
 	     %% remove PCC rules
 	     gx_events_to_pcc_ctx(Events, remove, RuleBase, _, _),
-	     {_, UsageReport, _} <- pfcp_session_modification(),
+	     {_, UsageReport, _} <- ergw_gtp_gsn_lib:pfcp_session_modification(),
 
 	     %% collect charging data from remove rules
 	     ChargeEv = {online, 'RAR'},   %% made up value, not use anywhere...
@@ -790,7 +779,7 @@ gx_rar_fun(#aaa_request{events = Events}, State, Data) ->
 
 	     %% install the new rules, collect any errors
 	     PCCErrors2 <- gy_events_to_pcc_ctx(Now, GyEvs, _, _),
-	     pfcp_session_modification(),
+	     ergw_gtp_gsn_lib:pfcp_session_modification(),
 
 	     %% TODO Charging-Rule-Report for successfully installed/removed rules
 
@@ -816,7 +805,7 @@ update_credits_fun(CreditEv, State, Data) ->
 	     Now = erlang:monotonic_time(),
 
 	     _PCCErrors <- gy_events_to_pcc_ctx(Now, [CreditEv], _, _),
-	     pfcp_session_modification()
+	     ergw_gtp_gsn_lib:pfcp_session_modification()
 	 ]), State, Data).
 
 update_credits_ok(_Res, State, Data) ->
@@ -825,6 +814,43 @@ update_credits_ok(_Res, State, Data) ->
 update_credits_fail(Error, State, Data) ->
     ?LOG(error, "update_credits failed with ~p", [Error]),
     {next_state, State, Data}.
+
+session_report_fun(UsageReport, State, Data) ->
+    statem_m:run(
+      do([statem_m ||
+	     _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+
+	     Now = erlang:monotonic_time(),
+	     ChargeEv = interim,
+
+	     ergw_gtp_gsn_lib:usage_report_m3(ChargeEv, Now, UsageReport)
+	 ]), State, Data).
+
+session_report_ok(From, _, State, #{pfcp := PCtx} = Data) ->
+    _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+    {next_state, State, Data, [{reply, From, {ok, PCtx}}]}.
+
+session_report_fail(From, Reason, State, #{pfcp := PCtx} = Data) ->
+    _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+    gen_statem:reply(From, {ok, PCtx}),
+    delete_context(undefined, Reason, State, Data).
+
+triggered_charging_event_fun(ChargeEv, ChargingKeys, State, Data) ->
+    statem_m:run(
+      do([statem_m ||
+	     _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+
+	     Now = erlang:monotonic_time(),
+	     ergw_gtp_gsn_lib:triggered_charging_event_m(ChargeEv, Now, ChargingKeys)
+	 ]), State, Data).
+
+triggered_charging_event_ok(_, State, Data) ->
+    _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+    {next_state, State, Data}.
+
+triggered_charging_event_fail(Reason, State, Data) ->
+    _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+    delete_context(undefined, Reason, State, Data).
 
 %%%===================================================================
 %%% Internal functions
