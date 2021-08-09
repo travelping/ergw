@@ -205,23 +205,17 @@ handle_event(internal, init, #{session := init} = State, Data) ->
       fun start_session_fail/3,
       State, Data);
 
-handle_event({call, From}, {sx, #pfcp{type = session_report_request,
-		       ie = #{report_type := #report_type{usar = 1},
-			      usage_report_srr := UsageReport}} = Report},
-	    _State, #{'Session' := Session, pfcp := PCtx, pcc := PCC}) ->
-    ?LOG(debug, "~w: handle_call Sx: ~p", [?MODULE, Report]),
-
-    Now = erlang:monotonic_time(),
-
-    ChargeEv = interim,
-    {Online, Offline, Monitor} =
-	ergw_pfcp_context:usage_report_to_charging_events(UsageReport, ChargeEv, PCtx),
-    ergw_gsn_lib:process_accounting_monitor_events(ChargeEv, Monitor, Now, Session),
-    GyReqServices = ergw_pcc_context:gy_credit_request(Online, PCC),
-    ergw_gsn_lib:process_online_charging_events(ChargeEv, GyReqServices, Now, Session),
-    ergw_gsn_lib:process_offline_charging_events(ChargeEv, Offline, Now, Session),
-
-    {keep_state_and_data, [{reply, From, {ok, PCtx}}]};
+%% Usage Report
+handle_event({call, From},
+	     {sx, #pfcp{type = session_report_request,
+			ie = #{report_type := #report_type{usar = 1},
+			       usage_report_srr := UsageReport}}},
+	     State, Data) ->
+    ergw_context_statem:next(
+      session_report_fun(UsageReport, _, _),
+      session_report_ok(From, _, _, _),
+      session_report_fail(From, _, _, _),
+      State, Data);
 
 handle_event({call, From}, {sx, Report}, _State, #{pfcp := PCtx}) ->
     ?LOG(warning, "~w: unhandled Sx report: ~p", [?MODULE, Report]),
@@ -257,9 +251,8 @@ handle_event(info, #aaa_request{procedure = {gx, 'RAR'}} = Request, State, Data)
 
 handle_event(info, #aaa_request{procedure = {gy, 'RAR'},
 				events = Events} = Request,
-	     _State, Data) ->
+	     State, Data) ->
     ergw_aaa_session:response(Request, ok, #{}, #{}),
-    Now = erlang:monotonic_time(),
 
     %% Triggered CCR.....
     ChargingKeys =
@@ -269,8 +262,11 @@ handle_event(info, #aaa_request{procedure = {gy, 'RAR'},
 	    _ ->
 		undefined
 	end,
-    triggered_charging_event(interim, Now, ChargingKeys, Data),
-    keep_state_and_data;
+    ergw_context_statem:next(
+      triggered_charging_event_fun(interim, ChargingKeys, _, _),
+      triggered_charging_event_ok(_, _, _),
+      triggered_charging_event_fail(_, _, _),
+      State, Data);
 
 %% Enable AAA to provide reason for session stop
 handle_event(internal, {session, {stop, Reason}, _Session}, State, Data) ->
@@ -297,15 +293,17 @@ handle_event(info, {update_session, Session, Events}, _State, _Data) ->
     Actions = [{next_event, internal, {session, Ev, Session}} || Ev <- Events],
     {keep_state_and_data, Actions};
 
-handle_event(info, {timeout, TRef, pfcp_timer} = Info, _State,
-	     #{pfcp := PCtx0} = Data0) ->
-    Now = erlang:monotonic_time(),
+handle_event(info, {timeout, TRef, pfcp_timer} = Info, State, #{pfcp := PCtx0} = Data0) ->
     ?LOG(debug, "handle_info TDF:~p", [Info]),
-
     {Evs, PCtx} = ergw_pfcp:timer_expired(TRef, PCtx0),
-    CtxEvs = ergw_gsn_lib:pfcp_to_context_event(Evs),
-    Data = maps:fold(handle_charging_event(_, _, Now, _), Data0#{pfcp => PCtx}, CtxEvs),
-    {keep_state, Data};
+    Data = Data0#{pfcp => PCtx},
+    #{validity_time := ChargingKeys} = ergw_gsn_lib:pfcp_to_context_event(Evs),
+
+    ergw_context_statem:next(
+      triggered_charging_event_fun(validity_time, ChargingKeys, _, _),
+      triggered_charging_event_ok(_, _, _),
+      triggered_charging_event_fail(_, _, _),
+      State, Data);
 
 handle_event(info, _Info, _State, _Data) ->
     keep_state_and_data.
@@ -364,34 +362,44 @@ close_pdn_context({API, TermCause}, #{session := run}, #{pfcp := PCtx, 'Session'
 close_pdn_context(_Reason, _State, _Data) ->
     ok.
 
-query_usage_report(ChargingKeys, PCtx)
-  when is_list(ChargingKeys) ->
-    ergw_pfcp_context:query_usage_report(ChargingKeys, PCtx);
-query_usage_report(_, PCtx) ->
-    ergw_pfcp_context:query_usage_report(PCtx).
+session_report_fun(UsageReport, State, Data) ->
+    statem_m:run(
+      do([statem_m ||
+	     _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
 
-triggered_charging_event(ChargeEv, Now, Request,
-			 #{pfcp := PCtx, 'Session' := Session, pcc := PCC}) ->
-    case query_usage_report(Request, PCtx) of
-	{ok, {_, UsageReport, _}} ->
-	    {Online, Offline, Monitor} =
-		ergw_pfcp_context:usage_report_to_charging_events(UsageReport, ChargeEv, PCtx),
-	    ergw_gsn_lib:process_accounting_monitor_events(ChargeEv, Monitor, Now, Session),
-	    GyReqServices = ergw_pcc_context:gy_credit_request(Online, PCC),
-	    ergw_gsn_lib:process_online_charging_events(
-	      ChargeEv, GyReqServices, Now, Session),
-	    ergw_gsn_lib:process_offline_charging_events(ChargeEv, Offline, Now, Session);
-	{error, CtxErr} ->
-	    ?LOG(error, "Triggered Charging Event failed with ~p", [CtxErr])
-    end,
-    ok.
+	     Now = erlang:monotonic_time(),
+	     ChargeEv = interim,
 
-handle_charging_event(validity_time, ChargingKeys, Now, Data) ->
-    triggered_charging_event(validity_time, Now, ChargingKeys, Data),
-    Data;
-handle_charging_event(Key, Ev, _Now, Data) ->
-    ?LOG(debug, "TDF: unhandled charging event ~p:~p",[Key, Ev]),
-    Data.
+	     ergw_gtp_gsn_lib:usage_report_m3(ChargeEv, Now, UsageReport)
+	 ]), State, Data).
+
+session_report_ok(From, _, State, #{pfcp := PCtx} = Data) ->
+    _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+    {next_state, State, Data, [{reply, From, {ok, PCtx}}]}.
+
+session_report_fail(From, Reason, State, #{pfcp := PCtx} = Data) ->
+    _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+    gen_statem:reply(From, {ok, PCtx}),
+    close_pdn_context(Reason, State, Data),
+    {next_state, State#{session := shutdown}, Data}.
+
+triggered_charging_event_fun(ChargeEv, ChargingKeys, State, Data) ->
+    statem_m:run(
+      do([statem_m ||
+	     _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+
+	     Now = erlang:monotonic_time(),
+	     ergw_gtp_gsn_lib:triggered_charging_event_m(ChargeEv, Now, ChargingKeys)
+	 ]), State, Data).
+
+triggered_charging_event_ok(_, State, Data) ->
+    _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+    {next_state, State, Data}.
+
+triggered_charging_event_fail(Reason, State, Data) ->
+    _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+    close_pdn_context(Reason, State, Data),
+    {next_state, State#{session := shutdown}, Data}.
 
 %%%===================================================================
 %%% Monadic Function Implementations

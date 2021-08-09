@@ -12,7 +12,6 @@
 
 -export([authenticate/2,
 	 ccr_initial/4,
-	 usage_report_request/6,
 	 usage_report/4,
 	 close_context/4]).
 
@@ -43,14 +42,6 @@ ccr_initial(Session, API, SessionOpts, ReqOpts) ->
 	    {error, ?CTX_ERR(?FATAL, system_failure)}
     end.
 
-
-usage_report_request(ChargeEv, Now, UsageReport, PCtx, PCC, Session) ->
-    {Online, Offline, Monitor} =
-	ergw_pfcp_context:usage_report_to_charging_events(UsageReport, ChargeEv, PCtx),
-    ergw_gsn_lib:process_accounting_monitor_events(ChargeEv, Monitor, Now, Session),
-    GyReqServices = ergw_pcc_context:gy_credit_request(Online, PCC),
-    ergw_gsn_lib:process_online_charging_events(ChargeEv, GyReqServices, Now, Session),
-    ergw_gsn_lib:process_offline_charging_events(ChargeEv, Offline, Now, Session).
 
 usage_report(URRActions, UsageReport, PCtx, Session) ->
     Now = erlang:monotonic_time(),

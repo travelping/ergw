@@ -12,13 +12,14 @@
 	  {parse_transform, cut}]).
 
 -export([connect_upf_candidates/4, create_session_m/5]).
--export([triggered_charging_event/4,
-	 usage_report_m/1, usage_report_m/2, usage_report_m/3,
+-export([triggered_charging_event_m/3,
+	 usage_report_m/1, usage_report_m/2, usage_report_m/3, usage_report_m3/3,
 	 close_context/3, close_context/4,
 	 close_context_m/4]).
 -export([handle_peer_change/3, update_tunnel_endpoint/2, apply_bearer_change/2]).
 -export([remote_context_register_new/0,
-	 pfcp_create_session_response/1]).
+	 pfcp_create_session_response/1,
+	 pfcp_session_modification/0]).
 
 -include_lib("kernel/include/logger.hrl").
 -include_lib("gtplib/include/gtp_packet.hrl").
@@ -112,16 +113,13 @@ apply_bearer_change(URRActions, SendEM) ->
 %% Charging API
 %%====================================================================
 
-triggered_charging_event(ChargeEv, Now, Request,
-			 #{pfcp := PCtx, 'Session' := Session, pcc := PCC}) ->
-    case query_usage_report(Request, PCtx) of
-	{ok, {_, UsageReport, _}} ->
-	    ergw_gtp_gsn_session:usage_report_request(
-	      ChargeEv, Now, UsageReport, PCtx, PCC, Session);
-	{error, CtxErr} ->
-	    ?LOG(error, "Triggered Charging Event failed with ~p", [CtxErr])
-    end,
-    ok.
+triggered_charging_event_m(ChargeEv, Now, Request) ->
+    do([statem_m ||
+	   _ = ?LOG(debug, "~s, Ev: ~p", [?FUNCTION_NAME, ChargeEv]),
+
+	   UsageReport <- query_usage_report_m(Request),
+	   usage_report_m3(ChargeEv, Now, UsageReport)
+       ]).
 
 usage_report_finish(_, State, Data) ->
     {next_state, State, Data}.
@@ -149,17 +147,7 @@ usage_report_m(URRActions) ->
     do([statem_m ||
 	   _ = ?LOG(debug, "~s-#2, Actions: ~p", [?FUNCTION_NAME, URRActions]),
 
-	   PCtx0 <- statem_m:get_data(maps:get(pfcp, _)),
-	   ReqId <-
-	       statem_m:return(
-		 ergw_pfcp_context:send_query_usage_report(offline, PCtx0)),
-	   Response <- statem_m:wait(ReqId),
-
-	   PCtx1 <- statem_m:get_data(maps:get(pfcp, _)),
-	   {_, UsageReport, SessionInfo} <-
-	       statem_m:lift(ergw_pfcp_context:receive_session_modification_response(PCtx1, Response)),
-	   statem_m:modify_data(_#{session_info => SessionInfo}),
-
+	   UsageReport <- query_usage_report_m(offline),
 	   usage_report_m(URRActions, UsageReport)
        ]).
 
@@ -170,6 +158,55 @@ usage_report_m(URRActions, UsageReport) ->
 	   #{pfcp := PCtx, 'Session' := Session} <- statem_m:get_data(),
 	   statem_m:return(
 	     ergw_gtp_gsn_session:usage_report(URRActions, UsageReport, PCtx, Session))
+       ]).
+
+usage_report_m3(ChargeEv, Now, UsageReport) ->
+    do([statem_m ||
+	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+
+	   PCtx <- statem_m:get_data(maps:get(pfcp, _)),
+	   {Online, Offline, Monitor} =
+	       ergw_pfcp_context:usage_report_to_charging_events(UsageReport, ChargeEv, PCtx),
+
+	   Session <- statem_m:get_data(maps:get('Session', _)),
+	   _ = ergw_gsn_lib:process_accounting_monitor_events(ChargeEv, Monitor, Now, Session),
+
+	   PCC <- statem_m:get_data(maps:get(pcc, _)),
+	   GyReqServices = ergw_pcc_context:gy_credit_request(Online, PCC),
+
+	   GyReqId <- statem_m:return(
+			ergw_context_statem:send_request(
+			  fun() ->
+				  ergw_gsn_lib:process_online_charging_events_sync(
+				    ChargeEv, GyReqServices, Now, Session)
+			  end)),
+	   GyResult <- statem_m:wait(GyReqId),
+	   gy_response(GyResult, ChargeEv, Now, Offline)
+       ]).
+
+gy_response({{fail, _}, [{stop, Cause}]} = Result, _, _, _) ->
+    _ = ?LOG(debug, "~s-#1: ~p", [?FUNCTION_NAME, Result]),
+    do([statem_m || fail(Cause)]);
+gy_response({{fail, Reason} = Result, _}, _, _, _) ->
+    _ = ?LOG(debug, "~s-#2: ~p", [?FUNCTION_NAME, Result]),
+    do([statem_m || fail(Reason)]);
+gy_response(Result, ChargeEv, Now, Offline) ->
+    do([statem_m ||
+	   _ = ?LOG(debug, "~s-#3: ~p", [?FUNCTION_NAME, Result]),
+
+	   GyEvs <- statem_m:lift(Result),
+
+	   Session <- statem_m:get_data(maps:get('Session', _)),
+	   _ = ergw_gsn_lib:process_offline_charging_events(ChargeEv, Offline, Now, Session),
+
+	   %% install the new rules, collect any errors
+	   PCCErrors <- gy_events_to_pcc_ctx(Now, GyEvs, _, _),
+	   pfcp_session_modification(),
+
+	   %% TODO:
+	   %%   * stop session if no PCC rules remain
+	   %%   * Charging-Rule-Report for unsuccessfully installed/removed rules
+	   return(PCCErrors)
        ]).
 
 %% close_context/3
@@ -223,11 +260,26 @@ close_context_m(API, TermCause, UsageReport)
 %% Helper
 %%====================================================================
 
-query_usage_report(ChargingKeys, PCtx)
-  when is_list(ChargingKeys) ->
-    ergw_pfcp_context:query_usage_report(ChargingKeys, PCtx);
-query_usage_report(_, PCtx) ->
-    ergw_pfcp_context:query_usage_report(PCtx).
+do_query_usage_report_m(Type) ->
+    do([statem_m ||
+	   PCtx <- statem_m:get_data(maps:get(pfcp, _)),
+	   ReqId <- return(ergw_pfcp_context:send_query_usage_report(Type, PCtx)),
+	   Response <- statem_m:wait(ReqId),
+	   {_, UsageReport, SessionInfo} <-
+	       statem_m:lift(
+		 ergw_pfcp_context:receive_session_modification_response(PCtx, Response)),
+	   statem_m:modify_data(_#{session_info => SessionInfo}),
+
+	   return(UsageReport)
+       ]).
+
+query_usage_report_m(ChargingKeys) when is_list(ChargingKeys) ->
+    do_query_usage_report_m(ChargingKeys);
+query_usage_report_m(Type)
+  when Type =:= online; Type =:= offline ->
+    do_query_usage_report_m(Type);
+query_usage_report_m(_) ->
+    do_query_usage_report_m(online).
 
 %%====================================================================
 %% new style async FSM impl
@@ -420,6 +472,23 @@ pfcp_create_session_response(Response) ->
 	     end)
        ]).
 
+pfcp_session_modification() ->
+    do([statem_m ||
+	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+	   #{pfcp := PCtx0, pcc := PCC, bearer := Bearer} <- statem_m:get_data(),
+	   {PCtx, ReqId} <-
+	       statem_m:return(
+		 ergw_pfcp_context:send_session_modification_request(
+		   PCC, [], #{}, Bearer, PCtx0)),
+	   statem_m:modify_data(_#{pfcp => PCtx}),
+	   Response <- statem_m:wait(ReqId),
+
+	   PCtx1 <- statem_m:get_data(maps:get(pfcp, _)),
+	   statem_m:lift(
+	     ergw_pfcp_context:receive_session_modification_response(PCtx1, Response))
+       ]).
+
+
 aaa_start(Now) ->
     do([statem_m ||
 	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
@@ -442,6 +511,10 @@ gx_error_report(Now, PCCErrors) ->
 		 end
 	     end)
        ]).
+
+gy_events_to_pcc_ctx(Now, Evs, State, #{pcc := PCC0} = Data) ->
+    {PCC, Errors} = ergw_pcc_context:gy_events_to_pcc_ctx(Now, Evs, PCC0),
+    statem_m:return(Errors, State, Data#{pcc => PCC}).
 
 remote_context_register_new() ->
     do([statem_m ||

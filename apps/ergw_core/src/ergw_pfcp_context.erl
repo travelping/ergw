@@ -19,8 +19,7 @@
 	 send_session_deletion_request/2,
 	 receive_session_deletion_response/1,
 	 usage_report_to_charging_events/3,
-	 send_query_usage_report/2,
-	 query_usage_report/1, query_usage_report/2
+	 send_query_usage_report/2
 	]).
 -export([select_upf/1, select_upf/3, reselect_upf/4]).
 -export([send_g_pdu/3]).
@@ -70,23 +69,6 @@ build_query_usage_report(Type, PCtx) ->
 		      [#query_urr{group = [#urr_id{id = K}]} | A];
 		 (_, _, A) -> A
 	      end, [], ergw_pfcp:get_urr_ids(PCtx)).
-
-%% query_usage_report/1
-query_usage_report(PCtx) ->
-    query_usage_report(online, PCtx).
-
-%% query_usage_report/2
-query_usage_report(Type, PCtx)
-  when is_record(PCtx, pfcp_ctx) andalso
-       (Type == offline orelse Type == online) ->
-    IEs = build_query_usage_report(Type, PCtx),
-    session_modification_request(PCtx, IEs);
-
-query_usage_report(ChargingKeys, PCtx)
-  when is_record(PCtx, pfcp_ctx) ->
-    IEs = [#query_urr{group = [#urr_id{id = Id}]} ||
-	   Id <- ergw_pfcp:get_urr_ids(ChargingKeys, PCtx), is_integer(Id)],
-    session_modification_request(PCtx, IEs).
 
 %% send_query_usage_report/2
 send_query_usage_report(Type, PCtx)
@@ -199,20 +181,6 @@ receive_session_establishment_response(
 
 receive_session_establishment_response(_, _, _, _) ->
     {error, ?CTX_ERR(?FATAL, system_failure)}.
-
-%% session_modification_request/2
-session_modification_request(PCtx, ReqIEs) ->
-    case send_session_modification_request(PCtx, ReqIEs) of
-	skip ->
-	    receive_session_modification_response(PCtx, skip);
-	ReqId ->
-	    case ergw_sx_node:wait_response(ReqId) of
-		{reply, Response} ->
-		    receive_session_modification_response(PCtx, Response);
-		{error, Error} ->
-		    receive_session_modification_response(PCtx, Error)
-	    end
-    end.
 
 %% send_session_modification_request/5
 send_session_modification_request(PCC, URRActions, Opts, #{left := Left, right := Right}, PCtx0)
