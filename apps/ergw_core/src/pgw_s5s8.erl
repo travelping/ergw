@@ -226,17 +226,16 @@ handle_request(ReqKey,
 handle_request(ReqKey,
 	       #gtp{type = delete_session_request, ie = IEs} = Request,
 	       _Resent, #{session := connected} = State,
-	       #{context := Context, left_tunnel := LeftTunnel, 'Session' := Session} = Data0) ->
+	       #{left_tunnel := LeftTunnel} = Data) ->
     FqTEID = maps:get(?'Sender F-TEID for Control Plane', IEs, undefined),
 
     case match_tunnel(?'S5/S8-C SGW', LeftTunnel, FqTEID) of
 	ok ->
-	    process_secondary_rat_usage_data_reports(IEs, Context, Session),
-	    Data = ergw_gtp_gsn_lib:close_context(?API, normal, Data0),
-	    Response = response(delete_session_response, LeftTunnel, request_accepted),
-	    gtp_context:send_response(ReqKey, Request, Response),
-	    {next_state, State#{session := shutdown}, Data};
-
+	    gtp_context:next(
+	      delete_session_request(Request),
+	      delete_session_resp(ReqKey, Request, _, _, _),
+	      delete_session_resp(ReqKey, Request, _, _, _),
+	      State, Data);
 	{error, ReplyIEs} ->
 	    Response = response(delete_session_response, LeftTunnel, ReplyIEs),
 	    gtp_context:send_response(ReqKey, Request, Response),
@@ -246,6 +245,17 @@ handle_request(ReqKey,
 handle_request(ReqKey, _Msg, _Resent, _State, _Data) ->
     gtp_context:request_finished(ReqKey),
     keep_state_and_data.
+
+delete_session_request(#gtp{ie = IEs}) ->
+    do([statem_m ||
+	   process_secondary_rat_usage_data_reports(IEs),
+	   ergw_gtp_gsn_lib:close_context_m(?API, normal)
+       ]).
+
+delete_session_resp(ReqKey, Request, _, State, #{left_tunnel := LeftTunnel} = Data) ->
+    Response = response(delete_session_response, LeftTunnel, request_accepted),
+    gtp_context:send_response(ReqKey, Request, Response),
+    {next_state, State#{session := shutdown}, Data}.
 
 handle_response(ReqInfo, #gtp{version = v1} = Msg, Request, State, Data) ->
     ?GTP_v1_Interface:handle_response(ReqInfo, Msg, Request, State, Data);
@@ -328,6 +338,37 @@ response(Cmd, Tunnel, IEs0, #gtp{ie = ReqIEs})
   when is_record(Tunnel, tunnel) ->
     IEs = gtp_v2_c:build_recovery(Cmd, Tunnel, is_map_key(?'Recovery', ReqIEs), IEs0),
     response(Cmd, Tunnel, IEs).
+
+match_tunnel(_Type, undefined) ->
+    do([statem_m || return()]);
+match_tunnel(Type, #v2_fully_qualified_tunnel_endpoint_identifier{
+		      instance       = 0,
+		      interface_type = Type,
+		      key            = RemoteTEI,
+		      ipv4           = RemoteIP4,
+		      ipv6           = RemoteIP6} = IE) ->
+    do([statem_m ||
+	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+	   #tunnel{remote = #fq_teid{ip = RemoteIP, teid = ExpRemoteTEI}
+		   = Expected} <- statem_m:get_data(maps:get(left_tunnel, _)),
+	   case {ExpRemoteTEI, ergw_inet:ip2bin(RemoteIP)} of
+	       {RemoteTEI, RemoteIP4} ->
+		   return();
+	       {RemoteTEI, RemoteIP6} ->
+		   return();
+	       _ ->
+		   ?LOG(error, "match_tunnel: IP address mismatch, ~p, ~p, ~p",
+			[Type, Expected, IE]),
+		   fail([#v2_cause{v2_cause = invalid_peer}])
+	   end]);
+match_tunnel(Type, IE) ->
+    do([statem_m ||
+	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+	   #tunnel{remote = Expected} <- statem_m:get_data(maps:get(left_tunnel, _)),
+	   _ = ?LOG(error, "match_tunnel: FqTEID not found, ~p, ~p, ~p",
+		[Type, Expected, IE]),
+	   fail([#v2_cause{v2_cause = invalid_peer}])
+       ]).
 
 match_tunnel(_Type, _Expected, undefined) ->
     ok;
@@ -595,6 +636,20 @@ sec_rat_udr_to_report(#v2_secondary_rat_usage_data_report{irpgw = true} = Report
     [ergw_gsn_lib:secondary_rat_usage_data_report_to_rf(ChargingId, Report)|Reports];
 sec_rat_udr_to_report([H|T], Ctx, Reports) ->
     sec_rat_udr_to_report(H, Ctx, sec_rat_udr_to_report(T, Ctx, Reports)).
+
+process_secondary_rat_usage_data_reports(#{?'Secondary RAT Usage Data Report' := SecRatUDR}) ->
+    do([statem_m ||
+	   #{context := Context, 'Session' := Session} <- statem_m:get_data(),
+	   Report =
+	       #{'RAN-Secondary-RAT-Usage-Report' =>
+		     sec_rat_udr_to_report(SecRatUDR, Context, [])},
+	   ReqId <- statem_m:return(
+		      gtp_context:send_request(
+			fun() -> ergw_aaa_session:invoke(Session, Report, {rf, 'Update'}, #{async => false}) end)),
+	   statem_m:wait(ReqId),
+	   return()]);
+process_secondary_rat_usage_data_reports(_) ->
+    do([statem_m || return()]).
 
 process_secondary_rat_usage_data_reports(#{?'Secondary RAT Usage Data Report' := SecRatUDR},
 					 Context, Session) ->

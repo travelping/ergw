@@ -12,7 +12,8 @@
 	  {parse_transform, cut}]).
 
 -export([connect_upf_candidates/4, create_session_m/5]).
--export([triggered_charging_event/4, usage_report/3, close_context/3, close_context/4]).
+-export([triggered_charging_event/4, usage_report/3, close_context/3, close_context/4,
+	 close_context_m/2]).
 -export([handle_peer_change/3, update_tunnel_endpoint/2,
 	 apply_bearer_change/5]).
 
@@ -119,8 +120,8 @@ usage_report(_URRActions, _UsageReport, #{'Session' := _}) ->
 
 
 %% close_context/3
-close_context(_, {API, TermCause}, Context) ->
-    close_context(API, TermCause, Context);
+close_context(_, {API, TermCause}, Data) ->
+    close_context(API, TermCause, Data);
 close_context(API, TermCause, #{pfcp := PCtx} = Data)
   when is_atom(TermCause) ->
     UsageReport = ergw_pfcp_context:delete_session(TermCause, PCtx),
@@ -134,6 +135,31 @@ close_context(API, TermCause, UsageReport, #{pfcp := PCtx, 'Session' := Session}
     ergw_gtp_gsn_session:close_context(TermCause, UsageReport, PCtx, Session),
     ergw_prometheus:termination_cause(API, TermCause),
     maps:remove(pfcp, Data).
+
+%% close_context_m/2
+close_context_m(_, {API, TermCause}) ->
+    close_context_m(API, TermCause);
+close_context_m(API, TermCause)
+  when is_atom(TermCause) ->
+    do([statem_m ||
+	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+	   PCtx <- statem_m:get_data(maps:get(pfcp, _)),
+	   UsageReport = ergw_pfcp_context:delete_session(TermCause, PCtx),
+	   close_context_m(API, TermCause, UsageReport)
+       ]);
+close_context_m(_API, _TermCause) ->
+    do([statem_m || return()]).
+
+%% close_context_m/3
+close_context_m(API, TermCause, UsageReport)
+  when is_atom(TermCause) ->
+    do([statem_m ||
+	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+	   #{pfcp := PCtx, 'Session' := Session} <- statem_m:get_data(),
+	   _ = ergw_gtp_gsn_session:close_context(TermCause, UsageReport, PCtx, Session),
+	   _ = ergw_prometheus:termination_cause(API, TermCause),
+	   statem_m:modify_data(maps:remove(pfcp, _))
+       ]).
 
 %%====================================================================
 %% Helper
