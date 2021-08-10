@@ -1355,7 +1355,7 @@ simple_aaa(Config) ->
 	 #tp_packet_measurement{total = 12, uplink = 5, downlink = 7}],
     ergw_test_sx_up:usage_report('pgw-u01', PCtx, MatchSpec, Report),
 
-    ct:sleep(100),
+    ct:sleep(200),
     delete_session(GtpC),
 
     H = meck:history(ergw_aaa_session),
@@ -1472,7 +1472,7 @@ simple_ofcs(Config) ->
     MatchSpec = ets:fun2ms(fun(Id) -> Id end),
     ergw_test_sx_up:usage_report('pgw-u01', PCtx, MatchSpec, ReportFun),
 
-    ct:sleep(100),
+    ct:sleep(200),
     delete_session(GtpC),
 
     H = meck:history(ergw_aaa_session),
@@ -1601,7 +1601,7 @@ simple_ocs(Config) ->
 	 #tp_packet_measurement{total = 12, uplink = 5, downlink = 7}],
     ergw_test_sx_up:usage_report('pgw-u01', PCtx, MatchSpec, Report),
 
-    ct:sleep(100),
+    ct:sleep(200),
     delete_session(GtpC),
 
     H = meck:history(ergw_aaa_session),

@@ -1055,7 +1055,7 @@ error_indication(Config) ->
 
     ergw_test_sx_up:send('pgw-u01', make_error_indication_report(GtpC)),
 
-    ct:sleep(100),
+    ct:sleep(200),
     delete_session(not_found, GtpC),
 
     ergw_dist_test_lib:wait4contexts(?TIMEOUT, Config),

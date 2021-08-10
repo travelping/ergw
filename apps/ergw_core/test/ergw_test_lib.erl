@@ -565,7 +565,7 @@ sx_nodes_up(N, Cnt) ->
 	Nodes when map_size(Nodes) =:= N ->
 	    ok;
 	_Nodes ->
-	    ct:sleep(100),
+	    ct:sleep(200),
 	    sx_nodes_up(N, Cnt - 1)
     end.
 
@@ -774,7 +774,7 @@ wait4tunnels(Cnt) ->
 	[] -> ok;
 	Other ->
 	    if Cnt > 100 ->
-		    ct:sleep(100),
+		    ct:sleep(200),
 		    wait4tunnels(Cnt - 100);
 	       true ->
 		    ct:fail("timeout, waiting for tunnels to terminate, left over ~p", [Other])
@@ -786,7 +786,7 @@ wait4contexts(Cnt) ->
 	0 -> ok;
 	Other ->
 	    if Cnt > 100 ->
-		    ct:sleep(100),
+		    ct:sleep(200),
 		    wait4contexts(Cnt - 100);
 	       true ->
 		    ct:fail("timeout, waiting for contexts to be deleted, left over ~p", [Other])
@@ -824,7 +824,7 @@ match_metric(Type, Name, LabelValues, Expected, File, Line, Cnt) ->
 	Expected ->
 	    ok;
 	_ when Cnt > 0 ->
-	    ct:sleep(100),
+	    ct:sleep(200),
 	    match_metric(Type, Name, LabelValues, Expected, File, Line, Cnt - 1);
 	Actual ->
 	    ct:pal("METRIC VALUE MISMATCH(~s:~b)~nExpected: ~p~nActual:   ~p~n",
