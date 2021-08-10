@@ -1414,7 +1414,7 @@ path_failure(Config) ->
     gtp_path:ping(CSocket, v2, ClientIP),
 
     %% wait for session cleanup
-    ct:sleep(100),
+    ct:sleep(200),
     delete_session(not_found, GtpC),
 
     [?match(#{tunnels := 0}, X) || X <- ergw_api:peer(all)],
@@ -1474,7 +1474,7 @@ path_failure_suspect_timeout(Config) ->
     gtp_path:ping(CSocket, v2, ClientIP),
 
     %% wait for 100ms
-    ct:sleep(100),
+    ct:sleep(200),
     delete_session(GtpC),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
@@ -1891,7 +1891,7 @@ error_indication(Config) ->
 
     ergw_test_sx_up:send('pgw-u01', make_error_indication_report(GtpC)),
 
-    ct:sleep(100),
+    ct:sleep(200),
     delete_session(not_found, GtpC),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
@@ -3120,11 +3120,11 @@ pfcp_session_deleted_by_the_up_function(Config) ->
 
     lists:foreach(
       fun(_X) ->
-	      ct:sleep(100),
+	      ct:sleep(200),
 	      ergw_test_sx_up:usage_report('pgw-u01', PCtx, MatchSpec, IEs, Report)
       end, lists:seq(1, 3)),
 
-    ct:sleep(100),
+    ct:sleep(200),
     delete_session(not_found, GtpC),
 
     ?equal(true, meck:called(ergw_aaa_session, invoke, ['_', '_', {gx, 'CCR-Terminate'}, '_'])),
@@ -3188,11 +3188,11 @@ gy_validity_timer_up(Config) ->
 
     lists:foreach(
       fun(_X) ->
-	      ct:sleep(100),
+	      ct:sleep(200),
 	      ergw_test_sx_up:usage_report('pgw-u01', PCtx, MatchSpec, Report)
       end, lists:seq(1, 3)),
 
-    ct:sleep(100),
+    ct:sleep(200),
     delete_session(GtpC),
 
     [SER|_] = lists:filter(
@@ -3300,7 +3300,7 @@ simple_aaa(Config) ->
 	 #tp_packet_measurement{total = 12, uplink = 5, downlink = 7}],
     ergw_test_sx_up:usage_report('pgw-u01', PCtx, MatchSpec, Report),
 
-    ct:sleep(100),
+    ct:sleep(200),
     delete_session(GtpC),
 
     H = meck:history(ergw_aaa_session),
@@ -3421,7 +3421,7 @@ simple_ofcs(Config) ->
     MatchSpec = ets:fun2ms(fun(Id) -> Id end),
     ergw_test_sx_up:usage_report('pgw-u01', PCtx, MatchSpec, ReportFun),
 
-    ct:sleep(100),
+    ct:sleep(200),
     delete_session(GtpC),
     ct:sleep(10),
 
@@ -3544,7 +3544,7 @@ ofcs_no_interim(Config) ->
 	}, Linked#create_urr.group),
     ?equal(false, maps:is_key(measurement_period, Linked#create_urr.group)),
 
-    ct:sleep(100),
+    ct:sleep(200),
     delete_session(GtpC),
     ct:sleep(10),
 
@@ -3600,10 +3600,10 @@ secondary_rat_usage_data_report() ->
     [{doc, "Secondary RAT Usage Data Report in DIAMETER Rf"}].
 secondary_rat_usage_data_report(Config) ->
     {GtpC1, _, _} = create_session(Config),
-    ct:sleep(100),
+    ct:sleep(200),
 
     {GtpC2, _, _} = modify_bearer(secondary_rat_usage_data_report, GtpC1),
-    ct:sleep(100),
+    ct:sleep(200),
 
     delete_session(secondary_rat_usage_data_report, GtpC2),
     ct:sleep(10),
@@ -3718,7 +3718,7 @@ simple_ocs(Config) ->
 	 #tp_packet_measurement{total = 12, uplink = 5, downlink = 7}],
     ergw_test_sx_up:usage_report('pgw-u01', PCtx, MatchSpec, Report),
 
-    ct:sleep(100),
+    ct:sleep(200),
     delete_session(GtpC),
 
     H = meck:history(ergw_aaa_session),
@@ -4038,7 +4038,7 @@ split_charging1(Config) ->
 				 OnReport(StartTS + 150, 30, 7)),
     ct:sleep(10),
 
-    ct:sleep(100),
+    ct:sleep(200),
     delete_session(GtpC),
     ct:sleep(10),
 
@@ -4367,7 +4367,7 @@ split_charging2(Config) ->
 				 OnReport(StartTS + 150, 30, 7)),
     ct:sleep(10),
 
-    ct:sleep(100),
+    ct:sleep(200),
     delete_session(GtpC),
     ct:sleep(10),
 
@@ -4770,7 +4770,7 @@ tariff_time_change(Config) ->
 	end,
     ergw_test_sx_up:usage_report('pgw-u01', PCtx, MatchSpec, ReportFun),
 
-    ct:sleep(100),
+    ct:sleep(200),
     delete_session(GtpC),
 
     H = meck:history(ergw_aaa_session),

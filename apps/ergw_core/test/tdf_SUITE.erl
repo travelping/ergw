@@ -802,7 +802,7 @@ simple_aaa(Config) ->
     CtxKey = {ue, <<3, "sgi">>, UeIP},
 
     packet_in(Config),
-    ct:sleep(100),
+    ct:sleep(200),
 
     ?equal(true, ergw_context:test_cmd(tdf, CtxKey, is_alive)),
     {ok, PCtx} = ergw_context:test_cmd(tdf, CtxKey, pfcp_ctx),
@@ -854,9 +854,9 @@ simple_aaa(Config) ->
 	 #tp_packet_measurement{total = 12, uplink = 5, downlink = 7}],
     ergw_test_sx_up:usage_report('tdf-u', PCtx, MatchSpec, Report),
 
-    ct:sleep(100),
+    ct:sleep(200),
     ergw_context:test_cmd(tdf, CtxKey, stop_session),
-    ct:sleep(100),
+    ct:sleep(200),
 
     H = meck:history(ergw_aaa_session),
     SInv =
@@ -914,7 +914,7 @@ simple_ofcs(Config) ->
     CtxKey = {ue, <<3, "sgi">>, UeIP},
 
     packet_in(Config),
-    ct:sleep(100),
+    ct:sleep(200),
 
     ?equal(true, ergw_context:test_cmd(tdf, CtxKey, is_alive)),
     {ok, PCtx} = ergw_context:test_cmd(tdf, CtxKey, pfcp_ctx),
@@ -976,9 +976,9 @@ simple_ofcs(Config) ->
     MatchSpec = ets:fun2ms(fun(Id) -> Id end),
     ergw_test_sx_up:usage_report('tdf-u', PCtx, MatchSpec, ReportFun),
 
-    ct:sleep(100),
+    ct:sleep(200),
     ergw_context:test_cmd(tdf, CtxKey, stop_session),
-    ct:sleep(100),
+    ct:sleep(200),
 
     H = meck:history(ergw_aaa_session),
     SInv =
@@ -1041,7 +1041,7 @@ simple_ocs(Config) ->
     CtxKey = {ue, <<3, "sgi">>, UeIP},
 
     packet_in(Config),
-    ct:sleep(100),
+    ct:sleep(200),
 
     ?equal(true, ergw_context:test_cmd(tdf, CtxKey, is_alive)),
     {ok, PCtx} = ergw_context:test_cmd(tdf, CtxKey, pfcp_ctx),
@@ -1097,9 +1097,9 @@ simple_ocs(Config) ->
 	 #tp_packet_measurement{total = 12, uplink = 5, downlink = 7}],
     ergw_test_sx_up:usage_report('tdf-u', PCtx, MatchSpec, Report),
 
-    ct:sleep(100),
+    ct:sleep(200),
     ergw_context:test_cmd(tdf, CtxKey, stop_session),
-    ct:sleep(100),
+    ct:sleep(200),
 
     H = meck:history(ergw_aaa_session),
     CCR =
@@ -1905,13 +1905,13 @@ aa_nat_select(Config) ->
     CtxKey = {ue, <<3, "sgi">>, UeIP},
 
     packet_in(Config),
-    ct:sleep(100),
+    ct:sleep(200),
 
     ?equal(true, ergw_context:test_cmd(tdf, CtxKey, is_alive)),
 
-    ct:sleep(100),
+    ct:sleep(200),
     ergw_context:test_cmd(tdf, CtxKey, stop_session),
-    ct:sleep(100),
+    ct:sleep(200),
 
     H = meck:history(ergw_aaa_session),
     [SInv|_] =
@@ -1950,7 +1950,7 @@ aa_nat_select_fail(Config) ->
 
 
     packet_in(Config),
-    ct:sleep(100),
+    ct:sleep(200),
 
     ?equal(false, ergw_context:test_cmd(tdf, CtxKey, is_alive)),
 

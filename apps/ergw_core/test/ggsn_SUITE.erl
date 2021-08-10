@@ -1069,7 +1069,7 @@ path_failure(Config) ->
     gtp_path:ping(CSocket, v1, ClientIP),
 
     %% wait for session cleanup
-    ct:sleep(100),
+    ct:sleep(200),
     delete_pdp_context(not_found, GtpC),
 
     [?match(#{tunnels := 0}, X) || X <- ergw_api:peer(all)],
@@ -1159,7 +1159,7 @@ error_indication(Config) ->
 
     ergw_test_sx_up:send('pgw-u01', make_error_indication_report(GtpC)),
 
-    ct:sleep(100),
+    ct:sleep(200),
     delete_pdp_context(not_found, GtpC),
 
     [?match(#{tunnels := 0}, X) || X <- ergw_api:peer(all)],
@@ -1754,6 +1754,7 @@ sx_ondemand(Config) ->
 
     {GtpC, _, _} = create_pdp_context(async_sx, Config),
     delete_pdp_context(GtpC),
+    ct:sleep(200),
 
     ?equal(2, maps:size(ergw_sx_node_reg:available())),
     ?equal([], outstanding_requests()),
@@ -1860,7 +1861,7 @@ simple_aaa(Config) ->
 	 #tp_packet_measurement{total = 12, uplink = 5, downlink = 7}],
     ergw_test_sx_up:usage_report('pgw-u01', PCtx, MatchSpec, Report),
 
-    ct:sleep(100),
+    ct:sleep(200),
     delete_pdp_context(GtpC),
 
     H = meck:history(ergw_aaa_session),
@@ -1979,7 +1980,7 @@ simple_ofcs(Config) ->
     MatchSpec = ets:fun2ms(fun(Id) -> Id end),
     ergw_test_sx_up:usage_report('pgw-u01', PCtx, MatchSpec, ReportFun),
 
-    ct:sleep(100),
+    ct:sleep(200),
     delete_pdp_context(GtpC),
 
     H = meck:history(ergw_aaa_session),
@@ -2108,7 +2109,7 @@ simple_ocs(Config) ->
 	 #tp_packet_measurement{total = 12, uplink = 5, downlink = 7}],
     ergw_test_sx_up:usage_report('pgw-u01', PCtx, MatchSpec, Report),
 
-    ct:sleep(100),
+    ct:sleep(200),
     delete_pdp_context(GtpC),
 
     H = meck:history(ergw_aaa_session),

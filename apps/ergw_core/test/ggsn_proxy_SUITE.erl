@@ -1196,7 +1196,7 @@ path_failure_to_ggsn(Config) ->
     send_pdu(Cntl, GtpC, Response),
 
     %% wait for session cleanup
-    ct:sleep(100),
+    ct:sleep(200),
     delete_pdp_context(not_found, GtpC),
 
     %% killing the GGSN context
@@ -1247,7 +1247,7 @@ path_failure_to_ggsn_and_restore(Config) ->
     send_pdu(Cntl, GtpC, Response),
 
     %% wait for session cleanup
-    ct:sleep(100),
+    ct:sleep(200),
     delete_pdp_context(not_found, GtpC),
 
     % Check that IP is marked down
@@ -1255,7 +1255,7 @@ path_failure_to_ggsn_and_restore(Config) ->
 		  fun({_, State}) -> State =:= down end, gtp_path_reg:all(FinalGSN))),
 
     create_pdp_context(no_resources_available, Config),
-    ct:sleep(100),
+    ct:sleep(200),
 
     ok = meck:delete(ergw_gtp_c_socket, send_request, 8),
 
@@ -1301,7 +1301,7 @@ path_failure_to_sgsn(Config) ->
     gtp_path:ping(CSocket, v1, ClientIP),
 
     %% wait for session cleanup
-    ct:sleep(100),
+    ct:sleep(200),
     delete_pdp_context(not_found, GtpC),
 
     [?match(#{tunnels := 0}, X) || X <- ergw_api:peer(all)],
@@ -1439,7 +1439,7 @@ one_lb_node_down(Config) ->
 
     %% down the path by forcing a echo
     ok = gtp_path:ping(CPid),
-    ct:sleep(100),
+    ct:sleep(200),
 
     % make sure that worked
     DownPeers = lists:filter(
@@ -1596,7 +1596,7 @@ error_indication_sgsn2ggsn(Config) ->
 
     ergw_test_sx_up:send('sgw-u', make_error_indication_report(GtpC)),
 
-    ct:sleep(100),
+    ct:sleep(200),
     delete_pdp_context(not_found, GtpC),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
@@ -1625,7 +1625,7 @@ error_indication_ggsn2sgsn(Config) ->
     Response = make_response(Request, simple, GtpC),
     send_pdu(Cntl, GtpC, Response),
 
-    ct:sleep(100),
+    ct:sleep(200),
     delete_pdp_context(not_found, GtpC),
 
     %% killing the GGSN context

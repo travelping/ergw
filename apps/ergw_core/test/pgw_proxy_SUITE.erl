@@ -1267,7 +1267,7 @@ path_failure_to_pgw(Config) ->
     send_pdu(Cntl, GtpC, Response),
 
     %% wait for session cleanup
-    ct:sleep(100),
+    ct:sleep(200),
     delete_session(not_found, GtpC),
 
     %% killing the PGW context
@@ -1373,7 +1373,7 @@ path_failure_to_pgw_and_restore(Config) ->
     send_pdu(Cntl, GtpC, Response),
 
     %% wait for session cleanup
-    ct:sleep(100),
+    ct:sleep(200),
     delete_session(not_found, GtpC),
 
     % Check that IP is marked down
@@ -1382,7 +1382,7 @@ path_failure_to_pgw_and_restore(Config) ->
 
     % confirm that a new session will now fail as the PGW is marked as down
     create_session(no_resources_available, Config),
-    ct:sleep(100),
+    ct:sleep(200),
 
     ok = meck:delete(ergw_gtp_c_socket, send_request, 8),
 
@@ -1429,7 +1429,7 @@ path_failure_to_sgw(Config) ->
     ok = gtp_path:ping(CSocket, v2, ClientIP),
 
     %% wait for session cleanup
-    ct:sleep(100),
+    ct:sleep(200),
     delete_session(not_found, GtpC),
 
     [?match(#{tunnels := 0}, X) || X <- ergw_api:peer(all)],
@@ -1833,7 +1833,7 @@ one_lb_node_down(Config) ->
 
     %% down the path by forcing a echo
     ok = gtp_path:ping(CPid),
-    ct:sleep(100),
+    ct:sleep(200),
 
     % make sure that worked
     DownPeers = lists:filter(
@@ -1986,7 +1986,7 @@ error_indication_sgw2pgw(Config) ->
 
     ergw_test_sx_up:send('sgw-u', make_error_indication_report(GtpC)),
 
-    ct:sleep(100),
+    ct:sleep(200),
     delete_session(not_found, GtpC),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
@@ -2014,7 +2014,7 @@ error_indication_pgw2sgw(Config) ->
     Response = make_response(Request, simple, GtpC),
     send_pdu(Cntl, GtpC, Response),
 
-    ct:sleep(100),
+    ct:sleep(200),
     delete_session(not_found, GtpC),
 
     %% killing the PGW context
@@ -2626,7 +2626,7 @@ interop_sgsn_to_sgw(Config) ->
     meck_validate(Config),
     true = meck:validate(ggsn_gn_proxy),
 
-    ct:sleep(100),
+    ct:sleep(200),
     check_contexts_metric(v1, 3, 0),
     check_contexts_metric(v2, 3, 0),
     ok.
@@ -2679,7 +2679,7 @@ interop_sgw_to_sgsn(Config) ->
     meck_validate(Config),
     true = meck:validate(ggsn_gn_proxy),
 
-    ct:sleep(100),
+    ct:sleep(200),
     check_contexts_metric(v1, 3, 0),
     check_contexts_metric(v2, 3, 0),
     ok.
