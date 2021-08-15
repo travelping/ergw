@@ -134,7 +134,7 @@ handle_event({call, From}, {start, _}, running, _) ->
 handle_event({call, _}, {start, _}, _State, _) ->
     {keep_state_and_data, [postpone]};
 
-handle_event(info, {'EXIT', Pid, ok}, startup,
+handle_event(info, {'EXIT', Pid, normal}, startup,
 	     #{init := Now, startup := Pid} = Data) ->
     ?LOG(info, "ergw_core: ready to process requests, cluster started in ~w ms",
 	 [erlang:convert_time_unit(erlang:monotonic_time() - Now, native, millisecond)]),
@@ -167,7 +167,7 @@ startup() ->
 	_ ->
 	    init:wait_until_started()
     end,
-    exit(ok).
+    exit(normal).
 
 start_cluster(Config) ->
     %% borrowed from riak_core:standard_join
