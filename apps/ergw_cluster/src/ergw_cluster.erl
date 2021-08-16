@@ -103,7 +103,7 @@ init([]) ->
     process_flag(trap_exit, true),
     Now = erlang:monotonic_time(),
 
-    Pid = proc_lib:spawn_link(fun startup/0),
+    Pid = spawn_link(fun startup/0),
     {ok, startup, #{init => Now, startup => Pid}}.
 
 handle_event({call, From}, wait_till_ready, State, _Data)
