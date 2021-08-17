@@ -502,6 +502,7 @@ handle_response(ArrivalTS, _Src, IP, _Port, Msg, #state{gtp_socket = Socket} = S
 	#send_req{} = SendReq ->
 	    ?LOG(debug, "~p: found response: ~p", [self(), SeqId]),
 	    measure_reply(Socket, SendReq, ArrivalTS),
+	    gtp_path:activity(Socket, IP, Msg#gtp.version, ArrivalTS, rx),
 	    send_request_reply(SendReq, Msg),
 	    State
     end.

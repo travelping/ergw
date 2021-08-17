@@ -13,15 +13,18 @@
 -compile({no_auto_import,[register/2]}).
 
 %% API
--export([start_link/4, all/1,
+-export([start_link/5, all/1,
 	 handle_request/2, handle_response/4,
-	 bind/1, bind/2, unbind/1, icmp_error/2, path_restart/2,
+	 activity/2, activity/5,
+	 aquire_lease/1, release_lease/2,
+	 bind_tunnel/1, unbind_tunnel/1,
+	 icmp_error/2, path_restart/2,
 	 get_handler/2, info/1, sync_state/3]).
 
 %% Validate environment Variables
 -export([validate_options/1, setopts/1]).
 
--ignore_xref([start_link/4,
+-ignore_xref([start_link/5,
 	      path_restart/2,
 	      handle_response/4,		% used from callback handler
 	      sync_state/3
@@ -32,19 +35,17 @@
 	 terminate/3, code_change/4]).
 
 -ifdef(TEST).
--export([ping/1, ping/3, set/3, stop/1, maybe_new_path/3]).
+-export([ping/1, ping/3, set/3, stop/1, maybe_new_path/4]).
 -endif.
 
 -include_lib("kernel/include/logger.hrl").
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include("include/ergw.hrl").
 
--record(peer, {state    :: up | down | suspect,
-	       contexts :: non_neg_integer()
-	      }).
-
 %% echo_timer is the status of the echo send to the remote peer
--record(state, {peer       :: #peer{},                     %% State of remote peer
+-record(state, {peer       :: unknown | up | down | suspect,
+		contexts   :: map(),
+		leases     :: map(),
 		recovery   :: 'undefined' | non_neg_integer(),
 		echo       :: 'stopped' | 'echo_to_send' | 'awaiting_response'}).
 
@@ -52,10 +53,10 @@
 %%% API
 %%%===================================================================
 
-start_link(Socket, Version, RemoteIP, Args) ->
+start_link(Socket, Version, RemoteIP, Trigger, Args) ->
     Opts = [{hibernate_after, 5000},
 	    {spawn_opt,[{fullsweep_after, 0}]}],
-    gen_statem:start_link(?MODULE, [Socket, Version, RemoteIP, Args], Opts).
+    gen_statem:start_link(?MODULE, [Socket, Version, RemoteIP, Trigger, Args], Opts).
 
 setopts(Opts0) ->
     Opts = validate_options(Opts0),
@@ -71,44 +72,46 @@ getopts() ->
 	    {ok, Opts}
     end.
 
-maybe_new_path(Socket, Version, RemoteIP) ->
+maybe_new_path(Socket, Version, RemoteIP, Trigger) ->
     case get(Socket, Version, RemoteIP) of
 	Path when is_pid(Path) ->
 	    Path;
 	_ ->
 	    {ok, Args} = getopts(),
-	    {ok, Path} = gtp_path_sup:new_path(Socket, Version, RemoteIP, Args),
+	    {ok, Path} = gtp_path_sup:new_path(Socket, Version, RemoteIP, Trigger, Args),
 	    Path
     end.
 
 handle_request(#request{socket = Socket, ip = IP} = ReqKey, #gtp{version = Version} = Msg) ->
-    Path = maybe_new_path(Socket, Version, IP),
+    Path = maybe_new_path(Socket, Version, IP, activity),
     gen_statem:cast(Path, {handle_request, ReqKey, Msg}).
 
 handle_response(Path, Request, Ref, Response) ->
     gen_statem:cast(Path, {handle_response, Request, Ref, Response}).
 
-bind(Tunnel) ->
-    monitor_path_recovery(bind_path(Tunnel)).
+aquire_lease(Tunnel) ->
+    safe_aquire_lease(get_path(Tunnel, lease)).
 
-bind(#gtp{ie = #{{recovery, 0} :=
-		     #recovery{restart_counter = RestartCounter}}
-	 } = Request, Tunnel) ->
-    bind_path_recovery(RestartCounter, bind_path(Request, Tunnel));
-bind(#gtp{ie = #{{v2_recovery, 0} :=
-		     #v2_recovery{restart_counter = RestartCounter}}
-	 } = Request, Tunnel) ->
-    bind_path_recovery(RestartCounter, bind_path(Request, Tunnel));
-bind(Request, Tunnel) ->
-    bind_path_recovery(undefined, bind_path(Request, Tunnel)).
+release_lease(LRef, #tunnel{path = Path}) ->
+    gen_statem:cast(Path, {release_lease, LRef}).
 
-unbind(#tunnel{socket = Socket, version = Version, remote = #fq_teid{ip = RemoteIP}}) ->
-    case get(Socket, Version, RemoteIP) of
+activity(#request{socket = Socket, ip = IP, version = Version, arrival_ts = TS}, Event) ->
+    Path = maybe_new_path(Socket, Version, IP, activity),
+    gen_statem:cast(Path, {activity, TS, Event}).
+
+activity(Socket, IP, Version, TS, Event) ->
+    case get(Socket, Version, IP) of
 	Path when is_pid(Path) ->
-	    gen_statem:call(Path, {unbind, self()});
+	    gen_statem:cast(Path, {activity, TS, Event});
 	_ ->
 	    ok
     end.
+
+bind_tunnel(Tunnel) ->
+    safe_bind_tunnel(get_path(Tunnel, bind)).
+
+unbind_tunnel(#tunnel{path = Path}) ->
+    gen_statem:cast(Path, {unbind_tunnel, self()}).
 
 icmp_error(Socket, IP) ->
     icmp_error(Socket, v1, IP),
@@ -122,10 +125,10 @@ icmp_error(Socket, Version, IP) ->
 	    ok
     end.
 
-path_restart(Key, RestartCounter) ->
+path_restart(Key, RstCnt) ->
     case gtp_path_reg:lookup(Key) of
 	Path when is_pid(Path) ->
-	    gen_statem:cast(Path, {path_restart, RestartCounter});
+	    gen_statem:cast(Path, {path_restart, RstCnt});
 	_ ->
 	    ok
     end.
@@ -252,12 +255,9 @@ validate_option(Opt, Value) ->
 
 callback_mode() -> [handle_event_function, state_enter].
 
-init([#socket{name = SocketName} = Socket, Version, RemoteIP, Args]) ->
+init([#socket{name = SocketName} = Socket, Version, RemoteIP, Trigger, Args]) ->
     RegKey = {SocketName, Version, RemoteIP},
     gtp_path_reg:register(RegKey, up),
-
-    State = #state{peer = #peer{state = up, contexts = 0},
-		   echo = stopped},
 
     Data0 = maps:with([t3, n3, echo, idle, suspect, down, icmp_error_handling], Args),
     Data = Data0#{
@@ -267,26 +267,38 @@ init([#socket{name = SocketName} = Socket, Version, RemoteIP, Args]) ->
 	     handler    => get_handler(Socket, Version),
 	     ip         => RemoteIP,
 	     reg_key    => RegKey,
-	     time       => 0,
-
-	     contexts   => #{},
-	     monitors   => #{}
+	     time       => 0
 	},
 
-    ?LOG(debug, "State: ~p Data: ~p", [State, Data]),
-    {ok, State, Data}.
+    State0 = #state{contexts = #{}, leases = #{}, echo = stopped},
+    State =
+	case Trigger of
+	    activity ->
+		State0#state{peer = up};
+	    _ ->
+		send_echo_request(State0#state{peer = unknown}, Data)
+	end,
 
-handle_event(enter, #state{peer = Old}, #state{peer = Peer}, Data)
-  when Old /= Peer ->
-    peer_state_change(Old, Peer, Data),
-    OldState = peer_state(Old),
-    NewState = peer_state(Peer),
-    {keep_state_and_data, enter_peer_state_action(OldState, NewState, Data)};
+    gtp_path_reg:state(RegKey, State#state.peer),
 
-handle_event(enter, #state{echo = Old}, #state{peer = Peer, echo = Echo}, Data)
+    Actions = [enter_state_timeout_action(idle, Data),
+	       enter_state_echo_action(idle, Data)],
+    ?LOG(debug, "State: ~p~nData: ~p~nActions: ~p~n", [State, Data, Actions]),
+    {ok, State, Data, Actions}.
+
+handle_event(enter,
+	     #state{peer = OldP, contexts = OldC} = OldS,
+	     #state{peer = NewP, contexts = NewC} = State, Data)
+  when OldP /= NewP; OldC /= NewC ->
+    peer_state_change(OldS, State, Data),
+    OldPState = peer_state(OldS),
+    NewPState = peer_state(State),
+    {keep_state_and_data, enter_peer_state_action(OldPState, NewPState, Data)};
+
+handle_event(enter, #state{echo = Old}, #state{echo = Echo} = State, Data)
   when Old /= Echo ->
-    State = peer_state(Peer),
-    {keep_state_and_data, enter_state_echo_action(State, Data)};
+    PeerState = peer_state(State),
+    {keep_state_and_data, enter_state_echo_action(PeerState, Data)};
 
 handle_event(enter, _OldState, _State, _Data) ->
     keep_state_and_data;
@@ -304,48 +316,42 @@ handle_event({timeout, echo}, start_echo, _State, _Data) ->
 
 handle_event({timeout, peer}, down, State, Data) ->
     ring_path_restart(undefined, Data),
-    {next_state, peer_state(down, State), Data};
+    {next_state, path_recovery_change(undefined, State#state{peer = down}), Data};
 
 handle_event({timeout, peer}, stop, _State, #{reg_key := RegKey}) ->
     gtp_path_reg:unregister(RegKey),
     {stop, normal};
 
-handle_event({call, From}, all, _State, #{contexts := CtxS} = _Data) ->
+handle_event({call, From}, all, #state{contexts = CtxS} = _State, _Data) ->
     Reply = maps:keys(CtxS),
     {keep_state_and_data, [{reply, From, Reply}]};
 
-handle_event({call, From}, {MonOrBind, Pid}, #state{peer = #peer{state = down}}, _Data)
-  when MonOrBind == monitor; MonOrBind == bind ->
-    Path = self(),
-    proc_lib:spawn(fun() -> gtp_context:path_restart(Pid, Path) end),
-    {keep_state_and_data, [{reply, From, {ok, undefined}}]};
+handle_event({call, From}, {aquire_lease, _}, #state{peer = down}, _Data) ->
+    {keep_state_and_data, [{reply, From, {error, down}}]};
+handle_event({call, From}, {aquire_lease, Pid}, State, Data) ->
+    aquire_lease(From, Pid, State, Data);
 
-handle_event({call, From}, {monitor, Pid}, #state{recovery = RstCnt} = State, Data) ->
-    register_monitor(Pid, State, Data, [{reply, From, {ok, RstCnt}}]);
+handle_event(cast, {release_lease, LRef}, State, Data) ->
+    release_lease(LRef, State, Data);
 
-handle_event({call, From}, {bind, Pid}, #state{recovery = RstCnt} = State, Data) ->
-    register_bind(Pid, State, Data, [{reply, From, {ok, RstCnt}}]);
+handle_event({call, From}, {bind_tunnel, _}, #state{peer = down}, _Data) ->
+    %% this should not happen
+    ?LOG(error, "Context Bind request in peer down state"),
+    {keep_state_and_data, [{reply, From, {error, down}}]};
+handle_event({call, From}, {bind_tunnel, Pid}, #state{recovery = RstCnt} = State, Data) ->
+    bind_tunnel(Pid, State, Data, [{reply, From, {ok, RstCnt}}]);
 
-handle_event({call, From}, {bind, Pid, RstCnt}, State, Data0) ->
-    {Verdict, New, Data} = cas_restart_counter(RstCnt, Data0),
-    case Verdict of
-	_ when Verdict == initial; Verdict == current ->
-	    register_bind(Pid, State#state{recovery = New}, Data, [{reply, From, ok}]);
-	peer_restart  ->
-	    %% try again after state change
-	    ring_path_restart(RstCnt, Data),
-	    {keep_state, Data, [postpone]};
-	_ ->
-	    {keep_state, Data, [{reply, From, Verdict}]}
-    end;
+handle_event(cast, {unbind_tunnel, Pid}, State, Data) ->
+    unbind_tunnel(Pid, State, Data);
 
-handle_event({call, From}, {unbind, Pid}, State, Data) ->
-    unregister(Pid, State, Data, [{reply, From, ok}]);
+handle_event(cast, {activity, When, What}, State0, Data0) ->
+    {State, Data} = activity(When, What, State0, Data0),
+    {next_state, State, Data};
 
-handle_event({call, From}, info, #state{peer = #peer{contexts = CtxCnt}} = State,
+handle_event({call, From}, info, #state{contexts = CtxS} = State,
 	     #{socket := #socket{name = SocketName},
 	       version := Version, ip := IP} = Data) ->
-    Reply = #{path => self(), socket => SocketName, tunnels => CtxCnt,
+    Reply = #{path => self(), socket => SocketName, tunnels => maps:size(CtxS),
 	      version => Version, ip => IP, state => State, data => Data},
     {keep_state_and_data, [{reply, From, Reply}]};
 
@@ -373,22 +379,34 @@ handle_event(cast, {handle_response, echo_request, ReqRef, _Msg}, #state{echo = 
 handle_event(cast,{handle_response, echo_request, _, #gtp{} = Msg}, State, Data) ->
     handle_recovery_ie(Msg, State#state{echo = idle}, Data);
 
+handle_event(cast,{handle_response, echo_request, _, _Msg},
+	     #state{peer = unknown} = State, Data) ->
+    {next_state, State#state{peer = down}, Data};
 handle_event(cast,{handle_response, echo_request, _, _Msg}, State, Data) ->
-    {next_state, peer_state(suspect, State), Data};
+    {next_state, State#state{peer = suspect}, Data};
 
-handle_event(cast, {path_restart, RstCnt}, #state{recovery = RstCnt} = _State, _Data) ->
+handle_event(cast, {path_restart, RstCnt}, #state{recovery = RstCnt} = _State, _Data)
+  when is_integer(RstCnt) ->
     keep_state_and_data;
 handle_event(cast, {path_restart, RstCnt}, State, Data) ->
-    path_restart(RstCnt, State, Data);
+    {next_state, path_recovery_change(RstCnt, State), Data};
 
 handle_event(cast, icmp_error, _, #{icmp_error_handling := ignore}) ->
     keep_state_and_data;
 
 handle_event(cast, icmp_error, State, Data) ->
-    {next_state, peer_state(suspect, State), Data};
+    {next_state, State#state{peer = suspect}, Data};
 
-handle_event(info,{'DOWN', _MonitorRef, process, Pid, _Info}, State, Data) ->
-    unregister(Pid, State, Data, []);
+handle_event(info, {'DOWN', MRef, process, _Pid, _Info}, #state{leases = Leases} = State, Data)
+  when is_map_key(MRef, Leases) ->
+    {next_state, State#state{leases = maps:remove(MRef, Leases)}, Data};
+
+handle_event(info, {'DOWN', _MRef, process, Pid, _Info}, #state{contexts = CtxS} = State, Data)
+  when is_map_key(Pid, CtxS) ->
+    update_contexts(State#state{contexts = maps:remove(Pid, CtxS)}, Data, []);
+
+handle_event(info,{'DOWN', _MRef, process, _Pid, _Info}, _State, _Data) ->
+    keep_state_and_data;
 
 handle_event({timeout, 'echo'}, _, #state{echo = idle} = State0, Data) ->
     ?LOG(debug, "handle_event timeout: ~p", [Data]),
@@ -434,14 +452,15 @@ code_change(_OldVsn, State, Data, _Extra) ->
 %%% special enter state handlers
 %%%===================================================================
 
-peer_state(#peer{state = down}) -> down;
-peer_state(#peer{state = up, contexts = 0}) -> idle;
-peer_state(#peer{state = up}) -> busy;
-peer_state(#peer{state = suspect}) -> suspect.
+peer_state(#state{peer = up, contexts = CtxS})
+  when map_size(CtxS) =:= 0 -> idle;
+peer_state(#state{peer = up, contexts = CtxS})
+  when map_size(CtxS) =/= 0 -> busy;
+peer_state(#state{peer = State}) when is_atom(State) -> State.
 
-peer_state_change(#peer{state = State}, #peer{state = State}, _) ->
+peer_state_change(#state{peer = State}, #state{peer = State}, _) ->
     ok;
-peer_state_change(_, #peer{state = State}, #{reg_key := RegKey}) ->
+peer_state_change(_, #state{peer = State}, #{reg_key := RegKey}) ->
     gtp_path_reg:state(RegKey, State).
 
 %%%===================================================================
@@ -477,17 +496,52 @@ enter_state_echo_action(down, #{down := #{echo := EchoInterval}})
 enter_state_echo_action(_, _) ->
     {{timeout, stop_echo}, 0, stop_echo}.
 
-foreach_context(none, _Fun) ->
+foreach_context(_, none, _Fun) ->
     ok;
-foreach_context({Pid, _, Iter}, Fun) ->
-    Fun(Pid),
-    foreach_context(maps:next(Iter), Fun).
+foreach_context(NewCnt, {Pid, {OldCnt, _}, Iter}, Fun) ->
+    if OldCnt =/= NewCnt -> Fun(Pid);
+       NewCnt =:= undefined -> Fun(Pid);
+       true -> ok
+    end,
+    foreach_context(NewCnt, maps:next(Iter), Fun).
 
-peer_state(PState, #state{peer = Peer} = State) ->
-    State#state{peer = Peer#peer{state = PState}}.
+activity(When, #gtp{ie = #{{recovery, 0} :=
+			       #recovery{restart_counter = RestartCounter}}}, State, Data) ->
+    activity(When, RestartCounter, State, Data);
+activity(When, #gtp{ie = #{{v2_recovery, 0} :=
+			       #v2_recovery{restart_counter = RestartCounter}}}, State, Data) ->
+    activity(When, RestartCounter, State, Data);
+activity(When, #gtp{}, State, Data) ->
+    activity(When, rx, State, Data);
 
-peer_contexts(Contexts, #state{peer = Peer} = State) ->
-    State#state{peer = Peer#peer{contexts = Contexts}}.
+activity(When, RstCnt, #state{recovery = RstCnt} = State, Data)
+  when is_integer(RstCnt) ->
+    rx(When, State, Data);
+activity(When, RstCnt, State0, Data0)
+  when is_integer(RstCnt) ->
+    {Verdict, New, Data} = cas_restart_counter(RstCnt, Data0),
+    State =
+	case Verdict of
+	    _ when Verdict == initial; Verdict == current ->
+		State0#state{recovery = New};
+	    peer_restart ->
+		ring_path_restart(New, Data),
+		path_recovery_change(New, State0);
+	    _ ->
+		State0
+    end,
+    rx(When, State, Data);
+
+activity(When, rx, State, Data) ->
+    rx(When, State, Data);
+activity(_When, _What, State, Data) ->
+    {State, Data}.
+
+rx(When, State, #{last_seen := Last} = Data) when Last > When ->
+    {State, Data};
+rx(When, State, Data) ->
+    %% TBD: reset state timeout
+    {State#state{peer = up}, Data#{last_seen => When}}.
 
 cas_restart_counter(Counter, #{time := Time0, reg_key := Key} = Data) ->
     case gtp_path_db_vnode:cas_restart_counter(Key, Counter, Time0 + 1) of
@@ -505,16 +559,16 @@ cas_restart_counter(Counter, #{time := Time0, reg_key := Key} = Data) ->
     end.
 
 handle_restart_counter(RestartCounter, State0, Data0) ->
-    State = peer_state(up, State0),
+    State = State0#state{peer = up},
     {Verdict, New, Data} = cas_restart_counter(RestartCounter, Data0),
     case Verdict of
 	_ when Verdict == initial; Verdict == current ->
 	    {next_state, State#state{recovery = New}, Data};
 	peer_restart  ->
-	    ring_path_restart(RestartCounter, Data),
-	    {next_state, State, Data};
+	    ring_path_restart(New, Data),
+	    {next_state, path_recovery_change(New, State), Data};
 	_ ->
-	    {keep_state, Data}
+	    {next_state, State, Data}
     end.
 
 handle_recovery_ie(#gtp{version = v1,
@@ -529,76 +583,70 @@ handle_recovery_ie(#gtp{version = v2,
 						    RestartCounter}}}, State, Data) ->
     handle_restart_counter(RestartCounter, State, Data);
 handle_recovery_ie(#gtp{}, State, Data) ->
-    {next_state, peer_state(up, State), Data}.
+    {next_state, State#state{peer = up}, Data}.
 
-update_contexts(State0, #{socket := Socket, version := Version, ip := IP} = Data0,
-		CtxS, Actions) ->
-    Cnt = maps:size(CtxS),
-    ergw_prometheus:gtp_path_contexts(Socket, IP, Version, Cnt),
-    State = peer_contexts(Cnt, State0),
-    Data = Data0#{contexts => CtxS},
+update_contexts(#state{contexts = CtxS} = State,
+		#{socket := Socket, version := Version, ip := IP} = Data, Actions) ->
+    ergw_prometheus:gtp_path_contexts(Socket, IP, Version, maps:size(CtxS)),
     {next_state, State, Data, Actions}.
 
-register_monitor(Pid, State, #{contexts := CtxS, monitors := Mons} = Data, Actions)
-  when is_map_key(Pid, CtxS), is_map_key(Pid, Mons) ->
-    ?LOG(debug, "~s: monitor(~p)", [?MODULE, Pid]),
-    {next_state, State, Data, Actions};
-register_monitor(Pid, State, #{monitors := Mons} = Data, Actions) ->
-    ?LOG(debug, "~s: monitor(~p)", [?MODULE, Pid]),
+aquire_lease(From, Pid, #state{recovery = RstCnt, leases = Leases} = State, Data) ->
+    ?LOG(debug, "~s: lease(~p)", [?MODULE, Pid]),
     MRef = erlang:monitor(process, Pid),
-    {next_state, State, Data#{monitors => maps:put(Pid, MRef, Mons)}, Actions}.
+    Actions = [{reply, From, {ok, {MRef, RstCnt}}}],
+    {next_state, State#state{leases = maps:put(Pid, MRef, Leases)}, Data, Actions}.
 
-%% register_bind/5
-register_bind(Pid, MRef, State, #{contexts := CtxS} = Data, Actions) ->
-    update_contexts(State, Data, maps:put(Pid, MRef, CtxS), Actions).
+release_lease(MRef, #state{leases = Leases} = State, Data) ->
+    ?LOG(debug, "~s: lease(~p)", [?MODULE, MRef]),
+    erlang:demonitor(MRef),
+    {next_state, State#state{leases = maps:remove(MRef, Leases)}, Data}.
 
-%% register_bind/4
-register_bind(Pid, State, #{monitors := Mons} = Data, Actions)
-  when is_map_key(Pid, Mons)  ->
-    ?LOG(debug, "~s: register(~p)", [?MODULE, Pid]),
-    MRef = maps:get(Pid, Mons),
-    register_bind(Pid, MRef, State, Data#{monitors => maps:remove(Pid, Mons)}, Actions);
-register_bind(Pid, State, #{contexts := CtxS} = Data, Actions)
+%% bind_tunnel/4
+bind_tunnel(Pid, #state{contexts = CtxS}, _Data, Actions)
   when is_map_key(Pid, CtxS) ->
-    {next_state, State, Data, Actions};
-register_bind(Pid, State, Data, Actions) ->
+    {keep_state_and_data, Actions};
+bind_tunnel(Pid, #state{recovery = RstCnt, contexts = CtxS} = State, Data, Actions) ->
     ?LOG(debug, "~s: register(~p)", [?MODULE, Pid]),
     MRef = erlang:monitor(process, Pid),
-    register_bind(Pid, MRef, State, Data, Actions).
+    update_contexts(State#state{contexts = maps:put(Pid, {RstCnt, MRef}, CtxS)}, Data, Actions).
 
-unregister(Pid, State, #{contexts := CtxS} = Data, Actions)
+unbind_tunnel(Pid, #state{contexts = CtxS} = State, Data)
   when is_map_key(Pid, CtxS) ->
-    MRef = maps:get(Pid, CtxS),
-    erlang:demonitor(MRef, [flush]),
-    update_contexts(State, Data, maps:remove(Pid, CtxS), Actions);
-unregister(Pid, State, #{monitors := Mons} = Data, Actions)
-  when is_map_key(Pid, Mons) ->
-    MRef = maps:get(Pid, Mons),
-    erlang:demonitor(MRef, [flush]),
-    {next_state, State, Data#{monitors => maps:remove(Pid, Mons)}, Actions};
-unregister(_Pid, _, _Data, Actions) ->
-    {keep_state_and_data, Actions}.
+    {_, MRef} = maps:get(Pid, CtxS),
+    erlang:demonitor(MRef),
+    update_contexts(State#state{contexts = maps:remove(Pid, CtxS)}, Data, []);
+unbind_tunnel(_Pid, _State, _Data) ->
+    keep_state_and_data.
 
-bind_path(#gtp{version = Version}, Tunnel) ->
-    bind_path(Tunnel#tunnel{version = Version}).
-
-bind_path(#tunnel{socket = Socket, version = Version,
-		  remote = #fq_teid{ip = RemoteCntlIP}} = Tunnel) ->
-    Path = maybe_new_path(Socket, Version, RemoteCntlIP),
+%% assign_path/1
+get_path(#tunnel{socket = Socket, version = Version,
+		 remote = #fq_teid{ip = RemoteCntlIP}} = Tunnel, Trigger) ->
+    Path = maybe_new_path(Socket, Version, RemoteCntlIP, Trigger),
     Tunnel#tunnel{path = Path}.
 
-monitor_path_recovery(#tunnel{path = Path} = Tunnel) ->
-    {ok, PathRestartCounter} = gen_statem:call(Path, {monitor, self()}),
-    Tunnel#tunnel{remote_restart_counter = PathRestartCounter}.
+%% path might have died, returned a sensible error regardless
+safe_aquire_lease(#tunnel{path = Path} = Tunnel) ->
+    try gen_statem:call(Path, {aquire_lease, self()}) of
+	{ok, {LRef, PathRestartCounter}} ->
+	    {ok, {LRef, Tunnel#tunnel{remote_restart_counter = PathRestartCounter}}};
+	{error, _} = Error ->
+	    Error
+    catch
+	exit:{noproc, _} ->
+	    {error, rejected}
+    end.
 
-bind_path_recovery(RestartCounter, #tunnel{path = Path} = Tunnel)
-  when is_integer(RestartCounter) ->
-    %% TBD: bind could return `old` for request that "race" with a restart
-    _ = gen_statem:call(Path, {bind, self(), RestartCounter}),
-    Tunnel#tunnel{remote_restart_counter = RestartCounter};
-bind_path_recovery(_RestartCounter, #tunnel{path = Path} = Tunnel) ->
-    {ok, PathRestartCounter} = gen_statem:call(Path, {bind, self()}),
-    Tunnel#tunnel{remote_restart_counter = PathRestartCounter}.
+%% path might have died, returned a sensible error regardless
+safe_bind_tunnel(#tunnel{path = Path} = Tunnel) ->
+    try gen_statem:call(Path, {bind_tunnel, self()}) of
+	{ok, PathRestartCounter} ->
+	    {ok, Tunnel#tunnel{remote_restart_counter = PathRestartCounter}};
+	{error, _} = Error ->
+	    Error
+    catch
+	exit:{noproc, _} ->
+	    {error, rejected}
+    end.
 
 send_echo_request(State, #{socket := Socket, handler := Handler, ip := DstIP,
 			   t3 := T3, n3 := N3}) ->
@@ -608,17 +656,17 @@ send_echo_request(State, #{socket := Socket, handler := Handler, ip := DstIP,
     ergw_gtp_c_socket:send_request(Socket, any, DstIP, ?GTP1c_PORT, T3, N3, Msg, CbInfo),
     State#state{echo = Ref}.
 
-ring_path_restart(RestartCounter, #{reg_key := Key}) ->
+ring_path_restart(RstCnt, #{reg_key := Key}) ->
     {ok, Ring} = riak_core_ring_manager:get_my_ring(),
     erpc:multicast(riak_core_ring:all_members(Ring),
-		   ?MODULE, path_restart, [Key, RestartCounter]).
+		   ?MODULE, path_restart, [Key, RstCnt]).
 
-path_restart(RestartCounter, State, #{contexts := CtxS} = Data) ->
+path_recovery_change(RstCnt, #state{contexts = CtxS0} = State) ->
     Path = self(),
     ResF =
 	fun() ->
-		foreach_context(maps:next(maps:iterator(CtxS)),
+		foreach_context(RstCnt, maps:next(maps:iterator(CtxS0)),
 				gtp_context:path_restart(_, Path))
 	end,
     proc_lib:spawn(ResF),
-    update_contexts(State#state{recovery = RestartCounter}, Data, #{}, []).
+    State#state{recovery = RstCnt}.

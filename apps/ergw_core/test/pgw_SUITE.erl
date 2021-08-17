@@ -1425,10 +1425,10 @@ path_failure_suspect_timeout() ->
       "that a path failure (Echo timeout) transition to suspect"}].
 path_failure_suspect_timeout(Config) ->
     ok = meck:expect(gtp_path, init,
-		     fun ([Socket, Version, RemoteIP, Args0]) ->
+		     fun ([Socket, Version, RemoteIP, Trigger, Args0]) ->
 			     %% overwrite ping interval and suspect timeout
 			     Args = Args0#{echo => 10, suspect => #{echo => 60 * 1000, timeout => 300 * 1000}},
-			     meck:passthrough([[Socket, Version, RemoteIP, Args]])
+			     meck:passthrough([[Socket, Version, RemoteIP, Trigger, Args]])
 		     end),
 
     CtxKey = #context_key{socket = 'irx-socket', id = {imsi, ?'IMSI', 5}},
@@ -1473,10 +1473,10 @@ path_maintenance() ->
       "that we run GTP Echo Request on that peer continusly"}].
 path_maintenance(Config) ->
     ok = meck:expect(gtp_path, init,
-		     fun ([Socket, Version, RemoteIP, Args0]) ->
+		     fun ([Socket, Version, RemoteIP, Trigger, Args0]) ->
 			     %% overwrite ping interval
 			     Args = Args0#{echo => 10},
-			     meck:passthrough([[Socket, Version, RemoteIP, Args]])
+			     meck:passthrough([[Socket, Version, RemoteIP, Trigger, Args]])
 		     end),
 
     %% kill all path to ensure the meck override is used

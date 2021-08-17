@@ -167,7 +167,11 @@ handle_request(ReqKey,
 	    {error, Err1} -> throw(Err1#ctx_err{context = Context1, tunnel = LeftTunnel0})
 	end,
 
-    LeftTunnel = gtp_path:bind(Request, LeftTunnel1),
+    LeftTunnel =
+	case gtp_path:bind_tunnel(LeftTunnel1) of
+	    {ok, LT} -> LT;
+	    {error, Err2} -> throw(Err2#ctx_err{context = Context1, tunnel = LeftTunnel1})
+	end,
 
     gtp_context:terminate_colliding_context(LeftTunnel, Context1),
 
@@ -208,7 +212,6 @@ handle_request(ReqKey,
 		 left_tunnel := LeftTunnelOld,
 		 bearer := #{left := LeftBearerOld} = Bearer0,
 		 'Session' := Session, pcc := PCC} = Data) ->
-
     {LeftTunnel0, LeftBearer} =
 	case update_tunnel_from_gtp_req(
 	       Request, LeftTunnelOld#tunnel{version = v2}, LeftBearerOld) of
@@ -217,7 +220,7 @@ handle_request(ReqKey,
 	end,
     Bearer = Bearer0#{left => LeftBearer},
 
-    LeftTunnel = ergw_gtp_gsn_lib:update_tunnel_endpoint(Request, LeftTunnelOld, LeftTunnel0),
+    LeftTunnel = ergw_gtp_gsn_lib:update_tunnel_endpoint(LeftTunnelOld, LeftTunnel0),
     {OldSOpts, NewSOpts} = update_session_from_gtp_req(IEs, Session, LeftTunnel, LeftBearer),
     URRActions = gtp_context:collect_charging_events(OldSOpts, NewSOpts),
     PCtx =
@@ -259,7 +262,7 @@ handle_request(ReqKey,
 	    {error, Err1} -> throw(Err1#ctx_err{context = Context, tunnel = LeftTunnelOld})
 	end,
 
-    LeftTunnel = ergw_gtp_gsn_lib:update_tunnel_endpoint(Request, LeftTunnelOld, LeftTunnel0),
+    LeftTunnel = ergw_gtp_gsn_lib:update_tunnel_endpoint(LeftTunnelOld, LeftTunnel0),
     {OldSOpts, NewSOpts} = update_session_from_gtp_req(IEs, Session, LeftTunnel, LeftBearer),
     URRActions = gtp_context:collect_charging_events(OldSOpts, NewSOpts),
     gtp_context:trigger_usage_report(self(), URRActions, PCtx),
@@ -349,13 +352,13 @@ handle_response({CommandReqKey, OldSOpts},
 			    ?'Bearer Contexts to be modified' :=
 				#v2_bearer_context{
 				   group = #{?'Cause' := #v2_cause{v2_cause = BearerCause}}
-				  }} = IEs} = Response,
+				  }} = IEs},
 		_Request, connected = State,
 		#{pfcp := PCtx, left_tunnel := LeftTunnel0,bearer := #{left := LeftBearer},
 		  'Session' := Session} = Data) ->
     gtp_context:request_finished(CommandReqKey),
 
-    LeftTunnel = gtp_path:bind(Response, LeftTunnel0),
+    {ok, LeftTunnel} = gtp_path:bind_tunnel(LeftTunnel0),
     DataNew = Data#{left_tunnel => LeftTunnel},
 
     {_, NewSOpts} = update_session_from_gtp_req(IEs, Session, LeftTunnel, LeftBearer),
@@ -386,9 +389,9 @@ handle_response({From, TermCause}, timeout, #gtp{type = delete_bearer_request},
 
 handle_response({From, TermCause},
 		#gtp{type = delete_bearer_response,
-		     ie = #{?'Cause' := #v2_cause{v2_cause = Cause}}} = Response,
+		     ie = #{?'Cause' := #v2_cause{v2_cause = Cause}}},
 		_Request, _State, #{left_tunnel := LeftTunnel0} = Data0) ->
-    LeftTunnel = gtp_path:bind(Response, LeftTunnel0),
+    {ok, LeftTunnel} = gtp_path:bind_tunnel(LeftTunnel0),
 
     Data1 = Data0#{left_tunnel => LeftTunnel},
 

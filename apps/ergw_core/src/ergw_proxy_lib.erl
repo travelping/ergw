@@ -11,7 +11,7 @@
 	  {parse_transform, cut}]).
 
 -export([validate_options/3, validate_option/2,
-	 forward_request/3, forward_request/8, forward_request/10,
+	 forward_request/3, forward_request/9, forward_request/11,
 	 get_seq_no/3,
 	 select_gw/5,
 	 select_gtp_proxy_sockets/2,
@@ -29,17 +29,17 @@
 %%% API
 %%%===================================================================
 
-%% forward_request/10
-forward_request(Direction, #tunnel{socket = Socket}, Src, DstIP, DstPort,
+%% forward_request/11
+forward_request(Direction, #tunnel{socket = Socket}, Lease, Src, DstIP, DstPort,
 		Request, ReqKey, SeqNo, NewPeer, OldState) ->
-    {ReqId, ReqInfo} = make_proxy_request(Direction, ReqKey, SeqNo, NewPeer, OldState),
+    {ReqId, ReqInfo} = make_proxy_request(Direction, ReqKey, Lease, SeqNo, NewPeer, OldState),
     ?LOG(debug, "Invoking Context Send Request: ~p", [Request]),
     gtp_context:send_request(Socket, Src, DstIP, DstPort, ReqId, Request, ReqInfo).
 
-%% forward_request/8
-forward_request(Direction, #tunnel{remote = #fq_teid{ip = IP}} = Tunnel,
+%% forward_request/9
+forward_request(Direction, #tunnel{remote = #fq_teid{ip = IP}} = Tunnel, Lease,
 		Src, Request, ReqKey, SeqNo, NewPeer, OldState) ->
-    forward_request(Direction, Tunnel, Src, IP, ?GTP1c_PORT,
+    forward_request(Direction, Tunnel, Lease, Src, IP, ?GTP1c_PORT,
 		    Request, ReqKey, SeqNo, NewPeer, OldState).
 
 %% forward_request/3
@@ -190,11 +190,12 @@ make_request_id(#request{key = ReqKey}, SeqNo)
   when is_integer(SeqNo) ->
     {ReqKey, SeqNo}.
 
-make_proxy_request(Direction, Request, SeqNo, NewPeer, State) ->
+make_proxy_request(Direction, Request, Lease, SeqNo, NewPeer, State) ->
     ReqId = make_request_id(Request, SeqNo),
     ReqInfo = #proxy_request{
 		 direction = Direction,
 		 request = Request,
+		 lease = Lease,
 		 seq_no = SeqNo,
 		 new_peer = NewPeer,
 		 right_tunnel = maps:get(right_tunnel, State, undefined)

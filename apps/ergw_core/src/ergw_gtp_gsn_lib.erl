@@ -12,7 +12,7 @@
 
 -export([connect_upf_candidates/4, create_session/10]).
 -export([triggered_charging_event/4, usage_report/3, close_context/3, close_context/4]).
--export([update_tunnel_endpoint/3, handle_peer_change/3, update_tunnel_endpoint/2,
+-export([handle_peer_change/3, update_tunnel_endpoint/2,
 	 apply_bearer_change/5]).
 
 -include_lib("kernel/include/logger.hrl").
@@ -176,11 +176,12 @@ add_apn_timeout(Opts, Session, Context) ->
 %% Tunnel
 %%====================================================================
 
-update_tunnel_endpoint(Msg, TunnelOld, Tunnel0) ->
-    Tunnel = gtp_path:bind(Msg, Tunnel0),
+update_tunnel_endpoint(TunnelOld, Tunnel0) ->
+    %% TBD: handle errors
+    {ok, Tunnel} = gtp_path:bind_tunnel(Tunnel0),
     gtp_context:tunnel_reg_update(TunnelOld, Tunnel),
     if Tunnel#tunnel.path /= TunnelOld#tunnel.path ->
-	    gtp_path:unbind(TunnelOld);
+	    gtp_path:unbind_tunnel(TunnelOld);
        true ->
 	    ok
     end,
@@ -191,16 +192,6 @@ handle_peer_change(#tunnel{remote = NewFqTEID},
   when OldFqTEID /= NewFqTEID ->
     ergw_gsn_lib:reassign_tunnel_teid(TunnelOld);
 handle_peer_change(_, _, Tunnel) ->
-    Tunnel.
-
-update_tunnel_endpoint(TunnelOld, Tunnel0) ->
-    Tunnel = gtp_path:bind(Tunnel0),
-    gtp_context:tunnel_reg_update(TunnelOld, Tunnel),
-    if Tunnel#tunnel.path /= TunnelOld#tunnel.path ->
-	    gtp_path:unbind(TunnelOld);
-       true ->
-	    ok
-    end,
     Tunnel.
 
 %%====================================================================
