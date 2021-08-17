@@ -986,6 +986,8 @@ init_per_testcase(_, Config) ->
     Config.
 
 end_per_testcase(_Config) ->
+    %% stop all paths
+    lists:foreach(fun({_, Pid, _}) -> gtp_path:stop(Pid) end, gtp_path_reg:all()),
     stop_gtpc_server().
 
 end_per_testcase(create_session_proxy_request_resend, Config) ->
@@ -1156,9 +1158,6 @@ path_maint(Config) ->
 	     fun(X, M) -> maps:put(proplists:get_value(X, Config), X, M) end,
 	     #{}, [client_ip, test_gsn, proxy_gsn, final_gsn]),
 
-    %% stop all paths
-    lists:foreach(fun({_, Pid, _}) -> gtp_path:stop(Pid) end, gtp_path_reg:all()),
-
     {GtpC0, _, _} = create_session(random, Config),
     ct:sleep(500),
 
@@ -1274,8 +1273,6 @@ path_failure_to_pgw(Config) ->
     DownPeers = lists:filter(
 		  fun({_, State}) -> State =:= down end, gtp_path_reg:all(FinalGSN)),
     ?equal(1, length(DownPeers)),
-    [{PeerPid, _}] = DownPeers,
-    gtp_path:stop(PeerPid),
 
     meck_validate(Config),
     ok.
@@ -1288,8 +1285,6 @@ path_failure_to_pgw_and_restore() ->
 path_failure_to_pgw_and_restore(Config) ->
     Cntl = whereis(gtpc_client_server),
     CtxKey = #context_key{socket = 'irx', id = {imsi, ?'IMSI', 5}},
-
-    lists:foreach(fun({_, Pid, _}) -> gtp_path:stop(Pid) end, gtp_path_reg:all()),
 
     {GtpC, _, _} = create_session(Config),
 
@@ -1343,7 +1338,6 @@ path_failure_to_pgw_and_restore(Config) ->
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     wait4tunnels(?TIMEOUT),
-    lists:foreach(fun({_, Pid, _}) -> gtp_path:stop(Pid) end, gtp_path_reg:all()),
 
     meck_validate(Config),
     ok.
@@ -1716,9 +1710,6 @@ create_lb_multi_session(Config) ->
     init_seq_no(?MODULE, 16#80000),
     GtpC = gtp_context(?MODULE, Config),
 
-    %% stop all existing paths
-    lists:foreach(fun({_, Pid, _}) -> gtp_path:stop(Pid) end, gtp_path_reg:all()),
-
     GSNs = [{proplists:get_value(K, Config), 0} || K <- [final_gsn, final_gsn_2]],
     CntSinit = maps:from_list(GSNs),
 
@@ -1763,9 +1754,6 @@ one_lb_node_down(Config) ->
     %% set one peer node as down gtp_path_req and ensure that it is not chosen
     init_seq_no(?MODULE, 16#80000),
 
-    %% stop all existing paths
-    lists:foreach(fun({_, Pid, _}) -> gtp_path:stop(Pid) end, gtp_path_reg:all()),
-
     DownGSN = proplists:get_value(final_gsn_2, Config),
     CSocket = ergw_socket_reg:lookup('gtp-c', 'irx'),
 
@@ -1779,7 +1767,7 @@ one_lb_node_down(Config) ->
 		     end),
 
     %% create the path
-    CPid = gtp_path:maybe_new_path(CSocket, v2, DownGSN),
+    CPid = gtp_path:maybe_new_path(CSocket, v2, DownGSN, activity),
 
     %% down the path by forcing a echo
     ok = gtp_path:ping(CPid),
@@ -1801,7 +1789,6 @@ one_lb_node_down(Config) ->
 
     ok = meck:wait(?NUM_OF_CLIENTS, ?HUT, terminate, '_', ?TIMEOUT),
     wait4tunnels(?TIMEOUT),
-    lists:foreach(fun({_, Pid, _}) -> gtp_path:stop(Pid) end, gtp_path_reg:all()),
 
     meck_validate(Config),
     ok.

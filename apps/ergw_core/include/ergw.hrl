@@ -147,6 +147,7 @@
 -record(proxy_request, {
 	  direction	:: atom(),
 	  request	:: #request{},
+	  lease         :: reference(),
 	  seq_no	:: non_neg_integer(),
 	  right_tunnel	:: #tunnel{},
 	  new_peer	:: boolean()

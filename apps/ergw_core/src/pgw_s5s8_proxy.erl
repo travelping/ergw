@@ -251,7 +251,11 @@ handle_request(ReqKey,
 	    {error, Err1} -> throw(Err1#ctx_err{tunnel = LeftTunnel0})
 	end,
     Bearer1 = Bearer0#{left => LeftBearer1},
-    LeftTunnel = gtp_path:bind(Request, LeftTunnel1),
+    LeftTunnel =
+	case gtp_path:bind_tunnel(LeftTunnel1) of
+	    {ok, LT} -> LT;
+	    {error, Err1a} -> throw(Err1a#ctx_err{context = Context, tunnel = LeftTunnel1})
+	end,
 
     gtp_context:terminate_colliding_context(LeftTunnel, Context),
 
@@ -281,7 +285,7 @@ handle_request(ReqKey,
 
     ProxyContext = init_proxy_context(Context, ProxyInfo),
     RightTunnel0 = init_proxy_tunnel(ProxySocket, ProxyGGSN),
-    RightTunnel = gtp_path:bind(RightTunnel0),
+    {ok, {Lease, RightTunnel}} = gtp_path:aquire_lease(RightTunnel0),
 
     ergw_sx_node:wait_connect(SxConnectId),
     {PCtx0, NodeCaps} =
@@ -316,7 +320,7 @@ handle_request(ReqKey,
     DataNew =
 	Data#{context => Context, proxy_context => ProxyContext, pfcp => PCtx,
 	      left_tunnel => LeftTunnel, right_tunnel => RightTunnel, bearer => Bearer},
-    forward_request(sgw2pgw, ReqKey, Request, RightTunnel,
+    forward_request(sgw2pgw, ReqKey, Request, RightTunnel, Lease,
 		    maps:get(right, Bearer), ProxyContext, DataNew, Data),
 
     %% 30 second timeout to have enough room for resents
@@ -336,30 +340,28 @@ handle_request(ReqKey,
 	    {ok, Result1} -> Result1;
 	    {error, Err1} -> throw(Err1#ctx_err{tunnel = LeftTunnelOld})
 	end,
-    LeftTunnel = ergw_gtp_gsn_lib:update_tunnel_endpoint(Request, LeftTunnelOld, LeftTunnel0),
+    LeftTunnel = ergw_gtp_gsn_lib:update_tunnel_endpoint(LeftTunnelOld, LeftTunnel0),
 
     RightTunnel0 = ergw_gtp_gsn_lib:handle_peer_change(
 		     LeftTunnel, LeftTunnelOld, RightTunnelOld#tunnel{version = v2}),
-    RightTunnel = ergw_gtp_gsn_lib:update_tunnel_endpoint(RightTunnelOld, RightTunnel0),
+    RightTunnel1 = ergw_gtp_gsn_lib:update_tunnel_endpoint(RightTunnelOld, RightTunnel0),
+    {ok, {Lease, RightTunnel}} = gtp_path:aquire_lease(RightTunnel1),
 
     DataNew = Data#{left_tunnel => LeftTunnel, right_tunnel => RightTunnel,
 		    bearer => Bearer#{left => LeftBearer}},
 
-    forward_request(sgw2pgw, ReqKey, Request, RightTunnel, RightBearer, ProxyContext, DataNew, Data),
+    forward_request(sgw2pgw, ReqKey, Request, RightTunnel, Lease, RightBearer, ProxyContext, DataNew, Data),
 
     {keep_state, DataNew};
 
 handle_request(ReqKey,
 	       #gtp{type = modify_bearer_command} = Request,
 	       _Resent, connected,
-	       #{proxy_context := ProxyContext,
-		 left_tunnel := LeftTunnel, right_tunnel := RightTunnel,
+	       #{proxy_context := ProxyContext, left_tunnel := LeftTunnel,
 		 bearer := #{right := RightBearer}} = Data0)
   when ?IS_REQUEST_TUNNEL(ReqKey, Request, LeftTunnel) ->
-
-    Data1 = bind_forward_path(sgw2pgw, Request, Data0),
-
-    forward_request(sgw2pgw, ReqKey, Request, RightTunnel, RightBearer, ProxyContext, Data1, Data1),
+    {Lease, RightTunnel, Data1} = forward_activity(sgw2pgw, Request, Data0),
+    forward_request(sgw2pgw, ReqKey, Request, RightTunnel, Lease, RightBearer, ProxyContext, Data1, Data1),
 
     Data = trigger_request(RightTunnel, ReqKey, Request, Data1),
     {keep_state, Data};
@@ -370,14 +372,11 @@ handle_request(ReqKey,
 handle_request(ReqKey,
 	       #gtp{type = change_notification_request} = Request,
 	       _Resent, connected,
-	       #{proxy_context := ProxyContext,
-		 left_tunnel := LeftTunnel, right_tunnel := RightTunnel,
+	       #{proxy_context := ProxyContext, left_tunnel := LeftTunnel,
 		 bearer := #{right := RightBearer}} = Data)
   when ?IS_REQUEST_TUNNEL_OPTIONAL_TEI(ReqKey, Request, LeftTunnel) ->
-
-    DataNew = bind_forward_path(sgw2pgw, Request, Data),
-
-    forward_request(sgw2pgw, ReqKey, Request, RightTunnel, RightBearer, ProxyContext, DataNew, Data),
+    {Lease, RightTunnel, DataNew} = forward_activity(sgw2pgw, Request, Data),
+    forward_request(sgw2pgw, ReqKey, Request, RightTunnel, Lease, RightBearer, ProxyContext, DataNew, Data),
 
     {keep_state, DataNew};
 
@@ -387,16 +386,13 @@ handle_request(ReqKey,
 handle_request(ReqKey,
 	       #gtp{type = Type} = Request,
 	       _Resent, connected,
-	       #{proxy_context := ProxyContext,
-		 left_tunnel := LeftTunnel, right_tunnel := RightTunnel,
+	       #{proxy_context := ProxyContext, left_tunnel := LeftTunnel,
 		 bearer := #{right := RightBearer}} = Data)
   when (Type == suspend_notification orelse
 	Type == resume_notification) andalso
        ?IS_REQUEST_TUNNEL(ReqKey, Request, LeftTunnel) ->
-
-    DataNew = bind_forward_path(sgw2pgw, Request, Data),
-
-    forward_request(sgw2pgw, ReqKey, Request, RightTunnel, RightBearer, ProxyContext, DataNew, Data),
+    {Lease, RightTunnel, DataNew} = forward_activity(sgw2pgw, Request, Data),
+    forward_request(sgw2pgw, ReqKey, Request, RightTunnel, Lease, RightBearer, ProxyContext, DataNew, Data),
 
     {keep_state, DataNew};
 
@@ -406,14 +402,11 @@ handle_request(ReqKey,
 handle_request(ReqKey,
 	       #gtp{type = update_bearer_request} = Request,
 	       _Resent, connected,
-	       #{context := Context,
-		 left_tunnel := LeftTunnel, right_tunnel := RightTunnel,
+	       #{context := Context, right_tunnel := RightTunnel,
 		 bearer := #{left := LeftBearer}} = Data0)
   when ?IS_REQUEST_TUNNEL(ReqKey, Request, RightTunnel) ->
-
-    Data = bind_forward_path(pgw2sgw, Request, Data0),
-
-    forward_request(pgw2sgw, ReqKey, Request, LeftTunnel, LeftBearer, Context, Data, Data),
+    {Lease, LeftTunnel, Data} = forward_activity(pgw2sgw, Request, Data0),
+    forward_request(pgw2sgw, ReqKey, Request, LeftTunnel, Lease, LeftBearer, Context, Data, Data),
 
     {keep_state, Data};
 
@@ -423,15 +416,14 @@ handle_request(ReqKey,
 handle_request(ReqKey,
 	       #gtp{type = delete_session_request} = Request,
 	       _Resent, connected,
-	       #{proxy_context := ProxyContext,
-		 left_tunnel := LeftTunnel, right_tunnel := RightTunnel,
+	       #{proxy_context := ProxyContext, left_tunnel := LeftTunnel,
 		 bearer := #{right := RightBearer}} = Data0)
   when ?IS_REQUEST_TUNNEL(ReqKey, Request, LeftTunnel) ->
-
-    forward_request(sgw2pgw, ReqKey, Request, RightTunnel, RightBearer, ProxyContext, Data0, Data0),
+    {Lease, RightTunnel, Data1} = forward_activity(sgw2pgw, Request, Data0),
+    forward_request(sgw2pgw, ReqKey, Request, RightTunnel, Lease, RightBearer, ProxyContext, Data0, Data1),
 
     Msg = {delete_session_request, sgw2pgw, ReqKey, Request},
-    Data = restart_timeout(?RESPONSE_TIMEOUT, Msg, Data0),
+    Data = restart_timeout(?RESPONSE_TIMEOUT, Msg, Data1),
 
     {keep_state, Data};
 
@@ -441,15 +433,14 @@ handle_request(ReqKey,
 handle_request(ReqKey,
 	       #gtp{type = delete_bearer_request} = Request,
 	       _Resent, _State,
-	       #{context := Context,
-		 left_tunnel := LeftTunnel, right_tunnel := RightTunnel,
+	       #{context := Context, right_tunnel := RightTunnel,
 		 bearer := #{left := LeftBearer}} = Data0)
   when ?IS_REQUEST_TUNNEL(ReqKey, Request, RightTunnel) ->
-
-    forward_request(pgw2sgw, ReqKey, Request, LeftTunnel, LeftBearer, Context, Data0, Data0),
+    {Lease, LeftTunnel, Data1} = forward_activity(pgw2sgw, Request, Data0),
+    forward_request(pgw2sgw, ReqKey, Request, LeftTunnel, Lease, LeftBearer, Context, Data0, Data1),
 
     Msg = {delete_bearer_request, pgw2sgw, ReqKey, Request},
-    Data = restart_timeout(?RESPONSE_TIMEOUT, Msg, Data0),
+    Data = restart_timeout(?RESPONSE_TIMEOUT, Msg, Data1),
 
     {keep_state, Data};
 
@@ -463,12 +454,14 @@ handle_request(ReqKey, _Request, _Resent, _State, _Data) ->
 handle_response(ReqInfo, #gtp{version = v1} = Msg, Request, State, Data) ->
     ?GTP_v1_Interface:handle_response(ReqInfo, Msg, Request, State, Data);
 
-handle_response(_, _Response, _Request, shutdown, _Data) ->
+handle_response(ProxyRequest, _Response, _Request, shutdown, Data) ->
+    forward_request_done(ProxyRequest, Data),
     keep_state_and_data;
 
-handle_response(#proxy_request{direction = sgw2pgw},
-		timeout, #gtp{type = create_session_request}, State, _)
+handle_response(#proxy_request{direction = sgw2pgw} = ProxyRequest,
+		timeout, #gtp{type = create_session_request}, State, Data)
   when State == connected; State == connecting ->
+    forward_request_done(ProxyRequest, Data),
     keep_state_and_data;
 
 handle_response(#proxy_request{direction = sgw2pgw} = ProxyRequest,
@@ -480,12 +473,17 @@ handle_response(#proxy_request{direction = sgw2pgw} = ProxyRequest,
 		  bearer := #{left := LeftBearer, right := RightBearer0} = Bearer0} = Data0) ->
     ?LOG(debug, "OK Proxy Response ~p", [Response]),
 
+    forward_request_done(ProxyRequest, Data0),
     {RightTunnel1, RightBearer} =
 	case pgw_s5s8:update_tunnel_from_gtp_req(Response, RightTunnel0, RightBearer0) of
 	    {ok, Result1} -> Result1;
 	    {error, Err1} -> throw(Err1#ctx_err{tunnel = LeftTunnel})
 	end,
-    RightTunnel = gtp_path:bind(Response, RightTunnel1),
+    RightTunnel =
+	case gtp_path:bind_tunnel(RightTunnel1) of
+	    {ok, RT} -> RT;
+	    {error, Err1a} -> throw(Err1a#ctx_err{context = Context, tunnel = RightTunnel1})
+	end,
     Bearer = Bearer0#{right := RightBearer},
 
     ProxyContext = pgw_s5s8:update_context_from_gtp_req(Response, PrevProxyCtx),
@@ -521,13 +519,13 @@ handle_response(#proxy_request{direction = sgw2pgw,
 		  bearer := #{left := LeftBearer, right := RightBearerOld} = Bearer0} = Data) ->
     ?LOG(debug, "OK Proxy Response ~p", [Response]),
 
+    forward_request_done(ProxyRequest, Data),
     {RightTunnel0, RightBearer} =
 	case pgw_s5s8:update_tunnel_from_gtp_req(Response, RightTunnelOld, RightBearerOld) of
 	    {ok, Result1} -> Result1;
 	    {error, Err1} -> throw(Err1#ctx_err{tunnel = LeftTunnel})
 	end,
-    RightTunnel =
-	ergw_gtp_gsn_lib:update_tunnel_endpoint(Response, RightTunnelOld, RightTunnel0),
+    RightTunnel = ergw_gtp_gsn_lib:update_tunnel_endpoint(RightTunnelOld, RightTunnel0),
     Bearer = Bearer0#{right := RightBearer},
 
     ProxyContext = pgw_s5s8:update_context_from_gtp_req(Response, ProxyContextOld),
@@ -560,9 +558,11 @@ handle_response(#proxy_request{direction = sgw2pgw,
 handle_response(#proxy_request{direction = sgw2pgw} = ProxyRequest,
 		#gtp{type = change_notification_response} = Response,
 		_Request, _State,
-		#{context := Context, left_tunnel := LeftTunnel, bearer := #{left := LeftBearer}}) ->
+		#{context := Context, left_tunnel := LeftTunnel,
+		  bearer := #{left := LeftBearer}} = Data) ->
     ?LOG(debug, "OK Proxy Response ~p", [Response]),
 
+    forward_request_done(ProxyRequest, Data),
     forward_response(ProxyRequest, Response, LeftTunnel, LeftBearer, Context),
     keep_state_and_data;
 
@@ -572,11 +572,13 @@ handle_response(#proxy_request{direction = sgw2pgw} = ProxyRequest,
 handle_response(#proxy_request{direction = sgw2pgw} = ProxyRequest,
 		#gtp{type = Type} = Response,
 		_Request, _State,
-		#{context := Context, left_tunnel := LeftTunnel, bearer := #{left := LeftBearer}})
+		#{context := Context, left_tunnel := LeftTunnel,
+		  bearer := #{left := LeftBearer}} = Data)
   when Type == suspend_acknowledge;
        Type == resume_acknowledge ->
     ?LOG(debug, "OK Proxy Acknowledge ~p", [Response]),
 
+    forward_request_done(ProxyRequest, Data),
     forward_response(ProxyRequest, Response, LeftTunnel, LeftBearer, Context),
     keep_state_and_data;
 
@@ -590,6 +592,7 @@ handle_response(#proxy_request{direction = pgw2sgw} = ProxyRequest,
 		  right_tunnel := RightTunnel, bearer := #{right := RightBearer}} = Data) ->
     ?LOG(debug, "OK Response ~p", [Response]),
 
+    forward_request_done(ProxyRequest, Data),
     forward_response(ProxyRequest, Response, RightTunnel, RightBearer, ProxyContext),
     trigger_request_finished(Response, Data),
 
@@ -600,6 +603,7 @@ handle_response(#proxy_request{direction = sgw2pgw} = ProxyRequest,
 		#{context := Context, left_tunnel := LeftTunnel, bearer := #{left := LeftBearer}} = Data0) ->
     ?LOG(debug, "Proxy Response ~p", [Response0]),
 
+    forward_request_done(ProxyRequest, Data0),
     Response =
 	if is_record(Response0, gtp) ->
 		Response0;
@@ -621,6 +625,7 @@ handle_response(#proxy_request{direction = pgw2sgw} = ProxyRequest,
 		  right_tunnel := RightTunnel, bearer := #{right := RightBearer}} = Data0) ->
     ?LOG(debug, "Proxy Response ~p", [Response0]),
 
+    forward_request_done(ProxyRequest, Data0),
     Response =
 	if is_record(Response0, gtp) ->
 		Response0;
@@ -636,10 +641,11 @@ handle_response(#proxy_request{direction = pgw2sgw} = ProxyRequest,
     Data = delete_forward_session(normal, Data0),
     {next_state, shutdown, Data};
 
-handle_response(#proxy_request{request = ReqKey} = _ReqInfo,
-		Response, _Request, _State, _Data) ->
+handle_response(#proxy_request{request = ReqKey} = ProxyRequest,
+		Response, _Request, _State, Data) ->
     ?LOG(warning, "Unknown Proxy Response ~p", [Response]),
 
+    forward_request_done(ProxyRequest, Data),
     gtp_context:request_finished(ReqKey),
     keep_state_and_data;
 
@@ -786,7 +792,8 @@ initiate_session_teardown(sgw2pgw = Direction, From, connected,
     RequestIEs0 = [#v2_cause{v2_cause = network_failure},
 		   #v2_eps_bearer_id{eps_bearer_id = EBI}],
     RequestIEs = gtp_v2_c:build_recovery(Type, Tunnel, false, RequestIEs0),
-    send_request(Tunnel, ?T3, ?N3, Type, RequestIEs, {Direction, From}),
+    {ok, {Lease, _}} = gtp_path:aquire_lease(Tunnel),
+    send_request(Tunnel, ?T3, ?N3, Type, RequestIEs, {Direction, Lease, From}),
     maps:update_with(shutdown, [Direction|_], [Direction], Data);
 initiate_session_teardown(pgw2sgw = Direction, From, State,
 			  #{left_tunnel := Tunnel,
@@ -796,7 +803,8 @@ initiate_session_teardown(pgw2sgw = Direction, From, State,
     RequestIEs0 = [#v2_cause{v2_cause = reactivation_requested},
 		   #v2_eps_bearer_id{eps_bearer_id = EBI}],
     RequestIEs = gtp_v2_c:build_recovery(Type, Tunnel, false, RequestIEs0),
-    send_request(Tunnel, ?T3, ?N3, Type, RequestIEs, {Direction, From}),
+    {ok, {Lease, _}} = gtp_path:aquire_lease(Tunnel),
+    send_request(Tunnel, ?T3, ?N3, Type, RequestIEs, {Direction, Lease, From}),
     maps:update_with(shutdown, [Direction|_], [Direction], Data);
 initiate_session_teardown(_, _, _, Data) ->
     Data.
@@ -813,28 +821,37 @@ session_teardown_response(Answer, Direction, From, #{shutdown := Shutdown0} = Da
 	    {keep_state, Data#{shutdown => Shutdown}}
     end.
 
-bind_forward_path(sgw2pgw, Request,
-		  #{left_tunnel := LeftTunnel, right_tunnel := RightTunnel} = Data) ->
-    Data#{left_tunnel => gtp_path:bind(Request, LeftTunnel),
-	  right_tunnel => gtp_path:bind(RightTunnel)};
-bind_forward_path(pgw2sgw, Request,
-		  #{left_tunnel := LeftTunnel, right_tunnel := RightTunnel} = Data) ->
-    Data#{left_tunnel => gtp_path:bind(LeftTunnel),
-	  right_tunnel => gtp_path:bind(Request, RightTunnel)}.
+forward_activity(sgw2pgw, _Request, #{right_tunnel := RightTunnel0} = Data) ->
+    {ok, {Lease, RightTunnel}} = gtp_path:aquire_lease(RightTunnel0),
+    {Lease, RightTunnel, Data#{right_tunnel => RightTunnel}};
+forward_activity(pgw2sgw, _Request, #{left_tunnel := LeftTunnel0} = Data) ->
+    {ok, {Lease, LeftTunnel}} = gtp_path:aquire_lease(LeftTunnel0),
+    {Lease, LeftTunnel, Data#{left_tunnel => LeftTunnel}}.
 
 forward_request(Direction, ReqKey, #gtp{seq_no = ReqSeqNo, ie = ReqIEs} = Request,
-		Tunnel, Bearer, Context,
+		Tunnel, Lease, Bearer, Context,
 		#{last_trigger_id :=
 		      {ReqSeqNo, LastFwdSeqNo, Src, IP, Port, _}}, Data) ->
     FwdReq = build_context_request(Tunnel, Bearer, Context, false, LastFwdSeqNo, Request),
-    ergw_proxy_lib:forward_request(Direction, Tunnel, Src,IP, Port, FwdReq, ReqKey,
+    ergw_proxy_lib:forward_request(Direction, Tunnel, Lease, Src,IP, Port, FwdReq, ReqKey,
 				   ReqSeqNo, is_map_key(?'Recovery', ReqIEs), Data);
 
 forward_request(Direction, ReqKey, #gtp{seq_no = ReqSeqNo, ie = ReqIEs} = Request,
-		Tunnel, Bearer, Context, _, Data) ->
+		Tunnel, Lease, Bearer, Context, _, Data) ->
     FwdReq = build_context_request(Tunnel, Bearer, Context, false, undefined, Request),
-    ergw_proxy_lib:forward_request(Direction, Tunnel, any, FwdReq, ReqKey,
+    ergw_proxy_lib:forward_request(Direction, Tunnel, Lease, any, FwdReq, ReqKey,
 				   ReqSeqNo, is_map_key(?'Recovery', ReqIEs), Data).
+
+forward_request_done(#proxy_request{direction = Direction, lease = Lease}, Data) ->
+    forward_request_done(Direction, Lease, Data);
+forward_request_done({Direction, Lease, _}, Data)
+ when is_atom(Direction), is_reference(Lease) ->
+    forward_request_done(Direction, Lease, Data).
+
+forward_request_done(sgw2pgw, Lease, #{right_tunnel := RightTunnel}) ->
+    gtp_path:release_lease(Lease, RightTunnel);
+forward_request_done(pgw2sgw, Lease, #{left_tunnel := LeftTunnel}) ->
+    gtp_path:release_lease(Lease, LeftTunnel).
 
 trigger_request(Tunnel, #request{src = Src, ip = IP, port = Port} = ReqKey,
 		#gtp{seq_no = SeqNo} = Request, Data) ->

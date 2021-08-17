@@ -55,12 +55,13 @@ port_message(Id, #request{socket = Socket} = Request, Msg) ->
 	[{Handler, Server}] when is_atom(Handler), is_pid(Server) ->
 	    Handler:port_message(Server, Request, Msg, false);
 	_Other ->
-	    ?LOG(debug, "unable to find context ~p", [Key]),
+	    ?LOG(debug, "no context found for key ~0p", [Key]),
 	    throw({error, not_found})
     end.
 
 %% port_message/4
 port_message(Key, Request, Msg, Resent) ->
+    gtp_path:activity(Request, Msg),
     apply2context(Key, port_message, [Request, Msg, Resent]).
 
 %%%===================================================================
@@ -90,7 +91,7 @@ apply2context(Key, F, A) ->
 	{Handler, Server} when is_atom(Handler), is_pid(Server) ->
 	    apply(Handler, F, [Server | A]);
 	_Other ->
-	    ?LOG(debug, "unable to find context ~p", [Key]),
+	    ?LOG(debug, "no context registered with key ~0p", [Key]),
 	    {error, not_found}
     end.
 

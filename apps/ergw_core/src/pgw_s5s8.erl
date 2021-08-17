@@ -201,7 +201,11 @@ handle_request(ReqKey,
 	    {error, Err1} -> throw(Err1#ctx_err{context = Context1, tunnel = LeftTunnel0})
 	end,
 
-    LeftTunnel = gtp_path:bind(Request, LeftTunnel1),
+    LeftTunnel =
+	case gtp_path:bind_tunnel(LeftTunnel1) of
+	    {ok, LT} -> LT;
+	    {error, Err2} -> throw(Err2#ctx_err{context = Context1, tunnel = LeftTunnel1})
+	end,
 
     gtp_context:terminate_colliding_context(LeftTunnel, Context1),
 
@@ -256,7 +260,7 @@ handle_request(ReqKey,
 	end,
     Bearer = Bearer0#{left => LeftBearer},
 
-    LeftTunnel = ergw_gtp_gsn_lib:update_tunnel_endpoint(Request, LeftTunnelOld, LeftTunnel0),
+    LeftTunnel = ergw_gtp_gsn_lib:update_tunnel_endpoint(LeftTunnelOld, LeftTunnel0),
     {OldSOpts, NewSOpts} = update_session_from_gtp_req(IEs, Session, LeftTunnel, LeftBearer),
     URRActions = gtp_context:collect_charging_events(OldSOpts, NewSOpts),
     PCtx =
@@ -320,7 +324,7 @@ handle_request(ReqKey,
 	    {error, Err1} -> throw(Err1#ctx_err{context = Context, tunnel = LeftTunnelOld})
 	end,
 
-    LeftTunnel = ergw_gtp_gsn_lib:update_tunnel_endpoint(Request, LeftTunnelOld, LeftTunnel0),
+    LeftTunnel = ergw_gtp_gsn_lib:update_tunnel_endpoint(LeftTunnelOld, LeftTunnel0),
     {OldSOpts, NewSOpts} = update_session_from_gtp_req(IEs, Session, LeftTunnel, LeftBearer),
     URRActions = gtp_context:collect_charging_events(OldSOpts, NewSOpts),
     gtp_context:trigger_usage_report(self(), URRActions, PCtx),
@@ -430,24 +434,21 @@ handle_response({CommandReqKey, OldSOpts},
 			    ?'Bearer Contexts to be modified' :=
 				#v2_bearer_context{
 				   group = #{?'Cause' := #v2_cause{v2_cause = BearerCause}}
-				  }} = IEs} = Response,
+				  }} = IEs},
 		_Request, connected = State,
-		#{pfcp := PCtx, left_tunnel := LeftTunnel0, bearer := #{left := LeftBearer},
+		#{pfcp := PCtx, left_tunnel := LeftTunnel, bearer := #{left := LeftBearer},
 		  'Session' := Session} = Data) ->
     gtp_context:request_finished(CommandReqKey),
-
-    LeftTunnel = gtp_path:bind(Response, LeftTunnel0),
-    DataNew = Data#{left_tunnel => LeftTunnel},
 
     if Cause =:= request_accepted andalso BearerCause =:= request_accepted ->
 	    {_, NewSOpts} = update_session_from_gtp_req(IEs, Session, LeftTunnel, LeftBearer),
 	    URRActions = gtp_context:collect_charging_events(OldSOpts, NewSOpts),
 	    gtp_context:trigger_usage_report(self(), URRActions, PCtx),
-	    {keep_state, DataNew};
+	    {keep_state, Data};
        true ->
 	    ?LOG(error, "Update Bearer Request failed with ~p/~p",
 			[Cause, BearerCause]),
-	    delete_context(undefined, link_broken, State, DataNew)
+	    delete_context(undefined, link_broken, State, Data)
     end;
 
 handle_response({CommandReqKey, _}, timeout, #gtp{type = update_bearer_request},
@@ -466,16 +467,11 @@ handle_response({From, TermCause}, timeout, #gtp{type = delete_bearer_request},
 
 handle_response({From, TermCause},
 		#gtp{type = delete_bearer_response,
-		     ie = #{?'Cause' := #v2_cause{v2_cause = RespCause}} = IEs} = Response,
+		     ie = #{?'Cause' := #v2_cause{v2_cause = RespCause}} = IEs},
 		_Request, _State,
-		#{context := Context, left_tunnel := LeftTunnel0,
-		  'Session' := Session} = Data0) ->
-    LeftTunnel = gtp_path:bind(Response, LeftTunnel0),
-
-    Data1 = Data0#{left_tunnel => LeftTunnel},
-
+		#{context := Context, 'Session' := Session} = Data0) ->
     process_secondary_rat_usage_data_reports(IEs, Context, Session),
-    Data = ergw_gtp_gsn_lib:close_context(?API, TermCause, Data1),
+    Data = ergw_gtp_gsn_lib:close_context(?API, TermCause, Data0),
     if is_tuple(From) -> gen_statem:reply(From, {ok, RespCause});
        true -> ok
     end,
