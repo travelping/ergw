@@ -61,10 +61,10 @@ choose_gw(Nodes, NodeSelect, Version, #socket{name = Name} = Socket) ->
 	   {Node, IP} <- resolve_gw(Candidate, NodeSelect),
 	   begin
 	       case gtp_path_reg:state({Name, Version, IP}) of
-		   down ->
-		       choose_gw(Next, NodeSelect, Version, Socket);
 		   State when State =:= undefined; State =:= up ->
-		       return({Node, IP})
+		       return({Node, IP});
+		   _ ->
+		       choose_gw(Next, NodeSelect, Version, Socket)
 	       end
 	   end]).
 
@@ -73,6 +73,7 @@ select_gw(#{imsi := IMSI, gwSelectionAPN := APN}, Version, Services, NodeSelect,
     FQDN = ergw_node_selection:apn_to_fqdn(APN, IMSI),
     case ergw_node_selection:candidates(FQDN, Services, NodeSelect) of
 	[_|_] = Nodes ->
+	    gtp_path:gateway_nodes(Socket, Version, Nodes),
 	    choose_gw(Nodes, NodeSelect, Version, Socket);
 	_ ->
 	    {error, ?CTX_ERR(?FATAL, system_failure)}

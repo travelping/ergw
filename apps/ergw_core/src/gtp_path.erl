@@ -14,6 +14,7 @@
 
 %% API
 -export([start_link/5, all/1,
+	 gateway_nodes/3,
 	 handle_request/2, handle_response/4,
 	 activity/2, activity/5,
 	 aquire_lease/1, release_lease/2,
@@ -71,6 +72,16 @@ getopts() ->
 	    ergw_core_config:put(path_management, Opts),
 	    {ok, Opts}
     end.
+
+gateway_nodes(Socket, Version, Nodes) ->
+    proc_lib:spawn(
+      fun() ->
+	      lists:foreach(
+		fun({_Name, _, _, IP4, IP6}) ->
+			lists:foreach(maybe_new_path(Socket, Version, _, detect), IP4),
+			lists:foreach(maybe_new_path(Socket, Version, _, detect), IP6)
+		end, Nodes)
+      end).
 
 maybe_new_path(Socket, Version, RemoteIP, Trigger) ->
     case get(Socket, Version, RemoteIP) of
