@@ -227,7 +227,17 @@ triggered_charging_event(ChargeEv, Now, Request,
     ok.
 
 usage_report(URRActions, UsageReport, #{pfcp := PCtx, 'Session' := Session}) ->
-    ergw_gtp_gsn_session:usage_report(URRActions, UsageReport, PCtx, Session).
+    ergw_gtp_gsn_session:usage_report(URRActions, UsageReport, PCtx, Session);
+usage_report(_URRActions, _UsageReport, #{'Session' := _}) ->
+    ?LOG(info, "PFCP Usage Report after PFCP context closure"),
+    %% FIXME:
+    %%   This a a know problem with the sequencing of GTP location updates that
+    %%   arrive simultaneously with a context teardown action.
+    %%   The location update triggeres a PFCP Modify Session, the teardown a
+    %%   PFCP Delete Session, the Modify Session Response can then arrive after
+    %%   the teardown action has already removed the PFCP context reference.
+    ok.
+
 
 %% close_context/3
 close_context(_, {API, TermCause}, Context) ->
