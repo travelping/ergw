@@ -602,9 +602,19 @@ release_lease(MRef, #state{leases = Leases} = State, Data) ->
     {next_state, State#state{leases = maps:remove(MRef, Leases)}, Data}.
 
 %% bind_tunnel/4
-bind_tunnel(Pid, #state{contexts = CtxS}, _Data, Actions)
+bind_tunnel(Pid, #state{recovery = RstCnt, contexts = CtxS} = State0, Data, Actions)
   when is_map_key(Pid, CtxS) ->
-    {keep_state_and_data, Actions};
+    case maps:get(Pid, CtxS) of
+	{undefined, MRef} ->
+	    ?LOG(emergency, "Switching tunnel bind from unknown to new restart counter ~w. "
+		 "Despite the log level is this not a ciritical problem. However it is "
+		 "not expected that this occurs outside of unit tests and should be "
+		 "reported (but only once, please).", [RstCnt]),
+	    State = State0#state{contexts = maps:put(Pid, {RstCnt, MRef}, CtxS)},
+	    {next_state, State, Data, Actions};
+	_ ->
+	    {keep_state_and_data, Actions}
+    end;
 bind_tunnel(Pid, #state{recovery = RstCnt, contexts = CtxS} = State, Data, Actions) ->
     ?LOG(debug, "~s: register(~p)", [?MODULE, Pid]),
     MRef = erlang:monitor(process, Pid),
