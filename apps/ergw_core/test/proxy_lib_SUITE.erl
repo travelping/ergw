@@ -136,7 +136,7 @@ proxy_lookup() ->
     [{doc, "lookup from config"}].
 proxy_lookup(_Config) ->
     NodeSelect = [default],
-    Socket = #socket{name = <<"TEST">>},
+    Socket = #socket{name = <<"TEST">>, type = 'gtp-c'},
     PI =
 	#{imsi    => <<"001010000000002">>,
 	  msisdn  => <<"444444400008502">>,
