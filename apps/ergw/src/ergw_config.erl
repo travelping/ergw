@@ -149,8 +149,20 @@ ergw_core_init(sbi_client, #{sbi_client := SbiClient}) ->
     ergw_sbi_client_init(SbiClient);
 ergw_core_init(wait_till_running, _) ->
     ergw_core:wait_till_running();
-ergw_core_init(path_management, #{path_management := NodeSel}) ->
-    ok = ergw_core:setopts(path_management, NodeSel);
+ergw_core_init(path_management, #{path_management := PathM}) ->
+    Config0 = maps:with([busy, idle, suspect, down], PathM),
+    Old0 = maps:with([n3, t3, echo], PathM),
+    Old1 = case PathM of
+	       #{icmp_error_handling := immediate} ->
+		   Old0#{icmp_error => error};
+	       #{icmp_error_handling := ignore} ->
+		   Old0#{icmp_error => info};
+	       _ ->
+		   Old0
+	   end,
+    Old = #{busy => Old1, idle => Old1, suspect => Old1, down => Old1},
+    Config = maps_recusive_merge(Old, Config0),
+    ok = ergw_core:setopts(path_management, Config);
 ergw_core_init(node_selection, #{node_selection := NodeSel}) ->
     ok = ergw_core:setopts(node_selection, NodeSel);
 ergw_core_init(sockets, #{sockets := Sockets}) ->
@@ -483,20 +495,36 @@ config_meta_nodes() ->
       entries => {map, {name, binary}, Node}}.
 
 config_meta_path_management() ->
-    #{t3 => integer,                           % echo retry interval
-      n3 => integer,                           % echo retry count
-
-      echo => echo,                            % echo ping interval
+    Events = #{icmp_error => atom,
+	       echo_timeout => atom},
+    #{busy =>
+	  #{t3 => integer,                     % echo retry interval
+	    n3 => integer,                     % echo retry count
+	    echo => echo,                      % echo retry interval when busy
+	    events => Events                   % event to severity mapping
+	   },
       idle =>
-	  #{echo    => echo,                   % time to keep the path entry when idle
-	    timeout => timeout},               % echo retry interval when idle
+	  #{t3 => integer,                     % echo retry interval
+	    n3 => integer,                     % echo retry count
+	    echo => echo,                      % echo retry interval when idle
+	    timeout => timeout,                % time to keep the path entry when idle
+	    events => Events                   % event to severity mapping
+	   },
       suspect =>
-	  #{echo    => echo,                   % time to keep the path entry when suspect
-	    timeout => timeout},               % echo retry interval when suspect
+	  #{t3 => integer,                     % echo retry interval
+	    n3 => integer,                     % echo retry count
+	    echo => echo,                      % echo retry interval when suspect
+	    timeout => timeout,                % time to keep the path entry when suspect
+	    events => Events                   % event to severity mapping
+	   },
       down =>
-	  #{echo    => echo,                   % time to keep the path entry when down
-	    timeout => timeout},               % echo retry interval when down
-      icmp_error_handling => atom}.
+	  #{t3 => integer,                     % echo retry interval
+	    n3 => integer,                     % echo retry count
+	    echo => echo,                      % echo retry interval when down
+	    timeout => timeout,                % time to keep the path entry when down
+	    events => Events                   % event to severity mapping
+	   }
+     }.
 
 config_meta_proxy_map() ->
     To = #{imsi => binary, msisdn => binary},
@@ -771,6 +799,15 @@ ts2meta(TypeSpec, _, _, _) when is_map(TypeSpec) ->
 %%%===================================================================
 %%% Helper
 %%%===================================================================
+
+maps_recusive_merge(Key, Value, Map) ->
+    maps:update_with(Key, fun(V) -> maps_recusive_merge(V, Value) end, Value, Map).
+
+maps_recusive_merge(M1, M2)
+  when is_map(M1) andalso is_map(M1) ->
+    maps:fold(fun maps_recusive_merge/3, M1, M2);
+maps_recusive_merge(_, New) ->
+    New.
 
 take_key(Field, Map) when is_atom(Field), is_map_key(Field, Map) ->
     maps:take(Field, Map);

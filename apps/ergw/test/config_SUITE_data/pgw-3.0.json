@@ -1,7 +1,7 @@
 {
     "node": {
         "accept_new": true,
-        "node_id": "GGSN",
+        "node_id": "PGW",
         "plmn_id": {
             "mcc": "001",
             "mnc": "01"
@@ -114,8 +114,48 @@
                     "from_protocol_opts": true
                 }
             },
-            "handler": "ggsn_gn",
-            "name": "gn-1",
+            "handler": "pgw_s5s8",
+            "name": "h2",
+            "node_selection": [
+                "static"
+            ],
+            "protocol": "s5s8",
+            "sockets": [
+                "irx"
+            ]
+        },
+        {
+            "aaa": {
+                "AAA-Application-Id": "ergw_aaa_provider",
+                "Password": {
+                    "default": "ergw"
+                },
+                "Username": {
+                    "default": [
+                        "IMSI",
+                        "/",
+                        "IMEI",
+                        "/",
+                        "MSISDN",
+                        "/",
+                        "ATOM",
+                        "/",
+                        [
+                            84,
+                            69,
+                            88,
+                            84
+                        ],
+                        "/",
+                        12345,
+                        "@",
+                        "APN"
+                    ],
+                    "from_protocol_opts": true
+                }
+            },
+            "handler": "pgw_s5s8",
+            "name": "h1",
             "node_selection": [
                 "static"
             ],
@@ -126,12 +166,7 @@
         }
     ],
     "http_api": {
-        "enabled": true,
-        "ip": {
-            "ipv4Addr": "127.0.0.1"
-        },
-        "num_acceptors": 100,
-        "port": 0
+        "enabled": false
     },
     "ip_pools": [
         {
@@ -188,6 +223,11 @@
         }
     ],
     "upf_nodes": {
+        "required_upff": [
+            "ftup",
+            "treu",
+            "empu"
+        ],
         "default": {
             "heartbeat": {
                 "interval": {
@@ -200,9 +240,6 @@
                     "unit": "millisecond"
                 }
             },
-            "ip_pools": [
-                "pool-A"
-            ],
             "node_selection": "default",
             "request": {
                 "retry": 5,
@@ -253,60 +290,7 @@
                 }
             ]
         },
-        "entries": [
-            {
-                "connect": true,
-                "heartbeat": {
-                    "interval": {
-                        "timeout": 5,
-                        "unit": "second"
-                    },
-                    "retry": 5,
-                    "timeout": {
-                        "timeout": 500,
-                        "unit": "millisecond"
-                    }
-                },
-                "ip_pools": [
-                    "pool-A"
-                ],
-                "name": "node-A",
-                "node_selection": "default",
-                "request": {
-                    "retry": 5,
-                    "timeout": {
-                        "timeout": 30,
-                        "unit": "second"
-                    }
-                },
-                "vrfs": [
-                    {
-                        "features": [
-                            "SGi-LAN"
-                        ],
-                        "name": {
-                            "apn": "sgi"
-                        }
-                    },
-                    {
-                        "features": [
-                            "Access"
-                        ],
-                        "name": {
-                            "apn": "irx"
-                        }
-                    },
-                    {
-                        "features": [
-                            "CP-Function"
-                        ],
-                        "name": {
-                            "apn": "cp"
-                        }
-                    }
-                ]
-            }
-        ]
+        "entries": []
     },
     "path_management": {
         "down": {
@@ -319,6 +303,11 @@
                 "unit": "hour"
             }
         },
+        "echo": {
+            "timeout": 1,
+            "unit": "minute"
+        },
+        "icmp_error_handling": "immediate",
         "idle": {
             "echo": {
                 "timeout": 10,
@@ -329,17 +318,8 @@
                 "unit": "minute"
             }
         },
-        "busy": {
-            "echo": {
-                "timeout": 1,
-                "unit": "minute"
-            },
-            "n3": 5,
-            "t3": 10000,
-            "events": {
-                "icmp_error": "warning"
-            }
-        }
+        "n3": 5,
+        "t3": 10000
     },
     "sockets": [
         {

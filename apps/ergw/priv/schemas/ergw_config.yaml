@@ -9,6 +9,8 @@ components:
         - $ref: "#/components/schemas/Timeout"
         - enum:
             - off
+      description: |
+        Interval at which Echo requests are sent
 
     Timeout:
       type: object
@@ -29,6 +31,23 @@ components:
         - $ref: "#/components/schemas/Timeout"
         - enum:
             - infinity
+
+    PathEventsSeverity:
+      enum:
+        - critical
+        - warning
+        - info
+
+    PathEvents:
+      type: object
+      properties:
+        icmp_error:
+          $ref: "#/components/schemas/PathEventsSeverity"
+        echo_timeout:
+          $ref: "#/components/schemas/PathEventsSeverity"
+      additionalProperties: false
+      description: |
+        Defines the severity of path events
 
     DhcpRange:
       onfOf:
@@ -869,37 +888,96 @@ properties:
       n3:
         type: integer
         default: 5
+        deprecated: true
       t3:
         type: integer
         default: 10000
+        deprecated: true
       echo:
-        $ref: "#/components/schemas/EchoTimeout"
-      idle:
-        type: object
-        properties:
-          echo:
-            $ref: "#/components/schemas/EchoTimeout"
-          timeout:
-            $ref: "#/components/schemas/TimeoutInf"
-      suspect:
-        type: object
-        properties:
-          echo:
-            $ref: "#/components/schemas/EchoTimeout"
-          timeout:
-            $ref: "#/components/schemas/TimeoutInf"
-      down:
-        type: object
-        properties:
-          echo:
-            $ref: "#/components/schemas/EchoTimeout"
-          timeout:
-            $ref: "#/components/schemas/TimeoutInf"
+        oneOf:
+          - $ref: "#/components/schemas/Timeout"
+          - enum:
+            - off
+        description: |
+          Interval at which Echo requests are sent
+        deprecated: true
       icmp_error_handling:
         type: string
         enum:
           - immediate
           - ignore
+        deprecated: true
+      busy:
+        type: object
+        properties:
+          n3:
+            type: integer
+            default: 5
+            description: |
+              Value for the GTP N3-REQUESTS counter for outgoing Echo requests
+          t3:
+            type: integer
+            default: 10000
+            description: |
+              Value for the GTP T3-RESPONSE timer for outgoing Echo requests
+          echo:
+            $ref: "#/components/schemas/EchoTimeout"
+          events:
+            $ref: "#/components/schemas/PathEvents"
+      idle:
+        type: object
+        properties:
+          n3:
+            type: integer
+            default: 5
+            description: |
+              Value for the GTP N3-REQUESTS counter for outgoing Echo requests
+          t3:
+            type: integer
+            default: 10000
+            description: |
+              Value for the GTP T3-RESPONSE timer for outgoing Echo requests
+          echo:
+            $ref: "#/components/schemas/EchoTimeout"
+          timeout:
+            $ref: "#/components/schemas/TimeoutInf"
+          events:
+            $ref: "#/components/schemas/PathEvents"
+      suspect:
+        type: object
+        properties:
+          n3:
+            type: integer
+            default: 5
+          t3:
+            type: integer
+            default: 10000
+          echo:
+            $ref: "#/components/schemas/EchoTimeout"
+          timeout:
+            $ref: "#/components/schemas/TimeoutInf"
+          events:
+            $ref: "#/components/schemas/PathEvents"
+      down:
+        type: object
+        properties:
+          n3:
+            type: integer
+            default: 5
+            description: |
+              Value for the GTP N3-REQUESTS counter for outgoing Echo requests
+          t3:
+            type: integer
+            default: 10000
+            description: |
+              Value for the GTP T3-RESPONSE timer for outgoing Echo requests
+          echo:
+            $ref: "#/components/schemas/EchoTimeout"
+          timeout:
+            $ref: "#/components/schemas/TimeoutInf"
+          events:
+            $ref: "#/components/schemas/PathEvents"
+    additionalProperties: false
 
   proxy_map:
     type: object

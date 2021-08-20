@@ -271,9 +271,7 @@
 		 },
 
 	    path_management =>
-		[{t3, 10 * 1000},
-		 {n3,  5},
-		 {echo, 60 * 1000},
+		[{busy, [{echo, 60 * 1000}]},
 		 {idle, [{timeout, 1800 * 1000},
 			 {echo,     600 * 1000}]},
 		 {suspect, [{timeout, 0}]},
@@ -567,9 +565,7 @@
 		 },
 
 	    path_management =>
-		[{t3, 10 * 1000},
-		 {n3,  5},
-		 {echo, 60 * 1000},
+		[{busy, [{echo, 60 * 1000}]},
 		 {idle, [{timeout, 1800 * 1000},
 			 {echo,     600 * 1000}]},
 		 {suspect, [{timeout, 0}]},
@@ -890,7 +886,7 @@ init_per_testcase(TestCase, Config)
 		     end),
     Config;
 init_per_testcase(path_maint, Config) ->
-    ergw_test_lib:set_path_timers(#{'echo' => 700}),
+    ergw_test_lib:set_path_timers(#{busy => #{echo => 700}}),
     setup_per_testcase(Config),
     Config;
 init_per_testcase(path_failure_to_pgw_and_restore, Config) ->
@@ -1022,7 +1018,7 @@ end_per_testcase(TestCase, Config)
     end_per_testcase(Config),
     Config;
 end_per_testcase(path_maint, Config) ->
-    ergw_test_lib:set_path_timers(#{'echo' => 60 * 1000}),
+    ergw_test_lib:set_path_timers(#{busy => #{echo => 60 * 1000}}),
     end_per_testcase(Config);
 end_per_testcase(path_failure_to_pgw, Config) ->
     ok = meck:delete(ergw_gtp_c_socket, send_request, 8),

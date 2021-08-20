@@ -339,11 +339,6 @@
                 "unit": "hour"
             }
         },
-        "echo": {
-            "timeout": 1,
-            "unit": "minute"
-        },
-        "icmp_error_handling": "immediate",
         "idle": {
             "echo": {
                 "timeout": 10,
@@ -354,8 +349,17 @@
                 "unit": "minute"
             }
         },
-        "n3": 5,
-        "t3": 10000
+        "busy": {
+            "echo": {
+                "timeout": 1,
+                "unit": "minute"
+            },
+            "n3": 5,
+            "t3": 10000,
+            "events": {
+                "icmp_error": "warning"
+            }
+        }
     },
     "sockets": [
         {

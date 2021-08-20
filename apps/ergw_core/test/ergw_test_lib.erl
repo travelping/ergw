@@ -42,7 +42,7 @@
 -export([match_metric/7, get_metric/4]).
 -export([has_ipv6_test_config/0]).
 -export([query_usage_report/1]).
--export([match_map/4, maps_key_length/2]).
+-export([match_map/4, maps_key_length/2, maps_recusive_merge/2]).
 -export([init_ets/1]).
 -export([set_online_charging/1, set_apn_key/2, load_aaa_answer_config/1, set_path_timers/1]).
 -export([plmn/2, cgi/2, cgi/4, sai/2, sai/4, rai/3, rai/4,
