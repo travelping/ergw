@@ -239,35 +239,6 @@
         },
         "entries": []
     },
-    "path_management": {
-        "down": {
-            "echo": {
-                "timeout": 10,
-                "unit": "minute"
-            },
-            "timeout": {
-                "timeout": 1,
-                "unit": "hour"
-            }
-        },
-        "echo": {
-            "timeout": 1,
-            "unit": "minute"
-        },
-        "icmp_error_handling": "immediate",
-        "idle": {
-            "echo": {
-                "timeout": 10,
-                "unit": "minute"
-            },
-            "timeout": {
-                "timeout": 30,
-                "unit": "minute"
-            }
-        },
-        "n3": 5,
-        "t3": 10000
-    },
     "sockets": [
         {
             "burst_size": 10,

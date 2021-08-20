@@ -190,25 +190,42 @@ stop(Path) ->
 %% Timer value: echo    = echo interval when peer is up.
 
 -define(Defaults, [
-    {t3, 10 * 1000},                  % echo retry interval
-    {n3,  5},                         % echo retry count
-    {echo, 60 * 1000},                % echo ping interval
+    {busy, []},
     {idle, []},
     {suspect, []},
-    {down, []},
-    {icmp_error_handling, immediate}  % configurable GTP path ICMP error behaviour
+    {down, []}
 ]).
 -define(IdleDefaults, [
     {timeout, 1800 * 1000},      % time to keep the path entry when idle
-    {echo,     600 * 1000}       % echo retry interval when idle
+    {t3,        10 * 1000},      % echo retry interval
+    {n3,                5},      % echo retry count
+    {echo,     600 * 1000},      % echo retry interval when idle
+    {events, []}
+]).
+-define(BusyDefaults, [
+    {t3,        10 * 1000},      % echo retry interval
+    {n3,                5},      % echo retry count
+    {echo,     600 * 1000},      % echo retry interval when idle
+    {events, []}
 ]).
 -define(SuspectDefaults, [
     {timeout, 300 * 1000},       % time to keep the path entry when suspect
-    {echo,     60 * 1000}        % echo retry interval when suspect
+    {t3,       10 * 1000},       % echo retry interval
+    {n3,               5},       % echo retry count
+    {echo,     60 * 1000},       % echo retry interval when suspect
+    {events, []}
 ]).
 -define(DownDefaults, [
     {timeout, 3600 * 1000},      % time to keep the path entry when down
-    {echo,     600 * 1000}       % echo retry interval when down
+    {t3,        10 * 1000},      % echo retry interval
+    {n3,                5},      % echo retry count
+    {echo,     600 * 1000},      % echo retry interval when down
+    {events, []}
+]).
+
+-define(EventDefaults, [
+    {icmp_error, warning},
+    {echo_timeout, critical}
 ]).
 
 validate_options(Values) ->
@@ -228,31 +245,41 @@ validate_timeout(_Opt, infinity = Value) ->
 validate_timeout(Opt, Value) ->
     erlang:error(badarg, Opt ++ [timeout, Value]).
 
+validate_event_opts(Ev, Severity)
+  when (Ev =:= icmp_error orelse
+	Ev =:= echo_timeout)
+       andalso
+       (Severity =:= critical orelse
+	Severity =:= warning orelse
+	Severity =:= info) ->
+    Severity;
+validate_event_opts(Ev, Severity) ->
+    erlang:error(badarg, [Ev, Severity]).
+
+validate_state(_State, t3, Value)
+  when is_integer(Value) andalso Value > 0 ->
+    Value;
+validate_state(_State, n3, Value)
+  when is_integer(Value) andalso Value > 0 ->
+    Value;
 validate_state(State, echo, Value) ->
     validate_echo([State], Value);
-validate_state(State, timeout, Value) ->
+validate_state(State, timeout, Value)
+  when State =:= suspect; State =:= down; State =:= idle ->
     validate_timeout([State], Value);
+validate_state(_State, events, Values) ->
+    ergw_core_config:validate_options(fun validate_event_opts/2, Values, ?EventDefaults);
 validate_state(State, Opt, Value) ->
     erlang:error(badarg, [State, Opt, Value]).
 
-validate_option(t3, Value)
-  when is_integer(Value) andalso Value > 0 ->
-    Value;
-validate_option(n3, Value)
-  when is_integer(Value) andalso Value > 0 ->
-    Value;
-validate_option(echo, Value) ->
-    validate_echo([], Value);
-
 validate_option(Opt = idle, Values) ->
     ergw_core_config:validate_options(validate_state(Opt, _, _), Values, ?IdleDefaults);
+validate_option(Opt = busy, Values) ->
+    ergw_core_config:validate_options(validate_state(Opt, _, _), Values, ?BusyDefaults);
 validate_option(Opt = suspect, Values) ->
     ergw_core_config:validate_options(validate_state(Opt, _, _), Values, ?SuspectDefaults);
 validate_option(Opt = down, Values) ->
     ergw_core_config:validate_options(validate_state(Opt, _, _), Values, ?DownDefaults);
-validate_option(icmp_error_handling, Value)
-  when Value =:= immediate; Value =:= ignore ->
-    Value;
 validate_option(Opt, Value) ->
     erlang:error(badarg, [Opt, Value]).
 
@@ -268,9 +295,8 @@ callback_mode() -> [handle_event_function, state_enter].
 
 init([#socket{name = SocketName} = Socket, Version, RemoteIP, Trigger, Args]) ->
     RegKey = {SocketName, Version, RemoteIP},
-    gtp_path_reg:register(RegKey, up),
 
-    Data0 = maps:with([t3, n3, echo, idle, suspect, down, icmp_error_handling], Args),
+    Data0 = maps:with([busy, idle, suspect, down], Args),
     Data = Data0#{
 	     %% Path Info Keys
 	     socket     => Socket, % #socket{}
@@ -290,12 +316,18 @@ init([#socket{name = SocketName} = Socket, Version, RemoteIP, Trigger, Args]) ->
 		send_echo_request(State0#state{peer = unknown}, Data)
 	end,
 
-    gtp_path_reg:state(RegKey, State#state.peer),
+    gtp_path_reg:register(RegKey, State#state.peer),
 
     Actions = [enter_state_timeout_action(idle, Data),
 	       enter_state_echo_action(idle, Data)],
     ?LOG(debug, "State: ~p~nData: ~p~nActions: ~p~n", [State, Data, Actions]),
     {ok, State, Data, Actions}.
+
+handle_event(enter, #state{peer = OldPS} = OldS, #state{peer = down} = State, Data)
+  when OldPS =/= down ->
+    peer_state_change(OldS, State, Data),
+    path_recovery_change(State),
+    keep_state_and_data;
 
 handle_event(enter,
 	     #state{peer = OldP, contexts = OldC} = OldS,
@@ -326,8 +358,7 @@ handle_event({timeout, echo}, start_echo, _State, _Data) ->
     keep_state_and_data;
 
 handle_event({timeout, peer}, down, State, Data) ->
-    ring_path_restart(undefined, Data),
-    {next_state, path_recovery_change(undefined, State#state{peer = down}), Data};
+    {next_state, State#state{peer = down, recovery = undefined}, Data};
 
 handle_event({timeout, peer}, stop, _State, #{reg_key := RegKey}) ->
     gtp_path_reg:unregister(RegKey),
@@ -390,23 +421,19 @@ handle_event(cast, {handle_response, echo_request, ReqRef, _Msg}, #state{echo = 
 handle_event(cast,{handle_response, echo_request, _, #gtp{} = Msg}, State, Data) ->
     handle_recovery_ie(Msg, State#state{echo = idle}, Data);
 
-handle_event(cast,{handle_response, echo_request, _, _Msg},
-	     #state{peer = unknown} = State, Data) ->
-    {next_state, State#state{peer = down}, Data};
 handle_event(cast,{handle_response, echo_request, _, _Msg}, State, Data) ->
-    {next_state, State#state{peer = suspect}, Data};
+    peer_state_event_action(echo_timeout, State#state{echo = idle}, Data);
 
 handle_event(cast, {path_restart, RstCnt}, #state{recovery = RstCnt} = _State, _Data)
   when is_integer(RstCnt) ->
     keep_state_and_data;
-handle_event(cast, {path_restart, RstCnt}, State, Data) ->
-    {next_state, path_recovery_change(RstCnt, State), Data};
-
-handle_event(cast, icmp_error, _, #{icmp_error_handling := ignore}) ->
-    keep_state_and_data;
+handle_event(cast, {path_restart, RstCnt}, State, Data) when is_integer(RstCnt) ->
+    {next_state, path_recovery_change(State#state{recovery = RstCnt}), Data};
+handle_event(cast, {path_restart, undefined}, State, Data) ->
+    {next_state, State#state{peer = down, recovery = undefined}, Data};
 
 handle_event(cast, icmp_error, State, Data) ->
-    {next_state, State#state{peer = suspect}, Data};
+    peer_state_event_action(icmp_error, State, Data);
 
 handle_event(info, {'DOWN', MRef, process, _Pid, _Info}, #state{leases = Leases} = State, Data)
   when is_map_key(MRef, Leases) ->
@@ -493,7 +520,8 @@ enter_state_timeout_action(down, #{down := #{timeout := Timeout}}) when is_integ
 enter_state_timeout_action(_State, _Data) ->
     {{timeout, peer}, cancel}.
 
-enter_state_echo_action(busy, #{echo := EchoInterval}) when is_integer(EchoInterval) ->
+enter_state_echo_action(busy, #{busy := #{echo := EchoInterval}})
+  when is_integer(EchoInterval) ->
     {{timeout, echo}, EchoInterval, start_echo};
 enter_state_echo_action(idle, #{idle := #{echo := EchoInterval}})
   when is_integer(EchoInterval) ->
@@ -537,7 +565,7 @@ activity(When, RstCnt, State0, Data0)
 		State0#state{recovery = New};
 	    peer_restart ->
 		ring_path_restart(New, Data),
-		path_recovery_change(New, State0);
+		path_recovery_change(State0#state{recovery = New});
 	    _ ->
 		State0
     end,
@@ -577,7 +605,7 @@ handle_restart_counter(RestartCounter, State0, Data0) ->
 	    {next_state, State#state{recovery = New}, Data};
 	peer_restart  ->
 	    ring_path_restart(New, Data),
-	    {next_state, path_recovery_change(New, State), Data};
+	    {next_state, path_recovery_change(State#state{recovery = New}), Data};
 	_ ->
 	    {next_state, State, Data}
     end.
@@ -669,8 +697,33 @@ safe_bind_tunnel(#tunnel{path = Path} = Tunnel) ->
 	    {error, rejected}
     end.
 
-send_echo_request(State, #{socket := Socket, handler := Handler, ip := DstIP,
-			   t3 := T3, n3 := N3}) ->
+peer_state_cfg(State, Data) ->
+    CfgState =
+	case peer_state(State) of
+	    PeerState when PeerState =:= busy; PeerState =:= idle;
+			   PeerState =:= suspect; PeerState =:= down ->
+		PeerState;
+	    _ ->
+		busy
+	end,
+    maps:get(CfgState, Data).
+
+peer_state_event_action(_Event, #state{peer = down}, _Data) ->
+    %% peer is already down, no need to transition anywhere
+    keep_state_and_data;
+peer_state_event_action(Event, State, Data) ->
+    #{events := #{Event := Severity}} = peer_state_cfg(State, Data),
+    case Severity of
+	info ->
+	    keep_state_and_data;
+	warning ->
+	    {next_state, State#state{peer = suspect}, Data};
+	critical ->
+	    {next_state, State#state{peer = down, recovery = undefined}, Data}
+    end.
+
+send_echo_request(State, #{socket := Socket, handler := Handler, ip := DstIP} = Data) ->
+    #{t3 := T3, n3 := N3} = peer_state_cfg(State, Data),
     Msg = Handler:build_echo_request(),
     Ref = erlang:make_ref(),
     CbInfo = {?MODULE, handle_response, [self(), echo_request, Ref]},
@@ -682,7 +735,7 @@ ring_path_restart(RstCnt, #{reg_key := Key}) ->
     erpc:multicast(riak_core_ring:all_members(Ring),
 		   ?MODULE, path_restart, [Key, RstCnt]).
 
-path_recovery_change(RstCnt, #state{contexts = CtxS0} = State) ->
+path_recovery_change(#state{recovery = RstCnt, contexts = CtxS0} = State) ->
     Path = self(),
     ResF =
 	fun() ->
@@ -690,4 +743,4 @@ path_recovery_change(RstCnt, #state{contexts = CtxS0} = State) ->
 				gtp_context:path_restart(_, Path))
 	end,
     proc_lib:spawn(ResF),
-    State#state{recovery = RstCnt}.
+    State.

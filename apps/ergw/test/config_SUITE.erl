@@ -50,6 +50,7 @@ load(Config)  ->
     load(DataDir, "ggsn", json),
     load(DataDir, "ggsn_proxy", json),
     load(DataDir, "pgw", json),
+    load(DataDir, "pgw-3.0", json),
     load(DataDir, "pgw_proxy", json),
     load(DataDir, "saegw_s11", json),
     load(DataDir, "tdf", json),

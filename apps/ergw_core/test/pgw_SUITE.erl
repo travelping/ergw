@@ -1427,7 +1427,19 @@ path_failure_suspect_timeout(Config) ->
     ok = meck:expect(gtp_path, init,
 		     fun ([Socket, Version, RemoteIP, Trigger, Args0]) ->
 			     %% overwrite ping interval and suspect timeout
-			     Args = Args0#{echo => 10, suspect => #{echo => 60 * 1000, timeout => 300 * 1000}},
+			     Args =
+				 ergw_test_lib:maps_recusive_merge(
+				   Args0, #{busy =>
+						#{echo => 10,
+						  events => #{echo_timeout => warning}},
+					    idle =>
+						#{echo => 10,
+						  events => #{echo_timeout => warning}},
+					    suspect =>
+						#{echo => 60 * 1000,
+						  timeout => 300 * 1000,
+						  events => #{echo_timeout => warning}
+						 }}),
 			     meck:passthrough([[Socket, Version, RemoteIP, Trigger, Args]])
 		     end),
 
@@ -1475,7 +1487,9 @@ path_maintenance(Config) ->
     ok = meck:expect(gtp_path, init,
 		     fun ([Socket, Version, RemoteIP, Trigger, Args0]) ->
 			     %% overwrite ping interval
-			     Args = Args0#{echo => 10},
+			     Args =
+				 ergw_test_lib:maps_recusive_merge(
+				   Args0, #{busy => #{echo => 10}}),
 			     meck:passthrough([[Socket, Version, RemoteIP, Trigger, Args]])
 		     end),
 

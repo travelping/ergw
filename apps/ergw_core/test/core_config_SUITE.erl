@@ -813,21 +813,22 @@ charging_rulebase(_Config)  ->
 path_management() ->
     [{doc, "Test validation of the path management configuration"}].
 path_management(_Config)  ->
-    Path = [{t3, 10 * 1000},
-	    {n3, 5},
-	    {echo, 60 * 1000}],
+    Path = [{busy,
+	     [{t3, 10 * 1000},
+	      {n3, 5},
+	      {echo, 60 * 1000}]}],
     ValF = fun gtp_path:validate_options/1,
 
     ?ok(ValF(Path)),
     ?ok(ValF([])),
 
-    ?ok(ValF(set_cfg_value([t3], 10 * 1000, Path))),
-    ?ok(ValF(set_cfg_value([n3], 5, Path))),
-    ?ok(ValF(set_cfg_value([echo], 60 * 1000, Path))),
+    ?ok(ValF(set_cfg_value([busy, t3], 10 * 1000, Path))),
+    ?ok(ValF(set_cfg_value([busy, n3], 5, Path))),
+    ?ok(ValF(set_cfg_value([busy, echo], 60 * 1000, Path))),
     ?ok(ValF(set_cfg_value([idle, echo], 60 * 1000, Path))),
     ?ok(ValF(set_cfg_value([suspect, echo], 60 * 1000, Path))),
     ?ok(ValF(set_cfg_value([down, echo], 60 * 1000, Path))),
-    ?ok(ValF(set_cfg_value([echo], off, Path))),
+    ?ok(ValF(set_cfg_value([busy, echo], off, Path))),
     ?ok(ValF(set_cfg_value([idle, echo], off, Path))),
     ?ok(ValF(set_cfg_value([suspect, echo], off, Path))),
     ?ok(ValF(set_cfg_value([down, echo], off, Path))),
@@ -837,15 +838,17 @@ path_management(_Config)  ->
     ?ok(ValF(set_cfg_value([idle, timeout], 0, Path))),
     ?ok(ValF(set_cfg_value([suspect, timeout], 0, Path))),
     ?ok(ValF(set_cfg_value([down, timeout], 0, Path))),
-    ?ok(ValF(set_cfg_value([icmp_error_handling], ignore, Path))),
+    ?ok(ValF(set_cfg_value([busy, events, icmp_error], info, Path))),
+    ?ok(ValF(set_cfg_value([busy, events, icmp_error], warning, Path))),
+    ?ok(ValF(set_cfg_value([busy, events, icmp_error], critical, Path))),
 
-    ?bad(ValF(set_cfg_value([t3], -1, Path))),
-    ?bad(ValF(set_cfg_value([n3], -1, Path))),
-    ?bad(ValF(set_cfg_value([t3], invalid, Path))),
-    ?bad(ValF(set_cfg_value([n3], invalid, Path))),
+    ?bad(ValF(set_cfg_value([busy, t3], -1, Path))),
+    ?bad(ValF(set_cfg_value([busy, n3], -1, Path))),
+    ?bad(ValF(set_cfg_value([busy, t3], invalid, Path))),
+    ?bad(ValF(set_cfg_value([busy, n3], invalid, Path))),
 
-    ?bad(ValF(set_cfg_value([echo], 59 * 1000, Path))),
-    ?bad(ValF(set_cfg_value([echo], invalid, Path))),
+    ?bad(ValF(set_cfg_value([busy, echo], 59 * 1000, Path))),
+    ?bad(ValF(set_cfg_value([busy, echo], invalid, Path))),
     ?bad(ValF(set_cfg_value([idle, echo], 59 * 1000, Path))),
     ?bad(ValF(set_cfg_value([suspect, echo], 59 * 1000, Path))),
     ?bad(ValF(set_cfg_value([down, echo], 59 * 1000, Path))),
@@ -857,8 +860,9 @@ path_management(_Config)  ->
     ?bad(ValF(set_cfg_value([suspect, timeout], invalid, Path))),
     ?bad(ValF(set_cfg_value([down, timeout], invalid, Path))),
 
-    ?bad(ValF(set_cfg_value([icmp_error_handling], invalid, Path))),
-    ?bad(ValF(set_cfg_value([icmp_error_handling], <<>>, Path))),
+    ?bad(ValF(set_cfg_value([icmp_error_handling], ignore, Path))), % old option
+    ?bad(ValF(set_cfg_value([icmp_error_handling], invalid, Path))), % old option
+    ?bad(ValF(set_cfg_value([icmp_error_handling], <<>>, Path))), % old option
     ok.
 
 %%%===================================================================
