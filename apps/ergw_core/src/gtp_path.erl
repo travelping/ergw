@@ -23,7 +23,8 @@
 	 get_handler/2, info/1, sync_state/3]).
 
 %% Validate environment Variables
--export([validate_options/1, setopts/1]).
+-export([validate_options/1, validate_options/2,
+	 setopts/1, set_peer_opts/2]).
 
 -ignore_xref([start_link/5,
 	      path_restart/2,
@@ -41,6 +42,7 @@
 
 -include_lib("kernel/include/logger.hrl").
 -include_lib("gtplib/include/gtp_packet.hrl").
+-include("ergw_core_config.hrl").
 -include("include/ergw.hrl").
 
 %% echo_timer is the status of the echo send to the remote peer
@@ -73,6 +75,15 @@ getopts() ->
 	    {ok, Opts}
     end.
 
+set_peer_opts(Peer, Opts0) when ?IS_IP(Peer) ->
+    Opts = validate_options(Opts0),
+    {ok, Peers} = ergw_core_config:get([gtp_peers], #{}),
+    ergw_core_config:put(gtp_peers, Peers#{Peer => Opts}).
+
+get_peer_opts(Peer) ->
+    {ok, Peers} = ergw_core_config:get([gtp_peers], #{}),
+    maps:get(Peer, Peers, #{}).
+
 gateway_nodes(Socket, Version, Nodes) ->
     proc_lib:spawn(
       fun() ->
@@ -88,7 +99,9 @@ maybe_new_path(Socket, Version, RemoteIP, Trigger) ->
 	Path when is_pid(Path) ->
 	    Path;
 	_ ->
-	    {ok, Args} = getopts(),
+	    {ok, Args0} = getopts(),
+	    PeerArgs = get_peer_opts(RemoteIP),
+	    Args = maps:merge(Args0, PeerArgs),
 	    {ok, Path} = gtp_path_sup:new_path(Socket, Version, RemoteIP, Trigger, Args),
 	    Path
     end.
@@ -230,6 +243,11 @@ stop(Path) ->
 
 validate_options(Values) ->
     ergw_core_config:validate_options(fun validate_option/2, Values, ?Defaults).
+
+validate_options(Peer, Values) when ?IS_IP(Peer) ->
+    ergw_core_config:validate_options(fun validate_option/2, Values, ?Defaults);
+validate_options(Peer, Values) ->
+    erlang:error(badarg, [Peer, Values]).
 
 validate_echo(_Opt, Value) when is_integer(Value), Value >= 60 * 1000 ->
     Value;

@@ -87,6 +87,7 @@ is_global_key(apns) -> true;
 is_global_key(nodes) -> true;
 is_global_key(charging) -> true;
 is_global_key(path_management) -> true;
+is_global_key(gtp_peers) -> true;
 is_global_key(proxy_map) -> true;
 is_global_key(_) -> false.
 

@@ -325,6 +325,44 @@
             }
         }
     },
+    "gtp_peers": [
+        {
+            "ip": {
+                "ipv4Addr": "127.0.0.1"
+            },
+            "down": {
+                "echo": {
+                    "timeout": 10,
+                    "unit": "minute"
+                },
+                "timeout": {
+                    "timeout": 1,
+                    "unit": "hour"
+                }
+            },
+            "idle": {
+                "echo": {
+                    "timeout": 10,
+                    "unit": "minute"
+                },
+                "timeout": {
+                    "timeout": 30,
+                    "unit": "minute"
+                }
+            },
+            "busy": {
+                "echo": {
+                    "timeout": 1,
+                    "unit": "minute"
+                },
+                "n3": 5,
+                "t3": 10000,
+                "events": {
+                    "icmp_error": "warning"
+                }
+            }
+        }
+    ],
     "sockets": [
         {
             "burst_size": 10,

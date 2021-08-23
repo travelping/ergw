@@ -979,6 +979,85 @@ properties:
             $ref: "#/components/schemas/PathEvents"
     additionalProperties: false
 
+  gtp_peers:
+    type: array
+    items:
+      type: object
+      properties:
+        ip:
+          $ref: "#/components/schemas/IpAddress"
+        busy:
+          type: object
+          properties:
+            n3:
+              type: integer
+              default: 5
+              description: |
+                Value for the GTP N3-REQUESTS counter for outgoing Echo requests
+            t3:
+              type: integer
+              default: 10000
+              description: |
+                Value for the GTP T3-RESPONSE timer for outgoing Echo requests
+            echo:
+              $ref: "#/components/schemas/EchoTimeout"
+            events:
+              $ref: "#/components/schemas/PathEvents"
+        idle:
+          type: object
+          properties:
+            n3:
+              type: integer
+              default: 5
+              description: |
+                Value for the GTP N3-REQUESTS counter for outgoing Echo requests
+            t3:
+              type: integer
+              default: 10000
+              description: |
+                Value for the GTP T3-RESPONSE timer for outgoing Echo requests
+            echo:
+              $ref: "#/components/schemas/EchoTimeout"
+            timeout:
+              $ref: "#/components/schemas/TimeoutInf"
+            events:
+              $ref: "#/components/schemas/PathEvents"
+        suspect:
+          type: object
+          properties:
+            n3:
+              type: integer
+              default: 5
+            t3:
+              type: integer
+              default: 10000
+            echo:
+              $ref: "#/components/schemas/EchoTimeout"
+            timeout:
+              $ref: "#/components/schemas/TimeoutInf"
+            events:
+              $ref: "#/components/schemas/PathEvents"
+        down:
+          type: object
+          properties:
+            n3:
+              type: integer
+              default: 5
+              description: |
+                Value for the GTP N3-REQUESTS counter for outgoing Echo requests
+            t3:
+              type: integer
+              default: 10000
+              description: |
+                Value for the GTP T3-RESPONSE timer for outgoing Echo requests
+            echo:
+              $ref: "#/components/schemas/EchoTimeout"
+            timeout:
+              $ref: "#/components/schemas/TimeoutInf"
+            events:
+              $ref: "#/components/schemas/PathEvents"
+      additionalProperties: false
+
   proxy_map:
     type: object
     properties:
