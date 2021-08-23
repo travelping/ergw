@@ -1002,7 +1002,12 @@ to_timeout(#{unit := Unit, timeout := Timeout}) ->
     to_timeout({Unit, Timeout});
 to_timeout(#{timeout := Timeout}) ->
     to_timeout(Timeout);
+to_timeout(#{initial := Initial, max := Max} = Timeout) ->
+    ScaleF = maps:get('scaleFactor', Timeout, 2),
+    #{initial => to_timeout(Initial), 'scaleFactor' => ScaleF, max => to_timeout(Max)};
 to_timeout(#{<<"timeout">> := _} = Timeout) ->
+    to_timeout(maps:fold(fun(K, V, M) -> maps:put(to_atom(K), V, M) end, #{}, Timeout));
+to_timeout(#{<<"initial">> := _} = Timeout) ->
     to_timeout(maps:fold(fun(K, V, M) -> maps:put(to_atom(K), V, M) end, #{}, Timeout)).
 
 to_vrf(#{<<"apn">> := APN}) ->
@@ -1210,6 +1215,8 @@ from_apn('_') ->
 from_apn(APN) ->
     iolist_to_binary(lists:join($., APN)).
 
+from_timeout(#{initial := Initial, 'scaleFactor' := ScaleF, max := Max}) ->
+    #{initial => from_timeout(Initial), 'scaleFactor' => ScaleF, max => from_timeout(Max)};
 from_timeout(Timeout) when not is_integer(Timeout) ->
     Timeout;
 from_timeout(0) ->

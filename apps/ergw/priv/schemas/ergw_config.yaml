@@ -12,6 +12,28 @@ components:
       description: |
         Interval at which Echo requests are sent
 
+    ScalableEchoTimeout:
+      oneOf:
+        - $ref: "#/components/schemas/Timeout"
+        - $ref: "#/components/schemas/ScalableTimeout"
+        - enum:
+            - off
+      description: |
+        Interval at which Echo requests are sent
+
+    ScalableTimeout:
+      type: object
+      properties:
+        initial:
+          $ref: "#/components/schemas/Timeout"
+        scaleFactor:
+          type: integer
+          default: 2
+        max:
+          $ref: "#/components/schemas/Timeout"
+      required: ['initial', 'max']
+      additionalProperties: false
+
     Timeout:
       type: object
       properties:
@@ -25,6 +47,7 @@ components:
             - hour
             - day
       required: ['timeout', 'unit']
+      additionalProperties: false
 
     TimeoutInf:
       oneOf:
@@ -953,7 +976,7 @@ properties:
             type: integer
             default: 10000
           echo:
-            $ref: "#/components/schemas/EchoTimeout"
+            $ref: "#/components/schemas/ScalableEchoTimeout"
           timeout:
             $ref: "#/components/schemas/TimeoutInf"
           events:
@@ -972,7 +995,7 @@ properties:
             description: |
               Value for the GTP T3-RESPONSE timer for outgoing Echo requests
           echo:
-            $ref: "#/components/schemas/EchoTimeout"
+            $ref: "#/components/schemas/ScalableEchoTimeout"
           timeout:
             $ref: "#/components/schemas/TimeoutInf"
           events:
@@ -1003,6 +1026,7 @@ properties:
               $ref: "#/components/schemas/EchoTimeout"
             events:
               $ref: "#/components/schemas/PathEvents"
+          additionalProperties: false
         idle:
           type: object
           properties:
@@ -1022,6 +1046,7 @@ properties:
               $ref: "#/components/schemas/TimeoutInf"
             events:
               $ref: "#/components/schemas/PathEvents"
+          additionalProperties: false
         suspect:
           type: object
           properties:
@@ -1032,11 +1057,12 @@ properties:
               type: integer
               default: 10000
             echo:
-              $ref: "#/components/schemas/EchoTimeout"
+              $ref: "#/components/schemas/ScalableEchoTimeout"
             timeout:
               $ref: "#/components/schemas/TimeoutInf"
             events:
               $ref: "#/components/schemas/PathEvents"
+          additionalProperties: false
         down:
           type: object
           properties:
@@ -1051,11 +1077,12 @@ properties:
               description: |
                 Value for the GTP T3-RESPONSE timer for outgoing Echo requests
             echo:
-              $ref: "#/components/schemas/EchoTimeout"
+              $ref: "#/components/schemas/ScalableEchoTimeout"
             timeout:
               $ref: "#/components/schemas/TimeoutInf"
             events:
               $ref: "#/components/schemas/PathEvents"
+          additionalProperties: false
       additionalProperties: false
 
   proxy_map:

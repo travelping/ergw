@@ -253,6 +253,9 @@ validate_echo(_Opt, Value) when is_integer(Value), Value >= 60 * 1000 ->
     Value;
 validate_echo(_Opt, off = Value) ->
     Value;
+validate_echo(_Opt, #{initial := Initial, 'scaleFactor' := ScaleF, max := Max} = Value)
+  when is_integer(Initial), is_integer(ScaleF), is_integer(Max), Max > Initial ->
+    Value;
 validate_echo(Opt, Value) ->
     erlang:error(badarg, Opt ++ [echo, Value]).
 
@@ -315,23 +318,24 @@ init([#socket{name = SocketName} = Socket, Version, RemoteIP, Trigger, Args]) ->
     RegKey = {SocketName, Version, RemoteIP},
 
     Data0 = maps:with([busy, idle, suspect, down], Args),
-    Data = Data0#{
+    Data1 = Data0#{
 	     %% Path Info Keys
 	     socket     => Socket, % #socket{}
 	     version    => Version, % v1 | v2
 	     handler    => get_handler(Socket, Version),
 	     ip         => RemoteIP,
 	     reg_key    => RegKey,
-	     time       => 0
+	     time       => 0,
+	     echo_cnt   => 0
 	},
 
     State0 = #state{contexts = #{}, leases = #{}, echo = stopped},
-    State =
+    {State, Data} =
 	case Trigger of
 	    activity ->
-		State0#state{peer = up};
+		{State0#state{peer = up}, Data1};
 	    _ ->
-		send_echo_request(State0#state{peer = unknown}, Data)
+		send_echo_request(State0#state{peer = unknown}, Data1)
 	end,
 
     gtp_path_reg:register(RegKey, State#state.peer),
@@ -341,23 +345,28 @@ init([#socket{name = SocketName} = Socket, Version, RemoteIP, Trigger, Args]) ->
     ?LOG(debug, "State: ~p~nData: ~p~nActions: ~p~n", [State, Data, Actions]),
     {ok, State, Data, Actions}.
 
-handle_event(enter, #state{peer = OldPS} = OldS, #state{peer = down} = State, Data)
+handle_event(enter, #state{peer = OldPS} = OldS, #state{peer = down} = State, Data0)
   when OldPS =/= down ->
+    Data = Data0#{echo_cnt => 0},
     peer_state_change(OldS, State, Data),
     path_recovery_change(State),
-    keep_state_and_data;
+    {keep_state, Data};
 
 handle_event(enter,
 	     #state{peer = OldP, contexts = OldC} = OldS,
-	     #state{peer = NewP, contexts = NewC} = State, Data)
+	     #state{peer = NewP, contexts = NewC} = State, Data0)
   when OldP /= NewP; OldC /= NewC ->
+    Data =
+	if OldP =/= NewP -> Data0#{echo_cnt => 0};
+	   true          -> Data0
+	end,
     peer_state_change(OldS, State, Data),
     OldPState = peer_state(OldS),
     NewPState = peer_state(State),
-    {keep_state_and_data, enter_peer_state_action(OldPState, NewPState, Data)};
+    {keep_state, Data, enter_peer_state_action(OldPState, NewPState, Data)};
 
 handle_event(enter, #state{echo = Old}, #state{echo = Echo} = State, Data)
-  when Old /= Echo ->
+  when Old /= Echo andalso not is_reference(Echo) ->
     PeerState = peer_state(State),
     {keep_state_and_data, enter_state_echo_action(PeerState, Data)};
 
@@ -367,10 +376,10 @@ handle_event(enter, _OldState, _State, _Data) ->
 handle_event({timeout, stop_echo}, stop_echo, State, Data) ->
     {next_state, State#state{echo = stopped}, Data, [{{timeout, echo}, cancel}]};
 
-handle_event({timeout, echo}, start_echo, #state{echo = EchoT} = State0, Data)
+handle_event({timeout, echo}, start_echo, #state{echo = EchoT} = State0, Data0)
   when EchoT =:= stopped;
        EchoT =:= idle ->
-    State = send_echo_request(State0, Data),
+    {State, Data} = send_echo_request(State0, Data0),
     {next_state, State, Data};
 handle_event({timeout, echo}, start_echo, _State, _Data) ->
     keep_state_and_data;
@@ -464,9 +473,9 @@ handle_event(info, {'DOWN', _MRef, process, Pid, _Info}, #state{contexts = CtxS}
 handle_event(info,{'DOWN', _MRef, process, _Pid, _Info}, _State, _Data) ->
     keep_state_and_data;
 
-handle_event({timeout, 'echo'}, _, #state{echo = idle} = State0, Data) ->
-    ?LOG(debug, "handle_event timeout: ~p", [Data]),
-    State = send_echo_request(State0, Data),
+handle_event({timeout, 'echo'}, _, #state{echo = idle} = State0, Data0) ->
+    ?LOG(debug, "handle_event timeout: ~p", [Data0]),
+    {State, Data} = send_echo_request(State0, Data0),
     {next_state, State, Data};
 
 handle_event({timeout, 'echo'}, _, _State, _Data) ->
@@ -474,8 +483,8 @@ handle_event({timeout, 'echo'}, _, _State, _Data) ->
     keep_state_and_data;
 
 %% test support
-handle_event({call, From}, '$ping', State0, Data) ->
-    State = send_echo_request(State0, Data),
+handle_event({call, From}, '$ping', State0, Data0) ->
+    {State, Data} = send_echo_request(State0, Data0),
     {next_state, State, Data, [{{timeout, echo}, cancel}, {reply, From, ok}]};
 
 handle_event({call, From}, {'$set', Opt, Value}, _State, Data) ->
@@ -538,18 +547,22 @@ enter_state_timeout_action(down, #{down := #{timeout := Timeout}}) when is_integ
 enter_state_timeout_action(_State, _Data) ->
     {{timeout, peer}, cancel}.
 
-enter_state_echo_action(busy, #{busy := #{echo := EchoInterval}})
+state_echo_timeout(#{echo := EchoInterval}, _)
   when is_integer(EchoInterval) ->
     {{timeout, echo}, EchoInterval, start_echo};
-enter_state_echo_action(idle, #{idle := #{echo := EchoInterval}})
-  when is_integer(EchoInterval) ->
+state_echo_timeout(#{echo :=
+			 #{initial := Initial,
+			   'scaleFactor' := ScaleF,
+			   max := Max}},
+		   #{echo_cnt := Cnt}) ->
+    EchoInterval = min(round(Initial * math:pow(ScaleF, Cnt)), Max),
     {{timeout, echo}, EchoInterval, start_echo};
-enter_state_echo_action(suspect, #{suspect := #{echo := EchoInterval}})
-  when is_integer(EchoInterval) ->
-    {{timeout, echo}, EchoInterval, start_echo};
-enter_state_echo_action(down, #{down := #{echo := EchoInterval}})
-  when is_integer(EchoInterval) ->
-    {{timeout, echo}, EchoInterval, start_echo};
+state_echo_timeout(_, _) ->
+    {{timeout, stop_echo}, 0, stop_echo}.
+
+enter_state_echo_action(State, Data)
+  when State =:= busy; State =:= idle; State =:= suspect; State =:= down ->
+    state_echo_timeout(maps:get(State, Data), Data);
 enter_state_echo_action(_, _) ->
     {{timeout, stop_echo}, 0, stop_echo}.
 
@@ -740,13 +753,14 @@ peer_state_event_action(Event, State, Data) ->
 	    {next_state, State#state{peer = down, recovery = undefined}, Data}
     end.
 
-send_echo_request(State, #{socket := Socket, handler := Handler, ip := DstIP} = Data) ->
+send_echo_request(State, #{socket := Socket, handler := Handler,
+			   ip := DstIP, echo_cnt := Cnt} = Data) ->
     #{t3 := T3, n3 := N3} = peer_state_cfg(State, Data),
     Msg = Handler:build_echo_request(),
     Ref = erlang:make_ref(),
     CbInfo = {?MODULE, handle_response, [self(), echo_request, Ref]},
     ergw_gtp_c_socket:send_request(Socket, any, DstIP, ?GTP1c_PORT, T3, N3, Msg, CbInfo),
-    State#state{echo = Ref}.
+    {State#state{echo = Ref}, Data#{echo_cnt => Cnt + 1}}.
 
 ring_path_restart(RstCnt, #{reg_key := Key}) ->
     {ok, Ring} = riak_core_ring_manager:get_my_ring(),

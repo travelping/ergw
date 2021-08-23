@@ -672,6 +672,7 @@ common() ->
      path_restart, path_restart_recovery, path_restart_multi,
      path_failure,
      path_failure_suspect_timeout,
+     path_failure_suspect_echo_backoff,
      path_maintenance,
      simple_session_request,
      simple_session_request_cp_teid,
@@ -831,6 +832,10 @@ init_per_testcase(path_restart, Config) ->
     ok = meck:new(gtp_path, [passthrough, no_link]),
     Config;
 init_per_testcase(path_failure_suspect_timeout, Config) ->
+    setup_per_testcase(Config),
+    ok = meck:new(gtp_path, [passthrough, no_link]),
+    Config;
+init_per_testcase(path_failure_suspect_echo_backoff, Config) ->
     setup_per_testcase(Config),
     ok = meck:new(gtp_path, [passthrough, no_link]),
     Config;
@@ -1054,6 +1059,9 @@ end_per_testcase(path_restart, Config) ->
     meck:unload(gtp_path),
     end_per_testcase(Config);
 end_per_testcase(path_failure_suspect_timeout, Config) ->
+    meck:unload(gtp_path),
+    end_per_testcase(Config);
+end_per_testcase(path_failure_suspect_echo_backoff, Config) ->
     meck:unload(gtp_path),
     end_per_testcase(Config);
 end_per_testcase(path_maintenance, Config) ->
@@ -1475,6 +1483,75 @@ path_failure_suspect_timeout(Config) ->
 
     meck_validate(Config),
 
+    ok = meck:delete(ergw_gtp_c_socket, send_request, 8),
+    ok.
+
+
+%%--------------------------------------------------------------------
+path_failure_suspect_echo_backoff() ->
+    [{doc, "Check incremental growing Echo Interval in suspect"}].
+path_failure_suspect_echo_backoff(Config) ->
+    ok = meck:expect(gtp_path, init,
+		     fun ([Socket, Version, RemoteIP, Trigger, Args0]) ->
+			     %% overwrite ping interval and suspect timeout
+			     Args =
+				 ergw_test_lib:maps_recusive_merge(
+				   Args0, #{busy =>
+						#{echo => 10,
+						  events => #{echo_timeout => warning}},
+					    idle =>
+						#{echo => 10,
+						  events => #{echo_timeout => warning}},
+					    suspect =>
+						#{echo => #{initial => 1,
+							    'scaleFactor' => 2,
+							    max => 60 * 1000},
+						  timeout => 300 * 1000,
+						  events => #{echo_timeout => warning}
+						 }}),
+			     meck:passthrough([[Socket, Version, RemoteIP, Trigger, Args]])
+		     end),
+
+    CtxKey = #context_key{socket = 'irx-socket', id = {imsi, ?'IMSI', 5}},
+
+    %% kill all paths to ensure the meck override is used
+    [gtp_path:stop(Pid) || {_, Pid, _} <- gtp_path_reg:all()],
+
+    {GtpC, _, _} = create_session(Config),
+
+    {_, CtxPid} = gtp_context_reg:lookup(CtxKey),
+    #{left_tunnel := #tunnel{socket = CSocket}} = gtp_context:info(CtxPid),
+
+    ClientIP = proplists:get_value(client_ip, Config),
+    ok = meck:expect(ergw_gtp_c_socket, send_request,
+		     fun (_, _, IP, _, _, _, #gtp{type = echo_request}, CbInfo)
+			   when IP =:= ClientIP ->
+			     %% simulate a Echo timeout
+			     ergw_gtp_c_socket:send_reply(CbInfo, timeout);
+			 (Socket, Src, IP, Port, T3, N3, Msg, CbInfo) ->
+			     meck:passthrough([Socket, Src, IP, Port, T3, N3, Msg, CbInfo])
+		     end),
+
+    gtp_path:ping(CSocket, v2, ClientIP),
+
+    %% wait for 100ms
+    ct:sleep(100),
+    delete_session(GtpC),
+
+    EchoMs = ['_', '_', ClientIP, '_', '_', '_', #gtp{type = echo_request, _ = '_'}, '_'],
+    %% expect at least 8 pings (one initial ping, one test triggered ping and 6 pings due to
+    %% the exponential backoff, slow system might have more initial pings
+    ?match(X when X >= 8 andalso X < 15,
+	   meck:num_calls(ergw_gtp_c_socket, send_request, EchoMs)),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    wait4tunnels(?TIMEOUT),
+    wait4contexts(?TIMEOUT),
+
+    meck_validate(Config),
+
+    %% kill all paths to ensure the meck override is no longer used
+    [gtp_path:stop(Pid) || {_, Pid, _} <- gtp_path_reg:all()],
     ok = meck:delete(ergw_gtp_c_socket, send_request, 8),
     ok.
 

@@ -360,8 +360,14 @@
             },
             "down": {
                 "echo": {
-                    "timeout": 10,
-                    "unit": "minute"
+		    "initial": {
+			"timeout": 1,
+			"unit": "minute"
+		    },
+		    "max": {
+			"timeout": 10,
+			"unit": "minute"
+		    }
                 },
                 "timeout": {
                     "timeout": 1,
