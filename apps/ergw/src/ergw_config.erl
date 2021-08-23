@@ -136,7 +136,7 @@ ergw_sbi_client_init(Opts) ->
     ergw_sbi_client_config:validate_options(fun ergw_sbi_client_config:validate_option/2, Opts).
 
 ergw_core_init(Config) ->
-    Init = [node, aaa, wait_till_running, path_management, node_selection,
+    Init = [node, aaa, wait_till_running, path_management, gtp_peers, node_selection,
 	    sockets, upf_nodes, handlers, ip_pools, apns, charging, proxy_map,
 	    http_api, sbi_client],
     lists:foreach(ergw_core_init(_, Config), Init).
@@ -163,6 +163,8 @@ ergw_core_init(path_management, #{path_management := PathM}) ->
     Old = #{busy => Old1, idle => Old1, suspect => Old1, down => Old1},
     Config = maps_recusive_merge(Old, Config0),
     ok = ergw_core:setopts(path_management, Config);
+ergw_core_init(gtp_peers, #{gtp_peers := Peers}) ->
+    maps:map(fun ergw_core:set_gtp_peer_opts/2, Peers);
 ergw_core_init(node_selection, #{node_selection := NodeSel}) ->
     ok = ergw_core:setopts(node_selection, NodeSel);
 ergw_core_init(sockets, #{sockets := Sockets}) ->
@@ -222,6 +224,7 @@ config_raw_meta() ->
       node_selection  => config_meta_node_selection(),
       upf_nodes       => config_meta_nodes(),
       path_management => config_meta_path_management(),
+      gtp_peers       => config_meta_gtp_peers(),
       proxy_map       => config_meta_proxy_map(),
       sockets         => config_meta_socket(),
       teid            => config_meta_tei_mngr(),
@@ -528,6 +531,9 @@ config_meta_path_management() ->
 	    events => Events                   % event to severity mapping
 	   }
      }.
+
+config_meta_gtp_peers() ->
+    {klist, {ip, ip_address}, config_meta_path_management()}.
 
 config_meta_proxy_map() ->
     To = #{imsi => binary, msisdn => binary},

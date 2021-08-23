@@ -19,6 +19,7 @@
 	 add_handler/2,
 	 add_ip_pool/2,
 	 add_sx_node/2,
+	 set_gtp_peer_opts/2,
 	 add_apn/2,
 	 add_charging_profile/2,
 	 add_charging_rule/2,
@@ -164,6 +165,16 @@ add_sx_node(Name, Opts0) ->
 
 do_add_sx_node(Name, Opts) ->
     ergw_sx_node:add_sx_node(Name, Opts).
+
+%%
+%% add a new GTP peer
+%%
+set_gtp_peer_opts(Peer, Opts0) ->
+    Opts = gtp_path:validate_options(Peer, Opts0),
+    gen_statem:call(?SERVER, {set_gtp_peer_opts, Peer, Opts}).
+
+do_set_gtp_peer_opts(Peer, Opts) ->
+    gtp_path:set_peer_opts(Peer, Opts).
 
 add_apn(Name0, Opts0) ->
     {Name, Opts} = ergw_apn:validate_options({Name0, Opts0}),
@@ -359,6 +370,10 @@ handle_event({call, From}, {add_ip_pool, Name, Opts}, running, _) ->
 
 handle_event({call, From}, {add_sx_node, Name, Opts}, running, _) ->
     Reply = do_add_sx_node(Name, Opts),
+    {keep_state_and_data, [{reply, From, Reply}]};
+
+handle_event({call, From}, {set_gtp_peer_opts, Peer, Opts}, running, _) ->
+    Reply = do_set_gtp_peer_opts(Peer, Opts),
     {keep_state_and_data, [{reply, From, Reply}]};
 
 handle_event({call, From}, {add_apn, Name, Opts}, running, _) ->
