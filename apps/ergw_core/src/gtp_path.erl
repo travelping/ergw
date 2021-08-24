@@ -316,6 +316,7 @@ callback_mode() -> [handle_event_function, state_enter].
 
 init([#socket{name = SocketName} = Socket, Version, RemoteIP, Trigger, Args]) ->
     RegKey = {SocketName, Version, RemoteIP},
+    Now = erlang:monotonic_time(),
 
     Data0 = maps:with([busy, idle, suspect, down], Args),
     Data1 = Data0#{
@@ -326,6 +327,10 @@ init([#socket{name = SocketName} = Socket, Version, RemoteIP, Trigger, Args]) ->
 	     ip         => RemoteIP,
 	     reg_key    => RegKey,
 	     time       => 0,
+	     last_seen  => Now,
+	     last_echo_request => Now,
+	     last_echo_response => Now,
+	     last_message => Now,
 	     echo_cnt   => 0,
 	     going_down => false
 	},
@@ -399,6 +404,19 @@ handle_event({timeout, peer}, down, #state{leases = Leases} = State, Data)
   when map_size(Leases) =/= 0 ->
     {next_state, State#state{recovery = undefined}, Data#{going_down => true}};
 
+handle_event({timeout, peer}, stop, #state{peer = up},
+	     #{last_message := LastMsg, idle := #{timeout := Timeout}, reg_key := RegKey})
+  when is_integer(Timeout), Timeout /= 0 ->
+    Now = erlang:monotonic_time(millisecond),
+    Last = erlang:convert_time_unit(LastMsg, native, millisecond),
+    case Timeout - (Now - Last) of
+	X when X > 0 ->
+	    %% reset timeout
+	    {keep_state_and_data, [{{timeout, peer}, X, stop}]};
+	_ ->
+	    gtp_path_reg:unregister(RegKey),
+	    {stop, normal}
+    end;
 handle_event({timeout, peer}, stop, _State, #{reg_key := RegKey}) ->
     gtp_path_reg:unregister(RegKey),
     {stop, normal};
@@ -428,7 +446,7 @@ handle_event(cast, {unbind_tunnel, Pid}, State, Data) ->
     unbind_tunnel(Pid, State, Data);
 
 handle_event(cast, {activity, When, What}, State0, Data0) ->
-    {State, Data} = activity(When, What, State0, Data0),
+    {State, Data} = activity(When, What, {State0, Data0}),
     {next_state, State, Data};
 
 handle_event({call, From}, info, #state{contexts = CtxS} = State,
@@ -589,19 +607,9 @@ foreach_context(NewCnt, {Pid, {OldCnt, _}, Iter}, Fun) ->
     end,
     foreach_context(NewCnt, maps:next(Iter), Fun).
 
-activity(When, #gtp{ie = #{{recovery, 0} :=
-			       #recovery{restart_counter = RestartCounter}}}, State, Data) ->
-    activity(When, RestartCounter, State, Data);
-activity(When, #gtp{ie = #{{v2_recovery, 0} :=
-			       #v2_recovery{restart_counter = RestartCounter}}}, State, Data) ->
-    activity(When, RestartCounter, State, Data);
-activity(When, #gtp{}, State, Data) ->
-    activity(When, rx, State, Data);
-
-activity(When, RstCnt, #state{recovery = RstCnt} = State, Data)
-  when is_integer(RstCnt) ->
-    rx(When, State, Data);
-activity(When, RstCnt, State0, Data0)
+rx_rst_cnt(RstCnt, {#state{recovery = RstCnt}, _} = StateData) ->
+    StateData;
+rx_rst_cnt(RstCnt, {State0, Data0})
   when is_integer(RstCnt) ->
     {Verdict, New, Data} = cas_restart_counter(RstCnt, Data0),
     State =
@@ -613,19 +621,36 @@ activity(When, RstCnt, State0, Data0)
 		path_recovery_change(State0#state{recovery = New});
 	    _ ->
 		State0
-    end,
-    rx(When, State, Data);
-
-activity(When, rx, State, Data) ->
-    rx(When, State, Data);
-activity(_When, _What, State, Data) ->
-    {State, Data}.
-
-rx(When, State, #{last_seen := Last} = Data) when Last > When ->
+	end,
     {State, Data};
-rx(When, State, Data) ->
-    %% TBD: reset state timeout
-    {State#state{peer = up}, Data#{last_seen => When}}.
+rx_rst_cnt(_, StateData) ->
+    StateData.
+
+activity(When, #gtp{type = Type,
+		    ie = #{{recovery, 0} :=
+			       #recovery{restart_counter = RestartCounter}}}, StateData) ->
+    activity(When, Type, rx_rst_cnt(RestartCounter, StateData));
+activity(When, #gtp{type = Type,
+		    ie = #{{v2_recovery, 0} :=
+			       #v2_recovery{restart_counter = RestartCounter}}}, StateData) ->
+    activity(When, Type, rx_rst_cnt(RestartCounter, StateData));
+activity(When, #gtp{type = Type}, StateData) ->
+    activity(When, Type, StateData);
+
+activity(When, echo_request, StateData) ->
+    rx(last_seen, When, rx(last_echo_request, When, StateData));
+activity(When, echo_response, StateData) ->
+    rx(last_seen, When, rx(last_echo_response, When, StateData));
+activity(When, _Type, StateData) ->
+    rx(last_seen, When, rx(last_message, When, StateData)).
+
+rx(What, When, {State, Data}) ->
+    case maps:get(What, Data, When) of
+	X when X > When ->
+	    {State#state{peer = up}, Data#{What => When}};
+	_ ->
+	    {State, Data}
+    end.
 
 cas_restart_counter(Counter, #{time := Time0, reg_key := Key} = Data) ->
     case gtp_path_db_vnode:cas_restart_counter(Key, Counter, Time0 + 1) of
