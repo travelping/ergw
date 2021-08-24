@@ -326,7 +326,8 @@ init([#socket{name = SocketName} = Socket, Version, RemoteIP, Trigger, Args]) ->
 	     ip         => RemoteIP,
 	     reg_key    => RegKey,
 	     time       => 0,
-	     echo_cnt   => 0
+	     echo_cnt   => 0,
+	     going_down => false
 	},
 
     State0 = #state{contexts = #{}, leases = #{}, echo = stopped},
@@ -347,7 +348,7 @@ init([#socket{name = SocketName} = Socket, Version, RemoteIP, Trigger, Args]) ->
 
 handle_event(enter, #state{peer = OldPS} = OldS, #state{peer = down} = State, Data0)
   when OldPS =/= down ->
-    Data = Data0#{echo_cnt => 0},
+    Data = Data0#{echo_cnt => 0, going_down => false},
     peer_state_change(OldS, State, Data),
     path_recovery_change(State),
     {keep_state, Data};
@@ -357,8 +358,11 @@ handle_event(enter,
 	     #state{peer = NewP, contexts = NewC} = State, Data0)
   when OldP /= NewP; OldC /= NewC ->
     Data =
-	if OldP =/= NewP -> Data0#{echo_cnt => 0};
-	   true          -> Data0
+	if OldP =/= NewP ->
+		%% a state transition cancels the going down flag
+		Data0#{echo_cnt => 0, going_down => false};
+	   true ->
+		Data0
 	end,
     peer_state_change(OldS, State, Data),
     OldPState = peer_state(OldS),
@@ -370,6 +374,10 @@ handle_event(enter, #state{echo = Old}, #state{echo = Echo} = State, Data)
     PeerState = peer_state(State),
     {keep_state_and_data, enter_state_echo_action(PeerState, Data)};
 
+handle_event(enter, _OldState, #state{leases = Leases}, #{going_down := true} = Data)
+  when map_size(Leases) =:= 0 ->
+    %% trigger a immediate down timeout
+    {keep_state, Data#{going_down => false}, [{{timeout, peer}, 0, down}]};
 handle_event(enter, _OldState, _State, _Data) ->
     keep_state_and_data;
 
@@ -384,8 +392,12 @@ handle_event({timeout, echo}, start_echo, #state{echo = EchoT} = State0, Data0)
 handle_event({timeout, echo}, start_echo, _State, _Data) ->
     keep_state_and_data;
 
-handle_event({timeout, peer}, down, State, Data) ->
-    {next_state, State#state{peer = down, recovery = undefined}, Data};
+handle_event({timeout, peer}, down, #state{leases = Leases} = State, Data)
+  when map_size(Leases) =:= 0 ->
+    {next_state, State#state{peer = down, recovery = undefined}, Data#{going_down => false}};
+handle_event({timeout, peer}, down, #state{leases = Leases} = State, Data)
+  when map_size(Leases) =/= 0 ->
+    {next_state, State#state{recovery = undefined}, Data#{going_down => true}};
 
 handle_event({timeout, peer}, stop, _State, #{reg_key := RegKey}) ->
     gtp_path_reg:unregister(RegKey),
@@ -395,6 +407,8 @@ handle_event({call, From}, all, #state{contexts = CtxS} = _State, _Data) ->
     Reply = maps:keys(CtxS),
     {keep_state_and_data, [{reply, From, Reply}]};
 
+handle_event({call, From}, {aquire_lease, _}, _State, #{going_down := true}) ->
+    {keep_state_and_data, [{reply, From, {error, down}}]};
 handle_event({call, From}, {aquire_lease, _}, #state{peer = down}, _Data) ->
     {keep_state_and_data, [{reply, From, {error, down}}]};
 handle_event({call, From}, {aquire_lease, Pid}, State, Data) ->
