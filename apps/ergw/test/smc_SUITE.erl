@@ -11,6 +11,16 @@
 
 -include_lib("common_test/include/ct.hrl").
 
+-define(match(Guard, Expr),
+	((fun () ->
+		  case (Expr) of
+		      Guard -> ok;
+		      V -> ct:pal("MISMATCH(~s:~b, ~s)~nExpected: ~p~nActual:   ~p~n",
+				  [?FILE, ?LINE, ??Expr, ??Guard, V]),
+			   error(badmatch)
+		  end
+	  end)())).
+
 %%%===================================================================
 %%% API
 %%%===================================================================
@@ -44,6 +54,29 @@ pgw(Config)  ->
     ct:pal("Started: ~p", [Started]),
 
     ergw:wait_till_running(),
+
+    #{rules := Rules} = ergw_charging:rulebase(),
+    ct:pal("Rules: ~p", [Rules]),
+    ?match(
+       #{<<"OnlineRedirection">> :=
+	     #{'Flow-Information' :=
+		   [#{'Flow-Description' :=
+			  [<<"permit out ip from any to assigned">>],
+		      'Flow-Direction' := [1]},
+		    #{'Flow-Description' :=
+			  [<<"permit out ip from any to assigned">>],
+		      'Flow-Direction' := [2]}],
+	       'Metering-Method' := [2],
+	       'Offline' := [0],
+	       'Online' := [0],
+	       'Precedence' := [500],
+	       'Rating-Group' := [3224],
+	       'Redirect-Information' :=
+		   [#{'Redirect-Address-Type' := [2],
+		      'Redirect-Server-Address' :=
+			  [<<"https://portal">>],
+		      'Redirect-Support' := [1]}]}
+	}, Rules),
     ok.
 
 pgw_proxy() ->
