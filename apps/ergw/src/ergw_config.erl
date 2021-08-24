@@ -262,7 +262,10 @@ config_meta_charging() ->
     Offline = #{enable => boolean,
 		triggers => Triggers},
     FlowInfo = #{'Flow-Description' => optional(binary),
-		 'Flow-Direction'  => optional(integer)},
+		 'Flow-Direction'   => optional(integer)},
+    RedirectInfo = #{'Redirect-Support'        => optional(integer),
+		     'Redirect-Address-Type'   => optional(integer),
+		     'Redirect-Server-Address' => optional(binary)},
     Rule = #{'Service-Identifier' => optional(atom),      %%tbd: this is most likely wrong
 	     'Rating-Group' => optional(integer),
 	     'Online-Rating-Group' => optional(integer),
@@ -283,7 +286,7 @@ config_meta_charging() ->
 	     %% 'AF-Charging-Identifier'
 	     %% 'Flows'
 	     %% 'Monitoring-Key'
-	     'Redirect-Information' => optional(binary)
+	     'Redirect-Information' => optional(RedirectInfo)
 	     %% 'Mute-Notification'
 	     %% 'AF-Signalling-Protocol'
 	     %% 'Sponsor-Identity'

@@ -88,6 +88,29 @@
                 "Metering-Method": 1,
                 "Precedence": 100,
                 "Offline": 1
+            },
+            {
+                "name":"OnlineRedirection",
+                "Rating-Group":3224,
+                "Flow-Information": [
+                    {
+                        "Flow-Description":"permit out ip from any to assigned",
+                        "Flow-Direction":1
+                    },
+                    {
+                        "Flow-Description":"permit out ip from any to assigned",
+                        "Flow-Direction":2
+                    }
+                ],
+                "Redirect-Information": {
+                    "Redirect-Support": 1,
+                    "Redirect-Address-Type": 2,
+                    "Redirect-Server-Address": "https://portal"
+                },
+                "Metering-Method":2,
+                "Precedence":500,
+                "Offline":0,
+                "Online": 0
             }
         ],
         "rulebase": [
