@@ -169,7 +169,10 @@ handle_request(ReqKey,
     LeftTunnel =
 	case gtp_path:bind_tunnel(LeftTunnel1) of
 	    {ok, LT} -> LT;
-	    {error, Err2} -> throw(Err2#ctx_err{context = Context1, tunnel = LeftTunnel1})
+	    {error, #ctx_err{} = Err2} ->
+		throw(Err2#ctx_err{context = Context1, tunnel = LeftTunnel1});
+	    {error, _} ->
+		throw(?CTX_ERR(?FATAL, system_failure))
 	end,
 
     gtp_context:terminate_colliding_context(LeftTunnel, Context1),

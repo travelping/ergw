@@ -1024,6 +1024,9 @@ end_per_testcase(Config) ->
     PoolId = [<<"pool-A">>, ipv4, "10.180.0.1"],
     ?match_metric(prometheus_gauge, ergw_local_pool_free, PoolId, ?IPv4PoolSize),
 
+    %% stop all paths
+    lists:foreach(fun({_, Pid, _}) -> gtp_path:stop(Pid) end, gtp_path_reg:all()),
+
     AppsCfg = proplists:get_value(aaa_cfg, Config),
     ok = application:set_env(ergw_aaa, apps, AppsCfg),
     ergw_test_lib:set_online_charging(false),
@@ -1583,7 +1586,7 @@ path_maintenance(Config) ->
     wait4tunnels(?TIMEOUT),
 
     EchoMs = ['_', echo_request, '_', #gtp{type = echo_response, _ = '_'}],
-    ?match(X when X >= 8, meck:num_calls(gtp_path, handle_response, EchoMs)),
+    ?match(X when X >= 7, meck:num_calls(gtp_path, handle_response, EchoMs)),
 
     %% make sure path has moved from busy to idle
     ct:sleep(20),
