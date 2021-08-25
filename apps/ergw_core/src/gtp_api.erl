@@ -60,6 +60,7 @@
 	      {stop, Reason :: term(), NewData :: map()}.
 
 -callback close_context(Side :: atom(), Reason :: atom(),
+			Notify :: 'active' | 'silent',
 			State :: term(), Data :: map()) -> term().
 -callback delete_context(From :: term(), TermCause :: atom(),
 			 State :: term(), Data :: map()) -> term().

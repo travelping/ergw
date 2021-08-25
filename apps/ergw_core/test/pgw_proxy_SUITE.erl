@@ -723,6 +723,7 @@ common() ->
      path_maint,
      path_restart, path_restart_recovery,
      path_failure_to_pgw,
+     path_failure_to_pgw_silent,
      path_failure_to_pgw_and_restore,
      path_failure_to_sgw,
      simple_session,
@@ -889,6 +890,10 @@ init_per_testcase(path_maint, Config) ->
     ergw_test_lib:set_path_timers(#{busy => #{echo => 700}}),
     setup_per_testcase(Config),
     Config;
+init_per_testcase(path_failure_to_pgw_silent, Config) ->
+    ok = meck:new(gtp_path, [passthrough, no_link]),
+    setup_per_testcase(Config),
+    Config;
 init_per_testcase(path_failure_to_pgw_and_restore, Config) ->
     ergw_test_lib:set_path_timers(#{down => #{echo => 1}}),
     setup_per_testcase(Config),
@@ -1022,6 +1027,10 @@ end_per_testcase(path_maint, Config) ->
     end_per_testcase(Config);
 end_per_testcase(path_failure_to_pgw, Config) ->
     ok = meck:delete(ergw_gtp_c_socket, send_request, 8),
+    end_per_testcase(Config);
+end_per_testcase(path_failure_to_pgw_silent, Config) ->
+    ok = meck:delete(ergw_gtp_c_socket, send_request, 8),
+    meck:unload(gtp_path),
     end_per_testcase(Config);
 end_per_testcase(path_failure_to_pgw_and_restore, Config) ->
     ok = meck:delete(ergw_gtp_c_socket, send_request, 8),
@@ -1256,6 +1265,65 @@ path_failure_to_pgw(Config) ->
 
     %% wait for session cleanup
     ct:sleep(100),
+    delete_session(not_found, GtpC),
+
+    {_Handler, Server} = gtp_context_reg:lookup(RemoteCtxKey),
+    true = is_pid(Server),
+    %% killing the PGW context
+    exit(Server, kill),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    wait4tunnels(?TIMEOUT),
+
+    DownPeers = lists:filter(
+		  fun({_, State}) -> State =:= down end, gtp_path_reg:all(FinalGSN)),
+    ?equal(1, length(DownPeers)),
+
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+path_failure_to_pgw_silent() ->
+    [{doc, "Check that Create Session Request works and "
+      "that a path failure (Echo timeout) terminates the session"}].
+path_failure_to_pgw_silent(Config) ->
+    Cntl = whereis(gtpc_client_server),
+    CtxKey = #context_key{socket = 'irx', id = {imsi, ?'IMSI', 5}},
+    RemoteCtxKey = #context_key{socket = 'remote-irx', id = {imsi, ?'PROXY-IMSI', 5}},
+
+    ok = meck:expect(gtp_path, init,
+		     fun ([Socket, Version, RemoteIP, Trigger, Args0]) ->
+			     %% overwrite down notify
+			     Args =
+				 ergw_test_lib:maps_recusive_merge(
+				   Args0, #{down => #{notify => silent}}),
+			     meck:passthrough([[Socket, Version, RemoteIP, Trigger, Args]])
+		     end),
+
+    %% kill all paths to ensure the meck override is used
+    [gtp_path:stop(Pid) || {_, Pid, _} <- gtp_path_reg:all()],
+
+    {GtpC, _, _} = create_session(Config),
+
+    {_, CtxPid} = gtp_context_reg:lookup(CtxKey),
+    #{right_tunnel := #tunnel{socket = CSocket}} = gtp_context:info(CtxPid),
+
+    FinalGSN = proplists:get_value(final_gsn, Config),
+    ok = meck:expect(ergw_gtp_c_socket, send_request,
+		     fun (_, _, IP, _, _, _, #gtp{type = echo_request}, CbInfo)
+			   when IP =:= FinalGSN ->
+			     %% simulate a Echo timeout
+			     ergw_gtp_c_socket:send_reply(CbInfo, timeout);
+			 (Socket, Src, IP, Port, T3, N3, Msg, CbInfo) ->
+			     meck:passthrough([Socket, Src, IP, Port, T3, N3, Msg, CbInfo])
+		     end),
+
+    ok = gtp_path:ping(CSocket, v2, FinalGSN),
+
+    %% echo timeout should not trigger a context teardown, but no DBR
+    ?equal(timeout, recv_pdu(Cntl, undefined, 500, fun(Why) -> Why end)),
+
+    %% check that the session is gone
     delete_session(not_found, GtpC),
 
     {_Handler, Server} = gtp_context_reg:lookup(RemoteCtxKey),
