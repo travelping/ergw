@@ -528,7 +528,8 @@ config_meta_path_management() ->
 	    n3 => integer,                     % echo retry count
 	    echo => echo,                      % echo retry interval when down
 	    timeout => timeout,                % time to keep the path entry when down
-	    events => Events                   % event to severity mapping
+	    events => Events,                  % event to severity mapping
+	    notify => atom
 	   }
      }.
 

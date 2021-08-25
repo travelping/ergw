@@ -1000,6 +1000,15 @@ properties:
             $ref: "#/components/schemas/TimeoutInf"
           events:
             $ref: "#/components/schemas/PathEvents"
+          notify:
+            enum:
+              - active
+              - silent
+            description:
+              Defines where a peer down event is signaled by the handlers to other
+              peers `actively`, or if just the context is dropped and peers need to
+              learn about that through GTP-U Error Indications and GTP-C responses
+              with a `context not found` cause code.
     additionalProperties: false
 
   gtp_peers:

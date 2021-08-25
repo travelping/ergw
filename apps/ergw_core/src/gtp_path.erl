@@ -233,7 +233,8 @@ stop(Path) ->
     {t3,        10 * 1000},      % echo retry interval
     {n3,                5},      % echo retry count
     {echo,     600 * 1000},      % echo retry interval when down
-    {events, []}
+    {events, []},
+    {notify, active}
 ]).
 
 -define(EventDefaults, [
@@ -290,6 +291,9 @@ validate_state(State, timeout, Value)
     validate_timeout([State], Value);
 validate_state(_State, events, Values) ->
     ergw_core_config:validate_options(fun validate_event_opts/2, Values, ?EventDefaults);
+validate_state(down, notify, Value)
+  when Value =:= active; Value =:= silent ->
+    Value;
 validate_state(State, Opt, Value) ->
     erlang:error(badarg, [State, Opt, Value]).
 
@@ -355,7 +359,7 @@ handle_event(enter, #state{peer = OldPS} = OldS, #state{peer = down} = State, Da
   when OldPS =/= down ->
     Data = Data0#{echo_cnt => 0, going_down => false},
     peer_state_change(OldS, State, Data),
-    path_recovery_change(State),
+    path_recovery_change(State, Data),
     {keep_state, Data};
 
 handle_event(enter,
@@ -487,7 +491,7 @@ handle_event(cast, {path_restart, RstCnt}, #state{recovery = RstCnt} = _State, _
   when is_integer(RstCnt) ->
     keep_state_and_data;
 handle_event(cast, {path_restart, RstCnt}, State, Data) when is_integer(RstCnt) ->
-    {next_state, path_recovery_change(State#state{recovery = RstCnt}), Data};
+    {next_state, path_recovery_change(State#state{recovery = RstCnt}, Data), Data};
 handle_event(cast, {path_restart, undefined}, State, Data) ->
     {next_state, State#state{peer = down, recovery = undefined}, Data};
 
@@ -618,7 +622,7 @@ rx_rst_cnt(RstCnt, {State0, Data0})
 		State0#state{recovery = New};
 	    peer_restart ->
 		ring_path_restart(New, Data),
-		path_recovery_change(State0#state{recovery = New});
+		path_recovery_change(State0#state{recovery = New}, Data);
 	    _ ->
 		State0
 	end,
@@ -675,7 +679,7 @@ handle_restart_counter(RestartCounter, State0, Data0) ->
 	    {next_state, State#state{recovery = New}, Data};
 	peer_restart  ->
 	    ring_path_restart(New, Data),
-	    {next_state, path_recovery_change(State#state{recovery = New}), Data};
+	    {next_state, path_recovery_change(State#state{recovery = New}, Data), Data};
 	_ ->
 	    {next_state, State, Data}
     end.
@@ -806,12 +810,13 @@ ring_path_restart(RstCnt, #{reg_key := Key}) ->
     erpc:multicast(riak_core_ring:all_members(Ring),
 		   ?MODULE, path_restart, [Key, RstCnt]).
 
-path_recovery_change(#state{recovery = RstCnt, contexts = CtxS0} = State) ->
+path_recovery_change(#state{recovery = RstCnt, contexts = CtxS0} = State,
+		    #{down := #{notify := Notify}}) ->
     Path = self(),
     ResF =
 	fun() ->
 		foreach_context(RstCnt, maps:next(maps:iterator(CtxS0)),
-				gtp_context:path_restart(_, Path))
+				gtp_context:peer_down(_, Path, Notify))
 	end,
     proc_lib:spawn(ResF),
     State.

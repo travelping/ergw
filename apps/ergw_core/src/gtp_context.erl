@@ -19,7 +19,7 @@
 	 send_response/2, send_response/3,
 	 send_request/7, resend_request/2,
 	 request_finished/1,
-	 path_restart/2,
+	 peer_down/3,
 	 terminate_colliding_context/2, terminate_context/1,
 	 delete_context/1, trigger_delete_context/1,
 	 remote_context_register/3, remote_context_register_new/3,
@@ -89,8 +89,8 @@ resend_request(#tunnel{socket = Socket}, ReqId) ->
 start_link(Socket, Info, Version, Interface, IfOpts, Opts) ->
     gen_statem:start_link(?MODULE, [Socket, Info, Version, Interface, IfOpts], Opts).
 
-path_restart(Context, Path) ->
-    Fun = fun() -> (catch gen_statem:call(Context, {path_restart, Path})) end,
+peer_down(Context, Path, Notify) ->
+    Fun = fun() -> (catch gen_statem:call(Context, {peer_down, Path, Notify})) end,
     jobs:run(path_restart, Fun).
 
 remote_context_register(LeftTunnel, Bearer, Context)
@@ -612,17 +612,17 @@ handle_event({call, From}, terminate_context, State, Data0) ->
     Data = close_context(left, normal, State, Data0),
     {next_state, shutdown, Data, [{reply, From, ok}]};
 
-handle_event({call, From}, {path_restart, Path}, State,
+handle_event({call, From}, {peer_down, Path, Notify}, State,
 	     #{left_tunnel := #tunnel{path = Path}} = Data0) ->
-    Data = close_context(left, peer_restart, State, Data0),
+    Data = close_context(left, peer_restart, Notify, State, Data0),
     {next_state, shutdown, Data, [{reply, From, ok}]};
 
-handle_event({call, From}, {path_restart, Path}, State,
+handle_event({call, From}, {peer_down, Path, Notify}, State,
 	     #{right_tunnel := #tunnel{path = Path}} = Data0) ->
-    Data = close_context(right, peer_restart, State, Data0),
+    Data = close_context(right, peer_restart, Notify, State, Data0),
     {next_state, shutdown, Data, [{reply, From, ok}]};
 
-handle_event({call, From}, {path_restart, _Path}, _State, _Data) ->
+handle_event({call, From}, {peer_down, _Path, _Notify}, _State, _Data) ->
     {keep_state_and_data, [{reply, From, ok}]};
 
 handle_event(cast, {usage_report, URRActions, UsageReport}, _State, Data) ->
@@ -890,8 +890,11 @@ fteid_tunnel_side_f(#f_teid{ipv4 = IPv4, ipv6 = IPv6, teid = TEID},
 fteid_tunnel_side_f(FqTEID, {_, _, Iter}) ->
     fteid_tunnel_side_f(FqTEID, maps:next(Iter)).
 
-close_context(Side, Reason, State, #{interface := Interface} = Data) ->
-    Interface:close_context(Side, Reason, State, Data).
+close_context(Side, Reason, Notify, State, #{interface := Interface} = Data) ->
+    Interface:close_context(Side, Reason, Notify, State, Data).
+
+close_context(Side, Reason, State, Data) ->
+    close_context(Side, Reason, active, State, Data).
 
 delete_context(From, Reason, State, #{interface := Interface} = Data) ->
     Interface:delete_context(From, Reason, State, Data).

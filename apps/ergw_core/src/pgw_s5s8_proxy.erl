@@ -17,7 +17,7 @@
 	 handle_request/5, handle_response/5,
 	 handle_event/4, terminate/3]).
 
--export([delete_context/4, close_context/4]).
+-export([delete_context/4, close_context/5]).
 
 -include_lib("kernel/include/logger.hrl").
 -include_lib("gtplib/include/gtp_packet.hrl").
@@ -891,7 +891,7 @@ restart_timeout(Timeout, Msg, Data) ->
     cancel_timeout(Data),
     Data#{timeout => erlang:start_timer(Timeout, self(), Msg)}.
 
-close_context(Side, TermCause, State, Data)
+close_context(Side, TermCause, active, State, Data)
   when State == connected; State == connecting ->
     case Side of
 	left ->
@@ -903,7 +903,10 @@ close_context(Side, TermCause, State, Data)
 	    initiate_session_teardown(pgw2sgw, undefined, State, Data)
     end,
     delete_forward_session(TermCause, Data);
-close_context(_, _, _, Data) ->
+close_context(_Side, TermCause, silent, State, Data)
+  when State == connected; State == connecting ->
+    delete_forward_session(TermCause, Data);
+close_context(_, _, _, _, Data) ->
     Data.
 
 delete_context(From, TermCause, State, Data0)

@@ -17,7 +17,7 @@
 	 handle_request/5, handle_response/5,
 	 handle_event/4, terminate/3]).
 
--export([delete_context/4, close_context/4]).
+-export([delete_context/4, close_context/5]).
 
 %% PFCP context API's
 %%-export([defered_usage_report/3]).
@@ -394,7 +394,7 @@ encode_eua(Org, Number, IPv4, IPv6) ->
 		      pdp_type_number = Number,
 		      pdp_address = <<IPv4/binary, IPv6/binary >>}.
 
-close_context(_Side, Reason, _State, Data) ->
+close_context(_Side, Reason, _Notify, _State, Data) ->
     ergw_gtp_gsn_lib:close_context(?API, Reason, Data).
 
 map_attr('APN', #{?'Access Point Name' := #access_point_name{apn = APN}}) ->
