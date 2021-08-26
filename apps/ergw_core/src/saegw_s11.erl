@@ -95,18 +95,22 @@ handle_event(cast, {packet_in, _Socket, _IP, _Port, _Msg}, _State, _Data) ->
     ?LOG(warning, "packet_in not handled (yet): ~p", [_Msg]),
     keep_state_and_data;
 
-handle_event({timeout, context_idle}, check_session_liveness, State,
-	     #{context := Context, pfcp := PCtx} = Data) ->
-    case ergw_pfcp_context:session_liveness_check(PCtx) of
-	ok ->
-	    Actions = context_idle_action([], Context),
-	    {keep_state, Data, Actions};
-	_ ->
-	    delete_context(undefined, cp_inactivity_timeout, State, Data)
-    end;
+handle_event({timeout, context_idle}, check_session_liveness, State, Data) ->
+    ergw_context_statem:next(
+      statem_m:run(ergw_gtp_gsn_lib:pfcp_session_liveness_check(), _, _),
+      fun check_pfcp_session_liveness_ok/3,
+      fun check_pfcp_session_liveness_fail/3,
+      State, Data);
 
 handle_event(info, _Info, _State, _Data) ->
     keep_state_and_data.
+
+check_pfcp_session_liveness_ok(_, State, #{context := Context} = Data) ->
+    Actions = context_idle_action([], Context),
+    {next_state, State, Data, Actions}.
+
+check_pfcp_session_liveness_fail(_, State, Data) ->
+    delete_context(undefined, cp_inactivity_timeout, State, Data).
 
 handle_pdu(ReqKey, #gtp{ie = PDU} = Msg, _State,
 	   #{context := Context, pfcp := PCtx,
