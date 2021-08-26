@@ -15,7 +15,7 @@
 	 send_session_modification_request/5,
 	 receive_session_modification_response/2,
 	 delete_session/2,
-	 session_liveness_check/1,
+	 send_session_liveness_check/1,
 	 send_session_deletion_request/2,
 	 receive_session_deletion_response/1,
 	 usage_report_to_charging_events/3,
@@ -53,15 +53,9 @@ delete_session(Reason, PCtx) ->
     {ok, UsageReport} = session_deletion_request(Reason, PCtx),
     UsageReport.
 
-session_liveness_check(#pfcp_ctx{} = PCtx) ->
+send_session_liveness_check(#pfcp_ctx{} = PCtx) ->
     Req = #pfcp{version = v1, type = session_modification_request, ie = []},
-    case ergw_sx_node:call(PCtx, Req) of
-	#pfcp{type = session_modification_response,
-	      ie = #{pfcp_cause := #pfcp_cause{cause = 'Request accepted'}}} ->
-	    ok;
-	_ ->
-	    {error, ?CTX_ERR(?FATAL, system_failure)}
-    end.
+    ergw_sx_node:send_request(PCtx, Req).
 
 build_query_usage_report(Type, PCtx) ->
     maps:fold(fun(K, {URRType, V}, A)

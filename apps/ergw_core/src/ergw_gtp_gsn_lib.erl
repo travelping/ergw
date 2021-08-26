@@ -19,7 +19,8 @@
 -export([handle_peer_change/3, update_tunnel_endpoint/2, apply_bearer_change/2]).
 -export([remote_context_register_new/0,
 	 pfcp_create_session_response/1,
-	 pfcp_session_modification/0]).
+	 pfcp_session_modification/0,
+	 pfcp_session_liveness_check/0]).
 
 -include_lib("kernel/include/logger.hrl").
 -include_lib("gtplib/include/gtp_packet.hrl").
@@ -521,6 +522,19 @@ remote_context_register_new() ->
 	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
 	   #{context := Context, left_tunnel := LeftTunnel, bearer := Bearer} <- statem_m:get_data(),
 	   statem_m:lift(gtp_context:remote_context_register_new(LeftTunnel, Bearer, Context))
+       ]).
+
+pfcp_session_liveness_check() ->
+    do([statem_m ||
+	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+	   PCtx0 <- statem_m:get_data(maps:get(pfcp, _)),
+	   ReqId <-
+	       statem_m:return(ergw_pfcp_context:send_session_liveness_check(PCtx0)),
+	   Response <- statem_m:wait(ReqId),
+
+	   PCtx1 <- statem_m:get_data(maps:get(pfcp, _)),
+	   statem_m:lift(
+	     ergw_pfcp_context:receive_session_modification_response(PCtx1, Response))
        ]).
 
 %% -*- mode: Erlang; whitespace-line-column: 120; -*-
