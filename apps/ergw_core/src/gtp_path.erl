@@ -787,6 +787,8 @@ peer_state_event_action(_Event, #state{peer = down}, _Data) ->
     keep_state_and_data;
 peer_state_event_action(Event, State, Data) ->
     #{events := #{Event := Severity}} = peer_state_cfg(State, Data),
+    ?LOG(debug, "got peer event ~p at serverity level ~p in state ~p",
+	 [Event, Severity, State#state.peer]),
     case Severity of
 	info ->
 	    keep_state_and_data;
