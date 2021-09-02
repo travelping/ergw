@@ -18,7 +18,8 @@ RUN     apk update && apk --no-cache upgrade && \
 			pkgconf \
 			scanelf \
 			zlib \
-			yaml-dev
+			yaml-dev \
+			tzdata
 
 ADD     . /build
 RUN     rebar3 as prod release
@@ -30,7 +31,7 @@ FROM alpine:3.14
 WORKDIR /
 RUN     apk update && \
 		apk --no-cache upgrade && \
-		apk --no-cache add libgcc libstdc++ zlib ncurses-libs libcrypto1.1 lksctp-tools tini yaml
+		apk --no-cache add libgcc libstdc++ zlib ncurses-libs libcrypto1.1 lksctp-tools tini tzdata yaml
 COPY    docker/docker-entrypoint.sh /
 COPY    config/ergw-c-node.config /etc/ergw-c-node/
 
