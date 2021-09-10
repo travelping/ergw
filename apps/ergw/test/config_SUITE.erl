@@ -30,7 +30,7 @@
 %%%===================================================================
 
 all() ->
-    [load, avps, avp_filters, http_api].
+    [load, avps, avp_filters, http_api, current_config].
 
 init_per_testcase(_Case, Config) ->
     smc_test_lib:clear_app_env(),
@@ -142,6 +142,23 @@ http_api(_Config) ->
     ?ok(ValF(ValF(API))),
 
     ?bad(ValF([])),
+    ok.
+
+current_config() ->
+    [{doc, "Test the current configuration"}].
+current_config(Config)  ->
+    Meta = ergw_config:config_meta(),
+    Key = {ergw_config, typespecs},
+    S = persistent_term:get(Key, undefined),
+    ct:pal("Typespecs: ~p ~n Meta: ~p", [S, Meta]),
+
+    Dir  = ?config(data_dir, Config),
+    CfgSet = #{type => json, file => filename:join(Dir, "ggsn_proxy_err.json")},
+    application:set_env(ergw, config, CfgSet),
+    application:load(ergw),
+    FinalConfig = ergw_config:load(),
+    ct:pal("Constructed config: ~p", [FinalConfig]),
+    % exit("need to see comments"),
     ok.
 
 %%%===================================================================

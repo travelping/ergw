@@ -1,0 +1,448 @@
+{
+    "node": {
+        "accept_new": true,
+        "node_id": "GGSN-PROXY",
+        "plmn_id": {
+            "mcc": "001",
+            "mnc": "01"
+        }
+    },
+    "accept_new": true,
+    "apns": [
+        {
+            "Idle-Timeout": {
+                "timeout": 8,
+                "unit": "hour"
+            },
+            "apn": "proxy.example.net",
+            "bearer_type": "IPv4v6",
+            "ip_pools": [],
+            "ipv6_ue_interface_id": "default",
+            "prefered_bearer_type": "IPv6",
+            "vrfs": [
+                {
+                    "apn": "example"
+                }
+            ]
+        }
+    ],
+    "charging": {
+        "profiles": [
+            {
+                "name": "default",
+                "offline": {
+                    "enable": true,
+                    "triggers": {
+                        "cgi-sai-change": "container",
+                        "ecgi-change": "container",
+                        "max-cond-change": "cdr",
+                        "ms-time-zone-change": "cdr",
+                        "qos-change": "container",
+                        "rai-change": "container",
+                        "rat-change": "cdr",
+                        "sgsn-sgw-change": "cdr",
+                        "sgsn-sgw-plmn-id-change": "cdr",
+                        "tai-change": "container",
+                        "tariff-switch-change": "container",
+                        "user-location-info-change": "container"
+                    }
+                },
+                "online": {}
+            }
+        ],
+        "rules": [],
+        "rulebase": []
+    },
+    "cluster": {
+        "enabled": false,
+        "initial_timeout": {
+            "timeout": 1,
+            "unit": "minute"
+        },
+        "release_cursor_every": 0,
+        "seed_nodes": "{erlang,nodes,[known]}"
+    },
+    "handlers": [
+        {
+            "aaa": {
+                "AAA-Application-Id": "ergw_aaa_provider",
+                "Password": {
+                    "default": "ergw"
+                },
+                "Username": {
+                    "default": "ergw",
+                    "from_protocol_opts": true
+                }
+            },
+            "contexts": [
+                {
+                    "name": "ams1",
+                    "proxy_sockets": [
+                        "irx"
+                    ]
+                },
+                {
+                    "name": "ams2",
+                    "proxy_sockets": [
+                        "irx"
+                    ]
+                }
+            ],            "handler": "ggsn_gn_proxy",
+            "name": "gn-proxy",
+            "node_selection": [
+                "static"
+            ],
+            "protocol": "gn",
+            "proxy_data_source": "gtp_proxy_ds",
+            "proxy_sockets": [
+                "irx"
+            ],
+            "sockets": [
+                "irx"
+            ]
+        },
+        {
+            "aaa": {
+                "AAA-Application-Id": "ergw_aaa_provider",
+                "Password": {
+                    "default": "ergw"
+                },
+                "Username": {
+                    "default": [
+                        "IMSI",
+                        "@",
+                        "APN"
+                    ],
+                    "from_protocol_opts": true
+                }
+            },
+            "handler": "ggsn_gn",
+            "name": "gn-124816045",
+            "node_selection": [
+                "static"
+            ],
+            "protocol": "gn",
+            "sockets": [
+                "remote-irx",
+                "remote-irx2"
+            ]
+        }
+    ],
+    "http_api": {
+        "enabled": false
+    },
+    "ip_pools": [],
+    "metrics": {
+        "gtp_path_rtt_millisecond_intervals": [
+            10,
+            30,
+            50,
+            75,
+            100,
+            1000,
+            2000
+        ]
+    },
+    "node_selection": [
+        {
+            "name": "mydns",
+            "port": 53,
+            "server": {
+                "ipv4Addr": "127.0.0.1"
+            },
+            "type": "dns"
+        },
+        {
+            "entries": [
+                {
+                    "name": "_default.apn.epc.mnc001.mcc001.3gppnetwork.org",
+                    "order": 300,
+                    "preference": 64536,
+                    "protocols": [
+                        "x-gn",
+                        "x-gp",
+                        "x-s5-gtp",
+                        "x-s8-gtp"
+                    ],
+                    "replacement": "topon.s5s8.pgw.epc.mnc001.mcc001.3gppnetwork.org",
+                    "service": "x-3gpp-pgw",
+                    "type": "naptr"
+                },
+                {
+                    "name": "_default.apn.epc.mnc001.mcc001.3gppnetwork.org",
+                    "order": 300,
+                    "preference": 64536,
+                    "protocols": [
+                        "x-sxa"
+                    ],
+                    "replacement": "topon.sx.prox01.epc.mnc001.mcc001.3gppnetwork.org",
+                    "service": "x-3gpp-upf",
+                    "type": "naptr"
+                },
+                {
+                    "name": "web.apn.epc.mnc001.mcc001.3gppnetwork.org",
+                    "order": 300,
+                    "preference": 64536,
+                    "protocols": [
+                        "x-gn",
+                        "x-gp",
+                        "x-s5-gtp",
+                        "x-s8-gtp"
+                    ],
+                    "replacement": "topon.s5s8.pgw.epc.mnc001.mcc001.3gppnetwork.org",
+                    "service": "x-3gpp-pgw",
+                    "type": "naptr"
+                },
+                {
+                    "name": "web.apn.epc.mnc001.mcc001.3gppnetwork.org",
+                    "order": 300,
+                    "preference": 64536,
+                    "protocols": [
+                        "x-sxa"
+                    ],
+                    "replacement": "topon.sx.prox01.epc.mnc001.mcc001.3gppnetwork.org",
+                    "service": "x-3gpp-upf",
+                    "type": "naptr"
+                },
+                {
+                    "ip4": [
+                        "172.20.16.89"
+                    ],
+                    "ip6": [],
+                    "name": "topon.s5s8.pgw.epc.mnc001.mcc001.3gppnetwork.org",
+                    "type": "host"
+                },
+                {
+                    "ip4": [
+                        "172.20.16.91"
+                    ],
+                    "ip6": [],
+                    "name": "topon.sx.prox01.epc.mnc001.mcc001.3gppnetwork.org",
+                    "type": "host"
+                }
+            ],
+            "name": "default",
+            "type": "static"
+        }
+    ],
+    "upf_nodes": {
+        "default": {
+            "heartbeat": {
+                "interval": {
+                    "timeout": 5,
+                    "unit": "second"
+                },
+                "retry": 5,
+                "timeout": {
+                    "timeout": 500,
+                    "unit": "millisecond"
+                }
+            },
+            "node_selection": "default",
+            "request": {
+                "retry": 5,
+                "timeout": {
+                    "timeout": 30,
+                    "unit": "second"
+                }
+            },
+            "vrfs": [
+                {
+                    "features": [
+                        "SGi-LAN"
+                    ],
+                    "name": {
+                        "apn": "sgi"
+                    }
+                },
+                {
+                    "features": [
+                        "Access"
+                    ],
+                    "name": {
+                        "apn": "irx"
+                    }
+                },
+                {
+                    "features": [
+                        "CP-Function"
+                    ],
+                    "name": {
+                        "apn": "cp"
+                    }
+                }
+            ]
+        },
+        "entries": []
+    },
+    "path_management": {
+        "down": {
+            "echo": {
+                "timeout": 10,
+                "unit": "minute"
+            },
+            "timeout": {
+                "timeout": 1,
+                "unit": "hour"
+            }
+        },
+        "echo": {
+            "timeout": 1,
+            "unit": "minute"
+        },
+        "icmp_error_handling": "immediate",
+        "idle": {
+            "echo": {
+                "timeout": 10,
+                "unit": "minute"
+            },
+            "timeout": {
+                "timeout": 30,
+                "unit": "minute"
+            }
+        },
+        "n3": 5,
+        "t3": 10000
+    },
+    "proxy_map": {
+        "apn": [
+            {
+                "from": "example.net",
+                "to": "proxy.example.net"
+            }
+        ],
+        "imsi": [
+            {
+                "from": "111111111111111",
+                "to": {
+                    "imsi": "222222222222222",
+                    "msisdn": "491111111111"
+                }
+            }
+        ]
+    },
+    "sockets": [
+        {
+            "burst_size": 10,
+            "ip": {
+                "ipv4Addr": "127.0.0.1"
+            },
+            "name": "sx",
+            "reuseaddr": true,
+            "socket": "cp",
+            "type": "pfcp"
+        },
+        {
+            "burst_size": 10,
+            "ip": {
+                "ipv4Addr": "127.0.200.2"
+            },
+            "name": "remote-irx2",
+            "reuseaddr": true,
+            "send_port": 0,
+            "type": "gtp-c",
+            "vrf": {
+                "apn": "remote-irx2"
+            }
+        },
+        {
+            "burst_size": 10,
+            "ip": {
+                "ipv4Addr": "127.0.200.1"
+            },
+            "name": "remote-irx",
+            "reuseaddr": true,
+            "send_port": 0,
+            "type": "gtp-c",
+            "vrf": {
+                "apn": "remote-irx"
+            }
+        },
+        {
+            "burst_size": 10,
+            "ip": {
+                "ipv4Addr": "127.0.0.1"
+            },
+            "name": "irx",
+            "reuseaddr": true,
+            "send_port": 0,
+            "type": "gtp-c",
+            "vrf": {
+                "apn": "irx"
+            }
+        },
+        {
+            "burst_size": 10,
+            "freebind": true,
+            "ip": {
+                "ipv4Addr": "127.0.0.1"
+            },
+            "name": "cp",
+            "reuseaddr": true,
+            "send_port": 0,
+            "type": "gtp-u",
+            "vrf": {
+                "apn": "cp"
+            }
+        }
+    ],
+    "teid": {
+        "len": 0,
+        "prefix": 0
+    },
+    "sbi_client": {
+        "upf_selection": {
+            "endpoint": "https://example.com/nf-selection-api/v1",
+            "timeout": {
+                "timeout": 500,
+                "unit": "millisecond"
+            },
+            "default": "fallback"
+        }
+    },
+    "aaa": {
+        "product_name" : "test_aaa_config",
+        "rate_limits" : {
+            "default" : {
+                "outstanding_requests" : 0,
+                "rate" : 10,
+                "blorg" : 100
+            },
+            "peers" : [
+                {
+                    "rate": 10,
+                    "host": "missing_rate"
+                }
+            ]
+        },
+        "functions": [
+            {
+                "name": "sample_function_name",
+                "handler": "ergw_aaa_diameter",
+                "Origin-Host": {
+                    "fqdn": "sample1.test.org"
+                },
+                "Origin-Realm": "test.org",
+                "transports": [
+                    {
+                        "connect_to": "",
+                        "recbuf": 1,
+                        "sndbuf": 1,
+                        "nodelay": true,
+                        "reuseaddr": true,
+                        "unordered": true
+                    }
+                ]
+            }
+        ],
+        "handlers": [
+
+        ],
+        "services": [
+
+        ],
+        "apps": [
+
+        ]
+    }
+}

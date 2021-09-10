@@ -841,8 +841,8 @@ get_key(Field, Map) ->
 validate_config_with_schema(Config) ->
     Schema = filename:join([code:lib_dir(ergw, priv), "schemas", "ergw_config.yaml"]),
     case jesse:validate(Schema, Config) of
-	{ok, _} -> ok;
-	Other -> Other
+	  {ok, _} -> ok
+	% Other -> Other
     end.
 
 %%%===================================================================

@@ -503,6 +503,326 @@ components:
         vrf:
           $ref: "#/components/schemas/VRF"
 
+    RateLimit:
+      type: object
+      required:
+        - rate
+      properties:
+        outstanding_requests:
+          type: integer
+        rate:
+          type: integer
+
+    PeerRateLimit:
+      allOf:
+        - $ref: "#/components/schemas/RateLimit"
+        - type: object
+          required:
+            - host
+          properties:
+            host:
+              type: string
+
+    RateLimits:
+      type: object
+      properties:
+        default:
+          $ref: "#/components/schemas/RateLimit"
+        peers:
+          type: array
+          items:
+            $ref: "#/components/schemas/PeerRateLimit"
+
+    AaaTransport:
+      type: object
+      properties:
+        connect_to:
+          type: string
+        recbuf:
+          type: integer
+        sndbuf:
+          type: integer
+        nodelay:
+          type: boolean
+        reuseaddr:
+          type: boolean
+        unordered:
+          type: boolean
+
+    HostName:
+      type: object
+      required:
+        - fqdn
+      properties:
+        fqdn:
+          type: string
+
+    IPv4:
+      type: object
+      required:
+        - ipv4Addr
+      properties:
+        ipv4Addr:
+          type: string
+
+    IPv6:
+      type: object
+      required:
+        - ipv6Addr
+      properties:
+        ipv6Addr:
+          type: string
+
+    HostOrIp:
+      oneOf:
+        - $ref: "#/components/schemas/HostName"
+        - $ref: "#/components/schemas/IPv4"
+        - $ref: "#/components/schemas/IPv6"
+
+    AaaFunctions:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+        handler:
+          type: string
+        Origin-Host:
+          $ref: "#/components/schemas/HostOrIp"
+        Origin-Realm:
+          type: string
+        transports: 
+          type: array
+          items:
+            $ref: "#/components/schemas/AaaTransport"
+
+    AaaHandlers:
+      anyOf:
+        - $ref: "#/components/schemas/GxHandler"
+        - $ref: "#/components/schemas/NasReqHandler"
+        - $ref: "#/components/schemas/RadiusHandler"
+        - $ref: "#/components/schemas/RfHandler"
+        - $ref: "#/components/schemas/RoHandler"
+        - $ref: "#/components/schemas/StaticHandler"
+
+    # TODO Use specialized definitions for AVPs (check existing 3GPP yamls)
+    AaaAvp:
+      type: object
+      required:
+        - name
+        - value
+      properties:
+        name:
+          type: string
+        value:
+          type: 
+            oneOf:
+              - integer
+              - string
+
+    AaaAvpFilter:
+      type: array
+      items:
+        type: array
+        items:
+          oneOf:
+            - string
+            - $ref: "#/components/schemas/AaaAvp"
+
+    Answer:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+        avps:
+          $ref: "#/components/schemas/AaaAvp"
+        state:
+          type: string
+
+    TermCauseMapping:
+      type: object
+      properties:
+        cause:
+          type: string
+        code:
+          type: integer
+
+    GxHandler:
+      type: object
+      properties:
+        handler:
+          type: string
+        function:
+          type: string
+        Destination-Host:
+          type: string
+        Destination-Realm:
+          type: string
+        answers:
+          type: array
+          items:
+            $ref: "#/components/schemas/Answer"
+        answer_if_down:
+          type: string
+        answer_if_timeout:
+          type: string
+        avp_filter:
+          $ref: "#/components/schemas/AaaAvpFilter"
+        termination_cause_mapping: 
+          $ref: "#/components/schemas/TermCauseMapping"
+
+    NasReqHandler:
+      type: object
+      properties:
+        handler:
+          type: string
+        function:
+          type: string
+        accounting:
+          type: string
+        Destination-Host:
+          type: string
+        Destination-Realm:
+          type: string
+        avp_filter:
+          $ref: "#/components/schemas/AaaAvpFilter"
+        termination_cause_mapping:
+          $ref: "#/components/schemas/TermCauseMapping"
+
+    RadiusServer:
+      type: object
+      properties:
+        host:
+          type: string
+        port:
+          type: integer
+        secret:
+          type: string
+
+    RadiusHandler:
+      type: object
+      properties:
+        handler:
+          type: string
+        server: 
+          $ref: "#/components/schemas/RadiusServer"
+        server_name:
+          type: string
+        client_name:
+          type: string
+        timeout:
+          type: integer
+        retries:
+          type: integer
+        async:
+          type: boolean
+        avp_filter:
+          $ref: "#/components/schemas/AaaAvpFilter"
+        vendor_dicts: string
+        termination_cause_mapping:
+          $ref: "#/components/schemas/TermCauseMapping"
+
+    RfHandler:
+      type: object
+      properties:
+        handler:
+          type: string
+        function:
+          type: string
+        accounting:
+          type: string
+        Destination-Host:
+          type: string
+        Destination-Realm:
+          type: string
+        avp_filter:
+          $ref: "#/components/schemas/AaaAvpFilter"
+        termination_cause_mapping:
+          $ref: "#/components/schemas/TermCauseMapping"
+
+    RoHandler:
+      type: object
+      properties:
+        handler:
+          type: string
+        function:
+          type: string
+        Destination-Host:
+          type: string
+        Destination-Realm:
+          type: string
+        CC-Session-Failover:
+          type: string
+        Credit-Control-Failure-Handling:
+          type: string
+        answers:
+          type: array
+          items:
+            $ref: "#/components/schemas/Answer"
+        answer_if_down:
+          type: string
+        answer_if_timeout:
+          type: string
+        answer_if_rate_limit:
+          type: string
+        tx_timeout:
+          type: integer
+        max_retries:
+          type: integer
+        avp_filter:
+          $ref: "#/components/schemas/AaaAvpFilter"
+        termination_cause_mapping: 
+          $ref: "#/components/schemas/TermCauseMapping"
+
+    StaticHandler:
+      type: object
+      properties:
+        handler:
+          type: string
+        defaults:
+          $ref: "#/components/schemas/AaaAvp"
+        answers:
+          type: array
+          items:
+            $ref: "#/components/schemas/Answer"
+        answer:
+          type: string
+
+    AaaApp:
+      type: object
+      properties:
+        service:
+          type: string
+        answer:
+          type: string
+
+    Aaa:
+      type: object
+      properties:
+        product_name:
+          type: string
+        rate_limits:
+          $ref: "#/components/schemas/RateLimits"
+        functions:
+          type: array
+          items:
+            $ref: "#/components/schemas/AaaFunctions"
+        handlers:
+          type: array
+          items:
+            $ref: "#/components/schemas/AaaHandlers"
+        services:
+          type: array
+          items:
+            $ref: "#/components/schemas/AaaHandlers"
+        apps:
+          type: array
+          items:
+            $ref: "#/components/schemas/AaaApp"
+
     3gppDnsServices:
       enum:
         - x-3gpp-amf
@@ -1118,3 +1438,6 @@ properties:
                 type: string
               msisdn:
                 type: string
+
+  aaa:
+    $ref: "#/components/schemas/Aaa"
