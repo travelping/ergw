@@ -232,7 +232,7 @@ init([#socket{name = SocketName} = Socket, Version, RemoteIP, Args]) ->
 
 handle_event(enter, #state{peer = Old}, #state{peer = Peer}, Data)
   when Old /= Peer ->
-    ?LOG(debug, "enter state when Old/=New peer, data: ~p", [Data]),
+    ?LOG(debug, "enter state when Old ~p /= Peer ~p", [Old, Peer]),
     peer_state_change(Old, Peer, Data),
     OldState = peer_state(Old),
     NewState = peer_state(Peer),
@@ -240,7 +240,7 @@ handle_event(enter, #state{peer = Old}, #state{peer = Peer}, Data)
 
 handle_event(enter, #state{echo = Old}, #state{peer = Peer, echo = Echo}, Data)
   when Old /= Echo ->
-    ?LOG(debug, "enter state when Old/=Echo peer, new peer: ~p, data: ~p", [Peer, Data]),
+    ?LOG(debug, "enter state when Old ~p /= Echo ~p, new peer: ~p", [Old, Echo, Peer]),
     State = peer_state(Peer),
     {keep_state_and_data, enter_state_echo_action(State, Data)};
 
@@ -518,10 +518,19 @@ update_contexts(State0, #{socket := Socket, version := Version, ip := IP} = Data
     {next_state, State, Data, Actions}.
 
 register_monitor(Pid, State, #{contexts := CtxS, monitors := Mons} = Data, Actions)
-  when is_map_key(Pid, CtxS); is_map_key(Pid, Mons) ->
+  when is_map_key(Pid, CtxS), is_map_key(Pid, Mons) ->
     ?LOG(debug, "~s: monitor(~p), pid found in both context and monitors", [?MODULE, Pid]),
     {next_state, State, Data, Actions};
-register_monitor(Pid, State, #{contexts := CtxS, monitors := Mons} = Data, Actions) ->
+register_monitor(Pid, State, #{contexts := CtxS, monitors := Mons} = Data, Actions)
+  when not is_map_key(Pid, CtxS), is_map_key(Pid, Mons) ->
+    ?LOG(debug, "~s: monitor(~p), pid found in monitors ONLY", [?MODULE, Pid]),
+    {next_state, State, Data, Actions};
+register_monitor(Pid, State, #{contexts := CtxS, monitors := Mons} = Data, Actions)
+  when is_map_key(Pid, CtxS), not is_map_key(Pid, Mons) ->
+    ?LOG(debug, "~s: monitor(~p), pid found in contexts ONLY", [?MODULE, Pid]),
+    {next_state, State, Data, Actions};
+register_monitor(Pid, State, #{contexts := CtxS, monitors := Mons} = Data, Actions)
+  when not is_map_key(Pid, CtxS), not is_map_key(Pid, Mons) ->
     IsInM = is_map_key(Pid, Mons),
     IsInC = is_map_key(Pid, CtxS),
     Cpids = maps:keys(CtxS),
@@ -537,7 +546,10 @@ register_monitor(Pid, State, #{contexts := CtxS, monitors := Mons} = Data, Actio
     {MpidsAlive, MpidsDead} = lists:splitwith(IsAlive, Mpids),
     ?LOG(debug, "Register monitor contexts (alive/dead): ~p / ~p", [length(CpidsAlive), length(CpidsDead)]),
     ?LOG(debug, "Register monitor monitors (alive/dead): ~p / ~p", [length(MpidsAlive), length(MpidsDead)]),
-    ?LOG(debug, "~s: monitor(~p), pid maybe found in one but not in both: ~p", [?MODULE, Pid, {IsInM, IsInC}]),
+    ?LOG(debug, "~s: monitor(~p), pid not found in any: ~p", [?MODULE, Pid, {IsInM, IsInC}]),
+    CurrentMs = element(2, erlang:process_info(Pid, monitored_by)),
+    MonitoredByMe = lists:member(self(), CurrentMs),
+    ?LOG(debug, "Is ~p already monitored by me? ~p : ~p", [Pid, MonitoredByMe, CurrentMs]),
     MRef = erlang:monitor(process, Pid),
     {next_state, State, Data#{monitors => maps:put(Pid, MRef, Mons)}, Actions}.
 
@@ -557,6 +569,9 @@ register_bind(Pid, State, #{contexts := CtxS} = Data, Actions)
     {next_state, State, Data, Actions};
 register_bind(Pid, State, Data, Actions) ->
     ?LOG(debug, "~s: default register(~p)", [?MODULE, Pid]),
+    CurrentMs = element(2, erlang:process_info(Pid, monitored_by)),
+    MonitoredByMe = lists:member(self(), CurrentMs),
+    ?LOG(debug, "Is ~p already monitored by me? ~p : ~p", [Pid, MonitoredByMe, CurrentMs]),
     MRef = erlang:monitor(process, Pid),
     register_bind(Pid, MRef, State, Data, Actions).
 
