@@ -1,31 +1,31 @@
-erGW configuration (WiP)
-========================
+## erGW configuration (WiP)
 
-Concepts
---------
 
-### VRF's ###
+### Concepts
 
-A VRF (Virtual Routing Function) encapsulates a IP routing domin. All devices
+
+#### VRF's
+
+A VRF (Virtual Routing Function) encapsulates an IP routing domin. All devices
 in a VRF get their IP's from a common pool and are in the same routing domain.
 
 Configuration settings per VRF:
 
 * IP pool
 * IP routes (from the GGSN to MS)
-* default DNS server
-* default Wins (NBNS) server
+* Default DNS server
+* Default Wins (NBNS) server
 
 The AAA provider can override the DNS and NBNS server settings and assign
 IP addresses. The assigned IP address has to be reachable through the routes.
 
-#### Syntax of VRF names ####
+##### Syntax of VRF names
 
-VRF names are use internally and also as Network Instance names in the PFCP
+VRF names are used internally and also as Network Instance names in the PFCP
 protocol. They have to meet the encoding semantics of the PFCP and be identical
 on the CP and UP node.
 
-3GPP TS 29.244, 8.2.4 Network Instance is a bit vague about the encoding of the
+3GPP TS 29.244, 8.2.4 Network Instance is vague about the encoding of the
 network instance identifier. When an APN name is used as name, we can assume
 DNS label type encoding, however the Domain Name encoding is left open.
 
@@ -48,7 +48,7 @@ Samples:
 | [<<"apn">>, <<"dns">>, <<"label">>] | <<3, "apn", 3, "dns", 5, "label">> |
 | <<"apn.dns.label">>                 | <<"apn.dns.label">>                |
 
-### APN ###
+#### APN
 
 3GPP TS 23.003, Section 9 defines an APN in terms of selecting a GGSN:
 
@@ -56,10 +56,10 @@ Samples:
 > support inter-PLMN roaming, the internal GPRS DNS functionality is used to
 > translate the APN into the IP address of the GGSN.
 
-However, once a GTP tunnel request has been reached a erGW, the APN message
+However, once a GTP tunnel request has been reached an erGW, the APN message
 element is just a selector to choose the final settings for a given tunnel.
 
-### GTP routes ###
+#### GTP routes
 
 GTP routes are used to map an incomming GTP tunnel/bearer request to a AAA
 provider. The outcome of the AAA decission then connects the GTP tunnel to
@@ -69,12 +69,11 @@ VRF for a give APN is used.
 The dummy (mock) AAA provider accepts all session and always connects to the
 default VRF of a APN.
 
-### GTP socket ###
+#### GTP socket
 
 A GTP socket is a GTP-C or GTP-U IP endpoint.
 
-Pictures
---------
+##### Pictures
 
 Some picture putting the above description into context would be nice.
 
@@ -84,12 +83,11 @@ Socket to VRF wiring:
 
 [socket-wiring]: priv/ConfigMsgRouting.jpeg "Socket to VRF connection"
 
-Configuration
--------------
+##### Configuration
 
-The configuration is processed through the [Erlang setup](https://github.com/uwiger/setup/blob/master/doc/setup.md) application. Therefor variable expansion as described there is available.
+The configuration is processed through the [Erlang setup](https://github.com/uwiger/setup/blob/master/doc/setup.md) application. Therefore variable expansion as described there is available.
 
-### PLMN Id ###
+#### PLMN Id
 
      {plmn_id, {<<"001">>, <<"01">>}
 
@@ -97,7 +95,7 @@ The PLMN identifier is the MCC and MNC of the served network.
 
 * plmn_id: `{plmn_id, {MCC :: binary(), MNC :: binary()}}`
 
-### GTP socket ###
+#### GTP socket
 
      {sockets,
       [{irx, [{type, 'gtp-c'},
@@ -111,7 +109,7 @@ The PLMN identifier is the MCC and MNC of the served network.
           {name, 'grx'}]}
       ]}
 
-Defines a list of named sockets. The format is (in Erlang type syntax):
+Defines a list of named sockets. The format in Erlang type syntax is:
 
 * sockets: `{sockets, [socket_definition()]}`
 * socket_definition: `{socket_name(), [socket_options()]}`
@@ -151,7 +149,7 @@ Defines a list of named sockets. The format is (in Erlang type syntax):
     name of the VRF this socket is located in, defaults to the name
 	of the socket if not given
 
-### Handlers ###
+#### Handlers
 
     {handlers,
       [{gn, [{handler, ggsn_gn},
@@ -194,7 +192,7 @@ which sockets, the AAA provider and the defaults AAA attribute mapping.
   - `{'Password', mapping_spec()}`
 
 
-### VRF's ###
+#### VRF's
 
      {vrfs,
       [{upstream, [{pools,  [{{10, 180, 0, 1}, {10, 180, 255, 254}, 32},
@@ -220,7 +218,7 @@ Defines the IP routing domains and their defaults.
 
   defines a range of IP addresses (Start to End) for allocation to clients
 
-### APN's ###
+#### APN's
 
      {apns,
       [{[<<"tpip">>, <<"net">>], [{vrf, upstream} | session_defaults()]}]},
@@ -236,8 +234,8 @@ At the very minimum, the catch all APN '_' needs to be configured.
 
   - `{vrf, vrf_name()}`
 
-Session Options
----------------
+#### Session Options
+
 
 Session defaults can be defined at the VRF and APN level. AAA providers
 can overwrite those defaults. Options defined at an APN will overwrite
@@ -257,13 +255,13 @@ VRF options and AAA providers will overwrite both.
 
   - `{'3GPP-IPv6-DNS-Servers', [inet:ip6_address()]}`
 
-Handler Configuration
----------------------
+#### Handler Configuration
+
 
 Protocol handlers can extend the handler configuration with use case specific
 options.
 
-### ggsn_gn_proxy ###
+#### ggsn_gn_proxy
 
     {handlers,
      [{gn, [{handler, ggsn_gn_proxy},
@@ -297,10 +295,10 @@ options.
 
     the context name
 
-Operation Modes
----------------
+### Operation Modes
 
-### PGW with co-located GGSN function ###
+
+#### PGW with co-located GGSN function
 
 A PGW can be operated with a co-located GGSN function to support 3GPP TS 23.401
 Annex D, Interoperation with Gn/Gp SGSNs.
@@ -321,7 +319,7 @@ NAPTR records for APN's on such a gateway should use "Service Parameters" of
 "x-3gpp-pgw:x-s5-gtp", "x-3gpp-pgw:x-s8-gtp", "x-3gpp-pgw:x-gn" and
 "x-3gpp-pgw:x-gp"
 
-### PGW ###
+#### PGW
 
 Sample handler configuration for a S5/S8 only PGW
 
@@ -333,7 +331,7 @@ Sample handler configuration for a S5/S8 only PGW
 NAPTR records for APN's on such a gateway should use "Service Parameters" of
 "x-3gpp-pgw:x-s5-gtp" and "x-3gpp-pgw:x-s8-gtp"
 
-### GGSN ###
+#### GGSN
 
 Sample handler configuration for Gn/Gp only GGSN
 
@@ -345,10 +343,12 @@ Sample handler configuration for Gn/Gp only GGSN
 NAPTR records for APN's on such a gateway should use "Service Parameters" of
 "x-3gpp-ggsn:x-gn" and "x-3gpp-ggsn:x-gp"
 
-### PGW and GGSN sharing the same GTP port ###
+#### PGW and GGSN sharing the same GTP port
 
-NOTE: 3GPP TS 23.401 Annex D, Interoperation with Gn/Gp SGSNs is not supported
+_____________________________________________________________________________________
+**Note**: 3GPP TS 23.401 Annex D, Interoperation with Gn/Gp SGSNs is not supported
       in this configuration.
+_____________________________________________________________________________________
 
 Sample handler configuration:
 
@@ -365,8 +365,8 @@ NAPTR records for APN's on such a gateway should use "Service Parameters" of
 "x-3gpp-pgw:x-s8-gtp". "Service Parameters" of "x-3gpp-pgw:x-gn" and
 "x-3gpp-pgw:x-gp" **should not** be used.
 
-Rate Limiting
--------------
+### Rate Limiting
+
 
 erGW uses the [Erlang jobs](https://github.com/uwiger/jobs/blob/master/README.md)
 to apply rate limiting to all incoming GTP messages.
