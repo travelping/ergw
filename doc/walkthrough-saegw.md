@@ -297,7 +297,7 @@ The VRF names have to match the network instances (nwi's) in the VPP configurati
 
        sudo groupadd vpp
 
-7. Start vpp
+7. Start VPP
 
        sudo build-root/install-vpp_debug-native/vpp/bin/vpp -c startup.conf
 
@@ -311,11 +311,11 @@ The VRF names have to match the network instances (nwi's) in the VPP configurati
 
     sudo ss -aunp \( sport = 2123 or sport = 8805 \)
 
-* Check that the VPP gtp-up setup is working, on the vpp cli
+* Check that the VPP gtp-up setup is working, on the VPP cli
 
     show gtp-up nwi
 
-* After a GTP session has been created, on the vpp cli list all sessions
+* After a GTP session has been created, on the VPP cli list all sessions
 
     show gtp-up session
 
