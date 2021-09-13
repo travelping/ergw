@@ -1,27 +1,16 @@
 # erGW - 3GPP GGSN and PDN-GW in Erlang
 [![Build Status][gh badge]][gh]
 [![Coverage Status][coveralls badge]][coveralls]
-[![Erlang Versions][erlang version badge]][gh]
+[![Erlang Versions][erlang version badge]][gh]  
 
-This is a 3GPP GGSN and PDN-GW implemented in Erlang. It strives to eventually support all the functionality as defined by [3GPP TS 23.002](http://www.3gpp.org/dynareport/23002.htm) Section 4.1.3.1 for the GGSN and Section 4.1.4.2.2 for the PDN-GW.
 
-## Contents
-* [Implemented Features](#implemented-features)
-* [Experimental Features](#experimental-features)
-* [User Plane](#user-plane)
-* [DIAMETER and RADIUS over Gi/SGi](#diameter-and-radius-over-gisgi)
-* [Policy Control](#policy-control)
-* [Online/Offline Charging](#onlineoffline-charing)
-* [Missing Features](#missing-features)
-* [ERLANG Version Support](#erlang-version-support)
-* [Docker Images](#docker-images)
-   * [Building Docker Image](#building-docker-image)
-* [Building and Running](#building--running)
-   * [Required](#required)
-   * [Configuration](#configuration)
-   * [Compiling and Running](#compile--run)
+## Introduction
 
-## Implemented Features
+The erGW is a 3GPP GGSN and PDN-GW implemented in Erlang. It strives to eventually support all the functionality as defined by [3GPP TS 23.002](http://www.3gpp.org/dynareport/23002.htm) Section 4.1.3.1 for the GGSN and Section 4.1.4.2.2 for the PDN-GW.
+
+## Features
+
+### Implemented Features
 Messages:
 
  * GTPv1 Create/Update/Delete PDP Context Request on Gn
@@ -36,7 +25,7 @@ From the above the following procedures as defined by 3GPP T 23.060 should work:
    * Sect. 5.4.2.2, HSS Initiated Subscribed QoS Modification (without PCRF)
    * Annex D, Interoperation with Gn/Gp SGSNs procedures (see [CONFIG.md](CONFIG.md))
 
-## Experimental Features
+### Experimental Features
 Experimental features may change or be removed at any moment. Configuration settings
 for them are not guaranteed to work across versions. Check [CONFIG.md](CONFIG.md) and
 [NEWS.md](NEWS.md) on version upgrades.
@@ -44,12 +33,24 @@ for them are not guaranteed to work across versions. Check [CONFIG.md](CONFIG.md
  * rate limiting, defaults to 100 requests/second
  * metrics, see [METRICS.md](METRICS.md)
 
+### Missing Features
+The following procedures are assumed/known to be *NOT* working:
+
+ * Secondary PDP Context Activation Procedure
+ * Secondary PDP Context Activation Procedure using S4
+
+Other shortcomings:
+
+ * QoS parameters are hard-coded
+
+
 ## User Plane
-*erGW* uses the 3GPP control and user plane separation (CUPS) of EPC nodes
+The erGW uses the 3GPP control and user plane separation (CUPS) of EPC nodes
 architecture as layed out in [3GPP TS 23.214](http://www.3gpp.org/dynareport/23244.htm)
 and [3GPP TS 29.244](http://www.3gpp.org/dynareport/29244.htm).
 
-## DIAMETER and RADIUS over Gi/SGi
+## Interfaces
+
 The SAE-GW, PGW and GGSN interfaces supports DIAMETER and RADIUS over the Gi/SGi interface
 as specified by 3GPP TS 29.061 Section 16.
 This support is experimental in this version and not all aspects are functional. For RADIUS
@@ -200,12 +201,12 @@ Example of configuration **ergw-pgw-epc-rf** `function` of **DIAMETER**:
 %% ...
 ```
 
-## Policy Control
+### Policy Control
 DIAMETER is Gx is supported as experimental feature. Only Credit-Control-Request/Answer
 (CCR/CCA) and Abort-Session-Request/Answer (ASR/ASA) procedures are supported.
 Re-Auth-Request/Re-Auth-Answer (RAR/RAA) procedures are not supported.
 
-## Online/Offline Charging
+### Online/Offline Charging
 Online charging through Gy is in beta quality with the following known caveats:
 
  * When multiple rating groups are in use, CCR Update requests will contain unit
@@ -218,20 +219,11 @@ charging is not supported).
 
 Like on Gx only CCR/CCR and ASR/ASA procredures are supported.
 
-## Missing Features
-The following procedures are assumed/known to be *NOT* working:
-
- * Secondary PDP Context Activation Procedure
- * Secondary PDP Context Activation Procedure using S4
-
-Other shortcomings:
-
- * QoS parameters are hard-coded
 
 ## ERLANG Version Support
 All minor version of the current major release and the highest minor version of
 the previous major release will be supported.
-Due to a bug in OTP 22.x, the `netdev` configuration option of *erGW* is broken
+Due to a bug in OTP 22.x, the `netdev` configuration option of erGW is broken
 ([see](https://github.com/erlang/otp/pull/2600)). If you need this feature, you
 must use OTP 23.x.
 
@@ -243,7 +235,7 @@ Docker images are build by [GitHub Actions](.github/workflows/docker.yaml) and p
 and by gitlab.com and pushed to [quay.io](https://quay.io/repository/travelping/ergw-c-node?tab=tags).
 
 ### Building Docker Image
-**erGW** Docker image can be get from [quay.io](https://quay.io/repository/travelping/ergw-c-node?tab=tags). For create a new image based on `ergw-c-node` from `quay.io` need run second command:
+An erGW Docker image can be get from [quay.io](https://quay.io/repository/travelping/ergw-c-node?tab=tags). To create a new image based on `ergw-c-node` from `quay.io`, run the second command:
 
 ```sh
 $ docker run -t -i --rm quay.io/travelping/ergw-c-node:2.4.2 -- /bin/sh
@@ -262,7 +254,7 @@ instance can be installed on the same or different host.
 A suitable user plane node based on [VPP](https://wiki.fd.io/view/VPP) can be found at [VPP-UFP](https://github.com/travelping/vpp/).
 
 ### Configuration
-**erGW** can be started with [rebar3](https://s3.amazonaws.com/rebar3/rebar3) command line tools, and build with run can looks like:
+erGW can be started with [rebar3](https://s3.amazonaws.com/rebar3/rebar3) command line tools, and build with run looks like:
 
 ```sh
 $ git clone https://github.com/travelping/ergw.git
@@ -272,7 +264,7 @@ $ chmod u+x ./rebar3
 $ touch ergw.config
 ```
 
-Then fill just created **ergw.config** file with content like described below providing a suitable configuration, e.g.:
+Then fill the just created ergw.config file with content like described below providing a suitable configuration, e.g.:
 
 ```erlang
 %-*-Erlang-*-
@@ -475,6 +467,7 @@ Then fill just created **ergw.config** file with content like described below pr
 ```
 
 ### Compiling and Running
+
 ```sh
 $ ./rebar3 compile
 $ sudo ./rebar3 shell --setcookie secret --sname ergw --config ergw.config --apps ergw
@@ -492,19 +485,20 @@ The configuration is documented in [CONFIG.md](CONFIG.md)
 
 ### Running Unit Test
 
-Unit test can be run local with:
+The Unit test can be run local with:
 
 ```sh
 $ rebar ct
 ```
 
 In order to run the IPv6 a number of locap IPv6 addresses have to be added to the host.
-Check [.github/workflows/main.yml](.github/workflows/main.yml) or [.gitlab-ci.yml](.gitlab-ci.yml) the list.
+See [.github/workflows/main.yml](.github/workflows/main.yml) or [.gitlab-ci.yml](.gitlab-ci.yml)
 
-The DNS resolver tests can be run with a local DNS server. The docker image use with
-the CI test can also be use for that.
+The DNS resolver tests can be run with a local DNS server. The docker image used with
+the CI test can also be used for this purpose.
 
 Run it with:
+
 ```sh
 docker run -d --rm \
         --name=bind9 \
