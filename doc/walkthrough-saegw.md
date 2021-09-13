@@ -42,14 +42,14 @@ ________________________________________________________________________________
                                  |                  |              |  | 10.0.0.1/24   |
                               +--+--+       +-------+---------+    |  +---+-----------+
                               |     |       |                 |    |      |
-    S1-U GTP-U IP to eNode-B  | grx +-------+    VPP - UP     +----+      |
+    S1-U GTP-U IP to eNode-B  | GRX +-------+    VPP - UP     +----+      |
             172.20.17.1       |     |       |                 |           |
                               +--+--+       +-----------------+           |
                                  |                                        |
                                  |                                        |
                                  +----------------------------------------+
 
-The interfaces and VRFs are named accordingly to their function (irx, grx, sgi).
+The interfaces and VRFs are named accordingly to their function (irx, GRX, SGi).
 For communication on the Sx reference point between CP and UP the 192.168.1.0/24
 network is used. The UP is using 192.168.1.1 and the CP is using 192.168.1.2.
 
@@ -67,7 +67,7 @@ irx VRF:
     ip addr add 172.20.16.1 dev vrf-irx
     ip route add table 10 default via 192.20.16.250
 
-The grx and sgi interfaces are handled by VPP.
+The GRX and SGi interfaces are handled by VPP.
 
 ### erGW Installation
 
@@ -323,9 +323,9 @@ The VRF names have to match the network instances (nwi's) in the VPP configurati
 
 ####  Understanding Path Keep-Alive
 
-GTP nodes learn the IPs of peer node from the GSN Node IP (v1) and Fq-TEID (v2)
+GTP nodes learn the IPs of peer nodes from the GSN Node IP (v1) and Fq-TEID (v2)
 information elements in create requests. They will then start sending Echo Requests
-to those node and expect Echo Replies back from them. If the peer node fails to
+to those nodes and expect Echo Replies back from them. If the peer nodes fail to
 answer the Echo Requests or if the Restart Counter changes, they will terminate
 all existing GTP context on that path.
 
@@ -359,7 +359,10 @@ In the Erlang CLI execute a EUTRAN Initial Attachment on S11 with
 172.20.16.150 is the GTP-C IP address of the MME, 172.20.17.150 is the GTP-U address
 of the eNode-B and 172.20.16.1 is the SAE-GW GTP-C address.
 
-*Make sure you have those IP's configured on your test client*
+___________________________________________________________________________
+**Note**: Ensure that you have those IP's configured on your test client.
+___________________________________________________________________________
+
 
 ##### erGW Logging
 
