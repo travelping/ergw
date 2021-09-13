@@ -1,19 +1,18 @@
-Walk-Through SAE-GW (combined S-GW/PGW)
-=======================================
+## Walk-Through SAE-GW (combined S-GW/PGW)
 
 This walk-through creates a combined S-GW/PGW (sometimes also called
 a SAE-GW) which support the S11, S1-U and SGi 3GPP reference points.
 
-Requirements
-------------
+### Requirements
 
-* working MME and eNode-B
+* Working MME and eNode-B
 * Linux bare metal system with at least 3 network interfaces
 * 2 IPv4 addresses for EPC (Enhanced Packet Core) connection
 * 1 IPv4 address for SGi interface
 * 1 IPv4 network range for SGi LAN
 
-***Warning:***
+________________________________________________________________________________
+**Warning**:
 You can also run this setup on a virtual machine or in containers. If you do so,
 make sure that you understand how your hypervisor or container infrastructure
 interacts with VPP.
@@ -26,9 +25,10 @@ spoofing of MAC and/or IP addresses that will interact badly with that.
 You might have to disable those filters or use MAC addresses on the VPP interfaces
 that match that of the virtual interfaces. Check the VPP documentation on how to
 configure the interfaces with dedicated MACs.
+________________________________________________________________________________
 
-Setup
------
+### Setup
+
 
                                  +----------------------------------------+
                                  |                                        |
@@ -49,12 +49,11 @@ Setup
                                  |                                        |
                                  +----------------------------------------+
 
-The interfaces and VRFs are named according to their function (irx, grx, sgi).
+The interfaces and VRFs are named accordingly to their function (irx, grx, sgi).
 For communication on the Sx reference point between CP and UP the 192.168.1.0/24
 network is used. The UP is using 192.168.1.1 and the CP is using 192.168.1.2.
 
-Network Setup
--------------
+### Network Setup
 
 The reader should be familiar with Linux VRF-lite routing. For this walk-through
 the following Linux configuration for the irx interface is assumed:
@@ -70,19 +69,20 @@ irx VRF:
 
 The grx and sgi interfaces are handled by VPP.
 
-erGW Installation
------------------
+### erGW Installation
 
-1. Make sure you have a supported Erlang installed on your Linux system. Check
-   your vendors documentation and consult [erlang.org](http:/www.erlang.org) for
-   installation instructions. Make sure that at lease 20.1.7 is install and that
-   the installed version is using    the latest patch release of Erlang.
-   Some distributions ship outdated and buggy Erlang version. When in doubt install
+#### Prerequisites
+* Supported Erlang is installed on the Linux system, at least 20.1.7 and that
+   the installed version is using the latest patch release of Erlang.
+______________________________________________________________________________
+**Note**: Check your vendors documentation and consult [erlang.org](http:/www.erlang.org) for installation instructions. When in doubt install
    the newest version using    [kerl](https://github.com/kerl/kerl) or use a package
-   from [Erlang Solutions](https://www.erlang-solutions.com/resources/download.html).
-
-   When using OTP 20.1, ensure that at least 20.1.7 is installed. Prior version
+   from [Erlang Solutions](https://www.erlang-solutions.com/resources/download.html)
+______________________________________________________________________________
+* When using OTP 20.1, ensure that at least 20.1.7 is installed. Prior version
    have a known problem with gen_statem.
+
+#### Steps
 
 1. Checkout the Erlang release for a GTP-C node
 
@@ -227,8 +227,7 @@ The VRF names have to match the network instances (nwi's) in the VPP configurati
 
        /opt/ergw-c-node/bin/ergw-c-node foreground
 
-VPP Installation
-----------------
+### VPP Installation
 
 1. Checkout the VPP with GTP UP plugin to /usr/src/vpp
 
@@ -241,12 +240,12 @@ VPP Installation
 
        make install-dep
 
-3. build VPP
+3. Build VPP
 
        make bootstrap
        make build
 
-4. create startup.conf in /usr/src/vpp
+4. Create startup.conf in /usr/src/vpp
 
        unix {
          nodaemon
@@ -272,7 +271,7 @@ VPP Installation
            plugin gtpu_plugin.so { disable }
        }
 
-5. create a init.conf file in /usr/src/vpp
+5. Create a init.conf file in /usr/src/vpp
 
        create host-interface name grx
        set interface ip table host-grx 1
@@ -294,37 +293,35 @@ VPP Installation
        gtp-up nwi create label sgi
        gtp-up nwi set interface type label sgi sgi interface host-sgi
 
-6. create a ```vpp``` group
+6. Create a ```vpp``` group
 
        sudo groupadd vpp
 
-7. start vpp
+7. Start vpp
 
        sudo build-root/install-vpp_debug-native/vpp/bin/vpp -c startup.conf
 
-8. configure vpptap (from a another shell)
+8. Configure vpptap (from a another shell)
 
        sudo ip addr add 192.168.1.2/24 dev vpptap
 
-Status Checks
--------------
+### Status Checks
 
-Check that the Erlang erGW CP is listening to the GTP-C and Sx UDP ports
+* Check that the Erlang erGW CP is listening to the GTP-C and Sx UDP ports
 
     sudo ss -aunp \( sport = 2123 or sport = 8805 \)
 
-Check that the VPP gtp-up setup is working, on the vpp cli
+* Check that the VPP gtp-up setup is working, on the vpp cli
 
     show gtp-up nwi
 
-After a GTP session has been created, on the vpp cli list all sessions
+* After a GTP session has been created, on the vpp cli list all sessions
 
     show gtp-up session
 
-Sending GTP Requests Manually
------------------------------
+### Sending GTP Requests Manually
 
-###  Understanding Path Keep-Alive
+####  Understanding Path Keep-Alive
 
 GTP nodes learn the IPs of peer node from the GSN Node IP (v1) and Fq-TEID (v2)
 information elements in create requests. They will then start sending Echo Requests
@@ -336,13 +333,13 @@ To test a GTP Node it is therefore not enough to just send requests, the test sy
 also needs to be able to handle Echo Request on GTP-C and GTP-U.
 
 
-### Procedures
+#### Procedures
 
 To start a Erlang CLI on a test client with the simulator code run
 
     rebar3 as simulator shell
 
-#### E-UTRAN Initial Attach
+##### E-UTRAN Initial Attach
 
 3GPP TS 23.401, Figure 5.3.2.1-1, Step 12, 16, 23 and 24
 
@@ -364,7 +361,7 @@ of the eNode-B and 172.20.16.1 is the SAE-GW GTP-C address.
 
 *Make sure you have those IP's configured on your test client*
 
-#### erGW Logging
+##### erGW Logging
 
 erGW with debug logging will produce a lot of error messages if the 
 PFCP requests are not answered by VPP.
@@ -372,7 +369,7 @@ PFCP requests are not answered by VPP.
 If you've followed the setup procedure above, the log level should 
 be `debug` (see the "logger" section of the ergw-c-node.config).
 
-#### VPP Session Status
+##### VPP Session Status
 
 On the VPP CLI, the session status can be checked with 
 `show gtp-up sessions`
