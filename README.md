@@ -10,7 +10,8 @@ The erGW is a 3GPP GGSN and PDN-GW implemented in Erlang. It strives to eventual
 
 ## Features
 
-### Implemented Features
+### Implemented Features  
+
 Messages:
 
  * GTPv1 Create/Update/Delete PDP Context Request on Gn
@@ -30,11 +31,11 @@ Experimental features may change or be removed at any moment. Configuration sett
 for them are not guaranteed to work across versions. Check [CONFIG.md](CONFIG.md) and
 [NEWS.md](NEWS.md) on version upgrades.
 
- * rate limiting, defaults to 100 requests/second
- * metrics, see [METRICS.md](METRICS.md)
+ * Rate limiting, defaults to 100 requests/second
+ * Metrics, see [METRICS.md](METRICS.md)
 
 ### Missing Features
-The following procedures are assumed/known to be *NOT* working:
+The following procedures are assumed/known to be not working:
 
  * Secondary PDP Context Activation Procedure
  * Secondary PDP Context Activation Procedure using S4
@@ -57,7 +58,7 @@ This support is experimental in this version and not all aspects are functional.
 only the Authentication and Authorization is full working, Accounting is experimental and
 not fully supported. For DIAMETER NASREQ only the Accounting is working.
 
-See [RADIUS.md](RADIUS.md) for a list of supported Attrbiutes.
+See [RADIUS.md](RADIUS.md) for a list of supported Attributes.
 
 Many thanks to [On Waves](https://www.on-waves.com/) for sponsoring the RADIUS Authentication implementation.
 
@@ -244,7 +245,8 @@ $ docker run -t -i --rm quay.io/travelping/ergw-c-node:2.4.2 -- /bin/sh
 ergw-c-node
 ```
 
-## Building and Running
+## Building and Running  
+
 ### Required
 * Erlang OTP **23.2.7** is the recommended version.
 * [Rebar3](https://www.rebar3.org/)
@@ -481,7 +483,7 @@ Eshell V11.0.3  (abort with ^G)
 (ergw@localhost)1> application:info().
 ```
 
-The configuration is documented in [CONFIG.md](CONFIG.md)
+The configuration is documented in [CONFIG.md](CONFIG.md).
 
 ### Running Unit Test
 
