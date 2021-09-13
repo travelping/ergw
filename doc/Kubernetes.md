@@ -1,8 +1,8 @@
-# K8s NOTES
+## K8s NOTES
 
-## Readiness Probe
+### Readiness Probe
 
-A endpoint for k8s readiness probe is provided at the URL path `/status/ready` at the
+An endpoint for k8s readiness probe is provided at the URL path `/status/ready` at the
 endpoint configred in `http_api`.
 
 The probe can be used from k8s like this:
