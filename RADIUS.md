@@ -1,5 +1,5 @@
-List of RADIUS attributes
-=========================
+## RADIUS attributes
+
 
 See [3GPP TS 29.061](http://www.etsi.org/deliver/etsi_ts/129000_129099/129061/13.04.00_60/ts_129061v130400p.pdf) for a complete description of RADIUS of Gi/SGi
 
