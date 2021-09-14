@@ -418,9 +418,9 @@ handle_event({call, From},
 handle_event({call, From},
 	     {sx, #pfcp{type = session_report_request,
 			ie = #{report_type := #report_type{upir = 1}}}},
-	     State, #{pfcp := PCtx} = Data0) ->
-    Data = close_context(both, up_inactivity_timeout, State, Data0),
-    {next_state, shutdown, Data, [{reply, From, {ok, PCtx}}]};
+	     State, #{pfcp := PCtx} = Data) ->
+    gen_statem:reply(From, {ok, PCtx}),
+    delete_context(undefined, up_inactivity_timeout, State, Data);
 
 %% Usage Report
 handle_event({call, From},
