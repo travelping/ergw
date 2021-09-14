@@ -852,12 +852,21 @@ send_context_alive_request(#{left_tunnel := Tunnel, context :=
     RequestIEs = gtp_v1_c:build_recovery(Type, Tunnel, false, RequestIEs0),
     send_request(Tunnel, ?T3, ?N3, Type, RequestIEs, alive_check).
 
+map_term_cause(TermCause)
+  when TermCause =:= cp_inactivity_timeout;
+       TermCause =:= up_inactivity_timeout ->
+    pdp_address_inactivity_timer_expires;
+map_term_cause(_TermCause) ->
+    reactivation_requested.
+
 delete_context(From, TermCause, connected,
 	       #{left_tunnel := Tunnel, context :=
 		     #context{default_bearer_id = NSAPI}} = Data) ->
     Type = delete_pdp_context_request,
-    RequestIEs0 = [#nsapi{nsapi = NSAPI},
-		   #teardown_ind{value = 1}],
+    RequestIEs0 =
+	[#cause{value = map_term_cause(TermCause)},
+	 #nsapi{nsapi = NSAPI},
+	 #teardown_ind{value = 1}],
     RequestIEs = gtp_v1_c:build_recovery(Type, Tunnel, false, RequestIEs0),
     send_request(Tunnel, ?T3, ?N3, Type, RequestIEs, {From, TermCause}),
     {next_state, shutdown_initiated, Data};

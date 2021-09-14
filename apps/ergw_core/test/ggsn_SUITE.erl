@@ -509,7 +509,8 @@ common() ->
      gx_invalid_charging_rulebase,
      gx_invalid_charging_rule,
      gx_rar_gy_interaction,
-     gtp_idle_timeout,
+     gtp_idle_timeout_gtp_session_loss,
+     gtp_idle_timeout_pfcp_session_loss,
      up_inactivity_timer,
      pfcp_sx_association_metric].
 
@@ -658,7 +659,9 @@ init_per_testcase(gx_invalid_charging_rule, Config) ->
     ergw_test_lib:load_aaa_answer_config([{{gx, 'CCR-Initial'}, 'Initial-Gx-Fail-2'}]),
     Config;
 %% gtp 'inactivity_timeout' reduced to 300ms for test purposes
-init_per_testcase(gtp_idle_timeout, Config) ->
+init_per_testcase(TestCase, Config)
+  when TestCase =:= gtp_idle_timeout_gtp_session_loss;
+       TestCase =:= gtp_idle_timeout_pfcp_session_loss ->
     ergw_test_lib:set_apn_key('inactivity_timeout', 300),
     ok = meck:expect(ergw_gtp_c_socket, send_request,
 		     fun(Socket, Src, DstIP, DstPort, _T3, _N3,
@@ -724,7 +727,9 @@ end_per_testcase(create_pdp_context_overload, Config) ->
     jobs:modify_regulator(rate, create, {rate,create,1}, [{limit,100}]),
     end_per_testcase(Config);
 %% gtp 'inactivity_timeout' reset to default 28800000ms ~8 hrs
-end_per_testcase(gtp_idle_timeout, Config) ->
+end_per_testcase(TestCase, Config)
+  when TestCase =:= gtp_idle_timeout_gtp_session_loss;
+       TestCase =:= gtp_idle_timeout_pfcp_session_loss ->
     ergw_test_lib:set_apn_key('inactivity_timeout', 28800000),
     ok = meck:delete(ergw_gtp_c_socket, send_request, 8),
     end_per_testcase(Config);
@@ -2682,9 +2687,9 @@ gx_invalid_charging_rule(Config) ->
     ok.
 
 %%--------------------------------------------------------------------
-gtp_idle_timeout() ->
+gtp_idle_timeout_gtp_session_loss() ->
     [{doc, "Checks if the gtp idle timeout is triggered"}].
-gtp_idle_timeout(Config) ->
+gtp_idle_timeout_gtp_session_loss(Config) ->
     Cntl = whereis(gtpc_client_server),
     {GtpC, _, _} = create_pdp_context(Config),
     %% The meck wait timeout (400 ms) has to be more than then the inactivity_timeout
@@ -2704,6 +2709,49 @@ gtp_idle_timeout(Config) ->
     Resp2 = make_response(Req2, invalid_teid, GtpC),
     send_pdu(Cntl, GtpC, Resp2),
 
+    %% make sure we are not getting a Delete PDP Context Request
+    ?equal(timeout, recv_pdu(GtpC, undefined, 200, fun(Why) -> Why end)),
+
+    delete_pdp_context(not_found, GtpC),
+
+    ?equal([], outstanding_requests()),
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    wait4contexts(?TIMEOUT),
+
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+gtp_idle_timeout_pfcp_session_loss() ->
+    [{doc, "Checks if the gtp idle timeout is triggered"}].
+gtp_idle_timeout_pfcp_session_loss(Config) ->
+    Cntl = whereis(gtpc_client_server),
+
+    {GtpC, _, _} = create_pdp_context(Config),
+    %% The meck wait timeout (400 ms) has to be more than then the inactivity_timeout
+    ok = meck:wait(gtp_context, handle_event,
+		   [{timeout, context_idle}, '_', '_', '_'], 400),
+
+    %% Timeout triggers a update_pdp_context_request towards the SGSN
+    Req1 = recv_pdu(Cntl, 5000),
+    ?match(#gtp{type = update_pdp_context_request}, Req1),
+    Resp1 = make_response(Req1, simple, GtpC),
+    send_pdu(Cntl, GtpC, Resp1),
+
+    %% kill the UP session
+    ergw_test_sx_up:reset('pgw-u01'),
+
+    %% wait for session cleanup
+    Req = recv_pdu(Cntl, 5000),
+    ?match(#gtp{type = delete_pdp_context_request,
+		ie = #{{cause,0} := #cause{value = pdp_address_inactivity_timer_expires}}},
+	   Req),
+    Resp = make_response(Req, simple, GtpC),
+    send_pdu(Cntl, GtpC, Resp),
+
+    ct:sleep(100),
+    delete_pdp_context(not_found, GtpC),
+
     ?equal([], outstanding_requests()),
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     wait4contexts(?TIMEOUT),
@@ -2715,6 +2763,7 @@ gtp_idle_timeout(Config) ->
 up_inactivity_timer() ->
     [{doc, "Test expiry of the User Plane Inactivity Timer"}].
 up_inactivity_timer(Config) ->
+    Cntl = whereis(gtpc_client_server),
     CtxKey = #context_key{socket = 'irx', id = {imsi, ?'IMSI', 5}},
     Interim = rand:uniform(1800) + 1800,
     AAAReply = #{'Idle-Timeout' => 1800, 'Acct-Interim-Interval' => Interim},
@@ -2732,7 +2781,7 @@ up_inactivity_timer(Config) ->
 		   meck:passthrough([Session, SessionOpts, Procedure, Opts])
 	   end),
 
-    create_pdp_context(Config),
+    {GtpC, _, _} = create_pdp_context(Config),
 
     {_Handler, Server} = gtp_context_reg:lookup(CtxKey),
     true = is_pid(Server),
@@ -2746,6 +2795,15 @@ up_inactivity_timer(Config) ->
 	   maps:get(user_plane_inactivity_timer, SER#pfcp.ie)),
 
     ergw_test_sx_up:up_inactivity_timer_expiry('pgw-u01', PCtx),
+
+    %% wait for session cleanup
+    Req = recv_pdu(Cntl, 5000),
+    ?match(#gtp{type = delete_pdp_context_request}, Req),
+    Resp = make_response(Req, simple, GtpC),
+    send_pdu(Cntl, GtpC, Resp),
+
+    ct:sleep(100),
+    delete_pdp_context(not_found, GtpC),
 
     ?equal([], outstanding_requests()),
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
