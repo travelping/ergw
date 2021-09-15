@@ -658,6 +658,9 @@ init_session_from_gtp_req(IEs, AAAopts, Tunnel, Bearer, Session0)
     Session = copy_bearer_to_session(Bearer, Session2),
     maps:fold(copy_to_session(_, _, AAAopts, _), Session, IEs).
 
+init_session_qos(_IEs, Session) ->
+    Session.
+
 update_session_from_gtp_req(IEs, Session, Tunnel, Bearer)
   when is_record(Tunnel, tunnel) ->
     OldSOpts = ergw_aaa_session:get(Session),

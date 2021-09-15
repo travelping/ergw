@@ -88,47 +88,11 @@ update_pdp_context_fun(#gtp{type = update_pdp_context_request, ie = IEs} = Reque
 	     _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
 	     #{left_tunnel := LeftTunnelOld,
 	       bearer := #{left := LeftBearerOld}} <- statem_m:get_data(),
-	     update_tunnel_from_gtp_req(Request),
-	     update_tunnel_endpoint(LeftTunnelOld),
-	     URRActions <- collect_charging_events(IEs),
+	     ergw_gtp_gsn_lib:update_tunnel_from_gtp_req(ggsn_gn, v1, left, Request),
+	     ergw_gtp_gsn_lib:update_tunnel_endpoint(left, Data),
+	     URRActions <- ergw_gtp_gsn_lib:collect_charging_events(ggsn_gn, IEs),
 	     handle_bearer_change(URRActions, LeftTunnelOld, LeftBearerOld)
 	 ]), State, Data).
-
-
-%% TBD: almost identical to create_session
-update_tunnel_from_gtp_req(Request) ->
-    do([statem_m ||
-	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
-	   #{left_tunnel := LeftTunnel0, bearer := #{left := LeftBearer0}} <- statem_m:get_data(),
-	   {LeftTunnel, LeftBearer} <-
-	       statem_m:lift(ggsn_gn:update_tunnel_from_gtp_req(
-			       Request, LeftTunnel0#tunnel{version = v1}, LeftBearer0)),
-	   statem_m:modify_data(
-	     fun(Data) ->
-		     maps:update_with(bearer,
-				      maps:put(left, LeftBearer, _),
-				      Data#{left_tunnel => LeftTunnel})
-	     end)
-       ]).
-
-update_tunnel_endpoint(LeftTunnelOld) ->
-    do([statem_m ||
-	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
-	   LeftTunnel0 <- statem_m:get_data(maps:get(left_tunnel, _)),
-	   LeftTunnel <- statem_m:return(ergw_gtp_gsn_lib:update_tunnel_endpoint(
-					   LeftTunnelOld, LeftTunnel0)),
-	   statem_m:modify_data(_#{left_tunnel => LeftTunnel})
-       ]).
-
-collect_charging_events(IEs) ->
-    do([statem_m ||
-	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
-	   #{'Session' := Session, left_tunnel := LeftTunnel,
-	     bearer := #{left := LeftBearer}} <- statem_m:get_data(),
-	   {OldSOpts, NewSOpts} =
-	       ggsn_gn:update_session_from_gtp_req(IEs, Session, LeftTunnel, LeftBearer),
-	   statem_m:return(gtp_context:collect_charging_events(OldSOpts, NewSOpts))
-      ]).
 
 handle_bearer_change(URRActions, _LeftTunnelOld, LeftBearerOld, LeftBearer)
   when LeftBearerOld =:= LeftBearer ->

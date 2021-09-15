@@ -77,19 +77,8 @@ change_notification_fun(#gtp{type = change_notification_request, ie = IEs}, Stat
 	     _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
 
 	     pgw_s5s8:process_secondary_rat_usage_data_reports(IEs),
-	     URRActions <- collect_charging_events(IEs),
+	     URRActions <- ergw_gtp_gsn_lib:collect_charging_events(pgw_s5s8, IEs),
 	     ergw_gtp_gsn_lib:usage_report_m(URRActions)
 
 
 	 ]), State, Data).
-
-collect_charging_events(IEs) ->
-    do([statem_m ||
-	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
-
-	   #{'Session' := Session, left_tunnel := LeftTunnel,
-	     bearer := #{left := LeftBearer}} <- statem_m:get_data(),
-	   {OldSOpts, NewSOpts} =
-	       pgw_s5s8:update_session_from_gtp_req(IEs, Session, LeftTunnel, LeftBearer),
-	   statem_m:return(gtp_context:collect_charging_events(OldSOpts, NewSOpts))
-      ]).

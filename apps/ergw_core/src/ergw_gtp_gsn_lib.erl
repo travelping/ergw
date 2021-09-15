@@ -16,9 +16,17 @@
 	 usage_report_m/1, usage_report_m/2, usage_report_m/3, usage_report_m3/3,
 	 close_context/3, close_context/4,
 	 close_context_m/4]).
--export([handle_peer_change/3, update_tunnel_endpoint/2, apply_bearer_change/2]).
+-export([assign_local_data_teid/2,
+	 update_context_from_gtp_req/3,
+	 update_tunnel_from_gtp_req/4,
+	 update_tunnel_endpoint/2,
+	 bind_tunnel/1,
+	 terminate_colliding_context/0,
+	 init_session/2,
+	 collect_charging_events/2]).
+-export([handle_peer_change/3, apply_bearer_change/2]).
 -export([remote_context_register_new/0,
-	 pfcp_create_session_response/1,
+	 pfcp_create_session/1,
 	 pfcp_session_modification/0,
 	 pfcp_session_liveness_check/0]).
 
@@ -60,17 +68,6 @@ add_apn_timeout(Opts, Session, Context) ->
 %%====================================================================
 %% Tunnel
 %%====================================================================
-
-update_tunnel_endpoint(TunnelOld, Tunnel0) ->
-    %% TBD: handle errors
-    {ok, Tunnel} = gtp_path:bind_tunnel(Tunnel0),
-    gtp_context:tunnel_reg_update(TunnelOld, Tunnel),
-    if Tunnel#tunnel.path /= TunnelOld#tunnel.path ->
-	    gtp_path:unbind_tunnel(TunnelOld);
-       true ->
-	    ok
-    end,
-    Tunnel.
 
 handle_peer_change(#tunnel{remote = NewFqTEID},
 		   #tunnel{remote = OldFqTEID}, TunnelOld)
@@ -370,7 +367,29 @@ add_apn_timeout(APNOpts) ->
 	   statem_m:modify_data(_#{context => Context})
        ]).
 
-assign_local_data_teid(Key, PCtx, NodeCaps, RightBearer) ->
+%% TBD: unify assign_local_data_teid/2 and assign_local_data_teid/4
+assign_local_data_teid(left = Key, NodeCaps) ->
+    do([statem_m ||
+	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+	   #{pfcp := PCtx, left_tunnel := LeftTunnel,
+	     bearer := Bearer0} <- statem_m:get_data(),
+	   Bearer <-
+	       statem_m:lift(
+		 ergw_gsn_lib:assign_local_data_teid(Key, PCtx, NodeCaps, LeftTunnel, Bearer0)),
+	   statem_m:modify_data(_#{bearer => Bearer})
+       ]);
+assign_local_data_teid(right = Key, NodeCaps) ->
+    do([statem_m ||
+	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+	   #{pfcp := PCtx, right_tunnel := RightTunnel,
+	     bearer := Bearer0} <- statem_m:get_data(),
+	   Bearer <-
+	       statem_m:lift(
+		 ergw_gsn_lib:assign_local_data_teid(Key, PCtx, NodeCaps, RightTunnel, Bearer0)),
+	   statem_m:modify_data(_#{bearer => Bearer})
+       ]).
+
+assign_local_data_teid(left = Key, PCtx, NodeCaps, RightBearer) ->
     do([statem_m ||
 	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
 	   statem_m:lift(?LOG(debug, "AssignLocalDataTeid")),
@@ -437,6 +456,139 @@ rf_i(Now) ->
 	   _ = ?LOG(debug, "RfSEvs: ~p", [RfSEvs]),
 	   statem_m:return(RfSEvs)
        ]).
+
+%% =============================
+
+update_context_from_gtp_req(Interface, Type, Request) ->
+    do([statem_m ||
+	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+	   Context0 <- statem_m:get_data(maps:get(Type, _)),
+	   Context = Interface:update_context_from_gtp_req(Request, Context0),
+	   statem_m:modify_data(_#{Type => Context})
+       ]).
+
+update_tunnel_from_gtp_req(Interface, Version, left, Request) ->
+    do([statem_m ||
+	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+	   #{left_tunnel := LeftTunnel0, bearer := #{left := LeftBearer0}} <- statem_m:get_data(),
+	   {LeftTunnel, LeftBearer} <-
+	       statem_m:lift(Interface:update_tunnel_from_gtp_req(
+			       Request, LeftTunnel0#tunnel{version = Version}, LeftBearer0)),
+	   statem_m:modify_data(
+	     fun(Data) ->
+		     maps:update_with(bearer,
+				      maps:put(left, LeftBearer, _),
+				      Data#{left_tunnel => LeftTunnel})
+	     end)
+       ]);
+update_tunnel_from_gtp_req(Interface, Version, right, Request) ->
+    do([statem_m ||
+	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+	   #{right_tunnel := RightTunnel0, bearer := #{right := RightBearer0}} <- statem_m:get_data(),
+	   {RightTunnel, RightBearer} <-
+	       statem_m:lift(Interface:update_tunnel_from_gtp_req(
+			       Request, RightTunnel0#tunnel{version = Version}, RightBearer0)),
+	   statem_m:modify_data(
+	     fun(Data) ->
+		     maps:update_with(bearer,
+				      maps:put(right, RightBearer, _),
+				      Data#{right_tunnel => RightTunnel})
+	     end)
+       ]).
+
+apply_update_tunnel_endpoint(TunnelOld, Tunnel0) ->
+    %% TBD: handle errors
+    {ok, Tunnel} = gtp_path:bind_tunnel(Tunnel0),
+    gtp_context:tunnel_reg_update(TunnelOld, Tunnel),
+    if Tunnel#tunnel.path /= TunnelOld#tunnel.path ->
+	    gtp_path:unbind_tunnel(TunnelOld);
+       true ->
+	    ok
+    end,
+    Tunnel.
+
+update_tunnel_endpoint(left, #{left_tunnel := LeftTunnelOld}) ->
+    do([statem_m ||
+	   _ = ?LOG(debug, "~s, left", [?FUNCTION_NAME]),
+	   LeftTunnel0 <- statem_m:get_data(maps:get(left_tunnel, _)),
+	   LeftTunnel <- statem_m:return(apply_update_tunnel_endpoint(
+					   LeftTunnelOld, LeftTunnel0)),
+	   statem_m:modify_data(_#{left_tunnel => LeftTunnel})
+       ]);
+update_tunnel_endpoint(right, #{right_tunnel := RightTunnelOld}) ->
+    do([statem_m ||
+	   _ = ?LOG(debug, "~s/~p, right", [?FUNCTION_NAME, ?FUNCTION_ARITY]),
+	   RightTunnel0 <- statem_m:get_data(maps:get(right_tunnel, _)),
+	   RightTunnel <- statem_m:return(apply_update_tunnel_endpoint(
+					    RightTunnelOld, RightTunnel0)),
+	   statem_m:modify_data(_#{right_tunnel => RightTunnel})
+       ]).
+
+bind_tunnel(left) ->
+    do([statem_m ||
+	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+	   LeftTunnel0 <- statem_m:get_data(maps:get(left_tunnel, _)),
+	   LeftTunnel <- statem_m:lift(gtp_path:bind_tunnel(LeftTunnel0)),
+	   statem_m:modify_data(_#{left_tunnel => LeftTunnel})
+       ]);
+bind_tunnel(right) ->
+    do([statem_m ||
+	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+	   RightTunnel0 <- statem_m:get_data(maps:get(right_tunnel, _)),
+	   RightTunnel <- statem_m:lift(gtp_path:bind_tunnel(RightTunnel0)),
+	   statem_m:modify_data(_#{right_tunnel => RightTunnel})
+       ]).
+
+terminate_colliding_context() ->
+    do([statem_m ||
+	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+	   #{left_tunnel := LeftTunnel, context := Context} <- statem_m:get_data(),
+	   statem_m:return(gtp_context:terminate_colliding_context(LeftTunnel, Context))
+       ]).
+
+init_session(Interface, IEs) ->
+    do([statem_m ||
+	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+	   #{left_tunnel := LeftTunnel, bearer := #{left := LeftBearer},
+	     context := Context, aaa_opts := AAAopts} <- statem_m:get_data(),
+
+	   SessionOpts0 = Interface:init_session(IEs, LeftTunnel, Context, AAAopts),
+	   SessionOpts1 =
+	       Interface:init_session_from_gtp_req(IEs, AAAopts, LeftTunnel, LeftBearer, SessionOpts0),
+	   SessionOpts = Interface:init_session_qos(IEs, SessionOpts1),
+	   statem_m:modify_data(_#{session_opts => SessionOpts1}),
+	   statem_m:return(SessionOpts)
+       ]).
+
+collect_charging_events(Interface, IEs) ->
+    do([statem_m ||
+	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
+	   #{'Session' := Session, left_tunnel := LeftTunnel,
+	     bearer := #{left := LeftBearer}} <- statem_m:get_data(),
+	   {OldSOpts, NewSOpts} =
+	       Interface:update_session_from_gtp_req(IEs, Session, LeftTunnel, LeftBearer),
+	   statem_m:return(gtp_context:collect_charging_events(OldSOpts, NewSOpts))
+      ]).
+
+
+%% =============================
+
+pfcp_create_session(PCC) ->
+     do([statem_m ||
+	    _ = ?LOG(debug, "~s/1", [?FUNCTION_NAME]),
+	    #{context := Context, bearer := Bearer, pfcp := PCtx0} <- statem_m:get_data(),
+
+	    {ReqId, PCtx} <-
+		statem_m:return(
+		  ergw_pfcp_context:send_session_establishment_request(
+		    gtp_context, PCC, PCtx0, Bearer, Context)),
+	    statem_m:modify_data(_#{pfcp => PCtx}),
+
+	    Response <- statem_m:wait(ReqId),
+	    pfcp_create_session_response(Response),
+
+	    statem_m:return()
+	]).
 
 pfcp_create_session(Now, PCtx0, GyEvs, AuthSEvs, RfSEvs, PCCErrors0) ->
     do([statem_m ||

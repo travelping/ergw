@@ -93,11 +93,11 @@ create_session_fun(#gtp{ie = #{?'Access Point Name' := #v2_access_point_name{apn
 	     %% async call, want to wait for the result later...
 	     UpSelInfo <-
 		 statem_m:lift(ergw_gtp_gsn_lib:connect_upf_candidates(APN, Services, NodeSelect, PeerUpNode)),
-	     update_context_from_gtp_req(Request),
-	     update_tunnel_from_gtp_req(Request),
-	     bind_tunnel(),
-	     terminate_colliding_context(),
-	     SessionOpts <- init_session(IEs),
+	     ergw_gtp_gsn_lib:update_context_from_gtp_req(pgw_s5s8, context, Request),
+	     ergw_gtp_gsn_lib:update_tunnel_from_gtp_req(pgw_s5s8, v2, left, Request),
+	     ergw_gtp_gsn_lib:bind_tunnel(left),
+	     ergw_gtp_gsn_lib:terminate_colliding_context(),
+	     SessionOpts <- ergw_gtp_gsn_lib:init_session(pgw_s5s8, IEs),
 
 	     PAA = maps:get(?'PDN Address Allocation', IEs, undefined),
 	     DAF = proplists:get_bool('DAF', gtp_v2_c:get_indication_flags(IEs)),
@@ -105,53 +105,3 @@ create_session_fun(#gtp{ie = #{?'Access Point Name' := #v2_access_point_name{apn
 	     ergw_gtp_gsn_lib:create_session_m(
 	       APN, pgw_s5s8:pdn_alloc(PAA), DAF, UpSelInfo, SessionOpts)
 	 ]), State, Data).
-
-update_context_from_gtp_req(Request) ->
-    do([statem_m ||
-	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
-	   Context0 <- statem_m:get_data(maps:get(context, _)),
-	   Context = pgw_s5s8:update_context_from_gtp_req(Request, Context0),
-	   statem_m:modify_data(_#{context => Context})
-       ]).
-
-update_tunnel_from_gtp_req(Request) ->
-    do([statem_m ||
-	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
-	   #{left_tunnel := LeftTunnel0, bearer := #{left := LeftBearer0}} <- statem_m:get_data(),
-	   {LeftTunnel, LeftBearer} <-
-	       statem_m:lift(pgw_s5s8:update_tunnel_from_gtp_req(Request, LeftTunnel0, LeftBearer0)),
-	   statem_m:modify_data(
-	     fun(Data) ->
-		     maps:update_with(bearer,
-				      maps:put(left, LeftBearer, _),
-				      Data#{left_tunnel => LeftTunnel})
-	     end)
-       ]).
-
-bind_tunnel() ->
-    do([statem_m ||
-	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
-	   LeftTunnel0 <- statem_m:get_data(maps:get(left_tunnel, _)),
-	   LeftTunnel <- statem_m:lift(gtp_path:bind_tunnel(LeftTunnel0)),
-	   statem_m:modify_data(_#{left_tunnel => LeftTunnel})
-       ]).
-
-terminate_colliding_context() ->
-    do([statem_m ||
-	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
-	   #{left_tunnel := LeftTunnel, context := Context} <- statem_m:get_data(),
-	   statem_m:return(gtp_context:terminate_colliding_context(LeftTunnel, Context))
-       ]).
-
-init_session(IEs) ->
-    do([statem_m ||
-	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
-	   #{left_tunnel := LeftTunnel, bearer := #{left := LeftBearer},
-	     context := Context, aaa_opts := AAAopts} <- statem_m:get_data(),
-
-	   SessionOpts0 = pgw_s5s8:init_session(IEs, LeftTunnel, Context, AAAopts),
-	   SessionOpts1 =
-	       pgw_s5s8:init_session_from_gtp_req(IEs, AAAopts, LeftTunnel, LeftBearer, SessionOpts0),
-	   %% SessionOpts = init_session_qos(ReqQoSProfile, SessionOpts1),
-	   statem_m:return(SessionOpts1)
-       ]).

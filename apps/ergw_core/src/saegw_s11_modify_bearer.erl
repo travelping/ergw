@@ -102,9 +102,9 @@ modify_bearer_fun(#gtp{type = modify_bearer_request, ie = IEs} = Request, State,
 	     process_secondary_rat_usage_data_reports(IEs),
 	     #{left_tunnel := LeftTunnelOld,
 	       bearer := #{left := LeftBearerOld}} <- statem_m:get_data(),
-	     update_tunnel_from_gtp_req(Request),
-	     update_tunnel_endpoint(LeftTunnelOld),
-	     URRActions <- collect_charging_events(IEs),
+	     ergw_gtp_gsn_lib:update_tunnel_from_gtp_req(saegw_s11, v2, left, Request),
+	     ergw_gtp_gsn_lib:update_tunnel_endpoint(left, Data),
+	     URRActions <- ergw_gtp_gsn_lib:collect_charging_events(saegw_s11, IEs),
 	     handle_bearer_change(URRActions, LeftTunnelOld, LeftBearerOld)
 	 ]), State, Data);
 
@@ -114,10 +114,9 @@ modify_bearer_fun(#gtp{type = modify_bearer_request, ie = IEs} = Request, State,
       do([statem_m ||
 	     _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
 	     process_secondary_rat_usage_data_reports(IEs),
-	     #{left_tunnel := LeftTunnelOld} <- statem_m:get_data(),
-	     update_tunnel_from_gtp_req(Request),
-	     update_tunnel_endpoint(LeftTunnelOld),
-	     URRActions <- collect_charging_events(IEs),
+	     ergw_gtp_gsn_lib:update_tunnel_from_gtp_req(saegw_s11, v2, left, Request),
+	     ergw_gtp_gsn_lib:update_tunnel_endpoint(left, Data),
+	     URRActions <- ergw_gtp_gsn_lib:collect_charging_events(saegw_s11, IEs),
 	     ergw_gtp_gsn_lib:usage_report_m(URRActions)
 	 ]), State, Data).
 
@@ -129,41 +128,6 @@ process_secondary_rat_usage_data_reports(IEs) ->
 	   %% TODO: this call blocking AAA API, convert to send_request/wait
 	   statem_m:lift(pgw_s5s8:process_secondary_rat_usage_data_reports(IEs, Context, Session))
        ]).
-
-%% TBD: almost identical to create_session
-update_tunnel_from_gtp_req(Request) ->
-    do([statem_m ||
-	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
-	   #{left_tunnel := LeftTunnel0, bearer := #{left := LeftBearer0}} <- statem_m:get_data(),
-	   {LeftTunnel, LeftBearer} <-
-	       statem_m:lift(saegw_s11:update_tunnel_from_gtp_req(
-			       Request, LeftTunnel0#tunnel{version = v2}, LeftBearer0)),
-	   statem_m:modify_data(
-	     fun(Data) ->
-		     maps:update_with(bearer,
-				      maps:put(left, LeftBearer, _),
-				      Data#{left_tunnel => LeftTunnel})
-	     end)
-       ]).
-
-update_tunnel_endpoint(LeftTunnelOld) ->
-    do([statem_m ||
-	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
-	   LeftTunnel0 <- statem_m:get_data(maps:get(left_tunnel, _)),
-	   LeftTunnel <- statem_m:return(ergw_gtp_gsn_lib:update_tunnel_endpoint(
-					   LeftTunnelOld, LeftTunnel0)),
-	   statem_m:modify_data(_#{left_tunnel => LeftTunnel})
-       ]).
-
-collect_charging_events(IEs) ->
-    do([statem_m ||
-	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
-	   #{'Session' := Session, left_tunnel := LeftTunnel,
-	     bearer := #{left := LeftBearer}} <- statem_m:get_data(),
-	   {OldSOpts, NewSOpts} =
-	       pgw_s5s8:update_session_from_gtp_req(IEs, Session, LeftTunnel, LeftBearer),
-	   statem_m:return(gtp_context:collect_charging_events(OldSOpts, NewSOpts))
-      ]).
 
 handle_bearer_change(URRActions, _LeftTunnelOld, LeftBearerOld, LeftBearer)
   when LeftBearerOld =:= LeftBearer ->
