@@ -50,10 +50,10 @@ update_pdp_context_fun(Request, State, Data) ->
     statem_m:run(
       do([statem_m ||
 	     _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
-	     update_tunnel_from_gtp_req(left, Request),
-	     update_tunnel_endpoint(left, Data),
+	     ergw_gtp_gsn_lib:update_tunnel_from_gtp_req(ggsn_gn, v1, left, Request),
+	     ergw_gtp_gsn_lib:update_tunnel_endpoint(left, Data),
 	     handle_peer_change(Data),
-	     update_tunnel_endpoint(right, Data),
+	     ergw_gtp_gsn_lib:update_tunnel_endpoint(right, Data),
 	     Lease <- aquire_lease(right),
 	     statem_m:return(Lease)
 	 ]), State, Data).
@@ -86,9 +86,9 @@ update_pdp_context_response_fun(Response, State, Data) ->
     statem_m:run(
       do([statem_m ||
 	     _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
-	     update_tunnel_from_gtp_req(right, Response),
-	     update_tunnel_endpoint(right, Data),
-	     update_context_from_gtp_req(proxy_context, Response),
+	     ergw_gtp_gsn_lib:update_tunnel_from_gtp_req(ggsn_gn, v1, right, Response),
+	     ergw_gtp_gsn_lib:update_tunnel_endpoint(right, Data),
+	     ergw_gtp_gsn_lib:update_context_from_gtp_req(ggsn_gn, proxy_context, Response),
 
 	     proxy_context_register(),
 
@@ -96,61 +96,6 @@ update_pdp_context_response_fun(Response, State, Data) ->
 	     pfcp_update_pdp_contexts(PCC),
 	     statem_m:return()
 	 ]), State, Data).
-
-update_context_from_gtp_req(Type, Request) ->
-    do([statem_m ||
-	   _ = ?LOG(debug, "~s, ~p", [?FUNCTION_NAME, Type]),
-	   Context0 <- statem_m:get_data(maps:get(Type, _)),
-	   Context = ggsn_gn:update_context_from_gtp_req(Request, Context0),
-	   statem_m:modify_data(_#{Type => Context})
-       ]).
-
-%% TBD: almost identical to create_session
-update_tunnel_from_gtp_req(left, Request) ->
-    do([statem_m ||
-	   _ = ?LOG(debug, "~s, left", [?FUNCTION_NAME]),
-	   #{left_tunnel := LeftTunnel0, bearer := #{left := LeftBearer0}} <- statem_m:get_data(),
-	   {LeftTunnel, LeftBearer} <-
-	       statem_m:lift(ggsn_gn:update_tunnel_from_gtp_req(
-			       Request, LeftTunnel0#tunnel{version = v1}, LeftBearer0)),
-	   statem_m:modify_data(
-	     fun(Data) ->
-		     maps:update_with(bearer,
-				      maps:put(left, LeftBearer, _),
-				      Data#{left_tunnel => LeftTunnel})
-	     end)
-       ]);
-update_tunnel_from_gtp_req(right, Request) ->
-    do([statem_m ||
-	   _ = ?LOG(debug, "~s, right", [?FUNCTION_NAME]),
-	   #{right_tunnel := RightTunnel0, bearer := #{right := RightBearer0}} <- statem_m:get_data(),
-	   {RightTunnel, RightBearer} <-
-	       statem_m:lift(ggsn_gn:update_tunnel_from_gtp_req(
-			       Request, RightTunnel0#tunnel{version = v1}, RightBearer0)),
-	   statem_m:modify_data(
-	     fun(Data) ->
-		     maps:update_with(bearer,
-				      maps:put(right, RightBearer, _),
-				      Data#{right_tunnel => RightTunnel})
-	     end)
-       ]).
-
-update_tunnel_endpoint(left, #{left_tunnel := LeftTunnelOld}) ->
-    do([statem_m ||
-	   _ = ?LOG(debug, "~s, left", [?FUNCTION_NAME]),
-	   LeftTunnel0 <- statem_m:get_data(maps:get(left_tunnel, _)),
-	   LeftTunnel <- statem_m:return(ergw_gtp_gsn_lib:update_tunnel_endpoint(
-					   LeftTunnelOld, LeftTunnel0)),
-	   statem_m:modify_data(_#{left_tunnel => LeftTunnel})
-       ]);
-update_tunnel_endpoint(right, #{right_tunnel := RightTunnelOld}) ->
-    do([statem_m ||
-	   _ = ?LOG(debug, "~s, right", [?FUNCTION_NAME]),
-	   RightTunnel0 <- statem_m:get_data(maps:get(right_tunnel, _)),
-	   RightTunnel <- statem_m:return(ergw_gtp_gsn_lib:update_tunnel_endpoint(
-					    RightTunnelOld, RightTunnel0)),
-	   statem_m:modify_data(_#{right_tunnel => RightTunnel})
-       ]).
 
 aquire_lease(right) ->
     do([statem_m ||

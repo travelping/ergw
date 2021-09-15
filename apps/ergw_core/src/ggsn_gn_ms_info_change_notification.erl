@@ -76,16 +76,6 @@ ms_info_change_notification_fun(#gtp{ie = IEs}, State, Data) ->
     statem_m:run(
       do([statem_m ||
 	     _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
-	     URRActions <- collect_charging_events(IEs),
+	     URRActions <- ergw_gtp_gsn_lib:collect_charging_events(ggsn_gn, IEs),
 	     ergw_gtp_gsn_lib:usage_report_m(URRActions)
 	 ]), State, Data).
-
-collect_charging_events(IEs) ->
-    do([statem_m ||
-	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
-	   #{'Session' := Session, left_tunnel := LeftTunnel,
-	     bearer := #{left := LeftBearer}} <- statem_m:get_data(),
-	   {OldSOpts, NewSOpts} =
-	       ggsn_gn:update_session_from_gtp_req(IEs, Session, LeftTunnel, LeftBearer),
-	   statem_m:return(gtp_context:collect_charging_events(OldSOpts, NewSOpts))
-      ]).

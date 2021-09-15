@@ -83,11 +83,11 @@ create_session_fun(#gtp{ie = IEs} = Request,
     statem_m:run(
       do([statem_m ||
 	     _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
-	     update_context_from_gtp_req(context, Request),
-	     update_tunnel_from_gtp_req(left, Request),
-	     bind_tunnel(left),
-	     terminate_colliding_context(),
-	     SessionOpts <- init_session(IEs),
+	     ergw_gtp_gsn_lib:update_context_from_gtp_req(pgw_s5s8, context, Request),
+	     ergw_gtp_gsn_lib:update_tunnel_from_gtp_req(pgw_s5s8, v2, left, Request),
+	     ergw_gtp_gsn_lib:bind_tunnel(left),
+	     ergw_gtp_gsn_lib:terminate_colliding_context(),
+	     SessionOpts <- ergw_gtp_gsn_lib:init_session(pgw_s5s8, IEs),
 
 	     ProxyInfo <- handle_proxy_info(SessionOpts),
 	     ProxySocket <- select_gtp_proxy_sockets(ProxyInfo),
@@ -111,11 +111,11 @@ create_session_fun(#gtp{ie = IEs} = Request,
 	     return(ergw_sx_node:wait_connect(SxConnectId)),
 
 	     NodeCaps <- select_upf(Candidates),
-	     assign_local_data_teid(left, NodeCaps),
-	     assign_local_data_teid(right, NodeCaps),
+	     ergw_gtp_gsn_lib:assign_local_data_teid(left, NodeCaps),
+	     ergw_gtp_gsn_lib:assign_local_data_teid(right, NodeCaps),
 
 	     PCC = ergw_proxy_lib:proxy_pcc(),
-	     pfcp_create_session(PCC),
+	     ergw_gtp_gsn_lib:pfcp_create_session(PCC),
 
 	     ergw_gtp_gsn_lib:remote_context_register_new(),
 	     return(Lease)
@@ -150,9 +150,9 @@ create_session_response_fun(#gtp{ie = #{?'Cause' := #v2_cause{v2_cause = Cause}}
       do([statem_m ||
 	     _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
 
-	     update_tunnel_from_gtp_req(right, Response),
-	     bind_tunnel(right),
-	     update_context_from_gtp_req(proxy_context, Response),
+	     ergw_gtp_gsn_lib:update_tunnel_from_gtp_req(pgw_s5s8, v2, right, Response),
+	     ergw_gtp_gsn_lib:bind_tunnel(right),
+	     ergw_gtp_gsn_lib:update_context_from_gtp_req(pgw_s5s8, proxy_context, Response),
 
 	     proxy_context_register(),
 
@@ -175,55 +175,6 @@ create_session_response_fun(#gtp{ie = #{?'Cause' := #v2_cause{v2_cause = Cause}}
 	     end
 	 ]), State, Data).
 
-update_context_from_gtp_req(Type, Request) ->
-    do([statem_m ||
-	   _ = ?LOG(debug, "~s, ~p", [?FUNCTION_NAME, Type]),
-	   Context0 <- statem_m:get_data(maps:get(Type, _)),
-	   Context = pgw_s5s8:update_context_from_gtp_req(Request, Context0),
-	   statem_m:modify_data(_#{Type => Context})
-       ]).
-
-update_tunnel_from_gtp_req(left, Request) ->
-    do([statem_m ||
-	   _ = ?LOG(debug, "~s, left", [?FUNCTION_NAME]),
-	   #{left_tunnel := LeftTunnel0, bearer := #{left := LeftBearer0}} <- statem_m:get_data(),
-	   {LeftTunnel, LeftBearer} <-
-	       statem_m:lift(pgw_s5s8:update_tunnel_from_gtp_req(Request, LeftTunnel0, LeftBearer0)),
-	   statem_m:modify_data(
-	     fun(Data) ->
-		     maps:update_with(bearer,
-				      maps:put(left, LeftBearer, _),
-				      Data#{left_tunnel => LeftTunnel})
-	     end)
-       ]);
-update_tunnel_from_gtp_req(right, Request) ->
-    do([statem_m ||
-	   _ = ?LOG(debug, "~s, right", [?FUNCTION_NAME]),
-	   #{right_tunnel := RightTunnel0, bearer := #{right := RightBearer0}} <- statem_m:get_data(),
-	   {RightTunnel, RightBearer} <-
-	       statem_m:lift(pgw_s5s8:update_tunnel_from_gtp_req(Request, RightTunnel0, RightBearer0)),
-	   statem_m:modify_data(
-	     fun(Data) ->
-		     maps:update_with(bearer,
-				      maps:put(right, RightBearer, _),
-				      Data#{right_tunnel => RightTunnel})
-	     end)
-       ]).
-
-bind_tunnel(left) ->
-    do([statem_m ||
-	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
-	   LeftTunnel0 <- statem_m:get_data(maps:get(left_tunnel, _)),
-	   LeftTunnel <- statem_m:lift(gtp_path:bind_tunnel(LeftTunnel0)),
-	   statem_m:modify_data(_#{left_tunnel => LeftTunnel})
-       ]);
-bind_tunnel(right) ->
-    do([statem_m ||
-	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
-	   RightTunnel0 <- statem_m:get_data(maps:get(right_tunnel, _)),
-	   RightTunnel <- statem_m:lift(gtp_path:bind_tunnel(RightTunnel0)),
-	   statem_m:modify_data(_#{right_tunnel => RightTunnel})
-       ]).
 
 aquire_lease(right) ->
     do([statem_m ||
@@ -241,28 +192,6 @@ proxy_context_register() ->
 	     right_tunnel := RightTunnel, bearer := Bearer} <- statem_m:get_data(),
 	   statem_m:return(
 	     gtp_context:remote_context_register(RightTunnel, Bearer, ProxyContext))
-       ]).
-
-terminate_colliding_context() ->
-    do([statem_m ||
-	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
-	   #{left_tunnel := LeftTunnel, context := Context} <- statem_m:get_data(),
-	   statem_m:return(gtp_context:terminate_colliding_context(LeftTunnel, Context))
-       ]).
-
-init_session(IEs) ->
-    do([statem_m ||
-	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
-	   #{left_tunnel := LeftTunnel, bearer := #{left := LeftBearer},
-	     context := Context, aaa_opts := AAAopts} <- statem_m:get_data(),
-
-	   SessionOpts0 = pgw_s5s8:init_session(IEs, LeftTunnel, Context, AAAopts),
-	   SessionOpts1 =
-	       pgw_s5s8:init_session_from_gtp_req(IEs, AAAopts, LeftTunnel, LeftBearer, SessionOpts0),
-	   %% SessionOpts = init_session_qos(ReqQoSProfile, SessionOpts1),
-
-	   statem_m:modify_data(_#{session_opts => SessionOpts1}),
-	   statem_m:return(SessionOpts1)
        ]).
 
 handle_proxy_info(SessionOpts) ->
@@ -326,44 +255,6 @@ select_upf(Candidates) ->
 	    {PCtx, NodeCaps} <- statem_m:lift(ergw_pfcp_context:select_upf(Candidates)),
 	    statem_m:modify_data(_#{pfcp => PCtx}),
 	    statem_m:return(NodeCaps)
-	]).
-
-assign_local_data_teid(left = Key, NodeCaps) ->
-    do([statem_m ||
-	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
-	   #{pfcp := PCtx, left_tunnel := LeftTunnel,
-	     bearer := Bearer0} <- statem_m:get_data(),
-	   Bearer <-
-	       statem_m:lift(
-		 ergw_gsn_lib:assign_local_data_teid(Key, PCtx, NodeCaps, LeftTunnel, Bearer0)),
-	   statem_m:modify_data(_#{bearer => Bearer})
-       ]);
-assign_local_data_teid(right = Key, NodeCaps) ->
-    do([statem_m ||
-	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
-	   #{pfcp := PCtx, right_tunnel := RightTunnel,
-	     bearer := Bearer0} <- statem_m:get_data(),
-	   Bearer <-
-	       statem_m:lift(
-		 ergw_gsn_lib:assign_local_data_teid(Key, PCtx, NodeCaps, RightTunnel, Bearer0)),
-	   statem_m:modify_data(_#{bearer => Bearer})
-       ]).
-
-pfcp_create_session(PCC) ->
-     do([statem_m ||
-	    _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
-	    #{context := Context, bearer := Bearer, pfcp := PCtx0} <- statem_m:get_data(),
-
-	    {ReqId, PCtx} <-
-		statem_m:return(
-		  ergw_pfcp_context:send_session_establishment_request(
-		    gtp_context, PCC, PCtx0, Bearer, Context)),
-	    statem_m:modify_data(_#{pfcp => PCtx}),
-
-	    Response <- statem_m:wait(ReqId),
-	    ergw_gtp_gsn_lib:pfcp_create_session_response(Response),
-
-	    statem_m:return()
 	]).
 
 pfcp_modify_bearers(PCC) ->
