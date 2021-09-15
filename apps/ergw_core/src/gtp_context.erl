@@ -133,8 +133,8 @@ collect_charging_events(OldS0, NewS0) ->
 	      '3GPP-SGSN-IPv6-Address',
 	      '3GPP-SGSN-MCC-MNC',
 	      'User-Location-Info'],
-    OldS = maps:merge(maps:with(Fields, OldS0), maps:get('User-Location-Info', OldS0)),
-    NewS = maps:merge(maps:with(Fields, NewS0), maps:get('User-Location-Info', NewS0)),
+    OldS = maps:merge(maps:with(Fields, OldS0), maps:get('User-Location-Info', OldS0, #{})),
+    NewS = maps:merge(maps:with(Fields, NewS0), maps:get('User-Location-Info', NewS0, #{})),
 
     EvChecks =
 	[
