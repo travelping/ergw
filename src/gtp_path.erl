@@ -232,6 +232,7 @@ init([#socket{name = SocketName} = Socket, Version, RemoteIP, Args]) ->
 
 handle_event(enter, #state{peer = Old}, #state{peer = Peer}, Data)
   when Old /= Peer ->
+    ?LOG(debug, "enter state when Old ~p /= Peer ~p", [Old, Peer]),
     peer_state_change(Old, Peer, Data),
     OldState = peer_state(Old),
     NewState = peer_state(Peer),
@@ -239,44 +240,55 @@ handle_event(enter, #state{peer = Old}, #state{peer = Peer}, Data)
 
 handle_event(enter, #state{echo = Old}, #state{peer = Peer, echo = Echo}, Data)
   when Old /= Echo ->
+    ?LOG(debug, "enter state when Old ~p /= Echo ~p, new peer: ~p", [Old, Echo, Peer]),
     State = peer_state(Peer),
     {keep_state_and_data, enter_state_echo_action(State, Data)};
 
 handle_event(enter, _OldState, _State, _Data) ->
+    ?LOG(debug, "enter state otherwise"),
     keep_state_and_data;
 
 handle_event({timeout, stop_echo}, stop_echo, State, Data) ->
+    ?LOG(debug, "timed out on stop_echo"),
     {next_state, State#state{echo = stopped}, Data, [{{timeout, echo}, cancel}]};
 
 handle_event({timeout, echo}, start_echo, #state{echo = EchoT} = State0, Data)
   when EchoT =:= stopped;
        EchoT =:= idle ->
+    ?LOG(debug, "timed out on echo, msg start_echo when EchoT was stopped or idle"),
     State = send_echo_request(State0, Data),
     {next_state, State, Data};
 handle_event({timeout, echo}, start_echo, _State, _Data) ->
+    ?LOG(debug, "timed out on echo, msg start_echo otherwise"),
     keep_state_and_data;
 
 handle_event({timeout, peer}, stop, _State, #{reg_key := RegKey}) ->
+    ?LOG(debug, "timed out on peer with msg stop"),
     gtp_path_reg:unregister(RegKey),
     {stop, normal};
 
 handle_event({call, From}, all, _State, #{contexts := CtxS} = _Data) ->
+    ?LOG(debug, "requesting all contexts"),
     Reply = maps:keys(CtxS),
     {keep_state_and_data, [{reply, From, Reply}]};
 
 handle_event({call, From}, {MonOrBind, Pid}, #state{peer = #peer{state = down}}, _Data)
   when MonOrBind == monitor; MonOrBind == bind ->
+    ?LOG(debug, "requesting monitor or bind ~p when peer state id down", [Pid]),
     Path = self(),
     proc_lib:spawn(fun() -> gtp_context:path_restart(Pid, Path) end),
     {keep_state_and_data, [{reply, From, {ok, undefined}}]};
 
 handle_event({call, From}, {monitor, Pid}, #state{recovery = RstCnt} = State, Data) ->
+    ?LOG(debug, "requesting monitor ~p when recovery is ~p", [Pid, RstCnt]),
     register_monitor(Pid, State, Data, [{reply, From, {ok, RstCnt}}]);
 
 handle_event({call, From}, {bind, Pid}, #state{recovery = RstCnt} = State, Data) ->
+    ?LOG(debug, "requesting bind ~p when peer recovery is ~p", [Pid, RstCnt]),
     register_bind(Pid, State, Data, [{reply, From, {ok, RstCnt}}]);
 
 handle_event({call, From}, {bind, Pid, RstCnt}, State, Data) ->
+    ?LOG(debug, "requesting bind ~p with restart counter ~p", [Pid, RstCnt]),
     case update_restart_counter(RstCnt, State, Data) of
 	initial  ->
 	    register_bind(Pid, State#state{recovery = RstCnt}, Data, [{reply, From, ok}]);
@@ -288,6 +300,7 @@ handle_event({call, From}, {bind, Pid, RstCnt}, State, Data) ->
     end;
 
 handle_event({call, From}, {unbind, Pid}, State, Data) ->
+    ?LOG(debug, "requesting unbind ~p", [Pid]),
     unregister(Pid, State, Data, [{reply, From, ok}]);
 
 handle_event({call, From}, info, #state{peer = #peer{contexts = CtxCnt}} = State,
@@ -295,6 +308,7 @@ handle_event({call, From}, info, #state{peer = #peer{contexts = CtxCnt}} = State
 	       version := Version, ip := IP} = Data) ->
     Reply = #{path => self(), socket => SocketName, tunnels => CtxCnt,
 	      version => Version, ip => IP, state => State, data => Data},
+    ?LOG(debug, "requesting info: ~p", [Reply]),
     {keep_state_and_data, [{reply, From, Reply}]};
 
 handle_event(cast, {handle_request, ReqKey, #gtp{type = echo_request} = Msg0},
@@ -316,30 +330,36 @@ handle_event(cast, {handle_request, ReqKey, #gtp{type = echo_request} = Msg0},
 
 handle_event(cast, {handle_response, echo_request, ReqRef, _Msg}, #state{echo = SRef}, _)
   when ReqRef /= SRef ->
+    ?LOG(debug, "cast response to echo_request: ~p /= ~p", [ReqRef, SRef]),
     keep_state_and_data;
 
 handle_event(cast,{handle_response, echo_request, _, #gtp{} = Msg}, State, Data) ->
+    ?LOG(debug, "cast response to echo_request with GTP msg, otherwise"),
     handle_recovery_ie(Msg, State#state{echo = idle}, Data);
 
 handle_event(cast,{handle_response, echo_request, _, _Msg}, State, Data) ->
+    ?LOG(debug, "cast response to echo_request, otherwise"),
     path_restart(undefined, peer_state(down, State), Data, []);
 
 handle_event(cast, icmp_error, _, #{icmp_error_handling := ignore}) ->
+    ?LOG(debug, "icmp_error when ignoring icmp errors"),
     keep_state_and_data;
 
 handle_event(cast, icmp_error, State, Data) ->
+    ?LOG(debug, "icmp_error when *not* ignoring icmp errors"),
     path_restart(undefined, peer_state(down, State), Data, []);
 
 handle_event(info,{'DOWN', _MonitorRef, process, Pid, _Info}, State, Data) ->
+    ?LOG(debug, "received a down signal from ~p", [Pid]),
     unregister(Pid, State, Data, []);
 
 handle_event({timeout, 'echo'}, _, #state{echo = idle} = State0, Data) ->
-    ?LOG(debug, "handle_event timeout: ~p", [Data]),
+    ?LOG(debug, "handle_event timeout (when echo = idle): ~p", [Data]),
     State = send_echo_request(State0, Data),
     {next_state, State, Data};
 
 handle_event({timeout, 'echo'}, _, _State, _Data) ->
-    ?LOG(debug, "handle_event timeout: ~p", [_Data]),
+    ?LOG(debug, "handle_event timeout (otherwise): ~p", [_Data]),
     keep_state_and_data;
 
 %% test support
@@ -499,16 +519,42 @@ update_contexts(State0, #{socket := Socket, version := Version, ip := IP} = Data
 
 register_monitor(Pid, State, #{contexts := CtxS, monitors := Mons} = Data, Actions)
   when is_map_key(Pid, CtxS), is_map_key(Pid, Mons) ->
-    ?LOG(debug, "~s: monitor(~p)", [?MODULE, Pid]),
+    ?LOG(debug, "~s: monitor(~p), pid found in both context and monitors", [?MODULE, Pid]),
     {next_state, State, Data, Actions};
 register_monitor(Pid, State, #{contexts := CtxS, monitors := Mons} = Data, Actions)
   when not is_map_key(Pid, CtxS), is_map_key(Pid, Mons) ->
+    ?LOG(debug, "~s: monitor(~p), pid found in monitors ONLY", [?MODULE, Pid]),
     {next_state, State, Data, Actions};
 register_monitor(Pid, State, #{contexts := CtxS, monitors := Mons} = Data, Actions)
   when is_map_key(Pid, CtxS), not is_map_key(Pid, Mons) ->
+    ?LOG(debug, "~s: monitor(~p), pid found in contexts ONLY", [?MODULE, Pid]),
     {next_state, State, Data, Actions};
 register_monitor(Pid, State, #{contexts := CtxS, monitors := Mons} = Data, Actions)
   when not is_map_key(Pid, CtxS), not is_map_key(Pid, Mons) ->
+    case logger:allow(debug, ?MODULE) of
+	true ->
+	    IsInM = is_map_key(Pid, Mons),
+	    IsInC = is_map_key(Pid, CtxS),
+	    Cpids = maps:keys(CtxS),
+	    Mpids = maps:keys(Mons),
+	    IsAlive = fun (P) ->
+			      case
+				  process_info(P, status) of
+				  undefined -> false;
+				  _ -> true
+			      end
+		      end,
+	    {CpidsAlive, CpidsDead} = lists:splitwith(IsAlive, Cpids),
+	    {MpidsAlive, MpidsDead} = lists:splitwith(IsAlive, Mpids),
+	    ?LOG(debug, "Register monitor contexts (alive/dead): ~p / ~p", [length(CpidsAlive), length(CpidsDead)]),
+	    ?LOG(debug, "Register monitor monitors (alive/dead): ~p / ~p", [length(MpidsAlive), length(MpidsDead)]),
+	    ?LOG(debug, "~s: monitor(~p), pid not found in any: ~p", [?MODULE, Pid, {IsInM, IsInC}]),
+	    CurrentMs = element(2, erlang:process_info(Pid, monitored_by)),
+	    MonitoredByMe = lists:member(self(), CurrentMs),
+	    ?LOG(debug, "Is ~p already monitored by me? ~p : ~p", [Pid, MonitoredByMe, CurrentMs]);
+	_ ->
+	    ok
+    end,
     MRef = erlang:monitor(process, Pid),
     {next_state, State, Data#{monitors => maps:put(Pid, MRef, Mons)}, Actions}.
 
@@ -519,14 +565,23 @@ register_bind(Pid, MRef, State, #{contexts := CtxS} = Data, Actions) ->
 %% register_bind/4
 register_bind(Pid, State, #{monitors := Mons} = Data, Actions)
   when is_map_key(Pid, Mons)  ->
-    ?LOG(debug, "~s: register(~p)", [?MODULE, Pid]),
+    ?LOG(debug, "~s: monitor register(~p)", [?MODULE, Pid]),
     MRef = maps:get(Pid, Mons),
     register_bind(Pid, MRef, State, Data#{monitors => maps:remove(Pid, Mons)}, Actions);
 register_bind(Pid, State, #{contexts := CtxS} = Data, Actions)
   when is_map_key(Pid, CtxS) ->
+    ?LOG(debug, "~s: context register(~p)", [?MODULE, Pid]),
     {next_state, State, Data, Actions};
 register_bind(Pid, State, Data, Actions) ->
-    ?LOG(debug, "~s: register(~p)", [?MODULE, Pid]),
+    ?LOG(debug, "~s: default register(~p)", [?MODULE, Pid]),
+    case logger:allow(debug, ?MODULE) of
+	true ->
+	    CurrentMs = element(2, erlang:process_info(Pid, monitored_by)),
+	    MonitoredByMe = lists:member(self(), CurrentMs),
+	    ?LOG(debug, "Is ~p already monitored by me? ~p : ~p", [Pid, MonitoredByMe, CurrentMs]);
+	_ ->
+	    ok
+    end,
     MRef = erlang:monitor(process, Pid),
     register_bind(Pid, MRef, State, Data, Actions).
 
