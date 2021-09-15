@@ -501,8 +501,14 @@ register_monitor(Pid, State, #{contexts := CtxS, monitors := Mons} = Data, Actio
   when is_map_key(Pid, CtxS), is_map_key(Pid, Mons) ->
     ?LOG(debug, "~s: monitor(~p)", [?MODULE, Pid]),
     {next_state, State, Data, Actions};
-register_monitor(Pid, State, #{monitors := Mons} = Data, Actions) ->
-    ?LOG(debug, "~s: monitor(~p)", [?MODULE, Pid]),
+register_monitor(Pid, State, #{contexts := CtxS, monitors := Mons} = Data, Actions)
+  when not is_map_key(Pid, CtxS), is_map_key(Pid, Mons) ->
+    {next_state, State, Data, Actions};
+register_monitor(Pid, State, #{contexts := CtxS, monitors := Mons} = Data, Actions)
+  when is_map_key(Pid, CtxS), not is_map_key(Pid, Mons) ->
+    {next_state, State, Data, Actions};
+register_monitor(Pid, State, #{contexts := CtxS, monitors := Mons} = Data, Actions)
+  when not is_map_key(Pid, CtxS), not is_map_key(Pid, Mons) ->
     MRef = erlang:monitor(process, Pid),
     {next_state, State, Data#{monitors => maps:put(Pid, MRef, Mons)}, Actions}.
 
