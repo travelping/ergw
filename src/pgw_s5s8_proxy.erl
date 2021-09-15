@@ -221,11 +221,13 @@ handle_request(ReqKey, Request, true, _State,
 %%
 handle_request(ReqKey, #gtp{type = create_session_request} = Request, true,
 	       _State, #{right_tunnel := RightTunnel}) ->
+    ?LOG(debug, "create session request for right tunnel ~p", [RightTunnel]),
     ergw_proxy_lib:forward_request(RightTunnel, ReqKey, Request),
     keep_state_and_data;
 handle_request(ReqKey, #gtp{type = change_notification_request} = Request, true,
 	       _State, #{left_tunnel := LeftTunnel, right_tunnel := RightTunnel})
   when ?IS_REQUEST_TUNNEL_OPTIONAL_TEI(ReqKey, Request, LeftTunnel) ->
+    ?LOG(debug, "change notification request when ?IS_REQUEST_TUNNEL_OPTIONAL_TEI(ReqKey, Request, LeftTunnel) for right tunnel ~p and left tunnel ~p", [RightTunnel, LeftTunnel]),
     ergw_proxy_lib:forward_request(RightTunnel, ReqKey, Request),
     keep_state_and_data;
 
@@ -242,7 +244,7 @@ handle_request(ReqKey,
 		 bearer := #{left := LeftBearer0} = Bearer0,
 		 'Session' := Session} = Data)
   when State == run; State == connecting ->
-
+    ?LOG(debug, "create session request when State == run; State == connecting for left tunnel ~p", [LeftTunnel0]),
     Context = pgw_s5s8:update_context_from_gtp_req(Request, Context0),
 
     {LeftTunnel1, LeftBearer1} =
@@ -321,6 +323,7 @@ handle_request(ReqKey,
 
     %% 30 second timeout to have enough room for resents
     Action = [{state_timeout, 30 * 1000, ReqKey}],
+    ?LOG(debug, "finished create session request for left tunnel"),
     {next_state, connecting, DataNew, Action};
 
 handle_request(ReqKey,
@@ -330,6 +333,7 @@ handle_request(ReqKey,
 		 left_tunnel := LeftTunnelOld, right_tunnel := RightTunnelOld,
 		 bearer := #{left := LeftBearerOld, right := RightBearer} = Bearer} = Data)
   when ?IS_REQUEST_TUNNEL(ReqKey, Request, LeftTunnelOld) ->
+    ?LOG(debug, "modify bearer request when ?IS_REQUEST_TUNNEL(ReqKey, Request, LeftTunnelOld) for right tunnel ~p and left tunnel ~p", [RightTunnelOld, LeftTunnelOld]),
     {LeftTunnel0, LeftBearer} =
 	case pgw_s5s8:update_tunnel_from_gtp_req(
 	       Request, LeftTunnelOld#tunnel{version = v2}, LeftBearerOld) of
@@ -356,6 +360,7 @@ handle_request(ReqKey,
 		 left_tunnel := LeftTunnel, right_tunnel := RightTunnel,
 		 bearer := #{right := RightBearer}} = Data0)
   when ?IS_REQUEST_TUNNEL(ReqKey, Request, LeftTunnel) ->
+    ?LOG(debug, "modify bearer command when ?IS_REQUEST_TUNNEL(ReqKey, Request, LeftTunnel) for right tunnel ~p and left tunnel ~p", [RightTunnel, LeftTunnel]),
 
     Data1 = bind_forward_path(sgw2pgw, Request, Data0),
 
@@ -374,6 +379,7 @@ handle_request(ReqKey,
 		 left_tunnel := LeftTunnel, right_tunnel := RightTunnel,
 		 bearer := #{right := RightBearer}} = Data)
   when ?IS_REQUEST_TUNNEL_OPTIONAL_TEI(ReqKey, Request, LeftTunnel) ->
+    ?LOG(debug, "change notification request when ?IS_REQUEST_TUNNEL_OPTIONAL_TEI(ReqKey, Request, LeftTunnel) for right tunnel ~p and left tunnel ~p", [RightTunnel, LeftTunnel]),
 
     DataNew = bind_forward_path(sgw2pgw, Request, Data),
 
@@ -393,6 +399,7 @@ handle_request(ReqKey,
   when (Type == suspend_notification orelse
 	Type == resume_notification) andalso
        ?IS_REQUEST_TUNNEL(ReqKey, Request, LeftTunnel) ->
+    ?LOG(debug, "suspend or resume notification when ?IS_REQUEST_TUNNEL(ReqKey, Request, LeftTunnel) for right tunnel ~p and left tunnel ~p", [RightTunnel, LeftTunnel]),
 
     DataNew = bind_forward_path(sgw2pgw, Request, Data),
 
@@ -410,6 +417,7 @@ handle_request(ReqKey,
 		 left_tunnel := LeftTunnel, right_tunnel := RightTunnel,
 		 bearer := #{left := LeftBearer}} = Data0)
   when ?IS_REQUEST_TUNNEL(ReqKey, Request, RightTunnel) ->
+    ?LOG(debug, "update bearer request when ?IS_REQUEST_TUNNEL(ReqKey, Request, RightTunnel) for right tunnel ~p and left tunnel ~p", [RightTunnel, LeftTunnel]),
 
     Data = bind_forward_path(pgw2sgw, Request, Data0),
 
@@ -427,6 +435,7 @@ handle_request(ReqKey,
 		 left_tunnel := LeftTunnel, right_tunnel := RightTunnel,
 		 bearer := #{right := RightBearer}} = Data0)
   when ?IS_REQUEST_TUNNEL(ReqKey, Request, LeftTunnel) ->
+    ?LOG(debug, "delete session request when ?IS_REQUEST_TUNNEL(ReqKey, Request, LeftTunnel) for right tunnel ~p and left tunnel ~p", [RightTunnel, LeftTunnel]),
 
     forward_request(sgw2pgw, ReqKey, Request, RightTunnel, RightBearer, ProxyContext, Data0, Data0),
 
@@ -445,6 +454,7 @@ handle_request(ReqKey,
 		 left_tunnel := LeftTunnel, right_tunnel := RightTunnel,
 		 bearer := #{left := LeftBearer}} = Data0)
   when ?IS_REQUEST_TUNNEL(ReqKey, Request, RightTunnel) ->
+    ?LOG(debug, "delete bearer request when ?IS_REQUEST_TUNNEL(ReqKey, Request, RightTunnel) for right tunnel ~p and left tunnel ~p", [RightTunnel, LeftTunnel]),
 
     forward_request(pgw2sgw, ReqKey, Request, LeftTunnel, LeftBearer, Context, Data0, Data0),
 
@@ -454,21 +464,26 @@ handle_request(ReqKey,
     {keep_state, Data};
 
 handle_request(_ReqKey, _Request, _Resent, connecting, _Data) ->
+    ?LOG(debug, "any other connecting request"),
     {keep_state_and_data, [postpone]};
 
 handle_request(ReqKey, _Request, _Resent, _State, _Data) ->
+    ?LOG(debug, "default case for requests"),
     gtp_context:request_finished(ReqKey),
     keep_state_and_data.
 
 handle_response(ReqInfo, #gtp{version = v1} = Msg, Request, State, Data) ->
+    ?LOG(debug, "v1 Response"),
     ?GTP_v1_Interface:handle_response(ReqInfo, Msg, Request, State, Data);
 
 handle_response(_, _Response, _Request, shutdown, _Data) ->
+    ?LOG(debug, "shutdown Response ~p", [_Response]),
     keep_state_and_data;
 
 handle_response(#proxy_request{direction = sgw2pgw},
 		timeout, #gtp{type = create_session_request}, State, _)
   when State == connected; State == connecting ->
+    ?LOG(debug, "timedout create session request"),
     keep_state_and_data;
 
 handle_response(#proxy_request{direction = sgw2pgw} = ProxyRequest,
@@ -646,16 +661,19 @@ handle_response(#proxy_request{request = ReqKey} = _ReqInfo,
 handle_response(_, _, #gtp{type = Type}, shutdown, _)
   when Type =:= delete_bearer_request;
        Type =:= delete_session_request ->
+    ?LOG(debug, "shutdown delete bearer or session Response"),
     keep_state_and_data;
 
 handle_response({Direction, From}, timeout, #gtp{type = Type}, shutdown_initiated, Data)
   when Type =:= delete_bearer_request;
        Type =:= delete_session_request ->
+    ?LOG(debug, "shutdown initiated (timeout) delete bearer or session Response ~p"),
     session_teardown_response({error, timeout}, Direction, From, Data);
 
 handle_response({Direction, From}, #gtp{type = Type}, _, shutdown_initiated, Data)
   when Type =:= delete_bearer_response;
        Type =:= delete_session_response ->
+    ?LOG(debug, "shutdown initiated (timeout 2?) delete bearer or session"),
     session_teardown_response(ok, Direction, From, Data).
 
 terminate(_Reason, _State, _Data) ->
@@ -815,10 +833,12 @@ session_teardown_response(Answer, Direction, From, #{shutdown := Shutdown0} = Da
 
 bind_forward_path(sgw2pgw, Request,
 		  #{left_tunnel := LeftTunnel, right_tunnel := RightTunnel} = Data) ->
+    ?LOG(debug, "bind forward path, sgw2pgw"),
     Data#{left_tunnel => gtp_path:bind(Request, LeftTunnel),
 	  right_tunnel => gtp_path:bind(RightTunnel)};
 bind_forward_path(pgw2sgw, Request,
 		  #{left_tunnel := LeftTunnel, right_tunnel := RightTunnel} = Data) ->
+    ?LOG(debug, "bind forward path, pgw2sgw"),
     Data#{left_tunnel => gtp_path:bind(LeftTunnel),
 	  right_tunnel => gtp_path:bind(Request, RightTunnel)}.
 
