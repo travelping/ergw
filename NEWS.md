@@ -1,6 +1,11 @@
 erGW - 3GPP GGSN and PDN-GW in Erlang
 =====================================
 
+Version 2.8.15 - 16 September 2021
+-------------------------------
+**Bugfixes** :bug:
+* [#432](https://github.com/travelping/ergw/pull/432), [#434](https://github.com/travelping/ergw/pull/434) Fix `gtp_gtp` monitors
+
 Version 2.8.14 - 3 June 2021
 -------------------------------
 **Bugfixes** :bug:
@@ -165,7 +170,7 @@ Version 2.8.0 - 16 November 2020
 * Remove reliance on User Plane IP Resource Information IE
 * Update [ergw_aaa](https://github.com/travelping/ergw_aaa) tag to [3.6.2](https://github.com/travelping/ergw_aaa/releases/tag/3.6.2)
 * Fix Common Tests
-* Handle timeouts create `session`/`pdp_context` requests 
+* Handle timeouts create `session`/`pdp_context` requests
 * Extend delete contexts REST API for delete all contexts: `/api/v1/contexts`
 
 Version 2.7.2 - 5 November 2020
@@ -215,7 +220,7 @@ Version 2.6.0 - 02 October 2020
         in the node config (see: `config/ergw-c-node.config` for example)
 
 
-* unify socket definition. 
+* unify socket definition.
   NOTE: this requires changes to the configuration
   of *ergw*: `sx_socket` is removed from the *ergw* configuration, `sx` socket
   is now handled in the `sockets` section of *ergw*. See
