@@ -25,7 +25,7 @@
 -export([sx_report/2, port_message/2, port_message/4]).
 
 -ifdef(TEST).
--export([test_cmd/2]).
+-export([ctx_test_cmd/2]).
 -endif.
 
 %% gen_statem callbacks
@@ -67,8 +67,28 @@ unsolicited_report(Node, VRF, IP4, IP6, SxOpts) ->
 
 -ifdef(TEST).
 
-test_cmd(Pid, Cmd) when is_pid(Pid) ->
-    gen_statem:call(Pid, {?TestCmdTag, Cmd}).
+ctx_test_cmd(Id, is_alive) ->
+    with_context(Id, fun(Pid, _) -> is_pid(Pid) end, undefined);
+ctx_test_cmd(Id, whereis) ->
+    with_context(Id, fun(Pid, _) -> {?MODULE, Pid} end, undefined);
+ctx_test_cmd(Id, stop_session) ->
+    with_context(Id, fun(Pid, _) -> Pid ! {update_session, #{}, [stop]} end, undefined);
+ctx_test_cmd(Id, {send, Msg}) ->
+    with_context(Id, info, Msg);
+ctx_test_cmd(Id, Cmd) ->
+    with_context(Id, call, {?TestCmdTag, Cmd}).
+
+with_context(Pid, EventType, EventContent) when is_pid(Pid) ->
+    with_context_srv(Pid, EventType, EventContent).
+
+with_context_srv(Server, cast, EventContent) ->
+    gen_statem:cast(Server, EventContent);
+with_context_srv(Server, call, EventContent) ->
+    gen_statem:call(Server, EventContent);
+with_context_srv(Server, info, EventContent) ->
+    Server ! EventContent;
+with_context_srv(Server, Fun, EventContent) when is_function(Fun) ->
+    Fun(Server, EventContent).
 
 -endif.
 

@@ -21,7 +21,7 @@
 	 request_finished/1,
 	 peer_down/3,
 	 terminate_colliding_context/2, terminate_context/1,
-	 delete_context/1, trigger_delete_context/1,
+	 trigger_delete_context/1,
 	 remote_context_register/3, remote_context_register_new/3,
 	 tunnel_reg_update/2,
 	 info/1,
@@ -47,7 +47,7 @@
 	 terminate/3, code_change/4]).
 
 -ifdef(TEST).
--export([tunnel_key/2, test_cmd/2]).
+-export([tunnel_key/2, ctx_test_cmd/2]).
 -endif.
 
 -include_lib("kernel/include/logger.hrl").
@@ -115,10 +115,6 @@ tunnel_reg_update(TunnelOld, TunnelNew) ->
     Delete = ordsets:subtract(OldKeys, NewKeys),
     Insert = ordsets:subtract(NewKeys, OldKeys),
     gtp_context_reg:update(Delete, Insert, ?MODULE, self()).
-
-%% Used in tests only
-delete_context(Context) ->
-    gen_statem:call(Context, {delete_context, normal}).
 
 %% Trigger from admin API
 trigger_delete_context(Context) ->
@@ -199,13 +195,35 @@ terminate_context(Context)
     end,
     gtp_context_reg:await_unreg(Context).
 
-info(Context) ->
-    gen_statem:call(Context, info).
+info(Pid) when is_pid(Pid) ->
+    gen_statem:call(Pid, info).
 
 -ifdef(TEST).
 
-test_cmd(Pid, Cmd) when is_pid(Pid) ->
-    gen_statem:call(Pid, {?TestCmdTag, Cmd}).
+ctx_test_cmd(Id, is_alive) ->
+    with_context(Id, fun(Pid, _) -> is_pid(Pid) end, undefined);
+ctx_test_cmd(Id, whereis) ->
+    with_context(Id, fun(Pid, _) -> {?MODULE, Pid} end, undefined);
+ctx_test_cmd(Id, update_context) ->
+    with_context(Id, call, update_context);
+ctx_test_cmd(Id, delete_context) ->
+    with_context(Id, call, delete_context);
+ctx_test_cmd(Id, terminate_context) ->
+    with_context(Id, fun(Pid, _) -> terminate_context(Pid) end, undefined);
+ctx_test_cmd(Id, Cmd) ->
+    with_context(Id, call, {?TestCmdTag, Cmd}).
+
+with_context(Pid, EventType, EventContent) when is_pid(Pid) ->
+    with_context_srv(Pid, EventType, EventContent).
+
+with_context_srv(Server, cast, EventContent) ->
+    gen_statem:cast(Server, EventContent);
+with_context_srv(Server, call, EventContent) ->
+    gen_statem:call(Server, EventContent);
+with_context_srv(Server, info, EventContent) ->
+    Server ! EventContent;
+with_context_srv(Server, Fun, EventContent) when is_function(Fun) ->
+    Fun(Server, EventContent).
 
 -endif.
 
@@ -363,6 +381,10 @@ handle_event({call, From}, {?TestCmdTag, session}, _State, #{'Session' := Sessio
     {keep_state_and_data, [{reply, From, {ok, Session}}]};
 handle_event({call, From}, {?TestCmdTag, pcc_rules}, _State, #{pcc := PCC}) ->
     {keep_state_and_data, [{reply, From, {ok, PCC#pcc_ctx.rules}}]};
+handle_event({call, From}, {?TestCmdTag, kill}, _State, Data) ->
+    {next_state, shutdown, Data, [{reply, From, ok}]};
+handle_event({call, From}, {?TestCmdTag, info}, _State, Data) ->
+    {keep_state_and_data, [{reply, From, Data}]};
 
 handle_event(enter, _OldState, shutdown, _Data) ->
     % TODO unregsiter context ....
