@@ -600,6 +600,7 @@ simple_session() ->
 simple_session(Config) ->
     SEID = proplists:get_value(seid, Config),
     UeIP = ergw_inet:ip2bin(proplists:get_value(ue_ip, Config)),
+    CtxKey = {ue, <<3, "sgi">>, UeIP},
     UeIPSrcIe = ue_ip_address(src, Config),
     UeIPDstIe = ue_ip_address(dst, Config),
 
@@ -735,8 +736,7 @@ simple_session(Config) ->
 	  }
        ], URR),
 
-    {tdf, Pid} = gtp_context_reg:lookup({ue, <<3, "sgi">>, UeIP}),
-    stop_session(Pid),
+    ergw_context:test_cmd(tdf, CtxKey, stop_session),
 
     ct:sleep({seconds, 1}),
 
@@ -750,6 +750,7 @@ gy_validity_timer() ->
     [{doc, "Check Validity-Timer attached to MSCC"}].
 gy_validity_timer(Config) ->
     UeIP = ergw_inet:ip2bin(proplists:get_value(ue_ip, Config)),
+    CtxKey = {ue, <<3, "sgi">>, UeIP},
 
     packet_in(Config),
     ct:sleep({seconds, 10}),
@@ -769,8 +770,7 @@ gy_validity_timer(Config) ->
 	     end, meck:history(ergw_aaa_session)),
     ?match(Y when Y >= 3 andalso Y < 10, length(CCRU)),
 
-    {tdf, Pid} = gtp_context_reg:lookup({ue, <<3, "sgi">>, UeIP}),
-    stop_session(Pid),
+    ergw_context:test_cmd(tdf, CtxKey, stop_session),
 
     ct:sleep({seconds, 1}),
 
@@ -799,13 +799,13 @@ simple_aaa(Config) ->
 
     SEID = proplists:get_value(seid, Config),
     UeIP = ergw_inet:ip2bin(proplists:get_value(ue_ip, Config)),
+    CtxKey = {ue, <<3, "sgi">>, UeIP},
 
     packet_in(Config),
     ct:sleep(100),
 
-    {tdf, Server} = gtp_context_reg:lookup({ue, <<3, "sgi">>, UeIP}),
-    true = is_pid(Server),
-    {ok, PCtx} = gtp_context:test_cmd(Server, pfcp_ctx),
+    ?equal(true, ergw_context:test_cmd(tdf, CtxKey, is_alive)),
+    {ok, PCtx} = ergw_context:test_cmd(tdf, CtxKey, pfcp_ctx),
 
     [SER|_] =
 	lists:filter(
@@ -855,7 +855,7 @@ simple_aaa(Config) ->
     ergw_test_sx_up:usage_report('tdf-u', PCtx, MatchSpec, Report),
 
     ct:sleep(100),
-    stop_session(Server),
+    ergw_context:test_cmd(tdf, CtxKey, stop_session),
     ct:sleep(100),
 
     H = meck:history(ergw_aaa_session),
@@ -911,13 +911,13 @@ simple_ofcs(Config) ->
 
     SEID = proplists:get_value(seid, Config),
     UeIP = ergw_inet:ip2bin(proplists:get_value(ue_ip, Config)),
+    CtxKey = {ue, <<3, "sgi">>, UeIP},
 
     packet_in(Config),
     ct:sleep(100),
 
-    {tdf, Server} = gtp_context_reg:lookup({ue, <<3, "sgi">>, UeIP}),
-    true = is_pid(Server),
-    {ok, PCtx} = gtp_context:test_cmd(Server, pfcp_ctx),
+    ?equal(true, ergw_context:test_cmd(tdf, CtxKey, is_alive)),
+    {ok, PCtx} = ergw_context:test_cmd(tdf, CtxKey, pfcp_ctx),
 
     [SER|_] =
 	lists:filter(
@@ -977,7 +977,7 @@ simple_ofcs(Config) ->
     ergw_test_sx_up:usage_report('tdf-u', PCtx, MatchSpec, ReportFun),
 
     ct:sleep(100),
-    stop_session(Server),
+    ergw_context:test_cmd(tdf, CtxKey, stop_session),
     ct:sleep(100),
 
     H = meck:history(ergw_aaa_session),
@@ -1037,14 +1037,14 @@ simple_ocs() ->
     [{doc, "Test Gy a simple interaction"}].
 simple_ocs(Config) ->
     SEID = proplists:get_value(seid, Config),
-    UeIP = proplists:get_value(ue_ip, Config),
+    UeIP = ergw_inet:ip2bin(proplists:get_value(ue_ip, Config)),
+    CtxKey = {ue, <<3, "sgi">>, UeIP},
 
     packet_in(Config),
     ct:sleep(100),
 
-    {tdf, Server} = gtp_context_reg:lookup({ue, <<3, "sgi">>, ergw_inet:ip2bin(UeIP)}),
-    true = is_pid(Server),
-    {ok, PCtx} = gtp_context:test_cmd(Server, pfcp_ctx),
+    ?equal(true, ergw_context:test_cmd(tdf, CtxKey, is_alive)),
+    {ok, PCtx} = ergw_context:test_cmd(tdf, CtxKey, pfcp_ctx),
 
     [SER|_] =
 	lists:filter(
@@ -1098,7 +1098,7 @@ simple_ocs(Config) ->
     ergw_test_sx_up:usage_report('tdf-u', PCtx, MatchSpec, Report),
 
     ct:sleep(100),
-    stop_session(Server),
+    ergw_context:test_cmd(tdf, CtxKey, stop_session),
     ct:sleep(100),
 
     H = meck:history(ergw_aaa_session),
@@ -1115,12 +1115,12 @@ simple_ocs(Config) ->
      {ok, Session, _Events}} = hd(CCR),
 
     Expected0 =
-	case UeIP of
-	    {_,_,_,_,_,_,_,_} ->
-		#{'Framed-IPv6-Prefix' => UeIP,
+	case ergw_inet:bin2ip(UeIP) of
+	    {_,_,_,_,_,_,_,_} = IPv6 ->
+		#{'Framed-IPv6-Prefix' => IPv6,
 		  'Requested-IPv6-Prefix' => '_'};
-	    _ ->
-		#{'Framed-IP-Address' => UeIP,
+	    IPv4 ->
+		#{'Framed-IP-Address' => IPv4,
 		  'Requested-IP-Address' => '_'}
 	end,
 
@@ -1196,14 +1196,13 @@ gy_ccr_asr_overlap() ->
     [{doc, "Test that ASR is answered when it arrives during CCR-T"}].
 gy_ccr_asr_overlap(Config) ->
     UeIP = ergw_inet:ip2bin(proplists:get_value(ue_ip, Config)),
+    CtxKey = {ue, <<3, "sgi">>, UeIP},
 
     packet_in(Config),
     ct:sleep({seconds, 1}),
 
-    {tdf, Server} = gtp_context_reg:lookup({ue, <<3, "sgi">>, UeIP}),
-    true = is_pid(Server),
-
-    {ok, Session} = tdf:test_cmd(Server, session),
+    ?equal(true, ergw_context:test_cmd(tdf, CtxKey, is_alive)),
+    {ok, Session} = ergw_context:test_cmd(tdf, CtxKey, session),
     SessionOpts = ergw_aaa_session:get(Session),
 
     Self = self(),
@@ -1216,13 +1215,13 @@ gy_ccr_asr_overlap(Config) ->
     ok = meck:expect(ergw_aaa_session, invoke,
 		     fun(MSession, MSessionOpts, {gy, 'CCR-Terminate'} = Procedure, Opts) ->
 			     ct:pal("AAAReq: ~p", [AAAReq]),
-			     Server ! AAAReq,
+			     self() ! AAAReq,
 			     meck:passthrough([MSession, MSessionOpts, Procedure, Opts]);
 			(MSession, MSessionOpts, Procedure, Opts) ->
 			     meck:passthrough([MSession, MSessionOpts, Procedure, Opts])
 		     end),
 
-    stop_session(Server),
+    ergw_context:test_cmd(tdf, CtxKey, stop_session),
 
     ct:sleep({seconds, 1}),
 
@@ -1254,12 +1253,13 @@ volume_threshold() ->
     [{doc, "Test Gy interaction when volume threshold is reached"}].
 volume_threshold(Config) ->
     UeIP = ergw_inet:ip2bin(proplists:get_value(ue_ip, Config)),
+    CtxKey = {ue, <<3, "sgi">>, UeIP},
 
     packet_in(Config),
     ct:sleep({seconds, 2}),
 
-    Session = tdf_session_pid(),
-    {ok, PCtx} = tdf:test_cmd(Session, pfcp_ctx),
+    ?equal(true, ergw_context:test_cmd(tdf, CtxKey, is_alive)),
+    {ok, PCtx} = ergw_context:test_cmd(tdf, CtxKey, pfcp_ctx),
 
     MatchSpec = ets:fun2ms(fun({Id, {'online', _}}) -> Id end),
 
@@ -1299,8 +1299,7 @@ volume_threshold(Config) ->
 	  end, H),
     ?match(X when X == 1, length(CCRUvolqu)),
 
-    {tdf, Pid} = gtp_context_reg:lookup({ue, <<3, "sgi">>, UeIP}),
-    stop_session(Pid),
+    ergw_context:test_cmd(tdf, CtxKey, stop_session),
 
     ct:sleep({seconds, 1}),
 
@@ -1313,14 +1312,16 @@ volume_threshold(Config) ->
 gx_asr() ->
     [{doc, "Check that ASR on Gx terminates the session"}].
 gx_asr(Config) ->
+    UeIP = ergw_inet:ip2bin(proplists:get_value(ue_ip, Config)),
+    CtxKey = {ue, <<3, "sgi">>, UeIP},
+
     packet_in(Config),
     ct:sleep({seconds, 1}),
 
-    Server = tdf_session_pid(),
-
     ResponseFun = fun(_, _, _, _) -> ok end,
-    Server ! #aaa_request{from = ResponseFun, procedure = {gx, 'ASR'},
-			  session = #{}, events = []},
+    ergw_context:test_cmd(tdf, CtxKey,
+			  {send, #aaa_request{from = ResponseFun, procedure = {gx, 'ASR'},
+					      session = #{}, events = []}}),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     wait4tunnels(?TIMEOUT),
@@ -1331,11 +1332,13 @@ gx_asr(Config) ->
 gx_rar() ->
     [{doc, "Check that RAR on Gx changes the session"}].
 gx_rar(Config) ->
+    UeIP = ergw_inet:ip2bin(proplists:get_value(ue_ip, Config)),
+    CtxKey = {ue, <<3, "sgi">>, UeIP},
+
     packet_in(Config),
     ct:sleep({seconds, 1}),
 
-    Server = tdf_session_pid(),
-    {ok, Session} = tdf:test_cmd(Server, session),
+    {ok, Session} = ergw_context:test_cmd(tdf, CtxKey, session),
     SessionOpts = ergw_aaa_session:get(Session),
 
     Self = self(),
@@ -1345,55 +1348,57 @@ gx_rar(Config) ->
     AAAReq = #aaa_request{from = ResponseFun, procedure = {gx, 'RAR'},
 			  session = SessionOpts, events = []},
 
-    Server ! AAAReq,
+    ergw_context:test_cmd(tdf, CtxKey, {send, AAAReq}),
     {_, Resp0, _, _} =
 	receive {'$response', _, _, _, _} = R0 -> erlang:delete_element(1, R0) end,
     ?equal(ok, Resp0),
-    {ok, PCR0} = tdf:test_cmd(Server, pcc_rules),
+    {ok, PCR0} = ergw_context:test_cmd(tdf, CtxKey, pcc_rules),
     ?match(#{<<"r-0001">> := #{}}, PCR0),
 
     InstCR =
 	[{pcc, install, [#{'Charging-Rule-Name' => [<<"r-0002">>]}]}],
-    Server ! AAAReq#aaa_request{events = InstCR},
+    ergw_context:test_cmd(tdf, CtxKey, {send, AAAReq#aaa_request{events = InstCR}}),
     {_, Resp1, _, _} =
 	receive {'$response', _, _, _, _} = R1 -> erlang:delete_element(1, R1) end,
     ?equal(ok, Resp1),
-    {ok, PCR1} = tdf:test_cmd(Server, pcc_rules),
+    {ok, PCR1} = ergw_context:test_cmd(tdf, CtxKey, pcc_rules),
     ?match(#{<<"r-0001">> := #{}, <<"r-0002">> := #{}}, PCR1),
 
     SOpts1 = ergw_aaa_session:get(Session),
     RemoveCR =
 	[{pcc, remove, [#{'Charging-Rule-Name' => [<<"r-0002">>]}]}],
-    Server ! AAAReq#aaa_request{session = SOpts1, events = RemoveCR},
+    ergw_context:test_cmd(tdf, CtxKey,
+			  {send, AAAReq#aaa_request{session = SOpts1, events = RemoveCR}}),
     {_, Resp2, _, _} =
 	receive {'$response', _, _, _, _} = R2 -> erlang:delete_element(1, R2) end,
     ?equal(ok, Resp2),
-    {ok, PCR2} = tdf:test_cmd(Server, pcc_rules),
+    {ok, PCR2} = ergw_context:test_cmd(tdf, CtxKey, pcc_rules),
     ?match(#{<<"r-0001">> := #{}}, PCR2),
     ?equal(false, maps:is_key(<<"r-0002">>, PCR2)),
 
     InstCRB =
 	[{pcc, install, [#{'Charging-Rule-Base-Name' => [<<"m2m0002">>]}]}],
-    Server ! AAAReq#aaa_request{events = InstCRB},
+    ergw_context:test_cmd(tdf, CtxKey, {send, AAAReq#aaa_request{events = InstCRB}}),
     {_, Resp3, _, _} =
 	receive {'$response', _, _, _, _} = R3 -> erlang:delete_element(1, R3) end,
     ?equal(ok, Resp3),
-    {ok, PCR3} = tdf:test_cmd(Server, pcc_rules),
+    {ok, PCR3} = ergw_context:test_cmd(tdf, CtxKey, pcc_rules),
     ?match(#{<<"r-0001">> := #{},
 	     <<"r-0002">> := #{'Charging-Rule-Base-Name' := _}}, PCR3),
 
     SOpts3 = ergw_aaa_session:get(Session),
     RemoveCRB =
 	[{pcc, remove, [#{'Charging-Rule-Base-Name' => [<<"m2m0002">>]}]}],
-    Server ! AAAReq#aaa_request{session = SOpts3, events = RemoveCRB},
+    ergw_context:test_cmd(tdf, CtxKey,
+			  {send, AAAReq#aaa_request{session = SOpts3, events = RemoveCRB}}),
     {_, Resp4, _, _} =
 	receive {'$response', _, _, _, _} = R4 -> erlang:delete_element(1, R4) end,
     ?equal(ok, Resp4),
-    {ok, PCR4} = tdf:test_cmd(Server, pcc_rules),
+    {ok, PCR4} = ergw_context:test_cmd(tdf, CtxKey, pcc_rules),
     ?match(#{<<"r-0001">> := #{}}, PCR4),
     ?equal(false, maps:is_key(<<"r-0002">>, PCR4)),
 
-    stop_session(Server),
+    ergw_context:test_cmd(tdf, CtxKey, stop_session),
 
     [Sx1, Sx2, Sx3, Sx4 | _] =
 	lists:filter(
@@ -1446,14 +1451,16 @@ gx_rar(Config) ->
 gy_asr() ->
     [{doc, "Check that ASR on Gy terminates the session"}].
 gy_asr(Config) ->
+    UeIP = ergw_inet:ip2bin(proplists:get_value(ue_ip, Config)),
+    CtxKey = {ue, <<3, "sgi">>, UeIP},
+
     packet_in(Config),
     ct:sleep({seconds, 1}),
 
-    Server = tdf_session_pid(),
-
     ResponseFun = fun(_, _, _, _) -> ok end,
-    Server ! #aaa_request{from = ResponseFun, procedure = {gy, 'ASR'},
-			  session = #{}, events = []},
+    ergw_context:test_cmd(tdf, CtxKey,
+			  {send, #aaa_request{from = ResponseFun, procedure = {gy, 'ASR'},
+					      session = #{}, events = []}}),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     wait4tunnels(?TIMEOUT),
@@ -1464,10 +1471,11 @@ gy_asr(Config) ->
 gx_invalid_charging_rulebase() ->
     [{doc, "Check the reaction to a Gx CCA-I with an invalid Charging-Rule-Base-Name"}].
 gx_invalid_charging_rulebase(Config) ->
+    UeIP = ergw_inet:ip2bin(proplists:get_value(ue_ip, Config)),
+    CtxKey = {ue, <<3, "sgi">>, UeIP},
+
     packet_in(Config),
     ct:sleep({seconds, 1}),
-
-    Server = tdf_session_pid(),
 
     CCRU =
 	lists:filter(
@@ -1482,7 +1490,7 @@ gx_invalid_charging_rulebase(Config) ->
 	  end, meck:history(ergw_aaa_session)),
     ?match(X when X == 1, length(CCRU)),
 
-    stop_session(Server),
+    ergw_context:test_cmd(tdf, CtxKey, stop_session),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     wait4tunnels(?TIMEOUT),
@@ -1493,10 +1501,11 @@ gx_invalid_charging_rulebase(Config) ->
 gx_invalid_charging_rule() ->
     [{doc, "Check the reaction to a Gx CCA-I with an invalid Charging-Rule-Name"}].
 gx_invalid_charging_rule(Config) ->
+    UeIP = ergw_inet:ip2bin(proplists:get_value(ue_ip, Config)),
+    CtxKey = {ue, <<3, "sgi">>, UeIP},
+
     packet_in(Config),
     ct:sleep({seconds, 1}),
-
-    Server = tdf_session_pid(),
 
     CCRU =
 	lists:filter(
@@ -1511,7 +1520,7 @@ gx_invalid_charging_rule(Config) ->
 	  end, meck:history(ergw_aaa_session)),
     ?match(X when X == 1, length(CCRU)),
 
-    stop_session(Server),
+    ergw_context:test_cmd(tdf, CtxKey, stop_session),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     wait4tunnels(?TIMEOUT),
@@ -1522,14 +1531,16 @@ gx_invalid_charging_rule(Config) ->
 gx_rar_gy_interaction() ->
     [{doc, "Check that a Gx RAR triggers a Gy request"}].
 gx_rar_gy_interaction(Config) ->
+    UeIP = ergw_inet:ip2bin(proplists:get_value(ue_ip, Config)),
+    CtxKey = {ue, <<3, "sgi">>, UeIP},
+
     packet_in(Config),
     ct:sleep({seconds, 1}),
 
-    Server = tdf_session_pid(),
-    {ok, Session} = tdf:test_cmd(Server, session),
+    {ok, Session} = ergw_context:test_cmd(tdf, CtxKey, session),
     SessionOpts = ergw_aaa_session:get(Session),
 
-    {ok, #pfcp_ctx{timers = T1}} = tdf:test_cmd(Server, pfcp_ctx),
+    {ok, #pfcp_ctx{timers = T1}} = ergw_context:test_cmd(tdf, CtxKey, pfcp_ctx),
     ?equal(1, maps:size(T1)),
 
     Self = self(),
@@ -1542,32 +1553,33 @@ gx_rar_gy_interaction(Config) ->
     InstCR =
 	[{pcc, install, [#{'Charging-Rule-Name' => [<<"r-0002">>]}]}],
     ?LOG(debug, "Sending RAR"),
-    Server ! AAAReq#aaa_request{events = InstCR},
+    ergw_context:test_cmd(tdf, CtxKey, {send, AAAReq#aaa_request{events = InstCR}}),
     {_, Resp1, _, _} =
 	receive {'$response', _, _, _, _} = R1 -> erlang:delete_element(1, R1) end,
     ?equal(ok, Resp1),
-    {ok, PCR1} = tdf:test_cmd(Server, pcc_rules),
+    {ok, PCR1} = ergw_context:test_cmd(tdf, CtxKey, pcc_rules),
     ?match(#{<<"r-0001">> := #{}, <<"r-0002">> := #{}}, PCR1),
 
-    {ok, #pfcp_ctx{timers = T2}} = tdf:test_cmd(Server, pfcp_ctx),
+    {ok, #pfcp_ctx{timers = T2}} = ergw_context:test_cmd(tdf, CtxKey, pfcp_ctx),
     ?equal(2, maps:size(T2)),
 
     SOpts1 = ergw_aaa_session:get(Session),
     RemoveCR =
 	[{pcc, remove, [#{'Charging-Rule-Name' => [<<"r-0002">>]}]}],
-    Server ! AAAReq#aaa_request{session = SOpts1, events = RemoveCR},
+    ergw_context:test_cmd(tdf, CtxKey,
+			  {send, AAAReq#aaa_request{session = SOpts1, events = RemoveCR}}),
     {_, Resp2, _, _} =
 	receive {'$response', _, _, _, _} = R2 -> erlang:delete_element(1, R2) end,
     ?equal(ok, Resp2),
-    {ok, PCR2} = tdf:test_cmd(Server, pcc_rules),
+    {ok, PCR2} = ergw_context:test_cmd(tdf, CtxKey, pcc_rules),
     ?match(#{<<"r-0001">> := #{}}, PCR2),
     ?equal(false, maps:is_key(<<"r-0002">>, PCR2)),
 
-    {ok, #pfcp_ctx{timers = T3}} = tdf:test_cmd(Server, pfcp_ctx),
+    {ok, #pfcp_ctx{timers = T3}} = ergw_context:test_cmd(tdf, CtxKey, pfcp_ctx),
     ?equal(1, maps:size(T3)),
     ?equal(maps:keys(T1), maps:keys(T3)),
 
-    stop_session(Server),
+    ergw_context:test_cmd(tdf, CtxKey, stop_session),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     wait4tunnels(?TIMEOUT),
@@ -1580,6 +1592,7 @@ redirect_info() ->
 redirect_info(Config) ->
     SEID = proplists:get_value(seid, Config),
     UeIP = ergw_inet:ip2bin(proplists:get_value(ue_ip, Config)),
+    CtxKey = {ue, <<3, "sgi">>, UeIP},
     UeIPSrcIe = ue_ip_address(src, Config),
     UeIPDstIe = ue_ip_address(dst, Config),
 
@@ -1718,8 +1731,7 @@ redirect_info(Config) ->
 	  }
        ], URR),
 
-    {tdf, Pid} = gtp_context_reg:lookup({ue, <<3, "sgi">>, UeIP}),
-    stop_session(Pid),
+    ergw_context:test_cmd(tdf, CtxKey, stop_session),
 
     ct:sleep({seconds, 1}),
 
@@ -1733,6 +1745,7 @@ tdf_app_id() ->
 tdf_app_id(Config) ->
     SEID = proplists:get_value(seid, Config),
     UeIP = ergw_inet:ip2bin(proplists:get_value(ue_ip, Config)),
+    CtxKey = {ue, <<3, "sgi">>, UeIP},
     UeIPSrcIe = ue_ip_address(src, Config),
     UeIPDstIe = ue_ip_address(dst, Config),
 
@@ -1863,8 +1876,7 @@ tdf_app_id(Config) ->
 	  }
        ], URR),
 
-    {tdf, Pid} = gtp_context_reg:lookup({ue, <<3, "sgi">>, UeIP}),
-    stop_session(Pid),
+    ergw_context:test_cmd(tdf, CtxKey, stop_session),
 
     ct:sleep({seconds, 1}),
 
@@ -1890,15 +1902,15 @@ aa_nat_select(Config) ->
 		     end),
 
     UeIP = ergw_inet:ip2bin(proplists:get_value(ue_ip, Config)),
+    CtxKey = {ue, <<3, "sgi">>, UeIP},
 
     packet_in(Config),
     ct:sleep(100),
 
-    {tdf, Server} = gtp_context_reg:lookup({ue, <<3, "sgi">>, UeIP}),
-    true = is_pid(Server),
+    ?equal(true, ergw_context:test_cmd(tdf, CtxKey, is_alive)),
 
     ct:sleep(100),
-    stop_session(Server),
+    ergw_context:test_cmd(tdf, CtxKey, stop_session),
     ct:sleep(100),
 
     H = meck:history(ergw_aaa_session),
@@ -1922,6 +1934,8 @@ aa_nat_select_fail() ->
     [{doc, "Select IP-NAT through AAA"}].
 aa_nat_select_fail(Config) ->
     AAAReply = #{'NAT-Pool-Id' => <<"nat-E">>},
+    UeIP = ergw_inet:ip2bin(proplists:get_value(ue_ip, Config)),
+    CtxKey = {ue, <<3, "sgi">>, UeIP},
 
     ok = meck:expect(ergw_aaa_session, invoke,
 		     fun (Session, SessionOpts, Procedure = authenticate, Opts) ->
@@ -1934,12 +1948,11 @@ aa_nat_select_fail(Config) ->
 			     meck:passthrough([Session, SessionOpts, Procedure, Opts])
 		     end),
 
-    UeIP = ergw_inet:ip2bin(proplists:get_value(ue_ip, Config)),
 
     packet_in(Config),
     ct:sleep(100),
 
-    undefined = gtp_context_reg:lookup({ue, <<3, "sgi">>, UeIP}),
+    ?equal(false, ergw_context:test_cmd(tdf, CtxKey, is_alive)),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
@@ -1956,10 +1969,6 @@ tdf_node_pid() ->
 
 tdf_seid() ->
     [[SEID]] = ets:match(gtp_context_reg, {#seid_key{seid = '$1'}, {ergw_sx_node, '_'}}),
-    SEID.
-
-tdf_session_pid() ->
-    [[SEID]] = ets:match(gtp_context_reg, {#seid_key{_ = '_'}, {tdf, '$1'}}),
     SEID.
 
 ue_ip_address(Type, Config) ->
@@ -1979,6 +1988,3 @@ packet_in(Config) ->
 	   ue_ip_address(src, Config)],
     MatchSpec = ets:fun2ms(fun({Id, {'tdf', V}}) when V =:= VRF -> Id end),
     ergw_test_sx_up:usage_report('tdf-u', PCtx, MatchSpec, IEs).
-
-stop_session(Pid) when is_pid(Pid) ->
-    Pid ! {update_session, #{}, [stop]}.
