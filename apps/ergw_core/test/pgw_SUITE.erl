@@ -46,11 +46,13 @@
 
 	 {opentelemetry,
 	  [{resource, [{<<"service.name">>, <<"ergw">>}]},
+	   {sampler, {parent_based, #{root => always_off}}},
 	   {processors,
 	    [{otel_batch_processor,
 	      #{exporter =>
 		    {opentelemetry_exporter,
 		     #{endpoints => [{http, "localhost", 55681, []}]}
+%%		     #{endpoints => [{http, "localhost", 55680, [{protocol, grpc}]}]}
 		    }
 	       }
 	     }
