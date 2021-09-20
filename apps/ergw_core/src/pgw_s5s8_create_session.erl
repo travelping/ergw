@@ -27,8 +27,29 @@
 %% Impl.
 %%====================================================================
 
+%% otel_context_attrs(#{context :=
+%% 			 #context{imsi = IMSI, imei = IMEI, msisdn = MSISDN, apn = APN}}) ->
+%%     Attr = [{'gtp.imsi', IMSI}, {'gtp.imei', IMEI}, {'gtp.msisdn', MSISDN}, {'gtp.apn', APN}],
+%%     ct:pal("Attr: ~p~n", [Attr]),
+%%     lists:filter(fun({_, V}) -> V /= undefined end, Attr);
+%% otel_context_attrs(_) ->
+%%     [].
+
+otel_request_attrs(#gtp{ie =
+			    #{?IMSI :=
+				  #v2_international_mobile_subscriber_identity{imsi = IMSI}}
+		       }) ->
+    [{'gtp.imsi', IMSI}];
+otel_request_attrs(_) ->
+    [].
+
 create_session(ReqKey, Request, _Resent, State, Data) ->
-    SpanCtx = ?start_span(?FUNCTION_OTEL_EVENT, #{}),
+    SOpts = #{remote_parent_not_sampled => {ergw_otel_gtp_sampler, #{}},
+	      local_parent_not_sampled => {ergw_otel_gtp_sampler, #{}},
+	      root => {ergw_otel_gtp_sampler, #{}}},
+    Sampler = otel_sampler:new({parent_based, SOpts}),
+    Attrs = otel_request_attrs(Request),
+    SpanCtx = ?start_span(?FUNCTION_OTEL_EVENT, #{sampler => Sampler, attributes => Attrs}),
     ergw_context_statem:next(
       SpanCtx,
       create_session_fun(Request, _, _),

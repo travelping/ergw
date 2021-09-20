@@ -45,6 +45,7 @@ init([]) ->
 	  type     => worker,
 	  modules  => [riak_core_vnode_master]},
     {ok, {{one_for_one, 5, 10}, [?CHILD(ergw_inet_res, worker, []),
+				 ?CHILD(ergw_otel_gtp_sampler, worker, []),
 				 ?CHILD(gtp_path_reg, worker, []),
 				 ?CHILD(ergw_tei_mngr, worker, []),
 				 ?CHILD(gtp_path_sup, supervisor, []),
