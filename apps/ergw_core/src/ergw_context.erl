@@ -10,6 +10,9 @@
 %% API
 -export([sx_report/1, port_message/2, port_message/3, port_message/4]).
 -export([validate_options/2]).
+-ifdef(TEST).
+-export([test_cmd/3]).
+-endif.
 
 -if(?OTP_RELEASE =< 23).
 -ignore_xref([behaviour_info/1]).
@@ -63,6 +66,16 @@ port_message(Id, #request{socket = Socket} = Request, Msg) ->
 port_message(Key, Request, Msg, Resent) ->
     gtp_path:activity(Request, Msg),
     apply2context(Key, port_message, [Request, Msg, Resent]).
+
+-ifdef(TEST).
+
+%% test_cmd/3
+test_cmd(_Type, Key, is_alive = Cmd) ->
+    apply2context(Key, ctx_test_cmd, [Cmd]) =:= true;
+test_cmd(_Type, Key, Cmd) ->
+    apply2context(Key, ctx_test_cmd, [Cmd]).
+
+-endif.
 
 %%%===================================================================
 %%% Options Validation
