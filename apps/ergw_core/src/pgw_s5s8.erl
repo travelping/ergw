@@ -106,12 +106,13 @@ validate_options(Options) ->
 validate_option(Opt, Value) ->
     gtp_context:validate_option(Opt, Value).
 
-init(_Opts, Data) ->
+init(_Opts, Data0) ->
     {ok, Session} = ergw_aaa_session_sup:new_session(self(), to_session([])),
     SessionOpts = ergw_aaa_session:get(Session),
     OCPcfg = maps:get('Offline-Charging-Profile', SessionOpts, #{}),
     PCC = #pcc_ctx{offline_charging_profile = OCPcfg},
-    {ok, run, Data#{'Version' => v2, 'Session' => Session, pcc => PCC}}.
+    Data = Data0#{'Version' => v2, 'Session' => Session, pcc => PCC},
+    {ok, ergw_context:init_state(), Data}.
 
 handle_event(Type, Content, State, #{'Version' := v1} = Data) ->
     ?GTP_v1_Interface:handle_event(Type, Content, State, Data);
@@ -175,7 +176,7 @@ handle_request(ReqKey,
 			   ?'Bearer Contexts to be created' :=
 			       #v2_bearer_context{group = #{?'EPS Bearer ID' := EBI}}
 			  } = IEs} = Request,
-	       _Resent, _State,
+	       _Resent, State,
 	       #{context := Context0, aaa_opts := AAAopts, node_selection := NodeSelect,
 		 left_tunnel := LeftTunnel0, bearer := #{left := LeftBearer0},
 		 'Session' := Session, pcc := PCC0} = Data) ->
@@ -234,9 +235,9 @@ handle_request(ReqKey,
     case Verdict of
 	ok ->
 	    Actions = context_idle_action([], Context),
-	    {next_state, connected, FinalData, Actions};
+	    {next_state, State#{session := connected}, FinalData, Actions};
 	_ ->
-	    {next_state, shutdown, FinalData}
+	    {next_state, State#{session := shutdown}, FinalData}
     end;
 
 %% TODO:
@@ -248,7 +249,7 @@ handle_request(ReqKey,
 		    ie = #{?'Bearer Contexts to be modified' :=
 			       #v2_bearer_context{group = #{?'EPS Bearer ID' := EBI}}
 			  } = IEs} = Request,
-	       _Resent, _State,
+	       _Resent, #{session := connected} = _State,
 	       #{context := Context, pfcp := PCtx0,
 		 left_tunnel := LeftTunnelOld,
 		 bearer := #{left := LeftBearerOld} = Bearer0,
@@ -313,7 +314,7 @@ handle_request(ReqKey,
 
 handle_request(ReqKey,
 	       #gtp{type = modify_bearer_request, ie = IEs} = Request,
-	       _Resent, _State,
+	       _Resent, #{session := connected} = _State,
 	       #{context := Context, pfcp := PCtx,
 		 left_tunnel := LeftTunnelOld, bearer := #{left := LeftBearerOld},
 		 'Session' := Session} = Data)
@@ -347,9 +348,9 @@ handle_request(#request{src = Src, ip = IP, port = Port} = ReqKey,
 			   ?'Bearer Contexts to be modified' :=
 			       #v2_bearer_context{
 				   group = #{?'EPS Bearer ID' := EBI} = Bearer}} = IEs},
-	       _Resent, _State,
+	       _Resent, #{session := connected},
 	       #{context := Context, left_tunnel := LeftTunnel,
-		 bearer := #{left := LeftBearer}, 'Session' := Session}) ->
+		 bearer := #{left := LeftBearer}, 'Session' := Session} = Data) ->
     {OldSOpts, _} = update_session_from_gtp_req(IEs, Session, LeftTunnel, LeftBearer),
 
     Type = update_bearer_request,
@@ -363,11 +364,11 @@ handle_request(#request{src = Src, ip = IP, port = Port} = ReqKey,
       LeftTunnel, Src, IP, Port, ?T3, ?N3, Msg#gtp{seq_no = SeqNo}, {ReqKey, OldSOpts}),
 
     Actions = context_idle_action([], Context),
-    {keep_state_and_data, Actions};
+    {keep_state, Data, Actions};
 
 handle_request(ReqKey,
 	       #gtp{type = change_notification_request, ie = IEs} = Request,
-	       _Resent, _State,
+	       _Resent, #{session := connected} = _State,
 	       #{context := Context, pfcp := PCtx, left_tunnel := LeftTunnel,
 		 bearer := #{left := LeftBearer}, 'Session' := Session}) ->
     process_secondary_rat_usage_data_reports(IEs, Context, Session),
@@ -386,7 +387,8 @@ handle_request(ReqKey,
 
 handle_request(ReqKey,
 	       #gtp{type = suspend_notification} = Request,
-	       _Resent, _State, #{context := Context, left_tunnel := LeftTunnel}) ->
+	       _Resent, #{session := connected} = _State,
+	       #{context := Context, left_tunnel := LeftTunnel}) ->
     ResponseIEs = [#v2_cause{v2_cause = request_accepted}],
     Response = response(suspend_acknowledge, LeftTunnel, ResponseIEs, Request),
     gtp_context:send_response(ReqKey, Request, Response),
@@ -396,7 +398,8 @@ handle_request(ReqKey,
 
 handle_request(ReqKey,
 	       #gtp{type = resume_notification} = Request,
-	       _Resent, _State, #{context := Context, left_tunnel := LeftTunnel}) ->
+	       _Resent, #{session := connected} = _State,
+	       #{context := Context, left_tunnel := LeftTunnel}) ->
     ResponseIEs = [#v2_cause{v2_cause = request_accepted}],
     Response = response(resume_acknowledge, LeftTunnel, ResponseIEs, Request),
     gtp_context:send_response(ReqKey, Request, Response),
@@ -406,7 +409,7 @@ handle_request(ReqKey,
 
 handle_request(ReqKey,
 	       #gtp{type = delete_session_request, ie = IEs} = Request,
-	       _Resent, _State,
+	       _Resent, #{session := connected} = State,
 	       #{context := Context, left_tunnel := LeftTunnel, 'Session' := Session} = Data0) ->
     FqTEID = maps:get(?'Sender F-TEID for Control Plane', IEs, undefined),
 
@@ -416,7 +419,7 @@ handle_request(ReqKey,
 	    Data = ergw_gtp_gsn_lib:close_context(?API, normal, Data0),
 	    Response = response(delete_session_response, LeftTunnel, request_accepted),
 	    gtp_context:send_response(ReqKey, Request, Response),
-	    {next_state, shutdown, Data};
+	    {next_state, State#{session := shutdown}, Data};
 
 	{error, ReplyIEs} ->
 	    Response = response(delete_session_response, LeftTunnel, ReplyIEs),
@@ -438,7 +441,7 @@ handle_response({CommandReqKey, OldSOpts},
 				#v2_bearer_context{
 				   group = #{?'Cause' := #v2_cause{v2_cause = BearerCause}}
 				  }} = IEs},
-		_Request, connected = State,
+		_Request, #{session := connected} = State,
 		#{pfcp := PCtx, left_tunnel := LeftTunnel, bearer := #{left := LeftBearer},
 		  'Session' := Session} = Data) ->
     gtp_context:request_finished(CommandReqKey),
@@ -455,33 +458,33 @@ handle_response({CommandReqKey, OldSOpts},
     end;
 
 handle_response({CommandReqKey, _}, timeout, #gtp{type = update_bearer_request},
-		connected = State, Data) ->
+		#{session := connected} = State, Data) ->
     ?LOG(error, "Update Bearer Request failed with timeout"),
     gtp_context:request_finished(CommandReqKey),
     delete_context(undefined, link_broken, State, Data);
 
 handle_response({From, TermCause}, timeout, #gtp{type = delete_bearer_request},
-		_State, Data0) ->
+		State, Data0) ->
     Data = ergw_gtp_gsn_lib:close_context(?API, TermCause, Data0),
     if is_tuple(From) -> gen_statem:reply(From, {error, timeout});
        true -> ok
     end,
-    {next_state, shutdown, Data};
+    {next_state, State#{session := shutdown}, Data};
 
 handle_response({From, TermCause},
 		#gtp{type = delete_bearer_response,
 		     ie = #{?'Cause' := #v2_cause{v2_cause = RespCause}} = IEs},
-		_Request, _State,
+		_Request, State,
 		#{context := Context, 'Session' := Session} = Data0) ->
     process_secondary_rat_usage_data_reports(IEs, Context, Session),
     Data = ergw_gtp_gsn_lib:close_context(?API, TermCause, Data0),
     if is_tuple(From) -> gen_statem:reply(From, {ok, RespCause});
        true -> ok
     end,
-    {next_state, shutdown, Data};
+    {next_state, State#{session := shutdown}, Data};
 
-handle_response(_CommandReqKey, _Response, _Request, State, _Data)
-  when State =/= connected ->
+handle_response(_CommandReqKey, _Response, _Request, #{session := SState}, _Data)
+  when SState =/= connected ->
     keep_state_and_data.
 
 terminate(_Reason, _State, #{pfcp := PCtx, context := Context}) ->
@@ -925,7 +928,7 @@ map_term_cause(TermCause)
 map_term_cause(_TermCause) ->
     reactivation_requested.
 
-delete_context(From, TermCause, connected,
+delete_context(From, TermCause, #{session := connected} = State,
 	       #{left_tunnel := Tunnel, context :=
 		     #context{default_bearer_id = EBI}} = Data) ->
     Type = delete_bearer_request,
@@ -933,7 +936,7 @@ delete_context(From, TermCause, connected,
 		   #v2_eps_bearer_id{eps_bearer_id = EBI}],
     RequestIEs = gtp_v2_c:build_recovery(Type, Tunnel, false, RequestIEs0),
     send_request(Tunnel, ?T3, ?N3, Type, RequestIEs, {From, TermCause}),
-    {next_state, shutdown_initiated, Data};
+    {next_state, State#{session := shutdown_initiated}, Data};
 delete_context(undefined, _, _, _) ->
     keep_state_and_data;
 delete_context(From, _, _, _) ->
