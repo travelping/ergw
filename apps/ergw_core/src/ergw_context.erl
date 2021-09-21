@@ -8,7 +8,7 @@
 -module(ergw_context).
 
 %% API
--export([sx_report/1, port_message/2, port_message/3, port_message/4]).
+-export([init_state/0, sx_report/1, port_message/2, port_message/3, port_message/4]).
 -export([validate_options/2]).
 -ifdef(TEST).
 -export([test_cmd/3]).
@@ -42,6 +42,10 @@
 		       Msg :: #gtp{}, Resent :: boolean()) -> ok.
 
 %%% -----------------------------------------------------------------
+
+%% init_state/0
+init_state() ->
+    #{session => init}.
 
 sx_report(#pfcp{type = session_report_request, seid = SEID} = Report) ->
     apply2context(#seid_key{seid = SEID}, sx_report, [Report]).

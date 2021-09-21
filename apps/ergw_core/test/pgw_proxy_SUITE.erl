@@ -844,10 +844,10 @@ init_per_testcase(create_session_request_timeout, Config) ->
     ok = meck:expect(?HUT, handle_request,
 		     fun(ReqKey, Request, Resent, State, Data) ->
 			     case meck:passthrough([ReqKey, Request, Resent, State, Data]) of
-				 {next_state, connecting, DataNew, _} ->
+				 {next_state, #{session := connecting} = NextState, DataNew, _} ->
 				     %% 1 second timeout for the test
 				     Action = [{state_timeout, 1000, connecting}],
-				     {next_state, connecting, DataNew, Action};
+				     {next_state, NextState, DataNew, Action};
 				 Other ->
 				     Other
 			     end
