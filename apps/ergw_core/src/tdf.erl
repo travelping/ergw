@@ -178,9 +178,9 @@ init([Node, InVRF, IP4, IP6, #{apn := APN} = _SxOpts]) ->
 	     },
 
     ?LOG(info, "TDF process started for ~p", [[Node, IP4, IP6]]),
-    {ok, init, Data, [{next_event, internal, init}]}.
+    {ok, ergw_context:init_state(), Data, [{next_event, internal, init}]}.
 
-handle_event(enter, _OldState, shutdown, _Data) ->
+handle_event(enter, _OldState, #{session := shutdown} = _State, _Data) ->
     % TODO unregsiter context ....
 
     %% this makes stop the last message in the inbox and
@@ -188,17 +188,17 @@ handle_event(enter, _OldState, shutdown, _Data) ->
     gen_statem:cast(self(), stop),
     keep_state_and_data;
 
-handle_event(cast, stop, shutdown, _Data) ->
+handle_event(cast, stop, #{session := shutdown} = _State, _Data) ->
     {stop, normal};
 
 handle_event(enter, _OldState, _State, _Data) ->
     keep_state_and_data;
 
-handle_event(internal, init, init, Data0) ->
+handle_event(internal, init, #{session := init} = State, Data0) ->
     %% start Rf/Gx/Gy interaction
     try
 	Data = start_session(Data0),
-	{next_state, run, Data}
+	{next_state, State#{session := run}, Data}
     catch
 	throw:_Error ->
 	    ?LOG(debug, "TDF Init failed with ~p", [_Error]),
@@ -245,16 +245,16 @@ handle_event(info, {'DOWN', _MonitorRef, Type, Pid, _Info},
 	     State, #data{dp_node = Pid} = Data)
   when Type == process; Type == pfcp ->
     close_pdn_context(upf_failure, State, Data),
-    {next_state, shutdown, Data};
+    {next_state, State#{session := shutdown}, Data};
 
-handle_event(info, #aaa_request{procedure = {_, 'RAR'}} = Request, shutdown, _Data) ->
+handle_event(info, #aaa_request{procedure = {_, 'RAR'}} = Request, #{session := shutdown} = _State, _Data) ->
     ergw_aaa_session:response(Request, {error, unknown_session}, #{}, #{}),
     keep_state_and_data;
 
 handle_event(info, #aaa_request{procedure = {_, 'ASR'} = Procedure} = Request, State, Data) ->
     ergw_aaa_session:response(Request, ok, #{}, #{}),
     close_pdn_context(Procedure, State, Data),
-    {next_state, shutdown, Data};
+    {next_state, State#{session := shutdown}, Data};
 
 handle_event(info, #aaa_request{procedure = {gx, 'RAR'},
 				events = Events} = Request,
@@ -343,11 +343,11 @@ handle_event(info, #aaa_request{procedure = {gy, 'RAR'},
 %% Enable AAA to provide reason for session stop
 handle_event(internal, {session, {stop, Reason}, _Session}, State, Data) ->
     close_pdn_context(Reason, State, Data),
-    {next_state, shutdown, Data};
+    {next_state, State#{session := shutdown}, Data};
 
 handle_event(internal, {session, stop, _Session}, State, Data) ->
     close_pdn_context(normal, State, Data),
-    {next_state, shutdown, Data};
+    {next_state, State#{session := shutdown}, Data};
 
 handle_event(internal, {session, {update_credits, _} = CreditEv, _}, _State,
 	     #data{context = Context, pfcp = PCtx0, pcc = PCC0, bearer = Bearer} = Data) ->
@@ -543,7 +543,7 @@ ccr_initial(Session, API, SessionOpts, ReqOpts) ->
 
 close_pdn_context(Reason, State, Data) when is_atom(Reason) ->
     close_pdn_context({?API, Reason}, State, Data);
-close_pdn_context({API, TermCause}, run, #data{pfcp = PCtx, session = Session}) ->
+close_pdn_context({API, TermCause}, #{session := run}, #data{pfcp = PCtx, session = Session}) ->
     URRs = ergw_pfcp_context:delete_session(TermCause, PCtx),
 
     %% TODO: Monitors, AAA over SGi
