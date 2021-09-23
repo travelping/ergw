@@ -1540,7 +1540,7 @@ path_failure_suspect_echo_backoff(Config) ->
     EchoMs = ['_', '_', ClientIP, '_', '_', '_', #gtp{type = echo_request, _ = '_'}, '_'],
     %% expect at least 8 pings (one initial ping, one test triggered ping and 6 pings due to
     %% the exponential backoff, slow system might have more initial pings
-    ?match(X when X >= 7 andalso X < 15,
+    ?match(X when X >= 7 andalso X < 16,
 	   meck:num_calls(ergw_gtp_c_socket, send_request, EchoMs)),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
