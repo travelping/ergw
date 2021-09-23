@@ -29,6 +29,7 @@
 -include_lib("ergw_aaa/include/diameter_3gpp_ts29_212.hrl").
 -include_lib("ergw_aaa/include/ergw_aaa_session.hrl").
 -include("include/ergw.hrl").
+-include("saegw_s11.hrl").
 
 -import(ergw_aaa_session, [to_session/1]).
 

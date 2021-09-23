@@ -38,6 +38,7 @@
 -include_lib("ergw_aaa/include/ergw_aaa_session.hrl").
 -include("include/ergw.hrl").
 -include("include/3gpp.hrl").
+-include("ggsn_gn.hrl").
 
 -import(ergw_aaa_session, [to_session/1]).
 

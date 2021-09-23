@@ -238,7 +238,7 @@ handle_request(_ReqKey, _Request, true, _State, _Data) ->
 
 handle_request(ReqKey,
 	       #gtp{type = create_session_request, ie = IEs} = Request,
-	       _Resent,  #{session := SState} = State,
+	       _Resent, #{session := SState} = State,
 	       #{context := Context0, aaa_opts := AAAopts, node_selection := NodeSelect,
 		 left_tunnel := LeftTunnel0,
 		 bearer := #{left := LeftBearer0} = Bearer0,
