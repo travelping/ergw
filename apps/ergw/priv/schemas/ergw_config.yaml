@@ -563,7 +563,7 @@ components:
         - ipv4Addr
       properties:
         ipv4Addr:
-          type: string
+          $ref: 'TS29571_CommonData.yaml#/components/schemas/Ipv4Addr'
 
     IPv6:
       type: object
@@ -571,7 +571,7 @@ components:
         - ipv6Addr
       properties:
         ipv6Addr:
-          type: string
+          $ref: 'TS29571_CommonData.yaml#/components/schemas/Ipv6Addr'
 
     HostOrIp:
       oneOf:
@@ -607,6 +607,32 @@ components:
         - $ref: "#/components/schemas/StaticHandler"
 
     # TODO Use specialized definitions for AVPs (check existing 3GPP yamls)
+    # 
+    # Acct-Interim-Interval
+    # defined in RFC 6733 - 9.8.2
+    # Unit: seconds
+    # 
+    # Redirect-Support (parent Redirect-Information)
+    # defined in 3GPP TS 29.212 - 5.3.83
+    # REDIRECTION_DISABLED (0) - Redirection is disabled for a detected application's traffic.
+    # REDIRECTION_ENABLED (1) - Redirection is enabled for a detected application's traffic.
+    #   This is the default value applicable if a Redirect-Information AVP is provided for the
+    #   first time and if this AVP is not supplied.
+    # 
+    # Redirect-Address-Type (parent Redirect-Information)
+    # defined in RFC 4006 - 8.38
+    # IPv4 Address - 0
+    # IPv6 Address - 1
+    # URL - 2
+    # SIP URI - 3
+    # defines the address of the redirect server (e.g., HTTP redirect
+    # server, SIP Server) with which the end user is to be connected when
+    # the account cannot cover the service cost.
+    #
+    # For details on OCS-Hold and how CC-Time are generated when
+    # the OCS system cannot be reached, see
+    # https://github.com/travelping/ergw_aaa/blob/master/doc/ocs_hold.md
+
     AaaAvp:
       type: object
       required:
@@ -642,6 +668,26 @@ components:
         state:
           type: string
 
+    # For an explanation of termination cause mapping, check
+    # https://github.com/travelping/ergw_aaa/blob/master/README.md#termination-cause-mapping
+    # Codes are detailed in https://datatracker.ietf.org/doc/html/rfc2866#section-5.10
+    # Default codes are:
+    # "normal", 1
+    # "administrative", 6
+    # "link_broken", 2
+    # "upf_failure", 9
+    # "remote_failure", 2
+    # "cp_inactivity_timeout", 4
+    # "up_inactivity_timeout", 4
+    # "peer_restart", 7
+    # "ASR", 6
+    # "error", 9
+    # "req_timeout", 4
+    # "conn_error", 10
+    # "rate_limit", 10
+    # "ocs_hold_end", 10
+    # "peer_reject", 10
+    # "deleted_by_upf", 9
     TermCauseMapping:
       type: object
       properties:
@@ -665,8 +711,10 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/Answer"
+        # Ref to an entry in answers
         answer_if_down:
           type: string
+        # Ref to an entry in answers
         answer_if_timeout:
           type: string
         avp_filter:
@@ -805,12 +853,15 @@ components:
         product_name:
           type: string
         rate_limits:
+          description: "Message rate limits including defaults and per peer"
           $ref: "#/components/schemas/RateLimits"
         functions:
+          description: "External Diameter nodes"
           type: array
           items:
             $ref: "#/components/schemas/AaaFunctions"
         handlers:
+          description: "Generic services over "
           type: array
           items:
             $ref: "#/components/schemas/AaaHandlers"
@@ -962,6 +1013,11 @@ properties:
                   Flow-Direction:
                     type: integer
             Metering-Method:
+              # Described in 29.212, section 5.3.8
+              # DURATION (0) : the duration of the service data flow traffic shall be metered
+              # VOLUME (1) : the volume of the service data flow traffic shall be metered
+              # DURATION_VOLUME (2) : the duration and the volume of the service data flow traffic shall be metered
+              # EVENT (3) : events of the service data flow traffic shall be metered
               type: integer
             Offline:
               type: integer

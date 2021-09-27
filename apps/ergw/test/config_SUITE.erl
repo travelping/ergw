@@ -30,7 +30,14 @@
 %%%===================================================================
 
 all() ->
-    [load, avps, avp_filters, http_api, current_config].
+    [
+        load,
+        avps,
+        avp_filters,
+        http_api,
+        current_config,
+        current_erl_config
+    ].
 
 init_per_testcase(_Case, Config) ->
     smc_test_lib:clear_app_env(),
@@ -145,7 +152,7 @@ http_api(_Config) ->
     ok.
 
 current_config() ->
-    [{doc, "Test the current configuration"}].
+    [{doc, "Test the current configuration (JSON format)"}].
 current_config(Config)  ->
     Meta = ergw_config:config_meta(),
     Key = {ergw_config, typespecs},
@@ -158,7 +165,23 @@ current_config(Config)  ->
     application:load(ergw),
     FinalConfig = ergw_config:load(),
     ct:pal("Constructed config: ~p", [FinalConfig]),
-    % exit("need to see comments"),
+    ok.
+
+current_erl_config() ->
+    [{doc, "Test the current configuration (Erlang format)"}].
+current_erl_config(Config)  ->
+    Meta = ergw_config:config_meta(),
+    Key = {ergw_config, typespecs},
+    S = persistent_term:get(Key, undefined),
+    ct:pal("Typespecs: ~p ~n Meta: ~p", [S, Meta]),
+
+    Dir  = ?config(data_dir, Config),
+    {ok, CfgSet} = file:consult(filename:join(Dir, "ergw.config.erl")),
+    application:load(ergw),
+    OnlyErgwConfig = lists:keyfind(ergw, 1, CfgSet),
+    ct:pal("ergw config: ~p", [OnlyErgwConfig]),
+    FinalConfig = ergw_config:coerce_config(OnlyErgwConfig),
+    ct:pal("Constructed config: ~p", [FinalConfig]),
     ok.
 
 %%%===================================================================
