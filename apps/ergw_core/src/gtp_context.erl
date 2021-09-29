@@ -14,7 +14,6 @@
 -compile({parse_transform, do}).
 
 -export([handle_response/4,
-	 start_link/6,
 	 send_request/8,
 	 send_response/2, send_response/3,
 	 send_request/7, resend_request/2,
@@ -36,8 +35,7 @@
 %% ergw_context callbacks
 -export([sx_report/2, port_message/2, port_message/4]).
 
--ignore_xref([start_link/6,
-	      delete_context/1,			% used by Ops through Erlang CLI
+-ignore_xref([delete_context/1,			% used by Ops through Erlang CLI
 	      handle_response/4			% used from callback handler
 	      ]).
 
@@ -83,9 +81,6 @@ send_request(#tunnel{socket = Socket}, Src, DstIP, DstPort, ReqId, Msg, ReqInfo)
 
 resend_request(#tunnel{socket = Socket}, ReqId) ->
     ergw_gtp_c_socket:resend_request(Socket, ReqId).
-
-start_link(Socket, Info, Version, Interface, IfOpts, Opts) ->
-    ergw_context_statem:start_link(?MODULE, [Socket, Info, Version, Interface, IfOpts], Opts).
 
 peer_down(Context, Path, Notify) ->
     Fun = fun() -> (catch gen_statem:call(Context, {peer_down, Path, Notify})) end,
@@ -873,7 +868,7 @@ find_sender_teid(#gtp{version = v2} = Msg) ->
     gtp_v2_c:find_sender_teid(Msg).
 
 context_new(Socket, Info, Version, Interface, InterfaceOpts) ->
-    case gtp_context_sup:new(Socket, Info, Version, Interface, InterfaceOpts) of
+    case ergw_context_sup:new(?MODULE, [Socket, Info, Version, Interface, InterfaceOpts]) of
 	{ok, Server} when is_pid(Server) ->
 	    Server;
 	{error, Error} ->

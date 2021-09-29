@@ -13,11 +13,13 @@
 	  {parse_transform, cut}]).
 
 %% API
--export([start_link/3]).
+-export([start_link/3, start_link/4]).
 
 -if(?OTP_RELEASE =< 23).
 -ignore_xref([behaviour_info/1]).
 -endif.
+
+-ignore_xref([start_link/3, start_link/4]).
 
 %% gen_statem callbacks
 -export([callback_mode/0, init/1, handle_event/4, terminate/3, code_change/4]).
@@ -26,6 +28,8 @@
 -export([next/5, send_request/1]).
 
 -include_lib("kernel/include/logger.hrl").
+
+-define(DEBUG_OPTS, []).
 
 %%%=========================================================================
 %%%  API
@@ -58,8 +62,12 @@
 
 %%% -----------------------------------------------------------------
 
-start_link(Handler, Args, Opts) ->
-    proc_lib:start_link(?MODULE, init, [{[Handler | Args], Opts}]).
+start_link(Handler, Args, SpawnOpts) when is_atom(Handler) ->
+    LoopOpts = [{debug, ?DEBUG_OPTS}],
+    start_link(Handler, Args, SpawnOpts, LoopOpts).
+
+start_link(Handler, Args, SpawnOpts, LoopOpts) when is_atom(Handler) ->
+    proc_lib:start_link(?MODULE, init, [[self(), Handler, Args, LoopOpts]], infinity, SpawnOpts).
 
 %%====================================================================
 %% gen_statem API
@@ -69,11 +77,37 @@ start_link(Handler, Args, Opts) ->
 
 callback_mode() -> [handle_event_function, state_enter].
 
-init({[Handler | Args], LoopOpts}) ->
+init([Parent, Handler, Args, LoopOpts]) ->
     process_flag(trap_exit, true),
-    proc_lib:init_ack({ok, self()}),
-    {ok, State, LoopData} = Handler:init(Args, #{?HANDLER => Handler}),
-    gen_statem:enter_loop(?MODULE, LoopOpts, State, LoopData).
+
+    try Handler:init(Args, #{?HANDLER => Handler}) of
+	{ok, State, Data} ->
+	    proc_lib:init_ack(Parent, {ok, self()}),
+	    enter_loop(LoopOpts, State, Data, []);
+	{ok, State, Data, Actions} ->
+	    proc_lib:init_ack(Parent, {ok, self()}),
+	    enter_loop(LoopOpts, State, Data, Actions);
+	InitR ->
+	    case InitR of
+		{stop, Reason} ->
+		    proc_lib:init_ack(Parent, {error, Reason}),
+		    exit(Reason);
+		ignore ->
+		    proc_lib:init_ack(Parent, ignore),
+		    exit(normal);
+		Else ->
+		    Error = {bad_return_from_init, Else},
+		    proc_lib:init_ack(Parent, {error, Error}),
+		    exit(Error)
+	    end
+    catch
+	Class:Reason:Stacktrace ->
+	    proc_lib:init_ack(Parent, {error, Reason}),
+	    erlang:raise(Class, Reason, Stacktrace)
+    end.
+
+enter_loop(LoopOpts, State, Data, Actions) ->
+    gen_statem:enter_loop(?MODULE, LoopOpts, State, Data, Actions).
 
 handle_event(enter, OldState, State, #{?HANDLER := Handler} = Data) ->
     Handler:handle_event(enter, OldState, State, Data);

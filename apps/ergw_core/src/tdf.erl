@@ -14,12 +14,10 @@
 -compile([{parse_transform, do},
 	  {parse_transform, cut}]).
 
--export([start_link/6, validate_options/1, unsolicited_report/5]).
-
--ignore_xref([start_link/6]).
+-export([validate_options/1, unsolicited_report/5]).
 
 %% TBD: use a PFCP or handler behavior?
--ignore_xref([start_link/6, validate_options/1, unsolicited_report/5]).
+-ignore_xref([validate_options/1, unsolicited_report/5]).
 
 %% ergw_context callbacks
 -export([sx_report/2, port_message/2, port_message/4]).
@@ -48,11 +46,8 @@
 %% API
 %%====================================================================
 
-start_link(Node, VRF, IP4, IP6, SxOpts, GenOpts) ->
-    ergw_context_statem:start_link(?MODULE, [Node, VRF, IP4, IP6, SxOpts], GenOpts).
-
 unsolicited_report(Node, VRF, IP4, IP6, SxOpts) ->
-    tdf_sup:new(Node, VRF, IP4, IP6, SxOpts).
+    ergw_context_sup:new(?MODULE, [Node, VRF, IP4, IP6, SxOpts]).
 
 -ifdef(TEST).
 
@@ -519,7 +514,7 @@ update_credits_ok(_Res, State, Data) ->
     {next_state, State, Data}.
 update_credits_fail(Error, State, Data) ->
     ?LOG(error, "update_credits failed with ~p", [Error]),
-    {next_state, State, Data}.
+    {next_state, State#{fsm := idle}, Data}.
 
 %%%===================================================================
 %%% Monadic Function Helpers and Wrappers
