@@ -101,14 +101,9 @@ init([]) ->
 
 handle_call({await_unreg, Pid}, From, State0)
   when is_pid(Pid) ->
-    {links, Links} = process_info(self(), links),
-    case lists:member(Pid, Links) of
-	true ->
-	    State = maps:update_with(Pid, fun(V) -> [From|V] end, [From], State0),
-	    {noreply, State};
-	_ ->
-	    {reply, ok, State0}
-    end.
+    link(Pid),
+    State = maps:update_with(Pid, fun(V) -> [From|V] end, [From], State0),
+    {noreply, State}.
 
 handle_cast({link, Pid}, State) ->
     link(Pid),
@@ -117,13 +112,18 @@ handle_cast({link, Pid}, State) ->
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
-handle_info({'EXIT', Pid, _Reason}, State0) ->
-    Objs = ets:lookup(?SERVER, Pid),
-    [global_del_key(Key, {Handler, Pid}) || {_, {Handler, Key}} <- Objs],
-    ets_delete_objects(?SERVER, Objs ++ mk_reg_pids(Objs)),
+handle_info({'EXIT', Pid, _Reason}, State) ->
+    Notify = maps:get(Pid, State, []),
+    proc_lib:spawn(
+      fun() ->
+	      Objs = ets:lookup(?SERVER, Pid),
+	      ets_delete_objects(?SERVER, Objs ++ mk_reg_pids(Objs)),
+	      [global_del_key(Key, {Handler, Pid}) || {_, {Handler, Key}} <- Objs],
+	      [gen_server:reply(From, ok) || From <- Notify],
+	      ok
+      end),
 
-    State = notify_unregister(Pid, State0),
-    {noreply, State}.
+    {noreply, maps:remove(Pid, State)}.
 
 terminate(_Reason, _State) ->
 	ok.
@@ -175,11 +175,6 @@ add_keys(InsFun, Keys, Handler, Pid) ->
 	    ets_delete_objects(?SERVER, mk_reg_pids(Insert)),
 	    {error, duplicate}
     end.
-
-notify_unregister(Pid, State) ->
-    Reply = maps:get(Pid, State, []),
-    lists:foreach(fun(From) -> gen_server:reply(From, ok) end, Reply),
-    maps:remove(Pid, State).
 
 global_add_key(#context_key{id = {Type, _, _}} = Key, RegV)
   when Type == imei; Type == imsi ->
