@@ -64,7 +64,7 @@
 %%====================================================================
 
 handle_response(Context, ReqInfo, Request, Response) ->
-    gen_statem:cast(Context, {handle_response, ReqInfo, Request, Response}).
+    ergw_context_statem:cast(Context, {handle_response, ReqInfo, Request, Response}).
 
 %% send_request/8
 send_request(#tunnel{socket = Socket}, Src, DstIP, DstPort, T3, N3, Msg, ReqInfo) ->
@@ -83,7 +83,7 @@ resend_request(#tunnel{socket = Socket}, ReqId) ->
     ergw_gtp_c_socket:resend_request(Socket, ReqId).
 
 peer_down(Context, Path, Notify) ->
-    Fun = fun() -> (catch gen_statem:call(Context, {peer_down, Path, Notify})) end,
+    Fun = fun() -> (catch ergw_context_statem:call(Context, {peer_down, Path, Notify})) end,
     jobs:run(path_restart, Fun).
 
 remote_context_register(LeftTunnel, Bearer, Context)
@@ -112,7 +112,7 @@ tunnel_reg_update(TunnelOld, TunnelNew) ->
 
 %% Trigger from admin API
 trigger_delete_context(Context) ->
-    gen_statem:cast(Context, {delete_context, administrative}).
+    ergw_context_statem:cast(Context, {delete_context, administrative}).
 
 %% TODO: add online charing events
 collect_charging_events(OldS0, NewS0) ->
@@ -182,7 +182,7 @@ terminate_colliding_context(_, _) ->
 terminate_context(Context)
   when is_pid(Context) ->
     try
-	gen_statem:call(Context, terminate_context)
+	ergw_context_statem:call(Context, terminate_context)
     catch
 	exit:_ ->
 	    ok
@@ -190,34 +190,22 @@ terminate_context(Context)
     gtp_context_reg:await_unreg(Context).
 
 info(Pid) when is_pid(Pid) ->
-    gen_statem:call(Pid, info).
+    ergw_context_statem:call(Pid, info).
 
 -ifdef(TEST).
 
 ctx_test_cmd(Id, is_alive) ->
-    with_context(Id, fun(Pid, _) -> is_pid(Pid) end, undefined);
+    ergw_context_statem:with_context(Id, is_pid(_));
 ctx_test_cmd(Id, whereis) ->
-    with_context(Id, fun(Pid, _) -> {?MODULE, Pid} end, undefined);
+    ergw_context_statem:with_context(Id, {?MODULE, _});
 ctx_test_cmd(Id, update_context) ->
-    with_context(Id, call, update_context);
+    ergw_context_statem:call(Id, update_context);
 ctx_test_cmd(Id, delete_context) ->
-    with_context(Id, call, delete_context);
+    ergw_context_statem:call(Id, delete_context);
 ctx_test_cmd(Id, terminate_context) ->
-    with_context(Id, fun(Pid, _) -> terminate_context(Pid) end, undefined);
+    ergw_context_statem:with_context(Id, terminate_context(_));
 ctx_test_cmd(Id, Cmd) ->
-    with_context(Id, call, {?TestCmdTag, Cmd}).
-
-with_context(Pid, EventType, EventContent) when is_pid(Pid) ->
-    with_context_srv(Pid, EventType, EventContent).
-
-with_context_srv(Server, cast, EventContent) ->
-    gen_statem:cast(Server, EventContent);
-with_context_srv(Server, call, EventContent) ->
-    gen_statem:call(Server, EventContent);
-with_context_srv(Server, info, EventContent) ->
-    Server ! EventContent;
-with_context_srv(Server, Fun, EventContent) when is_function(Fun) ->
-    Fun(Server, EventContent).
+    ergw_context_statem:call(Id, {?TestCmdTag, Cmd}).
 
 -endif.
 
@@ -285,7 +273,7 @@ validate_aaa_attr_option(Key, Setting, Value, _Attr) ->
 %%====================================================================
 
 sx_report(Server, Report) ->
-    gen_statem:call(Server, {sx, Report}).
+    ergw_context_statem:call(Server, {sx, Report}).
 
 %% TEID handling for GTPv1 is brain dead....
 port_message(Request, #gtp{version = v2, type = MsgType, tei = 0} = Msg)
@@ -323,12 +311,12 @@ port_message(_Request, _Msg) ->
     throw({error, not_found}).
 
 port_message(Server, Request, #gtp{type = g_pdu} = Msg, _Resent) ->
-    gen_statem:cast(Server, {handle_pdu, Request, Msg});
+    ergw_context_statem:cast(Server, {handle_pdu, Request, Msg});
 port_message(Server, Request, Msg, Resent) ->
     if not Resent -> register_request(?MODULE, Server, Request);
        true       -> ok
     end,
-    gen_statem:cast(Server, {handle_message, Request, Msg, Resent}).
+    ergw_context_statem:cast(Server, {handle_message, Request, Msg, Resent}).
 
 %%====================================================================
 %% gen_statem API
@@ -380,7 +368,7 @@ handle_event(enter, _OldState, #{session := shutdown}, _Data) ->
 
     %% this makes stop the last message in the inbox and
     %% guarantees that we process any left over messages first
-    gen_statem:cast(self(), stop),
+    ergw_context_statem:cast(self(), stop),
     keep_state_and_data;
 
 handle_event(enter, OldState, State, #{interface := Interface} = Data) ->

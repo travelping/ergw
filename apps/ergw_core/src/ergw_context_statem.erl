@@ -13,13 +13,13 @@
 	  {parse_transform, cut}]).
 
 %% API
--export([start_link/3, start_link/4]).
+-export([start_link/3, start_link/4, call/2, call/3, cast/2, send/2, with_context/2]).
 
 -if(?OTP_RELEASE =< 23).
 -ignore_xref([behaviour_info/1]).
 -endif.
 
--ignore_xref([start_link/3, start_link/4]).
+-ignore_xref([start_link/3, start_link/4, call/2, call/3, cast/2, send/2, with_context/2]).
 
 %% gen_statem callbacks
 -export([callback_mode/0, init/1, handle_event/4, terminate/3, code_change/4]).
@@ -68,6 +68,21 @@ start_link(Handler, Args, SpawnOpts) when is_atom(Handler) ->
 
 start_link(Handler, Args, SpawnOpts, LoopOpts) when is_atom(Handler) ->
     proc_lib:start_link(?MODULE, init, [[self(), Handler, Args, LoopOpts]], infinity, SpawnOpts).
+
+call(Server, Request) ->
+    call(Server, Request, infinity).
+
+call(Server, Request, Timeout) ->
+    with_context(Server, gen_statem:call(_, Request, Timeout)).
+
+cast(Server, Msg) ->
+    with_context(Server, gen_statem:cast(_, Msg)).
+
+send(Server, Msg) ->
+    with_context(Server, erlang:send(_, Msg)).
+
+with_context(Pid, Fun) when is_pid(Pid), is_function(Fun, 1) ->
+    Fun(Pid).
 
 %%====================================================================
 %% gen_statem API
