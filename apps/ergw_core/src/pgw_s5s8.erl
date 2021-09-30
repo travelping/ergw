@@ -918,11 +918,18 @@ send_request(Tunnel, T3, N3, Type, RequestIEs, ReqInfo) ->
 send_request(Tunnel, Src, DstIP, DstPort, T3, N3, Msg, ReqInfo) ->
     gtp_context:send_request(Tunnel, Src, DstIP, DstPort, T3, N3, Msg, ReqInfo).
 
+map_term_cause(TermCause)
+  when TermCause =:= cp_inactivity_timeout;
+       TermCause =:= up_inactivity_timeout ->
+    pdn_connection_inactivity_timer_expires;
+map_term_cause(_TermCause) ->
+    reactivation_requested.
+
 delete_context(From, TermCause, connected,
 	       #{left_tunnel := Tunnel, context :=
 		     #context{default_bearer_id = EBI}} = Data) ->
     Type = delete_bearer_request,
-    RequestIEs0 = [#v2_cause{v2_cause = reactivation_requested},
+    RequestIEs0 = [#v2_cause{v2_cause = map_term_cause(TermCause)},
 		   #v2_eps_bearer_id{eps_bearer_id = EBI}],
     RequestIEs = gtp_v2_c:build_recovery(Type, Tunnel, false, RequestIEs0),
     send_request(Tunnel, ?T3, ?N3, Type, RequestIEs, {From, TermCause}),

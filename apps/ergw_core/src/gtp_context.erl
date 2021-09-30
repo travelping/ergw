@@ -133,8 +133,8 @@ collect_charging_events(OldS0, NewS0) ->
 	      '3GPP-SGSN-IPv6-Address',
 	      '3GPP-SGSN-MCC-MNC',
 	      'User-Location-Info'],
-    OldS = maps:merge(maps:with(Fields, OldS0), maps:get('User-Location-Info', OldS0)),
-    NewS = maps:merge(maps:with(Fields, NewS0), maps:get('User-Location-Info', NewS0)),
+    OldS = maps:merge(maps:with(Fields, OldS0), maps:get('User-Location-Info', OldS0, #{})),
+    NewS = maps:merge(maps:with(Fields, NewS0), maps:get('User-Location-Info', NewS0, #{})),
 
     EvChecks =
 	[
@@ -418,9 +418,9 @@ handle_event({call, From},
 handle_event({call, From},
 	     {sx, #pfcp{type = session_report_request,
 			ie = #{report_type := #report_type{upir = 1}}}},
-	     State, #{pfcp := PCtx} = Data0) ->
-    Data = close_context(both, up_inactivity_timeout, State, Data0),
-    {next_state, shutdown, Data, [{reply, From, {ok, PCtx}}]};
+	     State, #{pfcp := PCtx} = Data) ->
+    gen_statem:reply(From, {ok, PCtx}),
+    delete_context(undefined, up_inactivity_timeout, State, Data);
 
 %% Usage Report
 handle_event({call, From},
