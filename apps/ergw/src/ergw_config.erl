@@ -13,7 +13,7 @@
 -compile({no_auto_import,[put/2]}).
 
 %% API
--export([load/0, apply/1, serialize_config/1]).
+-export([load/0, apply/1, serialize_config/1, reload_config/1, ergw_core_init/2]).
 
 -ifdef(TEST).
 -export([config_meta/0,
@@ -44,6 +44,14 @@
 %%%===================================================================
 %%% API
 %%%===================================================================
+
+reload_config(#{} = Config) ->
+    load_typespecs(),
+    do([error_m ||
+        load_schemas(),
+        validate_config_with_schema(Config),
+        return(coerce_config(Config))
+    ]).
 
 load() ->
     load_typespecs(),
@@ -129,8 +137,9 @@ ergw_aaa_init(apps, #{apps := Apps0}) ->
     Apps = ergw_aaa_config:validate_options(fun ergw_aaa_config:validate_app/2, Apps0, []),
     maps:map(fun ergw_aaa:add_application/2, Apps),
     Apps;
-ergw_aaa_init(_, _) ->
-    ok.
+ergw_aaa_init(K, _) ->
+    ?LOG(warning, "The key ~p is missed in config of erGW-AAA", [K]),
+    {error, unhandled}.
 
 ergw_sbi_client_init(Opts) ->
     ergw_sbi_client_config:validate_options(fun ergw_sbi_client_config:validate_option/2, Opts).
@@ -185,8 +194,9 @@ ergw_core_init(proxy_map, #{proxy_map := Map}) ->
     ok = ergw_core:setopts(proxy_map, Map);
 ergw_core_init(http_api, #{http_api := Opts}) ->
     ergw_http_api:init(Opts);
-ergw_core_init(_K, _) ->
-    ok.
+ergw_core_init(K, _) ->
+    ?LOG(warning, "The key ~p is missed in config of erGW", [K]),
+    {error, unhandled}.
 
 ergw_charging_init(rules, #{rules := Rules}) ->
     maps:map(fun ergw_core:add_charging_rule/2, Rules);

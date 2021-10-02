@@ -16,3 +16,5 @@ ergw.config
 data.ergw*
 log.ergw*
 apps/ergw_core/priv*
+data
+ergw@*
