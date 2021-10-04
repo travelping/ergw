@@ -1,6 +1,38 @@
 erGW - 3GPP GGSN and PDN-GW in Erlang
 =====================================
 
+Version 3.1.0 - 4 October 2021
+-------------------------------
+
+**Features** :rocket:
+* [#413](https://github.com/travelping/ergw/pull/413) Add `ergw_sbi_client`
+* [#412](https://github.com/travelping/ergw/pull/412) Enhance `VRF` and node selection
+* [#414](https://github.com/travelping/ergw/pull/414) Use structured location types everywhere
+* [#415](https://github.com/travelping/ergw/pull/415) Fix handling of structured data in `MCC-MNC` `3GPP` values
+* [#417](https://github.com/travelping/ergw/pull/417) CONFIG: add `AVP` filter conversion function
+* [#418](https://github.com/travelping/ergw/pull/418) Non-blocking context registry
+* [#420](https://github.com/travelping/ergw/pull/420) Update config compat handler
+* [#426](https://github.com/travelping/ergw/pull/426) Suppress reporting of `ergw_cluster` startup process termination
+* [#428](https://github.com/travelping/ergw/pull/428) Rework path mainenance
+
+**Bugfixes** :bug:
+* [#422](https://github.com/travelping/ergw/pull/422) Only put valid pools in session
+* [#429](https://github.com/travelping/ergw/pull/429) CONFIG: fix `Redirect-Information` `AVP` translation
+* [#433](https://github.com/travelping/ergw/pull/433) Rework context teardown on inactivity to include a proper cause
+* [#435](https://github.com/travelping/ergw/pull/435) Fix `collect_charging_events` when no `ULI` is present
+
+**Dependencies** :gear:
+* [#431](https://github.com/travelping/ergw/pull/431) Update [ergw_aaa](https://github.com/travelping/ergw_aaa) tag to [4.1.4](https://github.com/travelping/ergw_aaa/releases/tag/4.1.4)
+  * Fix handling of structured data in `MCC-MNC 3GPP` values
+  * FNASREQ`/`RADIUS` IP pool to session
+  * `RADIUS` disconnect
+  * Update [eradius](https://github.com/travelping/eradius) to [2.2.4](https://github.com/travelping/eradius/releases/tag/2.2.4)
+* [#423](https://github.com/travelping/ergw/pull/423) Update [prometheus_diameter_collector](https://github.com/travelping/prometheus_diameter_collector) tag to [1.2.1](https://github.com/travelping/prometheus_diameter_collector/releases/tag/1.2.1)
+  * Сollect error metrics
+  * Update `prometheus` to `4.8.1`
+
+**[Compare 3.0.0...3.1.0](https://github.com/travelping/ergw/compare/3.0.0...3.1.0)**
+
 Version 3.0.0 - 25 June 2021
 -------------------------------
 
