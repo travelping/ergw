@@ -175,6 +175,15 @@ meck_init_hut_handle_request(Hut) ->
 
 meck_init(Config) ->
     ok = meck:new(meck_modules(), [passthrough, no_link]),
+    ok = meck:expect(gtp_context, init,
+		     fun(Arg) ->
+			     try
+				 meck:passthrough([Arg])
+			     catch
+				 exit:normal ->
+				     meck:exception(exit, normal)
+			     end
+		     end),
     ok = meck:expect(gtp_context, port_message,
 		     fun(Request, Msg) ->
 			     try
@@ -203,7 +212,8 @@ meck_validate_mod(Mod) ->
     case meck:validate(Mod) of
 	true -> ok;
 	false ->
-	    ct:fail(meck:history(Mod))
+	    ct:pal("Meck Validate Failed for ~p~nHistory: ~200p~n", [Mod, meck:history(Mod)]),
+	    ct:fail({meck_invalid, Mod})
     end.
 
 %%%===================================================================
