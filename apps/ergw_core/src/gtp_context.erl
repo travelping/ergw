@@ -87,7 +87,7 @@ resend_request(#tunnel{socket = Socket}, ReqId) ->
     ergw_gtp_c_socket:resend_request(Socket, ReqId).
 
 start_link(Socket, Info, Version, Interface, IfOpts, Opts) ->
-    gen_statem:start_link(?MODULE, [Socket, Info, Version, Interface, IfOpts], Opts).
+    proc_lib:start_link(?MODULE, init, [{[Socket, Info, Version, Interface, IfOpts], Opts}]).
 
 peer_down(Context, Path, Notify) ->
     Fun = fun() -> (catch gen_statem:call(Context, {peer_down, Path, Notify})) end,
@@ -324,12 +324,13 @@ port_message(Server, Request, Msg, Resent) ->
 
 callback_mode() -> [handle_event_function, state_enter].
 
-init([Socket, Info, Version, Interface,
-      #{node_selection := NodeSelect,
-	aaa := AAAOpts} = Opts]) ->
+init({[Socket, Info, Version, Interface,
+       #{node_selection := NodeSelect,
+	 aaa := AAAOpts} = Opts], LoopOpts}) ->
 
     ?LOG(debug, "init(~p)", [[Socket, Info, Interface]]),
     process_flag(trap_exit, true),
+    proc_lib:init_ack({ok, self()}),
 
     LeftTunnel =
 	ergw_gsn_lib:assign_tunnel_teid(
@@ -350,7 +351,8 @@ init([Socket, Info, Version, Interface,
       left_tunnel    => LeftTunnel,
       bearer         => Bearer},
 
-    Interface:init(Opts, Data).
+    {ok, State, LoopData} = Interface:init(Opts, Data),
+    gen_statem:enter_loop(?MODULE, LoopOpts, State, LoopData).
 
 handle_event({call, From}, info, _, Data) ->
     {keep_state_and_data, [{reply, From, Data}]};
