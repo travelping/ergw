@@ -94,31 +94,24 @@ callback_mode() -> [handle_event_function, state_enter].
 
 init([Parent, Handler, Args, LoopOpts]) ->
     process_flag(trap_exit, true),
+    proc_lib:init_ack(Parent, {ok, self()}),
 
-    try Handler:init(Args, #{?HANDLER => Handler}) of
+    case Handler:init(Args, #{?HANDLER => Handler}) of
 	{ok, State, Data} ->
-	    proc_lib:init_ack(Parent, {ok, self()}),
 	    enter_loop(LoopOpts, State, Data, []);
 	{ok, State, Data, Actions} ->
-	    proc_lib:init_ack(Parent, {ok, self()}),
 	    enter_loop(LoopOpts, State, Data, Actions);
 	InitR ->
 	    case InitR of
 		{stop, Reason} ->
-		    proc_lib:init_ack(Parent, {error, Reason}),
 		    exit(Reason);
 		ignore ->
 		    proc_lib:init_ack(Parent, ignore),
 		    exit(normal);
 		Else ->
 		    Error = {bad_return_from_init, Else},
-		    proc_lib:init_ack(Parent, {error, Error}),
 		    exit(Error)
 	    end
-    catch
-	Class:Reason:Stacktrace ->
-	    proc_lib:init_ack(Parent, {error, Reason}),
-	    erlang:raise(Class, Reason, Stacktrace)
     end.
 
 enter_loop(LoopOpts, State, Data, Actions) ->
