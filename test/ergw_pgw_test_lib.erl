@@ -346,7 +346,7 @@ create_session_request(Base, N,
     IEs0 =
 	[#v2_recovery{restart_counter = RCnt},
 	 #v2_access_point_name{apn = apn(simple)},
-	 #v2_aggregate_maximum_bit_rate{uplink = 48128, downlink = 1704125},
+	 #v2_aggregate_maximum_bit_rate{uplink = 4294968, downlink = 4294968},
 	 #v2_apn_restriction{restriction_type_value = 0},
 	 #v2_bearer_context{
 	    group = [#v2_bearer_level_quality_of_service{

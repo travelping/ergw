@@ -301,6 +301,8 @@ init_cev_from_session(Now, SessionOpts) ->
 		     (K, V, M) when K == '3GPP-SGSN-Address';
 				    K == '3GPP-SGSN-IPv6-Address' ->
 			  M#{'SGSN-Address' => [V]};
+		     ('QoS-Information' = K, V, M) ->
+			  M#{K => [ergw_aaa_diameter:qos_from_session(V)]};
 		     (K, V, M) -> M#{K => [V]}
 		  end,
 		  Init, maps:with(Keys, SessionOpts)),
