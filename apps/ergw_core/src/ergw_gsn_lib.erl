@@ -305,6 +305,8 @@ init_cev_from_session(Now, SessionOpts) ->
 		     ('User-Location-Info' = K, V, M) ->
 			  M#{'3GPP-User-Location-Info' =>
 				 [ergw_aaa_diameter:'3gpp_from_session'(K, V)]};
+		     ('QoS-Information' = K, V, M) ->
+			  M#{K => [ergw_aaa_diameter:qos_from_session(V)]};
 		     (K, V, M) -> M#{K => [V]}
 		  end,
 		  Init, maps:with(Keys, SessionOpts)),
