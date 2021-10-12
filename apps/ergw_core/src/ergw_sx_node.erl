@@ -80,6 +80,8 @@
 
 -define(TestCmdTag, '$TestCmd').
 
+-define(DEBUG_OPTS, [{install, {fun logger_sys_debug:logger_gen_statem_trace/3, ?MODULE}}]).
+
 %%====================================================================
 %% API
 %%====================================================================
@@ -1107,8 +1109,9 @@ select_node_ip(_IP4, _IP6) ->
     undefined.
 
 enter_loop(Node, IP, Data) ->
+    LoopOpts = [{debug, ?DEBUG_OPTS}],
     gen_statem:enter_loop(
-      ?MODULE, [], connecting, Data#data{dp = #node{node = Node, ip = IP}}).
+      ?MODULE, LoopOpts, connecting, Data#data{dp = #node{node = Node, ip = IP}}).
 
 resolve_and_enter_loop(Node, IP, Data)
   when is_tuple(IP) ->
