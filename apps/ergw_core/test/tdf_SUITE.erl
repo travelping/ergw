@@ -551,6 +551,13 @@ end_per_testcase(_, Config) ->
     end_per_testcase(Config),
     Config.
 
+wait_for_hut_terminate() ->
+    wait_for_hut_terminate(1).
+
+wait_for_hut_terminate(Cnt) ->
+    Match = meck:is(fun(#{session := SState}) -> SState =/= connected end),
+    meck:wait(Cnt, ?HUT, terminate, ['_', Match, '_'], ?TIMEOUT).
+
 %%--------------------------------------------------------------------
 
 setup_upf() ->
@@ -740,7 +747,7 @@ simple_session(Config) ->
 
     ct:sleep({seconds, 1}),
 
-    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    ok = wait_for_hut_terminate(),
     meck_validate(Config),
     ok.
 
@@ -774,7 +781,7 @@ gy_validity_timer(Config) ->
 
     ct:sleep({seconds, 1}),
 
-    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    ok = wait_for_hut_terminate(),
     meck_validate(Config),
 
     ok.
@@ -858,6 +865,8 @@ simple_aaa(Config) ->
     ergw_context:test_cmd(tdf, CtxKey, stop_session),
     ct:sleep(200),
 
+    ok = wait_for_hut_terminate(),
+
     H = meck:history(ergw_aaa_session),
     SInv =
 	lists:filter(
@@ -887,7 +896,6 @@ simple_aaa(Config) ->
 	 'InOctets' => '_',  'OutOctets' => '_',
 	 'InPackets' => '_', 'OutPackets' => '_'}, Stop),
 
-    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     meck_validate(Config),
     ok.
 
@@ -1027,7 +1035,7 @@ simple_ofcs(Config) ->
 	 'Change-Condition' => [0]
 	}, hd(StopSD)),
 
-    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    ok = wait_for_hut_terminate(),
     meck_validate(Config),
     ok.
 
@@ -1185,7 +1193,7 @@ simple_ocs(Config) ->
 	}, Stop),
     ?equal(false, maps:is_key('credits', Stop)),
 
-    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    ok = wait_for_hut_terminate(),
     meck_validate(Config),
 
     ok.
@@ -1242,7 +1250,7 @@ gy_ccr_asr_overlap(Config) ->
     ct:pal("CCR: ~p", [CCR]),
     ?match(X when X == 2, length(CCR)),
 
-    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    ok = wait_for_hut_terminate(),
     meck_validate(Config),
 
     ok.
@@ -1303,7 +1311,7 @@ volume_threshold(Config) ->
 
     ct:sleep({seconds, 1}),
 
-    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    ok = wait_for_hut_terminate(),
     meck_validate(Config),
 
     ok.
@@ -1323,7 +1331,7 @@ gx_asr(Config) ->
 			  {send, #aaa_request{from = ResponseFun, procedure = {gx, 'ASR'},
 					      session = #{}, events = []}}),
 
-    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    ok = wait_for_hut_terminate(),
     wait4tunnels(?TIMEOUT),
     meck_validate(Config),
     ok.
@@ -1442,7 +1450,7 @@ gx_rar(Config) ->
 		 update_pdr, update_far, update_urr,
 		 remove_pdr, remove_far, remove_urr]]),
 
-    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    ok = wait_for_hut_terminate(),
     wait4tunnels(?TIMEOUT),
     meck_validate(Config),
     ok.
@@ -1462,7 +1470,7 @@ gy_asr(Config) ->
 			  {send, #aaa_request{from = ResponseFun, procedure = {gy, 'ASR'},
 					      session = #{}, events = []}}),
 
-    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    ok = wait_for_hut_terminate(),
     wait4tunnels(?TIMEOUT),
     meck_validate(Config),
     ok.
@@ -1492,7 +1500,7 @@ gx_invalid_charging_rulebase(Config) ->
 
     ergw_context:test_cmd(tdf, CtxKey, stop_session),
 
-    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    ok = wait_for_hut_terminate(),
     wait4tunnels(?TIMEOUT),
     meck_validate(Config),
     ok.
@@ -1522,7 +1530,7 @@ gx_invalid_charging_rule(Config) ->
 
     ergw_context:test_cmd(tdf, CtxKey, stop_session),
 
-    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    ok = wait_for_hut_terminate(),
     wait4tunnels(?TIMEOUT),
     meck_validate(Config),
     ok.
@@ -1581,7 +1589,7 @@ gx_rar_gy_interaction(Config) ->
 
     ergw_context:test_cmd(tdf, CtxKey, stop_session),
 
-    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    ok = wait_for_hut_terminate(),
     wait4tunnels(?TIMEOUT),
     meck_validate(Config),
     ok.
@@ -1735,7 +1743,7 @@ redirect_info(Config) ->
 
     ct:sleep({seconds, 1}),
 
-    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    ok = wait_for_hut_terminate(),
     meck_validate(Config),
     ok.
 
@@ -1880,7 +1888,7 @@ tdf_app_id(Config) ->
 
     ct:sleep({seconds, 1}),
 
-    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    ok = wait_for_hut_terminate(),
     meck_validate(Config),
     ok.
 
@@ -1925,7 +1933,7 @@ aa_nat_select(Config) ->
 	     'NAT-IP-Address' := _,
 	     'NAT-Port-Start' := _}, SInv),
 
-    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    ok = wait_for_hut_terminate(),
     meck_validate(Config),
     ok.
 
@@ -1954,7 +1962,7 @@ aa_nat_select_fail(Config) ->
 
     ?equal(false, ergw_context:test_cmd(tdf, CtxKey, is_alive)),
 
-    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    ok = wait_for_hut_terminate(),
     meck_validate(Config),
     ok.
 

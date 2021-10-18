@@ -45,9 +45,25 @@ setup_per_testcase(Config, ClearSxHist) ->
     ClearSxHist andalso ergw_test_sx_up:history('pgw-u01', true),
     ok.
 
-end_per_testcase(_Config) ->
+maybe_end_fail(ok, Fail) ->
+    {fail, Fail};
+maybe_end_fail(Other, _) ->
+    Other.
+
+end_per_testcase(Config) ->
+    Result0 = proplists:get_value(tc_status, Config),
+    Result1 = case active_contexts() of
+		  0 -> Result0;
+		  Ctx ->
+		      Key = gtp_context:socket_teid_key(#socket{type = 'gtp-c', _ = '_'}, '_'),
+		      Contexts = gtp_context_reg:global_select(Key),
+		      ct:pal("ContextLeft: ~p", [Contexts]),
+		      [ergw_context:test_cmd(gtp, C, kill) || C <- Contexts],
+		      wait4contexts(1000),
+		      maybe_end_fail(Result0, {contexts_left, Ctx})
+	      end,
     stop_gtpc_server(),
-    ok.
+    Result1.
 
 init_per_testcase(Config) ->
     meck_reset(Config).

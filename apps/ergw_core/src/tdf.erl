@@ -20,7 +20,7 @@
 -ignore_xref([validate_options/1, unsolicited_report/5]).
 
 %% ergw_context callbacks
--export([ctx_sx_report/2, ctx_pfcp_timer/3, port_message/2, ctx_port_message/4]).
+-export([ctx_sx_report/2, ctx_pfcp_timer/3, ctx_pfcp_down/2, port_message/2, ctx_port_message/4]).
 
 -ifdef(TEST).
 -export([ctx_test_cmd/2]).
@@ -97,6 +97,9 @@ ctx_sx_report(Server, Report) ->
 
 ctx_pfcp_timer(Server, Time, Evs) ->
     ergw_context_statem:call(Server, {pfcp_timer, Time, Evs}).
+
+ctx_pfcp_down(RecordIdOrPid, SxNode) ->
+    ergw_context_statem:cast(RecordIdOrPid, {pfcp_down, SxNode}).
 
 port_message(Request, Msg) ->
     %% we currently do not configure DP to CP forwards,
@@ -340,8 +343,8 @@ init_tdf_bearer(VRF, SessionOpts, Bearer0) ->
 
 close_pdn_context(Reason, State, Data) when is_atom(Reason) ->
     close_pdn_context({?API, Reason}, State, Data);
-close_pdn_context({API, TermCause}, #{session := run}, #{pfcp := PCtx, 'Session' := Session}) ->
-    URRs = ergw_pfcp_context:delete_session(TermCause, PCtx),
+close_pdn_context({API, TermCause}, #{session := run}, #{bearer := Bearer, pfcp := PCtx, 'Session' := Session}) ->
+    URRs = ergw_pfcp_context:delete_session(TermCause, Bearer, PCtx),
 
     %% TODO: Monitors, AAA over SGi
 
@@ -710,8 +713,8 @@ rf_i(Now) ->
 pfcp_create_session(Now, GyEvs, AuthSEvs, RfSEvs, PCCErrors0) ->
     do([statem_m ||
 	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
-	   #{context := Context, bearer := Bearer, pctx := PCtx0, pcc := PCC0}
-	       <- statem_m:get_data(),
+	   #{record_id := RecordId, context := Context,
+	     bearer := Bearer, pctx := PCtx0, pcc := PCC0} <- statem_m:get_data(),
 	   {PCC2, PCCErrors1} = ergw_pcc_context:gy_events_to_pcc_ctx(Now, GyEvs, PCC0),
 	   PCC3 = ergw_pcc_context:session_events_to_pcc_ctx(AuthSEvs, PCC2),
 	   PCC4 = ergw_pcc_context:session_events_to_pcc_ctx(RfSEvs, PCC3),
@@ -719,7 +722,7 @@ pfcp_create_session(Now, GyEvs, AuthSEvs, RfSEvs, PCCErrors0) ->
 	   {ReqId, PCtx} <-
 	       statem_m:return(
 		 ergw_pfcp_context:send_session_establishment_request(
-		   tdf, PCC4, PCtx0, Bearer, Context)),
+		   RecordId, PCC4, PCtx0, Bearer, Context)),
 	   statem_m:modify_data(_#{pfcp => PCtx, mark => set}),
 
 	   Response <- statem_m:wait(ReqId),

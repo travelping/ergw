@@ -208,9 +208,9 @@ handle_response(_CommandReqKey, _Response, _Request, #{session := SState}, _Data
   when SState =/= connected ->
     keep_state_and_data.
 
-terminate(_Reason, #{session := SState}, #{pfcp := PCtx, context := Context} = Data)
+terminate(_Reason, #{session := SState}, #{bearer := Bearer, pfcp := PCtx, context := Context} = Data)
   when SState =/= connected ->
-    ergw_pfcp_context:delete_session(terminate, PCtx),
+    ergw_pfcp_context:delete_session(terminate, Bearer, PCtx),
     ergw_gsn_lib:release_context_ips(Context),
     ergw_gsn_lib:release_local_teids(Data),
     ok;

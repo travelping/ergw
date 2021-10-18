@@ -21,8 +21,9 @@
 	 peer_down/3,
 	 terminate_colliding_context/2, terminate_context/1,
 	 trigger_delete_context/1,
-	 remote_context_register/3, remote_context_register_new/3,
-	 tunnel_reg_update/2,
+	 remote_context_register/4, remote_context_register_new/4,
+	 remote_context_unregister/4,
+	 tunnel_reg_update/3,
 	 info/1,
 	 get_record_meta/1,
 	 restore_session_state/1,
@@ -35,7 +36,7 @@
 	 collect_charging_events/2]).
 
 %% ergw_context callbacks
--export([ctx_sx_report/2, ctx_pfcp_timer/3, port_message/2, ctx_port_message/4]).
+-export([ctx_sx_report/2, ctx_pfcp_timer/3, ctx_pfcp_down/2, port_message/2, ctx_port_message/4]).
 
 -ignore_xref([handle_response/4			% used from callback handler
 	      ]).
@@ -93,29 +94,43 @@ peer_down(RecordIdOrPid, Path, Notify) ->
 	  end,
     jobs:run(path_restart, Fun).
 
-remote_context_register(LeftTunnel, Bearer, Context)
+remote_context_register(RecordId, LeftTunnel, Bearer, Context)
   when is_record(Context, context) ->
     Keys = context2keys(LeftTunnel, Bearer, Context),
-    gtp_context_reg:register(Keys, ?MODULE, self()).
+    gtp_context_reg:register(Keys, ?MODULE, self(), RecordId).
 
-remote_context_register_new(LeftTunnel, Bearer, Context) ->
+remote_context_register_new(RecordId, LeftTunnel, Bearer, Context) ->
     Keys = context2keys(LeftTunnel, Bearer, Context),
     ?LOG(debug, "Pid: ~p~nKeys: ~p~n", [self(), Keys]),
-    case gtp_context_reg:register_new(Keys, ?MODULE, self()) of
+    case gtp_context_reg:register_new(Keys, ?MODULE, self(), RecordId) of
 	ok ->
 	    ok;
 	_ ->
 	    {error, ?CTX_ERR(?FATAL, system_failure)}
     end.
 
-tunnel_reg_update(Tunnel, Tunnel) ->
+%% remote_context_unregister/4
+remote_context_unregister(RecordId, Context, Tunnel, Bearer)
+  when is_record(Context, context) ->
+    Keys = context2keys(Tunnel, Bearer, Context),
+    ?LOG(debug, "remote_context_unregister:~nKeys: ~p~n", [Keys]),
+    gtp_context_reg:unregister(Keys, ?MODULE, self(), RecordId).
+
+remote_context_unregister(#{record_id := RecordId, context := Context,
+			    left_tunnel := LeftTunnel, bearer := Bearer})
+  when is_record(Context, context) ->
+    remote_context_unregister(RecordId, Context, LeftTunnel, Bearer);
+remote_context_unregister(_Data) ->
+    ok.
+
+tunnel_reg_update(_Id, Tunnel, Tunnel) ->
     ok;
-tunnel_reg_update(TunnelOld, TunnelNew) ->
+tunnel_reg_update(Id, TunnelOld, TunnelNew) ->
     OldKeys = ordsets:from_list(tunnel2keys(TunnelOld)),
     NewKeys = ordsets:from_list(tunnel2keys(TunnelNew)),
     Delete = ordsets:subtract(OldKeys, NewKeys),
     Insert = ordsets:subtract(NewKeys, OldKeys),
-    gtp_context_reg:update(Delete, Insert, ?MODULE, self()).
+    gtp_context_reg:update(Delete, Insert, ?MODULE, self(), Id).
 
 %% Trigger from admin API
 trigger_delete_context(Context) ->
@@ -177,10 +192,9 @@ terminate_colliding_context(#tunnel{socket = Socket}, #context{context_id = Id})
   when Id /= undefined ->
     Contexts = gtp_context_reg:global_lookup(context_key(Socket, Id)),
     lists:foreach(
-      fun({?MODULE, Server}) when is_pid(Server) ->
-	      gtp_context:terminate_context(Server);
-	 (_) ->
-	      ok
+      fun(Server) ->
+	      ergw_context_statem:with_context(
+		Server, gtp_context:terminate_context(_))
       end, Contexts),
     ok;
 terminate_colliding_context(_, _) ->
@@ -284,6 +298,9 @@ ctx_sx_report(RecordIdOrPid, Report) ->
 
 ctx_pfcp_timer(RecordIdOrPid, Time, Evs) ->
     ergw_context_statem:call(RecordIdOrPid, {pfcp_timer, Time, Evs}).
+
+ctx_pfcp_down(RecordIdOrPid, SxNode) ->
+    ergw_context_statem:cast(RecordIdOrPid, {pfcp_down, SxNode}).
 
 %% TEID handling for GTPv1 is brain dead....
 port_message(Request, #gtp{version = v2, type = MsgType, tei = 0} = Msg)
@@ -641,9 +658,7 @@ handle_event({call, From}, {peer_down, _Path, _Notify}, _State, _Data) ->
 handle_event(cast, {delete_context, Reason}, State, Data) ->
     delete_context(undefined, Reason, State, Data);
 
-handle_event(info, {'DOWN', _MonitorRef, Type, Pid, _Info}, State,
-	     #{pfcp := #pfcp_ctx{node = Pid}} = Data0)
-  when Type == process; Type == pfcp ->
+handle_event(cast, {pfcp_down, Pid}, State, #{pfcp := #pfcp_ctx{node = Pid}} = Data0) ->
     Data = close_context(both, upf_failure, State, Data0),
     {next_state, State#{session := shutdown, fsm := busy}, Data};
 
@@ -908,6 +923,7 @@ triggered_charging_event_fail(Reason, State, Data) ->
 %%%===================================================================
 
 terminate_cleanup(#{session := SState}, Data) when SState =/= connected ->
+    remote_context_unregister(Data),
     ergw_context:delete_context_record(Data);
 terminate_cleanup(_State, _) ->
     ok.
@@ -1037,7 +1053,7 @@ context2keys(#tunnel{socket = Socket} = LeftTunnel, Bearer,
       ++ maps:fold(bsf_keys(APN, _, _, _), [], Bearer)).
 
 tunnel2keys(Tunnel) ->
-    [tunnel_key(local, Tunnel), tunnel_key(remote, Tunnel)].
+    tunnel_key(local, Tunnel) ++ tunnel_key(remote, Tunnel).
 
 bsf_keys(APN, _, #bearer{vrf = VRF, local = #ue_ip{v4 = IPv4, v6 = IPv6}}, Keys) ->
     [#bsf{dnn = APN, ip_domain = VRF, ip = ergw_ip_pool:ip(IPv4)} || IPv4 /= undefined] ++
@@ -1051,10 +1067,12 @@ context_key(#socket{name = Name}, Id) ->
     #context_key{socket = Name, id = Id}.
 
 tunnel_key(local, #tunnel{socket = Socket, local = #fq_teid{teid = TEID}}) ->
-    socket_teid_key(Socket, TEID);
+    [socket_teid_key(Socket, TEID)];
 tunnel_key(remote, #tunnel{socket = Socket, remote = FqTEID})
   when is_record(FqTEID, fq_teid) ->
-    socket_teid_key(Socket, FqTEID).
+    [socket_teid_key(Socket, FqTEID)];
+tunnel_key(_, _) ->
+    [].
 
 socket_teid_key(#socket{type = Type} = Socket, TEI) ->
     socket_teid_key(Socket, Type, TEI).

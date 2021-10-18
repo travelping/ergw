@@ -42,13 +42,13 @@ tunnel(Socket) when is_atom(Socket) ->
     lists:foldl(fun collext_path_contexts/2, [], gtp_path_reg:all(Socket)).
 
 contexts(all) ->
-    lists:usort([Pid || {#socket_teid_key{type = 'gtp-c'}, {_, Pid}}
-			    <- gtp_context_reg:all(), is_pid(Pid)]).
+    Key = #socket_teid_key{type = 'gtp-c', _ = '_'},
+    gtp_context_reg:global_select(Key).
 
 delete_contexts(all) ->
     lists:foreach(fun(Context) ->
-        gtp_context:trigger_delete_context(Context)
-    end, contexts(all));
+			  gtp_context:trigger_delete_context(Context)
+		  end, contexts(all));
 delete_contexts(Count) ->
     delete_contexts(contexts(all), Count).
 

@@ -77,6 +77,7 @@
 	  node			:: pid(),
 	  features,
 	  seid			:: #seid{},
+	  record_id		:: binary(),
 
 	  cp_bearer		:: #bearer{},
 

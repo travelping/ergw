@@ -14,9 +14,9 @@
 	 receive_session_establishment_response/4,
 	 send_session_modification_request/5,
 	 receive_session_modification_response/2,
-	 delete_session/2,
+	 delete_session/3,
 	 send_session_liveness_check/1,
-	 send_session_deletion_request/2,
+	 send_session_deletion_request/3,
 	 receive_session_deletion_response/1,
 	 usage_report_to_charging_events/3,
 	 send_query_usage_report/2
@@ -48,9 +48,9 @@
 %%% PFCP Sx/N6 API
 %%%===================================================================
 
-%% delete_session/2
-delete_session(Reason, PCtx) ->
-    {ok, UsageReport} = session_deletion_request(Reason, PCtx),
+%% delete_session/3
+delete_session(Reason, Bearer, PCtx) ->
+    {ok, UsageReport} = session_deletion_request(Reason, Bearer, PCtx),
     UsageReport.
 
 send_session_liveness_check(#pfcp_ctx{} = PCtx) ->
@@ -141,16 +141,18 @@ session_info(RespIEs) ->
     maps:fold(fun session_info/3, #{}, RespIEs).
 
 %% send_session_establishment_request/5
-send_session_establishment_request(Handler, PCC, PCtx0,
+send_session_establishment_request(RecordId, PCC, PCtx0,
 				   #{left := Left, right := Right} = Bearer0, Ctx) ->
-    register_ctx_ids(Handler, Bearer0, PCtx0),
+    register_ctx_ids(RecordId, Bearer0, PCtx0),
     {ok, CntlNode, _, _} = ergw_sx_socket:id(),
 
-    PCtx1 = pctx_update_from_ctx(PCtx0, Ctx),
+    PCtx1 = pctx_update_from_ctx(PCtx0#pfcp_ctx{record_id = RecordId}, Ctx),
     {SxRules, SxErrors, PCtx} = build_sx_rules(PCC, #{}, PCtx1, Left, Right),
     ?LOG(debug, "SxRules: ~p~n", [SxRules]),
     ?LOG(debug, "SxErrors: ~p~n", [SxErrors]),
     ?LOG(debug, "CtxPending: ~p~n", [Ctx]),
+
+    ergw_sx_node:monitor_sx_node(PCtx),
 
     IEs0 = pfcp_pctx_update(PCtx, PCtx0, SxRules),
     IEs1 = update_m_rec(ergw_pfcp:f_seid(PCtx, CntlNode), IEs0),
@@ -167,10 +169,10 @@ receive_session_establishment_response(
   #pfcp{version = v1, type = session_establishment_response,
 	ie = #{pfcp_cause := #pfcp_cause{cause = 'Request accepted'},
 	       f_seid := #f_seid{}} = RespIEs},
-  Handler, PCtx0, Bearer0) ->
+  RecordId, PCtx0, Bearer0) ->
     SessionInfo = session_info(RespIEs),
     {Bearer, PCtx} = update_bearer(RespIEs, Bearer0, PCtx0),
-    register_ctx_ids(Handler, Bearer, PCtx),
+    register_ctx_ids(RecordId, Bearer, PCtx),
     {ok, {update_dp_seid(RespIEs, PCtx), Bearer, SessionInfo}};
 
 receive_session_establishment_response(_, _, _, _) ->
@@ -215,9 +217,9 @@ receive_session_modification_response(_, Other) ->
     ?LOG(warning, "PFCP: Session Modification failed with ~p", [Other]),
     {error, ?CTX_ERR(?FATAL, system_failure)}.
 
-%% session_deletion_request/2
-session_deletion_request(Reason, PCtx) ->
-    case send_session_deletion_request(Reason, PCtx) of
+%% session_deletion_request/3
+session_deletion_request(Reason, Bearer, PCtx) ->
+    case send_session_deletion_request(Reason, Bearer, PCtx) of
 	skip ->
 	    receive_session_deletion_response(skip);
 	ReqId ->
@@ -229,14 +231,18 @@ session_deletion_request(Reason, PCtx) ->
 	    end
     end.
 
-%% send_session_deletion_request/2
-send_session_deletion_request(Reason, PCtx)
+%% send_session_deletion_request/3
+send_session_deletion_request(Reason, Bearer, PCtx)
   when Reason /= upf_failure ->
+    ergw_sx_node:demonitor_sx_node(PCtx),
+    unregister_ctx_ids(Bearer, PCtx),
     ergw_pfcp:cancel_timers(PCtx),
     Req = #pfcp{version = v1, type = session_deletion_request, ie = []},
     ergw_sx_node:send_request(PCtx, Req);
-send_session_deletion_request(_Reason, PCtx) ->
+send_session_deletion_request(_Reason, Bearer, PCtx) ->
     ?LOG(debug, "SDR: skip"),
+    ergw_sx_node:demonitor_sx_node(PCtx),
+    unregister_ctx_ids(Bearer, PCtx),
     ergw_pfcp:cancel_timers(PCtx),
     skip.
 
@@ -861,15 +867,28 @@ make_pctx_bearer_key(_, _, _, Keys) ->
 make_pctx_keys(Bearer, #pfcp_ctx{seid = #seid{cp = SEID}} = PCtx) ->
     maps:fold(make_pctx_bearer_key(_, _, PCtx, _), [#seid_key{seid = SEID}], Bearer).
 
-register_ctx_ids(Handler, Bearer, PCtx) ->
+register_ctx_ids(Handler, Bearer, PCtx) when is_atom(Handler) ->
     Keys = make_pctx_keys(Bearer, PCtx),
     ?LOG(debug, "~s:~nHandler: ~p~nBearer: ~p~nPCtx: ~p~nKeys: ~p~n",
 	   [?FUNCTION_NAME, Handler, Bearer, PCtx, Keys]),
-    gtp_context_reg:register(Keys, Handler, self()).
-
-unregister_ctx_ids(Handler, Bearer, PCtx) ->
+    gtp_context_reg:register(Keys, Handler, self());
+register_ctx_ids(RecordId, Bearer, PCtx) when is_binary(RecordId) ->
     Keys = make_pctx_keys(Bearer, PCtx),
-    gtp_context_reg:unregister(Keys, Handler, self()).
+    ?LOG(debug, "~s:~nRecordId: ~p~nBearer: ~p~nPCtx: ~p~nKeys: ~p~n",
+	   [?FUNCTION_NAME, RecordId, Bearer, PCtx, Keys]),
+    gtp_context_reg:register(Keys, RecordId).
+
+unregister_ctx_ids(Handler, Bearer, PCtx) when is_atom(Handler) ->
+    Keys = make_pctx_keys(Bearer, PCtx),
+    gtp_context_reg:unregister(Keys, Handler, self());
+unregister_ctx_ids(RecordId, Bearer, PCtx) when is_binary(RecordId) ->
+    Keys = make_pctx_keys(Bearer, PCtx),
+    gtp_context_reg:unregister(Keys, RecordId).
+
+unregister_ctx_ids(Bearer, #pfcp_ctx{record_id = RecordId} = PCtx)
+  when is_binary(RecordId) ->
+    Keys = make_pctx_keys(Bearer, PCtx),
+    gtp_context_reg:unregister(Keys, RecordId).
 
 %% ===========================================================================
 %% Usage Report to Charging Event translation

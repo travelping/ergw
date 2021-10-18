@@ -38,7 +38,9 @@
 -export([pretty_print/1]).
 -export([set_cfg_value/3, add_cfg_value/3]).
 -export([outstanding_requests/0, wait4tunnels/1, wait4contexts/1,
-	 active_contexts/0, hexstr2bin/1]).
+	 active_contexts/0, maybe_end_fail/2,
+	 check_and_kill_active_contexts/1, wait_nudsf_empty/2,
+	 hexstr2bin/1]).
 -export([match_metric/7, get_metric/4]).
 -export([has_ipv6_test_config/0]).
 -export([query_usage_report/1]).
@@ -802,20 +804,65 @@ wait4tunnels(Cnt) ->
     end.
 
 wait4contexts(Cnt) ->
-    case active_contexts() of
+    Fail =
+	fun(Reason) ->
+		ct:fail("timeout, waiting for contexts to be deleted, left over ~p", [Reason])
+	end,
+    wait4contexts(Fail, Cnt).
+
+wait4contexts(Fail, Cnt) ->
+   case active_contexts() of
 	0 -> ok;
 	Other ->
 	    if Cnt > 100 ->
 		    ct:sleep(200),
-		    wait4contexts(Cnt - 100);
+		    wait4contexts(Fail, Cnt - 100);
 	       true ->
-		    ct:fail("timeout, waiting for contexts to be deleted, left over ~p", [Other])
+		    Fail(Other)
 	    end
     end.
 
 active_contexts() ->
     Key = gtp_context:socket_teid_key(#socket{type = 'gtp-c', _ = '_'}, '_'),
-    length(lists:usort(gtp_context_reg:select(Key))).
+    Contexts = gtp_context_reg:global_select(Key),
+    length(lists:usort(Contexts)).
+
+maybe_end_fail(ok, Fail) ->
+    {fail, Fail};
+maybe_end_fail(Other, _) ->
+    Other.
+
+check_and_kill_active_contexts(Result) ->
+    case active_contexts() of
+	0 -> Result;
+	Ctx ->
+	    Key = gtp_context:socket_teid_key(#socket{type = 'gtp-c', _ = '_'}, '_'),
+	    Contexts = gtp_context_reg:global_select(Key),
+	    ct:pal("Ctx: ~p~nContextLeft: ~p", [Ctx, Contexts]),
+	    [(catch ergw_context:test_cmd(gtp, C, kill)) || C <- Contexts],
+	    Fail =
+		fun(_) ->
+			ct:pal("ContextLeftFinal: ~p", [gtp_context_reg:global_select(Key)]),
+			ok
+		end,
+	    wait4contexts(Fail, ?TIMEOUT),
+	    ct:pal("ResultFinal: ~p", [Result]),
+	    maybe_end_fail(Result, {contexts_left, Ctx})
+    end.
+
+wait_nudsf_empty(Cnt, Result) ->
+    case ergw_nudsf:all() of
+	[_] ->
+	    Result;
+	_Other when Cnt =:= 0 ->
+	    ct:pal("Nudsf contexts left: ~p", [_Other]),
+	    maybe_end_fail(Result, "udsf not empty");
+	_Other when Cnt =:= 0 ->
+	    Result;
+	_Other ->
+	    ct:sleep(50),
+	    wait_nudsf_empty(Cnt - 1, Result)
+    end.
 
 %%%===================================================================
 %% hexstr2bin from otp/lib/crypto/test/crypto_SUITE.erl

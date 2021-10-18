@@ -10,7 +10,7 @@
 -behaviour(riak_core_vnode).
 
 %% API
--export([start_vnode/1, ping/0, ping/1, get/2, put/3, delete/2, delete/3, all/1]).
+-export([start_vnode/1, ping/0, ping/1, get/2, put/3, delete/2, delete/3, select/2, all/1]).
 
 %% riak_core_vnode callbacks
 -export([init/1,
@@ -78,6 +78,14 @@ delete(Bucket, Key) ->
 delete(Bucket, Key, Value) ->
     RKey = key(Bucket, Key),
     run_quorum(RKey, {delete, Bucket, Key, Value}, #{}).
+
+select(Bucket, Key) ->
+    case run_coverage({select, Bucket, Key}, #{}) of
+	{ok, #{reason := finished, result := Result}} ->
+	    {ok, lists:umerge([lists:usort(X) || X <- Result])};
+	Other ->
+	    Other
+    end.
 
 all(Bucket) ->
     case run_coverage({all, Bucket}, #{}) of
@@ -176,6 +184,14 @@ handle_overload_command(_, _, _) ->
 handle_overload_info(_, _Idx) ->
     ok.
 
+handle_coverage({select, Bucket, Key} = _Req, _KeySpaces, _Sender, State) ->
+    %% Ms is roughly equivilent to (where key is a valid match):
+    %%  Ms = ets:fun2ms(fun({{B, Key}, V}) when B == Bucket -> V end),
+    Ms = [{{{'$1', Key}, '$2'},
+	   [{'==', '$1', {const, Bucket}}],
+	   ['$2']}],
+    Res = ets:select(State#state.tid, Ms),
+    {reply, Res, State};
 handle_coverage({all, Bucket} = _Req, _KeySpaces, _Sender, State) ->
     Ms = ets:fun2ms(fun({{B, K}, V}) when B == Bucket -> {K, V} end),
     Res = ets:select(State#state.tid, Ms),

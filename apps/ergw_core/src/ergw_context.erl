@@ -10,7 +10,7 @@
 %% API
 -export([init_state/0, init_state/1,
 	 port_message/2, port_message/3, port_message/4,
-	 sx_report/1, pfcp_timer/3,
+	 sx_report/1, pfcp_timer/3, pfcp_down/2,
 	 create_context_record/3,
 	 put_context_record/3,
 	 get_context_record/1,
@@ -52,6 +52,9 @@
 -callback ctx_pfcp_timer(RecordIdOrPid :: term(), Time :: integer(), Evs :: list()) ->
     Response :: term().
 
+-callback ctx_pfcp_down(RecordIdOrPid :: term(), SxNode :: pid()) ->
+    Response :: term().
+
 %%% -----------------------------------------------------------------
 
 %% init_state/0
@@ -81,6 +84,9 @@ port_message(Key, Request, Msg, Resent) ->
 
 pfcp_timer(Id, Time, Evs) ->
     with_context([Id], ctx_pfcp_timer, [Time, Evs]).
+
+pfcp_down(Id, SxNode) ->
+    with_context([Id], ctx_pfcp_down, [SxNode]).
 
 %%%===================================================================
 %%% Nudsf support
@@ -193,16 +199,22 @@ with_local_context(Keys, F, A) ->
 	    {error, not_found}
     end.
 
+with_context([RecordId] = Keys, F, A) when is_binary(RecordId) ->
+    case with_local_context(Keys, F, A) of
+	{error, not_found} ->
+	    with_external_context(RecordId, F, A);
+	Other ->
+	    Other
+    end;
 with_context(Keys, F, A) ->
     case with_local_context(Keys, F, A) of
 	{error, not_found} ->
 	    ?LOG(debug, "unable to find context in cache ~p", [Keys]),
-	    Filter = filter(Keys),
-	    case ergw_nudsf:search(Filter) of
-		{1, [RecordId]} ->
+	    case gtp_context_reg:search(Keys) of
+		[RecordId] ->
 		    with_external_context(RecordId, F, A);
-		OtherNudsf ->
-		    ?LOG(debug, "unable to find context ~p -> ~p", [Filter, OtherNudsf]),
+		OtherSrch ->
+		    ?LOG(debug, "unable to find context ~p -> ~p", [Keys, OtherSrch]),
 		    {error, not_found}
 	    end;
 	Other ->
@@ -266,6 +278,8 @@ load_class(#gtp{version = v2} = Msg) ->
 %% context queries
 %%====================================================================
 
+-if(0).
+
 filter([Key]) ->
     filter(Key);
 filter(Keys) when is_list(Keys) ->
@@ -287,3 +301,5 @@ filter(#context_key{socket = Name, id = Key}) ->
 	  ]};
 filter(#seid_key{seid = SEID}) ->
     #{tag => seid, value => SEID}.
+
+-endif.

@@ -682,14 +682,17 @@ init_per_testcase(_, Config) ->
     Config.
 
 end_per_testcase(Config) ->
-    Result = case active_contexts() of
-		 0 -> ok;
-		 Ctx -> {fail, {contexts_left, Ctx}}
-	     end,
+    Result0 = ?config(tc_status, Config),
+    Result1 = ergw_test_lib:check_and_kill_active_contexts(Result0),
     stop_gtpc_server(),
 
     PoolId = [<<"pool-A">>, ipv4, "10.180.0.1"],
-    ?match_metric(prometheus_gauge, ergw_local_pool_free, PoolId, ?IPv4PoolSize),
+    Result2 =
+	case get_metric(prometheus_gauge, ergw_local_pool_free, PoolId, undefined) of
+	    ?IPv4PoolSize -> Result1;
+	    OtherSize ->
+		ergw_test_lib:maybe_end_fail(Result1, {pool_free, #{wanted => ?IPv4PoolSize, got => OtherSize}})
+	end,
 
     %% stop all paths
     lists:foreach(fun({_, Pid, _}) -> gtp_path:stop(Pid) end, gtp_path_reg:all()),
@@ -697,7 +700,7 @@ end_per_testcase(Config) ->
     AppsCfg = proplists:get_value(aaa_cfg, Config),
     ok = application:set_env(ergw_aaa, apps, AppsCfg),
     ergw_test_lib:set_online_charging(false),
-    Result.
+    Result2.
 
 end_per_testcase(TestCase, Config)
   when TestCase == create_pdp_context_request_aaa_reject;
@@ -738,6 +741,13 @@ end_per_testcase(TestCase, Config)
     end_per_testcase(Config);
 end_per_testcase(_, Config) ->
     end_per_testcase(Config).
+
+wait_for_hut_terminate() ->
+    wait_for_hut_terminate(1).
+
+wait_for_hut_terminate(Cnt) ->
+    Match = meck:is(fun(#{session := SState}) -> SState =/= connected end),
+    meck:wait(Cnt, ?HUT, terminate, ['_', Match, '_'], ?TIMEOUT).
 
 %%--------------------------------------------------------------------
 invalid_gtp_pdu() ->
@@ -786,7 +796,7 @@ create_pdp_context_request_missing_ie(Config) ->
     MetricsAfter = socket_counter_metrics(),
     ?equal([], outstanding_requests()),
 
-    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    ok = wait_for_hut_terminate(),
     wait4contexts(?TIMEOUT),
 
     meck_validate(Config),
@@ -805,7 +815,7 @@ create_pdp_context_request_aaa_reject(Config) ->
     MetricsAfter = socket_counter_metrics(),
     ?equal([], outstanding_requests()),
 
-    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    ok = wait_for_hut_terminate(),
     wait4contexts(?TIMEOUT),
 
     meck_validate(Config),
@@ -824,7 +834,7 @@ create_pdp_context_request_gx_fail(Config) ->
     MetricsAfter = socket_counter_metrics(),
     ?equal([], outstanding_requests()),
 
-    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    ok = wait_for_hut_terminate(),
     wait4contexts(?TIMEOUT),
 
     meck_validate(Config),
@@ -848,7 +858,7 @@ create_pdp_context_request_gy_fail(Config) ->
     MetricsAfter = socket_counter_metrics(),
     ?equal([], outstanding_requests()),
 
-    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    ok = wait_for_hut_terminate(),
     wait4contexts(?TIMEOUT),
 
     ?match_metric(prometheus_gauge, ergw_local_pool_free, PoolId, ?IPv4PoolSize),
@@ -869,7 +879,7 @@ create_pdp_context_request_rf_fail(Config) ->
 
     ?equal([], outstanding_requests()),
 
-    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    ok = wait_for_hut_terminate(),
     wait4contexts(?TIMEOUT),
 
     meck_validate(Config),
@@ -886,7 +896,7 @@ create_pdp_context_request_invalid_apn(Config) ->
     MetricsAfter = socket_counter_metrics(),
     ?equal([], outstanding_requests()),
 
-    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    ok = wait_for_hut_terminate(),
     wait4contexts(?TIMEOUT),
 
     meck_validate(Config),
@@ -936,7 +946,7 @@ create_pdp_context_request_pool_exhausted(Config) ->
 
     ?equal([], outstanding_requests()),
 
-    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    ok = wait_for_hut_terminate(),
     wait4contexts(?TIMEOUT),
 
     meck_validate(Config),
@@ -951,7 +961,7 @@ create_pdp_context_request_dotted_apn(Config) ->
 
     ?equal([], outstanding_requests()),
 
-    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    ok = wait_for_hut_terminate(),
     wait4contexts(?TIMEOUT),
 
     meck_validate(Config),
@@ -999,7 +1009,7 @@ path_restart(Config) ->
 			  gtp_context_inc_restart_counter(GtpC))),
     send_recv_pdu(GtpC, Echo),
 
-    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    ok = wait_for_hut_terminate(),
     wait4tunnels(?TIMEOUT),
     wait4contexts(?TIMEOUT),
 
@@ -1014,14 +1024,16 @@ path_restart_recovery(Config) ->
     {GtpC1, _, _} = create_pdp_context(Config),
 
     %% create 2nd session with new restart_counter (simulate SGSN restart)
-    {GtpC2, _, _} = create_pdp_context(gtp_context_inc_restart_counter(GtpC1)),
+    %% use a different IMSI/IMEI, otherwise this could run into the
+    %% colliding contexts code and we don't want to test that here
+    {GtpC2, _, _} = create_pdp_context(random, gtp_context_inc_restart_counter(GtpC1)),
 
     [?match(#{tunnels := 1}, X) || X <- ergw_api:peer(all)],
     ?equal(1, active_contexts()),
 
     delete_pdp_context(GtpC2),
 
-    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    ok = wait_for_hut_terminate(),
     wait4contexts(?TIMEOUT),
 
     meck_validate(Config),
@@ -1047,9 +1059,7 @@ path_restart_multi(Config) ->
 			  gtp_context_inc_restart_counter(GtpC4))),
     send_recv_pdu(GtpC4, Echo),
 
-    Match = fun(#{session := shutdown}) -> true;
-	       (_) -> false end,
-    ok = meck:wait(5, ?HUT, terminate, ['_', meck:is(Match), '_'], ?TIMEOUT),
+    ok = wait_for_hut_terminate(5),
     wait4tunnels(?TIMEOUT),
     wait4contexts(?TIMEOUT),
 
@@ -1083,7 +1093,7 @@ path_failure(Config) ->
 
     [?match(#{tunnels := 0}, X) || X <- ergw_api:peer(all)],
 
-    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    ok = wait_for_hut_terminate(),
     wait4tunnels(?TIMEOUT),
     wait4contexts(?TIMEOUT),
 
@@ -1114,7 +1124,7 @@ simple_pdp_context_request(Config) ->
 
     ?equal([], outstanding_requests()),
 
-    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    ok = wait_for_hut_terminate(),
     wait4contexts(?TIMEOUT),
 
     socket_counter_metrics_ok(MetricsBefore, MetricsAfter, create_pdp_context_request),
@@ -1144,7 +1154,10 @@ long_pdp_context_request(Config) ->
     ?match_metric(prometheus_gauge, ergw_local_pool_free, PoolId, ?IPv4PoolSize - 1),
     ?match_metric(prometheus_gauge, ergw_local_pool_used, PoolId, 1),
 
-    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    %% let the session externalize
+    Match = meck:is(fun(#{session := SState}) -> SState =:= connected end),
+    ok = meck:wait(?HUT, terminate, ['_', Match, '_'], ?TIMEOUT),
+
     ?equal(1, active_contexts()),
     meck:reset(?HUT),
 
@@ -1155,7 +1168,7 @@ long_pdp_context_request(Config) ->
 
     ?match({_, {<<_:64, 1:64>>, _}}, GtpC#gtpc.ue_ip),
 
-    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    ok = wait_for_hut_terminate(),
     wait4contexts(?TIMEOUT),
 
     socket_counter_metrics_ok(MetricsBefore, MetricsAfter, create_pdp_context_request),
@@ -1175,7 +1188,8 @@ change_reporting_indication(Config) ->
     delete_pdp_context(GtpC),
 
     ?equal([], outstanding_requests()),
-    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    ok = wait_for_hut_terminate(),
+    wait4contexts(?TIMEOUT),
 
     meck_validate(Config),
     ok.
@@ -1194,7 +1208,7 @@ duplicate_pdp_context_request(Config) ->
     delete_pdp_context(not_found, GtpC1),
     delete_pdp_context(GtpC2),
 
-    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    ok = wait_for_hut_terminate(),
     wait4tunnels(?TIMEOUT),
     wait4contexts(?TIMEOUT),
 
@@ -1214,7 +1228,7 @@ error_indication(Config) ->
 
     [?match(#{tunnels := 0}, X) || X <- ergw_api:peer(all)],
 
-    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    ok = wait_for_hut_terminate(),
     wait4contexts(?TIMEOUT),
 
     meck_validate(Config),
@@ -1269,7 +1283,7 @@ pdp_context_request_bearer_types(Config) ->
 
     ?equal([], outstanding_requests()),
 
-    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    ok = wait_for_hut_terminate(),
     wait4contexts(?TIMEOUT),
 
     meck_validate(Config),
@@ -1304,7 +1318,7 @@ request_fast_resend(Config) ->
 
     ?match(3, meck:num_calls(?HUT, handle_request, ['_', '_', true, '_', '_'])),
 
-    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    ok = wait_for_hut_terminate(),
     wait4contexts(?TIMEOUT),
 
     meck_validate(Config),
@@ -1327,7 +1341,7 @@ create_pdp_context_request_resend(Config) ->
 
     delete_pdp_context(GtpC),
 
-    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    ok = wait_for_hut_terminate(),
     wait4contexts(?TIMEOUT),
 
     ?match(0, meck:num_calls(?HUT, handle_request, ['_', '_', true, '_', '_'])),
@@ -1345,7 +1359,7 @@ delete_pdp_context_request_resend(Config) ->
     ?equal(Response, send_recv_pdu(GtpC, Msg)),
     ?equal([], outstanding_requests()),
 
-    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    ok = wait_for_hut_terminate(),
     wait4contexts(?TIMEOUT),
 
     ?match(0, meck:num_calls(?HUT, handle_request, ['_', '_', true, '_', '_'])),
@@ -1381,7 +1395,7 @@ update_pdp_context_request_ra_update(Config) ->
     ?match(1, meck:num_calls(ergw_aaa_session, invoke,
 			     ['_', '_', {rf, 'Terminate'}, '_'])),
 
-    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    ok = wait_for_hut_terminate(),
     wait4contexts(?TIMEOUT),
 
     meck_validate(Config),
@@ -1425,7 +1439,7 @@ update_pdp_context_request_rat_update(Config) ->
     ?match(1, meck:num_calls(ergw_aaa_session, invoke,
 			     ['_', '_', {rf, 'Terminate'}, '_'])),
 
-    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    ok = wait_for_hut_terminate(),
     wait4contexts(?TIMEOUT),
 
     meck_validate(Config),
@@ -1469,7 +1483,7 @@ update_pdp_context_request_tei_update(Config) ->
     ?match(1, meck:num_calls(ergw_aaa_session, invoke,
 			     ['_', '_', {rf, 'Update'}, CDRClosePred])),
 
-    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    ok = wait_for_hut_terminate(),
     wait4contexts(?TIMEOUT),
 
     meck_validate(Config),
@@ -1484,7 +1498,7 @@ ms_info_change_notification_request_with_tei(Config) ->
     ?equal([], outstanding_requests()),
     delete_pdp_context(GtpC2),
 
-    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    ok = wait_for_hut_terminate(),
     wait4contexts(?TIMEOUT),
 
     meck_validate(Config),
@@ -1500,7 +1514,7 @@ ms_info_change_notification_request_without_tei(Config) ->
     ?equal([], outstanding_requests()),
     delete_pdp_context(GtpC2),
 
-    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    ok = wait_for_hut_terminate(),
     wait4contexts(?TIMEOUT),
 
     meck_validate(Config),
@@ -1516,7 +1530,9 @@ ms_info_change_notification_request_invalid_imsi(Config) ->
     ?equal([], outstanding_requests()),
     delete_pdp_context(GtpC2),
 
-    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    ok = wait_for_hut_terminate(),
+    wait4contexts(?TIMEOUT),
+
     meck_validate(Config),
     ok.
 
@@ -1531,7 +1547,7 @@ invalid_teid(Config) ->
     ?equal([], outstanding_requests()),
     delete_pdp_context(GtpC4),
 
-    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    ok = wait_for_hut_terminate(),
     wait4contexts(?TIMEOUT),
 
     meck_validate(Config),
@@ -1566,7 +1582,7 @@ delete_pdp_context_requested(Config) ->
     end,
     ?equal([], outstanding_requests()),
 
-    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    ok = wait_for_hut_terminate(),
     wait4contexts(?TIMEOUT),
 
     meck_validate(Config),
@@ -1598,7 +1614,7 @@ delete_pdp_context_requested_resend(Config) ->
 	    ct:fail(timeout)
     end,
 
-    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    ok = wait_for_hut_terminate(),
     wait4tunnels(?TIMEOUT),
     ?equal([], outstanding_requests()),
     wait4contexts(?TIMEOUT),
@@ -1637,7 +1653,7 @@ unsupported_request(Config) ->
 
     delete_pdp_context(GtpC),
 
-    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    ok = wait_for_hut_terminate(),
     wait4contexts(?TIMEOUT),
 
     meck_validate(Config),
@@ -1651,7 +1667,7 @@ cache_timeout(Config) ->
     {GtpC, _, _} = create_pdp_context(Config),
     delete_pdp_context(GtpC),
 
-    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    ok = wait_for_hut_terminate(),
     wait4contexts(?TIMEOUT),
 
     {T0, Q0} = ergw_gtp_c_socket:get_response_q(Socket),
@@ -1748,7 +1764,7 @@ session_options(Config) ->
 
     delete_pdp_context(GtpC),
 
-    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    ok = wait_for_hut_terminate(),
     wait4contexts(?TIMEOUT),
 
     meck_validate(Config),
@@ -1790,7 +1806,7 @@ session_accounting(Config) ->
 
     delete_pdp_context(GtpC),
 
-    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    ok = wait_for_hut_terminate(),
     wait4contexts(?TIMEOUT),
 
     meck_validate(Config),
@@ -1808,7 +1824,7 @@ sx_ondemand(Config) ->
 
     ?equal(2, maps:size(ergw_sx_node_reg:available())),
     ?equal([], outstanding_requests()),
-    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT).
+    ok = wait_for_hut_terminate().
 
 %%--------------------------------------------------------------------
 
@@ -1835,7 +1851,7 @@ gy_validity_timer(Config) ->
     ?match(Y when Y >= 3 andalso Y < 10, length(CCRU)),
 
     ?equal([], outstanding_requests()),
-    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    ok = wait_for_hut_terminate(),
     wait4contexts(?TIMEOUT),
 
     meck_validate(Config),
@@ -1944,7 +1960,7 @@ simple_aaa(Config) ->
 	 'InPackets' => '_', 'OutPackets' => '_'}, Stop),
 
     ?equal([], outstanding_requests()),
-    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    ok = wait_for_hut_terminate(),
     wait4contexts(?TIMEOUT),
 
     meck_validate(Config),
@@ -2092,7 +2108,7 @@ simple_ofcs(Config) ->
 	}, hd(StopTD)),
 
     ?equal([], outstanding_requests()),
-    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    ok = wait_for_hut_terminate(),
     wait4contexts(?TIMEOUT),
 
     meck_validate(Config),
@@ -2276,7 +2292,7 @@ simple_ocs(Config) ->
     ?equal(false, maps:is_key('credits', Stop)),
 
     ?equal([], outstanding_requests()),
-    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    ok = wait_for_hut_terminate(),
     wait4contexts(?TIMEOUT),
 
     meck_validate(Config),
@@ -2334,7 +2350,7 @@ gy_ccr_asr_overlap(Config) ->
     ?match(X when X == 2, length(CCR)),
 
     ?equal([], outstanding_requests()),
-    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    ok = wait_for_hut_terminate(),
     wait4contexts(?TIMEOUT),
 
     meck_validate(Config),
@@ -2409,7 +2425,7 @@ volume_threshold(Config) ->
     ?match(X when X == 1, length(CCRUvolqu)),
 
     ?equal([], outstanding_requests()),
-    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    ok = wait_for_hut_terminate(),
     wait4contexts(?TIMEOUT),
 
     meck_validate(Config),
@@ -2467,7 +2483,7 @@ gx_rar_gy_interaction(Config) ->
 
     delete_pdp_context(GtpC),
 
-    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    ok = wait_for_hut_terminate(),
     wait4tunnels(?TIMEOUT),
     wait4contexts(?TIMEOUT),
 
@@ -2495,7 +2511,7 @@ gx_asr(Config) ->
     Response = make_response(Request, simple, GtpC),
     send_pdu(Cntl, GtpC, Response),
 
-    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    ok = wait_for_hut_terminate(),
     wait4tunnels(?TIMEOUT),
     wait4contexts(?TIMEOUT),
 
@@ -2603,7 +2619,7 @@ gx_rar(Config) ->
 		      update_pdr, update_far, update_urr,
 		      remove_pdr, remove_far, remove_urr]]),
 
-    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    ok = wait_for_hut_terminate(),
     wait4tunnels(?TIMEOUT),
     wait4contexts(?TIMEOUT),
 
@@ -2631,7 +2647,7 @@ gy_asr(Config) ->
     Response = make_response(Request, simple, GtpC),
     send_pdu(Cntl, GtpC, Response),
 
-    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    ok = wait_for_hut_terminate(),
     wait4tunnels(?TIMEOUT),
     wait4contexts(?TIMEOUT),
 
@@ -2653,7 +2669,7 @@ gy_async_stop(Config) ->
     send_pdu(Cntl, GtpC, Response),
 
     ?equal([], outstanding_requests()),
-    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    ok = wait_for_hut_terminate(),
     wait4contexts(?TIMEOUT),
 
     meck_validate(Config),
@@ -2685,7 +2701,7 @@ gx_invalid_charging_rulebase(Config) ->
     delete_pdp_context(GtpC),
 
     ?equal([], outstanding_requests()),
-    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    ok = wait_for_hut_terminate(),
     wait4tunnels(?TIMEOUT),
     wait4contexts(?TIMEOUT),
 
@@ -2718,7 +2734,7 @@ gx_invalid_charging_rule(Config) ->
     delete_pdp_context(GtpC),
 
     ?equal([], outstanding_requests()),
-    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    ok = wait_for_hut_terminate(),
     wait4tunnels(?TIMEOUT),
     wait4contexts(?TIMEOUT),
 
@@ -2754,7 +2770,7 @@ gtp_idle_timeout_gtp_session_loss(Config) ->
     delete_pdp_context(not_found, GtpC),
 
     ?equal([], outstanding_requests()),
-    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    ok = wait_for_hut_terminate(),
     wait4contexts(?TIMEOUT),
 
     meck_validate(Config),
@@ -2792,7 +2808,7 @@ gtp_idle_timeout_pfcp_session_loss(Config) ->
     delete_pdp_context(not_found, GtpC),
 
     ?equal([], outstanding_requests()),
-    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    ok = wait_for_hut_terminate(),
     wait4contexts(?TIMEOUT),
 
     meck_validate(Config),
@@ -2845,7 +2861,7 @@ up_inactivity_timer(Config) ->
     delete_pdp_context(not_found, GtpC),
 
     ?equal([], outstanding_requests()),
-    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    ok = wait_for_hut_terminate(),
     wait4contexts(?TIMEOUT),
 
     meck_validate(Config),

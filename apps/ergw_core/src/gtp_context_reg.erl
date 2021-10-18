@@ -13,13 +13,14 @@
 
 %% API
 -export([start_link/0]).
--export([register/3, register_new/3, update/4, unregister/3,
-	 lookup/1, select/1, global_lookup/1,
-	 await_unreg/1]).
+-export([register/2, register/3, register/4, register_new/4,
+	 update/5, unregister/2, unregister/3, unregister/4,
+	 lookup/1, select/1, global_lookup/1, global_select/1,
+	 search/1, await_unreg/1]).
 -export([register_name/3, unregister_name/2, whereis_name/1]).
 -export([all/0]).
 
--ignore_xref([start_link/0]).
+-ignore_xref([start_link/0, unregister_name/2]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
@@ -27,6 +28,7 @@
 %% --------------------------------------------------------------------
 %% Include files
 %% --------------------------------------------------------------------
+-include_lib("kernel/include/logger.hrl").
 -include("include/ergw.hrl").
 
 -define(SERVER, ?MODULE).
@@ -38,8 +40,26 @@
 start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
+search(Keys)
+  when is_list(Keys) ->
+    lists:flatten(lists:map(fun global_lookup/1, Keys)).
+
 lookup(#context_key{id = {Type, _, _}} = Key)
   when Type == imei; Type == imsi ->
+    case global_lookup(Key) of
+	[Value|_] ->
+	    Value;
+	_ ->
+	    undefined
+    end;
+lookup(#socket_teid_key{} = Key) ->
+    case global_lookup(Key) of
+	[Value|_] ->
+	    Value;
+	_ ->
+	    undefined
+    end;
+lookup(#seid_key{} = Key) ->
     case global_lookup(Key) of
 	[Value|_] ->
 	    Value;
@@ -71,29 +91,56 @@ whereis_name(Name) ->
 	    undefined
     end.
 
+register(Keys, Id)
+  when is_list(Keys), is_binary(Id) ->
+    [global_add_key(Key, Id) || Key <- Keys],
+    ok.
+
+register(Keys, Handler, Pid, Id)
+  when is_list(Keys), is_atom(Handler), is_pid(Pid) ->
+    case register(Keys, Handler, Pid) of
+	ok ->
+	    [global_add_key(Key, Id) || Key <- Keys],
+	    ok;
+	Other ->
+	    Other
+    end.
+
 register(Keys, Handler, Pid)
   when is_list(Keys), is_atom(Handler), is_pid(Pid) ->
-    register(fun ets:insert/2, Keys, Handler, Pid).
+   register_it(fun ets:insert/2, Keys, Handler, Pid).
+
+register_new(Keys, Handler, Pid, Id)
+  when is_list(Keys), is_atom(Handler), is_pid(Pid) ->
+    [global_add_key(Key, Id) || Key <- Keys],
+    register_new(Keys, Handler, Pid).
 
 register_new(Keys, Handler, Pid)
   when is_list(Keys), is_atom(Handler), is_pid(Pid) ->
-    register(fun ets:insert_new/2, Keys, Handler, Pid).
+    register_it(fun ets:insert_new/2, Keys, Handler, Pid).
 
-update(Delete, Insert, Handler, Pid)
+update(Delete, Insert, Handler, Pid, Id)
   when is_list(Delete), is_list(Insert), is_atom(Handler), is_pid(Pid) ->
-    RegV = {Handler, Pid},
-    [global_del_key(DKey, RegV) || DKey <- Delete],
-    [global_add_key(IKey, RegV) || IKey <- Insert],
+    [global_del_key(DKey, Id) || DKey <- Delete],
+    [global_add_key(IKey, Id) || IKey <- Insert],
 
     ets_delete_objects(?SERVER, mk_reg_objects(Delete, Handler, Pid)),
     add_keys(fun ets:insert/2, Insert, Handler, Pid).
 
+unregister(Keys, Id)
+  when is_list(Keys), is_binary(Id) ->
+    [global_del_key(Key, Id) || Key <- Keys],
+    ok.
+
 unregister(Keys, Handler, Pid)
   when is_list(Keys), is_atom(Handler), is_pid(Pid) ->
-    RegV = {Handler, Pid},
-    [global_del_key(Key, RegV) || Key <- Keys],
+    Id = list_to_binary(pid_to_list(Pid)),
+    unregister(Keys, Handler, Pid, Id).
 
+unregister(Keys, Handler, Pid, Id)
+  when is_list(Keys), is_atom(Handler), is_pid(Pid) ->
     ets_delete_objects(?SERVER, mk_reg_objects(Keys, Handler, Pid)),
+    [global_del_key(Key, Id) || Key <- Keys],
     ok.
 
 all() ->
@@ -150,9 +197,7 @@ code_change(_OldVsn, State, _Extra) ->
 %%% Internal functions
 %%%===================================================================
 
-register(InsFun, Keys, Handler, Pid) ->
-    RegV = {Handler, Pid},
-    [global_add_key(Key, RegV) || Key <- Keys],
+register_it(InsFun, Keys, Handler, Pid) ->
     Return = add_keys(InsFun, Keys, Handler, Pid),
 
     %% if we are registering for a different Pid (not self()), then the
@@ -194,11 +239,19 @@ add_keys(InsFun, Keys, Handler, Pid) ->
 global_add_key(#context_key{id = {Type, _, _}} = Key, RegV)
   when Type == imei; Type == imsi ->
     gtp_context_reg_vnode:put(<<"context">>, Key, RegV);
+global_add_key(#socket_teid_key{} = Key, RegV) ->
+    gtp_context_reg_vnode:put(<<"context">>, Key, RegV);
+global_add_key(#seid_key{} = Key, RegV) ->
+    gtp_context_reg_vnode:put(<<"context">>, Key, RegV);
 global_add_key(_, _) ->
     ok.
 
 global_del_key(#context_key{id = {Type, _, _}} = Key, RegV)
   when Type == imei; Type == imsi ->
+    gtp_context_reg_vnode:delete(<<"context">>, Key, RegV);
+global_del_key(#socket_teid_key{} = Key, RegV) ->
+    gtp_context_reg_vnode:delete(<<"context">>, Key, RegV);
+global_del_key(#seid_key{} = Key, RegV) ->
     gtp_context_reg_vnode:delete(<<"context">>, Key, RegV);
 global_del_key(_, _) ->
     ok.
@@ -207,6 +260,14 @@ global_lookup(Key) ->
     case gtp_context_reg_vnode:get(<<"context">>, Key) of
 	{ok, #{reason := finished, result := Result}} ->
 	    lists:usort([Value || {_Location, {ok, Value}} <- Result]);
+	_ ->
+	    []
+    end.
+
+global_select(Key) ->
+    case gtp_context_reg_vnode:select(<<"context">>, Key) of
+	{ok, Result} ->
+	    Result;
 	_ ->
 	    []
     end.

@@ -11,6 +11,7 @@
 
 -include("smc_test_lib.hrl").
 -include("smc_ggsn_test_lib.hrl").
+-include_lib("ergw_core/include/ergw.hrl").
 -include_lib("common_test/include/ct.hrl").
 
 -define(HUT, sbi_nbsf_handler).				%% Handler Under Test
@@ -74,9 +75,22 @@ init_per_testcase(_, Config) ->
     ergw_test_sx_up:history('pgw-u01', true),
     Config.
 
-end_per_testcase(_, _Config) ->
+maybe_end_fail(ok, Fail) ->
+    {fail, Fail};
+maybe_end_fail(Other, _) ->
+    Other.
+
+end_per_testcase(Config) ->
+    Result0 = proplists:get_value(tc_status, Config),
+    Result1 = case active_contexts() of
+		  0 -> Result0;
+		  Ctx ->
+		      Key = gtp_context:socket_teid_key(#socket{type = 'gtp-c', _ = '_'}, '_'),
+		      ct:pal("ContextxLeft: ~p", [gtp_context_reg:global_select(Key)]),
+		      maybe_end_fail(Result0, {contexts_left, Ctx})
+	      end,
     stop_gtpc_server(),
-    ok.
+    Result1.
 
 nbsf_get() ->
     [{doc, "Check /sbi/nbsf-management/v1/pcfBindings GET API"}].

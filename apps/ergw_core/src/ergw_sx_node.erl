@@ -14,6 +14,7 @@
 
 %% API
 -export([request_connect/3, request_connect/5, wait_connect/1,
+	 monitor_sx_node/1, demonitor_sx_node/1,
 	 attach/1, attach_tdf/2, notify_up/2,
 	 set_defaults/1, set_required_upff/1, add_sx_node/2]).
 -export([start_link/5, send/4,
@@ -25,7 +26,7 @@
 -endif.
 
 %% ergw_context callbacks
--export([ctx_sx_report/2, ctx_pfcp_timer/3, port_message/2, ctx_port_message/4]).
+-export([ctx_sx_report/2, ctx_pfcp_timer/3, ctx_pfcp_down/2, port_message/2, ctx_port_message/4]).
 
 
 -ignore_xref([start_link/5,
@@ -60,6 +61,7 @@
 	       ue_ip_pools,
 	       vrfs,
 	       tdf,
+	       contexts = #{}    :: #{binary() := any()},
 	       notify_up = []    :: [{pid(), reference()}]}).
 
 -ifdef(TEST).
@@ -82,9 +84,14 @@
 %% API
 %%====================================================================
 
+monitor_sx_node(#pfcp_ctx{node = Node, record_id = RecordId}) when is_pid(Node) ->
+    gen_statem:cast(Node, {monitor, RecordId}).
+
+demonitor_sx_node(#pfcp_ctx{node = Node, record_id = RecordId}) when is_pid(Node) ->
+    gen_statem:cast(Node, {demonitor, RecordId}).
+
 %% attach/1
 attach(Node) when is_pid(Node) ->
-    monitor(process, Node),
     gen_statem:call(Node, attach).
 
 %% attach_tdf/2
@@ -339,6 +346,9 @@ ctx_sx_report(Server, Report) ->
 ctx_pfcp_timer(_, _, _) ->
     ok.
 
+ctx_pfcp_down(_, _) ->
+    ok.
+
 port_message(Request, Msg) ->
     ?LOG(error, "unhandled port message (~p, ~p)", [Request, Msg]),
     erlang:error(badarg, [Request, Msg]).
@@ -552,6 +562,12 @@ handle_event(cast, {response, from_cp_rule,
     ergw_pfcp_context:register_ctx_ids(?MODULE, Bearer, PCtx),
     Data = Data0#data{pfcp_ctx = PCtx, bearer = Bearer},
     {next_state, {connected, ready}, Data};
+
+handle_event(cast, {monitor, RecordId}, _, #data{contexts = Contexts} = Data) ->
+    {keep_state, Data#data{contexts = Contexts#{RecordId => true}}};
+
+handle_event(cast, {demonitor, RecordId}, _, #data{contexts = Contexts} = Data) ->
+    {keep_state, Data#data{contexts = maps:remove(RecordId, Contexts)}};
 
 handle_event({call, From}, attach, _, #data{pfcp_ctx = PNodeCtx} = Data) ->
     PCtx = #pfcp_ctx{
@@ -962,13 +978,11 @@ init_vrfs(VRFs,
 mode(#{connect := true}) -> persistent;
 mode(_) -> transient.
 
-handle_nodedown(#data{pfcp_ctx = PCtx, bearer = Bearer} = Data) ->
+handle_nodedown(#data{pfcp_ctx = PCtx, bearer = Bearer, contexts = Contexts} = Data) ->
     ergw_pfcp_context:unregister_ctx_ids(?MODULE, Bearer, PCtx),
     Self = self(),
-    {monitored_by, Notify} = process_info(Self, monitored_by),
-    ?LOG(debug, "Node Down Monitor Notify: ~p", [Notify]),
-    lists:foreach(fun(Pid) -> Pid ! {'DOWN', undefined, pfcp, Self, undefined} end, Notify),
-    init_node_cfg(Data).
+    maps:fold(fun(Id, _, _) -> ergw_context:pfcp_down(Id, Self) end, ok, Contexts),
+    init_node_cfg(Data#data{contexts = #{}}).
 
 %%%===================================================================
 %%% CP to Access Interface forwarding

@@ -587,11 +587,11 @@ wait4tunnels(Cnt) ->
     end.
 
 wait4contexts(Cnt) ->
-    case ergw_nudsf:search(#{tag => type, value => 'gtp-c'}, #{count => true}) of
-	{0, _} -> ok;
+    case active_contexts() of
+	0 -> ok;
 	Other ->
 	    if Cnt > 100 ->
-		    ct:sleep(100),
+		    ct:sleep(200),
 		    wait4contexts(Cnt - 100);
 	       true ->
 		    ct:fail("timeout, waiting for contexts to be deleted, left over ~p", [Other])
@@ -599,8 +599,9 @@ wait4contexts(Cnt) ->
     end.
 
 active_contexts() ->
-    {Cnt, _} = ergw_nudsf:search(#{tag => type, value => 'gtp-c'}, #{count => true}),
-    Cnt.
+    Key = gtp_context:socket_teid_key(#socket{type = 'gtp-c', _ = '_'}, '_'),
+    Contexts = gtp_context_reg:global_select(Key),
+    length(lists:usort(Contexts)).
 
 %%%===================================================================
 %% hexstr2bin from otp/lib/crypto/test/crypto_SUITE.erl

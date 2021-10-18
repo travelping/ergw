@@ -136,9 +136,12 @@ handle_event(cast, {packet_in, _Socket, _IP, _Port, _Msg}, _State, _Data) ->
     ?LOG(warning, "packet_in not handled (yet): ~p", [_Msg]),
     keep_state_and_data;
 
-handle_event(info, {timeout, _, {delete_session_request, Direction, _ReqKey, _Request}},
+handle_event(info, {timeout, _, {delete_session_request, Direction, ReqKey, _Request}},
 	     State, Data0) ->
     ?LOG(warning, "Proxy Delete Session Timeout ~p", [Direction]),
+
+    %% TBD: send a fake/dummy response to the original request?
+    gtp_context:request_finished(ReqKey),
 
     Data = delete_forward_session(normal, Data0),
     {next_state, State#{session := shutdown, fsm := busy}, Data};
@@ -468,7 +471,9 @@ handle_response({Direction, From}, #gtp{type = Type}, _,
 
 terminate(_Reason, #{session := SState}, Data)
   when SState =/= connected ->
-    ergw_gsn_lib:release_local_teids(Data);
+    ergw_gsn_lib:release_local_teids(Data),
+    remote_proxy_context_unregister(Data),
+    ok;
 terminate(_Reason, _State, _Data) ->
     ok.
 
@@ -488,12 +493,20 @@ handle_proxy_info(Session, Tunnel, Bearer, Context, #{proxy_ds := ProxyDS}) ->
 	    {error, ?CTX_ERR(?FATAL, Cause)}
     end.
 
-delete_forward_session(Reason, #{pfcp := PCtx, 'Session' := Session} = Data) ->
-    URRs = ergw_pfcp_context:delete_session(Reason, PCtx),
+delete_forward_session(Reason, #{bearer := Bearer, pfcp := PCtx, 'Session' := Session} = Data) ->
+    URRs = ergw_pfcp_context:delete_session(Reason, Bearer, PCtx),
     SessionOpts = to_session(gtp_context:usage_report_to_accounting(URRs)),
     ?LOG(debug, "Accounting Opts: ~p", [SessionOpts]),
     ergw_aaa_session:invoke(Session, SessionOpts, stop, #{async => true}),
     maps:remove(pfcp, Data).
+
+
+remote_proxy_context_unregister(#{record_id := RecordId, proxy_context := ProxyContext,
+				  right_tunnel := RightTunnel, bearer := Bearer})
+  when is_record(ProxyContext, context) ->
+    gtp_context:remote_context_unregister(RecordId, ProxyContext, RightTunnel, Bearer);
+remote_proxy_context_unregister(_Data) ->
+    ok.
 
 init_proxy_tunnel(Socket, {_GwNode, PGW}) ->
     Info = ergw_gtp_socket:info(Socket),

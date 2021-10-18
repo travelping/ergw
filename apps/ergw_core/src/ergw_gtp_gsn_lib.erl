@@ -210,9 +210,9 @@ gy_response(Result, ChargeEv, Now, Offline) ->
 %% close_context/3
 close_context(_, {API, TermCause}, Data) ->
     close_context(API, TermCause, Data);
-close_context(API, TermCause, #{pfcp := PCtx} = Data)
+close_context(API, TermCause, #{bearer := Bearer, pfcp := PCtx} = Data)
   when is_atom(TermCause) ->
-    UsageReport = ergw_pfcp_context:delete_session(TermCause, PCtx),
+    UsageReport = ergw_pfcp_context:delete_session(TermCause, Bearer, PCtx),
     close_context(API, TermCause, UsageReport, Data);
 close_context(_API, _TermCause, Data) ->
     Data.
@@ -222,19 +222,20 @@ close_context(API, TermCause, UsageReport, #{pfcp := PCtx, 'Session' := Session}
   when is_atom(TermCause) ->
     ergw_gtp_gsn_session:close_context(TermCause, UsageReport, PCtx, Session),
     ergw_prometheus:termination_cause(API, TermCause),
+    ergw_sx_node:demonitor_sx_node(PCtx),
     maps:remove(pfcp, Data).
 
 %% close_context_m/4
 close_context_m(_, {API, TermCause}, State, Data) ->
     close_context_m(API, TermCause, State, Data);
-close_context_m(API, TermCause, State, #{pfcp := PCtx} = Data)
+close_context_m(API, TermCause, State, #{bearer := Bearer, pfcp := PCtx} = Data)
   when is_atom(TermCause) ->
     statem_m:run(
       do([statem_m ||
 	     _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
 	     ReqId <-
 		 statem_m:return(
-		   ergw_pfcp_context:send_session_deletion_request(TermCause, PCtx)),
+		   ergw_pfcp_context:send_session_deletion_request(TermCause, Bearer, PCtx)),
 	     Response <- statem_m:wait(ReqId),
 	     UsageReport <-
 		 statem_m:lift(ergw_pfcp_context:receive_session_deletion_response(Response)),
@@ -251,6 +252,7 @@ close_context_m(API, TermCause, UsageReport)
 	   #{pfcp := PCtx, 'Session' := Session} <- statem_m:get_data(),
 	   _ = ergw_gtp_gsn_session:close_context(TermCause, UsageReport, PCtx, Session),
 	   _ = ergw_prometheus:termination_cause(API, TermCause),
+	   _ = ergw_sx_node:demonitor_sx_node(PCtx),
 	   statem_m:modify_data(maps:remove(pfcp, _))
        ]).
 
@@ -499,7 +501,7 @@ update_tunnel_from_gtp_req(Interface, Version, right, Request) ->
 apply_update_tunnel_endpoint(RecordId, TunnelOld, Tunnel0) ->
     %% TBD: handle errors
     {ok, Tunnel} = gtp_path:bind_tunnel(Tunnel0, RecordId),
-    gtp_context:tunnel_reg_update(TunnelOld, Tunnel),
+    gtp_context:tunnel_reg_update(RecordId, TunnelOld, Tunnel),
     if Tunnel#tunnel.path /= TunnelOld#tunnel.path ->
 	    gtp_path:unbind_tunnel(TunnelOld, RecordId);
        true ->
@@ -580,12 +582,13 @@ collect_charging_events(Interface, IEs) ->
 pfcp_create_session(PCC) ->
      do([statem_m ||
 	    _ = ?LOG(debug, "~s/1", [?FUNCTION_NAME]),
-	    #{context := Context, bearer := Bearer, pfcp := PCtx0} <- statem_m:get_data(),
+	    #{record_id := RecordId, context := Context,
+	      bearer := Bearer, pfcp := PCtx0} <- statem_m:get_data(),
 
 	    {ReqId, PCtx} <-
 		statem_m:return(
 		  ergw_pfcp_context:send_session_establishment_request(
-		    gtp_context, PCC, PCtx0, Bearer, Context)),
+		    RecordId, PCC, PCtx0, Bearer, Context)),
 	    statem_m:modify_data(_#{pfcp => PCtx}),
 
 	    Response <- statem_m:wait(ReqId),
@@ -597,7 +600,8 @@ pfcp_create_session(PCC) ->
 pfcp_create_session(Now, PCtx0, GyEvs, AuthSEvs, RfSEvs, PCCErrors0) ->
     do([statem_m ||
 	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
-	   #{context := Context, bearer := Bearer, pcc := PCC0} <- statem_m:get_data(),
+	   #{record_id := RecordId, context := Context,
+	     bearer := Bearer, pcc := PCC0} <- statem_m:get_data(),
 	   {PCC2, PCCErrors1} = ergw_pcc_context:gy_events_to_pcc_ctx(Now, GyEvs, PCC0),
 	   PCC3 = ergw_pcc_context:session_events_to_pcc_ctx(AuthSEvs, PCC2),
 	   PCC4 = ergw_pcc_context:session_events_to_pcc_ctx(RfSEvs, PCC3),
@@ -605,7 +609,7 @@ pfcp_create_session(Now, PCtx0, GyEvs, AuthSEvs, RfSEvs, PCCErrors0) ->
 	   {ReqId, PCtx} <-
 	       statem_m:return(
 		 ergw_pfcp_context:send_session_establishment_request(
-		   gtp_context, PCC4, PCtx0, Bearer, Context)),
+		   RecordId, PCC4, PCtx0, Bearer, Context)),
 	   statem_m:modify_data(_#{pfcp => PCtx}),
 
 	   Response <- statem_m:wait(ReqId),
@@ -619,9 +623,9 @@ pfcp_create_session_response(Response) ->
     do([statem_m ||
 	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
 	   _ = ?LOG(debug, "Response: ~p", [Response]),
-	   #{bearer := Bearer0, pfcp := PCtx0} <- statem_m:get_data(),
+	   #{record_id := RecordId, bearer := Bearer0, pfcp := PCtx0} <- statem_m:get_data(),
 	   {PCtx, Bearer, SessionInfo} <-
-	       statem_m:lift(ergw_pfcp_context:receive_session_establishment_response(Response, gtp_context, PCtx0, Bearer0)),
+	       statem_m:lift(ergw_pfcp_context:receive_session_establishment_response(Response, RecordId, PCtx0, Bearer0)),
 	   statem_m:modify_data(
 	     fun(Data) -> maps:update_with(
 			    session_opts, maps:merge(_, SessionInfo),
@@ -676,8 +680,10 @@ gy_events_to_pcc_ctx(Now, Evs, State, #{pcc := PCC0} = Data) ->
 remote_context_register_new() ->
     do([statem_m ||
 	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
-	   #{context := Context, left_tunnel := LeftTunnel, bearer := Bearer} <- statem_m:get_data(),
-	   statem_m:lift(gtp_context:remote_context_register_new(LeftTunnel, Bearer, Context))
+	   #{record_id := RecordId, context := Context,
+	     left_tunnel := LeftTunnel, bearer := Bearer} <- statem_m:get_data(),
+	   statem_m:lift(
+	     gtp_context:remote_context_register_new(RecordId, LeftTunnel, Bearer, Context))
        ]).
 
 pfcp_session_liveness_check() ->

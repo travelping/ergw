@@ -190,10 +190,10 @@ aquire_lease(right) ->
 proxy_context_register() ->
     do([statem_m ||
 	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
-	   #{proxy_context := ProxyContext,
+	   #{record_id := RecordId, proxy_context := ProxyContext,
 	     right_tunnel := RightTunnel, bearer := Bearer} <- statem_m:get_data(),
 	   statem_m:return(
-	     gtp_context:remote_context_register(RightTunnel, Bearer, ProxyContext))
+	     gtp_context:remote_context_register(RecordId, RightTunnel, Bearer, ProxyContext))
        ]).
 
 handle_proxy_info(SessionOpts) ->
