@@ -102,8 +102,7 @@ maybe_new_path(Socket, Version, RemoteIP, Trigger) ->
 	    {ok, Args0} = getopts(),
 	    PeerArgs = get_peer_opts(RemoteIP),
 	    Args = maps:merge(Args0, PeerArgs),
-	    {ok, Path} = gtp_path_sup:new_path(Socket, Version, RemoteIP, Trigger, Args),
-	    Path
+	    gtp_path_reg:lookup_and_create({Socket, Version, RemoteIP, Trigger, Args})
     end.
 
 handle_request(#request{socket = Socket, ip = IP} = ReqKey, #gtp{version = Version} = Msg) ->

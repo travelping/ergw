@@ -14,6 +14,7 @@
 -export([register/2, unregister/1, lookup/1]).
 -export([all/0, all/1]).
 -export([state/1, state/2]).
+-export([lookup_and_create/1]).
 
 -ignore_xref([start_link/0]).
 
@@ -61,6 +62,9 @@ state(Key) ->
 	    undefined
     end.
 
+lookup_and_create(Data) ->
+    regine_server:call(?SERVER, {lookup_and_create, Data}).
+
 all() ->
     ets:tab2list(?SERVER).
 
@@ -103,7 +107,16 @@ handle_pid_remove(_Pid, Keys, State) ->
 handle_call({state, Key, PeerState}, _From, State) ->
     Result = ets:update_element(?SERVER, Key, {3, PeerState}),
     gtp_path_db_vnode:state(Key, PeerState, node()),
-    {reply, Result, State}.
+    {reply, Result, State};
+handle_call({lookup_and_create, {Socket, Version, RemoteIP, Trigger, Args}}, _From, State) ->
+    Path = case lookup({Socket, Version, RemoteIP}) of
+        undefined ->
+            {ok, Pid} = gtp_path_sup:new_path(Socket, Version, RemoteIP, Trigger, Args),
+            Pid;
+        Pid ->
+            Pid
+    end,
+    {reply, Path, State}.
 
 handle_death(_Pid, _Reason, State) ->
     State.
