@@ -1436,7 +1436,7 @@ path_failure_suspect_timeout() ->
       "that a path failure (Echo timeout) transition to suspect"}].
 path_failure_suspect_timeout(Config) ->
     ok = meck:expect(gtp_path, init,
-		     fun ([Socket, Version, RemoteIP, Trigger, Args0]) ->
+		     fun ([Parent, Socket, Version, RemoteIP, Trigger, Args0]) ->
 			     %% overwrite ping interval and suspect timeout
 			     Args =
 				 ergw_test_lib:maps_recusive_merge(
@@ -1451,7 +1451,7 @@ path_failure_suspect_timeout(Config) ->
 						  timeout => 300 * 1000,
 						  events => #{echo_timeout => warning}
 						 }}),
-			     meck:passthrough([[Socket, Version, RemoteIP, Trigger, Args]])
+			     meck:passthrough([[Parent, Socket, Version, RemoteIP, Trigger, Args]])
 		     end),
 
     CtxKey = #context_key{socket = 'irx-socket', id = {imsi, ?'IMSI', 5}},
@@ -1495,7 +1495,7 @@ path_failure_suspect_echo_backoff() ->
     [{doc, "Check incremental growing Echo Interval in suspect"}].
 path_failure_suspect_echo_backoff(Config) ->
     ok = meck:expect(gtp_path, init,
-		     fun ([Socket, Version, RemoteIP, Trigger, Args0]) ->
+		     fun ([Parent, Socket, Version, RemoteIP, Trigger, Args0]) ->
 			     %% overwrite ping interval and suspect timeout
 			     Args =
 				 ergw_test_lib:maps_recusive_merge(
@@ -1512,7 +1512,7 @@ path_failure_suspect_echo_backoff(Config) ->
 						  timeout => 300 * 1000,
 						  events => #{echo_timeout => warning}
 						 }}),
-			     meck:passthrough([[Socket, Version, RemoteIP, Trigger, Args]])
+			     meck:passthrough([[Parent, Socket, Version, RemoteIP, Trigger, Args]])
 		     end),
 
     CtxKey = #context_key{socket = 'irx-socket', id = {imsi, ?'IMSI', 5}},
@@ -1544,7 +1544,7 @@ path_failure_suspect_echo_backoff(Config) ->
     EchoMs = ['_', '_', ClientIP, '_', '_', '_', #gtp{type = echo_request, _ = '_'}, '_'],
     %% expect at least 8 pings (one initial ping, one test triggered ping and 6 pings due to
     %% the exponential backoff, slow system might have more initial pings
-    ?match(X when X >= 8 andalso X < 15,
+    ?match(X when X >= 7 andalso X < 15,
 	   meck:num_calls(ergw_gtp_c_socket, send_request, EchoMs)),
 
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
@@ -1565,12 +1565,12 @@ path_maintenance() ->
       "that we run GTP Echo Request on that peer continusly"}].
 path_maintenance(Config) ->
     ok = meck:expect(gtp_path, init,
-		     fun ([Socket, Version, RemoteIP, Trigger, Args0]) ->
+		     fun ([Parent, Socket, Version, RemoteIP, Trigger, Args0]) ->
 			     %% overwrite ping interval
 			     Args =
 				 ergw_test_lib:maps_recusive_merge(
 				   Args0, #{busy => #{echo => 10}}),
-			     meck:passthrough([[Socket, Version, RemoteIP, Trigger, Args]])
+			     meck:passthrough([[Parent, Socket, Version, RemoteIP, Trigger, Args]])
 		     end),
 
     %% kill all path to ensure the meck override is used

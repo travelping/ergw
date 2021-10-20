@@ -13,7 +13,7 @@
 -compile({no_auto_import,[register/2]}).
 
 %% API
--export([start_link/5, all/1,
+-export([start_link/5, new_path/4, all/1,
 	 gateway_nodes/3,
 	 handle_request/2, handle_response/4,
 	 activity/2, activity/5,
@@ -57,9 +57,7 @@
 %%%===================================================================
 
 start_link(Socket, Version, RemoteIP, Trigger, Args) ->
-    Opts = [{hibernate_after, 5000},
-	    {spawn_opt,[{fullsweep_after, 0}]}],
-    gen_statem:start_link(?MODULE, [Socket, Version, RemoteIP, Trigger, Args], Opts).
+    proc_lib:start_link(?MODULE, init, [[self(), Socket, Version, RemoteIP, Trigger, Args]]).
 
 setopts(Opts0) ->
     Opts = validate_options(Opts0),
@@ -99,12 +97,14 @@ maybe_new_path(Socket, Version, RemoteIP, Trigger) ->
 	Path when is_pid(Path) ->
 	    Path;
 	_ ->
-	    {ok, Args0} = getopts(),
-	    PeerArgs = get_peer_opts(RemoteIP),
-	    Args = maps:merge(Args0, PeerArgs),
-	    {ok, Path} = gtp_path_sup:new_path(Socket, Version, RemoteIP, Trigger, Args),
-	    Path
+	    gtp_path_reg:maybe_new_path(Socket, Version, RemoteIP, Trigger)
     end.
+
+new_path(Socket, Version, RemoteIP, Trigger) ->
+    {ok, Args0} = getopts(),
+    PeerArgs = get_peer_opts(RemoteIP),
+    Args = maps:merge(Args0, PeerArgs),
+    gtp_path_sup:new_path(Socket, Version, RemoteIP, Trigger, Args).
 
 handle_request(#request{socket = Socket, ip = IP} = ReqKey, #gtp{version = Version} = Msg) ->
     Path = maybe_new_path(Socket, Version, IP, activity),
@@ -318,8 +318,10 @@ validate_option(Opt, Value) ->
 
 callback_mode() -> [handle_event_function, state_enter].
 
-init([#socket{name = SocketName} = Socket, Version, RemoteIP, Trigger, Args]) ->
+init([Parent, #socket{name = SocketName} = Socket, Version, RemoteIP, Trigger, Args]) ->
     RegKey = {SocketName, Version, RemoteIP},
+    proc_lib:init_ack(Parent, {ok, self(), RegKey}),
+
     Now = erlang:monotonic_time(),
 
     Data0 = maps:with([busy, idle, suspect, down], Args),
@@ -348,12 +350,14 @@ init([#socket{name = SocketName} = Socket, Version, RemoteIP, Trigger, Args]) ->
 		send_echo_request(State0#state{peer = unknown}, Data1)
 	end,
 
-    gtp_path_reg:register(RegKey, State#state.peer),
-
     Actions = [enter_state_timeout_action(idle, Data),
 	       enter_state_echo_action(idle, Data)],
     ?LOG(debug, "State: ~p~nData: ~p~nActions: ~p~n", [State, Data, Actions]),
-    {ok, State, Data, Actions}.
+
+    LoopOpts = [{hibernate_after, 5000},
+	    {spawn_opt,[{fullsweep_after, 0}]}],
+    gen_statem:enter_loop(
+      ?MODULE, LoopOpts, State, Data, Actions).
 
 handle_event(enter, #state{peer = OldPS} = OldS, #state{peer = down} = State, Data0)
   when OldPS =/= down ->

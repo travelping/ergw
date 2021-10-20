@@ -11,11 +11,11 @@
 
 %% API
 -export([start_link/0]).
--export([register/2, unregister/1, lookup/1]).
+-export([register/2, unregister/1, lookup/1, maybe_new_path/4]).
 -export([all/0, all/1]).
 -export([state/1, state/2]).
 
--ignore_xref([start_link/0]).
+-ignore_xref([start_link/0, register/2]).
 
 %% regine_server callbacks
 -export([init/1, handle_register/4, handle_unregister/3, handle_pid_remove/3,
@@ -25,6 +25,7 @@
 %% Include files
 %% --------------------------------------------------------------------
 -include_lib("stdlib/include/ms_transform.hrl").
+-include("include/ergw.hrl").
 
 -define(SERVER, ?MODULE).
 
@@ -49,6 +50,9 @@ lookup(Key) ->
 	_ ->
 	    undefined
     end.
+
+maybe_new_path(Socket, Version, RemoteIP, Trigger) ->
+    regine_server:call(?SERVER, {maybe_new_path, Socket, Version, RemoteIP, Trigger}).
 
 state(Key, State) ->
     regine_server:call(?SERVER, {state, Key, State}).
@@ -99,6 +103,16 @@ handle_pid_remove(_Pid, Keys, State) ->
 			  gtp_path_db_vnode:detach(Key, node())
 		  end, Keys),
     State.
+
+handle_call({maybe_new_path, #socket{name = SocketName} = Socket, Version, IP, Trigger},
+	    _From, State) ->
+    case lookup({SocketName, Version, IP}) of
+	Path when is_pid(Path) ->
+	    Path;
+	_ ->
+	    {ok, Path, RegKey} = gtp_path:new_path(Socket, Version, IP, Trigger),
+	    {reply, Path, State, [{register, Path, RegKey, undefined}]}
+    end;
 
 handle_call({state, Key, PeerState}, _From, State) ->
     Result = ets:update_element(?SERVER, Key, {3, PeerState}),

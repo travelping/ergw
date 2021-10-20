@@ -1292,12 +1292,12 @@ path_failure_to_pgw_silent(Config) ->
     RemoteCtxKey = #context_key{socket = 'remote-irx', id = {imsi, ?'PROXY-IMSI', 5}},
 
     ok = meck:expect(gtp_path, init,
-		     fun ([Socket, Version, RemoteIP, Trigger, Args0]) ->
+		     fun ([Parent, Socket, Version, RemoteIP, Trigger, Args0]) ->
 			     %% overwrite down notify
 			     Args =
 				 ergw_test_lib:maps_recusive_merge(
 				   Args0, #{down => #{notify => silent}}),
-			     meck:passthrough([[Socket, Version, RemoteIP, Trigger, Args]])
+			     meck:passthrough([[Parent, Socket, Version, RemoteIP, Trigger, Args]])
 		     end),
 
     %% kill all paths to ensure the meck override is used
