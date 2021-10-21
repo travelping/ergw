@@ -73,7 +73,7 @@ components:
         Defines the severity of path events
 
     DhcpRange:
-      onfOf:
+      oneOf:
         - type: object
           properties:
             start:
@@ -226,6 +226,7 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/VrfName"
+        # Timeout in ms 
         inactivity_timeout:
           $ref: "#/components/schemas/TimeoutInf"
 
@@ -524,6 +525,7 @@ components:
               type: string
 
     RateLimits:
+      description: "Message rate limits including defaults and per peer"
       type: object
       properties:
         default:
@@ -629,8 +631,9 @@ components:
     # server, SIP Server) with which the end user is to be connected when
     # the account cannot cover the service cost.
     #
-    # For details on OCS-Hold and how CC-Time are generated when
-    # the OCS system cannot be reached, see
+    # For details on OCS-Hold and how CC-Time are generated
+    # from the CC-Time-Min and CC-Time-Max internal AVPs 
+    # when the OCS system cannot be reached, see
     # https://github.com/travelping/ergw_aaa/blob/master/doc/ocs_hold.md
 
     AaaAvp:
@@ -853,7 +856,6 @@ components:
         product_name:
           type: string
         rate_limits:
-          description: "Message rate limits including defaults and per peer"
           $ref: "#/components/schemas/RateLimits"
         functions:
           description: "External Diameter nodes"
@@ -920,6 +922,55 @@ components:
         - x-sxc
         - x-urcmp
       type: string
+
+    HostRecord:
+      type: object
+      properties:
+        type:
+          type: string
+          enum:
+          - host
+        name:
+          type: string
+        ip4:
+          type: array
+          items:
+            type: string # FIXME use IPv4 or IPv6 formatted strings
+        ip6:
+          type: array
+          items:
+            type: string # FIXME use IPv4 or IPv6 formatted strings
+
+    NaptrRecord:
+      type: object
+      properties:
+        type: 
+          type: string
+          enum:
+          - naptr
+        name:
+          type: string
+        order:
+          type: integer # FIXME what is this?
+        preference:
+          type: integer # FIXME what is this?
+        # IETF RFC 3958 app-protocol name (see 23.003, section 19.4.3)
+        # ggsn_gn, pgw_s5s8, saegw_s11 use x-sxb to select UPF
+        # ggsn_gn_proxy, pgw_s5s8_proxy use x-sxa to select UPF
+        protocols:
+          type: array
+          items:
+            $ref: "#/components/schemas/3gppDnsProtocols"
+        replacement:
+          type: string # next record, to be found by 'name'
+        # IETF RFC 3958 app-service name (see 23.003, section 19.4.3)
+        # x-3gpp-ggsn uses x-gn or x-gp
+        # x-3gpp-pgw uses x-gn, x-gp, x-s5-gtp or x-s8-gtp
+        # x-3gpp-upf
+        service:
+          type: array
+          items:
+            $ref: "#/components/schemas/3gppDnsServices"
 
 type: object
 properties:
@@ -1090,6 +1141,8 @@ properties:
 
   handlers:
     type: array
+    # gn/gp protocols use GTPv1
+    # s5/s8 protocols use GTPv2
     items:
       oneOf:
         - $ref: "#/components/schemas/PGwHandler"
@@ -1155,6 +1208,15 @@ properties:
         items:
           type: integer
 
+  # Node selection follows the rules on 3GPP 29.303, section
+  # 4.3 Identifying Nodes, Services and Protocols
+  # The host names shall have form:
+  # <"topon" | "topoff"> . <single-label-interface-name> . <canonical-node-name> 
+  # 5.11 Procedures for Discovering and Selecting PGW-U
+  # 
+  # 3GPP 29.244, section
+  # B.2.6 UP Selection Function Based on DNS
+  # 
   node_selection:
     type: array
     items:
@@ -1221,6 +1283,7 @@ properties:
                 type: integer
               timeout:
                 $ref: "#/components/schemas/TimeoutInf"
+          # IP pools usable by UPFs
           ue_ip_pools:
             type: array
             items:
