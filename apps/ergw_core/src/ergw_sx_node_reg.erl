@@ -10,7 +10,7 @@
 -behaviour(regine_server).
 
 %% API
--export([start_link/0]).
+-export([start_link/0, connect/4, connect/5]).
 -export([register/2, lookup/1, up/2, down/1, available/0]).
 -export([all/0]).
 -export([count_available/0, count_monitors/1]).
@@ -46,6 +46,19 @@ lookup(Key) ->
 	    {ok, Pid};
 	_ ->
 	    {error, not_found}
+    end.
+
+connect(Node, NodeSelect, IP4, IP6) ->
+    connect(Node, NodeSelect, IP4, IP6, []).
+
+connect(Node, NodeSelect, IP4, IP6, NotifyUp)
+  when is_list(NotifyUp) ->
+    case lookup(Node) of
+	{ok, Pid} = Result ->
+	    ergw_sx_node:notify_up(Pid, NotifyUp),
+	    Result;
+	_ ->
+	    regine_server:call(?SERVER, {connect, Node, NodeSelect, IP4, IP6, NotifyUp})
     end.
 
 up(Key, Caps) ->
@@ -94,6 +107,17 @@ handle_pid_remove(_Pid, Keys, State) ->
 
 handle_death(_Pid, _Reason, State) ->
     State.
+
+%% serialize lockup/new
+handle_call({connect, Node, NodeSelect, IP4, IP6, NotifyUp}, _From, State) ->
+    case lookup(Node) of
+	{ok, Pid} = Result ->
+	    ergw_sx_node:notify_up(Pid, NotifyUp),
+	    {reply, Result, State};
+	_ ->
+	    {ok, Pid, RegKey} = ergw_sx_node_sup:new(Node, NodeSelect, IP4, IP6, NotifyUp),
+	    {reply, {ok, Pid}, State, [{register, Pid, RegKey, undefined}]}
+    end;
 
 handle_call({up, Key, Caps}, _From, State) ->
     case lookup(Key) of

@@ -170,13 +170,13 @@ add_sx_node(Name, Opts0) ->
 connect_sx_node(_Node, #{connect := false}) ->
     ok;
 connect_sx_node(Node, #{raddr := IP4} = _Opts) when tuple_size(IP4) =:= 4 ->
-    ergw_sx_node_mngr:connect(Node, default, [IP4], []);
+    ergw_sx_node_reg:connect(Node, default, [IP4], []);
 connect_sx_node(Node, #{raddr := IP6} = _Opts) when tuple_size(IP6) =:= 8 ->
-    ergw_sx_node_mngr:connect(Node, default, [], [IP6]);
+    ergw_sx_node_reg:connect(Node, default, [], [IP6]);
 connect_sx_node(Node, #{node_selection := NodeSelect} = Opts) ->
     case ergw_node_selection:lookup(Node, NodeSelect) of
 	{_, IP4, IP6} ->
-	    ergw_sx_node_mngr:connect(Node, NodeSelect, IP4, IP6);
+	    ergw_sx_node_reg:connect(Node, NodeSelect, IP4, IP6);
 	_Other ->
 	    %% TBD
 	    {error, {badarg, [Node, Opts]}}
@@ -339,7 +339,7 @@ port_message(_Server, Request, Msg, _Resent) ->
 callback_mode() -> [handle_event_function, state_enter].
 
 init([Parent, Node, NodeSelect, IP4, IP6, NotifyUp]) ->
-    ergw_sx_node_reg:register(Node, self()),
+    proc_lib:init_ack(Parent, {ok, self(), Node}),
 
     {ok, CP, Socket, SockInfo} = ergw_sx_socket:id(),
     {ok, TEI} = ergw_tei_mngr:alloc_tei(Socket),
@@ -384,7 +384,6 @@ init([Parent, Node, NodeSelect, IP4, IP6, NotifyUp]) ->
 		  notify_up = NotifyUp
 		 },
     Data = init_node_cfg(Data0),
-    proc_lib:init_ack(Parent, {ok, self()}),
 
     resolve_and_enter_loop(Node, IP, Data).
 
@@ -746,7 +745,7 @@ connect_node({Name, _, _, _, _}, _NodeSelect, Available, Expects)
     Expects;
 connect_node({Node, _, _, IP4, IP6}, NodeSelect, _Available, Expects) ->
     NotifyUp = {self(), make_ref()},
-    ergw_sx_node_mngr:connect(Node, NodeSelect, IP4, IP6, [NotifyUp]),
+    ergw_sx_node_reg:connect(Node, NodeSelect, IP4, IP6, [NotifyUp]),
     [NotifyUp | Expects].
 
 notify_up(Server, [{Pid, Ref}|_] = NotifyUp) when is_pid(Pid), is_reference(Ref) ->
