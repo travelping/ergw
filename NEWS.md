@@ -5,7 +5,7 @@ Version 3.1.0 - 4 October 2021
 -------------------------------
 
 **Features** :rocket:
-* [#413](https://github.com/travelping/ergw/pull/413) Add `ergw_sbi_client`
+* [#411](https://github.com/travelping/ergw/pull/411) Add `ergw_sbi_client`
 * [#412](https://github.com/travelping/ergw/pull/412) Enhance `VRF` and node selection
 * [#414](https://github.com/travelping/ergw/pull/414) Use structured location types everywhere
 * [#415](https://github.com/travelping/ergw/pull/415) Fix handling of structured data in `MCC-MNC` `3GPP` values
@@ -52,15 +52,28 @@ Version 3.0.0 - 25 June 2021
 **Improvements** :bulb:
 * [#354](https://github.com/travelping/ergw/pull/354) Refactor application split and with it also config handling
 
+**[Compare 2.8.15...3.0.0](https://github.com/travelping/ergw/compare/2.8.14...3.0.0)**
+
+Version 2.8.15 - 16 September 2021
+-------------------------------
+**Bugfixes** :bug:
+* [#432](https://github.com/travelping/ergw/pull/432), [#434](https://github.com/travelping/ergw/pull/434) Fix `gtp_gtp` monitors
+
+**[Compare 2.8.14...2.8.15](https://github.com/travelping/ergw/compare/2.8.14...2.8.15)**
+
 Version 2.8.14 - 3 June 2021
 -------------------------------
 **Bugfixes** :bug:
 * [#401](https://github.com/travelping/ergw/pull/401) Lowercase `APN` expansion
 
+**[Compare 2.8.13...2.8.14](https://github.com/travelping/ergw/compare/2.8.13...2.8.14)**
+
 Version 2.8.13 - 1 June 2021
 -------------------------------
 **Bugfixes** :bug:
 * [#395](https://github.com/travelping/ergw/pull/395) Lowercase `APN` before further processing it
+
+**[Compare 2.8.12...2.8.13](https://github.com/travelping/ergw/compare/2.8.12...2.8.13)**
 
 Version 2.8.12 - 31 May 2021
 -------------------------------
@@ -74,16 +87,22 @@ Version 2.8.12 - 31 May 2021
 **Dependencies** :gear:
 * [#389](https://github.com/travelping/ergw/pull/389) Update [ergw_aaa](https://github.com/travelping/ergw_aaa) tag to [3.6.14](https://github.com/travelping/ergw_aaa/releases/tag/3.6.14)
 
+**[Compare 2.8.11...2.8.12](https://github.com/travelping/ergw/compare/2.8.11...2.8.12)**
+
 Version 2.8.11 - 23 April 2021
 -------------------------------
 **Improvements** :bulb:
 * [#369](https://github.com/travelping/ergw/pull/369) Start use fork of `prometheus` with speedup fix
+
+**[Compare 2.8.10...2.8.11](https://github.com/travelping/ergw/compare/2.8.10...2.8.11)**
 
 Version 2.8.10 - 7 April 2021
 -------------------------------
 **Bugfixes** :bug:
 * [cfdf116](https://github.com/travelping/ergw/commit/cfdf1162fbdc3d955f26b85bf6f2ce23c4a4f942) DNS lookup responses with no answer records are not cached
 > As a temporary fix, the simple DNS cache is used on this patch release.
+
+**[Compare 2.8.9...2.8.10](https://github.com/travelping/ergw/compare/2.8.9...2.8.10)**
 
 Version 2.8.9 - 25 March 2021
 -------------------------------
@@ -103,6 +122,8 @@ Version 2.8.9 - 25 March 2021
 * [#337](https://github.com/travelping/ergw/pull/337) Update [pfcplib](https://github.com/travelping/pfcplib) tag to [2.0.0](https://github.com/travelping/pfcplib/releases/tag/2.0.0)
 * [#351](https://github.com/travelping/ergw/pull/351) Update [gtplib](https://github.com/travelping/gtplib) tag to [2.0.1](https://github.com/travelping/gtplib/releases/tag/2.0.1)
 
+**[Compare 2.8.8...2.8.9](https://github.com/travelping/ergw/compare/2.8.8...2.8.9)**
+
 Version 2.8.8 - 9 March 2021
 -------------------------------
 
@@ -116,6 +137,8 @@ Version 2.8.8 - 9 March 2021
 * [#341](https://github.com/travelping/ergw/pull/341) Udpate OTP image to `23.2.7`
 * [#334](https://github.com/travelping/ergw/pull/334) add `UP VTIME` feature support
 
+**[Compare 2.8.7...2.8.8](https://github.com/travelping/ergw/compare/2.8.7...2.8.8)**
+
 Version 2.8.7 - 26 February 2021
 -------------------------------
 
@@ -123,6 +146,8 @@ Version 2.8.7 - 26 February 2021
 * [#326](https://github.com/travelping/ergw/pull/326) Return proper sender `TEID` when rejecting new sessions
 * [#327](https://github.com/travelping/ergw/pull/327) Use `Bearer QoS` from session in `Create Session Response`
 * [#325](https://github.com/travelping/ergw/pull/325) Switch to `rand:uniform/1` for `SEID` generation
+
+**[Compare 2.8.6...2.8.7](https://github.com/travelping/ergw/compare/2.8.6...2.8.7)**
 
 Version 2.8.6 - 4 February 2021
 -------------------------------
@@ -143,6 +168,8 @@ Version 2.8.6 - 4 February 2021
 * [#315](https://github.com/travelping/ergw/pull/315) Implement configurable `GTP` path `ICMP` error behaviour
 * [#306](https://github.com/travelping/ergw/pull/306) Implement configurable `GTP` `RTT` metrics interval
 
+**[Compare 2.8.5...2.8.6](https://github.com/travelping/ergw/compare/2.8.5...2.8.6)**
+
 Version 2.8.5 - 29 January 2021
 -------------------------------
 
@@ -155,11 +182,15 @@ Version 2.8.5 - 29 January 2021
 **Bugfixes** :bug:
 * [#298](https://github.com/travelping/ergw/pull/298) Remove non use option and fix `dev-sx.config`
 
+**[Compare 2.8.4...2.8.5](https://github.com/travelping/ergw/compare/2.8.4...2.8.5)**
+
 Version 2.8.4 - 26 January 2021
 -------------------------------
 
 **Bugfixes** :bug:
 * [#296](https://github.com/travelping/ergw/pull/296) Fix reliably delete `PFCP` session
+
+**[Compare 2.8.3...2.8.4](https://github.com/travelping/ergw/compare/2.8.3...2.8.4)**
 
 Version 2.8.3 - 22 January 2021
 -------------------------------
@@ -188,6 +219,8 @@ Version 2.8.3 - 22 January 2021
 **Bugfixes** :bug:
 * [#282](https://github.com/travelping/ergw/pull/282) Fix online charging `URR` link
 
+**[Compare 2.8.2...2.8.3](https://github.com/travelping/ergw/compare/2.8.2...2.8.3)**
+
 Version 2.8.2 - 10 December 2020
 -------------------------------
 
@@ -199,6 +232,8 @@ Version 2.8.2 - 10 December 2020
 * Improve session termination reason handling - [PR #271](https://github.com/travelping/ergw/pull/271)
 * Add miss test case of proxy_lib_SUITE - [PR #270](https://github.com/travelping/ergw/pull/270)
 
+**[Compare 2.8.1...2.8.2](https://github.com/travelping/ergw/compare/2.8.1...2.8.2)**
+
 Version 2.8.1 - 25 November 2020
 -------------------------------
 
@@ -208,6 +243,8 @@ Version 2.8.1 - 25 November 2020
 * Fix proxy `gw` selection when a `gw` is `down`
 * Fix issue [#133](https://github.com/travelping/ergw/issues/133) for correct display of IPv4 and IPv6
 
+**[Compare 2.8.0...2.8.1](https://github.com/travelping/ergw/compare/2.8.0...2.8.1)**
+
 Version 2.8.0 - 16 November 2020
 -------------------------------
 
@@ -216,8 +253,10 @@ Version 2.8.0 - 16 November 2020
 * Remove reliance on User Plane IP Resource Information IE
 * Update [ergw_aaa](https://github.com/travelping/ergw_aaa) tag to [3.6.2](https://github.com/travelping/ergw_aaa/releases/tag/3.6.2)
 * Fix Common Tests
-* Handle timeouts create `session`/`pdp_context` requests 
+* Handle timeouts create `session`/`pdp_context` requests
 * Extend delete contexts REST API for delete all contexts: `/api/v1/contexts`
+
+**[Compare 2.7.2...2.8.0](https://github.com/travelping/ergw/compare/2.7.2...2.8.0)**
 
 Version 2.7.2 - 5 November 2020
 -------------------------------
@@ -225,10 +264,14 @@ Version 2.7.2 - 5 November 2020
 * Update [prometheus_diameter_collector](https://github.com/travelping/prometheus_diameter_collector) tag to [1.0.1](https://github.com/travelping/prometheus_diameter_collector/releases/tag/1.0.1) for handle discarded answers in the diameter stats
 * Added [SemVer](https://semver.org/) for `erGw` for skip step of change `rebar.config` each time when version of project will update.
 
+**[Compare 2.7.1...2.7.2](https://github.com/travelping/ergw/compare/2.7.1...2.7.2)**
+
 Version 2.7.1 - 28 October 2020
 -------------------------------
 
 * Update [ergw_aaa](https://github.com/travelping/ergw_aaa) tag to [3.6.1](https://github.com/travelping/ergw_aaa/releases/tag/3.6.1)
+
+**[Compare 2.7.0...2.7.1](https://github.com/travelping/ergw/compare/2.7.0...2.7.1)**
 
 Version 2.7.0 - 26 October 2020
 -------------------------------
@@ -236,6 +279,8 @@ Version 2.7.0 - 26 October 2020
 * Added termination cause mapping
 * Fixed broken `ergw-c-node.config`
 * Update [ergw_aaa](https://github.com/travelping/ergw_aaa) tag to [3.6.0](https://github.com/travelping/ergw_aaa/releases/tag/3.6.0)
+
+**[Compare 2.6.1...2.7.0](https://github.com/travelping/ergw/compare/2.6.1...2.7.0)**
 
 Version 2.6.1 - 08 October 2020
 -------------------------------
@@ -266,7 +311,7 @@ Version 2.6.0 - 02 October 2020
         in the node config (see: `config/ergw-c-node.config` for example)
 
 
-* unify socket definition. 
+* unify socket definition.
   NOTE: this requires changes to the configuration
   of *ergw*: `sx_socket` is removed from the *ergw* configuration, `sx` socket
   is now handled in the `sockets` section of *ergw*. See
