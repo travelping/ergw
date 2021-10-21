@@ -213,7 +213,7 @@ attach_tdf(SxNode, #{node_selection := NodeSelections} = Opts, _, true) ->
 	     NodeLookup([NodeSelection | NextSelection]) ->
 		 case ergw_node_selection:lookup(SxNode, NodeSelection) of
 		     {Node, IP4, IP6} ->
-			 ergw_sx_node_mngr:connect(Node, NodeSelection, IP4, IP6);
+			 ergw_sx_node_reg:connect(Node, NodeSelection, IP4, IP6);
 		     _Other ->
 			 ?LOG(warning, "TDF lookup for ~p failed ~p", [SxNode, _Other]),
 			 NodeLookup(NextSelection)
