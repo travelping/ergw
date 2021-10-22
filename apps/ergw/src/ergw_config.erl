@@ -870,20 +870,22 @@ to_boolean("true") -> true;
 to_boolean(<<"true">>) -> true;
 to_boolean(V) when is_boolean(V) -> V.
 
-%% to_atom(V) when is_atom(V) ->
-%%     V;
-%% to_atom(V) when is_binary(V) ->
-%%     binary_to_existing_atom(V);
-%% to_atom(V) when is_list(V) ->
-%%     list_to_existing_atom(V).
-
 to_atom(V) when is_atom(V) ->
     V;
 to_atom(V) when is_binary(V) ->
-    binary_to_atom(V);
+    try
+        binary_to_existing_atom(V)
+    catch
+        _:_ ->
+            binary_to_atom(V)
+    end;
 to_atom(V) when is_list(V) ->
-    list_to_atom(V).
-
+    try
+        list_to_existing_atom(V)
+    catch
+        _:_ ->
+            list_to_atom(V)
+    end.
 
 to_integer(V) when is_integer(V) ->
     V;

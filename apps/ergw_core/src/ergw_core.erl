@@ -311,7 +311,7 @@ validate_option(plmn_id, Opts) when is_list(Opts) ->
 validate_option(node_id, Value) when is_binary(Value) ->
     Value;
 validate_option(node_id, Value) when is_list(Value) ->
-    binary_to_atom(iolist_to_binary(Value));
+    to_atom(iolist_to_binary(Value));
 validate_option(accept_new, Value) when is_boolean(Value) ->
     Value;
 validate_option(teid, Value) ->
@@ -439,3 +439,11 @@ load_config(#{plmn_id := PlmnId,
     ok = ergw_core_config:put(node_id, NodeId),
     ok = ergw_core_config:put(teid, TEID),
     ok.
+
+to_atom(V) when is_binary(V) ->
+    try
+        binary_to_existing_atom(V)
+    catch
+        _:_ ->
+            binary_to_atom(V)
+    end.

@@ -104,11 +104,19 @@ read_pods(_, Nodes) ->
     Nodes.
 
 node_names(longnames, Cluster, Names) ->
-    [binary_to_atom(<<Cluster/binary, $@, Name/binary>>) || Name <- Names];
+    [to_atom(<<Cluster/binary, $@, Name/binary>>) || Name <- Names];
 node_names(shortnames, Cluster, Names) ->
     [begin
 	 [SName|_] =  binary:split(Name, <<$.>>),
-	 binary_to_atom(<<Cluster/binary, $@, SName/binary>>)
+	 to_atom(<<Cluster/binary, $@, SName/binary>>)
      end || Name <- Names];
 node_names(_, _, _) ->
     [].
+
+to_atom(V) when is_binary(V) ->
+    try
+        binary_to_existing_atom(V)
+    catch
+        _:_ ->
+            binary_to_atom(V)
+    end.

@@ -231,9 +231,9 @@ translate_option(plmn_id, {MCC, MNC} = Value) ->
 translate_option(node_id, Value) when is_atom(Value), Value /= undefined ->
     Value;
 translate_option(node_id, Value) when is_binary(Value) ->
-    binary_to_atom(Value);
+    to_atom(Value);
 translate_option(node_id, Value) when is_list(Value) ->
-    binary_to_atom(iolist_to_binary(Value));
+    to_atom(iolist_to_binary(Value));
 translate_option(accept_new, Value) when is_boolean(Value) ->
     Value;
 translate_option(cluster, Value) when ?is_opts(Value) ->
@@ -1376,3 +1376,11 @@ aaa_translate_rate_limit_option(_RateLimit, rate, Rate)
     Rate;
 aaa_translate_rate_limit_option(RateLimit, Opt, Value) ->
     throw({error, {options, {RateLimit, Opt, Value}}}).
+
+to_atom(V) when is_binary(V) ->
+    try
+        binary_to_existing_atom(V)
+    catch
+        _:_ ->
+            binary_to_atom(V)
+    end.
