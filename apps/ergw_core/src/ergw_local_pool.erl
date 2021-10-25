@@ -22,7 +22,7 @@
 	 terminate/2, code_change/3]).
 
 -record(state, {name, pools, ipv4_opts, ipv6_opts}).
--record(pool,  {name, type, id, base, size, first, last, shift, used, free, used_pool, free_pool}).
+-record(pool,  {name, type, id, base, size, first, last, shift, used, free, used_pool, free_lru}).
 -record(lease, {ip, client_id}).
 
 -include_lib("kernel/include/logger.hrl").
@@ -193,10 +193,10 @@ init_pools(Name, Ranges) ->
 	      Pools
       end, #{}, Ranges).
 
-init_table(Tid, Start, End) ->
+init_free_lru(Start, End) ->
     Length = End - Start + 1,
     IPsList = uint32_fy_shuffle:shuffle(Length),
-    true = ets:insert(Tid, IPsList).
+    lru:from_list(IPsList).
 
 handle_call({get, ClientId, Type, PrefixLen, ReqOpts}, _From, #state{pools = Pools} = State)
   when is_atom(Type), is_map_key({Type, PrefixLen}, Pools) ->
@@ -276,14 +276,13 @@ alloc_reply({error, _} = Error, _, _) ->
 
 init_pool(Name, Type, First, Last, Shift) ->
     UsedTid = ets:new(used_pool, [set, {keypos, #lease.ip}]),
-    FreeTid = ets:new(free_pool, [ordered_set]),
 
     Id = inet:ntoa(int2ip(Type, First)),
     Start = First bsr Shift,
     End = Last bsr Shift,
     Size = End - Start + 1,
     ?LOG(debug, "init Pool ~w ~p - ~p (~p)", [Id, Start, End, Size]),
-    init_table(FreeTid, Start, End),
+    FreeLRU = init_free_lru(Start, End),
 
     prometheus_gauge:declare([{name, ergw_local_pool_free},
 			      {labels, [name, type, id]},
@@ -297,7 +296,7 @@ init_pool(Name, Type, First, Last, Shift) ->
 	      base = Start, size = Size,
 	      first = First, last = Last, shift = Shift,
 	      used = 0, free = Size,
-	      used_pool = UsedTid, free_pool = FreeTid},
+	      used_pool = UsedTid, free_lru = FreeLRU},
     metrics_sync_gauges(Pool),
     ?LOG(debug, "init Pool state: ~p", [Pool]),
     Pool.
@@ -305,12 +304,11 @@ init_pool(Name, Type, First, Last, Shift) ->
 allocate_ip(ClientId, ReqOpts,
 	    #pool{base = Base,
 		  used = Used, free = Free,
-		  used_pool = UsedTid, free_pool = FreeTid} = Pool0)
+		  used_pool = UsedTid, free_lru = FreeLRU} = Pool0)
   when Free =/= 0 ->
     ?LOG(debug, "~w: Allocate Pool: ~p", [self(), Pool0]),
 
-    {_, Id} = Key = ets:first(FreeTid),
-    ets:delete(FreeTid, Key),
+    {ok, Id} = lru:pop(FreeLRU),
     ets:insert(UsedTid, #lease{ip = Id, client_id = ClientId}),
     IP = id2ip(Base + Id, ReqOpts, Pool0),
     Pool = Pool0#pool{used = Used + 1, free = Free - 1},
@@ -322,14 +320,13 @@ allocate_ip(_ClientId, _ReqOpts, Pool) ->
 release_ip(IP, #pool{base = Base, first = First, last = Last,
 		     shift = Shift,
 		     used = Used, free = Free,
-		     used_pool = UsedTid, free_pool = FreeTid} = Pool0)
+		     used_pool = UsedTid, free_lru = FreeLRU} = Pool0)
   when IP >= First andalso IP =< Last ->
     Id = (IP bsr Shift) - Base,
 
     case ets:take(UsedTid, Id) of
 	[_] ->
-	    Now = erlang:monotonic_time(),
-	    ets:insert(FreeTid, {{Now, Id}}),
+	    lru:push(Id, FreeLRU),
 	    Pool = Pool0#pool{used = Used - 1, free = Free + 1},
 	    metrics_sync_gauges(Pool),
 	    Pool;
@@ -348,13 +345,12 @@ take_ip(ClientId, IP, ReqOpts,
 	#pool{base = Base, first = First, last = Last,
 	      shift = Shift,
 	      used = Used, free = Free,
-	      used_pool = UsedTid, free_pool = FreeTid} = Pool0)
+	      used_pool = UsedTid, free_lru = FreeLRU} = Pool0)
   when IP >= First andalso IP =< Last ->
     Id = (IP bsr Shift) - Base,
 
-    case ets:match_object(FreeTid, {{'_', Id}}) of
-	[{Key}] ->
-	    ets:delete(FreeTid, Key),
+    case lru:take(Id, FreeLRU) of
+	ok ->
 	    ets:insert(UsedTid, #lease{ip = Id, client_id = ClientId}),
 	    Pool = Pool0#pool{used = Used + 1, free = Free - 1},
 	    metrics_sync_gauges(Pool),
