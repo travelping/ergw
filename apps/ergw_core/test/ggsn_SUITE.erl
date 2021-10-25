@@ -694,13 +694,25 @@ end_per_testcase(Config) ->
 		ergw_test_lib:maybe_end_fail(Result1, {pool_free, #{wanted => ?IPv4PoolSize, got => OtherSize}})
 	end,
 
+    TunnelState =
+	lists:foldl(
+	  fun(_, Acc) when Acc =:= ok -> Acc;
+	     (#{tunnels := 1}, _) -> ok;
+	     (X, _) -> X
+	  end, ok, ergw_api:peer(all)),
+    Result3 =
+	case TunnelState of
+	    ok -> Result2;
+	    _ -> ergw_test_lib:maybe_end_fail(Result2, {tunnels_left, TunnelState})
+	end,
+
     %% stop all paths
     lists:foreach(fun({_, Pid, _}) -> gtp_path:stop(Pid) end, gtp_path_reg:all()),
 
     AppsCfg = proplists:get_value(aaa_cfg, Config),
     ok = application:set_env(ergw_aaa, apps, AppsCfg),
     ergw_test_lib:set_online_charging(false),
-    Result2.
+    Result3.
 
 end_per_testcase(TestCase, Config)
   when TestCase == create_pdp_context_request_aaa_reject;

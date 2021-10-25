@@ -282,7 +282,7 @@ init_pool(Name, Type, First, Last, Shift) ->
     Start = First bsr Shift,
     End = Last bsr Shift,
     Size = End - Start + 1,
-    ?LOG(debug, "init Pool ~w ~p - ~p (~p)", [Id, Start, End, Size]),
+    ?LOG(debug, "init Pool ~p ~p - ~p (~p)", [Id, Start, End, Size]),
     init_table(FreeTid, Start, End),
 
     prometheus_gauge:declare([{name, ergw_local_pool_free},

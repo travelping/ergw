@@ -110,8 +110,8 @@ handle_event({timeout, context_idle}, check_session_liveness, State, Data) ->
       fun check_pfcp_session_liveness_fail/3,
       State#{fsm := busy}, Data);
 
-handle_event(info, _Info, _State, _Data) ->
-    %% ?LOG(warning, "~p, handle_info(~p, ~p)", [?MODULE, _Info, Data]),
+handle_event(info, _Info, _State, Data) ->
+    ?LOG(warning, "~p, handle_info(~p, ~p)", [?MODULE, _Info, Data]),
     keep_state_and_data.
 
 check_pfcp_session_liveness_ok(_, State, #{context := Context} = Data) ->
