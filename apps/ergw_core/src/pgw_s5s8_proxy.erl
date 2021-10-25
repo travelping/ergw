@@ -9,6 +9,10 @@
 
 -behaviour(gtp_api).
 
+%% interim measure, to make refactoring simpler
+-compile([export_all, nowarn_export_all]).
+-ignore_xref([?MODULE]).
+
 -compile([{parse_transform, do},
 	  {parse_transform, cut}]).
 
@@ -23,6 +27,7 @@
 -include_lib("gtplib/include/gtp_packet.hrl").
 -include_lib("pfcplib/include/pfcp_packet.hrl").
 -include("include/ergw.hrl").
+-include("pgw_s5s8.hrl").
 
 -import(ergw_aaa_session, [to_session/1]).
 
@@ -47,26 +52,6 @@
 %====================================================================
 %% API
 %%====================================================================
-
--define('Cause',					{v2_cause, 0}).
--define('Recovery',					{v2_recovery, 0}).
--define('IMSI',						{v2_international_mobile_subscriber_identity, 0}).
--define('MSISDN',					{v2_msisdn, 0}).
--define('PDN Address Allocation',			{v2_pdn_address_allocation, 0}).
--define('RAT Type',					{v2_rat_type, 0}).
--define('Sender F-TEID for Control Plane',		{v2_fully_qualified_tunnel_endpoint_identifier, 0}).
--define('Access Point Name',				{v2_access_point_name, 0}).
--define('Bearer Contexts',				{v2_bearer_context, 0}).
--define('Protocol Configuration Options',		{v2_protocol_configuration_options, 0}).
--define('ME Identity',					{v2_mobile_equipment_identity, 0}).
--define('AMBR',						{v2_aggregate_maximum_bit_rate, 0}).
-
--define('EPS Bearer ID',                                {v2_eps_bearer_id, 0}).
-
--define('S5/S8-U SGW',  4).
--define('S5/S8-U PGW',  5).
--define('S5/S8-C SGW',  6).
--define('S5/S8-C PGW',  7).
 
 -define(CAUSE_OK(Cause), (Cause =:= request_accepted orelse
 			  Cause =:= request_accepted_partially orelse
@@ -98,7 +83,7 @@ request_spec(v2, delete_session_response, _) ->
     [{?'Cause',						mandatory}];
 request_spec(v2, update_bearer_request, _) ->
     [{?'Bearer Contexts',				mandatory},
-     {?'AMBR',						mandatory}];
+     {?'APN-AMBR',					mandatory}];
 request_spec(v2, update_bearer_response, _) ->
     [{?'Cause',						mandatory},
      {?'Bearer Contexts',				mandatory}];
@@ -236,98 +221,10 @@ handle_request(_ReqKey, _Request, true, _State, _Data) ->
 		[_ReqKey, gtp_c_lib:fmt_gtp(_Request)]),
     keep_state_and_data;
 
-handle_request(ReqKey,
-	       #gtp{type = create_session_request, ie = IEs} = Request,
-	       _Resent,  #{session := SState} = State,
-	       #{context := Context0, aaa_opts := AAAopts, node_selection := NodeSelect,
-		 left_tunnel := LeftTunnel0,
-		 bearer := #{left := LeftBearer0} = Bearer0,
-		 'Session' := Session} = Data)
+handle_request(ReqKey, #gtp{type = create_session_request} = Request, Resent,
+	       #{session := SState} = State, Data)
   when SState == init; SState == connecting ->
-
-    Context = pgw_s5s8:update_context_from_gtp_req(Request, Context0),
-
-    {LeftTunnel1, LeftBearer1} =
-	case pgw_s5s8:update_tunnel_from_gtp_req(Request, LeftTunnel0, LeftBearer0) of
-	    {ok, Result1} -> Result1;
-	    {error, Err1} -> throw(Err1#ctx_err{tunnel = LeftTunnel0})
-	end,
-    Bearer1 = Bearer0#{left => LeftBearer1},
-    LeftTunnel =
-	case gtp_path:bind_tunnel(LeftTunnel1) of
-	    {ok, LT} -> LT;
-	    {error, Err1a} -> throw(Err1a#ctx_err{context = Context, tunnel = LeftTunnel1})
-	end,
-
-    gtp_context:terminate_colliding_context(LeftTunnel, Context),
-
-    SessionOpts0 = pgw_s5s8:init_session(IEs, LeftTunnel, Context, AAAopts),
-    SessionOpts = pgw_s5s8:init_session_from_gtp_req(IEs, AAAopts, LeftTunnel, LeftBearer1, SessionOpts0),
-
-    ProxyInfo =
-	case handle_proxy_info(SessionOpts, LeftTunnel, LeftBearer1, Context, Data) of
-	    {ok, Result2} -> Result2;
-	    {error, Err2} -> throw(Err2#ctx_err{tunnel = LeftTunnel})
-	end,
-
-    ProxySocket = ergw_proxy_lib:select_gtp_proxy_sockets(ProxyInfo, Data),
-
-    %% GTP v2 services only, we don't do v1 to v2 conversion (yet)
-    Services = [{'x-3gpp-pgw', 'x-s8-gtp'}, {'x-3gpp-pgw', 'x-s5-gtp'}],
-    ProxyGGSN =
-	case ergw_proxy_lib:select_gw(ProxyInfo, v2, Services, NodeSelect, ProxySocket) of
-	    {ok, Result3} -> Result3;
-	    {error, Err3} -> throw(Err3#ctx_err{tunnel = LeftTunnel})
-	end,
-
-    Candidates = ergw_proxy_lib:select_sx_proxy_candidate(ProxyGGSN, ProxyInfo, Data),
-    SxConnectId = ergw_sx_node:request_connect(Candidates, NodeSelect, 1000),
-
-    {ok, _} = ergw_aaa_session:invoke(Session, SessionOpts, start, #{async =>true}),
-
-    ProxyContext = init_proxy_context(Context, ProxyInfo),
-    RightTunnel0 = init_proxy_tunnel(ProxySocket, ProxyGGSN),
-    {ok, {Lease, RightTunnel}} = gtp_path:aquire_lease(RightTunnel0),
-
-    ergw_sx_node:wait_connect(SxConnectId),
-    {PCtx0, NodeCaps} =
-	case ergw_pfcp_context:select_upf(Candidates) of
-	    {ok, Result4} -> Result4;
-	    {error, Err4} -> throw(Err4#ctx_err{context = ProxyContext, tunnel = LeftTunnel})   %% TBD: proxy context ???
-	end,
-
-    Bearer2 =
-	case ergw_gsn_lib:assign_local_data_teid(left, PCtx0, NodeCaps, LeftTunnel, Bearer1) of
-	    {ok, Result5} -> Result5;
-	    {error, Err5} -> throw(Err5#ctx_err{tunnel = LeftTunnel})
-	end,
-    Bearer3 =
-	case ergw_gsn_lib:assign_local_data_teid(right, PCtx0, NodeCaps, RightTunnel, Bearer2) of
-	    {ok, Result6} -> Result6;
-	    {error, Err6} -> throw(Err6#ctx_err{tunnel = LeftTunnel})
-	end,
-
-    PCC = ergw_proxy_lib:proxy_pcc(),
-    {PCtx, Bearer, _} =
-	case ergw_pfcp_context:create_session(gtp_context, PCC, PCtx0, Bearer3, Context) of
-	    {ok, Result7} -> Result7;
-	    {error, Err7} -> throw(Err7#ctx_err{tunnel = LeftTunnel})
-	end,
-
-    case gtp_context:remote_context_register_new(LeftTunnel, Bearer, Context) of
-	ok -> ok;
-	{error, Err8} -> throw(Err8#ctx_err{tunnel = LeftTunnel})
-    end,
-
-    DataNew =
-	Data#{context => Context, proxy_context => ProxyContext, pfcp => PCtx,
-	      left_tunnel => LeftTunnel, right_tunnel => RightTunnel, bearer => Bearer},
-    forward_request(sgw2pgw, ReqKey, Request, RightTunnel, Lease,
-		    maps:get(right, Bearer), ProxyContext, DataNew, Data),
-
-    %% 30 second timeout to have enough room for resents
-    Action = [{state_timeout, 30 * 1000, ReqKey}],
-    {next_state, State#{session := connecting}, DataNew, Action};
+    pgw_s5s8_proxy_create_session:create_session(ReqKey, Request, Resent, State, Data);
 
 handle_request(ReqKey,
 	       #gtp{type = modify_bearer_request} = Request,

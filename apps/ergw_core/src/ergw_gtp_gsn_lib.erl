@@ -15,6 +15,8 @@
 -export([triggered_charging_event/4, usage_report/3, close_context/3, close_context/4,
 	 close_context_m/4]).
 -export([handle_peer_change/3, update_tunnel_endpoint/2, apply_bearer_change/2]).
+-export([remote_context_register_new/0,
+	 pfcp_create_session_response/1]).
 
 -include_lib("kernel/include/logger.hrl").
 -include_lib("gtplib/include/gtp_packet.hrl").

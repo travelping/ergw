@@ -10,6 +10,7 @@
 -define('RAT Type',					{v2_rat_type, 0}).
 -define('Sender F-TEID for Control Plane',		{v2_fully_qualified_tunnel_endpoint_identifier, 0}).
 -define('Access Point Name',				{v2_access_point_name, 0}).
+-define('Bearer Contexts',				{v2_bearer_context, 0}).
 -define('Bearer Contexts to be created',		{v2_bearer_context, 0}).
 -define('Bearer Contexts to be modified',		{v2_bearer_context, 0}).
 -define('Protocol Configuration Options',		{v2_protocol_configuration_options, 0}).
