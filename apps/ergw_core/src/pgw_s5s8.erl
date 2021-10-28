@@ -291,9 +291,9 @@ handle_response({From, TermCause},
 		#gtp{type = delete_bearer_response,
 		     ie = #{?'Cause' := #v2_cause{v2_cause = RespCause}} = IEs},
 		_Request, State,
-		#{context := Context, 'Session' := Session} = Data0) ->
-    process_secondary_rat_usage_data_reports(IEs, Context, Session),
-    Data = ergw_gtp_gsn_lib:close_context(?API, TermCause, Data0),
+		#{context := Context, chf := CHF0} = Data0) ->
+    CHF = process_secondary_rat_usage_data_reports(IEs, Context, CHF0),
+    Data = ergw_gtp_gsn_lib:close_context(?API, TermCause, Data0#{chf := CHF}),
     if is_tuple(From) -> gen_statem:reply(From, {ok, RespCause});
        true -> ok
     end,
@@ -636,27 +636,24 @@ sec_rat_udr_to_report([H|T], Ctx, Reports) ->
 
 process_secondary_rat_usage_data_reports(#{?'Secondary RAT Usage Data Report' := SecRatUDR}) ->
     do([statem_m ||
-	   #{context := Context, 'Session' := Session} <- statem_m:get_data(),
+	   #{context := Context, chf := CHF0} <- statem_m:get_data(),
 	   Report =
 	       #{'RAN-Secondary-RAT-Usage-Report' =>
 		     sec_rat_udr_to_report(SecRatUDR, Context, [])},
-	   ReqId <- statem_m:return(
-		      ergw_context_statem:send_request(
-			fun() -> ergw_aaa_session:invoke(Session, Report, {rf, 'Update'}, #{async => false}) end)),
-	   statem_m:wait(ReqId),
+	   CHF = ergw_sbi_chf_client:report_usage(Report, CHF0),
+	   statem_m:modify_data(_#{chf := CHF}),
 	   return()]);
 process_secondary_rat_usage_data_reports(_) ->
     do([statem_m || return()]).
 
 process_secondary_rat_usage_data_reports(#{?'Secondary RAT Usage Data Report' := SecRatUDR},
-					 Context, Session) ->
+					 Context, CHF) ->
     Report =
 	#{'RAN-Secondary-RAT-Usage-Report' =>
 	      sec_rat_udr_to_report(SecRatUDR, Context, [])},
-    ergw_aaa_session:invoke(Session, Report, {rf, 'Update'}, #{async => false}),
-    ok;
-process_secondary_rat_usage_data_reports(_, _, _) ->
-    ok.
+    ergw_sbi_chf_client:report_usage(Report, CHF);
+process_secondary_rat_usage_data_reports(_, _, CHF) ->
+    CHF.
 
 init_session_from_gtp_req(IEs, AAAopts, Tunnel, Bearer, Session0)
   when is_record(Tunnel, tunnel), is_record(Bearer, bearer) ->

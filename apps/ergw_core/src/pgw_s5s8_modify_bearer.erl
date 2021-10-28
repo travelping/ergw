@@ -118,7 +118,7 @@ modify_bearer_fun(#gtp{type = modify_bearer_request, ie = IEs} = Request, State,
     statem_m:run(
       do([statem_m ||
 	     _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
-	     process_secondary_rat_usage_data_reports(IEs),
+	     pgw_s5s8:process_secondary_rat_usage_data_reports(IEs),
 	     #{left_tunnel := LeftTunnelOld,
 	       bearer := #{left := LeftBearerOld}} <- statem_m:get_data(),
 	     ergw_gtp_gsn_lib:update_tunnel_from_gtp_req(pgw_s5s8, v2, left, Request),
@@ -132,21 +132,12 @@ modify_bearer_fun(#gtp{type = modify_bearer_request, ie = IEs} = Request, State,
     statem_m:run(
       do([statem_m ||
 	     _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
-	     process_secondary_rat_usage_data_reports(IEs),
+	     pgw_s5s8:process_secondary_rat_usage_data_reports(IEs),
 	     ergw_gtp_gsn_lib:update_tunnel_from_gtp_req(pgw_s5s8, v2, left, Request),
 	     ergw_gtp_gsn_lib:update_tunnel_endpoint(left, Data),
 	     URRActions <- ergw_gtp_gsn_lib:collect_charging_events(pgw_s5s8, IEs),
 	     ergw_gtp_gsn_lib:usage_report_m(URRActions)
 	 ]), State, Data).
-
-process_secondary_rat_usage_data_reports(IEs) ->
-    do([statem_m ||
-	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
-	   #{context := Context, 'Session' := Session} <- statem_m:get_data(),
-
-	   %% TODO: this call blocking AAA API, convert to send_request/wait
-	   statem_m:lift(pgw_s5s8:process_secondary_rat_usage_data_reports(IEs, Context, Session))
-       ]).
 
 handle_bearer_change(URRActions, _LeftTunnelOld, LeftBearerOld, LeftBearer)
   when LeftBearerOld =:= LeftBearer ->

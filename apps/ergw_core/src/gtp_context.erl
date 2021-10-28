@@ -841,7 +841,8 @@ gx_rar_fun(#aaa_request{events = Events}, State, Data) ->
 	     GyResult <- statem_m:wait(GyReqId),
 	     GyEvs <- statem_m:lift(GyResult),
 
-	     _ = ergw_gsn_lib:process_offline_charging_events(ChargeEv, Offline, Now, Session),
+	     CHF <- statem_m:get_data(maps:get(chf, _)),
+	     _ = ergw_gsn_lib:process_offline_charging_events(ChargeEv, Offline, Now, Session, CHF),
 
 	     %% install the new rules, collect any errors
 	     PCCErrors2 <- gy_events_to_pcc_ctx(Now, GyEvs, _, _),

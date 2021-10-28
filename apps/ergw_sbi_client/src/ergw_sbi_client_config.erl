@@ -32,5 +32,16 @@ validate_option(upf_selection = Opt, #{default := [_|_],
 	  _ ->
 	      erlang:error(badarg, [Opt, Value])
       end;
+validate_option(chf = Opt, #{default := [_|_],
+			     endpoint := [_|_] = URI,
+			     timeout := T} = Value)
+  when is_integer(T), T > 0->
+      case uri_string:parse(URI) of
+	  #{host := _, path := _, scheme := _} ->
+	      ok = application:set_env(ergw_sbi_client, Opt, Value),
+	      Value;
+	  _ ->
+	      erlang:error(badarg, [Opt, Value])
+      end;
 validate_option(Opt, Value) ->
     erlang:error(badarg, [Opt, Value]).

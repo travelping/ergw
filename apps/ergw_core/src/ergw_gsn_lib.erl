@@ -20,8 +20,8 @@
 -export([
 	 process_online_charging_events/4,
 	 process_online_charging_events_sync/4,
-	 process_offline_charging_events/4,
 	 process_offline_charging_events/5,
+	 process_offline_charging_events/6,
 	 process_accounting_monitor_events/4,
 	 secondary_rat_usage_data_report_to_rf/2,
 	 pfcp_to_context_event/1,
@@ -510,11 +510,11 @@ process_online_charging_events(Reason, Request, Now, Session)
 	    {ok, SOpts, []}
     end.
 
-process_offline_charging_events(ChargeEv, Ev, Now, Session)
+process_offline_charging_events(ChargeEv, Ev, Now, Session, CHF)
   when is_list(Ev) ->
-    process_offline_charging_events(ChargeEv, Ev, Now, ergw_aaa_session:get(Session), Session).
+    process_offline_charging_events(ChargeEv, Ev, Now, ergw_aaa_session:get(Session), Session, CHF).
 
-process_offline_charging_events(ChargeEv0, Ev, Now, SessionOpts, Session)
+process_offline_charging_events(ChargeEv0, Ev, Now, SessionOpts, _Session, CHF0)
   when is_list(Ev) ->
     {Reason, _} = ChargeEv = update_offline_charging_event(Ev, ChargeEv0),
     Init = init_cev_from_session(Now, SessionOpts),
@@ -522,13 +522,14 @@ process_offline_charging_events(ChargeEv0, Ev, Now, SessionOpts, Session)
 
     SOpts = #{now => Now, async => true, 'gy_event' => Reason},
     Request = #{'service_data' => SDCs, 'traffic_data' => TDVs},
+    CHF = ergw_sbi_chf_client:report_usage(Request, CHF0),
     case Reason of
 	terminate ->
-	    ergw_aaa_session:invoke(Session, Request, {rf, 'Terminate'}, SOpts);
+	    ergw_sbi_chf_client:offline_only_charging_release(SessionOpts, SOpts, CHF);
 	_ when length(SDCs) /= 0; length(TDVs) /= 0 ->
-	    ergw_aaa_session:invoke(Session, Request, {rf, 'Update'}, SOpts);
+	    ergw_sbi_chf_client:offline_only_charging_update(SessionOpts, SOpts, CHF);
 	_ ->
-	    ok
+	    {ok, CHF}
     end.
 
 accounting_session_time(Now, #{'Session-Start' := Start} = Update) ->

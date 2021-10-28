@@ -12,8 +12,8 @@
 
 -export([authenticate/2,
 	 ccr_initial/4,
-	 usage_report/4,
-	 close_context/4]).
+	 usage_report/5,
+	 close_context/5]).
 
 -include_lib("kernel/include/logger.hrl").
 -include_lib("gtplib/include/gtp_packet.hrl").
@@ -43,18 +43,18 @@ ccr_initial(Session, API, SessionOpts, ReqOpts) ->
     end.
 
 
-usage_report(URRActions, UsageReport, PCtx, Session) ->
+usage_report(URRActions, UsageReport, PCtx, Session, CHF) ->
     Now = erlang:monotonic_time(),
     case proplists:get_value(offline, URRActions) of
 	{ChargeEv, OldS} ->
 	    {_Online, Offline, _} =
 		ergw_pfcp_context:usage_report_to_charging_events(UsageReport, ChargeEv, PCtx),
-	    ergw_gsn_lib:process_offline_charging_events(ChargeEv, Offline, Now, OldS, Session);
+	    ergw_gsn_lib:process_offline_charging_events(ChargeEv, Offline, Now, OldS, Session, CHF);
 	_ ->
-	    ok
+	    {ok, CHF}
     end.
 
-close_context(Reason, UsageReport, PCtx, Session) ->
+close_context(Reason, UsageReport, PCtx, Session, CHF) ->
     %% TODO: Monitors, AAA over SGi
 
     %%  1. CCR on Gx to get PCC rules
@@ -73,5 +73,5 @@ close_context(Reason, UsageReport, PCtx, Session) ->
     ergw_gsn_lib:process_accounting_monitor_events(ChargeEv, Monitor, Now, Session),
     GyReqServices = ergw_gsn_lib:gy_credit_report(Online),
     ergw_gsn_lib:process_online_charging_events(ChargeEv, GyReqServices, Now, Session),
-    ergw_gsn_lib:process_offline_charging_events(ChargeEv, Offline, Now, Session),
+    ergw_gsn_lib:process_offline_charging_events(ChargeEv, Offline, Now, Session, CHF),
     ok.

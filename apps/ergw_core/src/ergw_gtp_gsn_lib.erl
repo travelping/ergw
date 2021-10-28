@@ -153,9 +153,11 @@ usage_report_m(URRActions, UsageReport) ->
     do([statem_m ||
 	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
 
-	   #{pfcp := PCtx, 'Session' := Session} <- statem_m:get_data(),
-	   statem_m:return(
-	     ergw_gtp_gsn_session:usage_report(URRActions, UsageReport, PCtx, Session))
+	   #{pfcp := PCtx, 'Session' := Session, chf := CHF0} <- statem_m:get_data(),
+	   CHF <- statem_m:lift(
+		    ergw_gtp_gsn_session:usage_report(
+		      URRActions, UsageReport, PCtx, Session, CHF0)),
+	   statem_m:modify_data(_#{chf := CHF})
        ]).
 
 usage_report_m3(ChargeEv, Now, UsageReport) ->
@@ -194,8 +196,10 @@ gy_response(Result, ChargeEv, Now, Offline) ->
 
 	   GyEvs <- statem_m:lift(Result),
 
-	   Session <- statem_m:get_data(maps:get('Session', _)),
-	   _ = ergw_gsn_lib:process_offline_charging_events(ChargeEv, Offline, Now, Session),
+	   #{'Session' := Session, chf := CHF0} <- statem_m:get_data(),
+	   CHF <- statem_m:lift(
+		    ergw_gsn_lib:process_offline_charging_events(ChargeEv, Offline, Now, Session, CHF0)),
+	   statem_m:modify_data(_#{chf := CHF}),
 
 	   %% install the new rules, collect any errors
 	   PCCErrors <- gy_events_to_pcc_ctx(Now, GyEvs, _, _),
@@ -218,9 +222,9 @@ close_context(_API, _TermCause, Data) ->
     Data.
 
 %% close_context/4
-close_context(API, TermCause, UsageReport, #{pfcp := PCtx, 'Session' := Session} = Data)
+close_context(API, TermCause, UsageReport, #{pfcp := PCtx, 'Session' := Session, chf := CHF} = Data)
   when is_atom(TermCause) ->
-    ergw_gtp_gsn_session:close_context(TermCause, UsageReport, PCtx, Session),
+    ergw_gtp_gsn_session:close_context(TermCause, UsageReport, PCtx, Session, CHF),
     ergw_prometheus:termination_cause(API, TermCause),
     ergw_sx_node:demonitor_sx_node(PCtx),
     maps:remove(pfcp, Data).
@@ -249,8 +253,8 @@ close_context_m(API, TermCause, UsageReport)
   when is_atom(TermCause) ->
     do([statem_m ||
 	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
-	   #{pfcp := PCtx, 'Session' := Session} <- statem_m:get_data(),
-	   _ = ergw_gtp_gsn_session:close_context(TermCause, UsageReport, PCtx, Session),
+	   #{pfcp := PCtx, 'Session' := Session, chf := CHF} <- statem_m:get_data(),
+	   _ = ergw_gtp_gsn_session:close_context(TermCause, UsageReport, PCtx, Session, CHF),
 	   _ = ergw_prometheus:termination_cause(API, TermCause),
 	   _ = ergw_sx_node:demonitor_sx_node(PCtx),
 	   statem_m:modify_data(maps:remove(pfcp, _))
@@ -455,6 +459,10 @@ rf_i(Now) ->
 	   _ = ?LOG(debug, "~s", [?FUNCTION_NAME]),
 	   #{'Session' := Session} <- statem_m:get_data(),
 	   {_, _, RfSEvs} = ergw_aaa_session:invoke(Session, #{}, {rf, 'Initial'}, #{now => Now}),
+	   CHF <- statem_m:lift(ergw_sbi_chf_client:offline_only_charging_create(
+				  ergw_aaa_session:get(Session), #{now => Now})),
+	   statem_m:modify_data(_#{chf => CHF}),
+
 	   _ = ?LOG(debug, "RfSEvs: ~p", [RfSEvs]),
 	   statem_m:return(RfSEvs)
        ]).
