@@ -33,18 +33,18 @@ to_list(#lru{queue = Queue}) ->
 pop(#lru{queue = Queue, index = Index}) ->
     case ets:first(Queue) of
 	{_, Key} = Entry ->
-	    ets:delete(Queue, Entry),
-	    ets:delete(Index, Key),
+	    [_] = ets:take(Queue, Entry),
+	    [_] = ets:take(Index, Key),
 	    {ok, Key};
 	'$end_of_table' ->
 	    {error, empty}
     end.
 
 push(Key, #lru{queue = Queue, index = Index}) ->
-    Now = erlang:monotonic_time(),
-    case ets:insert_new(Index, {Key, Now}) of
+    Entry = {erlang:monotonic_time(), Key},
+    case ets:insert_new(Index, {Key, Entry}) of
 	true ->
-	    ets:insert(Queue, {{Now, Key}}),
+	    ets:insert(Queue, {Entry}),
 	    ok;
 	false ->
 	    erlang:error(badarg, [Key])
@@ -53,7 +53,7 @@ push(Key, #lru{queue = Queue, index = Index}) ->
 take(Key, #lru{queue = Queue, index = Index}) ->
     case ets:take(Index, Key) of
 	[{_, QEntry}] ->
-	    ets:delete(Queue, QEntry),
+	    [_] = ets:take(Queue, QEntry),
 	    ok;
 	_ ->
 	    {error, not_found}
