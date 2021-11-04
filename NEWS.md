@@ -1,6 +1,17 @@
 erGW - 3GPP GGSN and PDN-GW in Erlang
 =====================================
 
+Version 3.1.1 - 4 November 2021
+-------------------------------
+
+**Features** :rocket:
+* [#451](https://github.com/travelping/ergw/pull/451) Replace simple `IP` pool free table with `LRU` implementation
+
+**Bugfixes** :bug:
+* [#453](https://github.com/travelping/ergw/pull/453) `LRU` fix wrong object insert in push function
+* [#445](https://github.com/travelping/ergw/pull/445) Serialize `gtp_path` process creation through the registry process
+* [#442](https://github.com/travelping/ergw/pull/442) Convert `QoS-Information` to `AVP` before putting them in `TDV`/`SDC`
+
 Version 3.1.0 - 4 October 2021
 -------------------------------
 
