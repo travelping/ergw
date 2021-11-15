@@ -495,6 +495,22 @@ make_request_bearer(_PdrId, Bearer, PCtx) ->
     {Bearer, PCtx}.
 %% s(L) -> lists:sort(L).
 
+far_add_forwarding_parameter(AVP, FAR) when is_list(FAR) ->
+    FP = case lists:keyfind(forwarding_parameters, 1, FAR) of
+	     #forwarding_parameters{group = Group} ->
+		 Group;
+	     false ->
+		 []
+	 end,
+    lists:keystore(forwarding_parameters, 1, FAR, #forwarding_parameters{group = [AVP|FP]}).
+
+far_traffic_steering(downlink, #{'Traffic-Steering-Policy-Identifier-DL' := [Policy]}, Group) ->
+    far_add_forwarding_parameter(#forwarding_policy{policy_identifier = Policy}, Group);
+far_traffic_steering(uplink, #{'Traffic-Steering-Policy-Identifier-UL' := [Policy]}, Group) ->
+    far_add_forwarding_parameter(#forwarding_policy{policy_identifier = Policy}, Group);
+far_traffic_steering(_Side, _PccRule, Group) ->
+    Group.
+
 %% The spec compliante FAR would set Destination Interface
 %% to Access. However, VPP can not deal with that right now.
 %%
@@ -509,25 +525,32 @@ make_request_bearer(_PdrId, Bearer, PCtx) ->
 %%	group = ergw_pfcp:traffic_forward(Src, [RedirInfo])
 %%        }
 %%     ];
-far(FarId, [#{'Redirect-Support' :=        [1],   %% ENABLED
-	      'Redirect-Address-Type' :=   [2],   %% URL
-	      'Redirect-Server-Address' := [URL]}],
+far(FarId, Direction, Definition,
+    [#{'Redirect-Support' :=        [1],   %% ENABLED
+       'Redirect-Address-Type' :=   [2],   %% URL
+       'Redirect-Server-Address' := [URL]}],
     _Src, Dst) ->
     RedirInfo = #redirect_information{type = 'URL', address = to_binary(URL)},
-    [#far_id{id = FarId},
-     #apply_action{forw = 1},
-     #forwarding_parameters{
-	group = ergw_pfcp:traffic_forward(Dst, [RedirInfo])
-       }];
-far(FarId, _RedirInfo, _Src, #bearer{remote = undefined}) ->
-    [#far_id{id = FarId},
-     #apply_action{drop = 1}];
-far(FarId, _RedirInfo, _Src, Dst) ->
-    [#far_id{id = FarId},
-     #apply_action{forw = 1},
-     #forwarding_parameters{
-	group = ergw_pfcp:traffic_forward(Dst, [])
-       }].
+    Group =
+	[#far_id{id = FarId},
+	 #apply_action{forw = 1},
+	 #forwarding_parameters{
+	    group = ergw_pfcp:traffic_forward(Dst, [RedirInfo])
+	   }],
+    far_traffic_steering(Direction, Definition, Group);
+far(FarId, Direction, Definition, _RedirInfo, _Src, #bearer{remote = undefined}) ->
+    Group =
+	[#far_id{id = FarId},
+	 #apply_action{drop = 1}],
+    far_traffic_steering(Direction, Definition, Group);
+far(FarId, Direction, Definition, _RedirInfo, _Src, Dst) ->
+    Group =
+	[#far_id{id = FarId},
+	 #apply_action{forw = 1},
+	 #forwarding_parameters{
+	    group = ergw_pfcp:traffic_forward(Dst, [])
+	   }],
+    far_traffic_steering(Direction, Definition, Group).
 
 %% build_sx_rule/6
 build_sx_rule(Direction, Name, Definition, FilterInfo, URRs,
@@ -545,7 +568,7 @@ build_sx_rule(Direction = downlink, Name, Definition, FilterInfo, URRs,
     {RightBearerReq, PCtx} = make_request_bearer(PdrId, RightBearer, PCtx2),
 
     PDR = pdr(PdrId, Precedence, dst, RightBearerReq, LeftBearer, FilterInfo, FarId, URRs),
-    FAR = far(FarId, undefined, RightBearer, LeftBearer),
+    FAR = far(FarId, Direction, Definition, undefined, RightBearer, LeftBearer),
 
     Update#sx_upd{
       pctx = ergw_pfcp_rules:add(
@@ -563,7 +586,7 @@ build_sx_rule(Direction = uplink, Name, Definition, FilterInfo, URRs,
     PDR = pdr(PdrId, Precedence, src, LeftBearerReq, RightBearer, FilterInfo, FarId, URRs),
 
     RedirInfo = maps:get('Redirect-Information', Definition, undefined),
-    FAR = far(FarId, RedirInfo, LeftBearer, RightBearer),
+    FAR = far(FarId, Direction, Definition, RedirInfo, LeftBearer, RightBearer),
 
     Update#sx_upd{
       pctx = ergw_pfcp_rules:add(

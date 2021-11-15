@@ -112,10 +112,12 @@ validate_rule_def('Redirect-Information', Value = V)
 %%     V;
 %% validate_rule_def('Sharing-Key-UL', [Value] = V) ->
 %%     V;
-%% validate_rule_def('Traffic-Steering-Policy-Identifier-DL', [Value] = V) ->
-%%     V;
-%% validate_rule_def('Traffic-Steering-Policy-Identifier-UL', [Value] = V) ->
-%%     V;
+validate_rule_def('Traffic-Steering-Policy-Identifier-DL', [Value] = V)
+  when is_binary(Value) ->
+     V;
+validate_rule_def('Traffic-Steering-Policy-Identifier-UL', [Value] = V)
+  when is_binary(Value) ->
+     V;
 %% validate_rule_def('Content-Version', [Value] = V) ->
 %%     V;
 validate_rule_def(AVP, Value) ->

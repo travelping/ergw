@@ -277,7 +277,21 @@
 			  'Precedence' => [100],
 			  'Offline'  => [1]
 			 }},
-		       {<<"r-0002">>,
+		       {<<"r-0001-steering-01">>,
+			#{'Rating-Group' => [3000],
+			  'Flow-Information' =>
+			      [#{'Flow-Description' => [<<"permit out ip from any to assigned">>],
+				 'Flow-Direction'   => [1]    %% DownLink
+				},
+			       #{'Flow-Description' => [<<"permit out ip from any to assigned">>],
+				 'Flow-Direction'   => [2]    %% UpLink
+				}],
+			  'Traffic-Steering-Policy-Identifier-DL' => [<<"steer-01-dl">>],
+			  'Traffic-Steering-Policy-Identifier-UL' => [<<"steer-01-ul">>],
+			  'Metering-Method'  => [1],
+			  'Precedence' => [100],
+			  'Offline'  => [1]
+			 }},		       {<<"r-0002">>,
 			#{'Rating-Group' => [4000],
 			  'Flow-Information' =>
 			      [#{'Flow-Description' => [<<"permit out ip from any to assigned">>],
@@ -384,6 +398,12 @@
 				#{'Result-Code' => 2001,
 				  'Charging-Rule-Install' =>
 				      [#{'Charging-Rule-Base-Name' => [<<"m2m0001-split2">>]}]
+				 }},
+		      'Initial-Gx-Steering' =>
+			  #{avps =>
+				#{'Result-Code' => 2001,
+				  'Charging-Rule-Install' =>
+				      [#{'Charging-Rule-Name' => [<<"r-0001-steering-01">>]}]
 				 }},
 		      'Initial-Gx-Redirect' =>
 			  #{avps =>
@@ -720,6 +740,7 @@ common() ->
      sx_timeout,
      sx_ondemand,
      pfcp_session_deleted_by_the_up_function,
+     gx_traffic_steering,
      gy_validity_timer_cp,
      gy_validity_timer_up,
      simple_aaa,
@@ -911,6 +932,11 @@ init_per_testcase(sx_connect_fail, Config) ->
     meck_reset(Config),
     start_gtpc_server(Config),
     ok = meck:new(ergw_sx_node, [passthrough, no_link]),
+    Config;
+init_per_testcase(TestCase, Config)
+  when TestCase == gx_traffic_steering ->
+    setup_per_testcase(Config),
+    ergw_test_lib:load_aaa_answer_config([{{gx, 'CCR-Initial'}, 'Initial-Gx-Steering'}]),
     Config;
 init_per_testcase(gy_validity_timer_cp, Config) ->
     setup_per_testcase(Config),
@@ -3141,6 +3167,87 @@ pfcp_session_deleted_by_the_up_function(Config) ->
     ?equal([], outstanding_requests()),
     ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
     wait4contexts(?TIMEOUT),
+
+    meck_validate(Config),
+    ok.
+
+%%--------------------------------------------------------------------
+gx_traffic_steering() ->
+    [{doc, "Check simple Create Session and check forwaring policy"}].
+gx_traffic_steering(Config) ->
+    PoolId = [<<"pool-A">>, ipv4, "10.180.0.1"],
+
+    ?match_metric(prometheus_gauge, ergw_local_pool_free, PoolId, ?IPv4PoolSize),
+    ?match_metric(prometheus_gauge, ergw_local_pool_used, PoolId, 0),
+
+    {GtpC, _, _} = create_session(ipv4, Config),
+
+    ?match_metric(prometheus_gauge, ergw_local_pool_free, PoolId, ?IPv4PoolSize - 1),
+    ?match_metric(prometheus_gauge, ergw_local_pool_used, PoolId, 1),
+
+    delete_session(GtpC),
+
+    ?equal([], outstanding_requests()),
+
+    ok = meck:wait(?HUT, terminate, '_', ?TIMEOUT),
+    wait4contexts(?TIMEOUT),
+
+    ?match_metric(prometheus_gauge, ergw_local_pool_free, PoolId, ?IPv4PoolSize),
+    ?match_metric(prometheus_gauge, ergw_local_pool_used, PoolId, 0),
+
+    [SER|_] = lists:filter(
+		fun(#pfcp{type = session_establishment_request}) -> true;
+		   (_) ->false
+		end, ergw_test_sx_up:history('pgw-u01')),
+
+    ?match_map(#{user_id => '_', create_pdr => '_',
+		 create_far => '_',  create_urr => '_'}, SER#pfcp.ie),
+    #{create_far := FARs0} = SER#pfcp.ie,
+
+    FARs = lists:sort(FARs0),
+
+    ?LOG(debug, "FARs: ~s", [pfcp_packet:pretty_print(FARs)]),
+    ct:pal("FARs: ~s", [pfcp_packet:pretty_print(FARs)]),
+
+    ?match(
+       [#create_far{
+	   group =
+	       #{far_id := #far_id{id = _},
+		 apply_action :=
+		     #apply_action{forw = 1},
+		 forwarding_parameters :=
+		     #forwarding_parameters{
+			group =
+			    #{destination_interface :=
+				  #destination_interface{interface='Access'},
+			      forwarding_policy :=
+				  #forwarding_policy{
+				     policy_identifier = <<"steer-01-dl">>},
+			      network_instance :=
+				  #network_instance{instance = <<3, "irx">>}
+			     }
+		       }
+		}
+	  },
+	#create_far{
+	   group =
+	       #{far_id := #far_id{id = _},
+		 apply_action :=
+		     #apply_action{forw = 1},
+		 forwarding_parameters :=
+		     #forwarding_parameters{
+			group =
+			    #{destination_interface :=
+				  #destination_interface{interface='SGi-LAN'},
+			      forwarding_policy :=
+				  #forwarding_policy{
+				     policy_identifier = <<"steer-01-ul">>},
+			      network_instance :=
+				  #network_instance{instance = <<3, "sgi">>}
+			     }
+		       }
+		}
+	  }], FARs),
 
     meck_validate(Config),
     ok.
