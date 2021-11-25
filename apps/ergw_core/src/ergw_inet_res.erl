@@ -243,7 +243,7 @@ tggp_protocol(List) when is_list(List) ->
 
 normalize_naptr_services(Services) ->
     [Service | Protocols] = string:tokens(Services, ":"),
-    [{tggp_service(Service), tggp_protocol(P)} || P <- Protocols].
+    ordsets:from_list([{tggp_service(Service), tggp_protocol(P)} || P <- Protocols]).
 
 normalize_rr(in, naptr, {Order, Pref, Flag, Services, RegExp, Host}, RR)
   when is_list(Host), is_list(RegExp) ->

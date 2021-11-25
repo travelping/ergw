@@ -20,8 +20,8 @@
 
 -define(SERVICES, [{'x-3gpp-pgw', 'x-s8-gtp'},
 		   {'x-3gpp-pgw', 'x-s5-gtp'},
-		   {'x-3gpp-pgw', 'x-gp'},
-		   {'x-3gpp-pgw', 'x-gn'}]).
+		   {'x-3gpp-ggsn', 'x-gp'},
+		   {'x-3gpp-ggsn', 'x-gn'}]).
 
 -define(L1, [{<<"topon.gngp.pgw.north.epc.mnc990.mcc311.3gppnetwork.org">>,
 	      {500,64536},
@@ -178,7 +178,8 @@ api_suites() ->
 groups() ->
     [{api, [], api_suites()},
      {static, [], lookup_suites()},
-     {dns, [], lookup_suites() ++ [srv_lookup, srv_lookup_no_final_a, no_error_empty_data]}].
+     {dns, [], lookup_suites() ++ [srv_lookup, srv_lookup_no_final_a,
+				   lookup_services_order, no_error_empty_data]}].
 
 all() ->
     [{group, api},
@@ -249,6 +250,24 @@ srv_lookup_no_final_a(_Config) ->
     R = ergw_node_selection:lookup_naptr(<<"example.apn.epc.mnc002.mcc001.3gppnetwork.org">>,
 					 ?SERVICES, default),
     ?match([], R),
+    ok.
+
+lookup_services_order() ->
+    [{doc, "NAPTR lookup with following A, check service ordering in record"}].
+lookup_services_order(_Config) ->
+    Services = [{'x-3gpp-ggsn', 'x-gn'}, {'x-3gpp-ggsn', 'x-gp'},
+		{'x-3gpp-pgw', 'x-gn'}, {'x-3gpp-pgw', 'x-gp'}],
+    R1 = ergw_node_selection:lookup_naptr(<<"test-01.apn.epc.mnc001.mcc001.3gppnetwork.org">>,
+					 Services, default),
+    ?match([{<<"ergw.ovh.node.epc.mnc001.mcc001.3gppnetwork.org">>, _, _, [_|_], _}], R1),
+    [{_, _, _, IP4_1, _}] = R1,
+    ?equal(lists:sort([?ERGW1, ?ERGW2]), lists:sort(IP4_1)),
+
+    R2 = ergw_node_selection:candidates(<<"test-01.apn.epc.mnc001.mcc001.3gppnetwork.org">>,
+					Services, [default]),
+    ?match([{<<"ergw.ovh.node.epc.mnc001.mcc001.3gppnetwork.org">>, _, _, [_|_], _}], R2),
+    [{_, _, _, IP4_2, _}] = R2,
+    ?equal(lists:sort([?ERGW1, ?ERGW2]), lists:sort(IP4_2)),
     ok.
 
 a_lookup() ->

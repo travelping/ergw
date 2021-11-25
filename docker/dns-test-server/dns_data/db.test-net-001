@@ -19,6 +19,7 @@ ns2     IN  A      10.10.4.3
 ns1     IN  AAAA   2001:470:7720:16:250:56ff:fe96:1321
 
 example.apn             IN NAPTR 100 100 "s" "x-3gpp-pgw:x-s8-gtp" "" pgw-list-2.node
+test-01.apn             IN NAPTR 100 100 "a" "x-3gpp-pgw:x-s8-gtp:x-s5-gtp:x-gp:x-gn" "" ergw.ovh.node
 
 pgw-list-2.node         IN SRV 100 100 2123 ergw.ovh.node
 
