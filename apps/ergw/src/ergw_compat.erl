@@ -893,12 +893,23 @@ gtp_proxy_ds_translate_option(Opt, Value) ->
 ]).
 
 gtp_path_translate_options(Values) ->
-    #{idle_echo := IdleEcho, idle_timeout := IdleTimeout,
+    #{t3 := T3, n3 := N3,
+      echo := BusyEcho,
+      icmp_error_handling := ICMP,
+      idle_echo := IdleEcho, idle_timeout := IdleTimeout,
       down_echo := DownEcho, down_timeout := DownTimeout} =
-	C0 = translate_options(fun gtp_path_translate_option/2, Values, ?PathDefaults, map),
-    C1 = maps:without([idle_echo, idle_timeout, down_echo, down_timeout], C0),
-    C1#{idle => #{echo => IdleEcho, timeout => IdleTimeout},
-	down => #{echo => DownEcho, timeout => DownTimeout}}.
+	translate_options(fun gtp_path_translate_option/2, Values, ?PathDefaults, map),
+
+    Evs0 = #{icmp_error => warning, echo_timeout => critical},
+    Events = case ICMP of
+		 immediate -> Evs0#{icmp_error := critical};
+		 _ -> Evs0
+	     end,
+    SetS = #{t3 => T3, n3 => N3, events => Events},
+    #{busy => SetS#{echo => BusyEcho},
+      idle => SetS#{echo => IdleEcho, timeout => IdleTimeout},
+      down => SetS#{echo => DownEcho, timeout => DownTimeout, notify => active},
+      suspect => SetS#{echo => 60 * 1000, timeout => 300 * 1000}}.
 
 gtp_path_translate_echo(_Opt, Value) when is_integer(Value), Value >= 60 * 1000 ->
     Value;
