@@ -314,7 +314,7 @@ map_reply_ie(missing_or_unknown_apn) ->
     #cause{value = missing_or_unknown_apn};
 map_reply_ie(no_resources_available) ->
     #cause{value = no_resources_available};
-map_reply_ie(rejected) ->
+map_reply_ie(Reason) when Reason =:= rejected; Reason =:= rate_limit ->
     #cause{value = no_resources_available};
 map_reply_ie(all_dynamic_addresses_are_occupied) ->
     #cause{value = all_dynamic_pdp_addresses_are_occupied};
