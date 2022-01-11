@@ -1,0 +1,113 @@
+{
+    "apns": [
+        {
+            "inactivity_timeout": {
+                "timeout": 8,
+                "unit": "hour"
+            },
+            "apn": "example.net",
+            "bearer_type": "IPv4v6",
+            "ip_pools": [
+                "pool-A"
+            ],
+            "ipv6_ue_interface_id": "default",
+            "prefered_bearer_type": "IPv6",
+            "vrfs": [
+                {
+                    "apn": "sgi"
+                }
+            ]
+        }
+    ],
+    "ip_pools": [
+        {
+            "DNS-Server-IPv6-Address": [
+                "2001:4860:4860::8888",
+                "2001:4860:4860::8844"
+            ],
+            "MS-Primary-DNS-Server": "8.8.8.8",
+            "MS-Primary-NBNS-Server": "127.0.0.1",
+            "MS-Secondary-DNS-Server": "8.8.4.4",
+            "MS-Secondary-NBNS-Server": "127.0.0.1",
+            "handler": "ergw_local_pool",
+            "name": "pool-A",
+            "ranges": [
+                {
+                    "end": {
+                        "ipv4Addr": "10.187.255.254"
+                    },
+                    "prefix_len": 32,
+                    "start": {
+                        "ipv4Addr": "10.180.0.1"
+                    }
+                },
+                {
+                    "end": {
+                        "ipv6Addr": "8001:0:7:ffff:ffff:ffff:ffff:ffff"
+                    },
+                    "prefix_len": 64,
+                    "start": {
+                        "ipv6Addr": "8001:0:1::"
+                    }
+                }
+            ]
+        }
+    ],
+    "upf_nodes": {
+        "default": {
+            "heartbeat": {
+                "interval": {
+                    "timeout": 5,
+                    "unit": "second"
+                },
+                "retry": 5,
+                "timeout": {
+                    "timeout": 500,
+                    "unit": "millisecond"
+                }
+            },
+            "ue_ip_pools": [
+                {"ip_pools": ["pool-A"],
+                 "vrf": {
+                     "apn": "sgi"
+                 },
+                 "ip_versions": ["v4", "v6"]
+                }
+            ],
+            "node_selection": "default",
+            "request": {
+                "retry": 5,
+                "timeout": {
+                    "timeout": 30,
+                    "unit": "second"
+                }
+            },
+            "vrfs": [
+                {
+                    "features": [
+                        "SGi-LAN"
+                    ],
+                    "name": {
+                        "apn": "sgi"
+                    }
+                },
+                {
+                    "features": [
+                        "Access"
+                    ],
+                    "name": {
+                        "apn": "irx"
+                    }
+                },
+                {
+                    "features": [
+                        "CP-Function"
+                    ],
+                    "name": {
+                        "apn": "cp"
+                    }
+                }
+            ]
+        }
+    }
+}

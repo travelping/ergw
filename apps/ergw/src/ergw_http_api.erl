@@ -39,6 +39,8 @@ start_http_listener(#{enabled := true} = Opts) ->
 		    {"/status/[...]", http_status_handler, []},
 		    %% 5G SBI APIs
 		    {"/sbi/nbsf-management/v1/pcfBindings", sbi_nbsf_handler, []},
+		    %% HTTP controller
+		    {"/api/v1/controller", http_controller_handler, []},
 		    %% serves static files for swagger UI
 		    {"/api/v1/spec/ui", swagger_ui_handler, []},
 		    {"/api/v1/spec/ui/[...]", cowboy_static, {priv_dir, ergw_core, "static"}}]}
