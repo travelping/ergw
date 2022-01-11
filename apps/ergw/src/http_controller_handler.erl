@@ -108,7 +108,7 @@ build_error_params({Type, Schema, Error, Data, Path}) ->
 add_config_part(K, V, Acc) ->
     Result = ergw_config:ergw_core_init(K, #{K => V}),
     ?LOG(info, "The ~p added with result ~p", [K, Result]),
-    maps:merge(Acc, Result).
+    Acc#{K => Result}.
 
 json_to_map(JsonBin) ->
     case catch jsx:decode(JsonBin) of
