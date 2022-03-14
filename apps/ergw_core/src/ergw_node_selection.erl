@@ -355,25 +355,27 @@ match(Msg, OrdSPSet) when is_list(Msg) ->
 match(_, _) ->
     [].
 
-do_lookup([], _DoFun) ->
-    [];
-do_lookup([Selection|Next], DoFun) ->
-    case DoFun(Selection) of
-	[] ->
-	    do_lookup(Next, DoFun);
+lookup(Name, Selection) when is_binary(Name), is_atom(Selection) ->
+    lookup(Name, [Selection]);
+lookup(Name, []) when is_binary(Name) ->
+    {error, nxdomain};
+lookup(Name, [Selection|Next]) when is_binary(Name) ->
+    case lookup_host(Name, Selection) of
 	{error, _} = _Other ->
-	    do_lookup(Next, DoFun);
+	    lookup(Name, Next);
 	Host ->
 	    Host
-    end;
-do_lookup(Selection, DoFun) ->
-    do_lookup([Selection], DoFun).
+    end.
 
-lookup(Name, Selection) when is_binary(Name) ->
-    do_lookup(Selection, lookup_host(Name, _)).
-
-lookup(Name, ServiceSet, Selection) when is_binary(Name) ->
-    do_lookup(Selection, lookup_naptr(Name, ServiceSet, _)).
+lookup(Name, _ServiceSet, []) when is_binary(Name) ->
+    [];
+lookup(Name, ServiceSet, [Selection|Next]) when is_binary(Name) ->
+    case lookup_naptr(Name, ServiceSet, Selection) of
+	[] ->
+	    lookup(Name, ServiceSet, Next);
+	Hosts ->
+	    Hosts
+    end.
 
 normalize_name({fqdn, FQDN}) ->
     FQDN;
